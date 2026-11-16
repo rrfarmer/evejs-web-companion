@@ -177,6 +177,7 @@ function decodeEntity(value: JsonValue): SpaceEntity | null {
     planetID: idOrNull(raw.planetID),
     // An acceleration gate's own object in its dungeon, where the BFF says it.
     dunObjectID: idOrNull(raw.dunObjectID),
+    ...(raw.poseID !== undefined ? { poseID: countOrNull(raw.poseID) } : {}),
     // An Abyssal trace's filament, game mode and whether it is open, where the BFF says them.
     ...(raw.abyssFilamentTypeID !== undefined ? {
       abyssFilamentTypeID: idOrNull(raw.abyssFilamentTypeID),

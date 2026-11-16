@@ -25,6 +25,7 @@ import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three
 import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { DRIFTER_COLLECTION, DrifterCollectionExplosions } from "./drifterCollectionExplosions.ts";
+import { isNonInteractableWormhole, nonInteractableWormhole, updateWormholePose } from "./nonInteractableWormhole.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { CameraTaskGestures, type CameraTaskEvent } from "../bridge/cameraTasks.ts";
 import { initialOrbitDistance, isOwnStargateDeparture, MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose, validCameraPosition } from "./spaceCameraPose.ts";
@@ -68,6 +69,7 @@ export interface Entity {
   allianceID?: number | null;
   warFactionID?: number | null;
   hackingSecurityState?: number;
+  poseID?: number | null;
   jumpBridge?: JumpBridgeSlim;
 }
 export interface JumpBridgePanelState {
@@ -2021,6 +2023,7 @@ export class SpaceView {
       // the ship's warp (ship.py: EnterWarp / ExitWarp set IsWarping; on load, a ball in warp mode)
       setControllerVariable(mark, "IsWarping", e.mode === "WARP" ? 1 : 0);
       if (e.hackingSecurityState !== undefined) setControllerVariable(mark, "SecurityState", e.hackingSecurityState);
+      if (isNonInteractableWormhole(e.typeID)) updateWormholePose(mark, e.poseID);
       // a ship's turrets fitted again where its slim item's modules changed (looked at now and then)
       if ((e.kind === "ship" || e.kind === "drone") && this.frameCount % 30 === 0) this.fitTurrets(e.itemID, mark);
       if (e.kind === "sun") this.sunDir.copy(rel).normalize();
@@ -2409,6 +2412,14 @@ export class SpaceView {
     if (e.typeID === DRIFTER_COLLECTION && gfx().explosionEffectsEnabled) this.collectionExplosions.preload();
     // a missile's ball draws nothing of its own: its warheads are drawn by missileFx
     if (e.kind === "missile") { holder.userData = { kind: e.kind, radius: e.radius }; return holder; }
+    if (isNonInteractableWormhole(e.typeID)) {
+      holder.userData = { kind: e.kind, radius: e.radius };
+      updateWormholePose(holder, e.poseID);
+      void nonInteractableWormhole().then((effect) => {
+        if (effect && this.marks.get(e.itemID) === holder) holder.add(effect);
+      }).catch((error: unknown) => console.warn("Non-interactable wormhole effect:", error));
+      return holder;
+    }
     const big = ["station", "planet", "moon", "sun", "stargate", "structure"].includes(e.kind);
     const colour = e.kind === "sun" ? 0xffd27a : e.kind === "planet" || e.kind === "moon" ? 0x5d6f80 : big ? 0x7d8a94 : 0x6f7a82;
     const standIn = new THREE.Mesh(new THREE.SphereGeometry(Math.max(Math.min(e.radius, big ? e.radius : 60), 5), big ? 48 : 12, big ? 32 : 8),

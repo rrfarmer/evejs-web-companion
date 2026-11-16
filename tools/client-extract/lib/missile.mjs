@@ -83,10 +83,14 @@ export function graphicIdsOfType(table, typeID, groupID) {
   return own?.graphicIDs ?? g.graphicIDs ?? null;
 }
 
-/** The SDE's graphics.jsonl row of a graphic, or null. */
+/** A graphic row from the public SDE or the installed client's FSD export. */
 export function sdeGraphic(sdeDir, graphicID) {
-  const file = path.join(sdeDir, "graphics.jsonl");
-  const want = new RegExp(`^\\{"_key": ?${graphicID}[,}]`);
-  for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) if (want.test(line)) return JSON.parse(line);
+  const sdeFile = path.join(sdeDir, "graphics.jsonl");
+  const file = fs.existsSync(sdeFile) ? sdeFile : path.join(sdeDir, "graphicids.jsonl");
+  for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const graphic = JSON.parse(line);
+    if (graphic._key === graphicID) return graphic;
+  }
   return null;
 }

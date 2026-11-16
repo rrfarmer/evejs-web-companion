@@ -2059,6 +2059,8 @@ export interface SpaceEntity {
   readonly planetID?: number | null;
   /** The authored object ID from the slim item, used by dungeon objectives and gate restrictions. */
   readonly dunObjectID?: number | null;
+  /** The native slim item's effect pose. Zero selects the default pose. */
+  readonly poseID?: number | null;
   /**
    * An Abyssal trace's filament, game mode and whether it is open (its slim item's abyssFilamentTypeID, gameModeID and
    * isAbyssGateOpen), for its jump window. Absent on every other row, and where the transport did not say.

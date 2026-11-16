@@ -1132,6 +1132,21 @@ test("a rock's row says what a laser takes from it, which is its own type; its b
   assert.deepEqual([row.kind, row.miningYieldTypeID, row.beltID, row.remainingQuantity], ["asteroid", ROCK.typeID, null, null]);
 });
 
+test("the non-interactable wormhole's slim keeps its closed and open effect poses", () => {
+  const park = undockedPark();
+  const itemID = 6806400000652999;
+  park.ballpark.addBall({ id: itemID, x: 4e4, radius: 3000 });
+  // Wire identity captured in the Observatory vault on build 3698585.
+  const wormhole = new Map(Object.entries({ itemID: BigInt(itemID), typeID: 84329, groupID: 1975, categoryID: 2, dunObjectID: 1259669 }));
+  park.slimItems.set(itemID, wormhole);
+  const row = () => projectSpace(park, { solarSystemID: SYSTEM, shipID: undock.shipID }).entities.find(e => e.itemID === itemID);
+  assert.equal(row().poseID, undefined);
+  for (const pose of [0, 1, 3]) {
+    wormhole.set("poseID", pose);
+    assert.deepEqual([row().kind, row().dunObjectID, row().poseID], ["celestial", 1259669, pose]);
+  }
+});
+
 // ── drones ───────────────────────────────────────────────────────────────────
 //
 // michelle's park keeps the states of the pilot's drones (stateByDroneID): filled by a whole state's droneState

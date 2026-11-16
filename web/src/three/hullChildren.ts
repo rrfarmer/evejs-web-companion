@@ -6,6 +6,7 @@
 
 import * as THREE from "three";
 import { logDepth } from "./logDepth.ts";
+import { wormholeMaterial } from "./wormholeMaterial.ts";
 import { uberDistortionMaterial, DISTORTION_LAYER } from "./distortion.ts";
 import { ControllerRun, type SofController } from "./controllers.ts";
 import { particleObject, type SofChildParticles } from "./particles.ts";
@@ -908,6 +909,9 @@ const PARAM_UNIFORM: Record<string, string> = {
   DiffuseColor: "colour", FresnelFactors: "fresnel", MaskTransform: "maskT", MaskScroll: "maskS",
   TextureTransform1: "t1", TextureTransform2: "t2", TextureTransform3: "t3", TextureScroll1: "s1", TextureScroll2: "s2", TextureScroll3: "s3",
   BaseColor: "base", FxColor: "fx", Layer3Center: "centre", CurrentTime: "currentTime", AtlasInfo: "atlas", Colors: "colors",
+  TextureTransform: "textureTransform", MaterialDiffuseColor: "materialDiffuseColor",
+  MaterialSpecularCurve: "specularCurve", MaterialSpecularFactors: "specularFactors",
+  ReflectionFactors: "reflectionFactors", NormalStrength: "normalStrength", CubeMapTint: "cubeMapTint",
   Brightness: "brightness", ColorInner: "inner", ColorOutter: "outer", TextureTranslation: "translation", TextureScaling: "scaling",
   Layer1Transform: "t1", Layer2Transform: "t2", Layer3Transform: "t3", Layer1Scroll: "s1", Layer2Scroll: "s2", Layer3Scroll: "s3",
 };
@@ -977,7 +981,8 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
         }
         if (!materials.has(area)) {
           const make = ({ fx3dv5: fx3dMaterial, motionvectorramp: motionVectorRampMaterial, ubershadertwosided: twoSidedUberMaterial,
-            texturecolor: textureColorMaterial, flare: flareMaterial, twocolorflare: twoColorFlareMaterial, ubershadercube: uberCubeMaterial } as Record<string, (a: SofChildMeshArea) => THREE.ShaderMaterial>)[area.effect] ?? uberMaterial;
+            texturecolor: textureColorMaterial, flare: flareMaterial, twocolorflare: twoColorFlareMaterial, ubershadercube: uberCubeMaterial,
+            wormholefx: (a: SofChildMeshArea) => wormholeMaterial(a, childTexture) } as Record<string, (a: SofChildMeshArea) => THREE.ShaderMaterial>)[area.effect] ?? uberMaterial;
           const mat = make(area);
           materials.set(area, mat);
           for (const [name, id] of Object.entries(area.paramIds ?? {})) if (PARAM_UNIFORM[name]) animator?.uniform(id, mat.uniforms[PARAM_UNIFORM[name]!]);

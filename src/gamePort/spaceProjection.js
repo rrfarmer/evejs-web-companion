@@ -279,6 +279,8 @@ function projectEntity(park, ball, slim, ego, placed) {
   // gates also use it for the Ship Restrictions read after a refusal.
   const dunObjectID = positive(slim.get("dunObjectID"));
   if (dunObjectID !== null || groupID === GROUP.ACCELERATION_GATE) row.dunObjectID = dunObjectID;
+  const poseID = number(slim.get("poseID"));
+  if (poseID !== null) row.poseID = poseID;
   if (groupID === 1408) {
     const chargeTag = number(slim.get("component_jumpBridge"));
     if (chargeTag !== null) row.jumpBridge = {

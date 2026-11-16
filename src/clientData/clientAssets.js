@@ -127,7 +127,12 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
   const missile = /^\/missile\/(\d+)$/.exec(rel);
   if (missile) return { file: await ensure(`missiles/${missile[1]}.json`, ["--missile", missile[1]], '"missileBuild":2') };
   const effect = /^\/effect\/(\d+)\.json$/.exec(rel);
-  if (effect) return { file: await ensure(`effects/${effect[1]}.json`, ["--effect", effect[1]], '"effectBuild":4') };
+  if (effect) {
+    const id = effect[1];
+    const file = `effects/${id}.json`;
+    const ready = id === "20956" || id === "28102" ? () => containsVersion(path.join(dir, file), '"effect":"wormholefx"') : undefined;
+    return { file: await ensure(file, ["--effect", id], '"effectBuild":4', ready) };
+  }
   const fx = /^\/fx\/(effects\.[A-Za-z0-9_]+)\.json$/.exec(rel);
   if (fx) return { file: await ensure(`fx/${fx[1]}.json`, ["--fx", fx[1]], '"fxBuild":3') };
 
