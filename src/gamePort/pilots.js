@@ -2154,6 +2154,18 @@ function createGamePortPilots({
       afterSkillNotice(entry, entry.skills.feed(notification));
       afterCorporationNotice(entry, notification);
       entry.targets.feed(notification);
+      if (notification.method === "OnUpdateLocalizationTextCache") {
+        // Localization.UpdateTextCache(messagePerLanguage, metaDataPerLanguage, labelsDict).
+        // The web client reads the installed English templates.
+        const messages = dictValue(itemsOf(notification.args?.[0])[0], "en-us");
+        if (isADict(messages)) {
+          entry.localizedMessages ??= new Map();
+          for (const [key, value] of messages.entries) {
+            const id = positive(key), message = textOf(value);
+            if (id && message !== null) entry.localizedMessages.set(id, message);
+          }
+        }
+      }
       // The same events with no destiny update to ride: the server sends them alone when the tick has none for the pilot.
       if (notification.method === "OnMultiEvent" && sessions.has(entry.handle)) scatterFromMultiEvent(entry, notification.args?.[0]);
       // station/base.py: a pilot arrived in the station, or left it.
@@ -6798,6 +6810,10 @@ function createGamePortPilots({
     openSessionEventStream,
     openDestinyFeed,
     accountCall,
+    localizedMessages: (sessionFields, bridgeSessionID, messageIDs) => {
+      const kept = held(bridgeSessionID, sessionFields).localizedMessages;
+      return Object.fromEntries(messageIDs.filter((id) => kept?.has(id)).map((id) => [id, kept.get(id)]));
+    },
     /** A count scoped to the held pilot, so an older refusal cannot finish a new undock. */
     academyDeclines: (sessionFields, bridgeSessionID, reason) => held(bridgeSessionID, sessionFields).academyDeclines?.get(reason) ?? 0,
     /** The Abyssal pocket's timer as the pilot was last told it (keepPocketTimer): its end_time, as the notice had it, or null. */

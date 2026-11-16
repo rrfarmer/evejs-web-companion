@@ -458,7 +458,7 @@ import { argumentsOf, createBotPresses, decodeQuestion, dialogOfKey, keptQuestio
 import { classifyDistributionAgentConversation, selectDistributionAgent } from "../nav/distributionAgentSelection.ts";
 import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
 import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
-import { decodeAgencySeason, decodeAgencySeasonProgress, type AgencySeason } from "../bridge/agencySeason.ts";
+import { decodeAgencySeason, decodeAgencySeasonChoices, decodeAgencySeasonProgress, decodeSeasonSelectionDefinition, type AgencySeason } from "../bridge/agencySeason.ts";
 import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from "../bridge/serverDialogs.ts";
 import { convertTyped, DATE_LABELS, formatTemplate, LIST_DELIMITER, plainText, QUANTITY_AND_ITEM } from "../bridge/clientWords.ts";
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
@@ -3884,10 +3884,15 @@ export interface AppFlow {
    * The season the Agency's Seasons group stands for (SeasonsContentGroup: IsVisible / IsEnabled
    * is_season_visible_in_agency, GetName get_navigation_season_title, GetBackgroundTexture
    * get_navigation_card_picture_path): seasonManager.get_season_data_for_character (seasonService._fetch_season_data),
-   * asked once for the character - its title's message and navigation card picture. Null where it answers nothing (no
-   * season runs) or a list (a season to choose: its texts are the client's multiple-seasons FSD data, not read here).
+   * asked once for the character. Job Board consumers only use a selected season.
    */
   agencySeason(): Promise<AgencySeason | null>;
+  agencySeasons(): Promise<{
+    readonly active: AgencySeason | null;
+    readonly choices: readonly AgencySeason[];
+    readonly navigation: ReturnType<typeof decodeSeasonSelectionDefinition> | null;
+  }>;
+  selectAgencySeason(seasonID: number): Promise<Awaited<ReturnType<AppFlow["agencySeasons"]>> | null>;
   agencySeasonProgress(): Promise<ReturnType<typeof decodeAgencySeasonProgress>>;
   agencyFleetUp(): Promise<{ readonly ads: readonly FleetAdvert[]; readonly jumps: Readonly<Record<string, number | null>>; readonly noRoute: Readonly<Record<string, string>>;
     readonly nowTicks: bigint; readonly fleetID: number | null; readonly isBoss: boolean; readonly registered: boolean } | null>;
@@ -21038,18 +21043,51 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     return { ads, jumps, noRoute, nowTicks: BigInt(Math.trunc(serverNow())) * 10000n + 116444736000000000n, ...fleetStanding() };
   }
-  let agencySeasonHeld: { readonly characterID: number | null; readonly season: ReturnType<AppFlow["agencySeason"]> } | null = null;
-  function agencySeason(): ReturnType<AppFlow["agencySeason"]> {
-    const characterID = store.station.get().online?.characterID ?? null;
-    if (agencySeasonHeld?.characterID === characterID) return agencySeasonHeld.season;
-    const season = (async () => {
+  let agencySeasonHeld: { readonly characterID: number; readonly seasons: ReturnType<AppFlow["agencySeasons"]> } | null = null;
+  let seasonSelectionDefinition: Promise<ReturnType<typeof decodeSeasonSelectionDefinition> | null> | null = null;
+  function agencySeasons(): ReturnType<AppFlow["agencySeasons"]> {
+    const characterID = store.station.get().online?.characterID;
+    if (!characterID) return Promise.resolve({ active: null, choices: [], navigation: null });
+    if (agencySeasonHeld?.characterID === characterID) return agencySeasonHeld.seasons;
+    const seasons = (async () => {
       const answer = await bridgeAsk("seasonManager", "get_season_data_for_character", []).catch(() => undefined);
-      const row = decodeAgencySeason(answer);
-      if (row) requestWords([row.titleID, row.newsID].filter(Boolean).map(id => `#${id}`));
-      return row;
+      const active = decodeAgencySeason(answer);
+      let choices = decodeAgencySeasonChoices(answer);
+      if (choices.length) {
+        // SeasonVisibilityRestrictions uses the account's creationDate and a strict two-day threshold.
+        const details = await getCharacterSelectionData(callOptions).catch(() => null);
+        const created = unwrapLong(readKeyVal(details?.raw[0].items[0], "creationDate"));
+        const now = BigInt(Math.trunc(serverNow())) * 10000n + 116444736000000000n;
+        if (created === null || now - created <= 1728000000000n) choices = [];
+      }
+      let navigation = null;
+      if (choices.length || active?.multiple) {
+        seasonSelectionDefinition ??= api.loadSeasonSelection(callOptions).then(decodeSeasonSelectionDefinition, () => null);
+        navigation = await seasonSelectionDefinition;
+      }
+      const messages = [...(active ? [active] : choices)].flatMap(row => [row.titleID, row.newsID, row.cardTitleID, row.cardDescriptionID, row.cardHintID]);
+      if (navigation) messages.push(navigation.titleID, navigation.descriptionID, navigation.hintID, navigation.headingID);
+      requestWords(messages.filter(Boolean).map(id => `#${id}`));
+      return { active, choices, navigation };
     })();
-    agencySeasonHeld = { characterID, season };
-    return season;
+    agencySeasonHeld = { characterID, seasons };
+    return seasons;
+  }
+  async function agencySeason(): ReturnType<AppFlow["agencySeason"]> {
+    return (await agencySeasons()).active;
+  }
+  async function selectAgencySeason(seasonID: number): ReturnType<AppFlow["selectAgencySeason"]> {
+    const characterID = store.station.get().online?.characterID;
+    const { choices } = await agencySeasons();
+    if (!characterID || !choices.some(season => season.seasonID === seasonID)) return null;
+    if (!(await askDialog("seasonSelectionWarning", null, "Choose this season?", "yesno", { defaultAnswer: "no" }))) return null;
+    if (store.station.get().online?.characterID !== characterID) return null;
+    const result = await bridgeDo("seasonManager", "select_season", [seasonID]);
+    if (store.station.get().online?.characterID !== characterID) return null;
+    agencySeasonHeld = null;
+    const updated = await agencySeasons();
+    if (result === false || updated.active?.seasonID !== seasonID) throw new Error("The season selection could not be confirmed.");
+    return updated;
   }
   async function agencySeasonProgress(): Promise<ReturnType<typeof decodeAgencySeasonProgress>> {
     const row = decodeAgencySeasonProgress(await bridgeAsk("seasonManager", "get_character_progress_by_character_id", []));
@@ -35554,6 +35592,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyFleetUp,
     agencyPirateStrongholds,
     agencySeason,
+    agencySeasons,
+    selectAgencySeason,
     agencySeasonProgress,
     agencyAsteroidBelts,
     agencyTriglavianStandings,

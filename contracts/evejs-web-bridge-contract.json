@@ -731,8 +731,8 @@
     ]
   },
   "bffWritePolicy": {
-    "count": 470,
-    "sha256": "13ee5d96bebfc1dd328a0dc85308cffc29e43c2f5a6f193a76be728dbc1258e0",
+    "count": 471,
+    "sha256": "52fec25ee0541f3f868808bba34646a5ffc30875584c989cf7700476a34d37bc",
     "pairs": [
       "LPStoreMgr.TakeOfferForCharacter",
       "LPStoreMgr.TakeOfferForCorporation",
@@ -1142,6 +1142,7 @@
       "scanMgr.SetProbeDestination",
       "scanMgr.SetProbeRangeStep",
       "scanMgr.SignalTrackerRegister",
+      "seasonManager.select_season",
       "seasonalLoginCampaignManager.claim_reward",
       "sharedSettingsMgr.StoreSettingLinkAndGetID",
       "ship.AssembleShip",
@@ -1503,6 +1504,7 @@
       "scanMgr.SetProbeDestination",
       "scanMgr.SetProbeRangeStep",
       "scanMgr.SignalTrackerRegister",
+      "seasonManager.select_season",
       "seasonalLoginCampaignManager.claim_reward",
       "sharedSettingsMgr.StoreSettingLinkAndGetID",
       "ship.AssembleShip",

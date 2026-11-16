@@ -2666,6 +2666,11 @@ export async function loadVanguardConvoyTemplates(options: ApiOptions = {}): Pro
   return Array.isArray(templates) ? templates.filter((id): id is number => typeof id === "number" && Number.isSafeInteger(id) && id > 0) : null;
 }
 
+export async function loadSeasonSelection(options: ApiOptions = {}): Promise<unknown> {
+  const { selection } = await getJson("/api/client-data/season-selection", options);
+  return selection;
+}
+
 export interface WarzonePosition {
   readonly isVisible: boolean | number;
   readonly xpos: number;

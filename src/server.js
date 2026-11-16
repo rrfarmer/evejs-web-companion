@@ -1198,6 +1198,11 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     });
     return;
   }
+  if (body.service === "seasonManager" && body.method === "select_season" &&
+      (!Array.isArray(body.args) || body.args.length !== 1 || !Number.isSafeInteger(body.args[0]) || body.args[0] <= 0 || body.kwargs != null)) {
+    res.status(400).json({ ok: false, error: "INVALID_SEASON_SELECTION", message: "Choose an available season." });
+    return;
+  }
   if (body.service === "calendarMgr" && body.method === "SendEventResponse") {
     const args = body.args;
     if (!Array.isArray(args) || args.length !== 3 || !Number.isSafeInteger(args[0]) || args[0] <= 0 ||
@@ -13680,11 +13685,21 @@ app.post("/api/words", requireAuth, (req, res) => {
   // A dialog by its name: its title and its body, and what kind of dialog it is.
   const named = Array.isArray(req.body && req.body.dialogs) ? req.body.dialogs : [];
   const dialogs = named.filter((name) => typeof name === "string" && /^\w{1,100}$/.test(name)).slice(0, WORDS_LABEL_LIMIT);
+  const messages = messageIDs.length ? clientWords.messages(messageIDs) : {};
+  const held = bridgeSessions.get(req.webSessionID);
+  if (messageIDs.length && held && !held.selectionReleaseUnverified && isGamePortHandle(held.bridgeSessionID)) {
+    try {
+      Object.assign(messages, gamePortPilots?.localizedMessages?.({ userid: held.accountID }, held.bridgeSessionID, messageIDs));
+    } catch (error) {
+      // A pilot released between the words being queued and their request has only the installed words.
+      if (error.code !== "NO_LIVE_SESSION") throw error;
+    }
+  }
   res.json({
     ok: true,
     available: clientWords.available(),
     words: clientWords.templates(labels),
-    messages: messageIDs.length > 0 ? clientWords.messages(messageIDs) : {},
+    messages,
     dialogs: dialogs.length > 0 ? clientWords.dialogs(dialogs) : {},
   });
 });
@@ -14435,6 +14450,13 @@ app.get("/api/client-data/vanguard-convoy-templates", requireAuth, async (_req, 
     const table = await clientBuiltData.table("communityTrackTemplates");
     const templates = table?.[1]?.tale_templates;
     res.json({ ok: true, templates: Array.isArray(templates) ? templates : null });
+  } catch (error) { next(error); }
+});
+
+app.get("/api/client-data/season-selection", requireAuth, async (_req, res, next) => {
+  try {
+    const data = await clientBuiltData.table("seasonSelection");
+    res.json({ ok: true, selection: data });
   } catch (error) { next(error); }
 });
 

@@ -50,6 +50,7 @@
   import AgencyTriglavianPage from "./AgencyTriglavianPage.svelte";
   import AgencyPhasedFieldsPage from "./AgencyPhasedFieldsPage.svelte";
   import AgencySeasonPage from "./AgencySeasonPage.svelte";
+  import AgencySeasonSelection from "./AgencySeasonSelection.svelte";
   import { corporationPanelTarget } from "./corporationPanel.ts";
   import AgencyFleetUpRegisterPage from "./AgencyFleetUpRegisterPage.svelte";
   import { resolvedName } from "../store/names.ts";
@@ -102,10 +103,20 @@
   const groupID = $derived(history[at] ?? HOME);
   const itemID = $derived(items[at] ?? null);
   // SeasonsContentGroup's name and card are the season's (get_navigation_season_title, get_navigation_card_picture_path).
-  let season = $state<Awaited<ReturnType<AppFlow["agencySeason"]>>>(null);
-  $effect(() => { void flow.agencySeason().then((s) => { season = s; }); });
-  const groupOf = (id: number): AgencyGroup | undefined => (id === SEASONS && season && AGENCY_GROUPS[id]
-    ? { ...AGENCY_GROUPS[id]!, name: season.titleID ? `#${season.titleID}` : null, card: season.cardPicture } : AGENCY_GROUPS[id]);
+  let seasons = $state<Awaited<ReturnType<AppFlow["agencySeasons"]>>>({ active: null, choices: [], navigation: null });
+  $effect(() => { void flow.agencySeasons().then((s) => { seasons = s; }); });
+  const groupOf = (id: number): AgencyGroup | undefined => {
+    const base = AGENCY_GROUPS[id];
+    if (id !== SEASONS || !base) return base;
+    const { active, choices, navigation } = seasons;
+    const name = active?.titleID ?? navigation?.titleID;
+    return {
+      ...base,
+      name: name ? `#${name}` : "UI/Seasons/Title",
+      card: choices.length || active?.multiple ? navigation?.image ?? active?.cardPicture ?? null : active?.cardPicture ?? null,
+      description: choices.length && navigation?.descriptionID ? `#${navigation.descriptionID}` : base.description,
+    };
+  };
   const group = $derived(groupOf(groupID) ?? AGENCY_GROUPS[HOME]!);
   // IncursionContentGroup (contentGroupIncursion 50) is no group of the tree: its parent the Incursions group.
   const path = $derived(groupID === INCURSION ? [...agencyPath(INCURSIONS), INCURSION] : agencyPath(groupID));
@@ -135,7 +146,7 @@
   // provider has any site (GetAllDungeonInstances).
   let homefrontSites = $state(false);
   $effect(() => { void flow.agencyTrackerSites("homefront", DEFAULT_SITE_FILTERS).then((list) => { homefrontSites = !!list?.length; }); });
-  const visible = (id: number) => (id !== SEASONS || season !== null) && (id !== HOMEFRONT || homefrontSites);
+  const visible = (id: number) => (id !== SEASONS || seasons.active !== null || seasons.choices.length > 0) && (id !== HOMEFRONT || homefrontSites);
   const tabs = $derived([HOME, ...AGENCY_TAB_ORDER.filter((id) => AGENCY_GROUPS[id]?.tab)]);
   const children = $derived(group.children.filter(visible).map((id) => groupOf(id)).filter((g): g is AgencyGroup => !!g));
 
@@ -218,8 +229,10 @@
       <div class="ag-page"><AgencyPirateStrongholdsPage {store} {flow} filters={siteFilters[groupID] ?? DEFAULT_SITE_FILTERS} /></div>
     {:else if groupID === CAMPAIGNS}
       <div class="ag-page"><AgencyCampaignsPage {store} {flow} {onOpenTab} /></div>
-    {:else if groupID === SEASONS && season}
-      <div class="ag-page"><AgencySeasonPage {store} {flow} {season} /></div>
+    {:else if groupID === SEASONS && seasons.active}
+      <div class="ag-page"><AgencySeasonPage {store} {flow} season={seasons.active} /></div>
+    {:else if groupID === SEASONS && seasons.choices.length}
+      <div class="ag-page"><AgencySeasonSelection {store} {flow} {seasons} onchange={(next) => { seasons = next; }} /></div>
     {:else if groupID === FLEET_UP_REGISTER}
       <div class="ag-page ag-help-page"><AgencyFleetUpRegisterPage {store} {flow} onShow={(id) => show(id)} /></div>
     {:else if groupID === FLEET_UP}
