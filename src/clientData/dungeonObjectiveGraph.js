@@ -1,7 +1,7 @@
 "use strict";
 
 // These client graphs delegate arrival to 669 and listen for start_objectives.
-const DUNGEON_OBJECTIVE_GRAPHS = new Set([882, 952, 1065]);
+const DUNGEON_OBJECTIVE_GRAPHS = new Set([882, 952, 1065, 1078]);
 
 function dungeonObjectiveEntryRules(graph) {
   if (!graph || !graph.tags?.includes("client")) return null;
