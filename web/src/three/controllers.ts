@@ -51,6 +51,9 @@ export interface SofControllerAction {
   /** spawnParticles: the emitter's id and the count (x the emitter's rate). */
   emitter?: number;
   rate?: number;
+  /** Tr2ActionPlaySound: Wwise event and named observer. */
+  event?: string;
+  observer?: string;
 }
 export interface SofControllerState {
   name: string | null;
@@ -285,6 +288,7 @@ export interface ChildEffectHost {
   setScale?(set: number, scale: number): void;
   /** A particle emitter (by id) spawning rate x its own rate at once (Tr2ActionSpawnParticles). */
   spawn?(emitter: number, rate: number): void;
+  playSound?(event: string, observer: string): void;
   /** Tr2ActionSetValue into a curve's input or an effect parameter (by id; "value" or "value.w" and the like). */
   setValue?(target: number, attribute: string, value: number): void;
   /** An object's display (a container, mesh, quad or line set, by id). */
@@ -310,6 +314,10 @@ type Live = { stop(): void; canTransition?(now: number): boolean; tick?(now: num
 
 /** One clone's run of one controller, its owner the container's group in that clone. */
 export class ControllerRun {
+  private readonly data: SofController;
+  private readonly owner: THREE.Object3D;
+  private readonly host: ChildEffectHost;
+  private readonly ownerId: number | null;
   private readonly vars = new Map<string, number>();
   /** A variable set since the last update: the transitions that read variables are looked at again. */
   private dirty = false;
@@ -319,7 +327,11 @@ export class ControllerRun {
   private eventSeq: number | null = null;
   private readonly machines: { current: number; stateStart: number; live: Live[]; vetoed: boolean }[] = [];
 
-  constructor(private readonly data: SofController, private readonly owner: THREE.Object3D, private readonly host: ChildEffectHost, private readonly ownerId: number | null = null) {
+  constructor(data: SofController, owner: THREE.Object3D, host: ChildEffectHost, ownerId: number | null = null) {
+    this.data = data;
+    this.owner = owner;
+    this.host = host;
+    this.ownerId = ownerId;
     for (const v of data.variables) this.vars.set(v.name, v.value);
     this.takeObjectVariables();
     this.dirty = false;
@@ -461,6 +473,7 @@ export class ControllerRun {
 
   private enter(state: SofControllerState, run: { live: Live[] }, now: number): void {
     for (const a of state.actions) {
+      if (a.k === "playSound" && a.event && a.observer) { this.host.playSound?.(a.event, a.observer); continue; }
       // Tr2ActionSpawnParticles (Start): the emitter spawns rate x its own rate
       if (a.k === "spawnParticles" && a.emitter !== undefined) { this.host.spawn?.(a.emitter, a.rate ?? 1); continue; }
       // Tr2ActionSetExternalControllerVariable: onto the object its destinationOwner names (its controllers and its

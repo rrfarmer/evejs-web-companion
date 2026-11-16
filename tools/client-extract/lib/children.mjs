@@ -335,6 +335,7 @@ function readController(c, skipped, owner) {
       return { k: "spawnParticles", emitter: idOf(a.emitter), rate: a.rate ?? 1 };
     }
     if (a.type === "Tr2ActionPlayCurveSet") return { k: "playCurveSet", set: a.curveSetName ?? "", range: a.rangeName ?? "", sync: a.syncToRange === true };
+    if (a.type === "Tr2ActionPlaySound" && a.event && a.emitter) return { k: "playSound", event: a.event, observer: a.emitter };
     // Tr2ActionSetExternalControllerVariable (Start): the variable - its value, or this controller's sourceVariable -
     // set on the object bound to destinationOwner (an EveMultiEffect's parameter: "ship", "Hangar", "activeDock")
     if (a.type === "Tr2ActionSetExternalControllerVariable") {

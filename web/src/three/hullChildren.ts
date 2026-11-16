@@ -1264,6 +1264,7 @@ const propagatorRunsOf = new WeakMap<THREE.Object3D, { id: number | null; run: P
 
 /** Each clone's controller runs (found by its ticker), started on its first frame. */
 const controllerRunsOf = new WeakMap<THREE.Object3D, ControllerRun[]>();
+const controllerSounds = new WeakMap<THREE.Object3D, (event: string, observer: string) => void>();
 tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
   const group = object.parent;
   if (!group) return;
@@ -1403,6 +1404,14 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
           else removeOverlay(model, effect);
         },
         spawn: (emitter: number, rate: number) => animator?.spawn(emitter, rate),
+        playSound: (event: string, observer: string) => {
+          for (let owner: THREE.Object3D | null = group; owner; owner = owner.parent) {
+            const play = controllerSounds.get(owner);
+            if (!play) continue;
+            play(event, observer);
+            break;
+          }
+        },
         trigger: (target: number) => { for (const p of propagatorRunsOf.get(object) ?? []) if (p.id === target) p.run.trigger(); },
         applyTime: (set: number, time: number) => animator?.applyTime(set, time, group),
         setScale: (set: number, scale: number) => animator?.setScale(set, scale, group),
@@ -1511,8 +1520,11 @@ function childEffectObject(path: string, effects: Record<string, SofChildNode | 
  * An effect file's root built (the hangar VFX, effects/<graphicID>.json): its controllers and curve sets run from its
  * ticker, the child effects they load built from its own list.
  */
-export async function effectObject(root: SofChildNode, effects: Record<string, SofChildNode | null>): Promise<THREE.Object3D | null> {
-  return hullChildren([{ res: "", root, skipped: {} }], effects);
+export async function effectObject(root: SofChildNode, effects: Record<string, SofChildNode | null>,
+  playSound?: (event: string, observer: string) => void): Promise<THREE.Object3D | null> {
+  const object = await hullChildren([{ res: "", root, skipped: {} }], effects);
+  if (object && playSound) controllerSounds.set(object, playSound);
+  return object;
 }
 
 /**

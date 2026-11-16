@@ -130,7 +130,10 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
   if (effect) {
     const id = effect[1];
     const file = `effects/${id}.json`;
-    const ready = id === "20956" || id === "28102" ? () => containsVersion(path.join(dir, file), '"effect":"wormholefx"') : undefined;
+    const ready = id === "20956" || id === "28102"
+      ? () => containsVersion(path.join(dir, file), '"effect":"wormholefx"') &&
+        containsVersion(path.join(dir, file), '"event":"worldobject_wormhole_play"')
+      : undefined;
     return { file: await ensure(file, ["--effect", id], '"effectBuild":4', ready) };
   }
   const fx = /^\/fx\/(effects\.[A-Za-z0-9_]+)\.json$/.exec(rel);

@@ -25,7 +25,7 @@ import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three
 import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { DRIFTER_COLLECTION, DrifterCollectionExplosions } from "./drifterCollectionExplosions.ts";
-import { isNonInteractableWormhole, nonInteractableWormhole, updateWormholePose } from "./nonInteractableWormhole.ts";
+import { isNonInteractableWormhole, nonInteractableWormhole, updateWormholePose, WormholeAudio } from "./nonInteractableWormhole.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { CameraTaskGestures, type CameraTaskEvent } from "../bridge/cameraTasks.ts";
 import { initialOrbitDistance, isOwnStargateDeparture, MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose, validCameraPosition } from "./spaceCameraPose.ts";
@@ -227,6 +227,7 @@ export class SpaceView {
     host: HTMLDivElement; signature: string; update(state: JumpBridgePanelState): void; destroy(): void;
   }>();
   private readonly marks = new Map<number, THREE.Object3D>();
+  private readonly wormholeAudio = new Map<number, WormholeAudio>();
   // Empty slots hidden, as the client's default (showEmptySlots off) has them, until the module rack knows the fit.
   private readonly shipHud = new ShipHud({ slots: { hi: 0, med: 0, low: 0 } });
   private readonly targetBar = new TargetBar();
@@ -744,6 +745,8 @@ export class SpaceView {
     // the ambient sound let go with the view (the ship docked, the session gone)
     void this.ambient?.loop?.then((l) => l.stop());
     this.ambient = null;
+    for (const audio of this.wormholeAudio.values()) audio.dispose();
+    this.wormholeAudio.clear();
     this.stopped = true;
     this.renderer.setAnimationLoop(null);
     this.sceneEnv?.dispose();
@@ -2119,6 +2122,8 @@ export class SpaceView {
       // where it went from, for a moment, in the system's own frame (an explosion is drawn where a ball was)
       this.gone.set(id, { x: m.position.x + origin.x, y: m.position.y + origin.y, z: m.position.z - origin.z, radius: m.userData.radius ?? null, at: performance.now() });
       if (!this.collectionExplosions.holdModel(id, m)) this.scene.remove(m);
+      this.wormholeAudio.get(id)?.dispose();
+      this.wormholeAudio.delete(id);
       this.marks.delete(id);
     }
     this.collectionExplosions.update(origin, this.live.simNow());
@@ -2195,6 +2200,7 @@ export class SpaceView {
       const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
       setListener(this.camera.position, fwd, up);
     }
+    for (const audio of this.wormholeAudio.values()) audio.move();
     this.missileFx.onLaunch = (ship, moduleID, target) => {
       const delay = this.fireTurretSet(ship, moduleID, target);
       // the launcher's firing effect (turretFx.launch): its type from the ship's slim item's modules
@@ -2415,8 +2421,10 @@ export class SpaceView {
     if (isNonInteractableWormhole(e.typeID)) {
       holder.userData = { kind: e.kind, radius: e.radius };
       updateWormholePose(holder, e.poseID);
-      void nonInteractableWormhole().then((effect) => {
-        if (effect && this.marks.get(e.itemID) === holder) holder.add(effect);
+      const audio = new WormholeAudio(e.itemID, holder);
+      this.wormholeAudio.set(e.itemID, audio);
+      void nonInteractableWormhole(audio.play).then((effect) => {
+        if (effect && !this.stopped && this.marks.get(e.itemID) === holder) holder.add(effect);
       }).catch((error: unknown) => console.warn("Non-interactable wormhole effect:", error));
       return holder;
     }

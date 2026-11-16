@@ -159,14 +159,13 @@ export function setListener(at: Vec3, forward: Vec3, up: Vec3): void {
 let soundProps: Record<string, { v?: number; l?: number; a?: number; m?: number }> = {};
 /** The turret suppression's compressor (muffler.json: threshold dB, ratio, attack s, release s, output gain dB). */
 let muffler: { threshold: number; ratio: number; attack: number; release: number; gain: number } | null = null;
-let soundPropsAsked = false;
+let soundPropsReady: Promise<void> | null = null;
 /** The attenuations (attenuations.json: each one's volume curve by distance - s its scaling, p its points). */
 let attenuations: Record<string, { s: number; p: [number, number, number][] }> = {};
 let attenuationsReady: Promise<void> | null = null;
-function askSoundProps(): void {
-  if (soundPropsAsked) return;
-  soundPropsAsked = true;
-  void fetch("/client-assets/audio/soundProps.json").then((r) => (r.ok ? r.json() : {})).then((j) => { soundProps = j as typeof soundProps; }).catch(() => {});
+function askSoundProps(): Promise<void> {
+  soundPropsReady ??= fetch("/client-assets/audio/soundProps.json").then((r) => (r.ok ? r.json() : {})).then((j) => { soundProps = j as typeof soundProps; }).catch(() => {});
+  return soundPropsReady;
 }
 function askAttenuations(): Promise<void> {
   askSoundProps();
@@ -220,12 +219,13 @@ function bufferOf(ctx: AudioContext, sound: string): Promise<AudioBuffer | null>
  * An event's sounds started: one alternative of each layer, together, through the node given (a gain, a panner); the
  * sources kept under the event's name for its stop event.
  */
-async function start(name: string, sounds: { sound: string; gain: number }[], volume: number, out: (ctx: AudioContext, sound: string) => AudioNode, entry: (typeof uiAudioLog)[number], key = name.toLowerCase()): Promise<void> {
+async function start(name: string, sounds: { sound: string; gain: number }[], volume: number, out: (ctx: AudioContext, sound: string) => AudioNode, entry: (typeof uiAudioLog)[number], key = name.toLowerCase(), signal?: AbortSignal): Promise<void> {
   context ??= new AudioContext();
   if (context.state === "suspended") await context.resume().catch(() => {});
   const ctx = context;
   entry.state = ctx.state;
   const buffers = await Promise.all(sounds.map((s) => bufferOf(ctx, s.sound)));
+  if (signal?.aborted) return;
   const set = playing.get(key) ?? new Set<AudioBufferSourceNode>();
   playing.set(key, set);
   for (const [n, buffer] of buffers.entries()) {
@@ -251,10 +251,10 @@ async function start(name: string, sounds: { sound: string; gain: number }[], vo
  * distances times the emitter's scaling factor (1 unless the client sets one: the effects' and explosions'). Given an
  * emitter, its sounds are kept under it until stopEmitter (an effect's emitter going with the effect).
  */
-export async function playWorldEvent(name: string, at: Vec3, scale = 1, emitter?: string): Promise<void> {
+export async function playWorldEvent(name: string, at: Vec3, scale = 1, emitter?: string, signal?: AbortSignal): Promise<void> {
   // the layers' crossfades by the emitter's distance from the listener (their RTPC bound to Distance)
   const distance = Math.hypot(at.x - listenerAt.x, at.y - listenerAt.y, at.z - listenerAt.z);
-  await askAttenuations();
+  await Promise.all([askAttenuations(), askSoundProps()]);
   const sounds = pick((await eventsMap())[String(wwiseId(name))] ?? null, distance)
     .map((s) => ({ ...s, gain: s.gain * attenuationAt(s.sound, distance, scale) }))
     .filter((s) => s.gain > 0.001);
@@ -262,12 +262,12 @@ export async function playWorldEvent(name: string, at: Vec3, scale = 1, emitter?
   uiAudioLog.push(entry);
   const settings = gfx();
   const volume = settings.audioEnabled ? settings.masterVolume * settings.worldVolume : 0;
-  if (!sounds.length || volume <= 0) return;
+  if (!sounds.length || volume <= 0 || signal?.aborted) return;
   await start(name, sounds, volume, (ctx, sound) => {
     const panner = placer(ctx, at);
     panner.connect(ctx.destination);
     return muffled(ctx, sound, panner);
-  }, entry, emitter === undefined ? name.toLowerCase() : `${emitter}|${name.toLowerCase()}`);
+  }, entry, emitter === undefined ? name.toLowerCase() : `${emitter}|${name.toLowerCase()}`, signal);
 }
 
 /** An emitter gone (an effect stopped: the client's effect removes its observer, whose AudEmitter's sounds end): every sound it started, stopped. */
@@ -317,47 +317,61 @@ export function typeSoundsOf(): Promise<Record<string, string>> {
 }
 
 /** A looping sound in the world: moved with its object, stopped when it is let go. */
-export interface WorldLoop { move(at: Vec3): void; stop(): void }
+export interface WorldLoop { move(at: Vec3): void; stop(fadeMs?: number): void }
 /**
  * An ambient event at an object (SetupAmbientAudio / PlayAmbientAudio): its sounds looped (the ship sounds are
  * loops in Wwise - the loop flag is not read from the bank here), placed and moved with the object, at master x
  * World level, until stopped (the client's shipsounds_stop as the camera looks elsewhere).
  */
-export async function playWorldLoop(name: string, at: Vec3): Promise<WorldLoop> {
+export async function playWorldLoop(name: string, at: Vec3, signal?: AbortSignal): Promise<WorldLoop> {
   const distance = Math.hypot(at.x - listenerAt.x, at.y - listenerAt.y, at.z - listenerAt.z);
-  await askAttenuations();
+  await Promise.all([askAttenuations(), askSoundProps()]);
   const sounds = pick((await eventsMap())[String(wwiseId(name))] ?? null, distance);
   const entry: (typeof uiAudioLog)[number] = { name, sound: sounds.map((s) => s.sound).join(" + ") || null, distance };
   uiAudioLog.push(entry);
-  const settings = gfx();
-  const volume = settings.audioEnabled ? settings.masterVolume * settings.worldVolume : 0;
+  const volume = () => {
+    const settings = gfx();
+    return settings.audioEnabled ? settings.masterVolume * settings.worldVolume : 0;
+  };
   const nodes: { source: AudioBufferSourceNode; panner: PannerNode; gain: GainNode; base: number; sound: string }[] = [];
-  let stopped = false;
   const handle: WorldLoop = {
     move(p) {
       // (its attenuation followed as it or the camera moves)
       const d = Math.hypot(p.x - listenerAt.x, p.y - listenerAt.y, p.z - listenerAt.z);
+      const gain = volume();
       for (const n of nodes) {
         n.panner.positionX.value = p.x; n.panner.positionY.value = p.y; n.panner.positionZ.value = p.z;
-        n.gain.gain.value = n.base * attenuationAt(n.sound, d);
+        n.gain.gain.value = gain * n.base * attenuationAt(n.sound, d);
       }
     },
-    stop() { stopped = true; for (const n of nodes) { try { n.source.stop(); } catch { /* over */ } } nodes.length = 0; },
+    stop(fadeMs = 0) {
+      for (const node of nodes) {
+        const now = node.source.context.currentTime;
+        const end = now + fadeMs / 1000;
+        if (fadeMs > 0) {
+          node.gain.gain.setValueAtTime(node.gain.gain.value, now);
+          node.gain.gain.linearRampToValueAtTime(0, end);
+        }
+        try { node.source.stop(end); } catch { /* over */ }
+      }
+      nodes.length = 0;
+    },
   };
-  if (!sounds.length || volume <= 0) return handle;
+  if (!sounds.length || volume() <= 0 || signal?.aborted) return handle;
   context ??= new AudioContext();
   const ctx = context;
+  if (ctx.state === "suspended") void ctx.resume().catch(() => {});
   entry.state = ctx.state;
   const buffers = await Promise.all(sounds.map((s) => bufferOf(ctx, s.sound)));
-  if (stopped) return handle;
+  if (signal?.aborted) return handle;
   for (const [n, buffer] of buffers.entries()) {
     if (!buffer) continue;
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.loop = true;
     const gain = ctx.createGain();
-    const base = volume * sounds[n]!.gain * ownOf(sounds[n]!.sound).gain;
-    gain.gain.value = base * attenuationAt(sounds[n]!.sound, distance);
+    const base = sounds[n]!.gain * ownOf(sounds[n]!.sound).gain;
+    gain.gain.value = volume() * base * attenuationAt(sounds[n]!.sound, distance);
     const panner = placer(ctx, at);
     source.connect(gain).connect(panner).connect(ctx.destination);
     source.start();
