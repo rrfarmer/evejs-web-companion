@@ -43,6 +43,7 @@ import { DScanWindow } from "./dscan.ts";
 import { SolarSystemMapWindow, MARKER_GROUPS, type MapScanResult } from "./solarSystemMap.ts";
 import { Neocom } from "./neocom.ts";
 import { bracketIcon, hasBracketData, loadBrackets } from "./brackets.ts";
+import { PROXIMITY_TRAP_RANGES } from "./proximityTraps.ts";
 import { probeNumber } from "../bridge/scannerWrites.ts";
 import { gridBracketWanted, type BracketOverride, type OverviewRelationships } from "./overviewFilters.ts";
 import { panelErrorWords } from "../bridge/refusals.ts";
@@ -2277,6 +2278,8 @@ export class SpaceView {
       e.kind === "sun" ? new THREE.MeshBasicMaterial({ color: colour }) : new THREE.MeshStandardMaterial({ color: colour, roughness: 0.9, transparent: !e.isSelf && !["planet", "moon", "sun"].includes(e.kind), opacity: 0.35 }));
     holder.add(standIn);
     holder.userData = { kind: e.kind, radius: e.radius };
+    const triggerRange = e.typeID === null ? undefined : PROXIMITY_TRAP_RANGES.get(e.typeID);
+    if (triggerRange !== undefined) setControllerVariable(holder, "Blast_Scale", triggerRange);
     if (["planet", "moon", "sun"].includes(e.kind) && e.typeID) {
       // Each planet and moon from its own preset and height maps (the system's celestials), as the client draws it.
       const systemID = this.live.hello?.solarSystemID ?? null;
