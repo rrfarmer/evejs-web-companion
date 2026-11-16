@@ -43,6 +43,7 @@ import { DScanWindow } from "./dscan.ts";
 import { SolarSystemMapWindow, MARKER_GROUPS, type MapScanResult } from "./solarSystemMap.ts";
 import { Neocom } from "./neocom.ts";
 import { bracketIcon, hasBracketData, loadBrackets } from "./brackets.ts";
+import { probeNumber } from "../bridge/scannerWrites.ts";
 import { gridBracketWanted, type BracketOverride, type OverviewRelationships } from "./overviewFilters.ts";
 import { panelErrorWords } from "../bridge/refusals.ts";
 import { PlayWindow, clientTexture } from "./window.ts";
@@ -615,6 +616,10 @@ export class SpaceView {
       celestials: () => (this.snapshot?.entities ?? []).filter((e) => e.groupID !== null && (MARKER_GROUPS.has(e.groupID))),
       ego: () => this.snapshot?.ship?.position ?? null,
       word: (label) => this.actions.word?.(label) ?? null,
+      markerName: (itemID) => {
+        const entity = this.snapshot?.entities.find((each) => each.itemID === itemID);
+        return this.actions.locationName?.(itemID) ?? (entity ? this.nameOf(entity) : "");
+      },
       // GetLabelText: GetDisplayText - the location's own name (cfg.evelocations), the type's until it is known - and
       // FmtDist of its distance
       label: (itemID) => {
@@ -627,6 +632,11 @@ export class SpaceView {
         const ball = this.snapshot?.entities.find((e) => e.itemID === p.probeID);
         return ball ? { ...p, pos: [ball.position.x, ball.position.y, ball.position.z] as const } : p;
       }),
+      probeLabel: (probeID, distance) => {
+        const probeIndex = probeNumber(probeID);
+        const name = this.actions.word?.("UI/Inflight/Scanner/ProbeLabel", { probeIndex }) ?? `Probe ${probeIndex}`;
+        return distance === null ? name : `${name} ${distanceWords(distance)}`;
+      },
       moveProbes: (moves) => this.actions.moveProbes?.(moves),
       scanResults: () => this.actions.scanResults?.() ?? [],
       selectedSites: () => this.actions.selectedSites?.() ?? new Set(),

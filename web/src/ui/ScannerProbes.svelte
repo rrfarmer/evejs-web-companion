@@ -1,17 +1,3 @@
-<script module lang="ts">
-  // scanSvc.probeLabels: a probe's number, given the first time it is named and kept for the service's life
-  // (GetProbeLabel, 313 to 318), which is the page's here.
-  const probeNumbers = new Map<number, number>();
-  function probeNumber(probeID: number): number {
-    let index = probeNumbers.get(probeID);
-    if (index === undefined) {
-      index = probeNumbers.size + 1;
-      probeNumbers.set(probeID, index);
-    }
-    return index;
-  }
-</script>
-
 <script lang="ts">
   // The pilot's probes as the client's probe scanner lists them (scannerListEntries.ScanProbeEntryNew): each probe's
   // label, the time it has left and its scan range, an inactive one dimmed; and the probe menu
@@ -22,7 +8,7 @@
   import { onMount } from "svelte";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { filetimeOf } from "../bridge/journalWords.ts";
-  import { PROBE_STATE, formationOf } from "../bridge/scannerWrites.ts";
+  import { PROBE_STATE, formationOf, probeNumber } from "../bridge/scannerWrites.ts";
   import { PINPOINT_FORMATION, SPREAD_FORMATION } from "../bridge/probeFormations.ts";
   import { SHORT_INTERVAL_WORD_LABELS, shortWrittenInterval } from "../bridge/timeInterval.ts";
   import { fmtDist } from "../space/overview.ts";

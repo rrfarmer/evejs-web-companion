@@ -156,7 +156,7 @@ button { font: inherit; color: inherit; }
 .ssm { padding: 0 !important; overflow: hidden; }
 .ssm-canvas { display: block; width: 100%; height: 100%; cursor: grab; }
 .ssm { position: relative; }
-.ssm-markers { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.ssm-markers { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
 .dscan-ic.on { background: rgba(88, 167, 191, 0.25); }
 .ssm-views { position: absolute; left: 50%; bottom: 12px; width: 91px; height: 46px; transform: translateX(-50%); }
 .ssm-view { all: unset; position: absolute; top: 0; width: 46px; height: 46px; cursor: pointer; opacity: 0.8; }
@@ -165,7 +165,22 @@ button { font: inherit; color: inherit; }
 .ssm-top { left: 0; }
 .ssm-side { left: 45px; }
 .ssm-marker { position: absolute; left: 0; top: 0; width: 14px; height: 14px; pointer-events: auto; }
+.ssm-marker.ssm-overlapped { visibility: hidden; pointer-events: none; }
 .ssm-icon { position: absolute; left: -1px; top: -1px; width: 16px; height: 16px; }
+.ssm-probe span.ssm-icon { inset: 5px; width: 4px; height: 4px; border-radius: 50%; background: rgb(115 240 255); }
+.ssm-stack { position: absolute; left: -3px; top: -5px; width: 20px; height: 20px; pointer-events: none; }
+.ssm-stack img { position: absolute; left: 0; width: 20px; height: 20px; }
+.ssm-marker-tooltip { position: absolute; z-index: 2; max-width: 100%; max-height: min(262px, 100%); overflow: auto;
+  box-sizing: border-box; padding: 1px; background: rgb(5 8 10 / 80%); border: 1px solid rgb(255 255 255 / 16%); }
+.ssm-marker-tooltip-row { display: flex; align-items: center; box-sizing: border-box; min-height: 26px; width: 100%; padding: 0 6px 0 0;
+  gap: 2px; text-align: left; white-space: pre; color: rgb(255 255 255 / 80%); font: inherit; font-size: 11px; border: 0; background: none; }
+.ssm-marker-tooltip-row:hover, .ssm-marker-tooltip-row:focus-visible { background: rgb(255 255 255 / 20%); color: #fff; }
+.ssm-marker-tooltip-icon { position: relative; flex: 0 0 26px; height: 26px; }
+.ssm-marker-tooltip-icon > :is(.ssm-icon, .ssm-result-icon) { left: 5px; top: 5px; }
+.ssm-marker-tooltip-icon > span.ssm-icon { inset: 11px; width: 4px; height: 4px; border-radius: 50%; background: rgb(115 240 255); }
+.ssm-marker-tooltip-row.dscan-shape .ssm-marker-tooltip-icon > * { visibility: hidden; }
+.ssm-marker-tooltip-row.dscan-shape .ssm-marker-tooltip-icon::after { content: ""; position: absolute; inset: 5px;
+  background: rgb(57 191 128); mask: var(--marker-mask) center / 16px 16px no-repeat; }
 .ssm-frame { position: absolute; left: -8px; top: -8px; width: 30px; height: 30px; opacity: 0; pointer-events: none; }
 .ssm-marker.hover .ssm-frame { opacity: 0.5; }
 .ssm-marker.dscan-shape::before, .ssm-marker.dscan-shape::after {

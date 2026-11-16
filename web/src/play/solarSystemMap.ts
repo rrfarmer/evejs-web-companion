@@ -86,7 +86,7 @@
 //   GetScanResultMenuWithIgnore - an accurate result's warp within the default distance where out of warp range's
 //   minimum, Align To, then Ignore Result and Ignore Other Results). Not here: the radial menu on the left button
 //   (TryExpandActionMenu), the menu's Bookmark Location and its warp-within submenu.
-// Not here: the markers' overlap stacking and distance fade, the bookmarks, the scan panels docked in it, the range indicator, the probe
+// Not here: the markers' distance fade, the bookmarks, the scan panels docked in it, the range indicator, the probe
 // handler, the d-scan cone (directionalScanHandler), the top / side view buttons, the nebula and starfield.
 
 import * as THREE from "three";
@@ -94,6 +94,7 @@ import { PlayWindow, clientTexture } from "./window.ts";
 import { bracketIcon } from "./brackets.ts";
 import { ScanHolograms } from "./scanHologram.ts";
 import { ScanConeModels, scanConeLines, type ScanConeKind } from "./scanConeModels.ts";
+import { MapMarkerOverlay, type MapMarker } from "./mapMarkerOverlay.ts";
 import type { DScanResult } from "./dscan.ts";
 
 export const SOLARSYSTEM_SCALE = 1e-10;
@@ -106,7 +107,6 @@ const GROUP_SUN = 6;
 const GROUP_PLANET = 7;
 const GROUP_MOON = 8;
 const GROUP_STARGATE = 10;
-type ScanMarker = { at: THREE.Vector3; el: HTMLDivElement; partial?: boolean };
 /** mapViewConst.VIEWMODE_MARKERS_OPTIONS_DEFAULT (inventorycommon const). */
 export const MARKER_GROUPS: ReadonlySet<number> = new Set([7, 8, 15, 9, 310, 2020, 10, 6, 1657, 1404, 1406]);
 
@@ -122,6 +122,8 @@ export interface SolarSystemMapHooks {
   ego(): { x: number; y: number; z: number } | null;
   /** A marker's label: its name and distance (GetLabelText). */
   label?(itemID: number): string;
+  /** The location name used for overlap sorting (GetDisplayText). */
+  markerName?(itemID: number): string;
   /** LoadSolarSystemMap's cfg.evelocations.Prime: the celestials' names asked for. */
   primeNames?(itemIDs: readonly number[]): void;
   word?(label: string): string | null;
@@ -138,6 +140,7 @@ export interface SolarSystemMapHooks {
   selectCelestial?(): void;
   /** The pilot's active probes (the scanner's operations): place and destination (EVE's coordinates), range in metres. */
   probes?(): readonly { readonly probeID: number; readonly pos: readonly [number, number, number]; readonly destination: readonly [number, number, number]; readonly scanRange: number; readonly state?: number; readonly rangeSteps?: readonly number[] | null }[];
+  probeLabel?(probeID: number, distance: number | null): string;
   /** The probe scan's results shown (the scanner's list less the ignored and the filtered). */
   scanResults?(): readonly MapScanResult[];
   /** The probe results selected (scanSvc.selectedSites). */
@@ -282,14 +285,14 @@ export class SolarSystemMapWindow {
   private readonly root = new THREE.Group();
   private readonly egoMarker: THREE.Sprite;
   private readonly dot = dotTexture();
-  private readonly markersLayer = document.createElement("div");
+  private readonly markerOverlay: MapMarkerOverlay;
   private readonly coneGroup = new THREE.Group();
   private readonly coneModels = new ScanConeModels();
   private readonly coneLines = new THREE.Group();
   private readonly coneFallback = new THREE.Group();
   private readonly holograms: ScanHolograms;
   private readonly probeGroup = new THREE.Group();
-  private probeObjects = new Map<number, { sphere: THREE.Mesh; marker: THREE.Sprite; line: THREE.Line; range: number }>();
+  private probeObjects = new Map<number, { sphere: THREE.Mesh; marker: MapMarker; line: THREE.Line; range: number }>();
   private readonly cursorGroup = new THREE.Group();
   private cursors = new Map<number, THREE.Group>();
   private spreadCursors = new Map<number, THREE.Group>();
@@ -300,7 +303,7 @@ export class SolarSystemMapWindow {
   private readonly intersectionGroup = new THREE.Group();
   private readonly resultGroup = new THREE.Group();
   private resultsFor = "";
-  private resultMarkers: ScanMarker[] = [];
+  private resultMarkers: MapMarker[] = [];
   private resultDashes: THREE.LineDashedMaterial[] = [];
   /** Each result's certainty as last drawn, to see one turn perfect (OnClientEvent_PerfectScanResultReached). */
   private lastCertainty = new Map<string, number>();
@@ -339,7 +342,7 @@ export class SolarSystemMapWindow {
   private coneFor = "";
   /** What the scan shape is now, for checks: "cone" / "half" / "sphere", its rings, and its size in map units. */
   coneInfo = { kind: "none", rings: 0, length: 0, radius: 0 };
-  private markers: (ScanMarker & { itemID: number })[] = [];
+  private markers: MapMarker[] = [];
   private yaw = 0.6;
   /** mapCamera's pitch: 0.01 from straight above .. pi / 2 level. */
   private pitch = 1.0;
@@ -368,8 +371,7 @@ export class SolarSystemMapWindow {
     this.window.body.classList.add("ssm");
     this.canvas.className = "ssm-canvas";
     this.window.body.appendChild(this.canvas);
-    this.markersLayer.className = "ssm-markers";
-    this.window.body.appendChild(this.markersLayer);
+    this.markerOverlay = new MapMarkerOverlay(this.window.body);
     this.scene.background = new THREE.Color(0x000000);
     this.scene.add(this.root);
     this.egoMarker = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.dot, color: 0x58a7bf, sizeAttenuation: false, depthTest: false }));
@@ -388,10 +390,21 @@ export class SolarSystemMapWindow {
     this.scene.add(this.intersectionGroup);
     this.scene.add(this.resultGroup);
     this.canvas.addEventListener("pointerdown", (e) => {
+      this.markerOverlay.clearTooltip();
       if (e.button === 2 && this.moving) { this.cancelMove(); return; }
       if (e.button === 0 && this.pressCursor(e)) return;
       this.drag(e);
     });
+    let pressedControl = false;
+    this.markerOverlay.layer.addEventListener("pointerdown", (e) => {
+      // MapMarkerPickingOverride gives a probe control's hit priority over the markers.
+      pressedControl = e.button === 0 && this.pressCursor(e);
+      if (pressedControl) this.markerOverlay.clearTooltip();
+    });
+    this.markerOverlay.layer.addEventListener("click", (e) => {
+      if (pressedControl) e.stopPropagation();
+      pressedControl = false;
+    }, true);
     this.canvas.addEventListener("contextmenu", (e) => { if (this.moving) e.preventDefault(); });
     this.canvas.addEventListener("pointermove", (e) => {
       if (this.moving) return;
@@ -426,6 +439,7 @@ export class SolarSystemMapWindow {
     this.active = false;
     this.stop();
     this.holograms.reset();
+    this.markerOverlay.clearTooltip();
   }
   dispose(): void {
     this.close();
@@ -454,7 +468,7 @@ export class SolarSystemMapWindow {
     this.root.clear();
     this.markerPoi = null;
     this.counts = { planets: 0, moons: 0, orbits: 0, stargates: 0 };
-    this.markersLayer.innerHTML = "";
+    for (const marker of this.markers) this.markerOverlay.remove(marker);
     this.markers = [];
     const sun = all.find((c) => c.groupID === GROUP_SUN);
     const sunAt = sun ? mapPoint(sun.position) : new THREE.Vector3();
@@ -493,28 +507,26 @@ export class SolarSystemMapWindow {
       }
     }
     // LoadMarkers: the markers setting's groups
+    const markerIDs: number[] = [];
     for (const c of all) {
       if (c.groupID === null || !MARKER_GROUPS.has(c.groupID)) continue;
       const el = document.createElement("div");
       el.className = "ssm-marker";
       const icon = bracketIcon({ typeID: c.typeID, groupID: c.groupID, categoryID: c.categoryID });
       el.innerHTML = `<img class="ssm-frame" alt="" src="${clientTexture("res:/UI/Texture/classes/Bracket/selectionCircle.png")}">${icon ? `<img class="ssm-icon" alt="" src="${icon}">` : ""}<span class="ssm-label"></span>`;
-      el.addEventListener("mouseenter", () => {
-        el.classList.add("hover");
-        (el.querySelector(".ssm-label") as HTMLElement).textContent = this.hooks.label?.(c.itemID) ?? "";
-      });
-      el.addEventListener("mouseleave", () => el.classList.remove("hover"));
       const at = mapPoint(c.position);
-      el.addEventListener("click", () => {
+      const select = () => {
         if (this.hooks.scanTowards?.(c.position)) return;
         this.hooks.selectCelestial?.();
         this.markerPoi = at;
         this.poiTween = { from: this.poi.clone(), start: performance.now(), duration: 350 };
-      });
-      this.markersLayer.appendChild(el);
-      this.markers.push({ itemID: c.itemID, at, el });
+      };
+      this.markers.push(this.markerOverlay.add({ kind: "celestial", groupID: c.groupID, at, el, select,
+        displayName: () => this.hooks.markerName?.(c.itemID) ?? "",
+        label: () => this.hooks.label?.(c.itemID) ?? "" }));
+      markerIDs.push(c.itemID);
     }
-    this.hooks.primeNames?.(this.markers.map((m) => m.itemID));
+    this.hooks.primeNames?.(markerIDs);
     this.radius = radius;
     // FrameSolarSystem: GetTranslationFromParentWithRadius - the distance at which the radius fills the view - times 1.3
     const fit = radius / Math.sin(FOV_RADIANS / 2);
@@ -614,7 +626,8 @@ export class SolarSystemMapWindow {
     const origin = ego ? mapPoint(ego) : null;
     const rangeSq = ((cone?.rangeMetres ?? 0) * SOLARSYSTEM_SCALE) ** 2;
     const minDotSq = Math.cos((cone?.angleDeg ?? 0) * Math.PI / 360) ** 2;
-    for (const m of [...this.markers, ...this.resultMarkers]) {
+    const visible: MapMarker[] = [];
+    for (const m of [...this.markers, ...this.resultMarkers, ...Array.from(this.probeObjects.values(), (probe) => probe.marker)]) {
       let highlighted = false;
       if (inCone && !m.partial) {
         delta.copy(m.at).sub(origin!);
@@ -624,12 +637,19 @@ export class SolarSystemMapWindow {
         highlighted = lenSq > 0 && lenSq <= rangeSq
           && (angle >= 360 || (dot >= 0 && (angle >= 180 || dot * dot >= minDotSq * lenSq)));
       }
-      m.el.classList.toggle("dscan-shape", highlighted);
+      m.highlighted = highlighted;
+      m.el.classList.toggle("dscan-shape", m.highlighted);
       v.copy(m.at).project(this.camera);
       const shown = v.z < 1 && v.z > -1 && Math.abs(v.x) <= 1.05 && Math.abs(v.y) <= 1.05;
       m.el.style.display = shown ? "" : "none";
-      if (shown) m.el.style.transform = `translate(${Math.round(((v.x + 1) / 2) * w) - 7}px, ${Math.round(((1 - v.y) / 2) * h) - 7}px)`;
+      if (!shown) continue;
+      m.x = ((v.x + 1) / 2) * w;
+      m.y = ((1 - v.y) / 2) * h;
+      m.cameraDistance = m.at.distanceToSquared(this.camera.position);
+      m.el.style.transform = `translate(${Math.round(m.x) - 7}px, ${Math.round(m.y) - 7}px)`;
+      visible.push(m);
     }
+    this.markerOverlay.update(visible, performance.now());
   }
 
   /** DrawDirectionalScanCone: the shape by the angle, rebuilt where the angle or range changes; placed at the ship and
@@ -705,11 +725,19 @@ export class SolarSystemMapWindow {
         const wire = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.SphereGeometry(1, 16, 8), 1),
           new THREE.LineBasicMaterial({ color: PROBE_COLOR, transparent: true, opacity: 0.25, depthWrite: false, blending: THREE.AdditiveBlending }));
         sphere.add(wire);
-        const marker = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.dot, color: PROBE_COLOR, sizeAttenuation: false, depthTest: false }));
-        marker.scale.setScalar(0.014);
+        const el = document.createElement("div");
+        el.className = "ssm-marker ssm-probe";
+        const icon = bracketIcon({ typeID: null, groupID: 479, categoryID: null });
+        el.innerHTML = `${icon ? `<img class="ssm-icon" alt="" src="${icon}">` : "<span class=\"ssm-icon\"></span>"}<span class="ssm-label"></span>`;
+        const at = new THREE.Vector3();
+        const marker = this.markerOverlay.add({ kind: "probe", at, el, label: () => {
+          const ego = this.hooks.ego();
+          const distance = ego ? at.distanceTo(mapPoint(ego)) / SOLARSYSTEM_SCALE : null;
+          return this.hooks.probeLabel?.(p.probeID, distance) ?? "";
+        } });
         const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
           new THREE.LineBasicMaterial({ color: PROBE_COLOR.clone().multiplyScalar(0.3), depthWrite: false }));
-        this.probeGroup.add(sphere, marker, line);
+        this.probeGroup.add(sphere, line);
         o = { sphere, marker, line, range: 0 };
         this.probeObjects.set(p.probeID, o);
       }
@@ -721,7 +749,7 @@ export class SolarSystemMapWindow {
       ((o.sphere.children[0] as THREE.LineSegments).material as THREE.LineBasicMaterial).opacity = edge || this.moving?.id === p.probeID ? 0.6 : 0.25;
       o.sphere.position.copy(to);
       o.sphere.scale.setScalar(Math.max(radius, 1e-6));
-      o.marker.position.copy(at);
+      o.marker.at.copy(at);
       // probeStateMoving 2, probeStateWarping 3: on its way
       const moving = p.state === 2 || p.state === 3;
       o.line.visible = moving;
@@ -730,7 +758,8 @@ export class SolarSystemMapWindow {
     }
     for (const [id, o] of this.probeObjects) {
       if (seen.has(id)) continue;
-      this.probeGroup.remove(o.sphere, o.marker, o.line);
+      this.probeGroup.remove(o.sphere, o.line);
+      this.markerOverlay.remove(o.marker);
       this.probeObjects.delete(id);
     }
     this.updateCursors(probes);
@@ -747,7 +776,7 @@ export class SolarSystemMapWindow {
     if (key === this.resultsFor) return;
     this.resultsFor = key;
     this.resultGroup.clear();
-    for (const m of this.resultMarkers) m.el.remove();
+    for (const m of this.resultMarkers) this.markerOverlay.remove(m);
     this.resultMarkers = [];
     this.resultDashes = [];
     const info = { spheres: 0, circles: 0, lines: 0, markers: 0, selected: 0 };
@@ -794,15 +823,10 @@ export class SolarSystemMapWindow {
           el.appendChild(c);
         }
       }
-      el.addEventListener("click", (e) => this.hooks.selectSite?.(r.id, e.shiftKey || e.ctrlKey));
-      el.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); this.openResultMenu(r.id, e.clientX, e.clientY); });
-      el.addEventListener("mouseenter", () => {
-        el.classList.add("hover");
-        (el.querySelector(".ssm-label") as HTMLElement).textContent = this.hooks.resultLabel?.(r.id) ?? r.id;
-      });
-      el.addEventListener("mouseleave", () => el.classList.remove("hover"));
-      this.markersLayer.appendChild(el);
-      this.resultMarkers.push({ at: place, el, partial: r.certainty < 1 });
+      this.resultMarkers.push(this.markerOverlay.add({ kind: "result", at: place, el, partial: r.certainty < 1,
+        label: () => this.hooks.resultLabel?.(r.id) ?? r.id,
+        select: (e) => this.hooks.selectSite?.(r.id, e.shiftKey || e.ctrlKey),
+        contextMenu: (e) => { e.preventDefault(); e.stopPropagation(); this.openResultMenu(r.id, e.clientX, e.clientY); } }));
       info.markers += 1;
     };
     for (const r of results) {
@@ -1270,7 +1294,7 @@ export class SolarSystemMapWindow {
   /** AnimBlinkDscanHilite starts at triple brightness and fades to the ordinary highlight. */
   scanStarted(): void {
     if (!this.isOpen) return;
-    for (const marker of this.markersLayer.querySelectorAll(".dscan-shape")) {
+    for (const marker of this.markerOverlay.layer.querySelectorAll(".dscan-shape")) {
       marker.animate([{ filter: "brightness(3)" }, { filter: "brightness(1)" }],
         { duration: 1000, easing: "ease-in-out", pseudoElement: "::after" });
     }

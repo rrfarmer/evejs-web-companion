@@ -100,6 +100,17 @@ import type { JsonValue } from "./wire.ts";
 
 /** probescanning/const.py: a probe's states. */
 export const PROBE_STATE = Object.freeze({ INACTIVE: 0, IDLE: 1, MOVING: 2, WARPING: 3, SCANNING: 4, RETURNING: 5 });
+
+// scanSvc.GetProbeLabel numbers a probe when it first needs a label and keeps it for the session.
+const probeNumbers = new Map<number, number>();
+
+export function probeNumber(probeID: number): number {
+  const previous = probeNumbers.get(probeID);
+  if (previous !== undefined) return previous;
+  const index = probeNumbers.size + 1;
+  probeNumbers.set(probeID, index);
+  return index;
+}
 /** probescanning/formations.py: the pinpoint formation's probes, and the spread's (MIN_PROBES_NEEDED, 16). */
 export const PROBES_IN_A_FORMATION = 8;
 /** scanSvc.py 25: MIN_PROBE_RECOVER_DISTANCE, in metres from the ship's surface. */
