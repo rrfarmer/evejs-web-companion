@@ -220,7 +220,7 @@ export const RADIAL_CSS = `
  * The radial menu's opening on `target` (radialMenuSvc.TryExpandActionMenu): the left button held 150 ms without the
  * pointer moving 12 px, or the right button. `idOf` says which object the pointer is on (null for none).
  */
-export function holdToOpen(target: HTMLElement, idOf: (x: number, y: number, e: Event) => number | null, open: (id: number, x: number, y: number, button: number) => void): () => void {
+export function holdToOpen(target: HTMLElement, idOf: (x: number, y: number, e: Event) => number | null, open: (id: number, x: number, y: number, button: number) => void, rightClick = true): () => void {
   let held: { id: number; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
   const cancel = () => { if (held) clearTimeout(held.timer); held = null; };
   const down = (e: PointerEvent) => {
@@ -243,7 +243,7 @@ export function holdToOpen(target: HTMLElement, idOf: (x: number, y: number, e: 
   target.addEventListener("pointerdown", down);
   addEventListener("pointermove", move);
   addEventListener("pointerup", cancel);
-  target.addEventListener("contextmenu", menu);
+  if (rightClick) target.addEventListener("contextmenu", menu);
   return () => {
     cancel();
     target.removeEventListener("pointerdown", down);

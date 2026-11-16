@@ -45,6 +45,7 @@ test("a full snapshot decodes into overview rows and a ship readout", () => {
         groupID: 10,
         categoryID: 2,
         name: "Stargate (Maurasi)",
+        nameMessageID: 186555,
         radius: 1500,
         position: { x: 1_000_000, y: 0, z: 0 },
         velocity: { x: 0, y: 0, z: 0 },
@@ -85,6 +86,8 @@ test("a full snapshot decodes into overview rows and a ship readout", () => {
 
   const gate = snapshot.entities[1];
   assert.equal(gate?.isSelf, false);
+  assert.equal(gate?.nameMessageID, 186555);
+  assert.equal(self?.nameMessageID, undefined);
   assert.equal(gate?.shieldRatio, null, "an object with no health reports no bars");
 
   assert.equal(snapshot.ship?.shieldRatio, 0.5);

@@ -2008,6 +2008,8 @@ export interface SpaceEntity {
   readonly categoryID: number | null;
   /** The object's own name where it has one (a celestial, a named ship). */
   readonly name: string | null;
+  /** A numeric localization message from the native grid slim. */
+  readonly nameMessageID?: number;
   readonly ownerID: number | null;
   readonly radius: number;
   readonly position: SpaceVector;

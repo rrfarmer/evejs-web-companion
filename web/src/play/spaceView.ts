@@ -586,6 +586,7 @@ export class SpaceView {
     this.controls.zoomSpeed = 1.2;
     this.controls.addEventListener("start", () => {
       this.undockCam = null;
+      this.trackedObjective = null;
       this.stopEntryCamera();
     });
     if (options.recordCameraTask) this.trackCameraTasks(options.recordCameraTask);
@@ -934,18 +935,55 @@ export class SpaceView {
     void this.act("Move", () => this.actions.gotoDirection(d.x, d.y, -d.z));
   }
 
-  private select(itemID: number | null): void {
+  private select(itemID: number | null): boolean {
     if (this.dscanKey && itemID !== null) {
       const target = this.snapshot?.entities.find((entity) => entity.itemID === itemID);
-      if (target && this.scanTowards(target.position)) return;
+      if (target && this.scanTowards(target.position)) return false;
     }
     // ExecuteCombatCommand: a click on an object while a combat command is loaded runs it on the object
     const combat = itemID !== null ? this.combat?.cmd ?? this.modifierCombat() : null;
-    if (combat && combat !== "CmdSelectTargetItem" && itemID !== null) { this.runCombat(combat, itemID); return; }
+    if (combat && combat !== "CmdSelectTargetItem" && itemID !== null) { this.runCombat(combat, itemID); return false; }
     this.selected = itemID;
     for (const [id, el] of this.bracketEls) el.classList.toggle("selected", id === itemID);
     this.overview.setSelected(itemID);
     this.renderSelected();
+    return true;
+  }
+
+  selectObjectiveTarget(itemID: number): boolean {
+    if (!this.snapshot?.entities.some((entity) => entity.itemID === itemID)) return false;
+    if (!this.select(itemID)) return false;
+    if (this.locked.has(itemID)) this.activeTarget = itemID;
+    return true;
+  }
+
+  trackObjectiveTarget(itemID: number): void {
+    if (this.selected === itemID) this.trackedObjective = itemID;
+  }
+
+  highlightObjectiveTarget(itemID: number, on: boolean): void {
+    if (on) this.highlightedObjective = itemID;
+    else if (this.highlightedObjective === itemID) this.highlightedObjective = null;
+  }
+
+  canActivateObjectiveTarget(itemID: number): boolean {
+    return !this.combat && !this.dscanKey && this.selected === itemID;
+  }
+
+  openObjectiveRadial(itemID: number, x: number, y: number): void {
+    this.openRadial(itemID, x, y, 0);
+  }
+
+  objectiveTargetMenu(itemID: number): readonly { title: string; run: () => void }[] {
+    const entity = this.snapshot?.entities.find((each) => each.itemID === itemID);
+    if (!entity) return [];
+    const nearby = this.distanceTo(entity) < 150_000;
+    const entries = this.actionsFor(entity).filter((entry) => entry.key !== "warp" || !nearby);
+    const cargo = this.actions.openCargo;
+    if (cargo && (entity.kind === "container" || entity.kind === "wreck")) {
+      entries.unshift({ key: "cargo", title: "Open Cargo", icon: "", run: () => cargo(itemID) });
+    }
+    return entries.map(({ title, run }) => ({ title, run: () => { void this.act(title, run).then(() => this.refreshTargets()); } }));
   }
 
   private aimSpaceCamera(direction: THREE.Vector3): void {
@@ -1055,6 +1093,8 @@ export class SpaceView {
   }
 
   private lookAt: number | null = null;
+  private trackedObjective: number | null = null;
+  private highlightedObjective: number | null = null;
   private framedLook: number | null = null;
   private framedFor: number | null = null;
   private entryWarped: boolean | null = null;
@@ -1841,7 +1881,8 @@ export class SpaceView {
       if ((e.kind === "ship" || e.kind === "drone") && this.frameCount % 30 === 0) this.fitTurrets(e.itemID, mark);
       if (e.kind === "sun") this.sunDir.copy(rel).normalize();
       let el = this.bracketEls.get(e.itemID);
-      const selectedOrTargeted = this.selected === e.itemID || this.activeTarget === e.itemID ||
+      const highlighted = this.highlightedObjective === e.itemID;
+      const selectedOrTargeted = highlighted || this.selected === e.itemID || this.activeTarget === e.itemID ||
         this.locked.has(e.itemID) || this.lockingIDs.has(e.itemID);
       const groupID = this.overview.groupOf(e);
       if (groupID === JUMP_BRIDGE_GROUP) this.positionJumpBridge(e, snap?.ship ?? null, rel, w, h);
@@ -1852,7 +1893,10 @@ export class SpaceView {
         hasBracketData: hasBracketData(groupID === e.groupID ? e : { ...e, groupID }),
       }, relations);
       if (!wanted) {
-        if (el) el.style.display = "none";
+        if (el) {
+          el.classList.remove("objective-highlight");
+          el.style.display = "none";
+        }
         continue;
       }
       if (!el) {
@@ -1869,12 +1913,13 @@ export class SpaceView {
         this.brackets.appendChild(el);
         this.bracketEls.set(e.itemID, el);
       }
+      el.classList.toggle("objective-highlight", highlighted);
       const p = rel.clone().project(this.camera);
       const onScreen = p.z < 1 && Math.abs(p.x) <= 1.05 && Math.abs(p.y) <= 1.05;
       el.style.display = onScreen ? "" : "none";
       if (onScreen) {
         el.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px)`;
-        if (this.frameCount % 10 === 0 || el.classList.contains("selected")) {
+        if (this.frameCount % 10 === 0 || highlighted || el.classList.contains("selected")) {
           (el.querySelector(".label") as HTMLElement).textContent = `${this.nameOf(e)} - ${distanceWords(this.distanceTo(e))}`;
         }
       }
@@ -1907,6 +1952,15 @@ export class SpaceView {
         this.framedLook = this.lookAt;
         const size = this.lookAt !== null ? snap?.entities.find((e) => e.itemID === this.lookAt)?.radius ?? null : ego?.radius ?? null;
         if (size !== null) this.frameShip(size);
+      }
+      if (this.trackedObjective !== null) {
+        const tracked = seen.has(this.trackedObjective) ? this.marks.get(this.trackedObjective) : null;
+        if (tracked) {
+          const direction = tracked.position.clone().sub(this.controls.target);
+          if (direction.lengthSq() > 0) this.aimSpaceCamera(direction);
+        } else {
+          this.trackedObjective = null;
+        }
       }
     }
     for (const [id, m] of this.marks) if (!seen.has(id)) {

@@ -444,12 +444,15 @@ test("a missile's row, from a slim item as Tranquility sends one: what it is, wh
   park.slimItems.set(9002278201000510230n, slim({ itemID: 9002278201000510230n, typeID: 266, groupID: 387, categoryID: 8, ownerID: 500010, name: "", sourceShipID: 9002278201000509637n, sourceModuleID: 0, nameID: 63845 }));
   const row = projectSpace(park, { solarSystemID: SYSTEM, shipID: undock.shipID }).entities.find((each) => each.typeID === 266);
   assert.deepEqual([row.kind, row.categoryID, row.groupID, row.ownerID, row.name, row.isSelf, row.radius], ["missile", 8, 387, 500010, null, false, 300]);
-  assert.deepEqual(Object.keys(row), ["kind", "itemID", "typeID", "groupID", "categoryID", "name", "ownerID", "radius", "position", "velocity", "isSelf", "shieldRatio", "armorRatio", "hullRatio"]);
+  assert.equal(row.nameMessageID, 63845);
+  assert.deepEqual([row.corporationID, row.allianceID, row.warFactionID], [null, null, null]);
+  assert.deepEqual(["characterID", "securityStatus", "mode", "maxVelocity", "capacitorRatio"].filter((key) => key in row), []);
   // A probe's row the same way.
   park.ballpark.addBall({ id: 9000000000007, isFree: false, mass: 1, radius: 20, x: -3000 });
   park.slimItems.set(9000000000007, slim({ itemID: 9000000000007, typeID: 22778, groupID: 548, categoryID: 8, ownerID: 140000009 }));
   const probe = projectSpace(park, { solarSystemID: SYSTEM, shipID: undock.shipID }).entities.find((each) => each.itemID === 9000000000007);
   assert.deepEqual([probe.kind, probe.groupID, probe.ownerID], ["probe", 548, 140000009]);
+  assert.equal(probe.nameMessageID, undefined);
 });
 
 test("health is what the damage state says, with the shield brought forward by its own recharge", () => {

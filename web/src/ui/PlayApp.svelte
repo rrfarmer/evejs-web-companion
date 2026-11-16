@@ -867,6 +867,7 @@
   // Space: the SpaceView, made when the pilot is in space and let go when docked.
   let spaceHost = $state<HTMLDivElement | null>(null);
   let view: SpaceView | null = null;
+  setContext("flightSpaceView", () => view);
   $effect(() => {
     if (stage !== "game" || docked || !spaceHost || !session || !live) return;
     const s = session;

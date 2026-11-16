@@ -205,6 +205,8 @@ function projectEntity(park, ball, slim, ego, placed) {
   const kind = kindOf(categoryID, groupID);
   const seen = park.damageSeen ? park.damageSeen.get(ball.id) : undefined;
   const hackingState = slim.get("hackingSecurityState");
+  const nameMessageID = positive(slim.get("nameID"));
+  const characterID = positive(slim.get("charID"));
   const row = {
     kind,
     itemID,
@@ -212,6 +214,8 @@ function projectEntity(park, ball, slim, ego, placed) {
     groupID,
     categoryID,
     name: text(slim.get("name")) || null,
+    ...(nameMessageID !== null ? { nameMessageID } : {}),
+    ...(characterID !== null ? { characterID } : {}),
     ownerID: positive(slim.get("ownerID")),
     ...(Number.isSafeInteger(hackingState) && hackingState >= 0 ? { hackingSecurityState: hackingState } : {}),
     // Whose side it is on, as its slim item says: its corporation, alliance and militia, which the client's overview
@@ -231,7 +235,7 @@ function projectEntity(park, ball, slim, ego, placed) {
   }
   if (kind === "ship" || kind === "structure") {
     const security = number(slim.get("securityStatus"));
-    row.characterID = positive(slim.get("charID"));
+    row.characterID = characterID;
     row.securityStatus = security;
     row.maxVelocity = ball.maxVelocity > 0 ? ball.maxVelocity : null;
     row.mode = MODE_NAME[ball.mode] ?? null;
