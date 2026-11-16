@@ -269,7 +269,8 @@ button { font: inherit; color: inherit; }
 .si-actions { display: flex; gap: 4px; padding: 7px 8px; flex: none; }
 .si-act { width: 34px; height: 34px; padding: 0; background: transparent; border: 1px solid transparent; cursor: pointer; opacity: .85; }
 .si-act img { width: 32px; height: 32px; display: block; }
-.si-act:hover { opacity: 1; background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.12); }
+.si-act:disabled { cursor: default; opacity: .4; }
+.si-act:not(:disabled):hover { opacity: 1; background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.12); }
 .si-act.on { background: rgba(210, 59, 47, 0.25); border-color: rgba(210, 59, 47, 0.6); }
 
 /* a locked thing's bracket: the client's red lock corners; one that has the pilot locked: a yellow ring */

@@ -1,7 +1,7 @@
 // The Overview, in the client's look: what is on grid nearest first, one row each with its bracket and the client's
 // default columns (overviewConst.DEFAULT_COLUMNS: icon, distance, name, type, velocity; distance and velocity right
 // aligned). Its tabs show the groups of the client's Jotunn profile (extract.mjs --overview). A click
-// selects (as a click on the thing's bracket does), a double click approaches, as the client's overview does by default.
+// selects as a bracket click does. Double-click invokes the selected entity's activation.
 
 import { PlayWindow, clientTexture } from "./window.ts";
 import type { Entity } from "./spaceView.ts";
@@ -73,7 +73,7 @@ export function typeNames() {
 
 export interface OverviewHooks {
   select(itemID: number): void;
-  approach(itemID: number): void;
+  activate(itemID: number): void;
   glyph(e: Entity): string;
   pilotID?: number;
   word?(label: string): string | null;
@@ -132,7 +132,7 @@ export class Overview {
     });
     this.tbody.addEventListener("dblclick", (e) => {
       const id = Number((e.target as HTMLElement).closest("tr")?.dataset.id);
-      if (id) this.hooks.approach(id);
+      if (id) this.hooks.activate(id);
     });
     void typeNames().then((n) => {
       if (!n) return;

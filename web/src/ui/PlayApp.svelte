@@ -84,6 +84,7 @@
   import { dirtLevelFromTime } from "../three/hullModel.ts";
   import { Neocom } from "../play/neocom.ts";
   import { clientTexture } from "../play/window.ts";
+  import { OPEN_CARGO_LABEL } from "../play/containerInteraction.ts";
   import type { HudModule } from "../play/shipHud.ts";
   import { typeIconUrl } from "./typeIcons.ts";
   import { cycleProgressPercent } from "./moduleRack.ts";
@@ -1136,7 +1137,7 @@
     // the combat notification's moving-mode example text (UI/Accessories/Log/ExampleText)
     s.flow.requestWords([
       "UI/Accessories/Log/ExampleText", "UI/Accessories/Log/ExitMessageMovingMode",
-      ...INDICATION_WORD_LABELS, ...OVERVIEW_WORDS, "UI/Inflight/Messages/ShipFullSpeedHeader", "UI/Commands/SpeedChangedTo",
+      ...INDICATION_WORD_LABELS, ...OVERVIEW_WORDS, OPEN_CARGO_LABEL, "UI/Inflight/Messages/ShipFullSpeedHeader", "UI/Commands/SpeedChangedTo",
     ]);
     const combatWord = (label: string, own: string) => { const t = s.store.words.get().templates[label]; return typeof t === "string" ? plainText(t) : own; };
     v.combatMessage.exampleText = () => combatWord("UI/Accessories/Log/ExampleText", "Example Text");

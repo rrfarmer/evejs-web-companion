@@ -62,6 +62,7 @@ import { CombatMessage } from "./combatMessage.ts";
 import { RadialMenu, RADIAL_CSS, RADIAL_ICON, WARP_RANGES, holdToOpen, radialRanges, type RadialOption } from "./radialMenu.ts";
 import { JUMP_BRIDGE_GROUP, type JumpBridgeSlim } from "../bridge/jumpBridgePanel.ts";
 import { ACTIVATE_GATE_LABEL, isWarpGate } from "../bridge/gateActivation.ts";
+import { activateCargoTarget, OPEN_CARGO_ICON, OPEN_CARGO_LABEL, selectedCargo } from "./containerInteraction.ts";
 
 export interface Entity {
   kind: string; itemID: number; typeID: number | null; groupID: number | null; categoryID: number | null; name: string | null;
@@ -79,6 +80,14 @@ export interface Entity {
   poseID?: number | null;
   jumpBridge?: JumpBridgeSlim;
 }
+interface ItemAction {
+  key: string;
+  title: string;
+  icon: string;
+  disabled?: boolean;
+  run: () => Promise<void>;
+}
+
 export interface JumpBridgePanelState {
   readonly bridge: JumpBridgeSlim;
   readonly shipTypeID: number | null;
@@ -624,7 +633,7 @@ export class SpaceView {
     void options.entryWarpHistory?.then(hasWarped => { this.entryWarped = hasWarped ?? true; });
     this.overview = new Overview({
       select: (id) => this.select(id),
-      approach: (id) => void this.act("Approach", () => this.actions.approach(id)),
+      activate: (id) => this.activateSpaceTarget(id),
       glyph,
       pilotID: options.overviewPilotID,
       word: (label) => this.actions.word?.(label) ?? null,
@@ -1025,15 +1034,30 @@ export class SpaceView {
     this.openRadial(itemID, x, y, 0);
   }
 
+  private activateSpaceTarget(itemID: number): void {
+    if (this.combat || this.dscanKey || this.modifierCombat(false)) return;
+    const entity = this.snapshot?.entities.find((each) => each.itemID === itemID);
+    if (!entity) return;
+    const action = activateCargoTarget(entity, this.distanceTo(entity));
+    const open = this.actions.openCargo;
+    if (action === "open" && open) {
+      if (selectedCargo(entity, this.snapshot?.ship?.mode === "WARP") === "enabled") {
+        void this.act("Open Cargo", () => open(itemID));
+      }
+    } else if (action === "align") {
+      void this.act("Align To", () => this.actions.alignTo(itemID));
+    } else {
+      void this.act("Approach", () => this.actions.approach(itemID));
+    }
+  }
+
   objectiveTargetMenu(itemID: number): readonly { title: string; run: () => void }[] {
     const entity = this.snapshot?.entities.find((each) => each.itemID === itemID);
     if (!entity) return [];
     const nearby = this.distanceTo(entity) < 150_000;
-    const entries = this.actionsFor(entity).filter((entry) => entry.key !== "warp" || !nearby);
-    const cargo = this.actions.openCargo;
-    if (cargo && (entity.kind === "container" || entity.kind === "wreck")) {
-      entries.unshift({ key: "cargo", title: "Open Cargo", icon: "", run: () => cargo(itemID) });
-    }
+    const entries = this.actionsFor(entity).filter((entry) => !entry.disabled && (entry.key !== "warp" || !nearby));
+    const cargoIndex = entries.findIndex(entry => entry.key === "cargo");
+    if (cargoIndex > 0) entries.unshift(...entries.splice(cargoIndex, 1));
     return entries.map(({ title, run }) => ({ title, run: () => { void this.act(title, run).then(() => this.refreshTargets()); } }));
   }
 
@@ -1062,14 +1086,14 @@ export class SpaceView {
    * The Selected Item window's actions in the client's order (inflight/selectedItemWnd.py GetActions,
    * selectedItemConst.ACTIONS_ALWAYS_VISIBLE read from the compiled module: the decompiled source prints its places):
    * Approach, or Align To for a thing far enough to warp to; Warp To Within; the thing's own (Dock for a station,
-   * Jump for a stargate); then always Orbit, Keep at Range, Lock or Unlock, Look At and Show Info. Set as Camera
+   * Jump for a stargate, Open Cargo for a container); then always Orbit, Keep at Range, Lock or Unlock, Look At and Show Info. Set as Camera
    * Interest is not drawn yet.
    */
-  private actionsFor(e: Entity): { key: string; title: string; icon: string; run: () => Promise<void> }[] {
+  private actionsFor(e: Entity): ItemAction[] {
     const id = e.itemID;
     const icon = (name: string) => clientTexture(`res:/UI/Texture/eveicon/control_icons/${name}_32px.png`);
     const far = this.distanceTo(e) >= 150_000;
-    const out = [
+    const out: ItemAction[] = [
       far
         ? { key: "align", title: "Align To", icon: icon("align_to"), run: () => this.actions.alignTo(id) }
         : { key: "approach", title: "Approach", icon: icon("approach"), run: () => this.actions.approach(id) },
@@ -1084,6 +1108,12 @@ export class SpaceView {
       out.push({ key: "dock", title: "Dock", icon: icon("dock"), run: () => this.actions.dock(id) });
     }
     if (e.kind === "stargate") out.push({ key: "jump", title: "Jump", icon: icon("jump_to"), run: () => this.actions.jump(id) });
+    const cargo = this.actions.openCargo;
+    const cargoState = selectedCargo(e, this.snapshot?.ship?.mode === "WARP");
+    if (cargo && cargoState !== "hidden") {
+      out.push({ key: "cargo", title: this.actions.word?.(OPEN_CARGO_LABEL) ?? "Open Cargo", icon: clientTexture(OPEN_CARGO_ICON),
+        disabled: cargoState === "disabled", run: () => cargo(id) });
+    }
     const activateGate = this.actions.activateGate;
     if (activateGate && isWarpGate(e.groupID, e.typeID) && this.snapshot?.ship?.mode !== "WARP") {
       const title = this.actions.word?.(ACTIVATE_GATE_LABEL) ?? "Activate Gate";
@@ -1116,7 +1146,8 @@ export class SpaceView {
       return;
     }
     const dist = this.distanceTo(e);
-    const sig = `${e.itemID}:${this.locked.has(e.itemID)}:${dist >= 150_000}:${e.jumpBridge?.activationState ?? ""}:${this.snapshot?.ship?.mode === "WARP"}`;
+    const cargoLabel = selectedCargo(e, false) === "hidden" ? "" : this.actions.word?.(OPEN_CARGO_LABEL) ?? "Open Cargo";
+    const sig = `${e.itemID}:${this.locked.has(e.itemID)}:${dist >= 150_000}:${e.jumpBridge?.activationState ?? ""}:${this.snapshot?.ship?.mode === "WARP"}:${cargoLabel}`;
     if (body.getAttribute("data-sig") !== sig) {
       body.setAttribute("data-sig", sig);
       // its picture (the client's own, /client-res/type-picture), its name, its type (and Hostile for an NPC), how far
@@ -1140,6 +1171,7 @@ export class SpaceView {
         const b = document.createElement("button");
         b.className = `si-act${a.key === "unlock" ? " on" : ""}`;
         b.title = a.title;
+        b.disabled = a.disabled ?? false;
         b.innerHTML = `<img src="${a.icon}" alt="">`;
         b.addEventListener("click", () => void this.act(a.title, a.run).then(() => this.refreshTargets()));
         row.appendChild(b);
@@ -2118,7 +2150,7 @@ export class SpaceView {
         const id = e.itemID;
         el.dataset.id = String(id);
         el.addEventListener("click", (ev) => { ev.stopPropagation(); this.select(id); });
-        el.addEventListener("dblclick", (ev) => { ev.stopPropagation(); void this.act("Approach", () => this.actions.approach(id)); });
+        el.addEventListener("dblclick", (ev) => { ev.stopPropagation(); this.activateSpaceTarget(id); });
         el.classList.toggle("locked", this.locked.has(id));
         el.classList.toggle("targeting-me", this.targeters.has(id));
         el.classList.toggle("selected", this.selected === id);
