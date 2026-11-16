@@ -34,8 +34,8 @@ const FOURCC: Record<string, { format: THREE.CompressedPixelFormat; block: numbe
 
 
 /**
- * Pixels of an uncompressed DDS surface (DDPF_RGB with 32, 24 or 8 bits a pixel, read by its channel masks) from a
- * byte offset: RGBA8 for 32 and 24 bits (24 opaque), R8 for 8.
+ * Pixels of an uncompressed DDS surface from a byte offset, expanded to RGBA8 for color or
+ * luminance with alpha. Single-channel 8-bit surfaces stay R8.
  */
 function unpack(dv: DataView, buf: ArrayBuffer, offset: number, width: number, height: number, name: string): { data: Uint8Array; format: THREE.PixelFormat; bytes: number } {
   const bits = dv.getUint32(88, true);
@@ -54,6 +54,17 @@ function unpack(dv: DataView, buf: ArrayBuffer, offset: number, width: number, h
     return { data: out, format: THREE.RGBAFormat, bytes: n * step };
   }
   if (bits === 8) return { data: new Uint8Array(buf, offset, n).slice(), format: THREE.RedFormat, bytes: n };
+  const DDPF_LUMINANCE = 0x20000;
+  if (bits === 16 && (dv.getUint32(80, true) & DDPF_LUMINANCE) && masks[0] === 0xff && masks[3] === 0xff00) {
+    const src = new Uint8Array(buf, offset, n * 2);
+    const out = new Uint8Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      const luminance = src[i * 2]!;
+      out[i * 4] = out[i * 4 + 1] = out[i * 4 + 2] = luminance;
+      out[i * 4 + 3] = src[i * 2 + 1]!;
+    }
+    return { data: out, format: THREE.RGBAFormat, bytes: n * 2 };
+  }
   throw new Error(`${name}: uncompressed DDS with ${bits} bits a pixel not handled`);
 }
 

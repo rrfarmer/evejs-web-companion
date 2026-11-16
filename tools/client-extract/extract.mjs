@@ -576,6 +576,7 @@ function parseArgs(argv) {
     else if (a === "--star-map") out.starMap = true;
     else if (a === "--fitting-scene") out.fittingScene = true;
     else if (a === "--dscan-hologram") out.dscanHologram = true;
+    else if (a === "--dscan-cones") out.dscanCones = true;
     else if (a === "--ship-info") out.shipInfo = true;
     else if (a === "--effect") out.effects.push(argv[++i]);
     else if (a === "--missile") out.missiles.push(Number(argv[++i]));
@@ -809,6 +810,17 @@ async function main() {
     const parameters = Object.fromEntries(area.parameters.map(({ name, value }) => [name, value]));
     fs.writeFileSync(path.join(outRoot, "dscanHologram.json"), JSON.stringify({ textures, parameters }));
   }
+  if (args.dscanCones) {
+    const shapes = {};
+    for (const [kind, name] of [["cone", "scancone"], ["half", "scanconehalfsphere"], ["sphere", "scanconesphere"]]) {
+      const effect = readEffectFile(rf, `res:/dx9/model/ui/${name}.black`);
+      if (!effect?.root || effect.root.k !== "container") throw new Error(`The client's ${name} effect is unavailable`);
+      await copyChildGraphAssets(rf, [effect.root, ...Object.values(effect.childEffects)], outRoot);
+      shapes[kind] = { root: effect.root, childEffects: effect.childEffects };
+    }
+    const lineTexture = copyRes(rf, "res:/dx9/texture/ui/lineplanarsmoothadditive.dds", outRoot);
+    fs.writeFileSync(path.join(outRoot, "dscanCones.json"), JSON.stringify({ lineTexture, shapes }));
+  }
   if (args.ammoColors) {
     if (!sde) throw new Error("--ammo-colors needs the SDE (--sde, or a config.json that names it)");
     const map = ammoColors(rf, client, sde, REPO);
@@ -834,7 +846,7 @@ async function main() {
     }
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.dscanHologram && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {
