@@ -97,6 +97,9 @@ const FRAGMENT = `
   uniform vec4 temperature, lightPosition[4], lightColor[4];
   uniform float densityScale, noiseFactor, phase, steps;
   ${SOFT_DEPTH_GLSL}
+  #ifdef CLOUD_OPACITY_ONLY
+    uniform vec2 opacitySize;
+  #endif
 
   vec2 interval(vec3 origin, vec3 direction) {
     vec3 reciprocal = 1.0 / (sign(direction + vec3(1e-20)) * max(abs(direction), 1e-6));
@@ -153,11 +156,18 @@ const FRAGMENT = `
     vec3 direction = normalize(localPoint - localEye);
     vec2 box = interval(localEye, direction);
     float begin = max(box.x, 0.0), end = box.y;
-    if (softDepthOn > 0.0) end = min(end, softSceneDepth() / max(dot(viewDepthAxis, direction), 1e-5));
+    vec2 pixel = gl_FragCoord.xy;
+    #ifdef CLOUD_OPACITY_ONLY
+      float opaqueDepth = softSceneDepthAt(pixel * softDepthSize / opacitySize);
+      pixel.y = opacitySize.y - pixel.y;
+    #else
+      float opaqueDepth = softSceneDepth();
+    #endif
+    if (softDepthOn > 0.0) end = min(end, opaqueDepth / max(dot(viewDepthAxis, direction), 1e-5));
     if (end <= begin) discard;
 
     ivec2 noiseSize = textureSize(noiseMap, 0);
-    ivec2 at = ivec2(gl_FragCoord.xy) % noiseSize;
+    ivec2 at = ivec2(pixel) % noiseSize;
     float stepLength = 1.0 / steps;
     float cursor = min(end, begin + texelFetch(noiseMap, at, 0).r * noiseFactor * stepLength);
     vec3 color = vec3(0.0);
@@ -167,7 +177,9 @@ const FRAGMENT = `
       float density = voxels(p);
       if (density * densityScale > 0.01) {
         float stepTransmit = exp(-density * densityScale * (cursor - previous));
-        color += transmit * (1.0 - stepTransmit) * lightAt(p, direction) * temperatureAlbedo(density);
+        #ifndef CLOUD_OPACITY_ONLY
+          color += transmit * (1.0 - stepTransmit) * lightAt(p, direction) * temperatureAlbedo(density);
+        #endif
         transmit *= stepTransmit;
       }
       if (cursor >= end || transmit <= 0.001) break;
@@ -180,6 +192,7 @@ const FRAGMENT = `
 
 export class ObservatoryVortex {
   readonly mesh: THREE.Mesh<THREE.BoxGeometry, THREE.ShaderMaterial>;
+  private readonly flareOpacity: THREE.Mesh<THREE.BoxGeometry, THREE.ShaderMaterial>;
   private requested: string | null = null;
   private stopped = false;
   private readonly volume: VortexData;
@@ -216,6 +229,13 @@ export class ObservatoryVortex {
     this.mesh = new THREE.Mesh(new THREE.BoxGeometry(), material);
     this.mesh.visible = false;
     this.mesh.renderOrder = -5;
+    const opacitySize = { value: new THREE.Vector2() };
+    this.flareOpacity = new THREE.Mesh(this.mesh.geometry, new THREE.ShaderMaterial({
+      uniforms: { ...uniforms, opacitySize }, vertexShader: VERTEX, fragmentShader: FRAGMENT,
+      defines: { CLOUD_OPACITY_ONLY: 1 }, side: THREE.BackSide,
+      transparent: true, premultipliedAlpha: true, depthTest: false, depthWrite: false,
+    }));
+    this.flareOpacity.matrixAutoUpdate = false;
     const reflection = data.reflection;
     if (reflection) {
       void assets.reflectionNoise?.then((texture) => {
@@ -231,6 +251,17 @@ export class ObservatoryVortex {
       uniforms.sunDirection.value.copy(sun.getWorldPosition(position)).sub(sun.target.getWorldPosition(target)).transformDirection(inverse);
       uniforms.sunColor.value.copy(sun.color).multiplyScalar(sun.intensity);
     };
+    this.flareOpacity.onBeforeRender = (renderer, scene, camera, geometry, material, group) => {
+      const target = renderer.getRenderTarget()!;
+      opacitySize.value.set(target.width, target.height);
+      this.mesh.onBeforeRender(renderer, scene, camera, geometry, material, group);
+    };
+  }
+
+  flareOpacityMesh(): THREE.Mesh {
+    this.flareOpacity.matrix.copy(this.mesh.matrixWorld);
+    this.flareOpacity.matrixWorldNeedsUpdate = true;
+    return this.flareOpacity;
   }
 
   static async load(sun: THREE.DirectionalLight, shadows: SpaceShadowAtlas): Promise<ObservatoryVortex> {
@@ -269,5 +300,6 @@ export class ObservatoryVortex {
     this.reflection?.dispose();
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
+    this.flareOpacity.material.dispose();
   }
 }

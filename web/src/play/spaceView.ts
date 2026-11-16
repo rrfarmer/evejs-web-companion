@@ -2039,6 +2039,7 @@ export class SpaceView {
     const reflectClouds = settings.reflectionQuality >= 3 && settings.shaderQuality >= 2;
     const reflectionSources: VortexReflection[] = [];
     const shadowClouds: THREE.Mesh[] = [];
+    const flareClouds: ObservatoryVortex[] = [];
     const overviewMask = this.overview.activePreset();
     const bracketMask = this.overview.activeBracketPreset();
     const relations = overviewMask?.filteredStates.length || bracketMask?.filteredStates.length
@@ -2056,7 +2057,10 @@ export class SpaceView {
       const vortex = mark.userData.vortex as ObservatoryVortex | undefined;
       vortex?.update(e.radius, settings.volumetricQuality, this.renderer, this.sunDir, rendering.shadows);
       if (reflectClouds && e.radius > 0 && vortex?.reflection) reflectionSources.push(vortex.reflection);
-      if (rendering.shadows && e.radius > 0 && vortex?.mesh.visible) shadowClouds.push(vortex.mesh);
+      if (e.radius > 0 && vortex?.mesh.visible) {
+        if (rendering.shadows) shadowClouds.push(vortex.mesh);
+        flareClouds.push(vortex);
+      }
       // a drone's engines burn always (Drone.py: FitBoosters(alwaysOn=True)); a fighter's do not
       mark.userData.boostersAlwaysOn = e.kind === "drone";
       if (e.maxVelocity || mark.userData.boostersAlwaysOn) setThrust(mark, e.maxVelocity ? Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z) / e.maxVelocity : 0, this.accelOf(mark, e));
@@ -2395,7 +2399,10 @@ export class SpaceView {
     });
     const simDt = dt * (this.options.flightSnapshot?.()?.timeDilation ?? 1);
     const environment = this.observatoryEnvironment.sample(ego ? snap?.entities ?? [] : [], origin, eye, simDt, rendering.postProcess, systemID);
-    this.bloom.render(environment, sun);
+    const clouds = environment?.godRays && settings.shaderQuality === 3 && flareClouds.length
+      ? { meshes: flareClouds.map((vortex) => vortex.flareOpacityMesh()), quality: settings.volumetricQuality }
+      : undefined;
+    this.bloom.render(environment, sun, clouds);
   }
 
   /** A lock, shown as locking (on its bracket) until the call returns: the server answers AddTarget once locked. */

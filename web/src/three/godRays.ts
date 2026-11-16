@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL, SoftDepthPass } from "./softDepth.ts";
+import { CloudOpacityPass, type FlareClouds } from "./cloudOpacity.ts";
 
 interface FlareMask {
   mask: THREE.Texture;
@@ -69,6 +70,7 @@ export class GodRayOcclusion {
   private readonly sunInView = new THREE.Vector3();
   private readonly foreground = new SoftDepthPass();
   private readonly background = new SoftDepthPass();
+  private cloudOpacity: CloudOpacityPass | null = null;
   private readonly targets = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, {
     type: THREE.HalfFloatType, depthBuffer: false,
   }));
@@ -87,15 +89,17 @@ export class GodRayOcclusion {
       foregroundDepth: { value: null as THREE.Texture | null },
       backgroundDepth: { value: null as THREE.Texture | null },
       previous: { value: null as THREE.Texture | null },
+      cloudOpacity: { value: null as THREE.Texture | null },
+      hasCloud: { value: false },
       hasPrevious: { value: false },
       sunDepth: { value: 0 },
     },
     vertexShader: "void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }",
     fragmentShader: `
-      uniform sampler2D masks[${OCCLUDERS}], foregroundDepth, backgroundDepth, previous;
+      uniform sampler2D masks[${OCCLUDERS}], foregroundDepth, backgroundDepth, previous, cloudOpacity;
       uniform vec2 sunUv, maskHalfSize[${OCCLUDERS}];
       uniform int maskCount, maskBackground[${OCCLUDERS}];
-      uniform bool hasPrevious;
+      uniform bool hasPrevious, hasCloud;
       uniform float sunDepth;
       ${SOFT_DEPTH_GLSL}
       float coverage(sampler2D mask, vec2 halfSize, bool background, float last) {
@@ -110,9 +114,14 @@ export class GodRayOcclusion {
           if (textureLod(mask, vec2(maskUv.x, 1.0 - maskUv.y), 0.0).a <= 0.5) continue;
           total += 1.0;
           float depth = background ? textureLod(backgroundDepth, at, 0.0).r : textureLod(foregroundDepth, at, 0.0).r;
-          if (softViewDepth(depth) >= sunDepth) visible += 1.0;
+          if (softViewDepth(depth) >= sunDepth) {
+            // The native foreground query counts hundredths of visibility.
+            // Background queries set OcclusionFogWeight to zero.
+            float opacity = hasCloud && !background ? textureLod(cloudOpacity, at, 0.0).a : 0.0;
+            visible += floor(100.0 * (1.0 - min(opacity, 0.7)));
+          }
         }
-        return total > 0.0 ? visible / total : last;
+        return total > 0.0 ? visible / (100.0 * total) : last;
       }
       void main() {
         vec4 last = hasPrevious ? texture2D(previous, vec2(0.5)) : vec4(1.0);
@@ -125,7 +134,7 @@ export class GodRayOcclusion {
   });
   private readonly quad = new FullScreenQuad(this.material);
 
-  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, sun: GodRaySun, rays: GodRays): boolean {
+  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, sun: GodRaySun, rays: GodRays, clouds?: FlareClouds): boolean {
     const direction = this.sunInView.copy(sun.position).applyMatrix4(camera.matrixWorldInverse);
     const viewDepth = -direction.z;
     if (viewDepth <= 0 || SOFT_DEPTH.softDepthOn.value === 0 || !rays.masks.length) return false;
@@ -157,6 +166,11 @@ export class GodRayOcclusion {
       (mesh) => occluderLayer(mesh) === "foreground") : fullDepth;
     u["backgroundDepth"]!.value = layered ? this.background.capture(renderer, scene, camera, width, height,
       (mesh) => occluderLayer(mesh) === "background") : null;
+    u["hasCloud"]!.value = onScreen && !!clouds?.meshes.length;
+    if (onScreen && clouds?.meshes.length) {
+      this.cloudOpacity ??= new CloudOpacityPass();
+      u["cloudOpacity"]!.value = this.cloudOpacity.render(renderer, camera, clouds, width, height);
+    }
     u["sunDepth"]!.value = this.sunDepth;
     u["previous"]!.value = this.texture;
     u["hasPrevious"]!.value = hasPrevious;
@@ -177,6 +191,7 @@ export class GodRayOcclusion {
     for (const target of this.targets) target.dispose();
     this.foreground.dispose();
     this.background.dispose();
+    this.cloudOpacity?.dispose();
     this.material.dispose();
     this.quad.dispose();
   }
@@ -222,9 +237,9 @@ export class GodRaysPass {
 
   render(
     renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, sun: GodRaySun, settings: GodRays,
-    frame: THREE.Texture, width: number, height: number,
+    frame: THREE.Texture, width: number, height: number, clouds?: FlareClouds,
   ): THREE.Texture {
-    if (!this.occlusion.render(renderer, scene, camera, sun, settings)) return frame;
+    if (!this.occlusion.render(renderer, scene, camera, sun, settings, clouds)) return frame;
     this.combined.setSize(width, height);
     this.rays.setSize(Math.max(1, Math.floor(width / 2)), Math.max(1, Math.floor(height / 2)));
     const u = this.rayMaterial.uniforms;

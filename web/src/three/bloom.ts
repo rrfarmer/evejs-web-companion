@@ -21,6 +21,7 @@ import { toneMapGlsl, type DynamicExposure, type ToneMapMethod } from "./exposur
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL, SoftDepthPass } from "./softDepth.ts";
 import { ENVIRONMENT_FOG_GLSL, type EnvironmentFog } from "./environmentFog.ts";
 import { GodRaysPass, type GodRays, type GodRaySun } from "./godRays.ts";
+import type { FlareClouds } from "./cloudOpacity.ts";
 import { sceneReflection } from "./celestialModel.ts";
 import { DistortionPass } from "./distortion.ts";
 import type { SpaceShadowAtlas } from "./spaceShadowAtlas.ts";
@@ -52,7 +53,7 @@ export interface EnvironmentBloom {
 }
 
 export interface Bloom {
-  render(environment?: EnvironmentBloom | null, sun?: GodRaySun | null): void;
+  render(environment?: EnvironmentBloom | null, sun?: GodRaySun | null, clouds?: FlareClouds): void;
   setSize(width: number, height: number): void;
   dispose(): void;
 }
@@ -203,7 +204,7 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
   let rayPass: GodRaysPass | null = null;
 
   return {
-    render: (environment, sun) => {
+    render: (environment, sun, clouds) => {
       // The graphics settings (gfxSettings.ts) select postprocessing and the
       // shader model independently. The depth model composites environment fog.
       const quality = post.quality?.() ?? { postProcess: true, distortion: true };
@@ -219,7 +220,7 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       let frame = quality.distortion ? distortion.render(renderer, scene, camera, drawn) : drawn.texture;
       if (sun && godRays && godRays.intensity > 0) {
         rayPass ??= new GodRaysPass();
-        frame = rayPass.render(renderer, scene, camera, sun, godRays, frame, drawn.width, drawn.height);
+        frame = rayPass.render(renderer, scene, camera, sun, godRays, frame, drawn.width, drawn.height, clouds);
       }
       highPass.uniforms["frame"]!.value = frame;
       output.uniforms["frame"]!.value = frame;
