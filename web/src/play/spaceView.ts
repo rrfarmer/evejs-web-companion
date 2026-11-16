@@ -29,7 +29,7 @@ import { isNonInteractableWormhole, nonInteractableWormhole, updateWormholePose,
 import { CameraShake } from "./cameraShake.ts";
 import { ObservatoryEnvironment } from "./observatoryEnvironment.ts";
 import { ObservatoryVortex, OBSERVATORY_VORTEX_TYPE } from "../three/observatoryVortex.ts";
-import { SpaceShadowAtlas } from "../three/spaceShadowAtlas.ts";
+import { SpaceShadowAtlas, type ShadowPlanet } from "../three/spaceShadowAtlas.ts";
 import { VortexReflectionProbe, type VortexReflection } from "../three/vortexReflection.ts";
 import { CameraTaskGestures, type CameraTaskEvent } from "../bridge/cameraTasks.ts";
 import { initialOrbitDistance, isOwnStargateDeparture, MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose, validCameraPosition } from "./spaceCameraPose.ts";
@@ -2039,6 +2039,7 @@ export class SpaceView {
     const reflectClouds = settings.reflectionQuality >= 3 && settings.shaderQuality >= 2;
     const reflectionSources: VortexReflection[] = [];
     const shadowClouds: THREE.Mesh[] = [];
+    const shadowPlanets: ShadowPlanet[] = [];
     const flareClouds: ObservatoryVortex[] = [];
     const overviewMask = this.overview.activePreset();
     const bracketMask = this.overview.activeBracketPreset();
@@ -2074,6 +2075,8 @@ export class SpaceView {
       if (e.kind === "sun") {
         this.sunDir.copy(rel).normalize();
         sun = { position: mark.position, radius: e.radius };
+      } else if (rendering.shadows && (e.kind === "planet" || e.kind === "moon")) {
+        shadowPlanets.push({ center: mark.position, radius: e.radius });
       }
       let el = this.bracketEls.get(e.itemID);
       const highlighted = this.highlightedObjective === e.itemID;
@@ -2392,7 +2395,7 @@ export class SpaceView {
     this.missileFx.explosionLimit = settings.lodQuality * 30;
     this.updateReflections(eye, settings.reflectionQuality, reflectionSources);
     this.sunLight.position.copy(this.sunDir);
-    this.spaceShadows.render(this.scene, this.camera, this.sunDir, rendering.shadows, shadowClouds);
+    this.spaceShadows.render(this.scene, this.camera, this.sunDir, rendering.shadows, shadowClouds, shadowPlanets, sun?.position ?? null);
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, {
       exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering(),
       depthEffects: () => gfx().shaderQuality === 3, shadows: this.spaceShadows,

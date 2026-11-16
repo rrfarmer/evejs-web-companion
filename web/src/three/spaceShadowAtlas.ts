@@ -39,6 +39,31 @@ export const SPACE_SHADOW_GLSL = `
   }
 `;
 
+const OPAQUE_RESOLVE_GLSL = SPACE_SHADOW_GLSL + `
+  uniform vec4 planetShadowSpheres[2];
+  uniform vec3 shadowSunDirection;
+  float opaqueSpaceShadow(vec3 viewPosition) {
+    // ShadowDepth.sm_depth tests the two analytic spheres before sampling the atlas.
+    if (-viewPosition.z > ${MAX_DEPTH.toFixed(1)}) return 1.0;
+    for (int i = 0; i < 2; i++) {
+      vec4 sphere = planetShadowSpheres[i];
+      if (sphere.w <= 0.0) continue;
+      vec3 offset = sphere.xyz - viewPosition;
+      float along = dot(offset, shadowSunDirection);
+      float distanceSquared = dot(offset, offset);
+      float radiusSquared = sphere.w * sphere.w;
+      if (along < 0.0 && distanceSquared > radiusSquared) continue;
+      if (distanceSquared - along * along <= radiusSquared) return 0.0;
+    }
+    return spaceShadow(viewPosition, false);
+  }
+`;
+
+export interface ShadowPlanet {
+  center: THREE.Vector3;
+  radius: number;
+}
+
 function shadowUniforms() {
   return {
     shadowAtlas: { value: null as THREE.DepthTexture | null },
@@ -62,7 +87,7 @@ const OPAQUE_SHADOW_GLSL = `
       matchedDepth = sceneDepth < 1.0 && abs(softViewDepth(sceneDepth) - depth) <= max(0.01, depth * 0.00005);
       if (matchedDepth) visibility = texelFetch(opaqueShadowMask, pixel, 0).r;
     }
-    if (!matchedDepth) visibility = spaceShadow(viewPosition, false);
+    if (!matchedDepth) visibility = opaqueSpaceShadow(viewPosition);
     return visibility;
   }
 `;
@@ -82,7 +107,7 @@ function bindOpaqueShadow(material: THREE.MeshStandardMaterial): void {
     Object.assign(shader.uniforms, atlas);
     // Hull shaders may already have expanded this chunk, including the dust layer's lighting.
     const source = shader.fragmentShader.replaceAll("#include <lights_fragment_begin>", THREE.ShaderChunk.lights_fragment_begin);
-    shader.fragmentShader = SPACE_SHADOW_GLSL + OPAQUE_SHADOW_GLSL + source.replaceAll(directionalLight, `${directionalLight}
+    shader.fragmentShader = OPAQUE_RESOLVE_GLSL + OPAQUE_SHADOW_GLSL + source.replaceAll(directionalLight, `${directionalLight}
       #if UNROLLED_LOOP_INDEX == 0
         if (receiveShadow && directLight.visible) directLight.color *= opaqueSunVisibility(-vViewPosition);
       #endif`);
@@ -166,6 +191,13 @@ class CascadeShadow extends THREE.LightShadow<THREE.OrthographicCamera> {
 /** The sun's opaque caster depth, shared by hull lighting and Observatory volumes. */
 export class SpaceShadowAtlas {
   readonly uniforms = shadowUniforms();
+  private readonly planetShadows = {
+    planetShadowSpheres: { value: [new THREE.Vector4(), new THREE.Vector4()] },
+    shadowSunDirection: { value: new THREE.Vector3() },
+  };
+  private readonly viewport = new THREE.Vector2();
+  private readonly eye = new THREE.Vector3();
+  private readonly planetCenter = new THREE.Vector3();
   private readonly opaqueShadowMask = { value: null as THREE.Texture | null };
   private readonly opaqueShadowReady = { value: false };
   private mask: OpaqueShadowMask | null = null;
@@ -182,7 +214,7 @@ export class SpaceShadowAtlas {
   constructor(private readonly renderer: THREE.WebGLRenderer) {
     this.sun.shadow = this.shadow;
     atlasByRenderer.set(renderer, {
-      ...this.uniforms, ...SOFT_DEPTH,
+      ...this.uniforms, ...this.planetShadows, ...SOFT_DEPTH,
       opaqueShadowMask: this.opaqueShadowMask, opaqueShadowReady: this.opaqueShadowReady,
     });
   }
@@ -193,7 +225,7 @@ export class SpaceShadowAtlas {
 
   resolveOpaque(camera: THREE.Camera, width: number, height: number): void {
     if (!this.needsOpaqueDepth || !SOFT_DEPTH.softDepthOn.value) return;
-    this.mask ??= new OpaqueShadowMask(SPACE_SHADOW_GLSL, this.uniforms);
+    this.mask ??= new OpaqueShadowMask(OPAQUE_RESOLVE_GLSL, { ...this.uniforms, ...this.planetShadows });
     this.opaqueShadowMask.value = this.mask.render(this.renderer, camera, width, height);
     this.opaqueShadowReady.value = true;
   }
@@ -204,10 +236,35 @@ export class SpaceShadowAtlas {
     }
   }
 
-  render(scene: THREE.Scene, view: THREE.PerspectiveCamera, sunDirection: THREE.Vector3, enabled: boolean, clouds: readonly THREE.Mesh[]): void {
+  private selectPlanetShadows(view: THREE.PerspectiveCamera, sunDirection: THREE.Vector3, sunPosition: THREE.Vector3 | null, planets: readonly ShadowPlanet[]): void {
+    // EveSpaceScene ranks planet models by estimatedPixelDiameter. The
+    // estimate uses eye distance and includes bodies outside the view frustum.
+    const diameterScale = this.renderer.getDrawingBufferSize(this.viewport).y * view.projectionMatrix.elements[5]!;
+    this.eye.setFromMatrixPosition(view.matrixWorld);
+    this.planetShadows.shadowSunDirection.value.copy(sunDirection).transformDirection(view.matrixWorldInverse);
+    const candidates: { planet: ShadowPlanet; diameter: number }[] = [];
+    for (const planet of planets) {
+      if (sunPosition && this.planetCenter.copy(planet.center).sub(sunPosition).dot(sunPosition) > 0) continue;
+      const diameter = diameterScale * planet.radius / Math.max(1e-5, this.eye.distanceTo(planet.center));
+      if (diameter > 50) candidates.push({ planet, diameter });
+    }
+    candidates.sort((a, b) => b.diameter - a.diameter);
+    const slots = this.planetShadows.planetShadowSpheres.value;
+    for (let i = 0; i < slots.length && i < candidates.length; i++) {
+      const { center, radius } = candidates[i]!.planet;
+      const p = this.planetCenter.copy(center).applyMatrix4(view.matrixWorldInverse);
+      slots[i]!.set(p.x, p.y, p.z, radius);
+    }
+  }
+
+  render(
+    scene: THREE.Scene, view: THREE.PerspectiveCamera, sunDirection: THREE.Vector3, enabled: boolean,
+    clouds: readonly THREE.Mesh[], planets: readonly ShadowPlanet[], sunPosition: THREE.Vector3 | null,
+  ): void {
     this.hasOpaque = false;
     this.opaqueShadowMask.value = null;
     this.opaqueShadowReady.value = false;
+    for (const sphere of this.planetShadows.planetShadowSpheres.value) sphere.set(0, 0, 0, 0);
     const uniforms = this.uniforms;
     uniforms.shadowAtlas.value = null;
     uniforms.firstShadowSplit.value = 0;
@@ -250,6 +307,7 @@ export class SpaceShadowAtlas {
     active.length = 0;
     this.needed.forEach((needed, split) => { if (needed) active.push(split); });
     if (!active.length) return;
+    if (this.hasOpaque && planets.length) this.selectPlanetShadows(view, sunDirection, sunPosition, planets);
     this.shadow.map ??= new THREE.WebGLRenderTarget(ATLAS_SIZE, ATLAS_SIZE, {
       depthTexture: new THREE.DepthTexture(ATLAS_SIZE, ATLAS_SIZE, THREE.UnsignedIntType),
     });

@@ -90,7 +90,7 @@ export class OpaqueShadowMask {
         if (depth < 1.0) {
           vec2 ndc = gl_FragCoord.xy / softDepthSize * 2.0 - 1.0;
           vec4 ray = inverseProjection * vec4(ndc, -1.0, 1.0);
-          visibility = spaceShadow(ray.xyz * (-softViewDepth(depth) / ray.z), false);
+          visibility = opaqueSpaceShadow(ray.xyz * (-softViewDepth(depth) / ray.z));
         }
         gl_FragColor = vec4(vec3(visibility), 1.0);
       }
