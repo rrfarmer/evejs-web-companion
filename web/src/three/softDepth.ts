@@ -41,10 +41,10 @@ export class SoftDepthPass {
   private target: THREE.WebGLRenderTarget | null = null;
   private readonly blank = new THREE.MeshBasicMaterial({ colorWrite: false });
 
-  /** Draws the scene's opaque depth (where a soft area is in view) and points the shared uniforms at it. */
-  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, width: number, height: number): void {
+  /** Draws opaque depth for visible soft areas or an active depth-based postprocess. */
+  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, width: number, height: number, forceOpaque = false): void {
     const hidden: THREE.Object3D[] = [];
-    let wanted = false;
+    let wanted = forceOpaque;
     scene.traverseVisible((o) => {
       const mat = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
       if (!mat) return;

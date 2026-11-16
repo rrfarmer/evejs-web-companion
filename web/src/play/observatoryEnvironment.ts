@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { EnvironmentBloom } from "../three/bloom.ts";
+import type { AuthoredEnvironmentFog } from "../three/environmentFog.ts";
 import { loadDds, loadDds3D } from "../three/ddsTexture.ts";
 
 const ENVIRONMENT_ANCHOR_TYPE = 49106;
@@ -11,13 +12,15 @@ interface Template {
   anchor: number;
   activationRadius: number;
   distanceField: {
+    dimensions: readonly [number, number, number];
     minDistance: number;
     maxDistance: number;
     timeAdjustmentSecondsIn: number;
     timeAdjustmentSecondsOut: number;
   };
   postProcess: {
-    ranges: { bloom: [min: number, max: number] };
+    ranges: { bloom: [min: number, max: number]; fog: [min: number, max: number] };
+    fog: AuthoredEnvironmentFog;
     bloom: { luminanceThreshold: number; luminanceScale: number; grimePath: string; grimeWeight: number };
     lut: { path: string; influence: number };
   };
@@ -55,7 +58,8 @@ export class ObservatoryEnvironment {
   private data: Environment | null = null;
   private requested = false;
   private anchorID: number | null = null;
-  private influence = 0;
+  private cameraDistance = 0;
+  private fogTime = 0;
 
   private readonly load: () => Promise<Environment>;
 
@@ -80,7 +84,8 @@ export class ObservatoryEnvironment {
     if (!anchor || (this.data && distance >= this.data.template.activationRadius)) {
       this.anchorID = null;
       this.requested = false;
-      this.influence = 0;
+      this.cameraDistance = 0;
+      this.fogTime = 0;
       return null;
     }
     if (!this.data) {
@@ -93,25 +98,36 @@ export class ObservatoryEnvironment {
       return null;
     }
     const { template, grime, lut } = this.data;
-    const { minDistance, maxDistance, timeAdjustmentSecondsIn, timeAdjustmentSecondsOut } = template.distanceField;
+    const { dimensions, minDistance, maxDistance, timeAdjustmentSecondsIn, timeAdjustmentSecondsOut } = template.distanceField;
     if (this.anchorID !== anchor.itemID) {
       this.anchorID = anchor.itemID;
-      this.influence = 0;
+      this.cameraDistance = maxDistance;
+      this.fogTime = 0;
     }
-    // The installed EveDistanceField generates a linear DistanceCurve between these two authored keys.
-    const target = 1 - THREE.MathUtils.clamp((distance - minDistance) / (maxDistance - minDistance), 0, 1);
-    const seconds = target > this.influence ? timeAdjustmentSecondsIn : timeAdjustmentSecondsOut;
-    const step = dt / seconds;
-    this.influence = THREE.MathUtils.clamp(target, this.influence - step, this.influence + step);
-    const { bloom, ranges, lut: grading } = template.postProcess;
+    // EveDistanceField smooths the camera distance before evaluating DistanceCurve.
+    const target = Math.min(distance, maxDistance);
+    const seconds = target < this.cameraDistance ? timeAdjustmentSecondsIn : timeAdjustmentSecondsOut;
+    this.cameraDistance = THREE.MathUtils.lerp(this.cameraDistance, target, Math.min(dt / seconds, 1));
+    const influence = 1 - THREE.MathUtils.clamp((this.cameraDistance - minDistance) / (maxDistance - minDistance), 0, 1);
+
+    // PostProcess._DoFogFadeIn uses an independent 1.5 s smoothstep in simulation time.
+    this.fogTime = Math.min(this.fogTime + dt, 1.5);
+    const fade = this.fogTime / 1.5;
+    const { bloom, fog, ranges, lut: grading } = template.postProcess;
     return {
       luminanceThreshold: bloom.luminanceThreshold,
       luminanceScale: bloom.luminanceScale,
-      brightness: THREE.MathUtils.lerp(...ranges.bloom, this.influence),
+      brightness: THREE.MathUtils.lerp(...ranges.bloom, influence),
       grime,
-      grimeWeight: bloom.grimeWeight * this.influence,
+      grimeWeight: bloom.grimeWeight * influence,
       lut,
-      lutInfluence: grading.influence * this.influence,
+      lutInfluence: grading.influence * influence,
+      fog: {
+        settings: fog, dimensions, influence,
+        center: { x: anchor.position.x - origin.x, y: anchor.position.y - origin.y, z: origin.z - anchor.position.z },
+        amount: THREE.MathUtils.lerp(...ranges.fog, influence),
+        intensity: Math.min(fog.intensity ?? 1, fade * fade * (3 - 2 * fade)),
+      },
     };
   }
 }

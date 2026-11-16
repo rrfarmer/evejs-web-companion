@@ -18,7 +18,9 @@
 import * as THREE from "three";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { toneMapGlsl, type DynamicExposure, type ToneMapMethod } from "./exposure.ts";
-import { SoftDepthPass } from "./softDepth.ts";
+import { SOFT_DEPTH, SOFT_DEPTH_GLSL, SoftDepthPass } from "./softDepth.ts";
+import { ENVIRONMENT_FOG_GLSL, type EnvironmentFog } from "./environmentFog.ts";
+import { sceneReflection } from "./celestialModel.ts";
 import { DistortionPass } from "./distortion.ts";
 
 /** Tr2PPBloomEffect's values (the client's defaults; the scenes set luminanceThreshold 0). */
@@ -43,6 +45,7 @@ export interface EnvironmentBloom {
   grimeWeight: number;
   lut: THREE.Data3DTexture;
   lutInfluence: number;
+  fog: EnvironmentFog;
 }
 
 export interface Bloom {
@@ -60,7 +63,7 @@ function target(w: number, h: number): THREE.WebGLRenderTarget {
 
 /** A scene drawn, bloomed, exposed and tone-mapped as the client does it. */
 export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera,
-  post: { exposure: () => DynamicExposure | null; toneMap: ToneMapMethod; quality?: () => { postProcess: boolean; distortion: boolean } }): Bloom {
+  post: { exposure: () => DynamicExposure | null; toneMap: ToneMapMethod; quality?: () => { postProcess: boolean; distortion: boolean }; depthEffects?: () => boolean }): Bloom {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
   const drawn = new THREE.WebGLRenderTarget(Math.max(1, size.x), Math.max(1, size.y), { type: THREE.HalfFloatType, samples: 4 });
   // levels[i] is 1 / 2^(i + 1) of the frame; blurred[s] is step s's blur, at its level; spare[i] the blur's halfway
@@ -127,6 +130,13 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       grime: { value: null }, grimeWeight: { value: 0 }, colorLut: { value: null }, lutInfluence: { value: 0 },
       step0: { value: null }, step1: { value: null }, step2: { value: null }, step3: { value: null }, step4: { value: null }, step5: { value: null },
       tints: { value: BLOOM.steps.map((s) => s.tint) },
+      ...SOFT_DEPTH,
+      fogEnabled: { value: false }, fogHasNebula: { value: false }, fogNebula: { value: null },
+      fogInverseProjection: { value: camera.projectionMatrixInverse }, fogWorldFromView: { value: camera.matrixWorld },
+      fogColorParams: { value: new THREE.Vector4() }, fogCompositeParams: { value: new THREE.Vector3() },
+      fogAreaSize: { value: new THREE.Vector3() }, fogEyeFromCenter: { value: new THREE.Vector3() },
+      fogColor: { value: new THREE.Vector3() }, fogBrightness: { value: new THREE.Vector3() },
+      fogBlend0: { value: new THREE.Vector4() }, fogBlend1: { value: new THREE.Vector4() }, fogBlend2: { value: new THREE.Vector4() },
     },
     vertexShader: VERTEX,
     fragmentShader: `uniform sampler2D frame, step0, step1, step2, step3, step4, step5, grime;
@@ -136,6 +146,8 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       varying vec2 vUv;
       ${SAFE}
       ${toneMapGlsl(post.toneMap)}
+      ${SOFT_DEPTH_GLSL}
+      ${ENVIRONMENT_FOG_GLSL}
       void main() {
         vec3 bloom = texture2D( step0, vUv ).rgb * tints[0] + texture2D( step1, vUv ).rgb * tints[1] + texture2D( step2, vUv ).rgb * tints[2]
           + texture2D( step3, vUv ).rgb * tints[3] + texture2D( step4, vUv ).rgb * tints[4] + texture2D( step5, vUv ).rgb * tints[5];
@@ -143,7 +155,8 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
         if ( grimeWeight > 0.0 ) bloom *= 1.0 + texture2D( grime, vec2( vUv.x, 1.0 - vUv.y ) ).rgb * grimeWeight;
         vec3 colour = safe( texture2D( frame, vUv ).rgb ) + toneMapped( bloom * brightness );
         colour = clamp( toneMapped( colour * exposure ), 0.0, 1.0 );
-        colour = mix( colour * 12.92, 1.055 * pow( colour, vec3( 1.0 / 2.4 ) ) - 0.055, step( vec3( 0.0031308 ), colour ) );
+        colour = toSrgb( colour );
+        if ( fogEnabled ) colour = environmentFog( colour, vUv );
         // The volume indexes the encoded RGB directly and returns encoded RGB.
         if ( lutInfluence > 0.0 ) colour = mix( colour, texture( colorLut, colour ).rgb, lutInfluence );
         gl_FragColor = vec4( colour, 1.0 );
@@ -181,18 +194,40 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
 
   return {
     render: (environment) => {
-      softDepth.render(renderer, scene, camera, drawn.width, drawn.height);
+      // The graphics settings (gfxSettings.ts) select postprocessing and the
+      // shader model independently. The depth model composites environment fog.
+      const quality = post.quality?.() ?? { postProcess: true, distortion: true };
+      const active = quality.postProcess ? environment : null;
+      const fog = post.depthEffects?.() ? active?.fog : undefined;
+      softDepth.render(renderer, scene, camera, drawn.width, drawn.height, !!fog);
       renderer.setRenderTarget(drawn);
       renderer.render(scene, camera);
-      // the graphics settings (gfxSettings.ts): the post-process (the bloom) off at low post-processing quality, the
-      // distortion only at high shader quality - the frame tone-mapped and exposed either way
-      const quality = post.quality?.() ?? { postProcess: true, distortion: true };
       const frame = quality.distortion ? distortion.render(renderer, scene, camera, drawn) : drawn.texture;
       highPass.uniforms["frame"]!.value = frame;
       output.uniforms["frame"]!.value = frame;
       const e = post.exposure();
       if (e) e.measure(renderer, frame);
-      const active = quality.postProcess ? environment : null;
+      output.uniforms["fogEnabled"]!.value = !!fog;
+      if (fog) {
+        const f = fog.settings;
+        const u = output.uniforms;
+        const cube = sceneReflection.value;
+        u["fogNebula"]!.value = cube;
+        u["fogHasNebula"]!.value = (cube as THREE.CubeTexture | null)?.isCubeTexture === true;
+        // Defaults from Tr2PPFogEffect and the four properties the native factory interpolates.
+        const influence = fog.influence;
+        u["fogColorParams"]!.value.set(THREE.MathUtils.lerp(0.5, f.nebulaInfluence, influence), f.nebulaBlur ?? 7,
+          f.originalBrightenOnly ?? 0.5, THREE.MathUtils.lerp(0.125, f.colorInfluence, influence));
+        u["fogCompositeParams"]!.value.set(fog.amount, THREE.MathUtils.lerp(1, f.backgroundOcclusion, influence), fog.intensity);
+        u["fogAreaSize"]!.value.set(fog.dimensions[0] * f.areaScale[0], fog.dimensions[1] * f.areaScale[1], fog.dimensions[2] * f.areaScale[0]);
+        u["fogEyeFromCenter"]!.value.setFromMatrixPosition(camera.matrixWorld).sub(fog.center);
+        u["fogColor"]!.value.set(f.color[0], f.color[1], f.color[2]);
+        u["fogBrightness"]!.value.set(f.brightnessThreshold0 ?? 0, f.brightnessThreshold1 ?? 0.5,
+          THREE.MathUtils.lerp(1, f.brightnessAdjustmentAmount, influence));
+        u["fogBlend0"]!.value.set(f.blendDistance0, f.blendBias0, f.blendAmount0, f.blendPower0 ?? 2);
+        u["fogBlend1"]!.value.set(f.blendDistance1, f.blendBias1, f.blendAmount1, f.blendPower1 ?? 1);
+        u["fogBlend2"]!.value.set(f.blendDistance2, f.blendBias2, f.blendAmount2, f.blendPower2);
+      }
       output.uniforms["brightness"]!.value = quality.postProcess ? active?.brightness ?? BLOOM.brightness : 0;
       output.uniforms["grime"]!.value = active?.grime ?? null;
       output.uniforms["grimeWeight"]!.value = active?.grimeWeight ?? 0;

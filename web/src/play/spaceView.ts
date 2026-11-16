@@ -2356,8 +2356,9 @@ export class SpaceView {
     this.lodChildMeshesHidden = childMeshesHidden;
     this.missileFx.explosionLimit = settings.lodQuality * 30;
     this.fitSunShadow();
-    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering() });
-    const environment = this.observatoryEnvironment.sample(ego ? snap?.entities ?? [] : [], origin, eye, dt, rendering.postProcess);
+    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering(), depthEffects: () => gfx().shaderQuality === 3 });
+    const simDt = dt * (this.options.flightSnapshot?.()?.timeDilation ?? 1);
+    const environment = this.observatoryEnvironment.sample(ego ? snap?.entities ?? [] : [], origin, eye, simDt, rendering.postProcess);
     this.bloom.render(environment);
   }
 
