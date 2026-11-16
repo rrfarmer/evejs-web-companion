@@ -81,6 +81,7 @@ import {
 } from "./droneLaunch.ts";
 import { decideDroneBoat, type LockRefusals } from "./droneBoatLadder.ts";
 import { settleCombat } from "./combatOwnership.ts";
+import { combatReload } from "./combatWeapons.ts";
 import { defenderSiteIdentity } from "./operationDefender.ts";
 import { decideDroneRotation, readRotationMemory } from "./droneRotation.ts";
 import {
@@ -4219,8 +4220,20 @@ function fightRatsLadder(
       );
     }
   }
+  // An empty gun is loaded from the cargo before anything is fired (issue 181: a
+  // railgun bank sat empty while the block pressed it every tick and was refused
+  // NoCharges). The combat read that proves the charge fits is made only while a
+  // gun is empty; a bank is loaded through its master. Each gun gets a few
+  // attempts (COMBAT_RELOAD_ATTEMPTS), so a fit with nothing it can load carries on.
+  const reload = combatReload(obs.combatWeapons, mem);
+  if (obs.combatWeapons) mem = reload.memory;
+  if (reload.action !== null) {
+    return tick(reload.action, "Loading the empty gun from the cargo.", "Fighting", ACTING, true, mem);
+  }
+  // ⚠ AN EMPTY GUN IS NEVER PRESSED: it cannot fire, and the server refuses it.
   const active = new Set(snapshot.ship?.activeModuleIDs ?? []);
-  const idleGun = weapons.find((id) => !active.has(id));
+  const empty = new Set(obs.unloadedWeaponIDs ?? []);
+  const idleGun = weapons.find((id) => !active.has(id) && !empty.has(id));
   if (idleGun !== undefined) {
     return tick(
       { kind: "activate", moduleID: idleGun, targetID },
@@ -4230,6 +4243,16 @@ function fightRatsLadder(
       true,
       mem,
     );
+  }
+  // Every gun empty by this tick's own read, none of them loadable from the cargo,
+  // and no drones to fight with: nothing here can hurt the rat, so say so.
+  const fresh = obs.combatWeapons;
+  if (fresh && fresh.weapons.length > 0 && fresh.weapons.every((gun) => gun.acceptedGroups !== null && (gun.chargeTypeID === null || (gun.chargeQuantity ?? 0) <= 0)) &&
+      roster.roleOut.length === 0 && roster.roleBay.length === 0) {
+    return tick(WAIT, "Every gun is empty.", "Fighting", {
+      kind: "blocked",
+      reason: "Every gun is empty, and the cargo holds no ammunition that fits them.",
+    });
   }
   return tick(WAIT, "Fighting it.", "Fighting", ACTING, true, mem);
 }

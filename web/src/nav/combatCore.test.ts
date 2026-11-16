@@ -42,7 +42,10 @@ test("strict reload uses only the fitted weapon's proven group AND size", () => 
   assert.equal(combatReload({ ...facts, cargo: [{ ...ammo, size: 2 }] }, {}).action, null);
   assert.equal(combatReload({ ...facts, cargo: [] }, {}).action, null);
   assert.equal(combatReload({ ...facts, cargo: null }, {}).action, null);
-  assert.equal(combatReload({ ...facts, weaponBanks: { 11: [12] } }, {}).action, null);
+  // A bank is loaded through its master, which the server's LoadAmmo expands to the whole bank; its other guns never.
+  assert.deepEqual(combatReload({ ...facts, weaponBanks: { 11: [12] } }, {}).action,
+    { kind: "loadCombatAmmo", moduleID: 11, chargeItemID: 22, chargeTypeID: 222 });
+  assert.equal(combatReload({ ...facts, weaponBanks: { 12: [11] } }, {}).action, null);
   assert.equal(combatReload({ ...facts, weaponBanks: null }, {}).action, null);
 });
 test("per-weapon range neither invents reach nor makes the shortest gun move the ship", () => {

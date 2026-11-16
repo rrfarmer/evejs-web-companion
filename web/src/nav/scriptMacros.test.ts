@@ -2190,6 +2190,35 @@ test("fight: no guns and no drones -> blocked with a plain reason", () => {
   assert.equal(salvageOnly.outcome.kind, "blocked");
 });
 
+test("fight: an empty gun is loaded from the cargo, a bank through its master, and never pressed (issue 181)", () => {
+  const fight = SCRIPT_MACROS["fight-the-rats"]!;
+  const s = { id: "f", kind: "macro", macro: "fight-the-rats", args: {} } as const;
+  const rat = entity({ itemID: 6661, kind: "ship", isNpc: true, npcEntityType: "npc", position: { x: 5000, y: 0, z: 0 } });
+  const gun = (itemID: number, loaded: boolean) => ({ itemID, typeID: 3074, chargeTypeID: loaded ? 238 : null,
+    chargeQuantity: loaded ? 40 : 0, acceptedGroups: [85], chargeSize: 1, reachM: 20_000, tracking: 1 });
+  const ammo = { itemID: 777, typeID: 238, groupID: 85, size: 1, quantity: 16_339 };
+  const locked = { targetID: 6661, lockIssued: true, waited: 0 };
+  // A bank of three railguns, 500 its master, all empty, with antimatter in the cargo.
+  const world = (over: Record<string, unknown>) => obs({ snapshot: snapshot([rat]), lockedTargetIDs: [6661], droneBayItemIDs: [],
+    weaponModuleIDs: [500, 501, 502], unloadedWeaponIDs: [500, 501, 502], ...over });
+  const banked = { shipID: 9001, weaponBanks: { 500: [501, 502] }, weapons: [gun(500, false), gun(501, false), gun(502, false)], cargo: [ammo] };
+  const load = fight(s, world({ combatWeapons: banked }), locked, {});
+  assert.deepEqual(load.action, { kind: "loadCombatAmmo", moduleID: 500, chargeItemID: 777, chargeTypeID: 238 });
+
+  // Without the read that proves a charge fits, nothing is loaded, and the empty guns are still never pressed.
+  const unread = fight(s, world({ combatWeapons: null }), locked, {});
+  assert.equal(unread.action.kind, "wait");
+
+  // One gun loaded and one empty: the loaded one fires.
+  const mixed = fight(s, world({ weaponModuleIDs: [500, 600], unloadedWeaponIDs: [600], combatWeapons: null }), locked, {});
+  assert.ok(mixed.action.kind === "activate" && mixed.action.moduleID === 500);
+
+  // Every gun empty, nothing in the cargo fits, and no drones: blocked, in words.
+  const dry = fight(s, world({ combatWeapons: { ...banked, cargo: [] } }), locked, {});
+  assert.equal(dry.outcome.kind, "blocked");
+  assert.match(dry.outcome.kind === "blocked" ? dry.outcome.reason : "", /empty/);
+});
+
 test("fight: a mixed bay -> only the COMBAT drones are launched; a mixed flight -> only they are set on the rat", () => {
   const fight = SCRIPT_MACROS["fight-the-rats"]!;
   const s = { id: "f", kind: "macro", macro: "fight-the-rats", args: {} } as const;

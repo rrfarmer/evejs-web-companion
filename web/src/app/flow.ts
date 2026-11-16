@@ -26563,8 +26563,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           combatHardenerModuleIDs: capabilities.combatHardeners,
           weaponModuleIDs: hint.activeMacro === "fight-with-drones" ? capabilities.combatWeaponIDs : capabilities.defense.weapons,
           ...await (async () => {
+            // `fight-the-rats` reads it only while a gun is empty: it is what the block reloads from, and the read
+            // is four calls a tick.
             const facts = hint.needsMobileCombat || hint.activeMacro === "fight-with-drones"
-              ? await readCombatLoadout(observedShipID, capabilities.combatWeaponIDs) : null;
+              ? await readCombatLoadout(observedShipID, capabilities.combatWeaponIDs)
+              : hint.activeMacro === "fight-the-rats" && capabilities.unloadedWeaponIDs.length > 0
+                ? await readCombatLoadout(observedShipID, capabilities.defense.weapons) : null;
             return { combatWeapons: facts?.weapons ?? null, combatUtilities: facts?.utilities ?? null };
           })(),
           maxTargetRangeM: capabilities.maxTargetRangeM,
