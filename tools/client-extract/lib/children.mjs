@@ -1018,7 +1018,7 @@ function joinDynamicBindings(o, skipped) {
   return external;
 }
 
-export function readEffectFile(rf, path) {
+export function readEffectFile(rf, path, selectRoot = (root) => root) {
   const res = String(path).toLowerCase().replace(/\.red$/, ".black");
   if (!rf.has(res)) return null;
   ids = new WeakMap();
@@ -1030,7 +1030,7 @@ export function readEffectFile(rf, path) {
   const skipped = {};
   let root = null, o = null, external = [];
   try {
-    o = readBlack(rf.read(res), res);
+    o = selectRoot(readBlack(rf.read(res), res));
     shownBySet = findShownBySet(o);
     actionEmitters = findActionEmitters(o);
     if (o && typeof o === "object") external = joinDynamicBindings(o, skipped);

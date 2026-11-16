@@ -24,6 +24,7 @@ import { TurretFx, fxGuid } from "./turretFx.ts";
 import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three/impactOverlay.ts";
 import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
+import { DRIFTER_COLLECTION, DrifterCollectionExplosions } from "./drifterCollectionExplosions.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { CameraTaskGestures, type CameraTaskEvent } from "../bridge/cameraTasks.ts";
 import { initialOrbitDistance, isOwnStargateDeparture, MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose, validCameraPosition } from "./spaceCameraPose.ts";
@@ -253,6 +254,7 @@ export class SpaceView {
   readonly missileFx = new MissileFx();
   /** The ShipEffects playing (shipFx.ts): a web's vortex on its target and the like. */
   readonly shipFx = new ShipFx();
+  private readonly collectionExplosions = new DrifterCollectionExplosions(this.scene);
   /** The camera's shake (cameraShake.ts): explosions shake it. */
   private readonly shake = new CameraShake();
   /** The Drone Models setting the drones' models were last shown by. */
@@ -359,8 +361,13 @@ export class SpaceView {
     // explosion bucket's explosions' sounds, where it was
     if (name === "TerminalPlayDestructionEffect" && gfx().explosionEffectsEnabled) {
       const id = Number(args[0]);
-      const typeID = this.snapshot?.entities.find((e) => e.itemID === id)?.typeID ?? this.typeOfID.get(id) ?? null;
-      if (typeID) void explosionSoundsOf().then((table) => {
+      const entity = this.snapshot?.entities.find((e) => e.itemID === id);
+      const typeID = entity?.typeID ?? this.typeOfID.get(id) ?? null;
+      if (typeID === DRIFTER_COLLECTION && Number(args[args.length - 1]) === 3) {
+        const gone = this.gone.get(id);
+        const position = entity?.position ?? (gone && { x: gone.x, y: gone.y, z: -gone.z });
+        if (position) this.collectionExplosions.queue(id, position, this.live.simNow());
+      } else if (typeID) void explosionSoundsOf().then((table) => {
         for (const s of pickExplosion(table, typeID)) {
           window.setTimeout(() => {
             const at = this.placeOf(id, this.lastOrigin);
@@ -731,6 +738,7 @@ export class SpaceView {
     this.warpTunnel.dispose();
     this.live.fxListeners.delete(this.hearFx);
     this.turretFx.dispose();
+    this.collectionExplosions.clear();
     this.combatMessage.dispose();
     this.systemMap?.dispose();
     for (const off of this.unhold) off();
@@ -1851,6 +1859,7 @@ export class SpaceView {
     // a new ego position to rebase the old camera.
     if (this.live.resets !== this.seenResets) {
       this.seenResets = this.live.resets;
+      this.collectionExplosions.clear();
       if (this.gateJump && systemID !== null && this.seenSystem !== null && systemID !== this.seenSystem) {
         this.gateJump.arrivedAt = now;
       }
@@ -1981,8 +1990,10 @@ export class SpaceView {
     for (const [id, m] of this.marks) if (!seen.has(id)) {
       // where it went from, for a moment, in the system's own frame (an explosion is drawn where a ball was)
       this.gone.set(id, { x: m.position.x + origin.x, y: m.position.y + origin.y, z: m.position.z - origin.z, radius: m.userData.radius ?? null, at: performance.now() });
-      this.scene.remove(m); this.marks.delete(id);
+      if (!this.collectionExplosions.holdModel(id, m)) this.scene.remove(m);
+      this.marks.delete(id);
     }
+    this.collectionExplosions.update(origin, this.live.simNow());
     for (const [id, g] of this.gone) if (performance.now() - g.at > 5000) this.gone.delete(id);
 
     const cap = this.options.rack?.capacitor?.().ratio ?? ego?.capacitorRatio ?? null;
@@ -2270,6 +2281,7 @@ export class SpaceView {
    */
   private markFor(e: Entity): THREE.Object3D {
     const holder = new THREE.Group();
+    if (e.typeID === DRIFTER_COLLECTION && gfx().explosionEffectsEnabled) this.collectionExplosions.preload();
     // a missile's ball draws nothing of its own: its warheads are drawn by missileFx
     if (e.kind === "missile") { holder.userData = { kind: e.kind, radius: e.radius }; return holder; }
     const big = ["station", "planet", "moon", "sun", "stargate", "structure"].includes(e.kind);

@@ -120,7 +120,7 @@ export function explosionSoundsOf(): Promise<ExplosionSounds> {
 }
 /** GetRandomExplosion: one of a type's bucket's explosions for its race (else the default's), by their chances. */
 /** One of a type's bucket's explosions, by its chance: its sounds, each with its emitter's scaling (the bucket's local or global scale). */
-export function pickExplosion(table: ExplosionSounds, typeID: number): { event: string; time: number; scale: number }[] {
+export function pickExplosion(table: ExplosionSounds, typeID: number, part?: "l" | "g"): { event: string; time: number; scale: number }[] {
   const t = table.types[String(typeID)];
   if (!t) return [];
   const bucket = table.buckets[String(t[0])];
@@ -128,7 +128,8 @@ export function pickExplosion(table: ExplosionSounds, typeID: number): { event: 
   const total = list.reduce((n, o) => n + o.w, 0);
   let r = Math.random() * total;
   const chosen = list.find((o) => (r -= o.w) <= 0) ?? list[list.length - 1];
-  return (chosen?.s ?? []).map((s) => ({ event: s.event, time: s.time, scale: s.k === "l" ? chosen!.ls ?? 1 : s.k === "g" ? chosen!.gs ?? 1 : 1 }));
+  return (chosen?.s ?? []).filter((s) => part === undefined || s.k === part)
+    .map((s) => ({ event: s.event, time: s.time, scale: s.k === "l" ? chosen!.ls ?? 1 : s.k === "g" ? chosen!.gs ?? 1 : 1 }));
 }
 
 function eventsMap(): Promise<Record<string, EventSounds>> {

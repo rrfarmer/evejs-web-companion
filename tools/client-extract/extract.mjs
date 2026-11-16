@@ -553,6 +553,35 @@ function addToManifest(outRoot, build, client, done) {
   fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2));
 }
 
+// Build 3698585: type 85231 uses graphic 28011 and bucket 36. Hull jhs1 has
+// no explosion or damage locators, so only the global graph is placed.
+async function extractDrifterCollectionExplosion(rf, outRoot) {
+  const resource = "res:/fisfx/explosion/ecx_drifter_explosive_01a.red";
+  let explosion;
+  const effect = readEffectFile(rf, resource, (root) => {
+    explosion = root.effectChildren?.find((child) => child.type === "EveChildExplosion");
+    return explosion?.globalExplosion;
+  });
+  if (!effect?.root) throw new Error(`Drifter Collection global effect missing from ${resource}`);
+  const { root, childEffects, skipped } = effect;
+  const hasGpu = await copyChildGraphAssets(rf, [root, ...Object.values(childEffects)], outRoot);
+  const gpuParticles = hasGpu ? Object.fromEntries([
+    ["atlas", "res:/fisfx/gpuparticles/systematlas.dds"],
+    ["noise", "res:/texture/global/noise32cube_volume.dds"],
+  ].map(([name, res]) => [name, rf.has(res) ? copyRes(rf, res, outRoot) : null])) : undefined;
+  fs.writeFileSync(path.join(outRoot, "drifterCollectionExplosion.json"), JSON.stringify({
+    explosionBuild: 1,
+    root,
+    childEffects,
+    skipped,
+    gpuParticles,
+    delayMs: explosion.globalExplosionDelay * 1000,
+    durationMs: explosion.globalDuration * 1000,
+    modelSwitchDelayMs: 504,
+    scale: 0.75,
+  }));
+}
+
 function parseArgs(argv) {
   const out = { hulls: [], types: [], graphics: [], dnas: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, sofMaterials: false, fx: [], effects: [], starMap: false, fittingScene: false };
   for (let i = 0; i < argv.length; i++) {
@@ -578,6 +607,7 @@ function parseArgs(argv) {
     else if (a === "--dscan-hologram") out.dscanHologram = true;
     else if (a === "--dscan-cones") out.dscanCones = true;
     else if (a === "--ship-info") out.shipInfo = true;
+    else if (a === "--drifter-collection-explosion") out.drifterCollectionExplosion = true;
     else if (a === "--effect") out.effects.push(argv[++i]);
     else if (a === "--missile") out.missiles.push(Number(argv[++i]));
     else if (a === "--system-celestials") out.systemCelestials.push(Number(argv[++i]));
@@ -751,6 +781,7 @@ async function main() {
     fs.writeFileSync(path.join(outRoot, "fittingScene.json"), JSON.stringify(scene));
     console.log(`fittingScene.json: ${Object.keys(scene).filter((k) => scene[k]).join(", ")}`);
   }
+  if (args.drifterCollectionExplosion) await extractDrifterCollectionExplosion(rf, outRoot);
   if (args.shipInfo) {
     if (!sde) throw new Error("--ship-info needs the SDE");
     const graphic = (id) => sdeGraphic(sde, id)?.graphicFile;
@@ -846,7 +877,7 @@ async function main() {
     }
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

@@ -200,3 +200,30 @@ test("celestial caches refresh the installed population flags and keep legacy fi
     assert.equal(bakes, 1);
   });
 });
+
+test("the installed build generates and caches the Drifter Collection explosion graph", async t => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "evejs-client-drifter-explosion-"));
+  t.after(() => fs.rm(temp, { recursive: true, force: true }));
+  const clientRoot = path.join(temp, "install"), root = path.join(temp, "assets");
+  const name = "drifterCollectionExplosion.json";
+  const graph = { explosionBuild: 1, delayMs: 4200, durationMs: 38000, scale: 0.75 };
+  await put(clientRoot, "tq/start.ini", "build=3698585\n");
+  await put(root, `3396210/${name}`, '{"explosionBuild":1,"old":true}');
+  await fs.mkdir(path.join(root, "3698585"), { recursive: true });
+  let bakes = 0;
+  await withAssets({
+    root, clientRoot, fallbackBuild: "3396210",
+    async extract(args) {
+      assert.equal(args.at(-1), "--drifter-collection-explosion");
+      bakes++;
+      await put(root, `3698585/${name}`, JSON.stringify(graph));
+    },
+  }, async url => {
+    for (let i = 0; i < 2; i++) {
+      const response = await fetch(url(`/client-assets/${name}`));
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), graph);
+    }
+    assert.equal(bakes, 1);
+  });
+});
