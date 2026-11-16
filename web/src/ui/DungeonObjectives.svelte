@@ -20,6 +20,8 @@
   const corporationFactions = flow.corporationFactions;
   // svelte-ignore state_referenced_locally
   const activeDungeon = flow.activeDungeon;
+  // svelte-ignore state_referenced_locally
+  const objectivesClosed = flow.activeDungeonObjectivesClosed;
   const location = "UI/Generic/CurrentLocation";
   const getSpaceView = getContext<() => SpaceView | null>("flightSpaceView");
   const getSimNow = getContext<() => number | null>("flightSimNow");
@@ -71,6 +73,12 @@
     const snapshot = $space.snapshot;
     const dungeon = $activeDungeon;
     if (!chain || !dungeon || snapshot?.solarSystemID !== job.solarSystemID) return;
+    if ($objectivesClosed) {
+      for (const key of entryObjectives) chain.stopObjective(key);
+      entryObjectives = [];
+      rows = [];
+      return;
+    }
     for (const [key, value] of Object.entries(dungeonObjectiveContext(dungeon))) chain.setContext(key, value);
     chain.observe(snapshot.entities, getSimNow?.() ?? snapshot.sampledAtMs, npcStanding);
     const wanted = dungeonEntryObjectives(dungeon, job.data?.objectiveEntryRules ?? []);

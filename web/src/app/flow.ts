@@ -986,7 +986,7 @@ import {
 } from "../bridge/abyssObjectives.ts";
 import { activateStep } from "../bridge/spaceActivate.ts";
 import { SHIP_RESTRICTION_REFUSALS, decodeShipRestrictions, dungeonEntered, dungeonValuesChanged, enterDungeonRoom, exitDungeon, readCurrentDungeon, type CurrentDungeon, type ShipRestrictions } from "../bridge/dungeonTracking.ts";
-import { observatoryConversationPhase } from "../bridge/observatoryConversation.ts";
+import { observatoryConversationPhase, observatoryFailureObjectiveDelay } from "../bridge/observatoryConversation.ts";
 import {
   MENU_WARP_RANGE_M,
   createAutopilot,
@@ -3783,6 +3783,7 @@ export interface AppFlow {
   readonly untrackedObjectiveDungeonInstanceID: ReadableSignal<number | null>;
   setObjectiveDungeonTracked(instanceID: number, tracked: boolean): void;
   readonly activeDungeon: ReadableSignal<CurrentDungeon | null>;
+  readonly activeDungeonObjectivesClosed: ReadableSignal<boolean>;
   /**
    * An Agency agent page's agents (ContentProviderAgents and its kinds, bridge/agencyAgents.ts): from the agents
    * table (agentMgr.GetAgents, kept), the static places, the autopilot's jumps and the pilot's standings and skills.
@@ -16952,6 +16953,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // server's OnEnteringDungeonRoom and OnExitingDungeon, let go at a change of location, and asked of the keeper once
   // where the page finds its pilot in space (the client's OnCharacterSessionChanged).
   const currentDungeon = createSignal<CurrentDungeon | null>(null);
+  const activeDungeonObjectivesClosed = createSignal(false);
+  let objectiveClosure: ReturnType<typeof setTimeout> | null = null;
   const observatoryConversation = createSignal<api.ObservatoryTransmission | null>(null);
   const observedGreetings = new Set<string>();
   let conversationData: ReturnType<typeof api.getObservatoryConversations> | null = null;
@@ -16963,8 +16966,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (!dungeon || previous?.dungeonID !== dungeon.dungeonID || previous?.instanceID !== dungeon.instanceID) {
       conversationRequest++;
       observatoryConversation.set(null);
+      if (objectiveClosure !== null) clearTimeout(objectiveClosure);
+      objectiveClosure = null;
+      activeDungeonObjectivesClosed.set(false);
     }
     if (!dungeon) return;
+    const delay = observatoryFailureObjectiveDelay(previous, dungeon);
+    if (delay !== null) {
+      objectiveClosure = setTimeout(() => {
+        objectiveClosure = null;
+        activeDungeonObjectivesClosed.set(true);
+      }, delay);
+    }
     const phase = observatoryConversationPhase(previous, dungeon);
     const faction = dungeon.values?.system_faction_id;
     const characterID = store.station.get().online?.characterID;
@@ -35802,6 +35815,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     untrackedObjectiveDungeonInstanceID: readonlySignal(untrackedObjectiveDungeonInstanceID),
     setObjectiveDungeonTracked,
     activeDungeon: readonlySignal(currentDungeon),
+    activeDungeonObjectivesClosed: readonlySignal(activeDungeonObjectivesClosed),
     agencyAgents,
     agencyAgentOwners,
     agencyCareerAgents,
