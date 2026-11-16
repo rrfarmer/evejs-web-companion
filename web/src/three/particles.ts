@@ -23,7 +23,7 @@ const v4 = (a: unknown, d: number[]) => {
 const f1 = (a: unknown, d: number) => (Array.isArray(a) ? Number((a as number[])[0] ?? d) : typeof a === "number" ? a : d);
 
 /**
- * The quad's instance-drawn material for 1layerdynv2.fx (its record 0, fxres.py; client 3396210), in the view:
+ * The quad's instance-drawn material for 1layerdynv2.fx (record 0, build 3698585), in the view:
  * - size = lerp(size.x, size.y, age) (TEXCOORD8), times the world transform's scale (its rows' sums' length / sqrt 3)
  *   where UseWorldScale, times the distance scaling: sat((w - D.x) / (D.y - D.x)) x (D.w - D.z) + D.z, w the clip w;
  * - the corner (the quad's x, y) times size, turned by age x lifetime x spinVel + spin + SpriteFactors.y (radians);
@@ -34,6 +34,8 @@ const f1 = (a: unknown, d: number) => (Array.isArray(a) ? Number((a as number[])
  *   SpriteFactors.w cells (frac(uv) x 1/n + the cell's corner);
  * - pixel: TexMapLayer1 x colour x SpriteColor, its rgb times 1 + SpriteFactors.x (alpha x tex.a - 1), its alpha x
  *   SpriteFactors.z; all faded in from ParticleParams.x to .y of depth; blended ONE / INVSRCALPHA.
+ * - sm_depth also fades the output over 0.333 times the scaled sprite size against opaque depth. sm_hi and sm_lo
+ *   keep the distance fade alone.
  */
 export function oneLayerDynMaterial(params: Record<string, unknown>, texture: THREE.Texture | null): THREE.ShaderMaterial {
   if (texture) { texture.wrapS = texture.wrapT = THREE.RepeatWrapping; texture.needsUpdate = true; }
@@ -52,11 +54,13 @@ export function oneLayerDynMaterial(params: Record<string, unknown>, texture: TH
       spriteColor: { value: v4(params.SpriteColor, [1, 1, 1, 1]) },
       particleParams: { value: new THREE.Vector2(...((Array.isArray(params.ParticleParams) ? (params.ParticleParams as number[]) : [0, 100]).slice(0, 2) as [number, number])) },
       layer1: { value: texture },
+      depthShader: { get value() { return gfx().shaderQuality === 3; } },
+      ...SOFT_DEPTH,
     },
     vertexShader: `uniform vec4 spriteFactors; uniform vec4 layer1Mod; uniform float velocityStretch; uniform vec4 spriteFactors2;
       uniform vec4 color1; uniform vec4 color2; uniform vec4 color3; uniform float colorMidpoint; uniform float useWorldScale; uniform vec4 distanceScaling;
       attribute vec3 iPos; attribute vec2 iLife; attribute vec3 iVel; attribute vec2 iT8; attribute float iT9; attribute float iT10; attribute float iT11;
-      varying vec4 vColor; varying vec2 vUv; varying vec3 vAtlas; varying float vDepth;
+      varying vec4 vColor; varying vec2 vUv; varying vec3 vAtlas; varying vec3 vSoft;
       void main() {
         float age = iLife.x;
         vec4 world = modelMatrix * vec4( iPos, 1.0 );
@@ -80,7 +84,10 @@ export function oneLayerDynMaterial(params: Record<string, unknown>, texture: TH
         vec4 p = view + vec4( turned, 0.0, 0.0 );
         if ( sLen > 0.0 ) p.xyz += viewVel * stretch * clamp( age / spriteFactors2.x, 0.0, 1.0 ) * dot( turned, sDir );
         gl_Position = projectionMatrix * p;
-        vDepth = -view.z;
+        float nearPlane = projectionMatrix[3][2] / (projectionMatrix[2][2] - 1.0);
+        float thickness = max(abs(size), 0.000001);
+        vSoft = vec3(-p.z, max(0.333 * thickness - 0.000001, 0.000001),
+          1.0 - clamp((nearPlane + p.z) / thickness, 0.0, 1.0));
         vColor = age > colorMidpoint ? mix( color2, color3, clamp( ( age - colorMidpoint ) / ( 1.0 - colorMidpoint ), 0.0, 1.0 ) )
           : mix( color1, color2, clamp( age / colorMidpoint, 0.0, 1.0 ) );
         vUv = uv * layer1Mod.xy + layer1Mod.zw;
@@ -88,20 +95,27 @@ export function oneLayerDynMaterial(params: Record<string, unknown>, texture: TH
         vAtlas = vec3( fract( cell ), trunc( cell ) / spriteFactors.w, 1.0 / spriteFactors.w );
       }`,
     fragmentShader: `uniform vec4 spriteFactors; uniform vec4 spriteColor; uniform vec2 particleParams; uniform sampler2D layer1;
-      varying vec4 vColor; varying vec2 vUv; varying vec3 vAtlas; varying float vDepth;
+      uniform float depthShader;
+      varying vec4 vColor; varying vec2 vUv; varying vec3 vAtlas; varying vec3 vSoft;
+      ${SOFT_DEPTH_GLSL}
       void main() {
         vec2 cellUv = fract( vUv ) * vAtlas.z + vAtlas.xy;
         vec2 grad = vUv * vAtlas.z + vAtlas.xy;
         vec4 t = textureGrad( layer1, cellUv, dFdx( grad ), dFdy( grad ) );
         vec4 col = vColor * spriteColor;
-        float k = spriteFactors.x * ( col.a * t.a - 1.0 ) + 1.0;
-        vec4 o = t * vec4( col.rgb * k, col.a );
-        o.a *= spriteFactors.z;
-        gl_FragColor = o * clamp( ( vDepth - particleParams.x ) / ( particleParams.y - particleParams.x ), 0.0, 1.0 );
+        float depthFade = 1.0;
+        if (depthShader > 0.5 && softDepthOn > 0.5) {
+          depthFade = clamp((softSceneDepth() - vSoft.x) / vSoft.y, 0.0, 1.0) * vSoft.z;
+        }
+        float alpha = col.a * t.a;
+        float k = mix(1.0, alpha, spriteFactors.x);
+        float distanceFade = clamp((1.0 / gl_FragCoord.w - particleParams.x) / (particleParams.y - particleParams.x), 0.0, 1.0);
+        gl_FragColor = vec4(t.rgb * col.rgb * k, alpha * spriteFactors.z) * (depthFade * distanceFade);
       }`,
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
     blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation,
   });
+  mat.userData.softDepth = true;
   logDepth(mat);
   return mat;
 }
