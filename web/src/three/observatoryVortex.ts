@@ -6,6 +6,7 @@ import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
 import { decodeVta } from "./vtaVolume.ts";
 import { VortexLightmap } from "./vortexLightmap.ts";
 import { VortexShadow } from "./vortexShadow.ts";
+import { VortexReflection, type ReflectionColors } from "./vortexReflection.ts";
 
 export const OBSERVATORY_VORTEX_TYPE = 77388;
 
@@ -24,12 +25,14 @@ interface VortexData {
   volumeLow: string;
   noise: string;
   gradient: string;
+  reflection?: { noise: string; colors: ReflectionColors };
 }
 
 interface VortexAssets {
   data: VortexData;
   noise: THREE.Texture;
   gradient: THREE.Texture;
+  reflectionNoise: Promise<THREE.Texture | null> | null;
 }
 
 let sharedAssets: Promise<VortexAssets> | null = null;
@@ -41,7 +44,11 @@ function vortexAssets(): Promise<VortexAssets> {
     gradient.colorSpace = THREE.SRGBColorSpace;
     gradient.wrapS = gradient.wrapT = THREE.ClampToEdgeWrapping;
     gradient.needsUpdate = true;
-    return { data, noise, gradient };
+    const reflectionNoise = data.reflection ? loadDds(data.reflection.noise).catch((error: unknown) => {
+      console.warn("Observatory reflection:", error);
+      return null;
+    }) : null;
+    return { data, noise, gradient, reflectionNoise };
   }).catch((error: unknown) => {
     sharedAssets = null;
     throw error;
@@ -186,6 +193,7 @@ export class ObservatoryVortex {
   private readonly baked = new VortexLightmap();
   private readonly caster = new VortexShadow();
   readonly shadow = this.caster.group;
+  reflection: VortexReflection | null = null;
   private readonly nativeSun = new THREE.Vector3();
   private readonly inverse = new THREE.Matrix4();
 
@@ -215,6 +223,12 @@ export class ObservatoryVortex {
     this.mesh = new THREE.Mesh(new THREE.BoxGeometry(), material);
     this.mesh.visible = false;
     this.mesh.renderOrder = -5;
+    const reflection = data.reflection;
+    if (reflection) {
+      void assets.reflectionNoise?.then((texture) => {
+        if (texture && !this.stopped) this.reflection = new VortexReflection(this.mesh, texture, reflection.colors);
+      });
+    }
     const inverse = new THREE.Matrix4(), modelView = new THREE.Matrix4(), position = new THREE.Vector3(), target = new THREE.Vector3();
     this.mesh.onBeforeRender = (_renderer, _scene, camera) => {
       inverse.copy(this.mesh.matrixWorld).invert();
@@ -264,6 +278,7 @@ export class ObservatoryVortex {
     this.stopped = true;
     this.baked.dispose();
     this.caster.dispose();
+    this.reflection?.dispose();
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
   }

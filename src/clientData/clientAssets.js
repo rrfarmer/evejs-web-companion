@@ -24,7 +24,7 @@ const GENERATED = new Map([
   ["/shipInfoScene.json", ["--ship-info"]],
   ["/drifterCollectionExplosion.json", ["--drifter-collection-explosion", '"explosionBuild":1']],
   ["/observatoryEnvironment.json", ["--observatory-environment", '"environmentBuild":2']],
-  ["/observatoryVortex.json", ["--observatory-vortex", '"vortexBuild":1']],
+  ["/observatoryVortex.json", ["--observatory-vortex", '"vortexBuild":2']],
   ["/overviewPresets.json", ["--overview"]],
   ["/sofMaterials.json", ["--sof-materials"]],
   ["/ammoColors.json", ["--ammo-colors"]],
@@ -108,7 +108,9 @@ async function sceneMaps(dir, resource, ensure) {
 async function resolveAsset(rel, dir, ensure, canExtract) {
   const generated = GENERATED.get(rel);
   if (generated) {
-    const marker = rel === "/observatoryEnvironment.json" && !canExtract() ? '"environmentBuild":' : generated[1];
+    const oldManifest = rel === "/observatoryEnvironment.json" ? '"environmentBuild":'
+      : rel === "/observatoryVortex.json" ? '"vortexBuild":' : undefined;
+    const marker = oldManifest && !canExtract() ? oldManifest : generated[1];
     return { file: await ensure(rel.slice(1), [generated[0]], marker) };
   }
 

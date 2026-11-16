@@ -651,9 +651,25 @@ function extractObservatoryVortex(rf, outRoot) {
   if (textures.TemperatureMap !== density) throw new Error(`Unexpected separate temperature map in ${resource}`);
   const constants = Object.fromEntries(cloud.effect.constParameters.items);
   const variables = Object.fromEntries(root.controllers.flatMap((controller) => controller.variables).map(({ name, defaultValue }) => [name, defaultValue]));
-  const color = root.curveSets.flatMap((set) => set.curves).find((curve) => curve.name === "CloudColor").color1;
+  const start = root.curveSets.find((set) => set.name === "play_start");
+  const curve = (name) => start.curves.find((entry) => entry.name === name);
+  const binding = (name) => start.bindings.find((entry) => entry.name === name);
+  const color = curve("CloudColor").color1;
+  const reflectionNoise = cloud.reflectionEffect?.resources.find(({ name }) => name === "NoiseMap")?.resourcePath;
+  if (cloud.reflectionMode !== 0 || !reflectionNoise || !/\/basiccloudreflectionproxy\.fx$/i.test(cloud.reflectionEffect.effectFilePath)) {
+    throw new Error(`No High reflection proxy in ${resource}`);
+  }
+  // CTRL_VDB starts with density and brightness at High. The density binding feeds the normalized color alpha.
+  const reflectionDensity = variables._densityMax * binding("sendOverDensity").scale / curve("DensityNormalized").input2
+    * 0.42 * Math.min(1, Math.max(0.175, variables._brightnessMax));
+  const reflectionColors = [1, 2].map((i) => {
+    const name = `reflectionColor${i}`;
+    const rgb = curve(name).color1.slice(0, 3).map((value, channel) =>
+      value * (binding(`${name}.${"xyz"[channel]}_UpdateDest`).scale ?? 1));
+    return [...rgb, reflectionDensity * (binding(`reflectionDensity${i}.w_UpdateDest`).scale ?? 1)];
+  });
   fs.writeFileSync(path.join(outRoot, "observatoryVortex.json"), JSON.stringify({
-    vortexBuild: 1,
+    vortexBuild: 2,
     scaling: cloud.scaling,
     density: variables._densityMax,
     albedo: color.slice(0, 3).map((value) => value * variables._brightnessMax),
@@ -666,6 +682,7 @@ function extractObservatoryVortex(rf, outRoot) {
     volumeLow: copyRes(rf, low, outRoot),
     noise: copyRes(rf, textures.NoiseMap, outRoot),
     gradient: copyRes(rf, textures.TemperatureGradientMap, outRoot),
+    reflection: { colors: reflectionColors, noise: copyRes(rf, reflectionNoise, outRoot) },
   }));
 }
 

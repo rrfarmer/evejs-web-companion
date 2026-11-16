@@ -29,6 +29,7 @@ import { isNonInteractableWormhole, nonInteractableWormhole, updateWormholePose,
 import { CameraShake } from "./cameraShake.ts";
 import { ObservatoryEnvironment } from "./observatoryEnvironment.ts";
 import { ObservatoryVortex, OBSERVATORY_VORTEX_TYPE } from "../three/observatoryVortex.ts";
+import { VortexReflectionProbe, type VortexReflection } from "../three/vortexReflection.ts";
 import { CameraTaskGestures, type CameraTaskEvent } from "../bridge/cameraTasks.ts";
 import { initialOrbitDistance, isOwnStargateDeparture, MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose, validCameraPosition } from "./spaceCameraPose.ts";
 import { ENTRY_CAMERA_DURATION_MS, entryCameraFov, spaceEntryCamera, type EntryCameraPath } from "./spaceEntryCamera.ts";
@@ -755,6 +756,7 @@ export class SpaceView {
     for (const mark of this.marks.values()) (mark.userData.vortex as ObservatoryVortex | undefined)?.dispose();
     this.stopped = true;
     this.renderer.setAnimationLoop(null);
+    this.reflectionProbe?.dispose();
     this.sceneEnv?.dispose();
     this.bloom?.dispose();
     this.exposure.dispose();
@@ -1897,7 +1899,25 @@ export class SpaceView {
 
   private sceneFor: number | null = null;
   /** The system's reflection cube, filtered (loadScene). */
-  private sceneEnv: THREE.Texture | null = null;
+  private sceneEnv: THREE.WebGLRenderTarget | null = null;
+  private reflectionSky: THREE.Texture | null = null;
+  private reflectionProbe: VortexReflectionProbe | null = null;
+
+  private updateReflections(eye: THREE.Vector3, quality: number, sources: VortexReflection[]): void {
+    if (this.reflectionSky && sources.length) {
+      this.reflectionProbe ??= new VortexReflectionProbe(this.renderer, this.reflectionSky);
+      const texture = this.reflectionProbe.update(eye, quality, sources);
+      if (texture) {
+        this.scene.environment = texture;
+        this.scene.environmentRotation.set(0, 0, 0);
+      }
+    } else if (this.reflectionProbe) {
+      this.reflectionProbe.dispose();
+      this.reflectionProbe = null;
+      this.scene.environment = this.sceneEnv?.texture ?? null;
+      this.scene.environmentRotation.set(0, Math.PI, 0);
+    }
+  }
 
   /**
    * The system's space scene, as the client draws it: its region's nebula cube map as the background, and the
@@ -1907,8 +1927,9 @@ export class SpaceView {
    */
   private async loadScene(solarSystemID: number): Promise<void> {
     this.sceneFor = solarSystemID;
+    this.reflectionSky = null;
     const info = await (await fetch(`/client-assets/scene/${solarSystemID}`)).json() as { name?: string; security?: number; maps?: Record<string, string> | null };
-    if (this.sceneFor !== solarSystemID) return;
+    if (this.stopped || this.sceneFor !== solarSystemID) return;
     this.options.onSystem?.(solarSystemID, typeof info.security === "number" ? info.security : null);
     if (info.name) {
       this.root.querySelector(".hud-top-left .system")!.innerHTML = `${info.name}<span class="sec">${typeof info.security === "number" ? info.security.toFixed(1) : ""}</span>`;
@@ -1916,7 +1937,7 @@ export class SpaceView {
     const halfTurn = new THREE.Euler(0, Math.PI, 0);
     if (info.maps?.nebula) {
       const nebula = await loadDds(info.maps.nebula);
-      if (this.sceneFor !== solarSystemID) return;
+      if (this.stopped || this.sceneFor !== solarSystemID) return;
       this.scene.background = nebula;
       this.scene.backgroundRotation.copy(halfTurn);
       this.scene.backgroundIntensity = 1.25; // EveSpaceScene.nebulaIntensity
@@ -1924,14 +1945,15 @@ export class SpaceView {
     }
     if (info.maps?.reflection) {
       const refl = await loadDds(info.maps.reflection);
-      if (this.sceneFor !== solarSystemID) return;
+      if (this.stopped || this.sceneFor !== solarSystemID) return;
       // filtered for rough surfaces here, once (PMREM), not left to three's first draw of a standard material (which
       // converts it in the middle of that draw: hangarView.ts setScene); the planets read the cube itself
       const pmrem = new THREE.PMREMGenerator(this.renderer);
       this.sceneEnv?.dispose();
-      this.sceneEnv = pmrem.fromCubemap(refl as unknown as THREE.CubeTexture).texture;
+      this.sceneEnv = pmrem.fromCubemap(refl as unknown as THREE.CubeTexture);
       pmrem.dispose();
-      this.scene.environment = this.sceneEnv;
+      this.reflectionSky = refl;
+      this.scene.environment = this.sceneEnv.texture;
       setPlanetEnvironment(refl);
       this.scene.environmentRotation.copy(halfTurn);
       this.scene.environmentIntensity = 1.55; // EveSpaceScene.reflectionIntensity
@@ -2014,6 +2036,8 @@ export class SpaceView {
     let sun: { position: THREE.Vector3; radius: number } | null = null;
     const settings = gfx();
     const rendering = spaceRendering(settings);
+    const reflectClouds = settings.reflectionQuality >= 3 && settings.shaderQuality >= 2;
+    const reflectionSources: VortexReflection[] = [];
     const overviewMask = this.overview.activePreset();
     const bracketMask = this.overview.activeBracketPreset();
     const relations = overviewMask?.filteredStates.length || bracketMask?.filteredStates.length
@@ -2028,7 +2052,9 @@ export class SpaceView {
       if (!mark) { mark = this.markFor(e); this.marks.set(e.itemID, mark); this.scene.add(mark); }
       mark.position.copy(rel);
       this.orient(mark, e);
-      (mark.userData.vortex as ObservatoryVortex | undefined)?.update(e.radius, settings.volumetricQuality, this.renderer, this.sunDir, rendering.shadows);
+      const vortex = mark.userData.vortex as ObservatoryVortex | undefined;
+      vortex?.update(e.radius, settings.volumetricQuality, this.renderer, this.sunDir, rendering.shadows);
+      if (reflectClouds && e.radius > 0 && vortex?.reflection) reflectionSources.push(vortex.reflection);
       // a drone's engines burn always (Drone.py: FitBoosters(alwaysOn=True)); a fighter's do not
       mark.userData.boostersAlwaysOn = e.kind === "drone";
       if (e.maxVelocity || mark.userData.boostersAlwaysOn) setThrust(mark, e.maxVelocity ? Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z) / e.maxVelocity : 0, this.accelOf(mark, e));
@@ -2359,6 +2385,7 @@ export class SpaceView {
     this.lodBoostersFar = boostersFar;
     this.lodChildMeshesHidden = childMeshesHidden;
     this.missileFx.explosionLimit = settings.lodQuality * 30;
+    this.updateReflections(eye, settings.reflectionQuality, reflectionSources);
     this.fitSunShadow();
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering(), depthEffects: () => gfx().shaderQuality === 3 });
     const simDt = dt * (this.options.flightSnapshot?.()?.timeDilation ?? 1);
