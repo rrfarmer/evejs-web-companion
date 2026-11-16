@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { decodeAgencySeason, decodeAgencySeasonChoices, decodeAgencySeasonProgress, seasonPageKind } from "./agencySeason.ts";
+import { decodeAgencySeason, decodeAgencySeasonChoices, decodeAgencySeasonProgress, seasonPageKind, seasonRewardClaimable } from "./agencySeason.ts";
 
 const keyVal = (entries: unknown[]) => ({ type: "object", name: "util.KeyVal", args: { type: "dict", entries } });
 
@@ -41,5 +41,34 @@ test("season progress decodes the ObjectEx2 challenge state and leaves expired c
       [103, challenge([...fields, ["is_dormant", true]])]],
   }]]);
   assert.deepEqual(decodeAgencySeasonProgress(progress), { points: 40, target: 300,
-    challenges: [{ id: 101, name: 123, detail: 456, current: 1, target: 5, points: 20 }] });
+    seasonID: null, rewards: [], challenges: [{ id: 101, name: 123, detail: 456, current: 1, target: 5, points: 20,
+      isk: 0, typeID: null, quantity: 0, claimable: false, expiresMs: null }] });
+});
+
+test("season rewards preserve index zero, clone eligibility and the server's challenge claim date", () => {
+  const dict = (entries: unknown[]) => ({ type: "dict", entries });
+  const goal = (points: number, omega: boolean, claimed: boolean) => dict([
+    ["points_required", points], ["reward_type_id", 92181], ["reward_amount", 1], ["omega_only", omega], ["claimed", claimed],
+  ]);
+  const timestamp = { type: "long", value: "134500000000000000" };
+  const task = (id: number, rewardDate: unknown, finishDate: unknown) => ({ type: "objectex2", header: [
+    [{ type: "token", value: "seasons.common.challenge.Challenge" }], dict([
+      ["challenge_id", id], ["name", 123], ["progress", 1], ["max_progress", 1], ["points_awarded", 10],
+      ["reward_date", rewardDate], ["finish_date", finishDate],
+    ]),
+  ], list: [], dict: [] });
+  const progress = decodeAgencySeasonProgress(keyVal([
+    ["season_id", 900129], ["seasonal_points", 90], ["max_seasonal_points", 1500],
+    ["seasonal_goals", dict([[1, goal(90, true, false)], [2, goal(130, false, true)], [0, goal(50, false, false)]])],
+    ["challenges", dict([[101, task(101, timestamp, null)], [102, task(102, null, null)], [103, task(103, timestamp, timestamp)]])],
+  ]));
+  assert.ok(progress);
+  assert.equal(progress.seasonID, 900129);
+  assert.deepEqual(progress.rewards.map((reward) => reward.index), [0, 1, 2]);
+  assert.equal(seasonRewardClaimable(progress.rewards[0]!, 49, true), false);
+  assert.equal(seasonRewardClaimable(progress.rewards[0]!, 50, false), true);
+  assert.equal(seasonRewardClaimable(progress.rewards[1]!, 90, false), false);
+  assert.equal(seasonRewardClaimable(progress.rewards[1]!, 90, true), true);
+  assert.equal(seasonRewardClaimable(progress.rewards[2]!, 130, true), false);
+  assert.deepEqual(progress.challenges.map((challenge) => challenge.claimable), [true, false, false]);
 });

@@ -63,10 +63,30 @@ export function seasonPageKind(templateID: number | null): "vanguard" | "season"
   return templateID === 2216 ? "vanguard" : "season";
 }
 
+export interface AgencySeasonReward {
+  readonly index: number;
+  readonly points: number;
+  readonly typeID: number;
+  readonly quantity: number;
+  readonly omegaOnly: boolean;
+  readonly claimed: boolean;
+}
+
+export function seasonRewardClaimable(reward: AgencySeasonReward, points: number, omega: boolean): boolean {
+  return !reward.claimed && points >= reward.points && (!reward.omegaOnly || omega);
+}
+
 export function decodeAgencySeasonProgress(answer: unknown) {
   const row = unwrap(answer);
   const points = integer(readKeyVal(row, "seasonal_points"));
   if (points === null) return null;
+  const rewards = readDictPairs(readKeyVal(row, "seasonal_goals")).flatMap(([key, value]): AgencySeasonReward[] => {
+    const goal = new Map(readDictPairs(value));
+    const index = integer(key), required = integer(goal.get("points_required"));
+    const typeID = integer(goal.get("reward_type_id")), quantity = integer(goal.get("reward_amount"));
+    if (index === null || index < 0 || required === null || required < 0 || !typeID || !quantity) return [];
+    return [{ index, points: required, typeID, quantity, omegaOnly: goal.get("omega_only") === true, claimed: goal.get("claimed") === true }];
+  }).sort((a, b) => a.points - b.points || a.index - b.index);
   const challenges = readDictPairs(readKeyVal(row, "challenges")).flatMap(([id, value]) => {
     // The native Challenge restores its attribute dictionary from the ObjectEx2 reduce header.
     const header = readPlainJsonField(value, "header");
@@ -77,9 +97,18 @@ export function decodeAgencySeasonProgress(answer: unknown) {
       for (const pair of items) if (Array.isArray(pair) && typeof pair[0] === "string" && pair[1] !== undefined) fields.set(pair[0], pair[1]);
     }
     const name = integer(fields.get("name"));
-    if (!name || fields.get("is_expired") === true || fields.get("is_dormant") === true) return [];
-    return [{ id: integer(id) ?? name, name, detail: integer(fields.get("message_text")),
-      points: integer(fields.get("points_awarded")) ?? 0, current: integer(fields.get("progress")) ?? 0, target: integer(fields.get("max_progress")) ?? 0 }];
+    const challengeID = integer(fields.get("challenge_id")) ?? integer(id);
+    if (!name || !challengeID || fields.get("is_expired") === true || fields.get("is_dormant") === true) return [];
+    const points = integer(fields.get("points_awarded")) ?? 0, isk = integer(fields.get("isk_awarded")) ?? 0;
+    const typeID = integer(fields.get("reward_type")), quantity = integer(fields.get("reward_amount")) ?? 0;
+    const current = integer(fields.get("progress")) ?? 0, target = integer(fields.get("max_progress")) ?? 0;
+    // ChallengeEntry draws its claim control at completion. The season service waits for reward_date.
+    const claimable = current >= target && (points > 0 || isk > 0 || (typeID !== null && quantity > 0))
+      && fields.get("reward_date") != null && fields.get("finish_date") == null;
+    const expires = unwrapLong(fields.get("expiration_date"));
+    const expiresMs = expires === null ? null : Number((expires - 116444736000000000n) / 10000n);
+    return [{ id: challengeID, name, detail: integer(fields.get("message_text")), points, isk, typeID, quantity,
+      current, target, claimable, expiresMs }];
   });
-  return { points, target: integer(readKeyVal(row, "max_seasonal_points")), challenges };
+  return { seasonID: integer(readKeyVal(row, "season_id")), points, target: integer(readKeyVal(row, "max_seasonal_points")), rewards, challenges };
 }

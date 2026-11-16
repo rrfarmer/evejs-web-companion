@@ -731,8 +731,8 @@
     ]
   },
   "bffWritePolicy": {
-    "count": 471,
-    "sha256": "52fec25ee0541f3f868808bba34646a5ffc30875584c989cf7700476a34d37bc",
+    "count": 473,
+    "sha256": "ff9f2ce8854a9035c7070f119847a992f840f2d02abc02e44ef5e34630b976b8",
     "pairs": [
       "LPStoreMgr.TakeOfferForCharacter",
       "LPStoreMgr.TakeOfferForCorporation",
@@ -1142,6 +1142,8 @@
       "scanMgr.SetProbeDestination",
       "scanMgr.SetProbeRangeStep",
       "scanMgr.SignalTrackerRegister",
+      "seasonManager.claim_challenge_rewards",
+      "seasonManager.claim_goal_reward",
       "seasonManager.select_season",
       "seasonalLoginCampaignManager.claim_reward",
       "sharedSettingsMgr.StoreSettingLinkAndGetID",
@@ -1504,6 +1506,8 @@
       "scanMgr.SetProbeDestination",
       "scanMgr.SetProbeRangeStep",
       "scanMgr.SignalTrackerRegister",
+      "seasonManager.claim_challenge_rewards",
+      "seasonManager.claim_goal_reward",
       "seasonManager.select_season",
       "seasonalLoginCampaignManager.claim_reward",
       "sharedSettingsMgr.StoreSettingLinkAndGetID",

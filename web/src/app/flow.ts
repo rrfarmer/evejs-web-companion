@@ -458,7 +458,7 @@ import { argumentsOf, createBotPresses, decodeQuestion, dialogOfKey, keptQuestio
 import { classifyDistributionAgentConversation, selectDistributionAgent } from "../nav/distributionAgentSelection.ts";
 import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
 import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
-import { decodeAgencySeason, decodeAgencySeasonChoices, decodeAgencySeasonProgress, decodeSeasonSelectionDefinition, type AgencySeason } from "../bridge/agencySeason.ts";
+import { decodeAgencySeason, decodeAgencySeasonChoices, decodeAgencySeasonProgress, decodeSeasonSelectionDefinition, seasonRewardClaimable, type AgencySeason } from "../bridge/agencySeason.ts";
 import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from "../bridge/serverDialogs.ts";
 import { convertTyped, DATE_LABELS, formatTemplate, LIST_DELIMITER, plainText, QUANTITY_AND_ITEM } from "../bridge/clientWords.ts";
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
@@ -3894,6 +3894,8 @@ export interface AppFlow {
   }>;
   selectAgencySeason(seasonID: number): Promise<Awaited<ReturnType<AppFlow["agencySeasons"]>> | null>;
   agencySeasonProgress(): Promise<ReturnType<typeof decodeAgencySeasonProgress>>;
+  readonly agencySeasonProgressChanged: ReadableSignal<number>;
+  claimAgencySeasonReward(seasonID: number, kind: "challenge" | "goal", id: number): Promise<NonNullable<ReturnType<typeof decodeAgencySeasonProgress>>>;
   agencyFleetUp(): Promise<{ readonly ads: readonly FleetAdvert[]; readonly jumps: Readonly<Record<string, number | null>>; readonly noRoute: Readonly<Record<string, string>>;
     readonly nowTicks: bigint; readonly fleetID: number | null; readonly isBoss: boolean; readonly registered: boolean } | null>;
   agencyPlanetaryProduction(filters: AgencySiteFilters, planetTypes: readonly number[]): Promise<readonly { readonly solarSystemID: number; readonly jumps: number | null; readonly security: number | null; readonly planets: readonly { readonly planetID: number; readonly typeID: number; readonly celestialIndex: number }[] }[] | null>;
@@ -5618,6 +5620,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   /** The pilot's own character, as the page has it. Null with none chosen. */
   const onlineCharacterID = (): number | null => store.station.get().online?.characterID ?? null;
   const academyChangedSignal = createSignal(0);
+  const agencySeasonProgressChanged = createSignal(0);
+  const seasonProgressNotices = new Set([
+    "OnChallengeProgressUpdate", "OnChallengeRewardsGranted", "OnChallengeCompleted", "OnChallengeExpired",
+    "OnSeasonalPointsUpdated", "OnSeasonalGoalCompleted", "OnSeasonalGoalsReset", "OnSeasonOmegaRewardsClaimed",
+    "OnSeasonsFsdDataChanged",
+  ]);
   const academyTravelConversation = createSignal(false);
   let academyBorrowPending = false;
   const academyShipState = async () => academyStateOf(await bridgeAsk("academy_ship", "get_academy_ship_state", []));
@@ -7037,6 +7045,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     receivedAtMs: number,
     insideMultiEvent = false,
   ): void {
+    if (method && seasonProgressNotices.has(method)) agencySeasonProgressChanged.update(n => n + 1);
     if (method === "OnAcademyShipBorrowed" || method === "OnAcademyShipReturned" || method === "OnAcademyShipBorrowFailed") {
       academyChangedSignal.update(n => n + 1);
       if (method === "OnAcademyShipBorrowFailed" && args[0] !== "no_ship_to_return") sayAcademyBorrowFailure();
@@ -21059,6 +21068,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         const created = unwrapLong(readKeyVal(details?.raw[0].items[0], "creationDate"));
         const now = BigInt(Math.trunc(serverNow())) * 10000n + 116444736000000000n;
         if (created === null || now - created <= 1728000000000n) choices = [];
+        // _fetch_season_data shuffles the choices once before displaying the cards.
+        for (let i = choices.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [choices[i], choices[j]] = [choices[j]!, choices[i]!];
+        }
       }
       let navigation = null;
       if (choices.length || active?.multiple) {
@@ -21091,8 +21105,37 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
   async function agencySeasonProgress(): Promise<ReturnType<typeof decodeAgencySeasonProgress>> {
     const row = decodeAgencySeasonProgress(await bridgeAsk("seasonManager", "get_character_progress_by_character_id", []));
-    if (row) requestWords(row.challenges.flatMap(c => [c.name, c.detail].filter(Boolean).map(id => `#${id}`)));
+    if (row) {
+      requestWords(row.challenges.flatMap(c => [c.name, c.detail].filter(Boolean).map(id => `#${id}`)));
+      const ids = new Set([...row.rewards.map(r => r.typeID), ...row.challenges.flatMap(c => c.typeID === null ? [] : [c.typeID])]);
+      requestNames([...ids].map(id => ({ kind: "type", id })));
+    }
     return row;
+  }
+  async function claimAgencySeasonReward(seasonID: number, kind: "challenge" | "goal", id: number): ReturnType<AppFlow["claimAgencySeasonReward"]> {
+    const current = callOptions.captureRequestGuard!();
+    const before = await agencySeasonProgress();
+    current();
+    if (before?.seasonID !== seasonID) throw new Error("The displayed season is no longer active.");
+    const available = kind === "challenge"
+      ? before.challenges.some(challenge => challenge.id === id && challenge.claimable)
+      : before.rewards.some(reward => reward.index === id && seasonRewardClaimable(reward, before.points, store.station.get().cloneGrade !== 0));
+    if (!available) throw new Error("This reward is no longer available to claim.");
+
+    const reply = kind === "challenge"
+      ? await bridgeDo("seasonManager", "claim_challenge_rewards", [id, "Challenge Card"])
+      : await bridgeDo("seasonManager", "claim_goal_reward", [id]);
+    current();
+    if (reply === false) throw new Error("EveJS refused the seasonal reward claim.");
+    const after = await agencySeasonProgress();
+    current();
+    if (after?.seasonID !== seasonID || (kind === "goal"
+      ? !after.rewards.some(reward => reward.index === id && reward.claimed)
+      : after.challenges.some(challenge => challenge.id === id && challenge.claimable))) {
+      throw new Error("EveJS did not confirm the seasonal reward claim.");
+    }
+    agencySeasonProgressChanged.update(n => n + 1);
+    return after;
   }
   let corporationFactionsHeld: Readonly<Record<string, number>> | null = null;
   async function agencyPirateStrongholds(filters: AgencySiteFilters): Promise<Awaited<ReturnType<AppFlow["agencyPirateStrongholds"]>>> {
@@ -35595,6 +35638,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencySeasons,
     selectAgencySeason,
     agencySeasonProgress,
+    agencySeasonProgressChanged: readonlySignal(agencySeasonProgressChanged),
+    claimAgencySeasonReward,
     agencyAsteroidBelts,
     agencyTriglavianStandings,
     agencyFleetRegistration,

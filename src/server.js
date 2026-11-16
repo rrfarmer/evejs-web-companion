@@ -1203,6 +1203,16 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     res.status(400).json({ ok: false, error: "INVALID_SEASON_SELECTION", message: "Choose an available season." });
     return;
   }
+  if (body.service === "seasonManager" && ["claim_challenge_rewards", "claim_goal_reward"].includes(body.method)) {
+    const args = Array.isArray(body.args) ? body.args : [];
+    const challenge = body.method === "claim_challenge_rewards";
+    if (body.kwargs != null || !Number.isSafeInteger(args[0]) || (challenge
+      ? args[0] <= 0 || args.length !== 2 || args[1] !== "Challenge Card"
+      : args[0] < 0 || args.length !== 1)) {
+      res.status(400).json({ ok: false, error: "INVALID_SEASON_REWARD", message: "Choose an available seasonal reward." });
+      return;
+    }
+  }
   if (body.service === "calendarMgr" && body.method === "SendEventResponse") {
     const args = body.args;
     if (!Array.isArray(args) || args.length !== 3 || !Number.isSafeInteger(args[0]) || args[0] <= 0 ||
