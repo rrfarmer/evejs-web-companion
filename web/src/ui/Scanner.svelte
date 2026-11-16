@@ -111,8 +111,8 @@
   });
 
   // The sites' names by their name message, read as the site-warp blocks read them (flow.scannerSiteNames): the
-  // client's words, else the server's own site packs. Asked again whenever the scan is read again, so a name still
-  // being read when this asked is there after the next refresh.
+  // client's words, else the server's own site packs. Asked again whenever the scan is read again; the ask waits for
+  // a name another caller is already reading, so none is left out for that.
   let dungeonNames = $state<Record<number, string>>({});
   $effect(() => {
     const scan = $scanner.scan;

@@ -77,6 +77,16 @@ test("the client's words win, and the server is asked only for what they do not 
   assert.deepEqual(asked[0]?.body.messageIDs, [1002]);
 });
 
+test("a window asking while another ask is on its way waits for it, and the server is asked once", async () => {
+  const { flow, requests } = harness({}, { "1001": "Sansha Den" }, { clientAvailable: false });
+
+  const [first, second] = await Promise.all([flow.scannerSiteNames([1001]), flow.scannerSiteNames([1001])]);
+
+  assert.equal(first.get(1001), "Sansha Den");
+  assert.equal(second.get(1001), "Sansha Den");
+  assert.equal(requests.filter((r) => r.path === "/api/site-names").length, 1);
+});
+
 test("with no pack to read, a name is not called nameless: it is left unread", async () => {
   const { flow } = harness({}, {}, { clientAvailable: false, packsAvailable: false });
 

@@ -3892,8 +3892,9 @@ export interface AppFlow {
   /**
    * Scanner sites' names by their name message (a row's `dungeonNameID`), as
    * the site-warp blocks read them: the client's words, else the server's own
-   * site packs. A string, `null` when neither names it, and no entry while it
-   * is still being read. Each message is asked once. Never throws.
+   * site packs. A string, `null` when neither names it, and no entry when it
+   * could not be read this time. Waits for a message already being asked
+   * elsewhere. Each message is asked of the server once. Never throws.
    */
   scannerSiteNames(messageIDs: readonly number[]): Promise<ReadonlyMap<number, string | null>>;
   /**
@@ -27923,6 +27924,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    */
   const serverSiteNames = new Map<number, string | null>();
   const serverSiteNamesAsking = new Set<number>();
+  // Each message being read just now, with the read that carries it.
+  const siteNamesReading = new Map<number, Promise<unknown>>();
   // When the server could read no site pack, its nulls say nothing and are not
   // remembered: it is asked again, but not before this time (one ask a minute,
   // not one a tick for every bot).
@@ -27942,9 +27945,35 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * Each name message's site name, by the same two sources and the same
    * memory as `namedScannerSites`: a string, `null` when neither source names
    * it, and no entry while it is still being read.
+   *
+   * A bot's tick does not wait for a message another caller is already
+   * reading (a later tick has it). A window does (`waitForReading`): it asks
+   * once per scan read, so a name left out would stay out until the player
+   * refreshes.
    */
-  async function scannerSiteNames(messageIDs: readonly number[]): Promise<ReadonlyMap<number, string | null>> {
+  async function scannerSiteNames(messageIDs: readonly number[], waitForReading = false): Promise<ReadonlyMap<number, string | null>> {
     const ids = [...new Set(messageIDs.filter((id) => Number.isSafeInteger(id) && id > 0))];
+    if (waitForReading) {
+      const others = new Set(ids.flatMap((id) => {
+        const reading = siteNamesReading.get(id);
+        return reading === undefined ? [] : [reading];
+      }));
+      if (others.size > 0) await Promise.allSettled(others);
+    }
+    const reading = readSiteNames(ids);
+    for (const id of ids) {
+      if (!siteNamesReading.has(id)) siteNamesReading.set(id, reading);
+    }
+    try {
+      return await reading;
+    } finally {
+      for (const id of ids) {
+        if (siteNamesReading.get(id) === reading) siteNamesReading.delete(id);
+      }
+    }
+  }
+
+  async function readSiteNames(ids: readonly number[]): Promise<ReadonlyMap<number, string | null>> {
     if (ids.length > 0) {
       await wordsNow(ids.map((id) => `#${id}`));
     }
@@ -30488,7 +30517,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestNames,
     requestWords,
     scannerSiteNames: (messageIDs: readonly number[]) =>
-      scannerSiteNames(messageIDs).catch((): ReadonlyMap<number, string | null> => new Map()),
+      scannerSiteNames(messageIDs, true).catch((): ReadonlyMap<number, string | null> => new Map()),
     requestMissionKeywords,
     requestAgentRecord,
     requestAgentSolarSystem,
