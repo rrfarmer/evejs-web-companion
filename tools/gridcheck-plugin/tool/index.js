@@ -20,7 +20,7 @@ const KINDS = {
     characterID: "id", user: "str", planetID: "id", planetName: "str", level: "num", pins: "num", extractors: "num",
     extracting: "num", finished: "num", launchpadUnits: "num", commandUnits: "num", routes: "num",
   },
-  BOT: { characterID: "id", run: "str", what: "str", says: "str", phase: "str", status: "str", reason: "str", ok: "bool" },
+  BOT: { characterID: "id", run: "str", what: "str", says: "str", why: "str", phase: "str", status: "str", reason: "str", ok: "bool" },
 };
 
 const FORMAT = {
@@ -624,7 +624,7 @@ const PRIMER = `Web client (plugin companion). Tests the EVE.js web companion ag
 - A node: { "role": "button", "name": "Refresh" } first; or text, label, placeholder, css; with exact and index; { "within": <node> } narrows it. Two matches are an error that lists them. Find names with web snapshot.
 - Colonies: { "colony": { "planetID": 40161463, "extract": [{ "resource": "Base Metals" }] } } (held character, in a recipe), { "colonyAge": 8, "user": "<account>" }, { "colonyStock": { "planetID", "pin": "launchpad|command", "type": "Base Metals", "quantity": 1000 }, "user" }, { "colonyRead": "<account>" }, { "pilotSlash": "/setisk 5000000", "user": "<account>" }. Age moves stored times back, so production and expiry have happened at the next read, against the same wall clock the page uses.
 - Fights: { "fleetForm": ["<account>"], "boss": "<account>" } (a fleet with that boss, the held character by default, and an invitation to each member, who answers it: a web client pilot with webClick Yes in the page's invitation; every one online), { "shipHealth": { "armor": 0.4 }, "user": "<account>" } (a ship in space left at those fractions of each layer, through the damage notices; never destroys).
-- Kinds: WEB, WEB_ERROR (what: exception, console, response, dialog), COLONY (extracting, finished, launchpadUnits, commandUnits), BOT (what: issue, result, phase, end; says, phase, status, reason, ok), from the steps above. "until": { "any": ["COLONY finished=0"], "from": "start", "timeout": 60 } is the usual stop, since the checks happen in setup; put colonyRead last in setup.
+- Kinds: WEB, WEB_ERROR (what: exception, console, response, dialog), COLONY (extracting, finished, launchpadUnits, commandUnits), BOT (what: issue, result, phase, end; says, why, phase, status, reason, ok), from the steps above. "until": { "any": ["COLONY finished=0"], "from": "start", "timeout": 60 } is the usual stop, since the checks happen in setup; put colonyRead last in setup.
 - The web client stops with the run unless --keep-up; then web snapshot and web shot look at where it stopped. The run's web/ folder keeps the BFF log and bot logs.`;
 
 module.exports = {

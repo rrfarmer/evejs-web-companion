@@ -26021,7 +26021,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             // the handle a warp is issued against, and `scanStrengthAttribute`
             // (with `archetypeID` as its backstop) is what separates a rock
             // field from a pirate den — see scanner/siteKind.ts.
-            anomalies = scriptScannerSites(full.anomalies);
+            anomalies = await namedScannerSites(scriptScannerSites(full.anomalies));
           } catch {
             anomalies = null;
           }
@@ -27901,6 +27901,61 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     askOnce(agentSystemsAsking, agentID, agentID in store.agents.get().agentSolarSystems, async () => {
       const solarSystemID = await api.loadAgentSolarSystem(agentID, callOptions);
       store.apply({ type: "agents/solar-system", agentID, solarSystemID });
+    });
+  }
+
+  /**
+   * Scanner sites with their names read, for a site list to compare
+   * (scanner/siteNames.ts). The client's words come first; a message they have
+   * no text for — always, on an install with no client — is asked of the
+   * server's own site packs (`/api/site-names`). Each source is asked once per
+   * message and remembered, so this costs a call only the first time a site is
+   * seen. A name still being asked leaves `name` absent — not read yet — and a
+   * later tick has it; one neither source names, or a row with no message at
+   * all, is `null`.
+   */
+  const serverSiteNames = new Map<number, string | null>();
+  const serverSiteNamesAsking = new Set<number>();
+  async function namedScannerSites(sites: NonNullable<ScriptObservation["anomalies"]>): Promise<NonNullable<ScriptObservation["anomalies"]>> {
+    const keys = sites.flatMap((site) => (site.dungeonNameID != null ? [`#${site.dungeonNameID}`] : []));
+    if (keys.length > 0) {
+      await wordsNow(keys);
+    }
+    const templates = store.words.get().templates;
+    const clientText = (id: number): string | null | undefined => {
+      const key = `#${id}`;
+      if (!(key in templates)) return undefined;
+      const text = plainText(templates[key] ?? "").trim();
+      return text.length > 0 ? text : null;
+    };
+    const unworded = [...new Set(sites.flatMap((site) => (site.dungeonNameID != null && clientText(site.dungeonNameID) === null ? [site.dungeonNameID] : [])))]
+      .filter((id) => !serverSiteNames.has(id) && !serverSiteNamesAsking.has(id));
+    if (unworded.length > 0) {
+      for (const id of unworded) serverSiteNamesAsking.add(id);
+      try {
+        const named = await api.loadSiteNames(unworded, callOptions);
+        for (const id of unworded) serverSiteNames.set(id, named[String(id)] ?? null);
+      } catch {
+        // Not remembered: a later tick asks again, and until then the name is not read yet.
+      } finally {
+        for (const id of unworded) serverSiteNamesAsking.delete(id);
+      }
+    }
+    return sites.map((site) => {
+      if (site.dungeonNameID == null) {
+        return { ...site, name: null };
+      }
+      const fromClient = clientText(site.dungeonNameID);
+      if (fromClient === undefined) {
+        return site;
+      }
+      if (fromClient !== null) {
+        return { ...site, name: fromClient };
+      }
+      if (!serverSiteNames.has(site.dungeonNameID)) {
+        return site;
+      }
+      return { ...site, name: serverSiteNames.get(site.dungeonNameID) ?? null };
     });
   }
 

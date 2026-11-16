@@ -78,7 +78,10 @@ export type WidgetKind =
   | "prop-mode-select"
   | "text-input"
   // Read-only: the colonies a Planetary Industry window step was written for.
-  | "planet-list";
+  | "planet-list"
+  // Only these sites / every site but these, picked from the combat ladder,
+  // the sites on the scanner now, or typed.
+  | "site-list-picker";
 
 /** Every `Arg["kind"]` mapped to the widget that edits it — exhaustive by type. */
 export const ARG_KIND_WIDGET: Readonly<Record<Arg["kind"], WidgetKind>> = {
@@ -112,6 +115,7 @@ export const ARG_KIND_WIDGET: Readonly<Record<Arg["kind"], WidgetKind>> = {
   propMode: "prop-mode-select",
   text: "text-input",
   planetList: "planet-list",
+  siteList: "site-list-picker",
 };
 
 /** A plain-language name for an argument KIND — used when no per-macro label fits. */
@@ -144,6 +148,7 @@ export const ARG_KIND_LABEL: Readonly<Record<Arg["kind"], string>> = {
   propMode: "Prop mod",
   text: "Text",
   planetList: "Colonies",
+  siteList: "Which sites",
 };
 
 /**

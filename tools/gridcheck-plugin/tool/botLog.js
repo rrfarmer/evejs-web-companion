@@ -20,7 +20,8 @@ function botEvents(lines, run, characterID) {
   for (const line of lines) {
     if (line.run !== run) continue;
     const base = { kind: "BOT", atMs: Date.parse(line.t) || undefined, characterID, run };
-    if (line.kind === "issue") events.push({ ...base, what: "issue", says: line.says, phase: line.phase });
+    // `why` is the sentence the page shows for the action ("Warping to the next den, Angel Den.").
+    if (line.kind === "issue") events.push({ ...base, what: "issue", says: line.says, phase: line.phase, why: line.why || undefined });
     else if (line.kind === "result") events.push({ ...base, what: "result", says: line.says, ok: line.ok !== false, reason: line.reason || line.error || undefined });
     else if (line.kind === "end") events.push({ ...base, what: "end", status: line.status, reason: line.reason });
     else if (line.kind === "decide" && line.status === "paused") events.push({ ...base, what: "end", status: "paused", reason: line.reason || line.why });

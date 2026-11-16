@@ -10,6 +10,7 @@ const eveStore = require("./eveStore");
 const eveGatewayClient = require("./eveGatewayClient");
 const webAuth = require("./webAuth");
 const staticDataModule = require("./staticData");
+const { createServerSiteNames } = require("./serverSiteNames");
 const { createClientWords } = require("./clientData/clientWords");
 const { createClientTextures } = require("./clientData/clientTextures");
 const { createMultibuyImport } = require("./clientData/importMultibuy");
@@ -375,6 +376,12 @@ const staticData = options.staticData || staticDataModule;
 const clientWords = options.clientWords || createClientWords({
   clientRoot: config.clientRoot,
   onError: (error) => console.warn(`[client-words] the client's localisation could not be read: ${error && error.message}`),
+});
+// Scanner site names from the server's own site packs, for an install with no
+// client to word them (src/serverSiteNames.js).
+const serverSiteNames = options.serverSiteNames || createServerSiteNames({
+  eveRoot: config.eveRoot,
+  onError: (error, file) => console.warn(`[site-names] ${file} could not be read: ${error && error.message}`),
 });
 // The retail client's built data, read by the client's own loaders from the
 // same install (src/clientData/clientBuiltData.js).
@@ -13399,6 +13406,17 @@ app.post("/api/words", requireAuth, (req, res) => {
     messages: messageIDs.length > 0 ? clientWords.messages(messageIDs) : {},
     dialogs: dialogs.length > 0 ? clientWords.dialogs(dialogs) : {},
   });
+});
+
+// Scanner sites' names by their name message (a scanner row's `dungeonNameID`),
+// as the server's own anomaly packs name them: what a site list on the
+// site-warp blocks compares when the client's words do not have them (no
+// client install). A message no pack names is null; `available` is false when
+// the server tree holds no anomaly pack. Bounded like /api/words.
+app.post("/api/site-names", requireAuth, (req, res) => {
+  const asked = Array.isArray(req.body && req.body.messageIDs) ? req.body.messageIDs : [];
+  const messageIDs = asked.filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, WORDS_LABEL_LIMIT);
+  res.json({ ok: true, available: serverSiteNames.available(), names: serverSiteNames.names(messageIDs) });
 });
 
 // A mission as the retail client's own data has it (evemissions/client/data.py

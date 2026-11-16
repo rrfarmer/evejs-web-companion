@@ -3344,6 +3344,22 @@ function tickersRead(data: Record<string, JsonValue>): { tickers: Record<string,
  * their parameters left in (POST /api/words). `available` is false when the
  * BFF has no client install to read; a label the client does not have is null.
  */
+/**
+ * Scanner sites' names by their name message, as the server's own site packs
+ * name them (src/serverSiteNames.js): what a site list falls back on when the
+ * client's words have no text for a site (no client install). Null for a
+ * message no pack names.
+ */
+export async function loadSiteNames(messageIDs: readonly number[], options: ApiOptions = {}): Promise<Record<string, string | null>> {
+  const data = await postJson("/api/site-names", { messageIDs }, options);
+  const raw = typeof data.names === "object" && data.names !== null && !Array.isArray(data.names) ? (data.names as Record<string, JsonValue>) : {};
+  const out: Record<string, string | null> = {};
+  for (const [key, name] of Object.entries(raw)) {
+    out[key] = typeof name === "string" && name.trim().length > 0 ? name.trim() : null;
+  }
+  return out;
+}
+
 export async function loadWords(
   labels: readonly string[],
   messageIDs: readonly number[] = [],

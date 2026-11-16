@@ -374,3 +374,16 @@ test("a fight-back watch says how it fights, and an ordinary one still does not"
   const plain = interruptSentence({ id: "w2", when: { kind: "hostile-on-grid" }, respond: "fight-back" });
   assert.doesNotMatch(plain, /fleet|first/);
 });
+
+test("a site-warp step reads its site list back, and reads as before without one", () => {
+  const warp = (args: MacroStep["args"]): MacroStep => ({ id: "w", kind: "macro", macro: "warp-to-anomaly", args });
+  assert.equal(stepSentence(warp({})), "Warp to the next pirate den the scanner shows");
+  assert.equal(
+    stepSentence(warp({ sites: { kind: "siteList", mode: "only", names: ["Haven", "Sanctum"] } })),
+    "Warp to the next pirate den the scanner shows, only Haven or Sanctum",
+  );
+  assert.equal(
+    stepSentence({ id: "o", kind: "macro", macro: "warp-to-ore-anomaly", args: { sites: { kind: "siteList", mode: "skip", names: ["Average Frontier Deposit"] } } }),
+    "Warp to the next ore site the scanner shows, except Average Frontier Deposit",
+  );
+});

@@ -380,7 +380,26 @@ export type Arg =
    * never read the colony (R7d: the id is never printed). Set by the
    * Planetary Industry window's Haul button, which writes the step itself.
    */
-  | { readonly kind: "planetList"; readonly planets: readonly PlanetPickArg[] };
+  | { readonly kind: "planetList"; readonly planets: readonly PlanetPickArg[] }
+  /**
+   * Which scanner sites a site-warp block may fly to, by the site's NAME:
+   * `only` these, or every site except (`skip`) these. Absent = every site of
+   * the block's kind, which is the shipped behaviour.
+   *
+   * ⚠ A NAME MATCH, AND KNOWINGLY SO (R47 prefers the game's own ids). The
+   * thing a player means by "Haven" is the same rung for every pirate faction,
+   * and no id says that: each faction's Haven is its own dungeon with its own
+   * name message. So a name is compared with its leading faction word taken off
+   * (scanner/siteNames.ts), whole and ignoring case: "Haven" matches "Angel
+   * Haven" and "Serpentis Haven", and "Sanctum" never matches "Forsaken
+   * Sanctum". Names are what the player types and reads back, so `names` is
+   * both the rule and its display.
+   */
+  | { readonly kind: "siteList"; readonly mode: SiteListMode; readonly names: readonly string[] };
+
+/** `only`: fly to these sites and no others. `skip`: fly to any site but these. */
+export type SiteListMode = "only" | "skip";
+export const SITE_LIST_MODES: readonly SiteListMode[] = Object.freeze<SiteListMode[]>(["only", "skip"]);
 
 /** One colony a `planetList` names. */
 export interface PlanetPickArg {
@@ -442,6 +461,10 @@ export const MAX_BAY_LIST = 12;
 export const MAX_ITEM_LIST = 12;
 /** How many colonies one `planetList` may name. EVE caps a pilot at six. */
 export const MAX_PLANET_LIST = 12;
+/** A site list longer than a dozen names is the whole ladder: leave it unset. */
+export const MAX_SITE_LIST = 12;
+/** The longest site name in the game is well under this. */
+export const MAX_SITE_NAME_LEN = 60;
 
 /** The move block's place vocabulary. */
 export type ItemPlace = "hangar" | "cargo" | "ore-hold";
