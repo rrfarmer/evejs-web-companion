@@ -873,7 +873,7 @@ async function loadModel(info: TypeModelInfo, typeID: number | null, materialOve
   const meshes: THREE.Mesh[] = [];
   gltf.scene.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh); });
   for (const mesh of meshes) {
-    // the hull casts and takes the sun's shadow (spaceView.ts fitSunShadow)
+    // The hull casts and receives the sun's cascaded shadows in flight.
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     const mat = mesh.material as THREE.Material;

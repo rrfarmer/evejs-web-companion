@@ -29,7 +29,7 @@ import { isNonInteractableWormhole, nonInteractableWormhole, updateWormholePose,
 import { CameraShake } from "./cameraShake.ts";
 import { ObservatoryEnvironment } from "./observatoryEnvironment.ts";
 import { ObservatoryVortex, OBSERVATORY_VORTEX_TYPE } from "../three/observatoryVortex.ts";
-import { CloudShadowAtlas } from "../three/cloudShadowAtlas.ts";
+import { SpaceShadowAtlas } from "../three/spaceShadowAtlas.ts";
 import { VortexReflectionProbe, type VortexReflection } from "../three/vortexReflection.ts";
 import { CameraTaskGestures, type CameraTaskEvent } from "../bridge/cameraTasks.ts";
 import { initialOrbitDistance, isOwnStargateDeparture, MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose, validCameraPosition } from "./spaceCameraPose.ts";
@@ -253,8 +253,8 @@ export class SpaceView {
   private readonly overview: Overview;
   private starfieldObj!: THREE.Points;
   private readonly sunLight = new THREE.DirectionalLight(0xfff6e8, 3);
-  private readonly cloudShadows = new CloudShadowAtlas();
-  /** Toward the system's star (from the grid): the sun light sits along it from the point looked at (fitSunShadow). */
+  private readonly spaceShadows = new SpaceShadowAtlas(this.renderer);
+  /** From the grid toward the system's star. */
   private readonly sunDir = new THREE.Vector3(-1, 0.4, 0.6).normalize();
   private snapshot: Snapshot | null = null;
   private frameCount = 0;
@@ -597,12 +597,9 @@ export class SpaceView {
     // The system's star lights the grid from where it is (aimed each frame at the sun ball, frame()).
     this.sunLight.position.copy(this.sunDir);
     this.scene.add(this.sunLight, this.sunLight.target);
-    // the sun's shadow on the space objects (quadv5.sm_depth: EveSpaceSceneShadowMap x the sun's colour, the scene's
-    // cascaded shadow pass): three's shadow map of the sun light, fitted around the point looked at (fitSunShadow)
+    // SpaceShadowAtlas uses the renderer's depth draws for the sun's cascades.
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.sunLight.castShadow = true;
-    this.sunLight.shadow.mapSize.set(4096, 4096);
     this.scene.add(this.warpTunnel.object, this.turretFx.group, this.missileFx.group, this.shipFx.group);
     live.fxListeners.add(this.hearFx);
     this.camera.position.set(-600, 250, 900);
@@ -758,7 +755,7 @@ export class SpaceView {
     for (const mark of this.marks.values()) (mark.userData.vortex as ObservatoryVortex | undefined)?.dispose();
     this.stopped = true;
     this.renderer.setAnimationLoop(null);
-    this.cloudShadows.dispose();
+    this.spaceShadows.dispose();
     this.reflectionProbe?.dispose();
     this.sceneEnv?.dispose();
     this.bloom?.dispose();
@@ -2320,8 +2317,7 @@ export class SpaceView {
     // the shake: the point looked at moved across the view for this frame (the controls look at their target again next)
     const shaken = this.shake.offset(this.camera.position, this.controls.target, dt);
     if (shaken) this.camera.lookAt(this.controls.target.clone().add(shaken));
-    // the system menu's settings (gfxSettings.ts): shadows, the turrets' and missiles' effects
-    if (this.sunLight.castShadow !== rendering.shadows) this.sunLight.castShadow = rendering.shadows;
+    // the system menu's settings (gfxSettings.ts): the turrets' and missiles' effects
     this.turretFx.group.visible = settings.turretsEnabled;
     this.missileFx.group.visible = settings.missilesEnabled;
     // fxSequencer: with Effects off the ship effects (not the turrets') are disabled
@@ -2391,33 +2387,12 @@ export class SpaceView {
     this.lodChildMeshesHidden = childMeshesHidden;
     this.missileFx.explosionLimit = settings.lodQuality * 30;
     this.updateReflections(eye, settings.reflectionQuality, reflectionSources);
-    this.fitSunShadow();
-    this.cloudShadows.render(this.renderer, this.scene, this.camera, this.sunDir, shadowClouds);
+    this.sunLight.position.copy(this.sunDir);
+    this.spaceShadows.render(this.scene, this.camera, this.sunDir, rendering.shadows, shadowClouds);
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering(), depthEffects: () => gfx().shaderQuality === 3 });
     const simDt = dt * (this.options.flightSnapshot?.()?.timeDilation ?? 1);
     const environment = this.observatoryEnvironment.sample(ego ? snap?.entities ?? [] : [], origin, eye, simDt, rendering.postProcess, systemID);
     this.bloom.render(environment, sun);
-  }
-
-  /**
-   * The sun light along the sun's direction from the point looked at, its shadow's orthographic camera a square of
-   * 1.25 x the camera's distance about it (400 m to 150 km: a ship close up, a station whole), deep enough for what
-   * lies between; the normal bias two of its texels.
-   */
-  private fitSunShadow(): void {
-    const t = this.controls.target;
-    const half = THREE.MathUtils.clamp(this.camera.position.distanceTo(t) * 1.25, 400, 150000);
-    this.sunLight.position.copy(t).addScaledVector(this.sunDir, half * 4);
-    this.sunLight.target.position.copy(t);
-    this.sunLight.target.updateMatrixWorld();
-    const c = this.sunLight.shadow.camera;
-    if (c.right !== half) {
-      c.left = -half; c.right = half; c.top = half; c.bottom = -half;
-      c.near = half * 0.5; c.far = half * 8;
-      c.updateProjectionMatrix();
-      this.sunLight.shadow.normalBias = (2 * half / this.sunLight.shadow.mapSize.x) * 2;
-      this.sunLight.shadow.bias = -0.0002;
-    }
   }
 
   /** A lock, shown as locking (on its bracket) until the call returns: the server answers AddTarget once locked. */
@@ -2486,7 +2461,7 @@ export class SpaceView {
     if (e.groupID === 1975 || e.groupID === 4579) {
       holder.userData = { kind: e.kind, radius: e.radius, nonPickable: true };
       if (e.typeID === OBSERVATORY_VORTEX_TYPE) {
-        void ObservatoryVortex.load(this.sunLight, this.cloudShadows).then((vortex) => {
+        void ObservatoryVortex.load(this.sunLight, this.spaceShadows).then((vortex) => {
           if (this.stopped || this.marks.get(e.itemID) !== holder) {
             vortex.dispose();
             return;
