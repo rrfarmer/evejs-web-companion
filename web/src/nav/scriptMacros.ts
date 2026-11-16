@@ -4225,14 +4225,21 @@ function fightRatsLadder(
   // NoCharges). The combat read that proves the charge fits is made only while a
   // gun is empty; a bank is loaded through its master. Each gun gets a few
   // attempts (COMBAT_RELOAD_ATTEMPTS), so a fit with nothing it can load carries on.
+  const empty = new Set(obs.unloadedWeaponIDs ?? []);
   const reload = combatReload(obs.combatWeapons, mem);
-  if (obs.combatWeapons) mem = reload.memory;
+  // ⚠ A LOADED GUN'S ATTEMPTS ARE FORGOTTEN HERE TOO. combatReload forgets them
+  // only when its read shows the gun loaded, and that read is skipped once no gun
+  // is empty, so without this every load that worked would count against the gun
+  // and its fourth time running dry would never be loaded.
+  const attempts = mem.reloadAttempts as Record<number, number> | undefined;
+  mem = obs.combatWeapons ? reload.memory
+    : attempts === undefined ? mem
+    : { ...mem, reloadAttempts: Object.fromEntries(Object.entries(attempts).filter(([id]) => empty.has(Number(id)))) };
   if (reload.action !== null) {
     return tick(reload.action, "Loading the empty gun from the cargo.", "Fighting", ACTING, true, mem);
   }
   // ⚠ AN EMPTY GUN IS NEVER PRESSED: it cannot fire, and the server refuses it.
   const active = new Set(snapshot.ship?.activeModuleIDs ?? []);
-  const empty = new Set(obs.unloadedWeaponIDs ?? []);
   const idleGun = weapons.find((id) => !active.has(id) && !empty.has(id));
   if (idleGun !== undefined) {
     return tick(

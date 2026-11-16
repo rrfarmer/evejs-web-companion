@@ -2217,6 +2217,15 @@ test("fight: an empty gun is loaded from the cargo, a bank through its master, a
   const dry = fight(s, world({ combatWeapons: { ...banked, cargo: [] } }), locked, {});
   assert.equal(dry.outcome.kind, "blocked");
   assert.match(dry.outcome.kind === "blocked" ? dry.outcome.reason : "", /empty/);
+
+  // A gun loaded three times before has its count forgotten once it is seen loaded, so it is loaded a fourth time.
+  const spent = { ...locked, reloadAttempts: { 500: 3 } };
+  const loadedNow = fight(s, world({ unloadedWeaponIDs: [], combatWeapons: null }), spent, {});
+  assert.deepEqual(loadedNow.nextMem.reloadAttempts, {});
+  const dryAgain = fight(s, world({ combatWeapons: banked }), loadedNow.nextMem, {});
+  assert.deepEqual(dryAgain.action, { kind: "loadCombatAmmo", moduleID: 500, chargeItemID: 777, chargeTypeID: 238 });
+  // Still empty and unread: the count stays.
+  assert.deepEqual(fight(s, world({ combatWeapons: null }), spent, {}).nextMem.reloadAttempts, { 500: 3 });
 });
 
 test("fight: a mixed bay -> only the COMBAT drones are launched; a mixed flight -> only they are set on the rat", () => {
