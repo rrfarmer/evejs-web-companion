@@ -8,6 +8,7 @@
 //        [--turret <res path of a turret module's graphic> ...] [--gfx-turrets] [--ammo-colors] [--sof-materials] [--missile <missile typeID> ...]
 //        [--ship-info] (the Ship Info scene, faction backgrounds and light rig, needs --sde)
 //        [--observatory-environment] (the anchor template and its postprocessing textures)
+//        [--observatory-vortex] (the vault volume and its authored lighting inputs)
 //
 // Nothing here ships client data: the script reads the client on this machine and writes to
 // _local/client-assets/<build>/ (git-ignored). Output mirrors res: paths, lower case:
@@ -612,6 +613,35 @@ function extractObservatoryEnvironment(rf, clientDir, outRoot) {
   }));
 }
 
+function extractObservatoryVortex(rf, outRoot) {
+  const resource = "res:/fisfx/vdb/vortex_06i.black";
+  const root = readBlack(rf.read(resource), resource);
+  const cloud = root.effectChildren?.flatMap((child) => child.objects ?? []).find((child) => child.type === "EveChildCloud2");
+  if (!cloud || !/\/basiccloud\.fx$/i.test(cloud.effect?.effectFilePath)) throw new Error(`No basiccloud child in ${resource}`);
+  const textures = Object.fromEntries(cloud.effect.resources.map(({ name, resourcePath }) => [name, resourcePath]));
+  const density = textures.DensityMap;
+  const low = density.replace(/\.vta$/i, "_lowdetail.vta");
+  if (textures.TemperatureMap !== density) throw new Error(`Unexpected separate temperature map in ${resource}`);
+  const constants = Object.fromEntries(cloud.effect.constParameters.items);
+  const variables = Object.fromEntries(root.controllers.flatMap((controller) => controller.variables).map(({ name, defaultValue }) => [name, defaultValue]));
+  const color = root.curveSets.flatMap((set) => set.curves).find((curve) => curve.name === "CloudColor").color1;
+  fs.writeFileSync(path.join(outRoot, "observatoryVortex.json"), JSON.stringify({
+    vortexBuild: 1,
+    scaling: cloud.scaling,
+    density: variables._densityMax,
+    albedo: color.slice(0, 3).map((value) => value * variables._brightnessMax),
+    steps: constants.IntegrationSteps[0],
+    noiseFactor: constants.NoiseFactor[0],
+    temperatureControl: constants.TemperatureControl,
+    absorptionPhase: constants.AbsorptionPhase[0],
+    lights: cloud.lights.map(({ position, radius, innerRadius, color, brightness }) => ({ position, radius, innerRadius, color, brightness })),
+    volume: copyRes(rf, density, outRoot),
+    volumeLow: copyRes(rf, low, outRoot),
+    noise: copyRes(rf, textures.NoiseMap, outRoot),
+    gradient: copyRes(rf, textures.TemperatureGradientMap, outRoot),
+  }));
+}
+
 function parseArgs(argv) {
   const out = { hulls: [], types: [], graphics: [], dnas: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, sofMaterials: false, fx: [], effects: [], starMap: false, fittingScene: false };
   for (let i = 0; i < argv.length; i++) {
@@ -639,6 +669,7 @@ function parseArgs(argv) {
     else if (a === "--ship-info") out.shipInfo = true;
     else if (a === "--drifter-collection-explosion") out.drifterCollectionExplosion = true;
     else if (a === "--observatory-environment") out.observatoryEnvironment = true;
+    else if (a === "--observatory-vortex") out.observatoryVortex = true;
     else if (a === "--effect") out.effects.push(argv[++i]);
     else if (a === "--missile") out.missiles.push(Number(argv[++i]));
     else if (a === "--system-celestials") out.systemCelestials.push(Number(argv[++i]));
@@ -814,6 +845,7 @@ async function main() {
   }
   if (args.drifterCollectionExplosion) await extractDrifterCollectionExplosion(rf, outRoot);
   if (args.observatoryEnvironment) extractObservatoryEnvironment(rf, client, outRoot);
+  if (args.observatoryVortex) extractObservatoryVortex(rf, outRoot);
   if (args.shipInfo) {
     if (!sde) throw new Error("--ship-info needs the SDE");
     const graphic = (id) => sdeGraphic(sde, id)?.graphicFile;
@@ -909,7 +941,7 @@ async function main() {
     }
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

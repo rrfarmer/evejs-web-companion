@@ -45,5 +45,9 @@ test("Observatory postprocessing follows the in-range anchor and clears on remov
   assert.equal(sample()!.lutInfluence, 0.375);
   assert.equal(sample([anchor], 1, false), null);
   assert.equal(sample()!.lutInfluence, 0.375);
+  const cameraAt300km = { ...eye, x: 300_000 };
+  const middle = environment.sample([anchor], origin, cameraAt300km, 2, true);
+  // Installed EveDistanceField.DistanceCurve evaluated by GetScalarAt(300000).
+  assert.ok(Math.abs(middle!.lutInfluence / 0.75 - 0.7758620977) < 1e-7);
   assert.equal(requests, 1);
 });

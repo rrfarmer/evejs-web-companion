@@ -28,6 +28,7 @@ import { DRIFTER_COLLECTION, DrifterCollectionExplosions } from "./drifterCollec
 import { isNonInteractableWormhole, nonInteractableWormhole, updateWormholePose, WormholeAudio } from "./nonInteractableWormhole.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { ObservatoryEnvironment } from "./observatoryEnvironment.ts";
+import { ObservatoryVortex, OBSERVATORY_VORTEX_TYPE } from "../three/observatoryVortex.ts";
 import { CameraTaskGestures, type CameraTaskEvent } from "../bridge/cameraTasks.ts";
 import { initialOrbitDistance, isOwnStargateDeparture, MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose, validCameraPosition } from "./spaceCameraPose.ts";
 import { ENTRY_CAMERA_DURATION_MS, entryCameraFov, spaceEntryCamera, type EntryCameraPath } from "./spaceEntryCamera.ts";
@@ -751,6 +752,7 @@ export class SpaceView {
     this.ambient = null;
     for (const audio of this.wormholeAudio.values()) audio.dispose();
     this.wormholeAudio.clear();
+    for (const mark of this.marks.values()) (mark.userData.vortex as ObservatoryVortex | undefined)?.dispose();
     this.stopped = true;
     this.renderer.setAnimationLoop(null);
     this.sceneEnv?.dispose();
@@ -2023,6 +2025,7 @@ export class SpaceView {
       if (!mark) { mark = this.markFor(e); this.marks.set(e.itemID, mark); this.scene.add(mark); }
       mark.position.copy(rel);
       this.orient(mark, e);
+      (mark.userData.vortex as ObservatoryVortex | undefined)?.update(e.radius, gfx().volumetricQuality);
       // a drone's engines burn always (Drone.py: FitBoosters(alwaysOn=True)); a fighter's do not
       mark.userData.boostersAlwaysOn = e.kind === "drone";
       if (e.maxVelocity || mark.userData.boostersAlwaysOn) setThrust(mark, e.maxVelocity ? Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z) / e.maxVelocity : 0, this.accelOf(mark, e));
@@ -2132,6 +2135,7 @@ export class SpaceView {
       if (!this.collectionExplosions.holdModel(id, m)) this.scene.remove(m);
       this.wormholeAudio.get(id)?.dispose();
       this.wormholeAudio.delete(id);
+      (m.userData.vortex as ObservatoryVortex | undefined)?.dispose();
       this.marks.delete(id);
     }
     this.collectionExplosions.update(origin, this.live.simNow());
@@ -2443,7 +2447,16 @@ export class SpaceView {
     // repository.py uses the non-interactable classes for groups 1975 and 4579.
     if (e.groupID === 1975 || e.groupID === 4579) {
       holder.userData = { kind: e.kind, radius: e.radius, nonPickable: true };
-      if (e.typeID && e.groupID === 1975) {
+      if (e.typeID === OBSERVATORY_VORTEX_TYPE) {
+        void ObservatoryVortex.load(this.sunLight).then((vortex) => {
+          if (this.stopped || this.marks.get(e.itemID) !== holder) {
+            vortex.dispose();
+            return;
+          }
+          holder.userData.vortex = vortex;
+          holder.add(vortex.mesh);
+        }).catch((error: unknown) => console.warn("Observatory vortex:", error));
+      } else if (e.typeID && e.groupID === 1975) {
         void typeModel(e.typeID).then((model) => {
           if (model && !this.stopped && this.marks.get(e.itemID) === holder) holder.add(model);
         }).catch(() => { /* An authored non-interactable object can have an empty model. */ });

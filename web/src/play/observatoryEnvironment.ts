@@ -98,8 +98,8 @@ export class ObservatoryEnvironment {
       this.anchorID = anchor.itemID;
       this.influence = 0;
     }
-    // Use the configured near and far bounds with a smooth distance response and directional fade times.
-    const target = 1 - THREE.MathUtils.smoothstep(distance, minDistance, maxDistance);
+    // The installed EveDistanceField generates a linear DistanceCurve between these two authored keys.
+    const target = 1 - THREE.MathUtils.clamp((distance - minDistance) / (maxDistance - minDistance), 0, 1);
     const seconds = target > this.influence ? timeAdjustmentSecondsIn : timeAdjustmentSecondsOut;
     const step = dt / seconds;
     this.influence = THREE.MathUtils.clamp(target, this.influence - step, this.influence + step);

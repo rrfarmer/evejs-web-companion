@@ -16,7 +16,7 @@ const EXTRACTOR = path.join(REPO_ROOT, "tools", "client-extract", "extract.mjs")
 const runFile = promisify(execFile);
 const MIME = new Map([
   [".json", "application/json"], [".glb", "model/gltf-binary"], [".dds", "application/octet-stream"],
-  [".ogg", "audio/ogg"], [".wav", "audio/wav"],
+  [".ogg", "audio/ogg"], [".wav", "audio/wav"], [".vta", "application/octet-stream"],
 ]);
 const GENERATED = new Map([
   ["/dscanCones.json", ["--dscan-cones", '"lineTexture"']],
@@ -24,6 +24,7 @@ const GENERATED = new Map([
   ["/shipInfoScene.json", ["--ship-info"]],
   ["/drifterCollectionExplosion.json", ["--drifter-collection-explosion", '"explosionBuild":1']],
   ["/observatoryEnvironment.json", ["--observatory-environment", '"environmentBuild":1']],
+  ["/observatoryVortex.json", ["--observatory-vortex", '"vortexBuild":1']],
   ["/overviewPresets.json", ["--overview"]],
   ["/sofMaterials.json", ["--sof-materials"]],
   ["/ammoColors.json", ["--ammo-colors"]],
