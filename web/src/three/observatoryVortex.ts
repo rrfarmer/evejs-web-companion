@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { loadDds } from "./ddsTexture.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
 import { decodeVta } from "./vtaVolume.ts";
+import { VortexLightmap } from "./vortexLightmap.ts";
 
 export const OBSERVATORY_VORTEX_TYPE = 77388;
 
@@ -78,7 +79,11 @@ const VERTEX = `
 
 const FRAGMENT = `
   varying vec3 localPoint;
-  uniform highp sampler3D field;
+  uniform highp sampler3D field, lightmap;
+  uniform highp sampler2DShadow occluders;
+  uniform mat4 cloudToShadow;
+  uniform bool lightmapReady, shadowReady;
+  uniform float shadowBias;
   uniform sampler2D noiseMap, gradientMap;
   uniform vec3 localEye, viewDepthAxis, sunDirection, sunColor, albedo, lightDistanceScale;
   uniform vec4 temperature, lightPosition[4], lightColor[4];
@@ -109,7 +114,9 @@ const FRAGMENT = `
   }
 
   vec3 lightAt(vec3 p, vec3 direction) {
-    vec3 daylight = sunColor * (scatter(dot(direction, sunDirection)) * transmission(p, sunDirection, 2.0));
+    vec2 lighting = lightmapReady ? texture(lightmap, vec3(p.xy, -p.z) + 0.5).rg
+      : vec2(transmission(p, sunDirection, 2.0), 1.0);
+    vec3 daylight = sunColor * (scatter(dot(direction, sunDirection)) * lighting.r);
     for (int i = 0; i < 4; i++) {
       vec3 offset = lightPosition[i].xyz - p;
       vec3 delta = offset * lightDistanceScale;
@@ -118,8 +125,16 @@ const FRAGMENT = `
       if (distance < radius) {
         float falloff = (radius - distance) / ((distance + inner) * (radius + inner));
         float angular = scatter(-dot(direction, delta) / max(distance, 1e-6));
-        float selfShadow = transmission(p, normalize(offset + vec3(1e-9)), min(0.1, length(offset)));
+        float selfShadow = lightmapReady ? lighting.g
+          : transmission(p, normalize(offset + vec3(1e-9)), min(0.1, length(offset)));
         daylight += lightColor[i].rgb * (falloff * angular * selfShadow);
+      }
+    }
+    if (shadowReady) {
+      vec4 samplePoint = cloudToShadow * vec4(p, 1.0);
+      vec3 uvz = samplePoint.xyz / samplePoint.w;
+      if (all(greaterThanEqual(uvz, vec3(0.0))) && all(lessThanEqual(uvz, vec3(1.0)))) {
+        daylight *= mix(0.3, 1.0, texture(occluders, vec3(uvz.xy, uvz.z + shadowBias)));
       }
     }
     return daylight;
@@ -167,6 +182,9 @@ export class ObservatoryVortex {
   private requested: string | null = null;
   private stopped = false;
   private readonly volume: VortexData;
+  private readonly baked = new VortexLightmap();
+  private readonly nativeSun = new THREE.Vector3();
+  private readonly inverse = new THREE.Matrix4();
 
   private constructor(assets: VortexAssets, sun: THREE.DirectionalLight) {
     const { data, noise, gradient } = assets;
@@ -174,6 +192,9 @@ export class ObservatoryVortex {
     const uniforms = {
       ...SOFT_DEPTH,
       field: { value: null as THREE.Data3DTexture | null }, noiseMap: { value: noise }, gradientMap: { value: gradient },
+      lightmap: { value: null as THREE.Data3DTexture | null }, lightmapReady: { value: false },
+      occluders: { value: null as THREE.DepthTexture | null }, cloudToShadow: { value: new THREE.Matrix4() },
+      shadowReady: { value: false }, shadowBias: { value: 0 },
       localEye: { value: new THREE.Vector3() }, viewDepthAxis: { value: new THREE.Vector3() },
       sunDirection: { value: new THREE.Vector3() }, sunColor: { value: new THREE.Color() },
       albedo: { value: new THREE.Vector3(...data.albedo) }, densityScale: { value: data.density },
@@ -199,6 +220,11 @@ export class ObservatoryVortex {
       uniforms.viewDepthAxis.value.set(-t[2]!, -t[6]!, -t[10]!);
       uniforms.sunDirection.value.copy(sun.getWorldPosition(position)).sub(sun.target.getWorldPosition(target)).transformDirection(inverse);
       uniforms.sunColor.value.copy(sun.color).multiplyScalar(sun.intensity);
+      const shadow = sun.castShadow ? sun.shadow.map?.depthTexture : null;
+      uniforms.occluders.value = shadow ?? null;
+      uniforms.shadowReady.value = !!shadow?.compareFunction;
+      uniforms.cloudToShadow.value.multiplyMatrices(sun.shadow.matrix, this.mesh.matrixWorld);
+      uniforms.shadowBias.value = sun.shadow.bias;
     };
   }
 
@@ -206,8 +232,19 @@ export class ObservatoryVortex {
     return new ObservatoryVortex(await vortexAssets(), sun);
   }
 
-  update(radius: number, quality: number): void {
+  update(radius: number, quality: number, renderer: THREE.WebGLRenderer, sunDirection: THREE.Vector3): void {
     this.mesh.scale.set(...this.volume.scaling).multiplyScalar(radius);
+    const uniforms = this.mesh.material.uniforms;
+    const field = uniforms.field!.value as THREE.Data3DTexture | null;
+    if (field) {
+      this.mesh.updateWorldMatrix(true, false);
+      this.inverse.copy(this.mesh.matrixWorld).invert();
+      this.nativeSun.copy(sunDirection).transformDirection(this.inverse);
+      this.nativeSun.z *= -1;
+      const lightmap = this.baked.update(renderer, field, this.nativeSun, this.volume.density);
+      uniforms.lightmap!.value = lightmap;
+      uniforms.lightmapReady!.value = lightmap !== null;
+    }
     // sceneRenderJobSpace.ApplySpaceRenderingSettings selects the low VTA at Low and Medium.
     const url = quality >= 3 ? this.volume.volume : this.volume.volumeLow;
     if (this.requested === url) return;
@@ -221,6 +258,7 @@ export class ObservatoryVortex {
 
   dispose(): void {
     this.stopped = true;
+    this.baked.dispose();
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
   }

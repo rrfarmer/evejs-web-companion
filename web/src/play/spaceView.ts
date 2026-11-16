@@ -2025,7 +2025,7 @@ export class SpaceView {
       if (!mark) { mark = this.markFor(e); this.marks.set(e.itemID, mark); this.scene.add(mark); }
       mark.position.copy(rel);
       this.orient(mark, e);
-      (mark.userData.vortex as ObservatoryVortex | undefined)?.update(e.radius, gfx().volumetricQuality);
+      (mark.userData.vortex as ObservatoryVortex | undefined)?.update(e.radius, gfx().volumetricQuality, this.renderer, this.sunDir);
       // a drone's engines burn always (Drone.py: FitBoosters(alwaysOn=True)); a fighter's do not
       mark.userData.boostersAlwaysOn = e.kind === "drone";
       if (e.maxVelocity || mark.userData.boostersAlwaysOn) setThrust(mark, e.maxVelocity ? Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z) / e.maxVelocity : 0, this.accelOf(mark, e));
