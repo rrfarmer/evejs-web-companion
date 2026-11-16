@@ -6,6 +6,7 @@
 // BITANGENT8, a custom element as TEXCOORD(8 + its usage index); index 9 the previous frame's).
 
 import * as THREE from "three";
+import { CLOUD_FOG, CLOUD_FOG_GLSL } from "./cloudOpacity.ts";
 import { gfx } from "../play/gfxSettings.ts";
 import { logDepth } from "./logDepth.ts";
 import { DISTORTION_LAYER } from "./distortion.ts";
@@ -389,6 +390,7 @@ export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, d
     layer1: { value: null }, layer2: { value: null }, mask: { value: null },
     ...(softDepth ? {
       ...SOFT_DEPTH,
+      ...CLOUD_FOG,
       depthShader: { get value() { return gfx().shaderQuality === 3; } },
       depthFadeControl: { value: v4(p.DepthFadeControl, [0.333, 0, 0, 0]) },
     } : {}),
@@ -422,7 +424,8 @@ export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, d
     fragmentShader: `uniform sampler2D layer1; uniform sampler2D layer2; uniform sampler2D mask;
       uniform vec4 spriteColor; uniform vec4 spriteFactors; uniform vec4 particleParams; uniform float brightness;
       varying vec4 vUv12; varying vec2 vMaskUv; varying vec4 vColor; varying float vDepth;
-      ${softDepth ? PARTICLE_DEPTH_FRAGMENT : ""}
+      ${softDepth ? `${PARTICLE_DEPTH_FRAGMENT}
+      ${CLOUD_FOG_GLSL}` : ""}
       ${lit ? "uniform sampler2D posLight; uniform sampler2D negLight; uniform vec4 ambientLight; uniform vec3 sunDir; uniform vec3 sunColour; varying vec3 vRight; varying vec3 vUp;" : ""}
       void main() {
         vec4 m = texture2D(mask, vMaskUv);
@@ -438,7 +441,7 @@ export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, d
         ${nearFade ? "t *= clamp((vDepth - particleParams.x) / (particleParams.y - particleParams.x), 0.0, 1.0);" : ""}
         vec4 col = vColor * spriteColor;
         float k = spriteFactors.x * (col.a * t.a - 1.0) + 1.0;
-        gl_FragColor = vec4(t.rgb * col.rgb * k, t.a * col.a * spriteFactors.z) * brightness${softDepth ? " * particleDepthFade()" : ""};
+        gl_FragColor = vec4(t.rgb * col.rgb * k, t.a * col.a * spriteFactors.z) * brightness${softDepth ? " * (particleDepthFade() * cloudFogTransmission(1.0 / gl_FragCoord.w))" : ""};
       }`,
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
     blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation,

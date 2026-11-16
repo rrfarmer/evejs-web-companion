@@ -2211,7 +2211,7 @@ export class SpaceView {
     const reflectionSources: VortexReflection[] = [];
     const shadowClouds: THREE.Mesh[] = [];
     const shadowPlanets: ShadowPlanet[] = [];
-    const flareClouds: ObservatoryVortex[] = [];
+    const cloudVolumes: ObservatoryVortex[] = [];
     const overviewMask = this.overview.activePreset();
     const bracketMask = this.overview.activeBracketPreset();
     const relations = overviewMask?.filteredStates.length || bracketMask?.filteredStates.length
@@ -2231,7 +2231,7 @@ export class SpaceView {
       if (reflectClouds && e.radius > 0 && vortex?.reflection) reflectionSources.push(vortex.reflection);
       if (e.radius > 0 && vortex?.mesh.visible) {
         if (rendering.shadows) shadowClouds.push(vortex.mesh);
-        flareClouds.push(vortex);
+        cloudVolumes.push(vortex);
       }
       // a drone's engines burn always (Drone.py: FitBoosters(alwaysOn=True)); a fighter's do not
       mark.userData.boostersAlwaysOn = e.kind === "drone";
@@ -2582,8 +2582,8 @@ export class SpaceView {
     });
     const simDt = dt * (this.options.flightSnapshot?.()?.timeDilation ?? 1);
     const environment = this.observatoryEnvironment.sample(ego ? snap?.entities ?? [] : [], origin, eye, simDt, rendering.postProcess, systemID);
-    const clouds = environment?.godRays && settings.shaderQuality === 3 && flareClouds.length
-      ? { meshes: flareClouds.map((vortex) => vortex.flareOpacityMesh()), quality: settings.volumetricQuality }
+    const clouds = cloudVolumes.length
+      ? { meshes: cloudVolumes.map((vortex) => vortex.cloudOpacityMesh()), quality: settings.volumetricQuality }
       : undefined;
     this.bloom.render(environment, sun, clouds);
   }

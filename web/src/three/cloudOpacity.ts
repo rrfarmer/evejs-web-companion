@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
 
-export interface FlareClouds {
+export interface VolumetricClouds {
   meshes: readonly THREE.Mesh[];
   quality: number;
 }
@@ -10,7 +10,27 @@ export interface FlareClouds {
 // Tr2VolumetricsRenderer's Low, Medium, High and Ultra scale factors in 3698585.
 const SCALE = [0.3, 0.5, 0.7, 1] as const;
 
-/** The opacity in slice 3 of EveSceneFogVolumeMap, used by foreground flare queries. */
+// EveSpaceScene's forward view-depth boundaries for EveSceneFogVolumeMap in 3698585, in metres.
+export const CLOUD_FOG = {
+  cloudFogMap: { value: null as THREE.Texture | null },
+  cloudFogEnabled: { value: false },
+  cloudFogDepths: { value: new THREE.Vector4(1_000, 10_000, 100_000, 1_000_000) },
+};
+
+export const CLOUD_FOG_GLSL = `uniform sampler2D cloudFogMap;
+uniform bool cloudFogEnabled;
+uniform vec4 cloudFogDepths;
+float cloudFogTransmission(float depth) {
+  if (!cloudFogEnabled) return 1.0;
+  vec4 opacity = textureLod(cloudFogMap, gl_FragCoord.xy / softDepthSize, 0.0);
+  vec4 cuts = cloudFogDepths;
+  if (depth <= cuts.x) return 1.0 - opacity.r * clamp(depth / cuts.x, 0.0, 1.0);
+  if (depth <= cuts.y) return 1.0 - mix(opacity.r, opacity.g, (depth - cuts.x) / (cuts.y - cuts.x));
+  if (depth <= cuts.z) return 1.0 - mix(opacity.g, opacity.b, (depth - cuts.y) / (cuts.z - cuts.y));
+  return 1.0 - mix(opacity.b, opacity.a, clamp((depth - cuts.z) / (cuts.w - cuts.z), 0.0, 1.0));
+}`;
+
+/** Four accumulated opacity slices in RGBA. The last slice also serves foreground flares. */
 export class CloudOpacityPass {
   private readonly scene = new THREE.Scene();
   private readonly opacity = new THREE.WebGLRenderTarget(1, 1, {
@@ -35,7 +55,8 @@ export class CloudOpacityPass {
         // blurvolumetric.sm_depth uses depth-relative weights for the four
         // neighboring taps. The downsampled depth is the nearest full-size texel.
         float depth = softSceneDepthAt(vUv * softDepthSize);
-        float sum = 90.0 * texture2D(frame, vUv).a;
+        vec4 center = texture2D(frame, vUv);
+        float sum = 90.0 * center.a;
         float weights = 90.0;
         for (int i = -2; i <= 2; i++) {
           if (i == 0) continue;
@@ -45,12 +66,13 @@ export class CloudOpacityPass {
           sum += w * texture2D(frame, at).a;
           weights += w;
         }
-        gl_FragColor = vec4(0.0, 0.0, 0.0, sum / weights);
+        // The native blur only filters slice 3.
+        gl_FragColor = vec4(center.rgb, sum / weights);
       }`,
   });
   private readonly quad = new FullScreenQuad(this.blur);
 
-  render(renderer: THREE.WebGLRenderer, camera: THREE.Camera, clouds: FlareClouds, width: number, height: number): THREE.Texture {
+  render(renderer: THREE.WebGLRenderer, camera: THREE.Camera, clouds: VolumetricClouds, width: number, height: number): THREE.Texture {
     const scale = SCALE[clouds.quality - 1] ?? SCALE[0];
     const w = Math.max(1, Math.floor(width * scale)), h = Math.max(1, Math.floor(height * scale));
     this.opacity.setSize(w, h);

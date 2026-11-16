@@ -3,6 +3,7 @@
 import * as THREE from "three";
 import { loadDds } from "./ddsTexture.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
+import { CLOUD_FOG } from "./cloudOpacity.ts";
 import { decodeVta } from "./vtaVolume.ts";
 import { VortexLightmap } from "./vortexLightmap.ts";
 import { VortexShadow } from "./vortexShadow.ts";
@@ -99,6 +100,7 @@ const FRAGMENT = `
   ${SOFT_DEPTH_GLSL}
   #ifdef CLOUD_OPACITY_ONLY
     uniform vec2 opacitySize;
+    uniform vec4 cloudFogDepths;
   #endif
 
   vec2 interval(vec3 origin, vec3 direction) {
@@ -110,6 +112,10 @@ const FRAGMENT = `
 
   float voxels(vec3 p) {
     return texture(field, vec3(p.xy, -p.z) + 0.5).r;
+  }
+
+  float stepTransmission(float density, float distance) {
+    return density > 0.01 ? exp(-density * distance) : 1.0;
   }
 
   // basiccloud's normalized Henyey–Greenstein term, with -direction for incoming light.
@@ -163,7 +169,8 @@ const FRAGMENT = `
     #else
       float opaqueDepth = softSceneDepth();
     #endif
-    if (softDepthOn > 0.0) end = min(end, opaqueDepth / max(dot(viewDepthAxis, direction), 1e-5));
+    float viewRate = max(dot(viewDepthAxis, direction), 1e-5);
+    if (softDepthOn > 0.0) end = min(end, opaqueDepth / viewRate);
     if (end <= begin) discard;
 
     ivec2 noiseSize = textureSize(noiseMap, 0);
@@ -172,11 +179,32 @@ const FRAGMENT = `
     float cursor = min(end, begin + texelFetch(noiseMap, at, 0).r * noiseFactor * stepLength);
     vec3 color = vec3(0.0);
     float transmit = 1.0, previous = begin;
+    #ifdef CLOUD_OPACITY_ONLY
+      vec3 sliceAt = cloudFogDepths.xyz / viewRate;
+      vec3 slices = vec3(-1.0);
+      for (int j = 0; j < 3; j++) {
+        if (sliceAt[j] <= begin) slices[j] = 0.0;
+      }
+    #endif
     for (int i = 0; i < 128; i++) {
+      #ifdef CLOUD_OPACITY_ONLY
+        // The native shader samples the shortened step at each plane and
+        // leaves the main march at its original step positions.
+        for (int j = 0; j < 3; j++) {
+          if (slices[j] < 0.0 && sliceAt[j] <= cursor && sliceAt[j] < end) {
+            float density = voxels(localEye + direction * sliceAt[j]) * densityScale;
+            float atCut = transmit * stepTransmission(density, sliceAt[j] - previous);
+            // The native shader stores this transmission in half precision, rounding toward zero.
+            uint packed = packHalf2x16(vec2(atCut, 0.0));
+            float rounded = unpackHalf2x16(packed).x;
+            slices[j] = 1.0 - (rounded > atCut ? unpackHalf2x16(packed - 1u).x : rounded);
+          }
+        }
+      #endif
       vec3 p = localEye + direction * cursor;
       float density = voxels(p);
       if (density * densityScale > 0.01) {
-        float stepTransmit = exp(-density * densityScale * (cursor - previous));
+        float stepTransmit = stepTransmission(density * densityScale, cursor - previous);
         #ifndef CLOUD_OPACITY_ONLY
           color += transmit * (1.0 - stepTransmit) * lightAt(p, direction) * temperatureAlbedo(density);
         #endif
@@ -186,13 +214,17 @@ const FRAGMENT = `
       previous = cursor;
       cursor = min(end, cursor + stepLength);
     }
-    gl_FragColor = vec4(2.0 * color, 1.0 - transmit);
+    #ifdef CLOUD_OPACITY_ONLY
+      gl_FragColor = vec4(mix(slices, vec3(1.0 - transmit), lessThan(slices, vec3(0.0))), 1.0 - transmit);
+    #else
+      gl_FragColor = vec4(2.0 * color, 1.0 - transmit);
+    #endif
   }
 `;
 
 export class ObservatoryVortex {
   readonly mesh: THREE.Mesh<THREE.BoxGeometry, THREE.ShaderMaterial>;
-  private readonly flareOpacity: THREE.Mesh<THREE.BoxGeometry, THREE.ShaderMaterial>;
+  private readonly opacity: THREE.Mesh<THREE.BoxGeometry, THREE.ShaderMaterial>;
   private requested: string | null = null;
   private stopped = false;
   private readonly volume: VortexData;
@@ -230,12 +262,15 @@ export class ObservatoryVortex {
     this.mesh.visible = false;
     this.mesh.renderOrder = -5;
     const opacitySize = { value: new THREE.Vector2() };
-    this.flareOpacity = new THREE.Mesh(this.mesh.geometry, new THREE.ShaderMaterial({
-      uniforms: { ...uniforms, opacitySize }, vertexShader: VERTEX, fragmentShader: FRAGMENT,
+    this.opacity = new THREE.Mesh(this.mesh.geometry, new THREE.ShaderMaterial({
+      uniforms: { ...uniforms, opacitySize, cloudFogDepths: CLOUD_FOG.cloudFogDepths }, vertexShader: VERTEX, fragmentShader: FRAGMENT,
       defines: { CLOUD_OPACITY_ONLY: 1 }, side: THREE.BackSide,
-      transparent: true, premultipliedAlpha: true, depthTest: false, depthWrite: false,
+      transparent: true, depthTest: false, depthWrite: false,
+      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
+      blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcColorFactor,
+      blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
     }));
-    this.flareOpacity.matrixAutoUpdate = false;
+    this.opacity.matrixAutoUpdate = false;
     const reflection = data.reflection;
     if (reflection) {
       void assets.reflectionNoise?.then((texture) => {
@@ -251,17 +286,17 @@ export class ObservatoryVortex {
       uniforms.sunDirection.value.copy(sun.getWorldPosition(position)).sub(sun.target.getWorldPosition(target)).transformDirection(inverse);
       uniforms.sunColor.value.copy(sun.color).multiplyScalar(sun.intensity);
     };
-    this.flareOpacity.onBeforeRender = (renderer, scene, camera, geometry, material, group) => {
+    this.opacity.onBeforeRender = (renderer, scene, camera, geometry, material, group) => {
       const target = renderer.getRenderTarget()!;
       opacitySize.value.set(target.width, target.height);
       this.mesh.onBeforeRender(renderer, scene, camera, geometry, material, group);
     };
   }
 
-  flareOpacityMesh(): THREE.Mesh {
-    this.flareOpacity.matrix.copy(this.mesh.matrixWorld);
-    this.flareOpacity.matrixWorldNeedsUpdate = true;
-    return this.flareOpacity;
+  cloudOpacityMesh(): THREE.Mesh {
+    this.opacity.matrix.copy(this.mesh.matrixWorld);
+    this.opacity.matrixWorldNeedsUpdate = true;
+    return this.opacity;
   }
 
   static async load(sun: THREE.DirectionalLight, shadows: SpaceShadowAtlas): Promise<ObservatoryVortex> {
@@ -300,6 +335,6 @@ export class ObservatoryVortex {
     this.reflection?.dispose();
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
-    this.flareOpacity.material.dispose();
+    this.opacity.material.dispose();
   }
 }
