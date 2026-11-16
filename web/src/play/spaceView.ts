@@ -29,6 +29,7 @@ import { CameraShake } from "./cameraShake.ts";
 import { CameraTaskGestures, type CameraTaskEvent } from "../bridge/cameraTasks.ts";
 import { initialOrbitDistance, isOwnStargateDeparture, MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose, validCameraPosition } from "./spaceCameraPose.ts";
 import { ENTRY_CAMERA_DURATION_MS, entryCameraFov, spaceEntryCamera, type EntryCameraPath } from "./spaceEntryCamera.ts";
+import { explosionCameraFov, spaceExplosionCamera, type ExplosionCameraPath } from "./spaceExplosionCamera.ts";
 import { gfx, spaceRendering, lodSettings } from "./gfxSettings.ts";
 import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, stopEmitter, type WorldLoop } from "./uiAudio.ts";
 import { commandForKey, combatForModifiers, isCombatCommand, labelOf, type CombatCommand } from "./shortcutKeys.ts";
@@ -366,7 +367,12 @@ export class SpaceView {
       if (typeID === DRIFTER_COLLECTION && Number(args[args.length - 1]) === 3) {
         const gone = this.gone.get(id);
         const position = entity?.position ?? (gone && { x: gone.x, y: gone.y, z: -gone.z });
-        if (position) this.collectionExplosions.queue(id, position, this.live.simNow());
+        if (position) {
+          const start = this.collectionExplosions.queue(id, position, this.live.simNow());
+          if (entity && this.lookAt === id && gfx().dynamicCameraMovement && !this.gateJump) {
+            this.beginExplosionCamera(entity, start);
+          }
+        }
       } else if (typeID) void explosionSoundsOf().then((table) => {
         for (const s of pickExplosion(table, typeID)) {
           window.setTimeout(() => {
@@ -709,6 +715,17 @@ export class SpaceView {
     void loadBrackets().then(() => { for (const el of this.bracketEls.values()) el.remove(); this.bracketEls.clear(); });
     this.root.appendChild(new Neocom((id) => (this.options.onNeocom ? this.options.onNeocom(id) : this.toast(`${id[0]!.toUpperCase()}${id.slice(1)} is not on the play page yet.`))).root);
     this.renderer.domElement.addEventListener("dblclick", (e) => this.doubleClick(e));
+    // ExplosionCameraController yields to the primary camera on a left release,
+    // left drag, or wheel input over the scene.
+    this.renderer.domElement.addEventListener("pointerup", e => {
+      if (e.button === 0) this.endExplosionCamera();
+    });
+    this.renderer.domElement.addEventListener("pointermove", e => {
+      if (e.buttons & 1) this.endExplosionCamera();
+    });
+    this.renderer.domElement.addEventListener("wheel", e => {
+      if (this.endExplosionCamera()) e.stopImmediatePropagation();
+    }, { capture: true, passive: true });
     // a click in space: with a combat command loaded, on the object under it (its pick); else the selection cleared
     this.renderer.domElement.addEventListener("click", (e) => {
       const id = this.dscanKey || this.combat || this.modifierCombat(false) ? this.pickAt(e.clientX, e.clientY) : null;
@@ -970,7 +987,10 @@ export class SpaceView {
   }
 
   trackObjectiveTarget(itemID: number): void {
-    if (this.selected === itemID) this.trackedObjective = itemID;
+    if (this.selected === itemID) {
+      this.endExplosionCamera();
+      this.trackedObjective = itemID;
+    }
   }
 
   highlightObjectiveTarget(itemID: number, on: boolean): void {
@@ -1060,7 +1080,7 @@ export class SpaceView {
         ? { key: "unlock", title: "Unlock Target", icon: icon("target"), run: () => this.actions.unlock(id) }
         : { key: "lock", title: "Lock Target", icon: icon("target"), run: () => this.lockTracked(id) });
     }
-    out.push({ key: "look", title: "Look At", icon: icon("look_at"), run: async () => { this.lookAt = id; } });
+    out.push({ key: "look", title: "Look At", icon: icon("look_at"), run: async () => this.focusOn(id) });
     const showInfo = this.options.showInfo;
     if (showInfo) out.push({ key: "info", title: "Show Info", icon: icon("show_info"), run: async () => showInfo(id, e.typeID ?? null) });
     return out;
@@ -1117,6 +1137,109 @@ export class SpaceView {
   private entryWarped: boolean | null = null;
   private entryConsumed = false;
   private entryCam: { start: number; path: EntryCameraPath; orbitFov: number; orbitMinDistance: number } | null = null;
+  private explosionCam: {
+    interest: Entity["position"];
+    radius: number;
+    eye: THREE.Vector3;
+    target: THREE.Vector3;
+    orbitFov: number;
+    globalStart: number | null;
+    awaitingStartUntil: number;
+    startedAt: number;
+    path?: ExplosionCameraPath;
+    returning?: { at: number; pilot: THREE.Vector3 };
+  } | null = null;
+
+  private focusOn(id: number | null): void {
+    this.endExplosionCamera();
+    this.lookAt = id;
+  }
+
+  private beginExplosionCamera(entity: Entity, start: Promise<number | null>): void {
+    this.stopEntryCamera();
+    this.undockCam = null;
+    this.trackedObjective = null;
+    const p = entity.position, origin = this.lastOrigin;
+    const offset = new THREE.Vector3(p.x - origin.x, p.y - origin.y, origin.z - p.z);
+    const cam: NonNullable<SpaceView["explosionCam"]> = {
+      interest: p,
+      radius: entity.radius,
+      eye: this.camera.position.clone().sub(offset),
+      target: this.controls.target.clone().sub(offset),
+      orbitFov: this.camera.fov,
+      globalStart: null,
+      awaitingStartUntil: performance.now() + 5_000,
+      startedAt: 0,
+    };
+    this.explosionCam = cam;
+    this.lookAt = this.framedLook = null;
+    this.controls.enabled = false;
+    void start.then(globalStart => {
+      if (this.explosionCam !== cam) return;
+      if (globalStart === null) this.endExplosionCamera();
+      else cam.globalStart = globalStart;
+    });
+  }
+
+  private endExplosionCamera(): boolean {
+    if (!this.explosionCam) return false;
+    this.camera.fov = this.explosionCam.orbitFov;
+    this.camera.updateProjectionMatrix();
+    this.explosionCam = null;
+    const pilot = this.snapshot?.ship;
+    if (pilot) this.frameShip(pilot.radius, true);
+    this.controls.enabled = !this.gateJump || this.gateJump.returned;
+    return true;
+  }
+
+  private stepExplosionCamera(now: number, dt: number, ego: Snapshot["ship"]): boolean {
+    const cam = this.explosionCam;
+    if (!cam) return false;
+    const settings = gfx();
+    if (!ego || !settings.dynamicCameraMovement || !settings.explosionEffectsEnabled ||
+        (cam.globalStart === null && now >= cam.awaitingStartUntil)) {
+      this.endExplosionCamera();
+      return false;
+    }
+
+    // Keep the cinematic camera fixed to the scene while the pilot moves the
+    // Three.js origin. The path itself is centred on the exploding ball.
+    const { interest, globalStart } = cam, origin = ego.position;
+    const offset = new THREE.Vector3(interest.x - origin.x, interest.y - origin.y, origin.z - interest.z);
+    const simNow = this.live.simNow();
+    if (!cam.path && globalStart !== null) {
+      cam.startedAt = simNow;
+      cam.path = spaceExplosionCamera(cam.eye, cam.target, offset.clone().negate(), cam.radius, ego.radius,
+        THREE.MathUtils.degToRad(this.camera.fov), globalStart - simNow) ?? undefined;
+      if (!cam.path) {
+        this.endExplosionCamera();
+        return false;
+      }
+    }
+    const elapsed = simNow - cam.startedAt;
+    let eye = cam.eye.clone(), target = cam.target.clone();
+    let returned = false;
+    if (cam.path) {
+      eye = cam.path.eyeAt(elapsed);
+      if (elapsed >= cam.path.motionMs) {
+        cam.returning ??= { at: now, pilot: offset.clone().negate() };
+        const returnElapsed = now - cam.returning.at;
+        target = cam.path.targetAt(cam.returning.pilot, returnElapsed);
+        returned = returnElapsed >= cam.path.returnMs;
+      } else {
+        target.set(0, 0, 0);
+      }
+    }
+    const valid = setCameraPose(this.camera.position, this.controls.target, eye.add(offset), target.add(offset));
+    if (!valid || returned) {
+      this.endExplosionCamera();
+      return false;
+    }
+    this.camera.fov = explosionCameraFov(this.camera.fov, dt);
+    this.camera.updateProjectionMatrix();
+    this.camera.lookAt(this.controls.target);
+    return true;
+  }
 
   private stopEntryCamera(): void {
     this.entryConsumed = true;
@@ -1220,6 +1343,7 @@ export class SpaceView {
   }
 
   private beginJumpCamera(): void {
+    this.endExplosionCamera();
     this.stopEntryCamera();
     const eye = this.camera.position, target = this.controls.target;
     // JumpCamera.OnActivated copies the orbit pose only when both points are valid.
@@ -1663,7 +1787,7 @@ export class SpaceView {
         else if (e?.kind === "stargate") run("Jump", () => this.actions.jump(id));
         break;
       case "CmdShowItemInfo": this.options.showInfo?.(id, e?.typeID ?? null); break;
-      case "CmdToggleLookAtItem": this.lookAt = this.lookAt === id ? null : id; break;
+      case "CmdToggleLookAtItem": this.focusOn(this.lookAt === id ? null : id); break;
       case "CmdSelectTargetItem": break;
     }
   }
@@ -1696,7 +1820,7 @@ export class SpaceView {
     const showInfo: RadialOption = this.options.showInfo
       ? { label: "Show Info", icon: icon(24), run: () => this.options.showInfo!(id, e.typeID ?? null) }
       : { label: "Show Info", icon: icon(24), disabled: true };
-    const lookAt: RadialOption = { label: "Look At", icon: icon(20), run: () => { this.lookAt = id; } };
+    const lookAt: RadialOption = { label: "Look At", icon: icon(20), run: () => this.focusOn(id) };
     let options: (RadialOption | null)[];
     if (e.isSelf) {
       options = [
@@ -1859,6 +1983,7 @@ export class SpaceView {
     // a new ego position to rebase the old camera.
     if (this.live.resets !== this.seenResets) {
       this.seenResets = this.live.resets;
+      this.endExplosionCamera();
       this.collectionExplosions.clear();
       if (this.gateJump && systemID !== null && this.seenSystem !== null && systemID !== this.seenSystem) {
         this.gateJump.arrivedAt = now;
@@ -1956,7 +2081,7 @@ export class SpaceView {
       this.jumpBridgePanels.delete(id);
     }
     if (snap) this.overview.update(snap.entities, (x) => this.distanceTo(x), relations);
-    if (!this.stepJumpCamera(now, ego)) {
+    if (!this.stepJumpCamera(now, ego) && !this.stepExplosionCamera(now, dt, ego)) {
       if (ego && this.framedFor !== ego.itemID) {
         this.framedFor = ego.itemID;
         this.frameShip(ego.radius);

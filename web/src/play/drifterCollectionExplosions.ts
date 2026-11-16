@@ -32,6 +32,7 @@ interface Explosion {
   model?: Object3D;
   visual?: Object3D;
   sounds: Sound[];
+  globalStart: Promise<number | null>;
 }
 
 export class DrifterCollectionExplosions {
@@ -44,16 +45,22 @@ export class DrifterCollectionExplosions {
     void explosionSoundsOf();
   }
 
-  queue(id: number, position: Position, at: number): void {
-    if (this.active.has(id)) return;
-    const explosion: Explosion = { position, at, sounds: [] };
+  queue(id: number, position: Position, at: number): Promise<number | null> {
+    const pending = this.active.get(id);
+    if (pending) return pending.globalStart;
+    const globalStart = load().then(data => {
+      if (!data || this.active.get(id) !== explosion) return null;
+      explosion.data = data;
+      return at + data.delayMs;
+    });
+    const explosion: Explosion = { position, at, sounds: [], globalStart };
     this.active.set(id, explosion);
     void explosionSoundsOf().then((table) => {
       explosion.sounds = pickExplosion(table, DRIFTER_COLLECTION, "g");
     });
-    void load().then(async (data) => {
+    void globalStart.then(async () => {
+      const data = explosion.data;
       if (!data || this.active.get(id) !== explosion) return;
-      explosion.data = data;
       setGpuParticleAssets(data.gpuParticles);
       const visual = await effectObject(data.root, data.childEffects);
       if (visual && this.active.get(id) === explosion) {
@@ -61,6 +68,7 @@ export class DrifterCollectionExplosions {
         explosion.visual = visual;
       }
     }).catch((error: unknown) => console.warn("Drifter Collection effect:", error));
+    return globalStart;
   }
 
   holdModel(id: number, model: Object3D): boolean {
