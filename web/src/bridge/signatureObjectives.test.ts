@@ -226,13 +226,19 @@ test("the Observatory lockdown reveals the banner or controller for the current 
     chain: { objectives: [
       { key: "lockdown_lobby", objectiveType: 3, title: "UI/Objectives/Titles/observatoryInfiltrationLockdown" },
       { key: "lockdown_disabled", objectiveType: 3, title: "UI/Objectives/Titles/observatoryInfiltrationLockdownDeactivated" },
-      { key: "lockdown", objectiveType: 67, showCompleted: 1, inputParametersMap: { container: "security_controller" } },
+      { key: "lockdown", objectiveType: 67, showCompleted: 1, inputParametersMap: { container: "security_controller", timer: "lockdown_timer" } },
     ] },
     objectiveTypes: {
       3: { tasks: [] },
-      67: { tasks: [{ key: "hack_container", taskType: 18, startActive: 1, showCompleted: 1, inputParameters: { target: "container" } }] },
+      67: { tasks: [
+        { key: "hack_container", taskType: 18, startActive: 1, showCompleted: 1, inputParameters: { target: "container" } },
+        { key: "timer", taskType: 30, startActive: 1, showCompleted: 0, inputParameters: { timer: "timer" } },
+      ] },
     },
-    taskTypes: { 18: { inputParameters: [{ parameterKey: "target" }] } },
+    taskTypes: {
+      18: { inputParameters: [{ parameterKey: "target" }] },
+      30: { title: "UI/Objectives/Titles/TimeRemaining", inputParameters: [{ parameterKey: "timer" }] },
+    },
     typeLists: {},
   });
   assert.ok(data);
@@ -248,7 +254,12 @@ test("the Observatory lockdown reveals the banner or controller for the current 
   }]);
   assert.ok(lobby);
   assert.deepEqual(dungeonEntryObjectives(lobby, rules), []);
-  const locked = dungeonValuesChanged(lobby, [12260, { dungeon_state: "Lockdown" }]);
+  const start = 1_700_000_000_000;
+  const filetime = (ms: number) => ({ type: "long", value: String(116444736000000000n + BigInt(ms) * 10_000n) });
+  const locked = dungeonValuesChanged(lobby, [12260, {
+    dungeon_state: "Lockdown",
+    lockdown_timer: { type: "dict", entries: [["start_time", filetime(start)], ["end_time", filetime(start + 1_800_000)]] },
+  }]);
   assert.ok(locked);
   assert.deepEqual(dungeonEntryObjectives(locked, rules), ["lockdown_lobby"]);
   const landing = dungeonEntered([12260, 30563, null, 107, null]);
@@ -266,8 +277,14 @@ test("the Observatory lockdown reveals the banner or controller for the current 
   assert.equal(objective.view()[0]?.rows[0]?.completed, false);
   objective.observe([{ ...controller, hackingSecurityState: 2, ownerID: pilot }]);
   assert.equal(objective.view()[0]?.rows[0]?.completed, true);
-  const deactivated = dungeonValuesChanged(vault, [12260, { dungeon_state: "Deactivated" }]);
+  objective.observe([controller], start + 30_000);
+  const countdown = objective.view()[0]?.rows.find((row) => row.key === "timer");
+  assert.equal(countdown?.value, "29m 30s");
+  assert.equal(countdown?.progress, 1_770_000 / 1_800_000);
+
+  const deactivated = dungeonValuesChanged(vault, [12260, { dungeon_state: "Deactivated", lockdown_timer: null }]);
   assert.ok(deactivated);
+  assert.equal(dungeonObjectiveContext(deactivated).lockdown_timer, null);
   assert.deepEqual(dungeonEntryObjectives(deactivated, rules), ["lockdown_disabled"]);
   objective.stopObjective("lockdown");
   objective.startObjective("lockdown_disabled");
