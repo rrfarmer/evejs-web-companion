@@ -26578,8 +26578,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           combatHardenerModuleIDs: capabilities.combatHardeners,
           weaponModuleIDs: hint.activeMacro === "fight-with-drones" ? capabilities.combatWeaponIDs : capabilities.defense.weapons,
           ...await (async () => {
+            // `fight-the-rats` reads it only while a gun is empty: it is what the block reloads from, and the read
+            // is four calls a tick.
             const facts = hint.needsMobileCombat || hint.activeMacro === "fight-with-drones"
-              ? await readCombatLoadout(observedShipID, capabilities.combatWeaponIDs) : null;
+              ? await readCombatLoadout(observedShipID, capabilities.combatWeaponIDs)
+              : hint.activeMacro === "fight-the-rats" && capabilities.unloadedWeaponIDs.length > 0
+                ? await readCombatLoadout(observedShipID, capabilities.defense.weapons) : null;
             return { combatWeapons: facts?.weapons ?? null, combatUtilities: facts?.utilities ?? null };
           })(),
           maxTargetRangeM: capabilities.maxTargetRangeM,
@@ -26718,11 +26722,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             }
             // targetID 0 = a SELF-targeted module (repairer, hardener) — the
             // target key is omitted so the server activates it on the ship.
-            requireModuleOutcome(await switchModuleOn(
-              action.moduleID,
-              action.targetID > 0 ? { typeID: action.typeID, targetID: action.targetID, repeat: -1 } : { typeID: action.typeID, repeat: -1 },
-              callOptions,
-            ), action.moduleID, "activate");
+            try {
+              requireModuleOutcome(await switchModuleOn(
+                action.moduleID,
+                action.targetID > 0 ? { typeID: action.typeID, targetID: action.targetID, repeat: -1 } : { typeID: action.typeID, repeat: -1 },
+                callOptions,
+              ), action.moduleID, "activate");
+            } catch (error) {
+              // ⚠ A GUN THAT WOULD NOT SWITCH ON MAY HAVE RUN DRY, and the cached ship facts cannot say so: they are
+              // re-read on a change of hull or modules, never of charges, so its empty magazine stays unseen and the
+              // blocks press it every tick (issue 181, a gun that empties mid-fight). Read them again.
+              const capabilities = capabilityCache.peek();
+              if (capabilities.defense.weapons.includes(action.moduleID) || capabilities.combatWeaponIDs.includes(action.moduleID)) {
+                capabilityCache.invalidate();
+              }
+              throw error;
+            }
             return;
           // ⚠ THE typeID IS WHAT MAKES A PROP-MOD STOP ACTUALLY STOP, and its
           // absence here USED TO RETURN SUCCESS AND DO NOTHING. The server stops
@@ -26747,22 +26762,29 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           }
           case "loadCombatAmmo": {
             const shipID = capabilityCache.peek().shipID;
-            if (action.utility) return issueUtilityReload(action, {
-              current: () => characterID != null && store.station.get().online?.characterID === characterID &&
-                token === callOptions.token && pilotGeneration === recoveryGeneration && generation === customBotGeneration &&
-                shipID === capabilityCache.peek().shipID,
-              read: async () => (await readCombatLoadout(shipID, []))?.utilities ?? null,
-              load: () => loadAmmoFrom([action.moduleID], [action.chargeItemID], "cargo"),
-              sleep: () => new Promise(resolve => setTimeout(resolve, 750)),
-            });
-            return issueCombatReload(action, {
-              current: () => characterID != null && store.station.get().online?.characterID === characterID &&
-                token === callOptions.token && pilotGeneration === recoveryGeneration && generation === customBotGeneration &&
-                shipID === capabilityCache.peek().shipID,
-              read: () => readCombatWeapons(shipID, [action.moduleID]),
-              load: () => loadAmmoFrom([action.moduleID], [action.chargeItemID], "cargo"),
-              sleep: () => new Promise(resolve => setTimeout(resolve, 750)),
-            });
+            // ⚠ THE SHIP'S FACTS ARE READ AGAIN AFTER A LOAD, whatever came of it: the blocks' list of empty guns
+            // and the rack both come from the fit the capability read keeps, and a load that landed left both
+            // saying empty. Seen on Gridcheck (companion-empty-gun): the gun loaded, the bot never fired it.
+            try {
+              if (action.utility) return await issueUtilityReload(action, {
+                current: () => characterID != null && store.station.get().online?.characterID === characterID &&
+                  token === callOptions.token && pilotGeneration === recoveryGeneration && generation === customBotGeneration &&
+                  shipID === capabilityCache.peek().shipID,
+                read: async () => (await readCombatLoadout(shipID, []))?.utilities ?? null,
+                load: () => loadAmmoFrom([action.moduleID], [action.chargeItemID], "cargo"),
+                sleep: () => new Promise(resolve => setTimeout(resolve, 750)),
+              });
+              return await issueCombatReload(action, {
+                current: () => characterID != null && store.station.get().online?.characterID === characterID &&
+                  token === callOptions.token && pilotGeneration === recoveryGeneration && generation === customBotGeneration &&
+                  shipID === capabilityCache.peek().shipID,
+                read: () => readCombatWeapons(shipID, [action.moduleID]),
+                load: () => loadAmmoFrom([action.moduleID], [action.chargeItemID], "cargo"),
+                sleep: () => new Promise(resolve => setTimeout(resolve, 750)),
+              });
+            } finally {
+              capabilityCache.invalidate();
+            }
           }
           case "launchDrones":
             if (action.droneItemIDs.length > 0) {

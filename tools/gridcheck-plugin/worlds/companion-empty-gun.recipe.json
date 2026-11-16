@@ -1,0 +1,14 @@
+{
+  "description": "Two pilots with every skill in Amamake, docked at the Brutor Tribe Bureau, each in a Vexor. e2eemptyboss holds the server session and flies nothing. e2eempty has one 250mm Railgun I with nothing loaded, Antimatter Charge M in the cargo, and a medium armour repairer: a gun boat with no drones and an empty gun.",
+  "steps": [
+    "fresh",
+    { "login": { "user": "e2eemptyboss", "name": "Empty Boss" } },
+    { "slash": "/allskills" },
+    { "slash": "/tr me 60004603" },
+    { "loadout": { "ship": "Vexor" } },
+    { "login": { "user": "e2eempty", "name": "Empty Gun Pilot" } },
+    { "slash": "/allskills" },
+    { "slash": "/tr me 60004603" },
+    { "loadout": { "ship": "Vexor", "modules": ["250mm Railgun I", "Medium Armor Repairer II"], "cargo": ["Antimatter Charge M x200"] } }
+  ]
+}

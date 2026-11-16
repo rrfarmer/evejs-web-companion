@@ -49,7 +49,7 @@ export function combatReload(facts: CombatWeapons | null | undefined, mem: Macro
       continue;
     }
     degraded = true;
-    if (!unbankedWeapon(facts, weapon.itemID)) continue;
+    if (!loadableWeapon(facts, weapon.itemID)) continue;
     if ((attempts[weapon.itemID] ?? 0) >= COMBAT_RELOAD_ATTEMPTS) continue;
     const candidates = facts.cargo.filter(ammo => compatibleAmmo(weapon, ammo))
       .sort((a, b) => b.quantity - a.quantity || a.itemID - b.itemID);
@@ -62,7 +62,13 @@ export function combatReload(facts: CombatWeapons | null | undefined, mem: Macro
   }
   return { action: null, memory: { ...mem, reloadAttempts: attempts }, degraded };
 }
-export function unbankedWeapon(facts: CombatWeapons, itemID: number): boolean {
-  return facts.weaponBanks != null && !Object.entries(facts.weaponBanks)
-    .some(([master, slaves]) => Number(master) === itemID || slaves.includes(itemID));
+/**
+ * A gun a load may be sent to: one in no bank, or a bank's master, which the
+ * server's LoadAmmo expands to every gun of the bank (moduleOperation.js
+ * `_expandGroupedModuleIDs`) and shares the charges out among them. A bank's
+ * other guns are loaded through their master, never by themselves; and with the
+ * banks unread nothing is proven.
+ */
+export function loadableWeapon(facts: CombatWeapons, itemID: number): boolean {
+  return facts.weaponBanks != null && !Object.values(facts.weaponBanks).some((slaves) => slaves.includes(itemID));
 }
