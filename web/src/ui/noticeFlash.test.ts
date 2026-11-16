@@ -82,8 +82,12 @@ test("⚠ BOTH ARMS OF THE WORKSPACE MOUNT THE BRIDGE, or notices never arrive",
   // it is the arm where a player has the FEWEST panels open, which is exactly
   // when a notice raised outside the open one is the only way to hear about it.
   assert.match(WORKSPACE, /import NoticeBridge from "\.\/NoticeBridge\.svelte";/);
-  const mounts = WORKSPACE.match(/<NoticeBridge \{store\} \/>/g) ?? [];
+  const mounts = WORKSPACE.match(/<NoticeBridge\b[^>]*\/>/g) ?? [];
   assert.equal(mounts.length, 2, "the bridge is not mounted in exactly both arms");
+  for (const mount of mounts) {
+    assert.match(mount, /\{store\}/);
+    assert.match(mount, /\{flow\}/);
+  }
   const flashes = WORKSPACE.match(/<Toasts \/>/g) ?? [];
   assert.equal(flashes.length, 2, "the flash is not mounted in exactly both arms");
 });

@@ -13545,6 +13545,27 @@
      "typeName": "eve_public.cdn.Checkpoint"
     }
    ]
+  },
+  "eve_public.communitytrack.api.CompletedNotice": {
+   "fields": [
+    {
+     "name": "instance",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.communitytrack.instance.Identifier"
+    }
+   ]
+  },
+  "eve_public.communitytrack.instance.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    }
+   ]
   }
  },
  "enums": {

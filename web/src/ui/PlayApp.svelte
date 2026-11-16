@@ -1338,7 +1338,7 @@
     {/each}
   </div>
 
-  <NoticeBridge store={session.store} />
+  <NoticeBridge store={session.store} flow={session.flow} />
   <ErrorBoundary name="Fleet invitation">
     <div class="fleet-invitations fly-invitations"><FleetInvitation {session} inFront={true} /></div>
   </ErrorBoundary>

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { decodeAgencySeason, decodeAgencySeasonChoices, decodeAgencySeasonProgress, seasonPageKind, seasonRewardClaimable } from "./agencySeason.ts";
+import { decodeAgencySeason, decodeAgencySeasonChoices, decodeAgencySeasonProgress, decodeAgencySeasonReward,
+  isVanguardTrackCompleted, seasonPageKind, seasonRewardClaimable, VANGUARD_TRACK_COMPLETED } from "./agencySeason.ts";
 
 const keyVal = (entries: unknown[]) => ({ type: "object", name: "util.KeyVal", args: { type: "dict", entries } });
 
@@ -9,11 +10,26 @@ test("template 2216 selects the active Vanguard page; the previous template and 
   const season = keyVal([["template_id", 2216], ["title", 125], ["end_time", { type: "long", value: end }]]);
   const decoded = decodeAgencySeason({ result: season });
   assert.equal(decoded?.titleID, 125);
+  assert.equal(decoded?.autoClaim, false);
   assert.equal(decoded?.endMs, Number((BigInt(end) - 116444736000000000n) / 10000n));
   assert.equal(seasonPageKind(decoded?.templateID ?? null), "vanguard");
   assert.equal(seasonPageKind(2200), "season");
   assert.equal(decodeAgencySeason({ type: "list", items: [season] }), null);
   assert.equal(decodeAgencySeason(null), null);
+});
+
+test("automatic milestone and Vanguard notices use their native wire fields", () => {
+  const season = keyVal([["template_id", 2216], ["is_auto_claim_enabled", true]]);
+  assert.equal(decodeAgencySeason(season)?.autoClaim, true);
+  const reward = { type: "dict", entries: [
+    ["points_required", 50], ["reward_type_id", 92181], ["reward_amount", 1], ["omega_only", true], ["claimed", false],
+  ] };
+  assert.deepEqual(decodeAgencySeasonReward(0, reward),
+    { index: 0, points: 50, typeID: 92181, quantity: 1, omegaOnly: true, claimed: false });
+  assert.equal(decodeAgencySeasonReward(-1, reward), null);
+  assert.equal(isVanguardTrackCompleted(VANGUARD_TRACK_COMPLETED, { instance: { sequential: 1337 } }), true);
+  assert.equal(isVanguardTrackCompleted(VANGUARD_TRACK_COMPLETED, { instance: { sequential: 1338 } }), false);
+  assert.equal(isVanguardTrackCompleted(VANGUARD_TRACK_COMPLETED, null), false);
 });
 
 test("a real season selection list keeps the wire IDs and candidate card rather than selecting it", () => {

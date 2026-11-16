@@ -26,22 +26,31 @@
   onMount(() => {
     flow.requestWords([title, info, active, repeatable, showMap, noData]);
     let mounted = true;
+    let request = 0;
     let timer: ReturnType<typeof setTimeout>;
     const refresh = async () => {
+      clearTimeout(timer);
+      const serial = ++request;
       try {
         const next = await flow.agencyVanguardActivity();
-        if (mounted && next) activity = next;
+        if (mounted && serial === request && next) activity = next;
       } catch {
         // Keep the last available progress through a transient read failure.
       } finally {
-        if (mounted) {
+        if (mounted && serial === request) {
           loading = false;
           timer = setTimeout(refresh, 30_000);
         }
       }
     };
+    let completed = flow.agencyVanguardCompleted.get();
+    const stop = flow.agencyVanguardCompleted.subscribe(n => {
+      if (n === completed) return;
+      completed = n;
+      void refresh();
+    });
     void refresh();
-    return () => { mounted = false; clearTimeout(timer); };
+    return () => { mounted = false; stop(); clearTimeout(timer); };
   });
 </script>
 

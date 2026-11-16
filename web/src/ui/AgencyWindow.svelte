@@ -52,6 +52,7 @@
   import AgencySeasonPage from "./AgencySeasonPage.svelte";
   import AgencySeasonSelection from "./AgencySeasonSelection.svelte";
   import AgencyRewardFanfare from "./AgencyRewardFanfare.svelte";
+  import { CLONE_GRADE_ALPHA } from "../bridge/cloneGrade.ts";
   import type { AgencySeasonReward } from "../bridge/agencySeason.ts";
   import { corporationPanelTarget } from "./corporationPanel.ts";
   import AgencyFleetUpRegisterPage from "./AgencyFleetUpRegisterPage.svelte";
@@ -110,6 +111,21 @@
   let seasons = $state<Awaited<ReturnType<AppFlow["agencySeasons"]>>>({ active: null, choices: [], navigation: null });
   let fanfare = $state<AgencySeasonReward | null>(null);
   $effect(() => { void flow.agencySeasons().then((s) => { seasons = s; }); });
+  $effect(() => {
+    const rewards = flow.agencySeasonCompletedReward;
+    let previous = rewards.get();
+    let open = true;
+    const stop = rewards.subscribe(reward => {
+      if (!reward || reward === previous) return;
+      previous = reward;
+      if (reward.omegaOnly && store.station.get().cloneGrade === CLONE_GRADE_ALPHA) return;
+      // The server already grants an automatic reward. The client acknowledges it in the open Agency.
+      void flow.agencySeasons().then(({ active }) => {
+        if (open && active?.autoClaim) fanfare = reward;
+      }).catch(() => {});
+    });
+    return () => { open = false; stop(); };
+  });
   const groupOf = (id: number): AgencyGroup | undefined => {
     const base = AGENCY_GROUPS[id];
     if (id !== SEASONS || !base) return base;
@@ -280,7 +296,9 @@
       </div>
     {/if}
   </div>
-  {#if fanfare}<AgencyRewardFanfare {store} {flow} reward={fanfare} onclose={() => { fanfare = null; }} />{/if}
+  {#if fanfare}
+    {#key fanfare}<AgencyRewardFanfare {store} {flow} reward={fanfare} onclose={() => { fanfare = null; }} />{/key}
+  {/if}
 </div>
 
 <style>

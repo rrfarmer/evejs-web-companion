@@ -12,10 +12,11 @@ export interface AgencySeason {
   readonly cardDescriptionID: number | null;
   readonly cardHintID: number | null;
   readonly multiple: boolean;
+  readonly autoClaim: boolean;
 }
 
 const unwrap = (answer: unknown) => readPlainJsonField(answer, "result") ?? answer;
-function integer(v: JsonValue | undefined): number | null {
+function integer(v: unknown): number | null {
   const long = unwrapLong(v);
   const n = long === null ? v : Number(long);
   return typeof n === "number" && Number.isSafeInteger(n) ? n : null;
@@ -34,7 +35,8 @@ export function decodeAgencySeason(answer: unknown): AgencySeason | null {
     cardPicture: string(field("navigation_card_picture_path")), banner: string(field("background_no_logo")),
     endMs: ticks && ticks > 116444736000000000n ? Number((ticks - 116444736000000000n) / 10000n) : null,
     cardTitleID: integer(field("agency_card_title")), cardDescriptionID: integer(field("agency_card_description")),
-    cardHintID: integer(field("agency_card_hint")), multiple: field("multiple_season_running") === true };
+    cardHintID: integer(field("agency_card_hint")), multiple: field("multiple_season_running") === true,
+    autoClaim: field("is_auto_claim_enabled") === true };
 }
 
 /** seasonService._fetch_season_data distinguishes a genuine list from a selected season. */
@@ -76,16 +78,30 @@ export function seasonRewardClaimable(reward: AgencySeasonReward, points: number
   return !reward.claimed && points >= reward.points && (!reward.omegaOnly || omega);
 }
 
+export function decodeAgencySeasonReward(indexValue: unknown, value: unknown): AgencySeasonReward | null {
+  const goal = new Map(readDictPairs(value));
+  const index = integer(indexValue), points = integer(goal.get("points_required"));
+  const typeID = integer(goal.get("reward_type_id")), quantity = integer(goal.get("reward_amount"));
+  if (index === null || index < 0 || points === null || points < 0 ||
+      typeID === null || typeID <= 0 || quantity === null || quantity <= 0) return null;
+  return { index, points, typeID, quantity, omegaOnly: goal.get("omega_only") === true, claimed: goal.get("claimed") === true };
+}
+
+export const VANGUARD_TRACK_INSTANCE = 1337;
+export const VANGUARD_TRACK_COMPLETED = "eve_public.communitytrack.api.CompletedNotice";
+
+export function isVanguardTrackCompleted(typeName: string, payload: unknown): boolean {
+  return typeName === VANGUARD_TRACK_COMPLETED &&
+    readPlainJsonField(readPlainJsonField(payload, "instance"), "sequential") === VANGUARD_TRACK_INSTANCE;
+}
+
 export function decodeAgencySeasonProgress(answer: unknown) {
   const row = unwrap(answer);
   const points = integer(readKeyVal(row, "seasonal_points"));
   if (points === null) return null;
   const rewards = readDictPairs(readKeyVal(row, "seasonal_goals")).flatMap(([key, value]): AgencySeasonReward[] => {
-    const goal = new Map(readDictPairs(value));
-    const index = integer(key), required = integer(goal.get("points_required"));
-    const typeID = integer(goal.get("reward_type_id")), quantity = integer(goal.get("reward_amount"));
-    if (index === null || index < 0 || required === null || required < 0 || !typeID || !quantity) return [];
-    return [{ index, points: required, typeID, quantity, omegaOnly: goal.get("omega_only") === true, claimed: goal.get("claimed") === true }];
+    const reward = decodeAgencySeasonReward(key, value);
+    return reward ? [reward] : [];
   }).sort((a, b) => a.points - b.points || a.index - b.index);
   const challenges = readDictPairs(readKeyVal(row, "challenges")).flatMap(([id, value]) => {
     // The native Challenge restores its attribute dictionary from the ObjectEx2 reduce header.

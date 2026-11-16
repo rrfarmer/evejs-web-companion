@@ -516,7 +516,7 @@
   <!-- The same transition in both workspaces: the state change is identical, so
        it would be strange for only one of them to acknowledge it. -->
   <DockWipe {isDocked} />
-  <NoticeBridge {store} />
+  <NoticeBridge {store} {flow} />
   <NotificationPopups {store} {flow} onOpen={openFromPopup} />
   <DroneRecoveryNotice {flow} />
   <ServerQuestion {store} {flow} />
@@ -528,7 +528,7 @@
        RAISES a notice (it watches every store slice that records a refusal) and
        the flash is where one APPEARS. Both have to outlive the panel the event
        came from — that is the entire point — so neither can live in a panel. -->
-  <NoticeBridge {store} />
+  <NoticeBridge {store} {flow} />
   <NotificationPopups {store} {flow} onOpen={openFromPopup} />
   <DroneRecoveryNotice {flow} />
   <ServerQuestion {store} {flow} />

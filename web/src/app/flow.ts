@@ -458,7 +458,8 @@ import { argumentsOf, createBotPresses, decodeQuestion, dialogOfKey, keptQuestio
 import { classifyDistributionAgentConversation, selectDistributionAgent } from "../nav/distributionAgentSelection.ts";
 import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
 import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
-import { decodeAgencySeason, decodeAgencySeasonChoices, decodeAgencySeasonProgress, decodeSeasonSelectionDefinition, seasonRewardClaimable, type AgencySeason } from "../bridge/agencySeason.ts";
+import { decodeAgencySeason, decodeAgencySeasonChoices, decodeAgencySeasonProgress, decodeAgencySeasonReward, decodeSeasonSelectionDefinition,
+  isVanguardTrackCompleted, seasonRewardClaimable, VANGUARD_TRACK_INSTANCE, type AgencySeason, type AgencySeasonReward } from "../bridge/agencySeason.ts";
 import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from "../bridge/serverDialogs.ts";
 import { convertTyped, DATE_LABELS, formatTemplate, LIST_DELIMITER, plainText, QUANTITY_AND_ITEM } from "../bridge/clientWords.ts";
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
@@ -3896,6 +3897,8 @@ export interface AppFlow {
   agencySeasonProgress(): Promise<ReturnType<typeof decodeAgencySeasonProgress>>;
   agencyVanguardActivity(): Promise<{ percent: number; convoyCount: number } | null>;
   readonly agencySeasonProgressChanged: ReadableSignal<number>;
+  readonly agencySeasonCompletedReward: ReadableSignal<AgencySeasonReward | null>;
+  readonly agencyVanguardCompleted: ReadableSignal<number>;
   readonly agencySeasonCue: ReadableSignal<"scope_complete_task_play" | "scope_earn_rewards_play" | null>;
   claimAgencySeasonReward(seasonID: number, kind: "challenge" | "goal", id: number): Promise<NonNullable<ReturnType<typeof decodeAgencySeasonProgress>>>;
   agencyFleetUp(): Promise<{ readonly ads: readonly FleetAdvert[]; readonly jumps: Readonly<Record<string, number | null>>; readonly noRoute: Readonly<Record<string, string>>;
@@ -5623,6 +5626,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const onlineCharacterID = (): number | null => store.station.get().online?.characterID ?? null;
   const academyChangedSignal = createSignal(0);
   const agencySeasonProgressChanged = createSignal(0);
+  const agencySeasonCompletedReward = createSignal<AgencySeasonReward | null>(null);
+  const agencyVanguardCompleted = createSignal(0);
   const agencySeasonCue = createSignal<"scope_complete_task_play" | "scope_earn_rewards_play" | null>(null, () => false);
   const seasonProgressNotices = new Set([
     "OnChallengeProgressUpdate", "OnChallengeRewardsGranted", "OnChallengeCompleted", "OnChallengeExpired",
@@ -6860,6 +6865,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const notice = (event.notice ?? {}) as Record<string, JsonValue>;
       if (typeof notice.typeName === "string") {
         const payload = notice.payload ?? null;
+        if (isVanguardTrackCompleted(notice.typeName, payload) && pushesTaken.take(record.cursor)) {
+          agencyVanguardCompleted.update(n => n + 1);
+        }
         if (isAcademyTravelDecline(notice.typeName, payload) && pushesTaken.take(record.cursor)) {
           academyTravelConversation.set(true);
         }
@@ -7050,7 +7058,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   ): void {
     if (method && seasonProgressNotices.has(method)) agencySeasonProgressChanged.update(n => n + 1);
     if (method === "OnChallengeCompleted") agencySeasonCue.set("scope_complete_task_play");
-    if (method === "OnSeasonalGoalCompleted") agencySeasonCue.set("scope_earn_rewards_play");
+    if (method === "OnSeasonalGoalCompleted") {
+      agencySeasonCue.set("scope_earn_rewards_play");
+      const reward = decodeAgencySeasonReward(args[0], args[1]);
+      if (reward) {
+        requestNames([{ kind: "type", id: reward.typeID }]);
+        agencySeasonCompletedReward.set(reward);
+      }
+    }
     if (method === "OnAcademyShipBorrowed" || method === "OnAcademyShipReturned" || method === "OnAcademyShipBorrowFailed") {
       academyChangedSignal.update(n => n + 1);
       if (method === "OnAcademyShipBorrowFailed" && args[0] !== "no_ship_to_return") sayAcademyBorrowFailure();
@@ -21119,7 +21134,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
   async function agencyVanguardActivity(): ReturnType<AppFlow["agencyVanguardActivity"]> {
     // CommunityProgressBar always refreshes instance 1337, then uses the definition it returns.
-    const row = await bridgeAsk("communityTrackMgr", "get_instance_attributes_public", [1337]);
+    const row = await bridgeAsk("communityTrackMgr", "get_instance_attributes_public", [VANGUARD_TRACK_INSTANCE]);
     if (!Array.isArray(row)) return null;
     const [definitionID, progress] = row.map(value => Number(unwrapLong(value) ?? (typeof value === "number" ? value : NaN)));
     if (!definitionID || !Number.isSafeInteger(definitionID) || definitionID < 0 ||
@@ -35661,6 +35676,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencySeasonProgress,
     agencyVanguardActivity,
     agencySeasonProgressChanged: readonlySignal(agencySeasonProgressChanged),
+    agencySeasonCompletedReward: readonlySignal(agencySeasonCompletedReward),
+    agencyVanguardCompleted: readonlySignal(agencyVanguardCompleted),
     agencySeasonCue: readonlySignal(agencySeasonCue),
     claimAgencySeasonReward,
     agencyAsteroidBelts,
