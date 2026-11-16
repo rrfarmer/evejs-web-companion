@@ -6,6 +6,7 @@
 // BITANGENT8, a custom element as TEXCOORD(8 + its usage index); index 9 the previous frame's).
 
 import * as THREE from "three";
+import { gfx } from "../play/gfxSettings.ts";
 import { logDepth } from "./logDepth.ts";
 import { DISTORTION_LAYER } from "./distortion.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
@@ -715,6 +716,103 @@ function dynamicDistortionMaterial(area: Area, textureOf: TextureOf): THREE.Shad
   return mat;
 }
 
+/** The 3698585 solarflare depth record used by the wormhole's low-frequency halo. */
+function solarFlareMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial {
+  const p = area.params;
+  const uniforms = {
+    ...SOFT_DEPTH,
+    depthShader: { get value() { return gfx().shaderQuality === 3; } },
+    useWorldScale: { value: 1 },
+    spriteFactors: { value: new THREE.Vector4() },
+    spriteFactors2: { value: new THREE.Vector4(f1(p.VelocityStretchSupress, 0.0001), 0, 0, 0) },
+    velocityStretch: { value: f1(p.VelocityStretch, 0) },
+    velocityOriented: { value: f1(p.VelocityOriented, 0) },
+    temperature: { value: v4(p.Temperature, [1, 0, 0.5, 0]) },
+    brightness: { value: f1(p.Brightness, 1) },
+    alphaScale: { value: f1(p.AlphaScale, 1) },
+    layer1Mod: { value: v4(p.Layer1TexCoordModifier, [1, 1, 0, 0]) },
+    layer2Mod: { value: v4(p.Layer2TexCoordModifier, [1, 1, 0, 0]) },
+    layer1Speed: { value: v4(p.Layer1TexCoordSpeed, [0, 0, 0, 0]) },
+    layer2Speed: { value: v4(p.Layer2TexCoordSpeed, [0, 0, 0, 0]) },
+    time: particleClock,
+    ramp: { value: null as THREE.Texture | null },
+    gradient: { value: null as THREE.Texture | null },
+    mask: { value: null as THREE.Texture | null },
+    layer1: { value: null as THREE.Texture | null },
+    layer2: { value: null as THREE.Texture | null },
+  };
+  const material = logDepth(new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: dynamicParticleVS(false, `
+      uniform bool depthShader;
+      uniform float velocityOriented;
+      varying vec2 vUv;
+      varying float vAge, vHalfSize;
+    `, `
+        // The HI and LO records output a degenerate primitive.
+        if (!depthShader) gl_Position = vec4(0.0);
+        else if (velocityOriented != 0.0) {
+          vec4 center = projectionMatrix * view;
+          vec4 moved = projectionMatrix * (view + vec4(viewVel * worldScale, 0.0));
+          vec2 offset = moved.xy / moved.w - center.xy / center.w;
+          float screenLength = length(offset);
+          vec2 axis = screenLength > 0.0 ? offset / screenLength : vec2(0.0);
+          float elongation = 2.0 * clamp(age / spriteFactors2.x, 0.0, 1.0) * velocityStretch * length(iVel);
+          gl_Position = center;
+          gl_Position.xy += size * (position.x * vec2(axis.y, -axis.x) + position.y * elongation * axis);
+          vDepth = abs(view.z);
+        }
+        vUv = uv;
+        vAge = age;
+        vHalfSize = 0.5 * size;
+    `),
+    fragmentShader: `
+      uniform sampler2D ramp, gradient, mask, layer1, layer2;
+      uniform vec4 temperature, layer1Mod, layer2Mod, layer1Speed, layer2Speed;
+      uniform float brightness, alphaScale, time;
+      varying vec2 vUv;
+      varying float vAge, vHalfSize, vDepth;
+      ${SOFT_DEPTH_GLSL}
+      ${CLAMP_UV}
+      ${SRGB}
+      void main() {
+        vec4 a = texture2D(layer1, vUv * layer1Mod.xy + layer1Mod.zw + time * layer1Speed.xy);
+        vec4 b = texture2D(layer2, vUv * layer2Mod.xy + layer2Mod.zw + time * layer2Speed.xy);
+        vec4 m = texture2D(mask, vUv);
+        float lookup = (a.r * b.r * m.r + temperature.y) * temperature.x;
+        vec3 color = texture2D(ramp, clampUv(ramp, vec2(lookup, 0.0))).rgb * brightness;
+        float age = texture2D(gradient, clampUv(gradient, vec2(vAge, 0.0))).r;
+        float fade = softDepthOn > 0.0 ? clamp((softSceneDepth() - vDepth) / max(vHalfSize, 1e-6), 0.0, 1.0) : 1.0;
+        float opacity = a.a * b.a * m.a * fade * (age * age) * (age * age);
+        gl_FragColor = vec4(encode(max(color * opacity, 0.0)), clamp(opacity * alphaScale, 0.0, 1.0));
+      }`,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+  }));
+  material.userData.softDepth = true;
+  material.visible = false;
+  let disposed = false;
+  material.addEventListener("dispose", () => { disposed = true; uniforms.ramp.value?.dispose(); });
+  void Promise.all([
+    textureOf(area.textures.ColorRampMap), textureOf(area.textures.GradientMap), textureOf(area.textures.MaskMap),
+    textureOf(area.textures.TexMapLayer1), textureOf(area.textures.TexMapLayer2),
+  ]).then(([ramp, gradient, mask, layer1, layer2]) => {
+    if (disposed || !ramp || !gradient || !mask || !layer1 || !layer2) return;
+    const colorRamp = ramp.clone();
+    colorRamp.colorSpace = THREE.SRGBColorSpace;
+    colorRamp.wrapS = colorRamp.wrapT = THREE.ClampToEdgeWrapping;
+    colorRamp.minFilter = colorRamp.mipmaps && colorRamp.mipmaps.length > 1 ? THREE.LinearMipmapNearestFilter : THREE.LinearFilter;
+    colorRamp.needsUpdate = true;
+    uniforms.ramp.value = colorRamp;
+    uniforms.gradient.value = gradient;
+    uniforms.mask.value = mask;
+    uniforms.layer1.value = layer1;
+    uniforms.layer2.value = layer2;
+    material.visible = true;
+  });
+  return material;
+}
+
 /** An area's particle material, by its effect file; null for an effect or permutation not drawn here. */
 function particleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial | THREE.ShaderMaterial[] | null {
   const path = (area as { path?: string }).path ?? "";
@@ -728,6 +826,7 @@ function particleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMateria
     });
     return material;
   }
+  if (path.endsWith("/planet/solarflare.fx")) return solarFlareMaterial(area, textureOf);
   if (path.endsWith("/specialfx/particles/motionvector.fx")) return motionVectorParticleMaterial(area, textureOf);
   if (path.endsWith("/specialfx/particles/dynamic/motionvectorramp.fx")) return motionVectorParticleMaterial(area, textureOf, true);
   if (path.endsWith("/specialfx/particles/dynamic/motionvector.fx")) return dynamicMotionVectorMaterial(area, textureOf);
