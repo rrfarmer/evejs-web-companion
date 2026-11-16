@@ -110,6 +110,33 @@
     return catalog;
   });
 
+  // The sites' names by their name message, read as the site-warp blocks read them (flow.scannerSiteNames): the
+  // client's words, else the server's own site packs. Asked again whenever the scan is read again, so a name still
+  // being read when this asked is there after the next refresh.
+  let dungeonNames = $state<Record<number, string>>({});
+  $effect(() => {
+    const scan = $scanner.scan;
+    if (scan.status !== "ready") return;
+    const ids: number[] = [];
+    for (const site of [...scan.value.anomalies, ...scan.value.staticSites]) {
+      const value = site.fields.dungeonNameID;
+      if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) ids.push(value);
+    }
+    if (ids.length === 0) return;
+    let current = true;
+    void flow.scannerSiteNames(ids).then((read) => {
+      if (!current) return;
+      const catalog: Record<number, string> = {};
+      for (const [id, name] of read) {
+        if (name !== null) catalog[id] = name;
+      }
+      dungeonNames = catalog;
+    });
+    return () => {
+      current = false;
+    };
+  });
+
   const actions = $derived.by((): ScannerActionBindings => {
     const operations = $scanner.operations;
     if (operations.status !== "ready" || !operations.value.inSpace) {
@@ -166,7 +193,7 @@
 
 <ScannerCenter
   scan={$scanner.scan}
-  names={{ typeNames }}
+  names={{ typeNames, dungeonNames }}
   {actions}
   onRefresh={() => flow.loadScanner()}
 />

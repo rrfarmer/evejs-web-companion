@@ -3890,6 +3890,13 @@ export interface AppFlow {
    */
   requestWords(labels: readonly string[]): void;
   /**
+   * Scanner sites' names by their name message (a row's `dungeonNameID`), as
+   * the site-warp blocks read them: the client's words, else the server's own
+   * site packs. A string, `null` when neither names it, and no entry while it
+   * is still being read. Each message is asked once. Never throws.
+   */
+  scannerSiteNames(messageIDs: readonly number[]): Promise<ReadonlyMap<number, string | null>>;
+  /**
    * Ask a mission's agent for the mission's keywords, to land in
    * `store.agents.missionKeywords` under "<agentID>:<contentID>". Asked once
    * for each mission, as the client does, for as long as the store keeps the
@@ -27922,9 +27929,24 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   let serverSiteNamesRetryAt = 0;
   const SERVER_SITE_NAMES_RETRY_MS = 60_000;
   async function namedScannerSites(sites: NonNullable<ScriptObservation["anomalies"]>): Promise<NonNullable<ScriptObservation["anomalies"]>> {
-    const keys = sites.flatMap((site) => (site.dungeonNameID != null ? [`#${site.dungeonNameID}`] : []));
-    if (keys.length > 0) {
-      await wordsNow(keys);
+    const names = await scannerSiteNames(sites.flatMap((site) => (site.dungeonNameID != null ? [site.dungeonNameID] : [])));
+    return sites.map((site) => {
+      if (site.dungeonNameID == null) {
+        return { ...site, name: null };
+      }
+      return names.has(site.dungeonNameID) ? { ...site, name: names.get(site.dungeonNameID) ?? null } : site;
+    });
+  }
+
+  /**
+   * Each name message's site name, by the same two sources and the same
+   * memory as `namedScannerSites`: a string, `null` when neither source names
+   * it, and no entry while it is still being read.
+   */
+  async function scannerSiteNames(messageIDs: readonly number[]): Promise<ReadonlyMap<number, string | null>> {
+    const ids = [...new Set(messageIDs.filter((id) => Number.isSafeInteger(id) && id > 0))];
+    if (ids.length > 0) {
+      await wordsNow(ids.map((id) => `#${id}`));
     }
     const templates = store.words.get().templates;
     const clientText = (id: number): string | null | undefined => {
@@ -27933,8 +27955,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const text = plainText(templates[key] ?? "").trim();
       return text.length > 0 ? text : null;
     };
-    const unworded = [...new Set(sites.flatMap((site) => (site.dungeonNameID != null && clientText(site.dungeonNameID) === null ? [site.dungeonNameID] : [])))]
-      .filter((id) => !serverSiteNames.has(id) && !serverSiteNamesAsking.has(id));
+    const unworded = ids
+      .filter((id) => clientText(id) === null && !serverSiteNames.has(id) && !serverSiteNamesAsking.has(id));
     if (unworded.length > 0 && Date.now() >= serverSiteNamesRetryAt) {
       for (const id of unworded) serverSiteNamesAsking.add(id);
       try {
@@ -27950,22 +27972,17 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         for (const id of unworded) serverSiteNamesAsking.delete(id);
       }
     }
-    return sites.map((site) => {
-      if (site.dungeonNameID == null) {
-        return { ...site, name: null };
-      }
-      const fromClient = clientText(site.dungeonNameID);
-      if (fromClient === undefined) {
-        return site;
-      }
+    const out = new Map<number, string | null>();
+    for (const id of ids) {
+      const fromClient = clientText(id);
+      if (fromClient === undefined) continue;
       if (fromClient !== null) {
-        return { ...site, name: fromClient };
+        out.set(id, fromClient);
+      } else if (serverSiteNames.has(id)) {
+        out.set(id, serverSiteNames.get(id) ?? null);
       }
-      if (!serverSiteNames.has(site.dungeonNameID)) {
-        return site;
-      }
-      return { ...site, name: serverSiteNames.get(site.dungeonNameID) ?? null };
-    });
+    }
+    return out;
   }
 
   /** The labels asked and their asking waited for (requestWords and the queue flushed now), for words wanted at once. */
@@ -30470,6 +30487,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     requestNames,
     requestWords,
+    scannerSiteNames: (messageIDs: readonly number[]) =>
+      scannerSiteNames(messageIDs).catch((): ReadonlyMap<number, string | null> => new Map()),
     requestMissionKeywords,
     requestAgentRecord,
     requestAgentSolarSystem,
