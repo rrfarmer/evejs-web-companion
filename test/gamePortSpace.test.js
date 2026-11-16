@@ -455,6 +455,21 @@ test("a missile's row, from a slim item as Tranquility sends one: what it is, wh
   assert.equal(probe.nameMessageID, undefined);
 });
 
+test("an authored hack cache projects both its dungeon object and localization IDs", () => {
+  const park = undockedPark();
+  const itemID = 9988400001511;
+  park.ballpark.addBall({ id: itemID, isFree: false, radius: 200, x: 5000 });
+  park.slimItems.set(itemID, new Map(Object.entries({
+    itemID, typeID: 33530, groupID: 306, categoryID: 2, nameID: 292435,
+    dunObjectID: 1032344, hackingSecurityState: 0,
+  })));
+  const cache = projectSpace(park, { solarSystemID: SYSTEM, shipID: undock.shipID })
+    .entities.find((entity) => entity.itemID === itemID);
+  assert.equal(cache?.dunObjectID, 1032344);
+  assert.equal(cache?.nameMessageID, 292435);
+  assert.equal(cache?.hackingSecurityState, 0);
+});
+
 test("health is what the damage state says, with the shield brought forward by its own recharge", () => {
   // ((shield, tau in ms, when), armour, hull). One second on, a quarter shield with tau 1000 ms has recharged to (1 - 0.5/e)^2.
   const state = [[0.25, 1000, 134359116934190000n], 0.5, 0.75];

@@ -2057,10 +2057,7 @@ export interface SpaceEntity {
    * snapshot does not.
    */
   readonly planetID?: number | null;
-  /**
-   * An acceleration gate's own object in its dungeon (its slim item's dunObjectID), for the Ship Restrictions window
-   * opened on its refusal. null on every other row, and where the transport did not say (the web gateway's).
-   */
+  /** The authored object ID from the slim item, used by dungeon objectives and gate restrictions. */
   readonly dunObjectID?: number | null;
   /**
    * An Abyssal trace's filament, game mode and whether it is open (its slim item's abyssFilamentTypeID, gameModeID and

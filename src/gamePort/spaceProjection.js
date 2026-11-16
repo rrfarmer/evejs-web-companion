@@ -19,7 +19,7 @@ const { MODE, MODE_NAME } = require("./destiny/state");
 const CATEGORY = { CELESTIAL: 2, STATION: 3, SHIP: 6, CHARGE: 8, ENTITY: 11, DRONE: 18, ASTEROID: 25, ORBITAL: 46, STRUCTURE: 65, FIGHTER: 87 };
 const GROUP = {
   SUN: 6, PLANET: 7, MOON: 8, ASTEROID_BELT: 9, STARGATE: 10, CARGO_CONTAINER: 12, SENTRY_GUN: 99, WRECK: 186, BILLBOARD: 323,
-  SECURE_CARGO_CONTAINER: 340, AUDIT_LOG_SECURE_CONTAINER: 448, FREIGHT_CONTAINER: 649,
+  SECURE_CARGO_CONTAINER: 340, ACCELERATION_GATE: 366, AUDIT_LOG_SECURE_CONTAINER: 448, FREIGHT_CONTAINER: 649,
 };
 /**
  * A ball of the Charge category. The client draws any group its data marks "fittable non-singleton" as a Missile
@@ -275,9 +275,10 @@ function projectEntity(park, ball, slim, ego, placed) {
   }
   // importExportUI.py 94: which planet a customs office is, from the office's own slim item.
   if (kind === "orbital") row.planetID = positive(slim.get("planetID"));
-  // movementFunctions.py 557 to 560: an acceleration gate's own object in its dungeon, off its slim item, for the
-  // Ship Restrictions window the client opens on the gate's refusal (GetDungeonShipRestrictions(dungeonID, gateID)).
-  if (groupID === 366) row.dunObjectID = positive(slim.get("dunObjectID"));
+  // TargetTask.dungeon_object_id uses any authored target's slim ID. Acceleration
+  // gates also use it for the Ship Restrictions read after a refusal.
+  const dunObjectID = positive(slim.get("dunObjectID"));
+  if (dunObjectID !== null || groupID === GROUP.ACCELERATION_GATE) row.dunObjectID = dunObjectID;
   if (groupID === 1408) {
     const chargeTag = number(slim.get("component_jumpBridge"));
     if (chargeTag !== null) row.jumpBridge = {
