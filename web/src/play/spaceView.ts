@@ -116,7 +116,7 @@ export interface SpaceViewOptions {
   onSystem?: (solarSystemID: number, security: number | null) => void;
   rack?: {
     modules(): HudModule[];
-    use(m: HudModule, targetID: number | null): Promise<void>;
+    use(m: HudModule, targetID: number | null, passiveLock?: boolean): Promise<void>;
     targeting(itemID: number): Promise<"lock" | "passive" | null>;
     capacitor?(): { max: number | null; ratio: number | null };
     /** Each rack's heat over its capacity, 0..1 (the app's space snapshot: ship.rackHeat), or null. */
@@ -251,11 +251,12 @@ export class SpaceView {
   // Empty slots hidden, as the client's default (showEmptySlots off) has them, until the module rack knows the fit.
   private readonly shipHud = new ShipHud({ slots: { hi: 0, med: 0, low: 0 } });
   private readonly targetBar = new TargetBar();
-  /** Targets being locked: itemID to when the lock began (performance.now()). */
+  /** Lock requests awaiting a response, keyed by target ID and local start time. */
   private readonly lockingIDs = new Map<number, number>();
   /** The client's state.activeTarget. Selecting a locked object makes it active. */
   private activeTarget: number | null = null;
-  private acquiringTargets = new Set<number>();
+  /** Pending locks acknowledged by the targeting flow, with the original start time where known. */
+  private acquiringTargets = new Map<number, number>();
   // An entry begins while dogma is being read, then waits for the target's lock.
   private readonly moduleTargetOrders = new Map<number, { mode: "lock" | "passive" | null }>();
   private orderedTarget: number | null = null;
@@ -1517,6 +1518,8 @@ export class SpaceView {
     this.targetOrderShip = shipID;
     this.targetOrderSystem = systemID;
     this.moduleTargetOrders.clear();
+    this.lockingIDs.clear();
+    this.acquiringTargets.clear();
     this.updateTargetingCursor();
   }
 
@@ -1541,9 +1544,11 @@ export class SpaceView {
       const module = rack.modules().find((each) => each.itemID === first[0]);
       this.moduleTargetOrders.delete(first[0]);
       this.updateTargetingCursor();
-      if (module?.online && !module.active) void this.act(module.name ?? "Module", () => rack.use(module, itemID));
+      if (module?.online && !module.active) {
+        void this.act(module.name ?? "Module", () => this.lockTracked(itemID, () => rack.use(module, itemID, true)));
+      }
     } else if (!this.acquiringTargets.has(itemID) && !this.lockingIDs.has(itemID)) {
-      void this.act("Lock Target", () => this.lockTracked(itemID)).then(() => this.refreshTargets());
+      void this.act("Lock Target", () => this.lockTracked(itemID));
     }
   }
 
@@ -1567,7 +1572,10 @@ export class SpaceView {
     try {
       const t = await this.actions.targets();
       this.locked = new Set(t.targetIDs);
-      this.acquiringTargets = new Set(t.acquiringIDs);
+      const now = performance.now();
+      this.acquiringTargets = new Map((t.acquiringIDs ?? []).map((id) => [
+        id, this.lockingIDs.get(id) ?? this.acquiringTargets.get(id) ?? now,
+      ]));
       this.targeters = new Set(t.targeterIDs);
       for (const [id, el] of this.bracketEls) { el.classList.toggle("locked", this.locked.has(id)); el.classList.toggle("targeting-me", this.targeters.has(id)); }
       this.renderSelected();
@@ -1946,7 +1954,7 @@ export class SpaceView {
       case "CmdKeepItemAtRange": run("Keep at Range", () => this.actions.keepAtRange(id)); break;
       case "CmdWarpToItem": run("Warp To", () => this.actions.warpTo(id)); break;
       case "CmdAlignToItem": run("Align To", () => this.actions.alignTo(id)); break;
-      case "CmdLockTargetItem": run("Lock Target", () => this.actions.lock(id)); break;
+      case "CmdLockTargetItem": run("Lock Target", () => this.lockTracked(id)); break;
       case "CmdUnlockTargetItem": run("Unlock Target", () => this.actions.unlock(id)); break;
       case "CmdDockOrJumpOrActivateGate":
         // (a station or structure docked at, a stargate jumped through; nothing else here)
@@ -2242,7 +2250,7 @@ export class SpaceView {
       let el = this.bracketEls.get(e.itemID);
       const highlighted = this.highlightedObjective === e.itemID;
       const selectedOrTargeted = highlighted || this.selected === e.itemID || this.activeTarget === e.itemID ||
-        this.locked.has(e.itemID) || this.lockingIDs.has(e.itemID);
+        this.locked.has(e.itemID) || this.lockingIDs.has(e.itemID) || this.acquiringTargets.has(e.itemID);
       const groupID = this.overview.groupOf(e);
       if (groupID === JUMP_BRIDGE_GROUP) this.positionJumpBridge(e, snap?.ship ?? null, rel, w, h);
       const wanted = gridBracketWanted(e, groupID, bracketMask, overviewMask, {
@@ -2572,10 +2580,17 @@ export class SpaceView {
     this.bloom.render(environment, sun, clouds);
   }
 
-  /** A lock, shown as locking (on its bracket) until the call returns: the server answers AddTarget once locked. */
-  private async lockTracked(id: number): Promise<void> {
-    this.lockingIDs.set(id, performance.now());
-    try { await this.actions.lock(id); } finally { this.lockingIDs.delete(id); }
+  /** Show acquisition from the request through confirmation, refusal or cancellation. */
+  private async lockTracked(id: number, request = () => this.actions.lock(id)): Promise<void> {
+    if (this.lockingIDs.has(id)) return;
+    const startedAt = performance.now();
+    this.lockingIDs.set(id, startedAt);
+    try {
+      await request();
+    } finally {
+      await this.refreshTargets();
+      if (this.lockingIDs.get(id) === startedAt) this.lockingIDs.delete(id);
+    }
   }
 
   /** The target bar from the locked set, in lock order; a target being locked gets its indicator on its bracket. */
@@ -2595,7 +2610,8 @@ export class SpaceView {
         locking: false, active: id === this.activeTarget,
       });
     }
-    for (const [id, startedAt] of this.lockingIDs) {
+    const pending = this.lockingIDs.size ? new Map([...this.acquiringTargets, ...this.lockingIDs]) : this.acquiringTargets;
+    for (const [id, startedAt] of pending) {
       if (this.locked.has(id)) continue;
       const e = byID.get(id);
       entries.push({
@@ -2608,7 +2624,7 @@ export class SpaceView {
     const win = this.selectedWin.root.style;
     this.targetBar.setAnchor({ left: parseFloat(win.left) || innerWidth - 480, top: parseFloat(win.top) || 15, width: parseFloat(win.width) || 464 });
     this.targetBar.update(entries);
-    for (const id of this.lockingIDs.keys()) {
+    for (const id of pending.keys()) {
       const el = this.bracketEls.get(id), ind = this.targetBar.lockingIndicator(id);
       if (el && ind && ind.parentElement !== el) el.appendChild(ind);
     }

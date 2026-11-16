@@ -1125,10 +1125,12 @@
         }),
         targeting: (itemID) => s.flow.rackModuleTargeting(itemID),
         // shipmodulebutton.ActivateEffect uses the active lock for targeted effects.
-        use: async (m, targetID) => {
+        use: async (m, targetID, passiveLock) => {
           const running = (s.store.space.get().snapshot?.ship?.activeModuleIDs ?? []).includes(m.itemID);
           if (running) await s.flow.deactivateModule(m.itemID, { typeID: m.typeID });
-          else await s.flow.activateModule(m.itemID, { typeID: m.typeID, targetID });
+          else await s.flow.activateModule(m.itemID, {
+            typeID: m.typeID, targetID, effect: passiveLock ? "targetPassively" : undefined,
+          });
         },
         heat: () => s.store.space.get().snapshot?.ship?.rackHeat ?? null,
         overload: {

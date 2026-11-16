@@ -25847,19 +25847,29 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const count = await moduleRepeatCount(itemID, fittedModule.typeID, fittedModule.groupID).catch(() => null);
       if (count === 0) opts = { ...opts, repeat: 0 };
     }
-    await runTargetingAction(
-      "Switch on",
-      () => switchModuleOn(itemID, opts, callOptions),
-      // Refresh the snapshot NOW rather than waiting for the next poll tick, so
-      // the button state the player sees after the click is the server's answer
-      // to THIS action. Best-effort: a failed refresh must not turn a
-      // successful activation into an error.
-      () => loadSpaceSnapshot().catch(() => {}),
-      // null means the verification read could not answer. That is NOT a silent
-      // decline — we simply do not know — so it is not reported as one.
-      (result) => result.active !== false,
-      "The server accepted that module and then did not run it, and gave no reason.",
-    );
+    // targetMgr.LockTargetPassively starts the lock indication before activating the effect.
+    const targeting = store.targeting.get();
+    const passiveTarget = opts.effect === "targetPassively" && opts.targetID != null &&
+      !targeting.lockedTargetIDs.includes(opts.targetID) && !targeting.acquiringTargetIDs.includes(opts.targetID)
+      ? opts.targetID
+      : null;
+    if (passiveTarget !== null) store.apply({ type: "targeting/acquiring", targetID: passiveTarget });
+    let accepted = false;
+    try {
+      await runTargetingAction(
+        "Switch on",
+        () => switchModuleOn(itemID, opts, callOptions),
+        (result) => {
+          accepted = result.active !== false;
+          // Refresh the running modules from this action. An unavailable snapshot is retried by the poller.
+          return loadSpaceSnapshot().catch(() => {});
+        },
+        (result) => result.active !== false,
+        "The server accepted that module and then did not run it, and gave no reason.",
+      );
+    } finally {
+      if (passiveTarget !== null && !accepted) store.apply({ type: "targeting/lock-failed", targetID: passiveTarget });
+    }
   }
 
   // --- R23 slice B: the mining loop ----------------------------------------
