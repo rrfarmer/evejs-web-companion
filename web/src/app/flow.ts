@@ -2296,6 +2296,8 @@ export interface AppFlow {
   rackAmmoMenu(moduleID: number, context: { readonly reloading: boolean; readonly bankCount: number }): Promise<readonly (AmmoMenuEntry & { readonly text: string })[] | null>;
   /** The rack menu's Unload to Cargo: UnloadAmmoToContainer of the module's charge to the cargo. */
   unloadRackCharge(moduleID: number): Promise<void>;
+  /** The HUD's target order follows the relevant effect, including a launcher's loaded charge. */
+  rackModuleTargeting(moduleID: number): Promise<"lock" | "passive" | null>;
   /**
    * The rack button's own entries after the ammunition (shipmodulebutton.GetMenu 462 to 524), in its order: Set
    * Auto-Reload for a module that takes charges; then, by the module's effects as godma's dict of them iterates, Set
@@ -34747,6 +34749,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         if (outcome.kind === "bankWithoutRoom") sayDialog("NotEnoughCargoSpaceToUnloadBank", null, "That place has too little room left for the charges of every weapon in the bank.");
       });
       await refreshOpenPlaces();
+    },
+
+    async rackModuleTargeting(moduleID) {
+      const module = store.fitting.get().slots.find((slot) => slot.module?.itemID === moduleID)?.module;
+      if (!module) return null;
+      const chargeTypeID = module.charge?.typeID ?? null;
+      const data = await dogmaStaticFor(chargeTypeID === null ? [module.typeID] : [module.typeID, chargeTypeID], []);
+      const defaultEffectOf = (typeID: number) => data?.effects[data.types[typeID]?.defaultEffectID ?? -1];
+      const effect = defaultEffectOf(module.typeID);
+      // shipmodulebutton.GetRelevantEffect: missiles and loaded warp disruption spheres take the charge's effect.
+      const relevant = effect?.name === "useMissiles" || (effect?.name === "warpDisruptSphere" && chargeTypeID !== null)
+        ? (chargeTypeID === null ? null : defaultEffectOf(chargeTypeID))
+        : effect;
+      if (relevant?.category !== 2) return null;
+      return relevant.name === "targetPassively" ? "passive" : "lock";
     },
 
     async rackModuleMenu(moduleID) {

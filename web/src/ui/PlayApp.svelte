@@ -1054,7 +1054,11 @@
       // What is locked comes from the session's targeting slice, kept by the flow's lock events and reads.
       targets: async () => {
         const t = s.store.targeting.get();
-        return { targetIDs: [...(t.lockedTargetIDs ?? [])], targeterIDs: [...((t as { lockedByIDs?: number[] }).lockedByIDs ?? [])] };
+        return {
+          targetIDs: [...(t.lockedTargetIDs ?? [])],
+          targeterIDs: [...((t as { lockedByIDs?: number[] }).lockedByIDs ?? [])],
+          acquiringIDs: [...(t.acquiringTargetIDs ?? [])],
+        };
       },
     }, { system: st?.solarSystemName ?? "", security: st?.security ?? null }, {
       onNeocom: neocomOpen,
@@ -1119,6 +1123,7 @@
           max: s.store.fitting.get().resources?.capacitor?.total ?? null,
           ratio: s.store.space.get().snapshot?.ship?.capacitorRatio ?? null,
         }),
+        targeting: (itemID) => s.flow.rackModuleTargeting(itemID),
         // shipmodulebutton.ActivateEffect uses the active lock for targeted effects.
         use: async (m, targetID) => {
           const running = (s.store.space.get().snapshot?.ship?.activeModuleIDs ?? []).includes(m.itemID);

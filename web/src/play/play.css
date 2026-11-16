@@ -57,6 +57,15 @@ button { font: inherit; color: inherit; }
 /* ── space ──────────────────────────────────────────────────────────────── */
 .space { position: absolute; inset: 0; }
 .space canvas { display: block; }
+.targeting-cursor {
+  position: fixed; inset: 0; z-index: 5; pointer-events: none; color: rgba(255, 255, 255, .65);
+  --x: 50vw; --y: 50vh;
+  background:
+    linear-gradient(to right, currentColor 0 calc(var(--x) - 10px), transparent 0 calc(var(--x) + 10px), currentColor 0)
+      0 var(--y) / 100% 1px no-repeat,
+    linear-gradient(to bottom, currentColor 0 calc(var(--y) - 10px), transparent 0 calc(var(--y) + 10px), currentColor 0)
+      var(--x) 0 / 1px 100% no-repeat;
+}
 .brackets { position: absolute; inset: 0; pointer-events: none; }
 .jump-bridge-bracket { position: absolute; top: 0; left: 0; width: min(300px, calc(100vw - 16px)); z-index: 1; }
 .bracket { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; pointer-events: auto; cursor: pointer; }

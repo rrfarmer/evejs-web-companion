@@ -117,6 +117,7 @@ export interface SpaceViewOptions {
   rack?: {
     modules(): HudModule[];
     use(m: HudModule, targetID: number | null): Promise<void>;
+    targeting(itemID: number): Promise<"lock" | "passive" | null>;
     capacitor?(): { max: number | null; ratio: number | null };
     /** Each rack's heat over its capacity, 0..1 (the app's space snapshot: ship.rackHeat), or null. */
     heat?(): Readonly<Partial<Record<"high" | "mid" | "low", number>>> | null;
@@ -159,7 +160,7 @@ export interface SpaceActions {
   lock(itemID: number): Promise<void>;
   unlock(itemID: number): Promise<void>;
   /** What is locked, and what has the pilot locked: the BFF's read (GET /api/bridge/targets). */
-  targets(): Promise<{ targetIDs: number[]; targeterIDs: number[] }>;
+  targets(): Promise<{ targetIDs: number[]; targeterIDs: number[]; acquiringIDs?: number[] }>;
   stop(): Promise<void>;
   approach(itemID: number): Promise<void>;
   orbit(itemID: number, range?: number): Promise<void>;
@@ -254,6 +255,13 @@ export class SpaceView {
   private readonly lockingIDs = new Map<number, number>();
   /** The client's state.activeTarget. Selecting a locked object makes it active. */
   private activeTarget: number | null = null;
+  private acquiringTargets = new Set<number>();
+  // An entry begins while dogma is being read, then waits for the target's lock.
+  private readonly moduleTargetOrders = new Map<number, { mode: "lock" | "passive" | null }>();
+  private orderedTarget: number | null = null;
+  private targetOrderShip: number | null = null;
+  private targetOrderSystem: number | null = null;
+  private readonly targetingCursor = document.createElement("div");
   private readonly modeEl: HTMLDivElement;
   private readonly selectedEl: HTMLElement;
   private readonly selectedWin: PlayWindow;
@@ -572,6 +580,16 @@ export class SpaceView {
     this.root.appendChild(this.renderer.domElement);
     this.brackets.className = "brackets";
     this.root.appendChild(this.brackets);
+    this.targetingCursor.className = "targeting-cursor";
+    this.targetingCursor.hidden = true;
+    this.targetingCursor.setAttribute("aria-hidden", "true");
+    this.root.appendChild(this.targetingCursor);
+    const moveTargetingCursor = (e: PointerEvent) => {
+      this.targetingCursor.style.setProperty("--x", `${e.clientX}px`);
+      this.targetingCursor.style.setProperty("--y", `${e.clientY}px`);
+    };
+    document.addEventListener("pointermove", moveTargetingCursor);
+    this.unhold.push(() => document.removeEventListener("pointermove", moveTargetingCursor));
     this.root.insertAdjacentHTML("beforeend", `
       <div class="hud-top-left"><div class="system">${where.system}<span class="sec">${where.security === null ? "" : where.security.toFixed(1)}</span></div><div class="sub"></div></div>
       <div class="ship-mode"></div>
@@ -753,7 +771,8 @@ export class SpaceView {
     }, { capture: true, passive: true });
     // a click in space: with a combat command loaded, on the object under it (its pick); else the selection cleared
     this.renderer.domElement.addEventListener("click", (e) => {
-      const id = this.dscanKey || this.combat || this.modifierCombat(false) ? this.pickAt(e.clientX, e.clientY) : null;
+      const picking = this.dscanKey || this.combat || this.modifierCombat(false) || !this.targetingCursor.hidden;
+      const id = picking ? this.pickAt(e.clientX, e.clientY) : null;
       this.select(id);
     });
     addEventListener("resize", () => this.resize());
@@ -1008,6 +1027,7 @@ export class SpaceView {
     if (itemID !== null && this.locked.has(itemID)) this.activeTarget = itemID;
     for (const [id, el] of this.bracketEls) el.classList.toggle("selected", id === itemID);
     this.overview.setSelected(itemID);
+    if (itemID !== null && !this.targetingCursor.hidden) this.chooseModuleTarget(itemID);
     this.renderSelected();
     return true;
   }
@@ -1451,17 +1471,103 @@ export class SpaceView {
     return true;
   }
 
+  private activeLock(): number | null {
+    return this.activeTarget !== null && this.locked.has(this.activeTarget) ? this.activeTarget : null;
+  }
+
   private useRackModule(module: HudModule): void {
     const rack = this.options.rack;
     if (!rack) return;
-    const targetID = this.activeTarget !== null && this.locked.has(this.activeTarget) ? this.activeTarget : null;
-    void this.act(module.name ?? "Module", () => rack.use(module, targetID));
+    this.checkModuleTargetSession();
+    const current = rack.modules().find((each) => each.itemID === module.itemID);
+    if (!current) return;
+    if (this.moduleTargetOrders.delete(current.itemID)) {
+      this.updateTargetingCursor();
+      return;
+    }
+    const targetID = this.activeLock();
+    if (targetID !== null || current.active || !current.online) {
+      void this.act(current.name ?? "Module", () => rack.use(current, targetID));
+      return;
+    }
+
+    const order: { mode: "lock" | "passive" | null } = { mode: null };
+    this.moduleTargetOrders.set(current.itemID, order);
+    const prepare = async () => {
+      const mode = await rack.targeting(current.itemID).catch(() => null);
+      this.checkModuleTargetSession();
+      if (this.stopped || this.moduleTargetOrders.get(current.itemID) !== order) return;
+      const fitted = rack.modules().find((each) => each.itemID === current.itemID);
+      if (mode && fitted?.online && !fitted.active && this.activeLock() === null) {
+        order.mode = mode;
+        this.updateTargetingCursor();
+        return;
+      }
+      this.moduleTargetOrders.delete(current.itemID);
+      this.updateTargetingCursor();
+      if (fitted) await rack.use(fitted, this.activeLock());
+    };
+    void this.act(current.name ?? "Module", prepare);
+  }
+
+  private checkModuleTargetSession(): void {
+    const shipID = this.live.hello?.shipID ?? null;
+    const systemID = this.live.hello?.solarSystemID ?? null;
+    if (this.targetOrderShip === shipID && this.targetOrderSystem === systemID) return;
+    this.targetOrderShip = shipID;
+    this.targetOrderSystem = systemID;
+    this.moduleTargetOrders.clear();
+    this.updateTargetingCursor();
+  }
+
+  private updateTargetingCursor(): void {
+    if (!this.moduleTargetOrders.size) this.orderedTarget = null;
+    const waiting = [...this.moduleTargetOrders.values()].some(({ mode }) => mode !== null);
+    this.targetingCursor.hidden = !waiting || this.orderedTarget !== null;
+  }
+
+  private chooseModuleTarget(itemID: number): void {
+    const entity = this.snapshot?.entities.find((each) => each.itemID === itemID);
+    // targetMgr.TryLockTarget and inventorycommon.const.nonTargetableGroups.
+    if (!entity || entity.isSelf || [7, 8, 9, 885].includes(entity.groupID ?? -1)) return;
+    const rack = this.options.rack!;
+    const first = [...this.moduleTargetOrders].find(([, order]) => order.mode !== null);
+    if (!first) return;
+    this.orderedTarget = itemID;
+    this.updateTargetingCursor();
+    if (this.locked.has(itemID)) return;
+    if (first[1].mode === "passive") {
+      // LockTargetPassively starts the first module with the target to let its effect create the lock.
+      const module = rack.modules().find((each) => each.itemID === first[0]);
+      this.moduleTargetOrders.delete(first[0]);
+      this.updateTargetingCursor();
+      if (module?.online && !module.active) void this.act(module.name ?? "Module", () => rack.use(module, itemID));
+    } else if (!this.acquiringTargets.has(itemID) && !this.lockingIDs.has(itemID)) {
+      void this.act("Lock Target", () => this.lockTracked(itemID)).then(() => this.refreshTargets());
+    }
+  }
+
+  private finishModuleTargetOrders(modules: HudModule[]): void {
+    const rack = this.options.rack!;
+    const targetID = this.orderedTarget ?? this.activeLock();
+    const confirmed = targetID !== null && this.locked.has(targetID);
+    for (const [id, { mode }] of this.moduleTargetOrders) {
+      const module = modules.find((each) => each.itemID === id);
+      if (!module?.online || module.active) {
+        this.moduleTargetOrders.delete(id);
+      } else if (mode && confirmed) {
+        this.moduleTargetOrders.delete(id);
+        void this.act(module.name ?? "Module", () => rack.use(module, targetID));
+      }
+    }
+    this.updateTargetingCursor();
   }
 
   private async refreshTargets(): Promise<void> {
     try {
       const t = await this.actions.targets();
       this.locked = new Set(t.targetIDs);
+      this.acquiringTargets = new Set(t.acquiringIDs);
       this.targeters = new Set(t.targeterIDs);
       for (const [id, el] of this.bracketEls) { el.classList.toggle("locked", this.locked.has(id)); el.classList.toggle("targeting-me", this.targeters.has(id)); }
       this.renderSelected();
@@ -1768,7 +1874,7 @@ export class SpaceView {
     const m = this.options.rack?.modules().find((each) => each.family === family && each.index === index) ?? null;
     // (an empty slot or a module offline: the client's "Disabled" notice)
     if (!m || !m.online) { this.toast("Disabled"); return; }
-    if (slot[1] === "Activate") { this.useRackModule(m); return; }
+    if (slot[1] === "Activate") { if (!e.repeat) this.useRackModule(m); return; }
     const overload = this.options.rack?.overload;
     if (!overload || m.overloadable === false) { this.toast("Disabled"); return; }
     void this.act(m.name ?? "Module", () => overload.module(m.itemID, !m.overloaded));
@@ -2057,6 +2163,7 @@ export class SpaceView {
       snap = projectSpace(park, { solarSystemID: null, shipID: this.live.hello?.shipID ?? null, simTime: this.live.simNow() }) as unknown as Snapshot;
     }
     this.snapshot = snap;
+    this.checkModuleTargetSession();
     const ego = snap?.ship ?? null;
     const now = performance.now(), dt = Math.min(0.1, (now - this.lastFrameAt) / 1000);
     this.lastFrameAt = now;
@@ -2364,7 +2471,10 @@ export class SpaceView {
     const rack = this.options.rack;
     if (rack && this.frameCount % 3 === 0) {
       const overload = rack.overload;
-      this.shipHud.setModules(rack.modules(), (m) => this.useRackModule(m), overload ? {
+      const modules = rack.modules();
+      if (this.moduleTargetOrders.size) this.finishModuleTargetOrders(modules);
+      for (const m of modules) m.waitingForTarget = !!this.moduleTargetOrders.get(m.itemID)?.mode;
+      this.shipHud.setModules(modules, (m) => this.useRackModule(m), overload ? {
         module: (m, on) => void this.act(m.name ?? "Module", () => overload.module(m.itemID, on)),
         rack: (id, on) => void this.act(on ? "Overload rack" : "Stop overloading rack", () => overload.rack(id, on)),
       } : undefined);

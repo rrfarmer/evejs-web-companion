@@ -62,6 +62,7 @@ export interface HudModule {
   name?: string;
   online: boolean;
   active: boolean;
+  waitingForTarget?: boolean;
   /** The type's icon (64 px). */
   icon: string;
   /** How far through its cycle a running module is, 0..1; null when not cycling or not known. */
@@ -281,6 +282,8 @@ const CSS = `
 @keyframes ship-hud-slot-blink { from { opacity: 0.75; } to { opacity: 0.15; } }
 .ship-hud-root .slot-glow.repairing { background-color: rgb(255, 255, 255); animation: ship-hud-repair-glow 2500ms linear infinite; }
 @keyframes ship-hud-repair-glow { 0% { opacity: 0.9; } 50% { opacity: 0; } 100% { opacity: 0.9; } }
+.ship-hud-root .slot-target-blink { animation: ship-hud-target-blink 500ms step-end infinite; }
+@keyframes ship-hud-target-blink { 0% { opacity: 1; } 50% { opacity: 0.25; } }
 .ship-hud-root .slot-damage-blink { animation: ship-hud-damage-blink var(--t, 2000ms) linear 2; }
 @keyframes ship-hud-damage-blink { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }
 .ship-hud-root .ol-pending-on { animation: ship-hud-ol-on 0.5s ease-in infinite; }
@@ -682,6 +685,7 @@ export class ShipHud {
       this.modulesSig = sig;
       this.slotsBox?.remove();
       this.glows.clear();
+      this.slotIcons.clear();
       this.sweeps.clear();
       this.overloadButtons.clear();
       this.rackButtons.clear();
@@ -691,6 +695,7 @@ export class ShipHud {
     this.overload = overload ?? null;
     this.checkOverload(modules);
     for (const m of modules) {
+      this.slotIcons.get(m.itemID)?.classList.toggle("slot-target-blink", !!m.waitingForTarget);
       const g = this.glows.get(m.itemID);
       if (g) g.style.display = m.active || m.repair ? "" : "none";
       // The cycle, as the client's ramps sweep round a running module (ShipModuleButtonRamps): a share of the ring.
@@ -704,6 +709,7 @@ export class ShipHud {
   }
 
   /** The slots' overload buttons and the racks' (by "Hi" / "Med" / "Lo"), with what they stand for now. */
+  private readonly slotIcons = new Map<number, HTMLImageElement>();
   private readonly overloadButtons = new Map<number, { img: HTMLImageElement; module: HudModule; state: string; pending: { on: boolean; until: number } | null }>();
   /** The slots' damage states (DamageStateCont), with the damage they show. */
   private readonly damageStates = new Map<number, { img: HTMLImageElement; damage: number; ramps: HTMLDivElement; turns: { mask: HTMLDivElement; tex: HTMLImageElement }[]; repair: { startedAtMs: number; durationMs: number; share: number } | null }>();
@@ -854,6 +860,7 @@ export class ShipHud {
           place(button, 8, 8, 48, 48);
           button.style.opacity = module.online ? "1" : "0.4";
           slot.appendChild(button);
+          this.slotIcons.set(module.itemID, button);
           // slotGlow.png tinted GLOWCOLOR, as a mask over the colour
           const glow = document.createElement("div");
           place(glow, 10, 10, 44, 44);
