@@ -27,6 +27,7 @@ import { ShipFx } from "./shipFx.ts";
 import { DRIFTER_COLLECTION, DrifterCollectionExplosions } from "./drifterCollectionExplosions.ts";
 import { isNonInteractableWormhole, nonInteractableWormhole, updateWormholePose, WormholeAudio } from "./nonInteractableWormhole.ts";
 import { CameraShake } from "./cameraShake.ts";
+import { ObservatoryEnvironment } from "./observatoryEnvironment.ts";
 import { CameraTaskGestures, type CameraTaskEvent } from "../bridge/cameraTasks.ts";
 import { initialOrbitDistance, isOwnStargateDeparture, MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose, validCameraPosition } from "./spaceCameraPose.ts";
 import { ENTRY_CAMERA_DURATION_MS, entryCameraFov, spaceEntryCamera, type EntryCameraPath } from "./spaceEntryCamera.ts";
@@ -215,6 +216,7 @@ export class SpaceView {
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
   /** Space's bloom (the space scenes' Tr2PPBloomEffect): the sun, engine flames, glow maps, weapons fire, lava. */
   private bloom: Bloom | null = null;
+  private readonly observatoryEnvironment = new ObservatoryEnvironment();
   /**
    * Space's dynamic exposure: the space scenes have no post-process of their own, so the client gives them
    * res:/dx9/default/postprocess.black (dynamic exposure at its defaults, tone map method 0).
@@ -2351,7 +2353,8 @@ export class SpaceView {
     this.missileFx.explosionLimit = settings.lodQuality * 30;
     this.fitSunShadow();
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering() });
-    this.bloom.render();
+    const environment = this.observatoryEnvironment.sample(ego ? snap?.entities ?? [] : [], origin, eye, dt, rendering.postProcess);
+    this.bloom.render(environment);
   }
 
   /**

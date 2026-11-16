@@ -7,6 +7,7 @@
 //        [--system-celestials <solarSystemID> ...] [--overview] [--graphic <graphicID> ...]
 //        [--turret <res path of a turret module's graphic> ...] [--gfx-turrets] [--ammo-colors] [--sof-materials] [--missile <missile typeID> ...]
 //        [--ship-info] (the Ship Info scene, faction backgrounds and light rig, needs --sde)
+//        [--observatory-environment] (the anchor template and its postprocessing textures)
 //
 // Nothing here ships client data: the script reads the client on this machine and writes to
 // _local/client-assets/<build>/ (git-ignored). Output mirrors res: paths, lower case:
@@ -318,20 +319,25 @@ export function extractCelestial(rf, graphicFile, outRoot) {
   return file;
 }
 
-/**
- * The client's effects table (res:/staticdata/effects.fsdbinary, read with its own loader: scripts/client-built-data.py
- * effectsLoader) by guid - each effect's class (type), graphicID, duration and damage timings - kept as effects.json.
- */
+/** Read just the requested rows with the installed client's cFSD loader. */
+function readClientTable(rf, clientDir, name, keys) {
+  const entry = rf.entry(`res:/staticdata/${name}.fsdbinary`);
+  if (!entry) throw new Error(`The client has no res:/staticdata/${name}.fsdbinary`);
+  const data = path.join(clientDir, "ResFiles", ...entry.blob.split("/"));
+  const args = [path.join(REPO, "scripts", "client-built-data.py"), path.join(clientDir, "tq", "bin64"), name + "Loader", data];
+  if (keys) args.push(`keys=${keys.join(",")}`);
+  const py = spawnSync(process.env.PYTHON ?? "python", args, { encoding: "utf8", maxBuffer: 64 << 20 });
+  if (py.status !== 0) throw new Error(`${name}: client-built-data.py failed: ${py.stderr || py.error?.message}`);
+  return py.stdout;
+}
+
+/** The client's effects table, cached by effect GUID. */
 function effectsTable(rf, clientDir, outRoot) {
   const file = path.join(outRoot, "effects.json");
   if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"));
-  const entry = rf.entry("res:/staticdata/effects.fsdbinary");
-  if (!entry) throw new Error("the client has no res:/staticdata/effects.fsdbinary");
-  const data = path.join(clientDir, "ResFiles", ...entry.blob.split("/"));
-  const py = spawnSync(process.env.PYTHON ?? "python", [path.join(REPO, "scripts", "client-built-data.py"), path.join(clientDir, "tq", "bin64"), "effectsLoader", data], { encoding: "utf8", maxBuffer: 64 << 20 });
-  if (py.status !== 0) throw new Error(`effects: client-built-data.py failed: ${py.stderr || py.error?.message}`);
-  fs.writeFileSync(file, py.stdout);
-  return JSON.parse(py.stdout);
+  const json = readClientTable(rf, clientDir, "effects");
+  fs.writeFileSync(file, json);
+  return JSON.parse(json);
 }
 
 /**
@@ -582,6 +588,30 @@ async function extractDrifterCollectionExplosion(rf, outRoot) {
   }));
 }
 
+function extractObservatoryEnvironment(rf, clientDir, outRoot) {
+  // ENV_Ancient_Jove_01a's ball, not a room template (dungeon 12260 has no row in dungeonEnvironmentTemplates).
+  const anchor = 49106;
+  const mapping = JSON.parse(readClientTable(rf, clientDir, "environmentTemplateAnchorTypeIDs", [anchor]))[anchor];
+  const templateID = mapping?.baseEnvironment;
+  if (!templateID) throw new Error(`No environment for Observatory anchor ${anchor}`);
+  const template = JSON.parse(readClientTable(rf, clientDir, "environmentTemplates", [templateID]))[templateID];
+  const resource = template.postProcess.path.toLowerCase().replace(/\.red$/, ".black");
+  const post = readBlack(rf.read(resource), resource);
+  const bloom = post.bloom && {
+    ...post.bloom,
+    grimePath: copyRes(rf, post.bloom.grimePath, outRoot),
+  };
+  const lut = post.lut && { ...post.lut, path: copyRes(rf, post.lut.path, outRoot) };
+  if (!bloom || !lut) throw new Error(`Observatory environment is missing bloom or LUT in ${resource}`);
+  fs.writeFileSync(path.join(outRoot, "observatoryEnvironment.json"), JSON.stringify({
+    environmentBuild: 1,
+    anchor,
+    templateID,
+    ...template,
+    postProcess: { ...template.postProcess, ...post, bloom, lut },
+  }));
+}
+
 function parseArgs(argv) {
   const out = { hulls: [], types: [], graphics: [], dnas: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, sofMaterials: false, fx: [], effects: [], starMap: false, fittingScene: false };
   for (let i = 0; i < argv.length; i++) {
@@ -608,6 +638,7 @@ function parseArgs(argv) {
     else if (a === "--dscan-cones") out.dscanCones = true;
     else if (a === "--ship-info") out.shipInfo = true;
     else if (a === "--drifter-collection-explosion") out.drifterCollectionExplosion = true;
+    else if (a === "--observatory-environment") out.observatoryEnvironment = true;
     else if (a === "--effect") out.effects.push(argv[++i]);
     else if (a === "--missile") out.missiles.push(Number(argv[++i]));
     else if (a === "--system-celestials") out.systemCelestials.push(Number(argv[++i]));
@@ -782,6 +813,7 @@ async function main() {
     console.log(`fittingScene.json: ${Object.keys(scene).filter((k) => scene[k]).join(", ")}`);
   }
   if (args.drifterCollectionExplosion) await extractDrifterCollectionExplosion(rf, outRoot);
+  if (args.observatoryEnvironment) extractObservatoryEnvironment(rf, client, outRoot);
   if (args.shipInfo) {
     if (!sde) throw new Error("--ship-info needs the SDE");
     const graphic = (id) => sdeGraphic(sde, id)?.graphicFile;
@@ -877,7 +909,7 @@ async function main() {
     }
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

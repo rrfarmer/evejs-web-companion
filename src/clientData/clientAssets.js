@@ -23,6 +23,7 @@ const GENERATED = new Map([
   ["/dscanHologram.json", ["--dscan-hologram"]],
   ["/shipInfoScene.json", ["--ship-info"]],
   ["/drifterCollectionExplosion.json", ["--drifter-collection-explosion", '"explosionBuild":1']],
+  ["/observatoryEnvironment.json", ["--observatory-environment", '"environmentBuild":1']],
   ["/overviewPresets.json", ["--overview"]],
   ["/sofMaterials.json", ["--sof-materials"]],
   ["/ammoColors.json", ["--ammo-colors"]],

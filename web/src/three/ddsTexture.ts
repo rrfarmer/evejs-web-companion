@@ -310,9 +310,10 @@ function decodeBcVolume(src: Uint8Array, w: number, h: number, depth: number, dx
  * texture being nothing WebGL 2 takes.
  */
 const volumes = new Map<string, Promise<THREE.Data3DTexture>>();
-export function loadDds3D(url: string): Promise<THREE.Data3DTexture> {
-  if (!volumes.has(url)) {
-    volumes.set(url, fetch(url).then(async (r) => {
+export function loadDds3D(url: string, wrap: THREE.Wrapping = THREE.RepeatWrapping): Promise<THREE.Data3DTexture> {
+  const key = `${url}|${wrap}`;
+  if (!volumes.has(key)) {
+    volumes.set(key, fetch(url).then(async (r) => {
       if (!r.ok) throw new Error(`${url}: ${r.status}`);
       const buf = await r.arrayBuffer();
       const dv = new DataView(buf);
@@ -330,13 +331,13 @@ export function loadDds3D(url: string): Promise<THREE.Data3DTexture> {
       const tex = new THREE.Data3DTexture(data, width, height, depth);
       tex.format = format;
       tex.minFilter = tex.magFilter = THREE.LinearFilter;
-      tex.wrapS = tex.wrapT = tex.wrapR = THREE.RepeatWrapping;
+      tex.wrapS = tex.wrapT = tex.wrapR = wrap;
       tex.unpackAlignment = 1;
       tex.needsUpdate = true;
       return tex;
     }));
   }
-  return volumes.get(url)!;
+  return volumes.get(key)!;
 }
 
 export function compressedSupport(renderer: THREE.WebGLRenderer) {

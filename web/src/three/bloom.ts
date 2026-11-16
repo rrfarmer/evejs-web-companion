@@ -35,8 +35,18 @@ const LEVELS = 6;
 /** The widest kernel, in texels either side (upsample.sm_hi takes 64 pairs of taps). */
 const MAX_RADIUS = 127;
 
+export interface EnvironmentBloom {
+  luminanceThreshold: number;
+  luminanceScale: number;
+  brightness: number;
+  grime: THREE.Texture;
+  grimeWeight: number;
+  lut: THREE.Data3DTexture;
+  lutInfluence: number;
+}
+
 export interface Bloom {
-  render(): void;
+  render(environment?: EnvironmentBloom | null): void;
   setSize(width: number, height: number): void;
   dispose(): void;
 }
@@ -114,19 +124,29 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
   const output = new THREE.ShaderMaterial({
     uniforms: {
       frame: { value: drawn.texture }, exposure: { value: 1 }, brightness: { value: BLOOM.brightness },
+      grime: { value: null }, grimeWeight: { value: 0 }, colorLut: { value: null }, lutInfluence: { value: 0 },
       step0: { value: null }, step1: { value: null }, step2: { value: null }, step3: { value: null }, step4: { value: null }, step5: { value: null },
       tints: { value: BLOOM.steps.map((s) => s.tint) },
     },
     vertexShader: VERTEX,
-    fragmentShader: `uniform sampler2D frame, step0, step1, step2, step3, step4, step5; uniform float tints[6]; uniform float exposure, brightness; varying vec2 vUv;
+    fragmentShader: `uniform sampler2D frame, step0, step1, step2, step3, step4, step5, grime;
+      uniform highp sampler3D colorLut;
+      uniform float tints[6];
+      uniform float exposure, brightness, grimeWeight, lutInfluence;
+      varying vec2 vUv;
       ${SAFE}
       ${toneMapGlsl(post.toneMap)}
       void main() {
         vec3 bloom = texture2D( step0, vUv ).rgb * tints[0] + texture2D( step1, vUv ).rgb * tints[1] + texture2D( step2, vUv ).rgb * tints[2]
           + texture2D( step3, vUv ).rgb * tints[3] + texture2D( step4, vUv ).rgb * tints[4] + texture2D( step5, vUv ).rgb * tints[5];
+        // tonemapping.sm_hi modulates the bloom by 1 + the linear grime sample times its weight.
+        if ( grimeWeight > 0.0 ) bloom *= 1.0 + texture2D( grime, vec2( vUv.x, 1.0 - vUv.y ) ).rgb * grimeWeight;
         vec3 colour = safe( texture2D( frame, vUv ).rgb ) + toneMapped( bloom * brightness );
         colour = clamp( toneMapped( colour * exposure ), 0.0, 1.0 );
-        gl_FragColor = vec4( mix( colour * 12.92, 1.055 * pow( colour, vec3( 1.0 / 2.4 ) ) - 0.055, step( vec3( 0.0031308 ), colour ) ), 1.0 );
+        colour = mix( colour * 12.92, 1.055 * pow( colour, vec3( 1.0 / 2.4 ) ) - 0.055, step( vec3( 0.0031308 ), colour ) );
+        // The volume indexes the encoded RGB directly and returns encoded RGB.
+        if ( lutInfluence > 0.0 ) colour = mix( colour, texture( colorLut, colour ).rgb, lutInfluence );
+        gl_FragColor = vec4( colour, 1.0 );
       }`,
     depthTest: false, depthWrite: false,
   });
@@ -160,7 +180,7 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
   const distortion = new DistortionPass();
 
   return {
-    render: () => {
+    render: (environment) => {
       softDepth.render(renderer, scene, camera, drawn.width, drawn.height);
       renderer.setRenderTarget(drawn);
       renderer.render(scene, camera);
@@ -172,26 +192,33 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       output.uniforms["frame"]!.value = frame;
       const e = post.exposure();
       if (e) e.measure(renderer, frame);
-      output.uniforms["brightness"]!.value = quality.postProcess ? BLOOM.brightness : 0;
+      const active = quality.postProcess ? environment : null;
+      output.uniforms["brightness"]!.value = quality.postProcess ? active?.brightness ?? BLOOM.brightness : 0;
+      output.uniforms["grime"]!.value = active?.grime ?? null;
+      output.uniforms["grimeWeight"]!.value = active?.grimeWeight ?? 0;
+      output.uniforms["colorLut"]!.value = active?.lut ?? null;
+      output.uniforms["lutInfluence"]!.value = active?.lutInfluence ?? 0;
       if (quality.postProcess) {
-      // the bloom
-      highPass.uniforms["texel"]!.value.set(1 / drawn.width, 1 / drawn.height);
-      draw(highPass, levels[0]!);
-      for (let i = 1; i < LEVELS; i++) {
-        half.uniforms["source"]!.value = levels[i - 1]!.texture;
-        half.uniforms["texel"]!.value.set(1 / levels[i - 1]!.width, 1 / levels[i - 1]!.height);
-        draw(half, levels[i]!);
-      }
-      BLOOM.steps.forEach((_, i) => {
-        const level = levels[i]!;
-        blur.uniforms["radius"]!.value = stepRadius[i]!;
-        blur.uniforms["source"]!.value = level.texture;
-        blur.uniforms["step"]!.value.set(1 / level.width, 0);
-        draw(blur, spare[i]!);
-        blur.uniforms["source"]!.value = spare[i]!.texture;
-        blur.uniforms["step"]!.value.set(0, 1 / level.height);
-        draw(blur, blurred[i]!);
-      });
+        highPass.uniforms["threshold"]!.value = active?.luminanceThreshold ?? BLOOM.luminanceThreshold;
+        highPass.uniforms["scale"]!.value = active?.luminanceScale ?? BLOOM.luminanceScale;
+        // the bloom
+        highPass.uniforms["texel"]!.value.set(1 / drawn.width, 1 / drawn.height);
+        draw(highPass, levels[0]!);
+        for (let i = 1; i < LEVELS; i++) {
+          half.uniforms["source"]!.value = levels[i - 1]!.texture;
+          half.uniforms["texel"]!.value.set(1 / levels[i - 1]!.width, 1 / levels[i - 1]!.height);
+          draw(half, levels[i]!);
+        }
+        BLOOM.steps.forEach((_, i) => {
+          const level = levels[i]!;
+          blur.uniforms["radius"]!.value = stepRadius[i]!;
+          blur.uniforms["source"]!.value = level.texture;
+          blur.uniforms["step"]!.value.set(1 / level.width, 0);
+          draw(blur, spare[i]!);
+          blur.uniforms["source"]!.value = spare[i]!.texture;
+          blur.uniforms["step"]!.value.set(0, 1 / level.height);
+          draw(blur, blurred[i]!);
+        });
       }
       // the output
       output.uniforms["exposure"]!.value = e ? e.step() : 1;
