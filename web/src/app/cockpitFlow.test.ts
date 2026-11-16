@@ -20,6 +20,7 @@ import assert from "node:assert/strict";
 import { createAppFlow } from "./flow.ts";
 import { createClientStore } from "../store/clientStore.ts";
 import type { EventSourceLike } from "./api.ts";
+import { deriveShipStats } from "../bridge/shipStats.ts";
 
 const SHIP_ID = 9001;
 const LASER_ID = 7700001;
@@ -317,6 +318,45 @@ test("C: a marshalled real duration is read as a number", async () => {
     ),
   );
   assert.equal(store.get().targeting.moduleCycles[LASER_ID]!.durationMs, 9000);
+});
+
+test("C: in space a gun's rounds and its cycle come inside an OnMultiEvent, and one round count may come alone", async () => {
+  const { store, source } = await onlineFlow();
+  await settle();
+  const GUN_ID = 7700003;
+  const CHARGE_TYPE = 222; // a gun's charge: the rack reads its count off the (ship, flag, type) tuple
+  store.apply({
+    type: "fitting/loaded",
+    activeShipID: SHIP_ID,
+    slots: [{ family: "high", index: 0, module: { itemID: GUN_ID, typeID: OUR_WEAPON_TYPE, groupID: null, online: true, charge: { itemID: [SHIP_ID, 27, CHARGE_TYPE], typeID: CHARGE_TYPE, quantity: 40 } } }],
+    resources: {
+      cpu: { used: 0, total: 0, known: false },
+      powergrid: { used: 0, total: 0, known: false },
+      capacitor: { used: 0, total: 0, known: false },
+      calibration: { used: 0, total: 0, known: false },
+    },
+    stats: deriveShipStats(new Map()),
+    slotsError: null,
+    resourcesError: null,
+  } as never);
+  const rounds = () => store.get().fitting.slots[0]!.module!.charge?.quantity;
+  const shot = (left: number) => ["OnModuleAttributeChange", CHARACTER_ID, [SHIP_ID, 27, CHARGE_TYPE], 805, 1, left, left + 1, 1];
+  const at = (tick: number) => ({ type: "long", value: String(133000000000000000n + BigInt(tick)) });
+
+  // runtime/dogmaEvents.js: each event paired with its time, the shots out of order.
+  source.emit(notificationFrame("OnMultiEvent", [[
+    [shot(38), at(2)],
+    [["OnGodmaShipEffect", GUN_ID, 10, 1, 1, 1, null, 1, 4000, true, null], at(1)],
+    [shot(39), at(1)],
+  ]], 1));
+  assert.equal(rounds(), 38, "the last shot's count, not the first one sent");
+  const cycle = store.get().targeting.moduleCycles[GUN_ID]!;
+  assert.equal(cycle.durationMs, 4000);
+  assert.equal(cycle.source, "server");
+  assert.notEqual(cycle.startedAtMs, null, "the gun is cycling");
+
+  source.emit(notificationFrame("OnModuleAttributeChange", shot(37).slice(1), 2));
+  assert.equal(rounds(), 37, "one change alone takes the count down too");
 });
 
 // --- Slice D: the LIVE hold --------------------------------------------------

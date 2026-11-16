@@ -17,6 +17,7 @@ import {
   applyChargeQuantityChanges,
   decodeChargeLoadNotification,
   decodeChargeQuantityChanges,
+  shipEffectsInMultiEvent,
 } from "../bridge/reloadNotifications.ts";
 import type { RackModule, RackRow } from "./moduleRack.ts";
 import type { FittingSlot, InventoryItemRow } from "../store/types.ts";
@@ -193,6 +194,35 @@ test("OnModuleAttributeChanges yields the charge-tuple quantity changes and noth
   ]);
   assert.deepEqual(changes, [{ shipID: SHIP, flagID: 27, chargeTypeID: INFERNO, quantity: 65 }]);
   assert.deepEqual(decodeChargeQuantityChanges("OnGodmaShipEffect", []), []);
+});
+
+test("in space the round counts come inside an OnMultiEvent, each change its own event, and are read in time order", () => {
+  // runtime/dogmaEvents.js: each change paired with its time; a wrapped batch is read too.
+  const changes = decodeChargeQuantityChanges("OnMultiEvent", [
+    {
+      type: "list",
+      items: [
+        [quantityChange(27, INFERNO, 63, 64), { type: "long", value: "133000000000000002" }],
+        [quantityChange(27, INFERNO, 64, 65), { type: "long", value: "133000000000000001" }],
+        [["OnModuleAttributeChanges", { type: "list", items: [quantityChange(28, INFERNO, 9, 10)] }], { type: "long", value: "133000000000000003" }],
+        [["OnGodmaShipEffect", 127, 10, 1, 0], { type: "long", value: "133000000000000001" }],
+      ],
+    },
+  ]);
+  assert.deepEqual(changes.map((change) => [change.flagID, change.quantity]), [[27, 64], [27, 63], [28, 9]]);
+  // One change alone reads the same.
+  assert.deepEqual(decodeChargeQuantityChanges("OnModuleAttributeChange", quantityChange(27, INFERNO, 5, 6).slice(1)).map((change) => change.quantity), [5]);
+});
+
+test("the effects inside an OnMultiEvent are its OnGodmaShipEffect notices, as their arguments, in time order", () => {
+  const at = (tick: number) => ({ type: "long", value: String(133000000000000000n + BigInt(tick)) });
+  const stop = ["OnGodmaShipEffect", 127, 10, 1, 0];
+  const start = ["OnGodmaShipEffect", 128, 10, 1, 1];
+  const effects = shipEffectsInMultiEvent("OnMultiEvent", [
+    [[stop, at(2)], [quantityChange(27, INFERNO, 0, 1), at(1)], [start, at(1)]],
+  ]);
+  assert.deepEqual(effects, [start.slice(1), stop.slice(1)]);
+  assert.deepEqual(shipEffectsInMultiEvent("OnModuleAttributeChanges", [[]]), []);
 });
 
 function fitSlot(index: number, charge: { typeID: number; quantity: number } | null): FittingSlot {
