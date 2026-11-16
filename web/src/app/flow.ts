@@ -26736,22 +26736,29 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           }
           case "loadCombatAmmo": {
             const shipID = capabilityCache.peek().shipID;
-            if (action.utility) return issueUtilityReload(action, {
-              current: () => characterID != null && store.station.get().online?.characterID === characterID &&
-                token === callOptions.token && pilotGeneration === recoveryGeneration && generation === customBotGeneration &&
-                shipID === capabilityCache.peek().shipID,
-              read: async () => (await readCombatLoadout(shipID, []))?.utilities ?? null,
-              load: () => loadAmmoFrom([action.moduleID], [action.chargeItemID], "cargo"),
-              sleep: () => new Promise(resolve => setTimeout(resolve, 750)),
-            });
-            return issueCombatReload(action, {
-              current: () => characterID != null && store.station.get().online?.characterID === characterID &&
-                token === callOptions.token && pilotGeneration === recoveryGeneration && generation === customBotGeneration &&
-                shipID === capabilityCache.peek().shipID,
-              read: () => readCombatWeapons(shipID, [action.moduleID]),
-              load: () => loadAmmoFrom([action.moduleID], [action.chargeItemID], "cargo"),
-              sleep: () => new Promise(resolve => setTimeout(resolve, 750)),
-            });
+            // ⚠ THE SHIP'S FACTS ARE READ AGAIN AFTER A LOAD, whatever came of it: the blocks' list of empty guns
+            // and the rack both come from the fit the capability read keeps, and a load that landed left both
+            // saying empty. Seen on Gridcheck (companion-empty-gun): the gun loaded, the bot never fired it.
+            try {
+              if (action.utility) return await issueUtilityReload(action, {
+                current: () => characterID != null && store.station.get().online?.characterID === characterID &&
+                  token === callOptions.token && pilotGeneration === recoveryGeneration && generation === customBotGeneration &&
+                  shipID === capabilityCache.peek().shipID,
+                read: async () => (await readCombatLoadout(shipID, []))?.utilities ?? null,
+                load: () => loadAmmoFrom([action.moduleID], [action.chargeItemID], "cargo"),
+                sleep: () => new Promise(resolve => setTimeout(resolve, 750)),
+              });
+              return await issueCombatReload(action, {
+                current: () => characterID != null && store.station.get().online?.characterID === characterID &&
+                  token === callOptions.token && pilotGeneration === recoveryGeneration && generation === customBotGeneration &&
+                  shipID === capabilityCache.peek().shipID,
+                read: () => readCombatWeapons(shipID, [action.moduleID]),
+                load: () => loadAmmoFrom([action.moduleID], [action.chargeItemID], "cargo"),
+                sleep: () => new Promise(resolve => setTimeout(resolve, 750)),
+              });
+            } finally {
+              capabilityCache.invalidate();
+            }
           }
           case "launchDrones":
             if (action.droneItemIDs.length > 0) {
