@@ -69,6 +69,8 @@ export interface Entity {
   allianceID?: number | null;
   warFactionID?: number | null;
   hackingSecurityState?: number;
+  dunObjectID?: number | null;
+  dunRotation?: readonly [number, number, number];
   poseID?: number | null;
   jumpBridge?: JumpBridgeSlim;
 }
@@ -1803,8 +1805,8 @@ export class SpaceView {
     const ray = new THREE.Raycaster();
     ray.setFromCamera(new THREE.Vector2(((x - rect.left) / rect.width) * 2 - 1, -((y - rect.top) / rect.height) * 2 + 1), this.camera);
     const owner = new Map<THREE.Object3D, number>();
-    for (const [id, m] of this.marks) owner.set(m, id);
-    for (const hit of ray.intersectObjects([...this.marks.values()], true)) {
+    for (const [id, m] of this.marks) if (!m.userData.nonPickable) owner.set(m, id);
+    for (const hit of ray.intersectObjects([...owner.keys()], true)) {
       if ((hit.object as THREE.Mesh).isMesh !== true || hit.object.name === "warpTunnel") continue;
       for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) { const id = owner.get(o); if (id !== undefined) return id; }
     }
@@ -2102,10 +2104,14 @@ export class SpaceView {
       const shift = want.clone().sub(this.controls.target);
       const focused = shift.lengthSq() === 0
         || translateCameraPose(this.camera.position, this.controls.target, shift);
-      // Use the new ball's radius once it has a valid focus position.
+      // Authored landmarks can have a much smaller collision ball than their visual model.
       if (focused && this.lookAt !== this.framedLook) {
         this.framedLook = this.lookAt;
-        const size = this.lookAt !== null ? snap?.entities.find((e) => e.itemID === this.lookAt)?.radius ?? null : ego?.radius ?? null;
+        const model = looked?.userData.model as THREE.Object3D | undefined;
+        const visualRadius = looked?.userData.useAuthoredBounds
+          ? (model?.userData.boundingSphere as number[] | null | undefined)?.[3] ?? (model?.userData.radius as number | undefined)
+          : undefined;
+        const size = visualRadius ?? (this.lookAt !== null ? snap?.entities.find((e) => e.itemID === this.lookAt)?.radius ?? null : ego?.radius ?? null);
         if (size !== null) this.frameShip(size);
       }
       if (this.trackedObjective !== null) {
@@ -2295,10 +2301,13 @@ export class SpaceView {
       const model = m.userData.model as THREE.Object3D | undefined;
       if (!model) continue;
       const radius = Number(m.userData.radius) || 0;
-      const pixels = id === ego?.itemID ? Infinity : (radius / Math.max(m.position.distanceTo(eye), 1e-5)) * across;
+      const bounds = id === ego?.itemID ? null : this.boundsOf(model, m, radius);
+      const visualRadius = m.userData.useAuthoredBounds ? bounds?.radius ?? radius : radius;
+      const detailCentre = m.userData.useAuthoredBounds ? bounds?.center ?? m.position : m.position;
+      const pixels = bounds ? (visualRadius / Math.max(detailCentre.distanceTo(eye), 1e-5)) * across : Infinity;
       // and only where its bounding sphere with children is in the view's frustum (m_isInFrustum: an object behind the
       // camera or off to the side is not drawn at all - its children, effects and lights with it)
-      const inView = id === ego?.itemID || frustum.intersectsSphere(this.boundsOf(model, m, radius));
+      const inView = bounds === null || frustum.intersectsSphere(bounds);
       const shown = inView && pixels >= threshold && (!m.userData.playerDrone || this.droneModels);
       if (!(pixels >= threshold)) culled++;
       else if (!inView) outOfView++;
@@ -2419,13 +2428,23 @@ export class SpaceView {
     // a missile's ball draws nothing of its own: its warheads are drawn by missileFx
     if (e.kind === "missile") { holder.userData = { kind: e.kind, radius: e.radius }; return holder; }
     if (isNonInteractableWormhole(e.typeID)) {
-      holder.userData = { kind: e.kind, radius: e.radius };
+      holder.userData = { kind: e.kind, radius: e.radius, nonPickable: true };
       updateWormholePose(holder, e.poseID);
       const audio = new WormholeAudio(e.itemID, holder);
       this.wormholeAudio.set(e.itemID, audio);
       void nonInteractableWormhole(audio.play).then((effect) => {
         if (effect && !this.stopped && this.marks.get(e.itemID) === holder) holder.add(effect);
       }).catch((error: unknown) => console.warn("Non-interactable wormhole effect:", error));
+      return holder;
+    }
+    // repository.py uses the non-interactable classes for groups 1975 and 4579.
+    if (e.groupID === 1975 || e.groupID === 4579) {
+      holder.userData = { kind: e.kind, radius: e.radius, nonPickable: true };
+      if (e.typeID && e.groupID === 1975) {
+        void typeModel(e.typeID).then((model) => {
+          if (model && !this.stopped && this.marks.get(e.itemID) === holder) holder.add(model);
+        }).catch(() => { /* An authored non-interactable object can have an empty model. */ });
+      }
       return holder;
     }
     const big = ["station", "planet", "moon", "sun", "stargate", "structure"].includes(e.kind);
@@ -2450,13 +2469,14 @@ export class SpaceView {
     // spaceObject/repository.py loads SOF models for Large Collidable Objects
     // and Structures. The live projection classifies both as celestials.
     const collidable = e.groupID === 226 || e.groupID === 319;
+    holder.userData.useAuthoredBounds = collidable && e.dunObjectID != null;
     const modelled = collidable || !["planet", "moon", "sun", "asteroid", "celestial", "billboard"].includes(e.kind);
     if (modelled && e.typeID) {
       if (e.isSelf) holder.userData.loadingModel = true;
       void typeModel(e.typeID).then((model) => {
         if (e.isSelf) holder.userData.loadingModel = false;
         if (!model || !this.marks.has(e.itemID)) return;
-        model.rotation.y = Math.PI;
+        if (!holder.userData.useAuthoredBounds) model.rotation.y = Math.PI;
         holder.remove(standIn);
         holder.add(model);
         holder.userData.impact = impactOverlayOf(model);
@@ -2466,6 +2486,7 @@ export class SpaceView {
         // the space object: its controllers' own attributes (activationStrength, clipSphereFactor) land here
         holder.userData.spaceObject = true;
         holder.userData.model = model;
+        if (holder.userData.useAuthoredBounds && this.lookAt === e.itemID) this.framedLook = null;
         if (e.kind === "drone") { holder.userData.playerDrone = true; model.visible = gfx().droneModelsEnabled; }
         if (e.kind === "ship" || e.kind === "drone") this.fitTurrets(e.itemID, holder);
       }).catch(() => { if (e.isSelf) holder.userData.loadingModel = false; });
@@ -2494,7 +2515,14 @@ export class SpaceView {
   }
 
   private orient(holder: THREE.Object3D, e: Entity): void {
-    if (!["ship", "drone", "fighter"].includes(e.kind)) return;
+    if (!["ship", "drone", "fighter"].includes(e.kind)) {
+      if (e.dunRotation) {
+        // SetStaticRotation mirrors the world Z axis on entry to the browser scene.
+        const [yaw, pitch, roll] = e.dunRotation;
+        holder.rotation.set(THREE.MathUtils.degToRad(-pitch), THREE.MathUtils.degToRad(-yaw), THREE.MathUtils.degToRad(roll), "YXZ");
+      }
+      return;
+    }
     const v = new THREE.Vector3(e.velocity.x, e.velocity.y, -e.velocity.z);
     if (v.lengthSq() < 1) return;
     const want = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), v.normalize());

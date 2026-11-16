@@ -1147,6 +1147,20 @@ test("the non-interactable wormhole's slim keeps its closed and open effect pose
   }
 });
 
+test("Observatory scenery keeps the authored yaw, pitch and roll from the slim", () => {
+  const park = undockedPark();
+  const itemID = 6806400000652994;
+  const rotation = [10.309587478637695, 24.793121337890625, -25.726608276367188];
+  park.ballpark.addBall({ id: itemID, x: 4e4, radius: 1 });
+  const slim = new Map(Object.entries({ itemID: BigInt(itemID), typeID: 64638, groupID: 1975,
+    categoryID: 2, dunObjectID: 1259745, dunRotation: rotation }));
+  park.slimItems.set(itemID, slim);
+  const row = () => projectSpace(park, { solarSystemID: SYSTEM, shipID: undock.shipID }).entities.find(e => e.itemID === itemID);
+  assert.deepEqual([row().dunObjectID, row().dunRotation], [1259745, rotation]);
+  slim.set("dunRotation", [0, NaN, 0]);
+  assert.equal(row().dunRotation, undefined);
+});
+
 // ── drones ───────────────────────────────────────────────────────────────────
 //
 // michelle's park keeps the states of the pilot's drones (stateByDroneID): filled by a whole state's droneState

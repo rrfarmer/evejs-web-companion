@@ -279,6 +279,10 @@ function projectEntity(park, ball, slim, ego, placed) {
   // gates also use it for the Ship Restrictions read after a refusal.
   const dunObjectID = positive(slim.get("dunObjectID"));
   if (dunObjectID !== null || groupID === GROUP.ACCELERATION_GATE) row.dunObjectID = dunObjectID;
+  const dunRotation = slim.get("dunRotation");
+  if (Array.isArray(dunRotation) && dunRotation.length === 3 && dunRotation.every(Number.isFinite)) {
+    row.dunRotation = [...dunRotation];
+  }
   const poseID = number(slim.get("poseID"));
   if (poseID !== null) row.poseID = poseID;
   if (groupID === 1408) {
