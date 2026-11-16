@@ -1199,6 +1199,20 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     });
     return;
   }
+  if (body.service === "hackingMgr") {
+    const args = Array.isArray(body.args) ? body.args : [];
+    const hasTile = body.method === "ClickedOnTile" || body.method === "UsedUtilityElement";
+    const hasSlot = body.method === "UsedUtilityElement" || body.method === "UsedUtilityElementOnVirus";
+    const slot = hasSlot ? args[0] : null;
+    const coord = hasTile ? args[hasSlot ? 1 : 0] : null;
+    if (!isPageWritePair(body.service, body.method) || body.kwargs != null || body.of != null ||
+        args.length !== Number(hasTile) + Number(hasSlot) ||
+        (hasSlot && (!Number.isInteger(slot) || slot < 0 || slot >= 8)) ||
+        (hasTile && (coord?.type !== "tuple" || !Array.isArray(coord.items) || coord.items.length !== 2 ||
+          !coord.items.every(Number.isSafeInteger)))) {
+      return res.status(400).json({ ok: false, error: "INVALID_HACKING_ACTION", message: "Choose a node or utility on the active hacking board." });
+    }
+  }
   if (body.service === "seasonManager" && body.method === "select_season" &&
       (!Array.isArray(body.args) || body.args.length !== 1 || !Number.isSafeInteger(body.args[0]) || body.args[0] <= 0 || body.kwargs != null)) {
     res.status(400).json({ ok: false, error: "INVALID_SEASON_SELECTION", message: "Choose an available season." });

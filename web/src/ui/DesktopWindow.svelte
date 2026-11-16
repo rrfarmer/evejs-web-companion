@@ -21,6 +21,7 @@
     headerActions,
     loading = false,
     resizable = true,
+    showTitle = true,
     children,
   }: {
     win: Pick<WinState, "x" | "y" | "w" | "h" | "z" | "minimized"> & { readonly id?: string | number };
@@ -29,12 +30,13 @@
     onFocus: () => void;
     onClose: () => void;
     /** Put the window away. It stays open, and the strip is how it comes back. */
-    onToggleMinimize: () => void;
+    onToggleMinimize?: () => void;
     onMove: (x: number, y: number) => void;
     onResize: (w: number, h: number) => void;
     headerActions?: Snippet;
     loading?: boolean;
     resizable?: boolean;
+    showTitle?: boolean;
     children: Snippet;
   } = $props();
 
@@ -116,7 +118,7 @@
     that survived — see the note on the buttons below.
   -->
   <header class="win-bar" onpointerdown={startDrag} ondblclick={onToggleMinimize}>
-    <span class="win-title">{title}</span>
+    <span class="win-title">{#if showTitle}{title}{/if}</span>
     {#if headerActions}{@render headerActions()}{/if}
     <span class="win-actions">
       <!--
@@ -131,14 +133,14 @@
         So the shade is gone, and `—` — the glyph a player already reads as
         "minimize" — is the put-away.
       -->
-      <button
+      {#if onToggleMinimize}<button
         type="button"
         class="win-btn"
         title="Put away"
         aria-label="Put away"
         onpointerdown={(e) => e.stopPropagation()}
         onclick={onToggleMinimize}
-      >—</button>
+      >—</button>{/if}
       <button
         type="button"
         class="win-btn win-close"

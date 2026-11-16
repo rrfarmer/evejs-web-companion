@@ -668,6 +668,7 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
  */
 const GAME_PORT_ONLY_CALLS = Object.freeze([
   "beyonce.CallComponentFromClient",
+  "hackingMgr.ClickedOnTile", "hackingMgr.UsedUtilityElement", "hackingMgr.UsedUtilityElementOnVirus", "hackingMgr.QuitHackingAttempt",
   "academy_ship.get_academy_ship_state", "academy_ship.borrow_academy_ship",
   "air_npe.get_air_npe_state", "air_npe.get_air_npe_checkpoint_for_player",
   "structureAssetSafety.GetDefaultAssetSafetyDestination",
@@ -2156,6 +2157,10 @@ function scanProbes(given) {
 }
 
 const RETAIL_CALLS = Object.freeze({
+  "hackingMgr.ClickedOnTile": same("eve/client/script/ui/hacking/hackingUISvc.py:249", "ClickedOnTile((x, y))"),
+  "hackingMgr.UsedUtilityElement": same("eve/client/script/ui/hacking/hackingUISvc.py:249", "UsedUtilityElement(slot, (x, y))"),
+  "hackingMgr.UsedUtilityElementOnVirus": same("eve/client/script/ui/hacking/hackingUISvc.py:261", "UsedUtilityElementOnVirus(slot)"),
+  "hackingMgr.QuitHackingAttempt": same("eve/client/script/ui/hacking/hackingUISvc.py:57", "QuitHackingAttempt()"),
   "beyonce.CallComponentFromClient": same("jumpbridge/client/jumpBridge.py:134-137", "CallComponentFromClient(structureID, 'structureJumpBridge', 'GetJumpBridgeInfo') on the park"),
   "academy_ship.get_academy_ship_state": same("academyships/client/repository.py", "get_academy_ship_state()"),
   "academy_ship.borrow_academy_ship": same("academyships/client/repository.py", "borrow_academy_ship(fittingID)"),

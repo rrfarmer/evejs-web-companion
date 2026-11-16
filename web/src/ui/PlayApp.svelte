@@ -49,6 +49,7 @@
   import InfoWindows from "./InfoWindows.svelte";
   import CalendarWindows from "./CalendarWindows.svelte";
   import ShipRestrictionsWindow from "./ShipRestrictionsWindow.svelte";
+  import HackingWindow from "./HackingWindow.svelte";
   import PlayLobbyTabs from "./PlayLobbyTabs.svelte";
   import SystemMenu from "./SystemMenu.svelte";
   import { commandForKey, COMBAT_WORDS } from "../play/shortcutKeys.ts";
@@ -1350,6 +1351,7 @@
   <ErrorBoundary name="Info windows"><InfoWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>
   <ErrorBoundary name="Calendar windows"><CalendarWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>
   <ErrorBoundary name="Ship restrictions"><ShipRestrictionsWindow {session} inFront={true} /></ErrorBoundary>
+  <ErrorBoundary name="Hacking"><HackingWindow {session} /></ErrorBoundary>
   <Toasts />
   {#if systemMenu}
     <ErrorBoundary name="System menu"><SystemMenu store={session.store} flow={session.flow} onClose={() => (systemMenu = false)} /></ErrorBoundary>

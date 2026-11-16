@@ -985,6 +985,7 @@ import {
   type ObjectiveChainData,
 } from "../bridge/abyssObjectives.ts";
 import { activateStep } from "../bridge/spaceActivate.ts";
+import { applyHackTurn, hackCalls, type HackBoard, type HackAction } from "../bridge/hacking.ts";
 import { SHIP_RESTRICTION_REFUSALS, decodeShipRestrictions, dungeonEntered, dungeonValuesChanged, enterDungeonRoom, exitDungeon, readCurrentDungeon, type CurrentDungeon, type ShipRestrictions } from "../bridge/dungeonTracking.ts";
 import { observatoryConversationPhase, observatoryObjectiveRemovalDelay } from "../bridge/observatoryConversation.ts";
 import {
@@ -3783,6 +3784,9 @@ export interface AppFlow {
   readonly untrackedObjectiveDungeonInstanceID: ReadableSignal<number | null>;
   setObjectiveDungeonTracked(instanceID: number, tracked: boolean): void;
   readonly activeDungeon: ReadableSignal<CurrentDungeon | null>;
+  readonly hackBoard: ReadableSignal<HackBoard | null>;
+  playHack(action: HackAction): Promise<void>;
+  clearHack(board: HackBoard): void;
   readonly activeDungeonObjectivesClosed: ReadableSignal<boolean>;
   /**
    * An Agency agent page's agents (ContentProviderAgents and its kinds, bridge/agencyAgents.ts): from the agents
@@ -7079,6 +7083,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     receivedAtMs: number,
     insideMultiEvent = false,
   ): void {
+    if (method === "OnHackingTurnComplete") {
+      const previous = hackBoard.get();
+      const board = applyHackTurn(previous, args);
+      if (board?.start !== previous?.start && board?.start.moduleTypeID) {
+        requestNames([{ kind: "type", id: board.start.moduleTypeID }]);
+      }
+      for (const tile of board?.outcome === "won" ? board.tiles.values() : []) {
+        if (tile.contents.length) requestNames(tile.contents.map(([id]) => ({ kind: "type", id })));
+      }
+      hackBoard.set(board);
+      return;
+    }
     if (method && seasonProgressNotices.has(method)) agencySeasonProgressChanged.update(n => n + 1);
     if (method === "OnChallengeCompleted") agencySeasonCue.set("scope_complete_task_play");
     if (method === "OnSeasonalGoalCompleted") {
@@ -7648,6 +7664,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // godma.ProcessSessionChange (1156, 1199): another station, system, ship, character or structure, and godma
     // ends every repair it began. So does the page.
     if (sessionNames?.some((name) => GODMA_SESSION_NAMES.has(name))) {
+      hackBoard.set(null);
       void moduleRepairs.endAll();
     }
     // gameui.OnSessionChanged: another system, station, structure or ship, and the client's view goes where the
@@ -16953,6 +16970,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // server's OnEnteringDungeonRoom and OnExitingDungeon, let go at a change of location, and asked of the keeper once
   // where the page finds its pilot in space (the client's OnCharacterSessionChanged).
   const currentDungeon = createSignal<CurrentDungeon | null>(null);
+  const hackBoard = createSignal<HackBoard | null>(null);
+
+  async function playHack(action: HackAction): Promise<void> {
+    const board = hackBoard.get();
+    if (!board || board.outcome) return;
+    for (const [method, args] of hackCalls(action)) {
+      const current = hackBoard.get();
+      if (current?.start !== board.start || current.outcome) break;
+      await bridgeDo("hackingMgr", method, args);
+    }
+  }
+
+  function clearHack(board: HackBoard): void {
+    if (hackBoard.get()?.start === board.start) hackBoard.set(null);
+  }
   const activeDungeonObjectivesClosed = createSignal(false);
   let objectiveClosure: ReturnType<typeof setTimeout> | null = null;
   const observatoryConversation = createSignal<api.ObservatoryTransmission | null>(null);
@@ -35816,6 +35848,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     untrackedObjectiveDungeonInstanceID: readonlySignal(untrackedObjectiveDungeonInstanceID),
     setObjectiveDungeonTracked,
     activeDungeon: readonlySignal(currentDungeon),
+    hackBoard: readonlySignal(hackBoard),
+    playHack,
+    clearHack,
     activeDungeonObjectivesClosed: readonlySignal(activeDungeonObjectivesClosed),
     agencyAgents,
     agencyAgentOwners,

@@ -731,8 +731,8 @@
     ]
   },
   "bffWritePolicy": {
-    "count": 473,
-    "sha256": "ff9f2ce8854a9035c7070f119847a992f840f2d02abc02e44ef5e34630b976b8",
+    "count": 478,
+    "sha256": "21e7589f3a6f7ece63b823c3454fbc48ea238e96f86f2e186e4c6e119462c71a",
     "pairs": [
       "LPStoreMgr.TakeOfferForCharacter",
       "LPStoreMgr.TakeOfferForCorporation",
@@ -1026,6 +1026,11 @@
       "fwCharacterEnlistmentMgr.CreateMyDirectEnlistment",
       "fwCharacterEnlistmentMgr.RemoveMyDirectEnlistment",
       "fwCharacterEnlistmentMgr.SetMyCorpAllowedEnlistmentFactions",
+      "hackingMgr.ClickedOnTile",
+      "hackingMgr.QuitHackingAttempt",
+      "hackingMgr.StartNewGameInstance",
+      "hackingMgr.UsedUtilityElement",
+      "hackingMgr.UsedUtilityElementOnVirus",
       "inSpaceCompressionMgr.CompressItemInSpace",
       "industryManager.CancelJob",
       "industryManager.CompleteJob",
@@ -1422,6 +1427,10 @@
       "fwCharacterEnlistmentMgr.CreateMyDirectEnlistment",
       "fwCharacterEnlistmentMgr.RemoveMyDirectEnlistment",
       "fwCharacterEnlistmentMgr.SetMyCorpAllowedEnlistmentFactions",
+      "hackingMgr.ClickedOnTile",
+      "hackingMgr.QuitHackingAttempt",
+      "hackingMgr.UsedUtilityElement",
+      "hackingMgr.UsedUtilityElementOnVirus",
       "inSpaceCompressionMgr.CompressItemInSpace",
       "industryManager.CancelJob",
       "industryManager.CompleteJob",
