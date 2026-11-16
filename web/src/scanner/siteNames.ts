@@ -29,7 +29,8 @@ import type { SiteListMode } from "../bots/botScript.ts";
  */
 const FACTION_WORDS: readonly string[] = Object.freeze(["Blood Raider", "Guristas", "Serpentis", "Angel", "Sansha", "Blood"]);
 
-function tidy(name: string): string {
+/** A name as typed, with its spaces tidied: what the picker saves and the matcher compares. */
+export function tidySiteName(name: string): string {
   return name.trim().replace(/\s+/g, " ");
 }
 
@@ -40,7 +41,7 @@ function tidy(name: string): string {
  * the player could see.
  */
 export function siteBaseName(name: string): string {
-  const whole = tidy(name);
+  const whole = tidySiteName(name);
   const lower = whole.toLowerCase();
   for (const word of FACTION_WORDS) {
     const prefix = `${word.toLowerCase()} `;
@@ -73,7 +74,7 @@ export function siteNameAllowed(name: string | null, list: SiteNameList | null):
   if (list === null || list.names.length === 0) {
     return true;
   }
-  if (name === null || tidy(name).length === 0) {
+  if (name === null || tidySiteName(name).length === 0) {
     return null;
   }
   const base = siteBaseName(name);
@@ -182,7 +183,7 @@ const MAX_SITE_SUGGESTIONS = 8;
  * "Haven". Nothing for an empty query: the box suggests as the player types.
  */
 export function combatSiteSuggestions(query: string, chosen: readonly string[]): readonly SiteSuggestion[] {
-  const q = tidy(query).toLowerCase();
+  const q = tidySiteName(query).toLowerCase();
   if (q.length === 0) {
     return [];
   }

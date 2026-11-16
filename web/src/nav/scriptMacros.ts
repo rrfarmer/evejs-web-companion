@@ -1784,6 +1784,29 @@ function mineAtBeltSiteBarren(
   const next = anomalies.find(
     (site) => tour.flavour.matches(site) && siteOnList(site, list) && !barren.has(site.label) && !refused.includes(site.label),
   );
+  // A name not read yet is not a name off the list. Several pilots read the
+  // scanner at once, and one whose read found another still asking for a new
+  // site's name sees it unnamed for a tick: calling the system mined out on
+  // that would send the ship home from a site it was allowed to work.
+  if (
+    next === undefined &&
+    list !== null &&
+    anomalies.some((site) => tour.flavour.matches(site) && site.name === undefined && !barren.has(site.label) && !refused.includes(site.label))
+  ) {
+    const siteNameWaits = (num(mem, "siteNameWaits") ?? 0) + 1;
+    if (siteNameWaits <= SITE_NAME_WAIT_TICKS) {
+      return withBoardPatch(
+        tick(WAIT, "Reading the site names.", "Scanning", ACTING, false, {
+          ...without(mem, "siteTarget"),
+          oreGridEmptyReads: emptyReads,
+          siteRefusalsSeen: refusalFor(obs.refusals, step.id, "warpScan", null)?.count ?? 0,
+          ...(refused.length > 0 ? { siteRefused: refused.join(",") } : {}),
+          siteNameWaits,
+        }),
+        barrenPatch,
+      );
+    }
+  }
   const lastRefused = refused.at(-1);
   if (next === undefined && doubted === null && lastRefused !== undefined && listed(lastRefused)) {
     return withBoardPatch(
@@ -1810,7 +1833,7 @@ function mineAtBeltSiteBarren(
   // RIGHT NOW, so a refusal already on record is never read as one of this warp.
   return withBoardPatch(
     tick(WAIT, `Choosing the next ${tour.flavour.noun} to warp to.`, "Scanning", ACTING, false, {
-      ...without(mem, "doubted", "doubtReads", "doubtWords"),
+      ...without(mem, "doubted", "doubtReads", "doubtWords", "siteNameWaits"),
       oreGridEmptyReads: emptyReads,
       siteTarget: next.label,
       siteRefusalsSeen: refusalFor(obs.refusals, step.id, "warpScan", null)?.count ?? 0,

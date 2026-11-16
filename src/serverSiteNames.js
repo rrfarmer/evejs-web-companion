@@ -19,8 +19,16 @@
 // ⚠ ONLY THE ANOMALY PACKS. The packs are big (the whole folder is over half a
 // gigabyte, much of it mission content), and only the three that hold scanner
 // anomalies name a site the warp blocks can fly to: combat, rogue drone and
-// ore. They are parsed one at a time, once, on the first ask, and only the name
+// ore. They are read one at a time, once, on the first ask, and only the name
 // table is kept. A pack replaced on disk (a server update) is read again.
+//
+// ⚠ NEVER IN ONE BLOCKING GO. The three packs are about 110 MB of JSON, and the
+// BFF's one event loop carries every pilot's bridge calls: each file is read
+// asynchronously, the loop is given back between files, and concurrent asks
+// share the one load in flight. A pack that fails to read (a half-written file
+// during a server update) is not remembered as read, so the next look at the
+// folder tries it again rather than leaving its sites nameless until the file
+// changes once more.
 
 const fs = require("fs");
 const path = require("path");
@@ -69,21 +77,22 @@ function namesInPack(text) {
   return out;
 }
 
+const yieldToLoop = () => new Promise((resolve) => setImmediate(resolve));
+
 /**
  * A reader over `<eveRoot>/content-packs`. `names(ids)` answers each id with
- * its site name, or null when no anomaly pack names it. `available` is false
- * when the folder holds no anomaly pack at all.
+ * its site name, or null when no anomaly pack names it, and `available` is
+ * false when no anomaly pack could be read. Both are async: the first ask
+ * waits for the load.
  */
 function createServerSiteNames({ eveRoot, onError = () => {}, now = () => Date.now() } = {}) {
   const packDir = eveRoot ? path.join(eveRoot, "content-packs") : null;
   let table = new Map();
   let signature = null;
   let checkedAt = -Infinity;
+  let loading = null;
 
-  function refresh() {
-    if (packDir === null || now() - checkedAt < RECHECK_MS) {
-      return;
-    }
+  async function load() {
     checkedAt = now();
     const files = packFiles(packDir);
     const next = JSON.stringify(files);
@@ -91,26 +100,43 @@ function createServerSiteNames({ eveRoot, onError = () => {}, now = () => Date.n
       return;
     }
     const built = new Map();
+    let complete = true;
     for (const file of files) {
       try {
-        for (const [id, name] of namesInPack(fs.readFileSync(path.join(packDir, file.name), "utf8"))) {
+        const text = await fs.promises.readFile(path.join(packDir, file.name), "utf8");
+        for (const [id, name] of namesInPack(text)) {
           if (!built.has(id)) built.set(id, name);
         }
       } catch (error) {
+        complete = false;
         onError(error, file.name);
       }
+      await yieldToLoop();
     }
     table = built;
-    signature = next;
+    // Remembered only when every pack was read, so a failed one is tried again.
+    signature = complete ? next : null;
+  }
+
+  function refresh() {
+    if (packDir === null) {
+      return Promise.resolve();
+    }
+    if (loading === null && now() - checkedAt >= RECHECK_MS) {
+      loading = load().finally(() => {
+        loading = null;
+      });
+    }
+    return loading ?? Promise.resolve();
   }
 
   return {
-    available() {
-      refresh();
+    async available() {
+      await refresh();
       return table.size > 0;
     },
-    names(ids) {
-      refresh();
+    async names(ids) {
+      await refresh();
       const out = {};
       for (const id of ids) {
         out[String(id)] = table.get(id) ?? null;

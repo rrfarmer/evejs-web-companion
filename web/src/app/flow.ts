@@ -27916,6 +27916,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    */
   const serverSiteNames = new Map<number, string | null>();
   const serverSiteNamesAsking = new Set<number>();
+  // When the server could read no site pack, its nulls say nothing and are not
+  // remembered: it is asked again, but not before this time (one ask a minute,
+  // not one a tick for every bot).
+  let serverSiteNamesRetryAt = 0;
+  const SERVER_SITE_NAMES_RETRY_MS = 60_000;
   async function namedScannerSites(sites: NonNullable<ScriptObservation["anomalies"]>): Promise<NonNullable<ScriptObservation["anomalies"]>> {
     const keys = sites.flatMap((site) => (site.dungeonNameID != null ? [`#${site.dungeonNameID}`] : []));
     if (keys.length > 0) {
@@ -27930,11 +27935,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     };
     const unworded = [...new Set(sites.flatMap((site) => (site.dungeonNameID != null && clientText(site.dungeonNameID) === null ? [site.dungeonNameID] : [])))]
       .filter((id) => !serverSiteNames.has(id) && !serverSiteNamesAsking.has(id));
-    if (unworded.length > 0) {
+    if (unworded.length > 0 && Date.now() >= serverSiteNamesRetryAt) {
       for (const id of unworded) serverSiteNamesAsking.add(id);
       try {
-        const named = await api.loadSiteNames(unworded, callOptions);
-        for (const id of unworded) serverSiteNames.set(id, named[String(id)] ?? null);
+        const answer = await api.loadSiteNames(unworded, callOptions);
+        if (answer.available) {
+          for (const id of unworded) serverSiteNames.set(id, answer.names[String(id)] ?? null);
+        } else {
+          serverSiteNamesRetryAt = Date.now() + SERVER_SITE_NAMES_RETRY_MS;
+        }
       } catch {
         // Not remembered: a later tick asks again, and until then the name is not read yet.
       } finally {

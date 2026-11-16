@@ -186,6 +186,20 @@ test("mine (site mode): a barren site moves on to the next site the LIST allows,
   assert.equal(warpTarget(t), "QEE-300");
 });
 
+test("mine (site mode): a site whose name is not read yet is waited for, not called mined out", () => {
+  const board: ScriptBoard = {
+    oreAnomsVisited: "QEE-100",
+    oreAnomsVisitedSiteList: JSON.stringify({ mode: "only", names: ["Large Kernite Deposit"] }),
+  };
+  const unread: ScannedAnomaly = { label: "QEE-300", kind: "ore" };
+  const waiting = mineUntilBarren(obs({ snapshot: snapshot(), anomalies: [oreSite("QEE-100", "Large Kernite Deposit"), unread] }), board);
+  assert.equal(waiting.outcome.kind, "acting", "another pilot is still asking for that name");
+  assert.equal(waiting.why, "Reading the site names.");
+  const named = mine(siteMineStep, obs({ snapshot: snapshot(), anomalies: [oreSite("QEE-100", "Large Kernite Deposit"), oreSite("QEE-300", "Large Kernite Deposit")] }), waiting.nextMem, board);
+  assert.equal(named.nextMem["siteTarget"], "QEE-300", "the name arrived and the pick goes ahead");
+  assert.equal(named.nextMem["siteNameWaits"], undefined);
+});
+
 test("mine (site mode): with only ruled-out sites left, the stop names the list", () => {
   const sites = [oreSite("QEE-100", "Average Kernite Deposit"), oreSite("QEE-200", "Average Frontier Deposit")];
   const board: ScriptBoard = {

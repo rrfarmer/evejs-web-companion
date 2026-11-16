@@ -63,7 +63,7 @@
     WATCH_CONDITION_KINDS,
   } from "../bots/editorOptions.ts";
   import { macroCatalogList, macroEntry } from "../bots/macroCatalogView.ts";
-  import { combatSiteSuggestions, siteListHas } from "../scanner/siteNames.ts";
+  import { combatSiteSuggestions, siteListHas, tidySiteName } from "../scanner/siteNames.ts";
   import { MAX_WORLD_NAME_LEN } from "../bots/scriptCodec.ts";
   import { conditionAdvice, interruptSentence, targetClassWord } from "../bots/scriptText.ts";
   import type { ScriptProblem } from "../bots/validateScript.ts";
@@ -335,24 +335,28 @@
   // den block, and any name can be added as typed (ore sites have no ladder).
   // An emptied list is DROPPED, so an untouched step exports as it imported.
   let siteQuery = $state("");
-  // The mode picked before any name is listed: an empty list is no argument at
-  // all, so the choice is held here until the first name lands.
-  let siteModeDraft = $state<SiteListMode>("only");
+  // The mode picked before any name is listed, per step and argument: an empty
+  // list is no argument at all, so the choice is held here until the first
+  // name lands, and never shows on another step.
+  let siteModeDrafts = $state<Record<string, SiteListMode>>({});
+  const siteDraftKey = (step: MacroStep, key: string): string => `${step.id}:${key}`;
 
   function siteListValue(step: MacroStep, key: string): { readonly mode: SiteListMode; readonly names: readonly string[] } {
     const arg = argOf(step, key);
-    return arg !== undefined && arg.kind === "siteList" ? { mode: arg.mode, names: arg.names } : { mode: siteModeDraft, names: [] };
+    return arg !== undefined && arg.kind === "siteList"
+      ? { mode: arg.mode, names: arg.names }
+      : { mode: siteModeDrafts[siteDraftKey(step, key)] ?? "only", names: [] };
   }
 
-  function setSiteList(key: string, mode: SiteListMode, names: readonly string[]): void {
-    siteModeDraft = mode;
+  function setSiteList(step: MacroStep, key: string, mode: SiteListMode, names: readonly string[]): void {
+    siteModeDrafts = { ...siteModeDrafts, [siteDraftKey(step, key)]: mode };
     onArg(key, names.length === 0 ? undefined : { kind: "siteList", mode, names: [...names] });
   }
 
-  function addSite(key: string, mode: SiteListMode, chosen: readonly string[], name: string): void {
-    const clean = name.trim().replace(/\s+/g, " ").slice(0, MAX_SITE_NAME_LEN);
+  function addSite(step: MacroStep, key: string, mode: SiteListMode, chosen: readonly string[], name: string): void {
+    const clean = tidySiteName(name).slice(0, MAX_SITE_NAME_LEN);
     if (clean.length === 0 || chosen.length >= MAX_SITE_LIST || siteListHas(chosen, clean)) return;
-    setSiteList(key, mode, [...chosen, clean]);
+    setSiteList(step, key, mode, [...chosen, clean]);
     siteQuery = "";
   }
 
@@ -835,7 +839,7 @@
       <select
         aria-label="Only these sites, or every site but these"
         value={sites.mode}
-        onchange={(e) => setSiteList(arg.key, e.currentTarget.value === "skip" ? "skip" : "only", sites.names)}
+        onchange={(e) => setSiteList(step, arg.key, e.currentTarget.value === "skip" ? "skip" : "only", sites.names)}
       >
         <option value="only">only these sites</option>
         <option value="skip">every site but these</option>
@@ -850,7 +854,7 @@
         onkeydown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
-            addSite(arg.key, sites.mode, sites.names, siteQuery);
+            addSite(step, arg.key, sites.mode, sites.names, siteQuery);
           }
         }}
       />
@@ -858,7 +862,7 @@
         <ul class="market-picker">
           {#each siteHits as hit (hit.name)}
             <li>
-              <button type="button" class="pick-row" onclick={() => addSite(arg.key, sites.mode, sites.names, hit.name)}>
+              <button type="button" class="pick-row" onclick={() => addSite(step, arg.key, sites.mode, sites.names, hit.name)}>
                 <span class="pick-main"><span class="pick-name">{hit.name}</span></span>
                 <span class="inspector-suffix">{hit.note}</span>
               </button>
@@ -867,7 +871,7 @@
         </ul>
       {/if}
       {#if typed.length > 0 && !siteListHas(sites.names, typed) && !siteHits.some((hit) => hit.name.toLowerCase() === typed.toLowerCase())}
-        <button type="button" class="pick-row" onclick={() => addSite(arg.key, sites.mode, sites.names, typed)}>
+        <button type="button" class="pick-row" onclick={() => addSite(step, arg.key, sites.mode, sites.names, typed)}>
           <span class="pick-main"><span class="pick-name">Add "{typed}" as typed</span></span>
         </button>
       {/if}
@@ -878,7 +882,7 @@
               <span>{name}</span>
               <button
                 type="button"
-                onclick={() => setSiteList(arg.key, sites.mode, sites.names.filter((entry) => entry !== name))}
+                onclick={() => setSiteList(step, arg.key, sites.mode, sites.names.filter((entry) => entry !== name))}
               >
                 Remove
               </button>

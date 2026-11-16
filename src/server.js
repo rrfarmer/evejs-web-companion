@@ -13413,10 +13413,15 @@ app.post("/api/words", requireAuth, (req, res) => {
 // site-warp blocks compares when the client's words do not have them (no
 // client install). A message no pack names is null; `available` is false when
 // the server tree holds no anomaly pack. Bounded like /api/words.
-app.post("/api/site-names", requireAuth, (req, res) => {
+app.post("/api/site-names", requireAuth, async (req, res, next) => {
   const asked = Array.isArray(req.body && req.body.messageIDs) ? req.body.messageIDs : [];
   const messageIDs = asked.filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, WORDS_LABEL_LIMIT);
-  res.json({ ok: true, available: serverSiteNames.available(), names: serverSiteNames.names(messageIDs) });
+  try {
+    const names = await serverSiteNames.names(messageIDs);
+    res.json({ ok: true, available: await serverSiteNames.available(), names });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // A mission as the retail client's own data has it (evemissions/client/data.py
