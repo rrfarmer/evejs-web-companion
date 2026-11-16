@@ -22,6 +22,7 @@
 
 import * as THREE from "three";
 import { curveValue, type Curve } from "./curves.ts";
+import { setControllerVariable } from "./controllerVariables.ts";
 
 export interface SofControllerAction {
   k: string;
@@ -321,7 +322,8 @@ export class ControllerRun {
   private readonly vars = new Map<string, number>();
   /** A variable set since the last update: the transitions that read variables are looked at again. */
   private dirty = false;
-  /** The version of the object's kept variables last taken (setControllerVariable). */
+  /** The last external inputs taken from the nearest object with controller variables. */
+  private inputStore: Record<string, number> | undefined;
   private varsVersion = -1;
   /** The last of the object's controller events taken (sendControllerEvent); those before the run began are not. */
   private eventSeq: number | null = null;
@@ -424,11 +426,14 @@ export class ControllerRun {
     for (let o: THREE.Object3D | null = this.owner; o; o = o.parent) {
       const store = o.userData.controllerVars as Record<string, number> | undefined;
       if (!store) continue;
+      const previousVersion = this.inputStore === store ? this.varsVersion : -1;
       const version = (o.userData.controllerVarsVersion as number | undefined) ?? 0;
-      if (version === this.varsVersion) return;
+      if (version === previousVersion) return;
+      this.inputStore = store;
       this.varsVersion = version;
+      const writes = o.userData.controllerVarWrites as Record<string, number> | undefined;
       for (const [name, value] of Object.entries(store)) {
-        if (this.vars.has(name) && this.vars.get(name) !== value) { this.vars.set(name, value); this.dirty = true; }
+        if ((writes?.[name] ?? version) > previousVersion) this.setVariable(name, value);
       }
       return;
     }
@@ -481,14 +486,7 @@ export class ControllerRun {
       if (a.k === "setExternal" && a.other && a.variable) {
         const dest = this.host.otherOwner?.(a.other);
         const v = a.source ? this.vars.get(a.source) : a.number;
-        if (dest && v !== undefined) {
-          // (hullModel setControllerVariable's store: the controllers under it take it, takeObjectVariables)
-          const store = (dest.userData.controllerVars ??= {}) as Record<string, number>;
-          if (store[a.variable] !== v) {
-            store[a.variable] = v;
-            dest.userData.controllerVarsVersion = ((dest.userData.controllerVarsVersion as number | undefined) ?? 0) + 1;
-          }
-        }
+        if (dest && v !== undefined) setControllerVariable(dest, a.variable, v);
         continue;
       }
       if (a.k === "resetClipCenter") { this.host.resetClipCenter?.(a.behavior ?? 0, a.set ?? "", a.index ?? -1); continue; }

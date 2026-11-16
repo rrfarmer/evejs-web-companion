@@ -89,7 +89,8 @@ test("the portal's production route refreshes the cached shader quality branches
       const [flag, id] = args.slice(-2);
       assert.equal(flag, "--effect");
       extracted.push(id);
-      await put(dir, `effects/${id}.json`, JSON.stringify({ effectBuild: 5, root: { displayFilter: 0 } }));
+      const controllerVariableOverrides = id === "28102" ? { WH_State: 1 } : {};
+      await put(dir, `effects/${id}.json`, JSON.stringify({ effectBuild: 6, root: { displayFilter: 0 }, controllerVariableOverrides }));
     },
   }, async url => {
     for (const id of graphicIDs) {
@@ -97,7 +98,9 @@ test("the portal's production route refreshes the cached shader quality branches
       const responses = await Promise.all([fetch(address), fetch(address)]);
       for (const response of responses) {
         assert.equal(response.status, 200);
-        assert.equal((await response.json()).root.displayFilter, 0);
+        const data = await response.json();
+        assert.equal(data.root.displayFilter, 0);
+        assert.deepEqual(data.controllerVariableOverrides, id === "28102" ? { WH_State: 1 } : {});
       }
     }
   });

@@ -11,6 +11,7 @@ declare module "virtual:destiny" {
   export class Park {
     constructor(options?: { ballpark?: Ballpark; [k: string]: unknown });
     ballpark: Ballpark;
+    slimItems: Map<number | bigint, ReadonlyMap<unknown, unknown>>;
     history: unknown[];
     currentTime: number;
     validState: boolean;

@@ -368,6 +368,11 @@ export class SpaceView {
   /** The effects whose sounds are under way, by emitter (OnSpecialFX's guid, ship and module). */
   private readonly fxEmitters = new Set<string>();
   private readonly hearFx = (name: string, args: readonly unknown[]) => {
+    if (name === "OnSlimItemChange") {
+      const id = Number(args[0]);
+      const mark = this.wormholeAudio.has(id) ? this.marks.get(id) : undefined;
+      if (mark?.children.length) updateWormholePose(mark, this.live.park.slimItems.get(id));
+    }
     this.turretFx.hear(name, args);
     this.shipFx.hear(name, args);
     // a ball blown up (TerminalPlayDestructionEffect -> spaceObject.Explode): with Ship Explosions on, one of its type's
@@ -2071,9 +2076,11 @@ export class SpaceView {
       setControllerVariable(mark, "IsWarping", e.mode === "WARP" ? 1 : 0);
       if (e.hackingSecurityState !== undefined) setControllerVariable(mark, "SecurityState", e.hackingSecurityState);
       if (isNonInteractableWormhole(e.typeID)) {
-        updateWormholePose(mark, e.poseID);
         const effect = mark.children[0];
-        if (effect) setEffectShaderQuality(effect, settings.shaderQuality);
+        if (effect) {
+          updateWormholePose(mark, park.slimItems.get(e.itemID));
+          setEffectShaderQuality(effect, settings.shaderQuality);
+        }
       }
       // a ship's turrets fitted again where its slim item's modules changed (looked at now and then)
       if ((e.kind === "ship" || e.kind === "drone") && this.frameCount % 30 === 0) this.fitTurrets(e.itemID, mark);
@@ -2467,11 +2474,14 @@ export class SpaceView {
     if (e.kind === "missile") { holder.userData = { kind: e.kind, radius: e.radius }; return holder; }
     if (isNonInteractableWormhole(e.typeID)) {
       holder.userData = { kind: e.kind, radius: e.radius, nonPickable: true };
-      updateWormholePose(holder, e.poseID);
       const audio = new WormholeAudio(e.itemID, holder);
       this.wormholeAudio.set(e.itemID, audio);
-      void nonInteractableWormhole(audio.play).then((effect) => {
-        if (effect && !this.stopped && this.marks.get(e.itemID) === holder) holder.add(effect);
+      void nonInteractableWormhole(e.typeID, audio.play).then((effect) => {
+        if (!effect || this.stopped || this.marks.get(e.itemID) !== holder) return;
+        // SpaceObject.Prepare applies the slim first and the graphic's overrides before starting controllers.
+        updateWormholePose(holder, this.live.park.slimItems.get(e.itemID));
+        for (const [name, value] of Object.entries(effect.overrides)) setControllerVariable(holder, name, value);
+        holder.add(effect.object);
       }).catch((error: unknown) => console.warn("Non-interactable wormhole effect:", error));
       return holder;
     }

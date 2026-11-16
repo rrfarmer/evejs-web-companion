@@ -1,33 +1,44 @@
 import type { Object3D } from "three";
 import { effectObject, type SofChildNode } from "../three/hullChildren.ts";
-import { setControllerVariable } from "../three/hullModel.ts";
+import { setControllerVariable } from "../three/controllerVariables.ts";
 import { gfx } from "./gfxSettings.ts";
 import { playWorldEvent, playWorldLoop, stopEmitter, type WorldLoop } from "./uiAudio.ts";
 
-export function isNonInteractableWormhole(typeID: number | null): boolean {
+const wormholeGraphics = { 84329: 20956, 87593: 28102 } as const;
+type WormholeType = keyof typeof wormholeGraphics;
+
+export function isNonInteractableWormhole(typeID: number | null): typeID is WormholeType {
   return typeID === 84329 || typeID === 87593;
 }
 
 interface WormholeEffect {
   root: SofChildNode | null;
   childEffects: Record<string, SofChildNode | null>;
+  controllerVariableOverrides?: Record<string, number>;
 }
 
-let effectFile: Promise<WormholeEffect | null> | undefined;
+const effectFiles = new Map<number, Promise<WormholeEffect | null>>();
 
-export async function nonInteractableWormhole(playSound: (event: string, observer: string) => void): Promise<Object3D | null> {
-  // Both non-interactable types share Wormhole_Violent in the 3698585 graphics table.
-  effectFile ??= fetch("/client-assets/effect/20956.json")
-    .then((response) => response.ok ? response.json() as Promise<WormholeEffect> : null)
-    .then((effect) => {
-      if (!effect?.root) effectFile = undefined;
-      return effect;
-    }, (error: unknown) => {
-      effectFile = undefined;
-      throw error;
-    });
-  const effect = await effectFile;
-  return effect?.root ? effectObject(effect.root, effect.childEffects, playSound) : null;
+export async function nonInteractableWormhole(typeID: WormholeType, playSound: (event: string, observer: string) => void) {
+  const graphicID = wormholeGraphics[typeID];
+  let pending = effectFiles.get(graphicID);
+  if (!pending) {
+    pending = fetch(`/client-assets/effect/${graphicID}.json`)
+      .then((response) => response.ok ? response.json() as Promise<WormholeEffect> : null)
+      .then((effect) => {
+        if (!effect?.root) effectFiles.delete(graphicID);
+        return effect;
+      }, (error: unknown) => {
+        effectFiles.delete(graphicID);
+        throw error;
+      });
+    effectFiles.set(graphicID, pending);
+  }
+  const effect = await pending;
+  if (!effect?.root) return null;
+  const object = await effectObject(effect.root, effect.childEffects, playSound);
+  const overrides = effect.controllerVariableOverrides ?? (typeID === 87593 ? { WH_State: 1 } : {});
+  return object ? { object, overrides } : null;
 }
 
 /** The portal's positioned Wwise observer, owned by the corresponding ball on this grid. */
@@ -87,12 +98,13 @@ export class WormholeAudio {
   }
 }
 
-/** clientControllerRegistry.NonInteractableWormhole sets these from the slim item's pose. */
-export function updateWormholePose(object: Object3D, pose: number | null | undefined): void {
-  const state = pose ?? 0;
-  if (object.userData.wormholePose === state) return;
-  object.userData.wormholePose = state;
+/** SpaceObject.OnSlimItemUpdated runs the handler on each fresh slim, even when poseID repeats. */
+export function updateWormholePose(object: Object3D, slim: ReadonlyMap<unknown, unknown> | undefined): void {
+  if (!slim || object.userData.wormholeSlim === slim) return;
+  object.userData.wormholeSlim = slim;
+  const pose = Number(slim.get("poseID") ?? 0);
+  object.userData.wormholePose = pose;
   setControllerVariable(object, "WH_Age", 0);
-  setControllerVariable(object, "WH_State", state ? 1 : 0);
-  setControllerVariable(object, "_WH_OnUse", state === 3 ? 3 : 0);
+  setControllerVariable(object, "WH_State", pose ? 1 : 0);
+  if (pose === 3) setControllerVariable(object, "_WH_OnUse", 3, true);
 }

@@ -16,6 +16,7 @@
 // scale x (1 - xfade)(0.5 + (1 - xfade) 0.5) while xfade is under 0.75, not at all past it. (The sprites and the
 // boosters' flares are not drawn.)
 import * as THREE from "three";
+import { setControllerVariable as setVariable } from "./controllerVariables.ts";
 import type { SofChildMesh } from "./hullChildren.ts";
 import { perlinNoise1D, vector3Value } from "./curves.ts";
 import { agentBoosters, agentBoxGeometry, setAgentBooster, type AgentBoosterData, type AgentFlareData } from "./boosterVolumetric.ts";
@@ -1009,13 +1010,7 @@ export class AgentRun {
   }
 }
 
-/** A controller variable kept on an object (hullModel.ts setControllerVariable: its controllers take it). */
-export function setVariable(o: THREE.Object3D, name: string, value: number): void {
-  const vars = (o.userData.controllerVars ??= {}) as Record<string, number>;
-  if (vars[name] === value) return;
-  vars[name] = value;
-  o.userData.controllerVarsVersion = ((o.userData.controllerVarsVersion as number | undefined) ?? 0) + 1;
-}
+export { setVariable };
 
 export const livePartsOf = (fx: THREE.Object3D) => {
   const out: THREE.Object3D[] = [];
