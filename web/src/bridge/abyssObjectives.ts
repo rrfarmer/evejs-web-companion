@@ -48,7 +48,7 @@ import { GROUP_WARP_GATE } from "./gateActivation.ts";
 import { readDictEntry, unwrapLong, type JsonValue } from "./wire.ts";
 import type { SpaceEntity } from "../store/types.ts";
 import { formatInterval } from "./clientWords.ts";
-import type { ObjectiveTimer, ObjectiveValue as Value } from "./dungeonTracking.ts";
+import type { ObjectiveTarget, ObjectiveTimer, ObjectiveValue as Value } from "./dungeonTracking.ts";
 
 /** abyss/client/abyssal_service.py ABYSS_OBJECTIVE_CHAIN_ID. */
 export const ABYSS_OBJECTIVE_CHAIN_ID = 95;
@@ -64,6 +64,7 @@ const ABYSS_NPC_TASK = "destroy_npcs";
 const TASK_PROGRESS = 9;
 const TASK_DESTROY_HOSTILES = 14;
 const TASK_ENTER_NEXT_DUNGEON_ROOM = 15;
+const TASK_HACK_CONTAINER = 18;
 const CATEGORY_ENTITY = 11;
 const TASK_TIMER = 30;
 const TASK_DESTROY_COUNTER = 45;
@@ -278,6 +279,7 @@ export interface AbyssObjectiveRow {
   readonly key: string;
   readonly titleLabel: string | null;
   readonly completed: boolean;
+  readonly titleOnly: boolean;
   readonly rows: readonly AbyssTaskRow[];
 }
 
@@ -375,6 +377,7 @@ export class ObjectiveChain {
       key: objective.info.key,
       titleLabel: objective.title,
       completed: objective.completed,
+      titleOnly: objective.tasks.size === 0,
       rows: [...objective.tasks.values()].filter((task) => !this.taskHidden(task)).flatMap((task) => this.taskRows(task)),
     }));
   }
@@ -433,6 +436,7 @@ export class ObjectiveChain {
         task.gateID = null;
         if (task.active) this.observeTask(objective, task, FIND);
         return;
+      case TASK_HACK_CONTAINER:
       case TASK_DESTROY_TARGETS:
         task.rows.clear();
         if (task.active) this.observeTask(objective, task, FIND);
@@ -490,6 +494,36 @@ export class ObjectiveChain {
       (entity.dunObjectID !== undefined && entity.dunObjectID !== null && dungeonObjectIDs.has(entity.dunObjectID));
   }
 
+  private closestEntity(matches: (entity: SpaceEntity) => boolean): SpaceEntity | null {
+    const self = this.entities.find((entity) => entity.isSelf);
+    let closest: SpaceEntity | null = null;
+    let closestDistance = Infinity;
+    for (const entity of this.entities) {
+      if (entity.isSelf || !matches(entity)) continue;
+      const distance = self
+        ? Math.hypot(entity.position.x - self.position.x, entity.position.y - self.position.y, entity.position.z - self.position.z)
+        : 0;
+      if (distance < closestDistance) {
+        closest = entity;
+        closestDistance = distance;
+      }
+    }
+    return closest;
+  }
+
+  private findTarget(target: ObjectiveTarget): SpaceEntity | null {
+    if (target.itemID !== null) return this.closestEntity((entity) => entity.itemID === target.itemID);
+    if (target.dungeonObjectID !== null) return this.closestEntity((entity) => entity.dunObjectID === target.dungeonObjectID);
+    return this.closestEntity((entity) =>
+      (target.typeID === null || entity.typeID === target.typeID) &&
+      (target.groupID === null || entity.groupID === target.groupID));
+  }
+
+  private hackComplete(task: Task, entity: SpaceEntity): boolean {
+    return entity.hackingSecurityState === HACKED &&
+      (task.values.personal_only === false || (this.pilotID !== null && entity.ownerID === this.pilotID));
+  }
+
   /**
    * A task's look at the grid: on the whole of it where it looks for its targets (FIND: _find_targets at its start or
    * a change of what it is after), else at the things just added (OnBallAdded); and at what became of what it has.
@@ -518,11 +552,20 @@ export class ObjectiveChain {
         }
         this.updateCounter(objective, task);
         return;
+      case TASK_HACK_CONTAINER: {
+        const target = task.values.target;
+        const entity = target && typeof target === "object" && "itemID" in target ? this.findTarget(target) : null;
+        const complete = entity !== null && this.hackComplete(task, entity);
+        task.rows.clear();
+        if (entity !== null) task.rows.set(entity.itemID, complete);
+        this.setCompleted(objective, task, complete);
+        return;
+      }
       case TASK_DESTROY_TARGETS:
       case TASK_HACK_ALL_CONTAINERS: {
         const hack = task.info.taskType === TASK_HACK_ALL_CONTAINERS;
         const complete = (entity: SpaceEntity) => hack
-          ? entity.hackingSecurityState === HACKED && (task.values.personal_only === false || (this.pilotID !== null && entity.ownerID === this.pilotID))
+          ? this.hackComplete(task, entity)
           : entity.hullRatio === 0;
         let changed = false;
         for (const itemID of [...task.rows.keys()]) {
@@ -550,19 +593,8 @@ export class ObjectiveChain {
       case TASK_JUMP_THROUGH_ABYSS_GATE: {
         if (task.gateID !== null) return;
         const gateObjectID = Number(task.values.gate_id) || 0;
-        const self = this.entities.find((entity) => entity.isSelf);
-        let closest: SpaceEntity | null = null;
-        let closestDistance = Infinity;
-        for (const entity of this.entities) {
-          if (entity.isSelf || entity.groupID !== GROUP_WARP_GATE || (gateObjectID > 0 && entity.dunObjectID !== gateObjectID)) continue;
-          const distance = self
-            ? Math.hypot(entity.position.x - self.position.x, entity.position.y - self.position.y, entity.position.z - self.position.z)
-            : 0;
-          if (distance < closestDistance) {
-            closest = entity;
-            closestDistance = distance;
-          }
-        }
+        const closest = this.closestEntity((entity) =>
+          entity.groupID === GROUP_WARP_GATE && (gateObjectID <= 0 || entity.dunObjectID === gateObjectID));
         if (closest !== null) task.gateID = closest.itemID;
         return;
       }
@@ -641,6 +673,8 @@ export class ObjectiveChain {
       case TASK_ENTER_NEXT_DUNGEON_ROOM:
       case TASK_JUMP_THROUGH_ABYSS_GATE:
         return task.gateID === null;
+      case TASK_HACK_CONTAINER:
+        return task.rows.size === 0;
       case TASK_DESTROY_TARGETS:
       case TASK_HACK_ALL_CONTAINERS:
         return false;
@@ -682,6 +716,7 @@ export class ObjectiveChain {
           ? { shipRestrictionGateID: gateObjectID } : {};
         return [{ ...base, titleLabel: null, itemID: task.gateID, typeID: gate?.typeID ?? null, ...restriction }];
       }
+      case TASK_HACK_CONTAINER:
       case TASK_DESTROY_TARGETS:
       case TASK_HACK_ALL_CONTAINERS:
         return [...task.rows.entries()].map(([itemID, done]) => {

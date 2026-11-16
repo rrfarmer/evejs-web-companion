@@ -17,7 +17,19 @@ import { isListValue, readDictEntry, readDictPairs, unwrapLong, type JsonValue }
 import { filetimeToMs } from "../space/crimewatch.ts";
 
 export interface ObjectiveTimer { readonly startMs: number; readonly endMs: number }
-export type ObjectiveValue = number | string | boolean | readonly number[] | ObjectiveTimer | null;
+export interface ObjectiveTarget {
+  readonly itemID: number | null;
+  readonly dungeonObjectID: number | null;
+  readonly typeID: number | null;
+  readonly groupID: number | null;
+}
+export type ObjectiveValue = number | string | boolean | readonly number[] | ObjectiveTimer | ObjectiveTarget | null;
+export interface DungeonEntryRule {
+  readonly listKey: string | null;
+  readonly objectiveKey: string;
+  readonly lobby?: boolean;
+  readonly when?: { readonly key: string; readonly value: string };
+}
 
 export interface CurrentDungeon {
   readonly dungeonID: number;
@@ -64,18 +76,28 @@ export function dungeonObjectiveContext(dungeon: CurrentDungeon): Readonly<Recor
       context[key] = value;
     } else {
       const timer = readObjectiveTimer(value);
-      if (timer !== null) context[key] = timer;
+      if (timer !== null) {
+        context[key] = timer;
+        continue;
+      }
+      const itemID = whole(readDictEntry(value, "item_id"));
+      const dungeonObjectID = whole(readDictEntry(value, "dungeon_object_id"));
+      const typeID = whole(readDictEntry(value, "type_id"));
+      const groupID = whole(readDictEntry(value, "group_id"));
+      if (itemID !== null || dungeonObjectID !== null || typeID !== null || groupID !== null) {
+        context[key] = { itemID, dungeonObjectID, typeID, groupID };
+      }
     }
   }
   return { ...context, dungeon_id: dungeon.dungeonID, dungeon_room_id: dungeon.roomID };
 }
 
 /** Graph 669 sends separate messages for the lobby and the rest of the site. */
-export function dungeonEntryObjectives(dungeon: CurrentDungeon, rules: readonly { readonly listKey: string | null; readonly objectiveKey: string; readonly lobby?: boolean }[]): readonly string[] {
+export function dungeonEntryObjectives(dungeon: CurrentDungeon, rules: readonly DungeonEntryRule[]): readonly string[] {
   const lobbyRoom = whole(dungeon.values?.lobby_room_id);
   const inLobby = lobbyRoom !== null && lobbyRoom === dungeon.roomID;
-  return rules.filter(({ listKey, lobby }) => {
-    if ((lobby === true) !== inLobby) return false;
+  return rules.filter(({ listKey, lobby, when }) => {
+    if ((lobby === true) !== inLobby || (when && dungeon.values?.[when.key] !== when.value)) return false;
     if (listKey === null) return true;
     const value = dungeon.values?.[listKey];
     const ids = Array.isArray(value) ? value : isListValue(value) ? value.items : [];

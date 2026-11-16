@@ -20,11 +20,30 @@ function dungeonObjectiveEntryRules(graph) {
       node.nodeType === 31 && parameter(node, "message_key") === "start_lobby_objectives");
     const banner = (lobbyListener?.connections?.output ?? []).map((id) => nodes[id]).find((node) =>
       send(node, "start_objective") === "lockdown_lobby");
-    const lobby = send(after(banner), "start_objective");
-    const vault = send(after(first), "start_objective");
-    return typeof lobby === "string" && typeof vault === "string"
-      ? [{ listKey: null, objectiveKey: lobby, lobby: true }, { listKey: null, objectiveKey: vault }]
-      : null;
+    const lobbyStart = after(banner);
+    const vaultStart = after(first);
+    const lobby = send(lobbyStart, "start_objective");
+    const vault = send(vaultStart, "start_objective");
+    if (typeof lobby !== "string" || typeof vault !== "string") return null;
+    const rules = [{ listKey: null, objectiveKey: lobby, lobby: true }, { listKey: null, objectiveKey: vault }];
+    const conditional = (check, inLobby) => {
+      const key = parameter(check, "blackboard_key");
+      const value = parameter(check, "blackboard_value");
+      const operator = parameter(check, "operator");
+      const match = check?.connections?.on_success;
+      const shown = match?.length === 1 ? send(nodes[match[0]], "show_objective") : null;
+      if (check?.nodeType === 22 && (!operator || operator === "equalTo") &&
+          typeof key === "string" && typeof value === "string" && typeof shown === "string") {
+        rules.push({ listKey: null, objectiveKey: shown, ...(inLobby ? { lobby: true } : {}), when: { key, value } });
+      }
+    };
+    const vaultCheck = after(after(vaultStart));
+    conditional(after(after(lobbyStart)), true);
+    conditional(vaultCheck, false);
+    if (vaultCheck?.connections?.on_failure?.length === 1) {
+      conditional(nodes[vaultCheck.connections.on_failure[0]], false);
+    }
+    return rules;
   }
   const objectiveKeyOf = (node) => {
     const key = parameter(node, "message_value");

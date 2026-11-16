@@ -77,7 +77,7 @@
     for (const key of entryObjectives) if (!wanted.includes(key)) chain.stopObjective(key);
     for (const key of wanted) chain.startObjective(key);
     entryObjectives = wanted;
-    rows = chain.view().filter((objective) => objective.rows.length > 0 || objective.completed);
+    rows = chain.view().filter((objective) => objective.rows.length > 0 || objective.completed || objective.titleOnly);
   });
 
   $effect(() => {

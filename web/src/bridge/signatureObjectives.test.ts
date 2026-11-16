@@ -218,3 +218,58 @@ test("a gate's eligibility uses the full native list instead of the ship tree ro
   assert.ok(oldReply);
   assert.equal(canEnterDungeonInShip(oldReply, 605), true);
 });
+
+test("the Observatory lockdown reveals the banner or controller for the current room", () => {
+  const data = decodeObjectiveChain({
+    found: true,
+    chainID: 81,
+    chain: { objectives: [
+      { key: "lockdown_lobby", objectiveType: 3, title: "UI/Objectives/Titles/observatoryInfiltrationLockdown" },
+      { key: "lockdown_disabled", objectiveType: 3, title: "UI/Objectives/Titles/observatoryInfiltrationLockdownDeactivated" },
+      { key: "lockdown", objectiveType: 67, showCompleted: 1, inputParametersMap: { container: "security_controller" } },
+    ] },
+    objectiveTypes: {
+      3: { tasks: [] },
+      67: { tasks: [{ key: "hack_container", taskType: 18, startActive: 1, showCompleted: 1, inputParameters: { target: "container" } }] },
+    },
+    taskTypes: { 18: { inputParameters: [{ parameterKey: "target" }] } },
+    typeLists: {},
+  });
+  assert.ok(data);
+  const when = (value: string) => ({ key: "dungeon_state", value });
+  const rules = [
+    { listKey: null, objectiveKey: "lockdown_lobby", lobby: true, when: when("Lockdown") },
+    { listKey: null, objectiveKey: "lockdown", when: when("Lockdown") },
+    { listKey: null, objectiveKey: "lockdown_disabled", when: when("Deactivated") },
+  ];
+  const lobby = dungeonEntered([12260, 30594, null, 107, {
+    lobby_room_id: 30594, dungeon_state: "Default",
+    security_controller: { type: "dict", entries: [["dungeon_object_id", 1259438]] },
+  }]);
+  assert.ok(lobby);
+  assert.deepEqual(dungeonEntryObjectives(lobby, rules), []);
+  const locked = dungeonValuesChanged(lobby, [12260, { dungeon_state: "Lockdown" }]);
+  assert.ok(locked);
+  assert.deepEqual(dungeonEntryObjectives(locked, rules), ["lockdown_lobby"]);
+  const landing = dungeonEntered([12260, 30563, null, 107, null]);
+  assert.ok(landing);
+  const vault = enterDungeonRoom(locked, landing);
+  assert.deepEqual(dungeonEntryObjectives(vault, rules), ["lockdown"]);
+  const pilot = 140000001;
+  const objective = new ObjectiveChain(data, dungeonObjectiveContext(vault), pilot);
+  objective.start([]);
+  objective.startObjective("lockdown");
+  const controller = { itemID: 101, typeID: 85362, dunObjectID: 1259438, isSelf: false, hackingSecurityState: 0 } as SpaceEntity;
+  objective.observe([{ ...controller, itemID: 102, dunObjectID: 1259768 }, controller]);
+  assert.deepEqual(objective.view()[0]?.rows.map(({ itemID, completed }) => [itemID, completed]), [[101, false]]);
+  objective.observe([{ ...controller, hackingSecurityState: 2, ownerID: pilot + 1 }]);
+  assert.equal(objective.view()[0]?.rows[0]?.completed, false);
+  objective.observe([{ ...controller, hackingSecurityState: 2, ownerID: pilot }]);
+  assert.equal(objective.view()[0]?.rows[0]?.completed, true);
+  const deactivated = dungeonValuesChanged(vault, [12260, { dungeon_state: "Deactivated" }]);
+  assert.ok(deactivated);
+  assert.deepEqual(dungeonEntryObjectives(deactivated, rules), ["lockdown_disabled"]);
+  objective.stopObjective("lockdown");
+  objective.startObjective("lockdown_disabled");
+  assert.deepEqual(objective.view().map(({ key, titleOnly }) => [key, titleOnly]), [["lockdown_disabled", true]]);
+});
