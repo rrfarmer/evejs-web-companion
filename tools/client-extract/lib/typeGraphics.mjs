@@ -1,5 +1,5 @@
 // typeID -> how the client draws it, from CCP's Static Data Export (types.jsonl's graphicID,
-// graphics.jsonl's sofHullName / sofFactionName / sofRaceName / graphicFile), with the hull's model found
+// graphics.jsonl or graphicids.jsonl's SOF fields and graphicFile), with the hull's model found
 // in the client's own index: a SOF hull's geometry file is named for the hull (<hull>.gr2).
 //
 // The SDE is CCP's public download (developers.eveonline.com); eve.js keeps the build it runs on in
@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import { loadSof } from "./sof.mjs";
+import { graphicsFile, mapSdeDir } from "./assetSde.mjs";
 
 export const CELESTIAL_BUILD = 3;
 
@@ -37,14 +38,15 @@ export async function buildGfxTurrets(sdeDir) {
 }
 
 export async function buildSystemScenes(sdeDir) {
+  const mapDir = mapSdeDir(sdeDir, ["mapRegions.jsonl", "mapStars.jsonl", "mapSolarSystems.jsonl"]);
   const graphics = new Map();
-  for await (const g of jsonl(path.join(sdeDir, "graphics.jsonl"))) if (g.graphicFile) graphics.set(g._key, g.graphicFile);
+  for await (const g of jsonl(graphicsFile(sdeDir))) if (g.graphicFile) graphics.set(g._key, g.graphicFile);
   const regionNebula = new Map();
-  for await (const r of jsonl(path.join(sdeDir, "mapRegions.jsonl"))) regionNebula.set(r._key, r.nebulaID ? graphics.get(r.nebulaID) ?? null : null);
+  for await (const r of jsonl(path.join(mapDir, "mapRegions.jsonl"))) regionNebula.set(r._key, r.nebulaID ? graphics.get(r.nebulaID) ?? null : null);
   const stars = new Map();
-  for await (const s of jsonl(path.join(sdeDir, "mapStars.jsonl"))) stars.set(s._key, s.typeID ?? null);
+  for await (const s of jsonl(path.join(mapDir, "mapStars.jsonl"))) stars.set(s._key, s.typeID ?? null);
   const out = {};
-  for await (const s of jsonl(path.join(sdeDir, "mapSolarSystems.jsonl"))) {
+  for await (const s of jsonl(path.join(mapDir, "mapSolarSystems.jsonl"))) {
     out[s._key] = { name: s.name?.en ?? null, security: s.securityStatus ?? null, regionID: s.regionID, nebula: regionNebula.get(s.regionID) ?? null, starID: s.starID ?? null, sunTypeID: s.starID ? stars.get(s.starID) ?? null : null };
   }
   return out;
@@ -64,7 +66,7 @@ export async function buildTypeNames(sdeDir) {
 /** { typeID: { graphicID, hull, faction, race, gr2, graphicFile, groupID } } for every type with a graphic. */
 export async function buildTypeGraphics(sdeDir, rf) {
   const graphics = new Map();
-  for await (const g of jsonl(path.join(sdeDir, "graphics.jsonl"))) graphics.set(g._key, g);
+  for await (const g of jsonl(graphicsFile(sdeDir))) graphics.set(g._key, g);
   const hulls = loadSof(rf).hulls;
   // hull name -> its geometry, from the client's index (a hull's .gr2 is named for it)
   const gr2ByName = new Map();
@@ -105,12 +107,14 @@ export function indexedHullGeometry(rf, hull) {
  * The rows keep each planet's population and resolve the graphics to their files (null where absent).
  */
 export async function findSystemCelestials(sdeDir, solarSystemID) {
+  const tables = [["mapPlanets.jsonl", "planet"], ["mapMoons.jsonl", "moon"]];
+  const mapDir = mapSdeDir(sdeDir, tables.map(([file]) => file));
   const graphics = new Map();
-  for await (const g of jsonl(path.join(sdeDir, "graphics.jsonl"))) if (g.graphicFile) graphics.set(g._key, g.graphicFile);
+  for await (const g of jsonl(graphicsFile(sdeDir))) if (g.graphicFile) graphics.set(g._key, g.graphicFile);
   const inSystem = new RegExp(`"solarSystemID": ?${Number(solarSystemID)}[,}]`);
   const out = [];
-  for (const [file, kind] of [["mapPlanets.jsonl", "planet"], ["mapMoons.jsonl", "moon"]]) {
-    const rl = readline.createInterface({ input: fs.createReadStream(path.join(sdeDir, file)), crlfDelay: Infinity });
+  for (const [file, kind] of tables) {
+    const rl = readline.createInterface({ input: fs.createReadStream(path.join(mapDir, file)), crlfDelay: Infinity });
     for await (const line of rl) {
       if (!inSystem.test(line)) continue;
       const row = JSON.parse(line);

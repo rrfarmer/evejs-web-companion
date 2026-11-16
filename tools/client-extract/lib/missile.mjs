@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { readBlack } from "./black.mjs";
+import { graphicsFile } from "./assetSde.mjs";
 
 /** EveMissileWarhead's constructor defaults (EveMissileWarhead.cpp:24-64), for what a file leaves out. */
 const WARHEAD_DEFAULTS = {
@@ -85,9 +86,7 @@ export function graphicIdsOfType(table, typeID, groupID) {
 
 /** A graphic row from the public SDE or the installed client's FSD export. */
 export function sdeGraphic(sdeDir, graphicID) {
-  const sdeFile = path.join(sdeDir, "graphics.jsonl");
-  const file = fs.existsSync(sdeFile) ? sdeFile : path.join(sdeDir, "graphicids.jsonl");
-  for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
+  for (const line of fs.readFileSync(graphicsFile(sdeDir), "utf8").split(/\r?\n/)) {
     if (!line.trim()) continue;
     const graphic = JSON.parse(line);
     if (graphic._key === graphicID) return graphic;

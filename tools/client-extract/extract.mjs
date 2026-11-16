@@ -37,6 +37,7 @@ import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
 import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelestials, buildGfxTurrets, indexedHullGeometry, CELESTIAL_BUILD } from "./lib/typeGraphics.mjs";
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
+import { graphicsFile, mapSdeDir } from "./lib/assetSde.mjs";
 import { loadSof, buildHull, allMaterials } from "./lib/sof.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
 import { readTurret, ammoColors, TURRET_BUILD } from "./lib/turret.mjs";
@@ -759,7 +760,7 @@ async function main() {
     console.log(`systemScenes.json: ${Object.keys(scenes).length} systems`);
     const br = extractBrackets(rf, outRoot);
     console.log(`brackets.json: ${Object.keys(br.brackets).length} brackets, ${Object.keys(br.byType).length} by type, ${Object.keys(br.byGroup).length} by group`);
-    const names = await buildTypeNames(args.sde);
+    const names = await buildTypeNames(mapSdeDir(args.sde, ["types.jsonl", "groups.jsonl", "mapSolarSystems.jsonl"]));
     fs.writeFileSync(path.join(outRoot, "typeNames.json"), JSON.stringify(names));
     console.log(`typeNames.json: ${Object.keys(names.types).length} types, ${Object.keys(names.groups).length} groups`);
   } else if (fs.existsSync(tgFile)) typeGraphics = JSON.parse(fs.readFileSync(tgFile, "utf8"));
@@ -788,7 +789,7 @@ async function main() {
     if (!sdeDir) throw new Error("--graphic needs the SDE (--sde, or a config.json that names it)");
     const wanted = new Set(args.graphics);
     const found = new Map();
-    for (const line of fs.readFileSync(path.join(sdeDir, "graphics.jsonl"), "utf8").split(/\r?\n/)) {
+    for (const line of fs.readFileSync(graphicsFile(sdeDir), "utf8").split(/\r?\n/)) {
       if (!line.trim()) continue;
       const g = JSON.parse(line);
       if (wanted.has(g._key)) found.set(g._key, g);

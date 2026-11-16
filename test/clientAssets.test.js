@@ -10,7 +10,7 @@ const { createClientAssets } = require("../src/clientData/clientAssets");
 const { createApp } = require("../src/server");
 const { extractOverviewPresets, extractSystemCelestials } = require("../tools/client-extract/extract.mjs");
 const { SOF_BUILD } = require("../tools/client-extract/lib/sof.mjs");
-const { indexedHullGeometry, CELESTIAL_BUILD } = require("../tools/client-extract/lib/typeGraphics.mjs");
+const { buildSystemScenes, indexedHullGeometry, CELESTIAL_BUILD } = require("../tools/client-extract/lib/typeGraphics.mjs");
 
 async function put(root, name, value) {
   const file = path.join(root, name);
@@ -238,6 +238,52 @@ test("celestial caches refresh the installed population flags and keep legacy fi
       assert.deepEqual(Object.values(data.items).map(item => item.population), [true, false, null]);
     }
     assert.equal(bakes, 1);
+  });
+});
+
+test("cold celestial requests combine the installed graphic IDs and matching map export", async t => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "evejs-split-sde-"));
+  t.after(() => fs.rm(temp, { recursive: true, force: true }));
+  const clientRoot = path.join(temp, "install");
+  const root = path.join(temp, "assets");
+  const graphics = path.join(temp, "eve-online-client-static-data-3698585-jsonl");
+  const maps = path.join(temp, "eve-online-static-data-3698585-jsonl");
+  const solarSystemID = 30002659;
+  const heightMap = "res:/texture/planet.dds";
+  const nebula = "res:/dx9/scene/universe/g01_cube.red";
+  await put(clientRoot, "tq/start.ini", "build=3698585\n");
+  await put(clientRoot, "tq/resfileindex.txt", heightMap + ",00/planet,test,4,4\n");
+  await put(clientRoot, "ResFiles/00/planet", "DDS ");
+  await put(root, "3698585/config.json", JSON.stringify({ client: clientRoot, sde: graphics, build: "3698585" }));
+  await put(graphics, "_sde.jsonl", '{"clientBuild":"3698585"}\n');
+  await put(graphics, "graphicids.jsonl", [
+    { _key: 3842, graphicFile: heightMap },
+    { _key: 11824, graphicFile: nebula },
+  ].map(row => JSON.stringify(row)).join("\n"));
+  await put(maps, "_sde.jsonl", '{"buildNumber":3698585}\n');
+  await put(maps, "mapPlanets.jsonl", JSON.stringify({
+    _key: 40169266, solarSystemID, typeID: 2016,
+    attributes: { population: false, heightMap1: 3842 },
+  }));
+  await put(maps, "mapMoons.jsonl", JSON.stringify({ _key: 40169269, solarSystemID, typeID: 14 }));
+  await put(maps, "mapRegions.jsonl", '{"_key":10000032,"nebulaID":11824}');
+  await put(maps, "mapStars.jsonl", '{"_key":40169265,"typeID":45033}');
+  await put(maps, "mapSolarSystems.jsonl", JSON.stringify({
+    _key: solarSystemID, name: { en: "Dodixie" }, regionID: 10000032, starID: 40169265,
+  }));
+
+  assert.equal((await buildSystemScenes(maps))[solarSystemID].nebula, nebula);
+  await withAssets({ root, clientRoot }, async url => {
+    const response = await fetch(url("/client-assets/celestials/30002659.json"));
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.deepEqual(Object.keys(data.items), ["40169266", "40169269"]);
+    assert.equal(data.items[40169266].population, false);
+    assert.equal(data.items[40169266].NormalHeight1, "/client-assets/texture/planet.dds");
+    assert.equal(data.items[40169269].kind, "moon");
+    const map = await fetch(url(data.items[40169266].NormalHeight1));
+    assert.equal(map.status, 200);
+    assert.equal(await map.text(), "DDS ");
   });
 });
 
