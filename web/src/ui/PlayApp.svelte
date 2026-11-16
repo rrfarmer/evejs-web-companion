@@ -1119,11 +1119,11 @@
           max: s.store.fitting.get().resources?.capacitor?.total ?? null,
           ratio: s.store.space.get().snapshot?.ship?.capacitorRatio ?? null,
         }),
-        // A click switches the module as the app's rack does (ModuleRack.svelte): on, at the first locked target; off.
-        use: async (m) => {
+        // shipmodulebutton.ActivateEffect uses the active lock for targeted effects.
+        use: async (m, targetID) => {
           const running = (s.store.space.get().snapshot?.ship?.activeModuleIDs ?? []).includes(m.itemID);
           if (running) await s.flow.deactivateModule(m.itemID, { typeID: m.typeID });
-          else await s.flow.activateModule(m.itemID, { typeID: m.typeID, targetID: s.store.targeting.get().lockedTargetIDs?.[0] });
+          else await s.flow.activateModule(m.itemID, { typeID: m.typeID, targetID });
         },
         heat: () => s.store.space.get().snapshot?.ship?.rackHeat ?? null,
         overload: {

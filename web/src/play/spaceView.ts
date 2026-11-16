@@ -115,7 +115,9 @@ export interface SpaceViewOptions {
   /** The system the view is in, with its security, as its scene is loaded (the music's switch). */
   onSystem?: (solarSystemID: number, security: number | null) => void;
   rack?: {
-    modules(): HudModule[]; use(m: HudModule): Promise<void>; capacitor?(): { max: number | null; ratio: number | null };
+    modules(): HudModule[];
+    use(m: HudModule, targetID: number | null): Promise<void>;
+    capacitor?(): { max: number | null; ratio: number | null };
     /** Each rack's heat over its capacity, 0..1 (the app's space snapshot: ship.rackHeat), or null. */
     heat?(): Readonly<Partial<Record<"high" | "mid" | "low", number>>> | null;
     /** Overloading: a module's (ToggleOverload) and a rack's, by its first module (OverloadRack / StopOverloadRack). */
@@ -250,7 +252,7 @@ export class SpaceView {
   private readonly targetBar = new TargetBar();
   /** Targets being locked: itemID to when the lock began (performance.now()). */
   private readonly lockingIDs = new Map<number, number>();
-  /** The active target (the client's state.activeTarget): the first locked, or the one last clicked in the bar. */
+  /** The client's state.activeTarget. Selecting a locked object makes it active. */
   private activeTarget: number | null = null;
   private readonly modeEl: HTMLDivElement;
   private readonly selectedEl: HTMLElement;
@@ -598,7 +600,7 @@ export class SpaceView {
     this.selectedWin.body.classList.add("si");
     this.selectedEl = this.selectedWin.root;
     this.root.insertBefore(this.targetBar.root, this.modeEl);
-    this.targetBar.onSelect = (id) => { this.activeTarget = id; this.select(id); };
+    this.targetBar.onSelect = (id) => this.select(id);
     this.targetBar.onUnlock = (id) => void this.act("Unlock Target", () => this.actions.unlock(id)).then(() => this.refreshTargets());
     this.layer.appendChild(this.selectedEl);
     this.pollTargets();
@@ -1001,6 +1003,9 @@ export class SpaceView {
     const combat = itemID !== null ? this.combat?.cmd ?? this.modifierCombat() : null;
     if (combat && combat !== "CmdSelectTargetItem" && itemID !== null) { this.runCombat(combat, itemID); return false; }
     this.selected = itemID;
+    // overviewWindow.OnScrollSelectionChange and inSpaceBracket.OnClick:
+    // a selected object becomes the active target when it is already locked.
+    if (itemID !== null && this.locked.has(itemID)) this.activeTarget = itemID;
     for (const [id, el] of this.bracketEls) el.classList.toggle("selected", id === itemID);
     this.overview.setSelected(itemID);
     this.renderSelected();
@@ -1009,9 +1014,7 @@ export class SpaceView {
 
   selectObjectiveTarget(itemID: number): boolean {
     if (!this.snapshot?.entities.some((entity) => entity.itemID === itemID)) return false;
-    if (!this.select(itemID)) return false;
-    if (this.locked.has(itemID)) this.activeTarget = itemID;
-    return true;
+    return this.select(itemID);
   }
 
   trackObjectiveTarget(itemID: number): void {
@@ -1448,6 +1451,13 @@ export class SpaceView {
     return true;
   }
 
+  private useRackModule(module: HudModule): void {
+    const rack = this.options.rack;
+    if (!rack) return;
+    const targetID = this.activeTarget !== null && this.locked.has(this.activeTarget) ? this.activeTarget : null;
+    void this.act(module.name ?? "Module", () => rack.use(module, targetID));
+  }
+
   private async refreshTargets(): Promise<void> {
     try {
       const t = await this.actions.targets();
@@ -1758,7 +1768,7 @@ export class SpaceView {
     const m = this.options.rack?.modules().find((each) => each.family === family && each.index === index) ?? null;
     // (an empty slot or a module offline: the client's "Disabled" notice)
     if (!m || !m.online) { this.toast("Disabled"); return; }
-    if (slot[1] === "Activate") { void this.act(m.name ?? "Module", () => this.options.rack!.use(m)); return; }
+    if (slot[1] === "Activate") { this.useRackModule(m); return; }
     const overload = this.options.rack?.overload;
     if (!overload || m.overloadable === false) { this.toast("Disabled"); return; }
     void this.act(m.name ?? "Module", () => overload.module(m.itemID, !m.overloaded));
@@ -2354,7 +2364,7 @@ export class SpaceView {
     const rack = this.options.rack;
     if (rack && this.frameCount % 3 === 0) {
       const overload = rack.overload;
-      this.shipHud.setModules(rack.modules(), (m) => void this.act(m.name ?? "Module", () => rack.use(m)), overload ? {
+      this.shipHud.setModules(rack.modules(), (m) => this.useRackModule(m), overload ? {
         module: (m, on) => void this.act(m.name ?? "Module", () => overload.module(m.itemID, on)),
         rack: (id, on) => void this.act(on ? "Overload rack" : "Stop overloading rack", () => overload.rack(id, on)),
       } : undefined);
