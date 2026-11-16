@@ -114,6 +114,7 @@ export async function readCurrentDungeon(ask: Ask): Promise<CurrentDungeon | nul
 /** The Ship Restrictions window's words (ship_restrictions_window.py). */
 export const SHIP_RESTRICTIONS_LABELS = Object.freeze({
   caption: "UI/Dungeons/ShipRestrictionsWindow",
+  task: "UI/Objectives/Titles/ShipRestrictions",
   showUnlockedOnly: "UI/Dungeons/ShipRestrictionShowUnlockedOnly",
   hideRestricted: "UI/Dungeons/ShipRestrictionHideRestricted",
   showList: "UI/Agents/Dialogue/DungeonShipRestrictionsShowList",
@@ -134,6 +135,8 @@ export const SHIP_GROUP_ORDER: readonly number[] = Object.freeze([
 export interface ShipRestrictions {
   readonly dungeonNameID: number | null;
   readonly typeListID: number | null;
+  /** Every allowed hull type, including those the window filters out of the ship tree. */
+  readonly allowedShipTypes: ReadonlySet<number>;
   /** Whether the groups are the client's ship tree's (else the inventory groups). */
   readonly shipTree: boolean;
   /** The ship tree's groups' names' messages, by group. */
@@ -159,12 +162,22 @@ export function decodeShipRestrictions(data: Readonly<Record<string, JsonValue>>
       if (whole(key) !== null && nameID !== null) groupNameIDs[Number(key)] = nameID;
     }
   }
+  const allowed = entries(data.allowed);
+  const allowedShipTypes = Array.isArray(data.allowedShipTypes)
+    ? data.allowedShipTypes.map(whole).filter((id): id is number => id !== null)
+    : allowed.map(({ typeID }) => typeID);
   return {
     dungeonNameID: whole(data.dungeonNameID),
     typeListID: whole(data.typeListID),
     shipTree: data.shipTree === true,
     groupNameIDs,
-    allowed: entries(data.allowed),
+    allowedShipTypes: new Set(allowedShipTypes),
+    allowed,
     restricted: entries(data.restricted),
   };
+}
+
+/** evedungeons.client.util.CanEnterDungeonInCurrentShip. */
+export function canEnterDungeonInShip(restrictions: ShipRestrictions | null, shipTypeID: number | null): boolean {
+  return restrictions === null || (shipTypeID !== null && restrictions.allowedShipTypes.has(shipTypeID));
 }

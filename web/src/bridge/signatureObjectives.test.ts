@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { decodeObjectiveChain, ObjectiveChain } from "./abyssObjectives.ts";
-import { dungeonEntered, dungeonEntryObjectives, dungeonObjectiveContext, dungeonValuesChanged, enterDungeonRoom, readCurrentDungeon } from "./dungeonTracking.ts";
+import { canEnterDungeonInShip, decodeShipRestrictions, dungeonEntered, dungeonEntryObjectives, dungeonObjectiveContext, dungeonValuesChanged, enterDungeonRoom, readCurrentDungeon } from "./dungeonTracking.ts";
 import type { SpaceEntity } from "../store/types.ts";
 
 test("the authored container objective follows slim state and the hacking pilot", () => {
@@ -180,9 +180,10 @@ test("Observatory Infiltration switches from its lobby gate to the vault counter
   assert.deepEqual(dungeonEntryObjectives(lobby, rules), ["lobby"]);
   objective.startObjective("lobby");
   assert.equal(objective.view()[0]?.rows.length ?? 0, 0);
-  const gate = { itemID: 101, typeID: 17831, groupID: 366, isSelf: false, position: { x: 7000, y: 0, z: 0 } } as SpaceEntity;
+  const gate = { itemID: 101, typeID: 17831, groupID: 366, dunObjectID: 1259676, isSelf: false, position: { x: 7000, y: 0, z: 0 } } as SpaceEntity;
   objective.observe([gate]);
   assert.equal(objective.view()[0]?.rows[0]?.itemID, 101);
+  assert.equal(objective.view()[0]?.rows[0]?.shipRestrictionGateID, 1259676);
 
   const next = dungeonEntered([12260, 30563, null, 107, null]);
   assert.ok(next);
@@ -198,4 +199,22 @@ test("Observatory Infiltration switches from its lobby gate to the vault counter
   assert.ok(updated);
   for (const [key, value] of Object.entries(dungeonObjectiveContext(updated))) objective.setContext(key, value);
   assert.equal(objective.view()[0]?.rows[0]?.value, "1/3");
+});
+
+test("a gate's eligibility uses the full native list instead of the ship tree rows", () => {
+  const allowed = [{ typeID: 605, groupID: 25 }];
+  const restrictions = decodeShipRestrictions({ found: true, allowed, allowedShipTypes: [605, 17715] });
+  assert.ok(restrictions);
+  assert.equal(canEnterDungeonInShip(restrictions, 605), true);
+  assert.equal(canEnterDungeonInShip(restrictions, 17715), true);
+  assert.equal(canEnterDungeonInShip(restrictions, 670), false);
+  assert.equal(canEnterDungeonInShip(restrictions, null), false);
+  assert.equal(canEnterDungeonInShip(null, 670), true);
+
+  const noShips = decodeShipRestrictions({ found: true, allowed, allowedShipTypes: [] });
+  assert.ok(noShips);
+  assert.equal(canEnterDungeonInShip(noShips, 605), false);
+  const oldReply = decodeShipRestrictions({ found: true, allowed });
+  assert.ok(oldReply);
+  assert.equal(canEnterDungeonInShip(oldReply, 605), true);
 });

@@ -263,6 +263,8 @@ export interface AbyssTaskRow {
   /** Its thing: a target's or the gate's; null for a task with none. */
   readonly itemID: number | null;
   readonly typeID: number | null;
+  /** The authored gate object for EnterNextDungeonRoom's Ship Restrictions task. */
+  readonly shipRestrictionGateID?: number;
   readonly value: string;
   /** Its bar, 0 to 1; null for none. */
   readonly progress: number | null;
@@ -675,7 +677,10 @@ export class ObjectiveChain {
       case TASK_ENTER_NEXT_DUNGEON_ROOM:
       case TASK_JUMP_THROUGH_ABYSS_GATE: {
         const gate = this.entities.find((entity) => entity.itemID === task.gateID);
-        return [{ ...base, titleLabel: null, itemID: task.gateID, typeID: gate?.typeID ?? null }];
+        const gateObjectID = gate?.dunObjectID;
+        const restriction = task.info.taskType === TASK_ENTER_NEXT_DUNGEON_ROOM && gateObjectID
+          ? { shipRestrictionGateID: gateObjectID } : {};
+        return [{ ...base, titleLabel: null, itemID: task.gateID, typeID: gate?.typeID ?? null, ...restriction }];
       }
       case TASK_DESTROY_TARGETS:
       case TASK_HACK_ALL_CONTAINERS:

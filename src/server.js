@@ -16329,7 +16329,10 @@ app.get("/api/dungeons/ship-restrictions", requireAuth, async (req, res, next) =
         if (group) groupNames[String(groupID)] = { nameID: group.nameID, iconSmall: group.iconSmall };
       }
     }
-    res.json({ ok: true, found: true, dungeonNameID: restrictions.dungeonNameID, typeListID: restrictions.typeListID, shipTree, groups: groupNames, allowed, restricted });
+    res.json({
+      ok: true, found: true, dungeonNameID: restrictions.dungeonNameID, typeListID: restrictions.typeListID,
+      allowedShipTypes: restrictions.allowedShipTypes, shipTree, groups: groupNames, allowed, restricted,
+    });
   } catch (error) {
     next(error);
   }

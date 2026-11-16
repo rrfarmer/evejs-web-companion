@@ -1,6 +1,6 @@
 <script lang="ts">
   // The client's Ship Restrictions window (evedungeons/client/ship_restrictions_window.py ShipRestrictionsWindow), opened
-  // on an acceleration gate's refusal of the ship in a dungeon the client knows (bridge/dungeonTracking.ts):
+  // from the gate's objective task or when the gate refuses the current hull (bridge/dungeonTracking.ts):
   //
   //   captioned UI/Dungeons/ShipRestrictionsWindow; headed with the dungeon's name (its dungeonNameID's message); a line
   //   saying the ship flown is or is not let through (DungeonShipRestrictionsListShipIsRestricted / IsNotRestricted, or
@@ -16,7 +16,7 @@
   // gate's type list's own description, which the server's tables do not carry. Where the client's ship tree cannot be
   // read the groups are the inventory groups, by name.
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import { SHIP_GROUP_ORDER, SHIP_RESTRICTIONS_LABELS } from "../bridge/dungeonTracking.ts";
+  import { canEnterDungeonInShip, SHIP_GROUP_ORDER, SHIP_RESTRICTIONS_LABELS } from "../bridge/dungeonTracking.ts";
   import { resolvedName } from "../store/names.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import type { Session } from "../app/sessions.ts";
@@ -66,9 +66,9 @@
   const shipTypeID = $derived($flight.status?.shipTypeID ?? null);
   const header = $derived(restrictions?.dungeonNameID ? word(`#${restrictions.dungeonNameID}`) : "");
   const infoText = $derived.by(() => {
-    if (!restrictions || restrictions.allowed.length === 0) return "No ship restrictions found";
+    if (!restrictions) return "No ship restrictions found";
     if (shipTypeID === null) return word(SHIP_RESTRICTIONS_LABELS.showList);
-    const allowedHere = restrictions.allowed.some((entry) => entry.typeID === shipTypeID);
+    const allowedHere = canEnterDungeonInShip(restrictions, shipTypeID);
     return word(allowedHere ? SHIP_RESTRICTIONS_LABELS.notRestricted : SHIP_RESTRICTIONS_LABELS.restricted, { shipTypeID });
   });
   function groupName(groupID: number): string {

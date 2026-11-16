@@ -3,7 +3,7 @@
   import type { AppFlow, ObjectiveDungeonJob } from "../app/flow.ts";
   import { standingWithSkillBonus } from "../bridge/agencyAgents.ts";
   import { ObjectiveChain, type AbyssObjectiveRow } from "../bridge/abyssObjectives.ts";
-  import { dungeonEntryObjectives, dungeonObjectiveContext } from "../bridge/dungeonTracking.ts";
+  import { dungeonEntryObjectives, dungeonObjectiveContext, SHIP_RESTRICTIONS_LABELS } from "../bridge/dungeonTracking.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { holdToOpen } from "../play/radialMenu.ts";
   import type { SpaceView } from "../play/spaceView.ts";
@@ -11,10 +11,11 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
+  import DungeonShipRestrictionsTask from "./DungeonShipRestrictionsTask.svelte";
 
   let { store, flow, job }: { store: ClientStore; flow: AppFlow; job: ObjectiveDungeonJob } = $props();
   // svelte-ignore state_referenced_locally
-  const { space, station, names, words, skills, standings } = store;
+  const { flight, space, station, names, words, skills, standings } = store;
   // svelte-ignore state_referenced_locally
   const corporationFactions = flow.corporationFactions;
   // svelte-ignore state_referenced_locally
@@ -86,6 +87,7 @@
       if (objective.titleLabel) labels.add(objective.titleLabel);
       for (const row of objective.rows) {
         if (row.titleLabel) labels.add(row.titleLabel);
+        if (row.shipRestrictionGateID !== undefined) labels.add(SHIP_RESTRICTIONS_LABELS.task);
         const target = row.itemID === null ? undefined : targets.get(row.itemID);
         if (target?.nameMessageID !== undefined) labels.add(`#${target.nameMessageID}`);
         if (target?.characterID != null) namesToLoad.push({ kind: "character", id: target.characterID });
@@ -146,6 +148,10 @@
       {@const name = title(row)}
       {#if row.itemID !== null}
         {@const itemID = row.itemID}
+        {#if row.shipRestrictionGateID !== undefined && $activeDungeon}
+          <DungeonShipRestrictionsTask {flow} dungeonID={$activeDungeon.dungeonID} gateID={row.shipRestrictionGateID}
+            shipTypeID={$flight.status?.shipTypeID ?? null} label={word(SHIP_RESTRICTIONS_LABELS.task)} />
+        {/if}
         <button type="button" class="target" class:completed={row.completed}
           onpointerdowncapture={(event) => { pointerSelected = event.button === 0 && selectTarget(itemID); }}
           use:holdTarget={itemID}
