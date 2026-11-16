@@ -72,6 +72,8 @@
   const flight = store.flight;
   // svelte-ignore state_referenced_locally
   const station = store.station;
+  // svelte-ignore state_referenced_locally
+  const anomaliesChanged = flow.agencyAnomaliesChanged;
   const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, INCURSIONS = 72, INCURSION = 50, PLANETARY_PRODUCTION = 42, MERC_DENS = 85, COLONY_RESOURCES = 84, HELP = 69, FLEET_UP = 67, CAMPAIGNS = 89, PROJECT_DISCOVERY = 52, PHASED_FIELDS = 87, TRIGLAVIAN_SPACE = 63, TRIGLAVIAN_FILAMENTS = 64, ASTEROID_BELTS = 40, PIRATE_STRONGHOLDS = 73, ABYSSAL_DEADSPACE = 37, ABYSSAL_FILAMENTS = 44, FLEET_UP_REGISTER = 68, FW_GUIDE = 90, ZARZAKH = 83, INSURGENCY_GUIDE = 82, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
   const HOME_LEFT = [11, 12, 13, 14];
   const FW_SYSTEMS = 46;
@@ -166,7 +168,16 @@
   // IsVisible: the seasons group while a season is the character's (is_season_visible_in_agency); HomefrontSitesContentGroup while its
   // provider has any site (GetAllDungeonInstances).
   let homefrontSites = $state(false);
-  $effect(() => { void flow.agencyTrackerSites("homefront", DEFAULT_SITE_FILTERS).then((list) => { homefrontSites = !!list?.length; }); });
+  $effect(() => {
+    void systemID;
+    void $flight.status?.docked;
+    void $anomaliesChanged;
+    let current = true;
+    void flow.agencyTrackerSites("homefront", DEFAULT_SITE_FILTERS).then((list) => {
+      if (current && list) homefrontSites = list.length > 0;
+    }, () => {});
+    return () => { current = false; };
+  });
   const visible = (id: number) => (id !== SEASONS || seasons.active !== null || seasons.choices.length > 0) && (id !== HOMEFRONT || homefrontSites);
   const tabs = $derived([HOME, ...AGENCY_TAB_ORDER.filter((id) => AGENCY_GROUPS[id]?.tab)]);
   const children = $derived(group.children.filter(visible).map((id) => groupOf(id)).filter((g): g is AgencyGroup => !!g));

@@ -237,7 +237,7 @@ import { employmentHistoryOf, type EmploymentHistory } from "../bridge/employmen
 import { allowedMilitiaFactions, insurgencyCampaigns, militiaAffiliation, militiaCooldown, militiaEnlistmentWarning, militiaInsurgencies, militiaOrganization, militiaOrganizationActions, militiaStationFactions, militiaVictoryPoints, militiaWarzoneMarkers, militiaWarzones, MILITIA_FACTIONS, MILITIA_ORGANIZATION_METHODS, type MilitiaAffiliation, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaOffice, type MilitiaOrganizationAction, type MilitiaSystem, type MilitiaVictoryPoints, type MilitiaWarzoneMarkers } from "../bridge/militiaEnlistment.ts";
 import { warzoneStatistics, type WarzoneStatistics, type WarzoneStatisticsScope } from "../bridge/warzoneStatistics.ts";
 import { convoyActivities, oreActivities, type StarMapActivity, type StarMapActivityMode } from "../bridge/starMapFilters.ts";
-import { readTrackedMilitiaJob, setWarDungeonTracked, trackedWarDungeonJobs, untrackMilitiaJob } from "../ui/jobTracking.ts";
+import { readTrackedMilitiaJob, setDungeonTracked, trackedDungeonJobs, untrackMilitiaJob } from "../ui/jobTracking.ts";
 import { filetimeOf } from "../bridge/journalWords.ts";
 import { readAllAssets, readAssetStationItems, readAssetStations, type AssetStationItemsRead, type AssetStationsRead } from "../bridge/assetReads.ts";
 import {
@@ -406,7 +406,7 @@ import { acceptContract as acceptContractCall } from "../bridge/contractWrites.t
 import { removeLaunch } from "../bridge/launchWrites.ts";
 import { readClientStates, readMySecurityStatus } from "../bridge/crimewatchReads.ts";
 import { INCURSION_TEMPLATE_CLASSES, decodeIncursionReport, decodeInfluence, incursionsOfTaleData, type IncursionData, type IncursionReport } from "../bridge/incursion.ts";
-import { decodeDungeonSites, isCurrentDungeonSite, relevantDungeonSystems, WAR_DUNGEON_PROVIDERS, warDungeonCanBrowse, warDungeonJobID, warDungeonProviders, type WarDungeonKind } from "../bridge/dungeonJobs.ts";
+import { decodeDungeonSites, isCurrentDungeonSite, relevantDungeonSystems, WAR_DUNGEON_PROVIDERS, warDungeonCanBrowse, dungeonJobID, warDungeonProviders, type WarDungeonKind } from "../bridge/dungeonJobs.ts";
 import { RESOURCE_ORDER, SITE_TRACKERS, agencyFactionWarfareSystems as factionWarfareSystemsForAgency, agencyInsurgencySystems as insurgencySystemsForAgency, agencySiteSystems, insurgencySiteCandidates, signatureSites, trackerSites, type AgencyFactionWarfareFilters, type AgencyFactionWarfareSystem, type AgencyInsurgencyFilters, type AgencyInsurgencySystem, type AgencySite, type AgencySiteFilters, type AgencySiteSystem, type InsurgencyStages, type SiteTrackerKind } from "../bridge/agencySites.ts";
 import { essBeacon, essDetails, essSettings, essSystems, filterEssSystems, type AgencyEssFilters, type AgencyEssSystem, type EssDetails, type EssLocation, type EssSettings, type EssSystem } from "../bridge/agencyEss.ts";
 import { AGENT_FACTIONS, agencyAgents as pickAgencyAgents, standingWithSkillBonus, suggestedCareerAgents, type AgencyAgent, type AgencyAgentFilters, type AgencyCareerAgent, type AgencyStorylineAgent } from "../bridge/agencyAgents.ts";
@@ -659,13 +659,19 @@ interface DungeonJobDetails {
   readonly active: boolean;
 }
 
-export type DungeonJob = (DungeonJobDetails & { readonly kind: "combat" | "ore" | "ice" | "homefront" | "signature" }) | WarDungeonJob;
-export interface WarDungeonJob extends DungeonJobDetails {
-  readonly kind: WarDungeonKind;
+interface DungeonTravelDetails extends DungeonJobDetails {
   readonly targetID: string | null;
   readonly nameID: number | null;
+}
+export interface WarDungeonJob extends DungeonTravelDetails {
+  readonly kind: WarDungeonKind;
   readonly canBrowse: boolean;
 }
+export interface HomefrontDungeonJob extends DungeonTravelDetails {
+  readonly kind: "homefront";
+}
+export type TravelDungeonJob = WarDungeonJob | HomefrontDungeonJob;
+export type DungeonJob = (DungeonJobDetails & { readonly kind: "combat" | "ore" | "ice" | "signature" }) | TravelDungeonJob;
 
 /** A career goal's reward (careergoals.client reward_definition). */
 export interface CareerReward { readonly kind: "isk" | "sp" | "item"; readonly quantity: number; readonly typeID: number | null; readonly label: string }
@@ -3765,6 +3771,7 @@ export interface AppFlow {
    */
   dungeonJobs(): Promise<readonly DungeonJob[]>;
   warDungeonJobs(trackedOnly?: boolean): Promise<readonly WarDungeonJob[]>;
+  homefrontDungeonJobs(trackedOnly?: boolean): Promise<readonly HomefrontDungeonJob[]>;
   readonly activeDungeon: ReadableSignal<CurrentDungeon | null>;
   /**
    * An Agency agent page's agents (ContentProviderAgents and its kinds, bridge/agencyAgents.ts): from the agents
@@ -16930,8 +16937,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   function leaveCurrentDungeon(): void {
     if (completedDungeon !== null && completedDungeon === currentDungeon.get()?.instanceID) {
       const characterID = store.station.get().online?.characterID ?? null;
-      for (const job of trackedWarDungeonJobs(characterID)) {
-        if (job.instanceID === completedDungeon) setWarDungeonTracked(characterID, job, false);
+      for (const job of trackedDungeonJobs(characterID)) {
+        if (job.instanceID === completedDungeon) setDungeonTracked(characterID, job, false);
       }
     }
     completedDungeon = null;
@@ -21458,16 +21465,39 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return systems;
   }
 
+  async function readHomefrontSites(here: number | null): Promise<Map<number, (AgencySite | null)[]> | null> {
+    const known = await bridgeAsk("dungeonInstanceCacheMgr", SITE_TRACKERS.homefront.sites, []).catch(() => null);
+    if (known === null) return null;
+    const sites = trackerSites(known, undefined, here);
+    const local = here === null ? undefined : sites.get(here);
+    if (here === null || !local?.length) return sites;
+
+    // HomefrontOperationTracker gets the local target from sensorSuite.GetAnomaly(instanceID).
+    const scan = await readScanFullState(bridgeAsk).catch(() => null);
+    if (!scan || here !== (store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID)) return sites;
+    const anomalies = new Map(scan.anomalies.map((site) => [site.fields.instanceID ?? site.fields.siteID, site]));
+    sites.set(here, local.map((site) => {
+      if (site === null) return null;
+      const anomaly = anomalies.get(site.instanceID);
+      return anomaly?.targetID && anomaly.fields.dungeonID === site.dungeonID ? { ...site, targetID: anomaly.targetID } : site;
+    }));
+    return sites;
+  }
+
   async function agencyTrackerSites(kind: SiteTrackerKind, filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null> {
     const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
-    const [known, counts, jumps, graph] = await Promise.all([
-      bridgeAsk("dungeonInstanceCacheMgr", SITE_TRACKERS[kind].sites, []).catch(() => null),
-      SITE_TRACKERS[kind].counts ? bridgeAsk("dungeonInstanceCacheMgr", SITE_TRACKERS[kind].counts!, []).catch(() => null) : Promise.resolve(null),
+    const tracker = SITE_TRACKERS[kind];
+    const siteRead = kind === "homefront" ? readHomefrontSites(here) : Promise.all([
+      bridgeAsk("dungeonInstanceCacheMgr", tracker.sites, []).catch(() => null),
+      tracker.counts ? bridgeAsk("dungeonInstanceCacheMgr", tracker.counts, []).catch(() => null) : Promise.resolve(null),
+    ]).then(([known, counts]) => known === null && counts === null ? null : trackerSites(known ?? undefined, counts ?? undefined, here));
+    const [sites, jumps, graph] = await Promise.all([
+      siteRead,
       here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
       loadRouteGraph().catch(() => null),
     ]);
-    if (known === null && counts === null) return null;
-    let systems = agencySiteSystems(trackerSites(known ?? undefined, counts ?? undefined, here), here, here === null || here < 31000000,
+    if (sites === null) return null;
+    let systems = agencySiteSystems(sites, here, here === null || here < 31000000,
       (id) => jumps?.get(id), (id) => graph?.security(id) ?? null, filters);
     if (kind === "homefront") {
       // HomefrontSiteInfoContainer: each site's dungeon's lore and gameplay descriptions (GetSiteDescription,
@@ -21564,7 +21594,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function warDungeonJobs(trackedOnly = false): Promise<readonly WarDungeonJob[]> {
     const pilot = store.station.get().online;
     if (!pilot) return [];
-    const tracked = new Map(trackedWarDungeonJobs(pilot?.characterID ?? null).map((job) => [warDungeonJobID(job), job.since]));
+    const tracked = new Map(trackedDungeonJobs(pilot.characterID).filter((job) => job.kind !== "homefront").map((job) => [dungeonJobID(job), job.since]));
     if (trackedOnly && !tracked.size) return [];
     // The retail providers use fwEnlistmentSvc.GetMyFaction. The selected-pilot
     // summary may omit warfactionid on reconnect, including for NPC militia.
@@ -21586,7 +21616,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const relevant = new Set(relevantDungeonSystems(sites, here, jumps, 2, 5, 20, routeSystems));
       return [...sites].flatMap(([solarSystemID, systemSites]) => systemSites.flatMap((site) => {
         if (site?.dungeonID == null || site.instanceID <= 0) return [];
-        const since = tracked.get(warDungeonJobID({ kind, instanceID: site.instanceID }));
+        const since = tracked.get(dungeonJobID({ kind, instanceID: site.instanceID }));
         if (trackedOnly && since === undefined) return [];
         const active = isCurrentDungeonSite({ solarSystemID, dungeonID: site.dungeonID, instanceID: site.instanceID }, here, inside);
         if (!active && !relevant.has(solarSystemID) && !(since !== undefined && since > oneDayAgo)) return [];
@@ -21598,6 +21628,44 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         }];
       }));
     });
+    return addTravelDungeonData(rows);
+  }
+
+  async function homefrontDungeonJobs(trackedOnly = false): Promise<readonly HomefrontDungeonJob[]> {
+    const pilot = store.station.get().online;
+    if (!pilot) return [];
+    const tracked = new Map(trackedDungeonJobs(pilot.characterID).filter((job) => job.kind === "homefront").map((job) => [job.instanceID, job.since]));
+    if (trackedOnly && !tracked.size) return [];
+    const here = store.flight.get().status?.solarSystemID ?? pilot.solarSystemID ?? null;
+    const [sites, jumps, route] = await Promise.all([
+      readHomefrontSites(here),
+      here === null ? null : autopilotDistancesFrom(here).catch(() => null),
+      routeOfWaypoints().catch(() => null),
+    ]);
+    if (!sites) return [];
+    const routeSystems = (route?.markers ?? []).map((marker) => marker.solarSystemID);
+    const relevant = new Set(relevantDungeonSystems(sites, here, jumps, 2, 5, 20, routeSystems));
+    const inside = currentDungeon.get();
+    const oneDayAgo = Date.now() - 86_400_000;
+    const rows: Omit<HomefrontDungeonJob, "data">[] = [];
+    for (const [solarSystemID, systemSites] of sites) {
+      for (const site of systemSites) {
+        if (site?.dungeonID == null || site.instanceID <= 0) continue;
+        const since = tracked.get(site.instanceID);
+        if (trackedOnly && since === undefined) continue;
+        const identity = { solarSystemID, dungeonID: site.dungeonID, instanceID: site.instanceID };
+        const active = isCurrentDungeonSite(identity, here, inside);
+        if (!active && !relevant.has(solarSystemID) && !(since !== undefined && since > oneDayAgo)) continue;
+        rows.push({ ...identity, kind: "homefront", nameID: site.dungeonNameID, targetID: site.targetID ?? null,
+          jumps: solarSystemID === here ? 0 : jumps?.get(solarSystemID) ?? null, active });
+      }
+    }
+    return addTravelDungeonData(rows);
+  }
+
+  async function addTravelDungeonData<T extends Pick<DungeonJobDetails, "dungeonID" | "solarSystemID">>(
+    rows: readonly T[],
+  ): Promise<readonly (T & { data: DungeonData | null })[]> {
     if (!rows.length) return [];
     const data = await api.loadDungeons([...new Set(rows.map((row) => row.dungeonID))], callOptions).catch(() => null);
     requestNames([...new Set(rows.map((row) => row.solarSystemID))].map((id) => ({ kind: "system", id })));
@@ -21608,28 +21676,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function dungeonJobs(): Promise<readonly DungeonJob[]> {
     const here = store.station.get().online?.solarSystemID ?? null;
     askCurrentDungeon();
-    // The providers in the board's order, each tracker's call, its JUMPS_WHERE_DUNGEONS_ARE_ALWAYS_VISIBLE,
-    // JUMPS_WHERE_DUNGEONS_CAN_BE_VISIBLE and INCLUDE_SYSTEMS_IN_ROUTE (AnomaliesProvider's defaults 2, 5, True).
-    const PROVIDERS = [["combat", "GetCombatAnomalyInstances", 1, 1, false], ["ore", "GetOreAnomalyInstances", 1, 1, false],
-      ["ice", "GetIceBeltInstances", 1, 1, false], ["homefront", "GetHomefrontSiteInstances", 2, 5, true]] as const;
-    const [answers, jumps, route, warSites] = await Promise.all([
+    const PROVIDERS = [["combat", "GetCombatAnomalyInstances"], ["ore", "GetOreAnomalyInstances"], ["ice", "GetIceBeltInstances"]] as const;
+    const [answers, jumps, homefront, warSites] = await Promise.all([
       Promise.all(PROVIDERS.map(([, method]) => bridgeAsk("dungeonInstanceCacheMgr", method, []).catch(() => null))),
       here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
-      routeOfWaypoints().catch(() => null),
+      homefrontDungeonJobs(),
       warDungeonJobs(),
     ]);
-    const routeSystems = (route?.markers ?? []).map((marker) => marker.solarSystemID);
-    const shown: { solarSystemID: number; dungeonID: number; instanceID: number; kind: Exclude<DungeonJob["kind"], WarDungeonKind> }[] = PROVIDERS.flatMap(([kind, , always, canBe, withRoute], index) => {
-      const answer = answers[index];
-      if (answer === null || answer === undefined) return [];
-      const sites = decodeDungeonSites(answer);
-      return relevantDungeonSystems(sites, here, jumps, always, canBe, 20, withRoute ? routeSystems : []).flatMap((system) => (sites.get(system) ?? []).map((site) => ({ ...site, kind })));
+    const shown: { solarSystemID: number; dungeonID: number; instanceID: number; kind: "combat" | "ore" | "ice" | "signature" }[] = PROVIDERS.flatMap(([kind], index) => {
+      const sites = decodeDungeonSites(answers[index] ?? undefined);
+      return relevantDungeonSystems(sites, here, jumps, 1, 1, 20, []).flatMap((system) => (sites.get(system) ?? []).map((site) => ({ ...site, kind })));
     });
     // CosmicSignaturesProvider: the dungeon the pilot is in, where its entry is a signature (its data says), and it is
     // no site listed above.
     const inside = currentDungeon.get();
     if (inside !== null && inside.instanceID !== null && here !== null &&
-        !shown.some((s) => s.instanceID === inside.instanceID) && !warSites.some((s) => s.instanceID === inside.instanceID)) {
+        !shown.some((s) => s.instanceID === inside.instanceID) && !homefront.some((s) => s.instanceID === inside.instanceID) && !warSites.some((s) => s.instanceID === inside.instanceID)) {
       shown.push({ solarSystemID: here, dungeonID: inside.dungeonID, instanceID: inside.instanceID, kind: "signature" });
     }
     const data = await api.loadDungeons([...new Set(shown.map((s) => s.dungeonID))], callOptions).catch(() => null);
@@ -21641,7 +21703,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const resources = [...new Set(Object.values(data ?? {}).flatMap((d) => [...(d?.oreTypes ?? []), ...(d?.iceTypes ?? [])]))];
     if (resources.length) requestNames(resources.map((id) => ({ kind: "type" as const, id })));
     return [...shown.map((s) => ({ kind: s.kind, instanceID: s.instanceID, dungeonID: s.dungeonID, solarSystemID: s.solarSystemID, jumps: s.solarSystemID === here ? 0 : jumps?.get(s.solarSystemID) ?? null,
-      data: data?.[String(s.dungeonID)] ?? null, active: currentDungeon.get()?.instanceID === s.instanceID })), ...warSites];
+      data: data?.[String(s.dungeonID)] ?? null, active: currentDungeon.get()?.instanceID === s.instanceID })), ...homefront, ...warSites];
   }
   async function careerGoals(): Promise<readonly CareerGoal[] | null> {
     const rec = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? v as Record<string, unknown> : {});
@@ -35648,6 +35710,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     epicArcsChanged: readonlySignal(epicArcsChanged),
     dungeonJobs,
     warDungeonJobs,
+    homefrontDungeonJobs,
     activeDungeon: readonlySignal(currentDungeon),
     agencyAgents,
     agencyAgentOwners,

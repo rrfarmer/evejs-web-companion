@@ -1,12 +1,12 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
-  import type { WarDungeonIdentity } from "../bridge/dungeonJobs.ts";
+  import type { TrackedDungeonIdentity } from "../bridge/dungeonJobs.ts";
   import { plainText } from "../bridge/clientWords.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
-  import { setWarDungeonTracked, trackedJobsChanged, trackedWarDungeonJobs } from "./jobTracking.ts";
+  import { setDungeonTracked, trackedJobsChanged, trackedDungeonJobs } from "./jobTracking.ts";
 
-  let { store, flow, job }: { store: ClientStore; flow: AppFlow; job: WarDungeonIdentity } = $props();
+  let { store, flow, job }: { store: ClientStore; flow: AppFlow; job: TrackedDungeonIdentity } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -14,12 +14,12 @@
   const characterID = $derived($station.online?.characterID ?? null);
   const tracked = $derived.by(() => {
     void $trackedJobsChanged;
-    return trackedWarDungeonJobs(characterID).some((row) => row.kind === job.kind && row.instanceID === job.instanceID);
+    return trackedDungeonJobs(characterID).some((row) => row.kind === job.kind && row.instanceID === job.instanceID);
   });
   $effect(() => { flow.requestWords(["UI/Common/Track", "UI/Common/Untrack"]); });
 </script>
 
-<button type="button" class:tracked aria-pressed={tracked} disabled={!characterID} onclick={() => setWarDungeonTracked(characterID, job, !tracked)}>
+<button type="button" class:tracked aria-pressed={tracked} disabled={!characterID} onclick={() => setDungeonTracked(characterID, job, !tracked)}>
   <img alt="" src={clientTexture(tracked
     ? "res:/UI/Texture/eveicon/control_icons/camera_untrack_16px.png"
     : "res:/UI/Texture/eveicon/system_icons/visibility_16px.png")} />

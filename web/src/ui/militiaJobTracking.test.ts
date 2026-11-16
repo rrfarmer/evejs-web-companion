@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isFreelanceJobTracked, readTrackedMilitiaJob, setWarDungeonTracked, trackFreelanceJob, trackedJobsChanged, trackedMilitiaJob, trackedWarDungeonJobs, trackMilitiaJob, untrackMilitiaJob } from "./jobTracking.ts";
-import { dungeonTravelAction, dungeonTravelProgress, isCurrentDungeonSite, warDungeonCanBrowse, warDungeonJobID, warDungeonProviders } from "../bridge/dungeonJobs.ts";
+import { isFreelanceJobTracked, readTrackedMilitiaJob, setDungeonTracked, trackFreelanceJob, trackedJobsChanged, trackedMilitiaJob, trackedDungeonJobs, trackMilitiaJob, untrackMilitiaJob } from "./jobTracking.ts";
+import { dungeonTravelAction, dungeonTravelProgress, isCurrentDungeonSite, warDungeonCanBrowse, dungeonJobID, warDungeonProviders } from "../bridge/dungeonJobs.ts";
 
 test("war site travel uses the selected route, then the local scanner result", () => {
   const remote = { local: false, inside: false, docked: false, destinationSet: false, jumps: 2, targetID: null };
@@ -61,18 +61,20 @@ test("militia initiation replaces the pilot's previous faction and leaves other 
   const gallenteSite = { kind: "factional_warfare", instanceID: 150 } as const;
   const guristasSite = { kind: "pirate_insurgencies", instanceID: 150 } as const;
   const secondGuristasSite = { ...guristasSite, instanceID: 151 };
-  setWarDungeonTracked(140000001, gallenteSite, true);
-  setWarDungeonTracked(140000001, guristasSite, true);
-  setWarDungeonTracked(140000001, secondGuristasSite, true);
-  setWarDungeonTracked(140000002, guristasSite, true);
-  assert.deepEqual(trackedWarDungeonJobs(140000001).map(warDungeonJobID), ["factional_warfare:150", "pirate_insurgencies:150", "pirate_insurgencies:151"]);
+  const homefrontSite = { kind: "homefront", instanceID: 150 } as const;
+  setDungeonTracked(140000001, gallenteSite, true);
+  setDungeonTracked(140000001, guristasSite, true);
+  setDungeonTracked(140000001, secondGuristasSite, true);
+  setDungeonTracked(140000002, guristasSite, true);
+  setDungeonTracked(140000001, homefrontSite, true);
+  assert.deepEqual(trackedDungeonJobs(140000001).map(dungeonJobID), ["factional_warfare:150", "pirate_insurgencies:150", "pirate_insurgencies:151", "homefront:150"]);
   assert.deepEqual(Object.keys(JSON.parse(settings.get("evejs.play.140000001.tracked_opportunities_factional_warfare")!)), ["factional_warfare:150"]);
   const siteRevision = trackedJobsChanged.get();
-  setWarDungeonTracked(140000001, guristasSite, true);
+  setDungeonTracked(140000001, guristasSite, true);
   assert.equal(trackedJobsChanged.get(), siteRevision);
-  setWarDungeonTracked(140000001, guristasSite, false);
-  assert.deepEqual(trackedWarDungeonJobs(140000001).map(warDungeonJobID), ["factional_warfare:150", "pirate_insurgencies:151"]);
-  assert.deepEqual(trackedWarDungeonJobs(140000002).map(warDungeonJobID), ["pirate_insurgencies:150"]);
+  setDungeonTracked(140000001, guristasSite, false);
+  assert.deepEqual(trackedDungeonJobs(140000001).map(dungeonJobID), ["factional_warfare:150", "pirate_insurgencies:151", "homefront:150"]);
+  assert.deepEqual(trackedDungeonJobs(140000002).map(dungeonJobID), ["pirate_insurgencies:150"]);
   assert.equal(isFreelanceJobTracked(140000001, "test-freelance-job"), true);
 });
 

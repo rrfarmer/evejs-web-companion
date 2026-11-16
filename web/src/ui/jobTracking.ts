@@ -5,7 +5,7 @@
 
 import { createSignal, readonlySignal, type ReadableSignal } from "../store/signals.ts";
 import { militiaFactionID, type MilitiaFactionID } from "../bridge/militiaEnlistment.ts";
-import { WAR_DUNGEON_PROVIDERS, warDungeonJobID, type WarDungeonIdentity, type WarDungeonKind } from "../bridge/dungeonJobs.ts";
+import { WAR_DUNGEON_PROVIDERS, dungeonJobID, type TrackedDungeonIdentity, type TrackedDungeonKind, type WarDungeonKind } from "../bridge/dungeonJobs.ts";
 
 const PROVIDER_ID = "freelance_projects";
 const key = (characterID: number) => `evejs.play.${characterID}.tracked_opportunities_${PROVIDER_ID}`;
@@ -81,34 +81,35 @@ export function untrackMilitiaJob(characterID: number | null, factionID?: Militi
   changes.set(changes.get() + 1);
 }
 
-const warKey = (characterID: number, kind: WarDungeonKind) => `evejs.play.${characterID}.tracked_opportunities_${kind}`;
-function readWarJobs(characterID: number, kind: WarDungeonKind): Record<string, number> {
+const dungeonKey = (characterID: number, kind: TrackedDungeonKind) => `evejs.play.${characterID}.tracked_opportunities_${kind}`;
+function readDungeonJobs(characterID: number, kind: TrackedDungeonKind): Record<string, number> {
   try {
-    const value = JSON.parse(localStorage.getItem(warKey(characterID, kind)) ?? "{}");
+    const value = JSON.parse(localStorage.getItem(dungeonKey(characterID, kind)) ?? "{}");
     if (!value || typeof value !== "object" || Array.isArray(value)) return {};
     return Object.fromEntries(Object.entries(value).filter(([id, time]) => {
       const instanceID = Number(id.slice(kind.length + 1));
-      return Number.isSafeInteger(instanceID) && instanceID > 0 && id === warDungeonJobID({ kind, instanceID }) &&
+      return Number.isSafeInteger(instanceID) && instanceID > 0 && id === dungeonJobID({ kind, instanceID }) &&
         typeof time === "number" && Number.isFinite(time);
     })) as Record<string, number>;
   } catch { return {}; }
 }
 
-export function trackedWarDungeonJobs(characterID: number | null): readonly (WarDungeonIdentity & { readonly since: number })[] {
+export function trackedDungeonJobs(characterID: number | null): readonly (TrackedDungeonIdentity & { readonly since: number })[] {
   if (!characterID) return [];
-  return (Object.keys(WAR_DUNGEON_PROVIDERS) as WarDungeonKind[]).flatMap((kind) =>
-    Object.entries(readWarJobs(characterID, kind)).map(([key, since]) => ({
+  const kinds: TrackedDungeonKind[] = [...Object.keys(WAR_DUNGEON_PROVIDERS) as WarDungeonKind[], "homefront"];
+  return kinds.flatMap((kind) =>
+    Object.entries(readDungeonJobs(characterID, kind)).map(([key, since]) => ({
       kind, instanceID: Number(key.slice(kind.length + 1)), since,
     }))).sort((a, b) => a.since - b.since);
 }
 
-export function setWarDungeonTracked(characterID: number | null, job: WarDungeonIdentity, tracked: boolean): void {
+export function setDungeonTracked(characterID: number | null, job: TrackedDungeonIdentity, tracked: boolean): void {
   if (!characterID || !Number.isSafeInteger(job.instanceID) || job.instanceID <= 0) return;
-  const jobs = readWarJobs(characterID, job.kind);
-  const id = warDungeonJobID(job);
+  const jobs = readDungeonJobs(characterID, job.kind);
+  const id = dungeonJobID(job);
   if (Object.hasOwn(jobs, id) === tracked) return;
   if (tracked) jobs[id] = Date.now();
   else delete jobs[id];
-  try { localStorage.setItem(warKey(characterID, job.kind), JSON.stringify(jobs)); } catch { return; }
+  try { localStorage.setItem(dungeonKey(characterID, job.kind), JSON.stringify(jobs)); } catch { return; }
   changes.set(changes.get() + 1);
 }

@@ -5,25 +5,27 @@
   // (UI/Agency/ContentDifficulty: UI/Agency/LevelX, its hint ContentDifficultyTooltip) and the roaming enemies
   // (UI/Agency/RoamingEnemies: the faction where it is one and not factionUnknown, its hint RoamingEnemiesTooltip), the
   // resources (UI/Agency/OreTypesInBelt: the ore or ice types, in the set's order; the types' icons not here);
-  // then the archetype's section (its title and description). Not here: the ship restrictions, the scan result's ID,
-  // the call to action (the travel objective chain's enter_dungeon tasks: set destination, warp to).
+  // then the archetype's section. Homefront and war jobs use the travel objective chain and tracking controls.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, DungeonJob } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
-  import WarDungeonOpportunity from "./WarDungeonOpportunity.svelte";
+  import DungeonOpportunity from "./DungeonOpportunity.svelte";
+  import { openAgencyGroup } from "./agencyRequests.ts";
+
+  const HOMEFRONT_GROUP = 78; // contentGroupConst.contentGroupHomefrontSites
   let { store, flow, job, onBack }: { store: ClientStore; flow: AppFlow; job: DungeonJob; onBack: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
   const names = store.names;
   const d = $derived(job.data);
-  const nameID = $derived(("canBrowse" in job ? job.nameID : null) ?? d?.nameID);
+  const nameID = $derived(("nameID" in job ? job.nameID : null) ?? d?.nameID);
   const feature = $derived(d?.contentTags.find((t) => t.type === "feature") ?? null);
   const A = "UI/Agency/";
   $effect(() => {
-    flow.requestWords(["UI/Commands/Back", "UI/Common/Description", "UI/Dungeons/GameplayDescriptionHeader", A + "ContentDifficulty", A + "ContentDifficultyTooltip", A + "LevelX", A + "RoamingEnemies", A + "RoamingEnemiesTooltip", A + "OreTypesInBelt", A + "OreTypesInBeltTooltip",
+    flow.requestWords(["UI/Commands/Back", "UI/Opportunities/OpenAgency", "UI/Common/Description", "UI/Dungeons/GameplayDescriptionHeader", A + "ContentDifficulty", A + "ContentDifficultyTooltip", A + "LevelX", A + "RoamingEnemies", A + "RoamingEnemiesTooltip", A + "OreTypesInBelt", A + "OreTypesInBeltTooltip",
       ...[nameID, d?.descriptionID, d?.gameplayDescriptionID, d?.archetypeTitleID, d?.archetypeDescriptionID, feature?.title].filter((x): x is number => typeof x === "number").map((x) => `#${x}`)]);
   });
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: (k, id) => resolvedName($names.resolved, k, id, "") }));
@@ -33,17 +35,26 @@
   // DungeonJob.resources: the ore anomaly's ore types, the ice belt's ice types; none for a combat anomaly.
   const resources = $derived(job.kind === "ore" ? d?.oreTypes ?? [] : job.kind === "ice" ? d?.iceTypes ?? [] : []);
   const subtitle = $derived(job.kind !== "combat" ? "" : d?.difficulty ? (faction ? `${faction} - ${word(A + "LevelX", { level: d.difficulty })}` : word(A + "LevelX", { level: d.difficulty })) : faction);
+  const agencyLabel = $derived(word("UI/Opportunities/OpenAgency") || "Open The Agency");
 </script>
 
 <div class="dp">
-  <div><button class="dp-ghost" onclick={onBack}>{word("UI/Commands/Back") || "Back"}</button></div>
+  <div class="dp-top">
+    <button class="dp-ghost" onclick={onBack}>{word("UI/Commands/Back") || "Back"}</button>
+    {#if job.kind === "homefront"}
+      <button class="dp-ghost dp-agency" type="button" title={agencyLabel} aria-label={agencyLabel} onclick={() => openAgencyGroup(HOMEFRONT_GROUP)}>
+        <img alt="" src={clientTexture("res:/UI/Texture/eveicon/system_icons/open_window_16px.png")} />
+      </button>
+    {/if}
+  </div>
   <header class="dp-head">
     <span class="dp-caption">{#if feature?.icon}<img alt="" src={clientTexture(feature.icon)} />{/if}{feature?.title ? word(`#${feature.title}`) : ""}</span>
+    {#if job.kind === "homefront" && job.targetID}<span class="dp-caption">{job.targetID}</span>{/if}
     <h2>{nameID ? word(`#${nameID}`) : ""}</h2>
     <span class="dp-caption">{subtitle}</span>
     <span class="dp-caption">{resolvedName($names.resolved, "system", job.solarSystemID, "")}</span>
   </header>
-  {#if "canBrowse" in job}<WarDungeonOpportunity {store} {flow} {job} />{/if}
+  {#if "targetID" in job}<DungeonOpportunity {store} {flow} {job} />{/if}
   {#if d?.descriptionID}<section><h3>{word("UI/Common/Description")}</h3><p>{word(`#${d.descriptionID}`)}</p></section>{/if}
   {#if d?.gameplayDescriptionID || d?.difficulty || enemy || resources.length}
     <section><h3>{word("UI/Dungeons/GameplayDescriptionHeader")}</h3>
@@ -61,6 +72,9 @@
 
 <style>
   .dp { display: flex; flex-direction: column; gap: 8px; }
+  .dp-top { display: flex; align-items: center; justify-content: space-between; }
+  .dp-agency { display: grid; place-items: center; padding: 2px; }
+  .dp-agency img { width: 16px; height: 16px; }
   .dp-ghost { background: none; border: 1px solid rgba(255, 255, 255, 0.2); }
   .dp-head { padding: 16px; background: rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 4px; }
   .dp-caption { opacity: 0.8; display: flex; align-items: center; gap: 4px; }

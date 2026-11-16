@@ -9,7 +9,7 @@
   import { bracketIcon, loadBrackets } from "../play/brackets.ts";
   import { resolvedName } from "../store/names.ts";
   import { trackedJobsChanged } from "./jobTracking.ts";
-  import WarDungeonTrackButton from "./WarDungeonTrackButton.svelte";
+  import DungeonTrackButton from "./DungeonTrackButton.svelte";
 
   let { flow, store, system, label, word, provider, hub = null }: {
     flow: AppFlow;
@@ -122,7 +122,7 @@
 </ul>
 <div class="site-actions">
 {#if selected && trackableSite?.instanceID === selected.instanceID && trackableSite.systemID === system.solarSystemID}
-  <WarDungeonTrackButton {store} {flow} job={{ kind: provider, instanceID: selected.instanceID }} />
+  <DungeonTrackButton {store} {flow} job={{ kind: provider, instanceID: selected.instanceID }} />
 {/if}
 {#if system.solarSystemID !== here}
   <button class="primary" type="button" disabled={destinationSet} onclick={() => flow.setDestination(system.solarSystemID)}>

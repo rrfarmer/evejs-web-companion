@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AppFlow, WarDungeonJob } from "../app/flow.ts";
+  import type { AppFlow, TravelDungeonJob } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { formatTemplate, plainText, type TemplateArguments } from "../bridge/clientWords.ts";
   import { dungeonTravelAction, dungeonTravelProgress, isCurrentDungeonSite } from "../bridge/dungeonJobs.ts";
@@ -7,12 +7,12 @@
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { securityStatusColor, shownSecurity } from "../bridge/systemSecurity.ts";
   import { resolvedName } from "../store/names.ts";
-  import { openWarDungeonJob } from "./jobBoardRequests.ts";
+  import { openDungeonJob } from "./jobBoardRequests.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
-  import WarDungeonTrackButton from "./WarDungeonTrackButton.svelte";
+  import DungeonTrackButton from "./DungeonTrackButton.svelte";
 
   let { store, flow, job, expanded = true, onToggle }: {
-    store: ClientStore; flow: AppFlow; job: WarDungeonJob; expanded?: boolean; onToggle?: () => void;
+    store: ClientStore; flow: AppFlow; job: TravelDungeonJob; expanded?: boolean; onToggle?: () => void;
   } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -91,18 +91,18 @@
   }
 </script>
 
-<article class="war-opportunity">
+<article class="dungeon-opportunity">
   {#if onToggle}
     <header>
       <button type="button" class="view" title={word("UI/Opportunities/ViewOpportunity")} aria-label={word("UI/Opportunities/ViewOpportunity")}
-        onclick={() => openWarDungeonJob(job)}>
+        onclick={() => openDungeonJob(job)}>
         <img alt="" src={clientTexture(feature?.icon ?? "res:/UI/Texture/eveicon/system_icons/visibility_16px.png")} />
       </button>
       <button type="button" class="opportunity-title" aria-expanded={expanded} onclick={onToggle}>{title}</button>
     </header>
   {/if}
   <div class="actions">
-    <WarDungeonTrackButton {store} {flow} {job} />
+    <DungeonTrackButton {store} {flow} {job} />
     {#if !onToggle && action}
       <button type="button" disabled={busy || warping} onclick={() => void travel()}>{word(warping ? "UI/Inflight/Warping" : actionLabels[action])}</button>
     {/if}
@@ -132,7 +132,7 @@
 </article>
 
 <style>
-  .war-opportunity { margin: 6px 0; }
+  .dungeon-opportunity { margin: 6px 0; }
   header { display: flex; gap: 4px; }
   .view { flex: none; padding: 4px; }
   .view img { display: block; width: 16px; height: 16px; }

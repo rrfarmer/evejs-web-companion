@@ -56,8 +56,8 @@
   import { resolvedName } from "../store/names.ts";
   import FreelanceJobPage from "./FreelanceJobPage.svelte";
   import MilitiaOpportunity from "./MilitiaOpportunity.svelte";
-  import { trackedJobsChanged, trackedMilitiaJob, trackedWarDungeonJobs } from "./jobTracking.ts";
-  import { warDungeonJobID } from "../bridge/dungeonJobs.ts";
+  import { trackedJobsChanged, trackedMilitiaJob, trackedDungeonJobs } from "./jobTracking.ts";
+  import { dungeonJobID } from "../bridge/dungeonJobs.ts";
   import CorporationFreelanceForm from "./CorporationFreelanceForm.svelte";
   import type { FreelanceProject } from "../app/flow.ts";
   let { store, flow, openCorporation, showAgents }: { store: ClientStore; flow: AppFlow; openCorporation?: () => void; showAgents?: () => void } = $props();
@@ -128,9 +128,9 @@
   let openDungeon = $state<Pick<DungeonJob, "kind" | "instanceID"> | null>(null);
   const trackedDungeonIDs = $derived.by(() => {
     void $trackedJobsChanged;
-    return new Set(trackedWarDungeonJobs($station.online?.characterID ?? null).map(warDungeonJobID));
+    return new Set(trackedDungeonJobs($station.online?.characterID ?? null).map(dungeonJobID));
   });
-  const activeDungeons = $derived(dungeons.filter((d) => d.active || ("canBrowse" in d && trackedDungeonIDs.has(warDungeonJobID(d)))));
+  const activeDungeons = $derived(dungeons.filter((d) => d.active || ("targetID" in d && trackedDungeonIDs.has(dungeonJobID(d)))));
   const shownDungeons = $derived(tab === "browse" ? dungeons.filter((d) => d.kind !== "signature" && (!("canBrowse" in d) || d.canBrowse)) : tab === "active" ? activeDungeons : []);
   const dungeonOpen = $derived(dungeons.find((d) => d.kind === openDungeon?.kind && d.instanceID === openDungeon.instanceID) ?? null);
   $effect(() => {
@@ -139,6 +139,7 @@
     void $anomaliesChanged;
     void $waypoints;
     void $flight.status?.solarSystemID;
+    void $flight.status?.docked;
     void $station.online?.warFactionID;
     let current = true;
     void flow.dungeonJobs().then((rows) => { if (current) dungeons = rows; }, () => {});

@@ -33,12 +33,12 @@
   import { approachedBallID } from "../space/actionIndication.ts";
   import type { JsonValue } from "../bridge/wire.ts";
   import type { ClientStore } from "../store/clientStore.ts";
-  import type { AppFlow, WarDungeonJob } from "../app/flow.ts";
+  import type { AppFlow, TravelDungeonJob } from "../app/flow.ts";
   import type { JournalMission, MissionSpot } from "../store/types.ts";
   import type { FreelanceJob } from "../app/flow.ts";
-  import { trackedFreelanceJobs, trackedJobsChanged, trackedMilitiaJob, trackedWarDungeonJobs, untrackFreelanceJob } from "./jobTracking.ts";
-  import { warDungeonJobID } from "../bridge/dungeonJobs.ts";
-  import WarDungeonOpportunity from "./WarDungeonOpportunity.svelte";
+  import { trackedFreelanceJobs, trackedJobsChanged, trackedMilitiaJob, trackedDungeonJobs, untrackFreelanceJob } from "./jobTracking.ts";
+  import { dungeonJobID } from "../bridge/dungeonJobs.ts";
+  import DungeonOpportunity from "./DungeonOpportunity.svelte";
   import MilitiaOpportunity from "./MilitiaOpportunity.svelte";
   import { openJobBoard } from "./jobBoardRequests.ts";
 
@@ -67,6 +67,8 @@
   const anomaliesChanged = flow.agencyAnomaliesChanged;
   // svelte-ignore state_referenced_locally
   const routeSettings = flow.routeSettings;
+  // svelte-ignore state_referenced_locally
+  const activeDungeon = flow.activeDungeon;
 
   onMount(() => {
     flow.refreshMissionTracker();
@@ -92,25 +94,27 @@
     void Promise.all(ids.map((id) => flow.freelanceJob(id).catch(() => null))).then((jobs) => { freelance = jobs.filter((j): j is FreelanceJob => j !== null); });
   });
   const militia = $derived.by(() => { void $trackedJobsChanged; return $station.online?.warFactionID ? null : trackedMilitiaJob(me); });
-  let warJobs = $state<readonly WarDungeonJob[]>([]);
-  let expandedWarJob = $state<string | null | undefined>(undefined);
-  const expandedWarJobID = $derived(expandedWarJob === undefined || (expandedWarJob !== null && !warJobs.some((job) => warDungeonJobID(job) === expandedWarJob))
-    ? (warJobs[0] ? warDungeonJobID(warJobs[0]) : null) : expandedWarJob);
+  let dungeonJobs = $state<readonly TravelDungeonJob[]>([]);
+  let expandedDungeon = $state<string | null | undefined>(undefined);
+  const expandedDungeonID = $derived(expandedDungeon === undefined || (expandedDungeon !== null && !dungeonJobs.some((job) => dungeonJobID(job) === expandedDungeon))
+    ? (dungeonJobs[0] ? dungeonJobID(dungeonJobs[0]) : null) : expandedDungeon);
   $effect(() => {
     void $trackedJobsChanged;
     void $anomaliesChanged;
     void $routeSettings;
+    void $activeDungeon?.instanceID;
     void solarSystemID;
+    void status?.docked;
     void $station.online?.warFactionID;
-    const order = new Map(trackedWarDungeonJobs(me).map((job, i) => [warDungeonJobID(job), i]));
-    if (!order.size) { warJobs = []; return; }
+    const order = new Map(trackedDungeonJobs(me).map((job, i) => [dungeonJobID(job), i]));
+    if (!order.size) { dungeonJobs = []; return; }
     let current = true;
-    void flow.warDungeonJobs(true).then((jobs) => {
-      if (current) warJobs = [...jobs].sort((a, b) => (order.get(warDungeonJobID(a)) ?? 0) - (order.get(warDungeonJobID(b)) ?? 0));
+    void Promise.all([flow.warDungeonJobs(true), flow.homefrontDungeonJobs(true)]).then(([war, homefront]) => {
+      if (current) dungeonJobs = [...war, ...homefront].sort((a, b) => (order.get(dungeonJobID(a)) ?? 0) - (order.get(dungeonJobID(b)) ?? 0));
     }, () => {});
     return () => { current = false; };
   });
-  $effect(() => { onCount?.(missions.length + freelance.length + warJobs.length + (militia === null ? 0 : 1)); });
+  $effect(() => { onCount?.(missions.length + freelance.length + dungeonJobs.length + (militia === null ? 0 : 1)); });
   const jobProgress = (j: FreelanceJob) => (j.project.target ? j.project.current / j.project.target : 0);
   const jobProgressText = (j: FreelanceJob) => (!j.project.target ? "" : j.project.target >= 100 ? `${Math.floor(jobProgress(j) * 100)}%`
     : `${j.project.current.toLocaleString("en-US")}/${j.project.target.toLocaleString("en-US")}`);
@@ -353,7 +357,7 @@
 
 <section class="panel mission-tracker" class:embedded>
   {#if !embedded}<h2 class="panel-title">{word("UI/Opportunities/WindowTitle", "Tracked")}</h2>{/if}
-  {#if missions.length === 0 && freelance.length === 0 && warJobs.length === 0 && militia === null && !embedded}
+  {#if missions.length === 0 && freelance.length === 0 && dungeonJobs.length === 0 && militia === null && !embedded}
     <p class="empty">{$agents.journal === null ? "Reading the journal…" : "No mission is accepted."}</p>
   {/if}
   {#each missions as mission (mission.agentID)}
@@ -383,10 +387,10 @@
     </article>
   {/each}
   {#if militia !== null}<MilitiaOpportunity {store} {flow} factionID={militia} />{/if}
-  {#each warJobs as job (warDungeonJobID(job))}
-    {@const key = warDungeonJobID(job)}
-    <WarDungeonOpportunity {store} {flow} {job} expanded={expandedWarJobID === key}
-      onToggle={() => { expandedWarJob = expandedWarJobID === key ? null : key; }} />
+  {#each dungeonJobs as job (dungeonJobID(job))}
+    {@const key = dungeonJobID(job)}
+    <DungeonOpportunity {store} {flow} {job} expanded={expandedDungeonID === key}
+      onToggle={() => { expandedDungeon = expandedDungeonID === key ? null : key; }} />
   {/each}
   {#each freelance as j (j.project.projectID)}
     {@const pct = Math.min(1, jobProgress(j))}

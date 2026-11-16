@@ -22,7 +22,7 @@
   // NumberOfSitesInSystem; HomefrontSiteInfoContainer: the sites, the chosen one's gameplay description (under
   // UI/Dungeons/GameplayDescriptionHeader) and its lore (UI/Common/Description); the Information the archetype's title.
   // Not here (later parts): the region distance, the system's other actions in it (warp to a scanned site), the enemy's
-  // logo and the region's pirate faction for a belt (GetPirateFactionsOfRegion), the job's Track button, the tooltips,
+  // logo and the region's pirate faction for a belt (GetPirateFactionsOfRegion), the tooltips,
   // the extra types' tooltip, the signature pages.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
@@ -33,6 +33,9 @@
   import { DEFAULT_SITE_FILTERS, type AgencySiteFilters, type AgencySiteSystem, type SiteTrackerKind } from "../bridge/agencySites.ts";
   import { resultColor } from "../bridge/probeResults.ts";
   import { typeIconUrl } from "./typeIcons.ts";
+  import { panelErrorWords } from "../bridge/refusals.ts";
+  import DungeonTrackButton from "./DungeonTrackButton.svelte";
+  import { trackedJobsChanged } from "./jobTracking.ts";
 
   let { store, flow, kind = "combat", filters = $bindable(DEFAULT_SITE_FILTERS) }: { store: ClientStore; flow: AppFlow; kind?: SiteTrackerKind | "signature" | "escalation" | "belts"; filters?: AgencySiteFilters } = $props();
   const escalations = $derived(kind === "escalation");
@@ -59,18 +62,48 @@
   const flight = store.flight;
   // svelte-ignore state_referenced_locally
   const waypoints = flow.waypoints;
+  // svelte-ignore state_referenced_locally
+  const warpDistance = flow.warpDistance;
+  // svelte-ignore state_referenced_locally
+  const anomaliesChanged = flow.agencyAnomaliesChanged;
 
   const word = (label: string, args: TemplateArguments = {}) => plainText(formatTemplate($words.templates[label] ?? "", args, { nameOf: (kind, id) => resolvedName($names.resolved, kind, id, "") }));
   let systems = $state<readonly AgencySiteSystem[] | null | undefined>(undefined);
   let chosen = $state<number | null>(null), site = $state(0);
-  let asked = 0;
   $effect(() => {
-    const f = filters, k = kind, n = ++asked;
-    systems = undefined;
-    void (k === "signature" ? flow.agencySignatures(f) : k === "escalation" ? flow.agencyEscalations() : k === "belts" ? flow.agencyAsteroidBelts(f) : flow.agencyTrackerSites(k, f)).then((list) => { if (n !== asked) return; systems = list; chosen = list?.[0]?.solarSystemID ?? null; site = 0; });
+    const f = filters, k = kind;
+    if (k === "homefront") {
+      void hereSystem;
+      void docked;
+      void $anomaliesChanged;
+    } else systems = undefined;
+    let current = true;
+    void (k === "signature" ? flow.agencySignatures(f) : k === "escalation" ? flow.agencyEscalations() : k === "belts" ? flow.agencyAsteroidBelts(f) : flow.agencyTrackerSites(k, f)).then((list) => {
+      if (!current || (list === null && k === "homefront" && systems)) return;
+      const selected = k === "homefront" ? list?.find((row) => row.solarSystemID === chosen) : null;
+      const index = selected?.sites.findIndex((row) => row?.instanceID === chosenSite?.instanceID) ?? -1;
+      systems = list;
+      chosen = selected?.solarSystemID ?? list?.[0]?.solarSystemID ?? null;
+      site = Math.max(index, 0);
+    }, () => { if (current && systems === undefined) systems = null; });
+    return () => { current = false; };
   });
   const chosenSystem = $derived(systems?.find((s) => s.solarSystemID === chosen) ?? null);
   const chosenSite = $derived(chosenSystem?.sites[site]);
+  let homefrontJobs = $state<ReadonlySet<number>>(new Set());
+  $effect(() => {
+    if (!homefront) return;
+    void hereSystem;
+    void docked;
+    void $waypoints;
+    void $anomaliesChanged;
+    void $trackedJobsChanged;
+    let current = true;
+    void flow.homefrontDungeonJobs().then((jobs) => {
+      if (current) homefrontJobs = new Set(jobs.map((job) => job.instanceID));
+    }, () => {});
+    return () => { current = false; };
+  });
   // GetArchetype(dunArchetypeHomefrontSites).titleID: any Homefront site's dungeon's archetype title.
   const archetypeTitle = $derived((systems ?? []).flatMap((s) => Object.values(s.siteTexts ?? {}).map((t) => t.archetypeTitleID)).find((x) => !!x) ?? null);
   $effect(() => {
@@ -79,7 +112,7 @@
       "UI/Agency/LevelX", "UI/Common/Unknown", "UI/Agency/RoamingEnemies", "UI/Common/NothingFound", "UI/Common/Location", "UI/Generic/CurrentSystem", "UI/Common/WithinJumps",
       "UI/Agency/ContentOfAnyDistance", "Tooltips/CharacterSheet/SecurityStatus", "UI/Agency/AnySecurity", "UI/Common/HighSec", "UI/Common/LowSec", "UI/Common/NullSec",
       "UI/Calendar/CalendarWindow/Filters", "UI/Commands/ResetAll", "UI/Agency/resetAllPageFilters", "UI/Common/Information", "UI/Agency/CombatSiteTypes",
-      "UI/Neocom/UndockBtn", "UI/Inflight/SetDestination", "UI/Inflight/DestinationSet", "UI/Agency/NumberOfBeltsInSystem", "UI/Agency/BeltsInSystem",
+      "UI/Neocom/UndockBtn", "UI/Inflight/SetDestination", "UI/Inflight/DestinationSet", "UI/Inflight/WarpToBookmark", "UI/Inflight/Warping", "UI/Agency/NumberOfBeltsInSystem", "UI/Agency/BeltsInSystem",
       "UI/Agency/OreTypesInBelt", "UI/Agency/NumberOfSignaturesInSystem", "UI/Agency/SignaturesInSystem", "UI/Agency/SignaturesNote", "UI/Agency/NumberOfEscalationsInSystem", "UI/Agency/EscalationsInSystem",
       "UI/Locations/LocationAsteroidBeltFormatter", "UI/Ledger/OreTypeFilter", "UI/Generic/Any", "UI/Agency/EscalationDescription", "UI/Market/Marketbase/ExpiresIn", "UI/Agency/NumberOfSitesInSystem", "UI/Dungeons/GameplayDescriptionHeader", "UI/Common/Description",
       UNKNOWN[kind], ...INFO[kind], ...(systems ?? []).flatMap((s) => Object.values(s.siteTexts ?? {}).flatMap((t) => [t.descriptionID, t.gameplayDescriptionID, t.archetypeTitleID])).filter((x): x is number => !!x).map((x) => `#${x}`),
@@ -88,25 +121,40 @@
 
   const hereStation = $derived($station.online?.stationID ?? null);
   const hereSystem = $derived($flight.status?.solarSystemID ?? $station.online?.solarSystemID ?? null);
+  const docked = $derived($flight.status?.docked ?? hereStation !== null);
+  const warping = $derived($flight.status?.shipMode === "WARP");
   const secText = (s: AgencySiteSystem) => (s.security === null ? "" : shownSecurity(s.security).toFixed(1));
   /** GetSystemAndSecurityText. */
   const systemText = (s: AgencySiteSystem) => word("UI/Agency/Location", { location: s.solarSystemID, secStatus: secText(s) });
   /** GetNumJumpsText. */
   const jumpsText = (s: AgencySiteSystem) => (s.solarSystemID === hereSystem ? word("UI/Generic/CurrentSystem")
     : s.jumps !== null ? word("UI/Common/NumJumps", { numJumps: s.jumps }) : word("UI/Generic/NoGateToGateRoute"));
-  type Action = "undock" | "setDestination" | "destinationSet" | null;
-  const LABEL: Record<Exclude<Action, null>, string> = { undock: "UI/Neocom/UndockBtn", setDestination: "UI/Inflight/SetDestination", destinationSet: "UI/Inflight/DestinationSet" };
+  type Action = "undock" | "setDestination" | "destinationSet" | "warp" | null;
+  const LABEL: Record<Exclude<Action, null>, string> = { undock: "UI/Neocom/UndockBtn", setDestination: "UI/Inflight/SetDestination",
+    destinationSet: "UI/Inflight/DestinationSet", warp: "UI/Inflight/WarpToBookmark" };
   function actionOf(s: AgencySiteSystem): Action {
-    if (s.solarSystemID === hereSystem) return hereStation !== null ? "undock" : null;
+    if (s.solarSystemID === hereSystem) {
+      if (docked) return "undock";
+      return homefront && chosenSite?.targetID ? "warp" : null;
+    }
     const last = $waypoints[$waypoints.length - 1];
     return last === s.solarSystemID ? "destinationSet" : "setDestination";
   }
   let busy = $state(false);
+  let error = $state<string | null>(null);
+  $effect(() => { void chosenSite?.instanceID; error = null; });
   async function act(s: AgencySiteSystem): Promise<void> {
     const action = actionOf(s);
     if (busy || action === null || action === "destinationSet") return;
     busy = true;
-    try { if (action === "undock") await flow.undock(); else flow.setDestination(s.solarSystemID); } finally { busy = false; }
+    error = null;
+    try {
+      if (action === "undock") await flow.undock();
+      else if (action === "warp" && chosenSite?.targetID) await flow.warpToProbeResult(chosenSite.targetID, $warpDistance || 0);
+      else if (action === "setDestination") await flow.setDestination(s.solarSystemID);
+    } catch (cause) {
+      error = panelErrorWords(cause);
+    } finally { busy = false; }
   }
   // FormatTimeIntervalShortWritten of the time left (ticking each second, as UpdateExpiryTimeThread each 100 ms).
   let nowMs = $state(Date.now());
@@ -187,7 +235,19 @@
         <h4>{word("UI/Agency/RoamingEnemies")}</h4>
         <p>{chosenSite?.factionID ? resolvedName($names.resolved, "owner", chosenSite.factionID, "") : word("UI/Common/Unknown")}</p>
       {/if}
-      {#if action}<div class="asi-buttons"><button type="button" disabled={busy || action === "destinationSet"} onclick={() => void act(s)}>{word(LABEL[action])}</button></div>{/if}
+      {#if action || (homefront && chosenSite && homefrontJobs.has(chosenSite.instanceID))}
+        <div class="asi-buttons">
+          {#if homefront && chosenSite && homefrontJobs.has(chosenSite.instanceID)}
+            <DungeonTrackButton {store} {flow} job={{ kind: "homefront", instanceID: chosenSite.instanceID }} />
+          {/if}
+          {#if action}
+            <button type="button" disabled={busy || action === "destinationSet" || (action === "warp" && warping)} onclick={() => void act(s)}>
+              {word(action === "warp" && warping ? "UI/Inflight/Warping" : LABEL[action])}
+            </button>
+          {/if}
+        </div>
+      {/if}
+      {#if error}<p role="status">{error}</p>{/if}
     {/if}
   </section>
 </div>
@@ -229,5 +289,5 @@
   .asi-none { text-align: center; opacity: 0.6; font-size: 12px; }
   .asi-details h4 { margin: 12px 0 2px; font-size: 12px; font-weight: 400; opacity: 0.7; }
   .asi-details p { margin: 0; font-size: 13px; }
-  .asi-buttons { display: flex; justify-content: flex-end; padding-top: 10px; }
+  .asi-buttons { display: flex; justify-content: flex-end; gap: 6px; padding-top: 10px; }
 </style>
