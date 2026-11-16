@@ -21,7 +21,7 @@ const HERE = "UI/Map/StarMap/lblYouAreHere";
 // MapTagConsumer inherits BaseRefreshingContentConsumer's 60-second update interval.
 const PHASED_REFRESH_MS = 60_000;
 
-export function mountStarMapFilterControls(map: StarMap, session: Session): () => void {
+export function mountStarMapFilterControls(map: StarMap, session: Session) {
   const controls = document.createElement("div");
   controls.className = "star-map-filters";
   const label = document.createElement("label"), caption = document.createElement("span");
@@ -79,7 +79,7 @@ export function mountStarMapFilterControls(map: StarMap, session: Session): () =
       if (row.dungeonNameIDs?.length) return row.dungeonNameIDs.map(id => word(`#${id}`, `#${id}`)).join("\n");
       return word(ORE_HINT, `${row.count} ore anomalies`, { num: row.count });
     }, count => mode === "ore" ? word(ORE_CLUSTER_HINT, `${count} sites detected`, { num: count })
-      : word(FILTER_CLUSTER_HINT, word(MAP_COLOR_MODES.phased.label, MAP_COLOR_MODES.phased.fallback), { num: count }));
+      : word(FILTER_CLUSTER_HINT, word(MAP_COLOR_MODES[mode].label, MAP_COLOR_MODES[mode].fallback), { num: count }));
   }
   async function refresh(reason: "filter" | "arrival" | "checkpoint" = "filter"): Promise<void> {
     clearTimeout(refreshTimer);
@@ -116,10 +116,13 @@ export function mountStarMapFilterControls(map: StarMap, session: Session): () =
     }
     render();
   }
-  select.onchange = () => {
-    mode = select.value as StarMapColorMode;
+  function setMode(next: StarMapColorMode, focus = false) {
+    mode = next;
+    select.value = next;
+    if (focus) select.focus();
     void refresh();
-  };
+  }
+  select.onchange = () => setMode(select.value as StarMapColorMode);
   const pilotSystem = () => sessionPlace(session.store.flight.get().status, session.store.station.get().online).solarSystemID;
   let current = pilotSystem();
   map.setPilotSystem(current);
@@ -138,12 +141,13 @@ export function mountStarMapFilterControls(map: StarMap, session: Session): () =
   const stopWords = session.store.words.subscribe(render);
   session.flow.requestWords([LABEL, MINING, NPC, PROJECTED, PRECISE, ORE_HINT, ORE_CLUSTER_HINT, FILTER_CLUSTER_HINT, PHASED_HINT, CONVOY_HINT, NO_DATA, AGENCY, HERE,
     ...options.map(({ definition }) => definition.label)]);
-  return () => {
+  function dispose() {
     ++request;
     clearTimeout(refreshTimer);
     stopFlight();
     stopWords();
     stopStation();
     controls.remove();
-  };
+  }
+  return { setMode, dispose };
 }

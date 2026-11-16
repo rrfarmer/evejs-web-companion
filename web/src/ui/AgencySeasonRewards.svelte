@@ -38,7 +38,7 @@
   }
 </script>
 
-<div class="rewards">
+<div class="rewards" class:vanguard>
   <div class="earned">
     <img src={pointsIcon} alt="" />
     <strong>{points.toLocaleString()}</strong>
@@ -86,6 +86,10 @@
   .earned img { width: 48px; }
   .earned strong { font-size: 24px; }
   .earned span { grid-column: 1 / -1; color: rgb(255 255 255 / 55%); margin-left: 8px; }
+  .vanguard { display: block; }
+  .vanguard .earned { height: 84px; box-sizing: border-box; padding-top: 4px; grid-template-rows: auto 48px; }
+  .vanguard .earned span { grid-row: 1; margin-left: 0; font-size: 16px; font-weight: 700; }
+  .vanguard .earned strong { font-size: 29px; }
   .scroll { flex: 1; min-width: 0; overflow-x: auto; }
   .track { height: 114px; padding: 12px 25px 0; box-sizing: border-box; }
   .rail { position: relative; height: 100%; }

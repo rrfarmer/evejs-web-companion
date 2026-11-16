@@ -3894,6 +3894,7 @@ export interface AppFlow {
   }>;
   selectAgencySeason(seasonID: number): Promise<Awaited<ReturnType<AppFlow["agencySeasons"]>> | null>;
   agencySeasonProgress(): Promise<ReturnType<typeof decodeAgencySeasonProgress>>;
+  agencyVanguardActivity(): Promise<{ percent: number; convoyCount: number } | null>;
   readonly agencySeasonProgressChanged: ReadableSignal<number>;
   readonly agencySeasonCue: ReadableSignal<"scope_complete_task_play" | "scope_earn_rewards_play" | null>;
   claimAgencySeasonReward(seasonID: number, kind: "challenge" | "goal", id: number): Promise<NonNullable<ReturnType<typeof decodeAgencySeasonProgress>>>;
@@ -21116,6 +21117,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     return row;
   }
+  async function agencyVanguardActivity(): ReturnType<AppFlow["agencyVanguardActivity"]> {
+    // CommunityProgressBar always refreshes instance 1337, then uses the definition it returns.
+    const row = await bridgeAsk("communityTrackMgr", "get_instance_attributes_public", [1337]);
+    if (!Array.isArray(row)) return null;
+    const [definitionID, progress] = row.map(value => Number(unwrapLong(value) ?? (typeof value === "number" ? value : NaN)));
+    if (!definitionID || !Number.isSafeInteger(definitionID) || definitionID < 0 ||
+        progress === undefined || !Number.isSafeInteger(progress) || progress < 0) return null;
+    const definition = await api.loadVanguardTrackDefinition(definitionID, callOptions);
+    if (!definition?.goal) return null;
+    const systems = await vanguardConvoys(definition.templates);
+    return { percent: Math.floor(progress / definition.goal * 100), convoyCount: systems.reduce((sum, row) => sum + row.count, 0) };
+  }
   async function claimAgencySeasonReward(seasonID: number, kind: "challenge" | "goal", id: number): ReturnType<AppFlow["claimAgencySeasonReward"]> {
     const current = callOptions.captureRequestGuard!();
     const before = await agencySeasonProgress();
@@ -21880,17 +21893,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return { jumps: distances?.get(systemID) ?? null, advantage };
   }
 
+  async function vanguardConvoys(templates: readonly number[]): Promise<StarMapActivity[]> {
+    const results = await Promise.all(templates.map(id => bridgeAsk("taleMgr", "get_active_tales_by_template", [id])));
+    if (results.some(result => !Array.isArray(result) && !isListValue(result))) throw new Error("EveJS did not return the active tales.");
+    return convoyActivities(results);
+  }
+
   async function starMapActivity(mode: StarMapActivityMode) {
     if (mode === "phased") {
       const ids = await api.loadPhasedFieldSystems(callOptions);
       return { systems: ids.map(systemID => ({ systemID, count: 1 })), homeSystemID: null };
     }
     if (mode === "convoys") {
-      const templates = await api.loadVanguardConvoyTemplates(callOptions);
-      if (!templates) throw new Error("The client's Vanguard Nemesis templates could not be read.");
-      const results = await Promise.all(templates.map(id => bridgeAsk("taleMgr", "get_active_tales_by_template", [id])));
-      if (results.some(result => !Array.isArray(result) && !isListValue(result))) throw new Error("EveJS did not return the active tales.");
-      return { systems: convoyActivities(results), homeSystemID: null };
+      const definition = await api.loadVanguardTrackDefinition(1, callOptions);
+      if (!definition) throw new Error("The client's Vanguard Nemesis templates could not be read.");
+      return { systems: await vanguardConvoys(definition.templates), homeSystemID: null };
     }
     const here = sessionPlace(store.flight.get().status, store.station.get().online).solarSystemID;
     const [counts, precise, home] = await Promise.all([
@@ -35642,6 +35659,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencySeasons,
     selectAgencySeason,
     agencySeasonProgress,
+    agencyVanguardActivity,
     agencySeasonProgressChanged: readonlySignal(agencySeasonProgressChanged),
     agencySeasonCue: readonlySignal(agencySeasonCue),
     claimAgencySeasonReward,

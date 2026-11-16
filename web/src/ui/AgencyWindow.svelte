@@ -60,7 +60,9 @@
   import { DEFAULT_ESS_FILTERS } from "../bridge/agencyEss.ts";
   import { AGENT_PROVIDERS, DEFAULT_AGENT_FILTERS, type AgencyAgentFilters } from "../bridge/agencyAgents.ts";
 
-  let { store, flow, showTravel, onOpenTab }: { store: ClientStore; flow: AppFlow; showTravel?: () => void; onOpenTab?: (tab: string) => void } = $props();
+  let { store, flow, showTravel, onOpenTab, onShowConvoys }: {
+    store: ClientStore; flow: AppFlow; showTravel?: () => void; onOpenTab?: (tab: string) => void; onShowConvoys?: () => void;
+  } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -233,7 +235,7 @@
     {:else if groupID === CAMPAIGNS}
       <div class="ag-page"><AgencyCampaignsPage {store} {flow} {onOpenTab} /></div>
     {:else if groupID === SEASONS && seasons.active}
-      <div class="ag-page"><AgencySeasonPage {store} {flow} season={seasons.active} onfanfare={(reward) => { fanfare = reward; }} /></div>
+      <div class="ag-page"><AgencySeasonPage {store} {flow} season={seasons.active} {onShowConvoys} onfanfare={(reward) => { fanfare = reward; }} /></div>
     {:else if groupID === SEASONS && seasons.choices.length}
       <div class="ag-page"><AgencySeasonSelection {store} {flow} {seasons} onchange={(next) => { seasons = next; }} /></div>
     {:else if groupID === FLEET_UP_REGISTER}

@@ -14454,12 +14454,18 @@ app.get("/api/client-data/warzone-positions", requireAuth, async (_req, res, nex
   } catch (error) { next(error); }
 });
 
-app.get("/api/client-data/vanguard-convoy-templates", requireAuth, async (_req, res, next) => {
+app.get("/api/client-data/vanguard-convoy-templates", requireAuth, async (req, res, next) => {
   try {
-    // MapFilterVanguardNemesisConvoys reads community track definition 1's tales.
+    // The map uses definition 1. Agency uses the definition returned for the live track.
+    const definitionID = req.query.definitionID === undefined ? 1 : Number(req.query.definitionID);
+    if (!Number.isSafeInteger(definitionID) || definitionID <= 0) {
+      res.status(400).json({ ok: false, error: "INVALID_COMMUNITY_TRACK_DEFINITION" });
+      return;
+    }
     const table = await clientBuiltData.table("communityTrackTemplates");
-    const templates = table?.[1]?.tale_templates;
-    res.json({ ok: true, templates: Array.isArray(templates) ? templates : null });
+    const { goal, tale_templates: templates } = table?.[definitionID] ?? {};
+    res.json({ ok: true, goal: Number.isSafeInteger(goal) && goal > 0 ? goal : null,
+      templates: Array.isArray(templates) ? templates : null });
   } catch (error) { next(error); }
 });
 

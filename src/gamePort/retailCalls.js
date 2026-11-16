@@ -832,6 +832,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "seasonManager.get_season_data_for_character", "seasonManager.get_character_progress_by_character_id",
   "seasonManager.select_season",
   "seasonManager.claim_challenge_rewards", "seasonManager.claim_goal_reward",
+  "communityTrackMgr.get_instance_attributes_public",
   // The logon told to the milestone manager, which the client's milestone service tells as a character comes onto
   // the session. The gateway's list has nothing of the milestone manager's.
   "milestoneMgr.ProcessCharacterLogon",

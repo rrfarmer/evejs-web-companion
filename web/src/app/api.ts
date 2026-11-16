@@ -2661,9 +2661,13 @@ export async function loadPhasedFieldSystems(options: ApiOptions = {}): Promise<
   return Array.isArray(systems) ? systems.filter((id): id is number => typeof id === "number") : [];
 }
 
-export async function loadVanguardConvoyTemplates(options: ApiOptions = {}): Promise<readonly number[] | null> {
-  const { templates } = await getJson("/api/client-data/vanguard-convoy-templates", options);
-  return Array.isArray(templates) ? templates.filter((id): id is number => typeof id === "number" && Number.isSafeInteger(id) && id > 0) : null;
+export async function loadVanguardTrackDefinition(definitionID: number, options: ApiOptions = {}) {
+  const { goal, templates } = await getJson(`/api/client-data/vanguard-convoy-templates?definitionID=${definitionID}`, options);
+  if (!Array.isArray(templates)) return null;
+  return {
+    goal: typeof goal === "number" && Number.isSafeInteger(goal) && goal > 0 ? goal : null,
+    templates: templates.filter((id): id is number => typeof id === "number" && Number.isSafeInteger(id) && id > 0),
+  };
 }
 
 export async function loadSeasonSelection(options: ApiOptions = {}): Promise<unknown> {

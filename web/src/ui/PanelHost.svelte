@@ -71,6 +71,7 @@
     onClose,
     sessions,
     onGoToPilot,
+    onShowConvoys,
   }: {
     store: ClientStore;
     flow: AppFlow;
@@ -96,6 +97,7 @@
      * are ABOUT a pilot you are not currently flying.
      */
     onGoToPilot?: (sessionID: string) => void;
+    onShowConvoys?: () => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -185,7 +187,7 @@
 {:else if tab === "jobBoard"}
   <JobBoardWindow {store} {flow} openCorporation={() => onOpen?.("corporation")} showAgents={() => onOpen?.("agents")} />
 {:else if tab === "finder"}
-  <AgencyWindow {store} {flow} showTravel={() => onOpen?.("travel")} onOpenTab={(tab) => onOpen?.(tab as never)} />
+  <AgencyWindow {store} {flow} {onShowConvoys} showTravel={() => onOpen?.("travel")} onOpenTab={(tab) => onOpen?.(tab as never)} />
 {:else if tab === "theatersOfWar"}
   <TheatersOfWar {store} {flow} />
 {:else if tab === "flight"}

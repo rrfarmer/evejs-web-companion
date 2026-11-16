@@ -8,12 +8,14 @@
   import LabelText from "./LabelText.svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import AgencySeasonRewards from "./AgencySeasonRewards.svelte";
+  import AgencyVanguardActivity from "./AgencyVanguardActivity.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { playUiEvent } from "../play/uiAudio.ts";
 
-  let { store, flow, season, onfanfare }: {
+  let { store, flow, season, onfanfare, onShowConvoys }: {
     store: ClientStore; flow: AppFlow; season: AgencySeason; onfanfare: (reward: AgencySeasonReward) => void;
+    onShowConvoys?: () => void;
   } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -76,9 +78,14 @@
 </script>
 
 <section class="season" aria-label={label(season.titleID, "Season")}>
-  {#if progress}
-    <AgencySeasonRewards {store} points={progress.points} target={progress.target} rewards={progress.rewards}
-      vanguard={variant === "vanguard"} {busy} onclaim={(index) => claim("goal", index)} />
+  {#if progress || variant === "vanguard"}
+    <div class:vanguard={variant === "vanguard"} class="tracks">
+      {#if progress}
+        <AgencySeasonRewards {store} points={progress.points} target={progress.target} rewards={progress.rewards}
+          vanguard={variant === "vanguard"} {busy} onclaim={(index) => claim("goal", index)} />
+      {/if}
+      {#if variant === "vanguard"}<AgencyVanguardActivity {store} {flow} onShowMap={onShowConvoys} />{/if}
+    </div>
   {/if}
   {#if failure}<p role="alert">{failure}</p>{/if}
   <div class="season-body">
@@ -129,6 +136,7 @@
 </section>
 
 <style>
+  .tracks.vanguard { display: grid; grid-template-columns: minmax(0, 1fr) minmax(245px, 35%); gap: clamp(12px, 4vw, 64px); min-height: 198px; padding-right: 12px; }
   .season-body { display: grid; grid-template-columns: minmax(0,1fr) minmax(235px,35%); gap: 12px; padding: 10px 12px 4px; }
   .challenges, .season-info { background: rgb(0 0 0 / 30%); border: 1px solid rgb(255 255 255 / 12%); min-width: 0; }
   h2 { margin: 0; padding: 8px; font-size: 16px; }
@@ -151,5 +159,5 @@
   .banner { display: block; width: 100%; max-height: 200px; object-fit: cover; }
   time { display: block; margin-bottom: 6px; color: rgb(255 255 255 / 70%); }
   [role="alert"], [role="status"] { padding: 6px 10px; }
-  @media (max-width: 750px) { .season-body { grid-template-columns: 1fr; } }
+  @media (max-width: 750px) { .season-body, .tracks.vanguard { grid-template-columns: minmax(0, 1fr); } }
 </style>

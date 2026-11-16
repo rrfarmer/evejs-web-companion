@@ -25,6 +25,7 @@
   import { bridgeDo, corpTickers, getDscanHologramTypes } from "../app/api.ts";
   import { StarMap } from "../play/starMap.ts";
   import { mountStarMapFilterControls } from "../play/starMapFilterControls.ts";
+  import type { StarMapColorMode } from "../bridge/starMapFilters.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
   import { ACADEMY_BUTTON, ACADEMY_TITLE } from "../bridge/academyShips.ts";
   import { SHIP_TREE_CAPTION } from "../bridge/shipTree.ts";
@@ -527,6 +528,7 @@
   }
   function open(tab: TabID) {
     if (tab === "watchlist" && !session?.store.fleet.get().authoritativeFleetID) return;
+    if (tab === "finder") mapInFront = false;
     wins = openFly(wins, tab);
     raiseApp(tab);
   }
@@ -726,6 +728,9 @@
   // The star map (play/starMap.ts): the Neocom's Map button and F10 (the client's OpenMapBrowser shortcut, its map
   // view) open it over the view and close it again; Escape closes it.
   let starMap: StarMap | null = null;
+  let mapInFront = $state(false);
+  let requestedMapMode: StarMapColorMode = "empire";
+  let mapFilters: ReturnType<typeof mountStarMapFilterControls> | null = null;
   /** The system menu (Esc: uicore.cmd.OnEsc's EscapeCommand opens it when nothing else takes the key). */
   let systemMenu = $state(false);
   let mapHost = $state<HTMLDivElement | null>(null);
@@ -735,8 +740,21 @@
     if (tab === "shipTree" && wins.some(win => win.id === tab && !win.minimized)) wins = closeWindow(wins, tab);
     else if (tab) open(tab);
   }
-  function toggleStarMap(show = !starMap) {
-    if (!show) { starMap?.root.dispatchEvent(new Event("star-map-closed")); starMap?.dispose(); starMap = null; return; }
+  function toggleStarMap(show = !starMap, mode?: StarMapColorMode) {
+    if (!show) {
+      starMap?.root.dispatchEvent(new Event("star-map-closed"));
+      starMap?.dispose();
+      starMap = null;
+      mapInFront = false;
+      requestedMapMode = "empire";
+      mapFilters = null;
+      return;
+    }
+    if (mode) {
+      mapInFront = true;
+      requestedMapMode = mode;
+      mapFilters?.setMode(mode, true);
+    }
     if (starMap || !session || !mapHost) return;
     const s = session;
     const m = new StarMap();
@@ -777,8 +795,10 @@
       void m.setLayout(box.checked);
       route();
       const stop = s.flow.waypoints.subscribe(() => route());
-      const stopFilters = mountStarMapFilterControls(m, s);
-      m.root.addEventListener("star-map-closed", () => { stop(); stopFilters(); }, { once: true });
+      const filters = mountStarMapFilterControls(m, s);
+      mapFilters = filters;
+      if (requestedMapMode !== "empire") filters.setMode(requestedMapMode, mapInFront);
+      m.root.addEventListener("star-map-closed", () => { stop(); filters.dispose(); }, { once: true });
     }).catch((e) => {
       notify({ kind: "danger", title: "Map", detail: e instanceof Error ? e.message : String(e) });
     });
@@ -1285,7 +1305,7 @@
     <div class="fly-sovhub"><SovHubWindow store={session.store} flow={session.flow} hub={cfg.hub} details={cfg.details} extras={cfg.extras} rangeTo={(id) => view?.distanceToItem(id) ?? null} onClose={() => { sovHubConfig = null; }} onChanged={() => openSovHubConfig(cfg.hub.hubID)} /></div>
   {/if}
   <!-- the star map's host, over the hangar or space and under the windows -->
-  <div class="fly-map" bind:this={mapHost}></div>
+  <div class="fly-map" class:foreground={mapInFront} bind:this={mapHost}></div>
 
   <!-- The info panels (InfoPanelContainer) at the top of the left side, beside the Neocom, under the windows. -->
   <ErrorBoundary name="Info panels"><PlayInfoPanels store={session.store} flow={session.flow} showAgents={() => open("agents")} openRouteWindow={() => open("routeWindow")} /></ErrorBoundary>
@@ -1310,7 +1330,8 @@
           {#if win.id === "drones"}
             <FlyDronesWindow store={session.store} flow={session.flow} />
           {:else}
-            <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))} />
+            <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
+              onShowConvoys={() => toggleStarMap(true, "convoys")} />
           {/if}
         </DesktopWindow>
       </ErrorBoundary>
@@ -2073,6 +2094,7 @@
     box-sizing: border-box; padding: 0; border: 0; background: none; color: #e26758; font-size: 14px; line-height: 12px; cursor: pointer; }
   .fly-windows :global(.ind-scroll .ind-none) { text-align: center; color: rgba(255, 255, 255, 0.5); padding: 12px; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
+  .fly-map.foreground { z-index: 21; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-location-pulse) {
     position: absolute; left: 50%; top: 50%; translate: -50% -50%; width: 300px; height: 300px;
