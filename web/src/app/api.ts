@@ -5909,6 +5909,7 @@ export interface PublicGatewayAnswer {
  */
 /** A dungeon as the client's built data has it (GetDungeon, its archetype, GetDungeonContentTags). */
 export interface DungeonData {
+  readonly objectiveChainID: number | null;
   readonly nameID: number | null; readonly descriptionID: number | null; readonly gameplayDescriptionID: number | null;
   readonly archetypeID: number | null; readonly archetypeTitleID: number | null; readonly archetypeDescriptionID: number | null;
   readonly factionID: number | null; readonly difficulty: number | null; readonly entryTypeID: number | null;

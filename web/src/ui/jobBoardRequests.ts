@@ -3,9 +3,9 @@
 // window; the window takes the request.
 
 import { createSignal, readonlySignal, type ReadableSignal } from "../store/signals.ts";
-import type { TrackedDungeonIdentity } from "../bridge/dungeonJobs.ts";
+import type { DungeonOpportunityIdentity } from "../bridge/dungeonJobs.ts";
 
-export interface JobBoardRequest { readonly n: number; readonly projectID: string | null; readonly corporationID: number | null; readonly page: "browse" | "active"; readonly dungeon?: TrackedDungeonIdentity }
+export interface JobBoardRequest { readonly n: number; readonly projectID: string | null; readonly corporationID: number | null; readonly page: "browse" | "active"; readonly dungeon?: DungeonOpportunityIdentity }
 const request = createSignal<JobBoardRequest | null>(null);
 let serial = 0;
 export const jobBoardRequests: ReadableSignal<JobBoardRequest | null> = readonlySignal(request);
@@ -15,7 +15,7 @@ export const jobBoardRequests: ReadableSignal<JobBoardRequest | null> = readonly
 export function openJobBoard(projectID: string | null = null, corporationID: number | null = null, page: "browse" | "active" = "browse"): void {
   request.set({ n: ++serial, projectID, corporationID, page });
 }
-export function openDungeonJob(dungeon: TrackedDungeonIdentity): void {
+export function openDungeonJob(dungeon: DungeonOpportunityIdentity): void {
   request.set({ n: ++serial, projectID: null, corporationID: null, page: "active", dungeon });
 }
 

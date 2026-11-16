@@ -33,7 +33,7 @@
   import { approachedBallID } from "../space/actionIndication.ts";
   import type { JsonValue } from "../bridge/wire.ts";
   import type { ClientStore } from "../store/clientStore.ts";
-  import type { AppFlow, TravelDungeonJob } from "../app/flow.ts";
+  import type { AppFlow, DungeonOpportunityJob } from "../app/flow.ts";
   import type { JournalMission, MissionSpot } from "../store/types.ts";
   import type { FreelanceJob } from "../app/flow.ts";
   import { trackedFreelanceJobs, trackedJobsChanged, trackedMilitiaJob, trackedDungeonJobs, untrackFreelanceJob } from "./jobTracking.ts";
@@ -69,6 +69,8 @@
   const routeSettings = flow.routeSettings;
   // svelte-ignore state_referenced_locally
   const activeDungeon = flow.activeDungeon;
+  // svelte-ignore state_referenced_locally
+  const untrackedSignatureInstanceID = flow.untrackedSignatureInstanceID;
 
   onMount(() => {
     flow.refreshMissionTracker();
@@ -94,7 +96,7 @@
     void Promise.all(ids.map((id) => flow.freelanceJob(id).catch(() => null))).then((jobs) => { freelance = jobs.filter((j): j is FreelanceJob => j !== null); });
   });
   const militia = $derived.by(() => { void $trackedJobsChanged; return $station.online?.warFactionID ? null : trackedMilitiaJob(me); });
-  let dungeonJobs = $state<readonly TravelDungeonJob[]>([]);
+  let dungeonJobs = $state<readonly DungeonOpportunityJob[]>([]);
   let expandedDungeon = $state<string | null | undefined>(undefined);
   const expandedDungeonID = $derived(expandedDungeon === undefined || (expandedDungeon !== null && !dungeonJobs.some((job) => dungeonJobID(job) === expandedDungeon))
     ? (dungeonJobs[0] ? dungeonJobID(dungeonJobs[0]) : null) : expandedDungeon);
@@ -102,15 +104,23 @@
     void $trackedJobsChanged;
     void $anomaliesChanged;
     void $routeSettings;
-    void $activeDungeon?.instanceID;
+    const instanceID = $activeDungeon?.instanceID ?? null;
+    const signatureTracked = instanceID !== null && instanceID !== $untrackedSignatureInstanceID;
     void solarSystemID;
     void status?.docked;
     void $station.online?.warFactionID;
     const order = new Map(trackedDungeonJobs(me).map((job, i) => [dungeonJobID(job), i]));
-    if (!order.size) { dungeonJobs = []; return; }
+    if (!order.size && !signatureTracked) { dungeonJobs = []; return; }
     let current = true;
-    void Promise.all([flow.warDungeonJobs(true), flow.homefrontDungeonJobs(true)]).then(([war, homefront]) => {
-      if (current) dungeonJobs = [...war, ...homefront].sort((a, b) => (order.get(dungeonJobID(a)) ?? 0) - (order.get(dungeonJobID(b)) ?? 0));
+    void Promise.all([
+      order.size ? flow.warDungeonJobs(true) : [],
+      order.size ? flow.homefrontDungeonJobs(true) : [],
+      signatureTracked ? flow.activeSignatureJob() : null,
+    ]).then(([war, homefront, signature]) => {
+      if (!current) return;
+      const jobs = [...war, ...homefront].sort((a, b) => (order.get(dungeonJobID(a)) ?? 0) - (order.get(dungeonJobID(b)) ?? 0));
+      if (signature && !dungeonJobs.some((job) => dungeonJobID(job) === dungeonJobID(signature))) expandedDungeon = dungeonJobID(signature);
+      dungeonJobs = signature ? [...jobs, signature] : jobs;
     }, () => {});
     return () => { current = false; };
   });

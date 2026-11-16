@@ -36,7 +36,8 @@ const THE_WARP = { service: "beyonce", method: "CmdWarpToStuff", args: ["item", 
  * A pilot in space in a system with one combat anomaly, and a BFF that says what it was asked, in order: "look"
  * for a bot's reading of the scene, "sites" for a read of the scanner, "warp" for the page's own warp.
  */
-function harness({ solarSystemID = SOLAR_SYSTEM_ID as number | null, warp = (): Answer => answered("beyonce", "CmdWarpToStuff", null) } = {}) {
+function harness({ solarSystemID = SOLAR_SYSTEM_ID as number | null, warp = (): Answer => answered("beyonce", "CmdWarpToStuff", null),
+  dungeon = null as { entryTypeID: number; objectiveChainID: number | null } | null } = {}) {
   const store = createClientStore();
   store.apply({ type: "character/online", character: {
     characterID: PILOT, characterName: "Test", stationID: null,
@@ -63,6 +64,12 @@ function harness({ solarSystemID = SOLAR_SYSTEM_ID as number | null, warp = (): 
       } } };
     }
     if (path === "/api/bridge/targets") answer = { status: 200, body: { ok: true, targetIDs: [] } };
+    if (dungeon && path === "/api/client-data/dungeons?ids=900") {
+      answer = { status: 200, body: { ok: true, available: true, dungeons: { 900: { nameID: 123, ...dungeon } } } };
+    }
+    if (dungeon && path === "/api/bridge/call" && body.service === "keeper" && body.method === "GetCurrentDungeonForCharacter") {
+      answer = answered("keeper", "GetCurrentDungeonForCharacter", [900, 80, 42, none]);
+    }
     if (path === "/api/bridge/ship/ore-hold") answer = { status: 200, body: holdsBody(0, []) };
     // The route, which nothing is to ask.
     if (path === "/api/bridge/flight/warp-scan") { routes.push(path); answer = { status: 200, body: flightBody(false) }; }
@@ -80,6 +87,22 @@ function harness({ solarSystemID = SOLAR_SYSTEM_ID as number | null, warp = (): 
   } });
   return { store, flow, asked, reads, warps, routes };
 }
+
+test("the current signature qualifies for Active only with an authored objective chain", async () => {
+  for (const [entryTypeID, objectiveChainID, expected] of [[19728, null, false], [19728, 155, true], [28356, 38, false]] as const) {
+    const { flow } = harness({ dungeon: { entryTypeID, objectiveChainID } });
+    await flow.dungeonJobs(); // Starts the native keeper read for a reconnect in space.
+    const job = (await flow.dungeonJobs()).find((row) => row.kind === "signature");
+    assert.equal(job !== undefined, expected);
+    if (job) {
+      assert.equal(job.instanceID, 42);
+      assert.equal(flow.untrackedSignatureInstanceID.get(), null);
+      flow.setSignatureTracked(42, false);
+      assert.equal(flow.untrackedSignatureInstanceID.get(), 42);
+      assert.equal((await flow.activeSignatureJob())?.instanceID, 42);
+    }
+  }
+});
 
 const script: BotScript = {
   format: "evejs-bot-script", version: 1, name: "To a den", notes: "",

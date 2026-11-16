@@ -50,12 +50,13 @@ function client({ printed = JSON.stringify(MISSIONS), index = INDEX, fails = nul
 
 test("each table is one of the client's loaders over its own file, named in lower case as the index is kept", () => {
   // The first tables as they were written; every table (there are many more since) a loader over a static file.
-  assert.deepEqual(Object.fromEntries(["missions", "npcCorporations", "npcCorporationDivisions", "accountingEntryTypes"].map((name) => [name, TABLES[name]])), {
+  assert.deepEqual(Object.fromEntries(["missions", "npcCorporations", "npcCorporationDivisions", "accountingEntryTypes", "dungeonObjectives"].map((name) => [name, TABLES[name]])), {
     missions: { loader: "missionsLoader", resource: "res:/staticdata/missions.fsdbinary" },
     npcCorporations: { loader: "npcCorporationsLoader", resource: "res:/staticdata/npccorporations.fsdbinary" },
     npcCorporationDivisions: { loader: "npcCorporationDivisionsLoader", resource: "res:/staticdata/npccorporationdivisions.fsdbinary" },
     // eveaccounting/data.py AccountingEntryTypes: res:/staticdata/accountingEntryTypes.fsdbinary, by its loader.
     accountingEntryTypes: { loader: "accountingEntryTypesLoader", resource: "res:/staticdata/accountingentrytypes.fsdbinary" },
+    dungeonObjectives: { loader: "dungeonObjectivesLoader", resource: "res:/staticdata/dungeonobjectives.fsdbinary" },
   });
   for (const table of Object.values(TABLES)) {
     assert.equal(table.resource, table.resource.toLowerCase());

@@ -671,7 +671,12 @@ export interface HomefrontDungeonJob extends DungeonTravelDetails {
   readonly kind: "homefront";
 }
 export type TravelDungeonJob = WarDungeonJob | HomefrontDungeonJob;
-export type DungeonJob = (DungeonJobDetails & { readonly kind: "combat" | "ore" | "ice" | "signature" }) | TravelDungeonJob;
+export interface SignatureDungeonJob extends DungeonTravelDetails {
+  readonly kind: "signature";
+  readonly active: true;
+}
+export type DungeonOpportunityJob = TravelDungeonJob | SignatureDungeonJob;
+export type DungeonJob = (DungeonJobDetails & { readonly kind: "combat" | "ore" | "ice" }) | DungeonOpportunityJob;
 
 /** A career goal's reward (careergoals.client reward_definition). */
 export interface CareerReward { readonly kind: "isk" | "sp" | "item"; readonly quantity: number; readonly typeID: number | null; readonly label: string }
@@ -3772,6 +3777,9 @@ export interface AppFlow {
   dungeonJobs(): Promise<readonly DungeonJob[]>;
   warDungeonJobs(trackedOnly?: boolean): Promise<readonly WarDungeonJob[]>;
   homefrontDungeonJobs(trackedOnly?: boolean): Promise<readonly HomefrontDungeonJob[]>;
+  activeSignatureJob(): Promise<SignatureDungeonJob | null>;
+  readonly untrackedSignatureInstanceID: ReadableSignal<number | null>;
+  setSignatureTracked(instanceID: number, tracked: boolean): void;
   readonly activeDungeon: ReadableSignal<CurrentDungeon | null>;
   /**
    * An Agency agent page's agents (ContentProviderAgents and its kinds, bridge/agencyAgents.ts): from the agents
@@ -16933,6 +16941,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // server's OnEnteringDungeonRoom and OnExitingDungeon, let go at a change of location, and asked of the keeper once
   // where the page finds its pilot in space (the client's OnCharacterSessionChanged).
   const currentDungeon = createSignal<CurrentDungeon | null>(null);
+  const untrackedSignatureInstanceID = createSignal<number | null>(null);
+  function setSignatureTracked(instanceID: number, tracked: boolean): void {
+    if (currentDungeon.get()?.instanceID === instanceID) untrackedSignatureInstanceID.set(tracked ? null : instanceID);
+  }
   let completedDungeon: number | null = null;
   function leaveCurrentDungeon(): void {
     if (completedDungeon !== null && completedDungeon === currentDungeon.get()?.instanceID) {
@@ -16942,6 +16954,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       }
     }
     completedDungeon = null;
+    untrackedSignatureInstanceID.set(null);
     currentDungeon.set(null);
   }
   let currentDungeonAsked = false;
@@ -21673,37 +21686,44 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return rows.map((row) => ({ ...row, data: data?.[String(row.dungeonID)] ?? null }));
   }
 
+  async function activeSignatureJob(): Promise<SignatureDungeonJob | null> {
+    const inside = currentDungeon.get();
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    if (inside?.instanceID == null || here === null) return null;
+
+    // CosmicSignaturesProvider.try_fetch_job requires both a signature entry and an active objective chain.
+    const records = await api.loadDungeons([inside.dungeonID], callOptions).catch(() => null);
+    const data = records?.[String(inside.dungeonID)];
+    if (data?.entryTypeID !== 19728 || !data.objectiveChainID || currentDungeon.get()?.instanceID !== inside.instanceID) return null;
+    requestNames([{ kind: "system", id: here }, ...(data.factionID ? [{ kind: "owner" as const, id: data.factionID }] : [])]);
+    return { kind: "signature", active: true, solarSystemID: here, instanceID: inside.instanceID, dungeonID: inside.dungeonID,
+      jumps: 0, nameID: data.nameID, targetID: null, data };
+  }
+
   async function dungeonJobs(): Promise<readonly DungeonJob[]> {
     const here = store.station.get().online?.solarSystemID ?? null;
     askCurrentDungeon();
     const PROVIDERS = [["combat", "GetCombatAnomalyInstances"], ["ore", "GetOreAnomalyInstances"], ["ice", "GetIceBeltInstances"]] as const;
-    const [answers, jumps, homefront, warSites] = await Promise.all([
+    const [answers, jumps, homefront, warSites, signature] = await Promise.all([
       Promise.all(PROVIDERS.map(([, method]) => bridgeAsk("dungeonInstanceCacheMgr", method, []).catch(() => null))),
       here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
       homefrontDungeonJobs(),
       warDungeonJobs(),
+      activeSignatureJob(),
     ]);
-    const shown: { solarSystemID: number; dungeonID: number; instanceID: number; kind: "combat" | "ore" | "ice" | "signature" }[] = PROVIDERS.flatMap(([kind], index) => {
+    const shown: { solarSystemID: number; dungeonID: number; instanceID: number; kind: "combat" | "ore" | "ice" }[] = PROVIDERS.flatMap(([kind], index) => {
       const sites = decodeDungeonSites(answers[index] ?? undefined);
       return relevantDungeonSystems(sites, here, jumps, 1, 1, 20, []).flatMap((system) => (sites.get(system) ?? []).map((site) => ({ ...site, kind })));
     });
-    // CosmicSignaturesProvider: the dungeon the pilot is in, where its entry is a signature (its data says), and it is
-    // no site listed above.
-    const inside = currentDungeon.get();
-    if (inside !== null && inside.instanceID !== null && here !== null &&
-        !shown.some((s) => s.instanceID === inside.instanceID) && !homefront.some((s) => s.instanceID === inside.instanceID) && !warSites.some((s) => s.instanceID === inside.instanceID)) {
-      shown.push({ solarSystemID: here, dungeonID: inside.dungeonID, instanceID: inside.instanceID, kind: "signature" });
-    }
     const data = await api.loadDungeons([...new Set(shown.map((s) => s.dungeonID))], callOptions).catch(() => null);
-    // typeDeadspaceSignature: the signature only where its dungeon's entry is one.
-    const kept = shown.filter((s) => s.kind !== "signature" || data?.[String(s.dungeonID)]?.entryTypeID === 19728);
-    shown.length = 0; shown.push(...kept);
     const factions = [...new Set(Object.values(data ?? {}).map((d) => d?.factionID ?? 0).filter((id) => id > 0))];
     requestNames([...factions.map((id) => ({ kind: "owner" as const, id })), ...[...new Set(shown.map((s) => s.solarSystemID))].map((id) => ({ kind: "system" as const, id }))]);
     const resources = [...new Set(Object.values(data ?? {}).flatMap((d) => [...(d?.oreTypes ?? []), ...(d?.iceTypes ?? [])]))];
     if (resources.length) requestNames(resources.map((id) => ({ kind: "type" as const, id })));
-    return [...shown.map((s) => ({ kind: s.kind, instanceID: s.instanceID, dungeonID: s.dungeonID, solarSystemID: s.solarSystemID, jumps: s.solarSystemID === here ? 0 : jumps?.get(s.solarSystemID) ?? null,
+    const jobs: DungeonJob[] = [...shown.map((s) => ({ ...s, jumps: s.solarSystemID === here ? 0 : jumps?.get(s.solarSystemID) ?? null,
       data: data?.[String(s.dungeonID)] ?? null, active: currentDungeon.get()?.instanceID === s.instanceID })), ...homefront, ...warSites];
+    if (signature && !jobs.some((job) => job.instanceID === signature.instanceID)) jobs.push(signature);
+    return jobs;
   }
   async function careerGoals(): Promise<readonly CareerGoal[] | null> {
     const rec = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? v as Record<string, unknown> : {});
@@ -35711,6 +35731,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     dungeonJobs,
     warDungeonJobs,
     homefrontDungeonJobs,
+    activeSignatureJob,
+    untrackedSignatureInstanceID: readonlySignal(untrackedSignatureInstanceID),
+    setSignatureTracked,
     activeDungeon: readonlySignal(currentDungeon),
     agencyAgents,
     agencyAgentOwners,

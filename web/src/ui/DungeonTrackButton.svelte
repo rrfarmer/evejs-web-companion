@@ -1,25 +1,33 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
-  import type { TrackedDungeonIdentity } from "../bridge/dungeonJobs.ts";
+  import type { DungeonOpportunityIdentity } from "../bridge/dungeonJobs.ts";
   import { plainText } from "../bridge/clientWords.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { setDungeonTracked, trackedJobsChanged, trackedDungeonJobs } from "./jobTracking.ts";
 
-  let { store, flow, job }: { store: ClientStore; flow: AppFlow; job: TrackedDungeonIdentity } = $props();
+  let { store, flow, job }: { store: ClientStore; flow: AppFlow; job: DungeonOpportunityIdentity } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
   const station = store.station;
+  // svelte-ignore state_referenced_locally
+  const untrackedSignatureInstanceID = flow.untrackedSignatureInstanceID;
   const characterID = $derived($station.online?.characterID ?? null);
   const tracked = $derived.by(() => {
+    if (job.kind === "signature") return $untrackedSignatureInstanceID !== job.instanceID;
     void $trackedJobsChanged;
     return trackedDungeonJobs(characterID).some((row) => row.kind === job.kind && row.instanceID === job.instanceID);
   });
   $effect(() => { flow.requestWords(["UI/Common/Track", "UI/Common/Untrack"]); });
+  function toggleTracking(): void {
+    const { kind, instanceID } = job;
+    if (kind === "signature") flow.setSignatureTracked(instanceID, !tracked);
+    else setDungeonTracked(characterID, { kind, instanceID }, !tracked);
+  }
 </script>
 
-<button type="button" class:tracked aria-pressed={tracked} disabled={!characterID} onclick={() => setDungeonTracked(characterID, job, !tracked)}>
+<button type="button" class:tracked aria-pressed={tracked} disabled={!characterID} onclick={toggleTracking}>
   <img alt="" src={clientTexture(tracked
     ? "res:/UI/Texture/eveicon/control_icons/camera_untrack_16px.png"
     : "res:/UI/Texture/eveicon/system_icons/visibility_16px.png")} />

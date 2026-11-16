@@ -26,7 +26,8 @@ export const WAR_DUNGEON_PROVIDERS = {
 export type WarDungeonKind = keyof typeof WAR_DUNGEON_PROVIDERS;
 export type TrackedDungeonKind = WarDungeonKind | "homefront";
 export interface TrackedDungeonIdentity { readonly kind: TrackedDungeonKind; readonly instanceID: number }
-export const dungeonJobID = ({ kind, instanceID }: TrackedDungeonIdentity): string => `${kind}:${instanceID}`;
+export interface DungeonOpportunityIdentity { readonly kind: TrackedDungeonKind | "signature"; readonly instanceID: number }
+export const dungeonJobID = ({ kind, instanceID }: DungeonOpportunityIdentity): string => `${kind}:${instanceID}`;
 
 export function warDungeonProviders(faction: number | null | undefined): readonly WarDungeonKind[] {
   const enrolled = militiaFactionID(faction);

@@ -14346,10 +14346,10 @@ app.get("/api/client-data/dscan-hologram-types", requireAuth, async (req, res, n
 app.get("/api/client-data/dungeons", requireAuth, async (req, res, next) => {
   try {
     const ids = String(req.query.ids || "").split(",").map(Number).filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, 200);
-    const [rows, archetypes, tags, typeGroups] = await Promise.all([
+    const [rows, archetypes, tags, typeGroups, objectiveRecords] = await Promise.all([
       typeof clientBuiltData.rows === "function" ? clientBuiltData.rows("dungeons", ids).catch(() => null) : null,
       clientBuiltData.table("archetypes").catch(() => null), clientBuiltData.table("contentTags").catch(() => null),
-      clientBuiltData.table("typeGroups").catch(() => null)]);
+      clientBuiltData.table("typeGroups").catch(() => null), clientBuiltData.table("dungeonObjectives").catch(() => null)]);
     // get_consolidated_ore_types / get_consolidated_ice_types: the lowest type of each group (extract_lowest_type_id_for_group,
     // its groups in a dict's order), sorted by ORE_TYPES_BY_VALUE / ICE_TYPES_BY_VALUE descending (a type not listed
     // counts 0), then made a set (DungeonJob.resources) - shown in the set's order.
@@ -14371,12 +14371,14 @@ app.get("/api/client-data/dungeons", requireAuth, async (req, res, next) => {
       const d = rows && rows[id];
       if (!d) { dungeons[id] = null; continue; }
       const arche = archetypes && archetypes[d.archetypeID];
+      const chainID = objectiveRecords?.[d.objectivesID]?.clientObjectives?.objectiveChainID;
       const tagIDs = [...(Array.isArray(d.contentTags) ? d.contentTags : []), ...(arche && Array.isArray(arche.contentTags) ? arche.contentTags : []),
         ...(d.entryTypeID === TYPE_DEADSPACE_SIGNATURE ? ["feature_cosmic_signatures"] : []), "feature_dungeons"];
       dungeons[id] = {
         nameID: d.dungeonNameID ?? null, descriptionID: d.descriptionID ?? null, gameplayDescriptionID: d.gameplayDescriptionID ?? null,
         archetypeID: d.archetypeID ?? null, archetypeTitleID: arche ? arche.titleID ?? null : null, archetypeDescriptionID: arche ? arche.descriptionID ?? null : null,
         factionID: d.factionID ?? null, difficulty: d.difficulty ?? null, entryTypeID: d.entryTypeID ?? null,
+        objectiveChainID: Number.isSafeInteger(chainID) && chainID > 0 ? chainID : null,
         oreTypes: consolidated(staticData.getClientDungeonResourceTypes ? staticData.getClientDungeonResourceTypes(id).ore : [], ORE_TYPES_BY_VALUE),
         iceTypes: consolidated(staticData.getClientDungeonResourceTypes ? staticData.getClientDungeonResourceTypes(id).ice : [], ICE_TYPES_BY_VALUE),
         contentTags: tagIDs.filter((t) => tags && tags[t]).map((t) => ({ id: t, type: tags[t].contentTagType ?? null, title: tags[t].title ?? null, icon: eveiconTexture(tags[t].icon) })),

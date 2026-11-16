@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AppFlow, TravelDungeonJob } from "../app/flow.ts";
+  import type { AppFlow, DungeonOpportunityJob } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { formatTemplate, plainText, type TemplateArguments } from "../bridge/clientWords.ts";
   import { dungeonTravelAction, dungeonTravelProgress, isCurrentDungeonSite } from "../bridge/dungeonJobs.ts";
@@ -12,7 +12,7 @@
   import DungeonTrackButton from "./DungeonTrackButton.svelte";
 
   let { store, flow, job, expanded = true, onToggle }: {
-    store: ClientStore; flow: AppFlow; job: TravelDungeonJob; expanded?: boolean; onToggle?: () => void;
+    store: ClientStore; flow: AppFlow; job: DungeonOpportunityJob; expanded?: boolean; onToggle?: () => void;
   } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;

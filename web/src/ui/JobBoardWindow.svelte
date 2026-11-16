@@ -130,7 +130,7 @@
     void $trackedJobsChanged;
     return new Set(trackedDungeonJobs($station.online?.characterID ?? null).map(dungeonJobID));
   });
-  const activeDungeons = $derived(dungeons.filter((d) => d.active || ("targetID" in d && trackedDungeonIDs.has(dungeonJobID(d)))));
+  const activeDungeons = $derived(dungeons.filter((d) => d.active || ("targetID" in d && d.kind !== "signature" && trackedDungeonIDs.has(dungeonJobID(d)))));
   const shownDungeons = $derived(tab === "browse" ? dungeons.filter((d) => d.kind !== "signature" && (!("canBrowse" in d) || d.canBrowse)) : tab === "active" ? activeDungeons : []);
   const dungeonOpen = $derived(dungeons.find((d) => d.kind === openDungeon?.kind && d.instanceID === openDungeon.instanceID) ?? null);
   $effect(() => {

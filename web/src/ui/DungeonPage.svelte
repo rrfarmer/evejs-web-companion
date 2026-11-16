@@ -14,7 +14,8 @@
   import DungeonOpportunity from "./DungeonOpportunity.svelte";
   import { openAgencyGroup } from "./agencyRequests.ts";
 
-  const HOMEFRONT_GROUP = 78; // contentGroupConst.contentGroupHomefrontSites
+  // contentGroupConst.contentGroupHomefrontSites and contentGroupSignatures.
+  const AGENCY_GROUPS = { homefront: 78, signature: 39 } as const;
   let { store, flow, job, onBack }: { store: ClientStore; flow: AppFlow; job: DungeonJob; onBack: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -35,14 +36,15 @@
   // DungeonJob.resources: the ore anomaly's ore types, the ice belt's ice types; none for a combat anomaly.
   const resources = $derived(job.kind === "ore" ? d?.oreTypes ?? [] : job.kind === "ice" ? d?.iceTypes ?? [] : []);
   const subtitle = $derived(job.kind !== "combat" ? "" : d?.difficulty ? (faction ? `${faction} - ${word(A + "LevelX", { level: d.difficulty })}` : word(A + "LevelX", { level: d.difficulty })) : faction);
+  const agencyGroup = $derived(job.kind === "homefront" || job.kind === "signature" ? AGENCY_GROUPS[job.kind] : null);
   const agencyLabel = $derived(word("UI/Opportunities/OpenAgency") || "Open The Agency");
 </script>
 
 <div class="dp">
   <div class="dp-top">
     <button class="dp-ghost" onclick={onBack}>{word("UI/Commands/Back") || "Back"}</button>
-    {#if job.kind === "homefront"}
-      <button class="dp-ghost dp-agency" type="button" title={agencyLabel} aria-label={agencyLabel} onclick={() => openAgencyGroup(HOMEFRONT_GROUP)}>
+    {#if agencyGroup !== null}
+      <button class="dp-ghost dp-agency" type="button" title={agencyLabel} aria-label={agencyLabel} onclick={() => { if (agencyGroup !== null) openAgencyGroup(agencyGroup); }}>
         <img alt="" src={clientTexture("res:/UI/Texture/eveicon/system_icons/open_window_16px.png")} />
       </button>
     {/if}
