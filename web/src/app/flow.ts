@@ -6283,7 +6283,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (Number(args[3]) !== 1) void autoReloadOnStop(moduleID, Number(args[1]) || 0).catch(() => {});
       return;
     }
-    if (method === "OnModuleAttributeChanges") {
+    // The batch, or one change alone: a session no destiny tick reaches has its dogma events sent at once, each by
+    // its own name (runtime/dogmaEvents.js queueDogmaEvent).
+    if (method === "OnModuleAttributeChanges" || method === "OnModuleAttributeChange") {
       const changes = decodeChargeQuantityChanges(method, args);
       if (changes.length > 0) {
         store.apply({ type: "fitting/charge-quantity", changes });
