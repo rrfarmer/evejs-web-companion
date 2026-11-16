@@ -868,6 +868,7 @@
   let spaceHost = $state<HTMLDivElement | null>(null);
   let view: SpaceView | null = null;
   setContext("flightSpaceView", () => view);
+  setContext("flightSimNow", () => live?.simNow() || null);
   $effect(() => {
     if (stage !== "game" || docked || !spaceHost || !session || !live) return;
     const s = session;

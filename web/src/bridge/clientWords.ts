@@ -252,7 +252,7 @@ function formatStrftime(filetime: number, format: string): string {
   return format.replace(/%(.)/g, (code: string, letter: string) => parts[letter] ?? code);
 }
 
-function formatInterval(ticks: number): string {
+export function formatInterval(ticks: number): string {
   let seconds = Math.max(0, Math.floor(ticks / 10_000_000));
   const parts: string[] = [];
   for (const [unit, size] of [["d", 86_400], ["h", 3_600], ["m", 60]] as const) {

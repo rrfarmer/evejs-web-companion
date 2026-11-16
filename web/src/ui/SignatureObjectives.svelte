@@ -18,6 +18,7 @@
   const activeDungeon = flow.activeDungeon;
   const location = "UI/Generic/CurrentLocation";
   const getSpaceView = getContext<() => SpaceView | null>("flightSpaceView");
+  const getSimNow = getContext<() => number | null>("flightSimNow");
   let chain = $state.raw<ObjectiveChain | null>(null);
   let rows = $state.raw<readonly AbyssObjectiveRow[]>([]);
   const chainID = $derived(job.data?.objectiveChainID ?? null);
@@ -50,7 +51,7 @@
     const dungeon = $activeDungeon;
     if (!chain || !dungeon || snapshot?.solarSystemID !== job.solarSystemID) return;
     for (const [key, value] of Object.entries(dungeonObjectiveContext(dungeon))) chain.setContext(key, value);
-    chain.observe(snapshot.entities);
+    chain.observe(snapshot.entities, getSimNow?.() ?? snapshot.sampledAtMs);
     for (const key of dungeonEntryObjectives(dungeon, job.data?.objectiveEntryRules ?? [])) chain.startObjective(key);
     rows = chain.view().filter((objective) => objective.rows.length > 0);
   });
@@ -139,6 +140,14 @@
           {#if row.completed}<img alt="" src={clientTexture("res:/UI/Texture/eveicon/system_icons/checkmark_16px.png")} />{/if}
           {name}
         </button>
+      {:else if row.progress !== null}
+        <div class="objective-progress">
+          <span>{name}</span><span>{row.value}</span>
+          <div class="objective-progress-bar" role="progressbar" aria-label={name}
+            aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(row.progress * 100)}>
+            <div style:width={`${row.progress * 100}%`}></div>
+          </div>
+        </div>
       {:else if name}
         <span>{name} {row.value}</span>
       {/if}
@@ -158,6 +167,9 @@
   .signature-objective { display: grid; gap: 4px; padding: 6px 8px; background: rgb(0 0 0 / 0.25); font-size: 12px; }
   .target { display: flex; gap: 4px; align-items: center; padding: 2px 0; border: 0; color: inherit; background: transparent; text-align: left; font: inherit; cursor: pointer; }
   .target img { width: 16px; height: 16px; }
+  .objective-progress { display: grid; grid-template-columns: 1fr auto; gap: 3px; }
+  .objective-progress-bar { grid-column: 1 / -1; height: 4px; background: rgb(255 255 255 / 0.2); }
+  .objective-progress-bar div { height: 100%; background: #c5cdd0; }
   .completed { color: #9fd689; }
   p { margin: 3px 0 5px; opacity: 0.8; font-size: 12px; }
   .target:hover, .target:focus-visible { background: rgb(255 255 255 / 0.12); }

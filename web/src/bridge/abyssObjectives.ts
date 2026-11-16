@@ -45,6 +45,8 @@
 import { GROUP_WARP_GATE } from "./gateActivation.ts";
 import { readDictEntry, unwrapLong, type JsonValue } from "./wire.ts";
 import type { SpaceEntity } from "../store/types.ts";
+import { formatInterval } from "./clientWords.ts";
+import type { ObjectiveTimer, ObjectiveValue as Value } from "./dungeonTracking.ts";
 
 /** abyss/client/abyssal_service.py ABYSS_OBJECTIVE_CHAIN_ID. */
 export const ABYSS_OBJECTIVE_CHAIN_ID = 95;
@@ -58,13 +60,15 @@ export const ABYSS_LOOTABLE_RESTART_MS = 2_000;
 const ABYSS_NPC_TASK = "destroy_npcs";
 
 const TASK_PROGRESS = 9;
+const TASK_TIMER = 30;
 const TASK_DESTROY_COUNTER = 45;
 const TASK_DESTROY_TARGETS = 52;
 const TASK_HACK_ALL_CONTAINERS = 55;
 const TASK_JUMP_THROUGH_ABYSS_GATE = 56;
 const HACKED = 2; // hackingcommon.hackingConstants.hackingStateHacked
 
-type Value = number | string | boolean | readonly number[] | null;
+const timerOf = (value: Value | undefined): ObjectiveTimer | null =>
+  value && typeof value === "object" && "endMs" in value ? value : null;
 
 interface TriggerInfo {
   readonly action: string;
@@ -278,6 +282,7 @@ export class ObjectiveChain {
   readonly context: Record<string, Value> = {};
   private readonly objectives = new Map<string, Objective>();
   private entities: readonly SpaceEntity[] = [];
+  private simNowMs: number | null = null;
   /** What was on the grid at the last look: a thing not among it is one just added (OnBallAdded). */
   private seen: ReadonlySet<number> = new Set();
 
@@ -329,7 +334,8 @@ export class ObjectiveChain {
   }
 
   /** What is on the grid now: the targets counted, listed and found (OnBallAdded, OnDamageStateChange, DoBallRemove). */
-  observe(entities: readonly SpaceEntity[]): void {
+  observe(entities: readonly SpaceEntity[], simNowMs = this.simNowMs): void {
+    this.simNowMs = simNowMs;
     this.entities = entities;
     const added = new Set(entities.filter((entity) => !this.seen.has(entity.itemID)).map((entity) => entity.itemID));
     this.seen = new Set(entities.map((entity) => entity.itemID));
@@ -394,6 +400,9 @@ export class ObjectiveChain {
 
   private taskValueChanged(objective: Objective, task: Task, key: string): void {
     switch (task.info.taskType) {
+      case TASK_TIMER:
+        if (task.active) this.updateTimer(objective, task);
+        return;
       case TASK_PROGRESS:
         if (key === "current_value") task.values.current_value = Math.min(Number(task.values.current_value) || 0, Number(task.values.goal_value) || 0);
         if (task.active) this.updateProgress(objective, task);
@@ -459,6 +468,10 @@ export class ObjectiveChain {
    * a change of what it is after), else at the things just added (OnBallAdded); and at what became of what it has.
    */
   private observeTask(objective: Objective, task: Task, added: ReadonlySet<number> | typeof FIND): void {
+    if (task.info.taskType === TASK_TIMER) {
+      this.updateTimer(objective, task);
+      return;
+    }
     const present = new Map(this.entities.map((entity) => [entity.itemID, entity] as const));
     const finding = added === FIND;
     const looked = finding ? this.entities : this.entities.filter((entity) => added.has(entity.itemID));
@@ -541,6 +554,11 @@ export class ObjectiveChain {
     this.taskChanged(objective, task, value ? "on_start" : "on_stop");
   }
 
+  private updateTimer(objective: Objective, task: Task): void {
+    const timer = timerOf(task.values.timer);
+    this.setCompleted(objective, task, timer === null || (this.simNowMs !== null && timer.endMs <= this.simNowMs));
+  }
+
   private setCompleted(objective: Objective, task: Task, value: boolean): void {
     if (task.completed === value) return;
     task.completed = value;
@@ -580,6 +598,8 @@ export class ObjectiveChain {
   private taskHidden(task: Task): boolean {
     if (!task.active || (task.completed && !task.info.showCompleted)) return true;
     switch (task.info.taskType) {
+      case TASK_TIMER:
+        return this.simNowMs === null || timerOf(task.values.timer) === null;
       case TASK_PROGRESS:
         return !(Number(task.values.goal_value) > 0);
       case TASK_DESTROY_COUNTER:
@@ -599,6 +619,13 @@ export class ObjectiveChain {
     const titleLabel = task.info.title ?? task.type?.title ?? null;
     const base = { key: task.info.key, icon, titleLabel, itemID: null, typeID: null, value: "", progress: null, danger: false, completed: task.completed, health: null };
     switch (task.info.taskType) {
+      case TASK_TIMER: {
+        const timer = timerOf(task.values.timer);
+        if (timer === null || this.simNowMs === null) return [];
+        const remaining = Math.max(0, timer.endMs - this.simNowMs);
+        const progress = Math.min(1, remaining / (timer.endMs - timer.startMs));
+        return [{ ...base, value: formatInterval(remaining * 10_000), progress }];
+      }
       case TASK_PROGRESS: {
         const goal = Number(task.values.goal_value) || 0;
         const current = Number(task.values.current_value) || 0;

@@ -64,3 +64,40 @@ test("a tracked signature uses its keeper and room-entry lists for graph objecti
   assert.ok(missing);
   assert.deepEqual(dungeonEntryObjectives(missing, rules), []);
 });
+
+test("the ghost-site chain shows the revealed native timer on the pilot's simulation clock", () => {
+  const chain = decodeObjectiveChain({
+    found: true,
+    chainID: 115,
+    chain: { objectives: [{ key: "hack", objectiveType: 68, startActive: 0, inputParametersMap: { timer: "destruction_timer" } }] },
+    objectiveTypes: { 68: { title: "UI/Objectives/Titles/HackContainers", tasks: [
+      { key: "timer", taskType: 30, startActive: 1, showCompleted: 0, inputParameters: { timer: "timer" } },
+    ] } },
+    taskTypes: { 30: { title: "UI/Objectives/Titles/TimeRemaining", inputParameters: [{ parameterKey: "timer" }] } },
+    typeLists: {},
+  });
+  assert.ok(chain);
+  const entered = dungeonEntered([5533, 24052, null, 106, { type: "dict", entries: [] }]);
+  assert.ok(entered);
+  const objective = new ObjectiveChain(chain, dungeonObjectiveContext(entered));
+  objective.start([]);
+  for (const key of dungeonEntryObjectives(entered, [{ listKey: null, objectiveKey: "hack" }])) objective.startObjective(key);
+  assert.equal(objective.view()[0]?.rows.length ?? 0, 0);
+  const start = 1_700_000_000_000;
+  const filetime = (ms: number) => ({ type: "long", value: String(116444736000000000n + BigInt(ms) * 10_000n) });
+  const active = dungeonValuesChanged(entered, [5533, {
+    type: "dict", entries: [["destruction_timer", { type: "dict", entries: [
+      ["start_time", filetime(start)], ["end_time", filetime(start + 30_000)],
+    ] }]],
+  }]);
+  assert.ok(active);
+  const { destruction_timer: timer } = dungeonObjectiveContext(active);
+  assert.deepEqual(timer, { startMs: start, endMs: start + 30_000 });
+  assert.ok(timer);
+  objective.setContext("destruction_timer", timer);
+  objective.observe([], start + 9_000);
+  assert.equal(objective.view()[0]?.rows[0]?.value, "21s");
+  assert.equal(objective.view()[0]?.rows[0]?.progress, 0.7);
+  objective.observe([], start + 30_000);
+  assert.equal(objective.view()[0]?.rows.length ?? 0, 0);
+});

@@ -13,7 +13,11 @@
 // UserError is.
 
 import type { Ask } from "./ask.ts";
-import { isListValue, readDictPairs, type JsonValue } from "./wire.ts";
+import { isListValue, readDictEntry, readDictPairs, unwrapLong, type JsonValue } from "./wire.ts";
+import { filetimeToMs } from "../space/crimewatch.ts";
+
+export interface ObjectiveTimer { readonly startMs: number; readonly endMs: number }
+export type ObjectiveValue = number | string | boolean | readonly number[] | ObjectiveTimer | null;
 
 export interface CurrentDungeon {
   readonly dungeonID: number;
@@ -43,25 +47,35 @@ export function dungeonValuesChanged(current: CurrentDungeon | null, args: reado
   return current !== null && current.dungeonID === whole(args[0]) ? withDungeonValues(current, args[1]) : current;
 }
 
-/** The scalar and ID-list values understood by the web objective tasks. */
-export function dungeonObjectiveContext(dungeon: CurrentDungeon): Readonly<Record<string, number | string | boolean | readonly number[] | null>> {
-  const context: Record<string, number | string | boolean | readonly number[] | null> = Object.create(null);
+function readObjectiveTimer(value: JsonValue): ObjectiveTimer | null {
+  const startMs = filetimeToMs(unwrapLong(readDictEntry(value, "start_time"))?.toString() ?? null);
+  const endMs = filetimeToMs(unwrapLong(readDictEntry(value, "end_time"))?.toString() ?? null);
+  return startMs !== null && endMs !== null && endMs > startMs ? { startMs, endMs } : null;
+}
+
+/** The live scalar, ID lists and simulation-time timers used by objective tasks. */
+export function dungeonObjectiveContext(dungeon: CurrentDungeon): Readonly<Record<string, ObjectiveValue>> {
+  const context: Record<string, ObjectiveValue> = Object.create(null);
   for (const [key, value] of Object.entries(dungeon.values ?? {})) {
     const sequence = isListValue(value) ? value.items : Array.isArray(value) ? value : null;
     if (sequence !== null && sequence.every((item) => typeof item === "number" && Number.isSafeInteger(item))) {
       context[key] = sequence as readonly number[];
     } else if (value === null || typeof value === "number" || typeof value === "string" || typeof value === "boolean") {
       context[key] = value;
+    } else {
+      const timer = readObjectiveTimer(value);
+      if (timer !== null) context[key] = timer;
     }
   }
   return { ...context, dungeon_id: dungeon.dungeonID, dungeon_room_id: dungeon.roomID };
 }
 
-/** Once out of warp and outside the lobby, graph 669 sends start_objectives to graph 1065. */
-export function dungeonEntryObjectives(dungeon: CurrentDungeon, rules: readonly { readonly listKey: string; readonly objectiveKey: string }[]): readonly string[] {
+/** Once out of warp and outside the lobby, graph 669 sends start_objectives to the site graph. */
+export function dungeonEntryObjectives(dungeon: CurrentDungeon, rules: readonly { readonly listKey: string | null; readonly objectiveKey: string }[]): readonly string[] {
   const lobbyRoom = whole(dungeon.values?.lobby_room_id);
   if (lobbyRoom !== null && lobbyRoom === dungeon.roomID) return [];
   return rules.filter(({ listKey }) => {
+    if (listKey === null) return true;
     const value = dungeon.values?.[listKey];
     const ids = Array.isArray(value) ? value : isListValue(value) ? value.items : [];
     return ids.includes(dungeon.dungeonID);

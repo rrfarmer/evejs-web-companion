@@ -1,8 +1,7 @@
 "use strict";
 
-// The Wormhole Combat Sites client graph delegates arrival to graph 669, and
-// its start_objectives listener walks independent dungeon-ID membership tests.
-const WORMHOLE_OBJECTIVE_GRAPH = 1065;
+// Both client graphs delegate arrival to 669 and listen for start_objectives.
+const DUNGEON_OBJECTIVE_GRAPHS = new Set([952, 1065]);
 
 function dungeonObjectiveEntryRules(graph) {
   if (!graph || !graph.tags?.includes("client")) return null;
@@ -11,6 +10,13 @@ function dungeonObjectiveEntryRules(graph) {
   const listener = Object.values(nodes).find((node) =>
     node.nodeType === 31 && parameter(node, "message_key") === "start_objectives");
   if (listener?.connections?.output?.length !== 1) return null;
+  const objectiveKeyOf = (node) => {
+    const key = parameter(node, "message_value");
+    return node?.nodeType === 42 && parameter(node, "message_key") === "start_objective" &&
+      !node.connections?.output?.length && typeof key === "string" ? key : null;
+  };
+  const direct = objectiveKeyOf(nodes[listener.connections.output[0]]);
+  if (direct !== null) return [{ listKey: null, objectiveKey: direct }];
 
   const rules = [];
   const seen = new Set();
@@ -34,9 +40,8 @@ function dungeonObjectiveEntryRules(graph) {
     const messages = yes.filter((next) => !no.includes(next)).map((next) => nodes[next]);
     if (!messages.length) return null;
     for (const message of messages) {
-      const objectiveKey = parameter(message, "message_value");
-      if (message?.nodeType !== 42 || parameter(message, "message_key") !== "start_objective" ||
-          typeof objectiveKey !== "string" || message.connections?.output?.length) return null;
+      const objectiveKey = objectiveKeyOf(message);
+      if (objectiveKey === null) return null;
       rules.push({ listKey, objectiveKey });
     }
     id = no[0];
@@ -44,4 +49,4 @@ function dungeonObjectiveEntryRules(graph) {
   return rules;
 }
 
-module.exports = { WORMHOLE_OBJECTIVE_GRAPH, dungeonObjectiveEntryRules };
+module.exports = { DUNGEON_OBJECTIVE_GRAPHS, dungeonObjectiveEntryRules };
