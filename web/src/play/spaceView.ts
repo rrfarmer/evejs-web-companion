@@ -2389,7 +2389,10 @@ export class SpaceView {
     this.updateReflections(eye, settings.reflectionQuality, reflectionSources);
     this.sunLight.position.copy(this.sunDir);
     this.spaceShadows.render(this.scene, this.camera, this.sunDir, rendering.shadows, shadowClouds);
-    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering(), depthEffects: () => gfx().shaderQuality === 3 });
+    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, {
+      exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering(),
+      depthEffects: () => gfx().shaderQuality === 3, shadows: this.spaceShadows,
+    });
     const simDt = dt * (this.options.flightSnapshot?.()?.timeDilation ?? 1);
     const environment = this.observatoryEnvironment.sample(ego ? snap?.entities ?? [] : [], origin, eye, simDt, rendering.postProcess, systemID);
     this.bloom.render(environment, sun);

@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { OpaqueShadowMask } from "./opaqueShadowMask.ts";
+import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
 
 // 3698585 Tr2ShadowMap, Static split mode, used at Low and High.
 const SPLITS = [25, 75, 150, 300, 600, 1200, 2400, 4800, 9600, 19200, 38400, 76800, 153600, 307200, 614400, 1228800];
@@ -45,7 +47,27 @@ function shadowUniforms() {
   };
 }
 
-const atlasByRenderer = new WeakMap<THREE.WebGLRenderer, ReturnType<typeof shadowUniforms>>();
+const OPAQUE_SHADOW_GLSL = `
+  ${SOFT_DEPTH_GLSL}
+  uniform sampler2D opaqueShadowMask;
+  uniform bool opaqueShadowReady;
+  float opaqueSunVisibility(vec3 viewPosition) {
+    float visibility = 1.0;
+    bool matchedDepth = false;
+    if (opaqueShadowReady) {
+      ivec2 pixel = ivec2(gl_FragCoord.xy);
+      float sceneDepth = texelFetch(softDepthMap, pixel, 0).r;
+      // At MSAA edges and cutouts the opaque prepass can see a different surface.
+      float depth = -viewPosition.z;
+      matchedDepth = sceneDepth < 1.0 && abs(softViewDepth(sceneDepth) - depth) <= max(0.01, depth * 0.00005);
+      if (matchedDepth) visibility = texelFetch(opaqueShadowMask, pixel, 0).r;
+    }
+    if (!matchedDepth) visibility = spaceShadow(viewPosition, false);
+    return visibility;
+  }
+`;
+
+const atlasByRenderer = new WeakMap<THREE.WebGLRenderer, Record<string, THREE.IUniform>>();
 const shadowCompilers = new WeakSet<THREE.Material["onBeforeCompile"]>();
 const directionalLight = "getDirectionalLightInfo( directionalLight, directLight );";
 
@@ -60,9 +82,9 @@ function bindOpaqueShadow(material: THREE.MeshStandardMaterial): void {
     Object.assign(shader.uniforms, atlas);
     // Hull shaders may already have expanded this chunk, including the dust layer's lighting.
     const source = shader.fragmentShader.replaceAll("#include <lights_fragment_begin>", THREE.ShaderChunk.lights_fragment_begin);
-    shader.fragmentShader = SPACE_SHADOW_GLSL + source.replaceAll(directionalLight, `${directionalLight}
+    shader.fragmentShader = SPACE_SHADOW_GLSL + OPAQUE_SHADOW_GLSL + source.replaceAll(directionalLight, `${directionalLight}
       #if UNROLLED_LOOP_INDEX == 0
-        if (receiveShadow && directLight.visible) directLight.color *= spaceShadow(-vViewPosition, false);
+        if (receiveShadow && directLight.visible) directLight.color *= opaqueSunVisibility(-vViewPosition);
       #endif`);
   };
   material.customProgramCacheKey = function () {
@@ -144,6 +166,10 @@ class CascadeShadow extends THREE.LightShadow<THREE.OrthographicCamera> {
 /** The sun's opaque caster depth, shared by hull lighting and Observatory volumes. */
 export class SpaceShadowAtlas {
   readonly uniforms = shadowUniforms();
+  private readonly opaqueShadowMask = { value: null as THREE.Texture | null };
+  private readonly opaqueShadowReady = { value: false };
+  private mask: OpaqueShadowMask | null = null;
+  private hasOpaque = false;
   private readonly shadow = new CascadeShadow();
   private readonly sun = new THREE.DirectionalLight();
   private readonly pass = new THREE.Scene();
@@ -155,7 +181,21 @@ export class SpaceShadowAtlas {
 
   constructor(private readonly renderer: THREE.WebGLRenderer) {
     this.sun.shadow = this.shadow;
-    atlasByRenderer.set(renderer, this.uniforms);
+    atlasByRenderer.set(renderer, {
+      ...this.uniforms, ...SOFT_DEPTH,
+      opaqueShadowMask: this.opaqueShadowMask, opaqueShadowReady: this.opaqueShadowReady,
+    });
+  }
+
+  get needsOpaqueDepth(): boolean {
+    return this.hasOpaque && this.uniforms.shadowAtlas.value !== null;
+  }
+
+  resolveOpaque(camera: THREE.Camera, width: number, height: number): void {
+    if (!this.needsOpaqueDepth || !SOFT_DEPTH.softDepthOn.value) return;
+    this.mask ??= new OpaqueShadowMask(SPACE_SHADOW_GLSL, this.uniforms);
+    this.opaqueShadowMask.value = this.mask.render(this.renderer, camera, width, height);
+    this.opaqueShadowReady.value = true;
   }
 
   private needRange(near: number, far: number): void {
@@ -165,6 +205,9 @@ export class SpaceShadowAtlas {
   }
 
   render(scene: THREE.Scene, view: THREE.PerspectiveCamera, sunDirection: THREE.Vector3, enabled: boolean, clouds: readonly THREE.Mesh[]): void {
+    this.hasOpaque = false;
+    this.opaqueShadowMask.value = null;
+    this.opaqueShadowReady.value = false;
     const uniforms = this.uniforms;
     uniforms.shadowAtlas.value = null;
     uniforms.firstShadowSplit.value = 0;
@@ -192,7 +235,11 @@ export class SpaceShadowAtlas {
       if (!bounds.boundingSphere) bounds.computeBoundingSphere();
       if (!bounds.boundingSphere) return;
       this.sphere.copy(bounds.boundingSphere).applyMatrix4(this.modelView.multiplyMatrices(view.matrixWorldInverse, object.matrixWorld));
-      this.needRange(-this.sphere.center.z - this.sphere.radius, -this.sphere.center.z + this.sphere.radius);
+      const near = -this.sphere.center.z - this.sphere.radius, far = -this.sphere.center.z + this.sphere.radius;
+      if (near < MAX_DEPTH && far >= view.near) {
+        this.needRange(near, far);
+        this.hasOpaque = true;
+      }
     });
     for (const cloud of clouds) {
       const m = this.modelView.multiplyMatrices(view.matrixWorldInverse, cloud.matrixWorld).elements;
@@ -230,6 +277,7 @@ export class SpaceShadowAtlas {
 
   dispose(): void {
     atlasByRenderer.delete(this.renderer);
+    this.mask?.dispose();
     this.shadow.dispose();
     this.passTarget.dispose();
   }

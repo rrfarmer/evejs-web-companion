@@ -23,6 +23,7 @@ import { ENVIRONMENT_FOG_GLSL, type EnvironmentFog } from "./environmentFog.ts";
 import { GodRaysPass, type GodRays, type GodRaySun } from "./godRays.ts";
 import { sceneReflection } from "./celestialModel.ts";
 import { DistortionPass } from "./distortion.ts";
+import type { SpaceShadowAtlas } from "./spaceShadowAtlas.ts";
 
 /** Tr2PPBloomEffect's values (the client's defaults; the scenes set luminanceThreshold 0). */
 export const BLOOM = {
@@ -65,7 +66,13 @@ function target(w: number, h: number): THREE.WebGLRenderTarget {
 
 /** A scene drawn, bloomed, exposed and tone-mapped as the client does it. */
 export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera,
-  post: { exposure: () => DynamicExposure | null; toneMap: ToneMapMethod; quality?: () => { postProcess: boolean; distortion: boolean }; depthEffects?: () => boolean }): Bloom {
+  post: {
+    exposure: () => DynamicExposure | null;
+    toneMap: ToneMapMethod;
+    quality?: () => { postProcess: boolean; distortion: boolean };
+    depthEffects?: () => boolean;
+    shadows?: SpaceShadowAtlas;
+  }): Bloom {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
   const drawn = new THREE.WebGLRenderTarget(Math.max(1, size.x), Math.max(1, size.y), { type: THREE.HalfFloatType, samples: 4 });
   // levels[i] is 1 / 2^(i + 1) of the frame; blurred[s] is step s's blur, at its level; spare[i] the blur's halfway
@@ -204,7 +211,9 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       const depthEffects = post.depthEffects?.();
       const fog = depthEffects ? active?.fog : undefined;
       const godRays = depthEffects ? active?.godRays : undefined;
-      softDepth.render(renderer, scene, camera, drawn.width, drawn.height, !!fog || (!!godRays && !!sun));
+      const needsDepth = !!fog || (!!godRays && !!sun) || !!post.shadows?.needsOpaqueDepth;
+      softDepth.render(renderer, scene, camera, drawn.width, drawn.height, needsDepth);
+      post.shadows?.resolveOpaque(camera, drawn.width, drawn.height);
       renderer.setRenderTarget(drawn);
       renderer.render(scene, camera);
       let frame = quality.distortion ? distortion.render(renderer, scene, camera, drawn) : drawn.texture;
