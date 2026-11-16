@@ -29,11 +29,13 @@
     { "webSelect": { "role": "combobox", "name": "Bot", "exact": true }, "option": "Fight here" },
     { "webClick": { "role": "button", "name": "Run here" } },
     { "webExpect": { "css": ".module-ammo.empty" }, "hidden": true, "timeout": 90, "note": "the bot loaded it: no red 0 left on the rack" },
+    { "wait": 30, "note": "the loaded gun fires" },
     { "webShot": "the rack while the gun fires" }
   ],
   "until": { "any": ["WEB what=up"], "from": "start", "timeout": 30, "grace": 1 },
   "expect": [
     { "match": "WEB what=up", "note": "the web client ran against this tree's server" },
+    { "match": "DAMAGE label~Blood", "note": "the rat took damage: the ship has no drones, so the loaded gun fired" },
     { "match": "no WEB_ERROR what=exception", "note": "the page threw nothing" }
   ]
 }
