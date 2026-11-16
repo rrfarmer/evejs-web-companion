@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
-  import { seasonPageKind, type AgencySeason, type decodeAgencySeasonProgress } from "../bridge/agencySeason.ts";
+  import { seasonPageKind, type AgencySeason, type AgencySeasonReward, type decodeAgencySeasonProgress } from "../bridge/agencySeason.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { shortWrittenInterval, SHORT_INTERVAL_WORD_LABELS } from "../bridge/timeInterval.ts";
   import { resolvedName } from "../store/names.ts";
@@ -10,8 +10,11 @@
   import AgencySeasonRewards from "./AgencySeasonRewards.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
   import type { ClientStore } from "../store/clientStore.ts";
+  import { playUiEvent } from "../play/uiAudio.ts";
 
-  let { store, flow, season }: { store: ClientStore; flow: AppFlow; season: AgencySeason } = $props();
+  let { store, flow, season, onfanfare }: {
+    store: ClientStore; flow: AppFlow; season: AgencySeason; onfanfare: (reward: AgencySeasonReward) => void;
+  } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -58,7 +61,14 @@
     failure = "";
     try {
       const latest = await flow.claimAgencySeasonReward(seasonID, kind, id);
-      if (season.seasonID === seasonID) progress = latest;
+      if (season.seasonID === seasonID) {
+        progress = latest;
+        if (kind === "challenge") void playUiEvent("general_reward_play");
+        else {
+          const reward = latest.rewards.find(goal => goal.index === id && goal.claimed);
+          if (reward) onfanfare(reward);
+        }
+      }
     } catch (error) {
       failure = error instanceof Error ? error.message : "The reward could not be claimed.";
     } finally { busy = false; }

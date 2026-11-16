@@ -51,6 +51,8 @@
   import AgencyPhasedFieldsPage from "./AgencyPhasedFieldsPage.svelte";
   import AgencySeasonPage from "./AgencySeasonPage.svelte";
   import AgencySeasonSelection from "./AgencySeasonSelection.svelte";
+  import AgencyRewardFanfare from "./AgencyRewardFanfare.svelte";
+  import type { AgencySeasonReward } from "../bridge/agencySeason.ts";
   import { corporationPanelTarget } from "./corporationPanel.ts";
   import AgencyFleetUpRegisterPage from "./AgencyFleetUpRegisterPage.svelte";
   import { resolvedName } from "../store/names.ts";
@@ -104,6 +106,7 @@
   const itemID = $derived(items[at] ?? null);
   // SeasonsContentGroup's name and card are the season's (get_navigation_season_title, get_navigation_card_picture_path).
   let seasons = $state<Awaited<ReturnType<AppFlow["agencySeasons"]>>>({ active: null, choices: [], navigation: null });
+  let fanfare = $state<AgencySeasonReward | null>(null);
   $effect(() => { void flow.agencySeasons().then((s) => { seasons = s; }); });
   const groupOf = (id: number): AgencyGroup | undefined => {
     const base = AGENCY_GROUPS[id];
@@ -174,7 +177,7 @@
 {/snippet}
 
 <div class="ag">
-  <header class="ag-head">
+  <header class="ag-head" inert={fanfare !== null}>
     <button type="button" class="ag-nav" disabled={at === 0} title={word("UI/Commands/Back")} onclick={() => (at = Math.max(0, at - 1))}>‹</button>
     <button type="button" class="ag-nav" disabled={at >= history.length - 1} title={word("UI/Commands/Forward")} onclick={() => (at = Math.min(history.length - 1, at + 1))}>›</button>
     <nav class="ag-tabs">
@@ -184,14 +187,14 @@
     </nav>
   </header>
   {#if groupID !== HOME}
-    <div class="ag-crumbs">
+    <div class="ag-crumbs" inert={fanfare !== null}>
       {#each path as id, i (id)}
         {#if i}<span class="ag-sep">/</span>{/if}
         {#if i < path.length - 1}<button type="button" onclick={() => show(id)}>{crumbName(id)}</button>{:else}<b>{crumbName(id)}</b>{/if}
       {/each}
     </div>
   {/if}
-  <div class="ag-body">
+  <div class="ag-body" inert={fanfare !== null}>
     {#if groupID === HOME}
       <div class="ag-home">
         <div class="ag-home-left">
@@ -230,7 +233,7 @@
     {:else if groupID === CAMPAIGNS}
       <div class="ag-page"><AgencyCampaignsPage {store} {flow} {onOpenTab} /></div>
     {:else if groupID === SEASONS && seasons.active}
-      <div class="ag-page"><AgencySeasonPage {store} {flow} season={seasons.active} /></div>
+      <div class="ag-page"><AgencySeasonPage {store} {flow} season={seasons.active} onfanfare={(reward) => { fanfare = reward; }} /></div>
     {:else if groupID === SEASONS && seasons.choices.length}
       <div class="ag-page"><AgencySeasonSelection {store} {flow} {seasons} onchange={(next) => { seasons = next; }} /></div>
     {:else if groupID === FLEET_UP_REGISTER}
@@ -275,10 +278,11 @@
       </div>
     {/if}
   </div>
+  {#if fanfare}<AgencyRewardFanfare {store} {flow} reward={fanfare} onclose={() => { fanfare = null; }} />{/if}
 </div>
 
 <style>
-  .ag { display: flex; flex-direction: column; height: 100%; min-height: 0; color: rgb(255 255 255 / 0.85); }
+  .ag { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; color: rgb(255 255 255 / 0.85); }
   .ag-head { display: flex; align-items: center; gap: 4px; padding: 4px 8px; border-bottom: 1px solid rgb(255 255 255 / 0.1); }
   .ag-nav { all: unset; cursor: pointer; width: 22px; text-align: center; font-size: 18px; opacity: 0.8; }
   .ag-nav:disabled { opacity: 0.25; cursor: default; }

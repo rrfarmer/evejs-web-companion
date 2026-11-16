@@ -45,6 +45,19 @@ export function canRedeemOrdinarily(token: Pick<RedeemToken, "typeID">): boolean
   return token.typeID !== 63188;
 }
 
+// 3698585 redeem.data.get_redeem_data: these types redeem directly into skill points.
+const SKILL_POINT_TYPES = new Set([
+  54652, 54653, 63303, 63304, 54650, 63305, 63306, 63307, 63308, 54654, 63309, 63310,
+  52520, 63311, 63312, 63313, 63314, 63315, 63316, 63317, 63318, 63623, 63624, 63319,
+  63320, 63321, 63322, 49756, 63323, 63324, 63325, 57003, 63326, 63327, 63328, 63329,
+  63330, 63331, 63332, 63333, 63334, 63335, 63336, 63337, 63338, 49809, 63339, 63340,
+  63824, 49810, 63825, 54648, 43680, 52269, 89839, 52270, 52318, 52263, 56707,
+]);
+
+export function isSkillPointRedeem(typeID: number): boolean {
+  return SKILL_POINT_TYPES.has(typeID);
+}
+
 /** What a claim made and what it could not. */
 export interface RedeemOutcome {
   /** The tokens that were not redeemed, each with the server's message name (RedeemNoDestination, ...). */

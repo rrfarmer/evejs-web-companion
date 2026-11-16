@@ -163,6 +163,14 @@
   const academySystemID = $derived(sessionPlace($flight?.status ?? null, $station?.online ?? null).solarSystemID);
   const academyChanged = $derived(session?.flow.academyChanged);
   const academyWords = $derived(session?.store.words);
+  $effect(() => {
+    const cues = session?.flow.agencySeasonCue;
+    let subscribed = false;
+    return cues?.subscribe(cue => {
+      if (subscribed && cue) void playUiEvent(cue);
+      subscribed = true;
+    });
+  });
   const academyLabel = $derived(plainText($academyWords?.templates[ACADEMY_BUTTON] ?? "Academy Ship Service"));
   let academyAccess = $state<"hidden" | "locked" | "available">("hidden");
   $effect(() => {

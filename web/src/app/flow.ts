@@ -3895,6 +3895,7 @@ export interface AppFlow {
   selectAgencySeason(seasonID: number): Promise<Awaited<ReturnType<AppFlow["agencySeasons"]>> | null>;
   agencySeasonProgress(): Promise<ReturnType<typeof decodeAgencySeasonProgress>>;
   readonly agencySeasonProgressChanged: ReadableSignal<number>;
+  readonly agencySeasonCue: ReadableSignal<"scope_complete_task_play" | "scope_earn_rewards_play" | null>;
   claimAgencySeasonReward(seasonID: number, kind: "challenge" | "goal", id: number): Promise<NonNullable<ReturnType<typeof decodeAgencySeasonProgress>>>;
   agencyFleetUp(): Promise<{ readonly ads: readonly FleetAdvert[]; readonly jumps: Readonly<Record<string, number | null>>; readonly noRoute: Readonly<Record<string, string>>;
     readonly nowTicks: bigint; readonly fleetID: number | null; readonly isBoss: boolean; readonly registered: boolean } | null>;
@@ -5621,6 +5622,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const onlineCharacterID = (): number | null => store.station.get().online?.characterID ?? null;
   const academyChangedSignal = createSignal(0);
   const agencySeasonProgressChanged = createSignal(0);
+  const agencySeasonCue = createSignal<"scope_complete_task_play" | "scope_earn_rewards_play" | null>(null, () => false);
   const seasonProgressNotices = new Set([
     "OnChallengeProgressUpdate", "OnChallengeRewardsGranted", "OnChallengeCompleted", "OnChallengeExpired",
     "OnSeasonalPointsUpdated", "OnSeasonalGoalCompleted", "OnSeasonalGoalsReset", "OnSeasonOmegaRewardsClaimed",
@@ -7046,6 +7048,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     insideMultiEvent = false,
   ): void {
     if (method && seasonProgressNotices.has(method)) agencySeasonProgressChanged.update(n => n + 1);
+    if (method === "OnChallengeCompleted") agencySeasonCue.set("scope_complete_task_play");
+    if (method === "OnSeasonalGoalCompleted") agencySeasonCue.set("scope_earn_rewards_play");
     if (method === "OnAcademyShipBorrowed" || method === "OnAcademyShipReturned" || method === "OnAcademyShipBorrowFailed") {
       academyChangedSignal.update(n => n + 1);
       if (method === "OnAcademyShipBorrowFailed" && args[0] !== "no_ship_to_return") sayAcademyBorrowFailure();
@@ -35639,6 +35643,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     selectAgencySeason,
     agencySeasonProgress,
     agencySeasonProgressChanged: readonlySignal(agencySeasonProgressChanged),
+    agencySeasonCue: readonlySignal(agencySeasonCue),
     claimAgencySeasonReward,
     agencyAsteroidBelts,
     agencyTriglavianStandings,

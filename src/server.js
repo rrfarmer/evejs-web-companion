@@ -18653,8 +18653,8 @@ app.get(/^\/client-res\/(ui\/fonts\/factions\/[a-z]+\/[a-z0-9_-]+\.ttf)$/, (req,
 });
 
 // The client's own videos by their res: path (for example, the Achievements career banners):
-// /client-res/video/....webm answers the indexed file, with ranges (sendFile), or 404. No session, as the textures.
-app.get(/^\/client-res\/(video\/[A-Za-z0-9_./-]+\.webm)$/, (req, res) => {
+// The reward fanfare uses the ItemPacks splash loop indexed under ui/texture.
+app.get(/^\/client-res\/(video\/[A-Za-z0-9_./-]+\.webm|ui\/texture\/classes\/itempacks\/splashbgloop\.webm)$/, (req, res) => {
   const file = (typeof clientTextures.videoFor === "function" ? clientTextures.videoFor(`res:/${req.params[0]}`) : null) || clientTextures.fileFor(`res:/${req.params[0]}`);
   if (!file) {
     res.status(404).end();

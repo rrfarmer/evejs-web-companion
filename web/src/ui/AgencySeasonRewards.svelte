@@ -61,7 +61,7 @@
           {@const clone = reward.omegaOnly ? "omega" : "alpha"}
           <div class="goal" class:achieved class:ready class:claimed={reward.claimed} class:omega-only={reward.omegaOnly}
             style:left={`${Math.min(0.9999, reward.points / limit) * 100}%`}>
-            <button type="button" aria-label={ready ? `Claim ${name || description}` : `${name || description}, ${state}`}
+            <button type="button" data-own-sound aria-label={ready ? `Claim ${name || description}` : `${name || description}, ${state}`}
               title={`${description}\n${state}`} disabled={busy} onclick={() => openReward(reward)}
               style:--reward-frame={`url('${art(ready ? clone + "_ClaimRewardContainer" : clone + "RewardContainer")}')`}
               style:--reward-backdrop={`url('${art(ready ? "rewardClaimContainerBG" : "rewardContainerBG")}')`}>
