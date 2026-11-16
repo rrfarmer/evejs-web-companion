@@ -219,7 +219,7 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       let frame = quality.distortion ? distortion.render(renderer, scene, camera, drawn) : drawn.texture;
       if (sun && godRays && godRays.intensity > 0) {
         rayPass ??= new GodRaysPass();
-        frame = rayPass.render(renderer, camera, sun, godRays, frame, drawn.width, drawn.height);
+        frame = rayPass.render(renderer, scene, camera, sun, godRays, frame, drawn.width, drawn.height);
       }
       highPass.uniforms["frame"]!.value = frame;
       output.uniforms["frame"]!.value = frame;

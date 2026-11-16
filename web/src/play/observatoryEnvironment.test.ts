@@ -17,6 +17,8 @@ test("Observatory postprocessing follows the in-range anchor and clears on remov
   const noise = new Texture();
   const mask = new Texture();
   const sunColor = [0.27, 0.28, 0.35, 1] as const;
+  const authoredMasks = [false, true].flatMap((background) => [1 / 36, 1 / 120]
+    .map((extent) => ({ mask: "mask", halfSize: [extent, extent] as const, background })));
   let requests = 0;
   const environment = new ObservatoryEnvironment(async () => {
     requests++;
@@ -25,8 +27,11 @@ test("Observatory postprocessing follows the in-range anchor and clears on remov
       template: {
         anchor: 49106,
         activationRadius: 25_000_000,
-        sunFlareBySystem: { 30000144: 1247 },
-        sunFlares: { 1247: { color: sunColor, halfSize: [1 / 36, 1 / 36], mask: "mask" } },
+        sunFlareBySystem: { 30000144: 1247, 30000143: 1244 },
+        sunFlares: {
+          1247: { color: sunColor, masks: authoredMasks },
+          1244: { color: sunColor, halfSize: [1 / 36, 1 / 36], mask: "mask" },
+        },
         distanceField: { dimensions: [1_000_000, 1_000_000, 1_000_000], minDistance: 40_000, maxDistance: 1_200_000, timeAdjustmentSecondsIn: 2, timeAdjustmentSecondsOut: 2 },
         postProcess: {
           ranges: { bloom: [0.2, 1], fog: [0, 1] },
@@ -64,7 +69,12 @@ test("Observatory postprocessing follows the in-range anchor and clears on remov
   assert.equal(settled.lutInfluence, 0.75);
   assert.equal(settled.grimeWeight, 40);
   assert.equal(settled.fog.intensity, 1);
-  assert.deepEqual(settled.godRays, { intensity: 0.2, color: sunColor, noise, mask, halfSize: [1 / 36, 1 / 36] });
+  assert.deepEqual(settled.godRays, {
+    intensity: 0.2, color: sunColor, noise, systemID: 30000144,
+    masks: authoredMasks.map((entry) => ({ ...entry, mask })),
+  });
+  assert.deepEqual(environment.sample([anchor], origin, eye, 0, true, 30000143)!.godRays?.masks,
+    [{ mask, halfSize: [1 / 36, 1 / 36], background: false }]);
   assert.equal(environment.sample([anchor], origin, eye, 0, true, 30000142)!.godRays, undefined);
 
   const retreat = environment.sample([anchor], origin, distantEye, 1, true)!;

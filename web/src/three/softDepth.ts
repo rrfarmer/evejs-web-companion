@@ -45,6 +45,28 @@ export class SoftDepthPass {
 
   /** Draws opaque depth for visible soft areas or an active depth-based postprocess. */
   render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, width: number, height: number, forceOpaque = false): void {
+    const target = this.draw(renderer, scene, camera, width, height, forceOpaque);
+    SOFT_DEPTH.softDepthOn.value = target ? 1 : 0;
+    if (!target) return;
+    const cam = camera as THREE.PerspectiveCamera;
+    SOFT_DEPTH.softDepthMap.value = target.depthTexture;
+    SOFT_DEPTH.softDepthSize.value.set(target.width, target.height);
+    SOFT_DEPTH.softDepthLogFar.value = renderer.capabilities.logarithmicDepthBuffer ? Math.log2(cam.far + 1) : 0;
+    SOFT_DEPTH.softDepthNearFar.value.set(cam.near, cam.far);
+  }
+
+  /** Draw a subset for an occlusion query without changing the frame's shared depth. */
+  capture(
+    renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, width: number, height: number,
+    accepts: (mesh: THREE.Mesh) => boolean,
+  ): THREE.DepthTexture | null {
+    return this.draw(renderer, scene, camera, width, height, true, accepts)?.depthTexture ?? null;
+  }
+
+  private draw(
+    renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, width: number, height: number, forceOpaque: boolean,
+    accepts?: (mesh: THREE.Mesh) => boolean,
+  ): THREE.WebGLRenderTarget | null {
     const hidden: THREE.Object3D[] = [];
     let wanted = forceOpaque;
     scene.traverseVisible((o) => {
@@ -52,16 +74,16 @@ export class SoftDepthPass {
       if (!mat) return;
       const mats = Array.isArray(mat) ? mat : [mat];
       if (mats.some((m) => m.userData.softDepth)) wanted = true;
-      if (!(o as THREE.Mesh).isMesh || !mats.every(opaque)) hidden.push(o);
+      if (!(o as THREE.Mesh).isMesh || !mats.every(opaque) || (accepts && !accepts(o as THREE.Mesh))) hidden.push(o);
     });
-    SOFT_DEPTH.softDepthOn.value = 0;
-    if (!wanted) return;
+    if (!wanted) return null;
     if (!this.target || this.target.width !== width || this.target.height !== height) {
       this.target?.dispose();
       this.target = new THREE.WebGLRenderTarget(Math.max(1, width), Math.max(1, height), { depthBuffer: true });
       this.target.depthTexture = new THREE.DepthTexture(Math.max(1, width), Math.max(1, height), THREE.FloatType);
     }
     const background = scene.background, override = scene.overrideMaterial, to = renderer.getRenderTarget();
+    const face = renderer.getActiveCubeFace(), mip = renderer.getActiveMipmapLevel();
     for (const o of hidden) o.visible = false;
     scene.background = null;
     scene.overrideMaterial = this.blank;
@@ -73,14 +95,9 @@ export class SoftDepthPass {
       for (const o of hidden) o.visible = true;
       scene.background = background;
       scene.overrideMaterial = override;
-      renderer.setRenderTarget(to);
+      renderer.setRenderTarget(to, face, mip);
     }
-    const cam = camera as THREE.PerspectiveCamera;
-    SOFT_DEPTH.softDepthMap.value = this.target.depthTexture;
-    SOFT_DEPTH.softDepthSize.value.set(this.target.width, this.target.height);
-    SOFT_DEPTH.softDepthLogFar.value = renderer.capabilities.logarithmicDepthBuffer ? Math.log2(cam.far + 1) : 0;
-    SOFT_DEPTH.softDepthNearFar.value.set(cam.near, cam.far);
-    SOFT_DEPTH.softDepthOn.value = 1;
+    return this.target;
   }
 
   dispose(): void {

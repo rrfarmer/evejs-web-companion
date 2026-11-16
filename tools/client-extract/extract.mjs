@@ -621,16 +621,21 @@ function extractObservatoryEnvironment(rf, clientDir, outRoot) {
     const file = graphic?.graphicFile?.toLowerCase().replace(/\.red$/, ".black");
     if (!file || !rf.has(file)) return [];
     const flare = readBlack(rf.read(file), file);
-    // Use the flare's large foreground sprite for the browser's depth visibility estimate.
-    const sprite = flare.occluders?.[0]?.sprites?.[0];
-    const mask = sprite?.mesh?.opaqueAreas?.[0]?.effect?.resources?.find((r) => r.name === "TexMap")?.resourcePath;
-    const depth = -sprite?.translation?.[2];
-    if (!(depth > 0) || !mask || sprite.mesh.geometryResPath.toLowerCase() !== "res:/model/global/zsprite.gr2") return [];
-    return [[id, { color: graphic.albedoColor, mask: copyRes(rf, mask, outRoot),
-      halfSize: sprite.scaling.slice(0, 2).map((size) => size * 0.5 / depth) }]];
+    // OccluderManagement has two foreground and two planet query slots.
+    const masks = [flare.occluders, flare.backgroundOccluders].flatMap((groups, layer) => (groups ?? []).flatMap((group) => {
+      const sprite = group.sprites?.[0];
+      const mask = sprite?.mesh?.opaqueAreas?.[0]?.effect?.resources?.find((r) => r.name === "TexMap")?.resourcePath;
+      const depth = -sprite?.translation?.[2];
+      if (group.display === false || sprite?.display === false || group.sprites?.length !== 1 || !(depth > 0) || !mask
+        || sprite.translation[0] !== 0 || sprite.translation[1] !== 0
+        || sprite.mesh.geometryResPath.toLowerCase() !== "res:/model/global/zsprite.gr2") return [];
+      return [{ background: layer === 1, mask: copyRes(rf, mask, outRoot),
+        halfSize: sprite.scaling.slice(0, 2).map((size) => size * 0.5 / depth) }];
+    }));
+    return masks.length ? [[id, { color: graphic.albedoColor, masks }]] : [];
   }));
   fs.writeFileSync(path.join(outRoot, "observatoryEnvironment.json"), JSON.stringify({
-    environmentBuild: 2,
+    environmentBuild: 3,
     anchor,
     templateID,
     ...template,

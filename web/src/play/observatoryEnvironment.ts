@@ -9,10 +9,21 @@ const ENVIRONMENT_ANCHOR_TYPE = 49106;
 interface Position { x: number; y: number; z: number }
 interface Anchor { itemID: number; typeID: number | null; position: Position }
 
+interface FlareMask {
+  mask: string;
+  halfSize: GodRays["masks"][number]["halfSize"];
+  background: boolean;
+}
 interface Flare {
   color?: GodRays["color"];
-  mask: string;
-  halfSize: GodRays["halfSize"];
+  masks?: FlareMask[];
+  mask?: string;
+  halfSize?: FlareMask["halfSize"];
+}
+function flareMasks(flare: Flare): FlareMask[] {
+  return flare.masks ?? (flare.mask && flare.halfSize
+    ? [{ mask: flare.mask, halfSize: flare.halfSize, background: false }]
+    : []);
 }
 interface Template {
   anchor: number;
@@ -57,7 +68,7 @@ function loadEnvironment(): Promise<Environment> {
     grime.wrapS = grime.wrapT = THREE.ClampToEdgeWrapping;
     grime.needsUpdate = true;
     const noise = template.postProcess.godRays?.noise;
-    const masks = [...new Set(Object.values(template.sunFlares ?? {}).map((flare) => flare.mask))];
+    const masks = [...new Set(Object.values(template.sunFlares ?? {}).flatMap(flareMasks).map((entry) => entry.mask))];
     const rayTextures = noise && masks.length ? await Promise.all([
       loadDds(noise),
       Promise.all(masks.map(async (path) => [path, await loadDds(path)] as const)),
@@ -133,7 +144,10 @@ export class ObservatoryEnvironment {
     const { bloom, fog, godRays, ranges, lut: grading, useGodRaysSunColor } = template.postProcess;
     const flareID = systemID === null ? undefined : template.sunFlareBySystem?.[systemID];
     const flare = flareID === undefined ? undefined : template.sunFlares?.[flareID];
-    const mask = flare ? rayTextures?.masks.get(flare.mask) : undefined;
+    const masks = flare ? flareMasks(flare).flatMap((entry) => {
+      const mask = rayTextures?.masks.get(entry.mask);
+      return mask ? [{ ...entry, mask }] : [];
+    }) : [];
     return {
       luminanceThreshold: bloom.luminanceThreshold,
       luminanceScale: bloom.luminanceScale,
@@ -142,10 +156,10 @@ export class ObservatoryEnvironment {
       grimeWeight: bloom.grimeWeight * influence,
       lut,
       lutInfluence: grading.influence * influence,
-      godRays: godRays && flare && mask && rayTextures ? {
+      godRays: godRays && flare && masks.length && rayTextures && systemID !== null ? {
         intensity: godRays.intensity * influence,
         color: (useGodRaysSunColor && flare.color) || godRays.godRayColor || [1, 1, 1, 1],
-        noise: rayTextures.noise, mask, halfSize: flare.halfSize,
+        noise: rayTextures.noise, masks, systemID,
       } : undefined,
       fog: {
         settings: fog, dimensions, influence,
