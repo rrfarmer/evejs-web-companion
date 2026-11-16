@@ -8812,7 +8812,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   let containerReadGeneration = 0;
-  async function openContainer(containerID: number | null): Promise<void> {
+  const cargoShownSignal = createSignal<{ readonly n: number; readonly itemID: number } | null>(null);
+  async function openContainer(containerID: number | null, fromSpace = false): Promise<void> {
     const generation = ++containerReadGeneration;
     if (containerID === null) {
       store.apply({ type: "inventory/container", container: null });
@@ -8843,7 +8844,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const safetyRow = safetyDeliveriesSignal.get()?.wraps.find(wrap => wrap.row.itemID === containerID)?.row;
     const online = store.station.get().online;
     if (owningRow) rememberSafetyParents([owningRow]);
-    if (knownTypeID === 60 && safetyRow && online?.corporationID && safetyRow.ownerID === online.corporationID) {
+    if (!fromSpace && knownTypeID === 60 && safetyRow && online?.corporationID && safetyRow.ownerID === online.corporationID) {
       try {
         // Original corporate tree/controller(None): one full List, no capacity query.
         const raw = await bridgeAsk("invbroker", "List", [], null, containerID);
@@ -8885,6 +8886,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         throw error;
       }
       if (generation !== containerReadGeneration) return;
+      // menusvc._OpenCargo reads GetItems before opening or switching Inventory.
+      if (fromSpace) throw error;
       store.apply({
         type: "inventory/container",
         container: {
@@ -8914,6 +8917,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         error: null,
       },
     });
+    if (fromSpace) cargoShownSignal.set({ n: (cargoShownSignal.get()?.n ?? 0) + 1, itemID: containerID });
   }
 
   /**
@@ -17265,17 +17269,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * that near now (IsTooFarToExecuteCommand), the install's OpenCargoTooFar said as the command is given.
    */
   const CARGO_INTERACTION_RANGE_M = 2_500;
-  const cargoShownSignal = createSignal<{ readonly n: number; readonly itemID: number } | null>(null);
   async function openCargo(itemID: number): Promise<void> {
-    const navigation = navigateSystemTo(itemID, CARGO_INTERACTION_RANGE_M, async () => {
-      await openContainer(itemID);
-      cargoShownSignal.set({ n: (cargoShownSignal.get()?.n ?? 0) + 1, itemID });
-    });
+    const navigation = navigateSystemTo(itemID, CARGO_INTERACTION_RANGE_M, () => openContainer(itemID, true));
     if (!systemNavigationComplete(itemID, CARGO_INTERACTION_RANGE_M)) {
       sayDialog("OpenCargoTooFar", null, "That cargo is out of reach. Your ship is flying to it.");
     }
     void navigation.catch((error: unknown) => {
-      if (isSessionLost(error)) return;
+      if (isSessionLost(error) || failureCode(error) === "SESSION_REQUEST_RETIRED") return;
       store.apply({ type: "flight/action-error", message: `Open Cargo refused: ${flightRefusalWords(error)}`, said: sayRefusalDialog(error, flightRefusalWords(error)) });
     });
   }

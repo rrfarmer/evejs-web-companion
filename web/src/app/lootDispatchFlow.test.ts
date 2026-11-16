@@ -156,6 +156,51 @@ function script(step: BotScript["program"][number]): BotScript {
   };
 }
 
+test("Open Cargo reports the native refusal and keeps the current inventory until the can opens", async () => {
+  const previousID = 80000;
+  const containerID = 80001;
+  const store = createClientStore();
+  const notify = "Hack this container successfully before accessing its contents.";
+  const values = { type: "dict", entries: [["notify", notify]] };
+  let unlocked = false;
+  const { fetch } = makeFakeFetch((path) => {
+    if (path === "/api/bridge/flight/status") return { status: 200, body: flightBody(false) };
+    if (path === "/api/bridge/space/snapshot") return { status: 200, body: spaceBodyWith({
+      itemID: containerID, typeID: 85231, kind: "container", name: "Drifter Collection", radius: 5,
+      position: { x: 1000, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 },
+    }) };
+    if (path === `/api/bridge/inventory/container/${previousID}`) {
+      return { status: 200, body: containerReads(previousID, []) };
+    }
+    if (path === `/api/bridge/inventory/container/${containerID}?typeID=85231`) {
+      return unlocked
+        ? { status: 200, body: containerReads(containerID, [packedRow({ itemID: 90001, typeID: 25601, quantity: 1 })]) }
+        : { status: 403, body: { ok: false, error: "CALL_REFUSED", message: notify, refusal: { key: "CustomNotify", values } } };
+    }
+    return { status: 200, body: { ok: true } };
+  });
+  const flow = createAppFlow(store, { fetch });
+  await flow.openContainer(previousID);
+  const previous = store.inventory.get().container;
+  assert.equal(previous?.itemID, previousID);
+  await flow.loadSpaceSnapshot();
+
+  await flow.openCargo(containerID);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(store.inventory.get().container, previous);
+  assert.equal(flow.cargoShown.get(), null);
+  assert.equal(flow.dialogsSaid.get().length, 1);
+  assert.equal(flow.dialogsSaid.get()[0]?.dialog, "CustomNotify");
+  assert.deepEqual(flow.dialogsSaid.get()[0]?.values, values);
+
+  unlocked = true;
+  await flow.openCargo(containerID);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(store.inventory.get().container?.itemID, containerID);
+  assert.deepEqual(store.inventory.get().container?.rows.map((row) => row.itemID), [90001]);
+  assert.deepEqual(flow.cargoShown.get(), { n: 1, itemID: containerID });
+});
+
 test("a custom bot's loot-containers step leases and dispatches a container regardless of EVE item owner", async () => {
   const CONTAINER_ID = 80001;
   let containerReadsCount = 0;
