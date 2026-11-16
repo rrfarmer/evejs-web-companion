@@ -5,6 +5,7 @@ import { loadDds } from "./ddsTexture.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
 import { decodeVta } from "./vtaVolume.ts";
 import { VortexLightmap } from "./vortexLightmap.ts";
+import { VortexShadow } from "./vortexShadow.ts";
 
 export const OBSERVATORY_VORTEX_TYPE = 77388;
 
@@ -183,6 +184,8 @@ export class ObservatoryVortex {
   private stopped = false;
   private readonly volume: VortexData;
   private readonly baked = new VortexLightmap();
+  private readonly caster = new VortexShadow();
+  readonly shadow = this.caster.group;
   private readonly nativeSun = new THREE.Vector3();
   private readonly inverse = new THREE.Matrix4();
 
@@ -232,7 +235,7 @@ export class ObservatoryVortex {
     return new ObservatoryVortex(await vortexAssets(), sun);
   }
 
-  update(radius: number, quality: number, renderer: THREE.WebGLRenderer, sunDirection: THREE.Vector3): void {
+  update(radius: number, quality: number, renderer: THREE.WebGLRenderer, sunDirection: THREE.Vector3, shadows: boolean): void {
     this.mesh.scale.set(...this.volume.scaling).multiplyScalar(radius);
     const uniforms = this.mesh.material.uniforms;
     const field = uniforms.field!.value as THREE.Data3DTexture | null;
@@ -244,6 +247,7 @@ export class ObservatoryVortex {
       const lightmap = this.baked.update(renderer, field, this.nativeSun, this.volume.density);
       uniforms.lightmap!.value = lightmap;
       uniforms.lightmapReady!.value = lightmap !== null;
+      this.caster.update(shadows ? lightmap : null, this.inverse, this.nativeSun);
     }
     // sceneRenderJobSpace.ApplySpaceRenderingSettings selects the low VTA at Low and Medium.
     const url = quality >= 3 ? this.volume.volume : this.volume.volumeLow;
@@ -259,6 +263,7 @@ export class ObservatoryVortex {
   dispose(): void {
     this.stopped = true;
     this.baked.dispose();
+    this.caster.dispose();
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
   }

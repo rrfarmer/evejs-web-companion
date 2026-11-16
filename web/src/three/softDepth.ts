@@ -27,11 +27,13 @@ export const SOFT_DEPTH = {
  */
 export const SOFT_DEPTH_GLSL = `uniform sampler2D softDepthMap; uniform float softDepthOn; uniform vec2 softDepthSize;
 uniform float softDepthLogFar; uniform vec2 softDepthNearFar;
-float softSceneDepthAt(vec2 frag) {
-  float d = texture2D(softDepthMap, frag / softDepthSize).x;
+float softViewDepth(float d) {
   if (softDepthLogFar > 0.0) return exp2(d * softDepthLogFar) - 1.0;
   float n = softDepthNearFar.x, f = softDepthNearFar.y;
   return (n * f) / (f - d * (f - n));
+}
+float softSceneDepthAt(vec2 frag) {
+  return softViewDepth(texture2D(softDepthMap, frag / softDepthSize).x);
 }
 float softSceneDepth() { return softSceneDepthAt(gl_FragCoord.xy); }`;
 

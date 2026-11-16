@@ -2012,6 +2012,8 @@ export class SpaceView {
     const tmp = new THREE.Vector3();
     const w = innerWidth, h = innerHeight;
     let sun: { position: THREE.Vector3; radius: number } | null = null;
+    const settings = gfx();
+    const rendering = spaceRendering(settings);
     const overviewMask = this.overview.activePreset();
     const bracketMask = this.overview.activeBracketPreset();
     const relations = overviewMask?.filteredStates.length || bracketMask?.filteredStates.length
@@ -2026,7 +2028,7 @@ export class SpaceView {
       if (!mark) { mark = this.markFor(e); this.marks.set(e.itemID, mark); this.scene.add(mark); }
       mark.position.copy(rel);
       this.orient(mark, e);
-      (mark.userData.vortex as ObservatoryVortex | undefined)?.update(e.radius, gfx().volumetricQuality, this.renderer, this.sunDir);
+      (mark.userData.vortex as ObservatoryVortex | undefined)?.update(e.radius, settings.volumetricQuality, this.renderer, this.sunDir, rendering.shadows);
       // a drone's engines burn always (Drone.py: FitBoosters(alwaysOn=True)); a fighter's do not
       mark.userData.boostersAlwaysOn = e.kind === "drone";
       if (e.maxVelocity || mark.userData.boostersAlwaysOn) setThrust(mark, e.maxVelocity ? Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z) / e.maxVelocity : 0, this.accelOf(mark, e));
@@ -2288,8 +2290,6 @@ export class SpaceView {
     const shaken = this.shake.offset(this.camera.position, this.controls.target, dt);
     if (shaken) this.camera.lookAt(this.controls.target.clone().add(shaken));
     // the system menu's settings (gfxSettings.ts): shadows, the turrets' and missiles' effects
-    const settings = gfx();
-    const rendering = spaceRendering(settings);
     if (this.sunLight.castShadow !== rendering.shadows) this.sunLight.castShadow = rendering.shadows;
     this.turretFx.group.visible = settings.turretsEnabled;
     this.missileFx.group.visible = settings.missilesEnabled;
@@ -2459,7 +2459,7 @@ export class SpaceView {
             return;
           }
           holder.userData.vortex = vortex;
-          holder.add(vortex.mesh);
+          holder.add(vortex.mesh, vortex.shadow);
         }).catch((error: unknown) => console.warn("Observatory vortex:", error));
       } else if (e.typeID && e.groupID === 1975) {
         void typeModel(e.typeID).then((model) => {
