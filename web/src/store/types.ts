@@ -2028,6 +2028,8 @@ export interface SpaceEntity {
    * the game port reports it, and only for wrecks and containers.
    */
   readonly lootRights?: { readonly ownerID: number | null; readonly corpID: number | null; readonly fleetID: number | null; readonly abandoned: boolean } | null;
+  /** The native slim item's hacking state. Absent on objects without a hacking task. */
+  readonly hackingSecurityState?: number;
   readonly securityStatus: number | null;
   readonly maxVelocity: number | null;
   readonly mode: string | null;

@@ -60,7 +60,9 @@ const ABYSS_NPC_TASK = "destroy_npcs";
 const TASK_PROGRESS = 9;
 const TASK_DESTROY_COUNTER = 45;
 const TASK_DESTROY_TARGETS = 52;
+const TASK_HACK_ALL_CONTAINERS = 55;
 const TASK_JUMP_THROUGH_ABYSS_GATE = 56;
+const HACKED = 2; // hackingcommon.hackingConstants.hackingStateHacked
 
 type Value = number | string | boolean | readonly number[] | null;
 
@@ -269,17 +271,19 @@ const count = (value: number): string => Math.round(value).toLocaleString("en-US
 /** A task's look at the whole grid, not only at what was just added. */
 const FIND = Symbol("find");
 
-/** The Abyss chain: its context, its objectives and their tasks, moved on by what the page is told and sees. */
-export class AbyssObjectiveChain {
+/** An authored chain observed from the local ballpark and the pilot's context. */
+export class ObjectiveChain {
   private readonly data: ObjectiveChainData;
+  private readonly pilotID: number | null;
   readonly context: Record<string, Value> = {};
   private readonly objectives = new Map<string, Objective>();
   private entities: readonly SpaceEntity[] = [];
   /** What was on the grid at the last look: a thing not among it is one just added (OnBallAdded). */
   private seen: ReadonlySet<number> = new Set();
 
-  constructor(data: ObjectiveChainData, context: Readonly<Record<string, Value>> = {}) {
+  constructor(data: ObjectiveChainData, context: Readonly<Record<string, Value>> = {}, pilotID: number | null = null) {
     this.data = data;
+    this.pilotID = pilotID;
     Object.assign(this.context, context);
     // set_default_values: only what has no value yet.
     for (const [key, value] of Object.entries(data.defaults)) if (this.context[key] === undefined || this.context[key] === null) this.context[key] = value;
@@ -409,7 +413,7 @@ export class AbyssObjectiveChain {
   }
 
   private startTask(objective: Objective, task: Task): void {
-    if (task.info.taskType === TASK_DESTROY_COUNTER || task.info.taskType === TASK_DESTROY_TARGETS) {
+    if (task.info.taskType === TASK_DESTROY_COUNTER || task.info.taskType === TASK_DESTROY_TARGETS || task.info.taskType === TASK_HACK_ALL_CONTAINERS) {
       // Both forget what they had (_DestroyTargetsCounterTask.start, BaseTargetsTask.start); started while active, the
       // counter counts only what comes after, and the list waits for what comes.
       task.targets.clear();
@@ -470,21 +474,27 @@ export class AbyssObjectiveChain {
         }
         this.updateCounter(objective, task);
         return;
-      case TASK_DESTROY_TARGETS: {
+      case TASK_DESTROY_TARGETS:
+      case TASK_HACK_ALL_CONTAINERS: {
+        const hack = task.info.taskType === TASK_HACK_ALL_CONTAINERS;
+        const complete = (entity: SpaceEntity) => hack
+          ? entity.hackingSecurityState === HACKED && (task.values.personal_only === false || (this.pilotID !== null && entity.ownerID === this.pilotID))
+          : entity.hullRatio === 0;
         let changed = false;
         for (const itemID of [...task.rows.keys()]) {
           const entity = present.get(itemID);
           if (entity === undefined) {
             task.rows.delete(itemID);
             changed = true;
-          } else if (task.rows.get(itemID) !== (entity.hullRatio === 0)) {
-            task.rows.set(itemID, entity.hullRatio === 0);
+          } else if (task.rows.get(itemID) !== complete(entity)) {
+            task.rows.set(itemID, complete(entity));
             changed = true;
           }
         }
         for (const entity of looked) {
-          if (task.rows.has(entity.itemID) || !this.matches(task, entity)) continue;
-          task.rows.set(entity.itemID, entity.hullRatio === 0);
+          const matches = hack ? !entity.isSelf && entity.hackingSecurityState !== undefined : this.matches(task, entity);
+          if (task.rows.has(entity.itemID) || !matches) continue;
+          task.rows.set(entity.itemID, complete(entity));
           changed = true;
         }
         // _update_completed_state: complete where every row is; asked at a change, and at a look for targets only with
@@ -577,6 +587,7 @@ export class AbyssObjectiveChain {
       case TASK_JUMP_THROUGH_ABYSS_GATE:
         return task.gateID === null;
       case TASK_DESTROY_TARGETS:
+      case TASK_HACK_ALL_CONTAINERS:
         return false;
       default:
         return true;
@@ -605,11 +616,14 @@ export class AbyssObjectiveChain {
         return [{ ...base, titleLabel: null, itemID: task.gateID, typeID: gate?.typeID ?? null }];
       }
       case TASK_DESTROY_TARGETS:
+      case TASK_HACK_ALL_CONTAINERS:
         return [...task.rows.entries()].map(([itemID, done]) => {
           const entity = this.entities.find((thing) => thing.itemID === itemID);
           return {
             ...base, key: `${task.info.key}:${itemID}`, icon: null, titleLabel: null, itemID, typeID: entity?.typeID ?? null, completed: done,
-            health: { hull: entity?.hullRatio ?? 0, armor: entity?.armorRatio ?? 0, shield: entity?.shieldRatio ?? 0 },
+            health: task.info.taskType === TASK_DESTROY_TARGETS
+              ? { hull: entity?.hullRatio ?? 0, armor: entity?.armorRatio ?? 0, shield: entity?.shieldRatio ?? 0 }
+              : null,
           };
         });
       default:

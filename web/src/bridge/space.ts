@@ -144,6 +144,8 @@ function decodeEntity(value: JsonValue): SpaceEntity | null {
     categoryID: idOrNull(raw.categoryID),
     name: stringOrNull(raw.name),
     ownerID: idOrNull(raw.ownerID),
+    ...(typeof raw.hackingSecurityState === "number" && Number.isSafeInteger(raw.hackingSecurityState) && raw.hackingSecurityState >= 0
+      ? { hackingSecurityState: raw.hackingSecurityState } : {}),
     radius: floatOr(raw.radius, 0),
     geometryAvailable: geometryAvailable(raw),
     motionAvailable: [asObject(raw.velocity).x, asObject(raw.velocity).y, asObject(raw.velocity).z]

@@ -10,6 +10,7 @@
   import { openDungeonJob } from "./jobBoardRequests.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import DungeonTrackButton from "./DungeonTrackButton.svelte";
+  import SignatureObjectives from "./SignatureObjectives.svelte";
 
   let { store, flow, job, expanded = true, onToggle }: {
     store: ClientStore; flow: AppFlow; job: DungeonOpportunityJob; expanded?: boolean; onToggle?: () => void;
@@ -108,7 +109,10 @@
     {/if}
   </div>
   {#if expanded}
-    {#if inside && onToggle}<p>{word("UI/Generic/CurrentLocation")}</p>{/if}
+    {#if inside && onToggle}
+      {#if job.kind === "signature"}<SignatureObjectives {store} {flow} {job} />
+      {:else}<p>{word("UI/Generic/CurrentLocation")}</p>{/if}
+    {/if}
     {#if !inside && (onToggle || restricted)}
       <div class="objective">
         {#if onToggle}<strong>{word(travelTitle)}</strong>{/if}

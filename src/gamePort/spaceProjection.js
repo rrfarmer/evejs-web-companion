@@ -204,6 +204,7 @@ function projectEntity(park, ball, slim, ego, placed) {
   const groupID = positive(slim.get("groupID"));
   const kind = kindOf(categoryID, groupID);
   const seen = park.damageSeen ? park.damageSeen.get(ball.id) : undefined;
+  const hackingState = slim.get("hackingSecurityState");
   const row = {
     kind,
     itemID,
@@ -212,6 +213,7 @@ function projectEntity(park, ball, slim, ego, placed) {
     categoryID,
     name: text(slim.get("name")) || null,
     ownerID: positive(slim.get("ownerID")),
+    ...(Number.isSafeInteger(hackingState) && hackingState >= 0 ? { hackingSecurityState: hackingState } : {}),
     // Whose side it is on, as its slim item says: its corporation, alliance and militia, which the client's overview
     // reads of any slim item that has them (overviewWindow.py 951 to 966). None where there is none.
     corporationID: positive(slim.get("corpID")),

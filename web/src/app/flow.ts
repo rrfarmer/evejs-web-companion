@@ -978,7 +978,7 @@ import {
   ABYSS_LOOTABLE_OBJECTIVE,
   ABYSS_LOOTABLE_RESTART_MS,
   ABYSS_OBJECTIVE_CHAIN_ID,
-  AbyssObjectiveChain,
+  ObjectiveChain,
   abyssalLocationEntered,
   decodeObjectiveChain,
   type AbyssObjectiveRow,
@@ -3670,6 +3670,7 @@ export interface AppFlow {
   jumpThroughTrace(itemID: number): Promise<{ readonly deployed: boolean; readonly errors: readonly AbyssErrorEntry[] }>;
   /** The Abyssal info panel's objectives (bridge/abyssObjectives.ts), as drawn now; null where the abyss service has no chain. */
   readonly abyssObjectives: ReadableSignal<readonly AbyssObjectiveRow[] | null>;
+  readObjectiveChain(chainID: number): Promise<ObjectiveChainData | null>;
   /** A thing in space activated as the client's menu.Activate does (bridge/spaceActivate.ts): an objective target's double click. */
   activateSpaceThing(itemID: number): Promise<void>;
   /** Open Cargo on a can or a wreck in space (menusvc.OpenCargo): flown to within 2,500 m, then opened. */
@@ -17040,29 +17041,32 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // shows and by the jumps the pilot's ship begins (the travel effect), and let go where the pilot leaves Abyssal
   // space. Its data is the client's, read once (GET /api/objectives/chain).
   const abyssObjectivesSignal = createSignal<readonly AbyssObjectiveRow[] | null>(null);
-  let abyssChain: AbyssObjectiveChain | null = null;
+  let abyssChain: ObjectiveChain | null = null;
   let abyssChainRoom: number | null = null;
-  let abyssChainRead: Promise<ObjectiveChainData | null> | null = null;
+  const objectiveChainReads = new Map<number, Promise<ObjectiveChainData | null>>();
   let abyssLootableRestart: ReturnType<typeof setTimeout> | null = null;
   const abyssEntities = (): readonly SpaceEntity[] => store.space.get().snapshot?.entities ?? [];
   function publishAbyssObjectives(): void {
     abyssObjectivesSignal.set(abyssChain === null ? null : abyssChain.view());
   }
-  function readAbyssChain(): Promise<ObjectiveChainData | null> {
-    abyssChainRead ??= api.loadObjectiveChain(ABYSS_OBJECTIVE_CHAIN_ID, callOptions).then(decodeObjectiveChain).catch(() => {
-      abyssChainRead = null;
+  function readObjectiveChain(chainID: number): Promise<ObjectiveChainData | null> {
+    const cached = objectiveChainReads.get(chainID);
+    if (cached) return cached;
+    const reading = api.loadObjectiveChain(chainID, callOptions).then(decodeObjectiveChain).catch(() => {
+      objectiveChainReads.delete(chainID);
       return null;
     });
-    return abyssChainRead;
+    objectiveChainReads.set(chainID, reading);
+    return reading;
   }
   /** OnAbyssalLocationEntered: rooms_completed the room less one; the chain started, or its lootables looked for again. */
   function abyssRoomEntered(room: number): void {
-    void readAbyssChain().then((data) => {
+    void readObjectiveChain(ABYSS_OBJECTIVE_CHAIN_ID).then((data) => {
       // The same room twice (told live, and kept by the BFF for a page drawn afresh) is one notice.
       if (data === null || room === abyssChainRoom) return;
       abyssChainRoom = room;
       if (abyssChain === null) {
-        abyssChain = new AbyssObjectiveChain(data, { rooms_completed: room - 1 });
+        abyssChain = new ObjectiveChain(data, { rooms_completed: room - 1 });
         abyssChain.start(abyssEntities());
       } else {
         abyssChain.setContext("rooms_completed", room - 1);
@@ -36141,6 +36145,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     closeAbyssJump: () => abyssJumpSignal.set(null),
     jumpThroughTrace,
     abyssObjectives: readonlySignal(abyssObjectivesSignal),
+    readObjectiveChain,
     activateSpaceThing,
     openCargo,
     cargoShown: readonlySignal(cargoShownSignal),
