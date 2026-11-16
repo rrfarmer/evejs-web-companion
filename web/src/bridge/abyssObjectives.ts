@@ -21,8 +21,9 @@
 // (_check_completed_state), hidden where complete and not shown completed. A task (objective_task/base.py) is hidden
 // where not active, or complete and not shown completed.
 //
-// The task types drawn here, and nothing of any other (none of the Abyss chain's is another):
+// The task types drawn here:
 //   9  ProgressTask (generic.py): current_value of goal_value, "n/m" and a bar; hidden with no goal; complete at it.
+//   14 DestroyHostileTargetsTask (destroy_counter.py): uses the same counter for hostile category-Entity NPCs.
 //   45 DestroyTargetsCounterTask (destroy_counter.py): the things on the grid that its type list, types or groups
 //      name, but the ship itself, counted from its start (_find_targets) and as they come (OnBallAdded); one is
 //      destroyed at no hull (OnDamageStateChange) or gone (OnObjectExplode, DoBallRemove). "left/all" and a red bar of
@@ -42,6 +43,7 @@
 // has one); the icons are not the client's; the chain's context-parameter triggers (none in the Abyss chain) are not
 // run.
 
+import { isNpcOwner } from "./mail.ts";
 import { GROUP_WARP_GATE } from "./gateActivation.ts";
 import { readDictEntry, unwrapLong, type JsonValue } from "./wire.ts";
 import type { SpaceEntity } from "../store/types.ts";
@@ -60,6 +62,8 @@ export const ABYSS_LOOTABLE_RESTART_MS = 2_000;
 const ABYSS_NPC_TASK = "destroy_npcs";
 
 const TASK_PROGRESS = 9;
+const TASK_DESTROY_HOSTILES = 14;
+const CATEGORY_ENTITY = 11;
 const TASK_TIMER = 30;
 const TASK_DESTROY_COUNTER = 45;
 const TASK_DESTROY_TARGETS = 52;
@@ -283,6 +287,7 @@ export class ObjectiveChain {
   private readonly objectives = new Map<string, Objective>();
   private entities: readonly SpaceEntity[] = [];
   private simNowMs: number | null = null;
+  private npcStanding: (ownerID: number) => number | null = () => null;
   /** What was on the grid at the last look: a thing not among it is one just added (OnBallAdded). */
   private seen: ReadonlySet<number> = new Set();
 
@@ -334,8 +339,9 @@ export class ObjectiveChain {
   }
 
   /** What is on the grid now: the targets counted, listed and found (OnBallAdded, OnDamageStateChange, DoBallRemove). */
-  observe(entities: readonly SpaceEntity[], simNowMs = this.simNowMs): void {
+  observe(entities: readonly SpaceEntity[], simNowMs = this.simNowMs, npcStanding = this.npcStanding): void {
     this.simNowMs = simNowMs;
+    this.npcStanding = npcStanding;
     this.entities = entities;
     const added = new Set(entities.filter((entity) => !this.seen.has(entity.itemID)).map((entity) => entity.itemID));
     this.seen = new Set(entities.map((entity) => entity.itemID));
@@ -422,14 +428,15 @@ export class ObjectiveChain {
   }
 
   private startTask(objective: Objective, task: Task): void {
-    if (task.info.taskType === TASK_DESTROY_COUNTER || task.info.taskType === TASK_DESTROY_TARGETS || task.info.taskType === TASK_HACK_ALL_CONTAINERS) {
+    const counter = task.info.taskType === TASK_DESTROY_COUNTER || task.info.taskType === TASK_DESTROY_HOSTILES;
+    if (counter || task.info.taskType === TASK_DESTROY_TARGETS || task.info.taskType === TASK_HACK_ALL_CONTAINERS) {
       // Both forget what they had (_DestroyTargetsCounterTask.start, BaseTargetsTask.start); started while active, the
       // counter counts only what comes after, and the list waits for what comes.
       task.targets.clear();
       task.destroyed.clear();
       task.rows.clear();
       if (task.active) {
-        if (task.info.taskType === TASK_DESTROY_COUNTER) this.updateCounter(objective, task);
+        if (counter) this.updateCounter(objective, task);
         return;
       }
     }
@@ -450,6 +457,12 @@ export class ObjectiveChain {
 
   private matches(task: Task, entity: SpaceEntity): boolean {
     if (entity.isSelf) return false;
+    if (task.info.taskType === TASK_DESTROY_HOSTILES) {
+      const threshold = entity.hostileResponseThreshold ?? 0;
+      if (entity.categoryID !== CATEGORY_ENTITY || entity.ownerID === null || !isNpcOwner(entity.ownerID) || threshold <= 0) return false;
+      const standing = this.npcStanding(entity.ownerID);
+      return threshold >= 10 || (standing !== null && standing <= threshold);
+    }
     const typeIDs = valueAsSet(task.values.type_ids);
     const groupIDs = valueAsSet(task.values.group_ids);
     const listID = Number(task.values.type_list_id) || 0;
@@ -479,8 +492,12 @@ export class ObjectiveChain {
       case TASK_PROGRESS:
         this.updateProgress(objective, task);
         return;
+      case TASK_DESTROY_HOSTILES:
       case TASK_DESTROY_COUNTER:
-        for (const entity of looked) if (this.matches(task, entity)) task.targets.add(entity.itemID);
+        // Standing data can finish loading after the NPC first appears.
+        for (const entity of task.info.taskType === TASK_DESTROY_HOSTILES ? this.entities : looked) {
+          if (this.matches(task, entity)) task.targets.add(entity.itemID);
+        }
         for (const itemID of task.targets) {
           const entity = present.get(itemID);
           if (entity === undefined || entity.hullRatio === 0) task.destroyed.add(itemID);
@@ -602,6 +619,7 @@ export class ObjectiveChain {
         return this.simNowMs === null || timerOf(task.values.timer) === null;
       case TASK_PROGRESS:
         return !(Number(task.values.goal_value) > 0);
+      case TASK_DESTROY_HOSTILES:
       case TASK_DESTROY_COUNTER:
         return task.targets.size === 0;
       case TASK_JUMP_THROUGH_ABYSS_GATE:
@@ -633,6 +651,7 @@ export class ObjectiveChain {
         const percentage = task.values.display_percentage === true || goal >= 1_000_000;
         return [{ ...base, value: percentage ? `${Math.trunc((current / goal) * 100)}%` : `${count(current)}/${count(goal)}`, progress: Math.min(current / goal, 1) }];
       }
+      case TASK_DESTROY_HOSTILES:
       case TASK_DESTROY_COUNTER: {
         const all = task.targets.size;
         const left = all - task.destroyed.size;

@@ -12,17 +12,17 @@
   // svelte-ignore state_referenced_locally
   const station = store.station;
   // svelte-ignore state_referenced_locally
-  const untrackedSignatureInstanceID = flow.untrackedSignatureInstanceID;
+  const untrackedObjectiveDungeonInstanceID = flow.untrackedObjectiveDungeonInstanceID;
   const characterID = $derived($station.online?.characterID ?? null);
   const tracked = $derived.by(() => {
-    if (job.kind === "signature") return $untrackedSignatureInstanceID !== job.instanceID;
+    if (job.kind === "signature" || job.kind === "combat") return $untrackedObjectiveDungeonInstanceID !== job.instanceID;
     void $trackedJobsChanged;
     return trackedDungeonJobs(characterID).some((row) => row.kind === job.kind && row.instanceID === job.instanceID);
   });
   $effect(() => { flow.requestWords(["UI/Common/Track", "UI/Common/Untrack"]); });
   function toggleTracking(): void {
     const { kind, instanceID } = job;
-    if (kind === "signature") flow.setSignatureTracked(instanceID, !tracked);
+    if (kind === "signature" || kind === "combat") flow.setObjectiveDungeonTracked(instanceID, !tracked);
     else setDungeonTracked(characterID, { kind, instanceID }, !tracked);
   }
 </script>

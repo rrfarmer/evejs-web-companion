@@ -15,7 +15,7 @@
   import { openAgencyGroup } from "./agencyRequests.ts";
 
   // contentGroupConst.contentGroupHomefrontSites and contentGroupSignatures.
-  const AGENCY_GROUPS = { homefront: 78, signature: 39 } as const;
+  const AGENCY_GROUPS = { homefront: 78, signature: 39, combat: 38 } as const;
   let { store, flow, job, onBack }: { store: ClientStore; flow: AppFlow; job: DungeonJob; onBack: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -36,7 +36,7 @@
   // DungeonJob.resources: the ore anomaly's ore types, the ice belt's ice types; none for a combat anomaly.
   const resources = $derived(job.kind === "ore" ? d?.oreTypes ?? [] : job.kind === "ice" ? d?.iceTypes ?? [] : []);
   const subtitle = $derived(job.kind !== "combat" ? "" : d?.difficulty ? (faction ? `${faction} - ${word(A + "LevelX", { level: d.difficulty })}` : word(A + "LevelX", { level: d.difficulty })) : faction);
-  const agencyGroup = $derived(job.kind === "homefront" || job.kind === "signature" ? AGENCY_GROUPS[job.kind] : null);
+  const agencyGroup = $derived(job.kind === "homefront" || job.kind === "signature" || job.kind === "combat" ? AGENCY_GROUPS[job.kind] : null);
   const agencyLabel = $derived(word("UI/Opportunities/OpenAgency") || "Open The Agency");
 </script>
 

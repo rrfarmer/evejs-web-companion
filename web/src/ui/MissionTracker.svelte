@@ -70,7 +70,7 @@
   // svelte-ignore state_referenced_locally
   const activeDungeon = flow.activeDungeon;
   // svelte-ignore state_referenced_locally
-  const untrackedSignatureInstanceID = flow.untrackedSignatureInstanceID;
+  const untrackedObjectiveDungeonInstanceID = flow.untrackedObjectiveDungeonInstanceID;
 
   onMount(() => {
     flow.refreshMissionTracker();
@@ -98,33 +98,34 @@
   const militia = $derived.by(() => { void $trackedJobsChanged; return $station.online?.warFactionID ? null : trackedMilitiaJob(me); });
   let dungeonJobs = $state<readonly DungeonOpportunityJob[]>([]);
   let expandedDungeon = $state<string | null | undefined>(undefined);
-  const expandedDungeonID = $derived(expandedDungeon === undefined || (expandedDungeon !== null && !dungeonJobs.some((job) => dungeonJobID(job) === expandedDungeon))
-    ? (dungeonJobs[0] ? dungeonJobID(dungeonJobs[0]) : null) : expandedDungeon);
+  const visibleDungeonJobs = $derived(dungeonJobs.filter((job) =>
+    !((job.kind === "signature" || job.kind === "combat") && job.instanceID === $untrackedObjectiveDungeonInstanceID)));
+  const expandedDungeonID = $derived(expandedDungeon === undefined || (expandedDungeon !== null && !visibleDungeonJobs.some((job) => dungeonJobID(job) === expandedDungeon))
+    ? (visibleDungeonJobs[0] ? dungeonJobID(visibleDungeonJobs[0]) : null) : expandedDungeon);
   $effect(() => {
     void $trackedJobsChanged;
     void $anomaliesChanged;
     void $routeSettings;
     const instanceID = $activeDungeon?.instanceID ?? null;
-    const signatureTracked = instanceID !== null && instanceID !== $untrackedSignatureInstanceID;
     void solarSystemID;
     void status?.docked;
     void $station.online?.warFactionID;
     const order = new Map(trackedDungeonJobs(me).map((job, i) => [dungeonJobID(job), i]));
-    if (!order.size && !signatureTracked) { dungeonJobs = []; return; }
+    if (!order.size && instanceID === null) { dungeonJobs = []; return; }
     let current = true;
     void Promise.all([
       order.size ? flow.warDungeonJobs(true) : [],
       order.size ? flow.homefrontDungeonJobs(true) : [],
-      signatureTracked ? flow.activeSignatureJob() : null,
-    ]).then(([war, homefront, signature]) => {
+      instanceID !== null ? flow.activeObjectiveDungeonJob() : null,
+    ]).then(([war, homefront, activeObjective]) => {
       if (!current) return;
       const jobs = [...war, ...homefront].sort((a, b) => (order.get(dungeonJobID(a)) ?? 0) - (order.get(dungeonJobID(b)) ?? 0));
-      if (signature && !dungeonJobs.some((job) => dungeonJobID(job) === dungeonJobID(signature))) expandedDungeon = dungeonJobID(signature);
-      dungeonJobs = signature ? [...jobs, signature] : jobs;
+      if (activeObjective && !dungeonJobs.some((job) => dungeonJobID(job) === dungeonJobID(activeObjective))) expandedDungeon = dungeonJobID(activeObjective);
+      dungeonJobs = activeObjective ? [...jobs, activeObjective] : jobs;
     }, () => {});
     return () => { current = false; };
   });
-  $effect(() => { onCount?.(missions.length + freelance.length + dungeonJobs.length + (militia === null ? 0 : 1)); });
+  $effect(() => { onCount?.(missions.length + freelance.length + visibleDungeonJobs.length + (militia === null ? 0 : 1)); });
   const jobProgress = (j: FreelanceJob) => (j.project.target ? j.project.current / j.project.target : 0);
   const jobProgressText = (j: FreelanceJob) => (!j.project.target ? "" : j.project.target >= 100 ? `${Math.floor(jobProgress(j) * 100)}%`
     : `${j.project.current.toLocaleString("en-US")}/${j.project.target.toLocaleString("en-US")}`);
@@ -399,7 +400,7 @@
   {#if militia !== null}<MilitiaOpportunity {store} {flow} factionID={militia} />{/if}
   {#each dungeonJobs as job (dungeonJobID(job))}
     {@const key = dungeonJobID(job)}
-    <DungeonOpportunity {store} {flow} {job} expanded={expandedDungeonID === key}
+    <DungeonOpportunity {store} {flow} {job} visible={visibleDungeonJobs.includes(job)} expanded={expandedDungeonID === key}
       onToggle={() => { expandedDungeon = expandedDungeonID === key ? null : key; }} />
   {/each}
   {#each freelance as j (j.project.projectID)}

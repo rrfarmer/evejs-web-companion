@@ -10,10 +10,10 @@
   import { openDungeonJob } from "./jobBoardRequests.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import DungeonTrackButton from "./DungeonTrackButton.svelte";
-  import SignatureObjectives from "./SignatureObjectives.svelte";
+  import DungeonObjectives from "./DungeonObjectives.svelte";
 
-  let { store, flow, job, expanded = true, onToggle }: {
-    store: ClientStore; flow: AppFlow; job: DungeonOpportunityJob; expanded?: boolean; onToggle?: () => void;
+  let { store, flow, job, expanded = true, visible = true, onToggle }: {
+    store: ClientStore; flow: AppFlow; job: DungeonOpportunityJob; expanded?: boolean; visible?: boolean; onToggle?: () => void;
   } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -92,7 +92,7 @@
   }
 </script>
 
-<article class="dungeon-opportunity">
+<article class="dungeon-opportunity" hidden={!visible}>
   {#if onToggle}
     <header>
       <button type="button" class="view" title={word("UI/Opportunities/ViewOpportunity")} aria-label={word("UI/Opportunities/ViewOpportunity")}
@@ -108,11 +108,12 @@
       <button type="button" disabled={busy || warping} onclick={() => void travel()}>{word(warping ? "UI/Inflight/Warping" : actionLabels[action])}</button>
     {/if}
   </div>
+  {#if inside && onToggle && (job.kind === "signature" || job.kind === "combat")}
+    <div hidden={!expanded}><DungeonObjectives {store} {flow} {job} /></div>
+  {:else if expanded && inside && onToggle}
+    <p>{word("UI/Generic/CurrentLocation")}</p>
+  {/if}
   {#if expanded}
-    {#if inside && onToggle}
-      {#if job.kind === "signature"}<SignatureObjectives {store} {flow} {job} />
-      {:else}<p>{word("UI/Generic/CurrentLocation")}</p>{/if}
-    {/if}
     {#if !inside && (onToggle || restricted)}
       <div class="objective">
         {#if onToggle}<strong>{word(travelTitle)}</strong>{/if}

@@ -198,6 +198,7 @@ function decodeEntity(value: JsonValue): SpaceEntity | null {
     // the panel never invents a threat. npcEntityType stays null.
     isNpc: raw.isNpc === true,
     npcEntityType: stringOrNull(raw.npcEntityType),
+    hostileResponseThreshold: floatOrNull(raw.hostileResponseThreshold),
     // R25 slice A — drone rows only.
     controllerID: idOrNull(raw.controllerID),
     droneActivity: stringOrNull(raw.droneActivity),

@@ -101,3 +101,48 @@ test("the ghost-site chain shows the revealed native timer on the pilot's simula
   objective.observe([], start + 30_000);
   assert.equal(objective.view()[0]?.rows.length ?? 0, 0);
 });
+
+test("the wormhole Destroy task counts live hostile Entity NPCs and picks up later waves", () => {
+  const data = decodeObjectiveChain({
+    found: true,
+    chainID: 155,
+    chain: { objectives: [{ key: "destroy", objectiveType: 9, startActive: 0, showCompleted: 1 }] },
+    objectiveTypes: { 9: { title: "UI/Objectives/Titles/DestroyTargets", tasks: [
+      { key: "destroy_targets", taskType: 14, startActive: 1, showCompleted: 0 },
+    ] } },
+    taskTypes: { 14: { title: "UI/Objectives/Titles/HostilesRemaining" } },
+    typeLists: {},
+  });
+  assert.ok(data);
+  const chain = new ObjectiveChain(data);
+  chain.start([]);
+  const npc = (itemID: number, overrides: Partial<SpaceEntity> = {}) => ({
+    itemID, ownerID: 500021, categoryID: 11, isSelf: false, hostileResponseThreshold: 11, hullRatio: 1, ...overrides,
+  } as SpaceEntity);
+  const first = npc(101), second = npc(102, { ownerID: 1000002, hostileResponseThreshold: 2 });
+  const others = [
+    npc(201, { categoryID: 6 }),
+    npc(202, { ownerID: 140000001 }),
+    npc(203, { hostileResponseThreshold: 0 }),
+    npc(204, { ownerID: 1000003, hostileResponseThreshold: 2 }),
+    npc(205, { ownerID: null }),
+    npc(206, { isSelf: true }),
+  ];
+  chain.observe([first, second, ...others]);
+  chain.startObjective("destroy");
+  const row = () => chain.view()[0]?.rows[0];
+  assert.equal(row()?.value, "1/1");
+  const standing = (owner: number) => owner === 1000002 ? 2 : 3;
+  chain.observe([first, second, ...others], null, standing);
+  assert.equal(row()?.value, "2/2");
+  chain.observe([npc(101, { hullRatio: 0 }), second, ...others]);
+  assert.equal(row()?.value, "1/2");
+  assert.equal(row()?.progress, 0.5);
+  assert.equal(row()?.danger, true);
+  chain.observe(others);
+  assert.equal(row(), undefined);
+  assert.equal(chain.view()[0]?.completed, true);
+  chain.observe([...others, npc(103)]);
+  assert.equal(row()?.value, "1/3");
+  assert.equal(chain.view()[0]?.completed, false);
+});

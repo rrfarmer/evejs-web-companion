@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getContext, tick } from "svelte";
-  import type { AppFlow, SignatureDungeonJob } from "../app/flow.ts";
+  import type { AppFlow, ObjectiveDungeonJob } from "../app/flow.ts";
+  import { standingWithSkillBonus } from "../bridge/agencyAgents.ts";
   import { ObjectiveChain, type AbyssObjectiveRow } from "../bridge/abyssObjectives.ts";
   import { dungeonEntryObjectives, dungeonObjectiveContext } from "../bridge/dungeonTracking.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
@@ -11,9 +12,11 @@
   import { resolvedName, type NameRef } from "../store/names.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
 
-  let { store, flow, job }: { store: ClientStore; flow: AppFlow; job: SignatureDungeonJob } = $props();
+  let { store, flow, job }: { store: ClientStore; flow: AppFlow; job: ObjectiveDungeonJob } = $props();
   // svelte-ignore state_referenced_locally
-  const { space, station, names, words } = store;
+  const { space, station, names, words, skills, standings } = store;
+  // svelte-ignore state_referenced_locally
+  const corporationFactions = flow.corporationFactions;
   // svelte-ignore state_referenced_locally
   const activeDungeon = flow.activeDungeon;
   const location = "UI/Generic/CurrentLocation";
@@ -28,12 +31,27 @@
   let menu: HTMLDivElement;
   let menuEntries = $state.raw<ReturnType<SpaceView["objectiveTargetMenu"]>>([]);
   let pointerSelected = false;
+  const standingByFaction = $derived($standings.char && new Map($standings.char.map((entry) => [entry.fromID, entry.standing])));
+  const levelBySkill = $derived($skills.skills && new Map($skills.skills.map((skill) => [skill.typeID, skill.level])));
+
+  function npcStanding(ownerID: number): number | null {
+    // npcs.common.owner.get_npc_faction and npcs.client.entitystandings.
+    const factionID = ownerID >= 500000 && ownerID < 599999 ? ownerID : $corporationFactions?.[String(ownerID)];
+    if (factionID === 500021 || (factionID === undefined && $corporationFactions !== null)) return 0;
+    if (factionID === undefined || !standingByFaction || !levelBySkill) return null;
+    return standingWithSkillBonus(factionID, factionID, standingByFaction, (id) => levelBySkill.get(id) ?? 0);
+  }
 
   $effect(() => {
     chain = null;
     rows = [];
     if (!chainID || !pilotID || instanceID === null) return;
     let current = true;
+    if (job.kind === "combat") {
+      flow.loadCorporationFactions();
+      if (standings.get().char === null) void flow.loadStandings().catch(() => {});
+      if (skills.get().skills === null) void flow.loadSkills().catch(() => {});
+    }
     void flow.readObjectiveChain(chainID).then((data) => {
       if (!current || !data) return;
       const dungeon = $activeDungeon;
@@ -51,9 +69,9 @@
     const dungeon = $activeDungeon;
     if (!chain || !dungeon || snapshot?.solarSystemID !== job.solarSystemID) return;
     for (const [key, value] of Object.entries(dungeonObjectiveContext(dungeon))) chain.setContext(key, value);
-    chain.observe(snapshot.entities, getSimNow?.() ?? snapshot.sampledAtMs);
+    chain.observe(snapshot.entities, getSimNow?.() ?? snapshot.sampledAtMs, npcStanding);
     for (const key of dungeonEntryObjectives(dungeon, job.data?.objectiveEntryRules ?? [])) chain.startObjective(key);
-    rows = chain.view().filter((objective) => objective.rows.length > 0);
+    rows = chain.view().filter((objective) => objective.rows.length > 0 || objective.completed);
   });
 
   $effect(() => {
@@ -117,7 +135,7 @@
 </script>
 
 {#each rows as objective (objective.key)}
-  <div class="signature-objective">
+  <div class="signature-objective" class:objective-completed={objective.completed}>
     {#if objective.titleLabel}<strong>{word(objective.titleLabel)}</strong>{/if}
     {#each objective.rows as row (row.key)}
       {@const name = title(row)}
@@ -141,7 +159,7 @@
           {name}
         </button>
       {:else if row.progress !== null}
-        <div class="objective-progress">
+        <div class="objective-progress" class:danger={row.danger}>
           <span>{name}</span><span>{row.value}</span>
           <div class="objective-progress-bar" role="progressbar" aria-label={name}
             aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(row.progress * 100)}>
@@ -170,6 +188,8 @@
   .objective-progress { display: grid; grid-template-columns: 1fr auto; gap: 3px; }
   .objective-progress-bar { grid-column: 1 / -1; height: 4px; background: rgb(255 255 255 / 0.2); }
   .objective-progress-bar div { height: 100%; background: #c5cdd0; }
+  .objective-progress.danger .objective-progress-bar div { background: var(--color-danger, #e08a8a); }
+  .objective-completed { border-left: 2px solid var(--color-good, #6cc79a); padding-left: 6px; }
   .completed { color: #9fd689; }
   p { margin: 3px 0 5px; opacity: 0.8; font-size: 12px; }
   .target:hover, .target:focus-visible { background: rgb(255 255 255 / 0.12); }

@@ -205,6 +205,7 @@ function projectEntity(park, ball, slim, ego, placed) {
   const kind = kindOf(categoryID, groupID);
   const seen = park.damageSeen ? park.damageSeen.get(ball.id) : undefined;
   const hackingState = slim.get("hackingSecurityState");
+  const hostileResponseThreshold = number(slim.get("hostile_response_threshold"));
   const nameMessageID = positive(slim.get("nameID"));
   const characterID = positive(slim.get("charID"));
   const row = {
@@ -217,6 +218,7 @@ function projectEntity(park, ball, slim, ego, placed) {
     ...(nameMessageID !== null ? { nameMessageID } : {}),
     ...(characterID !== null ? { characterID } : {}),
     ownerID: positive(slim.get("ownerID")),
+    ...(hostileResponseThreshold !== null ? { hostileResponseThreshold } : {}),
     ...(Number.isSafeInteger(hackingState) && hackingState >= 0 ? { hackingSecurityState: hackingState } : {}),
     // Whose side it is on, as its slim item says: its corporation, alliance and militia, which the client's overview
     // reads of any slim item that has them (overviewWindow.py 951 to 966). None where there is none.
@@ -247,7 +249,7 @@ function projectEntity(park, ball, slim, ego, placed) {
     // flies the ORE mining fleet's Hulk as one): the client takes a thing for an NPC's by its owner (state.py 778,
     // overviewWindow.py 968).
     row.isNpc = categoryID === CATEGORY.ENTITY || (categoryID === CATEGORY.SHIP && isNpcOwner(row.ownerID));
-    row.npcEntityType = row.isNpc ? npcKindOf(groupID, number(slim.get("hostile_response_threshold"))) : null;
+    row.npcEntityType = row.isNpc ? npcKindOf(groupID, hostileResponseThreshold) : null;
     row.compressionFacility = compressionFacilityOf(slim.get("compression_facility_typelists"));
   }
   // A drone in space: which ship is flying it, whose that ship is, what it is doing, and on what. A client is

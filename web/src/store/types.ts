@@ -2108,6 +2108,8 @@ export interface SpaceEntity {
    */
   readonly isNpc: boolean;
   readonly npcEntityType: string | null;
+  /** The native slim threshold used to compare an NPC faction’s standing with the pilot. */
+  readonly hostileResponseThreshold?: number | null;
   /**
    * R25 slice A — DRONE rows only (null on everything else).
    *

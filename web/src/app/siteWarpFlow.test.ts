@@ -96,10 +96,10 @@ test("the current signature qualifies for Active only with an authored objective
     assert.equal(job !== undefined, expected);
     if (job) {
       assert.equal(job.instanceID, 42);
-      assert.equal(flow.untrackedSignatureInstanceID.get(), null);
-      flow.setSignatureTracked(42, false);
-      assert.equal(flow.untrackedSignatureInstanceID.get(), 42);
-      assert.equal((await flow.activeSignatureJob())?.instanceID, 42);
+      assert.equal(flow.untrackedObjectiveDungeonInstanceID.get(), null);
+      flow.setObjectiveDungeonTracked(42, false);
+      assert.equal(flow.untrackedObjectiveDungeonInstanceID.get(), 42);
+      assert.equal((await flow.activeObjectiveDungeonJob())?.instanceID, 42);
     }
   }
 });
