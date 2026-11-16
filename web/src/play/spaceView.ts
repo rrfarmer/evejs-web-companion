@@ -45,6 +45,7 @@ import { healthNotificationSettings, HEALTH_NOTIFICATIONS } from "../store/notif
 import { ALERT_ANIMATION_MS, ALERT_DURATION_MS, CAPACITOR, HULL, activeAlertLevel, capacitorAlerting, capacitorChanged, damageStateChanged, initialShipAlertState, isLevelActive } from "../ui/shipAlert.ts";
 import { alignText, indicationHeader, indicationText, pointText, shipIndication, shipStoppingText, warpProgress, warpText, SHIP_STOPPING_MS } from "../space/actionIndication.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
+import { TARGET_LOCKED_LABEL, targetLockDurationMs, type TargetLockRadii } from "./targetLock.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { Overview, typeNames } from "./overview.ts";
 import { DScanWindow } from "./dscan.ts";
@@ -126,6 +127,10 @@ export interface SpaceViewOptions {
   };
   /** The session's snapshot includes the acknowledged align and warp targets. */
   flightSnapshot?: () => SpaceSnapshot | null;
+  targeting?: {
+    scanResolution(shipID: number): number | null;
+    typeRadii(typeID: number): Promise<TargetLockRadii>;
+  };
   indicationWords?: () => Readonly<Record<string, string | null | undefined>>;
   windowLayer?: { element: HTMLElement; raise(el: HTMLElement): void };
   showInfo?: (itemID: number, typeID: number | null) => void;
@@ -257,6 +262,9 @@ export class SpaceView {
   private activeTarget: number | null = null;
   /** Pending locks acknowledged by the targeting flow, with the original start time where known. */
   private acquiringTargets = new Map<number, number>();
+  private readonly targetLockRadii = new Map<number, TargetLockRadii | null>();
+  private lockWallTime = performance.now();
+  private lockSimTime = this.lockWallTime;
   // An entry begins while dogma is being read, then waits for the target's lock.
   private readonly moduleTargetOrders = new Map<number, { mode: "lock" | "passive" | null }>();
   private orderedTarget: number | null = null;
@@ -1572,7 +1580,7 @@ export class SpaceView {
     try {
       const t = await this.actions.targets();
       this.locked = new Set(t.targetIDs);
-      const now = performance.now();
+      const now = this.lockNow();
       this.acquiringTargets = new Map((t.acquiringIDs ?? []).map((id) => [
         id, this.lockingIDs.get(id) ?? this.acquiringTargets.get(id) ?? now,
       ]));
@@ -2583,7 +2591,7 @@ export class SpaceView {
   /** Show acquisition from the request through confirmation, refusal or cancellation. */
   private async lockTracked(id: number, request = () => this.actions.lock(id)): Promise<void> {
     if (this.lockingIDs.has(id)) return;
-    const startedAt = performance.now();
+    const startedAt = this.lockNow();
     this.lockingIDs.set(id, startedAt);
     try {
       await request();
@@ -2591,6 +2599,30 @@ export class SpaceView {
       await this.refreshTargets();
       if (this.lockingIDs.get(id) === startedAt) this.lockingIDs.delete(id);
     }
+  }
+
+  /** The client measures targeting in simulation time. */
+  private lockNow(): number {
+    const wallTime = performance.now();
+    this.lockSimTime += (wallTime - this.lockWallTime) * (this.options.flightSnapshot?.()?.timeDilation ?? 1);
+    this.lockWallTime = wallTime;
+    return this.lockSimTime;
+  }
+
+  private lockTimeFor(entity: Entity | undefined, scanResolution: number | null): number | null {
+    const targeting = this.options.targeting;
+    if (!targeting || !entity) return null;
+    const typeID = entity.typeID;
+    if (typeID === null) return targetLockDurationMs(scanResolution, null, entity.radius, null);
+    if (!this.targetLockRadii.has(typeID)) {
+      this.targetLockRadii.set(typeID, null);
+      void targeting.typeRadii(typeID).then(
+        (radii) => this.targetLockRadii.set(typeID, radii),
+        () => this.targetLockRadii.set(typeID, { signatureRadius: null, typeRadius: null }),
+      );
+    }
+    const radii = this.targetLockRadii.get(typeID);
+    return radii ? targetLockDurationMs(scanResolution, radii.signatureRadius, entity.radius, radii.typeRadius) : null;
   }
 
   /** The target bar from the locked set, in lock order; a target being locked gets its indicator on its bracket. */
@@ -2611,19 +2643,22 @@ export class SpaceView {
       });
     }
     const pending = this.lockingIDs.size ? new Map([...this.acquiringTargets, ...this.lockingIDs]) : this.acquiringTargets;
+    const shipID = this.snapshot?.ship?.itemID;
+    const scanResolution = pending.size && shipID != null ? this.options.targeting?.scanResolution(shipID) ?? null : null;
     for (const [id, startedAt] of pending) {
       if (this.locked.has(id)) continue;
       const e = byID.get(id);
       entries.push({
         itemID: id, typeID: e?.typeID ?? null, name: e ? this.targetLabelOf(e) : null, distance: e ? this.distanceTo(e) : 0,
         shieldRatio: null, armorRatio: null, hullRatio: null, locking: true, active: false,
-        lockTimeMs: null, // TODO: the lock time (bracket.GetScanSpeed) for the countdown
+        lockTimeMs: this.lockTimeFor(e, scanResolution),
         lockStartedAt: startedAt,
       });
     }
     const win = this.selectedWin.root.style;
     this.targetBar.setAnchor({ left: parseFloat(win.left) || innerWidth - 480, top: parseFloat(win.top) || 15, width: parseFloat(win.width) || 464 });
-    this.targetBar.update(entries);
+    const lockedText = pending.size ? this.actions.word?.(TARGET_LOCKED_LABEL) ?? undefined : undefined;
+    this.targetBar.update(entries, this.lockNow(), lockedText);
     for (const id of pending.keys()) {
       const el = this.bracketEls.get(id), ind = this.targetBar.lockingIndicator(id);
       if (el && ind && ind.parentElement !== el) el.appendChild(ind);

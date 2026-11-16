@@ -89,13 +89,15 @@ const VERSION_CHECK_TIMES = new Map([
  * function we have never seen gets an empty answer and `unknownHandshakeFunction`
  * is set, rather than a guess.
  */
+const CLIENT_HANDSHAKE_ANSWER = ["TIDI_HANDLER:OK", "PORTRAIT_UPLOAD_HANDLER:OK", "SKILL_EXTRACTOR_ACCESS_TOKEN:OK", ""].join("\n");
 const KNOWN_HANDSHAKE_FUNCTIONS = new Map([
-  [
-    // eve.js handshake.js buildTidiSignedFunc, as sent by eve.js 7603a2966. The
-    // retail client's answer to it, 75 bytes, logged on 2026-10-06.
-    "86b3a18871f7e5091b1796b8b30655643424679928207124bf6274d243015e3e",
-    ["TIDI_HANDLER:OK", "PORTRAIT_UPLOAD_HANDLER:OK", "SKILL_EXTRACTOR_ACCESS_TOKEN:OK", ""].join("\n"),
-  ],
+  // eve.js handshake.js buildTidiSignedFunc and its recorded retail response.
+  ["86b3a18871f7e5091b1796b8b30655643424679928207124bf6274d243015e3e", CLIENT_HANDSHAKE_ANSWER],
+  // Build 3698585 also appends the native Server Health window for staff. The
+  // common client handlers are identical. Its embedded Python has CRLF or LF
+  // line endings depending on the server checkout.
+  ["ad25db3a9f009ed6bb45f15d88ca6d12014f72d200dfe09cbbcb8b31569db67f", CLIENT_HANDSHAKE_ANSWER],
+  ["94283943b7fbb8c8aec48e65397cb3818a760f53f7d2aacc3b899f71889dd762", CLIENT_HANDSHAKE_ANSWER],
 ]);
 
 const dict = (entries) => ({ type: "dict", entries });

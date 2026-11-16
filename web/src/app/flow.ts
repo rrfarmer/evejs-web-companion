@@ -2298,6 +2298,7 @@ export interface AppFlow {
   unloadRackCharge(moduleID: number): Promise<void>;
   /** The HUD's target order follows the relevant effect, including a launcher's loaded charge. */
   rackModuleTargeting(moduleID: number): Promise<"lock" | "passive" | null>;
+  targetLockRadii(typeID: number): Promise<{ signatureRadius: number | null; typeRadius: number | null }>;
   /**
    * The rack button's own entries after the ammunition (shipmodulebutton.GetMenu 462 to 524), in its order: Set
    * Auto-Reload for a module that takes charges; then, by the module's effects as godma's dict of them iterates, Set
@@ -34759,6 +34760,16 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         if (outcome.kind === "bankWithoutRoom") sayDialog("NotEnoughCargoSpaceToUnloadBank", null, "That place has too little room left for the charges of every weapon in the bank.");
       });
       await refreshOpenPlaces();
+    },
+
+    async targetLockRadii(typeID) {
+      const data = await dogmaStaticFor([typeID], []);
+      const attributes = new Map(data?.types[typeID]?.attributes);
+      return {
+        signatureRadius: attributes.get(552) ?? null,
+        // The dogma-types route appends evetypes.GetRadius as attribute 162.
+        typeRadius: attributes.get(162) ?? null,
+      };
     },
 
     async rackModuleTargeting(moduleID) {

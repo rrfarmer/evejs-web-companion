@@ -53,6 +53,7 @@
   import PlayLobbyTabs from "./PlayLobbyTabs.svelte";
   import SystemMenu from "./SystemMenu.svelte";
   import { commandForKey, COMBAT_WORDS } from "../play/shortcutKeys.ts";
+  import { TARGET_LOCKED_LABEL } from "../play/targetLock.ts";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { showInfoRequests } from "./showInfo.ts";
   import { jobBoardRequests } from "./jobBoardRequests.ts";
@@ -590,7 +591,7 @@
   $effect(() => {
     if (!session) return;
     const s = session;
-    s.flow.requestWords([...Object.values(CAPTION_LABELS) as string[], ...DSCAN_WORDS, ...COMBAT_WORDS, ACADEMY_BUTTON]);
+    s.flow.requestWords([...Object.values(CAPTION_LABELS) as string[], ...DSCAN_WORDS, ...COMBAT_WORDS, TARGET_LOCKED_LABEL, ACADEMY_BUTTON]);
     return s.store.words.subscribe((w) => {
       const next: Partial<Record<TabID, string>> = {};
       for (const [tab, label] of Object.entries(CAPTION_LABELS) as [TabID, string][]) {
@@ -1063,6 +1064,16 @@
     }, { system: st?.solarSystemName ?? "", security: st?.security ?? null }, {
       onNeocom: neocomOpen,
       flightSnapshot: () => s.store.space.get().snapshot,
+      targeting: {
+        scanResolution: (shipID) => {
+          const fit = s.store.fitting.get();
+          const own = s.store.dogma.get().allInfo?.ships.find((item) => Number(item.itemID) === shipID);
+          const liveValue = fit.activeShipID === shipID ? fit.shipAttributes?.[564] : null;
+          const value = liveValue ?? own?.attributes.find(({ attributeID }) => attributeID === 564)?.value;
+          return typeof value === "number" ? value : null;
+        },
+        typeRadii: (typeID) => s.flow.targetLockRadii(typeID),
+      },
       indicationWords: () => s.store.words.get().templates,
       onSystem: musicSystem,
       windowLayer: windowsEl ? windowLayer : undefined,

@@ -1,3 +1,5 @@
+import { retimeTargetLockStart } from "./targetLock.ts";
+
 // The target bar: the retail client's locked targets, ported from its own Python and drawn with its own textures
 // (served by the BFF at /client-res). Sizes are the client's pixels at its default UI scale of 1.0.
 //
@@ -23,7 +25,7 @@
 //                           selectedTargetedItem.png at 0.15. TargetedIndicator's targeting parts (the in-space
 //                           bracket's, not the bar's: a target being locked is not in the bar): spinCorners.png
 //                           shrinking from 120 to 0 px every 0.33 s, timerLeft/Right.png counting the lock down, the
-//                           seconds left, then "Target Locked" blinking (inSpaceBracket.CountDown).
+//                           seconds left, then "Locked" blinking (inSpaceBracket.CountDown).
 //
 // Rotation sign, as in shipHud.ts: the client's sprite and secondary-texture rotations turn counter-clockwise on
 // screen, CSS and canvas clockwise. In carbonui the first child is drawn on top; the DOM order here is reversed.
@@ -234,7 +236,7 @@ export interface TargetBarEntry {
   active: boolean;
   /** How long the lock takes (bracket.GetScanSpeed), for the countdown; without it only the arrows show. */
   lockTimeMs?: number | null;
-  /** When locking began (performance.now() time). */
+  /** When locking began on the view's simulation clock. */
   lockStartedAt?: number | null;
 }
 
@@ -449,6 +451,7 @@ export class LockingIndicator {
   private readonly text: HTMLDivElement;
   private readonly timers: { ctx: CanvasRenderingContext2D; url: string; img: HTMLImageElement | null; drawn: number }[] = [];
   private lockTimeMs: number | null = null;
+  private requestedAt: number | null | undefined;
   private startedAt = 0;
   private done = false;
 
@@ -477,10 +480,19 @@ export class LockingIndicator {
   }
 
   /** Called each frame while locking. */
-  update(lockTimeMs: number | null, startedAt: number | null, now: number): void {
-    if (lockTimeMs !== this.lockTimeMs || (startedAt ?? 0) !== this.startedAt) {
-      this.lockTimeMs = lockTimeMs; this.startedAt = startedAt ?? now; this.done = false;
+  update(lockTimeMs: number | null, startedAt: number | null, now: number, lockedText: string): void {
+    const newRequest = startedAt !== this.requestedAt;
+    if (newRequest) {
+      this.requestedAt = startedAt;
+      this.startedAt = startedAt ?? now;
+      this.done = false;
       this.root.classList.remove("locked");
+    }
+    if (newRequest || lockTimeMs !== this.lockTimeMs) {
+      if (!newRequest && lockTimeMs && this.lockTimeMs && !this.done) {
+        this.startedAt = retimeTargetLockStart(this.startedAt, now, this.lockTimeMs, lockTimeMs);
+      }
+      this.lockTimeMs = lockTimeMs;
       for (const t of this.timers) t.ctx.canvas.style.display = lockTimeMs ? "" : "none";
       if (!lockTimeMs) this.text.textContent = "";
     }
@@ -488,7 +500,7 @@ export class LockingIndicator {
     const dt = now - this.startedAt;
     if (dt > this.lockTimeMs) {
       this.done = true;
-      this.text.textContent = "Target Locked"; // UI/Inflight/Brackets/TargetLocked
+      this.text.textContent = lockedText;
       this.drawTimers(0, 0);
       this.root.classList.add("locked"); // BlinkArrowsAndText
       return;
@@ -547,7 +559,7 @@ export class TargetBar {
     return this.locking.get(itemID)?.root ?? null;
   }
 
-  update(entries: TargetBarEntry[]): void {
+  update(entries: TargetBarEntry[], lockNow = performance.now(), lockedText = "Locked"): void {
     const now = performance.now();
     const seen = new Set<number>();
     let changed = false;
@@ -555,7 +567,7 @@ export class TargetBar {
       if (e.locking) {
         let ind = this.locking.get(e.itemID);
         if (!ind) { ind = new LockingIndicator(); this.locking.set(e.itemID, ind); }
-        ind.update(e.lockTimeMs ?? null, e.lockStartedAt ?? null, now);
+        ind.update(e.lockTimeMs ?? null, e.lockStartedAt ?? null, lockNow, lockedText);
         continue;
       }
       seen.add(e.itemID);
