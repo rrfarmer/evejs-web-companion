@@ -14,18 +14,25 @@ test("Observatory postprocessing follows the in-range anchor and clears on remov
     blendAmount0: 0.1, blendAmount1: 0.24, blendAmount2: 0.36, blendPower2: 0.15,
     areaScale: [7, 7] as const,
   };
+  const noise = new Texture();
+  const mask = new Texture();
+  const sunColor = [0.27, 0.28, 0.35, 1] as const;
   let requests = 0;
   const environment = new ObservatoryEnvironment(async () => {
     requests++;
     return {
-      grime, lut,
+      grime, lut, rayTextures: { noise, masks: new Map([["mask", mask]]) },
       template: {
         anchor: 49106,
         activationRadius: 25_000_000,
+        sunFlareBySystem: { 30000144: 1247 },
+        sunFlares: { 1247: { color: sunColor, halfSize: [1 / 36, 1 / 36], mask: "mask" } },
         distanceField: { dimensions: [1_000_000, 1_000_000, 1_000_000], minDistance: 40_000, maxDistance: 1_200_000, timeAdjustmentSecondsIn: 2, timeAdjustmentSecondsOut: 2 },
         postProcess: {
           ranges: { bloom: [0.2, 1], fog: [0, 1] },
           fog,
+          useGodRaysSunColor: true,
+          godRays: { intensity: 0.2 },
           bloom: { luminanceThreshold: 0.6, luminanceScale: 0.6, grimePath: "", grimeWeight: 40 },
           lut: { path: "", influence: 0.75 },
         },
@@ -35,7 +42,7 @@ test("Observatory postprocessing follows the in-range anchor and clears on remov
   const origin = { x: 2e12, y: -5e10, z: -7e11 };
   const eye = { x: 0, y: 0, z: 100_000 };
   const anchor = { itemID: 30, typeID: 49106, position: { ...origin, z: origin.z - 100_000 } };
-  const sample = (entities = [anchor], seconds = 1, enabled = true) => environment.sample(entities, origin, eye, seconds, enabled);
+  const sample = (entities = [anchor], seconds = 1, enabled = true) => environment.sample(entities, origin, eye, seconds, enabled, 30000144);
 
   assert.equal(sample([{ ...anchor, typeID: 77388 }]), null);
   assert.equal(requests, 0);
@@ -57,6 +64,8 @@ test("Observatory postprocessing follows the in-range anchor and clears on remov
   assert.equal(settled.lutInfluence, 0.75);
   assert.equal(settled.grimeWeight, 40);
   assert.equal(settled.fog.intensity, 1);
+  assert.deepEqual(settled.godRays, { intensity: 0.2, color: sunColor, noise, mask, halfSize: [1 / 36, 1 / 36] });
+  assert.equal(environment.sample([anchor], origin, eye, 0, true, 30000142)!.godRays, undefined);
 
   const retreat = environment.sample([anchor], origin, distantEye, 1, true)!;
   assert.ok(Math.abs(retreat.lutInfluence / 0.75 - 0.51724135876) < 1e-7);

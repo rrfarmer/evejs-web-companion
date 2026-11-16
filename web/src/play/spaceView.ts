@@ -2011,6 +2011,7 @@ export class SpaceView {
     const seen = new Set<number>();
     const tmp = new THREE.Vector3();
     const w = innerWidth, h = innerHeight;
+    let sun: { position: THREE.Vector3; radius: number } | null = null;
     const overviewMask = this.overview.activePreset();
     const bracketMask = this.overview.activeBracketPreset();
     const relations = overviewMask?.filteredStates.length || bracketMask?.filteredStates.length
@@ -2036,7 +2037,10 @@ export class SpaceView {
       if (isNonInteractableWormhole(e.typeID)) updateWormholePose(mark, e.poseID);
       // a ship's turrets fitted again where its slim item's modules changed (looked at now and then)
       if ((e.kind === "ship" || e.kind === "drone") && this.frameCount % 30 === 0) this.fitTurrets(e.itemID, mark);
-      if (e.kind === "sun") this.sunDir.copy(rel).normalize();
+      if (e.kind === "sun") {
+        this.sunDir.copy(rel).normalize();
+        sun = { position: mark.position, radius: e.radius };
+      }
       let el = this.bracketEls.get(e.itemID);
       const highlighted = this.highlightedObjective === e.itemID;
       const selectedOrTargeted = highlighted || this.selected === e.itemID || this.activeTarget === e.itemID ||
@@ -2358,8 +2362,8 @@ export class SpaceView {
     this.fitSunShadow();
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering(), depthEffects: () => gfx().shaderQuality === 3 });
     const simDt = dt * (this.options.flightSnapshot?.()?.timeDilation ?? 1);
-    const environment = this.observatoryEnvironment.sample(ego ? snap?.entities ?? [] : [], origin, eye, simDt, rendering.postProcess);
-    this.bloom.render(environment);
+    const environment = this.observatoryEnvironment.sample(ego ? snap?.entities ?? [] : [], origin, eye, simDt, rendering.postProcess, systemID);
+    this.bloom.render(environment, sun);
   }
 
   /**

@@ -23,7 +23,7 @@ const GENERATED = new Map([
   ["/dscanHologram.json", ["--dscan-hologram"]],
   ["/shipInfoScene.json", ["--ship-info"]],
   ["/drifterCollectionExplosion.json", ["--drifter-collection-explosion", '"explosionBuild":1']],
-  ["/observatoryEnvironment.json", ["--observatory-environment", '"environmentBuild":1']],
+  ["/observatoryEnvironment.json", ["--observatory-environment", '"environmentBuild":2']],
   ["/observatoryVortex.json", ["--observatory-vortex", '"vortexBuild":1']],
   ["/overviewPresets.json", ["--overview"]],
   ["/sofMaterials.json", ["--sof-materials"]],
@@ -107,7 +107,10 @@ async function sceneMaps(dir, resource, ensure) {
 /** Supply the extracted resources and look up model and scene data on demand. */
 async function resolveAsset(rel, dir, ensure, canExtract) {
   const generated = GENERATED.get(rel);
-  if (generated) return { file: await ensure(rel.slice(1), [generated[0]], generated[1]) };
+  if (generated) {
+    const marker = rel === "/observatoryEnvironment.json" && !canExtract() ? '"environmentBuild":' : generated[1];
+    return { file: await ensure(rel.slice(1), [generated[0]], marker) };
+  }
 
   const scene = /^\/scene\/(\d+)$/.exec(rel);
   if (scene) {

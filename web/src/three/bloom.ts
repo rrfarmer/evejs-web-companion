@@ -20,6 +20,7 @@ import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { toneMapGlsl, type DynamicExposure, type ToneMapMethod } from "./exposure.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL, SoftDepthPass } from "./softDepth.ts";
 import { ENVIRONMENT_FOG_GLSL, type EnvironmentFog } from "./environmentFog.ts";
+import { GodRaysPass, type GodRays, type GodRaySun } from "./godRays.ts";
 import { sceneReflection } from "./celestialModel.ts";
 import { DistortionPass } from "./distortion.ts";
 
@@ -46,10 +47,11 @@ export interface EnvironmentBloom {
   lut: THREE.Data3DTexture;
   lutInfluence: number;
   fog: EnvironmentFog;
+  godRays?: GodRays;
 }
 
 export interface Bloom {
-  render(environment?: EnvironmentBloom | null): void;
+  render(environment?: EnvironmentBloom | null, sun?: GodRaySun | null): void;
   setSize(width: number, height: number): void;
   dispose(): void;
 }
@@ -191,18 +193,25 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
   const softDepth = new SoftDepthPass();
   // the distortion surfaces' warp of the frame (distortion.ts), before the post-process reads it
   const distortion = new DistortionPass();
+  let rayPass: GodRaysPass | null = null;
 
   return {
-    render: (environment) => {
+    render: (environment, sun) => {
       // The graphics settings (gfxSettings.ts) select postprocessing and the
       // shader model independently. The depth model composites environment fog.
       const quality = post.quality?.() ?? { postProcess: true, distortion: true };
       const active = quality.postProcess ? environment : null;
-      const fog = post.depthEffects?.() ? active?.fog : undefined;
-      softDepth.render(renderer, scene, camera, drawn.width, drawn.height, !!fog);
+      const depthEffects = post.depthEffects?.();
+      const fog = depthEffects ? active?.fog : undefined;
+      const godRays = depthEffects ? active?.godRays : undefined;
+      softDepth.render(renderer, scene, camera, drawn.width, drawn.height, !!fog || (!!godRays && !!sun));
       renderer.setRenderTarget(drawn);
       renderer.render(scene, camera);
-      const frame = quality.distortion ? distortion.render(renderer, scene, camera, drawn) : drawn.texture;
+      let frame = quality.distortion ? distortion.render(renderer, scene, camera, drawn) : drawn.texture;
+      if (sun && godRays && godRays.intensity > 0) {
+        rayPass ??= new GodRaysPass();
+        frame = rayPass.render(renderer, camera, sun, godRays, frame, drawn.width, drawn.height);
+      }
       highPass.uniforms["frame"]!.value = frame;
       output.uniforms["frame"]!.value = frame;
       const e = post.exposure();
@@ -271,6 +280,7 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       quad.dispose();
       softDepth.dispose();
       distortion.dispose();
+      rayPass?.dispose();
     },
   };
 }

@@ -603,13 +603,40 @@ function extractObservatoryEnvironment(rf, clientDir, outRoot) {
     grimePath: copyRes(rf, post.bloom.grimePath, outRoot),
   };
   const lut = post.lut && { ...post.lut, path: copyRes(rf, post.lut.path, outRoot) };
-  if (!bloom || !lut) throw new Error(`Observatory environment is missing bloom or LUT in ${resource}`);
+  if (!bloom || !lut || !post.godRays) throw new Error(`Observatory environment is missing postprocessing in ${resource}`);
+  const godRays = {
+    ...post.godRays,
+    noise: copyRes(rf, post.godRays.noiseTexturePath ?? "res:/texture/global/noise.dds", outRoot),
+  };
+  // Sun.Reload and PostProcess use cfg.mapSystemCache's flare graphic, whose
+  // albedo has its own color separate from the system star's graphic.
+  const systemsPath = "res:/staticdata/systems.static";
+  const systems = readFsdStatic(rf.read(systemsPath), systemsPath, { schema: rf.read("res:/staticdata/systems.schema") });
+  const sunFlareBySystem = Object.fromEntries(Object.entries(systems)
+    .filter(([, row]) => row.sunFlareGraphicID > 0).map(([id, row]) => [id, row.sunFlareGraphicID]));
+  const flareIDs = [...new Set(Object.values(sunFlareBySystem))];
+  const graphics = JSON.parse(readClientTable(rf, clientDir, "graphicIDs", flareIDs));
+  const sunFlares = Object.fromEntries(flareIDs.flatMap((id) => {
+    const graphic = graphics[id];
+    const file = graphic?.graphicFile?.toLowerCase().replace(/\.red$/, ".black");
+    if (!file || !rf.has(file)) return [];
+    const flare = readBlack(rf.read(file), file);
+    // Use the flare's large foreground sprite for the browser's depth visibility estimate.
+    const sprite = flare.occluders?.[0]?.sprites?.[0];
+    const mask = sprite?.mesh?.opaqueAreas?.[0]?.effect?.resources?.find((r) => r.name === "TexMap")?.resourcePath;
+    const depth = -sprite?.translation?.[2];
+    if (!(depth > 0) || !mask || sprite.mesh.geometryResPath.toLowerCase() !== "res:/model/global/zsprite.gr2") return [];
+    return [[id, { color: graphic.albedoColor, mask: copyRes(rf, mask, outRoot),
+      halfSize: sprite.scaling.slice(0, 2).map((size) => size * 0.5 / depth) }]];
+  }));
   fs.writeFileSync(path.join(outRoot, "observatoryEnvironment.json"), JSON.stringify({
-    environmentBuild: 1,
+    environmentBuild: 2,
     anchor,
     templateID,
     ...template,
-    postProcess: { ...template.postProcess, ...post, bloom, lut },
+    postProcess: { ...template.postProcess, ...post, bloom, godRays, lut },
+    sunFlareBySystem,
+    sunFlares,
   }));
 }
 
