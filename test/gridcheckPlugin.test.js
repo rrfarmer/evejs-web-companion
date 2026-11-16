@@ -259,7 +259,7 @@ test("a bot run reads from its flight recorder, and a pause counts as its end", 
     line("decide", { status: "running", phase: "Starting" }),
     line("decide", { status: "running", phase: "Starting" }),
     line("decide", { status: "running", phase: "Waiting between actions" }),
-    line("issue", { says: "undock", phase: "Leaving" }),
+    line("issue", { says: "undock", phase: "Leaving", why: "Leaving the station." }),
     line("result", { says: "undock", ok: false, error: "refused" }),
     line("decide", { status: "paused", phase: "Paused", reason: "No Epithal" }),
   ];
@@ -269,6 +269,7 @@ test("a bot run reads from its flight recorder, and a pause counts as its end", 
   assert.ok(!runFinished(lines.slice(0, 5), "a"));
   const events = botEvents(lines, "a", 7);
   assert.deepStrictEqual(events.map((event) => event.what), ["phase", "issue", "result", "end"]);
+  assert.strictEqual(events[1].why, "Leaving the station.", "an issue keeps the sentence the page shows");
   assert.strictEqual(events[2].ok, false);
   assert.strictEqual(events[3].status, "paused");
   assert.strictEqual(events[3].reason, "No Epithal");

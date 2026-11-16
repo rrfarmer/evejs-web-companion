@@ -33,6 +33,9 @@
     MAX_TEXT_ARG_LEN,
     MAX_ITEM_LIST,
     type ItemMatchArg,
+    MAX_SITE_LIST,
+    MAX_SITE_NAME_LEN,
+    type SiteListMode,
     MAX_ORE_LIST,
     ROCK_PICKS,
     TARGET_CLASS_ARGS,
@@ -60,6 +63,7 @@
     WATCH_CONDITION_KINDS,
   } from "../bots/editorOptions.ts";
   import { macroCatalogList, macroEntry } from "../bots/macroCatalogView.ts";
+  import { combatSiteSuggestions, siteListHas, tidySiteName } from "../scanner/siteNames.ts";
   import { MAX_WORLD_NAME_LEN } from "../bots/scriptCodec.ts";
   import { conditionAdvice, interruptSentence, targetClassWord } from "../bots/scriptText.ts";
   import type { ScriptProblem } from "../bots/validateScript.ts";
@@ -324,6 +328,36 @@
     const items_ = chosen.filter((c) => keepId(c) !== id);
     // An emptied list is DROPPED, so an untouched step exports as it imported.
     onArg(key, items_.length === 0 ? undefined : { kind: "itemList", items: items_ });
+  }
+
+  // ── The site list (only these sites / every site but these) ─────────────────
+  // Names, searched as the player types: the combat ladder is offered for a
+  // den block, and any name can be added as typed (ore sites have no ladder).
+  // An emptied list is DROPPED, so an untouched step exports as it imported.
+  let siteQuery = $state("");
+  // The mode picked before any name is listed, per step and argument: an empty
+  // list is no argument at all, so the choice is held here until the first
+  // name lands, and never shows on another step.
+  let siteModeDrafts = $state<Record<string, SiteListMode>>({});
+  const siteDraftKey = (step: MacroStep, key: string): string => `${step.id}:${key}`;
+
+  function siteListValue(step: MacroStep, key: string): { readonly mode: SiteListMode; readonly names: readonly string[] } {
+    const arg = argOf(step, key);
+    return arg !== undefined && arg.kind === "siteList"
+      ? { mode: arg.mode, names: arg.names }
+      : { mode: siteModeDrafts[siteDraftKey(step, key)] ?? "only", names: [] };
+  }
+
+  function setSiteList(step: MacroStep, key: string, mode: SiteListMode, names: readonly string[]): void {
+    siteModeDrafts = { ...siteModeDrafts, [siteDraftKey(step, key)]: mode };
+    onArg(key, names.length === 0 ? undefined : { kind: "siteList", mode, names: [...names] });
+  }
+
+  function addSite(step: MacroStep, key: string, mode: SiteListMode, chosen: readonly string[], name: string): void {
+    const clean = tidySiteName(name).slice(0, MAX_SITE_NAME_LEN);
+    if (clean.length === 0 || chosen.length >= MAX_SITE_LIST || siteListHas(chosen, clean)) return;
+    setSiteList(step, key, mode, [...chosen, clean]);
+    siteQuery = "";
   }
 
   // ── Turning what a widget reports back into an argument ─────────────────────
@@ -779,6 +813,79 @@
             <li>
               <span>{entry.name}</span>
               <button type="button" onclick={() => removeKeep(arg.key, chosenKeep, keepId(entry))}>Remove</button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
+  {:else if arg.widget === "site-list-picker"}
+    {@const sites = siteListValue(step, arg.key)}
+    {@const denBlock = step.macro === "warp-to-anomaly"}
+    {@const siteHits = denBlock ? combatSiteSuggestions(siteQuery, sites.names) : []}
+    {@const typed = siteQuery.trim()}
+    <div class="inspector-field">
+      <label class="inspector-label" for={fieldId}>
+        {arg.label}{#if !arg.required}<span class="inspector-optional"> - optional</span>{/if}
+      </label>
+      <span class="inspector-suffix">
+        {#if denBlock}
+          A site counts whichever pirates run it: Haven covers Angel Haven and Serpentis Haven. Names match whole, so
+          Sanctum is not Forsaken Sanctum. Leave this empty to fly to every den.
+        {:else}
+          Type a site's name as the scanner shows it. Leave this empty to fly to every ore site. To mine one ore only,
+          give Mine at a belt an ore list instead.
+        {/if}
+      </span>
+      <select
+        aria-label="Only these sites, or every site but these"
+        value={sites.mode}
+        onchange={(e) => setSiteList(step, arg.key, e.currentTarget.value === "skip" ? "skip" : "only", sites.names)}
+      >
+        <option value="only">only these sites</option>
+        <option value="skip">every site but these</option>
+      </select>
+      <input
+        id={fieldId}
+        type="text"
+        maxlength={MAX_SITE_NAME_LEN}
+        placeholder={denBlock ? "Haven" : "Average Frontier Deposit"}
+        value={siteQuery}
+        oninput={(e) => (siteQuery = e.currentTarget.value)}
+        onkeydown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            addSite(step, arg.key, sites.mode, sites.names, siteQuery);
+          }
+        }}
+      />
+      {#if siteHits.length > 0}
+        <ul class="market-picker">
+          {#each siteHits as hit (hit.name)}
+            <li>
+              <button type="button" class="pick-row" onclick={() => addSite(step, arg.key, sites.mode, sites.names, hit.name)}>
+                <span class="pick-main"><span class="pick-name">{hit.name}</span></span>
+                <span class="inspector-suffix">{hit.note}</span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      {#if typed.length > 0 && !siteListHas(sites.names, typed) && !siteHits.some((hit) => hit.name.toLowerCase() === typed.toLowerCase())}
+        <button type="button" class="pick-row" onclick={() => addSite(step, arg.key, sites.mode, sites.names, typed)}>
+          <span class="pick-main"><span class="pick-name">Add "{typed}" as typed</span></span>
+        </button>
+      {/if}
+      {#if sites.names.length > 0}
+        <ul class="keep-list">
+          {#each sites.names as name (name)}
+            <li>
+              <span>{name}</span>
+              <button
+                type="button"
+                onclick={() => setSiteList(step, arg.key, sites.mode, sites.names.filter((entry) => entry !== name))}
+              >
+                Remove
+              </button>
             </li>
           {/each}
         </ul>

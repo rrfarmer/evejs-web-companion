@@ -222,10 +222,13 @@ export const MACRO_SPECS: Readonly<Record<CoreMacroID, MacroSpec>> = {
   // Warp to the next unvisited COMBAT anomaly in this system (the scanner's own
   // list, filtered by the site's scan-strength attribute). Done on arrival;
   // blocked when the system has none left this run.
-  "warp-to-anomaly": { args: [], untilRequired: false },
-  // The same block for ORE anomalies — asteroid clusters, ice belts. Argless
-  // for the same reason: which site is "next" can only be answered at run time.
-  "warp-to-ore-anomaly": { args: [], untilRequired: false },
+  //
+  // `sites` is the optional name list (only these / all but these). Unset, the
+  // block flies to every site of its kind, as it always has.
+  "warp-to-anomaly": { args: [{ key: "sites", kind: "siteList", required: false }], untilRequired: false },
+  // The same block for ORE anomalies — asteroid clusters, ice belts. Which site
+  // is "next" can only be answered at run time; the name list only narrows it.
+  "warp-to-ore-anomaly": { args: [{ key: "sites", kind: "siteList", required: false }], untilRequired: false },
   // Docked: board a hull of the fitting's ship type if needed, then apply the
   // saved fitting — the "reship and go" block.
   "refit-ship": {

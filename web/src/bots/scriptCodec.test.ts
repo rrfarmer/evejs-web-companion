@@ -1071,6 +1071,46 @@ test("a target priority list that is not a list of words is refused", () => {
   assert.match(mustRefuse(decodeScriptValue(withTargetList([{ cls: "tackle" }]))), /not set up correctly/i);
 });
 
+// ─── Which sites a site-warp block may fly to (issue 182) ────────────────────
+
+function withSiteList(sites: unknown): any {
+  const doc = clone();
+  doc.program.push({ id: "s9", kind: "macro", macro: "warp-to-anomaly", args: { sites } });
+  return doc;
+}
+
+function sitesOf(doc: BotScript): unknown {
+  const step = doc.program[doc.program.length - 1];
+  if (step === undefined || step.kind !== "macro") throw new Error("fixture: last node is not a macro");
+  return step.args["sites"];
+}
+
+test("a site list round-trips through encode/decode with no warnings, in both modes", () => {
+  for (const mode of ["only", "skip"]) {
+    const doc = withSiteList({ kind: "siteList", mode, names: ["Haven", "Forsaken Sanctum"] }) as BotScript;
+    const { doc: round, warnings } = mustAccept(decodeScriptText(encodeScriptDoc(doc)));
+    assert.deepStrictEqual(round, doc, mode);
+    assert.deepStrictEqual([...warnings], [], mode);
+  }
+});
+
+test("a site list drops blank names and repeats, compared ignoring case", () => {
+  const { doc } = mustAccept(decodeScriptValue(withSiteList({ kind: "siteList", mode: "only", names: ["Haven", " ", "haven", " Den "] })));
+  assert.deepStrictEqual(sitesOf(doc), { kind: "siteList", mode: "only", names: ["Haven", "Den"] });
+});
+
+test("a site list whose mode is not only or skip is refused, never guessed", () => {
+  assert.match(mustRefuse(decodeScriptValue(withSiteList({ kind: "siteList", mode: "sometimes", names: ["Den"] }))), /not set up correctly/i);
+  assert.match(mustRefuse(decodeScriptValue(withSiteList({ kind: "siteList", mode: "only", names: "Den" }))), /not set up correctly/i);
+});
+
+test("a site list past the cap is cut down, and says so", () => {
+  const names = Array.from({ length: 15 }, (_, i) => `Site ${i}`);
+  const { doc, warnings } = mustAccept(decodeScriptValue(withSiteList({ kind: "siteList", mode: "skip", names })));
+  assert.equal((sitesOf(doc) as { names: string[] }).names.length, 12);
+  assert.ok(warnings.some((w) => /site list was cut down to 12/i.test(w)), warnings.join(" | "));
+});
+
 // ─── Flying with the fleet (a closed vocabulary of three) ────────────────────
 
 function withSquadRole(role: unknown): any {

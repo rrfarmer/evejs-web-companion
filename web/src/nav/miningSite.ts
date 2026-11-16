@@ -21,6 +21,7 @@ export function scriptScannerSites(sites: readonly ScanSite[]): readonly Scanned
     archetypeID: positiveID(site.fields["archetypeID"]),
     siteID: positiveID(site.siteID),
     instanceID: positiveID(site.fields["instanceID"]),
+    dungeonNameID: positiveID(site.fields["dungeonNameID"]),
     position: site.position !== null && site.position.length >= 3 && site.position.slice(0, 3).every(Number.isFinite)
       ? { x: site.position[0]!, y: site.position[1]!, z: site.position[2]! } : null,
   }]);

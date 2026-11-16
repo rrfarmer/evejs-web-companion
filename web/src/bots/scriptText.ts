@@ -11,6 +11,7 @@
 // so a new macro or condition that arrives without a sentence fails to compile
 // rather than reaching a player as a raw kind slug.
 
+import { siteListWords } from "../scanner/siteNames.ts";
 import type {
   BeltArg,
   BoardSlot,
@@ -542,6 +543,18 @@ function targetPhrase(step: MacroStep): string {
   return `, ${classes.map((cls) => TARGET_CLASS_WORD[cls]).join(" then ")} first`;
 }
 
+/**
+ * ", only Haven or Sanctum" / ", except Den" — the site list read back, and
+ * empty when the step has none, so an untouched step reads as it always did.
+ */
+function sitePhrase(step: MacroStep): string {
+  const arg = step.args["sites"];
+  if (arg === undefined || arg.kind !== "siteList" || arg.names.length === 0) {
+    return "";
+  }
+  return `, ${siteListWords(arg)}`;
+}
+
 function macroPhrase(step: MacroStep): string {
   if (isPluginMacro(step.macro)) {
     const macro = pluginMacro(step.macro);
@@ -708,9 +721,9 @@ function macroPhrase(step: MacroStep): string {
     case "fight-with-drones":
       return `Fight the rats with your drones from a distance${holdRangePhrase(step)}${propPhrase(step)}${targetPhrase(step)}${squadPhrase(step)}`;
     case "warp-to-anomaly":
-      return "Warp to the next pirate den the scanner shows";
+      return `Warp to the next pirate den the scanner shows${sitePhrase(step)}`;
     case "warp-to-ore-anomaly":
-      return "Warp to the next ore site the scanner shows";
+      return `Warp to the next ore site the scanner shows${sitePhrase(step)}`;
     case "refit-ship": {
       const fit = step.args["fitting"];
       const name =

@@ -71,6 +71,7 @@ import { MAX_ACTIVE_PERSONAL_FOLDERS, MAX_ACTIVE_SHARED_FOLDERS, MAX_KNOWN_FOLDE
 import { isUnreachable, NO_STEP_ID, refusalFor, refusalTargets, pilotCannotPay, shipHasNoRoom, shouldSetAside } from "./refusalLedger.ts";
 import { movableRows, pickedRows, type KeepRule } from "../bridge/keepAboard.ts";
 import { FALLBACK_CONTROL_RANGE_M } from "./kiteBand.ts";
+import { decodeSiteList, encodeSiteList, siteListWords, siteNameAllowed, type SiteNameList } from "../scanner/siteNames.ts";
 import {
   LAUNCH_MAX_TRIES,
   RECALL_MAX_WAIT_TICKS,
@@ -1777,7 +1778,35 @@ function mineAtBeltSiteBarren(
     );
   }
 
-  const next = anomalies.find((site) => tour.flavour.matches(site) && !barren.has(site.label) && !refused.includes(site.label));
+  // The warp block's site list, read off the board: moving on from a barren
+  // site must not take the ship to one the player ruled out.
+  const list = siteListFor(step, board, tour.flavour);
+  const next = anomalies.find(
+    (site) => tour.flavour.matches(site) && siteOnList(site, list) && !barren.has(site.label) && !refused.includes(site.label),
+  );
+  // A name not read yet is not a name off the list. Several pilots read the
+  // scanner at once, and one whose read found another still asking for a new
+  // site's name sees it unnamed for a tick: calling the system mined out on
+  // that would send the ship home from a site it was allowed to work.
+  if (
+    next === undefined &&
+    list !== null &&
+    anomalies.some((site) => tour.flavour.matches(site) && site.name === undefined && !barren.has(site.label) && !refused.includes(site.label))
+  ) {
+    const siteNameWaits = (num(mem, "siteNameWaits") ?? 0) + 1;
+    if (siteNameWaits <= SITE_NAME_WAIT_TICKS) {
+      return withBoardPatch(
+        tick(WAIT, "Reading the site names.", "Scanning", ACTING, false, {
+          ...without(mem, "siteTarget"),
+          oreGridEmptyReads: emptyReads,
+          siteRefusalsSeen: refusalFor(obs.refusals, step.id, "warpScan", null)?.count ?? 0,
+          ...(refused.length > 0 ? { siteRefused: refused.join(",") } : {}),
+          siteNameWaits,
+        }),
+        barrenPatch,
+      );
+    }
+  }
   const lastRefused = refused.at(-1);
   if (next === undefined && doubted === null && lastRefused !== undefined && listed(lastRefused)) {
     return withBoardPatch(
@@ -1792,9 +1821,8 @@ function mineAtBeltSiteBarren(
     );
   }
   if (next === undefined) {
-    const reason = oreNames !== null
-      ? `Every ${tour.flavour.noun} in this system is out of ${oreNames}.`
-      : `Every ${tour.flavour.noun} in this system is mined out.`;
+    const which = list === null ? `Every ${tour.flavour.noun} in this system` : `Every ${tour.flavour.noun} in this system your site list allows (${siteListWords(list)})`;
+    const reason = oreNames !== null ? `${which} is out of ${oreNames}.` : `${which} is mined out.`;
     return withBoardPatch(
       tick(WAIT, reason, "Nothing left to mine", { kind: "blocked", reason }),
       barrenPatch,
@@ -1805,7 +1833,7 @@ function mineAtBeltSiteBarren(
   // RIGHT NOW, so a refusal already on record is never read as one of this warp.
   return withBoardPatch(
     tick(WAIT, `Choosing the next ${tour.flavour.noun} to warp to.`, "Scanning", ACTING, false, {
-      ...without(mem, "doubted", "doubtReads", "doubtWords"),
+      ...without(mem, "doubted", "doubtReads", "doubtWords", "siteNameWaits"),
       oreGridEmptyReads: emptyReads,
       siteTarget: next.label,
       siteRefusalsSeen: refusalFor(obs.refusals, step.id, "warpScan", null)?.count ?? 0,
@@ -4767,10 +4795,69 @@ function readDoubtedSite(obs: ScriptObservation, mem: MacroMemory, noun: string,
   );
 }
 
+// ── The site list (issue 182) ────────────────────────────────────────────────
+// A site-warp block may carry a list of site NAMES: only these, or every site
+// but these (scanner/siteNames.ts says how a name is compared). The two warp
+// blocks own it; the blocks that tour sites ON THEIR OWN — Mine-at-a-belt
+// moving off a barren ore site, Travel-to-a-belt in site mode — read the copy
+// the warp block publishes on the board, so a site the player ruled out is
+// never reached by the back door.
+
+/** The blocks a site list is set on. Any other step reads the board's copy. */
+const SITE_LIST_OWNERS: ReadonlySet<string> = new Set(["warp-to-anomaly", "warp-to-ore-anomaly"]);
+
+/** Where a tour's site list is published on the board, beside its visited list. */
+function siteListBoardKey(flavour: AnomalyFlavour): string {
+  return `${flavour.boardKey}SiteList`;
+}
+
+/** The step's own list when it is a warp block (none set = no list), else the board's copy. */
+function siteListFor(step: MacroStep, board: ScriptBoard, flavour: AnomalyFlavour): SiteNameList | null {
+  if (SITE_LIST_OWNERS.has(step.macro)) {
+    const own = step.args["sites"];
+    return own !== undefined && own.kind === "siteList" && own.names.length > 0 ? { mode: own.mode, names: own.names } : null;
+  }
+  return decodeSiteList(board[siteListBoardKey(flavour)]);
+}
+
+/**
+ * How long a site list waits for site names still being read before it treats
+ * them as nameless. A name is asked once per session and cached, so this is
+ * only ever paid on the first sight of a site.
+ */
+const SITE_NAME_WAIT_TICKS = 5; // ~10s
+
+/** Is this site one the list lets the block fly to? A site with no name (or none read in time) is not. */
+function siteOnList(site: ScannerSite, list: SiteNameList | null): boolean {
+  return siteNameAllowed(site.name ?? null, list) === true;
+}
+
+/** The dead end where sites of the right kind are listed, but the list rules every one of them out. */
+function notOnListReason(flavour: AnomalyFlavour, list: SiteNameList, ofKind: readonly ScannerSite[]): string {
+  const count = ofKind.length === 1 ? `1 ${flavour.noun}` : `${ofKind.length} ${flavour.noun}s`;
+  const head = `The scanner lists ${count} in this system, and your site list (${siteListWords(list)}) rules out every one.`;
+  const nameless = ofKind.filter((site) => (site.name ?? null) === null).length;
+  if (nameless === 0) {
+    return head;
+  }
+  const which = nameless === ofKind.length ? (nameless === 1 ? "It did not say" : "None of them said") : nameless === 1 ? "One of them did not say" : `${nameless} of them did not say`;
+  return `${head} ${which} its name, and with a site list set this block will not warp to a site it cannot name.`;
+}
+
 function warpToAnomalyOfKind(
   flavour: AnomalyFlavour,
 ): MacroDecider {
   return (step, obs, mem, board) => {
+    const list = siteListFor(step, board, flavour);
+    const onList = (site: ScannerSite): boolean => siteOnList(site, list);
+    // Published with every warp this block issues, so the blocks that tour on
+    // their own keep to it. Only the block the list is set on writes it — a
+    // tour reading the board's copy must not overwrite it with nothing. A step
+    // with no list writes only to clear a copy an earlier step left, so a
+    // script that never uses a list never sees the key.
+    const listKey = siteListBoardKey(flavour);
+    const listPatch: ScriptBoard =
+      SITE_LIST_OWNERS.has(step.macro) && (list !== null || String(board[listKey] ?? "") !== "") ? { [listKey]: encodeSiteList(list) } : {};
     // The dock-and-retry trip (see SITE_GONE_CONFIRM_READS) comes before
     // "Undock first": it is the one thing this block does while docked. Back
     // out, the tour simply picks again.
@@ -4832,7 +4919,7 @@ function warpToAnomalyOfKind(
       }
       // Gone from the scanner: it really was torn down.
       const setAside = [...listOf(mem, "refused"), doubted];
-      if (pickSite(anomalies, board, setAside) === null) {
+      if (pickSite(anomalies, board, setAside, onList) === null) {
         return tick(WAIT, `The ${flavour.noun} left the scanner.`, "Scanning", {
           kind: "blocked",
           reason: minedOutReason(flavour, label(mem, "doubtWords") ?? undefined),
@@ -4883,7 +4970,7 @@ function warpToAnomalyOfKind(
           // commits no patch of its own any more.
           return {
             ...tick(WAIT, `Already in the ${flavour.noun} — working it from here.`, "Arrived", { kind: "done" }),
-            boardPatch: arrivalPatch(target, board).patch,
+            boardPatch: { ...arrivalPatch(target, board).patch, ...listPatch },
           };
         }
         // ⚠ A SITE THAT WAS JUST MINED OUT IS STILL ON THE SCANNER FOR A MOMENT.
@@ -4895,7 +4982,7 @@ function warpToAnomalyOfKind(
         // next site. A refused site is set aside for this step and the pick runs
         // again. The bot only stops when no site of this kind is left to try.
         const setAside = [...refused, target];
-        if (pickSite(anomalies, board, setAside) !== null) {
+        if (pickSite(anomalies, board, setAside, onList) !== null) {
           return tick(WAIT, `The ${flavour.noun} could not be warped to — trying another.`, "Scanning", ACTING, false, {
             refused: setAside.join(","),
             refusalsSeen: refusal.count,
@@ -4933,18 +5020,21 @@ function warpToAnomalyOfKind(
         return tick(WAIT, `The ${flavour.noun} left the scanner — choosing another.`, "Scanning", ACTING, false, carried);
       }
       const { patch, lapRestart } = arrivalPatch(target, board);
+      // The site's name, when the scanner gave one: the player reads which den
+      // the bot chose, and a site list can be checked against it.
+      const named = ofKind.find((site) => site.label === target)?.name ?? null;
       return {
         ...tick(
           { kind: "warpScan", target },
           lapRestart
-            ? `Every ${flavour.noun} here has been worked once, so starting another lap.`
-            : `Warping to the next ${flavour.noun}.`,
+            ? `Every ${flavour.noun} here has been worked once, so starting another lap${named !== null ? ` at ${named}` : ""}.`
+            : `Warping to the next ${flavour.noun}${named !== null ? `, ${named}` : ""}.`,
           flavour.flying,
           ACTING,
           false,
           { ...warpIssuedMem(obs, target), ...carried },
         ),
-        boardPatch: patch,
+        boardPatch: { ...patch, ...listPatch },
       };
     }
     // ── §13: the sites this run has given up on ────────────────────────────
@@ -4960,14 +5050,24 @@ function warpToAnomalyOfKind(
     // issued the warp, so an arrival is simply the tick it commits to a label —
     // the same tick it already writes that label into `anomsVisited`.
     const refused = listOf(mem, "refused");
-    const pick = pickSite(anomalies, board, refused);
+    // A site list compares NAMES, and a name is read a moment after the site
+    // is first seen. Wait a few ticks for it rather than calling the site
+    // nameless and skipping it on its first sighting.
+    if (list !== null && ofKind.some((site) => site.name === undefined)) {
+      const nameWaits = (num(mem, "nameWaits") ?? 0) + 1;
+      if (nameWaits <= SITE_NAME_WAIT_TICKS) {
+        return tick(WAIT, "Reading the site names.", "Scanning", ACTING, false, { ...mem, nameWaits });
+      }
+    }
+    const pick = pickSite(anomalies, board, refused, onList);
     if (pick === null) {
       // Two different dead ends now share this branch, and they must not share a
       // sentence: "there is no site of this kind here" (the scanner's fault, or
       // the system's) and "there are, and the run has given up on every one of
       // them" (§13's stop). A third joins them when the scanner changed after a
       // refusal and only refused sites are left.
-      if (ofKind.length > 0 && ofKind.every((site) => refused.includes(site.label))) {
+      const allowed = ofKind.filter(onList);
+      if (allowed.length > 0 && allowed.every((site) => refused.includes(site.label))) {
         return tick(WAIT, `No ${flavour.noun} here would take the ship.`, "Scanning", {
           kind: "blocked",
           reason: flavour.givesUpOnSites
@@ -4975,10 +5075,16 @@ function warpToAnomalyOfKind(
             : minedOutReason(flavour),
         });
       }
-      if (ofKind.length > 0) {
+      if (allowed.length > 0) {
         return tick(WAIT, `Every ${flavour.noun} here is one I have given up on.`, "Scanning", {
           kind: "blocked",
-          reason: allGivenUpReason(flavour, ofKind.length),
+          reason: allGivenUpReason(flavour, allowed.length),
+        });
+      }
+      if (ofKind.length > 0 && list !== null) {
+        return tick(WAIT, `No ${flavour.noun} here is on your site list.`, "Scanning", {
+          kind: "blocked",
+          reason: notOnListReason(flavour, list, ofKind),
         });
       }
       const unreadable = anomalies.filter((site) => site.kind === "unknown").length;
@@ -5048,9 +5154,10 @@ function warpToAnomalyOfKind(
     anomalies: NonNullable<ScriptObservation["anomalies"]>,
     board: ScriptBoard,
     refused: readonly string[],
+    onList: (site: ScannerSite) => boolean,
   ) {
     const visited = visitedLabels(board);
-    const ofKind = anomalies.filter((site) => flavour.matches(site) && !refused.includes(site.label));
+    const ofKind = anomalies.filter((site) => flavour.matches(site) && onList(site) && !refused.includes(site.label));
     const ledger = flavour.givesUpOnSites ? decodeLedger(board) : null;
     const workable =
       ledger === null ? ofKind : ofKind.filter((site) => !isAbandoned(ledger, site.label));

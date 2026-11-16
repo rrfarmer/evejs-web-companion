@@ -129,6 +129,8 @@ const WIDGET_CASES: readonly { macro: string; key: string; expect: RegExp; why: 
     expect: /Checking your corporation's offices/,
     why: "corp-division-select, before its read has landed",
   },
+  { macro: "warp-to-anomaly", key: "sites", expect: /every site but these/, why: "site-list-picker" },
+  { macro: "warp-to-ore-anomaly", key: "sites", expect: /placeholder="Average Frontier Deposit"/, why: "site-list-picker for ore sites" },
   { macro: "wait", key: "seconds", expect: /1 to 500/, why: "count-input shows its range" },
   { macro: "buy-item", key: "price", expect: /1 to 100000000000/, why: "isk-input shows its range" },
   { macro: "buy-item", key: "quantity", expect: /1 to 10000000/, why: "qty-input shows its range" },
@@ -523,4 +525,21 @@ test("a chosen corporation stays selected under its saved name before the list i
     step: step("find-distribution-agent", { args: { corporation: { kind: "corp", id: 1000001, name: "Saved Corp" } } }),
   });
   assert.match(html, /<option value="1000001"[^>]*>Saved Corp<\/option>/);
+});
+
+test("a site list shows its names and its mode, and says names match whole", () => {
+  const html = renderInspector({
+    kind: "step",
+    step: step("warp-to-anomaly", { args: { sites: { kind: "siteList", mode: "skip", names: ["Den", "Drone Gathering"] } } }),
+  });
+  const text = visibleText(html);
+  assert.match(text, /Den Remove/);
+  assert.match(text, /Drone Gathering Remove/);
+  assert.match(html, /<option value="skip"[^>]*selected/, "the saved mode is the one selected");
+  assert.match(text, /Sanctum is not Forsaken Sanctum/);
+});
+
+test("the ore block's site list points at the ore list for mining one ore", () => {
+  const text = visibleText(renderInspector({ kind: "step", step: step("warp-to-ore-anomaly") }));
+  assert.match(text, /give Mine at a belt an ore list instead/);
 });
