@@ -26707,11 +26707,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             }
             // targetID 0 = a SELF-targeted module (repairer, hardener) — the
             // target key is omitted so the server activates it on the ship.
-            requireModuleOutcome(await switchModuleOn(
-              action.moduleID,
-              action.targetID > 0 ? { typeID: action.typeID, targetID: action.targetID, repeat: -1 } : { typeID: action.typeID, repeat: -1 },
-              callOptions,
-            ), action.moduleID, "activate");
+            try {
+              requireModuleOutcome(await switchModuleOn(
+                action.moduleID,
+                action.targetID > 0 ? { typeID: action.typeID, targetID: action.targetID, repeat: -1 } : { typeID: action.typeID, repeat: -1 },
+                callOptions,
+              ), action.moduleID, "activate");
+            } catch (error) {
+              // ⚠ A GUN THAT WOULD NOT SWITCH ON MAY HAVE RUN DRY, and the cached ship facts cannot say so: they are
+              // re-read on a change of hull or modules, never of charges, so its empty magazine stays unseen and the
+              // blocks press it every tick (issue 181, a gun that empties mid-fight). Read them again.
+              const capabilities = capabilityCache.peek();
+              if (capabilities.defense.weapons.includes(action.moduleID) || capabilities.combatWeaponIDs.includes(action.moduleID)) {
+                capabilityCache.invalidate();
+              }
+              throw error;
+            }
             return;
           // ⚠ THE typeID IS WHAT MAKES A PROP-MOD STOP ACTUALLY STOP, and its
           // absence here USED TO RETURN SUCCESS AND DO NOTHING. The server stops
