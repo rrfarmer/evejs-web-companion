@@ -1,0 +1,39 @@
+{
+  "description": "A 'fight the rats' bot loads an empty gun from the cargo before it fires. A Vexor with one empty railgun, ammunition in the cargo and no drones runs a bot of one 'fight the rats' step against a rat off the station's grid. A block with no reload presses the empty gun every tick and is refused NoCharges (issue 181).",
+  "recipe": "companion-empty-gun",
+  "watch": { "pilot": "e2eempty" },
+  "setup": [
+    { "login": { "user": "e2eemptyboss", "name": "Empty Boss" }, "note": "the held session: never a pilot the web client flies" },
+    "webUp",
+    { "webLogin": "e2eempty" },
+    { "webClick": { "role": "button", "name": "▶ ALL", "index": 0 } },
+    { "webClick": { "role": "button", "name": "Go to first pilot" } },
+    { "wait": 8, "note": "drone recovery checks a pilot that has just signed in" },
+    { "webClick": { "role": "button", "name": "Bot Manager" } },
+    { "webClick": { "role": "tab", "name": "Saved bots" } },
+    { "webClick": { "role": "button", "name": "New bot" } },
+    { "webFill": { "label": "The bot, as text" }, "value": "{\"format\":\"evejs-bot-script\",\"version\":1,\"name\":\"Fight here\",\"notes\":\"Fights the rats where the ship is.\",\"home\":{\"entity\":\"station\",\"id\":null,\"name\":null,\"systemName\":null,\"starting\":true},\"interrupts\":[],\"program\":[{\"id\":\"s1\",\"kind\":\"macro\",\"macro\":\"fight-the-rats\",\"args\":{}}]}" },
+    { "webClick": { "role": "button", "name": "Load from box" } },
+    { "webClick": { "role": "button", "name": "Save", "exact": true } },
+    { "webExpect": { "text": "Saved \"Fight here\"." }, "timeout": 15 },
+    { "webClick": { "role": "button", "name": "Close", "index": 1 }, "note": "the builder, over the manager" },
+    { "webClick": { "role": "button", "name": "Undock", "exact": true } },
+    { "webExpect": { "role": "button", "name": "Undock", "exact": true }, "hidden": true, "timeout": 60, "note": "in space" },
+    { "webExpect": { "css": ".module-ammo.empty" }, "timeout": 30, "note": "the gun is empty: a red 0 on the rack" },
+    { "wait": 5 },
+    { "pilotSlash": "/tr me offset=0,0,2000000000", "user": "e2eempty", "note": "off the station's grid, away from its guns" },
+    { "wait": 8 },
+    { "pilotSlash": "/npc 1 parity_blood_raider_pulse_destroyer", "user": "e2eempty" },
+    { "wait": 3 },
+    { "webClick": { "role": "tab", "name": "Pilots" } },
+    { "webSelect": { "role": "combobox", "name": "Bot", "exact": true }, "option": "Fight here" },
+    { "webClick": { "role": "button", "name": "Run here" } },
+    { "webExpect": { "css": ".module-ammo.empty" }, "hidden": true, "timeout": 90, "note": "the bot loaded it: no red 0 left on the rack" },
+    { "webShot": "the rack while the gun fires" }
+  ],
+  "until": { "any": ["WEB what=up"], "from": "start", "timeout": 30, "grace": 1 },
+  "expect": [
+    { "match": "WEB what=up", "note": "the web client ran against this tree's server" },
+    { "match": "no WEB_ERROR what=exception", "note": "the page threw nothing" }
+  ]
+}
