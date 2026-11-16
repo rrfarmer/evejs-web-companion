@@ -52,6 +52,7 @@ import { DynamicExposure } from "../three/exposure.ts";
 import { CombatMessage } from "./combatMessage.ts";
 import { RadialMenu, RADIAL_CSS, RADIAL_ICON, WARP_RANGES, holdToOpen, radialRanges, type RadialOption } from "./radialMenu.ts";
 import { JUMP_BRIDGE_GROUP, type JumpBridgeSlim } from "../bridge/jumpBridgePanel.ts";
+import { ACTIVATE_GATE_LABEL, isWarpGate } from "../bridge/gateActivation.ts";
 
 export interface Entity {
   kind: string; itemID: number; typeID: number | null; groupID: number | null; categoryID: number | null; name: string | null;
@@ -130,6 +131,7 @@ export interface SpaceActions {
   alignTo(itemID: number): Promise<void>;
   keepAtRange(itemID: number, range?: number): Promise<void>;
   jump(itemID: number): Promise<void>;
+  activateGate?(itemID: number, typeID: number | null): Promise<void>;
   lock(itemID: number): Promise<void>;
   unlock(itemID: number): Promise<void>;
   /** What is locked, and what has the pilot locked: the BFF's read (GET /api/bridge/targets). */
@@ -1033,6 +1035,11 @@ export class SpaceView {
       out.push({ key: "dock", title: "Dock", icon: icon("dock"), run: () => this.actions.dock(id) });
     }
     if (e.kind === "stargate") out.push({ key: "jump", title: "Jump", icon: icon("jump_to"), run: () => this.actions.jump(id) });
+    const activateGate = this.actions.activateGate;
+    if (activateGate && isWarpGate(e.groupID, e.typeID) && this.snapshot?.ship?.mode !== "WARP") {
+      const title = this.actions.word?.(ACTIVATE_GATE_LABEL) ?? "Activate Gate";
+      out.push({ key: "activateGate", title, icon: icon("jump_to"), run: () => activateGate(id, e.typeID) });
+    }
     out.push(
       { key: "orbit", title: "Orbit", icon: icon("orbit"), run: () => this.actions.orbit(id) },
       { key: "keep", title: "Keep at Range", icon: icon("keep_at_distance"), run: () => this.actions.keepAtRange(id) },
@@ -1060,7 +1067,7 @@ export class SpaceView {
       return;
     }
     const dist = this.distanceTo(e);
-    const sig = `${e.itemID}:${this.locked.has(e.itemID)}:${dist >= 150_000}:${e.jumpBridge?.activationState ?? ""}`;
+    const sig = `${e.itemID}:${this.locked.has(e.itemID)}:${dist >= 150_000}:${e.jumpBridge?.activationState ?? ""}:${this.snapshot?.ship?.mode === "WARP"}`;
     if (body.getAttribute("data-sig") !== sig) {
       body.setAttribute("data-sig", sig);
       // its picture (the client's own, /client-res/type-picture), its name, its type (and Hostile for an NPC), how far

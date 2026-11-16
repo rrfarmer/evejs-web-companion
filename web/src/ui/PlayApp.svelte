@@ -939,6 +939,7 @@
       keepAtRange: (id, range) => s.flow.keepAtRange(id, range ?? 1000),
       alignTo: (id) => s.flow.alignTo(id),
       warpTo: (id, range) => s.flow.warpTo(id, range ?? 0),
+      activateGate: (id, typeID) => s.flow.activateGate(id, typeID),
       // menusvc.Dock -> DockStation -> GetCloseAndTryCommand(itemID, RealDock): the client's system navigation (warp,
       // approach) to the station and then CmdDock; flow.dock is the bare CmdDock, which from beyond the docking radius
       // only sets the ship approaching (seen: 5,300 km off Perimeter II - Moon 1, slow-boating at 337 m/s).

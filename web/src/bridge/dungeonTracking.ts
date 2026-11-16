@@ -70,11 +70,12 @@ export function dungeonObjectiveContext(dungeon: CurrentDungeon): Readonly<Recor
   return { ...context, dungeon_id: dungeon.dungeonID, dungeon_room_id: dungeon.roomID };
 }
 
-/** Once out of warp and outside the lobby, graph 669 sends start_objectives to the site graph. */
-export function dungeonEntryObjectives(dungeon: CurrentDungeon, rules: readonly { readonly listKey: string | null; readonly objectiveKey: string }[]): readonly string[] {
+/** Graph 669 sends separate messages for the lobby and the rest of the site. */
+export function dungeonEntryObjectives(dungeon: CurrentDungeon, rules: readonly { readonly listKey: string | null; readonly objectiveKey: string; readonly lobby?: boolean }[]): readonly string[] {
   const lobbyRoom = whole(dungeon.values?.lobby_room_id);
-  if (lobbyRoom !== null && lobbyRoom === dungeon.roomID) return [];
-  return rules.filter(({ listKey }) => {
+  const inLobby = lobbyRoom !== null && lobbyRoom === dungeon.roomID;
+  return rules.filter(({ listKey, lobby }) => {
+    if ((lobby === true) !== inLobby) return false;
     if (listKey === null) return true;
     const value = dungeon.values?.[listKey];
     const ids = Array.isArray(value) ? value : isListValue(value) ? value.items : [];

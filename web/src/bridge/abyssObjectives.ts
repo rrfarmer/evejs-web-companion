@@ -63,6 +63,7 @@ const ABYSS_NPC_TASK = "destroy_npcs";
 
 const TASK_PROGRESS = 9;
 const TASK_DESTROY_HOSTILES = 14;
+const TASK_ENTER_NEXT_DUNGEON_ROOM = 15;
 const CATEGORY_ENTITY = 11;
 const TASK_TIMER = 30;
 const TASK_DESTROY_COUNTER = 45;
@@ -106,6 +107,7 @@ interface ObjectiveInfo {
   readonly showCompleted: boolean;
   /** The objective's value by the context's key it takes. */
   readonly inputParametersMap: Readonly<Record<string, string>>;
+  readonly taskOverrides: Readonly<Record<string, { readonly title: string | null; readonly icon: string | null }>>;
   readonly renderingOrder: number;
 }
 
@@ -177,9 +179,13 @@ export function decodeObjectiveChain(data: Readonly<Record<string, JsonValue>>):
     const key = text(row?.key);
     const objectiveType = whole(row?.objectiveType);
     if (row === null || key === null || objectiveType === null) return [];
+    const taskOverrides = Object.fromEntries(Object.entries(record(row.taskOverrides) ?? {}).map(([taskKey, value]) => {
+      const override = record(value);
+      return [taskKey, { title: text(override?.title), icon: text(override?.icon) }];
+    }));
     return [{
       key, objectiveType, title: text(row.title), startActive: flag(row.startActive), showCompleted: flag(row.showCompleted),
-      inputParametersMap: strings(row.inputParametersMap), renderingOrder: whole(row.renderingOrder) || 5,
+      inputParametersMap: strings(row.inputParametersMap), taskOverrides, renderingOrder: whole(row.renderingOrder) || 5,
     }];
   });
   const objectiveTypes = new Map<number, ObjectiveTypeInfo>();
@@ -383,8 +389,10 @@ export class ObjectiveChain {
       for (const [taskKey, objectiveKey] of Object.entries(taskInfo.inputParameters)) {
         if (objectiveKey in values) taskValues[taskKey] = values[objectiveKey] ?? null;
       }
+      const override = info.taskOverrides[taskInfo.key];
       tasks.set(taskInfo.key, {
-        info: taskInfo, type: this.data.taskTypes.get(taskInfo.taskType), values: taskValues, active: false, completed: false,
+        info: override ? { ...taskInfo, title: override.title ?? taskInfo.title, icon: override.icon ?? taskInfo.icon } : taskInfo,
+        type: this.data.taskTypes.get(taskInfo.taskType), values: taskValues, active: false, completed: false,
         targets: new Set(), destroyed: new Set(), rows: new Map(), gateID: null,
       });
     }
@@ -417,6 +425,10 @@ export class ObjectiveChain {
         // _parameter_updated: what it counts forgotten, and looked for again on the whole grid (_find_targets).
         task.targets.clear();
         task.destroyed.clear();
+        if (task.active) this.observeTask(objective, task, FIND);
+        return;
+      case TASK_ENTER_NEXT_DUNGEON_ROOM:
+        task.gateID = null;
         if (task.active) this.observeTask(objective, task, FIND);
         return;
       case TASK_DESTROY_TARGETS:
@@ -532,13 +544,15 @@ export class ObjectiveChain {
         if (finding ? task.rows.size > 0 : changed) this.setCompleted(objective, task, [...task.rows.values()].every(Boolean));
         return;
       }
+      case TASK_ENTER_NEXT_DUNGEON_ROOM:
       case TASK_JUMP_THROUGH_ABYSS_GATE: {
         if (task.gateID !== null) return;
+        const gateObjectID = Number(task.values.gate_id) || 0;
         const self = this.entities.find((entity) => entity.isSelf);
         let closest: SpaceEntity | null = null;
         let closestDistance = Infinity;
         for (const entity of this.entities) {
-          if (entity.isSelf || entity.groupID !== GROUP_WARP_GATE) continue;
+          if (entity.isSelf || entity.groupID !== GROUP_WARP_GATE || (gateObjectID > 0 && entity.dunObjectID !== gateObjectID)) continue;
           const distance = self
             ? Math.hypot(entity.position.x - self.position.x, entity.position.y - self.position.y, entity.position.z - self.position.z)
             : 0;
@@ -622,6 +636,7 @@ export class ObjectiveChain {
       case TASK_DESTROY_HOSTILES:
       case TASK_DESTROY_COUNTER:
         return task.targets.size === 0;
+      case TASK_ENTER_NEXT_DUNGEON_ROOM:
       case TASK_JUMP_THROUGH_ABYSS_GATE:
         return task.gateID === null;
       case TASK_DESTROY_TARGETS:
@@ -657,6 +672,7 @@ export class ObjectiveChain {
         const left = all - task.destroyed.size;
         return [{ ...base, value: `${count(left)}/${count(all)}`, progress: all > 0 ? left / all : 0, danger: true }];
       }
+      case TASK_ENTER_NEXT_DUNGEON_ROOM:
       case TASK_JUMP_THROUGH_ABYSS_GATE: {
         const gate = this.entities.find((entity) => entity.itemID === task.gateID);
         return [{ ...base, titleLabel: null, itemID: task.gateID, typeID: gate?.typeID ?? null }];

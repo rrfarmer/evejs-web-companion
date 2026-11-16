@@ -31,6 +31,7 @@
   let menu: HTMLDivElement;
   let menuEntries = $state.raw<ReturnType<SpaceView["objectiveTargetMenu"]>>([]);
   let pointerSelected = false;
+  let entryObjectives: readonly string[] = [];
   const standingByFaction = $derived($standings.char && new Map($standings.char.map((entry) => [entry.fromID, entry.standing])));
   const levelBySkill = $derived($skills.skills && new Map($skills.skills.map((skill) => [skill.typeID, skill.level])));
 
@@ -45,6 +46,7 @@
   $effect(() => {
     chain = null;
     rows = [];
+    entryObjectives = [];
     if (!chainID || !pilotID || instanceID === null) return;
     let current = true;
     if (job.kind === "combat") {
@@ -70,7 +72,10 @@
     if (!chain || !dungeon || snapshot?.solarSystemID !== job.solarSystemID) return;
     for (const [key, value] of Object.entries(dungeonObjectiveContext(dungeon))) chain.setContext(key, value);
     chain.observe(snapshot.entities, getSimNow?.() ?? snapshot.sampledAtMs, npcStanding);
-    for (const key of dungeonEntryObjectives(dungeon, job.data?.objectiveEntryRules ?? [])) chain.startObjective(key);
+    const wanted = dungeonEntryObjectives(dungeon, job.data?.objectiveEntryRules ?? []);
+    for (const key of entryObjectives) if (!wanted.includes(key)) chain.stopObjective(key);
+    for (const key of wanted) chain.startObjective(key);
+    entryObjectives = wanted;
     rows = chain.view().filter((objective) => objective.rows.length > 0 || objective.completed);
   });
 

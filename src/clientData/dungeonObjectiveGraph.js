@@ -1,7 +1,7 @@
 "use strict";
 
-// Both client graphs delegate arrival to 669 and listen for start_objectives.
-const DUNGEON_OBJECTIVE_GRAPHS = new Set([952, 1065]);
+// These client graphs delegate arrival to 669 and listen for start_objectives.
+const DUNGEON_OBJECTIVE_GRAPHS = new Set([882, 952, 1065]);
 
 function dungeonObjectiveEntryRules(graph) {
   if (!graph || !graph.tags?.includes("client")) return null;
@@ -10,6 +10,22 @@ function dungeonObjectiveEntryRules(graph) {
   const listener = Object.values(nodes).find((node) =>
     node.nodeType === 31 && parameter(node, "message_key") === "start_objectives");
   if (listener?.connections?.output?.length !== 1) return null;
+  // Observatory Infiltration starts its vault objective after the lockdown group,
+  // and its lobby objective after starting the lobby's lockdown banner.
+  const after = (node) => node?.connections?.output?.length === 1 ? nodes[node.connections.output[0]] : null;
+  const send = (node, key) => node?.nodeType === 42 && parameter(node, "message_key") === key ? parameter(node, "message_value") : null;
+  const first = after(listener);
+  if (send(first, "start_group") === "lockdown") {
+    const lobbyListener = Object.values(nodes).find((node) =>
+      node.nodeType === 31 && parameter(node, "message_key") === "start_lobby_objectives");
+    const banner = (lobbyListener?.connections?.output ?? []).map((id) => nodes[id]).find((node) =>
+      send(node, "start_objective") === "lockdown_lobby");
+    const lobby = send(after(banner), "start_objective");
+    const vault = send(after(first), "start_objective");
+    return typeof lobby === "string" && typeof vault === "string"
+      ? [{ listKey: null, objectiveKey: lobby, lobby: true }, { listKey: null, objectiveKey: vault }]
+      : null;
+  }
   const objectiveKeyOf = (node) => {
     const key = parameter(node, "message_value");
     return node?.nodeType === 42 && parameter(node, "message_key") === "start_objective" &&

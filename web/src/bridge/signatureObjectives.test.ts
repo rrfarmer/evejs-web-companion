@@ -146,3 +146,56 @@ test("the wormhole Destroy task counts live hostile Entity NPCs and picks up lat
   assert.equal(row()?.value, "1/3");
   assert.equal(chain.view()[0]?.completed, false);
 });
+
+test("Observatory Infiltration switches from its lobby gate to the vault counter", () => {
+  const data = decodeObjectiveChain({
+    found: true,
+    chainID: 81,
+    chain: { objectives: [
+      { key: "lobby", objectiveType: 10, startActive: 0 },
+      {
+        key: "hack", objectiveType: 74, startActive: 0,
+        inputParametersMap: { current: "containers_hacked_current", max: "containers_hacked_max" },
+        taskOverrides: { collections: { title: "UI/Objectives/Titles/drifterCollection", icon: "hacking" } },
+      },
+    ] },
+    objectiveTypes: {
+      10: { tasks: [{ key: "gate", taskType: 15, startActive: 1 }] },
+      74: { tasks: [{ key: "collections", taskType: 9, startActive: 1, inputParameters: { current_value: "current", goal_value: "max" } }] },
+    },
+    taskTypes: { 15: {}, 9: { inputParameters: [{ parameterKey: "current_value" }, { parameterKey: "goal_value" }] } },
+    typeLists: {},
+  });
+  assert.ok(data);
+  const rules = [
+    { listKey: null, objectiveKey: "lobby", lobby: true },
+    { listKey: null, objectiveKey: "hack" },
+  ];
+  const lobby = dungeonEntered([12260, 30594, null, 107, {
+    lobby_room_id: 30594, containers_hacked_current: 0, containers_hacked_max: 3,
+  }]);
+  assert.ok(lobby);
+  const objective = new ObjectiveChain(data, dungeonObjectiveContext(lobby));
+  objective.start([]);
+  assert.deepEqual(dungeonEntryObjectives(lobby, rules), ["lobby"]);
+  objective.startObjective("lobby");
+  assert.equal(objective.view()[0]?.rows.length ?? 0, 0);
+  const gate = { itemID: 101, typeID: 17831, groupID: 366, isSelf: false, position: { x: 7000, y: 0, z: 0 } } as SpaceEntity;
+  objective.observe([gate]);
+  assert.equal(objective.view()[0]?.rows[0]?.itemID, 101);
+
+  const next = dungeonEntered([12260, 30563, null, 107, null]);
+  assert.ok(next);
+  const vault = enterDungeonRoom(lobby, next);
+  assert.deepEqual(dungeonEntryObjectives(vault, rules), ["hack"]);
+  objective.stopObjective("lobby");
+  objective.startObjective("hack");
+  assert.equal(objective.view()[0]?.rows[0]?.value, "0/3");
+  assert.equal(objective.view()[0]?.rows[0]?.titleLabel, "UI/Objectives/Titles/drifterCollection");
+  assert.equal(objective.view()[0]?.rows[0]?.icon, "hacking");
+
+  const updated = dungeonValuesChanged(vault, [12260, { containers_hacked_current: 1 }]);
+  assert.ok(updated);
+  for (const [key, value] of Object.entries(dungeonObjectiveContext(updated))) objective.setContext(key, value);
+  assert.equal(objective.view()[0]?.rows[0]?.value, "1/3");
+});
