@@ -137,11 +137,9 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
   if (effect) {
     const id = effect[1];
     const file = `effects/${id}.json`;
-    const ready = id === "20956" || id === "28102"
-      ? () => containsVersion(path.join(dir, file), '"effect":"sunwhisps"') &&
-        containsVersion(path.join(dir, file), '"effect":"1layerdyndistortionv2"')
-      : undefined;
-    return { file: await ensure(file, ["--effect", id], '"effectBuild":4', ready) };
+    const portal = id === "20956" || id === "28102";
+    if (portal && !canExtract()) return { file: path.join(dir, file) };
+    return { file: await ensure(file, ["--effect", id], portal ? '"effectBuild":5' : '"effectBuild":4') };
   }
   const fx = /^\/fx\/(effects\.[A-Za-z0-9_]+)\.json$/.exec(rel);
   if (fx) return { file: await ensure(`fx/${fx[1]}.json`, ["--fx", fx[1]], '"fxBuild":3') };

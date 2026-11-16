@@ -26,6 +26,7 @@ import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { DRIFTER_COLLECTION, DrifterCollectionExplosions } from "./drifterCollectionExplosions.ts";
 import { isNonInteractableWormhole, nonInteractableWormhole, updateWormholePose, WormholeAudio } from "./nonInteractableWormhole.ts";
+import { setEffectShaderQuality } from "../three/hullChildren.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { ObservatoryEnvironment } from "./observatoryEnvironment.ts";
 import { ObservatoryVortex, OBSERVATORY_VORTEX_TYPE } from "../three/observatoryVortex.ts";
@@ -2069,7 +2070,11 @@ export class SpaceView {
       // the ship's warp (ship.py: EnterWarp / ExitWarp set IsWarping; on load, a ball in warp mode)
       setControllerVariable(mark, "IsWarping", e.mode === "WARP" ? 1 : 0);
       if (e.hackingSecurityState !== undefined) setControllerVariable(mark, "SecurityState", e.hackingSecurityState);
-      if (isNonInteractableWormhole(e.typeID)) updateWormholePose(mark, e.poseID);
+      if (isNonInteractableWormhole(e.typeID)) {
+        updateWormholePose(mark, e.poseID);
+        const effect = mark.children[0];
+        if (effect) setEffectShaderQuality(effect, settings.shaderQuality);
+      }
       // a ship's turrets fitted again where its slim item's modules changed (looked at now and then)
       if ((e.kind === "ship" || e.kind === "drone") && this.frameCount % 30 === 0) this.fitTurrets(e.itemID, mark);
       if (e.kind === "sun") {

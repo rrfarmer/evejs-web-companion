@@ -67,6 +67,43 @@ test("the production BFF serves the installed build with standard asset response
   });
 });
 
+test("the portal's production route refreshes the cached shader quality branches", async t => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "evejs-client-portal-"));
+  t.after(() => fs.rm(temp, { recursive: true, force: true }));
+  const clientRoot = path.join(temp, "install");
+  const root = path.join(temp, "assets");
+  const dir = path.join(root, "3698585");
+  const graphicIDs = ["20956", "28102"];
+  const extracted = [];
+  await put(clientRoot, "tq/start.ini", "build=3698585\n");
+  for (const id of graphicIDs) await put(dir, `effects/${id}.json`, '{"effectBuild":4}');
+  await withAssets({ root, async extract() { assert.fail("serving a portable asset should not need an install"); } }, async url => {
+    const response = await fetch(url("/client-assets/effect/20956.json"));
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).effectBuild, 4);
+  });
+  await withAssets({
+    root,
+    clientRoot,
+    async extract(args) {
+      const [flag, id] = args.slice(-2);
+      assert.equal(flag, "--effect");
+      extracted.push(id);
+      await put(dir, `effects/${id}.json`, JSON.stringify({ effectBuild: 5, root: { displayFilter: 0 } }));
+    },
+  }, async url => {
+    for (const id of graphicIDs) {
+      const address = url(`/client-assets/effect/${id}.json`);
+      const responses = await Promise.all([fetch(address), fetch(address)]);
+      for (const response of responses) {
+        assert.equal(response.status, 200);
+        assert.equal((await response.json()).root.displayFilter, 0);
+      }
+    }
+  });
+  assert.deepEqual(extracted, graphicIDs);
+});
+
 test("overview extraction rejects a decompile for a different install build", async t => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "evejs-client-assets-"));
   t.after(() => fs.rm(temp, { recursive: true, force: true }));

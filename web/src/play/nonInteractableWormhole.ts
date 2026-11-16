@@ -17,7 +17,7 @@ let effectFile: Promise<WormholeEffect | null> | undefined;
 
 export async function nonInteractableWormhole(playSound: (event: string, observer: string) => void): Promise<Object3D | null> {
   // Both non-interactable types share Wormhole_Violent in the 3698585 graphics table.
-  effectFile ??= fetch("/client-assets/effects/20956.json")
+  effectFile ??= fetch("/client-assets/effect/20956.json")
     .then((response) => response.ok ? response.json() as Promise<WormholeEffect> : null)
     .then((effect) => {
       if (!effect?.root) effectFile = undefined;

@@ -367,6 +367,7 @@ function readController(c, skipped, owner) {
   return { name: c.name ?? null, variables: (c.variables ?? []).filter((v) => v?.name).map((v) => ({ name: v.name, value: v.defaultValue ?? 0, id: idOf(v) })), machines, ...(eventHandlers.length ? { eventHandlers } : {}) };
 }
 let readRf = null;
+let preserveDisplayFilters = false;
 // the faction the hull is built for (its colour set: Tr2FactionLight)
 let readFaction = null;
 
@@ -720,7 +721,8 @@ function readShown(o, skipped) {
     };
   }
   if (o.type === "EveChildContainer") {
-    if (!HIGH_QUALITY.has(o.displayFilter ?? 5)) return null;
+    const displayFilter = o.displayFilter ?? 5;
+    if (!preserveDisplayFilters && !HIGH_QUALITY.has(displayFilter)) return null;
     const objects = (o.objects ?? []).map((c) => readNode(c, skipped)).filter(Boolean);
     // its lights (in the container's space): point, spot and faction lights (readLight)
     const lights = [];
@@ -740,6 +742,7 @@ function readShown(o, skipped) {
       modifiers: (o.transformModifiers ?? []).map((t) => t.type), srt: srtOf(o.transformModifiers),
       objects,
       lights,
+      ...(preserveDisplayFilters && displayFilter !== 5 ? { displayFilter } : {}),
       ...(controllers.length ? { controllers } : {}),
       ...(fxAttributes.length ? { fxAttributes } : {}),
     };
@@ -1021,7 +1024,7 @@ function joinDynamicBindings(o, skipped) {
   return external;
 }
 
-export function readEffectFile(rf, path, selectRoot = (root) => root) {
+export function readEffectFile(rf, path, selectRoot = (root) => root, { allShaderQualities = false } = {}) {
   const res = String(path).toLowerCase().replace(/\.red$/, ".black");
   if (!rf.has(res)) return null;
   ids = new WeakMap();
@@ -1032,6 +1035,7 @@ export function readEffectFile(rf, path, selectRoot = (root) => root) {
   readRf = rf;
   const skipped = {};
   let root = null, o = null, external = [];
+  preserveDisplayFilters = allShaderQualities;
   try {
     o = selectRoot(readBlack(rf.read(res), res));
     shownBySet = findShownBySet(o);
@@ -1043,6 +1047,8 @@ export function readEffectFile(rf, path, selectRoot = (root) => root) {
       : o && typeof o === "object" ? readNode({ ...o, type: "EveChildContainer", objects: o.effectChildren ?? [] }, skipped) : null;
   } catch (e) {
     skipped.unread = String(e.message ?? e);
+  } finally {
+    preserveDisplayFilters = false;
   }
   return { res, root, skipped, external, childEffects: childEffectRoots(), duration: o?.duration ?? -1, boundingSphereRadius: o?.boundingSphereRadius ?? 0,
     firstSet: firstSetOf(o) };

@@ -37,6 +37,7 @@ export interface SofChildContainer {
   k: "container";
   id?: number;
   display?: boolean;
+  displayFilter?: number;
   t?: number[];
   r?: number[];
   s?: number[];
@@ -1581,6 +1582,19 @@ export async function effectObject(root: SofChildNode, effects: Record<string, S
   return object;
 }
 
+/** The installed DisplayModifierChooser values, with bits for Low, Medium and High respectively. */
+const shaderQualityMasks = [0b001, 0b011, 0b010, 0b110, 0b100, 0b111];
+
+// Filter the groups independently of the controller's display and pose bindings.
+export function setEffectShaderQuality(object: THREE.Object3D, quality: 1 | 2 | 3): void {
+  if (object.userData.effectShaderQuality === quality) return;
+  object.userData.effectShaderQuality = quality;
+  object.traverse((child) => {
+    const filter = child.userData.childDisplayFilter as number | undefined;
+    if (filter !== undefined) child.visible = ((shaderQualityMasks[filter] ?? 0b111) & (1 << (quality - 1))) !== 0;
+  });
+}
+
 /**
  * Start an effect object built by hullChildren (EveEffectRoot2::Start, as ExplosionManager.GetExplosion calls it): its
  * curve sets played from now. Its controllers begin as it is first drawn.
@@ -1705,9 +1719,10 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
         return;
       }
       const driven = node.id !== undefined && moved.has(node.id);
-      if (node.modifiers.some((x) => MODIFIERS.has(x)) || driven || node.controllers?.length || node.fxAttributes?.length) {
+      if (node.displayFilter !== undefined || node.modifiers.some((x) => MODIFIERS.has(x)) || driven || node.controllers?.length || node.fxAttributes?.length) {
         const g = new THREE.Group();
         g.name = `child-container:${node.name ?? ""}`;
+        if (node.displayFilter !== undefined) g.userData.childDisplayFilter = node.displayFilter;
         // a controller's owner: the child effects its states load go here
         if (node.controllers?.length) {
           g.userData.controllerOwner = controllers.length; g.userData.controllerOwnerId = node.id ?? null; controllers.push(node.controllers);

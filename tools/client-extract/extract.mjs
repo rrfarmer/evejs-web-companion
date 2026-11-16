@@ -348,9 +348,10 @@ function effectsTable(rf, clientDir, outRoot) {
  */
 async function extractEffectGraphic(rf, sde, graphicID, outRoot) {
   const graphicFile = String(sdeGraphic(sde, Number(graphicID))?.graphicFile ?? "").replace(/\\/g, "/").toLowerCase() || null;
-  const read = graphicFile ? readEffectFile(rf, graphicFile) : null;
+  const allShaderQualities = [20956, 28102].includes(Number(graphicID));
+  const read = graphicFile ? readEffectFile(rf, graphicFile, undefined, { allShaderQualities }) : null;
   if (read?.root) await copyChildGraphAssets(rf, [read.root, ...Object.values(read.childEffects ?? {})], outRoot);
-  const out = { effectBuild: 4, graphicID: Number(graphicID), graphicFile, root: read?.root ?? null, external: read?.external ?? [], childEffects: read?.childEffects ?? {}, skipped: read?.skipped ?? {} };
+  const out = { effectBuild: allShaderQualities ? 5 : 4, graphicID: Number(graphicID), graphicFile, root: read?.root ?? null, external: read?.external ?? [], childEffects: read?.childEffects ?? {}, skipped: read?.skipped ?? {} };
   const file = path.join(outRoot, "effects", `${graphicID}.json`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(out));
