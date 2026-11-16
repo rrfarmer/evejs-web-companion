@@ -78,8 +78,15 @@
   const militia = $derived.by(() => { void $trackedJobsChanged; return $station.online?.warFactionID ? null : trackedMilitiaJob($station.online?.characterID ?? null); });
   const O = "UI/Opportunities/", N = "UI/Corporations/FreelanceProjects/NoJobs/";
   const REWARDS_COUNT = "UI/Achievements/Window/Rewards/RewardsCount";
+  const DAILY_CLAIM_ERROR = "UI/Inflight/JumpThroughError";
+  const DAILY_GOAL_NOTICES = new Set([
+    "eve_public.dailygoal.api.CurrentGoalsNotice",
+    "eve_public.dailygoal.api.ProgressedNotice",
+    "eve_public.dailygoal.api.CompletedNotice",
+    "eve_public.dailygoal.api.RedeemedNotice",
+  ]);
   const LABELS = [O + "WindowTitle", O + "TabNameActive", O + "TabNameUnclaimedRewards", O + "VisibilityFreelanceProjects", O + "NoOpportunitiesFound", O + "ClaimAll", O + "FailedToLoad",
-    N + "NoJobsDiscoveredTitle", N + "NoJobsDiscoveredDescription", "UI/Corporations/FreelanceProjects/Dialogs/ConfirmClosureHeader", "UI/Corporations/FreelanceProjects/Dialogs/ConfirmClosureBody", "UI/Corporations/FreelanceProjects/YouAreAParticipant", "UI/Corporations/Goals/ClaimValue", "UI/Common/ISK", "UI/Common/Track", "UI/Common/Untrack", REWARDS_COUNT, "#1056273", "#1056274"];
+    N + "NoJobsDiscoveredTitle", N + "NoJobsDiscoveredDescription", "UI/Corporations/FreelanceProjects/Dialogs/ConfirmClosureHeader", "UI/Corporations/FreelanceProjects/Dialogs/ConfirmClosureBody", "UI/Corporations/FreelanceProjects/YouAreAParticipant", "UI/Corporations/Goals/ClaimValue", "UI/Common/ISK", "UI/Common/Track", "UI/Common/Untrack", REWARDS_COUNT, DAILY_CLAIM_ERROR, "#1056273", "#1056274"];
   const nameAny = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: nameAny }));
   let tab = $state<"browse" | "active" | "unclaimed">("browse"), open = $state<string | null>(null), busy = $state(false);
@@ -87,11 +94,14 @@
   let seasonVisible = $state(false);
   let goals = $state<CorporationGoals | null>(null), openGoal = $state<string | null>(null);
   let daily = $state<readonly DailyGoal[]>([]), openDaily = $state<string | null>(null);
+  let dailyRead = 0;
+  let dailyRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   const dailyDone = (d: DailyGoal) => d.target > 0 && d.current >= d.target;
   const dailyExpired = (d: DailyGoal) => d.activeUntilMs !== null && d.activeUntilMs <= Date.now();
+  const dailyCanClaim = (d: DailyGoal) => d.claimable && (!d.omega || $station.cloneGrade !== 0);
   const dailyLists = $derived.by(() => {
     const own = daily.filter((d) => d.category === "CATEGORY_DAILY");
-    return { browse: own.filter((d) => !dailyExpired(d) && (!dailyDone(d) || d.claimable)), active: own.filter((d) => d.current > 0 && !dailyDone(d)), unclaimed: daily.filter((d) => d.claimable) };
+    return { browse: own.filter((d) => !dailyExpired(d) && (!dailyDone(d) || dailyCanClaim(d))), active: own.filter((d) => d.current > 0 && !dailyDone(d)), unclaimed: daily.filter(dailyCanClaim) };
   });
   const shownDaily = $derived(tab === "browse" ? dailyLists.browse : tab === "active" ? dailyLists.active : dailyLists.unclaimed);
   // The epic arcs (features/epic_arcs: EpicArcJob): in Browse those available, started or replayable; in Active the
@@ -127,17 +137,33 @@
     return () => { current = false; };
   });
   const dailyOpen = $derived(openDaily === null ? null : daily.find((d) => d.goalID === openDaily) ?? null);
-  async function claimDaily(goalID: string): Promise<void> { await flow.redeemDailyGoal(goalID); daily = (await flow.dailyGoals()) ?? daily; }
+  async function refreshDaily(): Promise<void> {
+    clearTimeout(dailyRefreshTimer);
+    const read = ++dailyRead;
+    const rows = await flow.dailyGoals().catch(() => null);
+    if (read === dailyRead && rows) daily = rows;
+  }
+  async function redeemDaily(goals: readonly DailyGoal[]): Promise<void> {
+    for (const goal of goals) {
+      if (dailyCanClaim(goal) && !await flow.redeemDailyGoal(goal.goalID)) notice = DAILY_CLAIM_ERROR;
+    }
+  }
+  async function claimDaily(goalID: string): Promise<void> {
+    const goal = dailyLists.unclaimed.find(row => row.goalID === goalID);
+    if (goal) await claimDailyRewards([goal]);
+  }
   // The reward track's Claim All (DailyGoalsFeaturePage._claim_all): every daily goal's claimable reward.
-  async function claimAllDaily(): Promise<void> {
+  async function claimDailyRewards(goals: readonly DailyGoal[]): Promise<void> {
+    if (busy || !goals.length) return;
     busy = true;
-    try { for (const d of dailyLists.unclaimed) await flow.redeemDailyGoal(d.goalID); daily = (await flow.dailyGoals()) ?? daily; } finally { busy = false; }
+    notice = "";
+    try { await redeemDaily(goals); await refreshDaily(); } finally { busy = false; }
   }
   async function load(): Promise<void> {
     void flow.agencySeason().then(s => { seasonVisible = s !== null; }, () => { seasonVisible = false; });
     void flow.loadJournal().catch(() => {});
     void flow.corporationGoals(null).then((g) => { goals = g; }, () => { goals = null; });
-    void flow.dailyGoals().then((d) => { daily = d ?? []; }, () => { daily = []; });
+    void refreshDaily();
     void flow.epicArcs().then((e) => { epic = e; }, () => { epic = null; });
     board = await flow.freelanceBoard();
   }
@@ -162,7 +188,21 @@
   });
   const shownMissions = $derived(tab === "browse" ? missions.browse : tab === "active" ? missions.active : []);
   async function openMissionPage(agentID: number): Promise<void> { openMission = agentID; open = null; await flow.openMissionDetails(agentID); }
-  onMount(() => { flow.requestWords(LABELS); void load(); });
+  onMount(() => {
+    flow.requestWords(LABELS);
+    void load();
+    const notices = flow.gatewayNotices;
+    let lastSeen = notices.get()?.n;
+    const stop = notices.subscribe(next => {
+      if (!next || next.n === lastSeen) return;
+      lastSeen = next.n;
+      if (!DAILY_GOAL_NOTICES.has(next.typeName)) return;
+      // Two daily completions can also progress the bonus and all eight milestones in one burst.
+      clearTimeout(dailyRefreshTimer);
+      dailyRefreshTimer = setTimeout(() => void refreshDaily(), 50);
+    });
+    return () => { stop(); clearTimeout(dailyRefreshTimer); ++dailyRead; };
+  });
   const jobs = $derived(board ? (tab === "browse" ? board.browse : tab === "active" ? board.active : board.unclaimed) : []);
   const activeCount = $derived((board?.active.length ?? 0) + missions.active.length + goalLists.active.length + dailyLists.active.length + epicLists.active.length + activeDungeons.length + (militia === null ? 0 : 1));
   const shownMilitia = $derived(tab === "active" ? militia : null);
@@ -190,7 +230,7 @@
     try {
       for (const j of board?.unclaimed ?? []) await flow.freelanceJobAction("redeem", j.project.projectID);
       for (const g of goalLists.unclaimed) await flow.redeemCorporationGoalReward(g.goalID);
-      for (const d of dailyLists.unclaimed) await flow.redeemDailyGoal(d.goalID);
+      await redeemDaily(dailyLists.unclaimed);
       await load();
     } finally { busy = false; }
   }
@@ -237,7 +277,8 @@
         {#if tab === "browse"}<div class="jb-empty"><b>{word(N + "NoJobsDiscoveredTitle")}</b><span>{word(N + "NoJobsDiscoveredDescription")}</span></div>
         {:else}<p class="jb-hint">{word(O + "NoOpportunitiesFound")}</p>{/if}
       {/if}
-      {#if tab === "browse"}<DailyRewardTrack {store} {flow} goals={daily} {busy} onClaimAll={() => void claimAllDaily()} />{/if}
+      {#if tab === "browse"}<DailyRewardTrack {store} {flow} goals={daily} {busy} hasClaimable={dailyLists.unclaimed.length > 0}
+        onClaimAll={() => void claimDailyRewards(dailyLists.unclaimed)} />{/if}
       <div class="jb-cards" title={tab === "browse" ? word(O + "VisibilityFreelanceProjects") : ""}>
         {#if shownMilitia !== null}<MilitiaOpportunity {store} {flow} factionID={shownMilitia} />{/if}
         {#each shownArcs as a (a.epicArcID)}

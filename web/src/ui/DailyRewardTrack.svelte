@@ -22,7 +22,9 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
-  let { store, flow, goals, busy, onClaimAll }: { store: ClientStore; flow: AppFlow; goals: readonly DailyGoal[]; busy: boolean; onClaimAll: () => void } = $props();
+  let { store, flow, goals, busy, hasClaimable, onClaimAll }: {
+    store: ClientStore; flow: AppFlow; goals: readonly DailyGoal[]; busy: boolean; hasClaimable: boolean; onClaimAll: () => void;
+  } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -53,7 +55,6 @@
   const progress = $derived(alpha.at(-1)?.current ?? 0);
   const points = $derived(Array.from({ length: 12 }, (_, i) => (progress > i ? "completed" : progress === i && bonus?.current === 1 ? "active" : "inactive")));
   const expiresMs = $derived(alpha.filter((g) => g.activeUntilMs !== null && g.activeUntilMs > Date.now()).reduce<number | null>((m, g) => (m === null || g.activeUntilMs! < m ? g.activeUntilMs! : m), null));
-  const anyClaimable = $derived(goals.some((g) => g.claimable && !(g.omega && !isOmega)));
   const bonusSp = $derived.by(() => { const r = bonus?.rewards[0]; return r?.kind === "sp" ? r.amount : null; });
   const bonusRatio = $derived(bonus && bonus.target ? Math.min(1, bonus.current / bonus.target) : 0);
 </script>
@@ -67,7 +68,7 @@
         {#if bonusSp !== null}<div class="rt-bonus-reward"><img alt="" src={clientTexture("res:/UI/Texture/classes/Opportunities/DailyGoals/bonus_reward_sp.png")} /><span>{bonusSp.toLocaleString("en-US")}</span></div>{/if}
         <span class="rt-gauge" class:done={done(bonus)} style:--outer={`${bonusRatio * 360}deg`} title={bonus.helpTextID ? word(`#${bonus.helpTextID}`) : ""}><span>
           {#if done(bonus) && !bonus.claimable}<b class="rt-check">✔</b>{:else}<b class:done={done(bonus)}>{bonus.current}/{bonus.target}</b>{/if}</span></span>
-        {#if anyClaimable}<button disabled={busy} onclick={onClaimAll}>{word("UI/Opportunities/ClaimAll") || "Claim All"}</button>{/if}
+        {#if hasClaimable}<button disabled={busy} onclick={onClaimAll}>{word("UI/Opportunities/ClaimAll") || "Claim All"}</button>{/if}
       </div>
       <div class="rt-grades">
         {#if isOmega}<img alt="Omega" src={clientTexture("res:/UI/Texture/classes/CloneGrade/Omega_32.png")} />{:else}<span></span>{/if}
