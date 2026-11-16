@@ -986,6 +986,7 @@ import {
 } from "../bridge/abyssObjectives.ts";
 import { activateStep } from "../bridge/spaceActivate.ts";
 import { SHIP_RESTRICTION_REFUSALS, decodeShipRestrictions, dungeonEntered, dungeonValuesChanged, enterDungeonRoom, exitDungeon, readCurrentDungeon, type CurrentDungeon, type ShipRestrictions } from "../bridge/dungeonTracking.ts";
+import { observatoryConversationPhase } from "../bridge/observatoryConversation.ts";
 import {
   MENU_WARP_RANGE_M,
   createAutopilot,
@@ -4390,6 +4391,8 @@ export interface AppFlow {
   mapLocationShowInfo(itemID: number): Promise<api.MapLocationInfo | null>;
   readonly academyChanged: ReadableSignal<number>;
   readonly academyTravelConversation: ReadableSignal<boolean>;
+  readonly observatoryConversation: ReadableSignal<api.ObservatoryTransmission | null>;
+  closeObservatoryConversation(): void;
   closeAcademyTravelConversation(): void;
   academyAvailability(stationID: number, solarSystemID: number): Promise<"hidden" | "locked" | "available">;
   academyShipState(): Promise<AcademyShipState | null>;
@@ -16949,6 +16952,48 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // server's OnEnteringDungeonRoom and OnExitingDungeon, let go at a change of location, and asked of the keeper once
   // where the page finds its pilot in space (the client's OnCharacterSessionChanged).
   const currentDungeon = createSignal<CurrentDungeon | null>(null);
+  const observatoryConversation = createSignal<api.ObservatoryTransmission | null>(null);
+  const observedGreetings = new Set<string>();
+  let conversationData: ReturnType<typeof api.getObservatoryConversations> | null = null;
+  let previousConversationRoom: CurrentDungeon | null = null;
+  let conversationRequest = 0;
+  currentDungeon.subscribe(dungeon => {
+    const previous = previousConversationRoom;
+    previousConversationRoom = dungeon;
+    if (!dungeon || previous?.dungeonID !== dungeon.dungeonID || previous?.instanceID !== dungeon.instanceID) {
+      conversationRequest++;
+      observatoryConversation.set(null);
+    }
+    if (!dungeon) return;
+    const phase = observatoryConversationPhase(previous, dungeon);
+    const faction = dungeon.values?.system_faction_id;
+    const characterID = store.station.get().online?.characterID;
+    if (!phase || typeof faction !== "number" || !characterID ||
+        (phase === "failure" && store.space.get().snapshot?.ship?.mode === "WARP")) return;
+    const request = ++conversationRequest;
+    conversationData ??= api.getObservatoryConversations(callOptions).catch(() => {
+      conversationData = null;
+      return {};
+    });
+    void conversationData.then(factions => {
+      const conversation = factions[faction]?.[phase];
+      if (!conversation || conversationRequest !== request ||
+          store.station.get().online?.characterID !== characterID ||
+          currentDungeon.get()?.roomID !== dungeon.roomID) return;
+      if (phase === "lobby") {
+        // ConversationController records only_once_conversations in character UI settings.
+        const key = `evejs-web-character:${characterID}:onlyOnceConversation:${conversation.id}`;
+        if (observedGreetings.has(key)) return;
+        try { if (settingsStorage?.getItem(key) === "1") return; }
+        catch { /* Fall back to this flight session's record. */ }
+        observedGreetings.add(key);
+        try { settingsStorage?.setItem(key, "1"); }
+        catch { /* The record is still held in memory. */ }
+      }
+      requestWords(["UI/Conversations/UI/Close", `#${conversation.textID}`, `#${conversation.speakerID}`]);
+      observatoryConversation.set(conversation);
+    });
+  });
   const untrackedObjectiveDungeonInstanceID = createSignal<number | null>(null);
   function setObjectiveDungeonTracked(instanceID: number, tracked: boolean): void {
     if (currentDungeon.get()?.instanceID === instanceID) untrackedObjectiveDungeonInstanceID.set(tracked ? null : instanceID);
@@ -33878,6 +33923,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     academyChanged: readonlySignal(academyChangedSignal),
     academyTravelConversation: readonlySignal(academyTravelConversation),
     closeAcademyTravelConversation: () => academyTravelConversation.set(false),
+    observatoryConversation: readonlySignal(observatoryConversation),
+    closeObservatoryConversation: () => observatoryConversation.set(null),
     academyAvailability,
     academyShipState,
     boardAcademyShip,

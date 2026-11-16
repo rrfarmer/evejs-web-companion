@@ -4116,6 +4116,30 @@ export async function getShipTreeCatalogue(options: ApiOptions = {}): Promise<Sh
   return (data.shipTree ?? null) as unknown as ShipTreeCatalogue | null;
 }
 
+export interface ObservatoryTransmission {
+  readonly id: number;
+  readonly textID: number;
+  readonly speakerID: number;
+  readonly portrait: string | null;
+}
+export type ObservatoryConversationPhase = "lobby" | "complete" | "failure";
+type ObservatoryConversations = Readonly<Record<string, Readonly<Partial<Record<ObservatoryConversationPhase, ObservatoryTransmission>>>>>;
+
+export async function getObservatoryConversations(options: ApiOptions = {}): Promise<ObservatoryConversations> {
+  const factions = asObject((await getJson("/api/client-data/observatory-conversations", options)).factions);
+  const result: Record<string, Partial<Record<ObservatoryConversationPhase, ObservatoryTransmission>>> = {};
+  for (const [factionID, record] of Object.entries(factions ?? {})) {
+    const branch = asObject(record);
+    for (const phase of ["lobby", "complete", "failure"] as const) {
+      const row = asObject(branch?.[phase]);
+      const id = asNumberOrNull(row?.id), textID = asNumberOrNull(row?.textID), speakerID = asNumberOrNull(row?.speakerID);
+      if (id === null || textID === null || speakerID === null) continue;
+      (result[factionID] ??= {})[phase] = { id, textID, speakerID, portrait: typeof row?.portrait === "string" ? row.portrait : null };
+    }
+  }
+  return result;
+}
+
 /** The local Aura conversation opened by a travel decline in an Academy ship. */
 export async function getAcademyTravelConversation(options: ApiOptions = {}): Promise<{
   readonly textID: number | null; readonly speakerID: number | null; readonly portrait: string | null;

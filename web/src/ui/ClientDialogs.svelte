@@ -36,6 +36,7 @@
   }
   import type { Session } from "../app/sessions.ts";
   import AcademyTravelConversation from "./AcademyTravelConversation.svelte";
+  import ObservatoryConversation from "./ObservatoryConversation.svelte";
   import type { MultiBuyAsk, MultiBuyRow, SaidDialog } from "../app/flow.ts";
   import type { QuestionWords } from "../store/types.ts";
   import { resolvedName, type NameKind } from "../store/names.ts";
@@ -79,6 +80,7 @@
 
   let { session, inFront }: { session: Session; inFront: boolean } = $props();
   const academyTravel = $derived(session.flow.academyTravelConversation);
+  const observatoryConversation = $derived(session.flow.observatoryConversation);
   // svelte-ignore state_referenced_locally
   const words = session.store.words;
   // svelte-ignore state_referenced_locally
@@ -1038,7 +1040,13 @@
   }
 </script>
 
-{#if $academyTravel && inFront}<AcademyTravelConversation {session} />{/if}
+{#if $academyTravel && inFront}
+  <AcademyTravelConversation {session} />
+{:else if $observatoryConversation && inFront}
+  {#key $observatoryConversation.id}
+    <ObservatoryConversation {session} conversation={$observatoryConversation} />
+  {/key}
+{/if}
 
 <svelte:window onkeydown={event => {
   if (event.key !== "Escape" || !inFront) return;

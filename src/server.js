@@ -18,7 +18,7 @@ const { createClientTextures } = require("./clientData/clientTextures");
 const { createMultibuyImport } = require("./clientData/importMultibuy");
 const { createSkillplanImport } = require("./clientData/importSkillplan");
 const { createClientBuiltData } = require("./clientData/clientBuiltData");
-const { DUNGEON_OBJECTIVE_GRAPHS, dungeonObjectiveEntryRules } = require("./clientData/dungeonObjectiveGraph");
+const { DUNGEON_OBJECTIVE_GRAPHS, dungeonObjectiveEntryRules, observatoryConversationIDs } = require("./clientData/dungeonObjectiveGraph");
 const { createCameraTaskDefinitions, isCameraTaskEvent, recordCameraTaskEvents } = require("./gamePort/cameraTasks");
 const { py27HashOrder } = require("./clientData/py27HashOrder");
 const { createSdeBuiltData } = require("./clientData/sdeBuiltData");
@@ -14286,22 +14286,41 @@ app.get("/api/client-data/academy-ships", requireAuth, async (req, res, next) =>
   }
 });
 
+async function readConversationPresentations(ids) {
+  const rows = await clientBuiltData.rows("conversations", ids);
+  const lines = ids.flatMap(id => rows?.[id]?.lines?.[0] ? [[id, rows[id].lines[0]]] : []);
+  if (!lines.length) return {};
+  const speakerIDs = [...new Set(lines.map(([, line]) => strictPositiveID(line.agentID)).filter(Boolean))];
+  const speakers = await clientBuiltData.rows("conversationAgents", speakerIDs);
+  return Object.fromEntries(lines.map(([id, line]) => {
+    const agent = speakers?.[line.agentID];
+    return [id, {
+      textID: strictPositiveID(line.text),
+      speakerID: strictPositiveID(agent?.name),
+      portrait: typeof agent?.imagePath === "string" ? agent.imagePath : null,
+    }];
+  }));
+}
+
 // academyships/client/exit_block.py opens conversation 4273 with Continue and should_close_on_continue.
 app.get("/api/client-data/academy-travel-conversation", requireAuth, async (req, res, next) => {
   try {
     const id = 4273;
-    const conversation = (await clientBuiltData.rows("conversations", [id]))?.[id];
-    const line = conversation?.lines?.[0];
-    if (!line) return res.json({ ok: true, conversation: null });
-    const agent = (await clientBuiltData.rows("conversationAgents", [line.agentID]))?.[line.agentID];
-    res.json({ ok: true, conversation: {
-      textID: strictPositiveID(line.text),
-      speakerID: strictPositiveID(agent?.name),
-      portrait: typeof agent?.imagePath === "string" ? agent.imagePath : null,
-    } });
-  } catch (err) {
-    next(err);
-  }
+    res.json({ ok: true, conversation: (await readConversationPresentations([id]))[id] ?? null });
+  } catch (err) { next(err); }
+});
+
+// Observatory Infiltration's client graph 882 selects the transmission IDs.
+app.get("/api/client-data/observatory-conversations", requireAuth, async (req, res, next) => {
+  try {
+    const branches = observatoryConversationIDs((await clientBuiltData.rows("nodeGraphs", [882]))?.[882]);
+    const ids = [...new Set(Object.values(branches).flatMap(branch => Object.values(branch)))];
+    const rows = ids.length ? await readConversationPresentations(ids) : {};
+    const factions = Object.fromEntries(Object.entries(branches).map(([faction, branch]) =>
+      [faction, Object.fromEntries(Object.entries(branch).flatMap(([phase, id]) =>
+        rows[id]?.textID && rows[id]?.speakerID ? [[phase, { id, ...rows[id] }]] : []))]));
+    res.json({ ok: true, factions });
+  } catch (err) { next(err); }
 });
 
 // ScanHologramHandler excludes these native categories, stargates and types with the mineable component.

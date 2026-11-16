@@ -84,4 +84,30 @@ function dungeonObjectiveEntryRules(graph) {
   return rules;
 }
 
-module.exports = { DUNGEON_OBJECTIVE_GRAPHS, dungeonObjectiveEntryRules };
+// Graph 882 sets the enter and event maps along the four empire-faction branches.
+function observatoryConversationIDs(graph) {
+  const nodes = graph?.nodes ?? {};
+  const next = (node, pin) => node?.connections?.[pin]?.length === 1 ? nodes[node.connections[pin][0]] : null;
+  const value = (node, key) => node?.nodeParameters?.[key]?.value;
+  const read = (node, key) => {
+    if (node?.nodeType !== 19 || value(node, "blackboard_key") !== key) return null;
+    try { return JSON.parse(value(node, "blackboard_value")); }
+    catch { return null; }
+  };
+  const result = {};
+  for (const node of Object.values(nodes)) {
+    if (node.nodeType !== 22 || value(node, "blackboard_key") !== "system_faction_id") continue;
+    const faction = Number(value(node, "blackboard_value"));
+    const preload = next(node, "on_success");
+    if (preload?.nodeType !== 4 || value(preload, "atom_id") !== 588) continue;
+    const entry = next(preload, "output");
+    const enter = read(entry, "enter_conversations");
+    const event = read(next(entry, "output"), "event_conversations");
+    const branch = { lobby: enter?.Lobby, complete: enter?.Complete, failure: event?.Failure };
+    if (Number.isSafeInteger(faction) && faction > 0 &&
+        Object.values(branch).every(id => Number.isSafeInteger(id) && id > 0)) result[faction] = branch;
+  }
+  return result;
+}
+
+module.exports = { DUNGEON_OBJECTIVE_GRAPHS, dungeonObjectiveEntryRules, observatoryConversationIDs };
