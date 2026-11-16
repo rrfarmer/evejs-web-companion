@@ -762,6 +762,60 @@ const SRGB_ENCODE_GLSL = "vec3 encode(vec3 c) { return mix(c * 12.92, 1.055 * po
 const PLAIN_VS = `varying vec2 vUv;
       void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 
+/** The installed sunwhisps.fx filament area. Its two scrolling diffuse maps and mesh mask drive a colour ramp. */
+function sunWhispsMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
+  const p = area.params;
+  const uniforms = {
+    t1: { value: v4(p.TextureTransform1, [0, 0, 1, 1]) }, t2: { value: v4(p.TextureTransform2, [0, 0, 1, 1]) },
+    s1: { value: v4(p.TextureScroll1, [0, 0, 0, 0]) }, s2: { value: v4(p.TextureScroll2, [0, 0, 0, 0]) },
+    temperature: { value: v4(p.Temperature, [1, 0, 0.5, 0]) }, brightness: { value: typeof p.Brightness === "number" ? p.Brightness : 1 },
+    time: effectClock,
+    ramp: { value: null as THREE.Texture | null }, maskMap: { value: null as THREE.Texture | null },
+    diffuse1: { value: null as THREE.Texture | null }, diffuse2: { value: null as THREE.Texture | null },
+  };
+  const mat = logDepth(new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `uniform vec4 t1, t2, s1, s2; uniform float time;
+      varying vec2 maskUv; varying vec4 noiseUv; varying vec3 worldNormal, toEye;
+      void main() {
+        vec4 world = modelMatrix * vec4(position, 1.0);
+        worldNormal = (vec4(normal, 0.0) * inverse(modelMatrix)).xyz;
+        toEye = cameraPosition - world.xyz;
+        maskUv = uv;
+        noiseUv = vec4(uv * t1.zw + t1.xy + s1.xy * time + s1.zw,
+          uv * t2.zw + t2.xy + s2.xy * time + s2.zw);
+        gl_Position = projectionMatrix * viewMatrix * world;
+      }`,
+    fragmentShader: `uniform sampler2D ramp, maskMap, diffuse1, diffuse2;
+      uniform vec4 temperature; uniform float brightness;
+      varying vec2 maskUv; varying vec4 noiseUv; varying vec3 worldNormal, toEye;
+      ${CLAMP_GLSL}
+      ${SRGB_ENCODE_GLSL}
+      vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
+      void main() {
+        float strength = (texture2D(diffuse1, noiseUv.xy).r * texture2D(diffuse2, noiseUv.zw).r *
+          texture2D(maskMap, maskUv).r + temperature.y) * temperature.x;
+        vec4 colour = texture2D(ramp, clampUv(ramp, vec2(strength, 0.0)));
+        float facing = abs(dot(normalize(worldNormal), normalize(toEye)));
+        vec3 light = decode(colour.rgb) * strength * brightness * facing * facing * facing;
+        gl_FragColor = vec4(encode(max(light, 0.0)), colour.a * strength);
+      }`,
+    side: THREE.DoubleSide, transparent: true, depthWrite: false, ...areaBlend(area),
+  }));
+  mat.visible = false;
+  void Promise.all([childTexture(area.textures.ColorRampMap), childTexture(area.textures.MaskMap),
+    childTexture(area.textures.DiffuseMap1), childTexture(area.textures.DiffuseMap2)]).then(([ramp, mask, diffuse1, diffuse2]) => {
+    if (!ramp || !mask || !diffuse1 || !diffuse2) return;
+    for (const map of [mask, diffuse1, diffuse2]) { map.wrapS = map.wrapT = THREE.RepeatWrapping; map.needsUpdate = true; }
+    uniforms.ramp.value = ramp;
+    uniforms.maskMap.value = mask;
+    uniforms.diffuse1.value = diffuse1;
+    uniforms.diffuse2.value = diffuse2;
+    mat.visible = true;
+  });
+  return mat;
+}
+
 /**
  * An area drawn with ubershadertwosided.fx (its sm_hi disassembled, client 3396210; defaults and states from its file
  * by tools/client-extract/shaders/fxres.py): two passes of one shader, the first culling CW and the second CCW (both
@@ -912,7 +966,7 @@ const PARAM_UNIFORM: Record<string, string> = {
   TextureTransform: "textureTransform", MaterialDiffuseColor: "materialDiffuseColor",
   MaterialSpecularCurve: "specularCurve", MaterialSpecularFactors: "specularFactors",
   ReflectionFactors: "reflectionFactors", NormalStrength: "normalStrength", CubeMapTint: "cubeMapTint",
-  Brightness: "brightness", ColorInner: "inner", ColorOutter: "outer", TextureTranslation: "translation", TextureScaling: "scaling",
+  Brightness: "brightness", Temperature: "temperature", ColorInner: "inner", ColorOutter: "outer", TextureTranslation: "translation", TextureScaling: "scaling",
   Layer1Transform: "t1", Layer2Transform: "t2", Layer3Transform: "t3", Layer1Scroll: "s1", Layer2Scroll: "s2", Layer3Scroll: "s3",
 };
 
@@ -982,7 +1036,7 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
         if (!materials.has(area)) {
           const make = ({ fx3dv5: fx3dMaterial, motionvectorramp: motionVectorRampMaterial, ubershadertwosided: twoSidedUberMaterial,
             texturecolor: textureColorMaterial, flare: flareMaterial, twocolorflare: twoColorFlareMaterial, ubershadercube: uberCubeMaterial,
-            wormholefx: (a: SofChildMeshArea) => wormholeMaterial(a, childTexture) } as Record<string, (a: SofChildMeshArea) => THREE.ShaderMaterial>)[area.effect] ?? uberMaterial;
+            wormholefx: (a: SofChildMeshArea) => wormholeMaterial(a, childTexture), sunwhisps: sunWhispsMaterial } as Record<string, (a: SofChildMeshArea) => THREE.ShaderMaterial>)[area.effect] ?? uberMaterial;
           const mat = make(area);
           materials.set(area, mat);
           for (const [name, id] of Object.entries(area.paramIds ?? {})) if (PARAM_UNIFORM[name]) animator?.uniform(id, mat.uniforms[PARAM_UNIFORM[name]!]);

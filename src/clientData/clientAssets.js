@@ -131,8 +131,8 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
     const id = effect[1];
     const file = `effects/${id}.json`;
     const ready = id === "20956" || id === "28102"
-      ? () => containsVersion(path.join(dir, file), '"effect":"wormholefx"') &&
-        containsVersion(path.join(dir, file), '"event":"worldobject_wormhole_play"')
+      ? () => containsVersion(path.join(dir, file), '"effect":"sunwhisps"') &&
+        containsVersion(path.join(dir, file), '"effect":"1layerdyndistortionv2"')
       : undefined;
     return { file: await ensure(file, ["--effect", id], '"effectBuild":4', ready) };
   }

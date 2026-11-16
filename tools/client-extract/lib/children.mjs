@@ -439,7 +439,7 @@ function meshAreas(mesh, skipped) {
       const fx = named === "quadinstancedv5" ? "quadv5" : named;
       const opts = Object.fromEntries((a.effect?.options?.items ?? []).filter((r) => Array.isArray(r)));
       // a distortion area draws into the distortion map (ubershaderdistortion.fx, the one effect such areas use)
-      const drawn = kind === "distortion" ? fx === "ubershaderdistortion" : ["ubershader", "fx3dv5", "ubershadertwosided", "ubershadercube", "flare", "twocolorflare", "quadv5", "quadglassv5", "quaddetailv5", "fxv5", "wormholefx"].includes(fx)
+      const drawn = kind === "distortion" ? fx === "ubershaderdistortion" : ["ubershader", "fx3dv5", "ubershadertwosided", "ubershadercube", "flare", "twocolorflare", "quadv5", "quadglassv5", "quaddetailv5", "fxv5", "wormholefx", "sunwhisps"].includes(fx)
         || fx === "texturecolor"
         || (fx === "motionvectorramp" && MOTION_VECTOR_RAMP_DRAWN.some((perm) => MOTION_VECTOR_RAMP_DEFAULTS.every(([k, v]) => (opts[k] ?? v) === (perm[k] ?? v))));
       if (!drawn) { const k = fx === "motionvectorramp" || fx === "texturecolor" ? `area:${fx}:options` : `area:${fx}`; skipped[k] = (skipped[k] ?? 0) + 1; continue; }
@@ -853,12 +853,14 @@ function readParticleSystemChild(o, skipped) {
   const meshSystem = systemOf(o.mesh.instanceGeometryResource);
   const updated = (o.particleSystems ?? []).map(systemOf).filter((i) => i >= 0);
   if (meshSystem < 0 || !emitters.length) return null;
-  const lists = [["additiveAreas", "additive"], ["transparentAreas", "transparent"], ["opaqueAreas", "opaque"]];
+  const lists = [["additiveAreas", "additive"], ["transparentAreas", "transparent"], ["opaqueAreas", "opaque"], ["distortionAreas", "distortion"]];
   const areas = [];
   for (const [list, kind] of lists) for (const a of o.mesh[list] ?? []) {
     if (!a?.effect) continue;
+    const effect = effectName(a.effect);
+    if (kind === "distortion" && effect !== "1layerdyndistortionv2") continue;
     areas.push({
-      id: idOf(a), kind, name: a.name ?? null, index: a.index ?? 0, count: a.count ?? 1, effect: effectName(a.effect),
+      id: idOf(a), kind, name: a.name ?? null, index: a.index ?? 0, count: a.count ?? 1, effect,
       // the whole path: particles/motionvector.fx and particles/dynamic/motionvector.fx are different effects
       path: String(a.effect.effectFilePath ?? "").toLowerCase(),
       // its parameters' ids: a curve set's binding may drive one (a wreck fire's Color2)

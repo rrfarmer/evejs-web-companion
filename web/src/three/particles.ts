@@ -7,6 +7,8 @@
 
 import * as THREE from "three";
 import { logDepth } from "./logDepth.ts";
+import { DISTORTION_LAYER } from "./distortion.ts";
+import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
 import { sceneReflection } from "./celestialModel.ts";
 import { loadDds3D } from "./ddsTexture.ts";
 import { GpuEmitter, gpuSystemOf, type GpuEmitterData } from "./gpuParticles.ts";
@@ -118,7 +120,7 @@ const SRGB = `vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.05
  * UseWorldScale the view velocity is divided by the world scale, and in 2layermask the stretch too. No distance
  * scaling (1layerdynv2's). Leaves age, the view position view and the varying vDepth (the view depth) set.
  */
-function dynamicParticleVS(stretchByScale: boolean, decl: string, body: string): string {
+function dynamicParticleVS(stretchByScale: boolean, decl: string, body: string, scaleByDistance = false): string {
   return `uniform vec4 spriteFactors; uniform float velocityStretch; uniform vec4 spriteFactors2; uniform float useWorldScale;
       attribute vec3 iPos; attribute vec2 iLife; attribute vec3 iVel; attribute vec2 iT8; attribute float iT9; attribute float iT10; attribute vec4 iT13;
       varying float vDepth;
@@ -138,6 +140,9 @@ function dynamicParticleVS(stretchByScale: boolean, decl: string, body: string):
         float size = mix( iT8.x, iT8.y, age );
         float stretch = velocityStretch;
         if ( byScale ) { size *= worldScale; ${stretchByScale ? "stretch /= worldScale;" : ""} }
+        ${scaleByDistance ? `float clipW = (projectionMatrix * view).w;
+        size *= mix(distanceScaling.z, distanceScaling.w,
+          clamp((clipW - distanceScaling.x) / (distanceScaling.y - distanceScaling.x), 0.0, 1.0));` : ""}
         vec2 corner = position.xy * size;
         float a = age * iT10 * iLife.y + iT9 + spriteFactors.y;
         float s = sin( a ), c = cos( a );
@@ -646,9 +651,74 @@ export function gateParticlesMaterials(area: Area, textureOf: TextureOf): THREE.
   });
 }
 
+/** The 3698585 1layerdyndistortionv2.sm_depth stages, accumulated in the signed distortion map. */
+function dynamicDistortionMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial {
+  const p = area.params;
+  const uniforms = {
+    spriteFactors: { value: v4(p.SpriteFactors, [0, 0, 0, 1]) },
+    spriteFactors2: { value: v4(p.SpriteFactors2, [0.05, 1, 1, 1]) },
+    layer1Mod: { value: v4(p.Layer1TexCoordModifier, [1, 1, 0, 0]) },
+    velocityStretch: { value: f1(p.VelocityStretch, 0) }, useWorldScale: { value: f1(p.UseWorldScale, 0) },
+    color1: { value: v4(p.Color1, [1, 1, 1, 0]) }, color2: { value: v4(p.Color2, [0.5, 0.5, 0.5, 0]) },
+    color3: { value: v4(p.Color3, [0, 0, 0, 0]) }, colorMidpoint: { value: f1(p.ColorMidpoint, 0.5) },
+    distanceScaling: { value: v4(p.DistanceScalingParams, [0, 100, 1, 0.5]) },
+    distortionFactors: { value: v4(p.DistortionFactors, [1, 1, 10000, 1]) },
+    normalMap1: { value: null as THREE.Texture | null },
+    ...SOFT_DEPTH,
+  };
+  const uvFields = "varying vec2 normalUv; varying vec3 atlasCell; varying vec4 distortionFade;";
+  const mat = logDepth(new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: dynamicParticleVS(false, `
+      uniform vec4 layer1Mod, color1, color2, color3, distortionFactors, distanceScaling;
+      uniform float colorMidpoint; attribute float iT11;
+      ${uvFields}`, `
+        normalUv = uv * layer1Mod.xy + layer1Mod.zw;
+        float cell = trunc(iT11) / spriteFactors.w;
+        atlasCell = vec3(fract(cell), trunc(cell) / spriteFactors.w, 1.0 / spriteFactors.w);
+        float nearPlane = projectionMatrix[3][2] / (projectionMatrix[2][2] - 1.0);
+        float thickness = max(abs(size), 0.000001);
+        float limit = length(modelMatrix[0].xyz) * distortionFactors.z;
+        float falloff = limit > 0.0 ? max(length(view) / limit, 1.0) : 1.0;
+        float opacity = age > colorMidpoint
+          ? mix(color2.a, color3.a, clamp((age - colorMidpoint) / (1.0 - colorMidpoint), 0.0, 1.0))
+          : mix(color1.a, color2.a, clamp(age / colorMidpoint, 0.0, 1.0));
+        distortionFade = vec4(-p.z, thickness * 0.333, opacity / falloff,
+          1.0 - clamp((nearPlane + p.z) / thickness, 0.0, 1.0));`, true),
+    fragmentShader: `uniform vec4 distortionFactors; uniform sampler2D normalMap1;
+      ${uvFields}
+      ${SOFT_DEPTH_GLSL}
+      void main() {
+        vec2 coord = fract(normalUv) * atlasCell.z + atlasCell.xy;
+        vec2 original = normalUv * atlasCell.z;
+        vec3 normal = textureGrad(normalMap1, coord, dFdx(original), dFdy(original)).xyz * 2.0 - 1.0;
+        normal.z /= distortionFactors.w;
+        float soft = softDepthOn > 0.5 ? clamp((softSceneDepth() - distortionFade.x) / distortionFade.y, 0.0, 1.0) : 1.0;
+        vec2 offset = -normalize(normal).xy * distortionFactors.x * distortionFade.z * distortionFade.w * soft;
+        gl_FragColor = vec4(offset / 64.0, 1.0 / 256.0, distortionFactors.y);
+      }`,
+    transparent: true, depthWrite: false, depthTest: true, side: THREE.FrontSide,
+    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation,
+    blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneFactor, blendEquationAlpha: THREE.AddEquation,
+  }));
+  mat.userData.distortion = true;
+  mat.userData.softDepth = true;
+  // The map's blue channel counts the particle even at zero offset, so wait for its own normal texture.
+  mat.visible = false;
+  void textureOf(area.textures.NormalMap1).then((normal) => {
+    if (!normal) return;
+    normal.wrapS = normal.wrapT = THREE.RepeatWrapping;
+    normal.needsUpdate = true;
+    uniforms.normalMap1.value = normal;
+    mat.visible = true;
+  });
+  return mat;
+}
+
 /** An area's particle material, by its effect file; null for an effect or permutation not drawn here. */
 function particleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial | THREE.ShaderMaterial[] | null {
   const path = (area as { path?: string }).path ?? "";
+  if (area.kind === "distortion") return area.effect === "1layerdyndistortionv2" ? dynamicDistortionMaterial(area, textureOf) : null;
   if (area.effect === "1layerdynv2") {
     const material = oneLayerDynMaterial(area.params, null);
     void textureOf(area.textures.TexMapLayer1).then((t) => {
@@ -692,6 +762,7 @@ const PARAM_UNIFORM: Record<string, string> = {
   Layer1TexCoordModifier: "layer1Mod", Layer2TexCoordModifier: "layer2Mod", Layer1TexCoordSpeed: "layer1Speed", Layer2TexCoordSpeed: "layer2Speed",
   Color1: "color1", Color2: "color2", Color3: "color3", ColorMidpoint: "colorMidpoint", SpriteColor: "spriteColor",
   DistanceScalingParams: "distanceScaling", ParticleParams: "particleParams", Brightness: "brightness",
+  DistortionFactors: "distortionFactors",
   ParticleDynamics: "particleDynamics", StartFlash: "startFlash",
   AtlasInfo: "atlas", Colors: "colors", Colors2: "colors2", SelfIllumination: "selfIllum",
 };
@@ -713,26 +784,35 @@ const ATTRIBUTES: { name: string; size: number; key: (usage: Map<number, string>
 /**
  * A particle child's drawn object: one quad (the mesh's geometry) instanced per live particle of its mesh's system,
  * the emitters and systems stepped each frame it is drawn (a model's copies share it), the system's GPU elements
- * copied into the instance attributes (a custom element by its usage index: TEXCOORD8 + it). Drawn by its first area
- * whose effect is ported (particleMaterial: 1layerdynv2, motionvector, motionvectorramp, dynamic motionvector,
- * 3ddyndecalv2, 2layermask, 2layerdynmaskv2);
- * null where none is.
+ * copied into the instance attributes (a custom element by its usage index: TEXCOORD8 + it).
+ * The first supported colour area and the first supported distortion area share the same particle positions.
  */
 export function particleObject(node: SofChildParticles, quad: THREE.BufferGeometry, textureOf: (res: string | null | undefined) => Promise<THREE.Texture | null>,
   registerEmitter?: (id: number, get: (attr: string) => number | number[] | undefined, set: (attr: string, v: number | number[]) => void, spawn?: (rate: number) => void) => void,
   registerUniform?: (id: number, uniform: THREE.IUniform | undefined) => void): THREE.Object3D | null {
-  let made: THREE.ShaderMaterial | THREE.ShaderMaterial[] | null = null;
-  let drawn: Area | null = null;
-  for (const a of node.areas) if (!made) { made = particleMaterial(a, textureOf); drawn = a; }
-  if (!made || !drawn) return null;
-  // an effect of several passes draws each as a mesh of its own over the same instances (the first steps them)
-  const materials = Array.isArray(made) ? made : [made];
-  const material = materials[0]!;
-  for (const m of materials) for (const [name, id] of Object.entries(drawn.paramIds ?? {})) if (PARAM_UNIFORM[name] && m.uniforms[PARAM_UNIFORM[name]!]) registerUniform?.(id, m.uniforms[PARAM_UNIFORM[name]!]);
+  const materials: THREE.ShaderMaterial[] = [];
+  for (const distortion of [false, true]) {
+    for (const area of node.areas) {
+      if ((area.kind === "distortion") !== distortion) continue;
+      const made = particleMaterial(area, textureOf);
+      if (!made) continue;
+      for (const mat of Array.isArray(made) ? made : [made]) {
+        for (const [name, id] of Object.entries(area.paramIds ?? {})) {
+          const key = PARAM_UNIFORM[name];
+          const uniform = key ? mat.uniforms[key] : undefined;
+          if (uniform) registerUniform?.(id, uniform);
+        }
+        materials.push(mat);
+      }
+      break;
+    }
+  }
+  const material = materials[0];
+  if (!material) return null;
   const sims = node.systems.map((s) => new ParticleSim(s));
   const sim = sims[node.meshSystem];
   if (!sim || sim.max === 0) return null;
-  const emitters = node.emitters.map((e) => new ParticleEmitter(e, sims[e.particleSystem?.system ?? -1] ?? null)).filter((e) => e.valid);
+  const emitters = node.emitters.map((e) => new ParticleEmitter(structuredClone(e), sims[e.particleSystem?.system ?? -1] ?? null)).filter((e) => e.valid);
   if (!emitters.length) return null;
   // an emitter's rate and limit a curve set's binding may drive (a ship's gas jets: its ShipStandard set)
   for (const e of emitters) {
@@ -788,6 +868,7 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
     mesh.name = `child-particles:${node.name ?? ""}`;
     mesh.frustumCulled = false;
     mesh.renderOrder = 3;
+    if (m.userData.distortion) mesh.layers.set(DISTORTION_LAYER);
     return mesh;
   });
   let mesh: THREE.Object3D = meshes[0]!;
