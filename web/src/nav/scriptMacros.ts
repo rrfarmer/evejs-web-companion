@@ -81,7 +81,7 @@ import {
 } from "./droneLaunch.ts";
 import { decideDroneBoat, type LockRefusals } from "./droneBoatLadder.ts";
 import { settleCombat } from "./combatOwnership.ts";
-import { combatReload } from "./combatWeapons.ts";
+import { combatReload, compatibleAmmo } from "./combatWeapons.ts";
 import { defenderSiteIdentity } from "./operationDefender.ts";
 import { decideDroneRotation, readRotationMemory } from "./droneRotation.ts";
 import {
@@ -4253,12 +4253,17 @@ function fightRatsLadder(
   }
   // Every gun empty by this tick's own read, none of them loadable from the cargo,
   // and no drones to fight with: nothing here can hurt the rat, so say so.
+  // A cargo that could not be read proves nothing, so it waits for the next read.
   const fresh = obs.combatWeapons;
-  if (fresh && fresh.weapons.length > 0 && fresh.weapons.every((gun) => gun.acceptedGroups !== null && (gun.chargeTypeID === null || (gun.chargeQuantity ?? 0) <= 0)) &&
+  const cargo = fresh?.cargo ?? null;
+  if (fresh && cargo !== null && fresh.weapons.length > 0 && fresh.weapons.every((gun) => gun.acceptedGroups !== null && (gun.chargeTypeID === null || (gun.chargeQuantity ?? 0) <= 0)) &&
       roster.roleOut.length === 0 && roster.roleBay.length === 0) {
+    const fits = fresh.weapons.some((gun) => cargo.some((ammo) => compatibleAmmo(gun, ammo)));
     return tick(WAIT, "Every gun is empty.", "Fighting", {
       kind: "blocked",
-      reason: "Every gun is empty, and the cargo holds no ammunition that fits them.",
+      reason: fits
+        ? "Every gun is empty, and loading the ammunition in the cargo into them kept failing."
+        : "Every gun is empty, and the cargo holds no ammunition that fits them.",
     });
   }
   return tick(WAIT, "Fighting it.", "Fighting", ACTING, true, mem);

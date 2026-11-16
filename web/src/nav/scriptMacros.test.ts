@@ -2216,7 +2216,12 @@ test("fight: an empty gun is loaded from the cargo, a bank through its master, a
   // Every gun empty, nothing in the cargo fits, and no drones: blocked, in words.
   const dry = fight(s, world({ combatWeapons: { ...banked, cargo: [] } }), locked, {});
   assert.equal(dry.outcome.kind, "blocked");
-  assert.match(dry.outcome.kind === "blocked" ? dry.outcome.reason : "", /empty/);
+  assert.match(dry.outcome.kind === "blocked" ? dry.outcome.reason : "", /no ammunition that fits/);
+  // A cargo that could not be read blocks nothing.
+  assert.notEqual(fight(s, world({ combatWeapons: { ...banked, cargo: null } }), locked, {}).outcome.kind, "blocked");
+  // Ammunition that fits, but every load was used up: blocked, and the words say the loads failed.
+  const failed = fight(s, world({ combatWeapons: banked }), { ...locked, reloadAttempts: { 500: 3 } }, {});
+  assert.match(failed.outcome.kind === "blocked" ? failed.outcome.reason : "", /kept failing/);
 
   // A gun loaded three times before has its count forgotten once it is seen loaded, so it is loaded a fourth time.
   const spent = { ...locked, reloadAttempts: { 500: 3 } };
