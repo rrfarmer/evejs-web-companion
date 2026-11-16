@@ -986,7 +986,7 @@ import {
 } from "../bridge/abyssObjectives.ts";
 import { activateStep } from "../bridge/spaceActivate.ts";
 import { SHIP_RESTRICTION_REFUSALS, decodeShipRestrictions, dungeonEntered, dungeonValuesChanged, enterDungeonRoom, exitDungeon, readCurrentDungeon, type CurrentDungeon, type ShipRestrictions } from "../bridge/dungeonTracking.ts";
-import { observatoryConversationPhase, observatoryFailureObjectiveDelay } from "../bridge/observatoryConversation.ts";
+import { observatoryConversationPhase, observatoryObjectiveRemovalDelay } from "../bridge/observatoryConversation.ts";
 import {
   MENU_WARP_RANGE_M,
   createAutopilot,
@@ -16971,8 +16971,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       activeDungeonObjectivesClosed.set(false);
     }
     if (!dungeon) return;
-    const delay = observatoryFailureObjectiveDelay(previous, dungeon);
+    const delay = observatoryObjectiveRemovalDelay(previous, dungeon);
     if (delay !== null) {
+      if (objectiveClosure !== null) clearTimeout(objectiveClosure);
       objectiveClosure = setTimeout(() => {
         objectiveClosure = null;
         activeDungeonObjectivesClosed.set(true);

@@ -1,10 +1,11 @@
 import type { CurrentDungeon } from "./dungeonTracking.ts";
 
-// Graph 669's Failure branch stops the objectives after its default delay.
-export function observatoryFailureObjectiveDelay(previous: CurrentDungeon | null, current: CurrentDungeon): number | null {
-  if (current.dungeonID !== 12260 || current.values?.dungeon_state !== "Failure") return null;
-  if (previous?.instanceID === current.instanceID && previous?.dungeonID === current.dungeonID &&
-      previous.values?.dungeon_state === "Failure") return null;
+// Graph 669 stops the objectives after its default delay on Success or Failure.
+export function observatoryObjectiveRemovalDelay(previous: CurrentDungeon | null, current: CurrentDungeon): number | null {
+  const state = current.values?.dungeon_state;
+  if (current.dungeonID !== 12260 || (state !== "Success" && state !== "Failure")) return null;
+  if (previous?.instanceID === current.instanceID && previous.dungeonID === current.dungeonID &&
+      previous.values?.dungeon_state === state) return null;
   return 3_000;
 }
 
