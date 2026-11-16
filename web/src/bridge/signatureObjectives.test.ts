@@ -208,6 +208,15 @@ test("Observatory Infiltration switches from its lobby gate to the vault counter
   assert.ok(updated);
   for (const [key, value] of Object.entries(dungeonObjectiveContext(updated))) objective.setContext(key, value);
   assert.equal(objective.view()[0]?.rows[0]?.value, "1/3");
+
+  // Graph 883's explosive variant sends a lower count after removing a can.
+  const exploded = dungeonValuesChanged(updated, [12260, {
+    dungeon_state: "Lockdown", containers_hacked_current: 0, containers_hacked_max: 3,
+  }]);
+  assert.ok(exploded);
+  for (const [key, value] of Object.entries(dungeonObjectiveContext(exploded))) objective.setContext(key, value);
+  assert.equal(objective.view()[0]?.rows[0]?.value, "0/3");
+  assert.equal(objective.view()[0]?.completed, false);
 });
 
 test("a gate's eligibility uses the full native list instead of the ship tree rows", () => {
