@@ -19,8 +19,7 @@
     { "webClick": { "role": "button", "name": "Close", "index": 1 }, "note": "the builder, over the manager" },
     { "webClick": { "role": "button", "name": "Undock", "exact": true } },
     { "webExpect": { "role": "button", "name": "Undock", "exact": true }, "hidden": true, "timeout": 60, "note": "in space" },
-    { "webExpect": { "css": ".module-ammo" }, "timeout": 10, "note": "the gun's rounds on the rack" },
-    { "webShot": "the full clip" },
+    { "webExpect": { "css": ".module-ammo" }, "text": "40", "timeout": 30, "note": "a full clip of Antimatter Charge M on the rack" },
     { "wait": 5 },
     { "pilotSlash": "/tr me offset=0,0,2000000000", "user": "e2egun", "note": "off the station's grid, away from its guns" },
     { "wait": 8 },
@@ -29,7 +28,7 @@
     { "webClick": { "role": "tab", "name": "Pilots" } },
     { "webSelect": { "role": "combobox", "name": "Bot", "exact": true }, "option": "Fight here" },
     { "webClick": { "role": "button", "name": "Run here" } },
-    { "webExpect": { "css": ".module-ammo" }, "text": "PROBE_FIRED", "timeout": 60, "note": "fewer rounds after the gun has fired, without the fit read again" },
+    { "webExpect": { "css": ".module-ammo" }, "text": "3", "timeout": 60, "note": "39 down to 30: fewer rounds once the gun fires, the fit not read again (a page that misses the shots keeps 40)" },
     { "webShot": "the rack while the gun fires" }
   ],
   "until": { "any": ["WEB what=up"], "from": "start", "timeout": 30, "grace": 1 },
