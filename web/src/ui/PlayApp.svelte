@@ -528,7 +528,7 @@
   }
   function open(tab: TabID) {
     if (tab === "watchlist" && !session?.store.fleet.get().authoritativeFleetID) return;
-    if (tab === "finder") mapInFront = false;
+    if (tab === "finder" || tab === "theatersOfWar") mapInFront = false;
     wins = openFly(wins, tab);
     raiseApp(tab);
   }

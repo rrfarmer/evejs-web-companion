@@ -12,8 +12,9 @@
   import { trackMilitiaJob, trackedJobsChanged, trackedMilitiaJob, untrackMilitiaJob } from "./jobTracking.ts";
   import WarzoneDashboard from "./WarzoneDashboard.svelte";
   import WarzoneMap from "./WarzoneMap.svelte";
+  import VanguardActivity from "./VanguardActivity.svelte";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, onShowConvoys }: { store: ClientStore; flow: AppFlow; onShowConvoys?: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const station = store.station;
   // svelte-ignore state_referenced_locally
@@ -297,12 +298,15 @@
           {/each}
         </div>
       {/if}
-      <section class="personal">
-        <h2>{say(TOW + "PersonalProgress", "Personal Progress")}</h2>
-        <button type="button" onclick={() => choosePage("enlistment")}>
-          {enlisted ? say(TOW + "PersonalEnlistedWith", `Enlisted with ${factionName(enlisted)}`, { factionName: factionName(enlisted) }) : say(TOW + "PersonalUnenlisted", "Unenlisted")}
-        </button>
-      </section>
+      <div class="overview-bottom">
+        <section class="personal">
+          <h2>{say(TOW + "PersonalProgress", "Personal Progress")}</h2>
+          <button type="button" onclick={() => choosePage("enlistment")}>
+            {enlisted ? say(TOW + "PersonalEnlistedWith", `Enlisted with ${factionName(enlisted)}`, { factionName: factionName(enlisted) }) : say(TOW + "PersonalUnenlisted", "Unenlisted")}
+          </button>
+        </section>
+        <VanguardActivity {store} {flow} theaters onShowMap={onShowConvoys} />
+      </div>
     {:else if page === "warfare"}
       {@const layout = warzonePositions?.[theater.id]}
       <h2>{say(TOW + theater.label, theater.fallback)}</h2>
@@ -408,7 +412,7 @@
   nav button { border: 0; border-left: 2px solid transparent; text-align: start; display: flex; gap: 8px; align-items: center; background: transparent; }
   nav button.active { border-color: #91b9c4; }
   nav img { width: 16px; height: 16px; object-fit: contain; }
-  .theaters-content { overflow: auto; min-height: 0; padding: 16px; }
+  .theaters-content { overflow: auto; min-height: 0; padding: 16px; container-type: inline-size; }
   h2 { font: inherit; font-size: 17px; margin: 0 0 12px; }
   .zone-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
   .zone-card { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; min-height: 112px; background: linear-gradient(#2c383d, #191e22); text-align: center; }
@@ -418,6 +422,8 @@
   .occupancy-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 8px; color: #bdc7cb; font-size: 11px; }
   .zone-card img { width: 42px; height: 42px; object-fit: contain; }
   .zone-card.pirate { background: linear-gradient(#362920, #201c1b); }
+  .overview-bottom { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 4fr); gap: 10px; }
+  @container (max-width: 470px) { .overview-bottom { grid-template-columns: minmax(0, 1fr); } }
   .personal { padding: 12px; background: #ffffff09; }
   .side-picker { max-width: 900px; margin: 5vh auto 0; text-align: center; }
   .side-card { min-height: clamp(160px, 43vh, 460px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font-size: 19px; background: linear-gradient(#0002, #000a), var(--banner) center / cover, #242b31; }

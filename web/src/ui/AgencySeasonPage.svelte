@@ -8,7 +8,7 @@
   import LabelText from "./LabelText.svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import AgencySeasonRewards from "./AgencySeasonRewards.svelte";
-  import AgencyVanguardActivity from "./AgencyVanguardActivity.svelte";
+  import VanguardActivity from "./VanguardActivity.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { playUiEvent } from "../play/uiAudio.ts";
@@ -84,7 +84,7 @@
         <AgencySeasonRewards {store} points={progress.points} target={progress.target} rewards={progress.rewards}
           vanguard={variant === "vanguard"} {busy} onclaim={(index) => claim("goal", index)} />
       {/if}
-      {#if variant === "vanguard"}<AgencyVanguardActivity {store} {flow} onShowMap={onShowConvoys} />{/if}
+      {#if variant === "vanguard"}<VanguardActivity {store} {flow} onShowMap={onShowConvoys} />{/if}
     </div>
   {/if}
   {#if failure}<p role="alert">{failure}</p>{/if}

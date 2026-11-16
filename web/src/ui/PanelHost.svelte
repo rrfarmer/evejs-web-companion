@@ -189,7 +189,7 @@
 {:else if tab === "finder"}
   <AgencyWindow {store} {flow} {onShowConvoys} showTravel={() => onOpen?.("travel")} onOpenTab={(tab) => onOpen?.(tab as never)} />
 {:else if tab === "theatersOfWar"}
-  <TheatersOfWar {store} {flow} />
+  <TheatersOfWar {store} {flow} {onShowConvoys} />
 {:else if tab === "flight"}
   <Flight {store} {flow} />
 {:else if tab === "mining"}

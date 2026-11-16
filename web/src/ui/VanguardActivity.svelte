@@ -5,7 +5,9 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
 
-  let { store, flow, onShowMap }: { store: ClientStore; flow: AppFlow; onShowMap?: () => void } = $props();
+  let { store, flow, onShowMap, theaters = false }: {
+    store: ClientStore; flow: AppFlow; onShowMap?: () => void; theaters?: boolean;
+  } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   const title = "UI/Agency/Seasons/VanguardNemesis/VanguardPoints";
@@ -22,6 +24,7 @@
   let activity = $state<Awaited<ReturnType<AppFlow["agencyVanguardActivity"]>>>(null);
   let loading = $state(true);
   const value = $derived(Math.min(100, activity?.percent ?? 0));
+  const hint = $derived(word(info, "Community activity reveals SARO Black Sites."));
 
   onMount(() => {
     flow.requestWords([title, info, active, repeatable, showMap, noData]);
@@ -54,11 +57,10 @@
   });
 </script>
 
-<section class="activity" aria-label={word(title, "Vanguard Activity")}>
+<section class="activity" class:theaters aria-label={word(title, "Vanguard Activity")}>
   <header>
-    <h2>{word(title, "Vanguard Activity")}</h2>
-    <span class="info" role="img" aria-label={word(info, "Community activity reveals SARO Black Sites.")}
-      title={word(info, "Community activity reveals SARO Black Sites.")}>ⓘ</span>
+    <h2 title={theaters ? hint : undefined}>{word(title, "Vanguard Activity")}</h2>
+    {#if !theaters}<span class="info" role="img" aria-label={hint} title={hint}>ⓘ</span>{/if}
   </header>
   {#if activity}
     <div class="points">
@@ -83,6 +85,8 @@
 
 <style>
   .activity { padding: 4px 8px 8px; min-width: 0; }
+  .activity.theaters { padding: 12px; background: #ffffff09; }
+  .theaters header { min-height: 32px; }
   header, .points, .body { display: flex; align-items: center; }
   header { gap: 8px; }
   h2 { margin: 0; font-size: 16px; }
