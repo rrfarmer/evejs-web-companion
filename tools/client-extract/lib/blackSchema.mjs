@@ -159,10 +159,10 @@ export const CLASSES = {
   EveSOFDataVisibilityGroup: "description s name s",
   EveShip2: "attachments L boundingSphereCenter F3 boundingSphereRadius f castShadow b children L clipSphereCenter F3 controllers L curveSets L customMasks L decals L display b dna s dynamicBoundingSphereEnabled b effectChildren L externalParameters L impactOverlay p isAnimated b lights L locatorSets L locators L mesh p meshLod p modelRotationCurve p modelScale f modelTranslationCurve p name s observers L overlayEffects L reflectionMode i rotationCurve p shapeEllipsoidCenter F3 shapeEllipsoidRadius F3 translationCurve p turretSets L update b",
   EveSmartLightAttributeModifierCameraDependency: "angleOverwrite F3 attributeModifiers L attributeMultiplier f inverseDistanceFormula b inversePlacementFormula b inverselookAtFormula b lookAtIntensity f lookAtVisionCone f maximumActivation f maximumDistance f minimumActivation f minimumDistance f name s overwriteObjectDirection b overwritePosition b placementIntensity f positionOverwrite F3 useCameraDistance b useCameraLookAt b useCameraPlacement b",
-  EveSmartLightAttributeModifierColor: "activationOverLifetime p active b attributeMultiplier f blendColor F4 blendValue f brightnessMultiplier f crossFadeDuration f crossFadeIntensity f delayedActivation f factionColor i lifeTimeFormula i name s perInstanceOffset f restartPlayTimeWhenInactive b saturationMultiplier f startsActive b useFactionColor b",
+  EveSmartLightAttributeModifierColor: "activationDelay f activationOverLifetime p active b attributeMultiplier f blendColor F4 blendValue f brightnessMultiplier f crossFadeCurve i crossFadeDuration f crossFadeIntensity f deactivationDelay f delayedActivation f factionColor i lifeTimeFormula i name s perInstanceOffset f restartPlayTimeWhenInactive b saturationMultiplier f startsActive b useFactionColor b variableName s",
   EveSmartLightAttributeModifierControllerVariableListener: "attributeModifiers L attributeMultiplier f crossFadeDuration f crossFadeIntensity f defaultValue f invertReceivedValue b name s value f variableName s",
   EveSmartLightAttributeModifierExpressionBucket: "attributeModifiers L expression s expressionInputs L name s",
-  EveSmartLightAttributeModifierNoise: "activationOverLifetime p active b attributeMultiplier f crossFadeDuration f crossFadeIntensity f delayedActivation f lifeTimeFormula i noiseAmplitude f noiseFrequency f noiseOctaves i perInstanceOffset f restartPlayTimeWhenInactive b startsActive b",
+  EveSmartLightAttributeModifierNoise: "activationDelay f activationOverLifetime p active b attributeMultiplier f crossFadeCurve i crossFadeDuration f crossFadeIntensity f deactivationDelay f delayedActivation f lifeTimeFormula i noiseAmplitude f noiseFrequency f noiseOctaves i perInstanceOffset f restartPlayTimeWhenInactive b startsActive b",
   EveSmartLightColorShareGroup: "attributeModifiers L customColor F4 display b factionColor i lightGroups L name s useFactionColor b",
   EveSmartLightMesh: "attributeModifiers L castShadows b customColor F4 display b factionColor i mesh p minScreenSize f name s rotationConstraint i shaderParamColorName s staticOffsetRotation F4 staticOffsetScale F3 staticOffsetTranslation F3 useFactionColor b",
   EveSmartLightPointLight: "attributeModifiers L brightness f customColor F4 display b factionColor i flags h innerRadius f lightProfilePath w name s radius f staticOffsetRotation F4 staticOffsetTranslation F3 useFactionColor b",
@@ -342,8 +342,8 @@ export const CLASSES = {
 // bits 5-8 element count - 1. Tr2Effect.samplerOverrides rows have 16 bytes
 // after the listed fields (zero in every file of this build).
 export const STRUCTS = {
-  "EveDistributionPlacementGeneratorLocators.locators": { stride: 44, fields: [["position", 68, 0], ["direction", 100, 12], ["scale", 68, 28], ["boneIndex", 2, 40]] },
-  // The 24.02 Jita steam locators have another four trailing bytes.
+  // 24.02 also serializes these locator layouts with four trailing bytes.
+  "EveDistributionPlacementGeneratorLocators.locators": { stride: 44, compatibleStrides: [48], fields: [["position", 68, 0], ["direction", 100, 12], ["scale", 68, 28], ["boneIndex", 2, 40]] },
   "EveLocatorSets.locators": { stride: 44, compatibleStrides: [48], fields: [["position", 68, 0], ["direction", 100, 12], ["scale", 68, 28], ["boneIndex", 2, 40]] },
   "EveSOFDataInstancedMesh.instances": { stride: 44, fields: [["rotation", 100, 0], ["scaling", 68, 16], ["translation", 68, 28], ["boneIndex", 2, 40]] },
   "Tr2CurveScalar.keys": { stride: 20, fields: [["time", 4, 0], ["value", 4, 4], ["leftTangent", 4, 8], ["rightTangent", 4, 12], ["id", 9, 16], ["interpolation", 8, 18], ["tangentType", 8, 19]] },
