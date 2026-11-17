@@ -1,7 +1,9 @@
 import * as THREE from "three";
 import { sceneReflection } from "./celestialModel.ts";
+import { CLOUD_FOG, CLOUD_FOG_GLSL } from "./cloudOpacity.ts";
 import type { SofChildMeshArea } from "./hullChildren.ts";
 import { logDepth } from "./logDepth.ts";
+import { SOFT_DEPTH } from "./softDepth.ts";
 
 type Texture = (url: string | null | undefined) => Promise<THREE.Texture | null>;
 
@@ -13,6 +15,8 @@ function vector(value: number | number[] | null | undefined, defaults: readonly 
 export function wormholeMaterial(area: SofChildMeshArea, texture: Texture): THREE.ShaderMaterial {
   const p = area.params;
   const uniforms = {
+    ...CLOUD_FOG,
+    softDepthSize: SOFT_DEPTH.softDepthSize,
     textureTransform: { value: vector(p.TextureTransform, [0, 0, 1, 1]) },
     materialDiffuseColor: { value: vector(p.MaterialDiffuseColor, [0.5, 0.5, 0.5, 1]) },
     specularCurve: { value: vector(p.MaterialSpecularCurve, [5, 20, 1, 0]) },
@@ -53,6 +57,8 @@ export function wormholeMaterial(area: SofChildMeshArea, texture: Texture): THRE
       uniform sampler2D diffuseMap, normalMap;
       uniform samplerCube reflectionMap;
       uniform bool hasReflectionMap;
+      uniform vec2 softDepthSize;
+      ${CLOUD_FOG_GLSL}
       uniform vec4 materialDiffuseColor, specularCurve, specularFactors, reflectionFactors, cubeMapTint;
       uniform float normalStrength;
       uniform vec3 sunDirection, sunColour;
@@ -65,12 +71,14 @@ export function wormholeMaterial(area: SofChildMeshArea, texture: Texture): THRE
         vec3 reflected = reflect(-towardsEye, normal);
         float mask = texture2D(normalMap, surfaceUV.xy).b;
         float k = clamp(reflectionFactors.w * mask + reflectionFactors.z, 0.0, 1.0);
-        vec3 reflection = hasReflectionMap ? textureCube(reflectionMap, vec3(reflected.xy, -reflected.z)).rgb * k : vec3(0.0);
+        vec3 reflection = hasReflectionMap ? textureLod(reflectionMap, vec3(reflected.xy, -reflected.z), 0.0).rgb * k : vec3(0.0);
         float h = max(0.0, dot(normal, normalize(towardsEye + sunDirection)));
         float sparkle = h > 0.0 ? specularCurve.z * pow(h, specularCurve.x) + pow(h, specularCurve.y) : 0.0;
         vec3 specular = sparkle * specularFactors.x * mask * sunColour;
         vec3 colour = specular + reflection * (reflectionFactors.x + reflectionFactors.y * specular) * cubeMapTint.rgb;
-        gl_FragColor = vec4(colour, texture2D(diffuseMap, surfaceUV.xy).a * materialDiffuseColor.a);
+        // WormholeFX attenuates surface alpha through the scene cloud volume.
+        float alpha = texture2D(diffuseMap, surfaceUV.xy).a * materialDiffuseColor.a;
+        gl_FragColor = vec4(colour, alpha * cloudFogTransmission(1.0 / gl_FragCoord.w));
       }
     `,
   }));

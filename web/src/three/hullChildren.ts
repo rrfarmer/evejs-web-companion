@@ -7,6 +7,7 @@
 import * as THREE from "three";
 import { logDepth } from "./logDepth.ts";
 import { wormholeMaterial } from "./wormholeMaterial.ts";
+import { CLOUD_FOG, CLOUD_FOG_GLSL } from "./cloudOpacity.ts";
 import { uberDistortionMaterial, DISTORTION_LAYER } from "./distortion.ts";
 import { ControllerRun, type SofController } from "./controllers.ts";
 import { particleObject, type SofChildParticles } from "./particles.ts";
@@ -349,9 +350,8 @@ const effectClock = { get value() { return performance.now() / 1000; } };
  * directional light, its colour x intensity; the ambient light's). UBER_DEPTH_ON fades it where it meets the scene:
  * colour and alpha times sat((D - z) / (s / 2)), D the scene's depth at the pixel (its DepthMap: softDepth.ts), z the
  * pixel's own depth from a point Depth metres (the effect's "Depth In Meters", 10 unless set) along the world's z,
- * s the length of the world transform's z axis. Additive areas added (one, one), transparent ones blended over. The
- * scene fog volume map (EveSceneFogVolumeMap, a colour times 1 minus it) is drawn by EveChildCloud2 only, none of
- * them drawn here: the client's empty map is black, the factor 1.
+ * s the length of the world transform's z axis. Additive areas added (one, one), transparent ones blended over.
+ * The 3698585 UberShader records multiply both RGB and alpha by the scene cloud transmittance.
  */
 function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
   const p = area.params;
@@ -378,6 +378,8 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
   const maskUv = area.options.MASK_TRANSFORM === "ON" ? "vUv * maskT.zw + maskT.xy + maskS.xy * time + maskS.zw" : "vUv";
   const additive = area.kind === "additive";
   const soft = area.options.UBER_DEPTH === "UBER_DEPTH_ON";
+  const cloudFog = area.effect === "ubershader";
+  if (cloudFog) Object.assign(uniforms, CLOUD_FOG, { softDepthSize: SOFT_DEPTH.softDepthSize });
   if (soft) Object.assign(uniforms, SOFT_DEPTH, { depthOffset: { value: Number((p.Depth as number[] | undefined)?.[0] ?? 10) } });
   const mat = new THREE.ShaderMaterial({
     uniforms,
@@ -393,6 +395,7 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `${soft ? SOFT_DEPTH_GLSL + " varying vec2 vSoft;" : ""}
+      ${cloudFog ? `${soft ? "" : "uniform vec2 softDepthSize;"} ${CLOUD_FOG_GLSL}` : ""}
       uniform sampler2D d1; uniform sampler2D d2; uniform sampler2D d3; uniform sampler2D mask;
       uniform vec4 t1; uniform vec4 t2; uniform vec4 t3; uniform vec4 s1; uniform vec4 s2; uniform vec4 s3;
       uniform vec4 maskT; uniform vec4 maskS; uniform vec4 colour; uniform vec4 fresnel; uniform float time;
@@ -413,6 +416,7 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
         f = fresnel.y < 0.0 ? (1.0 - min(f, 1.0)) * -fresnel.y : f * fresnel.y;
         c.rgb *= f;
         ${soft ? "if (softDepthOn > 0.5) c *= clamp((softSceneDepth() - vSoft.y) / vSoft.x, 0.0, 1.0);" : ""}
+        ${cloudFog ? "c *= cloudFogTransmission(1.0 / gl_FragCoord.w);" : ""}
         gl_FragColor = vec4(c.rgb, clamp(c.a, 0.0, 1.0));
       }`,
     side: THREE.FrontSide, transparent: true, depthWrite: false,
