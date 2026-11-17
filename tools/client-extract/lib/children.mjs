@@ -580,7 +580,68 @@ function readTunnelGroup(t) {
   };
 }
 
+/** The initial instances produced by a full, immediate locator burst. */
+function readSmartLightSet(o, skipped) {
+  const d = o.distribution;
+  const [burst] = d?.spawnTriggers ?? [];
+  if (d?.type !== "EveBaseDistributionMethod" || d.spawnTriggers?.length !== 1 ||
+      burst?.type !== "EveDistributionSpawnerBurst" || (burst.completeness ?? 1) !== 1 ||
+      burst.delayBeforeInitialBurst || burst.additionalTriggersPerBurst || d.spawnModifiers?.length ||
+      d.lifetimeModifiers?.length) return null;
+  const placements = [];
+  for (const generator of d.placementGenerators ?? []) {
+    if (generator.type === "EveDistributionPlacementGeneratorLocators") {
+      placements.push(...(generator.locators?.items ?? []).map(([position, rotation, scaling]) => ({ position, rotation, scaling })));
+    } else if (generator.type === "EveDistributionPlacementGeneratorParentLocators") {
+      const locatorSet = String(generator.locatorSetName ?? "").trim();
+      if (!locatorSet) continue;
+      locatorSetsUsed.add(locatorSet);
+      placements.push({ locatorSet });
+    } else {
+      skipped[generator.type] = (skipped[generator.type] ?? 0) + 1;
+    }
+  }
+  const lights = [], quads = [];
+  const visit = (group, sharedColor) => {
+    if (group.display === false) return;
+    const colorType = COLOR_TYPES[group.factionColor ?? -1];
+    const color = sharedColor ?? (group.useFactionColor && colorType && readFaction
+      ? colorOf(readFaction.colorSet ?? null, colorType)
+      : group.customColor ?? [0, 0, 0, 1]);
+    for (const modifier of group.attributeModifiers ?? []) {
+      skipped[modifier.type] = (skipped[modifier.type] ?? 0) + 1;
+    }
+    if (group.type === "EveSmartLightColorShareGroup") {
+      for (const child of group.lightGroups ?? []) visit(child, color);
+      return;
+    }
+    const position = group.staticOffsetTranslation ?? [0, 0, 0];
+    const brightness = group.brightness ?? 1;
+    if (group.type === "EveSmartLightPointLight" || group.type === "EveSmartLightSpotLight") {
+      // The surface light pass uses bit 0. Volume-only lights have a different consumer.
+      if (!((group.flags ?? 1) & 1)) return;
+      const profile = group.lightProfilePath?.trim().toLowerCase();
+      const spot = group.type === "EveSmartLightSpotLight";
+      lights.push({
+        position, color, brightness, radius: group.radius ?? 0, innerRadius: group.innerRadius ?? 0,
+        ...(spot || profile ? { rotation: group.staticOffsetRotation ?? [0, 0, 0, 1] } : {}),
+        ...(spot ? { innerAngle: group.innerAngle ?? 0, outerAngle: group.outerAngle ?? 0 } : {}),
+        ...(profile ? { profile } : {}),
+      });
+      return;
+    }
+    if (group.type === "EveSmartLightQuad" && ["flarequad", "flarequadsoft"].includes(effectName(group.effect))) {
+      quads.push({ position, scaling: group.staticQuadScale ?? [1, 1, 1], color, brightness });
+      return;
+    }
+    skipped[group.type] = (skipped[group.type] ?? 0) + 1;
+  };
+  for (const group of o.lightGroups ?? []) visit(group, null);
+  return { k: "smartLights", id: idOf(o), name: o.name ?? null, placements, lights, quads };
+}
+
 function readShown(o, skipped) {
+  if (o.type === "EveChildSmartLightSet") return readSmartLightSet(o, skipped);
   if (o.type === "EveChildQuad") {
     return {
       k: "quad", id: idOf(o), name: o.name ?? null, m: srt(o), color: o.color ?? [1, 1, 1, 1], brightness: o.brightness ?? 1,
@@ -1030,6 +1091,7 @@ function joinDynamicBindings(o, skipped) {
 export function readEffectFile(rf, path, selectRoot = (root) => root, { allShaderQualities = false } = {}) {
   const res = String(path).toLowerCase().replace(/\.red$/, ".black");
   if (!rf.has(res)) return null;
+  readFaction = null;
   ids = new WeakMap();
   nextId = 1;
   effectRoots = new Map();

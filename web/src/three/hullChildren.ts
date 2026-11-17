@@ -152,7 +152,17 @@ export interface SofChildProcedural {
   randomize: boolean;
   items: { effect: string; duration: number; restart: boolean }[];
 }
-export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh | SofChildLines | SofChildParticles | SofChildPropagator | SofChildGpuParticles | SofChildProcedural | SofChildAgents;
+type SofChildLight = NonNullable<SofChildContainer["lights"]>[number];
+interface SofChildSmartLights {
+  k: "smartLights";
+  id: number;
+  name: string | null;
+  display?: boolean;
+  placements: ({ position: number[]; rotation: number[]; scaling: number[] } | { locatorSet: string })[];
+  lights: SofChildLight[];
+  quads: { position: number[]; scaling: number[]; color: number[]; brightness: number }[];
+}
+export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh | SofChildLines | SofChildParticles | SofChildPropagator | SofChildGpuParticles | SofChildProcedural | SofChildAgents | SofChildSmartLights;
 export interface SofHullChild {
   res: string;
   root: SofChildNode | null;
@@ -163,6 +173,24 @@ export interface SofHullChild {
 function meanScale(m: THREE.Matrix4): number {
   const e = m.elements;
   return (Math.hypot(e[0]!, e[1]!, e[2]!) + Math.hypot(e[4]!, e[5]!, e[6]!) + Math.hypot(e[8]!, e[9]!, e[10]!)) / 3;
+}
+
+/** Tr2Light::AddLight transforms the center, radius, source radius and the spot or IES axis. */
+function placedLight(l: SofChildLight, matrix: THREE.Matrix4): ChildLight {
+  const scale = meanScale(matrix);
+  const axis = l.rotation ? new THREE.Vector3(0, 0, -1)
+    .applyQuaternion(new THREE.Quaternion(l.rotation[0], l.rotation[1], l.rotation[2], l.rotation[3]))
+    .transformDirection(matrix).toArray() : undefined;
+  const spot = l.outerAngle !== undefined ? {
+    cosOuter: Math.cos(THREE.MathUtils.degToRad(l.outerAngle)),
+    cosInner: Math.cos(THREE.MathUtils.degToRad(l.innerAngle ?? 0)),
+  } : {};
+  return {
+    ...(l.id !== undefined ? { id: l.id, scale } : {}),
+    position: new THREE.Vector3(l.position[0] ?? 0, l.position[1] ?? 0, l.position[2] ?? 0).applyMatrix4(matrix).toArray(),
+    radius: l.radius * scale, sourceRadius: (l.innerRadius ?? 0) * scale, color: l.color,
+    brightness: l.brightness, direction: axis, profile: l.profile ?? undefined, ...spot,
+  };
 }
 
 /**
@@ -1673,28 +1701,45 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
   };
   type Halo = { z: THREE.Vector3; at: THREE.Vector3 } | null;
   const walk = (node: SofChildNode, flat: THREE.Matrix4, local: THREE.Matrix4, sink: (o: THREE.Object3D) => void, halo: Halo = null, ancestors: number[] = []) => {
+    if (node.k === "smartLights") {
+      const placements = node.placements.flatMap((p) => "locatorSet" in p
+        ? (locatorSets[p.locatorSet] ?? []).map((row) => ({ position: row.slice(0, 3), rotation: row.slice(3, 7), scaling: [1, 1, 1] }))
+        : [p]);
+      if (!placements.length) return;
+      const group = new THREE.Group();
+      group.name = `smart-lights:${node.name ?? ""}`;
+      group.userData.childId = node.id;
+      group.visible = node.display !== false;
+      animator.object(node.id, ancestors, node.display !== false);
+      place(group, local, undefined);
+      const lights: ChildLight[] = [];
+      const flares: Parameters<typeof quadMesh>[0] = [];
+      for (const p of placements) {
+        const matrix = new THREE.Matrix4().compose(new THREE.Vector3().fromArray(p.position),
+          new THREE.Quaternion().fromArray(p.rotation), new THREE.Vector3().fromArray(p.scaling));
+        for (const l of node.lights) lights.push(placedLight(l, matrix));
+        for (const q of node.quads) {
+          const e = matrix.elements;
+          flares.push({
+            centre: new THREE.Vector3().fromArray(q.position).applyMatrix4(matrix),
+            ax: new THREE.Vector3(e[0], e[1], e[2]).multiplyScalar(q.scaling[0] ?? 1),
+            ay: new THREE.Vector3(e[4], e[5], e[6]).multiplyScalar(q.scaling[1] ?? 1),
+            colour: q.color.map((c) => c * q.brightness), min: 0, halo: null,
+          });
+        }
+      }
+      group.userData.lights = lights;
+      if (flares.length) group.add(quadMesh(flares));
+      if (lights.length) group.add(ticker());
+      if (group.children.length) sink(group);
+      return;
+    }
     if (node.k === "container") {
       if (node.id !== undefined) { animator.container(node.id, node.display !== false); ancestors = [...ancestors, node.id]; }
       animator.curveSets(node.curveSets, ancestors);
       const m = node.m ? new THREE.Matrix4().fromArray(node.m) : new THREE.Matrix4();
       const flatHere = flat.clone().multiply(m);
-      for (const l of node.lights ?? []) {
-        // (Tr2Light::AddLight: position by the transform, radius and source radius by its scale; a spot's direction its
-        // rotation applied to (0, 0, -1), turned by the transform, its cones' cosines from the angles in degrees)
-        const at = new THREE.Vector3(l.position[0] ?? 0, l.position[1] ?? 0, l.position[2] ?? 0).applyMatrix4(flatHere);
-        const k = meanScale(flatHere);
-        const direction = l.rotation ? new THREE.Vector3(0, 0, -1)
-          .applyQuaternion(new THREE.Quaternion(l.rotation[0], l.rotation[1], l.rotation[2], l.rotation[3]))
-          .transformDirection(flatHere).toArray() : undefined;
-        const spot = l.outerAngle !== undefined ? {
-          cosOuter: Math.cos(THREE.MathUtils.degToRad(l.outerAngle)), cosInner: Math.cos(THREE.MathUtils.degToRad(l.innerAngle ?? 0)),
-        } : {};
-        (lightList ?? lights).push({
-          ...(l.id !== undefined ? { id: l.id, scale: k } : {}), position: at.toArray(), radius: l.radius * k,
-          sourceRadius: (l.innerRadius ?? 0) * k, color: l.color, brightness: l.brightness, direction,
-          profile: l.profile ?? undefined, ...spot,
-        });
-      }
+      for (const l of node.lights ?? []) (lightList ?? lights).push(placedLight(l, flatHere));
       if (node.modifiers.includes("EveChildModifierHalo")) {
         const z = new THREE.Vector3();
         flatHere.extractBasis(new THREE.Vector3(), new THREE.Vector3(), z);
