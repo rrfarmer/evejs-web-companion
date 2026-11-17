@@ -19,6 +19,7 @@ import { ChildAnimator, HULL_OWNER, animators, type SofCurveSet } from "./childA
 import { addOverlay, removeOverlay, type SofOverlay } from "./hullOverlay.ts";
 import { PropagatorRun, type PropagatorData } from "./propagator.ts";
 import { offerLights, type ChildLight } from "./dynamicLights.ts";
+import { smartLightColor, type SmartLightModifier } from "./smartLightModifiers.ts";
 import { AgentRun, buildAgents, type AgentGridState, type SofChildAgents } from "./behaviorAgents.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
@@ -153,14 +154,15 @@ export interface SofChildProcedural {
   items: { effect: string; duration: number; restart: boolean }[];
 }
 type SofChildLight = NonNullable<SofChildContainer["lights"]>[number];
+interface SmartLightSource { color: number[]; modifiers?: SmartLightModifier[] }
 interface SofChildSmartLights {
   k: "smartLights";
   id: number;
   name: string | null;
   display?: boolean;
   placements: ({ position: number[]; rotation: number[]; scaling: number[] } | { locatorSet: string })[];
-  lights: SofChildLight[];
-  quads: { position: number[]; scaling: number[]; color: number[]; brightness: number }[];
+  lights: (SofChildLight & SmartLightSource)[];
+  quads: (SmartLightSource & { position: number[]; scaling: number[]; brightness: number })[];
 }
 export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh | SofChildLines | SofChildParticles | SofChildPropagator | SofChildGpuParticles | SofChildProcedural | SofChildAgents | SofChildSmartLights;
 export interface SofHullChild {
@@ -272,6 +274,58 @@ export function quadMesh(quads: { centre: THREE.Vector3; ax: THREE.Vector3; ay: 
   // on the material, which a clone of the model shares (Object3D.clone does not carry an object's own onBeforeRender)
   mat.onBeforeRender = (renderer) => { viewHeight.value = renderer.getDrawingBufferSize(size).y; };
   return mesh;
+}
+
+interface SmartLightSources { lights: SmartLightSource[]; quads: SmartLightSource[] }
+interface SmartLightState {
+  lights: ReturnType<typeof smartLightColor>[];
+  quads: ReturnType<typeof smartLightColor>[];
+  palette: THREE.Vector4[];
+}
+const smartLightStates = new WeakMap<THREE.Object3D, SmartLightState>();
+
+function updateSmartLights(group: THREE.Object3D, sources: SmartLightSources): void {
+  let state = smartLightStates.get(group);
+  if (!state) {
+    const animate = (s: SmartLightSource) => smartLightColor(s.color, s.modifiers ?? []);
+    state = { lights: sources.lights.map(animate), quads: sources.quads.map(animate), palette: sources.quads.map((q) => new THREE.Vector4().fromArray(q.color)) };
+    smartLightStates.set(group, state);
+  }
+  const vars = new Map<string, number>();
+  let speed: number | undefined, maxSpeed = 0;
+  for (let o: THREE.Object3D | null = group; o; o = o.parent) {
+    for (const [name, value] of Object.entries(o.userData.controllerVars ?? {}) as [string, number][]) {
+      if (!vars.has(name)) vars.set(name, value);
+    }
+    if (speed === undefined && typeof o.userData.shipSpeed === "number") {
+      speed = o.userData.shipSpeed as number;
+      maxSpeed = (o.userData.shipMaxSpeed as number | undefined) ?? 0;
+    }
+  }
+  const input = { variable: (name: string) => vars.get(name), speed: speed ?? 0, maxSpeed };
+  const now = performance.now() / 1000;
+  const colors = state.lights.map((color) => color(now, input));
+  (group.userData.lights as ChildLight[]).forEach((light, i) => { light.color = colors[i % colors.length]!; });
+  state.quads.forEach((color, i) => { state.palette[i]!.fromArray(color(now, input)); });
+}
+
+/** One color per authored quad and one instance per locator, with the current clone's uniforms. */
+function followSmartFlareColors(mesh: THREE.Mesh, sources: SmartLightSource[], instances: number): void {
+  const geometry = mesh.geometry;
+  geometry.setAttribute("iSmartColor", new THREE.InstancedBufferAttribute(Float32Array.from({ length: instances }, (_, i) => i % sources.length), 1));
+  const material = mesh.material as THREE.ShaderMaterial;
+  const base = sources.map((q) => new THREE.Vector4().fromArray(q.color));
+  material.uniforms.smartColors = { value: base };
+  material.vertexShader = `attribute float iSmartColor;
+    uniform vec4 smartColors[${sources.length}];
+    ${material.vertexShader.replace("vColour = iColour * f * f;", "vColour = iColour * smartColors[int(iSmartColor)] * f * f;")}`;
+  const before = material.onBeforeRender;
+  material.onBeforeRender = function (renderer, scene, camera, geometry, object, range) {
+    before.call(this, renderer, scene, camera, geometry, object, range);
+    const state = object.parent ? smartLightStates.get(object.parent) : undefined;
+    material.uniforms.smartColors!.value = state?.palette ?? base;
+    material.uniformsNeedUpdate = true;
+  };
 }
 
 const v4 = (v: unknown, d: number[]) => new THREE.Vector4(...([0, 1, 2, 3].map((i) => (Array.isArray(v) && typeof v[i] === "number" ? (v[i] as number) : d[i]!)) as [number, number, number, number]));
@@ -1355,6 +1409,8 @@ const controllerSounds = new WeakMap<THREE.Object3D, (event: string, observer: s
 tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
   const group = object.parent;
   if (!group) return;
+  const smartSources = group.userData.smartLightSources as SmartLightSources | undefined;
+  if (smartSources) updateSmartLights(group, smartSources);
   // its lights, for the dynamic lights' next list (dynamicLights.ts)
   offerLights(renderer, camera, group);
   // the curve sets (childAnimation.ts): their objects found in this clone of the model by their ids
@@ -1714,6 +1770,8 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
       place(group, local, undefined);
       const lights: ChildLight[] = [];
       const flares: Parameters<typeof quadMesh>[0] = [];
+      const animated = [...node.lights, ...node.quads].some((source) => source.modifiers?.length);
+      if (animated) group.userData.smartLightSources = { lights: node.lights, quads: node.quads } satisfies SmartLightSources;
       for (const p of placements) {
         const matrix = new THREE.Matrix4().compose(new THREE.Vector3().fromArray(p.position),
           new THREE.Quaternion().fromArray(p.rotation), new THREE.Vector3().fromArray(p.scaling));
@@ -1724,13 +1782,18 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
             centre: new THREE.Vector3().fromArray(q.position).applyMatrix4(matrix),
             ax: new THREE.Vector3(e[0], e[1], e[2]).multiplyScalar(q.scaling[0] ?? 1),
             ay: new THREE.Vector3(e[4], e[5], e[6]).multiplyScalar(q.scaling[1] ?? 1),
-            colour: q.color.map((c) => c * q.brightness), min: 0, halo: null,
+            colour: animated ? [q.brightness, q.brightness, q.brightness, q.brightness] : q.color.map((c) => c * q.brightness),
+            min: 0, halo: null,
           });
         }
       }
       group.userData.lights = lights;
-      if (flares.length) group.add(quadMesh(flares));
-      if (lights.length) group.add(ticker());
+      if (flares.length) {
+        const mesh = quadMesh(flares);
+        if (animated) followSmartFlareColors(mesh, node.quads, flares.length);
+        group.add(mesh);
+      }
+      if (lights.length || animated) group.add(ticker());
       if (group.children.length) sink(group);
       return;
     }

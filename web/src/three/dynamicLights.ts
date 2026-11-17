@@ -110,7 +110,7 @@ export function offerLights(renderer: THREE.WebGLRenderer, camera: THREE.Camera,
   const m = group.matrixWorld;
   const scale = Math.cbrt(Math.abs(m.determinant())) || 1;
   for (const l of lights) {
-    if (!(l.radius > 0)) continue;
+    if (!(l.radius > 0) || l.brightness === 0 || !(l.color[0] || l.color[1] || l.color[2])) continue;
     const pos = new THREE.Vector3(l.position[0] ?? 0, l.position[1] ?? 0, l.position[2] ?? 0).applyMatrix4(m);
     const b = l.brightness * k;
     const dir = l.direction ? new THREE.Vector3(l.direction[0] ?? 0, l.direction[1] ?? 0, l.direction[2] ?? -1).transformDirection(m) : null;

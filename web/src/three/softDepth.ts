@@ -21,17 +21,17 @@ export const SOFT_DEPTH = {
   softDepthNearFar: { value: new THREE.Vector2(1, 1e6) },
 };
 
-/**
- * The GLSL that turns the scene depth at this pixel (softSceneDepth), or at a pixel position (softSceneDepthAt), into a
- * view distance (in metres, ahead of the eye).
- */
-export const SOFT_DEPTH_GLSL = `uniform sampler2D softDepthMap; uniform float softDepthOn; uniform vec2 softDepthSize;
-uniform float softDepthLogFar; uniform vec2 softDepthNearFar;
+/** Decode depth into the distance ahead of the camera, independently of its texture. */
+export const SOFT_VIEW_DEPTH_GLSL = `uniform float softDepthLogFar; uniform vec2 softDepthNearFar;
 float softViewDepth(float d) {
   if (softDepthLogFar > 0.0) return exp2(d * softDepthLogFar) - 1.0;
   float n = softDepthNearFar.x, f = softDepthNearFar.y;
   return (n * f) / (f - d * (f - n));
-}
+}`;
+
+/** The depth behind an effect at this pixel or at a supplied fragment coordinate. */
+export const SOFT_DEPTH_GLSL = `uniform sampler2D softDepthMap; uniform float softDepthOn; uniform vec2 softDepthSize;
+${SOFT_VIEW_DEPTH_GLSL}
 float softSceneDepthAt(vec2 frag) {
   return softViewDepth(texture2D(softDepthMap, frag / softDepthSize).x);
 }

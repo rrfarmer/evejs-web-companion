@@ -29,14 +29,14 @@ const FILTER = `
   uniform ivec2 axis;
   void main() {
     ivec2 pixel = ivec2(gl_FragCoord.xy);
-    float depth = texelFetch(softDepthMap, pixel, 0).r;
+    float sceneDepth = texelFetch(softDepthMap, pixel, 0).r;
     float center = texelFetch(source, pixel, 0).r;
     float radius = 5.0 * min(1.0, 10.5 * texelFetch(estimate, pixel, 0).r);
-    if (depth >= 1.0 || radius <= 0.5) {
-      gl_FragColor = vec4(vec3(center), 1.0);
+    if (sceneDepth >= 1.0 || radius <= 0.5) {
+      gl_FragColor = vec4(center, sceneDepth, 0.0, 1.0);
       return;
     }
-    depth = softViewDepth(depth);
+    float depth = softViewDepth(sceneDepth);
     ivec2 size = textureSize(source, 0);
     float sum = center, weights = 1.0;
     for (int i = -5; i <= 5; i++) {
@@ -52,7 +52,9 @@ const FILTER = `
       sum += texelFetch(source, at, 0).r * weight;
       weights += weight;
     }
-    gl_FragColor = vec4(vec3(sum / weights), 1.0);
+    // Preserve the denoiser's byte precision for visibility. The final target
+    // carries the unmodified depth in green for receivers' surface match.
+    gl_FragColor = vec4(roundEven((sum / weights) * 255.0) / 255.0, sceneDepth, 0.0, 1.0);
   }
 `;
 
@@ -69,7 +71,10 @@ export class OpaqueShadowMask {
   private readonly raw = target(THREE.LinearFilter);
   private readonly estimate = target(THREE.NearestFilter);
   private readonly horizontal = target(THREE.NearestFilter);
-  private readonly vertical = target(THREE.NearestFilter);
+  private readonly vertical = new THREE.WebGLRenderTarget(1, 1, {
+    format: THREE.RGFormat, type: THREE.FloatType, depthBuffer: false,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+  });
   private readonly inverseProjection = { value: new THREE.Matrix4() };
   private readonly resolve: THREE.ShaderMaterial;
   private readonly noise = pass(ESTIMATE, { source: { value: this.raw.texture } });

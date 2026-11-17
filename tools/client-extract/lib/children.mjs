@@ -580,7 +580,40 @@ function readTunnelGroup(t) {
   };
 }
 
-/** The initial instances produced by a full, immediate locator burst. */
+function smartLightColor(item, fallback) {
+  const name = COLOR_TYPES[item.factionColor ?? -1];
+  return item.useFactionColor && name && readFaction ? colorOf(readFaction.colorSet ?? null, name) : fallback;
+}
+
+function readSmartModifiers(items, skipped) {
+  const out = [];
+  for (const item of items ?? []) {
+    const duration = item.crossFadeDuration ?? 1;
+    const curve = item.crossFadeCurve ?? 0;
+    const factor = item.attributeMultiplier ?? 1;
+    if (item.type === "EveSmartLightAttributeModifierControllerVariableListener" && curve === 0) {
+      out.push({
+        kind: "listener", variable: item.variableName ?? "", initial: item.defaultValue ?? 0,
+        invert: item.invertReceivedValue ?? false, duration, factor, children: readSmartModifiers(item.attributeModifiers, skipped),
+      });
+    } else if (item.type === "EveSmartLightAttributeModifierExpressionBucket" && !item.expressionInputs?.length) {
+      out.push({ kind: "expression", source: item.expression ?? "", factor, children: readSmartModifiers(item.attributeModifiers, skipped) });
+    } else if (item.type === "EveSmartLightAttributeModifierColor" && !item.activationOverLifetime &&
+               !item.delayedActivation && (item.saturationMultiplier ?? 1) <= 1 && (curve === 0 || curve === 5)) {
+      out.push({
+        kind: "color", color: smartLightColor(item, item.blendColor ?? [0, 0, 0, 1]),
+        blend: item.blendValue ?? 1, brightness: item.brightnessMultiplier ?? 1, saturation: item.saturationMultiplier ?? 1,
+        active: item.active ?? true, startsActive: item.startsActive ?? true, variable: item.variableName ?? "",
+        delayIn: item.activationDelay ?? 0, delayOut: item.deactivationDelay ?? 0, duration, curve, factor,
+      });
+    } else {
+      skipped[item.type] = (skipped[item.type] ?? 0) + 1;
+    }
+  }
+  return out;
+}
+
+/** The instances produced by a full, immediate locator burst. */
 function readSmartLightSet(o, skipped) {
   const d = o.distribution;
   const [burst] = d?.spawnTriggers ?? [];
@@ -602,17 +635,13 @@ function readSmartLightSet(o, skipped) {
     }
   }
   const lights = [], quads = [];
-  const visit = (group, sharedColor) => {
+  const visit = (group, sharedColor, inherited) => {
     if (group.display === false) return;
-    const colorType = COLOR_TYPES[group.factionColor ?? -1];
-    const color = sharedColor ?? (group.useFactionColor && colorType && readFaction
-      ? colorOf(readFaction.colorSet ?? null, colorType)
-      : group.customColor ?? [0, 0, 0, 1]);
-    for (const modifier of group.attributeModifiers ?? []) {
-      skipped[modifier.type] = (skipped[modifier.type] ?? 0) + 1;
-    }
+    const color = sharedColor ?? smartLightColor(group, group.customColor ?? [0, 0, 0, 1]);
+    const modifiers = [...inherited, ...readSmartModifiers(group.attributeModifiers, skipped)];
+    const effects = modifiers.length ? { modifiers } : {};
     if (group.type === "EveSmartLightColorShareGroup") {
-      for (const child of group.lightGroups ?? []) visit(child, color);
+      for (const child of group.lightGroups ?? []) visit(child, color, modifiers);
       return;
     }
     const position = group.staticOffsetTranslation ?? [0, 0, 0];
@@ -623,7 +652,7 @@ function readSmartLightSet(o, skipped) {
       const profile = group.lightProfilePath?.trim().toLowerCase();
       const spot = group.type === "EveSmartLightSpotLight";
       lights.push({
-        position, color, brightness, radius: group.radius ?? 0, innerRadius: group.innerRadius ?? 0,
+        position, color, brightness, radius: group.radius ?? 0, innerRadius: group.innerRadius ?? 0, ...effects,
         ...(spot || profile ? { rotation: group.staticOffsetRotation ?? [0, 0, 0, 1] } : {}),
         ...(spot ? { innerAngle: group.innerAngle ?? 0, outerAngle: group.outerAngle ?? 0 } : {}),
         ...(profile ? { profile } : {}),
@@ -631,12 +660,12 @@ function readSmartLightSet(o, skipped) {
       return;
     }
     if (group.type === "EveSmartLightQuad" && ["flarequad", "flarequadsoft"].includes(effectName(group.effect))) {
-      quads.push({ position, scaling: group.staticQuadScale ?? [1, 1, 1], color, brightness });
+      quads.push({ position, scaling: group.staticQuadScale ?? [1, 1, 1], color, brightness, ...effects });
       return;
     }
     skipped[group.type] = (skipped[group.type] ?? 0) + 1;
   };
-  for (const group of o.lightGroups ?? []) visit(group, null);
+  for (const group of o.lightGroups ?? []) visit(group, null, []);
   return { k: "smartLights", id: idOf(o), name: o.name ?? null, placements, lights, quads };
 }
 

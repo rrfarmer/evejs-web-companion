@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { OpaqueShadowMask } from "./opaqueShadowMask.ts";
-import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
+import { SOFT_DEPTH, SOFT_VIEW_DEPTH_GLSL } from "./softDepth.ts";
 
 // 3698585 Tr2ShadowMap, Static split mode, used at Low and High.
 const SPLITS = [25, 75, 150, 300, 600, 1200, 2400, 4800, 9600, 19200, 38400, 76800, 153600, 307200, 614400, 1228800];
@@ -73,7 +73,7 @@ function shadowUniforms() {
 }
 
 const OPAQUE_SHADOW_GLSL = `
-  ${SOFT_DEPTH_GLSL}
+  ${SOFT_VIEW_DEPTH_GLSL}
   uniform sampler2D opaqueShadowMask;
   uniform bool opaqueShadowReady;
   float opaqueSunVisibility(vec3 viewPosition) {
@@ -81,11 +81,12 @@ const OPAQUE_SHADOW_GLSL = `
     bool matchedDepth = false;
     if (opaqueShadowReady) {
       ivec2 pixel = ivec2(gl_FragCoord.xy);
-      float sceneDepth = texelFetch(softDepthMap, pixel, 0).r;
+      vec2 sampleValue = texelFetch(opaqueShadowMask, pixel, 0).rg;
+      float sceneDepth = sampleValue.g;
       // At MSAA edges and cutouts the opaque prepass can see a different surface.
       float depth = -viewPosition.z;
       matchedDepth = sceneDepth < 1.0 && abs(softViewDepth(sceneDepth) - depth) <= max(0.01, depth * 0.00005);
-      if (matchedDepth) visibility = texelFetch(opaqueShadowMask, pixel, 0).r;
+      if (matchedDepth) visibility = sampleValue.r;
     }
     if (!matchedDepth) visibility = opaqueSpaceShadow(viewPosition);
     return visibility;
