@@ -43,6 +43,8 @@ test("the production BFF serves the installed build with standard asset response
   await put(root, "3698585/config.json", '{"client":"local-only"}');
   await put(root, "3698585/extract.log", "local-only");
   await put(root, "3698585/audio/sample.ogg", Buffer.from("OggS-fake"));
+  const decalMask = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aC1cAAAAASUVORK5CYII=", "base64");
+  await put(root, "3698585/dx9/model/decal/registry.png", decalMask);
   await withAssets({ root, clientRoot, fallbackBuild: "3396210" }, async url => {
     const index = await fetch(url("/client-assets/typeNames.json?v=1"));
     assert.equal(index.status, 200);
@@ -52,6 +54,10 @@ test("the production BFF serves the installed build with standard asset response
     assert.equal(media.status, 206);
     assert.match(media.headers.get("content-type"), /^audio\/ogg\b/);
     assert.equal(await media.text(), "OggS");
+    const mask = await fetch(url("/client-assets/dx9/model/decal/registry.png"));
+    assert.equal(mask.status, 200);
+    assert.match(mask.headers.get("content-type"), /^image\/png\b/);
+    assert.deepEqual(Buffer.from(await mask.arrayBuffer()), decalMask);
     const head = await fetch(url("/client-assets/audio/sample.ogg"), { method: "HEAD" });
     assert.equal(head.status, 200);
     assert.equal(await head.text(), "");

@@ -869,6 +869,7 @@ async function loadModel(info: TypeModelInfo, typeID: number | null, materialOve
     mesh.receiveShadow = true;
     const mat = mesh.material as THREE.Material;
     const index = typeof mat.userData?.index === "number" ? (mat.userData.index as number) : null;
+    if (index !== null) mesh.userData.sofAreaIndex = index;
     const areas = sof?.areas.filter((a) => a.index === index) ?? [];
     if (!areas.length) {
       const key = `legacy:${mat.name}`;

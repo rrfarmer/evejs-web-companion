@@ -15,7 +15,7 @@ const REPO_ROOT = path.resolve(__dirname, "../..");
 const EXTRACTOR = path.join(REPO_ROOT, "tools", "client-extract", "extract.mjs");
 const runFile = promisify(execFile);
 const MIME = new Map([
-  [".json", "application/json"], [".glb", "model/gltf-binary"], [".dds", "application/octet-stream"],
+  [".json", "application/json"], [".glb", "model/gltf-binary"], [".dds", "application/octet-stream"], [".png", "image/png"],
   [".ogg", "audio/ogg"], [".wav", "audio/wav"], [".vta", "application/octet-stream"],
 ]);
 const GENERATED = new Map([

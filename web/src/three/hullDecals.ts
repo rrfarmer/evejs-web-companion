@@ -24,6 +24,7 @@
 import * as THREE from "three";
 import { followActivation } from "./activation.ts";
 import { loadDds } from "./ddsTexture.ts";
+import { followDynamicLights } from "./dynamicLights.ts";
 
 export interface SofDecal {
   name: string | null; usage: number; meshIndex: number;
@@ -44,13 +45,16 @@ const USAGE_HOLE = 2;
 // glow decals' clock stood at 0 so)
 const clock = { get value() { return performance.now() / 1000; } };
 
+const images = new THREE.TextureLoader();
 const textures = new Map<string, Promise<THREE.Texture | null>>();
 function texture(url: string | null | undefined, srgb = false): Promise<THREE.Texture | null> {
   if (!url) return Promise.resolve(null);
   const key = `${url}|${srgb}`;
   if (!textures.has(key)) {
-    textures.set(key, loadDds(url).then((t) => {
-      const tex = t as THREE.Texture;
+    const loaded = url.toLowerCase().endsWith(".png") ? images.loadAsync(url) : loadDds(url);
+    textures.set(key, loaded.then((tex) => {
+      // Native DDS and PNG decal samplers both use the top row at v = 0.
+      tex.flipY = false;
       if (srgb) tex.colorSpace = THREE.SRGBColorSpace;
       return tex;
     }).catch(() => null));
@@ -182,7 +186,7 @@ async function standardMaterial(d: SofDecal, hullMaterial: THREE.Material | null
     const turn = "vec3 decalTurn( vec3 v, vec3 k, float a ) { return v * cos( a ) + cross( k, v ) * sin( a ) + k * dot( k, v ) * ( 1.0 - cos( a ) ); }";
     shader.fragmentShader = `varying vec3 vDecal; varying vec3 vAxisA, vAxisB;\nuniform float decalRepeat; uniform sampler2D decalFresnel, decalTilt;\n${turn}\n` + shader.fragmentShader
       .replace("void main() {", `void main() {\n  ${uv}`)
-      .replace("#include <map_fragment>", "diffuseColor *= texture2D( map, decalUv );")
+      .replace("#include <map_fragment>", "diffuseColor.rgb *= texture2D( map, decalUv ).rgb;")
       .replace("#include <alphamap_fragment>", "diffuseColor.a *= texture2D( alphaMap, decalUv ).r;")
       .replace("#include <roughnessmap_fragment>", roughness
         ? "float roughnessFactor = roughness; roughnessFactor *= 1.0 - texture2D( roughnessMap, decalUv ).r;"
@@ -199,7 +203,7 @@ async function standardMaterial(d: SofDecal, hullMaterial: THREE.Material | null
         ${fresnel ? "material.specularColor = texture2D( decalFresnel, decalUv ).rgb; material.specularColorBlended = material.specularColor;" : ""}`);
   };
   m.customProgramCacheKey = () => `decal${roughness ? "r" : ""}${cylindrical ? "c" : ""}${hullNormal ? "n" : ""}${tilt ? "t" : ""}${fresnel ? "f" : ""}`;
-  return m;
+  return followDynamicLights(m);
 }
 
 /**
@@ -255,8 +259,23 @@ async function holeMaterial(d: SofDecal, inverse: THREE.Matrix4): Promise<THREE.
 /** The decals added to each LOD node of a hull (each node's own index list), the glow ones animated. */
 export async function addDecals(lodNodes: readonly THREE.Object3D[], sets: readonly SofDecalSet[]): Promise<number> {
   let added = 0;
-  const items = sets.flatMap((s) => s.items).filter((d) => d.meshIndex === 0 && [USAGE_STANDARD, USAGE_CYLINDRICAL, USAGE_GLOW, USAGE_GLOW_CYLINDRICAL, USAGE_LOGO, USAGE_HOLE].includes(d.usage));
+  const items = sets.flatMap((s) => s.items).filter((d) => [USAGE_STANDARD, USAGE_CYLINDRICAL, USAGE_GLOW, USAGE_GLOW_CYLINDRICAL, USAGE_LOGO, USAGE_HOLE].includes(d.usage));
+  // The GLB primitives of a hull LOD share the vertex stream. The decal's mesh index
+  // supplies the hull material even when its triangles span areas or a coarse LOD omits that area.
+  const lodSources = lodNodes.map((node) => {
+    const areas = new Map<number, THREE.Mesh>();
+    let fallback: THREE.Mesh | undefined;
+    node.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      fallback ??= mesh;
+      const index = mesh.userData.sofAreaIndex as number | undefined;
+      if (index !== undefined && !areas.has(index)) areas.set(index, mesh);
+    });
+    return { node, areas, fallback };
+  });
   for (const d of items) {
+    const materialSource = lodSources.find(({ areas }) => areas.has(d.meshIndex))?.areas.get(d.meshIndex);
     const box = new THREE.Matrix4().compose(
       new THREE.Vector3(d.position[0] ?? 0, d.position[1] ?? 0, d.position[2] ?? 0),
       new THREE.Quaternion(d.rotation[0] ?? 0, d.rotation[1] ?? 0, d.rotation[2] ?? 0, d.rotation[3] ?? 1),
@@ -268,17 +287,15 @@ export async function addDecals(lodNodes: readonly THREE.Object3D[], sets: reado
     const axes: [THREE.Vector3, THREE.Vector3] = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0)].map((a) => {
       a.applyQuaternion(turnQ); a.z = -a.z; return a;
     }) as [THREE.Vector3, THREE.Vector3];
-    for (const [lod, node] of lodNodes.entries()) {
+    for (const [lod, { node, areas, fallback }] of lodSources.entries()) {
       const indices = d.indexBuffers[lod];
       if (!indices?.length) continue;
-      let source: THREE.Mesh | null = null;
-      node.traverse((o) => { if (!source && (o as THREE.Mesh).isMesh) source = o as THREE.Mesh; });
-      if (!source) continue;
-      const hull = source as THREE.Mesh;
+      const hull = areas.get(d.meshIndex) ?? fallback;
+      if (!hull) continue;
       const geometry = decalGeometry(hull.geometry, indices, inverse);
       if (!geometry) continue;
       const material = d.usage === USAGE_STANDARD || d.usage === USAGE_CYLINDRICAL || d.usage === USAGE_LOGO
-        ? await standardMaterial(d, hull.material as THREE.Material, d.usage === USAGE_CYLINDRICAL, axes)
+        ? await standardMaterial(d, (materialSource ?? hull).material as THREE.Material, d.usage === USAGE_CYLINDRICAL, axes)
         : d.usage === USAGE_HOLE ? await holeMaterial(d, inverse)
         : await glowMaterial(d, d.usage === USAGE_GLOW_CYLINDRICAL);
       if (!material) continue;
