@@ -38,7 +38,11 @@ const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
  * nothing from a server that has stopped; with `noTarget` its updates come and never carry the target; with
  * `targetGone` the target has left space by the read after the order.
  */
-interface ParkModel { readonly frozenReads?: number; readonly noTarget?: boolean; readonly targetGone?: boolean }
+interface ParkModel {
+  readonly frozenReads?: number; readonly noTarget?: boolean; readonly targetGone?: boolean;
+  /** The server's update sets only the first drone on the target, and the target is gone from that read on. */
+  readonly firstThenGone?: boolean;
+}
 
 function harness(role: "combat" | "repair", unreadable = false, lagging = false, neverSettles = false, park: ParkModel | null = null) {
   const targets = new Map<number, number>();
@@ -91,11 +95,13 @@ function harness(role: "combat" | "repair", unreadable = false, lagging = false,
       // The first read after the order is ahead of the server's next tick; from the next on it is in, unless frozen.
       if (readsSinceOrder !== null && readsSinceOrder > 1 + (park.frozenReads ?? 0)) {
         applied += 1;
-        if (!park.noTarget) for (const [id, target] of pending) targets.set(id, target);
+        if (park.firstThenGone) { const first = [...pending][0]; if (first !== undefined) targets.set(first[0], first[1]); }
+        else if (!park.noTarget) for (const [id, target] of pending) targets.set(id, target);
         pending.clear();
       }
+      const goneNow = park.firstThenGone ? readsSinceOrder !== null && readsSinceOrder > 1 : park.targetGone && readsSinceOrder !== null;
       answer = { ok: true, activeShipID: SHIP_ID, bay: [], inSpace: inSpace(), notifications: [],
-        serverUpdates: { applied, queued: 0 }, present: !(park.targetGone && readsSinceOrder !== null) };
+        serverUpdates: { applied, queued: 0 }, present: !goneNow };
     } else if (path === "/api/bridge/drones") {
       answer = { ok: true, activeShipID: SHIP_ID, bay: [], inSpace: readAfterOrder && unreadable ? null : inSpace(), notifications: [] };
       if (readAfterOrder && !neverSettles) for (const [id, target] of pending) targets.set(id, target);
@@ -266,9 +272,13 @@ test("the engagement itself: confirmed after a five-second server stop, unconfir
     assert.equal(gone.error?.code, "CALL_REFUSED", "a refusal, which a bot takes and moves on from");
     assert.match(String(gone.error?.message), /gone before the drones were seen/);
 
+    const partlyTaken = await engagedAt(t, harness("repair", false, false, false, { firstThenGone: true }).flow);
+    assert.equal(partlyTaken.ok, true, "some drones seen on it, then the target gone: the order was taken and is done");
+
     const neverHeard = await engagedAt(t, harness("repair", false, false, false, { frozenReads: 1000 }).flow);
     assert.equal(neverHeard.ok, false);
     assert.equal(neverHeard.error?.code, "DRONE_ENGAGE_UNCONFIRMED");
+    assert.match(String(neverHeard.error?.message), /wait for the server ran out/);
     assert.ok(neverHeard.waitedMs >= 30_000 && neverHeard.waitedMs < 32_000, `a server that never speaks is waited thirty seconds (${neverHeard.waitedMs} ms)`);
   } finally { t.mock.timers.reset(); }
 });

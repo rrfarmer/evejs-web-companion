@@ -712,3 +712,24 @@ test("with the bay unread, the drones in space are said as the scene has them", 
   assert.equal(payload.bay, null);
   assert.deepEqual(payload.inSpace.map((drone) => drone.itemID), [BAY_DRONE_ID]);
 });
+
+test("the drones read says how far the server's updates have got, and whether the ball asked of is in the scene", async () => {
+  // Issue #177: an engagement waits for the server's next update and stops at a target gone (app/flow.ts).
+  const { gateway, baseUrl } = await inSpace();
+  gateway.state.space.set(9500001, gateway.droneRow(9500001));
+  const plain = await apiRequest(baseUrl, "/api/bridge/drones");
+  assert.equal(plain.payload.serverUpdates, null, "a scene without the counts (the gateway's) says it does not know");
+  assert.equal(plain.payload.present, null, "nothing was asked");
+  const read = gateway.readSpaceSnapshot.bind(gateway);
+  gateway.readSpaceSnapshot = async (...args) => {
+    const outcome = await read(...args);
+    return { ...outcome, space: { ...outcome.space, serverUpdates: { applied: 7, queued: 2 } } };
+  };
+  const here = await apiRequest(baseUrl, "/api/bridge/drones?present=9500001");
+  assert.deepEqual(here.payload.serverUpdates, { applied: 7, queued: 2 });
+  assert.equal(here.payload.present, true);
+  const gone = await apiRequest(baseUrl, "/api/bridge/drones?present=9599999");
+  assert.equal(gone.payload.present, false);
+  const nonsense = await apiRequest(baseUrl, "/api/bridge/drones?present=abc");
+  assert.equal(nonsense.payload.present, null);
+});

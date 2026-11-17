@@ -20643,9 +20643,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // once the park has applied more than it had applied and queued at this read, such an update is in it, and
     // drones that still do not show the target were not set on it. A read that cannot say (a gateway pilot) waits
     // three seconds, as before; a server that never speaks again is waited for ENGAGE_SERVER_WAIT_MS.
+    // A park whose count went down is a new park (a new ballpark for the session): it holds the server's whole state
+    // as of after the order, so it has heard from the server too.
+    const firstApplied = read.serverUpdates === null ? null : read.serverUpdates.applied;
     const before = read.serverUpdates === null ? null : read.serverUpdates.applied + read.serverUpdates.queued;
     const startedAt = Date.now();
-    const heardSince = (): boolean => before !== null && read.serverUpdates !== null && read.serverUpdates.applied > before;
+    const heardSince = (): boolean => before !== null && firstApplied !== null && read.serverUpdates !== null &&
+      (read.serverUpdates.applied > before || read.serverUpdates.applied < firstApplied);
     const waitedOut = (): boolean =>
       Date.now() - startedAt >= (before === null ? ENGAGE_SETTLE_WAIT_MS : ENGAGE_SERVER_WAIT_MS);
     const settling = (): boolean => outcome.status === "uncertain" && Array.isArray(read.inSpace) &&
@@ -20662,13 +20666,16 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       outcome = decodeDroneEngageOutcome(result, read.inSpace, droneIDs, targetID);
     }
     if (outcome.status === "accepted") return;
-    // A target that left space before the drones were seen on it (a rat the drones or the fleet killed) is not an
-    // order whose outcome is unknown: there is nothing left to set them on. Said as a refusal, so a bot picks its
-    // next target rather than stopping for a pilot to look.
-    if (outcome.status === "uncertain" && read.present === false && outcome.acceptedDroneIDs.length === 0) {
+    // A target that left space before every drone was seen on it (a rat the drones or the fleet killed) is not an
+    // order whose outcome is unknown: there is nothing left to set them on. Where some were seen on it the order
+    // was taken, and is done; where none were, it is said as a refusal. Either way a bot picks its next target
+    // rather than stopping for a pilot to look.
+    if (outcome.status === "uncertain" && read.present === false) {
+      if (outcome.acceptedDroneIDs.length > 0) return;
       throw new BridgeCallError("CALL_REFUSED", "The target was gone before the drones were seen on it.", 200);
     }
-    throw new api.DroneEngageOutcomeError(outcome, heardSince() ? "after-server-update" : "not-seen");
+    throw new api.DroneEngageOutcomeError(outcome,
+      heardSince() ? "after-server-update" : waitedOut() ? "timed-out" : "not-seen");
   }
 
   async function engageDrones(droneIDs: readonly number[], targetID: number): Promise<void> {

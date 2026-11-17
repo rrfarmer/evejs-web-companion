@@ -4915,9 +4915,10 @@ export class DroneEngageOutcomeError extends BridgeCallError {
 
   /**
    * `seen` says why an outcome is not known, for its words: "after-server-update" where the server's next update
-   * came and the drones were not on the target in it, "not-seen" where the wait ended without that.
+   * came and the drones were not on the target in it, "timed-out" where the wait for that update ran out, and
+   * "not-seen" where nothing could be waited for (a drone gone from space or not under this ship, a read failed).
    */
-  constructor(outcome: DroneEngageOutcome, seen: "after-server-update" | "not-seen" = "not-seen") {
+  constructor(outcome: DroneEngageOutcome, seen: "after-server-update" | "timed-out" | "not-seen" = "not-seen") {
     // An unknown outcome is its own code since issue #177: it was BRIDGE_BAD_RESPONSE, whose words ("The server's
     // answer could not be read") a pilot was shown while the server's answer had been read and the drones were
     // simply not yet seen on the target.
@@ -4925,7 +4926,9 @@ export class DroneEngageOutcomeError extends BridgeCallError {
       outcome.status === "refused" ? `The server refused drone engagement: ${[...new Set(outcome.refusals.map((refusal) => refusal.raw))].join(" ")}`
         : seen === "after-server-update"
           ? "The drones were not on the target after the server's next update."
-          : "The drones were not seen on the target before the wait for the server ran out.", 200);
+          : seen === "timed-out"
+            ? "The drones were not seen on the target before the wait for the server ran out."
+            : "The drones were not seen on the target.", 200);
     this.acceptedDroneIDs = outcome.acceptedDroneIDs;
     this.refusedDroneIDs = outcome.refusedDroneIDs;
     this.uncertainDroneIDs = outcome.uncertainDroneIDs;

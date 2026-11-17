@@ -11387,11 +11387,6 @@ async function readDronesInSpace(held, presentID = null) {
 }
 
 /**
- * How far the server's updates have got into the pilot's park, from a game-port scene read: { applied, queued }
- * (gamePort/spaceProjection.js). Null where the read has none, as the gateway's has not: there nothing can tell a
- * server that has stopped from one that has nothing to say.
- */
-/**
  * Whether the ball `id` is in a scene read: true or false, or null where none was asked or the scene could not be
  * read. A drone engagement asks it of its target, as a target gone mid-order is not an order unconfirmed.
  */
@@ -11401,6 +11396,11 @@ function ballPresent(space, id) {
   return entities.some((row) => row && Number(row.itemID) === id);
 }
 
+/**
+ * How far the server's updates have got into the pilot's park, from a game-port scene read: { applied, queued }
+ * (gamePort/spaceProjection.js). Null where the read has none, as the gateway's has not: there nothing can tell a
+ * server that has stopped from one that has nothing to say.
+ */
 function serverUpdatesOf(space) {
   const updates = space && space.serverUpdates;
   return updates && Number.isSafeInteger(updates.applied) && Number.isSafeInteger(updates.queued)
