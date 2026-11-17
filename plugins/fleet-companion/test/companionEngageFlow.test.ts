@@ -32,8 +32,19 @@ const dict = (entries: unknown[][] = []) => ({ type: "dict", entries });
 const keyVal = (entries: unknown[][]) => ({ type: "object", name: "util.KeyVal", args: dict(entries) });
 const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-function harness(role: "combat" | "repair", unreadable = false, lagging = false, neverSettles = false) {
+/**
+ * A game-port pilot's park, as the drone read reports it (serverUpdates, present): after the order the server's
+ * next update is applied on the second read, carrying the drones' new target; `frozenReads` reads pass first with
+ * nothing from a server that has stopped; with `noTarget` its updates come and never carry the target; with
+ * `targetGone` the target has left space by the read after the order.
+ */
+interface ParkModel { readonly frozenReads?: number; readonly noTarget?: boolean; readonly targetGone?: boolean }
+
+function harness(role: "combat" | "repair", unreadable = false, lagging = false, neverSettles = false, park: ParkModel | null = null) {
   const targets = new Map<number, number>();
+  let applied = 40;
+  // Reads of the drones since the last order; null before any order.
+  let readsSinceOrder: number | null = null;
   // A lagging park: the drones' new target is read only from the second read after the order on, as the server
   // sends it with its next tick (OnDroneStateChange queued into the tick's update). With `neverSettles` it never is.
   const pending = new Map<number, number>();
@@ -54,7 +65,7 @@ function harness(role: "combat" | "repair", unreadable = false, lagging = false,
     controlled: true, targetID: targets.get(itemID) ?? null, activity: targets.has(itemID) ? "fighting" : "idle",
   }));
   const fetcher = (async (input: unknown, init?: RequestInit) => {
-    const path = String(input).replace(/\?view=menu$/, "");
+    const path = String(input).replace(/\?view=menu$/, "").replace(/\?present=\d+$/, "");
     const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
     let answer: unknown = { ok: true };
     if (path === "/api/bridge/flight/status") answer = flightBody(false);
@@ -75,7 +86,17 @@ function harness(role: "combat" | "repair", unreadable = false, lagging = false,
       GetWings: { result: dict() }, GetMotd: { result: "Ready." }, GetJoinRequests: { result: dict() },
       GetFleetComposition: { result: { type: "list", items: [] } },
     } };
-    if (path === "/api/bridge/drones") {
+    if (path === "/api/bridge/drones" && park !== null) {
+      if (readsSinceOrder !== null) readsSinceOrder += 1;
+      // The first read after the order is ahead of the server's next tick; from the next on it is in, unless frozen.
+      if (readsSinceOrder !== null && readsSinceOrder > 1 + (park.frozenReads ?? 0)) {
+        applied += 1;
+        if (!park.noTarget) for (const [id, target] of pending) targets.set(id, target);
+        pending.clear();
+      }
+      answer = { ok: true, activeShipID: SHIP_ID, bay: [], inSpace: inSpace(), notifications: [],
+        serverUpdates: { applied, queued: 0 }, present: !(park.targetGone && readsSinceOrder !== null) };
+    } else if (path === "/api/bridge/drones") {
       answer = { ok: true, activeShipID: SHIP_ID, bay: [], inSpace: readAfterOrder && unreadable ? null : inSpace(), notifications: [] };
       if (readAfterOrder && !neverSettles) for (const [id, target] of pending) targets.set(id, target);
       pending.clear();
@@ -101,7 +122,8 @@ function harness(role: "combat" | "repair", unreadable = false, lagging = false,
       assert.equal(targetID, TARGET);
       orders.push(ids);
       const refused = role === "combat" && orders.length === 1 ? [602] : [];
-      for (const id of ids) if (!refused.includes(id)) (lagging || neverSettles ? pending : targets).set(id, TARGET);
+      for (const id of ids) if (!refused.includes(id)) (lagging || neverSettles || park !== null ? pending : targets).set(id, TARGET);
+      readsSinceOrder = 0;
       answer = { ok: true, service: "entity", method: "CmdEngage", result: dict(refused.map((id) => [id, ["CustomNotify",
         dict([["notify", "That target is out of drone control range."]])]])), notifications: [] };
       readAfterOrder = true;
@@ -163,7 +185,8 @@ test("an engagement whose drones show their new target only on the next read is 
 });
 
 test("an engagement whose drones never show the target stops waiting and is sent again", async t => {
-  // The wait is three seconds of the clock; past it the order is unconfirmed, as before, and the companion resends it.
+  // A read that cannot say what the server has sent (a gateway pilot) waits three seconds of the clock; past it the
+  // order is unconfirmed, as before, and the companion resends it.
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const { flow, store, orders } = harness("repair", false, false, true);
   try {
@@ -173,4 +196,79 @@ test("an engagement whose drones never show the target stops waiting and is sent
     assert.deepEqual(orders[0], [601, 602]);
     assert.equal(companionState(store).get().status, "running", "an unknown outcome is never a pause for a companion");
   } finally { companionOf(flow).stopFleetCompanion(); t.mock.timers.reset(); }
+});
+
+test("an engagement waits out a server that has stopped, and is confirmed once its next update comes", async t => {
+  // Issue #177: a server that stops for five seconds sends nothing. Three seconds of the clock ran out and the order,
+  // taken, was called unconfirmed; the wait is now for the server's next update, not for the clock.
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { flow, store, orders } = harness("repair", false, false, false, { frozenReads: 20 });
+  try {
+    await companionOf(flow).startFleetCompanion(DEFAULT_COMPANION_SETUP);
+    for (let tick = 0; tick < 80; tick += 1) { await turn(); t.mock.timers.tick(250); }
+    assert.deepEqual(orders, [[601, 602]], "five seconds without a word from the server, then the target: one order");
+    assert.equal(companionState(store).get().status, "running");
+  } finally { companionOf(flow).stopFleetCompanion(); t.mock.timers.reset(); }
+});
+
+test("an engagement whose drones are not on the target after the server's next update is not waited on further", async t => {
+  // The server has spoken since the order and the drones are not on the target: that is an answer, so the order is
+  // unconfirmed at once (well inside the three seconds the clock gave) and the companion sends it again.
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { flow, store, orders } = harness("repair", false, false, false, { noTarget: true });
+  try {
+    await companionOf(flow).startFleetCompanion(DEFAULT_COMPANION_SETUP);
+    let waitedMs = 0;
+    for (; waitedMs < 20_000 && orders.length < 2; waitedMs += 250) { await turn(); t.mock.timers.tick(250); }
+    assert.ok(orders.length >= 2, "the unconfirmed order was sent again");
+    assert.equal(companionState(store).get().status, "running", "an unknown outcome is never a pause for a companion");
+  } finally { companionOf(flow).stopFleetCompanion(); t.mock.timers.reset(); }
+});
+
+test("an engagement whose target leaves space before the drones are seen on it is a refusal, not an unknown outcome", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { flow, store, orders } = harness("repair", false, false, false, { targetGone: true, frozenReads: 100 });
+  try {
+    await companionOf(flow).startFleetCompanion(DEFAULT_COMPANION_SETUP);
+    for (let tick = 0; tick < 8; tick += 1) { await turn(); t.mock.timers.tick(250); }
+    assert.deepEqual(orders[0], [601, 602]);
+    assert.equal(companionState(store).get().status, "running");
+  } finally { companionOf(flow).stopFleetCompanion(); t.mock.timers.reset(); }
+});
+
+/** Runs the flow's own engagement with the mock clock moving, and says how it ended and after how long. */
+async function engagedAt(t: { mock: { timers: { tick(ms: number): void } } }, flow: AppFlow) {
+  let settled: { ok: boolean; error?: { code?: string; message?: string } } | null = null;
+  const engagement = flow.flying.engageDronesConfirmed(DRONES, TARGET)
+    .then(() => { settled = { ok: true }; }, (error) => { settled = { ok: false, error }; });
+  let waitedMs = 0;
+  for (; settled === null && waitedMs < 60_000; waitedMs += 250) { await turn(); t.mock.timers.tick(250); await turn(); }
+  await engagement;
+  const outcome = settled as { ok: boolean; error?: { code?: string; message?: string } } | null;
+  return { ok: outcome?.ok ?? false, error: outcome?.error, waitedMs };
+}
+
+test("the engagement itself: confirmed after a five-second server stop, unconfirmed at once after an update without the target, refused when the target is gone", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  try {
+    const frozen = await engagedAt(t, harness("repair", false, false, false, { frozenReads: 20 }).flow);
+    assert.equal(frozen.ok, true, "the wait outlasts a stopped server");
+    assert.ok(frozen.waitedMs > 3000, `it waited past three seconds (${frozen.waitedMs} ms)`);
+
+    const noTarget = await engagedAt(t, harness("repair", false, false, false, { noTarget: true }).flow);
+    assert.equal(noTarget.ok, false);
+    assert.equal(noTarget.error?.code, "DRONE_ENGAGE_UNCONFIRMED");
+    assert.match(String(noTarget.error?.message), /after the server's next update/);
+    assert.ok(noTarget.waitedMs < 3000, `the server's word ends the wait (${noTarget.waitedMs} ms)`);
+
+    const gone = await engagedAt(t, harness("repair", false, false, false, { targetGone: true, frozenReads: 100 }).flow);
+    assert.equal(gone.ok, false);
+    assert.equal(gone.error?.code, "CALL_REFUSED", "a refusal, which a bot takes and moves on from");
+    assert.match(String(gone.error?.message), /gone before the drones were seen/);
+
+    const neverHeard = await engagedAt(t, harness("repair", false, false, false, { frozenReads: 1000 }).flow);
+    assert.equal(neverHeard.ok, false);
+    assert.equal(neverHeard.error?.code, "DRONE_ENGAGE_UNCONFIRMED");
+    assert.ok(neverHeard.waitedMs >= 30_000 && neverHeard.waitedMs < 32_000, `a server that never speaks is waited thirty seconds (${neverHeard.waitedMs} ms)`);
+  } finally { t.mock.timers.reset(); }
 });

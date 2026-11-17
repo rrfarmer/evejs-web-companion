@@ -11374,11 +11374,37 @@ const ITEM_FLAG_DRONE_BAY = 87;
  * out of; `controllerID` alone would match a drone flown by this hull for
  * someone else. A drone the panel offers a Recall button for must be both.
  */
-async function readDronesInSpace(held) {
+async function readDronesInSpace(held, presentID = null) {
   const outcome = await gateway.readSpaceSnapshot(held.bridgeSessionID, {
     userid: held.accountID,
   });
-  return { drones: projectDronesInSpace(held, outcome && outcome.space), notifications: outcome ? outcome.notifications : [] };
+  return {
+    drones: projectDronesInSpace(held, outcome && outcome.space),
+    serverUpdates: serverUpdatesOf(outcome && outcome.space),
+    present: ballPresent(outcome && outcome.space, presentID),
+    notifications: outcome ? outcome.notifications : [],
+  };
+}
+
+/**
+ * How far the server's updates have got into the pilot's park, from a game-port scene read: { applied, queued }
+ * (gamePort/spaceProjection.js). Null where the read has none, as the gateway's has not: there nothing can tell a
+ * server that has stopped from one that has nothing to say.
+ */
+/**
+ * Whether the ball `id` is in a scene read: true or false, or null where none was asked or the scene could not be
+ * read. A drone engagement asks it of its target, as a target gone mid-order is not an order unconfirmed.
+ */
+function ballPresent(space, id) {
+  const entities = space && Array.isArray(space.entities) ? space.entities : null;
+  if (!id || entities === null) return null;
+  return entities.some((row) => row && Number(row.itemID) === id);
+}
+
+function serverUpdatesOf(space) {
+  const updates = space && space.serverUpdates;
+  return updates && Number.isSafeInteger(updates.applied) && Number.isSafeInteger(updates.queued)
+    ? { applied: updates.applied, queued: updates.queued } : null;
 }
 
 /** Project this pilot's visible drones from a caller-owned scene read. */
@@ -11461,6 +11487,9 @@ app.get(["/api/bridge/drones", "/api/bridge/script/observation"], requireAuth, a
     const noShip = () =>
       Promise.reject(Object.assign(new Error("No active ship."), { code: "NO_ACTIVE_SHIP" }));
     const observation = req.path === "/api/bridge/script/observation";
+    // ?present=<ball>: whether that ball is in the scene the drones were read from (ballPresent).
+    const presentID = Number.isSafeInteger(Number(req.query.present)) && Number(req.query.present) > 0
+      ? Number(req.query.present) : null;
     const observationStartedAt = Date.now();
     const scope = observation ? {
       bridgeSessionID: held.bridgeSessionID,
@@ -11493,7 +11522,7 @@ app.get(["/api/bridge/drones", "/api/bridge/script/observation"], requireAuth, a
         notifications,
       ),
       godma ? godma.shipInfo : heldTopLevelCall(held, req.webSessionID, "dogmaIM", "ShipGetInfo", [], null),
-      shipID ? (observation ? readObservation() : readDronesInSpace(held)) : noShip(),
+      shipID ? (observation ? readObservation() : readDronesInSpace(held, presentID)) : noShip(),
     ]);
     for (const settled of [bay, shipInfo, inSpace]) {
       if (settled.status === "rejected" && settled.reason && settled.reason.code === "SESSION_NOT_FOUND") {
@@ -11547,6 +11576,11 @@ app.get(["/api/bridge/drones", "/api/bridge/script/observation"], requireAuth, a
       // "the bay is empty", and the panel says which.
       bay: bayRows,
       inSpace: dronesOut,
+      // How far the server's updates have got into the scene the drones were read from; null where not known.
+      serverUpdates: inSpace.status === "fulfilled"
+        ? (observation ? serverUpdatesOf(inSpace.value.space) : inSpace.value.serverUpdates ?? null) : null,
+      present: inSpace.status === "fulfilled"
+        ? (observation ? ballPresent(inSpace.value.space, presentID) : inSpace.value.present ?? null) : null,
       // Raw, decoded browser-side alongside the fitting panel's attributes.
       shipInfo: shipInfo.status === "fulfilled" ? shipInfo.value.result : null,
       errors: {

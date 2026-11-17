@@ -66,7 +66,7 @@ export interface CallMethodOptions {
 
 /** Client-side (non-server) failure codes, alongside the wire's BridgeErrorCode set. */
 export type BridgeClientErrorCode = "BRIDGE_NETWORK_ERROR" | "BRIDGE_BAD_RESPONSE" | "SESSION_REQUEST_RETIRED"
-  | "CANCELLED_LOGIN_RELEASE_UNVERIFIED";
+  | "CANCELLED_LOGIN_RELEASE_UNVERIFIED" | "DRONE_ENGAGE_UNCONFIRMED";
 
 export class BridgeCallError extends Error {
   override readonly name = "BridgeCallError";

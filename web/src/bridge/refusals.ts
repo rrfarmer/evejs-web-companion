@@ -349,6 +349,8 @@ const BRIDGE_REFUSALS: Readonly<Record<string, string>> = Object.freeze({
   // --- client-side, never reaches the server (callMethod.ts) ---
   BRIDGE_NETWORK_ERROR: "The connection to the server dropped. Check it and try again.",
   BRIDGE_BAD_RESPONSE: "The server's answer could not be read.",
+  // A drone engagement whose drones were not seen on the target (app/api.ts, DroneEngageOutcomeError).
+  DRONE_ENGAGE_UNCONFIRMED: "The drones were not seen on the target.",
 });
 
 // --- Transport-transient errors ----------------------------------------------

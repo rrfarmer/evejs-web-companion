@@ -1395,3 +1395,24 @@ test("a whole state names its own ego, and a ship still waited for takes it once
   state([1, 2, 5], 2);
   assert.deepEqual([park.ego, park.wannaBeEgo], [2, null]);
 });
+
+// ── not the client's: how far the server's own updates have got ─────────────
+
+test("the park counts the server's ticks it has applied, and that count holds still while the server says nothing", () => {
+  // Issue #177: the park's own tick runs on through a server that has stopped; what the server has sent does not.
+  const { park, tick } = ccpTicker();
+  const applied = park.appliedUpdates;
+  for (let step = 2; step < 6; step += 1) tick(TICKS_ELAPSED + step);
+  assert.equal(park.appliedUpdates, applied, "four ticks of the park's own clock, and nothing from the server");
+  park.flushState([[park.currentTime + 2, ["Stop", [2]]]], false);
+  assert.deepEqual([park.appliedUpdates, park.history.length], [applied, 1], "received and queued, not yet applied");
+  for (let step = 0; step < 3; step += 1) tick(park.currentTime);
+  assert.deepEqual([park.appliedUpdates, park.history.length], [applied + 1, 0], "applied at its tick");
+});
+
+test("an update the park applies while it holds no state is not counted", () => {
+  const park = new Park();
+  park.flushState([[5, ["Stop", [2]]]], false);
+  park.doPreTick();
+  assert.equal(park.appliedUpdates, 0);
+});
