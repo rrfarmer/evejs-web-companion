@@ -82,11 +82,11 @@ function modelPaths(g) {
   };
 }
 
-async function modelResponse(dir, info, args, ensure, requireSof = false) {
+async function modelResponse(dir, info, args, ensure, canExtract, requireSof = false) {
   const { stem, sof } = modelPaths(info);
   const sofFile = path.join(dir, sof);
   await ensure(stem + ".glb", args, null, () => fileExists(path.join(dir, stem + ".json")) &&
-    ((!requireSof && !fileExists(sofFile)) || containsVersion(sofFile, `"sofBuild":${SOF_BUILD}`)));
+    (fileExists(sofFile) ? !canExtract() || containsVersion(sofFile, `"sofBuild":${SOF_BUILD}`) : !requireSof));
   const mesh = readJson(path.join(dir, stem + ".json"));
   return {
     model: `/client-assets/${stem}.glb`,
@@ -182,7 +182,7 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
     }
     if (g.scene) return { json: g };
     const { graphicID, hull, faction, race } = g;
-    return { json: { graphicID, ...await modelResponse(dir, g, args, ensure), hull, faction, race } };
+    return { json: { graphicID, ...await modelResponse(dir, g, args, ensure, canExtract), hull, faction, race } };
   }
   const dna = /^\/dna\/([A-Za-z0-9_]+(?::[A-Za-z0-9_-]*){0,2})$/.exec(rel);
   if (dna) {
@@ -190,7 +190,7 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
     const args = ["--dna", name];
     const g = readJson(await ensure(`dna/${name.toLowerCase().replace(/:/g, ".")}.json`, args));
     const { hull, faction, race } = g;
-    return { json: { dna: name, ...await modelResponse(dir, g, args, ensure), hull, faction, race } };
+    return { json: { dna: name, ...await modelResponse(dir, g, args, ensure, canExtract), hull, faction, race } };
   }
   const type = /^\/type\/(\d+)$/.exec(rel);
   if (type) {
@@ -208,7 +208,7 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
       }
     }
     if (!g?.gr2) return { json: { typeID, model: null, ...g } };
-    return { json: { typeID, ...await modelResponse(dir, g, args, ensure, true), ...g } };
+    return { json: { typeID, ...await modelResponse(dir, g, args, ensure, canExtract, true), ...g } };
   }
   return { file: path.join(dir, rel.slice(1)) };
 }

@@ -126,6 +126,9 @@ async function copyChildGraphAssets(rf, roots, outRoot) {
   let gpu = false;
   const walkChildren = (n) => {
     if (!n) return;
+    for (const light of n.lights ?? []) {
+      if (light.profile) light.profile = rf.has(light.profile) ? copyRes(rf, light.profile, outRoot) : null;
+    }
     if (n.k === "gpuParticles") gpu = true;
     if (n.k === "traffic") trafficNodes.push(n);
     if (n.k === "mesh" || n.k === "particles") meshNodes.push(n);

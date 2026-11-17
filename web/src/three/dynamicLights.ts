@@ -7,16 +7,17 @@
 // - only within the light's radius; att = sat((1 / (d + 0.001) - 1 / (R + 0.001)) / (999.99994 - 1 / (R + 0.001)))
 //   x 999.99994, a window on 1/d that reaches nought at R;
 // - a spot (its outer cosine above nought): x sat((D . L - cosOuter) / (cosInner - cosOuter))^2, L toward the light;
+// - an IES profile: x the red channel of mip 0 at 0.5 - 0.5 * dot(D, L);
 // - its colour x att x (1 - min(sourceRadius / d, 0.8)) into the hull's BRDF (the client's diffuse has no 1/pi: pi
 //   x three's).
 // The client tiles the screen and gives each pixel its tile's list (computelightlists.fx); here one list for the
 // frame: the MAX largest on screen (publish), uploaded as view-space uniforms each frame, taken
-// from what the hull children's tickers offered during the frame before. The IES light profiles
-// (LightProfileArray) and the second specular layer's share are not drawn.
+// from what the hull children's tickers offered during the frame before. The second specular layer's share is omitted.
 
-import { lodSettings } from "../play/gfxSettings.ts";
+import { gfx, lodSettings } from "../play/gfxSettings.ts";
 import * as THREE from "three";
 import { activationOf } from "./activation.ts";
+import { LIGHT_PROFILE_WIDTH, readLightProfileDDS } from "./ddsTexture.ts";
 
 export const MAX_DYNAMIC_LIGHTS = 16;
 
@@ -30,10 +31,11 @@ export interface ChildLight {
   sourceRadius?: number;
   color: number[];
   brightness: number;
-  /** A spot's direction (EVE space) and its cones' cosines. */
+  /** A spot or IES profile's axis (EVE space), and a spot's cone cosines. */
   direction?: number[];
   cosOuter?: number;
   cosInner?: number;
+  profile?: string;
 }
 
 /** The frame's light list as the hull materials read it (one block, shared by every hull material). */
@@ -41,17 +43,43 @@ export const dynamicLightUniforms = {
   dynCount: { value: 0 },
   dynPos: { value: Array.from({ length: MAX_DYNAMIC_LIGHTS }, () => new THREE.Vector3()) },
   dynColor: { value: Array.from({ length: MAX_DYNAMIC_LIGHTS }, () => new THREE.Vector3()) },
-  // radius, source radius, cos inner, unused
+  // radius, source radius, cos inner, profile row at its texel center (zero when absent)
   dynShape: { value: Array.from({ length: MAX_DYNAMIC_LIGHTS }, () => new THREE.Vector4()) },
-  // direction (view space), cos outer (nought: not a spot)
+  // axis (view space), cos outer (zero on point lights)
   dynSpot: { value: Array.from({ length: MAX_DYNAMIC_LIGHTS }, () => new THREE.Vector4()) },
+  dynProfiles: { value: null as THREE.DataTexture | null },
 };
 
-interface Gathered { pos: THREE.Vector3; color: THREE.Vector3; radius: number; source: number; dir: THREE.Vector3 | null; cosOuter: number; cosInner: number }
-interface LightFrame { frame: number; gathering: Gathered[]; published: Gathered[] }
+interface Gathered {
+  pos: THREE.Vector3; color: THREE.Vector3; radius: number; source: number;
+  dir: THREE.Vector3 | null; cosOuter: number; cosInner: number; profile?: string;
+}
+interface ProfileRows { texture: THREE.DataTexture; pixels: Uint16Array; sources: (Uint16Array | undefined)[] }
+interface LightFrame { frame: number; gathering: Gathered[]; published: Gathered[]; profiles?: ProfileRows }
 const lightFrames = new WeakMap<THREE.WebGLRenderer, LightFrame>();
+const profilePixels = new Map<string, Uint16Array | null>();
 let lastPublished: LightFrame | null = null;
 const tmp = new THREE.Vector3();
+
+function loadedProfile(url: string): Uint16Array | null {
+  if (!profilePixels.has(url)) {
+    profilePixels.set(url, null);
+    void fetch(url).then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.arrayBuffer();
+    }).then((bytes) => profilePixels.set(url, readLightProfileDDS(bytes))).catch(() => {});
+  }
+  return profilePixels.get(url) ?? null;
+}
+
+function createProfileRows(): ProfileRows {
+  const pixels = new Uint16Array(LIGHT_PROFILE_WIDTH * MAX_DYNAMIC_LIGHTS);
+  // One row per selected light. Sampling at row centers reproduces the native per-slice clamped linear filter.
+  const texture = new THREE.DataTexture(pixels, LIGHT_PROFILE_WIDTH, MAX_DYNAMIC_LIGHTS, THREE.RedFormat, THREE.HalfFloatType);
+  texture.minFilter = texture.magFilter = THREE.LinearFilter;
+  texture.name = "IES light profiles";
+  return { texture, pixels, sources: [] };
+}
 
 /**
  * A hull children group's lights offered for the frame (from its ticker, as it is drawn); at the first offer of a new
@@ -71,7 +99,7 @@ export function offerLights(renderer: THREE.WebGLRenderer, camera: THREE.Camera,
       state.gathering = [];
     }
     // Ship Info, Fitting and the play scene can render in the same tab.
-    publish(renderer, camera, state.published);
+    publish(renderer, camera, state);
     lastPublished = state;
   }
   const lights = group.userData.lights as ChildLight[] | undefined;
@@ -88,7 +116,7 @@ export function offerLights(renderer: THREE.WebGLRenderer, camera: THREE.Camera,
     const dir = l.direction ? new THREE.Vector3(l.direction[0] ?? 0, l.direction[1] ?? 0, l.direction[2] ?? -1).transformDirection(m) : null;
     state.gathering.push({
       pos, color: new THREE.Vector3((l.color[0] ?? 0) * b, (l.color[1] ?? 0) * b, (l.color[2] ?? 0) * b),
-      radius: l.radius * scale, source: (l.sourceRadius ?? 0) * scale, dir, cosOuter: l.cosOuter ?? 0, cosInner: l.cosInner ?? 0,
+      radius: l.radius * scale, source: (l.sourceRadius ?? 0) * scale, dir, cosOuter: l.cosOuter ?? 0, cosInner: l.cosInner ?? 0, profile: l.profile,
     });
   }
 }
@@ -99,14 +127,19 @@ export function offerLights(renderer: THREE.WebGLRenderer, camera: THREE.Camera,
  * LOD factor: the LOD quality's, AdjustLightCutoff), dimmed over FADE_SIZE 5 pixels past it, and - scaleBrightness, Tr2Light's default - its colour x its
  * radius. The MAX largest on screen kept.
  */
-function publish(renderer: THREE.WebGLRenderer, camera: THREE.Camera, gathered: readonly Gathered[]): void {
+function publish(renderer: THREE.WebGLRenderer, camera: THREE.Camera, state: LightFrame): void {
+  if (gfx().shaderQuality !== 3) {
+    dynamicLightUniforms.dynCount.value = 0;
+    dynamicLightUniforms.dynProfiles.value = null;
+    return;
+  }
   const eye = camera.getWorldPosition(new THREE.Vector3());
   const ahead = camera.getWorldDirection(new THREE.Vector3());
   const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
   const halfWidth = (camera.projectionMatrix.elements[0] ?? 1) * renderer.domElement.width * 0.5;
   const cutoff = 7 * lodSettings().lodFactor;
   const sphere = new THREE.Sphere();
-  const list = gathered
+  const list = state.published
     .map((g) => {
       if (!frustum.intersectsSphere(sphere.set(g.pos, g.radius))) return null;
       const d = tmp.copy(g.pos).sub(eye);
@@ -118,13 +151,26 @@ function publish(renderer: THREE.WebGLRenderer, camera: THREE.Camera, gathered: 
     .sort((a, b) => b.size - a.size)
     .slice(0, MAX_DYNAMIC_LIGHTS);
   const view = camera.matrixWorldInverse;
+  let profilesChanged = false;
   list.forEach(({ g, dim }, i) => {
     dynamicLightUniforms.dynPos.value[i]!.copy(g.pos).applyMatrix4(view);
     dynamicLightUniforms.dynColor.value[i]!.copy(g.color).multiplyScalar(dim);
-    dynamicLightUniforms.dynShape.value[i]!.set(g.radius, g.source, g.cosInner, 0);
+    const profile = g.profile && g.dir ? loadedProfile(g.profile) : null;
+    if (profile) {
+      const atlas = state.profiles ??= createProfileRows();
+      if (atlas.sources[i] !== profile) {
+        atlas.pixels.set(profile, i * LIGHT_PROFILE_WIDTH);
+        atlas.sources[i] = profile;
+        profilesChanged = true;
+      }
+    }
+    const row = profile ? (i + 0.5) / MAX_DYNAMIC_LIGHTS : 0;
+    dynamicLightUniforms.dynShape.value[i]!.set(g.radius, g.source, g.cosInner, row);
     const s = dynamicLightUniforms.dynSpot.value[i]!;
     if (g.dir) { tmp.copy(g.dir).transformDirection(view); s.set(tmp.x, tmp.y, tmp.z, g.cosOuter); } else s.set(0, 0, 0, 0);
   });
+  if (profilesChanged && state.profiles) state.profiles.texture.needsUpdate = true;
+  dynamicLightUniforms.dynProfiles.value = state.profiles?.texture ?? null;
   dynamicLightUniforms.dynCount.value = list.length;
 }
 
@@ -136,6 +182,7 @@ export function followDynamicLights<M extends THREE.Material>(material: M): M {
     shader.fragmentShader = `#define DYN_MAX ${MAX_DYNAMIC_LIGHTS}
 #define DYN_LIGHTS
 uniform int dynCount; uniform vec3 dynPos[DYN_MAX]; uniform vec3 dynColor[DYN_MAX]; uniform vec4 dynShape[DYN_MAX]; uniform vec4 dynSpot[DYN_MAX];
+uniform sampler2D dynProfiles;
 #define DYN_LIGHTS_LOOP ${LOOP.replace(/\s*\n\s*/g, " ")}
 ${shader.fragmentShader.replace("#include <lights_fragment_begin>", `#include <lights_fragment_begin>
   DYN_LIGHTS_LOOP`)}`;
@@ -155,9 +202,13 @@ const LOOP = `
     dynL /= dynD;
     float dynRr = 1.0 / ( dynR + 0.001 );
     float dynAtt = clamp( ( 1.0 / ( dynD + 0.001 ) - dynRr ) / ( 999.999939 - dynRr ), 0.0, 1.0 ) * 999.999939;
+    float dynAxis = dot( dynSpot[ i ].xyz, dynL );
     if ( dynSpot[ i ].w > 0.0 ) {
-      float dynC = clamp( ( dot( dynSpot[ i ].xyz, dynL ) - dynSpot[ i ].w ) / ( dynShape[ i ].z - dynSpot[ i ].w ), 0.0, 1.0 );
+      float dynC = clamp( ( dynAxis - dynSpot[ i ].w ) / ( dynShape[ i ].z - dynSpot[ i ].w ), 0.0, 1.0 );
       dynAtt *= dynC * dynC;
+    }
+    if ( dynShape[ i ].w > 0.0 ) {
+      dynAtt *= texture2D( dynProfiles, vec2( 0.5 - 0.5 * dynAxis, dynShape[ i ].w ) ).r;
     }
     float dynSrc = clamp( dynShape[ i ].y / dynD, 0.0, 0.8 );
     directLight.color = dynColor[ i ] * dynAtt * ( 1.0 - dynSrc ) * PI;

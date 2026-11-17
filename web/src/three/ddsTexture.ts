@@ -10,6 +10,21 @@ import * as THREE from "three";
 const DDS_MAGIC = 0x20534444;
 const DDSCAPS2_CUBEMAP = 0x200;
 
+export const LIGHT_PROFILE_WIDTH = 1024;
+
+/** The top mip of an installed IES profile, in its original half-float representation. */
+export function readLightProfileDDS(buffer: ArrayBuffer): Uint16Array {
+  const bytes = new DataView(buffer);
+  const offset = 128;
+  if (bytes.byteLength < offset + LIGHT_PROFILE_WIDTH * 2 ||
+      bytes.getUint32(0, true) !== DDS_MAGIC || bytes.getUint32(4, true) !== 124 ||
+      bytes.getUint32(12, true) !== 1 || bytes.getUint32(16, true) !== LIGHT_PROFILE_WIDTH ||
+      bytes.getUint32(76, true) !== 32 || bytes.getUint32(84, true) !== 111) { // D3DFMT_R16F
+    throw new Error("Invalid IES profile DDS");
+  }
+  return Uint16Array.from({ length: LIGHT_PROFILE_WIDTH }, (_, i) => bytes.getUint16(offset + i * 2, true));
+}
+
 // DXGI_FORMAT values found in the client's DX10-header files
 const DXGI: Record<number, { format: THREE.CompressedPixelFormat; block: number }> = {
   71: { format: THREE.RGBA_S3TC_DXT1_Format, block: 8 }, // BC1_UNORM

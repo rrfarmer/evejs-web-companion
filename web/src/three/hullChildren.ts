@@ -49,7 +49,7 @@ export interface SofChildContainer {
   srt?: SofChildSrt | null;
   objects: SofChildNode[];
   /** Its lights (Tr2PointLight, Tr2SpotLight, Tr2FactionLight: children.mjs readLight), in its own space. */
-  lights?: { id?: number; position: number[]; radius: number; innerRadius: number; color: number[]; brightness: number; rotation?: number[]; innerAngle?: number; outerAngle?: number }[];
+  lights?: { id?: number; position: number[]; radius: number; innerRadius: number; color: number[]; brightness: number; rotation?: number[]; innerAngle?: number; outerAngle?: number; profile?: string | null }[];
   /** Its controllers (controllers.ts), run with it as their owner. */
   controllers?: SofController[];
   /** Its fx attributes (EveCameraFxAttributes, EveSpaceObjectFxAttributes): values gathered each frame for its sets. */
@@ -1683,12 +1683,17 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
         // rotation applied to (0, 0, -1), turned by the transform, its cones' cosines from the angles in degrees)
         const at = new THREE.Vector3(l.position[0] ?? 0, l.position[1] ?? 0, l.position[2] ?? 0).applyMatrix4(flatHere);
         const k = meanScale(flatHere);
-        const spot = l.rotation ? {
-          direction: new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(l.rotation[0], l.rotation[1], l.rotation[2], l.rotation[3]))
-            .transformDirection(flatHere).toArray(),
-          cosOuter: Math.cos((Math.PI * 2 * (l.outerAngle ?? 0)) / 360), cosInner: Math.cos((Math.PI * 2 * (l.innerAngle ?? 0)) / 360),
+        const direction = l.rotation ? new THREE.Vector3(0, 0, -1)
+          .applyQuaternion(new THREE.Quaternion(l.rotation[0], l.rotation[1], l.rotation[2], l.rotation[3]))
+          .transformDirection(flatHere).toArray() : undefined;
+        const spot = l.outerAngle !== undefined ? {
+          cosOuter: Math.cos(THREE.MathUtils.degToRad(l.outerAngle)), cosInner: Math.cos(THREE.MathUtils.degToRad(l.innerAngle ?? 0)),
         } : {};
-        (lightList ?? lights).push({ ...(l.id !== undefined ? { id: l.id, scale: k } : {}), position: at.toArray(), radius: l.radius * k, sourceRadius: (l.innerRadius ?? 0) * k, color: l.color, brightness: l.brightness, ...spot });
+        (lightList ?? lights).push({
+          ...(l.id !== undefined ? { id: l.id, scale: k } : {}), position: at.toArray(), radius: l.radius * k,
+          sourceRadius: (l.innerRadius ?? 0) * k, color: l.color, brightness: l.brightness, direction,
+          profile: l.profile ?? undefined, ...spot,
+        });
       }
       if (node.modifiers.includes("EveChildModifierHalo")) {
         const z = new THREE.Vector3();
