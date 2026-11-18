@@ -366,6 +366,9 @@ function projectSpace(park, { solarSystemID, shipID, readings = null, warpDestin
     shipID,
     // The park's tick, as the server's clock in milliseconds: a tick is a whole second of that clock.
     sampledAtMs: park.currentTime * 1000,
+    // How far the server's own updates have got into the park: the ticks of them applied, and those received and
+    // still queued (Park.appliedUpdates). The tick above runs on through a server that has stopped; these do not.
+    serverUpdates: { applied: park.appliedUpdates, queued: park.history.length },
     entities,
     ship: own ? {
       itemID: own.itemID,

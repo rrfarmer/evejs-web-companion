@@ -4211,9 +4211,14 @@ const SCOOP_LEAVE_STEP_MS = 250;
 /** How long a launch's new drones are waited for in the drones' read, and how often it is made again. */
 const LAUNCH_ARRIVAL_WAIT_MS = 3000;
 const LAUNCH_ARRIVAL_STEP_MS = 250;
-/** How long an engagement's drones are waited for to be read on their target, and how often they are read again. */
-const ENGAGE_SETTLE_WAIT_MS = 3000;
+/**
+ * How often an engagement's drones are read again while they are waited for on their target. How long: until an
+ * update the server sent after the order is in the pilot's park, or ENGAGE_SERVER_WAIT_MS where a server that has
+ * stopped never sends one; and where the read cannot say what the server has sent (a gateway pilot), three seconds.
+ */
 const ENGAGE_SETTLE_STEP_MS = 250;
+const ENGAGE_SERVER_WAIT_MS = 30_000;
+const ENGAGE_SETTLE_WAIT_MS = 3000;
 /** A whole number as the bridge carries one: a number, or a long as a decimal text; null for anything else. */
 function wholeNumberOf(value: unknown): number | null {
   const raw = value !== null && typeof value === "object" && "value" in (value as object) ? (value as { value: unknown }).value : value;
@@ -20619,33 +20624,70 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   /**
    * An engagement a bot must see settled before it goes on: each drone ordered is read in space after, set on the
    * target, or the server said why not (bridge/drones.ts, decodeDroneEngageOutcome); otherwise it fails with what
-   * was and was not taken (api.DroneEngageOutcomeError).
+   * was and was not taken (api.DroneEngageOutcomeError), or, where the target left space first, as refused.
    */
   async function engageDronesConfirmed(droneIDs: readonly number[], targetID: number): Promise<void> {
-    const { inSpace, result } = await orderedThenRead(() => engageWithDrones(bridgeDo, droneIDs, targetID));
-    let read = inSpace;
-    let outcome = decodeDroneEngageOutcome(result, read, droneIDs, targetID);
+    const result = await engageWithDrones(bridgeDo, droneIDs, targetID);
+    let read = await api.getDrones(callOptions, targetID);
+    let outcome = decodeDroneEngageOutcome(result, read.inSpace, droneIDs, targetID);
     // A drone's new target reaches the pilot's park with the server's next tick (OnDroneStateChange is queued into
     // the tick's update, droneRuntime.js queueDroneGameplayEvent), and the read just after the answer is often ahead
     // of it: every drone taken still shows its old target or none. So while an unconfirmed drone is read in space
-    // under this ship and not yet on the target, the drones are read again, as a launch's are (LAUNCH_ARRIVAL_*).
-    // Nothing else can settle by waiting: a drone gone from space, an answer that could not be read with the drones
-    // already on the target, or a read that failed. Three seconds of the clock, not of steps, as a slow read must
-    // not hold the bot's next decision longer; a re-read that fails ends the wait with what was last read.
-    const settling = (): boolean => outcome.status === "uncertain" && Array.isArray(read) &&
-      (decodeDronesInSpace(read) ?? []).some((drone) => outcome.uncertainDroneIDs.includes(drone.itemID) &&
+    // under this ship and not yet on the target, the drones are read again.
+    //
+    // Issue #177: for how long is not a number of seconds. A server that stops for a few seconds (a site being
+    // cleaned up does) sends nothing, and the park's own clock runs on through it, so a wait of three seconds of
+    // the clock ran out in a fight and paused the bot with the order taken. What ends the wait is the server's
+    // word: an update it sent after the order, applied in the park. Anything the park receives after this first
+    // read was sent after the order (one connection, in order), and it is applied after what was queued then: so
+    // once the park has applied more than it had applied and queued at this read, such an update is in it, and
+    // drones that still do not show the target were not set on it. A read that cannot say (a gateway pilot) waits
+    // three seconds, as before; a server that never speaks again is waited for ENGAGE_SERVER_WAIT_MS.
+    // A park whose count went down is a new park (a new ballpark for the session): it holds the server's whole state
+    // as of after the order, so it has heard from the server too.
+    const firstApplied = read.serverUpdates === null ? null : read.serverUpdates.applied;
+    const before = read.serverUpdates === null ? null : read.serverUpdates.applied + read.serverUpdates.queued;
+    const startedAt = Date.now();
+    const heardSince = (): boolean => before !== null && firstApplied !== null && read.serverUpdates !== null &&
+      (read.serverUpdates.applied > before || read.serverUpdates.applied < firstApplied);
+    const waitedOut = (): boolean =>
+      Date.now() - startedAt >= (before === null ? ENGAGE_SETTLE_WAIT_MS : ENGAGE_SERVER_WAIT_MS);
+    const settling = (): boolean => outcome.status === "uncertain" && Array.isArray(read.inSpace) &&
+      read.present !== false && !heardSince() && !waitedOut() &&
+      (decodeDronesInSpace(read.inSpace) ?? []).some((drone) => outcome.uncertainDroneIDs.includes(drone.itemID) &&
         drone.controlled && drone.targetID !== targetID);
-    const deadline = Date.now() + ENGAGE_SETTLE_WAIT_MS;
-    while (settling() && Date.now() < deadline) {
+    while (settling()) {
       await new Promise((resolve) => setTimeout(resolve, ENGAGE_SETTLE_STEP_MS));
       try {
-        read = (await api.getDrones(callOptions)).inSpace;
+        read = await api.getDrones(callOptions, targetID);
       } catch {
         break;
       }
-      outcome = decodeDroneEngageOutcome(result, read, droneIDs, targetID);
+      outcome = decodeDroneEngageOutcome(result, read.inSpace, droneIDs, targetID);
     }
-    if (outcome.status !== "accepted") throw new api.DroneEngageOutcomeError(outcome);
+    if (outcome.status === "accepted") return;
+    // Issue #177: a bot takes its drones from a look at space a tick old, and a drone can die (or be scooped by
+    // another ship) before the order reaches the server, which then refuses that drone alone: "That drone is not
+    // currently under this ship's control." Such a drone is out of the fight, not a drone whose order went wrong,
+    // so where the read after the order no longer shows a refused drone in space under this ship, it is left out:
+    // the order is done when every other drone took it. This goes by what is read, not by the server's words.
+    // (Some drone taken means the read was whole: decodeDroneEngageOutcome accepts none from a read it cannot trust.)
+    if (outcome.status === "refused" && outcome.acceptedDroneIDs.length > 0) {
+      const flight = decodeDronesInSpace(read.inSpace) ?? [];
+      if (outcome.refusedDroneIDs.every((id) => !flight.some((drone) => drone.itemID === id && drone.controlled))) {
+        return;
+      }
+    }
+    // A target that left space before every drone was seen on it (a rat the drones or the fleet killed) is not an
+    // order whose outcome is unknown: there is nothing left to set them on. Where some were seen on it the order
+    // was taken, and is done; where none were, it is said as a refusal. Either way a bot picks its next target
+    // rather than stopping for a pilot to look.
+    if (outcome.status === "uncertain" && read.present === false) {
+      if (outcome.acceptedDroneIDs.length > 0) return;
+      throw new BridgeCallError("CALL_REFUSED", "The target was gone before the drones were seen on it.", 200);
+    }
+    throw new api.DroneEngageOutcomeError(outcome,
+      heardSince() ? "after-server-update" : waitedOut() ? "timed-out" : "not-seen");
   }
 
   async function engageDrones(droneIDs: readonly number[], targetID: number): Promise<void> {

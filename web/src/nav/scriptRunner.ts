@@ -943,7 +943,7 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
             !(result.action.kind === "jettison" && deps.mutationCustody?.()) &&
             code !== "EDGE_OWNER_OVERLOADED" &&
             (isTransportTransient(error) || isTransitionTimeout(error) || code === "BRIDGE_BAD_RESPONSE" ||
-             code === "MODULE_ACTION_UNCERTAIN")) {
+             code === "MODULE_ACTION_UNCERTAIN" || code === "DRONE_ENGAGE_UNCONFIRMED")) {
           // Preserve possible ownership for observed Stop reconciliation, not step completion.
           if (memory) {
             const macroMem = { ...memory.macroMem };
