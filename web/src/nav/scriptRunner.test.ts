@@ -65,15 +65,23 @@ test("mobile combat observation is requested before a preceding node advances", 
   runner.stop();
 });
 
-test("uncertain requested-module mutation pauses custody and is never replayed by Resume", async () => {
+test("uncertain requested-module mutation flies home, keeps custody, and is never replayed by Resume", async () => {
   const activate: MacroDecider = () => mt({ kind: "activate", moduleID: 11, targetID: 0 }, { kind: "acting" });
-  const h = harness({ registry: { "fight-with-drones": activate }, issueThrows: () =>
-    Object.assign(new Error("Requested module state is unreadable"), { code: "MODULE_ACTION_UNCERTAIN" }) });
+  const h = harness({ registry: { "fight-with-drones": activate }, issueThrows: (a) => a.kind === "activate"
+    ? Object.assign(new Error("Requested module state is unreadable"), { code: "MODULE_ACTION_UNCERTAIN" }) : null });
   h.runner.start(script([macroStep("fight", "fight-with-drones")]));
   await h.runner.tick();
+  assert.equal(h.runner.getStatus(), "running", "a stop in space is not a pause where the ship floats");
+  assert.equal(h.runner.snapshot().phase, "Heading home");
+  await issueTicks(h, 2);
+  assert.deepEqual(h.issued.map(a => a.kind), ["activate", "warp"], "the trip flies home and never repeats the unknown order");
+  h.setObs(calm({ inSpace: false, docked: true }));
+  for (let i = 0; i < 10 && h.runner.getStatus() === "running"; i++) await h.runner.tick();
   assert.equal(h.runner.getStatus(), "paused");
+  assert.match(h.runner.snapshot().pauseReason ?? "", /outcome.*could not be confirmed.*Stop/, "docked with the reason that sent it home");
   h.runner.resume(); await h.runner.tick();
-  assert.equal(h.issued.length, 1);
+  assert.equal(h.runner.getStatus(), "paused", "Resume still waits for the player's check");
+  assert.equal(h.issued.filter(a => a.kind === "activate").length, 1);
 });
 test("definite module refusal leaves the action safely retryable", async () => {
   let calls = 0;
@@ -253,17 +261,27 @@ for (const scenario of completionCases) {
     const doc = script([scenario.step]);
     h.runner.start(doc);
     await h.runner.tick();
+    if (scenario.observation.docked !== true) {
+      // In space the run flies home first and pauses there (`pauseWith`).
+      assert.equal(h.runner.snapshot().phase, "Heading home");
+      h.setObs(calm({ inSpace: false, docked: true }));
+      for (let i = 0; i < 10 && h.runner.getStatus() === "running"; i++) await h.runner.tick();
+    }
     assert.equal(h.runner.getStatus(), "paused");
     assert.match(h.runner.snapshot().pauseReason ?? "", /outcome.*could not be confirmed/);
     h.runner.resume();
     assert.equal(h.runner.getStatus(), "paused");
-    assert.equal(h.runner.resumeHeadHome("run ended"), false);
+    // The deadline's trip home may run (it never repeats the unknown order);
+    // docked it ends at once, and the custody is still there.
+    assert.equal(h.runner.resumeHeadHome("run ended"), true);
+    await h.runner.tick();
+    assert.equal(h.runner.getStatus(), "paused");
     assert.throws(() => h.runner.start(doc), /Verify the previous action/);
     await h.runner.suspendTransport();
     assert.equal(h.runner.transportCustody(), true);
     assert.throws(() => h.runner.resumeTransport(), /unresolved/);
     await h.runner.tick();
-    assert.equal(h.issued.length, 1, "uncertain work is never replayed or declared complete");
+    assert.equal(h.issued.filter(a => a.kind === scenario.action).length, 1, "uncertain work is never replayed or declared complete");
     h.runner.stop();
     assert.equal(h.runner.transportCustody(), false, "explicit Stop acknowledges the outcome check");
   });
@@ -507,7 +525,8 @@ for (const partial of [true, false]) {
       const started = new Promise<void>(resolve => { entered = resolve; });
       const pending = new Promise<void>((_resolve, reject) => { fail = reject; });
       const issued: ScriptAction[] = [];
-      const runner = createScriptRunner({ observe: async () => calm(),
+      let observation = calm();
+      const runner = createScriptRunner({ observe: async () => observation,
         issue: async action => { issued.push(action); if (issued.length === 1) { entered(); await pending; } },
         registry: { "defend-with-drones": (_step, _obs, mem) => mem["engaged"]
           ? mt({ kind: "wait" }, { kind: "done" })
@@ -525,16 +544,27 @@ for (const partial of [true, false]) {
       await ticking;
       await suspension;
       if (partial) {
+        if (!suspended) {
+          // Issue #177: the ship is in a fight, so it flies home before it
+          // pauses, and the trip's orders are its own, never the engagement.
+          assert.equal(runner.getStatus(), "running");
+          assert.equal(runner.snapshot().phase, "Heading home");
+          assert.equal(runner.transportCustody(), true, "the unknown outcome is still held through the trip");
+          for (let i = 0; i < 6; i++) await runner.tick();
+          assert.deepEqual([...new Set(issued.slice(1).map(a => a.kind))], ["warp"]);
+          observation = calm({ inSpace: false, docked: true });
+          for (let i = 0; i < 10 && runner.getStatus() === "running"; i++) await runner.tick();
+        }
         assert.equal(runner.getStatus(), "paused");
         assert.match(runner.snapshot().pauseReason ?? "", /Some drones accepted.*Verify.*Stop/);
         assert.equal(runner.transportCustody(), true);
         runner.resume();
-        assert.equal(runner.resumeHeadHome("Stop"), false);
+        assert.equal(runner.getStatus(), "paused");
         assert.throws(() => runner.start(doc), /Verify the previous action/);
         await runner.suspendTransport();
         assert.throws(() => runner.resumeTransport(), /unresolved/);
         await runner.tick();
-        assert.equal(issued.length, 1, "accepted drone 1 is never replayed by a full-flight retry");
+        assert.equal(issued.filter(a => a.kind === "engageDrones").length, 1, "accepted drone 1 is never replayed by a full-flight retry");
         runner.stop();
         assert.equal(runner.transportCustody(), false, "explicit Stop follows manual outcome verification");
       } else {
@@ -581,7 +611,13 @@ test("pending jettison owns manual and transport resume and cannot issue twice",
   h.runner.start(s);
   await h.runner.tick();
   assert.equal(h.issued.length, 1);
+  assert.equal(h.runner.snapshot().phase, "Heading home", "in space the run flies home before it pauses");
+  await issueTicks(h, 2);
+  assert.deepEqual(h.issued.map(a => a.kind), ["jettison", "warp"]);
+  h.setObs(calm({ inSpace: false, docked: true }));
+  for (let i = 0; i < 10 && h.runner.getStatus() === "running"; i++) await h.runner.tick();
   assert.equal(h.runner.getStatus(), "paused");
+  assert.match(h.runner.snapshot().pauseReason ?? "", /Jettison needs reconciliation/);
   h.runner.resume();
   assert.equal(h.runner.getStatus(), "paused");
   assert.equal(h.runner.resumeHeadHome("Stop"), false);
@@ -590,7 +626,7 @@ test("pending jettison owns manual and transport resume and cannot issue twice",
   assert.equal(h.runner.transportCustody(), true);
   assert.throws(() => h.runner.resumeTransport(), /unresolved/);
   await h.runner.tick();
-  assert.equal(h.issued.length, 1);
+  assert.equal(h.issued.filter(a => a.kind === "jettison").length, 1);
   pending = false;
   h.runner.resumeTransport();
   assert.equal(h.runner.getStatus(), "running");
@@ -744,6 +780,8 @@ test("an unconfirmed corporate route move pauses before any automatic retry", as
     registry: { "haul-all": () => mt(action, { kind: "acting" }) },
     issueThrows: () => new Error("HAUL_TRANSFER_UNCONFIRMED"),
   });
+  // Corporate transfers are made docked, where a stop is a plain pause.
+  h.setObs(calm({ inSpace: false, docked: true }));
   h.runner.start(script([macroStep("h", "haul-all")]));
   await h.runner.tick();
   assert.equal(h.runner.getStatus(), "paused");
@@ -825,7 +863,12 @@ test("an unconfirmed strict unload cannot finish or replay after Resume even whe
   await runner.tick();
   assert.equal(runner.getStatus(), "paused");
   assert.equal(writes, 1);
-  assert.equal(runner.resumeHeadHome("Stop"), false);
+  // Docked, the trip home ends on its first tick and repeats nothing.
+  assert.equal(runner.resumeHeadHome("Stop"), true);
+  await runner.tick();
+  assert.equal(runner.getStatus(), "paused");
+  assert.equal(writes, 1);
+  assert.throws(() => runner.start(script([])), /Verify the previous action/);
   runner.stop();
 });
 
@@ -1518,4 +1561,82 @@ test("a session change that never settles still ends the run, by heading home", 
 
   const latest = h.progress[h.progress.length - 1]!;
   assert.match(latest.why ?? "", /turned back while a session change/i, "waiting forever is its own way to lose a ship");
+});
+
+// ── A stop in space flies home first (issue #177) ───────────────────────────
+//
+// A pilot paused where it floats is left to the rats. Every runner stop goes
+// through `pauseWith`, which flies the ship home first when it was last seen in
+// space, and pauses on arrival with the reason that sent it there.
+
+const uncertain = () => Object.assign(new Error("Requested module state is unreadable"), { code: "MODULE_ACTION_UNCERTAIN" });
+const fightOnce: MacroDecider = () => mt({ kind: "activate", moduleID: 11, targetID: 0 }, { kind: "acting" });
+
+test("an unconfirmed order on the way home is retried as a refusal, and only a streak of them pauses", async () => {
+  const h = harness({ registry: { "fight-with-drones": fightOnce }, issueThrows: (a) => a.kind === "activate" ? uncertain()
+    : Object.assign(new Error("The game server did not answer in time."), { code: "EVE_GATEWAY_TIMEOUT" }) });
+  h.runner.start(script([macroStep("fight", "fight-with-drones")]));
+  await h.runner.tick();
+  assert.equal(h.runner.snapshot().phase, "Heading home");
+  await issueTicks(h, 3);
+  assert.equal(h.runner.getStatus(), "running", "a lost answer to a warp does not park the escaping ship");
+  assert.deepEqual(h.issued.slice(1).map(a => a.kind), ["warp", "warp"]);
+  await issueTicks(h, 1 + MAX_CONSECUTIVE_REFUSALS);
+  assert.equal(h.runner.getStatus(), "paused", "the refusal ledger bounds it");
+  assert.match(h.runner.snapshot().pauseReason ?? "", /refusals in a row/);
+  assert.equal(h.issued.filter(a => a.kind === "activate").length, 1);
+});
+
+test("a trip home that cannot be flown pauses with the fault and the reason the trip failed", async () => {
+  const progress: ScriptRunnerSnapshot[] = [];
+  const runner = createScriptRunner({ observe: async () => calm(),
+    issue: async (a) => { if (a.kind === "activate") throw uncertain(); },
+    registry: { "fight-with-drones": fightOnce },
+    travelHome: () => mt({ kind: "wait" }, { kind: "blocked", reason: "Home is unreachable." }),
+    sleep: async () => {}, onProgress: (s) => progress.push(s), isSessionLost: () => false, refusalReason: String });
+  runner.start(script([macroStep("fight", "fight-with-drones")]));
+  for (let i = 0; i < 6 && runner.getStatus() === "running"; i++) await runner.tick();
+  assert.equal(runner.getStatus(), "paused");
+  const reason = runner.snapshot().pauseReason ?? "";
+  assert.match(reason, /outcome.*could not be confirmed/, "why the run stopped");
+  assert.match(reason, /The trip home failed: Home is unreachable\./, "and why the ship is still in space");
+});
+
+test("a stop the looting gate makes heads home, and the gate does not stop the trip", async () => {
+  const h = harness({ registry: { "loot-containers": () => mt({ kind: "wait" }, { kind: "acting" }) } });
+  h.setObs(calm({ flightStatus: flight() }));
+  h.runner.start(script([macroStep("loot", "loot-containers")]));
+  await h.runner.tick();
+  assert.equal(h.runner.snapshot().phase, "Heading home");
+  assert.match(h.runner.snapshot().why ?? "", /Container claim authority is unavailable/);
+  await issueTicks(h, 1);
+  assert.deepEqual(h.issued.map(a => a.kind), ["warp"]);
+  h.setObs(calm({ inSpace: false, docked: true, flightStatus: flight({ inSpace: false, docked: true, stationID: 1 }) }));
+  for (let i = 0; i < 10 && h.runner.getStatus() === "running"; i++) await h.runner.tick();
+  assert.equal(h.runner.getStatus(), "paused");
+  assert.match(h.runner.snapshot().pauseReason ?? "", /Container claim authority is unavailable/);
+});
+
+test("a stop on a docked ship pauses where it is", async () => {
+  const h = harness({ registry: { "loot-containers": () => mt({ kind: "wait" }, { kind: "acting" }) } });
+  h.setObs(calm({ inSpace: false, docked: true, flightStatus: flight({ inSpace: false, docked: true, solarSystemID: 30000001, stationID: 1 }) }));
+  h.runner.start(script([macroStep("loot", "loot-containers")]));
+  await h.runner.tick();
+  assert.equal(h.runner.getStatus(), "paused");
+  assert.equal(h.issued.length, 0);
+});
+
+test("a stop during a dock-and-repair round trip becomes a trip home that stops there", async () => {
+  const h = harness({ issueThrows: (a) => a.kind === "warp" && h.issued.filter(x => x.kind === "warp").length === 1 ? uncertain() : null });
+  h.setObs(calm({ health: 0.4 }));
+  h.runner.start({ ...script([macroStep("u", "undock")]),
+    interrupts: [{ id: "fix", when: { kind: "health-below", fraction: 0.5 }, respond: "dock-and-repair" }] });
+  await h.runner.tick();
+  assert.deepEqual(h.issued.map(a => a.kind), ["warp"], "the repair trip's first warp went unconfirmed");
+  assert.equal(h.runner.getStatus(), "running", "not paused where the ship floats");
+  assert.equal(h.runner.snapshot().phase, "Heading home");
+  h.setObs(calm({ inSpace: false, docked: true }));
+  for (let i = 0; i < 10 && h.runner.getStatus() === "running"; i++) await h.runner.tick();
+  assert.equal(h.runner.getStatus(), "paused", "docked, it stops instead of repairing and going back out");
+  assert.match(h.runner.snapshot().pauseReason ?? "", /outcome.*could not be confirmed/);
 });

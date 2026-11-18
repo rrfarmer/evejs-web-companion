@@ -183,10 +183,14 @@ test("Farmer MAIN dispatch refuses when the verified Startup cursor cannot persi
     if (memory.position.kind !== "done" && memory.position.node >= 1) throw new Error("cursor write failed");
     await checkpoint.checkpoint(memory);
   } });
-  h.setFacts(observation(false)); h.runner.start(doc); await h.runner.tick();
+  h.setFacts(observation(false)); h.runner.start(doc);
+  // A stop in space latches the trip home first (scriptRunner `pauseWith`);
+  // the cursor still cannot persist, so the next tick's write ends the run.
+  for (let i = 0; i < 5 && h.runner.getStatus() === "running"; i++) await h.runner.tick();
   assert.equal(h.issued.length, 0);
   assert.equal(h.runner.getStatus(), "paused");
-  assert.equal(checkpoint.snapshot().mainEntered, undefined);
+  // The trip's own tick may persist the Startup cursor; MAIN is never entered.
+  assert.notEqual(checkpoint.snapshot().mainEntered, true);
 });
 
 test("Startup authority cannot relax Farmer recovery for an unrelated MAIN action", async () => {

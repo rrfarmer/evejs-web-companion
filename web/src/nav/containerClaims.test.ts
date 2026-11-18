@@ -95,7 +95,9 @@ test("unknown claim authority blocks the route without an inventory issue", asyn
     travelHome: () => { throw new Error("unexpected home travel"); },
   });
   noAuthority.start(doc);
-  await noAuthority.tick();
+  // In space the stop flies home first (scriptRunner `pauseWith`); this home
+  // decider throws, which is the second fault that ends the run.
+  for (let i = 0; i < 5 && noAuthority.getStatus() === "running"; i++) await noAuthority.tick();
   assert.deepEqual(a.issued, []);
   assert.equal(noAuthority.getStatus(), "paused");
 });
