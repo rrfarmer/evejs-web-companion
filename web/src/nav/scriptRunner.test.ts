@@ -1640,3 +1640,33 @@ test("a stop during a dock-and-repair round trip becomes a trip home that stops 
   assert.equal(h.runner.getStatus(), "paused", "docked, it stops instead of repairing and going back out");
   assert.match(h.runner.snapshot().pauseReason ?? "", /outcome.*could not be confirmed/);
 });
+
+test("the run-time deadline turns a dock-and-repair round trip into a trip home that stops", async () => {
+  const h = harness();
+  h.setObs(calm({ health: 0.4 }));
+  h.runner.start({ ...script([macroStep("u", "undock")]),
+    interrupts: [{ id: "fix", when: { kind: "health-below", fraction: 0.5 }, respond: "dock-and-repair" }] });
+  await issueTicks(h, 1);
+  assert.equal(h.runner.headHome("Run time is over."), true);
+  h.setObs(calm({ inSpace: false, docked: true }));
+  for (let i = 0; i < 10 && h.runner.getStatus() === "running"; i++) await h.runner.tick();
+  assert.equal(h.runner.getStatus(), "paused", "docked, it stops instead of repairing and going back out");
+  assert.equal(h.runner.snapshot().pauseReason, "Run time is over.");
+});
+
+test("a paused trip home resumes with the unconfirmed order still held", async () => {
+  const h = harness({ registry: { "fight-with-drones": fightOnce }, issueThrows: (a) => a.kind === "activate" ? uncertain() : null });
+  h.runner.start(script([macroStep("fight", "fight-with-drones")]));
+  await h.runner.tick();
+  assert.equal(h.runner.snapshot().phase, "Heading home");
+  h.runner.pause();
+  h.runner.resume();
+  assert.equal(h.runner.getStatus(), "running", "Pause and Resume do not strand the escaping ship");
+  await issueTicks(h, 2);
+  assert.deepEqual(h.issued.map(a => a.kind), ["activate", "warp"]);
+  h.setObs(calm({ inSpace: false, docked: true }));
+  for (let i = 0; i < 10 && h.runner.getStatus() === "running"; i++) await h.runner.tick();
+  assert.equal(h.runner.getStatus(), "paused");
+  h.runner.resume();
+  assert.equal(h.runner.getStatus(), "paused", "docked, Resume still waits for the player's check");
+});
