@@ -3091,11 +3091,12 @@ for (const code of ["CALL_REFUSED", "EVE_GATEWAY_TIMEOUT"]) {
       home: { entity: "station", id: 60000004, name: "Home", systemName: null }, interrupts: [], program: [repStep] });
     await runner.tick();
     if (code === "EVE_GATEWAY_TIMEOUT") {
-      assert.equal(runner.getStatus(), "paused");
-      runner.resume();
+      // In space the run flies home before it pauses (scriptRunner `pauseWith`).
+      assert.equal(runner.snapshot().phase, "Heading home");
       world = assistanceWorld(modules, 0.7, 0.1, [600]);
       for (let i = 0; i < 10; i++) await runner.tick();
-      assert.deepEqual(issued, ["activate"], "an activation with an ambiguous outcome cannot blindly retarget");
+      assert.deepEqual(issued.filter(kind => kind === "activate" || kind === "deactivate"), ["activate"],
+        "an activation with an ambiguous outcome cannot blindly retarget");
     } else {
       fail = false;
       world = assistanceWorld(modules, 0.7, 0.1, [600]);

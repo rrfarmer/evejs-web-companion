@@ -2109,7 +2109,10 @@ function continueHeadingHome(
     return paused(latched.reason, { ...mem, macroMem, latched: null }, latched.interruptID);
   }
   if (tick.outcome.kind === "blocked") {
-    return paused(tick.outcome.reason, { ...mem, macroMem, latched: null }, latched.interruptID);
+    // Both halves: why the run stopped, and why the ship is still in space.
+    // The trip's reason alone used to replace the fault that started it.
+    return paused(`${latched.reason} The trip home failed: ${tick.outcome.reason}`,
+      { ...mem, macroMem, latched: null }, latched.interruptID);
   }
   return {
     action: tick.action,
