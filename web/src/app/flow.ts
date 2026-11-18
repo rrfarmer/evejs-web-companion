@@ -20666,6 +20666,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       outcome = decodeDroneEngageOutcome(result, read.inSpace, droneIDs, targetID);
     }
     if (outcome.status === "accepted") return;
+    // Issue #177: a bot takes its drones from a look at space a tick old, and a drone can die (or be scooped by
+    // another ship) before the order reaches the server, which then refuses that drone alone: "That drone is not
+    // currently under this ship's control." Such a drone is out of the fight, not a drone whose order went wrong,
+    // so where the read after the order no longer shows a refused drone in space under this ship, it is left out:
+    // the order is done when every other drone took it. This goes by what is read, not by the server's words.
+    // (Some drone taken means the read was whole: decodeDroneEngageOutcome accepts none from a read it cannot trust.)
+    if (outcome.status === "refused" && outcome.acceptedDroneIDs.length > 0) {
+      const flight = decodeDronesInSpace(read.inSpace) ?? [];
+      if (outcome.refusedDroneIDs.every((id) => !flight.some((drone) => drone.itemID === id && drone.controlled))) {
+        return;
+      }
+    }
     // A target that left space before every drone was seen on it (a rat the drones or the fleet killed) is not an
     // order whose outcome is unknown: there is nothing left to set them on. Where some were seen on it the order
     // was taken, and is done; where none were, it is said as a refusal. Either way a bot picks its next target

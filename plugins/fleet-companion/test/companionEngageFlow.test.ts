@@ -42,6 +42,11 @@ interface ParkModel {
   readonly frozenReads?: number; readonly noTarget?: boolean; readonly targetGone?: boolean;
   /** The server's update sets only the first drone on the target, and the target is gone from that read on. */
   readonly firstThenGone?: boolean;
+  /**
+   * A drone the server refuses as not under this ship's control, and how the reads show it from the order on: gone
+   * from space (it died), in space under no ship of ours (another ship took it), or still ours.
+   */
+  readonly lostDrone?: { readonly id: number; readonly read: "absent" | "not-controlled" | "controlled" };
 }
 
 function harness(role: "combat" | "repair", unreadable = false, lagging = false, neverSettles = false, park: ParkModel | null = null) {
@@ -65,9 +70,12 @@ function harness(role: "combat" | "repair", unreadable = false, lagging = false,
     name: "HealShield", scope: 3, senderCharID: HUMAN, senderSolarSystemID: SOLAR_SYSTEM_ID,
     itemID: TARGET, typeID: null, receivedAtMs: Date.now(),
   } });
-  const inSpace = () => DRONES.map((itemID) => ({ itemID, typeID: DRONE_TYPE,
-    controlled: true, targetID: targets.get(itemID) ?? null, activity: targets.has(itemID) ? "fighting" : "idle",
-  }));
+  const lost = park?.lostDrone ?? null;
+  const inSpace = () => DRONES.filter((itemID) => !(readsSinceOrder !== null && lost?.id === itemID && lost.read === "absent"))
+    .map((itemID) => ({ itemID, typeID: DRONE_TYPE,
+      controlled: !(readsSinceOrder !== null && lost?.id === itemID && lost.read === "not-controlled"),
+      targetID: targets.get(itemID) ?? null, activity: targets.has(itemID) ? "fighting" : "idle",
+    }));
   const fetcher = (async (input: unknown, init?: RequestInit) => {
     const path = String(input).replace(/\?view=menu$/, "").replace(/\?present=\d+$/, "");
     const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
@@ -127,11 +135,12 @@ function harness(role: "combat" | "repair", unreadable = false, lagging = false,
       const [ids, targetID] = body.args as [number[], number];
       assert.equal(targetID, TARGET);
       orders.push(ids);
-      const refused = role === "combat" && orders.length === 1 ? [602] : [];
+      const refused = role === "combat" && orders.length === 1 ? [602] : lost !== null ? [lost.id] : [];
       for (const id of ids) if (!refused.includes(id)) (lagging || neverSettles || park !== null ? pending : targets).set(id, TARGET);
       readsSinceOrder = 0;
+      const why = lost !== null ? "That drone is not currently under this ship's control." : "That target is out of drone control range.";
       answer = { ok: true, service: "entity", method: "CmdEngage", result: dict(refused.map((id) => [id, ["CustomNotify",
-        dict([["notify", "That target is out of drone control range."]])]])), notifications: [] };
+        dict([["notify", why]])]])), notifications: [] };
       readAfterOrder = true;
     }
     return { ok: true, status: 200, json: async () => answer };
@@ -280,5 +289,21 @@ test("the engagement itself: confirmed after a five-second server stop, unconfir
     assert.equal(neverHeard.error?.code, "DRONE_ENGAGE_UNCONFIRMED");
     assert.match(String(neverHeard.error?.message), /wait for the server ran out/);
     assert.ok(neverHeard.waitedMs >= 30_000 && neverHeard.waitedMs < 32_000, `a server that never speaks is waited thirty seconds (${neverHeard.waitedMs} ms)`);
+  } finally { t.mock.timers.reset(); }
+});
+
+test("issue #177: a drone lost before the order reached the server is left out of it; one still under the ship is not", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  try {
+    const died = await engagedAt(t, harness("repair", false, false, false, { lostDrone: { id: 602, read: "absent" } }).flow);
+    assert.equal(died.ok, true, "a drone that died before the order is out of the fight, and the rest took the order");
+
+    const taken = await engagedAt(t, harness("repair", false, false, false, { lostDrone: { id: 602, read: "not-controlled" } }).flow);
+    assert.equal(taken.ok, true, "a drone in space under no ship of ours is out of the fight too");
+
+    const stillOurs = await engagedAt(t, harness("repair", false, false, false, { lostDrone: { id: 602, read: "controlled" } }).flow);
+    assert.equal(stillOurs.ok, false, "a drone the ship still controls was refused, and that is said");
+    assert.equal(stillOurs.error?.code, "CALL_REFUSED");
+    assert.deepEqual((stillOurs.error as { acceptedDroneIDs?: number[] } | undefined)?.acceptedDroneIDs, [601]);
   } finally { t.mock.timers.reset(); }
 });
