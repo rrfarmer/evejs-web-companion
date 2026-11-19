@@ -5,8 +5,12 @@
   } from "../bridge/miningLedger.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
+  import { ledgerRowMenuPosition, type LedgerRowMenu } from "./ledgerRowMenu.ts";
+  import MiningLedgerRowMenu from "./MiningLedgerRowMenu.svelte";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, openMail, openWatchlist }: {
+    store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void;
+  } = $props();
   const names = $derived(store.names);
   let response = $state.raw<Awaited<ReturnType<AppFlow["loadCorporationMiningLedger"]>> | null>(null);
   let observers = $state.raw<readonly MiningLedgerObserver[]>([]);
@@ -23,6 +27,7 @@
   let descending = $state(true);
   let page = $state(0);
   let request = 0;
+  let rowMenu = $state.raw<LedgerRowMenu | null>(null);
 
   const emptyFacts: ReadonlyMap<number, MiningLedgerFacts> = new Map();
   const range = $derived(ledgerDateRange(response?.nowMs ?? Date.now()));
@@ -77,6 +82,11 @@
   const pageCount = $derived(Math.ceil(ordered.length / pageSize));
   const currentPage = $derived(Math.min(page, Math.max(0, pageCount - 1)));
   const visible = $derived(ordered.slice(currentPage * pageSize, (currentPage + 1) * pageSize));
+  const displayedMenu = $derived(visible.some(item => item.row === rowMenu?.row) ? rowMenu : null);
+
+  function showRowMenu(event: MouseEvent | KeyboardEvent, row: (typeof rows)[number], anchor: HTMLElement) {
+    rowMenu = { kind: "corporation", row, ...ledgerRowMenuPosition(event, anchor) };
+  }
 
   function resetFilters() {
     resources = new Set();
@@ -120,6 +130,7 @@
   }
 
   function select(id: number) {
+    rowMenu = null;
     selectedID = id;
     response = null;
     copyStatus = "";
@@ -132,6 +143,7 @@
     observers = [];
     response = null;
     selectedID = null;
+    rowMenu = null;
     from = to = null;
     resetFilters();
     void refresh(owner, null);
@@ -262,8 +274,26 @@
           <tbody>
             {#each visible as { row, values } (row)}
               <tr data-character-id={row.characterID} data-corporation-id={row.corporationID} data-type-id={row.typeID}
-                data-system-id={row.systemID} data-quantity={row.quantity} data-at-ms={row.atMs}>
-                {#each values as value, column}<td class:numeric={column > 3}>{displayCell(value, column)}</td>{/each}
+                data-system-id={row.systemID} data-quantity={row.quantity} data-at-ms={row.atMs}
+                oncontextmenu={event => {
+                  const anchor = event.currentTarget.querySelector<HTMLButtonElement>(".ledger-row-actions");
+                  if (anchor) showRowMenu(event, row, anchor);
+                }}>
+                {#each values as value, column}
+                  <td class:numeric={column > 3}>
+                    {#if column === 0}
+                      <button type="button" class="ledger-row-actions"
+                        aria-label={`Extraction actions for ${pilotName(row.characterID)} and ${typeName(row.typeID)}`}
+                        aria-expanded={displayedMenu?.row === row}
+                        onclick={event => showRowMenu(event, row, event.currentTarget)}
+                        onkeydown={event => {
+                          if (event.key === "ContextMenu" || event.key === "F10" && event.shiftKey)
+                            showRowMenu(event, row, event.currentTarget);
+                        }}></button>
+                    {/if}
+                    {displayCell(value, column)}
+                  </td>
+                {/each}
               </tr>
             {/each}
           </tbody>
@@ -279,6 +309,7 @@
     {/if}
   {/if}
 </section>
+<MiningLedgerRowMenu {store} {flow} {openMail} {openWatchlist} menu={displayedMenu} onClose={() => { rowMenu = null; }} />
 
 <style>
   .corporation-mining-ledger { display: grid; gap: 12px; padding: 12px; color: #dce8eb; font-size: 12px; min-width: 0; }
@@ -291,6 +322,8 @@
     padding: 4px 7px; background: #17232b; color: inherit; border: 1px solid #53656a; border-radius: 3px;
   }
   button:disabled { opacity: .5; }
+  .ledger-row-actions { margin-right: 5px; padding: 0 4px; }
+  .ledger-row-actions::after { content: "⋯"; }
   details { position: relative; }
   .options {
     position: absolute; z-index: 2; top: calc(100% + 4px); min-width: 145px; width: max-content; max-width: 260px;

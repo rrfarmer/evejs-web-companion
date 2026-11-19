@@ -74,6 +74,7 @@
     sessions,
     onGoToPilot,
     onShowConvoys,
+    onShowSystem,
   }: {
     store: ClientStore;
     flow: AppFlow;
@@ -100,6 +101,7 @@
      */
     onGoToPilot?: (sessionID: string) => void;
     onShowConvoys?: () => void;
+    onShowSystem?: (systemID: number) => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -170,7 +172,8 @@
 {:else if tab === "miningScan"}
   <MiningScanResults {store} {flow} />
 {:else if tab === "miningLedger"}
-  <MiningLedger {store} {flow} />
+  <MiningLedger {store} {flow} {onShowSystem} openMail={onOpen ? () => onOpen?.("mail") : undefined}
+    openWatchlist={onOpen ? () => onOpen?.("watchlist") : undefined} />
 {:else if tab === "mail"}
   <!-- A skill plan link in a mail, followed (link.py handle_link): the Skills window opens on it. -->
   <Mail {store} {flow} {openInventoryFilterLink} openSkillPlanLink={(url) => { flow.openSkillPlanLink(url); onOpen?.("skills"); }} />

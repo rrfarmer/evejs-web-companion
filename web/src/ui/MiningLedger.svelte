@@ -7,8 +7,12 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import CorporationMiningLedger from "./CorporationMiningLedger.svelte";
+  import { ledgerRowMenuPosition, type LedgerRowMenu } from "./ledgerRowMenu.ts";
+  import MiningLedgerRowMenu from "./MiningLedgerRowMenu.svelte";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, openMail, openWatchlist, onShowSystem }: {
+    store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void; onShowSystem?: (systemID: number) => void;
+  } = $props();
   const names = $derived(store.names);
   const station = $derived(store.station);
   const corporationScope = $derived($station.online?.corporationID && canViewCorporationMiningLedger($station.online.corpRole)
@@ -28,6 +32,11 @@
   let sortColumn = $state(0);
   let descending = $state(true);
   let request = 0;
+  let rowMenu = $state.raw<LedgerRowMenu | null>(null);
+  let rowUnderPointer = $state.raw<MiningLedgerEntry | null>(null);
+  let rowWithFocus = $state.raw<MiningLedgerEntry | null>(null);
+  let chartType = $state<number | null>(null);
+  let chartTypeWithFocus = $state<number | null>(null);
 
   const emptyFacts: ReadonlyMap<number, MiningLedgerFacts> = new Map();
   const range = $derived(ledgerDateRange(response?.nowMs ?? Date.now()));
@@ -85,6 +94,24 @@
   const pageCount = $derived(Math.ceil(ordered.length / pageSize));
   const currentPage = $derived(Math.min(page, Math.max(0, pageCount - 1)));
   const shownRows = $derived(ordered.slice(currentPage * pageSize, (currentPage + 1) * pageSize));
+  const relatedType = $derived.by(() => {
+    const chart = chartType ?? chartTypeWithFocus;
+    if (chart !== null && filtered.some(row => row.typeID === chart)) return chart;
+    const row = rowUnderPointer ?? rowWithFocus;
+    return shownRows.some(item => item.row === row) ? row?.typeID ?? null : null;
+  });
+  const displayedMenu = $derived(!showCorporation && shownRows.some(item => item.row === rowMenu?.row) ? rowMenu : null);
+
+  function showRowMenu(event: MouseEvent | KeyboardEvent, row: MiningLedgerEntry, anchor: HTMLElement) {
+    rowMenu = { kind: "personal", row, ...ledgerRowMenuPosition(event, anchor) };
+  }
+
+  function switchLedger(scope: string | null) {
+    selectedCorporationScope = scope;
+    rowMenu = null;
+    rowUnderPointer = rowWithFocus = null;
+    chartType = chartTypeWithFocus = null;
+  }
 
   async function read(owner: AppFlow) {
     const version = ++request;
@@ -107,6 +134,9 @@
     resources = new Set();
     from = to = null;
     page = 0;
+    rowMenu = null;
+    rowUnderPointer = rowWithFocus = null;
+    chartType = chartTypeWithFocus = null;
     void read(owner);
     return () => { request++; };
   });
@@ -169,13 +199,13 @@
 
 {#if corporationScope}
   <nav class="ledger-switch" aria-label="Mining ledger views">
-    <button type="button" aria-pressed={!showCorporation} onclick={() => selectedCorporationScope = null}>Personal</button>
-    <button type="button" aria-pressed={showCorporation} onclick={() => selectedCorporationScope = corporationScope}>Corporation</button>
+    <button type="button" aria-pressed={!showCorporation} onclick={() => switchLedger(null)}>Personal</button>
+    <button type="button" aria-pressed={showCorporation} onclick={() => switchLedger(corporationScope)}>Corporation</button>
   </nav>
 {/if}
 {#if showCorporation}
   {#key corporationScope}
-    <CorporationMiningLedger {store} {flow} />
+    <CorporationMiningLedger {store} {flow} {openMail} {openWatchlist} />
   {/key}
 {/if}
 
@@ -219,10 +249,16 @@
         </select></header>
         <div class="resource-bars">
           {#each totals as total (total.typeID)}
-            <div class="resource-meter"><span>{total.typeID === null ? "Other" : typeName(total.typeID)}</span>
+            <button type="button" class="resource-meter" data-type-id={total.typeID ?? undefined}
+              tabindex={total.typeID === null ? -1 : 0} aria-disabled={total.typeID === null}
+              class:related={relatedType !== null && relatedType === total.typeID}
+              onpointerenter={() => chartType = total.typeID} onpointerleave={() => { if (chartType === total.typeID) chartType = null; }}
+              onfocus={() => chartTypeWithFocus = total.typeID}
+              onblur={() => { if (chartTypeWithFocus === total.typeID) chartTypeWithFocus = null; }}>
+              <span>{total.typeID === null ? "Other" : typeName(total.typeID)}</span>
               <span class="resource-bar" style:--fill={`${total.quantity / totalsMax * 100}%`}
                 style:--bar-color={total.typeID === null ? "#a8b6b8" : swatch(total.typeID)}></span>
-              <span>{numbers.format(total.quantity)}{suffix(typeMetric)}</span></div>
+              <span>{numbers.format(total.quantity)}{suffix(typeMetric)}</span></button>
           {:else}
             <p class="ledger-message">No mining activity in this selection.</p>
           {/each}
@@ -232,11 +268,14 @@
         <header><h3>By day</h3><select aria-label="Daily chart unit" bind:value={dayMetric}>
           {#each metrics as metric}<option value={metric.key}>{metric.label}</option>{/each}
         </select></header>
-        <div class="day-bars" role="img" aria-label={`Daily ${metrics.find(metric => metric.key === dayMetric)?.label.toLowerCase() ?? ""}`}>
+        <div class="day-bars" role="group" aria-label={`Daily ${metrics.find(metric => metric.key === dayMetric)?.label.toLowerCase() ?? ""}`}>
           {#each daily as day (day.date)}
             <span class="day-bar" title={`${day.date} · ${numbers.format(day.quantity)}${suffix(dayMetric)}`}>
               {#each day.parts as [id, quantity] (id)}
-                <span class="day-resource" data-type-id={id} style:height={`${quantity / dailyMax * 100}%`}
+                <span class="day-resource" role="img" aria-label={`${day.date} · ${typeName(id)} · ${numbers.format(quantity)}${suffix(dayMetric)}`}
+                  data-type-id={id} class:related={relatedType === id}
+                  onpointerenter={() => chartType = id} onpointerleave={() => { if (chartType === id) chartType = null; }}
+                  style:height={`${quantity / dailyMax * 100}%`}
                   style:background={swatch(id)} title={`${typeName(id)} · ${numbers.format(quantity)}${suffix(dayMetric)}`}></span>
               {/each}
             </span>
@@ -270,8 +309,30 @@
         <tbody>
           {#each shownRows as result (result.row)}
             <tr data-type-id={result.row.typeID} data-system-id={result.row.systemID}
-              data-quantity={result.row.quantity} data-at-ms={result.row.atMs}>
-              {#each result.values as value, column}<td class:numeric={column > 1 && column < 8}>{cell(value, column)}</td>{/each}
+              data-quantity={result.row.quantity} data-at-ms={result.row.atMs} class:related={relatedType === result.row.typeID}
+              style:--ore-color={swatch(result.row.typeID)}
+              onpointerenter={() => rowUnderPointer = result.row}
+              onpointerleave={() => { if (rowUnderPointer === result.row) rowUnderPointer = null; }}
+              oncontextmenu={event => {
+                const anchor = event.currentTarget.querySelector<HTMLButtonElement>(".ledger-row-actions");
+                if (anchor) showRowMenu(event, result.row, anchor);
+              }}>
+              {#each result.values as value, column}
+                <td class:numeric={column > 1 && column < 8}>
+                  {#if column === 0}
+                    <button type="button" class="ledger-row-actions" aria-label={`Extraction actions for ${typeName(result.row.typeID)}`}
+                      aria-expanded={displayedMenu?.row === result.row}
+                      onfocus={() => rowWithFocus = result.row}
+                      onblur={() => { if (rowWithFocus === result.row) rowWithFocus = null; }}
+                      onclick={event => showRowMenu(event, result.row, event.currentTarget)}
+                      onkeydown={event => {
+                        if (event.key === "ContextMenu" || event.key === "F10" && event.shiftKey)
+                          showRowMenu(event, result.row, event.currentTarget);
+                      }}></button>
+                  {/if}
+                  {cell(value, column)}
+                </td>
+              {/each}
             </tr>
           {/each}
         </tbody>
@@ -286,6 +347,7 @@
     {/if}
   {/if}
 </section>
+<MiningLedgerRowMenu {store} {flow} {onShowSystem} menu={displayedMenu} onClose={() => { rowMenu = null; }} />
 
 <style>
   .ledger-switch { display: flex; gap: 6px; padding: 10px 12px 0; }
@@ -293,6 +355,12 @@
   .ledger-switch button[aria-pressed=true] { border-color: #86a4ad; background: #31454d; color: #f0f8fb; }
   .mining-ledger { padding: 12px; display: grid; gap: 10px; min-width: 0; color: #dce8eb; font-size: 12px; }
   .mining-ledger[hidden] { display: none; }
+  .resource-meter.related { color: #fff; }
+  button.resource-meter { width: 100%; padding: 0; border: 0; background: transparent; text-align: left; }
+  .resource-meter.related .resource-bar, .day-resource.related { filter: brightness(1.35); outline: 1px solid #e7f7fa; z-index: 1; }
+  tbody tr.related td { background: color-mix(in srgb, var(--ore-color) 19%, #101b22); }
+  .ledger-row-actions { margin-right: 5px; padding: 0 4px; border-left: 2px solid var(--ore-color); }
+  .ledger-row-actions::after { content: "⋯"; }
   h3 { margin: 0; font-size: 13px; color: #eef6f8; font-weight: 650; }
   button, select, input { font: inherit; }
   button, select, input[type=date], summary {

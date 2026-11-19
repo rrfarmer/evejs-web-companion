@@ -19,7 +19,10 @@
   import { iskWords } from "../bridge/questions.ts";
   import type { DamageEvent } from "../store/types.ts";
   import { get as storeValue } from "svelte/store";
+  import { assetsSearchTarget } from "./assetsSearch.ts";
+  import { contractsSearchTarget } from "./contractsSearch.ts";
   import { marketDetailsTarget } from "./marketDetails.ts";
+  import { typeCompareTarget } from "./typeCompare.ts";
   import { createSession, type Session } from "../app/sessions.ts";
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
   import { bridgeDo, corpTickers, getDscanHologramTypes } from "../app/api.ts";
@@ -590,16 +593,20 @@
       if (fleetID !== null && autoOpenWatchlist(characterID)) open("watchlist");
     });
   });
-  // A type's market details asked for from outside the market window (marketDetails.ts, marketutils.ShowMarketDetails):
-  // the market window opened, as the workspace opens it; the window takes the type. Watched by the counter, so asking
-  // twice for the same type brings the window back.
-  let servedMarketRequests = marketDetailsTarget.requests.get();
-  const marketRequests = marketDetailsTarget.requests;
+  const itemWindows = [
+    [marketDetailsTarget.requests, "market"], [contractsSearchTarget.requests, "contracts"],
+    [assetsSearchTarget.requests, "assets"], [typeCompareTarget.requests, "compare"],
+  ] as const;
   $effect(() => {
-    const count = $marketRequests;
-    if (count === servedMarketRequests) return;
-    servedMarketRequests = count;
-    open("market");
+    const stop = itemWindows.map(([requests, tab]) => {
+      let served = requests.get();
+      return requests.subscribe(count => {
+        if (count === served) return;
+        served = count;
+        open(tab);
+      });
+    });
+    return () => stop.forEach(unsubscribe => unsubscribe());
   });
   /** The Drones window's title with how many are out of how many (the client's "Drones 0/5"). */
   /**
@@ -765,6 +772,7 @@
   let starMap: StarMap | null = null;
   let mapInFront = $state(false);
   let requestedMapMode: StarMapColorMode = "empire";
+  let requestedMapSystem: number | null = null;
   let mapFilters: ReturnType<typeof mountStarMapFilterControls> | null = null;
   /** The system menu (Esc: uicore.cmd.OnEsc's EscapeCommand opens it when nothing else takes the key). */
   let systemMenu = $state(false);
@@ -775,6 +783,12 @@
     if (tab === "shipTree" && wins.some(win => win.id === tab && !win.minimized)) wins = closeWindow(wins, tab);
     else if (tab) open(tab);
   }
+  function showSystemOnMap(systemID: number) {
+    requestedMapSystem = systemID;
+    mapInFront = true;
+    toggleStarMap(true);
+    starMap?.select(systemID);
+  }
   function toggleStarMap(show = !starMap, mode?: StarMapColorMode) {
     if (!show) {
       starMap?.root.dispatchEvent(new Event("star-map-closed"));
@@ -782,6 +796,7 @@
       starMap = null;
       mapInFront = false;
       requestedMapMode = "empire";
+      requestedMapSystem = null;
       mapFilters = null;
       return;
     }
@@ -827,6 +842,7 @@
       if (starMap !== m) return;
       const here = sessionPlace(s.store.flight.get().status, s.store.station.get().online).solarSystemID ?? live?.hello?.solarSystemID ?? null;
       m.build(data, here);
+      if (requestedMapSystem !== null) m.select(requestedMapSystem);
       void m.setLayout(box.checked);
       route();
       const stop = s.flow.waypoints.subscribe(() => route());
@@ -1428,7 +1444,7 @@
             <FlyDronesWindow store={session.store} flow={session.flow} />
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
-              onShowConvoys={() => toggleStarMap(true, "convoys")} />
+              onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} />
           {/if}
         </DesktopWindow>
       </ErrorBoundary>
