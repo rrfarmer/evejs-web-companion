@@ -1455,6 +1455,7 @@ function createGamePortPilots({
       shipID: positive(entry.session.attributes?.shipid) ?? null,
       timeAdjusted: entry.space ? entry.space.park.timeAdjusted : 0,
       simTime: entry.clock.simTime(),
+      simDilation: entry.clock.clock.simDilation,
     };
     for (const listener of [...entry.spaceListeners]) {
       try {
@@ -1470,7 +1471,7 @@ function createGamePortPilots({
     if (!item) return;
     for (const listener of [...entry.destinyListeners]) {
       try {
-        listener(item);
+        listener(item, entry.clock.clock.simDilation);
       } catch {
         // A listener's failure is its own; the session and the other listeners carry on.
       }
@@ -1491,6 +1492,8 @@ function createGamePortPilots({
       close: () => { entry.destinyListeners.delete(onItem); entry.spaceListeners.delete(onSpace); },
       /** The pilot's sim clock now, in milliseconds: what the browser's park is to be stepped by. */
       simTime: () => entry.clock.simTime(),
+      /** The active rate, after any scheduled changes that simTime() just applied. */
+      get simDilation() { return entry.clock.clock.simDilation; },
       solarSystemID: entry.space ? entry.space.solarSystemID : null,
       /** The sim-clock rebases the pilot's park has been moved by (Park.timeAdjusted): a park joining now is moved as much. */
       timeAdjusted: entry.space ? entry.space.park.timeAdjusted : 0,

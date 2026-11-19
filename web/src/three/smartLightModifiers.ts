@@ -1,4 +1,5 @@
 import { compileCondition } from "./controllers.ts";
+import { smartLightNoiseGain } from "./smartLightNoise.ts";
 
 type CameraDriver =
   | { kind: "distance"; near: number; far: number; inverse: boolean }
@@ -8,6 +9,8 @@ export type SmartLightModifier =
   | { kind: "listener"; variable: string; initial: number; invert: boolean; duration: number; factor: number; children: SmartLightModifier[] }
   | { kind: "expression"; source: string; factor: number; children: SmartLightModifier[] }
   | { kind: "camera"; driver: CameraDriver; lower: number; upper: number; factor: number; children: SmartLightModifier[] }
+  | { kind: "noise"; amplitude: number; frequency: number; octaves: number; factor: number;
+      active: boolean; startsActive: boolean; duration: number; curve: number; delayIn: number; delayOut: number }
   | { kind: "color"; color: number[]; blend: number; brightness: number; saturation: number; factor: number;
       active: boolean; startsActive: boolean; variable: string; duration: number; curve: number; delayIn: number; delayOut: number };
 
@@ -16,9 +19,11 @@ export interface SmartLightInputs {
   speed: number;
   maxSpeed: number;
   camera?: { distance: number; alignment: number };
+  /** The current global sim clock, expressed as Unix milliseconds. */
+  simTimeMs?: number;
 }
 interface Gate { ready: boolean; weight: number }
-interface Frame { dt: number; rgb: number[]; input: SmartLightInputs }
+interface Frame { dt: number; now: number; rgb: number[]; input: SmartLightInputs }
 type Modifier = (frame: Frame, gate: Gate) => void;
 
 function crossFade(initial: boolean) {
@@ -43,6 +48,7 @@ const apply = (children: Modifier[], frame: Frame, gate: Gate) => {
 };
 
 const clamp = (value: number) => Math.max(0, Math.min(value, 1));
+const fadeCurve = (curve: number, progress: number) => curve === 5 && progress > 0 ? 2 ** (10 * (progress - 1)) : progress;
 
 export function smartLightUsesCamera(modifiers: readonly SmartLightModifier[]): boolean {
   return modifiers.some(item => item.kind === "camera" || ("children" in item && smartLightUsesCamera(item.children)));
@@ -86,12 +92,21 @@ function compile(item: SmartLightModifier, initialGate: boolean, insideBucket = 
     };
   }
   const fade = crossFade(initialGate && item.active && item.startsActive);
+  if (item.kind === "noise") {
+    return (frame, gate) => {
+      const active = gate.ready && item.active;
+      const { value } = fade(active, frame.dt, item.duration, item.delayIn, item.delayOut, !insideBucket);
+      const weight = gate.weight * fadeCurve(item.curve, value) * item.factor;
+      const simTimeMs = frame.input.simTimeMs ?? performance.timeOrigin + frame.now * 1000;
+      const gain = smartLightNoiseGain(simTimeMs, item.frequency, item.octaves, item.amplitude, weight);
+      for (let i = 0; i < 3; i++) frame.rgb[i] = frame.rgb[i]! * gain;
+    };
+  }
   return (frame, gate) => {
     const v = item.variable ? frame.input.variable(item.variable) : undefined;
     const active = gate.ready && (v === undefined ? (insideBucket || item.active) : v > 0);
     const { value: progress } = fade(active, frame.dt, item.duration, item.delayIn, item.delayOut, !insideBucket);
-    const value = item.curve === 5 && progress > 0 ? 2 ** (10 * (progress - 1)) : progress;
-    const weight = gate.weight * value * item.factor;
+    const weight = gate.weight * fadeCurve(item.curve, progress) * item.factor;
     if (weight === 0) return;
     const blend = item.blend * weight;
     const rgb = frame.rgb;
@@ -111,7 +126,7 @@ export function smartLightColor(color: number[], modifiers: readonly SmartLightM
     const dt = last === undefined ? 0 : Math.max(0, now - last);
     last = now;
     const rgb = color.slice();
-    apply(run, { dt, rgb, input }, { ready: true, weight: 1 });
+    apply(run, { dt, now, rgb, input }, { ready: true, weight: 1 });
     return rgb;
   };
 }

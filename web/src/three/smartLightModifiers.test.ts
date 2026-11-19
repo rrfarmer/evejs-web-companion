@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { smartLightColor, smartLightUsesCamera, type SmartLightModifier } from "./smartLightModifiers.ts";
+import { smartLightPerlin } from "./smartLightNoise.ts";
 
 const color = (changes: Partial<Extract<SmartLightModifier, { kind: "color" }>> = {}): SmartLightModifier => ({
   kind: "color", color: [0, 0, 1, 0.5], blend: 1, brightness: 1, saturation: 1,
@@ -71,5 +72,35 @@ test("camera distance and placement reproduce the native single-locator color sa
     assert.equal(result[3], 0.75);
     assert.ok(smartLightUsesCamera([listener([modifier])]));
     assert.ok(!smartLightUsesCamera([listener([fade])]));
+  }
+});
+
+test("the native accumulator noise lattice and epoch preserve the sim-clock phase", () => {
+  // Build 3698585 DX11 readbacks from the native oscillator and one authored light.
+  const reference = [
+    [0.197, 1, 0.008199206372070306],
+    [127.44200000000001, 1, -0.11100469769999863],
+    [0.197, 2, 0.050697799364257806],
+    [255.685, 3, 0.16526344854980357],
+  ] as const;
+  for (const [x, octaves, value] of reference) assert.ok(Math.abs(smartLightPerlin(x, octaves) - value) < 1e-14);
+  const noise: SmartLightModifier = {
+    kind: "noise", amplitude: 1, frequency: 0.5, octaves: 1, factor: 1,
+    active: true, startsActive: true, duration: 1, curve: 0, delayIn: 0, delayOut: 0,
+  };
+  const mix = smartLightColor([0, 0.4, 0, 0.75], [noise]);
+  const input = { variable: () => undefined, speed: 0, maxSpeed: 0 };
+  const samples = [
+    [1795051860409.9998, 0.20214016735553741],
+    [1795051861846.0007, 0.21133838593959808],
+    [1795051862084.999, 0.19804881513118744],
+    [1795051862156.0002, 0.1975746899843216],
+  ] as const;
+  for (const [simTimeMs, expected] of samples) {
+    const reading = { ...input, simTimeMs };
+    const result = mix(0, reading);
+    assert.ok(Math.abs(result[1]! - expected) < 3e-8);
+    assert.equal(result[3], 0.75);
+    assert.deepEqual(mix(2, reading), result, "a later render at the same sim time keeps the phase");
   }
 });

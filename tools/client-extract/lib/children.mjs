@@ -612,6 +612,13 @@ function readSmartModifiers(items, skipped) {
     } else if (item.type === "EveSmartLightAttributeModifierNoise" && !(item.noiseAmplitude ?? 0)) {
       // The native modifier leaves the color unchanged at zero amplitude.
       continue;
+    } else if (item.type === "EveSmartLightAttributeModifierNoise" && !item.activationOverLifetime &&
+               !item.delayedActivation && (curve === 0 || curve === 5)) {
+      out.push({
+        kind: "noise", amplitude: item.noiseAmplitude, frequency: item.noiseFrequency ?? 1, octaves: item.noiseOctaves ?? 1,
+        active: item.active ?? true, startsActive: item.startsActive ?? true, factor, duration, curve,
+        delayIn: item.activationDelay ?? 0, delayOut: item.deactivationDelay ?? 0,
+      });
     } else if (item.type === "EveSmartLightAttributeModifierColor" && !item.activationOverLifetime &&
                !item.delayedActivation && (item.saturationMultiplier ?? 1) <= 1 && (curve === 0 || curve === 5)) {
       out.push({

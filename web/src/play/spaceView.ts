@@ -26,7 +26,7 @@ import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { DRIFTER_COLLECTION, DrifterCollectionExplosions } from "./drifterCollectionExplosions.ts";
 import { isNonInteractableWormhole, nonInteractableWormhole, updateWormholePose, WormholeAudio } from "./nonInteractableWormhole.ts";
-import { setEffectShaderQuality } from "../three/hullChildren.ts";
+import { setEffectShaderQuality, setSmartLightSimulationTime } from "../three/hullChildren.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { ObservatoryEnvironment } from "./observatoryEnvironment.ts";
 import { ObservatoryVortex, OBSERVATORY_VORTEX_TYPE } from "../three/observatoryVortex.ts";
@@ -2575,6 +2575,7 @@ export class SpaceView {
     this.missileFx.explosionLimit = settings.lodQuality * 30;
     this.updateReflections(eye, settings.reflectionQuality, reflectionSources);
     this.sunLight.position.copy(this.sunDir);
+    setSmartLightSimulationTime(this.camera, this.live.effectSimNow());
     this.spaceShadows.render(this.scene, this.camera, this.sunDir, rendering.shadows, shadowClouds, shadowPlanets, sun?.position ?? null);
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, {
       exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering(),

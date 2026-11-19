@@ -299,6 +299,12 @@ interface SmartLightState {
   beamColors: THREE.Vector4[];
 }
 const smartLightStates = new WeakMap<THREE.Object3D, SmartLightState>();
+const smartLightSimulationTimes = new WeakMap<THREE.Camera, number>();
+
+export function setSmartLightSimulationTime(camera: THREE.Camera, timeMs: number | undefined): void {
+  if (timeMs === undefined) smartLightSimulationTimes.delete(camera);
+  else smartLightSimulationTimes.set(camera, timeMs);
+}
 
 const needsSmartLightView = (source: SmartLightSource) => smartLightUsesCamera(source.modifiers ?? []);
 const placedPaletteWidth = (count: number) => Math.min(count, 256);
@@ -345,7 +351,9 @@ function updateSmartLights(group: THREE.Object3D, sources: SmartLightSources, ca
       maxSpeed = (o.userData.shipMaxSpeed as number | undefined) ?? 0;
     }
   }
-  const input: SmartLightInputs = { variable: (name: string) => vars.get(name), speed: speed ?? 0, maxSpeed };
+  const input: SmartLightInputs = {
+    variable: (name: string) => vars.get(name), speed: speed ?? 0, maxSpeed, simTimeMs: smartLightSimulationTimes.get(camera),
+  };
   const views = sources.viewPlacements && smartLightViews(sources.viewPlacements, group.matrixWorld, camera, input);
   const now = performance.now() / 1000;
   const evaluate = (runs: SmartColorRun[][]) => runs.map(source => source.map((color, index) => color(now, views?.[index] ?? input)));

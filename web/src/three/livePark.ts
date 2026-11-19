@@ -5,7 +5,8 @@
 
 import { Park, Ballpark, marshalDecode, readFeedItem, applyToPark, type Ball, type FeedItem } from "virtual:destiny";
 
-export interface FeedHello { simTime: number; solarSystemID: number | null; shipID: number | null; characterID: number; timeAdjusted?: number; reset?: boolean }
+interface ClockSample { simTime: number; simDilation?: number }
+export interface FeedHello extends ClockSample { solarSystemID: number | null; shipID: number | null; characterID: number; timeAdjusted?: number; reset?: boolean }
 
 export class LivePark {
   park = this.wire(new Park({ ballpark: new Ballpark() }));
@@ -20,6 +21,7 @@ export class LivePark {
   private source: EventSource | null = null;
   /** The pilot's sim clock less performance.now(), from the BFF's latest reading. */
   private offset: number | null = null;
+  private effectClock: { time: number; readAt: number; rate: number } | null = null;
   private lastSim = -Infinity;
   private readonly listeners = new Set<() => void>();
 
@@ -41,17 +43,20 @@ export class LivePark {
         // _HandleSessionChangeInSpace makes that ship the park's ego, at once or as its ball comes (Park.egoIs).
         this.park.egoIs(this.hello.shipID);
       }
-      this.setClock(this.hello.simTime);
+      this.setClock(this.hello.simTime, this.hello.simDilation);
       // Joining in flight: the BFF's park has been moved by every sim-clock rebase so far, and this one, which
       // heard none of them, is moved as much before its first update (Park.timeAdjusted).
       if (this.items === 0 && this.hello.timeAdjusted) this.park.adjustTimes(this.hello.timeAdjusted);
       this.status = "live";
       this.changed();
     });
-    source.addEventListener("clock", (e) => this.setClock((JSON.parse((e as MessageEvent).data) as { simTime: number }).simTime));
+    source.addEventListener("clock", (e) => {
+      const sample = JSON.parse((e as MessageEvent).data) as ClockSample;
+      this.setClock(sample.simTime, sample.simDilation);
+    });
     source.addEventListener("destiny", (e) => {
-      const item = JSON.parse((e as MessageEvent).data) as FeedItem;
-      this.setClock(item.atMs);
+      const item = JSON.parse((e as MessageEvent).data) as FeedItem & Pick<ClockSample, "simDilation">;
+      this.setClock(item.atMs, item.simDilation);
       this.apply(item);
     });
     source.addEventListener("ended", () => { this.status = "ended"; this.changed(); source.close(); });
@@ -69,6 +74,7 @@ export class LivePark {
   close(): void {
     this.source?.close();
     this.source = null;
+    this.effectClock = null;
   }
 
   onChange(fn: () => void): () => void {
@@ -91,10 +97,18 @@ export class LivePark {
     this.items++;
   }
 
-  private setClock(simTime: number): void {
-    const offset = simTime - performance.now();
+  private setClock(simTime: number, simDilation = 1): void {
+    const receivedAt = performance.now();
+    const offset = simTime - receivedAt;
     // Readings arrive late by the trip from the BFF; keep the latest, never letting the clock run back.
     this.offset = this.offset === null ? offset : Math.max(this.offset - 50, Math.min(this.offset + 1000, offset));
+    this.effectClock = { time: simTime, readAt: receivedAt, rate: simDilation };
+  }
+
+  /** The render-time global simulation clock follows the rate in the feed sample. */
+  effectSimNow(): number | undefined {
+    const clock = this.effectClock;
+    return clock ? clock.time + (performance.now() - clock.readAt) * clock.rate : undefined;
   }
 
   /** The pilot's sim clock now, in milliseconds; never earlier than a reading already used. */

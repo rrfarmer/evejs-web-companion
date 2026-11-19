@@ -1913,15 +1913,17 @@ app.get("/api/play/destiny", requireStreamAuth, (req, res) => {
     // A ballpark let go or made anew (docking, undocking, a new system) is a new hello, before the new park's first
     // update: the page's park starts anew with it (`reset`). Another ship in the same park (the capsule, as a ship is
     // blown up) is a hello without a reset: the page's own ship is the new one.
-    feed = gamePortPilots.openDestinyFeed({ userid: held.accountID }, held.bridgeSessionID, (item) => send("destiny", item),
+    feed = gamePortPilots.openDestinyFeed({ userid: held.accountID }, held.bridgeSessionID,
+      (item, simDilation) => send("destiny", { ...item, simDilation }),
       (place) => send("hello", { ...place, characterID: feed ? feed.characterID : null, reset: place.reset !== false }));
   } catch (error) {
     send("ended", { code: error.code || "SESSION_NOT_FOUND", message: error.message });
     res.end();
     return;
   }
-  send("hello", { simTime: feed.simTime(), solarSystemID: feed.solarSystemID, shipID: feed.shipID, characterID: feed.characterID, timeAdjusted: feed.timeAdjusted });
-  const clock = setInterval(() => send("clock", { simTime: feed.simTime() }), 5000);
+  const clockSample = () => ({ simTime: feed.simTime(), simDilation: feed.simDilation });
+  send("hello", { ...clockSample(), solarSystemID: feed.solarSystemID, shipID: feed.shipID, characterID: feed.characterID, timeAdjusted: feed.timeAdjusted });
+  const clock = setInterval(() => send("clock", clockSample()), 5000);
   if (typeof clock.unref === "function") clock.unref();
   req.on("close", () => {
     clearInterval(clock);
