@@ -151,7 +151,8 @@ export class DistortionPass {
    * The frame warped by the scene's distortion surfaces, or the frame itself where none is in view. The map is drawn
    * after the scene's opaque depth (drawn again here, depth only).
    */
-  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, frame: THREE.WebGLRenderTarget): THREE.Texture {
+  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera,
+    frame: THREE.WebGLRenderTarget, color = frame.texture): THREE.Texture {
     let wanted = false;
     const hidden: THREE.Object3D[] = [];
     scene.traverseVisible((o) => {
@@ -161,7 +162,7 @@ export class DistortionPass {
       if (o.layers.test(this.layers)) wanted = true;
       else if (!(o as THREE.Mesh).isMesh || !mats.every(opaque)) hidden.push(o);
     });
-    if (!wanted) return frame.texture;
+    if (!wanted) return color;
     const w = frame.width, h = frame.height;
     if (!this.map || this.map.width !== w || this.map.height !== h) {
       this.map?.dispose(); this.warped?.dispose();
@@ -191,7 +192,7 @@ export class DistortionPass {
       scene.overrideMaterial = override;
       renderer.setClearColor(clearColor, clearAlpha);
     }
-    this.apply.uniforms["frame"]!.value = frame.texture;
+    this.apply.uniforms["frame"]!.value = color;
     this.apply.uniforms["map"]!.value = this.map.texture;
     this.apply.uniforms["size"]!.value.set(w, h);
     renderer.setRenderTarget(this.warped);

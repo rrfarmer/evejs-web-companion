@@ -24,6 +24,8 @@ import { GodRaysPass, type GodRays, type GodRaySun } from "./godRays.ts";
 import { CLOUD_FOG, CloudOpacityPass, type VolumetricClouds } from "./cloudOpacity.ts";
 import { sceneReflection } from "./celestialModel.ts";
 import { DistortionPass } from "./distortion.ts";
+import { GpuParticlePass } from "./gpuParticlePass.ts";
+import { getGpuParticleSystem } from "./gpuParticles.ts";
 import type { SpaceShadowAtlas } from "./spaceShadowAtlas.ts";
 
 /** Tr2PPBloomEffect's values (the client's defaults; the scenes set luminanceThreshold 0). */
@@ -75,7 +77,10 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
     shadows?: SpaceShadowAtlas;
   }): Bloom {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-  const drawn = new THREE.WebGLRenderTarget(Math.max(1, size.x), Math.max(1, size.y), { type: THREE.HalfFloatType, samples: 4 });
+  const drawn = new THREE.WebGLRenderTarget(Math.max(1, size.x), Math.max(1, size.y), {
+    type: THREE.HalfFloatType, samples: 4,
+    depthTexture: new THREE.DepthTexture(Math.max(1, size.x), Math.max(1, size.y), THREE.UnsignedIntType),
+  });
   // levels[i] is 1 / 2^(i + 1) of the frame; blurred[s] is step s's blur, at its level; spare[i] the blur's halfway
   let levels: THREE.WebGLRenderTarget[] = [];
   let spare: THREE.WebGLRenderTarget[] = [];
@@ -201,6 +206,7 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
   const softDepth = new SoftDepthPass();
   // the distortion surfaces' warp of the frame (distortion.ts), before the post-process reads it
   const distortion = new DistortionPass();
+  const particlePass = new GpuParticlePass();
   let rayPass: GodRaysPass | null = null;
   let opacityPass: CloudOpacityPass | null = null;
 
@@ -224,13 +230,18 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       renderer.setRenderTarget(drawn);
       CLOUD_FOG.cloudFogMap.value = cloudOpacity;
       CLOUD_FOG.cloudFogEnabled.value = cloudOpacity !== null;
+      const gpuMesh = getGpuParticleSystem(scene)?.mesh;
+      const particlesVisible = gpuMesh?.visible ?? false;
+      if (gpuMesh) gpuMesh.visible = false;
       try {
         renderer.render(scene, camera);
       } finally {
+        if (gpuMesh) gpuMesh.visible = particlesVisible;
         CLOUD_FOG.cloudFogEnabled.value = false;
         CLOUD_FOG.cloudFogMap.value = null;
       }
-      let frame = quality.distortion ? distortion.render(renderer, scene, camera, drawn) : drawn.texture;
+      let frame = particlePass.render(renderer, scene, camera, drawn);
+      if (quality.distortion) frame = distortion.render(renderer, scene, camera, drawn, frame);
       if (sun && godRays && godRays.intensity > 0) {
         rayPass ??= new GodRaysPass();
         frame = rayPass.render(renderer, scene, camera, sun, godRays, frame, drawn.width, drawn.height, cloudOpacity);
@@ -303,6 +314,7 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       quad.dispose();
       softDepth.dispose();
       distortion.dispose();
+      particlePass.dispose();
       rayPass?.dispose();
       opacityPass?.dispose();
     },

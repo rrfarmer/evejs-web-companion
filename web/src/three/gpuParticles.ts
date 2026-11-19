@@ -90,7 +90,7 @@ const CAPACITY = 65536;
 
 /** One scene's system: the pool, the requests, the simulation and the draw. */
 export class GpuParticleSystem {
-  readonly mesh: THREE.Mesh;
+  readonly mesh: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.ShaderMaterial>;
   private readonly pos = new Float32Array(CAPACITY * 3);
   private readonly vel = new Float32Array(CAPACITY * 3);
   private readonly age = new Float32Array(CAPACITY).fill(-1);
@@ -118,7 +118,13 @@ export class GpuParticleSystem {
       this.attrs[name] = a;
     }
     quad.instanceCount = 0;
-    const uniforms: Record<string, THREE.IUniform> = { atlas: { value: null }, frames: { value: 8 }, resolution: { value: new THREE.Vector2(1, 1) } };
+    const uniforms = {
+      atlas: { value: null as THREE.Texture | null },
+      frames: { value: 8 },
+      resolution: { value: new THREE.Vector2(1, 1) },
+      sceneDepth: { value: null as THREE.DepthTexture | null },
+      encodedBlend: { value: false },
+    };
     if (urls.atlas) void loadDds(urls.atlas).then((t) => { t.wrapS = THREE.RepeatWrapping; t.needsUpdate = true; uniforms.atlas!.value = t; }).catch(() => undefined);
     if (urls.noise) void fetch(urls.noise).then((r) => r.arrayBuffer()).then((b) => { this.noise = new Noise(new Uint8Array(b, 128, 32 * 32 * 32 * 3)); }).catch(() => undefined);
     // Quads.fx (the client's quads.sm_hi): a card half size/4 across in the eye's plane; velocityStretchRotation below
@@ -155,9 +161,21 @@ export class GpuParticleSystem {
           vColor = iCol * ( alphaK * fade );
         }`,
       fragmentShader: `uniform sampler2D atlas;
+        uniform highp sampler2D sceneDepth;
+        uniform bool encodedBlend;
         varying vec2 vUv; varying vec4 vColor;
-        vec4 decode(vec4 c) { return vec4(mix(c.rgb / 12.92, pow((c.rgb + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c.rgb)), c.a); }
-        void main() { gl_FragColor = decode( texture2D( atlas, vUv ) ) * vColor; }`,
+        void main() {
+          if (encodedBlend) {
+            #ifdef USE_LOGARITHMIC_DEPTH_BUFFER
+              float depth = gl_FragDepth;
+            #else
+              float depth = gl_FragCoord.z;
+            #endif
+            if (depth > texelFetch(sceneDepth, ivec2(gl_FragCoord.xy), 0).r) discard;
+          }
+          vec4 color = sRGBTransferEOTF(texture2D(atlas, vUv)) * vColor;
+          gl_FragColor = encodedBlend ? sRGBTransferOETF(vec4(max(color.rgb, 0.0), color.a)) : color;
+        }`,
       transparent: true, depthWrite: false, depthTest: true,
       // Velocity-stretched and rotated cards have opposite winding.
       side: THREE.DoubleSide, forceSinglePass: true,
@@ -170,13 +188,20 @@ export class GpuParticleSystem {
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 1e6;
     material.onBeforeRender = (renderer, _s, camera) => {
-      renderer.getDrawingBufferSize(uniforms.resolution!.value as THREE.Vector2);
+      if (uniforms.encodedBlend.value) return;
+      renderer.getDrawingBufferSize(uniforms.resolution.value);
       this.step(performance.now() / 1000, camera);
     };
   }
 
   emit(r: Request): void { if (r.count > 0) this.requests.push(r); }
   get liveCount(): number { return this.alive; }
+
+  /** Advance after the scene's emitters have rendered, before uploading the instance attributes. */
+  prepareDraw(camera: THREE.Camera, width: number, height: number): void {
+    this.mesh.material.uniforms.resolution!.value.set(width, height);
+    this.step(performance.now() / 1000, camera);
+  }
 
   /** Tr2GpuParticleSystem's frame: dt (at most 1/15 s), the origin shift, emit, simulate, cull and sort, fill. */
   private step(now: number, camera: THREE.Camera): void {
@@ -312,6 +337,7 @@ const systems = new WeakMap<THREE.Object3D, GpuParticleSystem>();
 let assetUrls: { atlas?: string | null; noise?: string | null } = {};
 /** The atlas and turbulence volume a SOF build names (any hull's: they are the client's one system's). */
 export function setGpuParticleAssets(urls: { atlas?: string | null; noise?: string | null } | undefined): void { if (urls?.atlas) assetUrls = urls; }
+export function getGpuParticleSystem(scene: THREE.Object3D): GpuParticleSystem | undefined { return systems.get(scene); }
 /** A scene's system, made and added to it on first use. */
 export function gpuSystemOf(scene: THREE.Object3D): GpuParticleSystem {
   let s = systems.get(scene);
