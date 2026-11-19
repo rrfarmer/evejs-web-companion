@@ -2146,6 +2146,9 @@ function createGamePortPilots({
     session.clientCalls = (call) => answerClientCall(call, characterID, (question) => askUser(entry, call, question));
     session.onClientCall((call) => onClientCall(call, characterID));
     session.onNotification((notification) => {
+      if (notification.method === "OnWormholeJumpCancel") {
+        entry.wormholeJumpCancels = (entry.wormholeJumpCancels ?? 0) + 1;
+      }
       // machoNet.OnMachoObjectDisconnect(objectID, clientID, refID): the server has let a bound object go.
       if (notification.method === "OnMachoObjectDisconnect" && Array.isArray(notification.args)) {
         const gone = notification.args[0];
@@ -6836,6 +6839,7 @@ function createGamePortPilots({
     },
     /** A count scoped to the held pilot, so an older refusal cannot finish a new undock. */
     academyDeclines: (sessionFields, bridgeSessionID, reason) => held(bridgeSessionID, sessionFields).academyDeclines?.get(reason) ?? 0,
+    wormholeJumpCancels: (sessionFields, bridgeSessionID) => held(bridgeSessionID, sessionFields).wormholeJumpCancels ?? 0,
     /** The Abyssal pocket's timer as the pilot was last told it (keepPocketTimer): its end_time, as the notice had it, or null. */
     pocketTimer: (sessionFields = {}, bridgeSessionID = undefined) => held(bridgeSessionID, sessionFields).pocketTimer ?? null,
     /** The Abyssal pocket's room as the pilot was last told it (keepPocketTimer): OnAbyssalLocationEntered's client_data, or null. */

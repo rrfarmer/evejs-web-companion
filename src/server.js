@@ -5279,7 +5279,8 @@ async function dispatchPlaceChangeWrite(req, res, next, kind, service, method, a
     // as the dock route asked it until 2026-10-14, and the ship's Undock, which this server takes from a structure.)
     const onTheGamePort = Boolean(gamePortPilots && isGamePortHandle(held.bridgeSessionID));
     const academyAction = kind === "undock" ? "UNDOCK" : kind === "stargate" ? "TRAVEL" : null;
-    const declineCode = academyAction === null ? null : `ACADEMY_SHIP_${academyAction}_DECLINED`;
+    const declineCode = kind === "wormhole" ? "WORMHOLE_JUMP_CANCELLED"
+      : academyAction === null ? null : `ACADEMY_SHIP_${academyAction}_DECLINED`;
     if (onTheGamePort && academyAction !== null) {
       const countDeclines = () => gamePortPilots.academyDeclines(
         { userid: held.accountID }, held.bridgeSessionID, `DECLINED_REASON_${academyAction}`);
@@ -5287,6 +5288,14 @@ async function dispatchPlaceChangeWrite(req, res, next, kind, service, method, a
       waiting.readDecline = () => countDeclines() > previousDeclines ? {
         code: declineCode,
         message: academyAction === "UNDOCK" ? "The Academy ship undock was declined." : "Academy ships cannot leave Exordium.",
+      } : null;
+    }
+    if (onTheGamePort && kind === "wormhole" && typeof gamePortPilots.wormholeJumpCancels === "function") {
+      const countCancels = () => gamePortPilots.wormholeJumpCancels({ userid: held.accountID }, held.bridgeSessionID);
+      const previousCancels = countCancels();
+      waiting.readDecline = () => countCancels() > previousCancels ? {
+        code: declineCode,
+        message: "The wormhole collapsed during the jump.",
       } : null;
     }
     const outcome = onTheGamePort || service !== "structureDocking"

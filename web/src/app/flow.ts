@@ -26922,6 +26922,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         return;
       }
       if (error instanceof BridgeCallError && error.code === ACADEMY_TRAVEL_DECLINED) return;
+      if (label === "Enter Wormhole" && error instanceof BridgeCallError && error.code === "WORMHOLE_JUMP_CANCELLED") {
+        const labelPath = "UI/Wormholes/EnterCollapsed";
+        store.apply({ type: "flight/action-error", message: error.message, said: true });
+        sayDialog("CustomInfo", { type: "dict", entries: [["info", [UE_LOC, labelPath]]] }, error.message, "info");
+        return;
+      }
       if (isSessionLost(error)) {
         stopLiveStream();
         store.apply({ type: "character/offline" });

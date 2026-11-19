@@ -1137,6 +1137,17 @@ test("a connection that drops on its own ends the session too", async () => {
 
 // ── what the server pushes ───────────────────────────────────────────────────
 
+test("a native wormhole cancellation stays with its held pilot after a notification drain", async () => {
+  const { pilots, session, handle } = await selected();
+  const other = await selected();
+  assert.equal(pilots.wormholeJumpCancels(FIELDS, handle), 0);
+  session.notify("OnWormholeJumpCancel");
+  assert.equal(pilots.wormholeJumpCancels(FIELDS, handle), 1);
+  await pilots.readFlightStatus(handle, FIELDS);
+  assert.equal(pilots.wormholeJumpCancels(FIELDS, handle), 1);
+  assert.equal(other.pilots.wormholeJumpCancels(FIELDS, other.handle), 0);
+});
+
 test("every answer drains what the server pushed since the last one", async () => {
   const { pilots, session, handle } = await selected();
   session.notify("OnItemsChanged", [1, 2]);
