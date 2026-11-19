@@ -3,14 +3,18 @@
   import type { AppFlow } from "../app/flow.ts";
   import { miningScanInWarp, miningScanRows, MINING_SCANNER_UPGRADE, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
   import type { SpaceView } from "../play/spaceView.ts";
+  import type { FlightMiningSurvey } from "../play/miningSurveyWave.ts";
   import { fmtDist } from "../space/overview.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
+  import { createSignal } from "../store/signals.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import { showInfo } from "./showInfo.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const flightView = getContext<(() => SpaceView | null) | undefined>("flightSpaceView");
+  const flightSurvey = getContext<FlightMiningSurvey | undefined>("flightMiningSurvey");
+  const waveBusy = flightSurvey?.busy ?? createSignal(false);
   const mining = $derived(store.mining);
   const space = $derived(store.space);
   const names = $derived(store.names);
@@ -56,7 +60,10 @@
 
   async function scan() {
     busy = true;
-    try { await flow.runSurveyScan(); }
+    try {
+      if (flightSurvey) await flightSurvey.scan();
+      else await flow.runSurveyScan();
+    }
     catch { /* The flow handles session loss and presents scanner errors. */ }
     finally { busy = false; }
   }
@@ -74,7 +81,7 @@
     <label>Sort ore groups <select bind:value={sortGroups}>
       <option value="name">Name</option><option value="value">Value per m³</option><option value="type">Type</option>
     </select></label>
-    <button class="scan-button" type="button" onclick={scan} disabled={busy || inWarp || !snapshot?.inSpace}>{busy ? "Scanning…" : "Scan"}</button>
+    <button class="scan-button" type="button" onclick={scan} disabled={busy || $waveBusy || inWarp || !snapshot?.inSpace}>{busy || $waveBusy ? "Scanning…" : "Scan"}</button>
   </div>
   {#if inWarp}<p class="status">Mining scans are unavailable while warping.</p>{/if}
   {#if $mining.surveyError}<p role="alert" class="status">{$mining.surveyError}</p>{/if}

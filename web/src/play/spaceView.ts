@@ -25,6 +25,8 @@ import { TurretFx, fxGuid } from "./turretFx.ts";
 import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three/impactOverlay.ts";
 import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
+import { MiningSurveyWave, miningWaveSounds, miningWaveTargets } from "./miningSurveyWave.ts";
+import type { ApiOptions } from "../app/api.ts";
 import { DRIFTER_COLLECTION, DrifterCollectionExplosions } from "./drifterCollectionExplosions.ts";
 import { isNonInteractableWormhole, nonInteractableWormhole, ordinaryWormhole, playWormholeActivity, updateWormholePose, WormholeAudio, WORMHOLE_COLLAPSE_MS, WORMHOLE_GROUP } from "./nonInteractableWormhole.ts";
 import { setEffectShaderQuality, setSmartLightSimulationTime } from "../three/hullChildren.ts";
@@ -41,7 +43,7 @@ import { gfx, spaceRendering, lodSettings } from "./gfxSettings.ts";
 import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, stopEmitter, type WorldLoop } from "./uiAudio.ts";
 import { commandForKey, combatForModifiers, isCombatCommand, labelOf, type CombatCommand } from "./shortcutKeys.ts";
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
-import type { DamageRouting, SpaceSnapshot } from "../store/types.ts";
+import type { DamageRouting, SpaceSnapshot, SurveyResult } from "../store/types.ts";
 import { healthNotificationSettings, HEALTH_NOTIFICATIONS } from "../store/notifySettings.ts";
 import { ALERT_ANIMATION_MS, ALERT_DURATION_MS, CAPACITOR, HULL, activeAlertLevel, capacitorAlerting, capacitorChanged, damageStateChanged, initialShipAlertState, isLevelActive } from "../ui/shipAlert.ts";
 import { alignText, indicationHeader, indicationText, pointText, shipIndication, shipStoppingText, warpProgress, warpText, SHIP_STOPPING_MS } from "../space/actionIndication.ts";
@@ -308,6 +310,8 @@ export class SpaceView {
   readonly missileFx = new MissileFx();
   /** The ShipEffects playing (shipFx.ts): a web's vortex on its target and the like. */
   readonly shipFx = new ShipFx();
+  private readonly miningSurvey = new MiningSurveyWave();
+  private miningSurveyUsesSimClock = false;
   private readonly collectionExplosions = new DrifterCollectionExplosions(this.scene);
   /** The camera's shake (cameraShake.ts): explosions shake it. */
   private readonly shake = new CameraShake();
@@ -675,6 +679,7 @@ export class SpaceView {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.scene.add(this.warpTunnel.object, this.turretFx.group, this.missileFx.group, this.shipFx.group);
+    this.scene.add(this.miningSurvey.group);
     live.fxListeners.add(this.hearFx);
     this.camera.position.set(-600, 250, 900);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -845,6 +850,7 @@ export class SpaceView {
     this.wormholeTransit.dispose();
     this.live.fxListeners.delete(this.hearFx);
     this.turretFx.dispose();
+    this.miningSurvey.dispose();
     this.collectionExplosions.clear();
     this.combatMessage.dispose();
     this.systemMap?.dispose();
@@ -1076,6 +1082,21 @@ export class SpaceView {
   selectObjectiveTarget(itemID: number): boolean {
     if (!this.snapshot?.entities.some((entity) => entity.itemID === itemID)) return false;
     return this.select(itemID);
+  }
+
+  async playMiningSurvey(results: readonly SurveyResult[], options: ApiOptions): Promise<void> {
+    const snapshot = this.snapshot;
+    const ship = snapshot?.ship;
+    if (!snapshot || !ship || ship.mode === "WARP" || this.stopped) return;
+    const liveDetails = this.options.flightSnapshot?.()?.entities ?? [];
+    const valueByID = new Map(liveDetails.map(rock => [rock.itemID, rock.oreValuePerM3]));
+    const rocks = snapshot.entities.map(rock => ({ ...rock, oreValuePerM3: valueByID.get(rock.itemID) }));
+    const targets = miningWaveTargets(rocks, results, ship.position);
+    const sounds = miningWaveSounds(targets.flatMap(rock => rock.typeID === null ? [] : [rock.typeID]), options);
+    const peakValue = liveDetails.reduce((peak, rock) => Math.max(peak, rock.oreValuePerM3 ?? 0), 0);
+    const simNow = this.live.effectSimNow();
+    this.miningSurveyUsesSimClock = simNow !== undefined;
+    await this.miningSurvey.start(ship.itemID, ship.position, simNow ?? performance.now(), targets, sounds, peakValue);
   }
 
   trackObjectiveTarget(itemID: number): void {
@@ -2316,6 +2337,7 @@ export class SpaceView {
       this.seenResets = this.live.resets;
       this.endExplosionCamera();
       this.collectionExplosions.clear();
+      this.miningSurvey.clear();
       this.clearWormholeCollapses();
       this.polarization.clear();
       if (this.gateJump && systemID !== null && this.seenSystem !== null && systemID !== this.seenSystem) {
@@ -2682,6 +2704,12 @@ export class SpaceView {
     this.missileFx.group.visible = settings.missilesEnabled;
     // fxSequencer: with Effects off the ship effects (not the turrets') are disabled
     this.shipFx.group.visible = settings.effectsEnabled;
+    this.miningSurvey.group.visible = settings.effectsEnabled;
+    const surveyTime = this.miningSurveyUsesSimClock ? this.live.effectSimNow() : now;
+    if (surveyTime !== undefined) this.miningSurvey.update(surveyTime, ego, id => {
+      const mark = this.marks.get(id);
+      return mark ? { position: mark.position, visibleRadius: mark.userData.model ? undefined : mark.userData.standInRadius } : undefined;
+    });
     // Drone.py IsDroneModelEnabled: a player's drone without its model (an empty ship holding its turret locator);
     // EveSpaceObject2::UpdateVisibility: a space object whose estimated size across (TriFrustum::GetPixelSizeAccrossEst:
     // its radius / its distance x P[0][0] x the viewport's width) is below the LOD quality's visibility threshold is
@@ -2900,10 +2928,11 @@ export class SpaceView {
     }
     const big = ["station", "planet", "moon", "sun", "stargate", "structure"].includes(e.kind);
     const colour = e.kind === "sun" ? 0xffd27a : e.kind === "planet" || e.kind === "moon" ? 0x5d6f80 : big ? 0x7d8a94 : 0x6f7a82;
-    const standIn = new THREE.Mesh(new THREE.SphereGeometry(Math.max(Math.min(e.radius, big ? e.radius : 60), 5), big ? 48 : 12, big ? 32 : 8),
+    const standInRadius = Math.max(Math.min(e.radius, big ? e.radius : 60), 5);
+    const standIn = new THREE.Mesh(new THREE.SphereGeometry(standInRadius, big ? 48 : 12, big ? 32 : 8),
       e.kind === "sun" ? new THREE.MeshBasicMaterial({ color: colour }) : new THREE.MeshStandardMaterial({ color: colour, roughness: 0.9, transparent: !e.isSelf && !["planet", "moon", "sun"].includes(e.kind), opacity: 0.35 }));
     holder.add(standIn);
-    holder.userData = { kind: e.kind, radius: e.radius };
+    holder.userData = { kind: e.kind, radius: e.radius, standInRadius };
     const triggerRange = e.typeID === null ? undefined : PROXIMITY_TRAP_RANGES.get(e.typeID);
     if (triggerRange !== undefined) setControllerVariable(holder, "Blast_Scale", triggerRange);
     if (["planet", "moon", "sun"].includes(e.kind) && e.typeID) {

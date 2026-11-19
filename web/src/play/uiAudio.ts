@@ -382,7 +382,8 @@ export async function playWorldLoop(name: string, at: Vec3, signal?: AbortSignal
 }
 
 /** SendUIEvent: the event's sounds played once, now (the first call after a user gesture starts the audio). */
-export async function playUiEvent(name: string): Promise<void> {
+export async function playUiEvent(name: string, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return;
   // "<x>_stop": the sounds "<x>_play" started, stopped (the client's stop events are Stop actions on their play's
   // objects; the ones with a sound of their own are not handled here)
   const stop = /^(.*)_stop$/i.exec(name);
@@ -394,10 +395,11 @@ export async function playUiEvent(name: string): Promise<void> {
     return;
   }
   const sounds = pick((await eventsMap())[String(wwiseId(name))] ?? null);
+  if (signal?.aborted) return;
   const entry: (typeof uiAudioLog)[number] = { name, sound: sounds.map((s) => s.sound).join(" + ") || null };
   uiAudioLog.push(entry);
   const settings = gfx();
   const volume = settings.audioEnabled ? settings.masterVolume * settings.uiGain : 0;
   if (!sounds.length || volume <= 0) return;
-  await start(name, sounds, volume, (ctx) => ctx.destination, entry);
+  await start(name, sounds, volume, (ctx) => ctx.destination, entry, undefined, signal);
 }

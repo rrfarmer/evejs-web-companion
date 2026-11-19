@@ -79,6 +79,7 @@
   import { DSCAN_WORDS } from "../play/dscan.ts";
   import { LivePark } from "../three/livePark.ts";
   import { SpaceView } from "../play/spaceView.ts";
+  import type { FlightMiningSurvey } from "../play/miningSurveyWave.ts";
   import { OVERVIEW_WORDS, typeNames as typeData } from "../play/overview.ts";
   import type { OverviewRelationships } from "../play/overviewFilters.ts";
   import { authoritativeFleetMemberCharacterIDs } from "../bridge/fleetCenter.ts";
@@ -855,7 +856,7 @@
       return true;
     }
     if (cmd === "CmdMiningScan") {
-      if (canOpenMiningScan()) void s.flow.runSurveyScan().catch(say("Mining Scan"));
+      if (canOpenMiningScan()) void flightMiningSurvey.scan().catch(say("Mining Scan"));
       return true;
     }
     if (cmd === "CmdReloadAmmo") {
@@ -909,7 +910,26 @@
   // Space: the SpaceView, made when the pilot is in space and let go when docked.
   let spaceHost = $state<HTMLDivElement | null>(null);
   let view: SpaceView | null = null;
+  const miningSurveyBusy = createSignal(false);
+  const flightMiningSurvey: FlightMiningSurvey = {
+    busy: miningSurveyBusy,
+    async scan() {
+      const pilot = session;
+      const space = view;
+      if (!pilot || !space || !canOpenMiningScan() || miningSurveyBusy.get()) return;
+      miningSurveyBusy.set(true);
+      try {
+        const results = await pilot.flow.runSurveyScan();
+        if (results !== null && view === space && session === pilot) {
+          await space.playMiningSurvey(results, pilot.flow.requestOptions());
+        }
+      } finally {
+        miningSurveyBusy.set(false);
+      }
+    },
+  };
   setContext("flightSpaceView", () => view);
+  setContext("flightMiningSurvey", flightMiningSurvey);
   setContext("flightSimNow", () => live?.simNow() || null);
   $effect(() => {
     if (stage !== "game" || docked || !spaceHost || !session || !live) return;

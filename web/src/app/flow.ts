@@ -912,6 +912,7 @@ import type {
   ShipBay,
   SlotFamily,
   SpaceSnapshot,
+  SurveyResult,
   SpaceVector,
   StationOfficeQuote,
   StationStatic,
@@ -4177,7 +4178,7 @@ export interface AppFlow {
   /** The Mining window's own read: the holds, and the hangar too where the pilot is docked (its ore can be refined there). */
   loadMiningWindow(): Promise<void>;
   /** R23 — run the survey scanner; the panel merges the results into the overview. */
-  runSurveyScan(): Promise<void>;
+  runSurveyScan(): Promise<readonly SurveyResult[] | null>;
   miningScanFacts(typeIDs: readonly number[]): Promise<ReadonlyMap<number, MiningScanTypeFacts>>;
   /** R23 — ask the station refinery what these stacks yield, and its ISK tax. */
   loadReprocessingQuote(itemIDs: readonly number[]): Promise<void>;
@@ -26008,33 +26009,35 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   let manualSurveyPending = false;
 
   /** Run the manual scan. A basic scan uses the local grid; the upgrade asks the server for quantities. */
-  async function runSurveyScan(): Promise<void> {
-    if (manualSurveyPending) return;
+  async function runSurveyScan(): Promise<readonly SurveyResult[] | null> {
+    if (manualSurveyPending) return null;
     const before = store.space.get().snapshot;
     if (miningScanInWarp(before)) {
       store.apply({ type: "mining/survey-error", message: "Mining scans are unavailable while warping." });
-      return;
+      return null;
     }
     manualSurveyPending = true;
     try {
       const result = await api.runSurveyScan(callOptions);
       const current = store.space.get().snapshot;
       if (before && (!current?.inSpace || current.shipID !== before.shipID ||
-          current.solarSystemID !== before.solarSystemID || miningScanInWarp(current))) return;
+          current.solarSystemID !== before.solarSystemID || miningScanInWarp(current))) return null;
 
       const fitting = store.fitting.get();
       const integrated = current?.inSpace && current.shipID === fitting.activeShipID &&
         (fitting.shipAttributes?.[INTEGRATED_MINING_SCANNER] ?? 0) > 0;
       if (result.asked === false && !integrated) {
         store.apply({ type: "mining/survey-error", message: "No scan was made: this ship has no mining scanner upgrade." });
-        return;
+        return null;
       }
       const useBasic = current?.inSpace && integrated && (result.asked === false || result.results === null);
+      const survey = useBasic ? basicMiningScan(current) : decodeSurveyResults(result.results);
       store.apply({
         type: "mining/survey",
-        survey: useBasic ? basicMiningScan(current) : decodeSurveyResults(result.results),
+        survey,
         atMs: Date.now(),
       });
+      return survey;
     } catch (error) {
       if (isSessionLost(error)) {
         stopLiveStream();
@@ -26045,6 +26048,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         type: "mining/survey-error",
         message: `The survey scan failed: ${flightRefusalWords(error)}`,
       });
+      return null;
     } finally {
       manualSurveyPending = false;
     }
