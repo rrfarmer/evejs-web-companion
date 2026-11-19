@@ -210,7 +210,7 @@ export class SpaceShadowAtlas {
   private mask: OpaqueShadowMask | null = null;
   private hasOpaque = false;
   private occlusion: AmbientOcclusion | null = null;
-  private occlusionQuality: 0 | 1 | 2 = 0;
+  private occlusionQuality: 0 | 1 | 2 | 3 = 0;
   private readonly shadow = new CascadeShadow();
   private readonly sun = new THREE.DirectionalLight();
   private readonly pass = new THREE.Scene();
@@ -279,7 +279,7 @@ export class SpaceShadowAtlas {
   render(
     scene: THREE.Scene, view: THREE.PerspectiveCamera, sunDirection: THREE.Vector3, enabled: boolean,
     clouds: readonly THREE.Mesh[], planets: readonly ShadowPlanet[], sunPosition: THREE.Vector3 | null,
-    ambientOcclusion: 0 | 1 | 2 = 0,
+    ambientOcclusion: 0 | 1 | 2 | 3 = 0,
   ): void {
     this.hasOpaque = false;
     this.occlusionQuality = 0;

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
+import { FILTER_IMPORTANCE, GENERATE_IMPORTANCE, HIGH_TAPS, SUM_IMPORTANCE } from "./ambientOcclusionHigh.ts";
 import { SOFT_DEPTH, SOFT_VIEW_DEPTH_GLSL } from "./softDepth.ts";
 
 const VERTEX = "void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }";
@@ -25,14 +26,26 @@ const GENERATE = `
   uniform ivec2 planeSize;
   uniform vec2 tangent, projectionOffset;
   const int subpasses[5] = int[](0, 1, 4, 3, 2);
-  #ifdef MEDIUM_AO
+  #if defined(HIGH_BASE) || defined(HIGH_ADAPTIVE)
+    ${HIGH_TAPS}
+  #endif
+  #ifdef HIGH_ADAPTIVE
+    uniform highp sampler2D baseObscurance, baseWeight, importanceMap, importanceCounter;
+    float sampleBudget() {
+      ivec2 size = textureSize(importanceMap, 0);
+      float count = texelFetch(importanceCounter, ivec2(0), 0).r;
+      float average = count * 9.0 / (255.0 * float(size.x) * float(size.y));
+      return 0.75 / max(0.75, average);
+    }
+  #endif
+  #ifdef HALF_RES_AO
     layout(location = 0) out vec4 outVisibility;
     layout(location = 1) out vec4 outEdges;
   #endif
 
   ivec2 sourcePixel(ivec2 pixel, int slice) {
     ivec2 offset = ivec2(slice % 2, slice / 2);
-    #ifdef MEDIUM_AO
+    #ifdef HALF_RES_AO
       return pixel * 2 + offset;
     #else
       return pixel * 4 + 2 * offset;
@@ -50,34 +63,58 @@ const GENERATE = `
   float planeDepth(ivec2 pixel, int slice) {
     return depthAt(sourcePixel(clamp(pixel, ivec2(0), planeSize - 1), slice));
   }
-  vec2 generate(ivec2 pixel, int slice) {
+  vec3 normalAt(ivec2 source) {
+    vec3 normal = texelFetch(normalMap, bottomLeftPixel(source), 0).xyz * 2.0 - 1.0;
+    return normal * vec3(1.0, 1.0, -1.0);
+  }
+  vec2 generate(ivec2 pixel, int slice, float budget) {
     ivec2 source = sourcePixel(pixel, slice);
     float depth = depthAt(source);
-    if (depth <= 1.0) return vec2(1.0, 0.0);
+    #ifdef HIGH_BASE
+      if (depth <= 0.0) return vec2(0.0, 0.2);
+    #elif defined(HIGH_ADAPTIVE)
+      if (depth <= 0.0) return vec2(1.0, 0.0);
+    #else
+      if (depth <= 1.0) return vec2(1.0, 0.0);
+    #endif
     vec3 center = positionAt(pixel, depth);
     float distanceFromEye = length(center);
     float radius = 6.0 * max(1.0, distanceFromEye * 0.005);
-    #ifdef MEDIUM_AO
+    #ifdef HALF_RES_AO
       float nearLimit = 7.2;
     #else
       float nearLimit = 10.8;
     #endif
     radius *= 0.2 + 0.8 * clamp(distanceFromEye * tangent.y / nearLimit, 0.0, 1.0);
     float projectedRadius = 0.85 * radius * float(planeSize.x) / (depth * 2.0 * tangent.x);
-    float subpass = float(subpasses[(2 * pixel.y + pixel.x) % 5]);
-    float angle = (float(slice) + subpass / 5.0) * 1.57079632679;
-    float scale = 1.0 + 0.07 * (float(slice) - 1.5 + (subpass - 2.0) / 5.0);
-    float c = cos(angle) * scale * projectedRadius;
-    float s = -sin(angle) * scale * projectedRadius;
-    mat2 transform = mat2(c, s, s, -c);
+    int phase = (2 * pixel.y + pixel.x) % 5;
+    #if defined(HIGH_BASE) || defined(HIGH_ADAPTIVE)
+      vec2 rotation = rotations[5 * slice + phase] * projectedRadius;
+    #else
+      float subpass = float(subpasses[phase]);
+      float angle = (float(slice) + subpass / 5.0) * 1.57079632679;
+      float scale = 1.0 + 0.07 * (float(slice) - 1.5 + (subpass - 2.0) / 5.0);
+      vec2 rotation = vec2(cos(angle), -sin(angle)) * scale * projectedRadius;
+    #endif
+    mat2 transform = mat2(rotation.x, rotation.y, rotation.y, -rotation.x);
 
-    vec3 normal = texelFetch(normalMap, bottomLeftPixel(source), 0).xyz * 2.0 - 1.0;
-    normal.z = -normal.z;
-    #ifdef MEDIUM_AO
+    vec3 normal = normalAt(source);
+    #ifdef HIGH_ADAPTIVE
+      vec2 parity = vec2(slice % 2, slice / 2);
+      vec2 uv = (vec2(pixel) + 0.5) / vec2(planeSize) + 0.5 * parity / vec2(textureSize(importanceMap, 0));
+      float importance = texture(importanceMap, uv).r;
+      const int firstTap = 5;
+      int tapCount = min(32, 5 + int(27.0 * importance * budget + 1.5));
+    #elif defined(HIGH_BASE)
+      const int firstTap = 0;
+      const int tapCount = 5;
+    #elif defined(HALF_RES_AO)
+      const int firstTap = 0;
       const int tapCount = 5;
       const vec3 taps[tapCount] = vec3[](vec3(0.784881, 0.566617, 1.5), vec3(0.260222, -0.295752, 1.5),
         vec3(0.104594, 0.083725, 1.11), vec3(-0.682868, 0.049630, 1.09), vec3(-0.135702, -0.641902, 1.25));
     #else
+      const int firstTap = 0;
       const int tapCount = 3;
       const vec3 taps[tapCount] = vec3[](vec3(0.784881, 0.566617, 1.5), vec3(0.260222, -0.295752, 1.5), vec3(0.104594, 0.083725, 1.11));
     #endif
@@ -87,7 +124,7 @@ const GENERATE = `
     float fade = clamp((center.z - 1.0) / 9.0, 0.0, 1.0);
     float weights = 0.0;
     float packedEdges = 1.0;
-    #ifdef MEDIUM_AO
+    #if defined(HALF_RES_AO) && !defined(HIGH_BASE)
       const ivec2 neighbors[4] = ivec2[](ivec2(-1,0), ivec2(1,0), ivec2(0,-1), ivec2(0,1));
       vec4 depths;
       for (int n = 0; n < 4; n++) depths[n] = planeDepth(pixel + neighbors[n], slice);
@@ -104,24 +141,57 @@ const GENERATE = `
         sum += edge[n] * obscurance(delta, normal, 4.0 * invRadiusSquared);
       }
       sum *= 5.0;
+      #ifdef HIGH_ADAPTIVE
+        sum *= 0.15625 + 0.84375 * importance;
+        weights = 20.0 * texelFetch(baseWeight, pixel, 0)[slice];
+        sum += weights * texelFetch(baseObscurance, pixel, 0)[slice];
+        ivec2 size = textureSize(normalMap, 0);
+        for (int n = 0; n < 4; n++) {
+          ivec2 neighbor = sourcePixel(pixel + neighbors[n], slice);
+          bool inFrame = all(greaterThanEqual(neighbor, ivec2(0))) && all(lessThan(neighbor, size));
+          float cosine = inFrame ? dot(normal, normalAt(neighbor)) : 0.0;
+          edge[n] *= clamp(cosine + 0.5, 0.0, 1.0);
+        }
+      #endif
       fade *= 1.0 - 0.35 * (max(0.0, 1.0 - edge.x - edge.y) + max(0.0, 1.0 - edge.z - edge.w));
       packedEdges = dot(roundEven(edge * 3.05), vec4(64.0, 16.0, 4.0, 1.0)) / 255.0;
     #endif
-    for (int i = 0; i < tapCount; i++) {
+    for (int i = firstTap; i < tapCount; i++) {
       ivec2 shift = ivec2(roundEven(transform * taps[i].xy));
+      #if defined(HIGH_BASE) || defined(HIGH_ADAPTIVE)
+        // PrepareNativeDepths in 3698585 populates the base level. A point
+        // sample that selects one of the empty higher levels returns zero.
+        bool baseMip = log2(projectedRadius) - 4.3 + taps[i].w <= 0.5;
+      #endif
       for (int direction = -1; direction <= 1; direction += 2) {
         ivec2 tap = pixel + direction * shift;
-        float tapDepth = planeDepth(tap, slice);
-        float weight = taps[i].z;
+        #if defined(HIGH_BASE) || defined(HIGH_ADAPTIVE)
+          float tapDepth = baseMip ? planeDepth(tap, slice) : 0.0;
+        #else
+          float tapDepth = planeDepth(tap, slice);
+        #endif
+        #ifdef HIGH_ADAPTIVE
+          float weight = 1.0;
+        #else
+          float weight = taps[i].z;
+        #endif
         vec3 delta = positionAt(tap, tapDepth) - center;
-        #ifdef MEDIUM_AO
-          weight *= tapDepth > 0.0 ? (0.4 + 0.6 * clamp(2.0 - max(0.0, -delta.z) / 6.0, 0.0, 1.0)) : 0.4;
+        #ifdef HALF_RES_AO
+          float halo = 0.4 + 0.6 * clamp(2.0 - max(0.0, -delta.z) / 6.0, 0.0, 1.0);
+          #ifdef MEDIUM_AO
+            weight *= tapDepth > 0.0 ? halo : 0.4;
+          #else
+            weight *= halo;
+          #endif
         #endif
         if (tapDepth > 0.0) sum += weight * obscurance(delta, normal, invRadiusSquared);
         weights += weight;
       }
     }
-    #ifndef MEDIUM_AO
+    #ifdef HIGH_BASE
+      return vec2(sum / weights, weights * 0.05);
+    #endif
+    #ifndef HALF_RES_AO
       weights = 1.0 / 0.121654;
     #endif
     float visibility = pow(1.0 - min(0.98, 4.3 * sum / weights) * fade, 2.6);
@@ -129,9 +199,15 @@ const GENERATE = `
   }
   void main() {
     ivec2 pixel = ivec2(gl_FragCoord.xy);
-    vec2 a = generate(pixel, 0), b = generate(pixel, 1), c = generate(pixel, 2), d = generate(pixel, 3);
+    #ifdef HIGH_ADAPTIVE
+      float budget = sampleBudget();
+    #else
+      float budget = 1.0;
+    #endif
+    vec2 a = generate(pixel, 0, budget), b = generate(pixel, 1, budget);
+    vec2 c = generate(pixel, 2, budget), d = generate(pixel, 3, budget);
     vec4 visibility = vec4(a.x, b.x, c.x, d.x);
-    #ifdef MEDIUM_AO
+    #ifdef HALF_RES_AO
       outVisibility = visibility;
       outEdges = vec4(a.y, b.y, c.y, d.y);
     #else
@@ -261,6 +337,10 @@ function pass(fragmentShader: string, uniforms: Record<string, THREE.IUniform>):
 export class AmbientOcclusion {
   private readonly raw = target(THREE.UnsignedByteType);
   private readonly rawMedium = target(THREE.UnsignedByteType, 2);
+  private readonly baseHigh = target(THREE.UnsignedByteType, 2);
+  private readonly importance = target(THREE.UnsignedByteType, 1, true);
+  private readonly importanceFiltered = target(THREE.UnsignedByteType, 1, true);
+  private readonly importanceSums: THREE.WebGLRenderTarget[] = [];
   private readonly blur = [target(THREE.HalfFloatType), target(THREE.HalfFloatType)];
   private readonly filteredMedium = target(THREE.UnsignedByteType, 1, true);
   private readonly interleaved = target(THREE.HalfFloatType);
@@ -275,13 +355,23 @@ export class AmbientOcclusion {
   private readonly hasShadow = { value: false };
   private readonly edgeAware = { value: false };
   private readonly edges = { value: this.rawMedium.textures[1]! };
+  private readonly secondImportanceFilter = { value: false };
+  private readonly importanceStride = { value: 3 };
+  private readonly importanceCounter = { value: null as THREE.Texture | null };
   private readonly generate = pass(GENERATE, {
     ...SOFT_DEPTH, normalMap: this.normals, planeSize: this.planeSize, tangent: this.tangent, projectionOffset: this.projectionOffset,
   });
-  private readonly generateMedium = new THREE.ShaderMaterial({
-    uniforms: this.generate.uniforms, vertexShader: VERTEX, fragmentShader: GENERATE,
-    defines: { MEDIUM_AO: 1 }, glslVersion: THREE.GLSL3, depthTest: false, depthWrite: false, toneMapped: false,
+  private readonly generateMedium = this.halfResolutionPass("MEDIUM_AO");
+  private readonly generateHighBase = this.halfResolutionPass("HIGH_BASE");
+  private readonly generateHigh = this.halfResolutionPass("HIGH_ADAPTIVE", {
+    baseObscurance: { value: this.baseHigh.textures[0] },
+    baseWeight: { value: this.baseHigh.textures[1] },
+    importanceMap: { value: this.importance.texture },
+    importanceCounter: this.importanceCounter,
   });
+  private readonly generateImportance = pass(GENERATE_IMPORTANCE, { source: this.source });
+  private readonly filterImportance = pass(FILTER_IMPORTANCE, { source: this.source, secondFilter: this.secondImportanceFilter });
+  private readonly sumImportance = pass(SUM_IMPORTANCE, { source: this.source, stride: this.importanceStride });
   private readonly blurPass = pass(BLUR, { source: this.source, edges: this.edges, edgeAware: this.edgeAware });
   private readonly interleave = pass(INTERLEAVE, { ...SOFT_DEPTH, source: this.source });
   private readonly resolve = pass(RESOLVE_LOW, {
@@ -292,14 +382,14 @@ export class AmbientOcclusion {
   });
 
   render(renderer: THREE.WebGLRenderer, camera: THREE.Camera, width: number, height: number,
-    normals: THREE.Texture, shadow: THREE.Texture | null, quality: 1 | 2): THREE.Texture {
-    const medium = quality === 2;
-    const divisor = medium ? 2 : 4;
+    normals: THREE.Texture, shadow: THREE.Texture | null, quality: 1 | 2 | 3): THREE.Texture {
+    const halfResolution = quality >= 2;
+    const divisor = halfResolution ? 2 : 4;
     const w = Math.ceil(width / divisor), h = Math.ceil(height / divisor);
-    const raw = medium ? this.rawMedium : this.raw;
+    const raw = halfResolution ? this.rawMedium : this.raw;
     raw.setSize(w, h);
     this.blur[0]!.setSize(w, h);
-    if (medium) this.filteredMedium.setSize(w, h);
+    if (halfResolution) this.filteredMedium.setSize(w, h);
     else {
       this.blur[1]!.setSize(w, h);
       this.interleaved.setSize(Math.ceil(width / 2), Math.ceil(height / 2));
@@ -308,7 +398,7 @@ export class AmbientOcclusion {
     this.normals.value = normals;
     this.shadow.value = shadow;
     this.hasShadow.value = shadow !== null;
-    this.edgeAware.value = medium;
+    this.edgeAware.value = halfResolution;
     this.planeSize.value.set(w, h);
     const projection = camera.projectionMatrix.elements;
     this.tangent.value.set(1 / projection[0]!, 1 / projection[5]!);
@@ -316,9 +406,10 @@ export class AmbientOcclusion {
     const previous = renderer.getRenderTarget();
     const face = renderer.getActiveCubeFace(), mip = renderer.getActiveMipmapLevel();
     try {
-      this.draw(renderer, raw, medium ? this.generateMedium : this.generate);
+      if (quality === 3) this.drawHigh(renderer, w, h);
+      else this.draw(renderer, raw, halfResolution ? this.generateMedium : this.generate);
       this.source.value = raw.texture;
-      if (medium) {
+      if (halfResolution) {
         this.draw(renderer, this.blur[0]!, this.blurPass);
         this.source.value = this.blur[0]!.texture;
         this.draw(renderer, this.filteredMedium, this.blurPass);
@@ -338,6 +429,49 @@ export class AmbientOcclusion {
     return this.resolved.texture;
   }
 
+  private halfResolutionPass(stage: string, uniforms: Record<string, THREE.IUniform> = {}): THREE.ShaderMaterial {
+    const material = pass(GENERATE, { ...this.generate.uniforms, ...uniforms });
+    material.defines = { HALF_RES_AO: 1, [stage]: 1 };
+    material.glslVersion = THREE.GLSL3;
+    return material;
+  }
+
+  private drawHigh(renderer: THREE.WebGLRenderer, width: number, height: number): void {
+    const w = Math.ceil(width / 2), h = Math.ceil(height / 2);
+    this.baseHigh.setSize(width, height);
+    this.importance.setSize(w, h);
+    this.importanceFiltered.setSize(w, h);
+    this.draw(renderer, this.baseHigh, this.generateHighBase);
+    this.source.value = this.baseHigh.texture;
+    this.draw(renderer, this.importance, this.generateImportance);
+    this.source.value = this.importance.texture;
+    this.secondImportanceFilter.value = false;
+    this.draw(renderer, this.importanceFiltered, this.filterImportance);
+    this.source.value = this.importanceFiltered.texture;
+    this.secondImportanceFilter.value = true;
+    this.draw(renderer, this.importance, this.filterImportance);
+    this.importanceCounter.value = this.reduceImportance(renderer);
+    this.draw(renderer, this.rawMedium, this.generateHigh);
+  }
+
+  private reduceImportance(renderer: THREE.WebGLRenderer): THREE.Texture {
+    let source = this.importance;
+    let stride = 3;
+    let level = 0;
+    do {
+      const w = Math.ceil(source.width / (4 * stride)), h = Math.ceil(source.height / (4 * stride));
+      const tiles = this.importanceSums[level] ?? (this.importanceSums[level] = target(THREE.FloatType));
+      tiles.setSize(w, h);
+      this.source.value = source.texture;
+      this.importanceStride.value = stride;
+      this.draw(renderer, tiles, this.sumImportance);
+      source = tiles;
+      stride = 1;
+      level++;
+    } while (source.width > 1 || source.height > 1);
+    return source.texture;
+  }
+
   private draw(renderer: THREE.WebGLRenderer, target: THREE.WebGLRenderTarget, material: THREE.ShaderMaterial): void {
     renderer.setRenderTarget(target);
     this.quad.material = material;
@@ -345,8 +479,11 @@ export class AmbientOcclusion {
   }
 
   dispose(): void {
-    for (const material of [this.generate, this.generateMedium, this.blurPass, this.interleave, this.resolve, this.resolveMedium]) material.dispose();
-    for (const target of [this.raw, this.rawMedium, ...this.blur, this.filteredMedium, this.interleaved, this.resolved]) target.dispose();
+    for (const material of [this.generate, this.generateMedium, this.generateHighBase, this.generateHigh,
+      this.generateImportance, this.filterImportance, this.sumImportance, this.blurPass, this.interleave,
+      this.resolve, this.resolveMedium]) material.dispose();
+    for (const target of [this.raw, this.rawMedium, this.baseHigh, this.importance, this.importanceFiltered,
+      ...this.importanceSums, ...this.blur, this.filteredMedium, this.interleaved, this.resolved]) target.dispose();
     this.quad.dispose();
   }
 }
