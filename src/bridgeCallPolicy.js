@@ -105,6 +105,7 @@ const ORGANIZATION_ENLISTMENT_METHODS = Object.freeze([
   "WithdrawJoinFactionAsCorporation", "WithdrawJoinFactionAsAlliance", "WithdrawLeaveFactionAsCorporation", "WithdrawLeaveFactionAsAlliance",
 ]);
 const FEATURE_WRITE_METHODS = freezeMethodMap({
+  wormholeMgr: ["WormholeJump"],
   academy_ship: ["borrow_academy_ship"],
   // Only the camera event route builds the full tracker dictionaries from the held pilot's state.
   monolithTaskTrackerMgr: ["UpdateClientAchievmentsAndCounters"],
@@ -922,6 +923,7 @@ function isBridgeWritePair(service, method) {
  */
 const PAGE_WRITE_PAIR_KEYS = Object.freeze([
   "academy_ship.borrow_academy_ship",
+  "wormholeMgr.WormholeJump",
   "hackingMgr.ClickedOnTile", "hackingMgr.UsedUtilityElement", "hackingMgr.UsedUtilityElementOnVirus", "hackingMgr.QuitHackingAttempt",
   ...ORGANIZATION_ENLISTMENT_METHODS.map(method => `facWarMgr.${method}`),
   "facWarMgr.JoinFactionAsCharacter", "fwCharacterEnlistmentMgr.CreateMyDirectEnlistment", "fwCharacterEnlistmentMgr.RemoveMyDirectEnlistment",
@@ -1030,7 +1032,7 @@ function swapTargetOf(service, method, args) {
  *                    PerformSessionChange('JumpToAbyss', ...), the session into the trace's pocket. Kept as a stargate's
  *                    jump is (an abyss entrance).
  */
-const PAGE_PLACE_CHANGE_CALLS = Object.freeze(new Map([["ship.Undock", "undock"], ["structureDocking.Undock", "undock"], ["beyonce.CmdDock", "dock"], ["structureDocking.Dock", "dock"], ["beyonce.CmdStargateJump", "stargate"], ["beyonce.CmdJumpToFleetModuleBeacon", "cyno"], ["beyonce.CmdGroupJumpToFleetModuleBeacon", "cyno"], ["structureJumpBridgeMgr.CmdJumpThroughStructureStargate", "bridge"], ["abyssalMgr.AbyssalEntranceDeployment", "abyss"], ["abyssalMgr.AbyssalEndGateActivation", "abyssExit"], ["abyssalMgr.AbyssalEntranceGateActivation", "abyssEntrance"]]));
+const PAGE_PLACE_CHANGE_CALLS = Object.freeze(new Map([["ship.Undock", "undock"], ["structureDocking.Undock", "undock"], ["beyonce.CmdDock", "dock"], ["structureDocking.Dock", "dock"], ["beyonce.CmdStargateJump", "stargate"], ["wormholeMgr.WormholeJump", "wormhole"], ["beyonce.CmdJumpToFleetModuleBeacon", "cyno"], ["beyonce.CmdGroupJumpToFleetModuleBeacon", "cyno"], ["structureJumpBridgeMgr.CmdJumpThroughStructureStargate", "bridge"], ["abyssalMgr.AbyssalEntranceDeployment", "abyss"], ["abyssalMgr.AbyssalEndGateActivation", "abyssExit"], ["abyssalMgr.AbyssalEntranceGateActivation", "abyssEntrance"]]));
 for (const pair of PAGE_PLACE_CHANGE_CALLS.keys()) {
   if (!pageWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's changes of place and is none of its writes.`);
 }

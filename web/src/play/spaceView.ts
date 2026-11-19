@@ -62,7 +62,8 @@ import { DynamicExposure } from "../three/exposure.ts";
 import { CombatMessage } from "./combatMessage.ts";
 import { RadialMenu, RADIAL_CSS, RADIAL_ICON, WARP_RANGES, holdToOpen, radialRanges, type RadialOption } from "./radialMenu.ts";
 import { JUMP_BRIDGE_GROUP, type JumpBridgeSlim } from "../bridge/jumpBridgePanel.ts";
-import { ACTIVATE_GATE_LABEL, isWarpGate } from "../bridge/gateActivation.ts";
+import { ACTIVATE_GATE_LABEL, IN_WARP_HINT_LABEL, isWarpGate } from "../bridge/gateActivation.ts";
+import { ENTER_WORMHOLE_LABEL } from "../bridge/placeChanges.ts";
 import { activateCargoTarget, OPEN_CARGO_ICON, OPEN_CARGO_LABEL, selectedCargo } from "./containerInteraction.ts";
 
 export interface Entity {
@@ -86,6 +87,7 @@ interface ItemAction {
   title: string;
   icon: string;
   disabled?: boolean;
+  disabledReason?: string;
   run: () => Promise<void>;
 }
 
@@ -161,6 +163,7 @@ export interface SpaceActions {
   alignTo(itemID: number): Promise<void>;
   keepAtRange(itemID: number, range?: number): Promise<void>;
   jump(itemID: number): Promise<void>;
+  enterWormhole?(itemID: number): Promise<void>;
   activateGate?(itemID: number, typeID: number | null): Promise<void>;
   lock(itemID: number): Promise<void>;
   unlock(itemID: number): Promise<void>;
@@ -1118,7 +1121,21 @@ export class SpaceView {
     return true;
   }
 
-/**
+  private wormholeEntry(e: Entity): ItemAction | null {
+    const enter = this.actions.enterWormhole;
+    if (!enter || e.groupID !== WORMHOLE_GROUP) return null;
+    const disabled = this.snapshot?.ship?.mode === "WARP";
+    return {
+      key: "enterWormhole",
+      title: this.actions.word?.(ENTER_WORMHOLE_LABEL) ?? "Enter Wormhole",
+      icon: clientTexture("res:/UI/Texture/eveicon/control_icons/jump_to_32px.png"),
+      disabled,
+      disabledReason: disabled ? this.actions.word?.(IN_WARP_HINT_LABEL) ?? "You are in warp" : undefined,
+      run: () => enter(e.itemID),
+    };
+  }
+
+  /**
    * The Selected Item window's actions in the client's order (inflight/selectedItemWnd.py GetActions,
    * selectedItemConst.ACTIONS_ALWAYS_VISIBLE read from the compiled module: the decompiled source prints its places):
    * Approach, or Align To for a thing far enough to warp to; Warp To Within; the thing's own (Dock for a station,
@@ -1144,6 +1161,8 @@ export class SpaceView {
       out.push({ key: "dock", title: "Dock", icon: icon("dock"), run: () => this.actions.dock(id) });
     }
     if (e.kind === "stargate") out.push({ key: "jump", title: "Jump", icon: icon("jump_to"), run: () => this.actions.jump(id) });
+    const wormhole = this.wormholeEntry(e);
+    if (wormhole) out.push(wormhole);
     const cargo = this.actions.openCargo;
     const cargoState = selectedCargo(e, this.snapshot?.ship?.mode === "WARP");
     if (cargo && cargoState !== "hidden") {
@@ -1183,7 +1202,8 @@ export class SpaceView {
     }
     const dist = this.distanceTo(e);
     const cargoLabel = selectedCargo(e, false) === "hidden" ? "" : this.actions.word?.(OPEN_CARGO_LABEL) ?? "Open Cargo";
-    const sig = `${e.itemID}:${this.locked.has(e.itemID)}:${dist >= 150_000}:${e.jumpBridge?.activationState ?? ""}:${this.snapshot?.ship?.mode === "WARP"}:${cargoLabel}`;
+    const wormholeLabel = e.groupID === WORMHOLE_GROUP ? this.actions.word?.(ENTER_WORMHOLE_LABEL) ?? "Enter Wormhole" : "";
+    const sig = `${e.itemID}:${this.locked.has(e.itemID)}:${dist >= 150_000}:${e.jumpBridge?.activationState ?? ""}:${this.snapshot?.ship?.mode === "WARP"}:${cargoLabel}:${wormholeLabel}`;
     if (body.getAttribute("data-sig") !== sig) {
       body.setAttribute("data-sig", sig);
       // its picture (the client's own, /client-res/type-picture), its name, its type (and Hostile for an NPC), how far
@@ -1206,7 +1226,7 @@ export class SpaceView {
       for (const a of this.actionsFor(e)) {
         const b = document.createElement("button");
         b.className = `si-act${a.key === "unlock" ? " on" : ""}`;
-        b.title = a.title;
+        b.title = a.disabledReason ? `${a.title}\n${a.disabledReason}` : a.title;
         b.disabled = a.disabled ?? false;
         b.innerHTML = `<img src="${a.icon}" alt="">`;
         b.addEventListener("click", () => void this.act(a.title, a.run).then(() => this.refreshTargets()));
@@ -1979,11 +1999,15 @@ export class SpaceView {
       case "CmdAlignToItem": run("Align To", () => this.actions.alignTo(id)); break;
       case "CmdLockTargetItem": run("Lock Target", () => this.lockTracked(id)); break;
       case "CmdUnlockTargetItem": run("Unlock Target", () => this.actions.unlock(id)); break;
-      case "CmdDockOrJumpOrActivateGate":
-        // (a station or structure docked at, a stargate jumped through; nothing else here)
+      case "CmdDockOrJumpOrActivateGate": {
         if (e?.kind === "station" || e?.kind === "structure") run("Dock", () => this.actions.dock(id));
         else if (e?.kind === "stargate") run("Jump", () => this.actions.jump(id));
+        else {
+          const wormhole = e && this.wormholeEntry(e);
+          if (wormhole && !wormhole.disabled) run(wormhole.title, wormhole.run);
+        }
         break;
+      }
       case "CmdShowItemInfo": this.options.showInfo?.(id, e?.typeID ?? null); break;
       case "CmdToggleLookAtItem": this.focusOn(this.lookAt === id ? null : id); break;
       case "CmdSelectTargetItem": break;
@@ -2033,9 +2057,11 @@ export class SpaceView {
       ];
     } else {
       const dist = this.distanceTo(e);
+      const wormhole = this.wormholeEntry(e);
       const primary: RadialOption | null =
         e.kind === "station" || e.kind === "structure" ? { label: "Dock", icon: icon(9), run: run("Dock", () => this.actions.dock(id)) }
         : e.kind === "stargate" ? { label: "Jump", icon: icon(39), run: run("Jump", () => this.actions.jump(id)) }
+        : wormhole ? { label: wormhole.title, icon: icon(39), disabled: wormhole.disabled, run: run(wormhole.title, wormhole.run) }
         // spaceRadialMenuFunctions: a wreck's and a can's first action is Open Cargo (44_32_35)
         : (e.kind === "wreck" || e.kind === "container") && this.actions.openCargo
           ? { label: "Open Cargo", icon: icon(35), run: run("Open Cargo", () => this.actions.openCargo!(id)) }

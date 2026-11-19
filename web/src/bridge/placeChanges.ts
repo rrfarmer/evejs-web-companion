@@ -65,6 +65,10 @@ export function isStation(itemID: number): boolean {
 import type { Ask } from "./ask.ts";
 import type { FlightNow } from "./movementWrites.ts";
 
+/** appConst.maxWormholeEnterDistance, in metres. */
+export const WORMHOLE_ENTRY_RANGE_M = 5_000;
+export const ENTER_WORMHOLE_LABEL = "UI/Inflight/EnterWormhole";
+
 /**
  * Undocks the pilot's ship from where it is docked: from a station by the ship's Undock, from a player structure by
  * the structure's own (the flight read naming the structure). `ignoreContraband` is the client's: false first, true
@@ -136,6 +140,14 @@ export async function jump(act: Ask, flightNow: () => Promise<FlightNow>, fromGa
   if (now.shipID === null) throw new Error("There is no ship to jump.");
   const farGate = Number.isSafeInteger(toGateID) && toGateID > 0 ? toGateID : 0;
   await act("beyonce", "CmdStargateJump", [fromGateID, farGate, now.shipID]);
+}
+
+/** Once in range, send the local wormhole endpoint through the session-change barrier. */
+export async function enterWormhole(act: Ask, flightNow: () => Promise<FlightNow>, endpointID: number): Promise<void> {
+  if (!Number.isSafeInteger(endpointID) || endpointID <= 0) throw new Error("That wormhole could not be identified.");
+  const now = await flightNow();
+  if (!now.inSpace) throw new Error("The ship is not in space; undock first.");
+  await act("wormholeMgr", "WormholeJump", [endpointID]);
 }
 
 /**

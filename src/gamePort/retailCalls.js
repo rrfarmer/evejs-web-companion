@@ -668,6 +668,7 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
  */
 const GAME_PORT_ONLY_CALLS = Object.freeze([
   "beyonce.CallComponentFromClient",
+  "wormholeMgr.WormholeJump",
   "hackingMgr.ClickedOnTile", "hackingMgr.UsedUtilityElement", "hackingMgr.UsedUtilityElementOnVirus", "hackingMgr.QuitHackingAttempt",
   "academy_ship.get_academy_ship_state", "academy_ship.borrow_academy_ship",
   "air_npe.get_air_npe_state", "air_npe.get_air_npe_checkpoint_for_player",
@@ -2395,6 +2396,7 @@ const RETAIL_CALLS = Object.freeze({
     },
   }),
   "structureDocking.Dock": same("eve/client/script/ui/services/structure/structureDocking.py:69", "RemoteSvc('structureDocking').Dock(structureID, session.shipid), by the service's name, once the autopilot has the ship within 2,500 m of the structure (80). Recorded on Tranquility with the two IDs, the structure's and the ship's."),
+  "wormholeMgr.WormholeJump": same("eve/client/script/ui/services/menuSvcExtras/movementFunctions.py:600", "RemoteSvc('wormholeMgr').WormholeJump(itemID), by the service's name, through PerformSessionChange after coming within 5,000 m and accepting any high-sec warning."),
   "corporationSvc.GetEmployementRecordAndCharacterTransfers": same("eve/client/script/ui/shared/info/infosvc.py:2842", "RemoteSvc('corporationSvc').GetEmployementRecordAndCharacterTransfers(itemID), CCP's spelling, with the character the History panel's employment tab is of (session.charid). In no recording."),
   "structureDocking.Undock": same("eve/client/script/ui/services/structure/structureDocking.py:36", "RemoteSvc('structureDocking').Undock(session.structureid, shipID, ignoreContraband=...), by the service's name, through sessionMgr.PerformSessionChange('undock', ...), the ship None where it is the structure; no online modules named. Recorded on Tranquility with the two IDs and ignoreContraband False."),
   "beyonce.CmdDock": same("eve/client/script/ui/services/menuSvcExtras/movementFunctions.py:517", "bp.CmdDock(itemID, session.shipid), on the ballpark's object, through sessionMgr.PerformSessionChange('dock', ...). Recorded on Tranquility with the two IDs."),

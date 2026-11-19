@@ -343,6 +343,45 @@ test("the page's jump dispatches CmdStargateJump; the follow-up status shows the
   assert.equal(after.transition.egoReady, true);
 });
 
+test("wormhole entry accepts one local endpoint and waits for the destination park", async () => {
+  const gateway = fakeGateway();
+  gateway.state.inSpace = true;
+  gateway.state.shipMode = "STOP";
+  const callMethod = gateway.callMethod.bind(gateway);
+  const readSpaceSnapshot = gateway.readSpaceSnapshot.bind(gateway);
+  let dispatched = false;
+  let reads = 0;
+  gateway.callMethod = async (...args) => {
+    const reply = await callMethod(...args);
+    if (args[0] === "wormholeMgr" && args[1] === "WormholeJump") {
+      dispatched = true;
+      gateway.state.solarSystemID = DEST_SYSTEM_ID;
+    }
+    return reply;
+  };
+  gateway.readSpaceSnapshot = async () => {
+    if (dispatched && ++reads === 1) return { space: { inSpace: true, solarSystemID: DEST_SYSTEM_ID, ship: null } };
+    return readSpaceSnapshot();
+  };
+  const { baseUrl } = await startTestServer({ gateway, transitionPollMs: 1 });
+  await selectOnServer(baseUrl);
+  const endpoint = 9920000043181;
+  const body = { ...jumpBody, service: "wormholeMgr", method: "WormholeJump", args: [endpoint] };
+
+  const malformed = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { ...body, args: [endpoint, DEST_SYSTEM_ID] } });
+  assert.equal(malformed.response.status, 400);
+  assert.equal(dispatched, false);
+
+  const { response, payload } = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body });
+  assert.equal(response.status, 200);
+  assert.equal(payload.ok, true);
+  assert.deepEqual(gateway.calls.call.filter(({ method }) => method === "WormholeJump").map(({ args }) => args), [[endpoint]]);
+  assert.ok(reads >= 2, "waits until the new scene has the pilot's ship");
+  const after = (await apiRequest(baseUrl, "/api/bridge/flight/status")).payload.flight;
+  assert.equal(after.solarSystemID, DEST_SYSTEM_ID);
+  assert.equal(after.transition.phase, "ready");
+});
+
 test("a slow jump waits past the ten-second cooldown for observed readiness and dispatches once", async () => {
   const gateway = fakeGateway();
   gateway.state.inSpace = true;

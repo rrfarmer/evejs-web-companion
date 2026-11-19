@@ -731,8 +731,8 @@
     ]
   },
   "bffWritePolicy": {
-    "count": 478,
-    "sha256": "21e7589f3a6f7ece63b823c3454fbc48ea238e96f86f2e186e4c6e119462c71a",
+    "count": 479,
+    "sha256": "931697f880d8651db5d3ee4366e302584415156c6608ee79414cc5ec7b1dfba6",
     "pairs": [
       "LPStoreMgr.TakeOfferForCharacter",
       "LPStoreMgr.TakeOfferForCorporation",
@@ -1211,7 +1211,8 @@
       "warRegistry.DeclineSurrender",
       "warRegistry.RetractMutualWar",
       "warRegistry.RetractWarAllyOffer",
-      "warRegistry.SetOpenForAllies"
+      "warRegistry.SetOpenForAllies",
+      "wormholeMgr.WormholeJump"
     ]
   },
   "boundary": {
@@ -1558,7 +1559,8 @@
       "warRegistry.DeclineSurrender",
       "warRegistry.RetractMutualWar",
       "warRegistry.RetractWarAllyOffer",
-      "warRegistry.SetOpenForAllies"
+      "warRegistry.SetOpenForAllies",
+      "wormholeMgr.WormholeJump"
     ],
     "browserSessionFields": [
       "languageID",

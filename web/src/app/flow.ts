@@ -225,7 +225,7 @@ import {
   type AssetSearchNames,
   type AssetSearchOption,
 } from "../bridge/assetSearch.ts";
-import { shownSecurity } from "../bridge/systemSecurity.ts";
+import { isLowSecOrLower, shownSecurity } from "../bridge/systemSecurity.ts";
 import { duelChallengeOf, startDuelChallenge, respondToDuelChallenge, type DuelInvitation } from "../bridge/duel.ts";
 import { failsTheReading, failureCode, type Ask } from "../bridge/ask.ts";
 import { createCameraTaskReporter, type CameraTaskEvent } from "../bridge/cameraTasks.ts";
@@ -1189,7 +1189,7 @@ import {
   scoopDrones as scoopDronesCall,
 } from "../bridge/boundEntityWrites.ts";
 import { alignTo as alignToCall, alignToPosition as alignToPositionCall, alignToBookmark as alignToBookmarkCall, approach as approachCall, approachBookmark as approachBookmarkCall, approachMissionLocation as approachMissionLocationCall, autopilotWarp as autopilotWarpCall, warpToFleetMember as warpToFleetMemberCall, warpFleetToMember as warpFleetToMemberCall, toMemberBeacon as toMemberBeaconCall, warpToItem as warpToItemCall, goToPoint, keepAtRange as keepAtRangeCall, orbit as orbitCall, stopShip as stopShipCall, warpToBookmark as warpToBookmarkCall, warpToLaunch as warpToLaunchCall, warpToMissionLocation as warpToMissionLocationCall, warpToScanResult as warpToScanResultCall, type FlightNow, type SitesReadIn } from "../bridge/movementWrites.ts";
-import { dock as dockCall, dockAtStructure as dockAtStructureCall, isStation, jump as jumpCall, jumpThroughJumpGate as jumpThroughJumpGateCall, undock as undockCall } from "../bridge/placeChanges.ts";
+import { dock as dockCall, dockAtStructure as dockAtStructureCall, enterWormhole as enterWormholeCall, isStation, jump as jumpCall, jumpThroughJumpGate as jumpThroughJumpGateCall, undock as undockCall, WORMHOLE_ENTRY_RANGE_M } from "../bridge/placeChanges.ts";
 import { jumpBridgeZone, readJumpBridgeCharge } from "../bridge/jumpBridgePanel.ts";
 import { sessionPlace } from "../bridge/sessionPlace.ts";
 import { assembleShip as assembleShipCall, boardCorvette as boardCorvetteCall, boardShip as boardShipCall, jettison as jettisonCall, leaveShip as leaveShipCall, type JettisonOutcome } from "../bridge/shipWrites.ts";
@@ -4311,6 +4311,7 @@ export interface AppFlow {
    * are the flight's, as `jump`'s.
    */
   stargateJump(gateID: number): Promise<void>;
+  enterWormhole(endpointID: number): Promise<void>;
   jumpThroughAnsiblex(structureID: number): Promise<void>;
   jumpBridgeCharge(structureID: number): Promise<ReturnType<typeof readJumpBridgeCharge>>;
   jumpBridgeSystem(systemID: number): Promise<{ readonly name: string; readonly security: number | null } | null>;
@@ -16961,6 +16962,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       }
       await new Promise((resolve) => setTimeout(resolve, SYSTEM_NAVIGATION_TICK_MS));
     }
+  }
+
+  /** RealEnterWormhole asks for confirmation after the ship closes in from high security space. */
+  async function enterWormhole(endpointID: number): Promise<void> {
+    await navigateSystemTo(endpointID, WORMHOLE_ENTRY_RANGE_M, async () => {
+      const snapshot = store.space.get().snapshot;
+      const systemID = snapshot?.solarSystemID ?? null;
+      const current = callOptions.captureRequestGuard!();
+      if (systemID !== null) {
+        const level = (await api.loadSystemSecurity([systemID], callOptions))[systemID];
+        current();
+        if (level != null && !isLowSecOrLower(level)) {
+          const dialog = "WormholeJumpingFromHiSec";
+          await wordsNow([`dialog:${dialog}/title`, `dialog:${dialog}/body`]).catch(() => {});
+          current();
+          if (!await askDialog(dialog, null, "Enter the wormhole into unknown space?", "yesno", { suppressAnswer: "yes" })) return;
+        }
+        current();
+        if (store.space.get().snapshot?.solarSystemID !== systemID) return;
+      }
+      await runFlightStep("Enter Wormhole", () => orderedStep((flightNow) => enterWormholeCall(bridgeDo, flightNow, endpointID)));
+    });
   }
   /**
    * Whether the system navigation to a thing has nothing left to do (autopilot.py IsSystemNavigationComplete, 500 and
@@ -36379,6 +36402,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     async stargateJump(gateID) {
       await navigateSystemTo(gateID, GATE_ACTIVATION_RANGE_M, () => runFlightStep("Jump", () => jumpStep(gateID, 0)));
     },
+    enterWormhole,
     async jumpThroughAnsiblex(structureID) {
       await navigateSystemTo(structureID, GATE_ACTIVATION_RANGE_M, () => runFlightStep("Jump", () => jumpGateStep(structureID)));
     },

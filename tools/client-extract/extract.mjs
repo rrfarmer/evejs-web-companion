@@ -71,18 +71,31 @@ export function hullPath(rf, spec) {
 }
 
 /**
- * A space scene's cube maps (the nebula, its reflection and blurred versions) copied beside where the scene lives,
- * from its EveSpaceScene path (res:/dx9/scene/universe/c02_cube.red -> c02_cube.dds, _refl.dds, _blur.dds).
+ * Copy the scene's authored cube maps under the stable names used by the asset route.
+ * Wormhole scene files reference a separate *_cube resource stem.
  */
 export function extractScene(rf, scenePath, outRoot) {
-  const stem = scenePath.toLowerCase().replace(/.(red|black)$/, "");
+  const stem = scenePath.toLowerCase().replace(/\.(red|black)$/, "");
+  const black = stem + ".black";
+  let scene = null;
+  if (rf.has(black)) {
+    try { scene = readBlack(rf.read(black), black); }
+    catch { /* Existing scene assets also follow the filename convention. */ }
+  }
+  const maps = {
+    nebula: scene?.backgroundEffect?.resources?.find(({ name }) => name === "NebulaMap")?.resourcePath,
+    reflection: scene?.envMap1ResPath,
+    blur: scene?.envMap2ResPath,
+  };
   const out = {};
   for (const [role, suffix] of [["nebula", ""], ["reflection", "_refl"], ["blur", "_blur"]]) {
     const res = `${stem}${suffix}.dds`;
-    if (!rf.has(res)) continue;
+    const authored = maps[role]?.toLowerCase();
+    const source = authored && rf.has(authored) ? authored : res;
+    if (!rf.has(source)) continue;
     const file = path.join(outRoot, ...res.slice("res:/".length).split("/"));
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    if (!fs.existsSync(file)) fs.writeFileSync(file, rf.read(res));
+    if (!fs.existsSync(file)) fs.writeFileSync(file, rf.read(source));
     out[role] = "/client-assets/" + res.slice("res:/".length);
   }
   return out;

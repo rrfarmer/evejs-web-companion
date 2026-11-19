@@ -5133,6 +5133,8 @@ async function dispatchShipSwapWrite(req, res, next, service, method, args, targ
  *            work out from the gate itself. Waited for in full and latched on a timeout, and the park bound again in
  *            the new system before the answer, as its route did (reparkAfterArrival: the barrier answers while the
  *            hull is still inert).
+ *   wormhole  through a scanned wormhole. RealEnterWormhole calls the named service with only the local endpoint.
+ *            The next system and ship must arrive before the BFF releases the transition and binds the new park.
  *   cyno     by the ship's jump drive into a fleet member's cyno's system (cynoTravelSvc.py: CmdJumpToFleetModuleBeacon
  *            and CmdGroupJumpToFleetModuleBeacon(charID, beaconID, solarsystemID)). Refused for a pilot not in space and
  *            for a member, a beacon or a system that is no number. Kept as a stargate's jump is (its keeping, latch
@@ -5152,6 +5154,7 @@ async function dispatchPlaceChangeWrite(req, res, next, kind, service, method, a
   if (!held) {
     return;
   }
+  const keeping = ["cyno", "bridge", "wormhole", "abyss", "abyssExit", "abyssEntrance"].includes(kind) ? "stargate" : kind;
   try {
     const before = await readHeldFlight(held, req.webSessionID);
     const shipID = Number(before.flight.shipID) || Number(held.activeShipID) || 0;
@@ -5236,14 +5239,15 @@ async function dispatchPlaceChangeWrite(req, res, next, kind, service, method, a
         return;
       }
       expected = { fromSolarSystemID: Number(before.flight.solarSystemID) || null, shipID };
-    } else if (kind === "abyssExit" || kind === "abyssEntrance") {
+    } else if (kind === "wormhole" || kind === "abyssExit" || kind === "abyssEntrance") {
       if (before.flight.inSpace !== true) {
         res.status(409).json({ ok: false, error: "NOT_IN_SPACE", message: "The ship is not in space; undock first." });
         return;
       }
-      const conduitID = Number(args[0]);
-      if (!Number.isSafeInteger(conduitID) || conduitID <= 0 || args.length !== 1) {
-        res.status(400).json({ ok: false, error: "INVALID_GATE", message: "A conduit is activated by its number, and nothing else." });
+      const endpointID = Number(args[0]);
+      if (!Number.isSafeInteger(endpointID) || endpointID <= 0 || args.length !== 1) {
+        const subject = kind === "wormhole" ? "wormhole" : "conduit";
+        res.status(400).json({ ok: false, error: "INVALID_GATE", message: `A ${subject} is activated by its number, and nothing else.` });
         return;
       }
       expected = { fromSolarSystemID: Number(before.flight.solarSystemID) || null, shipID };
@@ -5261,10 +5265,9 @@ async function dispatchPlaceChangeWrite(req, res, next, kind, service, method, a
     } else {
       throw new Error(`No keeping of a ${kind} is known.`);
     }
-    // (A cyno's jump, a jump gate's and a filament's into its pocket are kept as a stargate's: a session into another
-    // system, the park bound again there.)
-    const keeping = kind === "cyno" || kind === "bridge" || kind === "abyss" || kind === "abyssExit" || kind === "abyssEntrance" ? "stargate" : kind;
-    expected.nativeReason = kind === "abyss" || kind === "abyssEntrance" ? "JumpToAbyss" : kind === "abyssExit" ? "abyssToKnownJump" : keeping === "stargate" ? "jump" : keeping;
+    expected.nativeReason = kind === "abyss" || kind === "abyssEntrance" ? "JumpToAbyss"
+      : kind === "abyssExit" ? "abyssToKnownJump" : kind === "wormhole" ? "Enter Wormhole"
+      : keeping === "stargate" ? "jump" : keeping;
     if (!await acquireRouteTransition(res, held, keeping, expected)) {
       return;
     }
@@ -5333,7 +5336,7 @@ async function dispatchPlaceChangeWrite(req, res, next, kind, service, method, a
       ...pilotClock(held),
     });
   } catch (error) {
-    if (held.transition && held.transition.kind === (kind === "cyno" || kind === "bridge" || kind === "abyss" || kind === "abyssExit" || kind === "abyssEntrance" ? "stargate" : kind)) {
+    if (held.transition && held.transition.kind === keeping) {
       // (A dock never latches: it is safe to ask again, and an error releases it, as its route had it.)
       if (held.transition.phase === "requested" || kind === "dock") {
         cancelHeldTransition(held);

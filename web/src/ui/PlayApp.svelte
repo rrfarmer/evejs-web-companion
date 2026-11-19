@@ -86,6 +86,8 @@
   import { Neocom } from "../play/neocom.ts";
   import { clientTexture } from "../play/window.ts";
   import { OPEN_CARGO_LABEL } from "../play/containerInteraction.ts";
+  import { ENTER_WORMHOLE_LABEL } from "../bridge/placeChanges.ts";
+  import { IN_WARP_HINT_LABEL } from "../bridge/gateActivation.ts";
   import type { HudModule } from "../play/shipHud.ts";
   import { typeIconUrl } from "./typeIcons.ts";
   import { cycleProgressPercent } from "./moduleRack.ts";
@@ -943,6 +945,7 @@
       alignTo: (id) => s.flow.alignTo(id),
       warpTo: (id, range) => s.flow.warpTo(id, range ?? 0),
       activateGate: (id, typeID) => s.flow.activateGate(id, typeID),
+      enterWormhole: (id) => s.flow.enterWormhole(id),
       // menusvc.Dock -> DockStation -> GetCloseAndTryCommand(itemID, RealDock): the client's system navigation (warp,
       // approach) to the station and then CmdDock; flow.dock is the bare CmdDock, which from beyond the docking radius
       // only sets the ship approaching (seen: 5,300 km off Perimeter II - Moon 1, slow-boating at 337 m/s).
@@ -1155,7 +1158,7 @@
     // the combat notification's moving-mode example text (UI/Accessories/Log/ExampleText)
     s.flow.requestWords([
       "UI/Accessories/Log/ExampleText", "UI/Accessories/Log/ExitMessageMovingMode",
-      ...INDICATION_WORD_LABELS, ...OVERVIEW_WORDS, OPEN_CARGO_LABEL, "UI/Inflight/Messages/ShipFullSpeedHeader", "UI/Commands/SpeedChangedTo",
+      ...INDICATION_WORD_LABELS, ...OVERVIEW_WORDS, OPEN_CARGO_LABEL, ENTER_WORMHOLE_LABEL, IN_WARP_HINT_LABEL, "UI/Inflight/Messages/ShipFullSpeedHeader", "UI/Commands/SpeedChangedTo",
     ]);
     const combatWord = (label: string, own: string) => { const t = s.store.words.get().templates[label]; return typeof t === "string" ? plainText(t) : own; };
     v.combatMessage.exampleText = () => combatWord("UI/Accessories/Log/ExampleText", "Example Text");
