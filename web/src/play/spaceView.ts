@@ -44,7 +44,7 @@ import { gfx, spaceRendering, lodSettings } from "./gfxSettings.ts";
 import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, stopEmitter, type WorldLoop } from "./uiAudio.ts";
 import { commandForKey, combatForModifiers, isCombatCommand, labelOf, type CombatCommand } from "./shortcutKeys.ts";
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
-import type { DamageRouting, SpaceSnapshot, SurveyResult } from "../store/types.ts";
+import type { DamageRouting, MiningState, SpaceSnapshot, SurveyResult } from "../store/types.ts";
 import { healthNotificationSettings, HEALTH_NOTIFICATIONS } from "../store/notifySettings.ts";
 import { ALERT_ANIMATION_MS, ALERT_DURATION_MS, CAPACITOR, HULL, activeAlertLevel, capacitorAlerting, capacitorChanged, damageStateChanged, initialShipAlertState, isLevelActive } from "../ui/shipAlert.ts";
 import { alignText, indicationHeader, indicationText, pointText, shipIndication, shipStoppingText, warpProgress, warpText, SHIP_STOPPING_MS } from "../space/actionIndication.ts";
@@ -139,6 +139,7 @@ export interface SpaceViewOptions {
     scanResolution(shipID: number): number | null;
     typeRadii(typeID: number): Promise<TargetLockRadii>;
   };
+  miningSurvey?: () => Pick<MiningState, "survey" | "surveyProgress">;
   indicationWords?: () => Readonly<Record<string, string | null | undefined>>;
   windowLayer?: { element: HTMLElement; raise(el: HTMLElement): void };
   showInfo?: (itemID: number, typeID: number | null) => void;
@@ -426,6 +427,7 @@ export class SpaceView {
       const mark = this.marks.get(Number(args[0]));
       // An unspecified terminal effect defaults to EXPLOSION. Release also calls Explode for EXPLOSION_OVERRIDE.
       const effect = Number(args[1] ?? 3);
+      if (effect === 2) this.targetBar.markMiningDepleted(Number(args[0]));
       if (mark?.userData.ordinaryWormhole && (effect === 3 || effect === 1)) mark.userData.wormholeTerminal = this.live.resets;
     }
     // a ball blown up (TerminalPlayDestructionEffect -> spaceObject.Explode): with Ship Explosions on, one of its type's
@@ -2338,6 +2340,7 @@ export class SpaceView {
     // a new ego position to rebase the old camera.
     if (this.live.resets !== this.seenResets) {
       this.seenResets = this.live.resets;
+      this.targetBar.clearMiningDepartures();
       this.endExplosionCamera();
       this.collectionExplosions.clear();
       this.miningSurvey.clear();
@@ -2848,16 +2851,20 @@ export class SpaceView {
     const byID = new Map((this.snapshot?.entities ?? []).map((e) => [e.itemID, e]));
     if (this.activeTarget !== null && !this.locked.has(this.activeTarget)) this.activeTarget = null;
     const entries: TargetBarEntry[] = [];
+    const survey = this.locked.size ? this.options.miningSurvey?.() : undefined;
     for (const id of this.locked) {
       const e = byID.get(id) as (Entity & { shieldRatio?: number | null; armorRatio?: number | null; hullRatio?: number | null }) | undefined;
       if (!e) continue;
       // targetMgr.OnTargetAdded: with no active target, the new one becomes it
       if (this.activeTarget === null) this.activeTarget = id;
+      const miningProgress = survey?.surveyProgress.get(id);
+      const remainingQuantity = miningProgress ? survey?.survey.find(row => row.itemID === id)?.remainingQuantity : null;
+      const mining = miningProgress && remainingQuantity != null ? { ...miningProgress, remainingQuantity } : undefined;
       entries.push({
         // (targetInBar.SetTargetLabel: uix.GetSlimItemName - its own name, else its type's, as an NPC's)
         itemID: id, typeID: e.typeID, name: this.targetLabelOf(e), distance: this.distanceTo(e),
         shieldRatio: e.shieldRatio ?? null, armorRatio: e.armorRatio ?? null, hullRatio: e.hullRatio ?? null,
-        locking: false, active: id === this.activeTarget,
+        locking: false, active: id === this.activeTarget, mining,
       });
     }
     const pending = this.lockingIDs.size ? new Map([...this.acquiringTargets, ...this.lockingIDs]) : this.acquiringTargets;
@@ -2876,7 +2883,7 @@ export class SpaceView {
     const win = this.selectedWin.root.style;
     this.targetBar.setAnchor({ left: parseFloat(win.left) || innerWidth - 480, top: parseFloat(win.top) || 15, width: parseFloat(win.width) || 464 });
     const lockedText = pending.size ? this.actions.word?.(TARGET_LOCKED_LABEL) ?? undefined : undefined;
-    this.targetBar.update(entries, this.lockNow(), lockedText);
+    this.targetBar.update(entries, this.lockNow(), lockedText, this.snapshot?.ship ? byID : undefined);
     for (const id of pending.keys()) {
       const el = this.bracketEls.get(id), ind = this.targetBar.lockingIndicator(id);
       if (el && ind && ind.parentElement !== el) el.appendChild(ind);

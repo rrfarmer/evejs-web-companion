@@ -1134,6 +1134,7 @@
         },
         typeRadii: (typeID) => s.flow.targetLockRadii(typeID),
       },
+      miningSurvey: () => s.store.mining.get(),
       indicationWords: () => s.store.words.get().templates,
       onSystem: musicSystem,
       windowLayer: windowsEl ? windowLayer : undefined,

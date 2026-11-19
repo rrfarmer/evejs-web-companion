@@ -1,4 +1,5 @@
 import { retimeTargetLockStart } from "./targetLock.ts";
+import type { MiningSurveyProgress } from "../store/types.ts";
 
 // The target bar: the retail client's locked targets, ported from its own Python and drawn with its own textures
 // (served by the BFF at /client-res). Sizes are the client's pixels at its default UI scale of 1.0.
@@ -64,6 +65,10 @@ const BAR_HEIGHT = 100;
 const ASSIGNED_HEIGHT = 32;
 const LINE_HEIGHT = 12; // EveLabelSmall: 10 px
 const HEALTH_READ_MS = [750, 1000] as const;
+const MINING_FLASH_MS = 1500;
+const MINING_CRITICAL_MS = 2200;
+const MINING_DEPARTURE_MS = 1750;
+const MINING_REMOVAL_GRACE_MS = 5000;
 
 const FONT = `"EVE Sans Neue Expanded", "EveSansNeue-Expanded", "Eve Sans Neue", "Barlow Semi Condensed", "Segoe UI", sans-serif`;
 
@@ -174,8 +179,32 @@ const STYLE_ID = "target-bar-style";
 const CSS = `
 .target-bar { position: absolute; inset: 0; pointer-events: none; user-select: none; -webkit-user-select: none; }
 .target-bar img, .target-bar canvas { display: block; }
-.target-bar .tb-target { position: absolute; width: ${MAX_TARGET_WIDTH}px; }
+.target-bar :is(.tb-target, .tb-target-depleted) { position: absolute; width: ${MAX_TARGET_WIDTH}px; }
 .target-bar .tb-bar { pointer-events: auto; }
+.target-bar .tb-target-depleted .tb-bar { pointer-events: none; }
+.target-bar .tb-mining { pointer-events: none; text-align: center; font: 10px/14px ${FONT}; color: #e9f8ff; }
+.target-bar .tb-mining-track { position: relative; height: 5px; overflow: hidden; border-radius: 2px;
+  background: #202b32; box-shadow: 0 0 0 1px #111a20, 0 1px 5px #050a0f; }
+.target-bar .tb-mining-track::after { content: ""; position: absolute; inset: 0;
+  background: repeating-linear-gradient(to right, transparent 0 calc(25% - 1px), #10191e 0 25%); }
+.target-bar .tb-mining-fill, .target-bar .tb-mining-segment { position: absolute; top: 0; height: 100%; }
+.target-bar .tb-mining-fill { left: 0; background: #c5e4f3; }
+.target-bar .tb-mining-segment { animation: tb-mining-flash ${MINING_FLASH_MS}ms linear both; }
+.target-bar .tb-mining-segment.yield { background: #74e5ae; }
+.target-bar .tb-mining-segment.residue { background: #ff847e; }
+.target-bar .tb-mining-segment.critical { background: #ffd878; }
+.target-bar .tb-mining-number, .target-bar .tb-mining-critical { text-shadow: 0 1px 3px #000, 0 1px 5px #000; }
+.target-bar .tb-mining-critical { position: absolute; left: 0; right: 0; bottom: 22px; color: #ffd878;
+  animation: tb-mining-flash ${MINING_CRITICAL_MS}ms ease-out both; }
+.target-bar .tb-depletion-badge { display: grid; place-content: center; color: #aaf3ce; text-align: center;
+  text-shadow: 0 1px 4px #000; font: 11px/16px ${FONT}; border: 1px solid #78c9a3; border-radius: 8px;
+  background: #102c25ed; }
+.target-bar .tb-target-depleted { animation: tb-mining-departure ${MINING_DEPARTURE_MS}ms ease-out both; }
+@keyframes tb-mining-flash { 0%, 65% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tb-mining-departure { 0% { opacity: 0.65; } 20%, 90% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .target-bar .tb-target-depleted { animation: none; }
+}
 .target-bar .tb-hilite { display: none; }
 .target-bar .tb-bar:hover .tb-hilite { display: block; }
 .target-bar .tb-icon { -webkit-mask: url("${TEX.shipMask}") center / 100% 100% no-repeat; mask: url("${TEX.shipMask}") center / 100% 100% no-repeat; }
@@ -238,13 +267,42 @@ export interface TargetBarEntry {
   lockTimeMs?: number | null;
   /** When locking began on the view's simulation clock. */
   lockStartedAt?: number | null;
+  mining?: MiningTargetReading;
+}
+
+export interface MiningTargetReading extends MiningSurveyProgress {
+  readonly remainingQuantity: number;
+}
+
+/** Positions on the quantity track. A positive change gets at least two percent of the track. */
+export function miningGaugeSegments(reading: MiningTargetReading, flash: boolean) {
+  const { originalQuantity, remainingQuantity, extraction } = reading;
+  const remaining = originalQuantity > 0 ? Math.min(1, remainingQuantity / originalQuantity) : 0;
+  let start = remaining;
+  const segments: { kind: "yield" | "residue" | "critical"; left: number; width: number }[] = [];
+  if (flash && extraction && originalQuantity > 0) {
+    const parts = [
+      ["yield", extraction.yieldQuantity],
+      ["residue", extraction.residueQuantity],
+      ["critical", extraction.criticalQuantity],
+    ] as const;
+    for (const [kind, quantity] of parts) {
+      if (quantity <= 0 || start >= 1) continue;
+      const end = Math.min(1, start + Math.max(0.02, quantity / originalQuantity));
+      segments.push({ kind, left: start, width: end - start });
+      start = end;
+    }
+  }
+  return { remaining, segments };
 }
 
 interface Half { ctx: CanvasRenderingContext2D; url: string; img: HTMLImageElement | null; drawn: number }
 interface Layer { box: HTMLDivElement; left: Half; right: Half; shown: number | null; from: number; to: number; start: number; duration: number }
 
 class TargetInBar {
+  readonly itemID: number;
   readonly root: HTMLDivElement;
+  private readonly owner: TargetBar;
   private readonly bar: HTMLDivElement;
   private readonly iconContainer: HTMLDivElement;
   private readonly circle: HTMLImageElement;
@@ -254,6 +312,10 @@ class TargetInBar {
   private readonly layers: Layer[] = [];
   private readonly labels: HTMLDivElement[] = [];
   private readonly labelBox: HTMLDivElement;
+  private miningReading: MiningTargetReading | undefined;
+  private miningGauge: {
+    root: HTMLDivElement; fill: HTMLSpanElement; effects: HTMLSpanElement; number: HTMLDivElement;
+  } | undefined;
   private name: string | null = null;
   private typeName: string | null = null;
   private typeID: number | null = null;
@@ -262,7 +324,9 @@ class TargetInBar {
   private nextRead = 0;
   height = TARGET_HEIGHT;
 
-  constructor(readonly itemID: number, private readonly owner: TargetBar) {
+  constructor(itemID: number, owner: TargetBar) {
+    this.itemID = itemID;
+    this.owner = owner;
     this.root = document.createElement("div");
     this.root.className = "tb-target";
     this.root.dataset.itemId = String(itemID);
@@ -337,7 +401,80 @@ class TargetInBar {
       this.setDamage([e.shieldRatio, e.armorRatio, e.hullRatio], now);
     }
     this.stepHealth(now);
+    this.updateMining(e.mining);
     return resized;
+  }
+
+  private updateMining(reading: MiningTargetReading | undefined): void {
+    const previous = this.miningReading;
+    this.miningReading = reading;
+    if (!reading) {
+      if (this.miningGauge) this.miningGauge.root.hidden = true;
+      return;
+    }
+    if (previous?.remainingQuantity === reading.remainingQuantity && previous.originalQuantity === reading.originalQuantity &&
+        previous.extraction === reading.extraction) return;
+    if (!this.miningGauge) {
+      const root = div(this.iconContainer, 10, 78, 74, 19, "tb-mining");
+      root.setAttribute("role", "meter");
+      root.setAttribute("aria-label", "Resource quantity");
+      root.setAttribute("aria-valuemin", "0");
+      const track = div(root, 0, 0, 74, 5, "tb-mining-track");
+      const fill = document.createElement("span");
+      fill.className = "tb-mining-fill";
+      const effects = document.createElement("span");
+      track.append(fill, effects);
+      const number = div(root, 0, 6, 74, 14, "tb-mining-number");
+      this.miningGauge = { root, fill, effects, number };
+    }
+    const { root, fill, effects, number } = this.miningGauge;
+    const quantity = grouped(reading.remainingQuantity);
+    root.hidden = false;
+    root.setAttribute("aria-valuemax", String(Math.max(1, reading.originalQuantity, reading.remainingQuantity)));
+    root.setAttribute("aria-valuenow", String(reading.remainingQuantity));
+    root.setAttribute("aria-valuetext", `${quantity} units remaining`);
+    number.textContent = `${quantity} units`;
+    const extraction = previous && previous.extraction !== reading.extraction ? reading.extraction : null;
+    const age = extraction ? Math.max(0, Date.now() - extraction.atMs) : Infinity;
+    const { remaining, segments } = miningGaugeSegments(reading, age < MINING_FLASH_MS);
+    fill.style.width = `${remaining * 100}%`;
+    effects.replaceChildren();
+    root.querySelector(".tb-mining-critical")?.remove();
+    for (const part of segments) {
+      const segment = document.createElement("span");
+      segment.className = `tb-mining-segment ${part.kind}`;
+      segment.style.left = `${part.left * 100}%`;
+      segment.style.width = `${part.width * 100}%`;
+      segment.style.animationDelay = `${-age}ms`;
+      effects.appendChild(segment);
+    }
+    if (extraction && extraction.criticalQuantity > 0 && age < MINING_CRITICAL_MS) {
+      const critical = document.createElement("span");
+      critical.className = "tb-mining-critical";
+      critical.textContent = "Critical yield";
+      critical.style.animationDelay = `${-age}ms`;
+      root.appendChild(critical);
+    }
+  }
+
+  hasMiningGauge(): boolean {
+    return this.miningReading !== undefined;
+  }
+
+  hasEmptyMiningGauge(): boolean {
+    return this.miningReading?.remainingQuantity === 0;
+  }
+
+  showDepleted(): void {
+    this.root.className = "tb-target-depleted";
+    this.root.removeAttribute("data-item-id");
+    this.root.dataset.depletedItemId = String(this.itemID);
+    this.indicator.hidden = true;
+    this.icon.style.visibility = "hidden";
+    if (this.miningGauge) this.miningGauge.root.hidden = true;
+    const badge = div(this.iconContainer, 11, 24, 72, 45, "tb-depletion-badge");
+    badge.textContent = "✓ Depleted";
+    badge.setAttribute("role", "status");
   }
 
   /** SetNameLabels: the name on one line, broken at the last space that fits, the rest on a second; then the ship type. */
@@ -534,6 +671,9 @@ export class TargetBar {
   gaugeColor: HTMLImageElement | null = null;
 
   private readonly targets = new Map<number, TargetInBar>();
+  private readonly depleted = new Set<number>();
+  private readonly awaitingMiningRemoval = new Map<number, { target: TargetInBar; expires: number }>();
+  private readonly retiring = new Map<HTMLElement, ReturnType<typeof setTimeout>>();
   /** Rows of itemIDs, in the order the client's rowDict holds them. */
   private rows: number[][] = [];
   private readonly locking = new Map<number, LockingIndicator>();
@@ -559,7 +699,37 @@ export class TargetBar {
     return this.locking.get(itemID)?.root ?? null;
   }
 
-  update(entries: TargetBarEntry[], lockNow = performance.now(), lockedText = "Locked"): void {
+  markMiningDepleted(itemID: number): void {
+    const pending = this.awaitingMiningRemoval.get(itemID);
+    if (pending) {
+      this.awaitingMiningRemoval.delete(itemID);
+      this.showMiningDeparture(pending.target);
+    } else if (this.targets.get(itemID)?.hasMiningGauge()) {
+      this.depleted.add(itemID);
+    }
+  }
+
+  clearMiningDepartures(): void {
+    this.depleted.clear();
+    this.awaitingMiningRemoval.clear();
+    for (const [root, timer] of this.retiring) {
+      clearTimeout(timer);
+      root.remove();
+    }
+    this.retiring.clear();
+  }
+
+  private showMiningDeparture(target: TargetInBar): void {
+    const root = target.root;
+    target.showDepleted();
+    if (!root.parentElement) this.root.appendChild(root);
+    this.retiring.set(root, setTimeout(() => {
+      root.remove();
+      this.retiring.delete(root);
+    }, MINING_DEPARTURE_MS));
+  }
+
+  update(entries: TargetBarEntry[], lockNow = performance.now(), lockedText = "Locked", grid?: { has(itemID: number): boolean }): void {
     const now = performance.now();
     const seen = new Set<number>();
     let changed = false;
@@ -571,6 +741,7 @@ export class TargetBar {
         continue;
       }
       seen.add(e.itemID);
+      this.awaitingMiningRemoval.delete(e.itemID);
       let t = this.targets.get(e.itemID);
       if (!t) {
         t = new TargetInBar(e.itemID, this);
@@ -584,7 +755,24 @@ export class TargetBar {
       if (!entries.some((e) => e.locking && e.itemID === id)) { ind.root.remove(); this.locking.delete(id); }
     }
     for (const [id, t] of this.targets) {
-      if (!seen.has(id)) { t.root.remove(); this.targets.delete(id); changed = true; }
+      if (seen.has(id)) continue;
+      if (this.depleted.delete(id) || (t.hasEmptyMiningGauge() && grid?.has(id) === false)) {
+        this.showMiningDeparture(t);
+      } else {
+        t.root.remove();
+        // The lock can disappear before the native terminal cue or the next valid grid.
+        if (t.hasMiningGauge()) this.awaitingMiningRemoval.set(id, { target: t, expires: now + MINING_REMOVAL_GRACE_MS });
+      }
+      this.targets.delete(id);
+      changed = true;
+    }
+    for (const [id, pending] of this.awaitingMiningRemoval) {
+      if (now >= pending.expires) {
+        this.awaitingMiningRemoval.delete(id);
+      } else if (pending.target.hasEmptyMiningGauge() && grid?.has(id) === false) {
+        this.awaitingMiningRemoval.delete(id);
+        this.showMiningDeparture(pending.target);
+      }
     }
     this.layout(changed);
   }
@@ -663,6 +851,7 @@ export class TargetBar {
   }
 
   dispose(): void {
+    this.clearMiningDepartures();
     removeEventListener("pointerdown", this.onPointerDown, true);
     this.closeMenu();
     this.root.remove();

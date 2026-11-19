@@ -1,6 +1,6 @@
 import { distanceMeters, surfaceDistanceMeters } from "../space/overview.ts";
 import { SCAN_RANGE_M } from "../nav/surveyScan.ts";
-import type { SpaceSnapshot, SurveyResult } from "../store/types.ts";
+import type { MiningExtraction, SpaceSnapshot, SurveyResult } from "../store/types.ts";
 import { readDictEntry, readKeyVal, unwrapLong } from "./wire.ts";
 
 export const INTEGRATED_MINING_SCANNER = 5978;
@@ -9,7 +9,8 @@ export const MINING_SCANNER_UPGRADE = 5979;
 export function miningSurveyDepletion(
   method: "OnOreMined" | "OnOreMinedByOther",
   args: readonly unknown[],
-): { itemID: number; quantity: number } | null {
+  atMs: number,
+): { itemID: number; quantity: number; extraction: MiningExtraction | null } | null {
   const integer = (value: unknown) => Number(unwrapLong(value) ?? NaN);
   const field = (key: string) => readDictEntry(args[0], key) ?? readKeyVal(args[0], key);
   const ownCycle = method === "OnOreMined";
@@ -17,11 +18,15 @@ export function miningSurveyDepletion(
   const yieldAmount = integer(ownCycle ? field("quantity_removed") : args[1]);
   // The native survey subtracts yield and residue. Critical bonus is credited to the hold.
   const residue = ownCycle ? integer(field("amountWasted") ?? 0) : 0;
+  const bonus = ownCycle ? integer(field("amountCritBonus") ?? 0) : 0;
+  const criticalQuantity = Number.isSafeInteger(bonus) && bonus > 0 ? bonus : 0;
   const quantity = yieldAmount + residue;
-  return Number.isSafeInteger(itemID) && itemID > 0 &&
-    Number.isSafeInteger(yieldAmount) && yieldAmount >= 0 &&
-    Number.isSafeInteger(residue) && residue >= 0 &&
-    Number.isSafeInteger(quantity) && quantity > 0 ? { itemID, quantity } : null;
+  if (!Number.isSafeInteger(itemID) || itemID <= 0 ||
+      !Number.isSafeInteger(yieldAmount) || yieldAmount < 0 ||
+      !Number.isSafeInteger(residue) || residue < 0 ||
+      !Number.isSafeInteger(quantity) || (!quantity && !criticalQuantity)) return null;
+  const extraction = ownCycle ? { atMs, yieldQuantity: yieldAmount, residueQuantity: residue, criticalQuantity } : null;
+  return { itemID, quantity, extraction };
 }
 
 export function miningScanInWarp(snapshot: SpaceSnapshot | null): boolean {

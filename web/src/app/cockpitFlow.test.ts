@@ -487,12 +487,22 @@ test("mining pushes update only the surveyed asteroid and are applied once", asy
   source.emit(own);
   assert.equal(actions.length, 1);
   assert.deepEqual(store.mining.get().survey, [{ ...rock, remainingQuantity: 7 }, neighbor, basic]);
+  const progress = store.mining.get().surveyProgress;
+  assert.equal(progress.get(rock.itemID)?.originalQuantity, 10);
+  const extraction = progress.get(rock.itemID)?.extraction;
+  assert.ok(extraction && extraction.atMs > 0);
+  assert.deepEqual(extraction, { atMs: extraction.atMs, yieldQuantity: 2, residueQuantity: 1, criticalQuantity: 4 });
+  assert.equal(progress.has(basic.itemID), false);
 
   source.emit(notificationFrame("OnOreMinedByOther", [id(rock.itemID), 8], 2));
   source.emit(notificationFrame("OnOreMinedByOther", [id(basic.itemID), 3], 3));
   source.emit(notificationFrame("OnOreMinedByOther", [id(neighbor.itemID), -3], 4));
   assert.deepEqual(store.mining.get().survey, [{ ...rock, remainingQuantity: 0 }, neighbor, basic]);
   assert.equal(store.mining.get().surveyAtMs, 1);
+  assert.equal(store.mining.get().surveyProgress.get(rock.itemID)?.extraction, null);
+
+  store.apply({ type: "mining/survey", survey: [{ ...rock, remainingQuantity: 0 }, neighbor, basic], atMs: 2 });
+  assert.deepEqual(store.mining.get().surveyProgress.get(rock.itemID), { originalQuantity: 10, extraction: null });
 
   const grid = (itemIDs: readonly number[], stateValid = true) => store.apply({
     type: "space/snapshot",
@@ -509,6 +519,7 @@ test("mining pushes update only the surveyed asteroid and are applied once", asy
   grid([neighbor.itemID]);
   grid([rock.itemID, neighbor.itemID]);
   assert.deepEqual(store.mining.get().survey, [neighbor, basic]);
+  assert.equal(store.mining.get().surveyProgress.has(rock.itemID), false);
 });
 
 // --- R29: the damage log ----------------------------------------------------

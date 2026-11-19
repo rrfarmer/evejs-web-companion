@@ -8014,7 +8014,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       applyDamageNotification(args);
     }
     if (method === "OnOreMined" || method === "OnOreMinedByOther") {
-      const depletion = miningSurveyDepletion(method, args);
+      const depletion = miningSurveyDepletion(method, args, receivedAtMs);
       if (depletion) store.apply({ type: "mining/survey-depleted", ...depletion });
     }
     if (method === "OnOreMined" || method === "OnBountyAddedToPayout") {

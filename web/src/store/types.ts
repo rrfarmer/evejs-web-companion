@@ -2649,6 +2649,18 @@ export interface SurveyResult {
   readonly remainingQuantity: number | null;
 }
 
+export interface MiningExtraction {
+  readonly atMs: number;
+  readonly yieldQuantity: number;
+  readonly residueQuantity: number;
+  readonly criticalQuantity: number;
+}
+
+export interface MiningSurveyProgress {
+  readonly originalQuantity: number;
+  readonly extraction: MiningExtraction | null;
+}
+
 /** What reprocessing one stack would yield, as the SERVER quoted it. */
 export interface ReprocessingQuote {
   readonly itemID: number;
@@ -2678,6 +2690,7 @@ export interface MiningState {
   readonly holdsError: string | null;
   /** The last survey scan, newest first read; empty until the player scans. */
   readonly survey: readonly SurveyResult[];
+  readonly surveyProgress: ReadonlyMap<number, MiningSurveyProgress>;
   readonly surveyAtMs: number | null;
   readonly surveyError: string | null;
   readonly quotes: readonly ReprocessingQuote[];

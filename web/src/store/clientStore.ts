@@ -86,6 +86,7 @@ import type {
   TargetingState,
   DronesState,
   DroneOrderReport,
+  MiningSurveyProgress,
   MiningState,
   MiningHold,
   SurveyResult,
@@ -636,6 +637,7 @@ const INITIAL_MINING: MiningState = Object.freeze({
   holdsLoaded: false,
   holdsError: null,
   survey: Object.freeze([]) as readonly SurveyResult[],
+  surveyProgress: new Map<number, MiningSurveyProgress>(),
   surveyAtMs: null,
   surveyError: null,
   quotes: Object.freeze([]) as readonly ReprocessingQuote[],
@@ -2214,14 +2216,18 @@ export function createClientStore(): ClientStore {
         if (scan.surveyAtMs !== null && before) {
           if (before.shipID !== next.shipID || before.solarSystemID !== next.solarSystemID ||
               !next.inSpace || next.ship?.mode === "WARP" || (warp && !warp.preparing)) {
-            mining.set({ ...scan, survey: INITIAL_MINING.survey, surveyAtMs: null, surveyError: null });
+            mining.set({ ...scan, survey: INITIAL_MINING.survey, surveyProgress: INITIAL_MINING.surveyProgress, surveyAtMs: null, surveyError: null });
           } else if (scan.survey.length && before.entities !== next.entities && !isSceneBlind(next.inSpace, next)) {
             // Drop scanned balls that left the grid. A new scan can arrive before its balls.
             const visible = new Set(next.entities.map(entity => entity.itemID));
             const departed = new Set(before.entities.filter(entity => !visible.has(entity.itemID)).map(entity => entity.itemID));
             if (departed.size) {
               const survey = scan.survey.filter(row => !departed.has(row.itemID));
-              if (survey.length !== scan.survey.length) mining.set({ ...scan, survey });
+              if (survey.length !== scan.survey.length) {
+                const surveyProgress = new Map(scan.surveyProgress);
+                for (const id of departed) surveyProgress.delete(id);
+                mining.set({ ...scan, survey, surveyProgress });
+              }
             }
           }
         }
@@ -2263,6 +2269,7 @@ export function createClientStore(): ClientStore {
         mining.set({
           ...mining.get(),
           survey: INITIAL_MINING.survey,
+          surveyProgress: INITIAL_MINING.surveyProgress,
           surveyAtMs: null,
           surveyError: null,
         });
@@ -2449,21 +2456,33 @@ export function createClientStore(): ClientStore {
       case "mining/holds-error":
         mining.set({ ...mining.get(), holdsError: event.message });
         break;
-      case "mining/survey":
+      case "mining/survey": {
+        const scan = mining.get();
+        const surveyProgress = new Map<number, MiningSurveyProgress>();
+        for (const row of event.survey) {
+          if (row.remainingQuantity === null) continue;
+          const originalQuantity = scan.surveyProgress.get(row.itemID)?.originalQuantity ?? row.remainingQuantity;
+          surveyProgress.set(row.itemID, { originalQuantity, extraction: null });
+        }
         mining.set({
-          ...mining.get(),
+          ...scan,
           survey: event.survey,
+          surveyProgress,
           surveyAtMs: event.atMs,
           surveyError: null,
         });
         break;
+      }
       case "mining/survey-depleted": {
         const scan = mining.get();
+        const progress = scan.surveyProgress.get(event.itemID);
         const rock = scan.survey.find(row => row.itemID === event.itemID);
-        if (rock && rock.remainingQuantity !== null && rock.remainingQuantity > 0) {
+        if (progress && rock && rock.remainingQuantity !== null && (rock.remainingQuantity > 0 || event.extraction)) {
           const remainingQuantity = Math.max(0, rock.remainingQuantity - event.quantity);
           const survey = scan.survey.map(row => row === rock ? { ...row, remainingQuantity } : row);
-          mining.set({ ...scan, survey });
+          const surveyProgress = new Map(scan.surveyProgress);
+          surveyProgress.set(event.itemID, { ...progress, extraction: event.extraction });
+          mining.set({ ...scan, survey, surveyProgress });
         }
         break;
       }
