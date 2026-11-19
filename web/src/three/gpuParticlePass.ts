@@ -37,7 +37,7 @@ export class GpuParticlePass {
     if (!system?.mesh.visible) return frame.texture;
     const { mesh } = system;
     const { width, height, depthTexture } = frame;
-    system.prepareDraw(camera, width, height);
+    system.prepareDraw(renderer, camera, width, height);
     if (!mesh.geometry.instanceCount) return frame.texture;
 
     this.particles.setSize(width, height);

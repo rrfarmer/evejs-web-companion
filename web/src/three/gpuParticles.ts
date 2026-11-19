@@ -120,12 +120,18 @@ export class GpuParticleSystem {
     quad.instanceCount = 0;
     const uniforms = {
       atlas: { value: null as THREE.Texture | null },
+      decodeAtlas: { value: true },
       frames: { value: 8 },
       resolution: { value: new THREE.Vector2(1, 1) },
       sceneDepth: { value: null as THREE.DepthTexture | null },
       encodedBlend: { value: false },
     };
-    if (urls.atlas) void loadDds(urls.atlas).then((t) => { t.wrapS = THREE.RepeatWrapping; t.needsUpdate = true; uniforms.atlas!.value = t; }).catch(() => undefined);
+    if (urls.atlas) void loadDds(urls.atlas).then((texture) => {
+      // The installed quads shader samples the wrapped atlas with 16x anisotropy.
+      texture.anisotropy = 16;
+      texture.needsUpdate = true;
+      uniforms.atlas.value = texture;
+    }).catch(() => undefined);
     if (urls.noise) void fetch(urls.noise).then((r) => r.arrayBuffer()).then((b) => { this.noise = new Noise(new Uint8Array(b, 128, 32 * 32 * 32 * 3)); }).catch(() => undefined);
     // Quads.fx (the client's quads.sm_hi): a card half size/4 across in the eye's plane; velocityStretchRotation below
     // nought stretches it back along the particle's screen motion and dims it, else it turns; the atlas frame of 8; the
@@ -162,7 +168,7 @@ export class GpuParticleSystem {
         }`,
       fragmentShader: `uniform sampler2D atlas;
         uniform highp sampler2D sceneDepth;
-        uniform bool encodedBlend;
+        uniform bool encodedBlend, decodeAtlas;
         varying vec2 vUv; varying vec4 vColor;
         void main() {
           if (encodedBlend) {
@@ -173,7 +179,8 @@ export class GpuParticleSystem {
             #endif
             if (depth > texelFetch(sceneDepth, ivec2(gl_FragCoord.xy), 0).r) discard;
           }
-          vec4 color = sRGBTransferEOTF(texture2D(atlas, vUv)) * vColor;
+          vec4 texel = texture2D(atlas, vUv);
+          vec4 color = (decodeAtlas ? sRGBTransferEOTF(texel) : texel) * vColor;
           gl_FragColor = encodedBlend ? sRGBTransferOETF(vec4(max(color.rgb, 0.0), color.a)) : color;
         }`,
       transparent: true, depthWrite: false, depthTest: true,
@@ -189,6 +196,7 @@ export class GpuParticleSystem {
     this.mesh.renderOrder = 1e6;
     material.onBeforeRender = (renderer, _s, camera) => {
       if (uniforms.encodedBlend.value) return;
+      this.configureAtlas(renderer);
       renderer.getDrawingBufferSize(uniforms.resolution.value);
       this.step(performance.now() / 1000, camera);
     };
@@ -198,9 +206,26 @@ export class GpuParticleSystem {
   get liveCount(): number { return this.alive; }
 
   /** Advance after the scene's emitters have rendered, before uploading the instance attributes. */
-  prepareDraw(camera: THREE.Camera, width: number, height: number): void {
+  prepareDraw(renderer: THREE.WebGLRenderer, camera: THREE.Camera, width: number, height: number): void {
+    this.configureAtlas(renderer);
     this.mesh.material.uniforms.resolution!.value.set(width, height);
     this.step(performance.now() / 1000, camera);
+  }
+
+  private configureAtlas(renderer: THREE.WebGLRenderer): void {
+    const uniforms = this.mesh.material.uniforms;
+    const texture = uniforms.atlas!.value as THREE.Texture | null;
+    if (!texture) return;
+    // The native BC3 sRGB view decodes RGB before filtering. Keep the shader
+    // decode for renderers that can only upload the linear BC3 format.
+    const srgb = texture.format === THREE.RGBA_S3TC_DXT5_Format
+      && renderer.extensions.has("WEBGL_compressed_texture_s3tc_srgb");
+    const colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    if (texture.colorSpace !== colorSpace) {
+      texture.colorSpace = colorSpace;
+      texture.needsUpdate = true;
+    }
+    uniforms.decodeAtlas!.value = !srgb;
   }
 
   /** Tr2GpuParticleSystem's frame: dt (at most 1/15 s), the origin shift, emit, simulate, cull and sort, fill. */
