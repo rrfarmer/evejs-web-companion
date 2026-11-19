@@ -409,10 +409,10 @@ test("the installed build generates and caches the Drifter Collection explosion 
   t.after(() => fs.rm(temp, { recursive: true, force: true }));
   const clientRoot = path.join(temp, "install"), root = path.join(temp, "assets");
   const name = "drifterCollectionExplosion.json";
-  const graph = { explosionBuild: 1, delayMs: 4200, durationMs: 38000, scale: 0.75 };
+  const graph = { explosionBuild: 2, delayMs: 4200, durationMs: 38000, scale: 0.75 };
   await put(clientRoot, "tq/start.ini", "build=3698585\n");
   await put(root, `3396210/${name}`, '{"explosionBuild":1,"old":true}');
-  await fs.mkdir(path.join(root, "3698585"), { recursive: true });
+  await put(root, `3698585/${name}`, '{"explosionBuild":1,"old":true}');
   let bakes = 0;
   await withAssets({
     root, clientRoot, fallbackBuild: "3396210",

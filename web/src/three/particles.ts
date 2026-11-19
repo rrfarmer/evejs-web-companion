@@ -1073,7 +1073,8 @@ const ATTRIBUTES: { name: string; size: number; key: (usage: Map<number, string>
  */
 export function particleObject(node: SofChildParticles, quad: THREE.BufferGeometry, textureOf: (res: string | null | undefined) => Promise<THREE.Texture | null>,
   registerEmitter?: (id: number, get: (attr: string) => number | number[] | undefined, set: (attr: string, v: number | number[]) => void, spawn?: (rate: number) => void) => void,
-  registerUniform?: (id: number, uniform: THREE.IUniform | undefined) => void): THREE.Object3D | null {
+  registerUniform?: (id: number, uniform: THREE.IUniform | undefined) => void,
+  linkedSystems = new Map<number, ParticleSim>()): THREE.Object3D | null {
   const materials: THREE.ShaderMaterial[] = [];
   for (const distortion of [false, true]) {
     for (const area of node.areas) {
@@ -1143,11 +1144,18 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
     }
     return mesh;
   }
-  const sims = node.systems.map((s) => new ParticleSim(s));
+  const sims = node.systems.map((s) => {
+    if (s.linkID === undefined) return new ParticleSim(s);
+    const linked = linkedSystems.get(s.linkID);
+    if (linked) return linked;
+    const created = new ParticleSim(s);
+    linkedSystems.set(s.linkID, created);
+    return created;
+  });
   const sim = sims[node.meshSystem];
   if (!sim || sim.max === 0) return null;
   const emitters = node.emitters.map((e) => new ParticleEmitter(structuredClone(e), sims[e.particleSystem?.system ?? -1] ?? null)).filter((e) => e.valid);
-  if (!emitters.length) return null;
+  if (!emitters.length && sim.data.linkID === undefined) return null;
   // an emitter's rate and limit a curve set's binding may drive (a ship's gas jets: its ShipStandard set)
   for (const e of emitters) {
     const id = (e.data as { id?: number }).id;
@@ -1166,12 +1174,14 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
       }, (attr, v) => { g[attr] = v; });
     }
   }
-  const updated = node.updated.map((i) => sims[i]).filter((s): s is ParticleSim => !!s);
-  // the systems' GPU emitters on a particle's death and along its life (into the scene's GPU particle system, from the
-  // drawn object's place: the systems' space)
+  const updated: ParticleSim[] = [];
+  // Each child owns the updates and callbacks for its own systems. Emitters may write to a sibling's shared system.
   let drawnBy: { scene: THREE.Object3D; world: THREE.Matrix4 } | null = null;
-  for (const s of sims) {
-    const hook = (k: string) => { const e = s.data[k] as GpuEmitterData | undefined; return e && /^Tr2Gpu(Unique|Shared)Emitter$/.test(e.type ?? "") ? new GpuEmitter(e) : null; };
+  for (const index of node.updated) {
+    const s = sims[index], data = node.systems[index];
+    if (!s || !data) continue;
+    updated.push(s);
+    const hook = (k: string) => { const e = data[k] as GpuEmitterData | undefined; return e && /^Tr2Gpu(Unique|Shared)Emitter$/.test(e.type ?? "") ? new GpuEmitter(e) : null; };
     const death = hook("emitParticleOnDeathEmitter"), life = hook("emitParticleDuringLifeEmitter");
     if (death) s.onDeath = (p, v) => { if (drawnBy) death.spawnAt(drawnBy.world, gpuSystemOf(drawnBy.scene), p, v, 1); };
     // its constraints' collision emitters (a GPU emitter each, made on its first collision)
@@ -1181,7 +1191,13 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
       if (!onHit.has(data)) onHit.set(data, /^Tr2Gpu(Unique|Shared)Emitter$/.test(String(data.type ?? "")) ? new GpuEmitter(data as unknown as GpuEmitterData) : null);
       onHit.get(data)?.spawnAt(drawnBy.world, gpuSystemOf(drawnBy.scene), p, v, 1);
     };
-    if (life) s.duringLife = (p0, p1, v0, v1, dt) => { if (drawnBy) life.spawnAlong(drawnBy.world, gpuSystemOf(drawnBy.scene), p0, p1, v0, v1, dt); };
+    const lifeData = data.emitParticleDuringLifeEmitter as ParticleEmitterData | undefined;
+    if (lifeData?.type === "Tr2DynamicEmitter") {
+      const emitter = new ParticleEmitter(lifeData, sims[lifeData.particleSystem?.system ?? -1] ?? null);
+      if (emitter.valid) s.duringLife = (_p0, position, _v0, velocity, dt) => { emitter.spawn(dt, position, velocity); };
+    } else if (life) {
+      s.duringLife = (p0, p1, v0, v1, dt) => { if (drawnBy) life.spawnAlong(drawnBy.world, gpuSystemOf(drawnBy.scene), p0, p1, v0, v1, dt); };
+    }
   }
   const usage = new Map<number, string>();
   for (const e of sim.data.elements ?? []) if ((e.elementType ?? ELEMENT.CUSTOM) === ELEMENT.CUSTOM && e.usedByGPU !== false) usage.set(e.usageIndex ?? 0, elementKey(e));
@@ -1208,9 +1224,12 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
   let mesh: THREE.Object3D = meshes[0]!;
   if (meshes.length > 1) { mesh = new THREE.Group(); mesh.name = `child-particle-passes:${node.name ?? ""}`; for (const m of meshes) mesh.add(m); }
   let stepped = 0;
+  const sortPositions = sim.data.linkID !== undefined && sim.data.requiresSorting
+    ? sim.arrays.get(elementKey({ elementType: ELEMENT.POSITION })) : undefined;
+  const eye = new THREE.Vector3();
   // stepped from the material's hook: a model's copies (Object3D.clone) share the material and the geometry but not
   // an object's own onBeforeRender
-  material.onBeforeRender = (_r, scene, _c, _g, object) => {
+  material.onBeforeRender = (_r, scene, camera, _g, object) => {
     (material.userData.beforeDraw as ((s: THREE.Object3D) => void) | undefined)?.(scene);
     object.updateWorldMatrix(true, false);
     drawnBy = { scene, world: object.matrixWorld };
@@ -1220,11 +1239,23 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
     // (an emitter only an action fires is not updated: Tr2ActionSpawnParticles' own)
     for (const e of emitters) if (!(e.data as { actionOnly?: boolean }).actionOnly) e.update(now);
     for (const s of updated) s.update(now);
+    let sorted: number[] | undefined;
+    if (sortPositions && sim.alive > 1) {
+      object.worldToLocal(camera.getWorldPosition(eye));
+      const distance = Array.from({ length: sim.alive }, (_, i) => {
+        const x = sortPositions[i * 3]! - eye.x, y = sortPositions[i * 3 + 1]! - eye.y, z = sortPositions[i * 3 + 2]! - eye.z;
+        return x * x + y * y + z * z;
+      });
+      sorted = distance.map((_dist, i) => i).sort((i, j) => distance[j]! - distance[i]!);
+    }
     for (const f of filled) {
       const src = f.key ? sim.arrays.get(f.key) : undefined;
       const size = f.key ? sim.sizes.get(f.key) ?? 0 : 0;
       const dst = f.attr.array as Float32Array;
-      if (src) for (let i = 0; i < sim.alive; i++) for (let d = 0; d < f.size; d++) dst[i * f.size + d] = d < size ? src[i * size + d]! : 0;
+      if (src) for (let i = 0; i < sim.alive; i++) {
+        const at = (sorted?.[i] ?? i) * size;
+        for (let d = 0; d < f.size; d++) dst[i * f.size + d] = d < size ? src[at + d]! : 0;
+      }
       f.attr.needsUpdate = true;
     }
     geometry.instanceCount = sim.alive;

@@ -181,18 +181,18 @@ function readChildEffect(path, skipped) {
   effectRoots.set(key, null);
   const res = key.replace(/\.red$/, ".black");
   if (!readRf?.has(res)) return key;
-  const kept = shownBySet, keptEmitters = actionEmitters;
+  const kept = shownBySet, keptLinks = particleLinks;
   try {
     const o = readBlack(readRf.read(res), res);
     shownBySet = findShownBySet(o);
-    actionEmitters = findActionEmitters(o);
+    particleLinks = findParticleLinks(o);
     rawEffects.set(key, o);
     effectRoots.set(key, readNode(o, skipped));
   } catch (e) {
     skipped.unreadEffect = String(e.message ?? e);
   } finally {
     shownBySet = kept;
-    actionEmitters = keptEmitters;
+    particleLinks = keptLinks;
   }
   return key;
 }
@@ -385,26 +385,28 @@ let readFaction = null;
 // read all the same, marked display false, for the set to show (on load, or when a controller plays it).
 let shownBySet = new Set();
 /**
- * The emitters a file's Tr2ActionSpawnParticles hold (each its own, in no EveChildParticleSystem's list: a gate's Arrival
- * and Departure emitters), by the particle system they emit into: the particle child that draws that system takes them
- * as emitters that only the action fires.
+ * An effect's action-only emitters and the systems fed by CPU emitters attached to another system's particles.
  */
-let actionEmitters = new Map();
-function findActionEmitters(root) {
-  const out = new Map();
+let particleLinks = { actions: new Map(), duringLife: new Set() };
+function findParticleLinks(root) {
+  const actions = new Map(), duringLife = new Set();
   const seen = new Set();
   const walk = (o) => {
     if (!o || typeof o !== "object" || seen.has(o)) return;
     seen.add(o);
     if (o.type === "Tr2ActionSpawnParticles" && o.emitter?.particleSystem) {
-      const list = out.get(o.emitter.particleSystem) ?? [];
+      const list = actions.get(o.emitter.particleSystem) ?? [];
       if (!list.includes(o.emitter)) list.push(o.emitter);
-      out.set(o.emitter.particleSystem, list);
+      actions.set(o.emitter.particleSystem, list);
+    }
+    const emitter = o.type === "Tr2ParticleSystem" ? o.emitParticleDuringLifeEmitter : null;
+    if (emitter?.type === "Tr2DynamicEmitter" && emitter.particleSystem?.type === "Tr2ParticleSystem") {
+      duringLife.add(emitter.particleSystem);
     }
     for (const v of Object.values(o)) walk(v);
   };
   walk(root);
-  return out;
+  return { actions, duringLife };
 }
 
 function findShownBySet(root) {
@@ -1010,7 +1012,9 @@ function readParticleSystemChild(o, skipped) {
     if (!sysIndex.has(s)) {
       sysIndex.set(s, systems.length);
       systems.push(null);
-      systems[sysIndex.get(s)] = plainOf(s, (x) => (x?.type === "Tr2ParticleSystem" ? { system: systemOf(x) } : null));
+      const data = plainOf(s, (x) => (x?.type === "Tr2ParticleSystem" ? { system: systemOf(x) } : null));
+      if (particleLinks.duringLife.has(s)) data.linkID = idOf(s);
+      systems[sysIndex.get(s)] = data;
     }
     return sysIndex.get(s);
   };
@@ -1032,10 +1036,10 @@ function readParticleSystemChild(o, skipped) {
     pushEmitter(e, false);
   }
   // the emitters only an action fires (Tr2ActionSpawnParticles' own) into this child's systems
-  for (const s of [o.mesh?.instanceGeometryResource, ...(o.particleSystems ?? [])]) for (const e of actionEmitters.get(s) ?? []) if (e?.type === "Tr2DynamicEmitter" && !emitters.some((x) => x.id === idOf(e))) pushEmitter(e, true);
+  for (const s of [o.mesh?.instanceGeometryResource, ...(o.particleSystems ?? [])]) for (const e of particleLinks.actions.get(s) ?? []) if (e?.type === "Tr2DynamicEmitter" && !emitters.some((x) => x.id === idOf(e))) pushEmitter(e, true);
   const meshSystem = systemOf(o.mesh.instanceGeometryResource);
   const updated = (o.particleSystems ?? []).map(systemOf).filter((i) => i >= 0);
-  if (meshSystem < 0 || !emitters.length) return null;
+  if (meshSystem < 0 || (!emitters.length && !particleLinks.duringLife.has(o.mesh.instanceGeometryResource))) return null;
   const lists = [["additiveAreas", "additive"], ["transparentAreas", "transparent"], ["opaqueAreas", "opaque"], ["distortionAreas", "distortion"]];
   const areas = [];
   for (const [list, kind] of lists) for (const a of o.mesh[list] ?? []) {
@@ -1132,7 +1136,7 @@ export function readHullChildren(rf, sofHull, faction = null) {
         o.scaling = child.scaling ?? [1, 1, 1];
       }
       shownBySet = findShownBySet(o);
-      actionEmitters = findActionEmitters(o);
+      particleLinks = findParticleLinks(o);
       if (o && typeof o === "object") rawHullChildren.push(o);
       root = readNode(o, skipped);
       // EveSOF: a hull child's Setup(..., the entry's lowestLodVisible) - a child mesh's own lodding replaced by the
@@ -1220,7 +1224,7 @@ export function readEffectFile(rf, path, selectRoot = (root) => root, { allShade
   try {
     o = selectRoot(readBlack(rf.read(res), res));
     shownBySet = findShownBySet(o);
-    actionEmitters = findActionEmitters(o);
+    particleLinks = findParticleLinks(o);
     if (o && typeof o === "object") external = joinDynamicBindings(o, skipped);
     // (a file whose root is an EveTransform - a ShipEffect's graphic: the web's - is that transform as a container)
     root = o?.type === "EveTransform" ? readNode(transformAsChild(o, skipped), skipped)
@@ -1273,7 +1277,7 @@ export function readTurretStretch3(rf, path) {
   const find = (n) => { if (!n || typeof n !== "object") return null; if (n.type === "EveTurretFiringFX") return n; for (const v of Object.values(n)) { const r = find(v); if (r) return r; } return null; };
   const fx = find(o);
   shownBySet = findShownBySet(fx ?? o);
-  actionEmitters = findActionEmitters(fx ?? o);
+  particleLinks = findParticleLinks(fx ?? o);
   // a file that is one EveStretch3 or EveStretch (an effect's own graphic: the Vorton projectors' chain, a warp
   // scrambler's or a neutraliser's LocatorStretchEffect) is its one stretch; each read keeps its type
   const list = fx ? fx.stretch ?? [] : o?.type === "EveStretch3" || o?.type === "EveStretch" ? [o] : [];

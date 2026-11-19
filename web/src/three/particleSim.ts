@@ -14,10 +14,10 @@
 // - the forces: drag (-v drag), fluid drag (-v |v| drag, not past stopping), attractor and vortex (unit direction x
 //   magnitude), direct (its vector), turbulence (octaves of a 4D value noise x amplitude x the octaves' weight sum) and
 //   the sphere volume (its forces x (1 - d / radius)^exponent inside it).
-// Constraints (plane, sphere), emission on death and during life are not run.
+// The renderer wires the system hooks for emission on death, during life and on collision.
 
 export interface ParticleElement { type?: string; elementType?: number; customName?: string; dimension?: number; usageIndex?: number; usedByGPU?: boolean }
-export interface ParticleSystemData { type: string; elements?: ParticleElement[]; forces?: Record<string, unknown>[]; constraints?: Record<string, unknown>[]; [k: string]: unknown }
+export interface ParticleSystemData { type: string; linkID?: number; elements?: ParticleElement[]; forces?: Record<string, unknown>[]; constraints?: Record<string, unknown>[]; [k: string]: unknown }
 export interface ParticleEmitterData { type: string; name?: string; rate?: number; maxParticles?: number; particleSystem?: { system: number } | null; generators?: Record<string, unknown>[]; [k: string]: unknown }
 
 /** The element types Trinity names (Tr2ParticleElementDeclarationName::Type). */
@@ -150,6 +150,7 @@ export function makeForce(f: Record<string, unknown>): Force | null {
 
 /** One particle system's live particles, each element in its own array (max x its size). */
 export class ParticleSim {
+  readonly data: ParticleSystemData;
   readonly max: number;
   alive = 0;
   readonly arrays = new Map<string, Float32Array>();
@@ -169,7 +170,8 @@ export class ParticleSim {
   onCollision: ((emitter: Record<string, unknown>, p: Vec3, v: Vec3 | null) => void) | null = null;
   duringLife: ((p0: Vec3, p1: Vec3, v0: Vec3, v1: Vec3, dt: number) => void) | null = null;
 
-  constructor(readonly data: ParticleSystemData) {
+  constructor(data: ParticleSystemData) {
+    this.data = data;
     this.max = Math.min(10000, Math.max(0, num(data.maxParticleCount, 0)));
     for (const e of data.elements ?? []) {
       const key = elementKey(e), size = elementSize(e);
@@ -353,7 +355,7 @@ function makeConstraint(c: Record<string, unknown>, sim: ParticleSim): Constrain
   return null;
 }
 
-type Generator = (sim: ParticleSim, i: number) => void;
+type Generator = (sim: ParticleSim, i: number, parentPosition?: Vec3, parentVelocity?: Vec3) => void;
 export function makeGenerator(g: Record<string, unknown>): Generator | null {
   const key = elementKey({ elementType: typeof g.elementType === "number" ? g.elementType : undefined, customName: typeof g.customName === "string" ? g.customName : undefined });
   const write = (sim: ParticleSim, i: number, k: string, values: (d: number) => number) => {
@@ -387,17 +389,21 @@ export function makeGenerator(g: Record<string, unknown>): Generator | null {
       const p0 = arr(g.positionStart, 3), p1 = arr(g.positionEnd, 3);
       const r0 = Array.isArray(g.rotationStart) ? arr(g.rotationStart, 4) : [0, 0, 0, 1], r1 = Array.isArray(g.rotationEnd) ? arr(g.rotationEnd, 4) : [0, 0, 0, 1];
       const posKey = `type:${ELEMENT.POSITION}`, velKey = `type:${ELEMENT.VELOCITY}`;
-      return (sim, i) => {
+      return (sim, i, parentPosition, parentVelocity) => {
         const phi = [num(g.minPhi, 0), num(g.maxPhi, 360)], theta = [num(g.minTheta, 0), num(g.maxTheta, 360)];
         const radius = [num(g.minRadius, 0), num(g.maxRadius, 0)], speed = [num(g.minSpeed, 0), num(g.maxSpeed, 0)];
         const ph = frand(phi[0]!, phi[1]!) * Math.PI / 180, th = frand(theta[0]!, theta[1]!) * Math.PI / 180;
         const t = capsule ? rand() : 0;
         const dir = rotate([Math.sin(ph) * Math.cos(th), -Math.cos(ph), Math.sin(ph) * Math.sin(th)], capsule ? slerp(r0, r1, t) : rot);
-        if (controlVel && sim.arrays.has(velKey)) { const s = frand(speed[0]!, speed[1]!); write(sim, i, velKey, (d) => dir[d]! * s); }
+        if (controlVel && sim.arrays.has(velKey)) {
+          const s = frand(speed[0]!, speed[1]!);
+          const inherit = num(g.parentVelocityFactor, 1);
+          write(sim, i, velKey, (d) => dir[d]! * s + (parentVelocity?.[d] ?? 0) * inherit);
+        }
         if (controlPos && sim.arrays.has(posKey)) {
           const r = capsule ? frand(radius[0]!, radius[1]!) : radius[0]! + (radius[1]! - radius[0]!) * Math.pow(rand(), exp);
           const base = capsule ? [0, 1, 2].map((d) => p0[d]! + (p1[d]! - p0[d]!) * t) : at;
-          write(sim, i, posKey, (d) => dir[d]! * r + base[d]!);
+          write(sim, i, posKey, (d) => dir[d]! * r + base[d]! + (parentPosition?.[d] ?? 0));
         }
       };
     }
@@ -407,12 +413,16 @@ export function makeGenerator(g: Record<string, unknown>): Generator | null {
 
 /** A Tr2DynamicEmitter bound to its system: valid only where every generator is one ported here. */
 export class ParticleEmitter {
+  readonly data: ParticleEmitterData;
+  readonly sim: ParticleSim | null;
   private readonly generators: Generator[];
   private acc = 0;
   private emitted = 0;
   private last = 0;
   readonly valid: boolean;
-  constructor(readonly data: ParticleEmitterData, readonly sim: ParticleSim | null) {
+  constructor(data: ParticleEmitterData, sim: ParticleSim | null) {
+    this.data = data;
+    this.sim = sim;
     const made = (data.generators ?? []).map(makeGenerator);
     this.generators = made.filter((x): x is Generator => !!x);
     this.valid = !!sim && data.type === "Tr2DynamicEmitter" && made.every((x) => !!x);
@@ -429,7 +439,7 @@ export class ParticleEmitter {
    * Tr2DynamicEmitter::SpawnParticles: rate x the modifier (an update's dt, or a Tr2ActionSpawnParticles' rate) added
    * to what is carried, its whole part emitted (within maxParticles), the fraction carried.
    */
-  spawn(modifier: number): void {
+  spawn(modifier: number, parentPosition?: Vec3, parentVelocity?: Vec3): void {
     if (!this.valid || !this.sim) return;
     const rate = num(this.data.rate, 0);
     if (rate <= 0) return;
@@ -442,7 +452,7 @@ export class ParticleEmitter {
     for (let k = 0; k < count; k++) {
       const i = this.sim.insert();
       if (i < 0) return;
-      for (const g of this.generators) g(this.sim, i);
+      for (const g of this.generators) g(this.sim, i, parentPosition, parentVelocity);
     }
   }
 }

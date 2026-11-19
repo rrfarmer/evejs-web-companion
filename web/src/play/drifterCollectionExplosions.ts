@@ -1,7 +1,8 @@
 import { Vector3, type Object3D, type Scene } from "three";
 import { setGpuParticleAssets } from "../three/gpuParticles.ts";
-import { effectObject, startEffect, type SofChildNode } from "../three/hullChildren.ts";
+import { effectObject, setEffectShaderQuality, startEffect, type SofChildNode } from "../three/hullChildren.ts";
 import { explosionSoundsOf, pickExplosion, playWorldEvent } from "./uiAudio.ts";
+import { gfx } from "./gfxSettings.ts";
 
 export const DRIFTER_COLLECTION = 85231;
 
@@ -102,6 +103,7 @@ export class DrifterCollectionExplosions {
       if (!data || now < start) continue;
       if (visual) {
         visual.position.copy(relative);
+        setEffectShaderQuality(visual, gfx().shaderQuality);
         if (!visual.parent) {
           this.scene.add(visual);
           startEffect(visual);

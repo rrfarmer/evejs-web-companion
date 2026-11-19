@@ -593,7 +593,7 @@ async function extractDrifterCollectionExplosion(rf, outRoot) {
   const effect = readEffectFile(rf, resource, (root) => {
     explosion = root.effectChildren?.find((child) => child.type === "EveChildExplosion");
     return explosion?.globalExplosion;
-  });
+  }, { allShaderQualities: true });
   if (!effect?.root) throw new Error(`Drifter Collection global effect missing from ${resource}`);
   const { root, childEffects, skipped } = effect;
   const hasGpu = await copyChildGraphAssets(rf, [root, ...Object.values(childEffects)], outRoot);
@@ -602,7 +602,7 @@ async function extractDrifterCollectionExplosion(rf, outRoot) {
     ["noise", "res:/texture/global/noise32cube_volume.dds"],
   ].map(([name, res]) => [name, rf.has(res) ? copyRes(rf, res, outRoot) : null])) : undefined;
   fs.writeFileSync(path.join(outRoot, "drifterCollectionExplosion.json"), JSON.stringify({
-    explosionBuild: 1,
+    explosionBuild: 2,
     root,
     childEffects,
     skipped,

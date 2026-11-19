@@ -12,6 +12,7 @@ import { CLOUD_FOG, CLOUD_FOG_GLSL } from "./cloudOpacity.ts";
 import { uberDistortionMaterial, DISTORTION_LAYER } from "./distortion.ts";
 import { ControllerRun, type SofController } from "./controllers.ts";
 import { particleObject, type SofChildParticles } from "./particles.ts";
+import type { ParticleSim } from "./particleSim.ts";
 import { GpuEmitter, gpuSystemOf, type GpuEmitterData } from "./gpuParticles.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL, useHighSoftDepth } from "./softDepth.ts";
 import { HULL_TEXTURE_ROLES, fxHullMaterial, sofHullMaterial, setControllerVariable, setOwnerActivation, setClipSphere, type SofArea } from "./hullModel.ts";
@@ -2015,6 +2016,7 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
   };
   for (const child of children ?? []) if (child.root) scan(child.root);
   const pending: Promise<void>[] = [];
+  const linkedParticleSystems = new Map<number, ParticleSim>();
   let modified = 0;
   // the effect propagators and procedural containers placed (each clone runs them from its ticker)
   let propagators = 0;
@@ -2252,7 +2254,9 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
         let quad: THREE.BufferGeometry | null = null;
         lod?.traverse((o) => { if (!quad && (o as THREE.Mesh).isMesh) quad = (o as THREE.Mesh).geometry; });
         if (!quad) return;
-        const o = particleObject(node, quad, childTexture, (id, get, set, spawn) => { animator.values(id, get, set); if (spawn) animator.spawner(id, spawn); }, (id, u) => animator.uniform(id, u));
+        const o = particleObject(node, quad, childTexture,
+          (id, get, set, spawn) => { animator.values(id, get, set); if (spawn) animator.spawner(id, spawn); },
+          (id, u) => animator.uniform(id, u), linkedParticleSystems);
         if (!o) return;
         if (node.id !== undefined) { o.userData.childId = node.id; animator.object(node.id, ancestors, node.display !== false); }
         place(o, at, node.modifiers);
