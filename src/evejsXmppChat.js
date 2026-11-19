@@ -108,6 +108,12 @@ const LOCAL_CATEGORIES = new Set(["local", "nolocal", "wormhole", "nullsec", "tr
 // Local with nothing joined: for this category the client makes the window and
 // sends no presence (xmppchatsvc.py 1050 to 1054).
 const SUPPRESSED_LOCAL_CATEGORY = "nolocal";
+const DELAYED_LOCAL_CATEGORIES = new Set(["wormhole", "nullsec", "triglavian"]);
+const LOCAL_SPEAKER_IDLE_MS = 900_000;
+
+function isDelayedLocal(roomName) {
+  return DELAYED_LOCAL_CATEGORIES.has(roomName?.split("_")[0]);
+}
 // SESSION_CHANGE_CATEGORIES (xmppchatsvc.py 35 to 45): the values of the
 // session a channel hangs on, each with its channel's category, in the client's
 // own order. Here a category is also the word a page reads the channel by.
@@ -340,6 +346,12 @@ class XmppChatSession {
       });
     }
     this.log = typeof options.log === "function" ? options.log : () => {};
+    this.onLocalChange = options.onLocalChange;
+    this.localSystemID = 0;
+    this.earlyLocalPresence = null;
+    this.localRecovery = null;
+    this.localSpeakerExpiry = null;
+    this.localChangeQueued = false;
     // What the game server is asked as the retail client's chat service asks
     // it at its login: `{ connection(), secret(), channels() }`, each a call
     // made through the pilot's own game-port session. Null for a pilot on the
@@ -954,6 +966,16 @@ class XmppChatSession {
     if (!roomName) {
       return;
     }
+    const channel = this.channelOf(roomName);
+    const local = channel === "local";
+    const unavailable = /\btype=['"](?:unavailable|leave)['"]/i.test(xml);
+    if (this.login && local && this.localSystemID && positiveInt(roomName.split("_").pop()) !== this.localSystemID) {
+      if (characterID === this.characterID && !unavailable && !this.leftRooms.has(roomJid)) {
+        this.earlyLocalPresence = { roomName, xml };
+      }
+      return;
+    }
+    const previousLocalRoom = local ? this.rooms.get("local")?.roomName : null;
     // Our own join answer names the room the server RESOLVED our alias to.
     // That is the only way this client ever learns a real room name.
     this.resolveJoin(attr(xml, "id"), roomJid, roomName);
@@ -963,8 +985,8 @@ class XmppChatSession {
     if (this.login) {
       // A character come into a channel or gone from it is the window's
       // activity (xmppchatclient/xmppchatwindow.py 485 to 488, 570 to 571).
-      this.activityAtMs.set(this.channelOf(roomName), Date.now());
-      if (!/\btype=['"](unavailable|leave)['"]/i.test(xml)) {
+      this.activityAtMs.set(channel, Date.now());
+      if (!unavailable) {
         this.takeSessionChannel(roomJid, roomName, characterID);
       }
     }
@@ -973,11 +995,14 @@ class XmppChatSession {
       this.memberOrder.set(roomName, new PythonIntKeys());
     }
     const roster = this.rosters.get(roomName);
-    const heldRoom = this.rooms.get(this.channelOf(roomName));
+    const heldRoom = this.rooms.get(channel);
+    const currentLocal = local && heldRoom?.roomName === roomName;
+    const oldMember = roster.get(characterID);
     if (roomName.startsWith("private_") && heldRoom?.seenMembers) heldRoom.seenMembers.add(characterID);
-    if (/\btype=['"](?:unavailable|leave)['"]/i.test(xml)) {
+    if (unavailable) {
       roster.delete(characterID);
       this.memberOrder.get(roomName)?.delete(characterID);
+      if (currentLocal && oldMember) this.localChanged();
       return;
     }
     let name = "";
@@ -994,11 +1019,18 @@ class XmppChatSession {
       }
     }
     this.memberOrder.get(roomName)?.set(characterID);
-    roster.set(characterID, {
+    const member = {
       name: name || `Character ${characterID}`,
       corporationID: positiveInt(attr(xml, "corpid")) || null,
       allianceID: positiveInt(attr(xml, "allianceid")) || null,
-    });
+      spokeAtMs: oldMember?.spokeAtMs,
+    };
+    roster.set(characterID, member);
+    if (currentLocal && (previousLocalRoom !== roomName ||
+      ((!isDelayedLocal(roomName) || member.spokeAtMs != null) &&
+        (oldMember?.name !== member.name || oldMember?.corporationID !== member.corporationID || oldMember?.allianceID !== member.allianceID)))) {
+      this.localChanged();
+    }
   }
 
   /**
@@ -1089,6 +1121,8 @@ class XmppChatSession {
 
   /** Keep a line at the tail of its room's, and no more of them than the tail is long. */
   keepLine(roomName, entry) {
+    const local = this.channelOf(roomName) === "local";
+    if (local && this.rooms.get("local")?.roomName !== roomName) return;
     if (!this.messages.has(roomName)) {
       this.messages.set(roomName, []);
     }
@@ -1097,6 +1131,45 @@ class XmppChatSession {
     if (log.length > MAX_BUFFERED_MESSAGES) {
       log.splice(0, log.length - MAX_BUFFERED_MESSAGES);
     }
+    if (!local) return;
+    if (isDelayedLocal(roomName) && entry.characterID > 1) {
+      if (!this.rosters.has(roomName)) {
+        this.rosters.set(roomName, new Map());
+        this.memberOrder.set(roomName, new PythonIntKeys());
+      }
+      const roster = this.rosters.get(roomName);
+      const member = roster.get(entry.characterID) || { name: entry.characterName, corporationID: null, allianceID: null };
+      roster.set(entry.characterID, { ...member, spokeAtMs: entry.createdAtMs });
+      this.memberOrder.get(roomName)?.set(entry.characterID);
+      this.scheduleLocalSpeakerExpiry(roomName);
+    }
+    this.localChanged();
+  }
+
+  localChanged() {
+    if (!this.onLocalChange || this.localChangeQueued) return;
+    this.localChangeQueued = true;
+    queueMicrotask(() => {
+      this.localChangeQueued = false;
+      if (!this.closed) this.onLocalChange(this.snapshot("local"));
+    });
+  }
+
+  scheduleLocalSpeakerExpiry(roomName) {
+    clearTimeout(this.localSpeakerExpiry);
+    this.localSpeakerExpiry = null;
+    const now = Date.now();
+    let expiry = Infinity;
+    for (const member of this.rosters.get(roomName)?.values() || []) {
+      const end = member.spokeAtMs + LOCAL_SPEAKER_IDLE_MS;
+      if (end > now && end < expiry) expiry = end;
+    }
+    if (!Number.isFinite(expiry)) return;
+    this.localSpeakerExpiry = setTimeout(() => {
+      this.localChanged();
+      this.scheduleLocalSpeakerExpiry(roomName);
+    }, expiry - now);
+    this.localSpeakerExpiry.unref?.();
   }
 
   /**
@@ -1180,8 +1253,9 @@ class XmppChatSession {
    * changes, leave and re-join, and the server picks the new room.
    */
   async ensureChannel(channel, context = {}) {
-    await this.ensureReady();
     const solarSystemID = positiveInt(context.solarSystemID);
+    if (this.login && channel === "local" && !this.localSystemID) this.localSystemID = solarSystemID;
+    await this.ensureReady();
     if (this.login) {
       if (!SESSION_CHANNELS.has(channel) && !this.rooms.has(channel)) {
         throw new XmppChatError("This chat room is not joined.", { code: "CHAT_NO_CHANNEL", statusCode: 409 });
@@ -1325,9 +1399,10 @@ class XmppChatSession {
    * (`takeSessionChannel`), which is what this server sends.
    */
   onSessionChanged(changes) {
-    if (this.closed || !this.ready || !changes) {
-      return;
-    }
+    if (this.closed || !changes) return;
+    const localMove = changes.solarsystemid2;
+    if (Array.isArray(localMove)) this.localSystemID = positiveInt(localMove[1]);
+    if (!this.ready) return;
     for (const [sessionValue, channel] of SESSION_CHANGE_CATEGORIES) {
       const change = changes[sessionValue];
       const old = Array.isArray(change) ? positiveInt(change[0]) : 0;
@@ -1340,7 +1415,11 @@ class XmppChatSession {
       this.leftRooms.add(roomJid);
       this.write(this.retailStanzas().leave(roomJid));
       const room = this.rooms.get(channel) || null;
-      if (room && !room.pending && (room.roomJid === roomJid || room.roomJid === null)) {
+      if (channel === "local" && room?.pending) {
+        room.pending.reject(new XmppChatError("The pilot changed systems during the Local join.", { code: "CHAT_ROOM_LEFT", statusCode: 409 }));
+        room.pending = null;
+        this.rooms.delete(channel);
+      } else if (room && !room.pending && (room.roomJid === roomJid || room.roomJid === null)) {
         this.rooms.delete(channel);
         this.messages.delete(room.roomName);
         this.rosters.delete(room.roomName);
@@ -1359,6 +1438,20 @@ class XmppChatSession {
     // The server has until five seconds from now to send the new rooms before
     // a reader's asking has the channels asked for again.
     this.systemChannelsAskedAtMs = Date.now();
+    if (!Array.isArray(localMove)) return;
+    clearTimeout(this.localRecovery);
+    clearTimeout(this.localSpeakerExpiry);
+    this.localSpeakerExpiry = null;
+    const early = this.earlyLocalPresence;
+    this.earlyLocalPresence = null;
+    if (early && positiveInt(early.roomName.split("_").pop()) === this.localSystemID) this.onPresence(early.xml);
+    this.localChanged();
+    if (this.localSystemID && !this.rooms.has("local")) {
+      this.localRecovery = setTimeout(() => {
+        if (this.ready && !this.rooms.has("local")) this.joinSystemChannels(this.localSystemID).catch(() => {});
+      }, RESYNC_RETRY_MS);
+      this.localRecovery.unref?.();
+    }
   }
 
   /**
@@ -1369,18 +1462,15 @@ class XmppChatSession {
    * channel's category made or found and set to that channel
    * (`_HandleXmppPresence`, xmppchatsvc.py 632 to 687, and
    * `GetOrCreateGroupChatWindow`, 853 to 881), so a Local window shows
-   * whichever Local the server last sent a presence of. In the wormhole,
-   * nullsec and Triglavian kinds the client passes over its own presence (652
-   * to 654). A room left at a change of the session is not taken back by a
-   * presence that was already on its way.
+   * whichever Local the server last sent a presence of. A delayed Local
+   * self-presence identifies the room. It does not populate its visible roster.
    */
   takeSessionChannel(roomJid, roomName, characterID) {
-    const category = String(roomName).split("_")[0];
     const channel = this.channelOf(roomName);
     if (!SESSION_CHANNELS.has(channel) || this.leftRooms.has(roomJid)) {
       return;
     }
-    if (characterID === this.characterID && ["wormhole", "nullsec", "triglavian"].includes(category)) {
+    if (isDelayedLocal(roomName) && characterID !== this.characterID) {
       return;
     }
     const kept = this.rooms.get(channel) || null;
@@ -1469,6 +1559,7 @@ class XmppChatSession {
           for (const name of Array.isArray(names) ? names : []) {
             const category = String(name).split("_")[0];
             const channel = this.channelOf(name);
+            if (channel === "local" && this.localSystemID && positiveInt(String(name).split("_").pop()) !== this.localSystemID) continue;
             const had = this.rooms.get(channel) || null;
             if (had && (had.pending || had.roomName === name)) {
               continue;
@@ -1486,6 +1577,7 @@ class XmppChatSession {
                 joinedFor: positiveInt(String(name).split("_").pop()),
                 pending: null,
               });
+              this.localChanged();
               continue;
             }
             // The join's own failure is its reader's to hear, when the room is
@@ -1646,6 +1738,8 @@ class XmppChatSession {
     const roomName = room && room.roomName ? room.roomName : null;
     const roster = roomName ? this.rosters.get(roomName) || new Map() : new Map();
     const log = roomName ? this.messages.get(roomName) || [] : [];
+    const delayed = channel === "local" && isDelayedLocal(roomName);
+    const visibleSince = Date.now() - LOCAL_SPEAKER_IDLE_MS;
     const capped = Math.max(1, Math.min(Number(limit) || 50, MAX_BUFFERED_MESSAGES));
     // The room name carries the id the room is FOR — `local_<solarSystemID>`,
     // `corp_<corporationID>` — so this is read back from the server's answer
@@ -1655,9 +1749,13 @@ class XmppChatSession {
       channel,
       roomName,
       seenMembers: [...(room?.seenMembers || [])],
-      solarSystemID: channel === "local" ? suffix || null : null,
+      solarSystemID: channel === "local" ? suffix || this.localSystemID || null : null,
+      ...(channel === "local" && !roomName ? { loaded: false } : {}),
       corporationID: channel === "corp" ? suffix || null : null,
-      roster: (this.memberOrder.get(roomName)?.keys() || [...roster.keys()]).filter(id => roster.has(id)).map(characterID => { const member = roster.get(characterID); return ({
+      roster: (this.memberOrder.get(roomName)?.keys() || [...roster.keys()]).filter(id => {
+        const member = roster.get(id);
+        return member && (!delayed || member.spokeAtMs > visibleSince);
+      }).map(characterID => { const member = roster.get(characterID); return ({
         characterID,
         name: member.name,
         corporationID: member.corporationID,
@@ -1886,6 +1984,9 @@ class XmppChatSession {
       });
     }
     this.assertChatCurrent(context);
+    if (channel === "local" && this.rooms.get(channel) !== room) {
+      throw new XmppChatError("The pilot moved to another Local channel.", { code: "CHAT_ROOM_LEFT", statusCode: 409 });
+    }
     this.write(
       this.login
         ? this.retailStanzas().line(room.roomJid || room.alias.split("/")[0], text).xml
@@ -1913,6 +2014,8 @@ class XmppChatSession {
 
   close() {
     this.closed = true;
+    clearTimeout(this.localRecovery);
+    clearTimeout(this.localSpeakerExpiry);
     this.rejectRoomInfoRequests();
     for (const room of this.rooms.values()) {
       if (room.pending) {

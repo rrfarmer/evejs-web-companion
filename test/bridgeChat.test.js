@@ -712,3 +712,36 @@ test("releasing the character closes the chat connection, so it leaves Local", a
   }
   assert.equal(stub.state.clients.size, 0);
 });
+
+test("delayed Local takes the destination even when its presence beats the session change", async (t) => {
+  const updates = [];
+  const chat = createXmppChatSession({ characterID: 7, login: {}, onLocalChange: (value) => updates.push(value) });
+  t.after(() => chat.close());
+  const delayed = "wormhole_31000488";
+  const immediate = `local_${HOME_SYSTEM_ID}`;
+  const presence = (room, id) => `<presence from='${room}@conference.localhost/${id}'/>`;
+  chat.onSessionChanged({ solarsystemid2: [null, HOME_SYSTEM_ID] });
+  chat.ready = true;
+  chat.write = () => {};
+  chat.onPresence(presence(immediate, 7));
+  chat.onPresence(presence(immediate, 8));
+  chat.onPresence(presence(delayed, 7));
+  assert.equal(chat.snapshot("local").roomName, immediate);
+  assert.equal(chat.snapshot("local").roster.length, 2);
+
+  chat.onSessionChanged({ solarsystemid2: [HOME_SYSTEM_ID, 31000488] });
+  chat.onPresence(presence(immediate, 8));
+  chat.onPresence(presence(delayed, 8));
+  await Promise.resolve();
+  assert.equal(updates.at(-1).roomName, delayed);
+  assert.equal(updates.at(-1).solarSystemID, 31000488);
+  assert.deepEqual(updates.at(-1).roster, []);
+
+  chat.onMessage(`<message from='${delayed}@conference.localhost/8'><body>hello</body></message>`);
+  await chat.linesWork;
+  assert.deepEqual(updates.at(-1).roster.map((member) => member.characterID), [8]);
+  chat.keepLine(immediate, { characterID: 9, message: "old room", createdAtMs: Date.now() });
+  chat.keepLine(delayed, { characterID: 10, message: "expired speaker", createdAtMs: Date.now() - 900_001 });
+  assert.deepEqual(chat.snapshot("local").roster.map((member) => member.characterID), [8]);
+  assert.ok(chat.snapshot("local").messages.every((line) => line.message !== "old room"));
+});

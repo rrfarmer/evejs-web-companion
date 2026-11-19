@@ -84,7 +84,7 @@ export function decodeChatChannel(raw: JsonValue | undefined): ChatChannelState 
     solarSystemID: numOrNull(chat.solarSystemID),
     roster,
     messages,
-    loaded: true,
+    loaded: chat.loaded !== false,
   };
 }
 

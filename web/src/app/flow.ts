@@ -6818,6 +6818,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
 
+  let localChatRevision = 0;
+
   function applyLiveFrame(frame: unknown): void {
     if (typeof frame !== "object" || frame === null) {
       return;
@@ -6835,6 +6837,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             : "idle",
       });
       if (state === "ended") void confirmStillOnline();
+      return;
+    }
+    if (record.source === "evejs-web-bff" && record.type === "local-chat") {
+      const channelState = decodeChatChannel(record.chat);
+      localChatRevision++;
+      store.apply({ type: "chat/loaded", channel: "local", channelState });
       return;
     }
     if (record.source !== "evejs-web-gateway") {
@@ -25116,8 +25124,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // to offline; any other failure surfaces through the chat slice so the panel
   // stays put and shows the reason.
   async function loadChat(channel: ChatChannel): Promise<void> {
+    const revision = localChatRevision;
     try {
       const raw = await api.readChat(channel, callOptions);
+      if (channel === "local" && revision !== localChatRevision) return;
       store.apply({
         type: "chat/loaded",
         channel: decodeChatChannelName(raw, channel),
@@ -25129,6 +25139,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         store.apply({ type: "character/offline" });
         throw error;
       }
+      if (channel === "local" && (revision !== localChatRevision ||
+        (!store.chat.get().local.loaded && ["CHAT_ROOM_LEFT", "CHAT_NO_CHANNEL"].includes(failureCode(error) ?? "")))) return;
       store.apply({ type: "chat/error", message: errorWords(error) });
     }
   }

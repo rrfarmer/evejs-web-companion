@@ -212,6 +212,29 @@ test("a pushed chat message lands in the channel backlog without a poll", async 
   );
 });
 
+test("an older Local read cannot replace a pushed system handoff", async () => {
+  const store = createClientStore();
+  const upstream = makeFakeFetch();
+  const { factory, sources } = makeFakeEventSource();
+  let finishRead!: (response: Response) => void;
+  const pending = new Promise<Response>((resolve) => { finishRead = resolve; });
+  const flow = createAppFlow(store, {
+    fetch: (input, init) => String(input) === "/api/bridge/chat/local" ? pending : upstream.fetch(input, init),
+    eventSource: factory,
+  });
+  await flow.selectCharacter(7);
+  const stale = flow.loadChat("local");
+  const push = (chat: unknown) => sources[0]!.emit({ source: "evejs-web-bff", type: "local-chat", chat });
+  push({ solarSystemID: 31000488, loaded: false });
+  assert.equal(store.chat.get().local.loaded, false);
+  push({ roomName: "wormhole_31000488", solarSystemID: 31000488, roster: [], messages: [] });
+  finishRead(Response.json({ ok: true, chat: LOCAL_CHAT, notifications: [] }));
+  await stale;
+  assert.equal(store.chat.get().local.roomName, "wormhole_31000488");
+  assert.deepEqual(store.chat.get().local.roster, []);
+  assert.deepEqual(store.chat.get().local.messages, []);
+});
+
 test("a pushed corp message goes to the corp channel, not local", async () => {
   const { source, store } = await onlineFlow();
   source.emit(

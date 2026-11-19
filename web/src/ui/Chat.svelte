@@ -220,6 +220,8 @@
   // The active channel's decoded state (roster + backlog).
   const activeRoom = $derived($conversations.rooms.find(room => room.channel === $conversations.active) ?? null);
   const active = $derived(activeRoom?.state ?? $chat[$chat.activeChannel]);
+  const localMode = $derived(!activeRoom && $chat.activeChannel === "local" ? active.roomName?.split("_")[0] : undefined);
+  const delayedLocal = $derived(localMode === "wormhole" || localMode === "nullsec" || localMode === "triglavian");
 
   // A line's speaker is named from the table of owners, as the client's window names it (xmppchatsvc.py
   // _HandleMessageFromAdmin: window.Receive(charid), cfg.eveowners), not from the room's roster alone: the room's own
@@ -227,6 +229,7 @@
   // The roster's name stands while the owner's is asked for.
   $effect(() => {
     const ids = new Set(active.messages.map((message) => message.characterID).filter((id) => id > 0));
+    if (delayedLocal) for (const member of active.roster) ids.add(member.characterID);
     if (ids.size > 0) flow.requestNames([...ids].map((id) => ({ kind: "owner" as const, id })));
   });
   function speakerName(message: { readonly characterID: number; readonly characterName: string }): string {
@@ -280,6 +283,8 @@
   </h2>
   {#if !active.loaded}
     <p class="note">Loading…</p>
+  {:else if localMode === "nolocal"}
+    <p class="note">Local chat is unavailable in this system.</p>
   {:else if !activeRoom && $chat.activeChannel === "corp" && active.corporationID === null}
     <p class="note">This character is not in a corporation.</p>
   {:else}
@@ -300,14 +305,14 @@
         {/if}
       </div>
       <div class="roster">
-        <h3>Members ({active.roster.length})</h3>
+        <h3>{delayedLocal ? "Recent speakers" : `Members (${active.roster.length})`}</h3>
         {#if active.roster.length === 0}
           <p class="empty">No members visible.</p>
         {:else}
           <ul class="roster-list">
             {#each active.roster as member (member.characterID)}
               <li draggable="true" ondragstart={event => dragCharacter(event, member.characterID, member.name)}
-                ondblclick={() => void run(() => doubleClickOwner(flow, member.characterID))}>{member.name}</li>
+                ondblclick={() => void run(() => doubleClickOwner(flow, member.characterID))}>{delayedLocal ? resolvedName($names.resolved, "owner", member.characterID, member.name) : member.name}</li>
             {/each}
           </ul>
         {/if}

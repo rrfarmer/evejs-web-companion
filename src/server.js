@@ -1856,6 +1856,8 @@ app.get("/api/bridge/events", requireStreamAuth, (req, res) => {
   res.write(": open\n\n");
   held.streamSubscribers.add(res);
   publishStreamStatus(held, held.stream ? "live" : "connecting");
+  const localChat = held.chat?.snapshot?.("local");
+  if (localChat?.solarSystemID) writeSseFrame(res, { source: "evejs-web-bff", type: "local-chat", chat: localChat });
   openHeldStream(req.webSessionID, held);
 
   // SSE comment heartbeat: keeps intermediaries from reaping an idle stream.
@@ -9224,6 +9226,7 @@ function heldChatSession(held) {
       characterID: held.characterID,
       log: (line) => console.log(line),
       login: heldChatLogin(held),
+      onLocalChange: (chat) => publishStreamFrame(held, { source: "evejs-web-bff", type: "local-chat", chat }),
     });
   }
   return held.chat;
