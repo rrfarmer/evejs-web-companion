@@ -27,14 +27,13 @@ export const CLOUD_FOG_SCATTERING = {
 export const CLOUD_FOG_SCATTERING_GLSL = `uniform sampler2D cloudFogScatteringMap;
 uniform bool cloudFogScatteringEnabled;
 uniform vec4 cloudFogDepths;
-uniform vec2 softDepthSize;
 vec4 cloudFogSlice(vec2 uv, vec2 tile) {
   return textureLod(cloudFogScatteringMap, uv + 0.5 * tile, 0.0);
 }
-vec4 cloudFogScattering(float depth) {
+vec4 cloudFogScattering(float depth, vec2 screenSize) {
   if (!cloudFogScatteringEnabled) return vec4(0.0);
   vec2 inset = 1.0 / vec2(textureSize(cloudFogScatteringMap, 0));
-  vec2 uv = 0.5 * clamp(gl_FragCoord.xy / softDepthSize, inset, 1.0 - inset);
+  vec2 uv = 0.5 * clamp(gl_FragCoord.xy / screenSize, inset, 1.0 - inset);
   vec4 cuts = cloudFogDepths;
   if (depth <= cuts.x) return cloudFogSlice(uv, vec2(0.0)) * clamp(depth / cuts.x, 0.0, 1.0);
   if (depth <= cuts.y) return mix(cloudFogSlice(uv, vec2(0.0)), cloudFogSlice(uv, vec2(1.0, 0.0)), (depth - cuts.x) / (cuts.y - cuts.x));

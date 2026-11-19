@@ -6,7 +6,7 @@
 // BITANGENT8, a custom element as TEXCOORD(8 + its usage index); index 9 the previous frame's).
 
 import * as THREE from "three";
-import { CLOUD_FOG, CLOUD_FOG_GLSL } from "./cloudOpacity.ts";
+import { CLOUD_FOG, CLOUD_FOG_GLSL, CLOUD_FOG_SCATTERING, CLOUD_FOG_SCATTERING_GLSL } from "./cloudOpacity.ts";
 import { gfx } from "../play/gfxSettings.ts";
 import { logDepth } from "./logDepth.ts";
 import { DISTORTION_LAYER } from "./distortion.ts";
@@ -209,6 +209,59 @@ function staticParticleVS(decl: string, body: string): string {
         vDepth = abs( p.z );
         ${body}
       }`;
+}
+
+/** The fixed billboards in wreck clouds, with premultiplied blending and the installed fog encodings. */
+function staticNoAtlasParticleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial {
+  const params = area.params;
+  const material = new THREE.ShaderMaterial({
+    name: "1layernoatlasv2",
+    visible: false,
+    uniforms: {
+      ...SOFT_DEPTH, ...CLOUD_FOG_SCATTERING, cloudFogDepths: CLOUD_FOG.cloudFogDepths,
+      spriteFactors: { value: v4(params.SpriteFactors, [0, 0, 0, 1]) },
+      spriteColor: { value: v4(params.SpriteColor, [1, 1, 1, 1]) },
+      layer1Mod: { value: v4(params.Layer1TexCoordModifier, [1, 1, 0, 0]) },
+      useWorldScale: { value: f1(params.UseWorldScale, 0) },
+      layer1: { value: null },
+      depthShader: { get value() { return gfx().shaderQuality === 3; } },
+      lowFogEncoding: { get value() { return gfx().shaderQuality === 1; } },
+    },
+    vertexShader: staticParticleVS(`uniform vec4 layer1Mod;
+      varying vec2 vUv; varying vec4 vColor;
+      ${PARTICLE_DEPTH_VERTEX}`, `
+        vUv = uv * layer1Mod.xy + layer1Mod.zw;
+        vColor = iT10;
+        vSoft = particleDepth(p, size, 0.333);`),
+    fragmentShader: `uniform vec4 spriteColor; uniform vec4 spriteFactors; uniform sampler2D layer1;
+      uniform bool lowFogEncoding;
+      varying vec2 vUv; varying vec4 vColor;
+      ${PARTICLE_DEPTH_FRAGMENT}
+      ${CLOUD_FOG_SCATTERING_GLSL}
+      ${SRGB}
+      void main() {
+        vec4 texel = texture2D(layer1, vUv);
+        vec4 tint = vColor * spriteColor;
+        float opacity = texel.a * tint.a;
+        float fade = particleDepthFade();
+        float alpha = opacity * spriteFactors.z * fade;
+        vec3 rgb = texel.rgb * tint.rgb * mix(1.0, opacity, spriteFactors.x) * fade;
+        vec4 fog = cloudFogScattering(1.0 / gl_FragCoord.w, softDepthSize);
+        vec3 fogRgb = lowFogEncoding ? sqrt(max(fog.rgb, 0.0)) : encode(max(fog.rgb, 0.0));
+        gl_FragColor = vec4(mix(rgb, fogRgb * fog.a * alpha, fog.a), alpha);
+      }`,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation,
+  });
+  Object.defineProperty(material.userData, "softDepth", { enumerable: true, get: () => gfx().shaderQuality === 3 });
+  material.userData.cloudFogScattering = material.userData.cloudFogScatteringLow = true;
+  void textureOf(area.textures.TexMapLayer1).then((texture) => {
+    if (!texture) return;
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping; texture.needsUpdate = true;
+    material.uniforms.layer1!.value = texture;
+    material.visible = true;
+  });
+  return logDepth(material);
 }
 
 /**
@@ -880,6 +933,7 @@ function solarFlareMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMater
 function particleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial | THREE.ShaderMaterial[] | null {
   const path = (area as { path?: string }).path ?? "";
   if (area.kind === "distortion") return area.effect === "1layerdyndistortionv2" ? dynamicDistortionMaterial(area, textureOf) : null;
+  if (area.effect === "1layernoatlasv2") return staticNoAtlasParticleMaterial(area, textureOf);
   if (area.effect === "1layerdynv2") {
     const material = oneLayerDynMaterial(area.params, null);
     void textureOf(area.textures.TexMapLayer1).then((t) => {
@@ -911,6 +965,9 @@ export interface SofChildParticles {
   meshIndex: number;
   minScreenSize: number;
   areas: { kind: string; effect: string; path?: string; paramIds?: Record<string, number>; options?: Record<string, string>; params: Record<string, unknown>; textures: Record<string, string | null> }[];
+  /** Fixed instance rows containing xyz, size, rotation, and RGBA. */
+  staticInstances?: number[];
+  staticShaderQualityMask?: number;
   meshSystem: number;
   systems: ParticleSystemData[];
   emitters: ParticleEmitterData[];
@@ -971,6 +1028,52 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
   }
   const material = materials[0];
   if (!material) return null;
+  if (node.staticInstances) {
+    if (!node.staticInstances.length) return null;
+    if (node.staticShaderQualityMask !== undefined) {
+      const mask = node.staticShaderQualityMask;
+      let textureReady = material.visible;
+      Object.defineProperty(material, "visible", {
+        enumerable: true,
+        get: () => textureReady && !!(mask & (1 << (gfx().shaderQuality - 1))),
+        set: (value: boolean) => { textureReady = value; },
+      });
+    }
+    const geometry = new THREE.InstancedBufferGeometry();
+    geometry.index = quad.index;
+    geometry.setAttribute("position", quad.getAttribute("position"));
+    geometry.setAttribute("uv", quad.getAttribute("uv"));
+    const stride = 9;
+    const instances = new THREE.InstancedInterleavedBuffer(new Float32Array(node.staticInstances), stride);
+    geometry.instanceCount = instances.count;
+    geometry.setAttribute("iPos", new THREE.InterleavedBufferAttribute(instances, 3, 0));
+    geometry.setAttribute("iT8", new THREE.InterleavedBufferAttribute(instances, 1, 3));
+    geometry.setAttribute("iT9", new THREE.InterleavedBufferAttribute(instances, 1, 4));
+    geometry.setAttribute("iT10", new THREE.InterleavedBufferAttribute(instances, 4, 5));
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = `child-static-particles:${node.name ?? ""}`;
+    mesh.renderOrder = 3;
+    mesh.frustumCulled = false;
+    if (node.minScreenSize > 0) {
+      quad.computeBoundingBox();
+      const quadBounds = quad.boundingBox!;
+      const corner = Math.hypot(Math.max(Math.abs(quadBounds.min.x), Math.abs(quadBounds.max.x)),
+        Math.max(Math.abs(quadBounds.min.y), Math.abs(quadBounds.max.y)));
+      const bounds = new THREE.Box3();
+      const point = new THREE.Vector3();
+      for (let i = 0; i < instances.array.length; i += stride) {
+        point.fromArray(instances.array, i);
+        const radius = corner * Math.abs(instances.array[i + 3]!);
+        bounds.expandByPoint(point.addScalar(radius));
+        bounds.expandByPoint(point.addScalar(-2 * radius));
+      }
+      const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+      mesh.name = "size-gated";
+      mesh.userData.minScreenSize = node.minScreenSize;
+      mesh.userData.sphere = [...sphere.center.toArray(), sphere.radius];
+    }
+    return mesh;
+  }
   const sims = node.systems.map((s) => new ParticleSim(s));
   const sim = sims[node.meshSystem];
   if (!sim || sim.max === 0) return null;

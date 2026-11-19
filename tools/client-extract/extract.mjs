@@ -30,7 +30,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
-import { childEffectRoots, hullOverlays, readEffectFile, readHullChildren, readHullControllers, readTrafficInstances, readTurretStretch3, usedLocatorSets } from "./lib/children.mjs";
+import { childEffectRoots, hullOverlays, readEffectFile, readHullChildren, readHullControllers, readSpriteInstances, readTrafficInstances, readTurretStretch3, usedLocatorSets } from "./lib/children.mjs";
 import { readGranny } from "./lib/granny.mjs";
 import { readAnimations } from "./lib/grannyAnim.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
@@ -150,6 +150,16 @@ async function copyChildGraphAssets(rf, roots, outRoot) {
     for (const [name, res] of Object.entries(n.textures)) n.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
   }
   for (const n of meshNodes) {
+    if (n.instanceSource) {
+      n.staticInstances = rf.has(n.instanceSource)
+        ? await readSpriteInstances(rf, n.instanceSource, n.instanceMeshIndex).catch((e) => {
+          console.warn(`child sprite instances ${n.instanceSource}: ${e.message}`);
+          return [];
+        })
+        : [];
+      delete n.instanceSource;
+      delete n.instanceMeshIndex;
+    }
     const res = n.geometry;
     const glb = path.join(outRoot, ...`${res.slice("res:/".length, -".gr2".length)}.glb`.split("/"));
     if (!rf.has(res)) n.geometry = null;

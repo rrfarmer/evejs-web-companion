@@ -38,6 +38,7 @@ import { readBlack } from "./black.mjs";
 import { COLOR_TYPES, colorOf } from "./sof.mjs";
 
 const HIGH_QUALITY = new Set([3, 4, 5]);
+const SHADER_QUALITY_MASKS = [0b001, 0b011, 0b010, 0b110, 0b100, 0b111];
 // motionvectorramp.fx is drawn in the permutations the client's child meshes use (its file's permutations:
 // Tr2EffectRes.cpp's reader): the default, and record 19 (no interpolation, one diffuse map, the mask)
 const MOTION_VECTOR_RAMP_DEFAULTS = [["INTERPOLATION", "INTERPOLATION_ENABLED"], ["DIFFUSE_MAP_COUNT", "ZERO"], ["COLORMAP", "COLORMAP_RAMP"], ["MASK", "MASK_DISABLED"], ["TEXTURE_TRANSFORM", "TRANSFORM_DISABLED"]];
@@ -440,7 +441,7 @@ function readNode(o, skipped) {
  * behaviour group's). quadinstancedv5.fx (the behaviour groups' instanced hull shader: quadv5 with the instance's
  * transform) is read as quadv5 - the page instances the mesh itself.
  */
-function meshAreas(mesh, skipped, smartBeam = false) {
+function meshAreas(mesh, skipped, smartBeam = false, staticSprites = false) {
   const areas = [];
   for (const [list, kind] of [["opaqueAreas", "opaque"], ["transparentAreas", "transparent"], ["additiveAreas", "additive"], ["distortionAreas", "distortion"]]) {
     for (const a of mesh[list] ?? []) {
@@ -450,6 +451,7 @@ function meshAreas(mesh, skipped, smartBeam = false) {
       // a distortion area draws into the distortion map (ubershaderdistortion.fx, the one effect such areas use)
       const drawn = kind === "distortion" ? fx === "ubershaderdistortion" : ["ubershader", "fx3dv5", "ubershadertwosided", "ubershadercube", "flare", "twocolorflare", "quadv5", "quadglassv5", "quaddetailv5", "fxv5", "wormholefx", "sunwhisps", "childhazespherical"].includes(fx)
         || fx === "texturecolor"
+        || (staticSprites && fx === "1layernoatlasv2")
         || (smartBeam && kind === "additive" && fx === "ubershaderinstanced")
         || (fx === "motionvectorramp" && MOTION_VECTOR_RAMP_DRAWN.some((perm) => MOTION_VECTOR_RAMP_DEFAULTS.every(([k, v]) => (opts[k] ?? v) === (perm[k] ?? v))));
       if (!drawn) { const k = fx === "motionvectorramp" || fx === "texturecolor" ? `area:${fx}:options` : `area:${fx}`; skipped[k] = (skipped[k] ?? 0) + 1; continue; }
@@ -750,6 +752,16 @@ function readShown(o, skipped) {
         params: effectParams(area.effect), textures: effectTextures(area.effect),
       };
     }
+    const sprites = meshAreas(o.mesh, {}, false, true).filter((a) => a.effect === "1layernoatlasv2");
+    if (sprites.length && o.mesh.geometryResPath && o.mesh.instanceGeometryResPath) {
+      return {
+        k: "particles", id: idOf(o), name: o.name ?? null, m: srt(o), ...parts(o),
+        geometry: String(o.mesh.geometryResPath).toLowerCase(), meshIndex: o.mesh.meshIndex ?? 0,
+        instanceSource: String(o.mesh.instanceGeometryResPath).toLowerCase(), instanceMeshIndex: o.mesh.instanceMeshIndex ?? 0,
+        minScreenSize: o.minScreenSize ?? 0, areas: sprites, systems: [], emitters: [], updated: [], meshSystem: -1,
+        modifiers: (o.transformModifiers ?? []).map((t) => t.type),
+      };
+    }
   }
   if (o.type === "EveChildParticleSystem") {
     const cpu = o.mesh?.type === "Tr2InstancedMesh" && o.mesh.geometryResPath ? readParticleSystemChild(o, skipped) : null;
@@ -879,6 +891,15 @@ function readShown(o, skipped) {
     const displayFilter = o.displayFilter ?? 5;
     if (!preserveDisplayFilters && !HIGH_QUALITY.has(displayFilter)) return null;
     const objects = (o.objects ?? []).map((c) => readNode(c, skipped)).filter(Boolean);
+    if (!preserveDisplayFilters && displayFilter !== 5) {
+      const filterSprites = (node) => {
+        if (node.instanceSource) {
+          node.staticShaderQualityMask = (node.staticShaderQualityMask ?? 0b111) & (SHADER_QUALITY_MASKS[displayFilter] ?? 0b111);
+        }
+        node.objects?.forEach(filterSprites);
+      };
+      objects.forEach(filterSprites);
+    }
     // its lights (in the container's space): point, spot and faction lights (readLight)
     const lights = [];
     for (const l of o.lights ?? []) {
@@ -1308,6 +1329,25 @@ export async function readTrafficInstances(rf, res) {
     }
   }
   return out;
+}
+
+/** Billboard position, size, rotation and RGBA from a fixed Granny instance stream. */
+export async function readSpriteInstances(rf, res, meshIndex) {
+  const { readGranny } = await import("./granny.mjs");
+  const g = await readGranny(rf.read(res), res);
+  const cols = g.root?.Meshes?.[meshIndex]?.PrimaryVertexData?.Vertices?.columns ?? {};
+  const names = ["Position", "TextureCoordinates0", "TextureCoordinates1", "TextureCoordinates2"];
+  const widths = [3, 1, 1, 4];
+  const count = (cols.Position?.data.length ?? 0) / 3;
+  const streams = names.map((name) => cols[name]);
+  if (!count || !streams.every((s, i) => s?.width === widths[i] && s.data.length === count * widths[i])) return [];
+  const rows = [];
+  for (let i = 0; i < count; i++) {
+    for (const s of streams) {
+      for (let j = 0; j < s.width; j++) rows.push(s.data[i * s.width + j]);
+    }
+  }
+  return rows;
 }
 
 /**

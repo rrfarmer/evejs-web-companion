@@ -573,7 +573,7 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
   m.onBeforeCompile = (shader, renderer) => {
     Object.assign(shader.uniforms, uniforms, heat ? heatUniforms : {}, patternUniforms);
     // inserted beside the chunk names first; the base then writes the chunks out and fixes the channels in them
-    shader.fragmentShader = `${glass ? `${CLOUD_FOG_SCATTERING_GLSL}\n` : ""}${dust ? "#define HULL_DUST\nuniform vec3 mtlDust[4]; uniform sampler2D dirtMap; uniform sampler2D dustNoise; uniform float dirtLevel;\n" : ""}uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform sampler2D sailsDetailMap; uniform vec3 sailsDetailData; uniform sampler2D paintMask; uniform vec4 generalData; uniform sampler2D detail1; uniform sampler2D detail2; uniform sampler2D detail3; uniform vec4 detailData[3]; uniform vec3 detailAlbedo; uniform vec3 detailFresnel; uniform vec4 detailSelector; uniform vec3 wreckColor; uniform vec4 wreckFactors; uniform float wreckTime; uniform sampler2D alphaThreshold; uniform vec4 envTiling; uniform vec4 envDetail; uniform vec4 envMtl1; uniform vec4 envMtl2; uniform vec3 envAlbedo1; uniform vec3 envAlbedo2; uniform vec3 envFresnel1; uniform vec3 envFresnel2; uniform sampler2D oilFilm;${wreck ? " varying float vWreckV;" : ""} ${patternFragment}${env ? " varying vec2 vEnvUv;" : ""}
+    shader.fragmentShader = `${glass ? `uniform vec2 softDepthSize;\n${CLOUD_FOG_SCATTERING_GLSL}\n` : ""}${dust ? "#define HULL_DUST\nuniform vec3 mtlDust[4]; uniform sampler2D dirtMap; uniform sampler2D dustNoise; uniform float dirtLevel;\n" : ""}uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform sampler2D sailsDetailMap; uniform vec3 sailsDetailData; uniform sampler2D paintMask; uniform vec4 generalData; uniform sampler2D detail1; uniform sampler2D detail2; uniform sampler2D detail3; uniform vec4 detailData[3]; uniform vec3 detailAlbedo; uniform vec3 detailFresnel; uniform vec4 detailSelector; uniform vec3 wreckColor; uniform vec4 wreckFactors; uniform float wreckTime; uniform sampler2D alphaThreshold; uniform vec4 envTiling; uniform vec4 envDetail; uniform vec4 envMtl1; uniform vec4 envMtl2; uniform vec3 envAlbedo1; uniform vec3 envAlbedo2; uniform vec3 envFresnel1; uniform vec3 envFresnel2; uniform sampler2D oilFilm;${wreck ? " varying float vWreckV;" : ""} ${patternFragment}${env ? " varying vec2 vEnvUv;" : ""}
 ${shader.fragmentShader}`
       .replace("#include <map_fragment>", `#include <map_fragment>
         float mtlSel = texture2D( materialMap, ${env ? "vEnvUv * envTiling.x" : "vMapUv"} ).r;
@@ -622,7 +622,7 @@ ${shader.fragmentShader}`
       .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
         roughnessFactor = clamp( 1.0 - mix( roughnessFactor * mtlGl, 0.4, bareD ), 0.0, 1.0 );`)
       .replace("#include <opaque_fragment>", glass ? `outgoingLight += glassTint * ( 1.0 - 0.75 * abs( dot( normal, normalize( vViewPosition ) ) ) );
-        vec4 glassFog = cloudFogScattering( 1.0 / gl_FragCoord.w );
+        vec4 glassFog = cloudFogScattering( 1.0 / gl_FragCoord.w, softDepthSize );
         outgoingLight = mix( outgoingLight, glassFog.rgb, glassFog.a );
         vec3 glassC = mix( outgoingLight * 12.92, 1.055 * pow( max( outgoingLight, 0.0 ), vec3( 1.0 / 2.4 ) ) - 0.055, step( vec3( 0.0031308 ), outgoingLight ) );
         outgoingLight = mix( glassC / ( 1.01 - glassP ), glassC, mix( mtlW.x, 1.0, glassFog.a ) );

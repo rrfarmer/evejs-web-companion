@@ -2601,10 +2601,12 @@ export class SpaceView {
     const simDt = dt * (this.options.flightSnapshot?.()?.timeDilation ?? 1);
     const environment = this.observatoryEnvironment.sample(ego ? snap?.entities ?? [] : [], origin, eye, simDt, rendering.postProcess, systemID);
     let scattering = false;
-    if (cloudVolumes.length && settings.shaderQuality > 1) this.scene.traverseVisible((object) => {
+    const wantsScattering = (m: THREE.Material) => m.visible && m.userData.cloudFogScattering &&
+      (settings.shaderQuality > 1 || m.userData.cloudFogScatteringLow);
+    if (cloudVolumes.length) this.scene.traverseVisible((object) => {
       if (scattering) return;
       const material = (object as THREE.Mesh).material;
-      scattering = Array.isArray(material) ? material.some((m) => m.userData.cloudFogScattering) : !!material?.userData.cloudFogScattering;
+      scattering = Array.isArray(material) ? material.some(wantsScattering) : !!material && wantsScattering(material);
     });
     const clouds = cloudVolumes.length
       ? { meshes: cloudVolumes.map((vortex) => vortex.cloudOpacityMesh(scattering)), quality: settings.volumetricQuality, scattering }
