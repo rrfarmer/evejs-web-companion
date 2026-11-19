@@ -65,6 +65,14 @@ float softSceneDepthAt(vec2 frag) {
 float softSceneDepth() { return softSceneDepthAt(gl_FragCoord.xy); }`;
 
 const opaque = (m: THREE.Material) => !m.transparent && m.depthWrite && m.depthTest && m.blending === THREE.NormalBlending && m.visible;
+const opaqueSurfaces = new WeakMap<THREE.Material, THREE.Material>();
+
+/** Keep a custom opaque surface's vertex transform and alpha test in the depth and normals passes. */
+export function setOpaqueSurfacePass(material: THREE.Material, surface: THREE.Material): void {
+  surface.allowOverride = false;
+  opaqueSurfaces.set(material, surface);
+  material.addEventListener("dispose", () => surface.dispose());
+}
 
 export class SoftDepthPass {
   private target: THREE.WebGLRenderTarget | null = null;
@@ -134,7 +142,7 @@ export class SoftDepthPass {
     accepts?: (mesh: THREE.Mesh) => boolean, normals = false,
   ): THREE.WebGLRenderTarget | null {
     const hidden: THREE.Object3D[] = [];
-    const sources = normals ? new Map<THREE.Mesh, THREE.Material | THREE.Material[]>() : undefined;
+    const sources = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
     let wanted = forceOpaque;
     scene.traverseVisible((o) => {
       const mat = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
@@ -142,7 +150,7 @@ export class SoftDepthPass {
       const mats = Array.isArray(mat) ? mat : [mat];
       if (mats.some((m) => m.userData.softDepth)) wanted = true;
       if (!(o as THREE.Mesh).isMesh || !mats.every(opaque) || (accepts && !accepts(o as THREE.Mesh))) hidden.push(o);
-      else sources?.set(o as THREE.Mesh, mat);
+      else if (normals || mats.some((m) => opaqueSurfaces.has(m))) sources.set(o as THREE.Mesh, mat);
     });
     if (!wanted) return null;
     if (!this.target || this.target.width !== width || this.target.height !== height) {
@@ -156,14 +164,15 @@ export class SoftDepthPass {
     scene.background = null;
     scene.overrideMaterial = normals ? null : this.blank;
     try {
-      for (const [mesh, material] of sources ?? []) {
-        mesh.material = Array.isArray(material) ? material.map((m) => this.normalsFor(m)) : this.normalsFor(material);
+      const surfaceFor = (m: THREE.Material) => opaqueSurfaces.get(m) ?? (normals ? this.normalsFor(m) : this.blank);
+      for (const [mesh, material] of sources) {
+        mesh.material = Array.isArray(material) ? material.map(surfaceFor) : surfaceFor(material);
       }
       renderer.setRenderTarget(this.target);
       renderer.clear(true, true, false);
       renderer.render(scene, camera);
     } finally {
-      for (const [mesh, material] of sources ?? []) mesh.material = material;
+      for (const [mesh, material] of sources) mesh.material = material;
       for (const o of hidden) o.visible = true;
       scene.background = background;
       scene.overrideMaterial = override;

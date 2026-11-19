@@ -10,7 +10,7 @@ import { CLOUD_FOG, CLOUD_FOG_GLSL, CLOUD_FOG_SCATTERING, CLOUD_FOG_SCATTERING_G
 import { gfx } from "../play/gfxSettings.ts";
 import { logDepth } from "./logDepth.ts";
 import { DISTORTION_LAYER } from "./distortion.ts";
-import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
+import { SOFT_DEPTH, SOFT_DEPTH_GLSL, setOpaqueSurfacePass } from "./softDepth.ts";
 import { sceneReflection } from "./celestialModel.ts";
 import { loadDds3D } from "./ddsTexture.ts";
 import { GpuEmitter, gpuSystemOf, type GpuEmitterData } from "./gpuParticles.ts";
@@ -262,6 +262,68 @@ function staticNoAtlasParticleMaterial(area: Area, textureOf: TextureOf): THREE.
     material.visible = true;
   });
   return logDepth(material);
+}
+
+/** Opaque wreck debris. The diffuse alpha is cut out identically in the color and depth passes. */
+function staticDecalParticleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial {
+  const p = area.params;
+  const uniforms = {
+    spriteFactors: { value: v4(p.SpriteFactors, [0, 0, 0, 1]) },
+    spriteColor: { value: v4(p.SpriteColor, [1, 1, 1, 1]) },
+    layer1Mod: { value: v4(p.Layer1TexCoordModifier, [1, 1, 0, 0]) },
+    useWorldScale: { value: f1(p.UseWorldScale, 0) },
+    layer1: { value: null as THREE.Texture | null },
+    glow: { value: null as THREE.Texture | null },
+    hasGlow: { value: false },
+  };
+  const vertexShader = staticParticleVS(`uniform vec4 layer1Mod;
+    attribute float iT11; attribute vec4 iT12;
+    varying vec4 vTint; varying vec3 vGlow; varying vec2 vUv; varying vec3 vAtlas;`, `
+      vTint = iT10;
+      vGlow = iT12.rgb;
+      vUv = (1.0 - uv) * layer1Mod.xy + layer1Mod.zw;
+      float cell = trunc(iT11) / spriteFactors.w;
+      float row = trunc(cell);
+      vAtlas = vec3(cell - row, row / spriteFactors.w, 1.0 / spriteFactors.w);`);
+  const fragment = `uniform sampler2D layer1; uniform sampler2D glow;
+    uniform bool hasGlow; uniform vec4 spriteColor;
+    varying vec4 vTint; varying vec3 vGlow; varying vec2 vUv; varying vec3 vAtlas;
+    void main() {
+      vec2 cellUv = fract(vUv) * vAtlas.z + vAtlas.xy;
+      vec2 sampleUv = vUv * vAtlas.z + vAtlas.xy;
+      vec2 dx = dFdx(sampleUv), dy = dFdy(sampleUv);
+      vec4 tint = textureGrad(layer1, cellUv, dx, dy) * (vTint * spriteColor);
+      if (tint.a < 0.5) discard;`;
+  const material = logDepth(new THREE.ShaderMaterial({
+    name: "1layerdecalv2", uniforms, vertexShader, visible: false, side: THREE.DoubleSide,
+    fragmentShader: `${fragment}
+      float glowAmount = hasGlow ? textureGrad(glow, cellUv, dx, dy).r : 0.0;
+      gl_FragColor = vec4(tint.rgb + glowAmount * vGlow, tint.a);
+    }`,
+  }));
+  setOpaqueSurfacePass(material, logDepth(new THREE.ShaderMaterial({
+    name: "1layerdecalv2-depth", uniforms, vertexShader, side: material.side,
+    fragmentShader: `${fragment}
+      gl_FragColor = vec4(0.5, 0.5, 1.0, 1.0);
+    }`,
+  })));
+  const load = async (res: string | null | undefined) => {
+    const texture = await textureOf(res);
+    if (texture) {
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.needsUpdate = true;
+    }
+    return texture;
+  };
+  void load(area.textures.TexMapLayer1).then((texture) => {
+    uniforms.layer1.value = texture;
+    material.visible = !!texture;
+  });
+  void load(area.textures.GlowMapLayer1).then((texture) => {
+    uniforms.glow.value = texture;
+    uniforms.hasGlow.value = !!texture;
+  });
+  return material;
 }
 
 /**
@@ -934,6 +996,7 @@ function particleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMateria
   const path = (area as { path?: string }).path ?? "";
   if (area.kind === "distortion") return area.effect === "1layerdyndistortionv2" ? dynamicDistortionMaterial(area, textureOf) : null;
   if (area.effect === "1layernoatlasv2") return staticNoAtlasParticleMaterial(area, textureOf);
+  if (area.effect === "1layerdecalv2") return staticDecalParticleMaterial(area, textureOf);
   if (area.effect === "1layerdynv2") {
     const material = oneLayerDynMaterial(area.params, null);
     void textureOf(area.textures.TexMapLayer1).then((t) => {
@@ -967,6 +1030,8 @@ export interface SofChildParticles {
   areas: { kind: string; effect: string; path?: string; paramIds?: Record<string, number>; options?: Record<string, string>; params: Record<string, unknown>; textures: Record<string, string | null> }[];
   /** Fixed instance rows containing xyz, size, rotation, and RGBA. */
   staticInstances?: number[];
+  /** Debris appends the atlas cell and glow vector to each row. */
+  staticInstanceStride?: number;
   staticShaderQualityMask?: number;
   meshSystem: number;
   systems: ParticleSystemData[];
@@ -1043,13 +1108,17 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
     geometry.index = quad.index;
     geometry.setAttribute("position", quad.getAttribute("position"));
     geometry.setAttribute("uv", quad.getAttribute("uv"));
-    const stride = 9;
+    const stride = node.staticInstanceStride ?? 9;
     const instances = new THREE.InstancedInterleavedBuffer(new Float32Array(node.staticInstances), stride);
     geometry.instanceCount = instances.count;
     geometry.setAttribute("iPos", new THREE.InterleavedBufferAttribute(instances, 3, 0));
     geometry.setAttribute("iT8", new THREE.InterleavedBufferAttribute(instances, 1, 3));
     geometry.setAttribute("iT9", new THREE.InterleavedBufferAttribute(instances, 1, 4));
     geometry.setAttribute("iT10", new THREE.InterleavedBufferAttribute(instances, 4, 5));
+    if (stride === 14) {
+      geometry.setAttribute("iT11", new THREE.InterleavedBufferAttribute(instances, 1, 9));
+      geometry.setAttribute("iT12", new THREE.InterleavedBufferAttribute(instances, 4, 10));
+    }
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `child-static-particles:${node.name ?? ""}`;
     mesh.renderOrder = 3;

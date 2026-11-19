@@ -39,6 +39,7 @@ import { COLOR_TYPES, colorOf } from "./sof.mjs";
 
 const HIGH_QUALITY = new Set([3, 4, 5]);
 const SHADER_QUALITY_MASKS = [0b001, 0b011, 0b010, 0b110, 0b100, 0b111];
+const STATIC_SPRITE_EFFECTS = new Set(["1layernoatlasv2", "1layerdecalv2"]);
 // motionvectorramp.fx is drawn in the permutations the client's child meshes use (its file's permutations:
 // Tr2EffectRes.cpp's reader): the default, and record 19 (no interpolation, one diffuse map, the mask)
 const MOTION_VECTOR_RAMP_DEFAULTS = [["INTERPOLATION", "INTERPOLATION_ENABLED"], ["DIFFUSE_MAP_COUNT", "ZERO"], ["COLORMAP", "COLORMAP_RAMP"], ["MASK", "MASK_DISABLED"], ["TEXTURE_TRANSFORM", "TRANSFORM_DISABLED"]];
@@ -451,7 +452,7 @@ function meshAreas(mesh, skipped, smartBeam = false, staticSprites = false) {
       // a distortion area draws into the distortion map (ubershaderdistortion.fx, the one effect such areas use)
       const drawn = kind === "distortion" ? fx === "ubershaderdistortion" : ["ubershader", "fx3dv5", "ubershadertwosided", "ubershadercube", "flare", "twocolorflare", "quadv5", "quadglassv5", "quaddetailv5", "fxv5", "wormholefx", "sunwhisps", "childhazespherical"].includes(fx)
         || fx === "texturecolor"
-        || (staticSprites && fx === "1layernoatlasv2")
+        || (staticSprites && STATIC_SPRITE_EFFECTS.has(fx))
         || (smartBeam && kind === "additive" && fx === "ubershaderinstanced")
         || (fx === "motionvectorramp" && MOTION_VECTOR_RAMP_DRAWN.some((perm) => MOTION_VECTOR_RAMP_DEFAULTS.every(([k, v]) => (opts[k] ?? v) === (perm[k] ?? v))));
       if (!drawn) { const k = fx === "motionvectorramp" || fx === "texturecolor" ? `area:${fx}:options` : `area:${fx}`; skipped[k] = (skipped[k] ?? 0) + 1; continue; }
@@ -752,7 +753,7 @@ function readShown(o, skipped) {
         params: effectParams(area.effect), textures: effectTextures(area.effect),
       };
     }
-    const sprites = meshAreas(o.mesh, {}, false, true).filter((a) => a.effect === "1layernoatlasv2");
+    const sprites = meshAreas(o.mesh, {}, false, true).filter((a) => STATIC_SPRITE_EFFECTS.has(a.effect));
     if (sprites.length && o.mesh.geometryResPath && o.mesh.instanceGeometryResPath) {
       return {
         k: "particles", id: idOf(o), name: o.name ?? null, m: srt(o), ...parts(o),
@@ -1331,13 +1332,17 @@ export async function readTrafficInstances(rf, res) {
   return out;
 }
 
-/** Billboard position, size, rotation and RGBA from a fixed Granny instance stream. */
-export async function readSpriteInstances(rf, res, meshIndex) {
+/** Billboard placement and RGBA from a fixed Granny instance stream, with the atlas and glow fields for debris. */
+export async function readSpriteInstances(rf, res, meshIndex, decal) {
   const { readGranny } = await import("./granny.mjs");
   const g = await readGranny(rf.read(res), res);
   const cols = g.root?.Meshes?.[meshIndex]?.PrimaryVertexData?.Vertices?.columns ?? {};
   const names = ["Position", "TextureCoordinates0", "TextureCoordinates1", "TextureCoordinates2"];
   const widths = [3, 1, 1, 4];
+  if (decal) {
+    names.push("TextureCoordinates3", "TextureCoordinates4");
+    widths.push(1, 4);
+  }
   const count = (cols.Position?.data.length ?? 0) / 3;
   const streams = names.map((name) => cols[name]);
   if (!count || !streams.every((s, i) => s?.width === widths[i] && s.data.length === count * widths[i])) return [];

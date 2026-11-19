@@ -151,12 +151,14 @@ async function copyChildGraphAssets(rf, roots, outRoot) {
   }
   for (const n of meshNodes) {
     if (n.instanceSource) {
+      const decal = n.areas.some((area) => area.effect === "1layerdecalv2");
       n.staticInstances = rf.has(n.instanceSource)
-        ? await readSpriteInstances(rf, n.instanceSource, n.instanceMeshIndex).catch((e) => {
+        ? await readSpriteInstances(rf, n.instanceSource, n.instanceMeshIndex, decal).catch((e) => {
           console.warn(`child sprite instances ${n.instanceSource}: ${e.message}`);
           return [];
         })
         : [];
+      if (decal) n.staticInstanceStride = 14;
       delete n.instanceSource;
       delete n.instanceMeshIndex;
     }
