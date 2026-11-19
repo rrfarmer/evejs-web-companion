@@ -108,6 +108,14 @@ function readCurveSet(cs) {
   const bindings = [];
   for (const b of cs.bindings ?? []) {
     const src = b?.sourceObject, dst = b?.destinationObject;
+    if (src?.type === "Tr2ControllerFloatVariable" && b.sourceAttribute === "value" && dst) {
+      bindings.push({
+        id: idOf(b), source: null, sourceCurve: null, sourceVariable: idOf(src),
+        sourceAttribute: b.sourceAttribute, destination: idOf(dst), destinationType: dst.type ?? null,
+        destinationAttribute: b.destinationAttribute ?? "", scale: b.scale ?? 1, offset: b.offset ?? [0, 0, 0, 0],
+      });
+      continue;
+    }
     // a source that is a container's fx attributes (EveCameraFxAttributes, EveSpaceObjectFxAttributes: values the
     // engine gathers each update - distance to the camera, look angle, ...): named by its id and type
     if (src && dst && /^Eve(Camera|SpaceObject)FxAttributes$/.test(src.type ?? "")) {
@@ -681,7 +689,7 @@ function readSmartLightSet(o, skipped) {
       const profile = group.lightProfilePath?.trim().toLowerCase();
       const spot = group.type === "EveSmartLightSpotLight";
       lights.push({
-        position, color, brightness, radius: group.radius ?? 0, innerRadius: group.innerRadius ?? 0, ...effects,
+        id: idOf(group), position, color, brightness, radius: group.radius ?? 0, innerRadius: group.innerRadius ?? 0, ...effects,
         ...(spot || profile ? { rotation: group.staticOffsetRotation ?? [0, 0, 0, 1] } : {}),
         ...(spot ? { innerAngle: group.innerAngle ?? 0, outerAngle: group.outerAngle ?? 0 } : {}),
         ...(profile ? { profile } : {}),

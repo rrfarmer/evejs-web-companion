@@ -1588,17 +1588,17 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
     let played = playedOf.get(object);
     if (!played) {
       const objects = new Map<number, THREE.Object3D[]>();
-      group.traverse((o) => { const id = o.userData.childId as number | undefined; if (id !== undefined) objects.set(id, [...(objects.get(id) ?? []), o]); });
-      // this clone's lights (its own records: a binding into one changes what dynamicLights.ts gathers), each under its id
-      for (const l of (group.userData.lights ?? []) as ChildLight[]) {
-        if (l.id === undefined) continue;
-        const holder = new THREE.Object3D();
-        holder.userData.lightRecord = l;
-        objects.set(l.id, [...(objects.get(l.id) ?? []), holder]);
-      }
-      // the containers' fx attributes: a holder each, its values (userData.fx) gathered below, found by the attribute's id
       const fx: { owner: THREE.Object3D; holder: THREE.Object3D; type: string }[] = [];
       group.traverse((o) => {
+        const id = o.userData.childId as number | undefined;
+        if (id !== undefined) objects.set(id, [...(objects.get(id) ?? []), o]);
+        // Smart lights have one record per locator, owned by a nested set. Bindings update each placed copy.
+        if (o === group || o.userData.smartLightSet) for (const light of (o.userData.lights ?? []) as ChildLight[]) {
+          if (light.id === undefined) continue;
+          const holder = new THREE.Object3D();
+          holder.userData.lightRecord = light;
+          objects.set(light.id, [...(objects.get(light.id) ?? []), holder]);
+        }
         for (const f of (o.userData.fxAttributes ?? []) as { id: number; type: string }[]) {
           const holder = new THREE.Object3D();
           objects.set(f.id, [holder]);
@@ -1732,10 +1732,11 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
       const owners: THREE.Object3D[] = [];
       group.traverse((o) => { if (typeof o.userData.controllerOwner === "number") owners.push(o); });
       for (const owner of owners) for (const c of controllerData[owner.userData.controllerOwner as number] ?? []) runs.push(new ControllerRun(c, owner, host, (owner.userData.controllerOwnerId as number | null) ?? null));
-      // their variables a curve set's binding may set: a setter each under the variable's id, for the animator
+      // The animator reads and writes each controller variable by its authored object ID.
       const played = playedOf.get(object);
       if (played) for (const run of runs) for (const v of run.variableIds) {
         const sink = new THREE.Object3D();
+        sink.userData.getVariable = () => run.getVariable(v.name);
         sink.userData.setVariable = (value: number) => run.setVariable(v.name, value);
         played.objects.set(v.id, [...(played.objects.get(v.id) ?? []), sink]);
       }
@@ -1934,6 +1935,7 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
       const group = new THREE.Group();
       group.name = `smart-lights:${node.name ?? ""}`;
       group.userData.childId = node.id;
+      group.userData.smartLightSet = true;
       group.visible = node.display !== false;
       animator.object(node.id, ancestors, node.display !== false);
       place(group, local, undefined);

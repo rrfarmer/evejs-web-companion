@@ -36,6 +36,7 @@ export interface SofCurveSet {
     sourceCurve: Curve | null;
     /** A container's fx attributes as the source (its id): the ticker's values for them, by attribute name. */
     sourceFx?: number;
+    sourceVariable?: number;
     /** The container's inherited properties as the source (EveChildInheritProperties): the faction's colour, fixed. */
     sourceConst?: number[];
     sourceAttribute: string;
@@ -335,7 +336,9 @@ export class ChildAnimator {
         // reads its locators and plays again - this clone's run, put on its holder)
         // a child's light (Tr2PointLight / Tr2SpotLight / Tr2FactionLight: this clone's record, dynamicLights.ts): its
         // brightness, colour (r, g, b, a) or radius (x the scale it is drawn at), as Tr2Light's attributes take them
-        const lightRecords = /^Tr2(Point|Spot|Faction)Light$/.test(b.destinationType ?? "") && /^(brightness|color|radius)$/.test(attr0 ?? "")
+        const ordinaryLight = /^Tr2(Point|Spot|Faction)Light$/.test(b.destinationType ?? "") && /^(brightness|color|radius)$/.test(attr0 ?? "");
+        const smartLight = /^EveSmartLight(Point|Spot)Light$/.test(b.destinationType ?? "") && attr0 === "brightness";
+        const lightRecords = ordinaryLight || smartLight
           ? (objects.get(b.destination) ?? []).map((o) => o.userData.lightRecord as { brightness: number; color: number[]; radius: number; scale?: number } | undefined).filter((x) => !!x) : [];
         // (its holder is also a display target: the trigger is looked at first)
         const triggers = b.destinationType === "EveChildEffectPropagator" && attr0 === "trigger"
@@ -348,7 +351,12 @@ export class ChildAnimator {
         let src: Value;
         const srcCurve = b.source !== null ? set.curves[b.source] : b.sourceCurve;
         if (b.sourceConst) src = b.sourceConst;
-        else if (b.sourceFx !== undefined) {
+        else if (b.sourceVariable !== undefined) {
+          const source = objects.get(b.sourceVariable)?.find((o) => typeof o.userData.getVariable === "function");
+          const value = (source?.userData.getVariable as (() => number | undefined) | undefined)?.();
+          if (value === undefined) continue;
+          src = value;
+        } else if (b.sourceFx !== undefined) {
           const fx = objects.get(b.sourceFx)?.[0]?.userData.fx as Record<string, Value> | undefined;
           const v = fx?.[b.sourceAttribute.split(".")[0] ?? ""];
           if (v === undefined) continue;

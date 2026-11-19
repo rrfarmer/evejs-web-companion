@@ -415,6 +415,10 @@ export class ControllerRun {
   }
 
   /** A variable set from outside (a curve set's binding into a Tr2ControllerFloatVariable): changed, it is dirty. */
+  getVariable(name: string): number | undefined {
+    return this.vars.get(name);
+  }
+
   setVariable(name: string, value: number): void {
     if (this.vars.has(name) && this.vars.get(name) !== value) { this.vars.set(name, value); this.dirty = true; }
   }
