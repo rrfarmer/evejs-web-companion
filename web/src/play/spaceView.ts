@@ -26,6 +26,7 @@ import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three
 import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { MiningSurveyWave, miningWaveSounds, miningWaveTargets } from "./miningSurveyWave.ts";
+import { miningBracketReadout, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
 import { AsteroidModels } from "../three/asteroidModel.ts";
 import type { ApiOptions } from "../app/api.ts";
 import { DRIFTER_COLLECTION, DrifterCollectionExplosions } from "./drifterCollectionExplosions.ts";
@@ -108,6 +109,7 @@ interface Snapshot {
     shieldRatio?: number | null; armorRatio?: number | null; hullRatio?: number | null; capacitorRatio?: number | null;
   }) | null;
 }
+type MiningOverlayState = Pick<MiningState, "survey" | "surveyProgress" | "surveyAtMs" | "holds">;
 
 /**
  * `onNeocom`: what a Neocom button opens. `rack`: the module rack's data and use. `windowLayer`: where the view's own
@@ -139,7 +141,9 @@ export interface SpaceViewOptions {
     scanResolution(shipID: number): number | null;
     typeRadii(typeID: number): Promise<TargetLockRadii>;
   };
-  miningSurvey?: () => Pick<MiningState, "survey" | "surveyProgress">;
+  miningSurvey?: () => MiningOverlayState;
+  miningScanFacts?: (typeID: number) => Promise<ReadonlyMap<number, MiningScanTypeFacts>>;
+  onMiningGridExit?: () => void;
   indicationWords?: () => Readonly<Record<string, string | null | undefined>>;
   windowLayer?: { element: HTMLElement; raise(el: HTMLElement): void };
   showInfo?: (itemID: number, typeID: number | null) => void;
@@ -313,6 +317,10 @@ export class SpaceView {
   /** The ShipEffects playing (shipFx.ts): a web's vortex on its target and the like. */
   readonly shipFx = new ShipFx();
   private readonly miningSurvey = new MiningSurveyWave();
+  private readonly miningHoldBracket = document.createElement("button");
+  private readonly miningVolumes = new Map<number, number | null>();
+  private lastMiningShip: number | null = null;
+  private miningInWarp = false;
   private readonly asteroidModels = new AsteroidModels();
   private miningSurveyUsesSimClock = false;
   private readonly collectionExplosions = new DrifterCollectionExplosions(this.scene);
@@ -626,6 +634,15 @@ export class SpaceView {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.root.appendChild(this.renderer.domElement);
     this.brackets.className = "brackets";
+    this.miningHoldBracket.type = "button";
+    this.miningHoldBracket.className = "mining-hold-bracket";
+    this.miningHoldBracket.hidden = true;
+    this.miningHoldBracket.addEventListener("pointerdown", event => event.stopPropagation());
+    this.miningHoldBracket.addEventListener("click", event => {
+      event.stopPropagation();
+      this.options.onNeocom?.("inventory");
+    });
+    this.brackets.appendChild(this.miningHoldBracket);
     this.root.appendChild(this.brackets);
     this.targetingCursor.className = "targeting-cursor";
     this.targetingCursor.hidden = true;
@@ -1102,6 +1119,64 @@ export class SpaceView {
     const simNow = this.live.effectSimNow();
     this.miningSurveyUsesSimClock = simNow !== undefined;
     await this.miningSurvey.start(ship.itemID, ship.position, simNow ?? performance.now(), targets, sounds, peakValue);
+  }
+
+  clearMiningSurvey(): void {
+    this.miningSurvey.clear();
+    this.targetBar.clearMiningDepartures();
+  }
+
+  private updateMiningBracket(el: HTMLElement, entity: Entity, survey: MiningOverlayState | undefined): void {
+    const row = survey?.survey.find(scan => scan.itemID === entity.itemID);
+    const show = this.selected === entity.itemID && (entity.categoryID === 25 || entity.groupID === 711 || !!row);
+    el.classList.toggle("mining-selected", show);
+    if (!show) return;
+    const typeID = row?.yieldTypeID ?? entity.typeID;
+    let lines: string[] = [];
+    if (row && typeID !== null) {
+      if (row.remainingQuantity && !this.miningVolumes.has(typeID) && this.options.miningScanFacts) {
+        this.miningVolumes.set(typeID, null);
+        void this.options.miningScanFacts(typeID).then(facts => this.miningVolumes.set(typeID, facts.get(typeID)?.unitVolume ?? null))
+          .catch(() => {});
+      }
+      const value = this.options.flightSnapshot?.()?.entities.find(item => item.itemID === entity.itemID)?.oreValuePerM3 ?? null;
+      lines = miningBracketReadout(row, this.locked.has(entity.itemID), value, this.miningVolumes.get(typeID) ?? null);
+      const hit = survey?.surveyProgress.get(entity.itemID)?.extraction;
+      if (hit && hit.criticalQuantity > 0 && Date.now() - hit.atMs < 2600) {
+        lines.push(`Critical yield +${hit.criticalQuantity.toLocaleString()}`);
+      }
+    }
+    let details = el.querySelector<HTMLElement>(".mining-details");
+    if (!details) {
+      details = document.createElement("div");
+      details.className = "mining-details";
+      el.appendChild(details);
+    }
+    const text = lines.join("\n");
+    if (details.textContent !== text) details.textContent = text;
+    details.hidden = !lines.length;
+  }
+
+  private updateMiningHold(survey: MiningOverlayState | undefined, ego: Entity | null,
+    width: number, height: number): void {
+    const badge = this.miningHoldBracket;
+    const holds = survey?.holds;
+    const hold = holds?.find(hold => hold.present && hold.key === "ore") ?? holds?.find(hold => hold.present && hold.key === "cargo");
+    const capacity = hold?.capacity;
+    if (!ego || survey?.surveyAtMs == null || !hold || capacity?.used == null || !capacity.capacity || ego.mode === "WARP") {
+      badge.hidden = true;
+      return;
+    }
+    const { minDistance, maxDistance } = this.controls;
+    const zoom = Math.pow(THREE.MathUtils.clamp((this.controls.getDistance() - minDistance) / Math.max(1, maxDistance - minDistance), 0, 1), 1 / 9);
+    const opacity = Math.max(0, 1 - 30 * Math.max(0, zoom - 0.65) ** 2);
+    const p = new THREE.Vector3().project(this.camera);
+    badge.hidden = opacity === 0 || p.z >= 1 || Math.abs(p.x) > 1 || Math.abs(p.y) > 1;
+    if (badge.hidden) return;
+    const text = `${hold.label} ${Math.round(100 * capacity.used / capacity.capacity)}%`;
+    if (badge.textContent !== text) badge.textContent = text;
+    badge.style.opacity = String(opacity);
+    badge.style.transform = `translate(${(p.x + 1) * width / 2 + 36}px, ${(1 - p.y) * height / 2 + 30}px)`;
   }
 
   trackObjectiveTarget(itemID: number): void {
@@ -2336,14 +2411,21 @@ export class SpaceView {
     const ego = snap?.ship ?? null;
     const now = performance.now(), dt = Math.min(0.1, (now - this.lastFrameAt) / 1000);
     this.lastFrameAt = now;
+    const inMiningWarp = ego?.mode === "WARP";
+    const miningShipChanged = this.lastMiningShip !== null && ego != null && this.lastMiningShip !== ego.itemID;
+    if (ego) this.lastMiningShip = ego.itemID;
+    const gridReset = this.live.resets !== this.seenResets;
+    if (gridReset || miningShipChanged || (inMiningWarp && !this.miningInWarp)) {
+      this.clearMiningSurvey();
+      this.options.onMiningGridExit?.();
+    }
+    this.miningInWarp = inMiningWarp;
     // A new park in another system marks the arrival. Observe it before using
     // a new ego position to rebase the old camera.
     if (this.live.resets !== this.seenResets) {
       this.seenResets = this.live.resets;
-      this.targetBar.clearMiningDepartures();
       this.endExplosionCamera();
       this.collectionExplosions.clear();
-      this.miningSurvey.clear();
       this.clearWormholeCollapses();
       this.polarization.clear();
       if (this.gateJump && systemID !== null && this.seenSystem !== null && systemID !== this.seenSystem) {
@@ -2361,6 +2443,7 @@ export class SpaceView {
     const seen = new Set<number>();
     const tmp = new THREE.Vector3();
     const w = innerWidth, h = innerHeight;
+    const survey = this.options.miningSurvey?.();
     let sun: { position: THREE.Vector3; radius: number } | null = null;
     const settings = gfx();
     const rendering = spaceRendering(settings);
@@ -2472,11 +2555,13 @@ export class SpaceView {
       el.style.display = onScreen ? "" : "none";
       if (onScreen) {
         el.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px)`;
+        if (this.selected === e.itemID || el.classList.contains("mining-selected")) this.updateMiningBracket(el, e, survey);
         if (this.frameCount % 10 === 0 || highlighted || el.classList.contains("selected")) {
           el.querySelector<HTMLElement>(".label")!.textContent = `${this.nameOf(e)} - ${distanceWords(this.distanceTo(e))}`;
         }
       }
     }
+    this.updateMiningHold(survey, ego, w, h);
     for (const [id, el] of this.bracketEls) if (!seen.has(id)) { el.remove(); this.bracketEls.delete(id); }
     for (const id of this.polarization.keys()) if (!seen.has(id)) this.polarization.delete(id);
     for (const [id, panel] of this.jumpBridgePanels) {

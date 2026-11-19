@@ -2489,6 +2489,13 @@ export function createClientStore(): ClientStore {
       case "mining/survey-error":
         mining.set({ ...mining.get(), surveyError: event.message });
         break;
+      case "mining/survey-cleared": {
+        const scan = mining.get();
+        if (scan.surveyAtMs !== null || scan.surveyError !== null) {
+          mining.set({ ...scan, survey: INITIAL_MINING.survey, surveyProgress: INITIAL_MINING.surveyProgress, surveyAtMs: null, surveyError: null });
+        }
+        break;
+      }
       case "mining/quotes":
         mining.set({
           ...mining.get(),

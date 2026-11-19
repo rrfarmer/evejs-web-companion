@@ -182,6 +182,26 @@ test("runSurveyScan lands what the scanner saw, with its zeroes intact", async (
   assert.ok((store.mining.get().surveyAtMs ?? 0) > 0, "the scan is timestamped");
 });
 
+test("disabling the overlay clears scan data and discards a survey response already in flight", async () => {
+  const store = createClientStore();
+  store.apply({ type: "mining/survey", survey: [{ itemID: 11, yieldTypeID: 1230, remainingQuantity: 90 }], atMs: 1 });
+  let release!: () => void;
+  const delayed = new Promise<void>(resolve => { release = resolve; });
+  const { fetch } = makeFakeFetch(() => ({
+    status: 200, body: { ok: true, results: [[11, 1230, 80]], notifications: [] },
+  }));
+  const flow = createAppFlow(store, { fetch: async (...args) => { await delayed; return fetch(...args); } });
+  const pending = flow.runSurveyScan();
+  flow.clearSurveyScan();
+  release();
+  assert.equal(await pending, null);
+  assert.equal(store.mining.get().surveyAtMs, null);
+  assert.deepEqual(store.mining.get().survey, []);
+  assert.equal(store.mining.get().surveyProgress.size, 0);
+  await flow.runSurveyScan();
+  assert.equal(store.mining.get().survey[0]?.remainingQuantity, 80);
+});
+
 test("runSurveyScan from a ship the BFF asked nothing for lands no scan, and says why", async () => {
   const store = createClientStore();
   const { fetch } = makeFakeFetch(() => ({

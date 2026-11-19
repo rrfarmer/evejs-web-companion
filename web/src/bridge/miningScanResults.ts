@@ -53,6 +53,28 @@ export interface MiningScanTypeFacts {
   readonly unitPrice: number | null;
 }
 
+const units = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+const isk = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+
+// A selected harvestable shows estimated value after either scan. A lock gives the exact quantity.
+export function miningBracketReadout(
+  scan: SurveyResult,
+  locked: boolean,
+  pricePerM3: number | null,
+  unitVolume: number | null,
+): string[] {
+  const details = [pricePerM3 !== null && pricePerM3 > 0 ? `Value ${isk.format(pricePerM3)} ISK/m³` : "Value unknown"];
+  const quantity = scan.remainingQuantity;
+  if (quantity === null || quantity <= 0) return details;
+  if (pricePerM3 !== null && pricePerM3 > 0 && unitVolume !== null && unitVolume > 0) {
+    details.push(`Total value ${units.format(pricePerM3 * unitVolume * quantity)} ISK`);
+  }
+  const step = quantity < 1_000 ? 100 : 1_000;
+  const amount = locked ? units.format(quantity) : `≈ ${units.format(Math.round(quantity / step) * step)}`;
+  details.push(`Quantity ${amount} units`);
+  return details;
+}
+
 export function miningScanRows(
   survey: readonly SurveyResult[], snapshot: SpaceSnapshot | null,
   facts: ReadonlyMap<number, MiningScanTypeFacts>,

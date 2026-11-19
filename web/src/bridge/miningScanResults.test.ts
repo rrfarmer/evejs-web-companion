@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { basicMiningScan, miningScanInWarp, miningScanRows } from "./miningScanResults.ts";
+import { basicMiningScan, miningBracketReadout, miningScanInWarp, miningScanRows } from "./miningScanResults.ts";
+
+test("selected asteroid labels distinguish basic, estimated, locked and depleted quantities", () => {
+  const rock = { itemID: 11, yieldTypeID: 1230, remainingQuantity: 848 };
+  assert.deepEqual(miningBracketReadout({ ...rock, remainingQuantity: null }, false, 5, 1), ["Value 5 ISK/m³"]);
+  assert.match(miningBracketReadout(rock, false, 5, 1).at(-1) ?? "", /^Quantity ≈ 800 units$/);
+  assert.match(miningBracketReadout(rock, true, 5, 1).at(-1) ?? "", /^Quantity 848 units$/);
+  assert.deepEqual(miningBracketReadout({ ...rock, remainingQuantity: 0 }, true, null, 1), ["Value unknown"]);
+});
 import type { SpaceEntity, SpaceShipStatus, SpaceSnapshot } from "../store/types.ts";
 
 const position = (x: number) => ({ x, y: 0, z: 0 });

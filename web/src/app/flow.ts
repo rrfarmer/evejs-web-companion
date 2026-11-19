@@ -4179,6 +4179,7 @@ export interface AppFlow {
   loadMiningWindow(): Promise<void>;
   /** R23 — run the survey scanner; the panel merges the results into the overview. */
   runSurveyScan(): Promise<readonly SurveyResult[] | null>;
+  clearSurveyScan(): void;
   miningScanFacts(typeIDs: readonly number[]): Promise<ReadonlyMap<number, MiningScanTypeFacts>>;
   /** R23 — ask the station refinery what these stacks yield, and its ISK tax. */
   loadReprocessingQuote(itemIDs: readonly number[]): Promise<void>;
@@ -26011,6 +26012,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   let manualSurveyPending = false;
+  let surveyGeneration = 0;
+
+  function clearSurveyScan(): void {
+    surveyGeneration++;
+    store.apply({ type: "mining/survey-cleared" });
+  }
 
   /** Run the manual scan. A basic scan uses the local grid; the upgrade asks the server for quantities. */
   async function runSurveyScan(): Promise<readonly SurveyResult[] | null> {
@@ -26021,8 +26028,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return null;
     }
     manualSurveyPending = true;
+    const generation = surveyGeneration;
     try {
       const result = await api.runSurveyScan(callOptions);
+      if (generation !== surveyGeneration) return null;
       const current = store.space.get().snapshot;
       if (before && (!current?.inSpace || current.shipID !== before.shipID ||
           current.solarSystemID !== before.solarSystemID || miningScanInWarp(current))) return null;
@@ -26048,6 +26057,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         store.apply({ type: "character/offline" });
         throw error;
       }
+      if (generation !== surveyGeneration) return null;
       store.apply({
         type: "mining/survey-error",
         message: `The survey scan failed: ${flightRefusalWords(error)}`,
@@ -36491,6 +36501,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     scoopDrones,
     runGmCommand,
     runSurveyScan,
+    clearSurveyScan,
     miningScanFacts,
     loadReprocessingQuote,
     unloadMiningHolds,

@@ -74,6 +74,14 @@ button { font: inherit; color: inherit; }
   text-shadow: 0 0 3px #000, 0 0 2px #000; display: none; }
 .bracket:hover .label, .bracket.selected .label, .bracket.objective-highlight .label { display: block; }
 .bracket.selected .glyph, .bracket.objective-highlight .glyph { filter: drop-shadow(0 0 3px #fff); }
+.bracket.mining-selected { z-index: 2; }
+.mining-details { display: none; pointer-events: none; position: absolute; top: 18px; left: 19px;
+  background: #141d24ed; border-left: 2px solid #90bbab; padding: 4px 7px;
+  white-space: pre; font-size: 11px; line-height: 1.45; color: #e2eeee; }
+.bracket.mining-selected .mining-details:not([hidden]) { display: block; }
+.mining-hold-bracket { position: absolute; left: 0; top: 0; pointer-events: auto;
+  border: 1px solid #71978d; border-radius: 4px; background: #141d24e8; color: #e2eeee; padding: 3px 7px;
+  white-space: nowrap; cursor: pointer; font: inherit; font-size: 11px; }
 .bracket.polarized-wormhole::before {
   content: ""; position: absolute; inset: -8px; pointer-events: none; border-radius: 50%;
   background: conic-gradient(#ff8000 var(--polarization-sweep), rgba(255, 128, 0, .25) 0turn);

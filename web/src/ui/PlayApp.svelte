@@ -80,6 +80,7 @@
   import { LivePark } from "../three/livePark.ts";
   import { SpaceView } from "../play/spaceView.ts";
   import type { FlightMiningSurvey } from "../play/miningSurveyWave.ts";
+  import MiningOverlayControl from "./MiningOverlayControl.svelte";
   import { OVERVIEW_WORDS, typeNames as typeData } from "../play/overview.ts";
   import type { OverviewRelationships } from "../play/overviewFilters.ts";
   import { authoritativeFleetMemberCharacterIDs } from "../bridge/fleetCenter.ts";
@@ -921,6 +922,7 @@
       try {
         const results = await pilot.flow.runSurveyScan();
         if (results !== null && view === space && session === pilot) {
+          void pilot.flow.loadMiningHolds().catch(() => {});
           await space.playMiningSurvey(results, pilot.flow.requestOptions());
         }
       } finally {
@@ -928,6 +930,10 @@
       }
     },
   };
+  function disableMiningOverlay(): void {
+    session?.flow.clearSurveyScan();
+    view?.clearMiningSurvey();
+  }
   setContext("flightSpaceView", () => view);
   setContext("flightMiningSurvey", flightMiningSurvey);
   setContext("flightSimNow", () => live?.simNow() || null);
@@ -1135,6 +1141,8 @@
         typeRadii: (typeID) => s.flow.targetLockRadii(typeID),
       },
       miningSurvey: () => s.store.mining.get(),
+      miningScanFacts: typeID => s.flow.miningScanFacts([typeID]),
+      onMiningGridExit: () => s.flow.clearSurveyScan(),
       indicationWords: () => s.store.words.get().templates,
       onSystem: musicSystem,
       windowLayer: windowsEl ? windowLayer : undefined,
@@ -1382,6 +1390,10 @@
     </div>
   {:else}
     <div class="fly-space" bind:this={spaceHost}></div>
+    {#if !docked && session}
+      <MiningOverlayControl store={session.store} survey={flightMiningSurvey}
+        openResults={() => open("miningScan")} disable={disableMiningOverlay} />
+    {/if}
     <div class="fly-buffs"><BuffBar store={session.store} flow={session.flow} /></div>
   {/if}
   {#if session && reagentBay}<SovReagentBay store={session.store} flow={session.flow} hubID={reagentBay.hubID} solarSystemID={reagentBay.solarSystemID} isStationMgr={reagentBay.isStationMgr} onClose={() => { reagentBay = null; }} />{/if}
