@@ -1226,23 +1226,49 @@ function textureColorMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
 
 /**
  * An area drawn with lensflares/flare.fx: GradientMap (clamped) at (d, d) for d the distance from the uv's middle
- * x 2, times DiffuseColor and Brightness; both faces. Defaults DiffuseColor 1, Brightness 1. The fog volume map's
- * factor is 1.
+ * x 2, times DiffuseColor, Brightness and cloud transmission. High adds a radial component for foreground
+ * overlap, measured against the projected half-unit offset along the mesh's local z axis.
  */
 function flareMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
   const p = area.params;
   const uniforms: Record<string, THREE.IUniform> = {
-    colour: { value: v4(p.DiffuseColor, [1, 1, 1, 1]) }, brightness: { value: typeof p.Brightness === "number" ? p.Brightness : 1 },
+    ...CLOUD_FOG,
+    colour: { value: v4(p.DiffuseColor, [1, 1, 1, 1]) },
+    brightness: { value: typeof p.Brightness === "number" ? p.Brightness : v4(p.Brightness, [1, 0, 0, 0]).x },
     gradient: { value: null },
   };
   void childTexture(area.textures.GradientMap).then((t) => { uniforms.gradient!.value = t; });
-  return logDepth(new THREE.ShaderMaterial({
-    uniforms, vertexShader: PLAIN_VS,
+  const material = logDepth(new THREE.ShaderMaterial({
+    name: "lensflare-gradient",
+    uniforms,
+    vertexShader: `varying vec2 vUv; varying float vThickness;
+      void main() {
+        vUv = uv;
+        vThickness = abs(0.5 * modelViewMatrix[2].z);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
     fragmentShader: `uniform sampler2D gradient; uniform vec4 colour; uniform float brightness; varying vec2 vUv;
+      uniform bool flareDepthProfile; varying float vThickness;
+      ${SOFT_DEPTH_GLSL}
+      ${CLOUD_FOG_GLSL}
       ${CLAMP_GLSL}
-      void main() { float d = length((vUv - 0.5) * 2.0); gl_FragColor = texture2D(gradient, clampUv(gradient, vec2(d))) * colour * brightness; }`,
+      void main() {
+        float depth = 1.0 / gl_FragCoord.w;
+        float overlap = 0.0;
+        if (flareDepthProfile) {
+          // Half a texel from the raster center with a nearest sampler, in the client's top-left convention.
+          ivec2 pixel = ivec2(gl_FragCoord.xy) + ivec2(1, -1);
+          bool inBounds = all(greaterThanEqual(pixel, ivec2(0))) && all(lessThan(pixel, ivec2(softDepthSize)));
+          float scene = inBounds ? softViewDepth(texelFetch(softDepthMap, pixel, 0).x) : softDepthNearFar.y;
+          overlap = max(depth - scene, 0.0) / max(vThickness, 0.000001);
+        }
+        float d = length(vec3((vUv - 0.5) * 2.0, overlap));
+        gl_FragColor = textureLod(gradient, clampUv(gradient, vec2(d)), 0.0) * colour * brightness * cloudFogTransmission(depth);
+      }`,
     side: THREE.DoubleSide, transparent: true, depthWrite: false, ...areaBlend(area),
   }));
+  useHighSoftDepth(material, "flareDepthProfile");
+  return material;
 }
 
 /**
