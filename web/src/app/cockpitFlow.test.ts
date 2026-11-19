@@ -19,6 +19,7 @@ import assert from "node:assert/strict";
 
 import { createAppFlow, type ActionMessage } from "./flow.ts";
 import { createClientStore } from "../store/clientStore.ts";
+import { decodeSpaceSnapshot } from "../bridge/space.ts";
 import type { EventSourceLike } from "./api.ts";
 
 const SHIP_ID = 9001;
@@ -466,6 +467,48 @@ test("E: the mining loop, step by step, with each step's observability", async (
   // 7. DEACTIVATE. OBSERVABLE — the same two surfaces as activation, and R23
   //    already verifies it against the snapshot's cycling list rather than
   //    against the Deactivate call's 200.
+});
+
+test("mining pushes update only the surveyed asteroid and are applied once", async () => {
+  const { store, source, flow } = await onlineFlow();
+  const rock = { itemID: 5020484735533, yieldTypeID: ORE_TYPE, remainingQuantity: 10 };
+  const neighbor = { ...rock, itemID: rock.itemID + 1 };
+  const basic = { ...rock, itemID: rock.itemID + 2, remainingQuantity: null };
+  store.apply({ type: "mining/survey", survey: [rock, neighbor, basic], atMs: 1 });
+
+  const actions: unknown[] = [];
+  flow.onActionMessage(action => actions.push(action));
+  const id = (itemID: number) => ({ type: "long", value: String(itemID) });
+  const own = notificationFrame("OnOreMined", [{ type: "dict", entries: [
+    ["itemID", id(rock.itemID)], ["oreType", ORE_TYPE], ["quantity_removed", 2],
+    ["amountWasted", 1], ["amountCritBonus", 4],
+  ] }], 1);
+  source.emit(own);
+  source.emit(own);
+  assert.equal(actions.length, 1);
+  assert.deepEqual(store.mining.get().survey, [{ ...rock, remainingQuantity: 7 }, neighbor, basic]);
+
+  source.emit(notificationFrame("OnOreMinedByOther", [id(rock.itemID), 8], 2));
+  source.emit(notificationFrame("OnOreMinedByOther", [id(basic.itemID), 3], 3));
+  source.emit(notificationFrame("OnOreMinedByOther", [id(neighbor.itemID), -3], 4));
+  assert.deepEqual(store.mining.get().survey, [{ ...rock, remainingQuantity: 0 }, neighbor, basic]);
+  assert.equal(store.mining.get().surveyAtMs, 1);
+
+  const grid = (itemIDs: readonly number[], stateValid = true) => store.apply({
+    type: "space/snapshot",
+    snapshot: decodeSpaceSnapshot({
+      inSpace: true, solarSystemID: IN_SPACE.solarSystemID, shipID: SHIP_ID, stateValid,
+      ship: { itemID: SHIP_ID, typeID: 629 },
+      entities: itemIDs.map(itemID => ({ itemID, typeID: ORE_TYPE, categoryID: 25 })),
+    }),
+  });
+  grid([rock.itemID, neighbor.itemID]);
+  grid([], false);
+  assert.equal(store.mining.get().survey.length, 3);
+  grid([rock.itemID, neighbor.itemID]);
+  grid([neighbor.itemID]);
+  grid([rock.itemID, neighbor.itemID]);
+  assert.deepEqual(store.mining.get().survey, [neighbor, basic]);
 });
 
 // --- R29: the damage log ----------------------------------------------------

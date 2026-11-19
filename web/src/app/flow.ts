@@ -460,7 +460,7 @@ import { classifyDistributionAgentConversation, selectDistributionAgent } from "
 import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
 import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
 import { decodeCargoScan, decodeShipScan, groupShipScanHardware, type CargoScanResult, type ShipScanGroup, type ShipScanResult } from "../bridge/scannerResults.ts";
-import { basicMiningScan, INTEGRATED_MINING_SCANNER, miningScanInWarp, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
+import { basicMiningScan, INTEGRATED_MINING_SCANNER, miningScanInWarp, miningSurveyDepletion, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
 import { decodeAgencySeason, decodeAgencySeasonChoices, decodeAgencySeasonProgress, decodeAgencySeasonReward, decodeSeasonSelectionDefinition,
   isVanguardTrackCompleted, seasonRewardClaimable, VANGUARD_TRACK_INSTANCE, type AgencySeason, type AgencySeasonReward } from "../bridge/agencySeason.ts";
 import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from "../bridge/serverDialogs.ts";
@@ -8012,6 +8012,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     if (method === "OnDamageMessage") {
       applyDamageNotification(args);
+    }
+    if (method === "OnOreMined" || method === "OnOreMinedByOther") {
+      const depletion = miningSurveyDepletion(method, args);
+      if (depletion) store.apply({ type: "mining/survey-depleted", ...depletion });
     }
     if (method === "OnOreMined" || method === "OnBountyAddedToPayout") {
       const message = actionMessageOf(method, args);

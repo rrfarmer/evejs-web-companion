@@ -21,6 +21,7 @@ import {
 } from "./signals.ts";
 import type { FeedAdapter, FeedEvent, FeedSink, FeedStatus, HealthStatus } from "./feed.ts";
 import { MAX_BROADCAST_HISTORY } from "../bridge/fleetBroadcasts.ts";
+import { isSceneBlind } from "../bridge/space.ts";
 // R43 — the bot registry owns the BotID union and what "holding the ship"
 // means, so the store and flow.ts can never disagree about either.
 import {
@@ -2209,11 +2210,20 @@ export function createClientStore(): ClientStore {
         const before = previous.snapshot;
         const next = event.snapshot;
         const warp = next.ship?.warp;
-        if (mining.get().surveyAtMs !== null && before && (
-          before.shipID !== next.shipID || before.solarSystemID !== next.solarSystemID ||
-          !next.inSpace || next.ship?.mode === "WARP" || (warp && !warp.preparing)
-        )) {
-          mining.set({ ...mining.get(), survey: INITIAL_MINING.survey, surveyAtMs: null, surveyError: null });
+        const scan = mining.get();
+        if (scan.surveyAtMs !== null && before) {
+          if (before.shipID !== next.shipID || before.solarSystemID !== next.solarSystemID ||
+              !next.inSpace || next.ship?.mode === "WARP" || (warp && !warp.preparing)) {
+            mining.set({ ...scan, survey: INITIAL_MINING.survey, surveyAtMs: null, surveyError: null });
+          } else if (scan.survey.length && before.entities !== next.entities && !isSceneBlind(next.inSpace, next)) {
+            // Drop scanned balls that left the grid. A new scan can arrive before its balls.
+            const visible = new Set(next.entities.map(entity => entity.itemID));
+            const departed = new Set(before.entities.filter(entity => !visible.has(entity.itemID)).map(entity => entity.itemID));
+            if (departed.size) {
+              const survey = scan.survey.filter(row => !departed.has(row.itemID));
+              if (survey.length !== scan.survey.length) mining.set({ ...scan, survey });
+            }
+          }
         }
         space.set({
           snapshot: event.snapshot,
@@ -2447,6 +2457,16 @@ export function createClientStore(): ClientStore {
           surveyError: null,
         });
         break;
+      case "mining/survey-depleted": {
+        const scan = mining.get();
+        const rock = scan.survey.find(row => row.itemID === event.itemID);
+        if (rock && rock.remainingQuantity !== null && rock.remainingQuantity > 0) {
+          const remainingQuantity = Math.max(0, rock.remainingQuantity - event.quantity);
+          const survey = scan.survey.map(row => row === rock ? { ...row, remainingQuantity } : row);
+          mining.set({ ...scan, survey });
+        }
+        break;
+      }
       case "mining/survey-error":
         mining.set({ ...mining.get(), surveyError: event.message });
         break;

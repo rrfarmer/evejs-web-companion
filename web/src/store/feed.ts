@@ -870,6 +870,7 @@ export type FeedEvent =
       readonly survey: readonly SurveyResult[];
       readonly atMs: number;
     }
+  | { readonly type: "mining/survey-depleted"; readonly itemID: number; readonly quantity: number }
   | { readonly type: "mining/survey-error"; readonly message: string | null }
   // The refinery quoted the chosen stacks. `taxRate` is null for "not known"
   // rather than 0 — reprocessing DEBITS the tax, so a confident zero would tell
