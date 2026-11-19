@@ -48,7 +48,8 @@ import { GROUP_WARP_GATE } from "./gateActivation.ts";
 import { readDictEntry, unwrapLong, type JsonValue } from "./wire.ts";
 import type { SpaceEntity } from "../store/types.ts";
 import { formatInterval } from "./clientWords.ts";
-import type { ObjectiveTarget, ObjectiveTimer, ObjectiveValue as Value } from "./dungeonTracking.ts";
+import { fmtDist, surfaceDistanceMeters } from "../space/overview.ts";
+import { readObjectiveTarget, type ObjectiveTarget, type ObjectiveTimer, type ObjectiveValue as Value } from "./dungeonTracking.ts";
 
 /** abyss/client/abyssal_service.py ABYSS_OBJECTIVE_CHAIN_ID. */
 export const ABYSS_OBJECTIVE_CHAIN_ID = 95;
@@ -61,6 +62,7 @@ export const ABYSS_LOOTABLE_RESTART_MS = 2_000;
 /** abyssal_service.py on_objective_task_changed: the task whose completion in the last room counts that room. */
 const ABYSS_NPC_TASK = "destroy_npcs";
 
+const TASK_GET_WITHIN_RANGE = 7;
 const TASK_PROGRESS = 9;
 const TASK_DESTROY_HOSTILES = 14;
 const TASK_ENTER_NEXT_DUNGEON_ROOM = 15;
@@ -76,6 +78,12 @@ const HACKED = 2; // hackingcommon.hackingConstants.hackingStateHacked
 
 const timerOf = (value: Value | undefined): ObjectiveTimer | null =>
   value && typeof value === "object" && "endMs" in value ? value : null;
+const targetOf = (value: Value | undefined): ObjectiveTarget | null =>
+  value && typeof value === "object" && "itemID" in value ? value : null;
+const approachRange = (value: Value | undefined): number => {
+  const range = Number(value ?? 500);
+  return Number.isFinite(range) && range >= 0 ? range : 500;
+};
 
 interface TriggerInfo {
   readonly action: string;
@@ -146,7 +154,7 @@ const fsdValue = (value: unknown, parameterType: unknown): Value => {
       : value.map(whole).filter((id): id is number => id !== null);
   }
   if (typeof value === "number" || typeof value === "string" || typeof value === "boolean") return value;
-  return null;
+  return readObjectiveTarget(value);
 };
 
 function decodeTask(value: unknown): TaskInfo | null {
@@ -249,6 +257,7 @@ interface Task {
   readonly rows: Map<number, boolean>;
   /** 56: the gate it found. */
   gateID: number | null;
+  approach: { itemID: number; remaining: number; maximum: number } | null;
 }
 interface Objective {
   readonly info: ObjectiveInfo;
@@ -405,7 +414,7 @@ export class ObjectiveChain {
       tasks.set(taskInfo.key, {
         info: override ? { ...taskInfo, title: override.title ?? taskInfo.title, icon: override.icon ?? taskInfo.icon } : taskInfo,
         type: this.data.taskTypes.get(taskInfo.taskType), values: taskValues, active: false, completed: false,
-        targets: new Set(), destroyed: new Set(), rows: new Map(), gateID: null,
+        targets: new Set(), destroyed: new Set(), rows: new Map(), gateID: null, approach: null,
       });
     }
     // Objective: its own title, else its type's.
@@ -426,6 +435,10 @@ export class ObjectiveChain {
 
   private taskValueChanged(objective: Objective, task: Task, key: string): void {
     switch (task.info.taskType) {
+      case TASK_GET_WITHIN_RANGE:
+        if (key === "target") task.approach = null;
+        if (task.active) this.observeTask(objective, task, FIND);
+        return;
       case TASK_TIMER:
         if (task.active) this.updateTimer(objective, task);
         return;
@@ -549,6 +562,22 @@ export class ObjectiveChain {
     const finding = added === FIND;
     const looked = finding ? this.entities : this.entities.filter((entity) => added.has(entity.itemID));
     switch (task.info.taskType) {
+      case TASK_GET_WITHIN_RANGE: {
+        const target = targetOf(task.values.target);
+        const self = this.entities.find((entity) => entity.isSelf);
+        const current = task.approach;
+        const entity = (current && present.get(current.itemID)) ?? (target ? this.findTarget(target) : null);
+        if (!self || !entity || self.geometryAvailable === false || entity.geometryAvailable === false) {
+          task.approach = null;
+          this.setCompleted(objective, task, false);
+          return;
+        }
+        const distance = approachRange(task.values.distance);
+        const remaining = Math.max(0, surfaceDistanceMeters(self.position, self.radius, entity.position, entity.radius) - distance);
+        task.approach = { itemID: entity.itemID, remaining, maximum: Math.max(current?.maximum ?? 0, distance + 1, remaining) };
+        this.setCompleted(objective, task, remaining === 0);
+        return;
+      }
       case TASK_PROGRESS:
         this.updateProgress(objective, task);
         return;
@@ -565,8 +594,8 @@ export class ObjectiveChain {
         this.updateCounter(objective, task);
         return;
       case TASK_HACK_CONTAINER: {
-        const target = task.values.target;
-        const entity = target && typeof target === "object" && "itemID" in target ? this.findTarget(target) : null;
+        const target = targetOf(task.values.target);
+        const entity = target ? this.findTarget(target) : null;
         const complete = entity !== null && this.hackComplete(task, entity);
         task.rows.clear();
         if (entity !== null) task.rows.set(entity.itemID, complete);
@@ -678,6 +707,8 @@ export class ObjectiveChain {
     switch (task.info.taskType) {
       case TASK_TIMER:
         return this.simNowMs === null || timerOf(task.values.timer) === null;
+      case TASK_GET_WITHIN_RANGE:
+        return task.approach === null && targetOf(task.values.target)?.typeID == null;
       case TASK_PROGRESS:
         return !(Number(task.values.goal_value) > 0);
       case TASK_DESTROY_HOSTILES:
@@ -702,6 +733,16 @@ export class ObjectiveChain {
     const titleLabel = task.info.title ?? task.type?.title ?? null;
     const base = { key: task.info.key, icon, titleLabel, itemID: null, typeID: null, value: "", progress: null, danger: false, completed: task.completed, health: null };
     switch (task.info.taskType) {
+      case TASK_GET_WITHIN_RANGE: {
+        const approach = task.approach;
+        if (!approach) {
+          const typeID = targetOf(task.values.target)?.typeID;
+          return typeID == null ? [] : [{ ...base, typeID, value: fmtDist(approachRange(task.values.distance) + 1, 0), progress: 0 }];
+        }
+        const entity = this.entities.find((thing) => thing.itemID === approach.itemID);
+        return [{ ...base, itemID: approach.itemID, typeID: entity?.typeID ?? null,
+          value: fmtDist(approach.remaining, 0), progress: 1 - approach.remaining / approach.maximum }];
+      }
       case TASK_TIMER: {
         const timer = timerOf(task.values.timer);
         if (timer === null || this.simNowMs === null) return [];

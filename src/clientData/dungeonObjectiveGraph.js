@@ -5,6 +5,32 @@ const DUNGEON_OBJECTIVE_GRAPHS = new Set([882, 952, 1065, 1078]);
 const WINTER_NEXUS_OBJECTIVE_GRAPH = 784;
 const POCHVEN_WORMHOLE_OBJECTIVE_GRAPH = 963;
 const DUNGEON_ARRIVAL_OBJECTIVE_GRAPH = 669;
+const ELECTION_TRADER_OBJECTIVE_GRAPH = 1013;
+
+function electionTraderObjectiveRules(graph, dungeonID) {
+  if (!graph?.tags?.includes("client")) return null;
+  const nodes = graph.nodes ?? {};
+  const value = (node, key) => node?.nodeParameters?.[key]?.value;
+  const next = (node, pin) => node?.connections?.[pin]?.length === 1 ? nodes[node.connections[pin][0]] : null;
+  const warpFinished = Object.values(nodes).find((node) => node.nodeType === 5 && value(node, "atom_id") === 90);
+  const warping = next(warpFinished, "output");
+  if (warping?.nodeType !== 9 || value(warping, "atom_id") !== 116 || value(warping, "is_not")) return null;
+  const seen = new Set();
+  let check = next(warping, "on_failure");
+  while (check && !seen.has(check)) {
+    if (check.nodeType !== 22 || value(check, "blackboard_key") !== "dungeon_id" || value(check, "flipped") ||
+        value(check, "object_path") || (value(check, "operator") && value(check, "operator") !== "equalTo")) return null;
+    seen.add(check);
+    if (Number(value(check, "blackboard_value")) === dungeonID) {
+      const start = next(check, "on_success");
+      const objectiveKey = value(start, "message_value");
+      return start?.nodeType === 42 && value(start, "message_key") === "start_objective" && typeof objectiveKey === "string"
+        ? [{ listKey: null, objectiveKey }] : null;
+    }
+    check = next(check, "on_failure");
+  }
+  return null;
+}
 
 function pochvenWormholeObjectiveRules(graph, arrivalGraph) {
   if (!graph?.tags?.includes("client") || !arrivalGraph?.tags?.includes("client")) return null;
@@ -203,5 +229,6 @@ function observatoryConversationIDs(graph) {
 
 module.exports = {
   DUNGEON_OBJECTIVE_GRAPHS, DUNGEON_ARRIVAL_OBJECTIVE_GRAPH, POCHVEN_WORMHOLE_OBJECTIVE_GRAPH, WINTER_NEXUS_OBJECTIVE_GRAPH,
-  dungeonObjectiveEntryRules, observatoryConversationIDs, pochvenWormholeObjectiveRules, winterNexusObjectiveRules,
+  ELECTION_TRADER_OBJECTIVE_GRAPH, dungeonObjectiveEntryRules, electionTraderObjectiveRules, observatoryConversationIDs,
+  pochvenWormholeObjectiveRules, winterNexusObjectiveRules,
 };

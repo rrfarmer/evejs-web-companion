@@ -165,6 +165,46 @@ test("Pochven switches the in-dungeon objectives when the difficulty or wormhole
   assert.deepEqual(dungeonEntryObjectives(closed, rules), ["collapsed"]);
 });
 
+test("the election approach objective uses the authored trader and live hull-to-hull range", () => {
+  const data = decodeObjectiveChain({
+    found: true, chainID: 131,
+    chain: {
+      contextParameters: [
+        { parameterKey: "roden_item_trader", parameterType: "unionDictType", defaultValue: { type_id: 92435 } },
+        { parameterKey: "the_range", defaultValue: 2500 },
+      ],
+      objectives: [{ key: "roden_approach_trader", objectiveType: 22, showCompleted: 1,
+        inputParametersMap: { target: "roden_item_trader", distance: "the_range" } }],
+    },
+    objectiveTypes: { 22: { title: "UI/Objectives/Titles/Approach", tasks: [{ key: "get_within_range", taskType: 7,
+      startActive: 1, inputParameters: { target: "target", distance: "distance" } }] } },
+    taskTypes: { 7: {} }, typeLists: {},
+  });
+  assert.ok(data);
+  const chain = new ObjectiveChain(data, {});
+  const entity = (itemID: number, typeID: number, x: number, radius: number, isSelf = false) =>
+    ({ itemID, typeID, radius, isSelf, position: { x, y: 0, z: 0 } } as SpaceEntity);
+  const self = entity(1, 587, 0, 100, true), decoy = entity(2, 92434, 500, 900);
+  const trader = (distance: number) => entity(3, 92435, distance, 900);
+  const view = () => chain.view()[0];
+  chain.start([self, decoy]);
+  chain.startObjective("roden_approach_trader");
+  assert.equal(view()?.rows[0]?.typeID, 92435);
+  assert.equal(view()?.rows[0]?.itemID, null);
+  assert.equal(view()?.rows[0]?.progress, 0);
+  chain.observe([self, decoy, trader(11_000)]);
+  assert.equal(view()?.rows[0]?.itemID, 3);
+  assert.equal(view()?.rows[0]?.progress, 0);
+  chain.observe([self, decoy, trader(6000)]);
+  assert.ok(Math.abs((view()?.rows[0]?.progress ?? 0) - 2 / 3) < 1e-12);
+  chain.observe([self, decoy, trader(3500)]);
+  assert.equal(view()?.completed, true);
+  assert.deepEqual(view()?.rows, []);
+  chain.observe([self, decoy, trader(3600)]);
+  assert.equal(view()?.completed, false);
+  assert.equal(view()?.rows[0]?.value, "100 m");
+});
+
 test("the ghost-site chain shows the revealed native timer on the pilot's simulation clock", () => {
   const chain = decodeObjectiveChain({
     found: true,

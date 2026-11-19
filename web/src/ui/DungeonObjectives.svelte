@@ -211,16 +211,17 @@
           {#if row.completed}<img alt="" src={clientTexture("res:/UI/Texture/eveicon/system_icons/checkmark_16px.png")} />{/if}
           {name}
         </button>
-      {:else if row.progress !== null}
+      {/if}
+      {#if row.progress !== null}
         <div class="objective-progress" class:danger={row.danger}>
-          {#if name && row.titleLabel !== objective.titleLabel}<span>{name}</span>{/if}
+          {#if row.itemID === null && name && row.titleLabel !== objective.titleLabel}<span>{name}</span>{/if}
           <span class="objective-progress-value">{row.value}</span>
           <div class="objective-progress-bar" role="progressbar" aria-label={name}
             aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(row.progress * 100)}>
             <div style:width={`${row.progress * 100}%`}></div>
           </div>
         </div>
-      {:else if name}
+      {:else if row.itemID === null && name}
         <span>{name} {row.value}</span>
       {/if}
     {/each}

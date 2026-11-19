@@ -75,6 +75,16 @@ function readObjectiveTimer(value: JsonValue): ObjectiveTimer | null {
   return startMs !== null && endMs !== null && endMs > startMs ? { startMs, endMs } : null;
 }
 
+/** A target supplied by either an installed chain default or a live blackboard dictionary. */
+export function readObjectiveTarget(value: unknown): ObjectiveTarget | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const get = (key: string) => whole(record.type === "dict" ? readDictEntry(value, key) : record[key]);
+  const itemID = get("item_id"), dungeonObjectID = get("dungeon_object_id"), typeID = get("type_id"), groupID = get("group_id");
+  return itemID !== null || dungeonObjectID !== null || typeID !== null || groupID !== null
+    ? { itemID, dungeonObjectID, typeID, groupID } : null;
+}
+
 /** The live scalar, lists and simulation-time timers used by objective tasks. */
 export function dungeonObjectiveContext(dungeon: CurrentDungeon): Readonly<Record<string, ObjectiveValue>> {
   const context: Record<string, ObjectiveValue> = Object.create(null);
@@ -92,13 +102,8 @@ export function dungeonObjectiveContext(dungeon: CurrentDungeon): Readonly<Recor
         context[key] = timer;
         continue;
       }
-      const itemID = whole(readDictEntry(value, "item_id"));
-      const dungeonObjectID = whole(readDictEntry(value, "dungeon_object_id"));
-      const typeID = whole(readDictEntry(value, "type_id"));
-      const groupID = whole(readDictEntry(value, "group_id"));
-      if (itemID !== null || dungeonObjectID !== null || typeID !== null || groupID !== null) {
-        context[key] = { itemID, dungeonObjectID, typeID, groupID };
-      }
+      const target = readObjectiveTarget(value);
+      if (target !== null) context[key] = target;
     }
   }
   return { ...context, dungeon_id: dungeon.dungeonID, dungeon_room_id: dungeon.roomID };

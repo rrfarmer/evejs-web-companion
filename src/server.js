@@ -20,7 +20,8 @@ const { createSkillplanImport } = require("./clientData/importSkillplan");
 const { createClientBuiltData } = require("./clientData/clientBuiltData");
 const {
   DUNGEON_OBJECTIVE_GRAPHS, DUNGEON_ARRIVAL_OBJECTIVE_GRAPH, POCHVEN_WORMHOLE_OBJECTIVE_GRAPH, WINTER_NEXUS_OBJECTIVE_GRAPH,
-  dungeonObjectiveEntryRules, observatoryConversationIDs, pochvenWormholeObjectiveRules, winterNexusObjectiveRules,
+  ELECTION_TRADER_OBJECTIVE_GRAPH, dungeonObjectiveEntryRules, electionTraderObjectiveRules, observatoryConversationIDs,
+  pochvenWormholeObjectiveRules, winterNexusObjectiveRules,
 } = require("./clientData/dungeonObjectiveGraph");
 const { createCameraTaskDefinitions, isCameraTaskEvent, recordCameraTaskEvents } = require("./gamePort/cameraTasks");
 const { py27HashOrder } = require("./clientData/py27HashOrder");
@@ -14439,7 +14440,8 @@ app.get("/api/client-data/dungeons", requireAuth, async (req, res, next) => {
     const TYPE_DEADSPACE_SIGNATURE = 19728; // inventorycommon.const.typeDeadspaceSignature
     const objectivesFor = (d) => objectiveRecords?.[d?.objectivesID]?.clientObjectives;
     const graphIDs = [...new Set(ids.map((id) => objectivesFor(rows?.[id])?.nodeGraphID)
-      .filter((id) => DUNGEON_OBJECTIVE_GRAPHS.has(id) || id === WINTER_NEXUS_OBJECTIVE_GRAPH || id === POCHVEN_WORMHOLE_OBJECTIVE_GRAPH))];
+      .filter((id) => DUNGEON_OBJECTIVE_GRAPHS.has(id) || id === WINTER_NEXUS_OBJECTIVE_GRAPH ||
+        id === POCHVEN_WORMHOLE_OBJECTIVE_GRAPH || id === ELECTION_TRADER_OBJECTIVE_GRAPH))];
     if (graphIDs.includes(POCHVEN_WORMHOLE_OBJECTIVE_GRAPH)) graphIDs.push(DUNGEON_ARRIVAL_OBJECTIVE_GRAPH);
     const graphRows = graphIDs.length && typeof clientBuiltData.rows === "function"
       ? await clientBuiltData.rows("nodeGraphs", graphIDs).catch(() => null) : null;
@@ -14453,7 +14455,8 @@ app.get("/api/client-data/dungeons", requireAuth, async (req, res, next) => {
       const arche = archetypes && archetypes[d.archetypeID];
       const objectives = objectivesFor(d);
       const chainID = objectives?.objectiveChainID;
-      const entryRules = graphRules.get(objectives?.nodeGraphID);
+      const entryRules = objectives?.nodeGraphID === ELECTION_TRADER_OBJECTIVE_GRAPH
+        ? electionTraderObjectiveRules(graphRows?.[ELECTION_TRADER_OBJECTIVE_GRAPH], id) : graphRules.get(objectives?.nodeGraphID);
       const winterNexus = objectives?.nodeGraphID === WINTER_NEXUS_OBJECTIVE_GRAPH
         ? winterNexusObjectiveRules(graphRows?.[WINTER_NEXUS_OBJECTIVE_GRAPH], id) : null;
       const tagIDs = [...(Array.isArray(d.contentTags) ? d.contentTags : []), ...(arche && Array.isArray(arche.contentTags) ? arche.contentTags : []),
