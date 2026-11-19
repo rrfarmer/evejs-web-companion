@@ -137,6 +137,8 @@ export class MiningSurveyWave {
   private readonly rockGeometry = new THREE.SphereGeometry(1, 18, 12);
   private readonly rockMaterial = surveyMaterial(true);
   private readonly transform = new THREE.Matrix4();
+  private readonly scale = new THREE.Vector3();
+  private readonly identityRotation = new THREE.Quaternion();
   private readonly color = new THREE.Color();
   private readonly cold = new THREE.Color(0x2fbacc);
   private readonly warm = new THREE.Color(0xffc668);
@@ -146,7 +148,7 @@ export class MiningSurveyWave {
     startMs: number;
     elapsedMs: number;
     targets: ReturnType<typeof miningWaveTargets>;
-    markers: THREE.InstancedMesh;
+    markers: Map<THREE.BufferGeometry, THREE.InstancedMesh>;
     peakValue: number;
     reached: number;
     done?: () => void;
@@ -164,20 +166,20 @@ export class MiningSurveyWave {
   start(shipID: number, origin: SpaceVector, nowMs: number, targets: ReturnType<typeof miningWaveTargets>,
     sounds: Promise<ReadonlyMap<number, string>>, peakValue: number): Promise<void> {
     this.clear();
-    const markers = new THREE.InstancedMesh(this.rockGeometry, this.rockMaterial, targets.length);
-    markers.name = "Mining survey asteroid highlights";
-    markers.frustumCulled = false;
-    markers.count = 0;
-    this.group.add(markers);
     const audio = new AbortController();
     void playUiEvent("mining_scan_start", audio.signal);
     return new Promise(done => {
-      this.scan = { shipID, origin: { ...origin }, startMs: nowMs, elapsedMs: 0, targets, markers, peakValue, reached: 0, done, audio, sounds };
+      this.scan = { shipID, origin: { ...origin }, startMs: nowMs, elapsedMs: 0, targets, markers: new Map(), peakValue, reached: 0, done, audio, sounds };
     });
   }
 
   update(nowMs: number, ego: { itemID: number | null; position: SpaceVector; mode?: string | null } | null,
-    place: (itemID: number) => { position: THREE.Vector3; visibleRadius?: number } | undefined): void {
+    place: (itemID: number) => {
+      position: THREE.Vector3;
+      visibleRadius?: number;
+      geometry?: THREE.BufferGeometry;
+      rotation?: THREE.Quaternion;
+    } | undefined): void {
     const scan = this.scan;
     if (!scan) return;
     if (!ego || ego.itemID !== scan.shipID || ego.mode === "WARP") { this.clear(); return; }
@@ -200,21 +202,35 @@ export class MiningSurveyWave {
       }
       if (sample.finished) this.finish();
     }
-    let count = 0;
+    for (const mesh of scan.markers.values()) mesh.count = 0;
     for (let i = 0; i < scan.reached; i++) {
       const target = scan.targets[i]!;
       const mark = place(target.itemID);
       if (!mark) continue;
-      const size = Math.max(8, (mark.visibleRadius ?? target.radius) * 1.08);
-      this.transform.makeScale(size, size, size);
-      this.transform.setPosition(mark.position);
-      scan.markers.setMatrixAt(count, this.transform);
+      const geometry = mark.geometry ?? this.rockGeometry;
+      let mesh = scan.markers.get(geometry);
+      if (!mesh) {
+        mesh = new THREE.InstancedMesh(geometry, this.rockMaterial, scan.targets.length);
+        mesh.name = "Mining survey asteroid highlights";
+        // The world-space matrices move with the floating origin every frame.
+        mesh.frustumCulled = false;
+        mesh.count = 0;
+        scan.markers.set(geometry, mesh);
+        this.group.add(mesh);
+      }
+      const radius = mark.visibleRadius ?? target.radius;
+      const size = mark.geometry ? radius * 1.015 : Math.max(8, radius * 1.08);
+      this.transform.compose(mark.position, mark.rotation ?? this.identityRotation, this.scale.setScalar(size));
+      const index = mesh.count++;
+      mesh.setMatrixAt(index, this.transform);
       const fraction = scan.peakValue > 0 && target.oreValuePerM3 != null ? target.oreValuePerM3 / scan.peakValue : 0.5;
-      scan.markers.setColorAt(count++, this.color.copy(this.cold).lerp(this.warm, Math.min(1, Math.max(0, fraction))));
+      mesh.setColorAt(index, this.color.copy(this.cold).lerp(this.warm, Math.min(1, Math.max(0, fraction))));
     }
-    scan.markers.count = count;
-    scan.markers.instanceMatrix.needsUpdate = true;
-    if (scan.markers.instanceColor) scan.markers.instanceColor.needsUpdate = true;
+    for (const mesh of scan.markers.values()) {
+      if (mesh.count === 0) continue;
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }
   }
 
   private finish(): void {
@@ -230,8 +246,10 @@ export class MiningSurveyWave {
     if (!this.scan) return;
     this.finish();
     this.scan.audio.abort();
-    this.scan.markers.removeFromParent();
-    this.scan.markers.dispose();
+    for (const mesh of this.scan.markers.values()) {
+      mesh.removeFromParent();
+      mesh.dispose();
+    }
     this.scan = null;
   }
 

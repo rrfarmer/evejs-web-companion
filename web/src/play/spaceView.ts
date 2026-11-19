@@ -26,6 +26,7 @@ import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three
 import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { MiningSurveyWave, miningWaveSounds, miningWaveTargets } from "./miningSurveyWave.ts";
+import { AsteroidModels } from "../three/asteroidModel.ts";
 import type { ApiOptions } from "../app/api.ts";
 import { DRIFTER_COLLECTION, DrifterCollectionExplosions } from "./drifterCollectionExplosions.ts";
 import { isNonInteractableWormhole, nonInteractableWormhole, ordinaryWormhole, playWormholeActivity, updateWormholePose, WormholeAudio, WORMHOLE_COLLAPSE_MS, WORMHOLE_GROUP } from "./nonInteractableWormhole.ts";
@@ -311,6 +312,7 @@ export class SpaceView {
   /** The ShipEffects playing (shipFx.ts): a web's vortex on its target and the like. */
   readonly shipFx = new ShipFx();
   private readonly miningSurvey = new MiningSurveyWave();
+  private readonly asteroidModels = new AsteroidModels();
   private miningSurveyUsesSimClock = false;
   private readonly collectionExplosions = new DrifterCollectionExplosions(this.scene);
   /** The camera's shake (cameraShake.ts): explosions shake it. */
@@ -851,6 +853,7 @@ export class SpaceView {
     this.live.fxListeners.delete(this.hearFx);
     this.turretFx.dispose();
     this.miningSurvey.dispose();
+    this.asteroidModels.dispose();
     this.collectionExplosions.clear();
     this.combatMessage.dispose();
     this.systemMap?.dispose();
@@ -2377,6 +2380,7 @@ export class SpaceView {
       let mark = this.marks.get(e.itemID);
       if (!mark) { mark = this.markFor(e); this.marks.set(e.itemID, mark); this.scene.add(mark); }
       this.updateMarkModel(mark, e);
+      if (e.kind === "asteroid") this.asteroidModels.update(mark, e, bracketSimNow ?? now);
       mark.position.copy(rel);
       this.orient(mark, e);
       const vortex = mark.userData.vortex as ObservatoryVortex | undefined;
@@ -2708,7 +2712,10 @@ export class SpaceView {
     const surveyTime = this.miningSurveyUsesSimClock ? this.live.effectSimNow() : now;
     if (surveyTime !== undefined) this.miningSurvey.update(surveyTime, ego, id => {
       const mark = this.marks.get(id);
-      return mark ? { position: mark.position, visibleRadius: mark.userData.model ? undefined : mark.userData.standInRadius } : undefined;
+      if (!mark) return undefined;
+      const rock = this.asteroidModels.meshOf(mark);
+      return rock ? { position: mark.position, visibleRadius: rock.scale.x, geometry: rock.geometry, rotation: rock.quaternion }
+        : { position: mark.position, visibleRadius: mark.userData.model ? undefined : mark.userData.standInRadius };
     });
     // Drone.py IsDroneModelEnabled: a player's drone without its model (an empty ship holding its turret locator);
     // EveSpaceObject2::UpdateVisibility: a space object whose estimated size across (TriFrustum::GetPixelSizeAccrossEst:
@@ -2926,6 +2933,10 @@ export class SpaceView {
       }
       return holder;
     }
+    if (e.kind === "asteroid") {
+      holder.userData = { kind: e.kind, radius: e.radius };
+      return holder;
+    }
     const big = ["station", "planet", "moon", "sun", "stargate", "structure"].includes(e.kind);
     const colour = e.kind === "sun" ? 0xffd27a : e.kind === "planet" || e.kind === "moon" ? 0x5d6f80 : big ? 0x7d8a94 : 0x6f7a82;
     const standInRadius = Math.max(Math.min(e.radius, big ? e.radius : 60), 5);
@@ -2950,7 +2961,7 @@ export class SpaceView {
     // and Structures. The live projection classifies both as celestials.
     const collidable = e.groupID === 226 || e.groupID === 319;
     holder.userData.useAuthoredBounds = collidable && e.dunObjectID != null;
-    const modelled = collidable || !["planet", "moon", "sun", "asteroid", "celestial", "billboard"].includes(e.kind);
+    const modelled = collidable || !["planet", "moon", "sun", "celestial", "billboard"].includes(e.kind);
     if (modelled) this.markModels.set(holder, { standIn });
     return holder;
   }

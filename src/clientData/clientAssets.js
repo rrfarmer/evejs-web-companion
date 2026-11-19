@@ -29,6 +29,7 @@ const GENERATED = new Map([
   ["/overviewPresets.json", ["--overview"]],
   ["/sofMaterials.json", ["--sof-materials"]],
   ["/ammoColors.json", ["--ammo-colors"]],
+  ["/asteroidRules.json", ["--asteroid-rules"]],
   ["/starmap.json", ["--star-map", '"starMapBuild":5']],
 ]);
 

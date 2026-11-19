@@ -788,6 +788,7 @@ function parseArgs(argv) {
     else if (a === "--turret") out.turrets.push(argv[++i]);
     else if (a === "--gfx-turrets") out.gfxTurrets = true;
     else if (a === "--ammo-colors") out.ammoColors = true;
+    else if (a === "--asteroid-rules") out.asteroidRules = true;
     else if (a === "--sof-materials") out.sofMaterials = true;
     else if (a === "--fx") out.fx.push(argv[++i]);
     else if (a === "--star-map") out.starMap = true;
@@ -850,6 +851,15 @@ async function main() {
     fs.writeFileSync(path.join(outRoot, "typeNames.json"), JSON.stringify(names));
     console.log(`typeNames.json: ${Object.keys(names.types).length} types, ${Object.keys(names.groups).length} groups`);
   } else if (fs.existsSync(tgFile)) typeGraphics = JSON.parse(fs.readFileSync(tgFile, "utf8"));
+
+  if (args.asteroidRules) {
+    const groups = groupGraphics(rf, client, outRoot, REPO);
+    const typeGraphicIDs = Object.fromEntries(Object.entries(typeGraphics ?? {}).map(([id, row]) => [id, row.graphicID]));
+    const destination = path.join(outRoot, "asteroidRules.json");
+    const temporary = `${destination}.${process.pid}.tmp`;
+    fs.writeFileSync(temporary, JSON.stringify({ groups, typeGraphicIDs }));
+    fs.renameSync(temporary, destination);
+  }
 
   const specs = [...args.hulls];
   const meshMissing = (gr2) => {
@@ -1115,7 +1125,7 @@ async function main() {
     }
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.wormholeNebulas.length && !args.wormholeTransit && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.wormholeNebulas.length && !args.wormholeTransit && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.asteroidRules && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {
