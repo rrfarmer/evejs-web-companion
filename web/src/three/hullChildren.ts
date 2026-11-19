@@ -532,6 +532,22 @@ const childTexture = (url: string | null | undefined) => {
   if (!childTextures.has(url)) childTextures.set(url, loadDds(url).then((t) => t as THREE.Texture).catch(() => null));
   return childTextures.get(url)!;
 };
+const sampledChildTextures = new Map<string, Promise<THREE.Texture | null>>();
+function sampledChildTexture(url: string | null | undefined, anisotropy: number, clamp = false): Promise<THREE.Texture | null> {
+  if (!url) return Promise.resolve(null);
+  const key = `${anisotropy}:${clamp}:${url}`;
+  if (!sampledChildTextures.has(key)) {
+    sampledChildTextures.set(key, childTexture(url).then((source) => {
+      if (!source) return null;
+      // The same image can be bound to different samplers, even within a single material.
+      const texture = source.clone();
+      texture.anisotropy = anisotropy;
+      if (clamp) texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+      return texture;
+    }));
+  }
+  return sampledChildTextures.get(key)!;
+}
 const effectClock = { get value() { return performance.now() / 1000; } };
 
 /**
@@ -568,8 +584,14 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
     uniforms[`s${i}`] = { value: v4(p[`TextureScroll${i}`], [0, 0, 0, 0]) };
     uniforms[`d${i}`] = { value: null };
   }
-  for (let i = 1; i <= count; i++) void childTexture(area.textures[`DiffuseMap${i}`]).then((t) => { uniforms[`d${i}`]!.value = t; });
-  void childTexture(area.textures.MaskMap).then((t) => { uniforms.mask!.value = t; });
+  const clampMask = area.options.MASK_TEXTURE_SAMPLING === "CLAMP";
+  // The regular shader binds 4× for diffuse 1 and 16× for the other diffuse textures and mask.
+  for (let i = 1; i <= count; i++) {
+    const url = area.textures[`DiffuseMap${i}`];
+    void (beam ? childTexture(url) : sampledChildTexture(url, i === 1 ? 4 : 16)).then((t) => { uniforms[`d${i}`]!.value = t; });
+  }
+  const maskUrl = area.textures.MaskMap;
+  void (beam ? childTexture(maskUrl) : sampledChildTexture(maskUrl, 16, clampMask)).then((t) => { uniforms.mask!.value = t; });
   const read = (i: number) => `vec4 r${i} = texture2D(d${i}, vUv * t${i}.zw + t${i}.xy + s${i}.xy * time + s${i}.zw);
         if (dot(r${i}, r${i}) == 0.0) discard;
         c *= r${i};`;
@@ -616,7 +638,7 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
         vec4 c = vec4(1.0);
         ${[1, 2, 3].filter((i) => i <= count).map(read).join("\n        ")}
         vec2 mUv = ${maskUv};
-        ${area.options.MASK_TEXTURE_SAMPLING === "CLAMP" ? "mUv = clamp(mUv, 0.0, 1.0);" : ""}
+        ${beam && clampMask ? "mUv = clamp(mUv, 0.0, 1.0);" : ""}
         vec4 m = texture2D(mask, mUv);
         if (dot(m, m) == 0.0) discard;
         c *= m * colour;
@@ -1049,9 +1071,10 @@ function twoSidedUberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
     s1: { value: v4(p.TextureScroll1, [0, 0, 0, 0]) }, s2: { value: v4(p.TextureScroll2, [0, 0, 0, 0]) },
     d1: { value: null }, d2: { value: null }, mask: { value: null },
   };
-  void childTexture(area.textures.DiffuseMap1).then((t) => { uniforms.d1!.value = t; });
+  // The second diffuse texture is trilinear in this pass, and the mask clamps at every mip level.
+  void sampledChildTexture(area.textures.DiffuseMap1, 4).then((t) => { uniforms.d1!.value = t; });
   void childTexture(area.textures.DiffuseMap2).then((t) => { uniforms.d2!.value = t; });
-  void childTexture(area.textures.MaskMap).then((t) => { uniforms.mask!.value = t; });
+  void sampledChildTexture(area.textures.MaskMap, 1, true).then((t) => { uniforms.mask!.value = t; });
   const params = {
     uniforms,
     vertexShader: `uniform vec4 t1; uniform vec4 t2; uniform vec4 s1; uniform vec4 s2; uniform vec4 fresnel; uniform float time;
@@ -1068,9 +1091,8 @@ function twoSidedUberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
       }`,
     fragmentShader: `uniform sampler2D d1; uniform sampler2D d2; uniform sampler2D mask; uniform vec4 colour;
       varying vec2 vUv; varying vec4 vUv12; varying float vFresnel;
-      ${CLAMP_GLSL}
       void main() {
-        gl_FragColor = texture2D(d1, vUv12.xy) * texture2D(d2, vUv12.zw) * texture2D(mask, clampUv(mask, vUv)) * (vFresnel * colour);
+        gl_FragColor = texture2D(d1, vUv12.xy) * texture2D(d2, vUv12.zw) * texture2D(mask, vUv) * (vFresnel * colour);
       }`,
     transparent: true, depthWrite: false, ...areaBlend(area),
   };
