@@ -619,13 +619,16 @@ function readSmartModifiers(items, skipped) {
         active: item.active ?? true, startsActive: item.startsActive ?? true, factor, duration, curve,
         delayIn: item.activationDelay ?? 0, delayOut: item.deactivationDelay ?? 0,
       });
-    } else if (item.type === "EveSmartLightAttributeModifierColor" && !item.activationOverLifetime &&
+    } else if (item.type === "EveSmartLightAttributeModifierColor" &&
+               (!item.activationOverLifetime || (item.activationOverLifetime.type === "Tr2CurveScalar" &&
+                 !item.lifeTimeFormula && !item.perInstanceOffset)) &&
                !item.delayedActivation && (item.saturationMultiplier ?? 1) <= 1 && (curve === 0 || curve === 5)) {
       out.push({
         kind: "color", color: smartLightColor(item, item.blendColor ?? [0, 0, 0, 1]),
         blend: item.blendValue ?? 1, brightness: item.brightnessMultiplier ?? 1, saturation: item.saturationMultiplier ?? 1,
         active: item.active ?? true, startsActive: item.startsActive ?? true, variable: item.variableName ?? "",
         delayIn: item.activationDelay ?? 0, delayOut: item.deactivationDelay ?? 0, duration, curve, factor,
+        ...(item.activationOverLifetime ? { lifetime: curveData(item.activationOverLifetime) } : {}),
       });
     } else {
       skipped[item.type] = (skipped[item.type] ?? 0) + 1;
@@ -634,14 +637,19 @@ function readSmartModifiers(items, skipped) {
   return out;
 }
 
-/** The instances produced by a full, immediate locator burst. */
+/** The authored locator instances of an immediate burst or a single plane sweep. */
 function readSmartLightSet(o, skipped) {
   const d = o.distribution;
-  const [burst] = d?.spawnTriggers ?? [];
-  if (d?.type !== "EveBaseDistributionMethod" || d.spawnTriggers?.length !== 1 ||
-      burst?.type !== "EveDistributionSpawnerBurst" || (burst.completeness ?? 1) !== 1 ||
-      burst.delayBeforeInitialBurst || burst.additionalTriggersPerBurst || d.spawnModifiers?.length ||
-      d.lifetimeModifiers?.length) return null;
+  const [trigger] = d?.spawnTriggers ?? [];
+  if (d?.type !== "EveBaseDistributionMethod" || d.spawnTriggers?.length !== 1 || d.lifetimeModifiers?.length) return null;
+  const [offset] = d.spawnModifiers ?? [];
+  const plane = trigger.type === "EveDistributionSpawnerTriggerPlane";
+  const supportedOffset = !offset || (d.spawnModifiers.length === 1 &&
+    offset.type === "EveDistributionSpawnModifierLifeTimeOffset" &&
+    (offset.normalizeOffsets || offset.consistentRandom || (offset.minOffset ?? 0) === (offset.maxOffset ?? 0)));
+  if (plane ? (trigger.triggerChance ?? 1) !== 1 || trigger.startSequenceAtFirstTrigger === false || !supportedOffset
+    : trigger.type !== "EveDistributionSpawnerBurst" || (trigger.completeness ?? 1) !== 1 ||
+      trigger.delayBeforeInitialBurst || trigger.additionalTriggersPerBurst || offset) return null;
   const placements = [];
   for (const generator of d.placementGenerators ?? []) {
     if (generator.type === "EveDistributionPlacementGeneratorLocators") {
@@ -699,7 +707,17 @@ function readSmartLightSet(o, skipped) {
     skipped[group.type] = (skipped[group.type] ?? 0) + 1;
   };
   for (const group of o.lightGroups ?? []) visit(group, null, []);
-  return { k: "smartLights", id: idOf(o), name: o.name ?? null, placements, lights, quads, meshes };
+  if (plane && meshes.length) return null;
+  const spawn = plane ? {
+    plane: {
+      rotation: trigger.planeRotation ?? [0, 0, 0, 1], duration: trigger.playDuration ?? 1,
+      delay: trigger.delayBeforeActivation ?? 0, reverse: trigger.reversePlaneAnimation ?? false,
+      playtime: d.playtimeMultiplier ?? 1,
+      ...(offset ? { offsets: { near: offset.minOffset ?? 0, far: offset.maxOffset ?? 0,
+        cascade: offset.cascadingLifetimeOffset ?? 0, normalize: offset.normalizeOffsets ?? false } } : {}),
+    },
+  } : {};
+  return { k: "smartLights", id: idOf(o), name: o.name ?? null, placements, lights, quads, meshes, ...spawn };
 }
 
 function readShown(o, skipped) {

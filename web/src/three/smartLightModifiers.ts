@@ -1,5 +1,6 @@
 import { compileCondition } from "./controllers.ts";
 import { smartLightNoiseGain } from "./smartLightNoise.ts";
+import { prepareScalar, scalarAt, type ScalarCurve } from "./curves.ts";
 
 type CameraDriver =
   | { kind: "distance"; near: number; far: number; inverse: boolean }
@@ -12,7 +13,8 @@ export type SmartLightModifier =
   | { kind: "noise"; amplitude: number; frequency: number; octaves: number; factor: number;
       active: boolean; startsActive: boolean; duration: number; curve: number; delayIn: number; delayOut: number }
   | { kind: "color"; color: number[]; blend: number; brightness: number; saturation: number; factor: number;
-      active: boolean; startsActive: boolean; variable: string; duration: number; curve: number; delayIn: number; delayOut: number };
+      active: boolean; startsActive: boolean; variable: string; duration: number; curve: number; delayIn: number; delayOut: number;
+      lifetime?: ScalarCurve };
 
 export interface SmartLightInputs {
   variable(name: string): number | undefined;
@@ -21,6 +23,7 @@ export interface SmartLightInputs {
   camera?: { distance: number; alignment: number };
   /** The current global sim clock, expressed as Unix milliseconds. */
   simTimeMs?: number;
+  placementAge?: number;
 }
 interface Gate { ready: boolean; weight: number }
 interface Frame { dt: number; now: number; rgb: number[]; input: SmartLightInputs }
@@ -52,6 +55,11 @@ const fadeCurve = (curve: number, progress: number) => curve === 5 && progress >
 
 export function smartLightUsesCamera(modifiers: readonly SmartLightModifier[]): boolean {
   return modifiers.some(item => item.kind === "camera" || ("children" in item && smartLightUsesCamera(item.children)));
+}
+
+export function smartLightUsesLifetime(modifiers: readonly SmartLightModifier[]): boolean {
+  return modifiers.some(item => (item.kind === "color" && item.lifetime !== undefined) ||
+    ("children" in item && smartLightUsesLifetime(item.children)));
 }
 
 function compile(item: SmartLightModifier, initialGate: boolean, insideBucket = false): Modifier {
@@ -102,11 +110,15 @@ function compile(item: SmartLightModifier, initialGate: boolean, insideBucket = 
       for (let i = 0; i < 3; i++) frame.rgb[i] = frame.rgb[i]! * gain;
     };
   }
+  const lifetime = item.lifetime;
+  const keys = lifetime ? prepareScalar(lifetime) : undefined;
   return (frame, gate) => {
     const v = item.variable ? frame.input.variable(item.variable) : undefined;
     const active = gate.ready && (v === undefined ? (insideBucket || item.active) : v > 0);
     const { value: progress } = fade(active, frame.dt, item.duration, item.delayIn, item.delayOut, !insideBucket);
-    const weight = gate.weight * fadeCurve(item.curve, progress) * item.factor;
+    const age = frame.input.placementAge;
+    const lifeWeight = lifetime && keys ? age === undefined ? 0 : scalarAt(lifetime, keys, age) : 1;
+    const weight = lifeWeight * gate.weight * fadeCurve(item.curve, progress) * item.factor;
     if (weight === 0) return;
     const blend = item.blend * weight;
     const rgb = frame.rgb;
@@ -121,10 +133,12 @@ function compile(item: SmartLightModifier, initialGate: boolean, insideBucket = 
 /** An instance's state, independent of the other copies of the same hull. */
 export function smartLightColor(color: number[], modifiers: readonly SmartLightModifier[]) {
   const run = modifiers.map((modifier) => compile(modifier, true));
+  const timed = smartLightUsesLifetime(modifiers);
   let last: number | undefined;
   return (now: number, input: SmartLightInputs): number[] => {
-    const dt = last === undefined ? 0 : Math.max(0, now - last);
-    last = now;
+    const time = timed && input.simTimeMs !== undefined ? input.simTimeMs / 1000 : now;
+    const dt = last === undefined ? 0 : Math.max(0, time - last);
+    last = Math.max(last ?? time, time);
     const rgb = color.slice();
     apply(run, { dt, now, rgb, input }, { ready: true, weight: 1 });
     return rgb;

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { smartLightColor, smartLightUsesCamera, type SmartLightModifier } from "./smartLightModifiers.ts";
 import { smartLightPerlin } from "./smartLightNoise.ts";
+import { smartLightPlaneSpawns, type SmartLightPlane } from "./smartLightPlane.ts";
 
 const color = (changes: Partial<Extract<SmartLightModifier, { kind: "color" }>> = {}): SmartLightModifier => ({
   kind: "color", color: [0, 0, 1, 0.5], blend: 1, brightness: 1, saturation: 1,
@@ -102,5 +103,52 @@ test("the native accumulator noise lattice and epoch preserve the sim-clock phas
     assert.ok(Math.abs(result[1]! - expected) < 3e-8);
     assert.equal(result[3], 0.75);
     assert.deepEqual(mix(2, reading), result, "a later render at the same sim time keeps the phase");
+  }
+});
+
+test("plane sweeps delay and normalize the rotated locator projections in both directions", () => {
+  const plane: SmartLightPlane = {
+    rotation: [0, 0, 0, 1], duration: 1, delay: 0.4, reverse: false, playtime: 0.5,
+  };
+  const positions = [[0, 80, 0], [0, -20, 0], [0, 20, 0], [0, -10, 0]];
+  const times = (spec: SmartLightPlane, locators = positions) =>
+    smartLightPlaneSpawns(spec, locators).map(spawn => Math.round(spawn.time * 1000));
+  assert.deepEqual(times(plane), [1400, 400, 800, 500]);
+  assert.deepEqual(times({ ...plane, reverse: true }), [400, 1400, 1000, 1300]);
+  assert.deepEqual(times({ ...plane, reverse: true }, [positions[0]!]), [1400]);
+  // A quarter turn about X aims +Y along +Z.
+  assert.deepEqual(times({ ...plane, rotation: [Math.SQRT1_2, 0, 0, Math.SQRT1_2] },
+    positions.map(p => [0, 0, p[1]!])), [1400, 400, 800, 500]);
+});
+
+test("plane lifetime offsets follow spawn order and native float wrapping", () => {
+  const plane: SmartLightPlane = {
+    rotation: [0, 0, 0, 1], duration: 1, delay: 0, reverse: false, playtime: 0.5,
+    offsets: { near: 0, far: 1, cascade: 0, normalize: true },
+  };
+  const positions = [3, 0, 4, 6, 1, 5, 2].map(y => [0, y, 0]);
+  const expected = [0.5714285969734192, 0.1428571492433548, 0.7142857313156128, 0,
+    0.2857142984867096, 0.8571428656578064, 0.4285714626312256];
+  assert.deepEqual(smartLightPlaneSpawns(plane, positions).map(spawn => spawn.offset), expected);
+  plane.offsets = { near: 0, far: 1, cascade: 0.4037266969680786, normalize: false };
+  const randomPositions = [2, 1, 3, 4, 5, 6, 7, 8, 0].map(y => [0, y, 0]);
+  const random = smartLightPlaneSpawns(plane, randomPositions);
+  assert.deepEqual([random[8]!.offset, random[1]!.offset, random[0]!.offset],
+    [0.00017982302233576775, 0.40374916791915894, 0.8074758648872375]);
+});
+
+test("an authored lifetime curve samples locator age after its spawn offset", () => {
+  const lifetime = { keys: [[0, 0, 0.1, 0.1, 1, 1, 0], [10, 1, 0.1, 0.1, 2, 1, 0]] } as const;
+  const fade = color({ active: true, blend: 0, brightness: 0, duration: 0,
+    lifetime: { keys: lifetime.keys.map(key => [...key]) } });
+  const mix = smartLightColor([0, 0.4, 0, 0.75], [fade]);
+  const input = { variable: () => undefined, speed: 0, maxSpeed: 0 };
+  for (const [age, expected] of [
+    [0.7, 0.3720000088214874],
+    [0.7 + (0.7865459 - 0.3235887) * 0.5, 0.3627408444881439],
+  ] as const) {
+    const result = mix(0, { ...input, placementAge: age });
+    assert.ok(Math.abs(result[1]! - expected) < 3e-8);
+    assert.equal(result[3], 0.75);
   }
 });

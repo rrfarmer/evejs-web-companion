@@ -2703,7 +2703,10 @@ export class SpaceView {
         }).catch((error: unknown) => console.warn("Observatory vortex:", error));
       } else if (e.typeID && e.groupID === 1975) {
         void typeModel(e.typeID).then((model) => {
-          if (model && !this.stopped && this.marks.get(e.itemID) === holder) holder.add(model);
+          if (model && !this.stopped && this.marks.get(e.itemID) === holder) {
+            holder.userData.smartLightAttachTimeMs = this.live.effectSimNow();
+            holder.add(model);
+          }
         }).catch(() => { /* An authored non-interactable object can have an empty model. */ });
       }
       return holder;
@@ -2739,6 +2742,7 @@ export class SpaceView {
         if (!model || !this.marks.has(e.itemID)) return;
         if (!holder.userData.useAuthoredBounds) model.rotation.y = Math.PI;
         holder.remove(standIn);
+        holder.userData.smartLightAttachTimeMs = this.live.effectSimNow();
         holder.add(model);
         holder.userData.impact = impactOverlayOf(model);
         // its dust (playerShip.UpdateDirtLevel: the slim item's dirtTime, where it has one)
