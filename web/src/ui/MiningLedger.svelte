@@ -1,14 +1,20 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
   import {
-    filterMiningLedger, ledgerDateRange, ledgerFilterOf, miningLedgerDaily, miningLedgerTotals,
+    canViewCorporationMiningLedger, filterMiningLedger, ledgerDateRange, ledgerFilterOf, miningLedgerDaily, miningLedgerTotals,
     type LedgerMetric, type MiningLedgerEntry, type MiningLedgerFacts,
   } from "../bridge/miningLedger.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
+  import CorporationMiningLedger from "./CorporationMiningLedger.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const names = $derived(store.names);
+  const station = $derived(store.station);
+  const corporationScope = $derived($station.online?.corporationID && canViewCorporationMiningLedger($station.online.corpRole)
+    ? `${$station.online.characterID}:${$station.online.corporationID}` : null);
+  let selectedCorporationScope = $state<string | null>(null);
+  const showCorporation = $derived(corporationScope !== null && selectedCorporationScope === corporationScope);
   let response = $state.raw<Awaited<ReturnType<AppFlow["loadMiningLedger"]>> | null>(null);
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -161,7 +167,19 @@
   }
 </script>
 
-<section class="mining-ledger" aria-label="Personal Mining Ledger">
+{#if corporationScope}
+  <nav class="ledger-switch" aria-label="Mining ledger views">
+    <button type="button" aria-pressed={!showCorporation} onclick={() => selectedCorporationScope = null}>Personal</button>
+    <button type="button" aria-pressed={showCorporation} onclick={() => selectedCorporationScope = corporationScope}>Corporation</button>
+  </nav>
+{/if}
+{#if showCorporation}
+  {#key corporationScope}
+    <CorporationMiningLedger {store} {flow} />
+  {/key}
+{/if}
+
+<section class="mining-ledger" aria-label="Personal Mining Ledger" hidden={showCorporation}>
   <div class="ledger-toolbar">
     <label>From <input aria-label="From date" type="date" value={selectedFrom} min={range.first} max={range.to}
       onchange={event => setDate("from", event.currentTarget.value)} /></label>
@@ -270,7 +288,11 @@
 </section>
 
 <style>
+  .ledger-switch { display: flex; gap: 6px; padding: 10px 12px 0; }
+  .ledger-switch button { border: 1px solid #465a62; border-radius: 3px; background: #17232b; color: #bdcbd1; padding: 4px 12px; }
+  .ledger-switch button[aria-pressed=true] { border-color: #86a4ad; background: #31454d; color: #f0f8fb; }
   .mining-ledger { padding: 12px; display: grid; gap: 10px; min-width: 0; color: #dce8eb; font-size: 12px; }
+  .mining-ledger[hidden] { display: none; }
   h3 { margin: 0; font-size: 13px; color: #eef6f8; font-weight: 650; }
   button, select, input { font: inherit; }
   button, select, input[type=date], summary {

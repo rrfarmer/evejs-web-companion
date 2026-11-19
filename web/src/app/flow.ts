@@ -461,7 +461,10 @@ import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
 import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
 import { decodeCargoScan, decodeShipScan, groupShipScanHardware, type CargoScanResult, type ShipScanGroup, type ShipScanResult } from "../bridge/scannerResults.ts";
 import { basicMiningScan, INTEGRATED_MINING_SCANNER, miningScanInWarp, miningSurveyDepletion, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
-import { decodeMiningLedger, type MiningLedgerEntry, type MiningLedgerFacts } from "../bridge/miningLedger.ts";
+import {
+  canViewCorporationMiningLedger, decodeCorporationMiningLedger, decodeMiningLedger, decodeMiningObservers,
+  type CorporationMiningLedgerEntry, type MiningLedgerEntry, type MiningLedgerFacts, type MiningLedgerObserver, type MiningLedgerYield,
+} from "../bridge/miningLedger.ts";
 import { decodeAgencySeason, decodeAgencySeasonChoices, decodeAgencySeasonProgress, decodeAgencySeasonReward, decodeSeasonSelectionDefinition,
   isVanguardTrackCompleted, seasonRewardClaimable, VANGUARD_TRACK_INSTANCE, type AgencySeason, type AgencySeasonReward } from "../bridge/agencySeason.ts";
 import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from "../bridge/serverDialogs.ts";
@@ -4183,6 +4186,8 @@ export interface AppFlow {
   clearSurveyScan(): void;
   miningScanFacts(typeIDs: readonly number[]): Promise<ReadonlyMap<number, MiningScanTypeFacts>>;
   loadMiningLedger(): Promise<{ rows: readonly MiningLedgerEntry[]; facts: ReadonlyMap<number, MiningLedgerFacts>; nowMs: number }>;
+  loadCorporationMiningObservers(): Promise<readonly MiningLedgerObserver[]>;
+  loadCorporationMiningLedger(observerID: number): Promise<{ rows: readonly CorporationMiningLedgerEntry[]; facts: ReadonlyMap<number, MiningLedgerFacts>; nowMs: number }>;
   /** R23 — ask the station refinery what these stacks yield, and its ISK tax. */
   loadReprocessingQuote(itemIDs: readonly number[]): Promise<void>;
   /** R23 — move mined ore into the station hangar (docked only). */
@@ -26082,9 +26087,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }]));
   }
 
-  async function loadMiningLedger() {
-    const current = callOptions.captureRequestGuard!();
-    const rows = decodeMiningLedger(await bridgeAsk("characterMiningLedger", "GetCharacterLogs", []));
+  async function miningLedgerFacts(rows: readonly MiningLedgerYield[], current: () => void) {
+    current();
     const typeIDs = [...new Set(rows.map(row => row.typeID))];
     const [common, dogma] = await Promise.all([
       miningScanFacts(typeIDs).catch(() => new Map<number, MiningScanTypeFacts>()),
@@ -26106,6 +26110,42 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (baseTypeID !== null) names.push({ kind: "type", id: baseTypeID });
     }
     if (names.length) requestNames(names);
+    return facts;
+  }
+
+  async function loadMiningLedger() {
+    const current = callOptions.captureRequestGuard!();
+    const rows = decodeMiningLedger(await bridgeAsk("characterMiningLedger", "GetCharacterLogs", []));
+    const facts = await miningLedgerFacts(rows, current);
+    current();
+    return { rows, facts, nowMs: serverNow() };
+  }
+
+  function corporationMiningScope() {
+    return captureMemberOperation(() => {
+      if (!canViewCorporationMiningLedger(store.station.get().online?.corpRole))
+        throw new Error("The corporation Mining Ledger requires the Accountant role.");
+    });
+  }
+
+  async function loadCorporationMiningObservers() {
+    const scope = corporationMiningScope();
+    const observers = decodeMiningObservers(await scope.ask("corpMiningLedger", "GetObserversWithMiningEvents", []));
+    scope.current();
+    if (observers.length) requestNames([...new Set(observers.map(observer => observer.systemID))].map(id => ({ kind: "system", id })));
+    return observers;
+  }
+
+  async function loadCorporationMiningLedger(observerID: number) {
+    const scope = corporationMiningScope();
+    const rows = decodeCorporationMiningLedger(await scope.ask("corpMiningLedger", "GetObserverLedger", [observerID]));
+    const facts = await miningLedgerFacts(rows, scope.current);
+    scope.current();
+    const owners: NameRef[] = [
+      ...[...new Set(rows.map(row => row.corporationID))].map(id => ({ kind: "corporation" as const, id })),
+      ...[...new Set(rows.map(row => row.characterID))].map(id => ({ kind: "character" as const, id })),
+    ];
+    if (owners.length) requestNames(owners);
     return { rows, facts, nowMs: serverNow() };
   }
 
@@ -36533,6 +36573,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     clearSurveyScan,
     miningScanFacts,
     loadMiningLedger,
+    loadCorporationMiningObservers,
+    loadCorporationMiningLedger,
     loadReprocessingQuote,
     unloadMiningHolds,
     reprocessItems,

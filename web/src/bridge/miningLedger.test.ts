@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  decodeMiningLedger, filterMiningLedger, ledgerDateRange, ledgerFilterOf, miningLedgerDaily, miningLedgerTotals,
+  canViewCorporationMiningLedger, decodeCorporationMiningLedger, decodeMiningLedger, decodeMiningObservers,
+  filterMiningLedger, ledgerDateRange, ledgerFilterOf, miningLedgerDaily, miningLedgerTotals,
   type MiningLedgerFacts,
 } from "./miningLedger.ts";
 
@@ -44,4 +45,28 @@ test("the ledger filters inclusive UTC days and retains native ore group and moo
   assert.deepEqual(miningLedgerTotals(retained, facts, "value"), [
     { typeID: 1228, quantity: 360 }, { typeID: 45493, quantity: 200 },
   ]);
+});
+
+test("the corporation ledger decodes observer names and preserves the extraction pilot's corporation", () => {
+  const observer = (itemID: number, itemName: unknown) => record({ itemID, solarSystemID: 30000144, itemName });
+  assert.deepEqual(decodeMiningObservers({ type: "list", items: [
+    observer(1030000000012, "West Refinery"),
+    observer(1030000000011, { type: "wstring", value: "Éast Refinery" }),
+  ] }), [
+    { itemID: 1030000000011, systemID: 30000144, name: "Éast Refinery" },
+    { itemID: 1030000000012, systemID: 30000144, name: "West Refinery" },
+  ]);
+  assert.throws(() => decodeMiningObservers([record({ itemID: 42, itemName: true })]), /incomplete observer/);
+  const yieldEntry = { eventDate: filetime(midnight + 10), solarSystemID: 30000144, typeID: 1230, quantity: 150 };
+  const row = record({ ...yieldEntry, characterID: 140000001, corporationID: 98000000 });
+  assert.deepEqual(decodeCorporationMiningLedger([row]), [{
+    atMs: midnight + 10, systemID: 30000144, typeID: 1230, quantity: 150, characterID: 140000001, corporationID: 98000000,
+  }]);
+  assert.throws(() => decodeCorporationMiningLedger([record(yieldEntry)]), /incomplete entry/);
+});
+
+test("the build-3698585 corporation ledger tab follows the Accountant bit in the whole role mask", () => {
+  for (const mask of ["0", "1", "4503599627370496", "bad", null, undefined]) assert.equal(canViewCorporationMiningLedger(mask), false);
+  assert.equal(canViewCorporationMiningLedger("256"), true);
+  assert.equal(canViewCorporationMiningLedger("1152921504606847232"), true);
 });
