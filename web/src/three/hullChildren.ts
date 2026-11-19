@@ -56,6 +56,8 @@ export interface SofChildContainer {
   lights?: { id?: number; position: number[]; radius: number; innerRadius: number; color: number[]; brightness: number; rotation?: number[]; innerAngle?: number; outerAngle?: number; profile?: string | null }[];
   /** Its controllers (controllers.ts), run with it as their owner. */
   controllers?: SofController[];
+  /** A controller on the loading parent can animate this effect root's scale. */
+  animatedScaling?: boolean;
   /** Its fx attributes (EveCameraFxAttributes, EveSpaceObjectFxAttributes): values gathered each frame for its sets. */
   fxAttributes?: { id: number; type: string }[];
   /**
@@ -84,6 +86,8 @@ export interface SofChildMeshArea {
   options: Record<string, string>;
   params: Record<string, number[] | number | null>;
   textures: Record<string, string | null>;
+  /** Mesh texture parameter to the effect root's external parameter name. */
+  textureSlots?: Record<string, string>;
 }
 export interface SofChildMesh {
   k: "mesh";
@@ -1810,7 +1814,14 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
       const host = {
         // (Tr2ActionChildEffect loads the file afresh each time: a copy here shares its first's curve sets, so they
         // are played from the start - else a propagator's trigger binding, already past, never fires again)
-        build: (path: string) => childEffectObject(path, effects).then((o) => { if (o) startEffect(o); return o; }),
+        build: (path: string) => childEffectObject(path, effects).then((o) => {
+          if (o) {
+            const quality = group.userData.effectShaderQuality as 1 | 2 | 3 | undefined;
+            if (quality !== undefined) setEffectShaderQuality(o, quality);
+            startEffect(o);
+          }
+          return o;
+        }),
         // an EveMultiEffect's parameters (the hangar's VFX: its "ship"): bound on the clone or above it (otherOwners)
         otherOwner: (name: string) => {
           for (let up: THREE.Object3D | null = group; up; up = up.parent) {
@@ -1864,7 +1875,13 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
         },
         trigger: (target: number) => { for (const p of propagatorRunsOf.get(object) ?? []) if (p.id === target) p.run.trigger(); },
         applyTime: (set: number, time: number) => animator?.applyTime(set, time, group),
-        setScale: (set: number, scale: number) => animator?.setScale(set, scale, group),
+        setScale: (set: number, scale: number) => {
+          if (animator?.setScale(set, scale, group)) return;
+          group.traverse((o) => {
+            const key = o.userData.animatorKey as string | undefined;
+            if (key && key !== group.userData.animatorKey) animators.get(key)?.setScale(set, scale, o);
+          });
+        },
         duration: (owner: number, name: string, range: string) => animator?.duration(owner, name, range) ?? 0,
       };
       const owners: THREE.Object3D[] = [];
@@ -2033,11 +2050,17 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
   let lightList: ChildLight[] | null = null;
   const others: THREE.Object3D[] = [];
   const animator = new ChildAnimator();
-  // the containers and meshes whose transform a played curve set drives (each its own object, recomposed each frame)
+  // Transforms driven by curve sets or controller actions need their own objects for recomposition.
   const moved = new Set<number>();
   const scan = (n: SofChildNode) => {
     if (n.k !== "container") return;
+    if (n.animatedScaling && n.id !== undefined) moved.add(n.id);
     for (const cs of n.curveSets ?? []) for (const b of cs.bindings) if (/^(translation|rotation|scaling)/.test(b.destinationAttribute)) moved.add(b.destination);
+    for (const controller of n.controllers ?? []) for (const machine of controller.machines) for (const state of machine.states) {
+      for (const action of state.actions) {
+        if (action.k === "animateValue" && action.attribute === "scaling") for (const target of action.targets ?? []) moved.add(target);
+      }
+    }
     n.objects.forEach(scan);
   };
   for (const child of children ?? []) if (child.root) scan(child.root);

@@ -69,3 +69,36 @@ test("repeating a controller command rearms it and unrelated inputs preserve its
   for (let i = 0; i < 5; i++) step();
   assert.deepEqual(spawns, [131, 131, 131, 131, 131, 131], "the same pose can start another use sequence");
 });
+
+test("controller animation samples all its bindings until the state exits", (t) => {
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
+  const curve = { type: "Tr2CurveScalar", keys: [[0, 1, 0, 0], [1, 2, 0, 0]] };
+  const controller: SofController = {
+    name: "Wormhole",
+    variables: [{ name: "WH_Size", value: 1 }],
+    machines: [{ name: "Size", start: 0, states: [
+      { name: "Fresh", actions: [
+        { k: "animateValue", attribute: "scaling", targets: [2, 3], curve },
+        { k: "animateValue", attribute: "scale", targets: [4], curve },
+        { k: "animateValue", attribute: "rate", targets: [5], curve, value: "2 * Curve(StateTime())" },
+      ], transitions: [{ condition: "WH_Size == 2", to: 1 }] },
+      { name: "Reduced", actions: [], transitions: [] },
+    ] }],
+  };
+  const writes = new Map<number, [string, number]>();
+  const run = new ControllerRun(controller, new Object3D(), {
+    build: async () => null,
+    setValue: (id, attribute, value) => { writes.set(id, [attribute, value]); },
+    setScale: (id, value) => { writes.set(id, ["scale", value]); },
+  });
+  run.update();
+  assert.deepEqual([...writes.values()], [["scaling", 1], ["scaling", 1], ["scale", 1], ["rate", 2]]);
+  now = 1000;
+  run.update();
+  assert.deepEqual([...writes.values()], [["scaling", 2], ["scaling", 2], ["scale", 2], ["rate", 4]]);
+  run.setVariable("WH_Size", 2);
+  writes.clear();
+  run.update();
+  assert.equal(writes.size, 0);
+});

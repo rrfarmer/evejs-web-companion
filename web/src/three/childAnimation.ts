@@ -276,7 +276,19 @@ export class ChildAnimator {
   setValue(id: number, attribute: string, value: number, instance?: object): boolean {
     const curve = this.playback(instance).curves.get(id);
     if (curve && /^input[1-4]$/.test(attribute)) { curve[attribute] = value; return true; }
+    const xf = attribute === "scaling" ? this.xforms.get(id) : undefined;
+    if (xf) {
+      if (xf.s.some((axis) => axis !== value)) {
+        xf.s.fill(value);
+        xf.dirty++;
+      }
+      return true;
+    }
     const t = this.targets.get(id);
+    if (t?.kind === "value" && attribute === "rate" && t.get(attribute) !== undefined) {
+      t.set(attribute, value);
+      return true;
+    }
     if (t?.kind !== "uniform") return false;
     const u = t.uniform.value as THREE.Vector4 | number;
     const comp = attribute.split(".")[1];
@@ -305,8 +317,14 @@ export class ChildAnimator {
   spawner(id: number, spawn: (rate: number) => void): void { this.spawners.set(id, spawn); }
   spawn(id: number, rate: number): void { this.spawners.get(id)?.(rate); }
   /** A controller's SetValue on a set's scale: its time advances by this x the time passed. */
-  setScale(id: number, scale: number, instance?: object): void {
-    for (const r of this.playback(instance).sets) if (r.set.id === id) r.scale = scale;
+  setScale(id: number, scale: number, instance?: object): boolean {
+    let applied = false;
+    for (const run of this.playback(instance).sets) {
+      if (run.set.id !== id) continue;
+      run.scale = scale;
+      applied = true;
+    }
+    return applied;
   }
   /** A controller's SetValue on an object's display (a container, mesh, quad or line set). */
   setDisplay(id: number, on: boolean): void {

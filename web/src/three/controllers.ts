@@ -31,6 +31,7 @@ export interface SofControllerAction {
   /** animateCurveSet: the set's id. */
   curveSet?: number;
   target?: number;
+  targets?: number[];
   value?: string;
   set?: string;
   range?: string;
@@ -43,7 +44,7 @@ export interface SofControllerAction {
   /** setExternal: its value where it has no source variable (this controller's variable read on start). */
   number?: number;
   source?: string | null;
-  /** setValue / setOwner / animateOwner: the attribute; animateOwner: its curve (Curve(x) in its value). */
+  /** Attribute to write, and an optional animation curve sampled by Curve(x). */
   attribute?: string;
   curve?: Curve | null;
   /** resetClipCenter: the behaviour (0 object centre, 1 last damage locator, 2 the locator set `set`) and index. */
@@ -517,7 +518,7 @@ export class ControllerRun {
         else if (a.k === "setOwner" && a.attribute) this.host.setOwner?.(a.attribute, v);
         else if (a.k === "setValue" && a.target !== undefined) {
           // every candidate (one per child effect file the controller may load): only the loaded one has its target
-          for (const t of (a as { targets?: number[] }).targets ?? [a.target]) this.host.setValue?.(t, (a as { attribute?: string }).attribute ?? "value", v);
+          for (const t of a.targets ?? [a.target]) this.host.setValue?.(t, a.attribute ?? "value", v);
         }
         continue;
       }
@@ -533,16 +534,24 @@ export class ControllerRun {
         });
         continue;
       }
-      // Tr2ActionAnimateValue on the space object: each update (after the machines'), its value expression (StateTime()
-      // the time since the action started, Curve(x) its curve at x) into the attribute
-      if (a.k === "animateOwner" && a.attribute && this.host.setOwner) {
+      // Tr2ActionAnimateValue evaluates its expression every update with the action's elapsed time.
+      if ((a.k === "animateOwner" || a.k === "animateValue") && a.attribute) {
         const c = conditionOf(a.value || "Curve(StateTime())");
         if (!c) continue;
-        const setOwner = this.host.setOwner, attribute = a.attribute, curve = a.curve ?? null, start = now;
+        const { attribute, targets, curve } = a;
+        const write = a.k === "animateOwner" ? (value: number) => this.host.setOwner?.(attribute, value)
+          : targets?.length ? (value: number) => {
+            for (const target of targets) {
+              if (attribute === "scale") this.host.setScale?.(target, value);
+              else this.host.setValue?.(target, attribute, value);
+            }
+          } : null;
+        if (!write) continue;
+        const start = now;
         const at = (x: number) => curveValue(curve, x);
         run.live.push({
           stop: () => {},
-          tick: (t) => setOwner(attribute, c.run({ vars: this.vars, stateTime: t - start, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship(), object: this.objectInfo, curve: at })),
+          tick: (t) => write(c.run({ vars: this.vars, stateTime: t - start, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship(), object: this.objectInfo, curve: at })),
         });
         continue;
       }

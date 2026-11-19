@@ -207,7 +207,7 @@ function readChildEffect(path, skipped) {
  * the controller may load under that name (none where a file has no such object: Trinity's binding then finds nothing).
  */
 function childEffectTargets(a, childEffects) {
-  const m = /^Owner\.objects\["([^"]*)"\](.*)$/.exec(String(a.path ?? ""));
+  const m = /^Owner\.(?:objects|effectChildren)\["([^"]*)"\](.*)$/.exec(String(a.path ?? ""));
   if (!m || !childEffects.has(m[1])) return [];
   const out = [];
   for (const key of childEffects.get(m[1])) {
@@ -281,6 +281,18 @@ function readController(c, skipped, owner) {
     if (!owner && (a.type === "Tr2ActionSetValue" || a.type === "Tr2ActionAnimateValue") && a.path === "Owner" && OWNER_ATTRIBUTES.has(a.attribute)) {
       if (a.type === "Tr2ActionSetValue") return { k: "setOwner", attribute: a.attribute, value: String(a.value ?? "") };
       return { k: "animateOwner", attribute: a.attribute, value: String(a.value ?? "Curve(StateTime())"), curve: a.curve ? curveData(a.curve) : null };
+    }
+    if (a.type === "Tr2ActionAnimateValue" && ["rate", "scale", "scaling"].includes(a.attribute)) {
+      const own = setValueObject(owner, a);
+      const targets = own ? [own] : childEffectTargets(a, childEffects);
+      const ids = targets.filter((target) => a.attribute !== "scale" || target.type === "TriCurveSet").map(idOf);
+      if (ids.length) {
+        // Loaded effects are built by their own animator. Keep their root transform if a parent action drives it.
+        if (a.attribute === "scaling" && !own) {
+          for (const root of effectRoots.values()) if (root?.k === "container" && ids.includes(root.id)) root.animatedScaling = true;
+        }
+        return { k: "animateValue", targets: ids, attribute: a.attribute, value: String(a.value ?? "Curve(StateTime())"), curve: a.curve ? curveData(a.curve) : null };
+      }
     }
     if (a.type === "Tr2ActionSetValue") {
       const value = String(a.value ?? "");
@@ -378,6 +390,7 @@ function readController(c, skipped, owner) {
 }
 let readRf = null;
 let preserveDisplayFilters = false;
+let externalTextureNames;
 // the faction the hull is built for (its colour set: Tr2FactionLight)
 let readFaction = null;
 
@@ -458,11 +471,16 @@ function meshAreas(mesh, skipped, smartBeam = false, staticSprites = false) {
         || (smartBeam && kind === "additive" && fx === "ubershaderinstanced")
         || (fx === "motionvectorramp" && MOTION_VECTOR_RAMP_DRAWN.some((perm) => MOTION_VECTOR_RAMP_DEFAULTS.every(([k, v]) => (opts[k] ?? v) === (perm[k] ?? v))));
       if (!drawn) { const k = fx === "motionvectorramp" || fx === "texturecolor" ? `area:${fx}:options` : `area:${fx}`; skipped[k] = (skipped[k] ?? 0) + 1; continue; }
+      const slots = externalTextureNames && (a.effect.resources ?? []).flatMap((resource) => {
+        const binding = externalTextureNames?.get(resource);
+        return binding ? [[resource.name, binding]] : [];
+      });
       areas.push({
         id: idOf(a), paramIds: Object.fromEntries((a.effect.parameters ?? []).filter((p) => p?.name).map((p) => [p.name, idOf(p)])),
         kind, name: a.name ?? null, index: a.index ?? 0, count: a.count ?? 1, effect: fx,
         options: Object.fromEntries((a.effect.options?.items ?? []).filter((r) => Array.isArray(r))),
         params: effectParams(a.effect), textures: effectTextures(a.effect),
+        ...(slots?.length ? { textureSlots: Object.fromEntries(slots) } : {}),
       });
     }
   }
@@ -1208,7 +1226,7 @@ function joinDynamicBindings(o, skipped) {
   return external;
 }
 
-export function readEffectFile(rf, path, selectRoot = (root) => root, { allShaderQualities = false } = {}) {
+export function readEffectFile(rf, path, selectRoot = (root) => root, { allShaderQualities = false, bindExternalTextures = false } = {}) {
   const res = String(path).toLowerCase().replace(/\.red$/, ".black");
   if (!rf.has(res)) return null;
   readFaction = null;
@@ -1223,6 +1241,11 @@ export function readEffectFile(rf, path, selectRoot = (root) => root, { allShade
   preserveDisplayFilters = allShaderQualities;
   try {
     o = selectRoot(readBlack(rf.read(res), res));
+    if (bindExternalTextures) {
+      externalTextureNames = new Map((o?.externalParameters ?? [])
+        .filter((parameter) => parameter?.destinationAttribute === "resourcePath" && parameter.destinationObject)
+        .map((parameter) => [parameter.destinationObject, parameter.name]));
+    }
     shownBySet = findShownBySet(o);
     particleLinks = findParticleLinks(o);
     if (o && typeof o === "object") external = joinDynamicBindings(o, skipped);
@@ -1234,6 +1257,7 @@ export function readEffectFile(rf, path, selectRoot = (root) => root, { allShade
     skipped.unread = String(e.message ?? e);
   } finally {
     preserveDisplayFilters = false;
+    externalTextureNames = undefined;
   }
   return { res, root, skipped, external, childEffects: childEffectRoots(), duration: o?.duration ?? -1, boundingSphereRadius: o?.boundingSphereRadius ?? 0,
     firstSet: firstSetOf(o) };

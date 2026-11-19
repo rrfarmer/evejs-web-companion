@@ -25,7 +25,7 @@ import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three
 import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { DRIFTER_COLLECTION, DrifterCollectionExplosions } from "./drifterCollectionExplosions.ts";
-import { isNonInteractableWormhole, nonInteractableWormhole, updateWormholePose, WormholeAudio } from "./nonInteractableWormhole.ts";
+import { isNonInteractableWormhole, nonInteractableWormhole, ordinaryWormhole, updateWormholePose, WormholeAudio, WORMHOLE_GROUP } from "./nonInteractableWormhole.ts";
 import { setEffectShaderQuality, setSmartLightSimulationTime } from "../three/hullChildren.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { ObservatoryEnvironment } from "./observatoryEnvironment.ts";
@@ -403,7 +403,7 @@ export class SpaceView {
     if (name === "OnSlimItemChange") {
       const id = Number(args[0]);
       const mark = this.wormholeAudio.has(id) ? this.marks.get(id) : undefined;
-      if (mark?.children.length) updateWormholePose(mark, this.live.park.slimItems.get(id));
+      if (mark?.children.length) updateWormholePose(mark, this.live.park.slimItems.get(id), mark.userData.ordinaryWormhole === true);
     }
     this.turretFx.hear(name, args);
     this.shipFx.hear(name, args);
@@ -2256,10 +2256,10 @@ export class SpaceView {
       // the ship's warp (ship.py: EnterWarp / ExitWarp set IsWarping; on load, a ball in warp mode)
       setControllerVariable(mark, "IsWarping", e.mode === "WARP" ? 1 : 0);
       if (e.hackingSecurityState !== undefined) setControllerVariable(mark, "SecurityState", e.hackingSecurityState);
-      if (isNonInteractableWormhole(e.typeID)) {
+      if (this.wormholeAudio.has(e.itemID)) {
         const effect = mark.children[0];
         if (effect) {
-          updateWormholePose(mark, park.slimItems.get(e.itemID));
+          updateWormholePose(mark, park.slimItems.get(e.itemID), mark.userData.ordinaryWormhole === true);
           setEffectShaderQuality(effect, settings.shaderQuality);
         }
       }
@@ -2701,17 +2701,21 @@ export class SpaceView {
     if (e.typeID === DRIFTER_COLLECTION && gfx().explosionEffectsEnabled) this.collectionExplosions.preload();
     // a missile's ball draws nothing of its own: its warheads are drawn by missileFx
     if (e.kind === "missile") { holder.userData = { kind: e.kind, radius: e.radius }; return holder; }
-    if (isNonInteractableWormhole(e.typeID)) {
-      holder.userData = { kind: e.kind, radius: e.radius, nonPickable: true };
+    const ordinary = e.groupID === WORMHOLE_GROUP;
+    if (isNonInteractableWormhole(e.typeID) || ordinary) {
+      holder.userData = { kind: e.kind, radius: e.radius, nonPickable: !ordinary, ordinaryWormhole: ordinary };
       const audio = new WormholeAudio(e.itemID, holder);
       this.wormholeAudio.set(e.itemID, audio);
-      void nonInteractableWormhole(e.typeID, audio.play).then((effect) => {
+      const slim = this.live.park.slimItems.get(e.itemID);
+      const load = isNonInteractableWormhole(e.typeID) ? nonInteractableWormhole(e.typeID, audio.play)
+        : ordinaryWormhole(e.typeID ?? 0, Number(slim?.get("nebulaType") ?? 0), audio.play);
+      void load.then((effect) => {
         if (!effect || this.stopped || this.marks.get(e.itemID) !== holder) return;
         // SpaceObject.Prepare applies the slim first and the graphic's overrides before starting controllers.
-        updateWormholePose(holder, this.live.park.slimItems.get(e.itemID));
+        updateWormholePose(holder, this.live.park.slimItems.get(e.itemID), ordinary);
         for (const [name, value] of Object.entries(effect.overrides)) setControllerVariable(holder, name, value);
         holder.add(effect.object);
-      }).catch((error: unknown) => console.warn("Non-interactable wormhole effect:", error));
+      }).catch((error: unknown) => console.warn("Wormhole effect:", error));
       return holder;
     }
     // repository.py uses the non-interactable classes for groups 1975 and 4579.

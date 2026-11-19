@@ -140,6 +140,11 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
     const resource = `res:/dx9/scene/universe/${universe[1].toLowerCase()}.red`;
     return { json: { scene: resource, maps: await sceneMaps(dir, resource, ensure) } };
   }
+  const wormholeNebula = /^\/wormhole-nebula\/(\d+)\.json$/.exec(rel);
+  if (wormholeNebula) {
+    const id = wormholeNebula[1];
+    return { file: await ensure(`wormholeNebula/${id}.json`, ["--wormhole-nebula", id]) };
+  }
   const celestials = /^\/celestials\/(\d+)\.json$/.exec(rel);
   if (celestials) {
     const id = celestials[1];
@@ -154,7 +159,8 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
     const file = `effects/${id}.json`;
     const portal = id === "20956" || id === "28102";
     if (portal && !canExtract()) return { file: path.join(dir, file) };
-    return { file: await ensure(file, ["--effect", id], portal ? '"effectBuild":6' : '"effectBuild":4') };
+    const wormhole = id === "3715" || id === "21050";
+    return { file: await ensure(file, ["--effect", id], wormhole ? '"effectBuild":7' : portal ? '"effectBuild":6' : '"effectBuild":4') };
   }
   const fx = /^\/fx\/(effects\.[A-Za-z0-9_]+)\.json$/.exec(rel);
   if (fx) return { file: await ensure(`fx/${fx[1]}.json`, ["--fx", fx[1]], '"fxBuild":3') };

@@ -368,17 +368,39 @@ function effectsTable(rf, clientDir, outRoot) {
 async function extractEffectGraphic(rf, sde, graphicID, outRoot) {
   const graphic = sdeGraphic(sde, Number(graphicID));
   const graphicFile = String(graphic?.graphicFile ?? "").replace(/\\/g, "/").toLowerCase() || null;
-  const allShaderQualities = [20956, 28102].includes(Number(graphicID));
-  const read = graphicFile ? readEffectFile(rf, graphicFile, undefined, { allShaderQualities }) : null;
+  const bindExternalTextures = [3715, 21050].includes(Number(graphicID));
+  const allShaderQualities = bindExternalTextures || [20956, 28102].includes(Number(graphicID));
+  const read = graphicFile ? readEffectFile(rf, graphicFile, undefined, { allShaderQualities, bindExternalTextures }) : null;
   if (read?.root) await copyChildGraphAssets(rf, [read.root, ...Object.values(read.childEffects ?? {})], outRoot);
   const out = {
-    effectBuild: allShaderQualities ? 6 : 4, graphicID: Number(graphicID), graphicFile,
+    effectBuild: bindExternalTextures ? 7 : allShaderQualities ? 6 : 4,
+    graphicID: Number(graphicID), graphicFile,
     root: read?.root ?? null, external: read?.external ?? [], childEffects: read?.childEffects ?? {}, skipped: read?.skipped ?? {},
     ...(allShaderQualities ? { controllerVariableOverrides: graphic?.controllerVariableOverrides ?? {} } : {}),
   };
   const file = path.join(outRoot, "effects", `${graphicID}.json`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(out));
+  return file;
+}
+
+/** A wormhole's remote side reads the destination scene's three authored nebula textures. */
+function extractWormholeNebula(rf, sde, graphicID, outRoot) {
+  const resource = sdeGraphic(sde, graphicID)?.graphicFile?.toLowerCase().replace(/\.red$/, ".black");
+  const scene = resource && rf.has(resource) ? readBlack(rf.read(resource), resource) : null;
+  if (scene?.type !== "EveSpaceScene") throw new Error(`--wormhole-nebula ${graphicID}: no destination scene`);
+  const slots = {
+    destinationReflectionCube: scene.envMap1ResPath,
+    LQ_NebulaClass: scene.lowQualityNebulaResPath,
+    LQ_NebulaMix1: scene.lowQualityNebulaMixResPath,
+    LQ_NebulaMix2: scene.lowQualityNebulaMixResPath,
+  };
+  const textures = Object.fromEntries(Object.entries(slots)
+    .filter(([, res]) => res && rf.has(res))
+    .map(([name, res]) => [name, copyRes(rf, res, outRoot)]));
+  const file = path.join(outRoot, "wormholeNebula", `${graphicID}.json`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(textures));
   return file;
 }
 
@@ -717,7 +739,7 @@ function extractObservatoryVortex(rf, outRoot) {
 }
 
 function parseArgs(argv) {
-  const out = { hulls: [], types: [], typeSkins: [], graphics: [], dnas: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, sofMaterials: false, fx: [], effects: [], starMap: false, fittingScene: false };
+  const out = { hulls: [], types: [], typeSkins: [], graphics: [], dnas: [], scenes: [], wormholeNebulas: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, sofMaterials: false, fx: [], effects: [], starMap: false, fittingScene: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
@@ -736,6 +758,11 @@ function parseArgs(argv) {
     else if (a === "--graphic") out.graphics.push(Number(argv[++i]));
     else if (a === "--dna") out.dnas.push(String(argv[++i]));
     else if (a === "--scene") out.scenes.push(argv[++i]);
+    else if (a === "--wormhole-nebula") {
+      const id = Number(argv[++i]);
+      if (!Number.isSafeInteger(id) || id <= 0) throw new Error("--wormhole-nebula needs a scene graphic ID");
+      out.wormholeNebulas.push(id);
+    }
     else if (a === "--celestial") out.celestials.push(argv[++i]);
     else if (a === "--turret") out.turrets.push(argv[++i]);
     else if (a === "--gfx-turrets") out.gfxTurrets = true;
@@ -933,6 +960,10 @@ async function main() {
   for (const c of args.celestials) console.log(`${c} -> ${path.relative(outRoot, extractCelestial(rf, c, outRoot))}`);
   for (const t of args.turrets) console.log(`${t} -> ${path.relative(outRoot, await extractTurret(rf, t, outRoot))}`);
   for (const scene of args.scenes) console.log(`${scene}: ${Object.keys(extractScene(rf, scene, outRoot)).join(", ")}`);
+  for (const id of args.wormholeNebulas) {
+    if (!sde) throw new Error("--wormhole-nebula needs matching graphic records");
+    console.log(`wormhole nebula ${id}: ${extractWormholeNebula(rf, sde, id, outRoot)}`);
+  }
   // gfxTurrets.json: an NPC hull's or a sentry's turret module type, by its type (the SDE's gfxTurretID)
   if (args.gfxTurrets) {
     if (!sde) throw new Error("--gfx-turrets needs the SDE (--sde, or a config.json that names it)");
@@ -1061,7 +1092,7 @@ async function main() {
     }
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.wormholeNebulas.length && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {
