@@ -20,7 +20,7 @@
 // quarter of its cycle (Tr2ScalarFader) - the shield's boosting and hardening kick-ins pulse its 3D layers over the
 // ellipsoid, the armor's hardening shimmers over the hull, its repairing and the hull's light the holes' edges.
 //
-// Left out: the froxel fog (1), the holes' inside lit by the environment and shadowed (the sun only),
+// Left out: the holes' inside lit by the environment and shadowed (the sun only),
 // gammaBrightness (1), the ripple's way to the shooter followed each frame (the turret's UpdateImpact: here the one at
 // the hit), the hull flicker (the activation strength), the holes made at assembly from the model's seed, part
 // overlays, the occluded-locator filter, skinned hulls' variant.
@@ -30,10 +30,12 @@
 // factor) (activationStrength; hullModel.ts setActivationStrength takes it to the model).
 
 import * as THREE from "three";
+import { CLOUD_FOG, CLOUD_FOG_GLSL } from "./cloudOpacity.ts";
 import { GpuEmitter, gpuSystemOf, type GpuEmitterData } from "./gpuParticles.ts";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
 import { logDepth } from "./logDepth.ts";
 import { curveValue, type Curve } from "./curves.ts";
+import { SOFT_DEPTH } from "./softDepth.ts";
 
 /** The hull's impact setup as the extractor writes it (extract.mjs: built.impact). */
 export interface SofImpact {
@@ -328,11 +330,13 @@ function armorTexture(url: string | null | undefined, volume: boolean): Promise<
  * F = TemporalFadeoutMap(age, age), brightness intensity x ShieldImpactData.z x F.x, radius F.z x ShieldImpactData.x x
  * parent size x size, summed RadialIntensityMap(sat(distance / radius)).x x brightness; out (the sum, saturated, x
  * ShieldColorIntensity.x x mix(Full, Empty, colour fade)) x |dot(eye, normal)|^ShieldFresnel.x, alpha 1, added.
+ * The 3698585 profiles attenuate the additive RGB by cloud transmission at the shield surface.
  */
 function shieldMaterial(params: Record<string, number[] | null>, center: THREE.Vector3, radii: THREE.Vector3): THREE.ShaderMaterial {
   const p = (name: string, d: number[]) => new THREE.Vector4(...([0, 1, 2, 3].map((i) => params[name]?.[i] ?? d[i]!) as [number, number, number, number]));
   const material = new THREE.ShaderMaterial({
     uniforms: {
+      ...CLOUD_FOG, softDepthSize: SOFT_DEPTH.softDepthSize,
       imp0: { value: Array.from({ length: MAX_SHIELD_IMPACTS }, () => new THREE.Vector4()) },
       imp1: { value: Array.from({ length: MAX_SHIELD_IMPACTS }, () => new THREE.Vector4()) },
       count: { value: 0 }, colorFade: { value: 0 }, parentSize: { value: 70 },
@@ -374,7 +378,9 @@ function shieldMaterial(params: Record<string, number[] | null>, center: THREE.V
       uniform vec4 ShieldHardeningCenter; uniform vec4 ShieldHardeningTransform; uniform vec4 ShieldBoostingCenter; uniform vec4 ShieldBoostingTransform;
       uniform vec2 kicks; uniform float time;
       uniform sampler3D Layer3DMap; uniform sampler2D LayerRadMap;
+      uniform vec2 softDepthSize;
       varying vec3 vOS; varying vec3 vN; varying vec3 vV; varying vec3 vLayer;
+      ${CLOUD_FOG_GLSL}
       void main() {
         float sum = 0.0;
         for ( int i = 0; i < ${MAX_SHIELD_IMPACTS}; i++ ) {
@@ -400,7 +406,8 @@ function shieldMaterial(params: Record<string, number[] | null>, center: THREE.V
           float hardRad = texture( LayerRadMap, length( vLayer - ShieldHardeningCenter.xyz ) * ShieldHardeningTransform.xy + fract( ShieldHardeningTransform.zw * time ) ).y;
           ext = 0.1 * ( color * ShieldColorIntensity.w * kicks.x * ( L1 * L2 * boostRad ) + color * ShieldColorIntensity.z * kicks.y * ( L3 * hardRad ) );
         }
-        gl_FragColor = vec4( fres * ( sum * ShieldColorIntensity.x * color + ext ), 1.0 );
+        float transmission = cloudFogTransmission(1.0 / gl_FragCoord.w);
+        gl_FragColor = vec4( transmission * fres * ( sum * ShieldColorIntensity.x * color + ext ), 1.0 );
       }`,
     transparent: true, depthWrite: false, depthTest: true,
     blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation,
