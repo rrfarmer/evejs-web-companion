@@ -45,7 +45,7 @@
   import Toasts from "./Toasts.svelte";
   import ServerQuestion from "./ServerQuestion.svelte";
   import ClientDialogs from "./ClientDialogs.svelte";
-  import CargoScanWindows from "./CargoScanWindows.svelte";
+  import ScannerWindows from "./ScannerWindows.svelte";
   import FleetInvitation from "./FleetInvitation.svelte";
   import InfoWindows from "./InfoWindows.svelte";
   import CalendarWindows from "./CalendarWindows.svelte";
@@ -1373,7 +1373,7 @@
   </ErrorBoundary>
   <ErrorBoundary name="Server question"><ServerQuestion store={session.store} flow={session.flow} /></ErrorBoundary>
   <ErrorBoundary name="Client dialogs"><ClientDialogs {session} inFront={true} /></ErrorBoundary>
-  <ErrorBoundary name="Cargo scan results"><CargoScanWindows {session} inFront={true} /></ErrorBoundary>
+  <ErrorBoundary name="Scanner results"><ScannerWindows {session} inFront={true} /></ErrorBoundary>
   <ErrorBoundary name="Info windows"><InfoWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>
   <ErrorBoundary name="Calendar windows"><CalendarWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>
   <ErrorBoundary name="Ship restrictions"><ShipRestrictionsWindow {session} inFront={true} /></ErrorBoundary>

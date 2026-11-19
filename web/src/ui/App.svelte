@@ -16,7 +16,7 @@
   import DuelInvitations from "./DuelInvitations.svelte";
   import DirectTradeWindows from "./DirectTradeWindows.svelte";
   import ClientDialogs from "./ClientDialogs.svelte";
-  import CargoScanWindows from "./CargoScanWindows.svelte";
+  import ScannerWindows from "./ScannerWindows.svelte";
   import InfoWindows from "./InfoWindows.svelte";
   import CalendarWindows from "./CalendarWindows.svelte";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
@@ -756,7 +756,7 @@
   </ErrorBoundary>
   <ErrorBoundary name="Cargo scan results">
     {#each sessions as session (session.id)}
-      <CargoScanWindows {session} inFront={session.id === activeId} />
+      <ScannerWindows {session} inFront={session.id === activeId} />
     {/each}
   </ErrorBoundary>
   <ErrorBoundary name="Calendar windows">

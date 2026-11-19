@@ -459,7 +459,7 @@ import { argumentsOf, createBotPresses, decodeQuestion, dialogOfKey, keptQuestio
 import { classifyDistributionAgentConversation, selectDistributionAgent } from "../nav/distributionAgentSelection.ts";
 import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
 import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
-import { decodeCargoScan, type CargoScanResult } from "../bridge/cargoScan.ts";
+import { decodeCargoScan, decodeShipScan, groupShipScanHardware, type CargoScanResult, type ShipScanGroup, type ShipScanResult } from "../bridge/scannerResults.ts";
 import { decodeAgencySeason, decodeAgencySeasonChoices, decodeAgencySeasonProgress, decodeAgencySeasonReward, decodeSeasonSelectionDefinition,
   isVanguardTrackCompleted, seasonRewardClaimable, VANGUARD_TRACK_INSTANCE, type AgencySeason, type AgencySeasonReward } from "../bridge/agencySeason.ts";
 import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from "../bridge/serverDialogs.ts";
@@ -2100,6 +2100,12 @@ export interface TypeUsedWithGroup {
 export interface CargoScanWindow extends CargoScanResult {
   readonly targetName: string | null;
   readonly targetTypeID: number | null;
+}
+
+export interface ShipScanWindow extends ShipScanResult {
+  readonly targetName: string | null;
+  readonly targetTypeID: number | null;
+  readonly groups: readonly ShipScanGroup[];
 }
 
 export interface AppFlow {
@@ -3797,6 +3803,8 @@ export interface AppFlow {
   readonly hackBoard: ReadableSignal<HackBoard | null>;
   readonly cargoScans: ReadableSignal<readonly CargoScanWindow[]>;
   closeCargoScan(targetID: number): void;
+  readonly shipScans: ReadableSignal<readonly ShipScanWindow[]>;
+  closeShipScan(targetID: number): void;
   playHack(action: HackAction): Promise<void>;
   clearHack(board: HackBoard): void;
   readonly activeDungeonObjectivesClosed: ReadableSignal<boolean>;
@@ -7112,16 +7120,29 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     receivedAtMs: number,
     insideMultiEvent = false,
   ): void {
-    if (method === "OnCargoScanComplete") {
-      const scan = decodeCargoScan(args);
+    if (method === "OnCargoScanComplete" || method === "OnShipScanCompleted") {
+      const shipScan = method === "OnShipScanCompleted" ? decodeShipScan(args) : null;
+      const scan = method === "OnCargoScanComplete" ? decodeCargoScan(args) : shipScan;
       if (scan === null) return;
       const target = store.space.get().snapshot?.entities.find(entity => entity.itemID === scan.targetID);
       const targetTypeID = target?.typeID ?? null;
+      const targetName = target?.name ?? null;
       const names: NameRef[] = scan.rows.map(row => ({ kind: "type", id: row.typeID }));
       if (targetTypeID !== null) names.push({ kind: "type", id: targetTypeID });
-      cargoScans.update(windows => [...windows.filter(window => window.targetID !== scan.targetID), {
-        ...scan, targetName: target?.name ?? null, targetTypeID,
-      }]);
+      if (shipScan !== null) {
+        const result: ShipScanWindow = { ...shipScan, targetName, targetTypeID, groups: groupShipScanHardware(scan.rows, dogmaStaticKept.types) };
+        shipScans.update(windows => [...windows.filter(window => window.targetID !== scan.targetID), result]);
+        const missingTypes = scan.rows.map(row => row.typeID).filter(typeID => !Object.hasOwn(dogmaStaticKept.types, typeID));
+        if (missingTypes.length > 0) {
+          void dogmaStaticFor(missingTypes, []).then(data => {
+            if (!data || !shipScans.get().includes(result)) return;
+            const groups = groupShipScanHardware(scan.rows, data.types);
+            shipScans.update(windows => windows.map(window => window === result ? { ...window, groups } : window));
+          }).catch(() => {});
+        }
+      } else {
+        cargoScans.update(windows => [...windows.filter(window => window.targetID !== scan.targetID), { ...scan, targetName, targetTypeID }]);
+      }
       requestNames(names);
       return;
     }
@@ -7709,7 +7730,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       hackBoard.set(null);
       void moduleRepairs.endAll();
     }
-    if (sessionNames?.includes("charid")) cargoScans.set([]);
+    if (sessionNames?.includes("charid")) {
+      cargoScans.set([]);
+      shipScans.set([]);
+    }
     // gameui.OnSessionChanged: another system, station, structure or ship, and the client's view goes where the
     // session is now (_HandleSessionChangeInStation, InStructure, InSpace), whoever changed it: the pilot's own undock,
     // dock or jump, or the server's own move (a capsule sent to its clone's station, a GM's move). The page reads its
@@ -17041,6 +17065,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const currentDungeon = createSignal<CurrentDungeon | null>(null);
   const hackBoard = createSignal<HackBoard | null>(null);
   const cargoScans = createSignal<readonly CargoScanWindow[]>([]);
+  const shipScans = createSignal<readonly ShipScanWindow[]>([]);
 
   async function playHack(action: HackAction): Promise<void> {
     const board = hackBoard.get();
@@ -35962,6 +35987,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     hackBoard: readonlySignal(hackBoard),
     cargoScans: readonlySignal(cargoScans),
     closeCargoScan: targetID => cargoScans.update(windows => windows.filter(window => window.targetID !== targetID)),
+    shipScans: readonlySignal(shipScans),
+    closeShipScan: targetID => shipScans.update(windows => windows.filter(window => window.targetID !== targetID)),
     playHack,
     clearHack,
     activeDungeonObjectivesClosed: readonlySignal(activeDungeonObjectivesClosed),
@@ -36814,6 +36841,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         closeMoneyTransfer();
         infoWindows.reset();
         cargoScans.set([]);
+        shipScans.set([]);
         corporationRecords.reset();
         corporationAggression.reset();
         requestGeneration++;
@@ -36850,6 +36878,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         closeMoneyTransfer();
         infoWindows.reset();
         cargoScans.set([]);
+        shipScans.set([]);
         requestGeneration++;
         corporationRecords.reset();
         corporationAggression.reset();

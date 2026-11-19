@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decodeCargoScan } from "./cargoScan.ts";
+import { decodeCargoScan } from "./scannerResults.ts";
 
 test("cargo scans decode game-port lists and keep blueprint copy quantities signed", () => {
   assert.deepEqual(decodeCargoScan([
