@@ -11,13 +11,45 @@ import { CLOUD_FOG, CLOUD_FOG_GLSL } from "./cloudOpacity.ts";
 import { loadDds } from "./ddsTexture.ts";
 import { logDepth } from "./logDepth";
 import { followActivation } from "./activation.ts";
-import { SOFT_DEPTH } from "./softDepth.ts";
+import { hasSoftDepth, SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
 
 const LIGHT_FOG = { ...CLOUD_FOG, softDepthSize: SOFT_DEPTH.softDepthSize };
 const LIGHT_FOG_GLSL = `uniform vec2 softDepthSize;
   ${CLOUD_FOG_GLSL}`;
 // The light color already includes its intensity. Add it directly so transmission is applied once.
 const LIGHT_BLEND = { transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, premultipliedAlpha: true };
+
+const LIGHT_DEPTH_GLSL = `uniform bool lightDepthProfile;
+  ${SOFT_DEPTH_GLSL}
+  ${CLOUD_FOG_GLSL}`;
+
+// Vogel disk in screen pixels. The Direct3D reference counts y down and WebGL counts it up.
+const LIGHT_DEPTH_DISK_GLSL = `const vec2 lightDepthDisk[16] = vec2[16](${Array.from({ length: 16 }, (_, i) => {
+  const r = 1.5 * Math.sqrt(i + 0.5);
+  const angle = i * Math.PI * (3 - Math.sqrt(5));
+  return `vec2(${(r * Math.cos(angle)).toFixed(7)}, ${(-r * Math.sin(angle)).toFixed(7)})`;
+}).join(", ")});
+  float lightDepthAt(vec2 pixel) {
+    if (any(lessThan(pixel, vec2(0.0))) || any(greaterThanEqual(pixel, softDepthSize))) return softDepthNearFar.y;
+    return softSceneDepthAt(pixel);
+  }`;
+
+/** Switch from the fixed depth test to the shader's opaque-depth calculation when its input is available. */
+function useLightDepth(mat: THREE.ShaderMaterial): void {
+  const profile = { value: false };
+  Object.assign(mat.uniforms, SOFT_DEPTH, { lightDepthProfile: profile });
+  Object.defineProperty(mat.userData, "softDepth", { enumerable: true, get: () => gfx().shaderQuality === 3 });
+  const before = mat.onBeforeRender;
+  mat.onBeforeRender = function (renderer, scene, camera, geometry, object, group) {
+    before.call(this, renderer, scene, camera, geometry, object, group);
+    const enabled = gfx().shaderQuality === 3 && hasSoftDepth(renderer, scene as THREE.Scene);
+    if (profile.value !== enabled) {
+      profile.value = enabled;
+      mat.uniformsNeedUpdate = true;
+    }
+    mat.depthTest = !enabled;
+  };
+}
 
 export interface SofSpriteSet {
   name: string | null;
@@ -95,23 +127,35 @@ function spritePoints(sets: readonly SofSpriteSet[]): THREE.Points | null {
   geo.setAttribute("falloff", new THREE.BufferAttribute(falloff, 1));
   const mat = new THREE.ShaderMaterial({
     uniforms: { ...LIGHT_FOG, time: clock, scale: { value: 1 } },
-    vertexShader: `attribute vec3 colour; attribute vec4 blink; attribute float falloff; uniform float time; uniform float scale; uniform float activation; varying vec3 vColour;
+    vertexShader: `attribute vec3 colour; attribute vec4 blink; attribute float falloff; uniform float time; uniform float scale; uniform float activation; varying vec3 vColour; varying float vHalfSize;
       ${FLASH_GLSL}
       void main() {
         float b = flash(fract(time * blink.x + blink.y), blink.x);
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         float z = max(abs(mv.z), 1.0);
         float size = mix(blink.z, blink.w, b) * pow(z, falloff);
+        vHalfSize = 0.5 * size;
         vColour = colour * (b + 1.0) * activation;
         gl_PointSize = size * scale / z;
         gl_Position = projectionMatrix * mv;
       }`,
-    fragmentShader: `varying vec3 vColour;
-      ${LIGHT_FOG_GLSL}
+    fragmentShader: `varying vec3 vColour; varying float vHalfSize;
+      ${LIGHT_DEPTH_GLSL}
       void main() {
-        float d = length((gl_PointCoord - 0.5) * 2.0);
+        float radius = length(gl_PointCoord - 0.5);
+        float d = radius * 2.0;
+        if (lightDepthProfile) {
+          float center = 1.0 / gl_FragCoord.w;
+          float halfSize = max(vHalfSize, 0.000001);
+          float back = center + halfSize;
+          float scene = max(softSceneDepth(), 0.000001);
+          // Convert the distance ramp to reciprocal depth, as used by the sprite's projection.
+          float cut = clamp((back - scene) * center / (scene * halfSize), 0.0, 1.0);
+          d = length(vec2(radius, cut));
+        }
         float a = d < 1.0 ? 4.5 * pow(max(1.1 / (1.0 + 10.0 * d) - 0.1, 0.0), 1.5) : 0.0;
-        gl_FragColor = vec4(vColour * a, 1.0) * cloudFogTransmission(1.0 / gl_FragCoord.w);
+        if (lightDepthProfile) a *= max(1.0 - fwidth(radius), 0.0);
+        gl_FragColor = vec4(vColour * a, lightDepthProfile ? a : 1.0) * cloudFogTransmission(1.0 / gl_FragCoord.w);
       }`,
     ...LIGHT_BLEND,
   });
@@ -127,6 +171,7 @@ function spritePoints(sets: readonly SofSpriteSet[]): THREE.Points | null {
     const h = renderer.getDrawingBufferSize(new THREE.Vector2()).y;
     mat.uniforms.scale!.value = cam.isPerspectiveCamera ? h / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)) : 1;
   };
+  useLightDepth(mat);
   // x the ship's activation strength (EveSpriteSet::AddToQuadRenderer puts activation x the set's intensity in each
   // vertex; blinkinglightspool's vertex stage multiplies the colour by it)
   followActivation(mat);
@@ -370,9 +415,11 @@ async function spotlightGlows(sets: readonly SofSpotlightSet[]): Promise<THREE.G
       uniforms: { ...LIGHT_FOG, map: { value: map }, hasMap: { value: map ? 1 : 0 } },
       vertexShader: `attribute vec3 axis; attribute vec2 corner; attribute vec2 size; attribute vec3 colour; attribute float least;
         attribute float gainInfluence; uniform float boosterGain;
-        varying vec3 vColour; varying vec2 vUv;
+        varying vec3 vColour; varying vec2 vUv; varying vec2 vGlowCenter;
         void main() {
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          vec4 center = projectionMatrix * mv;
+          vGlowCenter = center.xy / center.w * 0.5 + 0.5;
           vec3 z = normalize(mat3(modelMatrix) * axis);
           float f = clamp(max(least, dot(normalize(-(vec4(mv.xyz, 0.0) * viewMatrix).xyz), z)), 0.0, 1.0);
           mv.xy += f * (corner - 0.5) * size;
@@ -380,14 +427,29 @@ async function spotlightGlows(sets: readonly SofSpotlightSet[]): Promise<THREE.G
           vColour = colour * ( 1.0 + gainInfluence * ( boosterGain - 1.0 ) ); vUv = vec2(corner.x, 1.0 - corner.y);
           gl_Position = projectionMatrix * mv;
         }`,
-      fragmentShader: `uniform sampler2D map; uniform float hasMap; uniform float activation; varying vec3 vColour; varying vec2 vUv;
-        ${LIGHT_FOG_GLSL}
+      fragmentShader: `uniform sampler2D map; uniform float hasMap; uniform float activation; varying vec3 vColour; varying vec2 vUv; varying vec2 vGlowCenter;
+        ${LIGHT_DEPTH_GLSL}
+        ${LIGHT_DEPTH_DISK_GLSL}
         void main() {
           vec3 t = hasMap > 0.5 ? texture2D(map, vUv).rgb : vec3(1.0);
-          gl_FragColor = vec4(t * vColour * activation, 1.0) * cloudFogTransmission(1.0 / gl_FragCoord.w);
+          float depth = 1.0 / gl_FragCoord.w;
+          float visibility = 1.0;
+          if (lightDepthProfile) {
+            vec2 center = vGlowCenter * softDepthSize;
+            float covered = 0.0;
+            // The reference normalizes depth by the 10,000 km space camera range, then scales by 50,000.
+            for (int i = 0; i < 16; i++) {
+              float scene = lightDepthAt(center + lightDepthDisk[i]);
+              covered += smoothstep(0.0, 1.0, (depth - scene) / 200.0 + 0.500679);
+            }
+            visibility = 1.0 - covered / 16.0;
+            visibility *= visibility;
+          }
+          gl_FragColor = vec4(t * vColour * activation, 1.0) * (visibility * cloudFogTransmission(depth));
         }`,
       ...LIGHT_BLEND, side: THREE.DoubleSide,
     });
+    useLightDepth(mat);
     logDepth(mat);
     // x the ship's activation strength (the glow's per-light activation, the colour's w in spotlightglowpool) and the
     // booster gain factor
@@ -436,7 +498,8 @@ function hazeMeshes(sets: readonly SofHazeSet[]): THREE.Group | null {
         }`,
       fragmentShader: `uniform vec3 colour; uniform vec3 data; uniform float activation; uniform float boosterGain; uniform float gainInfluence; varying vec3 vObj; varying vec3 vEye;
         uniform bool hazeEnabled;
-        ${LIGHT_FOG_GLSL}
+        ${LIGHT_DEPTH_GLSL}
+        ${LIGHT_DEPTH_DISK_GLSL}
         void main() {
           if (!hazeEnabled) discard;
           vec3 o = vEye;
@@ -447,12 +510,25 @@ function hazeMeshes(sets: readonly SofHazeSet[]): THREE.Group | null {
           float chord = 2.0 * sqrt( disc );
           float near = length( o - b * d );
           float source = pow( clamp( 1.0 - near / ( 0.5 * data.y ), 0.0, 1.0 ), data.x / 3.0 );
-          float haze = min( data.z * source + pow( chord, data.x ), 1.0 );
+          float volume = pow(chord, data.x);
+          if (lightDepthProfile) {
+            float scene = 0.0;
+            for (int i = 0; i < 8; i++) scene += lightDepthAt(gl_FragCoord.xy + lightDepthDisk[i] * sqrt(0.5));
+            scene *= 0.125;
+            float entry = -b - sqrt(disc);
+            float visibleLength = scene * gl_FragCoord.w * length(vObj - o) - entry;
+            if (visibleLength < 0.0) discard;
+            float sourceStart = chord * (0.5 - 0.5 * data.y);
+            source *= clamp((min(chord, visibleLength) - sourceStart) / max(chord * data.y, 0.000001), 0.0, 1.0);
+            volume = pow(min(chord, pow(visibleLength, 1.0 / max(data.x, 0.01))), data.x);
+          }
+          float haze = min(data.z * source + volume, 1.0);
           vec3 rgb = clamp(haze * colour * activation * (1.0 + gainInfluence * (boosterGain - 1.0)), 0.0, 1.0);
-          gl_FragColor = vec4(rgb, 1.0) * cloudFogTransmission(1.0 / gl_FragCoord.w);
+          gl_FragColor = vec4(rgb, lightDepthProfile ? haze : 1.0) * cloudFogTransmission(1.0 / gl_FragCoord.w);
         }`,
       ...LIGHT_BLEND, side: THREE.BackSide,
     });
+    useLightDepth(mat);
     logDepth(mat);
     // x the ship's activation strength (the vertex stage's Shipdata.y: activation.ts) and, for an item with
     // boosterGainInfluence, 1 + (the booster gain - 1) (its Shipdata.x)

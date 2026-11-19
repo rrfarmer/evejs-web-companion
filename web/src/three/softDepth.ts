@@ -22,6 +22,14 @@ export const SOFT_DEPTH = {
   softDepthNearFar: { value: new THREE.Vector2(1, 1e6) },
 };
 
+let depthRenderer: THREE.WebGLRenderer | null = null;
+let depthScene: THREE.Scene | null = null;
+
+/** Whether the shared opaque depth belongs to the view about to draw. */
+export function hasSoftDepth(renderer: THREE.WebGLRenderer, scene: THREE.Scene): boolean {
+  return renderer === depthRenderer && scene === depthScene && SOFT_DEPTH.softDepthOn.value > 0;
+}
+
 /** Decode depth into the distance ahead of the camera, independently of its texture. */
 export const SOFT_VIEW_DEPTH_GLSL = `uniform float softDepthLogFar; uniform vec2 softDepthNearFar;
 float softViewDepth(float d) {
@@ -83,6 +91,8 @@ export class SoftDepthPass {
   render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, width: number, height: number,
     forceOpaque = false, normals = false): THREE.Texture | null {
     const target = this.draw(renderer, scene, camera, width, height, forceOpaque || normals, undefined, normals);
+    depthRenderer = target ? renderer : null;
+    depthScene = target ? scene : null;
     SOFT_DEPTH.softDepthOn.value = target ? 1 : 0;
     if (!target) return null;
     const cam = camera as THREE.PerspectiveCamera;
@@ -145,6 +155,11 @@ export class SoftDepthPass {
   }
 
   dispose(): void {
+    if (SOFT_DEPTH.softDepthMap.value === this.target?.depthTexture) {
+      depthRenderer = depthScene = null;
+      SOFT_DEPTH.softDepthOn.value = 0;
+      SOFT_DEPTH.softDepthMap.value = null;
+    }
     this.target?.dispose();
     this.blank.dispose();
     for (const dispose of this.disposeNormals) dispose();
