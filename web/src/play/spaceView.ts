@@ -26,7 +26,7 @@ import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three
 import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { DRIFTER_COLLECTION, DrifterCollectionExplosions } from "./drifterCollectionExplosions.ts";
-import { isNonInteractableWormhole, nonInteractableWormhole, ordinaryWormhole, updateWormholePose, WormholeAudio, WORMHOLE_GROUP } from "./nonInteractableWormhole.ts";
+import { isNonInteractableWormhole, nonInteractableWormhole, ordinaryWormhole, playWormholeActivity, updateWormholePose, WormholeAudio, WORMHOLE_COLLAPSE_MS, WORMHOLE_GROUP } from "./nonInteractableWormhole.ts";
 import { setEffectShaderQuality, setSmartLightSimulationTime } from "../three/hullChildren.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { ObservatoryEnvironment } from "./observatoryEnvironment.ts";
@@ -261,6 +261,7 @@ export class SpaceView {
     request?: { typeID: number; skinMaterialSetID: number | null };
   }>();
   private readonly wormholeAudio = new Map<number, WormholeAudio>();
+  private readonly collapsingWormholes: { mark: THREE.Object3D; audio: WormholeAudio; until: number }[] = [];
   // Empty slots hidden, as the client's default (showEmptySlots off) has them, until the module rack knows the fit.
   private readonly shipHud = new ShipHud({ slots: { hi: 0, med: 0, low: 0 } });
   private readonly targetBar = new TargetBar();
@@ -412,6 +413,12 @@ export class SpaceView {
     }
     this.turretFx.hear(name, args);
     this.shipFx.hear(name, args);
+    if (name === "TerminalPlayDestructionEffect") {
+      const mark = this.marks.get(Number(args[0]));
+      // An unspecified terminal effect defaults to EXPLOSION. Release also calls Explode for EXPLOSION_OVERRIDE.
+      const effect = Number(args[1] ?? 3);
+      if (mark?.userData.ordinaryWormhole && (effect === 3 || effect === 1)) mark.userData.wormholeTerminal = this.live.resets;
+    }
     // a ball blown up (TerminalPlayDestructionEffect -> spaceObject.Explode): with Ship Explosions on, one of its type's
     // explosion bucket's explosions' sounds, where it was
     if (name === "TerminalPlayDestructionEffect" && gfx().explosionEffectsEnabled) {
@@ -443,6 +450,10 @@ export class SpaceView {
       const guids = fxGuid(args[5]).split(",").map((g) => g.trim()).filter(Boolean);
       const ship = Number(args[0]), target = Number(args[3]);
       const start = Number(args[7]) === 1;
+      if (start && guids.includes("effects.WormholeActivity")) {
+        const mark = this.marks.get(ship);
+        if (mark?.userData.ordinaryWormhole) playWormholeActivity(mark, Number(mark.userData.wormholeTypeID));
+      }
       const ownShip = this.live.hello?.shipID ?? null;
       if (!this.gateJump && start && ship === ownShip && target > 0 && guids.includes("effects.JumpOutWormhole")) {
         this.beginJumpCamera(target);
@@ -813,6 +824,7 @@ export class SpaceView {
     this.ambient = null;
     for (const audio of this.wormholeAudio.values()) audio.dispose();
     this.wormholeAudio.clear();
+    this.clearWormholeCollapses();
     for (const mark of this.marks.values()) (mark.userData.vortex as ObservatoryVortex | undefined)?.dispose();
     this.stopped = true;
     this.renderer.setAnimationLoop(null);
@@ -1493,6 +1505,13 @@ export class SpaceView {
     }
     this.gateJump = null;
     this.controls.enabled = true;
+  }
+
+  private clearWormholeCollapses(): void {
+    for (const { mark, audio } of this.collapsingWormholes.splice(0)) {
+      mark.removeFromParent();
+      audio.dispose();
+    }
   }
 
   /** JumpCamera keeps the old view still in space while the ship-relative origin moves. */
@@ -2272,6 +2291,7 @@ export class SpaceView {
       this.seenResets = this.live.resets;
       this.endExplosionCamera();
       this.collectionExplosions.clear();
+      this.clearWormholeCollapses();
       if (this.gateJump && systemID !== null && this.seenSystem !== null && systemID !== this.seenSystem) {
         this.gateJump.arrivedAt = now;
       }
@@ -2438,11 +2458,27 @@ export class SpaceView {
         }
       }
     }
+    const collapseTime = this.live.effectSimNow() ?? now;
+    for (let i = this.collapsingWormholes.length - 1; i >= 0; i--) {
+      const { mark, audio, until } = this.collapsingWormholes[i]!;
+      if (collapseTime >= until) {
+        mark.removeFromParent();
+        audio.dispose();
+        this.collapsingWormholes.splice(i, 1);
+      } else mark.position.add(moved);
+    }
     for (const [id, m] of this.marks) if (!seen.has(id)) {
       // where it went from, for a moment, in the system's own frame (an explosion is drawn where a ball was)
       this.gone.set(id, { x: m.position.x + origin.x, y: m.position.y + origin.y, z: m.position.z - origin.z, radius: m.userData.radius ?? null, at: performance.now() });
-      if (!this.collectionExplosions.holdModel(id, m)) this.scene.remove(m);
-      this.wormholeAudio.get(id)?.dispose();
+      const audio = this.wormholeAudio.get(id);
+      if (audio && m.children.length && m.userData.wormholeTerminal === this.live.resets) {
+        m.position.add(moved);
+        setControllerVariable(m, "WH_State", 0);
+        this.collapsingWormholes.push({ mark: m, audio, until: collapseTime + WORMHOLE_COLLAPSE_MS });
+      } else {
+        if (!this.collectionExplosions.holdModel(id, m)) this.scene.remove(m);
+        audio?.dispose();
+      }
       this.wormholeAudio.delete(id);
       (m.userData.vortex as ObservatoryVortex | undefined)?.dispose();
       this.marks.delete(id);
@@ -2783,7 +2819,7 @@ export class SpaceView {
     if (e.kind === "missile") { holder.userData = { kind: e.kind, radius: e.radius }; return holder; }
     const ordinary = e.groupID === WORMHOLE_GROUP;
     if (isNonInteractableWormhole(e.typeID) || ordinary) {
-      holder.userData = { kind: e.kind, radius: e.radius, nonPickable: !ordinary, ordinaryWormhole: ordinary };
+      holder.userData = { kind: e.kind, radius: e.radius, nonPickable: !ordinary, ordinaryWormhole: ordinary, wormholeTypeID: e.typeID };
       const audio = new WormholeAudio(e.itemID, holder);
       this.wormholeAudio.set(e.itemID, audio);
       const slim = this.live.park.slimItems.get(e.itemID);

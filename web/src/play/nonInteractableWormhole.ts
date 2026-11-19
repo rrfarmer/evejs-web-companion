@@ -1,15 +1,30 @@
 import type { Object3D } from "three";
-import { effectObject, type SofChildNode } from "../three/hullChildren.ts";
+import { effectObject, playEffectSet, type SofChildNode } from "../three/hullChildren.ts";
 import { setControllerVariable } from "../three/controllerVariables.ts";
+import { sendControllerEvent } from "../three/hullModel.ts";
 import { gfx } from "./gfxSettings.ts";
 import { playWorldEvent, playWorldLoop, stopEmitter, type WorldLoop } from "./uiAudio.ts";
 
 const wormholeGraphics = { 84329: 20956, 87593: 28102 } as const;
 type WormholeType = keyof typeof wormholeGraphics;
 export const WORMHOLE_GROUP = 988;
+export const WORMHOLE_COLLAPSE_MS = 12_000;
 
 export function isNonInteractableWormhole(typeID: number | null): typeID is WormholeType {
   return typeID === 84329 || typeID === 87593;
+}
+
+function isSleeperWormhole(typeID: number): boolean {
+  return typeID >= 35650 && typeID <= 35654;
+}
+
+/** WormholeActivity starts the portal flash and the installed model's use controller. */
+export function playWormholeActivity(holder: Object3D, typeID: number): void {
+  const model = holder.children[0];
+  if (!model) return;
+  playEffectSet(model, "Activate");
+  playEffectSet(model, "Activation");
+  sendControllerEvent(holder, isSleeperWormhole(typeID) ? "wh_onUse" : "Departure");
 }
 
 interface WormholeEffect {
@@ -75,7 +90,7 @@ function bindWormholeTextures(node: SofChildNode, maps: Record<string, string>):
 
 export async function ordinaryWormhole(typeID: number, nebulaID: number, playSound: (event: string, observer: string) => void) {
   // The five Drifter links in group 988 use the separate Sleeper graph in build 3698585.
-  const graphicID = typeID >= 35650 && typeID <= 35654 ? 21050 : 3715;
+  const graphicID = isSleeperWormhole(typeID) ? 21050 : 3715;
   const [effect, maps] = await Promise.all([wormholeEffect(graphicID), destinationNebula(nebulaID)]);
   if (!effect?.root) return null;
   const root = maps ? bindWormholeTextures(effect.root, maps) : effect.root;
