@@ -58,3 +58,36 @@ test("a controller variable drives every placement of a smart light source in it
   assert.deepEqual(charging.lights.map(light => light.userData.lightRecord.brightness), [3, 3, 3]);
   assert.deepEqual(idle.lights.map(light => light.userData.lightRecord.brightness), [0, 0, 0]);
 });
+
+test("a binding samples another curve set's own range after the startup timeline has passed it", () => {
+  const animator = new ChildAnimator();
+  const envelope = {
+    id: 2, type: "Tr2CurveScalar" as const,
+    keys: [[0, 0, 0, 0], [1, 1, 0, 0], [3, 1, 0, 0], [4, 0, 0, 0]],
+  };
+  animator.curveSets([
+    {
+      id: 10, name: "Play_Start", scale: 1, curves: [],
+      bindings: [{
+        source: null, sourceCurve: { ...envelope }, sourceAttribute: "currentValue", destination: 3,
+        destinationType: "EveSmartLightPointLight", destinationAttribute: "brightness", scale: 2, offset: [0],
+      }],
+    }, {
+      name: "Presentation", scale: 1, playOnLoad: false, curves: [envelope], bindings: [],
+      ranges: [{ name: "On", start: 1, end: 3, looped: true }],
+    },
+  ]);
+  const light = new THREE.Object3D();
+  const record = { brightness: 0 };
+  light.userData.lightRecord = record;
+  const objects = new Map([[3, [light]]]);
+  const seen = { visibility: 0 };
+  animator.play(HULL_OWNER, "Presentation", "On");
+  animator.step(objects, seen);
+  animator.applyTime(10, 12);
+  animator.step(objects, seen);
+  assert.equal(record.brightness, 2);
+  animator.stop(HULL_OWNER, "Presentation");
+  animator.step(objects, seen);
+  assert.equal(record.brightness, 2);
+});

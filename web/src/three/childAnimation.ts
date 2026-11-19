@@ -21,6 +21,8 @@ import * as THREE from "three";
 import { colorValue, curveValue, rotationValue, vector3Value, type Curve } from "./curves.ts";
 import type { AgentGridState } from "./behaviorAgents.ts";
 
+type SofChildCurve = Curve & { id?: number };
+
 export interface SofCurveSet {
   /** Its id (a controller's AnimateCurveSet names it). */
   id?: number;
@@ -29,11 +31,11 @@ export interface SofCurveSet {
   playOnLoad?: boolean;
   scale: number;
   ranges?: { name: string; start: number; end: number; looped: boolean }[];
-  curves: Curve[];
+  curves: SofChildCurve[];
   bindings: {
     id?: number;
     source: number | null;
-    sourceCurve: Curve | null;
+    sourceCurve: SofChildCurve | null;
     /** A container's fx attributes as the source (its id): the ticker's values for them, by attribute name. */
     sourceFx?: number;
     sourceVariable?: number;
@@ -115,7 +117,7 @@ interface ValueTarget { kind: "value"; get(attr: string): Value | undefined; set
 type Target = QuadTarget | UniformTarget | LinesTarget | ObjectTarget | ContainerTarget | SrtTarget | ValueTarget;
 interface Xform { t: number[]; r: number[]; s: number[]; dirty: number }
 /** A set's play state: its owners (the containers it is under, its own first-to-last), time and range. */
-interface SetRun { set: SofCurveSet; owners: number[]; perObject: boolean; playing: boolean; last: number; time: number; range: { min: number; max: number; looped: boolean } | null; applyAt: number | null; scale: number }
+interface SetRun { set: SofCurveSet; owners: number[]; perObject: boolean; playing: boolean; last: number; time: number; sampledTime: number; range: { min: number; max: number; looped: boolean } | null; applyAt: number | null; scale: number }
 
 const GRID_ATTRIBUTES: Partial<Record<string, "fullness" | "info" | "spacing">> = {
   gridFullnessFactor: "fullness", gridInfo: "info", gridSpacing: "spacing",
@@ -143,6 +145,8 @@ export class ChildAnimator {
   private readonly xforms = new Map<number, Xform>();
   /** The curves and bindings by id, for the bindings that drive a curve's timeOffset or a binding's scale. */
   private readonly curvesById = new Map<number, Record<string, unknown>>();
+  /** Bindings can read a curve played by another set. Its latest sample uses that set's time. */
+  private readonly curveOwners = new Map<number, { curve: Curve; run: SetRun }>();
   /** An effect's PostProcess outputs (an EveMultiEffect's binding into its PostProcess parameter: "fade.intensity"). */
   readonly outputs = new Map<string, number>();
   private readonly bindingsById = new Map<number, SofCurveSet["bindings"][number]>();
@@ -180,14 +184,20 @@ export class ChildAnimator {
       if (!c || typeof c !== "object") return;
       if (Array.isArray(c)) { c.forEach(index); return; }
       const o = c as Record<string, unknown>;
-      if (typeof o.id === "number" && typeof o.type === "string") this.curvesById.set(o.id, o);
+      if (typeof o.id === "number" && typeof o.type === "string" && !this.curveOwners.has(o.id)) this.curvesById.set(o.id, o);
       for (const [k, v] of Object.entries(o)) if (k !== "keys" && v && typeof v === "object") index(v);
     };
     for (const s of sets ?? []) {
       const onLoad = s.playOnLoad !== false;
       const perObject = s.bindings.some(b => b.destinationType === "SpawnDrones" && GRID_ATTRIBUTES[b.destinationAttribute.split(".")[0] ?? ""] !== undefined);
-      this.sets.push({ set: s, owners, perObject, playing: onLoad, last: performance.now(), time: 0, range: null, applyAt: null, scale: s.scale });
+      const run: SetRun = { set: s, owners, perObject, playing: onLoad, last: performance.now(), time: 0, sampledTime: 0, range: null, applyAt: null, scale: s.scale };
+      this.sets.push(run);
       index(s.curves);
+      for (const curve of s.curves) {
+        if (curve.id === undefined) continue;
+        this.curveOwners.set(curve.id, { curve, run });
+        this.curvesById.set(curve.id, curve as unknown as Record<string, unknown>);
+      }
       for (const b of s.bindings) { if (b.id !== undefined) this.bindingsById.set(b.id, b); if (b.sourceCurve) index(b.sourceCurve); }
     }
   }
@@ -209,7 +219,7 @@ export class ChildAnimator {
     if (!local) { local = new Map(); this.objectRuns.set(instance, local); }
     let current = local.get(run);
     if (!current) {
-      current = { ...run, playing: run.set.playOnLoad !== false, last: performance.now(), time: 0, range: null, applyAt: null, scale: run.set.scale };
+      current = { ...run, playing: run.set.playOnLoad !== false, last: performance.now(), time: 0, sampledTime: 0, range: null, applyAt: null, scale: run.set.scale };
       local.set(run, current);
     }
     return current;
@@ -316,6 +326,7 @@ export class ChildAnimator {
         run.time = looped && max > min ? ((run.time - min) % (max - min)) + min : Math.min(run.time, max);
       }
       const time = run.time;
+      run.sampledTime = time;
       const values = new Map<number, Value>();
       for (const b of set.bindings) {
         const [attr0] = b.destinationAttribute.split(".");
@@ -349,7 +360,8 @@ export class ChildAnimator {
         const output = b.destinationType === "PostProcessOutput";
         if (!output && !grids.length && !triggers.length && !lightRecords.length && !target && !xf && !curve && !binding && !sinks.length && !setScale) continue;
         let src: Value;
-        const srcCurve = b.source !== null ? set.curves[b.source] : b.sourceCurve;
+        const sourceOwner = b.sourceCurve?.id === undefined ? undefined : this.curveOwners.get(b.sourceCurve.id);
+        const srcCurve = b.source !== null ? set.curves[b.source] : sourceOwner?.curve ?? b.sourceCurve;
         if (b.sourceConst) src = b.sourceConst;
         else if (b.sourceVariable !== undefined) {
           const source = objects.get(b.sourceVariable)?.find((o) => typeof o.userData.getVariable === "function");
@@ -366,7 +378,7 @@ export class ChildAnimator {
         else if (b.source !== null) {
           if (!values.has(b.source)) values.set(b.source, valueOf(srcCurve, time));
           src = values.get(b.source)!;
-        } else src = valueOf(srcCurve, time);
+        } else src = valueOf(srcCurve, sourceOwner ? this.runFor(sourceOwner.run, instance).sampledTime : time);
         const [srcAttr, srcComp] = b.sourceAttribute.split(".");
         void srcAttr;
         const [attr, comp] = b.destinationAttribute.split(".");

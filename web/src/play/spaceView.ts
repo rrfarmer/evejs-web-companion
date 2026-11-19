@@ -1626,8 +1626,13 @@ export class SpaceView {
     for (const [id, mark] of this.marks) {
       const impact = mark.userData.impact as ImpactOverlay | undefined;
       const e = byID.get(id);
-      if (!impact || !e) continue;
-      if (e.shieldRatio != null || e.armorRatio != null || e.hullRatio != null) impact.setDamageState(e.shieldRatio ?? 0, e.armorRatio ?? 0, e.hullRatio ?? 0);
+      if (!e) continue;
+      if (e.shieldRatio != null || e.armorRatio != null || e.hullRatio != null) {
+        // SetImpactDamageState supplies the remaining shield fraction to the native controller.
+        setControllerVariable(mark, "ShieldDamage", e.shieldRatio ?? 0);
+        impact?.setDamageState(e.shieldRatio ?? 0, e.armorRatio ?? 0, e.hullRatio ?? 0);
+      }
+      if (!impact) continue;
       const distance = Math.max(1, mark.getWorldPosition(new THREE.Vector3()).distanceTo(camAt));
       impact.update(dt, this.scene, new THREE.Vector3(e.velocity.x, e.velocity.y, -e.velocity.z), (2 * e.radius * pixelsPerRadian) / distance);
       // the lights' flicker below 90 % hull
@@ -1724,7 +1729,11 @@ export class SpaceView {
       const model = mark.userData.model as THREE.Object3D | undefined;
       const group = model ? this.named(model, "turrets") : undefined;
       const sets = group?.userData.sets as { state: TurretSetState; moduleID: number | null }[] | undefined;
-      if (!sets?.length) continue;
+      if (!sets?.length) {
+        delete mark.userData.activeTurretCount;
+        continue;
+      }
+      let activeTurretCount = 0;
       // turretSet.py: online at fitting (EnterStateIdle); a warp packs them (EnterWarp / ExitWarp); a target being
       // worked on aims them (TakeAim: EnterStateTargeting), none sends them back to idle (StopShooting)
       const warping = byID.get(shipID)?.mode === "WARP";
@@ -1744,10 +1753,12 @@ export class SpaceView {
         else if (target !== null && (set.state === "idle" || set.state === "reloading")) set.enterTargeting();
         else if (target === null && set.state === "reloading") set.enterIdle();
         else if (target === null && (set.state === "targeting" || set.state === "firing")) set.enterIdle();
+        if (set.state === "firing" || set.state === "reloading") activeTurretCount++;
         set.update(dt);
         const at = target !== null ? this.placeOf(target, origin) : null;
         for (const rig of set.rigs) rig.update(at);
       }
+      mark.userData.activeTurretCount = activeTurretCount;
     }
   }
   /** A ship's module's turret set fires (a gun's shot, a launcher's missile): EnterStateFiring, by the turret facing the target. */
