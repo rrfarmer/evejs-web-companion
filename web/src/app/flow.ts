@@ -459,8 +459,9 @@ import { argumentsOf, createBotPresses, decodeQuestion, dialogOfKey, keptQuestio
 import { classifyDistributionAgentConversation, selectDistributionAgent } from "../nav/distributionAgentSelection.ts";
 import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
 import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapBool, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
-import { canManageMoonPull, decodeMoonResources, decodeMoonSchedule, MOON_FRACTURE_MS, moonMiningID, moonPullDuration,
-  type MoonRefinery, type MoonResource, type MoonSchedule } from "../bridge/moonMining.ts";
+import { canManageMoonPull, decodeCorporationMoonPulls, decodeMoonResources, decodeMoonSchedule, hasMoonStationManagerRole,
+  MOON_FRACTURE_MS, moonMiningID, moonPullDuration,
+  type CorporationMoonSchedule, type MoonRefinery, type MoonResource, type MoonSchedule } from "../bridge/moonMining.ts";
 import { decodeCargoScan, decodeShipScan, groupShipScanHardware, type CargoScanResult, type ShipScanGroup, type ShipScanResult } from "../bridge/scannerResults.ts";
 import { basicMiningScan, INTEGRATED_MINING_SCANNER, miningScanInWarp, miningSurveyDepletion, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
 import {
@@ -4194,6 +4195,7 @@ export interface AppFlow {
   changeRefineryControl(structureID: number, take: boolean): Promise<void>;
   loadMoonResources(structureID: number): Promise<readonly MoonResource[]>;
   loadMoonSchedule(structureID: number): Promise<MoonSchedule>;
+  loadCorporationMoonSchedule(current?: () => void): Promise<CorporationMoonSchedule>;
   startMoonPull(refinery: MoonRefinery, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
   loadCorporationMiningObservers(): Promise<readonly MiningLedgerObserver[]>;
@@ -26179,6 +26181,54 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return schedule;
   }
 
+  async function loadCorporationMoonSchedule(lifetime?: () => void): Promise<CorporationMoonSchedule> {
+    const scope = captureMemberOperation(lifetime);
+    const current = () => {
+      scope.current();
+      if (!hasMoonStationManagerRole(store.station.get().online?.corpRole ?? null)) {
+        throw new Error("Upcoming extractions require the Station Manager role.");
+      }
+    };
+    current();
+    const corporationID = scope.online.corporationID;
+    const [pullsRaw, directoryRaw, profilesRaw] = await Promise.all([
+      scope.ask("moonExtractions", "GetExtractionsForCorp", []),
+      scope.ask("structureDirectory", "GetCorporationStructures", []),
+      scope.ask("structureProfiles", "GetProfiles", []).catch(() => null),
+    ]);
+    current();
+    const owned = new Map(decodeCorporationStructures(directoryRaw).filter(row => row.ownerID === corporationID)
+      .map(row => [row.structureID, row]));
+    const pullRows = decodeCorporationMoonPulls(pullsRaw, corporationID).flatMap(pull => {
+      const structure = owned.get(pull.structureID);
+      if (!structure || structure.solarSystemID !== pull.solarSystemID) return [];
+      return [{ ...pull, name: structure.itemName, typeID: structure.typeID, profileID: structure.profileID }];
+    });
+    const list = isListValue(profilesRaw) ? profilesRaw.items : Array.isArray(profilesRaw) ? profilesRaw : [];
+    const names = new Map<number, string>();
+    for (const row of list) {
+      const id = moonMiningID(readKeyVal(row, "profileID"));
+      const name = wireText(readKeyVal(row, "name"));
+      if (id !== null && name) names.set(id, name);
+    }
+    for (const row of owned.values()) {
+      if (row.profileID !== null && !names.has(row.profileID)) names.set(row.profileID, `Profile ${row.profileID}`);
+    }
+    const profiles = [...names].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+    const from = pilotPlace().solarSystemID;
+    const [distances, graph] = pullRows.length ? await Promise.all([
+      from !== null ? autopilotDistancesFrom(from).catch(() => null) : Promise.resolve(null),
+      loadRouteGraph().catch(() => null),
+    ]) : [null, null];
+    current();
+    const extractions = pullRows.map(pull => ({
+      ...pull, jumps: pull.solarSystemID === from ? 0 : distances?.get(pull.solarSystemID) ?? null,
+      security: graph?.security(pull.solarSystemID) ?? null,
+    }));
+    requestNames(extractions.map(({ solarSystemID }) => ({ kind: "system", id: solarSystemID })));
+    return { extractions, profiles, nowMs: serverNow() };
+  }
+
   async function startMoonPull(refinery: MoonRefinery, readyAtMs: number, addToCalendar: boolean): Promise<void> {
     const current = callOptions.captureRequestGuard!();
     assertRefineryControl(refinery.id);
@@ -36677,6 +36727,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     changeRefineryControl,
     loadMoonResources,
     loadMoonSchedule,
+    loadCorporationMoonSchedule,
     startMoonPull,
     controlMoonPull,
     loadCorporationMiningObservers,

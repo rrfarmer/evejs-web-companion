@@ -669,6 +669,8 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
 const GAME_PORT_ONLY_CALLS = Object.freeze([
   "structureControl.TakeControl", "structureControl.ReleaseControl",
   "structureSettings.CharacterHasSetting",
+  "structureProfiles.GetProfiles",
+  "moonExtractions.GetExtractionsForCorp",
   "moonExtractions.GetMoonResourcesForStructure", "moonExtractions.GetExtractionAndEventIDFromStructureID",
   "moonExtractions.StartNewExtraction", "moonExtractions.FractureChunkWithStructure", "moonExtractions.CancelExtraction",
   "characterMiningLedger.GetCharacterLogs",
@@ -3243,6 +3245,8 @@ const RETAIL_CALLS = Object.freeze({
   "structureControl.TakeControl": judged("eve/client/script/ui/services/structure/structureControl.py:33", oneIDAlone("the docked structure"), "Take control of the structure in the pilot's session."),
   "structureControl.ReleaseControl": judged("eve/client/script/ui/services/structure/structureControl.py:59", sentWithNothing, "Release the structure in the pilot's session."),
   "structureSettings.CharacterHasSetting": same("eve/client/script/ui/services/structure/structureControl.py:91", "Check the pilot's defense permission for the docked structure."),
+  "structureProfiles.GetProfiles": judged("eve/client/script/ui/structure/structureSettings/controllers/allProfilesController.py:31", sentWithNothing, "Read the corporation's structure profiles for the profile filter."),
+  "moonExtractions.GetExtractionsForCorp": judged("eve/client/script/ui/moonmining/schedulingSvc.py:41", sentWithNothing, "A Station Manager reads the session corporation's active extractions."),
   "moonExtractions.GetMoonResourcesForStructure": judged("eve/client/script/ui/moonmining/schedulingSvc.py:27", sentWithNothing, "Read the controlled refinery's moon composition."),
   "moonExtractions.GetExtractionAndEventIDFromStructureID": judged("eve/client/script/ui/moonmining/schedulingSvc.py:36", sentWithNothing, "Read the refinery's current pull and calendar event."),
   "moonExtractions.StartNewExtraction": same("eve/client/script/ui/moonmining/schedulingSvc.py:55", "Start a pull with the structure ID, duration in seconds and calendar preference."),

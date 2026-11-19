@@ -1302,6 +1302,7 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     }
   }
   if (body.service === "moonExtractions" || body.service === "structureControl"
+    || (body.service === "structureProfiles" && body.method === "GetProfiles")
     || (body.service === "structureSettings" && body.method === "CharacterHasSetting")) {
     const args = Array.isArray(body.args) ? body.args : [];
     const valid = {
@@ -1310,7 +1311,7 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       StartNewExtraction: () => args.length === 3 && isPlayerStructureID(args[0]) && Number.isSafeInteger(args[1])
         && args[1] >= 518460 && args[1] <= 4838400 && typeof args[2] === "boolean",
     };
-    const noArgs = ["ReleaseControl", "GetMoonResourcesForStructure", "GetExtractionAndEventIDFromStructureID",
+    const noArgs = ["ReleaseControl", "GetProfiles", "GetExtractionsForCorp", "GetMoonResourcesForStructure", "GetExtractionAndEventIDFromStructureID",
       "FractureChunkWithStructure", "CancelExtraction"];
     const validArgs = Object.hasOwn(valid, body.method) ? valid[body.method]() : noArgs.includes(body.method) && args.length === 0;
     if (body.pilot !== true || body.kwargs != null || body.of != null || !validArgs) {

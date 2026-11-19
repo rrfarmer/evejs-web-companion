@@ -53,6 +53,7 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   miningScan: ["M3 15l6-8 6 8-6 5z", "M13 7a7 7 0 0 1 8 6", "M15 3a11 11 0 0 1 8 7"],
   miningLedger: ["M5 3h14v18H5z", "M8 16v-3m4 3V9m4 7v-5"],
   moonMining: ["M20 15a8 8 0 1 1-11-11 8 8 0 0 0 11 11Z"],
+  structureBrowser: ["M12 3l8 5v8l-8 5-8-5V8z", "M4 8l8 5 8-5M12 13v8"],
 
   // --- docked ---
   fitting: ["M12 3l6 6v9H6V9z", "M9 12h.01M15 12h.01M12 16h.01"],

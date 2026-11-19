@@ -19,6 +19,7 @@
   import MiningScanResults from "./MiningScanResults.svelte";
   import MiningLedger from "./MiningLedger.svelte";
   import MoonMining from "./MoonMining.svelte";
+  import CorporationMoonSchedule from "./CorporationMoonSchedule.svelte";
   import type { MoonRefinery } from "../bridge/moonMining.ts";
   import Mail from "./Mail.svelte";
   import Contacts from "./Contacts.svelte";
@@ -185,6 +186,8 @@
       <MoonMining {store} {flow} refinery={moonRefinery} />
     {/key}
   {/if}
+{:else if tab === "structureBrowser"}
+  <CorporationMoonSchedule {store} {flow} />
 {:else if tab === "mail"}
   <!-- A skill plan link in a mail, followed (link.py handle_link): the Skills window opens on it. -->
   <Mail {store} {flow} {openInventoryFilterLink} openSkillPlanLink={(url) => { flow.openSkillPlanLink(url); onOpen?.("skills"); }} />

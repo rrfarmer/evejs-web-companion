@@ -123,7 +123,7 @@
         <dt>Drill started</dt><dd>{utc(pull.startedAtMs)}</dd>
         <dt>Chunk ready</dt><dd>{utc(pull.readyAtMs)}</dd>
         <dt>Automatic fracture</dt><dd>{utc(pull.automaticAtMs)}</dd>
-        {#if schedule?.calendarEventID}<dt>Calendar</dt><dd>Event scheduled</dd>{/if}
+        {#if schedule?.calendarEventID}<dt>Calendar</dt><dd>Event requested</dd>{/if}
       </dl>
       {#if stage === "ready"}
         <button class="primary" disabled={pending || !!scheduleError} onclick={() => run(() => flow.controlMoonPull(refinery.id, pull.id, "fracture"))}>Fire Laser</button>

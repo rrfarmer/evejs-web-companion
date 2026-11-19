@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canManageMoonPull, decodeMoonResources, decodeMoonSchedule, MAX_MOON_PULL_SECONDS,
+import { canManageMoonPull, decodeCorporationMoonPulls, decodeMoonResources, decodeMoonSchedule, MAX_MOON_PULL_SECONDS,
   MIN_MOON_PULL_SECONDS, moonPullDuration, moonPullStage } from "./moonMining.ts";
 
 const structure = 1_030_000_000_000;
@@ -43,4 +43,23 @@ test("refinery composition and scheduling honor the native fraction, duration an
   assert.equal(canManageMoonPull(98000003, 98000003, "9223372036854775807"), true);
   assert.equal(canManageMoonPull(98000003, 98000004, "2048"), false);
   assert.equal(canManageMoonPull(98000003, 98000003, "1024"), false);
+});
+
+test("the native corporation schedule accepts only owned pulls and orders them by chunk ready time", () => {
+  const owner = 98000003;
+  const system = 30002647;
+  const row = (id: number, ownerID: number, delay: number) => ({
+    ...extraction, args: { ...extraction.args, entries: [
+      ...extraction.args.entries.filter(([key]) => !["extractionID", "chunkAvailableTime", "naturalDecayTime"].includes(String(key))),
+      ["extractionID", id], ["ownerID", ownerID], ["solarSystemID", system],
+      ["chunkAvailableTime", filetime(ready + delay)], ["naturalDecayTime", filetime(automatic + delay)],
+    ] },
+  });
+  const items = [row(4, owner, 60000), row(6, owner + 1, 0), row(5, owner, 0), extraction, null];
+  const pulls = decodeCorporationMoonPulls({ type: "list", items }, owner);
+  assert.deepEqual(pulls.map(pull => [pull.id, pull.structureID, pull.solarSystemID, pull.readyAtMs]), [
+    [5, structure, system, ready], [4, structure, system, ready + 60000],
+  ]);
+  assert.deepEqual(decodeCorporationMoonPulls([], owner), []);
+  assert.throws(() => decodeCorporationMoonPulls(null, owner), /schedule could not be read/);
 });

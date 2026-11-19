@@ -122,7 +122,7 @@
     fitting: "fitting", map: "travel", charactersheet: "characterSheet", chat: "chat", shipTree: "shipTree",
     // the EVE menu's commands (play/neocom.ts EVE_MENU)
     marketorders: "market", contracts: "contracts", industry: "industry", miningScan: "miningScan", miningLedger: "miningLedger", planets: "planets", locations: "locations",
-    contacts: "contacts", fleet: "fleet", corporation: "corporation", compare: "compare", log: "log", notepad: "notepad", calendar: "calendar",
+    contacts: "contacts", fleet: "fleet", corporation: "corporation", structureBrowser: "structureBrowser", compare: "compare", log: "log", notepad: "notepad", calendar: "calendar",
   };
 
   let session = $state<Session | null>(null);
@@ -516,6 +516,7 @@
     mail: { w: 800, h: 600 }, finder: { w: 1188, h: 694 }, wallet: { w: 900, h: 600 }, planets: { w: 500, h: 500 }, log: { w: 400, h: 200 },
     notepad: { w: 400, h: 300 }, calendar: { w: 580, h: 400 }, jobBoard: { w: 720, h: 960 }, paintTool: { w: 1030, h: 650 }, locationSearch: { w: 420, h: 480 }, achievements: { w: 1040, h: 825 },
     fleetComposition: { w: 680, h: 420 }, miningScan: { w: 520, h: 400 }, miningLedger: { w: 850, h: 650 }, moonMining: { w: 480, h: 455 },
+    structureBrowser: { w: 810, h: 440 },
     memberDetails: { w: 420, h: 480 },
     theatersOfWar: { w: 1600, h: 880 },
     academyShips: { w: 1280, h: 688 },
@@ -666,6 +667,7 @@
     planets: "UI/InfoWindow/TabNames/PlanetaryProduction", notepad: "UI/Notepad/Notepad", calendar: "UI/Calendar/CalendarWindow/Caption",
     fleetComposition: "UI/Fleet/FleetComposition/FleetComposition",
     memberDetails: "UI/Corporations/EditMemberDialog/EditMemberCaption",
+    structureBrowser: "UI/Structures/Browser/StructureBrowser",
     theatersOfWar: "UI/TheatersOfWar/TheatersOfWarCaption",
     academyShips: ACADEMY_TITLE,
     shipTree: SHIP_TREE_CAPTION,
@@ -808,7 +810,7 @@
     ToggleProbeScanner: "scanner", OpenInventory: "inventory", OpenFitting: "fitting", OpenMail: "mail", OpenMarket: "market",
     OpenWallet: "wallet", OpenCharactersheet: "characterSheet", OpenSkillsWindow: "skills", OpenPeopleAndPlaces: "contacts",
     OpenLocations: "locations", OpenAgencyNew: "finder", OpenJobBoardWindow: "jobBoard", OpenAssets: "assets", OpenIndustry: "industry", OpenLedger: "miningLedger",
-    OpenAchievementsWindow: "achievements", OpenFleetWatchlist: "watchlist",
+    OpenAchievementsWindow: "achievements", OpenFleetWatchlist: "watchlist", OpenStructureBrowser: "structureBrowser",
     ToggleTheatersOfWarWindow: "theatersOfWar", CmdToggleShipTree: "shipTree",
   };
   // The star map (play/starMap.ts): the Neocom's Map button and F10 (the client's OpenMapBrowser shortcut, its map
