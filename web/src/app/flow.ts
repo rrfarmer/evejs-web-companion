@@ -461,7 +461,7 @@ import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
 import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapBool, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
 import { canManageMoonPull, decodeCorporationMoonPulls, decodeMoonResources, decodeMoonSchedule, hasMoonStationManagerRole, moonRefineryYieldMultiplier,
   MOON_FRACTURE_MS, moonMiningID, moonPullDuration,
-  type CorporationMoonSchedule, type MoonRefinery, type MoonResource, type MoonSchedule } from "../bridge/moonMining.ts";
+  type CorporationMoonSchedule, type MoonOrePricing, type MoonRefinery, type MoonResource, type MoonSchedule } from "../bridge/moonMining.ts";
 import { decodeCargoScan, decodeShipScan, groupShipScanHardware, type CargoScanResult, type ShipScanGroup, type ShipScanResult } from "../bridge/scannerResults.ts";
 import { basicMiningScan, INTEGRATED_MINING_SCANNER, miningScanInWarp, miningSurveyDepletion, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
 import {
@@ -4194,6 +4194,7 @@ export interface AppFlow {
   loadMoonRefinery(structureID: number): Promise<MoonRefinery | null>;
   changeRefineryControl(structureID: number, take: boolean): Promise<void>;
   loadMoonResources(structureID: number): Promise<readonly MoonResource[]>;
+  loadMoonOrePricing(typeIDs: readonly number[]): Promise<ReadonlyMap<number, MoonOrePricing>>;
   loadMoonSchedule(structureID: number): Promise<MoonSchedule>;
   loadMoonYieldMultiplier(structureID: number): Promise<number | null>;
   loadCorporationMoonSchedule(current?: () => void): Promise<CorporationMoonSchedule>;
@@ -26181,6 +26182,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return schedule;
   }
 
+  async function loadMoonOrePricing(typeIDs: readonly number[]): Promise<ReadonlyMap<number, MoonOrePricing>> {
+    const current = callOptions.captureRequestGuard!();
+    const [volumes, averages, base] = await Promise.all([
+      volumesOfTypes(typeIDs), cfgAveragePrices(), api.getTypePrices(typeIDs, callOptions).catch(() => null),
+    ]);
+    current();
+    const quotes = new Map<number, MoonOrePricing>();
+    for (const typeID of typeIDs) {
+      const unitVolume = volumes[typeID];
+      const unitPrice = averages?.get(typeID) || (base?.available ? base.basePrice[typeID] || 0 : null);
+      if (unitVolume !== undefined && unitVolume > 0 && unitPrice !== null) quotes.set(typeID, { unitVolume, unitPrice });
+    }
+    return quotes;
+  }
+
   async function loadMoonYieldMultiplier(structureID: number): Promise<number | null> {
     assertRefineryControl(structureID);
     const current = callOptions.captureRequestGuard!();
@@ -36742,6 +36758,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadMoonRefinery,
     changeRefineryControl,
     loadMoonResources,
+    loadMoonOrePricing,
     loadMoonSchedule,
     loadMoonYieldMultiplier,
     loadCorporationMoonSchedule,

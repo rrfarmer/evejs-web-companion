@@ -44,6 +44,24 @@ test("the refinery projects ore volumes and the total using the duration and yie
   assert.ok(Math.abs(later.totalVolume - estimate.totalVolume - 15_360) < 1e-8);
 });
 
+test("estimated ore value uses fractional units and totals the unrounded prices", () => {
+  const resources = [{ typeID: 45493, fraction: 0.9754 }, { typeID: 45490, fraction: 0.0246 }];
+  const quotes = new Map([
+    [45493, { unitVolume: 10, unitPrice: 1500 }],
+    [45490, { unitVolume: 20, unitPrice: 2345.25 }],
+  ]);
+  const estimate = estimateMoonOutput(resources, 3600, 1, quotes);
+  assert.equal(estimate.totalVolume, 30_000);
+  assert.equal(estimate.ores[0]?.price, 4_389_300);
+  assert.ok(Math.abs(estimate.ores[1]!.price! - 86_539.725) < 1e-8);
+  assert.ok(Math.abs(estimate.totalPrice! - 4_475_839.725) < 1e-8);
+  quotes.delete(45490);
+  const partial = estimateMoonOutput(resources, 3600, 1, quotes);
+  assert.equal(partial.ores[0]?.price, 4_389_300);
+  assert.equal(partial.ores[1]?.price, null);
+  assert.equal(partial.totalPrice, null);
+});
+
 test("refinery composition and scheduling honor the native fraction, duration and role values", () => {
   assert.deepEqual(decodeMoonResources({ type: "dict", entries: [
     [45490, { type: "real", value: 0.0246 }], [45493, 0.9754], [45491, -1],

@@ -3,7 +3,7 @@
   import type { AppFlow } from "../app/flow.ts";
   import { filetimeToUnixMs } from "../bridge/activity.ts";
   import { canManageMoonPull, estimateMoonOutput, MAX_MOON_PULL_SECONDS, MIN_MOON_PULL_SECONDS, MOON_PLAN_STEP_MS, moonPullDuration, moonPullStage,
-    type MoonRefinery, type MoonResource, type MoonSchedule } from "../bridge/moonMining.ts";
+    type MoonOrePricing, type MoonRefinery, type MoonResource, type MoonSchedule } from "../bridge/moonMining.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
 
@@ -14,6 +14,8 @@
   const calendarUpdated = $derived(flow.calendarUpdated);
   const canStop = $derived(canManageMoonPull(refinery.ownerID, $station.online?.corporationID ?? null, $station.online?.corpRole ?? null));
   let resources = $state.raw<readonly MoonResource[] | null>(null);
+  let pricing = $state.raw<ReadonlyMap<number, MoonOrePricing>>(new Map());
+  let pricingPending = $state(false);
   let schedule = $state.raw<MoonSchedule | null>(null);
   let resourceError = $state("");
   let scheduleError = $state("");
@@ -45,9 +47,10 @@
   const durationSeconds = $derived(pull ? (pull.readyAtMs - pull.startedAtMs) / 1000 : validPlan ? plannedSeconds : null);
   const yieldMultiplier = $derived(pull ? pull.yieldMultiplier : previewMultiplier);
   const output = $derived(resources?.length && durationSeconds !== null && yieldMultiplier !== null
-    ? estimateMoonOutput(resources, durationSeconds, yieldMultiplier) : null);
-  const volume = new Intl.NumberFormat();
-  const formatVolume = (m3: number) => `${volume.format(Math.trunc(m3))} m³`;
+    ? estimateMoonOutput(resources, durationSeconds, yieldMultiplier, pricing) : null);
+  const wholeNumber = new Intl.NumberFormat();
+  const formatVolume = (m3: number) => `${wholeNumber.format(Math.trunc(m3))} m³`;
+  const formatPrice = (isk: number) => `${wholeNumber.format(Math.round(isk))} ISK`;
 
   $effect(() => {
     void $calendarUpdated;
@@ -80,10 +83,22 @@
     resourceError = "";
     try {
       const result = await flow.loadMoonResources(refinery.id);
-      if (mounted) resources = result;
+      if (mounted) {
+        resources = result;
+        pricing = new Map();
+        if (result.length) void readPricing(result);
+      }
     } catch (error) {
       if (mounted) resourceError = (error as Error).message;
     }
+  }
+
+  async function readPricing(rows: readonly MoonResource[]): Promise<void> {
+    pricingPending = true;
+    const result = await flow.loadMoonOrePricing(rows.map(row => row.typeID)).catch(() => new Map<number, MoonOrePricing>());
+    if (!mounted || resources !== rows) return;
+    pricing = result;
+    pricingPending = false;
   }
 
   async function readYield(): Promise<void> {
@@ -203,24 +218,32 @@
         {/if}
       {/if}
       <table aria-label={pull ? "Projected output" : "Estimated output"}>
-        <thead><tr><th scope="col">Moon Product</th><th scope="col">{output ? "Est. Volume" : "Composition"}</th></tr></thead>
+        <thead><tr><th scope="col">Moon Product</th><th scope="col">{output ? "Est. Volume" : "Composition"}</th><th scope="col">Est. Price</th></tr></thead>
         <tbody>
           {#each resources as resource, index (resource.typeID)}
             {@const name = resolvedName($names.resolved, "type", resource.typeID, `Type ${resource.typeID}`)}
             {@const share = `${(resource.fraction * 100).toFixed(2)}%`}
+            {@const price = output?.ores[index]?.price ?? null}
             <tr>
               <th scope="row">{name}</th>
               <td>
                 <span>{output ? formatVolume(output.ores[index].volume) : share}</span>
                 <meter min="0" max="1" value={resource.fraction} aria-label={`${name} composition`} title={share}></meter>
               </td>
+              <td class="price">
+                <span>{price === null ? "—" : formatPrice(price)}</span>
+                {#if price !== null && output?.totalPrice && output.totalPrice > 0}
+                  <meter min="0" max="1" value={price / output.totalPrice} aria-label={`${name} share of estimated price`}></meter>
+                {/if}
+              </td>
             </tr>
           {/each}
         </tbody>
         {#if output}
-          <tfoot><tr><th scope="row">Total</th><td>{formatVolume(output.totalVolume)}</td></tr></tfoot>
+          <tfoot><tr><th scope="row">Total</th><td>{formatVolume(output.totalVolume)}</td><td class="price">{output.totalPrice === null ? "—" : formatPrice(output.totalPrice)}</td></tr></tfoot>
         {/if}
       </table>
+      {#if output?.totalPrice === null && !pricingPending}<button onclick={() => readPricing(resources)}>Retry prices</button>{/if}
     {/if}
   </div>
 </section>
@@ -251,8 +274,9 @@
   th { text-align: left; font-weight: 500; }
   thead, tfoot { background: #25333a; }
   thead { color: #adc0c7; }
-  td { text-align: right; }
-  th:last-child:not(:first-child) { text-align: right; }
+  td, thead th:not(:first-child) { text-align: right; }
+  td { vertical-align: top; }
+  .price { white-space: nowrap; }
   tbody tr + tr, tfoot { border-top: 1px solid #34464e; }
   meter { display: block; height: 5px; }
   .error { color: #ffc0aa; }

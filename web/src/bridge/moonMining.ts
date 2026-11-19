@@ -22,6 +22,11 @@ export interface MoonResource {
   readonly fraction: number;
 }
 
+export interface MoonOrePricing {
+  readonly unitVolume: number;
+  readonly unitPrice: number;
+}
+
 export interface MoonPull {
   readonly id: number;
   readonly startedAtMs: number;
@@ -78,10 +83,21 @@ export function moonRefineryYieldMultiplier(dogma: BoundDogmaAllInfo | null, str
   return positiveYieldMultiplier(refinery?.attributes.find(attribute => attribute.attributeID === MOON_YIELD_ATTRIBUTE_ID)?.value);
 }
 
-export function estimateMoonOutput(resources: readonly MoonResource[], durationSeconds: number, multiplier: number) {
-  const volume = MOON_YIELD_PER_DAY_M3 * durationSeconds / 86_400 * multiplier;
-  const ores = resources.map(ore => ({ ...ore, volume: ore.fraction * volume }));
-  return { ores, totalVolume: ores.reduce((sum, ore) => sum + ore.volume, 0) };
+export function estimateMoonOutput(resources: readonly MoonResource[], durationSeconds: number, multiplier: number,
+  pricing: ReadonlyMap<number, MoonOrePricing> = new Map()) {
+  const yieldVolume = MOON_YIELD_PER_DAY_M3 * durationSeconds / 86_400 * multiplier;
+  const ores = resources.map(ore => {
+    const volume = ore.fraction * yieldVolume;
+    const quote = pricing.get(ore.typeID);
+    // The installed calculator values fractional ore units before formatting the ISK.
+    const price = quote ? volume / quote.unitVolume * quote.unitPrice : null;
+    return { ...ore, volume, price };
+  });
+  return {
+    ores,
+    totalVolume: ores.reduce((sum, ore) => sum + ore.volume, 0),
+    totalPrice: ores.reduce<number | null>((sum, ore) => sum === null || ore.price === null ? null : sum + ore.price, 0),
+  };
 }
 
 function decodeMoonPull(row: unknown): MoonPull | null {

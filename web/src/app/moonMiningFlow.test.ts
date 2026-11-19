@@ -5,6 +5,31 @@ import type { BridgeCallRequestBody } from "../bridge/wire.ts";
 import { createClientStore } from "../store/clientStore.ts";
 import { createAppFlow } from "./flow.ts";
 
+test("moon ore pricing uses Config averages, client base prices and unpackaged volumes", async () => {
+  const average = (value: number) => ({ args: { entries: [["averagePrice", value], ["adjustedPrice", 99]] } });
+  const fetcher: typeof fetch = async (input, init) => {
+    const path = String(input);
+    if (path.startsWith("/api/types/volumes?")) {
+      return Response.json({ ok: true, volumes: { 45490: 10, 45491: 5, 45492: 20 }, packaged: { 45490: 2, 45491: 2 } });
+    }
+    if (path.startsWith("/api/client-data/type-prices?")) {
+      return Response.json({ ok: true, available: true, basePrice: { 45490: 1500, 45491: 2000, 45492: null, 45493: 50 } });
+    }
+    assert.equal(path, "/api/bridge/call");
+    const request = JSON.parse(String(init?.body)) as BridgeCallRequestBody;
+    assert.equal(request.service, "config");
+    assert.equal(request.method, "GetAverageMarketPrices");
+    return Response.json({ ok: true, service: request.service, method: request.method, notifications: [],
+      result: { type: "dict", entries: [[45490, average(3400.5)], [45491, average(0)]] } });
+  };
+  const flow = createAppFlow(createClientStore(), { fetch: fetcher });
+  assert.deepEqual(await flow.loadMoonOrePricing([45490, 45491, 45492, 45493]), new Map([
+    [45490, { unitVolume: 10, unitPrice: 3400.5 }],
+    [45491, { unitVolume: 5, unitPrice: 2000 }],
+    [45492, { unitVolume: 20, unitPrice: 0 }],
+  ]));
+});
+
 test("starting a pull checks live fuel and sends nothing when the pilot declines", async () => {
   const structureID = 1030000000000;
   const corporationID = 98000003;
