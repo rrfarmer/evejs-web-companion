@@ -76,9 +76,10 @@ function resStem(resPath, suffix) {
 
 function modelPaths(g) {
   const stem = resStem(g.gr2, /\.gr2$/);
+  const variant = g.skinMaterialSetID ? `type-${g.typeID}.skin-${g.skinMaterialSetID}` : String(g.faction ?? "none").toLowerCase();
   return {
     stem,
-    sof: `${stem}.${String(g.faction ?? "none").toLowerCase()}.sof.json`,
+    sof: `${stem}.${variant}.sof.json`,
   };
 }
 
@@ -191,6 +192,16 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
     const g = readJson(await ensure(`dna/${name.toLowerCase().replace(/:/g, ".")}.json`, args));
     const { hull, faction, race } = g;
     return { json: { dna: name, ...await modelResponse(dir, g, args, ensure, canExtract), hull, faction, race } };
+  }
+  const skin = /^\/type\/([1-9]\d{0,9})\/skin\/([1-9]\d{0,9})$/.exec(rel);
+  if (skin) {
+    const [, type, material] = skin;
+    const typeID = Number(type);
+    if (!graphicsForType(type)?.hull) return { json: { typeID, model: null } };
+    const args = ["--type-skin", type, material];
+    const marker = canExtract() ? `"sofBuild":${SOF_BUILD}` : null;
+    const info = readJson(await ensure(`typeSkins/${type}.${material}.json`, args, marker));
+    return { json: { typeID, ...info, ...(info.gr2 ? await modelResponse(dir, info, args, ensure, canExtract, true) : { model: null }) } };
   }
   const type = /^\/type\/(\d+)$/.exec(rel);
   if (type) {

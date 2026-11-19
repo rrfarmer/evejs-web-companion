@@ -37,8 +37,8 @@ import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
 import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelestials, buildGfxTurrets, indexedHullGeometry, CELESTIAL_BUILD } from "./lib/typeGraphics.mjs";
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
-import { graphicsFile, mapSdeDir } from "./lib/assetSde.mjs";
-import { loadSof, buildHull, allMaterials } from "./lib/sof.mjs";
+import { graphicMaterialSetsFile, graphicsFile, mapSdeDir } from "./lib/assetSde.mjs";
+import { SOF_BUILD, loadSof, buildHull, allMaterials } from "./lib/sof.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
 import { readTurret, ammoColors, TURRET_BUILD } from "./lib/turret.mjs";
 import { spawnSync } from "node:child_process";
@@ -166,8 +166,8 @@ async function copyChildGraphAssets(rf, roots, outRoot) {
  * A hull as the Space Object Factory builds it for a faction (lib/sof.mjs), written beside the model as
  * <hull stem>.<faction>.sof.json, every texture it names copied (a station's come from shared texture sets).
  */
-export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceName = null) {
-  const built = buildHull(loadSof(rf), hullName, factionName, raceName);
+export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceName = null, skin = null) {
+  const built = buildHull(loadSof(rf), hullName, factionName, raceName, skin?.materialSet);
   if (!built) return null;
   // the hull's children as EveSOF builds them for the faction (lib/children.mjs): their drawn graph
   const sof = loadSof(rf);
@@ -274,7 +274,8 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
     }
   }
   const stem = gr2.toLowerCase().slice("res:/".length, -".gr2".length);
-  const file = path.join(outRoot, ...`${stem}.${(factionName ?? "none").toLowerCase()}.sof.json`.split("/"));
+  const variant = skin ? `type-${skin.typeID}.skin-${skin.materialSet._key}` : (factionName ?? "none").toLowerCase();
+  const file = path.join(outRoot, ...`${stem}.${variant}.sof.json`.split("/"));
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(built));
   return file;
@@ -703,7 +704,7 @@ function extractObservatoryVortex(rf, outRoot) {
 }
 
 function parseArgs(argv) {
-  const out = { hulls: [], types: [], graphics: [], dnas: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, sofMaterials: false, fx: [], effects: [], starMap: false, fittingScene: false };
+  const out = { hulls: [], types: [], typeSkins: [], graphics: [], dnas: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, sofMaterials: false, fx: [], effects: [], starMap: false, fittingScene: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
@@ -713,6 +714,11 @@ function parseArgs(argv) {
     else if (a === "--overview") out.overview = true;
     else if (a === "--hull") out.hulls.push(argv[++i]);
     else if (a === "--type") out.types.push(Number(argv[++i]));
+    else if (a === "--type-skin") {
+      const typeID = Number(argv[++i]), materialSetID = Number(argv[++i]);
+      if (![typeID, materialSetID].every(id => Number.isSafeInteger(id) && id > 0)) throw new Error("--type-skin needs a type ID and material set ID");
+      out.typeSkins.push({ typeID, materialSetID });
+    }
     else if (a === "--graphic") out.graphics.push(Number(argv[++i]));
     else if (a === "--dna") out.dnas.push(String(argv[++i]));
     else if (a === "--scene") out.scenes.push(argv[++i]);
@@ -785,6 +791,31 @@ async function main() {
     if (meshMissing(gr2)) specs.push(gr2);
     const sofFile = await extractSof(rf, gr2, tg.hull, tg.faction, outRoot, tg.race);
     console.log(`type ${typeID}: ${tg.hull} as ${tg.faction}${sofFile ? " -> " + path.relative(outRoot, sofFile) : " (no SOF hull)"}`);
+  }
+  if (args.typeSkins.length) {
+    const sdeDir = args.sde ?? old.sde;
+    if (!sdeDir) throw new Error("--type-skin needs the matching client export (--sde or a configured export folder)");
+    const materialSets = new Map(fs.readFileSync(graphicMaterialSetsFile(sdeDir), "utf8").split(/\r?\n/)
+      .filter(line => line.trim()).map(line => { const row = JSON.parse(line); return [row._key, row]; }));
+    const sof = loadSof(rf);
+    for (const { typeID, materialSetID } of args.typeSkins) {
+      const g = typeGraphics?.[typeID];
+      const materialSet = materialSets.get(materialSetID);
+      const hull = g?.hull ? sof.hulls.get(g.hull.toLowerCase()) : null;
+      const gr2 = hull && (g.gr2 ?? indexedHullGeometry(rf, hull));
+      let descriptor = { sofBuild: SOF_BUILD, gr2: null };
+      if (materialSet && gr2) {
+        const faction = materialSet.sofFactionName || g.faction;
+        const file = await extractSof(rf, gr2, g.hull, faction, outRoot, g.race, { typeID, materialSet });
+        if (file) {
+          if (meshMissing(gr2) && !specs.includes(gr2)) specs.push(gr2);
+          descriptor = { sofBuild: SOF_BUILD, ...g, typeID, gr2, faction, skinMaterialSetID: materialSetID };
+        }
+      }
+      const file = path.join(outRoot, "typeSkins", `${typeID}.${materialSetID}.json`);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(descriptor));
+    }
   }
   // --graphic: a SOF graphic that is no type's (a station hangar: hangarRegistry's hangarModelGraphicID), its hull and
   // faction from the SDE's graphics, its model found by the hull's name in the client's index; graphics/<id>.json.
@@ -1001,7 +1032,7 @@ async function main() {
     }
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

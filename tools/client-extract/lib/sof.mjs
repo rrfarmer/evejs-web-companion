@@ -8,7 +8,7 @@
 
 import { readBlack } from "./black.mjs";
 
-export const SOF_BUILD = 95;
+export const SOF_BUILD = 96;
 
 /**
  * EveSOFDataFactionColorSet's colour types by index, as an item names its colour (colorType, lightColor,
@@ -83,7 +83,7 @@ function material(sof, name) {
  * A hull as built for a faction: { areas: [{ name, index, areaType, shader, textures: { name: res }, params,
  * materials: [m1..m4] }], colorSet, boosters: [{ transform }], boundingSphere }. Textures are res: paths.
  */
-export function buildHull(sof, hullName, factionName, raceName = null) {
+export function buildHull(sof, hullName, factionName, raceName = null, materialSet = null) {
   const hull = sof.hulls.get(String(hullName).toLowerCase());
   if (!hull) return null;
   const faction = factionName ? sof.factions.get(String(factionName).toLowerCase()) ?? null : null;
@@ -132,7 +132,12 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
         params: params(a.parameters),
         // a Wreck area's materials and glow colour come first from the generic wreck material (EveSOFDNA::
         // GetMeshAreaParameter's TYPE_WRECK branch: genericWreckMaterialData)
-        materials: [1, 2, 3, 4].map((i) => material(sof, (typeName === "Wreck" ? wreckMaterial?.[`material${i}`] : null) ?? ofType[`material${i}`] ?? primary[`material${i}`])),
+        materials: [1, 2, 3, 4].map((i) => {
+          const key = `material${i}`;
+          const override = materialSet?.[key];
+          return material(sof, (typeName === "Wreck" ? wreckMaterial?.[key] : null) ??
+            (override && override.toLowerCase() !== "none" ? override : ofType[key] ?? primary[key]));
+        }),
         colorType: ofType.colorType ?? null,
         glowColor: typeName === "Wreck" && wreckMaterial && faction ? colorOf(factionColors, COLOR_TYPES[wreckMaterial.colorType ?? COLOR_TYPES.indexOf("Hull")]) : glowColor(typeName, a.parameters),
         heatGlowColor: heatGlowColor(typeName, a.parameters),
@@ -192,18 +197,28 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
   // area type), projected by that transform; PMtl1 is the faction's defaultPatternLayer1MaterialName. (A sof6 hull's
   // comes from the faction's defaultPatternName, which no faction sets.) None where the faction has no default
   // pattern: the shader's mask then reads nought and nothing changes.
-  const patternLayer = faction?.defaultPattern ?? null, patternTransform = hull.defaultPattern?.transformLayer1 ?? null;
-  const pattern = !hull.sof6 && patternLayer?.textureResFilePath && patternTransform ? {
-    layers: [{
-      texture: String(patternLayer.textureResFilePath).toLowerCase(),
-      projectionU: patternLayer.projectionTypeU ?? 0, projectionV: patternLayer.projectionTypeV ?? 0,
-      source: patternLayer.materialSource ?? 0,
-      targets: [1, 2, 3, 4].map((i) => ((patternLayer[`isTargetMtl${i}`] ?? true) ? 1 : 0)),
-      position: patternTransform.position ?? [0, 0, 0], scaling: patternTransform.scaling ?? [1, 1, 1],
-      rotation: patternTransform.rotation ?? [0, 0, 0, 1], mirrored: patternTransform.isMirrored === true,
-    }],
-    pmtl1: material(sof, faction.defaultPatternLayer1MaterialName),
-  } : null;
+  const namedPattern = materialSet?.sofPatternName ?? faction?.defaultPatternName;
+  const patternData = namedPattern ? sof.data.pattern?.find(p => p.name.toLowerCase() === namedPattern.toLowerCase()) : null;
+  const projection = patternData?.projections?.find(p => p.name.toLowerCase() === hull.name.toLowerCase());
+  const legacyPattern = !namedPattern && !hull.sof6;
+  const layers = [1, 2].flatMap(index => {
+    const layer = legacyPattern && index === 1 ? faction?.defaultPattern : patternData?.[`layer${index}`];
+    const transform = (legacyPattern ? hull.defaultPattern : projection)?.[`transformLayer${index}`];
+    if (!layer?.textureResFilePath || !transform) return [];
+    return [{
+      texture: layer.textureResFilePath.toLowerCase(),
+      projectionU: layer.projectionTypeU ?? 0, projectionV: layer.projectionTypeV ?? 0,
+      source: layer.materialSource ?? 0,
+      targets: [1, 2, 3, 4].map(i => (layer[`isTargetMtl${i}`] ?? true) ? 1 : 0),
+      position: transform.position ?? [0, 0, 0], scaling: transform.scaling ?? [1, 1, 1],
+      rotation: transform.rotation ?? [0, 0, 0, 1], mirrored: transform.isMirrored === true,
+    }];
+  });
+  const patternMaterial = index => {
+    const override = materialSet?.[`custommaterial${index}`];
+    return material(sof, override && override.toLowerCase() !== "none" ? override : faction?.[`defaultPatternLayer${index}MaterialName`]);
+  };
+  const pattern = layers.length ? { layers, pmtl1: patternMaterial(1), pmtl2: patternMaterial(2) } : null;
   return {
     hull: hull.name,
     faction: faction?.name ?? null,

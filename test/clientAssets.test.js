@@ -73,6 +73,40 @@ test("the production BFF serves the installed build with standard asset response
   });
 });
 
+test("a cold SKIN request bakes a separate SOF variant over the stock geometry", async t => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "evejs-client-skin-"));
+  t.after(() => fs.rm(temp, { recursive: true, force: true }));
+  const clientRoot = path.join(temp, "install");
+  const root = path.join(temp, "assets");
+  const dir = path.join(root, "3698585");
+  const stem = "dx9/model/naga";
+  const ship = { hull: "cbc3_fn", faction: "caldarinavy", race: "caldari", gr2: `res:/${stem}.gr2` };
+  await put(clientRoot, "tq/start.ini", "build=3698585\n");
+  await put(dir, "typeGraphics.json", JSON.stringify({ 95630: ship }));
+  await put(dir, `${stem}.glb`, "mesh");
+  await put(dir, `${stem}.json`, JSON.stringify({ textures: {}, lods: [0] }));
+  await put(dir, `${stem}.caldarinavy.sof.json`, JSON.stringify({ sofBuild: SOF_BUILD }));
+  const extracted = [];
+  await withAssets({ root, clientRoot, async extract(args) {
+    extracted.push(args.slice(-3));
+    await put(dir, "typeSkins/95630.3657.json", JSON.stringify({
+      ...ship, typeID: 95630, faction: "empire_caldari", skinMaterialSetID: 3657, sofBuild: SOF_BUILD,
+    }));
+    await put(dir, `${stem}.type-95630.skin-3657.sof.json`, JSON.stringify({ sofBuild: SOF_BUILD }));
+  } }, async url => {
+    const stock = await fetch(url("/client-assets/type/95630")).then(response => response.json());
+    const address = url("/client-assets/type/95630/skin/3657");
+    const res = await Promise.all([fetch(address), fetch(address)]);
+    const [painted, second] = await Promise.all(res.map(response => response.json()));
+    assert.deepEqual(painted, second);
+    assert.equal(painted.model, stock.model);
+    assert.equal(stock.sof, `/client-assets/${stem}.caldarinavy.sof.json`);
+    assert.equal(painted.sof, `/client-assets/${stem}.type-95630.skin-3657.sof.json`);
+    assert.equal(painted.faction, "empire_caldari");
+  });
+  assert.deepEqual(extracted, [["--type-skin", "95630", "3657"]]);
+});
+
 test("the portal's production route refreshes the cached shader quality branches", async t => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "evejs-client-portal-"));
   t.after(() => fs.rm(temp, { recursive: true, force: true }));

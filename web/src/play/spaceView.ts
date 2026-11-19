@@ -252,6 +252,10 @@ export class SpaceView {
     host: HTMLDivElement; signature: string; update(state: JumpBridgePanelState): void; destroy(): void;
   }>();
   private readonly marks = new Map<number, THREE.Object3D>();
+  private readonly markModels = new WeakMap<THREE.Object3D, {
+    standIn?: THREE.Mesh<THREE.SphereGeometry, THREE.Material>;
+    request?: { typeID: number; skinMaterialSetID: number | null };
+  }>();
   private readonly wormholeAudio = new Map<number, WormholeAudio>();
   // Empty slots hidden, as the client's default (showEmptySlots off) has them, until the module rack knows the fit.
   private readonly shipHud = new ShipHud({ slots: { hi: 0, med: 0, low: 0 } });
@@ -1703,7 +1707,7 @@ export class SpaceView {
         if (count) fits = [{ typeID: hullType, slot: -1, count: drone ? 1 : count, moduleID: drone ? itemID : null }];
       }
       const group = await buildTurrets(hull, fits, data.faction ?? null);
-      if (holder.userData.turretSignature !== signature) return;
+      if (holder.userData.model !== model || holder.userData.turretSignature !== signature) return;
       const old = model.getObjectByName("turrets");
       if (old) model.remove(old);
       if (group) model.add(group);
@@ -2224,6 +2228,7 @@ export class SpaceView {
       const rel = tmp.set(e.position.x - origin.x, e.position.y - origin.y, -(e.position.z - origin.z));
       let mark = this.marks.get(e.itemID);
       if (!mark) { mark = this.markFor(e); this.marks.set(e.itemID, mark); this.scene.add(mark); }
+      this.updateMarkModel(mark, e);
       mark.position.copy(rel);
       this.orient(mark, e);
       const vortex = mark.userData.vortex as ObservatoryVortex | undefined;
@@ -2735,28 +2740,47 @@ export class SpaceView {
     const collidable = e.groupID === 226 || e.groupID === 319;
     holder.userData.useAuthoredBounds = collidable && e.dunObjectID != null;
     const modelled = collidable || !["planet", "moon", "sun", "asteroid", "celestial", "billboard"].includes(e.kind);
-    if (modelled && e.typeID) {
-      if (e.isSelf) holder.userData.loadingModel = true;
-      void typeModel(e.typeID).then((model) => {
-        if (e.isSelf) holder.userData.loadingModel = false;
-        if (!model || !this.marks.has(e.itemID)) return;
-        if (!holder.userData.useAuthoredBounds) model.rotation.y = Math.PI;
-        holder.remove(standIn);
-        holder.userData.smartLightAttachTimeMs = this.live.effectSimNow();
-        holder.add(model);
-        holder.userData.impact = impactOverlayOf(model);
-        // its dust (playerShip.UpdateDirtLevel: the slim item's dirtTime, where it has one)
-        const dirtTime = (this.live.park as unknown as { slimItems?: Map<number, Map<string, unknown>> }).slimItems?.get(e.itemID)?.get("dirtTime");
-        if (typeof dirtTime === "bigint" || typeof dirtTime === "number") setDirtLevel(holder, dirtLevelFromTime(dirtTime));
-        // the space object: its controllers' own attributes (activationStrength, clipSphereFactor) land here
-        holder.userData.spaceObject = true;
-        holder.userData.model = model;
-        if (holder.userData.useAuthoredBounds && this.lookAt === e.itemID) this.framedLook = null;
-        if (e.kind === "drone") { holder.userData.playerDrone = true; model.visible = gfx().droneModelsEnabled; }
-        if (e.kind === "ship" || e.kind === "drone") this.fitTurrets(e.itemID, holder);
-      }).catch(() => { if (e.isSelf) holder.userData.loadingModel = false; });
-    }
+    if (modelled) this.markModels.set(holder, { standIn });
     return holder;
+  }
+
+  /** The current ship slim chooses the model variant, including updates while its ball stays in the park. */
+  private updateMarkModel(holder: THREE.Object3D, e: Entity): void {
+    const state = this.markModels.get(holder);
+    if (!e.typeID || !state) return;
+    const raw = this.live.park.slimItems.get(e.itemID)?.get("skinMaterialSetID");
+    const id = typeof raw === "number" || typeof raw === "bigint" ? Number(raw) : 0;
+    const skinMaterialSetID = Number.isSafeInteger(id) && id > 0 ? id : null;
+    if (state.request?.typeID === e.typeID && state.request.skinMaterialSetID === skinMaterialSetID) return;
+    const request = state.request = { typeID: e.typeID, skinMaterialSetID };
+    if (e.isSelf && !holder.userData.model) holder.userData.loadingModel = true;
+    void typeModel(e.typeID, skinMaterialSetID).then((model) => {
+      if (!model || this.stopped || state.request !== request || this.marks.get(e.itemID) !== holder) return;
+      if (!holder.userData.useAuthoredBounds) model.rotation.y = Math.PI;
+      const previous = holder.userData.model as THREE.Object3D | undefined;
+      if (previous) holder.remove(previous);
+      if (state.standIn) {
+        holder.remove(state.standIn);
+        state.standIn.geometry.dispose();
+        state.standIn.material.dispose();
+        delete state.standIn;
+      }
+      holder.userData.smartLightAttachTimeMs = this.live.effectSimNow();
+      holder.add(model);
+      holder.userData.impact = impactOverlayOf(model);
+      const dirtTime = this.live.park.slimItems.get(e.itemID)?.get("dirtTime");
+      if (typeof dirtTime === "bigint" || typeof dirtTime === "number") setDirtLevel(holder, dirtLevelFromTime(dirtTime));
+      holder.userData.spaceObject = true;
+      holder.userData.model = model;
+      if (holder.userData.useAuthoredBounds && this.lookAt === e.itemID) this.framedLook = null;
+      if (e.kind === "drone") { holder.userData.playerDrone = true; model.visible = gfx().droneModelsEnabled; }
+      if (e.kind === "ship" || e.kind === "drone") {
+        delete holder.userData.turretSignature;
+        this.fitTurrets(e.itemID, holder);
+      }
+    }).catch(() => { /* The previous model or stand-in stays visible. */ }).finally(() => {
+      if (state.request === request) holder.userData.loadingModel = false;
+    });
   }
 
   /** Point a moving ship's holder along its velocity, easing the turn as the client's ball does not jump. */

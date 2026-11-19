@@ -16,24 +16,24 @@ function sourceBuild(dir) {
   return /^\d+$/.test(build) ? build : null;
 }
 
-function localGraphicsFile(dir) {
-  return ["graphics.jsonl", "graphicids.jsonl"].map(file => path.join(dir, file)).find(fileExists);
-}
-
-export function graphicsFile(sdeDir) {
-  const local = localGraphicsFile(sdeDir);
+function clientTable(sdeDir, filenames) {
+  const find = dir => filenames.map(file => path.join(dir, file)).find(fileExists);
+  const local = find(sdeDir);
   if (local) return local;
 
   const build = sourceBuild(sdeDir);
   if (build) {
     const sibling = path.resolve(sdeDir, "..", `eve-online-client-static-data-${build}-jsonl`);
     if (sibling !== path.resolve(sdeDir) && sourceBuild(sibling) === build) {
-      const graphics = localGraphicsFile(sibling);
-      if (graphics) return graphics;
+      const file = find(sibling);
+      if (file) return file;
     }
   }
-  throw new Error(`Missing graphics.jsonl or graphicids.jsonl in ${sdeDir} or its matching client export`);
+  throw new Error(`Missing ${filenames.join(" or ")} in ${sdeDir} or its matching client export`);
 }
+
+export const graphicsFile = sdeDir => clientTable(sdeDir, ["graphics.jsonl", "graphicids.jsonl"]);
+export const graphicMaterialSetsFile = sdeDir => clientTable(sdeDir, ["graphicmaterialsets.jsonl", "graphicMaterialSets.jsonl"]);
 
 export function mapSdeDir(sdeDir, tables) {
   const hasTables = dir => tables.every(file => fileExists(path.join(dir, file)));
