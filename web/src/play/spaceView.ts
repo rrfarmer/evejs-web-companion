@@ -65,6 +65,7 @@ import { RadialMenu, RADIAL_CSS, RADIAL_ICON, WARP_RANGES, holdToOpen, radialRan
 import { JUMP_BRIDGE_GROUP, type JumpBridgeSlim } from "../bridge/jumpBridgePanel.ts";
 import { ACTIVATE_GATE_LABEL, IN_WARP_HINT_LABEL, isWarpGate } from "../bridge/gateActivation.ts";
 import { ENTER_WORMHOLE_LABEL } from "../bridge/placeChanges.ts";
+import { hasJumpPolarization, POLARIZED_LABEL, polarizationTime, type WormholePolarization } from "./wormholePolarization.ts";
 import { activateCargoTarget, OPEN_CARGO_ICON, OPEN_CARGO_LABEL, selectedCargo } from "./containerInteraction.ts";
 
 export interface Entity {
@@ -115,6 +116,7 @@ export interface SpaceViewOptions {
   mountJumpBridge?: (host: HTMLElement, gate: Entity, state: JumpBridgePanelState) =>
     { update(state: JumpBridgePanelState): void; destroy(): void };
   jumpBridge?: (itemID: number) => Promise<void>;
+  wormholePolarization?: (itemID: number) => Promise<WormholePolarization | null>;
   onNeocom?: (id: string) => void;
   /** The system the view is in, with its security, as its scene is loaded (the music's switch). */
   onSystem?: (solarSystemID: number, security: number | null) => void;
@@ -252,6 +254,7 @@ export class SpaceView {
   private readonly controls: OrbitControls;
   private readonly brackets = document.createElement("div");
   private readonly bracketEls = new Map<number, HTMLDivElement>();
+  private readonly polarization = new Map<number, { timer: WormholePolarization | null }>();
   private readonly jumpBridgePanels = new Map<number, {
     host: HTMLDivElement; signature: string; update(state: JumpBridgePanelState): void; destroy(): void;
   }>();
@@ -2269,6 +2272,28 @@ export class SpaceView {
     panel.host.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
   }
 
+  private polarizationOf(item: Entity, simNow: number | undefined): WormholePolarization | null {
+    const read = this.options.wormholePolarization;
+    if (!read || !hasJumpPolarization(item.typeID)) return null;
+    const entry = this.polarization.get(item.itemID);
+    if (!entry) {
+      const pending: { timer: WormholePolarization | null } = { timer: null };
+      this.polarization.set(item.itemID, pending);
+      void read(item.itemID).then(timer => {
+        const simAtReply = this.live.effectSimNow();
+        if (this.polarization.get(item.itemID) === pending && timer && (simAtReply === undefined || timer.expiresAt > simAtReply)) {
+          pending.timer = timer;
+        }
+      }).catch(() => {});
+      return null;
+    }
+    if (simNow === undefined || !entry.timer) return null;
+    if (entry.timer.expiresAt > simNow) return entry.timer;
+    entry.timer = null;
+    void playUiEvent("bounty_open_play");
+    return null;
+  }
+
   private frame(): void {
     if (this.stopped) return;
     this.frameCount++;
@@ -2292,6 +2317,7 @@ export class SpaceView {
       this.endExplosionCamera();
       this.collectionExplosions.clear();
       this.clearWormholeCollapses();
+      this.polarization.clear();
       if (this.gateJump && systemID !== null && this.seenSystem !== null && systemID !== this.seenSystem) {
         this.gateJump.arrivedAt = now;
       }
@@ -2317,6 +2343,7 @@ export class SpaceView {
     const cloudVolumes: ObservatoryVortex[] = [];
     const overviewMask = this.overview.activePreset();
     const bracketMask = this.overview.activeBracketPreset();
+    const bracketSimNow = this.live.effectSimNow();
     const relations = overviewMask?.filteredStates.length || bracketMask?.filteredStates.length
       ? this.options.overviewRelationships?.()
       : undefined;
@@ -2351,6 +2378,7 @@ export class SpaceView {
           setEffectShaderQuality(effect, settings.shaderQuality);
         }
       }
+      const polarization = this.polarizationOf(e, bracketSimNow);
       // a ship's turrets fitted again where its slim item's modules changed (looked at now and then)
       if ((e.kind === "ship" || e.kind === "drone") && this.frameCount % 30 === 0) this.fitTurrets(e.itemID, mark);
       if (e.kind === "sun") {
@@ -2398,17 +2426,30 @@ export class SpaceView {
         el.dataset.hackingState = hackingState;
       }
       el.classList.toggle("objective-highlight", highlighted);
+      if (polarization && bracketSimNow !== undefined) {
+        const label = el.querySelector<HTMLElement>(".label")!;
+        const remaining = polarization.expiresAt - bracketSimNow;
+        const text = `${this.actions.word?.(POLARIZED_LABEL) ?? "Polarized"}: ${polarizationTime(remaining)}`;
+        if (label.dataset.polarization !== text) label.dataset.polarization = text;
+        el.style.setProperty("--polarization-sweep", `${Math.min(1, remaining / polarization.durationMs)}turn`);
+        el.classList.add("polarized-wormhole");
+      } else if (el.classList.contains("polarized-wormhole")) {
+        el.classList.remove("polarized-wormhole");
+        el.style.removeProperty("--polarization-sweep");
+        delete el.querySelector<HTMLElement>(".label")!.dataset.polarization;
+      }
       const p = rel.clone().project(this.camera);
       const onScreen = p.z < 1 && Math.abs(p.x) <= 1.05 && Math.abs(p.y) <= 1.05;
       el.style.display = onScreen ? "" : "none";
       if (onScreen) {
         el.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px)`;
         if (this.frameCount % 10 === 0 || highlighted || el.classList.contains("selected")) {
-          (el.querySelector(".label") as HTMLElement).textContent = `${this.nameOf(e)} - ${distanceWords(this.distanceTo(e))}`;
+          el.querySelector<HTMLElement>(".label")!.textContent = `${this.nameOf(e)} - ${distanceWords(this.distanceTo(e))}`;
         }
       }
     }
     for (const [id, el] of this.bracketEls) if (!seen.has(id)) { el.remove(); this.bracketEls.delete(id); }
+    for (const id of this.polarization.keys()) if (!seen.has(id)) this.polarization.delete(id);
     for (const [id, panel] of this.jumpBridgePanels) {
       if (seen.has(id)) continue;
       panel.destroy();

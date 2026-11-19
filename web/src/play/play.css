@@ -74,6 +74,13 @@ button { font: inherit; color: inherit; }
   text-shadow: 0 0 3px #000, 0 0 2px #000; display: none; }
 .bracket:hover .label, .bracket.selected .label, .bracket.objective-highlight .label { display: block; }
 .bracket.selected .glyph, .bracket.objective-highlight .glyph { filter: drop-shadow(0 0 3px #fff); }
+.bracket.polarized-wormhole::before {
+  content: ""; position: absolute; inset: -8px; pointer-events: none; border-radius: 50%;
+  background: conic-gradient(#ff8000 var(--polarization-sweep), rgba(255, 128, 0, .25) 0turn);
+  mask-image: radial-gradient(circle, transparent 12px, black 13px);
+}
+.bracket.polarized-wormhole .label { left: 26px; }
+.bracket.polarized-wormhole .label::after { content: attr(data-polarization); display: block; color: #ff9a36; }
 
 .hud-top-left { position: absolute; top: 12px; left: 64px; }
 .hud-top-left .system { font-size: 20px; color: #f0f1ee; }

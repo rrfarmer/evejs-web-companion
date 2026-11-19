@@ -87,6 +87,7 @@
   import { clientTexture } from "../play/window.ts";
   import { OPEN_CARGO_LABEL } from "../play/containerInteraction.ts";
   import { ENTER_WORMHOLE_LABEL } from "../bridge/placeChanges.ts";
+  import { POLARIZED_LABEL } from "../play/wormholePolarization.ts";
   import { IN_WARP_HINT_LABEL } from "../bridge/gateActivation.ts";
   import type { HudModule } from "../play/shipHud.ts";
   import { typeIconUrl } from "./typeIcons.ts";
@@ -1090,6 +1091,7 @@
         return { update: next => state.set(next), destroy: () => { void unmount(panel); } };
       },
       jumpBridge: (id) => s.flow.jumpThroughAnsiblex(id),
+      wormholePolarization: (id) => s.flow.wormholePolarization(id),
       overviewNotice: (text) => s.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text),
       overviewRelationships,
       // the reloads the server announced (turret.py OnChargeBeingLoadedToModule: the turrets play Reload)
@@ -1158,7 +1160,7 @@
     // the combat notification's moving-mode example text (UI/Accessories/Log/ExampleText)
     s.flow.requestWords([
       "UI/Accessories/Log/ExampleText", "UI/Accessories/Log/ExitMessageMovingMode",
-      ...INDICATION_WORD_LABELS, ...OVERVIEW_WORDS, OPEN_CARGO_LABEL, ENTER_WORMHOLE_LABEL, IN_WARP_HINT_LABEL, "UI/Inflight/Messages/ShipFullSpeedHeader", "UI/Commands/SpeedChangedTo",
+      ...INDICATION_WORD_LABELS, ...OVERVIEW_WORDS, OPEN_CARGO_LABEL, ENTER_WORMHOLE_LABEL, POLARIZED_LABEL, IN_WARP_HINT_LABEL, "UI/Inflight/Messages/ShipFullSpeedHeader", "UI/Commands/SpeedChangedTo",
     ]);
     const combatWord = (label: string, own: string) => { const t = s.store.words.get().templates[label]; return typeof t === "string" ? plainText(t) : own; };
     v.combatMessage.exampleText = () => combatWord("UI/Accessories/Log/ExampleText", "Example Text");

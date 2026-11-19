@@ -446,6 +446,7 @@ import {
 import { decodeSkillSheet, skillQueueRefusal } from "../bridge/skills.ts";
 import { decodeColonyReport } from "../bridge/planets.ts";
 import { filetimeToUnixMs } from "../bridge/activity.ts";
+import { readWormholePolarization, type WormholePolarization } from "../play/wormholePolarization.ts";
 import { extractorReroute, factoryInputTypeIDs, type ExtractorReroute } from "../bridge/colonyRoutes.ts";
 import { decodeRecipeBook } from "../bridge/piRecipes.ts";
 import { repairTargets, type RepairQuoteRow } from "../bridge/repairQuotes.ts";
@@ -4312,6 +4313,7 @@ export interface AppFlow {
    */
   stargateJump(gateID: number): Promise<void>;
   enterWormhole(endpointID: number): Promise<void>;
+  wormholePolarization(endpointID: number): Promise<WormholePolarization | null>;
   jumpThroughAnsiblex(structureID: number): Promise<void>;
   jumpBridgeCharge(structureID: number): Promise<ReturnType<typeof readJumpBridgeCharge>>;
   jumpBridgeSystem(systemID: number): Promise<{ readonly name: string; readonly security: number | null } | null>;
@@ -36422,6 +36424,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       await navigateSystemTo(gateID, GATE_ACTIVATION_RANGE_M, () => runFlightStep("Jump", () => jumpStep(gateID, 0)));
     },
     enterWormhole,
+    async wormholePolarization(endpointID) {
+      return readWormholePolarization(await bridgeAsk("wormholeMgr", "GetWormholePolarization", [endpointID]));
+    },
     async jumpThroughAnsiblex(structureID) {
       await navigateSystemTo(structureID, GATE_ACTIVATION_RANGE_M, () => runFlightStep("Jump", () => jumpGateStep(structureID)));
     },
