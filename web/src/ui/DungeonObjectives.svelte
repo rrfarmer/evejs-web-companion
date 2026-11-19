@@ -3,7 +3,8 @@
   import type { AppFlow, ObjectiveDungeonJob } from "../app/flow.ts";
   import { standingWithSkillBonus } from "../bridge/agencyAgents.ts";
   import { ObjectiveChain, type AbyssObjectiveRow } from "../bridge/abyssObjectives.ts";
-  import { dungeonEntryObjectives, dungeonObjectiveContext, SHIP_RESTRICTIONS_LABELS, winterNexusDeposited, winterNexusEntryObjectives } from "../bridge/dungeonTracking.ts";
+  import { dungeonEntryObjectives, dungeonEntryObjectivesToRestart, dungeonObjectiveContext, SHIP_RESTRICTIONS_LABELS,
+    winterNexusDeposited, winterNexusEntryObjectives, type CurrentDungeon } from "../bridge/dungeonTracking.ts";
   import { isSceneBlind } from "../bridge/space.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { holdToOpen } from "../play/radialMenu.ts";
@@ -32,6 +33,7 @@
   const jobKind = $derived(job.kind);
   const pilotID = $derived($station.online?.characterID ?? null);
   const instanceID = $derived($activeDungeon?.instanceID ?? null);
+  const entryRules = $derived(job.data?.objectiveEntryRules ?? []);
   const winterRules = $derived(job.data?.winterNexusObjectives);
   const winterRestartMs = $derived(winterRules?.restartHackMs ?? 0);
   const winterGrid = $derived.by(() => {
@@ -46,6 +48,7 @@
   let menuEntries = $state.raw<ReturnType<SpaceView["objectiveTargetMenu"]>>([]);
   let pointerSelected = false;
   let entryObjectives: readonly string[] = [];
+  let previousDungeon: CurrentDungeon | null = null;
   const standingByFaction = $derived($standings.char && new Map($standings.char.map((entry) => [entry.fromID, entry.standing])));
   const levelBySkill = $derived($skills.skills && new Map($skills.skills.map((skill) => [skill.typeID, skill.level])));
 
@@ -61,6 +64,7 @@
     chain = null;
     rows = [];
     entryObjectives = [];
+    previousDungeon = null;
     if (!chainID || !pilotID || instanceID === null) return;
     let current = true;
     if (jobKind === "combat") {
@@ -109,8 +113,10 @@
       $inventory.cargo.rows.some((row) => row.typeID === winterRules.cargoTypeID && row.quantity > 0);
     const wanted = winterRules
       ? winterNexusEntryObjectives(dungeon, winterRules, winterGrid, hasDevice, delayingWinterHack, entryObjectives)
-      : dungeonEntryObjectives(dungeon, job.data?.objectiveEntryRules ?? []);
-    for (const key of entryObjectives) if (!wanted.includes(key)) chain.stopObjective(key);
+      : dungeonEntryObjectives(dungeon, entryRules, (snapshot.ship?.mode ?? $flight.status?.shipMode) === "WARP");
+    const restart = dungeonEntryObjectivesToRestart(previousDungeon, dungeon, entryRules);
+    for (const key of entryObjectives) if (!wanted.includes(key) || restart.includes(key)) chain.stopObjective(key);
+    previousDungeon = dungeon;
     for (const key of wanted) chain.startObjective(key);
     entryObjectives = wanted;
     rows = chain.view().filter((objective) => objective.rows.length > 0 || objective.completed || objective.titleOnly);
@@ -207,7 +213,8 @@
         </button>
       {:else if row.progress !== null}
         <div class="objective-progress" class:danger={row.danger}>
-          <span>{name}</span><span>{row.value}</span>
+          {#if name && row.titleLabel !== objective.titleLabel}<span>{name}</span>{/if}
+          <span class="objective-progress-value">{row.value}</span>
           <div class="objective-progress-bar" role="progressbar" aria-label={name}
             aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(row.progress * 100)}>
             <div style:width={`${row.progress * 100}%`}></div>
@@ -233,6 +240,7 @@
   .target { display: flex; gap: 4px; align-items: center; padding: 2px 0; border: 0; color: inherit; background: transparent; text-align: left; font: inherit; cursor: pointer; }
   .target img { width: 16px; height: 16px; }
   .objective-progress { display: grid; grid-template-columns: 1fr auto; gap: 3px; }
+  .objective-progress-value { grid-column: 2; }
   .objective-progress-bar { grid-column: 1 / -1; height: 4px; background: rgb(255 255 255 / 0.2); }
   .objective-progress-bar div { height: 100%; background: #c5cdd0; }
   .objective-progress.danger .objective-progress-bar div { background: var(--color-danger, #e08a8a); }

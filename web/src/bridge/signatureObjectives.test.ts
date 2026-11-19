@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { decodeObjectiveChain, ObjectiveChain } from "./abyssObjectives.ts";
-import { canEnterDungeonInShip, decodeShipRestrictions, dungeonEntered, dungeonEntryObjectives, dungeonObjectiveContext, dungeonValuesChanged, enterDungeonRoom, readCurrentDungeon, winterNexusDeposited, winterNexusEntryObjectives } from "./dungeonTracking.ts";
+import { canEnterDungeonInShip, decodeShipRestrictions, dungeonEntered, dungeonEntryObjectives, dungeonEntryObjectivesToRestart,
+  dungeonObjectiveContext, dungeonValuesChanged, enterDungeonRoom, readCurrentDungeon, winterNexusDeposited,
+  winterNexusEntryObjectives, type DungeonEntryRule } from "./dungeonTracking.ts";
 import type { SpaceEntity } from "../store/types.ts";
 
 test("the authored container objective follows slim state and the hacking pilot", () => {
@@ -131,6 +133,36 @@ test("Winter Nexus uses the landed grid, ship cargo and native deposit state for
   const failed = dungeonValuesChanged(deposited, [9029, { dungeon_state: "Failure" }]);
   assert.ok(failed);
   assert.deepEqual(winterNexusEntryObjectives(failed, rules, "landed", false, false, both), [rules.depositObjectiveKey]);
+});
+
+test("Pochven switches the in-dungeon objectives when the difficulty or wormhole state changes", () => {
+  const state = "dungeon_state", difficulty = "current_difficulty", collapsed = "WormholeCollapsed", cooldown = "Cooldown";
+  const restartOn = [state, difficulty];
+  const rules: readonly DungeonEntryRule[] = [
+    { listKey: null, objectiveKey: "warping", duringWarp: true },
+    { listKey: null, objectiveKey: "collapsed", when: { key: state, value: collapsed }, restartOn },
+    { listKey: null, objectiveKey: "timer", when: { key: state, value: cooldown }, restartOn },
+    { listKey: null, objectiveKey: "destroy", unless: { key: state, values: [collapsed, cooldown] }, restartOn },
+    { listKey: null, objectiveKey: "medium", when: { key: difficulty, value: "Medium" },
+      unless: { key: state, values: [collapsed] }, restartOn },
+  ];
+  const entered = dungeonEntered([8935, 27490, null, 425, {}]);
+  assert.ok(entered);
+  assert.deepEqual(dungeonEntryObjectives(entered, rules), ["destroy"]);
+  assert.deepEqual(dungeonEntryObjectives(entered, rules, true), ["warping"]);
+  const challenged = dungeonValuesChanged(entered, [8935, { [difficulty]: "Medium" }]);
+  assert.ok(challenged);
+  assert.deepEqual(dungeonEntryObjectives(challenged, rules), ["destroy", "medium"]);
+  assert.ok(dungeonEntryObjectivesToRestart(entered, challenged, rules).includes("destroy"));
+  const cooling = dungeonValuesChanged(challenged, [8935, { [state]: cooldown }]);
+  assert.ok(cooling);
+  assert.deepEqual(dungeonEntryObjectives(cooling, rules), ["timer", "medium"]);
+  const timerUpdate = dungeonValuesChanged(cooling, [8935, { timer: {} }]);
+  assert.ok(timerUpdate);
+  assert.deepEqual(dungeonEntryObjectivesToRestart(cooling, timerUpdate, rules), []);
+  const closed = dungeonValuesChanged(cooling, [8935, { [state]: collapsed }]);
+  assert.ok(closed);
+  assert.deepEqual(dungeonEntryObjectives(closed, rules), ["collapsed"]);
 });
 
 test("the ghost-site chain shows the revealed native timer on the pilot's simulation clock", () => {

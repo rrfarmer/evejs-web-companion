@@ -35,7 +35,9 @@
   const local = $derived(here === job.solarSystemID);
   const docked = $derived($flight.status?.docked ?? !!$station.online?.stationID);
   const warping = $derived(($space.snapshot?.ship?.mode ?? $flight.status?.shipMode) === "WARP");
-  const inside = $derived(!warping && isCurrentDungeonSite(job, here, $activeDungeon));
+  const onCurrentSite = $derived(isCurrentDungeonSite(job, here, $activeDungeon));
+  const inside = $derived(!warping && onCurrentSite);
+  const objectiveWarp = $derived(warping && onCurrentSite && job.data?.objectiveEntryRules?.some(rule => rule.duringWarp === true));
   const destination = $derived($waypoints.at(-1) === job.solarSystemID);
   const nameID = $derived(job.nameID ?? job.data?.nameID);
   const systemName = $derived(resolvedName($names.resolved, "system", job.solarSystemID, ""));
@@ -108,13 +110,13 @@
       <button type="button" disabled={busy || warping} onclick={() => void travel()}>{word(warping ? "UI/Inflight/Warping" : actionLabels[action])}</button>
     {/if}
   </div>
-  {#if inside && onToggle && (job.kind === "signature" || job.kind === "combat")}
+  {#if (inside || objectiveWarp) && onToggle && (job.kind === "signature" || job.kind === "combat")}
     <div hidden={!expanded}><DungeonObjectives {store} {flow} {job} /></div>
   {:else if expanded && inside && onToggle}
     <p>{word("UI/Generic/CurrentLocation")}</p>
   {/if}
   {#if expanded}
-    {#if !inside && (onToggle || restricted)}
+    {#if !inside && !objectiveWarp && (onToggle || restricted)}
       <div class="objective">
         {#if onToggle}<strong>{word(travelTitle)}</strong>{/if}
         {#if restricted}

@@ -18,7 +18,10 @@ const { createClientTextures } = require("./clientData/clientTextures");
 const { createMultibuyImport } = require("./clientData/importMultibuy");
 const { createSkillplanImport } = require("./clientData/importSkillplan");
 const { createClientBuiltData } = require("./clientData/clientBuiltData");
-const { DUNGEON_OBJECTIVE_GRAPHS, WINTER_NEXUS_OBJECTIVE_GRAPH, dungeonObjectiveEntryRules, observatoryConversationIDs, winterNexusObjectiveRules } = require("./clientData/dungeonObjectiveGraph");
+const {
+  DUNGEON_OBJECTIVE_GRAPHS, DUNGEON_ARRIVAL_OBJECTIVE_GRAPH, POCHVEN_WORMHOLE_OBJECTIVE_GRAPH, WINTER_NEXUS_OBJECTIVE_GRAPH,
+  dungeonObjectiveEntryRules, observatoryConversationIDs, pochvenWormholeObjectiveRules, winterNexusObjectiveRules,
+} = require("./clientData/dungeonObjectiveGraph");
 const { createCameraTaskDefinitions, isCameraTaskEvent, recordCameraTaskEvents } = require("./gamePort/cameraTasks");
 const { py27HashOrder } = require("./clientData/py27HashOrder");
 const { createSdeBuiltData } = require("./clientData/sdeBuiltData");
@@ -14436,10 +14439,13 @@ app.get("/api/client-data/dungeons", requireAuth, async (req, res, next) => {
     const TYPE_DEADSPACE_SIGNATURE = 19728; // inventorycommon.const.typeDeadspaceSignature
     const objectivesFor = (d) => objectiveRecords?.[d?.objectivesID]?.clientObjectives;
     const graphIDs = [...new Set(ids.map((id) => objectivesFor(rows?.[id])?.nodeGraphID)
-      .filter((id) => DUNGEON_OBJECTIVE_GRAPHS.has(id) || id === WINTER_NEXUS_OBJECTIVE_GRAPH))];
+      .filter((id) => DUNGEON_OBJECTIVE_GRAPHS.has(id) || id === WINTER_NEXUS_OBJECTIVE_GRAPH || id === POCHVEN_WORMHOLE_OBJECTIVE_GRAPH))];
+    if (graphIDs.includes(POCHVEN_WORMHOLE_OBJECTIVE_GRAPH)) graphIDs.push(DUNGEON_ARRIVAL_OBJECTIVE_GRAPH);
     const graphRows = graphIDs.length && typeof clientBuiltData.rows === "function"
       ? await clientBuiltData.rows("nodeGraphs", graphIDs).catch(() => null) : null;
-    const graphRules = new Map(graphIDs.map((id) => [id, dungeonObjectiveEntryRules(graphRows?.[id])]));
+    const graphRules = new Map(graphIDs.map((id) => [id, id === POCHVEN_WORMHOLE_OBJECTIVE_GRAPH
+      ? pochvenWormholeObjectiveRules(graphRows?.[id], graphRows?.[DUNGEON_ARRIVAL_OBJECTIVE_GRAPH])
+      : dungeonObjectiveEntryRules(graphRows?.[id])]));
     const dungeons = {};
     for (const id of ids) {
       const d = rows && rows[id];

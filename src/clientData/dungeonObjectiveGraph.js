@@ -3,6 +3,53 @@
 // These client graphs delegate arrival to 669 and listen for start_objectives.
 const DUNGEON_OBJECTIVE_GRAPHS = new Set([882, 952, 1065, 1078]);
 const WINTER_NEXUS_OBJECTIVE_GRAPH = 784;
+const POCHVEN_WORMHOLE_OBJECTIVE_GRAPH = 963;
+const DUNGEON_ARRIVAL_OBJECTIVE_GRAPH = 669;
+
+function pochvenWormholeObjectiveRules(graph, arrivalGraph) {
+  if (!graph?.tags?.includes("client") || !arrivalGraph?.tags?.includes("client")) return null;
+  const nodes = graph.nodes ?? {};
+  const value = (node, key) => node?.nodeParameters?.[key]?.value;
+  const next = (node, pin) => node?.connections?.[pin]?.length === 1 ? nodes[node.connections[pin][0]] : null;
+  const matches = (node, key) => node?.nodeType === 22 && value(node, "blackboard_key") === key &&
+    (!value(node, "operator") || value(node, "operator") === "equalTo") && !value(node, "flipped") && !value(node, "object_path");
+  const isStart = (node) => node?.nodeType === 42 && value(node, "message_key") === "start_objective";
+  const startKey = (node) => isStart(node) ? value(node, "message_value") : null;
+  const listener = Object.values(nodes).find((node) => node.nodeType === 31 && value(node, "message_key") === "start_objectives");
+  const collapse = next(listener, "output");
+  const stateKey = "dungeon_state";
+  if (!matches(collapse, stateKey) || value(collapse, "blackboard_value") !== "WormholeCollapsed") return null;
+
+  const otherBranches = (collapse.connections?.on_failure ?? []).map((id) => nodes[id]);
+  const cooldown = otherBranches.find((node) => matches(node, stateKey) && value(node, "blackboard_value") === "Cooldown");
+  const collapsedKey = startKey(next(collapse, "on_success"));
+  const timerKey = startKey(next(cooldown, "on_success"));
+  const destroyKey = startKey(next(cooldown, "on_failure"));
+  const warping = Object.values(arrivalGraph.nodes ?? {}).find((node) => startKey(node) === "warping");
+  if (!warping || typeof collapsedKey !== "string" || typeof timerKey !== "string" || typeof destroyKey !== "string") return null;
+
+  const except = { key: stateKey, values: ["WormholeCollapsed"] };
+  const rules = [
+    { listKey: null, objectiveKey: startKey(warping), duringWarp: true },
+    { listKey: null, objectiveKey: collapsedKey, when: { key: stateKey, value: "WormholeCollapsed" } },
+    { listKey: null, objectiveKey: timerKey, when: { key: stateKey, value: "Cooldown" } },
+    { listKey: null, objectiveKey: destroyKey, unless: { key: stateKey, values: ["WormholeCollapsed", "Cooldown"] } },
+  ];
+  let difficulty = otherBranches.find((node) => matches(node, "current_difficulty"));
+  const visited = new Set();
+  while (difficulty) {
+    if (visited.has(difficulty) || !matches(difficulty, "current_difficulty")) return null;
+    visited.add(difficulty);
+    const rank = value(difficulty, "blackboard_value");
+    const objectiveKey = startKey(next(difficulty, "on_success"));
+    if (typeof rank !== "string" || typeof objectiveKey !== "string") return null;
+    rules.push({ listKey: null, objectiveKey, when: { key: "current_difficulty", value: rank }, unless: except });
+    difficulty = next(difficulty, "on_failure");
+  }
+  // Graph 963 stops the in-dungeon group before reapplying a changed state or difficulty.
+  const restartOn = [stateKey, "current_difficulty"];
+  return visited.size ? rules.map((rule) => rule.duringWarp ? rule : { ...rule, restartOn }) : null;
+}
 
 function winterNexusObjectiveRules(graph, dungeonID) {
   if (!graph?.tags?.includes("client")) return null;
@@ -154,4 +201,7 @@ function observatoryConversationIDs(graph) {
   return result;
 }
 
-module.exports = { DUNGEON_OBJECTIVE_GRAPHS, WINTER_NEXUS_OBJECTIVE_GRAPH, dungeonObjectiveEntryRules, observatoryConversationIDs, winterNexusObjectiveRules };
+module.exports = {
+  DUNGEON_OBJECTIVE_GRAPHS, DUNGEON_ARRIVAL_OBJECTIVE_GRAPH, POCHVEN_WORMHOLE_OBJECTIVE_GRAPH, WINTER_NEXUS_OBJECTIVE_GRAPH,
+  dungeonObjectiveEntryRules, observatoryConversationIDs, pochvenWormholeObjectiveRules, winterNexusObjectiveRules,
+};

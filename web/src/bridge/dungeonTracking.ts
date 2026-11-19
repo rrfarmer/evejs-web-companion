@@ -29,6 +29,9 @@ export interface DungeonEntryRule {
   readonly objectiveKey: string;
   readonly lobby?: boolean;
   readonly when?: { readonly key: string; readonly value: string };
+  readonly unless?: { readonly key: string; readonly values: readonly string[] };
+  readonly duringWarp?: boolean;
+  readonly restartOn?: readonly string[];
 }
 
 export interface WinterNexusObjectives {
@@ -102,16 +105,26 @@ export function dungeonObjectiveContext(dungeon: CurrentDungeon): Readonly<Recor
 }
 
 /** Graph 669 sends separate messages for the lobby and the rest of the site. */
-export function dungeonEntryObjectives(dungeon: CurrentDungeon, rules: readonly DungeonEntryRule[]): readonly string[] {
+export function dungeonEntryObjectives(dungeon: CurrentDungeon, rules: readonly DungeonEntryRule[], warping = false): readonly string[] {
   const lobbyRoom = whole(dungeon.values?.lobby_room_id);
   const inLobby = lobbyRoom !== null && lobbyRoom === dungeon.roomID;
-  return rules.filter(({ listKey, lobby, when }) => {
-    if ((lobby === true) !== inLobby || (when && dungeon.values?.[when.key] !== when.value)) return false;
+  return rules.filter(({ listKey, lobby, when, unless, duringWarp }) => {
+    if ((lobby === true) !== inLobby || (duringWarp === true) !== warping || (when && dungeon.values?.[when.key] !== when.value)) return false;
+    if (unless && unless.values.some((value) => value === dungeon.values?.[unless.key])) return false;
     if (listKey === null) return true;
     const value = dungeon.values?.[listKey];
     const ids = Array.isArray(value) ? value : isListValue(value) ? value.items : [];
     return ids.includes(dungeon.dungeonID);
   }).map(({ objectiveKey }) => objectiveKey);
+}
+
+export function dungeonEntryObjectivesToRestart(
+  previous: CurrentDungeon | null,
+  current: CurrentDungeon,
+  rules: readonly DungeonEntryRule[],
+): readonly string[] {
+  if (!previous || previous === current || previous.instanceID !== current.instanceID) return [];
+  return rules.filter((rule) => rule.restartOn?.some((key) => previous.values?.[key] !== current.values?.[key])).map((rule) => rule.objectiveKey);
 }
 
 export function winterNexusDeposited(dungeon: CurrentDungeon | null): boolean {
