@@ -5,12 +5,14 @@
 // birth), and draws each as a camera-facing card, back to front, after the scene's transparent things. Each particle
 // keeps its emitter's params (a unique emitter's live ones: its particles see a change at once).
 //
-// Left out: the scene's fog volumes (their factor 1), the GPU budget of 1 048 576 (here 65 536), Tr2GpuSharedEmitter's
-// params by value (here its own object, which never changes), minScreenSize.
+// Left out: the GPU budget of 1 048 576 (here 65 536), Tr2GpuSharedEmitter's params by value (here its own object,
+// which never changes), minScreenSize.
 
 import * as THREE from "three";
+import { CLOUD_FOG, CLOUD_FOG_GLSL } from "./cloudOpacity.ts";
 import { loadDds } from "./ddsTexture.ts";
 import { logDepth } from "./logDepth.ts";
+import { SOFT_DEPTH } from "./softDepth.ts";
 
 /** A GPU emitter as the extractor writes it (children.mjs: plainOf of the Tr2Gpu*Emitter). */
 export interface GpuEmitterData {
@@ -119,6 +121,8 @@ export class GpuParticleSystem {
     }
     quad.instanceCount = 0;
     const uniforms = {
+      ...CLOUD_FOG,
+      softDepthSize: SOFT_DEPTH.softDepthSize,
       atlas: { value: null as THREE.Texture | null },
       decodeAtlas: { value: true },
       frames: { value: 8 },
@@ -169,7 +173,9 @@ export class GpuParticleSystem {
       fragmentShader: `uniform sampler2D atlas;
         uniform highp sampler2D sceneDepth;
         uniform bool encodedBlend, decodeAtlas;
+        uniform vec2 softDepthSize;
         varying vec2 vUv; varying vec4 vColor;
+        ${CLOUD_FOG_GLSL}
         void main() {
           if (encodedBlend) {
             #ifdef USE_LOGARITHMIC_DEPTH_BUFFER
@@ -181,6 +187,8 @@ export class GpuParticleSystem {
           }
           vec4 texel = texture2D(atlas, vUv);
           vec4 color = (decodeAtlas ? sRGBTransferEOTF(texel) : texel) * vColor;
+          // Fog attenuates premultiplied linear color and alpha before the sprite blend.
+          color *= cloudFogTransmission(1.0 / gl_FragCoord.w);
           gl_FragColor = encodedBlend ? sRGBTransferOETF(vec4(max(color.rgb, 0.0), color.a)) : color;
         }`,
       transparent: true, depthWrite: false, depthTest: true,
