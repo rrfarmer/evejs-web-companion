@@ -9,6 +9,7 @@
 // log-depth buffer), plain in the hangar.
 
 import * as THREE from "three";
+import { eveNormalMap } from "./normalMaps.ts";
 
 /** The uniforms a soft area reads (shared by every such material). */
 export const SOFT_DEPTH = {
@@ -42,17 +43,54 @@ const opaque = (m: THREE.Material) => !m.transparent && m.depthWrite && m.depthT
 export class SoftDepthPass {
   private target: THREE.WebGLRenderTarget | null = null;
   private readonly blank = new THREE.MeshBasicMaterial({ colorWrite: false });
+  private readonly normalMaterials = new WeakMap<THREE.Material, THREE.MeshNormalMaterial>();
+  private readonly disposeNormals = new Set<() => void>();
+
+  private normalsFor(material: THREE.Material): THREE.MeshNormalMaterial {
+    const cached = this.normalMaterials.get(material);
+    if (cached) return cached;
+    const source = material as THREE.MeshStandardMaterial;
+    const normal = new THREE.MeshNormalMaterial({
+      side: source.side, flatShading: source.flatShading ?? false,
+      normalMap: source.normalMap ?? null, normalMapType: source.normalMapType ?? THREE.TangentSpaceNormalMap,
+      displacementMap: source.displacementMap ?? null, displacementScale: source.displacementScale ?? 1,
+      displacementBias: source.displacementBias ?? 0,
+    });
+    if (source.normalScale) normal.normalScale.copy(source.normalScale);
+    const flipGreen = material.userData.eveNormalFlipGreen as boolean | undefined;
+    normal.onBeforeCompile = (shader) => {
+      // The packed normal chunk uses saturate from common.
+      if (!shader.fragmentShader.includes("#include <common>")) shader.fragmentShader = `#include <common>\n${shader.fragmentShader}`;
+      if (flipGreen !== undefined) {
+        shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_maps>",
+          eveNormalMap(THREE.ShaderChunk.normal_fragment_maps, flipGreen));
+      }
+    };
+    normal.customProgramCacheKey = () => `space-depth-normal:${flipGreen}`;
+    this.normalMaterials.set(material, normal);
+    const dispose = () => {
+      normal.dispose();
+      this.disposeNormals.delete(dispose);
+      this.normalMaterials.delete(material);
+      material.removeEventListener("dispose", dispose);
+    };
+    this.disposeNormals.add(dispose);
+    material.addEventListener("dispose", dispose);
+    return normal;
+  }
 
   /** Draws opaque depth for visible soft areas or an active depth-based postprocess. */
-  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, width: number, height: number, forceOpaque = false): void {
-    const target = this.draw(renderer, scene, camera, width, height, forceOpaque);
+  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, width: number, height: number,
+    forceOpaque = false, normals = false): THREE.Texture | null {
+    const target = this.draw(renderer, scene, camera, width, height, forceOpaque || normals, undefined, normals);
     SOFT_DEPTH.softDepthOn.value = target ? 1 : 0;
-    if (!target) return;
+    if (!target) return null;
     const cam = camera as THREE.PerspectiveCamera;
     SOFT_DEPTH.softDepthMap.value = target.depthTexture;
     SOFT_DEPTH.softDepthSize.value.set(target.width, target.height);
     SOFT_DEPTH.softDepthLogFar.value = renderer.capabilities.logarithmicDepthBuffer ? Math.log2(cam.far + 1) : 0;
     SOFT_DEPTH.softDepthNearFar.value.set(cam.near, cam.far);
+    return normals ? target.texture : null;
   }
 
   /** Draw a subset for an occlusion query without changing the frame's shared depth. */
@@ -65,9 +103,10 @@ export class SoftDepthPass {
 
   private draw(
     renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, width: number, height: number, forceOpaque: boolean,
-    accepts?: (mesh: THREE.Mesh) => boolean,
+    accepts?: (mesh: THREE.Mesh) => boolean, normals = false,
   ): THREE.WebGLRenderTarget | null {
     const hidden: THREE.Object3D[] = [];
+    const sources = normals ? new Map<THREE.Mesh, THREE.Material | THREE.Material[]>() : undefined;
     let wanted = forceOpaque;
     scene.traverseVisible((o) => {
       const mat = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
@@ -75,6 +114,7 @@ export class SoftDepthPass {
       const mats = Array.isArray(mat) ? mat : [mat];
       if (mats.some((m) => m.userData.softDepth)) wanted = true;
       if (!(o as THREE.Mesh).isMesh || !mats.every(opaque) || (accepts && !accepts(o as THREE.Mesh))) hidden.push(o);
+      else sources?.set(o as THREE.Mesh, mat);
     });
     if (!wanted) return null;
     if (!this.target || this.target.width !== width || this.target.height !== height) {
@@ -86,12 +126,16 @@ export class SoftDepthPass {
     const face = renderer.getActiveCubeFace(), mip = renderer.getActiveMipmapLevel();
     for (const o of hidden) o.visible = false;
     scene.background = null;
-    scene.overrideMaterial = this.blank;
+    scene.overrideMaterial = normals ? null : this.blank;
     try {
+      for (const [mesh, material] of sources ?? []) {
+        mesh.material = Array.isArray(material) ? material.map((m) => this.normalsFor(m)) : this.normalsFor(material);
+      }
       renderer.setRenderTarget(this.target);
       renderer.clear(true, true, false);
       renderer.render(scene, camera);
     } finally {
+      for (const [mesh, material] of sources ?? []) mesh.material = material;
       for (const o of hidden) o.visible = true;
       scene.background = background;
       scene.overrideMaterial = override;
@@ -103,5 +147,6 @@ export class SoftDepthPass {
   dispose(): void {
     this.target?.dispose();
     this.blank.dispose();
+    for (const dispose of this.disposeNormals) dispose();
   }
 }

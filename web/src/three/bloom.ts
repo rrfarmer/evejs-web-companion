@@ -214,8 +214,8 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       const fog = depthEffects ? active?.fog : undefined;
       const godRays = depthEffects ? active?.godRays : undefined;
       const needsDepth = !!fog || (!!godRays && !!sun) || !!post.shadows?.needsOpaqueDepth || !!clouds?.meshes.length;
-      softDepth.render(renderer, scene, camera, drawn.width, drawn.height, needsDepth);
-      post.shadows?.resolveOpaque(camera, drawn.width, drawn.height);
+      const normals = softDepth.render(renderer, scene, camera, drawn.width, drawn.height, needsDepth, post.shadows?.needsOpaqueNormals);
+      post.shadows?.resolveOpaque(camera, drawn.width, drawn.height, normals);
       let cloudOpacity: THREE.Texture | null = null;
       if (clouds?.meshes.length) {
         opacityPass ??= new CloudOpacityPass();

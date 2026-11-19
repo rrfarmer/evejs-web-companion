@@ -10,6 +10,7 @@ import { hullChildren, type SofChildNode, type SofHullChild } from "./hullChildr
 import type { SofController } from "./controllers.ts";
 import { setControllerVariable } from "./controllerVariables.ts";
 import { setGpuParticleAssets } from "./gpuParticles.ts";
+import { eveNormalMap } from "./normalMaps.ts";
 import { followActivation, followClip } from "./activation.ts";
 import type { SofOverlay } from "./hullOverlay.ts";
 import { followDynamicLights } from "./dynamicLights.ts";
@@ -759,14 +760,10 @@ export function eveHullMaterial(maps: Record<string, THREE.Texture | undefined>,
     emissive: maps.glow ? (glow ? new THREE.Color(glow.color[0] ?? 1, glow.color[1] ?? 1, glow.color[2] ?? 1) : new THREE.Color(isBooster ? 0xffa060 : 0x9fd8ff)) : new THREE.Color(0x000000),
     emissiveIntensity: glow ? 1 : isBooster ? 4 : 2,
   });
+  if (maps.normal) m.userData.eveNormalFlipGreen = flipGreen;
   m.onBeforeCompile = (shader) => {
     let fs = resolveIncludes(shader.fragmentShader);
-    if (maps.normal) {
-      fs = change(fs, "vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;",
-        `vec3 mapN; mapN.xy = ( texture2D( normalMap, vNormalMapUv ).xy + 0.002 ) * 2.0 - 1.0;
-         ${flipGreen ? "mapN.y = -mapN.y;" : ""}
-         mapN.z = 1.0; // quadv5: T x + B y + N, normalised (no z rebuilt from x and y)`);
-    }
+    if (maps.normal) fs = eveNormalMap(fs, flipGreen);
     if (maps.roughness) fs = change(fs, "roughnessFactor *= texelRoughness.g;", "roughnessFactor *= texelRoughness.r;");
     if (maps.glow) fs = change(fs, "totalEmissiveRadiance *= emissiveColor.rgb;", glow ? `totalEmissiveRadiance *= vec3( pow( emissiveColor.r, ${glow.power.toFixed(1)} ) );` : "totalEmissiveRadiance *= emissiveColor.rrr;");
     shader.fragmentShader = fs;

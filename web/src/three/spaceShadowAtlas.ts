@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { LowAmbientOcclusion } from "./ambientOcclusion.ts";
 import { OpaqueShadowMask } from "./opaqueShadowMask.ts";
 import { SOFT_DEPTH, SOFT_VIEW_DEPTH_GLSL } from "./softDepth.ts";
 
@@ -74,22 +75,25 @@ function shadowUniforms() {
 
 const OPAQUE_SHADOW_GLSL = `
   ${SOFT_VIEW_DEPTH_GLSL}
-  uniform sampler2D opaqueShadowMask;
-  uniform bool opaqueShadowReady;
+  uniform highp sampler2D opaqueShadowMask;
+  uniform bool opaqueShadowReady, opaqueOcclusionReady;
+  bool matchesOpaqueDepth(float sceneDepth, vec3 viewPosition) {
+    // At MSAA edges and cutouts the opaque prepass can see a different surface.
+    float depth = -viewPosition.z;
+    return sceneDepth < 1.0 && abs(softViewDepth(sceneDepth) - depth) <= max(0.01, depth * 0.00005);
+  }
   float opaqueSunVisibility(vec3 viewPosition) {
-    float visibility = 1.0;
-    bool matchedDepth = false;
     if (opaqueShadowReady) {
       ivec2 pixel = ivec2(gl_FragCoord.xy);
       vec2 sampleValue = texelFetch(opaqueShadowMask, pixel, 0).rg;
-      float sceneDepth = sampleValue.g;
-      // At MSAA edges and cutouts the opaque prepass can see a different surface.
-      float depth = -viewPosition.z;
-      matchedDepth = sceneDepth < 1.0 && abs(softViewDepth(sceneDepth) - depth) <= max(0.01, depth * 0.00005);
-      if (matchedDepth) visibility = sampleValue.r;
+      if (matchesOpaqueDepth(sampleValue.g, viewPosition)) return sampleValue.r;
     }
-    if (!matchedDepth) visibility = opaqueSpaceShadow(viewPosition);
-    return visibility;
+    return opaqueSpaceShadow(viewPosition);
+  }
+  float opaqueAmbientVisibility(vec3 viewPosition) {
+    if (!opaqueOcclusionReady) return 1.0;
+    vec2 sampleValue = texelFetch(opaqueShadowMask, ivec2(gl_FragCoord.xy), 0).gb;
+    return matchesOpaqueDepth(sampleValue.x, viewPosition) ? sampleValue.y : 1.0;
   }
 `;
 
@@ -111,7 +115,8 @@ function bindOpaqueShadow(material: THREE.MeshStandardMaterial): void {
     shader.fragmentShader = OPAQUE_RESOLVE_GLSL + OPAQUE_SHADOW_GLSL + source.replaceAll(directionalLight, `${directionalLight}
       #if UNROLLED_LOOP_INDEX == 0
         if (receiveShadow && directLight.visible) directLight.color *= opaqueSunVisibility(-vViewPosition);
-      #endif`);
+      #endif`).replace("vec3 outgoingLight = totalDiffuse + totalSpecular + totalEmissiveRadiance;", `
+        vec3 outgoingLight = (totalDiffuse + totalSpecular) * opaqueAmbientVisibility(-vViewPosition) + totalEmissiveRadiance;`);
   };
   material.customProgramCacheKey = function () {
     const base = cacheKey === THREE.Material.prototype.customProgramCacheKey ? compile.toString() : cacheKey.call(this);
@@ -201,8 +206,11 @@ export class SpaceShadowAtlas {
   private readonly planetCenter = new THREE.Vector3();
   private readonly opaqueShadowMask = { value: null as THREE.Texture | null };
   private readonly opaqueShadowReady = { value: false };
+  private readonly opaqueOcclusionReady = { value: false };
   private mask: OpaqueShadowMask | null = null;
   private hasOpaque = false;
+  private occlusion: LowAmbientOcclusion | null = null;
+  private hasOcclusionReceivers = false;
   private readonly shadow = new CascadeShadow();
   private readonly sun = new THREE.DirectionalLight();
   private readonly pass = new THREE.Scene();
@@ -217,6 +225,7 @@ export class SpaceShadowAtlas {
     atlasByRenderer.set(renderer, {
       ...this.uniforms, ...this.planetShadows, ...SOFT_DEPTH,
       opaqueShadowMask: this.opaqueShadowMask, opaqueShadowReady: this.opaqueShadowReady,
+      opaqueOcclusionReady: this.opaqueOcclusionReady,
     });
   }
 
@@ -224,11 +233,20 @@ export class SpaceShadowAtlas {
     return this.hasOpaque && this.uniforms.shadowAtlas.value !== null;
   }
 
-  resolveOpaque(camera: THREE.Camera, width: number, height: number): void {
-    if (!this.needsOpaqueDepth || !SOFT_DEPTH.softDepthOn.value) return;
-    this.mask ??= new OpaqueShadowMask(OPAQUE_RESOLVE_GLSL, { ...this.uniforms, ...this.planetShadows });
-    this.opaqueShadowMask.value = this.mask.render(this.renderer, camera, width, height);
-    this.opaqueShadowReady.value = true;
+  get needsOpaqueNormals(): boolean { return this.hasOcclusionReceivers; }
+
+  resolveOpaque(camera: THREE.Camera, width: number, height: number, normals: THREE.Texture | null = null): void {
+    if (!SOFT_DEPTH.softDepthOn.value) return;
+    if (this.needsOpaqueDepth) {
+      this.mask ??= new OpaqueShadowMask(OPAQUE_RESOLVE_GLSL, { ...this.uniforms, ...this.planetShadows });
+      this.opaqueShadowMask.value = this.mask.render(this.renderer, camera, width, height);
+      this.opaqueShadowReady.value = true;
+    }
+    if (normals && this.hasOcclusionReceivers) {
+      this.occlusion ??= new LowAmbientOcclusion();
+      this.opaqueShadowMask.value = this.occlusion.render(this.renderer, camera, width, height, normals, this.opaqueShadowMask.value);
+      this.opaqueOcclusionReady.value = true;
+    }
   }
 
   private needRange(near: number, far: number): void {
@@ -261,17 +279,20 @@ export class SpaceShadowAtlas {
   render(
     scene: THREE.Scene, view: THREE.PerspectiveCamera, sunDirection: THREE.Vector3, enabled: boolean,
     clouds: readonly THREE.Mesh[], planets: readonly ShadowPlanet[], sunPosition: THREE.Vector3 | null,
+    ambientOcclusion = false,
   ): void {
     this.hasOpaque = false;
+    this.hasOcclusionReceivers = false;
     this.opaqueShadowMask.value = null;
     this.opaqueShadowReady.value = false;
+    this.opaqueOcclusionReady.value = false;
     for (const sphere of this.planetShadows.planetShadowSpheres.value) sphere.set(0, 0, 0, 0);
     const uniforms = this.uniforms;
     uniforms.shadowAtlas.value = null;
     uniforms.firstShadowSplit.value = 0;
     uniforms.lastShadowSplit.value = -1;
     uniforms.activeShadowSplits.value = 0;
-    if (!enabled) return;
+    if (!enabled && !ambientOcclusion) return;
     const renderer = this.renderer;
     view.updateWorldMatrix(true, false);
     scene.updateMatrixWorld();
@@ -289,6 +310,8 @@ export class SpaceShadowAtlas {
         }
       }
       if (!receives) return;
+      this.hasOcclusionReceivers = ambientOcclusion;
+      if (!enabled) return;
       const bounds = object instanceof THREE.InstancedMesh || object instanceof THREE.SkinnedMesh ? object : object.geometry;
       if (!bounds.boundingSphere) bounds.computeBoundingSphere();
       if (!bounds.boundingSphere) return;
@@ -299,6 +322,7 @@ export class SpaceShadowAtlas {
         this.hasOpaque = true;
       }
     });
+    if (!enabled) return;
     for (const cloud of clouds) {
       const m = this.modelView.multiplyMatrices(view.matrixWorldInverse, cloud.matrixWorld).elements;
       const radius = 0.5 * (Math.abs(m[2]!) + Math.abs(m[6]!) + Math.abs(m[10]!));
@@ -337,6 +361,7 @@ export class SpaceShadowAtlas {
   dispose(): void {
     atlasByRenderer.delete(this.renderer);
     this.mask?.dispose();
+    this.occlusion?.dispose();
     this.shadow.dispose();
     this.passTarget.dispose();
   }
