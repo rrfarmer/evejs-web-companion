@@ -6,9 +6,18 @@
 // else its own). The maths is the client's, from its disassembled blinkinglightspool and planeglow shaders.
 
 import * as THREE from "three";
+import { gfx } from "../play/gfxSettings.ts";
+import { CLOUD_FOG, CLOUD_FOG_GLSL } from "./cloudOpacity.ts";
 import { loadDds } from "./ddsTexture.ts";
 import { logDepth } from "./logDepth";
 import { followActivation } from "./activation.ts";
+import { SOFT_DEPTH } from "./softDepth.ts";
+
+const LIGHT_FOG = { ...CLOUD_FOG, softDepthSize: SOFT_DEPTH.softDepthSize };
+const LIGHT_FOG_GLSL = `uniform vec2 softDepthSize;
+  ${CLOUD_FOG_GLSL}`;
+// The light color already includes its intensity. Add it directly so transmission is applied once.
+const LIGHT_BLEND = { transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, premultipliedAlpha: true };
 
 export interface SofSpriteSet {
   name: string | null;
@@ -85,7 +94,7 @@ function spritePoints(sets: readonly SofSpriteSet[]): THREE.Points | null {
   geo.setAttribute("blink", new THREE.BufferAttribute(blink, 4));
   geo.setAttribute("falloff", new THREE.BufferAttribute(falloff, 1));
   const mat = new THREE.ShaderMaterial({
-    uniforms: { time: clock, scale: { value: 1 } },
+    uniforms: { ...LIGHT_FOG, time: clock, scale: { value: 1 } },
     vertexShader: `attribute vec3 colour; attribute vec4 blink; attribute float falloff; uniform float time; uniform float scale; uniform float activation; varying vec3 vColour;
       ${FLASH_GLSL}
       void main() {
@@ -98,12 +107,13 @@ function spritePoints(sets: readonly SofSpriteSet[]): THREE.Points | null {
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `varying vec3 vColour;
+      ${LIGHT_FOG_GLSL}
       void main() {
         float d = length((gl_PointCoord - 0.5) * 2.0);
         float a = d < 1.0 ? 4.5 * pow(max(1.1 / (1.0 + 10.0 * d) - 0.1, 0.0), 1.5) : 0.0;
-        gl_FragColor = vec4(vColour * a, 1.0);
+        gl_FragColor = vec4(vColour * a, 1.0) * cloudFogTransmission(1.0 / gl_FragCoord.w);
       }`,
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    ...LIGHT_BLEND,
   });
   logDepth(mat);
   const points = new THREE.Points(geo, mat);
@@ -173,6 +183,7 @@ async function planeMeshes(sets: readonly SofPlaneSet[]): Promise<THREE.Group | 
     geometry.setAttribute("iS2", new THREE.InstancedBufferAttribute(s2, 4));
     const mat = new THREE.ShaderMaterial({
       uniforms: {
+        ...LIGHT_FOG,
         time: clock, layer1: { value: l1 }, layer2: { value: l2 }, mask: { value: mask },
         has: { value: new THREE.Vector3(l1 ? 1 : 0, l2 ? 1 : 0, mask ? 1 : 0) },
       },
@@ -185,6 +196,7 @@ async function planeMeshes(sets: readonly SofPlaneSet[]): Promise<THREE.Group | 
       fragmentShader: `uniform float time; uniform sampler2D layer1; uniform sampler2D layer2; uniform sampler2D mask; uniform vec3 has; uniform float activation;
         varying vec2 vUv; varying vec3 vColour, vBlinking; varying vec4 vT1, vS1, vT2, vS2;
         ${FLASH_GLSL}
+        ${LIGHT_FOG_GLSL}
         float blink() {
           float mode = abs(vBlinking.x), rate = vBlinking.y, phase = vBlinking.z;
           if (mode < 0.5) return 1.0;
@@ -200,9 +212,9 @@ async function planeMeshes(sets: readonly SofPlaneSet[]): Promise<THREE.Group | 
           vec3 a = has.x > 0.5 ? texture2D(layer1, uv1).rgb : vec3(1.0);
           vec3 b = has.y > 0.5 ? texture2D(layer2, uv2).rgb : vec3(1.0);
           vec3 m = has.z > 0.5 ? texture2D(mask, vUv).rgb : vec3(1.0);
-          gl_FragColor = vec4(vColour * blink() * a * b * m * activation, 1.0);
+          gl_FragColor = vec4(vColour * blink() * a * b * m * activation, 1.0) * cloudFogTransmission(1.0 / gl_FragCoord.w);
         }`,
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+      ...LIGHT_BLEND, side: THREE.DoubleSide,
     });
     logDepth(mat);
     const mesh = new THREE.InstancedMesh(geometry, mat, n);
@@ -271,7 +283,7 @@ async function spotlightCones(sets: readonly SofSpotlightSet[]): Promise<THREE.G
     geo.setAttribute("colour", new THREE.Float32BufferAttribute(col, 3));
     geo.setIndex(index);
     const mat = new THREE.ShaderMaterial({
-      uniforms: { map: { value: map }, hasMap: { value: map ? 1 : 0 } },
+      uniforms: { ...LIGHT_FOG, map: { value: map }, hasMap: { value: map ? 1 : 0 } },
       vertexShader: `attribute vec3 colour; attribute float gainInfluence; uniform float boosterGain; varying vec3 vColour; varying vec2 vUv; varying float vFacing;
         void main() {
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
@@ -283,8 +295,12 @@ async function spotlightCones(sets: readonly SofSpotlightSet[]): Promise<THREE.G
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: `uniform sampler2D map; uniform float hasMap; uniform float activation; varying vec3 vColour; varying vec2 vUv; varying float vFacing;
-        void main() { vec3 t = hasMap > 0.5 ? texture2D(map, vUv).rgb : vec3(1.0); gl_FragColor = vec4(t * vColour * vFacing * activation, 1.0); }`,
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+        ${LIGHT_FOG_GLSL}
+        void main() {
+          vec3 t = hasMap > 0.5 ? texture2D(map, vUv).rgb : vec3(1.0);
+          gl_FragColor = vec4(t * vColour * vFacing * activation, 1.0) * cloudFogTransmission(1.0 / gl_FragCoord.w);
+        }`,
+      ...LIGHT_BLEND, side: THREE.DoubleSide,
     });
     logDepth(mat);
     // x the ship's activation strength (EveSpotlightSet::AddToQuadRenderer: activation x the set's intensity per cone,
@@ -351,7 +367,7 @@ async function spotlightGlows(sets: readonly SofSpotlightSet[]): Promise<THREE.G
     geo.setAttribute("gainInfluence", new THREE.Float32BufferAttribute(gain, 1));
     geo.setIndex(index);
     const mat = new THREE.ShaderMaterial({
-      uniforms: { map: { value: map }, hasMap: { value: map ? 1 : 0 } },
+      uniforms: { ...LIGHT_FOG, map: { value: map }, hasMap: { value: map ? 1 : 0 } },
       vertexShader: `attribute vec3 axis; attribute vec2 corner; attribute vec2 size; attribute vec3 colour; attribute float least;
         attribute float gainInfluence; uniform float boosterGain;
         varying vec3 vColour; varying vec2 vUv;
@@ -365,8 +381,12 @@ async function spotlightGlows(sets: readonly SofSpotlightSet[]): Promise<THREE.G
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: `uniform sampler2D map; uniform float hasMap; uniform float activation; varying vec3 vColour; varying vec2 vUv;
-        void main() { vec3 t = hasMap > 0.5 ? texture2D(map, vUv).rgb : vec3(1.0); gl_FragColor = vec4(t * vColour * activation, 1.0); }`,
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+        ${LIGHT_FOG_GLSL}
+        void main() {
+          vec3 t = hasMap > 0.5 ? texture2D(map, vUv).rgb : vec3(1.0);
+          gl_FragColor = vec4(t * vColour * activation, 1.0) * cloudFogTransmission(1.0 / gl_FragCoord.w);
+        }`,
+      ...LIGHT_BLEND, side: THREE.DoubleSide,
     });
     logDepth(mat);
     // x the ship's activation strength (the glow's per-light activation, the colour's w in spotlightglowpool) and the
@@ -389,8 +409,8 @@ async function spotlightGlows(sets: readonly SofSpotlightSet[]): Promise<THREE.G
  * colorType desaturated by its saturation, times its hazeBrightness (the runtime item's colour; how the factory
  * makes it is not in the shaders). Drawn from the inside faces so the eye can be within one (a hangar's are
  * kilometres wide). The colour is times the ship's activation strength (Shipdata.y) and 1 + w (Shipdata.x - 1) for
- * w the item's boosterGainInfluence (0 or 1) and Shipdata.x its booster gain. The client also dims the haze by a
- * cascaded map of the scene (its third texture); not here.
+ * w the item's boosterGainInfluence (0 or 1) and Shipdata.x its booster gain. The 3698585 Medium and High profiles
+ * attenuate the haze through cloud fog. Its Low profile outputs zero.
  */
 function hazeMeshes(sets: readonly SofHazeSet[]): THREE.Group | null {
   const items = sets.flatMap((s) => s.items);
@@ -403,7 +423,11 @@ function hazeMeshes(sets: readonly SofHazeSet[]): THREE.Group | null {
     const grey = 0.299 * (c[0] ?? 1) + 0.587 * (c[1] ?? 1) + 0.114 * (c[2] ?? 1);
     const colour = new THREE.Vector3(c[0] ?? 1, c[1] ?? 1, c[2] ?? 1).lerp(new THREE.Vector3(grey, grey, grey), 1 - it.saturation).multiplyScalar(it.hazeBrightness);
     const mat = new THREE.ShaderMaterial({
-      uniforms: { colour: { value: colour }, data: { value: new THREE.Vector3(it.hazeFalloff, it.sourceSize, it.sourceBrightness) }, gainInfluence: { value: it.boosterGainInfluence ? 1 : 0 } },
+      uniforms: {
+        ...LIGHT_FOG, hazeEnabled: { get value() { return gfx().shaderQuality > 1; } },
+        colour: { value: colour }, data: { value: new THREE.Vector3(it.hazeFalloff, it.sourceSize, it.sourceBrightness) },
+        gainInfluence: { value: it.boosterGainInfluence ? 1 : 0 },
+      },
       vertexShader: `varying vec3 vObj; varying vec3 vEye;
         void main() {
           vObj = position;
@@ -411,7 +435,10 @@ function hazeMeshes(sets: readonly SofHazeSet[]): THREE.Group | null {
           gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
         }`,
       fragmentShader: `uniform vec3 colour; uniform vec3 data; uniform float activation; uniform float boosterGain; uniform float gainInfluence; varying vec3 vObj; varying vec3 vEye;
+        uniform bool hazeEnabled;
+        ${LIGHT_FOG_GLSL}
         void main() {
+          if (!hazeEnabled) discard;
           vec3 o = vEye;
           vec3 d = normalize( vObj - o );
           float b = dot( o, d );
@@ -421,9 +448,10 @@ function hazeMeshes(sets: readonly SofHazeSet[]): THREE.Group | null {
           float near = length( o - b * d );
           float source = pow( clamp( 1.0 - near / ( 0.5 * data.y ), 0.0, 1.0 ), data.x / 3.0 );
           float haze = min( data.z * source + pow( chord, data.x ), 1.0 );
-          gl_FragColor = vec4( clamp( haze * colour * activation * ( 1.0 + gainInfluence * ( boosterGain - 1.0 ) ), 0.0, 1.0 ), 1.0 );
+          vec3 rgb = clamp(haze * colour * activation * (1.0 + gainInfluence * (boosterGain - 1.0)), 0.0, 1.0);
+          gl_FragColor = vec4(rgb, 1.0) * cloudFogTransmission(1.0 / gl_FragCoord.w);
         }`,
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide,
+      ...LIGHT_BLEND, side: THREE.BackSide,
     });
     logDepth(mat);
     // x the ship's activation strength (the vertex stage's Shipdata.y: activation.ts) and, for an item with
