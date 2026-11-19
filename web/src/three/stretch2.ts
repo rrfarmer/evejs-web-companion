@@ -9,10 +9,11 @@
 // stages disassembled, client 3396210): laser.fx, projectile.fx, blast.fx, artillery.fx and atomic.fx. Each quad of the strip is one part, by its index:
 // the beam or stream of shots from source to target (a strip turned to face the camera, at least about two pixels
 // wide, its profile the FalloffMap across it), the flares at the source and target, projectile's muzzle flash, and the
-// splash at the target (a disc facing back along the beam, two CloudMap swirls). Not as the client: no fog volume (no scene sets one); the output stays linear (the client
-// writes sRGB into an sRGB target); the scene's depth only where softDepth.ts has drawn it.
+// splash at the target (a disc facing back along the beam, two CloudMap swirls). Cloud transmission uses the
+// effect's biased depth. The output stays linear for the scene's HDR blend.
 
 import * as THREE from "three";
+import { CLOUD_FOG, CLOUD_FOG_GLSL } from "./cloudOpacity.ts";
 import { colorValue, curveValue, vector3Value, type Curve } from "./curves.ts";
 import { loadDds } from "./ddsTexture.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
@@ -51,6 +52,7 @@ uniform vec4 srcPos; uniform vec4 dstPos; uniform vec4 timing;
 uniform float Intensity; uniform vec4 FlareIntensity; uniform vec4 SplashIntensity;
 uniform vec2 viewport;
 varying vec4 v1; varying vec4 v2;
+varying float vFogDepthRatio;
 #ifdef USE_LOGARITHMIC_DEPTH_BUFFER
 varying float vFragDepth; varying float vIsPerspective;
 #endif
@@ -108,6 +110,8 @@ vec4 splash(vec3 S, vec3 D, vec2 c, float weight) {
   return vec4(clip.xy, biasedDepth(z, clip.w), clip.w);
 }`;
 const VS_TAIL = `
+// Recover the biased reciprocal depth after interpolation without using the quantized depth buffer.
+  vFogDepthRatio = gl_Position.w == fragW ? 1.0 : gl_Position.w / fragW;
 #ifdef USE_LOGARITHMIC_DEPTH_BUFFER
   vFragDepth = 1.0 + fragW; vIsPerspective = 1.0;
 #endif`;
@@ -115,10 +119,12 @@ const VS_TAIL = `
 const FS_HEAD = `
 #include <logdepthbuf_pars_fragment>
 ${SOFT_DEPTH_GLSL}
+${CLOUD_FOG_GLSL}
 uniform sampler2D NoiseMap; uniform sampler2D FalloffMap; uniform sampler2D CloudMap;
 uniform float Intensity; uniform vec4 Flicker; uniform vec4 Color; uniform vec4 SplashAnimation; uniform vec4 SplashIntensity;
 uniform vec4 timing; uniform vec4 misc;
 varying vec4 v1; varying vec4 v2;
+varying float vFogDepthRatio;
 float sceneDistance() { return softDepthOn > 0.5 ? softSceneDepth() : 1e12; }
 // a flare: the falloff over its radius, cut where it goes behind the scene (soft over 30 sqrt(size))
 vec4 flare() {
@@ -157,7 +163,8 @@ void finish(vec4 colour, vec2 flick) {
   float noise = texture2D(NoiseMap, vec2(flick.y * timing.y, 0.0)).x;
   colour *= 1.0 - noise * flick.x;
   colour *= OUTPUT_SCALE;
-  gl_FragColor = vec4(max(colour.rgb, 0.0), colour.a);
+  float depth = 1.0 / (vFogDepthRatio * gl_FragCoord.w);
+  gl_FragColor = vec4(max(colour.rgb, 0.0), colour.a) * cloudFogTransmission(depth);
 }`;
 
 // --- laser.fx: quad 0 the beam (its profile the FalloffMap across it, two CloudMap scrolls along it), 1 and 2 the
@@ -740,6 +747,7 @@ export class Stretch2Effect {
         ...constants,
         ...Object.fromEntries(Object.entries(kit.maps).map(([n, t]) => [n, { value: t }])),
         ...SOFT_DEPTH,
+        ...CLOUD_FOG,
       },
       // TRIBATCHTYPE_ADDITIVE: added, tested against the scene's depth, not written
       transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide,
