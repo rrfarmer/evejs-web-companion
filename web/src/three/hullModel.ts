@@ -5,6 +5,7 @@
 
 import { boosterGlows, setBoosterIntensity, setGlowGain, volumetricBoosters, type BoosterVolumetricData } from "./boosterVolumetric.ts";
 import * as THREE from "three";
+import { CLOUD_FOG, CLOUD_FOG_SCATTERING, CLOUD_FOG_SCATTERING_GLSL } from "./cloudOpacity.ts";
 import { addDecals, type SofDecalSet } from "./hullDecals.ts";
 import { hullChildren, type SofChildNode, type SofHullChild } from "./hullChildren.ts";
 import type { SofController } from "./controllers.ts";
@@ -19,6 +20,7 @@ import { hullFx,type SofSpriteSet, type SofPlaneSet, type SofSpotlightSet, type 
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { loadDds } from "./ddsTexture.ts";
 import { logDepth } from "./logDepth";
+import { SOFT_DEPTH } from "./softDepth.ts";
 import { distortionMaterial, DISTORTION_LAYER } from "./distortion.ts";
 
 export interface SofMaterial { name: string; diffuse: number[] | null; dust: number[] | null; fresnel: number[] | null; gloss: number | null }
@@ -449,7 +451,11 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
   const heatDetail = /quadheatdetailv5/i.test(area.shader ?? "");
   const glass = /quadglassv5/i.test(area.shader ?? "") && area.kind === "transparent";
   // (its albedo stays bound for the uv the material map is read at; the tint of nought takes it out of the light)
-  if (glass) { m.transparent = true; m.depthWrite = false; }
+  if (glass) {
+    m.transparent = true;
+    m.depthWrite = false;
+    m.userData.cloudFogScattering = true;
+  }
   const wreck = /quadwreckv5/i.test(area.shader ?? "") && !!maps.alphaThreshold;
   if (wreck) {
     maps.alphaThreshold!.colorSpace = THREE.SRGBColorSpace;
@@ -527,6 +533,9 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
   if (dust) { maps.dustNoise!.wrapS = maps.dustNoise!.wrapT = THREE.RepeatWrapping; maps.dustNoise!.needsUpdate = true; }
   const dirtLevel = { value: 0 };
   const uniforms = {
+    ...(glass ? {
+      ...CLOUD_FOG_SCATTERING, cloudFogDepths: CLOUD_FOG.cloudFogDepths, softDepthSize: SOFT_DEPTH.softDepthSize,
+    } : {}),
     mtlDust: { value: mats.map((x) => v3(x?.dust, 1)) }, dirtMap: { value: maps.dirt ?? null }, dustNoise: { value: maps.dustNoise ?? null }, dirtLevel,
     mtlDiffuse: { value: mats.map((x) => v3(x?.diffuse, 0.05)) },
     mtlFresnel: { value: mats.map((x) => v3(x?.fresnel, 0.04)) },
@@ -564,7 +573,7 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
   m.onBeforeCompile = (shader, renderer) => {
     Object.assign(shader.uniforms, uniforms, heat ? heatUniforms : {}, patternUniforms);
     // inserted beside the chunk names first; the base then writes the chunks out and fixes the channels in them
-    shader.fragmentShader = `${dust ? "#define HULL_DUST\nuniform vec3 mtlDust[4]; uniform sampler2D dirtMap; uniform sampler2D dustNoise; uniform float dirtLevel;\n" : ""}uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform sampler2D sailsDetailMap; uniform vec3 sailsDetailData; uniform sampler2D paintMask; uniform vec4 generalData; uniform sampler2D detail1; uniform sampler2D detail2; uniform sampler2D detail3; uniform vec4 detailData[3]; uniform vec3 detailAlbedo; uniform vec3 detailFresnel; uniform vec4 detailSelector; uniform vec3 wreckColor; uniform vec4 wreckFactors; uniform float wreckTime; uniform sampler2D alphaThreshold; uniform vec4 envTiling; uniform vec4 envDetail; uniform vec4 envMtl1; uniform vec4 envMtl2; uniform vec3 envAlbedo1; uniform vec3 envAlbedo2; uniform vec3 envFresnel1; uniform vec3 envFresnel2; uniform sampler2D oilFilm;${wreck ? " varying float vWreckV;" : ""} ${patternFragment}${env ? " varying vec2 vEnvUv;" : ""}
+    shader.fragmentShader = `${glass ? `${CLOUD_FOG_SCATTERING_GLSL}\n` : ""}${dust ? "#define HULL_DUST\nuniform vec3 mtlDust[4]; uniform sampler2D dirtMap; uniform sampler2D dustNoise; uniform float dirtLevel;\n" : ""}uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform sampler2D sailsDetailMap; uniform vec3 sailsDetailData; uniform sampler2D paintMask; uniform vec4 generalData; uniform sampler2D detail1; uniform sampler2D detail2; uniform sampler2D detail3; uniform vec4 detailData[3]; uniform vec3 detailAlbedo; uniform vec3 detailFresnel; uniform vec4 detailSelector; uniform vec3 wreckColor; uniform vec4 wreckFactors; uniform float wreckTime; uniform sampler2D alphaThreshold; uniform vec4 envTiling; uniform vec4 envDetail; uniform vec4 envMtl1; uniform vec4 envMtl2; uniform vec3 envAlbedo1; uniform vec3 envAlbedo2; uniform vec3 envFresnel1; uniform vec3 envFresnel2; uniform sampler2D oilFilm;${wreck ? " varying float vWreckV;" : ""} ${patternFragment}${env ? " varying vec2 vEnvUv;" : ""}
 ${shader.fragmentShader}`
       .replace("#include <map_fragment>", `#include <map_fragment>
         float mtlSel = texture2D( materialMap, ${env ? "vEnvUv * envTiling.x" : "vMapUv"} ).r;
@@ -613,8 +622,10 @@ ${shader.fragmentShader}`
       .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
         roughnessFactor = clamp( 1.0 - mix( roughnessFactor * mtlGl, 0.4, bareD ), 0.0, 1.0 );`)
       .replace("#include <opaque_fragment>", glass ? `outgoingLight += glassTint * ( 1.0 - 0.75 * abs( dot( normal, normalize( vViewPosition ) ) ) );
+        vec4 glassFog = cloudFogScattering( 1.0 / gl_FragCoord.w );
+        outgoingLight = mix( outgoingLight, glassFog.rgb, glassFog.a );
         vec3 glassC = mix( outgoingLight * 12.92, 1.055 * pow( max( outgoingLight, 0.0 ), vec3( 1.0 / 2.4 ) ) - 0.055, step( vec3( 0.0031308 ), outgoingLight ) );
-        outgoingLight = mix( glassC / ( 1.01 - glassP ), glassC, mtlW.x );
+        outgoingLight = mix( glassC / ( 1.01 - glassP ), glassC, mix( mtlW.x, 1.0, glassFog.a ) );
         diffuseColor.a = 1.0 - glassP;
         #include <opaque_fragment>` : wreck ? `vec3 wreckA = texture2D( alphaThreshold, vMapUv * wreckFactors.x ).rgb;
         outgoingLight = mix( wreckColor * wreckA, outgoingLight, pow( clamp( wreckA.r + vWreckV, 0.0, 1.0 ), wreckFactors.y ) );

@@ -1,5 +1,5 @@
 // 3698585 EveChildCloud2/basiccloud.fx. Use the authored volume and the
-// renderer's opaque depth, with a single WebGL color target for the integrated light.
+// renderer's opaque depth. Glass can request color and opacity at all four sample depths.
 import * as THREE from "three";
 import { loadDds } from "./ddsTexture.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
@@ -102,6 +102,11 @@ const FRAGMENT = `
     uniform vec2 opacitySize;
     uniform vec4 cloudFogDepths;
   #endif
+  #ifdef CLOUD_SCATTERING_SLICES
+    layout(location = 1) out vec4 fogSlice1;
+    layout(location = 2) out vec4 fogSlice2;
+    layout(location = 3) out vec4 fogSlice3;
+  #endif
 
   vec2 interval(vec3 origin, vec3 direction) {
     vec3 reciprocal = 1.0 / (sign(direction + vec3(1e-20)) * max(abs(direction), 1e-6));
@@ -182,6 +187,10 @@ const FRAGMENT = `
     #ifdef CLOUD_OPACITY_ONLY
       vec3 sliceAt = cloudFogDepths.xyz / viewRate;
       vec3 slices = vec3(-1.0);
+      #ifdef CLOUD_SCATTERING_SLICES
+        vec3 sliceColor[3];
+        sliceColor[0] = sliceColor[1] = sliceColor[2] = vec3(0.0);
+      #endif
       for (int j = 0; j < 3; j++) {
         if (sliceAt[j] <= begin) slices[j] = 0.0;
       }
@@ -192,8 +201,14 @@ const FRAGMENT = `
         // leaves the main march at its original step positions.
         for (int j = 0; j < 3; j++) {
           if (slices[j] < 0.0 && sliceAt[j] <= cursor && sliceAt[j] < end) {
-            float density = voxels(localEye + direction * sliceAt[j]) * densityScale;
-            float atCut = transmit * stepTransmission(density, sliceAt[j] - previous);
+            vec3 point = localEye + direction * sliceAt[j];
+            float density = voxels(point);
+            float cutStep = stepTransmission(density * densityScale, sliceAt[j] - previous);
+            float atCut = transmit * cutStep;
+            #ifdef CLOUD_SCATTERING_SLICES
+              sliceColor[j] = color;
+              if (cutStep < 1.0) sliceColor[j] += transmit * (1.0 - cutStep) * lightAt(point, direction) * temperatureAlbedo(density);
+            #endif
             // The native shader stores this transmission in half precision, rounding toward zero.
             uint packed = packHalf2x16(vec2(atCut, 0.0));
             float rounded = unpackHalf2x16(packed).x;
@@ -205,7 +220,7 @@ const FRAGMENT = `
       float density = voxels(p);
       if (density * densityScale > 0.01) {
         float stepTransmit = stepTransmission(density * densityScale, cursor - previous);
-        #ifndef CLOUD_OPACITY_ONLY
+        #if !defined(CLOUD_OPACITY_ONLY) || defined(CLOUD_SCATTERING_SLICES)
           color += transmit * (1.0 - stepTransmit) * lightAt(p, direction) * temperatureAlbedo(density);
         #endif
         transmit *= stepTransmit;
@@ -214,7 +229,13 @@ const FRAGMENT = `
       previous = cursor;
       cursor = min(end, cursor + stepLength);
     }
-    #ifdef CLOUD_OPACITY_ONLY
+    #ifdef CLOUD_SCATTERING_SLICES
+      vec4 far = vec4(2.0 * color, 1.0 - transmit);
+      gl_FragColor = slices.x < 0.0 ? far : vec4(2.0 * sliceColor[0], slices.x);
+      fogSlice1 = slices.y < 0.0 ? far : vec4(2.0 * sliceColor[1], slices.y);
+      fogSlice2 = slices.z < 0.0 ? far : vec4(2.0 * sliceColor[2], slices.z);
+      fogSlice3 = far;
+    #elif defined(CLOUD_OPACITY_ONLY)
       gl_FragColor = vec4(mix(slices, vec3(1.0 - transmit), lessThan(slices, vec3(0.0))), 1.0 - transmit);
     #else
       gl_FragColor = vec4(2.0 * color, 1.0 - transmit);
@@ -225,6 +246,8 @@ const FRAGMENT = `
 export class ObservatoryVortex {
   readonly mesh: THREE.Mesh<THREE.BoxGeometry, THREE.ShaderMaterial>;
   private readonly opacity: THREE.Mesh<THREE.BoxGeometry, THREE.ShaderMaterial>;
+  private readonly opacityMaterial: THREE.ShaderMaterial;
+  private readonly scatteringMaterial: THREE.ShaderMaterial;
   private requested: string | null = null;
   private stopped = false;
   private readonly volume: VortexData;
@@ -262,14 +285,16 @@ export class ObservatoryVortex {
     this.mesh.visible = false;
     this.mesh.renderOrder = -5;
     const opacitySize = { value: new THREE.Vector2() };
-    this.opacity = new THREE.Mesh(this.mesh.geometry, new THREE.ShaderMaterial({
+    const fogMaterial = {
       uniforms: { ...uniforms, opacitySize, cloudFogDepths: CLOUD_FOG.cloudFogDepths }, vertexShader: VERTEX, fragmentShader: FRAGMENT,
-      defines: { CLOUD_OPACITY_ONLY: 1 }, side: THREE.BackSide,
-      transparent: true, depthTest: false, depthWrite: false,
+      side: THREE.BackSide, transparent: true, depthTest: false, depthWrite: false,
       blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
-      blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcColorFactor,
+      blendSrc: THREE.OneFactor,
       blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
-    }));
+    };
+    this.opacityMaterial = new THREE.ShaderMaterial({ ...fogMaterial, defines: { CLOUD_OPACITY_ONLY: 1 }, blendDst: THREE.OneMinusSrcColorFactor });
+    this.scatteringMaterial = new THREE.ShaderMaterial({ ...fogMaterial, defines: { CLOUD_OPACITY_ONLY: 1, CLOUD_SCATTERING_SLICES: 1 }, blendDst: THREE.OneMinusSrcAlphaFactor });
+    this.opacity = new THREE.Mesh(this.mesh.geometry, this.opacityMaterial);
     this.opacity.matrixAutoUpdate = false;
     const reflection = data.reflection;
     if (reflection) {
@@ -293,7 +318,8 @@ export class ObservatoryVortex {
     };
   }
 
-  cloudOpacityMesh(): THREE.Mesh {
+  cloudOpacityMesh(scattering: boolean): THREE.Mesh {
+    this.opacity.material = scattering ? this.scatteringMaterial : this.opacityMaterial;
     this.opacity.matrix.copy(this.mesh.matrixWorld);
     this.opacity.matrixWorldNeedsUpdate = true;
     return this.opacity;
@@ -335,6 +361,7 @@ export class ObservatoryVortex {
     this.reflection?.dispose();
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
-    this.opacity.material.dispose();
+    this.opacityMaterial.dispose();
+    this.scatteringMaterial.dispose();
   }
 }

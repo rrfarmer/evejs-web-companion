@@ -2600,8 +2600,14 @@ export class SpaceView {
     });
     const simDt = dt * (this.options.flightSnapshot?.()?.timeDilation ?? 1);
     const environment = this.observatoryEnvironment.sample(ego ? snap?.entities ?? [] : [], origin, eye, simDt, rendering.postProcess, systemID);
+    let scattering = false;
+    if (cloudVolumes.length && settings.shaderQuality > 1) this.scene.traverseVisible((object) => {
+      if (scattering) return;
+      const material = (object as THREE.Mesh).material;
+      scattering = Array.isArray(material) ? material.some((m) => m.userData.cloudFogScattering) : !!material?.userData.cloudFogScattering;
+    });
     const clouds = cloudVolumes.length
-      ? { meshes: cloudVolumes.map((vortex) => vortex.cloudOpacityMesh()), quality: settings.volumetricQuality }
+      ? { meshes: cloudVolumes.map((vortex) => vortex.cloudOpacityMesh(scattering)), quality: settings.volumetricQuality, scattering }
       : undefined;
     this.bloom.render(environment, sun, clouds);
   }

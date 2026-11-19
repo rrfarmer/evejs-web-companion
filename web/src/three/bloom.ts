@@ -21,7 +21,7 @@ import { toneMapGlsl, type DynamicExposure, type ToneMapMethod } from "./exposur
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL, SoftDepthPass } from "./softDepth.ts";
 import { ENVIRONMENT_FOG_GLSL, type EnvironmentFog } from "./environmentFog.ts";
 import { GodRaysPass, type GodRays, type GodRaySun } from "./godRays.ts";
-import { CLOUD_FOG, CloudOpacityPass, type VolumetricClouds } from "./cloudOpacity.ts";
+import { CLOUD_FOG, CLOUD_FOG_SCATTERING, CloudOpacityPass, type VolumetricClouds } from "./cloudOpacity.ts";
 import { sceneReflection } from "./celestialModel.ts";
 import { DistortionPass } from "./distortion.ts";
 import { GpuParticlePass } from "./gpuParticlePass.ts";
@@ -223,13 +223,18 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       const normals = softDepth.render(renderer, scene, camera, drawn.width, drawn.height, needsDepth, post.shadows?.needsOpaqueNormals);
       post.shadows?.resolveOpaque(camera, drawn.width, drawn.height, normals);
       let cloudOpacity: THREE.Texture | null = null;
+      let cloudScattering: THREE.Texture | null = null;
       if (clouds?.meshes.length) {
         opacityPass ??= new CloudOpacityPass();
-        cloudOpacity = opacityPass.render(renderer, camera, clouds, drawn.width, drawn.height);
+        const layers = opacityPass.render(renderer, camera, clouds, drawn.width, drawn.height);
+        cloudOpacity = layers.opacity;
+        cloudScattering = layers.scattering;
       }
       renderer.setRenderTarget(drawn);
       CLOUD_FOG.cloudFogMap.value = cloudOpacity;
       CLOUD_FOG.cloudFogEnabled.value = cloudOpacity !== null;
+      CLOUD_FOG_SCATTERING.cloudFogScatteringMap.value = cloudScattering;
+      CLOUD_FOG_SCATTERING.cloudFogScatteringEnabled.value = cloudScattering !== null;
       let frame: THREE.Texture;
       try {
         const gpuMesh = getGpuParticleSystem(scene)?.mesh;
@@ -245,6 +250,8 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       } finally {
         CLOUD_FOG.cloudFogEnabled.value = false;
         CLOUD_FOG.cloudFogMap.value = null;
+        CLOUD_FOG_SCATTERING.cloudFogScatteringEnabled.value = false;
+        CLOUD_FOG_SCATTERING.cloudFogScatteringMap.value = null;
       }
       if (sun && godRays && godRays.intensity > 0) {
         rayPass ??= new GodRaysPass();
