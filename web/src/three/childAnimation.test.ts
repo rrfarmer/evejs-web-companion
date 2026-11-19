@@ -91,3 +91,46 @@ test("a binding samples another curve set's own range after the startup timeline
   animator.step(objects, seen);
   assert.equal(record.brightness, 2);
 });
+
+test("an idle hull cannot replace a charging hull's light range or expression inputs", () => {
+  const animator = new ChildAnimator();
+  const envelope = { id: 2, type: "Tr2CurveScalar" as const, keys: [[0, 0, 0, 0], [1, 1, 0, 0]] };
+  const gain = { id: 4, type: "Tr2CurveScalarExpression" as const, expression: "input1 * input2", input2: 1 };
+  animator.curveSets([{
+    name: "Play_Start", scale: 1, curves: [gain],
+    bindings: [
+      { source: null, sourceCurve: envelope, sourceAttribute: "currentValue", destination: 4,
+        destinationType: "Tr2CurveScalarExpression", destinationAttribute: "input1", scale: 1, offset: [0] },
+      { source: 0, sourceCurve: null, sourceAttribute: "currentValue", destination: 3,
+        destinationType: "EveSmartLightPointLight", destinationAttribute: "brightness", scale: 1, offset: [0] },
+    ],
+  }, {
+    name: "Presentation", scale: 1, playOnLoad: false, curves: [envelope], bindings: [],
+    ranges: [{ name: "Off", start: 0, end: 0, looped: false }, { name: "On", start: 1, end: 1, looped: false }],
+  }]);
+  const ship = () => {
+    const instance = new THREE.Object3D();
+    const light = new THREE.Object3D();
+    const record = { brightness: 0 };
+    light.userData.lightRecord = record;
+    const objects = new Map([[3, [light]]]);
+    const seen = { visibility: 0 };
+    return { instance, record, tick: () => animator.step(objects, seen, instance) };
+  };
+  const player = ship(), idle = ship();
+  animator.play(HULL_OWNER, "Presentation", "On", player.instance);
+  animator.play(HULL_OWNER, "Presentation", "Off", idle.instance);
+  animator.setValue(4, "input2", 3, player.instance);
+  animator.setValue(4, "input2", 0.5, idle.instance);
+  player.tick(); idle.tick();
+  player.tick(); idle.tick();
+  assert.equal(player.record.brightness, 3);
+  assert.equal(idle.record.brightness, 0);
+
+  animator.play(HULL_OWNER, "Presentation", "On", idle.instance);
+  idle.tick(); player.tick();
+  idle.tick(); player.tick();
+  assert.equal(idle.record.brightness, 0.5);
+  assert.equal(player.record.brightness, 3);
+  assert.equal(gain.input2, 1);
+});

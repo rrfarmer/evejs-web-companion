@@ -13,9 +13,8 @@
 // parameter (Tr2Vector4Parameter: the material's uniform of that name), a line set's baseColor and animColor, the
 // display of quads, meshes, line sets and containers (a container's hides what it holds), and the translation,
 // rotation and scaling of a container or a mesh (its object's transform recomposed under its parents'), a curve's
-// timeOffset (a scalar's or a colour's: the time it reads at is the less by it) and another binding's scale. A
-// randconst behind a timeOffset is one per hull model here, its clones sharing the animator (the client's copies each
-// have their own). Not yet: quads under a moving container, lights, modifiers' values.
+// timeOffset (a scalar's or a colour's: the time it reads at is the less by it) and another binding's scale.
+// Controllers and bindings change the curve sets in their own hull or effect instance.
 
 import * as THREE from "three";
 import { colorValue, curveValue, rotationValue, vector3Value, type Curve } from "./curves.ts";
@@ -117,7 +116,22 @@ interface ValueTarget { kind: "value"; get(attr: string): Value | undefined; set
 type Target = QuadTarget | UniformTarget | LinesTarget | ObjectTarget | ContainerTarget | SrtTarget | ValueTarget;
 interface Xform { t: number[]; r: number[]; s: number[]; dirty: number }
 /** A set's play state: its owners (the containers it is under, its own first-to-last), time and range. */
-interface SetRun { set: SofCurveSet; owners: number[]; perObject: boolean; playing: boolean; last: number; time: number; sampledTime: number; range: { min: number; max: number; looped: boolean } | null; applyAt: number | null; scale: number }
+interface SetDefinition { set: SofCurveSet; owners: number[]; start: number }
+interface SetRun extends SetDefinition {
+  playing: boolean; last: number; time: number; sampledTime: number;
+  range: { min: number; max: number; looped: boolean } | null; applyAt: number | null; scale: number;
+}
+
+interface Playback {
+  sets: SetRun[];
+  curves: Map<number, Record<string, unknown>>;
+  curveOwners: Map<number, { curve: Curve; run: SetRun }>;
+  bindings: Map<number, SofCurveSet["bindings"][number]>;
+}
+
+function emptyPlayback(): Playback {
+  return { sets: [], curves: new Map(), curveOwners: new Map(), bindings: new Map() };
+}
 
 const GRID_ATTRIBUTES: Partial<Record<string, "fullness" | "info" | "spacing">> = {
   gridFullnessFactor: "fullness", gridInfo: "info", gridSpacing: "spacing",
@@ -140,16 +154,12 @@ export const HULL_OWNER = 0;
 export class ChildAnimator {
   readonly key = THREE.MathUtils.generateUUID();
   private readonly targets = new Map<number, Target>();
-  private readonly sets: SetRun[] = [];
-  private readonly objectRuns = new WeakMap<object, Map<SetRun, SetRun>>();
+  private readonly definitions: SetDefinition[] = [];
+  private readonly defaultPlayback = emptyPlayback();
+  private readonly objectPlayback = new WeakMap<object, Playback>();
   private readonly xforms = new Map<number, Xform>();
-  /** The curves and bindings by id, for the bindings that drive a curve's timeOffset or a binding's scale. */
-  private readonly curvesById = new Map<number, Record<string, unknown>>();
-  /** Bindings can read a curve played by another set. Its latest sample uses that set's time. */
-  private readonly curveOwners = new Map<number, { curve: Curve; run: SetRun }>();
   /** An effect's PostProcess outputs (an EveMultiEffect's binding into its PostProcess parameter: "fade.intensity"). */
   readonly outputs = new Map<string, number>();
-  private readonly bindingsById = new Map<number, SofCurveSet["bindings"][number]>();
   private quadColour: THREE.InstancedBufferAttribute | null = null;
   private readonly start = performance.now();
   private visibility = 1;
@@ -180,31 +190,49 @@ export class ChildAnimator {
   container(id: number, display = true): void { if (!this.targets.has(id)) this.targets.set(id, { kind: "container", display }); }
   /** A container's curve sets; owners: the containers they are under (ids), down to their own. */
   curveSets(sets: SofCurveSet[] | undefined, owners: number[] = []): void {
+    const start = performance.now();
+    for (const set of sets ?? []) this.definitions.push({ set, owners, start });
+  }
+
+  private playback(instance?: object): Playback {
+    let local = instance ? this.objectPlayback.get(instance) : this.defaultPlayback;
+    if (!local) {
+      local = emptyPlayback();
+      this.objectPlayback.set(instance!, local);
+    }
+    if (local.sets.length < this.definitions.length) {
+      this.appendSets(local, this.definitions.slice(local.sets.length), instance ? performance.now() : undefined);
+    }
+    return local;
+  }
+
+  private appendSets(playback: Playback, definitions: SetDefinition[], now?: number): void {
+    const { sets, curves, curveOwners, bindings } = playback;
     const index = (c: unknown): void => {
       if (!c || typeof c !== "object") return;
       if (Array.isArray(c)) { c.forEach(index); return; }
       const o = c as Record<string, unknown>;
-      if (typeof o.id === "number" && typeof o.type === "string" && !this.curveOwners.has(o.id)) this.curvesById.set(o.id, o);
+      if (typeof o.id === "number" && typeof o.type === "string" && !curveOwners.has(o.id)) curves.set(o.id, o);
       for (const [k, v] of Object.entries(o)) if (k !== "keys" && v && typeof v === "object") index(v);
     };
-    for (const s of sets ?? []) {
-      const onLoad = s.playOnLoad !== false;
-      const perObject = s.bindings.some(b => b.destinationType === "SpawnDrones" && GRID_ATTRIBUTES[b.destinationAttribute.split(".")[0] ?? ""] !== undefined);
-      const run: SetRun = { set: s, owners, perObject, playing: onLoad, last: performance.now(), time: 0, sampledTime: 0, range: null, applyAt: null, scale: s.scale };
-      this.sets.push(run);
-      index(s.curves);
-      for (const curve of s.curves) {
+    // Copy the sets together so source curves shared by reference keep their identity within the instance.
+    for (const { set, owners, start } of structuredClone(definitions)) {
+      const run: SetRun = { set, owners, start, playing: set.playOnLoad !== false, last: now ?? start,
+        time: 0, sampledTime: 0, range: null, applyAt: null, scale: set.scale };
+      sets.push(run);
+      index(set.curves);
+      for (const curve of set.curves) {
         if (curve.id === undefined) continue;
-        this.curveOwners.set(curve.id, { curve, run });
-        this.curvesById.set(curve.id, curve as unknown as Record<string, unknown>);
+        curveOwners.set(curve.id, { curve, run });
+        curves.set(curve.id, curve as unknown as Record<string, unknown>);
       }
-      for (const b of s.bindings) { if (b.id !== undefined) this.bindingsById.set(b.id, b); if (b.sourceCurve) index(b.sourceCurve); }
+      for (const b of set.bindings) { if (b.id !== undefined) bindings.set(b.id, b); if (b.sourceCurve) index(b.sourceCurve); }
     }
   }
-  get playing(): boolean { return this.sets.length > 0; }
+  get playing(): boolean { return this.definitions.length > 0; }
   /** A curve by its set's name and its own (a binding from outside names it so), or null. */
-  curveNamed(setName: string, curveName: string): Record<string, unknown> | null {
-    for (const r of this.sets) {
+  curveNamed(setName: string, curveName: string, instance?: object): Record<string, unknown> | null {
+    for (const r of this.playback(instance).sets) {
       if (r.set.name !== setName) continue;
       const c = (r.set.curves as unknown as Record<string, unknown>[]).find((x) => x?.name === curveName);
       if (c) return c;
@@ -212,25 +240,13 @@ export class ChildAnimator {
     return null;
   }
 
-  /** The sets of a name under an owner: a container (by id), or HULL_OWNER - the space object, every set. */
-  private runFor(run: SetRun, instance?: object): SetRun {
-    if (!run.perObject || !instance) return run;
-    let local = this.objectRuns.get(instance);
-    if (!local) { local = new Map(); this.objectRuns.set(instance, local); }
-    let current = local.get(run);
-    if (!current) {
-      current = { ...run, playing: run.set.playOnLoad !== false, last: performance.now(), time: 0, sampledTime: 0, range: null, applyAt: null, scale: run.set.scale };
-      local.set(run, current);
-    }
-    return current;
-  }
-
-  private under(owner: number, name: string, instance?: object): SetRun[] {
-    return this.sets.filter((r) => r.set.name === name && (owner === HULL_OWNER || r.owners.includes(owner))).map(r => this.runFor(r, instance));
+  /** A hull-level action reaches the whole graph. A child action reaches its own subtree. */
+  private under<T extends SetDefinition>(sets: T[], owner: number, name: string): T[] {
+    return sets.filter(r => r.set.name === name && (owner === HULL_OWNER || r.owners.includes(owner)));
   }
   /** TriCurveSet::Play (no range: ResetTimeRange) or PlayTimeRange (a range it lacks: left as it is). */
   play(owner: number, name: string, range = "", instance?: object): void {
-    for (const r of this.under(owner, name, instance)) {
+    for (const r of this.under(this.playback(instance).sets, owner, name)) {
       if (range) {
         const found = r.set.ranges?.find((x) => x.name === range);
         if (!found) continue;
@@ -241,13 +257,14 @@ export class ChildAnimator {
       r.last = performance.now();
     }
   }
-  stop(owner: number, name: string, instance?: object): void { for (const r of this.under(owner, name, instance)) r.playing = false; }
+  stop(owner: number, name: string, instance?: object): void {
+    for (const r of this.under(this.playback(instance).sets, owner, name)) r.playing = false;
+  }
   /** TriCurveSet::Play on every set of a name, at a speed (TriCurveSet.scale) where one is given. */
   playNamed(name: string | null, scale?: number, instance?: object): void {
     const now = performance.now();
-    for (const source of this.sets) {
-      if (source.set.name !== name) continue;
-      const r = this.runFor(source, instance);
+    for (const r of this.playback(instance).sets) {
+      if (r.set.name !== name) continue;
       r.playing = true; r.time = 0; r.last = now; r.range = null; r.applyAt = null;
       if (scale !== undefined) r.scale = scale;
     }
@@ -256,8 +273,8 @@ export class ChildAnimator {
    * Tr2ActionSetValue on a curve's input (input1..4) or an effect parameter (its uniform: "value" sets every component,
    * "value.x".."value.w" one). False where this animator has no such target.
    */
-  setValue(id: number, attribute: string, value: number): boolean {
-    const curve = this.curvesById.get(id);
+  setValue(id: number, attribute: string, value: number, instance?: object): boolean {
+    const curve = this.playback(instance).curves.get(id);
     if (curve && /^input[1-4]$/.test(attribute)) { curve[attribute] = value; return true; }
     const t = this.targets.get(id);
     if (t?.kind !== "uniform") return false;
@@ -274,15 +291,14 @@ export class ChildAnimator {
    */
   restart(skip?: (name: string | null) => boolean, instance?: object): void {
     const now = performance.now();
-    for (const source of this.sets) {
-      if (skip?.(source.set.name)) continue;
-      const r = this.runFor(source, instance);
+    for (const r of this.playback(instance).sets) {
+      if (skip?.(r.set.name)) continue;
       r.playing = true; r.time = 0; r.last = now; r.range = null; r.applyAt = null; r.scale = r.set.scale;
     }
   }
   /** TriCurveSet::ApplyTime: the set's curves and bindings at that time, next step (a playing set goes on from it). */
   applyTime(id: number, time: number, instance?: object): void {
-    for (const r of this.sets) if (r.set.id === id) this.runFor(r, instance).applyAt = time;
+    for (const r of this.playback(instance).sets) if (r.set.id === id) r.applyAt = time;
   }
   /** The particle emitters a controller's Tr2ActionSpawnParticles may fire, by id. */
   private readonly spawners = new Map<number, (rate: number) => void>();
@@ -290,7 +306,7 @@ export class ChildAnimator {
   spawn(id: number, rate: number): void { this.spawners.get(id)?.(rate); }
   /** A controller's SetValue on a set's scale: its time advances by this x the time passed. */
   setScale(id: number, scale: number, instance?: object): void {
-    for (const r of this.sets) if (r.set.id === id) this.runFor(r, instance).scale = scale;
+    for (const r of this.playback(instance).sets) if (r.set.id === id) r.scale = scale;
   }
   /** A controller's SetValue on an object's display (a container, mesh, quad or line set). */
   setDisplay(id: number, on: boolean): void {
@@ -303,7 +319,7 @@ export class ChildAnimator {
   /** CurveSetTime(): the longest curve of the sets of that name under the owner, or the range's length. */
   duration(owner: number, name: string, range = ""): number {
     let d = 0;
-    for (const r of this.under(owner, name)) {
+    for (const r of this.under(this.definitions, owner, name)) {
       if (range) { const x = r.set.ranges?.find((y) => y.name === range); d = Math.max(d, x ? x.end - x.start : 0); }
       else d = Math.max(d, ...r.set.curves.map(curveLength), 0);
     }
@@ -313,8 +329,8 @@ export class ChildAnimator {
   /** One frame: every set's curves at its time, every binding copied; visibility to the given objects (a clone's). */
   step(objects: Map<number, THREE.Object3D[]>, seen: { visibility: number; xforms?: Map<number, number>; srts?: Map<number, number> }, instance?: object): void {
     const now = performance.now();
-    for (const source of this.sets) {
-      const run = this.runFor(source, instance);
+    const { sets, curves, bindings, curveOwners } = this.playback(instance);
+    for (const run of sets) {
       if (!run.playing && run.applyAt === null) continue;
       const set = run.set;
       if (run.applyAt !== null) { run.time = run.applyAt; run.applyAt = null; run.last = now; }
@@ -335,9 +351,9 @@ export class ChildAnimator {
         // a curve's own number: a scalar's timeOffset, a TriPerlinCurve's speed, scale, offset and the like (its value is
         // its output: set, then read over)
         // (and an expression's inputs: input1 .. input4, which its terms read)
-        const curve = this.curvesById.get(b.destination) && (attr0 === "timeOffset" || b.destinationType === "TriPerlinCurve" || b.destinationType === "Tr2CurveColorMixer"
-          || (/Expression$/.test(b.destinationType ?? "") && /^input[1-4]$/.test(attr0 ?? ""))) ? this.curvesById.get(b.destination) : undefined;
-        const binding = attr0 === "scale" && b.destinationType === "TriValueBinding" ? this.bindingsById.get(b.destination) : undefined;
+        const curve = (attr0 === "timeOffset" || b.destinationType === "TriPerlinCurve" || b.destinationType === "Tr2CurveColorMixer"
+          || (/Expression$/.test(b.destinationType ?? "") && /^input[1-4]$/.test(attr0 ?? ""))) ? curves.get(b.destination) : undefined;
+        const binding = attr0 === "scale" && b.destinationType === "TriValueBinding" ? bindings.get(b.destination) : undefined;
         // a controller's float variable (this clone's controller runs put a setter under its id)
         const sinks = !target && !xf && !curve && !binding && b.destinationType === "Tr2ControllerFloatVariable"
           ? (objects.get(b.destination) ?? []).filter((o) => typeof o.userData.setVariable === "function") : [];
@@ -360,7 +376,7 @@ export class ChildAnimator {
         const output = b.destinationType === "PostProcessOutput";
         if (!output && !grids.length && !triggers.length && !lightRecords.length && !target && !xf && !curve && !binding && !sinks.length && !setScale) continue;
         let src: Value;
-        const sourceOwner = b.sourceCurve?.id === undefined ? undefined : this.curveOwners.get(b.sourceCurve.id);
+        const sourceOwner = b.sourceCurve?.id === undefined ? undefined : curveOwners.get(b.sourceCurve.id);
         const srcCurve = b.source !== null ? set.curves[b.source] : sourceOwner?.curve ?? b.sourceCurve;
         if (b.sourceConst) src = b.sourceConst;
         else if (b.sourceVariable !== undefined) {
@@ -378,7 +394,7 @@ export class ChildAnimator {
         else if (b.source !== null) {
           if (!values.has(b.source)) values.set(b.source, valueOf(srcCurve, time));
           src = values.get(b.source)!;
-        } else src = valueOf(srcCurve, sourceOwner ? this.runFor(sourceOwner.run, instance).sampledTime : time);
+        } else src = valueOf(srcCurve, sourceOwner?.run.sampledTime ?? time);
         const [srcAttr, srcComp] = b.sourceAttribute.split(".");
         void srcAttr;
         const [attr, comp] = b.destinationAttribute.split(".");

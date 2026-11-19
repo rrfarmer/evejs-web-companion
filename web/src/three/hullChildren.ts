@@ -1697,7 +1697,7 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
             }
             return;
           }
-          if (animator?.setValue(target, attribute, value)) return;
+          if (animator?.setValue(target, attribute, value, group)) return;
           // an effect propagator's frequency (by its id), in this clone
           if (attribute === "frequency") { for (const p of propagatorRunsOf.get(object) ?? []) if (p.id === target) p.run.setFrequency(value); return; }
           // a controller's variable (by its id): the run holding it, in this clone
@@ -1708,7 +1708,7 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
           }
           group.traverse((o) => {
             const key = o.userData.animatorKey as string | undefined;
-            if (key && key !== group.userData.animatorKey) animators.get(key)?.setValue(target, attribute, value);
+            if (key && key !== group.userData.animatorKey) animators.get(key)?.setValue(target, attribute, value, o);
           });
         },
         setOwner: (attribute: string, value: number) => setOwnerAttribute(group, attribute, value),
@@ -1877,7 +1877,7 @@ export function effectCurve(object: THREE.Object3D, setName: string, curveName: 
   let out: Record<string, unknown> | null = null;
   object.traverse((o) => {
     const key = o.userData.animatorKey as string | undefined;
-    if (!out && key) out = animators.get(key)?.curveNamed(setName, curveName) ?? null;
+    if (!out && key) out = animators.get(key)?.curveNamed(setName, curveName, o) ?? null;
   });
   return out;
 }
