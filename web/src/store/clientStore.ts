@@ -2206,6 +2206,15 @@ export function createClientStore(): ClientStore {
         // before it is ready and every later one would otherwise wipe the links
         // the moment they landed.
         const previous = space.get();
+        const before = previous.snapshot;
+        const next = event.snapshot;
+        const warp = next.ship?.warp;
+        if (mining.get().surveyAtMs !== null && before && (
+          before.shipID !== next.shipID || before.solarSystemID !== next.solarSystemID ||
+          !next.inSpace || next.ship?.mode === "WARP" || (warp && !warp.preparing)
+        )) {
+          mining.set({ ...mining.get(), survey: INITIAL_MINING.survey, surveyAtMs: null, surveyError: null });
+        }
         space.set({
           snapshot: event.snapshot,
           loaded: true,

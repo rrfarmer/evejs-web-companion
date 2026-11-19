@@ -460,6 +460,7 @@ import { classifyDistributionAgentConversation, selectDistributionAgent } from "
 import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
 import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
 import { decodeCargoScan, decodeShipScan, groupShipScanHardware, type CargoScanResult, type ShipScanGroup, type ShipScanResult } from "../bridge/scannerResults.ts";
+import { basicMiningScan, INTEGRATED_MINING_SCANNER, miningScanInWarp, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
 import { decodeAgencySeason, decodeAgencySeasonChoices, decodeAgencySeasonProgress, decodeAgencySeasonReward, decodeSeasonSelectionDefinition,
   isVanguardTrackCompleted, seasonRewardClaimable, VANGUARD_TRACK_INSTANCE, type AgencySeason, type AgencySeasonReward } from "../bridge/agencySeason.ts";
 import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from "../bridge/serverDialogs.ts";
@@ -4177,6 +4178,7 @@ export interface AppFlow {
   loadMiningWindow(): Promise<void>;
   /** R23 — run the survey scanner; the panel merges the results into the overview. */
   runSurveyScan(): Promise<void>;
+  miningScanFacts(typeIDs: readonly number[]): Promise<ReadonlyMap<number, MiningScanTypeFacts>>;
   /** R23 — ask the station refinery what these stacks yield, and its ISK tax. */
   loadReprocessingQuote(itemIDs: readonly number[]): Promise<void>;
   /** R23 — move mined ore into the station hangar (docked only). */
@@ -26003,11 +26005,36 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await hangarWhereDocked();
   }
 
-  /** Run the survey scanner and land what it saw. */
+  let manualSurveyPending = false;
+
+  /** Run the manual scan. A basic scan uses the local grid; the upgrade asks the server for quantities. */
   async function runSurveyScan(): Promise<void> {
-    let result;
+    if (manualSurveyPending) return;
+    const before = store.space.get().snapshot;
+    if (miningScanInWarp(before)) {
+      store.apply({ type: "mining/survey-error", message: "Mining scans are unavailable while warping." });
+      return;
+    }
+    manualSurveyPending = true;
     try {
-      result = await api.runSurveyScan(callOptions);
+      const result = await api.runSurveyScan(callOptions);
+      const current = store.space.get().snapshot;
+      if (before && (!current?.inSpace || current.shipID !== before.shipID ||
+          current.solarSystemID !== before.solarSystemID || miningScanInWarp(current))) return;
+
+      const fitting = store.fitting.get();
+      const integrated = current?.inSpace && current.shipID === fitting.activeShipID &&
+        (fitting.shipAttributes?.[INTEGRATED_MINING_SCANNER] ?? 0) > 0;
+      if (result.asked === false && !integrated) {
+        store.apply({ type: "mining/survey-error", message: "No scan was made: this ship has no mining scanner upgrade." });
+        return;
+      }
+      const useBasic = current?.inSpace && integrated && (result.asked === false || result.results === null);
+      store.apply({
+        type: "mining/survey",
+        survey: useBasic ? basicMiningScan(current) : decodeSurveyResults(result.results),
+        atMs: Date.now(),
+      });
     } catch (error) {
       if (isSessionLost(error)) {
         stopLiveStream();
@@ -26018,18 +26045,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         type: "mining/survey-error",
         message: `The survey scan failed: ${flightRefusalWords(error)}`,
       });
-      return;
+    } finally {
+      manualSurveyPending = false;
     }
-    if (result.asked === false) {
-      // The client makes no scan from a ship with no mining scanner upgrade, and the BFF asked for none.
-      store.apply({ type: "mining/survey-error", message: "No scan was made: this ship has no mining scanner upgrade." });
-      return;
-    }
-    store.apply({
-      type: "mining/survey",
-      survey: decodeSurveyResults(result.results),
-      atMs: Date.now(),
-    });
+  }
+
+  async function miningScanFacts(typeIDs: readonly number[]): Promise<ReadonlyMap<number, MiningScanTypeFacts>> {
+    if (typeIDs.length === 0) return new Map();
+    const [meta, volumes, prices] = await Promise.all([
+      typeFacts(typeIDs), volumesOfTypes(typeIDs), cfgAveragePrices(),
+    ]);
+    return new Map(typeIDs.map(typeID => [typeID, {
+      groupID: meta?.get(typeID)?.groupID ?? null,
+      unitVolume: volumes[typeID] ?? null,
+      unitPrice: prices?.get(typeID) ?? null,
+    }]));
   }
 
   // ── The surveyor, run FOR a mining bot ─────────────────────────────────────
@@ -36453,6 +36483,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     scoopDrones,
     runGmCommand,
     runSurveyScan,
+    miningScanFacts,
     loadReprocessingQuote,
     unloadMiningHolds,
     reprocessItems,

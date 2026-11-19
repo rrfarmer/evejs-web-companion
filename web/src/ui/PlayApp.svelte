@@ -46,6 +46,7 @@
   import ServerQuestion from "./ServerQuestion.svelte";
   import ClientDialogs from "./ClientDialogs.svelte";
   import ScannerWindows from "./ScannerWindows.svelte";
+  import { INTEGRATED_MINING_SCANNER } from "../bridge/miningScanResults.ts";
   import FleetInvitation from "./FleetInvitation.svelte";
   import InfoWindows from "./InfoWindows.svelte";
   import CalendarWindows from "./CalendarWindows.svelte";
@@ -114,7 +115,7 @@
     achievements: "achievements", agency: "finder", jobboard: "jobBoard", mail: "mail", inventory: "inventory", assets: "assets", wallet: "wallet", market: "market",
     fitting: "fitting", map: "travel", charactersheet: "characterSheet", chat: "chat", shipTree: "shipTree",
     // the EVE menu's commands (play/neocom.ts EVE_MENU)
-    marketorders: "market", contracts: "contracts", industry: "industry", planets: "planets", locations: "locations",
+    marketorders: "market", contracts: "contracts", industry: "industry", miningScan: "miningScan", planets: "planets", locations: "locations",
     contacts: "contacts", fleet: "fleet", corporation: "corporation", compare: "compare", log: "log", notepad: "notepad", calendar: "calendar",
   };
 
@@ -466,7 +467,7 @@
     characterSheet: { w: 1235, h: 768 }, assets: { w: 550, h: 450 }, locations: { w: 450, h: 450 }, contacts: { w: 600, h: 500 },
     mail: { w: 800, h: 600 }, finder: { w: 1188, h: 694 }, wallet: { w: 900, h: 600 }, planets: { w: 500, h: 500 }, log: { w: 400, h: 200 },
     notepad: { w: 400, h: 300 }, calendar: { w: 580, h: 400 }, jobBoard: { w: 720, h: 960 }, paintTool: { w: 1030, h: 650 }, locationSearch: { w: 420, h: 480 }, achievements: { w: 1040, h: 825 },
-    fleetComposition: { w: 680, h: 420 },
+    fleetComposition: { w: 680, h: 420 }, miningScan: { w: 520, h: 400 },
     memberDetails: { w: 420, h: 480 },
     theatersOfWar: { w: 1600, h: 880 },
     academyShips: { w: 1280, h: 688 },
@@ -535,10 +536,35 @@
   }
   function open(tab: TabID) {
     if (tab === "watchlist" && !session?.store.fleet.get().authoritativeFleetID) return;
+    if (tab === "miningScan" && !canOpenMiningScan()) {
+      const s = session;
+      if (s && !docked) {
+        // A hull swap can reach the flight session ahead of the fitting read.
+        void s.flow.loadFitting().catch(() => {}).then(() => {
+          if (session !== s || docked) return;
+          if (canOpenMiningScan()) open("miningScan");
+          else miningScannerRequired();
+        });
+      } else miningScannerRequired();
+      return;
+    }
     if (tab === "finder" || tab === "theatersOfWar") mapInFront = false;
     wins = openFly(wins, tab);
     raiseApp(tab);
   }
+  function canOpenMiningScan() {
+    if (docked || !session) return false;
+    const fit = session.store.fitting.get();
+    const activeShip = session.store.space.get().snapshot?.shipID ?? session.store.flight.get().status?.shipID;
+    return fit.activeShipID !== null && fit.activeShipID === activeShip &&
+      (fit.shipAttributes?.[INTEGRATED_MINING_SCANNER] ?? 0) > 0;
+  }
+  function miningScannerRequired() {
+    notify({ kind: "info", title: "Mining Scan Results", detail: "Undock in a ship with an integrated mining scanner." });
+  }
+  $effect(() => {
+    if (docked && wins.some(win => win.id === "miningScan")) wins = closeWindow(wins, "miningScan");
+  });
   let openedMemberDetails: NonNullable<typeof $memberDetails> | null = null;
   $effect(() => {
     const request = $memberDetails;
@@ -581,7 +607,7 @@
    * the Log. The page's own tab label stands until the words are had.
    */
   const CAPTION_LABELS: Partial<Record<TabID, string>> = {
-    scanner: "UI/Inflight/Scanner/ProbeScanner", finder: "UI/Agency/Caption", contacts: "UI/PeopleAndPlaces/WindowTitle",
+    scanner: "UI/Inflight/Scanner/ProbeScanner", miningScan: "UI/Inflight/Scanner/MiningScanResults", finder: "UI/Agency/Caption", contacts: "UI/PeopleAndPlaces/WindowTitle",
     mail: "Tooltips/Neocom/Mail", wallet: "UI/Wallet/WalletWindow/Wallet", characterSheet: "UI/CharacterSheet/CharacterSheetWindow/CharacterSheetCaption",
     assets: "Tooltips/Neocom/PersonalAssets", locations: "UI/PeopleAndPlaces/Locations", log: "UI/Accessories/Log/Log",
     planets: "UI/InfoWindow/TabNames/PlanetaryProduction", notepad: "UI/Notepad/Notepad", calendar: "UI/Calendar/CalendarWindow/Caption",
@@ -823,6 +849,15 @@
     const s = session;
     if (!s || docked) return false;
     const say = (title: string) => (cause: unknown) => notify({ kind: "danger", title, detail: cause instanceof Error ? cause.message : String(cause) });
+    if (cmd === "OpenMiningScanResultsWindow") {
+      if (wins.some(win => win.id === "miningScan")) wins = closeWindow(wins, "miningScan");
+      else open("miningScan");
+      return true;
+    }
+    if (cmd === "CmdMiningScan") {
+      if (canOpenMiningScan()) void s.flow.runSurveyScan().catch(say("Mining Scan"));
+      return true;
+    }
     if (cmd === "CmdReloadAmmo") {
       const reloading = new Set(Object.keys(s.store.fitting.get().reloads ?? {}).map(Number));
       void s.flow.reloadAll(reloading).catch(say("Reload all"));

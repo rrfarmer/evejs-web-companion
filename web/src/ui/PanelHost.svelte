@@ -16,6 +16,7 @@
   import Activity from "./Activity.svelte";
   import FleetCenter from "./FleetCenter.svelte";
   import Scanner from "./Scanner.svelte";
+  import MiningScanResults from "./MiningScanResults.svelte";
   import Mail from "./Mail.svelte";
   import Contacts from "./Contacts.svelte";
   import Watchlist from "./Watchlist.svelte";
@@ -165,6 +166,8 @@
   <FleetComposition {store} {flow} openWatchlist={onOpen ? () => onOpen?.("watchlist") : undefined} />
 {:else if tab === "scanner"}
   <Scanner {store} {flow} />
+{:else if tab === "miningScan"}
+  <MiningScanResults {store} {flow} />
 {:else if tab === "mail"}
   <!-- A skill plan link in a mail, followed (link.py handle_link): the Skills window opens on it. -->
   <Mail {store} {flow} {openInventoryFilterLink} openSkillPlanLink={(url) => { flow.openSkillPlanLink(url); onOpen?.("skills"); }} />
