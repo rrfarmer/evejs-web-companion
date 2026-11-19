@@ -23,7 +23,7 @@ export interface ObjectiveTarget {
   readonly typeID: number | null;
   readonly groupID: number | null;
 }
-export type ObjectiveValue = number | string | boolean | readonly number[] | ObjectiveTimer | ObjectiveTarget | null;
+export type ObjectiveValue = number | string | boolean | readonly number[] | readonly string[] | ObjectiveTimer | ObjectiveTarget | null;
 export interface DungeonEntryRule {
   readonly listKey: string | null;
   readonly objectiveKey: string;
@@ -65,13 +65,15 @@ function readObjectiveTimer(value: JsonValue): ObjectiveTimer | null {
   return startMs !== null && endMs !== null && endMs > startMs ? { startMs, endMs } : null;
 }
 
-/** The live scalar, ID lists and simulation-time timers used by objective tasks. */
+/** The live scalar, lists and simulation-time timers used by objective tasks. */
 export function dungeonObjectiveContext(dungeon: CurrentDungeon): Readonly<Record<string, ObjectiveValue>> {
   const context: Record<string, ObjectiveValue> = Object.create(null);
   for (const [key, value] of Object.entries(dungeon.values ?? {})) {
     const sequence = isListValue(value) ? value.items : Array.isArray(value) ? value : null;
     if (sequence !== null && sequence.every((item) => typeof item === "number" && Number.isSafeInteger(item))) {
       context[key] = sequence as readonly number[];
+    } else if (sequence !== null && sequence.every((item): item is string => typeof item === "string")) {
+      context[key] = sequence;
     } else if (value === null || typeof value === "number" || typeof value === "string" || typeof value === "boolean") {
       context[key] = value;
     } else {

@@ -208,6 +208,7 @@ function projectEntity(park, ball, slim, ego, placed) {
   const hostileResponseThreshold = number(slim.get("hostile_response_threshold"));
   const nameMessageID = positive(slim.get("nameID"));
   const characterID = positive(slim.get("charID"));
+  const objectiveTargetGroup = slim.get("objectiveTargetGroup");
   const row = {
     kind,
     itemID,
@@ -216,6 +217,7 @@ function projectEntity(park, ball, slim, ego, placed) {
     categoryID,
     name: text(slim.get("name")) || null,
     ...(nameMessageID !== null ? { nameMessageID } : {}),
+    ...(typeof objectiveTargetGroup === "string" ? { objectiveTargetGroup } : {}),
     ...(characterID !== null ? { characterID } : {}),
     ownerID: positive(slim.get("ownerID")),
     ...(hostileResponseThreshold !== null ? { hostileResponseThreshold } : {}),

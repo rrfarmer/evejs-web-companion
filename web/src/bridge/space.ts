@@ -177,6 +177,7 @@ function decodeEntity(value: JsonValue): SpaceEntity | null {
     planetID: idOrNull(raw.planetID),
     // An acceleration gate's own object in its dungeon, where the BFF says it.
     dunObjectID: idOrNull(raw.dunObjectID),
+    ...(typeof raw.objectiveTargetGroup === "string" ? { objectiveTargetGroup: raw.objectiveTargetGroup } : {}),
     ...(Array.isArray(raw.dunRotation) && raw.dunRotation.length === 3 &&
       raw.dunRotation.every((value): value is number => typeof value === "number" && Number.isFinite(value))
       ? { dunRotation: [raw.dunRotation[0]!, raw.dunRotation[1]!, raw.dunRotation[2]!] as const } : {}),

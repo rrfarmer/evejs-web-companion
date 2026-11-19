@@ -33,6 +33,50 @@ test("the authored container objective follows slim state and the hacking pilot"
   assert.equal(chain.view()[0]?.completed, true);
 });
 
+test("filtered hacking targets follow the authored selectors and complete for the hacking pilot", () => {
+  const data = decodeObjectiveChain({
+    found: true,
+    chainID: 121,
+    chain: {
+      contextParameters: [
+        { parameterKey: "normal_cans", parameterType: "integerListType", defaultValue: [60712] },
+        { parameterKey: "target_groups", parameterType: "stringListType", defaultValue: ["special"] },
+      ],
+      objectives: [{ key: "hack_containers", objectiveType: 83, startActive: 1, showCompleted: 1,
+        inputParametersMap: { type_ids: "normal_cans", objective_target_groups: "target_groups" } }],
+    },
+    objectiveTypes: { 83: { tasks: [{ key: "hack", taskType: 54, startActive: 1, showCompleted: 1,
+      inputParameters: { type_ids: "type_ids", objective_target_groups: "objective_target_groups" } }] } },
+    taskTypes: { 54: { inputParameters: [{ parameterKey: "type_ids" }, { parameterKey: "objective_target_groups" }] } },
+    typeLists: {},
+  });
+  assert.ok(data);
+  const pilot = 140000001;
+  const chain = new ObjectiveChain(data, {}, pilot);
+  const node = { itemID: 101, typeID: 60712, isSelf: false, ownerID: null, hackingSecurityState: 0 } as SpaceEntity;
+  const alternate = { ...node, itemID: 102, typeID: 90043, objectiveTargetGroup: "later" };
+  const optional = { ...node, itemID: 103, typeID: 90044, objectiveTargetGroup: "special" };
+  const generic = { ...node, itemID: 104, typeID: 3060 };
+  chain.start([node, alternate, optional, generic]);
+  const rows = () => chain.view()[0]?.rows.map(({ itemID, completed }) => [itemID, completed]);
+  assert.deepEqual(rows(), [[101, false], [103, false]]);
+
+  const dungeon = dungeonEntered([9238, 27912, null, 422, { target_groups: { type: "list", items: ["later"] } }]);
+  assert.ok(dungeon);
+  const targetGroups = dungeonObjectiveContext(dungeon).target_groups;
+  assert.deepEqual(targetGroups, ["later"]);
+  chain.setContext("target_groups", targetGroups ?? null);
+  assert.deepEqual(rows(), [[101, false], [102, false]]);
+
+  chain.observe([{ ...node, hackingSecurityState: 2, ownerID: pilot + 1 }, alternate, optional, generic]);
+  assert.deepEqual(rows(), [[101, false], [102, false]]);
+  chain.observe([{ ...node, hackingSecurityState: 2, ownerID: pilot }, alternate, optional, generic]);
+  assert.deepEqual(rows(), [[101, true], [102, false]]);
+  chain.observe([{ ...node, hackingSecurityState: 2, ownerID: pilot }, optional, generic]);
+  assert.deepEqual(rows(), [[101, true]]);
+  assert.equal(chain.view()[0]?.completed, true);
+});
+
 test("a tracked signature uses its keeper and room-entry lists for graph objective membership", async () => {
   const payload = { type: "dict", entries: [
     ["complete_on_hack", { type: "list", items: [3735] }],

@@ -2059,6 +2059,7 @@ export interface SpaceEntity {
   readonly planetID?: number | null;
   /** The authored object ID from the slim item, used by dungeon objectives and gate restrictions. */
   readonly dunObjectID?: number | null;
+  readonly objectiveTargetGroup?: string | null;
   /** Authored yaw, pitch and roll in degrees. */
   readonly dunRotation?: readonly [number, number, number];
   /** The native slim item's effect pose. Zero selects the default pose. */

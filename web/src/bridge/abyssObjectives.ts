@@ -69,6 +69,7 @@ const CATEGORY_ENTITY = 11;
 const TASK_TIMER = 30;
 const TASK_DESTROY_COUNTER = 45;
 const TASK_DESTROY_TARGETS = 52;
+const TASK_HACK_CONTAINERS = 54;
 const TASK_HACK_ALL_CONTAINERS = 55;
 const TASK_JUMP_THROUGH_ABYSS_GATE = 56;
 const HACKED = 2; // hackingcommon.hackingConstants.hackingStateHacked
@@ -138,8 +139,12 @@ const strings = (value: unknown): Readonly<Record<string, string>> => {
   return out;
 };
 /** objectives.common.util.fix_fsd_value, for a context default: a list as a list, a number or a word as itself. */
-const fsdValue = (value: unknown): Value => {
-  if (Array.isArray(value)) return value.map(whole).filter((id): id is number => id !== null);
+const fsdValue = (value: unknown, parameterType: unknown): Value => {
+  if (Array.isArray(value)) {
+    return parameterType === "stringListType"
+      ? value.filter((item): item is string => typeof item === "string")
+      : value.map(whole).filter((id): id is number => id !== null);
+  }
   if (typeof value === "number" || typeof value === "string" || typeof value === "boolean") return value;
   return null;
 };
@@ -173,7 +178,9 @@ export function decodeObjectiveChain(data: Readonly<Record<string, JsonValue>>):
   for (const parameter of list(chain.contextParameters)) {
     const row = record(parameter);
     const key = text(row?.parameterKey);
-    if (key !== null && row !== null && row.defaultValue !== undefined && row.defaultValue !== null) defaults[key] = fsdValue(row.defaultValue);
+    if (key !== null && row !== null && row.defaultValue !== undefined && row.defaultValue !== null) {
+      defaults[key] = fsdValue(row.defaultValue, row.parameterType);
+    }
   }
   const objectives = list(chain.objectives).flatMap((value): ObjectiveInfo[] => {
     const row = record(value);
@@ -225,7 +232,7 @@ export function abyssalLocationEntered(clientData: unknown): number | null {
 
 /** objectives.common.util.value_as_set. */
 function valueAsSet(value: Value | undefined): ReadonlySet<number> {
-  if (Array.isArray(value)) return new Set(value);
+  if (Array.isArray(value)) return new Set(value.filter((item): item is number => typeof item === "number"));
   return typeof value === "number" && value !== 0 ? new Set([value]) : new Set();
 }
 
@@ -437,6 +444,7 @@ export class ObjectiveChain {
         if (task.active) this.observeTask(objective, task, FIND);
         return;
       case TASK_HACK_CONTAINER:
+      case TASK_HACK_CONTAINERS:
       case TASK_DESTROY_TARGETS:
         task.rows.clear();
         if (task.active) this.observeTask(objective, task, FIND);
@@ -446,8 +454,9 @@ export class ObjectiveChain {
   }
 
   private startTask(objective: Objective, task: Task): void {
-    const counter = task.info.taskType === TASK_DESTROY_COUNTER || task.info.taskType === TASK_DESTROY_HOSTILES;
-    if (counter || task.info.taskType === TASK_DESTROY_TARGETS || task.info.taskType === TASK_HACK_ALL_CONTAINERS) {
+    const taskType = task.info.taskType;
+    const counter = taskType === TASK_DESTROY_COUNTER || taskType === TASK_DESTROY_HOSTILES;
+    if (counter || taskType === TASK_DESTROY_TARGETS || taskType === TASK_HACK_CONTAINERS || taskType === TASK_HACK_ALL_CONTAINERS) {
       // Both forget what they had (_DestroyTargetsCounterTask.start, BaseTargetsTask.start); started while active, the
       // counter counts only what comes after, and the list waits for what comes.
       task.targets.clear();
@@ -487,7 +496,10 @@ export class ObjectiveChain {
     const listed = listID > 0 ? this.data.typeLists.get(listID) : undefined;
     const itemIDs = valueAsSet(task.values.item_ids);
     const dungeonObjectIDs = valueAsSet(task.values.dungeon_object_ids);
-    return (entity.typeID !== null && typeIDs.has(entity.typeID)) ||
+    const targetGroups = task.values.objective_target_groups;
+    const targetGroup = entity.objectiveTargetGroup;
+    return (targetGroup != null && (Array.isArray(targetGroups) ? targetGroups.includes(targetGroup) : targetGroups === targetGroup)) ||
+      (entity.typeID !== null && typeIDs.has(entity.typeID)) ||
       (entity.groupID !== null && groupIDs.has(entity.groupID)) ||
       (entity.typeID !== null && listed !== undefined && listed.has(entity.typeID)) ||
       itemIDs.has(entity.itemID) ||
@@ -562,11 +574,12 @@ export class ObjectiveChain {
         return;
       }
       case TASK_DESTROY_TARGETS:
+      case TASK_HACK_CONTAINERS:
       case TASK_HACK_ALL_CONTAINERS: {
-        const hack = task.info.taskType === TASK_HACK_ALL_CONTAINERS;
-        const complete = (entity: SpaceEntity) => hack
-          ? this.hackComplete(task, entity)
-          : entity.hullRatio === 0;
+        const hackAll = task.info.taskType === TASK_HACK_ALL_CONTAINERS;
+        const complete = (entity: SpaceEntity) => task.info.taskType === TASK_DESTROY_TARGETS
+          ? entity.hullRatio === 0
+          : this.hackComplete(task, entity);
         let changed = false;
         for (const itemID of [...task.rows.keys()]) {
           const entity = present.get(itemID);
@@ -579,7 +592,7 @@ export class ObjectiveChain {
           }
         }
         for (const entity of looked) {
-          const matches = hack ? !entity.isSelf && entity.hackingSecurityState !== undefined : this.matches(task, entity);
+          const matches = hackAll ? !entity.isSelf && entity.hackingSecurityState !== undefined : this.matches(task, entity);
           if (task.rows.has(entity.itemID) || !matches) continue;
           task.rows.set(entity.itemID, complete(entity));
           changed = true;
@@ -676,6 +689,7 @@ export class ObjectiveChain {
       case TASK_HACK_CONTAINER:
         return task.rows.size === 0;
       case TASK_DESTROY_TARGETS:
+      case TASK_HACK_CONTAINERS:
       case TASK_HACK_ALL_CONTAINERS:
         return false;
       default:
@@ -718,6 +732,7 @@ export class ObjectiveChain {
       }
       case TASK_HACK_CONTAINER:
       case TASK_DESTROY_TARGETS:
+      case TASK_HACK_CONTAINERS:
       case TASK_HACK_ALL_CONTAINERS:
         return [...task.rows.entries()].map(([itemID, done]) => {
           const entity = this.entities.find((thing) => thing.itemID === itemID);
