@@ -459,6 +459,7 @@ import { argumentsOf, createBotPresses, decodeQuestion, dialogOfKey, keptQuestio
 import { classifyDistributionAgentConversation, selectDistributionAgent } from "../nav/distributionAgentSelection.ts";
 import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
 import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
+import { decodeCargoScan, type CargoScanResult } from "../bridge/cargoScan.ts";
 import { decodeAgencySeason, decodeAgencySeasonChoices, decodeAgencySeasonProgress, decodeAgencySeasonReward, decodeSeasonSelectionDefinition,
   isVanguardTrackCompleted, seasonRewardClaimable, VANGUARD_TRACK_INSTANCE, type AgencySeason, type AgencySeasonReward } from "../bridge/agencySeason.ts";
 import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from "../bridge/serverDialogs.ts";
@@ -2094,6 +2095,11 @@ export interface TypeUsedWithGroup {
   readonly metaGroupID: number;
   readonly nameID: number | null;
   readonly items: readonly { readonly typeID: number; readonly metaLevel: number }[];
+}
+
+export interface CargoScanWindow extends CargoScanResult {
+  readonly targetName: string | null;
+  readonly targetTypeID: number | null;
 }
 
 export interface AppFlow {
@@ -3789,6 +3795,8 @@ export interface AppFlow {
   setObjectiveDungeonTracked(instanceID: number, tracked: boolean): void;
   readonly activeDungeon: ReadableSignal<CurrentDungeon | null>;
   readonly hackBoard: ReadableSignal<HackBoard | null>;
+  readonly cargoScans: ReadableSignal<readonly CargoScanWindow[]>;
+  closeCargoScan(targetID: number): void;
   playHack(action: HackAction): Promise<void>;
   clearHack(board: HackBoard): void;
   readonly activeDungeonObjectivesClosed: ReadableSignal<boolean>;
@@ -7104,6 +7112,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     receivedAtMs: number,
     insideMultiEvent = false,
   ): void {
+    if (method === "OnCargoScanComplete") {
+      const scan = decodeCargoScan(args);
+      if (scan === null) return;
+      const target = store.space.get().snapshot?.entities.find(entity => entity.itemID === scan.targetID);
+      const targetTypeID = target?.typeID ?? null;
+      const names: NameRef[] = scan.rows.map(row => ({ kind: "type", id: row.typeID }));
+      if (targetTypeID !== null) names.push({ kind: "type", id: targetTypeID });
+      cargoScans.update(windows => [...windows.filter(window => window.targetID !== scan.targetID), {
+        ...scan, targetName: target?.name ?? null, targetTypeID,
+      }]);
+      requestNames(names);
+      return;
+    }
     if (method === "OnHackingTurnComplete") {
       const previous = hackBoard.get();
       const board = applyHackTurn(previous, args);
@@ -7688,6 +7709,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       hackBoard.set(null);
       void moduleRepairs.endAll();
     }
+    if (sessionNames?.includes("charid")) cargoScans.set([]);
     // gameui.OnSessionChanged: another system, station, structure or ship, and the client's view goes where the
     // session is now (_HandleSessionChangeInStation, InStructure, InSpace), whoever changed it: the pilot's own undock,
     // dock or jump, or the server's own move (a capsule sent to its clone's station, a GM's move). The page reads its
@@ -17018,6 +17040,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // where the page finds its pilot in space (the client's OnCharacterSessionChanged).
   const currentDungeon = createSignal<CurrentDungeon | null>(null);
   const hackBoard = createSignal<HackBoard | null>(null);
+  const cargoScans = createSignal<readonly CargoScanWindow[]>([]);
 
   async function playHack(action: HackAction): Promise<void> {
     const board = hackBoard.get();
@@ -35937,6 +35960,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     setObjectiveDungeonTracked,
     activeDungeon: readonlySignal(currentDungeon),
     hackBoard: readonlySignal(hackBoard),
+    cargoScans: readonlySignal(cargoScans),
+    closeCargoScan: targetID => cargoScans.update(windows => windows.filter(window => window.targetID !== targetID)),
     playHack,
     clearHack,
     activeDungeonObjectivesClosed: readonlySignal(activeDungeonObjectivesClosed),
@@ -36788,6 +36813,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         corporationWealthSignal.set(null);
         closeMoneyTransfer();
         infoWindows.reset();
+        cargoScans.set([]);
         corporationRecords.reset();
         corporationAggression.reset();
         requestGeneration++;
@@ -36823,6 +36849,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         corporationWealthSignal.set(null);
         closeMoneyTransfer();
         infoWindows.reset();
+        cargoScans.set([]);
         requestGeneration++;
         corporationRecords.reset();
         corporationAggression.reset();
