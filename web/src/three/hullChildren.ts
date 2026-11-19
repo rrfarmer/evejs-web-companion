@@ -469,7 +469,7 @@ const v4 = (v: unknown, d: number[]) => new THREE.Vector4(...([0, 1, 2, 3].map((
  * in the eye's space (laid on there); its colour GlowColor1 to GlowColor2 by its mix, times
  * saturate(SpriteProperties.z / -z). The second pass, the engines: the sprite sized by its size x SpriteSizes.zw x how
  * far the way it came points toward the eye (the path a texel back, by the speed's sign), in GlowColor1. The pixel
- * TexMap x colour, its alpha over the colour, added. The fog volume map's factor is 1 (as flarequad.fx's).
+ * TexMap x colour, its alpha over the colour, attenuated by cloud transmission and added.
  */
 function trafficMeshes(node: SofChildTraffic): THREE.Object3D | null {
   const inst = node.instances;
@@ -484,6 +484,7 @@ function trafficMeshes(node: SofChildTraffic): THREE.Object3D | null {
   geo.instanceCount = inst.length / 8;
   const p = node.params;
   const uniforms = {
+    ...CLOUD_FOG, softDepthSize: SOFT_DEPTH.softDepthSize,
     // the clock read as the uniform is (a model is drawn as a clone, and a clone has no onBeforeRender of its own)
     posMap: { value: null as THREE.Texture | null }, texMap: { value: null as THREE.Texture | null }, time: { get value() { return performance.now() / 1000; } },
     texProps: { value: v4(p.TextureProperties, [256, 33, 0.025, 12]) }, sizes: { value: v4(p.SpriteSizes, [1, 1, 1, 1]) },
@@ -521,10 +522,11 @@ function trafficMeshes(node: SofChildTraffic): THREE.Object3D | null {
       vertexShader: `${head}
       void main() {${body(engines)}
       }`,
-      fragmentShader: `uniform sampler2D texMap; varying vec2 vUv; varying vec4 vColour;
+      fragmentShader: `uniform sampler2D texMap; uniform vec2 softDepthSize; varying vec2 vUv; varying vec4 vColour;
+      ${CLOUD_FOG_GLSL}
       void main() {
         vec4 t = texture2D(texMap, vUv);
-        gl_FragColor = vec4(t.rgb * vColour.rgb, 1.0) * t.a;
+        gl_FragColor = vec4(t.rgb * vColour.rgb, 1.0) * (t.a * cloudFogTransmission(1.0 / gl_FragCoord.w));
       }`,
       side: THREE.DoubleSide, transparent: true, depthWrite: false,
       blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation,
@@ -699,11 +701,12 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
  * red channel for the first and green for the second, multiplied; the LayerMaskMap read at the distance from
  * Layer3Center (or the uv) x Layer3Transform.xy + .zw + frac(Layer3Scroll.xy x time) + .zw; the colour
  * layers x (mask rgb, 1) x BaseColor + mask alpha x FxColor, its rgb times the fresnel (as ubershader.fx's); added
- * (one, one) for an additive area. The fog volume map's factor is 1 (as flarequad.fx's).
+ * (one, one) for an additive area. Cloud transmission attenuates color and alpha.
  */
 function fx3dMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
   const p = area.params;
   const uniforms: Record<string, THREE.IUniform> = {
+    ...CLOUD_FOG, softDepthSize: SOFT_DEPTH.softDepthSize,
     time: effectClock, layers: { value: null }, mask: { value: null },
     base: { value: v4(p.BaseColor, [1, 1, 1, 1]) }, fx: { value: v4(p.FxColor, [0, 0, 0, 0]) },
     fresnel: { value: v4(p.FresnelFactors, [0, 1, 0, 0]) }, centre: { value: v4(p.Layer3Center, [0, 0, 0, 0]) },
@@ -731,7 +734,9 @@ function fx3dMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
       uniform sampler3D layers; uniform sampler2D mask; uniform float time;
       uniform vec4 t1; uniform vec4 t2; uniform vec4 t3; uniform vec4 s1; uniform vec4 s2; uniform vec4 s3;
       uniform vec4 base; uniform vec4 fx; uniform vec4 fresnel; uniform vec4 centre;
+      uniform vec2 softDepthSize;
       varying vec3 vObj; varying vec2 vUv; varying vec3 vN; varying vec3 vFromEye;
+      ${CLOUD_FOG_GLSL}
       void main() {
         float f = pow(1.0 - clamp(dot(normalize(-vFromEye), normalize(vN)) - fresnel.z, 0.0, 1.0), fresnel.x);
         f = fresnel.y < 0.0 ? (1.0 - min(f, 1.0)) * -fresnel.y : f * fresnel.y;
@@ -740,7 +745,7 @@ function fx3dMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
         vec2 mUv = ${byUv ? "vUv * t3.xy + t3.zw" : "length(vObj - centre.xyz) * t3.xy + t3.zw"} + fract(s3.xy * time) + s3.zw;
         vec4 m = texture2D(mask, mUv);
         vec4 c = a * b * vec4(m.rgb, 1.0) * base + m.a * fx;
-        gl_FragColor = vec4(c.rgb * f, c.a);
+        gl_FragColor = vec4(c.rgb * f, c.a) * cloudFogTransmission(1.0 / gl_FragCoord.w);
       }`,
     side: presetSide(area), transparent: true, depthWrite: false,
     ...(area.kind === "additive"
@@ -763,8 +768,7 @@ function fx3dMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
  *   x (1 + animation.a x (overlay.a - 1)); TexMap read across the line, OverlayTexMap across it and along at
  *   (speed x time + t) x scale (scale 1, as the curve's ChangeLineAnimation call gives it); added for an additive set.
  * The gradient colour is baseColor x brightness, the animation colour animColor x brightness and the speed the set's
- * scrollSpeed (EveChildLineSet.cpp's AddLinesToSet). No curve sets a multicolour. The fog volume
- * map's factor is 1 (as flarequad.fx's).
+ * scrollSpeed (EveChildLineSet.cpp's AddLinesToSet). Cloud transmission attenuates the combined color and alpha.
  */
 function lineSet(node: SofChildLines, animator?: ChildAnimator, ancestors: number[] = []): THREE.Object3D | null {
   const pos: number[] = [], other: number[] = [], side: number[] = [], end: number[] = [], width: number[] = [], index: number[] = [];
@@ -798,6 +802,7 @@ function lineSet(node: SofChildLines, animator?: ChildAnimator, ancestors: numbe
   geo.setIndex(index);
   const bc = node.baseColor, ac = node.animColor, k = node.brightness;
   const uniforms = {
+    ...CLOUD_FOG, softDepthSize: SOFT_DEPTH.softDepthSize,
     tex: { value: null as THREE.Texture | null }, overlay: { value: null as THREE.Texture | null },
     viewport: { value: new THREE.Vector2(1920, 1080) }, time: effectClock, speed: { value: node.scrollSpeed ?? 0 },
     // EveChildLineSet.cpp: AddLinesToSet(baseColor x brightness, animColor x brightness, scrollSpeed), a colour times a
@@ -827,11 +832,14 @@ function lineSet(node: SofChildLines, animator?: ChildAnimator, ancestors: numbe
         gl_Position = c0;
       }`,
     fragmentShader: `uniform sampler2D tex; uniform sampler2D overlay; uniform vec4 colour; uniform vec4 anim; uniform float time; uniform float speed;
+      uniform vec2 softDepthSize;
       varying float vAcross; varying float vAlong;
+      ${CLOUD_FOG_GLSL}
       void main() {
         vec4 t = texture2D(tex, vec2(vAcross, 0.5));
         vec4 o = texture2D(overlay, vec2(vAcross, speed * time + vAlong));
-        gl_FragColor = vec4(colour.rgb * t.rgb + o.rgb * anim.rgb, t.a * colour.a * (1.0 + anim.a * (o.a - 1.0)));
+        vec4 c = vec4(colour.rgb * t.rgb + o.rgb * anim.rgb, t.a * colour.a * (1.0 + anim.a * (o.a - 1.0)));
+        gl_FragColor = c * cloudFogTransmission(1.0 / gl_FragCoord.w);
       }`,
     side: THREE.DoubleSide, transparent: true, depthWrite: false,
     ...(node.additive
@@ -1184,12 +1192,12 @@ function flareMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
  * An area drawn with twocolorflare.fx: the mesh's x and y only (z nought) through its transform; per vertex k =
  * (asin(c) / pi)^2 for c the cosine of its angle off the eye's axis (saturated); the pixel's d = length((uv - 0.5) x
  * 2): the colour mix(ColorInner, ColorOutter, d x sqrt 2), times ((1 / (min(d, 1) + 0.001) - 0.999001) x 1.001)^2 x k,
- * its colour written sRGB-encoded (the per-frame gamma 1); both faces. Defaults both colours 1. The fog volume map's
- * factor is 1.
+ * attenuated by cloud transmission before encoding RGB; both faces. Defaults both colours 1.
  */
 function twoColorFlareMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
   const p = area.params;
   const uniforms: Record<string, THREE.IUniform> = {
+    ...CLOUD_FOG, softDepthSize: SOFT_DEPTH.softDepthSize,
     inner: { value: v4(p.ColorInner, [1, 1, 1, 1]) }, outer: { value: v4(p.ColorOutter, [1, 1, 1, 1]) },
   };
   return logDepth(new THREE.ShaderMaterial({
@@ -1202,12 +1210,14 @@ function twoColorFlareMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
         vUvK = vec3(uv, a * a);
         gl_Position = projectionMatrix * mv;
       }`,
-    fragmentShader: `uniform vec4 inner; uniform vec4 outer; varying vec3 vUvK;
+    fragmentShader: `uniform vec4 inner; uniform vec4 outer; uniform vec2 softDepthSize; varying vec3 vUvK;
       ${SRGB_ENCODE_GLSL}
+      ${CLOUD_FOG_GLSL}
       void main() {
         float d = length((vUvK.xy - 0.5) * 2.0);
         float fall = (1.0 / (min(d, 1.0) + 0.001) - 0.999001) * 1.001;
         vec4 c = mix(inner, outer, d * 1.414214) * (fall * fall * vUvK.z);
+        c *= cloudFogTransmission(1.0 / gl_FragCoord.w);
         gl_FragColor = vec4(encode(max(c.rgb, 0.0)), c.a);
       }`,
     side: THREE.DoubleSide, transparent: true, depthWrite: false, ...areaBlend(area),
