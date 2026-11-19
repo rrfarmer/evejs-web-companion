@@ -11,7 +11,6 @@ export interface MoonRefinery {
   readonly id: number;
   readonly name: string;
   readonly ownerID: number | null;
-  readonly fuelExpiresAtMs: number | null;
   readonly canControl: boolean;
 }
 

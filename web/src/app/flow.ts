@@ -4196,7 +4196,7 @@ export interface AppFlow {
   loadMoonResources(structureID: number): Promise<readonly MoonResource[]>;
   loadMoonSchedule(structureID: number): Promise<MoonSchedule>;
   loadCorporationMoonSchedule(current?: () => void): Promise<CorporationMoonSchedule>;
-  startMoonPull(refinery: MoonRefinery, readyAtMs: number, addToCalendar: boolean): Promise<void>;
+  startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
   loadCorporationMiningObservers(): Promise<readonly MiningLedgerObserver[]>;
   loadCorporationMiningLedger(observerID: number): Promise<{ rows: readonly CorporationMiningLedgerEntry[]; facts: ReadonlyMap<number, MiningLedgerFacts>; nowMs: number }>;
@@ -26151,7 +26151,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       id: structureID,
       name: typeof name === "string" && name.length > 0 ? name : typeID === 35835 ? "Athanor" : "Tatara",
       ownerID: moonMiningID(readKeyVal(info, "ownerID")),
-      fuelExpiresAtMs: filetimeToUnixMs(unwrapLong(readKeyVal(info, "fuelExpires"))),
       canControl,
     };
   }
@@ -26229,21 +26228,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return { extractions, profiles, nowMs: serverNow() };
   }
 
-  async function startMoonPull(refinery: MoonRefinery, readyAtMs: number, addToCalendar: boolean): Promise<void> {
+  async function startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void> {
     const current = callOptions.captureRequestGuard!();
-    assertRefineryControl(refinery.id);
-    if (refinery.fuelExpiresAtMs !== null && readyAtMs > refinery.fuelExpiresAtMs
+    assertRefineryControl(structureID);
+    // Fuel can move while the planner is open. The native scheduler checks at Start.
+    const info = await bridgeAsk("structureDirectory", "GetStructureInfo", [structureID]);
+    current();
+    assertRefineryControl(structureID);
+    const ownerID = moonMiningID(readKeyVal(info, "ownerID"));
+    if (ownerID === null) throw new Error("The refinery's current structure information could not be read.");
+    const fuelExpiresAtMs = filetimeToUnixMs(unwrapLong(readKeyVal(info, "fuelExpires")));
+    if (fuelExpiresAtMs !== null && readyAtMs > fuelExpiresAtMs
       && !await askDialog("NotEnoughFuelForExtractionDuration", null, "The selected ready time is after the refinery's fuel expires. Start the extraction?")) return;
     current();
-    assertRefineryControl(refinery.id);
+    assertRefineryControl(structureID);
     const online = store.station.get().online;
-    if (!canManageMoonPull(refinery.ownerID, online?.corporationID ?? null, online?.corpRole ?? null)
+    if (!canManageMoonPull(ownerID, online?.corporationID ?? null, online?.corpRole ?? null)
       && !await askDialog("ConfirmStartMoonminingEventWithoutRolesToStop", null, "Only a Station Manager for the owning corporation can stop this drill. Start the extraction?")) return;
     current();
-    assertRefineryControl(refinery.id);
+    assertRefineryControl(structureID);
     const duration = moonPullDuration(readyAtMs, serverNow());
     if (duration === null) throw new Error("Choose a ready time within the allowed range.");
-    await bridgeDo("moonExtractions", "StartNewExtraction", [refinery.id, duration, addToCalendar]);
+    await bridgeDo("moonExtractions", "StartNewExtraction", [structureID, duration, addToCalendar]);
     moonExtractionChanged.update(revision => revision + 1);
   }
 

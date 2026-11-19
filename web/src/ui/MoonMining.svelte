@@ -133,7 +133,7 @@
       {/if}
     </div>
   {:else if schedule}
-    <form class="schedule-card" onsubmit={event => { event.preventDefault(); if (canStart && !pending) void run(() => flow.startMoonPull(refinery, selectedDate, calendar)); }}>
+    <form class="schedule-card" onsubmit={event => { event.preventDefault(); if (canStart && !pending) void run(() => flow.startMoonPull(refinery.id, selectedDate, calendar)); }}>
       <label class="time">Chunk ready time (UTC)
         <input type="datetime-local" required bind:value={plannedDate} min={forInput(firstPlan(now))}
           max={forInput(lastPlan(now))} step={MOON_PLAN_STEP_MS / 1000} disabled={pending} />
