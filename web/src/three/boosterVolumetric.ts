@@ -11,9 +11,10 @@
 // smoothstep((intensity - 0.01) x 50); drawn added.
 //
 // The march is clipped, as the client's, to what lies in front of the near plane and of the scene's opaque depth at the
-// pixel (softDepth.ts: the scene depth pass this material asks for; no depth test). Not as the client: no fog volume
-// (no scene sets one), and the output stays linear (the client writes sRGB into an sRGB target).
+// pixel (softDepth.ts: the scene depth pass this material asks for; no depth test). Cloud opacity attenuates the
+// accumulated color and alpha at the box fragment's depth. The output stays linear for the scene's HDR blend.
 import * as THREE from "three";
+import { CLOUD_FOG, CLOUD_FOG_GLSL } from "./cloudOpacity.ts";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
 import { logDepth } from "./logDepth.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
@@ -104,6 +105,7 @@ void main() {
 const FRAGMENT = `
 precision highp sampler3D;
 ${SOFT_DEPTH_GLSL}
+${CLOUD_FOG_GLSL}
 uniform sampler2D shapeMap; uniform sampler2D gradient0; uniform sampler2D gradient1; uniform sampler3D noiseMap;
 uniform vec2 atlasSize; uniform vec3 boosterScale; uniform float warp; uniform float time; varying float vIntensity;
 uniform float nearZ;
@@ -200,7 +202,7 @@ void main() {
   sum *= length(seg * boosterScale) * 0.666667 / float(n);
   float k = clamp((intensity - 0.01) * 50.0, 0.0, 1.0);
   sum *= k * k * (3.0 - 2.0 * k);
-  gl_FragColor = vec4(max(sum.xyz, vec3(0.0)), sum.w);
+  gl_FragColor = vec4(max(sum.xyz, vec3(0.0)), sum.w) * cloudFogTransmission(1.0 / gl_FragCoord.w);
 }`;
 
 const v4 = (a: number[] | undefined) => new THREE.Vector4(a?.[0] ?? 0, a?.[1] ?? 0, a?.[2] ?? 0, a?.[3] ?? 0);
@@ -261,7 +263,7 @@ export async function volumetricBoosters(items: BoosterItem[], vol: BoosterVolum
     uniforms: {
       shapeMap: { value: shapeMap }, gradient0: { value: gradient0 }, gradient1: { value: gradient1 }, noiseMap: { value: noise },
       atlasSize: { value: new THREE.Vector2(vol.atlasHeight || 64, vol.atlasCount || 2) }, boosterScale: { value: scale },
-      intensity: { value: 0 }, warp: { value: 0 }, time: { value: 0 }, nearZ: { value: 0.1 }, ...SOFT_DEPTH,
+      intensity: { value: 0 }, warp: { value: 0 }, time: { value: 0 }, nearZ: { value: 0.1 }, ...SOFT_DEPTH, ...CLOUD_FOG,
       // ShapeN's colour; NoiseAmplitudeStart/End, NoiseFrequency with NoiseSpeed in .w (the effect's packing: speed 0
       // after the frequency, speed 1 after the end amplitude)
       color0: { value: v4(sh0?.color) }, color1: { value: v4(sh1?.color) }, warpColor0: { value: v4(w0?.color) }, warpColor1: { value: v4(w1?.color) },
@@ -361,6 +363,7 @@ void main() {
 
 const GLOW_FRAGMENT = `
 ${SOFT_DEPTH_GLSL}
+${CLOUD_FOG_GLSL}
 uniform sampler2D glowMap;
 varying vec2 vUv; varying vec4 vColor; varying vec2 vCenterPx; varying float vDist;
 float hidden(vec2 at) { return softSceneDepthAt(at) <= vDist ? 1.0 : 0.0; }
@@ -374,7 +377,7 @@ void main() {
     seen = 1.0 - n / 7.0;
   }
   vec4 c = tex * seen * vColor * 4.0;
-  gl_FragColor = vec4(max(c.xyz, vec3(0.0)), c.w);
+  gl_FragColor = vec4(max(c.xyz, vec3(0.0)), c.w) * cloudFogTransmission(1.0 / gl_FragCoord.w);
 }`;
 
 /**
@@ -426,7 +429,7 @@ export async function boosterGlows(items: BoosterItem[], data: BoosterGlowData |
     vertexShader: GLOW_VERTEX, fragmentShader: GLOW_FRAGMENT,
     uniforms: {
       glowMap: { value: glowMap }, glowNoise: { value: glowNoise }, gain: { value: 0 }, warp: { value: 0 }, time: { value: 0 },
-      haloFacing: { value: 0 }, viewport: { value: new THREE.Vector2(1, 1) }, ...SOFT_DEPTH,
+      haloFacing: { value: 0 }, viewport: { value: new THREE.Vector2(1, 1) }, ...SOFT_DEPTH, ...CLOUD_FOG,
     },
     transparent: true, depthWrite: false, depthTest: false,
     blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation,
@@ -503,7 +506,7 @@ export async function agentBoosters(data: AgentBoosterData, capacity: number): P
     uniforms: {
       shapeMap: { value: shapeMap }, gradient0: { value: gradient0 }, gradient1: { value: gradient1 }, noiseMap: { value: noise },
       atlasSize: { value: new THREE.Vector2(atlas[0] ?? 64, atlas[1] ?? 2) }, boosterScale: { value: new THREE.Vector3(bs[0] ?? 1, bs[1] ?? 1, bs[2] ?? 1) },
-      intensity: { value: 0 }, warp: { value: 0 }, time: { value: 0 }, nearZ: { value: 0.1 }, ...SOFT_DEPTH,
+      intensity: { value: 0 }, warp: { value: 0 }, time: { value: 0 }, nearZ: { value: 0.1 }, ...SOFT_DEPTH, ...CLOUD_FOG,
       color0: { value: v("Color0", [1, 1, 1, 1]) }, color1: { value: v("Color1", [1, 1, 1, 1]) }, warpColor0: { value: new THREE.Vector4() }, warpColor1: { value: new THREE.Vector4() },
       start0: { value: v("NoiseAmplitudeStart0", [0, 0, 0]) }, end0: { value: v("NoiseAmplitudeEnd0", [0, 0, 0]) }, freq0: { value: freq },
       start1: { value: v("NoiseAmplitudeStart1", [0, 0, 0]) }, end1: { value: end1 },
