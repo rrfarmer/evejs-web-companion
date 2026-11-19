@@ -696,9 +696,15 @@ function readSmartLightSet(o, skipped) {
       });
       return;
     }
-    if (group.type === "EveSmartLightQuad" && ["flarequad", "flarequadsoft"].includes(effectName(group.effect))) {
-      quads.push({ position, scaling: group.staticQuadScale ?? [1, 1, 1], color, brightness, ...effects });
-      return;
+    if (group.type === "EveSmartLightQuad") {
+      const effect = effectName(group.effect);
+      if (effect === "flarequad" || effect === "flarequadsoft") {
+        quads.push({
+          position, scaling: group.staticQuadScale ?? [1, 1, 1], color, brightness, ...effects,
+          ...(effect === "flarequadsoft" ? { soft: true } : {}),
+        });
+        return;
+      }
     }
     if (group.type === "EveSmartLightMesh" && group.mesh?.type === "Tr2InstancedMesh" && group.mesh.geometryResPath &&
         group.rotationConstraint === 2 && group.shaderParamColorName === "DiffuseColor" && !group.castShadows && !group.minScreenSize) {

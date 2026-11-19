@@ -5,6 +5,7 @@
 // are later stages.
 
 import * as THREE from "three";
+import { gfx } from "../play/gfxSettings.ts";
 import { logDepth } from "./logDepth.ts";
 import { wormholeMaterial } from "./wormholeMaterial.ts";
 import { CLOUD_FOG, CLOUD_FOG_GLSL } from "./cloudOpacity.ts";
@@ -169,7 +170,7 @@ interface SofChildSmartLights {
   display?: boolean;
   placements: (SmartLightPlacement | { locatorSet: string })[];
   lights: (SofChildLight & SmartLightSource)[];
-  quads: (SmartLightSource & { position: number[]; scaling: number[]; brightness: number })[];
+  quads: (SmartLightSource & { position: number[]; scaling: number[]; brightness: number; soft?: boolean })[];
   meshes?: SmartBeam[];
   plane?: SmartLightPlane;
 }
@@ -205,17 +206,16 @@ function placedLight(l: SofChildLight, matrix: THREE.Matrix4): ChildLight {
 }
 
 /**
- * The quads as flarequad.fx draws them (its sm_hi vertex and pixel stages disassembled, client 3396210), one instance
+ * The quads as flarequad.fx draws them (build 3698585), one instance
  * each: the quad's middle (its translation) through its parents' transforms and the eye's; its corners (+-0.5) along
  * the quad's own x and y axes (its rotation and scaling), times the mean scale of its parents' world transform, laid
  * on in the eye's space (a billboard turned and shaped by the quad's own transform); its colour colour x brightness,
  * times (asin(c) / (pi/2))^2 for c the cosine of its angle off the eye's axis (dimmer toward the screen's edge). The
- * pixel: (1 / (d + 0.001) - 0.999001) x 1.001 for d the distance from the middle (1 at the edge), added; its t0,
- * the scene's fog volume map by depth slice (EveSceneFogVolumeMap: the colour times 1 minus it), is EveChildCloud2's
- * only, the client's empty map black where none is drawn (as here: the factor 1). flarequadsoft.fx is drawn as
- * flarequad.fx. A quad under minScreenSize pixels across is not drawn.
+ * pixel falloff is radial and multiplied by cloud transmission in every shader profile. The soft effect uses
+ * a wider falloff curve. In the depth profile, foreground overlap adds a third axis to the falloff, measured
+ * over the quad's shorter scaled axis. A quad under minScreenSize pixels across is not drawn.
  */
-export function quadMesh(quads: { centre: THREE.Vector3; ax: THREE.Vector3; ay: THREE.Vector3; colour: number[]; min: number; halo: { z: THREE.Vector3; at: THREE.Vector3 } | null }[]): THREE.Mesh {
+export function quadMesh(quads: { centre: THREE.Vector3; ax: THREE.Vector3; ay: THREE.Vector3; colour: number[]; min: number; soft?: boolean; halo: { z: THREE.Vector3; at: THREE.Vector3 } | null }[]): THREE.Mesh {
   const geo = new THREE.InstancedBufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3));
   geo.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
@@ -223,9 +223,11 @@ export function quadMesh(quads: { centre: THREE.Vector3; ax: THREE.Vector3; ay: 
   const n = quads.length;
   const centre = new Float32Array(n * 3), ax = new Float32Array(n * 3), ay = new Float32Array(n * 3), colour = new Float32Array(n * 4), min = new Float32Array(n);
   const haloZ = new Float32Array(n * 4), haloAt = new Float32Array(n * 3);
+  const soft = new Float32Array(n);
   quads.forEach((q, i) => {
     q.centre.toArray(centre, i * 3); q.ax.toArray(ax, i * 3); q.ay.toArray(ay, i * 3);
     colour.set(q.colour.slice(0, 4), i * 4); min[i] = q.min;
+    soft[i] = q.soft ? 1 : 0;
     if (q.halo) { q.halo.z.toArray(haloZ, i * 4); haloZ[i * 4 + 3] = 1; q.halo.at.toArray(haloAt, i * 3); }
   });
   geo.setAttribute("iCentre", new THREE.InstancedBufferAttribute(centre, 3));
@@ -233,15 +235,17 @@ export function quadMesh(quads: { centre: THREE.Vector3; ax: THREE.Vector3; ay: 
   geo.setAttribute("iAxisY", new THREE.InstancedBufferAttribute(ay, 3));
   geo.setAttribute("iColour", new THREE.InstancedBufferAttribute(colour, 4));
   geo.setAttribute("iMin", new THREE.InstancedBufferAttribute(min, 1));
+  geo.setAttribute("iSoft", new THREE.InstancedBufferAttribute(soft, 1));
   geo.setAttribute("iHaloZ", new THREE.InstancedBufferAttribute(haloZ, 4));
   geo.setAttribute("iHaloAt", new THREE.InstancedBufferAttribute(haloAt, 3));
   geo.instanceCount = n;
   const viewHeight = { value: 1080 };
+  const depthProfile = { get value() { return gfx().shaderQuality === 3 && SOFT_DEPTH.softDepthOn.value > 0; } };
   const mat = new THREE.ShaderMaterial({
-    uniforms: { viewHeight },
+    uniforms: { ...SOFT_DEPTH, ...CLOUD_FOG, viewHeight, depthProfile },
     vertexShader: `attribute vec3 iCentre; attribute vec3 iAxisX; attribute vec3 iAxisY; attribute vec4 iColour; attribute float iMin;
-      attribute vec4 iHaloZ; attribute vec3 iHaloAt;
-      uniform float viewHeight; varying vec2 vUv; varying vec4 vColour;
+      attribute vec4 iHaloZ; attribute vec3 iHaloAt; attribute float iSoft;
+      uniform float viewHeight; varying vec2 vUv; varying vec4 vColour; varying vec2 vFlare;
       void main() {
         vUv = uv;
         float s = (length(modelMatrix[0].xyz) + length(modelMatrix[1].xyz) + length(modelMatrix[2].xyz)) / 3.0;
@@ -258,22 +262,30 @@ export function quadMesh(quads: { centre: THREE.Vector3; ax: THREE.Vector3; ay: 
         float f = asin(c) * 0.63662;
         vColour = iColour * f * f;
         // the quad's size on the screen, in pixels, against its minScreenSize
-        float px = min(length(ax), length(ay)) * projectionMatrix[1][1] * 0.5 * viewHeight / max(-mv.z, 1e-6);
+        float thickness = min(length(ax), length(ay));
+        float px = thickness * projectionMatrix[1][1] * 0.5 * viewHeight / max(-mv.z, 1e-6);
         if (px < iMin) vColour = vec4(0.0);
+        vFlare = vec2(thickness, iSoft);
         mv.xyz += ax * position.x + ay * position.y;
         gl_Position = projectionMatrix * mv;
       }`,
-    fragmentShader: `varying vec2 vUv; varying vec4 vColour;
+    fragmentShader: `varying vec2 vUv; varying vec4 vColour; varying vec2 vFlare;
+      uniform bool depthProfile;
+      ${SOFT_DEPTH_GLSL}
+      ${CLOUD_FOG_GLSL}
       void main() {
-        float d = min(length((vUv - 0.5) * 2.0), 1.0);
-        float k = (1.0 / (d + 0.001) - 0.999001) * 1.001;
-        gl_FragColor = k * vColour;
+        float depth = 1.0 / gl_FragCoord.w;
+        float overlap = depthProfile ? 2.0 * clamp((depth - softSceneDepth()) / max(vFlare.x, 1e-6), 0.0, 1.0) : 0.0;
+        float d = min(length(vec3((vUv - 0.5) * 2.0, overlap)), 1.0);
+        float k = vFlare.y > 0.5 ? inversesqrt(d + 0.1) - 0.953463 : (1.0 / (d + 0.001) - 0.999001) * 1.001;
+        gl_FragColor = k * vColour * cloudFogTransmission(depth);
       }`,
     // both sides: the corners are laid on in the eye's space, which the mirror in z does not turn, while three.js
     // takes the mirrored model's front faces as clockwise (every quad was culled)
     side: THREE.DoubleSide, transparent: true, depthWrite: false,
     blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation,
   });
+  mat.userData.softDepth = true;
   logDepth(mat);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.name = "child-quads";
@@ -281,7 +293,10 @@ export function quadMesh(quads: { centre: THREE.Vector3; ax: THREE.Vector3; ay: 
   mesh.renderOrder = 3;
   const size = new THREE.Vector2();
   // on the material, which a clone of the model shares (Object3D.clone does not carry an object's own onBeforeRender)
-  mat.onBeforeRender = (renderer) => { viewHeight.value = renderer.getDrawingBufferSize(size).y; };
+  mat.onBeforeRender = (renderer) => {
+    viewHeight.value = renderer.getDrawingBufferSize(size).y;
+    mat.depthTest = !depthProfile.value;
+  };
   return mesh;
 }
 
@@ -1988,7 +2003,7 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
             ax: new THREE.Vector3(e[0], e[1], e[2]).multiplyScalar(q.scaling[0] ?? 1),
             ay: new THREE.Vector3(e[4], e[5], e[6]).multiplyScalar(q.scaling[1] ?? 1),
             colour: ticking ? [q.brightness, q.brightness, q.brightness, q.brightness] : q.color.map((c) => c * q.brightness),
-            min: 0, halo: null,
+            min: 0, soft: q.soft, halo: null,
           });
         }
       }
@@ -2202,6 +2217,7 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
       ay: new THREE.Vector3(e[4], e[5], e[6]).multiplyScalar(s),
       colour: [(node.color[0] ?? 1) * b, (node.color[1] ?? 1) * b, (node.color[2] ?? 1) * b, (node.color[3] ?? 1) * b],
       min: node.minScreenSize,
+      soft: node.effect === "flarequadsoft",
       halo,
     });
   };
