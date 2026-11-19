@@ -224,10 +224,11 @@ function staticParticleVS(decl: string, body: string): string {
  * ramp's alpha x Colors2.w; NEAR_FADE_ALPHA fades the alpha, NEAR_FADE_COLOR the colour, by sat((depth -
  * ParticleParams.x) / (.y - .x)); the colour written sRGB-encoded (the per-frame gamma 1). TextureMap and ColorRampMap
  * are read as sRGB (decoded here after filtering); every sampler clamps. The record sets no blend: its batch's
- * preset (transparent alpha, additive ONE / ONE). The fog volume map's factor is 1.
+ * preset (transparent alpha, additive ONE / ONE). Build 3698585 attenuates linear RGBA by squared cloud
+ * transmission. The depth profile also fades alpha against opaque depth over the authored Depth distance.
  *
- * particles/dynamic/motionvectorramp.fx (its one record) is the COLOR_RAMP_ENABLED, NEAR_FADE_DISABLED record but for
- * two things: a pixel of nought alpha is not discarded, and the alpha is a x the ramp's alpha (no Colors2).
+ * The standalone motionvectorramp.fx uses alpha from the texture and ramp. Its depth profile fades alpha over
+ * 100 metres.
  *
  * COLOR_BY_VALUE (dynamic): no ramp - the vertex stage's colour Color1 to Color2 over age 0 .. ColorMidpoint, Color2
  * to Color3 from it to 1 (1layerdynv2's), and the frames' alpha alone (blended, nought discarded): the colour x that,
@@ -256,6 +257,10 @@ export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf, d
   const fade = o.NEAR_FADE ?? "NEAR_FADE_DISABLED";
   const p = area.params;
   const uniforms: Record<string, THREE.IUniform> = {
+    ...SOFT_DEPTH,
+    ...(!dynamicRamp ? CLOUD_FOG : {}),
+    depthShader: { get value() { return gfx().shaderQuality === 3; } },
+    depthFadeDistance: { value: dynamicRamp ? 100 : f1(p.Depth, 100) },
     time: particleClock,
     spriteFactors: { value: v4(p.SpriteFactors, [0, 0, 0, 1]) }, velocityStretch: { value: f1(p.VelocityStretch, 0) },
     spriteFactors2: { value: v4(p.SpriteFactors2, [0.05, 1, 1, 1]) }, useWorldScale: { value: f1(p.UseWorldScale, 0) },
@@ -285,9 +290,22 @@ export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf, d
         : dynamicParticleVS(false, "varying vec3 vUvAge;", "vUvAge = vec3( uv, age );"),
     fragmentShader: `uniform sampler2D textureMap; uniform sampler2D rampMap; uniform sampler2D gradientMap; uniform sampler2D siMap;
       uniform vec4 atlas; uniform vec4 colors; uniform vec4 colors2; uniform vec4 particleParams; uniform vec4 selfIllum;
+      uniform bool depthShader; uniform float depthFadeDistance;
       varying vec3 vUvAge; varying float vDepth;${isStatic || byValue ? " varying vec4 vColor;" : ""}${byValue ? " varying vec3 vFromEye; uniform samplerCube envCube; uniform float hasEnv;" : ""}
+      ${SOFT_DEPTH_GLSL}
+      ${dynamicRamp ? "" : CLOUD_FOG_GLSL}
       ${SRGB}
       ${CLAMP_UV}
+      vec4 finishParticle(vec3 rgb, float alpha) {
+        if (depthShader && softDepthOn > 0.5 && depthFadeDistance > 0.0) {
+          alpha *= clamp((softSceneDepth() - vDepth) / depthFadeDistance, 0.0, 1.0);
+        }
+        ${dynamicRamp ? "" : `float transmission = cloudFogTransmission(1.0 / gl_FragCoord.w);
+        float fog = transmission * transmission;
+        rgb *= fog;
+        alpha *= fog;`}
+        return vec4(encode(max(rgb, 0.0)), alpha);
+      }
       vec2 cell(float f) {
         float row = min(atlas.y - 1.0, floor(f / atlas.x));
         return vec2(min(atlas.x - 1.0, floor(f - row * atlas.x)), row);
@@ -321,7 +339,7 @@ export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf, d
           // EVE's direction (our z mirrored), as the background's cube is read
           byValue.rgb += decode(textureLod(envCube, vec3(vFromEye.x, vFromEye.y, -vFromEye.z), lod).rgb) * byValue.a * particleParams.z;
         }` : ""}
-        gl_FragColor = vec4(encode(max(byValue.rgb * colors.z, 0.0)), byValue.a * colors2.w);
+        gl_FragColor = finishParticle(byValue.rgb * colors.z, byValue.a * colors2.w);
         return;` : ""}
         ${dynamicRamp ? "" : "if (v.y <= 0.0) discard;"}
         vec4 ramp = texture2D(rampMap, clampUv(rampMap, vec2(clamp((v.x - colors.x) / (colors.y - colors.x), 0.0, 1.0), age)));
@@ -330,13 +348,14 @@ export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf, d
         float alpha = v.y * ramp.a${dynamicRamp ? "" : " * colors2.w"};
         float fade = clamp((vDepth - particleParams.x) / (particleParams.y - particleParams.x), 0.0, 1.0);
         ${fade === "NEAR_FADE_ALPHA" ? "alpha *= fade;" : fade === "NEAR_FADE_COLOR" ? "rgb *= fade;" : ""}
-        gl_FragColor = vec4(encode(max(rgb, 0.0)), alpha);
+        gl_FragColor = finishParticle(rgb, alpha);
       }`,
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
     ...(area.kind === "additive"
       ? { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation }
       : { blending: THREE.NormalBlending }),
   });
+  mat.userData.softDepth = true;
   logDepth(mat);
   return mat;
 }
@@ -350,7 +369,8 @@ export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf, d
  * Color3 from it to 1, times SpriteColor; the pixel the texture's rgb x the colour's x (1 + SpriteFactors.x (colour
  * alpha x texture alpha - 1)), alpha the texture's x the colour's x SpriteFactors.z, all x Brightness; blended ONE /
  * INVSRCALPHA (its record's states). Its sampler wraps and reads linear textures.
- * The 3698585 dynamic sm_depth records multiply the output by the opaque-depth fade from DepthFadeControl.x.
+ * The 3698585 depth-profile records also fade the output near the camera and opaque geometry. Cloud
+ * transmission attenuates both RGB and alpha.
  *
  * PARTICLE_STATIC (its static records, LIGHTING_DISABLED): the static vertex stage, the colour that of age nought
  * (Color1, or Color2 to Color3 at -ColorMidpoint / (1 - ColorMidpoint) where the midpoint is below nought).
@@ -361,8 +381,8 @@ export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf, d
  * SixPointNegLightMap's (both at the mask's uv), their sum times the sun's colour plus AmbientLight, multiplying the
  * mask before the layers. The sun here is the scene's directional light (its direction and colour x intensity).
  *
- * dynamic/2layerdynmaskv2.fx (its one record, BINDLESS_RENDERING aside) is the same but for three things: the mask's
- * alpha discards nothing, there is no Brightness, and it has no options (no offsets, no near fade).
+ * dynamic/2layerdynmaskv2.fx keeps zero-alpha mask samples, uses unit brightness and has no offsets or near
+ * distance fade. Its depth-profile width is fixed at one third of the particle size. Fog attenuates alpha.
  */
 export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, dynMaskV2 = false): THREE.ShaderMaterial | null {
   const o = area.options as Record<string, string>;
@@ -373,7 +393,6 @@ export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, d
   if (!dynMaskV2 && !lit && (o.LIGHTING_MODE ?? "LIGHTING_DISABLED") !== "LIGHTING_DISABLED") return null;
   const offsets = !dynMaskV2 && o.TEXTURE_OFFSETS === "TEXTURE_OFFSETS_ENABLED";
   const nearFade = !dynMaskV2 && o.NEAR_FADE === "NEAR_FADE_ENABLED";
-  const softDepth = !dynMaskV2 && !isStatic;
   const p = area.params;
   const uniforms: Record<string, THREE.IUniform> = {
     time: particleClock,
@@ -388,12 +407,9 @@ export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, d
     ambientLight: { value: v4(p.AmbientLight, [0, 0, 0, 1]) }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunColour: { value: new THREE.Color(1, 1, 1) },
     posLight: { value: null }, negLight: { value: null },
     layer1: { value: null }, layer2: { value: null }, mask: { value: null },
-    ...(softDepth ? {
-      ...SOFT_DEPTH,
-      ...CLOUD_FOG,
-      depthShader: { get value() { return gfx().shaderQuality === 3; } },
-      depthFadeControl: { value: v4(p.DepthFadeControl, [0.333, 0, 0, 0]) },
-    } : {}),
+    ...SOFT_DEPTH, ...CLOUD_FOG,
+    depthShader: { get value() { return gfx().shaderQuality === 3; } },
+    depthFadeScale: { value: dynMaskV2 ? 0.333 : v4(p.DepthFadeControl, [0.333, 0, 0, 0]).x },
   };
   // the sampler wraps (EveSpaceSceneEnvMapSampler): on the texture objects (the clamping effects clamp in the shader)
   const load = (res: string | null | undefined, name: string) => void textureOf(res).then((t) => {
@@ -410,8 +426,8 @@ export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, d
     vertexShader: (isStatic ? staticParticleVS : (d: string, b: string) => dynamicParticleVS(true, d, b))(`uniform float time; uniform vec4 layer1Mod; uniform vec4 layer2Mod; uniform vec4 layer1Speed; uniform vec4 layer2Speed;
       uniform vec4 color1; uniform vec4 color2; uniform vec4 color3; uniform float colorMidpoint;
       varying vec4 vUv12; varying vec2 vMaskUv; varying vec4 vColor;${lit ? " varying vec3 vRight; varying vec3 vUp;" : ""}
-      ${softDepth ? `uniform vec4 depthFadeControl; ${PARTICLE_DEPTH_VERTEX}` : ""}`, `
-        ${softDepth ? "vSoft = particleDepth(p, size, depthFadeControl.x);" : ""}
+      uniform float depthFadeScale; ${PARTICLE_DEPTH_VERTEX}`, `
+        vSoft = particleDepth(p, size, depthFadeScale);
         vUv12 = vec4( layer1Mod.xy * uv + time * layer1Speed.xy + layer1Mod.zw, layer2Mod.xy * uv + time * layer2Speed.xy + layer2Mod.zw );
         ${lit ? `// the sprite's turned axes in the world (the eye's right and up, turned as the corner is)
         vec3 camRight = vec3( viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0] ), camUp = vec3( viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1] );
@@ -424,8 +440,8 @@ export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, d
     fragmentShader: `uniform sampler2D layer1; uniform sampler2D layer2; uniform sampler2D mask;
       uniform vec4 spriteColor; uniform vec4 spriteFactors; uniform vec4 particleParams; uniform float brightness;
       varying vec4 vUv12; varying vec2 vMaskUv; varying vec4 vColor; varying float vDepth;
-      ${softDepth ? `${PARTICLE_DEPTH_FRAGMENT}
-      ${CLOUD_FOG_GLSL}` : ""}
+      ${PARTICLE_DEPTH_FRAGMENT}
+      ${CLOUD_FOG_GLSL}
       ${lit ? "uniform sampler2D posLight; uniform sampler2D negLight; uniform vec4 ambientLight; uniform vec3 sunDir; uniform vec3 sunColour; varying vec3 vRight; varying vec3 vUp;" : ""}
       void main() {
         vec4 m = texture2D(mask, vMaskUv);
@@ -441,12 +457,15 @@ export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, d
         ${nearFade ? "t *= clamp((vDepth - particleParams.x) / (particleParams.y - particleParams.x), 0.0, 1.0);" : ""}
         vec4 col = vColor * spriteColor;
         float k = spriteFactors.x * (col.a * t.a - 1.0) + 1.0;
-        gl_FragColor = vec4(t.rgb * col.rgb * k, t.a * col.a * spriteFactors.z) * brightness${softDepth ? " * (particleDepthFade() * cloudFogTransmission(1.0 / gl_FragCoord.w))" : ""};
+        float transmission = cloudFogTransmission(1.0 / gl_FragCoord.w);
+        vec4 color = vec4(t.rgb * col.rgb * k, t.a * col.a * spriteFactors.z) * (brightness * particleDepthFade());
+        ${dynMaskV2 ? "color.a *= transmission;" : "color *= transmission;"}
+        gl_FragColor = color;
       }`,
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
     blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation,
   });
-  if (softDepth) mat.userData.softDepth = true;
+  mat.userData.softDepth = true;
   // the sun: the scene's directional light (the first), found once per scene, read each frame (particleObject's step)
   if (lit) mat.userData.beforeDraw = (scene: THREE.Object3D) => {
     const sun = sunOf(scene);
