@@ -11,8 +11,18 @@
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { gfx } from "../play/gfxSettings.ts";
+import { CLOUD_FOG, CLOUD_FOG_GLSL } from "./cloudOpacity.ts";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
 import { logDepth } from "./logDepth";
+import { SOFT_DEPTH } from "./softDepth.ts";
+
+const PLANET_SHELL_FOG = {
+  ...CLOUD_FOG, softDepthSize: SOFT_DEPTH.softDepthSize,
+  planetShellEnabled: { get value() { return gfx().shaderQuality > 1; } },
+};
+const PLANET_SHELL_FOG_GLSL = `uniform bool planetShellEnabled; uniform vec2 softDepthSize;
+  ${CLOUD_FOG_GLSL}`;
 
 interface CelestialRing { name: string | null; params: Record<string, number[]>; textures: Record<string, string | null> }
 interface Celestial { type: string; effects: string[]; textures: Record<string, string | null>; params: Record<string, number[]>; rings?: CelestialRing[] }
@@ -164,6 +174,7 @@ function atmosphereShell(c: Celestial, radius: number): THREE.Object3D {
   const scale = 1 / (outer - 1);
   const sunDir = new THREE.Vector3(1, 0.5, 0.5).normalize();
   const uniforms = {
+    ...PLANET_SHELL_FOG,
     camL: { value: new THREE.Vector3(0, 0, 10) }, centre: { value: new THREE.Vector3() }, unit: { value: radius },
     sunDir: { value: sunDir },
     invW: { value: new THREE.Vector3(1 / (wl[2] ?? 0.65) ** 4, 1 / (wl[1] ?? 0.57) ** 4, 1 / (wl[0] ?? 0.475) ** 4) },
@@ -177,8 +188,10 @@ function atmosphereShell(c: Celestial, radius: number): THREE.Object3D {
       void main() { vL = mat3(modelMatrix) * position / unit; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `uniform vec3 camL; uniform vec3 sunDir; uniform vec3 invW; uniform float outerR; uniform float krESun; uniform float kmESun;
       uniform float kr4PI; uniform float km4PI; uniform float scaleF; uniform float scaleOverDepth; uniform vec3 tint; varying vec3 vL;
+      ${PLANET_SHELL_FOG_GLSL}
       float sc(float c) { float x = 1.0 - c; return 0.25 * exp(-0.00287 + x * (0.459 + x * (3.83 + x * (-6.80 + x * 5.25)))); }
       void main() {
+        if (!planetShellEnabled) discard;
         vec3 ray = vL - camL; float far = length(ray); ray /= far;
         float camH = length(camL);
         float B = 2.0 * dot(camL, ray), C = camH * camH - outerR * outerR;
@@ -196,16 +209,18 @@ function atmosphereShell(c: Celestial, radius: number): THREE.Object3D {
         vec3 rayleigh = front * invW * krESun * tint, mie = front * kmESun * tint;
         float cosA = dot(sunDir, -ray);
         float phase = 0.005004 * (1.0 + cosA * cosA) / pow(1.990025 + 1.99 * cosA, 1.5);
-        vec3 c = min(rayleigh + phase * mie, vec3(1.0));
+        // The native shell attenuates encoded RGB. Convert the result to the web renderer's linear color space.
+        float transmission = cloudFogTransmission(1.0 / gl_FragCoord.w);
+        vec3 c = min(rayleigh + phase * mie, vec3(1.0)) * transmission;
         c = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
-        gl_FragColor = vec4(c, 1.0);
+        gl_FragColor = vec4(c, transmission);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
     // the far side of the shell: O'Neil's integral from the near crossing to the far one, kept to the halo past the
     // limb by the planet in front (rays into the planet take the scale function past 1 - c = 1, where it runs to
     // infinity: drawn over the planet, they were white)
-    side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, premultipliedAlpha: true,
   });
   logDepth(mat);
   const centre = new THREE.Vector3(), camW = new THREE.Vector3();
@@ -557,13 +572,18 @@ function scatterMaterial(s1: THREE.Texture | null, s2: THREE.Texture | null, uni
   for (const t of [s1, s2]) if (t) { t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.needsUpdate = true; }
   const sunDir = new THREE.Vector3(1, 0.5, 0.5).normalize();
   const mat = new THREE.ShaderMaterial({
-    uniforms: { ...uniforms, scatter1: { value: s1 }, scatter2: { value: s2 }, sunDir: { value: sunDir }, ambient: { value: SCATTER_AMBIENT }, time: { value: 0 } },
+    uniforms: {
+      ...(alpha ? PLANET_SHELL_FOG : {}), ...uniforms,
+      scatter1: { value: s1 }, scatter2: { value: s2 }, sunDir: { value: sunDir }, ambient: { value: SCATTER_AMBIENT }, time: { value: 0 },
+    },
     vertexShader: `attribute vec2 uv1; varying vec2 vUv; varying vec2 vUv1; varying vec3 vN; varying vec3 vFromEye; varying vec3 vObj;
       void main() { vUv = uv; vUv1 = uv1; vObj = position; vN = normalize(mat3(modelMatrix) * normal); vec4 mv = modelViewMatrix * vec4(position, 1.0); vFromEye = (vec4(mv.xyz, 0.0) * viewMatrix).xyz; gl_Position = projectionMatrix * mv; }`,
     fragmentShader: `uniform sampler2D scatter1; uniform sampler2D scatter2; uniform vec3 sunDir; uniform vec3 ambient; uniform float time;
       varying vec2 vUv; varying vec2 vUv1; varying vec3 vN; varying vec3 vFromEye; varying vec3 vObj;
+      ${alpha ? PLANET_SHELL_FOG_GLSL : ""}
       ${head}
       void main() {
+        ${alpha ? "if (!planetShellEnabled) discard;" : ""}
         vec3 N = normalize(vN), L = normalize(sunDir), V = normalize(-vFromEye);
         float NL = dot(N, L), NV = dot(N, V);
         vec2 su = vec2(NL * 0.5 + 0.5, clamp(NV, 0.0, 1.0));
@@ -571,6 +591,9 @@ function scatterMaterial(s1: THREE.Texture | null, s2: THREE.Texture | null, uni
         vec3 lit = S1 + ambient;
         vec3 g = vec3(0.5); vec3 extra = vec3(0.0); float alpha = 1.0;
         ${surface}
+        ${alpha ? `float transmission = cloudFogTransmission(1.0 / gl_FragCoord.w);
+        g *= transmission;
+        alpha *= transmission;` : ""}
         vec3 c = max(g, vec3(0.0));
         c = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
         gl_FragColor = vec4(c, alpha);
