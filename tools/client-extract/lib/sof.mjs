@@ -8,7 +8,15 @@
 
 import { readBlack } from "./black.mjs";
 
-export const SOF_BUILD = 97;
+export const SOF_BUILD = 98;
+export const GRAPHIC_SOF_DEFAULTS = "graphicSofDefaults.json";
+
+/** File variant beside the shared mesh for a faction, a graphic's default recipe, or an applied SKIN. */
+export function sofVariant(faction, materialSetID, skinTypeID = null) {
+  if (skinTypeID) return `type-${skinTypeID}.skin-${materialSetID}`;
+  const name = String(faction ?? "none").toLowerCase();
+  return materialSetID ? `${name}.material-${materialSetID}` : name;
+}
 
 /**
  * EveSOFDataFactionColorSet's colour types by index, as an item names its colour (colorType, lightColor,
@@ -98,7 +106,7 @@ export function buildHull(sof, hullName, factionName, raceName = null, materialS
   const hull = sof.hulls.get(String(hullName).toLowerCase());
   if (!hull) return null;
   const faction = factionName ? sof.factions.get(String(factionName).toLowerCase()) ?? null : null;
-  const textureInsert = materialSet ? materialSet.resPathInsert || faction?.resPathInsert : null;
+  const textureInsert = materialSet?.resPathInsert || faction?.resPathInsert;
   const areaTypes = faction?.areaTypes ?? {};
   const factionColors = faction?.colorSet ?? null;
   // An area's GeneralGlowColor as EveSOF finds it (carbonengine/trinity EveSOFDNA::GetMeshAreaParameter,

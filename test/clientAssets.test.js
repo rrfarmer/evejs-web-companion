@@ -9,6 +9,7 @@ const test = require("node:test");
 const { createClientAssets } = require("../src/clientData/clientAssets");
 const { createApp } = require("../src/server");
 const { extractOverviewPresets, extractSystemCelestials } = require("../tools/client-extract/extract.mjs");
+const { buildGraphicSofDefaults } = require("../tools/client-extract/lib/assetSde.mjs");
 const { buildHull, SOF_BUILD } = require("../tools/client-extract/lib/sof.mjs");
 const { buildSystemScenes, indexedHullGeometry, CELESTIAL_BUILD } = require("../tools/client-extract/lib/typeGraphics.mjs");
 
@@ -51,11 +52,61 @@ test("a SKIN's path insert chooses installed variants for individual hull textur
     hasResource: resource => installed.has(resource),
   };
   const maps = set => buildHull(sof, hull.name, "minmatarnavy", null, set).areas[0].textures;
-  assert.deepEqual(maps({}), { MaterialMap: navyMaterial, AlbedoMap: albedo });
+  assert.deepEqual(maps(null), { MaterialMap: navyMaterial, AlbedoMap: albedo });
   assert.deepEqual(maps({ resPathInsert: "" }), { MaterialMap: navyMaterial, AlbedoMap: albedo });
   assert.deepEqual(maps({ resPathInsert: "Nefantar" }), { MaterialMap: nefantarMaterial, AlbedoMap: albedo });
   assert.deepEqual(maps({ resPathInsert: "missing" }), { MaterialMap: material, AlbedoMap: albedo });
   assert.deepEqual(maps({ resPathInsert: "None" }), { MaterialMap: material, AlbedoMap: albedo });
+});
+
+test("a stock graphic default uses its own SOF variant across type and graphic requests", async t => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "evejs-client-stock-"));
+  t.after(() => fs.rm(temp, { recursive: true, force: true }));
+  const clientRoot = path.join(temp, "install"), root = path.join(temp, "assets"), dir = path.join(root, "3698585");
+  const sde = path.join(temp, "sde");
+  const stem = "dx9/model/crane";
+  const ship = { graphicID: 2709, hull: "ci1_t2", faction: "kaalakiota", race: "caldari", gr2: `res:/${stem}.gr2` };
+  const recipe = { _key: 385, sofFactionName: "kaalakiota", resPathInsert: "none" };
+  await put(clientRoot, "tq/start.ini", "build=3698585\n");
+  await put(sde, "graphics.jsonl", JSON.stringify({ _key: 2709, sofHullName: ship.hull, sofMaterialSetID: 385 }) + "\n");
+  await put(sde, "graphicMaterialSets.jsonl", JSON.stringify(recipe) + "\n");
+  await put(dir, "config.json", JSON.stringify({ sde }));
+  await put(dir, "typeGraphics.json", JSON.stringify({ 12729: ship, 12730: { ...ship, graphicID: 2710 } }));
+  await put(dir, "graphics/2709.json", JSON.stringify(ship));
+  await put(dir, `${stem}.glb`, "mesh");
+  await put(dir, `${stem}.json`, JSON.stringify({ textures: {}, lods: [0] }));
+  await put(dir, `${stem}.kaalakiota.sof.json`, JSON.stringify({ sofBuild: SOF_BUILD }));
+  const extracted = [];
+  await withAssets({
+    root, clientRoot,
+    async extract(args) {
+      const command = args.slice(4);
+      extracted.push(command);
+      if (command[0] === "--sof-defaults") {
+        const defaults = buildGraphicSofDefaults(sde);
+        assert.deepEqual(defaults, { 2709: recipe });
+        await put(dir, "graphicSofDefaults.json", JSON.stringify(defaults));
+      } else {
+        assert.deepEqual(command, ["--type", "12729"]);
+        await put(dir, `${stem}.kaalakiota.material-385.sof.json`, JSON.stringify({ sofBuild: SOF_BUILD }));
+      }
+    },
+  }, async url => {
+    const route = "/client-assets/type/12729";
+    const [first, second] = await Promise.all([fetch(url(route)), fetch(url(route))]);
+    assert.equal(first.status, 200);
+    assert.equal(second.status, 200);
+    const model = await first.json();
+    assert.deepEqual(await second.json(), model);
+    const graphic = await fetch(url("/client-assets/graphic/2709")).then(r => r.json());
+    const faction = await fetch(url("/client-assets/type/12730")).then(r => r.json());
+    assert.equal(model.sofMaterialSetID, 385);
+    assert.equal(model.sof, `/client-assets/${stem}.kaalakiota.material-385.sof.json`);
+    assert.equal(graphic.sof, model.sof);
+    assert.equal(faction.sof, `/client-assets/${stem}.kaalakiota.sof.json`);
+    assert.equal(faction.model, model.model);
+  });
+  assert.deepEqual(extracted, [["--sof-defaults"], ["--type", "12729"]]);
 });
 
 test("the production BFF serves the installed build with standard asset responses", async t => {

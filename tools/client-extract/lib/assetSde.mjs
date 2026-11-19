@@ -16,7 +16,7 @@ function sourceBuild(dir) {
   return /^\d+$/.test(build) ? build : null;
 }
 
-function clientTable(sdeDir, filenames) {
+function clientTable(sdeDir, filenames, required) {
   const find = dir => filenames.map(file => path.join(dir, file)).find(fileExists);
   const local = find(sdeDir);
   if (local) return local;
@@ -29,11 +29,32 @@ function clientTable(sdeDir, filenames) {
       if (file) return file;
     }
   }
+  if (!required) return null;
   throw new Error(`Missing ${filenames.join(" or ")} in ${sdeDir} or its matching client export`);
 }
 
-export const graphicsFile = sdeDir => clientTable(sdeDir, ["graphics.jsonl", "graphicids.jsonl"]);
-export const graphicMaterialSetsFile = sdeDir => clientTable(sdeDir, ["graphicmaterialsets.jsonl", "graphicMaterialSets.jsonl"]);
+export const graphicsFile = (sdeDir, required = true) => clientTable(sdeDir, ["graphics.jsonl", "graphicids.jsonl"], required);
+export const graphicMaterialSetsFile = (sdeDir, required = true) => clientTable(sdeDir, ["graphicmaterialsets.jsonl", "graphicMaterialSets.jsonl"], required);
+
+function readRows(file) {
+  return fs.readFileSync(file, "utf8").split(/\r?\n/).filter(line => line.trim()).map(line => JSON.parse(line));
+}
+
+export function loadGraphicMaterialSets(sdeDir, required = true) {
+  const file = graphicMaterialSetsFile(sdeDir, required);
+  return new Map(file ? readRows(file).map(row => [row._key, row]) : []);
+}
+
+/** The stock recipe belongs to the graphic, which may be shared by several type IDs. */
+export function buildGraphicSofDefaults(sdeDir) {
+  const file = graphicsFile(sdeDir, false);
+  if (!file) return {};
+  const sets = loadGraphicMaterialSets(sdeDir, false);
+  return Object.fromEntries(readRows(file).flatMap(graphic => {
+    const set = sets.get(graphic.sofMaterialSetID);
+    return graphic.sofHullName && set ? [[graphic._key, set]] : [];
+  }));
+}
 
 export function mapSdeDir(sdeDir, tables) {
   const hasTables = dir => tables.every(file => fileExists(path.join(dir, file)));

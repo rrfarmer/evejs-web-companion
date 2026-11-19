@@ -7,7 +7,7 @@ const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const { clientBuild } = require("../../tools/client-extract/lib/resfiles.mjs");
 const { droneTurret } = require("../../tools/client-extract/lib/droneTurrets.mjs");
-const { SOF_BUILD } = require("../../tools/client-extract/lib/sof.mjs");
+const { SOF_BUILD, GRAPHIC_SOF_DEFAULTS, sofVariant } = require("../../tools/client-extract/lib/sof.mjs");
 const { TURRET_BUILD } = require("../../tools/client-extract/lib/turret.mjs");
 const { CELESTIAL_BUILD } = require("../../tools/client-extract/lib/typeGraphics.mjs");
 
@@ -76,11 +76,25 @@ function resStem(resPath, suffix) {
 
 function modelPaths(g) {
   const stem = resStem(g.gr2, /\.gr2$/);
-  const variant = g.skinMaterialSetID ? `type-${g.typeID}.skin-${g.skinMaterialSetID}` : String(g.faction ?? "none").toLowerCase();
+  const variant = sofVariant(g.faction, g.skinMaterialSetID ?? g.sofMaterialSetID, g.skinMaterialSetID ? g.typeID : null);
   return {
     stem,
     sof: `${stem}.${variant}.sof.json`,
   };
+}
+
+async function stockModelInfo(dir, info, ensure, canExtract) {
+  if (!info.graphicID) return info;
+  const manifest = path.join(dir, GRAPHIC_SOF_DEFAULTS);
+  const config = path.join(dir, "config.json");
+  if (!fileExists(manifest) && canExtract() && fileExists(config) && readJson(config).sde) {
+    await ensure(GRAPHIC_SOF_DEFAULTS, ["--sof-defaults"]);
+  }
+  const material = fileExists(manifest) ? readJson(manifest)[info.graphicID] : null;
+  if (!material) return info;
+  const selected = { ...info, faction: material.sofFactionName || info.faction, sofMaterialSetID: material._key };
+  if (!fileExists(path.join(dir, modelPaths(selected).sof)) && !canExtract() && fileExists(path.join(dir, modelPaths(info).sof))) return info;
+  return selected;
 }
 
 async function modelResponse(dir, info, args, ensure, canExtract, requireSof = false) {
@@ -182,8 +196,9 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
       g = readJson(file);
     }
     if (g.scene) return { json: g };
+    g = await stockModelInfo(dir, g, ensure, canExtract);
     const { graphicID, hull, faction, race } = g;
-    return { json: { graphicID, ...await modelResponse(dir, g, args, ensure, canExtract), hull, faction, race } };
+    return { json: { graphicID, ...await modelResponse(dir, g, args, ensure, canExtract, Boolean(g.sofMaterialSetID)), hull, faction, race } };
   }
   const dna = /^\/dna\/([A-Za-z0-9_]+(?::[A-Za-z0-9_-]*){0,2})$/.exec(rel);
   if (dna) {
@@ -219,6 +234,7 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
       }
     }
     if (!g?.gr2) return { json: { typeID, model: null, ...g } };
+    g = await stockModelInfo(dir, g, ensure, canExtract);
     return { json: { typeID, ...await modelResponse(dir, g, args, ensure, canExtract, true), ...g } };
   }
   return { file: path.join(dir, rel.slice(1)) };
