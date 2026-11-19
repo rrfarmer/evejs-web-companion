@@ -269,6 +269,10 @@ export class ChildAnimator {
       if (scale !== undefined) r.scale = scale;
     }
   }
+
+  stopNamed(name: string, instance?: object): void {
+    for (const run of this.playback(instance).sets) if (run.set.name === name) run.playing = false;
+  }
   /**
    * Tr2ActionSetValue on a curve's input (input1..4) or an effect parameter (its uniform: "value" sets every component,
    * "value.x".."value.w" one). False where this animator has no such target.

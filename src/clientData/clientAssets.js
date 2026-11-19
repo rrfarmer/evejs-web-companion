@@ -21,6 +21,7 @@ const MIME = new Map([
 const GENERATED = new Map([
   ["/dscanCones.json", ["--dscan-cones", '"lineTexture"']],
   ["/dscanHologram.json", ["--dscan-hologram"]],
+  ["/wormholeTransit.json", ["--wormhole-transit"]],
   ["/shipInfoScene.json", ["--ship-info"]],
   ["/drifterCollectionExplosion.json", ["--drifter-collection-explosion", '"explosionBuild":2']],
   ["/observatoryEnvironment.json", ["--observatory-environment", '"environmentBuild":3']],

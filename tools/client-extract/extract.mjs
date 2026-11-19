@@ -417,6 +417,14 @@ function extractWormholeNebula(rf, sde, graphicID, outRoot) {
   return file;
 }
 
+async function extractWormholeTransit(rf, outRoot) {
+  const resource = "res:/fisfx/jump/wormholes/transition.black";
+  const effect = readEffectFile(rf, resource);
+  if (!effect?.root) throw new Error(`Cannot read ${resource}`);
+  await copyChildGraphAssets(rf, [effect.root], outRoot);
+  fs.writeFileSync(path.join(outRoot, "wormholeTransit.json"), JSON.stringify({ root: effect.root, skipped: effect.skipped }));
+}
+
 /**
  * An effect guid's own graphic (the effects table's graphicID, the SDE's graphicFile for it), written as fx/<guid>.json:
  * the effect's class, duration and damage timings, and - where the graphic is EveStretch3s (the Vorton projectors'
@@ -786,6 +794,7 @@ function parseArgs(argv) {
     else if (a === "--fitting-scene") out.fittingScene = true;
     else if (a === "--dscan-hologram") out.dscanHologram = true;
     else if (a === "--dscan-cones") out.dscanCones = true;
+    else if (a === "--wormhole-transit") out.wormholeTransit = true;
     else if (a === "--ship-info") out.shipInfo = true;
     else if (a === "--drifter-collection-explosion") out.drifterCollectionExplosion = true;
     else if (a === "--observatory-environment") out.observatoryEnvironment = true;
@@ -977,6 +986,7 @@ async function main() {
     if (!sde) throw new Error("--wormhole-nebula needs matching graphic records");
     console.log(`wormhole nebula ${id}: ${extractWormholeNebula(rf, sde, id, outRoot)}`);
   }
+  if (args.wormholeTransit) await extractWormholeTransit(rf, outRoot);
   // gfxTurrets.json: an NPC hull's or a sentry's turret module type, by its type (the SDE's gfxTurretID)
   if (args.gfxTurrets) {
     if (!sde) throw new Error("--gfx-turrets needs the SDE (--sde, or a config.json that names it)");
@@ -1105,7 +1115,7 @@ async function main() {
     }
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.wormholeNebulas.length && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.wormholeNebulas.length && !args.wormholeTransit && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

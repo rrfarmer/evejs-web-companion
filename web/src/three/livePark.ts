@@ -91,6 +91,9 @@ export class LivePark {
     const { method, args } = readFeedItem(item, marshalDecode);
     // Step to the moment the item arrived before applying it, as the BFF's park had stepped when it got it.
     this.park.onTick(this.simNow());
+    if (method === "OnWormholeJumpCancel") {
+      for (const fn of this.fxListeners) { try { fn(method, []); } catch { /* a listener's failure is its own */ } }
+    }
     applyToPark(this.park, method, args, (name, fn) => {
       try { fn(); } catch (e) { this.failures.push(`${name}: ${(e as Error).message}`); }
     });

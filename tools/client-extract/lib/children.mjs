@@ -465,7 +465,7 @@ function meshAreas(mesh, skipped, smartBeam = false, staticSprites = false) {
       const fx = named === "quadinstancedv5" ? "quadv5" : named;
       const opts = Object.fromEntries((a.effect?.options?.items ?? []).filter((r) => Array.isArray(r)));
       // a distortion area draws into the distortion map (ubershaderdistortion.fx, the one effect such areas use)
-      const drawn = kind === "distortion" ? fx === "ubershaderdistortion" : ["ubershader", "fx3dv5", "ubershadertwosided", "ubershadercube", "flare", "twocolorflare", "quadv5", "quadglassv5", "quaddetailv5", "fxv5", "wormholefx", "sunwhisps", "childhazespherical"].includes(fx)
+      const drawn = kind === "distortion" ? fx === "ubershaderdistortion" : ["ubershader", "fx3dv5", "ubershadertwosided", "ubershadercube", "flare", "twocolorflare", "quadv5", "quadglassv5", "quaddetailv5", "fxv5", "wormholefx", "wormholetransition", "sunwhisps", "childhazespherical"].includes(fx)
         || fx === "texturecolor"
         || (staticSprites && STATIC_SPRITE_EFFECTS.has(fx))
         || (smartBeam && kind === "additive" && fx === "ubershaderinstanced")
@@ -513,21 +513,24 @@ function readStretch3(fx) {
  * so a binding into it still finds it) holding its children, an EveChildParticleSystem of its particles (the same
  * fields) and an EveChildMesh of a plain mesh; its modifier as the child modifier that does the same.
  */
-function transformAsChild(t, skipped) {
+function transformAsChild(t, skipped, cameraSpace = false) {
   if (!t || typeof t !== "object" || t.type !== "EveTransform") return t;
-  const objects = (t.children ?? []).map((c) => transformAsChild(c, skipped));
+  cameraSpace ||= t.modifier === 2;
+  const objects = (t.children ?? []).map((c) => transformAsChild(c, skipped, cameraSpace));
   const instanced = t.mesh?.type === "Tr2InstancedMesh" ? t.mesh : null;
   if ((t.particleEmitters ?? []).length || (t.particleSystems ?? []).length || instanced) {
     objects.push({ type: "EveChildParticleSystem", name: t.name ?? null, particleEmitters: t.particleEmitters ?? [], particleSystems: t.particleSystems ?? [], mesh: instanced });
   }
   if (t.mesh?.type === "Tr2Mesh") objects.push({ type: "EveChildMesh", name: t.name ?? null, mesh: t.mesh });
-  // its modifier (Tr2Transform_Blue.cpp's chooser: 1 Billboard, 3 Look at camera, 4 Simple halo, 8 EVE simple halo)
+  // its modifier (1 Billboard, 2 Translate with camera, 3 Look at camera, 4 Simple halo, 8 EVE simple halo)
   // as the child modifier that makes the same world transform (Tr2Transform.cpp UpdateWorldTransform): a billboard -
-  // the view's axes, each the transform's own scale - is EveChildModifierBillboard2D; a halo (that x max(z . d, 0)^2)
-  // EveChildModifierHalo; look-at-camera (axes from LookAtMatrix(eye, pos, +y)) the page's EveTransformLookAtCamera;
+  // the view's axes, each the transform's own scale. Camera-relative mesh offsets use camera back as +Z.
+  // A halo (that x max(z . d, 0)^2) is EveChildModifierHalo; look-at-camera uses the page's EveTransformLookAtCamera;
   // another counted in skipped
   // (100, EVE camera rotation aligned: the page's EveTransformCameraRotationAligned)
-  const MODIFIER = { 1: "EveChildModifierBillboard2D", 3: "EveTransformLookAtCamera", 4: "EveChildModifierHalo", 8: "EveChildModifierHalo", 100: "EveTransformCameraRotationAligned" };
+  const MODIFIER = { 1: cameraSpace ? "EveChildModifierBillboard3D" : "EveChildModifierBillboard2D",
+    2: "EveChildModifierTranslateWithCamera", 3: "EveTransformLookAtCamera",
+    4: "EveChildModifierHalo", 8: "EveChildModifierHalo", 100: "EveTransformCameraRotationAligned" };
   const mod = t.modifier ? MODIFIER[t.modifier] : null;
   if (t.modifier && !mod) skipped[`EveTransform.modifier:${t.modifier}`] = (skipped[`EveTransform.modifier:${t.modifier}`] ?? 0) + 1;
   const c = {

@@ -46,7 +46,7 @@ export async function nonInteractableWormhole(typeID: WormholeType, playSound: (
   return object ? { object, overrides } : null;
 }
 
-function destinationNebula(graphicID: number) {
+export function destinationNebula(graphicID: number) {
   if (!Number.isSafeInteger(graphicID) || graphicID <= 0) return Promise.resolve(null);
   if (!nebulaFiles.has(graphicID)) {
     nebulaFiles.set(graphicID, fetch(`/client-assets/wormhole-nebula/${graphicID}.json`)

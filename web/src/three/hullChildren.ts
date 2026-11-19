@@ -8,6 +8,7 @@ import * as THREE from "three";
 import { gfx } from "../play/gfxSettings.ts";
 import { logDepth } from "./logDepth.ts";
 import { wormholeMaterial } from "./wormholeMaterial.ts";
+import { wormholeTransitMaterial } from "./wormholeTransitMaterial.ts";
 import { CLOUD_FOG, CLOUD_FOG_GLSL } from "./cloudOpacity.ts";
 import { uberDistortionMaterial, DISTORTION_LAYER } from "./distortion.ts";
 import { ControllerRun, type SofController } from "./controllers.ts";
@@ -1318,6 +1319,7 @@ const PARAM_UNIFORM: Record<string, string> = {
   TextureTransform: "textureTransform", MaterialDiffuseColor: "materialDiffuseColor",
   MaterialSpecularCurve: "specularCurve", MaterialSpecularFactors: "specularFactors",
   ReflectionFactors: "reflectionFactors", NormalStrength: "normalStrength", CubeMapTint: "cubeMapTint",
+  MiscFactors: "miscFactors", AlphaFactors: "alphaFactors",
   Brightness: "brightness", Temperature: "temperature", ColorInner: "inner", ColorOutter: "outer", TextureTranslation: "translation", TextureScaling: "scaling",
   Layer1Transform: "t1", Layer2Transform: "t2", Layer3Transform: "t3", Layer1Scroll: "s1", Layer2Scroll: "s2", Layer3Scroll: "s3",
   HazeColor: "hazeColor", EdgeColor: "edgeColor", HazeData: "hazeData",
@@ -1429,7 +1431,9 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
         if (!materials.has(area)) {
           const make = ({ fx3dv5: fx3dMaterial, motionvectorramp: motionVectorRampMaterial, ubershadertwosided: twoSidedUberMaterial,
             texturecolor: textureColorMaterial, flare: flareMaterial, twocolorflare: twoColorFlareMaterial, ubershadercube: uberCubeMaterial,
-            wormholefx: (a: SofChildMeshArea) => wormholeMaterial(a, childTexture), sunwhisps: sunWhispsMaterial,
+            wormholefx: (a: SofChildMeshArea) => wormholeMaterial(a, childTexture),
+            wormholetransition: (a: SofChildMeshArea) => wormholeTransitMaterial(a, (url) => sampledChildTexture(url, 16)),
+            sunwhisps: sunWhispsMaterial,
             childhazespherical: childHazeMaterial } as Record<string, (a: SofChildMeshArea) => THREE.ShaderMaterial>)[area.effect] ?? uberMaterial;
           const mat = make(area);
           materials.set(area, mat);
@@ -2036,6 +2040,9 @@ export function effectCurve(object: THREE.Object3D, setName: string, curveName: 
 /** A curve set of a name played from its start in a built object, at a speed where one is given (a ShipEffect's Start). */
 export function playEffectSet(object: THREE.Object3D, name: string | null, scale?: number): void {
   object.traverse((o) => { const key = o.userData.animatorKey as string | undefined; if (key) animators.get(key)?.playNamed(name, scale, o); });
+}
+export function stopEffectSet(object: THREE.Object3D, name: string): void {
+  object.traverse((o) => { const key = o.userData.animatorKey as string | undefined; if (key) animators.get(key)?.stopNamed(name, o); });
 }
 export function startEffect(object: THREE.Object3D, skip?: (setName: string | null) => boolean): void {
   object.traverse((o) => { const key = o.userData.animatorKey as string | undefined; if (key) animators.get(key)?.restart(skip, o); });

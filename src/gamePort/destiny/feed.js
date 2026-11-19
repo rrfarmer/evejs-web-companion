@@ -12,7 +12,7 @@
 // past 32 bits, would come back an int64).
 
 /** The notifications michelle hands its park (michelle.py, pilotSpace.js feed). */
-const FEED_METHODS = new Set(["DoDestinyUpdate", "DoDestinyUpdates", "DoSimClockRebase", "OnDroneStateChange", "OnDroneActivityChange"]);
+const FEED_METHODS = new Set(["DoDestinyUpdate", "DoDestinyUpdates", "DoSimClockRebase", "OnDroneStateChange", "OnDroneActivityChange", "OnWormholeJumpCancel"]);
 
 /** blue counts in 100 ns; the park's clock in milliseconds. */
 const BLUE_TICKS_PER_MS = 10_000n;

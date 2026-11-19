@@ -20,6 +20,7 @@ import { useFarBoosters } from "../three/boosterVolumetric.ts";
 import { celestialModel, systemCelestials, setPlanetEnvironment, type CelestialItem } from "../three/celestialModel.ts";
 import { ShipHud, type HudModule } from "./shipHud.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
+import { WormholeTransit, WORMHOLE_START_MS, WORMHOLE_MIDDLE_MS, WORMHOLE_CAMERA_RETURN_MS, WORMHOLE_STOP_MS } from "./wormholeTransit.ts";
 import { TurretFx, fxGuid } from "./turretFx.ts";
 import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three/impactOverlay.ts";
 import { MissileFx } from "./missileFx.ts";
@@ -296,6 +297,7 @@ export class SpaceView {
   private frameCount = 0;
   private stopped = false;
   private readonly warpTunnel = new WarpTunnel();
+  private readonly wormholeTransit = new WormholeTransit(this.scene);
   /** Weapons fire, from the park's special effects. */
   private readonly turretFx = new TurretFx();
   /** Missiles in flight (missileFx.ts): their warheads flown to the target's damage locators. */
@@ -441,7 +443,10 @@ export class SpaceView {
       const guids = fxGuid(args[5]).split(",").map((g) => g.trim()).filter(Boolean);
       const ship = Number(args[0]), target = Number(args[3]);
       const start = Number(args[7]) === 1;
-      if (!this.gateJump && isOwnStargateDeparture(guids, ship, start, this.live.hello?.shipID ?? null)) this.beginJumpCamera();
+      const ownShip = this.live.hello?.shipID ?? null;
+      if (!this.gateJump && start && ship === ownShip && target > 0 && guids.includes("effects.JumpOutWormhole")) {
+        this.beginJumpCamera(target);
+      } else if (!this.gateJump && isOwnStargateDeparture(guids, ship, start, ownShip)) this.beginJumpCamera();
       const emitterOf = (g: string) => `fx:${g}:${ship}:${String(args[1])}`;
       if (!start) {
         for (const g of guids) { this.fxEmitters.delete(emitterOf(g)); stopEmitter(emitterOf(g)); }
@@ -462,6 +467,9 @@ export class SpaceView {
           }
         });
       }
+    }
+    if (name === "OnWormholeJumpCancel" && this.gateJump?.wormhole && this.gateJump.arrivedAt === null) {
+      this.gateJump.arrivedAt = performance.now();
     }
     if (name === "OnSpecialFX") {
       const anim = IMPACT_ANIMATIONS[fxGuid(args[5])];
@@ -504,6 +512,7 @@ export class SpaceView {
     origin: THREE.Vector3 | null;
     returning: { startedAt: number; target: THREE.Vector3 } | null;
     returned: boolean;
+    wormhole: { endpoint: number; oldFov: number; aimFrom: THREE.Vector3; stopSimAt: number | null } | null;
   } | null = null;
   private seenResets = 0;
   private seenSystem: number | null = null;
@@ -818,6 +827,7 @@ export class SpaceView {
     this.alertVignetteFlash?.cancel();
     this.targetBar.dispose();
     this.warpTunnel.dispose();
+    this.wormholeTransit.dispose();
     this.live.fxListeners.delete(this.hearFx);
     this.turretFx.dispose();
     this.collectionExplosions.clear();
@@ -1449,7 +1459,7 @@ export class SpaceView {
     }
   }
 
-  private beginJumpCamera(): void {
+  private beginJumpCamera(wormholeEndpoint?: number): void {
     this.endExplosionCamera();
     this.stopEntryCamera();
     const eye = this.camera.position, target = this.controls.target;
@@ -1458,21 +1468,35 @@ export class SpaceView {
       setCameraPose(eye, target, new THREE.Vector3(-600, 250, 900), new THREE.Vector3());
     }
     const ego = this.snapshot?.ship;
+    const now = performance.now();
     this.gateJump = {
-      orderedAt: performance.now(), arrivedAt: null, returning: null, returned: false,
+      orderedAt: now, arrivedAt: null, returning: null, returned: false,
       origin: ego ? new THREE.Vector3(ego.position.x, ego.position.y, -ego.position.z) : null,
+      wormhole: wormholeEndpoint === undefined ? null : {
+        endpoint: wormholeEndpoint, oldFov: this.camera.fov, aimFrom: target.clone(), stopSimAt: null,
+      },
     };
+    if (wormholeEndpoint !== undefined) {
+      const slim = this.live.park.slimItems.get(wormholeEndpoint);
+      this.wormholeTransit.begin(now, this.reflectionSky, Number(slim?.get("nebulaType") ?? 0), Number(slim?.get("isDestTriglavian") ?? 0) !== 0);
+      void playUiEvent("worldobject_wormhole_travel_play");
+    }
     this.undockCam = null;
     this.controls.enabled = false;
   }
 
   private endJumpCamera(): void {
+    if (this.gateJump?.wormhole) {
+      this.camera.fov = this.gateJump.wormhole.oldFov;
+      this.camera.updateProjectionMatrix();
+      this.wormholeTransit.clear();
+    }
     this.gateJump = null;
     this.controls.enabled = true;
   }
 
   /** JumpCamera keeps the old view still in space while the ship-relative origin moves. */
-  private stepJumpCamera(now: number, ego: Snapshot["ship"]): boolean {
+  private stepJumpCamera(now: number, ego: Snapshot["ship"], wormholeStopElapsed: number | null): boolean {
     const jump = this.gateJump;
     if (!jump || jump.returned) return false;
     const eye = this.camera.position, target = this.controls.target;
@@ -1480,10 +1504,24 @@ export class SpaceView {
       const p = ego.position;
       const origin = new THREE.Vector3(p.x, p.y, -p.z);
       if (validCameraPosition(origin)) {
-        if (jump.origin) translateCameraPose(eye, target, jump.origin.clone().sub(origin), MAX_JUMP_CAMERA_COORDINATE);
+        if (jump.origin) {
+          const shift = jump.origin.clone().sub(origin);
+          if (translateCameraPose(eye, target, shift, MAX_JUMP_CAMERA_COORDINATE)) jump.wormhole?.aimFrom.add(shift);
+        }
         jump.origin = origin;
       }
+      if (jump.wormhole) {
+        const aim = this.marks.get(jump.wormhole.endpoint)?.position;
+        const ease = THREE.MathUtils.smoothstep(now - jump.orderedAt, 0, WORMHOLE_START_MS);
+        if (aim) setCameraPose(eye, target, eye, jump.wormhole.aimFrom.clone().lerp(aim, ease), MAX_JUMP_CAMERA_COORDINATE);
+        this.camera.fov = THREE.MathUtils.lerp(jump.wormhole.oldFov, THREE.MathUtils.radToDeg(1), ease);
+        this.camera.updateProjectionMatrix();
+      }
     } else if (ego) {
+      if (jump.wormhole && (wormholeStopElapsed === null || wormholeStopElapsed < WORMHOLE_CAMERA_RETURN_MS)) {
+        this.camera.lookAt(target);
+        return true;
+      }
       // ShipOrbitCamera.OnActivated takes the valid outgoing direction and zoom
       // and moves back to the pilot once its new-system ball is present.
       if (!jump.returning) {
@@ -1491,6 +1529,10 @@ export class SpaceView {
         this.lookAt = this.framedLook = null;
         this.framedFor = ego.itemID;
         this.frameShip(ego.radius, true);
+        if (jump.wormhole) {
+          this.camera.fov = jump.wormhole.oldFov;
+          this.camera.updateProjectionMatrix();
+        }
       }
       const elapsed = THREE.MathUtils.clamp((now - jump.returning.startedAt) / 700, 0, 1);
       const nextTarget = jump.returning.target.clone().multiplyScalar(1 - elapsed);
@@ -2354,7 +2396,14 @@ export class SpaceView {
       this.jumpBridgePanels.delete(id);
     }
     if (snap) this.overview.update(snap.entities, (x) => this.distanceTo(x), relations);
-    if (!this.stepJumpCamera(now, ego) && !this.stepExplosionCamera(now, dt, ego)) {
+    const jump = this.gateJump;
+    let wormholeStopElapsed: number | null = null;
+    if (jump?.wormhole && jump.arrivedAt !== null && now - jump.orderedAt >= WORMHOLE_MIDDLE_MS) {
+      const sim = this.live.effectSimNow() ?? now;
+      jump.wormhole.stopSimAt ??= sim;
+      wormholeStopElapsed = sim - jump.wormhole.stopSimAt;
+    }
+    if (!this.stepJumpCamera(now, ego, wormholeStopElapsed) && !this.stepExplosionCamera(now, dt, ego)) {
       if (ego && this.framedFor !== ego.itemID) {
         this.framedFor = ego.itemID;
         this.frameShip(ego.radius);
@@ -2440,11 +2489,16 @@ export class SpaceView {
     if (this.gateJump) {
       const since = now - this.gateJump.orderedAt;
       const after = this.gateJump.arrivedAt === null ? null : now - this.gateJump.arrivedAt;
-      // building over 1.5 s until the arrival; easing out over 2 s after it; given up after 20 s without one
-      const strength = after === null ? Math.min(1, since / 1500) : Math.max(0, 1 - after / 2000);
-      flash = after === null ? 0 : Math.max(0, 0.85 - after / 700);
-      if ((after !== null && after > 2000) || (after === null && since > 20_000)) this.endJumpCamera();
-      share = Math.max(share, strength);
+      if (this.gateJump.wormhole) {
+        this.wormholeTransit.update(now, wormholeStopElapsed !== null, settings.shaderQuality, this.sunDir);
+        if (wormholeStopElapsed !== null && wormholeStopElapsed >= WORMHOLE_STOP_MS) this.endJumpCamera();
+      } else {
+        const strength = after === null ? Math.min(1, since / 1500) : Math.max(0, 1 - after / 2000);
+        flash = after === null ? 0 : Math.max(0, 0.85 - after / 700);
+        if (after !== null && after > 2000) this.endJumpCamera();
+        share = Math.max(share, strength);
+      }
+      if (after === null && since > 20_000) this.endJumpCamera();
     }
     // a ship that is not moving (at a gate, or come out of one) has no way of its own: the camera's, so the tunnel eases out
     if (way.lengthSq() < 0.5) tunnelWay = this.camera.getWorldDirection(new THREE.Vector3());
@@ -2733,6 +2787,7 @@ export class SpaceView {
       const audio = new WormholeAudio(e.itemID, holder);
       this.wormholeAudio.set(e.itemID, audio);
       const slim = this.live.park.slimItems.get(e.itemID);
+      if (ordinary) this.wormholeTransit.preload(Number(slim?.get("nebulaType") ?? 0));
       const load = isNonInteractableWormhole(e.typeID) ? nonInteractableWormhole(e.typeID, audio.play)
         : ordinaryWormhole(e.typeID ?? 0, Number(slim?.get("nebulaType") ?? 0), audio.play);
       void load.then((effect) => {
