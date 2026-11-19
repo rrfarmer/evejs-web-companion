@@ -459,7 +459,7 @@ import { argumentsOf, createBotPresses, decodeQuestion, dialogOfKey, keptQuestio
 import { classifyDistributionAgentConversation, selectDistributionAgent } from "../nav/distributionAgentSelection.ts";
 import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
 import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapBool, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
-import { canManageMoonPull, decodeCorporationMoonPulls, decodeMoonResources, decodeMoonSchedule, hasMoonStationManagerRole,
+import { canManageMoonPull, decodeCorporationMoonPulls, decodeMoonResources, decodeMoonSchedule, hasMoonStationManagerRole, moonRefineryYieldMultiplier,
   MOON_FRACTURE_MS, moonMiningID, moonPullDuration,
   type CorporationMoonSchedule, type MoonRefinery, type MoonResource, type MoonSchedule } from "../bridge/moonMining.ts";
 import { decodeCargoScan, decodeShipScan, groupShipScanHardware, type CargoScanResult, type ShipScanGroup, type ShipScanResult } from "../bridge/scannerResults.ts";
@@ -4195,6 +4195,7 @@ export interface AppFlow {
   changeRefineryControl(structureID: number, take: boolean): Promise<void>;
   loadMoonResources(structureID: number): Promise<readonly MoonResource[]>;
   loadMoonSchedule(structureID: number): Promise<MoonSchedule>;
+  loadMoonYieldMultiplier(structureID: number): Promise<number | null>;
   loadCorporationMoonSchedule(current?: () => void): Promise<CorporationMoonSchedule>;
   startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
@@ -26180,6 +26181,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return schedule;
   }
 
+  async function loadMoonYieldMultiplier(structureID: number): Promise<number | null> {
+    assertRefineryControl(structureID);
+    const current = callOptions.captureRequestGuard!();
+    const { allInfo } = await api.boundDogma(callOptions);
+    current();
+    assertRefineryControl(structureID);
+    return moonRefineryYieldMultiplier(allInfo.value, structureID);
+  }
+
   async function loadCorporationMoonSchedule(lifetime?: () => void): Promise<CorporationMoonSchedule> {
     const scope = captureMemberOperation(lifetime);
     const current = () => {
@@ -36733,6 +36743,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     changeRefineryControl,
     loadMoonResources,
     loadMoonSchedule,
+    loadMoonYieldMultiplier,
     loadCorporationMoonSchedule,
     startMoonPull,
     controlMoonPull,

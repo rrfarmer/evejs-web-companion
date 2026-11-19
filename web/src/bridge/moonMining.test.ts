@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canManageMoonPull, decodeCorporationMoonPulls, decodeMoonResources, decodeMoonSchedule, MAX_MOON_PULL_SECONDS,
+import { canManageMoonPull, decodeCorporationMoonPulls, decodeMoonResources, decodeMoonSchedule, estimateMoonOutput, MAX_MOON_PULL_SECONDS,
   MIN_MOON_PULL_SECONDS, moonPullDuration, moonPullStage } from "./moonMining.ts";
 
 const structure = 1_030_000_000_000;
@@ -15,6 +15,7 @@ const extraction = {
     ["startMoveTime", filetime(started)],
     ["chunkAvailableTime", filetime(ready)],
     ["naturalDecayTime", filetime(automatic)],
+    ["yieldMultiplier", { type: "real", value: 1.024 }],
   ] },
 };
 
@@ -22,7 +23,7 @@ test("refinery schedule distinguishes idle, pulling, ready and confirmed fractur
   const idle = decodeMoonSchedule([null, null], structure, started);
   assert.deepEqual(idle, { pull: null, calendarEventID: null, nowMs: started });
   const { pull, calendarEventID } = decodeMoonSchedule([extraction, 23], structure, started);
-  assert.deepEqual(pull, { id: 7, startedAtMs: started, readyAtMs: ready, automaticAtMs: automatic });
+  assert.deepEqual(pull, { id: 7, startedAtMs: started, readyAtMs: ready, automaticAtMs: automatic, yieldMultiplier: 1.024 });
   assert.equal(calendarEventID, 23);
   assert.equal(moonPullStage(idle.pull, started, false), "idle");
   assert.equal(moonPullStage(pull, ready - 1, false), "pulling");
@@ -30,6 +31,17 @@ test("refinery schedule distinguishes idle, pulling, ready and confirmed fractur
   assert.equal(moonPullStage(pull, ready, true), "fracturing");
   assert.throws(() => decodeMoonSchedule([extraction, 23], structure + 1, started), /unreadable moon schedule/);
   assert.throws(() => decodeMoonSchedule(null, structure, started), /unreadable moon schedule/);
+});
+
+test("the refinery projects ore volumes and the total using the duration and yield multiplier", () => {
+  const composition = [{ typeID: 45493, fraction: 0.9754 }, { typeID: 45490, fraction: 0.0246 }];
+  const estimate = estimateMoonOutput(composition, 7 * 86_400, 1.024);
+  assert.ok(Math.abs(estimate.totalVolume - 5_160_960) < 1e-8);
+  assert.deepEqual(estimate.ores.map(ore => [ore.typeID, Math.trunc(ore.volume)]), [
+    [45493, 5_034_000], [45490, 126_959],
+  ]);
+  const later = estimateMoonOutput(composition, 7 * 86_400 + 1800, 1.024);
+  assert.ok(Math.abs(later.totalVolume - estimate.totalVolume - 15_360) < 1e-8);
 });
 
 test("refinery composition and scheduling honor the native fraction, duration and role values", () => {

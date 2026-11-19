@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { filetimeToUnixMs } from "../bridge/activity.ts";
-  import { canManageMoonPull, MAX_MOON_PULL_SECONDS, MIN_MOON_PULL_SECONDS, MOON_PLAN_STEP_MS, moonPullDuration, moonPullStage,
+  import { canManageMoonPull, estimateMoonOutput, MAX_MOON_PULL_SECONDS, MIN_MOON_PULL_SECONDS, MOON_PLAN_STEP_MS, moonPullDuration, moonPullStage,
     type MoonRefinery, type MoonResource, type MoonSchedule } from "../bridge/moonMining.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
@@ -21,6 +21,8 @@
   let clockOffsetMs = 0;
   let now = $state(Date.now());
   let plannedDate = $state("");
+  let previewMultiplier = $state<number | null>(null);
+  let yieldPending = $state(true);
   let calendar = $state(true);
   let calendarPublished = $state(false);
   let pending = $state(false);
@@ -36,7 +38,16 @@
   const progress = $derived(pull ? Math.max(0, Math.min(1, (now - pull.startedAtMs) / (pull.readyAtMs - pull.startedAtMs))) : 0);
   const announce = $derived(({ idle: "Drill idle", pulling: "Extraction in progress", ready: "Ready to fracture", fracturing: "Fracturing" })[stage]);
   const selectedDate = $derived(Date.parse(`${plannedDate}Z`));
-  const canStart = $derived(moonPullDuration(selectedDate, now) !== null && !!resources?.length && !scheduleError);
+  const validPlan = $derived(moonPullDuration(selectedDate, now) !== null);
+  const canStart = $derived(validPlan && !!resources?.length && !scheduleError);
+  // The native planner samples the clock when the selected date changes.
+  const plannedSeconds = $derived((selectedDate - untrack(() => now)) / 1000);
+  const durationSeconds = $derived(pull ? (pull.readyAtMs - pull.startedAtMs) / 1000 : validPlan ? plannedSeconds : null);
+  const yieldMultiplier = $derived(pull ? pull.yieldMultiplier : previewMultiplier);
+  const output = $derived(resources?.length && durationSeconds !== null && yieldMultiplier !== null
+    ? estimateMoonOutput(resources, durationSeconds, yieldMultiplier) : null);
+  const volume = new Intl.NumberFormat();
+  const formatVolume = (m3: number) => `${volume.format(Math.trunc(m3))} m³`;
 
   $effect(() => {
     void $calendarUpdated;
@@ -75,6 +86,14 @@
     }
   }
 
+  async function readYield(): Promise<void> {
+    yieldPending = true;
+    const multiplier = await flow.loadMoonYieldMultiplier(refinery.id).catch(() => null);
+    if (!mounted) return;
+    previewMultiplier = multiplier;
+    yieldPending = false;
+  }
+
   async function refresh(): Promise<void> {
     if (reading) { readAgain = true; return; }
     reading = true;
@@ -86,6 +105,7 @@
       if (result.pull === null && (!plannedDate || (schedule?.pull && moonPullDuration(Date.parse(`${plannedDate}Z`), now) === null))) {
         plannedDate = forInput(firstPlan(now + 60_000));
       }
+      if (result.pull === null && schedule?.pull) void readYield();
       schedule = result;
       scheduleError = "";
     } catch (error) {
@@ -112,6 +132,7 @@
   onMount(() => {
     mounted = true;
     void readResources();
+    void readYield();
     // The store subscription supplies the initial read. Periodic reads also catch updates missed during reconnects.
     const stop = flow.moonExtractionChanged.subscribe(() => { void refresh(); });
     const clock = setInterval(() => { now = Date.now() + clockOffsetMs; }, 1000);
@@ -157,14 +178,14 @@
         <input type="datetime-local" required bind:value={plannedDate} min={forInput(firstPlan(now))}
           max={forInput(lastPlan(now))} step={MOON_PLAN_STEP_MS / 1000} disabled={pending} />
       </label>
-      {#if moonPullDuration(selectedDate, now) === null}<p>Choose a ready time from six days and one minute through 56 days from now.</p>{/if}
+      {#if !validPlan}<p>Choose a ready time from six days and one minute through 56 days from now.</p>{/if}
       <label class="calendar"><input type="checkbox" bind:checked={calendar} disabled={pending} /> Add to Calendar</label>
       <button class="primary" disabled={pending || !canStart}>Start Extraction</button>
     </form>
   {/if}
 
   <div class="composition">
-    <h3>Moon composition</h3>
+    <h3>{pull ? "Projected Output" : "Output"}</h3>
     {#if resourceError}
       <p class="error" role="alert">{resourceError}</p>
       <button onclick={readResources}>Retry composition</button>
@@ -173,15 +194,33 @@
     {:else if !resources.length}
       <p>No moon resources were reported for this refinery.</p>
     {:else}
-      <ul>
-        {#each resources as resource (resource.typeID)}
-          <li>
-            <span>{resolvedName($names.resolved, "type", resource.typeID, `Type ${resource.typeID}`)}</span>
-            <span>{(resource.fraction * 100).toFixed(2)}%</span>
-            <meter min="0" max="1" value={resource.fraction} aria-label={resolvedName($names.resolved, "type", resource.typeID, `Type ${resource.typeID}`)}></meter>
-          </li>
-        {/each}
-      </ul>
+      {#if durationSeconds !== null && yieldMultiplier === null}
+        {#if !pull && yieldPending}
+          <p>Reading refinery yield…</p>
+        {:else}
+          <p>Estimated output is unavailable.</p>
+          {#if !pull}<button onclick={readYield}>Retry yield</button>{/if}
+        {/if}
+      {/if}
+      <table aria-label={pull ? "Projected output" : "Estimated output"}>
+        <thead><tr><th scope="col">Moon Product</th><th scope="col">{output ? "Est. Volume" : "Composition"}</th></tr></thead>
+        <tbody>
+          {#each resources as resource, index (resource.typeID)}
+            {@const name = resolvedName($names.resolved, "type", resource.typeID, `Type ${resource.typeID}`)}
+            {@const share = `${(resource.fraction * 100).toFixed(2)}%`}
+            <tr>
+              <th scope="row">{name}</th>
+              <td>
+                <span>{output ? formatVolume(output.ores[index].volume) : share}</span>
+                <meter min="0" max="1" value={resource.fraction} aria-label={`${name} composition`} title={share}></meter>
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+        {#if output}
+          <tfoot><tr><th scope="row">Total</th><td>{formatVolume(output.totalVolume)}</td></tr></tfoot>
+        {/if}
+      </table>
     {/if}
   </div>
 </section>
@@ -189,12 +228,12 @@
 <style>
   .moon-schedule { display: flex; flex-direction: column; gap: 14px; padding: 15px; font-size: 13px; color: #e3ecee; }
   header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 14px; flex-wrap: wrap; }
-  h2, h3, p, ul, dl, dd { margin: 0; }
+  h2, h3, p, dl, dd { margin: 0; }
   h2 { font-size: 17px; font-weight: 570; } h3 { font-size: 13px; font-weight: 630; }
   .stage { color: #9dc9d2; } .stage.ready { color: #f3ca79; }
   .schedule-card { display: grid; gap: 12px; padding: 13px; border: 1px solid #34464e; background: #1b262c; }
-  .countdown, li { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-  strong, dd, li span:last-of-type { font-variant-numeric: tabular-nums; }
+  .countdown { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  strong, dd, td { font-variant-numeric: tabular-nums; }
   strong { font-size: 17px; }
   progress, meter { width: 100%; accent-color: #75b4bf; }
   dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; }
@@ -206,8 +245,15 @@
   button { justify-self: start; background: #25333a; border: 1px solid #526872; color: inherit; padding: 6px 12px; }
   button.primary { background: #28434a; border-color: #72a8b2; }
   button:disabled { opacity: .55; } button:not(:disabled):hover { filter: brightness(1.2); }
-  .composition { display: grid; gap: 8px; } ul { list-style: none; padding: 0; display: grid; gap: 6px; }
-  li { display: grid; grid-template-columns: 1fr auto; column-gap: 12px; row-gap: 3px; }
-  meter { grid-column: 1 / -1; height: 6px; }
+  .composition { display: grid; gap: 8px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 6px 8px; }
+  th { text-align: left; font-weight: 500; }
+  thead, tfoot { background: #25333a; }
+  thead { color: #adc0c7; }
+  td { text-align: right; }
+  th:last-child:not(:first-child) { text-align: right; }
+  tbody tr + tr, tfoot { border-top: 1px solid #34464e; }
+  meter { display: block; height: 5px; }
   .error { color: #ffc0aa; }
 </style>

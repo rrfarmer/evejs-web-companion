@@ -1,4 +1,5 @@
 import { filetimeToUnixMs } from "./activity.ts";
+import type { BoundDogmaAllInfo } from "./boundDogma.ts";
 import { isListValue, readDictPairs, readKeyVal, unwrapLong, unwrapReal } from "./wire.ts";
 
 // Build 3698585, moonmining/const.py and the half-hour scheduler in planningCont.py.
@@ -6,6 +7,8 @@ export const MIN_MOON_PULL_SECONDS = 518460;
 export const MAX_MOON_PULL_SECONDS = 4838400;
 export const MOON_FRACTURE_MS = 30_000;
 export const MOON_PLAN_STEP_MS = 30 * 60_000;
+const MOON_YIELD_PER_DAY_M3 = 720_000;
+const MOON_YIELD_ATTRIBUTE_ID = 2704;
 
 export interface MoonRefinery {
   readonly id: number;
@@ -24,6 +27,7 @@ export interface MoonPull {
   readonly startedAtMs: number;
   readonly readyAtMs: number;
   readonly automaticAtMs: number;
+  readonly yieldMultiplier: number | null;
 }
 
 export interface MoonSchedule {
@@ -64,14 +68,31 @@ export function decodeMoonResources(result: unknown): MoonResource[] {
   }).sort((a, b) => b.fraction - a.fraction || a.typeID - b.typeID);
 }
 
+function positiveYieldMultiplier(value: unknown): number | null {
+  const multiplier = unwrapReal(value);
+  return multiplier !== null && multiplier > 0 ? multiplier : null;
+}
+
+export function moonRefineryYieldMultiplier(dogma: BoundDogmaAllInfo | null, structureID: number): number | null {
+  const refinery = dogma?.ships.find(item => moonMiningID(item.itemID) === structureID && item.categoryID === 65);
+  return positiveYieldMultiplier(refinery?.attributes.find(attribute => attribute.attributeID === MOON_YIELD_ATTRIBUTE_ID)?.value);
+}
+
+export function estimateMoonOutput(resources: readonly MoonResource[], durationSeconds: number, multiplier: number) {
+  const volume = MOON_YIELD_PER_DAY_M3 * durationSeconds / 86_400 * multiplier;
+  const ores = resources.map(ore => ({ ...ore, volume: ore.fraction * volume }));
+  return { ores, totalVolume: ores.reduce((sum, ore) => sum + ore.volume, 0) };
+}
+
 function decodeMoonPull(row: unknown): MoonPull | null {
   const id = moonMiningID(readKeyVal(row, "extractionID"));
   const readTime = (key: string) => filetimeToUnixMs(unwrapLong(readKeyVal(row, key)));
   const startedAtMs = readTime("startMoveTime");
   const readyAtMs = readTime("chunkAvailableTime");
   const automaticAtMs = readTime("naturalDecayTime");
+  const yieldMultiplier = positiveYieldMultiplier(readKeyVal(row, "yieldMultiplier"));
   return id !== null && startedAtMs !== null && readyAtMs !== null && automaticAtMs !== null
-    && startedAtMs < readyAtMs && automaticAtMs >= readyAtMs ? { id, startedAtMs, readyAtMs, automaticAtMs } : null;
+    && startedAtMs < readyAtMs && automaticAtMs >= readyAtMs ? { id, startedAtMs, readyAtMs, automaticAtMs, yieldMultiplier } : null;
 }
 
 export function decodeMoonSchedule(result: unknown, structureID: number, nowMs: number): MoonSchedule {
