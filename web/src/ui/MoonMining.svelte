@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
+  import { filetimeToUnixMs } from "../bridge/activity.ts";
   import { canManageMoonPull, MAX_MOON_PULL_SECONDS, MIN_MOON_PULL_SECONDS, MOON_PLAN_STEP_MS, moonPullDuration, moonPullStage,
     type MoonRefinery, type MoonResource, type MoonSchedule } from "../bridge/moonMining.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -10,6 +11,7 @@
   const names = $derived(store.names);
   const station = $derived(store.station);
   const fracturing = $derived(flow.moonFracturing);
+  const calendarUpdated = $derived(flow.calendarUpdated);
   const canStop = $derived(canManageMoonPull(refinery.ownerID, $station.online?.corporationID ?? null, $station.online?.corpRole ?? null));
   let resources = $state.raw<readonly MoonResource[] | null>(null);
   let schedule = $state.raw<MoonSchedule | null>(null);
@@ -20,18 +22,35 @@
   let now = $state(Date.now());
   let plannedDate = $state("");
   let calendar = $state(true);
+  let calendarPublished = $state(false);
   let pending = $state(false);
   let mounted = false;
   let reading = false;
   let readAgain = false;
 
   const pull = $derived(schedule?.pull ?? null);
+  const calendarEventID = $derived(schedule?.calendarEventID ?? null);
+  const readyAtMs = $derived(pull?.readyAtMs ?? null);
   const fracture = $derived($fracturing?.structureID === refinery.id && $fracturing.extractionID === pull?.id ? $fracturing : null);
   const stage = $derived(moonPullStage(pull, now, fracture !== null));
   const progress = $derived(pull ? Math.max(0, Math.min(1, (now - pull.startedAtMs) / (pull.readyAtMs - pull.startedAtMs))) : 0);
   const announce = $derived(({ idle: "Drill idle", pulling: "Extraction in progress", ready: "Ready to fracture", fracturing: "Fracturing" })[stage]);
   const selectedDate = $derived(Date.parse(`${plannedDate}Z`));
   const canStart = $derived(moonPullDuration(selectedDate, now) !== null && !!resources?.length && !scheduleError);
+
+  $effect(() => {
+    void $calendarUpdated;
+    const id = calendarEventID, ready = readyAtMs, owner = refinery.ownerID;
+    calendarPublished = false;
+    if (id === null || ready === null || owner === null) return;
+    const month = new Date(ready);
+    let current = true;
+    void flow.loadCalendarMonth(month.getUTCMonth() + 1, month.getUTCFullYear()).then(events => {
+      if (current) calendarPublished = events.some(event => event.eventID === id && event.ownerID === owner
+        && !event.isDeleted && event.autoEventType === 2 && filetimeToUnixMs(event.eventDateTime) === ready);
+    }, () => {});
+    return () => { current = false; };
+  });
 
   const utc = (ms: number) => `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`;
   const forInput = (ms: number) => new Date(ms).toISOString().slice(0, 16);
@@ -123,7 +142,7 @@
         <dt>Drill started</dt><dd>{utc(pull.startedAtMs)}</dd>
         <dt>Chunk ready</dt><dd>{utc(pull.readyAtMs)}</dd>
         <dt>Automatic fracture</dt><dd>{utc(pull.automaticAtMs)}</dd>
-        {#if schedule?.calendarEventID}<dt>Calendar</dt><dd>Event requested</dd>{/if}
+        {#if calendarEventID}<dt>Calendar</dt><dd>{calendarPublished ? "Event scheduled" : "Event requested"}</dd>{/if}
       </dl>
       {#if stage === "ready"}
         <button class="primary" disabled={pending || !!scheduleError} onclick={() => run(() => flow.controlMoonPull(refinery.id, pull.id, "fracture"))}>Fire Laser</button>
