@@ -8,7 +8,7 @@
 
 import { readBlack } from "./black.mjs";
 
-export const SOF_BUILD = 96;
+export const SOF_BUILD = 97;
 
 /**
  * EveSOFDataFactionColorSet's colour types by index, as an item names its colour (colorType, lightColor,
@@ -54,6 +54,7 @@ export function loadSof(rf) {
     factions: new Map(data.faction.map((f) => [f.name.toLowerCase(), f])),
     materials: new Map(data.material.map((m) => [m.name.toLowerCase(), m])),
     races: new Map(data.race.map((r) => [r.name.toLowerCase(), r])),
+    hasResource: rf.has,
   };
   cache.set(rf, sof);
   return sof;
@@ -79,6 +80,16 @@ function material(sof, name) {
   return { name: m.name, diffuse: p.DiffuseColor ?? null, dust: p.DustDiffuseColor ?? null, fresnel: p.FresnelColor ?? null, gloss: p.Gloss ? p.Gloss[0] : null };
 }
 
+/** A DNA respathinsert changes an authored texture only where the client has that variant. */
+function insertedTexture(sof, resource, insert) {
+  if (!insert || insert.toLowerCase() === "none") return resource;
+  const match = /^(res:\/.*\/)([^/]+)_([^/_.]+)(\.[^/.]+)$/i.exec(resource);
+  if (!match) return resource;
+  const [, directory, stem, role, extension] = match;
+  const variant = `${directory}${insert}/${stem}_${insert}_${role}${extension}`.toLowerCase();
+  return sof.hasResource?.(variant) ? variant : resource;
+}
+
 /**
  * A hull as built for a faction: { areas: [{ name, index, areaType, shader, textures: { name: res }, params,
  * materials: [m1..m4] }], colorSet, boosters: [{ transform }], boundingSphere }. Textures are res: paths.
@@ -87,6 +98,7 @@ export function buildHull(sof, hullName, factionName, raceName = null, materialS
   const hull = sof.hulls.get(String(hullName).toLowerCase());
   if (!hull) return null;
   const faction = factionName ? sof.factions.get(String(factionName).toLowerCase()) ?? null : null;
+  const textureInsert = materialSet ? materialSet.resPathInsert || faction?.resPathInsert : null;
   const areaTypes = faction?.areaTypes ?? {};
   const factionColors = faction?.colorSet ?? null;
   // An area's GeneralGlowColor as EveSOF finds it (carbonengine/trinity EveSOFDNA::GetMeshAreaParameter,
@@ -127,7 +139,8 @@ export function buildHull(sof, hullName, factionName, raceName = null, materialS
         // FillMeshAreaVector adds generic defaultTextures after the area's: quadheatv5's HeatGlowNoiseMap, say)
         textures: {
           ...Object.fromEntries((genericShader(a.shader)?.defaultTextures ?? []).filter((t) => t?.name && t.resFilePath).map((t) => [t.name, t.resFilePath])),
-          ...Object.fromEntries((a.textures ?? []).filter((t) => t.resFilePath).map((t) => [t.name, t.resFilePath])),
+          ...Object.fromEntries((a.textures ?? []).filter((t) => t.resFilePath)
+            .map((t) => [t.name, insertedTexture(sof, t.resFilePath, textureInsert)])),
         },
         params: params(a.parameters),
         // a Wreck area's materials and glow colour come first from the generic wreck material (EveSOFDNA::

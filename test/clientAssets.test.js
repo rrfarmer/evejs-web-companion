@@ -9,7 +9,7 @@ const test = require("node:test");
 const { createClientAssets } = require("../src/clientData/clientAssets");
 const { createApp } = require("../src/server");
 const { extractOverviewPresets, extractSystemCelestials } = require("../tools/client-extract/extract.mjs");
-const { SOF_BUILD } = require("../tools/client-extract/lib/sof.mjs");
+const { buildHull, SOF_BUILD } = require("../tools/client-extract/lib/sof.mjs");
 const { buildSystemScenes, indexedHullGeometry, CELESTIAL_BUILD } = require("../tools/client-extract/lib/typeGraphics.mjs");
 
 async function put(root, name, value) {
@@ -31,6 +31,32 @@ async function withAssets(options, run) {
     await new Promise(resolve => server.close(resolve));
   }
 }
+
+test("a SKIN's path insert chooses installed variants for individual hull textures", () => {
+  const root = "res:/dx9/model/ship/minmatar/frigate/mf4/";
+  const material = root + "mf4_t1_m.dds";
+  const albedo = root + "mf4_t1_a.dds";
+  const navyMaterial = root + "navy/mf4_t1_navy_m.dds";
+  const nefantarMaterial = root + "nefantar/mf4_t1_nefantar_m.dds";
+  const installed = new Set([material, albedo, navyMaterial, nefantarMaterial]);
+  const hull = { name: "mf4_t1", opaqueAreas: [{ textures: [
+    { name: "MaterialMap", resFilePath: material },
+    { name: "AlbedoMap", resFilePath: albedo },
+  ] }] };
+  const sof = {
+    data: {},
+    hulls: new Map([[hull.name, hull]]),
+    factions: new Map([["minmatarnavy", { resPathInsert: "navy" }]]),
+    materials: new Map(),
+    hasResource: resource => installed.has(resource),
+  };
+  const maps = set => buildHull(sof, hull.name, "minmatarnavy", null, set).areas[0].textures;
+  assert.deepEqual(maps({}), { MaterialMap: navyMaterial, AlbedoMap: albedo });
+  assert.deepEqual(maps({ resPathInsert: "" }), { MaterialMap: navyMaterial, AlbedoMap: albedo });
+  assert.deepEqual(maps({ resPathInsert: "Nefantar" }), { MaterialMap: nefantarMaterial, AlbedoMap: albedo });
+  assert.deepEqual(maps({ resPathInsert: "missing" }), { MaterialMap: material, AlbedoMap: albedo });
+  assert.deepEqual(maps({ resPathInsert: "None" }), { MaterialMap: material, AlbedoMap: albedo });
+});
 
 test("the production BFF serves the installed build with standard asset responses", async t => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "evejs-client-assets-"));
