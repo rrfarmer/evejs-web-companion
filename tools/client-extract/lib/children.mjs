@@ -448,7 +448,7 @@ function meshAreas(mesh, skipped, smartBeam = false) {
       const fx = named === "quadinstancedv5" ? "quadv5" : named;
       const opts = Object.fromEntries((a.effect?.options?.items ?? []).filter((r) => Array.isArray(r)));
       // a distortion area draws into the distortion map (ubershaderdistortion.fx, the one effect such areas use)
-      const drawn = kind === "distortion" ? fx === "ubershaderdistortion" : ["ubershader", "fx3dv5", "ubershadertwosided", "ubershadercube", "flare", "twocolorflare", "quadv5", "quadglassv5", "quaddetailv5", "fxv5", "wormholefx", "sunwhisps"].includes(fx)
+      const drawn = kind === "distortion" ? fx === "ubershaderdistortion" : ["ubershader", "fx3dv5", "ubershadertwosided", "ubershadercube", "flare", "twocolorflare", "quadv5", "quadglassv5", "quaddetailv5", "fxv5", "wormholefx", "sunwhisps", "childhazespherical"].includes(fx)
         || fx === "texturecolor"
         || (smartBeam && kind === "additive" && fx === "ubershaderinstanced")
         || (fx === "motionvectorramp" && MOTION_VECTOR_RAMP_DRAWN.some((perm) => MOTION_VECTOR_RAMP_DEFAULTS.every(([k, v]) => (opts[k] ?? v) === (perm[k] ?? v))));

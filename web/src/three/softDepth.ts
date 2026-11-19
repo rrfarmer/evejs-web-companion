@@ -9,6 +9,7 @@
 // log-depth buffer), plain in the hangar.
 
 import * as THREE from "three";
+import { gfx } from "../play/gfxSettings.ts";
 import { eveNormalMap } from "./normalMaps.ts";
 
 /** The uniforms a soft area reads (shared by every such material). */
@@ -28,6 +29,23 @@ let depthScene: THREE.Scene | null = null;
 /** Whether the shared opaque depth belongs to the view about to draw. */
 export function hasSoftDepth(renderer: THREE.WebGLRenderer, scene: THREE.Scene): boolean {
   return renderer === depthRenderer && scene === depthScene && SOFT_DEPTH.softDepthOn.value > 0;
+}
+
+/** Use the opaque-depth shader profile at High when this view has its own depth texture. */
+export function useHighSoftDepth(mat: THREE.ShaderMaterial, uniformName: string): void {
+  const profile = { value: false };
+  Object.assign(mat.uniforms, SOFT_DEPTH, { [uniformName]: profile });
+  Object.defineProperty(mat.userData, "softDepth", { enumerable: true, get: () => gfx().shaderQuality === 3 });
+  const before = mat.onBeforeRender;
+  mat.onBeforeRender = function (renderer, scene, camera, geometry, object, group) {
+    before.call(this, renderer, scene, camera, geometry, object, group);
+    const enabled = gfx().shaderQuality === 3 && hasSoftDepth(renderer, scene as THREE.Scene);
+    if (profile.value !== enabled) {
+      profile.value = enabled;
+      mat.uniformsNeedUpdate = true;
+    }
+    mat.depthTest = !enabled;
+  };
 }
 
 /** Decode depth into the distance ahead of the camera, independently of its texture. */

@@ -13,7 +13,7 @@ import { uberDistortionMaterial, DISTORTION_LAYER } from "./distortion.ts";
 import { ControllerRun, type SofController } from "./controllers.ts";
 import { particleObject, type SofChildParticles } from "./particles.ts";
 import { GpuEmitter, gpuSystemOf, type GpuEmitterData } from "./gpuParticles.ts";
-import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
+import { SOFT_DEPTH, SOFT_DEPTH_GLSL, useHighSoftDepth } from "./softDepth.ts";
 import { HULL_TEXTURE_ROLES, fxHullMaterial, sofHullMaterial, setControllerVariable, setOwnerActivation, setClipSphere, type SofArea } from "./hullModel.ts";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
 import { ChildAnimator, HULL_OWNER, animators, type SofCurveSet } from "./childAnimation.ts";
@@ -1019,6 +1019,62 @@ const presetSide = (area: SofChildMeshArea) => (area.kind === "additive" ? THREE
 const areaBlend = (area: SofChildMeshArea) => (area.kind === "additive"
   ? { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation }
   : { blending: THREE.NormalBlending });
+
+/** A child mesh bounds an ellipsoid and shades the length of the ray through it in normalized object space. */
+function childHazeMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
+  const bounds = v4(area.params.safeBoundsExtents, [0.5, 0.5, 0.5, 0]);
+  const material = new THREE.ShaderMaterial({
+    name: "childhazespherical",
+    uniforms: {
+      ...CLOUD_FOG,
+      hazeEnabled: { get value() { return gfx().shaderQuality > 1; } },
+      gradient: { value: (area.options?.COLOR_COUNT ?? "TWO") === "TWO" },
+      hazeColor: { value: v4(area.params.HazeColor, [1, 1, 1, 1]) },
+      edgeColor: { value: v4(area.params.EdgeColor, [1, 1, 1, 1]) },
+      hazeData: { value: v4(area.params.HazeData, [5, 1, 0.5, 0.333]) },
+      bounds: { value: new THREE.Vector3(bounds.x, bounds.y, bounds.z) },
+    },
+    vertexShader: `uniform vec3 bounds;
+      varying vec3 vHazePosition; varying vec3 vHazeEye;
+      void main() {
+        vec3 p = position / bounds;
+        p /= max(max(max(abs(p.x), abs(p.y)), abs(p.z)), 0.0001);
+        vHazePosition = 0.5 * p;
+        vHazeEye = 0.5 * (inverse(modelViewMatrix) * vec4(0.0, 0.0, 0.0, 1.0)).xyz / bounds;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p * bounds, 1.0);
+      }`,
+    fragmentShader: `uniform bool hazeEnabled; uniform bool gradient; uniform bool hazeDepthProfile;
+      uniform vec4 hazeColor; uniform vec4 edgeColor; uniform vec4 hazeData;
+      varying vec3 vHazePosition; varying vec3 vHazeEye;
+      ${SOFT_DEPTH_GLSL}
+      ${CLOUD_FOG_GLSL}
+      void main() {
+        if (!hazeEnabled) discard;
+        vec3 ray = vHazePosition - vHazeEye;
+        vec3 direction = normalize(ray);
+        float b = dot(vHazeEye, direction);
+        float disc = b * b - dot(vHazeEye, vHazeEye) + 0.25;
+        if (disc < 0.0) discard;
+        vec4 data = max(hazeData, vec4(0.01));
+        float radius = sqrt(disc);
+        float chord = 2.0 * radius;
+        if (hazeDepthProfile) {
+          // Both of the native depth offsets are within half a pixel on this nearest-filtered, full-size depth map.
+          float sceneDistance = softSceneDepth() * gl_FragCoord.w * length(ray);
+          float visibleLength = sceneDistance + b + radius;
+          if (visibleLength < 0.0) discard;
+          chord = min(chord, pow(visibleLength, 1.0 / (data.x * data.z)));
+        }
+        float strength = min(pow(chord, data.x), 1.0);
+        vec4 color = gradient ? mix(hazeColor, edgeColor, pow(1.0 - strength, data.w)) : hazeColor;
+        gl_FragColor = clamp(color * strength, 0.0, 1.0) * data.y * cloudFogTransmission(1.0 / gl_FragCoord.w);
+      }`,
+    side: THREE.BackSide, transparent: true, depthWrite: false, ...areaBlend(area),
+  });
+  useHighSoftDepth(material, "hazeDepthProfile");
+  return logDepth(material);
+}
+
 /** A sampler's clamp-to-edge, in the shader (the texture objects are shared between materials). */
 const CLAMP_GLSL = "vec2 clampUv(sampler2D t, vec2 uv) { vec2 h = 0.5 / vec2(textureSize(t, 0)); return clamp(uv, h, 1.0 - h); }";
 const SRGB_ENCODE_GLSL = "vec3 encode(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }";
@@ -1233,6 +1289,7 @@ const PARAM_UNIFORM: Record<string, string> = {
   ReflectionFactors: "reflectionFactors", NormalStrength: "normalStrength", CubeMapTint: "cubeMapTint",
   Brightness: "brightness", Temperature: "temperature", ColorInner: "inner", ColorOutter: "outer", TextureTranslation: "translation", TextureScaling: "scaling",
   Layer1Transform: "t1", Layer2Transform: "t2", Layer3Transform: "t3", Layer1Scroll: "s1", Layer2Scroll: "s2", Layer3Scroll: "s3",
+  HazeColor: "hazeColor", EdgeColor: "edgeColor", HazeData: "hazeData",
 };
 
 async function childLod(url: string, index: number): Promise<THREE.Object3D | undefined> {
@@ -1341,7 +1398,8 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
         if (!materials.has(area)) {
           const make = ({ fx3dv5: fx3dMaterial, motionvectorramp: motionVectorRampMaterial, ubershadertwosided: twoSidedUberMaterial,
             texturecolor: textureColorMaterial, flare: flareMaterial, twocolorflare: twoColorFlareMaterial, ubershadercube: uberCubeMaterial,
-            wormholefx: (a: SofChildMeshArea) => wormholeMaterial(a, childTexture), sunwhisps: sunWhispsMaterial } as Record<string, (a: SofChildMeshArea) => THREE.ShaderMaterial>)[area.effect] ?? uberMaterial;
+            wormholefx: (a: SofChildMeshArea) => wormholeMaterial(a, childTexture), sunwhisps: sunWhispsMaterial,
+            childhazespherical: childHazeMaterial } as Record<string, (a: SofChildMeshArea) => THREE.ShaderMaterial>)[area.effect] ?? uberMaterial;
           const mat = make(area);
           materials.set(area, mat);
           for (const [name, id] of Object.entries(area.paramIds ?? {})) if (PARAM_UNIFORM[name]) animator?.uniform(id, mat.uniforms[PARAM_UNIFORM[name]!]);

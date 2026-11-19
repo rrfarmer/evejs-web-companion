@@ -11,7 +11,7 @@ import { CLOUD_FOG, CLOUD_FOG_GLSL } from "./cloudOpacity.ts";
 import { loadDds } from "./ddsTexture.ts";
 import { logDepth } from "./logDepth";
 import { followActivation } from "./activation.ts";
-import { hasSoftDepth, SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
+import { SOFT_DEPTH, SOFT_DEPTH_GLSL, useHighSoftDepth } from "./softDepth.ts";
 
 const LIGHT_FOG = { ...CLOUD_FOG, softDepthSize: SOFT_DEPTH.softDepthSize };
 const LIGHT_FOG_GLSL = `uniform vec2 softDepthSize;
@@ -33,23 +33,6 @@ const LIGHT_DEPTH_DISK_GLSL = `const vec2 lightDepthDisk[16] = vec2[16](${Array.
     if (any(lessThan(pixel, vec2(0.0))) || any(greaterThanEqual(pixel, softDepthSize))) return softDepthNearFar.y;
     return softSceneDepthAt(pixel);
   }`;
-
-/** Switch from the fixed depth test to the shader's opaque-depth calculation when its input is available. */
-function useLightDepth(mat: THREE.ShaderMaterial): void {
-  const profile = { value: false };
-  Object.assign(mat.uniforms, SOFT_DEPTH, { lightDepthProfile: profile });
-  Object.defineProperty(mat.userData, "softDepth", { enumerable: true, get: () => gfx().shaderQuality === 3 });
-  const before = mat.onBeforeRender;
-  mat.onBeforeRender = function (renderer, scene, camera, geometry, object, group) {
-    before.call(this, renderer, scene, camera, geometry, object, group);
-    const enabled = gfx().shaderQuality === 3 && hasSoftDepth(renderer, scene as THREE.Scene);
-    if (profile.value !== enabled) {
-      profile.value = enabled;
-      mat.uniformsNeedUpdate = true;
-    }
-    mat.depthTest = !enabled;
-  };
-}
 
 export interface SofSpriteSet {
   name: string | null;
@@ -171,7 +154,7 @@ function spritePoints(sets: readonly SofSpriteSet[]): THREE.Points | null {
     const h = renderer.getDrawingBufferSize(new THREE.Vector2()).y;
     mat.uniforms.scale!.value = cam.isPerspectiveCamera ? h / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)) : 1;
   };
-  useLightDepth(mat);
+  useHighSoftDepth(mat, "lightDepthProfile");
   // x the ship's activation strength (EveSpriteSet::AddToQuadRenderer puts activation x the set's intensity in each
   // vertex; blinkinglightspool's vertex stage multiplies the colour by it)
   followActivation(mat);
@@ -449,7 +432,7 @@ async function spotlightGlows(sets: readonly SofSpotlightSet[]): Promise<THREE.G
         }`,
       ...LIGHT_BLEND, side: THREE.DoubleSide,
     });
-    useLightDepth(mat);
+    useHighSoftDepth(mat, "lightDepthProfile");
     logDepth(mat);
     // x the ship's activation strength (the glow's per-light activation, the colour's w in spotlightglowpool) and the
     // booster gain factor
@@ -528,7 +511,7 @@ function hazeMeshes(sets: readonly SofHazeSet[]): THREE.Group | null {
         }`,
       ...LIGHT_BLEND, side: THREE.BackSide,
     });
-    useLightDepth(mat);
+    useHighSoftDepth(mat, "lightDepthProfile");
     logDepth(mat);
     // x the ship's activation strength (the vertex stage's Shipdata.y: activation.ts) and, for an item with
     // boosterGainInfluence, 1 + (the booster gain - 1) (its Shipdata.x)
