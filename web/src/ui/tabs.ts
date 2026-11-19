@@ -49,6 +49,7 @@ export type CoreTabID =
   | "watchlist"
   | "scanner"
   | "miningScan"
+  | "miningLedger"
   | "mail"
   | "contacts"
   | "locations"
@@ -194,6 +195,7 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "equipment", label: "Equipment", where: "in-space" },
   { id: "scanner", label: "Scanner", where: "in-space" },
   { id: "miningScan", label: "Mining Scan Results", where: "in-space", launchable: false },
+  { id: "miningLedger", label: "Mining Ledger", where: "both" },
   // Both — reachable docked or undocked.
   { id: "inventory", label: "Inventory & Ship", where: "both" },
   { id: "market", label: "Market", where: "both" },

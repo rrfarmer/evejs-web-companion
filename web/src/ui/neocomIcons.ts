@@ -51,6 +51,7 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   equipment: ["M4 7h16", "M4 12h16", "M4 17h16", "M8 4v16", "M16 4v16"],
   scanner: ["M21 12a9 9 0 1 1-9-9", "M12 12l7-3", "M12 12h.01"],
   miningScan: ["M3 15l6-8 6 8-6 5z", "M13 7a7 7 0 0 1 8 6", "M15 3a11 11 0 0 1 8 7"],
+  miningLedger: ["M5 3h14v18H5z", "M8 16v-3m4 3V9m4 7v-5"],
 
   // --- docked ---
   fitting: ["M12 3l6 6v9H6V9z", "M9 12h.01M15 12h.01M12 16h.01"],

@@ -47,6 +47,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
   { label: "Industry", icon: icon("directoryIndustry"), items: [
     { id: "industry", label: "Industry", icon: icon("industry") },
     { id: "miningScan", label: "Mining Scan Results", icon: clientTexture("res:/ui/texture/eveicon/control_icons/mining_overlay_toggle_default_32px.png") },
+    { id: "miningLedger", label: "Mining Ledger", icon: icon("industry") },
     { id: "planets", label: "Planetary Colonies", icon: icon("planets") },
   ] },
   { label: "Inventory", icon: icon("directoryInventory"), items: [

@@ -461,6 +461,7 @@ import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
 import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
 import { decodeCargoScan, decodeShipScan, groupShipScanHardware, type CargoScanResult, type ShipScanGroup, type ShipScanResult } from "../bridge/scannerResults.ts";
 import { basicMiningScan, INTEGRATED_MINING_SCANNER, miningScanInWarp, miningSurveyDepletion, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
+import { decodeMiningLedger, type MiningLedgerEntry, type MiningLedgerFacts } from "../bridge/miningLedger.ts";
 import { decodeAgencySeason, decodeAgencySeasonChoices, decodeAgencySeasonProgress, decodeAgencySeasonReward, decodeSeasonSelectionDefinition,
   isVanguardTrackCompleted, seasonRewardClaimable, VANGUARD_TRACK_INSTANCE, type AgencySeason, type AgencySeasonReward } from "../bridge/agencySeason.ts";
 import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from "../bridge/serverDialogs.ts";
@@ -4181,6 +4182,7 @@ export interface AppFlow {
   runSurveyScan(): Promise<readonly SurveyResult[] | null>;
   clearSurveyScan(): void;
   miningScanFacts(typeIDs: readonly number[]): Promise<ReadonlyMap<number, MiningScanTypeFacts>>;
+  loadMiningLedger(): Promise<{ rows: readonly MiningLedgerEntry[]; facts: ReadonlyMap<number, MiningLedgerFacts>; nowMs: number }>;
   /** R23 — ask the station refinery what these stacks yield, and its ISK tax. */
   loadReprocessingQuote(itemIDs: readonly number[]): Promise<void>;
   /** R23 — move mined ore into the station hangar (docked only). */
@@ -26080,6 +26082,33 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }]));
   }
 
+  async function loadMiningLedger() {
+    const current = callOptions.captureRequestGuard!();
+    const rows = decodeMiningLedger(await bridgeAsk("characterMiningLedger", "GetCharacterLogs", []));
+    const typeIDs = [...new Set(rows.map(row => row.typeID))];
+    const [common, dogma] = await Promise.all([
+      miningScanFacts(typeIDs).catch(() => new Map<number, MiningScanTypeFacts>()),
+      dogmaStaticFor(typeIDs, []).catch(() => null),
+    ]);
+    current();
+    const facts = new Map<number, MiningLedgerFacts>();
+    const names: NameRef[] = [...new Set(rows.map(row => row.systemID))].map(id => ({ kind: "system", id }));
+    for (const id of typeIDs) {
+      const type = dogma?.types[id];
+      const info = common.get(id);
+      const groupID = info?.groupID ?? type?.groupID ?? null;
+      const base = type?.attributes.find(([attributeID]) => attributeID === 2711)?.[1] ?? null;
+      const baseTypeID = base !== null && base > 0 ? base : null;
+      const metaLevel = type?.attributes.find(([attributeID]) => attributeID === 2699)?.[1] ?? 1;
+      facts.set(id, { groupID, baseTypeID, metaLevel, volume: info?.unitVolume ?? null, price: info?.unitPrice ?? null, basePrice: type?.basePrice ?? null });
+      names.push({ kind: "type", id });
+      if (groupID !== null) names.push({ kind: "group", id: groupID });
+      if (baseTypeID !== null) names.push({ kind: "type", id: baseTypeID });
+    }
+    if (names.length) requestNames(names);
+    return { rows, facts, nowMs: serverNow() };
+  }
+
   // ── The surveyor, run FOR a mining bot ─────────────────────────────────────
   //
   // A player presses the Mining Surveyor button; a bot has to decide for itself,
@@ -36503,6 +36532,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     runSurveyScan,
     clearSurveyScan,
     miningScanFacts,
+    loadMiningLedger,
     loadReprocessingQuote,
     unloadMiningHolds,
     reprocessItems,

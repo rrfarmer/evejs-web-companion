@@ -3,10 +3,11 @@
   import { INTEGRATED_MINING_SCANNER, MINING_SCANNER_UPGRADE, miningScanInWarp } from "../bridge/miningScanResults.ts";
   import type { FlightMiningSurvey } from "../play/miningSurveyWave.ts";
 
-  let { store, survey, openResults, disable }: {
+  let { store, survey, openResults, openLedger, disable }: {
     store: ClientStore;
     survey: FlightMiningSurvey;
     openResults: () => void;
+    openLedger: () => void;
     disable: () => void;
   } = $props();
   const flight = $derived(store.flight);
@@ -44,6 +45,7 @@
     {#if menu}
       <div class="flight-mining-actions">
         <button type="button" onclick={() => { menu = false; openResults(); }}>Open Scan Results</button>
+        <button type="button" onclick={() => { menu = false; openLedger(); }}>Open Mining Ledger</button>
         {#if active || $busy}
           <button type="button" onclick={() => { menu = false; disable(); }}>Disable Mining Overlay</button>
         {/if}
