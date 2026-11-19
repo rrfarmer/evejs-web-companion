@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { loadDds, loadDds3D } from "../three/ddsTexture.ts";
+import { loadDds, loadDds3D, uploadDds3DMipmaps } from "../three/ddsTexture.ts";
 import type { TypeModelInfo } from "../three/hullModel.ts";
 import type { DScanRow } from "./dscan.ts";
 import { playUiEvent } from "./uiAudio.ts";
@@ -23,6 +23,7 @@ interface Hologram {
   material: THREE.ShaderMaterial;
   at: THREE.Vector3;
   size: number;
+  radius: number;
 }
 interface Wave {
   startsAt: number;
@@ -40,7 +41,10 @@ async function loadAssets(): Promise<HologramAssets> {
   const response = await fetch("/client-assets/dscanHologram.json");
   if (!response.ok) throw new Error("Directional scan hologram assets are unavailable");
   const variant = await response.json() as HologramVariant;
-  const [volume, mask] = await Promise.all([loadDds3D(variant.textures.LayerAllMap), loadDds(variant.textures.LayerMaskMap)]);
+  const [volume, mask] = await Promise.all([
+    loadDds3D(variant.textures.LayerAllMap, THREE.RepeatWrapping, true), loadDds(variant.textures.LayerMaskMap),
+  ]);
+  mask.anisotropy = 16;
   mask.wrapS = mask.wrapT = THREE.RepeatWrapping;
   mask.needsUpdate = true;
   return { variant, volume, mask };
@@ -68,16 +72,20 @@ function loadHull(typeID: number): Promise<Hull | null> {
   return hulls.get(typeID)!;
 }
 
-// fx3dv5.sm_hi, Main. Model coordinates are normalized by the authored hull sphere.
+// fx3dv5 Main normalizes model coordinates by the hull sphere's rendered radius.
 // The volumes use different channels and swizzles. The radial mask adds FxColor independently of the grid.
-function materialFor(data: HologramAssets, radius: number): THREE.ShaderMaterial {
+function materialFor(data: HologramAssets): THREE.ShaderMaterial {
   const uniforms: Record<string, THREE.IUniform> = {
-    grid: { value: data.volume }, maskMap: { value: data.mask }, radius: { value: radius },
+    grid: { value: data.volume }, maskMap: { value: data.mask }, radius: { value: 1 },
     time: { value: 0 }, activation: { value: 0 },
   };
   for (const [name, values] of Object.entries(data.variant.parameters)) uniforms[name] = { value: new THREE.Vector4().fromArray(values) };
-  return new THREE.ShaderMaterial({
+  const material = new THREE.ShaderMaterial({
     uniforms, transparent: true, depthWrite: false, toneMapped: false,
+    // Weight the linear color before writing to the map framebuffer, which has a normalized range.
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.SrcAlphaFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
     vertexShader: `
       uniform float radius;
       varying vec3 hullPoint;
@@ -111,11 +119,13 @@ function materialFor(data: HologramAssets, radius: number): THREE.ShaderMaterial
         vec4 color = (BaseColor * vec4(mask.rgb, 1.0) * lattice + mask.a * FxColor) * activation;
         float fresnel = pow(1.0 - clamp(dot(normalize(viewNormal), viewToEye) - FresnelFactors.z, 0.0, 1.0), FresnelFactors.x);
         color.rgb *= FresnelFactors.y >= 0.0 ? fresnel * FresnelFactors.y : (1.0 - min(fresnel, 1.0)) * -FresnelFactors.y;
-        gl_FragColor = color;
-        #include <colorspace_fragment>
+        float alpha = clamp(color.a, 0.0, 1.0);
+        gl_FragColor = vec4(color.rgb * alpha, alpha);
       }
     `,
   });
+  material.onBeforeRender = (renderer) => uploadDds3DMipmaps(renderer, data.volume);
+  return material;
 }
 
 export class ScanHolograms {
@@ -193,7 +203,7 @@ export class ScanHolograms {
         const ready = group.filter((hull): hull is Hull => hull !== null);
         const wave = ready.map((hull, i) => {
           const model = hull.node.clone(true);
-          const material = materialFor(data, hull.radius);
+          const material = materialFor(data);
           model.traverse((node) => { if (node instanceof THREE.Mesh) node.material = material; });
           model.rotation.copy(orbit);
           const radius = Math.max(18, hull.radius);
@@ -205,7 +215,7 @@ export class ScanHolograms {
           }
           model.visible = false;
           this.root.add(model);
-          return { model, material, at, size: 3.5 / hull.radius ** 0.6 };
+          return { model, material, at, size: 3.5 / hull.radius ** 0.6, radius: hull.radius };
         });
         if (wave.length) this.waves.push({ startsAt: first + index * 500, models: wave, direction, hover, started: false });
       }
@@ -226,15 +236,22 @@ export class ScanHolograms {
         for (const item of wave.models) { item.model.removeFromParent(); item.material.dispose(); }
         return false;
       }
-      const gone = wave.hover ? 0 : THREE.MathUtils.clamp((elapsed - 0.5) / 0.15, 0, 1);
-      const strength = elapsed < 0.3 ? 2 - 0.7 * ((elapsed % 0.15) / 0.15) : 1.3;
+      // The scan uses zero-tangent Hermite curves for the scale, position and activation.
+      const leaving = !wave.hover && elapsed >= 0.5;
+      const gone = leaving ? THREE.MathUtils.smoothstep(elapsed, 0.5, 0.65) : 0;
+      const scale = THREE.MathUtils.smoothstep(elapsed, 0, 0.05) * (1 - gone);
+      const slide = 5 * (1 - THREE.MathUtils.smoothstep(elapsed, 0, 0.1)) - 30 * gone;
+      const strength = leaving ? 2 * (1 - gone)
+        : elapsed < 0.3 ? 2 - 0.7 * THREE.MathUtils.smoothstep(elapsed % 0.15, 0, 0.15) : 1.3;
       for (const item of wave.models) {
         item.model.visible = true;
         item.model.position.copy(item.at);
-        if (!wave.hover) item.model.position.addScaledVector(wave.direction, 5 * Math.max(0, 1 - elapsed / 0.1) - gone * 30);
-        item.model.scale.setScalar(item.size * Math.min(1, elapsed / 0.05) * (1 - gone));
+        if (!wave.hover) item.model.position.addScaledVector(wave.direction, slide);
+        const modelScale = item.size * scale;
+        item.model.scale.setScalar(modelScale);
+        item.material.uniforms.radius!.value = Math.max(0.000001, item.radius * modelScale);
         item.material.uniforms.time!.value = now / 1000;
-        item.material.uniforms.activation!.value = gone > 0 ? 2 * (1 - gone) : strength;
+        item.material.uniforms.activation!.value = strength;
       }
       return true;
     });

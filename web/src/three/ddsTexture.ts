@@ -319,14 +319,13 @@ function decodeBcVolume(src: Uint8Array, w: number, h: number, depth: number, dx
   return out;
 }
 
-/**
- * A volume DDS (DDSD_DEPTH) as a 3D texture, repeating, its top level only: uncompressed (the storm planets' 64^3
- * noise, 32-bit) or DXT1 / DXT5 (the hull effects' 3D layers, fx3dv5.fx's LayerAllMap), decoded here, a compressed 3D
- * texture being nothing WebGL 2 takes.
- */
+/** A volume DDS as a 3D texture. WebGL needs the DXT1 or DXT5 volume levels decoded before upload. */
 const volumes = new Map<string, Promise<THREE.Data3DTexture>>();
-export function loadDds3D(url: string, wrap: THREE.Wrapping = THREE.RepeatWrapping): Promise<THREE.Data3DTexture> {
-  const key = `${url}|${wrap}`;
+const volumeMipmaps = new WeakMap<THREE.Data3DTexture, THREE.Data3DTexture[]>();
+const uploadedVolumeMipmaps = new WeakMap<THREE.WebGLRenderer, WeakSet<THREE.Data3DTexture>>();
+
+export function loadDds3D(url: string, wrap: THREE.Wrapping = THREE.RepeatWrapping, authoredMipmaps = false): Promise<THREE.Data3DTexture> {
+  const key = `${url}|${wrap}|${authoredMipmaps}`;
   if (!volumes.has(key)) {
     volumes.set(key, fetch(url).then(async (r) => {
       if (!r.ok) throw new Error(`${url}: ${r.status}`);
@@ -334,25 +333,63 @@ export function loadDds3D(url: string, wrap: THREE.Wrapping = THREE.RepeatWrappi
       const dv = new DataView(buf);
       if (dv.getUint32(0, true) !== 0x20534444) throw new Error(`${url}: not a DDS`);
       const height = dv.getUint32(12, true), width = dv.getUint32(16, true), depth = Math.max(1, dv.getUint32(24, true));
-      let data: Uint8Array, format: THREE.PixelFormat;
-      if (dv.getUint32(80, true) & 0x4) {
-        const cc = String.fromCharCode(dv.getUint8(84), dv.getUint8(85), dv.getUint8(86), dv.getUint8(87));
-        if (cc !== "DXT5" && cc !== "DXT1") throw new Error(`${url}: a ${JSON.stringify(cc)} volume is not handled`);
-        data = decodeBcVolume(new Uint8Array(buf, 128), width, height, depth, cc === "DXT5");
-        format = THREE.RGBAFormat;
-      } else {
-        ({ data, format } = unpack(dv, buf, 128, width, height * depth, url));
-      }
-      const tex = new THREE.Data3DTexture(data, width, height, depth);
-      tex.format = format;
+      const cc = dv.getUint32(80, true) & 0x4
+        ? String.fromCharCode(dv.getUint8(84), dv.getUint8(85), dv.getUint8(86), dv.getUint8(87)) : null;
+      if (cc && cc !== "DXT5" && cc !== "DXT1") throw new Error(`${url}: a ${JSON.stringify(cc)} volume is not handled`);
+      const levelBytes = (w: number, h: number, d: number) => cc
+        ? Math.ceil(w / 4) * Math.ceil(h / 4) * d * (cc === "DXT5" ? 16 : 8)
+        : w * h * d * dv.getUint32(88, true) / 8;
+      const level = (offset: number, w: number, h: number, d: number) => {
+        const { data, format } = cc
+          ? { data: decodeBcVolume(new Uint8Array(buf, offset, levelBytes(w, h, d)), w, h, d, cc === "DXT5"), format: THREE.RGBAFormat }
+          : unpack(dv, buf, offset, w, h * d, url);
+        const texture = new THREE.Data3DTexture(data, w, h, d);
+        texture.format = format;
+        return texture;
+      };
+      const tex = level(128, width, height, depth);
       tex.minFilter = tex.magFilter = THREE.LinearFilter;
       tex.wrapS = tex.wrapT = tex.wrapR = wrap;
       tex.unpackAlignment = 1;
+      if (authoredMipmaps) {
+        const mips: THREE.Data3DTexture[] = [];
+        let w = width, h = height, d = depth, offset = 128;
+        const count = dv.getUint32(28, true);
+        for (let i = 1; i < count && Math.max(w, h, d) > 1; i++) {
+          offset += levelBytes(w, h, d);
+          w = Math.max(1, w >> 1); h = Math.max(1, h >> 1); d = Math.max(1, d >> 1);
+          if (offset + levelBytes(w, h, d) > buf.byteLength) break;
+          mips.push(level(offset, w, h, d));
+        }
+        if (mips.length) {
+          tex.generateMipmaps = true;
+          tex.minFilter = THREE.LinearMipmapLinearFilter;
+          volumeMipmaps.set(tex, mips);
+        }
+      }
       tex.needsUpdate = true;
       return tex;
     }));
   }
   return volumes.get(key)!;
+}
+
+/** Three allocates the 3D chain on first upload. Fill its lower levels with the DDS data before drawing. */
+export function uploadDds3DMipmaps(renderer: THREE.WebGLRenderer, texture: THREE.Data3DTexture): void {
+  const mips = volumeMipmaps.get(texture);
+  if (!mips) return;
+  let uploaded = uploadedVolumeMipmaps.get(renderer);
+  if (!uploaded) {
+    uploaded = new WeakSet();
+    uploadedVolumeMipmaps.set(renderer, uploaded);
+    renderer.domElement.addEventListener("webglcontextrestored", () => {
+      uploadedVolumeMipmaps.set(renderer, new WeakSet());
+    });
+  }
+  if (uploaded.has(texture)) return;
+  renderer.initTexture(texture);
+  for (const [index, mip] of mips.entries()) renderer.copyTextureToTexture(mip, texture, null, null, 0, index + 1);
+  uploaded.add(texture);
 }
 
 export function compressedSupport(renderer: THREE.WebGLRenderer) {
