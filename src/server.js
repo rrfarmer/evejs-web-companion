@@ -1301,6 +1301,23 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       return;
     }
   }
+  if (body.service === "moonExtractions" || body.service === "structureControl"
+    || (body.service === "structureSettings" && body.method === "CharacterHasSetting")) {
+    const args = Array.isArray(body.args) ? body.args : [];
+    const valid = {
+      TakeControl: () => args.length === 1 && isPlayerStructureID(args[0]),
+      CharacterHasSetting: () => args.length === 2 && isPlayerStructureID(args[0]) && args[1] === 17,
+      StartNewExtraction: () => args.length === 3 && isPlayerStructureID(args[0]) && Number.isSafeInteger(args[1])
+        && args[1] >= 518460 && args[1] <= 4838400 && typeof args[2] === "boolean",
+    };
+    const noArgs = ["ReleaseControl", "GetMoonResourcesForStructure", "GetExtractionAndEventIDFromStructureID",
+      "FractureChunkWithStructure", "CancelExtraction"];
+    const validArgs = Object.hasOwn(valid, body.method) ? valid[body.method]() : noArgs.includes(body.method) && args.length === 0;
+    if (body.pilot !== true || body.kwargs != null || body.of != null || !validArgs) {
+      res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "The refinery call requires its native arguments and a held pilot." });
+      return;
+    }
+  }
   // An order to the ship was a flight route's, and those are held back while the pilot's lost drones are looked
   // for (heldBackForDroneRecovery, below): every write of the page's own on beyonce was one of them, and the stop,
   // which that gate lets through, is CmdStop. So was every change of place the page makes (the undock, a flight

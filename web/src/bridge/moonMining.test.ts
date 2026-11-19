@@ -1,0 +1,46 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { canManageMoonPull, decodeMoonResources, decodeMoonSchedule, MAX_MOON_PULL_SECONDS,
+  MIN_MOON_PULL_SECONDS, moonPullDuration, moonPullStage } from "./moonMining.ts";
+
+const structure = 1_030_000_000_000;
+const started = 1_795_100_000_000;
+const ready = started + MIN_MOON_PULL_SECONDS * 1000;
+const automatic = ready + 3600 * 1000;
+const filetime = (ms: number) => ({ type: "long", value: (116444736000000000n + BigInt(ms) * 10000n).toString() });
+const extraction = {
+  type: "object", name: "util.KeyVal", args: { type: "dict", entries: [
+    ["structureID", { type: "long", value: String(structure) }],
+    ["extractionID", 7],
+    ["startMoveTime", filetime(started)],
+    ["chunkAvailableTime", filetime(ready)],
+    ["naturalDecayTime", filetime(automatic)],
+  ] },
+};
+
+test("refinery schedule distinguishes idle, pulling, ready and confirmed fracture", () => {
+  const idle = decodeMoonSchedule([null, null], structure, started);
+  assert.deepEqual(idle, { pull: null, calendarEventID: null, nowMs: started });
+  const { pull, calendarEventID } = decodeMoonSchedule([extraction, 23], structure, started);
+  assert.deepEqual(pull, { id: 7, startedAtMs: started, readyAtMs: ready, automaticAtMs: automatic });
+  assert.equal(calendarEventID, 23);
+  assert.equal(moonPullStage(idle.pull, started, false), "idle");
+  assert.equal(moonPullStage(pull, ready - 1, false), "pulling");
+  assert.equal(moonPullStage(pull, ready, false), "ready");
+  assert.equal(moonPullStage(pull, ready, true), "fracturing");
+  assert.throws(() => decodeMoonSchedule([extraction, 23], structure + 1, started), /unreadable moon schedule/);
+  assert.throws(() => decodeMoonSchedule(null, structure, started), /unreadable moon schedule/);
+});
+
+test("refinery composition and scheduling honor the native fraction, duration and role values", () => {
+  assert.deepEqual(decodeMoonResources({ type: "dict", entries: [
+    [45490, { type: "real", value: 0.0246 }], [45493, 0.9754], [45491, -1],
+  ] }), [{ typeID: 45493, fraction: 0.9754 }, { typeID: 45490, fraction: 0.0246 }]);
+  assert.equal(moonPullDuration(ready - 1000, started), null);
+  assert.equal(moonPullDuration(ready, started), MIN_MOON_PULL_SECONDS);
+  assert.equal(moonPullDuration(started + MAX_MOON_PULL_SECONDS * 1000, started), MAX_MOON_PULL_SECONDS);
+  assert.equal(moonPullDuration(started + MAX_MOON_PULL_SECONDS * 1000 + 1, started), null);
+  assert.equal(canManageMoonPull(98000003, 98000003, "9223372036854775807"), true);
+  assert.equal(canManageMoonPull(98000003, 98000004, "2048"), false);
+  assert.equal(canManageMoonPull(98000003, 98000003, "1024"), false);
+});

@@ -18,6 +18,8 @@
   import Scanner from "./Scanner.svelte";
   import MiningScanResults from "./MiningScanResults.svelte";
   import MiningLedger from "./MiningLedger.svelte";
+  import MoonMining from "./MoonMining.svelte";
+  import type { MoonRefinery } from "../bridge/moonMining.ts";
   import Mail from "./Mail.svelte";
   import Contacts from "./Contacts.svelte";
   import Watchlist from "./Watchlist.svelte";
@@ -75,6 +77,7 @@
     onGoToPilot,
     onShowConvoys,
     onShowSystem,
+    moonRefinery,
   }: {
     store: ClientStore;
     flow: AppFlow;
@@ -102,6 +105,7 @@
     onGoToPilot?: (sessionID: string) => void;
     onShowConvoys?: () => void;
     onShowSystem?: (systemID: number) => void;
+    moonRefinery?: MoonRefinery | null;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -174,6 +178,13 @@
 {:else if tab === "miningLedger"}
   <MiningLedger {store} {flow} {onShowSystem} openMail={onOpen ? () => onOpen?.("mail") : undefined}
     openWatchlist={onOpen ? () => onOpen?.("watchlist") : undefined} />
+{:else if tab === "moonMining"}
+  {#if moonRefinery && $flight.status?.docked && $flight.status.shipID === moonRefinery.id
+    && $flight.status.structureID === moonRefinery.id}
+    {#key moonRefinery.id}
+      <MoonMining {store} {flow} refinery={moonRefinery} />
+    {/key}
+  {/if}
 {:else if tab === "mail"}
   <!-- A skill plan link in a mail, followed (link.py handle_link): the Skills window opens on it. -->
   <Mail {store} {flow} {openInventoryFilterLink} openSkillPlanLink={(url) => { flow.openSkillPlanLink(url); onOpen?.("skills"); }} />

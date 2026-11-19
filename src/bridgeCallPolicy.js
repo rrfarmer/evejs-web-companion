@@ -105,6 +105,8 @@ const ORGANIZATION_ENLISTMENT_METHODS = Object.freeze([
   "WithdrawJoinFactionAsCorporation", "WithdrawJoinFactionAsAlliance", "WithdrawLeaveFactionAsCorporation", "WithdrawLeaveFactionAsAlliance",
 ]);
 const FEATURE_WRITE_METHODS = freezeMethodMap({
+  structureControl: ["TakeControl", "ReleaseControl"],
+  moonExtractions: ["StartNewExtraction", "FractureChunkWithStructure", "CancelExtraction"],
   wormholeMgr: ["WormholeJump"],
   academy_ship: ["borrow_academy_ship"],
   // Only the camera event route builds the full tracker dictionaries from the held pilot's state.
@@ -922,6 +924,8 @@ function isBridgeWritePair(service, method) {
  *   charMgr.RemoveOwnerNote   RemoveOwnerNote(noteID): that note gone (a folder's notes deleted, a setting's spare part).
  */
 const PAGE_WRITE_PAIR_KEYS = Object.freeze([
+  "structureControl.TakeControl", "structureControl.ReleaseControl",
+  "moonExtractions.StartNewExtraction", "moonExtractions.FractureChunkWithStructure", "moonExtractions.CancelExtraction",
   "academy_ship.borrow_academy_ship",
   "wormholeMgr.WormholeJump",
   "hackingMgr.ClickedOnTile", "hackingMgr.UsedUtilityElement", "hackingMgr.UsedUtilityElementOnVirus", "hackingMgr.QuitHackingAttempt",
@@ -969,7 +973,9 @@ function isPageWritePair(service, method) {
  *                              session.shipid or session.stationid), docked or in space: the pilot in the ship it
  *                              names from then on, which the swap is held to (swapTargetOf), as its route held it.
  */
-const PAGE_SHIP_SWAP_CALLS = Object.freeze(new Set(["ship.LeaveShip", "dogmaIM.CreateNewbieShip", "ship.Board"]));
+const PAGE_SHIP_SWAP_CALLS = Object.freeze(new Set([
+  "ship.LeaveShip", "dogmaIM.CreateNewbieShip", "ship.Board", "structureControl.TakeControl", "structureControl.ReleaseControl",
+]));
 for (const pair of PAGE_SHIP_SWAP_CALLS) {
   if (!pageWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's swaps of the pilot's ship and is none of its writes.`);
 }
@@ -980,11 +986,11 @@ function swapsThePilotsShip(service, method) {
 }
 
 /**
- * The ship a swap of the page's puts the pilot in, where the call names it: ship.Board's first argument. Null for
- * the others, which name none (the swap then waits for the pilot's ship to be another).
+ * The session actor named by Board or TakeControl. The other swaps wait for the actor to change.
  */
 function swapTargetOf(service, method, args) {
-  if (service !== "ship" || method !== "Board" || !Array.isArray(args)) return null;
+  if (!Array.isArray(args) || !((service === "ship" && method === "Board")
+    || (service === "structureControl" && method === "TakeControl"))) return null;
   const shipID = Number(args[0]);
   return Number.isSafeInteger(shipID) && shipID > 0 ? shipID : null;
 }

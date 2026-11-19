@@ -40,6 +40,7 @@
   setContext("fittingShipScene", (host: HTMLElement) => new FittingShipScene(host));
   import DesktopWindow from "./DesktopWindow.svelte";
   import PanelHost from "./PanelHost.svelte";
+  import type { MoonRefinery } from "../bridge/moonMining.ts";
   import PlayInfoPanels from "./PlayInfoPanels.svelte";
   import FlyDronesWindow from "./FlyDronesWindow.svelte";
   import BuffBar from "./BuffBar.svelte";
@@ -173,6 +174,48 @@
     }
   });
   const docked = $derived(stage === "game" && session ? deriveDocked($flight?.status ?? null, $station?.online ?? null) : true);
+  const dockedStructureID = $derived(docked ? ($flight?.status ? $flight.status.structureID : $station?.online?.structureID) ?? null : null);
+  const controllingStructure = $derived(dockedStructureID !== null && $flight?.status?.shipID === dockedStructureID);
+  const refineryCorporationID = $derived($station?.online?.corporationID ?? null);
+  const refineryCorpRole = $derived($station?.online?.corpRole ?? null);
+  let moonRefinery = $state.raw<MoonRefinery | null>(null);
+  let refineryPending = $state(false);
+  let refineryError = $state("");
+  $effect(() => {
+    const pilot = session;
+    const structureID = dockedStructureID;
+    // Defense permissions may change with the corporation or pilot's roles.
+    void refineryCorporationID;
+    void refineryCorpRole;
+    moonRefinery = null;
+    refineryError = "";
+    if (!pilot || structureID === null) return;
+    let current = true;
+    void pilot.flow.loadMoonRefinery(structureID).then(refinery => {
+      if (current) moonRefinery = refinery;
+    }).catch(reason => {
+      if (current) refineryError = (reason as Error).message;
+    });
+    return () => { current = false; };
+  });
+  $effect(() => {
+    if (!controllingStructure && wins.some(win => win.id === "moonMining")) wins = closeWindow(wins, "moonMining");
+  });
+
+  async function changeRefineryControl(take: boolean): Promise<void> {
+    const pilot = session;
+    const structureID = dockedStructureID;
+    if (!pilot || structureID === null || refineryPending) return;
+    refineryPending = true;
+    refineryError = "";
+    try {
+      await pilot.flow.changeRefineryControl(structureID, take);
+    } catch (reason) {
+      if (session === pilot && dockedStructureID === structureID) refineryError = (reason as Error).message;
+    } finally {
+      refineryPending = false;
+    }
+  }
   const academyStationID = $derived(sessionPlace($flight?.status ?? null, $station?.online ?? null).stationID);
   const academySystemID = $derived(sessionPlace($flight?.status ?? null, $station?.online ?? null).solarSystemID);
   const academyChanged = $derived(session?.flow.academyChanged);
@@ -472,7 +515,7 @@
     characterSheet: { w: 1235, h: 768 }, assets: { w: 550, h: 450 }, locations: { w: 450, h: 450 }, contacts: { w: 600, h: 500 },
     mail: { w: 800, h: 600 }, finder: { w: 1188, h: 694 }, wallet: { w: 900, h: 600 }, planets: { w: 500, h: 500 }, log: { w: 400, h: 200 },
     notepad: { w: 400, h: 300 }, calendar: { w: 580, h: 400 }, jobBoard: { w: 720, h: 960 }, paintTool: { w: 1030, h: 650 }, locationSearch: { w: 420, h: 480 }, achievements: { w: 1040, h: 825 },
-    fleetComposition: { w: 680, h: 420 }, miningScan: { w: 520, h: 400 }, miningLedger: { w: 850, h: 650 },
+    fleetComposition: { w: 680, h: 420 }, miningScan: { w: 520, h: 400 }, miningLedger: { w: 850, h: 650 }, moonMining: { w: 480, h: 455 },
     memberDetails: { w: 420, h: 480 },
     theatersOfWar: { w: 1600, h: 880 },
     academyShips: { w: 1280, h: 688 },
@@ -540,6 +583,7 @@
     return { x: 16, y: Math.max(0, H - h - 16), w: Math.min(w, W), h };
   }
   function open(tab: TabID) {
+    if (tab === "moonMining" && (!moonRefinery || !controllingStructure)) return;
     if (tab === "watchlist" && !session?.store.fleet.get().authoritativeFleetID) return;
     if (tab === "miningScan" && !canOpenMiningScan()) {
       const s = session;
@@ -1323,7 +1367,7 @@
   let undockedAt = -Infinity;
   let undockPending = $state(false);
   async function undock() {
-    if (!session || undockPending) return;
+    if (!session || undockPending || controllingStructure || refineryPending) return;
     const pilot = session;
     undockPending = true;
     error = "";
@@ -1380,9 +1424,20 @@
       <div class="pw fly-lobby">
         <div class="pw-head"><img class="pw-icon" alt="" src={clientTexture("res:/UI/Texture/WindowIcons/docking.png")} /><span class="pw-caption">Station Services</span></div>
         <div class="pw-body lobby-body">
-          <div class="station-name">{$station?.station?.stationName ?? "Station"}</div>
+          <div class="station-name">{moonRefinery?.name ?? $station?.station?.stationName ?? "Station"}</div>
           <div class="station-sub">{$station?.station?.solarSystemName ?? ""}{#if typeof $station?.station?.security === "number"}<span class="lobby-sec"> {$station.station.security.toFixed(1)}</span>{/if}</div>
-          <button class="undock" disabled={undockPending} onclick={undock}>Undock</button>
+          {#if controllingStructure}
+            <div class="refinery-controls">
+              {#if moonRefinery}<button class="academy-service" disabled={refineryPending} onclick={() => open("moonMining")}>Moon Mining</button>{/if}
+              <button class="academy-service" disabled={refineryPending} onclick={() => changeRefineryControl(false)}>Release Control</button>
+            </div>
+          {:else}
+            <button class="undock" disabled={undockPending || refineryPending} onclick={undock}>Undock</button>
+            {#if moonRefinery?.canControl}
+              <button class="academy-service" disabled={refineryPending || undockPending} onclick={() => changeRefineryControl(true)}>Take Control</button>
+            {/if}
+          {/if}
+          {#if refineryError}<div class="error lobby-error" role="alert">{refineryError}</div>{/if}
           {#if academyAccess !== "hidden"}
             <button class="academy-service" disabled={academyAccess === "locked"}
               onclick={() => wins.some(win => win.id === "academyShips") ? wins = closeWindow(wins, "academyShips") : open("academyShips")}>
@@ -1444,7 +1499,7 @@
             <FlyDronesWindow store={session.store} flow={session.flow} />
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
-              onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} />
+              onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} />
           {/if}
         </DesktopWindow>
       </ErrorBoundary>
@@ -2279,6 +2334,7 @@
     z-index: -1; background: var(--theme-focus, #58a7bf); mask-image: var(--cluster-stroke);
   }
   .fly-lobby { left: auto; right: 16px; top: 16px; width: 280px; min-height: 260px; z-index: 5; }
+  .refinery-controls { display: flex; gap: 8px; flex-wrap: wrap; }
   .lobby-body { padding: 10px 12px 14px; }
   .lobby-body .station-name { position: static; font-size: 18px; color: #f0f1ee; line-height: 1.25; }
   .lobby-body .station-sub { position: static; margin-top: 2px; color: var(--text-dim); font-size: 12px; }

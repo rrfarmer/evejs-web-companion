@@ -458,7 +458,9 @@ import { BridgeCallError } from "../bridge/callMethod.ts";
 import { argumentsOf, createBotPresses, decodeQuestion, dialogOfKey, keptQuestionAnswer, questionKeeping, iskWords } from "../bridge/questions.ts";
 import { classifyDistributionAgentConversation, selectDistributionAgent } from "../nav/distributionAgentSelection.ts";
 import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
-import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
+import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapBool, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
+import { canManageMoonPull, decodeMoonResources, decodeMoonSchedule, MOON_FRACTURE_MS, moonMiningID, moonPullDuration,
+  type MoonRefinery, type MoonResource, type MoonSchedule } from "../bridge/moonMining.ts";
 import { decodeCargoScan, decodeShipScan, groupShipScanHardware, type CargoScanResult, type ShipScanGroup, type ShipScanResult } from "../bridge/scannerResults.ts";
 import { basicMiningScan, INTEGRATED_MINING_SCANNER, miningScanInWarp, miningSurveyDepletion, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
 import {
@@ -4186,6 +4188,14 @@ export interface AppFlow {
   clearSurveyScan(): void;
   miningScanFacts(typeIDs: readonly number[]): Promise<ReadonlyMap<number, MiningScanTypeFacts>>;
   loadMiningLedger(): Promise<{ rows: readonly MiningLedgerEntry[]; facts: ReadonlyMap<number, MiningLedgerFacts>; nowMs: number }>;
+  readonly moonExtractionChanged: ReadableSignal<number>;
+  readonly moonFracturing: ReadableSignal<{ structureID: number; extractionID: number; endsAtMs: number } | null>;
+  loadMoonRefinery(structureID: number): Promise<MoonRefinery | null>;
+  changeRefineryControl(structureID: number, take: boolean): Promise<void>;
+  loadMoonResources(structureID: number): Promise<readonly MoonResource[]>;
+  loadMoonSchedule(structureID: number): Promise<MoonSchedule>;
+  startMoonPull(refinery: MoonRefinery, readyAtMs: number, addToCalendar: boolean): Promise<void>;
+  controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
   loadCorporationMiningObservers(): Promise<readonly MiningLedgerObserver[]>;
   loadCorporationMiningLedger(observerID: number): Promise<{ rows: readonly CorporationMiningLedgerEntry[]; facts: ReadonlyMap<number, MiningLedgerFacts>; nowMs: number }>;
   /** R23 — ask the station refinery what these stacks yield, and its ISK tax. */
@@ -5684,6 +5694,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   /** The pilot's own character, as the page has it. Null with none chosen. */
   const onlineCharacterID = (): number | null => store.station.get().online?.characterID ?? null;
   const academyChangedSignal = createSignal(0);
+  const moonExtractionChanged = createSignal(0);
+  const moonFracturing = createSignal<{ structureID: number; extractionID: number; endsAtMs: number } | null>(null);
   const epicArcsChanged = createSignal(0);
   const agencySeasonProgressChanged = createSignal(0);
   const agencySeasonCompletedReward = createSignal<AgencySeasonReward | null>(null);
@@ -7131,6 +7143,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     receivedAtMs: number,
     insideMultiEvent = false,
   ): void {
+    if (method === "OnMoonExtractionUpdate") moonExtractionChanged.update(revision => revision + 1);
     if (method === "OnCargoScanComplete" || method === "OnShipScanCompleted") {
       const shipScan = method === "OnShipScanCompleted" ? decodeShipScan(args) : null;
       const scan = method === "OnCargoScanComplete" ? decodeCargoScan(args) : shipScan;
@@ -26113,6 +26126,91 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return facts;
   }
 
+  function dockedRefineryID(): number | null {
+    const flight = store.flight.get().status;
+    return flight ? (flight.docked ? flight.structureID : null) : store.station.get().online?.structureID ?? null;
+  }
+
+  function assertRefineryControl(structureID: number): void {
+    if (dockedRefineryID() !== structureID || store.flight.get().status?.shipID !== structureID) {
+      throw new Error("Take control of this refinery to operate its moon drill.");
+    }
+  }
+
+  async function loadMoonRefinery(structureID: number): Promise<MoonRefinery | null> {
+    if (dockedRefineryID() !== structureID) return null;
+    const info = await bridgeAsk("structureDirectory", "GetStructureInfo", [structureID]);
+    const typeID = moonMiningID(readKeyVal(info, "typeID"));
+    if ((typeID !== 35835 && typeID !== 35836) || dockedRefineryID() !== structureID) return null;
+    const name = readKeyVal(info, "itemName");
+    const canControl = unwrapBool(await bridgeAsk("structureSettings", "CharacterHasSetting", [structureID, 17])) === true;
+    if (dockedRefineryID() !== structureID) return null;
+    return {
+      id: structureID,
+      name: typeof name === "string" && name.length > 0 ? name : typeID === 35835 ? "Athanor" : "Tatara",
+      ownerID: moonMiningID(readKeyVal(info, "ownerID")),
+      fuelExpiresAtMs: filetimeToUnixMs(unwrapLong(readKeyVal(info, "fuelExpires"))),
+      canControl,
+    };
+  }
+
+  async function changeRefineryControl(structureID: number, take: boolean): Promise<void> {
+    if (dockedRefineryID() !== structureID) throw new Error("You are no longer docked at this refinery.");
+    await bridgeDo("structureControl", take ? "TakeControl" : "ReleaseControl", take ? [structureID] : []);
+    await loadFlightStatus();
+    if (take) assertRefineryControl(structureID);
+  }
+
+  async function loadMoonResources(structureID: number): Promise<readonly MoonResource[]> {
+    assertRefineryControl(structureID);
+    const resources = decodeMoonResources(await bridgeAsk("moonExtractions", "GetMoonResourcesForStructure", []));
+    assertRefineryControl(structureID);
+    requestNames(resources.map(({ typeID }) => ({ kind: "type", id: typeID })));
+    return resources;
+  }
+
+  async function loadMoonSchedule(structureID: number): Promise<MoonSchedule> {
+    assertRefineryControl(structureID);
+    const result = await bridgeAsk("moonExtractions", "GetExtractionAndEventIDFromStructureID", []);
+    assertRefineryControl(structureID);
+    const schedule = decodeMoonSchedule(result, structureID, serverNow());
+    const fracture = moonFracturing.get();
+    if (fracture?.structureID === structureID && fracture.extractionID !== schedule.pull?.id) moonFracturing.set(null);
+    return schedule;
+  }
+
+  async function startMoonPull(refinery: MoonRefinery, readyAtMs: number, addToCalendar: boolean): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    assertRefineryControl(refinery.id);
+    if (refinery.fuelExpiresAtMs !== null && readyAtMs > refinery.fuelExpiresAtMs
+      && !await askDialog("NotEnoughFuelForExtractionDuration", null, "The selected ready time is after the refinery's fuel expires. Start the extraction?")) return;
+    current();
+    assertRefineryControl(refinery.id);
+    const online = store.station.get().online;
+    if (!canManageMoonPull(refinery.ownerID, online?.corporationID ?? null, online?.corpRole ?? null)
+      && !await askDialog("ConfirmStartMoonminingEventWithoutRolesToStop", null, "Only a Station Manager for the owning corporation can stop this drill. Start the extraction?")) return;
+    current();
+    assertRefineryControl(refinery.id);
+    const duration = moonPullDuration(readyAtMs, serverNow());
+    if (duration === null) throw new Error("Choose a ready time within the allowed range.");
+    await bridgeDo("moonExtractions", "StartNewExtraction", [refinery.id, duration, addToCalendar]);
+    moonExtractionChanged.update(revision => revision + 1);
+  }
+
+  async function controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    assertRefineryControl(structureID);
+    if (action === "cancel" && !await askDialog("CancelExtraction", null, "Stop the drill and cancel the current moon extraction?")) return;
+    current();
+    const { pull, nowMs } = await loadMoonSchedule(structureID);
+    if (pull?.id !== extractionID || (action === "cancel" ? pull.readyAtMs <= nowMs : pull.readyAtMs > nowMs)) {
+      throw new Error("The moon pull has changed. Check its current status.");
+    }
+    await bridgeDo("moonExtractions", action === "fracture" ? "FractureChunkWithStructure" : "CancelExtraction", []);
+    if (action === "fracture") moonFracturing.set({ structureID, extractionID, endsAtMs: serverNow() + MOON_FRACTURE_MS });
+    moonExtractionChanged.update(revision => revision + 1);
+  }
+
   async function loadMiningLedger() {
     const current = callOptions.captureRequestGuard!();
     const rows = decodeMiningLedger(await bridgeAsk("characterMiningLedger", "GetCharacterLogs", []));
@@ -36573,6 +36671,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     clearSurveyScan,
     miningScanFacts,
     loadMiningLedger,
+    moonExtractionChanged: readonlySignal(moonExtractionChanged),
+    moonFracturing: readonlySignal(moonFracturing),
+    loadMoonRefinery,
+    changeRefineryControl,
+    loadMoonResources,
+    loadMoonSchedule,
+    startMoonPull,
+    controlMoonPull,
     loadCorporationMiningObservers,
     loadCorporationMiningLedger,
     loadReprocessingQuote,

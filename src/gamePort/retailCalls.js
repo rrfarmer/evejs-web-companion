@@ -667,6 +667,10 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
  * (importExportUI.py 549), and the gateway never had it.
  */
 const GAME_PORT_ONLY_CALLS = Object.freeze([
+  "structureControl.TakeControl", "structureControl.ReleaseControl",
+  "structureSettings.CharacterHasSetting",
+  "moonExtractions.GetMoonResourcesForStructure", "moonExtractions.GetExtractionAndEventIDFromStructureID",
+  "moonExtractions.StartNewExtraction", "moonExtractions.FractureChunkWithStructure", "moonExtractions.CancelExtraction",
   "characterMiningLedger.GetCharacterLogs",
   "corpMiningLedger.GetObserversWithMiningEvents",
   "corpMiningLedger.GetObserverLedger",
@@ -3236,6 +3240,14 @@ const RETAIL_CALLS = Object.freeze({
   "characterMiningLedger.GetCharacterLogs": judged("eve/client/script/ui/shared/ledger/ledgerSvc.py:29", sentWithNothing, "The personal Mining Ledger reads the logs for the session's character without arguments."),
   "corpMiningLedger.GetObserversWithMiningEvents": judged("eve/client/script/ui/shared/ledger/ledgerSvc.py:32", sentWithNothing, "The corporation Mining Ledger lists observers with events for the session's corporation."),
   "corpMiningLedger.GetObserverLedger": judged("eve/client/script/ui/shared/ledger/ledgerSvc.py:44", oneIDAlone("the selected mining observer"), "The corporation Mining Ledger reads the selected structure's extraction records."),
+  "structureControl.TakeControl": judged("eve/client/script/ui/services/structure/structureControl.py:33", oneIDAlone("the docked structure"), "Take control of the structure in the pilot's session."),
+  "structureControl.ReleaseControl": judged("eve/client/script/ui/services/structure/structureControl.py:59", sentWithNothing, "Release the structure in the pilot's session."),
+  "structureSettings.CharacterHasSetting": same("eve/client/script/ui/services/structure/structureControl.py:91", "Check the pilot's defense permission for the docked structure."),
+  "moonExtractions.GetMoonResourcesForStructure": judged("eve/client/script/ui/moonmining/schedulingSvc.py:27", sentWithNothing, "Read the controlled refinery's moon composition."),
+  "moonExtractions.GetExtractionAndEventIDFromStructureID": judged("eve/client/script/ui/moonmining/schedulingSvc.py:36", sentWithNothing, "Read the refinery's current pull and calendar event."),
+  "moonExtractions.StartNewExtraction": same("eve/client/script/ui/moonmining/schedulingSvc.py:55", "Start a pull with the structure ID, duration in seconds and calendar preference."),
+  "moonExtractions.FractureChunkWithStructure": judged("eve/client/script/ui/moonmining/schedulingSvc.py:63", sentWithNothing, "Fire the controlled refinery's laser."),
+  "moonExtractions.CancelExtraction": judged("eve/client/script/ui/moonmining/schedulingSvc.py:74", sentWithNothing, "Cancel the controlled refinery's pull after confirmation."),
   "ship.Jettison": judged(`${INV_ITEM_FUNCTIONS}:63`, jettisoning, "GetShipAccess().Jettison(itemIDs), the items as one list, from an item's menu (and a node graph's action, with no confirmation). Recorded twice, each on the bind of the ship's Moniker for the solar system, with one list of one ID and no keywords, and answered two lists: what went to a can, and what was launched for itself."),
   "ship.LeaveShip": judged(`${STATION_SVC}:248`, leavingTheShip, "station.TryLeaveShip: gameui.GetShipAccess().LeaveShip(shipid), for the ship the pilot is in and no other, docked; from the item's menu and before a clone jump. In a structure, structureDocking.LeaveShip makes the same call and then makes the capsule it answers active. In space the menu ejects. In no recording."),
   "dogmaIM.CreateNewbieShip": judged(`${STATION_SVC}:613`, boardingACorvette, "station.CreateNewbieShip: sm.RemoteSvc('dogmaIM').CreateNewbieShip(shipID, locationID), by the service's name, for the ship the pilot is in and where it is docked (session.stationid or session.structureid). The client asks the pilot first unless it is in a capsule, and refuses by itself aboard a corvette. From the lobby's corvette button and no other place. In no recording."),
