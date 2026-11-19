@@ -159,6 +159,8 @@ export class GpuParticleSystem {
         vec4 decode(vec4 c) { return vec4(mix(c.rgb / 12.92, pow((c.rgb + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c.rgb)), c.a); }
         void main() { gl_FragColor = decode( texture2D( atlas, vUv ) ) * vColor; }`,
       transparent: true, depthWrite: false, depthTest: true,
+      // Velocity-stretched and rotated cards have opposite winding.
+      side: THREE.DoubleSide, forceSinglePass: true,
       blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation,
       blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
     });
