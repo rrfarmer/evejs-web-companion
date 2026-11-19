@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { LowAmbientOcclusion } from "./ambientOcclusion.ts";
+import { AmbientOcclusion } from "./ambientOcclusion.ts";
 import { OpaqueShadowMask } from "./opaqueShadowMask.ts";
 import { SOFT_DEPTH, SOFT_VIEW_DEPTH_GLSL } from "./softDepth.ts";
 
@@ -209,8 +209,8 @@ export class SpaceShadowAtlas {
   private readonly opaqueOcclusionReady = { value: false };
   private mask: OpaqueShadowMask | null = null;
   private hasOpaque = false;
-  private occlusion: LowAmbientOcclusion | null = null;
-  private hasOcclusionReceivers = false;
+  private occlusion: AmbientOcclusion | null = null;
+  private occlusionQuality: 0 | 1 | 2 = 0;
   private readonly shadow = new CascadeShadow();
   private readonly sun = new THREE.DirectionalLight();
   private readonly pass = new THREE.Scene();
@@ -233,7 +233,7 @@ export class SpaceShadowAtlas {
     return this.hasOpaque && this.uniforms.shadowAtlas.value !== null;
   }
 
-  get needsOpaqueNormals(): boolean { return this.hasOcclusionReceivers; }
+  get needsOpaqueNormals(): boolean { return this.occlusionQuality !== 0; }
 
   resolveOpaque(camera: THREE.Camera, width: number, height: number, normals: THREE.Texture | null = null): void {
     if (!SOFT_DEPTH.softDepthOn.value) return;
@@ -242,9 +242,9 @@ export class SpaceShadowAtlas {
       this.opaqueShadowMask.value = this.mask.render(this.renderer, camera, width, height);
       this.opaqueShadowReady.value = true;
     }
-    if (normals && this.hasOcclusionReceivers) {
-      this.occlusion ??= new LowAmbientOcclusion();
-      this.opaqueShadowMask.value = this.occlusion.render(this.renderer, camera, width, height, normals, this.opaqueShadowMask.value);
+    if (normals && this.occlusionQuality !== 0) {
+      this.occlusion ??= new AmbientOcclusion();
+      this.opaqueShadowMask.value = this.occlusion.render(this.renderer, camera, width, height, normals, this.opaqueShadowMask.value, this.occlusionQuality);
       this.opaqueOcclusionReady.value = true;
     }
   }
@@ -279,10 +279,10 @@ export class SpaceShadowAtlas {
   render(
     scene: THREE.Scene, view: THREE.PerspectiveCamera, sunDirection: THREE.Vector3, enabled: boolean,
     clouds: readonly THREE.Mesh[], planets: readonly ShadowPlanet[], sunPosition: THREE.Vector3 | null,
-    ambientOcclusion = false,
+    ambientOcclusion: 0 | 1 | 2 = 0,
   ): void {
     this.hasOpaque = false;
-    this.hasOcclusionReceivers = false;
+    this.occlusionQuality = 0;
     this.opaqueShadowMask.value = null;
     this.opaqueShadowReady.value = false;
     this.opaqueOcclusionReady.value = false;
@@ -310,7 +310,7 @@ export class SpaceShadowAtlas {
         }
       }
       if (!receives) return;
-      this.hasOcclusionReceivers = ambientOcclusion;
+      this.occlusionQuality = ambientOcclusion;
       if (!enabled) return;
       const bounds = object instanceof THREE.InstancedMesh || object instanceof THREE.SkinnedMesh ? object : object.geometry;
       if (!bounds.boundingSphere) bounds.computeBoundingSphere();

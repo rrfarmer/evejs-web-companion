@@ -2592,8 +2592,8 @@ export class SpaceView {
     this.updateReflections(eye, settings.reflectionQuality, reflectionSources);
     this.sunLight.position.copy(this.sunDir);
     setSmartLightSimulationTime(this.camera, this.live.effectSimNow());
-    const lowAmbientOcclusion = settings.shaderQuality !== 1 && settings.aoQuality === 1;
-    this.spaceShadows.render(this.scene, this.camera, this.sunDir, rendering.shadows, shadowClouds, shadowPlanets, sun?.position ?? null, lowAmbientOcclusion);
+    const ambientOcclusion = settings.shaderQuality === 1 || settings.aoQuality === 3 ? 0 : settings.aoQuality;
+    this.spaceShadows.render(this.scene, this.camera, this.sunDir, rendering.shadows, shadowClouds, shadowPlanets, sun?.position ?? null, ambientOcclusion);
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, {
       exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering(),
       depthEffects: () => gfx().shaderQuality === 3, shadows: this.spaceShadows,
