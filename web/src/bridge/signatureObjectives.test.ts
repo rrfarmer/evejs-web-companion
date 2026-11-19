@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { decodeObjectiveChain, ObjectiveChain } from "./abyssObjectives.ts";
-import { canEnterDungeonInShip, decodeShipRestrictions, dungeonEntered, dungeonEntryObjectives, dungeonObjectiveContext, dungeonValuesChanged, enterDungeonRoom, readCurrentDungeon } from "./dungeonTracking.ts";
+import { canEnterDungeonInShip, decodeShipRestrictions, dungeonEntered, dungeonEntryObjectives, dungeonObjectiveContext, dungeonValuesChanged, enterDungeonRoom, readCurrentDungeon, winterNexusDeposited, winterNexusEntryObjectives } from "./dungeonTracking.ts";
 import type { SpaceEntity } from "../store/types.ts";
 
 test("the authored container objective follows slim state and the hacking pilot", () => {
@@ -107,6 +107,30 @@ test("a tracked signature uses its keeper and room-entry lists for graph objecti
   const missing = dungeonEntered([3735, 21535, null, 106, {}]);
   assert.ok(missing);
   assert.deepEqual(dungeonEntryObjectives(missing, rules), []);
+});
+
+test("Winter Nexus uses the landed grid, ship cargo and native deposit state for its objectives", () => {
+  const rules = {
+    hackObjectiveKey: "hack_container", depositObjectiveKey: "deposit_mutator_hisec", cargoTypeID: 91019, restartHackMs: 2000,
+  };
+  const entered = dungeonEntered([9029, 27582, null, 424, {}]);
+  assert.ok(entered);
+  const hack = [rules.hackObjectiveKey];
+  const both = [...hack, rules.depositObjectiveKey];
+  assert.deepEqual(winterNexusEntryObjectives(entered, rules, "warping", true, false, []), []);
+  assert.deepEqual(winterNexusEntryObjectives(entered, rules, "landed", false, false, []), hack);
+  assert.deepEqual(winterNexusEntryObjectives(entered, rules, "landed", true, false, hack), both);
+  assert.deepEqual(winterNexusEntryObjectives(entered, rules, "warping", true, false, both), hack);
+  assert.deepEqual(winterNexusEntryObjectives(entered, rules, "waiting", false, false, both), both);
+
+  const deposited = dungeonValuesChanged(entered, [9029, { mutator_deposited: "1" }]);
+  assert.ok(deposited);
+  assert.equal(winterNexusDeposited(deposited), true);
+  assert.deepEqual(winterNexusEntryObjectives(deposited, rules, "landed", false, true, both), [rules.depositObjectiveKey]);
+  assert.deepEqual(winterNexusEntryObjectives(deposited, rules, "landed", false, false, []), both);
+  const failed = dungeonValuesChanged(deposited, [9029, { dungeon_state: "Failure" }]);
+  assert.ok(failed);
+  assert.deepEqual(winterNexusEntryObjectives(failed, rules, "landed", false, false, both), [rules.depositObjectiveKey]);
 });
 
 test("the ghost-site chain shows the revealed native timer on the pilot's simulation clock", () => {

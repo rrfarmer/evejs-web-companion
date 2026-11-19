@@ -5935,6 +5935,7 @@ export interface PublicGatewayAnswer {
 export interface DungeonData {
   readonly objectiveChainID: number | null;
   readonly objectiveEntryRules?: readonly import("../bridge/dungeonTracking.ts").DungeonEntryRule[];
+  readonly winterNexusObjectives?: import("../bridge/dungeonTracking.ts").WinterNexusObjectives;
   readonly nameID: number | null; readonly descriptionID: number | null; readonly gameplayDescriptionID: number | null;
   readonly archetypeID: number | null; readonly archetypeTitleID: number | null; readonly archetypeDescriptionID: number | null;
   readonly factionID: number | null; readonly difficulty: number | null; readonly entryTypeID: number | null;

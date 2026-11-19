@@ -3,7 +3,8 @@
   import type { AppFlow, ObjectiveDungeonJob } from "../app/flow.ts";
   import { standingWithSkillBonus } from "../bridge/agencyAgents.ts";
   import { ObjectiveChain, type AbyssObjectiveRow } from "../bridge/abyssObjectives.ts";
-  import { dungeonEntryObjectives, dungeonObjectiveContext, SHIP_RESTRICTIONS_LABELS } from "../bridge/dungeonTracking.ts";
+  import { dungeonEntryObjectives, dungeonObjectiveContext, SHIP_RESTRICTIONS_LABELS, winterNexusDeposited, winterNexusEntryObjectives } from "../bridge/dungeonTracking.ts";
+  import { isSceneBlind } from "../bridge/space.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { holdToOpen } from "../play/radialMenu.ts";
   import type { SpaceView } from "../play/spaceView.ts";
@@ -15,7 +16,7 @@
 
   let { store, flow, job }: { store: ClientStore; flow: AppFlow; job: ObjectiveDungeonJob } = $props();
   // svelte-ignore state_referenced_locally
-  const { flight, space, station, names, words, skills, standings } = store;
+  const { flight, space, station, names, words, skills, standings, inventory } = store;
   // svelte-ignore state_referenced_locally
   const corporationFactions = flow.corporationFactions;
   // svelte-ignore state_referenced_locally
@@ -28,8 +29,18 @@
   let chain = $state.raw<ObjectiveChain | null>(null);
   let rows = $state.raw<readonly AbyssObjectiveRow[]>([]);
   const chainID = $derived(job.data?.objectiveChainID ?? null);
+  const jobKind = $derived(job.kind);
   const pilotID = $derived($station.online?.characterID ?? null);
   const instanceID = $derived($activeDungeon?.instanceID ?? null);
+  const winterRules = $derived(job.data?.winterNexusObjectives);
+  const winterRestartMs = $derived(winterRules?.restartHackMs ?? 0);
+  const winterGrid = $derived.by(() => {
+    const snapshot = $space.snapshot;
+    if (!snapshot || snapshot.solarSystemID !== job.solarSystemID || isSceneBlind(true, snapshot)) return "waiting";
+    return snapshot.ship?.warp ? "warping" : "landed";
+  });
+  const winterDeposit = $derived(winterNexusDeposited($activeDungeon));
+  let delayingWinterHack = $state(false);
   const targets = $derived(new Map(($space.snapshot?.entities ?? []).map((entity) => [entity.itemID, entity])));
   let menu: HTMLDivElement;
   let menuEntries = $state.raw<ReturnType<SpaceView["objectiveTargetMenu"]>>([]);
@@ -52,7 +63,7 @@
     entryObjectives = [];
     if (!chainID || !pilotID || instanceID === null) return;
     let current = true;
-    if (job.kind === "combat") {
+    if (jobKind === "combat") {
       flow.loadCorporationFactions();
       if (standings.get().char === null) void flow.loadStandings().catch(() => {});
       if (skills.get().skills === null) void flow.loadSkills().catch(() => {});
@@ -70,6 +81,18 @@
   });
 
   $effect(() => {
+    if (winterRestartMs > 0 && instanceID !== null) void flow.loadInventory().catch(() => {});
+  });
+
+  $effect(() => {
+    const wait = winterRestartMs > 0 && instanceID !== null && winterDeposit && winterGrid === "landed";
+    delayingWinterHack = wait;
+    if (!wait) return;
+    const timer = setTimeout(() => { delayingWinterHack = false; }, winterRestartMs);
+    return () => clearTimeout(timer);
+  });
+
+  $effect(() => {
     const snapshot = $space.snapshot;
     const dungeon = $activeDungeon;
     if (!chain || !dungeon || snapshot?.solarSystemID !== job.solarSystemID) return;
@@ -79,9 +102,14 @@
       rows = [];
       return;
     }
+    if (winterRules && winterGrid === "waiting") return;
     for (const [key, value] of Object.entries(dungeonObjectiveContext(dungeon))) chain.setContext(key, value);
     chain.observe(snapshot.entities, getSimNow?.() ?? snapshot.sampledAtMs, npcStanding);
-    const wanted = dungeonEntryObjectives(dungeon, job.data?.objectiveEntryRules ?? []);
+    const hasDevice = !!winterRules && $inventory.activeShipID === snapshot.shipID && $inventory.cargo.error === null &&
+      $inventory.cargo.rows.some((row) => row.typeID === winterRules.cargoTypeID && row.quantity > 0);
+    const wanted = winterRules
+      ? winterNexusEntryObjectives(dungeon, winterRules, winterGrid, hasDevice, delayingWinterHack, entryObjectives)
+      : dungeonEntryObjectives(dungeon, job.data?.objectiveEntryRules ?? []);
     for (const key of entryObjectives) if (!wanted.includes(key)) chain.stopObjective(key);
     for (const key of wanted) chain.startObjective(key);
     entryObjectives = wanted;

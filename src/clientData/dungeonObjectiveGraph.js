@@ -2,6 +2,50 @@
 
 // These client graphs delegate arrival to 669 and listen for start_objectives.
 const DUNGEON_OBJECTIVE_GRAPHS = new Set([882, 952, 1065, 1078]);
+const WINTER_NEXUS_OBJECTIVE_GRAPH = 784;
+
+function winterNexusObjectiveRules(graph, dungeonID) {
+  if (!graph?.tags?.includes("client")) return null;
+  const nodes = graph.nodes ?? {};
+  const value = (node, key) => node?.nodeParameters?.[key]?.value;
+  const next = (node, pin) => node?.connections?.[pin]?.length === 1 ? nodes[node.connections[pin][0]] : null;
+  const check = (node, key) => node?.nodeType === 22 && value(node, "blackboard_key") === key &&
+    (!value(node, "operator") || value(node, "operator") === "equalTo") && !value(node, "flipped") && !value(node, "object_path");
+  const write = (node, key) => node?.nodeType === 19 && value(node, "blackboard_key") === key ? value(node, "blackboard_value") : null;
+  const command = (node, key) => node?.nodeType === 42 && value(node, "message_key") === key ? value(node, "message_value") : null;
+  const branch = Object.values(nodes).find((node) => check(node, "dungeon_id") && Number(value(node, "blackboard_value")) === dungeonID);
+  const device = next(branch, "on_success");
+  const cargoTypeID = Number(write(device, "cryostorm_device_id"));
+  const zone = write(next(next(device, "output"), "output"), "dungeon_type");
+  if (!Number.isSafeInteger(cargoTypeID) || cargoTypeID <= 0 || typeof zone !== "string") return null;
+
+  const cargo = Object.values(nodes).find((node) => {
+    const operand = node.atomParameters?.type_id?.connection;
+    const read = nodes[operand?.node];
+    return node.nodeType === 9 && value(node, "atom_id") === 23 && operand?.parameter === "blackboard_value" &&
+      read?.nodeType === 18 && value(read, "blackboard_key") === "cryostorm_device_id";
+  });
+  let choice = next(cargo, "on_success");
+  const visited = new Set();
+  while (check(choice, "dungeon_type") && value(choice, "blackboard_value") !== zone && !visited.has(choice)) {
+    visited.add(choice);
+    choice = next(choice, "on_failure");
+  }
+  const depositObjectiveKey = check(choice, "dungeon_type") && value(choice, "blackboard_value") === zone
+    ? command(next(choice, "on_success"), "start_objective") : null;
+
+  const deposited = Object.values(nodes).find((node) => check(node, "mutator_deposited") &&
+    Number(value(node, "blackboard_value")) === 1 && command(next(node, "on_failure"), "start_objective"));
+  const hackObjectiveKey = command(next(deposited, "on_failure"), "start_objective");
+  const stop = next(deposited, "on_success");
+  const delay = next(stop, "output");
+  const restartHackMs = Number(value(delay, "delay")) * 1000;
+  if (typeof depositObjectiveKey !== "string" || typeof hackObjectiveKey !== "string" ||
+      command(stop, "stop_objective") !== hackObjectiveKey || delay?.nodeType !== 17 ||
+      command(next(delay, "output"), "start_objective") !== hackObjectiveKey ||
+      !Number.isFinite(restartHackMs) || restartHackMs <= 0) return null;
+  return { hackObjectiveKey, depositObjectiveKey, cargoTypeID, restartHackMs };
+}
 
 function dungeonObjectiveEntryRules(graph) {
   if (!graph || !graph.tags?.includes("client")) return null;
@@ -110,4 +154,4 @@ function observatoryConversationIDs(graph) {
   return result;
 }
 
-module.exports = { DUNGEON_OBJECTIVE_GRAPHS, dungeonObjectiveEntryRules, observatoryConversationIDs };
+module.exports = { DUNGEON_OBJECTIVE_GRAPHS, WINTER_NEXUS_OBJECTIVE_GRAPH, dungeonObjectiveEntryRules, observatoryConversationIDs, winterNexusObjectiveRules };

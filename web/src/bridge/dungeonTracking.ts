@@ -31,6 +31,13 @@ export interface DungeonEntryRule {
   readonly when?: { readonly key: string; readonly value: string };
 }
 
+export interface WinterNexusObjectives {
+  readonly hackObjectiveKey: string;
+  readonly depositObjectiveKey: string;
+  readonly cargoTypeID: number;
+  readonly restartHackMs: number;
+}
+
 export interface CurrentDungeon {
   readonly dungeonID: number;
   readonly roomID: number | null;
@@ -105,6 +112,28 @@ export function dungeonEntryObjectives(dungeon: CurrentDungeon, rules: readonly 
     const ids = Array.isArray(value) ? value : isListValue(value) ? value.items : [];
     return ids.includes(dungeon.dungeonID);
   }).map(({ objectiveKey }) => objectiveKey);
+}
+
+export function winterNexusDeposited(dungeon: CurrentDungeon | null): boolean {
+  return whole(dungeon?.values?.mutator_deposited) === 1;
+}
+
+/** Graph 784 starts the regional deposit objective from cargo or the server's deposit value. */
+export function winterNexusEntryObjectives(
+  dungeon: CurrentDungeon,
+  rules: WinterNexusObjectives,
+  grid: "waiting" | "warping" | "landed",
+  hasDevice: boolean,
+  delayHack: boolean,
+  active: readonly string[],
+): readonly string[] {
+  const { hackObjectiveKey, depositObjectiveKey } = rules;
+  if (grid === "waiting") return active;
+  if (grid === "warping") return active.filter((key) => key === hackObjectiveKey);
+  if (dungeon.values?.dungeon_state === "Failure") return active.filter((key) => key === depositObjectiveKey);
+  const wanted = delayHack ? [] : [hackObjectiveKey];
+  if (hasDevice || winterNexusDeposited(dungeon)) wanted.push(depositObjectiveKey);
+  return wanted;
 }
 
 /** OnEnteringDungeonRoom's arguments: the dungeon, the room and the instance; null where they cannot be read. */
