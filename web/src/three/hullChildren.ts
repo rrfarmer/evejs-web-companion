@@ -19,7 +19,7 @@ import { ChildAnimator, HULL_OWNER, animators, type SofCurveSet } from "./childA
 import { addOverlay, removeOverlay, type SofOverlay } from "./hullOverlay.ts";
 import { PropagatorRun, type PropagatorData } from "./propagator.ts";
 import { offerLights, type ChildLight } from "./dynamicLights.ts";
-import { smartLightColor, type SmartLightModifier } from "./smartLightModifiers.ts";
+import { smartLightColor, smartLightUsesCamera, type SmartLightInputs, type SmartLightModifier } from "./smartLightModifiers.ts";
 import { AgentRun, buildAgents, type AgentGridState, type SofChildAgents } from "./behaviorAgents.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
@@ -155,6 +155,7 @@ export interface SofChildProcedural {
 }
 type SofChildLight = NonNullable<SofChildContainer["lights"]>[number];
 interface SmartLightSource { color: number[]; modifiers?: SmartLightModifier[] }
+interface SmartLightPlacement { position: number[]; rotation: number[]; scaling: number[] }
 interface SmartBeam extends SmartLightSource, Pick<SofChildMesh, "geometry" | "meshIndex" | "areas" | "name"> {
   position: number[];
   rotation: number[];
@@ -165,7 +166,7 @@ interface SofChildSmartLights {
   id: number;
   name: string | null;
   display?: boolean;
-  placements: ({ position: number[]; rotation: number[]; scaling: number[] } | { locatorSet: string })[];
+  placements: (SmartLightPlacement | { locatorSet: string })[];
   lights: (SofChildLight & SmartLightSource)[];
   quads: (SmartLightSource & { position: number[]; scaling: number[]; brightness: number })[];
   meshes?: SmartBeam[];
@@ -282,24 +283,54 @@ export function quadMesh(quads: { centre: THREE.Vector3; ax: THREE.Vector3; ay: 
   return mesh;
 }
 
-interface SmartLightSources { lights: SmartLightSource[]; quads: SmartLightSource[]; beams: SmartLightSource[] }
+interface SmartLightSources {
+  lights: SmartLightSource[];
+  quads: SmartLightSource[];
+  beams: SmartLightSource[];
+  viewPlacements?: SmartLightPlacement[];
+}
+type SmartColorRun = ReturnType<typeof smartLightColor>;
 interface SmartLightState {
-  lights: ReturnType<typeof smartLightColor>[];
-  quads: ReturnType<typeof smartLightColor>[];
-  beams: ReturnType<typeof smartLightColor>[];
+  lights: SmartColorRun[][];
+  quads: SmartColorRun[][];
+  beams: SmartColorRun[];
   palette: THREE.Vector4[];
+  placedPalette?: Float32Array;
   beamColors: THREE.Vector4[];
 }
 const smartLightStates = new WeakMap<THREE.Object3D, SmartLightState>();
 
-function updateSmartLights(group: THREE.Object3D, sources: SmartLightSources): void {
+const needsSmartLightView = (source: SmartLightSource) => smartLightUsesCamera(source.modifiers ?? []);
+const placedPaletteWidth = (count: number) => Math.min(count, 256);
+const placedPaletteHeight = (count: number) => Math.ceil(count / placedPaletteWidth(count));
+
+function smartLightViews(
+  placements: readonly SmartLightPlacement[], matrix: THREE.Matrix4, camera: THREE.Camera, input: SmartLightInputs,
+): SmartLightInputs[] {
+  const eye = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
+  const at = new THREE.Vector3(), up = new THREE.Vector3(), rotation = new THREE.Quaternion();
+  return placements.map((placement) => {
+    // Trinity measures from the locator before applying each light's static offset.
+    at.fromArray(placement.position).applyMatrix4(matrix).negate().add(eye);
+    up.set(0, 1, 0).applyQuaternion(rotation.fromArray(placement.rotation)).transformDirection(matrix);
+    const distance = at.length();
+    return { ...input, camera: { distance, alignment: distance ? up.dot(at) / distance : 0 } };
+  });
+}
+
+function updateSmartLights(group: THREE.Object3D, sources: SmartLightSources, camera: THREE.Camera): void {
   let state = smartLightStates.get(group);
   if (!state) {
     const animate = (s: SmartLightSource) => smartLightColor(s.color, s.modifiers ?? []);
     const colors = (items: SmartLightSource[]) => items.map((item) => new THREE.Vector4().fromArray(item.color));
+    const placementCount = sources.viewPlacements?.length ?? 1;
+    const placedQuads = sources.quads.some(needsSmartLightView) ? placementCount * sources.quads.length : 0;
+    const runs = (s: SmartLightSource) => Array.from({ length: needsSmartLightView(s) ? placementCount : 1 }, () => animate(s));
     state = {
-      lights: sources.lights.map(animate), quads: sources.quads.map(animate), beams: sources.beams.map(animate),
-      palette: colors(sources.quads), beamColors: colors(sources.beams),
+      lights: sources.lights.map(runs), quads: sources.quads.map(runs), beams: sources.beams.map(animate),
+      palette: colors(sources.quads),
+      ...(placedQuads ? { placedPalette: new Float32Array(4 * placedPaletteWidth(placedQuads) * placedPaletteHeight(placedQuads)) } : {}),
+      beamColors: colors(sources.beams),
     };
     smartLightStates.set(group, state);
   }
@@ -314,12 +345,50 @@ function updateSmartLights(group: THREE.Object3D, sources: SmartLightSources): v
       maxSpeed = (o.userData.shipMaxSpeed as number | undefined) ?? 0;
     }
   }
-  const input = { variable: (name: string) => vars.get(name), speed: speed ?? 0, maxSpeed };
+  const input: SmartLightInputs = { variable: (name: string) => vars.get(name), speed: speed ?? 0, maxSpeed };
+  const views = sources.viewPlacements && smartLightViews(sources.viewPlacements, group.matrixWorld, camera, input);
   const now = performance.now() / 1000;
-  const colors = state.lights.map((color) => color(now, input));
-  (group.userData.lights as ChildLight[]).forEach((light, i) => { light.color = colors[i % colors.length]!; });
-  state.quads.forEach((color, i) => { state.palette[i]!.fromArray(color(now, input)); });
+  const evaluate = (runs: SmartColorRun[][]) => runs.map(source => source.map((color, index) => color(now, views?.[index] ?? input)));
+  const lightColors = evaluate(state.lights);
+  (group.userData.lights as ChildLight[]).forEach((light, i) => {
+    const colors = lightColors[i % lightColors.length]!;
+    light.color = colors[colors.length === 1 ? 0 : Math.floor(i / lightColors.length)]!;
+  });
+  const quadColors = evaluate(state.quads);
+  const placedPalette = state.placedPalette;
+  if (placedPalette && views) {
+    for (let placement = 0; placement < views.length; placement++) {
+      quadColors.forEach((colors, i) => {
+        const color = colors[colors.length === 1 ? 0 : placement]!;
+        placedPalette.set(color, 4 * (placement * quadColors.length + i));
+      });
+    }
+  } else {
+    quadColors.forEach((colors, i) => { state.palette[i]!.fromArray(colors[0]!); });
+  }
   state.beams.forEach((color, i) => { state.beamColors[i]!.fromArray(color(now, input)); });
+}
+
+/** The draw uploads the active clone's palette just before its shared geometry renders. */
+function followSmartFlarePlacements(mesh: THREE.Mesh, sources: SmartLightSource[], instances: number): void {
+  const width = placedPaletteWidth(instances), height = placedPaletteHeight(instances);
+  const base = new Float32Array(4 * width * height);
+  for (let i = 0; i < instances; i++) base.set(sources[i % sources.length]!.color, 4 * i);
+  const palette = new THREE.DataTexture(base, width, height, THREE.RGBAFormat, THREE.FloatType);
+  palette.needsUpdate = true;
+  const material = mesh.material as THREE.ShaderMaterial;
+  material.uniforms.smartPlacedColors = { value: palette };
+  material.vertexShader = `uniform highp sampler2D smartPlacedColors;
+    ${material.vertexShader.replace("vColour = iColour * f * f;", `int width = textureSize(smartPlacedColors, 0).x;
+        ivec2 slot = ivec2(gl_InstanceID % width, gl_InstanceID / width);
+        vColour = iColour * texelFetch(smartPlacedColors, slot, 0) * f * f;`)}`;
+  const before = material.onBeforeRender;
+  material.onBeforeRender = function (renderer, scene, camera, geometry, object, range) {
+    before.call(this, renderer, scene, camera, geometry, object, range);
+    const state = object.parent ? smartLightStates.get(object.parent) : undefined;
+    palette.image.data = state?.placedPalette ?? base;
+    palette.needsUpdate = true;
+  };
 }
 
 /** One color per authored quad and one instance per locator, with the current clone's uniforms. */
@@ -1477,7 +1546,7 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
   const group = object.parent;
   if (!group) return;
   const smartSources = group.userData.smartLightSources as SmartLightSources | undefined;
-  if (smartSources) updateSmartLights(group, smartSources);
+  if (smartSources) updateSmartLights(group, smartSources, camera);
   // its lights, for the dynamic lights' next list (dynamicLights.ts)
   offerLights(renderer, camera, group);
   // the curve sets (childAnimation.ts): their objects found in this clone of the model by their ids
@@ -1839,7 +1908,9 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
       const flares: Parameters<typeof quadMesh>[0] = [];
       const beams = node.meshes ?? [];
       const animated = [...node.lights, ...node.quads, ...beams].some((source) => source.modifiers?.length);
-      if (animated) group.userData.smartLightSources = { lights: node.lights, quads: node.quads, beams } satisfies SmartLightSources;
+      const placedFlares = node.quads.some(needsSmartLightView);
+      const viewPlacements = placedFlares || node.lights.some(needsSmartLightView) ? placements : undefined;
+      if (animated) group.userData.smartLightSources = { lights: node.lights, quads: node.quads, beams, viewPlacements } satisfies SmartLightSources;
       const matrices = placements.map((p) => new THREE.Matrix4().compose(new THREE.Vector3().fromArray(p.position),
         new THREE.Quaternion().fromArray(p.rotation), new THREE.Vector3().fromArray(p.scaling)));
       for (const matrix of matrices) {
@@ -1858,7 +1929,8 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
       group.userData.lights = lights;
       if (flares.length) {
         const mesh = quadMesh(flares);
-        if (animated) followSmartFlareColors(mesh, node.quads, flares.length);
+        if (placedFlares) followSmartFlarePlacements(mesh, node.quads, flares.length);
+        else if (animated) followSmartFlareColors(mesh, node.quads, flares.length);
         group.add(mesh);
       }
       if (lights.length || animated) group.add(ticker());

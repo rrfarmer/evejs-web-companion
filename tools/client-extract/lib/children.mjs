@@ -599,6 +599,19 @@ function readSmartModifiers(items, skipped) {
       });
     } else if (item.type === "EveSmartLightAttributeModifierExpressionBucket" && !item.expressionInputs?.length) {
       out.push({ kind: "expression", source: item.expression ?? "", factor, children: readSmartModifiers(item.attributeModifiers, skipped) });
+    } else if (item.type === "EveSmartLightAttributeModifierCameraDependency" && !item.useCameraLookAt &&
+               !item.overwritePosition && !item.overwriteObjectDirection &&
+               Boolean(item.useCameraDistance) !== Boolean(item.useCameraPlacement)) {
+      const driver = item.useCameraDistance
+        ? { kind: "distance", near: item.minimumDistance ?? 1000, far: item.maximumDistance ?? 10000, inverse: item.inverseDistanceFormula ?? false }
+        : { kind: "placement", exponent: item.placementIntensity ?? 1, inverse: item.inversePlacementFormula ?? false };
+      const children = readSmartModifiers(item.attributeModifiers, skipped);
+      if (children.length) out.push({
+        kind: "camera", driver, lower: item.minimumActivation ?? 0, upper: item.maximumActivation ?? 1, factor, children,
+      });
+    } else if (item.type === "EveSmartLightAttributeModifierNoise" && !(item.noiseAmplitude ?? 0)) {
+      // The native modifier leaves the color unchanged at zero amplitude.
+      continue;
     } else if (item.type === "EveSmartLightAttributeModifierColor" && !item.activationOverLifetime &&
                !item.delayedActivation && (item.saturationMultiplier ?? 1) <= 1 && (curve === 0 || curve === 5)) {
       out.push({

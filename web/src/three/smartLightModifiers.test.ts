@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { smartLightColor, type SmartLightModifier } from "./smartLightModifiers.ts";
+import { smartLightColor, smartLightUsesCamera, type SmartLightModifier } from "./smartLightModifiers.ts";
 
 const color = (changes: Partial<Extract<SmartLightModifier, { kind: "color" }>> = {}): SmartLightModifier => ({
   kind: "color", color: [0, 0, 1, 0.5], blend: 1, brightness: 1, saturation: 1,
@@ -47,4 +47,29 @@ test("speed expressions and exponential fades use the authored inputs", () => {
   const input = { variable: () => 1, speed: 0, maxSpeed: 0 };
   expo(0, input);
   assert.equal(expo(0.5, input)[2], 0.03125);
+});
+
+test("camera distance and placement reproduce the native single-locator color samples", () => {
+  const fade = color({ active: true, blend: 0, brightness: 0, duration: 0 });
+  const input = { variable: () => undefined, speed: 0, maxSpeed: 0 };
+  const base = [0, 0.4, 0, 0.75];
+  const distance = Math.hypot(-30, 27, 32);
+  const alignment = 57 * Math.SQRT1_2 / distance;
+  const cases: [Extract<SmartLightModifier, {kind: "camera"}>["driver"], number][] = [
+    [{ kind: "distance", near: 20, far: 400, inverse: false }, 0.366834431886673],
+    [{ kind: "distance", near: 20, far: 400, inverse: true }, 0.033165574073791504],
+    [{ kind: "placement", exponent: 1, inverse: false }, 0.08699502795934677],
+    [{ kind: "placement", exponent: 2, inverse: false }, 0.1550697386264801],
+    [{ kind: "placement", exponent: 0.5, inverse: true }, 0.3538389205932617],
+  ];
+  for (const [driver, native] of cases) {
+    const modifier: SmartLightModifier = { kind: "camera", driver, lower: 0, upper: 1, factor: 1, children: [fade] };
+    const mix = smartLightColor(base, [modifier]);
+    assert.deepEqual(mix(0, input), base);
+    const result = mix(1, { ...input, camera: { distance, alignment } });
+    assert.ok(Math.abs(result[1]! - native) < 4e-7);
+    assert.equal(result[3], 0.75);
+    assert.ok(smartLightUsesCamera([listener([modifier])]));
+    assert.ok(!smartLightUsesCamera([listener([fade])]));
+  }
 });

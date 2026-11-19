@@ -1,18 +1,24 @@
 import { compileCondition } from "./controllers.ts";
 
+type CameraDriver =
+  | { kind: "distance"; near: number; far: number; inverse: boolean }
+  | { kind: "placement"; exponent: number; inverse: boolean };
+
 export type SmartLightModifier =
   | { kind: "listener"; variable: string; initial: number; invert: boolean; duration: number; factor: number; children: SmartLightModifier[] }
   | { kind: "expression"; source: string; factor: number; children: SmartLightModifier[] }
+  | { kind: "camera"; driver: CameraDriver; lower: number; upper: number; factor: number; children: SmartLightModifier[] }
   | { kind: "color"; color: number[]; blend: number; brightness: number; saturation: number; factor: number;
       active: boolean; startsActive: boolean; variable: string; duration: number; curve: number; delayIn: number; delayOut: number };
 
-interface Inputs {
+export interface SmartLightInputs {
   variable(name: string): number | undefined;
   speed: number;
   maxSpeed: number;
+  camera?: { distance: number; alignment: number };
 }
 interface Gate { ready: boolean; weight: number }
-interface Frame { dt: number; rgb: number[]; input: Inputs }
+interface Frame { dt: number; rgb: number[]; input: SmartLightInputs }
 type Modifier = (frame: Frame, gate: Gate) => void;
 
 function crossFade(initial: boolean) {
@@ -35,6 +41,12 @@ function crossFade(initial: boolean) {
 const apply = (children: Modifier[], frame: Frame, gate: Gate) => {
   for (const child of children) child(frame, gate);
 };
+
+const clamp = (value: number) => Math.max(0, Math.min(value, 1));
+
+export function smartLightUsesCamera(modifiers: readonly SmartLightModifier[]): boolean {
+  return modifiers.some(item => item.kind === "camera" || ("children" in item && smartLightUsesCamera(item.children)));
+}
 
 function compile(item: SmartLightModifier, initialGate: boolean, insideBucket = false): Modifier {
   if (item.kind === "listener") {
@@ -59,6 +71,20 @@ function compile(item: SmartLightModifier, initialGate: boolean, insideBucket = 
       apply(children, frame, { ready: gate.ready, weight: gate.weight * item.factor * (Number.isFinite(value) ? value : 0) });
     };
   }
+  if (item.kind === "camera") {
+    const children = item.children.map(child => compile(child, initialGate, true));
+    const {driver} = item;
+    return (frame, gate) => {
+      const camera = frame.input.camera;
+      if (!camera) return;
+      const strength = driver.kind === "distance"
+        ? (driver.near === driver.far ? Number(camera.distance >= driver.near) : clamp((camera.distance - driver.near) / (driver.far - driver.near)))
+        : clamp(camera.alignment) ** driver.exponent;
+      const t = driver.inverse ? 1 - strength : strength;
+      const weight = item.lower + (item.upper - item.lower) * t;
+      apply(children, frame, { ready: gate.ready, weight: gate.weight * item.factor * weight });
+    };
+  }
   const fade = crossFade(initialGate && item.active && item.startsActive);
   return (frame, gate) => {
     const v = item.variable ? frame.input.variable(item.variable) : undefined;
@@ -81,7 +107,7 @@ function compile(item: SmartLightModifier, initialGate: boolean, insideBucket = 
 export function smartLightColor(color: number[], modifiers: readonly SmartLightModifier[]) {
   const run = modifiers.map((modifier) => compile(modifier, true));
   let last: number | undefined;
-  return (now: number, input: Inputs): number[] => {
+  return (now: number, input: SmartLightInputs): number[] => {
     const dt = last === undefined ? 0 : Math.max(0, now - last);
     last = now;
     const rgb = color.slice();
