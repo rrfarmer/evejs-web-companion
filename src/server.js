@@ -231,6 +231,7 @@ const gamePortPilots = options.gamePortPilots !== undefined
       isOnline: async (accountID, characterID) => (await accountGateway.getCharacterStatus(accountID, characterID))?.online,
       // Each pilot's public gateway notices, on the connection its gateway requests go on (gamePort/publicGateway.js).
       gatewayNotices: (pilot, onNotice) => sharedPublicGateway().consume(pilot, onNotice),
+      gatewayRequest: (pilot, type, payload) => sharedPublicGateway().request(pilot, type, payload),
       // A pilot's ballpark runs in its own time; nobody is waiting on it to hear that something went wrong.
       onSpaceError: (error, what, characterID) => console.warn(`[game-port] pilot ${characterID}: ballpark ${what} failed: ${error && error.message}`),
       // The client's travel effects, from its own data (clientBuiltData, made below; asked for once a pilot is in space).
@@ -1856,7 +1857,7 @@ app.get("/api/bridge/events", requireStreamAuth, (req, res) => {
   res.write(": open\n\n");
   held.streamSubscribers.add(res);
   publishStreamStatus(held, held.stream ? "live" : "connecting");
-  const localChat = held.chat?.snapshot?.("local");
+  const localChat = heldNativeLocal(held)?.snapshot() ?? held.chat?.snapshot?.("local");
   if (localChat?.solarSystemID) writeSseFrame(res, { source: "evejs-web-bff", type: "local-chat", chat: localChat });
   openHeldStream(req.webSessionID, held);
 
@@ -9200,6 +9201,15 @@ app.get("/api/dockable-structures/:id/services", requireAuth, async (req, res, n
 
 const CHAT_CHANNELS = new Set(["local", "corp", "alliance", "fleet", "faction"]);
 
+function heldNativeLocal(held) {
+  if (!isGamePortHandle(held.bridgeSessionID) || typeof gamePortPilots?.localChat !== "function") return null;
+  try {
+    return gamePortPilots.localChat({ userid: held.accountID }, held.bridgeSessionID);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The held session's chat connection, opened on first use.
  *
@@ -9222,11 +9232,13 @@ function heldChatSession(held) {
     if (typeof gateway.createChatSession !== "function") {
       return null;
     }
+    const nativeLocal = heldNativeLocal(held);
     held.chat = gateway.createChatSession({
       characterID: held.characterID,
       log: (line) => console.log(line),
       login: heldChatLogin(held),
-      onLocalChange: (chat) => publishStreamFrame(held, { source: "evejs-web-bff", type: "local-chat", chat }),
+      onLocalChange: nativeLocal ? null : (chat) => publishStreamFrame(held, { source: "evejs-web-bff", type: "local-chat", chat }),
+      onLocalSystemLine: nativeLocal ? (systemID, entry) => nativeLocal.systemLine(systemID, entry) : null,
     });
   }
   return held.chat;
@@ -9432,13 +9444,15 @@ app.get("/api/bridge/chat/:channel", requireAuth, async (req, res, next) => {
   if (!channel) {
     return;
   }
-  const session = heldChatSession(held);
+  const nativeLocal = channel === "local" ? heldNativeLocal(held) : null;
+  const session = nativeLocal ?? heldChatSession(held);
   if (session === null) {
     chatUnavailable(res);
     return;
   }
   try {
-    const chat = await session.read(channel, chatContext(held, req));
+    const context = chatContext(held, req);
+    const chat = nativeLocal ? await nativeLocal.read(context) : await session.read(channel, context);
     res.json({ ok: true, chat, notifications: [] });
   } catch (error) {
     next(error);
@@ -9454,8 +9468,8 @@ app.post("/api/bridge/chat/:channel/send", requireAuth, async (req, res, next) =
   if (!channel) {
     return;
   }
-  const message = typeof req.body?.message === "string" ? req.body.message : "";
-  if (!message.trim()) {
+  const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
+  if (!message) {
     res.status(400).json({
       ok: false,
       error: "EMPTY_MESSAGE",
@@ -9463,13 +9477,16 @@ app.post("/api/bridge/chat/:channel/send", requireAuth, async (req, res, next) =
     });
     return;
   }
-  const session = heldChatSession(held);
+  // Server slash commands are handled by the existing XMPP command route.
+  const nativeLocal = channel === "local" && !message.startsWith("/") ? heldNativeLocal(held) : null;
+  const session = nativeLocal ?? heldChatSession(held);
   if (session === null) {
     chatUnavailable(res);
     return;
   }
   try {
-    const chat = await session.send(channel, message, chatContext(held, req));
+    const context = chatContext(held, req);
+    const chat = nativeLocal ? await nativeLocal.send(message, context) : await session.send(channel, message, context);
     res.json({ ok: true, chat, notifications: [] });
   } catch (error) {
     next(error);

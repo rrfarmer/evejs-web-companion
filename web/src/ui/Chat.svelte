@@ -229,7 +229,7 @@
   // The roster's name stands while the owner's is asked for.
   $effect(() => {
     const ids = new Set(active.messages.map((message) => message.characterID).filter((id) => id > 0));
-    if (delayedLocal) for (const member of active.roster) ids.add(member.characterID);
+    if (localMode) for (const member of active.roster) ids.add(member.characterID);
     if (ids.size > 0) flow.requestNames([...ids].map((id) => ({ kind: "owner" as const, id })));
   });
   function speakerName(message: { readonly characterID: number; readonly characterName: string }): string {
@@ -312,7 +312,7 @@
           <ul class="roster-list">
             {#each active.roster as member (member.characterID)}
               <li draggable="true" ondragstart={event => dragCharacter(event, member.characterID, member.name)}
-                ondblclick={() => void run(() => doubleClickOwner(flow, member.characterID))}>{delayedLocal ? resolvedName($names.resolved, "owner", member.characterID, member.name) : member.name}</li>
+                ondblclick={() => void run(() => doubleClickOwner(flow, member.characterID))}>{localMode ? resolvedName($names.resolved, "owner", member.characterID, member.name) : member.name}</li>
             {/each}
           </ul>
         {/if}

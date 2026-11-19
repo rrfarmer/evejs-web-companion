@@ -58,6 +58,7 @@ const packets = require("./packets");
 const { connectTcp, gameEndpoint } = require("./tcp");
 const { longKeptToBridgeJson, notificationToBridgeJson, sessionChangeToBridgeJson, wireToBridgeJson } = require("./bridgeJson");
 const { noticeTargetMatches } = require("./publicGateway");
+const { NativeLocalChat } = require("./localChat");
 const { GAME_PORT_HANDLE_PREFIX } = require("../pilotTransport");
 const { GAME_PORT_ONLY_CALLS, ON_AN_ANSWERED_OBJECT, ON_THE_PARK, couldBeAPilot, createCallLedger, madeAfresh, retailForm, retailNeeds } = require("./retailCalls");
 const { createPilotSpace } = require("./pilotSpace");
@@ -1154,6 +1155,7 @@ function createGamePortPilots({
   // The pilot's public gateway notices: (pilot {userID, characterID}, onNotice) -> stop (gamePort/publicGateway.js
   // consume); none read where it is not given.
   gatewayNotices = null,
+  gatewayRequest = null,
   // The client's own services, for the calls the server makes to it, and a word about each call once it is over.
   answerClientCall = defaultClientCallAnswer,
   onClientCall = () => {},
@@ -1419,6 +1421,7 @@ function createGamePortPilots({
           allianceID: positive(attributes.allianceid),
         });
         if (!forPilot) return;
+        entry.localChat?.notice(notice.typeName, notice.payload);
         const reason = notice.payload?.reason;
         if (notice.typeName === "eve_public.academy.ships.api.DeclinedNotice" &&
             (reason === "DECLINED_REASON_UNDOCK" || reason === "DECLINED_REASON_TRAVEL")) {
@@ -1745,6 +1748,7 @@ function createGamePortPilots({
   function end(entry, reason, refusalStatus = 404) {
     if (entry.ended) return;
     entry.ended = true;
+    entry.localChat?.close();
     // invCache.Stop invalidates its guards. Break the actual broker/guard
     // ownership cycle even when native owners outlive this closed socket.
     entry.inventory.forget();
@@ -2263,6 +2267,7 @@ function createGamePortPilots({
       record(entry, carried);
     });
     session.onSessionChange((changes) => {
+      if ("solarsystemid2" in changes) entry.localChat?.move(positive(session.attributes.solarsystemid2));
       keepDogmaWork(entry, entry.dogma.processSessionFreshness(changes, session.attributes.charid));
       // What the client's own services tell its object cache to forget on this change.
       forgetNamed(entry, namedOnSessionChange(changes, entry.session.attributes));
@@ -2601,6 +2606,14 @@ function createGamePortPilots({
     closedByServerByCharacter.delete(characterID);
     sessions.set(entry.handle, entry);
     session.onClose((error) => end(entry, noteClosedByServer(entry, error) ? "closed_by_server" : "connection_closed"));
+    if (typeof gatewayRequest === "function") {
+      const pilot = { userID: accountID, characterID };
+      entry.localChat = new NativeLocalChat({ characterID, now,
+        request: (type, payload) => gatewayRequest(pilot, type, payload),
+        changed: (chat) => publish(entry, { kind: "local-chat", chat }),
+      });
+      entry.localChat.move(positive(session.attributes.solarsystemid2));
+    }
     startGatewayNotices(entry);
     // A pilot that was left in space comes back in space.
     syncSpace(entry);
@@ -4433,6 +4446,10 @@ function createGamePortPilots({
       }
       listener(told);
     });
+  }
+
+  function localChat(sessionFields = {}, bridgeSessionID = undefined) {
+    return held(bridgeSessionID, sessionFields).localChat ?? null;
   }
 
   // ── the price table, as the client's cfg has it ───────────────────────────
@@ -6858,6 +6875,7 @@ function createGamePortPilots({
     chatSecret,
     chatChannels,
     chatSessionChanges,
+    localChat,
     chatTaboos,
     shutdown,
     /** Every pair called since this transport was made, most called first, with how each compares with the retail client's. */

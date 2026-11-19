@@ -347,6 +347,7 @@ class XmppChatSession {
     }
     this.log = typeof options.log === "function" ? options.log : () => {};
     this.onLocalChange = options.onLocalChange;
+    this.onLocalSystemLine = options.onLocalSystemLine;
     this.localSystemID = 0;
     this.earlyLocalPresence = null;
     this.localRecovery = null;
@@ -1132,6 +1133,7 @@ class XmppChatSession {
       log.splice(0, log.length - MAX_BUFFERED_MESSAGES);
     }
     if (!local) return;
+    if (entry.characterID === 1) this.onLocalSystemLine?.(positiveInt(roomName.split("_").pop()), entry);
     if (isDelayedLocal(roomName) && entry.characterID > 1) {
       if (!this.rosters.has(roomName)) {
         this.rosters.set(roomName, new Map());

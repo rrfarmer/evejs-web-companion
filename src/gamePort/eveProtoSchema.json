@@ -13566,6 +13566,191 @@
      "label": 1
     }
    ]
+  },
+  "eve_public.chat.local.Character": {
+   "fields": [
+    {
+     "name": "character",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "corporation",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.corporation.Identifier"
+    },
+    {
+     "name": "no_alliance",
+     "number": 3,
+     "type": 8,
+     "label": 1,
+     "oneof": "alliance_membership"
+    },
+    {
+     "name": "alliance",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.alliance.Identifier",
+     "oneof": "alliance_membership"
+    },
+    {
+     "name": "no_faction",
+     "number": 5,
+     "type": 8,
+     "label": 1,
+     "oneof": "faction_membership"
+    },
+    {
+     "name": "faction",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.faction.Identifier",
+     "oneof": "faction_membership"
+    },
+    {
+     "name": "classification",
+     "number": 7,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.chat.local.Classification"
+    }
+   ]
+  },
+  "eve_public.chat.local.api.BroadcastMessageRequest": {
+   "fields": [
+    {
+     "name": "message",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.chat.local.api.BroadcastMessageResponse": {
+   "fields": []
+  },
+  "eve_public.chat.local.api.GetMembershipListRequest": {
+   "fields": []
+  },
+  "eve_public.chat.local.api.GetMembershipListResponse": {
+   "fields": [
+    {
+     "name": "members",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.chat.local.Character"
+    },
+    {
+     "name": "solar_system",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    }
+   ]
+  },
+  "eve_public.chat.local.api.JoinNotice": {
+   "fields": [
+    {
+     "name": "member",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.chat.local.Character"
+    },
+    {
+     "name": "solar_system",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    }
+   ]
+  },
+  "eve_public.chat.local.api.LeaveNotice": {
+   "fields": [
+    {
+     "name": "character",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "solar_system",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    }
+   ]
+  },
+  "eve_public.chat.local.api.MembershipListNotice": {
+   "fields": [
+    {
+     "name": "members",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.chat.local.Character"
+    },
+    {
+     "name": "solar_system",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    }
+   ]
+  },
+  "eve_public.chat.local.api.MembershipRefreshedNotice": {
+   "fields": [
+    {
+     "name": "member",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.chat.local.Character"
+    },
+    {
+     "name": "solar_system",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    }
+   ]
+  },
+  "eve_public.chat.local.api.MessageBroadcastNotice": {
+   "fields": [
+    {
+     "name": "author",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "solar_system",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    },
+    {
+     "name": "message",
+     "number": 3,
+     "type": 9,
+     "label": 1
+    }
+   ]
   }
  },
  "enums": {
@@ -13676,6 +13861,17 @@
     "REWARD_LABEL_UNSPECIFIED": 0,
     "REWARD_LABEL_ALPHA": 1,
     "REWARD_LABEL_OMEGA": 2
+   }
+  },
+  "eve_public.chat.local.Classification": {
+   "values": {
+    "CLASSIFICATION_UNSPECIFIED": 0,
+    "CLASSIFICATION_INVISIBLE": 1,
+    "CLASSIFICATION_DEVELOPER": 2,
+    "CLASSIFICATION_ADMINISTRATOR": 3,
+    "CLASSIFICATION_GAMEMASTER": 4,
+    "CLASSIFICATION_VOLUNTEER": 5,
+    "CLASSIFICATION_NPC": 6
    }
   }
  }

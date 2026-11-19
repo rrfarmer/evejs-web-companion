@@ -6820,6 +6820,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   let localChatRevision = 0;
 
+  function applyLocalChat(raw: JsonValue | undefined): void {
+    localChatRevision++;
+    store.apply({ type: "chat/loaded", channel: "local", channelState: decodeChatChannel(raw) });
+  }
+
   function applyLiveFrame(frame: unknown): void {
     if (typeof frame !== "object" || frame === null) {
       return;
@@ -6840,9 +6845,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return;
     }
     if (record.source === "evejs-web-bff" && record.type === "local-chat") {
-      const channelState = decodeChatChannel(record.chat);
-      localChatRevision++;
-      store.apply({ type: "chat/loaded", channel: "local", channelState });
+      applyLocalChat(record.chat);
       return;
     }
     if (record.source !== "evejs-web-gateway") {
@@ -6868,6 +6871,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
 
     const event = (record.event ?? {}) as Record<string, JsonValue>;
+    if (event.kind === "local-chat") {
+      if (pushesTaken.take(record.cursor)) applyLocalChat(event.chat);
+      return;
+    }
     if (event.kind === "chat") {
       const channel = event.channel === "corp" ? "corp" : "local";
       const message = decodeMessageEntry(event.entry);
