@@ -8,7 +8,7 @@
 
 import { readBlack } from "./black.mjs";
 
-export const SOF_BUILD = 90;
+export const SOF_BUILD = 91;
 
 /**
  * EveSOFDataFactionColorSet's colour types by index, as an item names its colour (colorType, lightColor,

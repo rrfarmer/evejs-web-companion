@@ -432,7 +432,7 @@ function readNode(o, skipped) {
  * behaviour group's). quadinstancedv5.fx (the behaviour groups' instanced hull shader: quadv5 with the instance's
  * transform) is read as quadv5 - the page instances the mesh itself.
  */
-function meshAreas(mesh, skipped) {
+function meshAreas(mesh, skipped, smartBeam = false) {
   const areas = [];
   for (const [list, kind] of [["opaqueAreas", "opaque"], ["transparentAreas", "transparent"], ["additiveAreas", "additive"], ["distortionAreas", "distortion"]]) {
     for (const a of mesh[list] ?? []) {
@@ -442,6 +442,7 @@ function meshAreas(mesh, skipped) {
       // a distortion area draws into the distortion map (ubershaderdistortion.fx, the one effect such areas use)
       const drawn = kind === "distortion" ? fx === "ubershaderdistortion" : ["ubershader", "fx3dv5", "ubershadertwosided", "ubershadercube", "flare", "twocolorflare", "quadv5", "quadglassv5", "quaddetailv5", "fxv5", "wormholefx", "sunwhisps"].includes(fx)
         || fx === "texturecolor"
+        || (smartBeam && kind === "additive" && fx === "ubershaderinstanced")
         || (fx === "motionvectorramp" && MOTION_VECTOR_RAMP_DRAWN.some((perm) => MOTION_VECTOR_RAMP_DEFAULTS.every(([k, v]) => (opts[k] ?? v) === (perm[k] ?? v))));
       if (!drawn) { const k = fx === "motionvectorramp" || fx === "texturecolor" ? `area:${fx}:options` : `area:${fx}`; skipped[k] = (skipped[k] ?? 0) + 1; continue; }
       areas.push({
@@ -634,7 +635,7 @@ function readSmartLightSet(o, skipped) {
       skipped[generator.type] = (skipped[generator.type] ?? 0) + 1;
     }
   }
-  const lights = [], quads = [];
+  const lights = [], quads = [], meshes = [];
   const visit = (group, sharedColor, inherited) => {
     if (group.display === false) return;
     const color = sharedColor ?? smartLightColor(group, group.customColor ?? [0, 0, 0, 1]);
@@ -663,10 +664,22 @@ function readSmartLightSet(o, skipped) {
       quads.push({ position, scaling: group.staticQuadScale ?? [1, 1, 1], color, brightness, ...effects });
       return;
     }
+    if (group.type === "EveSmartLightMesh" && group.mesh?.type === "Tr2InstancedMesh" && group.mesh.geometryResPath &&
+        group.rotationConstraint === 2 && group.shaderParamColorName === "DiffuseColor" && !group.castShadows && !group.minScreenSize) {
+      const areas = meshAreas(group.mesh, skipped, true).filter((area) => area.effect === "ubershaderinstanced");
+      if (areas.length) {
+        meshes.push({
+          name: group.name ?? null, geometry: String(group.mesh.geometryResPath).toLowerCase(), meshIndex: group.mesh.meshIndex ?? 0,
+          color, ...effects, areas, position, rotation: group.staticOffsetRotation ?? [0, 0, 0, 1],
+          scaling: group.staticOffsetScale ?? [1, 1, 1],
+        });
+        return;
+      }
+    }
     skipped[group.type] = (skipped[group.type] ?? 0) + 1;
   };
   for (const group of o.lightGroups ?? []) visit(group, null, []);
-  return { k: "smartLights", id: idOf(o), name: o.name ?? null, placements, lights, quads };
+  return { k: "smartLights", id: idOf(o), name: o.name ?? null, placements, lights, quads, meshes };
 }
 
 function readShown(o, skipped) {

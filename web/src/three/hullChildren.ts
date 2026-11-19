@@ -155,6 +155,11 @@ export interface SofChildProcedural {
 }
 type SofChildLight = NonNullable<SofChildContainer["lights"]>[number];
 interface SmartLightSource { color: number[]; modifiers?: SmartLightModifier[] }
+interface SmartBeam extends SmartLightSource, Pick<SofChildMesh, "geometry" | "meshIndex" | "areas" | "name"> {
+  position: number[];
+  rotation: number[];
+  scaling: number[];
+}
 interface SofChildSmartLights {
   k: "smartLights";
   id: number;
@@ -163,6 +168,7 @@ interface SofChildSmartLights {
   placements: ({ position: number[]; rotation: number[]; scaling: number[] } | { locatorSet: string })[];
   lights: (SofChildLight & SmartLightSource)[];
   quads: (SmartLightSource & { position: number[]; scaling: number[]; brightness: number })[];
+  meshes?: SmartBeam[];
 }
 export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh | SofChildLines | SofChildParticles | SofChildPropagator | SofChildGpuParticles | SofChildProcedural | SofChildAgents | SofChildSmartLights;
 export interface SofHullChild {
@@ -276,11 +282,13 @@ export function quadMesh(quads: { centre: THREE.Vector3; ax: THREE.Vector3; ay: 
   return mesh;
 }
 
-interface SmartLightSources { lights: SmartLightSource[]; quads: SmartLightSource[] }
+interface SmartLightSources { lights: SmartLightSource[]; quads: SmartLightSource[]; beams: SmartLightSource[] }
 interface SmartLightState {
   lights: ReturnType<typeof smartLightColor>[];
   quads: ReturnType<typeof smartLightColor>[];
+  beams: ReturnType<typeof smartLightColor>[];
   palette: THREE.Vector4[];
+  beamColors: THREE.Vector4[];
 }
 const smartLightStates = new WeakMap<THREE.Object3D, SmartLightState>();
 
@@ -288,7 +296,11 @@ function updateSmartLights(group: THREE.Object3D, sources: SmartLightSources): v
   let state = smartLightStates.get(group);
   if (!state) {
     const animate = (s: SmartLightSource) => smartLightColor(s.color, s.modifiers ?? []);
-    state = { lights: sources.lights.map(animate), quads: sources.quads.map(animate), palette: sources.quads.map((q) => new THREE.Vector4().fromArray(q.color)) };
+    const colors = (items: SmartLightSource[]) => items.map((item) => new THREE.Vector4().fromArray(item.color));
+    state = {
+      lights: sources.lights.map(animate), quads: sources.quads.map(animate), beams: sources.beams.map(animate),
+      palette: colors(sources.quads), beamColors: colors(sources.beams),
+    };
     smartLightStates.set(group, state);
   }
   const vars = new Map<string, number>();
@@ -307,6 +319,7 @@ function updateSmartLights(group: THREE.Object3D, sources: SmartLightSources): v
   const colors = state.lights.map((color) => color(now, input));
   (group.userData.lights as ChildLight[]).forEach((light, i) => { light.color = colors[i % colors.length]!; });
   state.quads.forEach((color, i) => { state.palette[i]!.fromArray(color(now, input)); });
+  state.beams.forEach((color, i) => { state.beamColors[i]!.fromArray(color(now, input)); });
 }
 
 /** One color per authored quad and one instance per locator, with the current clone's uniforms. */
@@ -437,6 +450,7 @@ const effectClock = { get value() { return performance.now() / 1000; } };
  */
 function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
   const p = area.params;
+  const beam = area.effect === "ubershaderinstanced";
   const maps = ["DiffuseMap1", "DiffuseMap2", "DiffuseMap3"].filter((k) => area.textures[k]).length;
   const count = ({ ONE: 1, TWO: 2, THREE: 3 } as Record<string, number>)[area.options.DIFFUSE_MAP_COUNT ?? ""] ?? Math.max(1, maps);
   const uniforms: Record<string, THREE.IUniform> = {
@@ -460,19 +474,32 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
   const maskUv = area.options.MASK_TRANSFORM === "ON" ? "vUv * maskT.zw + maskT.xy + maskS.xy * time + maskS.zw" : "vUv";
   const additive = area.kind === "additive";
   const soft = area.options.UBER_DEPTH === "UBER_DEPTH_ON";
-  const cloudFog = area.effect === "ubershader";
+  const cloudFog = area.effect === "ubershader" || beam;
   if (cloudFog) Object.assign(uniforms, CLOUD_FOG, { softDepthSize: SOFT_DEPTH.softDepthSize });
-  if (soft) Object.assign(uniforms, SOFT_DEPTH, { depthOffset: { value: Number((p.Depth as number[] | undefined)?.[0] ?? 10) } });
+  if (soft) Object.assign(uniforms, SOFT_DEPTH, { depthOffset: { value: Number((p.Depth as number[] | undefined)?.[0] ?? (beam ? 1 : 10)) } });
   const mat = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vFromEye;
       ${soft ? "uniform float depthOffset; varying vec2 vSoft;" : ""}
       void main() {
         vUv = uv;
+        ${beam ? `// The instanced beam preserves the locator's local up as it turns toward the eye.
+        vec3 eye = (inverse(modelMatrix) * vec4(cameraPosition, 1.0)).xyz;
+        vec3 origin = instanceMatrix[3].xyz;
+        vec3 up = normalize(instanceMatrix[1].xyz);
+        vec3 away = origin - eye;
+        vec3 forward = away - dot(away, up) * up;
+        forward = dot(forward, forward) > 1e-10 ? normalize(forward) : normalize(instanceMatrix[2].xyz);
+        vec3 right = normalize(cross(up, forward));
+        mat3 basis = mat3(right * length(instanceMatrix[0].xyz), instanceMatrix[1].xyz,
+                         forward * length(instanceMatrix[2].xyz));
+        vec4 mv = modelViewMatrix * vec4(origin + basis * position, 1.0);
+        vN = normalize(mat3(modelMatrix) * normalize(basis * normal));
+        vFromEye = normalize(cameraPosition - (modelMatrix * vec4(position, 1.0)).xyz);` : `
         vN = mat3(modelMatrix) * normal;
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        vFromEye = (vec4(mv.xyz, 0.0) * viewMatrix).xyz;
-        ${soft ? `// half the z axis' length, and the depth of the point Depth metres along EVE's world z (three's -z)
+        vFromEye = (vec4(mv.xyz, 0.0) * viewMatrix).xyz;`}
+        ${soft ? beam ? "vSoft = vec2(depthOffset, -mv.z + depthOffset);" : `// half the z axis' length, and the depth of the point Depth metres along EVE's world z (three's -z)
         vSoft = vec2(0.5 * length(modelMatrix[2].xyz), -(mv.z + (viewMatrix * vec4(0.0, 0.0, -depthOffset, 0.0)).z));` : ""}
         gl_Position = projectionMatrix * mv;
       }`,
@@ -494,7 +521,7 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
         ${area.options.VARIATION === "PHONG" ? `float nl = dot(normalize(sunDir), normalize(vN));
         float l = (nl + 1.0) * 0.5 * (1.0 - pow(1.0 - clamp(nl, 0.0, 1.0), 2.0));
         c.rgb *= sunColour * l + ambient;` : ""}
-        float f = pow(1.0 - clamp(dot(normalize(-vFromEye), normalize(vN)) - fresnel.z, 0.0, 1.0), fresnel.x);
+        float f = pow(1.0 - clamp(dot(${beam ? "vFromEye, vN" : "normalize(-vFromEye), normalize(vN)"}) - fresnel.z, 0.0, 1.0), fresnel.x);
         f = fresnel.y < 0.0 ? (1.0 - min(f, 1.0)) * -fresnel.y : f * fresnel.y;
         c.rgb *= f;
         ${soft ? "if (softDepthOn > 0.5) c *= clamp((softSceneDepth() - vSoft.y) / vSoft.x, 0.0, 1.0);" : ""}
@@ -1057,12 +1084,53 @@ const PARAM_UNIFORM: Record<string, string> = {
   Layer1Transform: "t1", Layer2Transform: "t2", Layer3Transform: "t3", Layer1Scroll: "s1", Layer2Scroll: "s2", Layer3Scroll: "s3",
 };
 
+async function childLod(url: string, index: number): Promise<THREE.Object3D | undefined> {
+  if (!glbCache.has(url)) glbCache.set(url, gltfLoader.loadAsync(url).then((g) => g.scene).catch(() => null));
+  const scene = await glbCache.get(url)!;
+  return scene?.children[0]?.children[index];
+}
+
+async function smartBeamMeshes(beam: SmartBeam, placements: THREE.Matrix4[], index: number, group: THREE.Group): Promise<void> {
+  if (!beam.geometry) return;
+  const lod = await childLod(beam.geometry, beam.meshIndex);
+  if (!lod) return;
+  const mirror = new THREE.Matrix4().makeScale(1, 1, -1);
+  const offset = new THREE.Matrix4().compose(new THREE.Vector3().fromArray(beam.position),
+    new THREE.Quaternion().fromArray(beam.rotation), new THREE.Vector3().fromArray(beam.scaling));
+  const matrices = placements.map((p) => mirror.clone().multiply(p).multiply(offset).multiply(mirror));
+  lod.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const at = Number((mesh.material as THREE.Material).userData.index ?? 0);
+    for (const area of beam.areas) {
+      if (at < area.index || at >= area.index + area.count) continue;
+      const material = uberMaterial(area);
+      const base = new THREE.Vector4().fromArray(beam.color);
+      material.uniforms.colour!.value = base;
+      if (beam.modifiers?.length) {
+        material.onBeforeRender = (_renderer, _scene, _camera, _geometry, object) => {
+          const state = object.parent ? smartLightStates.get(object.parent) : undefined;
+          material.uniforms.colour!.value = state?.beamColors[index] ?? base;
+          material.uniformsNeedUpdate = true;
+        };
+      }
+      const instances = new THREE.InstancedMesh(mesh.geometry, material, matrices.length);
+      instances.name = `smart-beam:${beam.name ?? ""}`;
+      instances.scale.z = -1;
+      instances.renderOrder = 3;
+      // Facing is set in the vertex shader, so the original geometry bounds do not enclose every orientation.
+      instances.frustumCulled = false;
+      matrices.forEach((matrix, i) => instances.setMatrixAt(i, matrix));
+      group.add(instances);
+    }
+  });
+}
+
 async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<THREE.Object3D | null> {
   if (!node.geometry) return null;
   const holder = new THREE.Group();
   holder.name = `child-mesh:${node.name ?? ""}`;
-  const url = node.geometry;
-  if (!glbCache.has(url)) glbCache.set(url, gltfLoader.loadAsync(url).then((g) => g.scene).catch(() => null));
+  const geometryLod = childLod(node.geometry, node.meshIndex);
   const materials = new Map<SofChildMeshArea, THREE.Material>();
   // an area drawn with a hull shader (quadv5.fx, quadglassv5.fx) takes the hull's material: its textures by role (read
   // first, the material taking them as made), its four materials from the effect's own Mtl1..4 DiffuseColor,
@@ -1094,8 +1162,7 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
     distortionAreas.set(a, uberDistortionMaterial(a.params, { normal1, mask }));
   }));
   {
-    const scene = await glbCache.get(url)!;
-    const lod = scene?.children[0]?.children[node.meshIndex] ?? null;
+    const lod = await geometryLod;
     if (!lod) return null;
     const inner = new THREE.Group();
     inner.scale.set(1, 1, -1);
@@ -1770,11 +1837,12 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
       place(group, local, undefined);
       const lights: ChildLight[] = [];
       const flares: Parameters<typeof quadMesh>[0] = [];
-      const animated = [...node.lights, ...node.quads].some((source) => source.modifiers?.length);
-      if (animated) group.userData.smartLightSources = { lights: node.lights, quads: node.quads } satisfies SmartLightSources;
-      for (const p of placements) {
-        const matrix = new THREE.Matrix4().compose(new THREE.Vector3().fromArray(p.position),
-          new THREE.Quaternion().fromArray(p.rotation), new THREE.Vector3().fromArray(p.scaling));
+      const beams = node.meshes ?? [];
+      const animated = [...node.lights, ...node.quads, ...beams].some((source) => source.modifiers?.length);
+      if (animated) group.userData.smartLightSources = { lights: node.lights, quads: node.quads, beams } satisfies SmartLightSources;
+      const matrices = placements.map((p) => new THREE.Matrix4().compose(new THREE.Vector3().fromArray(p.position),
+        new THREE.Quaternion().fromArray(p.rotation), new THREE.Vector3().fromArray(p.scaling)));
+      for (const matrix of matrices) {
         for (const l of node.lights) lights.push(placedLight(l, matrix));
         for (const q of node.quads) {
           const e = matrix.elements;
@@ -1794,7 +1862,11 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
         group.add(mesh);
       }
       if (lights.length || animated) group.add(ticker());
-      if (group.children.length) sink(group);
+      if (beams.length) {
+        pending.push(Promise.all(beams.map((beam, i) => smartBeamMeshes(beam, matrices, i, group))).then(() => {
+          if (group.children.length) sink(group);
+        }));
+      } else if (group.children.length) sink(group);
       return;
     }
     if (node.k === "container") {

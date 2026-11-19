@@ -132,6 +132,7 @@ async function copyChildGraphAssets(rf, roots, outRoot) {
     if (n.k === "gpuParticles") gpu = true;
     if (n.k === "traffic") trafficNodes.push(n);
     if (n.k === "mesh" || n.k === "particles") meshNodes.push(n);
+    if (n.k === "smartLights") meshNodes.push(...n.meshes);
     if (n.k === "lines") for (const [name, res] of Object.entries(n.textures)) n.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
     for (const o of n.objects ?? []) walkChildren(o);
     if (n.k === "propagator") walkChildren(n.source);
