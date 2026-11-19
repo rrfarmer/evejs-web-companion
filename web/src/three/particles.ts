@@ -708,6 +708,7 @@ function dynamicDistortionMaterial(area: Area, textureOf: TextureOf): THREE.Shad
     distortionFactors: { value: v4(p.DistortionFactors, [1, 1, 10000, 1]) },
     normalMap1: { value: null as THREE.Texture | null },
     ...SOFT_DEPTH,
+    ...CLOUD_FOG,
   };
   const uvFields = "varying vec2 normalUv; varying vec3 atlasCell; varying vec4 distortionFade;";
   const mat = logDepth(new THREE.ShaderMaterial({
@@ -731,6 +732,7 @@ function dynamicDistortionMaterial(area: Area, textureOf: TextureOf): THREE.Shad
     fragmentShader: `uniform vec4 distortionFactors; uniform sampler2D normalMap1;
       ${uvFields}
       ${SOFT_DEPTH_GLSL}
+      ${CLOUD_FOG_GLSL}
       void main() {
         vec2 coord = fract(normalUv) * atlasCell.z + atlasCell.xy;
         vec2 original = normalUv * atlasCell.z;
@@ -738,7 +740,7 @@ function dynamicDistortionMaterial(area: Area, textureOf: TextureOf): THREE.Shad
         normal.z /= distortionFactors.w;
         float soft = softDepthOn > 0.5 ? clamp((softSceneDepth() - distortionFade.x) / distortionFade.y, 0.0, 1.0) : 1.0;
         vec2 offset = -normalize(normal).xy * distortionFactors.x * distortionFade.z * distortionFade.w * soft;
-        gl_FragColor = vec4(offset / 64.0, 1.0 / 256.0, distortionFactors.y);
+        gl_FragColor = vec4(offset * (cloudFogTransmission(1.0 / gl_FragCoord.w) / 64.0), 1.0 / 256.0, distortionFactors.y);
       }`,
     transparent: true, depthWrite: false, depthTest: true, side: THREE.FrontSide,
     blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation,

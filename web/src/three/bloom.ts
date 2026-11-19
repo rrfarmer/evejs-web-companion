@@ -230,18 +230,22 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       renderer.setRenderTarget(drawn);
       CLOUD_FOG.cloudFogMap.value = cloudOpacity;
       CLOUD_FOG.cloudFogEnabled.value = cloudOpacity !== null;
-      const gpuMesh = getGpuParticleSystem(scene)?.mesh;
-      const particlesVisible = gpuMesh?.visible ?? false;
-      if (gpuMesh) gpuMesh.visible = false;
+      let frame: THREE.Texture;
       try {
-        renderer.render(scene, camera);
+        const gpuMesh = getGpuParticleSystem(scene)?.mesh;
+        const particlesVisible = gpuMesh?.visible ?? false;
+        if (gpuMesh) gpuMesh.visible = false;
+        try {
+          renderer.render(scene, camera);
+        } finally {
+          if (gpuMesh) gpuMesh.visible = particlesVisible;
+        }
+        frame = particlePass.render(renderer, scene, camera, drawn);
+        if (quality.distortion) frame = distortion.render(renderer, scene, camera, drawn, frame);
       } finally {
-        if (gpuMesh) gpuMesh.visible = particlesVisible;
         CLOUD_FOG.cloudFogEnabled.value = false;
         CLOUD_FOG.cloudFogMap.value = null;
       }
-      let frame = particlePass.render(renderer, scene, camera, drawn);
-      if (quality.distortion) frame = distortion.render(renderer, scene, camera, drawn, frame);
       if (sun && godRays && godRays.intensity > 0) {
         rayPass ??= new GodRaysPass();
         frame = rayPass.render(renderer, scene, camera, sun, godRays, frame, drawn.width, drawn.height, cloudOpacity);

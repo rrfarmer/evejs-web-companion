@@ -940,12 +940,13 @@ function motionVectorRampMaterial(area: SofChildMeshArea): THREE.ShaderMaterial 
  * time + .zw, MaskMap at the plain uv, all three multiplied; the world normal (normalised) pushed by that product's rgb
  * x ScaleAlongNormal and normalised; the per-frame camera forward (EveSpaceSceneDataPS ViewMat's third column, cb2[6])
  * reflected about it - reflect(-forward, n) - read from MainCubeMap; the colour that x DiffuseColor.rgb, alpha the
- * product's alpha x DiffuseColor.a (the fog volume map's factor 1); written sRGB-encoded (the per-frame gamma 1). No
- * texture is read as sRGB. Defaults DiffuseColor 0.8, 0.8, 0.8, 1; TextureTransforms 0, 0, 1, 1; the rest nought.
+ * product's alpha x DiffuseColor.a. In 3698585 the cube color stays linear and scene fog attenuates alpha.
+ * No texture is read as sRGB. Defaults DiffuseColor 0.8, 0.8, 0.8, 1; TextureTransforms 0, 0, 1, 1; the rest nought.
  */
 function uberCubeMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
   const p = area.params;
   const uniforms: Record<string, THREE.IUniform> = {
+    ...CLOUD_FOG, softDepthSize: SOFT_DEPTH.softDepthSize,
     time: effectClock, colour: { value: v4(p.DiffuseColor, [0.8, 0.8, 0.8, 1]) },
     t1: { value: v4(p.TextureTransform1, [0, 0, 1, 1]) }, t2: { value: v4(p.TextureTransform2, [0, 0, 1, 1]) },
     s1: { value: v4(p.TextureScroll1, [0, 0, 0, 0]) }, s2: { value: v4(p.TextureScroll2, [0, 0, 0, 0]) },
@@ -967,7 +968,8 @@ function uberCubeMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
     fragmentShader: `uniform sampler2D d1; uniform sampler2D d2; uniform sampler2D mask; uniform samplerCube cube; uniform float hasCube;
       uniform vec4 colour; uniform vec4 t1; uniform vec4 t2; uniform vec4 s1; uniform vec4 s2; uniform vec3 alongNormal; uniform float time;
       varying vec2 vUv; varying vec3 vN;
-      ${SRGB_ENCODE_GLSL}
+      uniform vec2 softDepthSize;
+      ${CLOUD_FOG_GLSL}
       void main() {
         vec4 c = texture2D(d1, vUv * t1.zw + t1.xy + s1.xy * time + s1.zw) * texture2D(d2, vUv * t2.zw + t2.xy + s2.xy * time + s2.zw)
           * texture2D(mask, vUv);
@@ -976,7 +978,7 @@ function uberCubeMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
         vec3 forward = -vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
         vec3 r = reflect(-forward, n);
         vec3 env = hasCube > 0.5 ? textureCube(cube, vec3(r.x, r.y, -r.z)).rgb : vec3(0.0);
-        gl_FragColor = vec4(encode(max(env * colour.rgb, 0.0)), c.a * colour.a);
+        gl_FragColor = vec4(env * colour.rgb, c.a * colour.a * cloudFogTransmission(1.0 / gl_FragCoord.w));
       }`,
     side: presetSide(area), transparent: true, depthWrite: false,
     ...areaBlend(area),
