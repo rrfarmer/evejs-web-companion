@@ -4,9 +4,38 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { changeColonyNetwork, launchCommodities, rerouteExtractorRoutes } from "./planetWrites.ts";
+import { commandLaunchRemaining, fmtTime, quoteCommandLaunch } from "./planetLaunches.ts";
+import { decodeColonyReport } from "./planets.ts";
 
 const PLANET = 40176368;
 const [ECU, STORE, FACTORY] = [1054656331535, 1054656331531, 1054656331540];
+
+test("command centre launch review prices the selected stacks and uses a 60-second cooldown", () => {
+  const type = (attributes: readonly (readonly [number, number])[]) => ({
+    groupID: null, categoryID: null, effects: [], requiredSkills: [], attributes,
+  });
+  const command = decodeColonyReport({ coloniesReadable: true, colonies: [{ planetID: PLANET, pins: [{
+    pinID: 23, kind: "command", typeID: 2524, usedM3: 3.9, capacityM3: 500,
+    contents: [{ typeID: 3645, quantity: 20 }, { typeID: 2268, quantity: 20 }],
+  }] }] }, 0).colonies[0]!.pins[0]!;
+  const facts = {
+    types: { 2524: type([[1639, 1.5]]), 3645: type([[1640, 400]]), 2268: type([[1640, 5]]) },
+    volumes: { 3645: .19, 2268: .005 },
+  };
+  assert.deepEqual(quoteCommandLaunch(command, { 3645: 20 }, facts), { tax: 600, volume: 3.8 });
+  assert.equal(quoteCommandLaunch(command, { 3645: 20, 2268: 20 }, facts).tax, 607.5);
+  assert.throws(() => quoteCommandLaunch(command, { 3645: 21 }, facts), /exceeds/);
+  assert.throws(() => quoteCommandLaunch(command, { 3645: 1.5 }, facts), /exceeds/);
+  assert.throws(() => quoteCommandLaunch({ ...command, kind: "launchpad" }, { 3645: 20 }, facts), /Only a command centre/);
+  assert.equal(commandLaunchRemaining(null, 1_000), 0);
+  assert.equal(commandLaunchRemaining(1_000, 60_999), 1);
+  assert.equal(commandLaunchRemaining(1_000, 61_000), 0);
+  // FmtTime drops the part second: a cooldown read a moment after launch never shows more than 00:01:00.
+  assert.equal(fmtTime(60_400), "00:01:00");
+  assert.equal(fmtTime(59_999), "00:00:59");
+  assert.equal(fmtTime(1), "00:00:00");
+  assert.equal(fmtTime(3_725_000), "01:02:05");
+});
 
 /** An asker that says what it was asked, with everything it was handed. */
 function harness() {

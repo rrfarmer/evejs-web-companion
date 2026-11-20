@@ -126,7 +126,7 @@ export function routeEditCommands(removeRouteIDs: readonly number[], create: rea
  * inside its minute, in its own words. It debits export tax from the wallet and leaves a container in space
  * beside the planet: a costly write that others can see, which a caller has a reason for.
  */
-export async function launchCommodities(act: Ask, planetID: number, commandPinID: number, commodities: Readonly<Record<number, number>>): Promise<void> {
+export async function launchCommodities(act: Ask, planetID: number, commandPinID: number, commodities: Readonly<Record<number, number>>) {
   requirePlanet(planetID);
   if (!Number.isSafeInteger(commandPinID) || commandPinID <= 0) {
     throw new Error("A command centre's pin is required.");
@@ -134,5 +134,5 @@ export async function launchCommodities(act: Ask, planetID: number, commandPinID
   if (Object.keys(commodities).length === 0) {
     throw new Error("Nothing was chosen to launch.");
   }
-  await act("planetMgr", "UserLaunchCommodities", [commandPinID, { ...commodities }], null, planetID);
+  return act("planetMgr", "UserLaunchCommodities", [commandPinID, { ...commodities }], null, planetID);
 }

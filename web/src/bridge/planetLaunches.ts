@@ -18,9 +18,60 @@
 
 import type { LaunchDetail } from "./piColonies.ts";
 import { BLUE_TIME } from "./timeInterval.ts";
+import type { ColonyPin } from "../store/types.ts";
+import type { DogmaStatic } from "./dogma/location.ts";
 
 /** appConst.piLaunchOrbitDecayTime: five days, in the client's ticks. */
 export const PI_LAUNCH_ORBIT_DECAY = BLUE_TIME.DAY * 5n;
+// SpaceportPin.GetLaunchCycleTime and GetExportTax.
+const COMMAND_LAUNCH_CYCLE_MS = 60_000;
+const COMMAND_LAUNCH_TAX_RATE = 0.05;
+const EXPORT_TAX = 1639;
+const IMPORT_TAX_MULTIPLIER = 1640;
+
+export function commandLaunchRemaining(lastLaunchAtMs: number | null, nowMs: number): number {
+  return lastLaunchAtMs === null ? 0 : Math.max(0, lastLaunchAtMs + COMMAND_LAUNCH_CYCLE_MS - nowMs);
+}
+
+/**
+ * format.FmtTime, as CommandCenterContainer shows the next launch time (nextLaunchTime less GetWallclockTime): hours,
+ * minutes and seconds by integer division, so a part second is dropped, each with two leading zeroes, in
+ * DateTimeShort3Elements ("{value1}:{value2}:{value3}").
+ */
+export function fmtTime(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  const two = (value: number) => String(value).padStart(2, "0");
+  return `${two(Math.floor(seconds / 3600))}:${two(Math.floor(seconds % 3600 / 60))}:${two(seconds % 60)}`;
+}
+
+export interface CommandLaunchFacts {
+  readonly types: DogmaStatic["types"];
+  readonly volumes: Readonly<Record<number, number | null>>;
+}
+
+export function quoteCommandLaunch(pin: ColonyPin, payload: Readonly<Record<number, number>>, facts: CommandLaunchFacts) {
+  if (pin.kind !== "command") throw new Error("Only a command centre can launch commodities.");
+  const entries = Object.entries(payload);
+  if (!entries.length) throw new Error("Choose commodities to launch.");
+  const rate = facts.types[pin.typeID]?.attributes.find(([id]) => id === EXPORT_TAX)?.[1];
+  if (rate == null) throw new Error("The command centre's launch tax data is unavailable.");
+  let tax = 0;
+  let volume: number | null = 0;
+  for (const [key, quantity] of entries) {
+    const typeID = Number(key);
+    const stock = pin.contents.find(row => row.typeID === typeID)?.quantity ?? 0;
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > stock) {
+      throw new Error("The staged payload exceeds the commodities in storage.");
+    }
+    const type = facts.types[typeID];
+    if (!type) throw new Error("A payload commodity's tax data is unavailable.");
+    const multiplier = type.attributes.find(([id]) => id === IMPORT_TAX_MULTIPLIER)?.[1] ?? 0;
+    tax += rate * multiplier * quantity;
+    const perUnit = facts.volumes[typeID];
+    volume = volume !== null && perUnit != null ? volume + perUnit * quantity : null;
+  }
+  return { tax: Math.round(tax * COMMAND_LAUNCH_TAX_RATE * 100) / 100, volume };
+}
 /** const.minWarpDistance, in metres. */
 const MIN_WARP_DISTANCE = 150_000;
 /** The client's clock at the Unix epoch, in its ticks of 100 ns since 1601. */

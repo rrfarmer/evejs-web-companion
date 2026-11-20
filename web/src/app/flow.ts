@@ -1175,7 +1175,7 @@ import type { FleetCenterSnapshot } from "../bridge/fleetCenter.ts";
 import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert, type FleetAdvert } from "../bridge/fleetAds.ts";
 import { readAvailableFleetAds, readFleetFinder as readFleetFinderCalls } from "../bridge/fleetFinderReads.ts";
 import { readMyLaunches } from "../bridge/launchReads.ts";
-import type { PlanetLaunchesRead } from "../bridge/planetLaunches.ts";
+import { commandLaunchRemaining, quoteCommandLaunch, type CommandLaunchFacts, type PlanetLaunchesRead } from "../bridge/planetLaunches.ts";
 import { readMarketTransactions, type MarketTransactionsRead } from "../bridge/marketTransactions.ts";
 import { decodeEntryKinds, decodeJournalEntries, journalLines, corporateJournalLines, canViewCorporateJournal, type WalletJournalRead, type CorpWalletJournalRead } from "../bridge/walletJournal.ts";
 import type { WalletOverviewRead } from "../bridge/walletOverview.ts";
@@ -4452,6 +4452,8 @@ export interface AppFlow {
   readCommandCenterUpgrade(): Promise<CommandCenterUpgradeQuote>;
   submitPlanetEdits(planetID: number, edits: readonly ExtractorEdit[], routes: RouteEdits, layout?: readonly PlanetLayoutEdit[]): Promise<void>;
   expediteColonyTransfer(planetID: number, path: readonly number[], cargo: TransferCargo): Promise<void>;
+  readCommandLaunchFacts(pinTypeID: number, commodityTypes: readonly number[]): Promise<CommandLaunchFacts>;
+  submitCommandLaunch(planetID: number, pinID: number, payload: Readonly<Record<number, number>>, reviewedTax: number): Promise<number>;
   readCustomsOffice(planetID: number): Promise<CustomsOfficeRead>;
   submitCustomsTransfer(planetID: number, reviewed: CustomsOfficeRead, transfer: CustomsTransfer): Promise<void>;
   readColonyTemplateRules(template: ColonyTemplate, currentLevel: number): Promise<ColonyTemplateRules>;
@@ -28703,6 +28705,40 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return colony;
   }
 
+  async function readCommandLaunchFacts(pinTypeID: number, commodityTypes: readonly number[]): Promise<CommandLaunchFacts> {
+    const [types, { volumes }] = await Promise.all([
+      infoTypeFacts([pinTypeID, ...commodityTypes]),
+      api.loadTypeVolumes(commodityTypes, callOptions),
+    ]);
+    return { types, volumes };
+  }
+
+  async function submitCommandLaunch(planetID: number, pinID: number, payload: Readonly<Record<number, number>>, reviewedTax: number): Promise<number> {
+    if (planetSubmissions.has(planetID)) throw new Error("A colony update is already being submitted.");
+    const pilot = callOptions.captureRequestGuard!();
+    planetSubmissions.add(planetID);
+    try {
+      const colony = await readOwnedColony(planetID);
+      const pin = colony.pins.find(row => row.pinID === pinID && row.kind === "command");
+      if (!pin) throw new Error("The command centre is no longer available.");
+      const facts = await readCommandLaunchFacts(pin.typeID, Object.keys(payload).map(Number));
+      if (quoteCommandLaunch(pin, payload, facts).tax !== reviewedTax) {
+        throw new Error("The launch tax changed. Review the latest payload before launching.");
+      }
+      pilot();
+      if (commandLaunchRemaining(pin.lastLaunchAtMs, serverNow()) > 0) {
+        throw new Error("The command centre is still on launch cooldown.");
+      }
+      const answered = await launchCommoditiesCall(bridgeDo, planetID, pinID, payload);
+      const launchedAt = filetimeToUnixMs(unwrapLong(answered)) ?? serverNow();
+      planetLaunchesChanged();
+      await Promise.allSettled([loadPlanets(), loadWallet({ fresh: true })]);
+      return launchedAt;
+    } finally {
+      planetSubmissions.delete(planetID);
+    }
+  }
+
   async function readCustomsOffice(planetID: number) {
     const pilot = callOptions.captureRequestGuard!();
     const office = customsOfficeForPlanet(store.space.get().snapshot, planetID);
@@ -38176,6 +38212,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     readCommandCenterUpgrade,
     submitPlanetEdits,
     expediteColonyTransfer,
+    readCommandLaunchFacts,
+    submitCommandLaunch,
     readCustomsOffice,
     submitCustomsTransfer,
     quoteColonyTemplate,

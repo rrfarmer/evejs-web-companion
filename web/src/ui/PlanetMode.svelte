@@ -20,6 +20,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import type { Colony, ColonyLink, ColonyPin, ColonyRoute, ExtractorHead } from "../store/types.ts";
   import ColonyTemplate from "./ColonyTemplate.svelte";
+  import CommandCentreLaunch from "./CommandCentreLaunch.svelte";
   import CommandCenterUpgrade from "./CommandCenterUpgrade.svelte";
   import ExtractorSurvey from "./ExtractorSurvey.svelte";
   import ExpeditedTransfer from "./ExpeditedTransfer.svelte";
@@ -59,6 +60,7 @@
   let removedRoutes = $state.raw<readonly ColonyRoute[]>([]);
   let layout = $state.raw<readonly PlanetLayoutEdit[]>([]);
   let upgradeShown = $state(false);
+  let launchShown = $state(false);
   let schematicsShown = $state(false);
   let upgradeRefresh = $state(0);
   let building = $state(false);
@@ -171,6 +173,7 @@
     if (shortcut) { startLink(pin); return; }
     pendingRemoval = null;
     upgradeShown = false;
+    launchShown = false;
     schematicsShown = pin.kind === "factory" && pin.schematicID === null;
     closeLink();
     highlight = [];
@@ -382,6 +385,7 @@
     deployPicking = false;
     abandonReview = false;
     upgradeShown = false;
+    launchShown = false;
     schematicsShown = false;
   }
 
@@ -579,7 +583,7 @@
   }
 
   export function escapeCanLeave(): boolean {
-    if (deployPicking || abandonReview || upgradeShown || schematicsShown) {
+    if (deployPicking || abandonReview || upgradeShown || schematicsShown || launchShown) {
       if (!submitting) closeConstruction();
       return false;
     }
@@ -766,7 +770,7 @@
   });
   $effect(() => { scene?.setExtractor(workingUnit, displayedHeads, displayedRadius, workingUnit?.extractor?.areaOfInfluence ?? null); });
   $effect(() => {
-    if (!running) return;
+    if (!running && !launchShown) return;
     browserNow = Date.now();
     const timer = setInterval(() => { browserNow = Date.now(); }, 1000);
     return () => clearInterval(timer);
@@ -1000,7 +1004,7 @@
         <div class="installation-heading">
           <TypeIcon typeID={selected.typeID} name={selected.typeName} />
           <strong>{selected.typeName}</strong>
-          <button type="button" aria-label="Close installation details" disabled={submitting} onclick={() => { closeRoute(); closeTransfer(); upgradeShown = schematicsShown = false; selectedID = null; }}>×</button>
+          <button type="button" aria-label="Close installation details" disabled={submitting} onclick={() => { closeRoute(); closeTransfer(); upgradeShown = schematicsShown = launchShown = false; selectedID = null; }}>×</button>
         </div>
         {#if selected.schematicName}<p>Recipe <strong>{selected.schematicName}</strong></p>{/if}
         {#if selected.kind === "factory" && selected.schematicID !== null && selected.active != null}
@@ -1038,13 +1042,26 @@
             <button type="button" disabled={submitting || refreshing} onclick={() => reviewRemoval(selected)}>Decommission Installation</button>
           {:else}
             <button type="button" disabled={submitting || refreshing} aria-expanded={upgradeShown}
-              onclick={() => { upgradeShown = !upgradeShown; }}>Upgrade Command Centre</button>
+              onclick={() => { upgradeShown = !upgradeShown; launchShown = false; }}>Upgrade Command Centre</button>
+            <button type="button" disabled={pending || submitting || refreshing} aria-expanded={launchShown}
+              onclick={() => { launchShown = !launchShown; upgradeShown = false; }}>Launch Payload</button>
             <button type="button" disabled={submitting || refreshing} onclick={reviewAbandonment}>Abandon Colony</button>
           {/if}
         {/if}
         {#if upgradeShown && selected.kind === "command"}
           <CommandCenterUpgrade level={networkView.commandCenterLevel} {pendingCost} {flow} disabled={submitting || refreshing}
             refresh={upgradeRefresh} stage={stageCommandUpgrade} close={() => { upgradeShown = false; }} />
+        {:else if launchShown && selected.kind === "command"}
+          {#key selected.pinID}
+            {@const pinID = selected.pinID}
+            <CommandCentreLaunch pin={selected} nowMs={serverNow($planets.clockOffsetMs, browserNow)} {flow}
+              disabled={pending || submitting || refreshing} close={() => { launchShown = false; }}
+              launch={async (payload, tax) => {
+                submitting = true;
+                try { return await flow.submitCommandLaunch(colony.planetID, pinID, payload, tax); }
+                finally { submitting = false; }
+              }} />
+          {/key}
         {:else if schematicsShown && selected.kind === "factory"}
           {#key selected.pinID}
             <ProcessorSchematics pin={selected} colony={routeView} recipes={$planets.recipes} disabled={submitting || refreshing}
