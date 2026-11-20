@@ -286,6 +286,11 @@ export function distanceWords(m: number): string {
   return `${(m / 149_597_870_700).toFixed(1)} AU`;
 }
 
+/** inSpaceBracket.get_label_text: the name, then a space and FmtDist of the distance when there is one. */
+export function labelText(name: string, distance: number): string {
+  return distance ? `${name} ${fmtDistance(distance)}` : name;
+}
+
 /** menusvc.GetDefaultActionDistance: the pilot's default warp, orbit and keep-at-range distances (0, 1,000, 1,000 m). */
 type DefaultDistanceKind = "WarpTo" | "Orbit" | "KeepAtRange";
 const DEFAULT_DISTANCES: Readonly<Record<DefaultDistanceKind, number>> = { WarpTo: 0, Orbit: 1000, KeepAtRange: 1000 };
@@ -2863,7 +2868,7 @@ export class SpaceView {
         el.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px)`;
         if (this.selected === e.itemID || el.classList.contains("mining-selected")) this.updateMiningBracket(el, e, survey);
         if (this.frameCount % 10 === 0 || highlighted || el.classList.contains("selected")) {
-          el.querySelector<HTMLElement>(".label")!.textContent = `${this.nameOf(e)} - ${distanceWords(this.distanceTo(e))}`;
+          el.querySelector<HTMLElement>(".label")!.textContent = labelText(this.nameOf(e), this.distanceTo(e));
         }
       }
     }
