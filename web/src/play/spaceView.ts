@@ -835,7 +835,7 @@ export class SpaceView {
       glyph,
       name: (e) => this.nameOf(e),
       pilotID: options.overviewPilotID,
-      word: (label) => this.actions.word?.(label) ?? null,
+      word: (label, args) => this.actions.word?.(label, args) ?? null,
       notice: options.overviewNotice,
     });
     this.overview.window.root.classList.add("space-only-window");
@@ -858,7 +858,7 @@ export class SpaceView {
     this.systemMap = new SolarSystemMapWindow({
       celestials: () => (this.snapshot?.entities ?? []).filter((e) => e.groupID !== null && (MARKER_GROUPS.has(e.groupID))),
       ego: () => this.snapshot?.ship?.position ?? null,
-      word: (label) => this.actions.word?.(label) ?? null,
+      word: (label, args) => this.actions.word?.(label, args) ?? null,
       markerName: (itemID) => {
         const entity = this.snapshot?.entities.find((each) => each.itemID === itemID);
         return this.actions.locationName?.(itemID) ?? (entity ? this.nameOf(entity) : "");

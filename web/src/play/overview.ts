@@ -5,7 +5,7 @@
 
 import { PlayWindow, clientTexture } from "./window.ts";
 import type { Entity } from "./spaceView.ts";
-import { distanceWords } from "./spaceView.ts";
+import { fmtDist } from "../space/overview.ts";
 import { playUiEvent } from "./uiAudio.ts";
 import { overviewRowWanted, type OverviewRelationships, type PresetMask } from "./overviewFilters.ts";
 
@@ -44,8 +44,22 @@ const SORT_ENABLED = "UI/Tactical/HeaderSortingEnabledCb";
 const SORT_HINT = "UI/Tactical/HeaderSortingEnabledCbHint";
 const SORT_DISABLED = "UI/Tactical/HeaderSortingDisabled";
 const HACKED_HINT = "Tooltips/Overview/ScatterContainerHacked";
-export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HINT];
+export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HINT, "UI/Tactical/OverviewCaption"];
 const DISABLED_TEXT = "Header sorting is disabled";
+
+/**
+ * OverviewScrollEntry._GetColumnValueDistance: metres to 10 km, kilometres to 10,000,000 km, then AU to one place
+ * (FormatNumeric with grouping).
+ */
+export function overviewDistance(m: number): string {
+  const d = Math.max(0, m);
+  if (d < 10_000) return `${Math.round(d).toLocaleString("en-US")} m`;
+  if (d < 10_000_000_000) return `${Math.round(d / 1000).toLocaleString("en-US")} km`;
+  return `${(Math.round((d / 149_597_870_700) * 10) / 10).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} AU`;
+}
+
+/** overviewConst: the icon column fixed at 22, Name and Type 112, Velocity and Angular 58, the others COLUMNMINDEFAULTSIZE 80. */
+const COLUMN_WIDTHS = [22, 80, 112, 112, 80, 58, 58];
 
 function readSort(key: string, fallback: OverviewSort = DEFAULT_SORT): OverviewSort {
   try {
@@ -98,7 +112,7 @@ export interface OverviewHooks {
   /** The row's Name (uix.GetSlimItemName); the slim's name, else the type's, where it is not given. */
   name?(e: Entity): string;
   pilotID?: number;
-  word?(label: string): string | null;
+  word?(label: string, args?: Readonly<Record<string, string | number>>): string | null;
   notice?(text: string): void;
 }
 
@@ -124,18 +138,18 @@ export class Overview {
   private lockFlash?: Animation;
 
   constructor(private readonly hooks: OverviewHooks) {
-    this.window = new PlayWindow({ id: "overview", caption: "Overview", icon: clientTexture("res:/UI/Texture/WindowIcons/overview.png"), left: innerWidth - 470, top: 260, width: 450, height: 380, closable: false });
+    this.window = new PlayWindow({ id: "overview", caption: "Overview", left: innerWidth - 586, top: 260, width: 566, height: 380, closable: false });
     this.window.body.classList.add("ov");
+    // the client's default (not compact) layout: the caption "Overview (preset)" in the header, the tabs in a row under
+    // it (OverviewTabGroup, 32 high, the chosen one marked by a SelectionIndicatorLine), a DividerLine, then the scroll
     this.window.body.innerHTML = `<div class="ov-tabs"><span class="ov-tab active">General</span></div>`;
     this.tabsEl = this.window.body.querySelector(".ov-tabs")!;
-    // (in the title row, the window's icon and caption giving way to them)
-    this.window.headSlot(this.tabsEl);
     this.tabsEl.addEventListener("click", (e) => {
       const i = Number((e.target as HTMLElement).closest<HTMLElement>(".ov-tab")?.dataset.tab);
       if (Number.isInteger(i)) this.choose(i);
     });
     this.table.className = "ov-table";
-    this.table.innerHTML = `<thead><tr><th class="ov-icon"></th><th class="ov-dist" data-sort="distance"><button type="button">Distance</button></th><th data-sort="name"><button type="button">Name</button></th><th data-sort="type"><button type="button">Type</button></th><th class="ov-dist" data-sort="size"><button type="button">Size</button></th><th class="ov-dist" data-sort="velocity"><button type="button">Velocity</button></th><th class="ov-dist" data-sort="angular"><button type="button">Angular</button></th></tr></thead>`;
+    this.table.innerHTML = `<colgroup>${COLUMN_WIDTHS.map((w) => `<col style="width:${w}px">`).join("")}</colgroup><thead><tr><th class="ov-icon"></th><th class="ov-dist" data-sort="distance"><button type="button">Distance</button></th><th data-sort="name"><button type="button">Name</button></th><th data-sort="type"><button type="button">Type</button></th><th class="ov-dist" data-sort="size"><button type="button">Size</button></th><th class="ov-dist" data-sort="velocity"><button type="button">Velocity</button></th><th class="ov-dist" data-sort="angular"><button type="button">Angular</button></th></tr></thead>`;
     const pilotSuffix = hooks.pilotID === undefined ? "" : `:${hooks.pilotID}`;
     this.tabKey = TAB_KEY + pilotSuffix;
     this.sortKey = SORT_KEY + pilotSuffix;
@@ -287,6 +301,10 @@ export class Overview {
     if ((!initial && this.tab === i) || !this.tabs[i]) return;
     this.tab = i;
     this.tabsEl.innerHTML = this.tabs.map((t, n) => `<span class="ov-tab${n === i ? " active" : ""}" data-tab="${n}">${esc(t.name)}</span>`).join("");
+    // OverviewWindow.UpdateWindowCaption: UI/Tactical/OverviewCaption with the preset's display name ("General: General")
+    const presetID = (this.tabs[i] as OverviewTab & { presetID?: string }).presetID;
+    const preset = this.presetChoices.find((p) => p.id === presetID)?.label ?? this.tabs[i]!.overview?.name ?? "";
+    this.window.caption = this.hooks.word?.("UI/Tactical/OverviewCaption", { preset }) ?? `Overview (${preset})`;
     this.sort = this.tabSorts.get(i) ?? readSort(this.tabSortKey(), initial ? this.sort : DEFAULT_SORT);
     this.keepSort();
     this.markSort();
@@ -369,7 +387,7 @@ export class Overview {
       const typeName = e.typeID ? this.types[String(e.typeID)]?.[0] ?? "" : "";
       const hackingHint = (e.hackingSecurityState ?? 0) > 1
         ? ` title="${esc(this.hooks.word?.(HACKED_HINT) ?? "Has already been hacked")}"` : "";
-      html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}${e.isNpc ? " npc" : ""}"><td class="ov-icon"${hackingHint}>${this.hooks.glyph(e)}</td><td class="ov-dist">${distanceWords(d)}</td><td>${esc(rowName(e))}</td><td>${esc(typeName)}</td><td class="ov-dist">${distanceWords(2 * (e.radius ?? 0))}</td><td class="ov-dist">${isStatic(e) ? "-" : Math.trunc(speed(e)).toLocaleString()}</td><td class="ov-dist">${(() => { const w = angular(e, d); return w === null ? "-" : w.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); })()}</td></tr>`);
+      html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}${e.isNpc ? " npc" : ""}"><td class="ov-icon"${hackingHint}>${this.hooks.glyph(e)}</td><td class="ov-dist">${overviewDistance(d)}</td><td>${esc(rowName(e))}</td><td>${esc(typeName)}</td><td class="ov-dist">${fmtDist(2 * (e.radius ?? 0))}</td><td class="ov-dist">${isStatic(e) ? "-" : Math.trunc(speed(e)).toLocaleString()}</td><td class="ov-dist">${(() => { const w = angular(e, d); return w === null ? "-" : w.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); })()}</td></tr>`);
     }
     const markup = html.join("");
     if (markup !== this.drawnRows) {
