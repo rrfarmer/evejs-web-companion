@@ -19,7 +19,13 @@ export function warnsAboutContainerContents(groupID: number | null): boolean {
 export async function insuredAssetShips(ask: Ask): Promise<ReadonlySet<number>> {
   const answer = await ask("insuranceSvc", "GetContracts", []);
   if (!isListValue(answer)) throw new Error("The ship insurance contracts could not be read.");
-  return new Set(answer.items.map(row => Number(unwrapLong(readRowField(row, "shipID")))));
+  const ships = new Set<number>();
+  for (const row of answer.items) {
+    const shipID = Number(unwrapLong(readRowField(row, "shipID")));
+    if (!Number.isSafeInteger(shipID) || shipID <= 0) throw new Error("The ship insurance contracts could not be read.");
+    ships.add(shipID);
+  }
+  return ships;
 }
 
 /** RepackageItems takes a station-keyed dict of lists of (itemID, locationID) tuples. */

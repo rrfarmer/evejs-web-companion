@@ -621,7 +621,9 @@ const OWN_SHIP_MONIKER = new Set(["GetShipConfiguration", "GetDirtTimestamp"]);
  * service that makes its own does so wherever the pilot is.
  */
 const madeAfresh = (service, method, { dockedInStation = false } = {}) =>
-  service === "crimewatch" || service === "planetOrbitalRegistryBroker" || service === "entity" || service === "repairSvc" || (service === "ship" && (dockedInStation || OWN_SHIP_MONIKER.has(method)));
+  service === "crimewatch" || service === "planetOrbitalRegistryBroker" || service === "entity" || service === "repairSvc" ||
+  (service === "insuranceSvc" && method === "GetContracts" && dockedInStation) ||
+  (service === "ship" && (dockedInStation || OWN_SHIP_MONIKER.has(method)));
 /**
  * The services the client reaches with sm.ProxySvc(name): every one in the decompiled client, and none
  * of them is asked any other way. Such a call is addressed to the client's proxy node
@@ -3306,6 +3308,16 @@ const RETAIL_CALLS = Object.freeze({
     "A dictionary keyed by station. Each value is a list of (itemID, locationID) tuples. destroyable=True is sent after confirming rig destruction.",
   ),
   "repairSvc.GetRepairQuotes": reshaped("eve/client/script/ui/station/repairshop/base_repairshop.py:63", quotingRepairs, "GetRemoteRepairMgr().GetRepairQuotes(itemIDs): the items as a list, on a Moniker of repairSvc made for the one call (45 to 60). In no recording."),
+  "insuranceSvc.GetContracts": judged(
+    "eve/client/script/ui/station/insurance/base_insurance.py:114",
+    (args, kwargs, context) => {
+      if ((args.length !== 0 && !(args.length === 1 && args[0] === 1)) || Object.keys(kwargs).length !== 0) {
+        return { status: "differs", note: "Personal contracts take no arguments. Corporation contracts take 1." };
+      }
+      return { moniker: Number.isSafeInteger(context.stationID) && context.stationID > 0 };
+    },
+    "GetContracts uses the insurance manager in an NPC station and calls by service name elsewhere.",
+  ),
   "repairSvc.RepairItemsInStation": reshaped("eve/client/script/ui/station/repairshop/base_repairshop.py:67", repairingInAStation, "GetRemoteRepairMgr().RepairItemsInStation(itemIDs, payment), docked in a station: the items as a list and the payment a float, the amount the shop's window worked out (300 to 327). In no recording."),
   "repairSvc.RepairItemsInStructure": reshaped("eve/client/script/ui/station/repairshop/base_repairshop.py:69", repairingInAStructure, "GetRemoteRepairMgr().RepairItemsInStructure(itemIDs), docked in a structure, with nothing paid. In no recording."),
   "repairSvc.RepairItems": differs("eve/client/script/ui/station/repairshop/base_repairshop.py:65", "The client's repair service asks RepairItemsInStation or RepairItemsInStructure of the shop's Moniker. This name is the server's own for both, and what the web gateway's list has."),

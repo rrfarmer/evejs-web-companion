@@ -17,6 +17,17 @@ const form = (pair, args, kwargs = null) => {
   return retailForm(service, method, args, kwargs);
 };
 
+test("insurance contract reads use the station insurance manager only in an NPC station", () => {
+  const station = retailForm("insuranceSvc", "GetContracts", [], null, { stationID: 60003760 });
+  const structure = retailForm("insuranceSvc", "GetContracts", [], null, { stationID: null, structureID: 1030000000000 });
+  assert.equal(station.moniker, true);
+  assert.equal(structure.moniker, false);
+  assert.equal(station.status, "same");
+  assert.equal(structure.status, "same");
+  assert.equal(madeAfresh("insuranceSvc", "GetContracts", { dockedInStation: true }), true);
+  assert.equal(retailForm("insuranceSvc", "GetContracts", [0], null).status, "differs");
+});
+
 test("a pair nobody has checked goes out as the BFF spelt it, and says so", () => {
   const args = [1, [2, 3]];
   const kwargs = { flag: 5 };

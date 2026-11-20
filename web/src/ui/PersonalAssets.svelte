@@ -364,9 +364,18 @@
     headerMenuFor = null;
     const rows = visibleAssetRows();
     if (!selectedItems.has(itemID)) selectAssetItem(event, itemID, rows);
-    const chosen = rows.filter(row => selectedItems.has(Number(row.dataset.assetItem))).map(menuAsset);
+    const target = event.currentTarget as HTMLButtonElement;
+    const chosenByID = new Map<number, MenuAsset>();
+    for (const row of rows) {
+      const asset = menuAsset(row);
+      // A refreshed destination can list the same item as an older expanded group.
+      if (selectedItems.has(asset.itemID) && (!chosenByID.has(asset.itemID) || row === target)) {
+        chosenByID.set(asset.itemID, asset);
+      }
+    }
+    const chosen = [...chosenByID.values()];
     if (chosen.length === 0) return;
-    const anchor = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const anchor = target.getBoundingClientRect();
     const menu: AssetItemMenu = { rows: chosen, x: event.clientX || anchor.left, y: event.clientY || anchor.bottom };
     itemMenu = menu;
     const types = [...new Set(chosen.map(row => row.typeID))];

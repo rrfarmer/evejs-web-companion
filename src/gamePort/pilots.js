@@ -5476,7 +5476,8 @@ function createGamePortPilots({
       case OFFICE_MANAGER: // officeManager.station: Moniker('officeManager', session.stationid or session.structureid);
         // officeManager.TrashImpoundAtStation (officeManager.py 156): Moniker('officeManager', stationID), the one named.
         return positive(Array.isArray(given) ? given[0] : given) ?? attribute(entry, "stationid") ?? attribute(entry, "structureid") ?? undefined;
-      case "repairSvc": { // repair.GetRemoteRepairMgr: Moniker('repairSvc', (the dockable place, the place, the place's group))
+      case "repairSvc":
+      case "insuranceSvc": { // The shop monikers carry (dockable location, location, location group).
         const stationID = attribute(entry, "stationid");
         if (stationID !== null) return [stationID, stationID, GROUP_STATION];
         const structureID = attribute(entry, "structureid");
@@ -5958,6 +5959,7 @@ function createGamePortPilots({
       solarSystemID: attribute(entry, "solarsystemid"),
       // session.stationid or session.structureid: where the pilot is docked, and none in space.
       dockedAt: attribute(entry, "stationid") ?? attribute(entry, "structureid"),
+      stationID: attribute(entry, "stationid"),
       // session.structureid: the structure the pilot is docked in, and none in a station or in space.
       structureID: attribute(entry, "structureid"),
       // The group of the ship the pilot is in, as godma holds its item (GetShipItem().groupID), and none where
