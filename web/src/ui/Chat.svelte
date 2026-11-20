@@ -9,7 +9,7 @@
   // links are followed when clicked as the client's link registry follows them (ui/linkFollowers.ts: skill plans, Show
   // Info, the web), each in its colour and with its hint; any other link is underlined with its url as its hint. A link dragged onto the send box (a skill plan's share
   // button: SkillPlanDragData.get_link) is put in at the caret as its markup.
-  import { onDestroy, onMount, untrack } from "svelte";
+  import { onDestroy, onMount, tick, untrack } from "svelte";
   import { BridgeCallError } from "../bridge/callMethod.ts";
   import { createChatPoller } from "../app/chatPoll.ts";
   import { skipWhileBusy } from "../app/skipWhileBusy.ts";
@@ -20,7 +20,9 @@
   import { resolvedName, type NameRef } from "../store/names.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { mailBodyLines } from "../bridge/mailMarkup.ts";
+  import { labelEscaped } from "../bridge/labelMarkup.ts";
   import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
+  import { ASSET_ITEM_DRAG_MIME, decodeAssetItemDrag, type AssetItemDrag } from "./dragDrop.ts";
   import { droppedFittingDrag, isFittingDrag } from "./fittingDrag.ts";
   import type { DroppedLink } from "../app/flow.ts";
   import { LINK_WORDS, linkFollowerOf, startLinkDrag } from "./linkFollowers.ts";
@@ -105,7 +107,28 @@
 
   /** A link or a fitting dragged over the send box is taken. */
   function linkDragOver(event: DragEvent): void {
-    if (event.dataTransfer?.types.includes(LINK_DRAG_TYPE) || isFittingDrag(event)) event.preventDefault();
+    const types = event.dataTransfer?.types;
+    if (types?.includes(LINK_DRAG_TYPE) || types?.includes(ASSET_ITEM_DRAG_MIME) || isFittingDrag(event)) event.preventDefault();
+  }
+
+  // eveEditPlainText adds links in scroll order, preserving the text on either side of the caret.
+  async function insertAssetLinks(rows: readonly AssetItemDrag[]): Promise<void> {
+    const original = draft;
+    const channel = store.get().chat.activeChannel;
+    const at = sendBox?.selectionStart ?? original.length;
+    let inserted = "";
+    for (const row of rows) {
+      const url = `showinfo:${row.typeID}//${row.itemID}${row.shipOwnerID === null ? "" : `//${row.shipOwnerID}`}`;
+      const markup = await flow.droppedLinkMarkup({ kind: "link", url, text: labelEscaped(row.name) }, {
+        length: original.length + inserted.length + (at > 0 && !inserted ? 2 : 1), selected: 0, max: MAX_MESSAGE_LENGTH,
+      });
+      if (markup === null) break;
+      inserted += (at > 0 && !inserted ? " " : "") + markup + " ";
+    }
+    if (!inserted || draft !== original || store.get().chat.activeChannel !== channel) return;
+    draft = original.slice(0, at) + inserted + original.slice(at);
+    await tick();
+    sendBox?.setSelectionRange(at + inserted.length, at + inserted.length);
   }
 
   /**
@@ -114,6 +137,12 @@
    * (flow.droppedLinkMarkup). What was dropped is read before any await, as a drop's data can only be.
    */
   function linkDropped(event: DragEvent): void {
+    const assetRows = decodeAssetItemDrag(event.dataTransfer?.getData(ASSET_ITEM_DRAG_MIME));
+    if (assetRows.length > 0) {
+      event.preventDefault();
+      void insertAssetLinks(assetRows).catch(() => {});
+      return;
+    }
     const fitting = droppedFittingDrag(event);
     const raw = fitting === null ? event.dataTransfer?.getData(LINK_DRAG_TYPE) : null;
     if (fitting === null && !raw) return;

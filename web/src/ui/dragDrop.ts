@@ -36,6 +36,43 @@ import type { InventoryPlace } from "../store/types.ts";
  * selection of text BEFORE deciding whether to accept the drop.
  */
 export const DRAG_MIME = "application/x-evejs-item";
+/** Personal Assets rows can be copied into text or the Quickbar. Inventory controllers take a different node. */
+export const ASSET_ITEM_DRAG_MIME = "application/x-evejs-asset-item";
+
+export interface AssetItemDrag {
+  readonly itemID: number;
+  readonly typeID: number;
+  readonly name: string;
+  readonly shipOwnerID: number | null;
+}
+
+function positiveID(id: unknown): id is number {
+  return typeof id === "number" && Number.isSafeInteger(id) && id > 0;
+}
+
+export function decodeAssetItemDrag(raw: string | undefined): AssetItemDrag[] {
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const seen = new Set<number>();
+  const rows: AssetItemDrag[] = [];
+  for (const row of parsed) {
+    if (row === null || typeof row !== "object") return [];
+    const { itemID, typeID, name, shipOwnerID } = row as Record<string, unknown>;
+    if (!positiveID(itemID) || !positiveID(typeID) || typeof name !== "string"
+        || (shipOwnerID !== null && !positiveID(shipOwnerID))) return [];
+    if (seen.has(itemID)) continue;
+    seen.add(itemID);
+    rows.push({ itemID, typeID, name, shipOwnerID });
+  }
+  return rows;
+}
+
 /** A catalogue charge carries a type only. It can only be used in simulation. */
 export const FITTING_CHARGE_DRAG_MIME = "application/x-evejs-fitting-charge";
 

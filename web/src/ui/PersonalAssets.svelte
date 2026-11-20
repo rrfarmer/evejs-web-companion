@@ -2,11 +2,7 @@
   // Personal Assets page (goal R37): where this character's stuff is, and a
   // course set to any of it.
   //
-  // A pure reader of the store's assets slice. Nothing here shows a stationID,
-  // a systemID, a typeID or an itemID (R7d) — a place is its NAME and a thing
-  // is its NAME, resolved through the shared name cache. Raw ids appear only in
-  // `{#each}` keys and in onclick arguments, which is where the R7d note in
-  // store/names.ts says they belong.
+  // A place and an item are shown by their names, resolved through the shared name cache.
   //
   // ⚠ THE STATION LIST IS THE SERVER'S OWN AGGREGATION. charMgr.ListStations
   // resolves every item up its container chain and groups by dockable location;
@@ -17,10 +13,10 @@
   // the last one is claimed ONLY from a successful empty read (`ownsNothing`).
   // Conflating them is the defect this codebase keeps producing.
   //
-  // READS ONLY, plus a station's route entries, as the client's assets window gives them (its location's menu,
+  // A read-only inventory view with copy drags and the client's route entries (its location's menu,
   // assetsWindow.py GetMenuLocationMenu 851 to 862: the station's CelestialMenu): Set Destination, and Add Waypoint
   // or Remove Waypoint (menusvc.py 2002 to 2007), the flow's waypoints (nav/waypoints.ts).
-  import { getContext, onMount } from "svelte";
+  import { getContext, onMount, type Snippet } from "svelte";
   import {
     formatAssetVolume,
     formatUnits,
@@ -41,6 +37,7 @@
   import { shownSecurity, securityStatusRgb } from "../bridge/systemSecurity.ts";
   import { assetsSearchTarget } from "./assetsSearch.ts";
   import type { AssetSearchItem, AssetSearchLocation } from "../bridge/assetSearch.ts";
+  import { ASSET_ITEM_DRAG_MIME, type AssetItemDrag } from "./dragDrop.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
 
@@ -224,6 +221,13 @@
   // svelte-ignore state_referenced_locally
   const station = store.station;
   const assetPilot = $derived($station.online?.characterID ?? null);
+  let panel: HTMLElement;
+  let selectedItems = $state.raw<ReadonlySet<number>>(new Set());
+  let selectionAnchor: number | null = null;
+  function clearItemSelection(): void {
+    selectedItems = new Set();
+    selectionAnchor = null;
+  }
   $effect(() => {
     void assetPilot;
     expandedByFilter = {};
@@ -231,6 +235,50 @@
     menuFor = null;
     headerMenuFor = null;
   });
+  $effect(() => {
+    void [assetPilot, tab, filterType, filterKeyID];
+    clearItemSelection();
+  });
+
+  function visibleAssetRows(): HTMLButtonElement[] {
+    return Array.from(panel.querySelectorAll<HTMLButtonElement>("button[data-asset-item]"))
+      .filter(row => !row.closest("details:not([open])"));
+  }
+
+  // Scroll.SelectNode uses the visible scroll order, including rows in other open groups.
+  function selectAssetItem(event: MouseEvent | DragEvent, itemID: number, rows = visibleAssetRows()): void {
+    const extend = event.ctrlKey || event.metaKey;
+    if (event.shiftKey && selectionAnchor !== null && selectionAnchor !== itemID) {
+      const ids = rows.map(row => Number(row.dataset.assetItem));
+      const first = ids.indexOf(selectionAnchor);
+      const last = ids.indexOf(itemID);
+      if (first >= 0 && last >= 0) {
+        const range = ids.slice(Math.min(first, last), Math.max(first, last) + 1);
+        selectedItems = new Set(extend ? [...selectedItems, ...range] : range);
+        return;
+      }
+    }
+    const next = new Set(extend ? selectedItems : []);
+    if (extend && !event.shiftKey && next.has(itemID)) next.delete(itemID);
+    else next.add(itemID);
+    selectedItems = next;
+    selectionAnchor = itemID;
+  }
+
+  function dragAssetItem(event: DragEvent, itemID: number): void {
+    if (!event.dataTransfer) return;
+    const rows = visibleAssetRows();
+    if (!selectedItems.has(itemID)) selectAssetItem(event, itemID, rows);
+    const payload: AssetItemDrag[] = [];
+    for (const row of rows) {
+      const id = Number(row.dataset.assetItem);
+      if (!selectedItems.has(id)) continue;
+      const typeID = Number(row.dataset.assetType);
+      payload.push({ itemID: id, typeID, name: itemName(typeID), shipOwnerID: row.dataset.assetOwnedShip ? assetPilot : null });
+    }
+    event.dataTransfer.setData(ASSET_ITEM_DRAG_MIME, JSON.stringify(payload));
+    event.dataTransfer.effectAllowed = "copy";
+  }
 
   function loadLocation(stationID: number): void {
     const pilot = store.station.get().online?.characterID;
@@ -327,9 +375,9 @@
     try { localStorage.setItem("evejs.play.scrollsortby_assets", JSON.stringify([sortColumn, sortReversed])); } catch { /* not kept */ }
   }
   /** The store's row as the columns read an item: its stack the units (1 for an assembled thing, whose quantity is -1), singleton 1. */
-  const invItem = (item: { itemID: number; typeID: number; units: number; singleton: boolean }): InvItem =>
-    ({ itemID: item.itemID, typeID: item.typeID, stacksize: item.units, singleton: item.singleton ? 1 : 0 });
-  function locationItems(contents: AssetStationContents): InvItem[] {
+  const invItem = (item: { itemID: number; typeID: number; units: number; singleton: boolean; categoryID: number }) =>
+    ({ itemID: item.itemID, typeID: item.typeID, stacksize: item.units, singleton: item.singleton ? 1 : 0, categoryID: item.categoryID });
+  function locationItems(contents: AssetStationContents): (InvItem & { categoryID: number })[] {
     const list = contents.items.map(invItem);
     const col = COLUMNS.find((c) => c.label === sortColumn);
     if (!col) return list;
@@ -403,6 +451,7 @@
   let searchResults = $state.raw<{ readonly locations: readonly AssetSearchLocation[]; readonly stopped: boolean } | null>(null);
   function search(): void {
     void run(async () => {
+      clearItemSelection();
       searching = true;
       try {
         searchResults = await flow.searchPersonalAssets(searchText);
@@ -430,6 +479,25 @@
     void run(() => flow.loadPersonalAssets());
   });
 </script>
+
+{#snippet assetItemRow(item: { itemID: number; typeID: number; categoryID: number }, singleton: boolean, searchRow: boolean, children: Snippet)}
+  <button type="button" class="asset-item-row" class:asset-search-item={searchRow} class:as-item={!searchRow}
+    style:grid-template-columns={searchRow ? undefined : itemGrid}
+    data-asset-item={item.itemID} data-asset-type={item.typeID}
+    data-asset-owned-ship={singleton && item.categoryID === 6 ? "true" : undefined}
+    aria-pressed={selectedItems.has(item.itemID)} draggable="true"
+    onclick={(event) => selectAssetItem(event, item.itemID)} ondragstart={(event) => dragAssetItem(event, item.itemID)}>
+    {@render children()}
+  </button>
+{/snippet}
+
+{#snippet searchItemRow(item: AssetSearchItem)}
+  {#snippet cells()}
+    <span class="asset-place"><TypeIcon typeID={item.typeID} name={itemName(item.typeID)} size="sm" />{itemName(item.typeID)}</span>
+    <span class="num">{formatUnits(searchUnits(item))}</span>
+  {/snippet}
+  {@render assetItemRow(item, item.quantity < 0, true, cells)}
+{/snippet}
 
 {#snippet locationBody(row: AssetStationRow)}
         {#if menuFor === row.stationID}
@@ -476,7 +544,7 @@
               </div>
             {/if}
             {#each locationItems(contents) as item (item.itemID)}
-              <div class="as-item" style:grid-template-columns={itemGrid}>
+              {#snippet cells()}
                 {#each shownColumns as col (col.label)}
                   {#if col.label === "UI/Common/Name"}
                     <span class="asset-place"><TypeIcon typeID={item.typeID} name={itemName(item.typeID)} size="sm" />{itemName(item.typeID)}</span>
@@ -484,13 +552,14 @@
                     <span class:num={col.right}>{col.text(item)}</span>
                   {/if}
                 {/each}
-              </div>
+              {/snippet}
+              {@render assetItemRow(item, item.singleton === 1, false, cells)}
             {/each}
           {/if}
         {/if}
 {/snippet}
 
-<section class="panel" class:as-retail={retail} class:as-safety={retail && safetyTab}>
+<section bind:this={panel} class="panel" class:as-retail={retail} class:as-safety={retail && safetyTab}>
   <header class="panel-head">
     <h2 class="panel-title">Personal Assets</h2>
     <p class="controls">
@@ -564,12 +633,12 @@
                     <small class="note">{stackText(held.items.length)}</small>
                   </summary>
                   {#each held.items as item (item.itemID)}
-                    <p class="asset-search-item"><span class="asset-place"><TypeIcon typeID={item.typeID} name={itemName(item.typeID)} size="sm" />{itemName(item.typeID)}</span> <span class="num">{formatUnits(searchUnits(item))}</span></p>
+                    {@render searchItemRow(item)}
                   {/each}
                 </details>
               {/each}
               {#each location.items as item (item.itemID)}
-                <p class="asset-search-item"><span class="asset-place"><TypeIcon typeID={item.typeID} name={itemName(item.typeID)} size="sm" />{itemName(item.typeID)}</span> <span class="num">{formatUnits(searchUnits(item))}</span></p>
+                {@render searchItemRow(item)}
               {/each}
             </details>
           {/each}
@@ -777,5 +846,8 @@
   .asset-search-place > summary, .asset-search-container > summary { cursor: pointer; }
   .asset-search-container { margin-left: 1rem; }
   .asset-search-container > summary .asset-place { display: inline-flex; }
-  .asset-search-item { display: flex; justify-content: space-between; gap: 1rem; margin: 0.15rem 0 0.15rem 1rem; }
+  .asset-item-row { width: 100%; box-sizing: border-box; border: 0; padding: 0; color: inherit; background: transparent; font: inherit; text-align: left; cursor: grab; }
+  .asset-item-row:hover { background: rgba(255, 255, 255, 0.06); }
+  .asset-item-row[aria-pressed="true"] { background: rgba(105, 179, 220, 0.22); }
+  .asset-search-item { display: flex; justify-content: space-between; gap: 1rem; padding: 0.15rem 0 0.15rem 1rem; }
 </style>

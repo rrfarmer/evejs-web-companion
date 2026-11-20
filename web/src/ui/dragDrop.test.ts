@@ -5,8 +5,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  ASSET_ITEM_DRAG_MIME,
   DRAG_MIME,
   carriesOurPayload,
+  decodeAssetItemDrag,
   decodeDrag,
   decodeFittingChargeType,
   dropOnPlaceVerdict,
@@ -35,6 +37,19 @@ test("an inventory drag survives encode and decode", () => {
   assert.deepEqual(decodeDrag(encodeDrag(ITEM)), ITEM);
   const selection: DragPayload = { ...ITEM, itemIDs: [1002, ITEM.itemID] };
   assert.deepEqual(decodeDrag(encodeDrag(selection)), selection);
+});
+
+test("Personal Assets drags keep stack identity and scroll order for copy targets", () => {
+  const first = { itemID: 1002, typeID: 483, name: "Miner I", shipOwnerID: null };
+  const second = { itemID: 1001, typeID: 483, name: "Miner I", shipOwnerID: null };
+  const ship = { itemID: 9001, typeID: 605, name: "Heron", shipOwnerID: 140000001 };
+  const raw = JSON.stringify([first, second, first, ship]);
+  assert.deepEqual(decodeAssetItemDrag(raw), [first, second, ship]);
+  assert.equal(decodeDrag(raw), null);
+  assert.equal(carriesOurPayload([ASSET_ITEM_DRAG_MIME]), false);
+  for (const invalid of [undefined, "not JSON", JSON.stringify(ITEM), JSON.stringify([first, { ...ship, shipOwnerID: "wrong" }])]) {
+    assert.deepEqual(decodeAssetItemDrag(invalid), []);
+  }
 });
 
 test("a catalogue charge drag carries a positive type ID and cannot decode as an inventory item", () => {

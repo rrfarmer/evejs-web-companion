@@ -47,6 +47,7 @@
   import { clientTexture } from "./skillGroupIcons.ts";
   import NamePopup from "./NamePopup.svelte";
   import { marketQuickbar, changeQuickbar } from "./marketQuickbar.ts";
+  import { ASSET_ITEM_DRAG_MIME, decodeAssetItemDrag } from "./dragDrop.ts";
   import {
     addFolder,
     addType,
@@ -363,15 +364,35 @@
    * The window's AddTypeToQuickBar (1512 to 1518: marketQuote.AddToQuickBar at the top, no extra text): refused, with
    * the client's cannotTradeOnMarket, for a type the market does not sell.
    */
-  async function addToQuickbar(typeID: number): Promise<void> {
+  async function addToQuickbar(typeIDs: readonly number[], parent = 0): Promise<void> {
     qbMenuUp = false;
-    const facts = (await flow.typeFacts([typeID]))?.get(typeID) ?? null;
-    if (facts !== null && facts.marketGroupID === null) {
-      qbNotice = qbWord("dialog:cannotTradeOnMarket/body", { typeID });
-      return;
-    }
+    const facts = await flow.typeFacts(typeIDs);
+    const accepted: number[] = [];
     qbNotice = "";
-    changeQuickbar((quickbar) => addType(quickbar, typeID, 0, ""));
+    for (const typeID of typeIDs) {
+      const type = facts?.get(typeID) ?? null;
+      if (type !== null && type.marketGroupID === null) {
+        qbNotice = qbWord("dialog:cannotTradeOnMarket/body", { typeID });
+        break;
+      }
+      accepted.push(typeID);
+    }
+    changeQuickbar((quickbar) => parent === 0 || quickbar.entries.some(entry => entry.id === parent && isFolder(entry))
+      ? accepted.reduce((next, typeID) => addType(next, typeID, parent, ""), quickbar) : quickbar);
+  }
+
+  function overQuickbar(event: DragEvent): void {
+    if (!event.dataTransfer?.types.includes(ASSET_ITEM_DRAG_MIME)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }
+
+  function dropOnQuickbar(event: DragEvent, parent: number): void {
+    const rows = decodeAssetItemDrag(event.dataTransfer?.getData(ASSET_ITEM_DRAG_MIME));
+    if (rows.length === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void addToQuickbar([...new Set(rows.map(row => row.typeID))], parent).catch(() => {});
   }
 
   /** The type's menu as menusvc gives it (the page's part of it): what is offered of a type, by its facts. */
@@ -1014,7 +1035,7 @@
         {/if}
       {:else}
         {@const typeID = menuFor.typeID}
-        <button type="button" role="menuitem" onclick={() => void addToQuickbar(typeID)}>{qbWord("UI/Inventory/ItemActions/AddTypeToMarketQuickbar")}</button>
+        <button type="button" role="menuitem" onclick={() => void addToQuickbar([typeID])}>{qbWord("UI/Inventory/ItemActions/AddTypeToMarketQuickbar")}</button>
         <button type="button" role="menuitem" onclick={() => { qbMenuUp = false; showInfo({ kind: "type", typeID }); }}>{qbWord("UI/Commands/ShowInfo")}</button>
       {/if}
     </span>
@@ -1030,7 +1051,8 @@
     {@const kids = qbChildren(parent)}
     {#each kids.folders as folder (folder.id)}
       <details class="qb-folder" style:margin-left={`${depth}rem`} open={qbOpen[folder.id] === true} ontoggle={(event) => qbToggled(folder.id, event)}>
-        <summary oncontextmenu={(event) => openQbMenu({ kind: "folder", entry: folder }, event)}>{String(folder.label)}</summary>
+        <summary ondragover={overQuickbar} ondrop={(event) => dropOnQuickbar(event, folder.id)}
+          oncontextmenu={(event) => openQbMenu({ kind: "folder", entry: folder }, event)}>{String(folder.label)}</summary>
         {#if qbOpen[folder.id] === true}
           {@render qbLevel(folder.id, 1)}
         {/if}
@@ -1051,11 +1073,14 @@
       <button type="button" class="minor" title={qbWord("Tooltips/Market/MarketQuickbarNewFolder")} onclick={() => newFolder(0)}>{qbWord("UI/Market/NewFolder")}</button>
       <button type="button" class="minor" title={qbWord("Tooltips/Market/MarketQuickbarReset")} aria-label={qbWord("Tooltips/Market/MarketQuickbarReset")} onclick={resetQuickbar}>🗑</button>
     </p>
-    {#if $quickbar.entries.length === 0}
-      <p class="empty">{qbWord("UI/Common/NothingFound")}</p>
-    {:else}
-      <div class="qb-tree">{@render qbLevel(0, 0)}</div>
-    {/if}
+    <div class="qb-tree" role="group" aria-label={qbWord("UI/Market/QuickBar")}
+      ondragover={overQuickbar} ondrop={(event) => dropOnQuickbar(event, 0)}>
+      {#if $quickbar.entries.length === 0}
+        <p class="empty">{qbWord("UI/Common/NothingFound")}</p>
+      {:else}
+        {@render qbLevel(0, 0)}
+      {/if}
+    </div>
   {:else}
   {#snippet marketItem(item: MarketTypeMatch)}
     <li>
@@ -1833,5 +1858,5 @@
   .qb-type.qb-unsold { opacity: 0.5; }
   .qb-question { border: 1px solid rgba(255, 255, 255, 0.15); padding: 0.5rem 0.75rem; margin: 0.5rem 0; }
   .qb-folder > summary { cursor: pointer; padding: 0.25rem 0; }
-  .qb-tree { display: flex; flex-direction: column; }
+  .qb-tree { display: flex; flex-direction: column; min-height: 1.5rem; }
 </style>
