@@ -8168,6 +8168,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     // MultiFitWnd.OnItemChange and OnMultipleItemChange (530 to 557): a ship fitted counted while the window fits, and
     // the window's reckoning made again (at most twice a second) while it does not.
+    // droneRuntime: a drone's activity told as a notification where it could not ride the destiny update.
+    if (method === "OnDroneActivityChange") scheduleDroneRefresh();
     if (method === "OnItemsChanged" || method === "OnItemChange") multiFitItemsChanged(method, args);
     if (method === "OnItemsChanged" || method === "OnItemChange") {
       // (The mission tracker's OnItemsChanged, which the client's inventory cache raises for both.)

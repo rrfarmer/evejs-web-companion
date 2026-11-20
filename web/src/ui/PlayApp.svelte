@@ -78,7 +78,7 @@
   import { achievementRequest } from "./achievementRequests.ts";
   import { locationSearchRequests } from "./locationSearchRequests.ts";
   import { notify } from "./notices.ts";
-  import { orderableDroneIDs } from "./droneFlight.ts";
+  import { miningDroneIDs, orderableDroneIDs, salvageDroneIDs } from "./droneFlight.ts";
   import { playUiEvent } from "../play/uiAudio.ts";
   import { nameKey } from "../store/names.ts";
   import { sendMusicEvent, securitySwitch, combatSwitch } from "../play/music.ts";
@@ -1122,7 +1122,20 @@
       if (cmd === "CmdDronesReturnToBay") void s.flow.recallDrones(ids).catch(say("Drones"));
       else {
         const target = s.store.targeting.get().lockedTargetIDs?.[0] ?? 0;
-        if (target > 0) void s.flow.engageDrones(ids, target).catch(say("Drones"));
+        if (target > 0) {
+          // CmdDronesEngage: droneFunctions.PerformPrimaryAction - salvage drones Salvage, mining drones MineRepeatedly,
+          // the rest EngageTarget.
+          const groupOf = (typeID: number) => s.store.names.get().resolved[nameKey("typeGroup", typeID)] ?? null;
+          const inSpace = s.store.drones.get().inSpace;
+          const salvage = salvageDroneIDs(ids, inSpace, groupOf);
+          const mining = miningDroneIDs(ids, inSpace, groupOf);
+          const combat = ids.filter((id) => !salvage.includes(id) && !mining.includes(id));
+          void (async () => {
+            if (combat.length) await s.flow.engageDrones(combat, target);
+            if (salvage.length) await s.flow.salvageDrones(salvage, target);
+            if (mining.length) await s.flow.mineWithDrones(mining, target);
+          })().catch(say("Drones"));
+        }
       }
       return true;
     }
@@ -1247,6 +1260,14 @@
         now: BigInt(Date.now()) * 10000n + 116444736000000000n,
       };
     }
+
+    // droneSvc: what each drone is doing comes from the park's OnDroneStateChange (and OnDroneControlLost), which the
+    // server sends through destiny, not as a notification; the Drones window's read is taken again on each, coalesced.
+    let droneReread: ReturnType<typeof setTimeout> | null = null;
+    live.fxListeners.add((name) => {
+      if (!["OnDroneStateChange", "OnDroneActivityChange", "OnDroneControlLost"].includes(name) || droneReread !== null) return;
+      droneReread = setTimeout(() => { droneReread = null; void s.flow.loadDrones().catch(() => {}); }, 1000);
+    });
 
     const v = new SpaceView(live, {
       gotoDirection: (x, y, z) => act("beyonce", "CmdGotoDirection", [x, y, z]).then(() => undefined),

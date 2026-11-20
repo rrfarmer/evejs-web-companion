@@ -8,7 +8,7 @@
   import { DRONE_NOT_UNDER_YOUR_CONTROL, NO_DRONE_UNDER_YOUR_CONTROL, panelErrorWords } from "../bridge/refusals.ts";
   import { droneActivityLabel } from "../bridge/drones.ts";
   import { canMyShipOrderDrone } from "../space/overview.ts";
-  import { orderableDroneIDs, salvageDroneIDs } from "./droneFlight.ts";
+  import { miningDroneIDs, orderableDroneIDs, salvageDroneIDs } from "./droneFlight.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
   import { isSessionLost } from "../app/flow.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
@@ -79,6 +79,19 @@
 
   const allDroneIDs = $derived(orderableDroneIDs($drones.inSpace, snapshot?.entities ?? null, ship?.itemID ?? null));
   const salvageIDs = $derived(salvageDroneIDs(allDroneIDs, $drones.inSpace, (typeID) => resolvedName($names.resolved, "typeGroup", typeID, "")));
+  const miningIDs = $derived(miningDroneIDs(allDroneIDs, $drones.inSpace, (typeID) => resolvedName($names.resolved, "typeGroup", typeID, "")));
+  /**
+   * droneFunctions.PerformPrimaryAction (the drones window's Engage, F): the drones split by group - salvage drones
+   * Salvage, mining drones MineRepeatedly, the rest EngageTarget - each order given to its own drones.
+   */
+  async function primaryAction(ids: readonly number[]): Promise<void> {
+    const salvage = ids.filter((id) => salvageIDs.includes(id));
+    const mining = ids.filter((id) => miningIDs.includes(id));
+    const combat = ids.filter((id) => !salvage.includes(id) && !mining.includes(id));
+    if (combat.length) await flow.engageDrones(combat, autoTargetID);
+    if (salvage.length) await flow.salvageDrones(salvage, autoTargetID > 0 ? autoTargetID : null);
+    if (mining.length) await flow.mineWithDrones(mining, autoTargetID);
+  }
   const groupUnavailable = $derived(outCount > 0 && allDroneIDs.length === 0 ? NO_DRONE_UNDER_YOUR_CONTROL : null);
   const targetUnavailable = $derived(groupUnavailable ?? (outCount === 0 ? "No drones in space" : autoTargetID <= 0 ? "Lock something first" : null));
 
@@ -173,7 +186,7 @@
       <span class="lbl" title="Drones in local space">In space <b>({maxActive === null ? outCount : `${outCount}/${maxActive}`})</b></span>
       <span class="commands">
         <button type="button" class="command" title={targetUnavailable ?? "Engage target (F)"} disabled={busy || targetUnavailable !== null}
-          onclick={(e) => { e.stopPropagation(); void run(() => flow.engageDrones(allDroneIDs, autoTargetID)); }}>
+          onclick={(e) => { e.stopPropagation(); void run(() => primaryAction(allDroneIDs)); }}>
           <span class="glyph" style:background-image={`url(${ICON.engage})`}></span>
         </button>
         {#if salvageIDs.length > 0}

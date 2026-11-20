@@ -9,7 +9,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { salvageDroneIDs } from "./droneFlight.ts";
+import { miningDroneIDs, salvageDroneIDs } from "./droneFlight.ts";
 import type { DroneInSpace } from "../store/types.ts";
 
 const drone = (itemID: number, typeID: number | null): DroneInSpace => ({
@@ -42,4 +42,11 @@ test("the group is known by its name whatever its case, and nothing like it will
 
 test("drones that could not be read are no drones to order", () => {
   assert.deepEqual(salvageDroneIDs([11], null, groupOf), []);
+});
+
+test("the Engage of mining drones is their mining (PerformPrimaryAction: MineRepeatedly for the mining drone group)", () => {
+  const out = [drone(11, SALVAGER), drone(12, HOBGOBLIN), drone(13, MINER), drone(14, MINER)];
+  assert.deepEqual(miningDroneIDs([11, 12, 13, 14], out, groupOf), [13, 14]);
+  assert.deepEqual(miningDroneIDs([11, 12, 14], out, groupOf), [14]);
+  assert.deepEqual(miningDroneIDs([11, 12, 13, 14], out, () => null), []);
 });

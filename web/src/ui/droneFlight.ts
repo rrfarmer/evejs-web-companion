@@ -59,6 +59,21 @@ export function orderableDroneIDs(
  * group's name, once that has been read; `groupNameOf` answers null or an empty name until then, and a drone
  * whose kind is not known is not taken for one.
  */
+/** The orderable drones in space whose group is the mining drones (droneFunctions.PerformPrimaryAction: MineRepeatedly). */
+export function miningDroneIDs(
+  orderable: readonly number[],
+  dronesInSpace: readonly DroneInSpace[] | null,
+  groupNameOf: (typeID: number) => string | null,
+): readonly number[] {
+  if (dronesInSpace === null) {
+    return [];
+  }
+  const mayOrder = new Set(orderable);
+  return dronesInSpace
+    .filter((drone) => mayOrder.has(drone.itemID) && drone.typeID !== null && droneRoleForGroup(groupNameOf(drone.typeID)) === "mining")
+    .map((drone) => drone.itemID);
+}
+
 export function salvageDroneIDs(
   orderable: readonly number[],
   dronesInSpace: readonly DroneInSpace[] | null,
