@@ -165,7 +165,7 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
     return { file: await ensure(file, ["--effect", id], wormhole ? '"effectBuild":7' : portal ? '"effectBuild":6' : '"effectBuild":4') };
   }
   const fx = /^\/fx\/(effects\.[A-Za-z0-9_]+)\.json$/.exec(rel);
-  if (fx) return { file: await ensure(`fx/${fx[1]}.json`, ["--fx", fx[1]], '"fxBuild":3') };
+  if (fx) return { file: await ensure(`fx/${fx[1]}.json`, ["--fx", fx[1]], canExtract() ? '"fxBuild":4' : '"fxBuild":') };
 
   const graphicsForType = (id) => readJson(path.join(dir, "typeGraphics.json"))[id];
   const celestial = /^\/celestial\/(\d+)$/.exec(rel);

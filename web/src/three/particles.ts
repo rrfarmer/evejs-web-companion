@@ -14,6 +14,7 @@ import { SOFT_DEPTH, SOFT_DEPTH_GLSL, setOpaqueSurfacePass } from "./softDepth.t
 import { sceneReflection } from "./celestialModel.ts";
 import { loadDds3D } from "./ddsTexture.ts";
 import { GpuEmitter, gpuSystemOf, type GpuEmitterData } from "./gpuParticles.ts";
+import { dynamicLightUniforms, prepareLights, TILED_LIGHT_GLSL, tiledLightLoop } from "./dynamicLights.ts";
 
 import { ELEMENT, ParticleEmitter, ParticleSim, elementKey, type ParticleEmitterData, type ParticleSystemData } from "./particleSim.ts";
 
@@ -489,12 +490,13 @@ export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf, d
  *
  * PARTICLE_STATIC (its static records, LIGHTING_DISABLED): the static vertex stage, the colour that of age nought
  * (Color1, or Color2 to Color3 at -ColorMidpoint / (1 - ColorMidpoint) where the midpoint is below nought).
- * PARTICLE_STATIC with LIGHTING_ALL_LIGHT (the one lit permutation the children use): six-point lighting - the sun's
+ * LIGHTING_ALL_LIGHT uses six-point lighting: the sun's
  * direction (toward it, EveSpaceScene's PerFramePS Sun.DirWorld) on the sprite's turned right axis, the cross product
  * of the view's z row and it (in EVE's left-handed space: the turned down, the texture's v) and the view's z row - here
  * taken as toward the eye (as lookAngleToObject's lookAt in hullChildren's fx attributes; front-lit sprites lit), each lobe's positive part squared weighting SixPointPosLightMap's rgb and its negative part squared
  * SixPointNegLightMap's (both at the mask's uv), their sum times the sun's colour plus AmbientLight, multiplying the
- * mask before the layers. The sun here is the scene's directional light (its direction and colour x intensity).
+ * mask before the layers. The dynamic 3698585 variant also accumulates tile lights flagged for particles, using the
+ * light direction at the billboard fragment and the same signed, squared lobes.
  *
  * dynamic/2layerdynmaskv2.fx keeps zero-alpha mask samples, uses unit brightness and has no offsets or near
  * distance fade. Its depth-profile width is fixed at one third of the particle size. Fog attenuates alpha.
@@ -504,7 +506,8 @@ export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, d
   const type = dynMaskV2 ? "PARTICLE_DYNAMIC" : o.PARTICLE_TYPE ?? "PARTICLE_STATIC";
   if (!dynMaskV2 && ((type !== "PARTICLE_DYNAMIC" && type !== "PARTICLE_STATIC") || (o.NEBULA_BLEEDING ?? "NEBULA_BLEEDING_DISABLED") !== "NEBULA_BLEEDING_DISABLED")) return null;
   const isStatic = type === "PARTICLE_STATIC";
-  const lit = !dynMaskV2 && isStatic && o.LIGHTING_MODE === "LIGHTING_ALL_LIGHT";
+  const lit = !dynMaskV2 && o.LIGHTING_MODE === "LIGHTING_ALL_LIGHT";
+  const litByTiles = lit && !isStatic;
   if (!dynMaskV2 && !lit && (o.LIGHTING_MODE ?? "LIGHTING_DISABLED") !== "LIGHTING_DISABLED") return null;
   const offsets = !dynMaskV2 && o.TEXTURE_OFFSETS === "TEXTURE_OFFSETS_ENABLED";
   const nearFade = !dynMaskV2 && o.NEAR_FADE === "NEAR_FADE_ENABLED";
@@ -526,6 +529,7 @@ export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, d
     depthShader: { get value() { return gfx().shaderQuality === 3; } },
     depthFadeScale: { value: dynMaskV2 ? 0.333 : v4(p.DepthFadeControl, [0.333, 0, 0, 0]).x },
   };
+  if (litByTiles) Object.assign(uniforms, dynamicLightUniforms);
   // the sampler wraps (EveSpaceSceneEnvMapSampler): on the texture objects (the clamping effects clamp in the shader)
   const load = (res: string | null | undefined, name: string) => void textureOf(res).then((t) => {
     if (!t) return;
@@ -541,12 +545,14 @@ export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, d
     vertexShader: (isStatic ? staticParticleVS : (d: string, b: string) => dynamicParticleVS(true, d, b))(`uniform float time; uniform vec4 layer1Mod; uniform vec4 layer2Mod; uniform vec4 layer1Speed; uniform vec4 layer2Speed;
       uniform vec4 color1; uniform vec4 color2; uniform vec4 color3; uniform float colorMidpoint;
       varying vec4 vUv12; varying vec2 vMaskUv; varying vec4 vColor;${lit ? " varying vec3 vRight; varying vec3 vUp;" : ""}
+      ${litByTiles ? "varying vec3 vLightPosition;" : ""}
       uniform float depthFadeScale; ${PARTICLE_DEPTH_VERTEX}`, `
         vSoft = particleDepth(p, size, depthFadeScale);
         vUv12 = vec4( layer1Mod.xy * uv + time * layer1Speed.xy + layer1Mod.zw, layer2Mod.xy * uv + time * layer2Speed.xy + layer2Mod.zw );
         ${lit ? `// the sprite's turned axes in the world (the eye's right and up, turned as the corner is)
         vec3 camRight = vec3( viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0] ), camUp = vec3( viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1] );
         vRight = c * camRight + s * camUp; vUp = -s * camRight + c * camUp;` : ""}
+        ${litByTiles ? "vLightPosition = p.xyz;" : ""}
         ${offsets ? "vUv12 += iT13;" : ""}
         vMaskUv = uv;
         ${isStatic ? `vColor = colorMidpoint < 0.0 ? mix( color2, color3, clamp( -colorMidpoint / ( 1.0 - colorMidpoint ), 0.0, 1.0 ) ) : color1;`
@@ -558,16 +564,25 @@ export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, d
       ${PARTICLE_DEPTH_FRAGMENT}
       ${CLOUD_FOG_GLSL}
       ${lit ? "uniform sampler2D posLight; uniform sampler2D negLight; uniform vec4 ambientLight; uniform vec3 sunDir; uniform vec3 sunColour; varying vec3 vRight; varying vec3 vUp;" : ""}
+      ${litByTiles ? `varying vec3 vLightPosition; ${TILED_LIGHT_GLSL}` : ""}
+      ${lit ? `float sixPoint(vec3 direction, vec3 positive, vec3 negative) {
+        vec3 lp = clamp(direction, 0.0, 1.0);
+        vec3 ln = clamp(-direction, 0.0, 1.0);
+        return dot(lp * lp, positive) + dot(ln * ln, negative);
+      }` : ""}
       void main() {
         vec4 m = texture2D(mask, vMaskUv);
         ${dynMaskV2 ? "" : "if (m.a <= 0.0) discard;"}
         ${lit ? `// the frame (EVE's): the view's z row (toward the eye), the turned right, and their cross product in EVE's
         // left-handed space - the turned down (the texture's v)
         vec3 back = vec3( viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2] );
-        vec3 l = vec3( dot( sunDir, normalize( vRight ) ), -dot( sunDir, normalize( vUp ) ), dot( sunDir, normalize( back ) ) );
-        vec3 lp = clamp( l, 0.0, 1.0 ), ln = clamp( -l, 0.0, 1.0 );
-        float six = dot( lp * lp, texture2D( posLight, vMaskUv ).rgb ) + dot( ln * ln, texture2D( negLight, vMaskUv ).rgb );
-        m.rgb *= sunColour * six + ambientLight.rgb;` : ""}
+        mat3 axes = mat3(normalize(vRight), -normalize(vUp), normalize(back));
+        vec3 positive = texture2D(posLight, vMaskUv).rgb;
+        vec3 negative = texture2D(negLight, vMaskUv).rgb;
+        vec3 irradiance = sunColour * sixPoint(sunDir * axes, positive, negative) + ambientLight.rgb;
+        ${litByTiles ? `mat3 viewAxes = mat3(viewMatrix) * axes;
+        ${tiledLightLoop("vLightPosition", "irradiance += dynColor * sixPoint(dynL * viewAxes, positive, negative);", true)}` : ""}
+        m.rgb *= irradiance;` : ""}
         vec4 t = texture2D(layer1, vUv12.xy) * texture2D(layer2, vUv12.zw) * m;
         ${nearFade ? "t *= clamp((vDepth - particleParams.x) / (particleParams.y - particleParams.x), 0.0, 1.0);" : ""}
         vec4 col = vColor * spriteColor;
@@ -582,7 +597,11 @@ export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, d
   });
   mat.userData.softDepth = true;
   // the sun: the scene's directional light (the first), found once per scene, read each frame (particleObject's step)
-  if (lit) mat.userData.beforeDraw = (scene: THREE.Object3D) => {
+  if (lit) mat.userData.beforeDraw = (scene: THREE.Object3D, renderer: THREE.WebGLRenderer, camera: THREE.Camera) => {
+    if (litByTiles) {
+      prepareLights(renderer, camera);
+      mat.uniformsNeedUpdate = true;
+    }
     const sun = sunOf(scene);
     if (!sun) return;
     (uniforms.sunDir!.value as THREE.Vector3).copy(sun.position).sub(sun.target.position).normalize();
@@ -1229,8 +1248,8 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
   const eye = new THREE.Vector3();
   // stepped from the material's hook: a model's copies (Object3D.clone) share the material and the geometry but not
   // an object's own onBeforeRender
-  material.onBeforeRender = (_r, scene, camera, _g, object) => {
-    (material.userData.beforeDraw as ((s: THREE.Object3D) => void) | undefined)?.(scene);
+  material.onBeforeRender = (renderer, scene, camera, _g, object) => {
+    (material.userData.beforeDraw as ((s: THREE.Object3D, r: THREE.WebGLRenderer, c: THREE.Camera) => void) | undefined)?.(scene, renderer, camera);
     object.updateWorldMatrix(true, false);
     drawnBy = { scene, world: object.matrixWorld };
     const now = performance.now() / 1000;

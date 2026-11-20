@@ -38,6 +38,7 @@ export interface ChildLight {
   cosOuter?: number;
   cosInner?: number;
   profile?: string;
+  affectsParticles?: boolean;
 }
 
 /** Tile headers, packed indices, light records and IES values share one fragment sampler. */
@@ -50,7 +51,7 @@ export const dynamicLightUniforms = {
 
 interface Gathered {
   pos: THREE.Vector3; color: THREE.Vector3; radius: number; source: number;
-  dir: THREE.Vector3 | null; cosOuter: number; cosInner: number; profile?: string;
+  dir: THREE.Vector3 | null; cosOuter: number; cosInner: number; profile?: string; affectsParticles?: boolean;
 }
 interface Atlas { texture: THREE.DataTexture; pixels: Float32Array }
 interface LightFrame {
@@ -117,6 +118,7 @@ export function offerLights(renderer: THREE.WebGLRenderer, camera: THREE.Camera,
     gathered.push({
       pos, color: new THREE.Vector3((l.color[0] ?? 0) * b, (l.color[1] ?? 0) * b, (l.color[2] ?? 0) * b),
       radius: l.radius * scale, source: (l.sourceRadius ?? 0) * scale, dir, cosOuter: l.cosOuter ?? 0, cosInner: l.cosInner ?? 0, profile: l.profile,
+      affectsParticles: l.affectsParticles,
     });
   }
   pending.set(group, gathered);
@@ -217,7 +219,7 @@ function buildTiles(renderer: THREE.WebGLRenderer, camera: THREE.Camera, state: 
     pixels.set([pos.x, pos.y, pos.z, light.radius,
       light.color.x * dim, light.color.y * dim, light.color.z * dim, light.source,
       axis?.x ?? 0, axis?.y ?? 0, axis?.z ?? 0, light.cosOuter,
-      light.cosInner, profileOffset, 0, 0], offset);
+      light.cosInner, profileOffset, light.affectsParticles ? 1 : 0, 0], offset);
   });
   for (const [profile, slot] of profiles) pixels.set(profile, profileBase * 4 + slot * LIGHT_PROFILE_WIDTH);
   atlas.texture.needsUpdate = true;
@@ -226,7 +228,7 @@ function buildTiles(renderer: THREE.WebGLRenderer, camera: THREE.Camera, state: 
   state.count = list.length;
 }
 
-function prepareLights(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
+export function prepareLights(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
   const state = frameFor(renderer), frame = renderer.info.render.frame;
   if (state.frame !== frame || state.camera !== camera) {
     state.frame = frame;
@@ -251,7 +253,16 @@ export function followDynamicLights<M extends THREE.Material>(material: M): M {
   material.onBeforeCompile = function (shader, renderer) {
     Object.assign(shader.uniforms, dynamicLightUniforms);
     shader.fragmentShader = `#define DYN_LIGHTS
-uniform int dynCount;
+${TILED_LIGHT_GLSL}
+#define DYN_LIGHTS_LOOP ${LOOP.replace(/\s*\n\s*/g, " ")}
+${shader.fragmentShader.replace("#include <lights_fragment_begin>", `#include <lights_fragment_begin>
+  DYN_LIGHTS_LOOP`)}`;
+    compile.call(this, shader, renderer);
+  };
+  return material;
+}
+
+export const TILED_LIGHT_GLSL = `uniform int dynCount;
 uniform vec4 dynGrid;
 uniform int dynLightBase;
 uniform highp sampler2D dynLights;
@@ -266,17 +277,11 @@ float dynProfile( int offset, float u ) {
   float x = clamp( u * ${LIGHT_PROFILE_WIDTH}.0 - 0.5, 0.0, ${LIGHT_PROFILE_WIDTH - 1}.0 );
   int i = int( x );
   return mix( dynScalar( offset + i ), dynScalar( offset + min( i + 1, ${LIGHT_PROFILE_WIDTH - 1} ) ), fract( x ) );
-}
-#define DYN_LIGHTS_LOOP ${LOOP.replace(/\s*\n\s*/g, " ")}
-${shader.fragmentShader.replace("#include <lights_fragment_begin>", `#include <lights_fragment_begin>
-  DYN_LIGHTS_LOOP`)}`;
-    compile.call(this, shader, renderer);
-  };
-  return material;
-}
+}`;
 
-/** The loop, one line (a macro): the material's second lighting pass (hullModel.ts's dust layer) runs it too. */
-const LOOP = `
+/** Sample the current tile at a view-space position. Each branch receives dynL and dynColor. */
+export function tiledLightLoop(position: string, shade: string, particles = false): string {
+  return `
   if ( dynCount > 0 ) {
   ivec2 tile = ivec2( ( gl_FragCoord.xy - dynGrid.xy ) / ${TILE_SIZE}.0 );
   vec2 tileList = dynRead( tile.y * int( dynGrid.z ) + tile.x ).xy;
@@ -284,7 +289,7 @@ const LOOP = `
     int index = int( dynScalar( int( tileList.x ) + i ) );
     int address = dynLightBase + index * ${LIGHT_TEXELS};
     vec4 dynPosition = dynRead( address );
-    vec3 dynL = dynPosition.xyz - geometryPosition;
+    vec3 dynL = dynPosition.xyz - ${position};
     float dynD = length( dynL );
     float dynR = dynPosition.w;
     if ( dynD >= dynR ) continue;
@@ -293,7 +298,8 @@ const LOOP = `
     float dynAtt = clamp( ( 1.0 / ( dynD + 0.001 ) - dynRr ) / ( 999.999939 - dynRr ), 0.0, 1.0 ) * 999.999939;
     vec4 dynColorSource = dynRead( address + 1 );
     vec4 dynSpot = dynRead( address + 2 );
-    vec2 dynShape = dynRead( address + 3 ).xy;
+    vec3 dynShape = dynRead( address + 3 ).xyz;
+    ${particles ? "if ( dynShape.z == 0.0 ) continue;" : ""}
     float dynAxis = dot( dynSpot.xyz, dynL );
     if ( dynSpot.w > 0.0 ) {
       float dynC = clamp( ( dynAxis - dynSpot.w ) / ( dynShape.x - dynSpot.w ), 0.0, 1.0 );
@@ -303,9 +309,16 @@ const LOOP = `
       dynAtt *= dynProfile( int( dynShape.y ), 0.5 - 0.5 * dynAxis );
     }
     float dynSrc = clamp( dynColorSource.w / dynD, 0.0, 0.8 );
-    directLight.color = dynColorSource.xyz * dynAtt * ( 1.0 - dynSrc ) * PI;
+    vec3 dynColor = dynColorSource.xyz * dynAtt * ( 1.0 - dynSrc );
+    ${shade}
+  }
+  }`;
+}
+
+// The hull's dust layer runs the same loop in a second lighting pass.
+const LOOP = tiledLightLoop("geometryPosition", `
+    directLight.color = dynColor * PI;
     directLight.direction = dynL;
     directLight.visible = true;
     RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
-  }
-  }`;
+  `);

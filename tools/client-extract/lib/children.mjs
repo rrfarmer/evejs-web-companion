@@ -974,6 +974,7 @@ function readLight(l) {
   return {
     // its id: a curve set's binding may drive its brightness, colour or radius
     id: idOf(l), position: l.position ?? [0, 0, 0], radius: l.radius ?? 0, innerRadius: l.innerRadius ?? 0, color, brightness: l.brightness ?? 1,
+    ...((l.flags & 2) ? { affectsParticles: true } : {}),
     ...(spot || profile ? { rotation: l.rotation ?? [0, 0, 0, 1] } : {}),
     ...(spot ? { innerAngle: l.innerAngle ?? 0, outerAngle: l.outerAngle ?? 0 } : {}),
     ...(profile ? { profile } : {}),

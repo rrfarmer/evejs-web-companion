@@ -54,7 +54,7 @@ export interface SofChildContainer {
   srt?: SofChildSrt | null;
   objects: SofChildNode[];
   /** Its lights (Tr2PointLight, Tr2SpotLight, Tr2FactionLight: children.mjs readLight), in its own space. */
-  lights?: { id?: number; position: number[]; radius: number; innerRadius: number; color: number[]; brightness: number; rotation?: number[]; innerAngle?: number; outerAngle?: number; profile?: string | null }[];
+  lights?: { id?: number; position: number[]; radius: number; innerRadius: number; color: number[]; brightness: number; rotation?: number[]; innerAngle?: number; outerAngle?: number; profile?: string | null; affectsParticles?: boolean }[];
   /** Its controllers (controllers.ts), run with it as their owner. */
   controllers?: SofController[];
   /** A controller on the loading parent can animate this effect root's scale. */
@@ -207,7 +207,7 @@ function placedLight(l: SofChildLight, matrix: THREE.Matrix4): ChildLight {
     ...(l.id !== undefined ? { id: l.id, scale } : {}),
     position: new THREE.Vector3(l.position[0] ?? 0, l.position[1] ?? 0, l.position[2] ?? 0).applyMatrix4(matrix).toArray(),
     radius: l.radius * scale, sourceRadius: (l.innerRadius ?? 0) * scale, color: l.color,
-    brightness: l.brightness, direction: axis, profile: l.profile ?? undefined, ...spot,
+    brightness: l.brightness, direction: axis, profile: l.profile ?? undefined, affectsParticles: l.affectsParticles, ...spot,
   };
 }
 
@@ -2237,7 +2237,7 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
         const mine = { quads: quadList, ids: quadIds, lights: lightList };
         for (const l of node.lights ?? []) {
           const at = new THREE.Vector3(l.position[0] ?? 0, l.position[1] ?? 0, l.position[2] ?? 0).applyMatrix4(childMatrix);
-          mine.lights.push({ ...(l.id !== undefined ? { id: l.id, scale: 1 } : {}), position: at.toArray(), radius: l.radius, sourceRadius: l.innerRadius ?? 0, color: l.color, brightness: l.brightness });
+          mine.lights.push({ ...(l.id !== undefined ? { id: l.id, scale: 1 } : {}), position: at.toArray(), radius: l.radius, sourceRadius: l.innerRadius ?? 0, color: l.color, brightness: l.brightness, affectsParticles: l.affectsParticles });
         }
         for (const o of node.objects) walk(o, childMatrix.clone(), childMatrix.clone(), (c) => contents.add(c), null, ancestors);
         [quadList, quadIds, lightList] = saved;

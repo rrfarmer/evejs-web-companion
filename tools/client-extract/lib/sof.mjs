@@ -8,7 +8,7 @@
 
 import { readBlack } from "./black.mjs";
 
-export const SOF_BUILD = 102;
+export const SOF_BUILD = 103;
 export const GRAPHIC_SOF_DEFAULTS = "graphicSofDefaults.json";
 
 /** File variant beside the shared mesh for a faction, a graphic's default recipe, or an applied SKIN. */

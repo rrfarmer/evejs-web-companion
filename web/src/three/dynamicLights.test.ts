@@ -131,7 +131,7 @@ test("screen tiles retain eligible lights beyond sixteen and separate distant so
   camera.updateMatrixWorld();
   const emitter = new THREE.Object3D();
   const source = (x: number, radius = 0.75) => ({ position: [x, 0.9, -3], radius, color: [1, 1, 1], brightness: 1 });
-  emitter.userData.lights = [...Array.from({ length: 19 }, () => source(-3)), source(3), source(20), source(0, 0.4)];
+  emitter.userData.lights = [...Array.from({ length: 19 }, () => source(-3)), { ...source(3), affectsParticles: true }, source(20), source(0, 0.4)];
   offerLights(target as unknown as THREE.WebGLRenderer, camera, emitter);
   draw(target, camera);
   assert.equal(dynamicLightUniforms.dynCount.value, 20);
@@ -139,4 +139,6 @@ test("screen tiles retain eligible lights beyond sixteen and separate distant so
   assert.deepEqual(indices(0, 2), Array.from({ length: 19 }, (_, i) => i));
   assert.deepEqual(indices(1, 2), []);
   assert.deepEqual(indices(3, 2), [19]);
+  assert.equal(light(0)[14], 0);
+  assert.equal(light(19)[14], 1);
 });

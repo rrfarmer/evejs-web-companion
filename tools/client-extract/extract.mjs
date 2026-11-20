@@ -442,7 +442,7 @@ async function extractFxGraphic(rf, clientDir, sde, guid, outRoot) {
   const ship = fx?.type === "ShipEffect" && graphicFile ? readEffectFile(rf, graphicFile) : null;
   if (ship?.root) await copyChildGraphAssets(rf, [ship.root, ...Object.values(ship.childEffects ?? {})], outRoot);
   const out = {
-    fxBuild: 3, guid, type: fx?.type ?? null, graphicID: fx?.graphicID ?? null, graphicFile, duration: fx?.duration ?? null,
+    fxBuild: 4, guid, type: fx?.type ?? null, graphicID: fx?.graphicID ?? null, graphicFile, duration: fx?.duration ?? null,
     sourceDamage: fx?.sourceDamage ?? null, targetDamage: fx?.targetDamage ?? null,
     stretches: stretches.map((s) => ({ type: "EveStretch3", ...s })),
     shipEffect: ship?.root ? { root: ship.root, childEffects: ship.childEffects ?? {}, skipped: ship.skipped ?? {}, transformFlags: fx.transformFlags ?? [], timeScale: !!fx.timeScale, firstSet: ship.firstSet ?? null } : null,
