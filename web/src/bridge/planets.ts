@@ -28,6 +28,7 @@
 import type { JsonValue } from "./wire.ts";
 import type {
   Colony,
+  ColonyExtractor,
   ColonyExtractionProgram,
   ColonyLink,
   ColonyPin,
@@ -35,6 +36,7 @@ import type {
   ColonyReport,
   ColonyRoute,
   ColonyStoredItem,
+  ExtractorHead,
   PlanetResource,
 } from "../store/types.ts";
 
@@ -145,11 +147,11 @@ const finite = (value: unknown): value is number => typeof value === "number" &&
 const whole = (value: unknown): value is number => Number.isInteger(value);
 
 /** A unit's heads, each (head, latitude, longitude), or null where what was read is not that throughout. */
-function decodeHeads(value: JsonValue | undefined): readonly (readonly [number, number, number])[] | null {
+function decodeHeads(value: JsonValue | undefined): readonly ExtractorHead[] | null {
   if (!Array.isArray(value)) {
     return null;
   }
-  const heads: (readonly [number, number, number])[] = [];
+  const heads: ExtractorHead[] = [];
   for (const each of value) {
     if (!Array.isArray(each) || each.length !== 3) {
       return null;
@@ -161,6 +163,17 @@ function decodeHeads(value: JsonValue | undefined): readonly (readonly [number, 
     heads.push([head, latitude, longitude]);
   }
   return heads;
+}
+
+function decodeExtractor(value: JsonValue): ColonyExtractor {
+  const record = asRecord(value);
+  return {
+    heads: decodeHeads(record.heads),
+    headRadius: finite(record.headRadius) && record.headRadius > 0 ? record.headRadius : null,
+    areaOfInfluence: finite(record.areaOfInfluence) && record.areaOfInfluence > 0 ? record.areaOfInfluence : null,
+    decayFactor: finite(record.decayFactor) && record.decayFactor >= 0 ? record.decayFactor : null,
+    noiseFactor: finite(record.noiseFactor) && record.noiseFactor >= 0 ? record.noiseFactor : null,
+  };
 }
 
 function decodeProgram(value: JsonValue | undefined): ColonyExtractionProgram | null {
@@ -216,6 +229,7 @@ function decodePin(value: JsonValue): ColonyPin | null {
     active: asFlag(record.active),
     lastRunAtMs: asInstant(record.lastRunAtMs),
     lastLaunchAtMs: asInstant(record.lastLaunchAtMs),
+    ...(record.extractor ? { extractor: decodeExtractor(record.extractor) } : {}),
     program: decodeProgram(record.program),
   };
 }

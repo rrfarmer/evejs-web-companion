@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import type { Colony, ColonyPin } from "../store/types.ts";
+import { EXTRACTOR_HEAD_LIMIT } from "../bridge/extractorSurvey.ts";
+import type { Colony, ColonyPin, ExtractorHead } from "../store/types.ts";
 import { celestialModel, systemCelestials } from "../three/celestialModel.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { createPlanetSurveyLayer } from "./planetSurveyLayer.ts";
@@ -15,11 +16,40 @@ export interface PlanetMarkerPosition {
   readonly y: number;
 }
 
+export interface ExtractorMarkerPosition {
+  readonly id: number;
+  readonly x: number;
+  readonly y: number;
+}
+
 /** SurfacePoint's polar latitude, reflected into the renderer's right-handed world. */
-function surfacePoint(pin: ColonyPin): THREE.Vector3 | null {
-  const { latitude, longitude } = pin;
-  if (latitude == null || longitude == null) return null;
+function surfaceVector(latitude: number, longitude: number): THREE.Vector3 {
   return new THREE.Vector3(Math.sin(latitude) * Math.cos(longitude), Math.cos(latitude), -Math.sin(latitude) * Math.sin(longitude));
+}
+
+function surfacePoint({ latitude, longitude }: ColonyPin): THREE.Vector3 | null {
+  return latitude == null || longitude == null ? null : surfaceVector(latitude, longitude);
+}
+
+function headAt(id: number, point: THREE.Vector3): ExtractorHead {
+  return [id, Math.acos(THREE.MathUtils.clamp(point.y, -1, 1)),
+    THREE.MathUtils.euclideanModulo(Math.atan2(-point.z, point.x), 2 * Math.PI)];
+}
+
+function surfaceRing(centre: THREE.Vector3, angle: number, color: number, opacity: number): THREE.LineLoop {
+  const normal = Math.abs(centre.y) < .9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+  const east = normal.cross(centre).normalize(), north = centre.clone().cross(east);
+  const points = Array.from({ length: 96 }, (_, i) => {
+    const bearing = i * Math.PI / 48;
+    return centre.clone().multiplyScalar(Math.cos(angle))
+      .addScaledVector(east, Math.sin(angle) * Math.cos(bearing))
+      .addScaledVector(north, Math.sin(angle) * Math.sin(bearing))
+      .multiplyScalar(1.009);
+  });
+  const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(points),
+    new THREE.LineBasicMaterial({ color, opacity, transparent: true, depthWrite: false }));
+  ring.renderOrder = 4;
+  return ring;
 }
 
 function releaseGeometry(group: THREE.Object3D): void {
@@ -32,7 +62,7 @@ function releaseGeometry(group: THREE.Object3D): void {
   group.clear();
 }
 
-/** The secondary, read-only scene used by View in Planet Mode. */
+/** Secondary scene for colony inspection and survey placement in Planet Mode. */
 export class PlanetScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
@@ -40,6 +70,10 @@ export class PlanetScene {
   private readonly controls: OrbitControls;
   private readonly sun = new THREE.DirectionalLight(0xffffff, 2.7);
   private readonly links = new THREE.Group();
+  private readonly extraction = new THREE.Group();
+  private readonly headPoints = new Map<number, THREE.Vector3>();
+  private readonly ray = new THREE.Raycaster();
+  private readonly globe = new THREE.Sphere(new THREE.Vector3(), 1);
   private readonly resize: ResizeObserver;
   private readonly host: HTMLElement;
   private readonly showMarkers: (positions: readonly PlanetMarkerPosition[]) => void;
@@ -52,7 +86,8 @@ export class PlanetScene {
   private surveyRange: readonly [number, number] = [0, .5];
   private disposed = false;
 
-  constructor(host: HTMLElement, showMarkers: (positions: readonly PlanetMarkerPosition[]) => void) {
+  constructor(host: HTMLElement, showMarkers: (positions: readonly PlanetMarkerPosition[]) => void,
+    private readonly showHeads: (positions: readonly ExtractorMarkerPosition[]) => void) {
     this.host = host;
     this.showMarkers = showMarkers;
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -71,7 +106,7 @@ export class PlanetScene {
     this.controls.update();
     this.controls.addEventListener("change", this.draw);
     this.scene.background = new THREE.Color(0x071018);
-    this.scene.add(this.links, this.sun, new THREE.AmbientLight(0x566782, 0.55));
+    this.scene.add(this.links, this.extraction, this.sun, new THREE.AmbientLight(0x566782, 0.55));
     this.host.appendChild(this.renderer.domElement);
     this.resize = new ResizeObserver(this.size);
     this.resize.observe(this.host);
@@ -166,6 +201,46 @@ export class PlanetScene {
     }
   }
 
+  setExtractor(unit: ColonyPin | null, heads: readonly ExtractorHead[], radius: number, area: number | null): void {
+    this.headPoints.clear();
+    releaseGeometry(this.extraction);
+    const centre = unit && surfacePoint(unit);
+    if (centre && area) this.extraction.add(surfaceRing(centre, area * .99, 0x89e6df, .75));
+    for (const [id, latitude, longitude] of heads) {
+      const point = surfaceVector(latitude, longitude);
+      this.headPoints.set(id, point);
+      this.extraction.add(surfaceRing(point, radius, 0xf0d088, .9));
+    }
+    this.draw();
+  }
+
+  defaultHead(unit: ColonyPin, id: number, area: number): ExtractorHead | null {
+    const centre = surfacePoint(unit);
+    if (!centre) return null;
+    // SurveyWindow.PlaceProbeAtDefaultPosition spaces slots around the ECU.
+    const offset = centre.clone().cross(new THREE.Vector3(-1, 0, 0));
+    if (offset.lengthSq() < 1e-10) offset.set(0, 1, 0);
+    const distance = Math.min(Math.atan(.08 * offset.length()), area * .99);
+    const point = centre.clone().multiplyScalar(Math.cos(distance))
+      .addScaledVector(offset.normalize().applyAxisAngle(centre, -id * Math.PI * 2 / EXTRACTOR_HEAD_LIMIT), Math.sin(distance));
+    return headAt(id, point);
+  }
+
+  moveHead(unit: ColonyPin, id: number, x: number, y: number, area: number): ExtractorHead | null {
+    const centre = surfacePoint(unit);
+    if (!centre) return null;
+    const bounds = this.renderer.domElement.getBoundingClientRect();
+    this.ray.setFromCamera(new THREE.Vector2((x - bounds.left) / bounds.width * 2 - 1, 1 - (y - bounds.top) / bounds.height * 2), this.camera);
+    const point = this.ray.ray.intersectSphere(this.globe, new THREE.Vector3());
+    if (!point) return null;
+    const limit = area * .99;
+    if (centre.angleTo(point) > limit) {
+      const direction = point.clone().addScaledVector(centre, -point.dot(centre)).normalize();
+      point.copy(centre).multiplyScalar(Math.cos(limit)).addScaledVector(direction, Math.sin(limit));
+    }
+    return headAt(id, point);
+  }
+
   focus(pin: ColonyPin | undefined): boolean {
     const point = pin && surfacePoint(pin);
     if (!point) return false;
@@ -200,6 +275,7 @@ export class PlanetScene {
     this.camera.getWorldDirection(this.sun.position).applyAxisAngle(right, -5 * Math.PI / 4).applyAxisAngle(up, -Math.PI / 4);
     this.renderer.render(this.scene, this.camera);
     const shown: PlanetMarkerPosition[] = [];
+    const heads: ExtractorMarkerPosition[] = [];
     if (this.model) {
       const projected = new THREE.Vector3();
       for (const [pinID, point] of this.points) {
@@ -208,8 +284,15 @@ export class PlanetScene {
         if (Math.abs(projected.x) >= 1 || Math.abs(projected.y) >= 1) continue;
         shown.push({ pinID, x: (projected.x + 1) * 50, y: (1 - projected.y) * 50 });
       }
+      for (const [id, point] of this.headPoints) {
+        if (point.dot(this.camera.position) <= 1) continue;
+        projected.copy(point).multiplyScalar(1.009).project(this.camera);
+        if (Math.abs(projected.x) >= 1 || Math.abs(projected.y) >= 1) continue;
+        heads.push({ id, x: (projected.x + 1) * 50, y: (1 - projected.y) * 50 });
+      }
     }
     this.showMarkers(shown);
+    this.showHeads(heads);
   };
 
   dispose(): void {
@@ -218,6 +301,7 @@ export class PlanetScene {
     this.controls.dispose();
     this.surveyLayer?.dispose();
     releaseGeometry(this.links);
+    releaseGeometry(this.extraction);
     if (this.model) releaseGeometry(this.model);
     this.nebula?.dispose();
     this.renderer.dispose();

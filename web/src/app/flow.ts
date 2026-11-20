@@ -1225,7 +1225,9 @@ import { runSlashCommand } from "../bridge/gmWrites.ts";
 import { IntDict, hashedSetOrder, intDictOf, intDictOrder, strDictOrder, tupleHashOf, wholeHashOf } from "../bridge/py27DictOrder.ts";
 import { hudSettingNow, setSlotOrder, slotOrderOf } from "../store/hudSettings.ts";
 import { changeColonyNetwork, launchCommodities as launchCommoditiesCall, rerouteExtractorRoutes, type NewRoute } from "../bridge/planetWrites.ts";
-import { restartExtractor as restartExtractorAsTheClient } from "../bridge/extractorRestart.ts";
+import { requestExtractorYield, restartExtractor as restartExtractorAsTheClient, type ProgramYield } from "../bridge/extractorRestart.ts";
+import { validExtractorDraft } from "../bridge/extractorSurvey.ts";
+import type { ExtractorHead } from "../store/types.ts";
 import { activateModule as activateModuleCall, createDefaultEffects, createModuleRepairs, createOverloadEffects, createWeaponGrouping, deactivateModule as deactivateModuleCall, loadAmmo as loadAmmoCall, repairWaitMs, setModuleOnline as setModuleOnlineCall, setOverload as setOverloadCall, unloadAmmo as unloadAmmoCall, type ModuleActionResult, type ModuleDeps } from "../bridge/dogmaWrites.ts";
 import { keptByType, keptTypeAttributes, keptWhereKnown } from "../bridge/keptTypeFacts.ts";
 import { moduleActivation, type ModuleActivation } from "../nav/moduleActivation.ts";
@@ -4418,6 +4420,7 @@ export interface AppFlow {
   loadPlanets(): Promise<void>;
   quoteColonyTemplate(placement: TemplatePlacement): Promise<number>;
   readPlanetSurvey(planetID: number, resourceTypeID: number): Promise<PlanetResourceData>;
+  readExtractorYield(planetID: number, pinID: number, resourceTypeID: number, heads: readonly ExtractorHead[], radius: number): Promise<ProgramYield>;
   readColonyTemplateRules(template: ColonyTemplate, currentLevel: number): Promise<ColonyTemplateRules>;
   readColonyTemplateForExport(planetID: number, description: string): Promise<ColonyTemplate>;
   submitColonyTemplate(planetID: number, template: ColonyTemplate, rotation: TemplateRotation, reviewed: TemplatePlacement, price: number): Promise<void>;
@@ -28284,6 +28287,20 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return data;
   }
 
+  async function readExtractorYield(planetID: number, pinID: number, resourceTypeID: number,
+    heads: readonly ExtractorHead[], radius: number): Promise<ProgramYield> {
+    const pilot = callOptions.captureRequestGuard!();
+    const colony = store.planets.get().colonies?.find(planet => planet.planetID === planetID);
+    const unit = colony?.pins.find(pin => pin.pinID === pinID && pin.kind === "extractor-control");
+    if (!unit || unit.active !== false || !colony?.resources?.some(resource => resource.typeID === resourceTypeID)) {
+      throw new Error("The extractor or resource is unavailable for surveying.");
+    }
+    if (!validExtractorDraft(heads, radius)) throw new Error("The extraction heads or drill area are invalid.");
+    const answer = await requestExtractorYield(bridgeAsk, planetID, pinID, resourceTypeID, heads, radius);
+    pilot();
+    return answer;
+  }
+
   async function quoteColonyTemplate(placement: TemplatePlacement): Promise<number> {
     const typeIDs = [...new Set(placement.pins.filter(pin => !pin.existing).map(pin => pin.typeID))];
     const basePrice = new Map<number, number>();
@@ -37582,6 +37599,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadSkills,
     loadPlanets,
     readPlanetSurvey,
+    readExtractorYield,
     quoteColonyTemplate,
     readColonyTemplateRules,
     readColonyTemplateForExport,

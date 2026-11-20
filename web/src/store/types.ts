@@ -3400,6 +3400,16 @@ export interface ColonyStoredItem {
  * The extraction program installed in an Extractor Control Unit, or absent when
  * the unit has never been programmed. Every field is the server's.
  */
+export type ExtractorHead = readonly [id: number, latitude: number, longitude: number];
+
+export interface ColonyExtractor {
+  readonly heads: readonly ExtractorHead[] | null;
+  readonly headRadius: number | null;
+  readonly areaOfInfluence: number | null;
+  readonly decayFactor: number | null;
+  readonly noiseFactor: number | null;
+}
+
 export interface ColonyExtractionProgram {
   readonly resourceTypeID: number;
   /** null when the world could not name the resource. */
@@ -3427,7 +3437,7 @@ export interface ColonyExtractionProgram {
    * is asked a programme's yield with. Null or absent when the reading had none it could read; an empty list is a
    * unit with no heads.
    */
-  readonly heads?: readonly (readonly [number, number, number])[] | null;
+  readonly heads?: readonly ExtractorHead[] | null;
   /**
    * The unit's noise (attribute 1687): the most a cycle can yield is the whole of one more than this, times what
    * the programme yields (retail EcuPin.GetMaxOutput). Null or absent when the BFF could not say.
@@ -3483,6 +3493,7 @@ export interface ColonyPin {
   readonly lastLaunchAtMs: number | null;
   /** Only ever set on an extractor control unit. */
   readonly program: ColonyExtractionProgram | null;
+  readonly extractor?: ColonyExtractor;
 }
 
 /** One link between two pins. Endpoints are pin ids, for matching, not display. */

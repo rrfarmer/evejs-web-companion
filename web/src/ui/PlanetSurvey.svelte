@@ -6,10 +6,12 @@
   import type { Colony } from "../store/types.ts";
   import TypeIcon from "./TypeIcon.svelte";
 
-  let { colony, characterID, flow, showChart, setRange, onClose }: {
+  let { colony, characterID, flow, showChart, setRange, onClose, initialResourceID = null, locked = false, compact = false, onResourceReady }: {
     colony: Colony; characterID: number | null; flow: AppFlow;
     showChart: (chart: Uint8Array<ArrayBuffer> | null) => Promise<void>;
-    setRange: (low: number, high: number) => void; onClose: () => void;
+    setRange: (low: number, high: number) => void; onClose?: () => void;
+    initialResourceID?: number | null; locked?: boolean; compact?: boolean;
+    onResourceReady?: (resourceID: number | null) => void;
   } = $props();
 
   const minSpan = 26 / 239; // ResourceLegend's minimum ramp width over its usable width.
@@ -36,6 +38,7 @@
     try { range = storedRange(planetKey) ?? storedRange(fallbackKey) ?? [0, .5]; }
     catch { range = [0, .5]; }
     setRange(...range);
+    if (initialResourceID !== null) void select(initialResourceID);
     return () => {
       ++generation;
       void showChart(null);
@@ -58,6 +61,7 @@
     selectedID = resourceTypeID;
     error = "";
     status = resourceTypeID === null ? "ready" : "loading";
+    onResourceReady?.(null);
     void playUiEvent("msg_pi_scanning_switch_play");
     await showChart(null);
     if (resourceTypeID === null) return;
@@ -65,7 +69,10 @@
       const field = await flow.readPlanetSurvey(colony.planetID, resourceTypeID);
       if (current !== generation) return;
       await showChart(chartPlanetSurvey(field));
-      if (current === generation) status = "ready";
+      if (current === generation) {
+        status = "ready";
+        onResourceReady?.(resourceTypeID);
+      }
     } catch (cause) {
       if (current !== generation) return;
       error = errorWords(cause);
@@ -75,7 +82,18 @@
 </script>
 
 <section class="planet-survey" aria-label="Resource scan">
-  <header><h2>Scan</h2><button type="button" aria-label="Close resource scan" onclick={onClose}>×</button></header>
+  {#if onClose}<header><h2>Scan</h2><button type="button" aria-label="Close resource scan" onclick={onClose}>×</button></header>{/if}
+  {#if compact}
+    <label class="resource-choice">Resource
+      <select value={selectedID ?? ""} disabled={locked}
+        onchange={(event) => void select(event.currentTarget.value ? Number(event.currentTarget.value) : null)}>
+        <option value="">No resource selected</option>
+        {#each resources as resource (resource.typeID)}
+          <option value={resource.typeID}>{resource.typeName ?? "Resource"}</option>
+        {/each}
+      </select>
+    </label>
+  {/if}
   <div class="planet-legend" aria-hidden="true">
     <img src={PLANET_SURVEY_RAMP} alt="" style:left={`${range[0] * 100}%`} style:width={`${(range[1] - range[0]) * 100}%`} />
   </div>
@@ -89,11 +107,11 @@
         oninput={(event) => adjust(1, event.currentTarget.valueAsNumber)} />
     </label>
   </div>
-  <ul class="planet-resources">
-    <li><button type="button" aria-pressed={selectedID === null} onclick={() => void select(null)}>No resource selected</button></li>
+  {#if !compact}<ul class="planet-resources">
+    {#if !locked}<li><button type="button" aria-pressed={selectedID === null} onclick={() => void select(null)}>No resource selected</button></li>{/if}
     {#each resources as resource (resource.typeID)}
       {@const density = resource.quality === null ? null : planetResourceQuality(resource.quality)}
-      <li>
+      {#if !locked || resource.typeID === initialResourceID}<li>
         <button type="button" aria-pressed={selectedID === resource.typeID} onclick={() => void select(resource.typeID)}>
           <TypeIcon typeID={resource.typeID} name={resource.typeName ?? "Resource"} />
           <span>{resource.typeName ?? "Resource"}</span>
@@ -101,9 +119,9 @@
             <meter min="0" max="1" value={density} aria-label="Resource density" title={`Resource density ${Math.floor(density * 100)}%`}></meter>
           {/if}
         </button>
-      </li>
+      </li>{/if}
     {/each}
-  </ul>
+  </ul>{/if}
   {#if status === "loading"}<p role="status">Loading resource scan…</p>{/if}
   {#if error}<p role="alert">{error}</p>{/if}
   {#if colony.resources == null}<p>Resource information is unavailable.</p>
@@ -118,6 +136,8 @@
   .planet-legend img { position: absolute; top: 0; height: 100%; display: block; }
   label { display: grid; flex: 1; grid-template-columns: 1fr auto; min-width: 0; gap: .1rem; color: #bfccd3; }
   label input { grid-column: span 2; width: 100%; }
+  .resource-choice { grid-template-columns: auto 1fr; align-items: center; gap: .5rem; }
+  select { min-width: 0; padding: .24rem; color: inherit; background: #182630; border: 1px solid #536874; font: inherit; }
   output { justify-self: end; }
   ul { display: grid; gap: .2rem; list-style: none; margin: 0; padding: 0; }
   button { color: inherit; font: inherit; text-align: start; border: 1px solid transparent; background: #182630; cursor: pointer; }

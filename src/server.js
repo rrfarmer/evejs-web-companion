@@ -12658,6 +12658,8 @@ function pinUsedM3(staticDataSource, contents) {
  * `serverNowMs`, so a page left open goes stale visibly instead of lying.
  */
 const ECU_NOISE_FACTOR_ATTRIBUTE_ID = 1687;
+const ECU_DECAY_FACTOR_ATTRIBUTE_ID = 1683;
+const ECU_AREA_OF_INFLUENCE_ATTRIBUTE_ID = 1689;
 
 /**
  * The most one cycle of this program can yield — which is also how much its
@@ -12692,6 +12694,18 @@ function ecuNoiseFactor(staticDataSource, pin) {
     ? Number(read(Number(pin && pin.typeID) || 0, ECU_NOISE_FACTOR_ATTRIBUTE_ID, null))
     : NaN;
   return Number.isFinite(noise) ? Math.max(0, noise) : null;
+}
+
+function projectExtractor(staticDataSource, pin) {
+  // These belong to the unit even before any extraction program has been installed.
+  const attribute = id => staticDataSource.getTypeDogmaAttributeOrDefault?.(pin.typeID, id, null) ?? null;
+  return {
+    heads: Array.isArray(pin.heads) ? pin.heads : null,
+    headRadius: Number.isFinite(pin.headRadius) && pin.headRadius > 0 ? pin.headRadius : null,
+    areaOfInfluence: attribute(ECU_AREA_OF_INFLUENCE_ATTRIBUTE_ID),
+    decayFactor: attribute(ECU_DECAY_FACTOR_ATTRIBUTE_ID),
+    noiseFactor: attribute(ECU_NOISE_FACTOR_ATTRIBUTE_ID),
+  };
 }
 
 function projectExtractionProgram(staticDataSource, pin) {
@@ -12772,6 +12786,7 @@ function projectColony(staticDataSource, colony) {
       // "0" — a pad that has never launched — comes back null, not 1601.
       lastRunAtMs: fileTimeToEpochMs(pin && pin.lastRunTime),
       lastLaunchAtMs: fileTimeToEpochMs(pin && pin.lastLaunchTime),
+      ...(kind === "extractor-control" ? { extractor: projectExtractor(staticDataSource, pin) } : {}),
       program: kind === "extractor-control"
         ? projectExtractionProgram(staticDataSource, pin)
         : null,

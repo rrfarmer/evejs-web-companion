@@ -562,3 +562,15 @@ test("a noise that is not said, or is no number a noise can be, is not known", (
     assert.equal(programOf({ noiseFactor }).noiseFactor, null, JSON.stringify(noiseFactor));
   }
 });
+
+test("an idle unit has head and survey metadata even before its first program", () => {
+  const extractor = { heads: [[0, 1.18, 2.04]], headRadius: 0.01, areaOfInfluence: 0.3, decayFactor: 0.012, noiseFactor: 0.8 };
+  const report = decodeColonyReport({
+    serverNowMs: SERVER_NOW, coloniesReadable: true, colonies: [{ planetID: PLANET_ID, pins: [{
+      pinID: 7, typeID: 2848, kind: "extractor-control", contents: [], program: null, extractor,
+    }], links: [], routes: [] }],
+  } as JsonValue, SERVER_NOW);
+  const unit = report.colonies[0]!.pins[0]!;
+  assert.equal(unit.program, null);
+  assert.deepEqual(unit.extractor, extractor);
+});

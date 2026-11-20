@@ -38,7 +38,7 @@ import type { Ask } from "./ask.ts";
 import { isStorage } from "./colonyRoutes.ts";
 import { changeColonyNetwork } from "./planetWrites.ts";
 import { unwrapLong, type JsonValue } from "./wire.ts";
-import type { Colony } from "../store/types.ts";
+import type { Colony, ExtractorHead } from "../store/types.ts";
 
 const CREATE_ROUTE = 6;
 const REMOVE_ROUTE = 7;
@@ -82,6 +82,15 @@ export function decodeProgramResult(value: JsonValue): ProgramYield | null {
     return null;
   }
   return { quantity, cycleTicks: Number(ticks), cycles };
+}
+
+export async function requestExtractorYield(ask: Ask, planetID: number, pinID: number, resourceTypeID: number,
+  heads: readonly ExtractorHead[], headRadius: number): Promise<ProgramYield> {
+  const answer = await ask("planetMgr", "GetProgramResultInfo",
+    [pinID, resourceTypeID, heads.map(head => [...head]), headRadius], null, planetID);
+  const result = decodeProgramResult(answer);
+  if (result === null) throw new Error("The planet's answer was no yield.");
+  return result;
 }
 
 /** Python's round for a float: a half goes away from nought. */
@@ -159,11 +168,7 @@ export async function restartExtractor(ask: Ask, act: Ask, colony: Colony, pinID
   if (noiseFactor === null) {
     throw new Error("The extractor's noise is not known: what its routes should carry cannot be worked out.");
   }
-  const answer = await ask("planetMgr", "GetProgramResultInfo", [pinID, typeID, heads.map((head) => [...head]), headRadius], null, colony.planetID);
-  const result = decodeProgramResult(answer);
-  if (result === null) {
-    throw new Error("The planet's answer was no yield.");
-  }
+  const result = await requestExtractorYield(ask, colony.planetID, pinID, typeID, heads, headRadius);
   const toRoute = maxOutputOf(noiseFactor, result.quantity, result.cycleTicks);
   await changeColonyNetwork(act, colony.planetID, planExtractorRestart(colony, pinID, typeID, headRadius, toRoute));
 }
