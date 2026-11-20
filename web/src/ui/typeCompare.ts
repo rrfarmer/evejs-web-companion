@@ -9,6 +9,41 @@
 
 import { createSignal, readonlySignal, type ReadableSignal } from "../store/signals.ts";
 
+export interface ComparisonSubject {
+  readonly typeID: number;
+  readonly itemID: number | null;
+}
+
+export function comparisonKey(subject: ComparisonSubject): string {
+  return `${subject.typeID}:${subject.itemID ?? ""}`;
+}
+
+/** TypeComparer.add_types resolves the insertion index before taking any existing columns out. */
+export function placeComparedSubjects(
+  current: readonly ComparisonSubject[],
+  incoming: readonly ComparisonSubject[],
+  before: string | null,
+  categoryOf: (typeID: number) => number | null,
+): readonly ComparisonSubject[] {
+  const index = before === null ? -1 : current.findIndex(subject => comparisonKey(subject) === before);
+  const kept = [...current];
+  const added: ComparisonSubject[] = [];
+  const seen = new Set<string>();
+  for (const subject of incoming) {
+    const key = comparisonKey(subject);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const existing = kept.findIndex(previous => comparisonKey(previous) === key);
+    if (existing >= 0 && index < 0) continue;
+    added.push(existing < 0 ? subject : kept.splice(existing, 1)[0]!);
+  }
+  if (added.length === 0) return current;
+  const category = categoryOf(added[0]!.typeID);
+  if (kept.some(subject => categoryOf(subject.typeID) !== category)) kept.length = 0;
+  kept.splice(index < 0 ? kept.length : index, 0, ...added);
+  return kept;
+}
+
 export interface TypeCompareTarget {
   /** How many times types have been asked to be compared. */
   readonly requests: ReadableSignal<number>;

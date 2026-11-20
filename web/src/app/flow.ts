@@ -5859,7 +5859,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       } else if (subject.kind === "corporation") { typeID = 2; itemID = subject.corporationID; }
       else if (subject.kind === "alliance") { typeID = 16159; itemID = subject.allianceID; }
       else if (subject.kind === "faction") { typeID = 30; itemID = subject.factionID; }
-      else { typeID = subject.typeID; if (subject.kind !== "type") itemID = subject.itemID; }
+      else { typeID = subject.typeID; itemID = subject.itemID ?? null; }
       current();
       if (typeID === null || typeID <= 0) return null;
       if (itemID === 500021) { sayDialog("KillerOfUnknownFaction", null, "The killer belongs to an unknown faction."); return null; }

@@ -8,11 +8,10 @@
   // (SkillAttributeField). At the foot: Reset All (ButtonGroup), and the filter (AttributeFilterCont: Show All, Only
   // show if different values, the attributes one by one) with "Filter Active" while it hides any.
   //
-  // Types come from a type's menu (Compare: typeCompare.ts). A type of another category than those compared clears
-  // them first (TypeComparer._check_clear_existing); one the tool does not compare is said so
-  // (UI/Compare/CannotCompareThisItem).
+  // Types come from the Compare menu and selected Personal Assets rows. An asset column keeps the item ID from
+  // its drag node. TypeComparer._check_clear_existing clears columns when the new category differs.
   //
-  // Not the page's yet: the window's left browser of hulls and hardware, the horizontal view, dragging types in,
+  // Still open: the window's left browser of hulls and hardware, the horizontal view,
   // Copy to Clipboard, a type header's menu, an attribute row's GM menu and the skills its tooltip lists, the attributes'
   // icons, an alpha pilot's clone-grade row; a rare skill book's hint (the page says a book is missing alike).
   import { onMount } from "svelte";
@@ -39,20 +38,23 @@
     standings,
     type AttributeWords,
     type ComparableAttribute,
-    type ComparableType,
     type ComparisonTypeData,
     type DogmaAttributeRecord,
   } from "../bridge/typeComparison.ts";
   import LabelText from "./LabelText.svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import { showInfo } from "./showInfo.ts";
+  import { ASSET_ITEM_DRAG_MIME, decodeAssetItemDrag } from "./dragDrop.ts";
   import {
+    comparisonKey,
     hiddenAttributes,
     onlyShowDifferent,
+    placeComparedSubjects,
     setOnlyShowDifferent,
     toggleHiddenAttribute,
     toggleShowAll,
     typeCompareTarget,
+    type ComparisonSubject,
   } from "./typeCompare.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
@@ -82,7 +84,7 @@
 
   // The page's own words where the install's are not to hand.
   const OWN: Readonly<Record<string, string>> = {
-    [WORDS.hint]: "A type's menu adds it here (Compare).",
+    [WORDS.hint]: "Drop items here or choose Compare from a type's menu.",
     [WORDS.noAttributes]: "No attributes are shown.",
     [WORDS.filterAttributes]: "Filter",
     [WORDS.showAll]: "Show all",
@@ -124,9 +126,12 @@
   } | null>(null);
   let prices = $state.raw<ReadonlyMap<number, number | null> | null>(null);
   /** TypeComparer.comparable_types: the types compared, in their order. */
-  let compared = $state<number[]>([]);
+  let compared = $state.raw<readonly ComparisonSubject[]>([]);
   let notice = $state("");
-  let reading = $state(false);
+  let pendingReads = $state(0);
+  let revision = 0;
+  let readWork = Promise.resolve();
+  let insertion = $state<string | null>(null);
   /** The groups folded away (GroupHeaderRow.is_expanded false); all open again whenever the rows are made anew. */
   let folded = $state<ReadonlySet<string>>(new Set());
   let filterOpen = $state(false);
@@ -135,62 +140,89 @@
    * add_types: each type asked for that is not compared already and that the tool compares (else said so), after
    * the types compared are cleared where the first added is of another category.
    */
-  async function addTypes(asked: readonly number[]): Promise<void> {
+  function addTypes(asked: readonly ComparisonSubject[], before: string | null = null): void {
     if (asked.length === 0) return;
-    reading = true;
-    notice = "";
-    try {
-      const [types, cfgPrices] = await Promise.all([flow.comparisonTypes(asked), flow.cfgAveragePrices()]);
+    const requestedRevision = revision;
+    pendingReads++;
+    readWork = readWork.then(async () => {
+      if (requestedRevision !== revision) return;
+      notice = "";
+      const ids = [...new Set(asked.map(subject => subject.typeID))];
+      const [types, cfgPrices] = await Promise.all([flow.comparisonTypes(ids), flow.cfgAveragePrices()]);
+      if (requestedRevision !== revision) return;
       if (types === null) {
         notice = "The client's data for these types could not be read.";
         return;
       }
       read = types;
       prices = cfgPrices;
-      flow.requestNames(asked.map((typeID) => ({ kind: "type" as const, id: typeID })));
-      const added: number[] = [];
-      for (const typeID of asked) {
-        if (compared.includes(typeID)) continue;
-        if (!isComparable(types.types.get(typeID) ?? null)) {
-          notice = word(WORDS.cannotCompare, {}) || "That cannot be compared.";
-          continue;
-        }
-        added.push(typeID);
+      flow.requestNames(ids.map((typeID) => ({ kind: "type" as const, id: typeID })));
+      const accepted = asked.filter(({ typeID }) => {
+        if (isComparable(types.types.get(typeID) ?? null)) return true;
+        notice = word(WORDS.cannotCompare, { typeID: String(typeID) }) || "That cannot be compared.";
+        return false;
+      });
+      const next = placeComparedSubjects(compared, accepted, before, typeID => types.types.get(typeID)?.categoryID ?? null);
+      if (next !== compared) {
+        compared = next;
+        folded = new Set();
       }
-      if (added.length === 0) return;
-      const category = types.types.get(added[0]!)?.categoryID ?? null;
-      const kept = commonCategory(comparables) === category ? compared : [];
-      compared = [...kept, ...added];
-      folded = new Set();
-    } finally {
-      reading = false;
-    }
+    }).catch(() => {
+      if (requestedRevision === revision) notice = "The client's data for these types could not be read.";
+    }).finally(() => { pendingReads--; });
+  }
+
+  function overComparison(event: DragEvent, before: string | null = null): void {
+    if (!event.dataTransfer?.types.includes(ASSET_ITEM_DRAG_MIME)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    insertion = before;
+  }
+
+  function dropOnComparison(event: DragEvent, before: string | null = null): void {
+    if (!event.dataTransfer?.types.includes(ASSET_ITEM_DRAG_MIME)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    insertion = null;
+    const rows = decodeAssetItemDrag(event.dataTransfer.getData(ASSET_ITEM_DRAG_MIME));
+    addTypes(before === null ? rows.slice(0, 20) : rows, before);
+  }
+
+  function leaveComparison(event: DragEvent): void {
+    if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) insertion = null;
   }
 
   $effect(() => {
     void $requests;
     const asked = typeCompareTarget.take();
-    if (asked.length > 0) void addTypes(asked);
+    addTypes(asked.map(typeID => ({ typeID, itemID: null })));
   });
 
   /** RemoveEntry: the one type taken out. */
-  function remove(typeID: number): void {
-    compared = compared.filter((each) => each !== typeID);
+  function remove(key: string): void {
+    compared = compared.filter(subject => comparisonKey(subject) !== key);
     folded = new Set();
   }
 
   /** RemoveAllEntries (Reset All): TypeComparer.clear. */
   function resetAll(): void {
+    revision++;
     compared = [];
     folded = new Set();
+    notice = "";
   }
 
-  const comparables = $derived.by((): ComparableType[] => {
+  const comparables = $derived.by(() => {
     if (read === null) return [];
     const held = read;
-    return compared.flatMap((typeID) => {
-      const type = held.types.get(typeID);
-      return type ? [comparableType(typeID, type, held.attributes, prices)] : [];
+    return compared.flatMap((subject) => {
+      const type = held.types.get(subject.typeID);
+      return type ? [{
+        ...comparableType(subject.typeID, type, held.attributes, prices),
+        itemID: subject.itemID,
+        key: comparisonKey(subject),
+      }] : [];
     });
   });
   const marks = $derived(standings(comparables));
@@ -283,9 +315,10 @@
   {#if notice}
     <p class="note">{notice}</p>
   {/if}
-  <div class="grid-wrap">
+  <div class="grid-wrap" role="group" ondragover={(event) => overComparison(event)}
+    ondragleave={leaveComparison} ondrop={(event) => dropOnComparison(event)}>
     {#if comparables.length === 0}
-      <p class="hint">{reading ? "Reading…" : word(WORDS.hint)}</p>
+      <p class="hint">{pendingReads > 0 ? "Reading…" : word(WORDS.hint)}</p>
     {:else if shown.length === 0}
       <p class="hint">{word(WORDS.noAttributes)}</p>
     {:else}
@@ -293,11 +326,13 @@
         <thead>
           <tr>
             <th></th>
-            {#each comparables as type (type.typeID)}
-              <th class="type-head">
+            {#each comparables as type (type.key)}
+              <th class="type-head" class:insert-before={insertion === type.key} data-item-id={type.itemID}
+                ondragover={(event) => overComparison(event, type.key)} ondragleave={leaveComparison}
+                ondrop={(event) => dropOnComparison(event, type.key)}>
                 <div class="type-head-inner">
-                  <button type="button" class="remove" aria-label="Remove {typeName(type.typeID)}" onclick={() => remove(type.typeID)}>×</button>
-                  <button type="button" class="type-button" onclick={() => showInfo({ kind: "type", typeID: type.typeID })}>
+                  <button type="button" class="remove" aria-label="Remove {typeName(type.typeID)}" onclick={() => remove(type.key)}>×</button>
+                  <button type="button" class="type-button" onclick={() => showInfo({ kind: "type", typeID: type.typeID, itemID: type.itemID ?? undefined })}>
                     <TypeIcon typeID={type.typeID} name={typeName(type.typeID)} size={compact ? "md" : "lg"} />
                     <span class="type-name">{typeName(type.typeID)}</span>
                   </button>
@@ -321,7 +356,7 @@
               {#each attributeIDs as attributeID, row (`${attributeID}:${row}`)}
                 <tr class="attribute-row" class:shaded={row % 2 === 1}>
                   <th scope="row" class="attribute-name" title={rowHint(attributeID)}>{rowName(attributeID)}</th>
-                  {#each comparables as type (type.typeID)}
+                  {#each comparables as type (type.key)}
                     {@const attribute = type.attributes.get(attributeID)}
                     {@const skill = attribute ? skillOf(attribute) : null}
                     <td class="value">
@@ -382,6 +417,7 @@
   .compare-grid thead th { position: sticky; top: 0; z-index: 1; background: var(--color-panel, #10161c); }
   .compare-grid th, .compare-grid td { padding: 0.35rem 0.5rem; }
   .type-head { vertical-align: top; text-align: right; }
+  .type-head.insert-before::after { content: ""; position: absolute; top: 0; right: 0.5rem; height: 1px; width: 2rem; background: linear-gradient(to right, transparent, white); }
   .type-head-inner { display: flex; align-items: flex-start; justify-content: flex-end; gap: 0.25rem; }
   .type-button { display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem; background: none; border: 0; color: inherit; cursor: pointer; padding: 0; }
   .type-name { max-width: 120px; text-align: right; font-weight: 400; overflow-wrap: anywhere; }

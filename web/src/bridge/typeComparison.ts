@@ -94,9 +94,9 @@ export interface ComparableType {
   readonly attributes: ReadonlyMap<number, ComparableAttribute>;
 }
 
-/** comparisonUtil.is_comparable: not a dynamic type, and of a category the tool compares. */
+/** comparisonUtil.is_comparable accepts a static type with attributes in a supported category. */
 export function isComparable(type: ComparisonTypeData | null): boolean {
-  return type !== null && !type.dynamic && type.categoryID !== null && COMPARE_CATEGORIES.includes(type.categoryID);
+  return type !== null && !type.dynamic && type.attributes.length > 0 && type.categoryID !== null && COMPARE_CATEGORIES.includes(type.categoryID);
 }
 
 /** get_type_attributes_by_id: the type's value of an attribute (the last row for it), undefined where it has none. */
