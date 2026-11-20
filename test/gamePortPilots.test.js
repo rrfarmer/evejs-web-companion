@@ -1784,6 +1784,31 @@ test("a service's own method that answers with a bound object is called, and the
   await rejects(pilots.bindObject("scanMgr", "GetSystemScanMgr", [], null, WHO, handle), "BOUND_NO_OBJECT", /scanMgr\.GetSystemScanMgr/);
 });
 
+test("character setting writes update the buffered keys in the single session read", async () => {
+  const key = "inventoryFilters";
+  const settings = keyVal([
+    [key, { type: "wstring", value: "original" }],
+    ["anotherSetting", { type: "wstring", value: "kept" }],
+  ]);
+  settings.name = Buffer.from("utillib.KeyVal");
+  const methods = ["GetCharacterSettings", "SaveCharacterSetting", "DeleteCharacterSetting"];
+  const { pilots, session, handle } = await selected({
+    answers: { "charMgr.GetCharacterSettings": settings },
+  }, { allowed: new Set(methods.map(method => `charMgr.${method}`)) });
+  const call = (method, args = []) => pilots.callMethod("charMgr", method, args, null, WHO, handle);
+  const entries = async () => (await call("GetCharacterSettings")).result.args.entries;
+  const pair = (key, value) => [key, { type: "wstring", value }];
+
+  assert.deepEqual(await entries(), [pair(key, "original"), pair("anotherSetting", "kept")]);
+  await call("SaveCharacterSetting", [key, "Épreuve"]);
+  assert.deepEqual(await entries(), [pair(key, "Épreuve"), pair("anotherSetting", "kept")]);
+  await call("DeleteCharacterSetting", [key]);
+  assert.deepEqual(await entries(), [pair("anotherSetting", "kept")]);
+  await call("SaveCharacterSetting", [key, "new"]);
+  assert.deepEqual(await entries(), [pair("anotherSetting", "kept"), pair(key, "new")]);
+  assert.equal(session.calls.filter(call => call.method === "GetCharacterSettings").length, 1);
+});
+
 test("a call on a bound object sends the arguments, answers in the gateway's JSON and drains the backlog", async () => {
   const { pilots, session, handle } = await selected({ answers: { "bound:Add": () => ({ type: "list", items: [[SHIP, 134359051855730000n], Buffer.from("Reaper")] }) } });
   const { boundHandle } = await pilots.bindObject("invbroker", "GetInventory", [STATION], null, WHO, handle);

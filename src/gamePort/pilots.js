@@ -3067,7 +3067,7 @@ function createGamePortPilots({
     // characterSettingsSvc.Save and Delete (44 to 58): once the server has taken the call, the setting is the one the
     // service keeps, or gone from it.
     if (service === "charMgr" && (method === "SaveCharacterSetting" || method === "DeleteCharacterSetting")) {
-      characterSettingWorkedIn(entry, method, form.args);
+      await characterSettingWorkedIn(entry, method, form.args);
     }
     // What the client's own code names beside this call, which it does once the call is done (a refusal threw above).
     forgetNamed(entry, namedAfterCall(service, method, argumentsToWire(form.args), entry.session.attributes));
@@ -3631,18 +3631,25 @@ function createGamePortPilots({
    * put under its key in what is kept, or taken out of it. Nothing where the settings were never read: the next
    * reading asks the server for them all.
    */
-  function characterSettingWorkedIn(entry, method, args) {
+  async function characterSettingWorkedIn(entry, method, args) {
+    await entry.characterSettingsWork;
     const kept = entry.characterSettings;
-    const entries = kept && kept.type === "object" && kept.args && Array.isArray(kept.args.entries) ? kept.args.entries : null;
     const settingKey = Array.isArray(args) ? args[0] : null;
-    if (entries === null || typeof settingKey !== "string") return;
-    const at = entries.findIndex((candidate) => Array.isArray(candidate) && candidate[0] === settingKey);
+    if (kept === undefined || typeof settingKey !== "string") return;
+    const entries = kept?.type === "object" && kept.args?.entries;
+    if (!Array.isArray(entries)) {
+      entry.characterSettings = undefined;
+      return;
+    }
+    // The game port decodes keys in the server's KeyVal as bytes. The page supplies the same key as text.
+    const at = entries.findIndex((candidate) => Array.isArray(candidate) && textOf(candidate[0]) === settingKey);
     if (method === "DeleteCharacterSetting") {
       if (at >= 0) entries.splice(at, 1);
       return;
     }
-    if (at >= 0) entries[at] = [settingKey, args[1]];
-    else entries.push([settingKey, args[1]]);
+    const value = typeof args[1] === "string" ? { type: "wstring", value: args[1] } : args[1];
+    if (at >= 0) entries[at][1] = value;
+    else entries.push([settingKey, value]);
   }
 
   /**
