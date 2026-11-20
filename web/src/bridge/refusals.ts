@@ -141,6 +141,13 @@ const SERVER_REFUSALS: Readonly<Record<string, string>> = Object.freeze({
   // dogma `_throwModuleActivationUserError` — MODULE_DISALLOWED_IN_HIGHSEC.
   CantInHighSecSpace:
     "That module cannot be used in high-security space.",
+  // Planetary construction, where the network reply names the constraint without a pin type.
+  CannotAddToColonyCPUUsageExceeded:
+    "Construction would exceed your command centre's CPU capacity.",
+  CannotAddToColonyPowerUsageExceeded:
+    "Construction would overload your command centre's power core.",
+  CantUpgradeCommandCenterSkillRequired:
+    "The command centre upgrade requires a higher level of Command Center Upgrades.",
   // dogma `_throwModuleOnlineUserError` — CRP_ACCESS_DENIED.
   CrpAccessDenied:
     "Your corporation roles do not let you do that.",

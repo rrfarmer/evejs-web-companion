@@ -305,7 +305,7 @@ import { createCorporationAggression } from "../bridge/corporationAggression.ts"
 import type { InfoIdentity, InfoSubject } from "../bridge/infoWindow.ts";
 import { characterCorporationOf, isNpcCorporation as isNpcOwnerCorporation, readNpcNpcStandings, readStandings, relationshipsOf, standingComposition, standingHistory, type ContactStandings, type NpcNpcStanding } from "../bridge/standingsReads.ts";
 import { boostersAnswered, createSkillTypeFacts, readSkillSheet } from "../bridge/skillReads.ts";
-import { ATTRIBUTE_PRIMARY, ATTRIBUTE_SECONDARY, buildSkillSheet, queuedLevels, skillInTraining, skillLevelsOf, skillPointsForLevel, skillPointsPerMinute } from "../bridge/skillSheet.ts";
+import { ATTRIBUTE_PRIMARY, ATTRIBUTE_SECONDARY, buildSkillSheet, effectiveSkillLevel, queuedLevels, skillInTraining, skillLevelsOf, skillPointsForLevel, skillPointsPerMinute } from "../bridge/skillSheet.ts";
 import {
   allLevelsQueued, booksToBuy, isBoosterSkillAccelerator, needsOmegaUpgrade, directPurchasePrice, isSkillRequirementMet, levelProgress, skillLevelRaw, levelsToTrain, missingSkillBooks, missingSkills, missingSkillsRecursive, queueWithLevels,
   rawTrainingTimeForSkillLevel, requiredSkillsRecursive, skillLevelBoxes, skillPointsRequired, skillRowMark, skillsNotHeld, totalMissingLevels, trainingTimeForSkills, trainingTimeLeft,
@@ -451,7 +451,7 @@ import {
 } from "../bridge/drones.ts";
 import { decodeSkillSheet, skillQueueRefusal } from "../bridge/skills.ts";
 import { decodeColonyReport } from "../bridge/planets.ts";
-import { exportColonyTemplate, planColonyTemplate, type ColonyTemplate, type TemplatePlacement, type TemplateRotation } from "../bridge/colonyTemplate.ts";
+import { exportColonyTemplate, planColonyTemplate, type ColonyTemplate, type ColonyTemplateRules, type TemplatePlacement, type TemplateRotation } from "../bridge/colonyTemplate.ts";
 import { filetimeToUnixMs } from "../bridge/activity.ts";
 import { readWormholePolarization, type WormholePolarization } from "../play/wormholePolarization.ts";
 import { extractorReroute, factoryInputTypeIDs, type ExtractorReroute } from "../bridge/colonyRoutes.ts";
@@ -4415,6 +4415,7 @@ export interface AppFlow {
   /** R41 — every colony this character owns, and what is on each planet. */
   loadPlanets(): Promise<void>;
   quoteColonyTemplate(placement: TemplatePlacement): Promise<number>;
+  readColonyTemplateRules(template: ColonyTemplate, currentLevel: number): Promise<ColonyTemplateRules>;
   readColonyTemplateForExport(planetID: number, description: string): Promise<ColonyTemplate>;
   submitColonyTemplate(planetID: number, template: ColonyTemplate, rotation: TemplateRotation, reviewed: TemplatePlacement, price: number): Promise<void>;
   /** R41 — open one colony, or close the open one with null. View state. */
@@ -28276,14 +28277,33 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return exportColonyTemplate(colony, store.planets.get().recipes, description);
   }
 
+  async function readColonyTemplateRules(template: ColonyTemplate, currentLevel: number): Promise<ColonyTemplateRules> {
+    const pilot = callOptions.captureRequestGuard!();
+    const routeTypes = [...new Set(template.routes.map(route => route.typeID))];
+    // planetCommon's planetary link (2280), with base capacity from its logisticalCapacity attribute (1631).
+    const [skills, linkFacts, volumes] = await Promise.all([
+      template.level > currentLevel ? bridgeAsk("skillHandler", "GetSkills", []) : null,
+      routeTypes.length ? infoTypeFacts([2280]) : null,
+      api.loadTypeVolumes(routeTypes, callOptions),
+    ]);
+    pilot();
+    const capacity = linkFacts?.[2280]?.attributes.find(([id]) => id === 1631)?.[1];
+    if (routeTypes.length && (capacity == null || capacity <= 0)) {
+      throw new Error("The planetary link capacity could not be read.");
+    }
+    const commandCenterSkill = template.level > currentLevel ? effectiveSkillLevel(skills, 2505) : currentLevel;
+    return { commandCenterSkill, baseLinkBandwidth: capacity ?? 0, commodityVolumes: volumes.volumes };
+  }
+
   async function submitColonyTemplate(planetID: number, template: ColonyTemplate, rotation: TemplateRotation, reviewed: TemplatePlacement, price: number): Promise<void> {
     const pilot = callOptions.captureRequestGuard!();
     const colony = await readColonyForTemplate(planetID);
-    const fresh = planColonyTemplate(template, colony, store.planets.get().recipes, rotation);
+    const rules = await readColonyTemplateRules(template, colony.commandCenterLevel);
+    const fresh = planColonyTemplate(template, colony, store.planets.get().recipes, rotation, rules);
     const latestPrice = await quoteColonyTemplate(fresh);
     pilot();
     if (JSON.stringify(fresh.changes) !== JSON.stringify(reviewed.changes) || latestPrice !== price) {
-      throw new Error("The colony or construction price changed. Review the template again.");
+      throw new Error("The colony or construction quote changed. Preview the template again.");
     }
     await changeColonyNetwork(bridgeDo, planetID, fresh.changes);
     await loadPlanets();
@@ -37525,6 +37545,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadSkills,
     loadPlanets,
     quoteColonyTemplate,
+    readColonyTemplateRules,
     readColonyTemplateForExport,
     submitColonyTemplate,
     selectColony,

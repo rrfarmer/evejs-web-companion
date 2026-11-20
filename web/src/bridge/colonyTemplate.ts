@@ -1,5 +1,5 @@
 import type { Colony } from "../store/types.ts";
-import type { PiRecipeBook } from "./piRecipes.ts";
+import type { PiRecipeBook, PiSchematic } from "./piRecipes.ts";
 import type { JsonValue } from "./wire.ts";
 
 // 3698585 planetConst.PLANET_TYPE_TO_PIN. Columns are basic, advanced, high-tech,
@@ -17,6 +17,7 @@ const PIN_TYPES: Readonly<Record<number, readonly number[]>> = {
 const PIN_COLUMN = new Map(Object.values(PIN_TYPES).flatMap(types => types.flatMap((id, column) => id ? [[id, column] as const] : [])));
 const COMMAND = 3;
 const EXTRACTOR = 6;
+const MAX_ROUTE_PINS = 7; // baseColony.ValidateCreateRoute allows five intermediate pins.
 const COMMAND_ENDPOINT = "CmdCtr";
 const TAU = Math.PI * 2;
 // planetStaticData's cumulative build costs for the native command-centre levels.
@@ -223,23 +224,37 @@ export interface TemplatePlacement {
   readonly routes: number;
   readonly skipped: readonly TemplateRoute[];
   readonly requestedLevel: number;
+  readonly buildLevel: number;
   readonly upgradeCost: number;
   readonly changes: readonly JsonValue[];
 }
 type PinID = number | readonly [1, number];
 
+export interface ColonyTemplateRules {
+  readonly commandCenterSkill: number;
+  readonly baseLinkBandwidth: number;
+  readonly commodityVolumes: Readonly<Record<number, number | null>>;
+}
+
+function linkKey(from: Endpoint, to: Endpoint): string {
+  const first = String(from), second = String(to);
+  return first < second ? `${first}:${second}` : `${second}:${first}`;
+}
+
 /** Build one native submission against a command centre the pilot already owns. */
-export function planColonyTemplate(template: ColonyTemplate, colony: Colony, recipes: PiRecipeBook, rotation: TemplateRotation): TemplatePlacement {
+export function planColonyTemplate(template: ColonyTemplate, colony: Colony, recipes: PiRecipeBook, rotation: TemplateRotation,
+  rules: ColonyTemplateRules): TemplatePlacement {
   const centre = colony.pins.find(pin => pin.kind === "command");
   if (!centre) throw new Error("An established command centre is required to load a planetary template.");
   const types = PIN_TYPES[colony.planetTypeID];
   if (!types) throw new Error("This planet cannot accept a planetary template.");
   const changes: JsonValue[] = [];
-  const level = Math.max(colony.commandCenterLevel, template.level);
+  const level = Math.max(colony.commandCenterLevel, Math.min(template.level, rules.commandCenterSkill));
   const upgradeCost = UPGRADE_COST[level]! - UPGRADE_COST[colony.commandCenterLevel]!;
   if (level > colony.commandCenterLevel) changes.push([9, [centre.pinID, level]]);
   const ids = new Map<Endpoint, PinID>([[COMMAND_ENDPOINT, centre.pinID]]);
   const columnByIndex = new Map<Endpoint, number>();
+  const recipeByIndex = new Map<Endpoint, PiSchematic>();
   let next = 1;
   const pins: TemplatePlacement["pins"][number][] = [];
   for (const source of template.pins) {
@@ -258,32 +273,60 @@ export function planColonyTemplate(template: ColonyTemplate, colony: Colony, rec
     if (column < COMMAND && source.product !== null) {
       const recipe = recipes.byOutputTypeID.get(source.product);
       if (!recipe?.factoryTypeIDs.includes(typeID)) throw new Error(`The selected installation cannot make product ${source.product}.`);
+      recipeByIndex.set(index, recipe);
       changes.push([8, [id, recipe.schematicID]]);
     }
   }
   if (!pins.some(pin => pin.existing) && centre.latitude != null && centre.longitude != null) {
     pins.push({ index: COMMAND_ENDPOINT, typeID: centre.typeID, latitude: centre.latitude, longitude: centre.longitude, product: null, heads: 0, existing: true });
   }
-  const neighbors = new Map<Endpoint, Set<Endpoint>>();
+  const links = new Map<string, { bandwidth: number; used: number }>();
   for (const link of template.links) {
     const from = ids.get(link.from), to = ids.get(link.to);
-    if (from === undefined || to === undefined || from === to || neighbors.get(link.from)?.has(link.to)) invalid("link endpoints");
-    if (!neighbors.has(link.from)) neighbors.set(link.from, new Set());
-    if (!neighbors.has(link.to)) neighbors.set(link.to, new Set());
-    neighbors.get(link.from)!.add(link.to);
-    neighbors.get(link.to)!.add(link.from);
+    const key = linkKey(link.from, link.to);
+    if (from === undefined || to === undefined || from === to || links.has(key)) invalid("link endpoints");
+    links.set(key, { bandwidth: rules.baseLinkBandwidth * 2 ** link.level, used: 0 });
     changes.push([3, [from, to, 0]]);
     if (link.level > 0) changes.push([5, [from, to, link.level]]);
   }
   const skipped: TemplateRoute[] = [];
+  const outputUsed = new Map<Endpoint, number>();
   let routeID = 0;
   for (const route of template.routes) {
-    if (route.path.some((index, i) => index === COMMAND_ENDPOINT || columnByIndex.get(index) === EXTRACTOR ||
-      !ids.has(index) || (i > 0 && !neighbors.get(route.path[i - 1]!)?.has(index)))) {
+    const { path, typeID, quantity } = route;
+    if (path.length > MAX_ROUTE_PINS || path.some((index, i) => index === COMMAND_ENDPOINT || columnByIndex.get(index) === EXTRACTOR ||
+      !ids.has(index) || (i > 0 && !links.has(linkKey(path[i - 1]!, index))))) {
       skipped.push(route);
       continue;
     }
-    changes.push([6, [[2, ++routeID], route.path.map(index => ids.get(index)!), route.typeID, route.quantity]]);
+    const source = path[0]!, destination = path[path.length - 1]!;
+    const fromFactory = columnByIndex.get(source)! < COMMAND, toFactory = columnByIndex.get(destination)! < COMMAND;
+    const producer = recipeByIndex.get(source), consumer = recipeByIndex.get(destination);
+    const used = outputUsed.get(source) ?? 0;
+    const volume = rules.commodityVolumes[typeID];
+    if ((!fromFactory && !toFactory) ||
+      (fromFactory && (!producer || producer.output.typeID !== typeID || used + quantity > producer.output.quantity)) ||
+      (toFactory && !consumer?.inputs.some(input => input.typeID === typeID)) || volume == null) {
+      skipped.push(route);
+      continue;
+    }
+    const cycle = (fromFactory ? producer : consumer)?.cycleTimeSeconds;
+    const bandwidth = volume * quantity * (cycle ? 3600 / cycle : 1);
+    const usage = new Map<string, number>();
+    for (let i = 1; i < path.length; i++) {
+      const key = linkKey(path[i - 1]!, path[i]!);
+      usage.set(key, (usage.get(key) ?? 0) + bandwidth);
+    }
+    if ([...usage].some(([key, load]) => {
+      const link = links.get(key)!;
+      return link.used + load > link.bandwidth + 1e-9;
+    })) {
+      skipped.push(route);
+      continue;
+    }
+    for (const [key, load] of usage) links.get(key)!.used += load;
+    if (fromFactory) outputUsed.set(source, used + quantity);
+    changes.push([6, [[2, ++routeID], path.map(index => ids.get(index)!), typeID, quantity]]);
   }
-  return { pins, links: template.links, routes: routeID, skipped, requestedLevel: level, upgradeCost, changes };
+  return { pins, links: template.links, routes: routeID, skipped, requestedLevel: template.level, buildLevel: level, upgradeCost, changes };
 }

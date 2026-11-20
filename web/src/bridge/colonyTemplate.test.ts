@@ -10,6 +10,7 @@ const target = {
 } as unknown as Colony;
 const recipe = decodeRecipeBook({ schematics: [{ schematicID: 121, name: "Water", cycleTimeSeconds: 1800,
   output: { typeID: 3645, quantity: 20 }, inputs: [{ typeID: 2268, quantity: 3000 }], factoryTypeIDs: [2473] }] });
+const rules = { commandCenterSkill: 5, baseLinkBandwidth: 1250, commodityVolumes: { 2268: .005, 3645: .19 } };
 const pin = (T: number, La: number, Lo: number, S: number | null = null) => ({ T, La, Lo, S, H: 0 });
 const fixture = {
   Pln: 11, Diam: 6000, CmdCtrLv: 1, Cmt: "Water",
@@ -19,7 +20,7 @@ const fixture = {
 };
 
 test("native template maps facilities, links, schematic and route pins to target types and temporary IDs", () => {
-  const plan = planColonyTemplate(readColonyTemplate(JSON.stringify(fixture)), target, recipe, [0, 0, 0]);
+  const plan = planColonyTemplate(readColonyTemplate(JSON.stringify(fixture)), target, recipe, [0, 0, 0], rules);
   assert.deepEqual(plan.pins.map(p => [p.index, p.typeID]), [["CmdCtr", 2524], [1, 2541], [2, 2473], [3, 2541]]);
   assert.equal(plan.pins[0]?.longitude, 2.11);
   assert.deepEqual(plan.changes[0], [9, [8808, 1]]);
@@ -37,8 +38,8 @@ test("shipped packed links preserve UTF-8 descriptions and rotation moves the pr
   for (let i = 0; i < base.length; i += 2) link += String.fromCharCode(base.charCodeAt(i) * 256 + base.charCodeAt(i + 1));
   const template = readColonyTemplate(link);
   assert.equal(template.comment, "Water • Jita");
-  const original = planColonyTemplate(template, target, recipe, [0, 0, 0]);
-  const moved = planColonyTemplate(template, target, recipe, [0, 25, 0]);
+  const original = planColonyTemplate(template, target, recipe, [0, 0, 0], rules);
+  const moved = planColonyTemplate(template, target, recipe, [0, 25, 0], rules);
   assert.notEqual(original.pins[1]?.longitude, moved.pins[1]?.longitude);
   assert.equal(original.pins[0]?.longitude, moved.pins[0]?.longitude);
 });
@@ -47,10 +48,50 @@ test("unreadable templates, missing command centres and unsupported placements k
   assert.throws(() => readColonyTemplate("broken"), /readable planetary template/);
   assert.throws(() => readColonyTemplate(JSON.stringify({ ...fixture, R: {} })), /routes/);
   const template = readColonyTemplate(JSON.stringify(fixture));
-  assert.throws(() => planColonyTemplate(template, { ...target, pins: [] }, recipe, [0, 0, 0]), /established command centre/);
+  assert.throws(() => planColonyTemplate(template, { ...target, pins: [] }, recipe, [0, 0, 0], rules), /established command centre/);
   assert.throws(() => planColonyTemplate({ ...template, pins: [pin(42, 1.1, 2.2)].map(p => ({
     typeID: p.T, latitude: p.La, longitude: p.Lo, product: p.S, heads: p.H,
-  })) }, target, recipe, [0, 0, 0]), /no corresponding installation/);
+  })) }, target, recipe, [0, 0, 0], rules), /no corresponding installation/);
+});
+
+test("only upgrades to the pilot's effective skill level and preserves a higher existing centre", () => {
+  const template = readColonyTemplate(JSON.stringify({ ...fixture, CmdCtrLv: 5 }));
+  const limited = { ...rules, commandCenterSkill: 2 };
+  const plan = planColonyTemplate(template, target, recipe, [0, 0, 0], limited);
+  assert.equal(plan.requestedLevel, 5);
+  assert.equal(plan.buildLevel, 2);
+  assert.equal(plan.upgradeCost, 1510000);
+  assert.deepEqual(plan.changes[0], [9, [8808, 2]]);
+  for (const commandCenterLevel of [0, 3]) {
+    const untrained = planColonyTemplate(template, { ...target, commandCenterLevel }, recipe, [0, 0, 0], { ...rules, commandCenterSkill: 0 });
+    assert.equal(untrained.buildLevel, commandCenterLevel);
+    assert.equal(untrained.upgradeCost, 0);
+    assert.equal(untrained.changes.some(command => Array.isArray(command) && command[0] === 9), false);
+  }
+});
+
+test("only accepted routes reserve production and bandwidth in template order", () => {
+  const first = { P: [1, 2], T: 2268, Q: 64000 }; // reserves 640 m³/hour on the base link
+  const overBandwidth = { P: [1, 2], T: 2268, Q: 62000 };
+  const wrongInput = { P: [1, 2], T: 3645, Q: 1 };
+  const wrongOutput = { P: [2, 3], T: 2268, Q: 20 };
+  const goodOutput = { P: [2, 3], T: 3645, Q: 20 };
+  const overOutput = { ...goodOutput, Q: 1 };
+  const storageToStorage = { P: [1, 2, 3], T: 2268, Q: 1 };
+  const spareBandwidth = { P: [1, 2], T: 2268, Q: 500 };
+  const template = readColonyTemplate(JSON.stringify({ ...fixture, R: [
+    wrongInput, first, overBandwidth, wrongOutput, goodOutput, overOutput, storageToStorage, spareBandwidth,
+  ] }));
+  const plan = planColonyTemplate(template, target, recipe, [0, 0, 0], rules);
+  assert.deepEqual(plan.skipped.map(r => ({ P: r.path, T: r.typeID, Q: r.quantity })),
+    [wrongInput, overBandwidth, wrongOutput, overOutput, storageToStorage]);
+  assert.equal(plan.routes, 3);
+  const routed = plan.changes.filter(command => Array.isArray(command) && command[0] === 6);
+  assert.deepEqual(routed, [
+    [6, [[2, 1], [[1, 1], [1, 2]], 2268, 64000]],
+    [6, [[2, 2], [[1, 2], [1, 3]], 3645, 20]],
+    [6, [[2, 3], [[1, 1], [1, 2]], 2268, 500]],
+  ]);
 });
 
 test("native export keeps floating coordinates and exact indexed links, routes and products through both round trips", () => {

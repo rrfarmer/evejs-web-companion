@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { AppFlow } from "../app/flow.ts";
-  import { compressColonyTemplate, planColonyTemplate, readColonyTemplate, type ColonyTemplate, type TemplatePlacement, type TemplateRotation } from "../bridge/colonyTemplate.ts";
+  import { errorWords, type AppFlow } from "../app/flow.ts";
+  import { compressColonyTemplate, planColonyTemplate, readColonyTemplate, type ColonyTemplate, type ColonyTemplateRules, type TemplatePlacement, type TemplateRotation } from "../bridge/colonyTemplate.ts";
   import type { PiRecipeBook } from "../bridge/piRecipes.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
@@ -17,6 +17,7 @@
 
   let source = $state("");
   let template = $state.raw<ColonyTemplate | null>(null);
+  let rules = $state.raw<ColonyTemplateRules | null>(null);
   let rotation = $state<TemplateRotation>([0, 0, 0]);
   let cost = $state<number | null>(null);
   let reviewed = $state.raw<TemplatePlacement | null>(null);
@@ -28,9 +29,9 @@
   let compress = $state(true);
   const compressedTemplate = $derived.by(() => template && compress ? compressColonyTemplate(template) : template);
   const preview = $derived.by(() => {
-    if (!compressedTemplate) return { placement: null, error: "" };
+    if (!compressedTemplate || !rules) return { placement: null, error: "" };
     try {
-      return { placement: planColonyTemplate(compressedTemplate, colony, recipes, rotation), error: "" };
+      return { placement: planColonyTemplate(compressedTemplate, colony, recipes, rotation, rules), error: "" };
     } catch (cause) {
       return { placement: null, error: cause instanceof Error ? cause.message : String(cause) };
     }
@@ -49,15 +50,16 @@
       entirePlanet = false;
       compress = true;
       const parsed = readColonyTemplate(text);
+      rules = await flow.readColonyTemplateRules(parsed, colony.commandCenterLevel);
       template = parsed;
-      const placement = planColonyTemplate(compressedTemplate!, colony, recipes, rotation);
+      const placement = planColonyTemplate(compressedTemplate!, colony, recipes, rotation, rules);
       flow.requestNames([...new Set([
         ...placement.pins.map(pin => pin.typeID), ...parsed.routes.map(route => route.typeID),
         ...parsed.pins.flatMap(pin => pin.product === null ? [] : [pin.product]),
       ])].map(id => ({ kind: "type" as const, id })));
       cost = await flow.quoteColonyTemplate(placement);
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
+      error = errorWords(cause);
     } finally {
       busy = false;
     }
@@ -108,7 +110,7 @@
       source = "";
       success = true;
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
+      error = errorWords(cause);
     } finally {
       reviewed = null;
       busy = false;
@@ -193,7 +195,10 @@
     <div class="template-preview">
       {#if template.comment}<p class="template-comment">{template.comment}</p>{/if}
       <p><strong>{colony.planetName ?? "Colony"}</strong> · {placement.pins.filter(pin => !pin.existing).length} installations ·
-        {placement.links.length} links · {placement.routes} routes · command centre level {placement.requestedLevel}</p>
+        {placement.links.length} links · {placement.routes} routes · command centre level {placement.buildLevel}</p>
+      {#if placement.requestedLevel > placement.buildLevel}
+        <p class="template-error" role="status">This template requires Command Center Upgrades level {placement.requestedLevel}. The quote uses the highest command centre level available to this pilot.</p>
+      {/if}
       <canvas bind:this={canvas} width="520" height="164" aria-label="Planetary surface with template installations and links"></canvas>
       <div class="template-actions">
         <label><input type="checkbox" bind:checked={compress} disabled={busy} onchange={() => { reviewed = null; }} /> Compress layout</label>
