@@ -73,6 +73,7 @@
   import { COMPARE_CATEGORIES } from "../bridge/dogmaAttributeGroups.ts";
   import { openFittingWindow } from "./fittingWindowTarget.ts";
   import RepairShop from "./RepairShop.svelte";
+  import ContainerContents from "./ContainerContents.svelte";
   import { portal } from "./portal.ts";
   import { startFittingDrag } from "./fittingDrag.ts";
   import OwnerPicture from "./OwnerPicture.svelte";
@@ -438,6 +439,12 @@
   const multiBuyAsked = flow.multiBuyAsked;
   const assetSaleAsked = flow.assetSaleAsked;
   const repairShop = flow.assetRepairShop;
+  const assetContents = flow.assetContainerContents;
+  $effect(() => {
+    if ($assetContents && $station.online?.characterID !== $assetContents.pilotID) {
+      flow.closeAssetContainerContents($assetContents.n);
+    }
+  });
   // svelte-ignore state_referenced_locally
   const repairFlight = session.store.flight;
   $effect(() => {
@@ -1438,6 +1445,10 @@
 
 {#if $repairShop && inFront}
   <RepairShop store={session.store} {flow} shop={$repairShop} />
+{/if}
+
+{#if $assetContents && inFront}
+  <ContainerContents store={session.store} {flow} view={$assetContents} />
 {/if}
 
 {#if $assetSaleAsked}

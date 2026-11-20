@@ -2237,6 +2237,12 @@ const RETAIL_CALLS = Object.freeze({
   },
   "invbroker.EnterPassword": typing(same(`${INV_CACHE}:1442-1477`, "PasswordHandlerCallWrapper sends EnterPassword(passwordType, scalar text from NamePopup) on the SAME underlying bound inventory; type1 is general, type2 configuration. The return is ignored before retrying the original operation. Nonempty edit text is Unicode. No Tranquility capture established."), [1]),
   "invbroker.GetSelfInvItem": judged(`${INV_CACHE}:966-975`, sentWithNothing, "invCacheContainer.GetItem reads its inventory's GetSelfInvItem(), as DogmaLocation.UnloadModuleToContainer1087-1088 requires before unloading to a Trade inventory."),
+  "invbroker.GetContainerContents": judged(
+    "eve/client/script/ui/shared/inventory/containerContentWindow.py:65",
+    (args, kwargs) => args.length === 2 && args.every(id => Number.isSafeInteger(id) && id > 0) && Object.keys(kwargs).length === 0
+      ? {} : { status: "differs", note: "Expected a container item ID and its dockable location ID." },
+    "GetInventoryMgr().GetContainerContents(itemID, stationID), on the pilot's location inventory manager. The stationID names the container's location.",
+  ),
   "itemLocking.GetItemsByLocation": same("eve/client/script/ui/services/corporation/itemLocking.py:30-34,57-64", "GetItemsByLocation(current station or docked structure), cached per location until OnLockedItemChange. invCacheContainer.MultiAdd1044 checks every ordinary item ID before acquiring a local broker lock."),
   "itemLocking.GetLockedItemLocations": judged("eve/client/script/ui/services/corporation/itemLocking.py:36-40", sentWithNothing, "lockedItems.GetLockedItemLocations: once, then kept and amended by OnLockedItemChange; the corporation assets' Lockdown tab (corp_ui_accounts.ShowLockdown 528)."),
   "invbroker.GetPriceForItems": reshaped(`${INV_CACHE}:769`, (args, kwargs) => ({ args: [list(args[0] ?? [])], kwargs }), "Asset Safety wrap GetPriceForItems([itemIDs]), before the recovery question and quantity popup."),

@@ -43,6 +43,7 @@
   import { typeCompareTarget, type ComparisonSubject } from "./typeCompare.ts";
   import { isComparable, type ComparisonTypeData } from "../bridge/typeComparison.ts";
   import { isRepairableItem, stationOffersRepair } from "../bridge/repairShop.ts";
+  import { isAssetContentsContainer } from "../bridge/containerContents.ts";
   import type { TypeMetaFacts } from "../app/api.ts";
   import { openFittingWindow } from "./fittingWindowTarget.ts";
   import { openShipHold } from "./shipHold.ts";
@@ -317,6 +318,7 @@
     assembleContainer: ["UI/Inventory/ItemActions/AssembleContainer", "Assemble Container"],
     repackage: ["UI/Inventory/ItemActions/Repackage", "Repackage"],
     repairQuote: ["UI/Inventory/ItemActions/GetRepairQuote", "Get Repair Quote"],
+    viewContents: ["UI/Inventory/ItemActions/ViewContents", "View Contents"],
   } as const;
   type ItemCommand = keyof typeof ITEM_WORDS;
   function itemWord(key: ItemCommand): string {
@@ -449,6 +451,10 @@
     if (menu.rows.length !== 1) return actions;
     const row = menu.rows[0]!;
     actions.push({ key: "info", run: () => showInfo({ kind: "type", typeID: row.typeID, itemID: row.itemID }) });
+    const type = menu.types?.get(row.typeID);
+    if (row.assembledHangar && type && isAssetContentsContainer(type.categoryID, type.groupID)) {
+      actions.push({ key: "viewContents", run: () => void run(() => flow.openAssetContainerContents(row)) });
+    }
     if (menu.types?.get(row.typeID)?.published) {
       actions.push({ key: "find", run: () => findInPersonalAssets(assetSearchTextForType(itemWord("exact"), itemName(row.typeID))) });
     }

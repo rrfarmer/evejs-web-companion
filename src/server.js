@@ -1224,6 +1224,12 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     res.status(400).json({ ok: false, error: "INVALID_REPACKAGE_ITEMS", message: "Select items in a single personal hangar." });
     return;
   }
+  if (body.service === "invbroker" && body.method === "GetContainerContents" &&
+      (body.of != null || body.kwargs != null || !Array.isArray(body.args) || body.args.length !== 2 ||
+       !body.args.every(id => Number.isSafeInteger(id) && id > 0))) {
+    res.status(400).json({ ok: false, error: "INVALID_CONTAINER_CONTENTS", message: "Select a container at a named location." });
+    return;
+  }
   if (body.service === "seasonManager" && body.method === "select_season" &&
       (!Array.isArray(body.args) || body.args.length !== 1 || !Number.isSafeInteger(body.args[0]) || body.args[0] <= 0 || body.kwargs != null)) {
     res.status(400).json({ ok: false, error: "INVALID_SEASON_SELECTION", message: "Choose an available season." });

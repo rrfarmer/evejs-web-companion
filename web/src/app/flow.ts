@@ -245,6 +245,7 @@ import { convoyActivities, oreActivities, type StarMapActivity, type StarMapActi
 import { readTrackedMilitiaJob, setDungeonTracked, trackedDungeonJobs, untrackMilitiaJob } from "../ui/jobTracking.ts";
 import { filetimeOf } from "../bridge/journalWords.ts";
 import { readAllAssets, readAssetStationItems, readAssetStations, type AssetStationItemsRead, type AssetStationsRead } from "../bridge/assetReads.ts";
+import { isAssetContentsContainer, readContainerContents } from "../bridge/containerContents.ts";
 import {
   arrivalAwaited,
   decodeMissionInfo,
@@ -1482,6 +1483,14 @@ export interface AssetRepairShop {
     { readonly kind: "quote"; readonly items: readonly PersonalAssetSelection[]; readonly parts: readonly RepairQuotePart[] };
 }
 
+export interface AssetContainerContents extends PersonalAssetSelection {
+  readonly n: number;
+  readonly pilotID: number;
+  readonly isShip: boolean;
+  readonly rows: readonly InventoryItemRow[] | null;
+  readonly error: string | null;
+}
+
 export interface AssetSaleAsk {
   readonly n: number;
   readonly stationID: number;
@@ -2623,6 +2632,9 @@ export interface AppFlow {
   openAssetRepair(items?: readonly PersonalAssetSelection[]): Promise<void>;
   repairAssetParts(n: number, itemIDs: readonly number[]): Promise<void>;
   closeAssetRepair(n: number): void;
+  readonly assetContainerContents: ReadableSignal<AssetContainerContents | null>;
+  openAssetContainerContents(item: PersonalAssetSelection): Promise<void>;
+  closeAssetContainerContents(n: number): void;
   /** CANCEL an order. Returns what it held; the fee already paid is not. */
   cancelMarketOrder(orderID: string): Promise<void>;
   /** CHANGE an order's price. Charges a fee and moves a buy order's escrow. */
@@ -11244,6 +11256,45 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   const assetSaleAskedSignal = createSignal<AssetSaleAsk | null>(null);
   const assetRepairShopSignal = createSignal<AssetRepairShop | null>(null);
+  const assetContainerContentsSignal = createSignal<AssetContainerContents | null>(null);
+
+  async function openAssetContainerContents(item: PersonalAssetSelection): Promise<void> {
+    const pilotID = store.station.get().online?.characterID;
+    if (pilotID == null) return;
+    const current = callOptions.captureRequestGuard!();
+    const n = ++dialogsSaidCount;
+    const view: AssetContainerContents = { ...item, pilotID, n, isShip: false, rows: null, error: null };
+    assetContainerContentsSignal.set(view);
+    const pending = (): boolean => {
+      current();
+      return assetContainerContentsSignal.get()?.n === n && store.station.get().online?.characterID === pilotID;
+    };
+    requestNames([{ kind: "type", id: item.typeID }, { kind: locationKind(item.stationID), id: item.stationID }]);
+    try {
+      const listed = await readAssetStationItems(bridgeAsk, item.stationID);
+      if (!pending()) return;
+      const source = decodeInventoryRowsChecked(listed.listed);
+      if (source === null) throw new Error("The personal hangar could not be read.");
+      const container = source.find(row => row.itemID === item.itemID && row.typeID === item.typeID && row.ownerID === pilotID &&
+        row.locationID === item.stationID && row.flagID === 4 && row.singleton && isAssetContentsContainer(row.categoryID, row.groupID));
+      if (!container) throw new Error("That assembled container is no longer in the selected hangar.");
+      const isShip = container.categoryID === 6;
+      assetContainerContentsSignal.set({ ...view, isShip });
+      const rows = await readContainerContents(bridgeAsk, item.itemID, item.stationID);
+      if (!pending()) return;
+      requestNames(rows.flatMap(row => [
+        { kind: "type" as const, id: row.typeID },
+        ...(row.groupID === null ? [] : [{ kind: "group" as const, id: row.groupID }]),
+      ]));
+      assetContainerContentsSignal.set({ ...view, isShip, rows });
+    } catch (error) {
+      if (pending()) assetContainerContentsSignal.set({ ...assetContainerContentsSignal.get()!, error: errorWords(error) });
+    }
+  }
+
+  function closeAssetContainerContents(n: number): void {
+    if (assetContainerContentsSignal.get()?.n === n) assetContainerContentsSignal.set(null);
+  }
 
   async function repairableHangar(shop: AssetRepairShop): Promise<readonly InventoryItemRow[]> {
     await loadInventory();
@@ -36454,6 +36505,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     openAssetRepair,
     repairAssetParts,
     closeAssetRepair,
+    assetContainerContents: readonlySignal(assetContainerContentsSignal),
+    openAssetContainerContents,
+    closeAssetContainerContents,
     openAssetSale,
     repackageAssets,
     repackableAssetTypes,
