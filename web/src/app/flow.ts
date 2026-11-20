@@ -5053,6 +5053,8 @@ export interface AppFlow {
    * the search names them by, each kind sorted by name; null where the text was refused before asking (said).
    */
   searchLocations(text: string, options?: LocationSearchOptions): Promise<ReadonlyMap<number, readonly LocationFound[]> | null>;
+  locationSearchSettings(): { readonly searchType: number; readonly searchBy: number };
+  keepLocationSearchSetting(kind: "type" | "by", value: number): void;
   /** The logger's action messages as the server's notifications bring them (OreMinedNotificationAdapter.OnOreMined,
    *  BountyNotificationAdapter.OnBountyAddedToPayout); returns how to stop listening. */
   onActionMessage(listener: (message: ActionMessage) => void): () => void;
@@ -34103,6 +34105,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))]));
   }
 
+  function locationSearchSettings(): { searchType: number; searchBy: number } {
+    const type = Number(charUiSetting("locations_window_search_type"));
+    const by = Number(charUiSetting("locations_window_search_by"));
+    return {
+      searchType: Number.isInteger(type) && type >= 0 && type <= 5 ? type : 0,
+      searchBy: Number.isInteger(by) && by >= 0 && by <= 3 ? by : 0,
+    };
+  }
+
+  function keepLocationSearchSetting(kind: "type" | "by", value: number): void {
+    const limit = kind === "type" ? 5 : 3;
+    if (!Number.isInteger(value) || value < 0 || value > limit) return;
+    setCharUiSetting(`locations_window_search_${kind}`, String(value));
+  }
+
   // --- R7c Names everywhere (batch name cache) -----------------------------
 
   // The generalized R7a location-name cache: every tab asks for names by
@@ -37014,6 +37031,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     searchDestinations,
     searchLocations,
+    locationSearchSettings,
+    keepLocationSearchSetting,
     onActionMessage,
 
     startMiningBot,

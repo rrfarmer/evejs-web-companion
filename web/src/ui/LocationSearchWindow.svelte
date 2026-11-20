@@ -4,42 +4,47 @@
   // structures with inlined data): its own search line on top (the text asked for, searched again on Return or the
   // button), then the results (LocationSearchResults.svelte). Asked again while open, it searches the new text.
   import type { ClientStore } from "../store/clientStore.ts";
-  import type { AppFlow, LocationFound } from "../app/flow.ts";
+  import type { AppFlow } from "../app/flow.ts";
+  import { onDestroy } from "svelte";
   import { plainText } from "../bridge/clientWords.ts";
   import LocationSearchResults from "./LocationSearchResults.svelte";
-  import { locationSearchRequests, serveLocationSearchRequest } from "./locationSearchRequests.ts";
+  import { createLocationSearch, locationSearchRequests, serveLocationSearchRequest } from "./locationSearchRequests.ts";
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
+  // svelte-ignore state_referenced_locally
+  const station = store.station;
   const M = "UI/Map/MapPallet/";
   $effect(() => { flow.requestWords([M + "lblSearchForLocation", M + "btnSearchForLocation"]); });
   const word = (label: string, own: string) => { const t = $words.templates[label]; return typeof t === "string" ? plainText(t) : own; };
-  let text = $state(""), found = $state.raw<ReadonlyMap<number, readonly LocationFound[]> | null>(null), searchedFor = $state(""), busy = $state(false);
-  async function search(): Promise<void> {
-    const query = text;
-    if (!query.trim()) return;
-    busy = true;
-    try {
-      const result = await flow.searchLocations(query);
-      if (result !== null) { found = result; searchedFor = query.replace(/\*/g, "").trim(); }
-    } finally { busy = false; }
-  }
+  let text = $state("");
+  const search = createLocationSearch((query) => flow.searchLocations(query));
+  const searchState = search.state;
+  const pilot = $derived($station.online?.characterID ?? null);
+  $effect(() => {
+    void pilot;
+    text = "";
+    search.reset();
+  });
+  onDestroy(search.reset);
   $effect(() => {
     const r = $locationSearchRequests;
     if (!r) return;
     serveLocationSearchRequest(r.n);
     text = r.text;
-    void search();
+    void search.run(r.text);
   });
 </script>
 
 <div class="ls">
   <div class="ls-top">
     <input type="search" maxlength="64" placeholder={word(M + "lblSearchForLocation", "Search for location")} bind:value={text}
-      onkeydown={(e) => { if (e.key === "Enter") void search(); }} />
-    <button type="button" disabled={busy || !text.trim()} onclick={() => void search()}>{word(M + "btnSearchForLocation", "Search")}</button>
+      onkeydown={(e) => { if (e.key === "Enter") void search.run(text); }} />
+    <button type="button" disabled={!text.trim()} onclick={() => void search.run(text)}>{word(M + "btnSearchForLocation", "Search")}</button>
   </div>
-  {#if found !== null}<LocationSearchResults {store} {flow} {found} {searchedFor} />{/if}
+  {#if $searchState.busy}<p class="note" role="status">…</p>{/if}
+  {#if $searchState.error}<p class="error" role="alert">{$searchState.error}</p>{/if}
+  {#if $searchState.result}<LocationSearchResults {store} {flow} found={$searchState.result.found} searchedFor={$searchState.result.query} />{/if}
 </div>
 
 <style>

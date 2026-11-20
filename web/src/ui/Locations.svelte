@@ -55,7 +55,7 @@
   // item's place saved), and a shared bookmark shown dim before its delay has passed. Show Info shows a thing the page
   // has read in space as that thing, and any other place by its type (the info window has no station or system of its
   // own).
-  import { getContext, onMount } from "svelte";
+  import { getContext, onDestroy, onMount } from "svelte";
   import { formatTemplate, plainText, templateNameRefs, type TemplateArguments } from "../bridge/clientWords.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
   import {
@@ -81,7 +81,7 @@
   import type { MovedOrCopied } from "../bridge/bookmarkWrites.ts";
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import LocationSearchResults from "./LocationSearchResults.svelte";
-  import type { LocationFound } from "../app/flow.ts";
+  import { createLocationSearch } from "./locationSearchRequests.ts";
   import SubfolderWindow from "./SubfolderWindow.svelte";
   import FolderWindow from "./FolderWindow.svelte";
   import FolderInfoWindow from "./FolderInfoWindow.svelte";
@@ -1041,35 +1041,34 @@
     { id: 2, label: "UI/Search/UniversalSearch/ExactPhrase", own: "Exact phrase" },
     { id: 3, label: "UI/Search/UniversalSearch/OnlyExactPhrase", own: "Only exact phrase" },
   ];
-  const SEARCH_TYPE_KEY = "evejs.play.locations_window_search_type";
-  const SEARCH_BY_KEY = "evejs.play.locations_window_search_by";
-  const keptChoice = (key: string, choices: readonly { id: number }[]): number => {
-    try { const kept = Number(localStorage.getItem(key)); return choices.some((c) => c.id === kept) && localStorage.getItem(key) !== null ? kept : 0; } catch { return 0; }
-  };
-  let searchType = $state(keptChoice(SEARCH_TYPE_KEY, SEARCH_TYPES));
-  let searchBy = $state(keptChoice(SEARCH_BY_KEY, SEARCH_BY));
+  let searchType = $state(0);
+  let searchBy = $state(0);
   let searchText = $state("");
   let searchMenuOpen = $state(false);
-  let searchBusy = $state(false);
-  let searchFound = $state.raw<ReadonlyMap<number, readonly LocationFound[]> | null>(null);
-  let searchedFor = $state("");
+  const search = createLocationSearch((query, options) => flow.searchLocations(query, options));
+  const searchState = search.state;
+  const searchPilot = $derived($station.online?.characterID ?? null);
+  $effect(() => {
+    const settings = searchPilot === null ? { searchType: 0, searchBy: 0 } : flow.locationSearchSettings();
+    searchType = settings.searchType;
+    searchBy = settings.searchBy;
+    searchText = "";
+    searchMenuOpen = false;
+    search.reset();
+  });
+  onDestroy(search.reset);
   $effect(() => {
     flow.requestWords(["UI/Common/Search", "UI/Common/Settings", "UI/Common/SearchType", "UI/Common/SearchBy",
       ...SEARCH_TYPES.map((t) => t.label), ...SEARCH_BY.map((b) => b.label)]);
   });
-  async function runLocationSearch(): Promise<void> {
-    if (!searchText.trim()) return;
-    searchBusy = true;
-    try {
-      const kinds = SEARCH_TYPES.find((t) => t.id === searchType)?.kinds ?? SEARCH_TYPES[0]!.kinds;
-      const result = await flow.searchLocations(searchText, { kinds, matchBy: searchBy });
-      if (result !== null) { searchFound = result; searchedFor = searchText.replace(/\*/g, "").trim(); }
-    } finally { searchBusy = false; }
+  function runLocationSearch(): void {
+    const kinds = SEARCH_TYPES.find((t) => t.id === searchType)?.kinds ?? SEARCH_TYPES[0]!.kinds;
+    void search.run(searchText, { kinds, matchBy: searchBy });
   }
   /** A setting changed: kept, and the search run again (_on_search_type_setting_changed / _search_by). */
   function chooseSearch(kind: "type" | "by", id: number): void {
     if (kind === "type") searchType = id; else searchBy = id;
-    try { localStorage.setItem(kind === "type" ? SEARCH_TYPE_KEY : SEARCH_BY_KEY, String(id)); } catch { /* not kept */ }
+    flow.keepLocationSearchSetting(kind, id);
     searchMenuOpen = false;
     void runLocationSearch();
   }
@@ -1347,9 +1346,10 @@
             </div>
           {/if}
         </div>
-        {#if searchBusy}<p class="note">…</p>{/if}
-        {#if searchFound !== null}
-          <LocationSearchResults {store} {flow} found={searchFound} {searchedFor} />
+        {#if $searchState.busy}<p class="note" role="status">…</p>{/if}
+        {#if $searchState.error}<p class="error" role="alert">{$searchState.error}</p>{/if}
+        {#if $searchState.result}
+          <LocationSearchResults {store} {flow} found={$searchState.result.found} searchedFor={$searchState.result.query} />
         {/if}
       </div>
     {/if}
