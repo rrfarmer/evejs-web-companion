@@ -3164,7 +3164,10 @@ export class SpaceView {
         delete holder.userData.turretSignature;
         this.fitTurrets(e.itemID, holder);
       }
-    }).catch(() => { /* The previous model or stand-in stays visible. */ }).finally(() => {
+    }).catch((error: unknown) => {
+      // The previous model or stand-in stays visible; the failure is said, not swallowed.
+      console.warn(`Type ${e.typeID} model:`, error);
+    }).finally(() => {
       if (state.request === request) holder.userData.loadingModel = false;
     });
   }
