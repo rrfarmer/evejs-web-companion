@@ -60,6 +60,11 @@ export interface NewRoute {
   readonly quantity: number;
 }
 
+/** The view uses negative IDs for draft pins and the command stream uses (1, n). */
+export function planetPinRef(pinID: number): number | readonly [1, number] {
+  return pinID < 0 ? [1, -pinID] : pinID;
+}
+
 /** A planet is a whole number above nought: refused in the route's words where it is not. */
 function requirePlanet(planetID: number): void {
   if (!Number.isSafeInteger(planetID) || planetID <= 0) {
@@ -98,7 +103,7 @@ export async function transferPlanetCargo(act: Ask, planetID: number, path: read
 export function routeEditCommands(removeRouteIDs: readonly number[], create: readonly NewRoute[]): JsonValue[] {
   return [
     ...removeRouteIDs.map((routeID): JsonValue => [REMOVE_ROUTE, [routeID]]),
-    ...create.map((route, index): JsonValue => [CREATE_ROUTE, [[TEMPORARY_ROUTE, index + 1], [...route.path], route.typeID, route.quantity]]),
+    ...create.map((route, index): JsonValue => [CREATE_ROUTE, [[TEMPORARY_ROUTE, index + 1], route.path.map(planetPinRef), route.typeID, route.quantity]]),
   ];
 }
 

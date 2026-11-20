@@ -20,6 +20,7 @@ const legs = (path: readonly number[]) => path.slice(1).map((id, index) => linkK
 
 /** planetCommon.ItemIDToPinDesignator uses five digits from least to most significant. */
 export function pinDesignator(id: number): string {
+  if (id < 0) return `Pending ${-id}`;
   const alphabet = "123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   const radix = alphabet.length - 1;
   const letters = Array.from({ length: 5 }, (_, place) => alphabet[Math.floor(id / radix ** place) % radix]);

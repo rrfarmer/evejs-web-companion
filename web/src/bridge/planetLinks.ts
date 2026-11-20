@@ -1,5 +1,6 @@
 import type { Colony, ColonyLink, ColonyPin, ColonyRoute } from "../store/types.ts";
 import { angularDistance, validateRouteRemovals } from "./planetRouting.ts";
+import { planetPinRef } from "./planetWrites.ts";
 import type { JsonValue } from "./wire.ts";
 
 export const PLANET_LINK_TYPE_ID = 2280;
@@ -33,7 +34,15 @@ export function linkInColony(colony: Colony, { endpoint1, endpoint2 }: Endpoints
   return colony.links.find(link => pathUsesLink([endpoint1, endpoint2], link));
 }
 
-const attribute = (attributes: Attributes, id: number): number => attributes.find(([key]) => key === id)?.[1] ?? 0;
+export const planetAttribute = (attributes: Attributes, id: number): number => attributes.find(([key]) => key === id)?.[1] ?? 0;
+
+export function pinUsage(typeID: number, heads: number, facts: PlanetLinkFacts) {
+  const attributes = facts[typeID]?.attributes;
+  return attributes ? {
+    cpu: Math.trunc(planetAttribute(attributes, 49)) + heads * planetAttribute(attributes, 1690),
+    power: Math.trunc(planetAttribute(attributes, 15)) + heads * planetAttribute(attributes, 1691),
+  } : null;
+}
 
 export function linkUsage(radius: number | undefined, a: Coordinates, b: Coordinates, level: number, facts: PlanetLinkFacts) {
   const attributes = facts[PLANET_LINK_TYPE_ID]?.attributes;
@@ -42,9 +51,9 @@ export function linkUsage(radius: number | undefined, a: Coordinates, b: Coordin
   const km = angle * radius / 1000;
   return {
     km,
-    cpu: Math.trunc(attribute(attributes, 49)) + Math.ceil(attribute(attributes, 1634) * km * (level + 1) ** attribute(attributes, 1635)),
-    power: Math.trunc(attribute(attributes, 15)) + Math.ceil(attribute(attributes, 1633) * km * (level + 1) ** attribute(attributes, 1636)),
-    bandwidth: attribute(attributes, 1631) * 2 ** level,
+    cpu: Math.trunc(planetAttribute(attributes, 49)) + Math.ceil(planetAttribute(attributes, 1634) * km * (level + 1) ** planetAttribute(attributes, 1635)),
+    power: Math.trunc(planetAttribute(attributes, 15)) + Math.ceil(planetAttribute(attributes, 1633) * km * (level + 1) ** planetAttribute(attributes, 1636)),
+    bandwidth: planetAttribute(attributes, 1631) * 2 ** level,
   };
 }
 
@@ -56,11 +65,11 @@ export function colonyLinkBudget(colony: Colony, facts: PlanetLinkFacts) {
   const pins = new Map(colony.pins.map(pin => [pin.pinID, pin]));
   for (const pin of colony.pins) {
     if (pin.kind === "command") continue;
-    const attributes = facts[pin.typeID]?.attributes;
-    if (!attributes) return null;
     const heads = pin.extractor?.heads?.length ?? pin.program?.heads?.length ?? 0;
-    cpu += Math.trunc(attribute(attributes, 49)) + heads * attribute(attributes, 1690);
-    power += Math.trunc(attribute(attributes, 15)) + heads * attribute(attributes, 1691);
+    const usage = pinUsage(pin.typeID, heads, facts);
+    if (!usage) return null;
+    cpu += usage.cpu;
+    power += usage.power;
   }
   for (const link of colony.links) {
     const a = pins.get(link.endpoint1), b = pins.get(link.endpoint2);
@@ -80,9 +89,13 @@ export function linkBudgetError(colony: Colony, link: ColonyLink, facts: PlanetL
   const current = existing && linkUsage(colony.radius, a, b, existing.level, facts);
   const target = linkUsage(colony.radius, a, b, link.level, facts);
   const budget = colonyLinkBudget(colony, facts);
-  if (!target || !budget) return "Colony CPU and power data is unavailable.";
-  if (budget.cpu + target.cpu - (current?.cpu ?? 0) > budget.cpuSupply) return "The colony has insufficient CPU.";
-  if (budget.power + target.power - (current?.power ?? 0) > budget.powerSupply) return "The colony has insufficient power.";
+  return colonyBudgetError(budget, target && { cpu: target.cpu - (current?.cpu ?? 0), power: target.power - (current?.power ?? 0) });
+}
+
+export function colonyBudgetError(budget: ReturnType<typeof colonyLinkBudget>, delta: { cpu: number; power: number } | null): string {
+  if (!delta || !budget) return "Colony CPU and power data is unavailable.";
+  if (budget.cpu + delta.cpu > budget.cpuSupply) return "The colony has insufficient CPU.";
+  if (budget.power + delta.power > budget.powerSupply) return "The colony has insufficient power.";
   return "";
 }
 
@@ -107,14 +120,14 @@ export function planPlanetLinkEdits(colony: Colony, edits: readonly LinkEdit[], 
         throw new Error("The routes through this link changed. Review the link before removing it.");
       }
       validateRouteRemovals({ ...colony, routes }, edit.removedRoutes);
-      commands.push([4, [endpoint1, endpoint2]]);
+      commands.push([4, [planetPinRef(endpoint1), planetPinRef(endpoint2)]]);
     } else {
       if (!Number.isInteger(level) || level > MAX_LINK_LEVEL || (previousLevel === null ? level !== 0 : level <= previousLevel)) {
         throw new Error("This link upgrade level is unavailable.");
       }
       const error = linkBudgetError(colony, { endpoint1, endpoint2, level }, facts);
       if (error) throw new Error(error);
-      commands.push([previousLevel === null ? 3 : 5, [endpoint1, endpoint2, level]]);
+      commands.push([previousLevel === null ? 3 : 5, [planetPinRef(endpoint1), planetPinRef(endpoint2), level]]);
     }
     colony = applyPlanetLinkEdit(colony, edit);
   }

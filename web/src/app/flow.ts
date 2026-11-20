@@ -453,7 +453,8 @@ import { decodeSkillSheet, skillQueueRefusal } from "../bridge/skills.ts";
 import { decodeColonyReport, serverNow as planetServerNow } from "../bridge/planets.ts";
 import { decodeResourceData, type PlanetResourceData } from "../bridge/boundPlanets.ts";
 import { PLANET_SURVEY_PROXIMITY, planetSurveyBands } from "../bridge/planetSurvey.ts";
-import { PLANET_LINK_TYPE_ID, planPlanetLinkEdits, type LinkEdit, type PlanetLinkFacts } from "../bridge/planetLinks.ts";
+import { PLANET_LINK_TYPE_ID, pinUsage, planetAttribute, type PlanetLinkFacts } from "../bridge/planetLinks.ts";
+import { INSTALLATION_GROUPS, planPlanetLayout, type ConstructionQuote, type PlanetLayoutEdit } from "../bridge/planetConstruction.ts";
 import { exportColonyTemplate, planColonyTemplate, type ColonyTemplate, type ColonyTemplateRules, type TemplatePlacement, type TemplateRotation } from "../bridge/colonyTemplate.ts";
 import { filetimeToUnixMs } from "../bridge/activity.ts";
 import { readWormholePolarization, type WormholePolarization } from "../play/wormholePolarization.ts";
@@ -4427,7 +4428,8 @@ export interface AppFlow {
   readExtractorYield(planetID: number, pinID: number, resourceTypeID: number, heads: readonly ExtractorHead[], radius: number): Promise<ProgramYield>;
   readPlanetRouteFacts(typeIDs: readonly number[]): Promise<PlanetRouteFacts>;
   readPlanetLinkFacts(typeIDs: readonly number[]): Promise<PlanetLinkFacts>;
-  submitPlanetEdits(planetID: number, edits: readonly ExtractorEdit[], routes: RouteEdits, links?: readonly LinkEdit[]): Promise<void>;
+  readPlanetConstruction(planetTypeID: number): Promise<ConstructionQuote>;
+  submitPlanetEdits(planetID: number, edits: readonly ExtractorEdit[], routes: RouteEdits, layout?: readonly PlanetLayoutEdit[]): Promise<void>;
   expediteColonyTransfer(planetID: number, path: readonly number[], cargo: TransferCargo): Promise<void>;
   readColonyTemplateRules(template: ColonyTemplate, currentLevel: number): Promise<ColonyTemplateRules>;
   readColonyTemplateForExport(planetID: number, description: string): Promise<ColonyTemplate>;
@@ -28325,6 +28327,47 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return facts;
   }
 
+  async function readPlanetConstruction(planetTypeID: number): Promise<ConstructionQuote> {
+    const pilot = callOptions.captureRequestGuard!();
+    const groups = await api.getGroupTypes(INSTALLATION_GROUPS.map(group => group.id), callOptions);
+    if (INSTALLATION_GROUPS.some(group => !groups.groups[group.id]?.length)) throw new Error("The installation catalog is unavailable.");
+    const candidates = INSTALLATION_GROUPS.flatMap(group => groups.groups[group.id]!.map(typeID => ({ group, typeID })));
+    const typeIDs = [...new Set(candidates.map(option => option.typeID))];
+    const byBatch = await Promise.all(Array.from({ length: Math.ceil(typeIDs.length / 50) }, (_, index) => {
+      const batch = typeIDs.slice(index * 50, index * 50 + 50);
+      return Promise.all([api.getTypePrices(batch, callOptions), infoTypeFacts(batch)]);
+    }));
+    const options = byBatch.flatMap(([prices, dogma]) => candidates.flatMap(({ group, typeID }) => {
+      if (prices.published[typeID] !== true) return [];
+      const attributes = dogma[typeID]?.attributes;
+      if (!attributes) throw new Error("Installation requirements are unavailable.");
+      const restriction = planetAttribute(attributes, 1632);
+      if (restriction && restriction !== planetTypeID) return [];
+      const price = prices.basePrice[typeID];
+      if (price == null || price <= 0) throw new Error("An installation's construction price is unavailable.");
+      return [{ typeID, groupID: group.id, kind: group.kind, price: Math.round(price * 100) / 100,
+        ...pinUsage(typeID, 0, dogma)!, area: planetAttribute(attributes, 1689), capacity: planetAttribute(attributes, 38) || null }];
+    }));
+    const selectedTypes = options.map(option => option.typeID);
+    const [requirements, cash] = await Promise.all([api.getRequiredSkills(selectedTypes, callOptions), walletReads.wealth()]);
+    if (!requirements.available) throw new Error("Construction skill requirements are unavailable.");
+    const cashAmount = decodeWalletCash(cash);
+    if (cashAmount === null || !Number.isFinite(Number(cashAmount))) throw new Error("The pilot's available ISK is unavailable.");
+    const needs = [...new Set(selectedTypes.flatMap(typeID => (requirements.order[typeID] ?? []).map(([skill]) => skill)))];
+    const [skills, names] = await Promise.all([
+      needs.length ? bridgeAsk("skillHandler", "GetSkills", []) : null,
+      api.resolveNames([...selectedTypes, ...needs].map(id => ({ kind: "type", id })), callOptions),
+    ]);
+    pilot();
+    return { wallet: Number(cashAmount), options: options.map(option => {
+      const typeName = names.names[nameKey("type", option.typeID)];
+      if (!typeName) throw new Error("An installation's name is unavailable.");
+      const missingSkills = (requirements.order[option.typeID] ?? []).filter(([skill, level]) => effectiveSkillLevel(skills, skill) < level)
+        .map(([skill, level]) => `${names.names[nameKey("type", skill)] ?? "Construction skill"} ${level}`);
+      return { ...option, typeName, missingSkills };
+    }).sort((left, right) => left.price - right.price) };
+  }
+
   const planetSubmissions = new Set<number>();
   async function expediteColonyTransfer(planetID: number, path: readonly number[], cargo: TransferCargo): Promise<void> {
     if (planetSubmissions.has(planetID)) throw new Error("A colony update is already being submitted.");
@@ -28350,16 +28393,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
 
-  async function submitPlanetEdits(planetID: number, edits: readonly ExtractorEdit[], routes: RouteEdits, links: readonly LinkEdit[] = []): Promise<void> {
-    if (!edits.length && !routes.create.length && !routes.remove.length && !links.length) return;
+  async function submitPlanetEdits(planetID: number, edits: readonly ExtractorEdit[], routes: RouteEdits, layout: readonly PlanetLayoutEdit[] = []): Promise<void> {
+    if (!edits.length && !routes.create.length && !routes.remove.length && !layout.length) return;
     if (planetSubmissions.has(planetID)) throw new Error("Colony changes are already being submitted.");
     const pilot = callOptions.captureRequestGuard!();
     planetSubmissions.add(planetID);
     try {
       const fresh = await readOwnedColony(planetID);
       pilot();
-      const factsForLinks = links.some(link => link.level !== null) ? await readPlanetLinkFacts(fresh.pins.map(pin => pin.typeID)) : {};
-      const { colony, commands: linkCommands } = planPlanetLinkEdits(validateRouteRemovals(fresh, routes.remove), links, factsForLinks);
+      const builds = layout.flatMap(edit => edit.kind === "build" ? [edit.pin.typeID] : []);
+      const [factsForLayout, quote] = await Promise.all([
+        builds.length || layout.some(edit => edit.kind === "link" && edit.link.level !== null)
+          ? readPlanetLinkFacts([...fresh.pins.map(pin => pin.typeID), ...builds]) : {},
+        builds.length ? readPlanetConstruction(fresh.planetTypeID) : undefined,
+      ]);
+      const { colony, commands: layoutCommands } = planPlanetLayout(validateRouteRemovals(fresh, routes.remove), layout, factsForLayout, quote);
       if (routes.create.length) {
         if (routes.create.some(route => edits.some(edit => edit.pinID === route.path[0] && edit.resourceID !== undefined))) {
           throw new Error("Submit the new extractor program before routing its output.");
@@ -28371,7 +28419,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       }
       const extractorCommands = await planExtractorEdits(bridgeAsk, colony, edits, routes.create.length + 1);
       const changes = [...routeEditCommands(routes.remove.map(route => route.routeID), []),
-        ...linkCommands, ...extractorCommands, ...routeEditCommands([], routes.create)];
+        ...layoutCommands, ...extractorCommands, ...routeEditCommands([], routes.create)];
       pilot();
       await changeColonyNetwork(bridgeDo, planetID, changes);
       // A successful write remains successful if its follow-up read fails.
@@ -37687,6 +37735,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     readExtractorYield,
     readPlanetRouteFacts,
     readPlanetLinkFacts,
+    readPlanetConstruction,
     submitPlanetEdits,
     expediteColonyTransfer,
     quoteColonyTemplate,
