@@ -72,7 +72,10 @@ interface Request { count: number; seed: number; pos: THREE.Vector3; posPrev: TH
 
 /** The 32^3 turbulence volume (noise32cube_volume.dds: 24-bit B, G, R, x fastest), sampled trilinear and wrapped. */
 class Noise {
-  constructor(private readonly t: Uint8Array | null) {}
+  private readonly t: Uint8Array | null;
+  constructor(texels: Uint8Array | null) {
+    this.t = texels;
+  }
   sample(x: number, y: number, z: number, out: number[]): void {
     const t = this.t;
     if (!t) { out[0] = out[1] = out[2] = 0.5; return; }
@@ -211,6 +214,16 @@ export class GpuParticleSystem {
   }
 
   emit(r: Request): void { if (r.count > 0) this.requests.push(r); }
+
+  /** Move queued points as well as the retained pool when the scene origin changes. */
+  shiftOrigin(by: THREE.Vector3): void {
+    this.pending.add(by);
+    for (const request of this.requests) {
+      request.pos.add(by);
+      request.posPrev.add(by);
+    }
+  }
+
   get liveCount(): number { return this.alive; }
 
   /** Advance after the scene's emitters have rendered, before uploading the instance attributes. */
@@ -236,7 +249,7 @@ export class GpuParticleSystem {
     uniforms.decodeAtlas!.value = !srgb;
   }
 
-  /** Tr2GpuParticleSystem's frame: dt (at most 1/15 s), the origin shift, emit, simulate, cull and sort, fill. */
+  /** Tr2GpuParticleSystem's frame: rebase the pool, accept current-world requests, simulate and fill the draw. */
   private step(now: number, camera: THREE.Camera): void {
     if (now === this.stepped) return;
     this.stepped = now;
@@ -245,9 +258,20 @@ export class GpuParticleSystem {
     const shift = this.pending.clone();
     this.pending.set(0, 0, 0);
     this.animZ += dt * 0.05;
+    // Emitters already queue positions in the current scene. Only the particles
+    // retained from the previous step were stored relative to the old origin.
+    if (shift.lengthSq() > 0) {
+      for (let i = 0; i < CAPACITY; i++) {
+        if (this.age[i]! < 0) continue;
+        const offset = i * 3;
+        this.pos[offset] = this.pos[offset]! + shift.x;
+        this.pos[offset + 1] = this.pos[offset + 1]! + shift.y;
+        this.pos[offset + 2] = this.pos[offset + 2]! + shift.z;
+      }
+    }
     for (const r of this.requests) this.emitRequest(r);
     this.requests = [];
-    this.simulate(dt, shift);
+    this.simulate(dt);
     this.fill(camera);
   }
 
@@ -280,7 +304,7 @@ export class GpuParticleSystem {
   }
 
   /** Update.fx: age, death, gravity (world +y), turbulence (3 octaves of the volume, EVE's space), attractor, drag, move. */
-  private simulate(dt: number, shift: THREE.Vector3): void {
+  private simulate(dt: number): void {
     const pos = this.pos, vel = this.vel, age = this.age;
     const n0v = [0, 0, 0], nv = [0, 0, 0];
     this.noise.sample(0, 0, this.animZ / 32, n0v);
@@ -317,7 +341,7 @@ export class GpuParticleSystem {
         const k = 1 - P.drag * dt;
         vel[o] = vel[o]! * k; vel[o + 1] = vel[o + 1]! * k; vel[o + 2] = vel[o + 2]! * k;
       }
-      pos[o] = pos[o]! + vel[o]! * dt + shift.x; pos[o + 1] = pos[o + 1]! + vel[o + 1]! * dt + shift.y; pos[o + 2] = pos[o + 2]! + vel[o + 2]! * dt + shift.z;
+      pos[o] = pos[o]! + vel[o]! * dt; pos[o + 1] = pos[o + 1]! + vel[o + 1]! * dt; pos[o + 2] = pos[o + 2]! + vel[o + 2]! * dt;
       if (!Number.isFinite(pos[o]! + pos[o + 1]! + pos[o + 2]!)) { age[i] = -1; this.params[i] = null; this.free.push(i); this.alive--; }
     }
   }
@@ -378,7 +402,7 @@ export function gpuSystemOf(scene: THREE.Object3D): GpuParticleSystem {
   return s;
 }
 /** The world moved under the particles (the space view's origin following the ship): by this, in our space. */
-export function shiftGpuParticles(scene: THREE.Object3D, by: THREE.Vector3): void { systems.get(scene)?.pending.add(by); }
+export function shiftGpuParticles(scene: THREE.Object3D, by: THREE.Vector3): void { systems.get(scene)?.shiftOrigin(by); }
 
 /** One emitter in one model copy: Tr2GpuSharedEmitter::Update / Spawn (continuous emission), and the unique's params. */
 export class GpuEmitter {
@@ -390,7 +414,9 @@ export class GpuEmitter {
   private emittedOnce = false;
   private readonly params: Params;
   private readonly unique: boolean;
-  constructor(private readonly data: GpuEmitterData) {
+  private readonly data: GpuEmitterData;
+  constructor(data: GpuEmitterData) {
+    this.data = data;
     this.unique = data.type === "Tr2GpuUniqueEmitter";
     this.params = paramsOf(data);
   }
@@ -487,10 +513,9 @@ export class GpuEmitter {
     const scale = this.scaled(world);
     const m3 = new THREE.Matrix3().setFromMatrix4(world);
     const end = new THREE.Vector3(...(p1 as [number, number, number])).applyMatrix4(world);
-    const start = new THREE.Vector3(...(p0 as [number, number, number])).applyMatrix4(world).sub(system.pending);
+    const start = new THREE.Vector3(...(p0 as [number, number, number])).applyMatrix4(world);
     const velStart = new THREE.Vector3(...(v0 as [number, number, number])).applyMatrix3(m3);
-    // (the client subtracts the origin shift from the end's velocity too: Tr2GpuSharedEmitter.cpp:165-191)
-    const velEnd = new THREE.Vector3(...(v1 as [number, number, number])).applyMatrix3(m3).sub(system.pending);
+    const velEnd = new THREE.Vector3(...(v1 as [number, number, number])).applyMatrix3(m3);
     this.carry = this.spawnCore(start, end, velStart, velEnd, this.carry, Math.min(dt, 1 / 15), system, world, scale);
   }
 
