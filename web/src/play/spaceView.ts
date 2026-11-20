@@ -155,6 +155,7 @@ export interface SpaceViewOptions {
   indicationWords?: () => Readonly<Record<string, string | null | undefined>>;
   windowLayer?: { element: HTMLElement; raise(el: HTMLElement): void };
   showInfo?: (itemID: number, typeID: number | null) => void;
+  viewPlanet?: (planetID: number) => Promise<void>;
   /** Corporations' tickers (cfg.corptickernames: POST /api/corp-tickers), by corporation id; null where none. */
   corpTickers?: (corpIDs: number[]) => Promise<Record<string, string | null>>;
   /** The reloads the server announced for the pilot's modules (OnChargeBeingLoadedToModule), by module item id. */
@@ -1307,6 +1308,8 @@ export class SpaceView {
     if (e.kind === "stargate") out.push({ key: "jump", title: "Jump", icon: icon("jump_to"), run: () => this.actions.jump(id) });
     const wormhole = this.wormholeEntry(e);
     if (wormhole) out.push(wormhole);
+    const planet = this.planetViewEntry(e);
+    if (planet) out.push(planet);
     const cargo = this.actions.openCargo;
     const cargoState = selectedCargo(e, this.snapshot?.ship?.mode === "WARP");
     if (cargo && cargoState !== "hidden") {
@@ -1335,6 +1338,14 @@ export class SpaceView {
     if (drill) out.push(drill);
     out.push(...this.metenoxEntries(e));
     return out;
+  }
+
+  private planetViewEntry(entity: Entity): ItemAction | null {
+    const view = this.options.viewPlanet;
+    return entity.kind === "planet" && view ? {
+      key: "planet", title: this.actions.word?.("UI/PI/Common/ViewInPlanetMode") ?? "View in Planet Mode",
+      icon: clientTexture("res:/UI/Texture/icons/77_32_34.png"), run: () => view(entity.itemID),
+    } : null;
   }
 
   private metenoxEntries(entity: Entity): ItemAction[] {
@@ -2272,10 +2283,12 @@ export class SpaceView {
       if (drill) more.push({ label: drill.title, icon: drill.icon, run: run(drill.title, drill.run) });
       for (const entry of this.metenoxEntries(e)) more.push({ label: entry.title, icon: entry.icon, run: run(entry.title, entry.run) });
       const wormhole = this.wormholeEntry(e);
+      const planet = this.planetViewEntry(e);
       const primary: RadialOption | null =
         e.kind === "station" || (e.kind === "structure" && e.typeID !== METENOX_TYPE_ID) ? { label: "Dock", icon: icon(9), run: run("Dock", () => this.actions.dock(id)) }
         : e.kind === "stargate" ? { label: "Jump", icon: icon(39), run: run("Jump", () => this.actions.jump(id)) }
         : wormhole ? { label: wormhole.title, icon: icon(39), disabled: wormhole.disabled, run: run(wormhole.title, wormhole.run) }
+        : planet ? { label: planet.title, icon: planet.icon, run: run(planet.title, planet.run) }
         // spaceRadialMenuFunctions: a wreck's and a can's first action is Open Cargo (44_32_35)
         : (e.kind === "wreck" || e.kind === "container") && this.actions.openCargo
           ? { label: "Open Cargo", icon: icon(35), run: run("Open Cargo", () => this.actions.openCargo!(id)) }

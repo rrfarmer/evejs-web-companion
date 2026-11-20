@@ -46,6 +46,7 @@
 // (POST /api/bridge/planet/commodities/launch), which stands.
 
 import type { Ask } from "./ask.ts";
+import type { CommandCenterPlacement } from "./planetDeployment.ts";
 import type { JsonValue } from "./wire.ts";
 
 const CREATE_ROUTE = 6;
@@ -83,6 +84,16 @@ export async function changeColonyNetwork(act: Ask, planetID: number, changes: r
     return;
   }
   await act("planetMgr", "UserUpdateNetwork", [changes], null, planetID);
+}
+
+export async function deployCommandCenter(act: Ask, planetID: number, placement: CommandCenterPlacement): Promise<void> {
+  const { source, latitude, longitude } = placement;
+  await changeColonyNetwork(act, planetID, [[1, [source.itemID, source.typeID, latitude, longitude]]]);
+}
+
+export async function abandonPlanet(act: Ask, planetID: number): Promise<void> {
+  requirePlanet(planetID);
+  await act("planetMgr", "UserAbandonPlanet", [], null, planetID);
 }
 
 /**

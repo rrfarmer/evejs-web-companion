@@ -1178,9 +1178,9 @@ test("a launch's record removed is a write of the page's own: its ID goes as it 
     const refused = await remove(more);
     assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REFUSED"], JSON.stringify(more));
   }
-  // Abandon Planet retains its separate route.
+  // Abandonment must say which planet object to use as well.
   const abandon = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "planetMgr", method: "UserAbandonPlanet", args: [], kwargs: null, pilot: true, confirm: true } });
-  assert.deepEqual([abandon.response.status, abandon.payload.error], [403, "BRIDGE_WRITE_REFUSED"]);
+  assert.deepEqual([abandon.response.status, abandon.payload.error], [400, "INVALID_REQUEST"]);
   // And a colony's network changed and its commodities launched, each made on a planet's own object, are no calls
   // asked by the service's name.
   for (const method of ["UserUpdateNetwork", "UserLaunchCommodities", "UserTransferCommodities"]) {
@@ -1389,9 +1389,25 @@ test("only a call the client makes on an object of its own says which: with a pl
     const refused = await ask(service, method, args);
     assert.deepEqual([refused.response.status, refused.payload.error], [400, "INVALID_REQUEST"], `${service}.${method}`);
   }
-  const abandon = await ask("planetMgr", "UserAbandonPlanet", []);
-  assert.deepEqual([abandon.response.status, abandon.payload.error], [403, "BRIDGE_WRITE_REFUSED"]);
   assert.deepEqual([binds, bound, gateway.calls.call.length], [[], [], before]);
+});
+
+test("abandoning a colony requires a confirmed pilot and an argument-free call on the planet", async () => {
+  const { gateway, binds, bound } = bindingGateway();
+  const { baseUrl } = await startTestServer({ gateway });
+  await apiRequest(baseUrl, "/api/bridge/select", { method: "POST", body: { characterID: 7 } });
+  const of = 40176368;
+  const send = (extra) => apiRequest(baseUrl, "/api/bridge/call", {
+    method: "POST", body: { service: "planetMgr", method: "UserAbandonPlanet", args: [], of, pilot: true, confirm: true, ...extra },
+  });
+  assert.equal((await send({ confirm: false })).response.status, 403);
+  assert.equal((await send({ of: null })).response.status, 400);
+  assert.equal((await send({ args: [7] })).response.status, 400);
+  assert.equal((await send({ kwargs: { ownerID: 7 } })).response.status, 400);
+  assert.deepEqual([binds, bound], [[], []]);
+  assert.equal((await send({})).response.status, 200);
+  assert.deepEqual(binds.map(call => call.args), [[of]]);
+  assert.deepEqual(bound.map(call => [call.method, call.args, call.boundHandle]), [["UserAbandonPlanet", [], `planet ${of}`]]);
 });
 
 test("an expedited transfer requires a confirmed pilot, a bound planet and the native path and cargo shapes", async () => {

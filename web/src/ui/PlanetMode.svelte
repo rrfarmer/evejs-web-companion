@@ -10,6 +10,7 @@
     pathUsesLink, type LinkEdit, type PlanetLinkFacts } from "../bridge/planetLinks.ts";
   import { applyPlanetLayoutEdit, constructionError, draftInstallation, installationRemoval, INSTALLATION_GROUPS,
     placementError, type ConstructionQuote, type InstallationType, type PlanetLayoutEdit, type SurfaceCoordinates } from "../bridge/planetConstruction.ts";
+  import { abandonmentBasis, emptyPlanetSurface, type CommandCenterPlacement, type CommandCenterQuote } from "../bridge/planetDeployment.ts";
   import type { NewRoute } from "../bridge/planetWrites.ts";
   import { serverNow } from "../bridge/planets.ts";
   import { PlanetScene, type ExtractorMarkerPosition, type PlanetMarkerPosition } from "../play/planetScene.ts";
@@ -26,6 +27,8 @@
   let { colony, store, flow, onClose }: { colony: Colony; store: ClientStore; flow: AppFlow; onClose: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const planets = store.planets;
+  // svelte-ignore state_referenced_locally
+  const flight = store.flight;
   let host: HTMLDivElement;
   let closeButton: HTMLButtonElement;
   let scene = $state.raw<PlanetScene | null>(null);
@@ -51,6 +54,13 @@
   let buildType = $state.raw<InstallationType | null>(null);
   let buildError = $state("");
   let buildPoint = $state.raw<SurfaceCoordinates | null>(null);
+  let deployQuote = $state.raw<CommandCenterQuote | null>(null);
+  let deployError = $state("");
+  let deployPicking = $state(false);
+  let deployment = $state.raw<CommandCenterPlacement | null>(null);
+  let deploymentRevision = $state(0);
+  let abandonReview = $state(false);
+  let abandonDraft = $state<string | null>(null);
   let nextDraftPin = -1;
   let linking = $state(false);
   let linkSource = $state<number | null>(null);
@@ -76,9 +86,16 @@
   let ready = $state(false);
   let error = $state("");
   const routing = $derived(routePath.length > 0);
-  const pending = $derived(edits.size + newRoutes.length + removedRoutes.length + layout.length > 0);
+  const established = $derived(colony.pins.some(pin => pin.kind === "command"));
+  const deploymentContext = $derived([$flight.status?.shipID, $flight.status?.solarSystemID, $flight.status?.inSpace, $flight.status?.docked].join(":"));
+  const pending = $derived(Boolean(deployment || abandonDraft || edits.size || newRoutes.length || removedRoutes.length || layout.length));
   const removedIDs = $derived(new Set(removedRoutes.map(route => route.routeID)));
-  const networkView = $derived(layout.reduce(applyPlanetLayoutEdit, colony));
+  const draftCenter = $derived(deployment ? draftInstallation(deployment.source.itemID, {
+    typeID: deployment.source.typeID, typeName: deployQuote?.typeName ?? "Command Centre", kind: "command",
+    groupID: 1027, price: 0, cpu: 0, power: 0, area: 0, capacity: null, missingSkills: [],
+  }, { latitude: deployment.latitude, longitude: deployment.longitude }) : null);
+  const networkView = $derived(abandonDraft ? emptyPlanetSurface(colony)
+    : draftCenter ? { ...colony, pins: [draftCenter] } : layout.reduce(applyPlanetLayoutEdit, colony));
   const builds = $derived(layout.filter(edit => edit.kind === "build"));
   const decommissions = $derived(layout.filter(edit => edit.kind === "remove"));
   const constructionCost = $derived(Math.round(builds.reduce((cost, edit) => cost + edit.price, 0) * 100) / 100);
@@ -123,6 +140,7 @@
     : workingUnit ? edits.get(workingUnit.pinID)?.radius ?? MIN_HEAD_RADIUS : MIN_HEAD_RADIUS);
 
   function select(pin: ColonyPin, moveCamera = false, shortcut = false): void {
+    if (!established || abandonDraft) return;
     if (building) {
       if (buildType && pin.latitude != null && pin.longitude != null) placeInstallation({ latitude: pin.latitude, longitude: pin.longitude });
       return;
@@ -339,6 +357,8 @@
     buildType = null;
     buildPoint = null;
     buildError = "";
+    deployPicking = false;
+    abandonReview = false;
   }
 
   function enterConstruction(): void {
@@ -380,7 +400,7 @@
   function reviewRemoval(pin: ColonyPin): void {
     if (submitting || refreshing) return;
     if (pin.kind === "command") {
-      buildError = "Removing the command centre requires abandoning the entire colony.";
+      reviewAbandonment();
       return;
     }
     closeExtractor();
@@ -390,6 +410,35 @@
     buildError = "";
     pendingRemoval = pin.pinID;
     selectedID = pin.pinID;
+  }
+
+  function reviewAbandonment(): void {
+    if (!established || submitting || refreshing) return;
+    closeExtractor();
+    closeRoute();
+    closeTransfer();
+    closeLink();
+    closeConstruction();
+    abandonReview = true;
+  }
+
+  function stageAbandonment(): void {
+    if (!abandonReview || submitting || refreshing) return;
+    abandonDraft = abandonmentBasis(colony);
+    abandonReview = false;
+    highlight = [];
+    submitError = "";
+  }
+
+  function placeCommandCenter(point: SurfaceCoordinates): void {
+    const source = deployQuote?.source;
+    if (!deployPicking || established || !source || submitting || refreshing) return;
+    deployError = placementError(colony, point);
+    if (deployError) return;
+    deployment = { source, ...point };
+    deployPicking = false;
+    buildPoint = null;
+    submitError = "";
   }
 
   function removeInstallation(): void {
@@ -413,7 +462,7 @@
   }
 
   function movePointer(event: PointerEvent): void {
-    if (building && buildType && scene) {
+    if (((building && buildType) || deployPicking) && scene) {
       const element = event.target as Element | null;
       const target = element?.closest<HTMLElement>(".installation-marker");
       buildPoint = target || host.contains(element) ? scene.surfaceAt(event.clientX, event.clientY) : null;
@@ -471,6 +520,8 @@
     removedRoutes = [];
     layout = [];
     nextDraftPin = -1;
+    deployment = null;
+    abandonDraft = null;
     submitError = "";
   }
 
@@ -479,6 +530,10 @@
   }
 
   export function escapeCanLeave(): boolean {
+    if (deployPicking || abandonReview) {
+      if (!submitting) closeConstruction();
+      return false;
+    }
     if (transferring) {
       if (!submitting) closeTransfer();
       return false;
@@ -501,7 +556,9 @@
     submitting = true;
     submitError = "";
     try {
-      await flow.submitPlanetEdits(colony.planetID, [...edits.values()], { create: newRoutes, remove: removedRoutes }, layout);
+      if (abandonDraft) await flow.abandonPlanetColony(colony.planetID, abandonDraft);
+      else if (deployment) await flow.deployPlanetCommandCenter(colony.planetID, deployment);
+      else await flow.submitPlanetEdits(colony.planetID, [...edits.values()], { create: newRoutes, remove: removedRoutes }, layout);
       closeExtractor();
       closeRoute();
       edits = new Map();
@@ -509,6 +566,9 @@
       removedRoutes = [];
       layout = [];
       nextDraftPin = -1;
+      abandonDraft = null;
+      deployment = null;
+      deploymentRevision++;
       closeConstruction();
     } catch (cause) {
       submitError = errorWords(cause);
@@ -524,6 +584,7 @@
     try {
       await flow.loadPlanets();
       refreshError = planets.get().error ?? "";
+      deploymentRevision++;
     } catch (cause) {
       refreshError = errorWords(cause);
     } finally {
@@ -575,6 +636,11 @@
       const origin = pressed;
       pressed = null;
       if (!origin || Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 5 || linking) return;
+      if (deployPicking) {
+        const point = view?.surfaceAt(event.clientX, event.clientY);
+        if (point) placeCommandCenter(point);
+        return;
+      }
       if (building) {
         const point = buildType && view?.surfaceAt(event.clientX, event.clientY);
         if (point) placeInstallation(point);
@@ -621,6 +687,18 @@
     return () => { active = false; };
   });
   $effect(() => {
+    if (established) return;
+    deploymentContext;
+    deploymentRevision;
+    let active = true;
+    deployQuote = null;
+    deployError = "";
+    void flow.readPlanetDeployment(colony.planetID).then(quote => {
+      if (active) deployQuote = quote;
+    }).catch(cause => { if (active) deployError = errorWords(cause); });
+    return () => { active = false; };
+  });
+  $effect(() => {
     if (!building) return;
     let active = true;
     construction = null;
@@ -633,7 +711,7 @@
   $effect(() => {
     const error = buildType && construction
       ? constructionError(networkView, buildType, linkFacts, constructionCost, construction.wallet) : "";
-    const point = building && buildType ? buildPoint : null;
+    const point = (building && buildType) || deployPicking ? buildPoint : null;
     scene?.previewInstallation(point, !error && (!point || !placementError(networkView, point)), buildType?.area);
   });
   $effect(() => { scene?.setExtractor(workingUnit, displayedHeads, displayedRadius, workingUnit?.extractor?.areaOfInfluence ?? null); });
@@ -653,7 +731,7 @@
       {@const pin = pinsByID.get(position.pinID)}
       {#if pin}
         <button type="button" class="installation-marker {pin.kind}" class:chosen={pin.pinID === selectedID}
-          class:draft={pin.pinID < 0}
+          class:draft={pin.pinID < 0 || draftCenter?.pinID === pin.pinID}
           class:waypoint={routePath.includes(pin.pinID) || transferPath.includes(pin.pinID)} data-pin-id={pin.pinID}
           style:left={`${position.x}%`} style:top={`${position.y}%`}
           aria-label={pin.typeName} aria-pressed={pin.pinID === selectedID} title={`${pin.typeName} · ${pinDesignator(pin.pinID)}`}
@@ -686,13 +764,15 @@
     </div>
     {#if refreshError}<p role="alert">{refreshError}</p>{/if}
     <div class="planet-actions">
-      <button type="button" disabled={!ready || !centre} onclick={() => scene?.focus(centre)}>Focus Command Center</button>
-      <button type="button" aria-expanded={surveyShown} disabled={submitting} onclick={() => { closeExtractor(); closeRoute(); closeTransfer(); closeLink(); closeConstruction(); surveyShown = !surveyShown; templateShown = false; }}>Scan</button>
-      <button type="button" aria-expanded={templateShown} disabled={pending || submitting} onclick={() => { closeExtractor(); closeRoute(); closeTransfer(); closeLink(); closeConstruction(); templateShown = !templateShown; surveyShown = false; }}>Templates</button>
-      <button type="button" aria-pressed={building || decommissioning} disabled={!ready || submitting || refreshing}
-        onclick={() => { if (building || decommissioning) closeConstruction(); else enterConstruction(); }}>Build</button>
-      <button type="button" aria-pressed={linking} disabled={!ready || submitting || refreshing}
-        title="Create Link (Ctrl-click an installation)" onclick={() => { if (linking) closeLink(); else startLink(); }}>Create Link</button>
+      <button type="button" disabled={!ready || !centre || Boolean(abandonDraft)} onclick={() => scene?.focus(centre)}>Focus Command Center</button>
+      <button type="button" aria-expanded={surveyShown} disabled={submitting || Boolean(abandonDraft || deployment)} onclick={() => { closeExtractor(); closeRoute(); closeTransfer(); closeLink(); closeConstruction(); surveyShown = !surveyShown; templateShown = false; }}>Scan</button>
+      <button type="button" aria-expanded={templateShown} disabled={!established || pending || submitting} onclick={() => { closeExtractor(); closeRoute(); closeTransfer(); closeLink(); closeConstruction(); templateShown = !templateShown; surveyShown = false; }}>Templates</button>
+      {#if established}
+        <button type="button" aria-pressed={building || decommissioning} disabled={!ready || submitting || refreshing || Boolean(abandonDraft)}
+          onclick={() => { if (building || decommissioning) closeConstruction(); else enterConstruction(); }}>Build</button>
+        <button type="button" aria-pressed={linking} disabled={!ready || submitting || refreshing || Boolean(abandonDraft)}
+          title="Create Link (Ctrl-click an installation)" onclick={() => { if (linking) closeLink(); else startLink(); }}>Create Link</button>
+      {/if}
       <button type="button" bind:this={closeButton} disabled={submitting} onclick={() => { if (canLeave()) onClose(); }}>Exit Planet Mode</button>
     </div>
   </header>
@@ -705,23 +785,32 @@
     <section class="planet-edit-bar" aria-label="Colony edits">
       <div class="planet-actions">
         <span aria-live="polite">
-          {#if edits.size}{edits.size} {edits.size === 1 ? "extractor" : "extractors"} with pending changes{/if}
-          {#if newRoutes.length + removedRoutes.length}{edits.size ? " · " : ""}{newRoutes.length + removedRoutes.length} pending route changes{/if}
-          {#if linkEdits.length}{edits.size || newRoutes.length || removedRoutes.length ? " · " : ""}{changedLinks.size} pending link {changedLinks.size === 1 ? "change" : "changes"}{/if}
-          {#if builds.length || decommissions.length}
-            {edits.size || newRoutes.length || removedRoutes.length || linkEdits.length ? " · " : ""}{builds.length + decommissions.length} pending installation {builds.length + decommissions.length === 1 ? "change" : "changes"}
+          {#if abandonDraft}
+            Colony abandonment pending
+          {:else if deployment}
+            Command centre deployment pending
+          {:else}
+            {#if edits.size}{edits.size} {edits.size === 1 ? "extractor" : "extractors"} with pending changes{/if}
+            {#if newRoutes.length + removedRoutes.length}{edits.size ? " · " : ""}{newRoutes.length + removedRoutes.length} pending route changes{/if}
+            {#if linkEdits.length}{edits.size || newRoutes.length || removedRoutes.length ? " · " : ""}{changedLinks.size} pending link {changedLinks.size === 1 ? "change" : "changes"}{/if}
+            {#if builds.length || decommissions.length}
+              {edits.size || newRoutes.length || removedRoutes.length || linkEdits.length ? " · " : ""}{builds.length + decommissions.length} pending installation {builds.length + decommissions.length === 1 ? "change" : "changes"}
+            {/if}
           {/if}
         </span>
         <button type="button" disabled={submitting || refreshing || dragging !== null} onclick={() => void submitEdits()}>{submitting ? "Submitting…" : "Submit"}</button>
         <button type="button" disabled={submitting} onclick={cancelEdits}>Cancel</button>
       </div>
-      {#if removedOutputs}
+      {#if abandonDraft}
+        <p>Submitting will destroy all installations and stored commodities on this planet.</p>
+      {/if}
+      {#if !abandonDraft && removedOutputs}
         <p>Submitting will remove {removedOutputs} {removedOutputs === 1 ? "output route" : "output routes"} from stopped extractors.</p>
       {/if}
-      {#if removedLinkRoutes}
+      {#if !abandonDraft && removedLinkRoutes}
         <p>Submitting will remove {removedLinkRoutes} {removedLinkRoutes === 1 ? "route" : "routes"} through decommissioned {decommissions.length ? "installations or links" : "links"}.</p>
       {/if}
-      {#if constructionCost}<p>Construction cost {constructionCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} ISK</p>{/if}
+      {#if !abandonDraft && constructionCost}<p>Construction cost {constructionCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} ISK</p>{/if}
       {#if submitError}<p role="alert">{submitError}</p>{/if}
     </section>
   {/if}
@@ -747,9 +836,41 @@
     <div class="planet-template">
       <ColonyTemplate {colony} recipes={$planets.recipes} {store} {flow} onClose={() => { templateShown = false; }} />
     </div>
-  {:else}
+  {:else if !established && !abandonDraft}
+    <aside class="planet-overview" aria-label="Command centre deployment">
+      <div class="installation-heading"><strong>Command Centre</strong></div>
+      {#if deployment}
+        <p>{draftCenter?.typeName} · {deployment.source.hold}</p>
+        <p>Submitting will deploy one command centre from this hold.</p>
+      {:else if deployError}
+        <p role="alert">{deployError}</p>
+      {:else if !deployQuote}
+        <p role="status">Checking your ship and colony slots…</p>
+      {:else if deployQuote.reason}
+        <p role="status">{deployQuote.reason}</p>
+      {:else if deployQuote.source}
+        <button type="button" class="build-option" disabled={!ready || refreshing || submitting}
+          aria-pressed={deployPicking} onclick={() => { deployPicking = true; buildPoint = null; }}>
+          <TypeIcon typeID={deployQuote.source.typeID} name={deployQuote.typeName ?? "Command Centre"} />
+          <span>{deployQuote.typeName}<small>{deployQuote.source.hold}</small></span>
+        </button>
+        {#if deployPicking}<p role="status">Choose a point on the planet to place the command centre.</p>{/if}
+      {/if}
+    </aside>
+  {:else if !abandonDraft}
     <aside class="planet-overview" class:link-overview={link || linking || building || decommissioning || removalView}>
-      {#if removalView && removal}
+      {#if abandonReview}
+        <section class="installation-removal" aria-label="Abandon colony">
+          <div class="installation-heading">
+            <strong>Abandon Colony</strong>
+            <button type="button" aria-label="Cancel abandonment review" onclick={() => { abandonReview = false; }}>×</button>
+          </div>
+          <p>Abandoning this colony will destroy the command centre, every installation, and all stored commodities.</p>
+          <p>{colony.pins.length} {colony.pins.length === 1 ? "installation" : "installations"} · {colony.links.length} {colony.links.length === 1 ? "link" : "links"} · {colony.routes.length} {colony.routes.length === 1 ? "route" : "routes"}</p>
+          {#if pending}<p>Pending construction and other edits will be discarded.</p>{/if}
+          <button type="button" disabled={submitting || refreshing} onclick={stageAbandonment}>Proceed</button>
+        </section>
+      {:else if removalView && removal}
         <section class="installation-removal" aria-label="Decommission installation">
           <div class="installation-heading">
             <TypeIcon typeID={removalView.typeID} name={removalView.typeName} />
@@ -845,6 +966,8 @@
           <button type="button" disabled={!ready || submitting || refreshing} onclick={() => startLink(selected)}>Create Link from Here</button>
           {#if selected.kind !== "command"}
             <button type="button" disabled={submitting || refreshing} onclick={() => reviewRemoval(selected)}>Decommission Installation</button>
+          {:else}
+            <button type="button" disabled={submitting || refreshing} onclick={reviewAbandonment}>Abandon Colony</button>
           {/if}
         {/if}
         {#if transferring}
@@ -869,7 +992,7 @@
           <div><dt>Colony power</dt><dd>{budget.power.toLocaleString()} / {budget.powerSupply.toLocaleString()} MW</dd></div>
         </dl>
       {/if}
-      {#if !link && !linking && !routing && !transferring && !building && !decommissioning && !removalView && networkView.links.length}
+      {#if !abandonReview && !link && !linking && !routing && !transferring && !building && !decommissioning && !removalView && networkView.links.length}
         <details>
           <summary>Links ({networkView.links.length})</summary>
           <ul>
@@ -881,7 +1004,7 @@
           </ul>
         </details>
       {/if}
-      {#if !building}
+      {#if !building && !abandonReview}
         <details>
         <summary>Installations ({networkView.pins.length})</summary>
         <ul>

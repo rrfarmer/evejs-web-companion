@@ -16,6 +16,9 @@ const PIN_TYPES: Readonly<Record<number, readonly number[]>> = {
 };
 const PIN_COLUMN = new Map(Object.values(PIN_TYPES).flatMap(types => types.flatMap((id, column) => id ? [[id, column] as const] : [])));
 const COMMAND = 3;
+export function planetCommandCenterType(planetTypeID: number): number | undefined {
+  return PIN_TYPES[planetTypeID]?.[COMMAND];
+}
 const EXTRACTOR = 6;
 const MAX_ROUTE_PINS = 7; // baseColony.ValidateCreateRoute allows five intermediate pins.
 const COMMAND_ENDPOINT = "CmdCtr";

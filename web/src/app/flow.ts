@@ -454,8 +454,10 @@ import { decodeColonyReport, serverNow as planetServerNow } from "../bridge/plan
 import { decodeResourceData, type PlanetResourceData } from "../bridge/boundPlanets.ts";
 import { PLANET_SURVEY_PROXIMITY, planetSurveyBands } from "../bridge/planetSurvey.ts";
 import { PLANET_LINK_TYPE_ID, pinUsage, planetAttribute, type PlanetLinkFacts } from "../bridge/planetLinks.ts";
-import { INSTALLATION_GROUPS, planPlanetLayout, type ConstructionQuote, type PlanetLayoutEdit } from "../bridge/planetConstruction.ts";
-import { exportColonyTemplate, planColonyTemplate, type ColonyTemplate, type ColonyTemplateRules, type TemplatePlacement, type TemplateRotation } from "../bridge/colonyTemplate.ts";
+import { INSTALLATION_GROUPS, placementError, planPlanetLayout, type ConstructionQuote, type PlanetLayoutEdit } from "../bridge/planetConstruction.ts";
+import { abandonmentBasis, COMMAND_CENTER_BAYS, deploymentLocationError, findCommandCenterSource, INTERPLANETARY_CONSOLIDATION,
+  localPlanetSurface, OMNIPOTENT, type CommandCenterPlacement, type CommandCenterQuote } from "../bridge/planetDeployment.ts";
+import { exportColonyTemplate, planColonyTemplate, planetCommandCenterType, type ColonyTemplate, type ColonyTemplateRules, type TemplatePlacement, type TemplateRotation } from "../bridge/colonyTemplate.ts";
 import { filetimeToUnixMs } from "../bridge/activity.ts";
 import { readWormholePolarization, type WormholePolarization } from "../play/wormholePolarization.ts";
 import { extractorReroute, factoryInputTypeIDs, type ExtractorReroute } from "../bridge/colonyRoutes.ts";
@@ -1226,7 +1228,7 @@ import { giveUpOffice, quoteOffice, rentOffice, type DockedIn } from "../bridge/
 import { runSlashCommand } from "../bridge/gmWrites.ts";
 import { IntDict, hashedSetOrder, intDictOf, intDictOrder, strDictOrder, tupleHashOf, wholeHashOf } from "../bridge/py27DictOrder.ts";
 import { hudSettingNow, setSlotOrder, slotOrderOf } from "../store/hudSettings.ts";
-import { changeColonyNetwork, launchCommodities as launchCommoditiesCall, rerouteExtractorRoutes, routeEditCommands, transferPlanetCargo, type NewRoute } from "../bridge/planetWrites.ts";
+import { abandonPlanet, changeColonyNetwork, deployCommandCenter, launchCommodities as launchCommoditiesCall, rerouteExtractorRoutes, routeEditCommands, transferPlanetCargo, type NewRoute } from "../bridge/planetWrites.ts";
 import { quoteExpeditedTransfer, type TransferCargo } from "../bridge/expeditedTransfer.ts";
 import { requestExtractorYield, restartExtractor as restartExtractorAsTheClient, type ProgramYield } from "../bridge/extractorRestart.ts";
 import { planExtractorEdits, type ExtractorEdit } from "../bridge/extractorEdits.ts";
@@ -4423,6 +4425,10 @@ export interface AppFlow {
 
   /** R41 — every colony this character owns, and what is on each planet. */
   loadPlanets(): Promise<void>;
+  readLocalPlanetSurface(planetID: number): Promise<import("../store/types.ts").Colony>;
+  readPlanetDeployment(planetID: number): Promise<CommandCenterQuote>;
+  deployPlanetCommandCenter(planetID: number, placement: CommandCenterPlacement): Promise<void>;
+  abandonPlanetColony(planetID: number, reviewed: string): Promise<void>;
   quoteColonyTemplate(placement: TemplatePlacement): Promise<number>;
   readPlanetSurvey(planetID: number, resourceTypeID: number): Promise<PlanetResourceData>;
   readExtractorYield(planetID: number, pinID: number, resourceTypeID: number, heads: readonly ExtractorHead[], radius: number): Promise<ProgramYield>;
@@ -28369,6 +28375,118 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   const planetSubmissions = new Set<number>();
+  let deployingPlanet = false;
+
+  async function readLocalPlanetSurface(planetID: number) {
+    const pilot = callOptions.captureRequestGuard!();
+    const flight = decodeFlightStatus((await api.getFlightStatus(callOptions)).flight);
+    const systemID = flight.solarSystemID;
+    if (systemID === null) throw new Error("The current solar system is unavailable.");
+    const planet = localPlanetSurface(await api.getPlanetsNear(systemID, 0, callOptions), planetID, systemID);
+    pilot();
+    if (!planet) throw new Error("This planet is unavailable in the current solar system.");
+    return planet;
+  }
+
+  async function quotePlanetDeployment(planetID: number) {
+    const pilot = callOptions.captureRequestGuard!();
+    const flight = decodeFlightStatus((await api.getFlightStatus(callOptions)).flight);
+    const blocked = (reason: string, typeName: string | null = null) => ({ source: null, reason, typeName });
+    const systemID = flight.solarSystemID;
+    if (systemID === null) return { planet: undefined, quote: blocked("The current solar system is unavailable.") };
+    const locationError = deploymentLocationError(flight, systemID);
+    if (locationError) return { planet: undefined, quote: blocked(locationError) };
+    const [rawPlanets, owned, skills] = await Promise.all([
+      api.getPlanetsNear(systemID, 0, callOptions), api.getPlanets(callOptions), bridgeAsk("skillHandler", "GetSkills", []),
+    ]);
+    pilot();
+    const planet = localPlanetSurface(rawPlanets, planetID, systemID);
+    if (!planet) return { planet, quote: blocked("You must be in this planet's solar system.") };
+    const report = decodeColonyReport(owned.planets, Date.now());
+    if (!report.coloniesReadable) return { planet, quote: blocked("Your planetary colonies could not be read.") };
+    if (report.colonies.some(colony => colony.planetID === planetID)) return { planet, quote: blocked("You already have a colony on this planet.") };
+    const typeID = planetCommandCenterType(planet.planetTypeID);
+    if (!typeID) return { planet, quote: blocked("This planet type does not support a command centre.") };
+    const slots = 1 + effectiveSkillLevel(skills, INTERPLANETARY_CONSOLIDATION);
+    if (report.colonies.length >= slots && effectiveSkillLevel(skills, OMNIPOTENT) === 0) {
+      return { planet, quote: blocked("Interplanetary Consolidation does not allow another colony.") };
+    }
+    const shipID = flight.shipID!;
+    const [read, names, requirements] = await Promise.all([
+      api.getShipBays(shipID, callOptions, COMMAND_CENTER_BAYS),
+      api.resolveNames([{ kind: "type", id: typeID }], callOptions),
+      api.getRequiredSkills([typeID], callOptions),
+    ]);
+    pilot();
+    const typeName = names.names[nameKey("type", typeID)] ?? "Command Centre";
+    if (!requirements.available) return { planet, quote: blocked("Command centre skill requirements are unavailable.", typeName) };
+    const missing = (requirements.order[typeID] ?? []).filter(([skill, level]) => effectiveSkillLevel(skills, skill) < level);
+    if (missing.length) {
+      const skillNames = await api.resolveNames(missing.map(([id]) => ({ kind: "type", id })), callOptions);
+      pilot();
+      const reason = missing.map(([id, level]) => `${skillNames.names[nameKey("type", id)] ?? "Deployment skill"} ${level}`).join(", ");
+      return { planet, quote: blocked(`Required skills: ${reason}.`, typeName) };
+    }
+    const bays = decodeShipBays(read.bays);
+    const source = read.shipID === shipID ? findCommandCenterSource(typeID, shipID, bays) : null;
+    if (!source) {
+      const unreadable = COMMAND_CENTER_BAYS.some(key => {
+        const bay = bays.find(bay => bay.key === key);
+        return !bay || bay.present === null || (bay.present && bay.items === null);
+      });
+      return { planet, quote: blocked(unreadable ? "The ship's deployment holds could not be read."
+        : `Your ship needs a ${typeName}.`, typeName) };
+    }
+    return { planet, quote: { typeName, source, reason: "" } };
+  }
+
+  async function readPlanetDeployment(planetID: number): Promise<CommandCenterQuote> {
+    return (await quotePlanetDeployment(planetID)).quote;
+  }
+
+  async function deployPlanetCommandCenter(planetID: number, placement: CommandCenterPlacement): Promise<void> {
+    if (deployingPlanet || planetSubmissions.has(planetID)) throw new Error("A colony update is already being submitted.");
+    const pilot = callOptions.captureRequestGuard!();
+    deployingPlanet = true;
+    planetSubmissions.add(planetID);
+    try {
+      const { planet, quote } = await quotePlanetDeployment(planetID);
+      const source = quote.source;
+      if (!planet || !source) throw new Error(quote.reason);
+      if (source.itemID !== placement.source.itemID || source.typeID !== placement.source.typeID || source.shipID !== placement.source.shipID
+        || source.hold !== placement.source.hold) throw new Error("The command centre or its hold changed. Review the deployment again.");
+      const error = placementError(planet, placement);
+      if (error) throw new Error(error);
+      const flight = decodeFlightStatus((await api.getFlightStatus(callOptions)).flight);
+      const locationError = deploymentLocationError(flight, planet.solarSystemID);
+      if (locationError || flight.shipID !== source.shipID) throw new Error(locationError || "The active ship changed. Review the deployment again.");
+      pilot();
+      await deployCommandCenter(bridgeDo, planetID, placement);
+      await loadPlanets().catch(() => {});
+      void loadInventory().catch(() => {});
+    } finally {
+      deployingPlanet = false;
+      planetSubmissions.delete(planetID);
+    }
+  }
+
+  async function abandonPlanetColony(planetID: number, reviewed: string): Promise<void> {
+    if (planetSubmissions.has(planetID)) throw new Error("A colony update is already being submitted.");
+    const pilot = callOptions.captureRequestGuard!();
+    planetSubmissions.add(planetID);
+    try {
+      const colony = await readOwnedColony(planetID);
+      if (!colony.pins.some(pin => pin.kind === "command") || abandonmentBasis(colony) !== reviewed) {
+        throw new Error("The colony changed. Cancel and review it before abandoning the planet.");
+      }
+      pilot();
+      await abandonPlanet(bridgeDo, planetID);
+      await loadPlanets().catch(() => {});
+    } finally {
+      planetSubmissions.delete(planetID);
+    }
+  }
+
   async function expediteColonyTransfer(planetID: number, path: readonly number[], cargo: TransferCargo): Promise<void> {
     if (planetSubmissions.has(planetID)) throw new Error("A colony update is already being submitted.");
     const types = Object.keys(cargo).map(Number);
@@ -37731,6 +37849,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     compressedTypesOf,
     loadSkills,
     loadPlanets,
+    readLocalPlanetSurface,
+    readPlanetDeployment,
+    deployPlanetCommandCenter,
+    abandonPlanetColony,
     readPlanetSurvey,
     readExtractorYield,
     readPlanetRouteFacts,

@@ -1386,6 +1386,11 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     res.status(400).json({ ok: false, error: "INVALID_PLANET", message: "A positive planetID is required." });
     return;
   }
+  if (body.service === "planetMgr" && body.method === "UserAbandonPlanet"
+    && (!Array.isArray(body.args) || body.args.length !== 0 || body.kwargs != null)) {
+    res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "Abandonment takes only the bound planet, with no arguments." });
+    return;
+  }
   if (body.service === "planetMgr" && body.method === "UserTransferCommodities") {
     const [path, quantities] = Array.isArray(body.args) ? body.args : [];
     const cargo = quantities && typeof quantities === "object" && !Array.isArray(quantities)

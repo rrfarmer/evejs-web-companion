@@ -18,7 +18,8 @@
   import type { CombatMessageIcon } from "../play/combatMessage.ts";
   import type { ActionMessage } from "../app/flow.ts";
   import { iskWords } from "../bridge/questions.ts";
-  import type { DamageEvent } from "../store/types.ts";
+  import type { Colony, DamageEvent } from "../store/types.ts";
+  import { emptyPlanetSurface } from "../bridge/planetDeployment.ts";
   import { get as storeValue } from "svelte/store";
   import { assetsSearchTarget } from "./assetsSearch.ts";
   import { contractsSearchTarget } from "./contractsSearch.ts";
@@ -943,33 +944,48 @@
   let systemMenu = $state(false);
   let mapHost = $state<HTMLDivElement | null>(null);
   let planetModeID = $state<number | null>(null);
+  let planetSurface = $state.raw<Colony | null>(null);
   let planetModeView: { canLeave: () => boolean; escapeCanLeave: () => boolean } | undefined = $state();
   let planetModeTrigger: HTMLElement | null = null;
-  const planetInMode = $derived($planets?.colonies?.find(colony => colony.planetID === planetModeID) ?? null);
+  let planetViewRequest = 0;
+  const planetInMode = $derived($planets?.colonies?.find(colony => colony.planetID === planetModeID) ?? planetSurface);
 
-  function showPlanetInMode(planetID: number) {
+  async function showPlanetInMode(planetID: number) {
     const pilot = session;
-    if (!pilot || planetModeID === planetID || !$planets?.colonies?.some(colony => colony.planetID === planetID)) return;
+    if (!pilot || planetModeID === planetID) return;
     if (planetModeView && !planetModeView.canLeave()) return;
-    if (planetModeID === null) planetModeTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const request = ++planetViewRequest;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const known = $planets?.colonies?.find(colony => colony.planetID === planetID);
+    let surface: Colony;
+    try {
+      surface = known ?? await pilot.flow.readLocalPlanetSurface(planetID);
+    } catch (error) {
+      if (request === planetViewRequest && session === pilot) {
+        notify({ kind: "danger", title: "Planet Mode", detail: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
+    if (request !== planetViewRequest || session !== pilot) return;
+    if (planetModeID === null) planetModeTrigger = trigger;
     toggleStarMap(false);
+    planetSurface = emptyPlanetSurface(surface);
     planetModeID = planetID;
     void playUiEvent("msg_pi_general_opening_play");
     void pilot.flow.loadPlanets().catch(() => {});
   }
 
   function leavePlanetMode(restoreFocus = true) {
+    planetViewRequest++;
     if (planetModeID === null) return;
     planetModeID = null;
+    planetSurface = null;
     void playUiEvent("msg_pi_general_closing_play");
     const trigger = planetModeTrigger;
     planetModeTrigger = null;
     if (restoreFocus && trigger?.isConnected) requestAnimationFrame(() => trigger.focus());
   }
 
-  $effect(() => {
-    if (planetModeID !== null && $planets?.loaded && $planets.coloniesReadable && !planetInMode) leavePlanetMode(false);
-  });
 
   function neocomOpen(id: string) {
     if (id === "map") { toggleStarMap(); return; }
@@ -1389,6 +1405,7 @@
           if (error?.code !== "SESSION_REQUEST_RETIRED") notify({ kind: "danger", title: "Show Info", detail: error instanceof Error ? error.message : String(error) });
         });
       },
+      viewPlanet: showPlanetInMode,
       rack: {
         modules: () => {
           const active = new Set(s.store.space.get().snapshot?.ship?.activeModuleIDs ?? []);
