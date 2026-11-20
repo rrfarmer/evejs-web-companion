@@ -1469,7 +1469,9 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
 }
 
 /** The transform modifiers drawn so far (the rest leave the transform as it is). */
-const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierHaloInverted", "EveChildModifierCameraOrientedRotationConstrained", "EveChildModifierBillboard2D", "EveChildModifierBillboard3D", "EveChildModifierTranslateWithCamera", "EveChildModifierSRT", "EveTransformLookAtCamera", "EveTransformCameraRotationAligned"]);
+const CONSTRAINED_ROTATION = "EveChildModifierCameraOrientedRotationConstrained";
+const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierHaloInverted", CONSTRAINED_ROTATION, "EveChildModifierBillboard2D", "EveChildModifierBillboard3D", "EveChildModifierTranslateWithCamera", "EveChildModifierSRT", "EveTransformLookAtCamera", "EveTransformCameraRotationAligned"]);
+const EVE_WORLD_REFLECTION = new THREE.Matrix4().makeScale(1, 1, -1);
 
 /**
  * A modified child's transform from its own (base, in EVE's model space of the hull) and the eye there, as trinity's
@@ -1477,8 +1479,8 @@ const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierHaloInverted
  * - EveChildModifierHalo: the translation kept; the axes the eye's (its view-inverse rows: right, up, forward), each
  *   the length of the child's own, times f = max(z . d, 0)^2 for z the child's z axis and d the way to the eye,
  *   both normalised: a billboard turned to the eye, gone as it is seen from the side;
- * - EveChildModifierCameraOrientedRotationConstrained: the child turned about its own y axis by atan2(d . x, d . z)
- *   (x, z its unit axes, d the way to the eye from its translation): its z axis toward the eye, its y kept;
+ * - EveChildModifierCameraOrientedRotationConstrained: the child turned about its own y axis. The client derives
+ *   the viewing angle from the rotation decomposed out of the placed world matrix, including stretch scale.
  * - EveChildModifierBillboard2D: the halo's without its fall-off: the eye's axes, each the length of the child's own;
  * - EveChildModifierSRT: the modifier's own transform (scaling, rotation, translation) laid on in the child's space.
  * - EveTransformLookAtCamera (an EveTransform's "Look at camera" modifier, Tr2Transform.cpp: Transpose(LookAtMatrix(eye,
@@ -1494,8 +1496,8 @@ const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierHaloInverted
  *   axes), x = y x z - and scaled by max(d . -z, 0) (d the way to the eye, z the child's own axis, both normalised):
  *   seen from behind; the child's transform x that basis x the scale.
  */
-function applyModifiers(base: THREE.Matrix4, mods: string[], eye: THREE.Vector3, eyeAxes: THREE.Vector3[], out: THREE.Matrix4, srt: SofChildSrt | null = null,
-  parent: THREE.Matrix4 | null = null): void {
+function applyModifiers(base: THREE.Matrix4, mods: string[], eye: THREE.Vector3, eyeAxes: THREE.Vector3[], out: THREE.Matrix4, srt: SofChildSrt | null,
+  parent: THREE.Matrix4 | null, nativeEye: THREE.Vector3, parentToNative: THREE.Matrix4): void {
   out.copy(base);
   const x = new THREE.Vector3(), y = new THREE.Vector3(), z = new THREE.Vector3(), t = new THREE.Vector3(), d = new THREE.Vector3();
   for (const mod of mods) {
@@ -1551,8 +1553,18 @@ function applyModifiers(base: THREE.Matrix4, mods: string[], eye: THREE.Vector3,
     } else if (mod === "EveChildModifierSRT" && srt) {
       const [tx, ty, tz] = srt.translation, [qx, qy, qz, qw] = srt.rotation, [sx, sy, sz] = srt.scaling;
       out.multiply(new THREE.Matrix4().compose(new THREE.Vector3(tx, ty, tz), new THREE.Quaternion(qx, qy, qz, qw), new THREE.Vector3(sx, sy, sz)));
-    } else if (mod === "EveChildModifierCameraOrientedRotationConstrained") {
-      const angle = Math.atan2(d.dot(x.normalize()), d.dot(z.normalize()));
+    } else if (mod === CONSTRAINED_ROTATION) {
+      const world = new THREE.Matrix4().multiplyMatrices(parentToNative, out);
+      world.extractBasis(x, y, z);
+      const rotation = new THREE.Quaternion();
+      if (x.lengthSq() && y.lengthSq() && z.lengthSq()) {
+        // Trinity removes each axis's length before extracting the quaternion. A stretched, tilted card has
+        // nonorthogonal axes, and the resulting quaternion is used without another normalization.
+        rotation.setFromRotationMatrix(world.makeBasis(x.normalize(), y.normalize(), z.normalize()));
+      }
+      d.subVectors(nativeEye, t.setFromMatrixPosition(out).applyMatrix4(parentToNative));
+      world.makeRotationFromQuaternion(rotation).extractBasis(x, y, z);
+      const angle = Math.atan2(d.dot(x), d.dot(z));
       out.multiply(new THREE.Matrix4().makeRotationY(angle));
     }
   }
@@ -1911,16 +1923,25 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
   }
   group.updateWorldMatrix(true, false);
   const toEve = group.matrixWorld.clone().invert();
-  const eye = camera.getWorldPosition(new THREE.Vector3()).applyMatrix4(toEve);
+  const nativeEye = camera.getWorldPosition(new THREE.Vector3());
+  const eye = nativeEye.clone().applyMatrix4(toEve);
+  nativeEye.z = -nativeEye.z;
   const cx = new THREE.Vector3(), cy = new THREE.Vector3(), cz = new THREE.Vector3();
   camera.matrixWorld.extractBasis(cx, cy, cz);
   const rot = new THREE.Matrix3().setFromMatrix4(toEve);
   // the eye's axes in EVE's model space: right, up and forward (the view-inverse rows of a left-handed view)
   const axes = [cx.applyMatrix3(rot).normalize(), cy.applyMatrix3(rot).normalize(), cz.negate().applyMatrix3(rot).normalize()];
+  const parentToNative = new THREE.Matrix4();
   for (const o of list) {
     const base = new THREE.Matrix4().fromArray(o.userData.modifierBase as number[]);
     const parent = o.userData.parentMatrix ? new THREE.Matrix4().fromArray(o.userData.parentMatrix as number[]) : null;
-    applyModifiers(base, o.userData.modifiers as string[], eye, axes, o.matrix, (o.userData.srt as SofChildSrt | undefined) ?? null, parent);
+    const modifiers = o.userData.modifiers as string[];
+    if (modifiers.includes(CONSTRAINED_ROTATION)) {
+      const owner = o.parent ?? group;
+      owner.updateWorldMatrix(true, false);
+      parentToNative.multiplyMatrices(EVE_WORLD_REFLECTION, owner.matrixWorld);
+    }
+    applyModifiers(base, modifiers, eye, axes, o.matrix, (o.userData.srt as SofChildSrt | undefined) ?? null, parent, nativeEye, parentToNative);
     o.matrixWorldNeedsUpdate = true;
     o.updateMatrixWorld(true);
   }
