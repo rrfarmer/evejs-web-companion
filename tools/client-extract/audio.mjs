@@ -457,20 +457,34 @@ function eventLayers(id, depth = 0) {
     const action = objects.get(u32(o.body, 5 + k * 4));
     if (!action || action.type !== 3) continue;
     const kind = u16(action.body, 4), target = u32(action.body, 6);
-    if (kind === 0x0403) layers.push(...layersOf(target));
+    if (kind === 0x0403) {
+      // Bank 150 Play actions store TransitionTime (0x3A) in their property bundle.
+      // The interpolation byte follows the property and ranged-modifier bundles.
+      const body = action.body;
+      const count = body[11];
+      const keys = body.subarray(12, 12 + count);
+      const transition = keys.indexOf(0x3a);
+      const ranges = 12 + 5 * count;
+      const shape = body[ranges + 1 + 9 * body[ranges]] & 0x0f;
+      const duration = transition < 0 ? 0 : u32(body, 12 + count + 4 * transition);
+      for (const layer of layersOf(target)) layers.push(duration > 0 ? { ...layer, f: [duration, shape] } : layer);
+    }
     else if (kind === 0x2103) layers.push(...eventLayers(target, depth + 1));
   }
   return layers;
 }
 // events.json: an event's id to its layers - each its alternatives, or {s: alternatives, d: [[distance, gain,
-// interpolation], ...]} where it fades by distance - one alternative of each layer played together
+// interpolation], ...], f: [fade-in milliseconds, interpolation]} for layers with authored transitions.
 const events = {};
 let layered = 0, faded = 0;
 for (const [id, o] of objects) {
   if (o.type !== 4) continue;
   const layers = eventLayers(id).filter((l) => l.s.length);
   if (!layers.length) continue;
-  events[id] = layers.map((l) => (l.d ? { s: l.s, d: l.d.map(([x, y, i]) => [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000, i]) } : l.s));
+  events[id] = layers.map(({ s, d, f }) => {
+    if (!d && !f) return s;
+    return { s, d: d?.map(([x, y, i]) => [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000, i]), f };
+  });
   if (layers.length > 1) layered++;
   if (layers.some((l) => l.d)) faded++;
 }

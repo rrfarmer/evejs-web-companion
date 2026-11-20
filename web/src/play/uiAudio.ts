@@ -18,8 +18,10 @@ export function wwiseId(name: string): number {
   return h;
 }
 
-/** A layer: its alternatives, or {s: alternatives, d: its crossfade by distance - [distance, gain, interpolation]}. */
-type Layer = string[] | { s: string[]; d: [number, number, number][] };
+type FadeIn = readonly [milliseconds: number, interpolation: number];
+/** A layer's alternatives, distance crossfade and Play-action fade-in. */
+type Layer = string[] | { s: string[]; d?: [number, number, number][]; f?: FadeIn };
+type PickedSound = { sound: string; gain: number; fadeIn?: FadeIn };
 /** events.json's entry: layers (older lists: alternatives, or one sound). */
 type EventSounds = string | string[] | Layer[];
 
@@ -73,16 +75,16 @@ export function curveAt(points: readonly [number, number, number][], x: number):
 }
 let events: Promise<Record<string, EventSounds>> | null = null;
 /** One alternative of each of an event's layers (they sound together), with its gain at that distance. */
-function pick(found: EventSounds | null, distance = 0): { sound: string; gain: number }[] {
+function pick(found: EventSounds | null, distance = 0): PickedSound[] {
   if (found === null) return [];
   const layers: Layer[] = typeof found === "string" ? [[found]] : found.length && typeof found[0] !== "string" ? found as Layer[] : [found as string[]];
-  const out: { sound: string; gain: number }[] = [];
+  const out: PickedSound[] = [];
   for (const l of layers) {
     const choices = Array.isArray(l) ? l : l.s;
     if (!choices.length) continue;
-    const gain = Array.isArray(l) ? 1 : curveAt(l.d, distance);
+    const gain = Array.isArray(l) || !l.d ? 1 : curveAt(l.d, distance);
     if (gain <= 0.001) continue;
-    out.push({ sound: choices[Math.floor(Math.random() * choices.length)]!, gain });
+    out.push({ sound: choices[Math.floor(Math.random() * choices.length)]!, gain, fadeIn: Array.isArray(l) ? undefined : l.f });
   }
   return out;
 }
@@ -342,8 +344,8 @@ async function playMovingWorldSound(name: string, at: Vec3, forceLoop: boolean, 
     const settings = gfx();
     return settings.audioEnabled ? settings.masterVolume * settings.worldVolume : 0;
   };
-  const nodes = new Set<{ source: AudioBufferSourceNode; panner: PannerNode; gain: GainNode; base: number; sound: string }>();
-  let releasing = false;
+  const nodes = new Set<{ source: AudioBufferSourceNode; panner: PannerNode; gain: GainNode; envelope: GainNode; base: number;
+    sound: string; opening: (time: number) => number }>();
   const handle = {
     get active() { return nodes.size > 0; },
     move(p: Vec3) {
@@ -352,17 +354,18 @@ async function playMovingWorldSound(name: string, at: Vec3, forceLoop: boolean, 
       const gain = volume();
       for (const n of nodes) {
         n.panner.positionX.value = p.x; n.panner.positionY.value = p.y; n.panner.positionZ.value = p.z;
-        if (!releasing) n.gain.gain.value = gain * n.base * attenuationAt(n.sound, d);
+        n.gain.gain.value = gain * n.base * attenuationAt(n.sound, d);
       }
     },
     stop(fadeMs = 0) {
-      releasing = true;
       for (const node of nodes) {
         const now = node.source.context.currentTime;
         const end = now + fadeMs / 1000;
         if (fadeMs > 0) {
-          node.gain.gain.setValueAtTime(node.gain.gain.value, now);
-          node.gain.gain.linearRampToValueAtTime(0, end);
+          const envelope = node.envelope.gain;
+          envelope.cancelScheduledValues(0);
+          envelope.setValueAtTime(node.opening(now), now);
+          envelope.linearRampToValueAtTime(0, end);
         }
         try { node.source.stop(end); } catch { /* over */ }
       }
@@ -384,20 +387,42 @@ async function playMovingWorldSound(name: string, at: Vec3, forceLoop: boolean, 
     const own = ownOf(sound);
     source.loop = forceLoop || own.loop;
     const gain = ctx.createGain();
+    const envelope = ctx.createGain();
     const base = sounds[n]!.gain * own.gain;
     gain.gain.value = volume() * base * attenuationAt(sound, distance);
     const panner = placer(ctx, at);
     panner.connect(ctx.destination);
-    source.connect(gain).connect(forceLoop ? panner : muffled(ctx, sound, panner));
-    const node = { source, panner, gain, base, sound };
+    source.connect(envelope).connect(gain).connect(forceLoop ? panner : muffled(ctx, sound, panner));
+    const fadeIn = forceLoop ? undefined : sounds[n]!.fadeIn;
+    const startAt = ctx.currentTime;
+    const seconds = (fadeIn?.[0] ?? 0) / 1000;
+    const shape = fadeIn?.[1] ?? 4;
+    const opening = (now: number) => {
+      if (seconds <= 0 || now >= startAt + seconds) return 1;
+      const t = Math.max(0, (now - startAt) / seconds);
+      return shape === 9 ? 0 : curveShape(shape, t);
+    };
+    if (seconds > 0) {
+      if (shape === 4) {
+        envelope.gain.setValueAtTime(0, startAt);
+        envelope.gain.linearRampToValueAtTime(1, startAt + seconds);
+      } else {
+        const samples = Float32Array.from({ length: 33 }, (_, i) => opening(startAt + seconds * i / 32));
+        samples[0] = 0;
+        samples[32] = 1;
+        envelope.gain.setValueCurveAtTime(samples, startAt, seconds);
+      }
+    }
+    const node = { source, panner, gain, envelope, base, sound, opening };
     nodes.add(node);
     source.onended = () => {
       nodes.delete(node);
       source.disconnect();
+      envelope.disconnect();
       gain.disconnect();
       panner.disconnect();
     };
-    source.start();
+    source.start(startAt);
     entry.played = true;
   }
   handle.move(at);

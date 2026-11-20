@@ -26,7 +26,6 @@ function requestBeam(): void {
     if (!geometry) return;
     const template = await hullChildren([{ res: "", root: geometry.root, skipped: {} }]);
     if (!template) return;
-    template.scale.setScalar(1);
     graphic = { geometry, template };
   }).catch(() => { /* The hull can still face the moon. */ });
 }
@@ -169,7 +168,12 @@ export function updateMetenoxPresentation(
   const surface = source.clone().sub(center).normalize().multiplyScalar(moon.radius).add(center);
   const { object, audio } = state.beam;
   audio.move(source, surface);
-  placeStretch(object, graphic.geometry, holder.worldToLocal(source), holder.worldToLocal(surface));
+  // The effect's root mirrors its authored EVE coordinates into the browser.
+  const localSource = holder.worldToLocal(source);
+  const localSurface = holder.worldToLocal(surface);
+  localSource.z *= -1;
+  localSurface.z *= -1;
+  placeStretch(object, graphic.geometry, localSource, localSurface);
   setEffectShaderQuality(object, shaderQuality);
   object.visible = true;
 }
