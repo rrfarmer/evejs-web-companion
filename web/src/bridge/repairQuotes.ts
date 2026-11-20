@@ -32,6 +32,8 @@ export interface RepairQuotePart {
   readonly itemID: number;
   /** The part's type, when the row carries one (the name the panel shows). */
   readonly typeID: number | null;
+  /** The service supplies this alongside the type on EveOffline. */
+  readonly categoryID?: number;
   /** HP of damage the shop found, or null when the row does not say. */
   readonly damage: number | null;
   /** The part's full HP (shield + armor + structure), or null. */
@@ -118,9 +120,11 @@ export function decodeRepairQuotes(raw: unknown): readonly RepairQuoteRow[] {
       if (damage !== null && Math.ceil(damage) <= 0) {
         continue;
       }
+      const categoryID = partID(row, "categoryID");
       parts.push({
         itemID: partID(row, "itemID") ?? itemID,
         typeID: partID(row, "typeID"),
+        ...(categoryID === null ? {} : { categoryID }),
         damage,
         maxHealth: partNumber(row, "maxHealth"),
         cost: partCost(row, damage),

@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { quoteRepairs, repairItemsAtShop, repairQuoted } from "./repairShop.ts";
+import { isRepairableItem, payRepairShop, quoteRepairs, repairItemsAtShop, repairQuoted, stationOffersRepair } from "./repairShop.ts";
 import type { RepairQuoteRow } from "./repairQuotes.ts";
 
 const IN_A_STATION = { stationID: 60003760, structureID: null };
@@ -126,4 +126,20 @@ test("the shop's refusal is the caller's, as it came", async () => {
   const refused = new Error("Modules must be repaired in full.");
   await assert.rejects(quoteRepairs(harness(null, refused).ask, [9001]), /Modules must be repaired in full\./);
   await assert.rejects(repairQuoted(harness(null, refused).ask, QUOTED, IN_A_STATION), /Modules must be repaired in full\./);
+});
+
+test("a partial hull payment passes the selected part and the pilot's authorized amount", async () => {
+  const { asked, ask } = harness();
+  await payRepairShop(ask, [9001], IN_A_STATION, 25.75);
+  assert.deepEqual(asked, [["repairSvc", "RepairItemsInStation", [[9001], 25.75]]]);
+});
+
+test("repair eligibility follows singleton category or group and stock station service availability", () => {
+  assert.equal(isRepairableItem({ singleton: true, groupID: 25, categoryID: 6 }), true);
+  assert.equal(isRepairableItem({ singleton: false, groupID: 25, categoryID: 6 }), false);
+  assert.equal(isRepairableItem({ singleton: true, groupID: 649, categoryID: 2 }), true);
+  assert.equal(isRepairableItem({ singleton: true, groupID: 18, categoryID: 4 }), false);
+  assert.equal(stationOffersRepair(0.45, []), true);
+  assert.equal(stationOffersRepair(0.4499, []), false);
+  assert.equal(stationOffersRepair(0.3, [13]), true);
 });

@@ -42,6 +42,7 @@
   import { buyMarketType, showMarketDetails } from "./marketDetails.ts";
   import { typeCompareTarget, type ComparisonSubject } from "./typeCompare.ts";
   import { isComparable, type ComparisonTypeData } from "../bridge/typeComparison.ts";
+  import { isRepairableItem, stationOffersRepair } from "../bridge/repairShop.ts";
   import type { TypeMetaFacts } from "../app/api.ts";
   import { openFittingWindow } from "./fittingWindowTarget.ts";
   import { openShipHold } from "./shipHold.ts";
@@ -315,6 +316,7 @@
     openContainer: ["UI/Inventory/ItemActions/OpenContainer", "Open Container"],
     assembleContainer: ["UI/Inventory/ItemActions/AssembleContainer", "Assemble Container"],
     repackage: ["UI/Inventory/ItemActions/Repackage", "Repackage"],
+    repairQuote: ["UI/Inventory/ItemActions/GetRepairQuote", "Get Repair Quote"],
   } as const;
   type ItemCommand = keyof typeof ITEM_WORDS;
   function itemWord(key: ItemCommand): string {
@@ -413,6 +415,16 @@
     const repackable = menu.rows.filter(row => row.assembledHangar && row.stationID === dockedAt &&
       row.itemID !== activeShip && menu.repackableTypes?.has(row.typeID));
     const repackableIDs = new Set(repackable.map(row => row.itemID));
+    const localStation = $station.station;
+    if ($station.online?.structureID === dockedAt || (localStation?.stationID === dockedAt &&
+        stationOffersRepair(localStation.security, localStation.serviceIDs))) {
+      const repairable = menu.rows.filter(row => {
+        const type = menu.types?.get(row.typeID);
+        return row.assembledHangar && row.stationID === dockedAt && type &&
+          isRepairableItem({ singleton: true, categoryID: type.categoryID, groupID: type.groupID });
+      });
+      if (repairable.length > 0) actions.push({ key: "repairQuote", run: () => void run(() => flow.openAssetRepair(repairable)) });
+    }
     const marketRows = menu.rows.filter(row => (menu.types?.get(row.typeID)?.marketGroupID ?? null) !== null);
     const marketed = marketRows[0];
     if (marketed) {

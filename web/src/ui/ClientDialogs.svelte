@@ -72,6 +72,7 @@
   import { assetSearchTextForType } from "../bridge/assetSearch.ts";
   import { COMPARE_CATEGORIES } from "../bridge/dogmaAttributeGroups.ts";
   import { openFittingWindow } from "./fittingWindowTarget.ts";
+  import RepairShop from "./RepairShop.svelte";
   import { portal } from "./portal.ts";
   import { startFittingDrag } from "./fittingDrag.ts";
   import OwnerPicture from "./OwnerPicture.svelte";
@@ -436,6 +437,17 @@
   // svelte-ignore state_referenced_locally
   const multiBuyAsked = flow.multiBuyAsked;
   const assetSaleAsked = flow.assetSaleAsked;
+  const repairShop = flow.assetRepairShop;
+  // svelte-ignore state_referenced_locally
+  const repairFlight = session.store.flight;
+  $effect(() => {
+    if (!$repairShop) return;
+    const status = $repairFlight.status;
+    const online = $station.online;
+    const place = status ? (status.docked ? status.structureID ?? status.stationID : null)
+      : online?.structureID ?? online?.stationID;
+    if (online?.characterID !== $repairShop.pilotID || place !== $repairShop.stationID) flow.closeAssetRepair($repairShop.n);
+  });
   let assetSalePrices = $state<Record<number, { quantity: number | undefined; price: number | undefined }>>({});
   let assetSaleDuration = $state(0);
   let confirmingAssetSale = $state(false);
@@ -1422,6 +1434,10 @@
       </span>
     </div>
   </div>
+{/if}
+
+{#if $repairShop && inFront}
+  <RepairShop store={session.store} {flow} shop={$repairShop} />
 {/if}
 
 {#if $assetSaleAsked}

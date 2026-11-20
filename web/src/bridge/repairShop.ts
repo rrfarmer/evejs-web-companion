@@ -29,6 +29,23 @@
 import type { Ask } from "./ask.ts";
 import type { DockedIn } from "./officeWrites.ts";
 import { decodeRepairQuotes, repairQuoteTotal, repairTargets, type RepairQuoteRow } from "./repairQuotes.ts";
+import type { InventoryItemRow } from "../store/types.ts";
+import { SECURITY_CLASS, securityClass } from "./systemSecurity.ts";
+
+// 3698585 repair.IsRepairable.
+const REPAIRABLE_GROUPS = new Set([12, 340, 448, 649, 332]);
+const REPAIRABLE_CATEGORIES = new Set([22, 6, 18, 23, 7, 66]);
+
+export function isRepairableItem(item: Pick<InventoryItemRow, "singleton" | "groupID" | "categoryID">): boolean {
+  return item.singleton &&
+    ((item.groupID !== null && REPAIRABLE_GROUPS.has(item.groupID)) ||
+      (item.categoryID !== null && REPAIRABLE_CATEGORIES.has(item.categoryID)));
+}
+
+/** structuresCommon.IsStationServiceAvailable adds repair in high security space. */
+export function stationOffersRepair(security: number | null, serviceIDs: readonly number[] | null | undefined): boolean {
+  return (security !== null && securityClass(security) >= SECURITY_CLASS.high) || serviceIDs?.includes(13) === true;
+}
 
 /**
  * The shop's quote for these items: the damaged among them, each with its parts and their cost. With nothing
@@ -48,12 +65,14 @@ export async function quoteRepairs(ask: Ask, itemIDs: readonly number[]): Promis
  */
 export async function repairQuoted(act: Ask, quotes: readonly RepairQuoteRow[], where: DockedIn): Promise<void> {
   const targets = repairTargets(quotes);
-  if (targets.length === 0) {
-    return;
-  }
+  await payRepairShop(act, targets, where, repairQuoteTotal(quotes));
+}
+
+/** The parts selected in DisplayRepairQuote, with the amount the pilot approved in a station. */
+export async function payRepairShop(act: Ask, targets: readonly number[], where: DockedIn, payment: number | null): Promise<void> {
+  if (targets.length === 0) return;
   if (where.stationID !== null) {
-    const payment = repairQuoteTotal(quotes);
-    if (payment === null) {
+    if (payment === null || !Number.isFinite(payment) || payment < 0) {
       throw new Error("The repair shop did not say what that costs, so nothing was paid.");
     }
     await act("repairSvc", "RepairItemsInStation", [[...targets], payment]);

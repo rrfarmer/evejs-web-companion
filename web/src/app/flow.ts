@@ -454,8 +454,8 @@ import { filetimeToUnixMs } from "../bridge/activity.ts";
 import { readWormholePolarization, type WormholePolarization } from "../play/wormholePolarization.ts";
 import { extractorReroute, factoryInputTypeIDs, type ExtractorReroute } from "../bridge/colonyRoutes.ts";
 import { decodeRecipeBook } from "../bridge/piRecipes.ts";
-import { repairTargets, type RepairQuoteRow } from "../bridge/repairQuotes.ts";
-import { quoteRepairs, repairItemsAtShop, repairQuoted } from "../bridge/repairShop.ts";
+import { repairTargets, type RepairQuotePart, type RepairQuoteRow } from "../bridge/repairQuotes.ts";
+import { isRepairableItem, payRepairShop, quoteRepairs, repairItemsAtShop, repairQuoted, stationOffersRepair } from "../bridge/repairShop.ts";
 import { createSpacePoller, targetsReadIsDue, type SpacePoller } from "./spacePoll.ts";
 import type { RequestPriority } from "./transport.ts";
 import type { CorpOfficesResult, DronesResult, FlightStepResult } from "./api.ts";
@@ -1466,16 +1466,26 @@ export interface AppFlowOptions {
  * a specific STACK (`itemID`), because the sell handler moves that stack into
  * escrow.
  */
-export interface AssetSaleSelection {
+export interface PersonalAssetSelection {
   readonly itemID: number;
   readonly typeID: number;
   readonly stationID: number;
 }
 
+export interface AssetRepairShop {
+  readonly n: number;
+  readonly pilotID: number;
+  readonly stationID: number;
+  readonly busy: boolean;
+  readonly error: string | null;
+  readonly list: { readonly kind: "pick"; readonly items: readonly InventoryItemRow[] } |
+    { readonly kind: "quote"; readonly items: readonly PersonalAssetSelection[]; readonly parts: readonly RepairQuotePart[] };
+}
+
 export interface AssetSaleAsk {
   readonly n: number;
   readonly stationID: number;
-  readonly rows: readonly (AssetSaleSelection & { readonly units: number; readonly bid: string | null })[];
+  readonly rows: readonly (PersonalAssetSelection & { readonly units: number; readonly bid: string | null })[];
   readonly busy: boolean;
   readonly error: string | null;
 }
@@ -2605,10 +2615,14 @@ export interface AppFlow {
    */
   placeMarketOrder(request: MarketOrderRequest): Promise<void>;
   readonly assetSaleAsked: ReadableSignal<AssetSaleAsk | null>;
-  openAssetSale(items: readonly AssetSaleSelection[]): Promise<void>;
-  repackageAssets(items: readonly AssetSaleSelection[]): Promise<void>;
+  openAssetSale(items: readonly PersonalAssetSelection[]): Promise<void>;
+  repackageAssets(items: readonly PersonalAssetSelection[]): Promise<void>;
   repackableAssetTypes(typeIDs: readonly number[]): Promise<ReadonlySet<number>>;
   answerAssetSale(n: number, order: { readonly rows: readonly AssetSaleOrder[]; readonly durationDays: number } | null): Promise<void>;
+  readonly assetRepairShop: ReadableSignal<AssetRepairShop | null>;
+  openAssetRepair(items?: readonly PersonalAssetSelection[]): Promise<void>;
+  repairAssetParts(n: number, itemIDs: readonly number[]): Promise<void>;
+  closeAssetRepair(n: number): void;
   /** CANCEL an order. Returns what it held; the fee already paid is not. */
   cancelMarketOrder(orderID: string): Promise<void>;
   /** CHANGE an order's price. Charges a fee and moves a buy order's escrow. */
@@ -11229,8 +11243,136 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   const assetSaleAskedSignal = createSignal<AssetSaleAsk | null>(null);
+  const assetRepairShopSignal = createSignal<AssetRepairShop | null>(null);
+
+  async function repairableHangar(shop: AssetRepairShop): Promise<readonly InventoryItemRow[]> {
+    await loadInventory();
+    const { stationID, structureID, hangar } = store.inventory.get();
+    if ((structureID ?? stationID) !== shop.stationID || dockedNow() !== shop.stationID ||
+        store.station.get().online?.characterID !== shop.pilotID) throw new Error("The pilot is no longer at this repair shop.");
+    if (hangar.error) throw new Error("The personal hangar could not be read.");
+    if (stationID !== null) {
+      const staticStation = store.station.get().station;
+      const station = staticStation?.stationID === stationID ? staticStation : await api.loadStationStatic(stationID, callOptions);
+      if (!station || !stationOffersRepair(station.security, station.serviceIDs)) throw new Error("This station does not offer repair facilities.");
+    }
+    return hangar.rows.filter(row => row.ownerID === shop.pilotID && row.locationID === shop.stationID &&
+      row.flagID === 4 && isRepairableItem(row));
+  }
+
+  async function readAssetRepairQuote(shop: AssetRepairShop, items: readonly PersonalAssetSelection[]): Promise<readonly RepairQuotePart[]> {
+    const local = await repairableHangar(shop);
+    const itemIDs = new Set(items.filter(item => local.some(row => row.itemID === item.itemID && row.typeID === item.typeID))
+      .map(item => item.itemID));
+    if (itemIDs.size === 0) throw new Error("None of the selected items are still available at this repair shop.");
+    const quotes = await quoteRepairs(bridgeAsk, [...itemIDs]);
+    const parts = new Map<number, RepairQuotePart>();
+    for (const quote of quotes) {
+      if (!itemIDs.has(quote.itemID)) continue;
+      for (const part of quote.parts) if (!parts.has(part.itemID)) parts.set(part.itemID, part);
+    }
+    const unknown = [...parts.values()].flatMap(part => part.categoryID === undefined && part.typeID !== null ? [part.typeID] : []);
+    if (unknown.length > 0) {
+      const types = await typeFacts(unknown);
+      for (const [itemID, part] of parts) {
+        if (part.categoryID !== undefined || part.typeID === null) continue;
+        const categoryID = types?.get(part.typeID)?.categoryID;
+        if (categoryID != null) parts.set(itemID, { ...part, categoryID });
+      }
+    }
+    return [...parts.values()];
+  }
+
+  function nameRepairRows(rows: readonly { readonly typeID: number | null }[]): void {
+    requestNames(rows.flatMap(row => row.typeID === null ? [] : [{ kind: "type" as const, id: row.typeID }]));
+  }
+
+  async function openAssetRepair(items?: readonly PersonalAssetSelection[]): Promise<void> {
+    const stationID = dockedNow(), pilotID = store.station.get().online?.characterID;
+    if (stationID === null || pilotID == null || assetRepairShopSignal.get()?.busy) return;
+    const selected = items?.filter(item => item.stationID === stationID).slice(0, 100);
+    if (selected?.length === 0) return;
+    const current = callOptions.captureRequestGuard!();
+    const n = ++dialogsSaidCount;
+    const shop: AssetRepairShop = { n, stationID, pilotID, busy: true, error: null, list: selected
+      ? { kind: "quote", items: selected, parts: [] } : { kind: "pick", items: [] } };
+    assetRepairShopSignal.set(shop);
+    try {
+      const list: AssetRepairShop["list"] = selected
+        ? { kind: "quote", items: selected, parts: await readAssetRepairQuote(shop, selected) }
+        : { kind: "pick", items: await repairableHangar(shop) };
+      current();
+      if (assetRepairShopSignal.get()?.n !== n || dockedNow() !== stationID) return;
+      nameRepairRows(list.kind === "pick" ? list.items : list.parts);
+      assetRepairShopSignal.set({ ...shop, busy: false, list });
+    } catch (error) {
+      current();
+      if (assetRepairShopSignal.get()?.n === n) assetRepairShopSignal.set({ ...shop, busy: false, error: errorWords(error) });
+    }
+  }
+
+  function closeAssetRepair(n: number): void {
+    if (assetRepairShopSignal.get()?.n === n) assetRepairShopSignal.set(null);
+  }
+
+  async function repairAssetParts(n: number, itemIDs: readonly number[]): Promise<void> {
+    const shop = assetRepairShopSignal.get();
+    if (shop?.n !== n || shop.busy || shop.list.kind !== "quote" || dockedNow() !== shop.stationID ||
+        store.station.get().online?.characterID !== shop.pilotID) return;
+    const list = shop.list;
+    const ids = new Set(itemIDs);
+    const selected = list.parts.filter(part => ids.has(part.itemID));
+    if (selected.length === 0 || selected.some(part => part.cost === null)) return;
+    const amount = selected.reduce((total, part) => total + (part.cost ?? 0), 0);
+    const price = (value: number) => iskWords(value, 2, store.words.get().templates, () => "") ?? `${value.toFixed(2)} ISK`;
+    const current = callOptions.captureRequestGuard!();
+    const pending = (): boolean => {
+      current();
+      return assetRepairShopSignal.get()?.n === n && dockedNow() === shop.stationID;
+    };
+    assetRepairShopSignal.set({ ...shop, busy: true, error: null });
+    try {
+      const where = await dockedIn();
+      if (!pending() || (where.structureID ?? where.stationID) !== shop.stationID) return;
+      let payment: number | null = amount;
+      if (where.stationID !== null && amount > 0) {
+        if (selected.some(part => part.categoryID === undefined || part.categoryID === 7 || part.categoryID === 66)) {
+          const isk = price(amount);
+          if (!await askDialog("RepairNonPartialConfirmation", { type: "dict", entries: [["isk", isk]] },
+            `Repair the selected parts for ${isk}?`)) return;
+        } else {
+          const full = Number(amount.toFixed(2));
+          payment = await askQuantity({ min: 0, max: full, value: full, digits: 2,
+            labelLabel: "UI/Station/Repair/RepairCostLabel", label: "Repair cost",
+            hintLabel: "UI/Station/Repair/FullRepair", hintArgs: { isk: full }, hint: `Full repair costs ${price(full)}.` });
+        }
+      }
+      if (!pending() || payment === null || (amount > 0 && payment <= 0)) return;
+      const fresh = await readAssetRepairQuote(shop, list.items);
+      if (!pending()) return;
+      if (JSON.stringify(fresh.filter(part => ids.has(part.itemID))) !== JSON.stringify(selected)) {
+        nameRepairRows(fresh);
+        assetRepairShopSignal.set({ ...shop, list: { ...list, parts: fresh }, error: "The repair quote changed. Review the updated quote." });
+        return;
+      }
+      await payRepairShop(bridgeDo, selected.map(part => part.itemID), where, payment);
+      if (!pending()) return;
+      if (list.items.some(item => item.itemID === store.inventory.get().activeShipID)) await refreshActiveShipViews();
+      const after = await readAssetRepairQuote(shop, list.items);
+      if (!pending()) return;
+      nameRepairRows(after);
+      assetRepairShopSignal.set({ ...shop, list: { ...list, parts: after }, error: null });
+    } catch (error) {
+      if (pending() && !sayRefusalDialog(error, errorWords(error))) {
+        assetRepairShopSignal.set({ ...shop, error: errorWords(error) });
+      }
+    } finally {
+      const open = assetRepairShopSignal.get();
+      if (open?.n === n && open.busy) assetRepairShopSignal.set({ ...open, busy: false });
+    }
+  }
   let assetSaleRevision = 0;
-  async function directAssetRows(stationID: number, requested: readonly AssetSaleSelection[]) {
+  async function directAssetRows(stationID: number, requested: readonly PersonalAssetSelection[]) {
     const read = await readAssetStationItems(bridgeAsk, stationID);
     const activeShip = store.flight.get().status?.shipID ?? store.inventory.get().activeShipID;
     const byID = new Map(decodeAssetItems(read.listed).map(item => [item.itemID, item]));
@@ -11246,7 +11388,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       !item.singleton && item.units > 0 ? [{ ...selection, units: item.units }] : []);
   }
 
-  async function assetSaleRows(stationID: number, requested: readonly AssetSaleSelection[]) {
+  async function assetSaleRows(stationID: number, requested: readonly PersonalAssetSelection[]) {
     if (requested.length === 0) return [];
     return packagedAssetRows(await directAssetRows(stationID, requested));
   }
@@ -11267,7 +11409,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   let repackagingAssetGeneration: number | null = null;
-  async function repackageAssets(requested: readonly AssetSaleSelection[]): Promise<void> {
+  async function repackageAssets(requested: readonly PersonalAssetSelection[]): Promise<void> {
     const stationID = requested[0]?.stationID;
     const generation = requestGeneration;
     if (repackagingAssetGeneration === generation || stationID === undefined || dockedNow() !== stationID ||
@@ -11373,7 +11515,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   /** SellItems.AddPreItems checks the location of the whole selection before quoting its stacks. */
-  async function openAssetSale(items: readonly AssetSaleSelection[]): Promise<void> {
+  async function openAssetSale(items: readonly PersonalAssetSelection[]): Promise<void> {
     const stationID = items[0]?.stationID;
     if (stationID === undefined) return;
     if (items.some(row => row.stationID !== stationID)) {
@@ -36308,6 +36450,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
     loadMarket,
     assetSaleAsked: readonlySignal(assetSaleAskedSignal),
+    assetRepairShop: readonlySignal(assetRepairShopSignal),
+    openAssetRepair,
+    repairAssetParts,
+    closeAssetRepair,
     openAssetSale,
     repackageAssets,
     repackableAssetTypes,
