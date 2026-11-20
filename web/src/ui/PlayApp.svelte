@@ -108,6 +108,7 @@
   import type { HudModule } from "../play/shipHud.ts";
   import { CRYSTAL_GROUPS, MODULE_TOOLTIP_LABELS, moduleTooltipRows } from "../play/moduleTooltip.ts";
   import { NewShipHud } from "../play/newShipHud.ts";
+  import { CARGO_HOLD, SHIP_HOLDS } from "../bridge/shipHolds.ts";
   import DamageAlertSettings from "./DamageAlertSettings.svelte";
   import { combatMovingMode } from "./combatSettings.ts";
   import { shortcutOf } from "../play/shortcutKeys.ts";
@@ -1295,7 +1296,7 @@
     const attributeLook = new Map<number, { readonly icon: string | null; readonly nameID: number | null }>();
     void s.flow.attributeDisplay(TIP_ATTRIBUTES).then((found) => {
       for (const [id, d] of found ?? []) attributeLook.set(id, { icon: d.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d.displayNameID });
-      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
+      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
     }).catch(() => {});
     const stopAskedAt = new Map<number, number>();
     const tipWord = (label: string, args: Readonly<Record<string, unknown>>): string | null => {

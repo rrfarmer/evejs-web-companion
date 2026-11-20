@@ -20,6 +20,7 @@ import { useFarBoosters } from "../three/boosterVolumetric.ts";
 import { celestialModel, systemCelestials, setPlanetEnvironment, type CelestialItem } from "../three/celestialModel.ts";
 import { ShipHud, type HudModule } from "./shipHud.ts";
 import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+import { CARGO_HOLD, SHIP_HOLDS } from "../bridge/shipHolds.ts";
 import { NewShipHud } from "./newShipHud.ts";
 import { hudSetting, hudSettingNow } from "../store/hudSettings.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
@@ -2843,7 +2844,14 @@ export class SpaceView {
           void this.actions.loadShipHolds?.();
         }
         const holds = this.options.miningSurvey?.()?.holds ?? [];
-        this.shipHud.setHolds(holds.filter((h) => h.present).map((h) => ({ key: h.key, label: h.label, used: h.capacity?.used ?? null, capacity: h.capacity?.capacity ?? null })), ego.typeID);
+        // the cargo indicator names each hold as the client does (invControllers.GetNameForFlag: "Mining Hold", "Cargo Hold")
+        const holdWords = this.options.indicationWords?.() ?? {};
+        const holdName = (key: string, own: string) => {
+          const hold = key === CARGO_HOLD.bayKey ? CARGO_HOLD : SHIP_HOLDS.find((x) => x.bayKey === key);
+          const t = hold ? holdWords[hold.label] : null;
+          return typeof t === "string" && t !== "" ? plainText(t) : own;
+        };
+        this.shipHud.setHolds(holds.filter((h) => h.present).map((h) => ({ key: h.key, label: holdName(h.key, h.label), used: h.capacity?.used ?? null, capacity: h.capacity?.capacity ?? null })), ego.typeID);
         this.shipHud.setAutopilot(this.actions.autopilotOn?.() ?? false);
       }
     }
