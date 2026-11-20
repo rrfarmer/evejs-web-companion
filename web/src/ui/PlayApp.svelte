@@ -41,7 +41,7 @@
   import DesktopWindow from "./DesktopWindow.svelte";
   import PanelHost from "./PanelHost.svelte";
   import type { MoonRefinery } from "../bridge/moonMining.ts";
-  import type { AutoMoonMiner } from "../bridge/autoMoonMining.ts";
+  import { METENOX_TYPE_ID, type AutoMoonMiner } from "../bridge/autoMoonMining.ts";
   import PlayInfoPanels from "./PlayInfoPanels.svelte";
   import FlyDronesWindow from "./FlyDronesWindow.svelte";
   import BuffBar from "./BuffBar.svelte";
@@ -128,6 +128,31 @@
 
   let session = $state<Session | null>(null);
   let autoMoonMiner = $state.raw<AutoMoonMiner | null>(null);
+  let metenoxTransfer = $state.raw<{ structureID: number; shipID: number } | null>(null);
+  let metenoxControl = $state.raw<{ miner: AutoMoonMiner; previousShipID: number | null } | null>(null);
+  let boardingMetenox = false;
+  async function transferToMetenox(structureID: number, shipID: number): Promise<void> {
+    metenoxTransfer = { structureID, shipID };
+    open("metenoxTransfer");
+  }
+  async function boardMetenox(structureID: number): Promise<void> {
+    const pilot = session;
+    if (!pilot || boardingMetenox) return;
+    boardingMetenox = true;
+    try {
+      const result = await pilot.flow.boardMetenox(structureID);
+      if (!result || session !== pilot) return;
+      metenoxControl = result;
+      open("metenoxFuel");
+    } finally { boardingMetenox = false; }
+  }
+  async function leaveMetenox(): Promise<void> {
+    if (!session || !metenoxControl) return;
+    const { miner, previousShipID } = metenoxControl;
+    await session.flow.leaveMetenox(miner.id, previousShipID);
+    metenoxControl = null;
+    wins = closeWindow(wins, "metenoxFuel");
+  }
   let moonDetailsRequest = 0;
   async function showAutoMoonMiner(structureID: number): Promise<void> {
     const pilot = session, request = ++moonDetailsRequest;
@@ -193,6 +218,29 @@
   const docked = $derived(stage === "game" && session ? deriveDocked($flight?.status ?? null, $station?.online ?? null) : true);
   const dockedStructureID = $derived(docked ? ($flight?.status ? $flight.status.structureID : $station?.online?.structureID) ?? null : null);
   const controllingStructure = $derived(dockedStructureID !== null && $flight?.status?.shipID === dockedStructureID);
+  const controllingMetenox = $derived($flight?.status?.shipTypeID === METENOX_TYPE_ID
+    && $flight.status.shipID !== null && $flight.status.shipID === $flight.status.structureID);
+  $effect(() => {
+    const status = $flight?.status;
+    if (metenoxTransfer && status && (!status.inSpace || status.shipID !== metenoxTransfer.shipID || status.shipMode === "WARP")) {
+      metenoxTransfer = null;
+      wins = closeWindow(untrack(() => wins), "metenoxTransfer");
+    }
+    if (metenoxControl && status && status.shipID !== metenoxControl.miner.id) {
+      metenoxControl = null;
+      wins = closeWindow(untrack(() => wins), "metenoxFuel");
+    }
+  });
+  async function reopenMetenoxFuel(): Promise<void> {
+    const pilot = session, id = $flight?.status?.shipID;
+    if (!pilot || !id || !controllingMetenox) return;
+    try {
+      const miner = metenoxControl?.miner ?? await pilot.flow.readMetenoxIdentity(id);
+      if (!miner || session !== pilot || $flight?.status?.shipID !== id) return;
+      metenoxControl ??= { miner, previousShipID: null };
+      open("metenoxFuel");
+    } catch (cause) { notify({ kind: "danger", title: "Metenox Fuel Bay", detail: (cause as Error).message }); }
+  }
   const refineryCorporationID = $derived($station?.online?.corporationID ?? null);
   const refineryCorpRole = $derived($station?.online?.corpRole ?? null);
   let moonRefinery = $state.raw<MoonRefinery | null>(null);
@@ -324,7 +372,10 @@
     chosenCharacterID = characterID;
     ++moonDetailsRequest;
     autoMoonMiner = null;
+    metenoxControl = null;
+    metenoxTransfer = null;
     wins = closeWindow(wins, "autoMoonMiner");
+    wins = closeWindow(closeWindow(wins, "metenoxFuel"), "metenoxTransfer");
     stage = "entering";
     error = "";
     try {
@@ -537,6 +588,7 @@
     notepad: { w: 400, h: 300 }, calendar: { w: 580, h: 400 }, jobBoard: { w: 720, h: 960 }, paintTool: { w: 1030, h: 650 }, locationSearch: { w: 420, h: 480 }, achievements: { w: 1040, h: 825 },
     fleetComposition: { w: 680, h: 420 }, miningScan: { w: 520, h: 400 }, miningLedger: { w: 850, h: 650 }, moonMining: { w: 570, h: 550 },
     structureBrowser: { w: 810, h: 440 }, autoMoonMiner: { w: 700, h: 515 },
+    metenoxTransfer: { w: 400, h: 340 }, metenoxFuel: { w: 435, h: 285 },
     memberDetails: { w: 420, h: 480 },
     theatersOfWar: { w: 1600, h: 880 },
     academyShips: { w: 1280, h: 688 },
@@ -606,6 +658,7 @@
   function open(tab: TabID) {
     if (tab === "moonMining" && (!moonRefinery || !controllingStructure)) return;
     if (tab === "autoMoonMiner" && !autoMoonMiner) return;
+    if (tab === "metenoxTransfer" && !metenoxTransfer || tab === "metenoxFuel" && !metenoxControl) return;
     if (tab === "watchlist" && !session?.store.fleet.get().authoritativeFleetID) return;
     if (tab === "miningScan" && !canOpenMiningScan()) {
       const s = session;
@@ -1240,6 +1293,8 @@
       },
       jumpBridge: (id) => s.flow.jumpThroughAnsiblex(id),
       openAutoMoonMiner: showAutoMoonMiner,
+      boardMetenox,
+      transferMetenoxFuel: transferToMetenox,
       wormholePolarization: (id) => s.flow.wormholePolarization(id),
       overviewNotice: (text) => s.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text),
       overviewRelationships,
@@ -1439,7 +1494,19 @@
     {#if error}<div class="error" style="position:absolute;bottom:40px">{error}</div>{/if}
   </div>
 {:else if session}
-  {#if docked}
+  {#if controllingMetenox && docked}
+    <div class="station">
+      <div class="fly-neocom" bind:this={neocomHost}></div>
+      <div class="pw fly-lobby metenox-lobby">
+        <div class="pw-head"><span class="pw-caption">Structure Control</span></div>
+        <div class="pw-body lobby-body">
+          <div class="station-name">{metenoxControl?.miner.name ?? "Metenox Moon Drill"}</div>
+          <button class="academy-service" onclick={reopenMetenoxFuel}>Fuel Bay</button>
+          <button class="academy-service" onclick={() => open("fitting")}>Fitting</button>
+        </div>
+      </div>
+    </div>
+  {:else if docked}
     <!-- Docked: the ship in its hangar, the Neocom, and the client's Station Services window (dockedUI/lobbyWnd.py:
          280 px at the right edge, the station's name over its owner, the Undock button, the station's services). -->
     <div class="station">
@@ -1485,6 +1552,9 @@
     </div>
   {:else}
     <div class="fly-space" bind:this={spaceHost}></div>
+    {#if controllingMetenox}
+      <button class="metenox-controls" onclick={reopenMetenoxFuel}>Fuel Bay</button>
+    {/if}
     {#if !docked && session}
       <MiningOverlayControl store={session.store} survey={flightMiningSurvey}
         openResults={() => open("miningScan")} openLedger={() => open("miningLedger")} disable={disableMiningOverlay} />
@@ -1523,7 +1593,8 @@
             <FlyDronesWindow store={session.store} flow={session.flow} />
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
-              onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} {autoMoonMiner} />
+              onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} {autoMoonMiner}
+              {metenoxTransfer} {metenoxControl} onLeaveMetenox={leaveMetenox} />
           {/if}
         </DesktopWindow>
       </ErrorBoundary>
@@ -2358,6 +2429,9 @@
     z-index: -1; background: var(--theme-focus, #58a7bf); mask-image: var(--cluster-stroke);
   }
   .fly-lobby { left: auto; right: 16px; top: 16px; width: 280px; min-height: 260px; z-index: 5; }
+  .metenox-lobby { min-height: 0; }
+  .metenox-lobby .station-name { margin-bottom: 12px; }
+  .metenox-controls { position: absolute; top: 160px; right: 16px; z-index: 5; }
   .refinery-controls { display: flex; gap: 8px; flex-wrap: wrap; }
   .lobby-body { padding: 10px 12px 14px; }
   .lobby-body .station-name { position: static; font-size: 18px; color: #f0f1ee; line-height: 1.25; }

@@ -731,8 +731,8 @@
     ]
   },
   "bffWritePolicy": {
-    "count": 484,
-    "sha256": "b8b164a1cdb1aa7e29da1304d1233e5d1bff8e1ca20f679d33ea052b6bc0ac45",
+    "count": 487,
+    "sha256": "7450b1ad869cd721a244d4a5214836b7adc55c431e356f2ca8708a2e45138d46",
     "pairs": [
       "LPStoreMgr.TakeOfferForCharacter",
       "LPStoreMgr.TakeOfferForCorporation",
@@ -1192,6 +1192,9 @@
       "structureAssetSafety.MoveCorpAssetsToSafety",
       "structureAssetSafety.MovePersonalAssetsToSafety",
       "structureAssetSafety.MoveSafetyWrapToStructure",
+      "structureCargoDelivery.DropOffItems",
+      "structureControl.BoardStructure",
+      "structureControl.EjectFromStructure",
       "structureControl.ReleaseControl",
       "structureControl.TakeControl",
       "structureDirectory.SetStructureDescription",
@@ -1546,6 +1549,9 @@
       "sovMgr.SetSovHubFuelAccessGroup",
       "structureAssetSafety.MoveCorpAssetsToSafety",
       "structureAssetSafety.MoveSafetyWrapToStructure",
+      "structureCargoDelivery.DropOffItems",
+      "structureControl.BoardStructure",
+      "structureControl.EjectFromStructure",
       "structureControl.ReleaseControl",
       "structureControl.TakeControl",
       "structureDocking.Dock",

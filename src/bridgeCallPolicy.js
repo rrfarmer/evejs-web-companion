@@ -105,7 +105,8 @@ const ORGANIZATION_ENLISTMENT_METHODS = Object.freeze([
   "WithdrawJoinFactionAsCorporation", "WithdrawJoinFactionAsAlliance", "WithdrawLeaveFactionAsCorporation", "WithdrawLeaveFactionAsAlliance",
 ]);
 const FEATURE_WRITE_METHODS = freezeMethodMap({
-  structureControl: ["TakeControl", "ReleaseControl"],
+  structureControl: ["TakeControl", "ReleaseControl", "BoardStructure", "EjectFromStructure"],
+  structureCargoDelivery: ["DropOffItems"],
   moonExtractions: ["StartNewExtraction", "FractureChunkWithStructure", "CancelExtraction"],
   wormholeMgr: ["WormholeJump"],
   academy_ship: ["borrow_academy_ship"],
@@ -925,6 +926,7 @@ function isBridgeWritePair(service, method) {
  */
 const PAGE_WRITE_PAIR_KEYS = Object.freeze([
   "structureControl.TakeControl", "structureControl.ReleaseControl",
+  "structureControl.BoardStructure", "structureControl.EjectFromStructure", "structureCargoDelivery.DropOffItems",
   "moonExtractions.StartNewExtraction", "moonExtractions.FractureChunkWithStructure", "moonExtractions.CancelExtraction",
   "academy_ship.borrow_academy_ship",
   "wormholeMgr.WormholeJump",
@@ -975,6 +977,7 @@ function isPageWritePair(service, method) {
  */
 const PAGE_SHIP_SWAP_CALLS = Object.freeze(new Set([
   "ship.LeaveShip", "dogmaIM.CreateNewbieShip", "ship.Board", "structureControl.TakeControl", "structureControl.ReleaseControl",
+  "structureControl.BoardStructure", "structureControl.EjectFromStructure",
 ]));
 for (const pair of PAGE_SHIP_SWAP_CALLS) {
   if (!pageWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's swaps of the pilot's ship and is none of its writes.`);
@@ -990,7 +993,7 @@ function swapsThePilotsShip(service, method) {
  */
 function swapTargetOf(service, method, args) {
   if (!Array.isArray(args) || !((service === "ship" && method === "Board")
-    || (service === "structureControl" && method === "TakeControl"))) return null;
+    || (service === "structureControl" && ["TakeControl", "BoardStructure", "EjectFromStructure"].includes(method)))) return null;
   const shipID = Number(args[0]);
   return Number.isSafeInteger(shipID) && shipID > 0 ? shipID : null;
 }

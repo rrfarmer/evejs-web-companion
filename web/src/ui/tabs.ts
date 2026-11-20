@@ -52,6 +52,8 @@ export type CoreTabID =
   | "miningLedger"
   | "moonMining"
   | "autoMoonMiner"
+  | "metenoxTransfer"
+  | "metenoxFuel"
   | "structureBrowser"
   | "mail"
   | "contacts"
@@ -201,6 +203,8 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "miningLedger", label: "Mining Ledger", where: "both" },
   { id: "moonMining", label: "Moon Mining", where: "docked", launchable: false },
   { id: "autoMoonMiner", label: "Moon Drill Details", where: "both", launchable: false },
+  { id: "metenoxTransfer", label: "Hangar Transfer", where: "in-space", launchable: false },
+  { id: "metenoxFuel", label: "Metenox Fuel Bay", where: "both", launchable: false },
   { id: "structureBrowser", label: "Structure Browser", where: "both" },
   // Both — reachable docked or undocked.
   { id: "inventory", label: "Inventory & Ship", where: "both" },

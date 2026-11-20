@@ -668,6 +668,7 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
  */
 const GAME_PORT_ONLY_CALLS = Object.freeze([
   "structureControl.TakeControl", "structureControl.ReleaseControl",
+  "structureControl.BoardStructure", "structureControl.EjectFromStructure", "structureCargoDelivery.DropOffItems",
   "structureSettings.CharacterHasSetting",
   "structureProfiles.GetProfiles",
   "moonExtractions.GetExtractionsForCorp",
@@ -3245,6 +3246,9 @@ const RETAIL_CALLS = Object.freeze({
   "corpMiningLedger.GetObserverLedger": judged("eve/client/script/ui/shared/ledger/ledgerSvc.py:44", oneIDAlone("the selected mining observer"), "The corporation Mining Ledger reads the selected structure's extraction records."),
   "structureControl.TakeControl": judged("eve/client/script/ui/services/structure/structureControl.py:33", oneIDAlone("the docked structure"), "Take control of the structure in the pilot's session."),
   "structureControl.ReleaseControl": judged("eve/client/script/ui/services/structure/structureControl.py:59", sentWithNothing, "Release the structure in the pilot's session."),
+  "structureControl.BoardStructure": judged("eve/client/script/ui/services/structure/structureControl.py:52", oneIDAlone("the nearby structure"), "Board the structure from space and take control."),
+  "structureControl.EjectFromStructure": same("eve/client/script/ui/services/structure/structureControl.py:87", "Leave direct structure control for the previous ship or a capsule."),
+  "structureCargoDelivery.DropOffItems": same("eve/client/script/ui/structure/dropbox/dropboxController.py:117", "Transfer the selected stacks from the active ship into the structure's cargo deposit."),
   "structureSettings.CharacterHasSetting": same("eve/client/script/ui/services/structure/structureControl.py:91", "Check the pilot's defense or Moon Drill Details permission for a structure."),
   "structureProfiles.GetProfiles": judged("eve/client/script/ui/structure/structureSettings/controllers/allProfilesController.py:31", sentWithNothing, "Read the corporation's structure profiles for the profile filter."),
   "moonExtractions.GetExtractionsForCorp": judged("eve/client/script/ui/moonmining/schedulingSvc.py:41", sentWithNothing, "A Station Manager reads the session corporation's active extractions."),

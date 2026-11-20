@@ -20,6 +20,8 @@
   import MiningLedger from "./MiningLedger.svelte";
   import MoonMining from "./MoonMining.svelte";
   import AutoMoonMinerPanel from "./AutoMoonMinerPanel.svelte";
+  import MetenoxTransfer from "./MetenoxTransfer.svelte";
+  import MetenoxFuelBay from "./MetenoxFuelBay.svelte";
   import CorporationMoonSchedule from "./CorporationMoonSchedule.svelte";
   import type { MoonRefinery } from "../bridge/moonMining.ts";
   import type { AutoMoonMiner } from "../bridge/autoMoonMining.ts";
@@ -82,6 +84,9 @@
     onShowSystem,
     moonRefinery,
     autoMoonMiner,
+    metenoxTransfer,
+    metenoxControl,
+    onLeaveMetenox,
   }: {
     store: ClientStore;
     flow: AppFlow;
@@ -111,6 +116,9 @@
     onShowSystem?: (systemID: number) => void;
     moonRefinery?: MoonRefinery | null;
     autoMoonMiner?: AutoMoonMiner | null;
+    metenoxTransfer?: { structureID: number; shipID: number } | null;
+    metenoxControl?: { miner: AutoMoonMiner; previousShipID: number | null } | null;
+    onLeaveMetenox?: () => Promise<void>;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -193,6 +201,18 @@
 {:else if tab === "autoMoonMiner"}
   {#if autoMoonMiner}
     {#key autoMoonMiner.id}<AutoMoonMinerPanel {store} {flow} miner={autoMoonMiner} />{/key}
+  {/if}
+{:else if tab === "metenoxTransfer"}
+  {#if metenoxTransfer && onClose}
+    {#key `${metenoxTransfer.shipID}:${metenoxTransfer.structureID}`}
+      <MetenoxTransfer {store} {flow} structureID={metenoxTransfer.structureID} shipID={metenoxTransfer.shipID} {onClose} />
+    {/key}
+  {/if}
+{:else if tab === "metenoxFuel"}
+  {#if metenoxControl && onLeaveMetenox}
+    {#key metenoxControl.miner.id}
+      <MetenoxFuelBay {store} {flow} miner={metenoxControl.miner} previousShipID={metenoxControl.previousShipID} onLeave={onLeaveMetenox} />
+    {/key}
   {/if}
 {:else if tab === "structureBrowser"}
   <CorporationMoonSchedule {store} {flow} />

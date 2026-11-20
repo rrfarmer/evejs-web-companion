@@ -1310,12 +1310,24 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       return;
     }
   }
+  if (body.service === "structureCargoDelivery") {
+    const args = body.args;
+    const itemIDs = args?.[0];
+    if (body.method !== "DropOffItems" || body.pilot !== true || body.kwargs != null || body.of != null
+      || !Array.isArray(args) || args.length !== 3 || !Array.isArray(itemIDs) || itemIDs.length === 0
+      || !itemIDs.every(id => strictPositiveID(id) !== null) || strictPositiveID(args[1]) === null || !isPlayerStructureID(args[2])) {
+      res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "Cargo Deposit requires stacks from the held pilot's ship and a structure." });
+      return;
+    }
+  }
   if (body.service === "moonExtractions" || body.service === "structureControl"
     || (body.service === "structureProfiles" && body.method === "GetProfiles")
     || (body.service === "structureSettings" && body.method === "CharacterHasSetting")) {
     const args = Array.isArray(body.args) ? body.args : [];
     const valid = {
       TakeControl: () => args.length === 1 && isPlayerStructureID(args[0]),
+      BoardStructure: () => args.length === 1 && isPlayerStructureID(args[0]),
+      EjectFromStructure: () => args.length === 1 && (args[0] === null || strictPositiveID(args[0]) !== null),
       CharacterHasSetting: () => args.length === 2 && isPlayerStructureID(args[0]) && [17, 36].includes(args[1]),
       StartNewExtraction: () => args.length === 3 && isPlayerStructureID(args[0]) && Number.isSafeInteger(args[1])
         && args[1] >= 518460 && args[1] <= 4838400 && typeof args[2] === "boolean",
@@ -1324,7 +1336,7 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       "FractureChunkWithStructure", "CancelExtraction"];
     const validArgs = Object.hasOwn(valid, body.method) ? valid[body.method]() : noArgs.includes(body.method) && args.length === 0;
     if (body.pilot !== true || body.kwargs != null || body.of != null || !validArgs) {
-      res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "The refinery call requires its native arguments and a held pilot." });
+      res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "The structure call requires its native arguments and a held pilot." });
       return;
     }
   }

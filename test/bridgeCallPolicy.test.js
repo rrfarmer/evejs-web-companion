@@ -199,9 +199,15 @@ test("the page's calls that are made on an object of the service's own say what 
 });
 
 test("the page's writes that swap the pilot's ship are made under the BFF's watch of the swap", () => {
-  const { PAGE_WRITE_PAIR_KEYS, swapsThePilotsShip } = require("../src/bridgeCallPolicy");
+  const { PAGE_WRITE_PAIR_KEYS, swapsThePilotsShip, swapTargetOf } = require("../src/bridgeCallPolicy");
   // station.TryLeaveShip: the pilot in its capsule from then on.
   assert.equal(swapsThePilotsShip("ship", "LeaveShip"), true);
+  assert.equal(swapsThePilotsShip("structureControl", "BoardStructure"), true);
+  assert.equal(swapsThePilotsShip("structureControl", "EjectFromStructure"), true);
+  assert.equal(swapTargetOf("structureControl", "BoardStructure", [1030000000001]), 1030000000001);
+  assert.equal(swapTargetOf("structureControl", "EjectFromStructure", [9988400004455]), 9988400004455);
+  assert.equal(swapTargetOf("structureControl", "EjectFromStructure", [null]), null);
+  assert.equal(swapsThePilotsShip("structureCargoDelivery", "DropOffItems"), false);
   // A follow is made as its routes made it: held back where the ship already flies it, and through the gateway
   // with the throttle opened first. The throttle and the page's other orders to the ship go as they are asked.
   const { PAGE_FOLLOW_CALLS, ordersAFollow } = require("../src/bridgeCallPolicy");

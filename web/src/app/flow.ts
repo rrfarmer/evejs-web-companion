@@ -462,7 +462,8 @@ import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, re
 import { canManageMoonPull, decodeCorporationMoonPulls, decodeMoonResources, decodeMoonSchedule, hasMoonStationManagerRole, moonRefineryYieldMultiplier,
   MOON_FRACTURE_MS, moonMiningID, moonPullDuration,
   type CorporationMoonSchedule, type MoonOrePricing, type MoonRefinery, type MoonResource, type MoonSchedule } from "../bridge/moonMining.ts";
-import { decodeAutoMoonDetails, decodeAutoMoonQuantities, METENOX_ACCESS_SETTING, METENOX_TYPE_ID,
+import { CARGO_DEPOSIT_FLAGS, decodeAutoMoonDetails, decodeAutoMoonQuantities, FUEL_BLOCK_GROUP_ID, METENOX_ACCESS_SETTING,
+  METENOX_CONTROL_SETTING, METENOX_DRILL_SLOT, METENOX_DRILL_TYPE_ID, METENOX_FUEL_FLAG, METENOX_GAS_TYPE_ID, METENOX_TYPE_ID,
   type AutoMoonDetails, type AutoMoonMiner } from "../bridge/autoMoonMining.ts";
 import { decodeCargoScan, decodeShipScan, groupShipScanHardware, type CargoScanResult, type ShipScanGroup, type ShipScanResult } from "../bridge/scannerResults.ts";
 import { basicMiningScan, INTEGRATED_MINING_SCANNER, miningScanInWarp, miningSurveyDepletion, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
@@ -4204,6 +4205,13 @@ export interface AppFlow {
   openAutoMoonMiner(structureID: number): Promise<AutoMoonMiner | null>;
   loadAutoMoonDetails(miner: AutoMoonMiner): Promise<AutoMoonDetails>;
   loadAutoMoonCycle(miner: AutoMoonMiner): Promise<ReadonlyMap<number, number>>;
+  loadMetenoxDeposit(shipID: number): Promise<readonly InventoryItemRow[]>;
+  depositMetenoxFuel(structureID: number, shipID: number, itemIDs: readonly number[]): Promise<readonly number[]>;
+  boardMetenox(structureID: number): Promise<{ miner: AutoMoonMiner; previousShipID: number | null } | null>;
+  leaveMetenox(structureID: number, previousShipID: number | null): Promise<void>;
+  readMetenoxIdentity(structureID: number): Promise<AutoMoonMiner>;
+  loadControlledMetenox(structureID: number): Promise<{ fuel: readonly InventoryItemRow[]; moduleID: number }>;
+  startMetenoxDrill(structureID: number): Promise<void>;
   loadCorporationMoonSchedule(current?: () => void): Promise<CorporationMoonSchedule>;
   startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
@@ -26286,10 +26294,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return (await readControlledRefinery(structureID)).fuelExpiresAtMs;
   }
 
-  async function openAutoMoonMiner(structureID: number): Promise<AutoMoonMiner | null> {
-    const current = callOptions.captureRequestGuard!();
+  async function readMetenoxIdentity(structureID: number): Promise<AutoMoonMiner> {
     const info = await bridgeAsk("structureDirectory", "GetStructureInfo", [structureID]);
-    current();
     const typeID = moonMiningID(readKeyVal(info, "typeID"));
     const ownerID = moonMiningID(readKeyVal(info, "ownerID"));
     const solarSystemID = moonMiningID(readKeyVal(info, "solarSystemID"));
@@ -26297,18 +26303,24 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (typeID !== METENOX_TYPE_ID || ownerID === null || solarSystemID === null) {
       throw new Error("The Metenox could not be found.");
     }
-    const structureName = typeof name === "string" && name ? name : "Metenox";
+    return { id: structureID, name: typeof name === "string" && name ? name : "Metenox", ownerID, solarSystemID };
+  }
+
+  async function openAutoMoonMiner(structureID: number): Promise<AutoMoonMiner | null> {
+    const current = callOptions.captureRequestGuard!();
+    const miner = await readMetenoxIdentity(structureID);
+    current();
     const online = store.station.get().online;
-    const allowed = canManageMoonPull(ownerID, online?.corporationID ?? null, online?.corpRole ?? null)
+    const allowed = canManageMoonPull(miner.ownerID, online?.corporationID ?? null, online?.corpRole ?? null)
       || unwrapBool(await bridgeAsk("structureSettings", "CharacterHasSetting", [structureID, METENOX_ACCESS_SETTING])) === true;
     current();
     if (!allowed) {
-      sayDialog("AccessToAutoMoonMinerDenied", { type: "dict", entries: [["structureName", structureName]] },
-        `You do not have access to the Moon Drill Details for ${structureName}.`);
+      sayDialog("AccessToAutoMoonMinerDenied", { type: "dict", entries: [["structureName", miner.name]] },
+        `You do not have access to the Moon Drill Details for ${miner.name}.`);
       return null;
     }
-    requestNames([{ kind: "owner", id: ownerID }]);
-    return { id: structureID, name: structureName, ownerID, solarSystemID };
+    requestNames([{ kind: "owner", id: miner.ownerID }]);
+    return miner;
   }
 
   async function loadAutoMoonDetails(miner: AutoMoonMiner): Promise<AutoMoonDetails> {
@@ -26322,6 +26334,80 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const result = decodeAutoMoonQuantities(await bridgeAsk("autoMoonMining", "RequestMiningCycleOutput", [miner.solarSystemID, miner.id]));
     requestNames([...result.keys()].map(id => ({ kind: "type", id })));
     return result;
+  }
+
+  async function loadMetenoxDeposit(shipID: number): Promise<readonly InventoryItemRow[]> {
+    const current = callOptions.captureRequestGuard!();
+    const [inventory, bays] = await Promise.all([api.loadInventory(callOptions), api.getShipBays(shipID, callOptions)]);
+    current();
+    if (inventory.activeShipID !== shipID) throw new Error("The ship for this transfer has changed.");
+    const cargo = decodeInventoryRowsChecked(inventory.cargo.list);
+    if (!cargo) throw new Error(inventory.cargo.error ?? "The ship's cargo could not be read.");
+    const rows = [...cargo, ...decodeShipBays(bays.bays).flatMap(bay => bay.items ?? [])].filter(row =>
+      CARGO_DEPOSIT_FLAGS.has(row.flagID ?? 0) && (row.typeID === METENOX_GAS_TYPE_ID || row.groupID === FUEL_BLOCK_GROUP_ID));
+    const unique = [...new Map(rows.map(row => [row.itemID, row])).values()];
+    requestNames(unique.map(row => ({ kind: "type", id: row.typeID })));
+    return unique;
+  }
+
+  async function depositMetenoxFuel(structureID: number, shipID: number, itemIDs: readonly number[]): Promise<readonly number[]> {
+    const current = callOptions.captureRequestGuard!();
+    const flight = await readFlightNow();
+    current();
+    if (!flight.inSpace || flight.structureID !== null || flight.shipID !== shipID) throw new Error("The ship for this transfer has changed.");
+    const result = await bridgeDo("structureCargoDelivery", "DropOffItems", [[...new Set(itemIDs)], shipID, structureID]);
+    const moved = Array.isArray(result) ? result : result && typeof result === "object" && "items" in result && Array.isArray(result.items) ? result.items : [];
+    return moved.map(moonMiningID).filter((id): id is number => id !== null);
+  }
+
+  async function boardMetenox(structureID: number): Promise<{ miner: AutoMoonMiner; previousShipID: number | null } | null> {
+    const current = callOptions.captureRequestGuard!();
+    const before = decodeFlightStatus((await api.getFlightStatus(callOptions)).flight);
+    if (!before.inSpace || before.structureID !== null || before.shipID === null) return null;
+    const miner = await readMetenoxIdentity(structureID);
+    current();
+    if (miner.solarSystemID !== before.solarSystemID) return null;
+    if (!unwrapBool(await bridgeAsk("structureSettings", "CharacterHasSetting", [structureID, METENOX_CONTROL_SETTING]))) {
+      current();
+      sayDialog("StructureDefenseDenied", null, "You do not have permission to board this structure.");
+      return null;
+    }
+    if (!before.shipIsCapsule && !await askDialog("BoardingFlexStructure", null, "Board the structure and leave your ship in space?")) return null;
+    current();
+    const afterPrompt = await readFlightNow();
+    current();
+    if (!afterPrompt.inSpace || afterPrompt.structureID !== null || afterPrompt.shipID !== before.shipID) return null;
+    await bridgeDo("structureControl", "BoardStructure", [structureID]);
+    await loadFlightStatus();
+    return { miner, previousShipID: before.shipIsCapsule ? null : before.shipID };
+  }
+
+  async function leaveMetenox(structureID: number, previousShipID: number | null): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    const flight = await readFlightNow();
+    current();
+    if (flight.shipID !== structureID || flight.structureID !== structureID) throw new Error("You are no longer controlling this moon drill.");
+    await bridgeDo("structureControl", "EjectFromStructure", [previousShipID]);
+    await loadFlightStatus();
+  }
+
+  async function loadControlledMetenox(structureID: number): Promise<{ fuel: readonly InventoryItemRow[]; moduleID: number }> {
+    const current = callOptions.captureRequestGuard!();
+    const flight = await readFlightNow();
+    current();
+    if (flight.shipID !== structureID || flight.structureID !== structureID) throw new Error("You are no longer controlling this moon drill.");
+    const [fuel, modules] = await Promise.all([METENOX_FUEL_FLAG, METENOX_DRILL_SLOT].map(async flag =>
+      decodeInventoryRowsChecked(await bridgeAsk("invbroker", "List", [], { flag }, structureID))));
+    current();
+    const module = modules?.find(row => row.typeID === METENOX_DRILL_TYPE_ID);
+    if (!fuel || !module) throw new Error("The Metenox fuel bay or built-in drill could not be read.");
+    requestNames(fuel.map(row => ({ kind: "type", id: row.typeID })));
+    return { fuel, moduleID: module.itemID };
+  }
+
+  async function startMetenoxDrill(structureID: number): Promise<void> {
+    const { moduleID } = await loadControlledMetenox(structureID);
+    await bridgeDo("dogmaIM", "Activate", [moduleID, "online", null, null]);
   }
 
   async function startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void> {
@@ -36831,6 +36917,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     openAutoMoonMiner,
     loadAutoMoonDetails,
     loadAutoMoonCycle,
+    loadMetenoxDeposit,
+    depositMetenoxFuel,
+    boardMetenox,
+    leaveMetenox,
+    loadControlledMetenox,
+    readMetenoxIdentity,
+    startMetenoxDrill,
     loadCorporationMoonSchedule,
     startMoonPull,
     controlMoonPull,
