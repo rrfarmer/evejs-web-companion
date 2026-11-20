@@ -124,6 +124,15 @@ export async function returnDronesToBay(act: Ask, droneIDs: readonly number[]): 
   return act("entity", "CmdReturnBay", [[...droneIDs]]);
 }
 
+/**
+ * Sends these drones home to orbit the ship (eveCommands.CmdDronesReturnAndOrbit: entity.CmdReturnHome(droneIDs)).
+ * With no drones nothing is asked. Answers what the server says of the drones that could not.
+ */
+export async function returnDronesHome(act: Ask, droneIDs: readonly number[]): Promise<JsonValue> {
+  if (droneIDs.length === 0) return null;
+  return act("entity", "CmdReturnHome", [[...droneIDs]]);
+}
+
 // --- A drone scooped (the plan's Phase 6b) ------------------------------------
 //
 // Until 2026-10-11 it was one route of the BFF (POST /api/bridge/drones/scoop).

@@ -371,23 +371,54 @@ export function decodeDroneEngageOutcome(
  * idle when nobody looked will not launch the ones that would have saved them.
  */
 export function droneActivityLabel(activity: string | null): string {
+  // dronesConst.DRONE_STATES (3698585's words, through gridcheck): each state's label, "-" for none, Incapacitated for one it does not know
   switch (activity) {
     case "idle":
-      return "Waiting";
+      return "Idle";
     case "fighting":
-      return "Attacking";
+      return "Fighting";
     case "mining":
       return "Mining";
     case "approaching":
-      return "Closing in";
+      return "Approaching";
     case "returning":
-      return "Coming home";
+      return "Returning";
     case "chasing":
-      return "Chasing";
+      return "Following";
+    case "fleeing":
+      return "Fleeing";
+    case "operating":
+      return "Operating";
+    case "repairing":
+      return "Repairing";
     case "salvaging":
       return "Salvaging";
+    case null:
+      return "-";
     default:
-      return "Unknown";
+      // DRONE_STATES.get(state, 'UI/Inflight/Drone/Incapacitated')
+      return "Incapacitated";
+  }
+}
+
+/** dronesConst.COLOR_BY_STATE: the state's colour in the drones window (none for no state). */
+export function droneActivityColor(activity: string | null): string | null {
+  switch (activity) {
+    case "idle":
+    case "repairing":
+      return "#8DC169"; // SUCCESS_GREEN
+    case "fighting":
+    case "mining":
+    case "operating":
+    case "salvaging":
+      return "#FF454B"; // DANGER_RED
+    case "approaching":
+    case "returning":
+    case "chasing":
+    case "fleeing":
+      return "#FFB845"; // SAND_YELLOW
+    default:
+      return null;
   }
 }
 

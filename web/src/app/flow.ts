@@ -1216,6 +1216,7 @@ import {
   launchDrones as launchDronesCall,
   mineWithDrones as mineWithDronesCall,
   reconnectToDrones as reconnectToDronesCall,
+  returnDronesHome,
   returnDronesToBay,
   salvageWithDrones,
   scoopDrones as scoopDronesCall,
@@ -4383,6 +4384,13 @@ export interface AppFlow {
   salvageDrones(droneIDs: readonly number[], targetID: number | null): Promise<void>;
   /** R25 — bring drones home (the runtime scoops them itself inside 2500 m). */
   recallDrones(droneIDs: readonly number[]): Promise<void>;
+  /** Drones sent home to orbit the ship (CmdDronesReturnAndOrbit: entity.CmdReturnHome). */
+  returnDronesAndOrbit(droneIDs: readonly number[]): Promise<void>;
+  /**
+   * The pilot's drone settings told to the server (godma.ChangeDroneSettings: dogmaIM.ChangeDroneSettings of
+   * {droneIsAggressive 1275, droneFocusFire 1297}), as the client does on a change and when its drones window opens.
+   */
+  changeDroneSettings(settings: { readonly aggressive: boolean; readonly focusFire: boolean }): Promise<void>;
   /**
    * Take control of drones this ship owns but does not fly — the recovery path
    * for an orphaned drone, which Recall and Engage cannot reach.
@@ -27668,6 +27676,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     );
   }
 
+  async function returnDronesAndOrbit(droneIDs: readonly number[]): Promise<void> {
+    await runDroneAction("Return and orbit", () => orderedThenRead(() => returnDronesHome(bridgeDo, droneIDs)), () => null);
+  }
+
+  async function changeDroneSettings(settings: { readonly aggressive: boolean; readonly focusFire: boolean }): Promise<void> {
+    await bridgeDo("dogmaIM", "ChangeDroneSettings", [{ type: "dict", entries: [[1275, settings.aggressive], [1297, settings.focusFire]] }]);
+  }
+
   /**
    * Take control of orphaned drones (entity.CmdReconnectToDrones).
    *
@@ -38165,6 +38181,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     salvageDrones,
     recallDrones,
     reconnectDrones,
+    returnDronesAndOrbit,
+    changeDroneSettings,
     scoopDrones,
     runGmCommand,
     runSurveyScan,

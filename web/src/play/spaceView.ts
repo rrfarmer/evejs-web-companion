@@ -23,6 +23,7 @@ import { formatTemplate, plainText } from "../bridge/clientWords.ts";
 import { CARGO_HOLD, SHIP_HOLDS } from "../bridge/shipHolds.ts";
 import { NewShipHud } from "./newShipHud.ts";
 import { hudSetting, hudSettingNow } from "../store/hudSettings.ts";
+import { activeTargetID, activeTargetName } from "./activeTarget.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
 import { WormholeTransit, WORMHOLE_START_MS, WORMHOLE_MIDDLE_MS, WORMHOLE_CAMERA_RETURN_MS, WORMHOLE_STOP_MS } from "./wormholeTransit.ts";
 import { TurretFx, fxGuid } from "./turretFx.ts";
@@ -3007,6 +3008,13 @@ export class SpaceView {
       this.feedEl.textContent = `${this.live.status} · tick ${park.currentTime % 100000} · ${snap?.entities.length ?? 0} on grid · ${this.live.items} updates${this.live.failures.length ? ` · ${this.live.failures.length} failed` : ""}`;
     }
     this.updateTargetBar();
+    // target.GetActiveTargetID for the page's windows and shortcuts
+    const active = this.activeLock();
+    if (activeTargetID.get() !== active) {
+      activeTargetID.set(active);
+      const e = active !== null ? this.snapshot?.entities.find((x) => x.itemID === active) : undefined;
+      activeTargetName.set(e ? this.nameOf(e) : null);
+    }
     if (this.controls.enabled) this.controls.update();
     // the shake: the point looked at moved across the view for this frame (the controls look at their target again next)
     const shaken = this.shake.offset(this.camera.position, this.controls.target, dt);

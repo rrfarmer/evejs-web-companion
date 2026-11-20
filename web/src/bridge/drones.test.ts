@@ -151,18 +151,19 @@ test("a hull with no drone dogma reports UNKNOWN, not zero", () => {
 
 // --- Player-facing wording (R9a) --------------------------------------------
 
-test("every activity has plain player wording, and unknown says Unknown", () => {
-  assert.equal(droneActivityLabel("idle"), "Waiting");
-  assert.equal(droneActivityLabel("fighting"), "Attacking");
+test("every activity has the client's word, and no state says \"-\" (DRONE_STATES None)", () => {
+  // dronesConst.DRONE_STATES as the 3698585 client words them
+  assert.equal(droneActivityLabel("idle"), "Idle");
+  assert.equal(droneActivityLabel("fighting"), "Fighting");
   assert.equal(droneActivityLabel("mining"), "Mining");
-  assert.equal(droneActivityLabel("approaching"), "Closing in");
-  assert.equal(droneActivityLabel("returning"), "Coming home");
-  assert.equal(droneActivityLabel("chasing"), "Chasing");
+  assert.equal(droneActivityLabel("approaching"), "Approaching");
+  assert.equal(droneActivityLabel("returning"), "Returning");
+  assert.equal(droneActivityLabel("chasing"), "Following");
   assert.equal(droneActivityLabel("salvaging"), "Salvaging");
   // ⚠ NOT "Waiting". A player told their drones are idle when nobody looked
   // will not launch the ones that would have saved them.
-  assert.equal(droneActivityLabel(null), "Unknown");
-  assert.equal(droneActivityLabel("something-new"), "Unknown");
+  assert.equal(droneActivityLabel(null), "-");
+  assert.equal(droneActivityLabel("something-new"), "Incapacitated");
 });
 
 test("nothing in the wording is a raw enum or an id", () => {

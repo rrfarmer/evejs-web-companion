@@ -6,7 +6,11 @@
   // bay, reconnect, scoop). The orders, the ownership gates and the server's own refusal lines are DronesPanel's
   // (the workspace and mobile keep that panel); this is the same flow with the client's look.
   import { DRONE_NOT_UNDER_YOUR_CONTROL, NO_DRONE_UNDER_YOUR_CONTROL, panelErrorWords } from "../bridge/refusals.ts";
-  import { droneActivityLabel } from "../bridge/drones.ts";
+  import { droneActivityColor, droneActivityLabel } from "../bridge/drones.ts";
+  import { activeTargetID, activeTargetName } from "../play/activeTarget.ts";
+  import { droneSettings, droneSettingsFor, setDroneSetting } from "./droneSettings.ts";
+  import { shortcutOf } from "../play/shortcutKeys.ts";
+  import { onMount } from "svelte";
   import { canMyShipOrderDrone } from "../space/overview.ts";
   import { miningDroneIDs, orderableDroneIDs, salvageDroneIDs } from "./droneFlight.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
@@ -39,12 +43,40 @@
     launch: clientTexture("res:/ui/texture/eveicon/control_icons/launch_drones_16px.png"),
     engage: clientTexture("res:/ui/texture/eveicon/control_icons/engage_target_16px.png"),
     recall: clientTexture("res:/ui/texture/eveicon/control_icons/recall_drones_16px.png"),
-    salvage: clientTexture("res:/ui/texture/eveicon/control_icons/salvage_16px.png"),
+    orbit: clientTexture("res:/ui/texture/eveicon/control_icons/return_and_orbit_16px.png"),
+    settings: clientTexture("res:/ui/texture/eveicon/system_icons/settings_16px.png"),
   };
+  // the client's words for the window (3698585, through gridcheck)
+  const MENU_WORDS = {
+    engage: ["UI/Drones/EngageTarget", "Engage Target"], mine: ["UI/Drones/MineWithDrone", "Mine"], salvage: ["UI/Drones/Salvage", "Salvage"],
+    orbit: ["UI/Drones/ReturnDroneAndOrbit", "Return and Orbit"], bay: ["UI/Drones/ReturnDroneToBay", "Return to Drone Bay"],
+    scoop: ["UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"], launch: ["UI/Drones/LaunchDrones", "Launch Drones"],
+    autoAttack: ["UI/Drones/AutoAttack", "Auto Attack"], focusFire: ["UI/Drones/AttackModeFocusFire", "Focus Fire"],
+    autoAttackHint: ["UI/Drones/AutoAttackHint", "Should drones automatically attack if aggression is shown to you or them"],
+    focusFireHint: ["UI/Drones/AttackModeFocusFireHint", "Should drones focus their efforts on a single enemy (only applicable with Auto Attack enabled)"],
+  } as const;
+  flow.requestWords(Object.values(MENU_WORDS).map((w) => w[0]));
+  const say = (w: readonly [string, string]) => headerWord(w[0], w[1]);
+  const keyHint = (label: string, cmd: string) => { const k = shortcutOf(cmd); return k ? `${label} (${k})` : label; };
+  // target.GetActiveTargetID: the drones' orders go to the active target
+  const activeTarget = activeTargetID;
+  const settingsNow = droneSettings;
+  let settingsOpen = $state(false);
+  // DronesWindow's load: the pilot's drone settings told to the server (godma.ChangeDroneSettings)
+  onMount(() => {
+    const characterID = store.character.get().selectedCharacterID;
+    if (characterID !== null) void flow.changeDroneSettings(droneSettingsFor(characterID)).catch(() => {});
+  });
+  function toggleSetting(name: "aggressive" | "focusFire"): void {
+    const characterID = store.character.get().selectedCharacterID;
+    if (characterID === null) return;
+    const now = setDroneSetting(characterID, name, !droneSettingsFor(characterID)[name]);
+    void run(() => flow.changeDroneSettings(now));
+  }
 
   const snapshot = $derived($space.snapshot);
   const ship = $derived(snapshot?.ship ?? null);
-  const autoTargetID = $derived($targeting.lockedTargetIDs[0] ?? 0);
+  const autoTargetID = $derived($activeTarget ?? 0);
   const typeName = (typeID: number | null, fallback: string) => resolvedName($names.resolved, "type", typeID, fallback);
 
   /** The bay by type: every stack of a type in one row, its quantity summed (the client's window groups so). */
@@ -61,24 +93,22 @@
   });
   const bayCount = $derived(bayRows.reduce((n, r) => n + r.quantity, 0));
 
-  /** Drones in space by type and what they are doing, the ones ours to fly told apart (DronesPanel's R33 gate). */
+  /**
+   * Drones in space, one entry each (dronesWindow's in-space entries, a drone a row): "<name> <state>" with the state
+   * in its colour (droneEntry.UpdateState, dronesConst.DRONE_STATES and COLOR_BY_STATE), the ones ours to fly told apart.
+   */
   const spaceRows = $derived.by(() => {
     const byID = new Map<number, SpaceEntity>();
     for (const entity of snapshot?.entities ?? []) byID.set(entity.itemID, entity);
-    const rows = new Map<string, { key: string; typeID: number | null; label: string; activity: string; itemIDs: number[]; unavailable: string | null; recoverable: boolean }>();
-    for (const drone of $drones.inSpace ?? []) {
+    return ($drones.inSpace ?? []).map((drone) => {
       const orderable = canMyShipOrderDrone(byID.get(drone.itemID) ?? null, ship?.itemID ?? null);
       const lost = drone.controlled === false || orderable === false;
-      const activity = droneActivityLabel(drone.activity);
-      const key = `${drone.typeID}:${activity}:${lost}`;
-      const row = rows.get(key) ?? {
-        key, typeID: drone.typeID, label: typeName(drone.typeID, "Drone"), activity, itemIDs: [],
+      return {
+        key: String(drone.itemID), typeID: drone.typeID, label: typeName(drone.typeID, "Drone"),
+        activity: droneActivityLabel(drone.activity), color: droneActivityColor(drone.activity), itemIDs: [drone.itemID],
         unavailable: lost ? DRONE_NOT_UNDER_YOUR_CONTROL : null, recoverable: drone.controlled === false,
       };
-      row.itemIDs.push(drone.itemID);
-      rows.set(key, row);
-    }
-    return [...rows.values()];
+    });
   });
   const outCount = $derived(($drones.inSpace ?? []).length);
   const maxActive = $derived($drones.limits.maxActiveDrones);
@@ -94,12 +124,24 @@
     const salvage = ids.filter((id) => salvageIDs.includes(id));
     const mining = ids.filter((id) => miningIDs.includes(id));
     const combat = ids.filter((id) => !salvage.includes(id) && !mining.includes(id));
-    if (combat.length) await flow.engageDrones(combat, autoTargetID);
+    // EngageTarget and MineRepeatedly: UserError DroneCommandRequiresActiveTarget without an active target
+    const needTarget = () => flow.sayDialog("DroneCommandRequiresActiveTarget", null, "You need an active target to do that.");
+    if (combat.length) {
+      if (autoTargetID <= 0) return needTarget();
+      await flow.engageDrones(combat, autoTargetID);
+      const name = activeTargetName.get() ?? "";
+      const t = $headerWords.templates["UI/Inflight/DronesEngaging"];
+      const text = typeof t === "string" ? t.replace(/\{name\}/g, name) : `Drones engaging ${name}`;
+      flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text);
+    }
     if (salvage.length) await flow.salvageDrones(salvage, autoTargetID > 0 ? autoTargetID : null);
-    if (mining.length) await flow.mineWithDrones(mining, autoTargetID);
+    if (mining.length) {
+      if (autoTargetID <= 0) return needTarget();
+      await flow.mineWithDrones(mining, autoTargetID);
+    }
   }
   const groupUnavailable = $derived(outCount > 0 && allDroneIDs.length === 0 ? NO_DRONE_UNDER_YOUR_CONTROL : null);
-  const targetUnavailable = $derived(groupUnavailable ?? (outCount === 0 ? "No drones in space" : autoTargetID <= 0 ? "Lock something first" : null));
+  const targetUnavailable = $derived(groupUnavailable ?? (outCount === 0 ? "No drones in space" : null));
 
   $effect(() => {
     const refs: NameRef[] = [];
@@ -132,22 +174,28 @@
     const host = (event.currentTarget as HTMLElement).closest(".fly-drones")!.getBoundingClientRect();
     menu = { x: event.clientX - host.left, y: event.clientY - host.top, entries };
   }
+  /**
+   * menusvc.DroneMenu: by the drones' kind Engage Target (combat), Mine (mining) or Salvage (salvage), then Return and
+   * Orbit, Return to Drone Bay and Scoop to Drone Bay; a lost drone's Reconnect (menusvc.ReconnectToDrones).
+   */
   function spaceEntries(ids: readonly number[], recoverable: boolean): MenuEntry[] {
     const salvage = ids.filter((id) => salvageIDs.includes(id));
+    const mining = ids.filter((id) => miningIDs.includes(id));
+    const combat = ids.filter((id) => !salvage.includes(id) && !mining.includes(id));
+    const none = ids.length ? null : outCount === 0 ? "No drones in space" : NO_DRONE_UNDER_YOUR_CONTROL;
     return [
-      { label: "Engage target", disabled: targetUnavailable, act: () => flow.engageDrones(ids, autoTargetID) },
-      { label: "Mine", disabled: targetUnavailable, act: () => flow.mineWithDrones(ids, autoTargetID) },
-      ...(salvage.length ? [{ label: "Salvage", act: () => flow.salvageDrones(salvage, autoTargetID > 0 ? autoTargetID : null) }] : []),
-      { label: "Return to drone bay", disabled: ids.length ? null : outCount === 0 ? "No drones in space" : NO_DRONE_UNDER_YOUR_CONTROL, act: () => flow.recallDrones(ids) },
-      ...(recoverable ? [
-        { label: "Reconnect", act: () => flow.reconnectDrones(ids) },
-        { label: "Scoop to drone bay", act: () => flow.scoopDrones(ids) },
-      ] : []),
+      ...(combat.length ? [{ label: say(MENU_WORDS.engage), act: () => primaryAction(combat) }] : []),
+      ...(mining.length ? [{ label: say(MENU_WORDS.mine), act: () => primaryAction(mining) }] : []),
+      ...(salvage.length ? [{ label: say(MENU_WORDS.salvage), act: () => flow.salvageDrones(salvage, autoTargetID > 0 ? autoTargetID : null) }] : []),
+      { label: say(MENU_WORDS.orbit), disabled: none, act: () => flow.returnDronesAndOrbit(ids) },
+      { label: say(MENU_WORDS.bay), disabled: none, act: () => flow.recallDrones(ids) },
+      { label: say(MENU_WORDS.scoop), act: () => flow.scoopDrones(ids) },
+      ...(recoverable ? [{ label: "Reconnect", act: () => flow.reconnectDrones(ids) }] : []),
     ];
   }
 </script>
 
-<svelte:window onclick={() => (menu = null)} />
+<svelte:window onclick={() => { menu = null; settingsOpen = false; }} />
 
 {#snippet picture(typeID: number | null, label: string)}
   <span class="picture"><TypeIcon {typeID} name={label} size="sm" /></span>
@@ -159,7 +207,7 @@
       oncontextmenu={(e) => openMenu(e, [{ label: "Launch drones", disabled: bayRows.length ? null : "Nothing in the drone bay", act: () => flow.launchDrones(bayRows.flatMap((r) => r.itemIDs)) }])}>
       <span class="lbl">{headerWord(HEADER_WORDS.bay, "Drones in Bay")} ({bayCount})</span>
       <span class="commands">
-        <button type="button" class="command" title="Launch drones (Shift+F)" disabled={busy || !bayRows.length}
+        <button type="button" class="command" title={keyHint(say(MENU_WORDS.launch), "CmdLaunchFavoriteDrones")} disabled={busy || !bayRows.length}
           onclick={(e) => { e.stopPropagation(); void run(() => flow.launchDrones(bayRows.flatMap((r) => r.itemIDs))); }}>
           <span class="glyph" style:background-image={`url(${ICON.launch})`}></span>
         </button>
@@ -193,17 +241,34 @@
       oncontextmenu={(e) => openMenu(e, spaceEntries(allDroneIDs, false))}>
       <span class="lbl">{headerWord(HEADER_WORDS.space, "Drones in Space")} ({maxActive === null ? outCount : `${outCount}/${maxActive}`})</span>
       <span class="commands">
-        <button type="button" class="command" title={targetUnavailable ?? "Engage target (F)"} disabled={busy || targetUnavailable !== null}
+        <span class="settings-host">
+          <button type="button" class="command" title="Settings" aria-expanded={settingsOpen}
+            onclick={(e) => { e.stopPropagation(); settingsOpen = !settingsOpen; }}>
+            <span class="glyph" style:background-image={`url(${ICON.settings})`}></span>
+          </button>
+          {#if settingsOpen}
+            <!-- DroneGroupHeaderInSpace.GetSettingsMenu: the two settings' checkboxes -->
+            <ul class="menu settings" role="menu">
+              {#each [["aggressive", MENU_WORDS.autoAttack, MENU_WORDS.autoAttackHint], ["focusFire", MENU_WORDS.focusFire, MENU_WORDS.focusFireHint]] as const as [name, label, hint]}
+                <li role="menuitemcheckbox" aria-checked={$settingsNow[name]}>
+                  <button type="button" title={say(hint)} onclick={(e) => { e.stopPropagation(); toggleSetting(name); }}>
+                    <span class="check">{$settingsNow[name] ? "✓" : ""}</span>{say(label)}
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </span>
+        <button type="button" class="command" title={targetUnavailable ?? keyHint(say(MENU_WORDS.engage), "CmdDronesEngage")} disabled={busy || targetUnavailable !== null}
           onclick={(e) => { e.stopPropagation(); void run(() => primaryAction(allDroneIDs)); }}>
           <span class="glyph" style:background-image={`url(${ICON.engage})`}></span>
         </button>
-        {#if salvageIDs.length > 0}
-          <button type="button" class="command" title="Salvage" disabled={busy}
-            onclick={(e) => { e.stopPropagation(); void run(() => flow.salvageDrones(salvageIDs, autoTargetID > 0 ? autoTargetID : null)); }}>
-            <span class="glyph" style:background-image={`url(${ICON.salvage})`}></span>
-          </button>
-        {/if}
-        <button type="button" class="command" title={groupUnavailable ?? "Return to drone bay (Ctrl+F)"} disabled={busy || groupUnavailable !== null || outCount === 0}
+        <button type="button" class="command" title={groupUnavailable ?? keyHint(say(MENU_WORDS.orbit), "CmdDronesReturnAndOrbit")} disabled={busy || groupUnavailable !== null || outCount === 0}
+          onclick={(e) => { e.stopPropagation(); void run(() => flow.returnDronesAndOrbit(allDroneIDs)); }}>
+          <span class="glyph" style:background-image={`url(${ICON.orbit})`}></span>
+        </button>
+        <span class="sep" aria-hidden="true"></span>
+        <button type="button" class="command" title={groupUnavailable ?? keyHint(say(MENU_WORDS.bay), "CmdDronesReturnToBay")} disabled={busy || groupUnavailable !== null || outCount === 0}
           onclick={(e) => { e.stopPropagation(); void run(() => flow.recallDrones(allDroneIDs)); }}>
           <span class="glyph" style:background-image={`url(${ICON.recall})`}></span>
         </button>
@@ -217,8 +282,7 @@
           <div class="row" class:lost={row.unavailable !== null} role="listitem" title={row.unavailable ?? "Right-click for orders"}
             oncontextmenu={(e) => openMenu(e, spaceEntries(row.unavailable ? (row.recoverable ? row.itemIDs : []) : row.itemIDs.filter((id) => allDroneIDs.includes(id)), row.recoverable))}>
             {@render picture(row.typeID, row.label)}
-            <span class="name">{row.label} <span class="count">× {row.itemIDs.length}</span></span>
-            <span class="activity">{row.unavailable ?? row.activity}</span>
+            <span class="name">{row.label} <span class="state-word" style:color={row.color}>{row.unavailable ?? row.activity}</span></span>
           </div>
         {/each}
       {/if}
@@ -271,4 +335,10 @@
   .menu button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); color: #fff; }
   .menu button:disabled { color: #777; cursor: default; }
   .why { color: #8a8a84; font-size: 11px; }
+  .settings-host { position: relative; display: inline-flex; }
+  .menu.settings { right: 0; left: auto; top: 24px; min-width: 160px; }
+  .menu.settings .check { display: inline-block; width: 16px; }
+  /* ButtonSeperatorLine between Return and Orbit and Return to Drone Bay */
+  .sep { width: 1px; height: 14px; margin: 0 3px; align-self: center; background: rgba(255, 255, 255, 0.15); }
+  .state-word { margin-left: 4px; }
 </style>

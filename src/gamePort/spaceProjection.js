@@ -195,7 +195,8 @@ const npcKindOf = (groupID, hostileThreshold = null) => {
  * entityApproaching, entityDeparting, entityPursuit, entitySalvaging). A state with no word is "could not tell",
  * never idle.
  */
-const DRONE_ACTIVITY = Object.freeze({ 0: "idle", 1: "fighting", 2: "mining", 3: "approaching", 4: "returning", 6: "chasing", 18: "salvaging" });
+// entities.STATE_*: 5 is STATE_DEPARTING_2 (returning too), 7 fleeing, 9 operating, 10 STATE_ENGAGE (a repair drone's)
+const DRONE_ACTIVITY = Object.freeze({ 0: "idle", 1: "fighting", 2: "mining", 3: "approaching", 4: "returning", 5: "returning", 6: "chasing", 7: "fleeing", 9: "operating", 10: "repairing", 18: "salvaging" });
 
 /** One overview row: a ball with its slim item. `placed(ball)` says where the ball is shown and how fast: { p, v }. */
 function projectEntity(park, ball, slim, ego, placed) {

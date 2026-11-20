@@ -108,6 +108,8 @@
   import type { HudModule } from "../play/shipHud.ts";
   import { CRYSTAL_GROUPS, MODULE_TOOLTIP_LABELS, moduleTooltipRows } from "../play/moduleTooltip.ts";
   import { NewShipHud } from "../play/newShipHud.ts";
+  import { activeTargetID, activeTargetName } from "../play/activeTarget.ts";
+  import { droneSettingsFor, setDroneSetting } from "./droneSettings.ts";
   import { CARGO_HOLD, SHIP_HOLDS } from "../bridge/shipHolds.ts";
   import DamageAlertSettings from "./DamageAlertSettings.svelte";
   import { combatMovingMode } from "./combatSettings.ts";
@@ -1127,28 +1129,78 @@
       void s.flow.reloadAll(reloading).catch(say("Reload all"));
       return true;
     }
-    if (cmd === "CmdDronesEngage" || cmd === "CmdDronesReturnToBay") {
+    // The drone commands (eveCommands.py): each on the drones this ship controls in space (michelle.GetDrones).
+    const DRONE_COMMANDS = ["CmdDronesEngage", "CmdDronesReturnToBay", "CmdDronesReturnAndOrbit", "CmdLaunchFavoriteDrones",
+      "CmdReconnectToDrones", "CmdToggleAggressivePassive", "CmdToggleDroneFocusFire"];
+    if (DRONE_COMMANDS.includes(cmd)) {
       const snap = s.store.space.get().snapshot;
-      const ids = orderableDroneIDs(s.store.drones.get().inSpace, snap?.entities ?? null, snap?.ship?.itemID ?? null);
-      if (ids.length === 0) return true;
-      if (cmd === "CmdDronesReturnToBay") void s.flow.recallDrones(ids).catch(say("Drones"));
-      else {
-        const target = s.store.targeting.get().lockedTargetIDs?.[0] ?? 0;
-        if (target > 0) {
-          // CmdDronesEngage: droneFunctions.PerformPrimaryAction - salvage drones Salvage, mining drones MineRepeatedly,
-          // the rest EngageTarget.
-          const groupOf = (typeID: number) => s.store.names.get().resolved[nameKey("typeGroup", typeID)] ?? null;
-          const inSpace = s.store.drones.get().inSpace;
-          const salvage = salvageDroneIDs(ids, inSpace, groupOf);
-          const mining = miningDroneIDs(ids, inSpace, groupOf);
-          const combat = ids.filter((id) => !salvage.includes(id) && !mining.includes(id));
-          void (async () => {
-            if (combat.length) await s.flow.engageDrones(combat, target);
-            if (salvage.length) await s.flow.salvageDrones(salvage, target);
-            if (mining.length) await s.flow.mineWithDrones(mining, target);
-          })().catch(say("Drones"));
-        }
+      const characterID = s.store.character.get().selectedCharacterID;
+      const word = (label: string, args: Record<string, unknown>, own: string) => {
+        const t = s.store.words.get().templates[label];
+        return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args as never, { nameOf: () => null } as never)) : own;
+      };
+      // CmdToggleAggressivePassive / CmdToggleDroneFocusFire: the setting toggled, told to the server (droneSettings.py)
+      if (cmd === "CmdToggleAggressivePassive" || cmd === "CmdToggleDroneFocusFire") {
+        if (characterID === null) return true;
+        const name = cmd === "CmdToggleAggressivePassive" ? "aggressive" : "focusFire";
+        const now = setDroneSetting(characterID, name, !droneSettingsFor(characterID)[name]);
+        void s.flow.changeDroneSettings(now).catch(say("Drones"));
+        return true;
       }
+      // CmdLaunchFavoriteDrones: in space, the favourite group's drones in the bay, else every drone in the bay
+      if (cmd === "CmdLaunchFavoriteDrones") {
+        if (!snap?.ship) return true;
+        const bay = (s.store.drones.get().bay ?? []).map((stack) => stack.itemID);
+        if (bay.length) void s.flow.launchDrones(bay).catch(say("Drones"));
+        return true;
+      }
+      const inSpace = s.store.drones.get().inSpace;
+      // CmdReconnectToDrones (menusvc.ReconnectToDrones): the ship's drones in space that it no longer controls
+      if (cmd === "CmdReconnectToDrones") {
+        const lost = (inSpace ?? []).filter((d) => !d.controlled).map((d) => d.itemID);
+        if (lost.length) void s.flow.reconnectDrones(lost).catch(say("Drones"));
+        return true;
+      }
+      const ids = orderableDroneIDs(inSpace, snap?.entities ?? null, snap?.ship?.itemID ?? null);
+      const target = activeTargetID.get();
+      if (cmd === "CmdDronesReturnToBay" || cmd === "CmdDronesReturnAndOrbit") {
+        if (ids.length === 0) return true;
+        const toBay = cmd === "CmdDronesReturnToBay";
+        void (toBay ? s.flow.recallDrones(ids) : s.flow.returnDronesAndOrbit(ids)).then(() => {
+          // with an active target the client says what the drones were told (the Command notice)
+          if (target === null) return;
+          const text = toBay ? word("UI/Commands/DronesReturningToDroneBay", {}, "Drones returning to drone bay")
+            : word("UI/Commands/DronesReturningAndOrbiting", {}, "Drones returning and orbiting");
+          s.flow.sayDialog("Command", { type: "dict", entries: [["command", text]] }, text);
+        }).catch(say("Drones"));
+        return true;
+      }
+      // CmdDronesEngage: droneFunctions.PerformPrimaryAction - combat drones EngageTarget, salvage drones Salvage, mining
+      // drones MineRepeatedly, each at the active target (DroneCommandRequiresActiveTarget without one, but a salvage)
+      if (ids.length === 0) return true;
+      const groupOf = (typeID: number) => s.store.names.get().resolved[nameKey("typeGroup", typeID)] ?? null;
+      const salvage = salvageDroneIDs(ids, inSpace, groupOf);
+      const mining = miningDroneIDs(ids, inSpace, groupOf);
+      const combat = ids.filter((id) => !salvage.includes(id) && !mining.includes(id));
+      void (async () => {
+        const needTarget = () => {
+          s.flow.sayDialog("DroneCommandRequiresActiveTarget", null, "You need an active target to do that.");
+          return false;
+        };
+        if (combat.length) {
+          if (target === null) return needTarget();
+          await s.flow.engageDrones(combat, target);
+          const name = activeTargetName.get() ?? "";
+          const text = word("UI/Inflight/DronesEngaging", { name }, `Drones engaging ${name}`);
+          s.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text);
+        }
+        if (salvage.length) await s.flow.salvageDrones(salvage, target);
+        if (mining.length) {
+          if (target === null) return needTarget();
+          await s.flow.mineWithDrones(mining, target);
+        }
+        return true;
+      })().catch(say("Drones"));
       return true;
     }
     return false;
@@ -1296,7 +1348,7 @@
     const attributeLook = new Map<number, { readonly icon: string | null; readonly nameID: number | null }>();
     void s.flow.attributeDisplay(TIP_ATTRIBUTES).then((found) => {
       for (const [id, d] of found ?? []) attributeLook.set(id, { icon: d.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d.displayNameID });
-      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
+      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
     }).catch(() => {});
     const stopAskedAt = new Map<number, number>();
     const tipWord = (label: string, args: Readonly<Record<string, unknown>>): string | null => {
