@@ -408,15 +408,26 @@ export class NewShipHud {
   }
 
   /** ThemedSceneSprite: the scene behind, blurred, through the PNG's alpha, tinted by the theme (SMOKE_BLUE at 0.35 saturation). */
+  /**
+   * ThemedSceneSprite: the blurred scene through the art's alpha, MULTIPLIED by the theme's scene tint
+   * (GetThemeSceneTint(0.35, brightness): the Photon tint's hue at 0.35 of its saturation and the given brightness,
+   * read through gridcheck as (0.578, 0.659, 0.70) at 0.7 and (0.701, 0.800, 0.85) at 0.85). Measured on the client
+   * over open space the plate sits a little darker than the scene (x 0.9), never lighter.
+   */
   private frosted(x: number, y: number, w: number, h: number, mask: string, brightness: number): HTMLDivElement {
     const d = document.createElement("div");
-    const tint = brightness >= 0.85 ? "rgba(177,206,217,0.10)" : "rgba(146,169,179,0.10)";
-    Object.assign(d.style, {
-      position: "absolute", left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px`,
-      background: tint, backdropFilter: `blur(3px) brightness(${(brightness * 0.9).toFixed(2)})`,
+    const masked = {
+      position: "absolute", left: "0", top: "0", width: `${w}px`, height: `${h}px`,
       maskImage: `url("${mask}")`, maskSize: `${w}px ${h}px`, maskRepeat: "no-repeat",
       webkitMaskImage: `url("${mask}")`, webkitMaskSize: `${w}px ${h}px`, webkitMaskRepeat: "no-repeat",
-    } as Partial<CSSStyleDeclaration>);
+    };
+    Object.assign(d.style, { position: "absolute", left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px`, isolation: "auto" } as Partial<CSSStyleDeclaration>);
+    const blur = document.createElement("div");
+    Object.assign(blur.style, { ...masked, backdropFilter: "blur(8px)" } as Partial<CSSStyleDeclaration>);
+    const tint = document.createElement("div");
+    const [r, g, b] = [0.825, 0.9414, 1].map((k) => Math.round(255 * k * brightness));
+    Object.assign(tint.style, { ...masked, background: `rgb(${r},${g},${b})`, mixBlendMode: "multiply" } as Partial<CSSStyleDeclaration>);
+    d.append(blur, tint);
     return d;
   }
 
