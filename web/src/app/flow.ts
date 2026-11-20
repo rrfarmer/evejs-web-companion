@@ -4255,6 +4255,8 @@ export interface AppFlow {
   moduleRepairOf(itemID: number): { readonly startedAtMs: number; readonly durationMs: number } | null;
   /** A module type's effect of the overload category (null: it has none), asked once a type and kept. */
   overloadEffectOf(typeID: number): Promise<number | null>;
+  /** A type's static dogma facts (its effects, default effect, group), asked of the BFF's copy once a type and kept. */
+  typeDogmaFacts(typeID: number): Promise<import("../bridge/dogma/location.ts").DogmaTypeFacts | null>;
   /** How full a module is of its charge (the charges' volume over its capacity; null where the types cannot be read). */
   chargePortionOf?(moduleTypeID: number, chargeTypeID: number, quantity: number): Promise<number | null>;
   /**
@@ -38143,6 +38145,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     deactivateModule,
     setModuleOverload,
     overloadEffectOf: (typeID: number) => overloadEffects.of(typeID),
+    typeDogmaFacts: async (typeID: number) => (await infoTypeFacts([typeID]))[typeID] ?? null,
     chargePortionOf: async (moduleTypeID: number, chargeTypeID: number, quantity: number) => {
       const staticData = await dogmaStaticFor([moduleTypeID, chargeTypeID], AMMO_MENU_ATTRIBUTES);
       return staticData === null ? null : chargePortion(staticData, moduleTypeID, chargeTypeID, quantity);

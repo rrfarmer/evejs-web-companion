@@ -106,6 +106,9 @@
   import { POLARIZED_LABEL } from "../play/wormholePolarization.ts";
   import { IN_WARP_HINT_LABEL } from "../bridge/gateActivation.ts";
   import type { HudModule } from "../play/shipHud.ts";
+  import { CRYSTAL_GROUPS, MODULE_TOOLTIP_LABELS, moduleTooltipRows } from "../play/moduleTooltip.ts";
+  import { shortcutOf } from "../play/shortcutKeys.ts";
+  import type { DogmaTypeFacts } from "../bridge/dogma/location.ts";
   import { typeIconUrl } from "./typeIcons.ts";
   import { cycleProgressPercent } from "./moduleRack.ts";
 
@@ -1270,6 +1273,67 @@
       droneReread = setTimeout(() => { droneReread = null; void s.flow.loadDrones().catch(() => {}); }, 1000);
     });
 
+    // The new HUD's module tooltip (moduleButtonTooltip.py): the types' static dogma facts (effects, default effect,
+    // group) asked once a type, the attributes' icons and names once, and when each running module was switched off
+    // (moduleController._stop_requested_at: the cycle it then finishes is its winding down).
+    const typeFacts = new Map<number, DogmaTypeFacts | null>();
+    const factsOf = (typeID: number): DogmaTypeFacts | null => {
+      if (!typeFacts.has(typeID)) {
+        typeFacts.set(typeID, null);
+        void s.flow.typeDogmaFacts(typeID).then((f) => { typeFacts.set(typeID, f); }, () => { typeFacts.delete(typeID); });
+      }
+      return typeFacts.get(typeID) ?? null;
+    };
+    const TIP_ATTRIBUTES = [37, 160, 84, 83, 68, 67, 90, 97, 20, 105];
+    const attributeLook = new Map<number, { readonly icon: string | null; readonly nameID: number | null }>();
+    void s.flow.attributeDisplay(TIP_ATTRIBUTES).then((found) => {
+      for (const [id, d] of found ?? []) attributeLook.set(id, { icon: d.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d.displayNameID });
+      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
+    }).catch(() => {});
+    const stopAskedAt = new Map<number, number>();
+    const tipWord = (label: string, args: Readonly<Record<string, unknown>>): string | null => {
+      const template = s.store.words.get().templates[label];
+      return typeof template === "string" ? formatTemplate(template, args as never, { nameOf: (kind: string, id: number) => (kind === "type" ? typeNames[String(id)]?.[0] ?? null : null) } as never) : null;
+    };
+    const attrOf = (item: { readonly attributes: readonly { readonly attributeID: number; readonly value: unknown }[] } | undefined, id: number): number | null => {
+      const v = item?.attributes.find((a) => a.attributeID === id)?.value;
+      return typeof v === "number" && Number.isFinite(v) ? v : null;
+    };
+    function moduleTooltip(m: HudModule) {
+      const facts = factsOf(m.typeID);
+      const allInfo = s.store.dogma.get().allInfo;
+      const fitted = s.store.fitting.get();
+      const item = allInfo?.ships.find((i) => Number(i.itemID) === m.itemID);
+      const slot = fitted.slots.find((sl) => sl.module?.itemID === m.itemID);
+      const loaded = slot?.module?.charge ?? null;
+      const chargeItem = loaded ? allInfo?.ships.find((i) => i.typeID === loaded.typeID && (i.sublocation || i.categoryID === 8) && i.flagID === item?.flagID) : undefined;
+      const banks = s.store.space.get().snapshot?.ship?.weaponBanks ?? {};
+      const slaves = (banks[m.itemID] ?? []) as readonly number[];
+      // GetModuleShortcut: the slot's CmdActivate<Rack>PowerSlot<n> (a module with a default effect only)
+      const rack = { high: "High", mid: "Medium", low: "Low" }[m.family];
+      const shortcut = facts && (facts.defaultEffectID ?? null) !== null ? shortcutOf(`CmdActivate${rack}PowerSlot${m.index + 1}`) || null : null;
+      const repair = s.flow.moduleRepairOf(m.itemID);
+      return moduleTooltipRows({
+        typeID: m.typeID,
+        typeName: typeNames[String(m.typeID)]?.[0] ?? m.name ?? "",
+        groupID: slot?.module?.groupID ?? facts?.groupID ?? null,
+        numInGroup: slaves.length ? slaves.length + 1 : 0,
+        shortcut,
+        damagePercent: (m.damage ?? 0) * 100,
+        repairing: repair !== null,
+        charge: loaded ? { typeID: loaded.typeID, groupID: chargeItem?.groupID ?? factsOf(loaded.typeID)?.groupID ?? null, quantity: loaded.quantity, name: typeNames[String(loaded.typeID)]?.[0] ?? "" } : null,
+        attr: (id) => attrOf(item, id),
+        shipAttr: (id) => { const v = fitted.shipAttributes?.[id]; return typeof v === "number" ? v : null; },
+        chargeAttr: (id) => attrOf(chargeItem, id),
+        launcher: facts?.effects.includes(40) ?? false,
+        turret: facts?.effects.includes(42) ?? false,
+        active: m.active,
+        attributeIcon: (id) => attributeLook.get(id)?.icon ?? null,
+        attributeName: (id) => { const nameID = attributeLook.get(id)?.nameID; const t = nameID ? s.store.words.get().templates[`#${nameID}`] : null; return typeof t === "string" ? plainText(t) : null; },
+        typeIcon: (typeID) => typeIconUrl(typeID) ?? null,
+      }, tipWord, (meters) => fmtDist(meters));
+    }
+
     const v = new SpaceView(live, {
       gotoDirection: (x, y, z) => act("beyonce", "CmdGotoDirection", [x, y, z]).then(() => undefined),
       setSpeedFraction: (fraction) => act("beyonce", "CmdSetSpeedFraction", [fraction]).then(() => undefined),
@@ -1487,9 +1551,25 @@
               overloadable.set(m.typeID, null);
               void s.flow.overloadEffectOf(m.typeID).then((id) => overloadable.set(m.typeID, id !== null), () => overloadable.delete(m.typeID));
             }
-            out.push({ family: slot.family, index: slot.index, itemID: m.itemID, typeID: m.typeID, name: typeNames[String(m.typeID)]?.[0] ?? undefined, online: m.online, active: active.has(m.itemID), icon: typeIconUrl(m.typeID) ?? "", cycle: pct === null ? null : pct / 100,
+            // GetUnavailableWindow (UNAVAILABLE_WINDING_DOWN): switched off while running, it finishes the cycle the
+            // stop was asked in; the cycles start where the running one was seen to, one length after another.
+            const running = active.has(m.itemID);
+            factsOf(m.typeID); // asked now, so its tooltip has them when it opens
+            if (!running) stopAskedAt.delete(m.itemID);
+            const asked = stopAskedAt.get(m.itemID);
+            let windingDown: HudModule["windingDown"] = null;
+            if (running && asked !== undefined && cycle && cycle.startedAtMs !== null && cycle.durationMs > 0) {
+              const cycleStart = cycle.startedAtMs + Math.max(0, Math.floor((asked - cycle.startedAtMs) / cycle.durationMs)) * cycle.durationMs;
+              if (now < cycleStart + cycle.durationMs) windingDown = { startedAtMs: cycleStart, durationMs: cycle.durationMs };
+            }
+            // The slot shows a loaded charge's icon and count (moduleSlot._OnChargeChanged); a crystal's count is not shown.
+            const charge = m.charge && m.charge.quantity > 0 ? m.charge : null;
+            const chargeGroup = charge ? factsOf(charge.typeID)?.groupID ?? null : null;
+            out.push({ family: slot.family, index: slot.index, itemID: m.itemID, typeID: m.typeID, name: typeNames[String(m.typeID)]?.[0] ?? undefined, online: m.online, active: running, icon: typeIconUrl(charge ? charge.typeID : m.typeID) ?? "", cycle: pct === null ? null : pct / 100,
               overloadable: overloadable.get(m.typeID) ?? null, overloaded: overloaded.has(m.itemID), damage: damageOf(m.itemID),
-              repair: s.flow.moduleRepairOf(m.itemID) });
+              repair: s.flow.moduleRepairOf(m.itemID),
+              charge: charge ? { typeID: charge.typeID, quantity: charge.quantity, crystal: chargeGroup !== null && CRYSTAL_GROUPS.has(chargeGroup) } : null,
+              windingDown });
           }
           return out;
         },
@@ -1501,12 +1581,14 @@
         // shipmodulebutton.ActivateEffect uses the active lock for targeted effects.
         use: async (m, targetID, passiveLock) => {
           const running = (s.store.space.get().snapshot?.ship?.activeModuleIDs ?? []).includes(m.itemID);
-          if (running) await s.flow.deactivateModule(m.itemID, { typeID: m.typeID });
+          if (running && m.windingDown) return; // moduleController: a module winding down takes no click
+          if (running) { stopAskedAt.set(m.itemID, Date.now()); await s.flow.deactivateModule(m.itemID, { typeID: m.typeID }); }
           else await s.flow.activateModule(m.itemID, {
             typeID: m.typeID, targetID, effect: passiveLock ? "targetPassively" : undefined,
           });
         },
         heat: () => s.store.space.get().snapshot?.ship?.rackHeat ?? null,
+        tooltip: (m) => moduleTooltip(m),
         overload: {
           module: (itemID, on) => s.flow.setModuleOverload(itemID, on),
           rack: (activationID, on) => s.flow.setRackOverload(activationID, on),

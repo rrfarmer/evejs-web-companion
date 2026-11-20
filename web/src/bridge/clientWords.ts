@@ -274,7 +274,11 @@ export function formatInterval(ticks: number): string {
  * {type: "long"}, a Python int) is written as an int (`whole`).
  */
 function formatNumber(value: number, token: TemplateToken, whole = false): string {
-  const places = whole ? null : /^\d+$/.test(token.settings.decimalPlaces ?? "") ? Number(token.settings.decimalPlaces) : null;
+  // FormatNumeric with no decimalPlaces writes a float to two places (3698585's localization, through gridcheck: 0.5
+  // "0.50", 522.8489 "522.85", 12.0 "12.00") and an int as it is. A number with a fraction is a float; one without
+  // cannot be told from an int here and is written as one.
+  const said = /^\d+$/.test(token.settings.decimalPlaces ?? "") ? Number(token.settings.decimalPlaces) : null;
+  const places = whole ? null : said ?? (Number.isInteger(value) ? null : 2);
   if (token.modifiers.includes("useGrouping")) {
     return value.toLocaleString("en-US", places === null ? {} : { minimumFractionDigits: places, maximumFractionDigits: places });
   }

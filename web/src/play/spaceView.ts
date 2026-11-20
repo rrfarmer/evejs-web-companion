@@ -144,6 +144,8 @@ export interface SpaceViewOptions {
     heat?(): Readonly<Partial<Record<"high" | "mid" | "low", number>>> | null;
     /** Overloading: a module's (ToggleOverload) and a rack's, by its first module (OverloadRack / StopOverloadRack). */
     overload?: { module(itemID: number, on: boolean): Promise<void>; rack(activationID: number, on: boolean): Promise<void> };
+    /** The new HUD's module tooltip rows (moduleButtonTooltip.UpdateToolTips), null where it has none to give. */
+    tooltip?(m: HudModule): readonly import("./moduleTooltip.ts").ModuleTooltipRow[] | null;
   };
   /** The session's snapshot includes the acknowledged align and warp targets. */
   flightSnapshot?: () => SpaceSnapshot | null;
@@ -721,6 +723,7 @@ export class SpaceView {
     if (this.shipHud instanceof NewShipHud) {
       this.shipHud.onSetSpeed = (ratio) => void this.setSpeedRatio(ratio);
       this.shipHud.onOpenHold = (key) => this.actions.openShipHold?.(key);
+      this.shipHud.tooltipRows = (m) => this.options.rack?.tooltip?.(m) ?? null;
       // the HUD's command buttons: the directional scanner and solar system map are this view's, the rest the page's
       this.shipHud.onCommand = (cmd) => {
         if (cmd === "OpenDirectionalScanner" && this.dscan) this.dscan.toggle();

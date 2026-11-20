@@ -8,6 +8,9 @@
 // Draw order: the canvas paints bottom to top in the client's order (carbonui draws its first child on top).
 
 import type { HudModule, HudOverload, ShipHudState } from "./shipHud.ts";
+import type { ModuleTooltipRow } from "./moduleTooltip.ts";
+import { labelColorCss, labelLines } from "../bridge/labelMarkup.ts";
+import { fmtAmt } from "../bridge/pyNumbers.ts";
 
 const res = (path: string): string => `/client-res/${path.replace(/^res:\//i, "").toLowerCase()}`;
 const HUD = (name: string) => res(`res:/UI/HUD/${name}.png`);
@@ -190,7 +193,24 @@ interface Slot {
   wedge: { angle: number; half: number; lit: number };
   cycles: number;
   flashAt: number;
+  /** cooldownTimer: the dim disc, the fill arc, the shade and the seconds over the icon, drawn while it shows. */
+  cool: HTMLCanvasElement;
+  coolShown: boolean;
 }
+
+// cooldownTimer.py
+const COOL_DIM_RADIUS = 22;
+const COOL_FILL_RADIUS = 20;
+const COOL_DIGIT_SIZES = [18, 14, 11, 9] as const;
+// hudConst.COLOR_MODULE_DAMAGE
+const COLOR_MODULE_DAMAGE: RGBA = [1, 0.271, 0.294, 1];
+// moduleSlot.py
+const QUANTITY_LABEL_DY = 13;
+const QUANTITY_OPACITY_COOLDOWN = 0.5;
+// tooltipHandler.TOOLTIP_DELAY_MODULE; moduleButtonTooltip: margin 16, rows of at least 30 px, labels padded (4, 8, 4, 8)
+const TOOLTIP_DELAY_MODULE = 700;
+const TOOLTIP_MARGIN = 16;
+const TOOLTIP_GAP = 9;
 
 /** A ship hold the cargo indicator can track (the bays' keys: cargo, ore, drone ...). */
 export interface HudHold {
@@ -254,6 +274,12 @@ export class NewShipHud {
   private rackHover: "Hi" | "Med" | "Lo" | null = null;
   private overload: HudOverload | null = null;
   private modules: readonly HudModule[] = [];
+  /** The module tooltip's rows (moduleButtonTooltip.UpdateToolTips), the page's to give; null: no tooltips. */
+  tooltipRows: ((m: HudModule) => readonly ModuleTooltipRow[] | null) | null = null;
+  private readonly tooltip = document.createElement("div");
+  private tipSlot: Slot | null = null;
+  private tipTimer: ReturnType<typeof setTimeout> | null = null;
+  private tipRefresh: ReturnType<typeof setInterval> | null = null;
   private onModule: ((m: HudModule) => void) | null = null;
   private damageFlash: { level: number; until: number; period: number } | null = null;
   private capFlashUntil = 0;
@@ -637,20 +663,132 @@ export class NewShipHud {
       icon.alt = "";
       icon.draggable = false;
       Object.assign(icon.style, { position: "absolute", left: `${(SLOT_SIZE - SLOT_ICON_SIZE) / 2}px`, top: `${(SLOT_SIZE - SLOT_ICON_SIZE) / 2}px`, width: `${SLOT_ICON_SIZE}px`, height: `${SLOT_ICON_SIZE}px`, clipPath: "circle(20px at 50% 50%)" });
+      // quantity_label (TextDetail, bold, centred 13 px below the middle) on its count underlay: black 0.55, 14 px
+      // high, 3 px either side of the text, corners of 4.
       const qty = document.createElement("div");
-      Object.assign(qty.style, { position: "absolute", left: "0", right: "0", top: `${26 + 13 - 7}px`, height: "14px", textAlign: "center", font: "bold 11px 'EVE Sans Neue','Segoe UI',sans-serif", color: "rgba(255,255,255,0.75)", display: "none" });
+      Object.assign(qty.style, { position: "absolute", left: "50%", top: `${SLOT_SIZE / 2 + QUANTITY_LABEL_DY - 7}px`, transform: "translateX(-50%)", height: "14px", lineHeight: "14px", padding: "0 3px", borderRadius: "4px", background: "rgba(0,0,0,0.55)", whiteSpace: "nowrap", font: "bold 11px 'EVE Sans Neue','Segoe UI',sans-serif", color: "#fff", display: "none" });
+      const cool = document.createElement("canvas");
+      const coolDpr = Math.max(1, Math.min(2, globalThis.devicePixelRatio || 1));
+      cool.width = SLOT_SIZE * coolDpr;
+      cool.height = SLOT_SIZE * coolDpr;
+      Object.assign(cool.style, { position: "absolute", left: "0", top: "0", width: `${SLOT_SIZE}px`, height: `${SLOT_SIZE}px`, display: "none", pointerEvents: "none" });
       const badge = document.createElement("div");
       Object.assign(badge.style, { position: "absolute", left: "-1px", top: "32px", width: "14px", height: "14px", borderRadius: "3px", background: css(LED_GREY), color: "#fff", font: "11px 'EVE Sans Neue','Segoe UI',sans-serif", textAlign: "center", lineHeight: "14px", display: "none" });
       const shortcut = document.createElement("div");
       Object.assign(shortcut.style, { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", font: "bold 11px 'EVE Sans Neue','Segoe UI',sans-serif", color: "rgba(255,255,255,0.3)" });
-      el.append(disc, icon, qty, badge, shortcut);
-      const slot: Slot = { el, icon, qty, badge, shortcut, x, y, module: null, hover: false, wedge: { angle: 180, half: 7.5, lit: 0 }, cycles: -1, flashAt: 0 };
-      el.addEventListener("mouseenter", () => { slot.hover = true; });
-      el.addEventListener("mouseleave", () => { slot.hover = false; });
+      // moduleSlot._BuildWidget: the cooldown timer over the icon, the quantity over the timer.
+      el.append(disc, icon, cool, qty, badge, shortcut);
+      const slot: Slot = { el, icon, qty, badge, shortcut, x, y, module: null, hover: false, wedge: { angle: 180, half: 7.5, lit: 0 }, cycles: -1, flashAt: 0, cool, coolShown: false };
+      el.addEventListener("mouseenter", () => { slot.hover = true; this.hoverTooltip(slot); });
+      el.addEventListener("mouseleave", () => { slot.hover = false; this.hideTooltip(slot); });
       el.addEventListener("click", () => { if (slot.module && this.onModule) this.onModule(slot.module); });
       this.slots.push(slot);
       this.tray.append(el);
     }
+  }
+
+  // ── the module tooltip (moduleSlot.OnMouseEnter, TooltipModuleWrapper) ─────────────────────────────────────────
+
+  /** The tooltip opens TOOLTIP_DELAY_MODULE after the pointer comes onto a module's slot. */
+  private hoverTooltip(slot: Slot): void {
+    this.clearTooltipTimers();
+    this.closeTooltip();
+    if (!slot.module || !this.tooltipRows) return;
+    this.tipTimer = setTimeout(() => {
+      this.tipTimer = null;
+      if (!slot.hover || !slot.module) return;
+      this.tipSlot = slot;
+      this.renderTooltip();
+      // UpdateToolTips: the rows again every second while it is open.
+      this.tipRefresh = setInterval(() => this.renderTooltip(), 1000);
+    }, TOOLTIP_DELAY_MODULE);
+  }
+
+  private hideTooltip(slot: Slot): void {
+    if (this.tipSlot !== null && this.tipSlot !== slot) return;
+    this.clearTooltipTimers();
+    this.closeTooltip();
+  }
+
+  private clearTooltipTimers(): void {
+    if (this.tipTimer !== null) clearTimeout(this.tipTimer);
+    if (this.tipRefresh !== null) clearInterval(this.tipRefresh);
+    this.tipTimer = null;
+    this.tipRefresh = null;
+  }
+
+  private closeTooltip(): void {
+    this.tipSlot = null;
+    this.tooltip.style.display = "none";
+  }
+
+  /** What the open tooltip says, row by row (for checks). */
+  get tooltipText(): string[] {
+    return this.tooltip.style.display === "none" ? [] : [...this.tooltip.querySelectorAll<HTMLElement>("[data-tip-row]")].map((r) => r.innerText.replace(/\s+/g, " ").trim());
+  }
+
+  /**
+   * TooltipPanel with a FrameWithPointer: background_04's nine-slice (corners 19, 15 px outside the panel) at 0.75 and
+   * the pointer under it, the panel centred over the slot; a 4-column grid of 26 or 24 px icons and 14 px labels at
+   * white 0.75 (padding 4, 8), the shortcut in its hint box (white 0.1, its text white 0.5) on the right.
+   */
+  private renderTooltip(): void {
+    const slot = this.tipSlot;
+    const m = slot?.module ?? null;
+    const rows = m && this.tooltipRows ? this.tooltipRows(m) : null;
+    if (!slot || !m || !rows || rows.length === 0) { this.closeTooltip(); return; }
+    const t = this.tooltip;
+    // The client's tooltips are in its hint layer (uicore.layer.hint), over every window: the page's body here.
+    if (!t.isConnected) {
+      t.className = "new-hud-tooltip";
+      Object.assign(t.style, { position: "fixed", pointerEvents: "none", zIndex: "100000", padding: `${TOOLTIP_MARGIN}px`, font: "14px 'EVE Sans Neue','Segoe UI',sans-serif", color: "rgba(255,255,255,0.75)", whiteSpace: "nowrap" });
+      document.body.append(t);
+    }
+    t.replaceChildren();
+    const frame = document.createElement("div");
+    Object.assign(frame.style, { position: "absolute", inset: "0", opacity: "0.75", borderStyle: "solid", borderWidth: "0", borderImageSource: `url(${res("res:/UI/Texture/classes/FrameWithPointer/background_04.png")})`, borderImageSlice: "19 fill", borderImageWidth: "19px", borderImageOutset: "15px" } as Partial<CSSStyleDeclaration>);
+    const pointer = document.createElement("img");
+    pointer.src = res("res:/UI/Texture/classes/FrameWithPointer/pointer_down_02.png");
+    Object.assign(pointer.style, { position: "absolute", left: "calc(50% - 12px)", bottom: "-16px", width: "24px", height: "24px", opacity: "0.75" });
+    const grid = document.createElement("div");
+    Object.assign(grid.style, { position: "relative", display: "grid", gridTemplateColumns: "30px auto auto", alignItems: "center" });
+    for (const row of rows) {
+      const iconCell = document.createElement("div");
+      Object.assign(iconCell.style, { width: "30px", minHeight: "30px", display: "grid", placeItems: "center" });
+      if (row.icon) {
+        const icon = document.createElement("img");
+        icon.src = row.icon;
+        icon.alt = "";
+        Object.assign(icon.style, { width: `${row.iconSize}px`, height: `${row.iconSize}px` });
+        iconCell.append(icon);
+      }
+      const text = document.createElement("div");
+      text.dataset.tipRow = "";
+      Object.assign(text.style, { padding: "8px 4px", lineHeight: "18px" });
+      for (const line of labelLines(row.text.split("\n").join("<br>"))) {
+        const div = document.createElement("div");
+        for (const run of line.tabs.flat()) {
+          const span = document.createElement("span");
+          span.textContent = run.text;
+          if (run.bold) span.style.fontWeight = "bold";
+          if (run.color !== null) span.style.color = labelColorCss(run.color);
+          div.append(span);
+        }
+        text.append(div);
+      }
+      const hint = document.createElement("div");
+      if (row.shortcut) {
+        hint.textContent = row.shortcut;
+        Object.assign(hint.style, { alignSelf: "start", marginLeft: "10px", padding: "0 13px", height: "18px", lineHeight: "18px", background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)", fontWeight: "bold" });
+      }
+      grid.append(iconCell, text, hint);
+    }
+    t.append(frame, pointer, grid);
+    t.style.display = "";
+    const w = t.offsetWidth, h = t.offsetHeight;
+    const at = slot.el.getBoundingClientRect();
+    t.style.left = `${Math.round(at.left + SLOT_SIZE / 2 - w / 2)}px`;
+    t.style.top = `${Math.round(at.top - TOOLTIP_GAP - h)}px`;
   }
 
   // ── the classic HUD's API ──────────────────────────────────────────────────────────────────────────────
@@ -658,7 +796,9 @@ export class NewShipHud {
   dispose(): void {
     this.disposed = true;
     cancelAnimationFrame(this.frame);
+    this.clearTooltipTimers();
     this.root.remove();
+    this.tooltip.remove();
   }
 
   /** shipAlertController: segments 0..level flash red, each over its level's period (shield 2 s, armor 1 s, hull 0.6 s). */
@@ -727,11 +867,17 @@ export class NewShipHud {
       slot.module = m;
       // moduleTray: empty slots hidden by default (shipHudNew_hideEmptySlots 1); no compaction, a gap is left.
       slot.el.style.display = m ? "" : "none";
-      if (!m) return;
+      if (!m) { if (this.tipSlot === slot) this.hideTooltip(slot); return; }
       if (slot.icon.dataset.src !== m.icon) { slot.icon.src = m.icon; slot.icon.dataset.src = m.icon; }
+      // _UpdateGreyOut: an offline (or burnt out) module's icon at 0.4, its count hidden
       slot.icon.style.opacity = m.online ? "1" : "0.4";
-      slot.el.title = m.name ?? "";
+      // The client's slot has no title of its own: its tooltip is the module tooltip.
+      slot.el.removeAttribute("title");
       slot.shortcut.textContent = "";
+      // _OnChargeChanged: the count of a loaded charge (FmtAmt), none for a crystal
+      const count = m.charge && m.charge.quantity && !m.charge.crystal ? fmtAmt(m.charge.quantity) : "";
+      if (slot.qty.textContent !== count) slot.qty.textContent = count;
+      slot.qty.style.display = count && m.online ? "" : "none";
     });
     this.placeScannerGroup();
   }
@@ -774,6 +920,7 @@ export class NewShipHud {
     c.save();
     c.translate(TRAY_LEFT, TRAY_TOP);
     for (const slot of this.slots) if (slot.module) this.drawSlot(c, slot, now, dt);
+    for (const slot of this.slots) this.drawCooldown(slot);
     c.restore();
   }
 
@@ -1047,6 +1194,50 @@ export class NewShipHud {
         c.drawImage(off, 0, 0, 16, 16, b.x - 8, b.y - 8, 16, 16);
       }
     }
+  }
+
+  /**
+   * cooldownTimer: while a switched-off module finishes its cycle, a black 0.4 disc of 22 over the icon, the cycle's
+   * elapsed share as a fill of 20 (COLOR_MODULE_DAMAGE 0.6) clockwise from 12 o'clock, a 20x24 shade (black 0.6,
+   * corners 4) and the seconds left, rounded up, white 0.9 at 18, 14, 11 or 9 px by their digits. The count dims to 0.5.
+   */
+  private drawCooldown(slot: Slot): void {
+    const w = slot.module?.windingDown ?? null;
+    const remaining = w ? w.startedAtMs + w.durationMs - Date.now() : 0;
+    const show = !!w && w.durationMs > 0 && remaining > 0;
+    if (!show) {
+      if (slot.coolShown) { slot.cool.style.display = "none"; slot.coolShown = false; slot.qty.style.opacity = "1"; }
+      return;
+    }
+    if (!slot.coolShown) { slot.cool.style.display = ""; slot.coolShown = true; slot.qty.style.opacity = String(QUANTITY_OPACITY_COOLDOWN); }
+    const c = slot.cool.getContext("2d")!;
+    const k = slot.cool.width / SLOT_SIZE;
+    c.setTransform(k, 0, 0, k, 0, 0);
+    c.clearRect(0, 0, SLOT_SIZE, SLOT_SIZE);
+    const mid = SLOT_SIZE / 2;
+    c.beginPath();
+    c.arc(mid, mid, COOL_DIM_RADIUS, 0, Math.PI * 2);
+    c.fillStyle = "rgba(0,0,0,0.4)";
+    c.fill();
+    const span = 1 - Math.max(0, Math.min(1, remaining / w!.durationMs));
+    if (span > 0) {
+      c.beginPath();
+      c.moveTo(mid, mid);
+      c.arc(mid, mid, COOL_FILL_RADIUS, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * span);
+      c.closePath();
+      c.fillStyle = css(COLOR_MODULE_DAMAGE, 0.6);
+      c.fill();
+    }
+    c.beginPath();
+    c.roundRect(mid - 10, mid - 12, 20, 24, 4);
+    c.fillStyle = "rgba(0,0,0,0.6)";
+    c.fill();
+    const text = String(Math.ceil(remaining / 1000));
+    c.font = `${COOL_DIGIT_SIZES[Math.min(text.length, COOL_DIGIT_SIZES.length) - 1]}px 'EVE Sans Neue','Segoe UI',sans-serif`;
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillStyle = "rgba(255,255,255,0.9)";
+    c.fillText(text, mid, mid + 1);
   }
 
   /** activationIndicator: the frame ring, the state wedge (9 o'clock idle, 12 o'clock active) and the cycle arc. */
