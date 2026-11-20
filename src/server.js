@@ -18986,10 +18986,10 @@ app.post("/api/icons/cache", requireAuth, (req, res) => {
 // to the catch-all, the browser receives index.html with a 200, `<img onerror>`
 // never fires, and every uncached icon becomes a permanently broken image.
 // The client's own textures by their res: path, for the page to draw what the client draws with them (a skill
-// group's icon, a career banner): /client-res/ui/texture/... answers an indexed PNG, JPEG or a supported DDS
+// group's icon, a career banner, the new HUD's res:/UI/HUD art): /client-res/ui/texture/... answers an indexed PNG, JPEG or a supported DDS
 // converted to PNG, or 404 (src/clientData/clientTextures.js). No session: the install's pictures do not vary by
 // player. Above the catch-all, for the same reason as the icon cache below.
-app.get(/^\/client-res\/(ui\/texture\/[A-Za-z0-9_./-]+\.(?:png|jpg|dds)|dx9\/model\/[a-z0-9_./-]+\/icons\/[a-z0-9_-]+_isis\.png|dx9\/model\/worldobject\/planet\/resource_colorramp\.dds)$/, (req, res) => {
+app.get(/^\/client-res\/(ui\/texture\/[A-Za-z0-9_./-]+\.(?:png|jpg|dds)|ui\/hud\/[a-z0-9_]+\.png|dx9\/model\/[a-z0-9_./-]+\/icons\/[a-z0-9_-]+_isis\.png|dx9\/model\/worldobject\/planet\/resource_colorramp\.dds)$/, (req, res) => {
   if (/\.dds$/i.test(req.params[0])) {
     const png = clientTextures.pngFor?.(`res:/${req.params[0]}`);
     if (!png) { res.status(404).end(); return; }
