@@ -1245,8 +1245,9 @@ test("a drone's row says whose it is, what it is doing and on what, where the pa
     // Another pilot's drone: a client is told nothing of it, and each of the four is "not known".
     [9988400109062, "Hobgoblin I", 140000009, null, null, null, null],
   ]);
-  // Each activity state in the gateway's word for it (appConst.py entityIdle to entitySalvaging); one with no word is not known, never idle.
-  for (const [state, word] of [[0, "idle"], [1, "fighting"], [2, "mining"], [3, "approaching"], [4, "returning"], [6, "chasing"], [18, "salvaging"], [5, null], [7, null], [99, null]]) {
+  // Each activity state in the gateway's word for it (dronesConst.DRONE_STATES: entityIdle to entitySalvaging, with
+  // entityDeparting2 returning, entityFleeing, entityOperating and entityRepairing); one with no word is not known, never idle.
+  for (const [state, word] of [[0, "idle"], [1, "fighting"], [2, "mining"], [3, "approaching"], [4, "returning"], [5, "returning"], [6, "chasing"], [7, "fleeing"], [9, "operating"], [10, "repairing"], [18, "salvaging"], [8, null], [99, null]]) {
     park.OnDroneStateChange(9988400109060, 140000002, undock.shipID, state, 2454, 140000002, null);
     assert.equal(rows()[0].droneActivity, word, String(state));
   }

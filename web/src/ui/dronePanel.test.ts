@@ -340,17 +340,20 @@ test("a drone in space says WHAT IT IS DOING, and names what it is doing it to",
       hostiles: [{ itemID: RAT_ID, name: "Serpentis Scout", npcEntityType: "npc" }],
     }),
   );
-  assert.match(text, /Attacking/);
+  // dronesConst.DRONE_STATES: entityCombat is "Fighting"
+  assert.match(text, /Fighting/);
   // The target by NAME, never by id.
   assert.match(text, /Serpentis Scout/);
   assert.doesNotMatch(text, new RegExp(String(RAT_ID)));
 });
 
-test("an activity the gateway could not read says Unknown — never Waiting", () => {
+test("an activity the gateway could not read says \"-\" — never Waiting", () => {
   // A player told their drones are idle when nobody looked will not launch the
   // ones that would have saved them.
   const text = visibleText(droneScene({ inSpace: [{ ...A_SPACE_DRONE, activity: null }] }));
-  assert.match(text, /Unknown/);
+  // the client's DroneEntry with no state shows "-"
+  assert.match(text, /Hobgoblin I\s+-\s/);
+  assert.doesNotMatch(text, /Waiting|Idle/);
 });
 
 test("⚠ a FAILED read renders as 'could not be read', never as 'none out'", () => {
