@@ -66,6 +66,7 @@ import { bloomFor, type Bloom } from "../three/bloom.ts";
 import { DynamicExposure } from "../three/exposure.ts";
 import { CombatMessage } from "./combatMessage.ts";
 import { RadialMenu, RADIAL_CSS, RADIAL_ICON, WARP_RANGES, holdToOpen, radialRanges, type RadialOption } from "./radialMenu.ts";
+import { METENOX_TYPE_ID } from "../bridge/autoMoonMining.ts";
 import { JUMP_BRIDGE_GROUP, type JumpBridgeSlim } from "../bridge/jumpBridgePanel.ts";
 import { ACTIVATE_GATE_LABEL, IN_WARP_HINT_LABEL, isWarpGate } from "../bridge/gateActivation.ts";
 import { ENTER_WORMHOLE_LABEL } from "../bridge/placeChanges.ts";
@@ -118,6 +119,7 @@ type MiningOverlayState = Pick<MiningState, "survey" | "surveyProgress" | "surve
  * thing in space (the radial menu's Show Info).
  */
 export interface SpaceViewOptions {
+  openAutoMoonMiner?: (structureID: number) => Promise<void>;
   mountJumpBridge?: (host: HTMLElement, gate: Entity, state: JumpBridgePanelState) =>
     { update(state: JumpBridgePanelState): void; destroy(): void };
   jumpBridge?: (itemID: number) => Promise<void>;
@@ -1313,7 +1315,16 @@ export class SpaceView {
     out.push({ key: "look", title: "Look At", icon: icon("look_at"), run: async () => this.focusOn(id) });
     const showInfo = this.options.showInfo;
     if (showInfo) out.push({ key: "info", title: "Show Info", icon: icon("show_info"), run: async () => showInfo(id, e.typeID ?? null) });
+    const drill = this.autoMoonMinerEntry(e);
+    if (drill) out.push(drill);
     return out;
+  }
+
+  private autoMoonMinerEntry(entity: Entity): ItemAction | null {
+    const open = this.options.openAutoMoonMiner;
+    if (!open || entity.kind !== "structure" || entity.typeID !== METENOX_TYPE_ID || !(Number(entity.ownerID ?? entity.corporationID) > 0)) return null;
+    return { key: "moon-drill", title: "Open Moon Drill Details",
+      icon: clientTexture("res:/UI/Texture/WindowIcons/moonDrillScheduler.png"), run: () => open(entity.itemID) };
   }
 
   private renderSelected(): void {
@@ -2222,6 +2233,9 @@ export class SpaceView {
       ];
     } else {
       const dist = this.distanceTo(e);
+      const drill = this.autoMoonMinerEntry(e);
+      const more = [lookAt, ...this.sovHubEntries(e, dist)];
+      if (drill) more.push({ label: drill.title, icon: drill.icon, run: run(drill.title, drill.run) });
       const wormhole = this.wormholeEntry(e);
       const primary: RadialOption | null =
         e.kind === "station" || e.kind === "structure" ? { label: "Dock", icon: icon(9), run: run("Dock", () => this.actions.dock(id)) }
@@ -2238,7 +2252,7 @@ export class SpaceView {
       options = [
         primary,
         { label: "Orbit", icon: icon(21), ranges: radialRanges(500, 30000), defaultRange: 1000, run: (r) => run("Orbit", () => this.actions.orbit(id, r))() },
-        { label: "More", icon: "", more: [lookAt, ...this.sovHubEntries(e, dist)] },
+        { label: "More", icon: "", more },
         { label: "Keep at Range", icon: icon(22), ranges: radialRanges(500, 30000), defaultRange: 1000, run: (r) => run("Keep at Range", () => this.actions.keepAtRange(id, r))() },
         lock,
         { label: "Approach", icon: icon(23), run: run("Approach", () => this.actions.approach(id)) },

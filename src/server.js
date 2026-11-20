@@ -1301,13 +1301,22 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       return;
     }
   }
+  if (body.service === "autoMoonMining") {
+    const args = body.args;
+    if (body.pilot !== true || body.kwargs != null || body.of != null
+      || !["RequestMiningDetails", "RequestMiningCycleOutput"].includes(body.method)
+      || !Array.isArray(args) || args.length !== 2 || strictPositiveID(args[0]) === null || !isPlayerStructureID(args[1])) {
+      res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "The moon drill read requires a solar system ID, a structure ID and a held pilot." });
+      return;
+    }
+  }
   if (body.service === "moonExtractions" || body.service === "structureControl"
     || (body.service === "structureProfiles" && body.method === "GetProfiles")
     || (body.service === "structureSettings" && body.method === "CharacterHasSetting")) {
     const args = Array.isArray(body.args) ? body.args : [];
     const valid = {
       TakeControl: () => args.length === 1 && isPlayerStructureID(args[0]),
-      CharacterHasSetting: () => args.length === 2 && isPlayerStructureID(args[0]) && args[1] === 17,
+      CharacterHasSetting: () => args.length === 2 && isPlayerStructureID(args[0]) && [17, 36].includes(args[1]),
       StartNewExtraction: () => args.length === 3 && isPlayerStructureID(args[0]) && Number.isSafeInteger(args[1])
         && args[1] >= 518460 && args[1] <= 4838400 && typeof args[2] === "boolean",
     };

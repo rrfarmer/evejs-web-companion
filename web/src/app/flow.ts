@@ -462,6 +462,8 @@ import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, re
 import { canManageMoonPull, decodeCorporationMoonPulls, decodeMoonResources, decodeMoonSchedule, hasMoonStationManagerRole, moonRefineryYieldMultiplier,
   MOON_FRACTURE_MS, moonMiningID, moonPullDuration,
   type CorporationMoonSchedule, type MoonOrePricing, type MoonRefinery, type MoonResource, type MoonSchedule } from "../bridge/moonMining.ts";
+import { decodeAutoMoonDetails, decodeAutoMoonQuantities, METENOX_ACCESS_SETTING, METENOX_TYPE_ID,
+  type AutoMoonDetails, type AutoMoonMiner } from "../bridge/autoMoonMining.ts";
 import { decodeCargoScan, decodeShipScan, groupShipScanHardware, type CargoScanResult, type ShipScanGroup, type ShipScanResult } from "../bridge/scannerResults.ts";
 import { basicMiningScan, INTEGRATED_MINING_SCANNER, miningScanInWarp, miningSurveyDepletion, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
 import {
@@ -4199,6 +4201,9 @@ export interface AppFlow {
   loadMoonSchedule(structureID: number): Promise<MoonSchedule>;
   loadMoonYieldMultiplier(structureID: number): Promise<number | null>;
   loadMoonFuelExpiry(structureID: number): Promise<number | null>;
+  openAutoMoonMiner(structureID: number): Promise<AutoMoonMiner | null>;
+  loadAutoMoonDetails(miner: AutoMoonMiner): Promise<AutoMoonDetails>;
+  loadAutoMoonCycle(miner: AutoMoonMiner): Promise<ReadonlyMap<number, number>>;
   loadCorporationMoonSchedule(current?: () => void): Promise<CorporationMoonSchedule>;
   startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
@@ -26281,6 +26286,44 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return (await readControlledRefinery(structureID)).fuelExpiresAtMs;
   }
 
+  async function openAutoMoonMiner(structureID: number): Promise<AutoMoonMiner | null> {
+    const current = callOptions.captureRequestGuard!();
+    const info = await bridgeAsk("structureDirectory", "GetStructureInfo", [structureID]);
+    current();
+    const typeID = moonMiningID(readKeyVal(info, "typeID"));
+    const ownerID = moonMiningID(readKeyVal(info, "ownerID"));
+    const solarSystemID = moonMiningID(readKeyVal(info, "solarSystemID"));
+    const name = readKeyVal(info, "itemName");
+    if (typeID !== METENOX_TYPE_ID || ownerID === null || solarSystemID === null) {
+      throw new Error("The Metenox could not be found.");
+    }
+    const structureName = typeof name === "string" && name ? name : "Metenox";
+    const online = store.station.get().online;
+    const allowed = canManageMoonPull(ownerID, online?.corporationID ?? null, online?.corpRole ?? null)
+      || unwrapBool(await bridgeAsk("structureSettings", "CharacterHasSetting", [structureID, METENOX_ACCESS_SETTING])) === true;
+    current();
+    if (!allowed) {
+      sayDialog("AccessToAutoMoonMinerDenied", { type: "dict", entries: [["structureName", structureName]] },
+        `You do not have access to the Moon Drill Details for ${structureName}.`);
+      return null;
+    }
+    requestNames([{ kind: "owner", id: ownerID }]);
+    return { id: structureID, name: structureName, ownerID, solarSystemID };
+  }
+
+  async function loadAutoMoonDetails(miner: AutoMoonMiner): Promise<AutoMoonDetails> {
+    const details = decodeAutoMoonDetails(await bridgeAsk("autoMoonMining", "RequestMiningDetails", [miner.solarSystemID, miner.id]), serverNow());
+    requestNames([{ kind: "evelocation", id: details.moonID }, ...[...details.fuel.keys(), ...details.materials.keys()]
+      .map((id): NameRef => ({ kind: "type", id }))]);
+    return details;
+  }
+
+  async function loadAutoMoonCycle(miner: AutoMoonMiner): Promise<ReadonlyMap<number, number>> {
+    const result = decodeAutoMoonQuantities(await bridgeAsk("autoMoonMining", "RequestMiningCycleOutput", [miner.solarSystemID, miner.id]));
+    requestNames([...result.keys()].map(id => ({ kind: "type", id })));
+    return result;
+  }
+
   async function startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void> {
     const current = callOptions.captureRequestGuard!();
     // Fuel can move while the planner is open. Read it again at Start.
@@ -36785,6 +36828,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadMoonSchedule,
     loadMoonYieldMultiplier,
     loadMoonFuelExpiry,
+    openAutoMoonMiner,
+    loadAutoMoonDetails,
+    loadAutoMoonCycle,
     loadCorporationMoonSchedule,
     startMoonPull,
     controlMoonPull,

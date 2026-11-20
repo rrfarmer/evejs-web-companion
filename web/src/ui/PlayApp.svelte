@@ -41,6 +41,7 @@
   import DesktopWindow from "./DesktopWindow.svelte";
   import PanelHost from "./PanelHost.svelte";
   import type { MoonRefinery } from "../bridge/moonMining.ts";
+  import type { AutoMoonMiner } from "../bridge/autoMoonMining.ts";
   import PlayInfoPanels from "./PlayInfoPanels.svelte";
   import FlyDronesWindow from "./FlyDronesWindow.svelte";
   import BuffBar from "./BuffBar.svelte";
@@ -126,6 +127,22 @@
   };
 
   let session = $state<Session | null>(null);
+  let autoMoonMiner = $state.raw<AutoMoonMiner | null>(null);
+  let moonDetailsRequest = 0;
+  async function showAutoMoonMiner(structureID: number): Promise<void> {
+    const pilot = session, request = ++moonDetailsRequest;
+    if (!pilot || stage !== "game") return;
+    try {
+      const result = await pilot.flow.openAutoMoonMiner(structureID);
+      if (session !== pilot || stage !== "game" || request !== moonDetailsRequest || !result) return;
+      autoMoonMiner = result;
+      open("autoMoonMiner");
+    } catch (error) {
+      if (session === pilot && stage === "game" && request === moonDetailsRequest && (error as { code?: string })?.code !== "SESSION_REQUEST_RETIRED") {
+        notify({ kind: "danger", title: "Moon Drill Details", detail: (error as Error).message });
+      }
+    }
+  }
   // A Sov Hub's windows from its space menu: the reagent bay (OpenSovFuelDepositWindow) and the config window
   // (OpenSovHubWindow).
   let reagentBay = $state<{ hubID: number; solarSystemID: number; isStationMgr: boolean } | null>(null);
@@ -305,6 +322,9 @@
   async function enter(characterID: number) {
     if (!session) return;
     chosenCharacterID = characterID;
+    ++moonDetailsRequest;
+    autoMoonMiner = null;
+    wins = closeWindow(wins, "autoMoonMiner");
     stage = "entering";
     error = "";
     try {
@@ -516,7 +536,7 @@
     mail: { w: 800, h: 600 }, finder: { w: 1188, h: 694 }, wallet: { w: 900, h: 600 }, planets: { w: 500, h: 500 }, log: { w: 400, h: 200 },
     notepad: { w: 400, h: 300 }, calendar: { w: 580, h: 400 }, jobBoard: { w: 720, h: 960 }, paintTool: { w: 1030, h: 650 }, locationSearch: { w: 420, h: 480 }, achievements: { w: 1040, h: 825 },
     fleetComposition: { w: 680, h: 420 }, miningScan: { w: 520, h: 400 }, miningLedger: { w: 850, h: 650 }, moonMining: { w: 570, h: 550 },
-    structureBrowser: { w: 810, h: 440 },
+    structureBrowser: { w: 810, h: 440 }, autoMoonMiner: { w: 700, h: 515 },
     memberDetails: { w: 420, h: 480 },
     theatersOfWar: { w: 1600, h: 880 },
     academyShips: { w: 1280, h: 688 },
@@ -585,6 +605,7 @@
   }
   function open(tab: TabID) {
     if (tab === "moonMining" && (!moonRefinery || !controllingStructure)) return;
+    if (tab === "autoMoonMiner" && !autoMoonMiner) return;
     if (tab === "watchlist" && !session?.store.fleet.get().authoritativeFleetID) return;
     if (tab === "miningScan" && !canOpenMiningScan()) {
       const s = session;
@@ -1218,6 +1239,7 @@
         return { update: next => state.set(next), destroy: () => { void unmount(panel); } };
       },
       jumpBridge: (id) => s.flow.jumpThroughAnsiblex(id),
+      openAutoMoonMiner: showAutoMoonMiner,
       wormholePolarization: (id) => s.flow.wormholePolarization(id),
       overviewNotice: (text) => s.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text),
       overviewRelationships,
@@ -1501,7 +1523,7 @@
             <FlyDronesWindow store={session.store} flow={session.flow} />
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
-              onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} />
+              onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} {autoMoonMiner} />
           {/if}
         </DesktopWindow>
       </ErrorBoundary>

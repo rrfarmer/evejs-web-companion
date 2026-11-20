@@ -19,8 +19,10 @@
   import MiningScanResults from "./MiningScanResults.svelte";
   import MiningLedger from "./MiningLedger.svelte";
   import MoonMining from "./MoonMining.svelte";
+  import AutoMoonMinerPanel from "./AutoMoonMinerPanel.svelte";
   import CorporationMoonSchedule from "./CorporationMoonSchedule.svelte";
   import type { MoonRefinery } from "../bridge/moonMining.ts";
+  import type { AutoMoonMiner } from "../bridge/autoMoonMining.ts";
   import Mail from "./Mail.svelte";
   import Contacts from "./Contacts.svelte";
   import Watchlist from "./Watchlist.svelte";
@@ -79,6 +81,7 @@
     onShowConvoys,
     onShowSystem,
     moonRefinery,
+    autoMoonMiner,
   }: {
     store: ClientStore;
     flow: AppFlow;
@@ -107,6 +110,7 @@
     onShowConvoys?: () => void;
     onShowSystem?: (systemID: number) => void;
     moonRefinery?: MoonRefinery | null;
+    autoMoonMiner?: AutoMoonMiner | null;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -185,6 +189,10 @@
     {#key moonRefinery.id}
       <MoonMining {store} {flow} refinery={moonRefinery} />
     {/key}
+  {/if}
+{:else if tab === "autoMoonMiner"}
+  {#if autoMoonMiner}
+    {#key autoMoonMiner.id}<AutoMoonMinerPanel {store} {flow} miner={autoMoonMiner} />{/key}
   {/if}
 {:else if tab === "structureBrowser"}
   <CorporationMoonSchedule {store} {flow} />
