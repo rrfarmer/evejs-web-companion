@@ -587,6 +587,9 @@ export class SpaceView {
     if (e.categoryID === 6 || e.isNpc || e.kind === "ship") return e.name ?? typeName ?? e.kind;
     if (e.categoryID === 25 || e.groupID === 711) return typeName ?? e.name ?? e.kind;
     const located = this.actions.locationName?.(e.itemID) ?? null;
+    // eveCfg._GetCelestialNameDataFromLocalRow: a stargate is named by UI/Locations/LocationStargateFormatter,
+    // "{[location]destinationSystemID.rawName}" - its destination alone (the server's row says "Stargate (X)").
+    if (located && e.groupID === 10) return /^Stargate \((.+)\)$/.exec(located)?.[1] ?? located;
     if (located && located[0] !== "@") return located;
     return e.name ?? typeName ?? e.kind;
   }
