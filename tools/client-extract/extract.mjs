@@ -212,7 +212,8 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
   // the hull's locator sets its children's effect propagators name: each locator [x, y, z, qx, qy, qz, qw]
   const locatorHull = sof.hulls.get(String(hullName).toLowerCase());
   // (and its hangar_drones: the hangar VFX's drone propagators, added to the ship, take them - entry 212)
-  built.locatorSets = Object.fromEntries([...new Set([...usedLocatorSets(), "hangar_drones", "camera_look_at"])].map((name) => [name, ((locatorHull?.locatorSets ?? []).find((s) => String(s.name ?? "").trim() === name)?.locators ?? [])
+  const beamLocator = locatorHull?.locatorSets?.some((set) => set.name === "beam_source") ? ["beam_source"] : [];
+  built.locatorSets = Object.fromEntries([...new Set([...usedLocatorSets(), "hangar_drones", "camera_look_at", ...beamLocator])].map((name) => [name, ((locatorHull?.locatorSets ?? []).find((s) => String(s.name ?? "").trim() === name)?.locators ?? [])
     .map((l) => [...(l.position ?? [0, 0, 0]), ...(l.rotation ?? [0, 0, 0, 1])])]));
   // the hull's impact effects as EveSOF::SetupImpactEffects (EveSOF.cpp:2652-2785) sets them up where its
   // impactEffectType is not nought (1 an ellipsoid shield, 2 none drawn): its "damage" locators [x, y, z, qx, qy, qz, qw],
