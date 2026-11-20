@@ -1119,7 +1119,10 @@ import {
 import { readScanFullState } from "../bridge/scanFullState.ts";
 import { ammoMenu, AMMO_MENU_ATTRIBUTES, ATTRIBUTE as AMMO_ATTRIBUTE, chargePortion, isChargeCompatibleWithLauncher, roomForReload, type AmmoMenuEntry } from "../bridge/ammoMenu.ts";
 import { applyFitting, CHARGEABLE_GROUP_IDS, destroyRig as destroyRigCall, fitModule as fitModuleCall, GROUPABLE_GROUP_IDS, linkWeapons as linkWeaponsCall, unfitModule as unfitModuleCall, unloadChargeToCargo as unloadChargeToCargoCall, unloadChargeToContainer as unloadChargeToContainerCall, unloadModuleToCargo as unloadModuleToCargoCall, unloadModuleToContainer as unloadModuleToContainerCall, THE_HANGAR, type ModuleDestination, type WeaponBanks } from "../bridge/fitModule.ts";
-import { exportToCustomsOffice } from "../bridge/customsWrites.ts";
+import {
+  CUSTOMS_OFFICE_GROUP_ID, customsOfficeForPlanet, exportToCustomsOffice, quoteCustomsTransfer, taxRateOf, transferAtCustomsOffice,
+  type CustomsOfficeRead, type CustomsTransfer,
+} from "../bridge/customsWrites.ts";
 import { BAY_FLAGS, corpDivisionFlag, mergeStacks as mergeStacksCall, moveItems as moveItemsCall, officeAt, ordinaryContainerStackPlace, setLabel as setLabelCall, stackAll as stackAllCall, trashItems as trashItemsCall, TrashRefusedError, assembleCargoContainer as assembleCargoContainerCall, type MovePlace, type StackPlace } from "../bridge/inventoryWrites.ts";
 import { createCachedInventoryMoves } from "../bridge/cachedInventoryMoves.ts";
 import {
@@ -4439,6 +4442,8 @@ export interface AppFlow {
   readCommandCenterUpgrade(): Promise<CommandCenterUpgradeQuote>;
   submitPlanetEdits(planetID: number, edits: readonly ExtractorEdit[], routes: RouteEdits, layout?: readonly PlanetLayoutEdit[]): Promise<void>;
   expediteColonyTransfer(planetID: number, path: readonly number[], cargo: TransferCargo): Promise<void>;
+  readCustomsOffice(planetID: number): Promise<CustomsOfficeRead>;
+  submitCustomsTransfer(planetID: number, reviewed: CustomsOfficeRead, transfer: CustomsTransfer): Promise<void>;
   readColonyTemplateRules(template: ColonyTemplate, currentLevel: number): Promise<ColonyTemplateRules>;
   readColonyTemplateForExport(planetID: number, description: string): Promise<ColonyTemplate>;
   submitColonyTemplate(planetID: number, template: ColonyTemplate, rotation: TemplateRotation, reviewed: TemplatePlacement, price: number): Promise<void>;
@@ -5527,7 +5532,6 @@ export function errorWords(error: unknown): string {
 // both its flavours (the synthesized InterBus office every planet carries and an
 // anchored POCO). The GROUP says what a structure is for; its name and its
 // position do not.
-const CUSTOMS_OFFICE_GROUP_ID = 1025;
 const sayRefusal = sayRefusalWords;
 
 /**
@@ -28587,6 +28591,60 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return colony;
   }
 
+  async function readCustomsOffice(planetID: number) {
+    const pilot = callOptions.captureRequestGuard!();
+    const office = customsOfficeForPlanet(store.space.get().snapshot, planetID);
+    if (dockedNow() !== null || !office) throw new Error("The customs office must be visible in space.");
+    const [colony, inventory, taxAnswer] = await Promise.all([
+      readOwnedColony(planetID),
+      api.openContainer(office.itemID, callOptions, office.typeID),
+      bridgeAsk("planetOrbitalRegistryBroker", "GetTaxRate", [office.itemID]),
+    ]);
+    const listed = decodeInventoryRowsChecked(inventory.list, inventory.volumes);
+    if (!listed) throw new Error("The customs office inventory could not be read.");
+    // importExportUI.ResetContents reads the office's hangar flag.
+    const rows = listed.filter(row => row.flagID === 4);
+    const pads = colony.pins.filter(pin => pin.kind === "launchpad");
+    const commodities = [...new Set([...rows, ...pads.flatMap(pin => pin.contents)].map(item => item.typeID))];
+    const [facts, { volumes }] = await Promise.all([
+      infoTypeFacts([...new Set([...pads.map(pin => pin.typeID), ...commodities])]),
+      api.loadTypeVolumes(commodities, callOptions),
+    ]);
+    pilot();
+    if (dockedNow() !== null || customsOfficeForPlanet(store.space.get().snapshot, planetID)?.itemID !== office.itemID) {
+      throw new Error("The customs office is no longer visible in space.");
+    }
+    return {
+      officeID: office.itemID, planetName: colony.planetName ?? office.name ?? "Planetary colony", pads, rows,
+      capacity: decodeCapacity(inventory.capacity), taxRate: taxRateOf(taxAnswer), facts, volumes, taxAnswer,
+    };
+  }
+
+  let customsTransferPending = false;
+  async function submitCustomsTransfer(planetID: number, reviewed: CustomsOfficeRead, transfer: CustomsTransfer): Promise<void> {
+    if (customsTransferPending) throw new Error("A customs transfer is already in progress.");
+    const pilot = callOptions.captureRequestGuard!();
+    if (!Object.keys(transfer.imports).length && !Object.keys(transfer.exports).length) {
+      throw new Error("Choose goods to transfer.");
+    }
+    const quote = quoteCustomsTransfer(reviewed, transfer);
+    customsTransferPending = true;
+    try {
+      const fresh = await readCustomsOffice(planetID);
+      const currentQuote = quoteCustomsTransfer(fresh, transfer);
+      if (fresh.officeID !== reviewed.officeID || fresh.taxRate !== reviewed.taxRate
+        || currentQuote.importTax !== quote.importTax || currentQuote.exportTax !== quote.exportTax) {
+        throw new Error("The customs quote changed. Review the latest rate before transferring.");
+      }
+      pilot();
+      await transferAtCustomsOffice(bridgeDo, fresh.officeID, transfer, fresh.taxAnswer);
+      void loadPlanets().catch(() => {});
+      void loadWallet({ fresh: true }).catch(() => {});
+    } finally {
+      customsTransferPending = false;
+    }
+  }
+
   async function readColonyTemplateForExport(planetID: number, description: string): Promise<ColonyTemplate> {
     const pilot = callOptions.captureRequestGuard!();
     const colony = await readOwnedColony(planetID);
@@ -35987,12 +36045,16 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             throw new Error("Items cannot be added to Asset Safety deliveries.");
           }
           const [destination, source] = [await inventoryOfPlace(to), await inventoryOfPlace(from)];
+          const destinationPlace: MovePlace = to.kind === "container"
+            ? { ...to, customsOffice: store.space.get().snapshot?.entities.some(entity =>
+              entity.itemID === to.itemID && entity.groupID === CUSTOMS_OFFICE_GROUP_ID) }
+            : to as MovePlace;
           // invControllers._AddItem's two tries: a single stack's want of room answered as the client answers it,
           // the second try with the quantity the pilot gave (noRoomForAll).
           let quantity = qty ?? null;
           for (let attempt = 0; ; attempt += 1) {
             try {
-              await moveItemsCall(inventoryMoves.act, destination.inventory, to as MovePlace, source.liesIn, present, quantity);
+              await moveItemsCall(inventoryMoves.act, destination.inventory, destinationPlace, source.liesIn, present, quantity);
               break;
             } catch (error) {
               if (present.length !== 1) throw error;
@@ -37875,6 +37937,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     readCommandCenterUpgrade,
     submitPlanetEdits,
     expediteColonyTransfer,
+    readCustomsOffice,
+    submitCustomsTransfer,
     quoteColonyTemplate,
     readColonyTemplateRules,
     readColonyTemplateForExport,

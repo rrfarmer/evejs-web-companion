@@ -108,7 +108,7 @@ export const BAY_FLAGS: Readonly<Record<string, number>> = Object.freeze({
 export type MovePlace =
   | { readonly kind: "hangar" }
   | { readonly kind: "cargo" }
-  | { readonly kind: "container" }
+  | { readonly kind: "container"; readonly customsOffice?: boolean }
   | { readonly kind: "shipBay"; readonly bay: string }
   | { readonly kind: "corp"; readonly division: number };
 
@@ -149,7 +149,7 @@ export async function officeAt(ask: Ask, dockedAt: number): Promise<number | nul
 export function moveFlagOf(place: MovePlace): number | null {
   if (place.kind === "hangar") return 4;
   if (place.kind === "cargo") return 5;
-  if (place.kind === "container") return null;
+  if (place.kind === "container") return place.customsOffice ? 4 : null;
   if (place.kind === "corp") return corpDivisionFlag(place.division);
   const flag = BAY_FLAGS[place.bay];
   if (flag === undefined) throw new Error("That bay is not one the page knows.");
@@ -182,7 +182,9 @@ export async function moveItems(
     const [row] = rows as [MovedRow];
     const quantity = qty ?? (row.singleton ? 1 : row.quantity);
     if (!whole(quantity)) throw new Error("A whole quantity is required.");
-    await act("invbroker", "Add", [row.itemID, sourceLocationID], { qty: quantity, flag: moveFlagOf(place) }, inventory);
+    // importExportUI.MoveFromInventory leaves the flag unset so the office uses its hangar.
+    await act("invbroker", "Add", [row.itemID, sourceLocationID],
+      place.kind === "container" && place.customsOffice ? { qty: quantity } : { qty: quantity, flag: moveFlagOf(place) }, inventory);
     return;
   }
   if (qty !== null) throw new Error("A quantity can only be given when moving a single stack.");

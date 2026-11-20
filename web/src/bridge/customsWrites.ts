@@ -27,6 +27,9 @@
 // refused, TaxChanged.
 
 import type { Ask } from "./ask.ts";
+import type { ColonyPin, InventoryItemRow, CapacityInfo, SpaceSnapshot } from "../store/types.ts";
+import type { DogmaStatic } from "./dogma/location.ts";
+import type { JsonValue } from "./wire.ts";
 
 /** What the window says where the registry names no rate (CustomsOfficeAccessDenied), as the route said it. */
 export const CUSTOMS_ACCESS_DENIED = "This customs office named no tax rate: its owner does not let this pilot use it.";
@@ -43,7 +46,102 @@ export function taxRateOf(answer: unknown): number | null {
   const value = answer !== null && typeof answer === "object" && (answer as { type?: unknown }).type === "real"
     ? (answer as { value?: unknown }).value
     : answer;
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+export const CUSTOMS_OFFICE_GROUP_ID = 1025;
+
+export function customsOfficeForPlanet(snapshot: SpaceSnapshot | null, planetID: number) {
+  return snapshot?.inSpace
+    ? snapshot.entities.find(entity => entity.groupID === CUSTOMS_OFFICE_GROUP_ID && entity.planetID === planetID)
+    : undefined;
+}
+
+export interface CustomsOfficeRead {
+  readonly officeID: number;
+  readonly planetName: string;
+  readonly pads: readonly ColonyPin[];
+  readonly rows: readonly InventoryItemRow[];
+  readonly capacity: CapacityInfo | null;
+  readonly taxRate: number | null;
+  readonly facts: DogmaStatic["types"];
+  readonly volumes: Readonly<Record<number, number | null>>;
+}
+
+export interface CustomsTransfer {
+  readonly pinID: number;
+  readonly imports: Readonly<Record<number, number>>;
+  readonly exports: Readonly<Record<number, number>>;
+}
+
+export interface CustomsQuote {
+  readonly importTax: number;
+  readonly exportTax: number;
+  readonly landedVolume: number;
+  readonly liftedVolume: number;
+}
+
+export function customsCommodity(type: { categoryID: number | null; groupID: number | null }): boolean {
+  return type.categoryID === 42 || type.categoryID === 43 || (type.categoryID === 17 && type.groupID === 280);
+}
+
+// The installed SpaceportPin uses importTaxMultiplier for both directions.
+const IMPORT_TAX = 1638;
+const EXPORT_TAX = 1639;
+const IMPORT_TAX_MULTIPLIER = 1640;
+const VOLUME_TOLERANCE = 1e-5;
+const cents = (amount: number) => Math.round(amount * 100) / 100;
+
+export function quoteCustomsTransfer(office: CustomsOfficeRead, transfer: CustomsTransfer): CustomsQuote {
+  const pad = office.pads.find(pin => pin.pinID === transfer.pinID);
+  if (!pad) throw new Error("Select an installed launchpad.");
+  const rate = office.taxRate;
+  if (rate === null) throw new Error(CUSTOMS_ACCESS_DENIED);
+  const launchpad = pad;
+  const attribute = (typeID: number, id: number) => office.facts[typeID]?.attributes.find(([key]) => key === id)?.[1];
+
+  function total(quantities: CustomsTransfer["imports"], importing: boolean) {
+    let volume = 0;
+    let tax = 0;
+    for (const [key, quantity] of Object.entries(quantities)) {
+      const item = importing ? office.rows.find(row => row.itemID === Number(key))
+        : launchpad.contents.find(row => row.typeID === Number(key));
+      if (!item || !whole(quantity) || quantity > item.quantity) {
+        throw new Error("Enter a whole quantity within the available stack.");
+      }
+      const facts = office.facts[item.typeID];
+      if (!facts || !customsCommodity(facts)) throw new Error("This commodity cannot pass through customs.");
+      const perUnit = office.volumes[item.typeID];
+      const multiplier = attribute(item.typeID, IMPORT_TAX_MULTIPLIER) ?? 0;
+      const pinRate = attribute(launchpad.typeID, importing ? IMPORT_TAX : EXPORT_TAX);
+      if (perUnit == null || !Number.isFinite(perUnit) || pinRate == null) {
+        throw new Error("Commodity volume or customs tax data is unavailable.");
+      }
+      volume += perUnit * quantity;
+      tax += quantity * pinRate * multiplier;
+    }
+    return { volume, tax };
+  }
+
+  const imported = total(transfer.imports, true);
+  const exported = total(transfer.exports, false);
+  // The installed customs window checks each destination's free space before settlement.
+  if (imported.volume > 0 && (pad.usedM3 === null || pad.capacityM3 === null)) {
+    throw new Error("Launchpad capacity is unavailable.");
+  }
+  if (imported.volume > 0 && imported.volume - ((pad.capacityM3 ?? 0) - (pad.usedM3 ?? 0)) > VOLUME_TOLERANCE) {
+    throw new Error("The launchpad does not have enough free space.");
+  }
+  if (exported.volume > 0 && !office.capacity) throw new Error("Customs office capacity is unavailable.");
+  if (exported.volume > 0 && office.capacity && exported.volume - (office.capacity.capacity - office.capacity.used) > VOLUME_TOLERANCE) {
+    throw new Error("The customs office does not have enough free space.");
+  }
+  return { importTax: cents(imported.tax * rate), exportTax: cents(exported.tax * rate),
+    landedVolume: imported.volume, liftedVolume: exported.volume };
+}
+
+export async function transferAtCustomsOffice(act: Ask, officeID: number, transfer: CustomsTransfer, answered: JsonValue): Promise<void> {
+  await act("invbroker", "ImportExportWithPlanet", [transfer.pinID, transfer.imports, transfer.exports, answered], null, officeID);
 }
 
 /**
@@ -66,5 +164,5 @@ export async function exportToCustomsOffice(
   if (place.dockedAt !== null) throw new Error("The ship is not in space; undock first.");
   const answered = await ask("planetOrbitalRegistryBroker", "GetTaxRate", [officeID]);
   if (taxRateOf(answered) === null) throw new Error(CUSTOMS_ACCESS_DENIED);
-  await act("invbroker", "ImportExportWithPlanet", [pinID, {}, Object.fromEntries(given), answered], null, officeID);
+  await transferAtCustomsOffice(act, officeID, { pinID, imports: {}, exports: Object.fromEntries(given) }, answered);
 }

@@ -56,13 +56,17 @@
   import { romanLevel } from "../bridge/skills.ts";
   import LabelText from "./LabelText.svelte";
   import { linkFollowerOf, LINK_WORDS } from "./linkFollowers.ts";
+  import { customsOfficeForPlanet } from "../bridge/customsWrites.ts";
 
-  let { store, flow, onViewPlanet, viewingPlanetID = null }: {
-    store: ClientStore; flow: AppFlow; onViewPlanet?: (planetID: number) => void; viewingPlanetID?: number | null;
+  let { store, flow, onViewPlanet, onAccessCustoms, viewingPlanetID = null }: {
+    store: ClientStore; flow: AppFlow; onViewPlanet?: (planetID: number) => void;
+    onAccessCustoms?: (planetID: number) => void; viewingPlanetID?: number | null;
   } = $props();
 
   // svelte-ignore state_referenced_locally
   const planets = store.planets;
+  // svelte-ignore state_referenced_locally
+  const space = store.space;
   // svelte-ignore state_referenced_locally
   const launchesRead = flow.planetLaunches;
   // svelte-ignore state_referenced_locally
@@ -308,12 +312,13 @@
           </div>
         {/each}
       </div>
-      <!-- the ButtonGroup: View, Warp To, Access - disabled until a colony is chosen (Warp To and Access here stay so) -->
       <div class="pc-buttons">
         <button type="button" disabled={!canViewColony} title={plainText(piText("UI/PI/Common/ViewInPlanetMode"))}
           onclick={() => { if (chosenColony !== null) onViewPlanet?.(chosenColony); }}>{plainText(piText("UI/Common/View")) || "View"}</button>
         <button type="button" disabled>{plainText(piText("UI/Commands/WarpTo")) || "Warp To"}</button>
-        <button type="button" disabled title={plainText(piText("UI/PI/Common/AccessCustomOffice"))}>{plainText(piText("UI/PI/Common/Access")) || "Access"}</button>
+        <button type="button" disabled={!onAccessCustoms || chosenColony === null || !customsOfficeForPlanet($space.snapshot, chosenColony)}
+          title={plainText(piText("UI/PI/Common/AccessCustomOffice"))}
+          onclick={() => { if (chosenColony !== null) onAccessCustoms?.(chosenColony); }}>{plainText(piText("UI/PI/Common/Access")) || "Access"}</button>
         <button type="button" disabled={chosenColony === null} onclick={() => { templatePlanet = chosenColony; }}>Templates</button>
       </div>
     </div>

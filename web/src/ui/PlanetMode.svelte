@@ -29,7 +29,14 @@
   import ProcessorSchematics from "./ProcessorSchematics.svelte";
   import TypeIcon from "./TypeIcon.svelte";
 
-  let { colony, store, flow, onClose }: { colony: Colony; store: ClientStore; flow: AppFlow; onClose: () => void } = $props();
+  import { customsOfficeForPlanet } from "../bridge/customsWrites.ts";
+
+  let { colony, store, flow, onClose, onAccessCustoms }: {
+    colony: Colony; store: ClientStore; flow: AppFlow; onClose: () => void;
+    onAccessCustoms: (planetID: number, pinID: number) => void;
+  } = $props();
+  // svelte-ignore state_referenced_locally
+  const customsSpace = store.space;
   // svelte-ignore state_referenced_locally
   const planets = store.planets;
   // svelte-ignore state_referenced_locally
@@ -1018,6 +1025,10 @@
         <p>{networkView.links.filter(link => link.endpoint1 === selected.pinID || link.endpoint2 === selected.pinID).length} links ·
           {networkView.routes.filter(route => route.path.includes(selected.pinID)).length} routes</p>
         {#if !routing && !transferring}
+          {#if selected.kind === "launchpad"}
+            <button type="button" disabled={pending || submitting || refreshing || !customsOfficeForPlanet($customsSpace.snapshot, colony.planetID)}
+              onclick={() => { if (selected) onAccessCustoms(colony.planetID, selected.pinID); }}>Access Customs Office</button>
+          {/if}
           {#if selected.kind === "factory"}
             <button type="button" disabled={submitting || refreshing} aria-expanded={schematicsShown}
               onclick={() => { schematicsShown = !schematicsShown; }}>Schematics</button>

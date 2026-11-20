@@ -45,6 +45,7 @@
   import DesktopWindow from "./DesktopWindow.svelte";
   import PanelHost from "./PanelHost.svelte";
   import PlanetMode from "./PlanetMode.svelte";
+  import CustomsOffice from "./CustomsOffice.svelte";
   import type { MoonRefinery } from "../bridge/moonMining.ts";
   import { METENOX_TYPE_ID, type AutoMoonMiner, type MoonMaterialBay } from "../bridge/autoMoonMining.ts";
   import PlayInfoPanels from "./PlayInfoPanels.svelte";
@@ -944,6 +945,28 @@
   let systemMenu = $state(false);
   let mapHost = $state<HTMLDivElement | null>(null);
   let planetModeID = $state<number | null>(null);
+  let customsTarget = $state<{ planetID: number; pinID: number | null } | null>(null);
+  let customsTrigger: HTMLElement | null = null;
+  function openCustoms(planetID: number, pinID: number | null = null) {
+    customsTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    customsTarget = { planetID, pinID };
+  }
+  function closeCustoms() {
+    customsTarget = null;
+    const trigger = customsTrigger;
+    customsTrigger = null;
+    if (trigger?.isConnected) requestAnimationFrame(() => trigger.focus());
+  }
+  async function openCustomsCargo(officeID: number) {
+    const pilot = session;
+    await pilot.flow.showInventoryContainer(officeID);
+    if (session === pilot) open("inventory");
+  }
+  $effect(() => {
+    session;
+    if (docked) customsTarget = null;
+    return () => { customsTarget = null; customsTrigger = null; };
+  });
   let planetSurface = $state.raw<Colony | null>(null);
   let planetModeView: { canLeave: () => boolean; escapeCanLeave: () => boolean } | undefined = $state();
   let planetModeTrigger: HTMLElement | null = null;
@@ -1125,6 +1148,7 @@
     if (cmd === "OnEsc") {
       e.preventDefault();
       if (starMap) toggleStarMap(false);
+      else if (customsTarget) closeCustoms();
       else if (planetInMode) { if (planetModeView?.escapeCanLeave()) leavePlanetMode(); }
       else systemMenu = !systemMenu;
       return;
@@ -1658,7 +1682,8 @@
   <div class="fly-map" class:foreground={mapInFront} bind:this={mapHost}></div>
   {#if planetInMode}
     {#key planetInMode.planetID}
-      <PlanetMode bind:this={planetModeView} colony={planetInMode} store={session.store} flow={session.flow} onClose={() => leavePlanetMode()} />
+      <PlanetMode bind:this={planetModeView} colony={planetInMode} store={session.store} flow={session.flow}
+        onClose={() => leavePlanetMode()} onAccessCustoms={openCustoms} />
     {/key}
   {/if}
 
@@ -1690,13 +1715,20 @@
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
               onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} {autoMoonMiner}
-              onViewPlanet={showPlanetInMode} viewingPlanetID={planetModeID}
+              onViewPlanet={showPlanetInMode} viewingPlanetID={planetModeID} onAccessCustoms={openCustoms}
               {moonMaterialBay} {metenoxTransfer} {metenoxControl} onLeaveMetenox={leaveMetenox} />
           {/if}
         </DesktopWindow>
       </ErrorBoundary>
     {/each}
   </div>
+
+  {#if customsTarget && session}
+    {#key customsTarget}
+      <CustomsOffice planetID={customsTarget.planetID} pinID={customsTarget.pinID} store={session.store} flow={session.flow}
+        close={closeCustoms} openCargo={openCustomsCargo} />
+    {/key}
+  {/if}
 
   <NoticeBridge store={session.store} flow={session.flow} />
   <ErrorBoundary name="Fleet invitation">
