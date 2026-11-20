@@ -4,7 +4,8 @@ import {
   constructionError, draftInstallation, installationRemoval, placementError, planPlanetLayout,
   type InstallationType, type PlanetLayoutEdit,
 } from "./planetConstruction.ts";
-import { linkEndpoints } from "./planetLinks.ts";
+import { colonyLinkBudget, linkEndpoints } from "./planetLinks.ts";
+import { commandCenterLevelName } from "./commandCenterUpgrade.ts";
 import { decodeColonyReport } from "./planets.ts";
 import { routeEditCommands } from "./planetWrites.ts";
 
@@ -65,4 +66,30 @@ test("decommission removes the reviewed links and affected routes and catches ch
   assert.throws(() => planPlanetLayout(changed, [edit], {}), /route changed/);
   const changedLink = { ...colony, links: [{ ...colony.links[0]!, level: 2 }] };
   assert.throws(() => planPlanetLayout(changedLink, [edit], {}), /links or routes changed/);
+});
+
+test("one command centre upgrade changes the projected power and CPU and charges from the saved level", () => {
+  assert.equal(commandCenterLevelName(5), "VI");
+  const upgrade: PlanetLayoutEdit = { kind: "upgrade", upgrade: { pinID: 1, previousLevel: 2, level: 4 } };
+  const quote = { skillLevel: 4, wallet: 2700000 };
+  const plan = planPlanetLayout(colony, [upgrade], facts, undefined, quote);
+  assert.deepEqual(plan.commands, [[9, [1, 4]]]);
+  assert.equal(plan.colony.commandCenterLevel, 4);
+  assert.equal(colonyLinkBudget(plan.colony, facts)?.cpuSupply, 21315);
+  assert.equal(colonyLinkBudget(plan.colony, facts)?.powerSupply, 17000);
+  assert.throws(() => planPlanetLayout(colony, [upgrade], facts, undefined, { ...quote, wallet: 2699999 }), /insufficient ISK/);
+  assert.throws(() => planPlanetLayout(colony, [upgrade], facts, undefined, { ...quote, skillLevel: 3 }), /does not allow/);
+  assert.throws(() => planPlanetLayout({ ...colony, commandCenterLevel: 3 }, [upgrade], facts, undefined, quote), /command centre changed/);
+});
+
+test("the upgraded budget applies to later installations and Submit includes the combined cost", () => {
+  const upgrade: PlanetLayoutEdit = { kind: "upgrade", upgrade: { pinID: 1, previousLevel: 2, level: 4 } };
+  const heavy = { ...storage, power: 13000 };
+  const buildAfterUpgrade: PlanetLayoutEdit = { ...build, pin: draftInstallation(-1, heavy, point) };
+  const quote = { wallet: 2950000, options: [heavy] };
+  assert.throws(() => planPlanetLayout(colony, [buildAfterUpgrade], facts, quote), /insufficient power/);
+  const submitted = planPlanetLayout(colony, [upgrade, buildAfterUpgrade], facts, quote, { skillLevel: 4, wallet: quote.wallet });
+  assert.deepEqual(submitted.commands, [[9, [1, 4]], [1, [[1, 1], 2541, 1.3, 2.3]]]);
+  assert.throws(() => planPlanetLayout(colony, [upgrade, buildAfterUpgrade], facts, { ...quote, wallet: 2949999 },
+    { skillLevel: 4, wallet: 2949999 }), /insufficient ISK/);
 });

@@ -1,6 +1,8 @@
 import type { Colony, ColonyPin, ColonyPinKind } from "../store/types.ts";
 import { applyPlanetLinkEdit, colonyBudgetError, colonyLinkBudget, planPlanetLinkEdits, type LinkEdit, type PlanetLinkFacts } from "./planetLinks.ts";
 import { angularDistance, linkKey, validateRouteRemovals } from "./planetRouting.ts";
+import { commandCenterUpgradeCommand, commandCenterUpgradeCost, commandCenterUpgradeError, type CommandCenterUpgrade,
+  type CommandCenterUpgradeQuote } from "./commandCenterUpgrade.ts";
 import { planetPinRef } from "./planetWrites.ts";
 import type { JsonValue } from "./wire.ts";
 
@@ -37,6 +39,7 @@ export type Removal = ReturnType<typeof installationRemoval>;
 export type PlanetLayoutEdit =
   | { readonly kind: "build"; readonly pin: ColonyPin & SurfaceCoordinates; readonly price: number }
   | { readonly kind: "remove"; readonly removal: Removal }
+  | { readonly kind: "upgrade"; readonly upgrade: CommandCenterUpgrade }
   | { readonly kind: "link"; readonly link: LinkEdit };
 
 export function installationRemoval(colony: Colony, pin: ColonyPin) {
@@ -72,6 +75,7 @@ export function constructionError(colony: Colony, option: InstallationType, fact
 export function applyPlanetLayoutEdit(colony: Colony, edit: PlanetLayoutEdit): Colony {
   if (edit.kind === "link") return applyPlanetLinkEdit(colony, edit.link);
   if (edit.kind === "build") return { ...colony, pins: [...colony.pins, edit.pin] };
+  if (edit.kind === "upgrade") return { ...colony, commandCenterLevel: edit.upgrade.level };
   const id = edit.removal.pinID;
   const links = colony.links.filter(link => link.endpoint1 !== id && link.endpoint2 !== id);
   return { ...colony, pins: colony.pins.filter(pin => pin.pinID !== id), links, linkCount: links.length,
@@ -83,7 +87,8 @@ function savedLinkLevels(links: Removal["links"]): string {
     .map(link => `${linkKey(link.endpoint1, link.endpoint2)}:${link.level}`).sort().join("+");
 }
 
-export function planPlanetLayout(colony: Colony, edits: readonly PlanetLayoutEdit[], facts: PlanetLinkFacts, quote?: ConstructionQuote) {
+export function planPlanetLayout(colony: Colony, edits: readonly PlanetLayoutEdit[], facts: PlanetLinkFacts,
+  quote?: ConstructionQuote, upgradeQuote?: CommandCenterUpgradeQuote) {
   const commands: JsonValue[] = [];
   let cost = 0;
   for (const edit of edits) {
@@ -91,6 +96,19 @@ export function planPlanetLayout(colony: Colony, edits: readonly PlanetLayoutEdi
       const plan = planPlanetLinkEdits(colony, [edit.link], facts);
       colony = plan.colony;
       commands.push(...plan.commands);
+      continue;
+    }
+    if (edit.kind === "upgrade") {
+      const { pinID, previousLevel, level } = edit.upgrade;
+      if (colony.commandCenterLevel !== previousLevel || !colony.pins.some(pin => pin.pinID === pinID && pin.kind === "command")) {
+        throw new Error("The command centre changed. Review its current level before upgrading.");
+      }
+      if (!upgradeQuote) throw new Error("The command centre upgrade quote is unavailable.");
+      const error = commandCenterUpgradeError(previousLevel, level, upgradeQuote, cost);
+      if (error) throw new Error(error);
+      cost += commandCenterUpgradeCost(previousLevel, level);
+      commands.push(commandCenterUpgradeCommand(pinID, level));
+      colony = applyPlanetLayoutEdit(colony, edit);
       continue;
     }
     if (edit.kind === "build") {

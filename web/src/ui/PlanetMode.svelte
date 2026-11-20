@@ -11,12 +11,14 @@
   import { applyPlanetLayoutEdit, constructionError, draftInstallation, installationRemoval, INSTALLATION_GROUPS,
     placementError, type ConstructionQuote, type InstallationType, type PlanetLayoutEdit, type SurfaceCoordinates } from "../bridge/planetConstruction.ts";
   import { abandonmentBasis, emptyPlanetSurface, type CommandCenterPlacement, type CommandCenterQuote } from "../bridge/planetDeployment.ts";
+  import { commandCenterLevelName, commandCenterUpgradeCost, type CommandCenterUpgrade as CenterUpgradeEdit } from "../bridge/commandCenterUpgrade.ts";
   import type { NewRoute } from "../bridge/planetWrites.ts";
   import { serverNow } from "../bridge/planets.ts";
   import { PlanetScene, type ExtractorMarkerPosition, type PlanetMarkerPosition } from "../play/planetScene.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { Colony, ColonyLink, ColonyPin, ColonyRoute, ExtractorHead } from "../store/types.ts";
   import ColonyTemplate from "./ColonyTemplate.svelte";
+  import CommandCenterUpgrade from "./CommandCenterUpgrade.svelte";
   import ExtractorSurvey from "./ExtractorSurvey.svelte";
   import ExpeditedTransfer from "./ExpeditedTransfer.svelte";
   import PlanetLink from "./PlanetLink.svelte";
@@ -46,6 +48,8 @@
   let newRoutes = $state.raw<readonly NewRoute[]>([]);
   let removedRoutes = $state.raw<readonly ColonyRoute[]>([]);
   let layout = $state.raw<readonly PlanetLayoutEdit[]>([]);
+  let upgradeShown = $state(false);
+  let upgradeRefresh = $state(0);
   let building = $state(false);
   let decommissioning = $state(false);
   let pendingRemoval = $state<number | null>(null);
@@ -98,7 +102,9 @@
     : draftCenter ? { ...colony, pins: [draftCenter] } : layout.reduce(applyPlanetLayoutEdit, colony));
   const builds = $derived(layout.filter(edit => edit.kind === "build"));
   const decommissions = $derived(layout.filter(edit => edit.kind === "remove"));
-  const constructionCost = $derived(Math.round(builds.reduce((cost, edit) => cost + edit.price, 0) * 100) / 100);
+  const commandUpgrade = $derived(layout.find(edit => edit.kind === "upgrade")?.upgrade);
+  const pendingCost = $derived(Math.round((builds.reduce((cost, edit) => cost + edit.price, 0)
+    + (commandUpgrade ? commandCenterUpgradeCost(commandUpgrade.previousLevel, commandUpgrade.level) : 0)) * 100) / 100);
   const linkEdits = $derived(layout.flatMap(edit => edit.kind === "link" ? [edit.link] : []));
   const changedLinks = $derived(new Set(linkEdits.map(edit => linkKey(edit.endpoint1, edit.endpoint2))));
   const link = $derived(selectedLink ? linkInColony(networkView, selectedLink) : undefined);
@@ -151,6 +157,7 @@
     if (linking) { chooseLinkPin(pin); return; }
     if (shortcut) { startLink(pin); return; }
     pendingRemoval = null;
+    upgradeShown = false;
     closeLink();
     highlight = [];
     if (extractorID !== null && extractorID !== pin.pinID) closeExtractor();
@@ -359,6 +366,7 @@
     buildError = "";
     deployPicking = false;
     abandonReview = false;
+    upgradeShown = false;
   }
 
   function enterConstruction(): void {
@@ -382,7 +390,7 @@
   function placeInstallation(point: SurfaceCoordinates): void {
     if (!building || !buildType || !construction || submitting || refreshing) return;
     buildPoint = point;
-    buildError = constructionError(networkView, buildType, linkFacts, constructionCost, construction.wallet) || placementError(networkView, point);
+    buildError = constructionError(networkView, buildType, linkFacts, pendingCost, construction.wallet) || placementError(networkView, point);
     if (buildError) return;
     const pin = draftInstallation(nextDraftPin--, buildType, point);
     layout = [...layout, { kind: "build", pin, price: buildType.price }];
@@ -420,6 +428,17 @@
     closeLink();
     closeConstruction();
     abandonReview = true;
+  }
+
+  function stageCommandUpgrade(level: number): void {
+    if (!selected || selected.kind !== "command" || submitting || refreshing || level <= networkView.commandCenterLevel) return;
+    const upgrade: CenterUpgradeEdit = {
+      pinID: selected.pinID, previousLevel: commandUpgrade?.previousLevel ?? colony.commandCenterLevel, level,
+    };
+    const edit = { kind: "upgrade", upgrade } as const;
+    layout = commandUpgrade ? layout.map(previous => previous.kind === "upgrade" ? edit : previous) : [...layout, edit];
+    upgradeShown = false;
+    submitError = "";
   }
 
   function stageAbandonment(): void {
@@ -530,7 +549,7 @@
   }
 
   export function escapeCanLeave(): boolean {
-    if (deployPicking || abandonReview) {
+    if (deployPicking || abandonReview || upgradeShown) {
       if (!submitting) closeConstruction();
       return false;
     }
@@ -585,6 +604,7 @@
       await flow.loadPlanets();
       refreshError = planets.get().error ?? "";
       deploymentRevision++;
+      upgradeRefresh++;
     } catch (cause) {
       refreshError = errorWords(cause);
     } finally {
@@ -710,7 +730,7 @@
   });
   $effect(() => {
     const error = buildType && construction
-      ? constructionError(networkView, buildType, linkFacts, constructionCost, construction.wallet) : "";
+      ? constructionError(networkView, buildType, linkFacts, pendingCost, construction.wallet) : "";
     const point = (building && buildType) || deployPicking ? buildPoint : null;
     scene?.previewInstallation(point, !error && (!point || !placementError(networkView, point)), buildType?.area);
   });
@@ -796,6 +816,9 @@
             {#if builds.length || decommissions.length}
               {edits.size || newRoutes.length || removedRoutes.length || linkEdits.length ? " · " : ""}{builds.length + decommissions.length} pending installation {builds.length + decommissions.length === 1 ? "change" : "changes"}
             {/if}
+            {#if commandUpgrade}
+              {edits.size || newRoutes.length || removedRoutes.length || linkEdits.length || builds.length || decommissions.length ? " · " : ""}Command centre upgrade pending
+            {/if}
           {/if}
         </span>
         <button type="button" disabled={submitting || refreshing || dragging !== null} onclick={() => void submitEdits()}>{submitting ? "Submitting…" : "Submit"}</button>
@@ -810,7 +833,9 @@
       {#if !abandonDraft && removedLinkRoutes}
         <p>Submitting will remove {removedLinkRoutes} {removedLinkRoutes === 1 ? "route" : "routes"} through decommissioned {decommissions.length ? "installations or links" : "links"}.</p>
       {/if}
-      {#if !abandonDraft && constructionCost}<p>Construction cost {constructionCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} ISK</p>{/if}
+      {#if !abandonDraft && pendingCost}
+        <p>{commandUpgrade ? builds.length ? "Total cost" : "Upgrade cost" : "Construction cost"} {pendingCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} ISK</p>
+      {/if}
       {#if submitError}<p role="alert">{submitError}</p>{/if}
     </section>
   {/if}
@@ -897,7 +922,7 @@
               <div class="build-group">
                 <strong>{group.name}</strong>
                 {#each construction.options.filter(option => option.groupID === group.id) as option (option.typeID)}
-                  {@const problem = linkFactsError || constructionError(networkView, option, linkFacts, constructionCost, construction.wallet)}
+                  {@const problem = linkFactsError || constructionError(networkView, option, linkFacts, pendingCost, construction.wallet)}
                   <button type="button" class="build-option" aria-pressed={buildType?.typeID === option.typeID}
                     disabled={submitting || refreshing || Boolean(problem)} title={problem || option.typeName} onclick={() => chooseBuildType(option)}>
                     <TypeIcon typeID={option.typeID} name={option.typeName} />
@@ -939,13 +964,13 @@
         <div class="installation-heading">
           <TypeIcon typeID={selected.typeID} name={selected.typeName} />
           <strong>{selected.typeName}</strong>
-          <button type="button" aria-label="Close installation details" disabled={submitting} onclick={() => { closeRoute(); closeTransfer(); selectedID = null; }}>×</button>
+          <button type="button" aria-label="Close installation details" disabled={submitting} onclick={() => { closeRoute(); closeTransfer(); upgradeShown = false; selectedID = null; }}>×</button>
         </div>
         {#if selected.schematicName}<p>Recipe <strong>{selected.schematicName}</strong></p>{/if}
         {#if selected.kind === "factory" && selected.schematicID !== null && selected.active != null}
           <p class="processor-status">{selected.active ? "Processing" : "Waiting for inputs"}</p>
         {/if}
-        {#if selected.kind === "command"}<p>Command centre level <strong>{colony.commandCenterLevel}</strong></p>{/if}
+        {#if selected.kind === "command"}<p>Command centre level <strong>{commandCenterLevelName(networkView.commandCenterLevel)}</strong>{commandUpgrade ? " (pending)" : ""}</p>{/if}
         {#if selected.program?.resourceTypeName}<p>Resource <strong>{selected.program.resourceTypeName}</strong></p>{/if}
         {#if selected.kind === "extractor-control"}
           {#if pendingResource}<p>Pending program <strong>{pendingResource}</strong></p>
@@ -967,10 +992,15 @@
           {#if selected.kind !== "command"}
             <button type="button" disabled={submitting || refreshing} onclick={() => reviewRemoval(selected)}>Decommission Installation</button>
           {:else}
+            <button type="button" disabled={submitting || refreshing} aria-expanded={upgradeShown}
+              onclick={() => { upgradeShown = !upgradeShown; }}>Upgrade Command Centre</button>
             <button type="button" disabled={submitting || refreshing} onclick={reviewAbandonment}>Abandon Colony</button>
           {/if}
         {/if}
-        {#if transferring}
+        {#if upgradeShown && selected.kind === "command"}
+          <CommandCenterUpgrade level={networkView.commandCenterLevel} {pendingCost} {flow} disabled={submitting || refreshing}
+            refresh={upgradeRefresh} stage={stageCommandUpgrade} close={() => { upgradeShown = false; }} />
+        {:else if transferring}
           {#key transferPath.at(-1) ?? null}
             <ExpeditedTransfer {colony} source={selected} path={transferPath} recipes={$planets.recipes} {flow}
               clockOffsetMs={$planets.clockOffsetMs} submitting={submitting || refreshing} submitError={transferError}

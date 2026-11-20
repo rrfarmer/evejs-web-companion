@@ -1,14 +1,11 @@
 import type { Colony, ColonyLink, ColonyPin, ColonyRoute } from "../store/types.ts";
 import { angularDistance, validateRouteRemovals } from "./planetRouting.ts";
+import { COMMAND_CENTER_LEVELS } from "./commandCenterUpgrade.ts";
 import { planetPinRef } from "./planetWrites.ts";
 import type { JsonValue } from "./wire.ts";
 
 export const PLANET_LINK_TYPE_ID = 2280;
 export const MAX_LINK_LEVEL = 10;
-
-// planetCommon.COMMAND_CENTER_LEVELS, indexed by the colony's upgrade level.
-const CPU_OUTPUT = [1675, 7057, 12136, 17215, 21315, 25415];
-const POWER_OUTPUT = [6000, 9000, 12000, 15000, 17000, 19000];
 
 type Coordinates = Pick<ColonyPin, "latitude" | "longitude">;
 type Endpoints = Pick<ColonyLink, "endpoint1" | "endpoint2">;
@@ -58,9 +55,8 @@ export function linkUsage(radius: number | undefined, a: Coordinates, b: Coordin
 }
 
 export function colonyLinkBudget(colony: Colony, facts: PlanetLinkFacts) {
-  const cpuSupply = CPU_OUTPUT[colony.commandCenterLevel];
-  const powerSupply = POWER_OUTPUT[colony.commandCenterLevel];
-  if (cpuSupply === undefined || powerSupply === undefined || !colony.pins.some(pin => pin.kind === "command")) return null;
+  const output = COMMAND_CENTER_LEVELS[colony.commandCenterLevel];
+  if (!output || !colony.pins.some(pin => pin.kind === "command")) return null;
   let cpu = 0, power = 0;
   const pins = new Map(colony.pins.map(pin => [pin.pinID, pin]));
   for (const pin of colony.pins) {
@@ -78,7 +74,7 @@ export function colonyLinkBudget(colony: Colony, facts: PlanetLinkFacts) {
     cpu += usage.cpu;
     power += usage.power;
   }
-  return { cpu, power, cpuSupply, powerSupply };
+  return { cpu, power, cpuSupply: output.cpu, powerSupply: output.power };
 }
 
 export function linkBudgetError(colony: Colony, link: ColonyLink, facts: PlanetLinkFacts): string {

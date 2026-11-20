@@ -455,6 +455,7 @@ import { decodeResourceData, type PlanetResourceData } from "../bridge/boundPlan
 import { PLANET_SURVEY_PROXIMITY, planetSurveyBands } from "../bridge/planetSurvey.ts";
 import { PLANET_LINK_TYPE_ID, pinUsage, planetAttribute, type PlanetLinkFacts } from "../bridge/planetLinks.ts";
 import { INSTALLATION_GROUPS, placementError, planPlanetLayout, type ConstructionQuote, type PlanetLayoutEdit } from "../bridge/planetConstruction.ts";
+import { COMMAND_CENTER_UPGRADES_SKILL, type CommandCenterUpgradeQuote } from "../bridge/commandCenterUpgrade.ts";
 import { abandonmentBasis, COMMAND_CENTER_BAYS, deploymentLocationError, findCommandCenterSource, INTERPLANETARY_CONSOLIDATION,
   localPlanetSurface, OMNIPOTENT, type CommandCenterPlacement, type CommandCenterQuote } from "../bridge/planetDeployment.ts";
 import { exportColonyTemplate, planColonyTemplate, planetCommandCenterType, type ColonyTemplate, type ColonyTemplateRules, type TemplatePlacement, type TemplateRotation } from "../bridge/colonyTemplate.ts";
@@ -4435,6 +4436,7 @@ export interface AppFlow {
   readPlanetRouteFacts(typeIDs: readonly number[]): Promise<PlanetRouteFacts>;
   readPlanetLinkFacts(typeIDs: readonly number[]): Promise<PlanetLinkFacts>;
   readPlanetConstruction(planetTypeID: number): Promise<ConstructionQuote>;
+  readCommandCenterUpgrade(): Promise<CommandCenterUpgradeQuote>;
   submitPlanetEdits(planetID: number, edits: readonly ExtractorEdit[], routes: RouteEdits, layout?: readonly PlanetLayoutEdit[]): Promise<void>;
   expediteColonyTransfer(planetID: number, path: readonly number[], cargo: TransferCargo): Promise<void>;
   readColonyTemplateRules(template: ColonyTemplate, currentLevel: number): Promise<ColonyTemplateRules>;
@@ -28374,6 +28376,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }).sort((left, right) => left.price - right.price) };
   }
 
+  async function readCommandCenterUpgrade(): Promise<CommandCenterUpgradeQuote> {
+    const pilot = callOptions.captureRequestGuard!();
+    const [skills, cash] = await Promise.all([bridgeAsk("skillHandler", "GetSkills", []), walletReads.wealth()]);
+    pilot();
+    const balance = decodeWalletCash(cash);
+    if (balance === null || !Number.isFinite(Number(balance))) throw new Error("The pilot's available ISK is unavailable.");
+    return { skillLevel: effectiveSkillLevel(skills, COMMAND_CENTER_UPGRADES_SKILL), wallet: Number(balance) };
+  }
+
   const planetSubmissions = new Set<number>();
   let deployingPlanet = false;
 
@@ -28520,12 +28531,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const fresh = await readOwnedColony(planetID);
       pilot();
       const builds = layout.flatMap(edit => edit.kind === "build" ? [edit.pin.typeID] : []);
-      const [factsForLayout, quote] = await Promise.all([
+      const [factsForLayout, quote, upgradeQuote] = await Promise.all([
         builds.length || layout.some(edit => edit.kind === "link" && edit.link.level !== null)
           ? readPlanetLinkFacts([...fresh.pins.map(pin => pin.typeID), ...builds]) : {},
         builds.length ? readPlanetConstruction(fresh.planetTypeID) : undefined,
+        layout.some(edit => edit.kind === "upgrade") ? readCommandCenterUpgrade() : undefined,
       ]);
-      const { colony, commands: layoutCommands } = planPlanetLayout(validateRouteRemovals(fresh, routes.remove), layout, factsForLayout, quote);
+      const { colony, commands: layoutCommands } = planPlanetLayout(validateRouteRemovals(fresh, routes.remove), layout, factsForLayout, quote, upgradeQuote);
       if (routes.create.length) {
         if (routes.create.some(route => edits.some(edit => edit.pinID === route.path[0] && edit.resourceID !== undefined))) {
           throw new Error("Submit the new extractor program before routing its output.");
@@ -28595,7 +28607,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (routeTypes.length && (capacity == null || capacity <= 0)) {
       throw new Error("The planetary link capacity could not be read.");
     }
-    const commandCenterSkill = template.level > currentLevel ? effectiveSkillLevel(skills, 2505) : currentLevel;
+    const commandCenterSkill = template.level > currentLevel ? effectiveSkillLevel(skills, COMMAND_CENTER_UPGRADES_SKILL) : currentLevel;
     return { commandCenterSkill, baseLinkBandwidth: capacity ?? 0, commodityVolumes: volumes.volumes };
   }
 
@@ -37858,6 +37870,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     readPlanetRouteFacts,
     readPlanetLinkFacts,
     readPlanetConstruction,
+    readCommandCenterUpgrade,
     submitPlanetEdits,
     expediteColonyTransfer,
     quoteColonyTemplate,

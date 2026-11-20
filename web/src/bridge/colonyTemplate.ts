@@ -1,6 +1,7 @@
 import type { Colony } from "../store/types.ts";
 import type { PiRecipeBook, PiSchematic } from "./piRecipes.ts";
 import type { JsonValue } from "./wire.ts";
+import { commandCenterUpgradeCommand, commandCenterUpgradeCost } from "./commandCenterUpgrade.ts";
 
 // 3698585 planetConst.PLANET_TYPE_TO_PIN. Columns are basic, advanced, high-tech,
 // command centre, storage, spaceport and extractor control unit.
@@ -23,8 +24,6 @@ const EXTRACTOR = 6;
 const MAX_ROUTE_PINS = 7; // baseColony.ValidateCreateRoute allows five intermediate pins.
 const COMMAND_ENDPOINT = "CmdCtr";
 const TAU = Math.PI * 2;
-// planetStaticData's cumulative build costs for the native command-centre levels.
-const UPGRADE_COST = [0, 580000, 1510000, 2710000, 4210000, 6310000] as const;
 
 type Endpoint = number | typeof COMMAND_ENDPOINT;
 interface TemplatePin {
@@ -253,8 +252,8 @@ export function planColonyTemplate(template: ColonyTemplate, colony: Colony, rec
   if (!types) throw new Error("This planet cannot accept a planetary template.");
   const changes: JsonValue[] = [];
   const level = Math.max(colony.commandCenterLevel, Math.min(template.level, rules.commandCenterSkill));
-  const upgradeCost = UPGRADE_COST[level]! - UPGRADE_COST[colony.commandCenterLevel]!;
-  if (level > colony.commandCenterLevel) changes.push([9, [centre.pinID, level]]);
+  const upgradeCost = commandCenterUpgradeCost(colony.commandCenterLevel, level);
+  if (level > colony.commandCenterLevel) changes.push(commandCenterUpgradeCommand(centre.pinID, level));
   const ids = new Map<Endpoint, PinID>([[COMMAND_ENDPOINT, centre.pinID]]);
   const columnByIndex = new Map<Endpoint, number>();
   const recipeByIndex = new Map<Endpoint, PiSchematic>();
