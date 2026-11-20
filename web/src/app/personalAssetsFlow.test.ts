@@ -452,6 +452,39 @@ test("every id the panel will show is asked for by NAME in one round-trip", asyn
   assert.ok(keys.has(`type:${STATION_TYPE_ID}`), "and its type, for the icon");
 });
 
+test("asset stations and structures request the name kinds used by location labels", async () => {
+  const structureID = 1030000000000;
+  const { flow, requests } = makeFlow(respondOk((path, body) => isStationsCall(path, body)
+    ? stationsAnswer([[STATION_ID, SYSTEM_ID, STATION_TYPE_ID, 9, null], [structureID, 30002647, 35835, 1, null]])
+    : null));
+  await flow.loadPersonalAssets();
+  await settleNames();
+  const asked = requests.filter(({ path }) => path === "/api/names")
+    .flatMap(({ body }) => body.items as { kind: string; id: number }[]);
+  const locations = asked.filter(({ id }) => id === structureID || id === STATION_ID);
+  assert.deepEqual(locations, [{ kind: "station", id: STATION_ID }, { kind: "structure", id: structureID }]);
+});
+
+test("asset search matches the station keyword against a structure name", async () => {
+  const structureID = 1030000000000;
+  const item: Record<string, unknown> = { ...LIVE_ITEM_ROWS[0]!, locationID: structureID };
+  const { flow } = makeFlow(respondOk((path, body) => {
+    if (path === "/api/bridge/call" && body.service === "charMgr" && body.method === "ListIncludingContainers") {
+      return { status: 200, body: { ok: true, service: "charMgr", method: "ListIncludingContainers", result: stationItems([item]) } };
+    }
+    if (isStationsCall(path, body)) return stationsAnswer([[structureID, 30002647, 35835, 1, null]]);
+    if (path === "/api/words") return { status: 200, body: { ok: true, available: true, words: { "UI/Inventory/AssetSearch/KeywordStationName": "station" } } };
+    if (path === "/api/names") return {
+      status: 200,
+      body: { ok: true, names: { [`structure:${structureID}`]: "Codex Live Moon Athanor", [`type:${item.typeID}`]: "A ship" } },
+    };
+    return null;
+  }));
+  const result = await flow.searchPersonalAssets("station:moon athanor");
+  assert.equal(result.stopped, false);
+  assert.deepEqual(result.locations.map((location) => [location.stationID, location.items[0]?.itemID]), [[structureID, item.itemID]]);
+});
+
 test("expanding a station asks for its item types by name", async () => {
   const { flow, requests } = makeFlow(respondOk());
   await flow.loadPersonalAssets();

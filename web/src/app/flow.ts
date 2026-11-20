@@ -23998,7 +23998,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const systems = [...new Set([...ownerStations.values()].map((station) => station.solarSystemID))];
       const [, security] = await Promise.all([
         resolveNamesNow([
-          ...[...ownerStations.keys()].map((id) => ({ kind: "station" as const, id })),
+          ...[...ownerStations.keys()].map((id) => ({ kind: locationKind(id), id })),
           ...systems.flatMap((id) => [{ kind: "system" as const, id }, { kind: "systemConstellation" as const, id }, { kind: "systemRegion" as const, id }]),
         ]),
         api.loadSystemSecurity(systems, callOptions),
@@ -24006,7 +24006,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       store.apply({ type: "names/system-security", security });
       for (const [systemID, level] of Object.entries(security)) systemSecurity.set(Number(systemID), level);
     }
-    const lowerName = (kind: "station" | "system" | "systemConstellation" | "systemRegion", id: number): string => {
+    const lowerName = (kind: NameRef["kind"], id: number): string => {
       const name = nameCache.get(nameKey(kind, id));
       return typeof name === "string" ? name.toLowerCase() : "";
     };
@@ -24023,7 +24023,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         if (stationID === null || station === undefined) return null;
         const level = systemSecurity.get(station.solarSystemID) ?? null;
         return {
-          stationName: lowerName("station", stationID),
+          stationName: lowerName(locationKind(stationID), stationID),
           systemName: lowerName("system", station.solarSystemID),
           constellationName: lowerName("systemConstellation", station.solarSystemID),
           regionName: lowerName("systemRegion", station.solarSystemID),
@@ -24041,7 +24041,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       throw error;
     }
     requestNames(locations.flatMap((location) => [
-      { kind: "station" as const, id: location.stationID },
+      { kind: locationKind(location.stationID), id: location.stationID },
       ...location.containers.map((each) => ({ kind: "type" as const, id: each.container.typeID })),
     ]));
     return { locations, stopped: false };
@@ -24083,7 +24083,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // R7d: a station is its NAME, and so is the system it sits in.
     const refs: NameRef[] = [];
     for (const row of stations) {
-      refs.push({ kind: "station", id: row.stationID });
+      refs.push({ kind: locationKind(row.stationID), id: row.stationID });
       refs.push({ kind: "system", id: row.solarSystemID });
       if (row.typeID !== null) {
         refs.push({ kind: "type", id: row.typeID });

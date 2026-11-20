@@ -36,8 +36,8 @@
   import LabelText from "./LabelText.svelte";
   import { invItemColumns, invItemGridColumns, INV_ITEM_DEFAULT_HIDDEN, INV_ITEM_COLUMN_WORDS, type InvItem } from "./invItemColumns.ts";
   import type { AssetTypeFacts } from "../app/flow.ts";
-  import { linkFollowerOf, LINK_WORDS } from "./linkFollowers.ts";
-  import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import { linkFollowerOf, LINK_WORDS, startLinkDrag } from "./linkFollowers.ts";
+  import { formatTemplate, locationKind, plainText } from "../bridge/clientWords.ts";
   import { shownSecurity, securityStatusRgb } from "../bridge/systemSecurity.ts";
   import { assetsSearchTarget } from "./assetsSearch.ts";
   import type { AssetSearchItem, AssetSearchLocation } from "../bridge/assetSearch.ts";
@@ -81,9 +81,13 @@
   let busy = $state(false);
   let error = $state("");
 
-  /** Always a NAME, never an id — and never an id-shaped fallback either. */
-  function stationName(stationID: number): string {
-    return resolvedName($names.resolved, "station", stationID, "an unnamed place");
+  function assetLocationName(id: number): string {
+    return resolvedName($names.resolved, locationKind(id), id, "an unnamed place");
+  }
+
+  function dragAssetLocation(event: DragEvent, id: number, typeID: number | null): void {
+    if (typeID === null || event.target !== event.currentTarget) return;
+    startLinkDrag(event, `showinfo:${typeID}//${id}`, assetLocationName(id));
   }
 
   function systemName(systemID: number): string {
@@ -100,6 +104,7 @@
   }
 
   const stationCount = $derived($assets.stations.length);
+  const assetLocationTypes = $derived(new Map($assets.stations.map((row) => [row.stationID, row.typeID])));
 
   // assetsWindow.GetLocationData (599 to 606): each place's route from where the pilot is, the autopilot's way with the
   // pilot's settings (GetAutopilotJumpCount), and "No gate-to-gate route" where there is none.
@@ -189,6 +194,7 @@
     sortBy: "UI/Common/SortBy", name: "UI/Common/Name", jumps: "UI/Common/NumberOfJumps", items: "UI/Common/NumberOfItems",
     collapseAll: "UI/Common/Buttons/CollapseAll",
     label: "UI/Inventory/AssetsWindow/LocationDataLabel", noRoute: "UI/Inventory/AssetsWindow/LocationDataLabelNoRoute",
+    noJump: "UI/Inventory/AssetsWindow/LocationDataLabelNoJump",
     quantity: "UI/Common/Quantity", volume: "UI/Inventory/ItemVolume", noAssets: "UI/Inventory/AssetsWindow/NoAssetsAtStation",
     nothing: "UI/Common/NothingFound",
     allItems: "UI/Inventory/AssetsWindow/AllItems", region: "UI/Common/LocationTypes/Region", constellation: "UI/Common/LocationTypes/Constellation",
@@ -292,7 +298,8 @@
   function locationLabel(row: AssetStationRow): string {
     const jumps = jumpsTo(row);
     const args = { location: row.stationID, itemCount: row.itemCount, jumps: jumps ?? 0, secStatus: secStatus(row.solarSystemID) };
-    return text(jumps === null ? ASSET_WORDS.noRoute : ASSET_WORDS.label, args);
+    const label = jumps === null ? ASSET_WORDS.noRoute : filterType === "sysitems" ? ASSET_WORDS.noJump : ASSET_WORDS.label;
+    return text(label, args) || assetLocationName(row.stationID);
   }
   // The open location's items as InvAssetItem rows (GetSubContent, uix.GetItemData): the inventory's columns
   // (invItemColumns.ts, as the corporation's assets), hidden and sorted as the scroll keeps them (settings.user.ui
@@ -366,7 +373,7 @@
   const noContentWord = $derived(filterType === "regitems" ? ASSET_WORDS.noInRegion : filterType === "conitems" ? ASSET_WORDS.noInConstellation
     : filterType === "sysitems" ? ASSET_WORDS.noInSystem : ASSET_WORDS.noAssets);
   const sortedStations = $derived.by(() => {
-    const rows = filteredStations.map((row) => ({ row, name: stationName(row.stationID), jumps: jumpsTo(row) ?? Number.MAX_SAFE_INTEGER, pinned: importance[String(row.stationID)] === 1 ? 1 : 0 }));
+    const rows = filteredStations.map((row) => ({ row, name: assetLocationName(row.stationID), jumps: jumpsTo(row) ?? Number.MAX_SAFE_INTEGER, pinned: importance[String(row.stationID)] === 1 ? 1 : 0 }));
     const cmp = (a: number | string, b: number | string) => (a < b ? -1 : a > b ? 1 : 0);
     // GetLocationData's sortVal: (name, items, jumps), (jumps, name, items) or (-items, name, jumps)
     // sortVal's first: -isPinned
@@ -545,8 +552,11 @@
              each container (GetContainerGroupEntries) and the things lying at the station (GetSubContent). -->
         <div class="asset-search">
           {#each searchResults.locations as location (location.stationID)}
+            {@const typeID = assetLocationTypes.get(location.stationID) ?? null}
             <details class="asset-search-place">
-              <summary>{stationName(location.stationID)} <small class="note">{stackText(location.itemCount)}</small></summary>
+              <summary draggable={typeID !== null} ondragstart={(event) => dragAssetLocation(event, location.stationID, typeID)}>
+                {assetLocationName(location.stationID)} <small class="note">{stackText(location.itemCount)}</small>
+              </summary>
               {#each location.containers as held (held.container.itemID)}
                 <details class="asset-search-container">
                   <summary>
@@ -612,6 +622,7 @@
     <div class="as-scroll">
       {#snippet locationGroup(row: AssetStationRow, sub: boolean)}
         <button type="button" class="as-group" class:as-sub={sub} data-station-id={row.stationID} aria-expanded={expandedLocations.has(row.stationID)} onclick={() => toggleLocation(row.stationID)}
+          draggable={row.typeID !== null} ondragstart={(event) => dragAssetLocation(event, row.stationID, row.typeID)}
           oncontextmenu={(e) => { e.preventDefault(); menuFor = menuFor === row.stationID ? null : row.stationID; }}>
           <span class="as-arrow">{expandedLocations.has(row.stationID) ? "▾" : "▸"}</span><LabelText markup={locationLabel(row)} {followerOf} />
           {#if importance[String(row.stationID)] === 1}<img class="as-pin" alt="" title={plainText(text(ASSET_WORDS.pinnedHint))} src="/client-res/ui/texture/eveicon/system_icons/pinned_16px.png" />{/if}
@@ -659,8 +670,8 @@
             <tr>
               <td data-label="Place">
                 <span class="asset-place">
-                  <TypeIcon typeID={row.typeID} name={stationName(row.stationID)} />
-                  {stationName(row.stationID)}
+                  <TypeIcon typeID={row.typeID} name={assetLocationName(row.stationID)} />
+                  {assetLocationName(row.stationID)}
                 </span>
               </td>
               <td data-label="System">{systemName(row.solarSystemID)}</td>
@@ -699,7 +710,7 @@
     {#if $assets.expandedStationID !== null}
       <section class="panel">
         <header class="panel-head">
-          <h2>At {stationName($assets.expandedStationID)}</h2>
+          <h2>At {assetLocationName($assets.expandedStationID)}</h2>
         </header>
 
         {#if openStation === null}
