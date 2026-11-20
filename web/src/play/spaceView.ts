@@ -21,7 +21,7 @@ import { celestialModel, systemCelestials, setPlanetEnvironment, type CelestialI
 import { ShipHud, type HudModule } from "./shipHud.ts";
 import { formatTemplate, plainText } from "../bridge/clientWords.ts";
 import { NewShipHud } from "./newShipHud.ts";
-import { hudSettingNow } from "../store/hudSettings.ts";
+import { hudSetting, hudSettingNow } from "../store/hudSettings.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
 import { WormholeTransit, WORMHOLE_START_MS, WORMHOLE_MIDDLE_MS, WORMHOLE_CAMERA_RETURN_MS, WORMHOLE_STOP_MS } from "./wormholeTransit.ts";
 import { TurretFx, fxGuid } from "./turretFx.ts";
@@ -732,6 +732,9 @@ export class SpaceView {
       this.shipHud.onSetSpeed = (ratio) => void this.setSpeedRatio(ratio);
       this.shipHud.onOpenHold = (key) => this.actions.openShipHold?.(key);
       this.shipHud.tooltipRows = (m) => this.options.rack?.tooltip?.(m) ?? null;
+      this.root.classList.add("new-hud-on");
+      // _AlignToScreenEdge: the indication goes to the top with the band
+      this.offHudTop = hudSetting("shipuialigntop").subscribe((top) => this.root.classList.toggle("new-hud-top", top));
       const hudWords = this.options.indicationWords;
       this.shipHud.word = (label) => { const t = hudWords?.()[label]; return typeof t === "string" && t !== "" ? plainText(t) : null; };
       this.shipHud.wordWith = (label, args) => { const t = hudWords?.()[label]; return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args as never, { nameOf: () => null } as never)) : null; };
@@ -925,7 +928,11 @@ export class SpaceView {
     this.renderer.setAnimationLoop(() => this.frame());
   }
 
+  /** The new HUD's top alignment followed (the indication moves with the band). */
+  private offHudTop: (() => void) | null = null;
+
   dispose(): void {
+    this.offHudTop?.();
     for (const panel of this.jumpBridgePanels.values()) panel.destroy();
     this.jumpBridgePanels.clear();
     // the ambient sound let go with the view (the ship docked, the session gone)

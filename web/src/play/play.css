@@ -125,6 +125,10 @@ button { font: inherit; color: inherit; }
 .ship-mode-header:not(:empty) { font-weight: 600; font-size: 16px; color: #eee; }
 .ship-mode-progress { margin: 5px auto 0; width: 200px; height: 3px; background: rgb(255 255 255 / 20%); }
 .ship-mode-progress > div { height: 100%; background: rgb(255 255 255 / 50%); transform-origin: left; transition: transform 250ms; }
+/* hudLayer: the new HUD's action indication centred on the medallion (116 left of the screen's centre), its foot
+   ALERT_CAPTION_BOTTOM 32 + the caption's 40 + INDICATION_GAP 8 above the band's top (200 + 20 up) */
+.new-hud-on .ship-mode { bottom: 300px; left: calc(50% - 116px); }
+.new-hud-on.new-hud-top .ship-mode { bottom: auto; top: 300px; }
 .ship-hud-vignette { position: absolute; inset: 0; z-index: 6; pointer-events: none; opacity: 0; }
 .ship-hud-vignette::before, .ship-hud-vignette::after { content: ""; position: absolute; left: 50%; width: min(1024px, 100%); height: 256px;
   transform: translateX(-50%); background-color: red;

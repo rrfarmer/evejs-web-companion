@@ -27,7 +27,7 @@
   import { typeCompareTarget } from "./typeCompare.ts";
   import { fittingWindowTarget } from "./fittingWindowTarget.ts";
   import { shipHoldTarget } from "./shipHold.ts";
-  import { setHudSetting } from "../store/hudSettings.ts";
+  import { hudSetting, hudSettingNow, setHudSetting } from "../store/hudSettings.ts";
   import { createSession, type Session } from "../app/sessions.ts";
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
   import { bridgeDo, corpTickers, getDscanHologramTypes } from "../app/api.ts";
@@ -952,6 +952,8 @@
   let systemMenu = $state(false);
   /** The new HUD's settings menu's NotifySettingsWindow (the ship health alerts). */
   let damageAlertsOpen = $state(false);
+  const newHudOn = hudSettingNow("shipHudNew_preview");
+  const hudTop = hudSetting("shipuialigntop");
   let mapHost = $state<HTMLDivElement | null>(null);
   let planetModeID = $state<number | null>(null);
   let customsTarget = $state<{ planetID: number; pinID: number | null } | null>(null);
@@ -1860,7 +1862,8 @@
       <MiningOverlayControl store={session.store} survey={flightMiningSurvey}
         openResults={() => open("miningScan")} openLedger={() => open("miningLedger")} disable={disableMiningOverlay} />
     {/if}
-    <div class="fly-buffs"><BuffBar store={session.store} flow={session.flow} /></div>
+    <!-- hudLayer._ConstructKeepers: the new HUD's buff bar centred on the medallion, its foot on the band's top -->
+    <div class="fly-buffs" class:new-hud={newHudOn} class:hud-top={$hudTop}><BuffBar store={session.store} flow={session.flow} /></div>
   {/if}
   {#if session && reagentBay}<SovReagentBay store={session.store} flow={session.flow} hubID={reagentBay.hubID} solarSystemID={reagentBay.solarSystemID} isStationMgr={reagentBay.isStationMgr} onClose={() => { reagentBay = null; }} />{/if}
   {#if session && sovHubConfig}
@@ -1945,6 +1948,9 @@
   .fly-windows.planet-covered :global(.space-only-window) { visibility: hidden; }
   .fly-buffs { position: fixed; bottom: 200px; left: 50%; transform: translateX(-50%); pointer-events: none; }
   .fly-buffs :global(.buff-slot) { pointer-events: auto; }
+  /* band 1182 wide, 300 right of centre, its medallion 175 in: the medallion 116 left of the screen's centre; 200 + 20 up */
+  .fly-buffs.new-hud { bottom: 220px; left: calc(50% - 116px); }
+  .fly-buffs.new-hud.hud-top { bottom: auto; top: 220px; }
   .fly-sovhub { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
   .fly-sovhub > :global(*) { pointer-events: auto; }
   .fly-windows { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
