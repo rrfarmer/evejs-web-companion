@@ -6,12 +6,15 @@
   import type { Colony, ColonyPin, ExtractorHead } from "../store/types.ts";
   import PlanetSurvey from "./PlanetSurvey.svelte";
 
-  let { colony, unit, characterID, flow, heads, radius, dragging, editable, toggleHead, changeRadius, showChart, setRange, onClose }: {
+  let { colony, unit, characterID, flow, heads, radius, dragging, editable, running, cooldown, submitting, stagedResource,
+    toggleHead, changeRadius, showChart, setRange, onClose, installProgram, stopProgram }: {
     colony: Colony; unit: ColonyPin; characterID: number | null; flow: AppFlow;
     heads: readonly ExtractorHead[]; radius: number; dragging: boolean; editable: boolean;
+    running: boolean; cooldown: number; submitting: boolean; stagedResource?: number | null;
     toggleHead: (id: number) => void; changeRadius: (radius: number) => void;
     showChart: (chart: Uint8Array<ArrayBuffer> | null) => Promise<void>;
     setRange: (low: number, high: number) => void; onClose: () => void;
+    installProgram: (resourceID: number) => void; stopProgram: () => void;
   } = $props();
 
   const slots = Array.from({ length: EXTRACTOR_HEAD_LIMIT }, (_, id) => id);
@@ -20,8 +23,8 @@
   let pending = $state(false);
   let failure = $state("");
   let retry = $state(0);
-  const initialResourceID = $derived(unit.program?.resourceTypeID || null);
-  const preview = $derived(editable ? estimate : installedExtractorYield(unit.program));
+  const initialResourceID = $derived(stagedResource ?? unit.program?.resourceTypeID ?? null);
+  const preview = $derived(running ? installedExtractorYield(unit.program) : estimate);
   const output = $derived(preview && unit.extractor?.decayFactor != null && unit.extractor.noiseFactor != null
     ? extractorOutput(preview, unit.extractor.decayFactor, unit.extractor.noiseFactor) : []);
   const total = $derived(output.reduce((sum, cycle) => sum + cycle, 0));
@@ -55,8 +58,10 @@
     <div><h2>Extractor Survey</h2><p>{unit.typeName}</p></div>
     <button type="button" aria-label="Close extractor survey" onclick={onClose}>×</button>
   </header>
-  {#if unit.active}<p class="survey-state">Program running</p>{/if}
-  <PlanetSurvey {colony} {characterID} {flow} {showChart} {setRange} {initialResourceID} compact locked={unit.active === true}
+  {#if running}<p class="survey-state">Program running</p>
+  {:else if stagedResource === null}<p class="survey-state">Program queued to stop</p>
+  {:else if stagedResource !== undefined}<p class="survey-state">Program queued to install</p>{/if}
+  <PlanetSurvey {colony} {characterID} {flow} {showChart} {setRange} {initialResourceID} compact locked={running || submitting}
     onResourceReady={(resource) => { resourceID = resource; }} />
   <fieldset>
     <legend>Extraction heads <span>{heads.length} / {EXTRACTOR_HEAD_LIMIT}</span></legend>
@@ -68,7 +73,7 @@
       {/each}
     </div>
     {#if editable}<p>{heads.length ? "Drag a head on the planet to move it." : "Select a slot to place an extraction head."}</p>
-    {:else if unit.active !== true}<p>Head placement is unavailable for this unit.</p>{/if}
+    {:else if !running && !submitting}<p>Head placement is unavailable for this unit.</p>{/if}
     <label>Extraction area
       <input type="range" min="0" max="1" step="0.005" value={sliderForRadius(radius)} disabled={!editable}
         oninput={(event) => changeRadius(radiusForSlider(event.currentTarget.valueAsNumber))} />
@@ -101,6 +106,16 @@
       {/if}
     </div>
   {/if}
+  <footer>
+    {#if running}
+      {#if cooldown > 0}<p>Stop available in {cooldown}s</p>{/if}
+      <button type="button" disabled={submitting || cooldown > 0} onclick={stopProgram}>Stop Program</button>
+    {:else}
+      {#if estimate?.quantity === 0}<p>No extractable yield at these head positions.</p>{/if}
+      <button type="button" disabled={!editable || dragging || pending || resourceID === null || !estimate?.quantity}
+        onclick={() => { if (resourceID !== null) installProgram(resourceID); }}>Install Program</button>
+    {/if}
+  </footer>
 </section>
 
 <style>
@@ -114,6 +129,9 @@
   .head-slots { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: .18rem; }
   button { font: inherit; color: inherit; background: #1a2b35; border: 1px solid #536874; cursor: pointer; }
   button:disabled { cursor: default; }
+  footer { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: .4rem; }
+  footer button { margin-inline-start: auto; padding: .3rem .6rem; }
+  footer button:disabled { opacity: .55; }
   button:hover:enabled { border-color: #9de9df; }
   button[aria-pressed=true] { color: #131919; background: #f0d088; border-color: #f0d088; }
   label { display: grid; gap: .2rem; }

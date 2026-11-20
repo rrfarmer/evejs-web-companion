@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { AppFlow } from "../app/flow.ts";
-  import { MIN_HEAD_RADIUS, radiusForSlider, sliderForRadius } from "../bridge/extractorSurvey.ts";
+  import { errorWords, type AppFlow } from "../app/flow.ts";
+  import { EXTRACTOR_COOLDOWN_MS, extractorBasis, extractorHeadCommands, type ExtractorEdit } from "../bridge/extractorEdits.ts";
+  import { MAX_HEAD_RADIUS, MIN_HEAD_RADIUS } from "../bridge/extractorSurvey.ts";
+  import { serverNow } from "../bridge/planets.ts";
   import { PlanetScene, type ExtractorMarkerPosition, type PlanetMarkerPosition } from "../play/planetScene.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { Colony, ColonyPin, ExtractorHead } from "../store/types.ts";
@@ -24,15 +26,33 @@
   let extractorID = $state<number | null>(null);
   let heads = $state.raw<readonly ExtractorHead[]>([]);
   let radius = $state(MIN_HEAD_RADIUS);
+  let basis = "";
   let dragging = $state.raw<{ pointer: number; head: ExtractorHead } | null>(null);
+  let edits = $state.raw(new Map<number, ExtractorEdit>());
+  let submitting = $state(false);
+  let submitError = $state("");
+  let browserNow = $state(Date.now());
   let ready = $state(false);
   let error = $state("");
   const centre = $derived(colony.pins.find(pin => pin.kind === "command" && pin.latitude != null && pin.longitude != null));
   const pinsByID = $derived(new Map(colony.pins.map(pin => [pin.pinID, pin])));
   const selected = $derived(selectedID === null ? undefined : pinsByID.get(selectedID));
+  const selectedEdit = $derived(selectedID === null ? undefined : edits.get(selectedID));
+  const pendingResource = $derived(colony.resources?.find(resource => resource.typeID === selectedEdit?.resourceID)?.typeName);
+  const removedOutputs = $derived(colony.routes.filter(route => edits.get(route.path[0]!)?.resourceID === null).length);
   const unit = $derived(extractorID === null ? null : pinsByID.get(extractorID) ?? null);
   const area = $derived(unit?.extractor?.areaOfInfluence ?? null);
-  const editable = $derived(unit?.active === false && area !== null && unit.extractor?.heads != null);
+  const edit = $derived(extractorID === null ? undefined : edits.get(extractorID));
+  const editable = $derived(!submitting && (unit?.active === false || edit?.stopped === true) && area !== null && unit?.extractor?.heads != null);
+  const running = $derived(unit?.active === true && !edit?.stopped);
+  const cooldown = $derived(running && unit?.program?.installedAtMs != null
+    ? Math.max(0, Math.ceil((unit.program.installedAtMs + EXTRACTOR_COOLDOWN_MS - serverNow($planets.clockOffsetMs, browserNow)) / 1000))
+    : 0);
+  const workingUnit = $derived(unit ?? (selected && edits.has(selected.pinID) ? selected : null));
+  const displayedHeads = $derived(unit ? running ? unit.extractor?.heads ?? unit.program?.heads ?? [] : heads
+    : workingUnit ? edits.get(workingUnit.pinID)?.heads ?? [] : []);
+  const displayedRadius = $derived(unit ? running ? unit.extractor?.headRadius ?? radius : radius
+    : workingUnit ? edits.get(workingUnit.pinID)?.radius ?? MIN_HEAD_RADIUS : MIN_HEAD_RADIUS);
 
   function select(pin: ColonyPin, moveCamera = false): void {
     if (extractorID !== null && extractorID !== pin.pinID) closeExtractor();
@@ -41,12 +61,15 @@
   }
 
   function openExtractor(pin: ColonyPin): void {
-    if (pin.kind !== "extractor-control" || !ready || extractorID === pin.pinID) return;
+    if (pin.kind !== "extractor-control" || !ready || submitting || extractorID === pin.pinID) return;
     selectedID = pin.pinID;
     surveyShown = templateShown = false;
     extractorID = pin.pinID;
-    heads = pin.extractor?.heads ?? pin.program?.heads ?? [];
-    radius = radiusForSlider(sliderForRadius(pin.extractor?.headRadius ?? pin.program?.headRadius ?? MIN_HEAD_RADIUS));
+    const staged = edits.get(pin.pinID);
+    basis = staged?.basis ?? extractorBasis(pin);
+    heads = staged?.heads ?? pin.extractor?.heads ?? pin.program?.heads ?? [];
+    const storedRadius = staged?.radius ?? pin.extractor?.headRadius ?? pin.program?.headRadius ?? MIN_HEAD_RADIUS;
+    radius = Math.max(MIN_HEAD_RADIUS, Math.min(MAX_HEAD_RADIUS, storedRadius));
     scene?.focus(pin);
   }
 
@@ -54,6 +77,58 @@
     extractorID = null;
     dragging = null;
     heads = [];
+  }
+
+  function stageHeads(): void {
+    if (!unit?.extractor?.heads) return;
+    const next = new Map(edits);
+    const previous = next.get(unit.pinID);
+    const resourceID = heads.length ? previous?.resourceID : previous?.stopped ? null : undefined;
+    if (resourceID === undefined && !extractorHeadCommands(unit.pinID, unit.extractor.heads, heads).length) {
+      next.delete(unit.pinID);
+    } else {
+      next.set(unit.pinID, {
+        pinID: unit.pinID, basis, heads, resourceID, stopped: previous?.stopped ?? false,
+        radius: previous?.radius ?? unit.extractor.headRadius ?? MIN_HEAD_RADIUS,
+      });
+    }
+    edits = next;
+    submitError = "";
+  }
+
+  function stageProgram(resourceID: number | null): void {
+    if (!unit?.extractor?.heads || submitting) return;
+    const next = new Map(edits);
+    next.set(unit.pinID, { pinID: unit.pinID, basis, heads, radius, resourceID, stopped: resourceID === null || edit?.stopped === true });
+    edits = next;
+    submitError = "";
+    if (resourceID !== null) closeExtractor();
+  }
+
+  function cancelEdits(): void {
+    if (submitting) return;
+    closeExtractor();
+    edits = new Map();
+    submitError = "";
+  }
+
+  export function canLeave(): boolean {
+    return !submitting && (!edits.size || window.confirm("Discard pending colony changes?"));
+  }
+
+  async function submitEdits(): Promise<void> {
+    if (submitting || dragging || !edits.size) return;
+    submitting = true;
+    submitError = "";
+    try {
+      await flow.submitExtractorEdits(colony.planetID, [...edits.values()]);
+      closeExtractor();
+      edits = new Map();
+    } catch (cause) {
+      submitError = errorWords(cause);
+    } finally {
+      submitting = false;
+    }
   }
 
   function toggleHead(id: number): void {
@@ -64,6 +139,7 @@
       const head = scene?.defaultHead(unit, id, area);
       if (head) heads = [...heads, head];
     }
+    stageHeads();
   }
 
   function beginDrag(event: PointerEvent, id: number): void {
@@ -85,6 +161,7 @@
     const original = dragging.head;
     if (cancel) heads = heads.map(head => head[0] === original[0] ? original : head);
     dragging = null;
+    if (!cancel) stageHeads();
   }
 
   onMount(() => {
@@ -109,7 +186,13 @@
   });
 
   $effect(() => { scene?.setColony(colony); });
-  $effect(() => { scene?.setExtractor(unit, heads, radius, area); });
+  $effect(() => { scene?.setExtractor(workingUnit, displayedHeads, displayedRadius, workingUnit?.extractor?.areaOfInfluence ?? null); });
+  $effect(() => {
+    if (!running) return;
+    browserNow = Date.now();
+    const timer = setInterval(() => { browserNow = Date.now(); }, 1000);
+    return () => clearInterval(timer);
+  });
 </script>
 
 <section class="planet-mode" aria-label="Planet Mode" aria-busy={!ready && !error}>
@@ -140,8 +223,8 @@
     <div class="planet-actions">
       <button type="button" disabled={!ready || !centre} onclick={() => scene?.focus(centre)}>Focus Command Center</button>
       <button type="button" aria-expanded={surveyShown} onclick={() => { closeExtractor(); surveyShown = !surveyShown; templateShown = false; }}>Scan</button>
-      <button type="button" aria-expanded={templateShown} onclick={() => { closeExtractor(); templateShown = !templateShown; surveyShown = false; }}>Templates</button>
-      <button type="button" bind:this={closeButton} onclick={onClose}>Exit Planet Mode</button>
+      <button type="button" aria-expanded={templateShown} disabled={edits.size > 0} onclick={() => { closeExtractor(); templateShown = !templateShown; surveyShown = false; }}>Templates</button>
+      <button type="button" bind:this={closeButton} disabled={submitting} onclick={() => { if (canLeave()) onClose(); }}>Exit Planet Mode</button>
     </div>
   </header>
   {#if error}
@@ -149,12 +232,27 @@
   {:else if !ready}
     <p class="planet-message" role="status">Loading planet surface…</p>
   {/if}
+  {#if edits.size}
+    <section class="planet-edit-bar" aria-label="Colony edits">
+      <div class="planet-actions">
+        <span aria-live="polite">{edits.size} {edits.size === 1 ? "extractor" : "extractors"} with pending changes</span>
+        <button type="button" disabled={submitting || dragging !== null} onclick={() => void submitEdits()}>{submitting ? "Submitting…" : "Submit"}</button>
+        <button type="button" disabled={submitting} onclick={cancelEdits}>Cancel</button>
+      </div>
+      {#if removedOutputs}
+        <p>Submitting will remove {removedOutputs} {removedOutputs === 1 ? "output route" : "output routes"} from stopped extractors.</p>
+      {/if}
+      {#if submitError}<p role="alert">{submitError}</p>{/if}
+    </section>
+  {/if}
   {#if unit}
     <div class="extractor-survey-panel">
       {#key unit.pinID}
         <ExtractorSurvey {colony} {unit} characterID={store.station.get().online?.characterID ?? null} {flow}
-          {heads} {radius} {editable} dragging={dragging !== null} {toggleHead}
+          heads={displayedHeads} radius={displayedRadius} {editable} {running} {cooldown} {submitting}
+          stagedResource={edit?.resourceID} dragging={dragging !== null} {toggleHead}
           changeRadius={(value) => { radius = value; }} onClose={closeExtractor}
+          installProgram={stageProgram} stopProgram={() => stageProgram(null)}
           showChart={async (chart) => { await scene?.showSurvey(chart); }}
           setRange={(low, high) => scene?.setSurveyRange(low, high)} />
       {/key}
@@ -181,6 +279,8 @@
         {#if selected.kind === "command"}<p>Command centre level <strong>{colony.commandCenterLevel}</strong></p>{/if}
         {#if selected.program?.resourceTypeName}<p>Resource <strong>{selected.program.resourceTypeName}</strong></p>{/if}
         {#if selected.kind === "extractor-control"}
+          {#if pendingResource}<p>Pending program <strong>{pendingResource}</strong></p>
+          {:else if selectedEdit?.stopped}<p>Program queued to stop</p>{/if}
           <button type="button" disabled={!ready} onclick={() => openExtractor(selected)}>Survey for Deposits</button>
         {/if}
         {#if selected.contents.length}
@@ -224,8 +324,8 @@
     color: #ffe4a9; background: #172225; font-size: 10px; cursor: grab; }
   button.extraction-head.dragging { cursor: grabbing; }
   button.extraction-head:disabled { opacity: .8; cursor: default; }
-  .planet-toolbar, .planet-overview, .planet-template, .planet-survey-panel, .extractor-survey-panel, .planet-message { position: absolute; z-index: 2; }
-  .planet-toolbar, .planet-overview, .planet-message { border: 1px solid #819fad65; background: #0a131be8; padding: 10px 12px; }
+  .planet-toolbar, .planet-overview, .planet-template, .planet-survey-panel, .extractor-survey-panel, .planet-message, .planet-edit-bar { position: absolute; z-index: 2; }
+  .planet-toolbar, .planet-overview, .planet-message, .planet-edit-bar { border: 1px solid #819fad65; background: #0a131be8; padding: 10px 12px; }
   .planet-toolbar { top: 14px; right: 16px; width: min(420px, calc(100% - 32px)); display: grid; gap: 8px; }
   .planet-title { display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline; }
   h1 { margin: 0; font-size: 22px; font-weight: 600; }
@@ -236,6 +336,8 @@
   button:not(.installation-marker, .extraction-head):hover { border-color: #a7dbe8; }
   button:disabled { opacity: .5; cursor: default; }
   .planet-message { bottom: 18px; left: 50%; transform: translateX(-50%); }
+  .planet-edit-bar { bottom: 16px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); z-index: 3; }
+  .planet-edit-bar [role=alert] { color: #ffca83; margin-top: .35rem; max-width: 36rem; }
   .planet-overview { bottom: 16px; right: 16px; width: min(272px, calc(100% - 32px)); max-height: 55%; overflow: auto; display: grid; gap: 8px; }
   .installation-heading strong { flex: 1; }
   .installation-heading button { margin-inline-start: auto; }

@@ -1226,6 +1226,7 @@ import { IntDict, hashedSetOrder, intDictOf, intDictOrder, strDictOrder, tupleHa
 import { hudSettingNow, setSlotOrder, slotOrderOf } from "../store/hudSettings.ts";
 import { changeColonyNetwork, launchCommodities as launchCommoditiesCall, rerouteExtractorRoutes, type NewRoute } from "../bridge/planetWrites.ts";
 import { requestExtractorYield, restartExtractor as restartExtractorAsTheClient, type ProgramYield } from "../bridge/extractorRestart.ts";
+import { planExtractorEdits, type ExtractorEdit } from "../bridge/extractorEdits.ts";
 import { validExtractorDraft } from "../bridge/extractorSurvey.ts";
 import type { ExtractorHead } from "../store/types.ts";
 import { activateModule as activateModuleCall, createDefaultEffects, createModuleRepairs, createOverloadEffects, createWeaponGrouping, deactivateModule as deactivateModuleCall, loadAmmo as loadAmmoCall, repairWaitMs, setModuleOnline as setModuleOnlineCall, setOverload as setOverloadCall, unloadAmmo as unloadAmmoCall, type ModuleActionResult, type ModuleDeps } from "../bridge/dogmaWrites.ts";
@@ -4421,6 +4422,7 @@ export interface AppFlow {
   quoteColonyTemplate(placement: TemplatePlacement): Promise<number>;
   readPlanetSurvey(planetID: number, resourceTypeID: number): Promise<PlanetResourceData>;
   readExtractorYield(planetID: number, pinID: number, resourceTypeID: number, heads: readonly ExtractorHead[], radius: number): Promise<ProgramYield>;
+  submitExtractorEdits(planetID: number, edits: readonly ExtractorEdit[]): Promise<void>;
   readColonyTemplateRules(template: ColonyTemplate, currentLevel: number): Promise<ColonyTemplateRules>;
   readColonyTemplateForExport(planetID: number, description: string): Promise<ColonyTemplate>;
   submitColonyTemplate(planetID: number, template: ColonyTemplate, rotation: TemplateRotation, reviewed: TemplatePlacement, price: number): Promise<void>;
@@ -28292,13 +28294,36 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const pilot = callOptions.captureRequestGuard!();
     const colony = store.planets.get().colonies?.find(planet => planet.planetID === planetID);
     const unit = colony?.pins.find(pin => pin.pinID === pinID && pin.kind === "extractor-control");
-    if (!unit || unit.active !== false || !colony?.resources?.some(resource => resource.typeID === resourceTypeID)) {
+    if (!unit || !colony?.resources?.some(resource => resource.typeID === resourceTypeID)) {
       throw new Error("The extractor or resource is unavailable for surveying.");
     }
     if (!validExtractorDraft(heads, radius)) throw new Error("The extraction heads or drill area are invalid.");
     const answer = await requestExtractorYield(bridgeAsk, planetID, pinID, resourceTypeID, heads, radius);
     pilot();
     return answer;
+  }
+
+  const extractorSubmissions = new Set<number>();
+  async function submitExtractorEdits(planetID: number, edits: readonly ExtractorEdit[]): Promise<void> {
+    if (!edits.length) return;
+    if (extractorSubmissions.has(planetID)) throw new Error("Colony changes are already being submitted.");
+    const pilot = callOptions.captureRequestGuard!();
+    extractorSubmissions.add(planetID);
+    try {
+      const fresh = await readOwnedColony(planetID);
+      pilot();
+      const changes = await planExtractorEdits(bridgeAsk, fresh, edits);
+      pilot();
+      await changeColonyNetwork(bridgeDo, planetID, changes);
+      // A successful write remains successful if its follow-up read fails.
+      await loadPlanets().catch(() => {});
+    } catch (cause) {
+      pilot();
+      await loadPlanets().catch(() => {});
+      throw cause;
+    } finally {
+      extractorSubmissions.delete(planetID);
+    }
   }
 
   async function quoteColonyTemplate(placement: TemplatePlacement): Promise<number> {
@@ -28316,17 +28341,17 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return Math.round(placement.pins.reduce((value, pin) => value + (pin.existing ? 0 : basePrice.get(pin.typeID)!), placement.upgradeCost) * 100) / 100;
   }
 
-  async function readColonyForTemplate(planetID: number) {
+  async function readOwnedColony(planetID: number) {
     const read = await api.getPlanets(callOptions);
     const colony = decodeColonyReport(read.planets, Date.now()).colonies.find(row => row.planetID === planetID);
     if (!colony) throw new Error("This colony could not be read. Open it again from Planetary Colonies.");
-    await ensurePiRecipes();
     return colony;
   }
 
   async function readColonyTemplateForExport(planetID: number, description: string): Promise<ColonyTemplate> {
     const pilot = callOptions.captureRequestGuard!();
-    const colony = await readColonyForTemplate(planetID);
+    const colony = await readOwnedColony(planetID);
+    await ensurePiRecipes();
     pilot();
     return exportColonyTemplate(colony, store.planets.get().recipes, description);
   }
@@ -28351,7 +28376,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   async function submitColonyTemplate(planetID: number, template: ColonyTemplate, rotation: TemplateRotation, reviewed: TemplatePlacement, price: number): Promise<void> {
     const pilot = callOptions.captureRequestGuard!();
-    const colony = await readColonyForTemplate(planetID);
+    const colony = await readOwnedColony(planetID);
+    await ensurePiRecipes();
     const rules = await readColonyTemplateRules(template, colony.commandCenterLevel);
     const fresh = planColonyTemplate(template, colony, store.planets.get().recipes, rotation, rules);
     const latestPrice = await quoteColonyTemplate(fresh);
@@ -37600,6 +37626,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadPlanets,
     readPlanetSurvey,
     readExtractorYield,
+    submitExtractorEdits,
     quoteColonyTemplate,
     readColonyTemplateRules,
     readColonyTemplateForExport,

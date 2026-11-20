@@ -943,12 +943,14 @@
   let systemMenu = $state(false);
   let mapHost = $state<HTMLDivElement | null>(null);
   let planetModeID = $state<number | null>(null);
+  let planetModeView: { canLeave: () => boolean } | undefined = $state();
   let planetModeTrigger: HTMLElement | null = null;
   const planetInMode = $derived($planets?.colonies?.find(colony => colony.planetID === planetModeID) ?? null);
 
   function showPlanetInMode(planetID: number) {
     const pilot = session;
     if (!pilot || planetModeID === planetID || !$planets?.colonies?.some(colony => colony.planetID === planetID)) return;
+    if (planetModeView && !planetModeView.canLeave()) return;
     if (planetModeID === null) planetModeTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     toggleStarMap(false);
     planetModeID = planetID;
@@ -1107,7 +1109,7 @@
     if (cmd === "OnEsc") {
       e.preventDefault();
       if (starMap) toggleStarMap(false);
-      else if (planetInMode) leavePlanetMode();
+      else if (planetInMode) { if (planetModeView?.canLeave()) leavePlanetMode(); }
       else systemMenu = !systemMenu;
       return;
     }
@@ -1639,7 +1641,7 @@
   <div class="fly-map" class:foreground={mapInFront} bind:this={mapHost}></div>
   {#if planetInMode}
     {#key planetInMode.planetID}
-      <PlanetMode colony={planetInMode} store={session.store} flow={session.flow} onClose={() => leavePlanetMode()} />
+      <PlanetMode bind:this={planetModeView} colony={planetInMode} store={session.store} flow={session.flow} onClose={() => leavePlanetMode()} />
     {/key}
   {/if}
 

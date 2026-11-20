@@ -1478,7 +1478,7 @@ const aColonyCommand = (each) => Array.isArray(each) && each.length === 2 && Num
 const networkChanges = (args, kwargs) => (args.length === 1 && Array.isArray(args[0]) && args[0].every(aColonyCommand) && Object.keys(kwargs).length === 0
   ? { args: [list(args[0].map(([command, given]) => [command, command === COLONY_CREATE_ROUTE
     ? [given[0], list(given[1]), ...given.slice(2)]
-    : command === 1 && given.slice(2).every(aFiniteNumber)
+    : (command === 1 || command === 10 || command === 12) && given.slice(2).every(aFiniteNumber)
       ? [...given.slice(0, 2), ...given.slice(2).map(value => Number.isInteger(value) ? asReal(value) : value)] : given]))], kwargs }
   : { args, kwargs, status: "differs", note: "The client sends its changes alone: a list of commands, each a command's number and that command's own arguments." });
 /**

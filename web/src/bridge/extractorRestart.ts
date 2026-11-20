@@ -100,7 +100,8 @@ const rounded = (value: number): number => Math.sign(value) * Math.round(Math.ab
  * The one change that installs `typeID` again on the unit `pinID` and makes its routes anew for `toRoute` a cycle,
  * as clientPlanet.InstallProgram builds it: the removals, the programme, the new routes.
  */
-export function planExtractorRestart(colony: Colony, pinID: number, typeID: number, headRadius: number, toRoute: number): JsonValue[] {
+export function planExtractorRestart(colony: Colony, pinID: number, typeID: number, headRadius: number, toRoute: number,
+  firstRouteID = 1): JsonValue[] {
   const pinByID = new Map(colony.pins.map((pin) => [pin.pinID, pin]));
   const own = colony.routes.filter((route) => route.path[0] === pinID).sort((left, right) => left.routeID - right.routeID);
   const removals: JsonValue[] = [];
@@ -122,7 +123,7 @@ export function planExtractorRestart(colony: Colony, pinID: number, typeID: numb
 
   const creations: JsonValue[] = [];
   const create = (path: readonly number[], quantity: number): void => {
-    creations.push([CREATE_ROUTE, [[TEMPORARY_ROUTE, creations.length + 1], [...path], typeID, quantity]]);
+    creations.push([CREATE_ROUTE, [[TEMPORARY_ROUTE, firstRouteID + creations.length], [...path], typeID, quantity]]);
   };
   let left = toRoute;
   for (const route of toConsumers) {
