@@ -12744,6 +12744,8 @@ function projectColony(staticDataSource, colony) {
       typeID,
       typeName: staticDataSource.getTypeName(typeID),
       kind,
+      ...(Number.isFinite(pin?.latitude) && Number.isFinite(pin?.longitude)
+        ? { latitude: pin.latitude, longitude: pin.longitude } : {}),
       contents: projectPinContents(staticDataSource, pin && pin.contents),
       // What it can hold and what is in it, so the browser can say "nearly
       // full" without knowing a single type's volume. Either may be null.

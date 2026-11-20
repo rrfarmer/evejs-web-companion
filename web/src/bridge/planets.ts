@@ -201,6 +201,9 @@ function decodePin(value: JsonValue): ColonyPin | null {
     typeID: asNumber(record.typeID),
     typeName: asName(record.typeName) ?? "",
     kind: decodePinKind(record.kind),
+    ...(typeof record.latitude === "number" && Number.isFinite(record.latitude) &&
+        typeof record.longitude === "number" && Number.isFinite(record.longitude)
+      ? { latitude: record.latitude, longitude: record.longitude } : {}),
     contents: asArray(record.contents)
       .map(decodeStoredItem)
       .filter((item): item is ColonyStoredItem => item !== null),

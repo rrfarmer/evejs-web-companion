@@ -49,6 +49,7 @@
   import type { Colony, ColonyPin } from "../store/types.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import PlanetLaunches from "./PlanetLaunches.svelte";
+  import ColonyTemplate from "./ColonyTemplate.svelte";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { shownSecurity, securityStatusRgb } from "../bridge/systemSecurity.ts";
@@ -91,6 +92,8 @@
   let browserNowMs = $state(Date.now());
 
   const colonies = $derived($planets.colonies ?? []);
+  let templatePlanet = $state<number | null>(null);
+  const templateColony = $derived(colonies.find(colony => colony.planetID === templatePlanet) ?? null);
   const nowMs = $derived(serverNow($planets.clockOffsetMs, browserNowMs));
 
   // Only the colonies with something to say, loudest first. Recomputed as the
@@ -305,6 +308,7 @@
         <button type="button" disabled={chosenColony === null} title={plainText(piText("UI/PI/Common/ViewInPlanetMode"))}>{plainText(piText("UI/Common/View")) || "View"}</button>
         <button type="button" disabled>{plainText(piText("UI/Commands/WarpTo")) || "Warp To"}</button>
         <button type="button" disabled title={plainText(piText("UI/PI/Common/AccessCustomOffice"))}>{plainText(piText("UI/PI/Common/Access")) || "Access"}</button>
+        <button type="button" disabled={chosenColony === null} onclick={() => { templatePlanet = chosenColony; }}>Templates</button>
       </div>
     </div>
   {:else if !$planets.loaded}
@@ -421,6 +425,7 @@
       <section class="panel inner">
         <header class="panel-head">
           <h3>{colonyPlaceWords(openColony)}</h3>
+          <button type="button" onclick={() => { templatePlanet = openColony?.planetID ?? null; }}>Templates</button>
           <p class="note">
             {openColony.planetTypeName ?? "an unnamed kind of planet"} ·
             command centre level {openColony.commandCenterLevel} ·
@@ -531,6 +536,11 @@
         {/if}
       </section>
     {/if}
+  {/if}
+  {#if shownTab === "colonies" && templateColony}
+    {#key templateColony.planetID}
+      <ColonyTemplate colony={templateColony} recipes={$planets.recipes} {flow} {store} onClose={() => { templatePlanet = null; }} />
+    {/key}
   {/if}
 </section>
 

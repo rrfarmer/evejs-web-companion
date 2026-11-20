@@ -3451,6 +3451,9 @@ export interface ColonyPin {
   readonly typeID: number;
   readonly typeName: string;
   readonly kind: ColonyPinKind;
+  /** The planet surface's colatitude and longitude in radians. */
+  readonly latitude?: number;
+  readonly longitude?: number;
   readonly contents: readonly ColonyStoredItem[];
   /**
    * What this pin holds and what it can hold, in m³ — EITHER may be null when

@@ -451,6 +451,7 @@ import {
 } from "../bridge/drones.ts";
 import { decodeSkillSheet, skillQueueRefusal } from "../bridge/skills.ts";
 import { decodeColonyReport } from "../bridge/planets.ts";
+import { planColonyTemplate, type ColonyTemplate, type TemplatePlacement, type TemplateRotation } from "../bridge/colonyTemplate.ts";
 import { filetimeToUnixMs } from "../bridge/activity.ts";
 import { readWormholePolarization, type WormholePolarization } from "../play/wormholePolarization.ts";
 import { extractorReroute, factoryInputTypeIDs, type ExtractorReroute } from "../bridge/colonyRoutes.ts";
@@ -1221,7 +1222,7 @@ import { giveUpOffice, quoteOffice, rentOffice, type DockedIn } from "../bridge/
 import { runSlashCommand } from "../bridge/gmWrites.ts";
 import { IntDict, hashedSetOrder, intDictOf, intDictOrder, strDictOrder, tupleHashOf, wholeHashOf } from "../bridge/py27DictOrder.ts";
 import { hudSettingNow, setSlotOrder, slotOrderOf } from "../store/hudSettings.ts";
-import { launchCommodities as launchCommoditiesCall, rerouteExtractorRoutes, type NewRoute } from "../bridge/planetWrites.ts";
+import { changeColonyNetwork, launchCommodities as launchCommoditiesCall, rerouteExtractorRoutes, type NewRoute } from "../bridge/planetWrites.ts";
 import { restartExtractor as restartExtractorAsTheClient } from "../bridge/extractorRestart.ts";
 import { activateModule as activateModuleCall, createDefaultEffects, createModuleRepairs, createOverloadEffects, createWeaponGrouping, deactivateModule as deactivateModuleCall, loadAmmo as loadAmmoCall, repairWaitMs, setModuleOnline as setModuleOnlineCall, setOverload as setOverloadCall, unloadAmmo as unloadAmmoCall, type ModuleActionResult, type ModuleDeps } from "../bridge/dogmaWrites.ts";
 import { keptByType, keptTypeAttributes, keptWhereKnown } from "../bridge/keptTypeFacts.ts";
@@ -4413,6 +4414,8 @@ export interface AppFlow {
 
   /** R41 — every colony this character owns, and what is on each planet. */
   loadPlanets(): Promise<void>;
+  quoteColonyTemplate(placement: TemplatePlacement): Promise<number>;
+  submitColonyTemplate(planetID: number, template: ColonyTemplate, rotation: TemplateRotation, reviewed: TemplatePlacement, price: number): Promise<void>;
   /** R41 — open one colony, or close the open one with null. View state. */
   selectColony(planetID: number | null): void;
   /**
@@ -28242,6 +28245,37 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
 
+  async function quoteColonyTemplate(placement: TemplatePlacement): Promise<number> {
+    const typeIDs = [...new Set(placement.pins.filter(pin => !pin.existing).map(pin => pin.typeID))];
+    const basePrice = new Map<number, number>();
+    for (let i = 0; i < typeIDs.length; i += 50) {
+      const chunk = typeIDs.slice(i, i + 50);
+      const answer = await api.getTypePrices(chunk, callOptions);
+      for (const id of chunk) {
+        const price = answer.basePrice[id];
+        if (price == null || price <= 0) throw new Error("The construction price is unavailable for one of the installations.");
+        basePrice.set(id, Math.round(price * 100) / 100);
+      }
+    }
+    return Math.round(placement.pins.reduce((value, pin) => value + (pin.existing ? 0 : basePrice.get(pin.typeID)!), placement.upgradeCost) * 100) / 100;
+  }
+
+  async function submitColonyTemplate(planetID: number, template: ColonyTemplate, rotation: TemplateRotation, reviewed: TemplatePlacement, price: number): Promise<void> {
+    const pilot = callOptions.captureRequestGuard!();
+    const read = await api.getPlanets(callOptions);
+    const colony = decodeColonyReport(read.planets, Date.now()).colonies.find(row => row.planetID === planetID);
+    if (!colony) throw new Error("This colony could not be read. Open it again before building.");
+    await ensurePiRecipes();
+    const fresh = planColonyTemplate(template, colony, store.planets.get().recipes, rotation);
+    const latestPrice = await quoteColonyTemplate(fresh);
+    pilot();
+    if (JSON.stringify(fresh.changes) !== JSON.stringify(reviewed.changes) || latestPrice !== price) {
+      throw new Error("The colony or construction price changed. Review the template again.");
+    }
+    await changeColonyNetwork(bridgeDo, planetID, fresh.changes);
+    await loadPlanets();
+  }
+
   function selectColony(planetID: number | null): void {
     store.apply({ type: "planets/selected", planetID });
   }
@@ -37477,6 +37511,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     compressedTypesOf,
     loadSkills,
     loadPlanets,
+    quoteColonyTemplate,
+    submitColonyTemplate,
     selectColony,
     saveSkillQueue,
     pauseSkillTraining,
