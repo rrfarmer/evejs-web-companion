@@ -217,6 +217,8 @@ const COOL_FILL_RADIUS = 20;
 const COOL_DIGIT_SIZES = [18, 14, 11, 9] as const;
 // hudConst.COLOR_MODULE_DAMAGE
 const COLOR_MODULE_DAMAGE: RGBA = [1, 0.271, 0.294, 1];
+// hudConst.COLOR_MODULE_REPAIR (eveColor.SUCCESS_GREEN, read through gridcheck)
+const COLOR_MODULE_REPAIR: RGBA = [0.553, 0.757, 0.412, 1];
 // moduleSlot.py
 const QUANTITY_LABEL_DY = 13;
 const QUANTITY_OPACITY_COOLDOWN = 0.5;
@@ -1383,24 +1385,68 @@ export class NewShipHud {
   }
 
   /**
+   * The slot's overlays over its icon, on its own canvas:
+   *
+   * reloadIndicator: while its charge reloads, a 48 px disc filling from the foot by the reload's share
+   * (COLOR_MODULE_REPAIR 0.5, its edge a white line of 1: circle_white_52 through reload_step/reload_line, the mask
+   * scrolled half its height), and module_reloading_arrows over it (white, 0.2 faded in over 150 ms, scrolling down a
+   * tile every 3.6 s); the icon's glow and the count blink (0.5 s each way, the count from 1 to 0.25).
+   *
    * cooldownTimer: while a switched-off module finishes its cycle, a black 0.4 disc of 22 over the icon, the cycle's
    * elapsed share as a fill of 20 (COLOR_MODULE_DAMAGE 0.6) clockwise from 12 o'clock, a 20x24 shade (black 0.6,
    * corners 4) and the seconds left, rounded up, white 0.9 at 18, 14, 11 or 9 px by their digits. The count dims to 0.5.
    */
   private drawCooldown(slot: Slot): void {
+    const now = Date.now();
     const w = slot.module?.windingDown ?? null;
-    const remaining = w ? w.startedAtMs + w.durationMs - Date.now() : 0;
-    const show = !!w && w.durationMs > 0 && remaining > 0;
-    if (!show) {
-      if (slot.coolShown) { slot.cool.style.display = "none"; slot.coolShown = false; slot.qty.style.opacity = "1"; }
+    const remaining = w ? w.startedAtMs + w.durationMs - now : 0;
+    const cooling = !!w && w.durationMs > 0 && remaining > 0;
+    const r = slot.module?.reload ?? null;
+    const reloadElapsed = r ? now - r.startedAtMs : 0;
+    const reloading = !!r && r.durationMs > 0 && reloadElapsed >= 0 && reloadElapsed < r.durationMs;
+    if (!cooling && !reloading) {
+      if (slot.coolShown) {
+        slot.cool.style.display = "none";
+        slot.coolShown = false;
+        slot.qty.style.opacity = "1";
+        slot.icon.style.filter = "";
+      }
       return;
     }
-    if (!slot.coolShown) { slot.cool.style.display = ""; slot.coolShown = true; slot.qty.style.opacity = String(QUANTITY_OPACITY_COOLDOWN); }
+    if (!slot.coolShown) { slot.cool.style.display = ""; slot.coolShown = true; }
     const c = slot.cool.getContext("2d")!;
     const k = slot.cool.width / SLOT_SIZE;
     c.setTransform(k, 0, 0, k, 0, 0);
     c.clearRect(0, 0, SLOT_SIZE, SLOT_SIZE);
     const mid = SLOT_SIZE / 2;
+    if (reloading) {
+      const p = reloadElapsed / r!.durationMs;
+      const blink = 0.5 - 0.5 * Math.cos(Math.PI * (reloadElapsed / 500));
+      slot.icon.style.filter = `brightness(${1 + 0.5 * blink})`;
+      slot.qty.style.opacity = String(1 - 0.75 * blink);
+      c.save();
+      c.beginPath();
+      c.arc(mid, mid, 24, 0, Math.PI * 2);
+      c.clip();
+      const edge = mid + 24 - 48 * p;
+      c.fillStyle = css(COLOR_MODULE_REPAIR, 0.5);
+      c.fillRect(mid - 24, edge, 48, mid + 24 - edge);
+      c.fillStyle = "#fff";
+      c.fillRect(mid - 24, Math.round(edge), 48, 1);
+      const arrows = image(res("res:/UI/Texture/classes/HUD/module_reloading_arrows.png"));
+      if (arrows) {
+        c.globalAlpha = 0.2 * Math.min(1, reloadElapsed / 150);
+        // the whole texture over the 48 px sprite (secondary scale 1), tiled down it: one tile a sprite high
+        const tileH = 48;
+        const shift = ((reloadElapsed / 3600) % 1) * tileH;
+        for (let y = mid - 24 - tileH + shift; y < mid + 24; y += tileH) c.drawImage(arrows, mid - 24, y, 48, tileH);
+      }
+      c.restore();
+    } else {
+      slot.icon.style.filter = "";
+      slot.qty.style.opacity = String(QUANTITY_OPACITY_COOLDOWN);
+    }
+    if (!cooling) return;
     c.beginPath();
     c.arc(mid, mid, COOL_DIM_RADIUS, 0, Math.PI * 2);
     c.fillStyle = "rgba(0,0,0,0.4)";

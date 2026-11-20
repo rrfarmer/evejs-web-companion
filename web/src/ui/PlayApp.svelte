@@ -1582,6 +1582,7 @@
               repair: s.flow.moduleRepairOf(m.itemID),
               charge: charge ? { typeID: charge.typeID, quantity: charge.quantity, crystal: chargeGroup !== null && CRYSTAL_GROUPS.has(chargeGroup) } : null,
               windingDown,
+              reload: (() => { const r = s.store.fitting.get().reloads[m.itemID]; return r && now < r.startedAtMs + r.durationMs ? { startedAtMs: r.startedAtMs, durationMs: r.durationMs } : null; })(),
               // HasActivatibleEffect: a type with no default effect is passive
               passive: typeFact !== null && (typeFact.defaultEffectID ?? null) === null });
           }

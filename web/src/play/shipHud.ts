@@ -77,6 +77,8 @@ export interface HudModule {
   repair?: { startedAtMs: number; durationMs: number } | null;
   /** Its loaded charge (moduleController.GetCharge): its type, how many, and whether it is a crystal (no count shown). */
   charge?: { typeID: number; quantity: number; crystal: boolean } | null;
+  /** Its charge reloading (OnChargeReload / the reload's notice): when it began (Date.now()) and how long it takes. */
+  reload?: { startedAtMs: number; durationMs: number } | null;
   /** It has no activatable effect (moduleController.HasActivatibleEffect false): drawn in the passive housing. */
   passive?: boolean;
   /**
