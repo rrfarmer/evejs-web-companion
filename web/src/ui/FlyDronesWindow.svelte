@@ -1,6 +1,6 @@
 <script lang="ts">
-  // The play page's Drones window, in the client's layout (as the eve-cs mirror draws it): two groups - IN BAY (n)
-  // and IN SPACE (out/max) - each a header with its command icons (the client's eveicon/control_icons), and a row per
+  // The play page's Drones window, in the client's layout: two groups - Drones in Bay (n)
+  // and Drones in Space (out/max) - each a header with its command icons (the client's eveicon/control_icons), and a row per
   // drone type: its icon, "Name x n". A bay row launches on a double-click or its icon; the in-space header engages
   // what is locked and recalls; a right-click on a row or header offers every order (engage, mine, salvage, return to
   // bay, reconnect, scoop). The orders, the ownership gates and the server's own refusal lines are DronesPanel's
@@ -18,6 +18,12 @@
   import type { SpaceEntity } from "../store/types.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  // droneGroupHeader.UpdateLabelText: "%s (%s)" of UI/Inflight/Drone/DronesInBay, "%s (%s/%s)" of DronesInSpace, in an
+  // EveLabelMedium of TextColor.HIGHLIGHT
+  const HEADER_WORDS = { bay: "UI/Inflight/Drone/DronesInBay", space: "UI/Inflight/Drone/DronesInSpace" } as const;
+  flow.requestWords(Object.values(HEADER_WORDS));
+  const headerWords = store.words;
+  const headerWord = (label: string, own: string) => { const t = $headerWords.templates[label]; return typeof t === "string" && t !== "" ? t : own; };
 
   // svelte-ignore state_referenced_locally
   const space = store.space;
@@ -151,7 +157,7 @@
   <div class="group">
     <div class="sec" role="button" tabindex="-1" onclick={() => (bayOpen = !bayOpen)} onkeydown={() => {}}
       oncontextmenu={(e) => openMenu(e, [{ label: "Launch drones", disabled: bayRows.length ? null : "Nothing in the drone bay", act: () => flow.launchDrones(bayRows.flatMap((r) => r.itemIDs)) }])}>
-      <span class="lbl" title="Drones in bay">In bay <b>({bayCount})</b></span>
+      <span class="lbl">{headerWord(HEADER_WORDS.bay, "Drones in Bay")} ({bayCount})</span>
       <span class="commands">
         <button type="button" class="command" title="Launch drones (Shift+F)" disabled={busy || !bayRows.length}
           onclick={(e) => { e.stopPropagation(); void run(() => flow.launchDrones(bayRows.flatMap((r) => r.itemIDs))); }}>
@@ -168,7 +174,9 @@
             ondblclick={() => run(() => flow.launchDrones(row.itemIDs))}
             oncontextmenu={(e) => openMenu(e, [{ label: "Launch drones", act: () => flow.launchDrones(row.itemIDs) }])}>
             {@render picture(row.typeID, row.label)}
-            <span class="name">{row.label} <span class="count">× {row.quantity}</span></span>
+            <!-- dronesWindow: a stack's label UI/Inflight/DroneBayEntryWithStacksize, "Mining Drone I (2)" (3698585, through
+                 gridcheck); one drone its name alone -->
+            <span class="name">{row.quantity > 1 ? `${row.label} (${row.quantity})` : row.label}</span>
             <span class="row-buttons">
               <button type="button" class="command" title="Launch drones" disabled={busy} onclick={() => run(() => flow.launchDrones(row.itemIDs))}>
                 <span class="glyph" style:background-image={`url(${ICON.launch})`}></span>
@@ -183,7 +191,7 @@
   <div class="group">
     <div class="sec" role="button" tabindex="-1" onclick={() => (spaceOpen = !spaceOpen)} onkeydown={() => {}}
       oncontextmenu={(e) => openMenu(e, spaceEntries(allDroneIDs, false))}>
-      <span class="lbl" title="Drones in local space">In space <b>({maxActive === null ? outCount : `${outCount}/${maxActive}`})</b></span>
+      <span class="lbl">{headerWord(HEADER_WORDS.space, "Drones in Space")} ({maxActive === null ? outCount : `${outCount}/${maxActive}`})</span>
       <span class="commands">
         <button type="button" class="command" title={targetUnavailable ?? "Engage target (F)"} disabled={busy || targetUnavailable !== null}
           onclick={(e) => { e.stopPropagation(); void run(() => primaryAction(allDroneIDs)); }}>
@@ -242,8 +250,7 @@
      29 px rows of a 24 px type icon, the name at 13 px and its count at 11 px, 16 px command icons */
   .fly-drones { position: relative; font-size: 13px; color: #fff; user-select: none; }
   .sec { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 5px 12px; background: rgba(255, 255, 255, 0.02); cursor: default; }
-  .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: rgb(108, 110, 107); }
-  .lbl b { font-weight: 400; color: #fff; }
+  .lbl { font-size: 14px; color: rgba(255, 255, 255, 0.9); }
   .commands, .row-buttons { display: flex; gap: 2px; }
   .command { width: 24px; height: 22px; padding: 0; border: 0; background: transparent; display: grid; place-items: center; cursor: pointer; opacity: 0.85; }
   .command:hover:not(:disabled) { opacity: 1; background: rgba(255, 255, 255, 0.08); }
