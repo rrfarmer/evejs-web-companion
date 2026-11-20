@@ -83,17 +83,37 @@ function unpack(dv: DataView, buf: ArrayBuffer, offset: number, width: number, h
   throw new Error(`${name}: uncompressed DDS with ${bits} bits a pixel not handled`);
 }
 
-/**
- * An uncompressed 2D DDS: the top mip, the GPU making the rest. The client's planet textures are some of these (the
- * ground scattering light maps are 24-bit).
- */
-function parseUncompressed(dv: DataView, buf: ArrayBuffer, width: number, height: number, name: string): THREE.DataTexture {
-  const { data, format } = unpack(dv, buf, 128, width, height, name);
-  const tex = new THREE.DataTexture(data, width, height, format);
-  tex.generateMipmaps = true;
-  tex.minFilter = THREE.LinearMipmapLinearFilter;
+/** An uncompressed 2D DDS, including the authored mip levels used by effect masks. */
+function parseUncompressed(
+  dv: DataView, buf: ArrayBuffer, width: number, height: number, mipCount: number, skip: number, name: string, floatFormat = 0,
+): THREE.DataTexture {
+  const bytesPerTexel = floatFormat === 116 ? 16 : floatFormat === 113 ? 8 : floatFormat === 114 ? 4 : dv.getUint32(88, true) / 8;
+  const levels = [];
+  let offset = 128;
+  for (let i = 0, w = width, h = height; i < mipCount; i++, w = Math.max(1, w >> 1), h = Math.max(1, h >> 1)) {
+    const end = offset + w * h * bytesPerTexel;
+    if (end > buf.byteLength) break;
+    levels.push({ width: w, height: h, offset, end });
+    offset = end;
+    if (w === 1 && h === 1) break;
+  }
+  if (!levels.length) throw new Error(`${name}: truncated uncompressed DDS`);
+  const format = floatFormat === 114 || (!floatFormat && bytesPerTexel === 1) ? THREE.RedFormat : THREE.RGBAFormat;
+  const type = floatFormat === 113 ? THREE.HalfFloatType : floatFormat ? THREE.FloatType : THREE.UnsignedByteType;
+  const mips = levels.slice(Math.min(skip, levels.length - 1)).map(({ width, height, offset, end }) => {
+    if (floatFormat) {
+      const data = floatFormat === 113 ? new Uint16Array(buf.slice(offset, end)) : new Float32Array(buf.slice(offset, end));
+      return { width, height, data };
+    }
+    return { width, height, data: unpack(dv, buf, offset, width, height, name).data };
+  });
+  const base = mips[0]!;
+  const tex = new THREE.DataTexture(base.data, base.width, base.height, format, type);
+  if (mips.length > 1) tex.mipmaps = mips;
+  tex.generateMipmaps = !floatFormat && levels.length === 1;
+  tex.minFilter = mips.length > 1 || tex.generateMipmaps ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  if (floatFormat !== 114) tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.flipY = false;
   tex.name = name;
   tex.needsUpdate = true;
@@ -160,34 +180,16 @@ export function parseDds(buf: ArrayBuffer, name = "dds", mipSkip = 0): THREE.Com
   const mipCount = Math.max(1, dv.getUint32(28, true));
   const fourCC = String.fromCharCode(dv.getUint8(84), dv.getUint8(85), dv.getUint8(86), dv.getUint8(87));
   const DDPF_FOURCC = 0x4;
-  // D3DFMT_R32F (FourCC 114): one float a texel, its top level (a station traffic's path positions, in metres)
-  if (dv.getUint32(80, true) & DDPF_FOURCC && dv.getUint32(84, true) === 114) {
-    const tex = new THREE.DataTexture(new Float32Array(buf.slice(128, 128 + width * height * 4)), width, height, THREE.RedFormat, THREE.FloatType);
-    tex.minFilter = tex.magFilter = THREE.LinearFilter;
-    tex.generateMipmaps = false;
-    tex.flipY = false;
-    tex.name = name;
-    tex.needsUpdate = true;
-    return tex as unknown as THREE.CompressedTexture;
-  }
-  // D3DFMT_A32B32G32R32F (116) / A16B16G16R16F (113): four floats a texel, its top level (the line sets' gradients)
-  if (dv.getUint32(80, true) & DDPF_FOURCC && (dv.getUint32(84, true) === 116 || dv.getUint32(84, true) === 113)) {
-    const half = dv.getUint32(84, true) === 113;
-    const n = width * height * 4;
-    const tex = half
-      ? new THREE.DataTexture(new Uint16Array(buf.slice(128, 128 + n * 2)), width, height, THREE.RGBAFormat, THREE.HalfFloatType)
-      : new THREE.DataTexture(new Float32Array(buf.slice(128, 128 + n * 4)), width, height, THREE.RGBAFormat, THREE.FloatType);
-    tex.minFilter = tex.magFilter = THREE.LinearFilter;
-    tex.generateMipmaps = false;
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.flipY = false;
-    tex.name = name;
-    tex.needsUpdate = true;
-    return tex as unknown as THREE.CompressedTexture;
+  const DDSD_MIPMAPCOUNT = 0x20000;
+  const skip = mipSkip > 0 ? mipRange(width, height, dv.getUint32(8, true) & DDSD_MIPMAPCOUNT ? dv.getUint32(28, true) : 0, mipSkip) : 0;
+  // D3DFMT_A16B16G16R16F, R32F and A32B32G32R32F.
+  const floatFormat = dv.getUint32(84, true);
+  if ((dv.getUint32(80, true) & DDPF_FOURCC) && (floatFormat === 113 || floatFormat === 114 || floatFormat === 116)) {
+    return parseUncompressed(dv, buf, width, height, mipCount, skip, name, floatFormat) as unknown as THREE.CompressedTexture;
   }
   if (!(dv.getUint32(80, true) & DDPF_FOURCC)) {
     if (dv.getUint32(112, true) & DDSCAPS2_CUBEMAP) return parseUncompressedCube(dv, buf, width, height, mipCount, name) as unknown as THREE.CompressedTexture;
-    return parseUncompressed(dv, buf, width, height, name) as unknown as THREE.CompressedTexture;
+    return parseUncompressed(dv, buf, width, height, mipCount, skip, name) as unknown as THREE.CompressedTexture;
   }
   let offset = 128;
   let kind = FOURCC[fourCC];
@@ -230,8 +232,6 @@ export function parseDds(buf: ArrayBuffer, name = "dds", mipSkip = 0): THREE.Com
     return cube as unknown as THREE.CompressedTexture;
   }
   // the texture quality's skip (not for cube maps: "this optimization won't work for Cube textures")
-  const DDSD_MIPMAPCOUNT = 0x20000;
-  const skip = mipSkip > 0 ? mipRange(width, height, dv.getUint32(8, true) & DDSD_MIPMAPCOUNT ? dv.getUint32(28, true) : 0, mipSkip) : 0;
   const mipmaps = chain(skip);
   const tex = new THREE.CompressedTexture(mipmaps as unknown as ImageData[], mipmaps[0]?.width ?? width, mipmaps[0]?.height ?? height, kind.format);
   tex.minFilter = mipmaps.length > 1 ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
