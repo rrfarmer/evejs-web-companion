@@ -12729,6 +12729,7 @@ function projectColony(staticDataSource, colony) {
   const planetID = Number(colony && colony.planetID) || 0;
   const solarSystemID = Number(colony && colony.solarSystemID) || 0;
   const planetTypeID = Number(colony && colony.planetTypeID || colony && colony.typeID) || 0;
+  const radius = colony?.radius ?? staticDataSource.getPlanetCelestial?.(planetID)?.radius;
   const pins = (Array.isArray(colony && colony.pins) ? colony.pins : []).map((pin) => {
     const typeID = Number(pin && pin.typeID) || 0;
     const kind = planetPinKind(staticDataSource, typeID);
@@ -12795,6 +12796,7 @@ function projectColony(staticDataSource, colony) {
     solarSystemName: solarSystemID ? staticDataSource.getSolarSystemName(solarSystemID) : null,
     planetTypeID,
     planetTypeName: planetTypeID ? staticDataSource.getTypeName(planetTypeID) : null,
+    ...(Number.isFinite(radius) && radius > 0 ? { radius } : {}),
     commandCenterLevel: Number(colony && colony.level) || 0,
     lastSimulatedAtMs: fileTimeToEpochMs(colony && colony.currentSimTime),
     pins,

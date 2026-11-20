@@ -1,10 +1,11 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
-  import { planColonyTemplate, readColonyTemplate, type ColonyTemplate, type TemplatePlacement, type TemplateRotation } from "../bridge/colonyTemplate.ts";
+  import { compressColonyTemplate, planColonyTemplate, readColonyTemplate, type ColonyTemplate, type TemplatePlacement, type TemplateRotation } from "../bridge/colonyTemplate.ts";
   import type { PiRecipeBook } from "../bridge/piRecipes.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import type { Colony } from "../store/types.ts";
+  import ColonyTemplateLibrary from "./ColonyTemplateLibrary.svelte";
 
   let { colony, recipes, flow, store, onClose }: {
     colony: Colony; recipes: PiRecipeBook; flow: AppFlow; store: ClientStore; onClose: () => void;
@@ -24,16 +25,18 @@
   let busy = $state(false);
   let canvas = $state<HTMLCanvasElement | null>(null);
   let entirePlanet = $state(false);
+  let compress = $state(true);
+  const compressedTemplate = $derived.by(() => template && compress ? compressColonyTemplate(template) : template);
   const preview = $derived.by(() => {
-    if (!template) return { placement: null, error: "" };
+    if (!compressedTemplate) return { placement: null, error: "" };
     try {
-      return { placement: planColonyTemplate(template, colony, recipes, rotation), error: "" };
+      return { placement: planColonyTemplate(compressedTemplate, colony, recipes, rotation), error: "" };
     } catch (cause) {
       return { placement: null, error: cause instanceof Error ? cause.message : String(cause) };
     }
   });
 
-  async function loadPreview(): Promise<void> {
+  async function loadPreview(text = source): Promise<void> {
     busy = true;
     error = "";
     cost = null;
@@ -41,11 +44,13 @@
     success = false;
     try {
       template = null;
+      source = text;
       rotation = [0, 0, 0];
       entirePlanet = false;
-      const parsed = readColonyTemplate(source);
+      compress = true;
+      const parsed = readColonyTemplate(text);
       template = parsed;
-      const placement = planColonyTemplate(parsed, colony, recipes, rotation);
+      const placement = planColonyTemplate(compressedTemplate!, colony, recipes, rotation);
       flow.requestNames([...new Set([
         ...placement.pins.map(pin => pin.typeID), ...parsed.routes.map(route => route.typeID),
         ...parsed.pins.flatMap(pin => pin.product === null ? [] : [pin.product]),
@@ -94,11 +99,11 @@
   }
 
   async function submit(): Promise<void> {
-    if (!template || !reviewed || cost === null || busy) return;
+    if (!compressedTemplate || !reviewed || cost === null || busy) return;
     busy = true;
     error = "";
     try {
-      await flow.submitColonyTemplate(colony.planetID, template, rotation, reviewed, cost);
+      await flow.submitColonyTemplate(colony.planetID, compressedTemplate, rotation, reviewed, cost);
       template = null;
       source = "";
       success = true;
@@ -179,6 +184,7 @@
     <button type="button" disabled={busy} onclick={() => void pasteTemplate()}>Load from Clipboard</button>
     <label class="template-file">Open template file <input type="file" accept=".json,.txt,application/json,text/plain" disabled={busy} onchange={(event) => void loadFile(event)} /></label>
   </div>
+  <ColonyTemplateLibrary {colony} {recipes} {flow} {store} {busy} {source} onLoad={(text) => void loadPreview(text)} />
   {#if error || preview.error}
     <p class="template-error" role="alert">{error || preview.error}</p>
   {/if}
@@ -189,9 +195,12 @@
       <p><strong>{colony.planetName ?? "Colony"}</strong> · {placement.pins.filter(pin => !pin.existing).length} installations ·
         {placement.links.length} links · {placement.routes} routes · command centre level {placement.requestedLevel}</p>
       <canvas bind:this={canvas} width="520" height="164" aria-label="Planetary surface with template installations and links"></canvas>
-      <button class="map-scale" type="button" onclick={() => { entirePlanet = !entirePlanet; }}>
-        {entirePlanet ? "Zoom to template" : "Show entire planet"}
-      </button>
+      <div class="template-actions">
+        <label><input type="checkbox" bind:checked={compress} disabled={busy} onchange={() => { reviewed = null; }} /> Compress layout</label>
+        <button type="button" onclick={() => { entirePlanet = !entirePlanet; }}>
+          {entirePlanet ? "Zoom to template" : "Show entire planet"}
+        </button>
+      </div>
       <div class="axes">
         {#each ["X", "Y", "Z"] as axis, i}
           <label>Rotate {axis} <input type="range" min="-180" max="180" step="1" value={rotation[i]} disabled={busy}
@@ -238,7 +247,6 @@
   .template-file input { max-width: 11rem; }
   .template-preview { display: grid; gap: .45rem; }
   canvas { width: 100%; height: auto; border: 1px solid #324a5d; }
-  .map-scale { justify-self: end; }
   .axes { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); column-gap: .7rem; }
   .axes label { display: grid; grid-template-columns: auto minmax(2rem, 1fr) 3ch; align-items: center; gap: .3rem; }
   .axes input { width: 100%; }

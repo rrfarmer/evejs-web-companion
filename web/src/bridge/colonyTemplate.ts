@@ -28,6 +28,7 @@ interface TemplatePin {
   readonly latitude: number;
   readonly longitude: number;
   readonly product: number | null;
+  readonly heads: number;
 }
 interface TemplateLink { readonly from: Endpoint; readonly to: Endpoint; readonly level: number }
 interface TemplateRoute { readonly path: readonly Endpoint[]; readonly typeID: number; readonly quantity: number }
@@ -88,9 +89,9 @@ export function readColonyTemplate(source: string): ColonyTemplate {
   if (!PIN_TYPES[planetTypeID] || typeof root.Cmt !== "string") invalid("the planet type and description");
   const pins = rows(root.P, "installations").map((pin, i): TemplatePin => {
     const row = record(pin, ["T", "La", "Lo", "S", "H"], `installation ${i + 1}`);
-    integer(row.H, "the extractor head count", 0);
     return { typeID: integer(row.T, "installation type", 1), latitude: real(row.La, "latitude", 0, Math.PI),
-      longitude: real(row.Lo, "longitude", 0, TAU), product: row.S === null ? null : integer(row.S, "product type", 1) };
+      longitude: real(row.Lo, "longitude", 0, TAU), product: row.S === null ? null : integer(row.S, "product type", 1),
+      heads: integer(row.H, "the extractor head count", 0) };
   });
   if (pins.length === 0 || pins.filter(pin => PIN_COLUMN.get(pin.typeID) === COMMAND).length > 1) invalid("the installation list");
   const links = rows(root.L, "links").map((link): TemplateLink => {
@@ -107,10 +108,108 @@ export function readColonyTemplate(source: string): ColonyTemplate {
     level: integer(root.CmdCtrLv, "command centre level", 0, 5), comment: root.Cmt, pins, links, routes };
 }
 
+/** Python's verifier distinguishes a floating-point value in the JSON from an integer. */
+export function writeColonyTemplate(template: ColonyTemplate): string {
+  const float = (value: number) => Number.isInteger(value) && !String(value).includes("e") ? `${value}.0` : String(value);
+  const header = JSON.stringify({ Pln: template.planetTypeID, CmdCtrLv: template.level, Cmt: template.comment }).slice(0, -1);
+  const pins = template.pins.map(pin =>
+    `{"T":${pin.typeID},"La":${float(pin.latitude)},"Lo":${float(pin.longitude)},"S":${pin.product},"H":${pin.heads}}`);
+  const links = template.links.map(link => ({ S: link.from, D: link.to, Lv: link.level }));
+  const routes = template.routes.map(route => ({ P: route.path, T: route.typeID, Q: route.quantity }));
+  return `${header},"Diam":${float(template.diameter)},"P":[${pins.join(",")}],"L":${JSON.stringify(links)},"R":${JSON.stringify(routes)}}`
+    .replace(/[^\x00-\x7f]/g, character => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
+export function colonyTemplateLink(template: ColonyTemplate): string {
+  const base = btoa(writeColonyTemplate(template));
+  let packed = "colonytemplate:";
+  for (let i = 0; i < base.length; i += 2) {
+    packed += String.fromCharCode(base.charCodeAt(i) * 256 + (i + 1 < base.length ? base.charCodeAt(i + 1) : 0));
+  }
+  return packed;
+}
+
+/** Tranquility's export omits the command centre and refuses a colony linked to it. */
+export function exportColonyTemplate(colony: Colony, recipes: PiRecipeBook, description: string): ColonyTemplate {
+  const { radius } = colony;
+  if (!radius) throw new Error("The planet's diameter is unavailable.");
+  const centre = colony.pins.find(pin => pin.kind === "command");
+  if (!centre) throw new Error("An established command centre is required to export a planetary template.");
+  if (colony.links.some(link => link.endpoint1 === centre.pinID || link.endpoint2 === centre.pinID)) {
+    throw new Error("A colony with links to its command centre cannot be exported.");
+  }
+  const endpoints = new Map<number, number>();
+  const roundCoordinate = (coordinate: number) => Math.round(coordinate * 100000) / 100000;
+  const pins = colony.pins.filter(pin => pin.kind !== "command").map((pin, i): TemplatePin => {
+    endpoints.set(pin.pinID, i + 1);
+    if (pin.latitude == null || pin.longitude == null) throw new Error("An installation's location is unavailable.");
+    const recipe = pin.schematicID == null ? null : recipes.bySchematicID.get(pin.schematicID);
+    if (pin.schematicID != null && !recipe) throw new Error("An installation's recipe is unavailable.");
+    return { typeID: pin.typeID, latitude: roundCoordinate(pin.latitude),
+      longitude: roundCoordinate(pin.longitude) % TAU, product: recipe?.output.typeID ?? pin.program?.resourceTypeID ?? null,
+      heads: pin.program?.headCount ?? 0 };
+  });
+  if (!pins.length) throw new Error("Build an installation before exporting this colony.");
+  const endpointOf = (id: number) => {
+    const index = endpoints.get(id);
+    if (index === undefined) throw new Error("A connection refers to an unavailable installation.");
+    return index;
+  };
+  return { planetTypeID: colony.planetTypeID, diameter: radius * 2 / 1000, level: colony.commandCenterLevel,
+    comment: description.replace(/<[^>]*>/g, "").trim(), pins,
+    links: colony.links.map(link => ({ from: endpointOf(link.endpoint1), to: endpointOf(link.endpoint2), level: link.level })),
+    routes: colony.routes.map(route => ({ path: route.path.map(endpointOf), typeID: route.commodityTypeID, quantity: route.commodityQuantity })) };
+}
+
 export type TemplateRotation = readonly [number, number, number];
+type SurfacePosition = readonly [latitude: number, longitude: number];
+function surfaceVector([latitude, longitude]: SurfacePosition): readonly [number, number, number] {
+  return [Math.sin(latitude) * Math.cos(longitude), Math.cos(latitude), Math.sin(latitude) * Math.sin(longitude)];
+}
+
+/** TemplatePreviewWindow compresses towards the first pin, closest pins first. */
+export function compressColonyTemplate(template: ColonyTemplate): ColonyTemplate {
+  const [first, ...rest] = template.pins;
+  if (!first || rest.length === 0) return template;
+  const anchor: SurfacePosition = [first.latitude, first.longitude];
+  const centre = surfaceVector(anchor);
+  const distanceDot = (a: readonly number[], b: readonly number[]) => a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
+  const minDistance = 0.012;
+  const threshold = Math.cos(minDistance);
+  const step = minDistance * 0.01;
+  const positions = rest.map((pin, i) => {
+    const original: SurfacePosition = [pin.latitude, pin.longitude];
+    const position: SurfacePosition = [2 * pin.latitude - anchor[0], 2 * pin.longitude - anchor[1]];
+    return { index: i + 1, position, order: distanceDot(centre, surfaceVector(original)), vector: surfaceVector(position) };
+  }).sort((a, b) => b.order - a.order);
+  let unchanged = 0;
+  for (let iteration = 0; iteration < 10000 && unchanged <= 20; iteration++) {
+    let moved = false;
+    for (const point of positions) {
+      const [latitude, longitude] = point.position;
+      const latDelta = anchor[0] - latitude, lonDelta = anchor[1] - longitude;
+      const distance = Math.hypot(latDelta, lonDelta);
+      if (distance === 0) continue;
+      const position: SurfacePosition = [latitude + step * latDelta / distance, longitude + step * lonDelta / distance];
+      const vector = surfaceVector(position);
+      if (distanceDot(vector, centre) > threshold ||
+        positions.some(other => other !== point && distanceDot(vector, other.vector) > threshold)) continue;
+      point.position = position;
+      point.vector = vector;
+      moved = true;
+    }
+    unchanged = moved ? 1 : unchanged + 1;
+  }
+  const pins = [...template.pins];
+  for (const { index, position: [latitude, longitude] } of positions) {
+    pins[index] = { ...pins[index]!, latitude, longitude };
+  }
+  return { ...template, pins };
+}
+
 function rotatedPoint(latitude: number, longitude: number, rotation: TemplateRotation): readonly [number, number] {
   const [a, b, c] = rotation.map(degrees => degrees * Math.PI / 180) as [number, number, number];
-  const x = Math.sin(latitude) * Math.cos(longitude), y = Math.cos(latitude), z = Math.sin(latitude) * Math.sin(longitude);
+  const [x, y, z] = surfaceVector([latitude, longitude]);
   // SurfacePoint.GetRotatedSurfacePoint applies Z, then X, then Y.
   const x1 = x * Math.cos(c) - y * Math.sin(c), y1 = x * Math.sin(c) + y * Math.cos(c);
   const y2 = y1 * Math.cos(a) - z * Math.sin(a), z2 = y1 * Math.sin(a) + z * Math.cos(a);
@@ -163,7 +262,7 @@ export function planColonyTemplate(template: ColonyTemplate, colony: Colony, rec
     }
   }
   if (!pins.some(pin => pin.existing) && centre.latitude != null && centre.longitude != null) {
-    pins.push({ index: COMMAND_ENDPOINT, typeID: centre.typeID, latitude: centre.latitude, longitude: centre.longitude, product: null, existing: true });
+    pins.push({ index: COMMAND_ENDPOINT, typeID: centre.typeID, latitude: centre.latitude, longitude: centre.longitude, product: null, heads: 0, existing: true });
   }
   const neighbors = new Map<Endpoint, Set<Endpoint>>();
   for (const link of template.links) {

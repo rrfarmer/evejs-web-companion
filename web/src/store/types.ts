@@ -3512,6 +3512,8 @@ export interface Colony {
   /** The planet's own type, for its icon. */
   readonly planetTypeID: number;
   readonly planetTypeName: string | null;
+  /** Surface radius in metres, where supplied by the planet read or map. */
+  readonly radius?: number;
   readonly commandCenterLevel: number;
   /** When the server last ran this colony forward. Epoch ms, or null. */
   readonly lastSimulatedAtMs: number | null;

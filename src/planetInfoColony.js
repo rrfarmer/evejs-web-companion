@@ -57,6 +57,7 @@ function colonyRowOf(planetInfo) {
     planetID: info.planetID,
     solarSystemID: info.solarSystemID,
     planetTypeID: info.planetTypeID,
+    ...(Number.isFinite(info.radius) && info.radius > 0 ? { radius: info.radius } : {}),
     ownerID: info.ownerID,
     level: info.level,
     currentSimTime: info.currentSimTime,

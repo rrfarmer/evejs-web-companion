@@ -266,6 +266,8 @@ function decodeColony(value: JsonValue): Colony | null {
     solarSystemName: asName(record.solarSystemName),
     planetTypeID: asNumber(record.planetTypeID),
     planetTypeName: asName(record.planetTypeName),
+    ...(typeof record.radius === "number" && Number.isFinite(record.radius) && record.radius > 0
+      ? { radius: record.radius } : {}),
     commandCenterLevel: asNumber(record.commandCenterLevel),
     lastSimulatedAtMs: asInstant(record.lastSimulatedAtMs),
     pins,

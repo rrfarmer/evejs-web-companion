@@ -451,7 +451,7 @@ import {
 } from "../bridge/drones.ts";
 import { decodeSkillSheet, skillQueueRefusal } from "../bridge/skills.ts";
 import { decodeColonyReport } from "../bridge/planets.ts";
-import { planColonyTemplate, type ColonyTemplate, type TemplatePlacement, type TemplateRotation } from "../bridge/colonyTemplate.ts";
+import { exportColonyTemplate, planColonyTemplate, type ColonyTemplate, type TemplatePlacement, type TemplateRotation } from "../bridge/colonyTemplate.ts";
 import { filetimeToUnixMs } from "../bridge/activity.ts";
 import { readWormholePolarization, type WormholePolarization } from "../play/wormholePolarization.ts";
 import { extractorReroute, factoryInputTypeIDs, type ExtractorReroute } from "../bridge/colonyRoutes.ts";
@@ -4415,6 +4415,7 @@ export interface AppFlow {
   /** R41 — every colony this character owns, and what is on each planet. */
   loadPlanets(): Promise<void>;
   quoteColonyTemplate(placement: TemplatePlacement): Promise<number>;
+  readColonyTemplateForExport(planetID: number, description: string): Promise<ColonyTemplate>;
   submitColonyTemplate(planetID: number, template: ColonyTemplate, rotation: TemplateRotation, reviewed: TemplatePlacement, price: number): Promise<void>;
   /** R41 — open one colony, or close the open one with null. View state. */
   selectColony(planetID: number | null): void;
@@ -28260,12 +28261,24 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return Math.round(placement.pins.reduce((value, pin) => value + (pin.existing ? 0 : basePrice.get(pin.typeID)!), placement.upgradeCost) * 100) / 100;
   }
 
-  async function submitColonyTemplate(planetID: number, template: ColonyTemplate, rotation: TemplateRotation, reviewed: TemplatePlacement, price: number): Promise<void> {
-    const pilot = callOptions.captureRequestGuard!();
+  async function readColonyForTemplate(planetID: number) {
     const read = await api.getPlanets(callOptions);
     const colony = decodeColonyReport(read.planets, Date.now()).colonies.find(row => row.planetID === planetID);
-    if (!colony) throw new Error("This colony could not be read. Open it again before building.");
+    if (!colony) throw new Error("This colony could not be read. Open it again from Planetary Colonies.");
     await ensurePiRecipes();
+    return colony;
+  }
+
+  async function readColonyTemplateForExport(planetID: number, description: string): Promise<ColonyTemplate> {
+    const pilot = callOptions.captureRequestGuard!();
+    const colony = await readColonyForTemplate(planetID);
+    pilot();
+    return exportColonyTemplate(colony, store.planets.get().recipes, description);
+  }
+
+  async function submitColonyTemplate(planetID: number, template: ColonyTemplate, rotation: TemplateRotation, reviewed: TemplatePlacement, price: number): Promise<void> {
+    const pilot = callOptions.captureRequestGuard!();
+    const colony = await readColonyForTemplate(planetID);
     const fresh = planColonyTemplate(template, colony, store.planets.get().recipes, rotation);
     const latestPrice = await quoteColonyTemplate(fresh);
     pilot();
@@ -37512,6 +37525,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadSkills,
     loadPlanets,
     quoteColonyTemplate,
+    readColonyTemplateForExport,
     submitColonyTemplate,
     selectColony,
     saveSkillQueue,
