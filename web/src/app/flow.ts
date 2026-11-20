@@ -1256,9 +1256,11 @@ import { decodeLockFailure, decodeTargetNotification, decodeTargeterNotification
 import {
   decodeChargeLoadNotification,
   decodeChargeQuantityChanges,
+  shipEffectsInMultiEvent,
 } from "../bridge/reloadNotifications.ts";
 import type { BotScript, WorldRef } from "../bots/botScript.ts";
 import { decodeScriptValue } from "../bots/scriptCodec.ts";
+import { createAgentCorporationsReader, readAgentCorporations, type AgentCorporationsResult, type AgentFinderKind } from "../bots/agentCorporations.ts";
 import { expandSubBots, hasSubBots, type BotResolution, type SubBotReference } from "../bots/subBots.ts";
 import { autoRejectInvitations } from "./autoRejectInvitations.ts";
 import { createChatConversations, type ChatConversations } from "./chatConversations.ts";
@@ -2337,6 +2339,14 @@ export interface AppFlow {
    * to the store: nothing on screen shows it, one picker uses it.
    */
   loadCorpOffices(): Promise<CorpOfficesResult>;
+  /**
+   * The corporations that employ agents of one kind ("courier" for the delivery
+   * finder, "encounter" for the combat finder), named, for the finder step's
+   * corporation picker. Static reference data, read on demand: a failed read
+   * comes back as `error`, never as an empty list that would look like "no
+   * corporation has such agents".
+   */
+  loadAgentCorporations(kind: AgentFinderKind): Promise<AgentCorporationsResult>;
   /** Show a different corporation hangar division. */
   selectCorpDivision(division: number): void;
   /** Load the Fitting panel (the active ship's slots + resource readings). */
@@ -5339,6 +5349,14 @@ export interface AppFlow {
    */
   requestWords(labels: readonly string[]): void;
   /**
+   * Scanner sites' names by their name message (a row's `dungeonNameID`), as
+   * the site-warp blocks read them: the client's words, else the server's own
+   * site packs. A string, `null` when neither names it, and no entry when it
+   * could not be read this time. Waits for a message already being asked
+   * elsewhere. Each message is asked of the server once. Never throws.
+   */
+  scannerSiteNames(messageIDs: readonly number[]): Promise<ReadonlyMap<number, string | null>>;
+  /**
    * Ask a mission's agent for the mission's keywords, to land in
    * `store.agents.missionKeywords` under "<agentID>:<contentID>". Asked once
    * for each mission, as the client does, for as long as the store keeps the
@@ -5651,6 +5669,14 @@ const SCOOP_LEAVE_STEP_MS = 250;
 /** How long a launch's new drones are waited for in the drones' read, and how often it is made again. */
 const LAUNCH_ARRIVAL_WAIT_MS = 3000;
 const LAUNCH_ARRIVAL_STEP_MS = 250;
+/**
+ * How often an engagement's drones are read again while they are waited for on their target. How long: until an
+ * update the server sent after the order is in the pilot's park, or ENGAGE_SERVER_WAIT_MS where a server that has
+ * stopped never sends one; and where the read cannot say what the server has sent (a gateway pilot), three seconds.
+ */
+const ENGAGE_SETTLE_STEP_MS = 250;
+const ENGAGE_SERVER_WAIT_MS = 30_000;
+const ENGAGE_SETTLE_WAIT_MS = 3000;
 /** A whole number as the bridge carries one: a number, or a long as a decimal text; null for anything else. */
 function wholeNumberOf(value: unknown): number | null {
   const raw = value !== null && typeof value === "object" && "value" in (value as object) ? (value as { value: unknown }).value : value;
@@ -8032,12 +8058,26 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (Number(args[3]) !== 1) void autoReloadOnStop(moduleID, Number(args[1]) || 0).catch(() => {});
       return;
     }
-    if (method === "OnModuleAttributeChanges") {
+    // The batch, or one change alone: a session no destiny tick reaches has its dogma events sent at once, each by
+    // its own name (runtime/dogmaEvents.js queueDogmaEvent).
+    if (method === "OnModuleAttributeChanges" || method === "OnModuleAttributeChange") {
       const changes = decodeChargeQuantityChanges(method, args);
       if (changes.length > 0) {
         store.apply({ type: "fitting/charge-quantity", changes });
       }
       return;
+    }
+    // godma.OnMultiEvent_: in space the server sends both of the above this way (runtime/dogmaEvents.js), riding a
+    // destiny update or alone, so a gun's rounds and its starting and stopping are read out of it. The round counts
+    // first, then the effects, so a gun that ran dry is empty by the time its stop is taken (autoReloadOnStop).
+    if (method === "OnMultiEvent") {
+      const changes = decodeChargeQuantityChanges(method, args);
+      if (changes.length > 0) {
+        store.apply({ type: "fitting/charge-quantity", changes });
+      }
+      for (const effect of shipEffectsInMultiEvent(method, args)) {
+        applyPushedNotification("OnGodmaShipEffect", effect, receivedAtMs, true);
+      }
     }
     const chargeLoad = decodeChargeLoadNotification(method, args);
     if (chargeLoad !== null) {
@@ -9205,6 +9245,20 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // from the builder because one read timed out would look like the
       // feature breaking.
       return { stationIDs: [], divisions: [], error: errorWords(error) };
+    }
+  }
+
+  const agentCorporationsOf = createAgentCorporationsReader((kind) => readAgentCorporations(kind, callOptions));
+  async function loadAgentCorporations(kind: AgentFinderKind): Promise<AgentCorporationsResult> {
+    try {
+      return { corporations: await agentCorporationsOf(kind), error: null };
+    } catch (error) {
+      if (isSessionLost(error)) {
+        stopLiveStream();
+        store.apply({ type: "character/offline" });
+        throw error;
+      }
+      return { corporations: [], error: errorWords(error) };
     }
   }
 
@@ -27496,12 +27550,70 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   /**
    * An engagement a bot must see settled before it goes on: each drone ordered is read in space after, set on the
    * target, or the server said why not (bridge/drones.ts, decodeDroneEngageOutcome); otherwise it fails with what
-   * was and was not taken (api.DroneEngageOutcomeError).
+   * was and was not taken (api.DroneEngageOutcomeError), or, where the target left space first, as refused.
    */
   async function engageDronesConfirmed(droneIDs: readonly number[], targetID: number): Promise<void> {
-    const { inSpace, result } = await orderedThenRead(() => engageWithDrones(bridgeDo, droneIDs, targetID));
-    const outcome = decodeDroneEngageOutcome(result, inSpace, droneIDs, targetID);
-    if (outcome.status !== "accepted") throw new api.DroneEngageOutcomeError(outcome);
+    const result = await engageWithDrones(bridgeDo, droneIDs, targetID);
+    let read = await api.getDrones(callOptions, targetID);
+    let outcome = decodeDroneEngageOutcome(result, read.inSpace, droneIDs, targetID);
+    // A drone's new target reaches the pilot's park with the server's next tick (OnDroneStateChange is queued into
+    // the tick's update, droneRuntime.js queueDroneGameplayEvent), and the read just after the answer is often ahead
+    // of it: every drone taken still shows its old target or none. So while an unconfirmed drone is read in space
+    // under this ship and not yet on the target, the drones are read again.
+    //
+    // Issue #177: for how long is not a number of seconds. A server that stops for a few seconds (a site being
+    // cleaned up does) sends nothing, and the park's own clock runs on through it, so a wait of three seconds of
+    // the clock ran out in a fight and paused the bot with the order taken. What ends the wait is the server's
+    // word: an update it sent after the order, applied in the park. Anything the park receives after this first
+    // read was sent after the order (one connection, in order), and it is applied after what was queued then: so
+    // once the park has applied more than it had applied and queued at this read, such an update is in it, and
+    // drones that still do not show the target were not set on it. A read that cannot say (a gateway pilot) waits
+    // three seconds, as before; a server that never speaks again is waited for ENGAGE_SERVER_WAIT_MS.
+    // A park whose count went down is a new park (a new ballpark for the session): it holds the server's whole state
+    // as of after the order, so it has heard from the server too.
+    const firstApplied = read.serverUpdates === null ? null : read.serverUpdates.applied;
+    const before = read.serverUpdates === null ? null : read.serverUpdates.applied + read.serverUpdates.queued;
+    const startedAt = Date.now();
+    const heardSince = (): boolean => before !== null && firstApplied !== null && read.serverUpdates !== null &&
+      (read.serverUpdates.applied > before || read.serverUpdates.applied < firstApplied);
+    const waitedOut = (): boolean =>
+      Date.now() - startedAt >= (before === null ? ENGAGE_SETTLE_WAIT_MS : ENGAGE_SERVER_WAIT_MS);
+    const settling = (): boolean => outcome.status === "uncertain" && Array.isArray(read.inSpace) &&
+      read.present !== false && !heardSince() && !waitedOut() &&
+      (decodeDronesInSpace(read.inSpace) ?? []).some((drone) => outcome.uncertainDroneIDs.includes(drone.itemID) &&
+        drone.controlled && drone.targetID !== targetID);
+    while (settling()) {
+      await new Promise((resolve) => setTimeout(resolve, ENGAGE_SETTLE_STEP_MS));
+      try {
+        read = await api.getDrones(callOptions, targetID);
+      } catch {
+        break;
+      }
+      outcome = decodeDroneEngageOutcome(result, read.inSpace, droneIDs, targetID);
+    }
+    if (outcome.status === "accepted") return;
+    // Issue #177: a bot takes its drones from a look at space a tick old, and a drone can die (or be scooped by
+    // another ship) before the order reaches the server, which then refuses that drone alone: "That drone is not
+    // currently under this ship's control." Such a drone is out of the fight, not a drone whose order went wrong,
+    // so where the read after the order no longer shows a refused drone in space under this ship, it is left out:
+    // the order is done when every other drone took it. This goes by what is read, not by the server's words.
+    // (Some drone taken means the read was whole: decodeDroneEngageOutcome accepts none from a read it cannot trust.)
+    if (outcome.status === "refused" && outcome.acceptedDroneIDs.length > 0) {
+      const flight = decodeDronesInSpace(read.inSpace) ?? [];
+      if (outcome.refusedDroneIDs.every((id) => !flight.some((drone) => drone.itemID === id && drone.controlled))) {
+        return;
+      }
+    }
+    // A target that left space before every drone was seen on it (a rat the drones or the fleet killed) is not an
+    // order whose outcome is unknown: there is nothing left to set them on. Where some were seen on it the order
+    // was taken, and is done; where none were, it is said as a refusal. Either way a bot picks its next target
+    // rather than stopping for a pilot to look.
+    if (outcome.status === "uncertain" && read.present === false) {
+      if (outcome.acceptedDroneIDs.length > 0) return;
+      throw new BridgeCallError("CALL_REFUSED", "The target was gone before the drones were seen on it.", 200);
+    }
+    throw new api.DroneEngageOutcomeError(outcome,
+      heardSince() ? "after-server-update" : waitedOut() ? "timed-out" : "not-seen");
   }
 
   async function engageDrones(droneIDs: readonly number[], targetID: number): Promise<void> {
@@ -33334,7 +33446,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             // the handle a warp is issued against, and `scanStrengthAttribute`
             // (with `archetypeID` as its backstop) is what separates a rock
             // field from a pirate den — see scanner/siteKind.ts.
-            anomalies = scriptScannerSites(full.anomalies);
+            anomalies = await namedScannerSites(scriptScannerSites(full.anomalies));
           } catch {
             anomalies = null;
           }
@@ -33750,8 +33862,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
                     agentSearchFailure = selected.reason;
                   }
                 } else {
-                  // Combat finder keeps Farmer's exact-level static selection.
-                  const found = await api.findAgents({ kind, level: preferredLevel, limit: 200 }, callOptions);
+                  // Combat finder keeps Farmer's exact-level static selection. The
+                  // whole level is read: a corporation is filtered for below, and a
+                  // capped read left most corporations out before the filter ran.
+                  const found = await api.findAgents({ kind, level: preferredLevel, limit: 5000 }, callOptions);
                   let best: { agent: (typeof found.agents)[number]; jumps: number } | null = null;
                   for (const agent of found.agents) {
                     if (agent.stationID === null || agent.solarSystemID === null ||
@@ -33889,8 +34003,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           combatHardenerModuleIDs: capabilities.combatHardeners,
           weaponModuleIDs: hint.activeMacro === "fight-with-drones" ? capabilities.combatWeaponIDs : capabilities.defense.weapons,
           ...await (async () => {
+            // `fight-the-rats` reads it only while a gun is empty: it is what the block reloads from, and the read
+            // is four calls a tick.
             const facts = hint.needsMobileCombat || hint.activeMacro === "fight-with-drones"
-              ? await readCombatLoadout(observedShipID, capabilities.combatWeaponIDs) : null;
+              ? await readCombatLoadout(observedShipID, capabilities.combatWeaponIDs)
+              : hint.activeMacro === "fight-the-rats" && capabilities.unloadedWeaponIDs.length > 0
+                ? await readCombatLoadout(observedShipID, capabilities.defense.weapons) : null;
             return { combatWeapons: facts?.weapons ?? null, combatUtilities: facts?.utilities ?? null };
           })(),
           maxTargetRangeM: capabilities.maxTargetRangeM,
@@ -34029,11 +34147,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             }
             // targetID 0 = a SELF-targeted module (repairer, hardener) — the
             // target key is omitted so the server activates it on the ship.
-            requireModuleOutcome(await switchModuleOn(
-              action.moduleID,
-              action.targetID > 0 ? { typeID: action.typeID, targetID: action.targetID, repeat: -1 } : { typeID: action.typeID, repeat: -1 },
-              callOptions,
-            ), action.moduleID, "activate");
+            try {
+              requireModuleOutcome(await switchModuleOn(
+                action.moduleID,
+                action.targetID > 0 ? { typeID: action.typeID, targetID: action.targetID, repeat: -1 } : { typeID: action.typeID, repeat: -1 },
+                callOptions,
+              ), action.moduleID, "activate");
+            } catch (error) {
+              // ⚠ A GUN THAT WOULD NOT SWITCH ON MAY HAVE RUN DRY, and the cached ship facts cannot say so: they are
+              // re-read on a change of hull or modules, never of charges, so its empty magazine stays unseen and the
+              // blocks press it every tick (issue 181, a gun that empties mid-fight). Read them again.
+              const capabilities = capabilityCache.peek();
+              if (capabilities.defense.weapons.includes(action.moduleID) || capabilities.combatWeaponIDs.includes(action.moduleID)) {
+                capabilityCache.invalidate();
+              }
+              throw error;
+            }
             return;
           // ⚠ THE typeID IS WHAT MAKES A PROP-MOD STOP ACTUALLY STOP, and its
           // absence here USED TO RETURN SUCCESS AND DO NOTHING. The server stops
@@ -34058,22 +34187,29 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           }
           case "loadCombatAmmo": {
             const shipID = capabilityCache.peek().shipID;
-            if (action.utility) return issueUtilityReload(action, {
-              current: () => characterID != null && store.station.get().online?.characterID === characterID &&
-                token === callOptions.token && pilotGeneration === recoveryGeneration && generation === customBotGeneration &&
-                shipID === capabilityCache.peek().shipID,
-              read: async () => (await readCombatLoadout(shipID, []))?.utilities ?? null,
-              load: () => loadAmmoFrom([action.moduleID], [action.chargeItemID], "cargo"),
-              sleep: () => new Promise(resolve => setTimeout(resolve, 750)),
-            });
-            return issueCombatReload(action, {
-              current: () => characterID != null && store.station.get().online?.characterID === characterID &&
-                token === callOptions.token && pilotGeneration === recoveryGeneration && generation === customBotGeneration &&
-                shipID === capabilityCache.peek().shipID,
-              read: () => readCombatWeapons(shipID, [action.moduleID]),
-              load: () => loadAmmoFrom([action.moduleID], [action.chargeItemID], "cargo"),
-              sleep: () => new Promise(resolve => setTimeout(resolve, 750)),
-            });
+            // ⚠ THE SHIP'S FACTS ARE READ AGAIN AFTER A LOAD, whatever came of it: the blocks' list of empty guns
+            // and the rack both come from the fit the capability read keeps, and a load that landed left both
+            // saying empty. Seen on Gridcheck (companion-empty-gun): the gun loaded, the bot never fired it.
+            try {
+              if (action.utility) return await issueUtilityReload(action, {
+                current: () => characterID != null && store.station.get().online?.characterID === characterID &&
+                  token === callOptions.token && pilotGeneration === recoveryGeneration && generation === customBotGeneration &&
+                  shipID === capabilityCache.peek().shipID,
+                read: async () => (await readCombatLoadout(shipID, []))?.utilities ?? null,
+                load: () => loadAmmoFrom([action.moduleID], [action.chargeItemID], "cargo"),
+                sleep: () => new Promise(resolve => setTimeout(resolve, 750)),
+              });
+              return await issueCombatReload(action, {
+                current: () => characterID != null && store.station.get().online?.characterID === characterID &&
+                  token === callOptions.token && pilotGeneration === recoveryGeneration && generation === customBotGeneration &&
+                  shipID === capabilityCache.peek().shipID,
+                read: () => readCombatWeapons(shipID, [action.moduleID]),
+                load: () => loadAmmoFrom([action.moduleID], [action.chargeItemID], "cargo"),
+                sleep: () => new Promise(resolve => setTimeout(resolve, 750)),
+              });
+            } finally {
+              capabilityCache.invalidate();
+            }
           }
           case "launchDrones":
             if (action.droneItemIDs.length > 0) {
@@ -35210,6 +35346,108 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     });
   }
 
+  /**
+   * Scanner sites with their names read, for a site list to compare
+   * (scanner/siteNames.ts). The client's words come first; a message they have
+   * no text for — always, on an install with no client — is asked of the
+   * server's own site packs (`/api/site-names`). Each source is asked once per
+   * message and remembered, so this costs a call only the first time a site is
+   * seen. A name still being asked leaves `name` absent — not read yet — and a
+   * later tick has it; one neither source names, or a row with no message at
+   * all, is `null`.
+   */
+  const serverSiteNames = new Map<number, string | null>();
+  const serverSiteNamesAsking = new Set<number>();
+  // Each message being read just now, with the read that carries it.
+  const siteNamesReading = new Map<number, Promise<unknown>>();
+  // When the server could read no site pack, its nulls say nothing and are not
+  // remembered: it is asked again, but not before this time (one ask a minute,
+  // not one a tick for every bot).
+  let serverSiteNamesRetryAt = 0;
+  const SERVER_SITE_NAMES_RETRY_MS = 60_000;
+  async function namedScannerSites(sites: NonNullable<ScriptObservation["anomalies"]>): Promise<NonNullable<ScriptObservation["anomalies"]>> {
+    const names = await scannerSiteNames(sites.flatMap((site) => (site.dungeonNameID != null ? [site.dungeonNameID] : [])));
+    return sites.map((site) => {
+      if (site.dungeonNameID == null) {
+        return { ...site, name: null };
+      }
+      return names.has(site.dungeonNameID) ? { ...site, name: names.get(site.dungeonNameID) ?? null } : site;
+    });
+  }
+
+  /**
+   * Each name message's site name, by the same two sources and the same
+   * memory as `namedScannerSites`: a string, `null` when neither source names
+   * it, and no entry while it is still being read.
+   *
+   * A bot's tick does not wait for a message another caller is already
+   * reading (a later tick has it). A window does (`waitForReading`): it asks
+   * once per scan read, so a name left out would stay out until the player
+   * refreshes.
+   */
+  async function scannerSiteNames(messageIDs: readonly number[], waitForReading = false): Promise<ReadonlyMap<number, string | null>> {
+    const ids = [...new Set(messageIDs.filter((id) => Number.isSafeInteger(id) && id > 0))];
+    if (waitForReading) {
+      const others = new Set(ids.flatMap((id) => {
+        const reading = siteNamesReading.get(id);
+        return reading === undefined ? [] : [reading];
+      }));
+      if (others.size > 0) await Promise.allSettled(others);
+    }
+    const reading = readSiteNames(ids);
+    for (const id of ids) {
+      if (!siteNamesReading.has(id)) siteNamesReading.set(id, reading);
+    }
+    try {
+      return await reading;
+    } finally {
+      for (const id of ids) {
+        if (siteNamesReading.get(id) === reading) siteNamesReading.delete(id);
+      }
+    }
+  }
+
+  async function readSiteNames(ids: readonly number[]): Promise<ReadonlyMap<number, string | null>> {
+    if (ids.length > 0) {
+      await wordsNow(ids.map((id) => `#${id}`));
+    }
+    const templates = store.words.get().templates;
+    const clientText = (id: number): string | null | undefined => {
+      const key = `#${id}`;
+      if (!(key in templates)) return undefined;
+      const text = plainText(templates[key] ?? "").trim();
+      return text.length > 0 ? text : null;
+    };
+    const unworded = ids
+      .filter((id) => clientText(id) === null && !serverSiteNames.has(id) && !serverSiteNamesAsking.has(id));
+    if (unworded.length > 0 && Date.now() >= serverSiteNamesRetryAt) {
+      for (const id of unworded) serverSiteNamesAsking.add(id);
+      try {
+        const answer = await api.loadSiteNames(unworded, callOptions);
+        if (answer.available) {
+          for (const id of unworded) serverSiteNames.set(id, answer.names[String(id)] ?? null);
+        } else {
+          serverSiteNamesRetryAt = Date.now() + SERVER_SITE_NAMES_RETRY_MS;
+        }
+      } catch {
+        // Not remembered: a later tick asks again, and until then the name is not read yet.
+      } finally {
+        for (const id of unworded) serverSiteNamesAsking.delete(id);
+      }
+    }
+    const out = new Map<number, string | null>();
+    for (const id of ids) {
+      const fromClient = clientText(id);
+      if (fromClient === undefined) continue;
+      if (fromClient !== null) {
+        out.set(id, fromClient);
+      } else if (serverSiteNames.has(id)) {
+        out.set(id, serverSiteNames.get(id) ?? null);
+      }
+    }
+    return out;
+  }
+
   /** The labels asked and their asking waited for (requestWords and the queue flushed now), for words wanted at once. */
   async function wordsNow(labels: readonly string[]): Promise<void> {
     requestWords(labels);
@@ -36160,6 +36398,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     giveUpStationOffice,
     setSafetyLevel,
     loadCorpOffices,
+    loadAgentCorporations,
 
     selectCorpDivision(division) {
       store.apply({ type: "inventory/corp-division", division });
@@ -38239,6 +38478,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     infoUsedWith,
     requestNames,
     requestWords,
+    scannerSiteNames: (messageIDs: readonly number[]) =>
+      scannerSiteNames(messageIDs, true).catch((): ReadonlyMap<number, string | null> => new Map()),
     requestMissionKeywords,
     requestAgentRecord,
     requestAgentSolarSystem,

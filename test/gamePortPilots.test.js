@@ -6408,6 +6408,32 @@ test("a lock the server tells of inside an OnMultiEvent is kept and told to the 
   assert.equal(riding[0].args[1], wreck);
 });
 
+test("the dogma messages riding a destiny update reach the page as an OnMultiEvent, as one the server sends alone does", async () => {
+  const { pilots, session, handle, hand, read } = await flying();
+  await read();
+  for (const update of recordedUpdates.slice(0, 5)) session.notify("DoDestinyUpdate", update.args);
+  hand.parks[0].tick();
+  const multiEvents = async () => (await pilots.readSpaceSnapshot(handle)).notifications.filter((each) => each.method === "OnMultiEvent");
+  // A gun's rounds going down by one, as loadedChargeState.js tells of it: the charge in slot 27, attribute 805.
+  const shot = (left, time) => [[Buffer.from("OnModuleAttributeChange"), 90000001, [SHIP, 27, 12608], 805, time, left, left + 1, time], time];
+
+  await multiEvents();
+  session.notify("OnMultiEvent", [[shot(33, 133000000000000000n)]]);
+  const alone = await multiEvents();
+  session.notify("DoDestinyUpdate", [[], false, [shot(32, 133000000000000001n)]]);
+  const riding = await multiEvents();
+
+  assert.equal(alone.length, 1);
+  assert.equal(riding.length, 1);
+  const change = (notice) => {
+    const [pair] = notice.args[0].items ?? notice.args[0];
+    const event = pair.items ?? pair;
+    return (event[0].items ?? event[0]);
+  };
+  assert.deepEqual([change(alone[0])[0], change(alone[0])[3], change(alone[0])[5]], ["OnModuleAttributeChange", 805, 33]);
+  assert.deepEqual([change(riding[0])[0], change(riding[0])[3], change(riding[0])[5]], ["OnModuleAttributeChange", 805, 32]);
+});
+
 test("a lock the server says is made already is a target at once; one still being made is none until the server says so", async () => {
   // AddTarget answers (flag, targets): the flag set while the lock is still being made.
   let refused = false;

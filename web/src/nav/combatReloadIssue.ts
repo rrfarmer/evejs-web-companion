@@ -1,4 +1,4 @@
-import { compatibleAmmo, unbankedWeapon, type CombatWeapons } from "./combatWeapons.ts";
+import { compatibleAmmo, loadableWeapon, type CombatWeapons } from "./combatWeapons.ts";
 import type { ScriptAction } from "./scriptDecide.ts";
 
 /** Revalidate the exact weapon and stack under the same pilot/run authority. */
@@ -13,8 +13,8 @@ export async function issueCombatReload(action: Extract<ScriptAction, { kind: "l
   if (!deps.current()) throw Object.assign(new Error("Reload authority retired before dispatch."), { code: "CALL_REFUSED" });
   const weapon = facts?.weapons.find(row => row.itemID === action.moduleID);
   const ammo = facts?.cargo?.find(row => row.itemID === action.chargeItemID && row.typeID === action.chargeTypeID);
-  if (!facts || !weapon || !ammo || !unbankedWeapon(facts, weapon.itemID) || !compatibleAmmo(weapon, ammo))
-    return "Reload refused: unbanked weapon and compatible ammunition could not be proven.";
+  if (!facts || !weapon || !ammo || !loadableWeapon(facts, weapon.itemID) || !compatibleAmmo(weapon, ammo))
+    return "Reload refused: a loadable weapon and compatible ammunition could not be proven.";
   if (weapon.chargeTypeID !== null && (weapon.chargeQuantity ?? 0) > 0) return "Weapon is already loaded.";
   try { await deps.load(); }
   catch (error) {

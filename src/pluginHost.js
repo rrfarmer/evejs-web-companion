@@ -180,7 +180,7 @@ function createPluginHost(options = {}) {
       flights.clear();
     };
     entry.startedAt = Date.now();
-    entry.lastPong = entry.startedAt;
+    entry.lastHeard = entry.startedAt;
     // ⚠ WITHOUT A LISTENER, AN ERROR HERE ENDS THE BFF. A send to a closed channel
     // and a process that cannot start are reported as this event, not thrown, and
     // Node treats an unheard 'error' as an uncaught exception. A process that
@@ -202,12 +202,18 @@ function createPluginHost(options = {}) {
     prefix(child.stderr, (line) => console.error(line));
     child.on("message", (message) => {
       if (!message || typeof message !== "object") return;
+      // ⚠ ANY MESSAGE IS A SIGN OF LIFE, NOT ONLY A PONG. Everything the process
+      // sends shares one ordered channel, so under load its pong waits behind its
+      // own earlier messages, seconds after it was written. While messages still
+      // arrive the process was alive to write them; a hung one stops writing, its
+      // queue drains, and the silence that follows is what the watchdog judges.
+      // 'ready' counts too: the time it took to start is not silence.
+      // A process already replaced says nothing about the one that replaced it.
+      if (entry.child === child) entry.lastHeard = Date.now();
       if (message.type === "ready") {
         entry.state = "running";
         entry.error = null;
         entry.downSince = null;
-        // The watchdog's clock starts now: the time it took to start is not silence.
-        entry.lastPong = Date.now();
         entry.readyWaiters.splice(0).forEach((resolve) => resolve(true));
         void handOver(entry.id);
         try { runEvents?.up(entry.id); } catch (error) { log(`${entry.id}: ${error && error.message}`); }
@@ -226,10 +232,7 @@ function createPluginHost(options = {}) {
         try { runEvents?.report(entry.id, message); } catch (error) { log(`${entry.id}: ${error && error.message}`); }
         return;
       }
-      if (message.type === "pong") {
-        entry.lastPong = Date.now();
-        return;
-      }
+      if (message.type === "pong") return;
       const pending = entry.pending.get(message.id);
       if (!pending) return;
       entry.pending.delete(message.id);
@@ -253,8 +256,8 @@ function createPluginHost(options = {}) {
 
   function watch() {
     // ⚠ A LATE BEAT MEANS THE BFF STALLED, NOT THE PLUGIN. Timers run before waiting
-    // messages are read, so after a stall this beat sees an old pong with the fresh
-    // one still unread. It passes no verdict: the next beat, on time, has read it.
+    // messages are read, so after a stall this beat sees an old message with fresh
+    // ones still unread. It passes no verdict: the next beat, on time, has read them.
     let lastBeat = Date.now();
     const timer = setInterval(() => {
       const now = Date.now();
@@ -271,7 +274,7 @@ function createPluginHost(options = {}) {
           }
           continue;
         }
-        if (!late && now - entry.lastPong > pingMs * 2) {
+        if (!late && now - entry.lastHeard > pingMs * 2) {
           entry.error = "It stopped answering, so it was stopped.";
           child.kill("SIGKILL");
           continue;
@@ -376,7 +379,7 @@ function createPluginHost(options = {}) {
         failures: [],
         error: null,
         child: null,
-        lastPong: 0,
+        lastHeard: 0,
         startedAt: 0,
         // When it was last not ready to answer; null while it is.
         downSince: Date.now(),

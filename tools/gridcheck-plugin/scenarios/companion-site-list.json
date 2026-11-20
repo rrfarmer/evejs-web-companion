@@ -1,0 +1,43 @@
+{
+  "description": "A bot told to fly to Dens only flies to an Angel Den and never to the Angel Hidden Den beside it (issue 182). The pilot undocks and leaves the station's grid; an Angel Hidden Den and an Angel Den are placed in space, the Hidden Den first; a bot of one 'fly to a pirate den, only Den' step is pasted into the Bot Builder and run in the page. The block reads each site's name from the scanner, so this fails if the names never arrive (the bot stops, saying no site could be named), if the list is ignored, or if Den matches inside Hidden Den.",
+  "recipe": "companion-fight",
+  "watch": { "pilot": "e2eflee" },
+  "setup": [
+    { "login": { "user": "e2efc", "name": "Fleet Boss" }, "note": "the held session: never a pilot the web client flies" },
+    "webUp",
+    { "webLogin": "e2eflee" },
+    { "webClick": { "role": "button", "name": "▶ ALL", "index": 0 } },
+    { "webClick": { "role": "button", "name": "Go to first pilot" } },
+    { "wait": 8, "note": "drone recovery checks a pilot that has just signed in" },
+    { "webClick": { "role": "button", "name": "Bot Manager" } },
+    { "webClick": { "role": "tab", "name": "Saved bots" } },
+    { "webClick": { "role": "button", "name": "New bot" } },
+    { "webFill": { "label": "The bot, as text" }, "value": "{\"format\":\"evejs-bot-script\",\"version\":1,\"name\":\"Dens only\",\"notes\":\"Flies to the next Den the scanner shows, and to no other site.\",\"home\":{\"entity\":\"station\",\"id\":null,\"name\":null,\"systemName\":null,\"starting\":true},\"interrupts\":[],\"program\":[{\"id\":\"s1\",\"kind\":\"macro\",\"macro\":\"warp-to-anomaly\",\"args\":{\"sites\":{\"kind\":\"siteList\",\"mode\":\"only\",\"names\":[\"Den\"]}}}]}" },
+    { "webClick": { "role": "button", "name": "Load from box" } },
+    { "webClick": { "role": "button", "name": "Save", "exact": true } },
+    { "webExpect": { "text": "Saved \"Dens only\"." }, "timeout": 15 },
+    { "webClick": { "role": "button", "name": "Close", "index": 1 }, "note": "the builder, over the manager" },
+    { "webClick": { "role": "button", "name": "Undock", "exact": true } },
+    { "webExpect": { "role": "button", "name": "Undock", "exact": true }, "hidden": true, "timeout": 60, "note": "in space" },
+    { "wait": 5 },
+    { "pilotSlash": "/tr me offset=0,0,2000000000", "user": "e2eflee", "note": "off the station's grid" },
+    { "wait": 8 },
+    { "pilotSlash": "/spawnsite 3446 20000000", "user": "e2eflee", "note": "an Angel Hidden Den, placed first: a name matched as a substring would pick it" },
+    { "pilotSlash": "/spawnsite 2200 40000000", "user": "e2eflee", "note": "an Angel Den" },
+    { "wait": 5 },
+    { "webClick": { "role": "tab", "name": "Pilots" } },
+    { "webSelect": { "role": "combobox", "name": "Bot", "exact": true }, "option": "Dens only" },
+    { "webClick": { "role": "button", "name": "Run here" } },
+    { "botWait": "e2eflee", "timeout": 300, "note": "the run ends on arrival at a Den, or stops if no site on the list could be found" },
+    { "webShot": "after the warp" }
+  ],
+  "until": { "any": ["BOT what=end"], "from": "start", "timeout": 30, "grace": 1 },
+  "expect": [
+    { "match": "BOT what=issue why~\"den, Angel Den\"", "note": "the bot warped to the Angel Den, naming it" },
+    { "match": "no BOT why~\"Hidden Den\"", "note": "and never chose the Hidden Den" },
+    { "match": "no BOT reason~\"site list\"", "note": "nor stopped on a list it could not match: the site names reached the page" },
+    { "match": "BOT what=end status=stopped reason~finished", "note": "the run ended because its one step was done, on arrival" },
+    { "match": "no BOT what=end status=paused", "note": "the run did not pause" },
+    { "match": "no WEB_ERROR what=exception", "note": "the page threw nothing" }
+  ]
+}

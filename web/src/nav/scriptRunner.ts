@@ -325,6 +325,24 @@ const READ_GAVE_UP_SENT_HOME =
 const SESSION_LOST = "Lost the connection to your ship, so the bot stopped.";
 const DECIDE_FAILED = "The bot hit an unexpected problem working out its next move, so it stopped.";
 
+/**
+ * The orders a dock-and-pause trip flies with (`scriptTravelHome`: drone recall,
+ * align, the autopilot route, the dock-here fallback). Asking for any of them
+ * twice is harmless, which is why an unconfirmed answer to one is retried
+ * rather than paused on. The fight-free rung's combat orders are not here.
+ */
+const TRIP_HOME_MOVES: ReadonlySet<ScriptAction["kind"]> = new Set<ScriptAction["kind"]>([
+  "recallDrones", "align", "stopShip", "approach", "warp", "warpBookmark", "dock", "startRoute", "startSystemRoute",
+]);
+
+/**
+ * Is this latch a dock-and-pause trip (the ship flying home to stop there)? A
+ * dock-and-repair round trip latches too, but means to go back out to work.
+ */
+function isStopTrip(latched: { readonly recover?: unknown } | null): boolean {
+  return latched !== null && latched.recover === undefined;
+}
+
 /** How many times one tick is decided again for plugin answers (the chain a plugin step done can start). */
 const MAX_REMOTE_PASSES = 4;
 
@@ -601,14 +619,19 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
     // authority (the macro being active), scoped by step path; the entity or point
     // approached is the assist's own key.
     const salvagerTravel = activeMacroID(script, memory) === "salvage-bookmarked-sites";
-    if (travelAssist?.pending() && !travelAuthority && !salvagerTravel) {
+    // A latched dock-and-pause trip is the run getting OUT. The gates below
+    // guard work (a looting claim, propulsion custody for an approach), and
+    // stopping the trip on them would park the ship where the fault left it.
+    // The prop is still switched off on the way: see `beforeAction` below.
+    const flyingHome = isStopTrip(memory.latched);
+    if (travelAssist?.pending() && !travelAuthority && !salvagerTravel && !flyingHome) {
       await travelAssist.beforeAction({ enabled: false, scope: null, action: { kind: "wait" },
         snapshot: obs.snapshot ?? null, inWarp: obs.inWarp ?? null, docked: obs.docked ?? null,
         modules: [], scrammed: obs.scrammed ?? null });
       if (travelAssist.pending()) { pauseWith("Travel assist shutdown is unconfirmed; operation movement is blocked."); return; }
       if (token !== runToken || status !== "running") return;
     }
-    if (activeMacroID(script, memory) === "loot-containers") {
+    if (activeMacroID(script, memory) === "loot-containers" && !flyingHome) {
       const systemID = obs.flightStatus?.solarSystemID ?? null;
       if (!deps.claims || !systemID) {
         pauseWith("Container claim authority is unavailable.");
@@ -760,7 +783,11 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
         action: result.action, workWhileMoving: scopeIsSalvager, snapshot: obs.snapshot ?? null, inWarp: obs.inWarp ?? null,
         docked: obs.docked ?? null, modules: obs.travelPropulsionModules ?? [], scrammed: obs.scrammed ?? null,
       });
-      if (consumed || token !== runToken || status !== "running") return;
+      // A trip home is never swallowed by the prop being switched off: the
+      // switch-off is a module call and the trip's order still goes. Nor is
+      // its end: the arrival pause carries no latch, so `flyingHome` covers it.
+      const tripHome = isStopTrip(result.memory.latched) || (flyingHome && result.status !== "running");
+      if ((consumed && !tripHome) || token !== runToken || status !== "running") return;
     }
     if (deps.startup?.checkpoint) {
       // The decider may advance a proven Startup prefix and select MAIN in
@@ -807,7 +834,10 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
 
     if (result.status === "paused") {
       memory = result.memory;
-      pauseWith(result.pauseReason ?? result.why, result);
+      // The decider's own pauses: its faults have already flown home through
+      // `stopSafely`, so this is the end of that flight, or a flight that
+      // could not be made.
+      pauseHere(result.pauseReason ?? result.why, result);
       return;
     }
     if (result.status === "done") {
@@ -939,11 +969,18 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
           pauseWith(`Some drones accepted the engagement order and others refused it. Verify their targets in the game, then Stop before starting a new run. ${refusalWords(reason)}`, result);
           return;
         }
-        if (result.action.kind !== "haulTransfer" && !(result.action.kind === "unloadOre" && result.action.strictCorp === true) &&
+        // ⚠ ON THE WAY HOME, AN UNCONFIRMED MOVE IS A REFUSAL, NOT A PAUSE. A
+        // recall, align, warp, route or dock whose answer was lost is safe to
+        // ask for again on the next fresh read, and pausing on it would park
+        // the escaping ship in the fight, the thing the trip exists to avoid
+        // (a server stall is exactly when answers go missing). It falls
+        // through to the refusal ledger below, which bounds it.
+        const tripMove = isStopTrip(result.memory.latched) && TRIP_HOME_MOVES.has(result.action.kind);
+        if (!tripMove && result.action.kind !== "haulTransfer" && !(result.action.kind === "unloadOre" && result.action.strictCorp === true) &&
             !(result.action.kind === "jettison" && deps.mutationCustody?.()) &&
             code !== "EDGE_OWNER_OVERLOADED" &&
             (isTransportTransient(error) || isTransitionTimeout(error) || code === "BRIDGE_BAD_RESPONSE" ||
-             code === "MODULE_ACTION_UNCERTAIN")) {
+             code === "MODULE_ACTION_UNCERTAIN" || code === "DRONE_ENGAGE_UNCONFIRMED")) {
           // Preserve possible ownership for observed Stop reconciliation, not step completion.
           if (memory) {
             const macroMem = { ...memory.macroMem };
@@ -1139,9 +1176,11 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
    * fighting free (nav/scriptMacros `fightTheWayOut` needs a grid to read).
    */
   async function sendToStationThenStop(): Promise<void> {
+    // Bare pauses: with no reads the decider cannot fly a trip home, so the
+    // autopilot is handed the station directly instead.
     const stationID = stationToSendTo();
     if (stationID === null) {
-      pauseWith(READ_GAVE_UP);
+      pauseHere(READ_GAVE_UP);
       return;
     }
     const homeRoute = { kind: "startRoute", stationID } as const;
@@ -1149,10 +1188,10 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
     try {
       await deps.issue(homeRoute);
     } catch {
-      pauseWith(READ_GAVE_UP); // could not even ask — say the plain thing
+      pauseHere(READ_GAVE_UP); // could not even ask — say the plain thing
       return;
     }
-    pauseWith(READ_GAVE_UP_SENT_HOME);
+    pauseHere(READ_GAVE_UP_SENT_HOME);
   }
 
   /**
@@ -1171,15 +1210,66 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
    * anywhere would loop here forever, never pausing and never telling anyone.
    */
   function stopOrHeadHome(reason: string, result?: ReturnType<typeof decideScriptAction>): void {
-    if (memory !== null && memory.latched === null) {
-      memory = { ...memory, latched: { interruptID: null, reason } };
-      emit({ ...last, status: "running", phase: "Heading home", why: reason, pauseReason: null });
+    if (memory !== null && !alreadyStoppingAtHome()) {
+      latchHome(reason);
       return;
     }
-    pauseWith(reason, result);
+    pauseHere(reason, result);
   }
 
+  /**
+   * Is the ship already on a dock-and-pause trip? A dock-and-repair round trip
+   * is not one: it means to go back out, so a fault on it becomes a plain trip
+   * home that stops there.
+   */
+  function alreadyStoppingAtHome(): boolean {
+    return memory !== null && isStopTrip(memory.latched);
+  }
+
+  function latchHome(reason: string): void {
+    memory = { ...memory!, latched: { interruptID: null, reason } };
+    // The flight home loots nothing, and a claim held through it would be
+    // checked again on the next settle tick and refuse the trip itself.
+    releaseAfterIssue();
+    emit({ ...last, status: "running", phase: "Heading home", why: reason, pauseReason: null });
+  }
+
+  /**
+   * Was the ship last seen in space? Only a positive reading counts: a ship
+   * never seen, or seen docked, is not flown anywhere (same rule as
+   * `stationToSendTo`).
+   */
+  function lastSeenInSpace(): boolean {
+    const seen = lastObs;
+    if (seen === null || seen.docked === true || seen.flightStatus?.docked === true) return false;
+    return seen.inSpace === true || seen.flightStatus?.docked === false;
+  }
+
+  /**
+   * ⚠ A RUN THAT STOPS IN SPACE FLIES HOME FIRST. This is the one door the
+   * runner's own stops go through, so the rule holds for every pause here and
+   * for any pause added later, the same rule `stopSafely` keeps for the
+   * decider. A ship paused where it floats is left to the rats: a reporter on
+   * issue #177 lost one overnight to a pause on a partly refused drone order.
+   *
+   * An order whose outcome is unknown does not make a recall, a warp or a dock
+   * unsafe. `uncertainAction` stays set through the trip, so the pause on
+   * arrival still refuses Resume and Start until the player has checked and
+   * pressed Stop, and the trip never repeats that order (fresh home memory,
+   * drone ids read fresh from the grid).
+   *
+   * Docked, never seen, or already heading home to stop: pause where it is. A
+   * second stop on the way home means the way out is failing too.
+   */
   function pauseWith(reason: string, result?: ReturnType<typeof decideScriptAction>): void {
+    if (status === "running" && script !== null && memory !== null && !alreadyStoppingAtHome() && lastSeenInSpace()) {
+      latchHome(reason);
+      return;
+    }
+    pauseHere(reason, result);
+  }
+
+  function pauseHere(reason: string, result?: ReturnType<typeof decideScriptAction>): void {
     runToken += 1;
     status = "paused";
     // ⚠ THE REASON MUST SURVIVE THE RESULT. `toSnapshot` words the snapshot from
@@ -1204,8 +1294,9 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
         // The backstop: tick() handles its own read/decide/issue failures, so
         // reaching here means something truly unexpected threw (a store push,
         // say). Pause with a reason rather than let `void run()` die silently.
+        // In space that heads home first and the loop keeps flying it; a
+        // second throw on the way pauses.
         pauseWith(`${DECIDE_FAILED} (${String(error)})`);
-        return;
       }
       if (runToken !== token || status !== "running") {
         break;
@@ -1256,7 +1347,9 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
       }
     },
     resume(): void {
-      if (transportSuspended || issuePending || uncertainAction || combatStopCustody || deps.mutationCustody?.()) return;
+      // A paused trip home may carry on with an unconfirmed order held: the
+      // trip never repeats it, and stopping the trip would park the ship.
+      if (transportSuspended || issuePending || (uncertainAction && !alreadyStoppingAtHome()) || combatStopCustody || deps.mutationCustody?.()) return;
       if (status === "paused") {
         transportSuspended = false;
         runToken += 1;
@@ -1358,9 +1451,13 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
       emit({ ...last, status: "running", phase: "Session recovered", why: null, pauseReason: null });
     },
     resumeHeadHome(reason: string): boolean {
-      if (transportSuspended || status !== "paused" || memory === null || script === null || issuePending || uncertainAction || deps.mutationCustody?.()) return false;
+      // An unconfirmed earlier order does not block the trip: the trip never
+      // repeats it, and `uncertainAction` stays set so the pause on arrival
+      // still asks for Stop (see `pauseWith`).
+      if (transportSuspended || status !== "paused" || memory === null || script === null || issuePending || deps.mutationCustody?.()) return false;
       runToken += 1;
-      if (memory.latched === null) memory = { ...memory, latched: { interruptID: null, reason } };
+      // A dock-and-repair round trip would go back out to work: replace it.
+      if (!isStopTrip(memory.latched)) memory = { ...memory, latched: { interruptID: null, reason } };
       status = "running";
       emit({ ...last, status: "running", phase: "Heading home", why: reason, pauseReason: null });
       return true;
@@ -1370,8 +1467,9 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
         return false;
       }
       // Unlike stopOrHeadHome, an existing latch is NOT a second fault here:
-      // the ship is already on its way in, which is all this asks for.
-      if (memory.latched === null) {
+      // the ship is already on its way in, which is all this asks for. A
+      // dock-and-repair round trip is not: it would go back out to work.
+      if (!isStopTrip(memory.latched)) {
         memory = { ...memory, latched: { interruptID: null, reason } };
         emit({ ...last, status: "running", phase: "Heading home", why: reason, pauseReason: null });
       }

@@ -12,6 +12,7 @@ const eveGatewayClient = require("./eveGatewayClient");
 const webAuth = require("./webAuth");
 const staticDataModule = require("./staticData");
 const { createClientAssets } = require("./clientData/clientAssets");
+const { createServerSiteNames } = require("./serverSiteNames");
 const { createClientWords } = require("./clientData/clientWords");
 const { readAchievementDefinitions, readCharacterTitleDefinitions, readPhasedFieldSystems } = require("./clientData/achievementDefinitions");
 const { createClientTextures } = require("./clientData/clientTextures");
@@ -388,6 +389,12 @@ const staticData = options.staticData || staticDataModule;
 const clientWords = options.clientWords || createClientWords({
   clientRoot: config.clientRoot,
   onError: (error) => console.warn(`[client-words] the client's localisation could not be read: ${error && error.message}`),
+});
+// Scanner site names from the server's own site packs, for an install with no
+// client to word them (src/serverSiteNames.js).
+const serverSiteNames = options.serverSiteNames || createServerSiteNames({
+  eveRoot: config.eveRoot,
+  onError: (error, file) => console.warn(`[site-names] ${file} could not be read: ${error && error.message}`),
 });
 // The retail client's built data, read by the client's own loaders from the
 // same install (src/clientData/clientBuiltData.js).
@@ -11869,11 +11876,37 @@ const ITEM_FLAG_DRONE_BAY = 87;
  * out of; `controllerID` alone would match a drone flown by this hull for
  * someone else. A drone the panel offers a Recall button for must be both.
  */
-async function readDronesInSpace(held) {
+async function readDronesInSpace(held, presentID = null) {
   const outcome = await gateway.readSpaceSnapshot(held.bridgeSessionID, {
     userid: held.accountID,
   });
-  return { drones: projectDronesInSpace(held, outcome && outcome.space), notifications: outcome ? outcome.notifications : [] };
+  return {
+    drones: projectDronesInSpace(held, outcome && outcome.space),
+    serverUpdates: serverUpdatesOf(outcome && outcome.space),
+    present: ballPresent(outcome && outcome.space, presentID),
+    notifications: outcome ? outcome.notifications : [],
+  };
+}
+
+/**
+ * Whether the ball `id` is in a scene read: true or false, or null where none was asked or the scene could not be
+ * read. A drone engagement asks it of its target, as a target gone mid-order is not an order unconfirmed.
+ */
+function ballPresent(space, id) {
+  const entities = space && Array.isArray(space.entities) ? space.entities : null;
+  if (!id || entities === null) return null;
+  return entities.some((row) => row && Number(row.itemID) === id);
+}
+
+/**
+ * How far the server's updates have got into the pilot's park, from a game-port scene read: { applied, queued }
+ * (gamePort/spaceProjection.js). Null where the read has none, as the gateway's has not: there nothing can tell a
+ * server that has stopped from one that has nothing to say.
+ */
+function serverUpdatesOf(space) {
+  const updates = space && space.serverUpdates;
+  return updates && Number.isSafeInteger(updates.applied) && Number.isSafeInteger(updates.queued)
+    ? { applied: updates.applied, queued: updates.queued } : null;
 }
 
 /** Project this pilot's visible drones from a caller-owned scene read. */
@@ -11956,6 +11989,9 @@ app.get(["/api/bridge/drones", "/api/bridge/script/observation"], requireAuth, a
     const noShip = () =>
       Promise.reject(Object.assign(new Error("No active ship."), { code: "NO_ACTIVE_SHIP" }));
     const observation = req.path === "/api/bridge/script/observation";
+    // ?present=<ball>: whether that ball is in the scene the drones were read from (ballPresent).
+    const presentID = Number.isSafeInteger(Number(req.query.present)) && Number(req.query.present) > 0
+      ? Number(req.query.present) : null;
     const observationStartedAt = Date.now();
     const scope = observation ? {
       bridgeSessionID: held.bridgeSessionID,
@@ -11988,7 +12024,7 @@ app.get(["/api/bridge/drones", "/api/bridge/script/observation"], requireAuth, a
         notifications,
       ),
       godma ? godma.shipInfo : heldTopLevelCall(held, req.webSessionID, "dogmaIM", "ShipGetInfo", [], null),
-      shipID ? (observation ? readObservation() : readDronesInSpace(held)) : noShip(),
+      shipID ? (observation ? readObservation() : readDronesInSpace(held, presentID)) : noShip(),
     ]);
     for (const settled of [bay, shipInfo, inSpace]) {
       if (settled.status === "rejected" && settled.reason && settled.reason.code === "SESSION_NOT_FOUND") {
@@ -12042,6 +12078,11 @@ app.get(["/api/bridge/drones", "/api/bridge/script/observation"], requireAuth, a
       // "the bay is empty", and the panel says which.
       bay: bayRows,
       inSpace: dronesOut,
+      // How far the server's updates have got into the scene the drones were read from; null where not known.
+      serverUpdates: inSpace.status === "fulfilled"
+        ? (observation ? serverUpdatesOf(inSpace.value.space) : inSpace.value.serverUpdates ?? null) : null,
+      present: inSpace.status === "fulfilled"
+        ? (observation ? ballPresent(inSpace.value.space, presentID) : inSpace.value.present ?? null) : null,
       // Raw, decoded browser-side alongside the fitting panel's attributes.
       shipInfo: shipInfo.status === "fulfilled" ? shipInfo.value.result : null,
       errors: {
@@ -13973,6 +14014,22 @@ app.post("/api/words", requireAuth, (req, res) => {
     messages,
     dialogs: dialogs.length > 0 ? clientWords.dialogs(dialogs) : {},
   });
+});
+
+// Scanner sites' names by their name message (a scanner row's `dungeonNameID`),
+// as the server's own anomaly packs name them: what a site list on the
+// site-warp blocks compares when the client's words do not have them (no
+// client install). A message no pack names is null; `available` is false when
+// the server tree holds no anomaly pack. Bounded like /api/words.
+app.post("/api/site-names", requireAuth, async (req, res, next) => {
+  const asked = Array.isArray(req.body && req.body.messageIDs) ? req.body.messageIDs : [];
+  const messageIDs = asked.filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, WORDS_LABEL_LIMIT);
+  try {
+    const names = await serverSiteNames.names(messageIDs);
+    res.json({ ok: true, available: await serverSiteNames.available(), names });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // A mission as the retail client's own data has it (evemissions/client/data.py

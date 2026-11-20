@@ -288,6 +288,56 @@ test("⚠ the time a backend took to start is not silence: the watchdog leaves i
   assert.equal(plugins.statuses()[0].state, "running");
 });
 
+/** Stops answering pings; the pongs it owes are kept until `release`. */
+function holdPongs(child) {
+  const owed = [];
+  child.send = (message) => {
+    if (message.type === "ping") owed.push(message.id);
+    return true;
+  };
+  return { release: () => owed.splice(0).forEach((id) => child.emit("message", { type: "pong", id })) };
+}
+
+test("⚠ a pong stuck behind the process's own messages is not silence: the watchdog leaves it be", async (t) => {
+  const children = processes();
+  const { plugins } = fakeHost(t, children);
+  await plugins.start();
+  children.made[0].ready();
+  const pongs = holdPongs(children.made[0]);
+  // Its pongs wait in the channel while what it wrote before them still arrives.
+  const writing = setInterval(() => children.made[0].emit("message", { type: "runReport", id: "r" }), 10);
+  await wait(300); // Several times the two ping periods a silent backend is allowed (pingMs 40).
+  clearInterval(writing);
+  pongs.release();
+  assert.deepEqual(children.made[0].killed, []);
+  assert.equal(plugins.statuses()[0].restarts, 0);
+});
+
+test("⚠ a backend that sends nothing at all once ready is killed and started again", async (t) => {
+  const children = processes();
+  const { plugins } = fakeHost(t, children);
+  await plugins.start();
+  children.made[0].ready();
+  holdPongs(children.made[0]);
+  assert.ok(await until(() => children.made[0].killed.length > 0), "it was killed");
+  assert.ok(await until(() => plugins.statuses()[0].restarts === 1), "it was started again");
+});
+
+test("⚠ a replaced process still talking does not keep its silent replacement alive", async (t) => {
+  const children = processes();
+  const { plugins } = fakeHost(t, children);
+  await plugins.start();
+  children.made[0].ready();
+  holdPongs(children.made[0]);
+  assert.ok(await until(() => children.made.length === 2), "it was replaced");
+  // What the old one had written is still being read, long after the kill.
+  const late = setInterval(() => children.made[0].emit("message", { type: "pong", id: 0 }), 10);
+  t.after(() => clearInterval(late));
+  children.made[1].ready();
+  holdPongs(children.made[1]);
+  assert.ok(await until(() => children.made[1].killed.length > 0), "the silent replacement was killed");
+});
+
 test("⚠ a backend that hangs before it is ready is killed and started again", async (t) => {
   const children = processes();
   const { plugins } = fakeHost(t, children, { startTimeoutMs: 100 });

@@ -41,6 +41,10 @@ services:
       # host checkout below.
       EVEJS_GAMESTORE_DATA_DIR: /srv/evejs/_local/gameStore/data
       EVEJS_SDE_DIR: /srv/evejs/_local/sde/eve-online-static-data-3698585-jsonl
+      # The server tree itself, for what is read out of it directly: the site
+      # names in its anomaly packs (src/serverSiteNames.js, /api/site-names).
+      # Unset, config.js looks beside the app, where nothing is mounted.
+      EVEJS_ROOT: /srv/evejs
       # Where a chosen pilot's session is held: EveJS's game port (the default,
       # the port the retail client logs in on) or the web gateway. Passed on
       # from .env so that the way back, EVEJS_PILOT_TRANSPORT=gateway, works in

@@ -70,6 +70,20 @@ export interface ScannedAnomaly {
    * position beside this one separates them.
    */
   readonly position?: SpaceVector | null;
+  /** The row's own `dungeonNameID`: the message the site's name is. Null when the row carried none. */
+  readonly dungeonNameID?: number | null;
+  /**
+   * The site's name as the Probe Scanner prints it ("Angel Haven"), read from
+   * `dungeonNameID`. THREE states, and the block that filters on it needs all
+   * three:
+   *
+   *   • a string — the name;
+   *   • `null` — there is no name to read: the row had no name message, or
+   *     neither the client's words nor the server's site packs name it;
+   *   • absent — not read yet. A site list waits a little for it rather than
+   *     calling the site nameless.
+   */
+  readonly name?: string | null;
 }
 
 /** One belt the shared memory says is dry: entirely (`all`) or of these ore families (type groups). */

@@ -37,8 +37,10 @@ services:
       # /srv/evejs bind mount survives into this configuration and
       # ${EVEJS_ROOT:-../eve.js} must still resolve to a real directory. The
       # gameStore paths above point past it at the volume below; the bind mount
-      # is then unused, and pointing EVEJS_ROOT at any existing folder is enough
-      # to satisfy it when there is no EveJS checkout on this machine at all.
+      # is then read only for the site names in its content-packs folder, and
+      # pointing EVEJS_ROOT at any existing folder is enough to satisfy it when
+      # there is no EveJS checkout on this machine at all (sites the client's
+      # words do not name then go unnamed).
       - evejs-data:/var/lib/evejs:ro
 
 networks:

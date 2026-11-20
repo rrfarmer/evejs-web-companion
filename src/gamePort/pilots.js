@@ -5042,10 +5042,16 @@ function createGamePortPilots({
       // warfare's and the jams' (OnEwarStart and OnEwarEnd for tactical, OnJamStart and OnJamEnd for godma and shipUI,
       // which Tranquility sends this way) are handed on to the page so. The target service hears the OnTarget ones (as
       // OnTargets), which is how the server tells of a lock made or lost; the page is told of them too.
+      // And the page is handed the OnMultiEvent itself, as it is when the server sends one alone (no destiny update
+      // that tick): a gun's rounds going down and its effect starting and stopping ride here in a fight, nearly
+      // every tick, and the page heard of neither.
       entry.space.park.onMultiEvent = (messages) => {
         keepDogmaWork(entry, entry.dogma.multiEvent(messages));
         entry.targets.multiEvent(messages);
-        if (sessions.has(entry.handle)) scatterFromMultiEvent(entry, messages);
+        if (sessions.has(entry.handle)) {
+          scatterFromMultiEvent(entry, messages);
+          record(entry, notificationToBridgeJson({ method: "OnMultiEvent", args: [messages] }));
+        }
       };
       // targetMgr.DoBallsRemove: a ball that goes is no target any more; invCache.DoBallRemove: nor a container held.
       entry.space.park.onBallsRemoved = (gone) => {

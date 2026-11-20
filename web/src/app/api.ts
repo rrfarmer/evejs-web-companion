@@ -3449,6 +3449,26 @@ function tickersRead(data: Record<string, JsonValue>): { tickers: Record<string,
  * their parameters left in (POST /api/words). `available` is false when the
  * BFF has no client install to read; a label the client does not have is null.
  */
+/**
+ * Scanner sites' names by their name message, as the server's own site packs
+ * name them (src/serverSiteNames.js): what a site list falls back on when the
+ * client's words have no text for a site (no client install). Null for a
+ * message no pack names; `available` is false when no pack could be read, and
+ * then a null says nothing about the site.
+ */
+export async function loadSiteNames(
+  messageIDs: readonly number[],
+  options: ApiOptions = {},
+): Promise<{ available: boolean; names: Record<string, string | null> }> {
+  const data = await postJson("/api/site-names", { messageIDs }, options);
+  const raw = typeof data.names === "object" && data.names !== null && !Array.isArray(data.names) ? (data.names as Record<string, JsonValue>) : {};
+  const names: Record<string, string | null> = {};
+  for (const [key, name] of Object.entries(raw)) {
+    names[key] = typeof name === "string" && name.trim().length > 0 ? name.trim() : null;
+  }
+  return { available: data.available === true, names };
+}
+
 export async function loadWords(
   labels: readonly string[],
   messageIDs: readonly number[] = [],
@@ -5011,11 +5031,19 @@ export interface DronesResult {
   readonly inSpace: JsonValue;
   /** Raw dogmaIM.ShipGetInfo, decoded by bridge/drones.ts (no new call). */
   readonly shipInfo: JsonValue;
+  /**
+   * How far the server's own updates have got into the scene the drones were read from: the ticks of them applied,
+   * and those received and still queued. null where not known (a gateway pilot): then a server that has stopped
+   * cannot be told from one with nothing to say.
+   */
+  readonly serverUpdates: ServerUpdates | null;
+  /** Whether the ball asked of (getDrones' `presentID`) is in that scene; null where none was asked or not known. */
+  readonly present: boolean | null;
   readonly errors: Readonly<Record<string, string | null>>;
 }
 
-export async function getDrones(options: ApiOptions = {}): Promise<DronesResult> {
-  const data = await getJson("/api/bridge/drones", options);
+export async function getDrones(options: ApiOptions = {}, presentID: number | null = null): Promise<DronesResult> {
+  const data = await getJson(presentID ? `/api/bridge/drones?present=${presentID}` : "/api/bridge/drones", options);
   return readDronesResult(data);
 }
 
@@ -5093,6 +5121,18 @@ export async function getScriptObservation(options: ApiOptions = {}): Promise<Sp
   };
 }
 
+/** See DronesResult.serverUpdates. */
+export interface ServerUpdates {
+  readonly applied: number;
+  readonly queued: number;
+}
+
+function serverUpdatesOf(raw: JsonValue | undefined): ServerUpdates | null {
+  const row = raw !== null && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, JsonValue> : null;
+  return row && Number.isSafeInteger(row.applied) && Number.isSafeInteger(row.queued)
+    ? { applied: row.applied as number, queued: row.queued as number } : null;
+}
+
 function readDronesResult(data: Record<string, JsonValue>): DronesResult {
   const rawErrors =
     typeof data.errors === "object" && data.errors !== null && !Array.isArray(data.errors)
@@ -5107,6 +5147,8 @@ function readDronesResult(data: Record<string, JsonValue>): DronesResult {
     bay: data.bay ?? null,
     inSpace: data.inSpace ?? null,
     shipInfo: data.shipInfo ?? null,
+    serverUpdates: serverUpdatesOf(data.serverUpdates),
+    present: typeof data.present === "boolean" ? data.present : null,
     errors,
   };
 }
@@ -5127,10 +5169,22 @@ export class DroneEngageOutcomeError extends BridgeCallError {
   readonly uncertainDroneIDs: readonly number[];
   readonly refusals: readonly DroneEngageRefusal[];
 
-  constructor(outcome: DroneEngageOutcome) {
-    super(outcome.status === "refused" ? "CALL_REFUSED" : "BRIDGE_BAD_RESPONSE",
+  /**
+   * `seen` says why an outcome is not known, for its words: "after-server-update" where the server's next update
+   * came and the drones were not on the target in it, "timed-out" where the wait for that update ran out, and
+   * "not-seen" where nothing could be waited for (a drone gone from space or not under this ship, a read failed).
+   */
+  constructor(outcome: DroneEngageOutcome, seen: "after-server-update" | "timed-out" | "not-seen" = "not-seen") {
+    // An unknown outcome is its own code since issue #177: it was BRIDGE_BAD_RESPONSE, whose words ("The server's
+    // answer could not be read") a pilot was shown while the server's answer had been read and the drones were
+    // simply not yet seen on the target.
+    super(outcome.status === "refused" ? "CALL_REFUSED" : "DRONE_ENGAGE_UNCONFIRMED",
       outcome.status === "refused" ? `The server refused drone engagement: ${[...new Set(outcome.refusals.map((refusal) => refusal.raw))].join(" ")}`
-        : "Could not confirm every drone engagement order.", 200);
+        : seen === "after-server-update"
+          ? "The drones were not on the target after the server's next update."
+          : seen === "timed-out"
+            ? "The drones were not seen on the target before the wait for the server ran out."
+            : "The drones were not seen on the target.", 200);
     this.acceptedDroneIDs = outcome.acceptedDroneIDs;
     this.refusedDroneIDs = outcome.refusedDroneIDs;
     this.uncertainDroneIDs = outcome.uncertainDroneIDs;

@@ -145,7 +145,7 @@ against the server's wall clock.
 | `WEB` | `what` (`up`), `url`, `commit`, `dirty`, `image`, `channel`. The commit under test is in the report, read from the image's labels: an image this plugin didn't build has none. |
 | `WEB_ERROR` | `what`: `exception` (the page threw), `console` (an error it logged), `response` (an API call answered 5xx), `dialog`. `text`, `url`, `status`. Comes with each web step, `botWait` and `colonyRead`, so what the page does after the last of them isn't heard. |
 | `COLONY` | `characterID`, `user`, `planetID`, `planetName`, `level`, `pins`, `extractors`, `extracting`, `finished`, `launchpadUnits`, `commandUnits`, `routes`. |
-| `BOT` | `what`: `phase`, `issue`, `result`, `end`. `says`, `phase`, `status`, `reason`, `ok`, `run`. |
+| `BOT` | `what`: `phase`, `issue`, `result`, `end`. `says` (the action), `why` (on an issue: the sentence the page shows for it), `phase`, `status`, `reason`, `ok`, `run`. |
 
 Most checks happen in `setup`, so `"until": { "from": "start" }` on a last `colonyRead` is the usual
 stop. A web step that fails ends the run as not completed, with what it found.
@@ -211,6 +211,8 @@ On `companion-fight`:
 | Scenario | What it checks |
 | --- | --- |
 | `companion-flee` | A companion in a fight, its drones out, whose armour falls about 9% a second through its flee floor, warps out at once without recalling its drones. The boss undocks, the companion follows, both are moved off the station's grid so leaving is a warp, rats are spawned, and `shipHealth` lowers the armour. Needs `fix/companion-flee-drone-wait`, and fails without it: the companion recalls its drones and waits first. |
+| `companion-site-list` | A bot of one "fly to a pirate den, only Den" step, run in the page with an Angel Hidden Den and an Angel Den placed off the station's grid (`/spawnsite`), warps to the Den and never to the Hidden Den. The block reads each site's name off the scanner, so this fails if the names never reach the page, if the list is ignored, or if a name matches inside a longer one (issue 182). |
+| `companion-drone-engage` | A bot of one "fight the rats" step, pasted into the Bot Builder and run in the page next to three spawned rats, sets its drones on the rat it locked and the order is confirmed. The server sends the drones' new target with its next tick, after `CmdEngage` has answered, so this fails if the page reads the drones only once straight after the order: the run pauses as unconfirmed (issue 177). |
 
 They live in `tools/gridcheck-plugin/scenarios/`. To check a feature of your own, add a scenario there
 with the feature, or write one in the tree's `tools/gridcheck-scenarios/`, or pass a path.

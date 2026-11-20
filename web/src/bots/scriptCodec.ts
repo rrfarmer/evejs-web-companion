@@ -57,6 +57,10 @@ import {
   MAX_BAY_LIST,
   MAX_ITEM_LIST,
   MAX_PLANET_LIST,
+  MAX_SITE_LIST,
+  MAX_SITE_NAME_LEN,
+  SITE_LIST_MODES,
+  type SiteListMode,
   MAX_ITEM_PATTERN_LEN,
   MAX_ORE_LIST,
   MAX_TARGET_LIST,
@@ -198,6 +202,7 @@ const WARN = {
   droppedUnknownTargets: "Removed kinds of target this app does not know from a step's priority list.",
   droppedWatchCombatSettings: "A watch that does not fight carried fighting settings; they were removed.",
   truncatedOreList: (max: number): string => `An ore priority list was cut down to ${max} entries.`,
+  truncatedSiteList: (max: number): string => `A site list was cut down to ${max} names.`,
 } as const;
 
 // ─── Refusal as control flow ─────────────────────────────────────────────────
@@ -868,6 +873,33 @@ function readArg(raw: unknown, expected: Arg["kind"], label: string, ctx: Ctx, d
     }
     return { kind: "itemList", items: items.slice(0, MAX_ITEM_LIST) };
   }
+  if (expected === "siteList") {
+    // The mode is a closed vocabulary and refused when it is anything else:
+    // "only" read as "skip" would send a weak ship into exactly the sites the
+    // player ruled out. The names are the player's own words, READ like text
+    // (control characters stripped, length clamped); a blank one is dropped,
+    // and so is a repeat, compared the way the block compares them.
+    const mode = obj["mode"];
+    if (typeof mode !== "string" || !SITE_LIST_MODES.includes(mode as SiteListMode)) {
+      refuse(SAY.badArg(label));
+    }
+    const arr = asArray(obj["names"], SAY.badArg(label));
+    const seen = new Set<string>();
+    const names: string[] = [];
+    for (const item of arr) {
+      const name = readText(item, { min: 0, max: MAX_SITE_NAME_LEN, allowNewline: false }, ctx, SAY.badArg(label)).trim();
+      const key = name.toLowerCase();
+      if (name.length === 0 || seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      names.push(name);
+    }
+    if (names.length > MAX_SITE_LIST) {
+      ctx.warn(WARN.truncatedSiteList(MAX_SITE_LIST));
+    }
+    return { kind: "siteList", mode: mode as SiteListMode, names: names.slice(0, MAX_SITE_LIST) };
+  }
   if (expected === "planetList") {
     const arr = asArray(obj["planets"], SAY.badArg(label));
     const seen = new Set<number>();
@@ -1498,6 +1530,8 @@ function orderArg(arg: Arg): unknown {
           }
         }),
       };
+    case "siteList":
+      return { kind: "siteList", mode: arg.mode, names: [...arg.names] };
     case "planetList":
       return {
         kind: "planetList",

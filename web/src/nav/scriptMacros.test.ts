@@ -2190,6 +2190,49 @@ test("fight: no guns and no drones -> blocked with a plain reason", () => {
   assert.equal(salvageOnly.outcome.kind, "blocked");
 });
 
+test("fight: an empty gun is loaded from the cargo, a bank through its master, and never pressed (issue 181)", () => {
+  const fight = SCRIPT_MACROS["fight-the-rats"]!;
+  const s = { id: "f", kind: "macro", macro: "fight-the-rats", args: {} } as const;
+  const rat = entity({ itemID: 6661, kind: "ship", isNpc: true, npcEntityType: "npc", position: { x: 5000, y: 0, z: 0 } });
+  const gun = (itemID: number, loaded: boolean) => ({ itemID, typeID: 3074, chargeTypeID: loaded ? 238 : null,
+    chargeQuantity: loaded ? 40 : 0, acceptedGroups: [85], chargeSize: 1, reachM: 20_000, tracking: 1 });
+  const ammo = { itemID: 777, typeID: 238, groupID: 85, size: 1, quantity: 16_339 };
+  const locked = { targetID: 6661, lockIssued: true, waited: 0 };
+  // A bank of three railguns, 500 its master, all empty, with antimatter in the cargo.
+  const world = (over: Record<string, unknown>) => obs({ snapshot: snapshot([rat]), lockedTargetIDs: [6661], droneBayItemIDs: [],
+    weaponModuleIDs: [500, 501, 502], unloadedWeaponIDs: [500, 501, 502], ...over });
+  const banked = { shipID: 9001, weaponBanks: { 500: [501, 502] }, weapons: [gun(500, false), gun(501, false), gun(502, false)], cargo: [ammo] };
+  const load = fight(s, world({ combatWeapons: banked }), locked, {});
+  assert.deepEqual(load.action, { kind: "loadCombatAmmo", moduleID: 500, chargeItemID: 777, chargeTypeID: 238 });
+
+  // Without the read that proves a charge fits, nothing is loaded, and the empty guns are still never pressed.
+  const unread = fight(s, world({ combatWeapons: null }), locked, {});
+  assert.equal(unread.action.kind, "wait");
+
+  // One gun loaded and one empty: the loaded one fires.
+  const mixed = fight(s, world({ weaponModuleIDs: [500, 600], unloadedWeaponIDs: [600], combatWeapons: null }), locked, {});
+  assert.ok(mixed.action.kind === "activate" && mixed.action.moduleID === 500);
+
+  // Every gun empty, nothing in the cargo fits, and no drones: blocked, in words.
+  const dry = fight(s, world({ combatWeapons: { ...banked, cargo: [] } }), locked, {});
+  assert.equal(dry.outcome.kind, "blocked");
+  assert.match(dry.outcome.kind === "blocked" ? dry.outcome.reason : "", /no ammunition that fits/);
+  // A cargo that could not be read blocks nothing.
+  assert.notEqual(fight(s, world({ combatWeapons: { ...banked, cargo: null } }), locked, {}).outcome.kind, "blocked");
+  // Ammunition that fits, but every load was used up: blocked, and the words say the loads failed.
+  const failed = fight(s, world({ combatWeapons: banked }), { ...locked, reloadAttempts: { 500: 3 } }, {});
+  assert.match(failed.outcome.kind === "blocked" ? failed.outcome.reason : "", /kept failing/);
+
+  // A gun loaded three times before has its count forgotten once it is seen loaded, so it is loaded a fourth time.
+  const spent = { ...locked, reloadAttempts: { 500: 3 } };
+  const loadedNow = fight(s, world({ unloadedWeaponIDs: [], combatWeapons: null }), spent, {});
+  assert.deepEqual(loadedNow.nextMem.reloadAttempts, {});
+  const dryAgain = fight(s, world({ combatWeapons: banked }), loadedNow.nextMem, {});
+  assert.deepEqual(dryAgain.action, { kind: "loadCombatAmmo", moduleID: 500, chargeItemID: 777, chargeTypeID: 238 });
+  // Still empty and unread: the count stays.
+  assert.deepEqual(fight(s, world({ combatWeapons: null }), spent, {}).nextMem.reloadAttempts, { 500: 3 });
+});
+
 test("fight: a mixed bay -> only the COMBAT drones are launched; a mixed flight -> only they are set on the rat", () => {
   const fight = SCRIPT_MACROS["fight-the-rats"]!;
   const s = { id: "f", kind: "macro", macro: "fight-the-rats", args: {} } as const;
@@ -3048,11 +3091,12 @@ for (const code of ["CALL_REFUSED", "EVE_GATEWAY_TIMEOUT"]) {
       home: { entity: "station", id: 60000004, name: "Home", systemName: null }, interrupts: [], program: [repStep] });
     await runner.tick();
     if (code === "EVE_GATEWAY_TIMEOUT") {
-      assert.equal(runner.getStatus(), "paused");
-      runner.resume();
+      // In space the run flies home before it pauses (scriptRunner `pauseWith`).
+      assert.equal(runner.snapshot().phase, "Heading home");
       world = assistanceWorld(modules, 0.7, 0.1, [600]);
       for (let i = 0; i < 10; i++) await runner.tick();
-      assert.deepEqual(issued, ["activate"], "an activation with an ambiguous outcome cannot blindly retarget");
+      assert.deepEqual(issued.filter(kind => kind === "activate" || kind === "deactivate"), ["activate"],
+        "an activation with an ambiguous outcome cannot blindly retarget");
     } else {
       fail = false;
       world = assistanceWorld(modules, 0.7, 0.1, [600]);

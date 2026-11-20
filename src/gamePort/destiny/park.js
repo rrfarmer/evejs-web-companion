@@ -189,6 +189,14 @@ class Park {
     this.timeAdjusted = 0;
     /** Ballpark::mFirstTime: nothing has stepped the park by the clock yet. */
     this.firstTime = true;
+    /**
+     * NOT THE CLIENT'S: how many of the server's ticks of updates this park has applied, while it held a state. The
+     * park's own clock goes on through a server that has stopped, so its tick says nothing of whether the server has
+     * spoken since; this count does. With `history.length` (the ticks received and still queued) a reader can tell
+     * when an update the server sent after some moment is in the park: once this count has gone past what it was
+     * then, plus what was queued then.
+     */
+    this.appliedUpdates = 0;
   }
 
   /** Ballpark::mTime: the sim clock's reading at the park's last step, in milliseconds, less what was left over. */
@@ -342,6 +350,7 @@ class Park {
       // One or two ticks ahead: our own ticking will get there. Leave it.
       if (eventStamp > this.currentTime && eventStamp - this.currentTime < 3) break;
       this.realFlushState(state);
+      if (this.validState) this.appliedUpdates += 1;
       this.history.shift();
       if (this.validState && this.shouldRebase) this.storeState(true);
       if (this.history.length > 1) {
