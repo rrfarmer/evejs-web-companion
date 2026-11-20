@@ -192,6 +192,18 @@ interface Slot {
   flashAt: number;
 }
 
+/** A ship hold the cargo indicator can track (the bays' keys: cargo, ore, drone ...). */
+export interface HudHold {
+  readonly key: string;
+  readonly label: string;
+  readonly used: number | null;
+  readonly capacity: number | null;
+}
+
+/** cargo_indicator.py's glyph per hold kind (eveicon, 16 px): inventory, mining, drones, else the ship's areas. */
+const holdGlyph = (key: string): string => res(`res:/UI/Texture/eveicon/${
+  key === "cargo" ? "system_icons/inventory" : /ore|mining|asteroid|ice|gas/.test(key) ? "system_icons/mining" : /drone|fighter/.test(key) ? "category_icons/drones" : "category_icons/ship_areas"}_16px.png`);
+
 /** Extra readings the new HUD shows beyond the classic's state: each pool's max HP, for the ring's segment spans. */
 export interface NewShipHudState extends ShipHudState {
   shieldMax?: number | null;
@@ -207,6 +219,16 @@ export class NewShipHud {
   onFullSpeed: () => void = () => {};
   /** activeShipController.SetSpeed: the speedometer clicked at a ratio of the ship's max speed. */
   onSetSpeed: (ratio: number) => void = () => {};
+  /** CargoIndicator.OnClick: Inventory opened on the tracked hold (OpenOrShow((holdID, shipID), toggle=True)). */
+  onOpenHold: (key: string) => void = () => {};
+
+  // cargo_indicator.py: the tracked hold's fill ring around a 32 px button at band (25, 64)
+  private holds: readonly HudHold[] = [];
+  private trackedHold = "cargo";
+  private holdShipType: number | null = null;
+  private cargoHover = false;
+  private readonly cargoGlyph = document.createElement("img");
+  private readonly holdPicker = document.createElement("div");
 
   private readonly canvas = document.createElement("canvas");
   private readonly ctx: CanvasRenderingContext2D;
@@ -263,6 +285,7 @@ export class NewShipHud {
     root.append(this.tray, this.canvas);
     this.buildSlots();
     this.buildMedallionInputs();
+    this.buildCargoIndicator();
 
     // speedometer.py _ConstructReadout: the 75x16 pill at medallion (-135..-60, 68..84), its text right-aligned 4 px in.
     const pill = document.createElement("div");
@@ -364,6 +387,107 @@ export class NewShipHud {
       h.addEventListener("mouseleave", () => { if (this.rackHover === b.rack) this.rackHover = null; });
       h.addEventListener("click", () => { this.toggleRackOverload(b.rack); });
     }
+  }
+
+  private buildCargoIndicator(): void {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "new-hud-cargo";
+    Object.assign(b.style, {
+      position: "absolute", left: `${25 - 16}px`, top: `${64 - 16}px`, width: "32px", height: "32px", padding: "0", border: "0",
+      borderRadius: "50%", background: "transparent", pointerEvents: "auto", cursor: "pointer", display: "grid", placeItems: "center",
+    });
+    Object.assign(this.cargoGlyph.style, { width: "16px", height: "16px", mixBlendMode: "plus-lighter" });
+    this.cargoGlyph.alt = "";
+    this.cargoGlyph.src = holdGlyph("cargo");
+    b.append(this.cargoGlyph);
+    b.addEventListener("mouseenter", () => { this.cargoHover = true; });
+    b.addEventListener("mouseleave", () => { this.cargoHover = false; });
+    b.addEventListener("mousedown", () => { b.style.transform = "translateY(2px)"; });
+    b.addEventListener("mouseup", () => { b.style.transform = ""; });
+    b.addEventListener("click", () => { this.holdPicker.style.display = "none"; this.onOpenHold(this.trackedHold); });
+    // Right-click: the hold picker (two holds or more), the current hold last and centred on the button, the rest above.
+    b.addEventListener("contextmenu", (ev) => {
+      ev.preventDefault();
+      if (this.holds.length < 2) return;
+      const order = [...this.holds.filter((h) => h.key !== this.trackedHold)].sort((x, y) => (x.key === "cargo" ? -1 : y.key === "cargo" ? 1 : 0));
+      const current = this.holds.find((h) => h.key === this.trackedHold);
+      const items = current ? [...order, current] : order;
+      this.holdPicker.replaceChildren(...items.map((h) => {
+        const i = document.createElement("button");
+        i.type = "button";
+        i.title = h.label;
+        Object.assign(i.style, { width: "16px", height: "16px", margin: "4px", padding: "0", border: "0", background: "transparent", cursor: "pointer", display: "block" });
+        const g = document.createElement("img");
+        g.src = holdGlyph(h.key);
+        g.alt = "";
+        Object.assign(g.style, { width: "16px", height: "16px" });
+        i.append(g);
+        i.addEventListener("click", () => { this.setTrackedHold(h.key); this.holdPicker.style.display = "none"; });
+        return i;
+      }));
+      const height = (items.length - 1) * 24 + 16 + 8;
+      Object.assign(this.holdPicker.style, { display: "", left: `${25 - 12}px`, top: `${64 + 12 - height}px`, height: `${height}px` });
+    });
+    Object.assign(this.holdPicker.style, {
+      position: "absolute", width: "24px", borderRadius: "12px", background: "rgba(0,0,0,0.8)", display: "none", pointerEvents: "auto",
+    });
+    this.holdPicker.addEventListener("mouseleave", () => { this.holdPicker.style.display = "none"; });
+    this.root.append(b, this.holdPicker);
+  }
+
+  /** holdTrackerSettings: the tracked hold, kept per ship type, the cargo hold where none is kept. */
+  private setTrackedHold(key: string): void {
+    this.trackedHold = key;
+    this.cargoGlyph.src = holdGlyph(key);
+    try { if (this.holdShipType !== null) globalThis.localStorage?.setItem(`evejs.ui.trackedHold.${this.holdShipType}`, key); } catch { /* storage refused */ }
+  }
+
+  /** The ship's holds as read, and its type, for the cargo indicator. */
+  setHolds(holds: readonly HudHold[], shipTypeID: number | null): void {
+    this.holds = holds;
+    if (shipTypeID !== this.holdShipType) {
+      this.holdShipType = shipTypeID;
+      let kept: string | null = null;
+      try { kept = shipTypeID === null ? null : globalThis.localStorage?.getItem(`evejs.ui.trackedHold.${shipTypeID}`) ?? null; } catch { kept = null; }
+      this.trackedHold = kept ?? "cargo";
+      this.cargoGlyph.src = holdGlyph(this.trackedHold);
+    }
+    if (holds.length > 0 && !holds.some((h) => h.key === this.trackedHold)) {
+      this.trackedHold = holds.some((h) => h.key === "cargo") ? "cargo" : holds[0]!.key;
+      this.cargoGlyph.src = holdGlyph(this.trackedHold);
+    }
+    const h = holds.find((x) => x.key === this.trackedHold);
+    const pct = h && h.capacity ? Math.round(100 * (h.used ?? 0) / h.capacity) : null;
+    (this.cargoGlyph.parentElement as HTMLElement | null)?.setAttribute("title", h ? `${h.label}${pct === null ? "" : ` ${pct}%`}` : "Cargo");
+  }
+
+  /** cargo_indicator: track r 22.5 w 8 black 0.2 (0.6 hovered), the fill r 22.5 w 3 from 12 o'clock counter-clockwise. */
+  private drawCargo(c: CanvasRenderingContext2D): void {
+    const cx = 25, cy = 64;
+    c.beginPath();
+    c.arc(cx, cy, 15, 0, Math.PI * 2);
+    c.fillStyle = this.cargoHover ? "rgba(0,0,0,0.8)" : "rgba(0,0,0,0.4)";
+    c.fill();
+    c.beginPath();
+    c.arc(cx, cy, 22.5, 0, Math.PI * 2);
+    c.lineWidth = 8;
+    c.strokeStyle = this.cargoHover ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.2)";
+    c.stroke();
+    const h = this.holds.find((x) => x.key === this.trackedHold);
+    const ratio = h && h.capacity ? Math.max(0, Math.min(1, (h.used ?? 0) / h.capacity)) : 0;
+    if (ratio <= 0) return;
+    const colour = ratio >= 0.999 ? "#9F583A" : this.cargoHover ? "#58A7BF" : "#305665";
+    c.save();
+    c.globalCompositeOperation = "lighter";
+    c.beginPath();
+    c.arc(cx, cy, 22.5, 1.5 * Math.PI - 2 * Math.PI * ratio, 1.5 * Math.PI);
+    c.lineWidth = 3;
+    c.strokeStyle = colour;
+    c.shadowColor = colour;
+    c.shadowBlur = 2;
+    c.stroke();
+    c.restore();
   }
 
   private syncRackButtons(): void {
@@ -518,6 +642,7 @@ export class NewShipHud {
     this.drawOverload(c);
     this.drawRing(c, now);
     c.restore();
+    this.drawCargo(c);
     c.save();
     c.translate(TRAY_LEFT, TRAY_TOP);
     for (const slot of this.slots) if (slot.module) this.drawSlot(c, slot, now, dt);

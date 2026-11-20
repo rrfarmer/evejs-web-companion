@@ -1382,6 +1382,8 @@
         return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args ?? {}, { nameOf: () => "" })) : null;
       },
       openCargo: (id) => s.flow.openCargo(id),
+      openShipHold: (key) => shipHoldTarget.ask(key),
+      loadShipHolds: () => s.flow.loadMiningHolds().catch(() => {}),
       // The flow says a refused order as the client does and does not throw.
       // menusvc.StargateJump: flown to within 2,500 m of the gate first (GetCloseAndTryCommand), then the jump.
       jump: async (id) => {

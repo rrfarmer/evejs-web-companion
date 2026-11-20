@@ -6,8 +6,8 @@
 
 import { createSignal, readonlySignal, type ReadableSignal } from "../store/signals.ts";
 
-/** The holds the readouts open, by the bays' keys. */
-export type ShipHoldKey = "cargo" | "drone" | "fighter";
+/** The holds the readouts and the new HUD's cargo indicator open, by the bays' keys. */
+export type ShipHoldKey = "cargo" | "drone" | "fighter" | "ore" | (string & {});
 
 interface ShipHoldRequest {
   readonly key: ShipHoldKey;

@@ -223,6 +223,10 @@ export interface SpaceActions {
   shipAttribute?(attributeID: number): number | null;
   /** menusvc.OpenCargo on a wreck or a can: flown to within reach, opened, and the inventory window shown on it. */
   openCargo?(itemID: number): Promise<void>;
+  /** Inventory opened on one of the ship's own holds (the new HUD's cargo indicator), by the bay's key. */
+  openShipHold?(key: string): void;
+  /** The ship's holds read (fill and capacity), for the new HUD's cargo indicator. */
+  loadShipHolds?(): Promise<void>;
 }
 
 const KIND_COLOUR: Record<string, string> = {
@@ -586,6 +590,8 @@ export class SpaceView {
     if (located && located[0] !== "@") return located;
     return e.name ?? typeName ?? e.kind;
   }
+  /** The ship whose holds the cargo indicator last asked for. */
+  private holdsReadFor: number | null = null;
   /** The items whose cfg.evelocations rows have been asked for (cfg.evelocations.Prime, once each). */
   private readonly locationsPrimed = new Set<number>();
   /** The park's celestials, stations, gates and named items primed in cfg.evelocations, as the client's brackets
@@ -705,7 +711,10 @@ export class SpaceView {
     this.root.insertBefore(this.shipHud.root, this.modeEl);
     this.shipHud.onStop = () => void this.stopShip();
     this.shipHud.onFullSpeed = () => void this.fullSpeed();
-    if (this.shipHud instanceof NewShipHud) this.shipHud.onSetSpeed = (ratio) => void this.setSpeedRatio(ratio);
+    if (this.shipHud instanceof NewShipHud) {
+      this.shipHud.onSetSpeed = (ratio) => void this.setSpeedRatio(ratio);
+      this.shipHud.onOpenHold = (key) => this.actions.openShipHold?.(key);
+    }
     this.modeHeader.className = "ship-mode-header";
     this.modeSub.className = "ship-mode-detail";
     this.modeProgress.className = "ship-mode-progress";
@@ -2782,6 +2791,16 @@ export class SpaceView {
         // them: the app's space snapshot, not this view's park)
         ...(() => { const h = this.options.rack?.heat?.(); return { heatLow: h?.low, heatMed: h?.mid, heatHi: h?.high }; })(),
       });
+      if (this.shipHud instanceof NewShipHud) {
+        // the cargo indicator's holds, as the mining read keeps them: read once for each ship flown (the client's
+        // HoldTracker reads the ship's holds as it loads), then kept by the item notices
+        if (this.holdsReadFor !== ego.itemID) {
+          this.holdsReadFor = ego.itemID;
+          void this.actions.loadShipHolds?.();
+        }
+        const holds = this.options.miningSurvey?.()?.holds ?? [];
+        this.shipHud.setHolds(holds.filter((h) => h.present).map((h) => ({ key: h.key, label: h.label, used: h.capacity?.used ?? null, capacity: h.capacity?.capacity ?? null })), ego.typeID);
+      }
     }
     // The warp tunnel, along the ship's way (mirrored into three's handedness as positions are), as strong as the
     // client's binding of the ship's speed makes it.
