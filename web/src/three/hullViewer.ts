@@ -10,7 +10,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { loadDds, compressedSupport } from "./ddsTexture";
 import { typeModel, setThrust } from "./hullModel";
 import { celestialModel, systemCelestials, setPlanetEnvironment } from "./celestialModel";
-import { SoftDepthPass } from "./softDepth";
+import { SoftDepthPass, withOpaqueFrame } from "./softDepth";
 
 const params = new URLSearchParams(location.search);
 const typeID = Number(params.get("type") ?? 588);
@@ -107,8 +107,10 @@ const softDepth = new SoftDepthPass();
 function draw(): void {
   controls.update();
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-  softDepth.render(renderer, scene, camera, size.x, size.y);
-  renderer.render(scene, camera);
+  withOpaqueFrame(renderer, () => {
+    softDepth.render(renderer, scene, camera, size.x, size.y);
+    renderer.render(scene, camera);
+  });
 }
 (window as unknown as { __draw: () => void }).__draw = draw;
 renderer.setAnimationLoop(draw);

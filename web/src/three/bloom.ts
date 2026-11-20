@@ -18,7 +18,7 @@
 import * as THREE from "three";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { toneMapGlsl, type DynamicExposure, type ToneMapMethod } from "./exposure.ts";
-import { SOFT_DEPTH, SOFT_DEPTH_GLSL, SoftDepthPass } from "./softDepth.ts";
+import { SOFT_DEPTH, SOFT_DEPTH_GLSL, SoftDepthPass, withOpaqueFrame } from "./softDepth.ts";
 import { ENVIRONMENT_FOG_GLSL, type EnvironmentFog } from "./environmentFog.ts";
 import { GodRaysPass, type GodRays, type GodRaySun } from "./godRays.ts";
 import { CLOUD_FOG, CLOUD_FOG_SCATTERING, CloudOpacityPass, type VolumetricClouds } from "./cloudOpacity.ts";
@@ -211,7 +211,7 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
   let opacityPass: CloudOpacityPass | null = null;
 
   return {
-    render: (environment, sun, clouds) => {
+    render: (environment, sun, clouds) => withOpaqueFrame(renderer, () => {
       // The graphics settings (gfxSettings.ts) select postprocessing and the
       // shader model independently. The depth model composites environment fog.
       const quality = post.quality?.() ?? { postProcess: true, distortion: true };
@@ -312,7 +312,7 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       // the output
       output.uniforms["exposure"]!.value = e ? e.step() : 1;
       draw(output, null);
-    },
+    }),
     setSize: (cw, ch) => {
       const r = renderer.getPixelRatio();
       const w = Math.max(1, Math.floor(cw * r)), h = Math.max(1, Math.floor(ch * r));

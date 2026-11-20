@@ -65,12 +65,37 @@ float softSceneDepthAt(vec2 frag) {
 float softSceneDepth() { return softSceneDepthAt(gl_FragCoord.xy); }`;
 
 const opaque = (m: THREE.Material) => !m.transparent && m.depthWrite && m.depthTest && m.blending === THREE.NormalBlending && m.visible;
-const opaqueSurfaces = new WeakMap<THREE.Material, THREE.Material>();
+interface OpaqueSurface {
+  material: THREE.Material;
+  prepare?: (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, object: THREE.Mesh) => void;
+}
+const opaqueSurfaces = new WeakMap<THREE.Material, OpaqueSurface>();
+const opaqueFrameTimes = new WeakMap<THREE.WebGLRenderer, number>();
+
+/** Give animated opaque surfaces the same time in every pass of the composed view. */
+export function withOpaqueFrame(renderer: THREE.WebGLRenderer, render: () => void): void {
+  const previous = opaqueFrameTimes.get(renderer);
+  opaqueFrameTimes.set(renderer, performance.now() / 1000);
+  try {
+    render();
+  } finally {
+    if (previous === undefined) opaqueFrameTimes.delete(renderer);
+    else opaqueFrameTimes.set(renderer, previous);
+  }
+}
+
+export function opaqueFrameTime(renderer: THREE.WebGLRenderer): number {
+  return opaqueFrameTimes.get(renderer) ?? performance.now() / 1000;
+}
+
+export function opaqueSurfaceOf(material: THREE.Material): OpaqueSurface | undefined {
+  return opaqueSurfaces.get(material);
+}
 
 /** Keep a custom opaque surface's vertex transform and alpha test in the depth and normals passes. */
 export function setOpaqueSurfacePass(material: THREE.Material, surface: THREE.Material): void {
   surface.allowOverride = false;
-  opaqueSurfaces.set(material, surface);
+  opaqueSurfaces.set(material, { material: surface });
   material.addEventListener("dispose", () => surface.dispose());
 }
 
@@ -150,7 +175,12 @@ export class SoftDepthPass {
       const mats = Array.isArray(mat) ? mat : [mat];
       if (mats.some((m) => m.userData.softDepth)) wanted = true;
       if (!(o as THREE.Mesh).isMesh || !mats.every(opaque) || (accepts && !accepts(o as THREE.Mesh))) hidden.push(o);
-      else if (normals || mats.some((m) => opaqueSurfaces.has(m))) sources.set(o as THREE.Mesh, mat);
+      else if (normals || mats.some((m) => opaqueSurfaces.has(m))) {
+        const mesh = o as THREE.Mesh;
+        sources.set(mesh, mat);
+        // Instance data must be ready before Three.js builds the draw list and uploads attributes.
+        if (!accepts) for (const material of mats) opaqueSurfaces.get(material)?.prepare?.(renderer, scene, camera, mesh);
+      }
     });
     if (!wanted) return null;
     if (!this.target || this.target.width !== width || this.target.height !== height) {
@@ -164,7 +194,7 @@ export class SoftDepthPass {
     scene.background = null;
     scene.overrideMaterial = normals ? null : this.blank;
     try {
-      const surfaceFor = (m: THREE.Material) => opaqueSurfaces.get(m) ?? (normals ? this.normalsFor(m) : this.blank);
+      const surfaceFor = (m: THREE.Material) => opaqueSurfaces.get(m)?.material ?? (normals ? this.normalsFor(m) : this.blank);
       for (const [mesh, material] of sources) {
         mesh.material = Array.isArray(material) ? material.map(surfaceFor) : surfaceFor(material);
       }

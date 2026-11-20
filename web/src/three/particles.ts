@@ -10,7 +10,7 @@ import { CLOUD_FOG, CLOUD_FOG_GLSL, CLOUD_FOG_SCATTERING, CLOUD_FOG_SCATTERING_G
 import { gfx } from "../play/gfxSettings.ts";
 import { logDepth } from "./logDepth.ts";
 import { DISTORTION_LAYER } from "./distortion.ts";
-import { SOFT_DEPTH, SOFT_DEPTH_GLSL, setOpaqueSurfacePass } from "./softDepth.ts";
+import { SOFT_DEPTH, SOFT_DEPTH_GLSL, opaqueFrameTime, opaqueSurfaceOf, setOpaqueSurfacePass } from "./softDepth.ts";
 import { sceneReflection } from "./celestialModel.ts";
 import { loadDds3D } from "./ddsTexture.ts";
 import { GpuEmitter, gpuSystemOf, type GpuEmitterData } from "./gpuParticles.ts";
@@ -690,8 +690,8 @@ export function dynamicMotionVectorMaterial(area: Area, textureOf: TextureOf): T
  * spin (TEXCOORD9) + SpriteFactors.y (the axis-angle matrix), at the particle's position; TexMapLayer1 read at the atlas
  * cell TEXCOORD11.w of SpriteFactors.w x .w (as 1layerdynv2's), times the vertex colour (Color1 to Color2 over age 0 ..
  * ColorMidpoint, Color2 to Color3 to 1), alpha under 0.5 discarded; rgb plus GlowMapLayer1 at the same uv x
- * SpriteColor.rgb. Opaque, both faces (CULLMODE none), depth written. Its second target (the motion vectors, from the
- * previous frame's POSITION9 / TANGENT9) has nothing to go to here. Its sampler wraps; nothing is sRGB.
+ * SpriteColor.rgb. The 3698585 Depth technique uses the same instanced pose and atlas alpha cutout as Main.
+ * Both faces draw. The sampler wraps and reads linear textures.
  */
 export function dynDecalMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial {
   const p = area.params;
@@ -708,38 +708,50 @@ export function dynDecalMaterial(area: Area, textureOf: TextureOf): THREE.Shader
   });
   load(area.textures.TexMapLayer1, "layer1");
   load(area.textures.GlowMapLayer1, "glow");
-  const mat = new THREE.ShaderMaterial({
-    uniforms,
-    vertexShader: `uniform vec4 spriteFactors; uniform vec4 color1; uniform vec4 color2; uniform vec4 color3; uniform float colorMidpoint;
+  const vertexShader = `uniform vec4 spriteFactors; uniform vec4 color1; uniform vec4 color2; uniform vec4 color3; uniform float colorMidpoint;
       attribute vec3 iPos; attribute vec2 iLife; attribute vec2 iT8; attribute float iT9; attribute float iT10; attribute vec4 iT11;
-      varying vec4 vColor; varying vec2 vUv; varying vec3 vAtlas;
+      varying vec4 vColor; varying vec2 vUv; varying vec3 vAtlas; varying vec3 vNormal;
+      vec3 spin(vec3 v, vec3 axis, float s, float c) {
+        return v * c + cross(axis, v) * s + axis * dot(axis, v) * (1.0 - c);
+      }
       void main() {
         float age = iLife.x;
         float a = age * iT10 * iLife.y + iT9 + spriteFactors.y;
         vec3 n = normalize( iT11.xyz );
         vec3 v = position * mix( iT8.x, iT8.y, age );
         float s = sin( a ), c = cos( a );
-        vec3 turned = v * c + cross( n, v ) * s + n * dot( n, v ) * ( 1.0 - c );
-        gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4( turned + iPos, 1.0 );
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(spin(v, n, s, c) + iPos, 1.0);
+        vNormal = normalMatrix * spin(normal, n, s, c);
         vColor = age > colorMidpoint ? mix( color2, color3, clamp( ( age - colorMidpoint ) / ( 1.0 - colorMidpoint ), 0.0, 1.0 ) )
           : mix( color1, color2, clamp( age / colorMidpoint, 0.0, 1.0 ) );
         vUv = uv;
         float cell = trunc( iT11.w ) / spriteFactors.w;
         vAtlas = vec3( fract( cell ), trunc( cell ) / spriteFactors.w, 1.0 / spriteFactors.w );
-      }`,
-    fragmentShader: `uniform sampler2D layer1; uniform sampler2D glow; uniform vec4 spriteColor;
+      }`;
+  const cutout = `uniform sampler2D layer1;
       varying vec4 vColor; varying vec2 vUv; varying vec3 vAtlas;
       void main() {
-        vec2 cellUv = fract( vUv ) * vAtlas.z + vAtlas.xy;
+        vec2 cellUv = fract(vUv) * vAtlas.z + vAtlas.xy;
         vec2 grad = vUv * vAtlas.z + vAtlas.xy;
-        vec4 t = textureGrad( layer1, cellUv, dFdx( grad ), dFdy( grad ) ) * vColor;
-        if ( t.a < 0.5 ) discard;
-        vec3 g = textureGrad( glow, cellUv, dFdx( grad ), dFdy( grad ) ).rgb;
-        gl_FragColor = vec4( spriteColor.rgb * g + t.rgb, t.a );
+        vec2 dx = dFdx(grad), dy = dFdy(grad);
+        vec4 t = textureGrad(layer1, cellUv, dx, dy) * vColor;
+        if (t.a < 0.5) discard;`;
+  const mat = logDepth(new THREE.ShaderMaterial({
+    name: "3ddyndecalv2", uniforms, vertexShader, side: THREE.DoubleSide,
+    fragmentShader: `uniform sampler2D glow; uniform vec4 spriteColor;
+      ${cutout}
+        vec3 g = textureGrad(glow, cellUv, dx, dy).rgb;
+        gl_FragColor = vec4(spriteColor.rgb * g + t.rgb, t.a);
       }`,
-    side: THREE.DoubleSide,
-  });
-  logDepth(mat);
+  }));
+  setOpaqueSurfacePass(mat, logDepth(new THREE.ShaderMaterial({
+    name: "3ddyndecalv2-depth", uniforms, vertexShader, side: mat.side,
+    fragmentShader: `varying vec3 vNormal;
+      ${cutout}
+        vec3 n = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
+        gl_FragColor = vec4(n * 0.5 + 0.5, 1.0);
+      }`,
+  })));
   return mat;
 }
 
@@ -1224,12 +1236,18 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
   geometry.index = quad.index;
   geometry.setAttribute("position", quad.getAttribute("position"));
   geometry.setAttribute("uv", quad.getAttribute("uv"));
+  const surface = opaqueSurfaceOf(material);
+  if (surface && quad.hasAttribute("normal")) geometry.setAttribute("normal", quad.getAttribute("normal"));
   const filled: { attr: THREE.InstancedBufferAttribute; key: string | undefined; size: number }[] = [];
   for (const a of ATTRIBUTES) {
-    const attr = new THREE.InstancedBufferAttribute(new Float32Array(sim.max * a.size), a.size);
+    const key = a.key(usage);
+    // The stock rock's TEXCOORD11 is scalar. Like D3D11, WebGL supplies 1 for the
+    // missing w of the shader's vec4 when the vertex attribute keeps its original width.
+    const size = surface && a.name === "iT11" && key ? sim.sizes.get(key) ?? a.size : a.size;
+    const attr = new THREE.InstancedBufferAttribute(new Float32Array(sim.max * size), size);
     attr.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute(a.name, attr);
-    filled.push({ attr, key: a.key(usage), size: a.size });
+    filled.push({ attr, key, size });
   }
   geometry.instanceCount = 0;
   const meshes = materials.map((m) => {
@@ -1246,13 +1264,11 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
   const sortPositions = sim.data.linkID !== undefined && sim.data.requiresSorting
     ? sim.arrays.get(elementKey({ elementType: ELEMENT.POSITION })) : undefined;
   const eye = new THREE.Vector3();
-  // stepped from the material's hook: a model's copies (Object3D.clone) share the material and the geometry but not
-  // an object's own onBeforeRender
-  material.onBeforeRender = (renderer, scene, camera, _g, object) => {
-    (material.userData.beforeDraw as ((s: THREE.Object3D, r: THREE.WebGLRenderer, c: THREE.Camera) => void) | undefined)?.(scene, renderer, camera);
+  // Clones share the materials and geometry. An opaque surface steps once, before its first pass of the frame.
+  const updateParticles = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, object: THREE.Object3D) => {
     object.updateWorldMatrix(true, false);
     drawnBy = { scene, world: object.matrixWorld };
-    const now = performance.now() / 1000;
+    const now = surface ? opaqueFrameTime(renderer) : performance.now() / 1000;
     if (now === stepped) return;
     stepped = now;
     // (an emitter only an action fires is not updated: Tr2ActionSpawnParticles' own)
@@ -1279,5 +1295,10 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
     }
     geometry.instanceCount = sim.alive;
   };
+  material.onBeforeRender = (renderer, scene, camera, _g, object) => {
+    (material.userData.beforeDraw as ((s: THREE.Object3D, r: THREE.WebGLRenderer, c: THREE.Camera) => void) | undefined)?.(scene, renderer, camera);
+    updateParticles(renderer, scene, camera, object);
+  };
+  if (surface) surface.prepare = updateParticles;
   return mesh;
 }
