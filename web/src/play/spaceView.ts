@@ -19,6 +19,7 @@ import { shiftGpuParticles } from "../three/gpuParticles.ts";
 import { useFarBoosters } from "../three/boosterVolumetric.ts";
 import { celestialModel, systemCelestials, setPlanetEnvironment, type CelestialItem } from "../three/celestialModel.ts";
 import { ShipHud, type HudModule } from "./shipHud.ts";
+import { formatTemplate, plainText } from "../bridge/clientWords.ts";
 import { NewShipHud } from "./newShipHud.ts";
 import { hudSettingNow } from "../store/hudSettings.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
@@ -146,6 +147,11 @@ export interface SpaceViewOptions {
     overload?: { module(itemID: number, on: boolean): Promise<void>; rack(activationID: number, on: boolean): Promise<void> };
     /** The new HUD's module tooltip rows (moduleButtonTooltip.UpdateToolTips), null where it has none to give. */
     tooltip?(m: HudModule): readonly import("./moduleTooltip.ts").ModuleTooltipRow[] | null;
+    /**
+     * capacitorFlow: the ship's peak recharge and its fit's whole drain (CapacitorSimulator, GJ a second), and what its
+     * running modules drain now (_GetActiveDrain); null where not known.
+     */
+    capacitorFlow?(): { peak: number; maxDrain: number; drain: number } | null;
     /** The ship's slots per rack (present ones), for the new HUD's empty slots. */
     slotCounts?(): { high: number; mid: number; low: number };
   };
@@ -727,7 +733,8 @@ export class SpaceView {
       this.shipHud.onOpenHold = (key) => this.actions.openShipHold?.(key);
       this.shipHud.tooltipRows = (m) => this.options.rack?.tooltip?.(m) ?? null;
       const hudWords = this.options.indicationWords;
-      this.shipHud.word = (label) => { const t = hudWords?.()[label]; return typeof t === "string" && t !== "" ? t : null; };
+      this.shipHud.word = (label) => { const t = hudWords?.()[label]; return typeof t === "string" && t !== "" ? plainText(t) : null; };
+      this.shipHud.wordWith = (label, args) => { const t = hudWords?.()[label]; return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args as never, { nameOf: () => null } as never)) : null; };
       // the HUD's command buttons: the directional scanner and solar system map are this view's, the rest the page's
       this.shipHud.onCommand = (cmd) => {
         if (cmd === "OpenDirectionalScanner" && this.dscan) this.dscan.toggle();
@@ -2941,6 +2948,7 @@ export class SpaceView {
       const overload = rack.overload;
       const modules = rack.modules();
       if (this.shipHud instanceof NewShipHud && rack.slotCounts) this.shipHud.setSlotCounts(rack.slotCounts());
+      if (this.shipHud instanceof NewShipHud && rack.capacitorFlow) this.shipHud.setCapacitorFlow(rack.capacitorFlow());
       if (this.moduleTargetOrders.size) this.finishModuleTargetOrders(modules);
       for (const m of modules) m.waitingForTarget = !!this.moduleTargetOrders.get(m.itemID)?.mode;
       this.shipHud.setModules(modules, (m) => this.useRackModule(m), overload ? {

@@ -219,6 +219,30 @@ const COOL_DIGIT_SIZES = [18, 14, 11, 9] as const;
 const COLOR_MODULE_DAMAGE: RGBA = [1, 0.271, 0.294, 1];
 // hudConst.COLOR_MODULE_REPAIR (eveColor.SUCCESS_GREEN, read through gridcheck)
 const COLOR_MODULE_REPAIR: RGBA = [0.553, 0.757, 0.412, 1];
+// consumptionGauge.py: an arc of 50 (width 2) through the health ring's gap, 33.42 degrees either side of 3 o'clock, its
+// gain above (charge blue) and its loss below (drain red), split at the gap asin(1/51); glow layers (spread, alpha).
+const GAUGE_R = 50;
+const GAUGE_W = 2;
+const GAUGE_HALF = 33.42 * Math.PI / 180;
+const GAUGE_GAP = Math.asin(1 / 51);
+const GAUGE_SWEEP = GAUGE_HALF - GAUGE_GAP;
+const GAUGE_MIN_PREVIEW = 1.5 * Math.PI / 180;
+const GAUGE_CHARGE: RGBA = [88 / 255, 167 / 255, 191 / 255, 1];
+const GAUGE_DRAIN: RGBA = [1, 69 / 255, 75 / 255, 1];
+const GAUGE_GLOW = [[1, 0.14], [2.5, 0.07], [4.5, 0.03]] as const;
+// capacitorFlow.py
+const NEUTRAL_PORTION = 0.02;
+const FLOW_SMOOTHING = 0.35;
+const MEDALLION_UPDATE_MS = 500;
+/** capacitorFlow.RechargeRateAt: the recharge at a charge portion, from its peak (at a quarter). */
+export const rechargeRateAt = (peak: number, portion: number): number => { const x = Math.max(0, Math.min(1, portion)); return peak * 4 * (Math.sqrt(x) - x); };
+/** CapacitorFlow._PortionFor: the net flow as a share of the peak recharge (gaining) or of the fit's whole drain (losing). */
+export const flowPortion = (recharge: number, drain: number, peak: number, maxDrain: number): number => {
+  const net = recharge - drain;
+  const p = net >= 0 ? net / peak : maxDrain > 0 ? net / maxDrain : 0;
+  return Math.max(-1, Math.min(1, p));
+};
+
 // moduleSlot.py
 const QUANTITY_LABEL_DY = 13;
 const QUANTITY_OPACITY_COOLDOWN = 0.5;
@@ -296,6 +320,14 @@ export class NewShipHud {
   private readonly utilityEls: HTMLElement[] = [];
   private readonly readout = document.createElement("div");
   private readonly unsubscribe: (() => void)[] = [];
+  /** consumptionGauge: the flow as last given, the smoothed portion, the rates, the hovered module's preview. */
+  private capFlow: { peak: number; maxDrain: number; drain: number } | null = null;
+  private flowShown: number | null = null;
+  private flowRates: { recharge: number; drain: number } | null = null;
+  private flowAt = 0;
+  private flowPreview: number | null = null;
+  /** A label's text with its tags filled, the page's to give. */
+  wordWith: ((label: string, args: Readonly<Record<string, unknown>>) => string | null) | null = null;
   /** The module tooltip's rows (moduleButtonTooltip.UpdateToolTips), the page's to give; null: no tooltips. */
   tooltipRows: ((m: HudModule) => readonly ModuleTooltipRow[] | null) | null = null;
   private readonly tooltip = document.createElement("div");
@@ -612,6 +644,17 @@ export class NewShipHud {
       this.readout.append(row);
     }
     this.root.append(this.readout);
+    // consumptionGauge's hover target: 10 x 56 centred on the gauge (radius 50 at 3 o'clock); its tooltip the flow's lines
+    const hover = document.createElement("div");
+    Object.assign(hover.style, { position: "absolute", left: `${cx + GAUGE_R - 5}px`, top: `${cy - 28}px`, width: "10px", height: "56px", pointerEvents: "auto" });
+    let gaugeTimer: ReturnType<typeof setInterval> | null = null;
+    hover.addEventListener("mouseenter", () => {
+      const show = () => this.showLinesTooltip(hover, this.consumptionLines);
+      show();
+      gaugeTimer = setInterval(show, 250); // TOOLTIP_REFRESH_MS
+    });
+    hover.addEventListener("mouseleave", () => { if (gaugeTimer) clearInterval(gaugeTimer); gaugeTimer = null; this.closeTooltip(); });
+    this.root.append(hover);
     const follow = (name: HudSettingName, apply: (on: boolean) => void) => this.unsubscribe.push(hudSetting(name).subscribe(apply));
     follow("hudButtonsExpanded", (on) => { for (const el of this.utilityEls) el.style.display = on ? "" : "none"; });
     follow("showReadout", () => this.paintReadout());
@@ -725,6 +768,8 @@ export class NewShipHud {
     "UI/Inflight/HUDOptions/DisplayEmptySlots", "UI/Inflight/HUDOptions/DisplayReadout", "UI/Inflight/HUDOptions/DisplayReadoutAsPercentage",
     "UI/Inflight/HUDOptions/LockModulesInPlace", "UI/Inflight/HUDOptions/AlignHUDToTop", "UI/Inflight/NotifySettingsWindow/DamageAlertSettings",
     "UI/Accessories/Log/EnterMessageMovingMode",
+    ...["CapacitorFlowUnavailable", "CapStable", "CapIncreasing", "CapDecreasing", "CapRecharge", "CapDrain", "CapInjection",
+      "SourceExplanation", "RechargeExplanation"].map((l) => `Tooltips/Hud/ConsumptionGauge/${l}`),
   ];
 
   /** hudLayer: the scanner group at band x mount.left (230) + max(70, 55 + the tray's width). */
@@ -836,8 +881,8 @@ export class NewShipHud {
       // moduleSlot._BuildWidget: the cooldown timer over the icon, the quantity over the timer.
       el.append(disc, icon, cool, qty, badge, shortcut);
       const slot: Slot = { el, icon, qty, badge, shortcut, x, y, module: null, hover: false, wedge: { angle: 180, half: 7.5, lit: 0 }, cycles: -1, flashAt: 0, cool, coolShown: false, empty: false };
-      el.addEventListener("mouseenter", () => { slot.hover = true; this.hoverTooltip(slot); });
-      el.addEventListener("mouseleave", () => { slot.hover = false; this.hideTooltip(slot); });
+      el.addEventListener("mouseenter", () => { slot.hover = true; this.hoverTooltip(slot); this.previewModule(slot.module); });
+      el.addEventListener("mouseleave", () => { slot.hover = false; this.hideTooltip(slot); this.previewModule(null); });
       el.addEventListener("click", () => { if (slot.module && this.onModule) this.onModule(slot.module); });
       this.slots.push(slot);
       this.tray.append(el);
@@ -978,6 +1023,41 @@ export class NewShipHud {
     t.style.top = `${Math.round(at.top - TOOLTIP_GAP - h)}px`;
   }
 
+  /**
+   * LoadGeneric1ColumnTemplate: a heading (bold), body lines, and the last two as secondary details (white 0.5,
+   * wrapped at 220 px), in the same framed panel over the anchor.
+   */
+  private showLinesTooltip(anchor: HTMLElement, lines: readonly string[]): void {
+    const t = this.tooltip;
+    const key = "lines:" + JSON.stringify(lines);
+    if (key === this.tipKey && t.style.display !== "none") return;
+    this.tipKey = key;
+    if (!t.isConnected) {
+      t.className = "new-hud-tooltip";
+      Object.assign(t.style, { position: "fixed", pointerEvents: "none", zIndex: "100000", padding: `${TOOLTIP_MARGIN}px`, font: "14px 'EVE Sans Neue','Segoe UI',sans-serif", color: "rgba(255,255,255,0.75)", whiteSpace: "nowrap" });
+      document.body.append(t);
+    }
+    t.replaceChildren();
+    const frame = document.createElement("div");
+    Object.assign(frame.style, { position: "absolute", inset: "0", opacity: "0.75", borderStyle: "solid", borderWidth: "0", borderImageSource: `url(${res("res:/UI/Texture/classes/FrameWithPointer/background_04.png")})`, borderImageSlice: "19 fill", borderImageWidth: "19px", borderImageOutset: "15px" } as Partial<CSSStyleDeclaration>);
+    const body = document.createElement("div");
+    Object.assign(body.style, { position: "relative", display: "flex", flexDirection: "column", gap: "4px" });
+    lines.forEach((line, i) => {
+      const el = document.createElement("div");
+      el.dataset.tipRow = "";
+      el.textContent = line;
+      const detail = lines.length > 1 && i >= lines.length - 2;
+      if (lines.length > 1 && i === 0) el.style.fontWeight = "bold";
+      if (detail) Object.assign(el.style, { fontSize: "12px", color: "rgba(255,255,255,0.5)", whiteSpace: "normal", width: "220px" });
+      body.append(el);
+    });
+    t.append(frame, body);
+    t.style.display = "";
+    const a = anchor.getBoundingClientRect();
+    t.style.left = `${Math.round(a.right + 12)}px`;
+    t.style.top = `${Math.round(a.top + a.height / 2 - t.offsetHeight / 2)}px`;
+  }
+
   // ── the classic HUD's API ──────────────────────────────────────────────────────────────────────────────
 
   dispose(): void {
@@ -1049,6 +1129,88 @@ export class NewShipHud {
     this.onModule = onModule;
     this.overload = overload ?? null;
     this.placeSlots();
+  }
+
+  /** capacitorFlow's inputs (the page's): the peak recharge, the fit's whole drain and the running drain, GJ a second. */
+  setCapacitorFlow(flow: { peak: number; maxDrain: number; drain: number } | null): void {
+    this.capFlow = flow && flow.peak > 0 ? flow : null;
+  }
+
+  /** consumptionGauge.Update every 500 ms: the portion, smoothed by 0.35 a step. */
+  private stepFlow(now: number): void {
+    if (now - this.flowAt < MEDALLION_UPDATE_MS) return;
+    this.flowAt = now;
+    const f = this.capFlow;
+    const ratio = this.state?.capacitorRatio;
+    if (!f || ratio === null || ratio === undefined) { this.flowShown = null; this.flowRates = null; return; }
+    const recharge = rechargeRateAt(f.peak, ratio);
+    this.flowRates = { recharge, drain: f.drain };
+    const p = flowPortion(recharge, f.drain, f.peak, f.maxDrain);
+    this.flowShown = this.flowShown === null ? p : this.flowShown + (p - this.flowShown) * FLOW_SMOOTHING;
+  }
+
+  /** OnModuleCapacitorPreview: the module's rate switched (off if running, on if not) through the flow's portion. */
+  private previewModule(m: HudModule | null): void {
+    const f = this.capFlow, r = this.flowRates;
+    if (!m || m.capRate === null || m.capRate === undefined || !f || !r) { this.flowPreview = null; return; }
+    const delta = m.active ? -m.capRate : m.capRate;
+    this.flowPreview = flowPortion(r.recharge, r.drain + delta, f.peak, f.maxDrain);
+  }
+
+  /** The gauge: its tracks, the fill and its additive glow, the preview at 0.5. Canvas in medallion space. */
+  private drawConsumption(c: CanvasRenderingContext2D, now: number): void {
+    this.stepFlow(now);
+    const portion = this.flowShown;
+    if (portion === null) return;
+    const arc = (a0: number, a1: number, colour: string, width: number) => {
+      c.beginPath();
+      c.arc(0, 0, GAUGE_R, a0, a1);
+      c.lineWidth = width;
+      c.strokeStyle = colour;
+      c.stroke();
+    };
+    arc(-GAUGE_HALF, -GAUGE_GAP, "rgba(255,255,255,0.1)", GAUGE_W);
+    arc(GAUGE_GAP, GAUGE_HALF, "rgba(255,255,255,0.1)", GAUGE_W);
+    const span = (p: number): [number, number] => {
+      const sweep = Math.min(1, Math.abs(p)) * GAUGE_SWEEP;
+      return p > 0 ? [-GAUGE_GAP - sweep, -GAUGE_GAP] : [GAUGE_GAP, GAUGE_GAP + sweep];
+    };
+    if (Math.abs(portion) >= NEUTRAL_PORTION) {
+      const colour = portion > 0 ? GAUGE_CHARGE : GAUGE_DRAIN;
+      const [a0, a1] = span(portion);
+      c.save();
+      c.globalCompositeOperation = "lighter";
+      for (const [spread, alpha] of GAUGE_GLOW) arc(a0, a1, css(colour, alpha), GAUGE_W + 2 * spread);
+      c.restore();
+      arc(a0, a1, css(colour), GAUGE_W);
+    }
+    const preview = this.flowPreview;
+    if (preview !== null) {
+      const cur = Math.min(1, Math.abs(portion)) * GAUGE_SWEEP;
+      const pre = Math.min(1, Math.abs(preview)) * GAUGE_SWEEP;
+      const same = (preview > 0) === (portion > 0);
+      const low = same ? Math.min(cur, pre) : 0;
+      const high = same ? Math.max(cur, pre) : pre;
+      if (high - low >= GAUGE_MIN_PREVIEW) {
+        const colour = css(preview > 0 ? GAUGE_CHARGE : GAUGE_DRAIN, 0.5);
+        if (preview > 0) arc(-GAUGE_GAP - high, -GAUGE_GAP - low, colour, GAUGE_W);
+        else arc(GAUGE_GAP + low, GAUGE_GAP + high, colour, GAUGE_W);
+      }
+    }
+  }
+
+  /** _TooltipLines: the direction, the recharge and the drain (and an injection), and the two explanations. */
+  get consumptionLines(): string[] {
+    const r = this.flowRates, p = this.flowShown;
+    const L = "Tooltips/Hud/ConsumptionGauge/";
+    const say = (label: string, own: string) => this.word(L + label) ?? own;
+    if (!r || p === null) return [say("CapacitorFlowUnavailable", "Capacitor flow unavailable")];
+    const rate = (label: string, own: string, v: number) => this.wordWith?.(L + label, { rate: v }) ?? `${own} ${v.toFixed(1)} GJ/s`;
+    const lines = [Math.abs(p) < NEUTRAL_PORTION ? say("CapStable", "Capacitor stable") : p > 0 ? say("CapIncreasing", "Capacitor increasing") : say("CapDecreasing", "Capacitor decreasing"),
+      rate("CapRecharge", "Recharge:", r.recharge), rate("CapDrain", "Drain:", Math.max(0, r.drain))];
+    if (r.drain < 0) lines.push(rate("CapInjection", "Injection:", -r.drain));
+    lines.push(say("SourceExplanation", ""), say("RechargeExplanation", ""));
+    return lines.filter((l) => l !== "");
   }
 
   /** The ship's slots per rack, for Display Empty Slots. */
@@ -1131,6 +1293,7 @@ export class NewShipHud {
     this.drawHeat(c);
     this.drawSpeedometer(c, now);
     this.drawCapacitor(c, now);
+    this.drawConsumption(c, now);
     this.drawOverload(c);
     this.drawRing(c, now);
     c.restore();

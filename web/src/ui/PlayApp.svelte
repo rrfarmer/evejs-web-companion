@@ -1304,6 +1304,34 @@
       const v = item?.attributes.find((a) => a.attributeID === id)?.value;
       return typeof v === "number" && Number.isFinite(v) ? v : null;
     };
+    /**
+     * capacitorFlow.ModuleRatePerSecond and _GetActiveDrain's terms, GJ a second: a module's discharge over its cycle
+     * (duration and reactivation delay); a nosferatu's transfer as a gain; a capacitor booster's charge averaged over
+     * its load and reload as a gain (only with a charge, and never as a preview: ModuleRatePerSecond answers none).
+     */
+    function capRateOf(itemID: number, groupID: number | null, preview: boolean): number | null {
+      const allInfo = s.store.dogma.get().allInfo;
+      const item = allInfo?.ships.find((i) => Number(i.itemID) === itemID);
+      if (!item) return null;
+      const duration = attrOf(item, 73) ?? 0;
+      if (!duration) return null;
+      const cycle = duration + (attrOf(item, 669) ?? 0);
+      if (groupID === 76) {
+        if (preview) return null;
+        const charge = allInfo?.ships.find((i) => (i.sublocation || i.categoryID === 8) && i.flagID === item.flagID);
+        const bonus = attrOf(charge, 67) ?? 0;
+        const volume = attrOf(charge, 161) ?? 0;
+        if (!charge || !bonus || !volume) return null;
+        const n = Math.trunc((attrOf(item, 38) ?? 0) / volume);
+        const reload = attrOf(item, 1795) ?? 0;
+        const avg = n > 0 ? (n * bonus) / (n * duration + reload) * duration : 0;
+        return -avg / cycle * 1000;
+      }
+      if (groupID === 68) { const amount = attrOf(item, 90) ?? 0; return amount ? -amount / cycle * 1000 : null; }
+      const need = attrOf(item, 6) ?? 0;
+      return need ? need / cycle * 1000 : null;
+    }
+
     function moduleTooltip(m: HudModule) {
       const facts = factsOf(m.typeID);
       const allInfo = s.store.dogma.get().allInfo;
@@ -1586,7 +1614,8 @@
               windingDown,
               reload: (() => { const r = s.store.fitting.get().reloads[m.itemID]; return r && now < r.startedAtMs + r.durationMs ? { startedAtMs: r.startedAtMs, durationMs: r.durationMs } : null; })(),
               // HasActivatibleEffect: a type with no default effect is passive
-              passive: typeFact !== null && (typeFact.defaultEffectID ?? null) === null });
+              passive: typeFact !== null && (typeFact.defaultEffectID ?? null) === null,
+              capRate: capRateOf(m.itemID, m.groupID, true) });
           }
           return out;
         },
@@ -1606,6 +1635,24 @@
         },
         heat: () => s.store.space.get().snapshot?.ship?.rackHeat ?? null,
         tooltip: (m) => moduleTooltip(m),
+        capacitorFlow: () => {
+          const f = s.store.fitting.get();
+          const capacity = f.shipAttributes?.[482] ?? null;
+          const rechargeMs = f.shipAttributes?.[55] ?? null;
+          if (!capacity || !rechargeMs) return null;
+          // CapacitorSimulator: the peak recharge 2.5 x capacity over recharge time; the fit's need is the peak less its delta
+          const peak = 2500 * capacity / rechargeMs;
+          const delta = f.stats?.capacitor?.simulator?.delta;
+          const need = typeof delta === "number" ? peak - delta : 0;
+          const active = new Set(s.store.space.get().snapshot?.ship?.activeModuleIDs ?? []);
+          let drain = 0;
+          for (const slot of f.slots ?? []) {
+            const m = slot.module;
+            if (!m || !active.has(m.itemID)) continue;
+            drain += capRateOf(m.itemID, m.groupID, false) ?? 0;
+          }
+          return { peak, maxDrain: need > 0 ? need : peak, drain };
+        },
         slotCounts: () => {
           const counts = { high: 0, mid: 0, low: 0 };
           for (const slot of s.store.fitting.get().slots ?? []) {

@@ -79,6 +79,8 @@ export interface HudModule {
   charge?: { typeID: number; quantity: number; crystal: boolean } | null;
   /** Its charge reloading (OnChargeReload / the reload's notice): when it began (Date.now()) and how long it takes. */
   reload?: { startedAtMs: number; durationMs: number } | null;
+  /** capacitorFlow.ModuleRatePerSecond: what it drains a second while it runs (negative: it gives); null where none. */
+  capRate?: number | null;
   /** It has no activatable effect (moduleController.HasActivatibleEffect false): drawn in the passive housing. */
   passive?: boolean;
   /**
