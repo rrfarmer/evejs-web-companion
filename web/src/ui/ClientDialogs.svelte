@@ -40,7 +40,7 @@
   import type { MultiBuyAsk, MultiBuyRow, SaidDialog } from "../app/flow.ts";
   import type { QuestionWords } from "../store/types.ts";
   import { resolvedName, type NameKind } from "../store/names.ts";
-  import { formatTemplate, plainText, templateNameRefs } from "../bridge/clientWords.ts";
+  import { formatTemplate, locationKind, plainText, templateNameRefs } from "../bridge/clientWords.ts";
   import { romanLevel } from "../bridge/skills.ts";
   import NamePopup from "./NamePopup.svelte";
   import { changeQuickbar } from "./marketQuickbar.ts";
@@ -53,7 +53,7 @@
   import LabelText from "./LabelText.svelte";
   import { linkFollowerOf } from "./linkFollowers.ts";
   import { SHORT_INTERVAL_WORD_LABELS, intervalWriters } from "../bridge/timeInterval.ts";
-  import { orderDelta, priceDelta } from "../bridge/market.ts";
+  import { checkPrice, checkQuantity, DURATION_CHOICES, orderDelta, priceDelta } from "../bridge/market.ts";
   import { showMarketDetails } from "./marketDetails.ts";
   import { SKILL_BOOK_NOT_YET, SKILL_TRAINING_COMPLETE, skillGroupIcon } from "./skillGroupIcons.ts";
   import TypeIcon from "./TypeIcon.svelte";
@@ -435,6 +435,39 @@
   const buyAllWord = (label: string): string => plainText(wordOf(label, BUY_ALL_WORDS[label] ?? ""));
   // svelte-ignore state_referenced_locally
   const multiBuyAsked = flow.multiBuyAsked;
+  const assetSaleAsked = flow.assetSaleAsked;
+  let assetSalePrices = $state<Record<number, { quantity: number | undefined; price: number | undefined }>>({});
+  let assetSaleDuration = $state(0);
+  let confirmingAssetSale = $state(false);
+  let lastAssetSaleStation: number | null = null;
+  let lastAssetSaleRequest: number | null = null;
+  $effect(() => {
+    const asked = $assetSaleAsked;
+    untrack(() => {
+      if (asked === null || asked.stationID !== lastAssetSaleStation) {
+        assetSalePrices = {};
+        assetSaleDuration = 0;
+      }
+      if (asked?.n !== lastAssetSaleRequest) confirmingAssetSale = false;
+      lastAssetSaleStation = asked?.stationID ?? null;
+      lastAssetSaleRequest = asked?.n ?? null;
+      for (const row of asked?.rows ?? []) {
+        assetSalePrices[row.itemID] ??= { quantity: row.units, price: row.bid === null ? undefined : Number(row.bid) };
+      }
+    });
+  });
+  const assetSaleDraft = $derived(($assetSaleAsked?.rows ?? []).flatMap(row => {
+    const value = assetSalePrices[row.itemID];
+    if (!value || value.quantity === 0) return [];
+    const price = checkPrice(value.price ?? NaN);
+    const quantity = value.quantity ?? NaN;
+    return [{
+      itemID: row.itemID, price: price.ok ? price.price : NaN, quantity,
+      valid: price.ok && checkQuantity(quantity).ok && quantity <= row.units,
+    }];
+  }));
+  const assetSaleReady = $derived(assetSaleDraft.length > 0 && assetSaleDraft.every(row => row.valid));
+  const assetSaleValue = $derived(assetSaleReady ? assetSaleDraft.reduce((total, row) => total + row.price * row.quantity, 0) : null);
   // The client's multibuy window (eve/client/script/ui/shared/market/buyMultiFromBase.py, with its base and rows): its
   // title with how many rows, where it buys (the station list's current one), the number of orders, each type a row
   // with its icon and name, its quantity, the total where the orders are more than one, its best price at the station
@@ -1391,6 +1424,48 @@
   </div>
 {/if}
 
+{#if $assetSaleAsked}
+  {@const sale = $assetSaleAsked}
+  <div class="client-dialog-shade" class:modal={inFront}>
+    <div class="client-dialog multibuy asset-sale-dialog" role="dialog" aria-label="Sell Items" data-dialog="SellItems">
+      <header class="asset-sale-title"><h2>Sell Items</h2><span>{nameOf(locationKind(sale.stationID), sale.stationID)}</span></header>
+      {#if sale.error}<p class="asset-sale-error" role="status">{sale.error}</p>{/if}
+      <ul class="multibuy-rows">
+        {#each sale.rows as row (row.itemID)}
+          {@const name = nameOf("type", row.typeID)}
+          {@const input = assetSalePrices[row.itemID]}
+          {#if input}
+            <li class="asset-sale-row" data-item-id={row.itemID}>
+              <TypeIcon typeID={row.typeID} {name} size="sm" />
+              <span>{name}<small>{row.bid === null ? "No matching bids returned" : `Bid ${isk(Number(row.bid))}`}</small></span>
+              <label>Quantity <input type="number" min="0" max={row.units} step="1" bind:value={input.quantity} disabled={sale.busy || confirmingAssetSale} /></label>
+              <label>Unit price <input type="number" min="0.01" step="0.01" bind:value={input.price} disabled={sale.busy || confirmingAssetSale} /></label>
+            </li>
+          {/if}
+        {/each}
+      </ul>
+      <label>Duration
+        <select bind:value={assetSaleDuration} disabled={sale.busy || confirmingAssetSale}>
+          {#each DURATION_CHOICES as choice (choice.days)}
+            <option value={choice.days}>{choice.days === 0 ? "Immediate" : choice.label}</option>
+          {/each}
+        </select>
+      </label>
+      {#if assetSaleValue !== null}<span>Subtotal {isk(assetSaleValue)}</span>{/if}
+      <span class="answers">
+        {#if confirmingAssetSale}
+          <button type="button" disabled={sale.busy} onclick={() => (confirmingAssetSale = false)}>Back</button>
+          <button type="button" disabled={sale.busy || !assetSaleReady}
+            onclick={() => void flow.answerAssetSale(sale.n, { rows: assetSaleDraft, durationDays: assetSaleDuration }).catch(() => {})}>Confirm sale</button>
+        {:else}
+          <button type="button" disabled={sale.busy || !assetSaleReady} onclick={() => (confirmingAssetSale = true)}>Review sale</button>
+        {/if}
+        <button type="button" disabled={sale.busy} onclick={() => { confirmingAssetSale = false; void flow.answerAssetSale(sale.n, null); }}>Cancel</button>
+      </span>
+    </div>
+  </div>
+{/if}
+
 {#if $viewFittingsAsked.length > 0}
   <!-- The display windows, each opened in the middle and moved by its caption, the one last clicked or loaded in front. -->
   <div class="client-dialog-shade view-fitting-shade" class:modal={inFront}>
@@ -1853,6 +1928,13 @@
   .multibuy-delta.above { color: #ff5050; }
   .multibuy-delta.below { color: #00ff00; }
   .multibuy-row.none { background: rgba(255, 80, 80, 0.12); }
+  .client-dialog.multibuy.asset-sale-dialog { width: min(34rem, calc(100vw - 1rem)); }
+  .asset-sale-title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.6rem; }
+  .asset-sale-error { color: #ffaaa4; }
+  .asset-sale-row { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(3.25rem, 0.65fr) minmax(4.25rem, 0.8fr); gap: 0.5rem; align-items: center; }
+  .asset-sale-row > span { overflow-wrap: anywhere; }
+  .asset-sale-row small { display: block; opacity: 0.75; }
+  .asset-sale-row input { width: 100%; }
   /* The fitting display window's name row and entries: the name, then the marks and the info icon at the right. */
   .view-fitting-name-row { grid-template-columns: auto 1fr auto auto; }
   /* The display windows over one another in the middle, each where it was dragged to. */

@@ -16,6 +16,8 @@ import assert from "node:assert/strict";
 
 import { createAppFlow } from "./flow.ts";
 import { createClientStore } from "../store/clientStore.ts";
+import { placeSellOrders } from "../bridge/marketOrderWrites.ts";
+import type { Ask } from "../bridge/ask.ts";
 
 const CHARACTER_ID = 140000003;
 const TYPE_ID = 34;
@@ -625,6 +627,26 @@ test("selling names the STACK: one item of the client's sale, with its station, 
   // 501), and the rate is named for an order that stands, none here being known (443 to 446).
   assert.deepEqual(sell.body.args, [[{ stationID: STATION_ID, typeID: TYPE_ID, itemID: 7_000_000_001, price: 12.5, quantity: 10 }], false, 90, null]);
   assert.equal(store.get().market.lastOutcome?.applied, true, "the sale answered that it set an order up");
+});
+
+test("a selected batch sells both same-type stacks in one native call", async () => {
+  const calls: unknown[] = [];
+  const act: Ask = async (service, method, args) => {
+    calls.push({ service, method, args });
+    return true;
+  };
+  const balances = [100, 145];
+  const ask: Ask = async () => balances.shift() ?? null;
+  const rows = [
+    { stationID: STATION_ID, typeID: TYPE_ID, itemID: 7_000_000_001, price: 10, quantity: 2 },
+    { stationID: STATION_ID, typeID: TYPE_ID, itemID: 7_000_000_002, price: 25, quantity: 1 },
+  ];
+  const result = await placeSellOrders(act, ask, rows, 0, 0.025);
+  assert.deepEqual(calls, [{
+    service: "marketProxy", method: "PlaceMultiSellOrder",
+    args: [rows.map(row => ({ ...row, rawBrokerFeePercentage: 0.025 })), false, 0, null],
+  }]);
+  assert.deepEqual(result, { applied: true, declinedSilently: false, charged: "-45.00", balanceAfter: "145" });
 });
 
 test("cancelling and repricing both go behind confirm, the reprice naming the order's own row", async () => {

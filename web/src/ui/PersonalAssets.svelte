@@ -24,7 +24,7 @@
   import { isSessionLost } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
-  import type { AssetStationContents, AssetStationRow } from "../store/types.ts";
+  import type { AssetItemRow, AssetStationContents, AssetStationRow } from "../store/types.ts";
   import { resolvedName } from "../store/names.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import AssetSafetyList from "./AssetSafetyList.svelte";
@@ -39,7 +39,7 @@
   import { ASSET_ITEM_DRAG_MIME, type AssetItemDrag } from "./dragDrop.ts";
   import { portal } from "./portal.ts";
   import { showInfo } from "./showInfo.ts";
-  import { showMarketDetails } from "./marketDetails.ts";
+  import { buyMarketType, showMarketDetails } from "./marketDetails.ts";
   import { typeCompareTarget, type ComparisonSubject } from "./typeCompare.ts";
   import { isComparable, type ComparisonTypeData } from "../bridge/typeComparison.ts";
   import type { TypeMetaFacts } from "../app/api.ts";
@@ -300,6 +300,10 @@
   const ITEM_WORDS = {
     info: ["UI/Commands/ShowInfo", "Show Info"],
     market: ["UI/Inventory/ItemActions/ViewTypesMarketDetails", "View Market Details"],
+    buy: ["UI/Inventory/ItemActions/BuyThisType", "Buy This Type"],
+    buyAll: ["UI/Market/MarketQuote/BuyAll", "Buy All"],
+    sell: ["UI/Inventory/ItemActions/SellThisItem", "Sell This Item"],
+    multiSell: ["UI/Inventory/ItemActions/MultiSell", "Sell Items"],
     compare: ["UI/Compare/CompareButton", "Compare"],
     find: ["UI/Inventory/ItemActions/FindPersonalAssets", "Find in Personal Assets"],
     exact: ["UI/Inventory/AssetSearch/KeywordTypeExact", "typeExact"],
@@ -319,6 +323,7 @@
   interface MenuAsset extends ComparisonSubject {
     readonly itemID: number;
     readonly stationID: number;
+    readonly packagedHangar: boolean;
   }
   interface AssetItemMenu {
     readonly rows: readonly MenuAsset[];
@@ -331,10 +336,13 @@
   let itemMenuElement: HTMLElement | undefined = $state();
 
   function menuAsset(element: HTMLButtonElement): MenuAsset {
-    return { itemID: Number(element.dataset.assetItem), typeID: Number(element.dataset.assetType), stationID: Number(element.dataset.assetStation) };
+    return {
+      itemID: Number(element.dataset.assetItem), typeID: Number(element.dataset.assetType), stationID: Number(element.dataset.assetStation),
+      packagedHangar: element.dataset.assetPackagedHangar === "true",
+    };
   }
 
-  function localAsset(row: MenuAsset) {
+  function localAsset(row: Pick<MenuAsset, "itemID" | "typeID" | "stationID">) {
     if (assetPilot === null || dockedAt !== row.stationID ||
         ($inventory.structureID ?? $inventory.stationID) !== dockedAt) return null;
     return $inventory.hangar.rows.find(entry => entry.itemID === row.itemID && entry.typeID === row.typeID &&
@@ -366,7 +374,7 @@
   }
 
   // Re-read the authoritative hangar before handing a local item to an inventory action.
-  function useLocalAsset(row: MenuAsset, command?: ItemCommand): void {
+  function useLocalAsset(row: Pick<MenuAsset, "itemID" | "typeID" | "stationID">, command?: ItemCommand): void {
     const pilot = assetPilot;
     if (pilot === null || row.stationID !== dockedAt || busy) return;
     void run(async () => {
@@ -394,8 +402,21 @@
 
   function itemCommands(menu: AssetItemMenu): { readonly key: ItemCommand; readonly run: () => void }[] {
     const actions: { key: ItemCommand; run: () => void }[] = [];
-    const marketed = menu.rows.find(row => (menu.types?.get(row.typeID)?.marketGroupID ?? null) !== null);
-    if (marketed) actions.push({ key: "market", run: () => showMarketDetails(marketed.typeID) });
+    const marketRows = menu.rows.filter(row => (menu.types?.get(row.typeID)?.marketGroupID ?? null) !== null);
+    const marketed = marketRows[0];
+    if (marketed) {
+      actions.push({ key: "market", run: () => showMarketDetails(marketed.typeID) });
+      if (marketRows.some(row => row.packagedHangar && row.itemID !== ($flight.status?.shipID ?? $inventory.activeShipID))) {
+        actions.push({ key: menu.rows.length === 1 ? "sell" : "multiSell", run: () => void run(() => flow.openAssetSale(menu.rows)) });
+      }
+      actions.push({
+        key: menu.rows.length === 1 ? "buy" : "buyAll",
+        run: () => {
+          if (menu.rows.length === 1 && dockedAt !== null) buyMarketType(marketed.typeID);
+          else void run(() => flow.openMultiBuy(new Map(marketRows.map(row => [row.typeID, 1]))));
+        },
+      });
+    }
     if (menu.rows.some(row => isComparable(menu.comparison?.get(row.typeID) ?? null))) {
       actions.push({ key: "compare", run: () => typeCompareTarget.ask(menu.rows) });
     }
@@ -525,9 +546,9 @@
     try { localStorage.setItem("evejs.play.scrollsortby_assets", JSON.stringify([sortColumn, sortReversed])); } catch { /* not kept */ }
   }
   /** The store's row as the columns read an item: its stack the units (1 for an assembled thing, whose quantity is -1), singleton 1. */
-  const invItem = (item: { itemID: number; typeID: number; units: number; singleton: boolean; categoryID: number }) =>
-    ({ itemID: item.itemID, typeID: item.typeID, stacksize: item.units, singleton: item.singleton ? 1 : 0, categoryID: item.categoryID });
-  function locationItems(contents: AssetStationContents): (InvItem & { categoryID: number })[] {
+  const invItem = (item: AssetItemRow) =>
+    ({ ...item, stacksize: item.units, singleton: item.singleton ? 1 : 0 });
+  function locationItems(contents: AssetStationContents): (InvItem & Pick<AssetItemRow, "categoryID" | "locationID" | "flagID">)[] {
     const list = contents.items.map(invItem);
     const col = COLUMNS.find((c) => c.label === sortColumn);
     if (!col) return list;
@@ -643,10 +664,11 @@
   </div>
 {/if}
 
-{#snippet assetItemRow(item: { itemID: number; typeID: number; categoryID: number }, stationID: number, singleton: boolean, searchRow: boolean, children: Snippet)}
+{#snippet assetItemRow(item: Pick<AssetItemRow, "itemID" | "typeID" | "categoryID" | "locationID" | "flagID">, stationID: number, singleton: boolean, searchRow: boolean, children: Snippet)}
   <button type="button" class="asset-item-row" class:asset-search-item={searchRow} class:as-item={!searchRow}
     style:grid-template-columns={searchRow ? undefined : itemGrid}
     data-asset-item={item.itemID} data-asset-type={item.typeID} data-asset-station={stationID}
+    data-asset-packaged-hangar={!singleton && item.locationID === stationID && item.flagID === 4 ? "true" : undefined}
     data-asset-owned-ship={singleton && item.categoryID === 6 ? "true" : undefined}
     aria-pressed={selectedItems.has(item.itemID)} draggable="true"
     onclick={(event) => selectAssetItem(event, item.itemID)} ondragstart={(event) => dragAssetItem(event, item.itemID)}

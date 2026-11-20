@@ -183,12 +183,21 @@ export async function placeBuyOrder(act: Ask, ask: Ask, order: BuyOrder): Promis
 
 /** Sells one stack, at once or by an order that stands. Fails as the call fails. */
 export async function placeSellOrder(act: Ask, ask: Ask, sale: SaleOfAStack): Promise<MarketWriteChange> {
+  return placeSellOrders(act, ask, [sale], sale.durationDays, sale.brokersFeeRate);
+}
+
+/** Sell Items sends all confirmed stacks in a single PlaceMultiSellOrder call. */
+export async function placeSellOrders(
+  act: Ask, ask: Ask, sales: readonly Omit<SaleOfAStack, "durationDays" | "brokersFeeRate">[],
+  durationDays: number, brokersFeeRate: number | null,
+): Promise<MarketWriteChange> {
   const balance = () => quietly(async () => walletAmount(await ask("account", "GetCashBalance", [0])));
   const balanceBefore = await balance();
-  const item: Record<string, JsonValue> = { stationID: sale.stationID, typeID: sale.typeID, itemID: sale.itemID, price: roundPrice(sale.price), quantity: sale.quantity };
-  if (sale.brokersFeeRate !== null) item.rawBrokerFeePercentage = sale.brokersFeeRate;
-  const named = sale.durationDays !== 0 ? sale.brokersFeeRate : null;
-  const answered = await act("marketProxy", "PlaceMultiSellOrder", [[item], false, sale.durationDays, named]);
+  const items = sales.map(({ stationID, typeID, itemID, price, quantity }): Record<string, JsonValue> => ({
+    stationID, typeID, itemID, price: roundPrice(price), quantity,
+    ...(brokersFeeRate === null ? {} : { rawBrokerFeePercentage: brokersFeeRate }),
+  }));
+  const answered = await act("marketProxy", "PlaceMultiSellOrder", [items, false, durationDays, durationDays === 0 ? null : brokersFeeRate]);
   const balanceAfter = await balance();
   const applied = answered === true;
   return { applied, declinedSilently: !applied, charged: iskDelta(balanceBefore, balanceAfter), balanceAfter };

@@ -128,6 +128,10 @@ import {
   decodePriceHistory,
   joinPriceHistory,
   marketRefusalMessage,
+  bestPrices,
+  checkPrice,
+  checkQuantity,
+  DURATION_CHOICES,
   toAmountString,
 } from "../bridge/market.ts";
 import {
@@ -1115,6 +1119,7 @@ import {
   modifyOrder as modifyOrderCall,
   placeBuyOrder as placeBuyOrderCall,
   placeSellOrder as placeSellOrderCall,
+  placeSellOrders as placeSellOrdersCall,
 } from "../bridge/marketOrderWrites.ts";
 import { doAgentAction, removeOfferFromJournal } from "../bridge/agentWrites.ts";
 import {
@@ -1460,6 +1465,26 @@ export interface AppFlowOptions {
  * a specific STACK (`itemID`), because the sell handler moves that stack into
  * escrow.
  */
+export interface AssetSaleSelection {
+  readonly itemID: number;
+  readonly typeID: number;
+  readonly stationID: number;
+}
+
+export interface AssetSaleAsk {
+  readonly n: number;
+  readonly stationID: number;
+  readonly rows: readonly (AssetSaleSelection & { readonly units: number; readonly bid: string | null })[];
+  readonly busy: boolean;
+  readonly error: string | null;
+}
+
+export interface AssetSaleOrder {
+  readonly itemID: number;
+  readonly price: number;
+  readonly quantity: number;
+}
+
 export interface MarketOrderRequest {
   readonly side: "buy" | "sell";
   readonly typeID: number;
@@ -2578,6 +2603,9 @@ export interface AppFlow {
    * the server ACTUALLY charged lands in the store as `lastOutcome`.
    */
   placeMarketOrder(request: MarketOrderRequest): Promise<void>;
+  readonly assetSaleAsked: ReadableSignal<AssetSaleAsk | null>;
+  openAssetSale(items: readonly AssetSaleSelection[]): Promise<void>;
+  answerAssetSale(n: number, order: { readonly rows: readonly AssetSaleOrder[]; readonly durationDays: number } | null): Promise<void>;
   /** CANCEL an order. Returns what it held; the fee already paid is not. */
   cancelMarketOrder(orderID: string): Promise<void>;
   /** CHANGE an order's price. Charges a fee and moves a buy order's escrow. */
@@ -11195,6 +11223,117 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         balanceAfter: outcome.balanceAfter,
       },
     });
+  }
+
+  const assetSaleAskedSignal = createSignal<AssetSaleAsk | null>(null);
+  let assetSaleRevision = 0;
+  async function assetSaleRows(stationID: number, requested: readonly AssetSaleSelection[]) {
+    await loadAssetStation(stationID);
+    const contents = store.assets.get().contents[stationID];
+    if (!contents || contents.error) throw new Error("Items at this location could not be read.");
+    const activeShip = store.flight.get().status?.shipID ?? store.inventory.get().activeShipID;
+    const byID = new Map(contents.items.map(item => [item.itemID, item]));
+    return requested.flatMap(row => {
+      const item = byID.get(row.itemID);
+      return item && item.typeID === row.typeID && item.locationID === stationID && item.flagID === 4 &&
+        !item.singleton && item.units > 0 && item.itemID !== activeShip ? [{ ...row, units: item.units }] : [];
+    });
+  }
+
+  /** SellItems.AddPreItems checks the location of the whole selection before quoting its stacks. */
+  async function openAssetSale(items: readonly AssetSaleSelection[]): Promise<void> {
+    const stationID = items[0]?.stationID;
+    if (stationID === undefined) return;
+    if (items.some(row => row.stationID !== stationID)) {
+      sayDialog("CustomNotify", { type: "dict", entries: [["notify", "Items in different locations cannot be added to the same sale."]] },
+        "Items in different locations cannot be added to the same sale.");
+      return;
+    }
+    if (assetSaleAskedSignal.get()?.busy) return;
+    const open = assetSaleAskedSignal.get();
+    if (open && open.stationID !== stationID) {
+      sayDialog("CustomNotify", { type: "dict", entries: [["notify", "The Sell Items window already holds items at another location."]] },
+        "The Sell Items window already holds items at another location.");
+      return;
+    }
+    const n = ++assetSaleRevision;
+    const current = callOptions.captureRequestGuard!();
+    const unique = [...new Map([...(open?.rows ?? []), ...items].map(row => [row.itemID, row])).values()].slice(0, 100);
+    const rows = await assetSaleRows(stationID, unique);
+    const ids = [...new Set(rows.map(row => row.typeID))];
+    const facts = await typeFacts(ids);
+    const marketable = rows.filter(row => (facts?.get(row.typeID)?.marketGroupID ?? null) !== null);
+    const solarSystemID = store.assets.get().stations.find(row => row.stationID === stationID)?.solarSystemID;
+    const hereSystem = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID;
+    const region = solarSystemID === undefined ? null :
+      await api.getSystemStations(solarSystemID, callOptions).then(data => data.regionID).catch(() => null);
+    const books = new Map(await Promise.all([...new Set(marketable.map(row => row.typeID))].map(async id => {
+      const book = await bridgeAsk("marketProxy", "GetOrders", [id]).then(decodeOrderBook).catch(() => ({ sells: [], buys: [] }));
+      const buys = book.buys.filter(row => row.stationID === stationID ||
+        (row.range >= RANGE_SOLAR_SYSTEM && solarSystemID !== undefined && row.solarSystemID === solarSystemID) ||
+        (region === row.regionID && (row.range === RANGE_REGION ||
+          (hereSystem === solarSystemID && row.jumps >= 1 && row.jumps <= row.range))));
+      return [id, buys] as const;
+    })));
+    current();
+    if (n !== assetSaleRevision) return;
+    requestNames([{ kind: locationKind(stationID), id: stationID }, ...ids.map(id => ({ kind: "type" as const, id }))]);
+    assetSaleAskedSignal.set({
+      n, stationID, rows: marketable.map(row => ({
+        ...row, bid: bestPrices({ sells: [], buys: (books.get(row.typeID) ?? []).filter(bid => bid.minimumVolume <= row.units) }).bestBuy,
+      })), busy: false,
+      error: marketable.length === 0 ? "There are no packaged market items in the selected hangar." : null,
+    });
+  }
+
+  async function answerAssetSale(n: number, order: { readonly rows: readonly AssetSaleOrder[]; readonly durationDays: number } | null): Promise<void> {
+    const asked = assetSaleAskedSignal.get();
+    if (asked?.n !== n || asked.busy) return;
+    if (order === null) {
+      assetSaleRevision++;
+      assetSaleAskedSignal.set(null);
+      return;
+    }
+    const current = callOptions.captureRequestGuard!();
+    assetSaleRevision++;
+    assetSaleAskedSignal.set({ ...asked, busy: true, error: null });
+    let sent = false;
+    try {
+      const available = await assetSaleRows(asked.stationID, asked.rows);
+      current();
+      const rows = new Map(available.map(row => [row.itemID, row]));
+      const seen = new Set<number>();
+      if (order.rows.length === 0 || !DURATION_CHOICES.some(choice => choice.days === order.durationDays)) {
+        throw new Error("Choose items and a valid duration for the sale.");
+      }
+      const sales = order.rows.map(line => {
+        const row = rows.get(line.itemID);
+        if (!row || seen.has(line.itemID) || !checkPrice(line.price).ok || !checkQuantity(line.quantity).ok || line.quantity > row.units) {
+          throw new Error("The selected stack or quantity has changed. Reopen Sell Items to review it.");
+        }
+        seen.add(line.itemID);
+        return { ...row, price: line.price, quantity: line.quantity };
+      });
+      await runMarketAction("sell", async () => {
+        sent = true;
+        return {
+          ...await placeSellOrdersCall(bridgeDo, bridgeAsk, sales, order.durationDays, feeRateShownAt(asked.stationID)),
+          ownOrders: null,
+        };
+      });
+      current();
+      const market = store.market.get();
+      if (market.actionError) throw new Error(market.actionError);
+      if (!market.lastOutcome?.applied) throw new Error("The market did not fill or list these items.");
+      assetSaleAskedSignal.set(null);
+      await loadPersonalAssets();
+    } catch (cause) {
+      throwIfRequestRetired(cause);
+      current();
+      if (assetSaleAskedSignal.get()?.n === n) {
+        assetSaleAskedSignal.set({ ...asked, ...(sent ? { rows: [] } : {}), busy: false, error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    }
   }
 
   // --- Activity Center -----------------------------------------------------
@@ -36027,6 +36166,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       await runIndustryAction(() => cancelIndustryJobCall(bridgeDo, jobAsRead(jobID)));
     },
     loadMarket,
+    assetSaleAsked: readonlySignal(assetSaleAskedSignal),
+    openAssetSale,
+    answerAssetSale,
     watchMarketProgression,
     findMarketTypes: (q: string, categoryID?: number) => api.findMarketTypes(q, callOptions, categoryID),
     listOreFamilies: () => api.listOreFamilies(callOptions),

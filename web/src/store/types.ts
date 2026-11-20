@@ -3330,6 +3330,8 @@ export interface AssetStationRow {
 export interface AssetItemRow {
   readonly itemID: number;
   readonly typeID: number;
+  readonly locationID?: number;
+  readonly flagID?: number;
   /**
    * How many. ⚠ NOT the row's raw `quantity`, which is -1 for an assembled
    * item; this is the server's own rule (singleton -> 1, else stacksize).

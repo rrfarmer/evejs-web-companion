@@ -134,9 +134,13 @@ export function decodeAssetItems(
     const stacksize = toNumber(readRowField(row, "stacksize"));
     const quantity = toNumber(readRowField(row, "quantity"));
     const volume = Number(volumes[String(typeID)]);
+    const locationID = toNumber(readRowField(row, "locationID"));
+    const flagID = toNumber(readRowField(row, "flagID"));
     rows.push({
       itemID,
       typeID,
+      ...(locationID > 0 ? { locationID } : {}),
+      ...(flagID > 0 ? { flagID } : {}),
       // ⚠ NOT the raw `quantity` field. See the header note: an assembled item
       // reports -1 there. This is the server's own rule.
       units: singleton ? 1 : Math.max(0, stacksize || quantity || 0),

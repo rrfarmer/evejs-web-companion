@@ -13,20 +13,20 @@ export interface MarketDetailsTarget {
   readonly typeID: ReadableSignal<number | null>;
   /** How many times the market details have been asked for. */
   readonly requests: ReadableSignal<number>;
-  ask(typeID: number): void;
+  ask(typeID: number, buy?: boolean): void;
   /** The type asked for and not yet taken by the market window, which takes it; null where there is none. */
-  take(): number | null;
+  take(): { readonly typeID: number; readonly buy: boolean } | null;
 }
 
 export function createMarketDetailsTarget(): MarketDetailsTarget {
   const typeID = createSignal<number | null>(null);
   const requests = createSignal(0);
-  let pending: number | null = null;
+  let pending: ReturnType<MarketDetailsTarget["take"]> = null;
   return {
     typeID: readonlySignal(typeID),
     requests: readonlySignal(requests),
-    ask(next) {
-      pending = next;
+    ask(next, buy = false) {
+      pending = { typeID: next, buy };
       typeID.set(next);
       requests.update((count) => count + 1);
     },
@@ -43,4 +43,9 @@ export const marketDetailsTarget: MarketDetailsTarget = createMarketDetailsTarge
 /** marketutils.ShowMarketDetails(typeID): the market window opened on the type. */
 export function showMarketDetails(typeID: number): void {
   marketDetailsTarget.ask(typeID);
+}
+
+/** menusvc.QuickBuy opens a one-unit buy draft. */
+export function buyMarketType(typeID: number): void {
+  marketDetailsTarget.ask(typeID, true);
 }

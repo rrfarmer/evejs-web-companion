@@ -464,12 +464,21 @@
   const marketDetailsRequests = marketDetailsTarget.requests;
   let marketFirstRead = true;
   $effect(() => {
-    void $marketDetailsRequests;
+    const revision = $marketDetailsRequests;
+    if (busy) return;
     const wanted = marketDetailsTarget.take();
     if (!marketFirstRead && wanted === null) return;
     marketFirstRead = false;
     chosenName = "";
-    void run(() => flow.loadMarket(wanted));
+    if (wanted !== null) closeDraft();
+    void run(async () => {
+      await flow.loadMarket(wanted?.typeID ?? null);
+      if (wanted?.buy && marketDetailsRequests.get() === revision) {
+        tab = "book";
+        detailTab = "marketdata";
+        startDraft("buy", true);
+      }
+    });
   });
 
   // --- Client-local book controls (retail's `marketQuote`) -----------------
@@ -709,8 +718,11 @@
     return chosenStack !== null && Number(draft.quantity) <= chosenStack.quantity;
   });
 
-  function startDraft(side: MarketSide): void {
-    const suggested = side === "buy" ? best.bestBuy : best.bestSell;
+  function startDraft(side: MarketSide, quickBuy = false): void {
+    const stationID = $market.structureID ?? $market.stationID;
+    const suggested = quickBuy
+      ? bestPrices({ sells: $market.sells.filter(row => row.stationID === stationID), buys: [] }).bestSell
+      : side === "buy" ? best.bestBuy : best.bestSell;
     const stack = side === "sell" ? sellableStacks[0] ?? null : null;
     sellItemID = stack ? stack.itemID : null;
     draft = {
@@ -718,7 +730,7 @@
       price: suggested ?? "",
       // A sell defaults to the whole stack; a buy to one unit.
       quantity: stack ? String(stack.quantity) : "1",
-      durationDays: 30,
+      durationDays: quickBuy ? 0 : 30,
     };
     confirming = false;
     void bringToTop("draft");
