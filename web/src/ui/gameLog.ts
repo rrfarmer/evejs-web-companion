@@ -5,6 +5,7 @@
 // 1000). The dialogs the client shows feed it (dialog_handler.handle_player_fsd_dialog: hint, notify, warning,
 // question, infomodal and info are logged - ClientDialogs.svelte).
 import { get, writable } from "svelte/store";
+import { sortScrollRows } from "../bridge/scrollSort.ts";
 
 export interface GameLogLine { readonly n: number; readonly atMs: number; readonly type: string; readonly text: string }
 
@@ -55,12 +56,17 @@ export function clearGameLog(): void {
   gameLog.set([]);
 }
 
+const twoDigits = (n: number) => String(n).padStart(2, "0");
+
+export function formatLogTime(date: Date): string {
+  return [date.getHours(), date.getMinutes(), date.getSeconds()].map(twoDigits).join(":");
+}
+
 function logDate(atMs: number): { date: string; time: string } {
   const date = new Date(atMs);
-  const two = (n: number) => String(n).padStart(2, "0");
   return {
-    date: [date.getFullYear(), two(date.getMonth() + 1), two(date.getDate())].join("."),
-    time: [date.getHours(), date.getMinutes(), date.getSeconds()].map(two).join(":"),
+    date: [date.getFullYear(), twoDigits(date.getMonth() + 1), twoDigits(date.getDate())].join("."),
+    time: formatLogTime(date),
   };
 }
 
@@ -110,6 +116,25 @@ export function setLogCount(count: number): void {
   if (!LOG_COUNTS.includes(count)) return;
   logCount.set(count);
   try { localStorage.setItem(key("logmessageamount"), String(count)); } catch { /* not kept */ }
+}
+
+export function sortGameLogLines(
+  lines: readonly GameLogLine[], column: number, reversed: boolean, labelOf: (type: string) => string,
+): readonly GameLogLine[] {
+  // Time has an explicit timestamp key in the native Scroll. Type and Message
+  // use the same column and fallback comparisons as other Scroll entries.
+  return sortScrollRows(lines, (line) => [line.atMs, labelOf(line.type), line.text].join("<t>"), column, reversed);
+}
+
+export function gameLogClipboard(
+  lines: readonly GameLogLine[], selected: ReadonlySet<number>, labelOf: (type: string) => string,
+): { text: string; count: number } {
+  const selection = lines.filter((line) => selected.has(line.n));
+  const copied = selection.length ? selection : lines;
+  return {
+    text: copied.map((line) => [formatLogTime(new Date(line.atMs)), labelOf(line.type), line.text].join("\t")).join("\n"),
+    count: copied.length,
+  };
 }
 
 /** dialog_handler: the dialog types the client logs. */

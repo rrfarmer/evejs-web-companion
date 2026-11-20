@@ -6,9 +6,12 @@
   // time, which for a bot run is most of the time.
   //
   // Newest first, because the question is almost always "what just happened".
-  import { getContext } from "svelte";
+  import { getContext, untrack } from "svelte";
   import { noticeBoard } from "./notices.ts";
-  import { gameLog, logCount, logFilters, logShows, setLogCount, setLogFilter, LOG_COUNTS, LOG_FILTERS, LOG_TYPE_COLOURS, LOG_TYPE_LABELS } from "./gameLog.ts";
+  import {
+    formatLogTime, gameLog, gameLogClipboard, logCount, logFilters, setLogCount, setLogFilter, sortGameLogLines,
+    LOG_COUNTS, LOG_FILTERS, LOG_TYPE_COLOURS, LOG_TYPE_LABELS,
+  } from "./gameLog.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import {
     combatAlignment, combatFlags, combatFontSize, combatMovingMode, combatSettingEnabled, resetCombatAlignment, setCombatAlignment, setCombatFlag,
@@ -25,14 +28,86 @@
   // newest first; Time (MessageOutput's logtime, time=medium), Type (LABEL_BY_MESSAGE_TYPE, in COLORS_BY_TYPE, a
   // type with none its own name), Message. Its actions: the filter menu (MenuButtonIcon eveicon.filter, Filters) -
   // MessageTypesToLog's checkboxes, NumMessagesInLogView's 100 / 1000.
-  const LOG_WORDS = ["UI/Common/DateWords/Time", "UI/Accessories/Log/Type", "UI/Accessories/Log/Message", "UI/Generic/Filters",
+  const columns = [
+    { label: "UI/Common/DateWords/Time", fallback: "Time" },
+    { label: "UI/Accessories/Log/Type", fallback: "Type" },
+    { label: "UI/Accessories/Log/Message", fallback: "Message" },
+  ];
+  const LOG_WORDS = [...columns.map(({ label }) => label), "UI/Common/EntriesCopied", "UI/Generic/Filters",
     "UI/Accessories/Log/MessageTypesToLog", "UI/Accessories/Log/NumMessagesInLogView", ...LOG_FILTERS.map((f) => f.label), ...Object.values(LOG_TYPE_LABELS),
     ...COMBAT_MENU_WORDS];
   // svelte-ignore state_referenced_locally
   const logWords = store?.words ?? null;
+  // svelte-ignore state_referenced_locally
+  const sort = retail ? flow?.scrollSortPreference("logScroll") : undefined;
+  const sortPreference = sort?.value ?? null;
   $effect(() => { if (retail) flow?.requestWords(LOG_WORDS); });
-  const w = (label: string, own: string) => { const t = logWords ? $logWords?.templates[label] : undefined; return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, {}, { nameOf: () => "" })) : own; };
-  const logLines = $derived([...$gameLog].filter((line) => { void $logFilters; return logShows(line.type); }).slice(-$logCount).reverse());
+  function w(label: string, fallback: string, args: Parameters<typeof formatTemplate>[1] = {}): string {
+    const template = $logWords?.templates[label];
+    return typeof template === "string" && template ? plainText(formatTemplate(template, args, { nameOf: () => "" })) : fallback;
+  }
+  function typeLabel(type: string): string {
+    const label = LOG_TYPE_LABELS[type];
+    return label ? w(label, type) : type;
+  }
+  const columnTitles = $derived(columns.map(({ label, fallback }) => w(label, fallback)));
+  const sortedColumn = $derived(columnTitles.findIndex((title) => title === $sortPreference?.by));
+  const logLines = $derived.by(() => {
+    const rows = $gameLog.filter((line) => $logFilters[line.type] !== false).slice(-$logCount);
+    return sortedColumn < 0 ? rows.reverse() : sortGameLogLines(rows, sortedColumn, !!$sortPreference?.reversed, typeLabel);
+  });
+  let selected = $state.raw<ReadonlySet<number>>(new Set());
+  let anchor: number | null = null;
+  let focused = $state<number | null>(null);
+  const tabbable = $derived(logLines.some((line) => line.n === focused) ? focused : logLines[0]?.n);
+
+  $effect(() => {
+    const visible = new Set(logLines.map((line) => line.n));
+    const previous = untrack(() => selected);
+    if ([...previous].some((id) => !visible.has(id))) selected = new Set([...previous].filter((id) => visible.has(id)));
+  });
+
+  function selectRow(id: number, event: MouseEvent | KeyboardEvent): void {
+    const control = event.ctrlKey || event.metaKey;
+    const from = logLines.findIndex((line) => line.n === anchor);
+    if (event.shiftKey && from >= 0 && anchor !== id) {
+      const to = logLines.findIndex((line) => line.n === id);
+      const range = logLines.slice(Math.min(from, to), Math.max(from, to) + 1).map((line) => line.n);
+      selected = new Set(control ? [...selected, ...range] : range);
+      return;
+    }
+    if (control && event.shiftKey) return;
+    const next = new Set(control ? selected : []);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    selected = next;
+    anchor = id;
+  }
+
+  async function copyRows(): Promise<void> {
+    const { text, count } = gameLogClipboard(logLines, selected, typeLabel);
+    if (!count) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      noticeBoard.post({ kind: "info", title: w("UI/Common/EntriesCopied", `${count} ${count === 1 ? "entry" : "entries"} copied`, { numEntries: count }) });
+    } catch {
+      noticeBoard.post({ kind: "warn", title: "Could not copy the log rows" });
+    }
+  }
+
+  function rowKey(event: KeyboardEvent, id: number): void {
+    const key = event.key.toLowerCase();
+    const control = event.ctrlKey || event.metaKey;
+    const row = event.currentTarget as HTMLTableRowElement;
+    if (control && key === "c") void copyRows();
+    else if (control && key === "a") selected = new Set(logLines.map((line) => line.n));
+    else if (key === " " || key === "enter") selectRow(id, event);
+    else if (key === "arrowup") (row.previousElementSibling as HTMLTableRowElement | null)?.focus();
+    else if (key === "arrowdown") (row.nextElementSibling as HTMLTableRowElement | null)?.focus();
+    else return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
   let filterOpen = $state(false);
   // LoggerWindow._get_combat_message_menu: Combat Messages To Display, In-space Notifications (ExtraInfoHeader), Font
   // Size, Font Alignment (InspaceNotificationFontAlignment) - combatSettings.ts
@@ -50,11 +125,7 @@
   /** A wall-clock time for a log line. Local, unlike the Neocom's EVE clock —
    *  this is "when did this happen to me", not a time to quote to a fleet. */
   function at(atMs: number): string {
-    const date = new Date(atMs);
-    const hh = String(date.getHours()).padStart(2, "0");
-    const mm = String(date.getMinutes()).padStart(2, "0");
-    const ss = String(date.getSeconds()).padStart(2, "0");
-    return `${hh}:${mm}:${ss}`;
+    return formatLogTime(new Date(atMs));
   }
 
   function kindWord(kind: string): string {
@@ -142,11 +213,22 @@
         </div>
       {/if}
     </div>
-    <table class="log-table">
-      <thead><tr><th>{w("UI/Common/DateWords/Time", "Time")}</th><th>{w("UI/Accessories/Log/Type", "Type")}</th><th>{w("UI/Accessories/Log/Message", "Message")}</th></tr></thead>
+    <table class="log-table" role="grid" aria-label="Game log" aria-multiselectable="true">
+      <thead><tr>
+        {#each columnTitles as title, index (index)}
+          <th scope="col" aria-sort={sortedColumn === index ? $sortPreference?.reversed ? "descending" : "ascending" : undefined}>
+            <button type="button" onclick={() => sort?.set(title, sortedColumn === index && !$sortPreference?.reversed)}>
+              {title}
+              {#if sortedColumn === index}<span aria-hidden="true">{$sortPreference?.reversed ? "▾" : "▴"}</span>{/if}
+            </button>
+          </th>
+        {/each}
+      </tr></thead>
       <tbody>
         {#each logLines as line (line.n)}
-          <tr><td>{at(line.atMs)}</td><td style:color={LOG_TYPE_COLOURS[line.type] ?? "#ffffff"}>{LOG_TYPE_LABELS[line.type] ? w(LOG_TYPE_LABELS[line.type]!, line.type) : line.type}</td>
+          <tr tabindex={tabbable === line.n ? 0 : -1} aria-selected={selected.has(line.n)}
+            onfocus={() => (focused = line.n)} onclick={(event) => selectRow(line.n, event)} onkeydown={(event) => rowKey(event, line.n)}>
+            <td>{at(line.atMs)}</td><td style:color={LOG_TYPE_COLOURS[line.type] ?? "#ffffff"}>{typeLabel(line.type)}</td>
             <td>{line.text}</td></tr>
         {/each}
       </tbody>
