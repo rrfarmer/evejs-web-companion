@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { errorWords, type AppFlow } from "../app/flow.ts";
+  import { isStorage } from "../bridge/colonyRoutes.ts";
   import { EXTRACTOR_COOLDOWN_MS, extractorBasis, extractorHeadCommands, type ExtractorEdit } from "../bridge/extractorEdits.ts";
   import { MAX_HEAD_RADIUS, MIN_HEAD_RADIUS } from "../bridge/extractorSurvey.ts";
   import { appendPlanetWaypoint, pinDesignator, previewPlanetRoute } from "../bridge/planetRouting.ts";
@@ -35,11 +36,14 @@
   let newRoutes = $state.raw<readonly NewRoute[]>([]);
   let removedRoutes = $state.raw<readonly ColonyRoute[]>([]);
   let routePath = $state.raw<readonly number[]>([]);
+  let routeTypeID = $state<number | null>(null);
   let highlight = $state.raw<readonly number[]>([]);
   let hoveredWaypoint = $state<number | null>(null);
   let waypointError = $state("");
   let routePanel: { stageRoute: () => void } | undefined = $state();
   let submitting = $state(false);
+  let refreshing = $state(false);
+  let refreshError = $state("");
   let submitError = $state("");
   let browserNow = $state(Date.now());
   let ready = $state(false);
@@ -97,16 +101,18 @@
 
   function closeRoute(): void {
     routePath = [];
+    routeTypeID = null;
     highlight = [];
     hoveredWaypoint = null;
     waypointError = "";
   }
 
-  function startRoute(): void {
+  function startRoute(typeID: number): void {
     if (!selected || selectedEdit?.resourceID !== undefined || submitting) return;
     closeExtractor();
     closeRoute();
     routePath = [selected.pinID];
+    routeTypeID = typeID;
   }
 
   function addWaypoint(id: number): void {
@@ -190,7 +196,7 @@
   }
 
   async function submitEdits(): Promise<void> {
-    if (submitting || dragging || !pending) return;
+    if (submitting || refreshing || dragging || !pending) return;
     submitting = true;
     submitError = "";
     try {
@@ -204,6 +210,20 @@
       submitError = errorWords(cause);
     } finally {
       submitting = false;
+    }
+  }
+
+  async function refreshColony(): Promise<void> {
+    if (refreshing || submitting) return;
+    refreshing = true;
+    refreshError = "";
+    try {
+      await flow.loadPlanets();
+      refreshError = planets.get().error ?? "";
+    } catch (cause) {
+      refreshError = errorWords(cause);
+    } finally {
+      refreshing = false;
     }
   }
 
@@ -300,7 +320,9 @@
     <div class="planet-title">
       <h1>{colony.planetName ?? "Planet"}</h1>
       {#if colony.planetTypeName}<p>{colony.planetTypeName}</p>{/if}
+      <button type="button" disabled={refreshing || submitting} onclick={() => void refreshColony()}>{refreshing ? "Refreshing…" : "Refresh Colony"}</button>
     </div>
+    {#if refreshError}<p role="alert">{refreshError}</p>{/if}
     <div class="planet-actions">
       <button type="button" disabled={!ready || !centre} onclick={() => scene?.focus(centre)}>Focus Command Center</button>
       <button type="button" aria-expanded={surveyShown} onclick={() => { closeExtractor(); closeRoute(); surveyShown = !surveyShown; templateShown = false; }}>Scan</button>
@@ -320,7 +342,7 @@
           {#if edits.size}{edits.size} {edits.size === 1 ? "extractor" : "extractors"} with pending changes{/if}
           {#if newRoutes.length + removedRoutes.length}{edits.size ? " · " : ""}{newRoutes.length + removedRoutes.length} pending route changes{/if}
         </span>
-        <button type="button" disabled={submitting || dragging !== null} onclick={() => void submitEdits()}>{submitting ? "Submitting…" : "Submit"}</button>
+        <button type="button" disabled={submitting || refreshing || dragging !== null} onclick={() => void submitEdits()}>{submitting ? "Submitting…" : "Submit"}</button>
         <button type="button" disabled={submitting} onclick={cancelEdits}>Cancel</button>
       </div>
       {#if removedOutputs}
@@ -360,6 +382,9 @@
           <button type="button" aria-label="Close installation details" onclick={() => { closeRoute(); selectedID = null; }}>×</button>
         </div>
         {#if selected.schematicName}<p>Recipe <strong>{selected.schematicName}</strong></p>{/if}
+        {#if selected.kind === "factory" && selected.schematicID !== null && selected.active != null}
+          <p class="processor-status">{selected.active ? "Processing" : "Waiting for inputs"}</p>
+        {/if}
         {#if selected.kind === "command"}<p>Command centre level <strong>{colony.commandCenterLevel}</strong></p>{/if}
         {#if selected.program?.resourceTypeName}<p>Resource <strong>{selected.program.resourceTypeName}</strong></p>{/if}
         {#if selected.kind === "extractor-control"}
@@ -367,7 +392,8 @@
           {:else if selectedEdit?.stopped}<p>Program queued to stop</p>{/if}
           <button type="button" disabled={!ready} onclick={() => openExtractor(selected)}>Survey for Deposits</button>
         {/if}
-        {#if selected.contents.length}
+        {#if !isStorage(selected) && selected.contents.length}
+          {#if selected.kind === "factory"}<p>Input buffer</p>{/if}
           <ul class="planet-contents">
             {#each selected.contents as item (item.typeID)}
               <li>{item.typeName ?? "Commodity"} <span>{item.quantity.toLocaleString()}</span></li>
@@ -378,7 +404,7 @@
           {colony.routes.filter(route => route.path.includes(selected.pinID)).length} routes</p>
         {#key selected.pinID}
           <PlanetRouting bind:this={routePanel} pin={selected} colony={routeView} recipes={$planets.recipes} {flow}
-            routes={routeRows} removing={removedIDs} path={routePath} {routing} {waypointError} disabled={submitting}
+            routes={routeRows} removing={removedIDs} path={routePath} {routing} {routeTypeID} {waypointError} disabled={submitting}
             sourceChanging={selectedEdit?.resourceID !== undefined} start={startRoute} {addWaypoint} close={closeRoute}
             highlight={(value) => { highlight = value; }} stage={stageRoute} toggleRemoval={toggleRouteRemoval} />
         {/key}
@@ -419,6 +445,7 @@
   .planet-toolbar, .planet-overview, .planet-message, .planet-edit-bar { border: 1px solid #819fad65; background: #0a131be8; padding: 10px 12px; }
   .planet-toolbar { top: 14px; right: 16px; width: min(420px, calc(100% - 32px)); display: grid; gap: 8px; }
   .planet-title { display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline; }
+  .planet-title button { margin-inline-start: auto; }
   h1 { margin: 0; font-size: 22px; font-weight: 600; }
   p { margin: 0; }
   .planet-title p { color: #a1b7c4; }

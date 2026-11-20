@@ -94,11 +94,15 @@ export function quotePlanetRoute(colony: Colony, recipes: PiRecipeBook, facts: P
   if (new Set(path).size !== path.length) return problem("A route cannot visit an installation twice.");
   const pins = new Map(colony.pins.map(pin => [pin.pinID, pin]));
   const from = pins.get(path[0]!), to = pins.get(path.at(-1)!);
-  const product = from && planetProduct(colony, from, recipes);
-  if (!from || !to || product?.typeID !== typeID) return problem("The source commodity is unavailable.");
+  if (!from || !to) return problem("An installation on this route is unavailable.");
+  const suppliesFromStorage = isStorage(from);
+  const product = planetProduct(colony, from, recipes);
+  if (!suppliesFromStorage && product?.typeID !== typeID) return problem("The source commodity is unavailable.");
   const input = recipeAt(to, recipes)?.inputs.find(ingredient => ingredient.typeID === typeID);
+  if (suppliesFromStorage && !input) return problem(to.kind === "factory"
+    ? "This processor cannot use the commodity." : "Recurring storage routes must feed a processor.");
   if (!input && !isStorage(to)) return problem("This destination cannot accept the commodity.");
-  const cycle = cycleSeconds(from, recipes);
+  const cycle = cycleSeconds(suppliesFromStorage ? to : from, recipes);
   const perUnit = volumeRate(typeID, from, to, recipes, facts);
   if (!cycle || perUnit === null) return problem("The commodity volume or cycle time is unavailable.");
   const free = new Map(colony.links.map(link => [linkKey(link.endpoint1, link.endpoint2), facts.baseLinkBandwidth * 2 ** link.level]));
@@ -114,16 +118,19 @@ export function quotePlanetRoute(colony: Colony, recipes: PiRecipeBook, facts: P
     for (const key of shared) free.set(key, free.get(key)! - rate * route.commodityQuantity);
   }
   const freeBandwidth = Math.max(0, Math.min(...selectedLegs.map(key => free.get(key)!)));
-  const max = Math.max(0, Math.min(product.available, input?.quantity ?? Infinity, Math.floor((freeBandwidth + 1e-9) / perUnit)));
-  const error = max > 0 ? "" : product.available === 0 ? "All production is already routed." : "There is no capacity on this route.";
+  // A recurring storage route reserves an input batch even if the store has only part of one.
+  const available = suppliesFromStorage ? Infinity : product?.available ?? 0;
+  const max = Math.max(0, Math.min(available, input?.quantity ?? Infinity, Math.floor((freeBandwidth + 1e-9) / perUnit)));
+  const error = max > 0 ? "" : available === 0 ? "All production is already routed." : "There is no capacity on this route.";
   return { error, max, perUnit, freeBandwidth, cycle };
 }
 
 export function previewPlanetRoute(colony: Colony, draft: NewRoute, index: number, recipes: PiRecipeBook): ColonyRoute {
   const source = colony.pins.find(pin => pin.pinID === draft.path[0]);
   const product = source && planetProduct(colony, source, recipes);
+  const stock = source?.contents.find(item => item.typeID === draft.typeID);
   return { routeID: -index - 1, path: draft.path, commodityTypeID: draft.typeID,
-    commodityTypeName: product?.name ?? commodityName(recipes, draft.typeID), commodityQuantity: draft.quantity };
+    commodityTypeName: product?.name ?? stock?.typeName ?? commodityName(recipes, draft.typeID), commodityQuantity: draft.quantity };
 }
 
 export function validateRouteRemovals(colony: Colony, remove: readonly ColonyRoute[]): Colony {

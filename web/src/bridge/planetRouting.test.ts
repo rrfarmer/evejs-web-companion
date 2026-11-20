@@ -45,3 +45,15 @@ test("pending route removals free capacity and pending creations reserve it befo
   assert.throws(() => validateNewRoutes(empty, recipes, facts, [newRoute, newRoute]), /quantity exceeds/);
   assert.throws(() => validateRouteRemovals(colony, [{ ...colony.routes[0]!, commodityQuantity: 9 }]), /route changed/);
 });
+
+test("a recurring storage route uses the receiving recipe batch and clock even with partial or empty stock", () => {
+  const aStorage = { ...colony.pins[1]!, contents: [{ typeID: 2268, typeName: "Aqueous Liquids", quantity: 1000 }] };
+  const partial = { ...colony, pins: [colony.pins[0]!, aStorage, ...colony.pins.slice(2)] };
+  const supplyFacts = { ...facts, baseLinkBandwidth: 1250, commodityVolumes: { ...facts.commodityVolumes, 2268: .005 } };
+  const supply = { path: [2, 1], typeID: 2268, quantity: 3000 };
+  const quote = quotePlanetRoute(partial, recipes, supplyFacts, supply.path, supply.typeID);
+  assert.deepEqual(quote, { error: "", max: 3000, cycle: 1800, perUnit: .01, freeBandwidth: 1242 });
+  assert.match(quotePlanetRoute(partial, recipes, supplyFacts, [2, 3], supply.typeID).error, /must feed a processor/);
+  assert.match(quotePlanetRoute(partial, recipes, supplyFacts, supply.path, 3645).error, /cannot use/);
+  assert.doesNotThrow(() => validateNewRoutes(colony, recipes, supplyFacts, [supply]));
+});
