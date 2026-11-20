@@ -570,8 +570,31 @@ export class SpaceView {
    * A thing's name as the client gives it (uix.GetSlimItemName): its own name where it has one (a pilot's, a
    * station's, a celestial's), else its type's (an NPC hull, a wreck, a container, an asteroid).
    */
+  /**
+   * uix.GetSlimItemName (424 to 449): a ship or an NPC by its slim's name (its pilot's, else its type's), an asteroid
+   * or a harvestable cloud by its type, anything else by its cfg.evelocations name where that is known and not a
+   * label ('@'), else its type's. Celestials, stations and stargates carry no name in their slim item.
+   */
   private nameOf(e: Entity): string {
-    return e.name ?? (e.typeID !== null ? this.names?.types[String(e.typeID)]?.[0] : null) ?? e.kind;
+    const typeName = e.typeID !== null ? this.names?.types[String(e.typeID)]?.[0] ?? null : null;
+    if (e.categoryID === 6 || e.isNpc || e.kind === "ship") return e.name ?? typeName ?? e.kind;
+    if (e.categoryID === 25 || e.groupID === 711) return typeName ?? e.name ?? e.kind;
+    const located = this.actions.locationName?.(e.itemID) ?? null;
+    if (located && located[0] !== "@") return located;
+    return e.name ?? typeName ?? e.kind;
+  }
+  /** The items whose cfg.evelocations rows have been asked for (cfg.evelocations.Prime, once each). */
+  private readonly locationsPrimed = new Set<number>();
+  /** The park's celestials, stations, gates and named items primed in cfg.evelocations, as the client's brackets
+   * and overview get their names (GetSlimItemName's cfg.evelocations.Get). */
+  private primeEntityLocations(entities: readonly Entity[]): void {
+    const wanted: number[] = [];
+    for (const e of entities) {
+      if (e.categoryID === 6 || e.categoryID === 25 || e.isNpc || e.kind === "ship" || this.locationsPrimed.has(e.itemID)) continue;
+      this.locationsPrimed.add(e.itemID);
+      wanted.push(e.itemID);
+    }
+    if (wanted.length > 0) this.actions.primeLocations?.(wanted);
   }
   private names: { types: Record<string, [string | null, number | null]>; groups: Record<string, [string | null, number | null]> } | null = null;
   /** A thing in the park named as the client names it (GetSlimItemName), or null where the park has it not. */
@@ -732,6 +755,7 @@ export class SpaceView {
       select: (id) => this.select(id),
       activate: (id) => this.activateSpaceTarget(id),
       glyph,
+      name: (e) => this.nameOf(e),
       pilotID: options.overviewPilotID,
       word: (label) => this.actions.word?.(label) ?? null,
       notice: options.overviewNotice,
@@ -2469,6 +2493,7 @@ export class SpaceView {
       snap = projectSpace(park, { solarSystemID: null, shipID: this.live.hello?.shipID ?? null, simTime: this.live.simNow() }) as unknown as Snapshot;
     }
     this.snapshot = snap;
+    if (snap) this.primeEntityLocations(snap.entities);
     this.checkModuleTargetSession();
     const ego = snap?.ship ?? null;
     const now = performance.now(), dt = Math.min(0.1, (now - this.lastFrameAt) / 1000);

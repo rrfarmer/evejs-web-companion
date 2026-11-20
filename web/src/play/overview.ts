@@ -75,6 +75,8 @@ export interface OverviewHooks {
   select(itemID: number): void;
   activate(itemID: number): void;
   glyph(e: Entity): string;
+  /** The row's Name (uix.GetSlimItemName); the slim's name, else the type's, where it is not given. */
+  name?(e: Entity): string;
   pilotID?: number;
   word?(label: string): string | null;
   notice?(text: string): void;
@@ -299,12 +301,13 @@ export class Overview {
     const mask = this.activePreset();
     const speed = (e: Entity) => Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z);
     const typeName = (e: Entity) => (e.typeID ? this.types[String(e.typeID)]?.[0] ?? "" : "");
+    const rowName = (e: Entity) => this.hooks.name?.(e) ?? e.name ?? typeName(e);
     const key = this.sort.column;
     const rows = entities.filter((e) => overviewRowWanted(e, this.groupOf(e), mask, relations)).map((e) => ({ e, d: distanceTo(e) })).sort((a, b) => {
       const by = key === "distance" ? a.d - b.d
         : key === "velocity" ? speed(a.e) - speed(b.e)
         : key === "type" ? typeName(a.e).localeCompare(typeName(b.e))
-        : (a.e.name ?? typeName(a.e)).localeCompare(b.e.name ?? typeName(b.e));
+        : rowName(a.e).localeCompare(rowName(b.e));
       // ties go nearest first, as the client's do
       return (this.sort.down ? -by : by) || a.d - b.d;
     });
@@ -313,7 +316,7 @@ export class Overview {
       const typeName = e.typeID ? this.types[String(e.typeID)]?.[0] ?? "" : "";
       const hackingHint = (e.hackingSecurityState ?? 0) > 1
         ? ` title="${esc(this.hooks.word?.(HACKED_HINT) ?? "Has already been hacked")}"` : "";
-      html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}${e.isNpc ? " npc" : ""}"><td class="ov-icon"${hackingHint}>${this.hooks.glyph(e)}</td><td class="ov-dist">${distanceWords(d)}</td><td>${esc(e.name ?? typeName)}</td><td>${esc(typeName)}</td><td class="ov-dist">${Math.round(Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z)).toLocaleString()} m/s</td></tr>`);
+      html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}${e.isNpc ? " npc" : ""}"><td class="ov-icon"${hackingHint}>${this.hooks.glyph(e)}</td><td class="ov-dist">${distanceWords(d)}</td><td>${esc(rowName(e))}</td><td>${esc(typeName)}</td><td class="ov-dist">${Math.round(Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z)).toLocaleString()} m/s</td></tr>`);
     }
     const markup = html.join("");
     if (markup !== this.drawnRows) {
