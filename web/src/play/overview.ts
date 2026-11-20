@@ -37,7 +37,7 @@ function overviewPresets() {
 const TAB_KEY = "evejs-play-overview-tab";
 const SORT_KEY = "evejs-play-overview-sort";
 const SORT_ENABLED_KEY = "evejs-play-overview-headerSortingEnabled";
-type SortColumn = "distance" | "name" | "type" | "velocity";
+type SortColumn = "distance" | "name" | "type" | "size" | "velocity" | "angular";
 interface OverviewSort { column: SortColumn; down: boolean }
 const DEFAULT_SORT: OverviewSort = { column: "distance", down: false };
 const SORT_ENABLED = "UI/Tactical/HeaderSortingEnabledCb";
@@ -50,7 +50,7 @@ const DISABLED_TEXT = "Header sorting is disabled";
 function readSort(key: string, fallback: OverviewSort = DEFAULT_SORT): OverviewSort {
   try {
     const saved = JSON.parse(localStorage.getItem(key) ?? "null");
-    if (["distance", "name", "type", "velocity"].includes(saved?.column) && typeof saved.down === "boolean") return saved;
+    if (["distance", "name", "type", "size", "velocity", "angular"].includes(saved?.column) && typeof saved.down === "boolean") return saved;
   } catch { /* use the default */ }
   return fallback;
 }
@@ -115,7 +115,7 @@ export class Overview {
       if (Number.isInteger(i)) this.choose(i);
     });
     this.table.className = "ov-table";
-    this.table.innerHTML = `<thead><tr><th class="ov-icon"></th><th class="ov-dist" data-sort="distance"><button type="button">Distance</button></th><th data-sort="name"><button type="button">Name</button></th><th data-sort="type"><button type="button">Type</button></th><th class="ov-dist" data-sort="velocity"><button type="button">Velocity</button></th></tr></thead>`;
+    this.table.innerHTML = `<thead><tr><th class="ov-icon"></th><th class="ov-dist" data-sort="distance"><button type="button">Distance</button></th><th data-sort="name"><button type="button">Name</button></th><th data-sort="type"><button type="button">Type</button></th><th class="ov-dist" data-sort="size"><button type="button">Size</button></th><th class="ov-dist" data-sort="velocity"><button type="button">Velocity</button></th><th class="ov-dist" data-sort="angular"><button type="button">Angular</button></th></tr></thead>`;
     const pilotSuffix = hooks.pilotID === undefined ? "" : `:${hooks.pilotID}`;
     this.tabKey = TAB_KEY + pilotSuffix;
     this.sortKey = SORT_KEY + pilotSuffix;
@@ -294,7 +294,7 @@ export class Overview {
   setSelected(itemID: number | null): void { this.selected = itemID; this.lastDraw = 0; }
 
   /** Redrawn a few times a second: the client's overview is not repainted every frame either. */
-  update(entities: readonly Entity[], distanceTo: (e: Entity) => number, relations?: OverviewRelationships): void {
+  update(entities: readonly Entity[], distanceTo: (e: Entity) => number, relations?: OverviewRelationships, ego?: Entity | null): void {
     const now = performance.now();
     if (now - this.lastDraw < 400) return;
     this.lastDraw = now;
@@ -302,10 +302,25 @@ export class Overview {
     const speed = (e: Entity) => Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z);
     const typeName = (e: Entity) => (e.typeID ? this.types[String(e.typeID)]?.[0] ?? "" : "");
     const rowName = (e: Entity) => this.hooks.name?.(e) ?? e.name ?? typeName(e);
+    // overviewNodeUtil.UpdateVelocityData: the ball's speed; its angular velocity, the transversal of the two balls'
+    // relative velocity over max(1, the surface distance), in degrees a second. A static ball (a station, a gate, a
+    // celestial) has neither, and shows "-".
+    const isStatic = (e: Entity) => ["station", "stargate", "planet", "moon", "sun", "belt"].includes(e.kind) || [6, 7, 8, 9, 10].includes(e.groupID ?? -1) || e.categoryID === 3;
+    const angular = (e: Entity, d: number): number | null => {
+      if (!ego || isStatic(e)) return null;
+      const rel = [e.velocity.x - ego.velocity.x, e.velocity.y - ego.velocity.y, e.velocity.z - ego.velocity.z];
+      const dir = [e.position.x - ego.position.x, e.position.y - ego.position.y, e.position.z - ego.position.z];
+      const len = Math.hypot(dir[0]!, dir[1]!, dir[2]!) || 1;
+      const radial = (rel[0]! * dir[0]! + rel[1]! * dir[1]! + rel[2]! * dir[2]!) / len;
+      const trans = Math.sqrt(Math.max(0, rel[0]! ** 2 + rel[1]! ** 2 + rel[2]! ** 2 - radial * radial));
+      return trans / Math.max(1, d) * 180 / Math.PI;
+    };
     const key = this.sort.column;
     const rows = entities.filter((e) => overviewRowWanted(e, this.groupOf(e), mask, relations)).map((e) => ({ e, d: distanceTo(e) })).sort((a, b) => {
       const by = key === "distance" ? a.d - b.d
         : key === "velocity" ? speed(a.e) - speed(b.e)
+        : key === "size" ? (a.e.radius ?? 0) - (b.e.radius ?? 0)
+        : key === "angular" ? (angular(a.e, a.d) ?? -1) - (angular(b.e, b.d) ?? -1)
         : key === "type" ? typeName(a.e).localeCompare(typeName(b.e))
         : rowName(a.e).localeCompare(rowName(b.e));
       // ties go nearest first, as the client's do
@@ -316,7 +331,7 @@ export class Overview {
       const typeName = e.typeID ? this.types[String(e.typeID)]?.[0] ?? "" : "";
       const hackingHint = (e.hackingSecurityState ?? 0) > 1
         ? ` title="${esc(this.hooks.word?.(HACKED_HINT) ?? "Has already been hacked")}"` : "";
-      html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}${e.isNpc ? " npc" : ""}"><td class="ov-icon"${hackingHint}>${this.hooks.glyph(e)}</td><td class="ov-dist">${distanceWords(d)}</td><td>${esc(rowName(e))}</td><td>${esc(typeName)}</td><td class="ov-dist">${Math.round(Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z)).toLocaleString()} m/s</td></tr>`);
+      html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}${e.isNpc ? " npc" : ""}"><td class="ov-icon"${hackingHint}>${this.hooks.glyph(e)}</td><td class="ov-dist">${distanceWords(d)}</td><td>${esc(rowName(e))}</td><td>${esc(typeName)}</td><td class="ov-dist">${distanceWords(2 * (e.radius ?? 0))}</td><td class="ov-dist">${isStatic(e) ? "-" : Math.trunc(speed(e)).toLocaleString()}</td><td class="ov-dist">${(() => { const w = angular(e, d); return w === null ? "-" : w.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); })()}</td></tr>`);
     }
     const markup = html.join("");
     if (markup !== this.drawnRows) {

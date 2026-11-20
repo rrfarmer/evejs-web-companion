@@ -227,6 +227,10 @@ export interface SpaceActions {
   openShipHold?(key: string): void;
   /** The ship's holds read (fill and capacity), for the new HUD's cargo indicator. */
   loadShipHolds?(): Promise<void>;
+  /** A client command run from a HUD button (ToggleProbeScanner, CmdToggleAutopilot, ...), as the page runs its shortcut. */
+  runCommand?(cmd: string): void;
+  /** autoPilotSvc.GetState: whether the autopilot is on, for the new HUD's autopilot button. */
+  autopilotOn?(): boolean;
 }
 
 const KIND_COLOUR: Record<string, string> = {
@@ -717,6 +721,12 @@ export class SpaceView {
     if (this.shipHud instanceof NewShipHud) {
       this.shipHud.onSetSpeed = (ratio) => void this.setSpeedRatio(ratio);
       this.shipHud.onOpenHold = (key) => this.actions.openShipHold?.(key);
+      // the HUD's command buttons: the directional scanner and solar system map are this view's, the rest the page's
+      this.shipHud.onCommand = (cmd) => {
+        if (cmd === "OpenDirectionalScanner" && this.dscan) this.dscan.toggle();
+        else if (cmd === "CmdToggleSolarSystemMap" && this.systemMap) this.systemMap.toggle();
+        else this.actions.runCommand?.(cmd);
+      };
     }
     this.modeHeader.className = "ship-mode-header";
     this.modeSub.className = "ship-mode-detail";
@@ -2703,7 +2713,7 @@ export class SpaceView {
       panel.host.remove();
       this.jumpBridgePanels.delete(id);
     }
-    if (snap) this.overview.update(snap.entities, (x) => this.distanceTo(x), relations);
+    if (snap) this.overview.update(snap.entities, (x) => this.distanceTo(x), relations, snap.ship);
     const jump = this.gateJump;
     let wormholeStopElapsed: number | null = null;
     if (jump?.wormhole && jump.arrivedAt !== null && now - jump.orderedAt >= WORMHOLE_MIDDLE_MS) {
@@ -2803,6 +2813,7 @@ export class SpaceView {
         }
         const holds = this.options.miningSurvey?.()?.holds ?? [];
         this.shipHud.setHolds(holds.filter((h) => h.present).map((h) => ({ key: h.key, label: h.label, used: h.capacity?.used ?? null, capacity: h.capacity?.capacity ?? null })), ego.typeID);
+        this.shipHud.setAutopilot(this.actions.autopilotOn?.() ?? false);
       }
     }
     // The warp tunnel, along the ship's way (mirrored into three's handedness as positions are), as strong as the

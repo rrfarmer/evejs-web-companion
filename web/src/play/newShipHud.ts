@@ -221,6 +221,11 @@ export class NewShipHud {
   onSetSpeed: (ratio: number) => void = () => {};
   /** CargoIndicator.OnClick: Inventory opened on the tracked hold (OpenOrShow((holdID, shipID), toggle=True)). */
   onOpenHold: (key: string) => void = () => {};
+  /** A client command run from a HUD button (the scanner pill's, CmdToggleAutopilot): the page runs it as its shortcut would. */
+  onCommand: (cmd: string) => void = () => {};
+  private autopilotOn = false;
+  private readonly autopilotRing = document.createElement("div");
+  private readonly scannerGroup = document.createElement("div");
 
   // cargo_indicator.py: the tracked hold's fill ring around a 32 px button at band (25, 64)
   private holds: readonly HudHold[] = [];
@@ -286,6 +291,7 @@ export class NewShipHud {
     this.buildSlots();
     this.buildMedallionInputs();
     this.buildCargoIndicator();
+    this.buildButtons();
 
     // speedometer.py _ConstructReadout: the 75x16 pill at medallion (-135..-60, 68..84), its text right-aligned 4 px in.
     const pill = document.createElement("div");
@@ -434,6 +440,127 @@ export class NewShipHud {
     });
     this.holdPicker.addEventListener("mouseleave", () => { this.holdPicker.style.display = "none"; });
     this.root.append(b, this.holdPicker);
+  }
+
+  /**
+   * The buttons around the medallion and right of the tray: the autopilot (commandButton, medallion (-69, -78)), the
+   * HUD settings gear ((+70, -78)), the overload hex's overheating glyph, the camera button (utility column (25, 158)),
+   * and the scanner group (hudLayer: the safety badge at its top, the scanner pill centred).
+   */
+  private buildButtons(): void {
+    const [cx, cy] = MEDALLION_CENTRE;
+    const icon = (path: string, size = 16) => {
+      const i = document.createElement("img");
+      i.src = res(path);
+      i.alt = "";
+      Object.assign(i.style, { width: `${size}px`, height: `${size}px`, display: "block", pointerEvents: "none" });
+      return i;
+    };
+    // the autopilot: a 20 px dark disc, a 1 px ring at r 11 (white 0.1, FOCUS_BLUE engaged or hovered), the glyph
+    const ap = document.createElement("button");
+    ap.type = "button";
+    ap.title = "Activate Autopilot";
+    Object.assign(ap.style, { position: "absolute", left: `${cx - 69 - 12}px`, top: `${cy - 78 - 12}px`, width: "24px", height: "24px", padding: "0", border: "0", background: "transparent", pointerEvents: "auto", cursor: "pointer", display: "grid", placeItems: "center" });
+    Object.assign(this.autopilotRing.style, { position: "absolute", inset: "1px", borderRadius: "50%", background: "rgba(0,0,0,0.55)", boxShadow: "0 0 0 2px rgba(255,255,255,0.1) inset" });
+    const apGlyph = icon("res:/UI/Texture/Icons/44_32_12.png");
+    Object.assign(apGlyph.style, { position: "relative", opacity: "0.5", mixBlendMode: "plus-lighter" });
+    ap.append(this.autopilotRing, apGlyph);
+    ap.addEventListener("mouseenter", () => { apGlyph.style.opacity = "0.9"; this.autopilotRing.style.boxShadow = `0 0 0 2px ${css(FOCUS_BLUE)} inset`; });
+    ap.addEventListener("mouseleave", () => { apGlyph.style.opacity = this.autopilotOn ? "0.9" : "0.5"; this.syncAutopilot(); });
+    ap.addEventListener("click", () => this.onCommand("CmdToggleAutopilot"));
+    // the HUD settings gear: opacity 0.5, 0.9 hovered
+    const gear = document.createElement("button");
+    gear.type = "button";
+    gear.title = "HUD settings";
+    Object.assign(gear.style, { position: "absolute", left: `${cx + 70 - 8}px`, top: `${cy - 78 - 8}px`, width: "16px", height: "16px", padding: "0", border: "0", background: "transparent", opacity: "0.5", pointerEvents: "auto", cursor: "pointer" });
+    gear.append(icon("res:/UI/Texture/eveicon/system_icons/settings_16px.png"));
+    gear.addEventListener("mouseenter", () => { gear.style.opacity = "0.9"; });
+    gear.addEventListener("mouseleave", () => { gear.style.opacity = "0.5"; });
+    // the settings menu (hudLayer 360 to 385), here only the preview switch: off goes back to the classic ship UI
+    const menu = document.createElement("div");
+    Object.assign(menu.style, { position: "absolute", left: `${cx + 70}px`, top: `${cy - 78 - 40}px`, display: "none", background: "rgba(10,14,16,0.95)", border: "1px solid rgba(255,255,255,0.15)", padding: "4px 0", pointerEvents: "auto", font: "12px 'EVE Sans Neue','Segoe UI',sans-serif", color: "#ddd", whiteSpace: "nowrap" });
+    const entry = document.createElement("button");
+    entry.type = "button";
+    entry.textContent = "✓ New Ship HUD (preview)";
+    Object.assign(entry.style, { display: "block", padding: "4px 12px", border: "0", background: "transparent", color: "inherit", font: "inherit", cursor: "pointer" });
+    entry.addEventListener("click", () => { menu.style.display = "none"; this.onCommand("ToggleNewHud"); });
+    menu.append(entry);
+    menu.addEventListener("mouseleave", () => { menu.style.display = "none"; });
+    gear.addEventListener("click", () => { menu.style.display = menu.style.display === "none" ? "" : "none"; });
+    this.root.append(menu);
+    // overloadButton: the overheating glyph in the hex (white 0.75 idle)
+    const heat = icon("res:/UI/Texture/eveicon/category_icons/overheating_16px.png");
+    Object.assign(heat.style, { position: "absolute", left: `${cx + OVERLOAD_CENTRE[0] - 8}px`, top: `${cy + OVERLOAD_CENTRE[1] - 8}px`, opacity: "0.75" });
+    // the camera flyout's header: the orbit camera's glyph (idle 0.8)
+    const cam = document.createElement("button");
+    cam.type = "button";
+    cam.title = "Orbit Camera";
+    Object.assign(cam.style, {
+      position: "absolute", left: `${25 - 16}px`, top: `${158 - 16}px`, width: "32px", height: "32px", padding: "0", borderRadius: "50%",
+      border: "0", background: "radial-gradient(circle, rgba(0,0,0,0.1) 0 14px, transparent 14.5px), radial-gradient(circle, rgba(0,0,0,0.4) 0 15px, transparent 15.5px)",
+      boxShadow: "0 0 0 2px rgba(255,255,255,0.2)", pointerEvents: "auto", display: "grid", placeItems: "center",
+    });
+    const camGlyph = icon("res:/UI/Texture/eveicon/category_icons/orbit_camera_16px.png");
+    camGlyph.style.opacity = "0.8";
+    cam.append(camGlyph);
+    // the scanner group: 70x200, right of the tray; the safety badge (32x16 at (19, 12)) and the 24x105 pill
+    Object.assign(this.scannerGroup.style, { position: "absolute", top: "0", width: "70px", height: "200px", pointerEvents: "none" });
+    const badge = document.createElement("div");
+    badge.title = "Safety: Green";
+    Object.assign(badge.style, { position: "absolute", left: "27px", top: "12px", width: "16px", height: "16px", pointerEvents: "auto" });
+    const tint = document.createElement("div");
+    Object.assign(tint.style, { position: "absolute", inset: "0", background: "#8DC169", maskImage: `url("${res("res:/UI/HUD/safety_shield_backing.png")}")`, maskSize: "16px 16px", webkitMaskImage: `url("${res("res:/UI/HUD/safety_shield_backing.png")}")`, webkitMaskSize: "16px 16px" } as Partial<CSSStyleDeclaration>);
+    const glyph = icon("res:/UI/HUD/safety_glyph_full.png");
+    Object.assign(glyph.style, { position: "absolute", left: "0", top: "0" });
+    badge.append(tint, glyph);
+    const pill = document.createElement("div");
+    Object.assign(pill.style, {
+      position: "absolute", left: "23px", top: "47.5px", width: "24px", height: "105px", borderRadius: "12px",
+      background: "rgba(0,0,0,0.6)", boxShadow: "0 0 0 1px rgba(255,255,255,0.4)", pointerEvents: "auto",
+    });
+    for (const [top, cmd, id, title] of [
+      [0, "CmdToggleSolarSystemMap", "solar_system", "Solar System Map"],
+      [33, "OpenMoonScan", "moon_scan", "Moon Analysis"],
+      [57, "ToggleProbeScanner", "probe_scan", "Probe Scanner"],
+      [81, "OpenDirectionalScanner", "d_scan", "Directional Scanner"],
+    ] as const) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.title = title;
+      Object.assign(b.style, { position: "absolute", left: "0", top: `${top}px`, width: "24px", height: "24px", padding: "0", border: "0", background: "transparent", cursor: "pointer", display: "grid", placeItems: "center" });
+      const g = icon(`res:/UI/Texture/eveicon/category_icons/${id}_16px.png`);
+      g.style.opacity = "0.5";
+      b.append(g);
+      b.addEventListener("mouseenter", () => { g.style.opacity = "1"; g.style.width = g.style.height = "20px"; });
+      b.addEventListener("mouseleave", () => { g.style.opacity = "0.5"; g.style.width = g.style.height = "16px"; });
+      b.addEventListener("click", () => this.onCommand(cmd));
+      pill.append(b);
+    }
+    const sep = document.createElement("div");
+    Object.assign(sep.style, { position: "absolute", left: "6px", top: "28px", width: "12px", height: "1px", background: "rgba(255,255,255,0.1)" });
+    pill.append(sep);
+    this.scannerGroup.append(badge, pill);
+    this.root.append(ap, gear, heat, cam, this.scannerGroup);
+    this.placeScannerGroup();
+  }
+
+  /** hudLayer: the scanner group at band x mount.left (230) + max(70, 55 + the tray's width). */
+  private placeScannerGroup(): void {
+    const shown = this.slots.filter((s) => s.module);
+    const trayWidth = shown.length ? Math.max(...shown.map((s) => s.x)) + SLOT_SIZE : 0;
+    this.scannerGroup.style.left = `${230 + Math.max(70, 55 + trayWidth)}px`;
+  }
+
+  /** autoPilot's state (OnAutoPilotOn / Off): the button's ring and glyph lit while engaged. */
+  setAutopilot(on: boolean): void {
+    if (on === this.autopilotOn) return;
+    this.autopilotOn = on;
+    this.syncAutopilot();
+  }
+
+  private syncAutopilot(): void {
+    this.autopilotRing.style.boxShadow = `0 0 0 2px ${this.autopilotOn ? css(FOCUS_BLUE) : "rgba(255,255,255,0.1)"} inset`;
+    (this.autopilotRing.parentElement as HTMLElement | null)?.setAttribute("title", this.autopilotOn ? "Deactivate Autopilot" : "Activate Autopilot");
   }
 
   /** holdTrackerSettings: the tracked hold, kept per ship type, the cargo hold where none is kept. */
@@ -606,6 +733,7 @@ export class NewShipHud {
       slot.el.title = m.name ?? "";
       slot.shortcut.textContent = "";
     });
+    this.placeScannerGroup();
   }
 
   // ── drawing ────────────────────────────────────────────────────────────────────────────────────────────

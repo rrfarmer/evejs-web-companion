@@ -27,6 +27,7 @@
   import { typeCompareTarget } from "./typeCompare.ts";
   import { fittingWindowTarget } from "./fittingWindowTarget.ts";
   import { shipHoldTarget } from "./shipHold.ts";
+  import { setHudSetting } from "../store/hudSettings.ts";
   import { createSession, type Session } from "../app/sessions.ts";
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
   import { bridgeDo, corpTickers, getDscanHologramTypes } from "../app/api.ts";
@@ -1384,6 +1385,17 @@
       openCargo: (id) => s.flow.openCargo(id),
       openShipHold: (key) => shipHoldTarget.ask(key),
       loadShipHolds: () => s.flow.loadMiningHolds().catch(() => {}),
+      autopilotOn: () => s.flow.autopilotOn.get(),
+      runCommand: (cmd) => {
+        // LeftSideButtonAutopilot / the new HUD's autopilot button: autoPilot.SetOn, or SetOff where it is on
+        if (cmd === "CmdToggleAutopilot") {
+          if (s.flow.autopilotOn.get()) s.flow.deactivateAutopilot();
+          else void s.flow.activateAutopilot().catch(() => {});
+        } else if (cmd === "ToggleNewHud") {
+          setHudSetting("shipHudNew_preview", false);
+          location.reload();
+        } else if (WINDOW_COMMANDS[cmd]) open(WINDOW_COMMANDS[cmd]);
+      },
       // The flow says a refused order as the client does and does not throw.
       // menusvc.StargateJump: flown to within 2,500 m of the gate first (GetCloseAndTryCommand), then the jump.
       jump: async (id) => {
