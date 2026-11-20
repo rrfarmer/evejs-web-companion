@@ -43,6 +43,7 @@
   setContext("fittingShipScene", (host: HTMLElement) => new FittingShipScene(host));
   import DesktopWindow from "./DesktopWindow.svelte";
   import PanelHost from "./PanelHost.svelte";
+  import PlanetMode from "./PlanetMode.svelte";
   import type { MoonRefinery } from "../bridge/moonMining.ts";
   import { METENOX_TYPE_ID, type AutoMoonMiner, type MoonMaterialBay } from "../bridge/autoMoonMining.ts";
   import PlayInfoPanels from "./PlayInfoPanels.svelte";
@@ -212,6 +213,7 @@
   const characters = $derived(session?.store.character);
   const flight = $derived(session?.store.flight);
   const station = $derived(session?.store.station);
+  const planets = $derived(session?.store.planets);
   const targeting = $derived(session?.store.targeting);
   const fitting = $derived(session?.store.fitting);
   const inventory = $derived(session?.store.inventory);
@@ -392,6 +394,7 @@
   let chosenCharacterID = $state<number | null>(null);
   async function enter(characterID: number) {
     if (!session) return;
+    leavePlanetMode(false);
     chosenCharacterID = characterID;
     ++moonDetailsRequest;
     ++moonMaterialRequest;
@@ -939,6 +942,33 @@
   /** The system menu (Esc: uicore.cmd.OnEsc's EscapeCommand opens it when nothing else takes the key). */
   let systemMenu = $state(false);
   let mapHost = $state<HTMLDivElement | null>(null);
+  let planetModeID = $state<number | null>(null);
+  let planetModeTrigger: HTMLElement | null = null;
+  const planetInMode = $derived($planets?.colonies?.find(colony => colony.planetID === planetModeID) ?? null);
+
+  function showPlanetInMode(planetID: number) {
+    const pilot = session;
+    if (!pilot || planetModeID === planetID || !$planets?.colonies?.some(colony => colony.planetID === planetID)) return;
+    if (planetModeID === null) planetModeTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    toggleStarMap(false);
+    planetModeID = planetID;
+    void playUiEvent("msg_pi_general_opening_play");
+    void pilot.flow.loadPlanets().catch(() => {});
+  }
+
+  function leavePlanetMode(restoreFocus = true) {
+    if (planetModeID === null) return;
+    planetModeID = null;
+    void playUiEvent("msg_pi_general_closing_play");
+    const trigger = planetModeTrigger;
+    planetModeTrigger = null;
+    if (restoreFocus && trigger?.isConnected) requestAnimationFrame(() => trigger.focus());
+  }
+
+  $effect(() => {
+    if (planetModeID !== null && $planets?.loaded && $planets.coloniesReadable && !planetInMode) leavePlanetMode(false);
+  });
+
   function neocomOpen(id: string) {
     if (id === "map") { toggleStarMap(); return; }
     const tab = NEOCOM_TABS[id];
@@ -962,6 +992,7 @@
       mapFilters = null;
       return;
     }
+    leavePlanetMode(false);
     if (mode) {
       mapInFront = true;
       requestedMapMode = mode;
@@ -1027,7 +1058,7 @@
    */
   function spaceCommand(cmd: string): boolean {
     const s = session;
-    if (!s || docked) return false;
+    if (!s || docked || planetInMode) return false;
     const say = (title: string) => (cause: unknown) => notify({ kind: "danger", title, detail: cause instanceof Error ? cause.message : String(cause) });
     if (cmd === "OpenMiningScanResultsWindow") {
       if (wins.some(win => win.id === "miningScan")) wins = closeWindow(wins, "miningScan");
@@ -1076,6 +1107,7 @@
     if (cmd === "OnEsc") {
       e.preventDefault();
       if (starMap) toggleStarMap(false);
+      else if (planetInMode) leavePlanetMode();
       else systemMenu = !systemMenu;
       return;
     }
@@ -1306,6 +1338,7 @@
         };
       },
     }, { system: st?.solarSystemName ?? "", security: st?.security ?? null }, {
+      covered: () => planetInMode !== null,
       onNeocom: neocomOpen,
       flightSnapshot: () => s.store.space.get().snapshot,
       targeting: {
@@ -1546,9 +1579,9 @@
     <!-- Docked: the ship in its hangar, the Neocom, and the client's Station Services window (dockedUI/lobbyWnd.py:
          280 px at the right edge, the station's name over its owner, the Undock button, the station's services). -->
     <div class="station">
-      <div class="fly-hangar" bind:this={hangarHost}></div>
+      <div class="fly-hangar" class:planet-covered={planetInMode !== null} bind:this={hangarHost}></div>
       <div class="fly-neocom" bind:this={neocomHost}></div>
-      <div class="pw fly-lobby">
+      <div class="pw fly-lobby" class:planet-covered={planetInMode !== null}>
         <div class="pw-head"><img class="pw-icon" alt="" src={clientTexture("res:/UI/Texture/WindowIcons/docking.png")} /><span class="pw-caption">Station Services</span></div>
         <div class="pw-body lobby-body">
           <div class="station-name">{moonRefinery?.name ?? $station?.station?.stationName ?? "Station"}</div>
@@ -1587,7 +1620,7 @@
       </div>
     </div>
   {:else}
-    <div class="fly-space" bind:this={spaceHost}></div>
+    <div class="fly-space" class:planet-covered={planetInMode !== null} bind:this={spaceHost}></div>
     {#if controllingMetenox}
       <button class="metenox-controls" onclick={reopenMetenoxFuel}>Fuel Bay</button>
     {/if}
@@ -1604,6 +1637,11 @@
   {/if}
   <!-- the star map's host, over the hangar or space and under the windows -->
   <div class="fly-map" class:foreground={mapInFront} bind:this={mapHost}></div>
+  {#if planetInMode}
+    {#key planetInMode.planetID}
+      <PlanetMode colony={planetInMode} store={session.store} flow={session.flow} onClose={() => leavePlanetMode()} />
+    {/key}
+  {/if}
 
   <!-- The info panels (InfoPanelContainer) at the top of the left side, beside the Neocom, under the windows. -->
   <ErrorBoundary name="Info panels"><PlayInfoPanels store={session.store} flow={session.flow} showAgents={() => open("agents")} openRouteWindow={() => open("routeWindow")} /></ErrorBoundary>
@@ -1611,7 +1649,7 @@
   <!-- The app's windows over space or the station, in front of the 3D view and under nothing else. -->
   <div class="fly-fade" bind:this={fadeEl}></div>
 
-  <div class="fly-windows" bind:this={windowsEl}>
+  <div class="fly-windows" class:planet-covered={planetInMode !== null} bind:this={windowsEl}>
     {#each wins as win (win.id)}
       <ErrorBoundary name={tabLabel(win.id)}>
         <DesktopWindow
@@ -1633,6 +1671,7 @@
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
               onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} {autoMoonMiner}
+              onViewPlanet={showPlanetInMode} viewingPlanetID={planetModeID}
               {moonMaterialBay} {metenoxTransfer} {metenoxControl} onLeaveMetenox={leaveMetenox} />
           {/if}
         </DesktopWindow>
@@ -1659,6 +1698,8 @@
 
 <style>
   .fly-space { position: fixed; inset: 0; }
+  .fly-hangar.planet-covered, .fly-space.planet-covered :global(.space > :not(.neocom)),
+  .fly-windows.planet-covered :global(.space-only-window) { visibility: hidden; }
   .fly-buffs { position: fixed; bottom: 200px; left: 50%; transform: translateX(-50%); pointer-events: none; }
   .fly-buffs :global(.buff-slot) { pointer-events: auto; }
   .fly-sovhub { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
@@ -2474,6 +2515,7 @@
     z-index: -1; background: var(--theme-focus, #58a7bf); mask-image: var(--cluster-stroke);
   }
   .fly-lobby { left: auto; right: 16px; top: 16px; width: 280px; min-height: 260px; z-index: 5; }
+  .fly-lobby.planet-covered { visibility: hidden; }
   .metenox-lobby { min-height: 0; }
   .metenox-lobby .station-name { margin-bottom: 12px; }
   .metenox-controls { position: absolute; top: 160px; right: 16px; z-index: 5; }

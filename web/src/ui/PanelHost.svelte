@@ -83,6 +83,8 @@
     onGoToPilot,
     onShowConvoys,
     onShowSystem,
+    onViewPlanet,
+    viewingPlanetID,
     moonRefinery,
     autoMoonMiner,
     moonMaterialBay,
@@ -116,6 +118,8 @@
     onGoToPilot?: (sessionID: string) => void;
     onShowConvoys?: () => void;
     onShowSystem?: (systemID: number) => void;
+    onViewPlanet?: (planetID: number) => void;
+    viewingPlanetID?: number | null;
     moonRefinery?: MoonRefinery | null;
     autoMoonMiner?: AutoMoonMiner | null;
     moonMaterialBay?: MoonMaterialBay | null;
@@ -261,7 +265,7 @@
 {:else if tab === "skills"}
   <Skills {store} {flow} />
 {:else if tab === "planets"}
-  <Planets {store} {flow} />
+  <Planets {store} {flow} {onViewPlanet} {viewingPlanetID} />
 {:else if tab === "travel"}
   <Travel {store} {flow} showRouteWindow={() => onOpen?.("routeWindow")} />
 {:else if tab === "routeWindow"}

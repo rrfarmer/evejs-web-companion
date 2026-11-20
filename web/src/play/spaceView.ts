@@ -120,6 +120,8 @@ type MiningOverlayState = Pick<MiningState, "survey" | "surveyProgress" | "surve
  * thing in space (the radial menu's Show Info).
  */
 export interface SpaceViewOptions {
+  /** A full-frame secondary view owns the canvas and input while flight keeps its live feed. */
+  covered?(): boolean;
   openAutoMoonMiner?: (structureID: number) => Promise<void>;
   openMoonMaterialBay?: (structureID: number) => Promise<void>;
   boardMetenox?: (structureID: number) => Promise<void>;
@@ -597,6 +599,7 @@ export class SpaceView {
   private readonly onKey = (e: KeyboardEvent) => this.key(e);
   /** CombatKeyUnloadListener: the loaded combat command let go when its key comes up, or the window loses focus. */
   private readonly onKeyUp = (e: KeyboardEvent) => {
+    if (this.options.covered?.()) { this.onBlur(); return; }
     if (this.combat && e.code === this.combat.code) this.unloadCombat();
     if (this.dscanKey?.code !== e.code) return;
     const { targeted } = this.dscanKey;
@@ -606,6 +609,7 @@ export class SpaceView {
   private readonly onBlur = () => { this.unloadCombat(); this.dscanKey = null; };
   /** The modifiers held at the last press of a pointer (a modifier-only combat command is a click with them). */
   private readonly onPointer = (e: PointerEvent) => {
+    if (this.options.covered?.()) { this.onBlur(); return; }
     this.clickMods = { ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, at: performance.now() };
     this.systemMap?.setActive(this.systemMap.window.root.contains(e.target as Node));
   };
@@ -690,6 +694,7 @@ export class SpaceView {
     this.root.insertBefore(this.targetBar.root, this.modeEl);
     this.targetBar.onSelect = (id) => this.select(id);
     this.targetBar.onUnlock = (id) => void this.act("Unlock Target", () => this.actions.unlock(id)).then(() => this.refreshTargets());
+    this.selectedEl.classList.add("space-only-window");
     this.layer.appendChild(this.selectedEl);
     this.pollTargets();
     this.feedEl = this.root.querySelector(".feed-status")!;
@@ -730,6 +735,7 @@ export class SpaceView {
       word: (label) => this.actions.word?.(label) ?? null,
       notice: options.overviewNotice,
     });
+    this.overview.window.root.classList.add("space-only-window");
     this.layer.appendChild(this.overview.window.root);
     // The radial menu: held or right-clicked on a bracket, an overview row or an object in space.
     if (!document.getElementById("radial-css")) {
@@ -738,6 +744,7 @@ export class SpaceView {
       style.textContent = RADIAL_CSS;
       document.head.appendChild(style);
     }
+    this.radial.root.classList.add("space-only-window");
     this.layer.appendChild(this.radial.root);
     this.radial.root.style.zIndex = "100000";
     for (const el of [this.selectedEl, this.overview.window.root]) this.raiseOnClick(el);
@@ -789,6 +796,7 @@ export class SpaceView {
         return { ...state, direction: { x: d.x, y: d.y, z: -d.z } };
       },
     }, this.layer);
+    this.systemMap.window.root.classList.add("space-only-window");
     this.layer.appendChild(this.systemMap.window.root);
     this.raiseOnClick(this.systemMap.window.root);
     // The directional scanner (Alt+D, V), where the page can make the call.
@@ -813,6 +821,7 @@ export class SpaceView {
         scanned: (result) => this.systemMap?.scanEffect(result),
         hoverResult: (typeID) => this.systemMap?.hoverScanResult(typeID),
       }, this.layer);
+      this.dscan.window.root.classList.add("space-only-window");
       this.layer.appendChild(this.dscan.window.root);
       this.raiseOnClick(this.dscan.window.root);
     }
@@ -2064,6 +2073,7 @@ export class SpaceView {
    * button); CmdStopShip (Ctrl+Space) and CmdSetShipFullSpeed (Alt+Ctrl+Space).
    */
   private key(e: KeyboardEvent): void {
+    if (this.options.covered?.()) return;
     const t = e.target as HTMLElement | null;
     const cmd = commandForKey(e);
     if (cmd === null) return;
@@ -2917,6 +2927,7 @@ export class SpaceView {
     this.lodBoostersFar = boostersFar;
     this.lodChildMeshesHidden = childMeshesHidden;
     this.missileFx.explosionLimit = settings.lodQuality * 30;
+    if (this.options.covered?.()) return;
     this.updateReflections(eye, settings.reflectionQuality, reflectionSources);
     this.sunLight.position.copy(this.sunDir);
     setSmartLightSimulationTime(this.camera, this.live.effectSimNow());

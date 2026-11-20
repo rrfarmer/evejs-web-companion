@@ -57,7 +57,9 @@
   import LabelText from "./LabelText.svelte";
   import { linkFollowerOf, LINK_WORDS } from "./linkFollowers.ts";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, onViewPlanet, viewingPlanetID = null }: {
+    store: ClientStore; flow: AppFlow; onViewPlanet?: (planetID: number) => void; viewingPlanetID?: number | null;
+  } = $props();
 
   // svelte-ignore state_referenced_locally
   const planets = store.planets;
@@ -224,6 +226,8 @@
   const piFollowerOf = (url: string, t: string) => linkFollowerOf(url, flow, null, (label) => plainText($piWords.templates[label] ?? LINK_WORDS[label] ?? ""), t);
   const slotsTotal = $derived((($piSkills.skills ?? []).find((s) => s.typeID === INTERPLANETARY_CONSOLIDATION)?.level ?? 0) + 1);
   let chosenColony = $state<number | null>(null);
+  const canViewColony = $derived(onViewPlanet !== undefined && chosenColony !== null && chosenColony !== viewingPlanetID
+    && colonies.some(colony => colony.planetID === chosenColony));
   function colonySecurity(systemID: number): string {
     const level = $piNames.systemSecurity[systemID];
     if (level === undefined || level === null) return "";
@@ -281,7 +285,8 @@
     <div class="pc">
       <div class="pc-scroll">
         {#each colonies as colony (colony.planetID)}
-          <button type="button" class="pc-entry" class:pc-selected={chosenColony === colony.planetID} onclick={() => (chosenColony = colony.planetID)}>
+          <button type="button" class="pc-entry" class:pc-selected={chosenColony === colony.planetID} onclick={() => (chosenColony = colony.planetID)}
+            ondblclick={() => { if (viewingPlanetID !== colony.planetID) onViewPlanet?.(colony.planetID); }}>
             <span class="pc-icon"><TypeIcon typeID={colony.planetTypeID} name={colony.planetTypeName ?? ""} size="lg" /></span>
             <span class="pc-body">
               <span class="pc-caption"><LabelText markup={`${colonySecurity(colony.solarSystemID)} ${colony.planetName ?? ""} - ${colony.planetTypeName ?? ""} - ${plainText(piText("UI/PI/Common/NumInstallations", { numInstallations: colony.pins.length }))}`} followerOf={piFollowerOf} /></span>
@@ -305,7 +310,8 @@
       </div>
       <!-- the ButtonGroup: View, Warp To, Access - disabled until a colony is chosen (Warp To and Access here stay so) -->
       <div class="pc-buttons">
-        <button type="button" disabled={chosenColony === null} title={plainText(piText("UI/PI/Common/ViewInPlanetMode"))}>{plainText(piText("UI/Common/View")) || "View"}</button>
+        <button type="button" disabled={!canViewColony} title={plainText(piText("UI/PI/Common/ViewInPlanetMode"))}
+          onclick={() => { if (chosenColony !== null) onViewPlanet?.(chosenColony); }}>{plainText(piText("UI/Common/View")) || "View"}</button>
         <button type="button" disabled>{plainText(piText("UI/Commands/WarpTo")) || "Warp To"}</button>
         <button type="button" disabled title={plainText(piText("UI/PI/Common/AccessCustomOffice"))}>{plainText(piText("UI/PI/Common/Access")) || "Access"}</button>
         <button type="button" disabled={chosenColony === null} onclick={() => { templatePlanet = chosenColony; }}>Templates</button>
