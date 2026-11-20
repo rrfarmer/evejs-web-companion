@@ -262,6 +262,64 @@ test("collapsing a station touches no server", async () => {
   assert.equal(requests.length, before, "collapsing must not issue a read");
 });
 
+test("independent station reads can complete out of order and share a pending read of the same station", async () => {
+  const other = { ...THE_ROUTES_ITEM, locationID: THE_ROUTES_STATION };
+  const { fetch: recorded, requests } = makeFakeFetch(respondOk((path, body) =>
+    isItemsCall(path, body) && (body.args as number[])[0] === THE_ROUTES_STATION ? itemsAnswer([other]) : null));
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => { release = resolve; });
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+    const response = await recorded(input, init);
+    if (isItemsCall(String(input), body) && body.args[0] === STATION_ID) await waiting;
+    return response;
+  };
+  const store = createClientStore();
+  const flow = createAppFlow(store, { fetch });
+  await flow.loadPersonalAssets();
+  const first = flow.loadAssetStation(STATION_ID);
+  const duplicate = flow.loadAssetStation(STATION_ID);
+  await flow.loadAssetStation(THE_ROUTES_STATION);
+  assert.equal(store.assets.get().contents[THE_ROUTES_STATION]?.items[0]?.itemID, other.itemID);
+  assert.equal(store.assets.get().contents[STATION_ID], undefined);
+  release();
+  await Promise.all([first, duplicate]);
+  assert.equal(store.assets.get().expandedStationID, null);
+  assert.equal(store.assets.get().contents[STATION_ID]?.items.length, 2);
+  assert.deepEqual(requests.filter(({ path, body }) => isItemsCall(path, body)).map(({ body }) => body.args), [[STATION_ID], [THE_ROUTES_STATION]]);
+});
+
+test("an older station response cannot overwrite contents from a refreshed asset list", async () => {
+  let rows = LIVE_ITEM_ROWS;
+  const { fetch: recorded } = makeFakeFetch(respondOk((path, body) => isItemsCall(path, body) ? itemsAnswer(rows) : null));
+  let release!: () => void;
+  let started!: () => void;
+  const waiting = new Promise<void>((resolve) => { release = resolve; });
+  const reading = new Promise<void>((resolve) => { started = resolve; });
+  let first = true;
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+    const response = await recorded(input, init);
+    if (first && isItemsCall(String(input), body)) {
+      first = false;
+      started();
+      await waiting;
+    }
+    return response;
+  };
+  const store = createClientStore();
+  const flow = createAppFlow(store, { fetch });
+  await flow.loadPersonalAssets();
+  const old = flow.loadAssetStation(STATION_ID);
+  await reading;
+  rows = [{ ...LIVE_ITEM_ROWS[1]!, itemID: 9988400022335, quantity: 3, stacksize: 3 }];
+  await flow.loadPersonalAssets();
+  await flow.loadAssetStation(STATION_ID);
+  release();
+  await old;
+  assert.deepEqual(store.assets.get().contents[STATION_ID]?.items.map(({ itemID, units }) => [itemID, units]), [[9988400022335, 3]]);
+});
+
 // --- empty is NOT failed ----------------------------------------------------
 
 test("a SUCCESSFUL empty read says the character owns nothing", async () => {

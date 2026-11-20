@@ -3451,6 +3451,7 @@ export interface AppFlow {
    * alone and never thrown.
    */
   openAssetStation(stationID: number | null): Promise<void>;
+  loadAssetStation(stationID: number): Promise<void>;
   /**
    * Set course for an asset location. Wraps `startRoute` — it builds no
    * navigation of its own.
@@ -24046,6 +24047,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return { locations, stopped: false };
   }
 
+  let assetListRevision = 0;
+  const assetStationReads = new Map<string, Promise<void>>();
+
   async function loadPersonalAssets(): Promise<void> {
     let read: AssetStationsRead;
     try {
@@ -24063,10 +24067,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // refused, and what came back as no rowset, is kept AS a failure, by the
       // call's own code; nothing is decoded, so the panel has nothing to
       // mistake for a successful empty answer.
+      assetListRevision++;
       store.apply({ type: "assets/loaded", stations: [], error: failureCode(error), ownsNothing: false });
       return;
     }
     const stations = read.stations;
+    assetListRevision++;
     store.apply({
       type: "assets/loaded",
       stations,
@@ -24161,15 +24167,30 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    */
   async function openAssetStation(stationID: number | null): Promise<void> {
     store.apply({ type: "assets/expanded", stationID });
-    if (stationID === null || stationID <= 0) {
-      return;
-    }
+    if (stationID !== null) await loadAssetStation(stationID);
+  }
+
+  function loadAssetStation(stationID: number): Promise<void> {
+    if (stationID <= 0) return Promise.resolve();
+    const revision = assetListRevision;
+    const guard = callOptions.captureRequestGuard?.();
+    const key = `${requestGeneration}:${revision}:${stationID}`;
+    const existing = assetStationReads.get(key);
+    if (existing) return existing;
+    const read = readAssetStation(stationID, revision, guard).finally(() => assetStationReads.delete(key));
+    assetStationReads.set(key, read);
+    return read;
+  }
+
+  async function readAssetStation(stationID: number, revision: number, guard?: () => void): Promise<void> {
     let read: AssetStationItemsRead;
     try {
       // The page's own call (bridge/assetReads.ts), as the client's assets window makes it.
       read = await readAssetStationItems(bridgeAsk, stationID);
     } catch (error) {
       throwIfRequestRetired(error);
+      guard?.();
+      if (revision !== assetListRevision) return;
       if (isSessionLost(error)) {
         stopLiveStream();
         store.apply({ type: "character/offline" });
@@ -24187,6 +24208,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     // What each type measures is static data, as it is a client's own: asked of the BFF's for the types here.
     const volumes = await volumesOfTypes(decodeAssetItems(read.listed).map((item) => item.typeID));
+    guard?.();
+    if (revision !== assetListRevision) return;
     const items = decodeAssetItems(read.listed, volumes);
     store.apply({
       type: "assets/station-items",
@@ -36590,6 +36613,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadPersonalAssets,
     searchPersonalAssets,
     openAssetStation,
+    loadAssetStation,
     setDestinationToAssetStation,
 
     loadAgents,

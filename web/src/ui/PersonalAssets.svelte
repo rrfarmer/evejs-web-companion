@@ -29,7 +29,7 @@
   import { isSessionLost } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
-  import type { AssetStationRow } from "../store/types.ts";
+  import type { AssetStationContents, AssetStationRow } from "../store/types.ts";
   import { resolvedName } from "../store/names.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import AssetSafetyList from "./AssetSafetyList.svelte";
@@ -187,6 +187,7 @@
   // location's (GetMenuLocationMenu: the route entries).
   const ASSET_WORDS = {
     sortBy: "UI/Common/SortBy", name: "UI/Common/Name", jumps: "UI/Common/NumberOfJumps", items: "UI/Common/NumberOfItems",
+    collapseAll: "UI/Common/Buttons/CollapseAll",
     label: "UI/Inventory/AssetsWindow/LocationDataLabel", noRoute: "UI/Inventory/AssetsWindow/LocationDataLabelNoRoute",
     quantity: "UI/Common/Quantity", volume: "UI/Inventory/ItemVolume", noAssets: "UI/Inventory/AssetsWindow/NoAssetsAtStation",
     nothing: "UI/Common/NothingFound",
@@ -211,6 +212,48 @@
   let filterType = $state<FilterType>((() => { const k = keptJSON<string>("assets_window_filter_type", "allitems"); return FILTER_TYPES.some(([id]) => id === k) ? k as FilterType : "allitems"; })());
   // svelte-ignore state_referenced_locally
   let filterKeyID = $state<number>(keptJSON<number>(`assetsKeyID_${filterType}`, 0) || 0);
+  const noExpandedLocations: ReadonlySet<number> = new Set();
+  let expandedByFilter = $state.raw<Partial<Record<FilterType, ReadonlySet<number>>>>({});
+  const expandedLocations = $derived(expandedByFilter[filterType] ?? noExpandedLocations);
+  // svelte-ignore state_referenced_locally
+  const station = store.station;
+  const assetPilot = $derived($station.online?.characterID ?? null);
+  $effect(() => {
+    void assetPilot;
+    expandedByFilter = {};
+    hiddenOpen = false;
+    menuFor = null;
+    headerMenuFor = null;
+  });
+
+  function loadLocation(stationID: number): void {
+    const pilot = store.station.get().online?.characterID;
+    void flow.loadAssetStation(stationID).catch((cause) => {
+      if (store.station.get().online?.characterID !== pilot && !isSessionLost(cause)) return;
+      error = isSessionLost(cause) ? "Your session ended. Pick your character again."
+        : cause instanceof Error ? cause.message : String(cause);
+    });
+  }
+
+  function toggleLocation(stationID: number): void {
+    const locations = new Set(expandedLocations);
+    if (locations.has(stationID)) {
+      locations.delete(stationID);
+      if (headerMenuFor?.stationID === stationID) headerMenuFor = null;
+    } else {
+      locations.add(stationID);
+      loadLocation(stationID);
+    }
+    expandedByFilter = { ...expandedByFilter, [filterType]: locations };
+  }
+
+  function collapseLocations(): void {
+    expandedByFilter = { ...expandedByFilter, [filterType]: noExpandedLocations };
+    hiddenOpen = false;
+    menuFor = null;
+    headerMenuFor = null;
+  }
+
   function chooseFilterType(type: FilterType): void { filterType = type; keepJSON("assets_window_filter_type", type); filterKeyID = keptJSON<number>(`assetsKeyID_${type}`, 0) || 0; }
   function chooseFilterKey(id: number): void { filterKeyID = id; keepJSON(`assetsKeyID_${filterType}`, id); }
   let importance = $state<Record<string, number>>(keptJSON<Record<string, number>>("assets_window_importance", {}));
@@ -262,7 +305,7 @@
   let hiddenByDefault = $state<string[]>(readKept("filteredColumnsByDefault_assets", [...INV_ITEM_DEFAULT_HIDDEN]));
   const shownColumns = $derived(COLUMNS.filter((c) => !hiddenColumns.includes(c.label) && !hiddenByDefault.includes(c.label)));
   const itemGrid = $derived(invItemGridColumns(shownColumns));
-  let headerMenuFor = $state<string | null>(null);
+  let headerMenuFor = $state<{ stationID: number; label: string } | null>(null);
   const keepList = (key: string, list: string[]) => { try { localStorage.setItem(`evejs.play.${key}`, JSON.stringify(list)); } catch { /* not kept */ } };
   function hideColumn(label: string): void { headerMenuFor = null; if (!hiddenColumns.includes(label)) hiddenColumns = [...hiddenColumns, label]; keepList("filteredColumns_assets", hiddenColumns); }
   function showColumn(label: string): void {
@@ -279,17 +322,16 @@
   /** The store's row as the columns read an item: its stack the units (1 for an assembled thing, whose quantity is -1), singleton 1. */
   const invItem = (item: { itemID: number; typeID: number; units: number; singleton: boolean }): InvItem =>
     ({ itemID: item.itemID, typeID: item.typeID, stacksize: item.units, singleton: item.singleton ? 1 : 0 });
-  const openItems = $derived.by(() => {
-    if (openStation === null || openStation.error || openStation.hasNoItems) return [] as InvItem[];
-    const list = openStation.items.map(invItem);
+  function locationItems(contents: AssetStationContents): InvItem[] {
+    const list = contents.items.map(invItem);
     const col = COLUMNS.find((c) => c.label === sortColumn);
     if (!col) return list;
-    const out = list.slice().sort((a, b) => { const x = col.sort(a), y = col.sort(b); return x < y ? -1 : x > y ? 1 : 0; });
-    return sortReversed ? out.reverse() : out;
-  });
+    list.sort((a, b) => { const x = col.sort(a), y = col.sort(b); return x < y ? -1 : x > y ? 1 : 0; });
+    return sortReversed ? list.reverse() : list;
+  }
   $effect(() => {
-    if (!retail || openStation === null || openStation.error) return;
-    const types = [...new Set(openStation.items.map((item) => item.typeID))];
+    if (!retail) return;
+    const types = [...new Set([...expandedLocations].flatMap((stationID) => $assets.contents[stationID]?.items.map((item) => item.typeID) ?? []))];
     if (types.length === 0) return;
     flow.requestWords([...INV_ITEM_COLUMN_WORDS]);
     flow.requestNames(types.flatMap((id) => [{ kind: "type" as const, id }, { kind: "typeGroup" as const, id }, { kind: "typeCategory" as const, id }]));
@@ -314,6 +356,12 @@
     if (filterType === "allitems") return $assets.stations;
     const want = filterKeyID || (hereSystem === null ? null : placeOf(hereSystem, filterType));
     return $assets.stations.filter((row) => want !== null && placeOf(row.solarSystemID, filterType) === want);
+  });
+  $effect(() => {
+    if (!retail || safetyTab || tab !== "allitems" || !$assets.loaded || $assets.error) return;
+    for (const row of filteredStations) {
+      if (expandedLocations.has(row.stationID) && !$assets.contents[row.stationID]) loadLocation(row.stationID);
+    }
   });
   const noContentWord = $derived(filterType === "regitems" ? ASSET_WORDS.noInRegion : filterType === "conitems" ? ASSET_WORDS.noInConstellation
     : filterType === "sysitems" ? ASSET_WORDS.noInSystem : ASSET_WORDS.noAssets);
@@ -396,29 +444,31 @@
             {/if}
           </div>
         {/if}
-        {#if $assets.expandedStationID === row.stationID}
-          {#if openStation === null}
+        {#if expandedLocations.has(row.stationID)}
+          {@const contents = $assets.contents[row.stationID]}
+          {#if !contents}
             <p class="as-item as-note">…</p>
-          {:else if openStation.error}
+          {:else if contents.error}
             <p class="as-item as-note">What's stored here could not be read just now.</p>
-          {:else if openStation.hasNoItems}
+          {:else if contents.hasNoItems}
             <p class="as-item as-note">{plainText(text(ASSET_WORDS.nothing)) || "Nothing found"}</p>
           {:else}
             <div class="as-item as-head" style:grid-template-columns={itemGrid}>
               {#each shownColumns as col (col.label)}
                 <button type="button" class="as-col" class:num={col.right} onclick={() => sortOn(col.label)}
-                  oncontextmenu={(e) => { e.preventDefault(); headerMenuFor = headerMenuFor === col.label ? null : col.label; }}>{plainText(text(col.label))}{sortColumn === col.label ? (sortReversed ? " ▴" : " ▾") : ""}</button>
+                  oncontextmenu={(e) => { e.preventDefault(); headerMenuFor = headerMenuFor?.stationID === row.stationID && headerMenuFor?.label === col.label ? null : { stationID: row.stationID, label: col.label }; }}>{plainText(text(col.label))}{sortColumn === col.label ? (sortReversed ? " ▴" : " ▾") : ""}</button>
               {/each}
             </div>
-            {#if headerMenuFor}
+            {#if headerMenuFor?.stationID === row.stationID}
+              {@const label = headerMenuFor.label}
               <div class="as-menu" role="menu">
-                {#if shownColumns.length > 1}<button type="button" role="menuitem" onclick={() => hideColumn(headerMenuFor!)}>{plainText(text("/Carbon/UI/Common/Hide", { label: plainText(text(headerMenuFor)) }))}</button>{/if}
+                {#if shownColumns.length > 1}<button type="button" role="menuitem" onclick={() => hideColumn(label)}>{plainText(text("/Carbon/UI/Common/Hide", { label: plainText(text(label)) }))}</button>{/if}
                 {#each COLUMNS.filter((c) => !shownColumns.includes(c)) as c (c.label)}
                   <button type="button" role="menuitem" onclick={() => showColumn(c.label)}>{plainText(text("/Carbon/UI/Common/Show", { label: plainText(text(c.label)) }))}</button>
                 {/each}
               </div>
             {/if}
-            {#each openItems as item (item.itemID)}
+            {#each locationItems(contents) as item (item.itemID)}
               <div class="as-item" style:grid-template-columns={itemGrid}>
                 {#each shownColumns as col (col.label)}
                   {#if col.label === "UI/Common/Name"}
@@ -554,12 +604,16 @@
           <option value={2}>{plainText(text(ASSET_WORDS.items)) || "Number of Items"}</option>
         </select>
       </label>
+      <button type="button" class="as-collapse" title={word(ASSET_WORDS.collapseAll, "Collapse All")} onclick={collapseLocations}
+        aria-label={word(ASSET_WORDS.collapseAll, "Collapse All")} disabled={expandedLocations.size === 0 && !hiddenOpen}>
+        <img src="/client-res/ui/texture/classes/scroll/collapse.png" width="12" height="12" alt="" />
+      </button>
     </div>
     <div class="as-scroll">
       {#snippet locationGroup(row: AssetStationRow, sub: boolean)}
-        <button type="button" class="as-group" class:as-sub={sub} aria-expanded={$assets.expandedStationID === row.stationID} onclick={() => toggle(row)}
+        <button type="button" class="as-group" class:as-sub={sub} data-station-id={row.stationID} aria-expanded={expandedLocations.has(row.stationID)} onclick={() => toggleLocation(row.stationID)}
           oncontextmenu={(e) => { e.preventDefault(); menuFor = menuFor === row.stationID ? null : row.stationID; }}>
-          <span class="as-arrow">{$assets.expandedStationID === row.stationID ? "▾" : "▸"}</span><LabelText markup={locationLabel(row)} {followerOf} />
+          <span class="as-arrow">{expandedLocations.has(row.stationID) ? "▾" : "▸"}</span><LabelText markup={locationLabel(row)} {followerOf} />
           {#if importance[String(row.stationID)] === 1}<img class="as-pin" alt="" title={plainText(text(ASSET_WORDS.pinnedHint))} src="/client-res/ui/texture/eveicon/system_icons/pinned_16px.png" />{/if}
         </button>
         {@render locationBody(row)}

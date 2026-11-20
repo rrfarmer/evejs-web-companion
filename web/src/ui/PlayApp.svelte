@@ -2265,6 +2265,7 @@
   .fly-windows :global(.as-retail > .panel-head), .fly-windows :global(.as-retail > p.note) { display: none; }
   .fly-windows :global(.as-filter) { display: flex; gap: 4px; margin-bottom: 6px; }
   .fly-windows :global(.as-filter-gap) { flex: 1; }
+  .fly-windows :global(.as-collapse) { align-self: flex-end; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; }
   .fly-windows :global(.as-group.as-sub) { padding-left: 20px; width: calc(100% - 24px); }
   .fly-windows :global(.as-pin) { margin-left: auto; width: 16px; height: 16px; opacity: 0.8; }
   .fly-windows :global(.as-hidden-icon) { width: 16px; height: 16px; opacity: 0.8; }
