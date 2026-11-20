@@ -27,7 +27,7 @@
   import { typeCompareTarget } from "./typeCompare.ts";
   import { fittingWindowTarget } from "./fittingWindowTarget.ts";
   import { shipHoldTarget } from "./shipHold.ts";
-  import { hudSetting, hudSettingNow, setHudSetting } from "../store/hudSettings.ts";
+  import { hudSetting, hudSettingNow, setHudSetting, slotOrderOf } from "../store/hudSettings.ts";
   import { createSession, type Session } from "../app/sessions.ts";
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
   import { bridgeDo, corpTickers, getDscanHologramTypes } from "../app/api.ts";
@@ -1345,8 +1345,11 @@
       const banks = s.store.space.get().snapshot?.ship?.weaponBanks ?? {};
       const slaves = (banks[m.itemID] ?? []) as readonly number[];
       // GetModuleShortcut: the slot's CmdActivate<Rack>PowerSlot<n> (a module with a default effect only)
-      const rack = { high: "High", mid: "Medium", low: "Low" }[m.family];
-      const shortcut = facts && (facts.defaultEffectID ?? null) !== null ? shortcutOf(`CmdActivate${rack}PowerSlot${m.index + 1}`) || null : null;
+      // GetModuleShortcut: the key of the place the module's flag has in the ship's slot order
+      const flag = ({ high: 27, mid: 19, low: 11 } as const)[m.family] + m.index;
+      const place = slotOrderOf(fitted.activeShipID).indexOf(flag);
+      const rack = ["High", "Medium", "Low"][Math.floor(place / 8)];
+      const shortcut = facts && (facts.defaultEffectID ?? null) !== null && place >= 0 && rack ? shortcutOf(`CmdActivate${rack}PowerSlot${(place % 8) + 1}`) || null : null;
       const repair = s.flow.moduleRepairOf(m.itemID);
       return moduleTooltipRows({
         typeID: m.typeID,
@@ -1655,6 +1658,9 @@
           }
           return { peak, maxDrain: need > 0 ? need : peak, drain };
         },
+        slotOrder: () => slotOrderOf(s.store.fitting.get().activeShipID),
+        // moduleTray.OnSlotDropped: a module of one type dropped on another linked (peeled with Ctrl), else the places swapped
+        dropSlot: (to, from, peel) => s.flow.rackChangeSlots(to, from, peel),
         slotCounts: () => {
           const counts = { high: 0, mid: 0, low: 0 };
           for (const slot of s.store.fitting.get().slots ?? []) {

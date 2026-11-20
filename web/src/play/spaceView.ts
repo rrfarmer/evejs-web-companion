@@ -152,6 +152,9 @@ export interface SpaceViewOptions {
      * running modules drain now (_GetActiveDrain); null where not known.
      */
     capacitorFlow?(): { peak: number; maxDrain: number; drain: number } | null;
+    /** The ship's slot order (slotOrder.GetSlotOrder: the 24 flags by place), and a module dropped on a place. */
+    slotOrder?(): readonly number[];
+    dropSlot?(toFlag: number, fromFlag: number, peel: boolean): Promise<void>;
     /** The ship's slots per rack (present ones), for the new HUD's empty slots. */
     slotCounts?(): { high: number; mid: number; low: number };
   };
@@ -2236,7 +2239,11 @@ export class SpaceView {
     e.preventDefault();
     const family = RACKS[slot[2] as "High" | "Medium" | "Low"];
     const index = Number(slot[3]) - 1;
-    const m = this.options.rack?.modules().find((each) => each.family === family && each.index === index) ?? null;
+    // hudLayer.OnF (_ActivateModuleAtPosition): the module at that place in the ship's slot order (slotOrder.GetSlotOrder)
+    const order = this.options.rack?.slotOrder?.() ?? null;
+    const placeFlag = order ? order[({ high: 0, mid: 1, low: 2 } as const)[family] * 8 + index] ?? null : null;
+    const FLAG_BASE = { high: 27, mid: 19, low: 11 } as const;
+    const m = this.options.rack?.modules().find((each) => (placeFlag !== null ? FLAG_BASE[each.family] + each.index === placeFlag : each.family === family && each.index === index)) ?? null;
     // (an empty slot or a module offline: the client's "Disabled" notice)
     if (!m || !m.online) { this.toast("Disabled"); return; }
     if (slot[1] === "Activate") { if (!e.repeat) this.useRackModule(m); return; }
@@ -2955,6 +2962,11 @@ export class SpaceView {
       const overload = rack.overload;
       const modules = rack.modules();
       if (this.shipHud instanceof NewShipHud && rack.slotCounts) this.shipHud.setSlotCounts(rack.slotCounts());
+      if (this.shipHud instanceof NewShipHud && rack.slotOrder) this.shipHud.setSlotOrder(rack.slotOrder());
+      if (this.shipHud instanceof NewShipHud && rack.dropSlot && !this.shipHud.onDropSlot) {
+        const drop = rack.dropSlot;
+        this.shipHud.onDropSlot = (to, from, peel) => void this.act("Move module", () => drop(to, from, peel));
+      }
       if (this.shipHud instanceof NewShipHud && rack.capacitorFlow) this.shipHud.setCapacitorFlow(rack.capacitorFlow());
       if (this.moduleTargetOrders.size) this.finishModuleTargetOrders(modules);
       for (const m of modules) m.waitingForTarget = !!this.moduleTargetOrders.get(m.itemID)?.mode;

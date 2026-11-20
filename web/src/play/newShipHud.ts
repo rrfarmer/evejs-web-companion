@@ -209,6 +209,8 @@ interface Slot {
   coolShown: boolean;
   /** An empty slot of the ship's, drawn (Display Empty Slots). */
   empty: boolean;
+  /** The slot flag at this place in the ship's order. */
+  flag: number;
 }
 
 // cooldownTimer.py
@@ -315,6 +317,12 @@ export class NewShipHud {
   private modules: readonly HudModule[] = [];
   /** A label's text (localization.GetByLabel, plain), the page's to give; null: not to hand, the English is used. */
   word: (label: string) => string | null = () => null;
+  /** slotOrder.GetSlotOrder: each place's slot flag (high 27+, mid 19+, low 11+), the ship's own where it has one. */
+  private slotOrder: readonly number[] = [27, 28, 29, 30, 31, 32, 33, 34, 19, 20, 21, 22, 23, 24, 25, 26, 11, 12, 13, 14, 15, 16, 17, 18];
+  /** A module dragged onto a place (moduleSlot.OnDropData: OnSlotDropped), the page's. */
+  onDropSlot: ((toFlag: number, fromFlag: number, peel: boolean) => void) | null = null;
+  /** moduleTray._dragging: the empty slots shown while a module is dragged. */
+  private dragging = false;
   /** The ship's slots per rack (the empty ones drawn with Display Empty Slots). */
   private slotCounts = { high: 0, mid: 0, low: 0 };
   private readonly utilityEls: HTMLElement[] = [];
@@ -664,7 +672,7 @@ export class NewShipHud {
       this.root.style.bottom = top ? "" : `${HUD_BAND_LIFT}px`;
       this.root.style.top = top ? `${HUD_BAND_LIFT}px` : "";
     });
-    for (const name of ["showPassiveModules", "shipHudNew_hideEmptySlots"] as const) follow(name, () => this.placeSlots());
+    for (const name of ["showPassiveModules", "shipHudNew_hideEmptySlots", "lockModules"] as const) follow(name, () => this.placeSlots());
   }
 
   /** hudReadout._Repaint: each pool as a percentage (UI/Common/Formatting/Percentage) or as left/total (UI/Inflight/GaugeAbsolute). */
@@ -880,10 +888,31 @@ export class NewShipHud {
       Object.assign(shortcut.style, { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", font: "bold 11px 'EVE Sans Neue','Segoe UI',sans-serif", color: "rgba(255,255,255,0.3)" });
       // moduleSlot._BuildWidget: the cooldown timer over the icon, the quantity over the timer.
       el.append(disc, icon, cool, qty, badge, shortcut);
-      const slot: Slot = { el, icon, qty, badge, shortcut, x, y, module: null, hover: false, wedge: { angle: 180, half: 7.5, lit: 0 }, cycles: -1, flashAt: 0, cool, coolShown: false, empty: false };
+      const slot: Slot = { el, icon, qty, badge, shortcut, x, y, module: null, hover: false, wedge: { angle: 180, half: 7.5, lit: 0 }, cycles: -1, flashAt: 0, cool, coolShown: false, empty: false, flag: 0 };
       el.addEventListener("mouseenter", () => { slot.hover = true; this.hoverTooltip(slot); this.previewModule(slot.module); });
       el.addEventListener("mouseleave", () => { slot.hover = false; this.hideTooltip(slot); this.previewModule(null); });
       el.addEventListener("click", () => { if (slot.module && this.onModule) this.onModule(slot.module); });
+      // moduleSlot drag and drop: the module's icon as the ghost; empty places shown while it is carried
+      el.addEventListener("dragstart", (e) => {
+        if (!slot.module || hudSettingNow("lockModules")) { e.preventDefault(); return; }
+        this.hideTooltip(slot);
+        e.dataTransfer?.setData("application/x-evejs-hud-slot", String(slot.flag));
+        if (e.dataTransfer) { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setDragImage(slot.icon, SLOT_ICON_SIZE / 2, SLOT_ICON_SIZE / 2); }
+        this.dragging = true;
+        this.placeSlots();
+      });
+      el.addEventListener("dragend", () => { this.dragging = false; this.placeSlots(); });
+      el.addEventListener("dragover", (e) => { if (e.dataTransfer?.types.includes("application/x-evejs-hud-slot")) { e.preventDefault(); slot.hover = true; } });
+      el.addEventListener("dragleave", () => { slot.hover = false; });
+      el.addEventListener("drop", (e) => {
+        const from = Number(e.dataTransfer?.getData("application/x-evejs-hud-slot"));
+        slot.hover = false;
+        this.dragging = false;
+        if (!from || from === slot.flag) { this.placeSlots(); return; }
+        e.preventDefault();
+        this.onDropSlot?.(slot.flag, from, e.ctrlKey);
+        this.placeSlots();
+      });
       this.slots.push(slot);
       this.tray.append(el);
     }
@@ -1213,6 +1242,13 @@ export class NewShipHud {
     return lines.filter((l) => l !== "");
   }
 
+  /** The ship's slot order. */
+  setSlotOrder(order: readonly number[]): void {
+    if (order.length !== 24 || order.every((f, i) => f === this.slotOrder[i])) return;
+    this.slotOrder = [...order];
+    this.placeSlots();
+  }
+
   /** The ship's slots per rack, for Display Empty Slots. */
   setSlotCounts(counts: { high: number; mid: number; low: number }): void {
     const c = this.slotCounts;
@@ -1227,18 +1263,23 @@ export class NewShipHud {
    * with their activation shortcut (_SetShortcuts: the key, else "_").
    */
   private placeSlots(): void {
-    const flagOf = (m: HudModule) => ({ high: 0, mid: 1, low: 2 }[m.family] * 8 + m.index);
-    const byPosition = new Map<number, HudModule>();
-    for (const m of this.modules) byPosition.set(flagOf(m), m);
+    // each place's flag in the ship's order; a flag the ship has (its rack's count) is a slot of it
+    const flagOf = (m: HudModule) => ({ high: 27, mid: 19, low: 11 }[m.family] + m.index);
+    const byFlag = new Map<number, HudModule>();
+    for (const m of this.modules) byFlag.set(flagOf(m), m);
     const showPassive = hudSettingNow("showPassiveModules");
-    const showEmpty = !hudSettingNow("shipHudNew_hideEmptySlots");
-    const counts = [this.slotCounts.high, this.slotCounts.mid, this.slotCounts.low];
+    const showEmpty = this.dragging || !hudSettingNow("shipHudNew_hideEmptySlots");
+    const has = (flag: number) => (flag >= 27 && flag < 35 ? flag - 27 < this.slotCounts.high : flag >= 19 && flag < 27 ? flag - 19 < this.slotCounts.mid : flag >= 11 && flag < 19 ? flag - 11 < this.slotCounts.low : false);
     this.slots.forEach((slot, position) => {
-      const fitted = byPosition.get(position) ?? null;
+      const flag = this.slotOrder[position]!;
+      slot.flag = flag;
+      const fitted = byFlag.get(flag) ?? null;
       const m = fitted && (showPassive || !fitted.passive) ? fitted : null;
       slot.module = m;
       const row = Math.floor(position / 8);
-      slot.empty = !fitted && showEmpty && position % 8 < counts[row]!;
+      slot.empty = !fitted && showEmpty && has(flag);
+      // moduleSlot.GetDragData: none with Lock Modules in Place
+      slot.el.draggable = !!m && !hudSettingNow("lockModules");
       slot.el.style.display = m || slot.empty ? "" : "none";
       if (!m) {
         if (this.tipSlot === slot) this.hideTooltip(slot);
