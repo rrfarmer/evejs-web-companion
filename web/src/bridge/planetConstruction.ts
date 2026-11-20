@@ -4,6 +4,8 @@ import { angularDistance, linkKey, validateRouteRemovals } from "./planetRouting
 import { commandCenterUpgradeCommand, commandCenterUpgradeCost, commandCenterUpgradeError, type CommandCenterUpgrade,
   type CommandCenterUpgradeQuote } from "./commandCenterUpgrade.ts";
 import { planetPinRef } from "./planetWrites.ts";
+import { applySchematicEdit, planSchematicEdit, type SchematicEdit } from "./planetSchematics.ts";
+import { EMPTY_RECIPE_BOOK, type PiRecipeBook } from "./piRecipes.ts";
 import type { JsonValue } from "./wire.ts";
 
 export const INSTALLATION_GROUPS = [
@@ -40,6 +42,7 @@ export type PlanetLayoutEdit =
   | { readonly kind: "build"; readonly pin: ColonyPin & SurfaceCoordinates; readonly price: number }
   | { readonly kind: "remove"; readonly removal: Removal }
   | { readonly kind: "upgrade"; readonly upgrade: CommandCenterUpgrade }
+  | { readonly kind: "schematic"; readonly edit: SchematicEdit }
   | { readonly kind: "link"; readonly link: LinkEdit };
 
 export function installationRemoval(colony: Colony, pin: ColonyPin) {
@@ -76,6 +79,7 @@ export function applyPlanetLayoutEdit(colony: Colony, edit: PlanetLayoutEdit): C
   if (edit.kind === "link") return applyPlanetLinkEdit(colony, edit.link);
   if (edit.kind === "build") return { ...colony, pins: [...colony.pins, edit.pin] };
   if (edit.kind === "upgrade") return { ...colony, commandCenterLevel: edit.upgrade.level };
+  if (edit.kind === "schematic") return applySchematicEdit(colony, edit.edit);
   const id = edit.removal.pinID;
   const links = colony.links.filter(link => link.endpoint1 !== id && link.endpoint2 !== id);
   return { ...colony, pins: colony.pins.filter(pin => pin.pinID !== id), links, linkCount: links.length,
@@ -88,12 +92,18 @@ function savedLinkLevels(links: Removal["links"]): string {
 }
 
 export function planPlanetLayout(colony: Colony, edits: readonly PlanetLayoutEdit[], facts: PlanetLinkFacts,
-  quote?: ConstructionQuote, upgradeQuote?: CommandCenterUpgradeQuote) {
+  quote?: ConstructionQuote, upgradeQuote?: CommandCenterUpgradeQuote, recipes: PiRecipeBook = EMPTY_RECIPE_BOOK) {
   const commands: JsonValue[] = [];
   let cost = 0;
   for (const edit of edits) {
     if (edit.kind === "link") {
       const plan = planPlanetLinkEdits(colony, [edit.link], facts);
+      colony = plan.colony;
+      commands.push(...plan.commands);
+      continue;
+    }
+    if (edit.kind === "schematic") {
+      const plan = planSchematicEdit(colony, edit.edit, recipes);
       colony = plan.colony;
       commands.push(...plan.commands);
       continue;

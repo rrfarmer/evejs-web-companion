@@ -6,6 +6,8 @@
   import { EXTRACTOR_COOLDOWN_MS, extractorBasis, extractorHeadCommands, type ExtractorEdit } from "../bridge/extractorEdits.ts";
   import { MAX_HEAD_RADIUS, MIN_HEAD_RADIUS } from "../bridge/extractorSurvey.ts";
   import { appendPlanetWaypoint, linkKey, pinDesignator, previewPlanetRoute } from "../bridge/planetRouting.ts";
+  import { schematicObsoletesRoute } from "../bridge/planetSchematics.ts";
+  import type { PiSchematic } from "../bridge/piRecipes.ts";
   import { colonyLinkBudget, linkBudgetError, linkEndpoints, linkInColony, linkUsage, MAX_LINK_LEVEL,
     pathUsesLink, type LinkEdit, type PlanetLinkFacts } from "../bridge/planetLinks.ts";
   import { applyPlanetLayoutEdit, constructionError, draftInstallation, installationRemoval, INSTALLATION_GROUPS,
@@ -24,6 +26,7 @@
   import PlanetLink from "./PlanetLink.svelte";
   import PlanetSurvey from "./PlanetSurvey.svelte";
   import PlanetRouting from "./PlanetRouting.svelte";
+  import ProcessorSchematics from "./ProcessorSchematics.svelte";
   import TypeIcon from "./TypeIcon.svelte";
 
   let { colony, store, flow, onClose }: { colony: Colony; store: ClientStore; flow: AppFlow; onClose: () => void } = $props();
@@ -49,6 +52,7 @@
   let removedRoutes = $state.raw<readonly ColonyRoute[]>([]);
   let layout = $state.raw<readonly PlanetLayoutEdit[]>([]);
   let upgradeShown = $state(false);
+  let schematicsShown = $state(false);
   let upgradeRefresh = $state(0);
   let building = $state(false);
   let decommissioning = $state(false);
@@ -102,6 +106,8 @@
     : draftCenter ? { ...colony, pins: [draftCenter] } : layout.reduce(applyPlanetLayoutEdit, colony));
   const builds = $derived(layout.filter(edit => edit.kind === "build"));
   const decommissions = $derived(layout.filter(edit => edit.kind === "remove"));
+  const schematicEdits = $derived(layout.filter(edit => edit.kind === "schematic"));
+  const schematicRemovedIDs = $derived(new Set(schematicEdits.flatMap(edit => edit.edit.removedRoutes.map(route => route.routeID))));
   const commandUpgrade = $derived(layout.find(edit => edit.kind === "upgrade")?.upgrade);
   const pendingCost = $derived(Math.round((builds.reduce((cost, edit) => cost + edit.price, 0)
     + (commandUpgrade ? commandCenterUpgradeCost(commandUpgrade.previousLevel, commandUpgrade.level) : 0)) * 100) / 100);
@@ -126,7 +132,7 @@
     ? colonyLinkBudget(networkView, linkFacts) : null);
   const removalView = $derived(pendingRemoval === null ? undefined : pinsByID.get(pendingRemoval));
   const removal = $derived(removalView ? installationRemoval(routeView, removalView) : null);
-  const removedLinkRoutes = $derived(colony.routes.filter(route => !removedIDs.has(route.routeID)
+  const removedLinkRoutes = $derived(colony.routes.filter(route => !removedIDs.has(route.routeID) && !schematicRemovedIDs.has(route.routeID)
     && !networkView.routes.some(remaining => remaining.routeID === route.routeID)).length);
   const selectedEdit = $derived(selectedID === null ? undefined : edits.get(selectedID));
   const pendingResource = $derived(colony.resources?.find(resource => resource.typeID === selectedEdit?.resourceID)?.typeName);
@@ -158,6 +164,7 @@
     if (shortcut) { startLink(pin); return; }
     pendingRemoval = null;
     upgradeShown = false;
+    schematicsShown = pin.kind === "factory" && pin.schematicID === null;
     closeLink();
     highlight = [];
     if (extractorID !== null && extractorID !== pin.pinID) closeExtractor();
@@ -195,6 +202,7 @@
     closeTransfer();
     closeRoute();
     closeLink();
+    schematicsShown = false;
     routePath = [selected.pinID];
     routeTypeID = typeID;
   }
@@ -367,6 +375,7 @@
     deployPicking = false;
     abandonReview = false;
     upgradeShown = false;
+    schematicsShown = false;
   }
 
   function enterConstruction(): void {
@@ -441,6 +450,19 @@
     submitError = "";
   }
 
+  function installSchematic(recipe: PiSchematic): void {
+    const pin = selected;
+    if (!pin || pin.kind !== "factory" || submitting || refreshing || !recipe.factoryTypeIDs.includes(pin.typeID)) return;
+    const obsolete = (route: ColonyRoute) => schematicObsoletesRoute(pin.pinID, recipe, route);
+    const removed = networkView.routes.filter(route => !removedIDs.has(route.routeID) && obsolete(route));
+    layout = [...layout, { kind: "schematic", edit: { pinID: pin.pinID, previousSchematicID: pin.schematicID, recipe, removedRoutes: removed } }];
+    newRoutes = newRoutes.filter(route => !schematicObsoletesRoute(pin.pinID, recipe, {
+      path: route.path, commodityTypeID: route.typeID,
+    }));
+    submitError = "";
+    startRoute(recipe.output.typeID);
+  }
+
   function stageAbandonment(): void {
     if (!abandonReview || submitting || refreshing) return;
     abandonDraft = abandonmentBasis(colony);
@@ -465,6 +487,7 @@
     const id = removalView.pinID;
     if (id < 0) {
       layout = layout.filter(edit => !(edit.kind === "build" && edit.pin.pinID === id)
+        && !(edit.kind === "schematic" && edit.edit.pinID === id)
         && !(edit.kind === "link" && (edit.link.endpoint1 === id || edit.link.endpoint2 === id)));
     } else {
       const reviewed = installationRemoval(networkView, removalView);
@@ -549,7 +572,7 @@
   }
 
   export function escapeCanLeave(): boolean {
-    if (deployPicking || abandonReview || upgradeShown) {
+    if (deployPicking || abandonReview || upgradeShown || schematicsShown) {
       if (!submitting) closeConstruction();
       return false;
     }
@@ -819,6 +842,9 @@
             {#if commandUpgrade}
               {edits.size || newRoutes.length || removedRoutes.length || linkEdits.length || builds.length || decommissions.length ? " · " : ""}Command centre upgrade pending
             {/if}
+            {#if schematicEdits.length}
+              {edits.size || newRoutes.length || removedRoutes.length || linkEdits.length || builds.length || decommissions.length || commandUpgrade ? " · " : ""}{schematicEdits.length} pending schematic {schematicEdits.length === 1 ? "change" : "changes"}
+            {/if}
           {/if}
         </span>
         <button type="button" disabled={submitting || refreshing || dragging !== null} onclick={() => void submitEdits()}>{submitting ? "Submitting…" : "Submit"}</button>
@@ -832,6 +858,9 @@
       {/if}
       {#if !abandonDraft && removedLinkRoutes}
         <p>Submitting will remove {removedLinkRoutes} {removedLinkRoutes === 1 ? "route" : "routes"} through decommissioned {decommissions.length ? "installations or links" : "links"}.</p>
+      {/if}
+      {#if !abandonDraft && schematicRemovedIDs.size}
+        <p>Submitting will remove {schematicRemovedIDs.size} incompatible {schematicRemovedIDs.size === 1 ? "route" : "routes"}.</p>
       {/if}
       {#if !abandonDraft && pendingCost}
         <p>{commandUpgrade ? builds.length ? "Total cost" : "Upgrade cost" : "Construction cost"} {pendingCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} ISK</p>
@@ -964,11 +993,12 @@
         <div class="installation-heading">
           <TypeIcon typeID={selected.typeID} name={selected.typeName} />
           <strong>{selected.typeName}</strong>
-          <button type="button" aria-label="Close installation details" disabled={submitting} onclick={() => { closeRoute(); closeTransfer(); upgradeShown = false; selectedID = null; }}>×</button>
+          <button type="button" aria-label="Close installation details" disabled={submitting} onclick={() => { closeRoute(); closeTransfer(); upgradeShown = schematicsShown = false; selectedID = null; }}>×</button>
         </div>
         {#if selected.schematicName}<p>Recipe <strong>{selected.schematicName}</strong></p>{/if}
         {#if selected.kind === "factory" && selected.schematicID !== null && selected.active != null}
-          <p class="processor-status">{selected.active ? "Processing" : "Waiting for inputs"}</p>
+          <p class="processor-status">{schematicEdits.some(edit => edit.edit.pinID === selected?.pinID)
+            ? "Schematic pending" : selected.active ? "Processing" : "Waiting for inputs"}</p>
         {/if}
         {#if selected.kind === "command"}<p>Command centre level <strong>{commandCenterLevelName(networkView.commandCenterLevel)}</strong>{commandUpgrade ? " (pending)" : ""}</p>{/if}
         {#if selected.program?.resourceTypeName}<p>Resource <strong>{selected.program.resourceTypeName}</strong></p>{/if}
@@ -988,6 +1018,10 @@
         <p>{networkView.links.filter(link => link.endpoint1 === selected.pinID || link.endpoint2 === selected.pinID).length} links ·
           {networkView.routes.filter(route => route.path.includes(selected.pinID)).length} routes</p>
         {#if !routing && !transferring}
+          {#if selected.kind === "factory"}
+            <button type="button" disabled={submitting || refreshing} aria-expanded={schematicsShown}
+              onclick={() => { schematicsShown = !schematicsShown; }}>Schematics</button>
+          {/if}
           <button type="button" disabled={!ready || submitting || refreshing} onclick={() => startLink(selected)}>Create Link from Here</button>
           {#if selected.kind !== "command"}
             <button type="button" disabled={submitting || refreshing} onclick={() => reviewRemoval(selected)}>Decommission Installation</button>
@@ -1000,6 +1034,11 @@
         {#if upgradeShown && selected.kind === "command"}
           <CommandCenterUpgrade level={networkView.commandCenterLevel} {pendingCost} {flow} disabled={submitting || refreshing}
             refresh={upgradeRefresh} stage={stageCommandUpgrade} close={() => { upgradeShown = false; }} />
+        {:else if schematicsShown && selected.kind === "factory"}
+          {#key selected.pinID}
+            <ProcessorSchematics pin={selected} colony={routeView} recipes={$planets.recipes} disabled={submitting || refreshing}
+              install={installSchematic} close={() => { schematicsShown = false; }} />
+          {/key}
         {:else if transferring}
           {#key transferPath.at(-1) ?? null}
             <ExpeditedTransfer {colony} source={selected} path={transferPath} recipes={$planets.recipes} {flow}

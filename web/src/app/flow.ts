@@ -28536,16 +28536,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           ? readPlanetLinkFacts([...fresh.pins.map(pin => pin.typeID), ...builds]) : {},
         builds.length ? readPlanetConstruction(fresh.planetTypeID) : undefined,
         layout.some(edit => edit.kind === "upgrade") ? readCommandCenterUpgrade() : undefined,
+        routes.create.length || layout.some(edit => edit.kind === "schematic") ? ensurePiRecipes() : undefined,
       ]);
-      const { colony, commands: layoutCommands } = planPlanetLayout(validateRouteRemovals(fresh, routes.remove), layout, factsForLayout, quote, upgradeQuote);
+      const recipes = store.planets.get().recipes;
+      const { colony, commands: layoutCommands } = planPlanetLayout(validateRouteRemovals(fresh, routes.remove), layout, factsForLayout, quote, upgradeQuote, recipes);
       if (routes.create.length) {
         if (routes.create.some(route => edits.some(edit => edit.pinID === route.path[0] && edit.resourceID !== undefined))) {
           throw new Error("Submit the new extractor program before routing its output.");
         }
         const kinds = [...colony.routes.map(route => route.commodityTypeID), ...routes.create.map(route => route.typeID)];
-        const [facts] = await Promise.all([readPlanetRouteFacts(kinds), ensurePiRecipes()]);
+        const facts = await readPlanetRouteFacts(kinds);
         pilot();
-        validateNewRoutes(colony, store.planets.get().recipes, facts, routes.create);
+        validateNewRoutes(colony, recipes, facts, routes.create);
       }
       const extractorCommands = await planExtractorEdits(bridgeAsk, colony, edits, routes.create.length + 1);
       const changes = [...routeEditCommands(routes.remove.map(route => route.routeID), []),
