@@ -2202,6 +2202,7 @@ export interface AppFlow {
   clearSelection(): void;
   /** Open a container and read its contents; null closes it. */
   openContainer(containerID: number | null): Promise<void>;
+  showInventoryContainer(containerID: number): Promise<void>;
   selectSafetyDivision(divisionID: number): void;
   /** Goal R40 — expand a ship in the Ships card and read its bays; null closes it. */
   openShipBays(shipID: number | null): Promise<void>;
@@ -8940,7 +8941,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   let containerReadGeneration = 0;
   const cargoShownSignal = createSignal<{ readonly n: number; readonly itemID: number } | null>(null);
-  async function openContainer(containerID: number | null, fromSpace = false): Promise<void> {
+  async function openContainer(containerID: number | null, fromSpace = false, show = fromSpace): Promise<void> {
     const generation = ++containerReadGeneration;
     if (containerID === null) {
       store.apply({ type: "inventory/container", container: null });
@@ -9044,7 +9045,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         error: null,
       },
     });
-    if (fromSpace) cargoShownSignal.set({ n: (cargoShownSignal.get()?.n ?? 0) + 1, itemID: containerID });
+    if (show) cargoShownSignal.set({ n: (cargoShownSignal.get()?.n ?? 0) + 1, itemID: containerID });
   }
 
   /**
@@ -35052,6 +35053,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
 
     openContainer,
+    showInventoryContainer: (containerID) => openContainer(containerID, false, true),
     selectSafetyDivision(divisionID) {
       const container = store.inventory.get().container;
       const division = container?.safety?.divisions.find(division => division.divisionID === divisionID);

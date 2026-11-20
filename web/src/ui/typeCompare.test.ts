@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { comparisonKey, placeComparedSubjects } from "./typeCompare.ts";
+import { comparisonKey, createTypeCompareTarget, placeComparedSubjects } from "./typeCompare.ts";
 import { isComparable, type ComparisonTypeData } from "../bridge/typeComparison.ts";
 
 const marketMiner = { typeID: 483, itemID: null };
@@ -9,6 +9,14 @@ const secondMiner = { typeID: 483, itemID: 102 };
 const thirdMiner = { typeID: 483, itemID: 103 };
 const heron = { typeID: 605, itemID: 201 };
 const category = (typeID: number) => typeID === 605 ? 6 : 7;
+
+test("opening Compare from a menu carries the selected item IDs through to the window", () => {
+  const target = createTypeCompareTarget();
+  target.ask([marketMiner]);
+  target.ask([firstMiner, secondMiner]);
+  assert.deepEqual(target.take(), [marketMiner, firstMiner, secondMiner]);
+  assert.deepEqual(target.take(), []);
+});
 
 test("comparison keeps distinct stacks alongside a type-only column and skips duplicates on the grid", () => {
   const placed = placeComparedSubjects([marketMiner], [firstMiner, secondMiner, firstMiner], null, category);

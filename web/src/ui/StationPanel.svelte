@@ -410,20 +410,22 @@
     if ($inventory.container?.itemID === shown.itemID) view = "container";
   });
 
-  // A hold of the active ship asked for from outside (shipHold.ts: the Fitting window's readouts' OnHoldClicked): the
-  // ship's holds shown, that one unfolded and brought into view; the active ship's holds read first where another's
-  // are open.
+  // A hold asked for from outside the inventory is unfolded on the requested hull.
   const holdRequests = shipHoldTarget.requests;
+  let explicitHoldRequested = false;
   $effect(() => {
     void $holdRequests;
-    const key = untrack(() => shipHoldTarget.take());
-    if (key === null) return;
+    const hold = untrack(() => shipHoldTarget.take());
+    if (hold === null) return;
     untrack(() => {
+      const { key, shipID } = hold;
+      explicitHoldRequested = shipID !== null;
       view = "ship";
       collapsedBays = { ...collapsedBays, [key]: false };
-      const activeID = store.inventory.get().activeShipID;
+      const inventory = store.inventory.get();
+      const target = shipID ?? inventory.activeShipID;
       void (async () => {
-        if (activeID !== null && store.inventory.get().openShip?.itemID !== activeID) await flow.openShipBays(activeID).catch(() => {});
+        if (target !== null && inventory.openShip?.itemID !== target) await flow.openShipBays(target).catch(() => {});
         await tick();
         document.querySelector(`[data-bay-group="${key}"]`)?.scrollIntoView({ block: "nearest" });
       })();
@@ -572,7 +574,7 @@
       // Open the ACTIVE hull's bays up front, so the panel lands on what the
       // player is flying instead of asking them to pick a ship first.
       const activeID = store.inventory.get().activeShipID;
-      if (activeID !== null) {
+      if (activeID !== null && !explicitHoldRequested) {
         await flow.openShipBays(activeID).catch(() => {});
       }
     });

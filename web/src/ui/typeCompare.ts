@@ -47,18 +47,18 @@ export function placeComparedSubjects(
 export interface TypeCompareTarget {
   /** How many times types have been asked to be compared. */
   readonly requests: ReadableSignal<number>;
-  ask(typeIDs: readonly number[]): void;
+  ask(subjects: readonly ComparisonSubject[]): void;
   /** The types asked for and not yet taken by the window, which takes them; empty where there are none. */
-  take(): number[];
+  take(): ComparisonSubject[];
 }
 
 export function createTypeCompareTarget(): TypeCompareTarget {
   const requests = createSignal(0);
-  let pending: number[] = [];
+  let pending: ComparisonSubject[] = [];
   return {
     requests: readonlySignal(requests),
-    ask(typeIDs) {
-      pending = [...pending, ...typeIDs];
+    ask(subjects) {
+      pending = [...pending, ...subjects];
       requests.update((count) => count + 1);
     },
     take() {
@@ -73,7 +73,7 @@ export const typeCompareTarget: TypeCompareTarget = createTypeCompareTarget();
 
 /** menusvc.CompareType(typeID): the compare tool comparing the type. */
 export function compareType(typeID: number): void {
-  typeCompareTarget.ask([typeID]);
+  compareTypes([typeID]);
 }
 
 /**
@@ -81,7 +81,7 @@ export function compareType(typeID: number): void {
  * (open_and_compare_multiple); opened even for none.
  */
 export function compareTypes(typeIDs: readonly number[]): void {
-  typeCompareTarget.ask(typeIDs);
+  typeCompareTarget.ask(typeIDs.map(typeID => ({ typeID, itemID: null })));
 }
 
 const ONLY_DIFFERENT_KEY = "evejs.compare_onlyShowDifferent";

@@ -24,6 +24,8 @@
   import { contractsSearchTarget } from "./contractsSearch.ts";
   import { marketDetailsTarget } from "./marketDetails.ts";
   import { typeCompareTarget } from "./typeCompare.ts";
+  import { fittingWindowTarget } from "./fittingWindowTarget.ts";
+  import { shipHoldTarget } from "./shipHold.ts";
   import { createSession, type Session } from "../app/sessions.ts";
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
   import { bridgeDo, corpTickers, getDscanHologramTypes } from "../app/api.ts";
@@ -741,6 +743,7 @@
   const itemWindows = [
     [marketDetailsTarget.requests, "market"], [contractsSearchTarget.requests, "contracts"],
     [assetsSearchTarget.requests, "assets"], [typeCompareTarget.requests, "compare"],
+    [shipHoldTarget.requests, "inventory"], [fittingWindowTarget.requests, "fitting"],
   ] as const;
   $effect(() => {
     const stop = itemWindows.map(([requests, tab]) => {
@@ -752,6 +755,17 @@
       });
     });
     return () => stop.forEach(unsubscribe => unsubscribe());
+  });
+  // Inventory.OpenOrShow applies to docked containers as well as cargo reached in space.
+  $effect(() => {
+    if (stage !== "game" || !session) return;
+    const cargoShown = session.flow.cargoShown;
+    let served = cargoShown.get()?.n ?? 0;
+    return cargoShown.subscribe(shown => {
+      if (shown === null || shown.n === served) return;
+      served = shown.n;
+      open("inventory");
+    });
   });
   /** The Drones window's title with how many are out of how many (the client's "Drones 0/5"). */
   /**
@@ -1404,20 +1418,13 @@
       if ((d.limits.droneBandwidth ?? 0) > 0 || (d.bay?.length ?? 0) > 0) open("drones");
     }).catch(() => {});
     (window as unknown as { __play: unknown }).__play = { live, view: v, session: s };
-    // A wreck or a can opened by Open Cargo: the inventory window opened or raised on it (Inventory.OpenOrShow).
-    let servedCargo = s.flow.cargoShown.get()?.n ?? 0;
-    const stopCargo = s.flow.cargoShown.subscribe((shown) => {
-      if (shown === null || shown.n === servedCargo) return;
-      servedCargo = shown.n;
-      open("inventory");
-    });
     // Damage numbers: each new entry of the damage log (the client's damage notifications) floats up in space.
     let lastDamageID = s.store.targeting.get().damageLog.at(-1)?.id ?? 0;
     const stopDamage = s.store.targeting.subscribe((t) => {
       for (const d of t.damageLog) if (d.id > lastDamageID) { v.showDamage(d); logCombatLine(d); }
       lastDamageID = t.damageLog.at(-1)?.id ?? lastDamageID;
     });
-    return () => { disposed = true; stopCargo(); stopDamage(); v.dispose(); view = null; };
+    return () => { disposed = true; stopDamage(); v.dispose(); view = null; };
   });
 
   // The client's view transitions (ui/view/transitions.py, viewStateConfig.py): docking (ToHangarTransition) fades to

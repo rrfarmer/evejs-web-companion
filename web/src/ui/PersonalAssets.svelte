@@ -13,9 +13,8 @@
   // the last one is claimed ONLY from a successful empty read (`ownsNothing`).
   // Conflating them is the defect this codebase keeps producing.
   //
-  // A read-only inventory view with copy drags and the client's route entries (its location's menu,
-  // assetsWindow.py GetMenuLocationMenu 851 to 862: the station's CelestialMenu): Set Destination, and Add Waypoint
-  // or Remove Waypoint (menusvc.py 2002 to 2007), the flow's waypoints (nav/waypoints.ts).
+  // Asset rows carry copy drags and selection-aware commands. Docked inventory actions use the live hangar rows.
+  // GetMenuLocationMenu uses the station's CelestialMenu for Set Destination, Add Waypoint and Remove Waypoint.
   import { getContext, onMount, type Snippet } from "svelte";
   import {
     formatAssetVolume,
@@ -35,9 +34,21 @@
   import { linkFollowerOf, LINK_WORDS, startLinkDrag } from "./linkFollowers.ts";
   import { formatTemplate, locationKind, plainText } from "../bridge/clientWords.ts";
   import { shownSecurity, securityStatusRgb } from "../bridge/systemSecurity.ts";
-  import { assetsSearchTarget } from "./assetsSearch.ts";
-  import type { AssetSearchItem, AssetSearchLocation } from "../bridge/assetSearch.ts";
+  import { assetsSearchTarget, findInPersonalAssets } from "./assetsSearch.ts";
+  import { assetSearchTextForType, type AssetSearchItem, type AssetSearchLocation } from "../bridge/assetSearch.ts";
   import { ASSET_ITEM_DRAG_MIME, type AssetItemDrag } from "./dragDrop.ts";
+  import { portal } from "./portal.ts";
+  import { showInfo } from "./showInfo.ts";
+  import { showMarketDetails } from "./marketDetails.ts";
+  import { typeCompareTarget, type ComparisonSubject } from "./typeCompare.ts";
+  import { isComparable, type ComparisonTypeData } from "../bridge/typeComparison.ts";
+  import type { TypeMetaFacts } from "../app/api.ts";
+  import { openFittingWindow } from "./fittingWindowTarget.ts";
+  import { openShipHold } from "./shipHold.ts";
+  import { isOpenableContainer, offersAssembleContainer } from "../bridge/inventoryShip.ts";
+  import { isShipRow } from "./inventoryModel.ts";
+  import { changeQuickbar, marketQuickbar } from "./marketQuickbar.ts";
+  import { addType } from "../bridge/marketQuickbar.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
 
@@ -221,12 +232,18 @@
   // svelte-ignore state_referenced_locally
   const station = store.station;
   const assetPilot = $derived($station.online?.characterID ?? null);
+  // svelte-ignore state_referenced_locally
+  const inventory = store.inventory;
+  const dockedAt = $derived($flight.status
+    ? ($flight.status.docked ? $flight.status.structureID ?? $flight.status.stationID : null)
+    : $station.online?.structureID ?? $station.online?.stationID ?? null);
   let panel: HTMLElement;
   let selectedItems = $state.raw<ReadonlySet<number>>(new Set());
   let selectionAnchor: number | null = null;
   function clearItemSelection(): void {
     selectedItems = new Set();
     selectionAnchor = null;
+    itemMenu = null;
   }
   $effect(() => {
     void assetPilot;
@@ -278,6 +295,139 @@
     }
     event.dataTransfer.setData(ASSET_ITEM_DRAG_MIME, JSON.stringify(payload));
     event.dataTransfer.effectAllowed = "copy";
+  }
+
+  const ITEM_WORDS = {
+    info: ["UI/Commands/ShowInfo", "Show Info"],
+    market: ["UI/Inventory/ItemActions/ViewTypesMarketDetails", "View Market Details"],
+    compare: ["UI/Compare/CompareButton", "Compare"],
+    find: ["UI/Inventory/ItemActions/FindPersonalAssets", "Find in Personal Assets"],
+    exact: ["UI/Inventory/AssetSearch/KeywordTypeExact", "typeExact"],
+    quickbar: ["UI/Inventory/ItemActions/AddTypeToMarketQuickbar", "Add to Market Quickbar"],
+    board: ["UI/Inflight/BoardShip", "Board Ship"],
+    cargo: ["UI/Commands/OpenCargoHold", "Open Cargo Hold"],
+    rename: ["UI/Commands/ChangeName", "Change Name"],
+    assembleShip: ["UI/Inventory/ItemActions/AssembleShip", "Assemble Ship"],
+    openContainer: ["UI/Inventory/ItemActions/OpenContainer", "Open Container"],
+    assembleContainer: ["UI/Inventory/ItemActions/AssembleContainer", "Assemble Container"],
+  } as const;
+  type ItemCommand = keyof typeof ITEM_WORDS;
+  function itemWord(key: ItemCommand): string {
+    const [label, fallback] = ITEM_WORDS[key];
+    return word(label, fallback);
+  }
+  interface MenuAsset extends ComparisonSubject {
+    readonly itemID: number;
+    readonly stationID: number;
+  }
+  interface AssetItemMenu {
+    readonly rows: readonly MenuAsset[];
+    readonly x: number;
+    readonly y: number;
+    readonly types?: ReadonlyMap<number, TypeMetaFacts | null> | null;
+    readonly comparison?: ReadonlyMap<number, ComparisonTypeData | null>;
+  }
+  let itemMenu = $state.raw<AssetItemMenu | null>(null);
+  let itemMenuElement: HTMLElement | undefined = $state();
+
+  function menuAsset(element: HTMLButtonElement): MenuAsset {
+    return { itemID: Number(element.dataset.assetItem), typeID: Number(element.dataset.assetType), stationID: Number(element.dataset.assetStation) };
+  }
+
+  function localAsset(row: MenuAsset) {
+    if (assetPilot === null || dockedAt !== row.stationID ||
+        ($inventory.structureID ?? $inventory.stationID) !== dockedAt) return null;
+    return $inventory.hangar.rows.find(entry => entry.itemID === row.itemID && entry.typeID === row.typeID &&
+      entry.flagID === 4 && (entry.locationID === undefined || entry.locationID === dockedAt) &&
+      (entry.ownerID === undefined || entry.ownerID === assetPilot)) ?? null;
+  }
+
+  function openItemMenu(event: MouseEvent, itemID: number): void {
+    event.preventDefault();
+    menuFor = null;
+    headerMenuFor = null;
+    const rows = visibleAssetRows();
+    if (!selectedItems.has(itemID)) selectAssetItem(event, itemID, rows);
+    const chosen = rows.filter(row => selectedItems.has(Number(row.dataset.assetItem))).map(menuAsset);
+    if (chosen.length === 0) return;
+    const anchor = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const menu: AssetItemMenu = { rows: chosen, x: event.clientX || anchor.left, y: event.clientY || anchor.bottom };
+    itemMenu = menu;
+    const types = [...new Set(chosen.map(row => row.typeID))];
+    void Promise.all([
+      flow.typeFacts(types).catch(() => null),
+      flow.comparisonTypes(types).catch(() => null),
+    ]).then(([facts, comparison]) => {
+      if (itemMenu === menu) itemMenu = { ...menu, types: facts, comparison: comparison?.types };
+    });
+    if (chosen.length === 1 && chosen[0]!.stationID === dockedAt && !localAsset(chosen[0]!)) {
+      void flow.loadInventory().catch(() => {});
+    }
+  }
+
+  // Re-read the authoritative hangar before handing a local item to an inventory action.
+  function useLocalAsset(row: MenuAsset, command?: ItemCommand): void {
+    const pilot = assetPilot;
+    if (pilot === null || row.stationID !== dockedAt || busy) return;
+    void run(async () => {
+      await flow.loadInventory();
+      if (pilot !== assetPilot) return;
+      const item = localAsset(row);
+      if (!item) return;
+      if (isShipRow(item)) {
+        const active = $inventory.activeShipID === item.itemID;
+        if (command === "cargo" && item.singleton && item.groupID !== 29) openShipHold("cargo", item.itemID);
+        else if (command === "rename" && item.singleton) await flow.renameShip(item.itemID);
+        else if (command === "assembleShip" && !item.singleton) await flow.assembleShip(item.itemID, false);
+        else if (command === "board" || command === undefined) {
+          if (!item.singleton) await flow.assembleShip(item.itemID, true);
+          else if (!active) await flow.boardShip(item.itemID);
+          else if (command === undefined) openFittingWindow();
+        }
+      } else if (isOpenableContainer(item) && (command === undefined || command === "openContainer")) {
+        await flow.showInventoryContainer(item.itemID);
+      } else if (offersAssembleContainer(item, true, true) && (command === undefined || command === "assembleContainer")) {
+        await flow.assembleContainer(item.itemID, { kind: "hangar" });
+      }
+    });
+  }
+
+  function itemCommands(menu: AssetItemMenu): { readonly key: ItemCommand; readonly run: () => void }[] {
+    const actions: { key: ItemCommand; run: () => void }[] = [];
+    const marketed = menu.rows.find(row => (menu.types?.get(row.typeID)?.marketGroupID ?? null) !== null);
+    if (marketed) actions.push({ key: "market", run: () => showMarketDetails(marketed.typeID) });
+    if (menu.rows.some(row => isComparable(menu.comparison?.get(row.typeID) ?? null))) {
+      actions.push({ key: "compare", run: () => typeCompareTarget.ask(menu.rows) });
+    }
+    if (menu.rows.length !== 1) return actions;
+    const row = menu.rows[0]!;
+    actions.push({ key: "info", run: () => showInfo({ kind: "type", typeID: row.typeID, itemID: row.itemID }) });
+    if (menu.types?.get(row.typeID)?.published) {
+      actions.push({ key: "find", run: () => findInPersonalAssets(assetSearchTextForType(itemWord("exact"), itemName(row.typeID))) });
+    }
+    if (marketed && menu.types?.get(row.typeID)?.groupID !== 29) {
+      actions.push({ key: "quickbar", run: () => { changeQuickbar(current => addType(current, row.typeID, 0, "")); } });
+    }
+    const local = localAsset(row);
+    if (!local) return actions;
+    const addLocal = (key: ItemCommand) => actions.push({ key, run: () => useLocalAsset(row, key) });
+    if (isShipRow(local)) {
+      if (local.singleton) {
+        if (local.groupID !== 29) addLocal("cargo");
+        if ($inventory.activeShipID !== row.itemID) addLocal("board");
+        addLocal("rename");
+      } else {
+        addLocal("assembleShip");
+        addLocal("board");
+      }
+    } else if (isOpenableContainer(local)) addLocal("openContainer");
+    else if (offersAssembleContainer(local, true, true)) addLocal("assembleContainer");
+    return actions;
+  }
+  const itemActions = $derived(itemMenu ? itemCommands(itemMenu) : []);
+
+  function dismissItemMenu(event: PointerEvent): void {
+    if (itemMenu && !itemMenuElement?.contains(event.target as Node)) itemMenu = null;
   }
 
   function loadLocation(stationID: number): void {
@@ -476,27 +626,42 @@
 
   onMount(() => {
     flow.requestWords([...Object.values(ROUTE_WORDS), NO_ROUTE, ...Object.values(TAB_WORDS)]);
+    flow.requestWords(Object.values(ITEM_WORDS).map(([label]) => label));
     void run(() => flow.loadPersonalAssets());
   });
 </script>
 
-{#snippet assetItemRow(item: { itemID: number; typeID: number; categoryID: number }, singleton: boolean, searchRow: boolean, children: Snippet)}
+<svelte:window onpointerdown={dismissItemMenu} onkeydown={event => { if (event.key === "Escape") itemMenu = null; }} />
+
+{#if itemMenu && itemActions.length}
+  <div class="asset-item-menu" role="menu" use:portal bind:this={itemMenuElement}
+    style:left={`clamp(4px, ${itemMenu.x}px, calc(100vw - 14rem - 4px))`}
+    style:top={`clamp(4px, ${itemMenu.y}px, calc(100vh - ${itemActions.length * 28 + 12}px))`}>
+    {#each itemActions as action (action.key)}
+      <button type="button" role="menuitem" onclick={() => { itemMenu = null; action.run(); }}>{itemWord(action.key)}</button>
+    {/each}
+  </div>
+{/if}
+
+{#snippet assetItemRow(item: { itemID: number; typeID: number; categoryID: number }, stationID: number, singleton: boolean, searchRow: boolean, children: Snippet)}
   <button type="button" class="asset-item-row" class:asset-search-item={searchRow} class:as-item={!searchRow}
     style:grid-template-columns={searchRow ? undefined : itemGrid}
-    data-asset-item={item.itemID} data-asset-type={item.typeID}
+    data-asset-item={item.itemID} data-asset-type={item.typeID} data-asset-station={stationID}
     data-asset-owned-ship={singleton && item.categoryID === 6 ? "true" : undefined}
     aria-pressed={selectedItems.has(item.itemID)} draggable="true"
-    onclick={(event) => selectAssetItem(event, item.itemID)} ondragstart={(event) => dragAssetItem(event, item.itemID)}>
+    onclick={(event) => selectAssetItem(event, item.itemID)} ondragstart={(event) => dragAssetItem(event, item.itemID)}
+    oncontextmenu={(event) => openItemMenu(event, item.itemID)}
+    ondblclick={() => useLocalAsset({ itemID: item.itemID, typeID: item.typeID, stationID })}>
     {@render children()}
   </button>
 {/snippet}
 
-{#snippet searchItemRow(item: AssetSearchItem)}
+{#snippet searchItemRow(item: AssetSearchItem, stationID: number)}
   {#snippet cells()}
     <span class="asset-place"><TypeIcon typeID={item.typeID} name={itemName(item.typeID)} size="sm" />{itemName(item.typeID)}</span>
     <span class="num">{formatUnits(searchUnits(item))}</span>
   {/snippet}
-  {@render assetItemRow(item, item.quantity < 0, true, cells)}
+  {@render assetItemRow(item, stationID, item.quantity < 0, true, cells)}
 {/snippet}
 
 {#snippet locationBody(row: AssetStationRow)}
@@ -553,7 +718,7 @@
                   {/if}
                 {/each}
               {/snippet}
-              {@render assetItemRow(item, item.singleton === 1, false, cells)}
+              {@render assetItemRow(item, row.stationID, item.singleton === 1, false, cells)}
             {/each}
           {/if}
         {/if}
@@ -633,12 +798,12 @@
                     <small class="note">{stackText(held.items.length)}</small>
                   </summary>
                   {#each held.items as item (item.itemID)}
-                    {@render searchItemRow(item)}
+                    {@render searchItemRow(item, location.stationID)}
                   {/each}
                 </details>
               {/each}
               {#each location.items as item (item.itemID)}
-                {@render searchItemRow(item)}
+                {@render searchItemRow(item, location.stationID)}
               {/each}
             </details>
           {/each}
@@ -850,4 +1015,8 @@
   .asset-item-row:hover { background: rgba(255, 255, 255, 0.06); }
   .asset-item-row[aria-pressed="true"] { background: rgba(105, 179, 220, 0.22); }
   .asset-search-item { display: flex; justify-content: space-between; gap: 1rem; padding: 0.15rem 0 0.15rem 1rem; }
+  .asset-item-menu { position: fixed; z-index: 10000; display: flex; flex-direction: column; width: 14rem; padding: 4px;
+    box-sizing: border-box; max-height: calc(100vh - 8px); overflow-y: auto; background: #0c0e10; border: 1px solid #444; }
+  .asset-item-menu button { text-align: left; min-height: 28px; background: transparent; color: inherit; border: 0; padding: 4px 8px; cursor: pointer; }
+  .asset-item-menu button:hover, .asset-item-menu button:focus-visible { background: rgba(255, 255, 255, 0.12); }
 </style>

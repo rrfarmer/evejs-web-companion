@@ -196,7 +196,7 @@
   $effect(() => {
     void $requests;
     const asked = typeCompareTarget.take();
-    addTypes(asked.map(typeID => ({ typeID, itemID: null })));
+    addTypes(asked);
   });
 
   /** RemoveEntry: the one type taken out. */
