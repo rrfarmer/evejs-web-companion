@@ -58,6 +58,8 @@ import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { TARGET_LOCKED_LABEL, targetLockDurationMs, type TargetLockRadii } from "./targetLock.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { Overview, typeNames } from "./overview.ts";
+import { ContextMenu, type ContextEntry } from "./contextMenu.ts";
+import { fmtDist as fmtDistance } from "../space/overview.ts";
 import { DScanWindow } from "./dscan.ts";
 import { SolarSystemMapWindow, MARKER_GROUPS, type MapScanResult } from "./solarSystemMap.ts";
 import { Neocom } from "./neocom.ts";
@@ -240,6 +242,10 @@ export interface SpaceActions {
   openCargo?(itemID: number): Promise<void>;
   /** Inventory opened on one of the ship's own holds (the new HUD's cargo indicator), by the bay's key. */
   openShipHold?(key: string): void;
+  /** The menu's Set Destination and Add Waypoint (starmap.SetWaypoint), and Save Location... (the bookmark window). */
+  setDestination?(itemID: number): void;
+  addWaypoint?(itemID: number): void;
+  saveLocation?(itemID: number, typeID: number | null): void;
   /** The ship's holds read (fill and capacity), for the new HUD's cargo indicator. */
   loadShipHolds?(): Promise<void>;
   /** A client command run from a HUD button (ToggleProbeScanner, CmdToggleAutopilot, ...), as the page runs its shortcut. */
@@ -278,6 +284,21 @@ export function distanceWords(m: number): string {
   if (m < 10_000) return `${Math.round(m).toLocaleString()} m`;
   if (m < 149_597_870_700 * 0.1) return `${Math.round(m / 1000).toLocaleString()} km`;
   return `${(m / 149_597_870_700).toFixed(1)} AU`;
+}
+
+/** menusvc.GetDefaultActionDistance: the pilot's default warp, orbit and keep-at-range distances (0, 1,000, 1,000 m). */
+type DefaultDistanceKind = "WarpTo" | "Orbit" | "KeepAtRange";
+const DEFAULT_DISTANCES: Readonly<Record<DefaultDistanceKind, number>> = { WarpTo: 0, Orbit: 1000, KeepAtRange: 1000 };
+export function defaultDistance(kind: DefaultDistanceKind): number {
+  try {
+    const v = Number(localStorage.getItem(`evejs.ui.defaultDistance.${kind}`));
+    return localStorage.getItem(`evejs.ui.defaultDistance.${kind}`) !== null && Number.isFinite(v) ? v : DEFAULT_DISTANCES[kind];
+  } catch {
+    return DEFAULT_DISTANCES[kind];
+  }
+}
+function setDefaultDistance(kind: DefaultDistanceKind, value: number): void {
+  try { localStorage.setItem(`evejs.ui.defaultDistance.${kind}`, String(value)); } catch { /* the default lasts the page */ }
 }
 
 /** The asteroid beam's end: a ray from the shooter to the rock's centre (damageLocatorOf). */
@@ -586,6 +607,7 @@ export class SpaceView {
   private seenSystem: number | null = null;
   private readonly flashEl = document.createElement("div");
   private readonly radial = new RadialMenu();
+  private readonly contextMenu = new ContextMenu();
   /** Where the view's windows go (SpaceViewOptions.windowLayer). */
   private get layer(): HTMLElement { return this.options.windowLayer?.element ?? this.root; }
   private raiseOnClick(el: HTMLElement): void {
@@ -824,7 +846,8 @@ export class SpaceView {
     this.layer.appendChild(this.radial.root);
     this.radial.root.style.zIndex = "100000";
     for (const el of [this.selectedEl, this.overview.window.root]) this.raiseOnClick(el);
-    const openRadial = (id: number, x: number, y: number, button: number) => this.openRadial(id, x, y, button);
+    // a held left button opens the radial menu; a right-click the context menu (menusvc's, as the client's right-click)
+    const openRadial = (id: number, x: number, y: number, button: number) => (button === 2 ? this.openContext(id, x, y) : this.openRadial(id, x, y, button));
     const rowID = (_x: number, _y: number, e: Event) => Number((e.target as HTMLElement).closest?.("[data-id]")?.getAttribute("data-id")) || null;
     // The solar system map (CmdToggleSolarSystemMap, F9; the directional scanner's map button), over the park's celestials.
     this.systemMap = new SolarSystemMapWindow({
@@ -2432,6 +2455,113 @@ export class SpaceView {
   distanceToItem(itemID: number): number | null {
     const e = this.snapshot?.entities.find((x) => x.itemID === itemID);
     return e ? this.distanceTo(e) : null;
+  }
+
+  /** The context menu open on something in space (menusvc.CelestialMenu as a right-click shows it). */
+  openContext(id: number, x: number, y: number): void {
+    const e = this.snapshot?.entities.find((each) => each.itemID === id) ?? null;
+    if (!e) return;
+    this.select(e.isSelf ? this.selected : id);
+    this.radial.close();
+    this.contextMenu.open(x, y, this.contextEntries(e));
+  }
+
+  /** What the open context menu says (for checks). */
+  get contextText(): string[] { return this.contextMenu.text; }
+
+  /**
+   * menusvc._CelestialMenu in the order and on the terms of the 3698585 client (CelestialChecker, measured on its
+   * menus through gridcheck): Warp to Within its default ▸ (beyond minWarpDistance 150 km), Approach, Orbit ▸ and Keep at
+   * Range ▸ (within maxApproachDistance 10,000 km; not a planet, moon or belt; Keep at Range not for an asteroid,
+   * station, gate, container, wreck, cloud or mining drone), Align to (beyond approach range), Dock, Jump, Add as First
+   * Waypoint; Look at (not a planet or moon), Track; Unlock Target or Lock Target (within the ship's targeting range,
+   * not from a capsule); Show Info; Set Destination, Add Waypoint, Save Location..., View Planetary Industry; and Add/Remove
+   * the group to/from the Overview.
+   */
+  private contextEntries(e: Entity): (ContextEntry | null)[] {
+    const word = (label: string, own: string, args?: Readonly<Record<string, string | number>>) => this.actions.word?.(label, args) ?? own;
+    const id = e.itemID;
+    const run = (title: string, fn: () => Promise<void>) => () => void this.act(title, fn).then(() => this.refreshTargets());
+    const I = (name: string) => `res:/UI/Texture/eveicon/control_icons/${name}_16px.png`;
+    const showInfo: ContextEntry = { label: word("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => this.options.showInfo?.(id, e.typeID ?? null) };
+    if (e.isSelf) {
+      return [
+        { label: word(e.groupID === 29 ? "UI/Inflight/StopMyCapsule" : "UI/Inflight/StopMyShip", e.groupID === 29 ? "Stop My Capsule" : "Stop My Ship"), run: run("Stop", () => this.actions.stop()) },
+        null,
+        showInfo,
+      ];
+    }
+    const group = e.groupID ?? null;
+    const category = (e as Entity & { categoryID?: number | null }).categoryID ?? null;
+    const dist = this.distanceTo(e);
+    const warping = this.snapshot?.ship?.mode === "WARP";
+    const planetMoonBelt = group === 7 || group === 8 || group === 9;
+    const approach = !planetMoonBelt && !warping && dist < 10_000_000;
+    const warp = !warping && dist > 150_000;
+    const noKeep = category === 25 || [711, 101, 12, 340, 448, 15, 10, 649, 186].includes(group ?? -1);
+    const dockable = e.kind === "station" || group === 15 || e.kind === "structure";
+    const stargate = e.kind === "stargate" || group === 10;
+    const current = fmtDistance(dist);
+    // movementFunctions._GetRangeMenu: the ranges, the current distance (OrbitAtCurrentRange / KeepAtCurrentRange), and
+    // Set Default (SetDefaultWarpRange) - the same ranges, each made the action's default (defaultRangeUtils)
+    const setDefault = (kind: DefaultDistanceKind, values: readonly number[], label: (r: number) => string): ContextEntry => ({
+      label: word("UI/Inflight/Submenus/SetDefaultWarpRange", "Set Default"),
+      sub: values.map((r) => ({ label: (defaultDistance(kind) === r ? "✓ " : "") + label(r), run: () => setDefaultDistance(kind, r) })),
+    });
+    const ranges = (kind: DefaultDistanceKind, values: readonly number[], currentLabel: string, fn: (r: number) => void): (ContextEntry | null)[] => [
+      ...values.map((r) => ({ label: fmtDistance(r), run: () => fn(r) })),
+      { label: word(currentLabel, `Current ${current}`, { currentDistance: current }), run: () => fn(dist) },
+      null,
+      setDefault(kind, values, (r) => fmtDistance(r)),
+    ];
+    const orbitRanges = [500, 1000, 2500, 5000, 7500, 10000, 15000, 20000, 25000, 30000];
+    const warpRanges = [0, 10000, 20000, 30000, 50000, 70000, 100000];
+    const within = (r: number) => word("UI/Inflight/WarpToWithin", `Within ${fmtDistance(r)}`, { distance: fmtDistance(r) });
+    const out: (ContextEntry | null)[] = [];
+    if (warp) {
+      const d = defaultDistance("WarpTo");
+      out.push({
+        label: `${word("UI/Inflight/Submenus/WarpToWithin", "Warp to Within")} (${fmtDistance(d)})`, icon: I("warp_to"),
+        run: run("Warp", () => this.actions.warpTo(id, d)),
+        sub: [...warpRanges.map((r) => ({ label: within(r), run: run("Warp", () => this.actions.warpTo(id, r)) })), null, setDefault("WarpTo", warpRanges, within)],
+      });
+    }
+    if (approach) {
+      out.push({ label: word("UI/Inflight/ApproachObject", "Approach"), icon: I("approach"), run: run("Approach", () => this.actions.approach(id)) });
+      const orbitD = defaultDistance("Orbit"), keepD = defaultDistance("KeepAtRange");
+      out.push({ label: `${word("UI/Inflight/OrbitObject", "Orbit")} (${fmtDistance(orbitD)})`, icon: I("orbit"), run: run("Orbit", () => this.actions.orbit(id, orbitD)),
+        sub: ranges("Orbit", orbitRanges, "UI/Inflight/OrbitAtCurrentRange", (r) => void this.act("Orbit", () => this.actions.orbit(id, r))) });
+      if (!noKeep) out.push({ label: `${word("UI/Inflight/Submenus/KeepAtRange", "Keep at Range")} (${fmtDistance(keepD)})`, icon: I("keep_at_distance"), run: run("Keep at Range", () => this.actions.keepAtRange(id, keepD)),
+        sub: ranges("KeepAtRange", orbitRanges, "UI/Inflight/KeepAtCurrentRange", (r) => void this.act("Keep at Range", () => this.actions.keepAtRange(id, r))) });
+    } else if (warp) {
+      out.push({ label: word("UI/Inflight/AlignTo", "Align to"), icon: I("align_to"), run: run("Align", () => this.actions.alignTo(id)) });
+    }
+    if (dockable && !warping) out.push({ label: word("UI/Inflight/DockInStation", "Dock"), icon: I("dock"), run: run("Dock", () => this.actions.dock(id)) });
+    if (stargate) {
+      out.push({ label: word("UI/Inflight/Jump", "Jump"), icon: I("jump_to"), run: run("Jump", () => this.actions.jump(id)) });
+    }
+    // (the client's menu shows the movement entries, Look at, Track and the lock as one group)
+    if (!warping && group !== 7 && group !== 8) out.push({ label: word("UI/Inflight/LookAtObject", "Look at"), run: () => this.focusOn(id) });
+    out.push({ label: word("UI/Inflight/SetAsCameraInterest", "Track"), run: () => { this.endExplosionCamera(); this.trackedObjective = id; } });
+    if (this.locked.has(id)) out.push({ label: word("UI/Inflight/UnlockTarget", "Unlock Target"), icon: I("target"), run: run("Unlock Target", () => this.actions.unlock(id)) });
+    else if (!planetMoonBelt && this.snapshot?.ship?.typeID !== 670) {
+      const lockRange = this.actions.shipAttribute?.(76) ?? null;
+      if (lockRange === null || dist <= lockRange) out.push({ label: word("UI/Inflight/LockTarget", "Lock Target"), icon: I("target"), run: run("Lock Target", () => this.lockTracked(id)) });
+    }
+    out.push(null, showInfo, null);
+    if (stargate) out.push({ label: word("UI/Inflight/AddFirstWaypoint", "Add as First Waypoint"), run: () => this.actions.addWaypoint?.(id) });
+    else if (dockable && this.actions.setDestination) {
+      out.push({ label: word("UI/Inflight/SetDestination", "Set Destination"), icon: "res:/UI/Texture/eveicon/system_icons/set_destination_16px.png", run: () => this.actions.setDestination?.(id) });
+      out.push({ label: word("UI/Inflight/AddWaypoint", "Add Waypoint"), run: () => this.actions.addWaypoint?.(id) });
+    }
+    // overviewMenuUtil: a group not shown is offered to the Overview before Save Location...; one shown is taken off at the foot
+    const groupName = group !== null ? this.names?.groups[String(group)]?.[0] ?? "" : "";
+    const shownInOverview = group !== null && this.overview.groupShown(group);
+    if (group !== null && !shownInOverview) out.push({ label: word("UI/Overview/AddGroupToOverview", `Add ${groupName} to Overview`, { groupName }), run: () => this.overview.setGroupShown(group, true) });
+    if (this.actions.saveLocation && category !== 11 && category !== 6) out.push({ label: word("UI/Inflight/BookmarkLocation", "Save Location..."), run: () => this.actions.saveLocation?.(id, e.typeID ?? null) });
+    if (group === 7 && this.options.viewPlanet) out.push({ label: word("UI/PI/Common/ViewInPlanetMode", "View Planetary Industry"), icon: I("enter_planet_view"), run: () => void this.options.viewPlanet?.(id) });
+    if (group !== null && shownInOverview) out.push(null, { label: word("UI/Overview/RemoveGroupFromOverview", `Remove ${groupName} from Overview`, { groupName }), run: () => this.overview.setGroupShown(group, false) });
+    return out;
   }
 
   private distanceTo(e: Entity): number {

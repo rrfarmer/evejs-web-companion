@@ -112,6 +112,7 @@
   import { droneSettingsFor, setDroneSetting } from "./droneSettings.ts";
   import { CARGO_HOLD, SHIP_HOLDS } from "../bridge/shipHolds.ts";
   import DamageAlertSettings from "./DamageAlertSettings.svelte";
+  import BookmarkWindow from "./BookmarkWindow.svelte";
   import { combatMovingMode } from "./combatSettings.ts";
   import { shortcutOf } from "../play/shortcutKeys.ts";
   import type { DogmaTypeFacts } from "../bridge/dogma/location.ts";
@@ -955,6 +956,8 @@
   let systemMenu = $state(false);
   /** The new HUD's settings menu's NotifySettingsWindow (the ship health alerts). */
   let damageAlertsOpen = $state(false);
+  /** The space menu's Save Location...: the bookmark window open for the thing, or none. */
+  let spaceBookmark = $state<{ itemID: number; askIfKnown: boolean; typeName: () => string; name: () => string } | null>(null);
   const newHudOn = hudSettingNow("shipHudNew_preview");
   const hudTop = hudSetting("shipuialigntop");
   let mapHost = $state<HTMLDivElement | null>(null);
@@ -1348,7 +1351,7 @@
     const attributeLook = new Map<number, { readonly icon: string | null; readonly nameID: number | null }>();
     void s.flow.attributeDisplay(TIP_ATTRIBUTES).then((found) => {
       for (const [id, d] of found ?? []) attributeLook.set(id, { icon: d.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d.displayNameID });
-      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
+      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
     }).catch(() => {});
     const stopAskedAt = new Map<number, number>();
     const tipWord = (label: string, args: Readonly<Record<string, unknown>>): string | null => {
@@ -1541,6 +1544,14 @@
       },
       openCargo: (id) => s.flow.openCargo(id),
       openShipHold: (key) => shipHoldTarget.ask(key),
+      // the space menu's Set Destination / Add Waypoint (starmap.SetWaypoint) and Save Location... (the bookmark window)
+      setDestination: (itemID) => s.flow.setDestination(itemID),
+      addWaypoint: (itemID) => s.flow.addWaypoint(itemID),
+      saveLocation: (itemID) => {
+        const e = s.store.space.get().snapshot?.entities.find((x) => x.itemID === itemID);
+        const name = e?.name ?? (e?.typeID ? typeNames[String(e.typeID)]?.[0] ?? "" : "");
+        spaceBookmark = { itemID, askIfKnown: false, typeName: () => (e?.typeID ? typeNames[String(e.typeID)]?.[0] ?? "" : ""), name: () => name };
+      },
       loadShipHolds: () => s.flow.loadMiningHolds().catch(() => {}),
       autopilotOn: () => s.flow.autopilotOn.get(),
       runCommand: (cmd) => {
@@ -1995,6 +2006,9 @@
   <Toasts />
   {#if systemMenu}
     <ErrorBoundary name="System menu"><SystemMenu store={session.store} flow={session.flow} onClose={() => (systemMenu = false)} /></ErrorBoundary>
+  {/if}
+  {#if spaceBookmark}
+    <ErrorBoundary name="Save Location"><BookmarkWindow store={session.store} flow={session.flow} place={spaceBookmark} onDone={() => (spaceBookmark = null)} /></ErrorBoundary>
   {/if}
   {#if damageAlertsOpen}
     <ErrorBoundary name="Ship health alerts"><DamageAlertSettings store={session.store} onClose={() => (damageAlertsOpen = false)} /></ErrorBoundary>

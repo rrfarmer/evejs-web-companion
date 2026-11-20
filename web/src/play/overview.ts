@@ -55,11 +55,31 @@ function readSort(key: string, fallback: OverviewSort = DEFAULT_SORT): OverviewS
   return fallback;
 }
 
-function presetMask(data: OverviewPresetData | undefined): OverviewTab["overview"] {
+/**
+ * overviewPresetSvc.AddGroupToOverview / RemoveGroupFromOverview: the pilot's changes to a preset's groups, kept per
+ * preset in this browser (the client keeps its edited copy of the preset in its settings).
+ */
+const groupOverrideKey = (presetID: string) => `evejs.ui.overview.preset.${presetID}`;
+function groupOverrides(presetID: string): { add: number[]; remove: number[] } {
+  try {
+    const v = JSON.parse(localStorage.getItem(groupOverrideKey(presetID)) ?? "null") as { add?: number[]; remove?: number[] } | null;
+    return { add: v?.add ?? [], remove: v?.remove ?? [] };
+  } catch {
+    return { add: [], remove: [] };
+  }
+}
+
+function presetMask(data: OverviewPresetData | undefined, presetID?: string): OverviewTab["overview"] {
   if (!data) return null;
+  const groups = new Set(data.groups);
+  if (presetID) {
+    const o = groupOverrides(presetID);
+    for (const g of o.add) groups.add(g);
+    for (const g of o.remove) groups.delete(g);
+  }
   return {
     name: data.name,
-    groups: new Set(data.groups),
+    groups,
     filteredStates: data.filteredStates ?? [],
     alwaysShownStates: data.alwaysShownStates ?? [],
   };
@@ -143,9 +163,10 @@ export class Overview {
     });
     void overviewPresets().then((p) => {
       if (!p) return;
-      const masks = new Map(Object.entries(p.presets).map(([id, preset]) => [id, presetMask(preset)]));
+      const masks = new Map(Object.entries(p.presets).map(([id, preset]) => [id, presetMask(preset, id)]));
       this.tabs = p.tabs.map((t) => ({
         name: t.name,
+        presetID: t.preset,
         overview: masks.get(t.preset) ?? null,
         bracket: t.bracket ? masks.get(t.bracket) ?? null : null,
       }));
@@ -288,6 +309,23 @@ export class Overview {
   activePreset(): OverviewTab["overview"] { return this.tabs[this.tab]?.overview ?? null; }
 
   activeBracketPreset(): PresetMask | null { return this.tabs[this.tab]?.bracket ?? null; }
+
+  /** The active tab's preset shows the group (the menu's Add .../Remove ... from Overview). */
+  groupShown(groupID: number): boolean { return this.activePreset()?.groups.has(groupID) ?? false; }
+
+  /** AddGroupToOverview / RemoveGroupFromOverview on the active tab's preset, kept for it. */
+  setGroupShown(groupID: number, shown: boolean): void {
+    const tab = this.tabs[this.tab] as (OverviewTab & { presetID?: string }) | undefined;
+    const mask = tab?.overview;
+    if (!tab || !mask || !tab.presetID) return;
+    const groups = mask.groups as Set<number>;
+    if (shown) groups.add(groupID); else groups.delete(groupID);
+    const o = groupOverrides(tab.presetID);
+    const add = new Set(o.add), remove = new Set(o.remove);
+    if (shown) { add.add(groupID); remove.delete(groupID); } else { remove.add(groupID); add.delete(groupID); }
+    try { localStorage.setItem(groupOverrideKey(tab.presetID), JSON.stringify({ add: [...add], remove: [...remove] })); } catch { /* the change lasts the page */ }
+    this.lastDraw = 0;
+  }
 
   groupOf(e: Entity): number | null { return e.groupID ?? (e.typeID === null ? null : this.types[String(e.typeID)]?.[1] ?? null); }
 
