@@ -1473,6 +1473,27 @@ const CONSTRAINED_ROTATION = "EveChildModifierCameraOrientedRotationConstrained"
 const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierHaloInverted", CONSTRAINED_ROTATION, "EveChildModifierBillboard2D", "EveChildModifierBillboard3D", "EveChildModifierTranslateWithCamera", "EveChildModifierSRT", "EveTransformLookAtCamera", "EveTransformCameraRotationAligned"]);
 const EVE_WORLD_REFLECTION = new THREE.Matrix4().makeScale(1, 1, -1);
 
+function childMeshTransform(node: SofChildMesh): THREE.Matrix4 {
+  if (!node.modifiers?.includes(CONSTRAINED_ROTATION) || !node.t || !node.r || !node.s) {
+    return new THREE.Matrix4().fromArray(node.m);
+  }
+  // Trinity builds the rotation in float32 before scaling its axes. Rounding the baked matrix at the end
+  // would still leave a different residual on a nearly right-angle rotation, which a long stretch amplifies.
+  const f = Math.fround;
+  const [x, y, z, w] = node.r as [number, number, number, number];
+  const [sx, sy, sz] = node.s as [number, number, number];
+  const x2 = f(x + x), y2 = f(y + y), z2 = f(z + z);
+  const xx = f(x * x2), xy = f(x * y2), xz = f(x * z2);
+  const yy = f(y * y2), yz = f(y * z2), zz = f(z * z2);
+  const wx = f(w * x2), wy = f(w * y2), wz = f(w * z2);
+  return new THREE.Matrix4().fromArray([
+    f(f(1 - f(yy + zz)) * sx), f(f(xy + wz) * sx), f(f(xz - wy) * sx), 0,
+    f(f(xy - wz) * sy), f(f(1 - f(xx + zz)) * sy), f(f(yz + wx) * sy), 0,
+    f(f(xz + wy) * sz), f(f(yz - wx) * sz), f(f(1 - f(xx + yy)) * sz), 0,
+    f(node.t[0]!), f(node.t[1]!), f(node.t[2]!), 1,
+  ]);
+}
+
 /**
  * A modified child's transform from its own (base, in EVE's model space of the hull) and the eye there, as trinity's
  * modifiers make a child's world transform (_trinity_dx11.dll, their vtables' transform function, decompiled):
@@ -2263,7 +2284,7 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
       return;
     }
     if (node.k === "mesh") {
-      const at = local.clone().multiply(new THREE.Matrix4().fromArray(node.m));
+      const at = local.clone().multiply(childMeshTransform(node));
       pending.push(childMesh(node, animator).then((o) => {
         if (!o) return;
         if (node.id !== undefined) { o.userData.childId = node.id; animator.object(node.id, ancestors, node.display !== false); }
