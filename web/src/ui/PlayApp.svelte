@@ -1289,7 +1289,7 @@
       }
       return typeFacts.get(typeID) ?? null;
     };
-    const TIP_ATTRIBUTES = [37, 160, 84, 83, 68, 67, 90, 97, 20, 105];
+    const TIP_ATTRIBUTES = [37, 160, 84, 83, 68, 67, 90, 97, 20, 105, 114, 118, 117, 116];
     const attributeLook = new Map<number, { readonly icon: string | null; readonly nameID: number | null }>();
     void s.flow.attributeDisplay(TIP_ATTRIBUTES).then((found) => {
       for (const [id, d] of found ?? []) attributeLook.set(id, { icon: d.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d.displayNameID });
@@ -1332,6 +1332,8 @@
         chargeAttr: (id) => attrOf(chargeItem, id),
         launcher: facts?.effects.includes(40) ?? false,
         turret: facts?.effects.includes(42) ?? false,
+        usesMissiles: facts?.effects.includes(101) ?? false,
+        pilotAttr: (id) => attrOf(allInfo?.shipModifiedCharAttributes ?? allInfo?.character ?? undefined, id),
         active: m.active,
         attributeIcon: (id) => attributeLook.get(id)?.icon ?? null,
         attributeName: (id) => { const nameID = attributeLook.get(id)?.nameID; const t = nameID ? s.store.words.get().templates[`#${nameID}`] : null; return typeof t === "string" ? plainText(t) : null; },

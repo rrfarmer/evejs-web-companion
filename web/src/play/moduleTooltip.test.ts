@@ -13,6 +13,10 @@ const TEMPLATES: Record<string, string> = {
   "UI/Inflight/ModuleRacks/Tooltips/MaxVelocityWithAndWithoutPropulsion": "Max Velocity without: {[numeric]maxVelocity} m/s\nMax Velocity with: {[numeric]maxVelocityWithBonus} m/s",
   "UI/Inflight/ModuleRacks/Tooltips/WeaponAccuracyScore": "{activeName}: {[numeric]activeValue, decimalPlaces=2, useGrouping}",
   "/Carbon/UI/Common/WrittenDateTimeQuantityShort/Second": "{value}s",
+  "UI/Inflight/ModuleRacks/DamagePerSecond": "Damage Per Second {[numeric]dps, decimalPlaces=1}",
+  "UI/Inflight/ModuleRacks/Tooltips/OneDamageTypeText": "{[numeric]activeValue, decimalPlaces=0} HP {activeName}",
+  "UI/Inflight/ModuleRacks/Tooltips/DamageTypesHeader": "Damage caused",
+  "UI/Inflight/ModuleRacks/Tooltips/DamageHitpoints": "{[numeric]activeValue, decimalPlaces=0} HP",
 };
 const word = (label: string, args: Readonly<Record<string, unknown>>) =>
   TEMPLATES[label] === undefined ? null : formatTemplate(TEMPLATES[label]!, args as never, { nameOf: () => null } as never);
@@ -36,14 +40,24 @@ test("a mining laser: its name and shortcut, its optimal range, its amount per c
   ]);
 });
 
-test("a turret: optimal and falloff, and its tracking (Civilian Gatling Railgun)", () => {
+test("a turret: optimal and falloff, its damage per second and types, its tracking (Civilian Gatling Railgun)", () => {
+  // The client: rate of fire 1692.8 ms, damage multiplier 1.25, thermal 2 and kinetic 3 of its own (no charge).
   const rows = moduleTooltipRows(facts({ typeID: 3638, typeName: "Civilian Gatling Railgun", groupID: 74, shortcut: "F1", turret: true,
-    attrs: { 54: 5280, 158: 2100, 160: 550 } }), word, (m) => fmtDist(m));
-  assert.deepEqual(rows.map((r) => r.text), [
+    attrs: { 54: 5280, 158: 2100, 160: 550, 51: 1692.8, 64: 1.25, 118: 2, 117: 3 } }), word, (m) => fmtDist(m));
+  assert.deepEqual(rows.map((r) => r.values ? r.values.map((v) => v.text).join(" ") : r.text), [
     "<b>Civilian Gatling Railgun</b>",
     "Falloff range within 7,380 m<br>Optimal range within 5,280 m",
+    "Damage Per Second 3.7",
+    "Damage caused",
+    "3 HP 4 HP",
     "Turret Tracking: 550.00",
   ]);
+});
+
+test("one damage type is written by its name", () => {
+  const rows = moduleTooltipRows(facts({ typeID: 1, typeName: "Gun", groupID: 74, turret: true, attributeName: () => "Kinetic damage",
+    attrs: { 51: 2000, 64: 1, 117: 10 } }), word, (m) => fmtDist(m));
+  assert.deepEqual(rows.slice(1).map((r) => r.text), ["Damage Per Second 5.0", "10 HP Kinetic damage"]);
 });
 
 test("an afterburner not running: the ship's velocity now and with the module's boost on its mass and addition", () => {

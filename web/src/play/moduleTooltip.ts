@@ -2,7 +2,7 @@
 // ModuleButtonTooltip, as hud/client/moduleTray/moduleSlot.py opens it through TooltipModuleWrapper): the module's type
 // and icon with its slot's shortcut, its charge, its range, and what its group says of itself. UpdateToolTips builds the
 // rows again every second while it is open; the panel is the caller's. Rows not done yet: the weapons' damage per
-// second and damage types (GetTurretMissileAndAoeDps), the resistance, damage-control, ECM, sensor-damper, painter,
+// second at the most (GetMaxDamageMultiplier, the precursor weapons' spool), the resistance, damage-control, ECM, sensor-damper, painter,
 // disruptor, cloak, cyno, siege, smartbomb and fighter rows, and the reactivation and reload countdowns.
 
 import { formatNumeric } from "../bridge/pyNumbers.ts";
@@ -13,6 +13,10 @@ export interface ModuleTooltipRow {
   readonly iconSize: 24 | 26;
   readonly text: string;
   readonly shortcut?: string | null;
+  /** AddAttributeRow: a row of attribute values, each its icon and its text, under a header row. */
+  readonly values?: readonly { readonly icon: string | null; readonly text: string }[];
+  /** AddRowAndHeaderForManyAttributes' header: 24 px high, its text at the foot. */
+  readonly header?: boolean;
 }
 
 /** What the tooltip reads of the module, its ship and its charge (the client's dogma location's values). */
@@ -34,9 +38,12 @@ export interface ModuleTooltipFacts {
   shipAttr(attributeID: number): number | null;
   /** The charge's. */
   chargeAttr(attributeID: number): number | null;
-  /** The type has the launcherFitted (40) or turretFitted (42) effect. */
+  /** The type has the launcherFitted (40) or turretFitted (42) effect; useMissiles (101). */
   readonly launcher: boolean;
   readonly turret: boolean;
+  readonly usesMissiles?: boolean;
+  /** The pilot's attribute (the ship-modified character's). */
+  pilotAttr?(attributeID: number): number | null;
   /** Its default effect is running (godma's effect isActive). */
   readonly active: boolean;
   /** An attribute's icon (dogma_data.get_attribute_icon_id) as a URL, and its display name. */
@@ -136,6 +143,59 @@ INFO_BY_GROUP.set(76, capacitorBooster);
 for (const g of [65, 1441]) INFO_BY_GROUP.set(g, attributeInfo(ATTR.speedFactor, "UI/Inflight/ModuleRacks/Tooltips/VelocityReductionFromWeb", "percentage", Math.abs));
 for (const g of [52, 1442]) INFO_BY_GROUP.set(g, attributeInfo(ATTR.warpScrambleStrength, "UI/Inflight/ModuleRacks/Tooltips/WarpScramblerStrength", "strength"));
 
+/** dogma.attributes.groups.damage_type_attribute_ids: EM, thermal, kinetic, explosive. */
+const DAMAGE_TYPES = [114, 118, 117, 116] as const;
+const ATTR_RATE_OF_FIRE = 51;
+const ATTR_DAMAGE_MULTIPLIER = 64;
+const ATTR_MISSILE_DAMAGE_MULTIPLIER = 212;
+const GROUP_MISSILE_LAUNCHER_BOMB = 862;
+
+/**
+ * AddDpsAndDamgeTypeInfo (GetDpsDamageTypeInfo, fittingDogmaLocationUtil): a launcher's (or a bomb launcher's) with a
+ * charge, its charge's damage times the pilot's missile damage multiplier over its rate of fire; a turret's, its
+ * charge's damage (its own without one) times its damage multiplier over its rate of fire; a bank's times its size.
+ * Then AddDamageTypes: the damage-causing item's damages times the multiplier, one by its name, several under a header.
+ */
+function dpsRows(f: ModuleTooltipFacts, word: TooltipWord, out: ModuleTooltipRow[]): void {
+  const bomb = f.groupID === GROUP_MISSILE_LAUNCHER_BOMB;
+  const launcher = f.launcher || !!f.usesMissiles;
+  if (!launcher && !f.turret && !bomb) return;
+  const damageOf = (read: (id: number) => number | null) => DAMAGE_TYPES.reduce((sum, id) => sum + (read(id) ?? 0), 0);
+  let dps = 0;
+  let multiplier = 1;
+  let icon: string | null = null;
+  const rof = f.attr(ATTR_RATE_OF_FIRE) ?? 0;
+  if ((launcher || bomb) && f.charge) {
+    multiplier = bomb ? 1 : f.pilotAttr?.(ATTR_MISSILE_DAMAGE_MULTIPLIER) ?? 1;
+    dps = rof ? damageOf(f.chargeAttr) * multiplier / rof * 1000 : 0;
+    icon = launcher ? "/client-res/ui/texture/icons/81_64_16.png" : f.typeIcon(f.typeID);
+  } else if (f.turret) {
+    multiplier = f.attr(ATTR_DAMAGE_MULTIPLIER) ?? 1;
+    const damage = f.charge ? damageOf(f.chargeAttr) : damageOf(f.attr);
+    dps = damage > 0 && rof ? damage * multiplier / rof * 1000 : 0;
+    icon = "/client-res/ui/texture/icons/26_64_1.png";
+  } else {
+    return;
+  }
+  if (dps !== 0 && f.numInGroup) {
+    dps *= f.numInGroup;
+    multiplier *= f.numInGroup;
+  }
+  const text = word("UI/Inflight/ModuleRacks/DamagePerSecond", { dps });
+  if (text !== null) out.push({ icon, iconSize: 24, text });
+  const read = f.charge ? f.chargeAttr : f.attr;
+  const values = DAMAGE_TYPES.map((id) => [id, (read(id) ?? 0) * multiplier] as const).filter(([, v]) => v);
+  if (values.length === 1) {
+    const [id, v] = values[0]!;
+    const one = word("UI/Inflight/ModuleRacks/Tooltips/OneDamageTypeText", { activeName: f.attributeName(id) ?? "", activeValue: v });
+    if (one !== null) out.push({ icon: f.attributeIcon(id), iconSize: 24, text: one });
+  } else if (values.length > 1) {
+    const header = word("UI/Inflight/ModuleRacks/Tooltips/DamageTypesHeader", {});
+    if (header !== null) out.push({ icon: null, iconSize: 24, text: header, header: true });
+    out.push({ icon: null, iconSize: 24, text: "", values: values.map(([id, v]) => ({ icon: f.attributeIcon(id), text: word("UI/Inflight/ModuleRacks/Tooltips/DamageHitpoints", { activeValue: v }) ?? "" })) });
+  }
+}
+
 /** FormatSeconds (localization/formatters/timeIntervalFormatters.py): one place where the seconds have a fraction. */
 export function formatSeconds(seconds: number, word: TooltipWord): string {
   const value = formatNumeric(seconds, { decimalPlaces: seconds % 1 ? 1 : 0 });
@@ -185,6 +245,8 @@ export function moduleTooltipRows(f: ModuleTooltipFacts, word: TooltipWord, fmtD
   }
   const range = rangeText(f, word, fmtDist);
   if (range !== null) out.push({ icon: "/client-res/ui/texture/icons/22_32_15.png", iconSize: 24, text: range });
+  // ShouldAddDps: a module that takes charges (GetChargeTypeAndQty answers a quantity, nought where none is loaded)
+  if (compatible) dpsRows(f, word, out);
   if (f.groupID !== null) INFO_BY_GROUP.get(f.groupID)?.(f, word, out, seconds);
   // AddTrackingSpeed: a turret's tracking, by the attribute's name.
   const tracking = f.attr(ATTR.trackingSpeed) ?? 0;
@@ -208,4 +270,6 @@ export const MODULE_TOOLTIP_LABELS: readonly string[] = [
   "UI/Inflight/ModuleRacks/Tooltips/ArmorTransferredPerTime", "UI/Inflight/ModuleRacks/Tooltips/ModuleRepairing",
   "UI/Inflight/ModuleRacks/Tooltips/WeaponAccuracyScore", "UI/Inflight/ModuleRacks/Tooltips/VelocityReductionFromWeb",
   "UI/Inflight/ModuleRacks/Tooltips/WarpScramblerStrength", "/Carbon/UI/Common/WrittenDateTimeQuantityShort/Second",
+  "UI/Inflight/ModuleRacks/DamagePerSecond", "UI/Inflight/ModuleRacks/Tooltips/OneDamageTypeText",
+  "UI/Inflight/ModuleRacks/Tooltips/DamageTypesHeader", "UI/Inflight/ModuleRacks/Tooltips/DamageHitpoints",
 ];

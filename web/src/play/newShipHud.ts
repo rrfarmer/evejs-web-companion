@@ -302,6 +302,8 @@ export class NewShipHud {
   private tipSlot: Slot | null = null;
   private tipTimer: ReturnType<typeof setTimeout> | null = null;
   private tipRefresh: ReturnType<typeof setInterval> | null = null;
+  /** The open tooltip's rows as last drawn: drawn again only when they change. */
+  private tipKey = "";
   private onModule: ((m: HudModule) => void) | null = null;
   private damageFlash: { level: number; until: number; period: number } | null = null;
   private capFlashUntil = 0;
@@ -523,6 +525,7 @@ export class NewShipHud {
     menu.className = "new-hud-settings";
     Object.assign(menu.style, { position: "fixed", zIndex: "100000", display: "none", pointerEvents: "auto" });
     for (const t of ["checkBoxActive", "checkBoxInactive", "BulletIcon"]) image(res(`res:/UI/Texture/classes/UtilMenu/${t}.png`));
+    for (const t of ["background_04", "pointer_down_02"]) image(res(`res:/UI/Texture/classes/FrameWithPointer/${t}.png`));
     const closeMenu = (e: MouseEvent) => { if (!menu.contains(e.target as Node) && e.target !== gear && !gear.contains(e.target as Node)) menu.style.display = "none"; };
     gear.addEventListener("click", () => {
       const open = menu.style.display === "none";
@@ -873,6 +876,7 @@ export class NewShipHud {
 
   private closeTooltip(): void {
     this.tipSlot = null;
+    this.tipKey = "";
     this.tooltip.style.display = "none";
   }
 
@@ -892,6 +896,9 @@ export class NewShipHud {
     const rows = m && this.tooltipRows ? this.tooltipRows(m) : null;
     if (!slot || !m || !rows || rows.length === 0) { this.closeTooltip(); return; }
     const t = this.tooltip;
+    const key = JSON.stringify(rows);
+    if (key === this.tipKey && t.style.display !== "none") return;
+    this.tipKey = key;
     // The client's tooltips are in its hint layer (uicore.layer.hint), over every window: the page's body here.
     if (!t.isConnected) {
       t.className = "new-hud-tooltip";
@@ -919,6 +926,31 @@ export class NewShipHud {
       const text = document.createElement("div");
       text.dataset.tipRow = "";
       Object.assign(text.style, { padding: "8px 4px", lineHeight: "18px" });
+      if (row.header) {
+        // AddRowWithIconAndText(minRowSize=24), the label at the foot
+        iconCell.style.minHeight = "24px";
+        Object.assign(text.style, { padding: "4px 4px 0", alignSelf: "end" });
+      }
+      if (row.values) {
+        // AddAttributeRow: AttributeValueRowContainer, each value its 24 px icon and its label, about 65 px apart
+        // (the cells share the label column: on the Ibis's gun two values 102 px apart)
+        Object.assign(text.style, { display: "flex", gap: "0", padding: "4px 0", gridColumn: "2 / 4", marginLeft: "-4px" });
+        for (const v of row.values) {
+          const cell = document.createElement("span");
+          Object.assign(cell.style, { display: "inline-flex", alignItems: "center", flex: "1 1 0", minWidth: "65px", gap: "0" });
+          if (v.icon) {
+            const vi = document.createElement("img");
+            vi.src = v.icon;
+            vi.alt = "";
+            Object.assign(vi.style, { width: "24px", height: "24px" });
+            cell.append(vi);
+          }
+          const vt = document.createElement("span");
+          vt.textContent = v.text;
+          cell.append(vt);
+          text.append(cell);
+        }
+      }
       for (const line of labelLines(row.text.split("\n").join("<br>"))) {
         const div = document.createElement("div");
         for (const run of line.tabs.flat()) {
@@ -935,7 +967,8 @@ export class NewShipHud {
         hint.textContent = row.shortcut;
         Object.assign(hint.style, { alignSelf: "start", marginLeft: "10px", padding: "0 13px", height: "18px", lineHeight: "18px", background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)", fontWeight: "bold" });
       }
-      grid.append(iconCell, text, hint);
+      if (row.values) grid.append(iconCell, text);
+      else grid.append(iconCell, text, hint);
     }
     t.append(frame, pointer, grid);
     t.style.display = "";
