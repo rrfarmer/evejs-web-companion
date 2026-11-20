@@ -4190,6 +4190,7 @@ export interface AppFlow {
   miningScanFacts(typeIDs: readonly number[]): Promise<ReadonlyMap<number, MiningScanTypeFacts>>;
   loadMiningLedger(): Promise<{ rows: readonly MiningLedgerEntry[]; facts: ReadonlyMap<number, MiningLedgerFacts>; nowMs: number }>;
   readonly moonExtractionChanged: ReadableSignal<number>;
+  readonly moonFuelChanged: ReadableSignal<number>;
   readonly moonFracturing: ReadableSignal<{ structureID: number; extractionID: number; endsAtMs: number } | null>;
   loadMoonRefinery(structureID: number): Promise<MoonRefinery | null>;
   changeRefineryControl(structureID: number, take: boolean): Promise<void>;
@@ -4197,6 +4198,7 @@ export interface AppFlow {
   loadMoonOrePricing(typeIDs: readonly number[]): Promise<ReadonlyMap<number, MoonOrePricing>>;
   loadMoonSchedule(structureID: number): Promise<MoonSchedule>;
   loadMoonYieldMultiplier(structureID: number): Promise<number | null>;
+  loadMoonFuelExpiry(structureID: number): Promise<number | null>;
   loadCorporationMoonSchedule(current?: () => void): Promise<CorporationMoonSchedule>;
   startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
@@ -5699,6 +5701,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const onlineCharacterID = (): number | null => store.station.get().online?.characterID ?? null;
   const academyChangedSignal = createSignal(0);
   const moonExtractionChanged = createSignal(0);
+  const moonFuelChanged = createSignal(0);
   const moonFracturing = createSignal<{ structureID: number; extractionID: number; endsAtMs: number } | null>(null);
   const epicArcsChanged = createSignal(0);
   const agencySeasonProgressChanged = createSignal(0);
@@ -7093,6 +7096,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    */
   function oneItemChanged(args: readonly unknown[]): void {
     inventoryMoves.itemChanged(args[0], args[1]);
+    const refineryID = dockedRefineryID();
+    // The native scheduler watches the structure's fuel bay, including changes to an existing stack.
+    if (refineryID !== null && store.flight.get().status?.shipID === refineryID
+        && itemChangeLocations(args)?.includes(refineryID)
+        && (Number(readRowField(args[0] as JsonValue, "flagID")) === 172
+          || readDictPairs(args[1]).some(([key, flag]) => Number(key) === 4 && Number(flag) === 172))) {
+      moonFuelChanged.update(revision => revision + 1);
+    }
     // Keep already observed parents current for invCache's removal-tax walk.
     // The notice contains the complete current item, including a changed owner.
     for (const row of decodeInventoryRows({ type: "list", items: [args[0] as JsonValue] })) {
@@ -26254,16 +26265,27 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return { extractions, profiles, nowMs: serverNow() };
   }
 
-  async function startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void> {
+  async function readControlledRefinery(structureID: number) {
     const current = callOptions.captureRequestGuard!();
     assertRefineryControl(structureID);
-    // Fuel can move while the planner is open. The native scheduler checks at Start.
     const info = await bridgeAsk("structureDirectory", "GetStructureInfo", [structureID]);
     current();
     assertRefineryControl(structureID);
-    const ownerID = moonMiningID(readKeyVal(info, "ownerID"));
+    return {
+      ownerID: moonMiningID(readKeyVal(info, "ownerID")),
+      fuelExpiresAtMs: filetimeToUnixMs(unwrapLong(readKeyVal(info, "fuelExpires"))),
+    };
+  }
+
+  async function loadMoonFuelExpiry(structureID: number): Promise<number | null> {
+    return (await readControlledRefinery(structureID)).fuelExpiresAtMs;
+  }
+
+  async function startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    // Fuel can move while the planner is open. Read it again at Start.
+    const { ownerID, fuelExpiresAtMs } = await readControlledRefinery(structureID);
     if (ownerID === null) throw new Error("The refinery's current structure information could not be read.");
-    const fuelExpiresAtMs = filetimeToUnixMs(unwrapLong(readKeyVal(info, "fuelExpires")));
     if (fuelExpiresAtMs !== null && readyAtMs > fuelExpiresAtMs
       && !await askDialog("NotEnoughFuelForExtractionDuration", null, "The selected ready time is after the refinery's fuel expires. Start the extraction?")) return;
     current();
@@ -36754,6 +36776,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     miningScanFacts,
     loadMiningLedger,
     moonExtractionChanged: readonlySignal(moonExtractionChanged),
+    moonFuelChanged: readonlySignal(moonFuelChanged),
     moonFracturing: readonlySignal(moonFracturing),
     loadMoonRefinery,
     changeRefineryControl,
@@ -36761,6 +36784,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadMoonOrePricing,
     loadMoonSchedule,
     loadMoonYieldMultiplier,
+    loadMoonFuelExpiry,
     loadCorporationMoonSchedule,
     startMoonPull,
     controlMoonPull,

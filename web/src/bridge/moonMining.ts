@@ -7,6 +7,10 @@ export const MIN_MOON_PULL_SECONDS = 518460;
 export const MAX_MOON_PULL_SECONDS = 4838400;
 export const MOON_FRACTURE_MS = 30_000;
 export const MOON_PLAN_STEP_MS = 30 * 60_000;
+export const MOON_PLAN_HOUR_MS = 2 * MOON_PLAN_STEP_MS;
+export const MOON_PLAN_BLOCK_MS = 4 * MOON_PLAN_HOUR_MS;
+export const MOON_PLAN_SPAN_MS = MAX_MOON_PULL_SECONDS * 1000;
+export const MOON_PLAN_ZOOM_MS = 96 * MOON_PLAN_HOUR_MS;
 const MOON_YIELD_PER_DAY_M3 = 720_000;
 const MOON_YIELD_ATTRIBUTE_ID = 2704;
 
@@ -20,6 +24,32 @@ export interface MoonRefinery {
 export interface MoonResource {
   readonly typeID: number;
   readonly fraction: number;
+}
+
+export interface MoonPlanRange {
+  readonly startAtMs: number;
+  readonly maxAtMs: number;
+}
+
+export function moonPlanRange(openedAtMs: number): MoonPlanRange {
+  return {
+    startAtMs: (Math.floor(openedAtMs / MOON_PLAN_BLOCK_MS) + 1) * MOON_PLAN_BLOCK_MS,
+    maxAtMs: Math.floor((openedAtMs + MOON_PLAN_SPAN_MS) / MOON_PLAN_HOUR_MS) * MOON_PLAN_HOUR_MS,
+  };
+}
+
+export function moonPlanMinimum(nowMs: number): number {
+  // The native picker preserves two minutes for the Start confirmation.
+  return nowMs + (MIN_MOON_PULL_SECONDS + 120) * 1000;
+}
+
+export function snapMoonPlanTime(atMs: number, nowMs: number, range: MoonPlanRange, stepMs = MOON_PLAN_STEP_MS): number {
+  return Math.min(range.maxAtMs, Math.max(moonPlanMinimum(nowMs), Math.round(atMs / stepMs) * stepMs));
+}
+
+export function moonPlanFuelBlock(fuelAtMs: number | null, range: MoonPlanRange): number | null {
+  if (fuelAtMs === null || fuelAtMs < range.startAtMs || fuelAtMs >= range.startAtMs + MOON_PLAN_SPAN_MS) return null;
+  return Math.floor(fuelAtMs / MOON_PLAN_BLOCK_MS) * MOON_PLAN_BLOCK_MS;
 }
 
 export interface MoonOrePricing {

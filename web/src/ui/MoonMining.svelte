@@ -2,10 +2,11 @@
   import { onMount, untrack } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { filetimeToUnixMs } from "../bridge/activity.ts";
-  import { canManageMoonPull, estimateMoonOutput, MAX_MOON_PULL_SECONDS, MIN_MOON_PULL_SECONDS, MOON_PLAN_STEP_MS, moonPullDuration, moonPullStage,
-    type MoonOrePricing, type MoonRefinery, type MoonResource, type MoonSchedule } from "../bridge/moonMining.ts";
+  import { canManageMoonPull, estimateMoonOutput, moonPlanMinimum, moonPlanRange, moonPullDuration, moonPullStage, snapMoonPlanTime,
+    type MoonOrePricing, type MoonPlanRange, type MoonRefinery, type MoonResource, type MoonSchedule } from "../bridge/moonMining.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
+  import MoonPlanningTimeline from "./MoonPlanningTimeline.svelte";
 
   let { flow, store, refinery }: { flow: AppFlow; store: ClientStore; refinery: MoonRefinery } = $props();
   const names = $derived(store.names);
@@ -22,7 +23,11 @@
   let actionError = $state("");
   let clockOffsetMs = 0;
   let now = $state(Date.now());
-  let plannedDate = $state("");
+  let planRange = $state.raw<MoonPlanRange | null>(null);
+  let plannedAtMs = $state<number | null>(null);
+  let fuelAtMs = $state<number | null>(null);
+  let readingFuel = false;
+  let readFuelAgain = false;
   let previewMultiplier = $state<number | null>(null);
   let yieldPending = $state(true);
   let calendar = $state(true);
@@ -39,11 +44,10 @@
   const stage = $derived(moonPullStage(pull, now, fracture !== null));
   const progress = $derived(pull ? Math.max(0, Math.min(1, (now - pull.startedAtMs) / (pull.readyAtMs - pull.startedAtMs))) : 0);
   const announce = $derived(({ idle: "Drill idle", pulling: "Extraction in progress", ready: "Ready to fracture", fracturing: "Fracturing" })[stage]);
-  const selectedDate = $derived(Date.parse(`${plannedDate}Z`));
-  const validPlan = $derived(moonPullDuration(selectedDate, now) !== null);
+  const validPlan = $derived(plannedAtMs !== null && moonPullDuration(plannedAtMs, now) !== null);
   const canStart = $derived(validPlan && !!resources?.length && !scheduleError);
   // The native planner samples the clock when the selected date changes.
-  const plannedSeconds = $derived((selectedDate - untrack(() => now)) / 1000);
+  const plannedSeconds = $derived(plannedAtMs === null ? null : (plannedAtMs - untrack(() => now)) / 1000);
   const durationSeconds = $derived(pull ? (pull.readyAtMs - pull.startedAtMs) / 1000 : validPlan ? plannedSeconds : null);
   const yieldMultiplier = $derived(pull ? pull.yieldMultiplier : previewMultiplier);
   const output = $derived(resources?.length && durationSeconds !== null && yieldMultiplier !== null
@@ -67,9 +71,12 @@
   });
 
   const utc = (ms: number) => `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`;
-  const forInput = (ms: number) => new Date(ms).toISOString().slice(0, 16);
-  const firstPlan = (ms: number) => Math.ceil((ms + MIN_MOON_PULL_SECONDS * 1000) / MOON_PLAN_STEP_MS) * MOON_PLAN_STEP_MS;
-  const lastPlan = (ms: number) => Math.floor((ms + MAX_MOON_PULL_SECONDS * 1000) / MOON_PLAN_STEP_MS) * MOON_PLAN_STEP_MS;
+  function selectPlan(atMs: number, stepMs?: number): number {
+    const range = planRange ?? moonPlanRange(now);
+    if (range.maxAtMs < moonPlanMinimum(now)) planRange = moonPlanRange(now);
+    plannedAtMs = snapMoonPlanTime(atMs, now, planRange ?? range, stepMs);
+    return plannedAtMs;
+  }
 
   function remaining(endMs: number): string {
     const seconds = Math.max(0, Math.ceil((endMs - now) / 1000));
@@ -109,6 +116,20 @@
     yieldPending = false;
   }
 
+  async function readFuel(): Promise<void> {
+    if (readingFuel) { readFuelAgain = true; return; }
+    readingFuel = true;
+    try {
+      const result = await flow.loadMoonFuelExpiry(refinery.id);
+      if (mounted) fuelAtMs = result;
+    } catch {
+      if (mounted) fuelAtMs = null;
+    } finally {
+      readingFuel = false;
+      if (mounted && readFuelAgain) { readFuelAgain = false; void readFuel(); }
+    }
+  }
+
   async function refresh(): Promise<void> {
     if (reading) { readAgain = true; return; }
     reading = true;
@@ -117,8 +138,9 @@
       if (!mounted) return;
       clockOffsetMs = result.nowMs - Date.now();
       now = result.nowMs;
-      if (result.pull === null && (!plannedDate || (schedule?.pull && moonPullDuration(Date.parse(`${plannedDate}Z`), now) === null))) {
-        plannedDate = forInput(firstPlan(now + 60_000));
+      if (result.pull === null && (plannedAtMs === null || (schedule?.pull && moonPullDuration(plannedAtMs, now) === null))) {
+        planRange = moonPlanRange(now);
+        plannedAtMs = moonPlanMinimum(now);
       }
       if (result.pull === null && schedule?.pull) void readYield();
       schedule = result;
@@ -150,9 +172,11 @@
     void readYield();
     // The store subscription supplies the initial read. Periodic reads also catch updates missed during reconnects.
     const stop = flow.moonExtractionChanged.subscribe(() => { void refresh(); });
+    const stopFuel = flow.moonFuelChanged.subscribe(() => { if (!pull) void readFuel(); });
     const clock = setInterval(() => { now = Date.now() + clockOffsetMs; }, 1000);
     const poll = setInterval(() => { void refresh(); }, 5000);
-    return () => { mounted = false; stop(); clearInterval(clock); clearInterval(poll); };
+    const fuelPoll = setInterval(() => { if (!pull) void readFuel(); }, 15_000);
+    return () => { mounted = false; stop(); stopFuel(); clearInterval(clock); clearInterval(poll); clearInterval(fuelPoll); };
   });
 </script>
 
@@ -187,12 +211,13 @@
         {#if !canStop}<p>Stopping the drill requires the Station Manager role in the owning corporation.</p>{/if}
       {/if}
     </div>
-  {:else if schedule}
-    <form class="schedule-card" onsubmit={event => { event.preventDefault(); if (canStart && !pending) void run(() => flow.startMoonPull(refinery.id, selectedDate, calendar)); }}>
-      <label class="time">Chunk ready time (UTC)
-        <input type="datetime-local" required bind:value={plannedDate} min={forInput(firstPlan(now))}
-          max={forInput(lastPlan(now))} step={MOON_PLAN_STEP_MS / 1000} disabled={pending} />
-      </label>
+  {:else if schedule && planRange && plannedAtMs !== null}
+    <form class="schedule-card" onsubmit={event => {
+      event.preventDefault();
+      const ready = plannedAtMs;
+      if (ready !== null && canStart && !pending) void run(() => flow.startMoonPull(refinery.id, ready, calendar));
+    }}>
+      <MoonPlanningTimeline range={planRange} selectedAtMs={plannedAtMs} {now} {fuelAtMs} disabled={pending} select={selectPlan} />
       {#if !validPlan}<p>Choose a ready time from six days and one minute through 56 days from now.</p>{/if}
       <label class="calendar"><input type="checkbox" bind:checked={calendar} disabled={pending} /> Add to Calendar</label>
       <button class="primary" disabled={pending || !canStart}>Start Extraction</button>
@@ -261,10 +286,9 @@
   progress, meter { width: 100%; accent-color: #75b4bf; }
   dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; }
   dt, p { color: #adc0c7; } dd { text-align: right; }
-  .time { display: grid; gap: 7px; }
   .calendar { display: flex; align-items: center; gap: 6px; }
+  .calendar input { width: 15px; height: 15px; flex: none; margin: 0; }
   input { color-scheme: dark; accent-color: #75b4bf; }
-  input[type="datetime-local"] { width: min(100%, 230px); background: #11191d; color: inherit; border: 1px solid #51636a; padding: 5px 7px; }
   button { justify-self: start; background: #25333a; border: 1px solid #526872; color: inherit; padding: 6px 12px; }
   button.primary { background: #28434a; border-color: #72a8b2; }
   button:disabled { opacity: .55; } button:not(:disabled):hover { filter: brightness(1.2); }

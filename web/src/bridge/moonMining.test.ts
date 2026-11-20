@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { canManageMoonPull, decodeCorporationMoonPulls, decodeMoonResources, decodeMoonSchedule, estimateMoonOutput, MAX_MOON_PULL_SECONDS,
-  MIN_MOON_PULL_SECONDS, moonPullDuration, moonPullStage } from "./moonMining.ts";
+  MIN_MOON_PULL_SECONDS, MOON_PLAN_HOUR_MS, moonPlanFuelBlock, moonPlanMinimum, moonPlanRange, moonPullDuration, moonPullStage,
+  snapMoonPlanTime } from "./moonMining.ts";
 
 const structure = 1_030_000_000_000;
 const started = 1_795_100_000_000;
@@ -18,6 +19,30 @@ const extraction = {
     ["yieldMultiplier", { type: "real", value: 1.024 }],
   ] },
 };
+
+test("moon planning uses the native four-hour origin, hourly maximum and padded minimum", () => {
+  const wallclock = Date.parse("2026-11-19T12:17:40Z");
+  const range = moonPlanRange(wallclock);
+  assert.equal(range.startAtMs, Date.parse("2026-11-19T16:00Z"));
+  assert.equal(moonPlanRange(range.startAtMs).startAtMs, Date.parse("2026-11-19T20:00Z"));
+  assert.equal(range.maxAtMs, Date.parse("2027-01-14T12:00Z"));
+  assert.equal(moonPlanMinimum(wallclock), Date.parse("2026-11-25T12:20:40Z"));
+  assert.equal(snapMoonPlanTime(range.startAtMs, wallclock, range), moonPlanMinimum(wallclock));
+  assert.equal(snapMoonPlanTime(range.maxAtMs + MOON_PLAN_HOUR_MS, wallclock, range), range.maxAtMs);
+});
+
+test("moon planning edits cross midnight on the half-hour grid and fuel stays in its four-hour block", () => {
+  const wallclock = Date.parse("2026-11-19T12:17:40Z");
+  const range = moonPlanRange(wallclock);
+  const edit = Date.parse("2026-11-27T23:46Z");
+  assert.equal(snapMoonPlanTime(edit, wallclock, range), Date.parse("2026-11-28T00:00Z"));
+  const coarse = Date.parse("2026-11-27T23:20Z");
+  assert.equal(snapMoonPlanTime(coarse, wallclock, range, MOON_PLAN_HOUR_MS), Date.parse("2026-11-27T23:00Z"));
+  assert.equal(snapMoonPlanTime(coarse, wallclock, range), Date.parse("2026-11-27T23:30Z"));
+  assert.equal(moonPlanFuelBlock(edit, range), Date.parse("2026-11-27T20:00Z"));
+  assert.equal(moonPlanFuelBlock(range.startAtMs - 1, range), null);
+  assert.equal(moonPlanFuelBlock(Date.parse("2027-02-01T00:00Z"), range), null);
+});
 
 test("refinery schedule distinguishes idle, pulling, ready and confirmed fracture", () => {
   const idle = decodeMoonSchedule([null, null], structure, started);
