@@ -278,6 +278,9 @@ export function distanceWords(m: number): string {
   return `${(m / 149_597_870_700).toFixed(1)} AU`;
 }
 
+/** The asteroid beam's end: a ray from the shooter to the rock's centre (damageLocatorOf). */
+const surfaceRay = new THREE.Raycaster();
+
 export class SpaceView {
   readonly root = document.createElement("div");
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
@@ -2912,8 +2915,24 @@ export class SpaceView {
       return delay;
     };
     this.turretFx.damageLocatorOf = (target, from) => {
-      const impact = this.marks.get(target)?.userData.impact as ImpactOverlay | undefined;
-      return impact ? impact.locatorPosition(impact.locatorFacing(from)) : null;
+      const mark = this.marks.get(target);
+      const impact = mark?.userData.impact as ImpactOverlay | undefined;
+      if (impact) return impact.locatorPosition(impact.locatorFacing(from));
+      // An asteroid: the client's SOF rock carries a damage locator set over its surface (55 on a Veldspar
+      // rock_01_m, read through gridcheck) and the beam ends on the one facing the shooter
+      // (EveTurretTarget::GetImpactPosition, DAMAGE_LOCATOR). The rock drawn here is the page's own, without locators:
+      // the point of its surface the shooter's line to its centre meets stands for that locator.
+      const rock = mark ? this.asteroidModels.meshOf(mark) : undefined;
+      if (!mark || !rock) return null;
+      rock.updateWorldMatrix(true, false);
+      const centre = new THREE.Vector3().setFromMatrixPosition(rock.matrixWorld);
+      const dir = centre.clone().sub(from);
+      const dist = dir.length();
+      if (!(dist > 0)) return null;
+      surfaceRay.set(from, dir.divideScalar(dist));
+      surfaceRay.far = dist;
+      const hit = surfaceRay.intersectObject(rock, false)[0];
+      return hit ? hit.point.clone() : null;
     };
     this.turretFx.muzzleOf = (ship, moduleID, shot, target) => {
       const m = this.muzzleOf(ship, moduleID, shot, target, origin);

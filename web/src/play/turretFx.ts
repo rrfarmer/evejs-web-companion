@@ -592,7 +592,10 @@ export class TurretFx {
     this.placeChains(positionOf, renderer, camera, radiusOf);
     for (const f of this.firings.values()) {
       if (f.kind === "ewar") continue;
-      const from = this.muzzleOf?.(f.shooter, f.moduleID, 0, f.target) ?? positionOf(f.shooter)!, to = positionOf(f.target)!;
+      const from = this.muzzleOf?.(f.shooter, f.moduleID, 0, f.target) ?? positionOf(f.shooter)!;
+      // EveChildTurret: the firing effect's end is the turret target's position (EveTurretTarget, its impact behaviour
+      // DAMAGE_LOCATOR by default): the target's damage locator facing the shooter, its centre where it has none
+      const to = this.damageLocatorOf?.(f.target, from) ?? positionOf(f.target)!;
       if (this.drawStretches(f, from, to, now, radiusOf?.(f.target) ?? null, camera) || this.drawStretch3(f, from, to, now, renderer, camera)) {
         const old = this.beams.get(f);
         if (old) { this.group.remove(old); old.geometry.dispose(); this.beams.delete(f); }
