@@ -19,6 +19,8 @@ import { shiftGpuParticles } from "../three/gpuParticles.ts";
 import { useFarBoosters } from "../three/boosterVolumetric.ts";
 import { celestialModel, systemCelestials, setPlanetEnvironment, type CelestialItem } from "../three/celestialModel.ts";
 import { ShipHud, type HudModule } from "./shipHud.ts";
+import { NewShipHud } from "./newShipHud.ts";
+import { hudSettingNow } from "../store/hudSettings.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
 import { WormholeTransit, WORMHOLE_START_MS, WORMHOLE_MIDDLE_MS, WORMHOLE_CAMERA_RETURN_MS, WORMHOLE_STOP_MS } from "./wormholeTransit.ts";
 import { TurretFx, fxGuid } from "./turretFx.ts";
@@ -283,7 +285,8 @@ export class SpaceView {
   private readonly wormholeAudio = new Map<number, WormholeAudio>();
   private readonly collapsingWormholes: { mark: THREE.Object3D; audio: WormholeAudio; until: number }[] = [];
   // Empty slots hidden, as the client's default (showEmptySlots off) has them, until the module rack knows the fit.
-  private readonly shipHud = new ShipHud({ slots: { hi: 0, med: 0, low: 0 } });
+  // hud/client/rollout.py IsNewHudWanted: the 24.02 new HUD where its preview setting is on, else the classic ship UI.
+  private readonly shipHud: ShipHud | NewShipHud = hudSettingNow("shipHudNew_preview") ? new NewShipHud() : new ShipHud({ slots: { hi: 0, med: 0, low: 0 } });
   private readonly targetBar = new TargetBar();
   /** Lock requests awaiting a response, keyed by target ID and local start time. */
   private readonly lockingIDs = new Map<number, number>();
@@ -702,6 +705,7 @@ export class SpaceView {
     this.root.insertBefore(this.shipHud.root, this.modeEl);
     this.shipHud.onStop = () => void this.stopShip();
     this.shipHud.onFullSpeed = () => void this.fullSpeed();
+    if (this.shipHud instanceof NewShipHud) this.shipHud.onSetSpeed = (ratio) => void this.setSpeedRatio(ratio);
     this.modeHeader.className = "ship-mode-header";
     this.modeSub.className = "ship-mode-detail";
     this.modeProgress.className = "ship-mode-progress";
@@ -980,6 +984,28 @@ export class SpaceView {
         this.actions.word?.("UI/Inflight/Messages/ShipFullSpeedHeader") ?? "Full speed",
         speed === null ? "" : this.actions.word?.("UI/Commands/SpeedChangedTo", { speed: speed >= 100 ? Math.trunc(speed) : speed }) ?? `${Math.round(speed)} m/s`,
       );
+    });
+  }
+
+  /**
+   * activeShipController.SetSpeed (the new HUD's speedometer): 0 stops the ship; else a stopped ship starts along its
+   * heading (CmdGotoDirection) and the fraction is set (CmdSetSpeedFraction), "Speed changed to {speed}" said.
+   */
+  private async setSpeedRatio(ratio: number): Promise<void> {
+    const ego = this.snapshot?.ship;
+    if (!ego || ego.mode === "WARP") return;
+    if (ratio <= 0) { await this.stopShip(); return; }
+    await this.act("Set speed", async () => {
+      if (ego.mode === "STOP") {
+        const holder = this.marks.get(ego.itemID);
+        if (holder) {
+          const f = new THREE.Vector3(0, 0, 1).applyQuaternion(holder.quaternion);
+          await this.actions.gotoDirection(f.x, f.y, -f.z);
+        }
+      }
+      await this.actions.setSpeedFraction(Math.min(1, ratio));
+      const speed = ego.maxVelocity === null ? null : ego.maxVelocity * Math.min(1, ratio);
+      if (speed !== null) this.showTemporaryIndication(this.actions.word?.("UI/Commands/SpeedChangedTo", { speed: speed >= 100 ? Math.trunc(speed) : Math.round(speed * 10) / 10 }) ?? `${Math.round(speed)} m/s`);
     });
   }
 
@@ -2749,6 +2775,9 @@ export class SpaceView {
         capacitorRatio: cap,
         capacitorMax: this.options.rack?.capacitor?.().max ?? null,
         speed, maxSpeed: ego.maxVelocity ?? null, warping: ego.mode === "WARP",
+        // the ring segments by each pool's max HP (shieldCapacity 263, armorHP 265, hp 9), the wanted speed fraction
+        shieldMax: this.actions.shipAttribute?.(263) ?? null, armorMax: this.actions.shipAttribute?.(265) ?? null, hullMax: this.actions.shipAttribute?.(9) ?? null,
+        desiredRatio: ego.speedFraction ?? null,
         // the racks' heat (the ship's heatLow / heatMed / heatHi over their capacities, as the BFF's dogma reckons
         // them: the app's space snapshot, not this view's park)
         ...(() => { const h = this.options.rack?.heat?.(); return { heatLow: h?.low, heatMed: h?.mid, heatHi: h?.high }; })(),

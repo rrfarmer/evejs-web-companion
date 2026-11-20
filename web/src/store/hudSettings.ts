@@ -28,6 +28,11 @@ export const HUD_SETTING_DEFAULTS = Object.freeze({
    * view, its action indication under it (shipUI.UpdatePosition, _update_indicator_cont_top).
    */
   shipuialigntop: false,
+  /**
+   * hud/client/rollout.py new_hud_setting (hudConst.NEW_HUD_PREVIEW_SETTING): the 24.02 new HUD in place of the
+   * classic ship UI. The client defaults it off; the operator asked for it as the default (2026-11-20).
+   */
+  shipHudNew_preview: true,
 });
 
 export type HudSettingName = keyof typeof HUD_SETTING_DEFAULTS;
