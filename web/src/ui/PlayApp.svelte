@@ -12,7 +12,8 @@
   import { romanLevel } from "../bridge/skills.ts";
   import { fmtDist } from "../space/overview.ts";
   import { selectedSites as probeSitesSelected, selectSite as selectProbeSite } from "../app/probeSiteSelection.ts";
-  import { addGameLogLine } from "./gameLog.ts";
+  import { addGameLogLine, beginGameLog } from "./gameLog.ts";
+  import GameLogActions from "./GameLogActions.svelte";
   import { combatFlag, combatFontSize, damageMessageShown } from "./combatSettings.ts";
   import type { CombatMessageIcon } from "../play/combatMessage.ts";
   import type { ActionMessage } from "../app/flow.ts";
@@ -404,6 +405,7 @@
       // The app's own selection: login calls, the lost-drone check, the station panel (flow.pilotSelected).
       await session.flow.selectCharacter(characterID);
       const { online } = session.store.station.get();
+      beginGameLog(characterID, online?.characterName ?? "");
       entryWarpHistory = gfx().dynamicCameraMovement && online && !deriveDocked(session.store.flight.get().status, online)
         ? session.flow.hasEverWarped().catch(() => null) : null;
       session.flow.setLivePush(true);
@@ -867,11 +869,13 @@
   let offActionMessages: (() => void) | null = null;
   async function sayActionMessage(m: ActionMessage): Promise<void> {
     const s = session;
+    const pilotID = chosenCharacterID;
     if (!s) return;
     if (m.kind === "mining" && !combatFlag("actionMessagesMining")) return;
     if (m.kind === "bounty" && (!(m.amount > 0) || !combatFlag("actionMessagesBounty"))) return;
     if (m.kind === "bounty") await new Promise((r) => setTimeout(r, 1000));
     else await s.flow.flying.resolveNamesNow([{ kind: "type", id: m.oreTypeID }, { kind: "typeGroup", id: m.oreTypeID }, { kind: "typeCategory", id: m.oreTypeID }, { kind: "category", id: CATEGORY_ASTEROID }]).catch(() => {});
+    if (s !== session || pilotID !== chosenCharacterID || stage !== "game") return;
     const words = s.store.words.get().templates;
     const resolved = s.store.names.get().resolved;
     const size = storeValue(combatFontSize);
@@ -1613,6 +1617,9 @@
           onMove={(x, y) => (wins = moveWindow(wins, win.id, x, y))}
           onResize={(w, h) => (wins = resizeWindow(wins, win.id, w, h))}
         >
+          {#snippet headerActions()}
+            {#if win.id === "log"}<GameLogActions store={session.store} flow={session.flow} />{/if}
+          {/snippet}
           <!-- (the drones window in the client's layout: FlyDronesWindow; the workspace keeps DronesPanel) -->
           {#if win.id === "drones"}
             <FlyDronesWindow store={session.store} flow={session.flow} />
@@ -2297,7 +2304,7 @@
   .fly-windows :global(.pc-caption) { margin: 2px 0; padding: 4px 8px; background: rgba(255, 255, 255, 0.08); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .fly-windows :global(.pc-text) { padding: 6px 8px 0; font-size: 12px; color: rgba(255, 255, 255, 0.75); }
   .fly-windows :global(.pc-buttons) { display: flex; justify-content: center; gap: 8px; padding-top: 8px; }
-  /* LoggerWindow: its scroll - Time, Type, Message - and no Clear (the client's actions are its filter and settings menus) */
+  /* The flight Log keeps its actions in the window header and toolbar. */
   .fly-windows :global(.notice-log .panel-head) { display: none; }
   .fly-windows :global(.log-actions) { position: relative; display: flex; margin-bottom: 4px; }
   .fly-windows :global(.log-filter) { all: unset; width: 24px; height: 24px; display: grid; place-items: center; cursor: pointer; opacity: 0.8; }

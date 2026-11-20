@@ -40,6 +40,45 @@ export const logFilters = writable<Readonly<Record<string, boolean>>>(Object.fro
 export const logCount = writable<number>((() => { try { const v = Number(localStorage.getItem(key("logmessageamount"))); return LOG_COUNTS.includes(v) ? v : 100; } catch { return 100; } })());
 export const gameLog = writable<readonly GameLogLine[]>([]);
 let next = 1;
+let pilot: { id: number; name: string } | null = null;
+let startedAt = Date.now();
+const captureLines: GameLogLine[] = [];
+
+export function beginGameLog(id: number, name: string): void {
+  pilot = { id, name };
+  clearGameLog();
+}
+
+export function clearGameLog(): void {
+  startedAt = Date.now();
+  captureLines.length = 0;
+  gameLog.set([]);
+}
+
+function logDate(atMs: number): { date: string; time: string } {
+  const date = new Date(atMs);
+  const two = (n: number) => String(n).padStart(2, "0");
+  return {
+    date: [date.getFullYear(), two(date.getMonth() + 1), two(date.getDate())].join("."),
+    time: [date.getHours(), date.getMinutes(), date.getSeconds()].map(two).join(":"),
+  };
+}
+
+export function captureGameLog(labels: { title: string; listener: string; started: string }): { filename: string; text: string } {
+  const { date, time } = logDate(startedAt);
+  const divider = "-".repeat(60);
+  const header = [divider, `  ${labels.title}`];
+  if (pilot?.name) header.push(`  ${labels.listener}: ${pilot.name}`);
+  header.push(`  ${labels.started}: ${date} ${time}`, divider);
+  const lines = captureLines.map((line) => {
+    const entry = logDate(line.atMs);
+    return `[ ${entry.date} ${entry.time} ] (${line.type}) ${line.text}`;
+  });
+  return {
+    filename: `${date.replaceAll(".", "")}_${time.replaceAll(":", "")}${pilot ? `_${pilot.id}` : ""}.txt`,
+    text: `${header.join("\n")}\n\n${lines.join("\n")}${lines.length ? "\n" : ""}`,
+  };
+}
 
 /** ShowMessage: the type's filter setting, or true where it has none. */
 export function logShows(type: string): boolean {
@@ -47,13 +86,15 @@ export function logShows(type: string): boolean {
   return type in filters ? filters[type]! : true;
 }
 
-/** AddText: the line with its time and type, if its type is shown; kept to twice the view's count. */
+/** AddText writes to the session capture before applying the window's filter and retention limit. */
 export function addGameLogLine(text: string, type: string | null): void {
   const msgtype = type || "notify";
+  const line = { n: next++, atMs: Date.now(), type: msgtype, text };
+  captureLines.push(line);
   if (!logShows(msgtype)) return;
   const max = get(logCount);
   gameLog.update((lines) => {
-    const all = [...lines, { n: next++, atMs: Date.now(), type: msgtype, text }];
+    const all = [...lines, line];
     return all.length > max * 2 ? all.slice(-max) : all;
   });
 }
