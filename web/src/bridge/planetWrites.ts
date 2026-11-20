@@ -89,6 +89,12 @@ export async function rerouteExtractorRoutes(act: Ask, planetID: number, removeR
   await changeColonyNetwork(act, planetID, routeEditCommands(removeRouteIDs, create));
 }
 
+/** ClientPlanet.TransferCommodities sends one bound call, outside colony edit mode. */
+export async function transferPlanetCargo(act: Ask, planetID: number, path: readonly number[], cargo: Readonly<Record<number, number>>): Promise<void> {
+  requirePlanet(planetID);
+  await act("planetMgr", "UserTransferCommodities", [[...path], { ...cargo }], null, planetID);
+}
+
 export function routeEditCommands(removeRouteIDs: readonly number[], create: readonly NewRoute[]): JsonValue[] {
   return [
     ...removeRouteIDs.map((routeID): JsonValue => [REMOVE_ROUTE, [routeID]]),

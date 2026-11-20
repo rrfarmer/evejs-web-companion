@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { errorWords, type AppFlow } from "../app/flow.ts";
   import { isStorage } from "../bridge/colonyRoutes.ts";
+  import { canReceiveExpeditedTransfer, type TransferCargo } from "../bridge/expeditedTransfer.ts";
   import { EXTRACTOR_COOLDOWN_MS, extractorBasis, extractorHeadCommands, type ExtractorEdit } from "../bridge/extractorEdits.ts";
   import { MAX_HEAD_RADIUS, MIN_HEAD_RADIUS } from "../bridge/extractorSurvey.ts";
   import { appendPlanetWaypoint, pinDesignator, previewPlanetRoute } from "../bridge/planetRouting.ts";
@@ -12,6 +13,7 @@
   import type { Colony, ColonyPin, ColonyRoute, ExtractorHead } from "../store/types.ts";
   import ColonyTemplate from "./ColonyTemplate.svelte";
   import ExtractorSurvey from "./ExtractorSurvey.svelte";
+  import ExpeditedTransfer from "./ExpeditedTransfer.svelte";
   import PlanetSurvey from "./PlanetSurvey.svelte";
   import PlanetRouting from "./PlanetRouting.svelte";
   import TypeIcon from "./TypeIcon.svelte";
@@ -37,6 +39,9 @@
   let removedRoutes = $state.raw<readonly ColonyRoute[]>([]);
   let routePath = $state.raw<readonly number[]>([]);
   let routeTypeID = $state<number | null>(null);
+  let transferring = $state(false);
+  let transferPath = $state.raw<readonly number[]>([]);
+  let transferError = $state("");
   let highlight = $state.raw<readonly number[]>([]);
   let hoveredWaypoint = $state<number | null>(null);
   let waypointError = $state("");
@@ -54,7 +59,10 @@
   const routeRows = $derived([...colony.routes, ...newRoutes.map((route, index) => previewPlanetRoute(colony, route, index, $planets.recipes))]);
   const routeView = $derived({ ...colony, routes: routeRows.filter(route => !removedIDs.has(route.routeID)
     && edits.get(route.path[0]!)?.resourceID !== null) });
-  const displayPath = $derived(routing
+  const displayPath = $derived(transferring
+    ? (hoveredWaypoint === null || selectedID === null ? transferPath
+      : appendPlanetWaypoint(colony, [selectedID], hoveredWaypoint) ?? transferPath)
+    : routing
     ? (hoveredWaypoint === null ? routePath : appendPlanetWaypoint(colony, routePath, hoveredWaypoint) ?? routePath)
     : highlight);
   const centre = $derived(colony.pins.find(pin => pin.kind === "command" && pin.latitude != null && pin.longitude != null));
@@ -78,6 +86,7 @@
     : workingUnit ? edits.get(workingUnit.pinID)?.radius ?? MIN_HEAD_RADIUS : MIN_HEAD_RADIUS);
 
   function select(pin: ColonyPin, moveCamera = false): void {
+    if (transferring) { chooseTransferDestination(pin.pinID); return; }
     if (routing) { addWaypoint(pin.pinID); return; }
     highlight = [];
     if (extractorID !== null && extractorID !== pin.pinID) closeExtractor();
@@ -89,6 +98,7 @@
     if (pin.kind !== "extractor-control" || !ready || submitting || extractorID === pin.pinID) return;
     selectedID = pin.pinID;
     closeRoute();
+    closeTransfer();
     surveyShown = templateShown = false;
     extractorID = pin.pinID;
     const staged = edits.get(pin.pinID);
@@ -110,9 +120,53 @@
   function startRoute(typeID: number): void {
     if (!selected || selectedEdit?.resourceID !== undefined || submitting) return;
     closeExtractor();
+    closeTransfer();
     closeRoute();
     routePath = [selected.pinID];
     routeTypeID = typeID;
+  }
+
+  function closeTransfer(): void {
+    transferring = false;
+    transferPath = [];
+    hoveredWaypoint = null;
+    transferError = "";
+  }
+
+  function startTransfer(): void {
+    if (!selected || !isStorage(selected) || pending || submitting || refreshing) return;
+    closeExtractor();
+    closeRoute();
+    closeTransfer();
+    transferring = true;
+  }
+
+  function chooseTransferDestination(id: number): void {
+    if (!transferring || !selected || submitting) return;
+    hoveredWaypoint = null;
+    const destination = pinsByID.get(id);
+    const path = appendPlanetWaypoint(colony, [selected.pinID], id);
+    if (!destination || id === selected.pinID || !canReceiveExpeditedTransfer(destination) || !path) {
+      transferError = "Choose a different linked storage installation or a configured processor.";
+      transferPath = [];
+      return;
+    }
+    transferError = "";
+    transferPath = path;
+  }
+
+  async function executeTransfer(cargo: TransferCargo): Promise<void> {
+    if (!transferring || transferPath.length < 2 || pending || submitting || refreshing) return;
+    submitting = true;
+    transferError = "";
+    try {
+      await flow.expediteColonyTransfer(colony.planetID, transferPath, cargo);
+      closeTransfer();
+    } catch (cause) {
+      transferError = errorWords(cause);
+    } finally {
+      submitting = false;
+    }
   }
 
   function addWaypoint(id: number): void {
@@ -190,6 +244,10 @@
   }
 
   export function escapeCanLeave(): boolean {
+    if (transferring) {
+      if (!submitting) closeTransfer();
+      return false;
+    }
     if (!routing) return canLeave();
     closeRoute();
     return false;
@@ -282,7 +340,7 @@
   });
 
   $effect(() => { scene?.setColony(colony); });
-  $effect(() => { colony; scene?.setRoutePath(displayPath, routing); });
+  $effect(() => { colony; scene?.setRoutePath(displayPath, routing || transferring); });
   $effect(() => { scene?.setExtractor(workingUnit, displayedHeads, displayedRadius, workingUnit?.extractor?.areaOfInfluence ?? null); });
   $effect(() => {
     if (!running) return;
@@ -299,13 +357,13 @@
       {@const pin = pinsByID.get(position.pinID)}
       {#if pin}
         <button type="button" class="installation-marker {pin.kind}" class:chosen={pin.pinID === selectedID}
-          class:waypoint={routePath.includes(pin.pinID)} data-pin-id={pin.pinID}
+          class:waypoint={routePath.includes(pin.pinID) || transferPath.includes(pin.pinID)} data-pin-id={pin.pinID}
           style:left={`${position.x}%`} style:top={`${position.y}%`}
           aria-label={pin.typeName} aria-pressed={pin.pinID === selectedID} title={`${pin.typeName} · ${pinDesignator(pin.pinID)}`}
           onclick={() => select(pin)}
-          ondblclick={() => { if (routing) routePanel?.stageRoute(); else openExtractor(pin); }}
-          onmouseenter={() => { if (routing) hoveredWaypoint = pin.pinID; }}
-          onmouseleave={() => { if (routing) hoveredWaypoint = null; }}></button>
+          ondblclick={() => { if (routing) routePanel?.stageRoute(); else if (!transferring) openExtractor(pin); }}
+          onmouseenter={() => { if (routing || transferring) hoveredWaypoint = pin.pinID; }}
+          onmouseleave={() => { if (routing || transferring) hoveredWaypoint = null; }}></button>
       {/if}
     {/each}
     {#each headPositions as position (position.id)}
@@ -325,8 +383,8 @@
     {#if refreshError}<p role="alert">{refreshError}</p>{/if}
     <div class="planet-actions">
       <button type="button" disabled={!ready || !centre} onclick={() => scene?.focus(centre)}>Focus Command Center</button>
-      <button type="button" aria-expanded={surveyShown} onclick={() => { closeExtractor(); closeRoute(); surveyShown = !surveyShown; templateShown = false; }}>Scan</button>
-      <button type="button" aria-expanded={templateShown} disabled={pending} onclick={() => { closeExtractor(); closeRoute(); templateShown = !templateShown; surveyShown = false; }}>Templates</button>
+      <button type="button" aria-expanded={surveyShown} disabled={submitting} onclick={() => { closeExtractor(); closeRoute(); closeTransfer(); surveyShown = !surveyShown; templateShown = false; }}>Scan</button>
+      <button type="button" aria-expanded={templateShown} disabled={pending || submitting} onclick={() => { closeExtractor(); closeRoute(); closeTransfer(); templateShown = !templateShown; surveyShown = false; }}>Templates</button>
       <button type="button" bind:this={closeButton} disabled={submitting} onclick={() => { if (canLeave()) onClose(); }}>Exit Planet Mode</button>
     </div>
   </header>
@@ -379,7 +437,7 @@
         <div class="installation-heading">
           <TypeIcon typeID={selected.typeID} name={selected.typeName} />
           <strong>{selected.typeName}</strong>
-          <button type="button" aria-label="Close installation details" onclick={() => { closeRoute(); selectedID = null; }}>×</button>
+          <button type="button" aria-label="Close installation details" disabled={submitting} onclick={() => { closeRoute(); closeTransfer(); selectedID = null; }}>×</button>
         </div>
         {#if selected.schematicName}<p>Recipe <strong>{selected.schematicName}</strong></p>{/if}
         {#if selected.kind === "factory" && selected.schematicID !== null && selected.active != null}
@@ -402,12 +460,21 @@
         {/if}
         <p>{colony.links.filter(link => link.endpoint1 === selected.pinID || link.endpoint2 === selected.pinID).length} links ·
           {colony.routes.filter(route => route.path.includes(selected.pinID)).length} routes</p>
-        {#key selected.pinID}
-          <PlanetRouting bind:this={routePanel} pin={selected} colony={routeView} recipes={$planets.recipes} {flow}
-            routes={routeRows} removing={removedIDs} path={routePath} {routing} {routeTypeID} {waypointError} disabled={submitting}
-            sourceChanging={selectedEdit?.resourceID !== undefined} start={startRoute} {addWaypoint} close={closeRoute}
-            highlight={(value) => { highlight = value; }} stage={stageRoute} toggleRemoval={toggleRouteRemoval} />
-        {/key}
+        {#if transferring}
+          {#key transferPath.at(-1) ?? null}
+            <ExpeditedTransfer {colony} source={selected} path={transferPath} recipes={$planets.recipes} {flow}
+              clockOffsetMs={$planets.clockOffsetMs} submitting={submitting || refreshing} submitError={transferError}
+              choose={chooseTransferDestination} close={closeTransfer} execute={(cargo) => void executeTransfer(cargo)} />
+          {/key}
+        {:else}
+          {#key selected.pinID}
+            <PlanetRouting bind:this={routePanel} pin={selected} colony={routeView} recipes={$planets.recipes} {flow}
+              routes={routeRows} removing={removedIDs} path={routePath} {routing} {routeTypeID} {waypointError} disabled={submitting}
+              sourceChanging={selectedEdit?.resourceID !== undefined} start={startRoute} {addWaypoint} close={closeRoute}
+              transferBlocked={pending || refreshing} {startTransfer}
+              highlight={(value) => { highlight = value; }} stage={stageRoute} toggleRemoval={toggleRouteRemoval} />
+          {/key}
+        {/if}
       {/if}
       <details>
         <summary>Installations ({colony.pins.length})</summary>

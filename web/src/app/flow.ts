@@ -450,7 +450,7 @@ import {
   decodeDronesInSpace,
 } from "../bridge/drones.ts";
 import { decodeSkillSheet, skillQueueRefusal } from "../bridge/skills.ts";
-import { decodeColonyReport } from "../bridge/planets.ts";
+import { decodeColonyReport, serverNow as planetServerNow } from "../bridge/planets.ts";
 import { decodeResourceData, type PlanetResourceData } from "../bridge/boundPlanets.ts";
 import { PLANET_SURVEY_PROXIMITY, planetSurveyBands } from "../bridge/planetSurvey.ts";
 import { exportColonyTemplate, planColonyTemplate, type ColonyTemplate, type ColonyTemplateRules, type TemplatePlacement, type TemplateRotation } from "../bridge/colonyTemplate.ts";
@@ -1224,7 +1224,8 @@ import { giveUpOffice, quoteOffice, rentOffice, type DockedIn } from "../bridge/
 import { runSlashCommand } from "../bridge/gmWrites.ts";
 import { IntDict, hashedSetOrder, intDictOf, intDictOrder, strDictOrder, tupleHashOf, wholeHashOf } from "../bridge/py27DictOrder.ts";
 import { hudSettingNow, setSlotOrder, slotOrderOf } from "../store/hudSettings.ts";
-import { changeColonyNetwork, launchCommodities as launchCommoditiesCall, rerouteExtractorRoutes, routeEditCommands, type NewRoute } from "../bridge/planetWrites.ts";
+import { changeColonyNetwork, launchCommodities as launchCommoditiesCall, rerouteExtractorRoutes, routeEditCommands, transferPlanetCargo, type NewRoute } from "../bridge/planetWrites.ts";
+import { quoteExpeditedTransfer, type TransferCargo } from "../bridge/expeditedTransfer.ts";
 import { requestExtractorYield, restartExtractor as restartExtractorAsTheClient, type ProgramYield } from "../bridge/extractorRestart.ts";
 import { planExtractorEdits, type ExtractorEdit } from "../bridge/extractorEdits.ts";
 import { validateRouteRemovals, validateNewRoutes, type PlanetRouteFacts, type RouteEdits } from "../bridge/planetRouting.ts";
@@ -4425,6 +4426,7 @@ export interface AppFlow {
   readExtractorYield(planetID: number, pinID: number, resourceTypeID: number, heads: readonly ExtractorHead[], radius: number): Promise<ProgramYield>;
   readPlanetRouteFacts(typeIDs: readonly number[]): Promise<PlanetRouteFacts>;
   submitPlanetEdits(planetID: number, edits: readonly ExtractorEdit[], routes: RouteEdits): Promise<void>;
+  expediteColonyTransfer(planetID: number, path: readonly number[], cargo: TransferCargo): Promise<void>;
   readColonyTemplateRules(template: ColonyTemplate, currentLevel: number): Promise<ColonyTemplateRules>;
   readColonyTemplateForExport(planetID: number, description: string): Promise<ColonyTemplate>;
   submitColonyTemplate(planetID: number, template: ColonyTemplate, rotation: TemplateRotation, reviewed: TemplatePlacement, price: number): Promise<void>;
@@ -28315,6 +28317,30 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   const planetSubmissions = new Set<number>();
+  async function expediteColonyTransfer(planetID: number, path: readonly number[], cargo: TransferCargo): Promise<void> {
+    if (planetSubmissions.has(planetID)) throw new Error("A colony update is already being submitted.");
+    const types = Object.keys(cargo).map(Number);
+    if (!types.length) throw new Error("Select commodities to transfer.");
+    const pilot = callOptions.captureRequestGuard!();
+    planetSubmissions.add(planetID);
+    try {
+      const [fresh, facts] = await Promise.all([readOwnedColony(planetID), readPlanetRouteFacts(types), ensurePiRecipes()]);
+      pilot();
+      const quote = quoteExpeditedTransfer(fresh, store.planets.get().recipes, facts, path, cargo);
+      if (quote.error) throw new Error(quote.error);
+      const nextTransfer = fresh.pins.find(pin => pin.pinID === path[0])?.lastRunAtMs ?? 0;
+      if (nextTransfer > planetServerNow(store.planets.get().clockOffsetMs, Date.now())) throw new Error("The source is still on transfer cooldown.");
+      await transferPlanetCargo(bridgeDo, planetID, path, cargo);
+      await loadPlanets().catch(() => {});
+    } catch (cause) {
+      pilot();
+      await loadPlanets().catch(() => {});
+      throw cause;
+    } finally {
+      planetSubmissions.delete(planetID);
+    }
+  }
+
   async function submitPlanetEdits(planetID: number, edits: readonly ExtractorEdit[], routes: RouteEdits): Promise<void> {
     if (!edits.length && !routes.create.length && !routes.remove.length) return;
     if (planetSubmissions.has(planetID)) throw new Error("Colony changes are already being submitted.");
@@ -37651,6 +37677,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     readExtractorYield,
     readPlanetRouteFacts,
     submitPlanetEdits,
+    expediteColonyTransfer,
     quoteColonyTemplate,
     readColonyTemplateRules,
     readColonyTemplateForExport,

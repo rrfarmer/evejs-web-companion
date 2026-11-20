@@ -204,8 +204,7 @@ test("the page's calls that are made on an object of the service's own say what 
   assert.deepEqual([pageNamesTheObject("planet"), pageNamesTheObject("scanManager"), pageNamesTheObject("fleet"), pageNamesTheObject(null), pageNamesTheObject(undefined), pageNamesTheObject("constructor"), pageNamesTheObject(["planet"])], [true, false, false, false, false, false, false]);
   // A colony's commodities launched, from the command centre's own window.
   assert.equal(objectOfPageCall("planetMgr", "UserLaunchCommodities"), "planet");
-  // The planet's other writes are their routes' still.
-  assert.deepEqual([objectOfPageCall("planetMgr", "UserTransferCommodities"), objectOfPageCall("planetMgr", "UserAbandonPlanet")], [null, null]);
+  assert.deepEqual([objectOfPageCall("planetMgr", "UserTransferCommodities"), objectOfPageCall("planetMgr", "UserAbandonPlanet")], ["planet", null]);
   for (const pair of Object.keys(PAGE_OBJECT_CALLS)) {
     const [service, method] = pair.split(".");
     assert.equal(isBridgeWritePair(service, method), isPageWritePair(service, method), pair);

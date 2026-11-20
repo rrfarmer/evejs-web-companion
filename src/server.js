@@ -1386,6 +1386,20 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     res.status(400).json({ ok: false, error: "INVALID_PLANET", message: "A positive planetID is required." });
     return;
   }
+  if (body.service === "planetMgr" && body.method === "UserTransferCommodities") {
+    const [path, quantities] = Array.isArray(body.args) ? body.args : [];
+    const cargo = quantities && typeof quantities === "object" && !Array.isArray(quantities)
+      ? Object.entries(quantities) : [];
+    if (body.args?.length !== 2 || !Array.isArray(path) || path.length < 2 || new Set(path).size !== path.length
+      || path.some(id => !Number.isSafeInteger(id) || id < 1)
+      || cargo.length === 0 || cargo.some(([key, amount]) => {
+        const typeID = Number(key);
+        return !Number.isSafeInteger(typeID) || typeID < 1 || String(typeID) !== key || !Number.isSafeInteger(amount) || amount < 1;
+      }) || body.kwargs != null) {
+      res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "Provide a transfer path and whole, positive commodity quantities." });
+      return;
+    }
+  }
   // (A war's statistics object: eveMoniker.GetWarStatistic(warID), a war's number.)
   if (objectKind === "war" && !(Number.isSafeInteger(body.of) && body.of > 0)) {
     res.status(400).json({ ok: false, error: "INVALID_WAR", message: "A positive warID is required." });

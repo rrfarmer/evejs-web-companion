@@ -9,11 +9,12 @@
   import TypeIcon from "./TypeIcon.svelte";
 
   let { pin, colony, recipes, flow, routes, removing, path, routing, routeTypeID, waypointError, disabled, sourceChanging,
-    start, addWaypoint, close, highlight, stage, toggleRemoval }: {
+    start, addWaypoint, close, transferBlocked, startTransfer, highlight, stage, toggleRemoval }: {
     pin: ColonyPin; colony: Colony; recipes: PiRecipeBook; flow: AppFlow;
     routes: readonly ColonyRoute[]; removing: ReadonlySet<number>;
     path: readonly number[]; routing: boolean; routeTypeID: number | null; waypointError: string; disabled: boolean; sourceChanging: boolean;
     start: (typeID: number) => void; addWaypoint: (id: number) => void; close: () => void;
+    transferBlocked: boolean; startTransfer: () => void;
     highlight: (path: readonly number[]) => void; stage: (route: NewRoute) => void;
     toggleRemoval: (route: ColonyRoute) => void;
   } = $props();
@@ -155,7 +156,11 @@
           </button></li>
         {/each}
       </ul>
-      <button type="button" disabled={!stock || disabled} onclick={() => { if (stock) start(stock.typeID); }}>Create Route</button>
+      <footer>
+        <button type="button" disabled={!stock || disabled} onclick={() => { if (stock) start(stock.typeID); }}>Create Route</button>
+        <button type="button" disabled={disabled || transferBlocked} onclick={startTransfer}>Expedited Transfer</button>
+      </footer>
+      {#if transferBlocked && !disabled}<small>Finish the current colony action before transferring cargo.</small>{/if}
     {:else}<p>Nothing stored.</p>{/if}
   {:else}
     {#if involving.length}
