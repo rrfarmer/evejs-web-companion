@@ -579,9 +579,10 @@ const effectClock = { get value() { return performance.now() / 1000; } };
  * two, unsaid), each at uv x TextureTransformN.zw + TextureTransformN.xy + TextureScrollN.xy x time +
  * TextureScrollN.zw, and the MaskMap at the plain uv (MASK_TRANSFORM OFF) or by MaskTransform and MaskScroll (ON),
  * clamped where MASK_TEXTURE_SAMPLING is CLAMP; a read that is nought in all four channels discards the pixel; the
- * reads multiplied together and by DiffuseColor; the colour (not the alpha) times the fresnel f = (1 - sat(N.V -
- * F.z))^F.x x F.y, or (1 - min(f, 1)) x -F.y where F.y < 0 (F FresnelFactors, N the world normal unnormalised by the
- * inverse transpose, as the client's, V toward the eye); alpha saturated. The PHONG variation lights the colour first:
+ * reads multiplied together and by DiffuseColor; RGB times the Fresnel term f = (1 - sat(N.V - F.z))^F.x x F.y,
+ * or (1 - min(f, 1)) x -F.y where F.y < 0. The 3698585 vertex shader normalizes the model-transformed normal N and
+ * the direction toward the eye V at each vertex. The pixel shader takes their interpolated dot product. Alpha is
+ * saturated. The PHONG variation lights the colour first:
  * times sunColour x l + ambient, l = (N.L + 1) / 2 x (1 - (1 - sat(N.L))^2), L toward the sun (the scene's first
  * directional light, its colour x intensity; the ambient light's). UBER_DEPTH_ON fades it where it meets the scene:
  * colour and alpha times sat((D - z) / (s / 2)), D the scene's depth at the pixel (its DepthMap: softDepth.ts), z the
@@ -626,7 +627,7 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
   if (soft) Object.assign(uniforms, SOFT_DEPTH, { depthOffset: { value: Number((p.Depth as number[] | undefined)?.[0] ?? (beam ? 1 : 10)) } });
   const mat = new THREE.ShaderMaterial({
     uniforms,
-    vertexShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vFromEye;
+    vertexShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vToEye;
       ${soft ? "uniform float depthOffset; varying vec2 vSoft;" : ""}
       void main() {
         vUv = uv;
@@ -642,10 +643,11 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
                          forward * length(instanceMatrix[2].xyz));
         vec4 mv = modelViewMatrix * vec4(origin + basis * position, 1.0);
         vN = normalize(mat3(modelMatrix) * normalize(basis * normal));
-        vFromEye = normalize(cameraPosition - (modelMatrix * vec4(position, 1.0)).xyz);` : `
-        vN = mat3(modelMatrix) * normal;
+        vToEye = normalize(cameraPosition - (modelMatrix * vec4(position, 1.0)).xyz);` : `
+        vec3 worldNormal = mat3(modelMatrix) * normal;
+        vN = dot(worldNormal, worldNormal) > 0.0 ? normalize(worldNormal) : worldNormal;
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        vFromEye = (vec4(mv.xyz, 0.0) * viewMatrix).xyz;`}
+        vToEye = normalize(cameraPosition - (modelMatrix * vec4(position, 1.0)).xyz);`}
         ${soft ? beam ? "vSoft = vec2(depthOffset, -mv.z + depthOffset);" : `// half the z axis' length, and the depth of the point Depth metres along EVE's world z (three's -z)
         vSoft = vec2(0.5 * length(modelMatrix[2].xyz), -(mv.z + (viewMatrix * vec4(0.0, 0.0, -depthOffset, 0.0)).z));` : ""}
         gl_Position = projectionMatrix * mv;
@@ -656,7 +658,7 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
       uniform vec4 t1; uniform vec4 t2; uniform vec4 t3; uniform vec4 s1; uniform vec4 s2; uniform vec4 s3;
       uniform vec4 maskT; uniform vec4 maskS; uniform vec4 colour; uniform vec4 fresnel; uniform float time;
       uniform vec3 sunDir; uniform vec3 sunColour; uniform vec3 ambient;
-      varying vec2 vUv; varying vec3 vN; varying vec3 vFromEye;
+      varying vec2 vUv; varying vec3 vN; varying vec3 vToEye;
       void main() {
         vec4 c = vec4(1.0);
         ${[1, 2, 3].filter((i) => i <= count).map(read).join("\n        ")}
@@ -665,10 +667,10 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
         vec4 m = texture2D(mask, mUv);
         if (dot(m, m) == 0.0) discard;
         c *= m * colour;
-        ${area.options.VARIATION === "PHONG" ? `float nl = dot(normalize(sunDir), normalize(vN));
+        ${area.options.VARIATION === "PHONG" ? `float nl = dot(sunDir, ${beam ? "normalize(vN)" : "vN"});
         float l = (nl + 1.0) * 0.5 * (1.0 - pow(1.0 - clamp(nl, 0.0, 1.0), 2.0));
         c.rgb *= sunColour * l + ambient;` : ""}
-        float f = pow(1.0 - clamp(dot(${beam ? "vFromEye, vN" : "normalize(-vFromEye), normalize(vN)"}) - fresnel.z, 0.0, 1.0), fresnel.x);
+        float f = pow(1.0 - clamp(dot(vToEye, vN) - fresnel.z, 0.0, 1.0), fresnel.x);
         f = fresnel.y < 0.0 ? (1.0 - min(f, 1.0)) * -fresnel.y : f * fresnel.y;
         c.rgb *= f;
         ${soft ? "if (softDepthOn > 0.5) c *= clamp((softSceneDepth() - vSoft.y) / vSoft.x, 0.0, 1.0);" : ""}
