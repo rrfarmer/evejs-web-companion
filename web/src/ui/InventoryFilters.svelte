@@ -10,7 +10,7 @@
   } from "../bridge/inventoryFilters.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
-  import { carriesOurPayload, decodeDrag, DRAG_MIME } from "./dragDrop.ts";
+  import { ASSET_ITEM_DRAG_MIME, carriesOurPayload, decodeAssetItemDrag, decodeDrag, DRAG_MIME } from "./dragDrop.ts";
   import { droppedFittingDrag, isFittingDrag } from "./fittingDrag.ts";
   import { startLinkDrag } from "./linkFollowers.ts";
 
@@ -207,13 +207,15 @@
     if (!held) return;
     const dropped = droppedFittingDrag(event);
     const item = decodeDrag(event.dataTransfer?.getData(DRAG_MIME));
-    if (!item && !dropped) return;
+    const assetRows = decodeAssetItemDrag(event.dataTransfer?.getData(ASSET_ITEM_DRAG_MIME));
+    if (!item && !dropped && assetRows.length === 0) return;
     event.preventDefault();
     try {
       const fitting = dropped?.kind === "source" ? await flow.draggedFittingOf(dropped.source) : dropped?.fitting;
       if (dropped && !fitting) throw new Error("Unknown fitting");
       const ids = fitting ? [fitting.shipTypeID, ...fitting.fitData.map(([id]) => id)]
-        : item?.kind === "inventoryItem" ? [...selectedTypes(item.itemID), item.typeID] : item ? [item.typeID] : [];
+        : item?.kind === "inventoryItem" ? [...selectedTypes(item.itemID), item.typeID]
+        : item ? [item.typeID] : assetRows.map(row => row.typeID);
       await appendTypes(held, ids);
     } catch { if (active && draft === held) error = "The dropped item names could not be read."; }
   }
@@ -328,7 +330,7 @@
         <h3>{label(controls.editor)}</h3>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div class="criteria" ondragover={event => {
-          if (carriesOurPayload(event.dataTransfer?.types) || isFittingDrag(event)) {
+          if (carriesOurPayload(event.dataTransfer?.types) || isFittingDrag(event) || event.dataTransfer?.types.includes(ASSET_ITEM_DRAG_MIME)) {
             event.preventDefault();
             if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
           }
