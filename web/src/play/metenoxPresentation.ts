@@ -2,7 +2,8 @@ import { type Object3D, Vector3 } from "three";
 import { filetimeToUnixMs } from "../bridge/activity.ts";
 import { placeStretch, type SofStretch3 } from "../three/behaviorAgents.ts";
 import { setControllerVariable } from "../three/controllerVariables.ts";
-import { hullChildren, playEffectSet, setEffectShaderQuality } from "../three/hullChildren.ts";
+import { hullChildren, playEffectSet, setEffectShaderQuality, setEffectSoundHandler } from "../three/hullChildren.ts";
+import { playMovingWorldEvent } from "./uiAudio.ts";
 
 // 3698585 moonmining/autoMoonMining/common and structures/const.py.
 const OPERATING_STATES = [102, 110, 111, 112, 113, 114];
@@ -33,13 +34,78 @@ function requestBeam(): void {
 interface DrillPresentation {
   lastHarvest: number | null;
   pendingHarvest: number | null;
-  beam: Object3D | null;
+  beam: { object: Object3D; audio: BeamAudio } | null;
 }
 
 const drills = new WeakMap<Object3D, DrillPresentation>();
 
 interface Position { readonly x: number; readonly y: number; readonly z: number }
 interface Moon { readonly position: Position; readonly radius: number }
+
+interface Voice {
+  readonly at: Vector3;
+  readonly abort: AbortController;
+  sound?: Awaited<ReturnType<typeof playMovingWorldEvent>>;
+  fadeUntil?: number;
+}
+
+class BeamAudio {
+  private readonly observers = new Map([
+    ["stretch_source_sfx", new Vector3()],
+    ["stretch_mid_sfx", new Vector3()],
+    ["stretch_dest_sfx", new Vector3()],
+  ]);
+  private readonly voices = new Map<string, Voice>();
+
+  play(event: string, observer: string): void {
+    const at = this.observers.get(observer);
+    if (!at) return;
+    // The bank's stop action fades the middle loop over 1 s and plays its own tail.
+    if (event === "autominer_mining_loop_stop") {
+      const loop = this.voices.get("autominer_mining_loop_play");
+      if (loop) {
+        loop.fadeUntil = performance.now() + 1000;
+        loop.sound?.stop(1000);
+      }
+    }
+    this.stop(event);
+    const voice: Voice = { at, abort: new AbortController() };
+    this.voices.set(event, voice);
+    void playMovingWorldEvent(event, at, voice.abort.signal).then(sound => {
+      voice.sound = sound;
+      if (voice.fadeUntil !== undefined) sound.stop(Math.max(0, voice.fadeUntil - performance.now()));
+    });
+  }
+
+  move(source: Vector3, destination: Vector3): void {
+    this.observers.get("stretch_source_sfx")!.copy(source);
+    this.observers.get("stretch_mid_sfx")!.lerpVectors(source, destination, 0.5);
+    this.observers.get("stretch_dest_sfx")!.copy(destination);
+    for (const [event, { sound, at }] of this.voices) {
+      if (sound?.active) sound.move(at);
+      else if (sound) this.voices.delete(event);
+    }
+  }
+
+  private stop(event: string): void {
+    const voice = this.voices.get(event);
+    if (!voice) return;
+    voice.abort.abort();
+    voice.sound?.stop();
+    this.voices.delete(event);
+  }
+
+  clear(): void {
+    for (const event of this.voices.keys()) this.stop(event);
+  }
+}
+
+export function hideMetenoxBeam(holder: Object3D): void {
+  const beam = drills.get(holder)?.beam;
+  if (!beam) return;
+  beam.object.visible = false;
+  beam.audio.clear();
+}
 
 export function updateMetenoxPresentation(
   holder: Object3D,
@@ -65,30 +131,32 @@ export function updateMetenoxPresentation(
     state.lastHarvest = state.pendingHarvest = harvest;
   }
 
-  if (state.beam) state.beam.visible = false;
-  if (!moon) return;
+  if (!moon) { hideMetenoxBeam(holder); return; }
   const direction = new Vector3(moon.position.x - position.x, moon.position.y - position.y, position.z - moon.position.z);
-  if (direction.lengthSq() === 0) return;
+  if (direction.lengthSq() === 0) { hideMetenoxBeam(holder); return; }
   // The browser mirrors the game world's Z. The holder's +Z is the rendered
   // hull's forward direction. Keep the roll from the static ball orientation.
   holder.rotation.set(Math.atan2(-direction.y, Math.hypot(direction.x, direction.z)),
     Math.atan2(direction.x, direction.z), holder.rotation.z, "YXZ");
 
   const model = holder.userData.model as Object3D | undefined;
-  if (!model) return;
+  if (!model) { hideMetenoxBeam(holder); return; }
   requestBeam();
   const locator = (model.userData.locatorSets as Record<string, number[][]> | undefined)?.beam_source?.[0];
-  if (!graphic || !locator) return;
+  if (!graphic || !locator) { hideMetenoxBeam(holder); return; }
 
   if (state.pendingHarvest !== null && state.pendingHarvest <= Date.now()) {
     if (!state.beam) {
-      state.beam = graphic.template.clone();
-      state.beam.name = "metenox-harvest-beam";
-      holder.add(state.beam);
+      const object = graphic.template.clone();
+      const audio = new BeamAudio();
+      state.beam = { object, audio };
+      object.name = "metenox-harvest-beam";
+      setEffectSoundHandler(object, (event, observer) => audio.play(event, observer));
+      holder.add(object);
     }
     setControllerVariable(holder, "isFiring", 1, true);
-    setControllerVariable(state.beam, "isFiring", 1, true);
-    playEffectSet(state.beam, "play_start");
+    setControllerVariable(state.beam.object, "isFiring", 1, true);
+    playEffectSet(state.beam.object, "play_start");
     state.pendingHarvest = null;
   }
   if (!state.beam) return;
@@ -99,7 +167,9 @@ export function updateMetenoxPresentation(
   const source = model.localToWorld(new Vector3(x, y, -z));
   const center = holder.getWorldPosition(new Vector3()).add(direction);
   const surface = source.clone().sub(center).normalize().multiplyScalar(moon.radius).add(center);
-  placeStretch(state.beam, graphic.geometry, holder.worldToLocal(source), holder.worldToLocal(surface));
-  setEffectShaderQuality(state.beam, shaderQuality);
-  state.beam.visible = true;
+  const { object, audio } = state.beam;
+  audio.move(source, surface);
+  placeStretch(object, graphic.geometry, holder.worldToLocal(source), holder.worldToLocal(surface));
+  setEffectShaderQuality(object, shaderQuality);
+  object.visible = true;
 }

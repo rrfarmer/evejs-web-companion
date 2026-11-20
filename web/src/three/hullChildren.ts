@@ -62,8 +62,8 @@ export interface SofChildContainer {
   /** Its fx attributes (EveCameraFxAttributes, EveSpaceObjectFxAttributes): values gathered each frame for its sets. */
   fxAttributes?: { id: number; type: string }[];
   /**
-   * Placed from outside each frame (a stretch's source, stretch, move and dest objects): a group of its own (its id as
-   * childId), its quads in a quad mesh of its own and its lights kept on it (userData.lights), all in its own space.
+   * Placed from outside each frame (a stretch's source, stretch, move and dest objects). Its stretchPartId identifies
+   * the placement group. Authored transforms, quads and lights stay in that group's local space.
    */
   live?: boolean;
 }
@@ -1995,8 +1995,12 @@ function childEffectObject(path: string, effects: Record<string, SofChildNode | 
 export async function effectObject(root: SofChildNode, effects: Record<string, SofChildNode | null>,
   playSound?: (event: string, observer: string) => void): Promise<THREE.Object3D | null> {
   const object = await hullChildren([{ res: "", root, skipped: {} }], effects);
-  if (object && playSound) controllerSounds.set(object, playSound);
+  if (object && playSound) setEffectSoundHandler(object, playSound);
   return object;
+}
+
+export function setEffectSoundHandler(object: THREE.Object3D, playSound: (event: string, observer: string) => void): void {
+  controllerSounds.set(object, playSound);
 }
 
 /** The installed DisplayModifierChooser values, with bits for Low, Medium and High respectively. */
@@ -2159,34 +2163,51 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
         flatHere.extractBasis(new THREE.Vector3(), new THREE.Vector3(), z);
         halo = { z: z.normalize(), at: new THREE.Vector3().setFromMatrixPosition(flatHere) };
       }
+      const driven = node.id !== undefined && moved.has(node.id);
       if (node.live) {
         // placed from outside: its own group, quads and lights, in its own space
         const g = new THREE.Group();
         g.name = `child-live:${node.name ?? ""}`;
         g.matrixAutoUpdate = false;
-        if (node.id !== undefined) g.userData.childId = node.id;
+        g.userData.stretchPartId = node.id;
+        if (node.fxAttributes?.length) g.userData.fxAttributes = node.fxAttributes;
+        let contents = g;
+        let childMatrix = m;
+        if (driven) {
+          // External placement owns the stretch matrix. Bindings animate the
+          // authored transform inside it, including absolute width changes.
+          contents = new THREE.Group();
+          g.add(contents);
+          childMatrix = new THREE.Matrix4();
+          contents.userData.parentMatrix = childMatrix.toArray();
+          const translation = new THREE.Vector3(), rotation = new THREE.Quaternion(), scaling = new THREE.Vector3();
+          m.decompose(translation, rotation, scaling);
+          animator.xform(node.id!, translation.toArray(), rotation.toArray(), scaling.toArray());
+          place(contents, m, []);
+        }
+        if (node.id !== undefined) contents.userData.childId = node.id;
         const saved = [quadList, quadIds, lightList] as const;
         quadList = [];
         quadIds = [];
         lightList = [];
         const mine = { quads: quadList, ids: quadIds, lights: lightList };
         for (const l of node.lights ?? []) {
-          const at = new THREE.Vector3(l.position[0] ?? 0, l.position[1] ?? 0, l.position[2] ?? 0).applyMatrix4(m);
+          const at = new THREE.Vector3(l.position[0] ?? 0, l.position[1] ?? 0, l.position[2] ?? 0).applyMatrix4(childMatrix);
           mine.lights.push({ ...(l.id !== undefined ? { id: l.id, scale: 1 } : {}), position: at.toArray(), radius: l.radius, sourceRadius: l.innerRadius ?? 0, color: l.color, brightness: l.brightness });
         }
-        for (const o of node.objects) walk(o, m.clone(), m.clone(), (c) => g.add(c), null, ancestors);
+        for (const o of node.objects) walk(o, childMatrix.clone(), childMatrix.clone(), (c) => contents.add(c), null, ancestors);
         [quadList, quadIds, lightList] = saved;
         if (mine.quads.length) {
           const qm = quadMesh(mine.quads);
           const attr = qm.geometry.getAttribute("iColour") as THREE.InstancedBufferAttribute;
           for (const id of mine.ids) animator.quadAttributeOf(id, attr);
-          g.add(qm);
+          contents.add(qm);
         }
-        g.userData.lights = mine.lights;
+        contents.userData.lights = mine.lights;
+        if (driven && mine.lights.length) contents.add(ticker());
         sink(g);
         return;
       }
-      const driven = node.id !== undefined && moved.has(node.id);
       if (node.displayFilter !== undefined || node.modifiers.some((x) => MODIFIERS.has(x)) || driven || node.controllers?.length || node.fxAttributes?.length) {
         const g = new THREE.Group();
         g.name = `child-container:${node.name ?? ""}`;

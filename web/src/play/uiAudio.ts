@@ -323,7 +323,16 @@ export interface WorldLoop { move(at: Vec3): void; stop(fadeMs?: number): void }
  * loops in Wwise - the loop flag is not read from the bank here), placed and moved with the object, at master x
  * World level, until stopped (the client's shipsounds_stop as the camera looks elsewhere).
  */
-export async function playWorldLoop(name: string, at: Vec3, signal?: AbortSignal): Promise<WorldLoop> {
+export function playWorldLoop(name: string, at: Vec3, signal?: AbortSignal): Promise<WorldLoop> {
+  return playMovingWorldSound(name, at, true, signal);
+}
+
+/** A moving emitter's event, with the loop flags from its sound bank. */
+export function playMovingWorldEvent(name: string, at: Vec3, signal?: AbortSignal): Promise<WorldLoop & { readonly active: boolean }> {
+  return playMovingWorldSound(name, at, false, signal);
+}
+
+async function playMovingWorldSound(name: string, at: Vec3, forceLoop: boolean, signal?: AbortSignal): Promise<WorldLoop & { readonly active: boolean }> {
   const distance = Math.hypot(at.x - listenerAt.x, at.y - listenerAt.y, at.z - listenerAt.z);
   await Promise.all([askAttenuations(), askSoundProps()]);
   const sounds = pick((await eventsMap())[String(wwiseId(name))] ?? null, distance);
@@ -333,18 +342,21 @@ export async function playWorldLoop(name: string, at: Vec3, signal?: AbortSignal
     const settings = gfx();
     return settings.audioEnabled ? settings.masterVolume * settings.worldVolume : 0;
   };
-  const nodes: { source: AudioBufferSourceNode; panner: PannerNode; gain: GainNode; base: number; sound: string }[] = [];
-  const handle: WorldLoop = {
-    move(p) {
+  const nodes = new Set<{ source: AudioBufferSourceNode; panner: PannerNode; gain: GainNode; base: number; sound: string }>();
+  let releasing = false;
+  const handle = {
+    get active() { return nodes.size > 0; },
+    move(p: Vec3) {
       // (its attenuation followed as it or the camera moves)
       const d = Math.hypot(p.x - listenerAt.x, p.y - listenerAt.y, p.z - listenerAt.z);
       const gain = volume();
       for (const n of nodes) {
         n.panner.positionX.value = p.x; n.panner.positionY.value = p.y; n.panner.positionZ.value = p.z;
-        n.gain.gain.value = gain * n.base * attenuationAt(n.sound, d);
+        if (!releasing) n.gain.gain.value = gain * n.base * attenuationAt(n.sound, d);
       }
     },
     stop(fadeMs = 0) {
+      releasing = true;
       for (const node of nodes) {
         const now = node.source.context.currentTime;
         const end = now + fadeMs / 1000;
@@ -354,7 +366,7 @@ export async function playWorldLoop(name: string, at: Vec3, signal?: AbortSignal
         }
         try { node.source.stop(end); } catch { /* over */ }
       }
-      nodes.length = 0;
+      if (fadeMs <= 0) nodes.clear();
     },
   };
   if (!sounds.length || volume() <= 0 || signal?.aborted) return handle;
@@ -368,16 +380,27 @@ export async function playWorldLoop(name: string, at: Vec3, signal?: AbortSignal
     if (!buffer) continue;
     const source = ctx.createBufferSource();
     source.buffer = buffer;
-    source.loop = true;
+    const sound = sounds[n]!.sound;
+    const own = ownOf(sound);
+    source.loop = forceLoop || own.loop;
     const gain = ctx.createGain();
-    const base = sounds[n]!.gain * ownOf(sounds[n]!.sound).gain;
-    gain.gain.value = volume() * base * attenuationAt(sounds[n]!.sound, distance);
+    const base = sounds[n]!.gain * own.gain;
+    gain.gain.value = volume() * base * attenuationAt(sound, distance);
     const panner = placer(ctx, at);
-    source.connect(gain).connect(panner).connect(ctx.destination);
+    panner.connect(ctx.destination);
+    source.connect(gain).connect(forceLoop ? panner : muffled(ctx, sound, panner));
+    const node = { source, panner, gain, base, sound };
+    nodes.add(node);
+    source.onended = () => {
+      nodes.delete(node);
+      source.disconnect();
+      gain.disconnect();
+      panner.disconnect();
+    };
     source.start();
     entry.played = true;
-    nodes.push({ source, panner, gain, base, sound: sounds[n]!.sound });
   }
+  handle.move(at);
   return handle;
 }
 

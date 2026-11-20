@@ -67,7 +67,7 @@ import { DynamicExposure } from "../three/exposure.ts";
 import { CombatMessage } from "./combatMessage.ts";
 import { RadialMenu, RADIAL_CSS, RADIAL_ICON, WARP_RANGES, holdToOpen, radialRanges, type RadialOption } from "./radialMenu.ts";
 import { METENOX_BOARD_RANGE, METENOX_DEPOSIT_RANGE, METENOX_MATERIAL_RANGE, METENOX_TYPE_ID } from "../bridge/autoMoonMining.ts";
-import { updateMetenoxPresentation } from "./metenoxPresentation.ts";
+import { hideMetenoxBeam, updateMetenoxPresentation } from "./metenoxPresentation.ts";
 import { JUMP_BRIDGE_GROUP, type JumpBridgeSlim } from "../bridge/jumpBridgePanel.ts";
 import { ACTIVATE_GATE_LABEL, IN_WARP_HINT_LABEL, isWarpGate } from "../bridge/gateActivation.ts";
 import { ENTER_WORMHOLE_LABEL } from "../bridge/placeChanges.ts";
@@ -860,7 +860,10 @@ export class SpaceView {
     for (const audio of this.wormholeAudio.values()) audio.dispose();
     this.wormholeAudio.clear();
     this.clearWormholeCollapses();
-    for (const mark of this.marks.values()) (mark.userData.vortex as ObservatoryVortex | undefined)?.dispose();
+    for (const mark of this.marks.values()) {
+      (mark.userData.vortex as ObservatoryVortex | undefined)?.dispose();
+      hideMetenoxBeam(mark);
+    }
     this.stopped = true;
     this.renderer.setAnimationLoop(null);
     this.spaceShadows.dispose();
@@ -2511,7 +2514,7 @@ export class SpaceView {
           const moonID = Number(slim.get("moonID"));
           const moon = snap?.entities.find(candidate => candidate.itemID === moonID && candidate.kind === "moon");
           updateMetenoxPresentation(mark, slim, e.position, moon, settings.shaderQuality);
-        }
+        } else hideMetenoxBeam(mark);
       }
       const vortex = mark.userData.vortex as ObservatoryVortex | undefined;
       vortex?.update(e.radius, settings.volumetricQuality, this.renderer, this.sunDir, rendering.shadows);
@@ -2680,6 +2683,7 @@ export class SpaceView {
       }
       this.wormholeAudio.delete(id);
       (m.userData.vortex as ObservatoryVortex | undefined)?.dispose();
+      hideMetenoxBeam(m);
       this.marks.delete(id);
     }
     this.collectionExplosions.update(origin, this.live.simNow());

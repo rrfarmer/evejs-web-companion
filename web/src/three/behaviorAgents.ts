@@ -1037,7 +1037,7 @@ export function placeEveStretch(fx: THREE.Object3D, data: SofStretch3, source: T
   const set = (id: number | null, m: THREE.Matrix4) => {
     if (id === null) return;
     fx.traverse((o) => {
-      if (o.userData.childId !== id || !o.name.startsWith("child-live:")) return;
+      if (o.userData.stretchPartId !== id) return;
       o.matrix.copy(m);
       o.matrixWorldNeedsUpdate = true;
     });
@@ -1056,7 +1056,7 @@ export function placeStretch(fx: THREE.Object3D, data: SofStretch3, source: THRE
   const set = (id: number | null, m: THREE.Matrix4) => {
     if (id === null) return;
     fx.traverse((o) => {
-      if (o.userData.childId !== id || !o.name.startsWith("child-live:")) return;
+      if (o.userData.stretchPartId !== id) return;
       o.matrix.copy(m);
       o.matrixWorldNeedsUpdate = true;
     });
