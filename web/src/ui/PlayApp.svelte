@@ -41,7 +41,7 @@
   import DesktopWindow from "./DesktopWindow.svelte";
   import PanelHost from "./PanelHost.svelte";
   import type { MoonRefinery } from "../bridge/moonMining.ts";
-  import { METENOX_TYPE_ID, type AutoMoonMiner } from "../bridge/autoMoonMining.ts";
+  import { METENOX_TYPE_ID, type AutoMoonMiner, type MoonMaterialBay } from "../bridge/autoMoonMining.ts";
   import PlayInfoPanels from "./PlayInfoPanels.svelte";
   import FlyDronesWindow from "./FlyDronesWindow.svelte";
   import BuffBar from "./BuffBar.svelte";
@@ -128,6 +128,22 @@
 
   let session = $state<Session | null>(null);
   let autoMoonMiner = $state.raw<AutoMoonMiner | null>(null);
+  let moonMaterialBay = $state.raw<MoonMaterialBay | null>(null);
+  let moonMaterialRequest = 0;
+  async function showMoonMaterialBay(structureID: number): Promise<void> {
+    const pilot = session, request = ++moonMaterialRequest;
+    if (!pilot || stage !== "game") return;
+    try {
+      const result = await pilot.flow.loadMoonMaterialBay(structureID);
+      if (session !== pilot || stage !== "game" || request !== moonMaterialRequest) return;
+      moonMaterialBay = result;
+      open("moonMaterialBay");
+    } catch (error) {
+      if (session === pilot && stage === "game" && request === moonMaterialRequest && (error as { code?: string })?.code !== "SESSION_REQUEST_RETIRED") {
+        notify({ kind: "danger", title: "Moon Material Bay", detail: (error as Error).message });
+      }
+    }
+  }
   let metenoxTransfer = $state.raw<{ structureID: number; shipID: number } | null>(null);
   let metenoxControl = $state.raw<{ miner: AutoMoonMiner; previousShipID: number | null } | null>(null);
   let boardingMetenox = false;
@@ -225,6 +241,10 @@
     if (metenoxTransfer && status && (!status.inSpace || status.shipID !== metenoxTransfer.shipID || status.shipMode === "WARP")) {
       metenoxTransfer = null;
       wins = closeWindow(untrack(() => wins), "metenoxTransfer");
+    }
+    if (moonMaterialBay && status && (!status.inSpace || status.shipID !== moonMaterialBay.shipID || status.shipMode === "WARP")) {
+      moonMaterialBay = null;
+      wins = closeWindow(untrack(() => wins), "moonMaterialBay");
     }
     if (metenoxControl && status && status.shipID !== metenoxControl.miner.id) {
       metenoxControl = null;
@@ -371,10 +391,12 @@
     if (!session) return;
     chosenCharacterID = characterID;
     ++moonDetailsRequest;
+    ++moonMaterialRequest;
     autoMoonMiner = null;
+    moonMaterialBay = null;
     metenoxControl = null;
     metenoxTransfer = null;
-    wins = closeWindow(wins, "autoMoonMiner");
+    wins = closeWindow(closeWindow(wins, "autoMoonMiner"), "moonMaterialBay");
     wins = closeWindow(closeWindow(wins, "metenoxFuel"), "metenoxTransfer");
     stage = "entering";
     error = "";
@@ -589,6 +611,7 @@
     fleetComposition: { w: 680, h: 420 }, miningScan: { w: 520, h: 400 }, miningLedger: { w: 850, h: 650 }, moonMining: { w: 570, h: 550 },
     structureBrowser: { w: 810, h: 440 }, autoMoonMiner: { w: 700, h: 515 },
     metenoxTransfer: { w: 400, h: 340 }, metenoxFuel: { w: 435, h: 285 },
+    moonMaterialBay: { w: 490, h: 355 },
     memberDetails: { w: 420, h: 480 },
     theatersOfWar: { w: 1600, h: 880 },
     academyShips: { w: 1280, h: 688 },
@@ -658,6 +681,7 @@
   function open(tab: TabID) {
     if (tab === "moonMining" && (!moonRefinery || !controllingStructure)) return;
     if (tab === "autoMoonMiner" && !autoMoonMiner) return;
+    if (tab === "moonMaterialBay" && !moonMaterialBay) return;
     if (tab === "metenoxTransfer" && !metenoxTransfer || tab === "metenoxFuel" && !metenoxControl) return;
     if (tab === "watchlist" && !session?.store.fleet.get().authoritativeFleetID) return;
     if (tab === "miningScan" && !canOpenMiningScan()) {
@@ -1293,6 +1317,7 @@
       },
       jumpBridge: (id) => s.flow.jumpThroughAnsiblex(id),
       openAutoMoonMiner: showAutoMoonMiner,
+      openMoonMaterialBay: showMoonMaterialBay,
       boardMetenox,
       transferMetenoxFuel: transferToMetenox,
       wormholePolarization: (id) => s.flow.wormholePolarization(id),
@@ -1594,7 +1619,7 @@
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
               onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} {autoMoonMiner}
-              {metenoxTransfer} {metenoxControl} onLeaveMetenox={leaveMetenox} />
+              {moonMaterialBay} {metenoxTransfer} {metenoxControl} onLeaveMetenox={leaveMetenox} />
           {/if}
         </DesktopWindow>
       </ErrorBoundary>

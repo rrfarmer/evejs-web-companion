@@ -613,6 +613,19 @@ function readRawContainer(value: JsonValue | undefined): RawContainer {
   };
 }
 
+export interface MoonMaterialTransfer {
+  readonly shipID: number;
+  readonly itemID: number;
+  readonly quantity: number;
+  readonly stackQuantity: number;
+}
+
+export async function moonMaterialBay(structureID: number, options: ApiOptions, transfer?: MoonMaterialTransfer): Promise<RawContainer & { shipID: number | null }> {
+  const path = `/api/bridge/inventory/moon-material-bay/${structureID}`;
+  const data = transfer ? await postJson(path, { ...transfer, confirm: true }, options) : await getJson(path, options);
+  return { ...readRawContainer(data), shipID: asNumberOrNull(data.shipID) };
+}
+
 /** Load the full Inventory & Ship panel (station hangar + active-ship cargo). */
 export async function loadInventory(
   options: ApiOptions = {},

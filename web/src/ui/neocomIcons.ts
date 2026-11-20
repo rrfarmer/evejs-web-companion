@@ -54,6 +54,7 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   miningLedger: ["M5 3h14v18H5z", "M8 16v-3m4 3V9m4 7v-5"],
   moonMining: ["M20 15a8 8 0 1 1-11-11 8 8 0 0 0 11 11Z"],
   autoMoonMiner: ["M20 15a8 8 0 1 1-11-11 8 8 0 0 0 11 11Z"],
+  moonMaterialBay: ["M4 14v5h16v-5M12 4v10m-4-4 4 4 4-4"],
   metenoxTransfer: ["M4 12h15m-5-5 5 5-5 5"],
   metenoxFuel: ["M5 4h11v16H5z", "M7 7h7v5H7z"],
   structureBrowser: ["M12 3l8 5v8l-8 5-8-5V8z", "M4 8l8 5 8-5M12 13v8"],

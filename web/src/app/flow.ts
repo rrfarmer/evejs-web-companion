@@ -464,7 +464,7 @@ import { canManageMoonPull, decodeCorporationMoonPulls, decodeMoonResources, dec
   type CorporationMoonSchedule, type MoonOrePricing, type MoonRefinery, type MoonResource, type MoonSchedule } from "../bridge/moonMining.ts";
 import { CARGO_DEPOSIT_FLAGS, decodeAutoMoonDetails, decodeAutoMoonQuantities, FUEL_BLOCK_GROUP_ID, METENOX_ACCESS_SETTING,
   METENOX_CONTROL_SETTING, METENOX_DRILL_SLOT, METENOX_DRILL_TYPE_ID, METENOX_FUEL_FLAG, METENOX_GAS_TYPE_ID, METENOX_TYPE_ID,
-  type AutoMoonDetails, type AutoMoonMiner } from "../bridge/autoMoonMining.ts";
+  type AutoMoonDetails, type AutoMoonMiner, type MoonMaterialBay } from "../bridge/autoMoonMining.ts";
 import { decodeCargoScan, decodeShipScan, groupShipScanHardware, type CargoScanResult, type ShipScanGroup, type ShipScanResult } from "../bridge/scannerResults.ts";
 import { basicMiningScan, INTEGRATED_MINING_SCANNER, miningScanInWarp, miningSurveyDepletion, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
 import {
@@ -4205,6 +4205,7 @@ export interface AppFlow {
   openAutoMoonMiner(structureID: number): Promise<AutoMoonMiner | null>;
   loadAutoMoonDetails(miner: AutoMoonMiner): Promise<AutoMoonDetails>;
   loadAutoMoonCycle(miner: AutoMoonMiner): Promise<ReadonlyMap<number, number>>;
+  loadMoonMaterialBay(structureID: number, transfer?: api.MoonMaterialTransfer): Promise<MoonMaterialBay>;
   loadMetenoxDeposit(shipID: number): Promise<readonly InventoryItemRow[]>;
   depositMetenoxFuel(structureID: number, shipID: number, itemIDs: readonly number[]): Promise<readonly number[]>;
   boardMetenox(structureID: number): Promise<{ miner: AutoMoonMiner; previousShipID: number | null } | null>;
@@ -26336,6 +26337,16 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return result;
   }
 
+  async function loadMoonMaterialBay(structureID: number, transfer?: api.MoonMaterialTransfer): Promise<MoonMaterialBay> {
+    const current = callOptions.captureRequestGuard!();
+    const read = await api.moonMaterialBay(structureID, callOptions, transfer);
+    current();
+    const rows = decodeInventoryRowsChecked(read.list);
+    if (rows === null || read.shipID === null) throw new Error("The Moon Material Bay could not be read.");
+    requestNames(rows.map(row => ({ kind: "type", id: row.typeID })));
+    return { structureID, shipID: read.shipID, rows, capacity: decodeCapacity(read.capacity) };
+  }
+
   async function loadMetenoxDeposit(shipID: number): Promise<readonly InventoryItemRow[]> {
     const current = callOptions.captureRequestGuard!();
     const [inventory, bays] = await Promise.all([api.loadInventory(callOptions), api.getShipBays(shipID, callOptions)]);
@@ -36917,6 +36928,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     openAutoMoonMiner,
     loadAutoMoonDetails,
     loadAutoMoonCycle,
+    loadMoonMaterialBay,
     loadMetenoxDeposit,
     depositMetenoxFuel,
     boardMetenox,

@@ -3426,7 +3426,7 @@ function inventoryManagerBindSpec(held) {
 // Decode an invbroker List result to plain rows. Rows arrive as packedrows, or
 // (when empty and flag-scoped) a python set wrapping an empty list.
 /** What an inventory List answered, out of whichever envelope it came in. */
-function inventoryListItems(result) {
+function inventoryListItems(result, unreadable = []) {
   let listValue = result;
   if (listValue && listValue.type === "objectex1" && Array.isArray(listValue.header)) {
     const token = listValue.header[0];
@@ -3436,7 +3436,7 @@ function inventoryListItems(result) {
   } else if (listValue && listValue.type === "object" && Array.isArray(listValue.args)) {
     listValue = listValue.args[0] ?? null;
   }
-  return listValue && listValue.type === "list" && Array.isArray(listValue.items) ? listValue.items : [];
+  return listValue && listValue.type === "list" && Array.isArray(listValue.items) ? listValue.items : unreadable;
 }
 
 /**
@@ -3728,9 +3728,128 @@ function reckonedContainerCapacity(listResult, typeID, packaged) {
   return capacityAnswer(typeID === packaged.plasticWrapTypeID ? used : capacity, used);
 }
 
-// Open a container and list its contents. THE RULE: a container binding is
-// listed with NO flag — its contents carry flagID 0, so a flag-scoped List
-// would answer empty and the container would look wrongly empty.
+const METENOX_TYPE_ID = 81826;
+const MOON_MATERIAL_BAY_FLAG = 186;
+const MOON_MATERIAL_BAY_RANGE = 2_500;
+const moonMaterialRetrievals = new Set();
+
+async function moonMaterialShip(held, webSessionID, structureID, notifications) {
+  assertCurrentHeldSession(held, webSessionID);
+  const scene = await gateway.readSpaceSnapshot(held.bridgeSessionID, { userid: held.accountID });
+  assertCurrentHeldSession(held, webSessionID);
+  notifications.push(...scene.notifications);
+  const { space } = scene;
+  const ship = space?.ship;
+  const structure = Array.isArray(space?.entities) && space.entities.find(entity => entity.itemID === structureID && entity.typeID === METENOX_TYPE_ID);
+  const a = ship?.position, b = structure?.position;
+  if (space?.inSpace !== true || !ship || ship.itemID !== space.shipID || ship.itemID === structureID || ship.mode === "WARP" ||
+      ![a?.x, a?.y, a?.z, b?.x, b?.y, b?.z, ship.radius, structure?.radius].every(Number.isFinite) ||
+      Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) - ship.radius - structure.radius > MOON_MATERIAL_BAY_RANGE) {
+    throw Object.assign(new Error("Move within 2,500 m of the Metenox to access the Moon Material Bay."),
+      { status: 409, code: "MOON_MATERIAL_OUT_OF_RANGE" });
+  }
+  return ship.itemID;
+}
+
+async function readMoonMaterialInventory(held, webSessionID, spec, flag, notifications) {
+  const read = await boundCall(held, webSessionID, spec, "List", [flag], null, notifications);
+  notifications.push(...read.notifications);
+  const items = inventoryListItems(read.result, null);
+  if (items === null || decodeInventoryRows(read.result).length !== items.length) {
+    throw Object.assign(new Error("The native inventory could not be read. Refresh the Moon Material Bay."),
+      { status: 502, code: "MOON_MATERIAL_INVENTORY_UNREADABLE" });
+  }
+  return read.result;
+}
+
+async function moonMaterialBayCapacity(held, webSessionID, spec, notifications) {
+  const read = await boundCall(held, webSessionID, spec, "GetCapacity", [MOON_MATERIAL_BAY_FLAG], null);
+  notifications.push(...read.notifications);
+  return read.result;
+}
+
+async function moonMaterialBay(req, res, next) {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held) return;
+  const structureID = Number(req.params.structureID);
+  if (!isPlayerStructureID(structureID)) {
+    res.status(400).json({ ok: false, error: "INVALID_STRUCTURE", message: "Choose a Metenox Moon Drill." });
+    return;
+  }
+  const spec = containerBindSpec(structureID);
+  const retrieve = req.method === "POST";
+  const { shipID, itemID, quantity, stackQuantity } = req.body || {};
+  if (retrieve) {
+    if (!requireWriteConfirmation(req, res, "Confirm the quantity to move to your ship's cargo hold.")) return;
+    if ([shipID, itemID, quantity, stackQuantity].some(value => !Number.isSafeInteger(value) || value <= 0) || quantity > stackQuantity) {
+      res.status(400).json({ ok: false, error: "INVALID_MOON_MATERIAL_TRANSFER", message: "Choose a stack and a valid transfer quantity." });
+      return;
+    }
+    if (moonMaterialRetrievals.has(held.characterID)) {
+      res.status(409).json({ ok: false, error: "MOON_MATERIAL_TRANSFER_BUSY", message: "A retrieval is already in progress." });
+      return;
+    }
+    moonMaterialRetrievals.add(held.characterID);
+  }
+
+  let dispatched = false;
+  const notifications = [];
+  try {
+    const webSessionID = req.webSessionID;
+    const activeShipID = await moonMaterialShip(held, webSessionID, structureID, notifications);
+    const readBay = () => readMoonMaterialInventory(held, webSessionID, spec, MOON_MATERIAL_BAY_FLAG, notifications);
+    const readCapacity = () => moonMaterialBayCapacity(held, webSessionID, spec, notifications);
+    if (!retrieve) {
+      const list = await readBay();
+      const capacity = await readCapacity();
+      res.json({ ok: true, structureID, shipID: activeShipID, list, capacity, notifications });
+      return;
+    }
+    const checkShip = (id) => {
+      if (id !== shipID) throw Object.assign(new Error("The active ship changed. Reopen the Moon Material Bay."),
+        { status: 409, code: "MOON_MATERIAL_SHIP_CHANGED" });
+    };
+    checkShip(activeShipID);
+    const source = await readBay();
+    const stack = decodeInventoryRows(source).find(row => row.itemID === itemID && row.locationID === structureID && row.flagID === MOON_MATERIAL_BAY_FLAG);
+    if (!stack || stack.quantity !== stackQuantity) {
+      res.status(409).json({ ok: false, error: "MOON_MATERIAL_STACK_CHANGED", message: "The stack has changed. Refresh the bay and choose a quantity again." });
+      return;
+    }
+    const cargoSpec = { ...cargoBindSpec(held, shipID), expectedShipID: shipID };
+    const readCargo = () => readMoonMaterialInventory(held, webSessionID, cargoSpec, ITEM_FLAG_CARGO_HOLD, notifications);
+    const typeQuantityInCargo = result => decodeInventoryRows(result)
+      .filter(row => row.typeID === stack.typeID && row.locationID === shipID && row.flagID === ITEM_FLAG_CARGO_HOLD)
+      .reduce((total, row) => total + row.quantity, 0);
+    const before = await readCargo();
+    checkShip(await moonMaterialShip(held, webSessionID, structureID, notifications));
+    const move = await boundCall(held, webSessionID, cargoSpec, "Add", [itemID, structureID], { qty: quantity, flag: ITEM_FLAG_CARGO_HOLD }, notifications);
+    dispatched = true;
+    notifications.push(...move.notifications);
+    const [list, after] = await Promise.all([readBay(), readCargo()]);
+    const remaining = decodeInventoryRows(list).find(row => row.itemID === itemID)?.quantity ?? 0;
+    if (stack.quantity - remaining !== quantity || typeQuantityInCargo(after) - typeQuantityInCargo(before) !== quantity) {
+      throw new Error("The native source and destination quantities did not confirm the retrieval.");
+    }
+    const capacity = await readCapacity();
+    res.json({ ok: true, structureID, shipID, list, capacity, notifications });
+  } catch (error) {
+    if (dispatched) {
+      res.status(409).json({ ok: false, error: "MOON_MATERIAL_TRANSFER_UNCONFIRMED",
+        message: "The transfer could not be confirmed. Refresh the bay and check ship cargo before trying again." });
+    } else if (error.refusal?.key === "AccessToAutoMoonMinerDenied") {
+      res.status(403).json({ ok: false, error: "MOON_MATERIAL_ACCESS_DENIED", refusal: dialogRefusalOf(error),
+        message: "You do not have access to this Metenox Moon Material Bay." });
+    } else if (!sendPlaceError(res, error)) next(error);
+  } finally {
+    if (retrieve) moonMaterialRetrievals.delete(held.characterID);
+  }
+}
+
+app.get("/api/bridge/inventory/moon-material-bay/:structureID", requireAuth, moonMaterialBay);
+app.post("/api/bridge/inventory/moon-material-bay/:structureID", requireAuth, moonMaterialBay);
+
+// A container opened without a special bay flag lists everything at flag 0.
 app.get("/api/bridge/inventory/container/:itemID", requireAuth, async (req, res, next) => {
   const held = requireHeldBridgeSession(req, res);
   if (!held) {

@@ -66,7 +66,7 @@ import { bloomFor, type Bloom } from "../three/bloom.ts";
 import { DynamicExposure } from "../three/exposure.ts";
 import { CombatMessage } from "./combatMessage.ts";
 import { RadialMenu, RADIAL_CSS, RADIAL_ICON, WARP_RANGES, holdToOpen, radialRanges, type RadialOption } from "./radialMenu.ts";
-import { METENOX_BOARD_RANGE, METENOX_DEPOSIT_RANGE, METENOX_TYPE_ID } from "../bridge/autoMoonMining.ts";
+import { METENOX_BOARD_RANGE, METENOX_DEPOSIT_RANGE, METENOX_MATERIAL_RANGE, METENOX_TYPE_ID } from "../bridge/autoMoonMining.ts";
 import { JUMP_BRIDGE_GROUP, type JumpBridgeSlim } from "../bridge/jumpBridgePanel.ts";
 import { ACTIVATE_GATE_LABEL, IN_WARP_HINT_LABEL, isWarpGate } from "../bridge/gateActivation.ts";
 import { ENTER_WORMHOLE_LABEL } from "../bridge/placeChanges.ts";
@@ -120,6 +120,7 @@ type MiningOverlayState = Pick<MiningState, "survey" | "surveyProgress" | "surve
  */
 export interface SpaceViewOptions {
   openAutoMoonMiner?: (structureID: number) => Promise<void>;
+  openMoonMaterialBay?: (structureID: number) => Promise<void>;
   boardMetenox?: (structureID: number) => Promise<void>;
   transferMetenoxFuel?: (structureID: number, shipID: number) => Promise<void>;
   mountJumpBridge?: (host: HTMLElement, gate: Entity, state: JumpBridgePanelState) =>
@@ -1319,20 +1320,22 @@ export class SpaceView {
     if (showInfo) out.push({ key: "info", title: "Show Info", icon: icon("show_info"), run: async () => showInfo(id, e.typeID ?? null) });
     const drill = this.autoMoonMinerEntry(e);
     if (drill) out.push(drill);
-    out.push(...this.metenoxFuelEntries(e));
+    out.push(...this.metenoxEntries(e));
     return out;
   }
 
-  private metenoxFuelEntries(entity: Entity): ItemAction[] {
+  private metenoxEntries(entity: Entity): ItemAction[] {
     const ship = this.snapshot?.ship;
     if (entity.typeID !== METENOX_TYPE_ID || !ship || ship.mode === "WARP" || ship.itemID === entity.itemID) return [];
     const distance = this.distanceTo(entity);
-    const { boardMetenox, transferMetenoxFuel } = this.options;
+    const { boardMetenox, transferMetenoxFuel, openMoonMaterialBay } = this.options;
     const entries: ItemAction[] = [];
     if (boardMetenox && distance <= METENOX_BOARD_RANGE) entries.push({ key: "board-metenox", title: "Board Structure",
       icon: clientTexture("res:/UI/Texture/Icons/44_32_40.png"), run: () => boardMetenox(entity.itemID) });
     if (transferMetenoxFuel && distance < METENOX_DEPOSIT_RANGE) entries.push({ key: "transfer-metenox", title: "Access Hangar Transfer",
       icon: clientTexture("res:/UI/Texture/WindowIcons/items.png"), run: () => transferMetenoxFuel(entity.itemID, ship.itemID) });
+    if (openMoonMaterialBay && distance < METENOX_MATERIAL_RANGE) entries.push({ key: "moon-material-bay", title: "Open Moon Material Bay",
+      icon: clientTexture("res:/UI/Texture/eveicon/control_icons/retrieve_32px.png"), run: () => openMoonMaterialBay(entity.itemID) });
     return entries;
   }
 
@@ -1356,7 +1359,7 @@ export class SpaceView {
     const dist = this.distanceTo(e);
     const cargoLabel = selectedCargo(e, false) === "hidden" ? "" : this.actions.word?.(OPEN_CARGO_LABEL) ?? "Open Cargo";
     const wormholeLabel = e.groupID === WORMHOLE_GROUP ? this.actions.word?.(ENTER_WORMHOLE_LABEL) ?? "Enter Wormhole" : "";
-    const metenoxRange = e.typeID === METENOX_TYPE_ID ? `${dist <= METENOX_BOARD_RANGE}:${dist < METENOX_DEPOSIT_RANGE}` : "";
+    const metenoxRange = e.typeID === METENOX_TYPE_ID ? `${dist <= METENOX_BOARD_RANGE}:${dist < METENOX_DEPOSIT_RANGE}:${dist < METENOX_MATERIAL_RANGE}` : "";
     const sig = `${e.itemID}:${this.locked.has(e.itemID)}:${dist >= 150_000}:${e.jumpBridge?.activationState ?? ""}:${this.snapshot?.ship?.mode === "WARP"}:${cargoLabel}:${wormholeLabel}:${metenoxRange}`;
     if (body.getAttribute("data-sig") !== sig) {
       body.setAttribute("data-sig", sig);
@@ -2253,7 +2256,7 @@ export class SpaceView {
       const drill = this.autoMoonMinerEntry(e);
       const more = [lookAt, ...this.sovHubEntries(e, dist)];
       if (drill) more.push({ label: drill.title, icon: drill.icon, run: run(drill.title, drill.run) });
-      for (const entry of this.metenoxFuelEntries(e)) more.push({ label: entry.title, icon: entry.icon, run: run(entry.title, entry.run) });
+      for (const entry of this.metenoxEntries(e)) more.push({ label: entry.title, icon: entry.icon, run: run(entry.title, entry.run) });
       const wormhole = this.wormholeEntry(e);
       const primary: RadialOption | null =
         e.kind === "station" || (e.kind === "structure" && e.typeID !== METENOX_TYPE_ID) ? { label: "Dock", icon: icon(9), run: run("Dock", () => this.actions.dock(id)) }

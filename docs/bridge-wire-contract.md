@@ -764,6 +764,13 @@ browser names a **place**, never a flag:
 
 - `GET /api/bridge/inventory/container/:itemID` → `{ ok, containerID, list, capacity }`.
   Binds `GetInventoryFromId(containerItemID)` and lists with **no flag**.
+- `GET /api/bridge/inventory/moon-material-bay/:structureID` → `{ ok, structureID, shipID, list, capacity, notifications }`.
+  Reads the Metenox output bay at flag 186. `POST` on the same path takes
+  `{ shipID, itemID, quantity, stackQuantity, confirm: true }` and returns the
+  updated bay after confirming the selected stack's decrease and the active
+  cargo hold's increase. `stackQuantity` is the selected stack's last observed
+  quantity. Both operations require a pilot in space within 2,500 m of the
+  Metenox and native access to flag 186.
 - `POST /api/bridge/inventory/transfer` `{ itemIDs, from, to, qty? }` → one
   `Add` (single item, optionally partial-`qty` = a split) or one `MultiAdd`
   (several). Answers

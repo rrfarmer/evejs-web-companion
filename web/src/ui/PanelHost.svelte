@@ -20,11 +20,12 @@
   import MiningLedger from "./MiningLedger.svelte";
   import MoonMining from "./MoonMining.svelte";
   import AutoMoonMinerPanel from "./AutoMoonMinerPanel.svelte";
+  import MoonMaterialBayPanel from "./MoonMaterialBay.svelte";
   import MetenoxTransfer from "./MetenoxTransfer.svelte";
   import MetenoxFuelBay from "./MetenoxFuelBay.svelte";
   import CorporationMoonSchedule from "./CorporationMoonSchedule.svelte";
   import type { MoonRefinery } from "../bridge/moonMining.ts";
-  import type { AutoMoonMiner } from "../bridge/autoMoonMining.ts";
+  import type { AutoMoonMiner, MoonMaterialBay } from "../bridge/autoMoonMining.ts";
   import Mail from "./Mail.svelte";
   import Contacts from "./Contacts.svelte";
   import Watchlist from "./Watchlist.svelte";
@@ -84,6 +85,7 @@
     onShowSystem,
     moonRefinery,
     autoMoonMiner,
+    moonMaterialBay,
     metenoxTransfer,
     metenoxControl,
     onLeaveMetenox,
@@ -116,6 +118,7 @@
     onShowSystem?: (systemID: number) => void;
     moonRefinery?: MoonRefinery | null;
     autoMoonMiner?: AutoMoonMiner | null;
+    moonMaterialBay?: MoonMaterialBay | null;
     metenoxTransfer?: { structureID: number; shipID: number } | null;
     metenoxControl?: { miner: AutoMoonMiner; previousShipID: number | null } | null;
     onLeaveMetenox?: () => Promise<void>;
@@ -201,6 +204,10 @@
 {:else if tab === "autoMoonMiner"}
   {#if autoMoonMiner}
     {#key autoMoonMiner.id}<AutoMoonMinerPanel {store} {flow} miner={autoMoonMiner} />{/key}
+  {/if}
+{:else if tab === "moonMaterialBay"}
+  {#if moonMaterialBay}
+    {#key moonMaterialBay}<MoonMaterialBayPanel {store} {flow} initial={moonMaterialBay} />{/key}
   {/if}
 {:else if tab === "metenoxTransfer"}
   {#if metenoxTransfer && onClose}

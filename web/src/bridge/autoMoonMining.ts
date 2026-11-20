@@ -1,12 +1,14 @@
 import { filetimeToUnixMs } from "./activity.ts";
 import { moonMiningID } from "./moonMining.ts";
 import { readDictEntry, readDictPairs, unwrapLong, unwrapReal } from "./wire.ts";
+import type { CapacityInfo, InventoryItemRow } from "../store/types.ts";
 
 export const METENOX_TYPE_ID = 81826;
 export const METENOX_ACCESS_SETTING = 36;
 export const METENOX_CONTROL_SETTING = 17;
 export const METENOX_BOARD_RANGE = 6_550;
 export const METENOX_DEPOSIT_RANGE = 10_000;
+export const METENOX_MATERIAL_RANGE = 2_500;
 export const METENOX_FUEL_FLAG = 172;
 export const METENOX_DRILL_SLOT = 164;
 export const METENOX_DRILL_TYPE_ID = 82941;
@@ -25,6 +27,13 @@ export interface AutoMoonMiner {
   readonly name: string;
   readonly ownerID: number;
   readonly solarSystemID: number;
+}
+
+export interface MoonMaterialBay {
+  readonly structureID: number;
+  readonly shipID: number;
+  readonly rows: readonly InventoryItemRow[];
+  readonly capacity: CapacityInfo | null;
 }
 
 export interface AutoMoonDetails {
