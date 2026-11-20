@@ -24,6 +24,8 @@ const FACTION_FONT_PATH = /^res:\/ui\/fonts\/factions\/[a-z]+\/[a-z0-9_-]+\.ttf$
 const RENDER_PATH = /^res:\/dx9\/model\/[a-z0-9_./-]+\/icons\/[0-9]+_(?:64|128)\.png$/;
 // inventorycommon.typeHelpers.GetHoloIconPath, used for the Ship Tree silhouettes.
 const HOLO_PATH = /^res:\/dx9\/model\/[a-z0-9_./-]+\/icons\/[a-z0-9_-]+_isis\.png$/;
+const PLANET_RESOURCE_RAMP = "res:/dx9/model/worldobject/planet/resource_colorramp.dds";
+const PLANET_RESOURCE_PATTERN = "res:/dx9/texture/ui/resdistpattern1.dds";
 
 /**
  * The client's textures, read from `clientRoot` (the folder holding `tq` and
@@ -40,14 +42,14 @@ function createClientTextures({ clientRoot = null, readFile = fs.readFileSync } 
   function fileFor(resPath) {
     if (!clientRoot) return null;
     const asked = String(resPath || "").toLowerCase();
-    if (!(TEXTURE_PATH.test(asked) || RENDER_PATH.test(asked) || HOLO_PATH.test(asked) || FACTION_FONT_PATH.test(asked)) || asked.includes("..")) return null;
+    if (!(TEXTURE_PATH.test(asked) || RENDER_PATH.test(asked) || HOLO_PATH.test(asked) || FACTION_FONT_PATH.test(asked) || asked === PLANET_RESOURCE_PATTERN) || asked.includes("..")) return null;
     if (index === null) index = readResourceIndex(readFile(path.join(clientRoot, "tq", "resfileindex.txt"), "utf8"));
     const relative = index.get(asked);
     return relative ? path.join(clientRoot, "ResFiles", relative) : null;
   }
   function pngFor(resPath) {
     const asked = String(resPath || "").toLowerCase();
-    if (!clientRoot || !/^res:\/ui\/texture\/[a-z0-9_./-]+\.dds$/.test(asked) || asked.includes("..")) return null;
+    if (!clientRoot || !(/^res:\/ui\/texture\/[a-z0-9_./-]+\.dds$/.test(asked) || asked === PLANET_RESOURCE_RAMP) || asked.includes("..")) return null;
     if (converted.has(asked)) return converted.get(asked);
     if (index === null) index = readResourceIndex(readFile(path.join(clientRoot, "tq", "resfileindex.txt"), "utf8"));
     const relative = index.get(asked);

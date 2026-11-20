@@ -451,6 +451,8 @@ import {
 } from "../bridge/drones.ts";
 import { decodeSkillSheet, skillQueueRefusal } from "../bridge/skills.ts";
 import { decodeColonyReport } from "../bridge/planets.ts";
+import { decodeResourceData, type PlanetResourceData } from "../bridge/boundPlanets.ts";
+import { PLANET_SURVEY_PROXIMITY, planetSurveyBands } from "../bridge/planetSurvey.ts";
 import { exportColonyTemplate, planColonyTemplate, type ColonyTemplate, type ColonyTemplateRules, type TemplatePlacement, type TemplateRotation } from "../bridge/colonyTemplate.ts";
 import { filetimeToUnixMs } from "../bridge/activity.ts";
 import { readWormholePolarization, type WormholePolarization } from "../play/wormholePolarization.ts";
@@ -4415,6 +4417,7 @@ export interface AppFlow {
   /** R41 — every colony this character owns, and what is on each planet. */
   loadPlanets(): Promise<void>;
   quoteColonyTemplate(placement: TemplatePlacement): Promise<number>;
+  readPlanetSurvey(planetID: number, resourceTypeID: number): Promise<PlanetResourceData>;
   readColonyTemplateRules(template: ColonyTemplate, currentLevel: number): Promise<ColonyTemplateRules>;
   readColonyTemplateForExport(planetID: number, description: string): Promise<ColonyTemplate>;
   submitColonyTemplate(planetID: number, template: ColonyTemplate, rotation: TemplateRotation, reviewed: TemplatePlacement, price: number): Promise<void>;
@@ -28247,6 +28250,40 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
 
+  const planetSurveys = new Map<string, { readonly expires: number; readonly data: PlanetResourceData }>();
+
+  async function readPlanetSurvey(planetID: number, resourceTypeID: number): Promise<PlanetResourceData> {
+    const pilot = callOptions.captureRequestGuard!();
+    const characterID = store.station.get().online?.characterID;
+    const colony = store.planets.get().colonies?.find(colony => colony.planetID === planetID);
+    if (!characterID || !colony?.resources?.some(resource => resource.typeID === resourceTypeID)) {
+      throw new Error("This resource is unavailable on the selected colony.");
+    }
+    const skills = await bridgeAsk("skillHandler", "GetSkills", []);
+    pilot();
+    const remoteSensing = effectiveSkillLevel(skills, 13279);
+    if (remoteSensing < 1) throw new Error("Remote Sensing level I is required to survey planetary resources.");
+    const planetology = effectiveSkillLevel(skills, 2406);
+    const advancedPlanetology = effectiveSkillLevel(skills, 2403);
+    const newBand = planetSurveyBands(planetology, advancedPlanetology);
+    const key = `${characterID}:${planetID}:${resourceTypeID}`;
+    const previous = planetSurveys.get(key);
+    if (previous?.data.numBands === newBand && Date.now() < previous.expires) return previous.data;
+    const reusable = previous && previous.data.numBands <= newBand ? previous : null;
+    const data = decodeResourceData(await bridgeAsk("planetMgr", "GetResourceData", [{
+      resourceTypeID, proximity: PLANET_SURVEY_PROXIMITY, newBand, planetology, advancedPlanetology, remoteSensing,
+      oldBand: reusable?.data.numBands ?? 0,
+      updateTime: reusable ? (BigInt(reusable.expires) * 10000n + 116444736000000000n).toString() : "0",
+    }], null, planetID));
+    pilot();
+    if (!data.data || data.numBands !== newBand || data.proximity !== PLANET_SURVEY_PROXIMITY || data.data.length !== newBand ** 2 * 4) {
+      throw new Error("The survey did not return a complete resource distribution.");
+    }
+    // planetCommon.RESOURCE_CACHE_TIMEOUT, shared for the same pilot, resource and planet.
+    planetSurveys.set(key, { expires: Date.now() + 30 * 60 * 1000, data });
+    return data;
+  }
+
   async function quoteColonyTemplate(placement: TemplatePlacement): Promise<number> {
     const typeIDs = [...new Set(placement.pins.filter(pin => !pin.existing).map(pin => pin.typeID))];
     const basePrice = new Map<number, number>();
@@ -37544,6 +37581,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     compressedTypesOf,
     loadSkills,
     loadPlanets,
+    readPlanetSurvey,
     quoteColonyTemplate,
     readColonyTemplateRules,
     readColonyTemplateForExport,

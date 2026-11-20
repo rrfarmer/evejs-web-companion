@@ -2296,6 +2296,15 @@ const RETAIL_CALLS = Object.freeze({
     "planetInfo = self.remoteHandler.GetPlanetInfo(), on the planet's own object (eveMoniker.GetPlanet(planetID)) and with nothing. Recorded on Tranquility riding the planet's bind: MachoBindObject(planetID, ('GetPlanetInfo', (), {})). The client asks when it first wants the planet and again when the server says the planet's state changed, reckoning the colony itself between; the transport keeps the answer a minute (pilots.js)."),
   "planetMgr.GetPlanetResourceInfo": judged(`${CLIENT_PLANET}:644`, sentWithNothing,
     "self.remoteHandler.GetPlanetResourceInfo(), on the planet's own object and with nothing: what the planet carries, and how rich each is. The transport keeps it by the planet (pilots.js)."),
+  "planetMgr.GetResourceData": reshaped(`${CLIENT_PLANET}:735,751`, (args, kwargs) => {
+    const info = args[0] || {};
+    return { args: [keyVal([
+      ["resourceTypeID", info.resourceTypeID], ["updateTime", filetime(info.updateTime) ?? 0n],
+      ["oldBand", info.oldBand], ["planetology", info.planetology],
+      ["advancedPlanetology", info.advancedPlanetology], ["remoteSensing", info.remoteSensing],
+      ["proximity", info.proximity], ["newBand", info.newBand],
+    ])], kwargs };
+  }, "The bound planet receives one util.KeyVal of resource, cache, skill, range and band fields."),
   "planetMgr.DeleteLaunch": judged("eve/client/script/ui/shared/neocom/journal.py:464", oneLaunch,
     "sm.RemoteSvc('planetMgr').DeleteLaunch(launchID), by name: Remove on a launch in the journal's list, which the client then asks for afresh. No recording has one."),
   "planetMgr.GetProgramResultInfo": reshaped("eve/client/script/environment/planet/clientPlanet.py:525", programAsked,

@@ -5,6 +5,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import type { Colony, ColonyPin } from "../store/types.ts";
   import ColonyTemplate from "./ColonyTemplate.svelte";
+  import PlanetSurvey from "./PlanetSurvey.svelte";
   import TypeIcon from "./TypeIcon.svelte";
 
   let { colony, store, flow, onClose }: { colony: Colony; store: ClientStore; flow: AppFlow; onClose: () => void } = $props();
@@ -16,6 +17,7 @@
   let positions = $state.raw<readonly PlanetMarkerPosition[]>([]);
   let selectedID = $state<number | null>(null);
   let templateShown = $state(false);
+  let surveyShown = $state(false);
   let ready = $state(false);
   let error = $state("");
   const centre = $derived(colony.pins.find(pin => pin.kind === "command" && pin.latitude != null && pin.longitude != null));
@@ -71,7 +73,8 @@
     </div>
     <div class="planet-actions">
       <button type="button" disabled={!ready || !centre} onclick={() => scene?.focus(centre)}>Focus Command Center</button>
-      <button type="button" aria-expanded={templateShown} onclick={() => { templateShown = !templateShown; }}>Templates</button>
+      <button type="button" aria-expanded={surveyShown} onclick={() => { surveyShown = !surveyShown; templateShown = false; }}>Scan</button>
+      <button type="button" aria-expanded={templateShown} onclick={() => { templateShown = !templateShown; surveyShown = false; }}>Templates</button>
       <button type="button" bind:this={closeButton} onclick={onClose}>Exit Planet Mode</button>
     </div>
   </header>
@@ -80,7 +83,13 @@
   {:else if !ready}
     <p class="planet-message" role="status">Loading planet surface…</p>
   {/if}
-  {#if templateShown}
+  {#if surveyShown}
+    <div class="planet-survey-panel">
+      <PlanetSurvey {colony} characterID={store.station.get().online?.characterID ?? null} {flow}
+        showChart={async (chart) => { await scene?.showSurvey(chart); }}
+        setRange={(low, high) => scene?.setSurveyRange(low, high)} onClose={() => { surveyShown = false; }} />
+    </div>
+  {:else if templateShown}
     <div class="planet-template">
       <ColonyTemplate {colony} recipes={$planets.recipes} {store} {flow} onClose={() => { templateShown = false; }} />
     </div>
@@ -131,7 +140,7 @@
   .installation-marker.factory { color: #ffae76; }
   .installation-marker.extractor-control { color: #b2e7a8; }
   .installation-marker:hover, .installation-marker:focus-visible, .installation-marker.chosen { z-index: 1; outline: 2px solid currentColor; outline-offset: 2px; }
-  .planet-toolbar, .planet-overview, .planet-template, .planet-message { position: absolute; }
+  .planet-toolbar, .planet-overview, .planet-template, .planet-survey-panel, .planet-message { position: absolute; }
   .planet-toolbar, .planet-overview, .planet-message { border: 1px solid #819fad65; background: #0a131be8; padding: 10px 12px; }
   .planet-toolbar { top: 14px; right: 16px; width: min(420px, calc(100% - 32px)); display: grid; gap: 8px; }
   .planet-title { display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline; }
@@ -151,4 +160,5 @@
   .planet-contents li { display: flex; justify-content: space-between; gap: 6px; }
   summary { cursor: pointer; }
   .planet-template { top: 122px; right: 16px; bottom: 16px; width: min(492px, calc(100% - 32px)); overflow: auto; }
+  .planet-survey-panel { top: 122px; right: 16px; width: min(310px, calc(100% - 32px)); max-height: calc(100% - 138px); overflow: auto; }
 </style>

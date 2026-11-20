@@ -3,6 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { Colony, ColonyPin } from "../store/types.ts";
 import { celestialModel, systemCelestials } from "../three/celestialModel.ts";
 import { loadDds } from "../three/ddsTexture.ts";
+import { createPlanetSurveyLayer } from "./planetSurveyLayer.ts";
 
 const NEAR_ORBIT = 1.1;
 const FAR_ORBIT = 4;
@@ -45,6 +46,10 @@ export class PlanetScene {
   private readonly points = new Map<number, THREE.Vector3>();
   private model: THREE.Object3D | null = null;
   private nebula: THREE.Texture | null = null;
+  private surveyLayer: Awaited<ReturnType<typeof createPlanetSurveyLayer>> | null = null;
+  private surveyLoading: Promise<Awaited<ReturnType<typeof createPlanetSurveyLayer>> | null> | null = null;
+  private survey: Uint8Array<ArrayBuffer> | null = null;
+  private surveyRange: readonly [number, number] = [0, .5];
   private disposed = false;
 
   constructor(host: HTMLElement, showMarkers: (positions: readonly PlanetMarkerPosition[]) => void) {
@@ -122,9 +127,43 @@ export class PlanetScene {
         new THREE.BufferGeometry().setFromPoints(points),
         new THREE.LineBasicMaterial({ color: link.level > 0 ? 0x9bdcea : 0x62a8b9, transparent: true, opacity: 0.95 }),
       );
+      line.renderOrder = 3;
       this.links.add(line);
     }
     this.draw();
+  }
+
+  async showSurvey(chart: Uint8Array<ArrayBuffer> | null): Promise<void> {
+    if (this.disposed) return;
+    this.survey = chart;
+    if (!chart) {
+      this.surveyLayer?.setChart(null);
+      this.draw();
+      return;
+    }
+    this.surveyLoading ??= createPlanetSurveyLayer().then(layer => {
+      if (this.disposed) { layer.dispose(); return null; }
+      this.scene.add(layer.mesh);
+      this.surveyLayer = layer;
+      return layer;
+    }).catch(error => {
+      this.surveyLoading = null;
+      throw error;
+    });
+    const layer = await this.surveyLoading;
+    if (layer && !this.disposed && this.survey === chart) {
+      layer.setChart(chart);
+      layer.setRange(...this.surveyRange);
+      this.draw();
+    }
+  }
+
+  setSurveyRange(low: number, high: number): void {
+    this.surveyRange = [low, high];
+    if (this.surveyLayer) {
+      this.surveyLayer.setRange(low, high);
+      this.draw();
+    }
   }
 
   focus(pin: ColonyPin | undefined): boolean {
@@ -177,6 +216,7 @@ export class PlanetScene {
     this.disposed = true;
     this.resize.disconnect();
     this.controls.dispose();
+    this.surveyLayer?.dispose();
     releaseGeometry(this.links);
     if (this.model) releaseGeometry(this.model);
     this.nebula?.dispose();
