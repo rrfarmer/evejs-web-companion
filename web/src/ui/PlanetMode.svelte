@@ -5,15 +5,18 @@
   import { canReceiveExpeditedTransfer, type TransferCargo } from "../bridge/expeditedTransfer.ts";
   import { EXTRACTOR_COOLDOWN_MS, extractorBasis, extractorHeadCommands, type ExtractorEdit } from "../bridge/extractorEdits.ts";
   import { MAX_HEAD_RADIUS, MIN_HEAD_RADIUS } from "../bridge/extractorSurvey.ts";
-  import { appendPlanetWaypoint, pinDesignator, previewPlanetRoute } from "../bridge/planetRouting.ts";
+  import { appendPlanetWaypoint, linkKey, pinDesignator, previewPlanetRoute } from "../bridge/planetRouting.ts";
+  import { applyPlanetLinkEdit, colonyLinkBudget, linkBudgetError, linkEndpoints, linkInColony, linkUsage, MAX_LINK_LEVEL,
+    pathUsesLink, type LinkEdit, type PlanetLinkFacts } from "../bridge/planetLinks.ts";
   import type { NewRoute } from "../bridge/planetWrites.ts";
   import { serverNow } from "../bridge/planets.ts";
   import { PlanetScene, type ExtractorMarkerPosition, type PlanetMarkerPosition } from "../play/planetScene.ts";
   import type { ClientStore } from "../store/clientStore.ts";
-  import type { Colony, ColonyPin, ColonyRoute, ExtractorHead } from "../store/types.ts";
+  import type { Colony, ColonyLink, ColonyPin, ColonyRoute, ExtractorHead } from "../store/types.ts";
   import ColonyTemplate from "./ColonyTemplate.svelte";
   import ExtractorSurvey from "./ExtractorSurvey.svelte";
   import ExpeditedTransfer from "./ExpeditedTransfer.svelte";
+  import PlanetLink from "./PlanetLink.svelte";
   import PlanetSurvey from "./PlanetSurvey.svelte";
   import PlanetRouting from "./PlanetRouting.svelte";
   import TypeIcon from "./TypeIcon.svelte";
@@ -37,6 +40,14 @@
   let edits = $state.raw(new Map<number, ExtractorEdit>());
   let newRoutes = $state.raw<readonly NewRoute[]>([]);
   let removedRoutes = $state.raw<readonly ColonyRoute[]>([]);
+  let linkEdits = $state.raw<readonly LinkEdit[]>([]);
+  let linking = $state(false);
+  let linkSource = $state<number | null>(null);
+  let selectedLink = $state.raw<Pick<ColonyLink, "endpoint1" | "endpoint2"> | null>(null);
+  let linkFacts = $state.raw<PlanetLinkFacts>({});
+  let linkFactsError = $state("");
+  let linkError = $state("");
+  let rubberLink = $state.raw<{ x: number; y: number; latitude: number; longitude: number } | null>(null);
   let routePath = $state.raw<readonly number[]>([]);
   let routeTypeID = $state<number | null>(null);
   let transferring = $state(false);
@@ -54,23 +65,31 @@
   let ready = $state(false);
   let error = $state("");
   const routing = $derived(routePath.length > 0);
-  const pending = $derived(edits.size + newRoutes.length + removedRoutes.length > 0);
+  const pending = $derived(edits.size + newRoutes.length + removedRoutes.length + linkEdits.length > 0);
   const removedIDs = $derived(new Set(removedRoutes.map(route => route.routeID)));
-  const routeRows = $derived([...colony.routes, ...newRoutes.map((route, index) => previewPlanetRoute(colony, route, index, $planets.recipes))]);
-  const routeView = $derived({ ...colony, routes: routeRows.filter(route => !removedIDs.has(route.routeID)
+  const networkView = $derived(linkEdits.reduce(applyPlanetLinkEdit, colony));
+  const changedLinks = $derived(new Set(linkEdits.map(edit => linkKey(edit.endpoint1, edit.endpoint2))));
+  const link = $derived(selectedLink ? linkInColony(networkView, selectedLink) : undefined);
+  const routeRows = $derived([...networkView.routes, ...newRoutes.map((route, index) => previewPlanetRoute(networkView, route, index, $planets.recipes))]);
+  const routeView = $derived({ ...networkView, routes: routeRows.filter(route => !removedIDs.has(route.routeID)
     && edits.get(route.path[0]!)?.resourceID !== null) });
   const displayPath = $derived(transferring
     ? (hoveredWaypoint === null || selectedID === null ? transferPath
       : appendPlanetWaypoint(colony, [selectedID], hoveredWaypoint) ?? transferPath)
     : routing
-    ? (hoveredWaypoint === null ? routePath : appendPlanetWaypoint(colony, routePath, hoveredWaypoint) ?? routePath)
-    : highlight);
+    ? (hoveredWaypoint === null ? routePath : appendPlanetWaypoint(networkView, routePath, hoveredWaypoint) ?? routePath)
+    : highlight.length ? highlight : link ? [link.endpoint1, link.endpoint2] : []);
   const centre = $derived(colony.pins.find(pin => pin.kind === "command" && pin.latitude != null && pin.longitude != null));
   const pinsByID = $derived(new Map(colony.pins.map(pin => [pin.pinID, pin])));
   const selected = $derived(selectedID === null ? undefined : pinsByID.get(selectedID));
+  const linkOrigin = $derived(linkSource === null ? undefined : pinsByID.get(linkSource));
+  const rubberUsage = $derived(linkOrigin && rubberLink ? linkUsage(colony.radius, linkOrigin, rubberLink, 0, linkFacts) : null);
+  const budget = $derived((linking || link) ? colonyLinkBudget(networkView, linkFacts) : null);
+  const removedLinkRoutes = $derived(colony.routes.filter(route => !removedIDs.has(route.routeID)
+    && !networkView.routes.some(remaining => remaining.routeID === route.routeID)).length);
   const selectedEdit = $derived(selectedID === null ? undefined : edits.get(selectedID));
   const pendingResource = $derived(colony.resources?.find(resource => resource.typeID === selectedEdit?.resourceID)?.typeName);
-  const removedOutputs = $derived(colony.routes.filter(route => !removedIDs.has(route.routeID) && edits.get(route.path[0]!)?.resourceID === null).length);
+  const removedOutputs = $derived(networkView.routes.filter(route => !removedIDs.has(route.routeID) && edits.get(route.path[0]!)?.resourceID === null).length);
   const unit = $derived(extractorID === null ? null : pinsByID.get(extractorID) ?? null);
   const area = $derived(unit?.extractor?.areaOfInfluence ?? null);
   const edit = $derived(extractorID === null ? undefined : edits.get(extractorID));
@@ -85,9 +104,12 @@
   const displayedRadius = $derived(unit ? running ? unit.extractor?.headRadius ?? radius : radius
     : workingUnit ? edits.get(workingUnit.pinID)?.radius ?? MIN_HEAD_RADIUS : MIN_HEAD_RADIUS);
 
-  function select(pin: ColonyPin, moveCamera = false): void {
+  function select(pin: ColonyPin, moveCamera = false, shortcut = false): void {
     if (transferring) { chooseTransferDestination(pin.pinID); return; }
     if (routing) { addWaypoint(pin.pinID); return; }
+    if (linking) { chooseLinkPin(pin); return; }
+    if (shortcut) { startLink(pin); return; }
+    closeLink();
     highlight = [];
     if (extractorID !== null && extractorID !== pin.pinID) closeExtractor();
     selectedID = pin.pinID;
@@ -99,6 +121,7 @@
     selectedID = pin.pinID;
     closeRoute();
     closeTransfer();
+    closeLink();
     surveyShown = templateShown = false;
     extractorID = pin.pinID;
     const staged = edits.get(pin.pinID);
@@ -122,6 +145,7 @@
     closeExtractor();
     closeTransfer();
     closeRoute();
+    closeLink();
     routePath = [selected.pinID];
     routeTypeID = typeID;
   }
@@ -138,6 +162,7 @@
     closeExtractor();
     closeRoute();
     closeTransfer();
+    closeLink();
     transferring = true;
   }
 
@@ -172,7 +197,7 @@
   function addWaypoint(id: number): void {
     if (!routing || submitting) return;
     hoveredWaypoint = null;
-    const path = appendPlanetWaypoint(colony, routePath, id);
+    const path = appendPlanetWaypoint(networkView, routePath, id);
     waypointError = path ? "" : "There is no linked path to that installation.";
     if (path) routePath = path;
   }
@@ -201,6 +226,98 @@
     extractorID = null;
     dragging = null;
     heads = [];
+  }
+
+  function resetLinkPreview(): void {
+    rubberLink = null;
+    scene?.previewLink(null);
+  }
+
+  function closeLink(): void {
+    if (linking) resetLinkPreview();
+    linking = false;
+    linkSource = null;
+    selectedLink = null;
+    linkError = "";
+  }
+
+  function startLink(pin?: ColonyPin): void {
+    if (!ready || submitting || refreshing) return;
+    closeExtractor();
+    closeRoute();
+    closeTransfer();
+    closeLink();
+    surveyShown = templateShown = false;
+    linking = true;
+    if (pin) chooseLinkPin(pin);
+  }
+
+  function chooseLinkPin(pin: ColonyPin): void {
+    if (submitting || refreshing || pin.latitude === null || pin.longitude === null) return;
+    if (!linkOrigin) {
+      linkSource = selectedID = pin.pinID;
+      linkError = "";
+      return;
+    }
+    const endpoints = linkEndpoints(linkOrigin.pinID, pin.pinID);
+    const proposed = { ...endpoints, level: 0 };
+    linkError = linkInColony(networkView, endpoints) ? "These installations are already linked."
+      : linkFactsError || linkBudgetError(networkView, proposed, linkFacts);
+    if (linkError) return;
+    stageLink({ ...proposed, previousLevel: null, removedRoutes: [] });
+    // The native build mode returns to choosing a source after placement.
+    linkSource = null;
+    resetLinkPreview();
+  }
+
+  function openLink(value: ColonyLink): void {
+    if (submitting || routing || transferring || linking || dragging) return;
+    closeExtractor();
+    closeLink();
+    surveyShown = templateShown = false;
+    highlight = [];
+    selectedLink = value;
+  }
+
+  function stageLink(edit: LinkEdit): void {
+    submitError = "";
+    linkEdits = [...linkEdits, edit];
+  }
+
+  function upgradeLink(): void {
+    if (!link || submitting || refreshing || link.level >= MAX_LINK_LEVEL) return;
+    const level = link.level + 1;
+    if (linkBudgetError(networkView, { ...link, level }, linkFacts)) return;
+    stageLink({ ...link, previousLevel: link.level, level, removedRoutes: [] });
+  }
+
+  function removeLink(): void {
+    if (!link || submitting || refreshing) return;
+    const removed = link;
+    const sameLink = (edit: LinkEdit) => pathUsesLink([removed.endpoint1, removed.endpoint2], edit);
+    const created = linkEdits.findLastIndex(edit => edit.previousLevel === null && sameLink(edit));
+    if (created >= 0) {
+      linkEdits = linkEdits.filter((edit, index) => index < created || !sameLink(edit));
+      submitError = "";
+    } else {
+      stageLink({ ...removed, previousLevel: removed.level, level: null,
+        removedRoutes: networkView.routes.filter(route => !removedIDs.has(route.routeID) && pathUsesLink(route.path, removed)) });
+    }
+    newRoutes = newRoutes.filter(route => !pathUsesLink(route.path, removed));
+    closeLink();
+    highlight = [];
+  }
+
+  function moveLink(event: PointerEvent): void {
+    if (!linking || linkSource === null || !scene) return;
+    const element = event.target as Element | null;
+    const target = element?.closest<HTMLElement>(".installation-marker");
+    if (!target && !host.contains(element)) {
+      if (rubberLink) resetLinkPreview();
+      return;
+    }
+    const hit = scene.previewLink(linkSource, event.clientX, event.clientY, target ? Number(target.dataset.pinId) : undefined);
+    rubberLink = hit ? { x: event.clientX, y: event.clientY, ...hit } : null;
   }
 
   function stageHeads(): void {
@@ -233,9 +350,11 @@
     if (submitting) return;
     closeExtractor();
     closeRoute();
+    closeLink();
     edits = new Map();
     newRoutes = [];
     removedRoutes = [];
+    linkEdits = [];
     submitError = "";
   }
 
@@ -248,6 +367,10 @@
       if (!submitting) closeTransfer();
       return false;
     }
+    if (linking || link) {
+      if (!submitting) { closeLink(); highlight = []; }
+      return false;
+    }
     if (!routing) return canLeave();
     closeRoute();
     return false;
@@ -258,12 +381,13 @@
     submitting = true;
     submitError = "";
     try {
-      await flow.submitPlanetEdits(colony.planetID, [...edits.values()], { create: newRoutes, remove: removedRoutes });
+      await flow.submitPlanetEdits(colony.planetID, [...edits.values()], { create: newRoutes, remove: removedRoutes }, linkEdits);
       closeExtractor();
       closeRoute();
       edits = new Map();
       newRoutes = [];
       removedRoutes = [];
+      linkEdits = [];
     } catch (cause) {
       submitError = errorWords(cause);
     } finally {
@@ -321,6 +445,19 @@
   onMount(() => {
     let disposed = false;
     let view: PlanetScene | undefined;
+    let pressed: { x: number; y: number } | null = null;
+    const pressSurface = (event: PointerEvent) => {
+      pressed = event.button === 0 ? { x: event.clientX, y: event.clientY } : null;
+    };
+    const clickSurface = (event: MouseEvent) => {
+      const origin = pressed;
+      pressed = null;
+      if (!origin || Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 5 || linking) return;
+      const hit = view?.linkAt(event.clientX, event.clientY);
+      if (hit) openLink(hit);
+    };
+    host.addEventListener("pointerdown", pressSurface);
+    host.addEventListener("click", clickSurface);
     closeButton.focus();
     try {
       view = new PlanetScene(host, markers => { positions = markers; }, markers => { headPositions = markers; });
@@ -336,11 +473,25 @@
     } catch {
       error = "Planet Mode could not start its 3D view.";
     }
-    return () => { disposed = true; view?.dispose(); };
+    return () => {
+      disposed = true;
+      host.removeEventListener("pointerdown", pressSurface);
+      host.removeEventListener("click", clickSurface);
+      view?.dispose();
+    };
   });
 
-  $effect(() => { scene?.setColony(colony); });
-  $effect(() => { colony; scene?.setRoutePath(displayPath, routing || transferring); });
+  $effect(() => { scene?.setColony(networkView, changedLinks); });
+  $effect(() => { networkView; scene?.setRoutePath(displayPath, routing || transferring); });
+  $effect(() => {
+    if (!linking && !selectedLink) return;
+    let active = true;
+    linkFactsError = "";
+    void flow.readPlanetLinkFacts(colony.pins.map(pin => pin.typeID)).then(facts => {
+      if (active) linkFacts = facts;
+    }).catch(cause => { if (active) linkFactsError = errorWords(cause); });
+    return () => { active = false; };
+  });
   $effect(() => { scene?.setExtractor(workingUnit, displayedHeads, displayedRadius, workingUnit?.extractor?.areaOfInfluence ?? null); });
   $effect(() => {
     if (!running) return;
@@ -350,6 +501,7 @@
   });
 </script>
 
+<svelte:window onpointermove={moveLink} />
 <section class="planet-mode" aria-label="Planet Mode" aria-busy={!ready && !error}>
   <div class="planet-globe" bind:this={host}></div>
   <div class="planet-markers">
@@ -360,8 +512,8 @@
           class:waypoint={routePath.includes(pin.pinID) || transferPath.includes(pin.pinID)} data-pin-id={pin.pinID}
           style:left={`${position.x}%`} style:top={`${position.y}%`}
           aria-label={pin.typeName} aria-pressed={pin.pinID === selectedID} title={`${pin.typeName} · ${pinDesignator(pin.pinID)}`}
-          onclick={() => select(pin)}
-          ondblclick={() => { if (routing) routePanel?.stageRoute(); else if (!transferring) openExtractor(pin); }}
+          onclick={(event) => select(pin, false, event.ctrlKey)}
+          ondblclick={() => { if (routing) routePanel?.stageRoute(); else if (!transferring && !linking) openExtractor(pin); }}
           onmouseenter={() => { if (routing || transferring) hoveredWaypoint = pin.pinID; }}
           onmouseleave={() => { if (routing || transferring) hoveredWaypoint = null; }}></button>
       {/if}
@@ -374,6 +526,13 @@
         onlostpointercapture={(event) => endDrag(event, true)} onpointercancel={(event) => endDrag(event, true)}>{position.id + 1}</button>
     {/each}
   </div>
+  {#if rubberUsage && rubberLink}
+    <div class="rubber-link" style:left={`min(${rubberLink.x - 32}px, calc(100% - 9rem))`}
+      style:top={`min(${rubberLink.y + 13}px, calc(100% - 4rem))`}>
+      <span>{rubberUsage.km.toLocaleString(undefined, { maximumFractionDigits: 1 })} km</span>
+      <span>{rubberUsage.cpu.toLocaleString()} tf · {rubberUsage.power.toLocaleString()} MW</span>
+    </div>
+  {/if}
   <header class="planet-toolbar">
     <div class="planet-title">
       <h1>{colony.planetName ?? "Planet"}</h1>
@@ -383,8 +542,10 @@
     {#if refreshError}<p role="alert">{refreshError}</p>{/if}
     <div class="planet-actions">
       <button type="button" disabled={!ready || !centre} onclick={() => scene?.focus(centre)}>Focus Command Center</button>
-      <button type="button" aria-expanded={surveyShown} disabled={submitting} onclick={() => { closeExtractor(); closeRoute(); closeTransfer(); surveyShown = !surveyShown; templateShown = false; }}>Scan</button>
-      <button type="button" aria-expanded={templateShown} disabled={pending || submitting} onclick={() => { closeExtractor(); closeRoute(); closeTransfer(); templateShown = !templateShown; surveyShown = false; }}>Templates</button>
+      <button type="button" aria-expanded={surveyShown} disabled={submitting} onclick={() => { closeExtractor(); closeRoute(); closeTransfer(); closeLink(); surveyShown = !surveyShown; templateShown = false; }}>Scan</button>
+      <button type="button" aria-expanded={templateShown} disabled={pending || submitting} onclick={() => { closeExtractor(); closeRoute(); closeTransfer(); closeLink(); templateShown = !templateShown; surveyShown = false; }}>Templates</button>
+      <button type="button" aria-pressed={linking} disabled={!ready || submitting || refreshing}
+        title="Create Link (Ctrl-click an installation)" onclick={() => { if (linking) closeLink(); else startLink(); }}>Create Link</button>
       <button type="button" bind:this={closeButton} disabled={submitting} onclick={() => { if (canLeave()) onClose(); }}>Exit Planet Mode</button>
     </div>
   </header>
@@ -399,12 +560,16 @@
         <span aria-live="polite">
           {#if edits.size}{edits.size} {edits.size === 1 ? "extractor" : "extractors"} with pending changes{/if}
           {#if newRoutes.length + removedRoutes.length}{edits.size ? " · " : ""}{newRoutes.length + removedRoutes.length} pending route changes{/if}
+          {#if linkEdits.length}{edits.size || newRoutes.length || removedRoutes.length ? " · " : ""}{changedLinks.size} pending link {changedLinks.size === 1 ? "change" : "changes"}{/if}
         </span>
         <button type="button" disabled={submitting || refreshing || dragging !== null} onclick={() => void submitEdits()}>{submitting ? "Submitting…" : "Submit"}</button>
         <button type="button" disabled={submitting} onclick={cancelEdits}>Cancel</button>
       </div>
       {#if removedOutputs}
         <p>Submitting will remove {removedOutputs} {removedOutputs === 1 ? "output route" : "output routes"} from stopped extractors.</p>
+      {/if}
+      {#if removedLinkRoutes}
+        <p>Submitting will remove {removedLinkRoutes} {removedLinkRoutes === 1 ? "route" : "routes"} through decommissioned links.</p>
       {/if}
       {#if submitError}<p role="alert">{submitError}</p>{/if}
     </section>
@@ -432,8 +597,22 @@
       <ColonyTemplate {colony} recipes={$planets.recipes} {store} {flow} onClose={() => { templateShown = false; }} />
     </div>
   {:else}
-    <aside class="planet-overview">
-      {#if selected}
+    <aside class="planet-overview" class:link-overview={link || linking}>
+      {#if linking}
+        <div class="installation-heading">
+          <strong>Create Link</strong>
+          <button type="button" aria-label="Cancel link placement" onclick={closeLink}>×</button>
+        </div>
+        <p>{linkOrigin ? "Select the destination installation." : "Select the source installation."}</p>
+        {#if linkOrigin}<p>{linkOrigin.typeName} · {pinDesignator(linkOrigin.pinID)}</p>{/if}
+        {#if linkFactsError || linkError}<p role="alert">{linkFactsError || linkError}</p>{/if}
+      {:else if link}
+        {#key linkKey(link.endpoint1, link.endpoint2)}
+          <PlanetLink colony={routeView} {link} recipes={$planets.recipes} facts={linkFacts} factsError={linkFactsError}
+            disabled={submitting || refreshing} {flow} close={() => { closeLink(); highlight = []; }}
+            upgrade={upgradeLink} remove={removeLink} highlight={(value) => { highlight = value; }} />
+        {/key}
+      {:else if selected}
         <div class="installation-heading">
           <TypeIcon typeID={selected.typeID} name={selected.typeName} />
           <strong>{selected.typeName}</strong>
@@ -458,8 +637,11 @@
             {/each}
           </ul>
         {/if}
-        <p>{colony.links.filter(link => link.endpoint1 === selected.pinID || link.endpoint2 === selected.pinID).length} links ·
-          {colony.routes.filter(route => route.path.includes(selected.pinID)).length} routes</p>
+        <p>{networkView.links.filter(link => link.endpoint1 === selected.pinID || link.endpoint2 === selected.pinID).length} links ·
+          {networkView.routes.filter(route => route.path.includes(selected.pinID)).length} routes</p>
+        {#if !routing && !transferring}
+          <button type="button" disabled={!ready || submitting || refreshing} onclick={() => startLink(selected)}>Create Link from Here</button>
+        {/if}
         {#if transferring}
           {#key transferPath.at(-1) ?? null}
             <ExpeditedTransfer {colony} source={selected} path={transferPath} recipes={$planets.recipes} {flow}
@@ -475,6 +657,24 @@
               highlight={(value) => { highlight = value; }} stage={stageRoute} toggleRemoval={toggleRouteRemoval} />
           {/key}
         {/if}
+      {/if}
+      {#if budget}
+        <dl class="colony-budget">
+          <div><dt>Colony CPU</dt><dd>{budget.cpu.toLocaleString()} / {budget.cpuSupply.toLocaleString()} tf</dd></div>
+          <div><dt>Colony power</dt><dd>{budget.power.toLocaleString()} / {budget.powerSupply.toLocaleString()} MW</dd></div>
+        </dl>
+      {/if}
+      {#if !link && !linking && !routing && !transferring && networkView.links.length}
+        <details>
+          <summary>Links ({networkView.links.length})</summary>
+          <ul>
+            {#each networkView.links as item (linkKey(item.endpoint1, item.endpoint2))}
+              <li><button type="button" onclick={() => openLink(item)}>
+                {pinDesignator(item.endpoint1)} — {pinDesignator(item.endpoint2)} · Level {item.level}
+              </button></li>
+            {/each}
+          </ul>
+        </details>
       {/if}
       <details>
         <summary>Installations ({colony.pins.length})</summary>
@@ -524,6 +724,12 @@
   .planet-edit-bar { bottom: 16px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); z-index: 3; }
   .planet-edit-bar [role=alert] { color: #ffca83; margin-top: .35rem; max-width: 36rem; }
   .planet-overview { bottom: 16px; right: 16px; width: min(310px, calc(100% - 32px)); max-height: calc(100% - 144px); overflow: auto; display: grid; gap: 8px; }
+  .planet-overview.link-overview { width: min(350px, calc(100% - 32px)); }
+  .rubber-link { position: absolute; z-index: 1; pointer-events: none; display: grid; gap: 2px;
+    padding: 4px 7px; background: #0a131bf2; border: 1px solid #83b994; font-size: 12px; white-space: nowrap; }
+  .colony-budget { margin: 0; padding-top: 6px; border-top: 1px solid #819fad44; }
+  .colony-budget div { display: flex; justify-content: space-between; gap: 6px; }
+  .colony-budget dd { margin: 0; }
   .installation-heading strong { flex: 1; }
   .installation-heading button { margin-inline-start: auto; }
   .planet-overview ul { padding: 0; margin: 8px 0 0; list-style: none; display: grid; gap: 4px; }

@@ -15,7 +15,7 @@ export interface RouteEdits {
   readonly remove: readonly ColonyRoute[];
 }
 
-const linkKey = (a: number, b: number) => a < b ? `${a}:${b}` : `${b}:${a}`;
+export const linkKey = (a: number, b: number) => a < b ? `${a}:${b}` : `${b}:${a}`;
 const legs = (path: readonly number[]) => path.slice(1).map((id, index) => linkKey(path[index]!, id));
 
 /** planetCommon.ItemIDToPinDesignator uses five digits from least to most significant. */
@@ -26,7 +26,7 @@ export function pinDesignator(id: number): string {
   return letters.slice(0, 2).join("") + "-" + letters.slice(2).join("");
 }
 
-function angularDistance(a: ColonyPin, b: ColonyPin): number {
+export function angularDistance(a: Pick<ColonyPin, "latitude" | "longitude">, b: Pick<ColonyPin, "latitude" | "longitude">): number {
   if (a.latitude == null || a.longitude == null || b.latitude == null || b.longitude == null) return Infinity;
   const dot = Math.cos(a.latitude) * Math.cos(b.latitude)
     + Math.sin(a.latitude) * Math.sin(b.latitude) * Math.cos(a.longitude - b.longitude);
@@ -87,6 +87,13 @@ function volumeRate(typeID: number, from: ColonyPin, to: ColonyPin, recipes: PiR
   return seconds ? volume * 3600 / seconds : null;
 }
 
+export function routeBandwidth(colony: Colony, route: ColonyRoute, recipes: PiRecipeBook, facts: PlanetRouteFacts): number | null {
+  const from = colony.pins.find(pin => pin.pinID === route.path[0]);
+  const to = colony.pins.find(pin => pin.pinID === route.path.at(-1));
+  const rate = from && to ? volumeRate(route.commodityTypeID, from, to, recipes, facts) : null;
+  return rate === null ? null : rate * route.commodityQuantity;
+}
+
 export function quotePlanetRoute(colony: Colony, recipes: PiRecipeBook, facts: PlanetRouteFacts, path: readonly number[], typeID: number) {
   const problem = (error: string) => ({ error, max: 0, perUnit: 0, freeBandwidth: 0, cycle: 0 });
   if (path.length < 2) return problem("Select a destination on the planet.");
@@ -112,10 +119,9 @@ export function quotePlanetRoute(colony: Colony, recipes: PiRecipeBook, facts: P
   for (const route of colony.routes) {
     const shared = legs(route.path).filter(key => usedLegs.has(key));
     if (!shared.length) continue;
-    const source = pins.get(route.path[0]!), dest = pins.get(route.path.at(-1)!);
-    const rate = source && dest ? volumeRate(route.commodityTypeID, source, dest, recipes, facts) : null;
-    if (rate === null) return problem("The bandwidth of an existing route is unavailable.");
-    for (const key of shared) free.set(key, free.get(key)! - rate * route.commodityQuantity);
+    const bandwidth = routeBandwidth(colony, route, recipes, facts);
+    if (bandwidth === null) return problem("The bandwidth of an existing route is unavailable.");
+    for (const key of shared) free.set(key, free.get(key)! - bandwidth);
   }
   const freeBandwidth = Math.max(0, Math.min(...selectedLegs.map(key => free.get(key)!)));
   // A recurring storage route reserves an input batch even if the store has only part of one.

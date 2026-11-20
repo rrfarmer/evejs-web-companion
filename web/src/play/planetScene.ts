@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { EXTRACTOR_HEAD_LIMIT } from "../bridge/extractorSurvey.ts";
-import type { Colony, ColonyPin, ExtractorHead } from "../store/types.ts";
+import { linkKey } from "../bridge/planetRouting.ts";
+import type { Colony, ColonyLink, ColonyPin, ExtractorHead } from "../store/types.ts";
 import { celestialModel, systemCelestials } from "../three/celestialModel.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { createPlanetSurveyLayer } from "./planetSurveyLayer.ts";
@@ -79,6 +80,8 @@ export class PlanetScene {
   private readonly controls: OrbitControls;
   private readonly sun = new THREE.DirectionalLight(0xffffff, 2.7);
   private readonly links = new THREE.Group();
+  private readonly linkPreview = new THREE.Group();
+  private readonly linkLines = new Map<THREE.Object3D, ColonyLink>();
   private readonly route = new THREE.Group();
   private readonly extraction = new THREE.Group();
   private readonly headPoints = new Map<number, THREE.Vector3>();
@@ -116,7 +119,7 @@ export class PlanetScene {
     this.controls.update();
     this.controls.addEventListener("change", this.draw);
     this.scene.background = new THREE.Color(0x071018);
-    this.scene.add(this.links, this.route, this.extraction, this.sun, new THREE.AmbientLight(0x566782, 0.55));
+    this.scene.add(this.links, this.linkPreview, this.route, this.extraction, this.sun, new THREE.AmbientLight(0x566782, 0.55));
     this.host.appendChild(this.renderer.domElement);
     this.resize = new ResizeObserver(this.size);
     this.resize.observe(this.host);
@@ -152,21 +155,56 @@ export class PlanetScene {
     }
   }
 
-  setColony(colony: Colony): void {
+  setColony(colony: Colony, changedLinks: ReadonlySet<string>): void {
     this.points.clear();
     for (const pin of colony.pins) {
       const point = surfacePoint(pin);
       if (point) this.points.set(pin.pinID, point);
     }
     releaseGeometry(this.links);
+    this.linkLines.clear();
     for (const link of colony.links) {
       const a = this.points.get(link.endpoint1), b = this.points.get(link.endpoint2);
       if (!a || !b) continue;
-      const line = surfaceArc(a, b, 1.004, link.level > 0 ? 0x9bdcea : 0x62a8b9);
+      const pending = changedLinks.has(linkKey(link.endpoint1, link.endpoint2));
+      const line = surfaceArc(a, b, 1.004, pending ? 0x9df5a4 : link.level > 0 ? 0x9bdcea : 0x62a8b9);
       line.renderOrder = 3;
       this.links.add(line);
+      this.linkLines.set(line, link);
     }
     this.draw();
+  }
+
+  private pointRay(x: number, y: number): void {
+    const bounds = this.renderer.domElement.getBoundingClientRect();
+    this.ray.setFromCamera(new THREE.Vector2((x - bounds.left) / bounds.width * 2 - 1, 1 - (y - bounds.top) / bounds.height * 2), this.camera);
+  }
+
+  linkAt(x: number, y: number): ColonyLink | undefined {
+    this.pointRay(x, y);
+    const surface = this.ray.ray.intersectSphere(this.globe, new THREE.Vector3());
+    if (!surface) return undefined;
+    const height = this.renderer.domElement.clientHeight;
+    const distance = surface.distanceTo(this.camera.position);
+    this.ray.params.Line = { threshold: 12 * distance * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2) / height };
+    const hit = this.ray.intersectObjects(this.links.children, false)
+      .find(candidate => candidate.point.dot(this.camera.position) > 1);
+    return hit && this.linkLines.get(hit.object);
+  }
+
+  previewLink(source: number | null, x = 0, y = 0, target?: number): { latitude: number; longitude: number } | null {
+    releaseGeometry(this.linkPreview);
+    const a = source === null ? undefined : this.points.get(source);
+    if (!a) { this.draw(); return null; }
+    this.pointRay(x, y);
+    const b = target === undefined ? this.ray.ray.intersectSphere(this.globe, new THREE.Vector3()) : this.points.get(target);
+    if (!b || a.distanceToSquared(b) < 1e-12) { this.draw(); return null; }
+    const line = surfaceArc(a, b, 1.012, 0xa9ffac);
+    line.renderOrder = 6;
+    this.linkPreview.add(line);
+    this.draw();
+    const [, latitude, longitude] = headAt(0, b);
+    return { latitude, longitude };
   }
 
   setRoutePath(path: readonly number[], preview: boolean): void {
@@ -242,8 +280,7 @@ export class PlanetScene {
   moveHead(unit: ColonyPin, id: number, x: number, y: number, area: number): ExtractorHead | null {
     const centre = surfacePoint(unit);
     if (!centre) return null;
-    const bounds = this.renderer.domElement.getBoundingClientRect();
-    this.ray.setFromCamera(new THREE.Vector2((x - bounds.left) / bounds.width * 2 - 1, 1 - (y - bounds.top) / bounds.height * 2), this.camera);
+    this.pointRay(x, y);
     const point = this.ray.ray.intersectSphere(this.globe, new THREE.Vector3());
     if (!point) return null;
     const limit = area * .99;
@@ -314,6 +351,7 @@ export class PlanetScene {
     this.controls.dispose();
     this.surveyLayer?.dispose();
     releaseGeometry(this.links);
+    releaseGeometry(this.linkPreview);
     releaseGeometry(this.route);
     releaseGeometry(this.extraction);
     if (this.model) releaseGeometry(this.model);
