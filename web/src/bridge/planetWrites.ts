@@ -86,10 +86,14 @@ export async function changeColonyNetwork(act: Ask, planetID: number, changes: r
  * the server gives each its own. Fails as the call fails.
  */
 export async function rerouteExtractorRoutes(act: Ask, planetID: number, removeRouteIDs: readonly number[], create: readonly NewRoute[]): Promise<void> {
-  await changeColonyNetwork(act, planetID, [
+  await changeColonyNetwork(act, planetID, routeEditCommands(removeRouteIDs, create));
+}
+
+export function routeEditCommands(removeRouteIDs: readonly number[], create: readonly NewRoute[]): JsonValue[] {
+  return [
     ...removeRouteIDs.map((routeID): JsonValue => [REMOVE_ROUTE, [routeID]]),
     ...create.map((route, index): JsonValue => [CREATE_ROUTE, [[TEMPORARY_ROUTE, index + 1], [...route.path], route.typeID, route.quantity]]),
-  ]);
+  ];
 }
 
 /**

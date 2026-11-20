@@ -943,7 +943,7 @@
   let systemMenu = $state(false);
   let mapHost = $state<HTMLDivElement | null>(null);
   let planetModeID = $state<number | null>(null);
-  let planetModeView: { canLeave: () => boolean } | undefined = $state();
+  let planetModeView: { canLeave: () => boolean; escapeCanLeave: () => boolean } | undefined = $state();
   let planetModeTrigger: HTMLElement | null = null;
   const planetInMode = $derived($planets?.colonies?.find(colony => colony.planetID === planetModeID) ?? null);
 
@@ -1109,7 +1109,7 @@
     if (cmd === "OnEsc") {
       e.preventDefault();
       if (starMap) toggleStarMap(false);
-      else if (planetInMode) { if (planetModeView?.canLeave()) leavePlanetMode(); }
+      else if (planetInMode) { if (planetModeView?.escapeCanLeave()) leavePlanetMode(); }
       else systemMenu = !systemMenu;
       return;
     }

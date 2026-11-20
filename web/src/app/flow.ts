@@ -1224,9 +1224,10 @@ import { giveUpOffice, quoteOffice, rentOffice, type DockedIn } from "../bridge/
 import { runSlashCommand } from "../bridge/gmWrites.ts";
 import { IntDict, hashedSetOrder, intDictOf, intDictOrder, strDictOrder, tupleHashOf, wholeHashOf } from "../bridge/py27DictOrder.ts";
 import { hudSettingNow, setSlotOrder, slotOrderOf } from "../store/hudSettings.ts";
-import { changeColonyNetwork, launchCommodities as launchCommoditiesCall, rerouteExtractorRoutes, type NewRoute } from "../bridge/planetWrites.ts";
+import { changeColonyNetwork, launchCommodities as launchCommoditiesCall, rerouteExtractorRoutes, routeEditCommands, type NewRoute } from "../bridge/planetWrites.ts";
 import { requestExtractorYield, restartExtractor as restartExtractorAsTheClient, type ProgramYield } from "../bridge/extractorRestart.ts";
 import { planExtractorEdits, type ExtractorEdit } from "../bridge/extractorEdits.ts";
+import { validateRouteRemovals, validateNewRoutes, type PlanetRouteFacts, type RouteEdits } from "../bridge/planetRouting.ts";
 import { validExtractorDraft } from "../bridge/extractorSurvey.ts";
 import type { ExtractorHead } from "../store/types.ts";
 import { activateModule as activateModuleCall, createDefaultEffects, createModuleRepairs, createOverloadEffects, createWeaponGrouping, deactivateModule as deactivateModuleCall, loadAmmo as loadAmmoCall, repairWaitMs, setModuleOnline as setModuleOnlineCall, setOverload as setOverloadCall, unloadAmmo as unloadAmmoCall, type ModuleActionResult, type ModuleDeps } from "../bridge/dogmaWrites.ts";
@@ -4422,7 +4423,8 @@ export interface AppFlow {
   quoteColonyTemplate(placement: TemplatePlacement): Promise<number>;
   readPlanetSurvey(planetID: number, resourceTypeID: number): Promise<PlanetResourceData>;
   readExtractorYield(planetID: number, pinID: number, resourceTypeID: number, heads: readonly ExtractorHead[], radius: number): Promise<ProgramYield>;
-  submitExtractorEdits(planetID: number, edits: readonly ExtractorEdit[]): Promise<void>;
+  readPlanetRouteFacts(typeIDs: readonly number[]): Promise<PlanetRouteFacts>;
+  submitPlanetEdits(planetID: number, edits: readonly ExtractorEdit[], routes: RouteEdits): Promise<void>;
   readColonyTemplateRules(template: ColonyTemplate, currentLevel: number): Promise<ColonyTemplateRules>;
   readColonyTemplateForExport(planetID: number, description: string): Promise<ColonyTemplate>;
   submitColonyTemplate(planetID: number, template: ColonyTemplate, rotation: TemplateRotation, reviewed: TemplatePlacement, price: number): Promise<void>;
@@ -28303,16 +28305,37 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return answer;
   }
 
-  const extractorSubmissions = new Set<number>();
-  async function submitExtractorEdits(planetID: number, edits: readonly ExtractorEdit[]): Promise<void> {
-    if (!edits.length) return;
-    if (extractorSubmissions.has(planetID)) throw new Error("Colony changes are already being submitted.");
+  async function readPlanetRouteFacts(typeIDs: readonly number[]): Promise<PlanetRouteFacts> {
     const pilot = callOptions.captureRequestGuard!();
-    extractorSubmissions.add(planetID);
+    const [linkFacts, volumes] = await Promise.all([infoTypeFacts([2280]), api.loadTypeVolumes([...new Set(typeIDs)], callOptions)]);
+    pilot();
+    const capacity = linkFacts?.[2280]?.attributes.find(([id]) => id === 1631)?.[1];
+    if (capacity == null || capacity <= 0) throw new Error("The planetary link capacity could not be read.");
+    return { baseLinkBandwidth: capacity, commodityVolumes: volumes.volumes };
+  }
+
+  const planetSubmissions = new Set<number>();
+  async function submitPlanetEdits(planetID: number, edits: readonly ExtractorEdit[], routes: RouteEdits): Promise<void> {
+    if (!edits.length && !routes.create.length && !routes.remove.length) return;
+    if (planetSubmissions.has(planetID)) throw new Error("Colony changes are already being submitted.");
+    const pilot = callOptions.captureRequestGuard!();
+    planetSubmissions.add(planetID);
     try {
       const fresh = await readOwnedColony(planetID);
       pilot();
-      const changes = await planExtractorEdits(bridgeAsk, fresh, edits);
+      const colony = validateRouteRemovals(fresh, routes.remove);
+      if (routes.create.length) {
+        if (routes.create.some(route => edits.some(edit => edit.pinID === route.path[0] && edit.resourceID !== undefined))) {
+          throw new Error("Submit the new extractor program before routing its output.");
+        }
+        const kinds = [...colony.routes.map(route => route.commodityTypeID), ...routes.create.map(route => route.typeID)];
+        const [facts] = await Promise.all([readPlanetRouteFacts(kinds), ensurePiRecipes()]);
+        pilot();
+        validateNewRoutes(colony, store.planets.get().recipes, facts, routes.create);
+      }
+      const extractorCommands = await planExtractorEdits(bridgeAsk, colony, edits, routes.create.length + 1);
+      const changes = [...routeEditCommands(routes.remove.map(route => route.routeID), []),
+        ...extractorCommands, ...routeEditCommands([], routes.create)];
       pilot();
       await changeColonyNetwork(bridgeDo, planetID, changes);
       // A successful write remains successful if its follow-up read fails.
@@ -28322,7 +28345,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       await loadPlanets().catch(() => {});
       throw cause;
     } finally {
-      extractorSubmissions.delete(planetID);
+      planetSubmissions.delete(planetID);
     }
   }
 
@@ -37626,7 +37649,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadPlanets,
     readPlanetSurvey,
     readExtractorYield,
-    submitExtractorEdits,
+    readPlanetRouteFacts,
+    submitPlanetEdits,
     quoteColonyTemplate,
     readColonyTemplateRules,
     readColonyTemplateForExport,

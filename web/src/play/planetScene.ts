@@ -62,6 +62,15 @@ function releaseGeometry(group: THREE.Object3D): void {
   group.clear();
 }
 
+function surfaceArc(a: THREE.Vector3, b: THREE.Vector3, radius: number, color: number): THREE.Line {
+  const rotation = new THREE.Quaternion().setFromUnitVectors(a, b);
+  const steps = Math.max(8, Math.ceil(a.angleTo(b) * 32));
+  const points = Array.from({ length: steps + 1 }, (_, index) => a.clone()
+    .applyQuaternion(new THREE.Quaternion().slerp(rotation, index / steps)).multiplyScalar(radius));
+  return new THREE.Line(new THREE.BufferGeometry().setFromPoints(points),
+    new THREE.LineBasicMaterial({ color, transparent: true, opacity: .95 }));
+}
+
 /** Secondary scene for colony inspection and survey placement in Planet Mode. */
 export class PlanetScene {
   private readonly renderer: THREE.WebGLRenderer;
@@ -70,6 +79,7 @@ export class PlanetScene {
   private readonly controls: OrbitControls;
   private readonly sun = new THREE.DirectionalLight(0xffffff, 2.7);
   private readonly links = new THREE.Group();
+  private readonly route = new THREE.Group();
   private readonly extraction = new THREE.Group();
   private readonly headPoints = new Map<number, THREE.Vector3>();
   private readonly ray = new THREE.Raycaster();
@@ -106,7 +116,7 @@ export class PlanetScene {
     this.controls.update();
     this.controls.addEventListener("change", this.draw);
     this.scene.background = new THREE.Color(0x071018);
-    this.scene.add(this.links, this.extraction, this.sun, new THREE.AmbientLight(0x566782, 0.55));
+    this.scene.add(this.links, this.route, this.extraction, this.sun, new THREE.AmbientLight(0x566782, 0.55));
     this.host.appendChild(this.renderer.domElement);
     this.resize = new ResizeObserver(this.size);
     this.resize.observe(this.host);
@@ -152,18 +162,21 @@ export class PlanetScene {
     for (const link of colony.links) {
       const a = this.points.get(link.endpoint1), b = this.points.get(link.endpoint2);
       if (!a || !b) continue;
-      const rotation = new THREE.Quaternion().setFromUnitVectors(a, b);
-      const steps = Math.max(8, Math.ceil(a.angleTo(b) * 32));
-      const points = [];
-      for (let i = 0; i <= steps; i++) {
-        points.push(a.clone().applyQuaternion(new THREE.Quaternion().slerp(rotation, i / steps)).multiplyScalar(1.004));
-      }
-      const line = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(points),
-        new THREE.LineBasicMaterial({ color: link.level > 0 ? 0x9bdcea : 0x62a8b9, transparent: true, opacity: 0.95 }),
-      );
+      const line = surfaceArc(a, b, 1.004, link.level > 0 ? 0x9bdcea : 0x62a8b9);
       line.renderOrder = 3;
       this.links.add(line);
+    }
+    this.draw();
+  }
+
+  setRoutePath(path: readonly number[], preview: boolean): void {
+    releaseGeometry(this.route);
+    for (let index = 1; index < path.length; index++) {
+      const from = this.points.get(path[index - 1]!), to = this.points.get(path[index]!);
+      if (!from || !to) continue;
+      const line = surfaceArc(from, to, 1.014, preview ? 0x9df5a4 : 0xffd287);
+      line.renderOrder = 5;
+      this.route.add(line);
     }
     this.draw();
   }
@@ -301,6 +314,7 @@ export class PlanetScene {
     this.controls.dispose();
     this.surveyLayer?.dispose();
     releaseGeometry(this.links);
+    releaseGeometry(this.route);
     releaseGeometry(this.extraction);
     if (this.model) releaseGeometry(this.model);
     this.nebula?.dispose();

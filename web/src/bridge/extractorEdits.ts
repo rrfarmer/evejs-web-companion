@@ -38,10 +38,10 @@ export function extractorHeadCommands(pinID: number, before: readonly ExtractorH
 }
 
 /** The server owns the quote and validates the whole command stream as one colony update. */
-export async function planExtractorEdits(ask: Ask, colony: Colony, edits: readonly ExtractorEdit[]): Promise<JsonValue[]> {
+export async function planExtractorEdits(ask: Ask, colony: Colony, edits: readonly ExtractorEdit[], firstRouteID = 1): Promise<JsonValue[]> {
   const changes: JsonValue[] = [];
   const seen = new Set<number>();
-  let nextRouteID = 1;
+  let nextRouteID = firstRouteID;
   for (const edit of edits) {
     const pin = colony.pins.find(candidate => candidate.pinID === edit.pinID && candidate.kind === "extractor-control");
     const previous = pin?.extractor?.heads;

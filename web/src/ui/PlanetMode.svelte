@@ -3,13 +3,16 @@
   import { errorWords, type AppFlow } from "../app/flow.ts";
   import { EXTRACTOR_COOLDOWN_MS, extractorBasis, extractorHeadCommands, type ExtractorEdit } from "../bridge/extractorEdits.ts";
   import { MAX_HEAD_RADIUS, MIN_HEAD_RADIUS } from "../bridge/extractorSurvey.ts";
+  import { appendPlanetWaypoint, pinDesignator, previewPlanetRoute } from "../bridge/planetRouting.ts";
+  import type { NewRoute } from "../bridge/planetWrites.ts";
   import { serverNow } from "../bridge/planets.ts";
   import { PlanetScene, type ExtractorMarkerPosition, type PlanetMarkerPosition } from "../play/planetScene.ts";
   import type { ClientStore } from "../store/clientStore.ts";
-  import type { Colony, ColonyPin, ExtractorHead } from "../store/types.ts";
+  import type { Colony, ColonyPin, ColonyRoute, ExtractorHead } from "../store/types.ts";
   import ColonyTemplate from "./ColonyTemplate.svelte";
   import ExtractorSurvey from "./ExtractorSurvey.svelte";
   import PlanetSurvey from "./PlanetSurvey.svelte";
+  import PlanetRouting from "./PlanetRouting.svelte";
   import TypeIcon from "./TypeIcon.svelte";
 
   let { colony, store, flow, onClose }: { colony: Colony; store: ClientStore; flow: AppFlow; onClose: () => void } = $props();
@@ -29,17 +32,33 @@
   let basis = "";
   let dragging = $state.raw<{ pointer: number; head: ExtractorHead } | null>(null);
   let edits = $state.raw(new Map<number, ExtractorEdit>());
+  let newRoutes = $state.raw<readonly NewRoute[]>([]);
+  let removedRoutes = $state.raw<readonly ColonyRoute[]>([]);
+  let routePath = $state.raw<readonly number[]>([]);
+  let highlight = $state.raw<readonly number[]>([]);
+  let hoveredWaypoint = $state<number | null>(null);
+  let waypointError = $state("");
+  let routePanel: { stageRoute: () => void } | undefined = $state();
   let submitting = $state(false);
   let submitError = $state("");
   let browserNow = $state(Date.now());
   let ready = $state(false);
   let error = $state("");
+  const routing = $derived(routePath.length > 0);
+  const pending = $derived(edits.size + newRoutes.length + removedRoutes.length > 0);
+  const removedIDs = $derived(new Set(removedRoutes.map(route => route.routeID)));
+  const routeRows = $derived([...colony.routes, ...newRoutes.map((route, index) => previewPlanetRoute(colony, route, index, $planets.recipes))]);
+  const routeView = $derived({ ...colony, routes: routeRows.filter(route => !removedIDs.has(route.routeID)
+    && edits.get(route.path[0]!)?.resourceID !== null) });
+  const displayPath = $derived(routing
+    ? (hoveredWaypoint === null ? routePath : appendPlanetWaypoint(colony, routePath, hoveredWaypoint) ?? routePath)
+    : highlight);
   const centre = $derived(colony.pins.find(pin => pin.kind === "command" && pin.latitude != null && pin.longitude != null));
   const pinsByID = $derived(new Map(colony.pins.map(pin => [pin.pinID, pin])));
   const selected = $derived(selectedID === null ? undefined : pinsByID.get(selectedID));
   const selectedEdit = $derived(selectedID === null ? undefined : edits.get(selectedID));
   const pendingResource = $derived(colony.resources?.find(resource => resource.typeID === selectedEdit?.resourceID)?.typeName);
-  const removedOutputs = $derived(colony.routes.filter(route => edits.get(route.path[0]!)?.resourceID === null).length);
+  const removedOutputs = $derived(colony.routes.filter(route => !removedIDs.has(route.routeID) && edits.get(route.path[0]!)?.resourceID === null).length);
   const unit = $derived(extractorID === null ? null : pinsByID.get(extractorID) ?? null);
   const area = $derived(unit?.extractor?.areaOfInfluence ?? null);
   const edit = $derived(extractorID === null ? undefined : edits.get(extractorID));
@@ -55,6 +74,8 @@
     : workingUnit ? edits.get(workingUnit.pinID)?.radius ?? MIN_HEAD_RADIUS : MIN_HEAD_RADIUS);
 
   function select(pin: ColonyPin, moveCamera = false): void {
+    if (routing) { addWaypoint(pin.pinID); return; }
+    highlight = [];
     if (extractorID !== null && extractorID !== pin.pinID) closeExtractor();
     selectedID = pin.pinID;
     if (moveCamera) scene?.focus(pin);
@@ -63,6 +84,7 @@
   function openExtractor(pin: ColonyPin): void {
     if (pin.kind !== "extractor-control" || !ready || submitting || extractorID === pin.pinID) return;
     selectedID = pin.pinID;
+    closeRoute();
     surveyShown = templateShown = false;
     extractorID = pin.pinID;
     const staged = edits.get(pin.pinID);
@@ -71,6 +93,48 @@
     const storedRadius = staged?.radius ?? pin.extractor?.headRadius ?? pin.program?.headRadius ?? MIN_HEAD_RADIUS;
     radius = Math.max(MIN_HEAD_RADIUS, Math.min(MAX_HEAD_RADIUS, storedRadius));
     scene?.focus(pin);
+  }
+
+  function closeRoute(): void {
+    routePath = [];
+    highlight = [];
+    hoveredWaypoint = null;
+    waypointError = "";
+  }
+
+  function startRoute(): void {
+    if (!selected || selectedEdit?.resourceID !== undefined || submitting) return;
+    closeExtractor();
+    closeRoute();
+    routePath = [selected.pinID];
+  }
+
+  function addWaypoint(id: number): void {
+    if (!routing || submitting) return;
+    hoveredWaypoint = null;
+    const path = appendPlanetWaypoint(colony, routePath, id);
+    waypointError = path ? "" : "There is no linked path to that installation.";
+    if (path) routePath = path;
+  }
+
+  function stageRoute(route: NewRoute): void {
+    if (submitting) return;
+    newRoutes = [...newRoutes, route];
+    submitError = "";
+    closeRoute();
+    highlight = route.path;
+  }
+
+  function toggleRouteRemoval(route: ColonyRoute): void {
+    if (submitting) return;
+    if (route.routeID < 0) {
+      newRoutes = newRoutes.filter((_, index) => index !== -route.routeID - 1);
+      highlight = [];
+    } else {
+      removedRoutes = removedIDs.has(route.routeID) ? removedRoutes.filter(item => item.routeID !== route.routeID)
+        : [...removedRoutes, route];
+    }
+    submitError = "";
   }
 
   function closeExtractor(): void {
@@ -108,22 +172,34 @@
   function cancelEdits(): void {
     if (submitting) return;
     closeExtractor();
+    closeRoute();
     edits = new Map();
+    newRoutes = [];
+    removedRoutes = [];
     submitError = "";
   }
 
   export function canLeave(): boolean {
-    return !submitting && (!edits.size || window.confirm("Discard pending colony changes?"));
+    return !submitting && (!pending || window.confirm("Discard pending colony changes?"));
+  }
+
+  export function escapeCanLeave(): boolean {
+    if (!routing) return canLeave();
+    closeRoute();
+    return false;
   }
 
   async function submitEdits(): Promise<void> {
-    if (submitting || dragging || !edits.size) return;
+    if (submitting || dragging || !pending) return;
     submitting = true;
     submitError = "";
     try {
-      await flow.submitExtractorEdits(colony.planetID, [...edits.values()]);
+      await flow.submitPlanetEdits(colony.planetID, [...edits.values()], { create: newRoutes, remove: removedRoutes });
       closeExtractor();
+      closeRoute();
       edits = new Map();
+      newRoutes = [];
+      removedRoutes = [];
     } catch (cause) {
       submitError = errorWords(cause);
     } finally {
@@ -186,6 +262,7 @@
   });
 
   $effect(() => { scene?.setColony(colony); });
+  $effect(() => { colony; scene?.setRoutePath(displayPath, routing); });
   $effect(() => { scene?.setExtractor(workingUnit, displayedHeads, displayedRadius, workingUnit?.extractor?.areaOfInfluence ?? null); });
   $effect(() => {
     if (!running) return;
@@ -202,9 +279,13 @@
       {@const pin = pinsByID.get(position.pinID)}
       {#if pin}
         <button type="button" class="installation-marker {pin.kind}" class:chosen={pin.pinID === selectedID}
+          class:waypoint={routePath.includes(pin.pinID)} data-pin-id={pin.pinID}
           style:left={`${position.x}%`} style:top={`${position.y}%`}
-          aria-label={pin.typeName} aria-pressed={pin.pinID === selectedID} title={pin.typeName}
-          onclick={() => select(pin)} ondblclick={() => openExtractor(pin)}></button>
+          aria-label={pin.typeName} aria-pressed={pin.pinID === selectedID} title={`${pin.typeName} · ${pinDesignator(pin.pinID)}`}
+          onclick={() => select(pin)}
+          ondblclick={() => { if (routing) routePanel?.stageRoute(); else openExtractor(pin); }}
+          onmouseenter={() => { if (routing) hoveredWaypoint = pin.pinID; }}
+          onmouseleave={() => { if (routing) hoveredWaypoint = null; }}></button>
       {/if}
     {/each}
     {#each headPositions as position (position.id)}
@@ -222,8 +303,8 @@
     </div>
     <div class="planet-actions">
       <button type="button" disabled={!ready || !centre} onclick={() => scene?.focus(centre)}>Focus Command Center</button>
-      <button type="button" aria-expanded={surveyShown} onclick={() => { closeExtractor(); surveyShown = !surveyShown; templateShown = false; }}>Scan</button>
-      <button type="button" aria-expanded={templateShown} disabled={edits.size > 0} onclick={() => { closeExtractor(); templateShown = !templateShown; surveyShown = false; }}>Templates</button>
+      <button type="button" aria-expanded={surveyShown} onclick={() => { closeExtractor(); closeRoute(); surveyShown = !surveyShown; templateShown = false; }}>Scan</button>
+      <button type="button" aria-expanded={templateShown} disabled={pending} onclick={() => { closeExtractor(); closeRoute(); templateShown = !templateShown; surveyShown = false; }}>Templates</button>
       <button type="button" bind:this={closeButton} disabled={submitting} onclick={() => { if (canLeave()) onClose(); }}>Exit Planet Mode</button>
     </div>
   </header>
@@ -232,10 +313,13 @@
   {:else if !ready}
     <p class="planet-message" role="status">Loading planet surface…</p>
   {/if}
-  {#if edits.size}
+  {#if pending}
     <section class="planet-edit-bar" aria-label="Colony edits">
       <div class="planet-actions">
-        <span aria-live="polite">{edits.size} {edits.size === 1 ? "extractor" : "extractors"} with pending changes</span>
+        <span aria-live="polite">
+          {#if edits.size}{edits.size} {edits.size === 1 ? "extractor" : "extractors"} with pending changes{/if}
+          {#if newRoutes.length + removedRoutes.length}{edits.size ? " · " : ""}{newRoutes.length + removedRoutes.length} pending route changes{/if}
+        </span>
         <button type="button" disabled={submitting || dragging !== null} onclick={() => void submitEdits()}>{submitting ? "Submitting…" : "Submit"}</button>
         <button type="button" disabled={submitting} onclick={cancelEdits}>Cancel</button>
       </div>
@@ -273,7 +357,7 @@
         <div class="installation-heading">
           <TypeIcon typeID={selected.typeID} name={selected.typeName} />
           <strong>{selected.typeName}</strong>
-          <button type="button" aria-label="Close installation details" onclick={() => { selectedID = null; }}>×</button>
+          <button type="button" aria-label="Close installation details" onclick={() => { closeRoute(); selectedID = null; }}>×</button>
         </div>
         {#if selected.schematicName}<p>Recipe <strong>{selected.schematicName}</strong></p>{/if}
         {#if selected.kind === "command"}<p>Command centre level <strong>{colony.commandCenterLevel}</strong></p>{/if}
@@ -292,6 +376,12 @@
         {/if}
         <p>{colony.links.filter(link => link.endpoint1 === selected.pinID || link.endpoint2 === selected.pinID).length} links ·
           {colony.routes.filter(route => route.path.includes(selected.pinID)).length} routes</p>
+        {#key selected.pinID}
+          <PlanetRouting bind:this={routePanel} pin={selected} colony={routeView} recipes={$planets.recipes} {flow}
+            routes={routeRows} removing={removedIDs} path={routePath} {routing} {waypointError} disabled={submitting}
+            sourceChanging={selectedEdit?.resourceID !== undefined} start={startRoute} {addWaypoint} close={closeRoute}
+            highlight={(value) => { highlight = value; }} stage={stageRoute} toggleRemoval={toggleRouteRemoval} />
+        {/key}
       {/if}
       <details>
         <summary>Installations ({colony.pins.length})</summary>
@@ -318,6 +408,7 @@
   .installation-marker.command { color: #ffd38a; }
   .installation-marker.factory { color: #ffae76; }
   .installation-marker.extractor-control { color: #b2e7a8; }
+  .installation-marker.waypoint { color: #a9ffac; outline: 2px solid currentColor; outline-offset: 2px; }
   .installation-marker:hover, .installation-marker:focus-visible, .installation-marker.chosen { z-index: 1; outline: 2px solid currentColor; outline-offset: 2px; }
   button.extraction-head { position: absolute; transform: translate(-50%, -50%); pointer-events: auto; z-index: 2;
     touch-action: none; padding: 0; width: 19px; height: 19px; border: 1px solid #f0d088; border-radius: 50%;
@@ -338,7 +429,7 @@
   .planet-message { bottom: 18px; left: 50%; transform: translateX(-50%); }
   .planet-edit-bar { bottom: 16px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); z-index: 3; }
   .planet-edit-bar [role=alert] { color: #ffca83; margin-top: .35rem; max-width: 36rem; }
-  .planet-overview { bottom: 16px; right: 16px; width: min(272px, calc(100% - 32px)); max-height: 55%; overflow: auto; display: grid; gap: 8px; }
+  .planet-overview { bottom: 16px; right: 16px; width: min(310px, calc(100% - 32px)); max-height: calc(100% - 144px); overflow: auto; display: grid; gap: 8px; }
   .installation-heading strong { flex: 1; }
   .installation-heading button { margin-inline-start: auto; }
   .planet-overview ul { padding: 0; margin: 8px 0 0; list-style: none; display: grid; gap: 4px; }
