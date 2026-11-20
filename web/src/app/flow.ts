@@ -213,6 +213,7 @@ import {
   type ContractSearchEntry,
 } from "../bridge/contracts.ts";
 import { decodeAssetItems, decodeAssetSearchItems } from "../bridge/personalAssets.ts";
+import { ACADEMY_TYPE_LIST_ID, canRepackageAssetType, insuredAssetShips, repackagePersonalHangar, warnsAboutContainerContents } from "../bridge/assetRepackage.ts";
 import {
   ASSET_SEARCH_KEYWORDS,
   ASSET_SEARCH_OPTION_LABELS,
@@ -2605,6 +2606,8 @@ export interface AppFlow {
   placeMarketOrder(request: MarketOrderRequest): Promise<void>;
   readonly assetSaleAsked: ReadableSignal<AssetSaleAsk | null>;
   openAssetSale(items: readonly AssetSaleSelection[]): Promise<void>;
+  repackageAssets(items: readonly AssetSaleSelection[]): Promise<void>;
+  repackableAssetTypes(typeIDs: readonly number[]): Promise<ReadonlySet<number>>;
   answerAssetSale(n: number, order: { readonly rows: readonly AssetSaleOrder[]; readonly durationDays: number } | null): Promise<void>;
   /** CANCEL an order. Returns what it held; the fee already paid is not. */
   cancelMarketOrder(orderID: string): Promise<void>;
@@ -11227,17 +11230,146 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   const assetSaleAskedSignal = createSignal<AssetSaleAsk | null>(null);
   let assetSaleRevision = 0;
-  async function assetSaleRows(stationID: number, requested: readonly AssetSaleSelection[]) {
-    await loadAssetStation(stationID);
-    const contents = store.assets.get().contents[stationID];
-    if (!contents || contents.error) throw new Error("Items at this location could not be read.");
+  async function directAssetRows(stationID: number, requested: readonly AssetSaleSelection[]) {
+    const read = await readAssetStationItems(bridgeAsk, stationID);
     const activeShip = store.flight.get().status?.shipID ?? store.inventory.get().activeShipID;
-    const byID = new Map(contents.items.map(item => [item.itemID, item]));
-    return requested.flatMap(row => {
-      const item = byID.get(row.itemID);
-      return item && item.typeID === row.typeID && item.locationID === stationID && item.flagID === 4 &&
-        !item.singleton && item.units > 0 && item.itemID !== activeShip ? [{ ...row, units: item.units }] : [];
+    const byID = new Map(decodeAssetItems(read.listed).map(item => [item.itemID, item]));
+    return requested.flatMap(selection => {
+      const item = byID.get(selection.itemID);
+      return item && item.typeID === selection.typeID && item.locationID === stationID && item.flagID === 4 &&
+        item.itemID !== activeShip ? [{ selection, item }] : [];
     });
+  }
+
+  function packagedAssetRows(stock: Awaited<ReturnType<typeof directAssetRows>>) {
+    return stock.flatMap(({ selection, item }) =>
+      !item.singleton && item.units > 0 ? [{ ...selection, units: item.units }] : []);
+  }
+
+  async function assetSaleRows(stationID: number, requested: readonly AssetSaleSelection[]) {
+    if (requested.length === 0) return [];
+    return packagedAssetRows(await directAssetRows(stationID, requested));
+  }
+
+  async function repackableAssetTypes(typeIDs: readonly number[]): Promise<ReadonlySet<number>> {
+    const types = (await comparisonTypes(typeIDs))?.types;
+    const candidates = typeIDs.filter(typeID => {
+      const type = types?.get(typeID);
+      return type && canRepackageAssetType(typeID, type.categoryID, type.groupID, type.dynamic);
+    });
+    const eligible = new Set<number>();
+    for (let start = 0; start < candidates.length; start += 32) {
+      const ids = candidates.slice(start, start + 32);
+      const academy = await api.loadTypeListsHolding(ids, [ACADEMY_TYPE_LIST_ID], callOptions);
+      for (const id of ids) if (!academy[id]?.includes(ACADEMY_TYPE_LIST_ID)) eligible.add(id);
+    }
+    return eligible;
+  }
+
+  let repackagingAssetGeneration: number | null = null;
+  async function repackageAssets(requested: readonly AssetSaleSelection[]): Promise<void> {
+    const stationID = requested[0]?.stationID;
+    const generation = requestGeneration;
+    if (repackagingAssetGeneration === generation || stationID === undefined || dockedNow() !== stationID ||
+        requested.some(row => row.stationID !== stationID)) return;
+    const current = callOptions.captureRequestGuard!();
+    const pilotID = store.station.get().online?.characterID;
+    if (pilotID == null) return;
+    const selected = new Map(requested.slice(0, 100).map(row => [row.itemID, row.typeID]));
+    async function localRows() {
+      current();
+      await loadInventory();
+      current();
+      const inventory = store.inventory.get();
+      if (dockedNow() !== stationID || (inventory.structureID ?? inventory.stationID) !== stationID) return [];
+      return inventory.hangar.rows.filter(row => selected.get(row.itemID) === row.typeID && row.ownerID === pilotID &&
+        row.locationID === stationID && row.flagID === 4 && row.singleton && row.itemID !== inventory.activeShipID);
+    }
+    repackagingAssetGeneration = generation;
+    try {
+      const rows = await localRows();
+      const candidates = rows.filter(row => canRepackageAssetType(row.typeID, row.categoryID, row.groupID, false));
+      const typeIDs = [...new Set(candidates.map(row => row.typeID))];
+      if (typeIDs.length === 0) return;
+      const types = await repackableAssetTypes(typeIDs);
+      const eligible = candidates.filter(row => types.has(row.typeID));
+      current();
+      if (eligible.length === 0 || dockedNow() !== stationID ||
+          !await askDialog("ConfirmRepackageItem", null, "Repackage the selected items? Fitted equipment will be removed.")) return;
+      current();
+      if (dockedNow() !== stationID) return;
+
+      // The shop's rows let us check the item itself even when it is outside the active ship's dogma state.
+      const [contracts, quotes] = await Promise.all([
+        eligible.some(row => row.categoryID === 6) ? insuredAssetShips(bridgeAsk) : new Set<number>(),
+        quoteRepairs(bridgeAsk, eligible.map(row => row.itemID)).catch(error => {
+          throwIfRequestRetired(error);
+          return [];
+        }),
+      ]);
+      let insuranceAccepted = false;
+      let containedItems = false;
+      const approved = new Set<number>();
+      for (const row of eligible) {
+        current();
+        if (dockedNow() !== stationID) return;
+        if (quotes.some(quote => quote.parts.some(part => part.itemID === row.itemID))) {
+          sayDialog("CantRepackageDamagedItem", null, "Damaged items must be repaired before they can be repackaged.");
+          continue;
+        }
+        if (contracts.has(row.itemID) && !insuranceAccepted) {
+          insuranceAccepted = await askDialog("RepairUnassembleVoidsContract", null, "Repackaging this ship will void its insurance. Continue?");
+          if (!insuranceAccepted) continue;
+        }
+        if (warnsAboutContainerContents(row.groupID)) {
+          const contents = decodeInventoryRowsChecked(await bridgeAsk("invbroker", "List", [], null, row.itemID));
+          if (contents === null) throw new Error("The container's contents could not be read.");
+          if (contents.length > 0) {
+            containedItems = true;
+            continue;
+          }
+        }
+        approved.add(row.itemID);
+      }
+      if (containedItems) {
+        sayDialog("CustomNotify", { type: "dict", entries: [["notify", "Empty the selected containers before repackaging them."]] },
+          "Empty the selected containers before repackaging them.");
+      }
+      const pending = (await localRows()).filter(row => approved.has(row.itemID)).map(row => row.itemID);
+      if (pending.length === 0) return;
+      const attempted = new Set(pending);
+      try {
+        await repackagePersonalHangar(bridgeDo, stationID, pending);
+      } catch (error) {
+        const refusal = refusalDialogOf(error);
+        const multiple = refusal?.dialog === "ConfirmRepackageMultipleItemsWithUpgrades";
+        if (refusal === null || (!multiple && refusal.dialog !== "ConfirmRepackageSomethingWithUpgrades")) {
+          if (!sayRefusalDialog(error, errorWords(error))) throw error;
+          return;
+        }
+        const failed = multiple ? readDictEntry(refusal.values, "itemIDs") : pending;
+        const failedIDs = new Set((isListValue(failed) ? failed.items : Array.isArray(failed) ? failed : [])
+          .map(itemID => Number(unwrapLong(itemID))));
+        for (const id of failedIDs) attempted.delete(id);
+        current();
+        if (failedIDs.size > 0 && dockedNow() === stationID && await askDialog(refusal.dialog, refusal.values,
+          "Repackaging the selected ships will destroy fitted rigs. Continue?", "yesno", { defaultAnswer: "no", suppressAnswer: "yes" })) {
+          const retry = (await localRows()).filter(row => approved.has(row.itemID) && failedIDs.has(row.itemID)).map(row => row.itemID);
+          if (retry.length > 0) {
+            for (const id of retry) attempted.add(id);
+            await repackagePersonalHangar(bridgeDo, stationID, retry, true);
+          }
+        }
+      } finally {
+        current();
+        allAssetsKept = null;
+        await Promise.all([loadAssetStation(stationID), refreshOpenPlaces()]);
+      }
+      const packaged = await assetSaleRows(stationID, requested.filter(row => attempted.has(row.itemID)));
+      if (packaged.length < attempted.size) throw new Error("Some selected items could not be repackaged. Check their condition and contents.");
+    } finally {
+      if (repackagingAssetGeneration === generation) repackagingAssetGeneration = null;
+    }
   }
 
   /** SellItems.AddPreItems checks the location of the whole selection before quoting its stacks. */
@@ -11249,7 +11381,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         "Items in different locations cannot be added to the same sale.");
       return;
     }
-    if (assetSaleAskedSignal.get()?.busy) return;
+    if (assetSaleAskedSignal.get()?.busy || repackagingAssetGeneration === requestGeneration) return;
     const open = assetSaleAskedSignal.get();
     if (open && open.stationID !== stationID) {
       sayDialog("CustomNotify", { type: "dict", entries: [["notify", "The Sell Items window already holds items at another location."]] },
@@ -11259,10 +11391,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const n = ++assetSaleRevision;
     const current = callOptions.captureRequestGuard!();
     const unique = [...new Map([...(open?.rows ?? []), ...items].map(row => [row.itemID, row])).values()].slice(0, 100);
-    const rows = await assetSaleRows(stationID, unique);
-    const ids = [...new Set(rows.map(row => row.typeID))];
+    const stock = await directAssetRows(stationID, unique);
+    const ids = [...new Set(stock.map(row => row.item.typeID))];
     const facts = await typeFacts(ids);
-    const marketable = rows.filter(row => (facts?.get(row.typeID)?.marketGroupID ?? null) !== null);
+    const marketStock = stock.filter(row => (facts?.get(row.item.typeID)?.marketGroupID ?? null) !== null);
+    const assembled = stationID === dockedNow()
+      ? marketStock.filter(row => row.item.singleton).map(row => row.selection) : [];
+    if (assembled.length > 0) await repackageAssets(assembled);
+    current();
+    if (n !== assetSaleRevision) return;
+    const marketable = assembled.length > 0
+      ? await assetSaleRows(stationID, marketStock.map(row => row.selection))
+      : packagedAssetRows(marketStock);
+    if (assembled.length > 0 && marketable.length === 0) return;
     const solarSystemID = store.assets.get().stations.find(row => row.stationID === stationID)?.solarSystemID;
     const hereSystem = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID;
     const region = solarSystemID === undefined ? null :
@@ -36168,6 +36309,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadMarket,
     assetSaleAsked: readonlySignal(assetSaleAskedSignal),
     openAssetSale,
+    repackageAssets,
+    repackableAssetTypes,
     answerAssetSale,
     watchMarketProgression,
     findMarketTypes: (q: string, categoryID?: number) => api.findMarketTypes(q, callOptions, categoryID),

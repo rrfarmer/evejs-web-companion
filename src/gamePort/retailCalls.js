@@ -47,6 +47,7 @@
 
 const { isDeepStrictEqual } = require("node:util");
 const { constructorKeywordOrder, dictOrder, orderEntries } = require("./py27");
+const { personalRepackageLocation } = require("../bridgeCallPolicy");
 const { NO_OPTIONAL_MATERIAL } = require("../../web/src/bridge/industryReckonings.mjs");
 
 /** A Python list, from a JS array (which would go out as a tuple) or from one already wrapped. */
@@ -667,6 +668,7 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
  * (importExportUI.py 549), and the gateway never had it.
  */
 const GAME_PORT_ONLY_CALLS = Object.freeze([
+  "repackagingSvc.RepackageItems",
   "structureControl.TakeControl", "structureControl.ReleaseControl",
   "structureControl.BoardStructure", "structureControl.EjectFromStructure", "structureCargoDelivery.DropOffItems",
   "structureSettings.CharacterHasSetting",
@@ -3291,6 +3293,12 @@ const RETAIL_CALLS = Object.freeze({
     "fittingSvc.DoFitManyShips: GetShipAccess().FitShips(shipTypeID=, fitInfo=, itemLocationID=session.stationid or session.structureid, cargoItemsByType=, fitRigs=, name=, numToFit=, itemContainerID=), from the multifit window's Fit (multiFitWnd.DoFitShips, 363 to 405): every argument a keyword; the fitting the util.KeyVal of six dicts its Fitting makes (shipfitting/fitting.py 119), the cargo a dict of the rigs by type where rigs are not fitted, the name the window's edit's (unicode) or the fitting's, the container the equipment's place or None for the item hangar. Answered None, or (failedToLoad, failedShipID). In no recording.",
   ),
   "ship.Board": same("eve/client/script/ui/services/menuSvcExtras/menuFunctions.py:209", "GetShipAccess().Board(shipID, session.shipid or session.stationid), through sessionMgr.PerformSessionChange('board', ...). Recorded on Tranquility in space as (shipID, the ship left), the bind carrying it."),
+  "repackagingSvc.RepackageItems": judged(
+    "eve/client/script/ui/services/menuSvcExtras/invItemFunctions.py:544",
+    (args, kwargs) => personalRepackageLocation(args, Object.keys(kwargs).length === 0 ? null : kwargs) !== null
+      ? {} : { status: "differs", note: "Expected the docked location's list of item and location tuples." },
+    "A dictionary keyed by station. Each value is a list of (itemID, locationID) tuples. destroyable=True is sent after confirming rig destruction.",
+  ),
   "repairSvc.GetRepairQuotes": reshaped("eve/client/script/ui/station/repairshop/base_repairshop.py:63", quotingRepairs, "GetRemoteRepairMgr().GetRepairQuotes(itemIDs): the items as a list, on a Moniker of repairSvc made for the one call (45 to 60). In no recording."),
   "repairSvc.RepairItemsInStation": reshaped("eve/client/script/ui/station/repairshop/base_repairshop.py:67", repairingInAStation, "GetRemoteRepairMgr().RepairItemsInStation(itemIDs, payment), docked in a station: the items as a list and the payment a float, the amount the shop's window worked out (300 to 327). In no recording."),
   "repairSvc.RepairItemsInStructure": reshaped("eve/client/script/ui/station/repairshop/base_repairshop.py:69", repairingInAStructure, "GetRemoteRepairMgr().RepairItemsInStructure(itemIDs), docked in a structure, with nothing paid. In no recording."),

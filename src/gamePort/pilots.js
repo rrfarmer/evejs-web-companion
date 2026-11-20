@@ -79,7 +79,7 @@ const { createPilotStation } = require("./pilotStation");
 const { createPilotStructureGuests } = require("./pilotStructureGuests");
 const { CLIENT_STATE_NOTICES, statesAfter } = require("./crimewatchStates");
 const { GOOD_FOR_MS: WARS_GOOD_FOR_MS, createPilotWars } = require("./pilotWars");
-const { isBridgeWritePair } = require("../bridgeCallPolicy");
+const { isBridgeWritePair, personalRepackageLocation } = require("../bridgeCallPolicy");
 const { namedAfterCall, namedOnNotice, namedOnSessionChange } = require("./cachedCallsNamed");
 const { brokersFeeRate, brokersFeeRateInStructure } = require("./brokerFee");
 const { averagePrice, historyRows } = require("./priceHistory");
@@ -2713,6 +2713,12 @@ function createGamePortPilots({
       return { service, method, result: wireToBridgeJson(result ?? null), notifications: drain(entry) };
     }
     assertAllowed(service, method);
+    if (service === "repackagingSvc" && method === "RepackageItems") {
+      const where = personalRepackageLocation(args, kwargs);
+      if (where === null || where !== (attribute(entry, "structureid") ?? attribute(entry, "stationid"))) {
+        throw fail("CALL_INVALID", "The pilot must be docked at the selected hangar.");
+      }
+    }
     if (service === "sharedSettingsMgr") {
       // This page exposes only item-filter links (sharedSettings.SHARED_SETTING_ITEMS).
       const invalid = () => fail("CALL_INVALID", "Expected a shared item filter or its link key.");

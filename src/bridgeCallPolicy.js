@@ -105,6 +105,7 @@ const ORGANIZATION_ENLISTMENT_METHODS = Object.freeze([
   "WithdrawJoinFactionAsCorporation", "WithdrawJoinFactionAsAlliance", "WithdrawLeaveFactionAsCorporation", "WithdrawLeaveFactionAsAlliance",
 ]);
 const FEATURE_WRITE_METHODS = freezeMethodMap({
+  repackagingSvc: ["RepackageItems"],
   structureControl: ["TakeControl", "ReleaseControl", "BoardStructure", "EjectFromStructure"],
   structureCargoDelivery: ["DropOffItems"],
   moonExtractions: ["StartNewExtraction", "FractureChunkWithStructure", "CancelExtraction"],
@@ -925,6 +926,7 @@ function isBridgeWritePair(service, method) {
  *   charMgr.RemoveOwnerNote   RemoveOwnerNote(noteID): that note gone (a folder's notes deleted, a setting's spare part).
  */
 const PAGE_WRITE_PAIR_KEYS = Object.freeze([
+  "repackagingSvc.RepackageItems",
   "structureControl.TakeControl", "structureControl.ReleaseControl",
   "structureControl.BoardStructure", "structureControl.EjectFromStructure", "structureCargoDelivery.DropOffItems",
   "moonExtractions.StartNewExtraction", "moonExtractions.FractureChunkWithStructure", "moonExtractions.CancelExtraction",
@@ -960,6 +962,25 @@ for (const pair of PAGE_WRITE_PAIR_KEYS) {
 /** Whether the page makes this write itself, by the generic call. */
 function isPageWritePair(service, method) {
   return typeof service === "string" && typeof method === "string" && pageWritePairKeySet.has(`${service}.${method}`);
+}
+
+/** The Personal Assets window sends exact item IDs in one personal hangar. */
+function personalRepackageLocation(args, kwargs) {
+  if (!Array.isArray(args) || args.length !== 1 || args[0]?.type !== "dict" ||
+      !Array.isArray(args[0].entries) || args[0].entries.length !== 1 ||
+      (kwargs != null && (Object.keys(kwargs).length !== 1 || kwargs.destroyable !== true))) return null;
+  const entry = args[0].entries[0];
+  if (!Array.isArray(entry) || entry.length !== 2) return null;
+  const [locationID, list] = entry;
+  if (!Number.isSafeInteger(locationID) || locationID <= 0 || list?.type !== "list" ||
+      !Array.isArray(list.items) || list.items.length < 1 || list.items.length > 100) return null;
+  const ids = new Set();
+  for (const row of list.items) {
+    if (!Array.isArray(row) || row.length !== 2 || !Number.isSafeInteger(row[0]) ||
+        row[0] <= 0 || row[1] !== locationID || ids.has(row[0])) return null;
+    ids.add(row[0]);
+  }
+  return locationID;
 }
 
 /**
@@ -1370,6 +1391,7 @@ module.exports = {
   ordersAFollow,
   pageMayNameTheObject,
   pageNamesTheObject,
+  personalRepackageLocation,
   pickSafeBrowserSessionFields,
   placeChangeOf,
   swapsThePilotsShip,

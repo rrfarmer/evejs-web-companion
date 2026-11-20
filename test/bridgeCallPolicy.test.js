@@ -10,6 +10,8 @@ const {
   PLUMBING_SWEEP_WRITE_PAIR_KEYS,
   SAFE_BROWSER_SESSION_FIELDS,
   isBridgeWritePair,
+  isPageWritePair,
+  personalRepackageLocation,
   pickSafeBrowserSessionFields,
 } = require("../src/bridgeCallPolicy");
 
@@ -85,6 +87,19 @@ test("browser session projection retains only explicit language preferences", ()
   );
   assert.deepEqual(pickSafeBrowserSessionFields(null), {});
   assert.deepEqual(pickSafeBrowserSessionFields([]), {});
+});
+
+test("Personal Assets repackaging accepts only unique item tuples in one hangar", () => {
+  const stationID = 60003760;
+  const itemID = 9988400008296;
+  const args = rows => [{ type: "dict", entries: [[stationID, { type: "list", items: rows }]] }];
+  assert.equal(isBridgeWritePair("repackagingSvc", "RepackageItems"), true);
+  assert.equal(isPageWritePair("repackagingSvc", "RepackageItems"), true);
+  assert.equal(personalRepackageLocation(args([[itemID, stationID]]), null), stationID);
+  assert.equal(personalRepackageLocation(args([[itemID, stationID]]), { destroyable: true }), stationID);
+  assert.equal(personalRepackageLocation(args([[itemID, stationID + 1]]), null), null);
+  assert.equal(personalRepackageLocation(args([[itemID, stationID], [itemID, stationID]]), null), null);
+  assert.equal(personalRepackageLocation(args([[itemID, stationID]]), { destroyable: "true" }), null);
 });
 
 test("the writes the page makes itself are writes, each named once", () => {

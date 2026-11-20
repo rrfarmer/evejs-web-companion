@@ -731,8 +731,8 @@
     ]
   },
   "bffWritePolicy": {
-    "count": 487,
-    "sha256": "7450b1ad869cd721a244d4a5214836b7adc55c431e356f2ca8708a2e45138d46",
+    "count": 488,
+    "sha256": "fd3292019a6c3c4d9998157c08a389d0eabcfca291c7516f061e1f2fbc1450ca",
     "pairs": [
       "LPStoreMgr.TakeOfferForCharacter",
       "LPStoreMgr.TakeOfferForCorporation",
@@ -1137,6 +1137,7 @@
       "pvpFilamentMgr.AbyssalPVPEndGateActivation",
       "pvpFilamentMgr.JoinPVPQueue",
       "pvpFilamentMgr.LeavePVPQueue",
+      "repackagingSvc.RepackageItems",
       "repairSvc.RepairItems",
       "repairSvc.RepairItemsInStation",
       "repairSvc.RepairItemsInStructure",
@@ -1517,6 +1518,7 @@
       "planetMgr.DeleteLaunch",
       "planetMgr.UserLaunchCommodities",
       "planetMgr.UserUpdateNetwork",
+      "repackagingSvc.RepackageItems",
       "repairSvc.RepairItemsInStation",
       "repairSvc.RepairItemsInStructure",
       "reprocessingSvc.Reprocess",

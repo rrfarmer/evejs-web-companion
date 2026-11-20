@@ -113,6 +113,7 @@ const { colonyRowOf, planetIDsOf, resourceRecordOf } = require("./planetInfoColo
 const {
   isBridgeWritePair,
   isPageWritePair,
+  personalRepackageLocation,
   gatewaysNameFor,
   objectOfPageCall,
   ordersAFollow,
@@ -1217,6 +1218,11 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
           !coord.items.every(Number.isSafeInteger)))) {
       return res.status(400).json({ ok: false, error: "INVALID_HACKING_ACTION", message: "Choose a node or utility on the active hacking board." });
     }
+  }
+  if (body.service === "repackagingSvc" && body.method === "RepackageItems" &&
+      (body.of != null || personalRepackageLocation(body.args, body.kwargs) === null)) {
+    res.status(400).json({ ok: false, error: "INVALID_REPACKAGE_ITEMS", message: "Select items in a single personal hangar." });
+    return;
   }
   if (body.service === "seasonManager" && body.method === "select_season" &&
       (!Array.isArray(body.args) || body.args.length !== 1 || !Number.isSafeInteger(body.args[0]) || body.args[0] <= 0 || body.kwargs != null)) {

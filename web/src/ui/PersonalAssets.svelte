@@ -314,6 +314,7 @@
     assembleShip: ["UI/Inventory/ItemActions/AssembleShip", "Assemble Ship"],
     openContainer: ["UI/Inventory/ItemActions/OpenContainer", "Open Container"],
     assembleContainer: ["UI/Inventory/ItemActions/AssembleContainer", "Assemble Container"],
+    repackage: ["UI/Inventory/ItemActions/Repackage", "Repackage"],
   } as const;
   type ItemCommand = keyof typeof ITEM_WORDS;
   function itemWord(key: ItemCommand): string {
@@ -324,6 +325,7 @@
     readonly itemID: number;
     readonly stationID: number;
     readonly packagedHangar: boolean;
+    readonly assembledHangar: boolean;
   }
   interface AssetItemMenu {
     readonly rows: readonly MenuAsset[];
@@ -331,6 +333,7 @@
     readonly y: number;
     readonly types?: ReadonlyMap<number, TypeMetaFacts | null> | null;
     readonly comparison?: ReadonlyMap<number, ComparisonTypeData | null>;
+    readonly repackableTypes?: ReadonlySet<number>;
   }
   let itemMenu = $state.raw<AssetItemMenu | null>(null);
   let itemMenuElement: HTMLElement | undefined = $state();
@@ -339,6 +342,7 @@
     return {
       itemID: Number(element.dataset.assetItem), typeID: Number(element.dataset.assetType), stationID: Number(element.dataset.assetStation),
       packagedHangar: element.dataset.assetPackagedHangar === "true",
+      assembledHangar: element.dataset.assetAssembledHangar === "true",
     };
   }
 
@@ -365,8 +369,11 @@
     void Promise.all([
       flow.typeFacts(types).catch(() => null),
       flow.comparisonTypes(types).catch(() => null),
-    ]).then(([facts, comparison]) => {
-      if (itemMenu === menu) itemMenu = { ...menu, types: facts, comparison: comparison?.types };
+    ]).then(async ([facts, comparison]) => {
+      if (itemMenu !== menu) return;
+      const assembled = [...new Set(chosen.filter(row => row.assembledHangar && row.stationID === dockedAt).map(row => row.typeID))];
+      const repackableTypes = assembled.length > 0 ? await flow.repackableAssetTypes(assembled).catch(() => undefined) : undefined;
+      if (itemMenu === menu) itemMenu = { ...menu, types: facts, comparison: comparison?.types, repackableTypes };
     });
     if (chosen.length === 1 && chosen[0]!.stationID === dockedAt && !localAsset(chosen[0]!)) {
       void flow.loadInventory().catch(() => {});
@@ -402,11 +409,15 @@
 
   function itemCommands(menu: AssetItemMenu): { readonly key: ItemCommand; readonly run: () => void }[] {
     const actions: { key: ItemCommand; run: () => void }[] = [];
+    const activeShip = $flight.status?.shipID ?? $inventory.activeShipID;
+    const repackable = menu.rows.filter(row => row.assembledHangar && row.stationID === dockedAt &&
+      row.itemID !== activeShip && menu.repackableTypes?.has(row.typeID));
+    const repackableIDs = new Set(repackable.map(row => row.itemID));
     const marketRows = menu.rows.filter(row => (menu.types?.get(row.typeID)?.marketGroupID ?? null) !== null);
     const marketed = marketRows[0];
     if (marketed) {
       actions.push({ key: "market", run: () => showMarketDetails(marketed.typeID) });
-      if (marketRows.some(row => row.packagedHangar && row.itemID !== ($flight.status?.shipID ?? $inventory.activeShipID))) {
+      if (marketRows.some(row => row.itemID !== activeShip && (row.packagedHangar || repackableIDs.has(row.itemID)))) {
         actions.push({ key: menu.rows.length === 1 ? "sell" : "multiSell", run: () => void run(() => flow.openAssetSale(menu.rows)) });
       }
       actions.push({
@@ -419,6 +430,9 @@
     }
     if (menu.rows.some(row => isComparable(menu.comparison?.get(row.typeID) ?? null))) {
       actions.push({ key: "compare", run: () => typeCompareTarget.ask(menu.rows) });
+    }
+    if (repackable.length > 0) {
+      actions.push({ key: "repackage", run: () => void run(() => flow.repackageAssets(repackable)) });
     }
     if (menu.rows.length !== 1) return actions;
     const row = menu.rows[0]!;
@@ -669,6 +683,7 @@
     style:grid-template-columns={searchRow ? undefined : itemGrid}
     data-asset-item={item.itemID} data-asset-type={item.typeID} data-asset-station={stationID}
     data-asset-packaged-hangar={!singleton && item.locationID === stationID && item.flagID === 4 ? "true" : undefined}
+    data-asset-assembled-hangar={singleton && item.locationID === stationID && item.flagID === 4 ? "true" : undefined}
     data-asset-owned-ship={singleton && item.categoryID === 6 ? "true" : undefined}
     aria-pressed={selectedItems.has(item.itemID)} draggable="true"
     onclick={(event) => selectAssetItem(event, item.itemID)} ondragstart={(event) => dragAssetItem(event, item.itemID)}
