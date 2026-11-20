@@ -182,12 +182,12 @@ button { font: inherit; color: inherit; }
 /* OverviewWindow as the client draws it by default: tabs 14 px (white 0.9 chosen, 0.5 not) 24 apart, a 1 px line under the
    chosen one, a white 0.1 DividerLine; SortHeaders 24 high in 12 px white 0.5; entries 24 high in 14 px (EVE_MEDIUM_FONTSIZE),
    each column clipped at its width with LABELTABMARGIN 8; the chosen row in FOCUS_BLUE */
-.ov .ov-tabs { gap: 24px; height: 32px; padding: 0 16px; align-items: stretch; border-bottom: 1px solid rgba(255, 255, 255, 0.1); margin-top: -8px; }
+.ov .ov-tabs { gap: 24px; height: 32px; padding: 0 2px; align-items: stretch; border-bottom: 1px solid rgba(255, 255, 255, 0.1); margin-top: -8px; }
 .ov .ov-tab { display: flex; align-items: center; padding: 0; font-size: 14px; color: rgba(255, 255, 255, 0.5); border: 0; background: none;
   box-shadow: none; white-space: nowrap; }
 .ov .ov-tab:hover:not(.active) { color: rgba(255, 255, 255, 0.75); background: none; }
 .ov .ov-tab.active { color: rgba(255, 255, 255, 0.9); background: none; border: 0; box-shadow: inset 0 -1px 0 #fff; }
-.ov .ov-scroll { margin: 8px 16px 16px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.25) transparent; }
+.ov .ov-scroll { margin: 8px 0 0 2px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.25) transparent; }
 .ov .ov-table { table-layout: fixed; width: 522px; font-size: 14px; }
 .ov .ov-table th.ov-dist { text-align: left; }
 .ov .ov-table th { height: 24px; box-sizing: border-box; padding: 0 8px; font-size: 12px; color: rgba(255, 255, 255, 0.5); background: transparent;
@@ -200,6 +200,11 @@ button { font: inherit; color: inherit; }
 .ov .ov-table tbody tr:hover { background: rgba(255, 255, 255, 0.05); }
 .ov .ov-table tbody tr.sel { background: rgba(88, 167, 191, 0.18); }
 .ov .ov-table th.sorted { color: rgba(255, 255, 255, 0.75); }
+/* SortHeaders: the sorted column's caret_up / caret_down 16 px at its right edge */
+.ov .ov-table th { position: relative; }
+.ov .ov-table th.sorted button::after { content: ""; position: absolute; right: 3px; top: 3px; width: 16px; height: 16px; opacity: .75;
+  background: url(/client-res/ui/texture/eveicon/system_icons/caret_up_16px.png) center / 16px no-repeat; }
+.ov .ov-table th.sorted.down button::after { content: ""; background-image: url(/client-res/ui/texture/eveicon/system_icons/caret_down_16px.png); }
 /* DirectionalScanner: the header row, the scroll, the bottom container (range and angle halves, Scan at the right) */
 /* the solar system map's scene fills its window */
 .ssm { padding: 0 !important; overflow: hidden; }
