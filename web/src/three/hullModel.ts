@@ -11,7 +11,7 @@ import { hullChildren, type SofChildNode, type SofHullChild } from "./hullChildr
 import type { SofController } from "./controllers.ts";
 import { setControllerVariable } from "./controllerVariables.ts";
 import { setGpuParticleAssets } from "./gpuParticles.ts";
-import { eveNormalMap } from "./normalMaps.ts";
+import { eveNormalMap, HULL_NORMAL_MARKER } from "./normalMaps.ts";
 import { followActivation, followClip } from "./activation.ts";
 import type { SofOverlay } from "./hullOverlay.ts";
 import { followDynamicLights } from "./dynamicLights.ts";
@@ -721,10 +721,13 @@ ${shader.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex
         float wreckG = pow( texture2D( emissiveMap, wreckQ + ( wreckL > 0.0 ? wreckQ / wreckL : vec2( 0.0 ) ) * wreckFactors.w * wreckTime ).r, 1.2 );
         totalEmissiveRadiance *= vec3( ( clamp( -wreckFactors.z, 0.0, 1.0 ) * ( 1.0 - wreckFactors.z * wreckG ) + wreckFactors.z * wreckG ) * pow( emissiveColor.r, 2.4 ) );`);
     // the details' normals join the normal map's, in its tangent space and its green's sense
-    if (detail) shader.fragmentShader = change(shader.fragmentShader, "mapN.z = 1.0; // quadv5: T x + B y + N, normalised (no z rebuilt from x and y)",
-      "mapN.z = 1.0; mapN += vec3( detN.x, -detN.y, detN.z );");
-    if (env) shader.fragmentShader = change(shader.fragmentShader, "mapN.z = 1.0; // quadv5: T x + B y + N, normalised (no z rebuilt from x and y)",
-      "mapN.z = 1.0; mapN += vec3( envN.x, -envN.y, envN.z );");
+    // each added after the marker, which stays, so a hull with both layers gets both
+    if (detail) shader.fragmentShader = change(shader.fragmentShader, HULL_NORMAL_MARKER,
+      `${HULL_NORMAL_MARKER}
+ mapN += vec3( detN.x, -detN.y, detN.z );`);
+    if (env) shader.fragmentShader = change(shader.fragmentShader, HULL_NORMAL_MARKER,
+      `${HULL_NORMAL_MARKER}
+ mapN += vec3( envN.x, -envN.y, envN.z );`);
     if (heat) {
       shader.fragmentShader = `uniform vec4 heatData[4]; uniform vec3 heatColor; uniform sampler2D heatNoise; uniform float heatTime; uniform float thrust;
 ${change(change(shader.fragmentShader, "vec4 emissiveColor = texture2D( emissiveMap, vEmissiveMapUv );", `vec4 heatH = heatData[0] * mtlW.x + heatData[1] * mtlW.y + heatData[2] * mtlW.z + heatData[3] * mtlW.w;
