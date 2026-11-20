@@ -77,6 +77,8 @@ export interface HudModule {
   repair?: { startedAtMs: number; durationMs: number } | null;
   /** Its loaded charge (moduleController.GetCharge): its type, how many, and whether it is a crystal (no count shown). */
   charge?: { typeID: number; quantity: number; crystal: boolean } | null;
+  /** It has no activatable effect (moduleController.HasActivatibleEffect false): drawn in the passive housing. */
+  passive?: boolean;
   /**
    * The cycle it finishes after being switched off (moduleController.GetUnavailableWindow, UNAVAILABLE_WINDING_DOWN):
    * when that cycle began (Date.now()) and how long it runs; null when it is not winding down.

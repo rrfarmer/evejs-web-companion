@@ -11,6 +11,8 @@ import type { HudModule, HudOverload, ShipHudState } from "./shipHud.ts";
 import type { ModuleTooltipRow } from "./moduleTooltip.ts";
 import { labelColorCss, labelLines } from "../bridge/labelMarkup.ts";
 import { fmtAmt } from "../bridge/pyNumbers.ts";
+import { hudSetting, hudSettingNow, setHudSetting, type HudSettingName } from "../store/hudSettings.ts";
+import { shortcutOf } from "./shortcutKeys.ts";
 
 const res = (path: string): string => `/client-res/${path.replace(/^res:\//i, "").toLowerCase()}`;
 const HUD = (name: string) => res(`res:/UI/HUD/${name}.png`);
@@ -89,6 +91,15 @@ const RACK_BUTTONS = [
 ];
 
 const rad = (deg: number): number => deg * Math.PI / 180;
+
+/** A client texture as a plain, unpickable picture of its size. */
+function icon(path: string, size = 16): HTMLImageElement {
+  const i = document.createElement("img");
+  i.src = res(path);
+  i.alt = "";
+  Object.assign(i.style, { width: `${size}px`, height: `${size}px`, display: "block", pointerEvents: "none" });
+  return i;
+}
 
 // ── textures ─────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -196,6 +207,8 @@ interface Slot {
   /** cooldownTimer: the dim disc, the fill arc, the shade and the seconds over the icon, drawn while it shows. */
   cool: HTMLCanvasElement;
   coolShown: boolean;
+  /** An empty slot of the ship's, drawn (Display Empty Slots). */
+  empty: boolean;
 }
 
 // cooldownTimer.py
@@ -274,6 +287,13 @@ export class NewShipHud {
   private rackHover: "Hi" | "Med" | "Lo" | null = null;
   private overload: HudOverload | null = null;
   private modules: readonly HudModule[] = [];
+  /** A label's text (localization.GetByLabel, plain), the page's to give; null: not to hand, the English is used. */
+  word: (label: string) => string | null = () => null;
+  /** The ship's slots per rack (the empty ones drawn with Display Empty Slots). */
+  private slotCounts = { high: 0, mid: 0, low: 0 };
+  private readonly utilityEls: HTMLElement[] = [];
+  private readonly readout = document.createElement("div");
+  private readonly unsubscribe: (() => void)[] = [];
   /** The module tooltip's rows (moduleButtonTooltip.UpdateToolTips), the page's to give; null: no tooltips. */
   tooltipRows: ((m: HudModule) => readonly ModuleTooltipRow[] | null) | null = null;
   private readonly tooltip = document.createElement("div");
@@ -475,13 +495,6 @@ export class NewShipHud {
    */
   private buildButtons(): void {
     const [cx, cy] = MEDALLION_CENTRE;
-    const icon = (path: string, size = 16) => {
-      const i = document.createElement("img");
-      i.src = res(path);
-      i.alt = "";
-      Object.assign(i.style, { width: `${size}px`, height: `${size}px`, display: "block", pointerEvents: "none" });
-      return i;
-    };
     // the autopilot: a 20 px dark disc, a 1 px ring at r 11 (white 0.1, FOCUS_BLUE engaged or hovered), the glyph
     const ap = document.createElement("button");
     ap.type = "button";
@@ -502,18 +515,26 @@ export class NewShipHud {
     gear.append(icon("res:/UI/Texture/eveicon/system_icons/settings_16px.png"));
     gear.addEventListener("mouseenter", () => { gear.style.opacity = "0.9"; });
     gear.addEventListener("mouseleave", () => { gear.style.opacity = "0.5"; });
-    // the settings menu (hudLayer 360 to 385), here only the preview switch: off goes back to the classic ship UI
+    // the settings menu (hudLayer.GetHudOptionMenu), its bottom-left at the gear's centre, 16 px above it
+    // In the client's utility-menu layer (uicore.layer.utilmenu), over every window: the page's body here.
     const menu = document.createElement("div");
-    Object.assign(menu.style, { position: "absolute", left: `${cx + 70}px`, top: `${cy - 78 - 40}px`, display: "none", background: "rgba(10,14,16,0.95)", border: "1px solid rgba(255,255,255,0.15)", padding: "4px 0", pointerEvents: "auto", font: "12px 'EVE Sans Neue','Segoe UI',sans-serif", color: "#ddd", whiteSpace: "nowrap" });
-    const entry = document.createElement("button");
-    entry.type = "button";
-    entry.textContent = "✓ New Ship HUD (preview)";
-    Object.assign(entry.style, { display: "block", padding: "4px 12px", border: "0", background: "transparent", color: "inherit", font: "inherit", cursor: "pointer" });
-    entry.addEventListener("click", () => { menu.style.display = "none"; this.onCommand("ToggleNewHud"); });
-    menu.append(entry);
-    menu.addEventListener("mouseleave", () => { menu.style.display = "none"; });
-    gear.addEventListener("click", () => { menu.style.display = menu.style.display === "none" ? "" : "none"; });
-    this.root.append(menu);
+    menu.className = "new-hud-settings";
+    Object.assign(menu.style, { position: "fixed", zIndex: "100000", display: "none", pointerEvents: "auto" });
+    for (const t of ["checkBoxActive", "checkBoxInactive", "BulletIcon"]) image(res(`res:/UI/Texture/classes/UtilMenu/${t}.png`));
+    const closeMenu = (e: MouseEvent) => { if (!menu.contains(e.target as Node) && e.target !== gear && !gear.contains(e.target as Node)) menu.style.display = "none"; };
+    gear.addEventListener("click", () => {
+      const open = menu.style.display === "none";
+      if (open) {
+        this.fillSettingsMenu(menu, () => { menu.style.display = "none"; });
+        const g = gear.getBoundingClientRect();
+        menu.style.left = `${Math.round(g.left + g.width / 2)}px`;
+        menu.style.bottom = `${Math.round(innerHeight - (g.top + g.height / 2 - 16))}px`;
+      }
+      menu.style.display = open ? "" : "none";
+    });
+    document.addEventListener("mousedown", closeMenu, true);
+    this.unsubscribe.push(() => { document.removeEventListener("mousedown", closeMenu, true); menu.remove(); });
+    document.body.append(menu);
     // overloadButton: the overheating glyph in the hex (white 0.75 idle)
     const heat = icon("res:/UI/Texture/eveicon/category_icons/overheating_16px.png");
     Object.assign(heat.style, { position: "absolute", left: `${cx + OVERLOAD_CENTRE[0] - 8}px`, top: `${cy + OVERLOAD_CENTRE[1] - 8}px`, opacity: "0.75" });
@@ -568,11 +589,142 @@ export class NewShipHud {
     this.scannerGroup.append(badge, pill);
     this.root.append(ap, gear, heat, cam, this.scannerGroup);
     this.placeScannerGroup();
+    // ToggleUtilityButtons: the scanner and camera flyouts, the cargo indicator, the safety badge and the autopilot button
+    // (the mining scanner button follows the same setting itself)
+    const cargo = this.cargoGlyph.parentElement;
+    this.utilityEls.push(ap, cam, this.scannerGroup, ...(cargo ? [cargo] : []));
+    // hudReadout: a 200 px column, its rows right-aligned, centred 190 px left of the medallion, its foot 20 px under
+    // the band's top: each pool's reading in TextDetail (12 px, white 0.75, shadow (1, 1) black 0.8) left of its icon.
+    Object.assign(this.readout.style, { position: "absolute", left: `${cx - 190 - 100}px`, top: `${-34}px`, width: "200px", pointerEvents: "none", display: "none" });
+    for (const glyph of ["shields", "armor", "structure_management"]) {
+      const row = document.createElement("div");
+      Object.assign(row.style, { height: "18px", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "4px" });
+      const value = document.createElement("span");
+      Object.assign(value.style, { font: "12px 'EVE Sans Neue','Segoe UI',sans-serif", color: "rgba(255,255,255,0.75)", textShadow: "1px 1px 0 rgba(0,0,0,0.8)", whiteSpace: "nowrap" });
+      const i = icon(`res:/UI/Texture/eveicon/category_icons/${glyph}_16px.png`);
+      i.style.opacity = "0.5";
+      row.append(value, i);
+      this.readout.append(row);
+    }
+    this.root.append(this.readout);
+    const follow = (name: HudSettingName, apply: (on: boolean) => void) => this.unsubscribe.push(hudSetting(name).subscribe(apply));
+    follow("hudButtonsExpanded", (on) => { for (const el of this.utilityEls) el.style.display = on ? "" : "none"; });
+    follow("showReadout", () => this.paintReadout());
+    follow("readoutType", () => this.paintReadout());
+    follow("shipuialigntop", (top) => {
+      // _AlignToScreenEdge: the band at the top edge, lifted the same 20 px from it
+      this.root.style.bottom = top ? "" : `${HUD_BAND_LIFT}px`;
+      this.root.style.top = top ? `${HUD_BAND_LIFT}px` : "";
+    });
+    for (const name of ["showPassiveModules", "shipHudNew_hideEmptySlots"] as const) follow(name, () => this.placeSlots());
   }
+
+  /** hudReadout._Repaint: each pool as a percentage (UI/Common/Formatting/Percentage) or as left/total (UI/Inflight/GaugeAbsolute). */
+  private paintReadout(): void {
+    const shown = hudSettingNow("showReadout");
+    this.readout.style.display = shown ? "" : "none";
+    const s = this.state;
+    if (!shown || !s) return;
+    const percent = hudSettingNow("readoutType");
+    const pools: [number | null, number | null | undefined][] = [[s.shieldRatio, s.shieldMax], [s.armorRatio, s.armorMax], [s.hullRatio, s.hullMax]];
+    pools.forEach(([ratio, max], i) => {
+      const label = this.readout.children[i]?.firstElementChild as HTMLElement | undefined;
+      if (!label) return;
+      const portion = ratio === null ? 0 : Math.max(0, Math.min(1, ratio));
+      // the client's words for both (3698585, through gridcheck): "37%" for 37.25, "1235 / 5000" for 1234.5 of 5000.0
+      const text = percent || !(typeof max === "number" && max > 0)
+        ? `${Math.round(portion * 100)}%`
+        : `${Math.round(portion * max)} / ${Math.round(max)}`;
+      if (label.textContent !== text) label.textContent = text;
+    });
+  }
+
+  /**
+   * GetHudOptionMenu as an ExpandedUtilMenu: 22 px check rows (UtilMenu checkBoxActive/Inactive, 16 px at (3, 3); the
+   * label at (22, 2), 14 px white 0.75), 13 px dividers (a white 0.1 line), the bullet entries; on its underlay (an 8 px
+   * outset frame 1_16_193 at white 0.1 over the blurred scene, tinted (0.024, 0.039, 0.047)).
+   */
+  private fillSettingsMenu(menu: HTMLElement, close: () => void): void {
+    const say = (label: string, own: string) => this.word(label) ?? own;
+    menu.replaceChildren();
+    const under = document.createElement("div");
+    Object.assign(under.style, { position: "absolute", inset: "-8px", background: "rgba(6,10,12,0.85)", backdropFilter: "blur(8px)", borderStyle: "solid", borderWidth: "0", borderImageSource: `url(${res("res:/UI/Texture/Icons/1_16_193.png")})`, borderImageSlice: "6 fill", borderImageWidth: "6px", opacity: "1" } as Partial<CSSStyleDeclaration>);
+    const list = document.createElement("div");
+    Object.assign(list.style, { position: "relative", width: "257px", font: "14px 'EVE Sans Neue','Segoe UI',sans-serif", color: "rgba(255,255,255,0.75)", whiteSpace: "nowrap" });
+    menu.append(under, list);
+    const check = (label: string, own: string, name: HudSettingName, opts: { enabled?: boolean; invert?: boolean; after?: () => void } = {}) => {
+      const on = opts.invert ? !hudSettingNow(name) : hudSettingNow(name);
+      const row = document.createElement("div");
+      Object.assign(row.style, { position: "relative", height: "22px", cursor: opts.enabled === false ? "default" : "pointer", opacity: opts.enabled === false ? "0.5" : "1" });
+      const box = icon(`res:/UI/Texture/classes/UtilMenu/${on ? "checkBoxActive" : "checkBoxInactive"}.png`);
+      Object.assign(box.style, { position: "absolute", left: "3px", top: "3px" });
+      const text = document.createElement("span");
+      text.textContent = say(label, own);
+      Object.assign(text.style, { position: "absolute", left: "22px", top: "2px", lineHeight: "18px" });
+      row.append(box, text);
+      row.addEventListener("mouseenter", () => { if (opts.enabled !== false) row.style.background = "rgba(255,255,255,0.05)"; });
+      row.addEventListener("mouseleave", () => { row.style.background = ""; });
+      if (opts.enabled !== false) {
+        row.addEventListener("click", () => {
+          setHudSetting(name, opts.invert ? on : !on);
+          opts.after?.();
+          this.fillSettingsMenu(menu, close);
+        });
+      }
+      list.append(row);
+    };
+    const divider = () => {
+      const d = document.createElement("div");
+      Object.assign(d.style, { height: "13px", position: "relative" });
+      const line = document.createElement("div");
+      Object.assign(line.style, { position: "absolute", left: "0", right: "0", top: "6px", height: "1px", background: "rgba(255,255,255,0.1)" });
+      d.append(line);
+      list.append(d);
+    };
+    const bullet = (text: string, act: () => void) => {
+      const row = document.createElement("div");
+      Object.assign(row.style, { position: "relative", height: "22px", cursor: "pointer" });
+      const b = icon("res:/UI/Texture/classes/UtilMenu/BulletIcon.png");
+      Object.assign(b.style, { position: "absolute", left: "3px", top: "3px" });
+      const t = document.createElement("span");
+      t.textContent = text;
+      Object.assign(t.style, { position: "absolute", left: "22px", top: "2px", lineHeight: "18px" });
+      row.append(b, t);
+      row.addEventListener("mouseenter", () => { row.style.background = "rgba(255,255,255,0.05)"; });
+      row.addEventListener("mouseleave", () => { row.style.background = ""; });
+      row.addEventListener("click", () => { close(); act(); });
+      list.append(row);
+    };
+    const H = "UI/Inflight/HUDOptions/";
+    check(`${H}DisplayUtilityButtons`, "Display Utility Buttons", "hudButtonsExpanded");
+    check(`${H}DisplayModuleTooltips`, "Display Module Tooltips", "showModuleTooltips");
+    check(`${H}DisplayPassiveModules`, "Display Passive Modules", "showPassiveModules");
+    check(`${H}DisplayEmptySlots`, "Display Empty Slots", "shipHudNew_hideEmptySlots", { invert: true });
+    check(`${H}DisplayReadout`, "Display Readout", "showReadout");
+    check(`${H}DisplayReadoutAsPercentage`, "Display Readout as Percentage", "readoutType", { enabled: hudSettingNow("showReadout") });
+    divider();
+    check(`${H}LockModulesInPlace`, "Lock Modules in Place", "lockModules");
+    check(`${H}AlignHUDToTop`, "HUD Aligned to Top", "shipuialigntop");
+    divider();
+    bullet(say("UI/Inflight/NotifySettingsWindow/DamageAlertSettings", "Configure Ship Health Alert Settings"), () => this.onCommand("OpenDamageAlertSettings"));
+    bullet(say("UI/Accessories/Log/EnterMessageMovingMode", "Enter Moving Mode for Messages"), () => this.onCommand("EnterMessageMovingMode"));
+    // The new HUD is a feature preview in the client (Esc > Settings > Feature Previews); until that panel is here its
+    // switch is kept at the menu's foot.
+    divider();
+    bullet("New Ship HUD (preview): turn off", () => this.onCommand("ToggleNewHud"));
+  }
+
+  /** The labels the HUD's menus use, to ask the words of. */
+  static readonly MENU_LABELS: readonly string[] = [
+    "UI/Inflight/HUDOptions/DisplayUtilityButtons", "UI/Inflight/HUDOptions/DisplayModuleTooltips", "UI/Inflight/HUDOptions/DisplayPassiveModules",
+    "UI/Inflight/HUDOptions/DisplayEmptySlots", "UI/Inflight/HUDOptions/DisplayReadout", "UI/Inflight/HUDOptions/DisplayReadoutAsPercentage",
+    "UI/Inflight/HUDOptions/LockModulesInPlace", "UI/Inflight/HUDOptions/AlignHUDToTop", "UI/Inflight/NotifySettingsWindow/DamageAlertSettings",
+    "UI/Accessories/Log/EnterMessageMovingMode",
+  ];
 
   /** hudLayer: the scanner group at band x mount.left (230) + max(70, 55 + the tray's width). */
   private placeScannerGroup(): void {
-    const shown = this.slots.filter((s) => s.module);
+    const shown = this.slots.filter((s) => s.module || s.empty);
     const trayWidth = shown.length ? Math.max(...shown.map((s) => s.x)) + SLOT_SIZE : 0;
     this.scannerGroup.style.left = `${230 + Math.max(70, 55 + trayWidth)}px`;
   }
@@ -678,7 +830,7 @@ export class NewShipHud {
       Object.assign(shortcut.style, { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", font: "bold 11px 'EVE Sans Neue','Segoe UI',sans-serif", color: "rgba(255,255,255,0.3)" });
       // moduleSlot._BuildWidget: the cooldown timer over the icon, the quantity over the timer.
       el.append(disc, icon, cool, qty, badge, shortcut);
-      const slot: Slot = { el, icon, qty, badge, shortcut, x, y, module: null, hover: false, wedge: { angle: 180, half: 7.5, lit: 0 }, cycles: -1, flashAt: 0, cool, coolShown: false };
+      const slot: Slot = { el, icon, qty, badge, shortcut, x, y, module: null, hover: false, wedge: { angle: 180, half: 7.5, lit: 0 }, cycles: -1, flashAt: 0, cool, coolShown: false, empty: false };
       el.addEventListener("mouseenter", () => { slot.hover = true; this.hoverTooltip(slot); });
       el.addEventListener("mouseleave", () => { slot.hover = false; this.hideTooltip(slot); });
       el.addEventListener("click", () => { if (slot.module && this.onModule) this.onModule(slot.module); });
@@ -693,7 +845,7 @@ export class NewShipHud {
   private hoverTooltip(slot: Slot): void {
     this.clearTooltipTimers();
     this.closeTooltip();
-    if (!slot.module || !this.tooltipRows) return;
+    if (!slot.module || !this.tooltipRows || !hudSettingNow("showModuleTooltips")) return;
     this.tipTimer = setTimeout(() => {
       this.tipTimer = null;
       if (!slot.hover || !slot.module) return;
@@ -797,6 +949,7 @@ export class NewShipHud {
     this.disposed = true;
     cancelAnimationFrame(this.frame);
     this.clearTooltipTimers();
+    for (const off of this.unsubscribe.splice(0)) off();
     this.root.remove();
     this.tooltip.remove();
   }
@@ -843,6 +996,7 @@ export class NewShipHud {
     if (s.heatHi !== undefined) this.heatShown.Hi = s.heatHi;
     if (s.heatMed !== undefined) this.heatShown.Med = s.heatMed;
     if (s.heatLow !== undefined) this.heatShown.Lo = s.heatLow;
+    this.paintReadout();
   }
 
   toggleRackOverload(rack: "Hi" | "Med" | "Lo"): boolean {
@@ -859,15 +1013,44 @@ export class NewShipHud {
     this.modules = modules;
     this.onModule = onModule;
     this.overload = overload ?? null;
+    this.placeSlots();
+  }
+
+  /** The ship's slots per rack, for Display Empty Slots. */
+  setSlotCounts(counts: { high: number; mid: number; low: number }): void {
+    const c = this.slotCounts;
+    if (c.high === counts.high && c.mid === counts.mid && c.low === counts.low) return;
+    this.slotCounts = { ...counts };
+    this.placeSlots();
+  }
+
+  /**
+   * moduleTray: each slot at its place (no compaction, a gap left), a module's (a passive one only with Display Passive
+   * Modules, showPassiveModules 1) and, with Display Empty Slots (shipHudNew_hideEmptySlots 0), the ship's empty ones
+   * with their activation shortcut (_SetShortcuts: the key, else "_").
+   */
+  private placeSlots(): void {
     const flagOf = (m: HudModule) => ({ high: 0, mid: 1, low: 2 }[m.family] * 8 + m.index);
     const byPosition = new Map<number, HudModule>();
-    for (const m of modules) byPosition.set(flagOf(m), m);
+    for (const m of this.modules) byPosition.set(flagOf(m), m);
+    const showPassive = hudSettingNow("showPassiveModules");
+    const showEmpty = !hudSettingNow("shipHudNew_hideEmptySlots");
+    const counts = [this.slotCounts.high, this.slotCounts.mid, this.slotCounts.low];
     this.slots.forEach((slot, position) => {
-      const m = byPosition.get(position) ?? null;
+      const fitted = byPosition.get(position) ?? null;
+      const m = fitted && (showPassive || !fitted.passive) ? fitted : null;
       slot.module = m;
-      // moduleTray: empty slots hidden by default (shipHudNew_hideEmptySlots 1); no compaction, a gap is left.
-      slot.el.style.display = m ? "" : "none";
-      if (!m) { if (this.tipSlot === slot) this.hideTooltip(slot); return; }
+      const row = Math.floor(position / 8);
+      slot.empty = !fitted && showEmpty && position % 8 < counts[row]!;
+      slot.el.style.display = m || slot.empty ? "" : "none";
+      if (!m) {
+        if (this.tipSlot === slot) this.hideTooltip(slot);
+        slot.icon.style.display = "none";
+        slot.qty.style.display = "none";
+        slot.shortcut.textContent = slot.empty ? shortcutOf(`CmdActivate${["High", "Medium", "Low"][row]}PowerSlot${(position % 8) + 1}`) || "_" : "";
+        return;
+      }
+      slot.icon.style.display = "";
       if (slot.icon.dataset.src !== m.icon) { slot.icon.src = m.icon; slot.icon.dataset.src = m.icon; }
       // _UpdateGreyOut: an offline (or burnt out) module's icon at 0.4, its count hidden
       slot.icon.style.opacity = m.online ? "1" : "0.4";
@@ -919,7 +1102,10 @@ export class NewShipHud {
     this.drawCargo(c);
     c.save();
     c.translate(TRAY_LEFT, TRAY_TOP);
-    for (const slot of this.slots) if (slot.module) this.drawSlot(c, slot, now, dt);
+    for (const slot of this.slots) {
+      if (slot.module) this.drawSlot(c, slot, now, dt);
+      else if (slot.empty) this.drawEmptySlot(c, slot);
+    }
     for (const slot of this.slots) this.drawCooldown(slot);
     c.restore();
   }
@@ -1240,9 +1426,45 @@ export class NewShipHud {
     c.fillText(text, mid, mid + 1);
   }
 
+  /** An empty slot (INDICATOR_EMPTY): the backing at 0.1 (0.2 hovered) and the frame track, no wedge. */
+  private drawEmptySlot(c: CanvasRenderingContext2D, slot: Slot): void {
+    const cx = slot.x + 26, cy = slot.y + 26;
+    c.beginPath();
+    c.arc(cx, cy, 20, 0, Math.PI * 2);
+    c.fillStyle = css(WHITE, (0.1 + (slot.hover ? 0.1 : 0)) * 0.35);
+    c.fill();
+    c.beginPath();
+    c.arc(cx, cy, 23, 0, Math.PI * 2);
+    c.lineWidth = 2;
+    c.strokeStyle = css(WHITE, 0.07);
+    c.stroke();
+  }
+
+  /**
+   * A passive module's housing (moduleSlot._ApplyHousing(passive)): no state wedge or track, a 38 px disc (black 0.8),
+   * a 36 px shade (white 0.2) and a 48 px ring of 1 (white 0.2).
+   */
+  private drawPassiveSlot(c: CanvasRenderingContext2D, slot: Slot): void {
+    const cx = slot.x + 26, cy = slot.y + 26;
+    c.beginPath();
+    c.arc(cx, cy, 19, 0, Math.PI * 2);
+    c.fillStyle = "rgba(0,0,0,0.8)";
+    c.fill();
+    c.beginPath();
+    c.arc(cx, cy, 18, 0, Math.PI * 2);
+    c.fillStyle = "rgba(255,255,255,0.2)";
+    c.fill();
+    c.beginPath();
+    c.arc(cx, cy, 23.5, 0, Math.PI * 2);
+    c.lineWidth = 1;
+    c.strokeStyle = "rgba(255,255,255,0.2)";
+    c.stroke();
+  }
+
   /** activationIndicator: the frame ring, the state wedge (9 o'clock idle, 12 o'clock active) and the cycle arc. */
   private drawSlot(c: CanvasRenderingContext2D, slot: Slot, now: number, dt: number): void {
     const m = slot.module!;
+    if (m.passive) { this.drawPassiveSlot(c, slot); return; }
     const cx = slot.x + 26, cy = slot.y + 26;
     const on = m.active || !!m.waitingForTarget;
     const overloadable = !!m.overloadable;

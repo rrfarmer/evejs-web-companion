@@ -33,6 +33,8 @@ export const HUD_SETTING_DEFAULTS = Object.freeze({
    * classic ship UI. The client defaults it off; the operator asked for it as the default (2026-11-20).
    */
   shipHudNew_preview: true,
+  /** hudConst.HIDE_EMPTY_SLOTS_SETTING (moduleTray.ShowsEmptySlots): the new HUD's empty slots hidden. */
+  shipHudNew_hideEmptySlots: true,
 });
 
 export type HudSettingName = keyof typeof HUD_SETTING_DEFAULTS;

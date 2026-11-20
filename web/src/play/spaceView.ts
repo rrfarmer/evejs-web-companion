@@ -146,6 +146,8 @@ export interface SpaceViewOptions {
     overload?: { module(itemID: number, on: boolean): Promise<void>; rack(activationID: number, on: boolean): Promise<void> };
     /** The new HUD's module tooltip rows (moduleButtonTooltip.UpdateToolTips), null where it has none to give. */
     tooltip?(m: HudModule): readonly import("./moduleTooltip.ts").ModuleTooltipRow[] | null;
+    /** The ship's slots per rack (present ones), for the new HUD's empty slots. */
+    slotCounts?(): { high: number; mid: number; low: number };
   };
   /** The session's snapshot includes the acknowledged align and warp targets. */
   flightSnapshot?: () => SpaceSnapshot | null;
@@ -724,6 +726,8 @@ export class SpaceView {
       this.shipHud.onSetSpeed = (ratio) => void this.setSpeedRatio(ratio);
       this.shipHud.onOpenHold = (key) => this.actions.openShipHold?.(key);
       this.shipHud.tooltipRows = (m) => this.options.rack?.tooltip?.(m) ?? null;
+      const hudWords = this.options.indicationWords;
+      this.shipHud.word = (label) => { const t = hudWords?.()[label]; return typeof t === "string" && t !== "" ? t : null; };
       // the HUD's command buttons: the directional scanner and solar system map are this view's, the rest the page's
       this.shipHud.onCommand = (cmd) => {
         if (cmd === "OpenDirectionalScanner" && this.dscan) this.dscan.toggle();
@@ -2936,6 +2940,7 @@ export class SpaceView {
     if (rack && this.frameCount % 3 === 0) {
       const overload = rack.overload;
       const modules = rack.modules();
+      if (this.shipHud instanceof NewShipHud && rack.slotCounts) this.shipHud.setSlotCounts(rack.slotCounts());
       if (this.moduleTargetOrders.size) this.finishModuleTargetOrders(modules);
       for (const m of modules) m.waitingForTarget = !!this.moduleTargetOrders.get(m.itemID)?.mode;
       this.shipHud.setModules(modules, (m) => this.useRackModule(m), overload ? {

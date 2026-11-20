@@ -107,6 +107,9 @@
   import { IN_WARP_HINT_LABEL } from "../bridge/gateActivation.ts";
   import type { HudModule } from "../play/shipHud.ts";
   import { CRYSTAL_GROUPS, MODULE_TOOLTIP_LABELS, moduleTooltipRows } from "../play/moduleTooltip.ts";
+  import { NewShipHud } from "../play/newShipHud.ts";
+  import DamageAlertSettings from "./DamageAlertSettings.svelte";
+  import { combatMovingMode } from "./combatSettings.ts";
   import { shortcutOf } from "../play/shortcutKeys.ts";
   import type { DogmaTypeFacts } from "../bridge/dogma/location.ts";
   import { typeIconUrl } from "./typeIcons.ts";
@@ -947,6 +950,8 @@
   let mapFilters: ReturnType<typeof mountStarMapFilterControls> | null = null;
   /** The system menu (Esc: uicore.cmd.OnEsc's EscapeCommand opens it when nothing else takes the key). */
   let systemMenu = $state(false);
+  /** The new HUD's settings menu's NotifySettingsWindow (the ship health alerts). */
+  let damageAlertsOpen = $state(false);
   let mapHost = $state<HTMLDivElement | null>(null);
   let planetModeID = $state<number | null>(null);
   let customsTarget = $state<{ planetID: number; pinID: number | null } | null>(null);
@@ -1288,7 +1293,7 @@
     const attributeLook = new Map<number, { readonly icon: string | null; readonly nameID: number | null }>();
     void s.flow.attributeDisplay(TIP_ATTRIBUTES).then((found) => {
       for (const [id, d] of found ?? []) attributeLook.set(id, { icon: d.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d.displayNameID });
-      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
+      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
     }).catch(() => {});
     const stopAskedAt = new Map<number, number>();
     const tipWord = (label: string, args: Readonly<Record<string, unknown>>): string | null => {
@@ -1458,6 +1463,12 @@
         } else if (cmd === "ToggleNewHud") {
           setHudSetting("shipHudNew_preview", false);
           location.reload();
+        } else if (cmd === "OpenDamageAlertSettings") {
+          // NotifySettingsWindow.Open: the ship health alerts' settings
+          damageAlertsOpen = true;
+        } else if (cmd === "EnterMessageMovingMode") {
+          // logger.MoveNotifications(True): the combat messages' box to be dragged
+          combatMovingMode.set(true);
         } else if (WINDOW_COMMANDS[cmd]) open(WINDOW_COMMANDS[cmd]);
       },
       // The flow says a refused order as the client does and does not throw.
@@ -1564,12 +1575,15 @@
             }
             // The slot shows a loaded charge's icon and count (moduleSlot._OnChargeChanged); a crystal's count is not shown.
             const charge = m.charge && m.charge.quantity > 0 ? m.charge : null;
+            const typeFact = factsOf(m.typeID);
             const chargeGroup = charge ? factsOf(charge.typeID)?.groupID ?? null : null;
             out.push({ family: slot.family, index: slot.index, itemID: m.itemID, typeID: m.typeID, name: typeNames[String(m.typeID)]?.[0] ?? undefined, online: m.online, active: running, icon: typeIconUrl(charge ? charge.typeID : m.typeID) ?? "", cycle: pct === null ? null : pct / 100,
               overloadable: overloadable.get(m.typeID) ?? null, overloaded: overloaded.has(m.itemID), damage: damageOf(m.itemID),
               repair: s.flow.moduleRepairOf(m.itemID),
               charge: charge ? { typeID: charge.typeID, quantity: charge.quantity, crystal: chargeGroup !== null && CRYSTAL_GROUPS.has(chargeGroup) } : null,
-              windingDown });
+              windingDown,
+              // HasActivatibleEffect: a type with no default effect is passive
+              passive: typeFact !== null && (typeFact.defaultEffectID ?? null) === null });
           }
           return out;
         },
@@ -1589,6 +1603,14 @@
         },
         heat: () => s.store.space.get().snapshot?.ship?.rackHeat ?? null,
         tooltip: (m) => moduleTooltip(m),
+        slotCounts: () => {
+          const counts = { high: 0, mid: 0, low: 0 };
+          for (const slot of s.store.fitting.get().slots ?? []) {
+            if (slot.present === false || (slot.family !== "high" && slot.family !== "mid" && slot.family !== "low")) continue;
+            counts[slot.family]++;
+          }
+          return counts;
+        },
         overload: {
           module: (itemID, on) => s.flow.setModuleOverload(itemID, on),
           rack: (activationID, on) => s.flow.setRackOverload(activationID, on),
@@ -1861,6 +1883,9 @@
   <Toasts />
   {#if systemMenu}
     <ErrorBoundary name="System menu"><SystemMenu store={session.store} flow={session.flow} onClose={() => (systemMenu = false)} /></ErrorBoundary>
+  {/if}
+  {#if damageAlertsOpen}
+    <ErrorBoundary name="Ship health alerts"><DamageAlertSettings store={session.store} onClose={() => (damageAlertsOpen = false)} /></ErrorBoundary>
   {/if}
 {/if}
 
