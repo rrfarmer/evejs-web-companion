@@ -946,7 +946,7 @@ import {
   decodeChatChannelName,
   decodeMessageEntry,
 } from "../bridge/chat.ts";
-import { decodeInstanceRows, decodeWeaponBanks, infoTimeMs, itemHasActivationCycle } from "../bridge/boundDogma.ts";
+import { decodeInstanceRows, decodeWeaponBanks, infoTimeMs, itemHasActivationCycle, decodeLayerDamageValues } from "../bridge/boundDogma.ts";
 import { combatFit, weaponHasCycle } from "../nav/combatFit.ts";
 import type { CombatWeapons } from "../nav/combatWeapons.ts";
 import { RAT_RESONANCE_ATTRIBUTE_IDS, ratResonancesFromAttributes, type RatResonances } from "../nav/ratResonances.ts";
@@ -3012,6 +3012,11 @@ export interface AppFlow {
   askClientDialog(dialog: string, fallback: string, suppressYes?: boolean): Promise<boolean>;
   /** A solar system's security status from the route graph, null until the graph is read (asked for then). */
   systemSecurity(solarSystemID: number): number | null;
+  /**
+   * InBayDroneDamageTracker.FetchInBayDroneDamageToServer: the bay drones' layers (dogmaLM.GetLayerDamageValuesByItems),
+   * each [shield, armor, structure] as fractions left; drones the answer has not, left out.
+   */
+  bayDroneDamage(droneIDs: readonly number[]): Promise<Map<number, readonly [number, number, number]>>;
   /** A dialog the client puts up with a custom box (CUSTOM_MESSAGE_BOXES): the dialog's title and buttons, this body. */
   askClientDialogBody(dialog: string, bodyMarkup: string, fallback: string, suppressYes?: boolean): Promise<boolean>;
   /** prompt_player_fsd_dialog('CustomWarning', {header, warning}, buttons=YESNO): true on Yes. */
@@ -37565,6 +37570,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
     async askClientWarning(header: string, warning: string) {
       return askDialog("CustomWarning", { type: "dict", entries: [["header", header], ["warning", warning]] }, warning, "yesno");
+    },
+    async bayDroneDamage(droneIDs: readonly number[]): Promise<Map<number, readonly [number, number, number]>> {
+      const out = new Map<number, readonly [number, number, number]>();
+      if (!droneIDs.length) return out;
+      const answer = await bridgeAsk("dogmaIM", "GetLayerDamageValuesByItems", [{ type: "list", items: [...droneIDs] } as JsonValue]);
+      for (const d of decodeLayerDamageValues(answer)) {
+        const id = Number(d.itemID);
+        if (!Number.isFinite(id)) continue;
+        // 1 - armorDamage / maxArmor, 1 - hullDamage / maxHull; the shield as its ratio (CalculateCurrentDamageStateValues)
+        const shield = d.shield && d.shield.max ? (d.shield.current ?? d.shield.max) / d.shield.max : d.shieldRatio ?? 1;
+        const armor = d.armorMax ? 1 - (d.armorDamage ?? 0) / d.armorMax : d.armorRatio ?? 1;
+        const hull = d.hullMax ? 1 - (d.hullDamage ?? 0) / d.hullMax : d.hullRatio ?? 1;
+        out.set(id, [shield, armor, hull]);
+      }
+      return out;
     },
     systemSecurity(solarSystemID: number): number | null {
       if (!routeGraph) { void loadRouteGraph().catch(() => null); return null; }

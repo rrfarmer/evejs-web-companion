@@ -79,17 +79,23 @@
   const autoTargetID = $derived($activeTarget ?? 0);
   const typeName = (typeID: number | null, fallback: string) => resolvedName($names.resolved, "type", typeID, fallback);
 
-  /** The bay by type: every stack of a type in one row, its quantity summed (the client's window groups so). */
-  const bayRows = $derived.by(() => {
-    const byType = new Map<number, { typeID: number; label: string; quantity: number; itemIDs: number[] }>();
-    for (const stack of $drones.bay ?? []) {
-      const row = byType.get(stack.typeID) ?? { typeID: stack.typeID, label: typeName(stack.typeID, "Unknown drone"), quantity: 0, itemIDs: [] };
-      // (a quantity of -1 is a singleton: one assembled drone, as invItem quantity says it)
-      row.quantity += stack.quantity < 0 ? 1 : stack.quantity;
-      row.itemIDs.push(stack.itemID);
-      byType.set(stack.typeID, row);
-    }
-    return [...byType.values()];
+  /**
+   * The bay, a row a stack (dronesWindow.GetMainGroupEntriesInBay: GetBayDroneEntry per inventory item, sorted by
+   * label); a stack's label "Mining Drone I (2)" (DroneBayEntryWithStacksize), one drone its name.
+   */
+  const bayRows = $derived.by(() => ($drones.bay ?? []).map((stack) => ({
+    typeID: stack.typeID, itemID: stack.itemID, label: typeName(stack.typeID, "Unknown drone"),
+    // (a quantity of -1 is a singleton: one assembled drone, as invItem quantity says it)
+    quantity: stack.quantity < 0 ? 1 : stack.quantity, itemIDs: [stack.itemID],
+  })).sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase())));
+  /** The bay drones' damage (InBayDroneDamageTracker), asked once for each drone not yet known. */
+  let bayDamage = $state(new Map<number, readonly [number, number, number]>());
+  const asked = new Set<number>();
+  $effect(() => {
+    const missing = bayRows.map((r) => r.itemID).filter((id) => !asked.has(id));
+    if (!missing.length) return;
+    for (const id of missing) asked.add(id);
+    void flow.bayDroneDamage(missing).then((got) => { if (got.size) bayDamage = new Map([...bayDamage, ...got]); }).catch(() => {});
   });
   const bayCount = $derived(bayRows.reduce((n, r) => n + r.quantity, 0));
 
@@ -107,9 +113,14 @@
         key: String(drone.itemID), typeID: drone.typeID, label: typeName(drone.typeID, "Drone"),
         activity: droneActivityLabel(drone.activity), color: droneActivityColor(drone.activity), itemIDs: [drone.itemID],
         unavailable: lost ? DRONE_NOT_UNDER_YOUR_CONTROL : null, recoverable: drone.controlled === false,
+        damage: layersOf(byID.get(drone.itemID) ?? null),
       };
     });
   });
+  function layersOf(e: SpaceEntity | null): readonly [number, number, number] | null {
+    const x = e as (SpaceEntity & { shieldRatio?: number | null; armorRatio?: number | null; hullRatio?: number | null }) | null;
+    return x && x.shieldRatio != null && x.armorRatio != null && x.hullRatio != null ? [x.shieldRatio, x.armorRatio, x.hullRatio] : null;
+  }
   const outCount = $derived(($drones.inSpace ?? []).length);
   const maxActive = $derived($drones.limits.maxActiveDrones);
 
@@ -201,6 +212,18 @@
   <span class="picture"><TypeIcon {typeID} name={label} size="sm" /></span>
 {/snippet}
 
+<!-- DroneEntry.ConstructGauges: structure, armor, shield, 32 x 4 each, 2 apart, 8 from the right; HealthGauge the
+     silver-grey health (added) over cherry red with a white 2 px needle where it ends; unknown, full at 0.05 -->
+{#snippet gauges(damage: readonly [number, number, number] | null)}
+  <span class="gauges" class:unknown={damage === null}
+    title={damage ? [damage[0], damage[1], damage[2]].map((v) => `${Math.round(Math.max(0, Math.min(1, v)) * 100)}%`).join("  ") : undefined}>
+    {#each damage ? [damage[2], damage[1], damage[0]] : [1, 1, 1] as v}
+      {@const p = Math.max(0, Math.min(1, Math.round(v * 1000) / 1000))}
+      <span class="gauge"><span class="health" style:width={`${Math.floor(32 * p)}px`}></span>{#if p > 0 && p < 1}<span class="needle" style:left={`${Math.floor(32 * p)}px`}></span>{/if}</span>
+    {/each}
+  </span>
+{/snippet}
+
 <div class="fly-drones">
   <div class="group">
     <div class="sec" role="button" tabindex="-1" onclick={() => (bayOpen = !bayOpen)} onkeydown={() => {}}
@@ -217,7 +240,7 @@
       {#if $drones.bay === null}
         <p class="state">{$drones.loaded ? "Your drone bay could not be read." : "Looking…"}</p>
       {:else}
-        {#each bayRows as row (row.typeID)}
+        {#each bayRows as row (row.itemID)}
           <div class="row" role="listitem" title="Double-click to launch; right-click for more"
             ondblclick={() => run(() => flow.launchDrones(row.itemIDs))}
             oncontextmenu={(e) => openMenu(e, [{ label: "Launch drones", act: () => flow.launchDrones(row.itemIDs) }])}>
@@ -230,6 +253,7 @@
                 <span class="glyph" style:background-image={`url(${ICON.launch})`}></span>
               </button>
             </span>
+            {@render gauges(bayDamage.get(row.itemID) ?? null)}
           </div>
         {/each}
       {/if}
@@ -283,6 +307,7 @@
             oncontextmenu={(e) => openMenu(e, spaceEntries(row.unavailable ? (row.recoverable ? row.itemIDs : []) : row.itemIDs.filter((id) => allDroneIDs.includes(id)), row.recoverable))}>
             {@render picture(row.typeID, row.label)}
             <span class="name">{row.label} <span class="state-word" style:color={row.color}>{row.unavailable ?? row.activity}</span></span>
+            {@render gauges(row.damage)}
           </div>
         {/each}
       {/if}
@@ -316,6 +341,9 @@
   .sec { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 5px 12px; background: rgba(255, 255, 255, 0.02); cursor: default; }
   .lbl { font-size: 14px; color: rgba(255, 255, 255, 0.9); }
   .commands, .row-buttons { display: flex; gap: 2px; }
+  /* DroneEntry.buttonCont: hidden, faded in (0.1 s) while the mouse is over the entry; left of the gauges */
+  .row .row-buttons { opacity: 0; visibility: hidden; transition: opacity .1s, visibility .1s; margin-right: 4px; }
+  .row:hover .row-buttons { opacity: 1; visibility: visible; }
   .command { width: 24px; height: 22px; padding: 0; border: 0; background: transparent; display: grid; place-items: center; cursor: pointer; opacity: 0.85; }
   .command:hover:not(:disabled) { opacity: 1; background: rgba(255, 255, 255, 0.08); }
   .command:disabled { opacity: 0.3; cursor: default; }
@@ -326,6 +354,11 @@
   .group { margin: 0; padding: 0; border: 0; background: none; }
   .picture { width: 24px; height: 24px; flex: none; display: grid; }
   .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gauges { display: flex; gap: 2px; flex: none; margin-right: 8px; }
+  .gauges.unknown { opacity: 0.05; }
+  .gauge { position: relative; width: 32px; height: 4px; background: rgb(153, 31, 36); overflow: hidden; }
+  .gauge .health { position: absolute; left: 0; top: 0; bottom: 0; background: rgb(176, 176, 176); mix-blend-mode: plus-lighter; }
+  .gauge .needle { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; }
   .count { font-size: 11px; color: rgb(176, 176, 169); }
   .activity { font-size: 11px; color: rgb(176, 176, 169); white-space: nowrap; }
   .state { margin: 0; padding: 4px 12px 6px; font-size: 11px; color: rgb(108, 110, 107); }
