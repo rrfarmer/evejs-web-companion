@@ -79,7 +79,7 @@
   const MENU_WORDS = {
     engage: ["UI/Drones/EngageTarget", "Engage Target"], mine: ["UI/Drones/MineWithDrone", "Mine"], salvage: ["UI/Drones/Salvage", "Salvage"],
     orbit: ["UI/Drones/ReturnDroneAndOrbit", "Return and Orbit"], bay: ["UI/Drones/ReturnDroneToBay", "Return to Drone Bay"],
-    scoop: ["UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"], launch: ["UI/Drones/LaunchDrones", "Launch Drones"], launchOne: ["UI/Drones/LaunchDrone", "Launch Drone"],
+    scoop: ["UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"], abandon: ["UI/Drones/AbandonDrone", "Abandon Drone"], launch: ["UI/Drones/LaunchDrones", "Launch Drones"], launchOne: ["UI/Drones/LaunchDrone", "Launch Drone"],
     info: ["UI/Commands/ShowInfo", "Show Info"], buyAll: ["UI/Market/MarketQuote/BuyAll", "Buy All"], market: ["UI/Inventory/ItemActions/ViewTypesMarketDetails", "View Market Details"],
     assets: ["UI/Inventory/ItemActions/FindPersonalAssets", "Find in Personal Assets"], compare: ["UI/Compare/CompareButton", "Compare"],
     autoAttack: ["UI/Drones/AutoAttack", "Auto Attack"], focusFire: ["UI/Drones/AttackModeFocusFire", "Focus Fire"],
@@ -522,16 +522,25 @@
     const salvage = ids.filter((id) => salvageIDs.includes(id));
     const mining = ids.filter((id) => miningIDs.includes(id));
     const combat = ids.filter((id) => !salvage.includes(id) && !mining.includes(id));
-    const none = ids.length ? null : outCount === 0 ? "No drones in space" : NO_DRONE_UNDER_YOUR_CONTROL;
-    return [
-      ...(combat.length ? [{ label: say(MENU_WORDS.engage), act: () => primaryAction(combat) }] : []),
-      ...(mining.length ? [{ label: say(MENU_WORDS.mine), act: () => primaryAction(mining) }] : []),
-      ...(salvage.length ? [{ label: say(MENU_WORDS.salvage), act: () => flow.salvageDrones(salvage, autoTargetID > 0 ? autoTargetID : null) }] : []),
-      { label: say(MENU_WORDS.orbit), disabled: none, act: () => flow.returnDronesAndOrbit(ids) },
-      { label: say(MENU_WORDS.bay), disabled: none, act: () => flow.recallDrones(ids) },
-      { label: say(MENU_WORDS.scoop), act: () => flow.scoopDrones(ids) },
-      ...(recoverable ? [{ label: "Reconnect", act: () => flow.reconnectDrones(ids) }] : []),
+    // MergeMenus of _DroneMenu per drone (read through gridcheck on the client's three: Mine, Engage Target (2) | Return and
+    // Orbit (3), Return to Drone Bay (3) | Assist, Guard | Abandon Drone (3)): each entry once with " (<n>)" where n of the
+    // drones offer it, by menuHierarchy - the orders (ACTIONSGROUP), Return and Orbit / Return to Drone Bay / Scoop
+    // (CHANGESGROUP), Assist / Guard (in a fleet; the window has no fleet member submenu, not offered here), Abandon Drone
+    // (DESTRUCTIVEGROUP) - a line between groups. Scoop to Drone Bay only for a drone with no drone state (IsScoopableDrone:
+    // one no longer under control), never for one's own controlled drones.
+    const n = (label: string, k: number) => (k > 1 ? `${label} (${k})` : label);
+    const controlled = recoverable ? [] : ids;
+    const groups: MenuEntry[][] = [
+      [...(combat.length && !recoverable ? [{ label: n(say(MENU_WORDS.engage), combat.length), act: () => primaryAction(combat) }] : []),
+        ...(mining.length && !recoverable ? [{ label: n(say(MENU_WORDS.mine), mining.length), act: () => primaryAction(mining) }] : []),
+        ...(salvage.length && !recoverable ? [{ label: n(say(MENU_WORDS.salvage), salvage.length), act: () => flow.salvageDrones(salvage, autoTargetID > 0 ? autoTargetID : null) }] : [])],
+      [...(controlled.length ? [{ label: n(say(MENU_WORDS.orbit), controlled.length), act: () => flow.returnDronesAndOrbit(controlled) },
+        { label: n(say(MENU_WORDS.bay), controlled.length), act: () => flow.recallDrones(controlled) }] : []),
+        ...(recoverable ? [{ label: n(say(MENU_WORDS.scoop), ids.length), act: () => flow.scoopDrones(ids) }] : [])],
+      [...(controlled.length ? [{ label: n(say(MENU_WORDS.abandon), controlled.length), act: async () => { await flow.abandonDrones(controlled); } }] : []),
+        ...(recoverable ? [{ label: "Reconnect", act: () => flow.reconnectDrones(ids) }] : [])],
     ];
+    return groups.filter((g) => g.length).flatMap((g, k) => (k ? [SEP, ...g] : g));
   }
 </script>
 
