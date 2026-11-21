@@ -1135,7 +1135,8 @@ test("an on-disk roster row with no `kind` field resumes exactly as a script alw
 test("vitals sampling projects ship health, hold fill and the bot's words", async () => {
   const host = makeHost();
   await host.start(START);
-  await new Promise(setImmediate);
+  // The start's own first sample is still running: the tick waits for it.
+  await host.sampleAllVitals();
   const rows = host.activeBots();
   assert.equal(rows.length, 1);
   assert.equal(rows[0].characterID, 140000001);
@@ -1197,11 +1198,13 @@ test("vitals ticks skip a busy pilot and recover after completion or error", { t
   clock += 15_000;
   holdNextScene = true;
   const pending = host.sampleAllVitals();
+  let overlapping = Promise.resolve();
   try {
     await new Promise(setImmediate);
     assert.equal(sceneReads.get(slowPilot), 2);
     clock += 15_000;
-    await host.sampleAllVitals();
+    overlapping = host.sampleAllVitals();
+    await new Promise(setImmediate);
     assert.equal(sceneReads.get(slowPilot), 2, "no second scene read while the first is pending");
     assert.equal(sceneReads.get(fastPilot), 3);
     assert.equal(vitalsFor(fastPilot).sampledAt, new Date(clock).toISOString());
@@ -1210,7 +1213,10 @@ test("vitals ticks skip a busy pilot and recover after completion or error", { t
     release();
     await pending;
   }
+  // The overlapping tick waited for the slow pilot's sample rather than starting its own.
+  await overlapping;
   assert.equal(sceneReads.get(slowPilot), 2, "skipped ticks are not replayed");
+  assert.equal(vitalsFor(slowPilot).sampledAt, new Date(clock).toISOString());
 
   clock += 15_000;
   await host.sampleAllVitals();
