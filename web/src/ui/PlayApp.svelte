@@ -1218,6 +1218,32 @@
       void s.flow.reloadAll(reloading).catch(say("Reload all"));
       return true;
     }
+    // eveCommands.py's Open...OfActiveShip: the active ship's hold opened (Inventory.OpenOrShow) - the cargo hold always;
+    // the drone and fighter bays where the type has the capacity, else ShipHasNoDroneBay / ShipHasNoFighterBay; the
+    // special holds (_OpenSpecialHoldOfActiveship) where the type's capacity attribute is set, else nothing
+    const HOLD_COMMANDS: Record<string, readonly [key: string, attributeID: number | null, refusal: string | null]> = {
+      OpenCargoHoldOfActiveShip: ["cargo", null, null],
+      OpenDroneBayOfActiveShip: ["drone", 283, "ShipHasNoDroneBay"],
+      OpenFighterBayOfActiveShip: ["fighter", 2055, "ShipHasNoFighterBay"],
+      OpenFuelBayOfActiveShip: ["fuel", 1549, null],
+      OpenGeneralMiningHoldOfActiveShip: ["ore", 1556, null],
+      OpenMineralHoldOfActiveShip: ["mineral", 1558, null],
+      OpenPlanetaryCommoditiesHoldOfActiveShip: ["planetary", 1653, null],
+      OpenAmmoHoldOfActiveShip: ["ammo", 1573, null],
+      OpenFleetHangarOfActiveShip: ["fleet", 911, null],
+      OpenShipMaintenanceOfBayActiveShip: ["shipMaintenance", 907, null],
+      OpenInfrastructureBayOfActiveShip: ["colony", 5646, null],
+    };
+    const hold = HOLD_COMMANDS[cmd];
+    if (hold) {
+      const [key, attributeID, refusal] = hold;
+      const shipID = s.store.space.get().snapshot?.ship?.itemID ?? s.store.flight.get().status?.shipID ?? null;
+      if (shipID === null) return true;
+      const capacity = attributeID === null ? 1 : s.store.fitting.get().shipAttributes?.[attributeID] ?? 0;
+      if (typeof capacity === "number" && capacity > 0) shipHoldTarget.ask(key, shipID);
+      else if (refusal) s.flow.sayDialog(refusal, null, refusal === "ShipHasNoDroneBay" ? "Your ship has no drone bay." : "Your ship has no fighter bay.");
+      return true;
+    }
     // The drone commands (eveCommands.py): each on the drones this ship controls in space (michelle.GetDrones).
     const DRONE_COMMANDS = ["CmdDronesEngage", "CmdDronesReturnToBay", "CmdDronesReturnAndOrbit", "CmdLaunchFavoriteDrones",
       "CmdReconnectToDrones", "CmdToggleAggressivePassive", "CmdToggleDroneFocusFire"];
