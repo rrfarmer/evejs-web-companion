@@ -689,6 +689,8 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "air_npe.get_air_npe_state", "air_npe.get_air_npe_checkpoint_for_player",
   "structureAssetSafety.GetDefaultAssetSafetyDestination",
   "invCache.FetchItem",
+  // A drone's Assist and Guard (droneFunctions 118, 140): the gateway's list leaves them out by its own choice.
+  "entity.CmdAssist", "entity.CmdGuard",
   "invCache.InvalidateLocationCache",
   "invbroker.EnterPassword",
   "invbroker.GetPriceForItems",
@@ -1382,6 +1384,8 @@ const aJobAndItsSystem = (args, kwargs) => (args.length === 2 && Number.isSafeIn
 
 /** droneFunctions.py: an order to drones names them as a list, as every recorded one does. */
 const dronesListed = ([drones, ...rest], kwargs) => ({ args: [list(drones), ...rest], kwargs });
+/** droneFunctions.Assist / Guard (118, 140): the pilot first, then the drones a list. */
+const pilotThenDronesListed = ([charID, drones, ...rest], kwargs) => ({ args: [charID, list(drones), ...rest], kwargs });
 /** The address book's writes of owners (addressbookService.py 658, 674, 842): the owners a list, as the client's are. */
 const ownersListed = ([owners, ...rest], kwargs) => ({ args: [list(owners), ...rest], kwargs });
 /** Corporation contact editors confirm round(slider.value, 1), a Python float (corpAllianceContactManagementWindow.py 117). */
@@ -2730,6 +2734,10 @@ const RETAIL_CALLS = Object.freeze({
     "eveMoniker.GetEntityAccess().CmdMineRepeatedly(droneIDs, targetID): the drones a list and the active target. No recording has one."),
   "entity.CmdReconnectToDrones": reshaped(`${DRONE_FUNCTIONS}:254`, dronesListed,
     "eveMoniker.GetEntityAccess().CmdReconnectToDrones(droneCandidates), on a Moniker made for the order: the candidates a list of the balls in the park that are the pilot's drones and not under its control (ReconnectToDrones, 215 to 233, at most MAX_DRONE_RECONNECTS), from Reconnect to Lost Drones. It answers each failure as a UserError's name and values, which the client raises five seconds apart (256 to 258). In no recording."),
+  "entity.CmdAssist": reshaped(`${DRONE_FUNCTIONS}:118`, pilotThenDronesListed,
+    "eveMoniker.GetEntityAccess().CmdAssist(assistID, droneIDs): the fleet member the drones assist (a pilot, not a ball) and the drones a list, from a drone's Assist submenu. It answers the drones that could not (MultiDroneCmdResult). No recording has one."),
+  "entity.CmdGuard": reshaped(`${DRONE_FUNCTIONS}:140`, pilotThenDronesListed,
+    "eveMoniker.GetEntityAccess().CmdGuard(guardID, droneIDs): the fleet member the drones guard and the drones a list, from a drone's Guard submenu. It answers the drones that could not (MultiDroneCmdResult). No recording has one."),
   "entity.CmdSalvage": reshaped(`${DRONE_FUNCTIONS}:160`, salvaging,
     "eveMoniker.GetEntityAccess().CmdSalvage(droneIDs, targetID): the drones a list, and the active target or None, from a salvage drone's menu and the drones' primary action. It answers the drones that could not, each with why. No recording has one."),
   "accessGroupBookmarkMgr.BookmarkStaticLocation": typing(Object.freeze({

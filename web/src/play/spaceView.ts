@@ -280,6 +280,10 @@ export interface SpaceActions {
   scoopToCargo?(itemID: number): Promise<void>;
   /** menusvc.RealScoopToFleetHangar: ship.ScoopToFleetHangar(objectID), flown to within reach. */
   scoopToFleetHangar?(itemID: number): Promise<void>;
+  /** GetFleetMemberMenu's members: the fleet's in the ballpark, not the pilot, with their names and the watchlist's. */
+  fleetMembersHere?(): readonly { readonly charID: number; readonly name: string; readonly watched: boolean }[];
+  /** droneFunctions.Assist / Guard on these drones. */
+  droneFleetOrder?(kind: "assist" | "guard", charID: number, droneIDs: readonly number[]): void;
   /** Use Fitting Service: the fitting window (CmdOpenFitting). */
   openFitting?(): void;
   /** menuFunctions.SetName: the name asked (NamePopup) for one's own thing in space, with what it is called now. */
@@ -489,6 +493,19 @@ export class SpaceView {
       d.style.background = `rgba(${Math.round(c[0]! * 255)},${Math.round(c[1]! * 255)},${Math.round(c[2]! * 255)},${(c[3] ?? 1) * 0.5})`;
       el.prepend(d);
     }
+  }
+
+  /** menusvc.GetFleetMemberMenu: the members' entries for `run`, as the client lays them out. */
+  private fleetMemberMenu(run: (charID: number) => () => void, word: (label: string, fallback: string) => string): (ContextEntry | null)[] {
+    const all = [...(this.actions.fleetMembersHere?.() ?? [])].sort((a, b) => (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : a.name.toLowerCase() > b.name.toLowerCase() ? 1 : 0));
+    const entries = (list: typeof all): ContextEntry[] => list.map((m) => ({ label: m.name, run: run(m.charID) }));
+    const watched = all.filter((m) => m.watched);
+    const head: (ContextEntry | null)[] = watched.length ? [{ label: word("UI/Fleet/WatchList", "Watch List"), sub: entries(watched) }, null] : [];
+    if (!all.length) return [{ label: word("UI/Fleet/NoValidOptions", "No Valid Options"), disabled: "" }];
+    const chunks: (typeof all)[] = [];
+    for (let i = 0; i < all.length; i += 20) chunks.push(all.slice(i, i + 20));
+    if (chunks.length === 1) return [...head, ...entries(chunks[0]!)];
+    return [...head, ...chunks.map((c) => ({ label: `${c[0]!.name[0]} ... ${c[c.length - 1]!.name[0]}`, sub: entries(c) }))];
   }
 
   /**
@@ -2970,6 +2987,7 @@ export class SpaceView {
     // scoops after Show Info and the overview entry; Abandon Drone (DESTRUCTIVEGROUP) last (read off the live client's
     // menu for its own idle Mining Drone I)
     const droneChanges: ContextEntry[] = [];
+    const droneFleet: ContextEntry[] = [];
     let droneAbandon: ContextEntry | null = null;
     // CelestialChecker.OfferDroneMenu (menusvc._DroneMenu, DroneChecker's offers)
     if (category === 18 && this.actions.droneOrder) {
@@ -2990,6 +3008,15 @@ export class SpaceView {
       // OfferScoopDroneToBay: in space, within minWarpDistance (150 km), and IsScoopableDrone - no drone state (none
       // controls it: abandoned or left behind)
       if (!hasState && dist <= 150_000) droneChanges.push({ path: "UI/Drones/ScoopDroneToBay", label: word("UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"), run: order("scoop") });
+      // OfferDroneAssist / OfferDroneGuard: one's own drone under the active ship's control, in a fleet - each a
+      // submenu of GetFleetMemberMenu (the members in the ballpark save the pilot, by name; the watchlist's first under
+      // Watch List; past 20, by letters; none, No Valid Options)
+      if (owned && controlled && this.actions.inFleet?.() && this.actions.droneFleetOrder) {
+        const members = this.fleetMemberMenu((charID) => () => this.actions.droneFleetOrder?.("assist", charID, [id]), word);
+        const guard = this.fleetMemberMenu((charID) => () => this.actions.droneFleetOrder?.("guard", charID, [id]), word);
+        droneFleet.push({ path: "UI/Drones/DroneAssist", label: word("UI/Drones/DroneAssist", "Assist"), sub: members });
+        droneFleet.push({ path: "UI/Drones/DroneGuard", label: word("UI/Drones/DroneGuard", "Guard"), sub: guard });
+      }
       if (owned && hasState) droneAbandon = { path: "UI/Drones/AbandonDrone", label: word("UI/Drones/AbandonDrone", "Abandon Drone"), run: order("abandon") };
       if (out.length) out.push(null);
     }
@@ -3109,6 +3136,7 @@ export class SpaceView {
       if (inRange) broadcasts.push({ path: "UI/Fleet/FleetBroadcast/Commands/BroadcastHealTarget", label: word("UI/Fleet/FleetBroadcast/Commands/BroadcastHealTarget", "Broadcast: Repair Target"), icon: "res:/UI/Texture/eveicon/system_icons/heal_first_aid_16px.png", run: send("HealTarget") });
     }
     if (group !== null && shownInOverview) out.push(null, { path: "UI/Overview/RemoveGroupFromOverview", label: word("UI/Overview/RemoveGroupFromOverview", `Remove ${groupName} from Overview`, { groupName }), run: () => this.overview.setGroupShown(group, false) });
+    out.push(...droneFleet);
     if (broadcasts.length) out.push(null, ...broadcasts);
     if (droneAbandon) out.push(null, droneAbandon);
     // an empty group draws no line: no two lines together, none first or last

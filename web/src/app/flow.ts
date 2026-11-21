@@ -1222,6 +1222,7 @@ import {
   returnDronesToBay,
   salvageWithDrones,
   scoopDrones as scoopDronesCall,
+  droneFleetOrder,
 } from "../bridge/boundEntityWrites.ts";
 import { alignTo as alignToCall, alignToPosition as alignToPositionCall, alignToBookmark as alignToBookmarkCall, approach as approachCall, approachBookmark as approachBookmarkCall, approachMissionLocation as approachMissionLocationCall, autopilotWarp as autopilotWarpCall, warpToFleetMember as warpToFleetMemberCall, warpFleetToMember as warpFleetToMemberCall, toMemberBeacon as toMemberBeaconCall, warpToItem as warpToItemCall, goToPoint, keepAtRange as keepAtRangeCall, orbit as orbitCall, stopShip as stopShipCall, warpToBookmark as warpToBookmarkCall, warpToLaunch as warpToLaunchCall, warpToMissionLocation as warpToMissionLocationCall, warpToScanResult as warpToScanResultCall, type FlightNow, type SitesReadIn } from "../bridge/movementWrites.ts";
 import { dock as dockCall, dockAtStructure as dockAtStructureCall, enterWormhole as enterWormholeCall, isStation, jump as jumpCall, jumpThroughJumpGate as jumpThroughJumpGateCall, undock as undockCall, WORMHOLE_ENTRY_RANGE_M } from "../bridge/placeChanges.ts";
@@ -4430,6 +4431,8 @@ export interface AppFlow {
   onItemLaunch(listener: (ids: ReadonlyMap<number, readonly number[]>) => void): () => void;
   /** R25 — set drones on a target. */
   engageDrones(droneIDs: readonly number[], targetID: number): Promise<void>;
+  /** droneFunctions.Assist / Guard: the drones assist or guard a fleet member. */
+  droneFleetOrder(kind: "assist" | "guard", charID: number, droneIDs: readonly number[]): Promise<void>;
   /** R25 — put mining drones on a rock. */
   mineWithDrones(droneIDs: readonly number[], targetID: number): Promise<void>;
   /**
@@ -27898,6 +27901,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return true;
   }
 
+  async function droneFleetOrderOf(kind: "assist" | "guard", charID: number, droneIDs: readonly number[]): Promise<void> {
+    await runDroneAction(kind === "assist" ? "Assist" : "Guard", () => orderedThenRead(() => droneFleetOrder(bridgeDo, kind, charID, droneIDs)), () => null);
+  }
+
   async function returnDronesAndOrbit(droneIDs: readonly number[]): Promise<void> {
     await runDroneAction("Return and orbit", () => orderedThenRead(() => returnDronesHome(bridgeDo, droneIDs)), () => null);
   }
@@ -38457,6 +38464,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     recallDrones,
     reconnectDrones,
     returnDronesAndOrbit,
+    droneFleetOrder: droneFleetOrderOf,
     abandonDrones,
     changeDroneSettings,
     scoopDrones,

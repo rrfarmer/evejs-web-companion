@@ -107,6 +107,16 @@ export async function engageWithDrones(act: Ask, droneIDs: readonly number[], ta
 }
 
 /**
+ * droneFunctions.Assist / Guard: these drones assist or guard the fleet member `charID` (the pilot first, then the
+ * drones, the other way round from CmdEngage). With no drones nothing is asked. Answers what the server says of the
+ * drones that could not, as it came.
+ */
+export async function droneFleetOrder(act: Ask, kind: "assist" | "guard", charID: number, droneIDs: readonly number[]): Promise<JsonValue> {
+  if (droneIDs.length === 0) return null;
+  return act("entity", kind === "assist" ? "CmdAssist" : "CmdGuard", [charID, [...droneIDs]]);
+}
+
+/**
  * Sets these mining drones on `targetID`, to mine it until told otherwise. With no drones nothing is asked. Answers
  * what the server says of the drones that could not, as it came. Fails as the call fails.
  */

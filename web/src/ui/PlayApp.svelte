@@ -1750,6 +1750,17 @@
       openCargo: (id) => s.flow.openCargo(id),
       scoopToCargo: (id) => s.flow.scoopToCargo(id),
       scoopToFleetHangar: (id) => s.flow.scoopToFleetHangar(id),
+      fleetMembersHere: () => {
+        const fleet = s.store.fleet.get();
+        if (fleet.availability !== "ready") return [];
+        const here = new Set((s.store.space.get().snapshot?.entities ?? []).map((x) => x.characterID).filter((x): x is number => typeof x === "number"));
+        const resolved = s.store.names.get().resolved;
+        const ids = (fleet.fleet?.initState.value.members ?? []).map((m) => Number(m.charID)).filter((id) => id !== chosenCharacterID && here.has(id));
+        const missing = ids.filter((id) => resolved[nameKey("owner", id)] === undefined);
+        if (missing.length) s.flow.requestNames(missing.map((id) => ({ kind: "owner" as const, id })));
+        return ids.map((id) => ({ charID: id, name: resolved[nameKey("owner", id)] ?? String(id), watched: (fleet.watchlist ?? []).includes(id) }));
+      },
+      droneFleetOrder: (kind, charID, ids) => void s.flow.droneFleetOrder(kind, charID, ids).catch((cause) => notify({ kind: "danger", title: "Drones", detail: cause instanceof Error ? cause.message : String(cause) })),
       openFitting: () => open("fitting"),
       setName: (id, current) => { namingItem = { itemID: id, value: current }; s.flow.requestWords(["UI/Menusvc/SetName", "UI/Menusvc/TypeInNewName", "UI/Common/PleaseTypeSomething", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel"]); },
       inFleet: () => s.store.fleet.get().availability === "ready",
