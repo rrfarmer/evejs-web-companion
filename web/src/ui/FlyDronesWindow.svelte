@@ -625,6 +625,24 @@
       style:mask-image={`url(${clientTexture(row.sprite)})`} style:-webkit-mask-image={`url(${clientTexture(row.sprite)})`}></span>{:else}<span class="state-sprite"></span>{/if}
     {#if $viewIcons}{@render picture(row.typeID, row.label)}{/if}
     <span class="name">{row.label} <span class="state-word" style:color={row.color}>{row.unavailable ?? row.activity}</span></span>
+    {#if row.unavailable === null}
+      {@const id = row.itemIDs[0]!}
+      <!-- DroneInSpaceEntry.ConstructButtons (TORIGHT, so right to left): Return to Drone Bay, a ButtonSeperatorLine (1 px,
+           padded 4, opacity 0.1), Return and Orbit, the primary action (engage_target, its hint GetPrimaryActionName) -->
+      <span class="row-buttons">
+        <button type="button" class="command" title={say(miningIDs.includes(id) ? MENU_WORDS.mine : salvageIDs.includes(id) ? MENU_WORDS.salvage : MENU_WORDS.engage)} disabled={busy}
+          onclick={(e) => { e.stopPropagation(); void run(() => salvageIDs.includes(id) ? flow.salvageDrones([id], autoTargetID > 0 ? autoTargetID : null) : primaryAction([id])); }}>
+          <span class="glyph" style:background-image={`url(${ICON.engage})`}></span>
+        </button>
+        <button type="button" class="command" title={say(MENU_WORDS.orbit)} disabled={busy} onclick={(e) => { e.stopPropagation(); void run(() => flow.returnDronesAndOrbit([id])); }}>
+          <span class="glyph" style:background-image={`url(${ICON.orbit})`}></span>
+        </button>
+        <span class="sep row-sep" aria-hidden="true"></span>
+        <button type="button" class="command" title={say(MENU_WORDS.bay)} disabled={busy} onclick={(e) => { e.stopPropagation(); void run(() => flow.recallDrones([id])); }}>
+          <span class="glyph" style:background-image={`url(${ICON.recall})`}></span>
+        </button>
+      </span>
+    {/if}
     {@render gauges(row.damage)}
   </div>
 {/snippet}
@@ -924,5 +942,6 @@
   .menu.settings .check { display: inline-block; width: 16px; }
   /* ButtonSeperatorLine between Return and Orbit and Return to Drone Bay */
   .sep { width: 1px; height: 14px; margin: 0 3px; align-self: center; background: rgba(255, 255, 255, 0.15); }
+  .row .row-sep { flex: none; height: auto; align-self: stretch; margin: 4px; background: rgba(255, 255, 255, 0.1); }
   .state-word { margin-left: 4px; }
 </style>
