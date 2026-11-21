@@ -231,7 +231,7 @@ test("hosted pilots reach the in-process BFF while four other pilots are still w
   const { createInProcessFetch } = require("./inProcessFetch");
   const { loadBoundFleet } = await import("../web/src/app/api.ts");
   const { createAppFlow } = await import("../web/src/app/flow.ts");
-  const { bridgeLane, MAX_IN_FLIGHT } = await import("../web/src/app/transport.ts");
+  const { bridgeLane, hostedLane, MAX_IN_FLIGHT } = await import("../web/src/app/transport.ts");
   const { callMethod } = await import("../web/src/bridge/callMethod.ts");
   const { createClientStore } = await import("../web/src/store/clientStore.ts");
   const { promise: hold, resolve: release } = Promise.withResolvers();
@@ -271,29 +271,32 @@ test("hosted pilots reach the in-process BFF while four other pilots are still w
     assert.equal(started.ok, true);
   }
 
+  const before = { http: bridgeLane.inFlight(), hosted: hostedLane.inFlight(), queued: hostedLane.queued() };
   const slow = pilots.slice(0, MAX_IN_FLIGHT).map(options => loadBoundFleet(options));
   const read = loadBoundFleet(pilots[MAX_IN_FLIGHT]);
   const call = callMethod("account", "GetCashBalance", [false], null, pilots[MAX_IN_FLIGHT + 1]);
   const requests = Promise.allSettled([...slow, read, call]);
   try {
-    assert.deepEqual(
-      { inFlight: bridgeLane.inFlight(), queued: bridgeLane.queued(), carried: bridgeLane.carried() },
-      { inFlight: 0, queued: 0, carried: MAX_IN_FLIGHT + 2 },
-    );
+    assert.equal(hostedLane.inFlight() - before.hosted, MAX_IN_FLIGHT + 2);
+    assert.equal(hostedLane.queued(), before.queued);
+    assert.equal(bridgeLane.inFlight(), before.http);
     assert.deepEqual(await read, { ok: true });
     assert.equal((await call).result, 42);
-    assert.equal(bridgeLane.carried(), MAX_IN_FLIGHT);
+    assert.equal(hostedLane.inFlight() - before.hosted, MAX_IN_FLIGHT);
 
     const fallback = loadBoundFleet({ ...pilots[MAX_IN_FLIGHT], baseUrl: "http://elsewhere.test" });
     const fallbackInFlight = bridgeLane.inFlight();
     assert.deepEqual(await fallback, { ok: true });
-    assert.equal(fallbackInFlight, 1);
+    assert.equal(fallbackInFlight - before.http, 1);
     assert.deepEqual(forwarded, ["http://elsewhere.test/api/bridge/bound-fleet"]);
 
+    const replaced = loadBoundFleet({ ...pilots[0], fetch: async () => Response.json({ ok: true }) });
+    assert.equal(bridgeLane.inFlight() - before.http, 1);
+    await replaced;
     await assert.rejects(callMethod("beyonce", "CmdStop", [], null, {
       ...pilots[MAX_IN_FLIGHT + 1], pilot: true, confirm: true,
       signal: AbortSignal.abort(new Error("command retired")),
-    }), { code: "BRIDGE_NETWORK_ERROR", status: 0, message: /command retired/ });
+    }), { code: "BRIDGE_NETWORK_ERROR", status: 0, message: /command retired.*Hosted BFF/ });
   } finally {
     release();
     await requests;
@@ -302,7 +305,7 @@ test("hosted pilots reach the in-process BFF while four other pilots are still w
   assert.deepEqual(received, pilots.map((options, i) => [
     i === MAX_IN_FLIGHT + 1 ? "/api/bridge/call" : "/api/bridge/bound-fleet", `Bearer ${options.token}`,
   ]));
-  assert.equal(bridgeLane.carried(), 0);
+  assert.equal(hostedLane.inFlight(), before.hosted);
 });
 
 test("unsafe browser handoff refuses before hosted selection and releases only its temporary claim", async () => {

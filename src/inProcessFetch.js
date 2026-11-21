@@ -1,5 +1,7 @@
 "use strict";
 
+const { localApiUrl } = require("../web/src/app/transport.ts");
+
 // A fetch for whoever asks the BFF from inside the BFF's own process.
 //
 // The hosted bots (src/botHost.js) run the page's own flows in this process,
@@ -76,7 +78,7 @@ function responseOf(status, headers, body) {
  * everything that is not the BFF's own API goes (the world's, unless given).
  */
 function createInProcessFetch(app, options = {}) {
-  const origin = new URL(options.baseUrl).origin;
+  const base = new URL(options.baseUrl);
   const elsewhere = typeof options.fetch === "function" ? options.fetch : (input, init) => globalThis.fetch(input, init);
 
   function answered(request, signal) {
@@ -151,20 +153,9 @@ function createInProcessFetch(app, options = {}) {
     });
   }
 
-  function localApiUrl(input, body) {
-    if (typeof input !== "string" && !(input instanceof URL)) return null;
-    if (body !== undefined && body !== null && typeof body !== "string") return null;
-    try {
-      const url = new URL(input, options.baseUrl);
-      return url.origin === origin && url.pathname.startsWith("/api/") ? url : null;
-    } catch {
-      return null;
-    }
-  }
-
   function inProcessFetch(input, init = {}) {
     const body = init.body;
-    const url = localApiUrl(input, body);
+    const url = localApiUrl(input, init, base);
     if (url === null) return elsewhere(input, init);
     const text = typeof body === "string";
     const signal = init.signal || null;
@@ -178,7 +169,7 @@ function createInProcessFetch(app, options = {}) {
   }
 
   // Share the routing check with callers deciding whether to reserve an HTTP lane.
-  inProcessFetch.isInProcessRequest = (input, init) => localApiUrl(input, init?.body) !== null;
+  inProcessFetch.isInProcessRequest = (input, init) => localApiUrl(input, init, base) !== null;
   return inProcessFetch;
 }
 

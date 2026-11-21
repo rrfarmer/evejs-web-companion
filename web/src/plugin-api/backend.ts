@@ -18,6 +18,7 @@
 // reach. Node calls its model a seat belt for trusted code, not a sandbox
 // against hostile code, and so does this file.
 
+import { hostedFetch, localApiUrl, type RequestPriority } from "../app/transport.ts";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { PluginManifest } from "./index.ts";
@@ -85,8 +86,6 @@ export interface PluginRunContext {
   readonly baseUrl: string;
   /** The BFF, as this pilot's session. Core refuses a select, the session's end, and starting or stopping a bot. */
   readonly fetch: typeof fetch;
-  /** Core dispatches this run's same-origin API requests with a text or empty body inside the BFF. */
-  readonly inProcessBff?: boolean;
   report(report: PluginRunReport): void;
 }
 
@@ -224,8 +223,9 @@ function answerFetch(answer: RunFetchAnswer): void {
 }
 
 /** `fetch`'s own shape, so a flow cannot tell: each request goes to core over the channel, as this run. */
-function runFetch(botID: string): typeof fetch {
-  return (async (input: string | URL | Request, init: RequestInit = {}) => {
+function runFetch(spec: RunSpec): typeof fetch {
+  const botID = spec.botID;
+  const sendRequest = async (input: string | URL | Request, init: RequestInit = {}, priority?: RequestPriority) => {
     // A Request carries what `init` otherwise would, and `init` wins, as in fetch.
     const given = input instanceof Request ? input : null;
     const url = given?.url ?? String(input);
@@ -246,9 +246,14 @@ function runFetch(botID: string): typeof fetch {
         fetchesInFlight.delete(id);
       }, { once: true });
       fetchesInFlight.set(id, { resolve, reject, body: null });
-      send({ type: "runFetch", id, botID, url, method, headers, body, redirect });
+      send({ type: "runFetch", id, botID, url, method, headers, body, redirect, priority });
     });
-  }) as typeof fetch;
+  };
+  if (!spec.inProcessBff) return sendRequest;
+  const base = new URL(spec.baseUrl);
+  // IPC sends a Request as its URL and text body, just as sendRequest does above.
+  return hostedFetch(sendRequest, String(spec.characterID), (input, init) =>
+    localApiUrl(input instanceof Request ? input.url : input, init, base) !== null);
 }
 
 interface CompiledRoute {
@@ -382,8 +387,7 @@ export function startBackend(definition: BackendDefinition): void {
                 held: spec.held,
                 routeSettings: spec.routeSettings ?? {},
                 baseUrl: spec.baseUrl,
-                fetch: runFetch(spec.botID),
-                ...(spec.inProcessBff === true ? { inProcessBff: true } : {}),
+                fetch: runFetch(spec),
                 report: (report) => send({ type: "runReport", botID: spec.botID, report }),
               }));
               runsFlying.set(spec.botID, flying);

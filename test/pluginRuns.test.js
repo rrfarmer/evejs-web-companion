@@ -42,17 +42,20 @@ startBackend({
     },
     "POST /pilot-requests": async () => {
       const source = ${JSON.stringify(pathToFileURL(WEB_SRC + path.sep).href)};
-      const [{ createPilotSession }, { loadBoundFleet }, { bridgeLane }, { callMethod }] = await Promise.all(
+      const [{ createPilotSession }, { loadBoundFleet }, { bridgeLane, hostedRoute }, { callMethod }] = await Promise.all(
         ["plugin-api/pilotSession.ts", "app/api.ts", "app/transport.ts", "bridge/callMethod.ts"]
           .map(file => import(new URL(file, source))),
       );
-      // Run instrumentation may wrap fetch while keeping the run's options.
-      const { flow } = await createPilotSession({ ...flying, fetch: (input, init) => flying.fetch(input, init) });
+      const { flow } = await createPilotSession(flying);
       flow.setLivePush(false);
-      while (bridgeLane.inFlight() || bridgeLane.queued() || bridgeLane.carried()) {
+      const options = flow.requestOptions();
+      const lane = hostedRoute(options.fetch, new URL("/api/", flying.baseUrl).href, {})?.lane ?? bridgeLane;
+      const deadline = Date.now() + 2000;
+      while (lane.inFlight() || lane.queued()) {
+        if (Date.now() >= deadline) throw new Error("Pilot attachment did not settle");
         await new Promise(resolve => setTimeout(resolve, 5));
       }
-      const options = { ...flow.requestOptions(), fetch: flying.fetch };
+      const before = { active: lane.inFlight(), queued: lane.queued() };
       const { bridgeDo } = flow.flying;
       pilotRequests = Promise.all([
         loadBoundFleet(options).then(answer => answer.result),
@@ -67,7 +70,7 @@ startBackend({
         }).then(() => null, error => error.code);
         return { replies, cancelled };
       }).catch(error => ({ error: error.message }));
-      return { body: { inFlight: bridgeLane.inFlight(), queued: bridgeLane.queued(), carried: bridgeLane.carried() } };
+      return { body: { inFlight: lane.inFlight() - before.active, queued: lane.queued() - before.queued } };
     },
     "GET /pilot-requests": async () => ({ body: await pilotRequests }),
     "POST /report-too-much": () => {
@@ -125,6 +128,8 @@ function makeRoot() {
   fs.mkdirSync(path.join(root, "node_modules"), { recursive: true });
   fs.mkdirSync(path.join(root, "data"), { recursive: true });
   fs.copyFileSync(path.join(REPO, "web", "src", "plugin-api", "backend.ts"), path.join(root, "web", "src", "plugin-api", "backend.ts"));
+  fs.mkdirSync(path.join(root, "web", "src", "app"), { recursive: true });
+  fs.copyFileSync(path.join(WEB_SRC, "app", "transport.ts"), path.join(root, "web", "src", "app", "transport.ts"));
   fs.writeFileSync(path.join(root, "plugins", "probe", "backend.ts"), BACKEND);
   fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ type: "module" }));
   return root;
@@ -376,17 +381,30 @@ for (const reach of ["inprocess", "loopback", "fallback"]) {
     });
     const started = await f.startRun();
     assert.equal(started.ok, true, started.message);
+    const { hostedLane, HOSTED_MAX_IN_FLIGHT } = require("../web/src/app/transport.ts");
+    const slots = local ? Array.from({ length: HOSTED_MAX_IN_FLIGHT - 2 }, () => Promise.withResolvers()) : [];
+    const before = hostedLane.queued();
+    // Leave two slots in the parent BFF. The child has its own budget, and must share the parent with other pilots.
+    const occupants = slots.map((slot, id) => hostedLane.run("read", "/api/held", () => slot.promise, { pilot: String(id) }));
     let settled;
     try {
       const admission = await f.request("POST", "/pilot-requests");
       assert.equal(admission.status, 200, admission.body?.message);
+      if (local) {
+        assert.ok(await until(() => hostedLane.queued() - before === 4 && seen.length === 2, 2000));
+        // Three queued writes can start. The fast AddTarget reply then frees a slot for the fleet read.
+        for (const slot of slots.slice(0, 3)) slot.resolve();
+      }
       assert.ok(await until(() => seen.length >= 6 - admission.body.queued, 2_000), JSON.stringify(seen));
+      if (local) assert.ok(seen.indexOf("AddTarget") < seen.indexOf("fleet-menu"), "IPC preserves command priority at the parent");
       assert.equal(seen.length, local ? 6 : 4, "BFF arrivals while four replies are held");
       assert.deepEqual(answered.sort(), local ? [...fast].sort() : []);
-      assert.deepEqual(admission.body, local ? { inFlight: 0, queued: 0, carried: 6 }
-        : { inFlight: 4, queued: 2, carried: 0 });
+      assert.deepEqual(admission.body, local ? { inFlight: 6, queued: 0 }
+        : { inFlight: 4, queued: 2 });
     } finally {
+      for (const slot of slots) slot.resolve();
       release();
+      await Promise.all(occupants);
       settled = await f.request("GET", "/pilot-requests");
     }
     assert.equal(settled.status, 200);
