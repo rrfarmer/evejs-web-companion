@@ -545,7 +545,7 @@ export class Overview {
         ${sub === "types" ? `<div class="ov-filt-bar"><button type="button" class="ov-filt-all">${esc(word("UI/Common/SelectAll", "Select All"))}</button><button type="button" class="ov-filt-none">${esc(word("UI/Common/DeselectAll", "Deselect All"))}</button>
           <input class="ov-filt-search" placeholder="${esc(word("UI/Common/Search", "Search"))}" value="${esc(search)}" autocomplete="off"></div>
         <div class="ov-filt-tree">${tree}</div>` : statesPane}
-        <div class="ov-add-buttons"><button type="button" class="ov-filt-revert"${hasOverrides(changed) ? "" : " disabled"}>${esc(word("UI/Common/Buttons/Revert", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "Revert"))}</button></div></div>`;
+        <div class="ov-add-buttons"><button type="button" class="ov-filt-revert"${hasOverrides(changed) ? "" : " disabled"}>${esc(word("UI/Common/Buttons/Revert", "Revert"))}</button></div></div>`;
     };
     // AppearancePanel: the two checkboxes, the note and the two apply-to checkboxes, the Colortag / Background lists (each
     // state's checkbox, its text and, while on, its flag; dragged to reorder) and Reset All
@@ -607,8 +607,8 @@ export class Overview {
       return `<div class="ov-set-panel ov-misc"><div class="ov-misc-head">${esc(word("UI/Overview/BracketAndTargetsHeader", "Brackets and Targets"))}</div>
         ${box("targetCrosshair", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "Show Targeting Crosshair")}
         ${box("damageIndications", "UI/Overview/DisplayDamageIndications", "Display Damage Indications")}
-        ${box("moduleLinks", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "Display Active Module Links")}
-        ${box("inRange", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "Display In-Range Brackets")}
+        ${box("moduleLinks", "UI/Overview/DisplayModuleLinks", "Display Active Module Links")}
+        ${box("inRange", "UI/Overview/DisplayRangeBrackets", "Display In-Range Brackets")}
         ${box("inRangeShips", "UI/Overview/Ships", "Ships", true)}${box("inRangeNPCs", "UI/Overview/NPCs", "NPCs", true)}${box("inRangeDrones", "UI/Overview/Drones", "Drones", true)}
         <div class="ov-add-buttons"><button type="button" class="ov-misc-reset">${esc(word("UI/Overview/ResetOverview", "Reset All Settings"))}</button></div></div>`;
     };
