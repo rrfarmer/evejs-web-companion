@@ -448,6 +448,9 @@ export class SpaceView {
    * whose result has played, and whether the sweep's end has.
    */
   private sweep: { start: number; viewAngle: number; delays: Map<string, number>; played: Set<string>; ended: boolean } | null = null;
+  /** The pointer's place on the page (the sensor overlay's mouse tracking), and the site its sound is on. */
+  private pointerAt: { x: number; y: number; target: EventTarget | null } | null = null;
+  private sensorSoundSite: string | null = null;
   /** A system entered and its sweep not yet begun (the sites not yet read). */
   private sweepDue: { at: number } | null = null;
   private readonly bracketEls = new Map<number, HTMLDivElement>();
@@ -1269,6 +1272,7 @@ export class SpaceView {
     this.root.appendChild(this.brackets);
     this.sensorLayer.className = "sensor-overlay";
     this.root.appendChild(this.sensorLayer);
+    document.addEventListener("pointermove", (e) => { this.pointerAt = { x: e.clientX, y: e.clientY, target: e.target }; }, { passive: true });
     this.targetingCursor.className = "targeting-cursor";
     this.targetingCursor.hidden = true;
     this.targetingCursor.setAttribute("aria-hidden", "true");
@@ -3415,7 +3419,8 @@ export class SpaceView {
         el.classList.add(s.kind);
         const id = s.targetID;
         const hoverSound = s.kind === "signature" ? "ui_scanner_state_signature" : s.kind === "anomaly" ? "ui_scanner_state_anomaly" : null;
-        el.addEventListener("mouseenter", () => { el!.classList.add("hover"); if (hoverSound) void playUiEvent(hoverSound); });
+        el.dataset.sound = hoverSound ?? "";
+        el.addEventListener("mouseenter", () => el!.classList.add("hover"));
         el.addEventListener("mouseleave", () => el!.classList.remove("hover"));
         const bookmarkID = s.bookmarkID ?? null;
         el.addEventListener("dblclick", (ev) => {
@@ -3481,6 +3486,30 @@ export class SpaceView {
       }
     }
     for (const [id, el] of this.sensorEls) if (!seen.has(id)) { el.remove(); this.sensorEls.delete(id); }
+    // UpdateMouseTracking: over space, the closest pickable site within MAX_MOUSEOVER_RANGE (40 px) of the pointer with a
+    // hover sound (anomalies, signatures) - as it becomes the one, its hoverSoundEvent, ui_scanner_state_difficulty_easy
+    // and ui_scanner_mouseover; none left, ui_scanner_mouseover_stop (DisableMouseOverSound)
+    const at = this.pointerAt;
+    const overSpace = at !== null && at.target instanceof Node && (at.target === this.renderer.domElement || this.brackets.contains(at.target) || this.sensorLayer.contains(at.target));
+    let closest: { id: string; d: number; sound: string } | null = null;
+    if (overSpace && at) {
+      for (const [id, el] of this.sensorEls) {
+        if (el.style.display === "none" || el.style.pointerEvents === "none" || !el.dataset.sound) continue;
+        const r = el.getBoundingClientRect();
+        const dx = r.left + r.width / 2 - at.x, dy = r.top + r.height / 2 - at.y;
+        const d = dx * dx + dy * dy;
+        if (d < 1600 && (!closest || d < closest.d)) closest = { id, d, sound: el.dataset.sound };
+      }
+    }
+    if (closest && closest.id !== this.sensorSoundSite) {
+      this.sensorSoundSite = closest.id;
+      void playUiEvent(closest.sound);
+      void playUiEvent("ui_scanner_state_difficulty_easy");
+      void playUiEvent("ui_scanner_mouseover");
+    } else if (!closest && this.sensorSoundSite !== null) {
+      this.sensorSoundSite = null;
+      void playUiEvent("ui_scanner_mouseover_stop");
+    }
     // the sweep's end (grace + cycle): ui_scanner_stop, the brackets pickable again, and a second on DoScanEnded's
     // ui_scanner_result_positive (sites found) or _negative
     if (sweep && !sweep.ended && (now - sweep.start) / 1000 >= 13) {
