@@ -352,12 +352,14 @@ export class Overview {
     // OverviewScrollEntry.OnMouseEnter / OnMouseExit: stateSvc.SetState(itemID, mouseOver, 1 / 0)
     this.tbody.addEventListener("mouseover", (e) => {
       const id = Number((e.target as HTMLElement).closest("tr")?.dataset.id);
-      if (id && id !== this.hovered) this.hooks.hover?.(id);
+      // (SE_BaseClassCore.OnMouseEnter: sound_hover, SOUND_ENTRY_HOVER, as the row lights)
+      if (id && id !== this.hovered) { void playUiEvent("ui_button_soft2_play"); this.hooks.hover?.(id); }
     });
     this.tbody.addEventListener("mouseleave", () => this.hooks.hover?.(null));
     this.tbody.addEventListener("click", (e) => {
       const id = Number((e.target as HTMLElement).closest("tr")?.dataset.id);
-      if (id) this.hooks.select(id);
+      // OverviewScrollEntry.OnClick: prompt_player_fsd_dialog('ListEntryClick') - an audio message, msg_ListEntryClick_play
+      if (id) { void playUiEvent("msg_ListEntryClick_play"); this.hooks.select(id); }
     });
     this.tbody.addEventListener("dblclick", (e) => {
       const id = Number((e.target as HTMLElement).closest("tr")?.dataset.id);
