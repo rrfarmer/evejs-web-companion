@@ -324,6 +324,8 @@ export interface SpaceActions {
   safetySelector?(at: DOMRect | null): void;
   /** crimewatchSvc.GetSafetyLevel: 0 none, 1 partial, 2 full; null where not known. */
   safetyLevel?(): 0 | 1 | 2 | null;
+  /** GetBookmarkMenuForNavigation: the Locations entry of the system's bookmarks (none where none, or not read yet). */
+  locationsMenu?(): (ContextEntry | null)[];
   /** sensorSuite.GetAnomalies for the system the pilot is in (empty where not read yet: the read is started). */
   anomalies?(): readonly AnomalySite[];
   /** A site warped to by its scan id (menusvc.WarpToScanResult), at the range. */
@@ -3188,6 +3190,8 @@ export class SpaceView {
     // sensorSuite.GetAnomalies: Anomalies (AnomalySiteFilterLabel), its sites by scan group (_GetAnomaliesMenu)
     const sites = this.actions.anomalies?.() ?? [];
     if (sites.length) menu.push({ label: word("UI/Inflight/Scanner/AnomalySiteFilterLabel", "Anomalies"), icon: "res:/UI/Texture/Shared/Brackets/combatSite_16.png", sub: this.anomaliesMenu(sites) });
+    // bookmarkSvc.GetBookmarkMenuForNavigation: Locations, the system's bookmarks
+    menu.push(...(this.actions.locationsMenu?.() ?? []));
     this.radial.close();
     this.contextMenu.open(x, y, menu);
   }
