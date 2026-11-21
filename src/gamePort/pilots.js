@@ -1531,9 +1531,7 @@ function createGamePortPilots({
   }
 
   /** invCache229-307 holds its per-item lock across cache, godma's demanded
-   * RPC and IM-finally work. Different items do not share that lock. Keep the
-   * aggregate only as the existing reader's completion barrier, not a global
-   * inventory lock or a native tasklet scheduler. */
+   * RPC and IM-finally work. Different items do not share that lock. */
   function inventoryItemChanged(entry, row, change) {
     const itemID = rowFields(row)?.itemID;
     const lockKey = positive(itemID) ?? itemID;
@@ -1551,15 +1549,21 @@ function createGamePortPilots({
     const settled = work.catch(() => {});
     entry.inventoryItemWork.set(lockKey, settled);
     settled.then(() => { if (entry.inventoryItemWork.get(lockKey) === settled) entry.inventoryItemWork.delete(lockKey); });
-    entry.itemWork = Promise.all([entry.itemWork, settled]).then(() => {});
   }
 
   // Local static-data work may finish asynchronously in this host. Keep raw
   // socket dispatch free to receive replies; readers wait on its completion.
   function keepDogmaWork(entry, work) {
     if (!work || typeof work.then !== "function") return;
-    const settled = work.catch(() => {});
-    entry.itemWork = Promise.all([entry.itemWork, settled]).then(() => {});
+    const forget = () => { entry.pendingDogmaWork.delete(settled); };
+    const settled = Promise.resolve(work).then(forget, forget);
+    entry.pendingDogmaWork.add(settled);
+  }
+
+  function waitForItemWork(entry) {
+    // Wait for the work pending at this read. Chaining barriers on ingress
+    // keeps unrelated, completed notices behind a slow item.
+    return Promise.all([...entry.inventoryItemWork.values(), ...entry.pendingDogmaWork]);
   }
 
   /**
@@ -1584,7 +1588,7 @@ function createGamePortPilots({
     const place = whereabouts(entry);
     await shipReadings(entry, place);
     // A module just fitted is as the server has answered of it, once it has.
-    await entry.itemWork;
+    await waitForItemWork(entry);
     // Only the row godma was primed with for this ship where it is now: never an earlier ship's, or this one's from
     // somewhere it has left, when the priming for here did not come.
     const kept = entry.dogmaLoaded === primedFor(entry, place) ? entry.shipRow : null;
@@ -1848,9 +1852,9 @@ function createGamePortPilots({
        * The inventory cache owns each binding. These references keep its key and godma's public location only. */
       godmaLocations: new Map(),
       godmaPrimeVersion: 0,
-      /** Completion barrier for independent per-item notice/refresh/online work. */
-      itemWork: Promise.resolve(),
+      /** The last pending notice for each item, and independent asynchronous dogma work. */
       inventoryItemWork: new Map(),
+      pendingDogmaWork: new Set(),
       /** The pilot's scan probes as the client's scan service knows them (pilotScanner.js). */
       scanner: createPilotScanner({ typeAttribute }),
       /** The pilot's fleet as the client's fleet service keeps it (pilotFleet.js): read once, kept right by the server's notices. */
@@ -2633,7 +2637,7 @@ function createGamePortPilots({
     if (retailNeeds(service, method) === "buy") await saleAveragesRead(entry, [Array.isArray(args) ? args[1] : null]);
     if (retailNeeds(service, method) === "dogma") {
       await shipReadings(entry, whereabouts(entry));
-      await entry.itemWork;
+      await waitForItemWork(entry);
     }
     // The client's agents service has the table of agents from when its character was chosen, and asks for it only
     // where it has none.
@@ -4742,7 +4746,7 @@ function createGamePortPilots({
     const place = whereabouts(entry);
     await shipReadings(entry, place);
     // A module just fitted is as the server has answered of it, once it has.
-    await entry.itemWork;
+    await waitForItemWork(entry);
     if (!place.shipID || entry.dogmaLoaded !== primedFor(entry, place) || !entry.allInfo) return undefined;
     return entry.dogma.allInfoNow(entry.allInfo, place.shipID);
   }
