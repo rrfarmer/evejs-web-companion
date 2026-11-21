@@ -4457,7 +4457,15 @@ test("different modules fitted at once can refresh independently, and a read of 
   assert.deepEqual((await reading).online.sort((a, b) => a - b), [SHIP + 1, SHIP + 8, SHIP + 9]);
 });
 
-test("completed inventory notices are collectible while another item is waiting for its RPC", { skip: !global.gc, timeout: 5000 }, async (t) => {
+// A collector without --expose-gc on the command line: the test runner starts each file in a process of its own and
+// does not pass that flag on, so a test that waits for global.gc never runs under `npm test`.
+const collectGarbage = () => {
+  require("node:v8").setFlagsFromString("--expose-gc");
+  return require("node:vm").runInNewContext("gc");
+};
+
+test("completed inventory notices are collectible while another item is waiting for its RPC", { timeout: 5000 }, async (t) => {
+  const gc = collectGarbage();
   const waiting = Promise.withResolvers();
   const requested = Promise.withResolvers();
   const moduleID = SHIP + 9;
@@ -4479,16 +4487,16 @@ test("completed inventory notices are collectible while another item is waiting 
     return result;
   });
 
-  const recording = require("./fixtures/godmaPriming.json");
   const references = Array.from({ length: 4 }, () => {
-    const notice = recordedNotifications(recording).find(each => each.method === "OnItemsChanged");
+    // Decoded afresh each time, so each notice is objects of its own for the references to watch.
+    const notice = recordedNotifications(primingRecording).find(each => each.method === "OnItemsChanged");
     session.notify(notice.method, notice.args, notice.service);
     return [new WeakRef(notice.args[0].items[0]), new WeakRef(notice.args[1])];
   }).flat();
   try {
     for (let turn = 0; turn < 4; turn++) {
       await settled();
-      global.gc();
+      gc();
     }
     assert.equal(readDone, false, "shipInfo still waits for the in-flight module refresh");
     assert.ok(references.every(ref => ref.deref() === undefined), "completed rows or change dicts are still retained");

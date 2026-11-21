@@ -1555,9 +1555,9 @@ function createGamePortPilots({
   // socket dispatch free to receive replies; readers wait on its completion.
   function keepDogmaWork(entry, work) {
     if (!work || typeof work.then !== "function") return;
-    const forget = () => { entry.pendingDogmaWork.delete(settled); };
-    const settled = Promise.resolve(work).then(forget, forget);
+    const settled = Promise.resolve(work).then(() => {}, () => {});
     entry.pendingDogmaWork.add(settled);
+    settled.then(() => { entry.pendingDogmaWork.delete(settled); });
   }
 
   function waitForItemWork(entry) {
