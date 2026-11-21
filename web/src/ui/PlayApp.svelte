@@ -1704,6 +1704,11 @@
       recordCameraTask: s.flow.recordCameraTask,
       overviewPilotID: s.store.station.get().online?.characterID,
       onSelectionChange: (id) => (spaceSelected = id),
+      pilotName: (characterID) => {
+        const name = resolvedName(s.store.names.get().resolved, "owner", characterID, "");
+        if (!name) s.flow.requestNames([{ kind: "owner", id: characterID }]);
+        return name || null;
+      },
       // menusvc.CharacterMenu under "Pilot (<name>)" (UI/Common/Pilot), in the client's order (read through gridcheck),
       // the entries the page has a way for: Show Info, Give Money, Block, Send Message, Form Fleet With..., Invite to Duel
       pilotMenu: (characterID) => {

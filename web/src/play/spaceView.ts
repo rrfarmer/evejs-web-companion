@@ -190,6 +190,8 @@ export interface SpaceViewOptions {
   entryWarpHistory?: Promise<boolean | null>;
   recordCameraTask?: (event: CameraTaskEvent) => void;
   overviewPilotID?: number;
+  /** A character's name (cfg.eveowners), asked for where not yet had; null until it is. */
+  pilotName?: (characterID: number) => string | null;
   /** menusvc's "Pilot (<name>)" entry for a ship another pilot flies: its CharacterMenu as a submenu; null for none. */
   pilotMenu?: (characterID: number) => ContextEntry | null;
   /** stateSvc's selected state changed (an object selected, or none): for the panels that show it (the drone entries). */
@@ -805,6 +807,14 @@ export class SpaceView {
    */
   private nameOf(e: Entity): string {
     const typeName = e.typeID !== null ? this.names?.types[String(e.typeID)]?.[0] ?? null : null;
+    // uix.GetSlimItemName: a ship with no pilot, or the pilot's own ship not the one flown, is its type; one a character
+    // flies is that character's name (the overview's Name, the bracket's, the Selected Item's)
+    if ((e.categoryID === 6 || e.kind === "ship") && !e.isNpc) {
+      const pilot = e.characterID ?? null;
+      if (!pilot || (pilot === this.options.overviewPilotID && !e.isSelf)) return typeName ?? e.name ?? e.kind;
+      const name = this.options.pilotName?.(pilot) ?? null;
+      if (name) return name;
+    }
     if (e.categoryID === 6 || e.isNpc || e.kind === "ship") return e.name ?? typeName ?? e.kind;
     if (e.categoryID === 25 || e.groupID === 711) return typeName ?? e.name ?? e.kind;
     const located = this.actions.locationName?.(e.itemID) ?? null;
