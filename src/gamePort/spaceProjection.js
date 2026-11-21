@@ -244,6 +244,9 @@ function projectEntity(park, ball, slim, ego, placed) {
     position: vector(placed(ball).p),
     velocity: vector(placed(ball).v),
     isSelf: ego !== null && ball.id === ego,
+    // The ball's own flags the menus read: free (CelestialChecker.IsFree, ball.isFree) and moribund (IsDead).
+    ...(ball.isFree ? { isFree: true } : {}),
+    ...(ball.isMoribund ? { isMoribund: true } : {}),
     ...healthOf(park.damageState.get(ball.id), seen === undefined ? 0 : park.currentTime - seen),
   };
   // The activate space component's state (slimItem.component_activate = (isActive, activeTimestamp), activate.py

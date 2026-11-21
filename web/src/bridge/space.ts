@@ -198,6 +198,10 @@ function decodeEntity(value: JsonValue): SpaceEntity | null {
     // FLOAT read (it is a price, not a count) and absent decodes to null: an
     // unpriceable ore is unknown, never worthless.
     oreValuePerM3: floatOrNull(raw.oreValuePerM3),
+    // The activate space component state (component_activate) and the ball flags the menus read, where the BFF says them.
+    ...(typeof raw.componentActive === "boolean" ? { componentActive: raw.componentActive } : {}),
+    ...(raw.isFree === true ? { isFree: true } : {}),
+    ...(raw.isMoribund === true ? { isMoribund: true } : {}),
     // R25 slice B — ship rows only. An ABSENT isNpc decodes to FALSE, which is
     // the safe direction: a row we cannot classify is treated as a person, so
     // the panel never invents a threat. npcEntityType stays null.

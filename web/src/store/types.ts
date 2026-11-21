@@ -2093,6 +2093,10 @@ export interface SpaceEntity {
    * null is never a zero, which would rank a rock as worthless.
    */
   readonly oreValuePerM3: number | null;
+  /** The activate space component isActive (component_activate); the ball is free; the ball is moribund. Absent where not. */
+  readonly componentActive?: boolean;
+  readonly isFree?: boolean;
+  readonly isMoribund?: boolean;
   /**
    * R25 slice B — SHIP rows only. The only thing that separates a pirate from a
    * person.

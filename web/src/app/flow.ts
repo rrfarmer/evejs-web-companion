@@ -3167,6 +3167,8 @@ export interface AppFlow {
   renameSpaceItem(itemID: number, name: string): Promise<void>;
   /** menusvc.Scoop: flown to within reach (GetCloseAndTryCommand), then ship.Scoop(itemID); the holds read again. */
   scoopToCargo(itemID: number): Promise<void>;
+  /** menusvc.RealScoopToFleetHangar: ship.ScoopToFleetHangar(objectID), flown to within reach. */
+  scoopToFleetHangar(itemID: number): Promise<void>;
   /** deploy.DeployAction: LaunchFromShip(items, charID, maxQty=1) - ship.Drop of one of each stack; the holds read again. */
   deployItems(itemIDs: readonly number[]): Promise<void>;
   /** itemCompression.CompressItemInSpace(item, ballID): whether the stack was compressed (an answer other than None). */
@@ -19633,6 +19635,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function scoopToCargo(itemID: number): Promise<void> {
     await navigateSystemTo(itemID, CARGO_INTERACTION_RANGE_M, async () => {
       await bridgeDo("ship", "Scoop", [itemID]);
+      await loadMiningHolds().catch(() => {});
+    });
+  }
+  async function scoopToFleetHangar(itemID: number): Promise<void> {
+    await navigateSystemTo(itemID, CARGO_INTERACTION_RANGE_M, async () => {
+      await bridgeDo("ship", "ScoopToFleetHangar", [itemID]);
       await loadMiningHolds().catch(() => {});
     });
   }
@@ -37732,6 +37740,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     deployItems,
     renameSpaceItem,
     scoopToCargo,
+    scoopToFleetHangar,
     corporationAllianceID,
     placeBounty,
     topBounties,

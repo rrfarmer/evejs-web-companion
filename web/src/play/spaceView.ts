@@ -102,7 +102,17 @@ export interface Entity {
   jumpBridge?: JumpBridgeSlim;
   /** The activate space component's isActive (component_activate); absent where the thing has none. */
   componentActive?: boolean;
+  /** The ball is free (ball.isFree) and moribund (ball.isMoribund); absent where not. */
+  isFree?: boolean;
+  isMoribund?: boolean;
 }
+
+/** invConst.nonScoopableTypes (3698585): the jettison Cargo Container (23) and two more. */
+const NON_SCOOPABLE_TYPES: ReadonlySet<number> = new Set([23, 2263, 41567]);
+/** evetypes.GetIsGroupAnchorableByGroup, every group whose anchorable flag is set (3698585). */
+const ANCHORABLE_GROUPS: ReadonlySet<number> = new Set([307, 311, 336, 340, 361, 363, 364, 365, 397, 404, 413, 414, 416,
+  417, 418, 426, 430, 438, 439, 440, 441, 443, 444, 445, 448, 449, 471, 473, 480, 707, 709, 710, 835, 836, 837, 838, 839,
+  1004, 1005, 1025, 1073, 1106, 1149, 1212, 1282, 4736]);
 interface ItemAction {
   key: string;
   title: string;
@@ -268,6 +278,8 @@ export interface SpaceActions {
   openCargo?(itemID: number): Promise<void>;
   /** menusvc.Scoop: flown to within reach, then ship.Scoop(itemID). */
   scoopToCargo?(itemID: number): Promise<void>;
+  /** menusvc.RealScoopToFleetHangar: ship.ScoopToFleetHangar(objectID), flown to within reach. */
+  scoopToFleetHangar?(itemID: number): Promise<void>;
   /** Use Fitting Service: the fitting window (CmdOpenFitting). */
   openFitting?(): void;
   /** menuFunctions.SetName: the name asked (NamePopup) for one's own thing in space, with what it is called now. */
@@ -477,6 +489,33 @@ export class SpaceView {
       d.style.background = `rgba(${Math.round(c[0]! * 255)},${Math.round(c[1]! * 255)},${Math.round(c[2]! * 255)},${(c[3] ?? 1) * 0.5})`;
       el.prepend(d);
     }
+  }
+
+  /**
+   * CelestialChecker.IsScoopable: never a non-scoopable type; a drone or biomass always, a free structure; nothing
+   * dead; a thing with a scoop component once active, if it is the pilot's own; for a freighter's pilot a freight
+   * container or a free anchorable that is no container; else a free anchorable, a cargo or freight container. (The
+   * fighter case - one not in the pilot's own squadrons - is left out: the page has no fighters.)
+   */
+  private isScoopable(e: Entity, comps: ReturnType<typeof spaceComponentsNow>): boolean {
+    const typeID = e.typeID ?? null;
+    if (typeID !== null && NON_SCOOPABLE_TYPES.has(typeID)) return false;
+    if (e.isSelf) return false;
+    const group = e.groupID ?? null, category = (e as Entity & { categoryID?: number | null }).categoryID ?? null;
+    if (group === 14 || category === 18) return true;
+    if (category === 65 && e.isFree) return true;
+    if (e.isMoribund) return false;
+    if (typeID !== null && comps.scoop.has(typeID) && isActiveComponent(comps, typeID, e.componentActive)) {
+      return e.ownerID != null && e.ownerID === this.snapshot?.ship?.ownerID;
+    }
+    const anchorable = group !== null && ANCHORABLE_GROUPS.has(group);
+    const shipGroup = this.snapshot?.ship?.groupID ?? null;
+    if (shipGroup === 513 || shipGroup === 902) {
+      if (group === 649) return true;
+      return anchorable && !!e.isFree && group !== 448 && group !== 340 && group !== 12;
+    }
+    if (anchorable && e.isFree) return true;
+    return group === 12 || group === 649;
   }
 
   /**
@@ -2926,7 +2965,13 @@ export class SpaceView {
     const warpRanges = [0, 10000, 20000, 30000, 50000, 70000, 100000];
     const within = (r: number) => word("UI/Inflight/WarpToWithin", `Within ${fmtDistance(r)}`, { distance: fmtDistance(r) });
     const out: (ContextEntry | null)[] = [];
-    // CelestialChecker.OfferDroneMenu: a drone's own menu first (menusvc._DroneMenu, DroneChecker's offers)
+    // The drone's own entries (menusvc._DroneMenu) fall in menuUtil's groups as the client sorts them: Engage / Mine /
+    // Salvage (ACTIONSGROUP) first; Return and Orbit, Return to Drone Bay, Scoop to Drone Bay (CHANGESGROUP) with the
+    // scoops after Show Info and the overview entry; Abandon Drone (DESTRUCTIVEGROUP) last (read off the live client's
+    // menu for its own idle Mining Drone I)
+    const droneChanges: ContextEntry[] = [];
+    let droneAbandon: ContextEntry | null = null;
+    // CelestialChecker.OfferDroneMenu (menusvc._DroneMenu, DroneChecker's offers)
     if (category === 18 && this.actions.droneOrder) {
       const ship = this.snapshot?.ship ?? null;
       const ego = this.snapshot?.entities.find((x) => x.isSelf) ?? null;
@@ -2940,10 +2985,12 @@ export class SpaceView {
       if (controlled && !mining && !unanchoring && !salvage) out.push({ path: "UI/Drones/EngageTarget", label: word("UI/Drones/EngageTarget", "Engage Target"), run: order("primary") });
       if (controlled && mining) out.push({ path: "UI/Drones/MineWithDrone", label: word("UI/Drones/MineWithDrone", "Mine"), run: order("primary") });
       else if (controlled && salvage) out.push({ path: "UI/Drones/Salvage", label: word("UI/Drones/Salvage", "Salvage"), run: order("primary") });
-      if (controlled && owned) out.push({ path: "UI/Drones/ReturnDroneAndOrbit", label: word("UI/Drones/ReturnDroneAndOrbit", "Return and Orbit"), run: order("orbit") });
-      if (hasState && owned) out.push({ path: "UI/Drones/ReturnDroneToBay", label: word("UI/Drones/ReturnDroneToBay", "Return to Drone Bay"), run: order("bay") });
-      if (owned && dist < 150_000) out.push({ path: "UI/Drones/ScoopDroneToBay", label: word("UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"), run: order("scoop") });
-      if (owned && hasState) out.push({ path: "UI/Drones/AbandonDrone", label: word("UI/Drones/AbandonDrone", "Abandon Drone"), run: order("abandon") });
+      if (controlled && owned) droneChanges.push({ path: "UI/Drones/ReturnDroneAndOrbit", label: word("UI/Drones/ReturnDroneAndOrbit", "Return and Orbit"), run: order("orbit") });
+      if (hasState && owned) droneChanges.push({ path: "UI/Drones/ReturnDroneToBay", label: word("UI/Drones/ReturnDroneToBay", "Return to Drone Bay"), run: order("bay") });
+      // OfferScoopDroneToBay: in space, within minWarpDistance (150 km), and IsScoopableDrone - no drone state (none
+      // controls it: abandoned or left behind)
+      if (!hasState && dist <= 150_000) droneChanges.push({ path: "UI/Drones/ScoopDroneToBay", label: word("UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"), run: order("scoop") });
+      if (owned && hasState) droneAbandon = { path: "UI/Drones/AbandonDrone", label: word("UI/Drones/AbandonDrone", "Abandon Drone"), run: order("abandon") };
       if (out.length) out.push(null);
     }
     if (warp) {
@@ -3002,7 +3049,8 @@ export class SpaceView {
     if (fittingRange !== undefined && mine && active && dist <= fittingRange && this.actions.openFitting) {
       out.push({ path: "UI/Fitting/UseFittingService", label: word("UI/Fitting/UseFittingService", "Use Fitting Service"), run: () => this.actions.openFitting?.() });
     }
-    if (this.actions.saveLocation && category !== 11 && category !== 6) out.push({ path: "UI/Inflight/BookmarkLocation", label: word("UI/Inflight/BookmarkLocation", "Save Location..."), run: () => this.actions.saveLocation?.(id, e.typeID ?? null) });
+    // OfferBookmarkLocation: not an entity, drone, ship or fighter
+    if (this.actions.saveLocation && category !== 11 && category !== 6 && category !== 18 && category !== 87) out.push({ path: "UI/Inflight/BookmarkLocation", label: word("UI/Inflight/BookmarkLocation", "Save Location..."), run: () => this.actions.saveLocation?.(id, e.typeID ?? null) });
     // OfferSetName: one's own specific thing (not a drone, fighter or biomass, not a ship: that is the ship naming
     // window), after Save Location...
     if (mine && !e.isSelf && e.kind !== "drone" && e.kind !== "fighter" && category !== 6 && category !== 18 && category !== 87 && this.actions.setName) {
@@ -3016,8 +3064,13 @@ export class SpaceView {
     if (bay && active && (mine || bay[1]) && this.actions.openCargo) {
       out.push({ path: "UI/Commands/OpenCargo", label: word("UI/Commands/OpenCargo", "Open Cargo"), run: run("Open Cargo", () => this.actions.openCargo!(id)) });
     }
-    if (typeID !== null && comps.scoop.has(typeID) && active && mine && this.actions.scoopToCargo) {
+    out.push(...droneChanges);
+    // OfferScoopToCargoHold (IsScoopable) and OfferScoopToFleetHangar (the same, a ship with hasFleetHangars, 911)
+    if (this.isScoopable(e, comps) && this.actions.scoopToCargo) {
       out.push({ path: "UI/Inflight/ScoopToCargoHold", label: word("UI/Inflight/ScoopToCargoHold", "Scoop to Cargo Hold"), run: run("Scoop", () => this.actions.scoopToCargo!(id)) });
+      if ((this.actions.shipAttribute?.(911) ?? 0) > 0 && this.actions.scoopToFleetHangar) {
+        out.push({ path: "UI/Inflight/ScoopToFleetHangar", label: word("UI/Inflight/ScoopToFleetHangar", "Scoop to Fleet Hangar"), run: run("Scoop", () => this.actions.scoopToFleetHangar!(id)) });
+      }
     }
     if (group === 7 && this.options.viewPlanet) out.push({ path: "UI/PI/Common/ViewInPlanetMode", label: word("UI/PI/Common/ViewInPlanetMode", "View Planetary Industry"), icon: I("enter_planet_view"), run: () => void this.options.viewPlanet?.(id) });
     if (group === 7) {
@@ -3057,6 +3110,7 @@ export class SpaceView {
     }
     if (group !== null && shownInOverview) out.push(null, { path: "UI/Overview/RemoveGroupFromOverview", label: word("UI/Overview/RemoveGroupFromOverview", `Remove ${groupName} from Overview`, { groupName }), run: () => this.overview.setGroupShown(group, false) });
     if (broadcasts.length) out.push(null, ...broadcasts);
+    if (droneAbandon) out.push(null, droneAbandon);
     // an empty group draws no line: no two lines together, none first or last
     return out.filter((x, i, all) => x !== null || (i > 0 && i < all.length - 1 && all[i - 1] !== null));
   }

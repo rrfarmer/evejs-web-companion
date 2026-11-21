@@ -1749,6 +1749,7 @@
       },
       openCargo: (id) => s.flow.openCargo(id),
       scoopToCargo: (id) => s.flow.scoopToCargo(id),
+      scoopToFleetHangar: (id) => s.flow.scoopToFleetHangar(id),
       openFitting: () => open("fitting"),
       setName: (id, current) => { namingItem = { itemID: id, value: current }; s.flow.requestWords(["UI/Menusvc/SetName", "UI/Menusvc/TypeInNewName", "UI/Common/PleaseTypeSomething", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel"]); },
       inFleet: () => s.store.fleet.get().availability === "ready",
