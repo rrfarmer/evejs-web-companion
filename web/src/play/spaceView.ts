@@ -342,6 +342,8 @@ export interface SpaceActions {
   missionSites?(): readonly { readonly key: string; readonly name: string; readonly position: readonly [number, number, number] }[];
   /** A mission bookmark's menu (BookmarkMenu's moves), by its key. */
   missionMenu?(key: string): (ContextEntry | null)[];
+  /** scanSvc.AlignToPosition: aligned to a point. */
+  alignToPoint?(position: readonly [number, number, number]): Promise<void>;
   /** menusvc.AlignToBookmark. */
   alignToBookmark?(bookmarkID: number): Promise<void>;
   /** sensorSuite.GetAnomalies for the system the pilot is in (empty where not read yet: the read is started). */
@@ -3397,7 +3399,8 @@ export class SpaceView {
         const bookmarkID = s.bookmarkID ?? null;
         el.addEventListener("dblclick", (ev) => {
           ev.stopPropagation();
-          if (s.kind === "mission") { this.actions.missionMenu?.(id).find((x): x is ContextEntry => x !== null)?.run?.(); return; }
+          // SensorSuiteBracket.OnDblClick: AlignTo - scanSvc.AlignToPosition on the site's place (a bookmark's AlignToBookmark)
+          if (s.kind === "mission" && s.position) { const at = s.position; void this.act("Align", () => this.actions.alignToPoint?.(at) ?? Promise.resolve()); return; }
           void this.act("Align", () => (bookmarkID !== null ? this.actions.alignToBookmark?.(bookmarkID) : this.actions.alignToSite?.(id)) ?? Promise.resolve());
         });
         el.addEventListener("contextmenu", (ev) => {

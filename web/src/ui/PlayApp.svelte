@@ -1984,6 +1984,7 @@
       },
       bookmarkMenu: (bookmarkID) => bookmarkMenus.get(bookmarkID) ?? [],
       alignToBookmark: (bookmarkID) => s.flow.alignToBookmark(bookmarkID),
+      alignToPoint: (position) => s.flow.alignToPoint(position),
       missionSites: () => missionSpotSites,
       missionMenu: (key) => missionSpotMenus.get(key) ?? [],
       signatures: () => {
@@ -2049,12 +2050,25 @@
             text = text.replace(" - Moon ", " - M");
             if (text.endsWith("- ")) text = text.slice(0, -2);
             const d = storeValue(s.flow.warpDistance) || 0;
-            const sub: ContextEntry[] = [
+            const sub: (ContextEntry | null)[] = [
               { path: "UI/Inflight/Submenus/WarpToWithin", label: word("UI/Inflight/Submenus/WarpToWithin", "Warp to Within"), icon: "res:/UI/Texture/eveicon/control_icons/warp_to_16px.png",
                 run: () => ran(s.flow.warpToMissionBookmark(spot, d)), sub: [0, 10_000, 20_000, 30_000, 50_000, 70_000, 100_000].map((r) => ({ label: within(r), run: () => ran(s.flow.warpToMissionBookmark(spot, r)) })) },
             ];
             const near = ship && spot.x != null && spot.y != null && spot.z != null ? Math.hypot(spot.x - ship.position.x, spot.y - ship.position.y, spot.z - ship.position.z) < 150_000 : false;
             if (near) sub.push({ path: "UI/Inflight/ApproachLocationActionGroup", label: word("UI/Inflight/ApproachLocationActionGroup", "Approach Location"), icon: "res:/UI/Texture/eveicon/control_icons/approach_16px.png", run: () => ran(s.flow.approachMissionBookmark(spot)) });
+            // _BookmarkMenu's rest for the agent's bookmark: Show Info first (its thing's), Dock where it is a station in the
+            // system, Set Destination / Add Waypoint on its place, a line, Look at where the ballpark has its thing
+            const item = spot.itemID ?? null;
+            const ent = item !== null ? (snapshot?.entities ?? []).find((e) => e.itemID === item) ?? null : null;
+            if (item !== null) sub.unshift({ path: "UI/Commands/ShowInfo", label: word("UI/Commands/ShowInfo", "Show Info"), info: true,
+              run: () => { void s.flow.infoWindows.show({ kind: "spaceObject", itemID: item, typeID: ent?.typeID ?? spot.typeID ?? null }, {}).catch(() => {}); } });
+            if (item !== null && item >= 60_000_000 && item < 64_000_000 && ent) sub.splice(1, 0, { path: "UI/Inflight/DockInStation", label: word("UI/Inflight/DockInStation", "Dock"), icon: "res:/UI/Texture/eveicon/control_icons/dock_16px.png", run: () => ran(s.flow.dockAt(item)) });
+            const place = item !== null && ((item >= 60_000_000 && item < 64_000_000) || (item >= 40_000_000 && item < 50_000_000)) ? item : spot.solarSystemID;
+            const waypoints = storeValue(s.flow.waypoints);
+            if (place !== null && place !== systemID && waypoints[waypoints.length - 1] !== place) sub.push({ path: "UI/Inflight/SetDestination", label: word("UI/Inflight/SetDestination", "Set Destination"), run: () => s.flow.setDestination(place) });
+            if (place !== null) sub.push(waypoints.includes(place) ? { path: "UI/Inflight/RemoveWaypoint", label: word("UI/Inflight/RemoveWaypoint", "Remove Waypoint"), run: () => s.flow.clearWaypoints(place) }
+              : { path: "UI/Inflight/AddWaypoint", label: word("UI/Inflight/AddWaypoint", "Add Waypoint"), run: () => s.flow.addWaypoint(place) });
+            if (ent) { sub.push(null); sub.push({ path: "UI/Inflight/LookAtObject", label: word("UI/Inflight/LookAtObject", "Look at"), run: () => view?.lookAtItem(item!) }); }
             // the overlay's MissionBracket: at the thing's place (GetBookmarkPosition) or the bookmark's point
             const key = `ms:${spot.agentID}:${spot.locationType}:${spot.locationNumber}`;
             const thing = spot.itemID != null ? (snapshot?.entities ?? []).find((e) => e.itemID === spot.itemID) ?? null : null;
