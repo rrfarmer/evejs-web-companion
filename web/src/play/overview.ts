@@ -14,7 +14,7 @@ import { ContextMenu, type ContextEntry } from "./contextMenu.ts";
 const MAX_TAB_NUM = 20;
 const MAX_TAB_NAME_LENGTH = 15;
 /** A tab's settings (presetSvc's settingsByTabID): its name, overview preset and bracket preset (null: Show All Brackets). */
-interface TabSettings { name: string; preset: string; bracket: string | null; columns?: ColumnID[] }
+interface TabSettings { name: string; preset: string; bracket: string | null; columns?: ColumnID[]; order?: ColumnID[] }
 /** The pilot's tabs once changed (added, renamed, filtered, deleted): the whole list, kept per pilot in this browser. */
 const TABS_KEY = "evejs-play-overview-tabSettings";
 /** categories.CATEGORY_ICONS (eveicon star, warp_to, target, user_plus, mining at 16). */
@@ -97,7 +97,8 @@ export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HI
   "UI/Overview/ShowAll", "UI/Overview/HideAll", "UI/Overview/AddTabInstructions", "UI/Overview/TypeInLabel", "UI/Overview/Filter",
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
   "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
-  "UI/Overview/EditCurrentFilter", "UI/Commands/ChangeName", "UI/Overview/DeleteTab", "/Carbon/UI/Controls/ScrollEntries/TypeInNewName"];
+  "UI/Overview/EditCurrentFilter", "UI/Commands/ChangeName", "UI/Overview/DeleteTab", "/Carbon/UI/Controls/ScrollEntries/TypeInNewName",
+  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
 const DISABLED_TEXT = "Header sorting is disabled";
 
 /**
@@ -308,10 +309,79 @@ export class Overview {
     head.addEventListener("pointerover", () => { this.lockIcon.title = this.hooks.word?.(SORT_DISABLED) ?? DISABLED_TEXT; });
   }
 
-  /** The chosen tab's columns (presetSvc.GetTabVisibleColumnIDs), in ALL_COLUMNS' order. */
-  private visibleColumns(): readonly ColumnDef[] {
-    const shown = new Set<ColumnID>(this.tabSettings[this.tab]?.columns ?? DEFAULT_VISIBLE);
-    return COLUMNS.filter((c) => shown.has(c.id));
+  /** overviewColumns.GetColumnOrder, with ColumnsPanel.LoadColumns' missing columns after: every column in the tab's order. */
+  private columnOrder(tab = this.tab): readonly ColumnDef[] {
+    const order = this.tabSettings[tab]?.order ?? [];
+    const byID = new Map(COLUMNS.map((c) => [c.id, c]));
+    return [...order.flatMap((id) => byID.get(id) ?? []), ...COLUMNS.filter((c) => !order.includes(c.id))];
+  }
+
+  /** overviewColumns.GetColumns: the tab's visible columns (presetSvc.GetTabVisibleColumnIDs) in the tab's order. */
+  private visibleColumns(tab = this.tab): readonly ColumnDef[] {
+    const shown = new Set<ColumnID>(this.tabSettings[tab]?.columns ?? DEFAULT_VISIBLE);
+    return this.columnOrder(tab).filter((c) => shown.has(c.id));
+  }
+
+  /**
+   * ColumnConfigurationWindow (400 x 440, "UI/Overview/TabColumnsCaption"): ColumnsPanel's hint, Reset Columns
+   * (ResetTabVisibleColumnIDs and ResetTabColumnOrder), and each column in the tab's order with its checkbox; a column
+   * dragged onto another goes before it (MoveColumn), onto the list's end last.
+   */
+  openColumnOrder(tab = this.tab): void {
+    const word = (label: string, own: string, args?: Readonly<Record<string, string | number>>) => this.hooks.word?.(label, args) ?? own;
+    document.querySelector(".ov-columns-window")?.closest(".pw")?.remove();
+    const tabName = this.tabSettings[tab]?.name ?? "";
+    const win = new PlayWindow({ id: "overview-columns", caption: word("UI/Overview/TabColumnsCaption", `Columns: ${tabName}`, { tabName }),
+      left: Math.round(innerWidth / 2 - 200), top: Math.round(innerHeight / 2 - 220), width: 400, height: 440, minWidth: 400, minHeight: 440 });
+    win.body.classList.add("ov-columns-window");
+    const draw = () => {
+      const shown = new Set(this.visibleColumns(tab).map((c) => c.id));
+      win.body.innerHTML = `<p class="ov-columns-hint"></p><div class="ov-columns-list">${this.columnOrder(tab).map((c) =>
+        `<label class="ov-columns-row" draggable="true" data-col="${c.id}"><input type="checkbox"${shown.has(c.id) ? " checked" : ""}><span>${esc(word(c.label, c.own))}</span></label>`).join("")}<div class="ov-columns-end" data-col=""></div></div>
+        <div class="ov-add-buttons"><button type="button" class="ov-columns-reset"></button></div>`;
+      win.body.querySelector(".ov-columns-hint")!.textContent = word("UI/Overview/HintToggleDisplayStateAndOrder", "Toggle the columns shown, and drag them into the order you want.");
+      win.body.querySelector(".ov-columns-reset")!.textContent = word("UI/Overview/ResetColumns", "Reset Columns");
+    };
+    const save = () => {
+      try { localStorage.setItem(this.tabsKey, JSON.stringify(this.tabSettings)); } catch { /* the change lasts the page */ }
+      if (tab === this.tab) this.drawHead();
+      draw();
+    };
+    win.body.addEventListener("change", (e) => {
+      const row = (e.target as HTMLElement).closest<HTMLElement>(".ov-columns-row");
+      const t = this.tabSettings[tab];
+      if (!row || !t) return;
+      const id = row.dataset.col as ColumnID;
+      const now = new Set<ColumnID>(t.columns ?? DEFAULT_VISIBLE);
+      if ((e.target as HTMLInputElement).checked) now.add(id); else now.delete(id);
+      t.columns = COLUMNS.filter((c) => now.has(c.id)).map((c) => c.id);
+      save();
+    });
+    let dragged: ColumnID | null = null;
+    win.body.addEventListener("dragstart", (e) => { dragged = ((e.target as HTMLElement).closest<HTMLElement>(".ov-columns-row")?.dataset.col as ColumnID) ?? null; });
+    win.body.addEventListener("dragover", (e) => { if (dragged) e.preventDefault(); });
+    win.body.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const t = this.tabSettings[tab];
+      const onto = (e.target as HTMLElement).closest<HTMLElement>("[data-col]");
+      if (!t || !dragged || !onto) return;
+      const order = this.columnOrder(tab).map((c) => c.id).filter((id) => id !== dragged);
+      const at = onto.dataset.col ? order.indexOf(onto.dataset.col as ColumnID) : order.length;
+      order.splice(at < 0 ? order.length : at, 0, dragged);
+      t.order = order;
+      dragged = null;
+      save();
+    });
+    win.body.addEventListener("click", (e) => {
+      if (!(e.target as HTMLElement).closest(".ov-columns-reset")) return;
+      const t = this.tabSettings[tab];
+      if (!t) return;
+      delete t.columns;
+      delete t.order;
+      save();
+    });
+    draw();
+    (this.window.root.parentElement ?? document.body).append(win.root);
   }
 
   /** The header and the columns' widths, for the tab's columns. */
@@ -343,6 +413,7 @@ export class Overview {
       label: word(c.label, c.own), checkbox: true, checked: shown.has(c.id), hint: c.hint ? word(c.hint, "") || null : null,
       run: () => this.setColumnShown(c.id, !shown.has(c.id)),
     }));
+    out.push(null, { label: word("UI/Overview/ChangeOrder", "Change Order..."), run: () => this.openColumnOrder() });
     out.push(null, {
       label: word(SORT_ENABLED, "Header sorting enabled"), checkbox: true, checked: this.sortEnabled, hint: word(SORT_HINT, "") || null,
       run: () => {
@@ -354,15 +425,24 @@ export class Overview {
     return out;
   }
 
-  /** ColumnSetting's change (_OnColumnCheckbox): the column shown or not on the chosen tab, kept with the tab. */
-  private setColumnShown(id: ColumnID, shown: boolean): void {
-    const t = this.tabSettings[this.tab];
+  /** GetColumnVisibilitySubMenu(tabID): each column's checkbox for that tab, then Change Order. */
+  private columnsSubMenu(tab: number): (ContextEntry | null)[] {
+    const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
+    const shown = new Set(this.visibleColumns(tab).map((c) => c.id));
+    return [...COLUMNS.map((c): ContextEntry => ({ label: word(c.label, c.own), checkbox: true, checked: shown.has(c.id),
+      hint: c.hint ? word(c.hint, "") || null : null, run: () => this.setColumnShown(c.id, !shown.has(c.id), tab) })),
+      null, { label: word("UI/Overview/ChangeOrder", "Change Order..."), run: () => this.openColumnOrder(tab) }];
+  }
+
+  /** ColumnSetting's change (_OnColumnCheckbox): the column shown or not on a tab, kept with the tab. */
+  private setColumnShown(id: ColumnID, shown: boolean, tab = this.tab): void {
+    const t = this.tabSettings[tab];
     if (!t) return;
     const now = new Set<ColumnID>(t.columns ?? DEFAULT_VISIBLE);
     if (shown) now.add(id); else now.delete(id);
     t.columns = COLUMNS.filter((c) => now.has(c.id)).map((c) => c.id);
     try { localStorage.setItem(this.tabsKey, JSON.stringify(this.tabSettings)); } catch { /* the change lasts the page */ }
-    this.drawHead();
+    if (tab === this.tab) this.drawHead();
   }
 
   /** The sorted column's head marked, with the way it runs. */
@@ -418,7 +498,8 @@ export class Overview {
       const v = JSON.parse(localStorage.getItem(this.tabsKey) ?? "null") as TabSettings[] | null;
       const tabs = Array.isArray(v) ? v.filter((t) => typeof t?.name === "string" && typeof t.preset === "string") : [];
       return tabs.length ? tabs.map((t) => ({ name: t.name, preset: t.preset, bracket: typeof t.bracket === "string" ? t.bracket : null,
-        ...(Array.isArray(t.columns) ? { columns: t.columns.filter((c) => COLUMNS.some((d) => d.id === c)) } : {}) })) : null;
+        ...(Array.isArray(t.columns) ? { columns: t.columns.filter((c) => COLUMNS.some((d) => d.id === c)) } : {}),
+        ...(Array.isArray(t.order) ? { order: t.order.filter((c) => COLUMNS.some((d) => d.id === c)) } : {}) })) : null;
     } catch {
       return null;
     }
@@ -464,6 +545,7 @@ export class Overview {
       { label: word("UI/Overview/BracketFilter", "Bracket Filter"), sub: bracketFilters },
       null,
       { label: word("UI/Commands/ChangeName", "Change Name"), run: () => this.renameTab(i) },
+      { label: word("UI/Generic/Columns", "Columns"), sub: this.columnsSubMenu(i) },
     ];
     if (this.tabSettings.length > 1) {
       out.push({ label: word("UI/Overview/DeleteTab", "Delete Tab"), run: () => {
