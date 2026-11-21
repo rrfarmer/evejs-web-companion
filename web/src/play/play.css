@@ -375,6 +375,8 @@ button { font: inherit; color: inherit; }
 .ov-app-bg.blink { animation: state-flag-blink 1s ease-in-out infinite; }
 /* UseSmallFont: the entries in EVE_SMALL_FONTSIZE; UseSmallColortags: the flags 6 x 6 without their glyph */
 .ov.ov-small-font .ov-table { font-size: 12px; }
+/* GetEntryHeight: small text 17 high, compact or not */
+.ov.ov-small-font .ov-table td, .pw.ov-compact .ov.ov-small-font .ov-table td { height: 17px; }
 .ov-small-tags .ov-table .state-flag { width: 6px; height: 6px; }
 .ov-small-tags .bracket .bracket-flag .state-flag { width: 5px; height: 5px; left: 10px; top: 10px; }
 .ov-small-tags .ov-table .state-flag > span, .ov-small-tags .bracket .state-flag > span { display: none; }
