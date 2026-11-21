@@ -3154,6 +3154,8 @@ export interface AppFlow {
    * (QuickHasKillRight: GetKillRightsFromCache), with GetMyKillRights' own rights on them (fromID me, toID them).
    */
   bountiesAndKillRights(ownerIDs: readonly number[], characterIDs: readonly number[]): Promise<{ wanted: Set<number>; killRights: Set<number> }>;
+  /** itemCompression.CompressItemInSpace(item, ballID): whether the stack was compressed (an answer other than None). */
+  compressItemAt(itemID: number, facilityBallID: number): Promise<boolean>;
   /** bountySvc.GetBounties: each owner's bounty (0 where none), the owners named. */
   bountyAmounts(ownerIDs: readonly number[]): Promise<Map<number, number>>;
   /** BountyWindow.GetEntities for a corporation: its alliance (corpmgr.GetPublicInfo(corpID).allianceID), null for none. */
@@ -19560,6 +19562,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     nameOwners(ownerIDs);
     return out;
+  }
+  async function compressItemAt(itemID: number, facilityBallID: number): Promise<boolean> {
+    const result = await compressItemInSpace(bridgeDo, itemID, facilityBallID);
+    return result !== null && result !== undefined;
   }
   async function corporationAllianceID(corporationID: number): Promise<number | null> {
     return corporationPublicInfoOf(await bridgeAsk("corpmgr", "GetPublicInfo", [corporationID]))?.allianceID ?? null;
@@ -37627,6 +37633,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     ownerWars,
     bountiesAndKillRights,
     bountyAmounts,
+    compressItemAt,
     corporationAllianceID,
     placeBounty,
     topBounties,
