@@ -1,3 +1,8 @@
+<script lang="ts" module>
+  // one drag for every inventory window: a stack dragged out of a container drops on the ship's tree, and back
+  let dragging: { from: string; ids: number[] } | null = null;
+</script>
+
 <script lang="ts">
   // The active ship's inventory window in space, laid out as the 3698585 client's ActiveShipCargo (invWindow.Inventory,
   // 600 x 450): the tree at the left (TREE_DEFAULT_WIDTH 160) with the ship as "<name> (<type>)" - its cargo - and its
@@ -25,7 +30,14 @@
   import { compressItemsInSpace } from "./compressInSpace.ts";
   import { INV_ITEMS_DRAG_TYPE } from "./droneGroups.ts";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  /**
+   * containerMode: the secondary inventory window a thing in space opens (Inventory.OpenOrShow on its invID: a can, a
+   * wreck, a deployable's cargo bay) - the opened container alone (store.inventory.container), no tree; items drag
+   * between it and the active ship's window (the drag is shared by both windows).
+   */
+  let { store, flow, containerMode = false }: { store: ClientStore; flow: AppFlow; containerMode?: boolean } = $props();
+  // svelte-ignore state_referenced_locally
+  const inventoryState = store.inventory;
   // svelte-ignore state_referenced_locally
   const mining = store.mining;
   // svelte-ignore state_referenced_locally
@@ -58,7 +70,7 @@
     ["UI/Common/Type", "UI/Inventory/TypeReversed", "type", "Type", "Type (reversed)"], ["UI/Inventory/EstPrice", "UI/Inventory/EstPriceReversed", "estPrice", "Est. Price", "Est. Price (reversed)"]] as const;
   /** invCont.GetViewModeName / GetViewModeIcon. */
   const VIEW_MODES = [["icons", "UI/Inventory/Icons", "Icons", "grid_view"], ["details", "UI/Inventory/Details", "Details", "details_view"], ["list", "UI/Inventory/List", "List", "list_view"]] as const;
-  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Common/SortBy", "UI/Inventory/ViewMode",
+  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SortBy", "UI/Inventory/ViewMode",
     "UI/Inventory/Filters/MyFilters", "UI/Common/NothingFound", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
   flow.requestWords(WORDS);
   const word = (label: string, own: string, args: Record<string, string | number> = {}) => {
@@ -85,6 +97,12 @@
   const droneBayCapacity = $derived(($fitting.shipAttributes?.[283] as number | undefined) ?? null);
   const bays = $derived.by((): Bay[] => {
     const out: Bay[] = [];
+    if (containerMode) {
+      const c = $inventoryState.container;
+      if (c) out.push({ key: "container", label: "", items: c.rows.map((i) => ({ itemID: i.itemID, typeID: i.typeID, quantity: i.quantity < 0 ? 1 : i.quantity, singleton: i.singleton, categoryID: i.categoryID })),
+        capacity: c.capacity?.capacity ?? null, used: c.capacity?.used ?? null });
+      return out;
+    }
     for (const h of $mining.holds) {
       if (!h.present) continue;
       const def = h.key === "cargo" ? CARGO_HOLD : SHIP_HOLDS.find((d) => d.bayKey === h.key);
@@ -112,7 +130,8 @@
   });
 
   /** The bay shown (the tree's selected node): the one a hold button asked for, else the cargo. */
-  let current = $state("cargo");
+  // svelte-ignore state_referenced_locally
+  let current = $state(containerMode ? "container" : "cargo");
   function takeRequest(): void {
     const asked = shipHoldTarget.take();
     if (asked) current = asked.key;
@@ -206,12 +225,14 @@
     if (!e.shiftKey) lastClicked = id;
   }
   /** A bay's place for the moves (invCtrl: the cargo, or the ship bay by its flag). */
-  const placeOf = (key: string) => (key === "cargo" ? { kind: "cargo" as const } : { kind: "shipBay" as const, bay: key });
+  /** IsLootable: a can or a wreck in space (a deployable's cargo bay has no Loot All). */
+  const lootable = $derived.by(() => { const id = $inventoryState.container?.itemID; const e = id ? $space.snapshot?.entities.find((x) => x.itemID === id) : null; return e?.kind === "wreck" || e?.kind === "container"; });
+  const placeOf = (key: string) => (key === "cargo" ? { kind: "cargo" as const } : key === "container" ? { kind: "container" as const, itemID: store.inventory.get().container?.itemID ?? 0 } : { kind: "shipBay" as const, bay: key });
   /**
    * The drag (InvItem.GetDragData: the selected items where the dragged one is among them) and its drop on a bay in the
    * tree (TreeViewEntryInventory.OnDropData: the items moved into that bay's inventory, invCtrl.AddItems).
    */
-  let dragging: { from: string; ids: number[] } | null = null;
+  // (the drag is the module's: see the module script)
   let dropKey = $state<string | null>(null);
   let moveError = $state("");
   function dragStart(id: number, e: DragEvent): void {
@@ -317,7 +338,8 @@
   }
 </script>
 
-<div class="inv">
+<div class="inv" class:container={containerMode}>
+  {#if !containerMode}
   <div class="tree">
     <div class="nodes">
       {#if ship}
@@ -342,6 +364,7 @@
     </div>
     <div class="filters"><span class="caret">▴</span> {word("UI/Inventory/Filters/MyFilters", "My filters")}<span class="plus">+</span></div>
   </div>
+  {/if}
   <div class="right">
     <div class="top">
       <button type="button" class="tool" title={word("UI/Inventory/StackAll", "Stack All")} onclick={stackAll} style:background-image={`url(${clientTexture("res:/ui/texture/eveicon/system_icons/stack_16px.png")})`}></button>
@@ -356,7 +379,8 @@
       </div>
       <input class="search" placeholder="Search" bind:value={filter} />
     </div>
-    <div class="items" role="list" onclick={() => (selected = [])} onkeydown={() => {}}>
+    <div class="items" role="list" onclick={() => (selected = [])} onkeydown={() => {}}
+      ondragover={containerMode ? dragOver("container") : undefined} ondrop={containerMode ? (e) => void dropOn("container", e) : undefined}>
       {#if bay && bay.items === null}
         <p class="none">…</p>
       {:else if !shown.length}
@@ -395,6 +419,10 @@
         {/each}
       {/if}
     </div>
+    {#if containerMode && lootable}
+      <!-- BaseCelestialContainer.GetSpecialActions: Loot All for a lootable can or wreck (ShipCargo().AddItems of its items) -->
+      <div class="special"><button type="button" onclick={() => { const id = $inventoryState.container?.itemID; if (id) void act(async () => { await flow.lootContainer(id); }); }}>{word("UI/Inventory/LootAll", "Loot All")}</button></div>
+    {/if}
     <div class="foot">
       <span class="count">{selected.length
         ? word("UI/Inventory/NumItemsAndSelected2", `${shown.length} Items (${selected.length} selected)`, { numItems: shown.length, numSelected: selected.length, numFilteredTxt: filtered > 0 ? `(${filtered} filtered)` : "" })
@@ -406,6 +434,8 @@
 </div>
 
 <style>
+  .special { display: flex; justify-content: flex-end; padding: 4px 0; }
+  .special button { height: 24px; padding: 0 14px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.25); color: inherit; font: inherit; cursor: pointer; }
   .inv { display: flex; height: 100%; min-height: 0; font-size: 13px; color: rgba(255, 255, 255, 0.85); user-select: none; }
   .tree { width: 160px; flex: none; display: flex; flex-direction: column; background: rgba(255, 255, 255, 0.03); margin: 0 8px 0 0; }
   .nodes { flex: 1; overflow: auto; padding: 4px 0; }

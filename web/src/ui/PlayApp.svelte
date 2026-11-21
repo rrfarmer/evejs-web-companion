@@ -157,6 +157,9 @@
   let session = $state<Session | null>(null);
   // the Pilot submenu's Add Contact / Edit Contact: the address book's contactmanagement window
   let pilotContact = $state.raw<ContactAction | null>(null);
+  // the container opened from space (store.inventory.container that is a thing on the grid), for its own window
+  let containerWin = $state({ x: 220, y: 140, w: 480, h: 360, z: 25, minimized: false });
+  let spaceContainer = $state.raw<{ itemID: number; title: string } | null>(null);
   // the Pilot submenu's Place Bounty: openFunctions.OpenBountyOffice(charID), the owner's corporation and alliance kept
   let bountyOffice = $state.raw<{ n: number; target: { ownerID: number; corporationID: number | null; allianceID: number | null } } | null>(null);
   let autoMoonMiner = $state.raw<AutoMoonMiner | null>(null);
@@ -1496,6 +1499,21 @@
       };
     }
 
+    // An opened container that is a thing on the grid gets its own inventory window (Inventory.OpenOrShow on its invID),
+    // named after it (its slim item's name, else its type's)
+    const syncSpaceContainer = () => {
+      if (disposed) return;
+      const c = s.store.inventory.get().container;
+      const e = c ? s.store.space.get().snapshot?.entities.find((x) => x.itemID === c.itemID) : null;
+      if (!c || !e) { if (spaceContainer) spaceContainer = null; return; }
+      const typeName = resolvedName(s.store.names.get().resolved, "type", c.typeID, "");
+      if (!typeName && !e.name) s.flow.requestNames([{ kind: "type", id: c.typeID }]);
+      const title = e.name || typeName || "Container";
+      if (spaceContainer?.itemID !== c.itemID || spaceContainer.title !== title) spaceContainer = { itemID: c.itemID, title };
+    };
+    s.store.inventory.subscribe(syncSpaceContainer);
+    s.store.names.subscribe(syncSpaceContainer);
+
     // droneSvc: what each drone is doing comes from the park's OnDroneStateChange (and OnDroneControlLost), which the
     // server sends through destiny, not as a notification; the Drones window's read is taken again on each, coalesced.
     let droneReread: ReturnType<typeof setTimeout> | null = null;
@@ -2293,6 +2311,18 @@
       <ErrorBoundary name="Bounty Office"><BountyOfficeWindow store={session.store} flow={session.flow} target={bountyOffice.target} onClose={() => (bountyOffice = null)}
         showInfo={(id, kind) => showInfo(kind === "corp" ? { kind: "corporation", corporationID: id } : kind === "alliance" ? { kind: "alliance", allianceID: id } : { kind: "character", characterID: id })} /></ErrorBoundary>
     {/key}
+  {/if}
+  <!-- Inventory.OpenOrShow on a thing in space (a can, a wreck, a deployable's cargo bay): its own inventory window,
+       the container alone, named after it; closing it lets the container go -->
+  {#if spaceContainer && !docked}
+    {@const c = spaceContainer}
+    <div class="space-container-layer">
+      <DesktopWindow win={containerWin} title={c.title} icon={clientTexture("res:/UI/Texture/WindowIcons/cargo.png")} focused={true} onFocus={() => {}}
+        onClose={() => void session.flow.openContainer(null)} onMove={(x, y) => { containerWin.x = x; containerWin.y = y; }}
+        onResize={(w, h) => { containerWin.w = Math.max(300, w); containerWin.h = Math.max(200, h); }}>
+        <FlyInventoryWindow store={session.store} flow={session.flow} containerMode={true} />
+      </DesktopWindow>
+    </div>
   {/if}
   {#if pilotContact}
     {@const action = pilotContact}
@@ -3143,4 +3173,6 @@
   .lobby-svc:hover { background: rgba(255, 255, 255, 0.10); border-color: rgba(255, 255, 255, 0.2); }
   .lobby-svc img { width: 32px; height: 32px; }
   .char-card { padding: 0; text-align: left; color: inherit; font: inherit; }
+  .space-container-layer { position: fixed; inset: 0; pointer-events: none; z-index: 35; }
+  .space-container-layer :global(> *) { pointer-events: auto; }
 </style>

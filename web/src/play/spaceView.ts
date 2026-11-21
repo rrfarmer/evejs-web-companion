@@ -2948,6 +2948,10 @@ export class SpaceView {
     }
     if (this.actions.saveLocation && category !== 11 && category !== 6) out.push({ path: "UI/Inflight/BookmarkLocation", label: word("UI/Inflight/BookmarkLocation", "Save Location..."), run: () => this.actions.saveLocation?.(id, e.typeID ?? null) });
     const bay = typeID !== null ? comps.cargoBay.get(typeID) : undefined;
+    // a can or a wreck: Open Cargo after Save Location... (read from the live client for a pilot's jettisoned can)
+    if ((e.kind === "container" || e.kind === "wreck") && !bay && this.actions.openCargo) {
+      out.push({ path: "UI/Commands/OpenCargo", label: word("UI/Commands/OpenCargo", "Open Cargo"), run: run("Open Cargo", () => this.actions.openCargo!(id)) });
+    }
     if (bay && active && (mine || bay[1]) && this.actions.openCargo) {
       out.push({ path: "UI/Commands/OpenCargo", label: word("UI/Commands/OpenCargo", "Open Cargo"), run: run("Open Cargo", () => this.actions.openCargo!(id)) });
     }
