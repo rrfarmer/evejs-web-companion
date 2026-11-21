@@ -55,6 +55,8 @@
   const targeting = store.targeting;
   // svelte-ignore state_referenced_locally
   const names = store.names;
+  // svelte-ignore state_referenced_locally
+  const fleetState = store.fleet;
 
   /** The client's control icons (res:/ui/texture/eveicon/control_icons). */
   /** dronesConst.DRONE_STATES_TEXTURES: each state's sprite (tinted COLOR_BY_STATE, TextColor.NORMAL where none). */
@@ -79,7 +81,9 @@
   const MENU_WORDS = {
     engage: ["UI/Drones/EngageTarget", "Engage Target"], mine: ["UI/Drones/MineWithDrone", "Mine"], salvage: ["UI/Drones/Salvage", "Salvage"],
     orbit: ["UI/Drones/ReturnDroneAndOrbit", "Return and Orbit"], bay: ["UI/Drones/ReturnDroneToBay", "Return to Drone Bay"],
-    scoop: ["UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"], abandon: ["UI/Drones/AbandonDrone", "Abandon Drone"], launch: ["UI/Drones/LaunchDrones", "Launch Drones"], launchOne: ["UI/Drones/LaunchDrone", "Launch Drone"],
+    scoop: ["UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"], abandon: ["UI/Drones/AbandonDrone", "Abandon Drone"],
+    assist: ["UI/Drones/DroneAssist", "Assist"], guard: ["UI/Drones/DroneGuard", "Guard"], watch: ["UI/Fleet/WatchList", "Watch List"],
+    noValid: ["UI/Fleet/NoValidOptions", "No Valid Options"], launch: ["UI/Drones/LaunchDrones", "Launch Drones"], launchOne: ["UI/Drones/LaunchDrone", "Launch Drone"],
     info: ["UI/Commands/ShowInfo", "Show Info"], buyAll: ["UI/Market/MarketQuote/BuyAll", "Buy All"], market: ["UI/Inventory/ItemActions/ViewTypesMarketDetails", "View Market Details"],
     assets: ["UI/Inventory/ItemActions/FindPersonalAssets", "Find in Personal Assets"], compare: ["UI/Compare/CompareButton", "Compare"],
     autoAttack: ["UI/Drones/AutoAttack", "Auto Attack"], focusFire: ["UI/Drones/AttackModeFocusFire", "Focus Fire"],
@@ -504,6 +508,29 @@
     ];
     return groups.filter((g) => g.length).flatMap((g, n) => (n ? [SEP, ...g] : g));
   }
+  /**
+   * menusvc.GetFleetMemberMenu: the fleet's members in the ballpark save the pilot, by name; the watch list's first under
+   * Watch List and a line; past 20, by letters; none, No Valid Options (as the space menu lays it out).
+   */
+  function fleetMemberMenu(kind: "assist" | "guard", ids: readonly number[]): MenuEntry[] {
+    const fleet = $fleetState;
+    const snapshot = $space.snapshot;
+    const self = snapshot?.entities.find((x) => x.isSelf) as (SpaceEntity & { characterID?: number | null }) | undefined;
+    const here = new Set((snapshot?.entities ?? []).map((x) => (x as SpaceEntity & { characterID?: number | null }).characterID).filter((x): x is number => typeof x === "number"));
+    const memberIDs = (fleet.fleet?.initState.value.members ?? []).map((m) => Number(m.charID)).filter((id) => id !== self?.characterID && here.has(id));
+    const missing = memberIDs.filter((id) => resolvedName($names.resolved, "owner", id, "") === "");
+    if (missing.length) flow.requestNames(missing.map((id) => ({ kind: "owner" as const, id })));
+    const all = memberIDs.map((id) => ({ charID: id, name: resolvedName($names.resolved, "owner", id, String(id)), watched: (fleet.watchlist ?? []).includes(id) }))
+      .sort((a, b) => (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : a.name.toLowerCase() > b.name.toLowerCase() ? 1 : 0));
+    if (!all.length) return [{ label: say(MENU_WORDS.noValid) }];
+    const entries = (list: typeof all): MenuEntry[] => list.map((m) => ({ label: m.name, act: () => flow.droneFleetOrder(kind, m.charID, ids) }));
+    const watched = all.filter((m) => m.watched);
+    const head: MenuEntry[] = watched.length ? [{ label: say(MENU_WORDS.watch), sub: entries(watched) }, SEP] : [];
+    const chunks: (typeof all)[] = [];
+    for (let i = 0; i < all.length; i += 20) chunks.push(all.slice(i, i + 20));
+    if (chunks.length === 1) return [...head, ...entries(chunks[0]!)];
+    return [...head, ...chunks.map((c) => ({ label: `${c[0]!.name[0]} ... ${c[c.length - 1]!.name[0]}`, sub: entries(c) }))];
+  }
   /** A header's menu: none where it has no entries (CreateMenuView of an empty MenuList). */
   function openMenuIfAny(event: MouseEvent, entries: MenuEntry[]): void {
     event.preventDefault();
@@ -537,6 +564,11 @@
       [...(controlled.length ? [{ label: n(say(MENU_WORDS.orbit), controlled.length), act: () => flow.returnDronesAndOrbit(controlled) },
         { label: n(say(MENU_WORDS.bay), controlled.length), act: () => flow.recallDrones(controlled) }] : []),
         ...(recoverable ? [{ label: n(say(MENU_WORDS.scoop), ids.length), act: () => flow.scoopDrones(ids) }] : [])],
+      // OfferDroneAssist / OfferDroneGuard: one's own controlled drones, the pilot in a fleet - each GetFleetMemberMenu
+      controlled.length && $fleetState.availability === "ready"
+        ? [{ label: n(say(MENU_WORDS.assist), controlled.length), sub: fleetMemberMenu("assist", controlled) },
+          { label: n(say(MENU_WORDS.guard), controlled.length), sub: fleetMemberMenu("guard", controlled) }]
+        : [],
       [...(controlled.length ? [{ label: n(say(MENU_WORDS.abandon), controlled.length), act: async () => { await flow.abandonDrones(controlled); } }] : []),
         ...(recoverable ? [{ label: "Reconnect", act: () => flow.reconnectDrones(ids) }] : [])],
     ];
