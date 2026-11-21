@@ -384,7 +384,7 @@
         {/if}
       {/if}
     </div>
-    <div class="filters"><span class="caret">▴</span> {word("UI/Inventory/Filters/MyFilters", "My filters")}<span class="plus">+</span></div>
+    <div class="filters"><span class="caret"></span><span class="flabel">{word("UI/Inventory/Filters/MyFilters", "My filters")}</span><span class="plus" style:background-image={`url("${clientTexture("res:/ui/texture/eveicon/system_icons/add_16px.png")}")`}></span></div>
   </div>
   {/if}
   <div class="right">
@@ -464,22 +464,35 @@
   /* measured in the client through gridcheck: the tree, filters and footer TextBody / EveLabelMedium 14, the search 14,
      the capacity EveLabelSmall 12, Nothing Found EveCaptionLarge 24 */
   .inv { display: flex; height: 100%; min-height: 0; font-size: 14px; color: rgba(255, 255, 255, 0.85); user-select: none; }
-  .tree { width: 160px; flex: none; display: flex; flex-direction: column; background: rgba(255, 255, 255, 0.03); margin: 0 8px 0 0; }
-  .nodes { flex: 1; overflow: auto; padding: 4px 0; }
-  .node { display: flex; align-items: center; gap: 4px; height: 24px; padding: 0 6px; cursor: default; }
+  /* the tree column 152 wide (gridcheck: mainCont 18..170), its dragArea's 1 px line at its right, the right side's buttons from 12 past it (182) */
+  .tree { width: 152px; flex: none; display: flex; flex-direction: column; background: rgba(255, 255, 255, 0.03); margin: 0 12px 0 0; box-shadow: 1px 0 0 rgba(255, 255, 255, 0.1); }
+  /* invWindow's tree (read through gridcheck): a ScrollContainer padLeft -8 with 16 on top; each TreeViewEntry 24 high, its
+     spacer (1 + level) * LEFTPUSH 8 + 16 wide with the 16 px toggle at its right (the Neocom arrowDown in it, padded 4 4 5 5,
+     LED grey, turned a quarter while collapsed), the icon height - 2 = 22, the TextBody label 4 after it */
+  .nodes { flex: 1; overflow: auto; padding: 16px 0 0; margin-left: -8px; }
+  .node { display: flex; align-items: center; gap: 0; height: 24px; padding: 0; cursor: default; }
   .node:hover { background: rgba(255, 255, 255, 0.06); }
   .node.sel { background: rgba(88, 167, 191, 0.25); color: #fff; }
-  .node.sub { padding-left: 28px; }
-  .exp { width: 12px; height: 12px; padding: 0; border: 0; background: transparent; position: relative; cursor: pointer; }
-  .exp::before { content: ""; position: absolute; left: 3px; top: 2px; border-left: 5px solid rgba(255, 255, 255, 0.7); border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform .1s; }
-  .exp.open::before { transform: rotate(90deg); }
-  .ticon { width: 16px; height: 16px; flex: none; display: grid; overflow: hidden; }
-  .ticon :global(.type-icon) { width: 16px; height: 16px; }
-  .ticon img { width: 16px; height: 16px; }
+  .node.sub { padding-left: 32px; }
+  .exp { flex: none; width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; background: transparent; position: relative; cursor: pointer; }
+  .exp::before { content: ""; position: absolute; left: 12px; top: 8px; width: 7px; height: 7px; background: rgba(255, 255, 255, 0.5);
+    mask: url(/client-res/ui/texture/classes/neocom/arrowdown.png) center / 7px 7px no-repeat; -webkit-mask: url(/client-res/ui/texture/classes/neocom/arrowdown.png) center / 7px 7px no-repeat;
+    transform: rotate(-90deg); transition: transform .15s; }
+  .exp.open::before { transform: none; }
+  .ticon { width: 22px; height: 22px; flex: none; display: grid; overflow: hidden; margin-right: 4px; }
+  .ticon :global(.type-icon) { width: 22px; height: 22px; }
+  .ticon :global(.type-icon img) { width: 22px; height: 22px; }
+  .ticon img { width: 22px; height: 22px; }
   .tlabel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .filters { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; color: rgba(255, 255, 255, 0.8); }
-  .filters .plus { margin-left: auto; font-size: 18px; }
-  .caret { font-size: 10px; }
+  /* InvFilters: a drag area 8 high (its line at 3) over the filterHeaderCont, 24 high, padRight 8: expandFiltersBtn 24 wide
+     with the 7 px Neocom arrowDown, the Label 14, createFilterBtn 24 x 24 with eveicon.add 16 at the right */
+  .filters { position: relative; display: flex; align-items: center; height: 24px; margin-top: 8px; padding: 0 8px 0 0; color: rgba(255, 255, 255, 0.8); }
+  .filters::before { content: ""; position: absolute; left: 0; right: 0; top: -5px; height: 1px; background: rgba(255, 255, 255, 0.1); }
+  .filters .flabel { flex: 1; font-size: 14px; }
+  .filters .plus { flex: none; width: 24px; height: 24px; background: center / 16px 16px no-repeat; opacity: 0.75; cursor: pointer; }
+  .filters .caret { flex: none; width: 24px; height: 24px; position: relative; }
+  .filters .caret::before { content: ""; position: absolute; left: 9px; top: 9px; width: 7px; height: 7px; background: rgba(255, 255, 255, 0.5);
+    mask: url(/client-res/ui/texture/classes/neocom/arrowdown.png) center / 7px 7px no-repeat; -webkit-mask: url(/client-res/ui/texture/classes/neocom/arrowdown.png) center / 7px 7px no-repeat; transform: rotate(-90deg); }
   .right { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   .top { display: flex; align-items: center; gap: 0; height: 24px; margin-bottom: 16px; }
   .tool { padding: 0; border: 0; background-color: transparent; cursor: pointer; width: 24px; height: 24px; flex: none; background: center / 16px 16px no-repeat; opacity: 0.8; }
