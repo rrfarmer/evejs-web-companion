@@ -735,3 +735,8 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 .pw.si-compact .pw-head { position: relative; z-index: 1; background: transparent; }
 .pw.si-compact .pw-body { margin-top: -26px; }
 .pw.si-compact .si-top { padding-right: 64px; }
+/* the directional scanner in compact mode: its header row in the 32 px header, no Scan Results label, the buttons at
+   the left and the filter box at the right (ReconstructHeader with _IsCompactHeaderWindow) */
+.pw.dscan-compact .pw-head .dscan-head { flex: 1; height: auto; padding: 0; }
+.pw.dscan-compact .pw-head .dscan-caption { display: none; }
+.pw.dscan-compact .pw-head .dscan-filter { order: 9; margin-left: auto; }

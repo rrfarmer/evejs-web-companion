@@ -4,6 +4,7 @@
 // for each thing it saw ({id, typeID, groupID}). Opened with Alt+D, scanned with V or its button
 // (eveCommands: OpenDirectionalScanner, CmdRefreshDirectionalScan).
 
+import { ContextMenu } from "./contextMenu.ts";
 import { playUiEvent } from "./uiAudio.ts";
 import { PlayWindow, clientTexture } from "./window.ts";
 import { bracketIcon } from "./brackets.ts";
@@ -73,7 +74,7 @@ export interface DScanHooks {
 }
 
 /** The labels the window asks the install for (directionalScannerPalette.py, directionalScanResultEntry.py). */
-export const DSCAN_WORDS: readonly string[] = ["UI/Inflight/Scanner/DirectionalScanner", "UI/Inflight/Scanner/ScanResults",
+export const DSCAN_WORDS: readonly string[] = ["UI/Inflight/Scanner/DirectionalScanner", "/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", "UI/Inflight/Scanner/ScanResults",
   "UI/Inflight/Scanner/Range", "UI/Inflight/Scanner/UnitAU", "UI/Inflight/Scanner/UnitKm", "UI/Inflight/Scanner/Angle",
   "UI/Inflight/Scanner/AngleDegrees", "UI/Inflight/Scanner/Scan", "UI/Common/Group", "UI/Common/Name", "UI/Common/Type", "UI/Common/Distance",
   "UI/Inflight/Scanner/AlignWithCamera", "UI/Inflight/Scanner/ShowScanCone", "UI/Map/MapPallet/btnSolarsystemMap",
@@ -122,6 +123,21 @@ function distanceWords(m: number | null): string {
 
 export class DScanWindow {
   readonly window: PlayWindow;
+  private readonly menu = new ContextMenu();
+  /**
+   * DirectionalScanner in compact mode (Prepare_Header_: DirectionalScannerCompactHeader, 32 high, no caption; the
+   * palette's header row in the header's extra_content - its buttons at the left, the filter box at the right, no
+   * ScanResults label), kept.
+   */
+  private compact = false;
+  setCompact(on: boolean): void {
+    this.compact = on;
+    try { localStorage.setItem("evejs.ui.dscanCompact", on ? "1" : "0"); } catch { /* lasts the page */ }
+    const head = this.window.body.querySelector<HTMLElement>(".dscan-head") ?? this.window.root.querySelector<HTMLElement>(".pw-head .dscan-head");
+    if (!head) return;
+    if (on) this.window.headSlot(head); else if (head.parentElement !== this.window.body) this.window.headUnslot(head, this.window.body, this.window.body.firstChild);
+    this.window.root.classList.toggle("dscan-compact", on);
+  }
   private readonly angle: HTMLInputElement;
   private readonly range: HTMLInputElement;
   private readonly rangeSlider: HTMLInputElement;
@@ -149,8 +165,14 @@ export class DScanWindow {
     // the range half (Range, its edit, the AU / km toggle; the slider) and the angle half ("Angle: n°"; the slider over
     // ANGLE_INCREMENTS, even steps), the Scan button at the right.
     const w = (label: string, own: string, args?: Readonly<Record<string, string | number>>) => hooks.word?.(label, args) ?? own;
-    this.window = new PlayWindow({ id: "dscan", caption: w("UI/Inflight/Scanner/DirectionalScanner", "Directional Scanner"), icon: clientTexture("res:/UI/Texture/eveicon/product_icons/directional_scanner_64px.png"), left: Math.max(16, Math.round(innerWidth / 2 - 200)), top: 40, width: 400, height: 350, minWidth: 320, closable: true }, () => { this.detached = true; });
+    this.window = new PlayWindow({ id: "dscan", caption: w("UI/Inflight/Scanner/DirectionalScanner", "Directional Scanner"), icon: clientTexture("res:/UI/Texture/eveicon/product_icons/directional_scanner_64px.png"), left: Math.max(16, Math.round(innerWidth / 2 - 200)), top: 40, width: 400, height: 350, minWidth: 320, closable: true,
+      // the window's menu: CompactModeWindowAction (Enable / Disable compact mode)
+      menu: (button) => { const r = button.getBoundingClientRect(); this.menu.open(r.left, r.bottom, [{
+        label: this.compact ? w("/Carbon/UI/Controls/Window/DisableCompactMode", "Disable compact mode") : w("/Carbon/UI/Controls/Window/EnableCompactMode", "Enable compact mode"),
+        icon: this.compact ? "res:/UI/Texture/eveicon/system_icons/uncompact_16px.png" : "res:/UI/Texture/eveicon/system_icons/compact_16px.png",
+        run: () => this.setCompact(!this.compact) }]); } }, () => { this.detached = true; });
     this.window.body.classList.add("dscan");
+    queueMicrotask(() => { try { if (localStorage.getItem("evejs.ui.dscanCompact") === "1") this.setCompact(true); } catch { /* not compact */ } });
     const icon = (path: string, title: string) => `<button type="button" class="dscan-ic" title="${title}" disabled><img alt="" src="/client-res/${path}"></button>`;
     this.window.body.innerHTML = `
       <div class="dscan-head"><span class="dscan-caption">${w("UI/Inflight/Scanner/ScanResults", "Scan Results")}</span><span class="dscan-filter">-</span>
