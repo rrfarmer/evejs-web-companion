@@ -73,6 +73,96 @@ export const BROADCAST_ICONS: Readonly<Record<FleetBroadcastName, string>> = {
   Location: "classes/fleet/broadcast/16/locationpin.png",
 };
 
+/** A broadcast standing on a thing (fleetSvc.currentBroadcastOnItem's entry): what, who, and a Target's code. */
+export interface CurrentFleetBroadcast {
+  readonly name: FleetBroadcastName;
+  readonly senderCharID: number | null;
+  /** UpdateTargetBroadcasts: the thing's place in its sender's target list (1-based), and whether the sender was a squad commander. */
+  readonly target: { readonly number: number; readonly squadCommander: boolean } | null;
+}
+
+/** fleetSvc.GetRankOrder: member, squad commander, wing commander, leader (evefleet's roles 4, 3, 2, 1). */
+const RANK_ORDER = [4, 3, 2, 1];
+const FLEETBROADCASTTIMEOUT_MS = 15_000;
+
+/**
+ * fleetSvc's broadcast state as the client keeps it: OnFleetBroadcast puts each broadcast on its thing for 15 s
+ * (BroadcastState, the newest on a thing winning); a Target goes into its sender's list (moved to the front when
+ * called again, else at the end) and UpdateTargetBroadcasts numbers the whole list again, each thing's 15 s starting
+ * over - one whose current Target came from a sender the new one outranks is skipped (IsSuperior(charID,
+ * prevCharID): continue) - and a thing leaves the list when its own 15 s run out unrenewed. The timers run lazily, on
+ * the broadcast's own clock (receivedAtMs) and on each read.
+ */
+export class FleetBroadcastStates {
+  private gb = 0;
+  private readonly onItem = new Map<number, CurrentFleetBroadcast & { readonly gb: number }>();
+  private readonly targets = new Map<number, number[]>();
+  private readonly targetGb = new Map<number, number>();
+  private timers: { at: number; seq: number; run: () => void }[] = [];
+  private seen: FleetBroadcast | null = null;
+
+  /** Feed the history (newest first): each broadcast not yet heard, oldest first. */
+  feed(history: readonly FleetBroadcast[], roleOf: (charID: number | null) => number): void {
+    const i = this.seen ? history.indexOf(this.seen) : history.length;
+    const fresh = (i < 0 ? history : history.slice(0, i)).slice().reverse();
+    if (history.length) this.seen = history[0]!;
+    for (const b of fresh) this.heard(b, roleOf);
+  }
+
+  current(itemID: number, now: number): CurrentFleetBroadcast | null {
+    this.expire(now);
+    return this.onItem.get(itemID) ?? null;
+  }
+
+  /** GetCurrentFleetBroadcasts: the things a broadcast stands on now. */
+  items(now: number): ReadonlySet<number> {
+    this.expire(now);
+    return new Set(this.onItem.keys());
+  }
+
+  private expire(now: number): void {
+    this.timers.sort((a, b) => a.at - b.at || a.seq - b.seq);
+    while (this.timers.length && this.timers[0]!.at <= now) this.timers.shift()!.run();
+  }
+
+  private heard(b: FleetBroadcast, roleOf: (charID: number | null) => number): void {
+    const t = b.receivedAtMs;
+    this.expire(t);
+    if (b.itemID === null) return;
+    if (b.name !== "Target") { this.state(b.itemID, { name: b.name, senderCharID: b.senderCharID, target: null }, t); return; }
+    const who = b.senderCharID ?? 0;
+    const list = this.targets.get(who) ?? [];
+    this.targets.set(who, list);
+    const at = list.indexOf(b.itemID);
+    if (at >= 0) { list.splice(at, 1); list.unshift(b.itemID); } else list.push(b.itemID);
+    const role = roleOf(who);
+    const rank = (r: number) => RANK_ORDER.indexOf(r);
+    list.forEach((id, i) => {
+      const cur = this.onItem.get(id);
+      if (cur?.name === "Target" && rank(role) > rank(roleOf(cur.senderCharID))) return;
+      const tgb = ++this.gb;
+      this.targetGb.set(id, tgb);
+      // the shipped UpdateTargetBroadcasts tests fleetRoleSquadCmdr in every branch: a squad commander's targets read
+      // TargetCodeFleet, anyone else's TargetCodeMember
+      this.state(id, { name: "Target", senderCharID: who, target: { number: i + 1, squadCommander: role === 3 } }, t, () => {
+        if (this.targetGb.get(id) !== tgb) return;
+        const l = this.targets.get(who);
+        const j = l?.indexOf(id) ?? -1;
+        if (j >= 0) l!.splice(j, 1);
+      });
+    });
+  }
+
+  private state(itemID: number, value: CurrentFleetBroadcast, t: number, after?: () => void): void {
+    const gb = ++this.gb;
+    this.onItem.set(itemID, { ...value, gb });
+    this.timers.push({ at: t + FLEETBROADCASTTIMEOUT_MS, seq: gb, run: () => {
+      if (this.onItem.get(itemID)?.gb === gb) this.onItem.delete(itemID);
+      after?.();
+    } });
+  }
+}
+
 /** fleetBroadcastConst.broadcastNames: the label fleetbr.GetBroadcastName gives (the icon's hint). */
 export const BROADCAST_NAME_LABELS: Readonly<Record<FleetBroadcastName, string>> = {
   EnemySpotted: "UI/Fleet/FleetBroadcast/Commands/EnemySpotted",

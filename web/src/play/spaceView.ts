@@ -279,6 +279,8 @@ export interface SpaceActions {
    * hint, fleetbr.GetBroadcastName), or null.
    */
   currentBroadcastOn?(itemID: number): { icon: string; hint: string } | null;
+  /** InSpaceBracket.UpdateFleetTagAndTarget's text: the Target code, " / ", the fleet's target tag; "" for none. */
+  fleetTagAndTarget?(itemID: number): string;
   /** The pilot is in a fleet (session.IsPilotFleetMember). */
   inFleet?(): boolean;
   /** fleetSvc's broadcasts on a thing in space (Target, HealTarget to the bubble; WarpTo, AlignTo, JumpTo to the system). */
@@ -483,6 +485,18 @@ export class SpaceView {
    * centred on it); gone when the broadcast's 15 s are up or another takes its place.
    */
   private updateBracketBroadcast(el: HTMLDivElement, itemID: number): void {
+    // UpdateFleetTagAndTarget: a BracketShadowLabel in bold at the medium size, always shown, right of the bracket by
+    // the label margin and its own height above the name (_UpdateFleetTagAndTargetOffset, on screen)
+    const tagText = this.actions.fleetTagAndTarget?.(itemID) ?? "";
+    if ((el.dataset.fleetTag ?? "") !== tagText) {
+      el.dataset.fleetTag = tagText;
+      let tag = el.querySelector<HTMLElement>(".bracket-fleet-tag");
+      if (!tagText) tag?.remove();
+      else {
+        if (!tag) { tag = document.createElement("span"); tag.className = "bracket-fleet-tag"; el.append(tag); }
+        tag.textContent = tagText;
+      }
+    }
     const b = this.actions.currentBroadcastOn?.(itemID) ?? null;
     const key = b ? `${b.icon}|${b.hint}` : "";
     if ((el.dataset.bcast ?? "") === key) return;

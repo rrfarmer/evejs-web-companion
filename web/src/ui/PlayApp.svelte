@@ -1,5 +1,15 @@
 <script lang="ts">
-  import { BROADCAST_ICONS, BROADCAST_NAME_LABELS } from "../bridge/fleetBroadcasts.ts";
+  import { BROADCAST_ICONS, BROADCAST_NAME_LABELS, FleetBroadcastStates } from "../bridge/fleetBroadcasts.ts";
+  /** fleetSvc's broadcast state, fed from the history the store keeps (one per session). */
+  const broadcastStates = new WeakMap<object, FleetBroadcastStates>();
+  function fedBroadcasts(sess: { store: { fleet: { get(): import("../store/types.ts").FleetCenterState } } }): FleetBroadcastStates {
+    let st = broadcastStates.get(sess);
+    if (!st) { st = new FleetBroadcastStates(); broadcastStates.set(sess, st); }
+    const fleet = sess.store.fleet.get();
+    const members = fleet.fleet?.initState.value.members ?? [];
+    st.feed(fleet.broadcastHistory ?? [], (charID) => members.find((m) => Number(m.charID) === charID)?.role ?? 4);
+    return st;
+  }
   // The play mode (/fly, branch FarmerThreeJSFun): one pilot, flown by hand, in the 3D view of space drawn from the
   // browser's own Destiny park (web/src/play), with the app's own windows over it. Everything the pilot does goes
   // through the app's session (store + Flow, app/sessions.ts) as it does in the multibox client; nothing here is a
@@ -1743,30 +1753,31 @@
       setName: (id, current) => { namingItem = { itemID: id, value: current }; s.flow.requestWords(["UI/Menusvc/SetName", "UI/Menusvc/TypeInNewName", "UI/Common/PleaseTypeSomething", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel"]); },
       inFleet: () => s.store.fleet.get().availability === "ready",
       // BroadcastState: each broadcast on a thing holds for FLEETBROADCASTTIMEOUT (15 s) from when it was heard
-      currentBroadcasts: () => {
-        const now = Date.now();
-        const out = new Set<number>();
-        for (const b of s.store.fleet.get().broadcastHistory ?? []) {
-          if (now - b.receivedAtMs > 15_000) break;
-          if (b.itemID !== null) out.add(b.itemID);
-        }
-        return out;
-      },
+      currentBroadcasts: () => fedBroadcasts(s).items(Date.now()),
       currentBroadcastOn: (itemID) => {
-        // BroadcastState keeps the newest broadcast on each thing for 15 s; NearIDFleetBroadcast (EnemySpotted,
-        // NeedBackup, InPosition, HoldPosition) shows one only while its sender's ship is in the ballpark
-        const now = Date.now();
-        for (const b of s.store.fleet.get().broadcastHistory ?? []) {
-          if (now - b.receivedAtMs > 15_000) break;
-          if (b.itemID !== itemID) continue;
-          if ((b.name === "EnemySpotted" || b.name === "NeedBackup" || b.name === "InPosition" || b.name === "HoldPosition") &&
-            !(s.store.space.get().snapshot?.entities ?? []).some((x) => x.characterID === b.senderCharID)) return null;
-          const label = BROADCAST_NAME_LABELS[b.name];
+        // NearIDFleetBroadcast (EnemySpotted, NeedBackup, InPosition, HoldPosition) shows one only while its sender's
+        // ship is in the ballpark
+        const b = fedBroadcasts(s).current(itemID, Date.now());
+        if (!b) return null;
+        if ((b.name === "EnemySpotted" || b.name === "NeedBackup" || b.name === "InPosition" || b.name === "HoldPosition") &&
+          !(s.store.space.get().snapshot?.entities ?? []).some((x) => x.characterID === b.senderCharID)) return null;
+        const label = BROADCAST_NAME_LABELS[b.name];
+        const t = s.store.words.get().templates[label];
+        if (typeof t !== "string") s.flow.requestWords([label]);
+        return { icon: BROADCAST_ICONS[b.name], hint: typeof t === "string" ? t : "" };
+      },
+      fleetTagAndTarget: (itemID) => {
+        const fleet = s.store.fleet.get();
+        const b = fedBroadcasts(s).current(itemID, Date.now());
+        let code = "";
+        if (b?.target) {
+          const label = b.target.squadCommander ? "UI/Fleet/FleetBroadcast/TargetCodeFleet" : "UI/Fleet/FleetBroadcast/TargetCodeMember";
           const t = s.store.words.get().templates[label];
           if (typeof t !== "string") s.flow.requestWords([label]);
-          return { icon: BROADCAST_ICONS[b.name], hint: typeof t === "string" ? t : "" };
+          code = typeof t === "string" ? plainText(formatTemplate(t, { targetID: b.target.number } as never, { nameOf: () => null } as never)) : String(b.target.number);
         }
-        return null;
+        const tag = fleet.availability === "ready" ? fleet.targetTags?.get(itemID) ?? "" : "";
+        return code && tag ? `${code} / ${tag}` : code || tag;
       },
       broadcastOnItem: (name, id, typeID) => void s.flow.broadcastOnItem(name, id, typeID).catch(() => {}),
       openShipHold: (key) => shipHoldTarget.ask(key),

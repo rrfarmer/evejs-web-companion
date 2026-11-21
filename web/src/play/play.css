@@ -90,6 +90,9 @@ button { font: inherit; color: inherit; }
   mask: url(/client-res/ui/texture/classes/bracket/bracketbackground.png) center / 100% 100% no-repeat; }
 /* InSpaceBracket's fleetBroadcastIcon (16 x 16, 2 px left of the bracket, centred on it) */
 .bracket .bracket-bcast { position: absolute; left: -18px; top: 0; width: 16px; height: 16px; pointer-events: auto; }
+/* InSpaceBracket's fleetTagAndTarget (BracketShadowLabel, bold, medium): right of the bracket by the label margin, its height above */
+.bracket .bracket-fleet-tag { position: absolute; left: 22px; bottom: 100%; white-space: nowrap; font-size: 12px; font-weight: bold; line-height: 1.25;
+  color: var(--text); text-shadow: 0 0 3px #000, 0 0 2px #000; pointer-events: none; }
 .bracket .bracket-bg.blink { animation: state-flag-blink 1.5s ease-in-out infinite; }
 .bracket .label { line-height: 1.25; position: absolute; left: 22px; top: 1px; white-space: nowrap; font-size: 12px; color: var(--text);
   text-shadow: 0 0 3px #000, 0 0 2px #000; display: none; }
