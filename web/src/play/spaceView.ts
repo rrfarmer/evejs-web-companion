@@ -443,7 +443,7 @@ export class SpaceView {
   private readonly sensorLayer = document.createElement("div");
   private readonly sensorEls = new Map<string, HTMLDivElement>();
   /** The tactical overlay's compass (its geometry by base radius and active range, its labels' places). */
-  private tactical: { key: string; group: THREE.Group; labels: HTMLElement; places: { el: HTMLElement; at: THREE.Vector3 }[] } | null = null;
+  private tactical: { key: string; group: THREE.Group; labels: HTMLElement; places: { el: HTMLElement; at: THREE.Vector3 }[]; connectors: THREE.LineSegments } | null = null;
   /**
    * sensorSuite._DoSystemEnterScan's sweep: started as a system's sites first come (systemReadyTime), the camera's view
    * angle in the plane then (GetViewAngleInPlane), each scannable site's delay (GetSiteListOrderedByDelay), the ones
@@ -3632,7 +3632,10 @@ export class SpaceView {
    * _MAJOR_RANGES at white 0.33, the rest 0.125, each faded by 0.75 ((R - r) / R)^0.4 + 0.25; the sixteen straight lines
    * (each quarter: strong 0.05 - the second, north, (0.9, 0.6, 0.2, 0.25) - faint 0.015, medium 0.025, faint) from
    * _LINE_FADE_IN_START 2 km in from nothing to _LINE_FADE_IN_END 5 km, then out to R; the targeting range circle
-   * (_COLOR_TARGETING_LINE (1, 0.1, 0.025, 0.5)); each circle's km at the four points (_COLOR_LABEL white 0.5)
+   * (_COLOR_TARGETING_LINE (1, 0.1, 0.025, 0.5)); each circle's km at the four points (_COLOR_LABEL white 0.5).
+   * And its connectors (EveTacticalOverlay.UpdateVisibility): each thing the overlay wants (its bracket shown) within
+   * the active range and its fade, an arc on the sphere about the ship from it to the plane at its distance, and its
+   * anchor; an aggressor's in the attack colour.
    */
   private drawTactical(w: number, h: number): void {
     const on = hudSettingNow("viewTactical") && this.snapshot?.ship !== null && this.snapshot?.ship !== undefined;
@@ -3642,7 +3645,8 @@ export class SpaceView {
     }
     const base = this.snapshot!.ship!.radius ?? 0;
     const targeting = this.actions.shipAttribute?.(76) ?? 0;
-    const active = targeting > 0 ? targeting : 200_000;
+    // TacticalCompass.SetTargetingRange: the active range max(150 km, 1.1 x the targeting range)
+    const active = Math.max(150_000, targeting * 1.1);
     const key = `${Math.round(base)}:${Math.round(active)}`;
     if (!this.tactical || this.tactical.key !== key) {
       if (this.tactical) { this.scene.remove(this.tactical.group); this.tactical.labels.remove(); }
@@ -3707,9 +3711,46 @@ export class SpaceView {
         }
       }
       this.brackets.append(labels);
+      const connectors = new THREE.LineSegments(new THREE.BufferGeometry(), material);
+      connectors.frustumCulled = false;
+      group.add(connectors);
       this.scene.add(group);
-      this.tactical = { key, group, labels, places };
+      this.tactical = { key, group, labels, places, connectors };
     }
+    // the connectors, each frame: from the thing (relative to the ship) along the great circle to the plane
+    const limit = active + base + Math.max(targeting * 0.25, 50_000);
+    const pts: number[] = [], cols: number[] = [];
+    // relative to the ship as the brackets are (the scene's origin)
+    const origin = this.snapshot?.ship?.position ?? this.lastOrigin;
+    for (const e of this.snapshot?.entities ?? []) {
+      if (e.isSelf) continue;
+      const el = this.bracketEls.get(e.itemID);
+      // tactical.WantIt: the things the brackets' preset wants, on the screen or not
+      if (!el || el.dataset.wanted !== "1") continue;
+      const p = new THREE.Vector3(e.position.x - origin.x, e.position.y - origin.y, -(e.position.z - origin.z));
+      const d = p.length();
+      if (d > limit || d < 1) continue;
+      const flat = new THREE.Vector3(p.x, 0, p.z);
+      if (flat.lengthSq() === 0) flat.x = 0.01;
+      flat.setLength(d);
+      // _aggressorStates (blinking, isAggressive): targeted by me, or targeting me (threatTargetsMe)
+      const aggressive = this.locked.has(e.itemID) || (e.targetEntityID != null && e.targetEntityID === this.snapshot?.ship?.itemID);
+      const rgba = aggressive ? [1, 0.1, 0.025, 0.6] : [1, 1, 1, 0.25];
+      const from = p.clone().normalize(), to = flat.clone().normalize();
+      const angle = from.angleTo(to);
+      const steps = Math.max(1, Math.ceil(angle / 0.05));
+      let prev = p.clone();
+      for (let i = 1; i <= steps; i++) {
+        const q = new THREE.Vector3().copy(from).lerp(to, i / steps).normalize().multiplyScalar(d);
+        pts.push(prev.x, prev.y, prev.z, q.x, q.y, q.z);
+        cols.push(...rgba, ...rgba);
+        prev = q;
+      }
+    }
+    const conn = this.tactical.connectors;
+    conn.geometry.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+    conn.geometry.setAttribute("color", new THREE.Float32BufferAttribute(cols, 4));
+    conn.geometry.computeBoundingSphere();
     for (const p of this.tactical.places) {
       const v = p.at.clone().project(this.camera);
       const shown = v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
@@ -4206,6 +4247,7 @@ export class SpaceView {
         if (el) {
           el.classList.remove("objective-highlight");
           el.style.display = "none";
+          el.dataset.wanted = "0";
         }
         continue;
       }
@@ -4252,6 +4294,7 @@ export class SpaceView {
         el.style.removeProperty("--polarization-sweep");
         delete el.querySelector<HTMLElement>(".label")!.dataset.polarization;
       }
+      el.dataset.wanted = "1";
       const p = rel.clone().project(this.camera);
       const onScreen = p.z < 1 && Math.abs(p.x) <= 1.05 && Math.abs(p.y) <= 1.05;
       el.style.display = onScreen ? "" : "none";
