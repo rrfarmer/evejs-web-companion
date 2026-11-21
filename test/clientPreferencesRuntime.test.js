@@ -5,7 +5,13 @@ const { readFileSync } = require("node:fs");
 const { Module } = require("node:module");
 const test = require("node:test");
 const { setImmediate: nextTurn } = require("node:timers/promises");
-const { getHeapSpaceStatistics } = require("node:v8");
+const { getHeapSpaceStatistics, setFlagsFromString } = require("node:v8");
+const { runInNewContext } = require("node:vm");
+
+// `node --test` does not pass --expose-gc to its test processes, so turn it on
+// here; a context created after the flag is set carries a gc() function.
+setFlagsFromString("--expose-gc");
+const gc = runInNewContext("gc");
 
 // Exercise the real JS owner without preparing an installed client or exposing
 // its private factory as part of the runtime API.
@@ -59,12 +65,12 @@ function largeObjectBytes() {
 async function collect() {
   for (let turn = 0; turn < 5; turn++) {
     await nextTurn();
-    global.gc();
+    gc();
   }
   await nextTurn();
 }
 
-test("a fixed native runtime releases handle storage after a peak of short-lived values", { skip: !global.gc }, async () => {
+test("a fixed native runtime releases handle storage after a peak of short-lived values", async () => {
   const binding = fakeBinding();
   const values = valueRuntime(binding);
   const handle = binding.value("long", "9007199254740993");
