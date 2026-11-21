@@ -442,6 +442,14 @@ export class SpaceView {
   /** The sensor overlay's layer (uicore.layer.sensorSuite) and its site brackets by scan id. */
   private readonly sensorLayer = document.createElement("div");
   private readonly sensorEls = new Map<string, HTMLDivElement>();
+  /**
+   * sensorSuite._DoSystemEnterScan's sweep: started as a system's sites first come (systemReadyTime), the camera's view
+   * angle in the plane then (GetViewAngleInPlane), each scannable site's delay (GetSiteListOrderedByDelay), the ones
+   * whose result has played, and whether the sweep's end has.
+   */
+  private sweep: { start: number; viewAngle: number; delays: Map<string, number>; played: Set<string>; ended: boolean } | null = null;
+  /** A system entered and its sweep not yet begun (the sites not yet read). */
+  private sweepDue: { at: number } | null = null;
   private readonly bracketEls = new Map<number, HTMLDivElement>();
   /** bracketMgr.ShowModuleRange's distance while a module is hovered (its brackets within it brighter), else null. */
   private moduleRange: number | null = null;
@@ -3374,6 +3382,19 @@ export class SpaceView {
         ...(this.frameCount % 60 === 0 ? (this.actions.missionsMenu?.(), []) : []),
         ...(this.actions.missionSites?.() ?? []).map((m) => ({ targetID: m.key, strength: 0, dungeonName: m.name, position: m.position, code: m.name, kind: "mission" as Kind }))]
       : [];
+    // the sweep (SWEEP_START_GRACE_TIME_SEC 5, SWEEP_CYCLE_TIME_SEC 8): begun as the entered system's first scannable sites
+    // are had (within two minutes of entering: the scanner's read comes after the space's), ui_scanner_start
+    const now = performance.now();
+    const scannable = (k: Kind) => k === "anomaly" || k === "signature";
+    if (this.sweepDue && on && sites.some((s) => scannable(s.kind))) {
+      const d = new THREE.Vector3();
+      this.camera.getWorldDirection(d);
+      this.sweep = { start: now, viewAngle: Math.atan2(d.x, -d.z), delays: new Map(), played: new Set(), ended: false };
+      this.sweepDue = null;
+      void playUiEvent("ui_scanner_start");
+    } else if (this.sweepDue && now - this.sweepDue.at > 120_000) this.sweepDue = null;
+    const sweep = this.sweep;
+    const ego = this.snapshot?.ship?.position ?? null;
     const seen = new Set<string>();
     for (const s of sites) {
       if (!s.position) continue;
@@ -3429,6 +3450,24 @@ export class SpaceView {
         el.dataset.set = set;
         el.querySelectorAll<HTMLElement>(".ss-outer").forEach((o, n) => o.style.setProperty("--tex", `url(${clientTexture(`res:/UI/Texture/classes/SensorSuite/${set}_${n + 1}.png`)})`));
       }
+      // during the sweep a scannable site shows at its delay (GetLocationFlashCurve: 0 until then, 1 over
+      // locatorFadeInTimeSec 0.25), its result sound then (ui_scanner_result_anomaly / _signature), not pickable till the
+      // sweep is done; a personal one (IsSiteInstantlyAccessible) at once
+      if (sweep && scannable(s.kind) && ego) {
+        let delay = sweep.delays.get(s.targetID);
+        if (delay === undefined) {
+          const angle = (((Math.atan2(-(s.position[2] - ego.z), s.position[0] - ego.x) - sweep.viewAngle) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+          delay = 5 + 8 * (angle / (2 * Math.PI));
+          sweep.delays.set(s.targetID, delay);
+        }
+        const t = (now - sweep.start) / 1000;
+        el.style.opacity = String(t < delay ? 0 : Math.min(1, (t - delay) / 0.25));
+        el.style.pointerEvents = "none";
+        if (t >= delay && !sweep.played.has(s.targetID)) {
+          sweep.played.add(s.targetID);
+          void playUiEvent(s.kind === "anomaly" ? "ui_scanner_result_anomaly" : "ui_scanner_result_signature");
+        }
+      } else if (el.style.opacity !== "") { el.style.opacity = ""; el.style.pointerEvents = ""; }
       const rel = new THREE.Vector3(s.position[0] - origin.x, s.position[1] - origin.y, -(s.position[2] - origin.z));
       const p = rel.clone().project(this.camera);
       const onScreen = p.z < 1 && Math.abs(p.x) <= 1.05 && Math.abs(p.y) <= 1.05;
@@ -3442,6 +3481,15 @@ export class SpaceView {
       }
     }
     for (const [id, el] of this.sensorEls) if (!seen.has(id)) { el.remove(); this.sensorEls.delete(id); }
+    // the sweep's end (grace + cycle): ui_scanner_stop, the brackets pickable again, and a second on DoScanEnded's
+    // ui_scanner_result_positive (sites found) or _negative
+    if (sweep && !sweep.ended && (now - sweep.start) / 1000 >= 13) {
+      sweep.ended = true;
+      void playUiEvent("ui_scanner_stop");
+      const found = sweep.delays.size > 0;
+      setTimeout(() => { void playUiEvent(found ? "ui_scanner_result_positive" : "ui_scanner_result_negative"); }, 1000);
+      this.sweep = null;
+    }
   }
 
   private sensorOverlayOn(): boolean {
@@ -3832,6 +3880,8 @@ export class SpaceView {
     // them before any menu - so a first CmdGetLocationMenuForNavigation finds the bookmarks there
     if (systemID !== null && systemID !== this.primedSystem) {
       this.primedSystem = systemID;
+      this.sweep = null;
+      this.sweepDue = { at: performance.now() };
       this.actions.locationsMenu?.();
       this.actions.missionsMenu?.();
       this.actions.anomalies?.();
