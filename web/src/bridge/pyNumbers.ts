@@ -96,3 +96,16 @@ export function formatNumeric(value: PyNumber, options: { readonly useGrouping?:
 export function fmtAmt(amount: number | null): string {
   return formatNumeric({ int: Math.trunc(amount ?? 0) }, { useGrouping: true, decimalPlaces: 0 });
 }
+
+/**
+ * format.FmtAmt(amount, 'ss') (its short form): under 10,000 grouped; else to 2 places in thousands under 100,000 (K),
+ * millions under 1e8 (M), billions under 1e11 (B), trillions (T) (FmtThousandShort etc.) - the client: 12345 "12.35K",
+ * 99999 "100.00K", 123456 "0.12M", 123456789 "0.12B".
+ */
+export function fmtAmtShort(amount: number | null): string {
+  const amt = Math.trunc(amount ?? 0);
+  const val = Math.abs(amt);
+  if (val < 10_000) return fmtAmt(amt);
+  const [div, unit] = val < 100_000 ? [1e3, "K"] : val < 1e8 ? [1e6, "M"] : val < 1e11 ? [1e9, "B"] : [1e12, "T"];
+  return `${formatNumeric(amt / div, { useGrouping: true, decimalPlaces: 2 })}${unit}`;
+}

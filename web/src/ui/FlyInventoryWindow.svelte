@@ -13,6 +13,7 @@
   import { invCompact, invFilter, invKeepFilter, invSidebar, invViewMode } from "./inventoryWindowSettings.ts";
   import { onMount, untrack } from "svelte";
   import TypeIcon from "./TypeIcon.svelte";
+  import { fmtAmtShort } from "../bridge/pyNumbers.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { shipHoldTarget } from "./shipHold.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
@@ -448,7 +449,7 @@
           <div class="item" class:selected={selected.includes(i.itemID)} title={typeName(i.typeID)} role="listitem" draggable="true"
             onclick={(e) => clickItem(i.itemID, e)} onkeydown={() => {}} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
             <span class="icon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="lg" />
-              {#if !i.singleton}<span class="qty">{i.quantity.toLocaleString("en-US")}</span>{/if}</span>
+              {#if !i.singleton}<span class="qty">{fmtAmtShort(i.quantity)}</span>{/if}</span>
             <span class="iname">{typeName(i.typeID)}</span>
           </div>
         {/each}
@@ -524,7 +525,8 @@
   .item { width: 64px; height: 103px; display: flex; flex-direction: column; align-items: center; }
   .icon { position: relative; width: 64px; height: 64px; display: grid; background: rgba(255, 255, 255, 0.05); }
   .icon :global(.type-icon) { width: 64px; height: 64px; }
-  .qty { position: absolute; right: 2px; bottom: 2px; padding: 1px 4px 0; background: rgba(0, 0, 0, 0.75); font-size: 12px; line-height: 14px; }
+  /* InvItem qtypar: BOTTOMRIGHT at 2, 2, black OPACITY_BG 0.9, its EveLabelSmall padded 4 1 4 0, FmtAmt(qty, "ss") */
+  .qty { position: absolute; right: 2px; bottom: 2px; padding: 1px 4px 0; background: rgba(0, 0, 0, 0.9); font-size: 12px; line-height: 14px; }
   /* InvItem (gridcheck): 64 x 103, its quantity EveLabelSmall 12, its name a centred Label 14, 70 wide */
   .iname { margin-top: 2px; width: 70px; text-align: center; font-size: 14px; line-height: 18px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .foot { padding-left: 4px; display: flex; align-items: center; gap: 8px; height: 24px; color: rgba(255, 255, 255, 0.55); }
