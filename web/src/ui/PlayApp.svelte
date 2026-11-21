@@ -25,6 +25,7 @@
   import { selectedSites as probeSitesSelected, selectSite as selectProbeSite } from "../app/probeSiteSelection.ts";
   import { addGameLogLine, beginGameLog } from "./gameLog.ts";
   import GameLogActions from "./GameLogActions.svelte";
+  import DronesWindowActions from "./DronesWindowActions.svelte";
   import { combatFlag, combatFontSize, damageMessageShown } from "./combatSettings.ts";
   import type { CombatMessageIcon } from "../play/combatMessage.ts";
   import type { ActionMessage } from "../app/flow.ts";
@@ -2319,6 +2320,7 @@
         >
           {#snippet headerActions()}
             {#if win.id === "log"}<GameLogActions store={session.store} flow={session.flow} />{/if}
+            {#if win.id === "drones"}<DronesWindowActions store={session.store} flow={session.flow} />{/if}
           {/snippet}
           <!-- (the drones window in the client's layout: FlyDronesWindow; the workspace keeps DronesPanel) -->
           {#if win.id === "drones"}

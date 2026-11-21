@@ -8,7 +8,7 @@
   import { DRONE_NOT_UNDER_YOUR_CONTROL, NO_DRONE_UNDER_YOUR_CONTROL, panelErrorWords } from "../bridge/refusals.ts";
   import { droneActivityColor, droneActivityLabel } from "../bridge/drones.ts";
   import { activeTargetID, activeTargetName } from "../play/activeTarget.ts";
-  import { droneSettings, droneSettingsFor, setDroneSetting } from "./droneSettings.ts";
+  import { droneSettings, droneSettingsFor, droneWarpWarning, droneWarpWarningFor, setDroneSetting } from "./droneSettings.ts";
   import { shortcutOf } from "../play/shortcutKeys.ts";
   import { onMount } from "svelte";
   import { canMyShipOrderDrone } from "../space/overview.ts";
@@ -111,6 +111,22 @@
   }
 
   const snapshot = $derived($space.snapshot);
+
+  /**
+   * DronesWindow.UpdateWarpWarning (WarpWarning): while the ship lines up for a warp (michelle.IsPreparingWarp: the
+   * ball in warp mode, its effectStamp below 0) with drones out (AreDronesOut), the orange warning with its message
+   * and Stop and Recall (stop_and_recall_drones: CmdStopShip, then every drone in local space to the bay); the
+   * setting off, never.
+   */
+  const warpWarningOn = droneWarpWarning;
+  const character = store.character;
+  $effect(() => { const id = $character.selectedCharacterID; if (id !== null) droneWarpWarningFor(id); });
+  flow.requestWords(["UI/Drones/WarpWarningMessage", "UI/Drones/StopAndRecall"]);
+  const warpWarningShown = $derived($warpWarningOn && snapshot?.ship?.warp?.preparing === true && ($drones.inSpace ?? []).length > 0);
+  function stopAndRecall(): void {
+    const ids = ($drones.inSpace ?? []).map((d) => d.itemID);
+    void run(async () => { await flow.stopShip(); if (ids.length) await flow.recallDrones(ids); });
+  }
 
   /**
    * DroneTooltip (droneTooltip.py, a ModuleButtonTooltip on DroneEntry): the type's icon and name in bold, under it
@@ -568,6 +584,14 @@
 {/if}
 
 <div class="fly-drones">
+  {#if warpWarningShown}
+    <div class="warp-warning" role="alert">
+      <span class="ww-whiteout"></span>
+      <img class="ww-icon" src="/client-res/ui/texture/classes/agency/iconexclamation.png" alt="" />
+      <p class="ww-text">{headerWord("UI/Drones/WarpWarningMessage", "You are about to warp off leaving your drones behind.")}</p>
+      <div class="ww-buttons"><button type="button" onclick={stopAndRecall}>{headerWord("UI/Drones/StopAndRecall", "Stop and Recall")}</button></div>
+    </div>
+  {/if}
   <div class="group bay" class:closed={!bayOpen} class:drop={dropOn === "bay"} role="list" ondragover={dragOver("bay")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("bay", null, e)}>
     <div class="sec" role="button" tabindex="-1" onclick={() => (bayOpen = !bayOpen)} onkeydown={() => {}}
       oncontextmenu={(e) => openMenu(e, [...deleteMenu(), { label: say(MENU_WORDS.launch), disabled: bayRows.length ? null : "Nothing in the drone bay", act: () => flow.launchDrones(bayRows.flatMap((r) => r.itemIDs)) }])}>
@@ -685,6 +709,18 @@
 {/if}
 
 <style>
+  /* WarpWarning: panel1Corner_Solid in WARNING_ORANGE at 0.15, the corner triangle, a 32 px exclamation pulsing
+     0.5..1.5 every 0.7 s, the message in orange 52 px in, Stop and Recall under it; faded in over 0.3 s with a white
+     flash */
+  .warp-warning { position: relative; margin-bottom: 2px; padding: 8px 8px 8px 52px; min-height: 48px; background: rgba(243, 144, 88, 0.15);
+    color: #f39058; animation: ww-in 0.3s ease-out; }
+  .ww-whiteout { position: absolute; inset: 0; background: rgba(255, 255, 255, 0.5); opacity: 0; animation: ww-flash 0.3s 0.1s ease-in-out; pointer-events: none; }
+  .ww-icon { position: absolute; left: 10px; top: 8px; width: 32px; height: 32px; animation: ww-pulse 0.7s ease-in-out infinite alternate; }
+  .ww-text { margin: 0 0 8px; font: 14px var(--font); }
+  .ww-buttons button { font: 13px var(--font); }
+  @keyframes ww-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes ww-flash { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
+  @keyframes ww-pulse { from { opacity: 0.5; } to { opacity: 1; } }
   .drone-tip { position: fixed; transform: translateY(-50%); z-index: 100000; pointer-events: none; padding: 8px; font: 14px var(--font); color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
   .tip-frame { position: absolute; inset: 0; opacity: 0.75; border-style: solid; border-width: 0; border-image-source: url(/client-res/ui/texture/classes/framewithpointer/background_04.png); border-image-slice: 19 fill; border-image-width: 19px; border-image-outset: 15px; }
   .tip-grid { position: relative; display: grid; grid-template-columns: 30px auto; align-items: center; }

@@ -45,3 +45,24 @@ export function setDroneSetting(characterID: number, name: "aggressive" | "focus
   droneSettings.set(next);
   return next;
 }
+
+/**
+ * dronesWarpWarning.warp_warning_enabled_setting (CharSettingBool 'drone_warp_warning_enabled', True): the drones
+ * window's warning on a warp begun with drones out, ticked in the window's menu (GetMenuMoreOptions).
+ */
+export const droneWarpWarning = createSignal<boolean>(true);
+let warpWarningOf: number | null = null;
+export function droneWarpWarningFor(characterID: number): boolean {
+  if (warpWarningOf !== characterID) {
+    warpWarningOf = characterID;
+    let on = true;
+    try { on = globalThis.localStorage?.getItem(key(characterID, "drone_warp_warning_enabled")) !== "0"; } catch { /* the default */ }
+    droneWarpWarning.set(on);
+  }
+  return droneWarpWarning.get();
+}
+export function setDroneWarpWarning(characterID: number, on: boolean): void {
+  warpWarningOf = characterID;
+  try { globalThis.localStorage?.setItem(key(characterID, "drone_warp_warning_enabled"), on ? "1" : "0"); } catch { /* lasts the page */ }
+  droneWarpWarning.set(on);
+}
