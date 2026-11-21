@@ -3403,7 +3403,8 @@
   .fly-windows :global(.ps-form img) { width: 32px; height: 32px; display: block; }
   .fly-windows :global(.ps-slider) { flex: 1; display: flex; justify-content: flex-end; padding-left: 8px; }
   .fly-windows :global(.ps-slider input) { width: 100%; max-width: 120px; }
-  .fly-windows :global(.ps-analyze) { width: 100px; height: 32px; margin-left: 8px; font-size: 14px; padding: 0; }
+  /* PrimaryButton (carbonui Button.get_intrinsic_width: fixedwidth is kept but unused): its label plus 16 a side at Density.NORMAL, no narrower than 32, 32 high, TextBody 14 not bold */
+  .fly-windows :global(.ps-analyze) { width: auto; min-width: 32px; height: 32px; min-height: 0; margin-left: 8px; font-size: 14px; font-weight: normal; text-transform: none; letter-spacing: 0; padding: 0 16px; white-space: nowrap; }
   /* A client window says its caption once, in its header: the panels' own title (the companion's) is not drawn here */
   .fly-windows :global(.win .panel-head > .panel-title) { display: none; }
   /* WalletWindow: the header's tabs; the WalletTabGroup 76 high - ISK and PLEX a third each, LP and EverMarks stacked;
