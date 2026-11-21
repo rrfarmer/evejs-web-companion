@@ -270,6 +270,8 @@ export interface SpaceActions {
   scoopToCargo?(itemID: number): Promise<void>;
   /** Use Fitting Service: the fitting window (CmdOpenFitting). */
   openFitting?(): void;
+  /** menuFunctions.SetName: the name asked (NamePopup) for one's own thing in space, with what it is called now. */
+  setName?(itemID: number, current: string): void;
   /** The pilot is in a fleet (session.IsPilotFleetMember). */
   inFleet?(): boolean;
   /** fleetSvc's broadcasts on a thing in space (Target, HealTarget to the bubble; WarpTo, AlignTo, JumpTo to the system). */
@@ -2951,6 +2953,11 @@ export class SpaceView {
       out.push({ path: "UI/Fitting/UseFittingService", label: word("UI/Fitting/UseFittingService", "Use Fitting Service"), run: () => this.actions.openFitting?.() });
     }
     if (this.actions.saveLocation && category !== 11 && category !== 6) out.push({ path: "UI/Inflight/BookmarkLocation", label: word("UI/Inflight/BookmarkLocation", "Save Location..."), run: () => this.actions.saveLocation?.(id, e.typeID ?? null) });
+    // OfferSetName: one's own specific thing (not a drone, fighter or biomass, not a ship: that is the ship naming
+    // window), after Save Location...
+    if (mine && !e.isSelf && e.kind !== "drone" && e.kind !== "fighter" && category !== 6 && category !== 18 && category !== 87 && this.actions.setName) {
+      out.push({ path: "UI/Commands/SetName", label: word("UI/Commands/SetName", "Set Name"), run: () => this.actions.setName?.(id, e.name ?? "") });
+    }
     const bay = typeID !== null ? comps.cargoBay.get(typeID) : undefined;
     // a can or a wreck: Open Cargo after Save Location... (read from the live client for a pilot's jettisoned can)
     if ((e.kind === "container" || e.kind === "wreck") && !bay && this.actions.openCargo) {

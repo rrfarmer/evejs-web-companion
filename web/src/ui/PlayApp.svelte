@@ -137,6 +137,7 @@
   import SovHubWindow from "./SovHubWindow.svelte";
   import ContactActionDialog from "./ContactActionDialog.svelte";
   import BountyOfficeWindow from "./BountyOfficeWindow.svelte";
+  import NamePopup from "./NamePopup.svelte";
   import { compressItemsInSpace, compressibleTypes, HARVESTABLE_ORE_HOLDS } from "./compressInSpace.ts";
   import type { ContactAction } from "./contactAction.ts";
   import type { MySovHub, SovHubDetails, SovHubExtras } from "../app/flow.ts";
@@ -157,6 +158,8 @@
   let session = $state<Session | null>(null);
   // the Pilot submenu's Add Contact / Edit Contact: the address book's contactmanagement window
   let pilotContact = $state.raw<ContactAction | null>(null);
+  /** menuFunctions.SetName's NamePopup for a thing in space (UI/Menusvc/SetName, TypeInNewName, at most 100). */
+  let namingItem = $state.raw<{ itemID: number; value: string } | null>(null);
   // the container opened from space (store.inventory.container that is a thing on the grid), for its own window
   let containerWin = $state({ x: 220, y: 140, w: 480, h: 360, z: 25, minimized: false });
   let spaceContainer = $state.raw<{ itemID: number; title: string } | null>(null);
@@ -1733,6 +1736,7 @@
       openCargo: (id) => s.flow.openCargo(id),
       scoopToCargo: (id) => s.flow.scoopToCargo(id),
       openFitting: () => open("fitting"),
+      setName: (id, current) => { namingItem = { itemID: id, value: current }; s.flow.requestWords(["UI/Menusvc/SetName", "UI/Menusvc/TypeInNewName", "UI/Common/PleaseTypeSomething", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel"]); },
       inFleet: () => s.store.fleet.get().availability === "ready",
       broadcastOnItem: (name, id, typeID) => void s.flow.broadcastOnItem(name, id, typeID).catch(() => {}),
       openShipHold: (key) => shipHoldTarget.ask(key),
@@ -2325,6 +2329,14 @@
         <FlyInventoryWindow store={session.store} flow={session.flow} containerMode={true} />
       </DesktopWindow>
     </div>
+  {/if}
+  {#if namingItem}
+    {@const t = session.store.words.get().templates}
+    {@const w = (label: string, own: string) => (typeof t[label] === "string" && t[label] ? plainText(String(t[label])) : own)}
+    <NamePopup caption={w("UI/Menusvc/SetName", "Set Name")} label={w("UI/Menusvc/TypeInNewName", "Type in new name")} value={namingItem.value} maxLength={100}
+      refusal={w("UI/Common/PleaseTypeSomething", "Please type something")} okWord={w("UI/Common/Buttons/OK", "OK")} cancelWord={w("UI/Common/Buttons/Cancel", "Cancel")}
+      onok={(name) => { const req = namingItem; namingItem = null; if (req) void session.flow.renameSpaceItem(req.itemID, name.replace(/\n/g, " ")).catch(() => {}); }}
+      oncancel={() => (namingItem = null)} />
   {/if}
   {#if pilotContact}
     {@const action = pilotContact}

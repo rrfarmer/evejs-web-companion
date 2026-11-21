@@ -3159,6 +3159,8 @@ export interface AppFlow {
    * (QuickHasKillRight: GetKillRightsFromCache), with GetMyKillRights' own rights on them (fromID me, toID them).
    */
   bountiesAndKillRights(ownerIDs: readonly number[], characterIDs: readonly number[]): Promise<{ wanted: Set<number>; killRights: Set<number> }>;
+  /** menuFunctions.SetName for a thing in space: SetLabel(itemID, name) with its line breaks made spaces. */
+  renameSpaceItem(itemID: number, name: string): Promise<void>;
   /** menusvc.Scoop: flown to within reach (GetCloseAndTryCommand), then ship.Scoop(itemID); the holds read again. */
   scoopToCargo(itemID: number): Promise<void>;
   /** deploy.DeployAction: LaunchFromShip(items, charID, maxQty=1) - ship.Drop of one of each stack; the holds read again. */
@@ -19577,6 +19579,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     nameOwners(ownerIDs);
     return out;
+  }
+  async function renameSpaceItem(itemID: number, name: string): Promise<void> {
+    await setLabelCall(bridgeDo, itemID, name);
   }
   async function scoopToCargo(itemID: number): Promise<void> {
     await navigateSystemTo(itemID, CARGO_INTERACTION_RANGE_M, async () => {
@@ -37676,6 +37681,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     broadcastOnItem,
     compressItemAt,
     deployItems,
+    renameSpaceItem,
     scoopToCargo,
     corporationAllianceID,
     placeBounty,
