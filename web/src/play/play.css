@@ -76,7 +76,7 @@ button { font: inherit; color: inherit; }
   -webkit-mask: url(/client-res/ui/texture/classes/bracket/bracketbackground.png) center / 100% 100% no-repeat;
   mask: url(/client-res/ui/texture/classes/bracket/bracketbackground.png) center / 100% 100% no-repeat; }
 .bracket .bracket-bg.blink { animation: state-flag-blink 1.5s ease-in-out infinite; }
-.bracket .label { position: absolute; left: 22px; top: 1px; white-space: nowrap; font-size: 12px; color: var(--text);
+.bracket .label { line-height: 1.25; position: absolute; left: 22px; top: 1px; white-space: nowrap; font-size: 12px; color: var(--text);
   text-shadow: 0 0 3px #000, 0 0 2px #000; display: none; }
 .bracket:hover .label, .bracket.hovered .label, .bracket.selected .label, .bracket.objective-highlight .label { display: block; }
 .bracket.selected .glyph, .bracket.objective-highlight .glyph { filter: drop-shadow(0 0 3px #fff); }
@@ -277,6 +277,22 @@ button { font: inherit; color: inherit; }
 .ov-app-row { display: grid; grid-template-columns: 16px 1fr 14px; gap: 6px; align-items: center; height: 22px; padding: 0 14px 0 6px; cursor: grab; }
 .ov-app-row .state-flag { position: static; }
 .ov-app-bg { width: 9px; height: 9px; }
+/* ShipsPanel */
+.ov-ships { display: flex; flex-direction: column; padding: 8px; gap: 4px; }
+.ov-ship-menu { align-self: flex-start; background: none; border: 0; color: rgba(255, 255, 255, 0.75); font-size: 16px; cursor: pointer; padding: 0 4px; }
+.ov-ship-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.ov-ship-row { display: flex; align-items: center; gap: 6px; height: 28px; cursor: grab; }
+.ov-ship-row input[type=checkbox] { accent-color: rgb(88, 167, 191); margin: 0; }
+.ov-ship-row label { display: flex; align-items: center; gap: 2px; }
+.ov-ship-text { width: 22px; height: 24px; box-sizing: border-box; background: rgba(0, 0, 0, 0.3); color: #fff; border: 1px solid rgba(255, 255, 255, 0.15); font: inherit; padding: 0 3px; }
+.ov-ship-name { width: 150px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ov-ship-row select { height: 24px; width: 52px; background: rgba(0, 0, 0, 0.3); color: #fff; border: 1px solid rgba(255, 255, 255, 0.15); font: inherit; }
+.ov-ship-row input[type=color] { width: 22px; height: 18px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.2); background: none; }
+.ov-ship-row input[type=color].unset { opacity: 0.35; }
+.ov-ship-br .ov-ship-grip { width: 16px; color: rgba(255, 255, 255, 0.5); }
+.ov-ship-remove { width: 16px; height: 16px; opacity: .75; cursor: pointer; margin-left: 8px; }
+.ov-ship-preview-title { margin-top: auto; }
+.ov-ship-preview { padding: 6px 8px; border: 1px solid rgba(255, 255, 255, 0.15); font-size: 12px; line-height: 1.25; min-height: 34px; }
 .ov-app-bg.blink { animation: state-flag-blink 1s ease-in-out infinite; }
 /* UseSmallFont: the entries in EVE_SMALL_FONTSIZE; UseSmallColortags: the flags 6 x 6 without their glyph */
 .ov.ov-small-font .ov-table { font-size: 12px; }

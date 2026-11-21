@@ -1702,6 +1702,12 @@
       wormholePolarization: (id) => s.flow.wormholePolarization(id),
       overviewNotice: (text) => s.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text),
       overviewAsk: (dialog, fallback) => s.flow.askClientDialog(dialog, fallback),
+      ownerTickers: (corporationID, allianceID) => {
+        const npc = (id: number | null) => id !== null && id < 2_000_000;
+        s.flow.requestOwnerTickers(corporationID && !npc(corporationID) ? [corporationID] : [], allianceID ? [allianceID] : []);
+        const t = s.flow.ownerTickers.get();
+        return { corporation: corporationID ? t.corporations[String(corporationID)] ?? null : null, alliance: allianceID ? t.alliances[String(allianceID)] ?? null : null };
+      },
       overviewRelationships,
       overviewAffiliation,
       // the reloads the server announced (turret.py OnChargeBeingLoadedToModule: the turrets play Reload)

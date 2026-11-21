@@ -20,6 +20,7 @@ export function flagMarkup(f: StateFlagLook | null): string {
   return `<span class="state-flag${f.flagBlink ? " blink" : ""}" style="background:${rgba(f.flagColor, 0.75)}" title="${esc(f.text)}"><span style="background:${rgba(f.iconColor)};-webkit-mask:url(${glyph}) center/8px no-repeat;mask:url(${glyph}) center/8px no-repeat"></span></span>`;
 }
 import { ContextMenu, type ContextEntry } from "./contextMenu.ts";
+import { SHIP_LABEL_PRESETS, saveShipLabelSettings, shipLabelMarkup, shipLabelSettings, type ShipLabelPart } from "./shipLabels.ts";
 
 /** overviewSettingsConst: MAX_TAB_NUM, MAX_TAB_NAME_LENGTH. */
 const MAX_TAB_NUM = 20;
@@ -139,7 +140,7 @@ export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HI
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
   "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
   "UI/Overview/EditCurrentFilter", "UI/Commands/ChangeName", "UI/Overview/DeleteTab", "/Carbon/UI/Controls/ScrollEntries/TypeInNewName",
-  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
+  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
 const DISABLED_TEXT = "Header sorting is disabled";
 
 /**
@@ -484,7 +485,7 @@ export class Overview {
    * gridcheck into overviewFilterGroups.json), each "shown / all" in the accent colour when all, white when some, grey
    * when none, opened to its groups' checkboxes; Select All, Deselect All, the search; Revert while it has changes.
    */
-  openSettings(panel: "tabs" | "filters" | "appearance" = "tabs", presetID?: string): void {
+  openSettings(panel: "tabs" | "filters" | "appearance" | "ships" = "tabs", presetID?: string): void {
     const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
     document.querySelector(".ov-settings")?.closest(".pw")?.remove();
     const win = new PlayWindow({ id: "overview-settings", caption: word("UI/Overview/OverviewSettings", "Overview Settings"),
@@ -541,7 +542,7 @@ export class Overview {
         ${sub === "types" ? `<div class="ov-filt-bar"><button type="button" class="ov-filt-all">${esc(word("UI/Common/SelectAll", "Select All"))}</button><button type="button" class="ov-filt-none">${esc(word("UI/Common/DeselectAll", "Deselect All"))}</button>
           <input class="ov-filt-search" placeholder="${esc(word("UI/Common/Search", "Search"))}" value="${esc(search)}" autocomplete="off"></div>
         <div class="ov-filt-tree">${tree}</div>` : statesPane}
-        <div class="ov-add-buttons"><button type="button" class="ov-filt-revert"${hasOverrides(changed) ? "" : " disabled"}>${esc(word("UI/Common/Buttons/Revert", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "Revert"))}</button></div></div>`;
+        <div class="ov-add-buttons"><button type="button" class="ov-filt-revert"${hasOverrides(changed) ? "" : " disabled"}>${esc(word("UI/Common/Buttons/Revert", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "Revert"))}</button></div></div>`;
     };
     // AppearancePanel: the two checkboxes, the note and the two apply-to checkboxes, the Colortag / Background lists (each
     // state's checkbox, its text and, while on, its flag; dragged to reorder) and Reset All
@@ -569,10 +570,37 @@ export class Overview {
         <div class="ov-filt-tree ov-app-list">${rows}</div>
         <div class="ov-add-buttons"><button type="button" class="ov-app-reset">${esc(word("UI/Commands/ResetAll", "Reset All"))}</button></div></div>`;
     };
+    // ShipsPanel: the formats menu, Hide corp ticker if pilot is in Alliance, each ship label part (ShipEntry: on, pre,
+    // its name, post, bold / italic / underline, size 8 to 14, colour; ShipEntryLinebreak: Linebreak and remove), dragged
+    // to reorder, Add Linebreak, and the preview
+    const LABEL_NAMES: Record<string, [string, string]> = { "ship type": ["UI/Common/ShipType", "Ship Type"], alliance: ["UI/Shared/AllianceTicker", "Alliance short name"],
+      corporation: ["UI/Common/CorpTicker", "Corp Ticker"], "ship name": ["UI/Common/ShipName", "Ship Name"], "pilot name": ["UI/Common/PilotName", "Pilot Name"] };
+    const shipsPanel = () => {
+      const st = shipLabelSettings();
+      const hex = (c: number[] | null | undefined) => "#" + (c ?? [1, 1, 1]).slice(0, 3).map((x) => Math.round(x * 255).toString(16).padStart(2, "0")).join("");
+      const rows = st.labels.map((l, i) => {
+        if (l.type === "linebreak") return `<div class="ov-ship-row ov-ship-br" draggable="true" data-i="${i}"><span class="ov-ship-grip">≡</span><span>${esc(word("UI/Overview/Linebreak", "Linebreak"))}</span><img class="ov-ship-remove" src="${clientTexture("res:/UI/Texture/eveicon/system_icons/close_16px.png")}" alt=""></div>`;
+        const name = l.type ? LABEL_NAMES[l.type] : null;
+        const hint = l.type === "corporation" || l.type === "alliance" ? word("UI/Overview/OnlyShownWhenAvailable", "") : l.type === null ? word("UI/Overview/AdditionalTextForCorpTicker", "") : "";
+        const size = l.fontsize ?? 12;
+        return `<div class="ov-ship-row" draggable="true" data-i="${i}"><input type="checkbox" data-f="state"${l.state ? " checked" : ""}>
+          <input class="ov-ship-text" data-f="pre" value="${esc(l.pre ?? "")}"><span class="ov-ship-name" title="${esc(hint)}">${name ? esc(word(name[0], name[1])) : ""}</span><input class="ov-ship-text" data-f="post" value="${esc(l.post ?? "")}">
+          <label><input type="checkbox" data-f="bold"${l.bold ? " checked" : ""}><b>B</b></label><label><input type="checkbox" data-f="italic"${l.italic ? " checked" : ""}><i>/</i></label><label><input type="checkbox" data-f="underline"${l.underline ? " checked" : ""}><u>U</u></label>
+          <select data-f="fontsize">${[8, 9, 10, 11, 12, 14].map((n) => `<option${n === size ? " selected" : ""}>${n}</option>`).join("")}</select>
+          <input type="color" data-f="color" value="${hex(l.color)}"${l.color ? "" : " class=\"unset\""}></div>`;
+      }).join("");
+      const preview = shipLabelMarkup({ typeName: "Ibis", shipName: "Ibis", displayName: "Pilot", corporationID: 98000001, allianceID: 99000001, corpTicker: "CORP_TICKER", allianceTicker: "ALLIANCE_TICKER" }, st);
+      return `<div class="ov-set-panel ov-ships"><button type="button" class="ov-ship-menu" title="">≡</button>
+        <label class="ov-app-check"><input type="checkbox" data-hide${st.hideCorpTicker ? " checked" : ""}><span>${esc(word("UI/Overview/HideTickerIfInAlliance", "Hide corp ticker if pilot is in Alliance"))}</span></label>
+        <div class="ov-ship-list">${rows}</div>
+        <div class="ov-add-buttons"><button type="button" class="ov-ship-addbr">${esc(word("UI/Overview/AddLinebreak", "Add Linebreak"))}</button></div>
+        <div class="ov-ship-preview-title">${esc(word("UI/Common/Preview", "Preview"))}:</div><div class="ov-ship-preview">${preview}</div></div>`;
+    };
+    const editLabels = (fn: (labels: ShipLabelPart[]) => void) => { const st = shipLabelSettings(); fn(st.labels); saveShipLabelSettings(st); draw(); };
     const draw = () => {
-      const tabs: [typeof current, string][] = [["tabs", word("UI/Overview/Tabs", "Tabs")], ["filters", word("UI/Overview/Filters", "Filters")], ["appearance", word("UI/Generic/Appearance", "Appearance")]];
+      const tabs: [typeof current, string][] = [["tabs", word("UI/Overview/Tabs", "Tabs")], ["filters", word("UI/Overview/Filters", "Filters")], ["appearance", word("UI/Generic/Appearance", "Appearance")], ["ships", word("UI/Common/ItemTypes/Ships", "Ships")]];
       const scroll = win.body.querySelector(".ov-filt-tree")?.scrollTop ?? 0;
-      win.body.innerHTML = `<div class="ov-set-tabs">${tabs.map(([k, t]) => `<span class="ov-set-tab${k === current ? " active" : ""}" data-panel="${k}">${esc(t)}</span>`).join("")}</div>${current === "tabs" ? tabsPanel() : current === "filters" ? filtersPanel() : appearancePanel()}`;
+      win.body.innerHTML = `<div class="ov-set-tabs">${tabs.map(([k, t]) => `<span class="ov-set-tab${k === current ? " active" : ""}" data-panel="${k}">${esc(t)}</span>`).join("")}</div>${current === "tabs" ? tabsPanel() : current === "filters" ? filtersPanel() : current === "appearance" ? appearancePanel() : shipsPanel()}`;
       const tree = win.body.querySelector(".ov-filt-tree");
       if (tree) tree.scrollTop = scroll;
     };
@@ -595,6 +623,19 @@ export class Overview {
       const t = e.target as HTMLElement;
       if (t.closest(".ov-set-row")) { update(); return; }
       if (t.matches(".ov-filt-preset")) { editing = (t as HTMLSelectElement).value; draw(); return; }
+      if (t.matches("[data-hide]")) { const st = shipLabelSettings(); st.hideCorpTicker = (t as HTMLInputElement).checked; saveShipLabelSettings(st); draw(); return; }
+      const shipRow = t.closest<HTMLElement>(".ov-ship-row");
+      if (shipRow && t.dataset.f) {
+        const i = Number(shipRow.dataset.i), f = t.dataset.f;
+        editLabels((labels) => {
+          const l = labels[i]!;
+          if (f === "state" || f === "bold" || f === "italic" || f === "underline") l[f] = (t as HTMLInputElement).checked;
+          else if (f === "pre" || f === "post") l[f] = (t as HTMLInputElement).value;
+          else if (f === "fontsize") l.fontsize = Number((t as HTMLSelectElement).value);
+          else if (f === "color") { const v = (t as HTMLInputElement).value; l.color = [1, 3, 5].map((k) => Math.round((parseInt(v.slice(k, k + 2), 16) / 255) * 1000) / 1000); }
+        });
+        return;
+      }
       if (t.matches("[data-app]")) { (this.appearance as unknown as Record<string, boolean>)[t.dataset.app!] = (t as HTMLInputElement).checked; this.applyAppearance(); draw(); return; }
       if (t.matches(".ov-app-row input")) {
         const list = this.appearanceList(appearanceSub).map((e) => (e.flag === Number(t.dataset.flag) ? { ...e, on: (t as HTMLInputElement).checked } : e));
@@ -617,11 +658,24 @@ export class Overview {
       again.setSelectionRange(search.length, search.length);
     });
     win.body.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.target as HTMLElement).matches(".ov-set-name")) update(); });
-    // AppearancePanel.Move: a state dragged onto another goes before it
+    // AppearancePanel.Move: a state dragged onto another goes before it (ShipsPanel.MoveShipLabel the same for the labels)
     let draggedFlag: number | null = null;
-    win.body.addEventListener("dragstart", (e) => { draggedFlag = Number((e.target as HTMLElement).closest<HTMLElement>(".ov-app-row")?.dataset.flag) || null; });
-    win.body.addEventListener("dragover", (e) => { if (draggedFlag !== null) e.preventDefault(); });
+    let draggedLabel: number | null = null;
+    win.body.addEventListener("dragstart", (e) => {
+      draggedFlag = Number((e.target as HTMLElement).closest<HTMLElement>(".ov-app-row")?.dataset.flag) || null;
+      const shipRow = (e.target as HTMLElement).closest<HTMLElement>(".ov-ship-row");
+      draggedLabel = shipRow ? Number(shipRow.dataset.i) : null;
+    });
+    win.body.addEventListener("dragover", (e) => { if (draggedFlag !== null || draggedLabel !== null) e.preventDefault(); });
     win.body.addEventListener("drop", (e) => {
+      const ontoLabel = (e.target as HTMLElement).closest<HTMLElement>(".ov-ship-row");
+      if (draggedLabel !== null && ontoLabel) {
+        e.preventDefault();
+        const from = draggedLabel, to = Number(ontoLabel.dataset.i);
+        draggedLabel = null;
+        if (from !== to) editLabels((labels) => { const [m] = labels.splice(from, 1); labels.splice(to > from ? to - 1 : to, 0, m!); });
+        return;
+      }
       const onto = (e.target as HTMLElement).closest<HTMLElement>(".ov-app-row");
       if (draggedFlag === null || !onto) return;
       e.preventDefault();
@@ -638,6 +692,20 @@ export class Overview {
       const t = e.target as HTMLElement;
       const tab = t.closest<HTMLElement>("[data-panel]");
       if (tab) { current = tab.dataset.panel as typeof current; draw(); return; }
+      // ShipsPanel.GetShipLabelMenu: the three formats (SetDefaultShipLabel)
+      if (t.closest(".ov-ship-menu")) {
+        const r = t.getBoundingClientRect();
+        const apply = (k: "default" | "ally" | "corpally") => () => { saveShipLabelSettings({ labels: SHIP_LABEL_PRESETS[k].map((l) => ({ ...l })), hideCorpTicker: false }); draw(); };
+        this.menu.open(r.left, r.bottom, [
+          { label: word("UI/Overview/ShipLabelFormatPilotCC", "Pilot [CORP]"), run: apply("default") },
+          { label: word("UI/Overview/ShipLabelFormatPilotCCAA", "Pilot [CORP,ALLIANCE]"), run: apply("ally") },
+          { label: word("UI/Overview/ShipLabelFormatCCPilotAA", "[CORP] Pilot <ALLIANCE>"), run: apply("corpally") },
+        ]);
+        return;
+      }
+      if (t.closest(".ov-ship-addbr")) { editLabels((labels) => labels.push({ type: "linebreak", state: true, pre: "", post: "" })); return; }
+      const rm = t.closest(".ov-ship-remove");
+      if (rm) { const i = Number(rm.closest<HTMLElement>(".ov-ship-row")!.dataset.i); editLabels((labels) => labels.splice(i, 1)); return; }
       const appSub = t.closest<HTMLElement>("[data-appsub]");
       if (appSub) { appearanceSub = appSub.dataset.appsub as typeof appearanceSub; draw(); return; }
       // AppearancePanel.ResetStateSettings: the lists' orders and switches back to the client's defaults

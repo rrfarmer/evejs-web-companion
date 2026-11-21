@@ -59,6 +59,7 @@ import { TARGET_LOCKED_LABEL, targetLockDurationMs, type TargetLockRadii } from 
 import { loadDds } from "../three/ddsTexture.ts";
 import { Overview, flagMarkup, typeNames, type OverviewAffiliation } from "./overview.ts";
 import { ContextMenu, type ContextEntry } from "./contextMenu.ts";
+import { shipLabelMarkup } from "./shipLabels.ts";
 import { fmtDist as fmtDistance } from "../space/overview.ts";
 import { DScanWindow } from "./dscan.ts";
 import { SolarSystemMapWindow, MARKER_GROUPS, type MapScanResult } from "./solarSystemMap.ts";
@@ -187,6 +188,8 @@ export interface SpaceViewOptions {
   overviewPilotID?: number;
   overviewNotice?: (text: string) => void;
   overviewAsk?: (dialog: string, fallback: string) => Promise<boolean>;
+  /** cfg.corptickernames / allianceshortnames for a ship label (asked for where not known yet). */
+  ownerTickers?: (corporationID: number | null, allianceID: number | null) => { corporation: string | null; alliance: string | null };
   overviewRelationships?: () => OverviewRelationships | undefined;
   /** The overview's Tag, Corporation, Alliance, Faction and Militia words (see Overview's hooks). */
   overviewAffiliation?: (rows: readonly Entity[], columns: ReadonlySet<string>) => ((e: Entity) => OverviewAffiliation) | null;
@@ -359,6 +362,26 @@ export class SpaceView {
       d.style.background = `rgba(${Math.round(c[0]! * 255)},${Math.round(c[1]! * 255)},${Math.round(c[2]! * 255)},${(c[3] ?? 1) * 0.5})`;
       el.prepend(d);
     }
+  }
+
+  /**
+   * bracketMgr.GetDisplayNameForBracket then get_label_text: a thing with a corporation that is not an orbital
+   * (category 46) by the ship labels (GetDisplayNameWithShipLabels), anything else by its name; the distance after.
+   */
+  private drawBracketLabel(label: HTMLElement, e: Entity): void {
+    const category = (e as Entity & { categoryID?: number | null }).categoryID ?? null;
+    const corp = (e as Entity & { corporationID?: number | null }).corporationID ?? null;
+    if (corp && category !== 46) {
+      const alliance = (e as Entity & { allianceID?: number | null }).allianceID ?? null;
+      const tickers = this.options.ownerTickers?.(corp, alliance) ?? { corporation: null, alliance: null };
+      const dist = this.distanceTo(e);
+      const html = shipLabelMarkup({ typeName: (e.typeID ? this.names?.types[String(e.typeID)]?.[0] : null) ?? "", shipName: e.name ?? null,
+        displayName: this.nameOf(e), corporationID: corp, allianceID: alliance, corpTicker: tickers.corporation, allianceTicker: tickers.alliance }) +
+        (dist ? ` ${fmtDistance(dist)}` : "");
+      if (label.innerHTML !== html) label.innerHTML = html;
+      return;
+    }
+    label.textContent = labelText(this.nameOf(e), this.distanceTo(e));
   }
 
   /** stateSvc.SetState(itemID, mouseOver): the bracket shows its label (ShowLabel's mouseOver) and the overview row lights. */
@@ -2940,7 +2963,7 @@ export class SpaceView {
         el.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px)`;
         if (this.selected === e.itemID || el.classList.contains("mining-selected")) this.updateMiningBracket(el, e, survey);
         if (this.frameCount % 10 === 0 || highlighted || el.classList.contains("selected") || this.hoveredID === e.itemID) {
-          el.querySelector<HTMLElement>(".label")!.textContent = labelText(this.nameOf(e), this.distanceTo(e));
+          this.drawBracketLabel(el.querySelector<HTMLElement>(".label")!, e);
         }
         if (this.frameCount % 10 === 0) this.updateBracketFlags(el, e, groupID, relations);
       }
