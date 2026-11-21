@@ -73,6 +73,9 @@ export class PlayWindow {
     this.head.insertBefore(el, this.head.querySelector(".pw-buttons"));
   }
 
+  /** MinimizeWindowAction (UI/Control/EveWindow/Minimize): the window folded to its header, or opened again. */
+  minimize(): void { this.toggleMinimized(); }
+
   private toggleMinimized(): void {
     this.minimized = !this.minimized;
     this.root.classList.toggle("minimized", this.minimized);

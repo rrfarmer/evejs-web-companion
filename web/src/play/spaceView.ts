@@ -966,7 +966,17 @@ export class SpaceView {
     // (as the eve-cs mirror has it: always on screen, 464 x 135 at the top right, its icon the client's show-info one,
     // "No object selected" while nothing is)
     // SelectedItemWnd: actionPanelDefaults' place and size (566 wide, 174 high, 16 from the right and the top), no icon
-    this.selectedWin = new PlayWindow({ id: "selected-item", caption: "Selected Item", left: innerWidth - 566 - 16, top: 16, width: 566, height: 174, closable: false });
+    // its window menu (GetMenuMoreOptions as a pilot has it): Minimize, then Copy (_CopyText: the name with a gate's
+    // security, the distance and the security status, a line each)
+    this.selectedWin = new PlayWindow({ id: "selected-item", caption: "Selected Item", left: innerWidth - 566 - 16, top: 16, width: 566, height: 174, closable: false,
+      menu: (button) => {
+        const r = button.getBoundingClientRect();
+        const text = [...this.selectedWin.body.querySelectorAll<HTMLElement>(".si-name, .si-dist, .si-sec")].map((el) => el.textContent ?? "").filter(Boolean).join("\n");
+        this.contextMenu.open(r.left, r.bottom, [
+          { label: this.actions.word?.("UI/Control/EveWindow/Minimize") ?? "Minimize", icon: "res:/UI/Texture/eveicon/system_icons/minimize_16px.png", run: () => this.selectedWin.minimize() },
+          { label: this.actions.word?.("UI/Generic/Copy") ?? "Copy", disabled: text ? null : "Nothing selected", run: () => void navigator.clipboard?.writeText(text).catch(() => {}) },
+        ]);
+      } });
     this.selectedWin.body.classList.add("si");
     this.selectedEl = this.selectedWin.root;
     this.root.insertBefore(this.targetBar.root, this.modeEl);
