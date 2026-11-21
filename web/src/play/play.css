@@ -264,6 +264,12 @@ button { font: inherit; color: inherit; }
 .ov-color-panel { position: fixed; z-index: 100002; padding: 8px; background: rgba(6, 10, 12, 0.95); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1); font-size: 12px; color: rgba(255, 255, 255, 0.75); }
 .ov-color-title { margin-bottom: 6px; }
 .ov-color-grid { display: grid; grid-template-columns: repeat(8, 16px); gap: 4px; }
+/* OverviewSettingsWnd's top: the overview's name (editable on a click) and the Share handle at the right */
+.ov-set-top { display: flex; justify-content: flex-end; align-items: center; gap: 8px; height: 28px; margin-bottom: 4px; }
+.ov-profile-name { cursor: text; color: rgba(255, 255, 255, 0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%; }
+.ov-profile-edit { font: inherit; width: 220px; background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; padding: 1px 4px; }
+.ov-share { display: inline-flex; align-items: center; gap: 2px; padding: 2px 8px 2px 3px; border: 1px solid rgba(255, 255, 255, 0.2); cursor: grab; color: rgba(255, 255, 255, 0.85); }
+.ov-share img { width: 15px; height: 15px; }
 /* HistoryPanel: the text at the top (0.8), the list filling, the stored profile at the bottom under a 0.1 line, Restore Profile at its right */
 .ov-history { display: flex; flex-direction: column; height: calc(100% - 40px); }
 .ov-history-text { padding: 3px 10px 0; color: rgba(255, 255, 255, 0.8); }

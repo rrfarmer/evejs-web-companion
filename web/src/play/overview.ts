@@ -136,6 +136,8 @@ const SORT_KEY = "evejs-play-overview-sort";
 const SORT_ENABLED_KEY = "evejs-play-overview-headerSortingEnabled";
 /** SETTING_RESTORE_DATA: the profile stored before Reset All ({data, name, timestamp}); SETTING_HISTORY_KEYS: the shared profiles loaded. */
 const RESTORE_KEY = "evejs-play-overviewProfile-restore";
+/** settings.user.ui overviewProfileName: the name the pilot gave the overview (DraggableShareContainer's LabelEditable). */
+const PROFILE_NAME_KEY = "evejs-play-overviewProfileName";
 const HISTORY_KEY = "evejs-play-overviewProfile-history";
 const isOverviewSettingKey = (k: string) => k.startsWith("evejs.ui.overview.") || k.startsWith(TABS_KEY) || k.startsWith(SORT_KEY) || k.startsWith(TAB_KEY) || k.startsWith(SORT_ENABLED_KEY);
 /** FmtDate: 2026.11.20 22:16 */
@@ -184,7 +186,7 @@ export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HI
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
   "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
   "UI/Overview/EditCurrentFilter", "UI/Commands/ChangeName", "UI/Overview/DeleteTab", "/Carbon/UI/Controls/ScrollEntries/TypeInNewName",
-  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Overview/ToggleBlink", "UI/Overview/ProfileHistory", "UI/Overview/HistoryText", "UI/Overview/AutomaticallyStoredOverviewHeader", "UI/Overview/RestoreProfile", "UI/Overview/StoredOverviewBasedOn", "UI/Overview/DefaultOverviewName", "UI/Overview/ProfileLinkWithTimestamp", "UI/Mail/Select Color", "UI/SystemMenu/ResetSettings/Clear", "UI/Common/Buttons/Save", "UI/Common/Buttons/SaveAs", "UI/Common/Delete", "UI/Overview/FilterName", "UI/Overview/CustomFilters", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
+  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Overview/ToggleBlink", "UI/Overview/MoveBroadcastersToTop", "UI/Overview/ShareOverview", "UI/Overview/SharableOverviewIconHint", "UI/Overview/ProfileHistory", "UI/Overview/HistoryText", "UI/Overview/AutomaticallyStoredOverviewHeader", "UI/Overview/RestoreProfile", "UI/Overview/StoredOverviewBasedOn", "UI/Overview/DefaultOverviewName", "UI/Overview/ProfileLinkWithTimestamp", "UI/Mail/Select Color", "UI/SystemMenu/ResetSettings/Clear", "UI/Common/Buttons/Save", "UI/Common/Buttons/SaveAs", "UI/Common/Delete", "UI/Overview/FilterName", "UI/Overview/CustomFilters", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
 const DISABLED_TEXT = "Header sorting is disabled";
 
 /**
@@ -668,7 +670,8 @@ export class Overview {
     const miscPanel = () => {
       const m = overviewMisc();
       const box = (key: keyof typeof m, label: string, own: string, sub = false) => `<label class="ov-app-check${sub ? " sub" : ""}"><input type="checkbox" data-misc="${key}"${m[key] ? " checked" : ""}><span>${esc(word(label, own))}</span></label>`;
-      return `<div class="ov-set-panel ov-misc"><div class="ov-misc-head">${esc(word("UI/Overview/BracketAndTargetsHeader", "Brackets and Targets"))}</div>
+      // MiscPanel: Move entries with broadcasts to top, then Brackets and Targets
+      return `<div class="ov-set-panel ov-misc">${box("broadcastsToTop", "UI/Overview/MoveBroadcastersToTop", "Move entries with broadcasts to top")}<div class="ov-misc-head">${esc(word("UI/Overview/BracketAndTargetsHeader", "Brackets and Targets"))}</div>
         ${box("targetCrosshair", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "Show Targeting Crosshair")}
         ${box("damageIndications", "UI/Overview/DisplayDamageIndications", "Display Damage Indications")}
         ${box("moduleLinks", "UI/Overview/DisplayModuleLinks", "Display Active Module Links")}
@@ -680,7 +683,10 @@ export class Overview {
     const draw = () => {
       const tabs: [typeof current, string][] = [["tabs", word("UI/Overview/Tabs", "Tabs")], ["filters", word("UI/Overview/Filters", "Filters")], ["appearance", word("UI/Generic/Appearance", "Appearance")], ["ships", word("UI/Common/ItemTypes/Ships", "Ships")], ["misc", word("UI/Generic/Misc", "Misc")], ["history", word("UI/Overview/ProfileHistory", "History")]];
       const scroll = win.body.querySelector(".ov-filt-tree")?.scrollTop ?? 0;
-      win.body.innerHTML = `<div class="ov-set-tabs">${tabs.map(([k, t]) => `<span class="ov-set-tab${k === current ? " active" : ""}" data-panel="${k}">${esc(t)}</span>`).join("")}</div>${current === "tabs" ? tabsPanel() : current === "filters" ? filtersPanel() : current === "appearance" ? appearancePanel() : current === "ships" ? shipsPanel() : current === "history" ? historyPanel() : miscPanel()}`;
+      // AddDraggableCont: the overview's name (overviewProfileName, else DefaultOverviewName), editable, and the Share handle
+      const profileName = this.profileName();
+      const top = `<div class="ov-set-top"><span class="ov-profile-name" title="${esc(profileName)}">${esc(profileName)}</span><span class="ov-share" draggable="true" title="${esc(word("UI/Overview/SharableOverviewIconHint", "Drag into chat to share the overview"))}"><img src="${clientTexture("res:/UI/Texture/classes/Overview/shareableOverview_small.png")}" alt="">${esc(word("UI/Overview/ShareOverview", "Share"))}</span></div>`;
+      win.body.innerHTML = top + `<div class="ov-set-tabs">${tabs.map(([k, t]) => `<span class="ov-set-tab${k === current ? " active" : ""}" data-panel="${k}">${esc(t)}</span>`).join("")}</div>${current === "tabs" ? tabsPanel() : current === "filters" ? filtersPanel() : current === "appearance" ? appearancePanel() : current === "ships" ? shipsPanel() : current === "history" ? historyPanel() : miscPanel()}`;
       const tree = win.body.querySelector(".ov-filt-tree");
       if (tree) tree.scrollTop = scroll;
     };
@@ -822,6 +828,22 @@ export class Overview {
       if (t.closest(".ov-filt-all")) { this.setPresetGroups(editing, all, true); draw(); return; }
       if (t.closest(".ov-filt-none")) { this.setPresetGroups(editing, all, false); draw(); return; }
       if (t.closest(".ov-history-restore-btn")) { this.restoreProfile(); draw(); return; }
+      const nameEl = t.closest<HTMLElement>(".ov-profile-name");
+      if (nameEl && !nameEl.querySelector("input")) {
+        const input = document.createElement("input");
+        input.className = "ov-profile-edit";
+        input.value = this.profileName();
+        nameEl.replaceChildren(input);
+        input.focus();
+        input.select();
+        const done = (keep: boolean) => {
+          if (keep) { try { const v = input.value.trim(); if (v) localStorage.setItem(PROFILE_NAME_KEY, v); else localStorage.removeItem(PROFILE_NAME_KEY); } catch { /* lasts the page */ } }
+          draw();
+        };
+        input.addEventListener("keydown", (e) => { if (e.key === "Enter") done(true); else if (e.key === "Escape") done(false); });
+        input.addEventListener("blur", () => done(true), { once: true });
+        return;
+      }
       // TabPresetPanel.OnRevertButton: RevertOverviewPresetChanges (YESNO) first
       if (t.closest(".ov-filt-revert")) {
         void (this.hooks.ask?.("RevertOverviewPresetChanges", "Are you sure you want to revert the changes to this filter?") ?? Promise.resolve(true))
@@ -953,12 +975,18 @@ export class Overview {
 
   private profileTabs: TabSettings[] = [];
 
+  /** overviewPresetSvc.GetOverviewName: the name the pilot gave it (overviewProfileName), else "<pilot>'s Overview". */
+  private profileName(): string {
+    let kept: string | null = null;
+    try { kept = localStorage.getItem(PROFILE_NAME_KEY); } catch { /* none kept */ }
+    return kept?.trim() || (this.hooks.word?.("UI/Overview/DefaultOverviewName", { charID: this.hooks.pilotID ?? 0 }) ?? "Overview");
+  }
   /** StoreCurrentProfileDataInSettings: the overview's settings as they are, its name (GetOverviewName) and the time. */
   private storeCurrentProfile(): void {
     try {
       const data: Record<string, string> = {};
       for (const k of Object.keys(localStorage)) if (isOverviewSettingKey(k)) data[k] = localStorage.getItem(k)!;
-      const name = this.hooks.word?.("UI/Overview/DefaultOverviewName", { charID: this.hooks.pilotID ?? 0 }) ?? "Overview";
+      const name = this.profileName();
       localStorage.setItem(RESTORE_KEY, JSON.stringify({ data, name, timestamp: Date.now() }));
     } catch { /* nothing kept */ }
   }

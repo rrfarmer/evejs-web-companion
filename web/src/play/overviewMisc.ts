@@ -4,6 +4,8 @@
 // drones 18).
 
 export interface OverviewMiscSettings {
+  /** Move entries with broadcasts to top (SETTING_BROADCAST_TO_TOP, DEFAULT_BROADCAST_TO_TOP on). */
+  broadcastsToTop: boolean;
   targetCrosshair: boolean;
   /** Display Active Module Links (SETTING_MODULE_HAIRLINES): the hairline from a hovered module to its target. */
   moduleLinks: boolean;
@@ -14,7 +16,7 @@ export interface OverviewMiscSettings {
   inRangeNPCs: boolean;
   inRangeDrones: boolean;
 }
-const DEFAULTS: OverviewMiscSettings = { targetCrosshair: true, moduleLinks: true, damageIndications: true, inRange: true, inRangeShips: true, inRangeNPCs: true, inRangeDrones: true };
+const DEFAULTS: OverviewMiscSettings = { broadcastsToTop: true, targetCrosshair: true, moduleLinks: true, damageIndications: true, inRange: true, inRangeShips: true, inRangeNPCs: true, inRangeDrones: true };
 const KEY = "evejs.ui.overview.misc";
 
 export function overviewMisc(): OverviewMiscSettings {
