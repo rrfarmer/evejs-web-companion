@@ -8223,6 +8223,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const first = (args as readonly JsonValue[])[0];
       trackerOnItemsArrived(method === "OnItemChange" ? [first] : isListValue(first) ? first.items : Array.isArray(first) ? first : []);
     }
+    // invCache.OnItemChange, as OnItemsChanged: a mining drone's cycle comes as one OnItemChange of the hold's
+    // stack (measured 2026-11-21: two Mining Drone I, an OnItemChange + OnOreMined a minute each, the hold unread).
+    if (method === "OnItemChange") scheduleHoldRefresh();
     if (method === "OnItemsChanged") {
       // Coalesced: mining grants ore stack by stack, so a busy cycle can push
       // several of these at once and one re-read answers all of them.
