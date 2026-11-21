@@ -445,7 +445,7 @@ export class SpaceView {
   private readonly sensorLayer = document.createElement("div");
   private readonly sensorEls = new Map<string, HTMLDivElement>();
   /** The tactical overlay's compass (its geometry by base radius and active range, its labels' places). */
-  private tactical: { key: string; group: THREE.Group; labels: HTMLElement; places: { el: HTMLElement; at: THREE.Vector3 }[]; connectors: THREE.LineSegments; velocity: THREE.Mesh } | null = null;
+  private tactical: { key: string; group: THREE.Group; labels: HTMLElement; places: { el: HTMLElement; at: THREE.Vector3 }[]; connectors: THREE.LineSegments; velocity: THREE.Mesh; action: THREE.LineSegments; navBracket: HTMLDivElement } | null = null;
   /**
    * sensorSuite._DoSystemEnterScan's sweep: started as a system's sites first come (systemReadyTime), the camera's view
    * angle in the plane then (GetViewAngleInPlane), each scannable site's delay (GetSiteListOrderedByDelay), the ones
@@ -3910,8 +3910,19 @@ export class SpaceView {
       }));
       velocity.frustumCulled = false;
       group.add(velocity);
+      // the action display's lines and its navigation point's bracket (NavigationPointBracket: selectioncircle.png, 24 px)
+      const action = new THREE.LineSegments(new THREE.BufferGeometry(), material);
+      action.frustumCulled = false;
+      group.add(action);
+      const navBracket = document.createElement("div");
+      navBracket.className = "tactical-nav-point";
+      const selection = `url(${clientTexture("res:/ui/texture/classes/bracket/selectioncircle.png")}) center / 24px 24px no-repeat`;
+      navBracket.style.mask = selection;
+      navBracket.style.webkitMask = selection;
+      navBracket.style.display = "none";
+      labels.append(navBracket);
       this.scene.add(group);
-      this.tactical = { key, group, labels, places, connectors, velocity };
+      this.tactical = { key, group, labels, places, connectors, velocity, action, navBracket };
     }
     // the connectors, each frame: from the thing (relative to the ship) along the great circle to the plane
     const limit = active + base + Math.max(targeting * 0.25, 50_000);
@@ -3971,6 +3982,8 @@ export class SpaceView {
     for (const x of wantedVel.values()) vel.push(x);
     vel.push(...rates);
     this.drawTacticalVelocity(vel, w, h, ship ? new THREE.Vector3(ship.velocity.x, ship.velocity.y, -ship.velocity.z) : new THREE.Vector3());
+    // ActionDisplay.SetMaxMoveRange(TacticalCompass.GetMaxRange()): 2 x (the active range + its fade)
+    this.drawActionDisplay(origin, 2 * (active + base + Math.max(targeting * 0.25, 50_000)), w, h);
     for (const p of this.tactical.places) {
       const v = p.at.clone().project(this.camera);
       const shown = v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
@@ -4049,6 +4062,89 @@ export class SpaceView {
     g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
     g.setIndex(index);
     g.computeBoundingSphere();
+  }
+
+  /**
+   * tacticalNavigation.ActionDisplay (enabled with the tactical overlay, every 500 ms; here each frame): the ship's
+   * movement - going to a point (DSTBALL_GOTO): a NavigationPoint there (its bracket selectioncircle.png 24 px in
+   * COLOR_MOVE 0.5, a connector of the overlay's to the plane) and the movement line to it; following (a followId:
+   * approach, keep at range): the movement line to the thing; orbiting: the orbit (EveConnector.AddOrbit: the circle of
+   * the thing's radius + followRange + the ship's about it, its plane's normal (cos phi1 cos phi2, sin phi2, sin phi1
+   * cos phi2), phi1 = 0.001 t, phi2 = (ship id & 65535) + 0.001 t, t the ballpark's seconds) and the line from the ship
+   * to it. CreateMovementConnector / CreateOrbitConenctor: COLOR_MOVE at ALPHA_MEDIUM 0.3; the movement line no longer
+   * than SetMaxMoveRange's 2 x the compass's range (PointToPoint: cut there, fading to nothing).
+   */
+  private drawActionDisplay(origin: { x: number; y: number; z: number }, maxMove: number, w: number, h: number): { at: THREE.Vector3 } | null {
+    const t = this.tactical!;
+    const ship = this.snapshot?.ship;
+    const pts: number[] = [], cols: number[] = [];
+    const C = [0, 0.678, 0.933];
+    const line = (a: THREE.Vector3, b: THREE.Vector3, endAlpha = 0.3) => { pts.push(a.x, a.y, a.z, b.x, b.y, b.z); cols.push(C[0]!, C[1]!, C[2]!, 0.3, C[0]!, C[1]!, C[2]!, endAlpha); };
+    const rel = (p: { x: number; y: number; z: number }) => new THREE.Vector3(p.x - origin.x, p.y - origin.y, -(p.z - origin.z));
+    let nav: { at: THREE.Vector3 } | null = null;
+    const o = new THREE.Vector3();
+    const movement = (to: THREE.Vector3) => {
+      const d = to.length();
+      if (maxMove > 0 && d > maxMove) line(o, to.clone().setLength(maxMove), 0); else line(o, to);
+    };
+    if (ship) {
+      const park = this.live.park as unknown as { ballpark: { ball(id: number): { followId?: unknown; followRange?: unknown } | undefined } };
+      const ball = park?.ballpark?.ball(ship.itemID);
+      const followID = Number(ball?.followId ?? 0);
+      const follow = followID > 0 ? this.snapshot?.entities.find((e) => e.itemID === followID) ?? null : null;
+      const moving = ship as typeof ship & { gotoPoint?: { x: number; y: number; z: number } | null; followRange?: number | null };
+      if (ship.mode === "GOTO" && moving.gotoPoint) {
+        nav = { at: rel(moving.gotoPoint) };
+        movement(nav.at);
+        // RegisterNavBall: the overlay's connector for the point (an arc down to the plane, white 0.25)
+        const d = nav.at.length();
+        const flat = new THREE.Vector3(nav.at.x, 0, nav.at.z);
+        if (d > 1 && flat.lengthSq() > 0) {
+          const from = nav.at.clone().normalize(), to = flat.normalize();
+          const steps = Math.max(1, Math.ceil(from.angleTo(to) / 0.05));
+          let prev = nav.at.clone();
+          for (let i = 1; i <= steps; i++) {
+            const q = from.clone().lerp(to, i / steps).normalize().multiplyScalar(d);
+            pts.push(prev.x, prev.y, prev.z, q.x, q.y, q.z);
+            cols.push(1, 1, 1, 0.25, 1, 1, 1, 0.25);
+            prev = q;
+          }
+        }
+      } else if (ship.mode === "ORBIT" && follow) {
+        const c = rel(follow.position);
+        const radius = follow.radius + Number(moving.followRange ?? ball?.followRange ?? 0) + ship.radius;
+        const now = Math.floor(Date.now() / 1000);
+        const phi1 = now * 0.001, phi2 = (ship.itemID & 65535) + now * 0.001;
+        // the client's y-up normal, z turned to three's
+        const n = new THREE.Vector3(Math.cos(phi1) * Math.cos(phi2), Math.sin(phi2), -Math.sin(phi1) * Math.cos(phi2)).normalize();
+        const up = new THREE.Vector3(0, 1, 0);
+        const side = Math.abs(n.dot(up)) < 0.999 ? new THREE.Vector3().crossVectors(up, n).normalize() : new THREE.Vector3().crossVectors(new THREE.Vector3(1, 0, 0), n).normalize();
+        const front = new THREE.Vector3().crossVectors(side, n).normalize();
+        let prev = c.clone().addScaledVector(front, radius);
+        for (let i = 1; i <= 96; i++) {
+          const a = (i / 96) * Math.PI * 2;
+          const p = c.clone().addScaledVector(front, Math.cos(a) * radius).addScaledVector(side, Math.sin(a) * radius);
+          line(prev, p);
+          prev = p;
+        }
+        // and the line to the orbit: from the ship to the circle's point nearest it
+        const toShip = o.clone().sub(c);
+        const inPlane = toShip.addScaledVector(n, -toShip.dot(n));
+        if (inPlane.lengthSq() > 0) line(o, c.clone().add(inPlane.setLength(radius)));
+      } else if (follow) {
+        movement(rel(follow.position));
+      }
+    }
+    const g = t.action.geometry;
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(cols, 4));
+    g.computeBoundingSphere();
+    // the navigation point's bracket
+    const v = nav ? nav.at.clone().project(this.camera) : null;
+    const shown = v !== null && v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
+    t.navBracket.style.display = shown ? "" : "none";
+    if (shown && v) t.navBracket.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px)`;
+    return nav;
   }
 
   private sensorOverlayOn(): boolean {
