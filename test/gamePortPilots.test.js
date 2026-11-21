@@ -4457,6 +4457,56 @@ test("different modules fitted at once can refresh independently, and a read of 
   assert.deepEqual((await reading).online.sort((a, b) => a - b), [SHIP + 1, SHIP + 8, SHIP + 9]);
 });
 
+// A collector without --expose-gc on the command line: the test runner starts each file in a process of its own and
+// does not pass that flag on, so a test that waits for global.gc never runs under `npm test`.
+const collectGarbage = () => {
+  require("node:v8").setFlagsFromString("--expose-gc");
+  return require("node:vm").runInNewContext("gc");
+};
+
+test("completed inventory notices are collectible while another item is waiting for its RPC", { timeout: 5000 }, async (t) => {
+  const gc = collectGarbage();
+  const waiting = Promise.withResolvers();
+  const requested = Promise.withResolvers();
+  const moduleID = SHIP + 9;
+  const { pilots, session, handle } = await selected({ answers: {
+    "bound:GetAllInfo": ownShipAllInfo(),
+    "bound:ItemGetInfo": ([itemID]) => {
+      assert.equal(Number(itemID), moduleID);
+      requested.resolve();
+      return waiting.promise;
+    },
+  } }, onlineByType);
+  t.after(() => pilots.shutdown());
+  await pilots.shipInfo(FIELDS, handle);
+  session.notify("OnItemsChanged", fittedNow(moduleID));
+  await requested.promise;
+  let readDone = false;
+  const reading = pilots.shipInfo(FIELDS, handle).then(result => {
+    readDone = true;
+    return result;
+  });
+
+  const references = Array.from({ length: 4 }, () => {
+    // Decoded afresh each time, so each notice is objects of its own for the references to watch.
+    const notice = recordedNotifications(primingRecording).find(each => each.method === "OnItemsChanged");
+    session.notify(notice.method, notice.args, notice.service);
+    return [new WeakRef(notice.args[0].items[0]), new WeakRef(notice.args[1])];
+  }).flat();
+  try {
+    for (let turn = 0; turn < 4; turn++) {
+      await settled();
+      gc();
+    }
+    assert.equal(readDone, false, "shipInfo still waits for the in-flight module refresh");
+    assert.ok(references.every(ref => ref.deref() === undefined), "completed rows or change dicts are still retained");
+  } finally {
+    waiting.resolve(itemRow(moduleID, true));
+    await reading;
+  }
+  assert.ok((await reading).online.includes(moduleID));
+});
+
 test("the undock hands over the modules that are online once the one just fitted has been answered for", async () => {
   let answer;
   const waiting = new Promise((resolve) => { answer = resolve; });
