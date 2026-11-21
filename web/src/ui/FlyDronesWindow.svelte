@@ -136,6 +136,69 @@
     tipOff();
     radial.open(x, y, row.label, options, 0);
   }
+  /**
+   * A section header's radial (dronesUtil.ExpandRadialMenuForInBayGroup / InSpaceGroup: TryExpandActionMenu with no item
+   * and manyItemsData): the type's own layout, each slot live only where the merged menu offers its entry. In the bay
+   * (the first drone's type, droneMapping): Launch Drone, the market ring's View Market Details (Buy This Type is Buy All
+   * on several, so not offered), Show Info on one drone only. In space (the first drone not mining / salvage /
+   * unanchoring, else the first): its order at the top, the general slots greyed (no one object to orbit or lock), the
+   * more ring's Return and Orbit and Return to Drone Bay live, the rest greyed.
+   */
+  /** A hold that opened a header's radial: the click its release makes does not fold the section. */
+  let headHeld = false;
+  function openHeaderRadial(where: "bay" | "space", x: number, y: number): void {
+    const icon = (path: string) => RADIAL_ICON(path);
+    const g = (n: number) => icon(`res:/UI/Texture/Icons/44_32_${n}.png`);
+    if (where === "bay") {
+      const items = bayRows.flatMap((r) => r.itemIDs.map((itemID) => ({ itemID, typeID: r.typeID })));
+      if (!items.length) return;
+      const ids = items.map((i) => i.itemID), first = items[0]!;
+      const one = ids.length === 1;
+      radial.open(x, y, `${headerWord(HEADER_WORDS.bay, "Drones in Bay")} (${bayCount})`, [
+        { label: plainText(formatTemplate(say(MENU_WORDS.launchOne), { numDrones: 1 }, { nameOf: () => "" })), icon: g(2), run: () => void run(() => flow.launchDrones(ids)) },
+        null, null, null, null,
+        { label: "Market", icon: icon("res:/UI/Texture/classes/RadialMenuActions/market.png"), more: [
+          { label: say(MENU_WORDS.market), icon: icon("res:/UI/Texture/classes/RadialMenuActions/viewMarketDetails.png"), run: () => showMarketDetails(first.typeID) },
+          { label: say(MENU_WORDS.buy), icon: icon("res:/UI/Texture/classes/RadialMenuActions/buyThisType.png"), disabled: !one, run: () => buyMarketType(first.typeID) },
+        ] },
+        { label: say(MENU_WORDS.info), icon: g(24), disabled: !one, run: () => showInfo({ kind: "type", typeID: first.typeID, itemID: first.itemID }) },
+        null,
+      ], 0);
+      return;
+    }
+    const ids = allDroneIDs;
+    if (!ids.length) return;
+    const out = ($drones.inSpace ?? []).filter((d) => ids.includes(d.itemID));
+    const low = (id: number) => miningIDs.includes(id) || salvageIDs.includes(id);
+    const lead = out.find((d) => !low(d.itemID)) ?? out[0];
+    const leadID = lead?.itemID ?? ids[0]!;
+    const primary = miningIDs.includes(leadID) ? { label: say(MENU_WORDS.mine), icon: g(5) } : salvageIDs.includes(leadID) ? { label: say(MENU_WORDS.salvage), icon: g(4) } : { label: say(MENU_WORDS.engage), icon: g(11) };
+    radial.open(x, y, `${headerWord(HEADER_WORDS.space, "Drones in Space")} (${maxActive === null ? outCount : `${outCount}/${maxActive}`})`, [
+      { ...primary, run: () => void run(() => primaryAction(ids)) },
+      { label: "Orbit", icon: g(21), disabled: true },
+      { label: "More", icon: "", more: [
+        { label: "Look At", icon: g(20), disabled: true },
+        { label: "Set Interest", icon: icon("res:/UI/Texture/classes/RadialMenuActions/setInterest.png"), disabled: true },
+        { label: say(MENU_WORDS.orbit), icon: g(3), run: () => void run(() => flow.returnDronesAndOrbit(ids)) },
+        { label: "Scoop to Cargo Hold", icon: icon("res:/UI/Texture/Icons/scoopcargo.png"), disabled: true },
+        { label: say(MENU_WORDS.bay), icon: g(1), run: () => void run(() => flow.recallDrones(ids)) },
+        null,
+        { label: say(MENU_WORDS.scoop), icon: icon("res:/UI/Texture/classes/RadialMenuActions/scoopDrone.png"), disabled: true },
+      ] },
+      { label: "Keep at Range", icon: g(22), disabled: true },
+      { label: "Lock Target", icon: g(17), disabled: true },
+      { label: "Approach", icon: g(23), disabled: true },
+      { label: say(MENU_WORDS.info), icon: g(24), disabled: true },
+      { label: "Warp To Within", icon: g(18), disabled: true },
+    ], 0);
+  }
+  onMount(() => {
+    const offHead = rootEl ? holdToOpen(rootEl, (_x, _y, e) => {
+      const el = (e.target as HTMLElement).closest<HTMLElement>("[data-drone-head]");
+      return !el || (e.target as HTMLElement).closest("button") ? null : el.dataset.droneHead === "bay" ? 1 : 2;
+    }, (id, x, y) => { tipOff(); headHeld = true; openHeaderRadial(id === 1 ? "bay" : "space", x, y); }, false) : () => {};
+    return () => offHead();
+  });
   onMount(() => {
     document.body.appendChild(radial.root);
     radial.root.style.zIndex = "100000";
@@ -749,7 +812,7 @@
     </div>
   {/if}
   <div class="group bay" class:closed={!bayOpen} class:drop={dropOn === "bay"} role="list" ondragover={dragOver("bay")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("bay", null, e)}>
-    <div class="sec" role="button" tabindex="-1" onclick={() => (bayOpen = !bayOpen)} onkeydown={() => {}}
+    <div class="sec" data-drone-head="bay" role="button" tabindex="-1" onclick={() => { if (headHeld) { headHeld = false; return; } bayOpen = !bayOpen; }} onkeydown={() => {}}
       oncontextmenu={(e) => openMenuIfAny(e, [...deleteMenu(), ...bayItemsMenu(bayRows.flatMap((r) => r.itemIDs.map((itemID) => ({ itemID, typeID: r.typeID }))), false)])}>
       <span class="caret" style:mask-image={`url("${bayOpen ? CARET.open : CARET.closed}")`} style:-webkit-mask-image={`url("${bayOpen ? CARET.open : CARET.closed}")`}></span><span class="lbl">{headerWord(HEADER_WORDS.bay, "Drones in Bay")} ({bayCount})</span>
       <span class="commands">
@@ -775,7 +838,7 @@
   </div>
 
   <div class="group" class:drop={dropOn === "space"} role="list" ondragover={dragOver("space")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("space", null, e)}>
-    <div class="sec" role="button" tabindex="-1" onclick={() => (spaceOpen = !spaceOpen)} onkeydown={() => {}}
+    <div class="sec" data-drone-head="space" role="button" tabindex="-1" onclick={() => { if (headHeld) { headHeld = false; return; } spaceOpen = !spaceOpen; }} onkeydown={() => {}}
       oncontextmenu={(e) => openMenuIfAny(e, [...deleteMenu(), ...(allDroneIDs.length ? spaceEntries(allDroneIDs, false) : [])])}>
       <span class="caret" style:mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`} style:-webkit-mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`}></span><span class="lbl">{headerWord(HEADER_WORDS.space, "Drones in Space")} ({maxActive === null ? outCount : `${outCount}/${maxActive}`})</span>
       <span class="commands">
