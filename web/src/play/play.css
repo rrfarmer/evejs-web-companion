@@ -448,18 +448,27 @@ button { font: inherit; color: inherit; }
 @keyframes ssm-perfect { from { opacity: 0.3; transform: scale(0); border-width: 40px; } to { opacity: 0; transform: scale(1.4); border-width: 0; } }
 .ssm-result.selected .ssm-frame { opacity: 0.9; }
 .ssm-result .ssm-label { color: var(--result-colour); }
-.dscan-head { position: relative; display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 4px 2px; }
+/* DirectionalScannerPalette's headerCont (read through gridcheck): 32 high, Scan Results at the left, then at the right
+   the buttonCont (16 x 32 icon buttons 4 apart) and, rightmost, the filter box (padLeft 4) */
+.dscan-head { position: relative; display: flex; align-items: center; height: 32px; padding: 0 0 0 2px; }
 /* the filter box's tooltip list (LoadFilterTooltipPanel: 210 wide, at most 200 high) */
-.dscan-filters { position: absolute; top: 26px; right: 4px; z-index: 5; width: 210px; max-height: 200px; overflow-y: auto; padding: 4px 0;
+.dscan-filters { position: absolute; top: 32px; right: 4px; z-index: 5; width: 210px; max-height: 200px; overflow-y: auto; padding: 4px 0;
   background: rgba(10, 12, 14, 0.96); border: 1px solid rgba(255, 255, 255, 0.15); font-size: 12px; }
 .dscan-filter-row { display: flex; align-items: center; gap: 4px; padding: 2px 6px; cursor: pointer; white-space: nowrap; }
 .dscan-filter-row:hover { background: rgba(255, 255, 255, 0.08); }
 .dscan-filter-key { width: 10px; opacity: 0.5; font-size: 10px; }
 /* measured in the client through gridcheck: Scan Results, Range, Angle, the AU toggle, the range field, Scan and the
    results EveLabelMedium / Label 14, the column headers and the filter box EveLabelSmall 12 */
-.dscan-caption { margin-right: auto; font-size: 14px; padding-left: 2px; }
-.dscan-filter { cursor: pointer; min-width: 40px; max-width: 120px; padding: 1px 8px; font-size: 12px; text-align: center; border: 1px solid rgba(255, 255, 255, 0.15); }
-.dscan-ic { background: none; border: 0; padding: 0; width: 16px; height: 16px; margin-left: 4px; }
+.dscan-caption { margin-right: auto; font-size: 14px; }
+/* the FilterBox (Density.COMPACT, maxWidth 120): a combo underlay filling the row's 32, its EveLabelSmall at +5 clipped, the
+   7 x 7 Neocom arrowDown 5 from its right */
+.dscan-filter { order: 9; position: relative; display: block; box-sizing: border-box; height: 32px; line-height: 32px; min-width: 40px; max-width: 120px;
+  margin-left: 4px; padding: 0 16px 0 5px; overflow: hidden; white-space: nowrap; cursor: pointer; font-size: 12px; text-align: left;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.15); }
+.dscan-filter::after { content: ""; position: absolute; right: 5px; top: 12px; width: 7px; height: 7px;
+  background: url(/client-res/ui/texture/classes/neocom/arrowdown.png) center / 7px 7px no-repeat; }
+.dscan-ic { background: none; border: 0; padding: 0; width: 16px; height: 32px; min-height: 0; margin-left: 4px; }
+.dscan-ic:first-of-type { margin-left: 0; }
 .dscan-ic img { width: 16px; height: 16px; display: block; }
 .dscan-ic:disabled { opacity: 0.6; }
 .dscan-scroll .ov-table th:nth-child(2) { width: 160px; }
