@@ -1134,6 +1134,7 @@ function createBotHost(options) {
       expiresAt,
       resumedAt: resumed ? nowISO() : null,
       vitals: null,
+      vitalsSample: null,
       status: "starting",
       phase: null,
       why: null,
@@ -1983,20 +1984,35 @@ function createBotHost(options) {
   // (only meaningful in space), and the mining holds (cargo/ore fill). These
   // are the SAME store-backed reads an open tab polls; a failed sample keeps
   // the previous one (stale-but-honest beats blank).
-  async function sampleBotVitals(record) {
+  function sampleBotVitals(record) {
+    // One sample per pilot at a time: a tick that finds one still running waits for it instead of starting another.
+    if (record.vitalsSample) return record.vitalsSample;
     const flow = record.flow;
     const store = record.store;
     if (!flow || !store || record.finalized) {
-      return;
+      return Promise.resolve();
     }
+    const sample = readBotVitals(record, flow, store).finally(() => {
+      if (record.vitalsSample === sample) record.vitalsSample = null;
+    });
+    record.vitalsSample = sample;
+    return sample;
+  }
+
+  async function readBotVitals(record, flow, store) {
+    // A pending read can outlast the session. Stop clears the flow and store.
+    const current = () => record.flow === flow && record.store === store;
     try {
       await flow.loadFlightStatus();
+      if (!current()) return;
       const flight = store.flight.get().status;
       const docked = flight === null ? null : flight.docked === true;
       if (docked === false) {
         await flow.loadSpaceSnapshot();
+        if (!current()) return;
       }
       await flow.loadMiningHolds();
+      if (!current()) return;
       const snapshot = docked === false ? store.space.get().snapshot : null;
       const ship = snapshot ? snapshot.ship : null;
       const holds = store.mining.get().holds || [];
