@@ -134,6 +134,12 @@ function overviewPresets() {
 const TAB_KEY = "evejs-play-overview-tab";
 const SORT_KEY = "evejs-play-overview-sort";
 const SORT_ENABLED_KEY = "evejs-play-overview-headerSortingEnabled";
+/** SETTING_RESTORE_DATA: the profile stored before Reset All ({data, name, timestamp}); SETTING_HISTORY_KEYS: the shared profiles loaded. */
+const RESTORE_KEY = "evejs-play-overviewProfile-restore";
+const HISTORY_KEY = "evejs-play-overviewProfile-history";
+const isOverviewSettingKey = (k: string) => k.startsWith("evejs.ui.overview.") || k.startsWith(TABS_KEY) || k.startsWith(SORT_KEY) || k.startsWith(TAB_KEY) || k.startsWith(SORT_ENABLED_KEY);
+/** FmtDate: 2026.11.20 22:16 */
+const fmtDate = (ms: number) => { const d = new Date(ms), p = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 type SortColumn = "distance" | "name" | "type" | "size" | "velocity" | "angular" | "radial" | "transversal" | "tag" | "corporation" | "alliance" | "faction" | "militia";
 const SORT_COLUMNS: readonly SortColumn[] = ["distance", "name", "type", "size", "velocity", "angular", "radial", "transversal", "tag", "corporation", "alliance", "faction", "militia"];
 
@@ -178,7 +184,7 @@ export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HI
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
   "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
   "UI/Overview/EditCurrentFilter", "UI/Commands/ChangeName", "UI/Overview/DeleteTab", "/Carbon/UI/Controls/ScrollEntries/TypeInNewName",
-  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Overview/ToggleBlink", "UI/Mail/Select Color", "UI/SystemMenu/ResetSettings/Clear", "UI/Common/Buttons/Save", "UI/Common/Buttons/SaveAs", "UI/Common/Delete", "UI/Overview/FilterName", "UI/Overview/CustomFilters", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
+  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Overview/ToggleBlink", "UI/Overview/ProfileHistory", "UI/Overview/HistoryText", "UI/Overview/AutomaticallyStoredOverviewHeader", "UI/Overview/RestoreProfile", "UI/Overview/StoredOverviewBasedOn", "UI/Overview/DefaultOverviewName", "UI/Overview/ProfileLinkWithTimestamp", "UI/Mail/Select Color", "UI/SystemMenu/ResetSettings/Clear", "UI/Common/Buttons/Save", "UI/Common/Buttons/SaveAs", "UI/Common/Delete", "UI/Overview/FilterName", "UI/Overview/CustomFilters", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
 const DISABLED_TEXT = "Header sorting is disabled";
 
 /**
@@ -532,7 +538,7 @@ export class Overview {
    * gridcheck into overviewFilterGroups.json), each "shown / all" in the accent colour when all, white when some, grey
    * when none, opened to its groups' checkboxes; Select All, Deselect All, the search; Revert while it has changes.
    */
-  openSettings(panel: "tabs" | "filters" | "appearance" | "ships" | "misc" = "tabs", presetID?: string): void {
+  openSettings(panel: "tabs" | "filters" | "appearance" | "ships" | "misc" | "history" = "tabs", presetID?: string): void {
     const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
     document.querySelector(".ov-settings")?.closest(".pw")?.remove();
     const win = new PlayWindow({ id: "overview-settings", caption: word("UI/Overview/OverviewSettings", "Overview Settings"),
@@ -596,6 +602,17 @@ export class Overview {
     };
     // AppearancePanel: the two checkboxes, the note and the two apply-to checkboxes, the Colortag / Background lists (each
     // state's checkbox, its text and, while on, its flag; dragged to reorder) and Reset All
+    // HistoryPanel: HistoryText, the shared profiles loaded (newest first, 15), and under a line the stored profile with Restore Profile
+    const historyPanel = () => {
+      let history: { overviewName: string; timestamp: number }[] = [];
+      try { history = Object.values(JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "{}") as Record<string, { overviewName: string; timestamp: number }>); } catch { /* none */ }
+      const lines = history.sort((a, b) => b.timestamp - a.timestamp).slice(0, 15)
+        .map((h) => `<div>${esc(this.hooks.word?.("UI/Overview/ProfileLinkWithTimestamp", { profileLink: h.overviewName, timestamp: fmtDate(h.timestamp) }) ?? `${h.overviewName} - ${fmtDate(h.timestamp)}`)}</div>`).join("");
+      const r = this.restoreData();
+      const based = r ? this.hooks.word?.("UI/Overview/StoredOverviewBasedOn", { overviewName: r.name, timestamp: fmtDate(r.timestamp) }) ?? `Based on ${r.name} (${fmtDate(r.timestamp)})` : "";
+      return `<div class="ov-set-panel ov-history"><div class="ov-history-text">${esc(word("UI/Overview/HistoryText", "Overview profiles you have loaded from links"))}</div><div class="ov-history-list">${lines}</div>${r
+        ? `<div class="ov-history-restore"><div class="ov-history-labels"><div>${esc(word("UI/Overview/AutomaticallyStoredOverviewHeader", "Automatically stored overview"))}</div><div class="ov-history-based">${esc(based)}</div></div><button type="button" class="ov-history-restore-btn">${esc(word("UI/Overview/RestoreProfile", "Restore Profile"))}</button></div>` : ""}</div>`;
+    };
     const appearancePanel = () => {
       const a = this.appearance;
       const check = (key: keyof AppearanceSettings, label: string, own: string) => `<label class="ov-app-check"><input type="checkbox" data-app="${key}"${a[key] ? " checked" : ""}><span>${esc(word(label, own))}</span></label>`;
@@ -661,9 +678,9 @@ export class Overview {
     };
     const editLabels = (fn: (labels: ShipLabelPart[]) => void) => { const st = shipLabelSettings(); fn(st.labels); saveShipLabelSettings(st); draw(); };
     const draw = () => {
-      const tabs: [typeof current, string][] = [["tabs", word("UI/Overview/Tabs", "Tabs")], ["filters", word("UI/Overview/Filters", "Filters")], ["appearance", word("UI/Generic/Appearance", "Appearance")], ["ships", word("UI/Common/ItemTypes/Ships", "Ships")], ["misc", word("UI/Generic/Misc", "Misc")]];
+      const tabs: [typeof current, string][] = [["tabs", word("UI/Overview/Tabs", "Tabs")], ["filters", word("UI/Overview/Filters", "Filters")], ["appearance", word("UI/Generic/Appearance", "Appearance")], ["ships", word("UI/Common/ItemTypes/Ships", "Ships")], ["misc", word("UI/Generic/Misc", "Misc")], ["history", word("UI/Overview/ProfileHistory", "History")]];
       const scroll = win.body.querySelector(".ov-filt-tree")?.scrollTop ?? 0;
-      win.body.innerHTML = `<div class="ov-set-tabs">${tabs.map(([k, t]) => `<span class="ov-set-tab${k === current ? " active" : ""}" data-panel="${k}">${esc(t)}</span>`).join("")}</div>${current === "tabs" ? tabsPanel() : current === "filters" ? filtersPanel() : current === "appearance" ? appearancePanel() : current === "ships" ? shipsPanel() : miscPanel()}`;
+      win.body.innerHTML = `<div class="ov-set-tabs">${tabs.map(([k, t]) => `<span class="ov-set-tab${k === current ? " active" : ""}" data-panel="${k}">${esc(t)}</span>`).join("")}</div>${current === "tabs" ? tabsPanel() : current === "filters" ? filtersPanel() : current === "appearance" ? appearancePanel() : current === "ships" ? shipsPanel() : current === "history" ? historyPanel() : miscPanel()}`;
       const tree = win.body.querySelector(".ov-filt-tree");
       if (tree) tree.scrollTop = scroll;
     };
@@ -772,7 +789,7 @@ export class Overview {
       // MiscPanel.ResetAllOverviewSettings: ResetAllOverviewSettings (YESNO), then every overview setting back to the profile's
       if (t.closest(".ov-misc-reset")) {
         void (this.hooks.ask?.("ResetAllOverviewSettings", "Are you sure you want to reset all overview settings?") ?? Promise.resolve(true))
-          .then((yes) => { if (yes) { this.resetAllSettings(); draw(); } });
+          .then((yes) => { if (yes) { this.storeCurrentProfile(); this.resetAllSettings(); draw(); } });
         return;
       }
       // ShipsPanel.GetShipLabelMenu: the three formats (SetDefaultShipLabel)
@@ -804,6 +821,7 @@ export class Overview {
       if (t.closest(".ov-filt-delete")) { this.deletePreset(editing); editing = this.tabSettings[this.tab]?.preset ?? DEFAULT_PRESET; draw(); return; }
       if (t.closest(".ov-filt-all")) { this.setPresetGroups(editing, all, true); draw(); return; }
       if (t.closest(".ov-filt-none")) { this.setPresetGroups(editing, all, false); draw(); return; }
+      if (t.closest(".ov-history-restore-btn")) { this.restoreProfile(); draw(); return; }
       // TabPresetPanel.OnRevertButton: RevertOverviewPresetChanges (YESNO) first
       if (t.closest(".ov-filt-revert")) {
         void (this.hooks.ask?.("RevertOverviewPresetChanges", "Are you sure you want to revert the changes to this filter?") ?? Promise.resolve(true))
@@ -935,11 +953,56 @@ export class Overview {
 
   private profileTabs: TabSettings[] = [];
 
+  /** StoreCurrentProfileDataInSettings: the overview's settings as they are, its name (GetOverviewName) and the time. */
+  private storeCurrentProfile(): void {
+    try {
+      const data: Record<string, string> = {};
+      for (const k of Object.keys(localStorage)) if (isOverviewSettingKey(k)) data[k] = localStorage.getItem(k)!;
+      const name = this.hooks.word?.("UI/Overview/DefaultOverviewName", { charID: this.hooks.pilotID ?? 0 }) ?? "Overview";
+      localStorage.setItem(RESTORE_KEY, JSON.stringify({ data, name, timestamp: Date.now() }));
+    } catch { /* nothing kept */ }
+  }
+  private restoreData(): { data: Record<string, string>; name: string; timestamp: number } | null {
+    try { const v = JSON.parse(localStorage.getItem(RESTORE_KEY) ?? "null"); return v && typeof v.data === "object" ? v : null; } catch { return null; }
+  }
+  /** RestoreAutoSavedOverviewProfile: the stored settings loaded (LoadOverviewProfileFromDict), the stored copy dropped. */
+  private restoreProfile(): void {
+    const r = this.restoreData();
+    if (!r) return;
+    try {
+      for (const k of Object.keys(localStorage)) if (isOverviewSettingKey(k)) localStorage.removeItem(k);
+      for (const [k, v] of Object.entries(r.data)) localStorage.setItem(k, v);
+      localStorage.removeItem(RESTORE_KEY);
+    } catch { /* nothing kept */ }
+    for (const [id, data] of Object.entries(this.presetData ?? {})) {
+      const mask = this.masks.get(id);
+      const fresh = presetMask(data, id);
+      if (!mask || !fresh) continue;
+      const groups = mask.groups as Set<number>;
+      groups.clear();
+      for (const g of fresh.groups) groups.add(g);
+      Object.assign(mask, { filteredStates: fresh.filteredStates, alwaysShownStates: fresh.alwaysShownStates });
+    }
+    this.addCustomPresets();
+    this.appearance = readAppearance();
+    this.applyAppearance(false);
+    applyOverviewMisc();
+    this.tabSorts.clear();
+    this.sort = readSort(this.sortKey, readSort(SORT_KEY));
+    try { this.sortEnabled = localStorage.getItem(this.sortEnabledKey) !== "false"; } catch { /* enabled by default */ }
+    this.tabSettings = this.storedTabs() ?? this.profileTabs.map((t) => ({ ...t }));
+    this.tabs = this.tabSettings.map((t) => this.tabOf(t));
+    let saved = 0;
+    try { saved = Number(localStorage.getItem(this.tabKey) ?? localStorage.getItem(TAB_KEY)); } catch { /* the first tab */ }
+    this.tab = -1;
+    this.choose(Number.isInteger(saved) && this.tabs[saved] ? saved : 0, true);
+  }
+
   /** overviewPresetSvc.ResetOverviewSettingsToDefault: tabs, filters' changes, columns, sorts, appearance, ship labels, misc. */
   private resetAllSettings(): void {
     try {
       for (const k of Object.keys(localStorage)) {
-        if (k.startsWith("evejs.ui.overview.") || k.startsWith(TABS_KEY) || k.startsWith(SORT_KEY) || k.startsWith(TAB_KEY) || k.startsWith(SORT_ENABLED_KEY)) localStorage.removeItem(k);
+        if (isOverviewSettingKey(k)) localStorage.removeItem(k);
       }
     } catch { /* nothing kept */ }
     for (const id of this.masks.keys()) this.revertPreset(id);
@@ -959,11 +1022,11 @@ export class Overview {
   private appearance: AppearanceSettings = readAppearance();
   private stateOrders: StateOrders | null = null;
 
-  /** The two lists as the pilot has them: their own order and switches, the client's defaults otherwise. */
   /** stateSvc.GetStateColor(flag, where): the one set, else the default. */
   private stateColor(where: "flag" | "background", flag: number): readonly number[] | null {
     return this.appearance.colors?.[`${where}:${flag}`] ?? this.stateOrders?.[where].find((x) => x.flag === flag)?.color ?? null;
   }
+  /** The two lists as the pilot has them: their own order and switches, the client's defaults otherwise. */
   private appearanceList(where: "flag" | "background"): { flag: number; on: boolean }[] {
     return this.appearance[where] ?? (this.stateOrders?.[where] ?? []).map((e) => ({ flag: e.flag, on: e.on }));
   }
@@ -1102,7 +1165,8 @@ export class Overview {
       const tabs = Array.isArray(v) ? v.filter((t) => typeof t?.name === "string" && typeof t.preset === "string") : [];
       return tabs.length ? tabs.map((t) => ({ name: t.name, preset: t.preset, bracket: typeof t.bracket === "string" ? t.bracket : null,
         ...(Array.isArray(t.columns) ? { columns: t.columns.filter((c) => COLUMNS.some((d) => d.id === c)) } : {}),
-        ...(Array.isArray(t.order) ? { order: t.order.filter((c) => COLUMNS.some((d) => d.id === c)) } : {}) })) : null;
+        ...(Array.isArray(t.order) ? { order: t.order.filter((c) => COLUMNS.some((d) => d.id === c)) } : {}),
+        ...(Array.isArray(t.color) ? { color: t.color } : {}) })) : null;
     } catch {
       return null;
     }

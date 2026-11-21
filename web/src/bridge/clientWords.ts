@@ -346,7 +346,8 @@ function renderToken(token: TemplateToken, args: TemplateArguments, context: For
       if (token.type === "npcorganization" && !token.property) { text = id === null ? "" : String(id); break; }
       const kind = id === null ? null : nameKindOf(token, id);
       const name = id === null || kind === null ? "" : context.nameOf(kind, id);
-      text = token.property === "nameWithArticle" && name !== "" ? withArticle(name) : name;
+      // characterPropertyHandler._GetNameWithPossessiveEN_US: the name and "'s" (Overview's DefaultOverviewName)
+      text = token.property === "nameWithArticle" && name !== "" ? withArticle(name) : token.property === "nameWithPossessive" && name !== "" ? `${name}'s` : name;
       break;
     }
     case "datetime":

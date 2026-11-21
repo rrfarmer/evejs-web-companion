@@ -1616,7 +1616,9 @@
       },
       word: (label, args) => {
         const t = s.store.words.get().templates[label];
-        return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args ?? {}, { nameOf: () => "" })) : null;
+        // the pilot's own name where a word names them (UI/Overview/DefaultOverviewName: "<pilot>'s Overview")
+        const online = s.store.station.get().online;
+        return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args ?? {}, { nameOf: (kind, id) => (kind === "owner" && online && Number(id) === online.characterID ? online.characterName ?? "" : "") })) : null;
       },
       openCargo: (id) => s.flow.openCargo(id),
       openShipHold: (key) => shipHoldTarget.ask(key),
