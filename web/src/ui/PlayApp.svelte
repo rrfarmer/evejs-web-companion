@@ -21,6 +21,7 @@
   import { autoOpenWatchlist } from "./watchlistSettings.ts";
   import { splitResults, resultRows, SCAN_GROUP, PROBE_RESULT_WORD_LABELS, PROBE_RESULT_LABELS, MIN_WARP_DISTANCE, isAccurate } from "../bridge/probeResults.ts";
   import { romanLevel } from "../bridge/skills.ts";
+  import { shortFormInterval } from "../bridge/timeInterval.ts";
   import { fmtDist } from "../space/overview.ts";
   import { selectedSites as probeSitesSelected, selectSite as selectProbeSite } from "../app/probeSiteSelection.ts";
   import { addGameLogLine, beginGameLog } from "./gameLog.ts";
@@ -1761,6 +1762,10 @@
         usesMissiles: facts?.effects.includes(101) ?? false,
         pilotAttr: (id) => attrOf(allInfo?.shipModifiedCharAttributes ?? allInfo?.character ?? undefined, id),
         active: m.active,
+        // GetDurationTimeLeft: the running cycle's start and duration; here its fraction done and the duration attribute
+        countdownText: m.active && typeof m.cycle === "number" && (attrOf(item, 73) ?? 0) > 0
+          ? shortFormInterval(BigInt(Math.max(0, Math.round((1 - m.cycle) * (attrOf(item, 73) ?? 0)))) * 10_000n, s.store.words.get().templates, "minute", "second")
+          : null,
         attributeIcon: (id) => attributeLook.get(id)?.icon ?? null,
         attributeName: (id) => { const nameID = attributeLook.get(id)?.nameID; const t = nameID ? s.store.words.get().templates[`#${nameID}`] : null; return typeof t === "string" ? plainText(t) : null; },
         typeIcon: (typeID) => typeIconUrl(typeID) ?? null,

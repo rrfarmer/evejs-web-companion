@@ -14,6 +14,8 @@ export interface ModuleTooltipRow {
   readonly iconSize: 24 | 26 | 34;
   readonly text: string;
   readonly shortcut?: string | null;
+  /** AddRowWithIconAndTextAndValue: a value at the row's right (the shortcut's place). */
+  readonly value?: string | null;
   /** AddAttributeRow: a row of attribute values, each its icon and its text, under a header row. */
   readonly values?: readonly { readonly icon: string | null; readonly text: string }[];
   /** AddRowAndHeaderForManyAttributes' header: 24 px high, its text at the foot. */
@@ -47,6 +49,11 @@ export interface ModuleTooltipFacts {
   pilotAttr?(attributeID: number): number | null;
   /** Its default effect is running (godma's effect isActive). */
   readonly active: boolean;
+  /**
+   * The running cycle's time left as FormatTimeIntervalShort from the minute (_GetCountdownTime over
+   * GetDurationTimeLeft), null when not running or its active ship is not the pilot's.
+   */
+  readonly countdownText?: string | null;
   /** An attribute's icon (dogma_data.get_attribute_icon_id) as a URL, and its display name. */
   attributeIcon(attributeID: number): string | null;
   attributeName(attributeID: number): string | null;
@@ -152,10 +159,18 @@ const gangCoordinator: InfoRow = (f, word, out) => {
   }
 };
 
+// AddSiegeInfo (groupSiegeModule 515, the industrial cores too): AddDurationCountdownTimes - the duration attribute's display
+// name with the running cycle's time left at its right, no icon; nothing when not running
+const siege: InfoRow = (f, _word, out) => {
+  if (!(f.attr(ATTR.duration) ?? 0) || !f.countdownText) return;
+  out.push({ icon: null, iconSize: 24, text: f.attributeName(ATTR.duration) ?? "", value: f.countdownText });
+};
+
 /** infoFunctionNames: a group's own rows. */
 const INFO_BY_GROUP = new Map<number, InfoRow>();
 for (const g of [54, 464, 483, 737, 4138]) INFO_BY_GROUP.set(g, miningLaser);
 INFO_BY_GROUP.set(4174, compressor);
+INFO_BY_GROUP.set(515, siege);
 INFO_BY_GROUP.set(650, tractorBeam);
 INFO_BY_GROUP.set(316, gangCoordinator);
 for (const g of [62, 1199, 1698, 2018]) {
@@ -356,6 +371,8 @@ export const DRONE_TOOLTIP_ATTRIBUTES: readonly number[] = [114, 116, 117, 118, 
 
 /** Every label the rows may use, to ask the words of before the first tooltip opens. */
 export const MODULE_TOOLTIP_LABELS: readonly string[] = [
+  // the siege countdown's FormatTimeIntervalShort (minute to second: two elements)
+  "/Carbon/UI/Common/DateTimeQuantity/DateTimeShort2Elements",
   "UI/Inflight/ModuleRacks/TypeNameWithNumInGroup", "UI/Inflight/ModuleRacks/ModuleDamaged", "UI/Inflight/ModuleRacks/AmmoNameWithQty",
   "UI/Inflight/ModuleRacks/MaxRange", "UI/Inflight/ModuleRacks/OptimalRangeAndFalloff", "UI/Inflight/ModuleRacks/OptimalRange",
   "UI/Inflight/ModuleRacks/AreaOfEffect", "UI/Inflight/ModuleRacks/RangeWithFalloff", "UI/Inflight/ModuleRacks/Range",

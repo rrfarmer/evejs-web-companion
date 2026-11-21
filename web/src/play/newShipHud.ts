@@ -1349,7 +1349,10 @@ export class NewShipHud {
         text.append(div);
       }
       const hint = document.createElement("div");
-      if (row.shortcut) {
+      if (row.value) {
+        hint.textContent = row.value;
+        Object.assign(hint.style, { marginLeft: "10px", padding: "8px 4px", lineHeight: "18px", textAlign: "right" });
+      } else if (row.shortcut) {
         hint.textContent = row.shortcut;
         Object.assign(hint.style, { alignSelf: "start", marginLeft: "10px", padding: "0 13px", height: "18px", lineHeight: "18px", background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)", fontWeight: "bold" });
       }
