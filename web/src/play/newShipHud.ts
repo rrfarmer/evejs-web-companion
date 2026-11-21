@@ -262,6 +262,21 @@ export interface HudHold {
   readonly capacity: number | null;
 }
 
+/**
+ * The HUD buttons' commands as their tooltips name them (the command callback's nameLabelPath and descriptionLabelPath,
+ * read through the client at 3698585): the label, its shortcut's command, and the detailed description where one is.
+ */
+const COMMAND_TIPS: Readonly<Record<string, { readonly name: string; readonly own: string; readonly desc?: string }>> = {
+  CmdToggleAutopilot: { name: "Tooltips/Hud/Autopilot", own: "Autopilot", desc: "Tooltips/Hud/Autopilot_description" },
+  CmdSetCameraOrbit: { name: "Tooltips/Hud/OrbitCamera", own: "Orbit Camera", desc: "Tooltips/Hud/OrbitCamera_description" },
+  OpenCargoHoldOfActiveShip: { name: "Tooltips/Hud/CargoHold", own: "Holds & Bays", desc: "Tooltips/Hud/CargoHold_description" },
+  CmdToggleSolarSystemMap: { name: "UI/Map/MapPallet/btnSolarsystemMap", own: "Solar System Map" },
+  OpenMoonScan: { name: "UI/Inflight/Scanner/MoonAnalysis", own: "Moon Probe and Analysis" },
+  ToggleProbeScanner: { name: "UI/Inflight/Scanner/ProbeScanner", own: "Probe Scanner" },
+  OpenDirectionalScanner: { name: "UI/Inflight/Scanner/DirectionalScanner", own: "Directional Scanner" },
+};
+const COMMAND_TIP_LABELS: readonly string[] = Object.values(COMMAND_TIPS).flatMap((t) => (t.desc ? [t.name, t.desc] : [t.name]));
+
 /** cargo_indicator.py's glyph per hold kind (eveicon, 16 px): inventory, mining, drones, else the ship's areas. */
 const holdGlyph = (key: string): string => res(`res:/UI/Texture/eveicon/${
   key === "cargo" ? "system_icons/inventory" : /ore|mining|asteroid|ice|gas/.test(key) ? "system_icons/mining" : /drone|fighter/.test(key) ? "category_icons/drones" : "category_icons/ship_areas"}_16px.png`);
@@ -566,7 +581,8 @@ export class NewShipHud {
     // the autopilot: a 20 px dark disc, a 1 px ring at r 11 (white 0.1, FOCUS_BLUE engaged or hovered), the glyph
     const ap = document.createElement("button");
     ap.type = "button";
-    ap.title = "Activate Autopilot";
+    ap.addEventListener("mouseenter", () => this.showCommandTooltip(ap, "CmdToggleAutopilot"));
+    ap.addEventListener("mouseleave", () => this.closeTooltip());
     Object.assign(ap.style, { position: "absolute", left: `${cx - 69 - 12}px`, top: `${cy - 78 - 12}px`, width: "24px", height: "24px", padding: "0", border: "0", background: "transparent", pointerEvents: "auto", cursor: "pointer", display: "grid", placeItems: "center" });
     Object.assign(this.autopilotRing.style, { position: "absolute", inset: "1px", borderRadius: "50%", background: "rgba(0,0,0,0.55)", boxShadow: "0 0 0 2px rgba(255,255,255,0.1) inset" });
     const apGlyph = icon("res:/UI/Texture/Icons/44_32_12.png");
@@ -610,7 +626,8 @@ export class NewShipHud {
     // the camera flyout's header: the orbit camera's glyph (idle 0.8)
     const cam = document.createElement("button");
     cam.type = "button";
-    cam.title = "Orbit Camera";
+    cam.addEventListener("mouseenter", () => this.showCommandTooltip(cam, "CmdSetCameraOrbit"));
+    cam.addEventListener("mouseleave", () => this.closeTooltip());
     Object.assign(cam.style, {
       position: "absolute", left: `${25 - 16}px`, top: `${158 - 16}px`, width: "32px", height: "32px", padding: "0", borderRadius: "50%",
       border: "0", background: "radial-gradient(circle, rgba(0,0,0,0.1) 0 14px, transparent 14.5px), radial-gradient(circle, rgba(0,0,0,0.4) 0 15px, transparent 15.5px)",
@@ -636,13 +653,16 @@ export class NewShipHud {
     });
     for (const [top, cmd, id, title] of [
       [0, "CmdToggleSolarSystemMap", "solar_system", "Solar System Map"],
-      [33, "OpenMoonScan", "moon_scan", "Moon Analysis"],
+      [33, "OpenMoonScan", "moon_scan", "Moon Probe and Analysis"],
       [57, "ToggleProbeScanner", "probe_scan", "Probe Scanner"],
       [81, "OpenDirectionalScanner", "d_scan", "Directional Scanner"],
     ] as const) {
       const b = document.createElement("button");
       b.type = "button";
-      b.title = title;
+      void title;
+      // _ScannerItem (FlyoutItem with its cmdName): the command's tooltip
+      b.addEventListener("mouseenter", () => this.showCommandTooltip(b, cmd));
+      b.addEventListener("mouseleave", () => this.closeTooltip());
       Object.assign(b.style, { position: "absolute", left: "0", top: `${top}px`, width: "24px", height: "24px", padding: "0", border: "0", background: "transparent", cursor: "pointer", display: "grid", placeItems: "center" });
       const g = icon(`res:/UI/Texture/eveicon/category_icons/${id}_16px.png`);
       g.style.opacity = "0.5";
@@ -799,7 +819,7 @@ export class NewShipHud {
     "UI/Inflight/HUDOptions/DisplayUtilityButtons", "UI/Inflight/HUDOptions/DisplayModuleTooltips", "UI/Inflight/HUDOptions/DisplayPassiveModules",
     "UI/Inflight/HUDOptions/DisplayEmptySlots", "UI/Inflight/HUDOptions/DisplayReadout", "UI/Inflight/HUDOptions/DisplayReadoutAsPercentage",
     "UI/Inflight/HUDOptions/LockModulesInPlace", "UI/Inflight/HUDOptions/AlignHUDToTop", "UI/Inflight/NotifySettingsWindow/DamageAlertSettings",
-    "UI/Accessories/Log/EnterMessageMovingMode", "Tooltips/Hud/CargoHold",
+    "UI/Accessories/Log/EnterMessageMovingMode", ...COMMAND_TIP_LABELS,
     ...["CapacitorFlowUnavailable", "CapStable", "CapIncreasing", "CapDecreasing", "CapRecharge", "CapDrain", "CapInjection",
       "SourceExplanation", "RechargeExplanation"].map((l) => `Tooltips/Hud/ConsumptionGauge/${l}`),
   ];
@@ -820,7 +840,6 @@ export class NewShipHud {
 
   private syncAutopilot(): void {
     this.autopilotRing.style.boxShadow = `0 0 0 2px ${this.autopilotOn ? css(FOCUS_BLUE) : "rgba(255,255,255,0.1)"} inset`;
-    (this.autopilotRing.parentElement as HTMLElement | null)?.setAttribute("title", this.autopilotOn ? "Deactivate Autopilot" : "Activate Autopilot");
   }
 
   /** holdTrackerSettings: the tracked hold, kept per ship type, the cargo hold where none is kept. */
@@ -853,13 +872,20 @@ export class NewShipHud {
    * hold the tracker holds (GetNameForFlag, the fill as '{:.2%}'), the cargo hold first and the rest by name; the
    * tracked hold's row in bold, in THEME_FOCUS (CRYO_BLUE).
    */
-  private showHoldsTooltip(anchor: HTMLElement): void {
-    const rows = [...this.holds].sort((a, b) => (a.key === "cargo" ? -1 : b.key === "cargo" ? 1 : a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
-    const pct = (h: HudHold) => (h.capacity ? (100 * (h.used ?? 0) / h.capacity).toFixed(2) + "%" : "0.00%");
-    const key = "holds:" + JSON.stringify(rows.map((h) => [h.key, h.label, pct(h)])) + this.trackedHold;
+  /**
+   * button_base.LoadCommandTooltip / AddCommandTooltip: the command's name in bold with its shortcut's hint beside it
+   * (AddLabelShortcut, ShortcutHint), its detailed description under it (secondary, wrapped at 200 px); then any rows
+   * the button adds, in the same framed panel beside the anchor.
+   */
+  private showCommandTooltip(anchor: HTMLElement, cmd: string, extra: readonly HTMLElement[] = [], key = ""): void {
     const t = this.tooltip;
-    if (key === this.tipKey && t.style.display !== "none") return;
-    this.tipKey = key;
+    const tip = COMMAND_TIPS[cmd];
+    const name = tip ? this.word(tip.name) ?? tip.own : cmd;
+    const desc = tip?.desc ? this.word(tip.desc) : null;
+    const shortcut = shortcutOf(cmd);
+    const tipKey = `cmd:${cmd}:${name}:${desc}:${shortcut}:${key}`;
+    if (tipKey === this.tipKey && t.style.display !== "none") return;
+    this.tipKey = tipKey;
     if (!t.isConnected) {
       t.className = "new-hud-tooltip";
       Object.assign(t.style, { position: "fixed", pointerEvents: "none", zIndex: "100000", padding: `${TOOLTIP_MARGIN}px`, font: "14px 'EVE Sans Neue','Segoe UI',sans-serif", color: "rgba(255,255,255,0.75)", whiteSpace: "nowrap" });
@@ -869,12 +895,37 @@ export class NewShipHud {
     const frame = document.createElement("div");
     Object.assign(frame.style, { position: "absolute", inset: "0", opacity: "0.75", borderStyle: "solid", borderWidth: "0", borderImageSource: `url(${res("res:/UI/Texture/classes/FrameWithPointer/background_04.png")})`, borderImageSlice: "19 fill", borderImageWidth: "19px", borderImageOutset: "15px" } as Partial<CSSStyleDeclaration>);
     const grid = document.createElement("div");
-    Object.assign(grid.style, { position: "relative", display: "grid", gridTemplateColumns: "auto auto", columnGap: "16px", rowGap: "4px" });
+    Object.assign(grid.style, { position: "relative", display: "grid", gridTemplateColumns: "auto auto", columnGap: "16px", rowGap: "4px", alignItems: "center" });
     const head = document.createElement("div");
     head.dataset.tipRow = "";
-    head.textContent = this.word("Tooltips/Hud/CargoHold") ?? "Holds & Bays";
-    Object.assign(head.style, { fontWeight: "bold", gridColumn: "1 / 3", color: "rgba(255,255,255,0.95)" });
-    grid.append(head);
+    head.textContent = name;
+    Object.assign(head.style, { fontWeight: "bold", color: "rgba(255,255,255,0.95)" });
+    const hint = document.createElement("div");
+    if (shortcut) {
+      hint.textContent = shortcut;
+      Object.assign(hint.style, { justifySelf: "end", padding: "0 13px", height: "18px", lineHeight: "18px", background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)", fontWeight: "bold" });
+    }
+    grid.append(head, hint);
+    if (desc) {
+      const d = document.createElement("div");
+      d.dataset.tipRow = "";
+      d.textContent = desc;
+      Object.assign(d.style, { gridColumn: "1 / 3", width: "200px", whiteSpace: "normal", color: "rgba(255,255,255,0.5)" });
+      grid.append(d);
+    }
+    grid.append(...extra);
+    t.append(frame, grid);
+    t.style.display = "";
+    const a = anchor.getBoundingClientRect();
+    t.style.left = `${Math.round(a.right + 12)}px`;
+    t.style.top = `${Math.round(a.top + a.height / 2 - t.offsetHeight / 2)}px`;
+  }
+
+  private showHoldsTooltip(anchor: HTMLElement): void {
+    const rows = [...this.holds].sort((a, b) => (a.key === "cargo" ? -1 : b.key === "cargo" ? 1 : a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
+    const pct = (h: HudHold) => (h.capacity ? (100 * (h.used ?? 0) / h.capacity).toFixed(2) + "%" : "0.00%");
+    const key = JSON.stringify(rows.map((h) => [h.key, h.label, pct(h)])) + this.trackedHold;
+    const extra: HTMLElement[] = [];
     for (const h of rows) {
       const label = document.createElement("div");
       const value = document.createElement("div");
@@ -885,13 +936,9 @@ export class NewShipHud {
       if (h.key === this.trackedHold) {
         for (const el of [label, value]) Object.assign(el.style, { fontWeight: "bold", color: css(FOCUS_BLUE) });
       }
-      grid.append(label, value);
+      extra.push(label, value);
     }
-    t.append(frame, grid);
-    t.style.display = "";
-    const a = anchor.getBoundingClientRect();
-    t.style.left = `${Math.round(a.right + 12)}px`;
-    t.style.top = `${Math.round(a.top + a.height / 2 - t.offsetHeight / 2)}px`;
+    this.showCommandTooltip(anchor, "OpenCargoHoldOfActiveShip", extra, key);
   }
 
   /** cargo_indicator: track r 22.5 w 8 black 0.2 (0.6 hovered), the fill r 22.5 w 3 from 12 o'clock counter-clockwise. */

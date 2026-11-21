@@ -13,7 +13,7 @@
     requestWords?: (labels: readonly string[]) => void;
   } = $props();
   // the client's words (MiningScannerButton.GetMenu and LoadTooltipPanel)
-  const WORDS = ["Tooltips/Hud/MiningScan", "UI/Mining/OreValue", "UI/Mining/LowValue", "UI/Mining/HighValue", "UI/Mining/OpenScanResultsWindow",
+  const WORDS = ["Tooltips/Hud/MiningScan", "Tooltips/Hud/MiningScan_description", "UI/Mining/OreValue", "UI/Mining/LowValue", "UI/Mining/HighValue", "UI/Mining/OpenScanResultsWindow",
     "UI/Mining/OpenMiningLedger", "UI/Mining/DisableMiningOverlay", "UI/Mining/MiningScannerUpgradeRequired"];
   $effect(() => { requestWords?.(WORDS); });
   const words = $derived(store.words);
@@ -88,6 +88,7 @@
         <div class="mt-frame"></div>
         <div class="mt-body">
           <b>{say("Tooltips/Hud/MiningScan", "Mining Surveyor")}</b>
+          <span class="mt-desc">{say("Tooltips/Hud/MiningScan_description", "Survey nearby minable asteroids")}</span>
           <span class="mt-label">{say("UI/Mining/OreValue", "Ore Value")}</span>
           <span class="mt-bar"></span>
           <span class="mt-ends"><span>{say("UI/Mining/LowValue", "Low")}</span><span>{say("UI/Mining/HighValue", "High")}</span></span>
@@ -140,6 +141,7 @@
   .mt-body { position: relative; display: grid; gap: 4px; width: 200px; }
   .mt-body b { color: rgba(255, 255, 255, 0.95); white-space: nowrap; }
   .mt-label { padding-top: 8px; }
+  .mt-desc { color: rgba(255, 255, 255, 0.5); }
   .mt-bar { height: 8px; background: linear-gradient(to right, #2e4ebe, #70f0e3, #ffb845); }
   .mt-ends { display: flex; justify-content: space-between; }
   .mt-note { padding-top: 8px; color: rgba(255, 255, 255, 0.5); font-size: 13px; }
