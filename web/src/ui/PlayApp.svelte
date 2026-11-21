@@ -1378,6 +1378,11 @@
       });
     }
 
+    function crimewatchSets(): { criminals: Set<number>; suspects: Set<number>; engagedWith: Set<number> } {
+      const states = s.store.flight.get().crimewatch?.states;
+      const ids = (list: readonly (number | string)[] | undefined) => new Set((list ?? []).map(Number).filter((n) => Number.isFinite(n)));
+      return { criminals: ids(states?.criminals.members), suspects: ids(states?.suspects.members), engagedWith: ids(states?.engagements.map((e) => e.characterID)) };
+    }
     function overviewRelationships(): OverviewRelationships | undefined {
       const online = s.store.station.get().online;
       if (!online) return;
@@ -1416,6 +1421,8 @@
       return {
         corporationID, allianceID, warFactionID: online.warFactionID ?? null, fleetMembers, contacts, wars,
         now: BigInt(Date.now()) * 10000n + 116444736000000000n,
+        // crimewatchSvc: the system's criminals and suspects and this pilot's limited engagements (its client states)
+        ...crimewatchSets(),
       };
     }
 
