@@ -605,6 +605,124 @@ export class SpaceView {
     text.textContent = dt > lockTimeMs ? lockedText : ((lockTimeMs - dt) / 1000).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   }
 
+  // PersistentInSpaceBracketTooltip, as a floating bracket's (navigation.PrepareTooltipLoad)
+  private overlapTip: HTMLDivElement | null = null;
+  private overlapIDs = new Set<number>();
+  private overlapOpenTimer: ReturnType<typeof setTimeout> | null = null;
+  private overlapCloseTimer: ReturnType<typeof setTimeout> | null = null;
+  private overlapDown: ((ev: MouseEvent) => void) | null = null;
+
+  /** InSpaceBracket.LoadTooltipPanel after the bracket tooltip delay (TOOLTIP_DELAY_BRACKET, 50 ms); an overlapped bracket keeps it. */
+  private overlapEntered(id: number): void {
+    if (this.overlapCloseTimer) { clearTimeout(this.overlapCloseTimer); this.overlapCloseTimer = null; }
+    if (this.overlapTip && this.overlapIDs.has(id)) return;
+    if (this.overlapOpenTimer) clearTimeout(this.overlapOpenTimer);
+    this.overlapOpenTimer = setTimeout(() => { this.overlapOpenTimer = null; this.openOverlapTooltip(id); }, 50);
+  }
+  private overlapLeft(): void {
+    if (this.overlapOpenTimer) { clearTimeout(this.overlapOpenTimer); this.overlapOpenTimer = null; }
+    if (!this.overlapTip) return;
+    if (this.overlapCloseTimer) clearTimeout(this.overlapCloseTimer);
+    this.overlapCloseTimer = setTimeout(() => this.closeOverlapTooltip(), 250);
+  }
+  private closeOverlapTooltip(): void {
+    if (this.overlapCloseTimer) { clearTimeout(this.overlapCloseTimer); this.overlapCloseTimer = null; }
+    for (const id of this.overlapIDs) this.bracketEls.get(id)?.classList.remove("overlap-lit");
+    this.overlapIDs.clear();
+    this.overlapTip?.remove();
+    this.overlapTip = null;
+    if (this.overlapDown) { document.removeEventListener("mousedown", this.overlapDown, true); this.overlapDown = null; }
+  }
+
+  /**
+   * navigation.PrepareTooltipLoad and PersistentInSpaceBracketTooltip as a floating bracket has it (compact:
+   * bracketmenu_floating True): bracketVarious.GetOverlaps - the bracket itself, then each other shown bracket whose
+   * box meets its box, no asteroid (category 25) nor harvestable cloud (711), 15 at most, by name; one alone, none.
+   * The tooltip's panel (opacity 0.8) holds a column of their 16 px icons, rows 26 high (MINENTRYHEIGHT), with the
+   * selection circle on the selected; the side panel beside it their names with the distance (FmtDist) and, under
+   * it, the tag and target code in bold. A row's hover lights it (0.2) and sets the thing's mouseOver; its click,
+   * right-click and held button are the bracket's (the rows carry the bracket's data-id in the brackets' layer); the
+   * brackets it lists are drawn brighter (opacity 2.0). A press anywhere else closes it (OnGlobalMouseDown).
+   */
+  private openOverlapTooltip(id: number): void {
+    this.closeOverlapTooltip();
+    const el = this.bracketEls.get(id);
+    if (!el || el.style.display === "none") return;
+    const box = el.getBoundingClientRect();
+    const entities = new Map((this.snapshot?.entities ?? []).map((e) => [e.itemID, e]));
+    const self = entities.get(id);
+    if (!self) return;
+    const list: { id: number; el: HTMLElement; e: Entity; name: string }[] = [{ id, el, e: self, name: this.nameOf(self) }];
+    for (const [other, oel] of this.bracketEls) {
+      if (other === id || oel.style.display === "none") continue;
+      const e = entities.get(other);
+      if (!e || (e as Entity & { categoryID?: number | null }).categoryID === 25 || e.groupID === 711) continue;
+      const name = this.nameOf(e);
+      if (!name) continue;
+      const b = oel.getBoundingClientRect();
+      if (b.right <= box.left || b.left >= box.right || b.bottom <= box.top || b.top >= box.bottom) continue;
+      list.push({ id: other, el: oel, e, name });
+      if (list.length === 15) break;
+    }
+    if (list.length <= 1) return;
+    list.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const host = this.brackets.getBoundingClientRect();
+    const tip = document.createElement("div");
+    tip.className = "bracket-overlap";
+    const icons = document.createElement("div");
+    icons.className = "bo-icons";
+    const side = document.createElement("div");
+    side.className = "bo-side";
+    for (const one of list) {
+      const icon = document.createElement("div");
+      icon.className = "bo-row";
+      icon.dataset.id = String(one.id);
+      const glyphEl = one.el.querySelector(".glyph")?.cloneNode(true) as HTMLElement | null;
+      if (glyphEl) icon.append(glyphEl);
+      if (this.selected === one.id) icon.classList.add("bo-selected");
+      const label = document.createElement("div");
+      label.className = "bo-label";
+      label.dataset.id = String(one.id);
+      const dist = this.distanceTo(one.e);
+      const tag = this.actions.fleetTagAndTarget?.(one.id) ?? "";
+      const main = document.createElement("span");
+      main.textContent = dist ? `${one.name} ${fmtDistance(dist)}` : one.name;
+      label.append(main);
+      if (tag) {
+        const b = document.createElement("b");
+        b.textContent = tag;
+        label.append(document.createElement("br"), b);
+      }
+      for (const part of [icon, label]) {
+        part.addEventListener("mouseenter", () => { icon.classList.add("bo-hilite"); label.classList.add("bo-hilite"); this.setHovered(one.id); });
+        part.addEventListener("mouseleave", () => { icon.classList.remove("bo-hilite"); label.classList.remove("bo-hilite"); if (this.hoveredID === one.id) this.setHovered(null); });
+        part.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          this.select(one.id);
+          for (const r of icons.children) r.classList.toggle("bo-selected", (r as HTMLElement).dataset.id === String(one.id));
+        });
+        part.addEventListener("dblclick", (ev) => { ev.stopPropagation(); this.activateSpaceTarget(one.id); });
+      }
+      icons.append(icon);
+      side.append(label);
+      this.overlapIDs.add(one.id);
+      one.el.classList.add("overlap-lit");
+    }
+    tip.append(icons, side);
+    tip.addEventListener("mouseenter", () => { if (this.overlapCloseTimer) { clearTimeout(this.overlapCloseTimer); this.overlapCloseTimer = null; } });
+    tip.addEventListener("mouseleave", () => this.overlapLeft());
+    tip.style.left = `${Math.round(box.right - host.left + 6)}px`;
+    tip.style.top = `${Math.round(box.top - host.top + box.height / 2 - (list.length * 26 + 8) / 2)}px`;
+    this.brackets.append(tip);
+    this.overlapTip = tip;
+    this.overlapDown = (ev: MouseEvent) => {
+      const t = ev.target;
+      if (t instanceof Element && (tip.contains(t) || t.closest(".eve-context-menu"))) return;
+      this.closeOverlapTooltip();
+    };
+    document.addEventListener("mousedown", this.overlapDown, true);
+  }
+
   /** stateSvc.SetState(itemID, mouseOver): the bracket shows its label (ShowLabel's mouseOver) and the overview row lights. */
   private setHovered(id: number | null): void {
     if (this.hoveredID === id) return;
@@ -3423,8 +3541,8 @@ export class SpaceView {
         el.addEventListener("click", (ev) => { ev.stopPropagation(); this.select(id); });
         el.addEventListener("dblclick", (ev) => { ev.stopPropagation(); this.activateSpaceTarget(id); });
         // InSpaceBracket.OnMouseEnter / OnMouseExit: stateSvc's mouseOver, which lights the overview row as well
-        el.addEventListener("mouseenter", () => this.setHovered(id));
-        el.addEventListener("mouseleave", () => { if (this.hoveredID === id) this.setHovered(null); });
+        el.addEventListener("mouseenter", () => { this.setHovered(id); this.overlapEntered(id); });
+        el.addEventListener("mouseleave", () => { if (this.hoveredID === id) this.setHovered(null); this.overlapLeft(); });
         el.classList.toggle("hovered", this.hoveredID === id);
         el.classList.toggle("locked", this.locked.has(id));
         el.classList.toggle("targeting-me", this.targeters.has(id));

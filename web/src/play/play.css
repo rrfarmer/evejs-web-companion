@@ -88,6 +88,21 @@ button { font: inherit; color: inherit; }
 .bracket .bracket-bg { position: absolute; inset: 0; z-index: -1; pointer-events: none;
   -webkit-mask: url(/client-res/ui/texture/classes/bracket/bracketbackground.png) center / 100% 100% no-repeat;
   mask: url(/client-res/ui/texture/classes/bracket/bracketbackground.png) center / 100% 100% no-repeat; }
+/* PersistentInSpaceBracketTooltip (compact): the panel (background_04's frame at 0.8) with the icons' column, rows 26
+   high; the side panel's names beside it (EveLabelSmall with its blurred shadow); a row lit 0.2 on hover */
+.brackets .bracket-overlap { position: absolute; display: flex; pointer-events: auto; z-index: 3; }
+.bracket-overlap .bo-icons { position: relative; padding: 4px 0; }
+.bracket-overlap .bo-icons::before { content: ""; position: absolute; inset: 0; opacity: 0.8; border-style: solid; border-width: 0;
+  border-image-source: url(/client-res/ui/texture/classes/framewithpointer/background_04.png); border-image-slice: 19 fill; border-image-width: 19px; border-image-outset: 4px; }
+.bracket-overlap .bo-row { position: relative; width: 26px; height: 26px; display: grid; place-items: center; cursor: pointer; }
+.bracket-overlap .bo-row .glyph { width: 16px; height: 16px; }
+.bracket-overlap .bo-row.bo-selected::after { content: ""; position: absolute; left: -2px; top: -2px; width: 30px; height: 30px; opacity: 0.5; pointer-events: none;
+  background: url(/client-res/ui/texture/classes/bracket/selectioncircle.png) center / 100% 100% no-repeat; }
+.bracket-overlap .bo-side { padding: 4px 3px; }
+.bracket-overlap .bo-label { min-height: 26px; display: flex; flex-direction: column; justify-content: center; padding: 0 2px; font-size: 10px; line-height: 1.2;
+  white-space: nowrap; color: rgba(255, 255, 255, 0.8); text-shadow: 0 0 2px #000, 0 0 2px #000; cursor: pointer; }
+.bracket-overlap .bo-hilite { background: rgba(255, 255, 255, 0.2); color: #fff; }
+.bracket.overlap-lit .glyph { filter: brightness(2); }
 /* InSpaceBracket's fleetBroadcastIcon (16 x 16, 2 px left of the bracket, centred on it) */
 .bracket .bracket-bcast { position: absolute; left: -18px; top: 0; width: 16px; height: 16px; pointer-events: auto; }
 /* InSpaceBracket's fleetTagAndTarget (BracketShadowLabel, bold, medium): right of the bracket by the label margin, its height above */
