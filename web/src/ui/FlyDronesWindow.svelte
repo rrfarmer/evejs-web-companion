@@ -23,7 +23,8 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { SpaceEntity } from "../store/types.ts";
-  import { formatSeconds } from "../play/moduleTooltip.ts";
+  import { DRONE_TOOLTIP_ATTRIBUTES, MODULE_TOOLTIP_LABELS, droneTooltipRows, type ModuleTooltipRow } from "../play/moduleTooltip.ts";
+  import { fmtDist } from "../space/overview.ts";
 
   let { store, flow, onSelect, onLock, spaceSelected = null }: {
     store: ClientStore; flow: AppFlow;
@@ -125,8 +126,7 @@
     const t = $headerWords.templates[label];
     return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args as never, { nameOf: () => null } as never)) : null;
   };
-  flow.requestWords(["UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", "/Carbon/UI/Common/WrittenDateTimeQuantityShort/Second", "UI/Generic/Unknown"]);
-  let bandwidthLook = $state<{ icon: string | null; name: string | null } | null>(null);
+  flow.requestWords([...MODULE_TOOLTIP_LABELS, "UI/Generic/Unknown"]);
   let bandwidthVersion = $state(0);
   function tipFor(typeID: number, state: string | null, color: string | null, targetID: number | null, e: MouseEvent): void {
     if (tipTimer) clearTimeout(tipTimer);
@@ -138,17 +138,20 @@
       if (t?.characterID) flow.requestNames([{ kind: "owner", id: t.characterID }]);
       tip = { typeID, name: typeName(typeID, ""), state, color, targetID, x: r.right + 12, y: r.top + r.height / 2 };
       // the mining row's attributes may wait on a reckoning of the ship: read again shortly
-      if (flow.droneAttribute(typeID, 77) === null) setTimeout(() => bandwidthVersion++, 1500);
+      if (flow.droneTooltipFigures(typeID) === null) setTimeout(() => bandwidthVersion++, 1500);
       if (!bandwidth.has(typeID)) {
         bandwidth.set(typeID, null);
         void flow.typeDogmaFacts(typeID).then((f) => { bandwidth.set(typeID, f?.attributes.find((a) => a[0] === 1272)?.[1] ?? null); groupOfType.set(typeID, f?.groupID ?? null); bandwidthVersion++; }).catch(() => {});
       }
-      if (!bandwidthLook) {
-        void flow.attributeDisplay([1272]).then((m) => {
-          const d = m?.get(1272);
-          const nameT = d?.displayNameID ? $headerWords.templates[`#${d.displayNameID}`] : null;
-          if (d?.displayNameID) flow.requestWords([`#${d.displayNameID}`]);
-          bandwidthLook = { icon: d?.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, name: typeof nameT === "string" ? nameT : null };
+      if (!attributeLooks.size) {
+        void flow.attributeDisplay(DRONE_TOOLTIP_ATTRIBUTES).then((m) => {
+          const looks = new Map<number, { icon: string | null; nameID: number | null }>();
+          for (const id of DRONE_TOOLTIP_ATTRIBUTES) {
+            const d = m?.get(id);
+            looks.set(id, { icon: d?.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d?.displayNameID ?? null });
+          }
+          flow.requestWords([...looks.values()].flatMap((l) => (l.nameID ? [`#${l.nameID}`] : [])));
+          attributeLooks = looks;
         }).catch(() => {});
       }
     }, 400);
@@ -161,20 +164,34 @@
     if (!t) return headerWord("UI/Generic/Unknown", "Unknown");
     return (t.characterID ? resolvedName($names.resolved, "owner", t.characterID, "") : "") || t.name || typeName(t.typeID, "") || headerWord("UI/Generic/Unknown", "Unknown");
   });
-  /** AddMiningDroneInfo: groupMiningDrone (101) only. */
-  const miningText = $derived.by(() => {
+  /** The tooltip's attributes' icons and names (dogma_data.get_attribute_icon_id, get_attribute_display_name). */
+  let attributeLooks = $state<ReadonlyMap<number, { icon: string | null; nameID: number | null }>>(new Map());
+  const attributeName = (id: number): string | null => {
+    const nameID = attributeLooks.get(id)?.nameID;
+    const t = nameID ? $headerWords.templates[`#${nameID}`] : null;
+    return typeof t === "string" && t !== "" ? plainText(t) : null;
+  };
+  /** The rows under the type row (droneTooltipRows): range, damage, the group's own, tracking. */
+  const tipRows = $derived.by((): readonly ModuleTooltipRow[] => {
     void bandwidthVersion;
-    if (!tip || groupOfType.get(tip.typeID) !== 101) return null;
-    const amount = flow.droneAttribute(tip.typeID, 77), durationMs = flow.droneAttribute(tip.typeID, 73);
-    if (amount === null || durationMs === null || !(durationMs > 0)) return null;
-    return tipWord("UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", { duration: formatSeconds(durationMs / 1000, tipWord), amount, amountPerSec: amount / (durationMs / 1000) });
+    if (!tip) return [];
+    const figures = flow.droneTooltipFigures(tip.typeID);
+    if (!figures) return [];
+    return droneTooltipRows({
+      groupID: groupOfType.get(tip.typeID) ?? null,
+      attr: (id) => figures.attr(id),
+      rangeAttributeID: figures.rangeAttributeID,
+      dps: figures.dps,
+      attributeIcon: (id) => attributeLooks.get(id)?.icon ?? null,
+      attributeName,
+    }, tipWord, (m) => fmtDist(m));
   });
+  /** AddDroneBandwidthUsed: the attribute's display name and its value in its unit. */
   const bandwidthText = $derived.by(() => {
     void bandwidthVersion;
     const v = tip ? bandwidth.get(tip.typeID) : null;
     if (v == null) return null;
-    const nameID = bandwidthLook?.name;
-    return `${nameID ?? "Bandwidth Used"} ${Number.isInteger(v) ? v : v.toFixed(1)} Mbit/sec`;
+    return `${attributeName(1272) ?? "Bandwidth Needed"} ${Number.isInteger(v) ? v : v.toFixed(1)} Mbit/sec`;
   });
   const ship = $derived(snapshot?.ship ?? null);
   const autoTargetID = $derived($activeTarget ?? 0);
@@ -650,12 +667,17 @@
     <div class="tip-grid">
       <span class="tip-icon"><TypeIcon typeID={tip.typeID} name={tip.name} size="sm" /></span>
       <span class="tip-text"><b>{tip.name}</b>{#if tip.state}<br><span style:color={tip.color}>{tip.state}</span>{#if tipTarget}&nbsp;{tipTarget}{/if}{/if}</span>
-      {#if miningText}
-        <span class="tip-icon"><img src="/client-res/ui/texture/icons/23_64_5.png" alt="" /></span>
-        <span class="tip-text">{miningText}</span>
-      {/if}
+      {#each tipRows as row, i (i)}
+        <span class="tip-icon" class:tip-header={row.header}>{#if row.icon}<img src={row.icon} alt="" />{/if}</span>
+        {#if row.values}
+          <!-- AddAttributeRow: each value its 24 px icon and its label, about 65 px apart -->
+          <span class="tip-values">{#each row.values as v, j (j)}<span class="tip-value">{#if v.icon}<img src={v.icon} alt="" />{/if}{v.text}</span>{/each}</span>
+        {:else}
+          <span class="tip-text" class:tip-header={row.header}>{#each row.text.split(/\n|<br>/) as line, j (j)}{#if j}<br>{/if}{line}{/each}</span>
+        {/if}
+      {/each}
       {#if bandwidthText}
-        <span class="tip-icon">{#if bandwidthLook?.icon}<img src={bandwidthLook.icon} alt="" />{/if}</span>
+        <span class="tip-icon">{#if attributeLooks.get(1272)?.icon}<img src={attributeLooks.get(1272)?.icon} alt="" />{/if}</span>
         <span class="tip-text">{bandwidthText}</span>
       {/if}
     </div>
@@ -670,6 +692,10 @@
   .tip-icon img { width: 24px; height: 24px; }
   .tip-text { padding: 8px 4px; line-height: 18px; }
   .tip-text b { color: rgba(255, 255, 255, 0.95); }
+  .tip-icon.tip-header { min-height: 24px; }
+  .tip-text.tip-header { padding: 4px 4px 0; align-self: end; }
+  .tip-values { display: flex; padding: 4px 0; margin-left: -4px; }
+  .tip-value { display: inline-flex; align-items: center; flex: 1 1 0; min-width: 65px; }
   /* the eve-cs mirror's drone window: 11 px upper-case section labels in grey with white counts on a 2 % white strip,
      29 px rows of a 24 px type icon, the name at 13 px and its count at 11 px, 16 px command icons */
   /* DronesWindow: the bay's part (topScroll) takes the room, the space part (bottomCont) at the foot while the bay is open */

@@ -39,7 +39,7 @@ import { deriveShipStats, known, lockLimitOf, unavailable, type ShipStats } from
 import { capacitorSimulator, capSimulatorValues, isOnlineModule } from "../bridge/dogma/capacitor.ts";
 import { offense } from "../bridge/dogma/offense.ts";
 import { defense } from "../bridge/dogma/defense.ts";
-import { ownShipDrones, type DroneReading } from "../bridge/dogma/drones.ts";
+import { activeDroneDps, ownShipDrones, type DroneReading } from "../bridge/dogma/drones.ts";
 import { fighterClass, fullAndPartialSquadrons, maxSquadronSize, totalFighterDps, type FighterAbilitySlot } from "../bridge/dogma/fighters.ts";
 import {
   fitToOneSlot,
@@ -2371,6 +2371,8 @@ export interface AppFlow {
   fittingAttributeModifiers(itemID: number, typeID: number, attributeIDs: readonly number[]): ReadonlyMap<number, AttributeModification>;
   /** A drone type's attribute with the pilot's skills applied (the active ship's dogma reckoning); null where not loaded. */
   droneAttribute(typeID: number, attributeID: number): number | null;
+  /** DroneTooltip's figures for a drone type (its attributes, default effect's range attribute, one drone's damage a second). */
+  droneTooltipFigures(typeID: number): { attr(attributeID: number): number; readonly rangeAttributeID: number | null; readonly dps: number } | null;
   /**
    * Fit a module from the station hangar or the ship's cargo. `slot` picks a
    * specific slot by family + index, or "auto" to let the SERVER choose one.
@@ -9917,6 +9919,26 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // a reckoning made before the drones could be read (at login) has none: one more is asked, once
     if (!droneReckonAsked) { droneReckonAsked = true; void reckonActiveShip().catch(() => {}).finally(() => { droneReckonAsked = false; }); }
     return null;
+  }
+
+  /**
+   * DroneTooltip's figures for a drone type, from the active ship's reckoning: its attributes, its default effect's
+   * range attribute (tactical.FindMaxRange) and GetOptimalDroneDamage2(shipID, {itemID: 1}) - droneUtil's damage for
+   * the one drone, as far as the ship's bandwidth takes it; null where no drone of the type was loaded.
+   */
+  function droneTooltipFigures(typeID: number): { attr(attributeID: number): number; readonly rangeAttributeID: number | null; readonly dps: number } | null {
+    const current = attributeModifierRead;
+    const item = current?.drones?.get(typeID);
+    const ship = current?.items.get(String(current.shipID));
+    if (!current || !item || !ship) { droneAttribute(typeID, 0); return null; }
+    const value = (it: DogmaItem, id: number) => current.location.value(it, id);
+    const effectID = current.location.static.types[typeID]?.defaultEffectID ?? null;
+    const rangeAttributeID = effectID !== null ? current.location.static.effects[effectID]?.rangeAttributeID ?? null : null;
+    return {
+      attr: (id) => value(item, id),
+      rangeAttributeID,
+      dps: activeDroneDps(ship, { accurate: value, value }, new Map([[item, 1]]), 1),
+    };
   }
 
   function fittingAttributeModifiers(itemID: number, typeID: number, attributeIDs: readonly number[]): ReadonlyMap<number, AttributeModification> {
@@ -36669,6 +36691,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadDogma,
     fittingAttributeModifiers,
     droneAttribute,
+    droneTooltipFigures,
 
     // A module fitted and unfitted: the page's own calls on an inventory's own object (bridge/fitModule.ts), as
     // the client's dogma location and its fitting slot make them, judged by the page's own read of the slots.

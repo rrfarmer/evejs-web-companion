@@ -257,6 +257,71 @@ export function moduleTooltipRows(f: ModuleTooltipFacts, word: TooltipWord, fmtD
   return out;
 }
 
+/** What DroneTooltip reads of a drone (the client's dogma location's values for it, the pilot's skills applied). */
+export interface DroneTooltipFacts {
+  readonly groupID: number | null;
+  /** The drone's effective attribute, null where the location has not reckoned it. */
+  attr(attributeID: number): number | null;
+  /** Its default effect's rangeAttributeID (tactical.FindMaxRange), null where it has none. */
+  readonly rangeAttributeID: number | null;
+  /** GetOptimalDroneDamage2 for the one drone, null where not reckoned. */
+  readonly dps: number | null;
+  attributeIcon(attributeID: number): string | null;
+  attributeName(attributeID: number): string | null;
+}
+
+/**
+ * DroneTooltip.UpdateToolTips past the type row, as ModuleButtonTooltip runs it for a drone: the range
+ * (FindMaxRange: the default effect's range attribute and the falloff; a drone is no launcher or turret, so Range or
+ * RangeWithFalloff), the damage a second (ShouldAddDps is always true: GetOptimalDroneDamage2, drones.png) and its
+ * damage types (multiplier 1), the group's own rows (AddMiningDroneInfo for groupMiningDrone 101), the tracking
+ * (skipped at 0). The bandwidth row (AddDroneBandwidthUsed) is the window's.
+ */
+export function droneTooltipRows(f: DroneTooltipFacts, word: TooltipWord, fmtDist: (m: number) => string): ModuleTooltipRow[] {
+  const out: ModuleTooltipRow[] = [];
+  const optimal = f.rangeAttributeID !== null ? f.attr(f.rangeAttributeID) ?? 0 : 0;
+  const falloff = f.rangeAttributeID !== null ? f.attr(ATTR.falloff) ?? 0 : 0;
+  if (optimal > 0) {
+    const optimalRange = fmtDist(optimal);
+    const range = falloff > 1
+      ? word("UI/Inflight/ModuleRacks/RangeWithFalloff", { optimalRange, falloffPlusOptimal: fmtDist(falloff + optimal) })
+      : word("UI/Inflight/ModuleRacks/Range", { optimalRange });
+    if (range !== null) out.push({ icon: "/client-res/ui/texture/icons/22_32_15.png", iconSize: 24, text: range });
+  }
+  if (f.dps !== null) {
+    // GetOptimalDroneDamage's total stays the int 0 where no drone adds to it (a mining drone): "0", not "0.0"
+    const text = word("UI/Inflight/ModuleRacks/DamagePerSecond", { dps: f.dps === 0 ? { type: "long", value: "0" } : f.dps });
+    if (text !== null) out.push({ icon: "/client-res/ui/texture/icons/drones.png", iconSize: 24, text });
+    const values = DAMAGE_TYPES.map((id) => [id, f.attr(id) ?? 0] as const).filter(([, v]) => v);
+    if (values.length === 1) {
+      const [id, v] = values[0]!;
+      const one = word("UI/Inflight/ModuleRacks/Tooltips/OneDamageTypeText", { activeName: f.attributeName(id) ?? "", activeValue: v });
+      if (one !== null) out.push({ icon: f.attributeIcon(id), iconSize: 24, text: one });
+    } else if (values.length > 1) {
+      const header = word("UI/Inflight/ModuleRacks/Tooltips/DamageTypesHeader", {});
+      if (header !== null) out.push({ icon: null, iconSize: 24, text: header, header: true });
+      out.push({ icon: null, iconSize: 24, text: "", values: values.map(([id, v]) => ({ icon: f.attributeIcon(id), text: word("UI/Inflight/ModuleRacks/Tooltips/DamageHitpoints", { activeValue: v }) ?? "" })) });
+    }
+  }
+  if (f.groupID === 101) {
+    const durationMs = f.attr(ATTR.duration) ?? 0;
+    const amount = f.attr(ATTR.miningAmount) ?? 0;
+    if (durationMs > 0) {
+      const text = word("UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", { duration: formatSeconds(durationMs / 1000, word), amount, amountPerSec: amount / (durationMs / 1000) });
+      if (text !== null) out.push({ icon: "/client-res/ui/texture/icons/23_64_5.png", iconSize: 24, text });
+    }
+  }
+  const tracking = f.attr(ATTR.trackingSpeed) ?? 0;
+  if (tracking !== 0) {
+    const text = word("UI/Inflight/ModuleRacks/Tooltips/WeaponAccuracyScore", { activeName: f.attributeName(ATTR.trackingSpeed) ?? "", activeValue: tracking });
+    if (text !== null) out.push({ icon: f.attributeIcon(ATTR.trackingSpeed), iconSize: 24, text });
+  }
+  return out;
+}
+
+/** The attributes droneTooltipRows names or draws the icons of. */
+export const DRONE_TOOLTIP_ATTRIBUTES: readonly number[] = [114, 116, 117, 118, ATTR.trackingSpeed, 1272];
+
 /** Every label the rows may use, to ask the words of before the first tooltip opens. */
 export const MODULE_TOOLTIP_LABELS: readonly string[] = [
   "UI/Inflight/ModuleRacks/TypeNameWithNumInGroup", "UI/Inflight/ModuleRacks/ModuleDamaged", "UI/Inflight/ModuleRacks/AmmoNameWithQty",
