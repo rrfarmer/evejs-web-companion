@@ -439,7 +439,11 @@ button { font: inherit; color: inherit; }
 .si { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
 .si-none { margin: auto; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: rgb(108, 110, 107); }
 .si-top { display: flex; gap: 8px; align-items: flex-start; padding: 4px 16px 0; flex: none; }
-.si-icon { width: 64px; height: 64px; flex: none; background: rgb(13, 14, 13); }
+.si-icon { width: 64px; height: 64px; flex: none; }
+/* CharIcon: the portrait, 64 square, its chat button at the bottom right */
+.si-char { position: relative; width: 64px; height: 64px; flex: none; margin-left: 4px; }
+.si-char > img:first-child { width: 64px; height: 64px; display: block; }
+.si-chat { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; opacity: .85; }
 .si-labels { display: flex; flex-direction: column; min-width: 0; }
 .si-name { color: rgba(255, 255, 255, 0.9); font-size: 14px; line-height: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .si-sec:empty { display: none; }

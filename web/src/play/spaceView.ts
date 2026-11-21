@@ -190,6 +190,8 @@ export interface SpaceViewOptions {
   entryWarpHistory?: Promise<boolean | null>;
   recordCameraTask?: (event: CameraTaskEvent) => void;
   overviewPilotID?: number;
+  /** A character's portrait (photo.GetPortrait at 64, the silhouette where the image server has none). */
+  portrait?: (characterID: number) => string;
   /** A character's name (cfg.eveowners), asked for where not yet had; null until it is. */
   pilotName?: (characterID: number) => string | null;
   /** menusvc's "Pilot (<name>)" entry for a ship another pilot flies: its CharacterMenu as a submenu; null for none. */
@@ -1641,6 +1643,7 @@ export class SpaceView {
         : { key: "approach", title: "Approach", icon: icon("approach"), run: () => this.actions.approach(id) },
       { key: "warp", title: "Warp To Within 0 m", icon: icon("warp_to"), run: () => this.actions.warpTo(id) },
     ];
+    if (e.categoryID === 6 && !e.isSelf) out.push({ key: "board", title: this.actions.word?.("UI/Inflight/BoardShip") ?? "Board Ship", icon: icon("board"), run: async () => {} });
     if (this.overview.groupOf(e) === JUMP_BRIDGE_GROUP) {
       const jump = this.options.jumpBridge;
       if (jump && e.jumpBridge?.targetSystemID && e.jumpBridge.activationState === 2) {
@@ -1686,7 +1689,7 @@ export class SpaceView {
     // (MenuHints/NoReasonGiven where no reason is known)
     const available = this.menuPaths(e);
     const PATH: Record<string, string> = { approach: "UI/Inflight/ApproachObject", align: "UI/Inflight/AlignTo", warp: "UI/Inflight/Submenus/WarpToWithin",
-      dock: "UI/Inflight/DockInStation", orbit: "UI/Inflight/OrbitObject", keep: "UI/Inflight/Submenus/KeepAtRange", lock: "UI/Inflight/LockTarget",
+      dock: "UI/Inflight/DockInStation", board: "UI/Inflight/BoardShip", orbit: "UI/Inflight/OrbitObject", keep: "UI/Inflight/Submenus/KeepAtRange", lock: "UI/Inflight/LockTarget",
       unlock: "UI/Inflight/UnlockTarget", look: "UI/Inflight/LookAtObject", track: "UI/Inflight/SetAsCameraInterest", info: "UI/Commands/ShowInfo" };
     if (e.kind === "stargate") PATH.jump = "UI/Inflight/Jump";
     return out.map((a) => {
@@ -1755,7 +1758,8 @@ export class SpaceView {
       body.setAttribute("data-sig", sig);
       // SelectedItemWnd._UpdateSlimItem: its picture, GetSlimItemName with a stargate's destination security after it
       // (_GetJumpExtraText), the surface distance (FmtDist to one place), a pilot's security status (_GetSecurityStatusTex)
-      body.innerHTML = `<div class="si-top"><img class="si-icon" alt=""><div class="si-labels"><div class="si-name"></div><div class="si-dist"></div><div class="si-sec"></div></div></div><div class="si-actions"></div>`;
+      const pilotPortrait = e.characterID && !e.isSelf && !e.isNpc ? this.options.portrait?.(e.characterID) ?? null : null;
+      body.innerHTML = `<div class="si-top"><img class="si-icon" alt="">${pilotPortrait ? `<span class="si-char"><img alt="" src="${pilotPortrait}"><img class="si-chat" alt="" src="${clientTexture("res:/UI/Texture/eveicon/system_icons/chat_bubble_16px.png")}"></span>` : ""}<div class="si-labels"><div class="si-name"></div><div class="si-dist"></div><div class="si-sec"></div></div></div><div class="si-actions"></div>`;
       const pic = body.querySelector(".si-icon") as HTMLImageElement;
       if (e.typeID !== null) pic.src = `/client-res/type-picture/${e.typeID}/64.png`;
       else pic.style.visibility = "hidden";
