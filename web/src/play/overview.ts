@@ -28,7 +28,8 @@ import { SHIP_LABEL_PRESETS, saveShipLabelSettings, shipLabelMarkup, shipLabelSe
 const MAX_TAB_NUM = 20;
 const MAX_TAB_NAME_LENGTH = 15;
 /** A tab's settings (presetSvc's settingsByTabID): its name, overview preset and bracket preset (null: Show All Brackets). */
-interface TabSettings { name: string; preset: string; bracket: string | null; columns?: ColumnID[]; order?: ColumnID[]; color?: number[] | null }
+/** A tab's settings (presetSvc's tab settings); window: the overview window it is in (SETTING_WINDOW_INSTANCE_ID; none = the first). */
+export interface TabSettings { name: string; preset: string; bracket: string | null; columns?: ColumnID[]; order?: ColumnID[]; color?: number[] | null; window?: number }
 /** OverviewColorPickerCont.GetColors: 24 hues at saturation 0.75 and brightness 1 (Color.SetHSB), 8 to a row. */
 const TAB_COLORS: readonly number[][] = Array.from({ length: 24 }, (_, i) => {
   const h = (i / 24) * 6, s = 0.75, v = 1, c = v * s, x = c * (1 - Math.abs((h % 2) - 1)), m = v - c;
@@ -188,7 +189,7 @@ export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HI
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
   "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
   "UI/Overview/EditCurrentFilter", "UI/Commands/ChangeName", "UI/Overview/DeleteTab", "/Carbon/UI/Controls/ScrollEntries/TypeInNewName",
-  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Overview/ToggleBlink", "UI/Overview/ImportOverviewSettings", "UI/Overview/ExportOverviewSettings", "UI/Common/Files/FileNotValid", "UI/Commands/ExportOverviewSettings", "UI/Shared/CheckAllOn", "UI/Overview/GeneralOverviewSettings", "UI/Overview/OverviewProfile", "UI/Overview/OverviewProfileHint", "UI/Overview/TabPresetName", "UI/Overview/OtherTabPresets", "UI/Common/Files/FileName", "UI/Commands/Export", "UI/Commands/Import", "UI/Overview/SharableOverviewIconExportHint", "UI/Overview/OverviewExportDone", "UI/Common/NameInvalid", "UI/Overview/MoveBroadcastersToTop", "UI/Overview/ShareOverview", "UI/Overview/SharableOverviewIconHint", "UI/Overview/ProfileHistory", "UI/Overview/HistoryText", "UI/Overview/AutomaticallyStoredOverviewHeader", "UI/Overview/RestoreProfile", "UI/Overview/StoredOverviewBasedOn", "UI/Overview/DefaultOverviewName", "UI/Overview/ProfileLinkWithTimestamp", "UI/Mail/Select Color", "UI/SystemMenu/ResetSettings/Clear", "UI/Common/Buttons/Save", "UI/Common/Buttons/SaveAs", "UI/Common/Delete", "UI/Overview/FilterName", "UI/Overview/CustomFilters", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
+  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Overview/ToggleBlink", "UI/Overview/MoveTabTo", "UI/Overview/NewWindow", "UI/Overview/ImportOverviewSettings", "UI/Overview/ExportOverviewSettings", "UI/Common/Files/FileNotValid", "UI/Commands/ExportOverviewSettings", "UI/Shared/CheckAllOn", "UI/Overview/GeneralOverviewSettings", "UI/Overview/OverviewProfile", "UI/Overview/OverviewProfileHint", "UI/Overview/TabPresetName", "UI/Overview/OtherTabPresets", "UI/Common/Files/FileName", "UI/Commands/Export", "UI/Commands/Import", "UI/Overview/SharableOverviewIconExportHint", "UI/Overview/OverviewExportDone", "UI/Common/NameInvalid", "UI/Overview/MoveBroadcastersToTop", "UI/Overview/ShareOverview", "UI/Overview/SharableOverviewIconHint", "UI/Overview/ProfileHistory", "UI/Overview/HistoryText", "UI/Overview/AutomaticallyStoredOverviewHeader", "UI/Overview/RestoreProfile", "UI/Overview/StoredOverviewBasedOn", "UI/Overview/DefaultOverviewName", "UI/Overview/ProfileLinkWithTimestamp", "UI/Mail/Select Color", "UI/SystemMenu/ResetSettings/Clear", "UI/Common/Buttons/Save", "UI/Common/Buttons/SaveAs", "UI/Common/Delete", "UI/Overview/FilterName", "UI/Overview/CustomFilters", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
 const DISABLED_TEXT = "Header sorting is disabled";
 
 /**
@@ -255,6 +256,12 @@ export function typeNames() {
 }
 
 export interface OverviewHooks {
+  /** The overview window this is (overviewWindowUtil's windowInstanceID): 0 the first, others made by Move Tab To. */
+  instanceID?: number;
+  /** presetSvc.MoveTab(tabID, windowInstanceID): the tab moved to that window, or to a new one where null. */
+  moveTab?(from: Overview, tab: number, to: number | null): void;
+  /** The other overview windows, by id, for Move Tab To. */
+  otherWindows?(from: Overview): readonly Overview[];
   select(itemID: number): void;
   activate(itemID: number): void;
   glyph(e: Entity): string;
@@ -278,6 +285,7 @@ export interface OverviewHooks {
 
 export class Overview {
   readonly window: PlayWindow;
+  readonly instanceID: number;
   private readonly table = document.createElement("table");
   private readonly tbody = document.createElement("tbody");
   private types: Record<string, [string | null, number | null]> = {};
@@ -303,7 +311,8 @@ export class Overview {
   private lockFlash?: Animation;
 
   constructor(private readonly hooks: OverviewHooks) {
-    this.window = new PlayWindow({ id: "overview", caption: "Overview", left: innerWidth - 586, top: 260, width: 566, height: 380, closable: false,
+    this.instanceID = hooks.instanceID ?? 0;
+    this.window = new PlayWindow({ id: this.instanceID ? `overview-${this.instanceID}` : "overview", caption: "Overview", left: innerWidth - 586 - this.instanceID * 40, top: 260 + this.instanceID * 40, width: 566, height: 380, closable: false,
       menu: (button) => { const r = button.getBoundingClientRect(); this.menu.open(r.left, r.bottom, this.moreOptions()); } });
     this.window.body.classList.add("ov");
     // the client's default (not compact) layout: the caption "Overview (preset)" in the header, the tabs in a row under
@@ -324,7 +333,7 @@ export class Overview {
     });
     this.table.className = "ov-table";
     this.table.innerHTML = `<colgroup></colgroup><thead></thead>`;
-    const pilotSuffix = hooks.pilotID === undefined ? "" : `:${hooks.pilotID}`;
+    const pilotSuffix = (hooks.pilotID === undefined ? "" : `:${hooks.pilotID}`) + (this.instanceID ? `:w${this.instanceID}` : "");
     this.tabKey = TAB_KEY + pilotSuffix;
     this.sortKey = SORT_KEY + pilotSuffix;
     this.sortEnabledKey = SORT_ENABLED_KEY + pilotSuffix;
@@ -452,7 +461,7 @@ export class Overview {
       win.body.querySelector(".ov-columns-reset")!.textContent = word("UI/Overview/ResetColumns", "Reset Columns");
     };
     const save = () => {
-      try { localStorage.setItem(this.tabsKey, JSON.stringify(this.tabSettings)); } catch { /* the change lasts the page */ }
+      try { this.saveTabs(); } catch { /* the change lasts the page */ }
       if (tab === this.tab) this.drawHead();
       draw();
     };
@@ -1303,7 +1312,7 @@ export class Overview {
     const now = new Set<ColumnID>(t.columns ?? DEFAULT_VISIBLE);
     if (shown) now.add(id); else now.delete(id);
     t.columns = COLUMNS.filter((c) => now.has(c.id)).map((c) => c.id);
-    try { localStorage.setItem(this.tabsKey, JSON.stringify(this.tabSettings)); } catch { /* the change lasts the page */ }
+    try { this.saveTabs(); } catch { /* the change lasts the page */ }
     if (tab === this.tab) this.drawHead();
   }
 
@@ -1356,10 +1365,28 @@ export class Overview {
 
   private get tabsKey(): string { return TABS_KEY + (this.hooks.pilotID === undefined ? "" : `:${this.hooks.pilotID}`); }
 
-  private storedTabs(): TabSettings[] | null {
+  /** Every tab kept, of every overview window. */
+  private allStoredTabs(): TabSettings[] {
     try {
       const v = JSON.parse(localStorage.getItem(this.tabsKey) ?? "null") as TabSettings[] | null;
-      const tabs = Array.isArray(v) ? v.filter((t) => typeof t?.name === "string" && typeof t.preset === "string") : [];
+      return Array.isArray(v) ? v.filter((t) => typeof t?.name === "string" && typeof t.preset === "string") : [];
+    } catch { return []; }
+  }
+  /** The overview windows other than the first that have tabs kept (OverviewWindow instances to open again). */
+  storedWindowIDs(): number[] {
+    return [...new Set(this.allStoredTabs().map((t) => t.window ?? 0).filter((w) => w > 0))].sort((a, b) => a - b);
+  }
+  /** This window's tabs kept, the other windows' left as they are (presetSvc.UpdateSettingsByTabID). */
+  private saveTabs(): void {
+    const others = this.allStoredTabs().filter((t) => (t.window ?? 0) !== this.instanceID);
+    const mine = this.tabSettings.map((t) => { const { window: _w, ...rest } = t; return this.instanceID ? { ...rest, window: this.instanceID } : rest; });
+    localStorage.setItem(this.tabsKey, JSON.stringify(this.instanceID ? [...others, ...mine] : [...mine, ...others]));
+  }
+
+  private storedTabs(): TabSettings[] | null {
+    try {
+      const tabs = this.allStoredTabs().filter((t) => (t.window ?? 0) === this.instanceID);
+      if (!tabs.length && this.instanceID) return [];
       return tabs.length ? tabs.map((t) => ({ name: t.name, preset: t.preset, bracket: typeof t.bracket === "string" ? t.bracket : null,
         ...(Array.isArray(t.columns) ? { columns: t.columns.filter((c) => COLUMNS.some((d) => d.id === c)) } : {}),
         ...(Array.isArray(t.order) ? { order: t.order.filter((c) => COLUMNS.some((d) => d.id === c)) } : {}),
@@ -1375,7 +1402,7 @@ export class Overview {
 
   /** The tab list changed (presetSvc.UpdateSettingsByTabID): kept, the tabs drawn again, the chosen one shown. */
   private tabsChanged(chosen: number): void {
-    try { localStorage.setItem(this.tabsKey, JSON.stringify(this.tabSettings)); } catch { /* the change lasts the page */ }
+    try { this.saveTabs(); } catch { /* the change lasts the page */ }
     this.tabs = this.tabSettings.map((t) => this.tabOf(t));
     this.tab = -1;
     this.choose(Math.max(0, Math.min(chosen, this.tabs.length - 1)), true);
@@ -1419,6 +1446,16 @@ export class Overview {
         this.tabSettings.splice(i, 1);
         this.tabsChanged(this.tab > i ? this.tab - 1 : this.tab === i ? Math.max(0, i - 1) : this.tab);
       } });
+    }
+    // GetMoveTabSubMenu: New Window, then the other overview windows by their tabs' names (GetWindowName); the first
+    // window keeps a tab
+    if (this.hooks.moveTab && (this.instanceID !== 0 || this.tabSettings.length > 1)) {
+      const others = this.hooks.otherWindows?.(this) ?? [];
+      out.push({ label: word("UI/Overview/MoveTabTo", "Move Tab To"), sub: [
+        { label: word("UI/Overview/NewWindow", "New Window"), run: () => this.hooks.moveTab?.(this, i, null) },
+        ...(others.length ? [null] : []),
+        ...others.map((w) => ({ label: w.windowName(), run: () => this.hooks.moveTab?.(this, i, w.instanceID) })),
+      ] });
     }
     return out;
   }
@@ -1530,6 +1567,26 @@ export class Overview {
 
   /** overviewPresetSvc.GetActiveOverviewPresetName: the chosen tab's preset - its display name and groups; null until read. */
   activePreset(): OverviewTab["overview"] { return this.tabs[this.tab]?.overview ?? null; }
+  /** GetWindowName: the first three tabs' names joined by " - ", " ..." after a third. */
+  windowName(): string {
+    const names = this.tabSettings.map((t) => t.name);
+    return names.length > 3 ? `${names.slice(0, 3).join(" - ")} ...` : names.join(" - ");
+  }
+  get tabCount(): number { return this.tabSettings.length; }
+  /** MoveTab's leaving half: the tab taken out of this window, kept. */
+  takeTab(i: number): TabSettings | null {
+    const t = this.tabSettings[i];
+    if (!t) return null;
+    this.tabSettings.splice(i, 1);
+    if (this.tabSettings.length) this.tabsChanged(this.tab > i ? this.tab - 1 : this.tab === i ? Math.max(0, i - 1) : this.tab);
+    else { try { this.saveTabs(); } catch { /* lasts the page */ } }
+    return t;
+  }
+  /** MoveTab's arriving half: the tab added to this window and chosen. */
+  receiveTab(t: TabSettings): void {
+    this.tabSettings.push({ ...t });
+    this.tabsChanged(this.tabSettings.length - 1);
+  }
 
   activeBracketPreset(): PresetMask | null { return this.tabs[this.tab]?.bracket ?? null; }
 

@@ -502,6 +502,26 @@ export class SpaceView {
     this.hoveredID = id;
     if (id !== null) this.bracketEls.get(id)?.classList.add("hovered");
     this.overview.setHovered(id);
+    for (const o of this.extraOverviews) o.setHovered(id);
+  }
+  private makeOverview: ((instanceID: number) => Overview) | null = null;
+  /** Another overview window: made, put in the layer, its rows held and right-clicked as the first's. */
+  private addOverviewWindow(make: (instanceID: number) => Overview, id?: number): Overview {
+    const next = id ?? Math.max(0, ...this.extraOverviews.map((o) => o.instanceID), ...this.overview.storedWindowIDs()) + 1;
+    const o = make(next);
+    o.window.root.classList.add("space-only-window");
+    this.layer.appendChild(o.window.root);
+    this.raiseOnClick(o.window.root);
+    const off = this.holdOverviewRow?.(o.window.body);
+    if (off) this.unhold.push(off);
+    o.setSelected(this.selected);
+    this.extraOverviews.push(o);
+    return o;
+  }
+  private removeOverviewWindow(o: Overview): void {
+    o.window.root.remove();
+    const i = this.extraOverviews.indexOf(o);
+    if (i >= 0) this.extraOverviews.splice(i, 1);
   }
   private readonly polarization = new Map<number, { timer: WormholePolarization | null }>();
   private readonly jumpBridgePanels = new Map<number, {
@@ -542,6 +562,9 @@ export class SpaceView {
   private readonly toastEl: HTMLDivElement;
   private selected: number | null = null;
   private readonly overview: Overview;
+  /** The other overview windows (Move Tab To > New Window), each with its own tabs, fed as the first. */
+  private readonly extraOverviews: Overview[] = [];
+  private holdOverviewRow: ((el: HTMLElement) => () => void) | null = null;
   private starfieldObj!: THREE.Points;
   private readonly sunLight = new THREE.DirectionalLight(0xfff6e8, 3);
   private readonly spaceShadows = new SpaceShadowAtlas(this.renderer);
@@ -1036,7 +1059,8 @@ export class SpaceView {
     });
     if (options.recordCameraTask) this.trackCameraTasks(options.recordCameraTask);
     void options.entryWarpHistory?.then(hasWarped => { this.entryWarped = hasWarped ?? true; });
-    this.overview = new Overview({
+    const makeOverview = (instanceID: number) => new Overview({
+      instanceID,
       select: (id) => this.select(id),
       activate: (id) => this.activateSpaceTarget(id),
       glyph,
@@ -1050,7 +1074,19 @@ export class SpaceView {
       hover: (id) => this.setHovered(id),
       bracketOverride: () => this.bracketOverride,
       setBracketOverride: (value) => { this.bracketOverride = value; },
+      otherWindows: (from) => [this.overview, ...this.extraOverviews].filter((o) => o !== from),
+      // presetSvc.MoveTab: the tab out of its window into another, or a new one; a window left without tabs closes
+      moveTab: (from, tab, to) => {
+        const target = to === null ? this.addOverviewWindow(makeOverview) : [this.overview, ...this.extraOverviews].find((o) => o.instanceID === to);
+        if (!target) return;
+        const t = from.takeTab(tab);
+        if (!t) return;
+        target.receiveTab(t);
+        if (from !== this.overview && from.tabCount === 0) this.removeOverviewWindow(from);
+      },
     });
+    this.makeOverview = makeOverview;
+    this.overview = makeOverview(0);
     this.overview.window.root.classList.add("space-only-window");
     this.layer.appendChild(this.overview.window.root);
     this.hairlineSvg.setAttribute("class", "module-hairlines");
@@ -1156,6 +1192,9 @@ export class SpaceView {
       holdToOpen(this.overview.window.body, rowID, openRadial),
       holdToOpen(this.renderer.domElement, (x, y) => this.pickAt(x, y), openRadial),
     );
+    this.holdOverviewRow = (el) => holdToOpen(el, rowID, openRadial);
+    // the overview windows the tabs were moved to before, opened again (OverviewWindow per windowInstanceID)
+    for (const id of this.overview.storedWindowIDs()) this.addOverviewWindow(this.makeOverview!, id);
     // Brackets drawn before the client's tables are here are drawn again with the client's icons.
     void loadBrackets().then(() => { for (const el of this.bracketEls.values()) el.remove(); this.bracketEls.clear(); });
     this.root.appendChild(new Neocom((id) => (this.options.onNeocom ? this.options.onNeocom(id) : this.toast(`${id[0]!.toUpperCase()}${id.slice(1)} is not on the play page yet.`))).root);
@@ -1222,7 +1261,7 @@ export class SpaceView {
     this.systemMap?.dispose();
     for (const off of this.unhold) off();
     // the windows in the shared layer are the view's to take away
-    for (const el of [this.selectedEl, this.overview.window.root, this.dscan?.window.root, this.radial.root]) el?.remove();
+    for (const el of [this.selectedEl, this.overview.window.root, ...this.extraOverviews.map((o) => o.window.root), this.dscan?.window.root, this.radial.root]) el?.remove();
     removeEventListener("keydown", this.onKey);
     removeEventListener("keyup", this.onKeyUp);
     removeEventListener("blur", this.onBlur);
@@ -1463,6 +1502,7 @@ export class SpaceView {
     if (itemID !== null && this.locked.has(itemID)) this.activeTarget = itemID;
     for (const [id, el] of this.bracketEls) el.classList.toggle("selected", id === itemID);
     this.overview.setSelected(itemID);
+    for (const o of this.extraOverviews) o.setSelected(itemID);
     if (itemID !== null && !this.targetingCursor.hidden) this.chooseModuleTarget(itemID);
     this.renderSelected();
     return true;
@@ -3227,7 +3267,7 @@ export class SpaceView {
       panel.host.remove();
       this.jumpBridgePanels.delete(id);
     }
-    if (snap) this.overview.update(snap.entities, (x) => this.distanceTo(x), relations, snap.ship);
+    if (snap) for (const o of [this.overview, ...this.extraOverviews]) o.update(snap.entities, (x) => this.distanceTo(x), relations, snap.ship);
     const jump = this.gateJump;
     let wormholeStopElapsed: number | null = null;
     if (jump?.wormhole && jump.arrivedAt !== null && now - jump.orderedAt >= WORMHOLE_MIDDLE_MS) {
