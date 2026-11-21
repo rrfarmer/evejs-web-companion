@@ -542,6 +542,9 @@
   /* the details' Item entry 42 high, its EveLabelMedium 14, the 32 px icon at 5, 5 and the text 9 after it (46) */
   .rows.details td { height: 42px; font-size: 14px; }
   .rows.details td.nm { padding-left: 0; }
+  /* the list's Item entry (gridcheck, VIEWMODE_LIST): 21 high, its EveLabelMedium 14 from 12 */
+  .rows:not(.details) td { height: 21px; font-size: 14px; }
+  .rows:not(.details) td.nm { padding-left: 12px; }
   .rows tr:hover td { background: rgba(255, 255, 255, 0.05); }
   .rows tr.selected td { background: rgba(255, 255, 255, 0.12); }
   .rows .num { text-align: right; }
