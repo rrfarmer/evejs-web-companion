@@ -1218,6 +1218,31 @@
       void s.flow.reloadAll(reloading).catch(say("Reload all"));
       return true;
     }
+    // CmdRefreshProbeScan (B): the probe scanner's Analyze where its window is open (ProbeScannerWindow.Confirm);
+    // CmdIncrease/DecreaseProbeScanRange: scanSvc.ScaleFormation(2 / 0.5) - nothing unless every probe's range so scaled
+    // is one of its type's steps, else each idle probe moved about the formation's centre (_ScaleFromCenterIterator) and
+    // given the step of its new range, msg_newscan_probe_scale_play
+    if (cmd === "CmdRefreshProbeScan" || cmd === "CmdIncreaseProbeScanRange" || cmd === "CmdDecreaseProbeScanRange") {
+      if (docked || !wins.some((w) => w.id === "scanner" && !w.minimized)) return true;
+      if (cmd === "CmdRefreshProbeScan") { window.dispatchEvent(new CustomEvent("evejs:probe-scan-confirm")); return true; }
+      const ops = s.store.scanner.get().operations;
+      if (ops.status !== "ready") return true;
+      const scale = cmd === "CmdIncreaseProbeScanRange" ? 2 : 0.5;
+      const probes = ops.value.probes;
+      const near = (a: number, b: number) => Math.abs(a - b) <= Math.max(1, Math.abs(b) * 1e-6);
+      if (!probes.length || probes.some((p) => !(p.rangeSteps ?? []).some((r) => near(r, p.scanRange * scale)))) return true;
+      const idle = probes.filter((p) => p.state === 1);
+      if (!idle.length) return true;
+      const centre = [0, 1, 2].map((i) => idle.reduce((sum, p) => sum + p.destination[i]!, 0) / idle.length) as [number, number, number];
+      const moves = idle.map((p) => ({
+        probeID: p.probeID,
+        destination: [0, 1, 2].map((i) => centre[i]! + (p.destination[i]! - centre[i]!) * scale) as [number, number, number],
+        rangeStep: (p.rangeSteps ?? []).findIndex((r) => near(r, p.scanRange * scale)) + 1,
+      }));
+      void s.flow.moveScannerProbes(moves).catch(say("Probe Scanner"));
+      void playUiEvent("msg_newscan_probe_scale_play");
+      return true;
+    }
     // eveCommands.py's Open...OfActiveShip: the active ship's hold opened (Inventory.OpenOrShow) - the cargo hold always;
     // the drone and fighter bays where the type has the capacity, else ShipHasNoDroneBay / ShipHasNoFighterBay; the
     // special holds (_OpenSpecialHoldOfActiveship) where the type's capacity attribute is set, else nothing

@@ -78,6 +78,14 @@
     await flow.analyzeScannerSignatures();
   }
 
+  // CmdRefreshProbeScan (B) while this window is open: its Analyze (ProbeScannerWindow.Confirm)
+  $effect(() => {
+    // (as the button: nothing while it is blocked)
+    const confirm = () => { if (actions.analyze?.blocked === undefined) void analyze().catch(() => {}); };
+    window.addEventListener("evejs:probe-scan-confirm", confirm);
+    return () => window.removeEventListener("evejs:probe-scan-confirm", confirm);
+  });
+
   function answerAbyssal(yes: boolean): void {
     const waiting = abyssalQuestion;
     abyssalQuestion = null;
