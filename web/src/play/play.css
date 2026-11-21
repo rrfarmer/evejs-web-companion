@@ -424,8 +424,41 @@ button { font: inherit; color: inherit; }
 .si-act.on { background: rgba(210, 59, 47, 0.25); border-color: rgba(210, 59, 47, 0.6); }
 
 /* a locked thing's bracket: the client's red lock corners; one that has the pilot locked: a yellow ring */
-.bracket.locked::after { content: ""; position: absolute; inset: -5px; border: 2px solid #d23b2f;
-  clip-path: polygon(0 0, 35% 0, 35% 2px, 2px 2px, 2px 35%, 0 35%, 0 100%, 35% 100%, 35% calc(100% - 2px), 2px calc(100% - 2px), 2px 65%, 0 65%, 0 0, 100% 0, 100% 35%, calc(100% - 2px) 35%, calc(100% - 2px) 2px, 65% 2px, 65% 0, 100% 0, 100% 100%, 65% 100%, 65% calc(100% - 2px), calc(100% - 2px) calc(100% - 2px), calc(100% - 2px) 65%, 100% 65%); }
+/* InSpaceBracket's indicators, centred on the bracket (activeTargetIndicator.py): Hilite's 30 px selectionCircle at 0.3;
+   TargetedIndicator's 96 px outerCircle and four 1 px TargetLines across the screen, stopping 44 / 46 px from the centre,
+   at 0.1 and the circle 0.2 (ChangeLineOpacity faded), 0.2 and 0.5 for the active target; its targetingArrows
+   (spinCorners) shrinking 120 -> 0 px and 0.1 -> 1 in 0.33 s while locking; ActiveTargetIndicator's spinCorners
+   (120 px, turning once in 3.5 s, 0.2 <-> 0.5 over 3 s) and 80 px selectedTargetedItem at 0.15 */
+.bracket .t-ind { position: absolute; left: 8px; top: 8px; width: 0; height: 0; pointer-events: none; }
+.bracket .t-ind > span { position: absolute; display: none; }
+.t-hilite, .t-circle, .t-locking, .t-active-spin, .t-active-circle { background: #fff; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
+.t-hilite { width: 30px; height: 30px; left: -15px; top: -15px; opacity: .3;
+  -webkit-mask-image: url(/client-res/ui/texture/classes/bracket/selectioncircle.png); mask-image: url(/client-res/ui/texture/classes/bracket/selectioncircle.png); }
+.bracket:hover .t-hilite, .bracket.hovered .t-hilite { display: block; }
+.t-circle { width: 96px; height: 96px; left: -48px; top: -48px; opacity: .2;
+  -webkit-mask-image: url(/client-res/ui/texture/classes/target/outercircle.png); mask-image: url(/client-res/ui/texture/classes/target/outercircle.png); }
+.t-line { background: rgba(255, 255, 255, 0.1); }
+.t-top { left: 0; width: 1px; bottom: 44px; height: 4000px; }
+.t-bottom { left: 0; width: 1px; top: 46px; height: 4000px; }
+.t-left { top: -1px; height: 1px; right: 44px; width: 6000px; }
+.t-right { top: -1px; height: 1px; left: 46px; width: 6000px; }
+.bracket.locked .t-circle, .bracket.locking .t-circle { display: block; }
+body:not(.no-target-crosshair) .bracket.locked .t-line, body:not(.no-target-crosshair) .bracket.locking .t-line { display: block; }
+.bracket.active-target .t-circle { opacity: .5; }
+.bracket.active-target .t-line { background: rgba(255, 255, 255, 0.2); }
+.t-locking { width: 120px; height: 120px; left: -60px; top: -60px;
+  -webkit-mask-image: url(/client-res/ui/texture/classes/target/spincorners.png); mask-image: url(/client-res/ui/texture/classes/target/spincorners.png);
+  animation: t-locking .33s linear infinite; }
+@keyframes t-locking { from { transform: scale(1); opacity: .1; } to { transform: scale(0); opacity: 1; } }
+.bracket.locking .t-locking { display: block; }
+.t-active-spin { width: 120px; height: 120px; left: -60px; top: -60px;
+  -webkit-mask-image: url(/client-res/ui/texture/classes/target/spincorners.png); mask-image: url(/client-res/ui/texture/classes/target/spincorners.png);
+  animation: t-spin 3.5s linear infinite, t-spin-fade 3s ease-in-out infinite; }
+@keyframes t-spin { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
+@keyframes t-spin-fade { 0%, 100% { opacity: .2; } 50% { opacity: .5; } }
+.t-active-circle { width: 80px; height: 80px; left: -40px; top: -40px; opacity: .15;
+  -webkit-mask-image: url(/client-res/ui/texture/classes/target/selectedtargeteditem.png); mask-image: url(/client-res/ui/texture/classes/target/selectedtargeteditem.png); }
+.bracket.active-target .t-active-spin, .bracket.active-target .t-active-circle { display: block; }
 .bracket.targeting-me .glyph { filter: drop-shadow(0 0 2px #e3b542) drop-shadow(0 0 2px #e3b542); }
 
 /* a bracket with the client's own icon (brackets.ts): white art, tinted by what the thing is to the pilot */

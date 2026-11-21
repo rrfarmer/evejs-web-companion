@@ -2924,7 +2924,12 @@ export class SpaceView {
       if (!el) {
         el = document.createElement("div");
         el.className = "bracket";
-        el.innerHTML = `${glyph(e)}<div class="label"></div>`;
+        // InSpaceBracket's indicators: Hilite's selectionCircle, TargetedIndicator (outerCircle and the four TargetLines
+        // across the screen; its targetingArrows while locking) and ActiveTargetIndicator (the turning spinCorners and
+        // selectedTargetedItem), shown by the bracket's classes
+        el.innerHTML = `${glyph(e)}<div class="label"></div><div class="t-ind"><span class="t-hilite"></span><span class="t-circle"></span>
+          <span class="t-line t-top"></span><span class="t-line t-left"></span><span class="t-line t-right"></span><span class="t-line t-bottom"></span>
+          <span class="t-locking"></span><span class="t-active-spin"></span><span class="t-active-circle"></span></div>`;
         el.dataset.hackingState = hackingState;
         const id = e.itemID;
         el.dataset.id = String(id);
@@ -2961,6 +2966,9 @@ export class SpaceView {
       el.style.display = onScreen ? "" : "none";
       if (onScreen) {
         el.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px)`;
+        el.classList.toggle("locked", this.locked.has(e.itemID));
+        el.classList.toggle("locking", this.lockingIDs.has(e.itemID) || this.acquiringTargets.has(e.itemID));
+        el.classList.toggle("active-target", this.activeTarget === e.itemID && this.locked.has(e.itemID));
         if (this.selected === e.itemID || el.classList.contains("mining-selected")) this.updateMiningBracket(el, e, survey);
         if (this.frameCount % 10 === 0 || highlighted || el.classList.contains("selected") || this.hoveredID === e.itemID) {
           this.drawBracketLabel(el.querySelector<HTMLElement>(".label")!, e);
