@@ -69,7 +69,7 @@ import { Neocom } from "./neocom.ts";
 import { bracketIcon, hasBracketData, loadBrackets } from "./brackets.ts";
 import { PROXIMITY_TRAP_RANGES } from "./proximityTraps.ts";
 import { probeNumber } from "../bridge/scannerWrites.ts";
-import { gridBracketWanted, iconAndBackgroundFlags, type BracketOverride, type OverviewRelationships } from "./overviewFilters.ts";
+import { aggressorFlagHolds, gridBracketWanted, iconAndBackgroundFlags, type BracketOverride, type OverviewRelationships } from "./overviewFilters.ts";
 import { panelErrorWords } from "../bridge/refusals.ts";
 import { PlayWindow, clientTexture } from "./window.ts";
 import { bloomFor, type Bloom } from "../three/bloom.ts";
@@ -460,6 +460,8 @@ export class SpaceView {
   private readonly bracketEls = new Map<number, HTMLDivElement>();
   /** bracketMgr.ShowModuleRange's distance while a module is hovered (its brackets within it brighter), else null. */
   private moduleRange: number | null = null;
+  /** The frame's overview relationships (for the tactical overlay's aggressor flags). */
+  private lastRelations: OverviewRelationships | undefined;
   /** The tactical compass's firing range (optimal, falloff) of the module hovered, null for none. */
   private firingRange: readonly [number, number] | null = null;
   private firingRangeClear: ReturnType<typeof setTimeout> | undefined;
@@ -3971,8 +3973,11 @@ export class SpaceView {
       if (flat.lengthSq() === 0) flat.x = 0.01;
       flat.setLength(d);
       anchors.push({ plane: flat.clone(), above: p.y >= 0, dist: d, radius: e.radius });
-      // _aggressorStates (blinking, isAggressive): targeted by me, or targeting me (threatTargetsMe)
-      const aggressive = this.locked.has(e.itemID) || (e.targetEntityID != null && e.targetEntityID === this.snapshot?.ship?.itemID);
+      // _aggressorStates (isAggressive): targeting and targeted by me, threatTargetsMe / threatAttackingMe (its target is
+      // the ship), and the flags (outlaw, dangerous, at war, bad or horrible standing, militia enemy, allies at war,
+      // suspect, criminal, limited engagement, kill right)
+      const aggressive = this.locked.has(e.itemID) || this.lockingIDs.has(e.itemID) ||
+        (e.targetEntityID != null && e.targetEntityID === this.snapshot?.ship?.itemID) || aggressorFlagHolds(e, e.groupID, this.lastRelations);
       // the connector's intensity (TacticalOverlayConnector.fx): LineParameters x above the plane, y below (0.3, 0.2),
       // faded past the active range (Fadeout), and the interest-reduced (_outsideInterestIntensity 0.35) beyond the
       // interest range from its radius and the ship's; its colour white whatever its aggression (that is velocity quad 1)
@@ -4691,6 +4696,7 @@ export class SpaceView {
     const bracketSimNow = this.live.effectSimNow();
     // the relationships the presets' state filters and the state flags (stateSvc.GetIconAndBackgroundFlags) are read from
     const relations = this.options.overviewRelationships?.(snap?.entities ?? []);
+    this.lastRelations = relations;
     const misc = overviewMisc();
     if (this.frameCount % 60 === 30) this.updateDamageDealers();
     const inRangeNow = this.inRangeDue;

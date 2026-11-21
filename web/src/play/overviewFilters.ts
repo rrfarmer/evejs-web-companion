@@ -203,6 +203,17 @@ function flagHolds(flag: number, item: OverviewItem, group: number, category: nu
 }
 
 /**
+ * tacticalOverlay._aggressorStates' flags (stateSvc.GetStates for flagOutlaw 9, flagDangerous 10, flagAtWarCanFight 13,
+ * flagStandingBad 18, flagStandingHorrible 19, flagAtWarMilitia 44, flagAlliesAtWar 49, flagSuspect 50, flagCriminal 51,
+ * flagLimitedEngagement 52, flagHasKillRight 53): any of them holding for the thing, as its Check functions read them.
+ */
+export function aggressorFlagHolds(item: OverviewItem, groupID: number | null, relations?: OverviewRelationships): boolean {
+  if (item.isSelf) return false;
+  const group = groupID ?? 0, category = item.categoryID ?? 0;
+  return [9, 10, 13, 18, 19, 44, 49, 50, 51, 52, 53].some((flag) => flagHolds(flag, item, group, category, relations));
+}
+
+/**
  * stateSvc.GetIconAndBackgroundFlags (CheckStates 'flag' and 'background'): the first flag of each active order that
  * holds, null for none; a thing an NPC owns has none (OverviewScrollEntry.UpdateFlagAndBackground; the agent in space
  * excepted).
