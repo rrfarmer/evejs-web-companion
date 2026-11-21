@@ -10,6 +10,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { createGodmaPrimeChannel } = require("../src/gamePort/godmaPrimeChannel");
 const { ATTRIBUTE, CHARGED, DGM_TAU_CONSTANT, EFFECT_CATEGORY, EFFECT_ONLINE, chargeValue, createPilotDogma, filetimeNow } = require("../src/gamePort/pilotDogma");
 const flight = require("./fixtures/dogmaFlight.json");
 const { answers, notifications } = require("./helpers/destinyRecording");
@@ -22,6 +23,30 @@ const allInfo = (during) => answers(flight).find((answer) => answer.during === d
 /** A change as it arrives inside OnModuleAttributeChanges. */
 const change = (itemID, attributeID, time, newValue, { owner = PILOT, old = null, stamp = time } = {}) => ["OnModuleAttributeChange", owner, itemID, attributeID, time, newValue, old, stamp];
 const changes = (...list) => ({ method: "OnModuleAttributeChanges", args: [{ type: "list", items: list }] });
+
+test("a superseded Godma Prime cannot drain or cancel its successor's notices", async () => {
+  const channel = createGodmaPrimeChannel();
+  const retired = channel.begin();
+  const abandoned = channel.receive(() => assert.fail("retired notice was delivered"));
+  const current = channel.begin();
+  const delivered = [];
+  const pendingWork = Promise.withResolvers();
+  const first = channel.receive(() => {
+    delivered.push(1);
+    return pendingWork.promise;
+  });
+  const second = channel.receive(() => delivered.push(2));
+
+  channel.cancel(retired);
+  await channel.release(retired);
+  assert.equal(await abandoned, false);
+  assert.deepEqual(delivered, []);
+  await channel.release(current);
+  assert.deepEqual(delivered, [1, 2]);
+  pendingWork.resolve();
+  await Promise.all([first, second]);
+});
+
 /** A dogma holding one ship: 100 GJ of capacitor that takes 500 s to recharge, 200 shield, at time T0. */
 const T0 = 134359220000000000n;
 function small({ charge = 100, capacity = 100, rechargeRate = 500000, now = () => T0 } = {}) {

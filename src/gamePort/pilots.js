@@ -1659,6 +1659,7 @@ function createGamePortPilots({
   function end(entry, reason, refusalStatus = 404) {
     if (entry.ended) return;
     entry.ended = true;
+    entry.dogma.cancelPrime();
     // invCache.Stop invalidates its guards. Break the actual broker/guard
     // ownership cycle even when native owners outlive this closed socket.
     entry.inventory.forget();
@@ -2172,6 +2173,7 @@ function createGamePortPilots({
       if (LOCATION_ATTRIBUTES.some((name) => name in changes) || "shipid" in changes) {
         entry.dogmaLoaded = null;
         entry.godmaPrimeVersion += 1;
+        entry.dogma.cancelPrime();
         entry.listings.forget();
       }
       // invCache.ProcessSessionChange (143 to 168) and OnSessionChanged (173 to 181): the corporation's containers let
@@ -4752,7 +4754,7 @@ function createGamePortPilots({
     const version = ++entry.godmaPrimeVersion;
     const current = () => !entry.ended && entry.godmaPrimeVersion === version && primedFor(entry, whereabouts(entry)) === loadedFor;
     try {
-      entry.dogma.beginPrime();
+      const receivers = entry.dogma.beginPrime();
       let allInfo;
       try {
         await entry.dogma.initializeNativeAttributes();
@@ -4798,12 +4800,13 @@ function createGamePortPilots({
           },
         });
         if (!current()) return false;
+        await entry.dogma.releasePrimeReceivers(receivers);
       } finally {
-        // Native Prime clears its flag even on failure; only success reaches
-        // the channel sends below. Retired managed bodies also skip release.
-        entry.dogma.finishPrimeBody();
+        // Only successful bodies deliver their receivers. Settle abandoned
+        // work so readers waiting for it can finish as well.
+        entry.dogma.cancelPrime(receivers);
       }
-      await entry.dogma.releasePrimeReceivers();
+      if (!current()) return false;
       entry.allInfo = allInfo;
       entry.dogmaLoaded = loadedFor;
       if (entry.targetsOwed) targetsRefreshed(entry).catch(() => {});
