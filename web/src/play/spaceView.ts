@@ -326,6 +326,8 @@ export interface SpaceActions {
   safetyLevel?(): 0 | 1 | 2 | null;
   /** GetBookmarkMenuForNavigation: the Locations entry of the system's bookmarks (none where none, or not read yet). */
   locationsMenu?(): (ContextEntry | null)[];
+  /** _GetAgentMissonsMenu: the Agent Missions entry (none where no mission has a bookmark in the system). */
+  missionsMenu?(): (ContextEntry | null)[];
   /** sensorSuite.GetAnomalies for the system the pilot is in (empty where not read yet: the read is started). */
   anomalies?(): readonly AnomalySite[];
   /** A site warped to by its scan id (menusvc.WarpToScanResult), at the range. */
@@ -3192,6 +3194,8 @@ export class SpaceView {
     if (sites.length) menu.push({ label: word("UI/Inflight/Scanner/AnomalySiteFilterLabel", "Anomalies"), icon: "res:/UI/Texture/Shared/Brackets/combatSite_16.png", sub: this.anomaliesMenu(sites) });
     // bookmarkSvc.GetBookmarkMenuForNavigation: Locations, the system's bookmarks
     menu.push(...(this.actions.locationsMenu?.() ?? []));
+    // _GetAgentMissonsMenu: Agent Missions, the journal's mission bookmarks in the system
+    menu.push(...(this.actions.missionsMenu?.() ?? []));
     this.radial.close();
     this.contextMenu.open(x, y, menu);
   }

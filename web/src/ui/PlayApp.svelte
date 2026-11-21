@@ -1015,6 +1015,8 @@
   /** The space menu's bookmarks (accessGroupBookmarkMgr's, read again when a menu opens after 10 s). */
   let menuBookmarks: ActiveBookmarks | null = null;
   let menuBookmarksAt = 0;
+  /** The space menu asked for the journal once (GetMyAgentJournalBookmarks needs it read). */
+  let menuJournalAsked = false;
   /** Edit Location from the space menu: the bookmark window on that bookmark. */
   let editingBookmark = $state<Bookmark | null>(null);
   const hudNames = $derived(session?.store.names);
@@ -1580,7 +1582,7 @@
     const attributeLook = new Map<number, { readonly icon: string | null; readonly nameID: number | null }>();
     void s.flow.attributeDisplay(TIP_ATTRIBUTES).then((found) => {
       for (const [id, d] of found ?? []) attributeLook.set(id, { icon: d.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d.displayNameID });
-      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Inflight/ResetCamera", "UI/Inflight/EditBookmark", "UI/Inflight/RemoveBookmark", "UI/Inflight/RemoveWaypoint", "UI/PeopleAndPlaces/NewBookmarkLocationLabel", "UI/PeopleAndPlaces/Locations", "UI/PeopleAndPlaces/PersonalLocations", "UI/PeopleAndPlaces/SharedLocations", "UI/Inflight/ApproachLocationActionGroup", "UI/Inflight/WarpToWithinDistance", "UI/Inflight/Scanner/AnomalySiteFilterLabel", ...["OreSite", "GasSite", "RelicSite", "DataSite", "Wormhole", "CombatSite"].map((t) => `UI/Inflight/Scanner/${t}`), "UI/Locations/LocationMoonLong", "UI/Locations/LocationMoonShort", "UI/Inflight/ShowSystemInMapBrowser", "UI/Common/LocationTypes/AsteroidBelts", "UI/Common/LocationTypes/Planets", "UI/Common/LocationTypes/Stargates", "UI/Common/LocationTypes/Stations", "UI/Common/LocationTypes/Structures", ...["Barren", "Storm", "Lava", "Scorched", "Shattered", "Temperate", "Ice", "Gas", "Oceanic", "Plasma"].map((t) => `UI/PI/PlanetType/${t}`), "UI/Menusvc/MenuHints/NoReasonGiven", "UI/Control/EveWindow/Minimize", "UI/Generic/Copy", "UI/Drones/EngageTarget", "UI/Drones/MineWithDrone", "UI/Drones/Salvage", "UI/Drones/ReturnDroneAndOrbit", "UI/Drones/ReturnDroneToBay", "UI/Drones/ScoopDroneToBay", "UI/Drones/AbandonDrone", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Menusvc/MoonsMenuOption", "UI/Common/Pilot", "UI/Inflight/BoardShip", "UI/Commands/GiveMoney", "UI/PeopleAndPlaces/BlockContact", "UI/EVEMail/SendPilotEVEMail", "UI/Fleet/FormFleetWith", "UI/Crimewatch/Duel/DuelMenuEntry", "UI/PeopleAndPlaces/AddContact", "UI/PeopleAndPlaces/EditContact", "UI/Commands/CapturePortrait", "UI/Station/BountyOffice/PlaceBounty", "UI/Chat/StartConversation", "UI/Chat/InviteToChat", "UI/Compression/FailureToCompressAny", "UI/Compression/FailureToCompressSome", "UI/Inflight/Submenus/MoonX", "UI/Menusvc/PlanetHasNoMoons", "UI/PI/Common/CustomsOffice", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
+      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Inflight/ResetCamera", "UI/PeopleAndPlaces/AgentMissions", "UI/Neocom/MissionNameSubmenu", "UI/Inflight/EditBookmark", "UI/Inflight/RemoveBookmark", "UI/Inflight/RemoveWaypoint", "UI/PeopleAndPlaces/NewBookmarkLocationLabel", "UI/PeopleAndPlaces/Locations", "UI/PeopleAndPlaces/PersonalLocations", "UI/PeopleAndPlaces/SharedLocations", "UI/Inflight/ApproachLocationActionGroup", "UI/Inflight/WarpToWithinDistance", "UI/Inflight/Scanner/AnomalySiteFilterLabel", ...["OreSite", "GasSite", "RelicSite", "DataSite", "Wormhole", "CombatSite"].map((t) => `UI/Inflight/Scanner/${t}`), "UI/Locations/LocationMoonLong", "UI/Locations/LocationMoonShort", "UI/Inflight/ShowSystemInMapBrowser", "UI/Common/LocationTypes/AsteroidBelts", "UI/Common/LocationTypes/Planets", "UI/Common/LocationTypes/Stargates", "UI/Common/LocationTypes/Stations", "UI/Common/LocationTypes/Structures", ...["Barren", "Storm", "Lava", "Scorched", "Shattered", "Temperate", "Ice", "Gas", "Oceanic", "Plasma"].map((t) => `UI/PI/PlanetType/${t}`), "UI/Menusvc/MenuHints/NoReasonGiven", "UI/Control/EveWindow/Minimize", "UI/Generic/Copy", "UI/Drones/EngageTarget", "UI/Drones/MineWithDrone", "UI/Drones/Salvage", "UI/Drones/ReturnDroneAndOrbit", "UI/Drones/ReturnDroneToBay", "UI/Drones/ScoopDroneToBay", "UI/Drones/AbandonDrone", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Menusvc/MoonsMenuOption", "UI/Common/Pilot", "UI/Inflight/BoardShip", "UI/Commands/GiveMoney", "UI/PeopleAndPlaces/BlockContact", "UI/EVEMail/SendPilotEVEMail", "UI/Fleet/FormFleetWith", "UI/Crimewatch/Duel/DuelMenuEntry", "UI/PeopleAndPlaces/AddContact", "UI/PeopleAndPlaces/EditContact", "UI/Commands/CapturePortrait", "UI/Station/BountyOffice/PlaceBounty", "UI/Chat/StartConversation", "UI/Chat/InviteToChat", "UI/Compression/FailureToCompressAny", "UI/Compression/FailureToCompressSome", "UI/Inflight/Submenus/MoonX", "UI/Menusvc/PlanetHasNoMoons", "UI/PI/Common/CustomsOffice", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
     }).catch(() => {});
     const stopAskedAt = new Map<number, number>();
     const tipWord = (label: string, args: Readonly<Record<string, unknown>>): string | null => {
@@ -1864,6 +1866,58 @@
       // captions, each folder by name its entry then its subfolders (by name) and its loose bookmarks - each folder a
       // submenu of them all past 30 entries - each bookmark its memo's first 25 letters, a click warping at nought, and
       // under it BookmarkMenu's moves: Dock, Warp to Within (the default, and the ranges), Approach Location, Align to
+      // listSurroundingsBtn._GetAgentMissonsMenu: Agent Missions (eveicon.agent_mission), each mission with bookmarks in
+      // the system as MissionNameSubmenu (its name and agent), its bookmarks' hints (_GetAgentEntryText: a site's
+      // " - <system>" dropped, " - Moon " as " - M", a trailing "- " off) warping at nought on a click, with Warp to
+      // Within and its ranges and Approach Location (where near) under each
+      missionsMenu: () => {
+        const journal = s.store.agents.get().journal;
+        if (journal === null) {
+          if (!menuJournalAsked) { menuJournalAsked = true; void s.flow.loadJournal().catch(() => {}); }
+          return [];
+        }
+        const systemID = s.store.flight.get().status?.solarSystemID ?? null;
+        if (systemID === null) return [];
+        const templates = s.store.words.get().templates;
+        const resolved = s.store.names.get().resolved;
+        const fill = (template: string, args: Record<string, string | number>) => plainText(formatTemplate(template, args as never, {
+          nameOf: (kind: string, id: number) => resolvedName(resolved, kind === "character" ? "owner" : kind as never, id, ""),
+        } as never)).trim();
+        const word = (label: string, own: string, args: Record<string, string | number> = {}) => { const t = templates[label]; return typeof t === "string" && t !== "" ? fill(t, args) : own; };
+        const systemName = resolvedName(resolved, "system", systemID, "");
+        const within = (r: number) => word("UI/Inflight/WarpToWithin", `Within ${fmtDist(r)}`, { distance: fmtDist(r) });
+        const ran = (p: Promise<void>) => { void p.catch((error) => { if ((error as { code?: string } | null)?.code !== "SESSION_REQUEST_RETIRED") notify({ kind: "danger", title: "Agent Missions", detail: error instanceof Error ? error.message : String(error) }); }); };
+        const snapshot = s.store.space.get().snapshot;
+        const ship = snapshot?.ship ?? null;
+        const out: ContextEntry[] = [];
+        const wanted: string[] = [];
+        for (const mission of [...journal.active, ...journal.offered]) {
+          const spots = (mission.bookmarks ?? []).filter((spot) => spot.solarSystemID === systemID);
+          if (!spots.length) continue;
+          // the hints' and the title's words, and the agent's and the places' names, asked where not had
+          for (const spot of spots) if (spot.hint && typeof templates[spot.hint] !== "string") wanted.push(spot.hint);
+          if (mission.missionTitleID !== null && typeof templates[`#${mission.missionTitleID}`] !== "string") wanted.push(`#${mission.missionTitleID}`);
+          if (mission.agentID && !resolvedName(resolved, "owner", mission.agentID, "")) s.flow.requestNames([{ kind: "owner", id: mission.agentID }]);
+          const name = typeof mission.missionTitle === "string" ? mission.missionTitle : mission.missionTitleID !== null ? word(`#${mission.missionTitleID}`, "") : "";
+          const entries: ContextEntry[] = spots.map((spot) => {
+            let text = spot.hint ? fill(templates[spot.hint] ?? spot.hint, { location: spot.locationID ?? spot.solarSystemID ?? 0, index: spot.locationNumber + 1 }) : "";
+            if (spot.locationType === "dungeon") text = text.replace(` - ${systemName}`, "");
+            text = text.replace(" - Moon ", " - M");
+            if (text.endsWith("- ")) text = text.slice(0, -2);
+            const d = storeValue(s.flow.warpDistance) || 0;
+            const sub: ContextEntry[] = [
+              { path: "UI/Inflight/Submenus/WarpToWithin", label: word("UI/Inflight/Submenus/WarpToWithin", "Warp to Within"), icon: "res:/UI/Texture/eveicon/control_icons/warp_to_16px.png",
+                run: () => ran(s.flow.warpToMissionBookmark(spot, d)), sub: [0, 10_000, 20_000, 30_000, 50_000, 70_000, 100_000].map((r) => ({ label: within(r), run: () => ran(s.flow.warpToMissionBookmark(spot, r)) })) },
+            ];
+            const near = ship && spot.x != null && spot.y != null && spot.z != null ? Math.hypot(spot.x - ship.position.x, spot.y - ship.position.y, spot.z - ship.position.z) < 150_000 : false;
+            if (near) sub.push({ path: "UI/Inflight/ApproachLocationActionGroup", label: word("UI/Inflight/ApproachLocationActionGroup", "Approach Location"), icon: "res:/UI/Texture/eveicon/control_icons/approach_16px.png", run: () => ran(s.flow.approachMissionBookmark(spot)) });
+            return { label: text, run: () => ran(s.flow.warpToMissionBookmark(spot, 0)), sub };
+          });
+          out.push({ label: word("UI/Neocom/MissionNameSubmenu", `${name}`, { missionName: name, agent: mission.agentID ?? 0 }), sub: entries });
+        }
+        if (wanted.length) s.flow.requestWords(wanted);
+        return out.length ? [{ label: word("UI/PeopleAndPlaces/AgentMissions", "Agent Missions"), icon: "res:/UI/Texture/eveicon/category_icons/agent_mission_16px.png", sub: out }] : [];
+      },
       locationsMenu: () => {
         if (Date.now() - menuBookmarksAt > 10_000) {
           menuBookmarksAt = Date.now();
