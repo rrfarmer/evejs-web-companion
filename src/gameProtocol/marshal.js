@@ -1,6 +1,6 @@
 // VENDORED from the eve.js server (server/src/network/tcp/utils/marshal.js at
-// eve.js e5eb5c7d9, AGPL-3.0-only, same developers), unchanged except for the
-// string-table path. It is the codec the game port itself speaks;
+// eve.js e5eb5c7d9, AGPL-3.0-only, same developers), with the local string-table
+// path and decoded-number export. It is the codec the game port itself speaks;
 // src/gameClient.js uses it to talk to the server the way the retail client
 // does. Do not edit it: re-copy with `npm run vendor:marshal -- --write`.
 "use strict";
@@ -2037,6 +2037,7 @@ module.exports = {
   marshalDecode,
   marshalDecodeExact,
   getDecodedNumberKind,
+  setDecodedNumberKind,
   wrapPacket,
   encodePacket,
   dictGet,
