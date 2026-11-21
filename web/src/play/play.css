@@ -449,7 +449,17 @@ body:not(.no-target-crosshair) .bracket.locked .t-line, body:not(.no-target-cros
 .t-locking { width: 120px; height: 120px; left: -60px; top: -60px;
   -webkit-mask-image: url(/client-res/ui/texture/classes/target/spincorners.png); mask-image: url(/client-res/ui/texture/classes/target/spincorners.png);
   animation: t-locking .33s linear infinite; }
-@keyframes t-locking { from { transform: scale(1); opacity: .1; } to { transform: scale(0); opacity: 1; } }
+@keyframes t-locking { from { transform: rotate(45deg) scale(1); opacity: .06; } to { transform: rotate(45deg) scale(0); opacity: .6; } }
+/* CountDown's timer (timerLeft / timerRight, 76 px at 0.4): the ring left as the time left, clockwise from the top */
+.t-timer { width: 76px; height: 76px; left: -38px; top: -38px; opacity: .4;
+  background: conic-gradient(#fff 0 var(--left, 0deg), transparent var(--left, 0deg) 360deg);
+  -webkit-mask: radial-gradient(circle, transparent 33px, #000 34px, #000 37px, transparent 38px);
+  mask: radial-gradient(circle, transparent 33px, #000 34px, #000 37px, transparent 38px); }
+.bracket.locking .t-timer { display: block; }
+.t-lock-text { left: -60px; width: 120px; top: 17px; text-align: center; font-size: 11px; color: #fff; white-space: nowrap; text-shadow: 0 0 2px #000; }
+.bracket.locking .t-lock-text { display: block; }
+.bracket.lock-done .t-lock-text, .bracket.lock-done .t-locking { animation: t-blink .1s steps(1) infinite; }
+@keyframes t-blink { 0% { opacity: 0; } 50% { opacity: 1; } }
 .bracket.locking .t-locking { display: block; }
 .t-active-spin { width: 120px; height: 120px; left: -60px; top: -60px;
   -webkit-mask-image: url(/client-res/ui/texture/classes/target/spincorners.png); mask-image: url(/client-res/ui/texture/classes/target/spincorners.png);

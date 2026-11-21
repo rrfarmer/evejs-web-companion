@@ -384,6 +384,24 @@ export class SpaceView {
     label.textContent = labelText(this.nameOf(e), this.distanceTo(e));
   }
 
+  /**
+   * InSpaceBracket.CountDown: while locking, the timer's two half rings (76 px at 0.4) sweep away the time left and the
+   * label under the reticle reads it to a tenth of a second (FmtAmt showFraction 1); at the end the label says
+   * UI/Inflight/Brackets/TargetLocked and blinks with the arrows (BlinkArrowsAndText) until the lock is confirmed.
+   */
+  private bracketCountdown(id: number, lockTimeMs: number | null, startedAt: number, lockedText: string): void {
+    const el = this.bracketEls.get(id);
+    if (!el) return;
+    const timer = el.querySelector<HTMLElement>(".t-timer"), text = el.querySelector<HTMLElement>(".t-lock-text");
+    if (!timer || !text) return;
+    if (lockTimeMs === null || lockTimeMs <= 0) { timer.style.removeProperty("--left"); text.textContent = ""; return; }
+    const dt = this.lockNow() - startedAt;
+    const ratio = Math.max(0, (lockTimeMs - dt) / lockTimeMs);
+    timer.style.setProperty("--left", `${(ratio * 360).toFixed(1)}deg`);
+    el.classList.toggle("lock-done", dt > lockTimeMs);
+    text.textContent = dt > lockTimeMs ? lockedText : ((lockTimeMs - dt) / 1000).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  }
+
   /** stateSvc.SetState(itemID, mouseOver): the bracket shows its label (ShowLabel's mouseOver) and the overview row lights. */
   private setHovered(id: number | null): void {
     if (this.hoveredID === id) return;
@@ -2929,7 +2947,7 @@ export class SpaceView {
         // selectedTargetedItem), shown by the bracket's classes
         el.innerHTML = `${glyph(e)}<div class="label"></div><div class="t-ind"><span class="t-hilite"></span><span class="t-circle"></span>
           <span class="t-line t-top"></span><span class="t-line t-left"></span><span class="t-line t-right"></span><span class="t-line t-bottom"></span>
-          <span class="t-locking"></span><span class="t-active-spin"></span><span class="t-active-circle"></span></div>`;
+          <span class="t-locking"></span><span class="t-timer"></span><span class="t-lock-text"></span><span class="t-active-spin"></span><span class="t-active-circle"></span></div>`;
         el.dataset.hackingState = hackingState;
         const id = e.itemID;
         el.dataset.id = String(id);
@@ -2967,7 +2985,8 @@ export class SpaceView {
       if (onScreen) {
         el.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px)`;
         el.classList.toggle("locked", this.locked.has(e.itemID));
-        el.classList.toggle("locking", this.lockingIDs.has(e.itemID) || this.acquiringTargets.has(e.itemID));
+        el.classList.toggle("locking", (this.lockingIDs.has(e.itemID) || this.acquiringTargets.has(e.itemID)) && !this.locked.has(e.itemID));
+        if (!el.classList.contains("locking")) el.classList.remove("lock-done");
         el.classList.toggle("active-target", this.activeTarget === e.itemID && this.locked.has(e.itemID));
         if (this.selected === e.itemID || el.classList.contains("mining-selected")) this.updateMiningBracket(el, e, survey);
         if (this.frameCount % 10 === 0 || highlighted || el.classList.contains("selected") || this.hoveredID === e.itemID) {
@@ -3423,9 +3442,11 @@ export class SpaceView {
     const pending = this.lockingIDs.size ? new Map([...this.acquiringTargets, ...this.lockingIDs]) : this.acquiringTargets;
     const shipID = this.snapshot?.ship?.itemID;
     const scanResolution = pending.size && shipID != null ? this.options.targeting?.scanResolution(shipID) ?? null : null;
+    const bracketLockedText = pending.size ? this.actions.word?.(TARGET_LOCKED_LABEL) ?? "Locked" : "Locked";
     for (const [id, startedAt] of pending) {
       if (this.locked.has(id)) continue;
       const e = byID.get(id);
+      this.bracketCountdown(id, this.lockTimeFor(e, scanResolution), startedAt, bracketLockedText);
       entries.push({
         itemID: id, typeID: e?.typeID ?? null, name: e ? this.targetLabelOf(e) : null, distance: e ? this.distanceTo(e) : 0,
         shieldRatio: null, armorRatio: null, hullRatio: null, locking: true, active: false,
