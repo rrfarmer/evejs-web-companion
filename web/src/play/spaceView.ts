@@ -190,6 +190,8 @@ export interface SpaceViewOptions {
   entryWarpHistory?: Promise<boolean | null>;
   recordCameraTask?: (event: CameraTaskEvent) => void;
   overviewPilotID?: number;
+  /** menusvc's "Pilot (<name>)" entry for a ship another pilot flies: its CharacterMenu as a submenu; null for none. */
+  pilotMenu?: (characterID: number) => ContextEntry | null;
   /** stateSvc's selected state changed (an object selected, or none): for the panels that show it (the drone entries). */
   onSelectionChange?: (itemID: number | null) => void;
   overviewNotice?: (text: string) => void;
@@ -2815,7 +2817,10 @@ export class SpaceView {
       const lockRange = this.actions.shipAttribute?.(76) ?? null;
       if (lockRange === null || dist <= lockRange) out.push({ path: "UI/Inflight/LockTarget", label: word("UI/Inflight/LockTarget", "Lock Target"), icon: I("target"), run: run("Lock Target", () => this.lockTracked(id)) });
     }
-    out.push(null, showInfo, null);
+    out.push(null, showInfo);
+    // _CelestialMenu (2050): a ship with a pilot not the pilot's own, "Pilot (<name>)" with the CharacterMenu after Show Info
+    if (e.characterID && !e.isSelf && this.options.pilotMenu) { const pilot = this.options.pilotMenu(e.characterID); if (pilot) out.push(pilot); }
+    out.push(null);
     if (stargate) out.push({ path: "UI/Inflight/AddFirstWaypoint", label: word("UI/Inflight/AddFirstWaypoint", "Add as First Waypoint"), run: () => this.actions.addWaypoint?.(id) });
     else if (dockable && this.actions.setDestination) {
       out.push({ path: "UI/Inflight/SetDestination", label: word("UI/Inflight/SetDestination", "Set Destination"), icon: "res:/UI/Texture/eveicon/system_icons/set_destination_16px.png", run: () => this.actions.setDestination?.(id) });
@@ -2846,7 +2851,8 @@ export class SpaceView {
         run: run("Warp", () => this.actions.warpTo(poco.itemID, defaultDistance("WarpTo"))), sub: this.contextEntries(poco) });
     }
     if (group !== null && shownInOverview) out.push(null, { path: "UI/Overview/RemoveGroupFromOverview", label: word("UI/Overview/RemoveGroupFromOverview", `Remove ${groupName} from Overview`, { groupName }), run: () => this.overview.setGroupShown(group, false) });
-    return out;
+    // an empty group draws no line: no two lines together, none first or last
+    return out.filter((x, i, all) => x !== null || (i > 0 && i < all.length - 1 && all[i - 1] !== null));
   }
 
   private distanceTo(e: Entity): number {

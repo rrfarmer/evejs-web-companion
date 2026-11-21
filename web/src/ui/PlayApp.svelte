@@ -52,6 +52,9 @@
   import PlayInfoPanels from "./PlayInfoPanels.svelte";
   import FlyDronesWindow from "./FlyDronesWindow.svelte";
   import FlyInventoryWindow from "./FlyInventoryWindow.svelte";
+  import { resolvedName } from "../store/names.ts";
+  import { showInfo } from "./showInfo.ts";
+  import { focusMail } from "./mailFocus.ts";
   import BuffBar from "./BuffBar.svelte";
   import { INDICATION_WORD_LABELS } from "../space/actionIndication.ts";
   import NoticeBridge from "./NoticeBridge.svelte";
@@ -1436,7 +1439,7 @@
     const attributeLook = new Map<number, { readonly icon: string | null; readonly nameID: number | null }>();
     void s.flow.attributeDisplay(TIP_ATTRIBUTES).then((found) => {
       for (const [id, d] of found ?? []) attributeLook.set(id, { icon: d.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d.displayNameID });
-      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Menusvc/MenuHints/NoReasonGiven", "UI/Control/EveWindow/Minimize", "UI/Generic/Copy", "UI/Drones/EngageTarget", "UI/Drones/MineWithDrone", "UI/Drones/Salvage", "UI/Drones/ReturnDroneAndOrbit", "UI/Drones/ReturnDroneToBay", "UI/Drones/ScoopDroneToBay", "UI/Drones/AbandonDrone", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Menusvc/MoonsMenuOption", "UI/Inflight/Submenus/MoonX", "UI/Menusvc/PlanetHasNoMoons", "UI/PI/Common/CustomsOffice", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
+      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Menusvc/MenuHints/NoReasonGiven", "UI/Control/EveWindow/Minimize", "UI/Generic/Copy", "UI/Drones/EngageTarget", "UI/Drones/MineWithDrone", "UI/Drones/Salvage", "UI/Drones/ReturnDroneAndOrbit", "UI/Drones/ReturnDroneToBay", "UI/Drones/ScoopDroneToBay", "UI/Drones/AbandonDrone", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Menusvc/MoonsMenuOption", "UI/Common/Pilot", "UI/Commands/GiveMoney", "UI/PeopleAndPlaces/BlockContact", "UI/EVEMail/SendPilotEVEMail", "UI/Fleet/FormFleetWith", "UI/Crimewatch/Duel/DuelMenuEntry", "UI/Inflight/Submenus/MoonX", "UI/Menusvc/PlanetHasNoMoons", "UI/PI/Common/CustomsOffice", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
     }).catch(() => {});
     const stopAskedAt = new Map<number, number>();
     const tipWord = (label: string, args: Readonly<Record<string, unknown>>): string | null => {
@@ -1701,6 +1704,30 @@
       recordCameraTask: s.flow.recordCameraTask,
       overviewPilotID: s.store.station.get().online?.characterID,
       onSelectionChange: (id) => (spaceSelected = id),
+      // menusvc.CharacterMenu under "Pilot (<name>)" (UI/Common/Pilot), in the client's order (read through gridcheck),
+      // the entries the page has a way for: Show Info, Give Money, Block, Send Message, Form Fleet With..., Invite to Duel
+      pilotMenu: (characterID) => {
+        const resolved = s.store.names.get().resolved;
+        const nameOf = (id: number) => resolvedName(resolved, "owner", id, "");
+        s.flow.requestNames([{ kind: "owner", id: characterID }]);
+        const templates = s.store.words.get().templates;
+        const w = (label: string, own: string, args: Record<string, string | number> = {}) => {
+          const t = templates[label];
+          return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args, { nameOf: (kind, id) => (kind === "owner" ? nameOf(Number(id)) : "") })).trim() : own;
+        };
+        const name = nameOf(characterID);
+        return {
+          path: "UI/Common/Pilot", label: w("UI/Common/Pilot", `Pilot (${name})`, { character: characterID }), icon: "res:/UI/Texture/eveicon/system_icons/person_16px.png",
+          sub: [
+            { label: w("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => showInfo({ kind: "character", characterID }) },
+            { label: w("UI/Commands/GiveMoney", "Give Money"), run: () => void s.flow.openMoneyTransfer(characterID).catch(() => {}) },
+            { label: w("UI/PeopleAndPlaces/BlockContact", "Block"), run: () => void s.flow.blockOwners([characterID]).catch(() => {}) },
+            { label: w("UI/EVEMail/SendPilotEVEMail", "Send Message"), run: () => { focusMail({ kind: "compose", characterID, name }); open("mail"); } },
+            { label: w("UI/Fleet/FormFleetWith", "Form Fleet With..."), run: () => void s.flow.formFleetWith(characterID).catch(() => {}) },
+            { label: w("UI/Crimewatch/Duel/DuelMenuEntry", "Invite to Duel"), run: () => void s.flow.startDuel(characterID).catch(() => {}) },
+          ],
+        };
+      },
       mountJumpBridge: (target, gate, initial) => {
         const state = createSignal(initial);
         const panel = mount(JumpBridgePanel, { target, props: { session: s, gate, state, simNow: () => live.simNow() } });
