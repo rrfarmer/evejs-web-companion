@@ -767,14 +767,18 @@
   .lbl { font-size: 14px; color: rgba(255, 255, 255, 0.9); }
   .commands, .row-buttons { display: flex; gap: 2px; }
   /* DroneEntry.buttonCont: hidden, faded in (0.1 s) while the mouse is over the entry; left of the gauges */
-  .row .row-buttons { opacity: 0; visibility: hidden; transition: opacity .1s, visibility .1s; margin-right: 4px; }
+  /* its padRight 4 the only space between it and the gauges (the row's 8 gap less 4; an in-space row's 4 gap as is) */
+  .row .row-buttons { opacity: 0; visibility: hidden; transition: opacity .1s, visibility .1s; margin-right: -4px; gap: 0; }
+  .row.inspace .row-buttons { margin-right: 0; }
+  /* its ButtonIcons buttonSize 20 wide, the row's height */
+  .row .row-buttons .command { width: 20px; height: 24px; }
   .row:hover .row-buttons { opacity: 1; visibility: visible; }
   .command { width: 24px; height: 22px; padding: 0; border: 0; background: transparent; display: grid; place-items: center; cursor: pointer; opacity: 0.85; }
   .command:hover:not(:disabled) { opacity: 1; background: rgba(255, 255, 255, 0.08); }
   .command:disabled { opacity: 0.3; cursor: default; }
   .glyph { width: 16px; height: 16px; background: center / 16px 16px no-repeat; }
   /* DroneEntry: 24 high, the label 4 in (8 more a sublevel); an in-space one in the icons view 40 high with its 32 px icon */
-  .row { display: flex; align-items: center; gap: 8px; padding: 0 4px; min-height: 24px; box-sizing: border-box; }
+  .row { display: flex; align-items: center; gap: 8px; padding: 0 0 0 4px; min-height: 24px; box-sizing: border-box; }
   .row.inspace { min-height: 40px; gap: 4px; }
   .row.inspace.list { min-height: 24px; }
   /* compact (DroneInSpaceEntry.GetHeight): ICONSIZE + 4 in Icons, ENTRY_HEIGHT_COMPACT 22 in List */
@@ -791,7 +795,9 @@
   .group { margin: 0; padding: 0; border: 0; background: none; }
   .picture { width: 24px; height: 24px; flex: none; display: grid; }
   .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .gauges { display: flex; gap: 2px; flex: none; margin-right: 8px; }
+  /* gaugesParent TORIGHT flush with the entry's right (its padright=8 is not carbonui's padRight, so nothing: gridcheck
+     measured the gauges ending at the entry's 530) */
+  .gauges { display: flex; gap: 2px; flex: none; margin-right: 0; }
   .gauges.unknown { opacity: 0.05; }
   .gauge { position: relative; width: 32px; height: 4px; background: rgb(153, 31, 36); overflow: hidden; }
   .gauge .health { position: absolute; left: 0; top: 0; bottom: 0; background: rgb(196, 196, 196); }
