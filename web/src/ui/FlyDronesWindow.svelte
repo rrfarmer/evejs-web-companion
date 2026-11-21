@@ -109,6 +109,56 @@
   }
 
   const snapshot = $derived($space.snapshot);
+
+  /**
+   * DroneTooltip (droneTooltip.py, a ModuleButtonTooltip on DroneEntry): the type's icon and name in bold, under it
+   * GetDroneStateDescription - the state word in its colour and, mining or fighting, what on (the pilot's name for a
+   * ship, else the thing's name) - then AddDroneBandwidthUsed (the attribute's icon, its name and value). The mining
+   * amount row (AddMiningDroneInfo) is left out: it is the drone's skill-modified attribute, which the page lacks.
+   */
+  let tip = $state<{ typeID: number; name: string; state: string | null; color: string | null; targetID: number | null; x: number; y: number } | null>(null);
+  let tipTimer: ReturnType<typeof setTimeout> | null = null;
+  const bandwidth = new Map<number, number | null>();
+  let bandwidthLook = $state<{ icon: string | null; name: string | null } | null>(null);
+  let bandwidthVersion = $state(0);
+  function tipFor(typeID: number, state: string | null, color: string | null, targetID: number | null, e: MouseEvent): void {
+    if (tipTimer) clearTimeout(tipTimer);
+    const el = e.currentTarget as HTMLElement;
+    tipTimer = setTimeout(() => {
+      const r = el.getBoundingClientRect();
+      const t = targetID ? snapshot?.entities.find((x) => x.itemID === targetID) ?? null : null;
+      if (t?.typeID) flow.requestNames([{ kind: "type", id: t.typeID }]);
+      if (t?.characterID) flow.requestNames([{ kind: "owner", id: t.characterID }]);
+      tip = { typeID, name: typeName(typeID, ""), state, color, targetID, x: r.right + 12, y: r.top + r.height / 2 };
+      if (!bandwidth.has(typeID)) {
+        bandwidth.set(typeID, null);
+        void flow.typeDogmaFacts(typeID).then((f) => { bandwidth.set(typeID, f?.attributes.find((a) => a[0] === 1272)?.[1] ?? null); bandwidthVersion++; }).catch(() => {});
+      }
+      if (!bandwidthLook) {
+        void flow.attributeDisplay([1272]).then((m) => {
+          const d = m?.get(1272);
+          const nameT = d?.displayNameID ? $headerWords.templates[`#${d.displayNameID}`] : null;
+          if (d?.displayNameID) flow.requestWords([`#${d.displayNameID}`]);
+          bandwidthLook = { icon: d?.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, name: typeof nameT === "string" ? nameT : null };
+        }).catch(() => {});
+      }
+    }, 400);
+  }
+  function tipOff(): void { if (tipTimer) clearTimeout(tipTimer); tipTimer = null; tip = null; }
+  /** GetDroneStateDescription's target: the pilot's name for a ship, else the thing's (GetSlimItemName), Unknown where neither. */
+  const tipTarget = $derived.by(() => {
+    if (!tip?.targetID) return null;
+    const t = snapshot?.entities.find((x) => x.itemID === tip!.targetID) ?? null;
+    if (!t) return headerWord("UI/Generic/Unknown", "Unknown");
+    return (t.characterID ? resolvedName($names.resolved, "owner", t.characterID, "") : "") || t.name || typeName(t.typeID, "") || headerWord("UI/Generic/Unknown", "Unknown");
+  });
+  const bandwidthText = $derived.by(() => {
+    void bandwidthVersion;
+    const v = tip ? bandwidth.get(tip.typeID) : null;
+    if (v == null) return null;
+    const nameID = bandwidthLook?.name;
+    return `${nameID ?? "Bandwidth Used"} ${Number.isInteger(v) ? v : v.toFixed(1)} Mbit/sec`;
+  });
   const ship = $derived(snapshot?.ship ?? null);
   const autoTargetID = $derived($activeTarget ?? 0);
   const typeName = (typeID: number | null, fallback: string) => resolvedName($names.resolved, "type", typeID, fallback);
@@ -282,6 +332,7 @@
         unavailable: lost ? DRONE_NOT_UNDER_YOUR_CONTROL : null, recoverable: drone.controlled === false,
         damage: layersOf(byID.get(drone.itemID) ?? null),
         sprite: drone.activity ? STATE_SPRITE[drone.activity] ?? null : null,
+        targetID: drone.activity === "mining" || drone.activity === "fighting" || drone.activity === "repairing" ? drone.targetID ?? null : null,
       };
     });
   });
@@ -394,7 +445,8 @@
 {/snippet}
 
 {#snippet bayEntry(row: (typeof bayRows)[number], sub: boolean)}
-  <div class="row" class:sub class:selected={selected.bay.includes(row.itemID)} role="listitem" title="Double-click to launch; right-click for more" draggable="true"
+  <div class="row" class:sub class:selected={selected.bay.includes(row.itemID)} role="listitem" draggable="true"
+    onmouseenter={(e) => tipFor(row.typeID, null, null, null, e)} onmouseleave={tipOff}
     onclick={(e) => clickEntry("bay", row.itemID, e)} ondragstart={(e) => dragStart("bay", row.itemID, row.typeID, e)}
     ondblclick={() => run(() => flow.launchDrones(row.itemIDs))}
     oncontextmenu={(e) => { const ids = pickedFor("bay", row.itemID, row.typeID, true); openMenu(e, [moveMenu(ids, row.typeID), { label: say(MENU_WORDS.launch), act: () => flow.launchDrones(ids) }]); }}>
@@ -411,7 +463,8 @@
 {/snippet}
 
 {#snippet spaceEntry(row: (typeof spaceRows)[number], sub: boolean)}
-  <div class="row inspace" class:sub class:lost={row.unavailable !== null} class:selected={selected.space.includes(row.itemIDs[0]!)} role="listitem" title={row.unavailable ?? "Right-click for orders"} draggable="true"
+  <div class="row inspace" class:sub class:lost={row.unavailable !== null} class:selected={selected.space.includes(row.itemIDs[0]!)} role="listitem" title={row.unavailable ?? undefined} draggable="true"
+    onmouseenter={(e) => { if (row.typeID !== null) tipFor(row.typeID, row.unavailable ?? row.activity, row.color, row.targetID, e); }} onmouseleave={tipOff}
     onclick={(e) => clickEntry("space", row.itemIDs[0]!, e)} ondragstart={(e) => dragStart("space", row.itemIDs[0]!, row.typeID, e)}
     oncontextmenu={(e) => {
       // GroupMenu takes the selected of the clicked one's drone group, the drone menu every selected one
@@ -573,7 +626,29 @@
   {/if}
 </div>
 
+{#if tip}
+  <!-- TooltipPanel (the hint layer): background_04's frame, the 26 px type icon and the name, the bandwidth row -->
+  <div class="drone-tip" style:left={`${tip.x}px`} style:top={`${tip.y}px`}>
+    <div class="tip-frame"></div>
+    <div class="tip-grid">
+      <span class="tip-icon"><TypeIcon typeID={tip.typeID} name={tip.name} size="sm" /></span>
+      <span class="tip-text"><b>{tip.name}</b>{#if tip.state}<br><span style:color={tip.color}>{tip.state}</span>{#if tipTarget}&nbsp;{tipTarget}{/if}{/if}</span>
+      {#if bandwidthText}
+        <span class="tip-icon">{#if bandwidthLook?.icon}<img src={bandwidthLook.icon} alt="" />{/if}</span>
+        <span class="tip-text">{bandwidthText}</span>
+      {/if}
+    </div>
+  </div>
+{/if}
+
 <style>
+  .drone-tip { position: fixed; transform: translateY(-50%); z-index: 100000; pointer-events: none; padding: 8px; font: 14px var(--font); color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
+  .tip-frame { position: absolute; inset: 0; opacity: 0.75; border-style: solid; border-width: 0; border-image-source: url(/client-res/ui/texture/classes/framewithpointer/background_04.png); border-image-slice: 19 fill; border-image-width: 19px; border-image-outset: 15px; }
+  .tip-grid { position: relative; display: grid; grid-template-columns: 30px auto; align-items: center; }
+  .tip-icon { width: 30px; min-height: 30px; display: grid; place-items: center; }
+  .tip-icon img { width: 24px; height: 24px; }
+  .tip-text { padding: 8px 4px; line-height: 18px; }
+  .tip-text b { color: rgba(255, 255, 255, 0.95); }
   /* the eve-cs mirror's drone window: 11 px upper-case section labels in grey with white counts on a 2 % white strip,
      29 px rows of a 24 px type icon, the name at 13 px and its count at 11 px, 16 px command icons */
   /* DronesWindow: the bay's part (topScroll) takes the room, the space part (bottomCont) at the foot while the bay is open */
