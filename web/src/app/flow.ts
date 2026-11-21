@@ -3154,6 +3154,8 @@ export interface AppFlow {
    * (QuickHasKillRight: GetKillRightsFromCache), with GetMyKillRights' own rights on them (fromID me, toID them).
    */
   bountiesAndKillRights(ownerIDs: readonly number[], characterIDs: readonly number[]): Promise<{ wanted: Set<number>; killRights: Set<number> }>;
+  /** deploy.DeployAction: LaunchFromShip(items, charID, maxQty=1) - ship.Drop of one of each stack; the holds read again. */
+  deployItems(itemIDs: readonly number[]): Promise<void>;
   /** itemCompression.CompressItemInSpace(item, ballID): whether the stack was compressed (an answer other than None). */
   compressItemAt(itemID: number, facilityBallID: number): Promise<boolean>;
   /** bountySvc.GetBounties: each owner's bounty (0 where none), the owners named. */
@@ -19562,6 +19564,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     nameOwners(ownerIDs);
     return out;
+  }
+  async function deployItems(itemIDs: readonly number[]): Promise<void> {
+    // eveMisc.LaunchFromShip: what is not a drone goes by GetShipAccess().Drop(oldItems, whoseBehalfID, ignoreWarning)
+    const stacks = itemIDs.filter((id) => Number.isSafeInteger(id) && id > 0).map((itemID) => [itemID, 1]);
+    if (stacks.length) await bridgeDo("ship", "Drop", [stacks as JsonValue, null, false]);
+    await loadMiningHolds().catch(() => {});
   }
   async function compressItemAt(itemID: number, facilityBallID: number): Promise<boolean> {
     const result = await compressItemInSpace(bridgeDo, itemID, facilityBallID);
@@ -37634,6 +37642,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     bountiesAndKillRights,
     bountyAmounts,
     compressItemAt,
+    deployItems,
     corporationAllianceID,
     placeBounty,
     topBounties,

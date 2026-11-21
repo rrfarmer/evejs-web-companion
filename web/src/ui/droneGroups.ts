@@ -130,4 +130,7 @@ export function watchLaunches(flow: { onItemLaunch(listener: (ids: ReadonlyMap<n
 
 /** The drones window's drag payload (DronesDragData), for a drop outside the window: the 3D view's. */
 export const DRONE_DRAG_TYPE = "application/x-evejs-drones";
+/** The active ship's inventory items dragged out of its window (xtriui.InvItem drag data): each item and its type. */
+export const INV_ITEMS_DRAG_TYPE = "application/x-evejs-inv-items";
+export type InvItemsDragPayload = readonly { itemID: number; typeID: number }[];
 export interface DroneDragPayload { readonly section: "bay" | "space"; readonly ids: readonly number[] }

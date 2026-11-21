@@ -93,7 +93,7 @@
   import { openWindow, closeWindow, focusWindow, moveWindow, resizeWindow, toggleMinimize, type WinState } from "./desktop.ts";
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import { dronesToLaunch, watchLaunches, DRONE_DRAG_TYPE, type DroneDragPayload } from "./droneGroups.ts";
+  import { dronesToLaunch, watchLaunches, DRONE_DRAG_TYPE, INV_ITEMS_DRAG_TYPE, type DroneDragPayload, type InvItemsDragPayload } from "./droneGroups.ts";
   import { DSCAN_WORDS } from "../play/dscan.ts";
   import { LivePark } from "../three/livePark.ts";
   import { SpaceView, type Entity } from "../play/spaceView.ts";
@@ -1305,6 +1305,29 @@
     wins = shown ? closeWindow(wins, tab) : openFly(wins, tab);
   }
 
+  /**
+   * navigation.OnDropData for inventory items: the deployable ones (HasDeployComponent, deployableTypes.json from the
+   * client) put into space by deploy.DeployAction - CannotDeployRequireFleet first where one needs a fleet and the pilot
+   * has none - and nothing for any other item.
+   */
+  let deployable: Promise<ReadonlyMap<number, boolean>> | null = null;
+  async function deployDropped(items: InvItemsDragPayload): Promise<void> {
+    const s = session;
+    if (!s) return;
+    deployable ??= fetch("/client-assets/deployableTypes.json").then((r) => (r.ok ? r.json() : null))
+      .then((j: { types?: [number, boolean][] } | null) => new Map(j?.types ?? []) as ReadonlyMap<number, boolean>).catch(() => new Map<number, boolean>());
+    const types = await deployable;
+    const deploy = items.filter((i) => types.has(i.typeID));
+    if (!deploy.length) return;
+    const fleet = s.store.fleet.get();
+    const needsFleet = deploy.find((i) => types.get(i.typeID));
+    if (needsFleet && fleet.availability !== "ready") {
+      s.flow.sayDialog("CannotDeployRequireFleet", { type: "dict", entries: [["deployTypeID", needsFleet.typeID]] }, "You must be in a fleet to deploy that.");
+      return;
+    }
+    await s.flow.deployItems(deploy.map((i) => i.itemID)).catch(() => {});
+  }
+
   // Space: the SpaceView, made when the pilot is in space and let go when docked.
   let spaceHost = $state<HTMLDivElement | null>(null);
   let view: SpaceView | null = null;
@@ -2153,15 +2176,23 @@
       </div>
     </div>
   {:else}
-    <!-- navigation.OnDropData: drones dragged from the bay (the drones window) and dropped on space launch -->
+    <!-- navigation.OnDropData: drones dragged from the bay (the drones window) and dropped on space launch; inventory
+         items from the active ship deploy where their type has the deploy component (deploy.DeployAction) -->
     <div class="fly-space" class:planet-covered={planetInMode !== null} bind:this={spaceHost} role="application"
-      ondragover={(e) => { if (e.dataTransfer?.types.includes(DRONE_DRAG_TYPE)) e.preventDefault(); }}
+      ondragover={(e) => { if (e.dataTransfer?.types.includes(DRONE_DRAG_TYPE) || e.dataTransfer?.types.includes(INV_ITEMS_DRAG_TYPE)) e.preventDefault(); }}
       ondrop={(e) => {
+        if (!session) return;
         const raw = e.dataTransfer?.getData(DRONE_DRAG_TYPE);
-        if (!raw || !session) return;
+        if (raw) {
+          e.preventDefault();
+          const d = JSON.parse(raw) as DroneDragPayload;
+          if (d.section === "bay" && d.ids.length) void session.flow.launchDrones(d.ids).catch(() => {});
+          return;
+        }
+        const items = e.dataTransfer?.getData(INV_ITEMS_DRAG_TYPE);
+        if (!items || docked) return;
         e.preventDefault();
-        const d = JSON.parse(raw) as DroneDragPayload;
-        if (d.section === "bay" && d.ids.length) void session.flow.launchDrones(d.ids).catch(() => {});
+        void deployDropped(JSON.parse(items) as InvItemsDragPayload);
       }}></div>
     {#if controllingMetenox}
       <button class="metenox-controls" onclick={reopenMetenoxFuel}>Fuel Bay</button>
