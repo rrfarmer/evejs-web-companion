@@ -2077,7 +2077,7 @@
           {/snippet}
           <!-- (the drones window in the client's layout: FlyDronesWindow; the workspace keeps DronesPanel) -->
           {#if win.id === "drones"}
-            <FlyDronesWindow store={session.store} flow={session.flow} />
+            <FlyDronesWindow store={session.store} flow={session.flow} onSelect={(id) => view?.selectObjectiveTarget(id)} onLock={(id) => void session?.flow.lockTarget(id).catch(() => {})} />
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
               onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} {autoMoonMiner}

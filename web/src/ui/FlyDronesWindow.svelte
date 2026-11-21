@@ -24,7 +24,13 @@
   import type { AppFlow } from "../app/flow.ts";
   import type { SpaceEntity } from "../store/types.ts";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, onSelect, onLock }: {
+    store: ClientStore; flow: AppFlow;
+    /** stateSvc.SetState(itemID, selected): a drone in space picked in the view (the Selected Item window). */
+    onSelect?: (itemID: number) => void;
+    /** target.TryLockTarget: Ctrl-click on a drone in space. */
+    onLock?: (itemID: number) => void;
+  } = $props();
   // droneGroupHeader.UpdateLabelText: "%s (%s)" of UI/Inflight/Drone/DronesInBay, "%s (%s/%s)" of DronesInSpace, in an
   // EveLabelMedium of TextColor.HIGHLIGHT
   const HEADER_WORDS = { bay: "UI/Inflight/Drone/DronesInBay", space: "UI/Inflight/Drone/DronesInSpace" } as const;
@@ -143,6 +149,67 @@
   /** Groups shown open (ListGroup's open state; closed by default). */
   let openGroups = $state(new Set<string>());
   const toggleGroup = (key: string) => { const s = new Set(openGroups); if (s.has(key)) s.delete(key); else s.add(key); openGroups = s; };
+  /**
+   * The two lists' selections (topScroll and bottomScroll, multiSelect): a click selects the entry alone, Ctrl a toggle,
+   * Shift the run from the last one clicked, Ctrl+Shift that run added (scroll.SelectNode); entries in the order shown.
+   */
+  type Section = "bay" | "space";
+  let selected = $state<Record<Section, number[]>>({ bay: [], space: [] });
+  const lastClicked: Record<Section, number | null> = { bay: null, space: null };
+  const shownOrder = (section: Section): number[] => {
+    const list = section === "bay" ? bayList : spaceList;
+    return [...list.loose.flatMap((r) => r.itemIDs), ...list.heads.flatMap((h) => (openGroups.has(`${section}:${h.group.id}`) ? h.ids : []))];
+  };
+  function clickEntry(section: Section, id: number, e: MouseEvent): void {
+    const order = shownOrder(section);
+    const now = selected[section];
+    const last = lastClicked[section];
+    const span = () => { const [a, b] = [order.indexOf(last!), order.indexOf(id)].sort((x, y) => x - y); return order.slice(a!, b! + 1); };
+    let next: number[];
+    if (e.ctrlKey && !e.shiftKey) next = now.includes(id) ? now.filter((x) => x !== id) : [...now, id];
+    else if (e.shiftKey && last !== null && last !== id && order.includes(last)) next = e.ctrlKey ? [...new Set([...now, ...span()])] : span();
+    else next = [id];
+    selected = { ...selected, [section]: next };
+    if (!e.shiftKey) lastClicked[section] = id;
+    // DroneEntry.OnClick: no modifier, the drone selected in space; Ctrl, TryLockTarget on it
+    if (section === "space" && !e.shiftKey) { if (e.ctrlKey) onLock?.(id); else onSelect?.(id); }
+  }
+  /**
+   * DroneEntry.GetSelected: the entries selected that are of the clicked one's drone group (where the clicked one is
+   * among them; else the clicked one alone, selected now as the scroll does on the right-click).
+   */
+  function pickedFor(section: Section, id: number, typeID: number | null, sameGroup: boolean): number[] {
+    if (!selected[section].includes(id)) { selected = { ...selected, [section]: [id] }; return [id]; }
+    if (!sameGroup) return [...selected[section]];
+    const kind = droneGroupOf(typeID);
+    const typeOf = (x: number) => section === "bay" ? bayRows.find((r) => r.itemID === x)?.typeID ?? null : spaceRows.find((r) => r.itemIDs[0] === x)?.typeID ?? null;
+    return selected[section].filter((x) => droneGroupOf(typeOf(x)) === kind);
+  }
+  /** DronesDragData: the drones dragged (the selection where the dragged entry is in it), where from, and their type. */
+  let dragging: { section: Section; ids: number[]; typeID: number | null } | null = null;
+  function dragStart(section: Section, id: number, typeID: number | null, e: DragEvent): void {
+    dragging = { section, ids: selected[section].includes(id) ? [...selected[section]] : [id], typeID };
+    e.dataTransfer?.setData("text/plain", dragging.ids.join(","));
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+  }
+  /**
+   * The drops: in-space drones onto the bay's part go home (dronesWindow / DroneGroupHeaderInBay.OnDropData:
+   * ReturnToDroneBay), bay drones onto the space part launch (DroneGroupHeaderInSpace: LaunchDrones), and drones onto a
+   * group of their own part join it (DroneSubGroup._MoveToGroup).
+   */
+  let dropOn = $state<string | null>(null);
+  function drop(section: Section, group: string | null, e: DragEvent): void {
+    e.preventDefault();
+    e.stopPropagation();
+    dropOn = null;
+    const d = dragging;
+    dragging = null;
+    if (!d) return;
+    if (d.section === "space" && section === "bay") { void run(() => flow.recallDrones(d.ids)); return; }
+    if (d.section === "bay" && section === "space") { void run(() => flow.launchDrones(d.ids)); return; }
+    if (group && !moveToGroup(droneGroupOf(d.typeID), group, d.ids)) flow.sayDialog("CannotMixDrones", null, "You cannot mix drones of different types in the same group.");
+  }
+  const dragOver = (key: string) => (e: DragEvent) => { if (dragging) { e.preventDefault(); dropOn = key; } };
   /** New Group's name popup: for which drones (CreateSubGroup asks NamePopup first). */
   let naming = $state<{ droneGroupID: string; ids: number[] } | null>(null);
   /**
@@ -304,9 +371,10 @@
 {/snippet}
 
 {#snippet bayEntry(row: (typeof bayRows)[number], sub: boolean)}
-  <div class="row" class:sub role="listitem" title="Double-click to launch; right-click for more"
+  <div class="row" class:sub class:selected={selected.bay.includes(row.itemID)} role="listitem" title="Double-click to launch; right-click for more" draggable="true"
+    onclick={(e) => clickEntry("bay", row.itemID, e)} ondragstart={(e) => dragStart("bay", row.itemID, row.typeID, e)}
     ondblclick={() => run(() => flow.launchDrones(row.itemIDs))}
-    oncontextmenu={(e) => openMenu(e, [moveMenu(row.itemIDs, row.typeID), { label: say(MENU_WORDS.launch), act: () => flow.launchDrones(row.itemIDs) }])}>
+    oncontextmenu={(e) => { const ids = pickedFor("bay", row.itemID, row.typeID, true); openMenu(e, [moveMenu(ids, row.typeID), { label: say(MENU_WORDS.launch), act: () => flow.launchDrones(ids) }]); }}>
     {@render picture(row.typeID, row.label)}
     <!-- dronesWindow: a stack's label UI/Inflight/DroneBayEntryWithStacksize, "Mining Drone I (2)" (3698585, through
          gridcheck); one drone its name alone -->
@@ -321,8 +389,13 @@
 {/snippet}
 
 {#snippet spaceEntry(row: (typeof spaceRows)[number], sub: boolean)}
-  <div class="row" class:sub class:lost={row.unavailable !== null} role="listitem" title={row.unavailable ?? "Right-click for orders"}
-    oncontextmenu={(e) => openMenu(e, [moveMenu(row.itemIDs, row.typeID), ...spaceEntries(row.unavailable ? (row.recoverable ? row.itemIDs : []) : row.itemIDs.filter((id) => allDroneIDs.includes(id)), row.recoverable)])}>
+  <div class="row" class:sub class:lost={row.unavailable !== null} class:selected={selected.space.includes(row.itemIDs[0]!)} role="listitem" title={row.unavailable ?? "Right-click for orders"} draggable="true"
+    onclick={(e) => clickEntry("space", row.itemIDs[0]!, e)} ondragstart={(e) => dragStart("space", row.itemIDs[0]!, row.typeID, e)}
+    oncontextmenu={(e) => {
+      // GroupMenu takes the selected of the clicked one's drone group, the drone menu every selected one
+      const same = pickedFor("space", row.itemIDs[0]!, row.typeID, true), all = pickedFor("space", row.itemIDs[0]!, row.typeID, false);
+      openMenu(e, [moveMenu(same, row.typeID), ...spaceEntries(row.unavailable ? (row.recoverable ? all : []) : all.filter((id) => allDroneIDs.includes(id)), row.recoverable)]);
+    }}>
     {@render picture(row.typeID, row.label)}
     <span class="name">{row.label} <span class="state-word" style:color={row.color}>{row.unavailable ?? row.activity}</span></span>
     {@render gauges(row.damage)}
@@ -334,7 +407,8 @@
      Return and Orbit, a line, Return to Drone Bay -->
 {#snippet groupHead(key: string, group: DroneGroup, count: number, ids: number[], inSpace: boolean)}
   {@const own = ids.filter((id) => allDroneIDs.includes(id))}
-  <div class="row grouphead" role="button" tabindex="-1" onclick={() => toggleGroup(key)} onkeydown={() => {}}
+  <div class="row grouphead" class:drop={dropOn === key} role="button" tabindex="-1" onclick={() => toggleGroup(key)} onkeydown={() => {}}
+    ondragover={dragOver(key)} ondragleave={() => (dropOn = null)} ondrop={(e) => drop(inSpace ? "space" : "bay", group.label, e)}
     oncontextmenu={(e) => openMenu(e, groupMenu(key, group, ids, inSpace))}>
     <span class="expander" class:open={openGroups.has(key)}></span>
     {#if favoriteID === group.id}<span class="star" style:background-image={`url(${ICON.star})`}></span>{/if}
@@ -383,7 +457,7 @@
 {/if}
 
 <div class="fly-drones">
-  <div class="group">
+  <div class="group" class:drop={dropOn === "bay"} role="list" ondragover={dragOver("bay")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("bay", null, e)}>
     <div class="sec" role="button" tabindex="-1" onclick={() => (bayOpen = !bayOpen)} onkeydown={() => {}}
       oncontextmenu={(e) => openMenu(e, [...deleteMenu(), { label: say(MENU_WORDS.launch), disabled: bayRows.length ? null : "Nothing in the drone bay", act: () => flow.launchDrones(bayRows.flatMap((r) => r.itemIDs)) }])}>
       <span class="lbl">{headerWord(HEADER_WORDS.bay, "Drones in Bay")} ({bayCount})</span>
@@ -408,7 +482,7 @@
     {/if}
   </div>
 
-  <div class="group">
+  <div class="group" class:drop={dropOn === "space"} role="list" ondragover={dragOver("space")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("space", null, e)}>
     <div class="sec" role="button" tabindex="-1" onclick={() => (spaceOpen = !spaceOpen)} onkeydown={() => {}}
       oncontextmenu={(e) => openMenu(e, [...deleteMenu(), ...spaceEntries(allDroneIDs, false)])}>
       <span class="lbl">{headerWord(HEADER_WORDS.space, "Drones in Space")} ({maxActive === null ? outCount : `${outCount}/${maxActive}`})</span>
@@ -490,6 +564,9 @@
   .row { display: flex; align-items: center; gap: 8px; padding: 2px 8px 2px 12px; min-height: 29px; box-sizing: border-box; }
   .row:hover { background: rgba(255, 255, 255, 0.05); }
   .row.lost { opacity: 0.55; }
+  /* a selected entry (the scroll's selection fill) and a part or group a drag may drop on */
+  .row.selected { background: rgba(255, 255, 255, 0.12); }
+  .group.drop, .row.grouphead.drop { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35); }
   .group { margin: 0; padding: 0; border: 0; background: none; }
   .picture { width: 24px; height: 24px; flex: none; display: grid; }
   .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
