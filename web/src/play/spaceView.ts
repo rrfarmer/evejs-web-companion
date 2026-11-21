@@ -192,6 +192,7 @@ export interface SpaceViewOptions {
   overviewPilotID?: number;
   overviewNotice?: (text: string) => void;
   overviewAsk?: (dialog: string, fallback: string) => Promise<boolean>;
+  overviewSay?: (dialog: string, fallback: string) => void;
   /** cfg.corptickernames / allianceshortnames for a ship label (asked for where not known yet). */
   ownerTickers?: (corporationID: number | null, allianceID: number | null) => { corporation: string | null; alliance: string | null };
   /** A solar system's security status (the star map's), null where not known. */
@@ -1026,6 +1027,7 @@ export class SpaceView {
       word: (label, args) => this.actions.word?.(label, args) ?? null,
       notice: options.overviewNotice,
       ask: options.overviewAsk,
+      say: options.overviewSay,
       affiliation: (rows, columns) => options.overviewAffiliation?.(rows, columns) ?? null,
       hover: (id) => this.setHovered(id),
       bracketOverride: () => this.bracketOverride,

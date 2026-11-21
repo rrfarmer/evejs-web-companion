@@ -141,7 +141,7 @@ export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HI
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
   "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
   "UI/Overview/EditCurrentFilter", "UI/Commands/ChangeName", "UI/Overview/DeleteTab", "/Carbon/UI/Controls/ScrollEntries/TypeInNewName",
-  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
+  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Common/Buttons/Save", "UI/Common/Buttons/SaveAs", "UI/Common/Delete", "UI/Overview/FilterName", "UI/Overview/CustomFilters", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
 const DISABLED_TEXT = "Header sorting is disabled";
 
 /**
@@ -168,6 +168,10 @@ function readSort(key: string, fallback: OverviewSort = DEFAULT_SORT): OverviewS
  * overviewPresetSvc.AddGroupToOverview / RemoveGroupFromOverview: the pilot's changes to a preset's groups, kept per
  * preset in this browser (the client keeps its edited copy of the preset in its settings).
  */
+const CUSTOM_PRESETS_KEY = "evejs.ui.overview.customPresets";
+const CUSTOM_PREFIX = "custom:";
+/** overviewPresetSvc.GetDefaultPreset (General: General, as read from the client). */
+const DEFAULT_PRESET = "DefaultPreset_639452";
 const groupOverrideKey = (presetID: string) => `evejs.ui.overview.preset.${presetID}`;
 /** The pilot's changes to a preset: groups added and removed, and its exception states where changed (whole lists). */
 interface PresetOverrides { add: number[]; remove: number[]; filtered?: number[]; alwaysShown?: number[] }
@@ -212,6 +216,8 @@ export interface OverviewHooks {
   pilotID?: number;
   word?(label: string, args?: Readonly<Record<string, string | number>>): string | null;
   notice?(text: string): void;
+  /** A client message by its dialog name (prompt_player_fsd_dialog, OK only). */
+  say?(dialog: string, fallback: string): void;
   /** A client yes / no question by its dialog name; true on Yes. */
   ask?(dialog: string, fallback: string): Promise<boolean>;
   /** stateSvc's mouseOver: the thing a row is under the pointer (null when none), shared with its bracket in space. */
@@ -312,7 +318,7 @@ export class Overview {
       if (!p) return;
       const masks = new Map(Object.entries(p.presets).map(([id, preset]) => [id, presetMask(preset, id)]));
       this.masks = masks;
-      this.presetData = p.presets;
+      this.presetData = { ...p.presets };
       this.profileTabs = p.tabs.map((t) => ({ name: t.name, preset: t.preset, bracket: t.bracket ?? null }));
       this.tabSettings = this.storedTabs() ?? this.profileTabs.map((t) => ({ ...t }));
       this.tabs = this.tabSettings.map((t) => this.tabOf(t));
@@ -322,6 +328,7 @@ export class Overview {
         .flatMap(([id, preset]) => preset ? [{ id, name: preset.name, label: preset.categoryName ? `${preset.categoryName}: ${preset.name}` : preset.name,
           groups: masks.get(id)!.groups, category: preset.categoryID ?? 0, categoryName: preset.categoryName ?? null }] : [])
         .sort((a, b) => (order.indexOf(a.category) - order.indexOf(b.category)) || a.label.localeCompare(b.label));
+      this.addCustomPresets();
       let saved = 0;
       try { saved = Number(localStorage.getItem(this.tabKey) ?? localStorage.getItem(TAB_KEY)); } catch { /* no storage: the first tab */ }
       this.choose(Number.isInteger(saved) && this.tabs[saved] ? saved : 0, true);
@@ -540,12 +547,14 @@ export class Overview {
       const statesPane = `<div class="ov-state-head">${eye("res:/ui/texture/icons/generic/visible_default_16.png", "rgba(26,255,26,0.75)", "UI/Overview/FilterStateAlwaysShowLong", "Always show")}${eye("res:/ui/texture/icons/generic/visible_dontshow_16.png", "rgba(255,13,13,0.75)", "UI/Overview/FilterStateFilterOutLong", "Filter out")}${eye("res:/ui/texture/icons/generic/visible_matchstate_16.png", "rgba(51,102,153,0.75)", "UI/Overview/FilterStateNotFilterOutLong", "Do not filter out")}</div><div class="ov-filt-tree ov-state-list">${states}</div>`;
       return `<div class="ov-set-panel ov-filt">
         <div class="ov-filt-title">${esc(word("UI/Overview/FilterToEdit", "Select filter to edit"))}</div>
-        <select class="ov-filt-preset">${options(editing, false)}</select>
+        <div class="ov-filt-top"><select class="ov-filt-preset">${options(editing, false)}</select>${editing.startsWith(CUSTOM_PREFIX) ? `<button type="button" class="ov-filt-delete">${esc(word("UI/Common/Delete", "Delete"))}</button>` : ""}</div>
         <div class="ov-set-tabs ov-filt-sub"><span class="ov-set-tab${sub === "types" ? " active" : ""}" data-sub="types">${esc(word("UI/Overview/TypesShown", "Types Shown"))}</span><span class="ov-set-tab${sub === "states" ? " active" : ""}" data-sub="states">${esc(word("UI/Overview/Exceptions", "Exceptions"))}</span></div>
         ${sub === "types" ? `<div class="ov-filt-bar"><button type="button" class="ov-filt-all">${esc(word("UI/Common/SelectAll", "Select All"))}</button><button type="button" class="ov-filt-none">${esc(word("UI/Common/DeselectAll", "Deselect All"))}</button>
           <input class="ov-filt-search" placeholder="${esc(word("UI/Common/Search", "Search"))}" value="${esc(search)}" autocomplete="off"></div>
         <div class="ov-filt-tree">${tree}</div>` : statesPane}
-        <div class="ov-add-buttons"><button type="button" class="ov-filt-revert"${hasOverrides(changed) ? "" : " disabled"}>${esc(word("UI/Common/Buttons/Revert", "Revert"))}</button></div></div>`;
+        <div class="ov-add-buttons"><button type="button" class="ov-filt-revert"${hasOverrides(changed) ? "" : " disabled"}>${esc(word("UI/Common/Buttons/Revert", "Revert"))}</button>
+          <button type="button" class="ov-filt-save"${editing.startsWith(CUSTOM_PREFIX) && hasOverrides(changed) ? "" : " disabled"}>${esc(word("UI/Common/Buttons/Save", "Save"))}</button>
+          <button type="button" class="ov-filt-saveas">${esc(word("UI/Common/Buttons/SaveAs", "Save As"))}</button></div></div>`;
     };
     // AppearancePanel: the two checkboxes, the note and the two apply-to checkboxes, the Colortag / Background lists (each
     // state's checkbox, its text and, while on, its flag; dragged to reorder) and Reset All
@@ -738,6 +747,10 @@ export class Overview {
       const cat = t.closest<HTMLElement>(".ov-filt-cat");
       if (cat) { const c = cat.dataset.cat!; if (open.has(c)) open.delete(c); else open.add(c); draw(); return; }
       const all = (this.filterGroups ?? []).flatMap((c) => c.groups.flatMap((g) => g.groupIDs));
+      // TabPresetPanel.OnSaveButton / OnSaveAsButton / OnDeleteButton
+      if (t.closest(".ov-filt-save")) { this.savePreset(editing, editing.slice(CUSTOM_PREFIX.length)); draw(); return; }
+      if (t.closest(".ov-filt-saveas")) { this.savePresetAs(editing, (id) => { editing = id; draw(); }); return; }
+      if (t.closest(".ov-filt-delete")) { this.deletePreset(editing); editing = this.tabSettings[this.tab]?.preset ?? DEFAULT_PRESET; draw(); return; }
       if (t.closest(".ov-filt-all")) { this.setPresetGroups(editing, all, true); draw(); return; }
       if (t.closest(".ov-filt-none")) { this.setPresetGroups(editing, all, false); draw(); return; }
       // TabPresetPanel.OnRevertButton: RevertOverviewPresetChanges (YESNO) first
@@ -760,6 +773,92 @@ export class Overview {
   }
 
   private filterGroups: FilterCategory[] | null = null;
+
+  /**
+   * overviewPresetSvc's custom presets (allPresets beyond the defaults), kept in this browser: each by its name, as
+   * "custom:<name>", listed before the defaults (GetCustomFiltersSorted) without a category.
+   */
+  private customPresets(): Record<string, { groups: number[]; filteredStates: number[]; alwaysShownStates: number[] }> {
+    try { return JSON.parse(localStorage.getItem(CUSTOM_PRESETS_KEY) ?? "{}") as Record<string, { groups: number[]; filteredStates: number[]; alwaysShownStates: number[] }>; } catch { return {}; }
+  }
+  private addCustomPresets(): void {
+    const custom = this.customPresets();
+    this.presetChoices = this.presetChoices.filter((p) => !p.id.startsWith(CUSTOM_PREFIX));
+    for (const id of [...this.masks.keys()]) if (id.startsWith(CUSTOM_PREFIX)) this.masks.delete(id);
+    const choices: PresetChoice[] = [];
+    for (const name of Object.keys(custom).sort((a, b) => a.localeCompare(b))) {
+      const id = CUSTOM_PREFIX + name;
+      const data = { name, groups: custom[name]!.groups, filteredStates: custom[name]!.filteredStates, alwaysShownStates: custom[name]!.alwaysShownStates };
+      if (this.presetData) this.presetData[id] = data;
+      const mask = presetMask(data, id)!;
+      this.masks.set(id, mask);
+      choices.push({ id, name, label: name, groups: mask.groups, category: -1, categoryName: null });
+    }
+    this.presetChoices = [...choices, ...this.presetChoices];
+  }
+
+  /** overviewPresetSvc.SavePreset(presetName, newPresetName): the preset as it is now kept under the name, then loaded on the tab. */
+  private savePreset(fromID: string, name: string): string {
+    const mask = this.masks.get(fromID);
+    const custom = this.customPresets();
+    custom[name] = { groups: [...(mask?.groups ?? [])], filteredStates: [...(mask?.filteredStates ?? [])], alwaysShownStates: [...(mask?.alwaysShownStates ?? [])] };
+    try { localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(custom)); } catch { /* the preset lasts the page */ }
+    const id = CUSTOM_PREFIX + name;
+    try { localStorage.removeItem(groupOverrideKey(id)); } catch { /* nothing kept */ }
+    this.addCustomPresets();
+    // unsavedPresets.pop(presetName): the preset saved from loses its unsaved changes too
+    if (fromID !== id) this.revertPreset(fromID);
+    // LoadPreset(newPresetName): the tab shows it
+    const t = this.tabSettings[this.tab];
+    if (t) { this.tabSettings[this.tab] = { ...t, preset: id }; this.tabsChanged(this.tab); }
+    return id;
+  }
+
+  /** overviewPresetSvc.DeletePreset: gone, and a tab that showed it shows the default preset. */
+  private deletePreset(id: string): void {
+    const custom = this.customPresets();
+    delete custom[id.slice(CUSTOM_PREFIX.length)];
+    try { localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(custom)); localStorage.removeItem(groupOverrideKey(id)); } catch { /* nothing kept */ }
+    if (this.presetData) delete this.presetData[id];
+    this.addCustomPresets();
+    this.tabSettings = this.tabSettings.map((t) => ({ ...t, preset: t.preset === id ? DEFAULT_PRESET : t.preset, bracket: t.bracket === id ? null : t.bracket }));
+    this.tabsChanged(this.tab);
+  }
+
+  /** PresetSvc.SavePresetAs's NamePopup (UI/Common/Buttons/SaveAs, UI/Overview/FilterName, up to 80, the preset's name to start). */
+  private savePresetAs(fromID: string, done: (id: string) => void): void {
+    const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
+    const start = this.presetChoices.find((p) => p.id === fromID)?.label ?? "";
+    const win = new PlayWindow({ id: "overview-save-as", caption: word("UI/Common/Buttons/SaveAs", "Save As"), left: Math.round(innerWidth / 2 - 160), top: Math.round(innerHeight / 2 - 80), width: 320, height: 160, minWidth: 320, minHeight: 160 });
+    win.body.classList.add("ov-add");
+    win.body.innerHTML = `<label class="ov-add-label"><span></span><input maxlength="80" autocomplete="off"></label>
+      <div class="ov-add-buttons"><button type="button" class="ov-add-ok"></button><button type="button" class="ov-add-cancel"></button></div>`;
+    win.body.querySelector(".ov-add-label span")!.textContent = word("UI/Overview/FilterName", "Filter Name");
+    const input = win.body.querySelector("input")!;
+    input.value = start;
+    win.body.querySelector(".ov-add-ok")!.textContent = word("UI/Common/Buttons/OK", "OK");
+    win.body.querySelector(".ov-add-cancel")!.textContent = word("UI/Common/Buttons/Cancel", "Cancel");
+    const ok = async () => {
+      const name = input.value.trim();
+      if (!name) { this.hooks.notice?.(word("UI/Common/PleaseTypeSomething", "Please type something")); return; }
+      // IsDefaultPresetName: a default preset's name or display name is refused (InvalidPresetName)
+      const lower = name.toLowerCase();
+      if (this.presetChoices.some((p) => !p.id.startsWith(CUSTOM_PREFIX) && (p.name.toLowerCase() === lower || p.label.toLowerCase() === lower || p.id.toLowerCase() === lower))) {
+        this.hooks.say?.("InvalidPresetName", "That name is used by a default filter.");
+        return;
+      }
+      // a name already kept asks AlreadyHaveLabel (YESNO) first
+      if (this.customPresets()[name] && !(await (this.hooks.ask?.("AlreadyHaveLabel", "You already have a filter by that name. Replace it?") ?? Promise.resolve(true)))) return;
+      win.root.remove();
+      done(this.savePreset(fromID, name));
+    };
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") void ok(); if (e.key === "Escape") win.root.remove(); });
+    win.body.querySelector(".ov-add-ok")!.addEventListener("click", () => void ok());
+    win.body.querySelector(".ov-add-cancel")!.addEventListener("click", () => win.root.remove());
+    (this.window.root.parentElement ?? document.body).append(win.root);
+    input.select();
+  }
+
   private profileTabs: TabSettings[] = [];
 
   /** overviewPresetSvc.ResetOverviewSettingsToDefault: tabs, filters' changes, columns, sorts, appearance, ship labels, misc. */
@@ -952,10 +1051,13 @@ export class Overview {
       const byCategory = new Map<number, PresetChoice[]>();
       for (const p of this.presetChoices) byCategory.set(p.category ?? 0, [...(byCategory.get(p.category ?? 0) ?? []), p]);
       const entry = (p: PresetChoice): ContextEntry => ({ label: p.name, icon: p.id === active ? CHECKMARK : null, run: () => apply(p.id) });
-      const out: (ContextEntry | null)[] = [{ label: word("UI/Overview/DefaultFilters", "Default Filters"), caption: true }];
+      // _AddCustomFilterEntries: the pilot's own first, under their caption
+      const custom = byCategory.get(-1) ?? [];
+      const out: (ContextEntry | null)[] = custom.length ? [{ label: word("UI/Overview/CustomFilters", "Custom Filters"), caption: true }, ...custom.map(entry)] : [];
+      out.push({ label: word("UI/Overview/DefaultFilters", "Default Filters"), caption: true });
       for (const p of byCategory.get(0) ?? []) out.push(entry(p));
       for (const [category, presets] of byCategory) {
-        if (category === 0) continue;
+        if (category === 0 || category === -1) continue;
         out.push({ label: presets[0]?.categoryName ?? String(category), icon: CATEGORY_ICONS[category] ?? null, sub: presets.map(entry) });
       }
       out.push(null, { label: word("UI/Overview/EditCurrentFilter", "Edit Current Filter"), icon: SETTINGS_ICON, run: () => this.openSettings("filters", active ?? undefined) });

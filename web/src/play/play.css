@@ -251,6 +251,8 @@ button { font: inherit; color: inherit; }
    ListGroups (THEME_ACCENT all, HIGHLIGHT some, SECONDARY none) and their groups checkboxes, the button group */
 .ov-filt { display: flex; flex-direction: column; padding: 8px 8px 4px; }
 .ov-filt-title { font-size: 16px; color: rgba(255, 255, 255, 0.9); margin: 4px 0 8px; }
+.ov-filt-top { display: flex; gap: 4px; align-items: center; }
+.ov-filt-top button { height: 32px; padding: 0 12px; background: transparent; color: rgba(255, 255, 255, 0.9); border: 1px solid rgba(255, 255, 255, 0.2); font: inherit; cursor: pointer; }
 .ov-filt-preset { height: 32px; width: 286px; background: rgba(0, 0, 0, 0.3); color: #fff; border: 1px solid rgba(255, 255, 255, 0.15); padding: 0 8px; font: inherit; }
 .ov-filt-sub { margin: 16px 0 8px; padding: 0; width: max-content; }
 .ov-filt-bar { display: flex; gap: 4px; align-items: center; margin-bottom: 8px; }

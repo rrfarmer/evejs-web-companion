@@ -1702,6 +1702,7 @@
       wormholePolarization: (id) => s.flow.wormholePolarization(id),
       overviewNotice: (text) => s.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text),
       overviewAsk: (dialog, fallback) => s.flow.askClientDialog(dialog, fallback),
+      overviewSay: (dialog, fallback) => s.flow.sayDialog(dialog, null, fallback),
       systemSecurity: (solarSystemID) => s.flow.systemSecurity(solarSystemID),
       ownerTickers: (corporationID, allianceID) => {
         const npc = (id: number | null) => id !== null && id < 2_000_000;
