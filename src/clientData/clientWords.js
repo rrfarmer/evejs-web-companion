@@ -135,6 +135,8 @@ function createClientWords({ clientRoot = null, language = "en-us", readFile = f
           suppress: suppressKept(dialog.suppressable),
           title: textOf(messages.get(dialog.titleID)),
           body: textOf(messages.get(dialog.bodyID)),
+          // The sound the audio service sends as it is said (eveCfg.GetMessage's audio=msg.urlAudio, AudioMessage).
+          audio: typeof dialog.urlAudio === "string" && dialog.urlAudio !== "" ? dialog.urlAudio : null,
         });
       }
     } catch (error) {

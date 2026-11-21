@@ -3483,7 +3483,7 @@ export async function loadWords(
    * answer be kept ("1", else null), which answer ("any", "yes" or "no", else null), and its type (dialogType: "info",
    * "notify" and the others). Null for a dialog it has not.
    */
-  dialogs: Record<string, { title: string | null; body: string | null; suppressable: string | null; suppress: string | null; type: string | null } | null>;
+  dialogs: Record<string, { title: string | null; body: string | null; suppressable: string | null; suppress: string | null; type: string | null; audio: string | null } | null>;
 }> {
   const data = await postJson(
     "/api/words",
@@ -3498,7 +3498,7 @@ export async function loadWords(
     }
     return out;
   };
-  const named: Record<string, { title: string | null; body: string | null; suppressable: string | null; suppress: string | null; type: string | null } | null> = {};
+  const named: Record<string, { title: string | null; body: string | null; suppressable: string | null; suppress: string | null; type: string | null; audio: string | null } | null> = {};
   const rawDialogs = typeof data.dialogs === "object" && data.dialogs !== null && !Array.isArray(data.dialogs)
     ? (data.dialogs as Record<string, JsonValue>)
     : {};
@@ -3513,6 +3513,7 @@ export async function loadWords(
           suppressable: record.suppressable === true ? "1" : null,
           suppress: record.suppress === "any" || record.suppress === "yes" || record.suppress === "no" ? record.suppress : null,
           type: typeof record.type === "string" ? record.type : null,
+          audio: typeof record.audio === "string" ? record.audio : null,
         };
   }
   return { available: data.available === true, words: texts(data.words), messages: texts(data.messages), dialogs: named };

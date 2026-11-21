@@ -29,6 +29,7 @@
   import { onDestroy, tick, untrack } from "svelte";
   import { DO_NOT_ASK_AGAIN_LABEL, DO_NOT_SHOW_AGAIN_LABEL, answerKept, suppressKey } from "../bridge/dialogSuppression.ts";
   import { addGameLogLine, LOGGED_DIALOG_TYPES } from "./gameLog.ts";
+  import { playUiEvent } from "../play/uiAudio.ts";
 
   function focusDefault(node: HTMLButtonElement, question: number | null) {
     if (question !== null) node.focus();
@@ -732,6 +733,7 @@
 
   const partOf = (one: SaidDialog, part: "title" | "body"): QuestionWords => ({ label: null, text: null, parameters: one.values, dialog: one.dialog, part });
   const typeKey = (one: SaidDialog): string => `dialog:${one.dialog}/type`;
+  const audioKey = (one: SaidDialog): string => `dialog:${one.dialog}/audio`;
 
   // The dialogs' texts, types and names from the install, asked once each; and the types' own words for a title.
   $effect(() => {
@@ -741,7 +743,7 @@
     }
     // (And the words a dialog's numeric distance and ISK are written in: questions.ts, writeDistance and writeIsk.)
     flow.requestWords([
-      ...wordsLabels(parts), ...$said.map(typeKey), ...$said.map((one) => suppressKey(one.dialog)), ...Object.keys(OWN_TITLES), ...NUMERIC_WORD_LABELS,
+      ...wordsLabels(parts), ...$said.map(typeKey), ...$said.map(audioKey), ...$said.map((one) => suppressKey(one.dialog)), ...Object.keys(OWN_TITLES), ...NUMERIC_WORD_LABELS,
       ...Object.keys(ANSWER_WORDS), DO_NOT_SHOW_AGAIN_LABEL, DO_NOT_ASK_AGAIN_LABEL,
     ]);
     const refs = wordsNameRefs(parts, client);
@@ -776,6 +778,9 @@
     for (const one of shown) {
       if (one.kind === "pending" || loggedDialogs.has(one.said.n)) continue;
       loggedDialogs.add(one.said.n);
+      // audioService.AudioMessage, before the dialog is put up: its urlAudio sent as a UI event (the audio type's whole effect)
+      const audio = $words.templates[audioKey(one.said)];
+      if (typeof audio === "string" && audio !== "") void playUiEvent(audio);
       if (one.type !== null && LOGGED_DIALOG_TYPES.has(one.type)) {
         addGameLogLine(plainText(questionText(partOf(one.said, "body"), nameOf, client) || one.said.fallback), one.type);
       }

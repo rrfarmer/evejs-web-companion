@@ -230,12 +230,13 @@ const nameByID: NameOf = (kind, id) => `${kind} ${id}`;
 const DIALOG_NAME = /^\w{1,100}$/;
 
 /** The dialog and the part a words key names, or null when the key is a label or a message's number. */
-export function dialogOfKey(key: string): { name: string; part: "title" | "body" | "suppressable" | "suppress" | "type" } | null {
+export function dialogOfKey(key: string): { name: string; part: "title" | "body" | "suppressable" | "suppress" | "type" | "audio" } | null {
   // "suppressable": whether the install lets the dialog's answer be kept ("1"), for "do not ask again"
   // (dialogSuppression.ts). "suppress": which answer it lets be kept ("any", "yes" or "no"; eveCfg.py
   // GetSuppressValueForMessage). "type": the dialog's type, which says how the client puts it up (ClientDialogs.svelte).
-  const match = /^dialog:(\w{1,100})\/(title|body|suppressable|suppress|type)$/.exec(key);
-  return match ? { name: match[1] as string, part: match[2] as "title" | "body" | "suppressable" | "suppress" | "type" } : null;
+  // "audio": the Wwise event the audio service sends as it is said (urlAudio; AudioMessage), "" where it has none.
+  const match = /^dialog:(\w{1,100})\/(title|body|suppressable|suppress|type|audio)$/.exec(key);
+  return match ? { name: match[1] as string, part: match[2] as "title" | "body" | "suppressable" | "suppress" | "type" | "audio" } : null;
 }
 
 /**
