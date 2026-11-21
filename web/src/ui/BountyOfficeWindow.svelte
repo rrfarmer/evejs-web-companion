@@ -76,7 +76,13 @@
     searchText = "";
     owner = { ownerID: r.id, corporationID: null, allianceID: null, kind: r.kind };
     amountHint = "";
-    void readAmounts();
+    // GetEntities: a corporation's bounty counts its alliance's too
+    if (r.kind === "corp") {
+      void flow.corporationAllianceID(r.id).then((allianceID) => {
+        if (owner?.ownerID === r.id && allianceID) owner = { ...owner, allianceID };
+        void readAmounts();
+      }).catch(() => void readAmounts());
+    } else void readAmounts();
   }
   let amounts = $state<Map<number, number>>(new Map());
   let amountText = $state("");
@@ -91,9 +97,16 @@
 
   const ids = (o: NonNullable<typeof owner>) => [o.ownerID, o.corporationID, o.allianceID].filter((x): x is number => !!x);
   const total = $derived(owner ? ids(owner).reduce((sum, id) => sum + (amounts.get(id) ?? 0), 0) : 0);
-  const hint = $derived(owner ? word("UI/Station/BountyOffice/BountyHint", `Character: ${isk(amounts.get(owner.ownerID) ?? 0)}`, {
-    charBounty: isk(amounts.get(owner.ownerID) ?? 0), corpBounty: isk(owner.corporationID ? amounts.get(owner.corporationID) ?? 0 : 0),
-    allianceBounty: isk(owner.allianceID ? amounts.get(owner.allianceID) ?? 0 : 0) }) : "");
+  // SetBountyHint: each of GetEntities' owners' bounty under its kind (character, corporation, alliance)
+  const amountOf = (id: number | null) => (id ? amounts.get(id) ?? 0 : 0);
+  const hint = $derived.by(() => {
+    if (!owner) return "";
+    const kind = kindOf(owner);
+    const charBounty = kind === "char" ? amountOf(owner.ownerID) : 0;
+    const corpBounty = kind === "corp" ? amountOf(owner.ownerID) : kind === "char" ? amountOf(owner.corporationID) : 0;
+    const allianceBounty = kind === "alliance" ? amountOf(owner.ownerID) : amountOf(owner.allianceID);
+    return word("UI/Station/BountyOffice/BountyHint", `Character: ${isk(charBounty)}`, { charBounty: isk(charBounty), corpBounty: isk(corpBounty), allianceBounty: isk(allianceBounty) });
+  });
 
   async function readAmounts(): Promise<void> {
     if (!owner) return;

@@ -3156,6 +3156,8 @@ export interface AppFlow {
   bountiesAndKillRights(ownerIDs: readonly number[], characterIDs: readonly number[]): Promise<{ wanted: Set<number>; killRights: Set<number> }>;
   /** bountySvc.GetBounties: each owner's bounty (0 where none), the owners named. */
   bountyAmounts(ownerIDs: readonly number[]): Promise<Map<number, number>>;
+  /** BountyWindow.GetEntities for a corporation: its alliance (corpmgr.GetPublicInfo(corpID).allianceID), null for none. */
+  corporationAllianceID(corporationID: number): Promise<number | null>;
   /** BountyWindow.PlaceBounty: bountyProxy.AddToBounty(ownerID, amount); fails as the call fails (NotEnoughMoney...). */
   placeBounty(ownerID: number, amount: number): Promise<void>;
   /** bountySvc.GetTopPilotBounties / GetTopCorpBounties / GetTopAllianceBounties(0): the Most Wanted, named. */
@@ -19558,6 +19560,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     nameOwners(ownerIDs);
     return out;
+  }
+  async function corporationAllianceID(corporationID: number): Promise<number | null> {
+    return corporationPublicInfoOf(await bridgeAsk("corpmgr", "GetPublicInfo", [corporationID]))?.allianceID ?? null;
   }
   async function placeBounty(ownerID: number, amount: number): Promise<void> {
     await bridgeDo("bountyProxy", "AddToBounty", [ownerID, amount]);
@@ -37622,6 +37627,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     ownerWars,
     bountiesAndKillRights,
     bountyAmounts,
+    corporationAllianceID,
     placeBounty,
     topBounties,
     topBountyHunters,
