@@ -22,7 +22,7 @@ import { ShipHud, type HudModule } from "./shipHud.ts";
 import { formatTemplate, plainText } from "../bridge/clientWords.ts";
 import { CARGO_HOLD, SHIP_HOLDS } from "../bridge/shipHolds.ts";
 import { NewShipHud } from "./newShipHud.ts";
-import { hudSetting, hudSettingNow } from "../store/hudSettings.ts";
+import { hudSetting, hudSettingNow, setHudSetting } from "../store/hudSettings.ts";
 import { activeTargetID, activeTargetName } from "./activeTarget.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
 import { WormholeTransit, WORMHOLE_START_MS, WORMHOLE_MIDDLE_MS, WORMHOLE_CAMERA_RETURN_MS, WORMHOLE_STOP_MS } from "./wormholeTransit.ts";
@@ -442,6 +442,8 @@ export class SpaceView {
   /** The sensor overlay's layer (uicore.layer.sensorSuite) and its site brackets by scan id. */
   private readonly sensorLayer = document.createElement("div");
   private readonly sensorEls = new Map<string, HTMLDivElement>();
+  /** The tactical overlay's compass (its geometry by base radius and active range, its labels' places). */
+  private tactical: { key: string; group: THREE.Group; labels: HTMLElement; places: { el: HTMLElement; at: THREE.Vector3 }[] } | null = null;
   /**
    * sensorSuite._DoSystemEnterScan's sweep: started as a system's sites first come (systemReadyTime), the camera's view
    * angle in the plane then (GetViewAngleInPlane), each scannable site's delay (GetSiteListOrderedByDelay), the ones
@@ -3017,6 +3019,8 @@ export class SpaceView {
       this.speedCombiner = setTimeout(() => { this.speedCombiner = null; void this.act("Set speed", () => this.actions.setSpeedFraction(fraction)); }, 300);
       return;
     }
+    // CmdToggleTacticalOverlay (Ctrl-D): tactical.ToggleOnOff - the overlay shown or hidden (viewTactical)
+    if (cmd === "CmdToggleTacticalOverlay") { e.preventDefault(); setHudSetting("viewTactical", !hudSettingNow("viewTactical")); return; }
     // CmdToggleSensorOverlay (Ctrl-O): sensorSuite.ToggleOverlay - the overlay shown or hidden (ui_scanner_stop)
     if (cmd === "CmdToggleSensorOverlay") {
       e.preventDefault();
@@ -3621,6 +3625,99 @@ export class SpaceView {
     this.radial.open(x, y, name, options, 0);
   }
 
+  /**
+   * The tactical overlay (tactical.ShowTacticalOverlay, settings.user.overview viewTactical, off by default):
+   * tacticalCompass.CompassDisc about the ship in the plane - the range circles at _RANGES km beyond the ship's radius
+   * (_GetActualDistanceFromKilometers) up to the first past the active range (the ship's targeting range, else 200 km),
+   * _MAJOR_RANGES at white 0.33, the rest 0.125, each faded by 0.75 ((R - r) / R)^0.4 + 0.25; the sixteen straight lines
+   * (each quarter: strong 0.05 - the second, north, (0.9, 0.6, 0.2, 0.25) - faint 0.015, medium 0.025, faint) from
+   * _LINE_FADE_IN_START 2 km in from nothing to _LINE_FADE_IN_END 5 km, then out to R; the targeting range circle
+   * (_COLOR_TARGETING_LINE (1, 0.1, 0.025, 0.5)); each circle's km at the four points (_COLOR_LABEL white 0.5)
+   */
+  private drawTactical(w: number, h: number): void {
+    const on = hudSettingNow("viewTactical") && this.snapshot?.ship !== null && this.snapshot?.ship !== undefined;
+    if (!on) {
+      if (this.tactical) { this.scene.remove(this.tactical.group); this.tactical.labels.remove(); this.tactical = null; }
+      return;
+    }
+    const base = this.snapshot!.ship!.radius ?? 0;
+    const targeting = this.actions.shipAttribute?.(76) ?? 0;
+    const active = targeting > 0 ? targeting : 200_000;
+    const key = `${Math.round(base)}:${Math.round(active)}`;
+    if (!this.tactical || this.tactical.key !== key) {
+      if (this.tactical) { this.scene.remove(this.tactical.group); this.tactical.labels.remove(); }
+      const RANGES = [5, 10, 20, 30, 40, 50, 75, 100, 150, 200, 250, 300, 400, 500, 750, 1000, 1500, 2000];
+      const MAJOR = [50, 100, 250, 500, 1000];
+      const km = (r: number) => r * 1000 + base;
+      let R = km(100);
+      let maxKm = 100;
+      for (const r of RANGES) { R = km(r); maxKm = r; if (R > active + base) break; }
+      const group = new THREE.Group();
+      group.renderOrder = 5;
+      const material = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false });
+      const circle = (radius: number, rgba: readonly number[]) => {
+        const pts: number[] = [], cols: number[] = [];
+        for (let i = 0; i <= 128; i++) {
+          const a = (i / 128) * Math.PI * 2;
+          pts.push(Math.cos(a) * radius, 0, -Math.sin(a) * radius);
+          cols.push(rgba[0]!, rgba[1]!, rgba[2]!, rgba[3]!);
+        }
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+        g.setAttribute("color", new THREE.Float32BufferAttribute(cols, 4));
+        group.add(new THREE.Line(g, material));
+      };
+      for (const r of RANGES) {
+        const radius = km(r);
+        if (radius > R) break;
+        const c = MAJOR.includes(r) ? 0.33 : 0.125;
+        const a = 0.75 * Math.pow((R - radius) / R, 0.4) + 0.25;
+        circle(radius, [1, 1, 1, c * a]);
+      }
+      const straight = (angle: number, rgba: readonly number[]) => {
+        const x = Math.cos(angle), z = -Math.sin(angle);
+        const s = 2000 + base, e = 5000 + base;
+        const pts = [x * s, 0, z * s, x * e, 0, z * e, x * e, 0, z * e, x * R, 0, z * R];
+        const cols = [rgba[0]!, rgba[1]!, rgba[2]!, 0, ...rgba, ...rgba, ...rgba];
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+        g.setAttribute("color", new THREE.Float32BufferAttribute(cols, 4));
+        group.add(new THREE.LineSegments(g, material));
+      };
+      const inc = Math.PI / 2, incS = inc / 4;
+      for (let i = 0; i < 4; i++) {
+        const angle = i * inc;
+        straight(angle, i === 1 ? [0.9, 0.6, 0.2, 0.25] : [1, 1, 1, 0.05]);
+        straight(angle + incS, [1, 1, 1, 0.015]);
+        straight(angle + 2 * incS, [1, 1, 1, 0.025]);
+        straight(angle + 3 * incS, [1, 1, 1, 0.015]);
+      }
+      if (targeting > 0) circle(targeting + base, [1, 0.1, 0.025, 0.5]);
+      const labels = document.createElement("div");
+      labels.className = "tactical-labels";
+      const places: { el: HTMLElement; at: THREE.Vector3 }[] = [];
+      for (const r of RANGES) {
+        if (r > maxKm) break;
+        const d = km(r);
+        for (const at of [new THREE.Vector3(d, 0, 0), new THREE.Vector3(0, 0, -d), new THREE.Vector3(0, 0, d), new THREE.Vector3(-d, 0, 0)]) {
+          const el = document.createElement("span");
+          el.textContent = String(r);
+          labels.append(el);
+          places.push({ el, at });
+        }
+      }
+      this.brackets.append(labels);
+      this.scene.add(group);
+      this.tactical = { key, group, labels, places };
+    }
+    for (const p of this.tactical.places) {
+      const v = p.at.clone().project(this.camera);
+      const shown = v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
+      p.el.style.display = shown ? "" : "none";
+      if (shown) p.el.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px)`;
+    }
+  }
+
   private sensorOverlayOn(): boolean {
     try { return localStorage.getItem(SENSOR_OVERLAY_KEY) !== "false"; } catch { return true; }
   }
@@ -4185,6 +4282,7 @@ export class SpaceView {
     this.updateMiningHold(survey, ego, w, h);
     for (const [id, el] of this.bracketEls) if (!seen.has(id)) { el.remove(); this.bracketEls.delete(id); }
     this.drawSensorOverlay(origin, w, h);
+    this.drawTactical(w, h);
     for (const id of this.polarization.keys()) if (!seen.has(id)) this.polarization.delete(id);
     for (const [id, panel] of this.jumpBridgePanels) {
       if (seen.has(id)) continue;

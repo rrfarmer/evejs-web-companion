@@ -35,6 +35,8 @@ export const HUD_SETTING_DEFAULTS = Object.freeze({
   shipHudNew_preview: true,
   /** hudConst.HIDE_EMPTY_SLOTS_SETTING (moduleTray.ShowsEmptySlots): the new HUD's empty slots hidden. */
   shipHudNew_hideEmptySlots: true,
+  /** tactical.IsTacticalOverlayActive (settings.user.overview viewTactical, False): the tactical overlay shown. */
+  viewTactical: false,
 });
 
 export type HudSettingName = keyof typeof HUD_SETTING_DEFAULTS;

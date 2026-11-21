@@ -932,6 +932,9 @@ export class NewShipHud {
     check(`${H}LockModulesInPlace`, "Lock Modules in Place", "lockModules");
     check(`${H}AlignHUDToTop`, "HUD Aligned to Top", "shipuialigntop");
     divider();
+    // tactical.IsTacticalOverlayActive / ToggleTacticalOverlay
+    check("UI/Inflight/ShowTacticalOverlay", "Show Tactical Overlay", "viewTactical");
+    divider();
     bullet(say("UI/Inflight/NotifySettingsWindow/DamageAlertSettings", "Configure Ship Health Alert Settings"), () => this.onCommand("OpenDamageAlertSettings"));
     bullet(say("UI/Accessories/Log/EnterMessageMovingMode", "Enter Moving Mode for Messages"), () => this.onCommand("EnterMessageMovingMode"));
     // The new HUD is a feature preview in the client (Esc > Settings > Feature Previews); until that panel is here its
@@ -944,7 +947,7 @@ export class NewShipHud {
   static readonly MENU_LABELS: readonly string[] = [
     "UI/Inflight/HUDOptions/DisplayUtilityButtons", "UI/Inflight/HUDOptions/DisplayModuleTooltips", "UI/Inflight/HUDOptions/DisplayPassiveModules",
     "UI/Inflight/HUDOptions/DisplayEmptySlots", "UI/Inflight/HUDOptions/DisplayReadout", "UI/Inflight/HUDOptions/DisplayReadoutAsPercentage",
-    "UI/Inflight/HUDOptions/LockModulesInPlace", "UI/Inflight/HUDOptions/AlignHUDToTop", "UI/Inflight/NotifySettingsWindow/DamageAlertSettings",
+    "UI/Inflight/HUDOptions/LockModulesInPlace", "UI/Inflight/HUDOptions/AlignHUDToTop", "UI/Inflight/ShowTacticalOverlay", "UI/Inflight/NotifySettingsWindow/DamageAlertSettings",
     "UI/Accessories/Log/EnterMessageMovingMode", ...COMMAND_TIP_LABELS,
     "Tooltips/Hud/Shield", "Tooltips/Hud/Armor", "Tooltips/Hud/Structure", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusValues",
     "Tooltips/Hud/CurrentSpeed", "UI/Inflight/CanNotChangeSpeedWhileWarping", "UI/Inflight/MetersPerSecond", "UI/Inflight/StopTheShip",
