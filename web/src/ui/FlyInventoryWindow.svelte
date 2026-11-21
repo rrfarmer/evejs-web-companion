@@ -490,11 +490,12 @@
   .search { width: 128px; flex: none; height: 24px; box-sizing: border-box; border: 0; background: rgba(0, 0, 0, 0.3); color: #fff; padding: 0 6px; font-size: 14px; }
   .items { flex: 1; overflow: auto; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 8px; }
   .none { width: 100%; margin: 0; text-align: center; font-size: 24px; color: rgba(255, 255, 255, 0.6); letter-spacing: 0.5px; }
-  .item { width: 64px; display: flex; flex-direction: column; align-items: center; }
+  .item { width: 64px; height: 103px; display: flex; flex-direction: column; align-items: center; }
   .icon { position: relative; width: 64px; height: 64px; display: grid; background: rgba(255, 255, 255, 0.05); }
   .icon :global(.type-icon) { width: 64px; height: 64px; }
-  .qty { position: absolute; right: 2px; bottom: 2px; padding: 1px 4px 0; background: rgba(0, 0, 0, 0.75); font-size: 11px; line-height: 14px; }
-  .iname { margin-top: 2px; width: 70px; text-align: center; font-size: 12px; line-height: 14px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .qty { position: absolute; right: 2px; bottom: 2px; padding: 1px 4px 0; background: rgba(0, 0, 0, 0.75); font-size: 12px; line-height: 14px; }
+  /* InvItem (gridcheck): 64 x 103, its quantity EveLabelSmall 12, its name a centred Label 14, 70 wide */
+  .iname { margin-top: 2px; width: 70px; text-align: center; font-size: 14px; line-height: 18px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .foot { display: flex; align-items: center; gap: 8px; height: 24px; color: rgba(255, 255, 255, 0.55); }
   .count { font-weight: 700; }
   .rows { width: 100%; border-collapse: collapse; font-size: 12px; align-self: flex-start; }
