@@ -174,12 +174,50 @@ const scanProbeLauncher: InfoRow = (f, word, out) => {
   if (text !== null) out.push({ icon: f.attributeIcon(1371), iconSize: 24, text });
 };
 
+// AddAttributeInfoWithAttributeName with ValuePercentageWithAttributeName ("-30% Signature Radius"): the attribute's icon,
+// skipped at 0 where the client skips it
+const VALUE_PERCENT = "UI/Inflight/ModuleRacks/Tooltips/ValuePercentageWithAttributeName";
+const withName = (attributeID: number, skipZero = false): InfoRow => (f, word, out) => {
+  const value = f.attr(attributeID) ?? 0;
+  if (skipZero && value === 0) return;
+  const text = word(VALUE_PERCENT, { activeValue: value, activeName: f.attributeName(attributeID) ?? "" });
+  if (text !== null) out.push({ icon: f.attributeIcon(attributeID), iconSize: 24, text });
+};
+const rowsOf = (...rows: InfoRow[]): InfoRow => (f, word, out, seconds) => { for (const r of rows) r(f, word, out, seconds); };
+// AddECCMInfo: each sensor strength percent (1027 to 1030) not 0 on a line of its own, under the 4_64_12 icon
+const eccm: InfoRow = (f, word, out) => {
+  const lines = [1027, 1028, 1029, 1030].flatMap((id) => {
+    const v = f.attr(id);
+    return v === null || v === 0 ? [] : [word(VALUE_PERCENT, { activeValue: v, activeName: f.attributeName(id) ?? "" }) ?? ""];
+  });
+  if (lines.length) out.push({ icon: "/client-res/ui/texture/icons/4_64_12.png", iconSize: 24, text: lines.join("<br>") });
+};
+// AddECMInfo: each jammer strength bonus (238 to 241) not 0 by ECMStrengthBonus, the 4_64_12 icon
+const ecm: InfoRow = (f, word, out) => {
+  const lines = [238, 239, 240, 241].flatMap((id) => {
+    const v = f.attr(id);
+    return v === null || v === 0 ? [] : [word("UI/Inflight/ModuleRacks/Tooltips/ECMStrengthBonus", { strength: v, attributeName: f.attributeName(id) ?? "" }) ?? ""];
+  });
+  out.push({ icon: "/client-res/ui/texture/icons/4_64_12.png", iconSize: 24, text: lines.join("<br>") });
+};
+// AddSensorDamperInfo (dampers, remote and local sensor boosters): scan resolution and targeting range bonuses not 0, then ECCM's
+const sensorDamper: InfoRow = rowsOf(withName(566, true), withName(309, true), eccm);
+// AddTrackingDisruptorInfo: falloff, optimal, tracking, missile velocity, flight time, explosion velocity and radius, each not 0
+const trackingDisruptor: InfoRow = rowsOf(...[349, 351, 767, 547, 596, 847, 848].map((id) => withName(id, true)));
+
 /** infoFunctionNames: a group's own rows. */
 const INFO_BY_GROUP = new Map<number, InfoRow>();
 for (const g of [54, 464, 483, 737, 4138]) INFO_BY_GROUP.set(g, miningLaser);
 INFO_BY_GROUP.set(4174, compressor);
 INFO_BY_GROUP.set(515, siege);
 INFO_BY_GROUP.set(481, scanProbeLauncher);
+INFO_BY_GROUP.set(379, withName(554)); // AddTargetPainterInfo: signatureRadiusBonus
+INFO_BY_GROUP.set(1154, withName(3113)); // AddTargetBreakerInfo
+INFO_BY_GROUP.set(330, withName(306)); // AddCloakingDeviceInfo: maxVelocityModifier
+INFO_BY_GROUP.set(291, trackingDisruptor);
+for (const g of [208, 290, 212]) INFO_BY_GROUP.set(g, sensorDamper);
+for (const g of [202, 289]) INFO_BY_GROUP.set(g, eccm);
+for (const g of [80, 201]) INFO_BY_GROUP.set(g, ecm);
 INFO_BY_GROUP.set(650, tractorBeam);
 INFO_BY_GROUP.set(316, gangCoordinator);
 for (const g of [62, 1199, 1698, 2018]) {
@@ -385,7 +423,7 @@ export const MODULE_TOOLTIP_LABELS: readonly string[] = [
   "UI/Inflight/ModuleRacks/TypeNameWithNumInGroup", "UI/Inflight/ModuleRacks/ModuleDamaged", "UI/Inflight/ModuleRacks/AmmoNameWithQty",
   "UI/Inflight/ModuleRacks/MaxRange", "UI/Inflight/ModuleRacks/OptimalRangeAndFalloff", "UI/Inflight/ModuleRacks/OptimalRange",
   "UI/Inflight/ModuleRacks/AreaOfEffect", "UI/Inflight/ModuleRacks/RangeWithFalloff", "UI/Inflight/ModuleRacks/Range",
-  "UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", "UI/Inflight/ModuleRacks/Tooltips/CompressorModuleInfo", "UI/Inflight/ModuleRacks/Tooltips/ScanProbeSensorStrength", "UI/Inflight/ModuleRacks/Tooltips/TractorBeamTractorVelocity", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorCommandBonus", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorMaxCommandRelays", "UI/Inflight/ModuleRacks/Tooltips/ArmorRepairedPerTime",
+  "UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", "UI/Inflight/ModuleRacks/Tooltips/CompressorModuleInfo", "UI/Inflight/ModuleRacks/Tooltips/ScanProbeSensorStrength", "UI/Inflight/ModuleRacks/Tooltips/TractorBeamTractorVelocity", "UI/Inflight/ModuleRacks/Tooltips/ValuePercentageWithAttributeName", "UI/Inflight/ModuleRacks/Tooltips/ECMStrengthBonus", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorCommandBonus", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorMaxCommandRelays", "UI/Inflight/ModuleRacks/Tooltips/ArmorRepairedPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/HullRepairedPerTime", "UI/Inflight/ModuleRacks/Tooltips/ShieldBonusPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/MaxVelocityWithAndWithoutPropulsion", "UI/Inflight/ModuleRacks/Tooltips/CapacitorBoostPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/EnergyVampireAmountPerTime", "UI/Inflight/ModuleRacks/Tooltips/EnergDestabilizedPerTime",
