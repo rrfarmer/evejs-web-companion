@@ -54,6 +54,44 @@ export const FLEET_BROADCAST_NAMES = [
 
 export type FleetBroadcastName = (typeof FLEET_BROADCAST_NAMES)[number];
 
+/** fleetBroadcastConst.iconsByBroadcastType: each broadcast's 16 px icon (the bracket's fleetBroadcastIcon). */
+export const BROADCAST_ICONS: Readonly<Record<FleetBroadcastName, string>> = {
+  EnemySpotted: "classes/fleet/broadcast/16/enemyspotted.png",
+  Target: "classes/fleet/broadcast/16/target.png",
+  HealTarget: "eveicon/system_icons/heal_first_aid_16px.png",
+  HealArmor: "classes/fleet/broadcast/16/needarmor.png",
+  HealShield: "classes/fleet/broadcast/16/needshield.png",
+  HealCapacitor: "classes/fleet/broadcast/16/needcapacitor.png",
+  WarpTo: "classes/fleet/broadcast/16/warpto.png",
+  NeedBackup: "classes/fleet/broadcast/16/needbackup.png",
+  AlignTo: "classes/fleet/broadcast/16/alignto.png",
+  JumpTo: "classes/fleet/broadcast/16/jumpto.png",
+  TravelTo: "classes/fleet/broadcast/16/travelto.png",
+  InPosition: "classes/fleet/broadcast/16/inposition.png",
+  HoldPosition: "classes/fleet/broadcast/16/holdposition.png",
+  JumpBeacon: "classes/fleet/broadcast/16/jumpbeacon.png",
+  Location: "classes/fleet/broadcast/16/locationpin.png",
+};
+
+/** fleetBroadcastConst.broadcastNames: the label fleetbr.GetBroadcastName gives (the icon's hint). */
+export const BROADCAST_NAME_LABELS: Readonly<Record<FleetBroadcastName, string>> = {
+  EnemySpotted: "UI/Fleet/FleetBroadcast/Commands/EnemySpotted",
+  Target: "UI/Fleet/FleetBroadcast/Commands/BroadcastTarget",
+  HealTarget: "UI/Fleet/FleetBroadcast/Commands/BroadcastHealTarget",
+  HealArmor: "UI/Fleet/FleetBroadcast/Commands/HealArmor",
+  HealShield: "UI/Fleet/FleetBroadcast/Commands/HealShield",
+  HealCapacitor: "UI/Fleet/FleetBroadcast/Commands/HealCapacitor",
+  WarpTo: "UI/Fleet/FleetBroadcast/Commands/BroadcastWarpTo",
+  NeedBackup: "UI/Fleet/FleetBroadcast/Commands/NeedBackup",
+  AlignTo: "UI/Fleet/FleetBroadcast/Commands/BroadcastAlignTo",
+  JumpTo: "UI/Fleet/FleetBroadcast/Commands/BroadcastJumpTo",
+  TravelTo: "UI/Fleet/FleetBroadcast/Commands/BroadcastTravelTo",
+  InPosition: "UI/Fleet/FleetBroadcast/Commands/InPosition",
+  HoldPosition: "UI/Fleet/FleetBroadcast/Commands/HoldPosition",
+  JumpBeacon: "UI/Fleet/FleetBroadcast/Commands/JumpBeacon",
+  Location: "UI/Fleet/FleetBroadcast/Commands/Location",
+};
+
 /**
  * `BROADCAST_ALL` (fleetConstants.js:10) — the `scope` a broadcast we SEND
  * carries, and the only one this client ever sends.

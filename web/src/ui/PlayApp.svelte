@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { BROADCAST_ICONS, BROADCAST_NAME_LABELS } from "../bridge/fleetBroadcasts.ts";
   // The play mode (/fly, branch FarmerThreeJSFun): one pilot, flown by hand, in the 3D view of space drawn from the
   // browser's own Destiny park (web/src/play), with the app's own windows over it. Everything the pilot does goes
   // through the app's session (store + Flow, app/sessions.ts) as it does in the multibox client; nothing here is a
@@ -1750,6 +1751,22 @@
           if (b.itemID !== null) out.add(b.itemID);
         }
         return out;
+      },
+      currentBroadcastOn: (itemID) => {
+        // BroadcastState keeps the newest broadcast on each thing for 15 s; NearIDFleetBroadcast (EnemySpotted,
+        // NeedBackup, InPosition, HoldPosition) shows one only while its sender's ship is in the ballpark
+        const now = Date.now();
+        for (const b of s.store.fleet.get().broadcastHistory ?? []) {
+          if (now - b.receivedAtMs > 15_000) break;
+          if (b.itemID !== itemID) continue;
+          if ((b.name === "EnemySpotted" || b.name === "NeedBackup" || b.name === "InPosition" || b.name === "HoldPosition") &&
+            !(s.store.space.get().snapshot?.entities ?? []).some((x) => x.characterID === b.senderCharID)) return null;
+          const label = BROADCAST_NAME_LABELS[b.name];
+          const t = s.store.words.get().templates[label];
+          if (typeof t !== "string") s.flow.requestWords([label]);
+          return { icon: BROADCAST_ICONS[b.name], hint: typeof t === "string" ? t : "" };
+        }
+        return null;
       },
       broadcastOnItem: (name, id, typeID) => void s.flow.broadcastOnItem(name, id, typeID).catch(() => {}),
       openShipHold: (key) => shipHoldTarget.ask(key),

@@ -88,6 +88,8 @@ button { font: inherit; color: inherit; }
 .bracket .bracket-bg { position: absolute; inset: 0; z-index: -1; pointer-events: none;
   -webkit-mask: url(/client-res/ui/texture/classes/bracket/bracketbackground.png) center / 100% 100% no-repeat;
   mask: url(/client-res/ui/texture/classes/bracket/bracketbackground.png) center / 100% 100% no-repeat; }
+/* InSpaceBracket's fleetBroadcastIcon (16 x 16, 2 px left of the bracket, centred on it) */
+.bracket .bracket-bcast { position: absolute; left: -18px; top: 0; width: 16px; height: 16px; pointer-events: auto; }
 .bracket .bracket-bg.blink { animation: state-flag-blink 1.5s ease-in-out infinite; }
 .bracket .label { line-height: 1.25; position: absolute; left: 22px; top: 1px; white-space: nowrap; font-size: 12px; color: var(--text);
   text-shadow: 0 0 3px #000, 0 0 2px #000; display: none; }

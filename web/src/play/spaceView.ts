@@ -274,6 +274,11 @@ export interface SpaceActions {
   setName?(itemID: number, current: string): void;
   /** fleetSvc.GetCurrentFleetBroadcasts' things (the overview's Move entries with broadcasts to top). */
   currentBroadcasts?(): ReadonlySet<number>;
+  /**
+   * fleetSvc.GetCurrentFleetBroadcastOnItem: the broadcast on a thing now (its icon path under ui/texture and the
+   * hint, fleetbr.GetBroadcastName), or null.
+   */
+  currentBroadcastOn?(itemID: number): { icon: string; hint: string } | null;
   /** The pilot is in a fleet (session.IsPilotFleetMember). */
   inFleet?(): boolean;
   /** fleetSvc's broadcasts on a thing in space (Target, HealTarget to the bubble; WarpTo, AlignTo, JumpTo to the system). */
@@ -470,6 +475,26 @@ export class SpaceView {
       d.style.background = `rgba(${Math.round(c[0]! * 255)},${Math.round(c[1]! * 255)},${Math.round(c[2]! * 255)},${(c[3] ?? 1) * 0.5})`;
       el.prepend(d);
     }
+  }
+
+  /**
+   * InSpaceBracket.FleetBroadcast / NearIDFleetBroadcast: the broadcast on the thing as a 16 x 16 BracketSubIcon with
+   * its name for a hint, placed by _UpdateFleetBroadcastIcon (on screen, not projected: 2 px left of the bracket and
+   * centred on it); gone when the broadcast's 15 s are up or another takes its place.
+   */
+  private updateBracketBroadcast(el: HTMLDivElement, itemID: number): void {
+    const b = this.actions.currentBroadcastOn?.(itemID) ?? null;
+    const key = b ? `${b.icon}|${b.hint}` : "";
+    if ((el.dataset.bcast ?? "") === key) return;
+    el.dataset.bcast = key;
+    el.querySelector(".bracket-bcast")?.remove();
+    if (!b) return;
+    const img = document.createElement("img");
+    img.className = "bracket-bcast";
+    img.alt = "";
+    img.src = `/client-res/ui/texture/${b.icon}`;
+    if (b.hint) img.title = b.hint;
+    el.append(img);
   }
 
   /**
@@ -3339,7 +3364,7 @@ export class SpaceView {
         if (this.frameCount % 10 === 0 || highlighted || el.classList.contains("selected") || this.hoveredID === e.itemID) {
           this.drawBracketLabel(el.querySelector<HTMLElement>(".label")!, e);
         }
-        if (this.frameCount % 10 === 0) this.updateBracketFlags(el, e, groupID, relations);
+        if (this.frameCount % 10 === 0) { this.updateBracketFlags(el, e, groupID, relations); this.updateBracketBroadcast(el, e.itemID); }
         // bracketMgr.ShowInTargetRange, about once a second: ships, NPCs, drones and fighters within the ship's
         // maxTargetRange show canTarget2 (40 px at 0.15), each category as the Misc panel allows
         if (this.frameCount % 60 === 0 || inRangeNow) {
