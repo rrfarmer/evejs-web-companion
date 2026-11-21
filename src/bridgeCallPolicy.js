@@ -147,6 +147,8 @@ const FEATURE_WRITE_METHODS = freezeMethodMap({
   // (characterSettingsSvc.py 44 to 58). The game port carries both; the web gateway's list has neither.
   charMgr: ["SaveCharacterSetting", "DeleteCharacterSetting"],
   sharedSettingsMgr: ["StoreSettingLinkAndGetID"],
+  // An overview profile stored at the server as its link is dropped into a chat (eveEditPlainText.py 158).
+  overviewPresetMgr: ["StoreLinkAndGetID"],
   // ⚠⚠ THE GM CONSOLE. slash.SlashCmd runs any of this world's ~150 chat
   // commands — /giveitem, /gmships, /giveskill, /npc, /suicide. It is a WRITE by
   // any measure, and listing it here is what keeps the generic /api/bridge/call
@@ -941,6 +943,7 @@ const PAGE_WRITE_PAIR_KEYS = Object.freeze([
   "facWarMgr.JoinFactionAsCharacter", "fwCharacterEnlistmentMgr.CreateMyDirectEnlistment", "fwCharacterEnlistmentMgr.RemoveMyDirectEnlistment",
   "charFittingMgr.SaveManyFittings", "corpFittingMgr.SaveManyFittings", "allianceFittingMgr.SaveManyFittings",
   "sharedSettingsMgr.StoreSettingLinkAndGetID",
+  "overviewPresetMgr.StoreLinkAndGetID",
   "corporationSvc.SetMedalStatus",
   "scanMgr.SignalTrackerRegister",
   // eveCalendarsvc.RespondToEvent sends the opened invitation's event ID, owner ID and reply.

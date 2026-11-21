@@ -20,7 +20,8 @@ export function flagMarkup(f: StateFlagLook | null): string {
   return `<span class="state-flag${f.flagBlink ? " blink" : ""}" style="background:${rgba(f.flagColor, 0.75)}" title="${esc(f.text)}"><span style="background:${rgba(f.iconColor)};-webkit-mask:url(${glyph}) center/8px no-repeat;mask:url(${glyph}) center/8px no-repeat"></span></span>`;
 }
 import { ContextMenu, type ContextEntry } from "./contextMenu.ts";
-import { readProfile, writeProfile, type OverviewProfile } from "./overviewProfileFile.ts";
+import { profileData, readProfile, writeProfile, type OverviewProfile } from "./overviewProfileFile.ts";
+import { OVERVIEW_PROFILE_DRAG_TYPE, overviewPresetUrl, type OverviewPresetKey } from "../bridge/overviewProfileLink.ts";
 import { overviewMisc, setOverviewMisc, applyOverviewMisc } from "./overviewMisc.ts";
 import { SHIP_LABEL_PRESETS, saveShipLabelSettings, shipLabelMarkup, shipLabelSettings, type ShipLabelPart } from "./shipLabels.ts";
 
@@ -142,6 +143,14 @@ const RESTORE_KEY = "evejs-play-overviewProfile-restore";
 /** settings.user.ui overviewProfileName: the name the pilot gave the overview (DraggableShareContainer's LabelEditable). */
 const PROFILE_NAME_KEY = "evejs-play-overviewProfileName";
 const HISTORY_KEY = "evejs-play-overviewProfile-history";
+/** The first overview window, which a followed profile link loads into (LoadSharedOverviewProfile). */
+let profileTarget: Overview | null = null;
+if (typeof window !== "undefined") {
+  window.addEventListener("evejs:overview-profile", (e) => {
+    const d = (e as CustomEvent<{ text: string; name: string; key: OverviewPresetKey }>).detail;
+    if (d && profileTarget) profileTarget.loadSharedProfile(d.text, d.name, d.key);
+  });
+}
 const isOverviewSettingKey = (k: string) => k.startsWith("evejs.ui.overview.") || k.startsWith(TABS_KEY) || k.startsWith(SORT_KEY) || k.startsWith(TAB_KEY) || k.startsWith(SORT_ENABLED_KEY);
 /** FmtDate: 2026.11.20 22:16 */
 const fmtDate = (ms: number) => { const d = new Date(ms), p = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
@@ -278,6 +287,8 @@ export interface OverviewHooks {
   say?(dialog: string, fallback: string): void;
   /** A client yes / no question by its dialog name; true on Yes. */
   ask?(dialog: string, fallback: string): Promise<boolean>;
+  /** A link followed (a History entry's overviewPreset link: handle_link). */
+  followLink?(url: string, text: string): void;
   /** stateSvc's mouseOver: the thing a row is under the pointer (null when none), shared with its bracket in space. */
   hover?(itemID: number | null): void;
   /** The affiliation columns' words for the rows listed, the columns shown asked for where the page has them not yet. */
@@ -316,6 +327,7 @@ export class Overview {
 
   constructor(private readonly hooks: OverviewHooks) {
     this.instanceID = hooks.instanceID ?? 0;
+    if (this.instanceID === 0) profileTarget = this;
     this.window = new PlayWindow({ id: this.instanceID ? `overview-${this.instanceID}` : "overview", caption: "Overview", left: innerWidth - 586 - this.instanceID * 40, top: 260 + this.instanceID * 40, width: 566, height: 380, closable: false,
       menu: (button) => { const r = button.getBoundingClientRect(); this.menu.open(r.left, r.bottom, this.moreOptions()); } });
     this.window.body.classList.add("ov");
@@ -625,10 +637,14 @@ export class Overview {
     // state's checkbox, its text and, while on, its flag; dragged to reorder) and Reset All
     // HistoryPanel: HistoryText, the shared profiles loaded (newest first, 15), and under a line the stored profile with Restore Profile
     const historyPanel = () => {
-      let history: { overviewName: string; timestamp: number }[] = [];
-      try { history = Object.values(JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "{}") as Record<string, { overviewName: string; timestamp: number }>); } catch { /* none */ }
-      const lines = history.sort((a, b) => b.timestamp - a.timestamp).slice(0, 15)
-        .map((h) => `<div>${esc(this.hooks.word?.("UI/Overview/ProfileLinkWithTimestamp", { profileLink: h.overviewName, timestamp: fmtDate(h.timestamp) }) ?? `${h.overviewName} - ${fmtDate(h.timestamp)}`)}</div>`).join("");
+      let history: { overviewName: string; timestamp: number; presetKey?: OverviewPresetKey }[] = [];
+      try { history = Object.values(JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "{}") as Record<string, { overviewName: string; timestamp: number; presetKey?: OverviewPresetKey }>); } catch { /* none */ }
+      // each its overview_preset_link(presetKey, overviewName) in ProfileLinkWithTimestamp
+      const lines = history.sort((a, b) => b.timestamp - a.timestamp).slice(0, 15).map((h) => {
+        const link = h.presetKey ? `<a class="evelink sharedSetting ov-history-link" href="${esc(overviewPresetUrl(h.presetKey))}" data-name="${esc(h.overviewName)}">${esc(h.overviewName)}</a>` : esc(h.overviewName);
+        const text = this.hooks.word?.("UI/Overview/ProfileLinkWithTimestamp", { profileLink: "\u0001", timestamp: fmtDate(h.timestamp) }) ?? `\u0001 - ${fmtDate(h.timestamp)}`;
+        return `<div>${esc(text).replace("\u0001", link)}</div>`;
+      }).join("");
       const r = this.restoreData();
       const based = r ? this.hooks.word?.("UI/Overview/StoredOverviewBasedOn", { overviewName: r.name, timestamp: fmtDate(r.timestamp) }) ?? `Based on ${r.name} (${fmtDate(r.timestamp)})` : "";
       return `<div class="ov-set-panel ov-history"><div class="ov-history-text">${esc(word("UI/Overview/HistoryText", "Overview profiles you have loaded from links"))}</div><div class="ov-history-list">${lines}</div>${r
@@ -782,6 +798,12 @@ export class Overview {
     let draggedFlag: number | null = null;
     let draggedLabel: number | null = null;
     win.body.addEventListener("dragstart", (e) => {
+      // DraggableShareContainer: GetShareData(name) - the overview's name and GetOverviewDataForSave
+      if ((e.target as HTMLElement).closest(".ov-share") && e.dataTransfer) {
+        e.dataTransfer.setData(OVERVIEW_PROFILE_DRAG_TYPE, JSON.stringify({ text: this.profileName(), data: profileData(this.overviewProfileAll()) }));
+        e.dataTransfer.effectAllowed = "copy";
+        return;
+      }
       draggedFlag = Number((e.target as HTMLElement).closest<HTMLElement>(".ov-app-row")?.dataset.flag) || null;
       const shipRow = (e.target as HTMLElement).closest<HTMLElement>(".ov-ship-row");
       draggedLabel = shipRow ? Number(shipRow.dataset.i) : null;
@@ -848,6 +870,8 @@ export class Overview {
       if (t.closest(".ov-filt-all")) { this.setPresetGroups(editing, all, true); draw(); return; }
       if (t.closest(".ov-filt-none")) { this.setPresetGroups(editing, all, false); draw(); return; }
       if (t.closest(".ov-history-restore-btn")) { this.restoreProfile(); draw(); return; }
+      const historyLink = t.closest<HTMLAnchorElement>(".ov-history-link");
+      if (historyLink) { e.preventDefault(); this.hooks.followLink?.(historyLink.getAttribute("href") ?? "", historyLink.dataset.name ?? ""); return; }
       if (t.closest(".ov-misc-export")) { this.exportFile(); return; }
       if (t.closest(".ov-misc-import")) {
         const pick = document.createElement("input");
@@ -1178,6 +1202,23 @@ export class Overview {
     } catch { return false; }
     this.reloadSettings();
     return true;
+  }
+
+  /**
+   * LoadSharedOverviewProfile after its question: the profile now stored (StoreCurrentProfileDataInSettings), the
+   * link's loaded (LoadOverviewProfileFromDict) under the link's text, and the link kept in the History
+   * (SaveOverviewLinkInSettings: by its key, its name and time renewed where it is there).
+   */
+  loadSharedProfile(text: string, name: string, key: OverviewPresetKey): void {
+    this.storeCurrentProfile();
+    if (!this.importFile(text)) { this.hooks.say?.("OverviewProfileLoadingError", "The overview profile could not be loaded."); return; }
+    try {
+      localStorage.setItem(PROFILE_NAME_KEY, name);
+      const history = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "{}") as Record<string, unknown>;
+      history[key.join("//")] = { overviewName: name, presetKey: key, timestamp: Date.now() };
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    } catch { /* nothing kept */ }
+    this.reloadSettings();
   }
 
   /** RestoreAutoSavedOverviewProfile: the stored settings loaded (LoadOverviewProfileFromDict), the stored copy dropped. */

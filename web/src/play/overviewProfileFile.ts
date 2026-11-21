@@ -43,6 +43,11 @@ const strs = (v: unknown) => (Array.isArray(v) ? v.map((x) => (x === null ? "nul
 
 /** ExportOverviewWindow.Export's file. */
 export function writeProfile(p: OverviewProfile): string {
+  return stringify(profileData(p), { indent: 2 });
+}
+
+/** GetOverviewDataForSave's dict (the file's mapping, and a profile link's data for StoreLinkAndGetID). */
+export function profileData(p: OverviewProfile): Record<string, unknown> {
   const data: Record<string, unknown> = {};
   if (p.backgroundOrder) data.backgroundOrder = p.backgroundOrder;
   if (p.backgroundStates) data.backgroundStates = p.backgroundStates;
@@ -62,13 +67,15 @@ export function writeProfile(p: OverviewProfile): string {
   if (p.stateColors) data.stateColorsNameList = toPairs(p.stateColors);
   if (p.tabs) data.tabSetup = p.tabs.map((t, i) => [i, toPairs({ bracket: t.bracket, color: t.color, name: t.name, overview: t.overview })]);
   data.userSettings = [];
-  return stringify(data, { indent: 2 });
+  return data;
 }
 
 /** ImportOverviewWindow: the file read back; null where it is no overview file (FileNotValid). */
 export function readProfile(text: string): OverviewProfile | null {
   let raw: unknown;
   try { raw = parse(text); } catch { return null; }
+  // a stored link's profile is the dict as its pairs (GetDictFromList reads it back)
+  if (Array.isArray(raw)) raw = raw.length ? fromPairs(raw) : null;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const d = raw as Record<string, unknown>;
   const p: OverviewProfile = {

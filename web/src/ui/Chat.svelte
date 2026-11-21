@@ -22,6 +22,7 @@
   import { mailBodyLines } from "../bridge/mailMarkup.ts";
   import { labelEscaped } from "../bridge/labelMarkup.ts";
   import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
+  import { OVERVIEW_PROFILE_DRAG_TYPE } from "../bridge/overviewProfileLink.ts";
   import { ASSET_ITEM_DRAG_MIME, decodeAssetItemDrag, type AssetItemDrag } from "./dragDrop.ts";
   import { droppedFittingDrag, isFittingDrag } from "./fittingDrag.ts";
   import type { DroppedLink } from "../app/flow.ts";
@@ -108,7 +109,7 @@
   /** A link or a fitting dragged over the send box is taken. */
   function linkDragOver(event: DragEvent): void {
     const types = event.dataTransfer?.types;
-    if (types?.includes(LINK_DRAG_TYPE) || types?.includes(ASSET_ITEM_DRAG_MIME) || isFittingDrag(event)) event.preventDefault();
+    if (types?.includes(LINK_DRAG_TYPE) || types?.includes(OVERVIEW_PROFILE_DRAG_TYPE) || types?.includes(ASSET_ITEM_DRAG_MIME) || isFittingDrag(event)) event.preventDefault();
   }
 
   // eveEditPlainText adds links in scroll order, preserving the text on either side of the caret.
@@ -143,12 +144,22 @@
       void insertAssetLinks(assetRows).catch(() => {});
       return;
     }
-    const fitting = droppedFittingDrag(event);
-    const raw = fitting === null ? event.dataTransfer?.getData(LINK_DRAG_TYPE) : null;
-    if (fitting === null && !raw) return;
+    const profileRaw = event.dataTransfer?.getData(OVERVIEW_PROFILE_DRAG_TYPE);
+    let profile: DroppedLink | null = null;
+    if (profileRaw) {
+      try {
+        const p = JSON.parse(profileRaw) as { text?: unknown; data?: unknown };
+        if (typeof p.text === "string" && p.data && typeof p.data === "object") profile = { kind: "overviewProfile", text: p.text, data: p.data as Record<string, unknown> };
+      } catch { /* not one */ }
+    }
+    const fitting = profile === null ? droppedFittingDrag(event) : null;
+    const raw = fitting === null && profile === null ? event.dataTransfer?.getData(LINK_DRAG_TYPE) : null;
+    if (profile === null && fitting === null && !raw) return;
     event.preventDefault();
     let dropped: DroppedLink;
-    if (fitting?.kind === "source") {
+    if (profile !== null) {
+      dropped = profile;
+    } else if (fitting?.kind === "source") {
       dropped = { kind: "fittingSource", source: fitting.source };
     } else if (fitting !== null) {
       dropped = { kind: "fitting", shipTypeID: fitting.fitting.shipTypeID, fitData: fitting.fitting.fitData, name: fitting.fitting.name };

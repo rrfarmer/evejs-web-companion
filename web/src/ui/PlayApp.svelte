@@ -1817,6 +1817,7 @@
         spaceBookmark = { itemID, askIfKnown: false, typeName: () => (e?.typeID ? typeNames[String(e.typeID)]?.[0] ?? "" : ""), name: () => name };
       },
       safetySelector: (at) => { safetyAnchor = at; },
+      followLink: (url, text) => { void s.flow.followOverviewPresetLink(url, text); },
       // activeShipController: GetShieldHP / GetShieldHPMax and GetShieldResistances (EM, thermal, kinetic, explosive), and
       // the armor's and structure's - the ship's attributes as the fitting reads them, the HP now by the space read's ratio
       healthFacts: (index) => {

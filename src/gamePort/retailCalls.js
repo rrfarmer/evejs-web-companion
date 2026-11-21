@@ -836,6 +836,9 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // list has the character manager's GetSettingsInfo, which is another thing, and not this.
   "charMgr.GetCharacterSettings",
   "sharedSettingsMgr.StoreSettingLinkAndGetID", "sharedSettingsMgr.GetStoredSharedSetting",
+  // An overview profile's link stored as it is dropped into a chat, and read as it is followed (the gateway's list
+  // has neither).
+  "overviewPresetMgr.StoreLinkAndGetID", "overviewPresetMgr.GetStoredPreset",
   // The same service's Save and Delete (characterSettingsSvc.py 44 to 58), which the gateway's list has neither of.
   "charMgr.SaveCharacterSetting", "charMgr.DeleteCharacterSetting",
   // What the character has completed of the client's achievements and how often its client's events have come,
@@ -3260,6 +3263,8 @@ const RETAIL_CALLS = Object.freeze({
   "monolithTaskTrackerMgr.UpdateClientAchievmentsAndCounters": same("monolith_task_tracker/client/monolithTaskTrackerSvc.py:144", "Persist the selected character's completion FILETIMEs and counters as two native dictionaries."),
   "charMgr.SaveCharacterSetting": same("eve/client/script/ui/services/characterSettingsSvc.py:49", "session.ConnectToRemoteService('charMgr').SaveCharacterSetting(settingKey, value): the key and the setting's text, at most 102400 (an empty one is deleted instead, 45 to 46); worked into what the service keeps (50). The wallet's Auto Payment tab saves 'personalAutopayment' so (personalPaySettingsPanel.py 66 to 78)."),
   "sharedSettingsMgr.StoreSettingLinkAndGetID": same("eve/client/script/ui/shared/inventory/filterSvc.py:524", "StoreSettingLinkAndGetID(2, {'filter': (name, match, criteria)}), answering the link key."),
+  "overviewPresetMgr.StoreLinkAndGetID": same("eve/client/script/ui/control/eveEditPlainText.py:158", "StoreLinkAndGetID(entry.data): GetOverviewDataForSave's dict, answering a KeyVal of hashvalue and sqID."),
+  "overviewPresetMgr.GetStoredPreset": same("eve/client/script/parklife/overview/presetservice.py:871", "GetStoredPreset((hashvalue, sqID)), answering the profile's YAML."),
   "sharedSettingsMgr.GetStoredSharedSetting": same("sharedSettings/util.py:13", "GetStoredSharedSetting((hashvalue, sqID, settingTypeID)), answering YAML."),
   "charMgr.DeleteCharacterSetting": same("eve/client/script/ui/services/characterSettingsSvc.py:55", "session.ConnectToRemoteService('charMgr').DeleteCharacterSetting(settingKey), for a setting the service keeps, and taken out of what it keeps (56)."),
   "charMgr.GetCharacterSettings": judged("eve/client/script/ui/services/characterSettingsSvc.py:33", sentWithNothing, "session.ConnectToRemoteService('charMgr').GetCharacterSettings(), nothing sent: the settings the client keeps at the server for the character, each under its key (the mail's, the fleet's setups, the inventory's and the chat's filters and others), answered as a utillib.KeyVal of unicode strings. characterSettingsSvc asks once, when something first wants a setting, and keeps them for the session (31 to 34); its Save and Delete call SaveCharacterSetting and DeleteCharacterSetting and work them into what is kept (44 to 58). Tranquility's recordings of a login each have the one call."),

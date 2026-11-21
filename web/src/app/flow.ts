@@ -328,6 +328,7 @@ import { highestQueuedLevel, queueAfter, type SkillMenuEntry } from "../bridge/s
 import type { SkillRowInfo } from "../bridge/skillPlans.ts";
 import { parseSkillPlanUrl } from "../bridge/skillPlanLink.ts";
 import { readSharedInventoryFilter, shareInventoryFilter, type InventoryFilter } from "../bridge/inventoryFilters.ts";
+import { overviewPresetUrl, parseOverviewPresetUrl, readStoredOverviewProfile, storeOverviewProfile } from "../bridge/overviewProfileLink.ts";
 
 /** A skill plan link followed: its plan's id (a certified plan's a whole number, the others' a uuid) and owner. */
 /**
@@ -1891,7 +1892,9 @@ export type DroppedLink =
   | { readonly kind: "link"; readonly url: string; readonly text: string }
   | { readonly kind: "fitting"; readonly shipTypeID: number; readonly fitData: readonly (readonly [number, number, number])[]; readonly name: string }
   /** A fitting the Fitting window gives, read as it is dropped: its ghost ship icon's or its fit-name label's. */
-  | { readonly kind: "fittingSource"; readonly source: "activeShip" | "fittingWindow" };
+  | { readonly kind: "fittingSource"; readonly source: "activeShip" | "fittingWindow" }
+  /** The overview Settings' Share handle (fakeentry.OverviewProfile): the overview's name and GetOverviewDataForSave. */
+  | { readonly kind: "overviewProfile"; readonly text: string; readonly data: Readonly<Record<string, unknown>> };
 
 /** The text a link is dropped on: its length now (its tags counted), how much of it is selected, its most. */
 export interface LinkDropRoom {
@@ -4776,6 +4779,8 @@ export interface AppFlow {
   shareInventoryFilter(filter: InventoryFilter): Promise<string>;
   readSharedInventoryFilter(url: string): Promise<InventoryFilter>;
   followInventoryFilterLink(url: string): Promise<boolean>;
+  /** preset_link.handle_link: an overviewPreset link followed (LoadSharedOverviewProfile). */
+  followOverviewPresetLink(url: string, text: string | null): Promise<void>;
   takeInventoryFilterLink(): InventoryFilter | null;
   /** The link followed and not yet opened, taken by whoever opens it (null where none is waiting). */
   takeSkillPlanLink(): SkillPlanLinkFollowed | null;
@@ -13191,8 +13196,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function droppedLinkMarkup(given: DroppedLink, room: LinkDropRoom): Promise<string | null> {
     let url: string;
     let text: string;
-    let dropped: Exclude<DroppedLink, { readonly kind: "fittingSource" }>;
-    if (given.kind === "fittingSource") {
+    let dropped: Exclude<DroppedLink, { readonly kind: "fittingSource" } | { readonly kind: "overviewProfile" }>;
+    if (given.kind === "overviewProfile") {
+      // eveEditPlainText.OnDropData's fakeentry.OverviewProfile: StoreLinkAndGetID, None OverviewProfileLoadingError
+      const key = await storeOverviewProfile(bridgeDo, given.data);
+      if (key === null) { sayDialog("OverviewProfileLoadingError", null, "The overview profile could not be loaded."); return null; }
+      dropped = { kind: "link", url: overviewPresetUrl(key), text: given.text };
+    } else if (given.kind === "fittingSource") {
       const fitting = await draggedFittingOf(given.source);
       if (fitting === null) return null;
       dropped = { kind: "fitting", ...fitting };
@@ -13251,6 +13261,20 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (!isSessionLost(error)) sayDialog("ItemFilterLoadingError", null, "The shared item filter could not be loaded.");
       return false;
     }
+  }
+
+  /**
+   * handle_link (two parts, else nothing) and LoadSharedOverviewProfile: the LoadOverviewProfile question (default
+   * No), GetStoredPreset (None: OverviewProfileLoadingError), and the YAML handed to the overview with the link's text.
+   */
+  async function followOverviewPresetLink(url: string, text: string | null): Promise<void> {
+    const key = parseOverviewPresetUrl(url);
+    if (!key) return;
+    if (!(await askDialog("LoadOverviewProfile", null, "Load this overview profile? Your current overview settings will be replaced.", "yesno", { defaultAnswer: "no" }))) return;
+    let yaml: string | null = null;
+    try { yaml = await readStoredOverviewProfile(bridgeAsk, key); } catch (error) { if (isSessionLost(error)) return; }
+    if (yaml === null) { sayDialog("OverviewProfileLoadingError", null, "The overview profile could not be loaded."); return; }
+    window.dispatchEvent(new CustomEvent("evejs:overview-profile", { detail: { text: yaml, name: text ?? "", key } }));
   }
 
   function takeInventoryFilterLink(): InventoryFilter | null {
@@ -36183,6 +36207,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     shareInventoryFilter: filter => shareInventoryFilter(bridgeDo, filter),
     readSharedInventoryFilter: url => readSharedInventoryFilter(bridgeAsk, url),
     followInventoryFilterLink,
+    followOverviewPresetLink,
     takeInventoryFilterLink,
     followWebLink,
     followFittingLink,

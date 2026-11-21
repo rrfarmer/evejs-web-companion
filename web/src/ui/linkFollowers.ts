@@ -17,6 +17,7 @@
 import type { AppFlow } from "../app/flow.ts";
 import { LINK_DRAG_TYPE, parseSkillPlanUrl } from "../bridge/skillPlanLink.ts";
 import { parseInventoryFilterLink } from "../bridge/inventoryFilters.ts";
+import { parseOverviewPresetUrl } from "../bridge/overviewProfileLink.ts";
 import { linkScheme } from "../bridge/showInfoLink.ts";
 import { showInfo, subjectOfShowInfoLink } from "./showInfo.ts";
 
@@ -35,6 +36,7 @@ export const LINK_WORDS: Readonly<Record<string, string>> = {
   "UI/Commands/ShowInfo": "Show information",
   "UI/Fitting/ShowFitting": "Look at the fitting",
   "UI/Inventory/Filters/SharedItemFilter": "Shared Item Filter",
+  "UI/Overview/ProfileLinkHint": "Overview Profile",
 };
 
 export interface LinkFollower {
@@ -51,7 +53,7 @@ export interface LinkFollower {
  */
 export function linkFollowerOf(
   url: string,
-  flow: Pick<AppFlow, "followWebLink" | "followFittingLink">,
+  flow: Pick<AppFlow, "followWebLink" | "followFittingLink"> & Partial<Pick<AppFlow, "followOverviewPresetLink">>,
   openSkillPlanLink: ((url: string) => void) | null,
   word: (label: string) => string,
   text: string | null = null,
@@ -66,6 +68,11 @@ export function linkFollowerOf(
   }
   if (scheme === "sharedsetting" && openInventoryFilterLink !== null && parseInventoryFilterLink(url)) {
     return { kind: "sharedSetting", hint: word("UI/Inventory/Filters/SharedItemFilter"), follow: () => openInventoryFilterLink(url) };
+  }
+  // preset_link.register_link_handlers: hint ProfileLinkHint, settings_link_color_info, accept_link_text
+  if (scheme === "overviewpreset" && flow.followOverviewPresetLink && parseOverviewPresetUrl(url)) {
+    const follow = flow.followOverviewPresetLink;
+    return { kind: "sharedSetting", hint: word("UI/Overview/ProfileLinkHint"), follow: () => void follow(url, text).catch(() => {}) };
   }
   if (scheme === "showinfo") {
     const subject = subjectOfShowInfoLink(url);

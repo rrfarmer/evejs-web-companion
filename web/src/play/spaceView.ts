@@ -317,6 +317,8 @@ export interface SpaceActions {
   safetySelector?(at: DOMRect | null): void;
   /** crimewatchSvc.GetSafetyLevel: 0 none, 1 partial, 2 full; null where not known. */
   safetyLevel?(): 0 | 1 | 2 | null;
+  /** A link followed from a play window (the overview's History: an overviewPreset link). */
+  followLink?(url: string, text: string): void;
   /** The HUD health tooltip's figures for a pool (0 shield, 1 armor, 2 structure). */
   healthFacts?(index: number): { readonly hp: number; readonly max: number; readonly resists: readonly { readonly icon: string | null; readonly percent: number }[] } | null;
   /**
@@ -1344,6 +1346,7 @@ export class SpaceView {
       say: options.overviewSay,
       affiliation: (rows, columns) => options.overviewAffiliation?.(rows, columns) ?? null,
       hover: (id) => this.setHovered(id),
+      followLink: (url, text) => this.actions.followLink?.(url, text),
       currentBroadcasts: () => this.actions.currentBroadcasts?.() ?? new Set(),
       bracketOverride: () => this.bracketOverride,
       setBracketOverride: (value) => { this.bracketOverride = value; },
