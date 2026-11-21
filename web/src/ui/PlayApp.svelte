@@ -1951,7 +1951,8 @@
           const nameID = typeof a.fields.dungeonNameID === "number" ? a.fields.dungeonNameID : null;
           const name = nameID === null ? null : anomalyNames.get(nameID) ?? null;
           if (nameID !== null && name === null && !anomalyNamesAsked.has(nameID)) { anomalyNamesAsked.add(nameID); missing.push(nameID); }
-          return a.targetID ? [{ targetID: a.targetID, strength: typeof a.fields.scanStrengthAttribute === "number" ? a.fields.scanStrengthAttribute : 0, dungeonName: name ?? "" }] : [];
+          const pos = a.position && a.position.length >= 3 ? [a.position[0]!, a.position[1]!, a.position[2]!] as const : null;
+          return a.targetID ? [{ targetID: a.targetID, strength: typeof a.fields.scanStrengthAttribute === "number" ? a.fields.scanStrengthAttribute : 0, dungeonName: name ?? "", position: pos }] : [];
         });
         if (missing.length) void s.flow.scannerSiteNames(missing).then((read) => { for (const [id, n] of read) if (n !== null) anomalyNames.set(id, n); }).catch(() => {});
         return rows;

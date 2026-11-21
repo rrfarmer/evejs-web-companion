@@ -123,7 +123,9 @@ interface ItemAction {
 }
 
 /** An anomaly as the space menu lists it: its scan id, strength attribute (its group) and dungeon name. */
-export interface AnomalySite { readonly targetID: string; readonly strength: number; readonly dungeonName: string }
+export interface AnomalySite { readonly targetID: string; readonly strength: number; readonly dungeonName: string; readonly position?: readonly [number, number, number] | null }
+/** settings.char.ui sensorSuiteEnabled: the sensor overlay shown (true by default). */
+const SENSOR_OVERLAY_KEY = "evejs-play-sensorSuiteEnabled";
 
 export interface JumpBridgePanelState {
   readonly bridge: JumpBridgeSlim;
@@ -423,6 +425,9 @@ export class SpaceView {
   private readonly camera = new THREE.PerspectiveCamera(60, 1, 1, 1e13);
   private readonly controls: OrbitControls;
   private readonly brackets = document.createElement("div");
+  /** The sensor overlay's layer (uicore.layer.sensorSuite) and its site brackets by scan id. */
+  private readonly sensorLayer = document.createElement("div");
+  private readonly sensorEls = new Map<string, HTMLDivElement>();
   private readonly bracketEls = new Map<number, HTMLDivElement>();
   /** bracketMgr.ShowModuleRange's distance while a module is hovered (its brackets within it brighter), else null. */
   private moduleRange: number | null = null;
@@ -1240,6 +1245,8 @@ export class SpaceView {
     });
     this.brackets.appendChild(this.miningHoldBracket);
     this.root.appendChild(this.brackets);
+    this.sensorLayer.className = "sensor-overlay";
+    this.root.appendChild(this.sensorLayer);
     this.targetingCursor.className = "targeting-cursor";
     this.targetingCursor.hidden = true;
     this.targetingCursor.setAttribute("aria-hidden", "true");
@@ -2947,6 +2954,13 @@ export class SpaceView {
       this.speedCombiner = setTimeout(() => { this.speedCombiner = null; void this.act("Set speed", () => this.actions.setSpeedFraction(fraction)); }, 300);
       return;
     }
+    // CmdToggleSensorOverlay (Ctrl-O): sensorSuite.ToggleOverlay - the overlay shown or hidden (ui_scanner_stop)
+    if (cmd === "CmdToggleSensorOverlay") {
+      e.preventDefault();
+      try { localStorage.setItem(SENSOR_OVERLAY_KEY, String(!this.sensorOverlayOn())); } catch { /* lasts the page */ }
+      void playUiEvent("ui_scanner_stop");
+      return;
+    }
     // CmdUnlockTargetItems: targetMgr.UnlockTargets - every locked target unlocked
     if (cmd === "CmdUnlockTargetItems") {
       e.preventDefault();
@@ -3321,6 +3335,60 @@ export class SpaceView {
   /** menusvc.TryLookAt: the camera on the thing (Look at), where the ballpark has it. */
   lookAtItem(itemID: number): void {
     if (this.snapshot?.entities.some((e) => e.itemID === itemID)) this.focusOn(itemID);
+  }
+
+  /**
+   * sensorSuite's overlay (24.02): the system's anomalies as SensorSuiteBrackets in space at their places - 16 px, the
+   * inner diamond (diamond2, 20 px, INNER_ICON_COLOR white 0.5) and the four outer pieces (bracket_anomaly_1..4, 22 px at
+   * OUTER_BRACKET_ORIENTATIONS x 11) in SITE_COLOR_ANOMALY (82, 131, 17); over one, the label at 32 px (codeLabel: its
+   * id in bold, its distance FmtDist(d, 1) after it; siteName: its dungeon under them); a double click AlignTo, a right
+   * click its menu. CmdToggleSensorOverlay (Ctrl-O) shows or hides it (settings.char.ui sensorSuiteEnabled, on by default).
+   */
+  private drawSensorOverlay(origin: { x: number; y: number; z: number }, w: number, h: number): void {
+    const on = this.sensorOverlayOn() && this.snapshot?.ship !== null && this.snapshot?.ship !== undefined;
+    const sites = on ? this.actions.anomalies?.() ?? [] : [];
+    const seen = new Set<string>();
+    for (const s of sites) {
+      if (!s.position) continue;
+      seen.add(s.targetID);
+      let el = this.sensorEls.get(s.targetID);
+      if (!el) {
+        el = document.createElement("div");
+        el.className = "sensor-site";
+        const tex = (p: string) => clientTexture(p);
+        const corners = [[1, -1], [-1, -1], [-1, 1], [1, 1]].map(([x, y], n) =>
+          `<span class="ss-outer" style="--tex:url(${tex(`res:/UI/Texture/classes/SensorSuite/bracket_anomaly_${n + 1}.png`)});transform:translate(${x! * 11}px,${y! * 11}px)"></span>`).join("");
+        el.innerHTML = `<img class="ss-inner" src="${tex("res:/UI/Texture/classes/SensorSuite/diamond2.png")}" alt="">${corners}<div class="ss-label"><div class="ss-code"><b></b><span></span></div><div class="ss-name"></div></div>`;
+        const id = s.targetID;
+        el.addEventListener("mouseenter", () => { el!.classList.add("hover"); void playUiEvent("ui_scanner_state_anomaly"); });
+        el.addEventListener("mouseleave", () => el!.classList.remove("hover"));
+        el.addEventListener("dblclick", (ev) => { ev.stopPropagation(); void this.act("Align", () => this.actions.alignToSite?.(id) ?? Promise.resolve()); });
+        el.addEventListener("contextmenu", (ev) => {
+          ev.preventDefault(); ev.stopPropagation();
+          const site = (this.actions.anomalies?.() ?? []).find((x) => x.targetID === id);
+          const entry = site ? this.anomaliesMenu([site]).find((x): x is ContextEntry => x !== null && !x.caption) : null;
+          if (entry?.sub) { this.radial.close(); this.contextMenu.open(ev.clientX, ev.clientY, entry.sub); }
+        });
+        this.sensorLayer.append(el);
+        this.sensorEls.set(id, el);
+      }
+      const rel = new THREE.Vector3(s.position[0] - origin.x, s.position[1] - origin.y, -(s.position[2] - origin.z));
+      const p = rel.clone().project(this.camera);
+      const onScreen = p.z < 1 && Math.abs(p.x) <= 1.05 && Math.abs(p.y) <= 1.05;
+      el.style.display = onScreen ? "" : "none";
+      if (!onScreen) continue;
+      el.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px)`;
+      if (el.classList.contains("hover") || this.frameCount % 30 === 0) {
+        (el.querySelector(".ss-code b") as HTMLElement).textContent = s.targetID;
+        (el.querySelector(".ss-code span") as HTMLElement).textContent = fmtDistance(rel.length(), 1);
+        (el.querySelector(".ss-name") as HTMLElement).textContent = s.dungeonName;
+      }
+    }
+    for (const [id, el] of this.sensorEls) if (!seen.has(id)) { el.remove(); this.sensorEls.delete(id); }
+  }
+
+  private sensorOverlayOn(): boolean {
+    try { return localStorage.getItem(SENSOR_OVERLAY_KEY) !== "false"; } catch { return true; }
   }
 
   /** What the open context menu says (for checks). */
@@ -3880,6 +3948,7 @@ export class SpaceView {
     }
     this.updateMiningHold(survey, ego, w, h);
     for (const [id, el] of this.bracketEls) if (!seen.has(id)) { el.remove(); this.bracketEls.delete(id); }
+    this.drawSensorOverlay(origin, w, h);
     for (const id of this.polarization.keys()) if (!seen.has(id)) this.polarization.delete(id);
     for (const [id, panel] of this.jumpBridgePanels) {
       if (seen.has(id)) continue;

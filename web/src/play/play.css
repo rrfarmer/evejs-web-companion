@@ -698,3 +698,13 @@ body:not(.no-target-crosshair) .bracket.locked .t-line, body:not(.no-target-cros
 /* CmdHideUI (Ctrl-F9): the UI layers hidden, the scene left (uiSvc.HideUi) */
 body.evejs-ui-hidden .fly-space ~ *:not(.fly-fade):not(.fly-map) { visibility: hidden; }
 body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibility: hidden; }
+
+/* sensorSuite's overlay: SensorSuiteBracket (16 px; inner 20 px white 0.5; outer 22 px in the site's colour; label at 32 px) */
+.sensor-overlay { position: absolute; inset: 0; pointer-events: none; }
+.sensor-site { position: absolute; left: -8px; top: -8px; width: 16px; height: 16px; pointer-events: auto; cursor: pointer; }
+.sensor-site img { position: absolute; pointer-events: none; }
+.sensor-site .ss-inner { left: -2px; top: -2px; width: 20px; height: 20px; opacity: 0.5; }
+.sensor-site .ss-outer { position: absolute; left: -3px; top: -3px; width: 22px; height: 22px; pointer-events: none; background: rgb(82, 131, 17); -webkit-mask: var(--tex) center / 22px 22px no-repeat; mask: var(--tex) center / 22px 22px no-repeat; }
+.sensor-site .ss-label { display: none; position: absolute; left: 32px; top: 50%; transform: translateY(-50%); min-width: 200px; white-space: nowrap; font: 10px/1.25 var(--eve-font, "Segoe UI", sans-serif); color: rgba(255, 255, 255, 0.75); text-shadow: 0 0 2px #000; }
+.sensor-site.hover .ss-label { display: block; }
+.sensor-site .ss-code b { font-weight: 700; margin-right: 4px; }
