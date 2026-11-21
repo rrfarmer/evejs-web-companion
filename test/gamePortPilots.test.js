@@ -6748,17 +6748,21 @@ test("Godma Prime releases decoded notices on failure and close, and delivers a 
       return new WeakRef(notification.packet);
     });
   }
+  // `node --test` runs without --expose-gc; take V8's gc so the check always runs.
+  const collect = typeof global.gc === "function"
+    ? global.gc
+    : (require("node:v8").setFlagsFromString("--expose-gc"), require("node:vm").runInNewContext("gc"));
   async function packetsReleased(refs) {
-    if (typeof global.gc !== "function") return;
     for (let turn = 0; turn < 3; turn++) {
       await nextTurn();
-      global.gc();
+      collect();
     }
     assert.equal(refs.filter(ref => ref.deref()).length, 0, "the receive queue retained decoded packets");
   }
   async function finished(read) {
     const pending = Symbol();
-    const answer = await Promise.race([read, nextTurn().then(() => pending)]);
+    // Long enough for any honest settling; a barrier that never settles still loses the race.
+    const answer = await Promise.race([read, new Promise(resolve => setTimeout(resolve, 200)).then(() => pending)]);
     assert.notEqual(answer, pending, "the Godma work barrier stayed pending");
     return answer;
   }

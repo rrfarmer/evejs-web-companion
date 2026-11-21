@@ -5,8 +5,9 @@
  */
 function createGodmaPrimeChannel() {
   let priming = false;
-  // null admits notices immediately. A failed Prime leaves false until the
-  // next begin: the old channel's notices would never be applied.
+  // null admits notices immediately. Any cancel (a failed or superseded Prime,
+  // a new place or ship, the session's end) leaves false until the next begin:
+  // notices are dropped, as the old channel's would never be applied.
   let channel = null;
   function cancel(receivers = channel) {
     if (!receivers || channel !== receivers) return;
@@ -39,7 +40,7 @@ function createGodmaPrimeChannel() {
   }
   return {
     begin, cancel, receive, release,
-    state: () => ({ priming, channel: Boolean(channel), receivers: channel?.length ?? 0 }),
+    state: () => ({ priming, channel: Boolean(channel), dropping: channel === false, receivers: channel?.length ?? 0 }),
   };
 }
 
