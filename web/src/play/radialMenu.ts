@@ -141,7 +141,7 @@ export class RadialMenu {
       el.innerHTML = `<div class="radial-slice" style="--tex:url(${TEX(option ? "slice_45.png" : "emptySlice_45.png")})"></div>
         <div class="radial-hilite" style="--tex:url(${TEX("mouseOver_45.png")})"></div>
         ${option?.ranges ? `<div class="radial-arrow" style="--tex:url(${TEX("rangeArrow.png")})"></div>` : ""}
-        ${option ? `<img class="radial-icon" alt="" src="${option.more ? TEX("plus.png") : option.icon}" style="transform: rotate(${-degree}deg)">` : ""}`;
+        ${option ? `<img class="radial-icon" alt="" src="${option.more ? option.icon || TEX("plus.png") : option.icon}" style="transform: rotate(${-degree}deg)">` : ""}`;
       this.root.appendChild(el);
       this.slots.push({ option, degree, el });
     }

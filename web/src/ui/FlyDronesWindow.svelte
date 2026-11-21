@@ -19,7 +19,8 @@
   import { clientTexture } from "./skillGroupIcons.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import { showInfo } from "./showInfo.ts";
-  import { showMarketDetails } from "./marketDetails.ts";
+  import { showMarketDetails, buyMarketType } from "./marketDetails.ts";
+  import { RadialMenu, RADIAL_ICON, holdToOpen, type RadialOption } from "../play/radialMenu.ts";
   import { findInPersonalAssets } from "./assetsSearch.ts";
   import { typeCompareTarget } from "./typeCompare.ts";
   import NamePopup from "./NamePopup.svelte";
@@ -84,7 +85,7 @@
     scoop: ["UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"], abandon: ["UI/Drones/AbandonDrone", "Abandon Drone"],
     assist: ["UI/Drones/DroneAssist", "Assist"], guard: ["UI/Drones/DroneGuard", "Guard"], watch: ["UI/Fleet/WatchList", "Watch List"],
     noValid: ["UI/Fleet/NoValidOptions", "No Valid Options"], launch: ["UI/Drones/LaunchDrones", "Launch Drones"], launchOne: ["UI/Drones/LaunchDrone", "Launch Drone"],
-    info: ["UI/Commands/ShowInfo", "Show Info"], buyAll: ["UI/Market/MarketQuote/BuyAll", "Buy All"], market: ["UI/Inventory/ItemActions/ViewTypesMarketDetails", "View Market Details"],
+    info: ["UI/Commands/ShowInfo", "Show Info"], buy: ["UI/Inventory/ItemActions/BuyThisType", "Buy This Type"], buyAll: ["UI/Market/MarketQuote/BuyAll", "Buy All"], market: ["UI/Inventory/ItemActions/ViewTypesMarketDetails", "View Market Details"],
     assets: ["UI/Inventory/ItemActions/FindPersonalAssets", "Find in Personal Assets"], compare: ["UI/Compare/CompareButton", "Compare"],
     autoAttack: ["UI/Drones/AutoAttack", "Auto Attack"], focusFire: ["UI/Drones/AttackModeFocusFire", "Focus Fire"],
     autoAttackHint: ["UI/Drones/AutoAttackHint", "Should drones automatically attack if aggression is shown to you or them"],
@@ -112,6 +113,35 @@
   const settingsNow = droneSettings;
   let settingsOpen = $state(false);
   // DronesWindow's load: the pilot's drone settings told to the server (godma.ChangeDroneSettings)
+  // The radial menu on a bay entry (DroneEntry ExpandRadialMenu -> TryExpandActionMenu, inventoryRadialMenuFunctions'
+  // droneMapping): Launch Drone at the top (1), the rework ring (3, nothing offered in space), the market ring (6: View
+  // Market Details, Buy This Type), Show Info (7); held 150 ms without moving 12 px, as in space
+  const radial = new RadialMenu();
+  let rootEl: HTMLElement | undefined = $state();
+  function openBayRadial(itemID: number, x: number, y: number): void {
+    const row = bayRows.find((r) => r.itemID === itemID);
+    if (!row) return;
+    const ids = pickedFor("bay", row.itemID, row.typeID, true);
+    const icon = (path: string) => RADIAL_ICON(path);
+    const options: (RadialOption | null)[] = [
+      { label: plainText(formatTemplate(say(MENU_WORDS.launchOne), { numDrones: 1 }, { nameOf: () => "" })), icon: icon("res:/UI/Texture/Icons/44_32_2.png"), run: () => void run(() => flow.launchDrones(ids)) },
+      null, null, null, null,
+      { label: "Market", icon: icon("res:/UI/Texture/classes/RadialMenuActions/market.png"), more: [
+        { label: say(MENU_WORDS.market), icon: icon("res:/UI/Texture/classes/RadialMenuActions/viewMarketDetails.png"), run: () => showMarketDetails(row.typeID) },
+        { label: say(MENU_WORDS.buy), icon: icon("res:/UI/Texture/classes/RadialMenuActions/buyThisType.png"), run: () => buyMarketType(row.typeID) },
+      ] },
+      { label: say(MENU_WORDS.info), icon: icon("res:/UI/Texture/Icons/44_32_24.png"), run: () => showInfo({ kind: "type", typeID: row.typeID, itemID: row.itemID }) },
+      null,
+    ];
+    tipOff();
+    radial.open(x, y, row.label, options, 0);
+  }
+  onMount(() => {
+    document.body.appendChild(radial.root);
+    radial.root.style.zIndex = "100000";
+    const off = rootEl ? holdToOpen(rootEl, (_x, _y, e) => { const el = (e.target as HTMLElement).closest<HTMLElement>("[data-bay-item]"); return el ? Number(el.dataset.bayItem) : null; }, (id, x, y) => openBayRadial(id, x, y), false) : () => {};
+    return () => { off(); radial.close(); radial.root.remove(); };
+  });
   onMount(() => {
     const characterID = store.character.get().selectedCharacterID;
     if (characterID !== null) void flow.changeDroneSettings(droneSettingsFor(characterID)).catch(() => {});
@@ -595,7 +625,7 @@
 {/snippet}
 
 {#snippet bayEntry(row: (typeof bayRows)[number], sub: boolean)}
-  <div class="row" class:sub class:selected={selected.bay.includes(row.itemID)} role="listitem" draggable="true"
+  <div class="row" class:sub class:selected={selected.bay.includes(row.itemID)} role="listitem" draggable="true" data-bay-item={row.itemID}
     onmouseenter={(e) => tipFor(row.typeID, null, null, null, e)} onmouseleave={tipOff}
     onclick={(e) => clickEntry("bay", row.itemID, e)} ondragstart={(e) => dragStart("bay", row.itemID, row.typeID, e)}
     ondblclick={() => run(() => flow.launchDrones(row.itemIDs))}
@@ -702,7 +732,7 @@
     onok={(name) => { const req = naming; naming = null; if (req) createSubGroup(req.droneGroupID, req.ids, name.trim()); }} oncancel={() => (naming = null)} />
 {/if}
 
-<div class="fly-drones" class:compact={$windowCompact}>
+<div class="fly-drones" class:compact={$windowCompact} bind:this={rootEl}>
   {#if warpWarningShown}
     <div class="warp-warning" role="alert">
       <span class="ww-whiteout"></span>
