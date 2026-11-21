@@ -192,6 +192,10 @@ export interface SpaceViewOptions {
   indicationWords?: () => Readonly<Record<string, string | null | undefined>>;
   windowLayer?: { element: HTMLElement; raise(el: HTMLElement): void };
   showInfo?: (itemID: number, typeID: number | null) => void;
+  /** The map browser opened on a solar system (MenuService.ShowInMapBrowser). */
+  showSystemOnMap?: (solarSystemID: number) => void;
+  /** An inventory group's name (evetypes.GetGroupNameByGroup), null while it is not known. */
+  groupName?: (groupID: number) => string | null;
   viewPlanet?: (planetID: number) => Promise<void>;
   /** Corporations' tickers (cfg.corptickernames: POST /api/corp-tickers), by corporation id; null where none. */
   corpTickers?: (corpIDs: number[]) => Promise<Record<string, string | null>>;
@@ -1479,6 +1483,18 @@ export class SpaceView {
     void loadBrackets().then(() => { for (const el of this.bracketEls.values()) el.remove(); this.bracketEls.clear(); });
     this.root.appendChild(new Neocom((id) => (this.options.onNeocom ? this.options.onNeocom(id) : this.toast(`${id[0]!.toUpperCase()}${id.slice(1)} is not on the play page yet.`))).root);
     this.renderer.domElement.addEventListener("dblclick", (e) => this.doubleClick(e));
+    // a right-click in space (navigation.OnMouseUp, GetMenu): the thing under it (its pick) its CelestialMenu, else the
+    // space menu; a right drag is no click
+    let rightDown: [number, number] | null = null;
+    this.renderer.domElement.addEventListener("pointerdown", (e) => { if (e.button === 2) rightDown = [e.clientX, e.clientY]; });
+    this.renderer.domElement.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      const from = rightDown;
+      rightDown = null;
+      if (from && Math.hypot(e.clientX - from[0], e.clientY - from[1]) > 4) return;
+      const id = this.pickAt(e.clientX, e.clientY);
+      if (id !== null) this.openContext(id, e.clientX, e.clientY); else this.openSpaceMenu(e.clientX, e.clientY);
+    });
     // ExplosionCameraController yields to the primary camera on a left release,
     // left drag, or wheel input over the scene.
     this.renderer.domElement.addEventListener("pointerup", e => {
@@ -3089,6 +3105,77 @@ export class SpaceView {
     this.select(e.isSelf ? this.selected : id);
     this.radial.close();
     this.contextMenu.open(x, y, this.contextEntries(e));
+  }
+
+  /**
+   * navigation.GetMenu with nothing under the pointer: Look At My Ship (UI/Inflight/ResetCamera), a line, Show Solar
+   * System in Map Browser, a line, then the surroundings (navigation.GetSpaceMenu's ListSurroundingsBtn.GetMenu,
+   * groupByType): Show Info on the system, then Asteroid Belts, Planets, Stargates, Stations and Structures (each
+   * group with things, by its name; Structures split by group past ten), each thing (ExpandTypeMenu: by its
+   * celestial and orbit index, then name) warping to it on a click (WarpToItem) with its CelestialMenu under it.
+   */
+  openSpaceMenu(x: number, y: number): void {
+    const word = (label: string, own: string, args?: Readonly<Record<string, string | number>>) => this.actions.word?.(label, args) ?? own;
+    const systemID = this.seenSystem;
+    const things = this.snapshot?.entities.filter((e) => !e.isSelf) ?? [];
+    const iconOf = (e: Entity) => { const p = bracketIcon(e); return p ? p.replace(/^\/client-res\//, "res:/") : null; };
+    const ROMAN: Record<string, number> = { I: 1, V: 5, X: 10, L: 50, C: 100 };
+    const roman = (s: string) => { let n = 0; for (let i = 0; i < s.length; i++) { const v = ROMAN[s[i]!]!, nx = ROMAN[s[i + 1]!] ?? 0; n += v < nx ? -v : v; } return n; };
+    // GetSolarsystemItems' celestialIndex and orbitIndex, as the names carry them ("<system> VIII - Asteroid Belt 1")
+    const indices = (name: string): [number, number] => {
+      const m = /\s([IVXLC]+)(?:\s|$)/.exec(name);
+      const o = /(?:Moon|Asteroid Belt)\s+(\d+)/.exec(name);
+      return [m ? roman(m[1]!) : 0, o ? Number(o[1]) : 0];
+    };
+    const PLANET_TYPES: Record<number, [string, string]> = { 2016: ["UI/PI/PlanetType/Barren", "Barren"], 2017: ["UI/PI/PlanetType/Storm", "Storm"], 2015: ["UI/PI/PlanetType/Lava", "Lava"],
+      73911: ["UI/PI/PlanetType/Scorched", "Scorched"], 30889: ["UI/PI/PlanetType/Shattered", "Shattered"], 11: ["UI/PI/PlanetType/Temperate", "Temperate"], 12: ["UI/PI/PlanetType/Ice", "Ice"],
+      13: ["UI/PI/PlanetType/Gas", "Gas"], 2014: ["UI/PI/PlanetType/Oceanic", "Oceanic"], 2063: ["UI/PI/PlanetType/Plasma", "Plasma"] };
+    // _GetEntryName: a planet "<name> (<its type>)", a gate its name and the security of the system it jumps to
+    const entryName = (e: Entity): string => {
+      const name = this.nameOf(e);
+      if (e.groupID === 7) { const t = PLANET_TYPES[e.typeID ?? 0]; return t ? `${name} (${word(t[0], t[1])})` : name; }
+      // uix.EditStationName(name, 1): the moon's long form (LocationMoonLong and a space) as its short (LocationMoonShort)
+      if (e.groupID === 15) {
+        const long = word("UI/Locations/LocationMoonLong", "Moon") + " ", short = word("UI/Locations/LocationMoonShort", "M");
+        return name.split(long).join(short).split(long.toLowerCase()).join(short.toLowerCase());
+      }
+      if (e.groupID === 10) {
+        const to = (e as Entity & { jumpSystemID?: number | null }).jumpSystemID ?? null;
+        const sec = to === null ? null : this.options.systemSecurity?.(to) ?? null;
+        return sec === null ? name : `${name} ${shownSecurity(sec).toFixed(1)}`;
+      }
+      return name;
+    };
+    const typeMenu = (list: readonly Entity[]): ContextEntry[] => list
+      .map((e) => ({ e, name: entryName(e), at: indices(this.nameOf(e)) }))
+      .sort((a, b) => a.at[0] - b.at[0] || a.at[1] - b.at[1] || a.name.toLowerCase().localeCompare(b.name.toLowerCase()))
+      .map(({ e, name }) => ({ label: name, icon: e.categoryID === 65 ? iconOf(e) : null, run: () => void this.act("Warp To", () => this.actions.warpTo(e.itemID)), sub: this.contextEntries(e) }));
+    const GROUPS: [number, string, string][] = [[9, "UI/Common/LocationTypes/AsteroidBelts", "Asteroid Belts"], [7, "UI/Common/LocationTypes/Planets", "Planets"],
+      [10, "UI/Common/LocationTypes/Stargates", "Stargates"], [15, "UI/Common/LocationTypes/Stations", "Stations"]];
+    const groups: { label: string; list: Entity[]; split: boolean }[] = GROUPS.map(([g, l, own]) => ({ label: word(l, own), list: things.filter((e) => e.groupID === g), split: false }));
+    const structures = things.filter((e) => e.categoryID === 65);
+    const splitStructures = structures.length > 10;
+    if (!splitStructures) groups.push({ label: word("UI/Common/LocationTypes/Structures", "Structures"), list: structures, split: false });
+    const menu: (ContextEntry | null)[] = [
+      { path: "UI/Inflight/ResetCamera", label: word("UI/Inflight/ResetCamera", "Look At My Ship"), run: () => this.focusOn(null) },
+      null,
+      { path: "UI/Inflight/ShowSystemInMapBrowser", label: word("UI/Inflight/ShowSystemInMapBrowser", "Show Solar System in Map Browser"), disabled: systemID === null ? "" : null, run: () => { if (systemID !== null) this.options.showSystemOnMap?.(systemID); } },
+      null,
+      { path: "UI/Commands/ShowInfo", label: word("UI/Commands/ShowInfo", "Show Info"), info: true, disabled: systemID === null ? "" : null, run: () => { if (systemID !== null) this.options.showInfo?.(systemID, 5); } },
+    ];
+    for (const g of groups.filter((x) => x.list.length).sort((a, b) => a.label.localeCompare(b.label))) {
+      menu.push({ label: g.label, icon: iconOf(g.list[0]!), sub: typeMenu(g.list) });
+    }
+    if (splitStructures) {
+      // ExpandCategoryMenu: the structures by their group's name, each group's things under it
+      const byGroup = new Map<number, Entity[]>();
+      for (const e of structures) byGroup.set(e.groupID ?? 0, [...(byGroup.get(e.groupID ?? 0) ?? []), e]);
+      const sub = [...byGroup.values()].map((list) => ({ label: this.options.groupName?.(list[0]!.groupID ?? 0) ?? list[0]!.kind, icon: iconOf(list[0]!), sub: typeMenu(list) }))
+        .sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));
+      menu.push({ label: word("UI/Common/LocationTypes/Structures", "Structures"), icon: iconOf(structures[0]!), sub });
+    }
+    this.radial.close();
+    this.contextMenu.open(x, y, menu);
   }
 
   /** What the open context menu says (for checks). */
