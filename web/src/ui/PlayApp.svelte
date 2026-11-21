@@ -26,6 +26,9 @@
   import { addGameLogLine, beginGameLog } from "./gameLog.ts";
   import GameLogActions from "./GameLogActions.svelte";
   import DronesWindowActions from "./DronesWindowActions.svelte";
+  import { droneWindowCompact } from "./droneSettings.ts";
+  // the drones window in compact mode shows no caption (DronesWindow: SmallWindowHeader show_caption not compact)
+  const dronesCompact = droneWindowCompact;
   import { combatFlag, combatFontSize, damageMessageShown } from "./combatSettings.ts";
   import type { CombatMessageIcon } from "../play/combatMessage.ts";
   import type { ActionMessage } from "../app/flow.ts";
@@ -2769,7 +2772,7 @@
       <ErrorBoundary name={tabLabel(win.id)}>
         <DesktopWindow
           {win}
-          title={win.id === "drones" ? dronesTitle : win.id === "inventory" && !docked ? activeShipCaption : captions[win.id] ?? tabLabel(win.id)}
+          title={win.id === "drones" ? ($dronesCompact ? "" : dronesTitle) : win.id === "inventory" && !docked ? activeShipCaption : captions[win.id] ?? tabLabel(win.id)}
           icon={win.id === "inventory" && !docked ? clientTexture("res:/UI/Texture/WindowIcons/cargo.png") : null}
           focused={win.id === focusedId}
           onFocus={() => { wins = focusWindow(wins, win.id); raiseApp(win.id); }}

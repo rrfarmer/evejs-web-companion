@@ -68,23 +68,34 @@ export function setDroneWarpWarning(characterID: number, on: boolean): void {
 }
 
 /**
- * droneSettings.drones_view_mode_setting (CharSettingEnum 'dronesViewMode', VIEW_MODE_ICONS 1, else VIEW_MODE_LIST 2):
+ * droneSettings.drones_view_mode_setting (CharSettingEnum 'dronesViewMode', VIEW_MODE_ICONS 1, else VIEW_MODE_LIST 2) and
+ * drones_view_mode_compact_setting ('dronesViewModeCompact', VIEW_MODE_LIST by default) for the window in compact mode:
  * the drones window's view (its menu's View Mode radios); in Icons a drone in space shows its type's 32 px icon after
- * its state and its entry is ICONSIZE + 8 high, in List it is ENTRY_HEIGHT 24 with no icon (DroneInSpaceEntry).
+ * its state and its entry is ICONSIZE + 8 high (+ 4 compact), in List it is ENTRY_HEIGHT 24 (22 compact) with no icon.
+ * CompactModeWindowAction: the window's compact mode (its caption hidden), kept for the window.
  */
 export const droneViewIcons = createSignal<boolean>(true);
+export const droneWindowCompact = createSignal<boolean>((() => { try { return globalThis.localStorage?.getItem("evejs.ui.dronesWindowCompact") === "1"; } catch { return false; } })());
 let viewModeOf: number | null = null;
+const viewKey = (compact: boolean) => (compact ? "dronesViewModeCompact" : "dronesViewMode");
+function readViewMode(characterID: number, compact: boolean): boolean {
+  try {
+    const v = globalThis.localStorage?.getItem(key(characterID, viewKey(compact)));
+    return v === null || v === undefined ? !compact : v === "1";
+  } catch { return !compact; }
+}
 export function droneViewModeFor(characterID: number): boolean {
-  if (viewModeOf !== characterID) {
-    viewModeOf = characterID;
-    let icons = true;
-    try { icons = globalThis.localStorage?.getItem(key(characterID, "dronesViewMode")) !== "2"; } catch { /* the default */ }
-    droneViewIcons.set(icons);
-  }
+  viewModeOf = characterID;
+  droneViewIcons.set(readViewMode(characterID, droneWindowCompact.get()));
   return droneViewIcons.get();
 }
 export function setDroneViewMode(characterID: number, icons: boolean): void {
   viewModeOf = characterID;
-  try { globalThis.localStorage?.setItem(key(characterID, "dronesViewMode"), icons ? "1" : "2"); } catch { /* lasts the page */ }
+  try { globalThis.localStorage?.setItem(key(characterID, viewKey(droneWindowCompact.get())), icons ? "1" : "2"); } catch { /* lasts the page */ }
   droneViewIcons.set(icons);
+}
+export function setDroneWindowCompact(on: boolean): void {
+  try { globalThis.localStorage?.setItem("evejs.ui.dronesWindowCompact", on ? "1" : "0"); } catch { /* lasts the page */ }
+  droneWindowCompact.set(on);
+  if (viewModeOf !== null) droneViewIcons.set(readViewMode(viewModeOf, on));
 }

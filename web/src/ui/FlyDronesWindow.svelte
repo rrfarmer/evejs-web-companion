@@ -9,7 +9,7 @@
   import { droneActivityColor, droneActivityLabel } from "../bridge/drones.ts";
   import { activeTargetID, activeTargetName } from "../play/activeTarget.ts";
   import { playUiEvent } from "../play/uiAudio.ts";
-  import { droneSettings, droneSettingsFor, droneViewIcons, droneViewModeFor, droneWarpWarning, droneWarpWarningFor, setDroneSetting } from "./droneSettings.ts";
+  import { droneSettings, droneSettingsFor, droneViewIcons, droneViewModeFor, droneWindowCompact, droneWarpWarning, droneWarpWarningFor, setDroneSetting } from "./droneSettings.ts";
   import { shortcutOf } from "../play/shortcutKeys.ts";
   import { onMount } from "svelte";
   import { canMyShipOrderDrone } from "../space/overview.ts";
@@ -124,6 +124,7 @@
   $effect(() => { const id = $character.selectedCharacterID; if (id !== null) { droneWarpWarningFor(id); droneViewModeFor(id); } });
   // the view mode (IsIconsViewMode): a drone in space with its icon (Icons) or without (List)
   const viewIcons = droneViewIcons;
+  const windowCompact = droneWindowCompact;
   flow.requestWords(["UI/Drones/WarpWarningMessage", "UI/Drones/StopAndRecall"]);
   const warpWarningShown = $derived($warpWarningOn && snapshot?.ship?.warp?.preparing === true && ($drones.inSpace ?? []).length > 0);
   // WarpWarning.FadeIn: the audio service sounds ui_warning_abandoning_drones each time the warning comes up
@@ -523,7 +524,7 @@
 {/snippet}
 
 {#snippet spaceEntry(row: (typeof spaceRows)[number], sub: boolean)}
-  <div class="row inspace" class:list={!$viewIcons} class:sub class:lost={row.unavailable !== null} class:selected={selected.space.includes(row.itemIDs[0]!)} role="listitem" title={row.unavailable ?? undefined} draggable="true"
+  <div class="row inspace" class:list={!$viewIcons} class:compact={$windowCompact} class:sub class:lost={row.unavailable !== null} class:selected={selected.space.includes(row.itemIDs[0]!)} role="listitem" title={row.unavailable ?? undefined} draggable="true"
     onmouseenter={(e) => { if (row.typeID !== null) tipFor(row.typeID, row.unavailable ?? row.activity, row.color, row.targetID, e); }} onmouseleave={tipOff}
     onclick={(e) => clickEntry("space", row.itemIDs[0]!, e)} ondragstart={(e) => dragStart("space", row.itemIDs[0]!, row.typeID, e)}
     oncontextmenu={(e) => {
@@ -768,6 +769,9 @@
   .row { display: flex; align-items: center; gap: 8px; padding: 0 4px; min-height: 24px; box-sizing: border-box; }
   .row.inspace { min-height: 40px; gap: 4px; }
   .row.inspace.list { min-height: 24px; }
+  /* compact (DroneInSpaceEntry.GetHeight): ICONSIZE + 4 in Icons, ENTRY_HEIGHT_COMPACT 22 in List */
+  .row.inspace.compact { min-height: 36px; }
+  .row.inspace.list.compact { min-height: 22px; }
   .state-sprite { width: 16px; height: 16px; flex: none; mask-size: 16px 16px; -webkit-mask-size: 16px 16px; mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat; }
   .row.inspace .picture { width: 32px; height: 32px; }
   .row.inspace .picture :global(.type-icon) { width: 32px; height: 32px; }
