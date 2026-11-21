@@ -23,8 +23,11 @@
     resizable = true,
     showTitle = true,
     icon = null,
+    killable = true,
     children,
   }: {
+    /** Window.killable: false (default_isKillable False - the drones window, the overview, Selected Item) draws no close button. */
+    killable?: boolean;
     /** The window's caption icon (Window.default_iconNum), a URL; none where null. */
     icon?: string | null;
     win: Pick<WinState, "x" | "y" | "w" | "h" | "z" | "minimized"> & { readonly id?: string | number };
@@ -145,14 +148,14 @@
         onpointerdown={(e) => e.stopPropagation()}
         onclick={onToggleMinimize}
       >—</button>{/if}
-      <button
+      {#if killable}<button
         type="button"
         class="win-btn win-close"
         title="Close"
         aria-label="Close"
         onpointerdown={(e) => e.stopPropagation()}
         onclick={onClose}
-      >✕</button>
+      >✕</button>{/if}
     </span>
   </header>
 

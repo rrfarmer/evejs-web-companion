@@ -2778,6 +2778,7 @@
           {win}
           title={win.id === "drones" ? ($dronesCompact ? "" : dronesTitle) : win.id === "scanner" && !docked && $scannerCompact ? "" : win.id === "inventory" && !docked ? activeShipCaption : captions[win.id] ?? tabLabel(win.id)}
           icon={win.id === "inventory" && !docked ? clientTexture("res:/UI/Texture/WindowIcons/cargo.png") : null}
+          killable={win.id !== "drones"}
           focused={win.id === focusedId}
           onFocus={() => { wins = focusWindow(wins, win.id); raiseApp(win.id); }}
           onClose={() => (wins = closeWindow(wins, win.id))}
