@@ -208,7 +208,8 @@ button { font: inherit; color: inherit; }
   background: none; border: 0; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; }
 .pw-head .ov-tab:hover:not(.active) { color: rgba(255, 255, 255, 0.8); }
 .pw-head .ov-tab.active { color: rgb(102, 255, 102); background: none; border-color: transparent; border-bottom-color: rgb(102, 255, 102); }
-.pw-caption { flex: 1; font-size: 13px; color: #c8ccc8; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* SmallWindowHeader's caption: a 12 px Label (Selected Item, Overview, Drones read through gridcheck) */
+.pw-caption { flex: 1; font-size: 12px; color: #c8ccc8; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pw-buttons { display: flex; gap: 2px; }
 .pw-btn { width: 16px; height: 16px; padding: 2px; opacity: .55; cursor: pointer; }
 .pw-btn:hover { opacity: 1; background: rgba(255, 255, 255, 0.08); }
