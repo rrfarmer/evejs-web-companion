@@ -9,9 +9,11 @@
   // Brightness / Optimize Settings / Reset Graphic Settings buttons, Effects (the checkboxes). Camera: the camera
   // shake. The settings are the play page's (gfxSettings.ts) and apply at once.
   import { onMount } from "svelte";
-  import { plainText } from "../bridge/clientWords.ts";
+  import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { gfx, setGfx, resetGfx, onGfx, type GfxSettings } from "../play/gfxSettings.ts";
   import { CLIENT_SHORTCUTS } from "../play/clientShortcuts.ts";
+  import { commandWithShortcut, onShortcutsChanged, remapShortcut, restoreDefaultShortcuts, shortcutFromKey, shortcutOf } from "../play/shortcutKeys.ts";
+  import { onDestroy } from "svelte";
   import { COLOR_THEMES } from "../play/colorThemes.ts";
   import { playUiEvent } from "../play/uiAudio.ts";
   import type { AppFlow } from "../app/flow.ts";
@@ -95,6 +97,13 @@
     return typeof t === "string" && t !== "" ? plainText(t) : own;
   };
 
+  /** A client word with its values filled in. */
+  const wordWith = (label: string, own: string, args: Record<string, string | number>): string => {
+    const t = $words.templates[label];
+    return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args as never, { nameOf: () => null } as never)) : own;
+  };
+  flow.requestWords(["UI/Commands/EnterNewShortcutPrompt", "UI/Common/None", "UI/Common/Cancel", "UI/Commands/ShortcutAlreadyUsedByCmd",
+    "UI/Commands/ShortcutAlreadyUsedReassign", "UI/Commands/ShortcutAlreadyUsedReassignHeader", "UI/Commands/ReassingCmd", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel"]);
   let panel = $state<string>("displayandgraphics");
   let settings = $state<GfxSettings>({ ...gfx() });
   let fullScreen = $state(typeof document !== "undefined" && document.fullscreenElement !== null);
@@ -120,11 +129,64 @@
    * each "description<t>shortcut" (NoShortcut where it has none). The description: the command's name label, else its
    * function's name (FuncToDesc).
    */
+  // the pilot's own shortcuts: a change draws the list again (OnMapShortcut)
+  let shortcutVersion = $state(0);
+  onDestroy(onShortcutsChanged(() => { shortcutVersion++; }));
+  /** The row chosen in the commands' scroll (shortcutsScroll.GetSelected). */
+  let selectedCmd = $state<string | null>(null);
+  /**
+   * MapCmdWindow (320 wide, the command's name for its caption, EnterNewShortcutPrompt with the shortcut now, Cancel):
+   * the next key let go with the modifiers held is the shortcut; MapCmdErrorCheck's ShortcutAlreadyUsedByCmd where
+   * another command has it - Reassign (that one cleared) or Cancel (asked again), or only told where that one is locked.
+   */
+  let mapping = $state<{ cmd: string; conflict: { keys: string; other: string; locked: boolean } | null } | null>(null);
+  const describe = (cmd: string) => { const l = CLIENT_SHORTCUTS.find((c) => c.cmd === cmd)?.label; return l ? word(l, cmd) : cmd; };
+  const categoryOf = (cmd: string) => CLIENT_SHORTCUTS.find((c) => c.cmd === cmd)?.category ?? "general";
+  function editShortcut(cmd: string | null): void {
+    if (!cmd) return;
+    if (CLIENT_SHORTCUTS.find((c) => c.cmd === cmd)?.locked) { void flow.askClientDialog("ShortcutLocked", "This shortcut cannot be changed."); return; }
+    mapping = { cmd, conflict: null };
+  }
+  function clearShortcut(cmd: string | null): void {
+    if (!cmd || CLIENT_SHORTCUTS.find((c) => c.cmd === cmd)?.locked) return;
+    remapShortcut(cmd, "");
+  }
+  async function defaultShortcuts(): Promise<void> {
+    if (await flow.askClientDialog("ConfirmResetAllShortcuts", "Reset all shortcuts to their defaults?")) restoreDefaultShortcuts();
+  }
+  function mapKey(e: KeyboardEvent): void {
+    if (!mapping || mapping.conflict) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const keys = shortcutFromKey(e);
+    if (!keys) return;
+    const other = commandWithShortcut(keys);
+    if (other && other !== mapping.cmd) {
+      mapping = { cmd: mapping.cmd, conflict: { keys, other, locked: CLIENT_SHORTCUTS.find((c) => c.cmd === other)?.locked === true } };
+      return;
+    }
+    remapShortcut(mapping.cmd, keys);
+    mapping = null;
+  }
+  function reassign(): void {
+    if (!mapping?.conflict) return;
+    remapShortcut(mapping.conflict.other, "");
+    remapShortcut(mapping.cmd, mapping.conflict.keys);
+    mapping = null;
+  }
+  $effect(() => {
+    if (!mapping || mapping.conflict) return;
+    addEventListener("keyup", mapKey, true);
+    const swallow = (e: KeyboardEvent) => { e.preventDefault(); e.stopPropagation(); };
+    addEventListener("keydown", swallow, true);
+    return () => { removeEventListener("keyup", mapKey, true); removeEventListener("keydown", swallow, true); };
+  });
   const shortcutRows = $derived.by(() => {
+    void shortcutVersion;
     if (shortcutKey === null) return [];
     const filterText = shortcutFilter.trim().toLowerCase();
     return CLIENT_SHORTCUTS.filter((c) => filterText !== "" || c.category === shortcutKey)
-      .map((c) => ({ cmd: c.cmd, description: c.label ? word(c.label, c.cmd) : c.cmd, keys: c.keys, locked: c.locked === true }))
+      .map((c) => ({ cmd: c.cmd, description: c.label ? word(c.label, c.cmd) : c.cmd, keys: shortcutOf(c.cmd), locked: c.locked === true }))
       .filter((c) => filterText === "" || c.description.toLowerCase().includes(filterText));
   });
   /** CloseMenuClick: PlaySound(uiconst.SOUND_BUTTON_CLICK, "ui_button_soft4_play"), then the menu closed (OnEsc). */
@@ -226,16 +288,39 @@
             <div class="sm-sc-head"><span>{word(WORDS.command, "Command")}</span><span>{word(WORDS.shortcut, "Shortcut")}</span></div>
             <div class="sm-sc-list">
               {#each shortcutRows as row (row.cmd)}
-                <div class="sm-sc-row" class:locked={row.locked} title={row.cmd}><span>{row.description}</span><span>{row.keys || word(WORDS.noShortcut, "No shortcut")}</span></div>
+                <div class="sm-sc-row" class:locked={row.locked} class:sel={selectedCmd === row.cmd} title={row.cmd} role="option" tabindex="-1" aria-selected={selectedCmd === row.cmd}
+                  onclick={() => (selectedCmd = row.cmd)} ondblclick={() => { if (!row.locked) editShortcut(row.cmd); }} onkeydown={() => {}}><span>{row.description}</span><span>{row.keys || word(WORDS.noShortcut, "No shortcut")}</span></div>
               {:else}
                 <p class="sm-desc">{shortcutFilter ? word(WORDS.noneFound, "") : ""}</p>
               {/each}
             </div>
             <div class="sm-buttons sc">
-              <button type="button" disabled>{word(WORDS.editShortcut, "Edit Shortcut")}</button>
-              <button type="button" disabled>{word(WORDS.clearShortcut, "Clear Shortcut")}</button>
-              <button type="button" disabled>{word(WORDS.defaultShortcuts, "Default Shortcuts")}</button>
+              <button type="button" disabled={!selectedCmd} onclick={() => editShortcut(selectedCmd)}>{word(WORDS.editShortcut, "Edit Shortcut")}</button>
+              <button type="button" disabled={!selectedCmd} onclick={() => clearShortcut(selectedCmd)}>{word(WORDS.clearShortcut, "Clear Shortcut")}</button>
+              <button type="button" onclick={() => void defaultShortcuts()}>{word(WORDS.defaultShortcuts, "Default Shortcuts")}</button>
             </div>
+            {#if mapping}
+              {@const m = mapping}
+              <div class="sm-mapcmd" role="dialog" aria-label={describe(m.cmd)}>
+                <div class="sm-mapcmd-caption">{describe(m.cmd)}</div>
+                {#if m.conflict}
+                  {@const c = m.conflict}
+                  {@const used = wordWith("UI/Commands/ShortcutAlreadyUsedByCmd", `${c.keys} is already used by ${describe(c.other)}`, { cmd: c.keys, category: categoryOf(c.other), func: describe(c.other) })}
+                  {#if c.locked}
+                    <p>{used}</p>
+                    <div class="sm-mapcmd-btns"><button type="button" onclick={() => (mapping = { cmd: m.cmd, conflict: null })}>{word("UI/Common/Buttons/OK", "OK")}</button></div>
+                  {:else}
+                    <div class="sm-mapcmd-head">{word("UI/Commands/ShortcutAlreadyUsedReassignHeader", "Shortcut already in use")}</div>
+                    <p>{wordWith("UI/Commands/ShortcutAlreadyUsedReassign", `${used}. Reassign it to ${describe(m.cmd)}?`, { usedText: used, cmd: c.keys, newFunc: describe(m.cmd) })}</p>
+                    <div class="sm-mapcmd-btns"><button type="button" onclick={reassign}>{word("UI/Commands/ReassingCmd", "Reassign")}</button>
+                      <button type="button" onclick={() => (mapping = { cmd: m.cmd, conflict: null })}>{word("UI/Common/Buttons/Cancel", "Cancel")}</button></div>
+                  {/if}
+                {:else}
+                  <p>{wordWith("UI/Commands/EnterNewShortcutPrompt", "Press the new shortcut", { currShortcut: shortcutOf(m.cmd) || word("UI/Common/None", "None") })}</p>
+                  <div class="sm-mapcmd-btns"><button type="button" onclick={() => (mapping = null)}>{word("UI/Common/Cancel", "Cancel")}</button></div>
+                {/if}
+              </div>
+            {/if}
           </div>
         {:else if panel === "audio"}
           <!-- LoadAudio: Audio Engine (Audio Enabled, Suppress Turret Sounds, Override with Old Jukebox, Use Combat
@@ -311,6 +396,14 @@
   .sm-sc-list { flex: 1; overflow: auto; min-height: 0; }
   .sm-sc-row { min-height: 26px; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
   .sm-sc-row.locked { opacity: 0.55; }
+  .sm-sc-row { cursor: default; }
+  .sm-sc-row.sel { background: rgba(255, 255, 255, 0.12); }
+  /* MapCmdWindow: 320 wide, the prompt and Cancel */
+  .sm-mapcmd { position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%); width: 320px; z-index: 10; padding: 10px 12px 12px;
+    background: rgba(20, 24, 28, 0.97); border: 1px solid rgba(255, 255, 255, 0.2); box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6); }
+  .sm-mapcmd-caption { font-size: 12px; text-transform: uppercase; color: rgba(255, 255, 255, 0.7); margin-bottom: 8px; }
+  .sm-mapcmd-head { font-weight: bold; margin-bottom: 4px; }
+  .sm-mapcmd-btns { display: flex; justify-content: center; gap: 6px; margin-top: 16px; }
   .sm-buttons.sc { margin-top: 16px; }
   .sm-slider { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
   .sm-slider span { flex: 0 0 300px; }

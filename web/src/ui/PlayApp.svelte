@@ -137,6 +137,7 @@
   import SovHubWindow from "./SovHubWindow.svelte";
   import ContactActionDialog from "./ContactActionDialog.svelte";
   import BountyOfficeWindow from "./BountyOfficeWindow.svelte";
+  import { compressItemsInSpace, compressibleTypes, HARVESTABLE_ORE_HOLDS } from "./compressInSpace.ts";
   import type { ContactAction } from "./contactAction.ts";
   import type { MySovHub, SovHubDetails, SovHubExtras } from "../app/flow.ts";
 
@@ -1147,6 +1148,19 @@
       if (canOpenMiningScan()) void flightMiningSurvey.scan().catch(say("Mining Scan"));
       return true;
     }
+    // CmdCompressAllOreInCurrentship (eveCommands): in space, every compressible stack in the ship's harvestable ore holds
+    if (cmd === "CmdCompressAllOreInCurrentship") {
+      if (docked) return true;
+      void (async () => {
+        await s.flow.loadMiningHolds().catch(() => {});
+        const types = await compressibleTypes();
+        const items = s.store.mining.get().holds.filter((h) => (HARVESTABLE_ORE_HOLDS as readonly string[]).includes(h.key))
+          .flatMap((h) => h.items ?? []).filter((i) => types.has(i.typeID));
+        const templates = s.store.words.get().templates;
+        await compressItemsInSpace(s.store, s.flow, items, (label, own) => (typeof templates[label] === "string" && templates[label] ? plainText(String(templates[label])) : own));
+      })().catch(say("Compress"));
+      return true;
+    }
     if (cmd === "CmdReloadAmmo") {
       const reloading = new Set(Object.keys(s.store.fitting.get().reloads ?? {}).map(Number));
       void s.flow.reloadAll(reloading).catch(say("Reload all"));
@@ -1482,7 +1496,7 @@
     const attributeLook = new Map<number, { readonly icon: string | null; readonly nameID: number | null }>();
     void s.flow.attributeDisplay(TIP_ATTRIBUTES).then((found) => {
       for (const [id, d] of found ?? []) attributeLook.set(id, { icon: d.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d.displayNameID });
-      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Menusvc/MenuHints/NoReasonGiven", "UI/Control/EveWindow/Minimize", "UI/Generic/Copy", "UI/Drones/EngageTarget", "UI/Drones/MineWithDrone", "UI/Drones/Salvage", "UI/Drones/ReturnDroneAndOrbit", "UI/Drones/ReturnDroneToBay", "UI/Drones/ScoopDroneToBay", "UI/Drones/AbandonDrone", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Menusvc/MoonsMenuOption", "UI/Common/Pilot", "UI/Inflight/BoardShip", "UI/Commands/GiveMoney", "UI/PeopleAndPlaces/BlockContact", "UI/EVEMail/SendPilotEVEMail", "UI/Fleet/FormFleetWith", "UI/Crimewatch/Duel/DuelMenuEntry", "UI/PeopleAndPlaces/AddContact", "UI/PeopleAndPlaces/EditContact", "UI/Commands/CapturePortrait", "UI/Station/BountyOffice/PlaceBounty", "UI/Chat/StartConversation", "UI/Chat/InviteToChat", "UI/Inflight/Submenus/MoonX", "UI/Menusvc/PlanetHasNoMoons", "UI/PI/Common/CustomsOffice", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
+      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Menusvc/MenuHints/NoReasonGiven", "UI/Control/EveWindow/Minimize", "UI/Generic/Copy", "UI/Drones/EngageTarget", "UI/Drones/MineWithDrone", "UI/Drones/Salvage", "UI/Drones/ReturnDroneAndOrbit", "UI/Drones/ReturnDroneToBay", "UI/Drones/ScoopDroneToBay", "UI/Drones/AbandonDrone", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Menusvc/MoonsMenuOption", "UI/Common/Pilot", "UI/Inflight/BoardShip", "UI/Commands/GiveMoney", "UI/PeopleAndPlaces/BlockContact", "UI/EVEMail/SendPilotEVEMail", "UI/Fleet/FormFleetWith", "UI/Crimewatch/Duel/DuelMenuEntry", "UI/PeopleAndPlaces/AddContact", "UI/PeopleAndPlaces/EditContact", "UI/Commands/CapturePortrait", "UI/Station/BountyOffice/PlaceBounty", "UI/Chat/StartConversation", "UI/Chat/InviteToChat", "UI/Compression/FailureToCompressAny", "UI/Compression/FailureToCompressSome", "UI/Inflight/Submenus/MoonX", "UI/Menusvc/PlanetHasNoMoons", "UI/PI/Common/CustomsOffice", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
     }).catch(() => {});
     const stopAskedAt = new Map<number, number>();
     const tipWord = (label: string, args: Readonly<Record<string, unknown>>): string | null => {

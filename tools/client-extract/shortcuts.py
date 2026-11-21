@@ -131,6 +131,13 @@ def run(fn_src):
                     m.extend(list_of(st.value.args[0], i))
                 elif st.value.func.attr == "append":
                     m.append(mapping(st.value.args[0], i))
+            elif isinstance(st, ast.Expr) and isinstance(st.value, ast.Call) and isinstance(st.value.func, ast.Attribute) \
+                    and isinstance(st.value.func.value, ast.Name) and st.value.func.value.id == "ret" and st.value.func.attr == "extend" \
+                    and isinstance(st.value.args[0], ast.Name) and st.value.args[0].id == "m":
+                # "ret.extend(m)": the list kept as it is, in CommandMapping's own category ('general'); CmdZoomIn,
+                # CmdSetSearchBarFocus, CmdCompressAllOreInCurrentship and the others of that block were missing
+                out.extend(m)
+                m[:] = []
             elif isinstance(st, ast.For) and isinstance(st.target, ast.Name) and st.target.id == "cm":
                 # "for cm in m: cm.category = ...; cm.isLocked = True; ret.append(cm)"
                 for s in st.body:

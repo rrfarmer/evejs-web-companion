@@ -22,8 +22,7 @@
   import { typeCompareTarget } from "./typeCompare.ts";
   import { changeQuickbar } from "./marketQuickbar.ts";
   import { addType } from "../bridge/marketQuickbar.ts";
-  import { authoritativeFleetMemberCharacterIDs } from "../bridge/fleetCenter.ts";
-  import { compressionFacilities } from "../space/compression.ts";
+  import { compressItemsInSpace } from "./compressInSpace.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
@@ -277,35 +276,8 @@
     if (!bay) return;
     void act(() => flow.stackContainer(bay.key === "cargo" ? "cargo" : { kind: "shipBay", bay: bay.key }));
   }
-  /**
-   * CompressInSpaceController: GetFacilitiesInRange - the pilot's own ship where it runs a compressor (at any range),
-   * then fleet members' ships whose compressor reaches it (surface distance within the facility's range) - and
-   * CompressItems: each item at the first facility, then FailureToCompressSome / FailureToCompressAny where any was
-   * not compressed. (The facility's type lists are not turned into types here: the server refuses an ore its lists
-   * do not take, and that counts as not compressed.)
-   */
-  async function compressInSpace(items: readonly { itemID: number; typeID: number }[]): Promise<void> {
-    const snap = $space.snapshot;
-    const fleet = store.fleet.get();
-    const members = new Set(fleet.availability === "ready" && fleet.fleet ? authoritativeFleetMemberCharacterIDs({ availability: "ready", fleet: fleet.fleet }) ?? [] : []);
-    const me = snap?.ship ?? null;
-    const surface = (e: { position: { x: number; y: number; z: number }; radius?: number }) => (me
-      ? Math.max(0, Math.hypot(e.position.x - me.position.x, e.position.y - me.position.y, e.position.z - me.position.z) - (e.radius ?? 0) - (me.radius ?? 0))
-      : Infinity);
-    const facility = compressionFacilities(snap).find((f) => f.itemID === me?.itemID
-      || (f.characterID != null && members.has(f.characterID) && surface(f) <= (f.compressionFacility?.rangeMeters ?? 0))) ?? null;
-    let some = false, failed = false;
-    for (const item of items) {
-      if (!facility) { failed = true; continue; }
-      try { if (await flow.compressItemAt(item.itemID, facility.itemID)) some = true; else failed = true; } catch { failed = true; }
-    }
-    if (failed) {
-      const label = some ? "UI/Compression/FailureToCompressSome" : MENU.compressNone;
-      const text = word(label, some ? "Some items could not be compressed." : "No compression facility in range could compress those items.");
-      flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text);
-    }
-    await flow.loadMiningHolds().catch(() => {});
-  }
+  /** CompressInSpaceController.CompressItems (ui/compressInSpace.ts). */
+  const compressInSpace = (items: readonly { itemID: number }[]) => compressItemsInSpace(store, flow, items, (l, own) => word(l, own));
   async function act(run: () => Promise<void>): Promise<void> {
     moveError = "";
     try { await run(); } catch (cause) { moveError = cause instanceof Error ? cause.message : String(cause); }
