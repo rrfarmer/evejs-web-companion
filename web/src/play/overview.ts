@@ -260,6 +260,8 @@ export interface OverviewHooks {
   instanceID?: number;
   /** presetSvc.MoveTab(tabID, windowInstanceID): the tab moved to that window, or to a new one where null. */
   moveTab?(from: Overview, tab: number, to: number | null): void;
+  /** The Tabs panel changed the tabs of every window: the others read theirs again. */
+  tabsEdited?(from: Overview): void;
   /** The other overview windows, by id, for Move Tab To. */
   otherWindows?(from: Overview): readonly Overview[];
   select(itemID: number): void;
@@ -569,8 +571,9 @@ export class Overview {
     const tabsPanel = () => {
       // an empty slot shows overviewPresetSvc.GetDefaultPreset (DefaultPreset_639452, "General: General", read from the client)
       const first = this.presetChoices.find((p) => p.id === "DefaultPreset_639452")?.id ?? this.presetChoices[0]?.id ?? null;
+      const all = this.allTabs();
       const rows = Array.from({ length: MAX_TAB_NUM }, (_, i) => {
-        const t = this.tabSettings[i];
+        const t = all[i];
         const c = t?.color ?? null;
         return `<div class="ov-set-row" data-slot="${i}"><span class="ov-set-color"${t ? "" : " data-empty"}><span style="${c ? `background:${rgbCss(c)}` : ""}"></span><img src="${clientTexture("res:/ui/texture/icons/38_16_229.png")}" alt=""></span><input class="ov-set-name" maxlength="${MAX_TAB_NAME_LENGTH}" value="${esc(t?.name ?? "")}" autocomplete="off">
           <select class="ov-set-filter" title="${esc(word("UI/Overview/ChooseOverviewPreset", ""))}">${options(t?.preset ?? first, false)}</select>
@@ -704,16 +707,17 @@ export class Overview {
     // UpdateOverviewTab: each named slot updated, or added after the others
     const update = () => {
       const next: TabSettings[] = [];
+      const all = this.allTabs();
       for (const row of win.body.querySelectorAll<HTMLElement>(".ov-set-row[data-slot]")) {
         const i = Number(row.dataset.slot);
         const name = row.querySelector<HTMLInputElement>(".ov-set-name")!.value.trim();
-        const old = this.tabSettings[i];
+        // a new one goes to the first window (GetDefaultWindowInstanceID)
+        const old = all[i];
         if (!name) { if (old) next.push(old); continue; }
         next.push({ ...(old ?? {}), name, preset: row.querySelector<HTMLSelectElement>(".ov-set-filter")!.value,
           bracket: row.querySelector<HTMLSelectElement>(".ov-set-bracket")!.value || null });
       }
-      this.tabSettings = next;
-      this.tabsChanged(Math.min(this.tab, next.length - 1));
+      this.setAllTabs(next);
       draw();
     };
     win.body.addEventListener("change", (e) => {
@@ -874,9 +878,10 @@ export class Overview {
       const swatch = t.closest<HTMLElement>(".ov-set-color");
       if (swatch && !swatch.hasAttribute("data-empty")) {
         const i = Number(swatch.closest<HTMLElement>(".ov-set-row")!.dataset.slot);
-        openColorPanel(swatch, word, TAB_COLORS, 8, this.tabSettings[i]?.color ?? null, true, (color) => {
-          this.tabSettings[i] = { ...this.tabSettings[i]!, color: color ? [...color] : null };
-          this.tabsChanged(this.tab);
+        const tabsAll = this.allTabs();
+        openColorPanel(swatch, word, TAB_COLORS, 8, tabsAll[i]?.color ?? null, true, (color) => {
+          tabsAll[i] = { ...tabsAll[i]!, color: color ? [...color] : null };
+          this.setAllTabs(tabsAll);
           draw();
         });
         return;
@@ -894,10 +899,13 @@ export class Overview {
         return;
       }
       const del = t.closest(".ov-set-delete");
-      if (!del || this.tabSettings.length <= 1) return;
+      const tabsAll = this.allTabs();
+      if (!del || tabsAll.length <= 1) return;
       const i = Number(del.closest<HTMLElement>(".ov-set-row")!.dataset.slot);
-      this.tabSettings.splice(i, 1);
-      this.tabsChanged(this.tab > i ? this.tab - 1 : Math.min(this.tab, this.tabSettings.length - 1));
+      // the first window keeps a tab
+      if ((tabsAll[i]?.window ?? 0) === 0 && tabsAll.filter((x) => (x.window ?? 0) === 0).length <= 1) return;
+      tabsAll.splice(i, 1);
+      this.setAllTabs(tabsAll);
       draw();
     });
     void overviewFilterGroups().then((g) => { this.filterGroups = g; if (current === "filters") draw(); });
@@ -1375,6 +1383,27 @@ export class Overview {
   /** The overview windows other than the first that have tabs kept (OverviewWindow instances to open again). */
   storedWindowIDs(): number[] {
     return [...new Set(this.allStoredTabs().map((t) => t.window ?? 0).filter((w) => w > 0))].sort((a, b) => a - b);
+  }
+  /** Every window's tabs (GetSettingsByTabID), this window's as they are now. */
+  private allTabs(): TabSettings[] {
+    const stored = this.allStoredTabs();
+    const mine = this.tabSettings.map((t) => (this.instanceID ? { ...t, window: this.instanceID } : (({ window: _w, ...rest }) => rest)(t)));
+    const others = stored.filter((t) => (t.window ?? 0) !== this.instanceID);
+    return this.instanceID ? [...others, ...mine] : [...mine, ...others];
+  }
+  /** The Tabs panel's change to every window's tabs: kept, this window's read again, the others told. */
+  private setAllTabs(all: TabSettings[]): void {
+    try { localStorage.setItem(this.tabsKey, JSON.stringify(all)); } catch { /* lasts the page */ }
+    this.reloadTabs();
+    this.hooks.tabsEdited?.(this);
+  }
+  /** This window's tabs read again from what is kept (another window's settings changed them). */
+  reloadTabs(): void {
+    const prev = this.tab;
+    this.tabSettings = this.storedTabs() ?? this.profileTabs.map((t) => ({ ...t }));
+    this.tabs = this.tabSettings.map((t) => this.tabOf(t));
+    this.tab = -1;
+    if (this.tabs.length) this.choose(Math.max(0, Math.min(prev, this.tabs.length - 1)), true);
   }
   /** This window's tabs kept, the other windows' left as they are (presetSvc.UpdateSettingsByTabID). */
   private saveTabs(): void {

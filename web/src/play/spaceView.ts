@@ -1075,6 +1075,10 @@ export class SpaceView {
       bracketOverride: () => this.bracketOverride,
       setBracketOverride: (value) => { this.bracketOverride = value; },
       otherWindows: (from) => [this.overview, ...this.extraOverviews].filter((o) => o !== from),
+      tabsEdited: (from) => {
+        for (const o of [this.overview, ...this.extraOverviews]) if (o !== from) o.reloadTabs();
+        for (const o of [...this.extraOverviews]) if (o.tabCount === 0) this.removeOverviewWindow(o);
+      },
       // presetSvc.MoveTab: the tab out of its window into another, or a new one; a window left without tabs closes
       moveTab: (from, tab, to) => {
         const target = to === null ? this.addOverviewWindow(makeOverview) : [this.overview, ...this.extraOverviews].find((o) => o.instanceID === to);
