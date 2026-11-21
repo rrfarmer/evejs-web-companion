@@ -218,7 +218,16 @@
   // typeHelpers.GetAveragePrice: the cfg's average prices
   let prices = $state<ReadonlyMap<number, number | null> | null>(null);
   onMount(() => { void flow.cfgAveragePrices().then((p) => (prices = p)).catch(() => {}); });
-  const isk = $derived(shown.reduce((n, i) => n + (prices?.get(i.typeID) ?? 0) * i.quantity, 0));
+  // invWindow._UpdateSelectedItems: with a selection, the price label the selected items' (UpdateIskPriceLabel(items)) and the
+  // gauge's secondary fill and "(<volume>) " their volume (SetSecondaryVolume); else every item's price
+  const selectedItems = $derived((bay?.items ?? []).filter((i) => selected.includes(i.itemID)));
+  const isk = $derived((selectedItems.length ? selectedItems : shown).reduce((n, i) => n + (prices?.get(i.typeID) ?? 0) * i.quantity, 0));
+  $effect(() => {
+    const ids = [...new Set(selectedItems.map((i) => i.typeID))].filter((t) => volumes[String(t)] === undefined);
+    if (ids.length) void flow.typeVolumes(ids).then((v) => { volumes = { ...volumes, ...v }; }).catch(() => {});
+  });
+  const secondaryVolume = $derived(selectedItems.reduce((n, i) => n + (volumes[String(i.typeID)] ?? 0) * i.quantity, 0));
+  const secondaryFill = $derived(bay && bay.capacity ? Math.min(1, secondaryVolume / bay.capacity) : 0);
 
   /** InvContCapacityGauge: "<used>/<capacity> m³" over its fill. */
   const fmt1 = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -399,7 +408,8 @@
       {/if}
       <div class="gauge">
         <span class="gfill" style:width={`${fill * 100}%`}></span>
-        <span class="gtext">{bay ? `${fmt1(bay.used ?? 0)}/${bay.capacity === null ? "?" : fmt1(bay.capacity)} m³` : ""}</span>
+        <span class="gfill sec" style:width={`${secondaryFill * 100}%`}></span>
+        <span class="gtext">{bay ? `${secondaryVolume ? `(${fmt1(secondaryVolume)}) ` : ""}${fmt1(bay.used ?? 0)}/${bay.capacity === null ? "?" : fmt1(bay.capacity)} m³` : ""}</span>
       </div>
       <input class="search" placeholder="Search" value={$filterSig} oninput={(e) => filterSig.set((e.target as HTMLInputElement).value)} />
     </div>
@@ -449,7 +459,7 @@
       <div class="special"><button type="button" onclick={() => { const id = $inventoryState.container?.itemID; if (id) void act(async () => { await flow.lootContainer(id); }); }}>{word("UI/Inventory/LootAll", "Loot All")}</button></div>
     {/if}
     <div class="foot">
-      <span class="count">{selected.length
+      <span class="count" class:filtered={filtered > 0}>{selected.length
         ? word("UI/Inventory/NumItemsAndSelected2", `${shown.length} Items (${selected.length} selected)`, { numItems: shown.length, numSelected: selected.length, numFilteredTxt: filtered > 0 ? `(${filtered} filtered)` : "" })
         : word("UI/Inventory/NumItems2", `${shown.length} Items`, { numItems: shown.length, numFilteredTxt: filtered > 0 ? `(${filtered} filtered)` : "" })}</span>
       {#if moveError}<span class="err">{moveError}</span>{/if}
@@ -504,6 +514,8 @@
   /* its fills (gridcheck): the bg black 0.4, the gauge THEME_FOCUSDARK at 0.6 (Photon 48, 86, 101), the label EveLabelSmall
      white 0.75 at 8, 1 below the middle */
   .gfill { position: absolute; left: 0; top: 0; bottom: 0; background: color-mix(in srgb, var(--theme-focus-dark, #305665) 60%, transparent); }
+  /* capacityGaugeSec, over the gauge: the selected items' share in THEME_FOCUS 0.6 */
+  .gfill.sec { background: color-mix(in srgb, var(--theme-focus, #58a7bf) 60%, transparent); }
   .gtext { position: absolute; left: 8px; top: 1px; line-height: 24px; font-size: 12px; color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
   .search { width: auto; flex: 1; min-width: 0; margin-left: 8px; height: 24px; box-sizing: border-box; border: 0; background: rgba(0, 0, 0, 0.3); color: #fff; padding: 0 6px; font-size: 14px; }
   /* the ShipCargo scroll's entries and the footer's labels from 16 past the tree column (186) */
@@ -517,6 +529,8 @@
   .iname { margin-top: 2px; width: 70px; text-align: center; font-size: 14px; line-height: 18px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .foot { padding-left: 4px; display: flex; align-items: center; gap: 8px; height: 24px; color: rgba(255, 255, 255, 0.55); }
   .count { font-weight: 700; }
+  /* UpdateNumberOfItems: with items filtered out, its text SUCCESS_GREEN */
+  .count.filtered { color: #8dc169; }
   .rows { width: 100%; border-collapse: collapse; font-size: 12px; align-self: flex-start; }
   .rows th { position: sticky; top: 0; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 2px 6px; white-space: nowrap; background: rgba(0, 0, 0, 0.4); }
   .rows td { padding: 0 6px; height: 20px; white-space: nowrap; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
