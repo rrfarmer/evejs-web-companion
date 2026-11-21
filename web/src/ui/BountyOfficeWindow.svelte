@@ -30,7 +30,8 @@
     "UI/Station/BountyOffice/MostWanted", "UI/Station/BountyOffice/TopBountyHunters", "UI/Station/BountyOffice/MyBounties",
     "UI/Station/BountyOffice/ShowCharacters", "UI/Station/BountyOffice/ShowCorporations", "UI/Station/BountyOffice/ShowAlliances",
     "UI/Station/BountyOffice/NoOutstandingBounties", "UI/Common/BountyAmount", "UI/Station/BountyOffice/BountyHint", "UI/Inventory/Clear",
-    "UI/Station/BountyOffice/BountyClaimed"];
+    "UI/Station/BountyOffice/BountyClaimed", "UI/Station/BountyOffice/NoOneFound", "UI/Search/UniversalSearch/Characters",
+    "UI/Search/UniversalSearch/Corporations", "UI/Search/UniversalSearch/Alliances", "UI/Generic/OK", "UI/Generic/Cancel"];
   const word = (label: string, own: string, args: Record<string, string | number> = {}): string => {
     const t = $words.templates[label];
     return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args, { nameOf: (_k, id) => String(id) })).trim() : own;
@@ -46,7 +47,37 @@
 
   let win = $state({ x: 120, y: 90, w: 400, h: 510, z: 30, minimized: false });
   // svelte-ignore state_referenced_locally
-  let owner = $state(target);
+  type Owner = { ownerID: number; corporationID: number | null; allianceID: number | null; kind?: "char" | "corp" | "alliance" };
+  let owner = $state<Owner | null>(target);
+  const kindOf = (o: Owner) => o.kind ?? "char";
+  // Search: searchUtil.GetResultsList(text, [character, corporation, alliance], hideNPC) - one found is the owner
+  // (ShowResult), several open BountyPicker (grouped Characters / Corporations / Alliances), none says NoOneFound
+  let searchText = $state("");
+  let searchHint = $state("");
+  let picking = $state<readonly { id: number; name: string; kind: "char" | "corp" | "alliance" }[] | null>(null);
+  let picked = $state<number | null>(null);
+  const isNpcOwner = (id: number) => (id >= 1_000_000 && id < 2_000_000) || (id >= 3_000_000 && id < 4_000_000) || (id >= 500_000 && id < 1_000_000);
+  async function search(): Promise<void> {
+    const text = searchText.replace(/\*/g, "").trim();
+    if (!text || owner) return;
+    let found: { id: number; name: string; kind: "char" | "corp" | "alliance" }[] = [];
+    try {
+      const byType = await flow.searchOwners(text, [2, 3, 4], 0);
+      const kinds = { 2: "char", 3: "corp", 4: "alliance" } as const;
+      for (const t of [2, 3, 4] as const) for (const r of byType.get(t) ?? []) if (!isNpcOwner(r.id)) found.push({ id: r.id, name: r.name, kind: kinds[t] });
+    } catch (cause) { error = String((cause as Error)?.message ?? cause); return; }
+    if (!found.length) { searchText = ""; searchHint = word("UI/Station/BountyOffice/NoOneFound", "No one found"); return; }
+    if (found.length === 1) { choose(found[0]!); return; }
+    picked = null;
+    picking = found;
+  }
+  function choose(r: { id: number; kind: "char" | "corp" | "alliance" }): void {
+    picking = null;
+    searchText = "";
+    owner = { ownerID: r.id, corporationID: null, allianceID: null, kind: r.kind };
+    amountHint = "";
+    void readAmounts();
+  }
   let amounts = $state<Map<number, number>>(new Map());
   let amountText = $state("");
   let amountHint = $state("");
@@ -78,7 +109,7 @@
   async function place(): Promise<void> {
     if (!owner || busy) return;
     const amount = Number(amountText.replace(/[^\d]/g, ""));
-    const min = minimum(owner.ownerID, "char");
+    const min = minimum(owner.ownerID, kindOf(owner));
     if (!(amount >= min)) {
       amountText = "";
       amountHint = word("UI/Station/BountyOffice/TooLowEnterMore", `Too low, enter at least ${isk(min)}`, { minAmount: isk(min) });
@@ -153,17 +184,33 @@
         {#if owner}
           {@const o = owner}
           <div class="bounty-verified">
-            <button type="button" class="bounty-img" onclick={() => showInfo(o.ownerID, "char")}><img src={image(o.ownerID, "char", 32)} alt="" /></button>
-            <span class="bounty-text"><button type="button" class="bounty-link" onclick={() => showInfo(o.ownerID, "char")}>{nameOf(o.ownerID)}</button>
+            <button type="button" class="bounty-img" onclick={() => showInfo(o.ownerID, kindOf(o))}><img src={image(o.ownerID, kindOf(o), 32)} alt="" /></button>
+            <span class="bounty-text"><button type="button" class="bounty-link" onclick={() => showInfo(o.ownerID, kindOf(o))}>{nameOf(o.ownerID)}</button>
               <span class="bounty-small" title={hint}>{word("UI/Common/BountyAmount", `Bounty: ${isk(total)}`, { bountyAmount: isk(total) })}</span></span>
             <button type="button" class="bounty-clear" title={word("UI/Inventory/Clear", "Clear")} onclick={() => { owner = null; amountHint = ""; }}><img src={clientTexture("res:/UI/Texture/Icons/73_16_210.png")} alt="" /></button>
           </div>
         {:else}
-          <div class="bounty-search"><img src={clientTexture("res:/UI/Texture/silhouette_64.png")} alt="" /><input type="text" maxlength="32" placeholder={word("UI/Station/BountyOffice/SearchForUser", "Search for user")} disabled /></div>
+          <div class="bounty-search"><img src={clientTexture("res:/UI/Texture/silhouette_64.png")} alt="" /><input type="text" maxlength="32" bind:value={searchText} onkeydown={(e) => { if (e.key === "Enter") void search(); }} placeholder={searchHint || word("UI/Station/BountyOffice/SearchForUser", "Search for user")} /></div>
+          {#if picking}
+            <div class="bounty-picker" role="dialog" aria-label={word("UI/Station/BountyOffice/PlaceBounty", "Place Bounty")}>
+              {#each [["char", "UI/Search/UniversalSearch/Characters", "Characters"], ["corp", "UI/Search/UniversalSearch/Corporations", "Corporations"], ["alliance", "UI/Search/UniversalSearch/Alliances", "Alliances"]] as [kind, label, own] (kind)}
+                {#if picking.some((r) => r.kind === kind)}
+                  <div class="bounty-picker-head">{word(label!, own!)}</div>
+                  {#each picking.filter((r) => r.kind === kind) as r (r.id)}
+                    <button type="button" class="bounty-picker-row" class:on={picked === r.id} onclick={() => (picked = r.id)} ondblclick={() => choose(r)}>{r.name}</button>
+                  {/each}
+                {/if}
+              {/each}
+              <div class="bounty-picker-btns">
+                <button type="button" disabled={picked === null} onclick={() => { const r = picking?.find((x) => x.id === picked); if (r) choose(r); }}>{word("UI/Generic/OK", "OK")}</button>
+                <button type="button" onclick={() => { picking = null; searchText = ""; }}>{word("UI/Generic/Cancel", "Cancel")}</button>
+              </div>
+            </div>
+          {/if}
         {/if}
         <div class="bounty-amount">
           <input type="text" inputmode="numeric" bind:value={amountText} onkeydown={(e) => { if (e.key === "Enter") void place(); }}
-            placeholder={amountHint || (owner ? word("UI/Station/BountyOffice/InsertAmount", `Enter at least ${isk(minimum(owner.ownerID, "char"))}`, { bountyAmount: isk(minimum(owner.ownerID, "char")) }) : word("UI/Station/BountyOffice/EnterAmount", "Enter amount"))} />
+            placeholder={amountHint || (owner ? word("UI/Station/BountyOffice/InsertAmount", `Enter at least ${isk(minimum(owner.ownerID, kindOf(owner)))}`, { bountyAmount: isk(minimum(owner.ownerID, kindOf(owner))) }) : word("UI/Station/BountyOffice/EnterAmount", "Enter amount"))} />
           <button type="button" disabled={!owner || busy} onclick={() => void place()}>{word("UI/Station/BountyOffice/Place", "Place")}</button>
         </div>
         {#if error}<div class="bounty-error" role="status">{error}</div>{/if}
@@ -201,6 +248,12 @@
   .bounty-verified, .bounty-search { display: flex; align-items: center; gap: 4px; min-height: 32px; margin-top: 4px; }
   .bounty-search img { width: 32px; height: 32px; }
   .bounty-search input, .bounty-amount input { flex: 1; height: 28px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; font: inherit; padding: 0 6px; }
+  .bounty-picker { margin-top: 4px; max-height: 180px; overflow-y: auto; border: 1px solid rgba(255, 255, 255, 0.15); background: rgba(0, 0, 0, 0.35); padding: 4px; }
+  .bounty-picker-head { font-size: 11px; color: rgba(255, 255, 255, 0.55); margin: 4px 0 2px; }
+  .bounty-picker-row { display: block; width: 100%; padding: 2px 6px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .bounty-picker-row.on, .bounty-picker-row:hover { background: rgba(255, 255, 255, 0.12); }
+  .bounty-picker-btns { display: flex; justify-content: flex-end; gap: 4px; margin-top: 4px; }
+  .bounty-picker-btns button { width: 81px; height: 24px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.25); color: inherit; font: inherit; cursor: pointer; }
   .bounty-clear { width: 24px; padding: 0; border: 0; background: none; cursor: pointer; }
   .bounty-amount { display: flex; gap: 4px; height: 32px; margin-top: 4px; align-items: center; }
   .bounty-amount button { height: 28px; padding: 0 14px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.25); color: inherit; font: inherit; cursor: pointer; }
