@@ -1927,6 +1927,10 @@
               });
             } });
           }
+          // OfferToggleOverviewVisibility: the thing's group to or from the Overview, last
+          const groupID = snapshot?.entities.find((e) => e.itemID === item)?.groupID ?? (typeNames[String(ball?.typeID ?? b.typeID)]?.[1] ?? null);
+          const toggle = groupID !== null && view ? view.overviewToggleEntry(groupID) : null;
+          if (toggle) tail.push(toggle);
           const all: (ContextEntry | null)[] = [...sub, ...(tail.length ? [null, ...tail] : [])];
           return { label: hint, run: () => ran(s.flow.warpToBookmark(b.bookmarkID, 0)), sub: all };
         }).sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));

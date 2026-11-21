@@ -3238,6 +3238,15 @@ export class SpaceView {
     return out;
   }
 
+  /** overviewMenuUtil.GetToggleEntry: Add <group> to Overview, or Remove <group> from Overview where it is shown. */
+  overviewToggleEntry(group: number): ContextEntry {
+    const word = (label: string, own: string, args?: Readonly<Record<string, string | number>>) => this.actions.word?.(label, args) ?? own;
+    const groupName = this.names?.groups[String(group)]?.[0] ?? "";
+    return this.overview.groupShown(group)
+      ? { path: "UI/Overview/RemoveGroupFromOverview", label: word("UI/Overview/RemoveGroupFromOverview", `Remove ${groupName} from Overview`, { groupName }), run: () => this.overview.setGroupShown(group, false) }
+      : { path: "UI/Overview/AddGroupToOverview", label: word("UI/Overview/AddGroupToOverview", `Add ${groupName} to Overview`, { groupName }), run: () => this.overview.setGroupShown(group, true) };
+  }
+
   /** menusvc.TryLookAt: the camera on the thing (Look at), where the ballpark has it. */
   lookAtItem(itemID: number): void {
     if (this.snapshot?.entities.some((e) => e.itemID === itemID)) this.focusOn(itemID);
