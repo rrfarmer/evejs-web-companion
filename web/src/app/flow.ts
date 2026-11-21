@@ -2304,6 +2304,12 @@ export interface AppFlow {
     to: InventoryPlace,
     qty?: number | null,
   ): Promise<void>;
+  /**
+   * invControllers.PromptUserForQuantity, as a Shift-drop asks it: how many of the stack to move into `to` (uix.QtyPopup
+   * from 0 to the least of the stack and what the place has room for, begun at that, its hint UI/Common/NoMoreUnits
+   * where that is the whole stack and NoRoomForMore where not); null where cancelled, nothing, or the stack is gone.
+   */
+  askMoveQuantity(itemID: number, from: InventoryPlace, to: InventoryPlace): Promise<number | null>;
   /** Re-merge one stack into another of the same type. */
   mergeStacks(
     sourceItemID: number,
@@ -36335,6 +36341,23 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return lootIntoShip(containerID, bays, shipID);
     },
 
+    async askMoveQuantity(itemID, from, to) {
+      const row = (rowsAt(from) ?? []).find((each) => each.itemID === itemID);
+      if (!row) return null;
+      const stack = row.singleton ? 1 : row.quantity;
+      const capacity = capacityAt(to);
+      const volume = typeof row.volume === "number" && row.volume > 0 ? row.volume : 1;
+      const roomFor = capacity !== null ? Math.trunc((capacity.capacity - capacity.used) / volume + 1e-7) : null;
+      const most = Math.min(...[stack, roomFor].filter((each): each is number => each !== null && each > 0));
+      if (!Number.isFinite(most)) return null;
+      const whole = most === stack;
+      const quantity = await askQuantity({
+        min: 0, max: most, value: most,
+        hintLabel: whole ? "UI/Common/NoMoreUnits" : "UI/Common/NoRoomForMore",
+        hint: whole ? "There are no more units where these lie." : "There is no room for more where these are going.",
+      });
+      return quantity !== null && quantity > 0 ? quantity : null;
+    },
     async transferItems(itemIDs, from, to, qty = null) {
       // One stack's want of room is the client's own to answer (invControllers._AddItem, 229 to 290: noRoomForAll);
       // many stacks' goes to its handler, as every other refusal does.

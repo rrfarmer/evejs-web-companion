@@ -257,7 +257,14 @@
       // the moves judge by the inventory's own rows (the cargo's and the open ship's bays), read first
       await flow.loadInventory();
       if (ship) await flow.openShipBays(ship.itemID);
-      await flow.transferItems(d.ids, placeOf(d.from), placeOf(key));
+      // invControllers._AddItem: a single stack dropped with Shift asks how many (PromptUserForQuantity)
+      const one = d.ids.length === 1 ? bays.find((b) => b.key === d.from)?.items?.find((i) => i.itemID === d.ids[0]) ?? null : null;
+      let quantity: number | null = null;
+      if (e.shiftKey && one && one.quantity > 1) {
+        quantity = await flow.askMoveQuantity(one.itemID, placeOf(d.from), placeOf(key));
+        if (quantity === null) return;
+      }
+      await flow.transferItems(d.ids, placeOf(d.from), placeOf(key), quantity);
       const inv = store.inventory.get();
       if (inv.actionError && !inv.actionErrorSaid) moveError = inv.actionError;
     } catch (cause) {
