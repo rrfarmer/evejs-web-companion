@@ -2369,6 +2369,8 @@ export interface AppFlow {
   loadDogma(): Promise<void>;
   /** Show Info's base and incoming modifiers for an item in the pilot's loaded dogma location. */
   fittingAttributeModifiers(itemID: number, typeID: number, attributeIDs: readonly number[]): ReadonlyMap<number, AttributeModification>;
+  /** A drone type's attribute with the pilot's skills applied (the active ship's dogma reckoning); null where not loaded. */
+  droneAttribute(typeID: number, attributeID: number): number | null;
   /**
    * Fit a module from the station hangar or the ship's cargo. `slot` picks a
    * specific slot by family + index, or "auto" to let the SERVER choose one.
@@ -9900,7 +9902,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     readonly location: DogmaLocation;
     readonly items: ReadonlyMap<string, DogmaItem>;
     readonly godmaRows: ReadonlyMap<string, ReadonlyMap<number, number>>;
+    /** The drones the location loaded (the bay's stacks and those out), by type: their attributes as dogma reckons them. */
+    readonly drones?: ReadonlyMap<number, DogmaItem>;
   } | null = null;
+
+  /**
+   * A drone type's attribute as the client's dogma location has it (GetEffectiveAttributeValue on a drone it loaded:
+   * the pilot's skills applied), from the active ship's last reckoning; null where no drone of the type was loaded.
+   */
+  let droneReckonAsked = false;
+  function droneAttribute(typeID: number, attributeID: number): number | null {
+    const item = attributeModifierRead?.drones?.get(typeID);
+    if (item) return attributeModifierRead!.location.value(item, attributeID);
+    // a reckoning made before the drones could be read (at login) has none: one more is asked, once
+    if (!droneReckonAsked) { droneReckonAsked = true; void reckonActiveShip().catch(() => {}).finally(() => { droneReckonAsked = false; }); }
+    return null;
+  }
 
   function fittingAttributeModifiers(itemID: number, typeID: number, attributeIDs: readonly number[]): ReadonlyMap<number, AttributeModification> {
     const current = attributeModifierRead;
@@ -9933,8 +9950,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       charges,
       { clock: () => loadingAt ?? serverNow(), shipInstance: instanceOf(shipInfo.itemID), pilotInstance: instanceOf(characterID) },
     );
-    for (const stack of bay) reckoned.location.loadDrone(reckoned.ship, String(stack.itemID), stack.typeID, stack.quantity);
+    const dronesIn = bay.map((stack) => reckoned.location.loadDrone(reckoned.ship, String(stack.itemID), stack.typeID, stack.quantity));
     const dronesOut = inSpace.map((drone) => reckoned.location.loadDrone(reckoned.ship, String(drone.itemID), drone.typeID, 1));
+    const dronesByType = new Map<number, DogmaItem>();
+    for (const d of [...dronesIn, ...dronesOut]) if (d && !dronesByType.has(d.typeID)) dronesByType.set(d.typeID, d);
     // Each tube's squadron, a fighter of the pilot's in the location (FighterDogmaItem), for its damage (GetFighterDamage).
     for (const squadron of squadrons) {
       reckoned.location.loadFighter(reckoned.ship, String(squadron.itemID), squadron.typeID, squadron.tubeFlagID, squadron.squadronSize);
@@ -10077,6 +10096,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       attributeModifierRead = {
         allInfo, shipID, location: reckoned.location, godmaRows,
         items: new Map([[String(shipID), reckoned.ship], ...reckoned.modules]),
+        drones: dronesByType,
       };
     }
     store.apply({ type: "fitting/reckoned", shipID, ...figures, bayReadout, warnings, skillWarning });
@@ -36648,6 +36668,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     loadDogma,
     fittingAttributeModifiers,
+    droneAttribute,
 
     // A module fitted and unfitted: the page's own calls on an inventory's own object (bridge/fitModule.ts), as
     // the client's dogma location and its fitting slot make them, judged by the page's own read of the slots.

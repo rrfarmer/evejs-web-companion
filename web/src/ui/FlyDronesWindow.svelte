@@ -23,6 +23,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { SpaceEntity } from "../store/types.ts";
+  import { formatSeconds } from "../play/moduleTooltip.ts";
 
   let { store, flow, onSelect, onLock, spaceSelected = null }: {
     store: ClientStore; flow: AppFlow;
@@ -113,12 +114,18 @@
   /**
    * DroneTooltip (droneTooltip.py, a ModuleButtonTooltip on DroneEntry): the type's icon and name in bold, under it
    * GetDroneStateDescription - the state word in its colour and, mining or fighting, what on (the pilot's name for a
-   * ship, else the thing's name) - then AddDroneBandwidthUsed (the attribute's icon, its name and value). The mining
-   * amount row (AddMiningDroneInfo) is left out: it is the drone's skill-modified attribute, which the page lacks.
+   * ship, else the thing's name) - then for a mining drone AddMiningDroneInfo (its miningAmount and duration with the
+   * pilot's skills applied, flow.droneAttribute) and AddDroneBandwidthUsed (the attribute's icon, its name and value).
    */
   let tip = $state<{ typeID: number; name: string; state: string | null; color: string | null; targetID: number | null; x: number; y: number } | null>(null);
   let tipTimer: ReturnType<typeof setTimeout> | null = null;
   const bandwidth = new Map<number, number | null>();
+  const groupOfType = new Map<number, number | null>();
+  const tipWord = (label: string, args: Readonly<Record<string, unknown>>): string | null => {
+    const t = $headerWords.templates[label];
+    return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args as never, { nameOf: () => null } as never)) : null;
+  };
+  flow.requestWords(["UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", "/Carbon/UI/Common/WrittenDateTimeQuantityShort/Second", "UI/Generic/Unknown"]);
   let bandwidthLook = $state<{ icon: string | null; name: string | null } | null>(null);
   let bandwidthVersion = $state(0);
   function tipFor(typeID: number, state: string | null, color: string | null, targetID: number | null, e: MouseEvent): void {
@@ -130,9 +137,11 @@
       if (t?.typeID) flow.requestNames([{ kind: "type", id: t.typeID }]);
       if (t?.characterID) flow.requestNames([{ kind: "owner", id: t.characterID }]);
       tip = { typeID, name: typeName(typeID, ""), state, color, targetID, x: r.right + 12, y: r.top + r.height / 2 };
+      // the mining row's attributes may wait on a reckoning of the ship: read again shortly
+      if (flow.droneAttribute(typeID, 77) === null) setTimeout(() => bandwidthVersion++, 1500);
       if (!bandwidth.has(typeID)) {
         bandwidth.set(typeID, null);
-        void flow.typeDogmaFacts(typeID).then((f) => { bandwidth.set(typeID, f?.attributes.find((a) => a[0] === 1272)?.[1] ?? null); bandwidthVersion++; }).catch(() => {});
+        void flow.typeDogmaFacts(typeID).then((f) => { bandwidth.set(typeID, f?.attributes.find((a) => a[0] === 1272)?.[1] ?? null); groupOfType.set(typeID, f?.groupID ?? null); bandwidthVersion++; }).catch(() => {});
       }
       if (!bandwidthLook) {
         void flow.attributeDisplay([1272]).then((m) => {
@@ -151,6 +160,14 @@
     const t = snapshot?.entities.find((x) => x.itemID === tip!.targetID) ?? null;
     if (!t) return headerWord("UI/Generic/Unknown", "Unknown");
     return (t.characterID ? resolvedName($names.resolved, "owner", t.characterID, "") : "") || t.name || typeName(t.typeID, "") || headerWord("UI/Generic/Unknown", "Unknown");
+  });
+  /** AddMiningDroneInfo: groupMiningDrone (101) only. */
+  const miningText = $derived.by(() => {
+    void bandwidthVersion;
+    if (!tip || groupOfType.get(tip.typeID) !== 101) return null;
+    const amount = flow.droneAttribute(tip.typeID, 77), durationMs = flow.droneAttribute(tip.typeID, 73);
+    if (amount === null || durationMs === null || !(durationMs > 0)) return null;
+    return tipWord("UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", { duration: formatSeconds(durationMs / 1000, tipWord), amount, amountPerSec: amount / (durationMs / 1000) });
   });
   const bandwidthText = $derived.by(() => {
     void bandwidthVersion;
@@ -633,6 +650,10 @@
     <div class="tip-grid">
       <span class="tip-icon"><TypeIcon typeID={tip.typeID} name={tip.name} size="sm" /></span>
       <span class="tip-text"><b>{tip.name}</b>{#if tip.state}<br><span style:color={tip.color}>{tip.state}</span>{#if tipTarget}&nbsp;{tipTarget}{/if}{/if}</span>
+      {#if miningText}
+        <span class="tip-icon"><img src="/client-res/ui/texture/icons/23_64_5.png" alt="" /></span>
+        <span class="tip-text">{miningText}</span>
+      {/if}
       {#if bandwidthText}
         <span class="tip-icon">{#if bandwidthLook?.icon}<img src={bandwidthLook.icon} alt="" />{/if}</span>
         <span class="tip-text">{bandwidthText}</span>
