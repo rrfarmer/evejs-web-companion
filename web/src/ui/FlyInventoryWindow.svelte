@@ -534,9 +534,14 @@
   /* UpdateNumberOfItems: with items filtered out, its text SUCCESS_GREEN */
   .count.filtered { color: #8dc169; }
   .rows { width: 100%; border-collapse: collapse; font-size: 12px; align-self: flex-start; }
-  .rows th { position: sticky; top: 0; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 2px 6px; white-space: nowrap; background: rgba(0, 0, 0, 0.4); }
+  /* the scroll's ColumnHeaders (gridcheck, details): 24 high, the EveLabelSmall 12 at 8 */
+  .rows th { position: sticky; top: 0; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 0 8px; height: 24px; box-sizing: border-box; white-space: nowrap; background: rgba(0, 0, 0, 0.4); }
+  /* uix.GetInvItemDefaultHiddenHeaders: Category, Meta Level and Tech Level hidden by default */
+  .rows th:nth-child(4), .rows td:nth-child(4), .rows th:nth-child(8), .rows td:nth-child(8), .rows th:nth-child(9), .rows td:nth-child(9) { display: none; }
   .rows td { padding: 0 6px; height: 20px; white-space: nowrap; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
-  .rows.details td { height: 36px; }
+  /* the details' Item entry 42 high, its EveLabelMedium 14, the 32 px icon at 5, 5 and the text 9 after it (46) */
+  .rows.details td { height: 42px; font-size: 14px; }
+  .rows.details td.nm { padding-left: 0; }
   .rows tr:hover td { background: rgba(255, 255, 255, 0.05); }
   .rows tr.selected td { background: rgba(255, 255, 255, 0.12); }
   .rows .num { text-align: right; }
