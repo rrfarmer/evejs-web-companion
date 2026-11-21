@@ -23,6 +23,9 @@ export interface OverviewRelationships {
   readonly suspects?: ReadonlySet<number>;
   /** The pilots this one has a limited engagement with (crimewatchSvc.HasLimitedEngagmentWith). */
   readonly engagedWith?: ReadonlySet<number>;
+  /** bountySvc: the owners (pilots, corporations, alliances) with a bounty, and the pilots a kill right is held on. */
+  readonly wanted?: ReadonlySet<number>;
+  readonly killRights?: ReadonlySet<number>;
 }
 
 interface OverviewItem {
@@ -88,6 +91,8 @@ export const STATE_FLAG_LOOKS: ReadonlyMap<number, StateFlagLook> = new Map([
   // crimewatch's: a black flag with the icon in its colour (StateProperty iconColor), the background orange
   look(52, "Pilot has a limited engagement with you", 5, [0, 0, 0, 1], [1, 0.35, 0, 1], true, false, [0, 0.63, 0.57, 1]),
   look(51, "Pilot is a criminal", 5, [0, 0, 0, 1], [1, 0.35, 0, 1], true, false, [0.867, 0, 0, 1]),
+  look(53, "Pilot has a kill right on them that you can activate", 7, [1, 0.35, 0, 1], [1, 0.35, 0, 1]),
+  look(20, "Pilot has bounty on them", 5, [0, 0, 0, 1], [0.7, 0.7, 0.7, 1]),
   look(50, "Pilot is a suspect", 5, [0, 0, 0, 1], [1, 0.35, 0, 1], false, false, [0.984, 0.702, 0.22, 1]),
 ].map((l) => [l.flag, l]));
 /**
@@ -95,8 +100,8 @@ export const STATE_FLAG_LOOKS: ReadonlyMap<number, StateFlagLook> = new Map([
  * Suspect (50), Limited Engagement (52), Has Kill Right (53) and Is Wanted (20) are in the client's orders too; the
  * page does not read crimewatch or bounties, so they are left out here.
  */
-const FLAG_ORDER = [13, 44, 52, 11, 12, 14, 15, 16, 45, 9, 51, 50, 19, 18, 49, 10, 17, 48, 21];
-const BACKGROUND_ORDER = [13, 44, 52, 11, 12, 14, 15, 16, 45, 49, 19, 18, 9, 51, 50, 10, 21, 17, 48];
+const FLAG_ORDER = [13, 44, 52, 11, 12, 14, 15, 16, 45, 9, 51, 50, 53, 19, 18, 49, 10, 17, 48, 21, 20];
+const BACKGROUND_ORDER = [13, 44, 52, 11, 12, 14, 15, 16, 45, 49, 19, 18, 9, 51, 50, 53, 10, 20, 21, 17, 48];
 /**
  * The Appearance settings the flags are drawn by (AppearancePanel): the active Colortag and Background orders, and
  * which things carry flags at all (stateSvc.CheckIfUpdateItem: ships, NPCs, drones and fighters, stations and
@@ -189,6 +194,10 @@ function flagHolds(flag: number, item: OverviewItem, group: number, category: nu
     case 50: return charID !== null && !!relations?.suspects?.has(charID);
     case 51: return charID !== null && !!relations?.criminals?.has(charID);
     case 52: return charID !== null && !!relations?.engagedWith?.has(charID);
+    // CheckWanted: bountySvc.QuickHasBounty - a ship with a pilot, the pilot, corporation or alliance with a bounty
+    case 20: return charID !== null && [charID, item.corporationID, item.allianceID].some((id) => id != null && !!relations?.wanted?.has(id));
+    // CheckHasKillRight: bountySvc.QuickHasKillRight
+    case 53: return charID !== null && !!relations?.killRights?.has(charID);
     default: return false;
   }
 }

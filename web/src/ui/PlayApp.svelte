@@ -1323,6 +1323,26 @@
     const enteringSpace = entryWarpHistory;
     entryWarpHistory = null;
     let overviewScope = "";
+    // bountySvc's caches: the grid's pilots (and their corporations and alliances) asked when the set changes
+    // (_DoBallsAdded), and again each minute, the bounties and kill rights kept in between
+    let bountyKey = "", bountyAskedAt = 0;
+    let bountySets: { wanted: Set<number>; killRights: Set<number> } = { wanted: new Set(), killRights: new Set() };
+    function bountiesFor(entities: readonly Entity[]): void {
+      const pilots = new Set<number>(), owners = new Set<number>();
+      for (const e of entities) {
+        if (!e.characterID || e.isSelf || e.isNpc) continue;
+        pilots.add(e.characterID);
+        owners.add(e.characterID);
+        if (e.corporationID) owners.add(e.corporationID);
+        if (e.allianceID) owners.add(e.allianceID);
+      }
+      const key = [...pilots].sort().join(",");
+      if (key === bountyKey && Date.now() - bountyAskedAt < 60_000) return;
+      bountyKey = key;
+      bountyAskedAt = Date.now();
+      if (!pilots.size) { bountySets = { wanted: new Set(), killRights: new Set() }; return; }
+      void s.flow.bountiesAndKillRights([...owners], [...pilots]).then((read) => { if (!disposed && bountyKey === key) bountySets = read; }).catch(() => {});
+    }
     let contactsKey = "";
     let warsKey = "";
     let contacts: OverviewRelationships["contacts"] = null;
@@ -1383,9 +1403,10 @@
       const ids = (list: readonly (number | string)[] | undefined) => new Set((list ?? []).map(Number).filter((n) => Number.isFinite(n)));
       return { criminals: ids(states?.criminals.members), suspects: ids(states?.suspects.members), engagedWith: ids(states?.engagements.map((e) => e.characterID)) };
     }
-    function overviewRelationships(): OverviewRelationships | undefined {
+    function overviewRelationships(entities: readonly Entity[]): OverviewRelationships | undefined {
       const online = s.store.station.get().online;
       if (!online) return;
+      bountiesFor(entities);
       const { characterID, corporationID } = online;
       const allianceID = online.allianceID ?? null;
       const fleet = s.store.fleet.get();
@@ -1423,6 +1444,7 @@
         now: BigInt(Date.now()) * 10000n + 116444736000000000n,
         // crimewatchSvc: the system's criminals and suspects and this pilot's limited engagements (its client states)
         ...crimewatchSets(),
+        ...bountySets,
       };
     }
 

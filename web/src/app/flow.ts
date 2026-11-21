@@ -472,6 +472,7 @@ import { BridgeCallError } from "../bridge/callMethod.ts";
 import { argumentsOf, createBotPresses, decodeQuestion, dialogOfKey, keptQuestionAnswer, questionKeeping, iskWords } from "../bridge/questions.ts";
 import { classifyDistributionAgentConversation, selectDistributionAgent } from "../nav/distributionAgentSelection.ts";
 import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
+import { decodeKillRights } from "../bridge/killRights.ts";
 import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapBool, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
 import { canManageMoonPull, decodeCorporationMoonPulls, decodeMoonResources, decodeMoonSchedule, hasMoonStationManagerRole, moonRefineryYieldMultiplier,
   MOON_FRACTURE_MS, moonMiningID, moonPullDuration,
@@ -3147,6 +3148,12 @@ export interface AppFlow {
   warLandingInfo(): Promise<WarLandingInfo>;
   /** CorpWars.get_scroll_entries' wars: war.GetWars(ownerID) - warRegistry.GetWars -, the owners and allies primed. */
   ownerWars(ownerID: number): Promise<readonly CorpWar[]>;
+  /**
+   * bountySvc._DoBallsAdded: bountyProxy.GetBountiesAndKillRights(owners, characters) - the owners (pilots, their
+   * corporations and alliances) with a bounty above 0 (QuickHasBounty), and the characters a kill right is held on
+   * (QuickHasKillRight: GetKillRightsFromCache), with GetMyKillRights' own rights on them (fromID me, toID them).
+   */
+  bountiesAndKillRights(ownerIDs: readonly number[], characterIDs: readonly number[]): Promise<{ wanted: Set<number>; killRights: Set<number> }>;
   /** PopulateTop50: warsInfoMgr.GetTop50(maxWarID) (WARS_PER_PAGE 50 below that war), or GetWarsRequiringAssistance
    * (Show cry for help), the owners primed. */
   recentWars(maxWarID: number, cryForHelp: boolean): Promise<readonly CorpWar[]>;
@@ -19507,6 +19514,25 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const ids = [...new Set([...outgoing, ...incoming].map((t) => t.otherOwnerID))];
     if (ids.length) { const current = callOptions.captureRequestGuard!(); await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id }))); }
     return { outgoing, incoming, wars };
+  }
+  async function bountiesAndKillRights(ownerIDs: readonly number[], characterIDs: readonly number[]): Promise<{ wanted: Set<number>; killRights: Set<number> }> {
+    const itemsOf = (v: JsonValue | undefined): readonly JsonValue[] => (isListValue(v) ? v.items : Array.isArray(v) ? v : []);
+    const num = (v: JsonValue | undefined) => (typeof v === "number" ? v : Number(unwrapLong(v) ?? v ?? 0));
+    const [answer, mine] = await Promise.all([
+      bridgeAsk("bountyProxy", "GetBountiesAndKillRights", [{ type: "list", items: [...ownerIDs] } as JsonValue, { type: "list", items: [...characterIDs] } as JsonValue]),
+      bridgeAsk("bountyProxy", "GetMyKillRights", []).catch(() => null),
+    ]);
+    const [bounties, rights] = itemsOf(answer);
+    const wanted = new Set<number>();
+    for (const entry of itemsOf(bounties)) {
+      const [targetID, payload] = itemsOf(entry);
+      if (num(readKeyVal(payload, "bounty")) > 0) wanted.add(num(targetID));
+    }
+    const pilotID = store.station.get().online?.characterID;
+    const killRights = new Set<number>();
+    for (const r of decodeKillRights(rights ?? null)) if (r.toID) killRights.add(r.toID);
+    for (const r of decodeKillRights(mine ?? null)) if (r.fromID === pilotID && characterIDs.includes(r.toID)) killRights.add(r.toID);
+    return { wanted, killRights };
   }
   async function ownerWars(ownerID: number): Promise<readonly CorpWar[]> {
     return warsNamed(decodeWars(await bridgeAsk("warRegistry", "GetWars", [ownerID])));
@@ -37544,6 +37570,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     setCorporationRecruiting,
     warLandingInfo,
     ownerWars,
+    bountiesAndKillRights,
     recentWars,
     warHistory,
     warReport,

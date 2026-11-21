@@ -205,7 +205,7 @@ export interface SpaceViewOptions {
   ownerTickers?: (corporationID: number | null, allianceID: number | null) => { corporation: string | null; alliance: string | null };
   /** A solar system's security status (the star map's), null where not known. */
   systemSecurity?: (solarSystemID: number) => number | null;
-  overviewRelationships?: () => OverviewRelationships | undefined;
+  overviewRelationships?: (entities: readonly Entity[]) => OverviewRelationships | undefined;
   /** The overview's Tag, Corporation, Alliance, Faction and Militia words (see Overview's hooks). */
   overviewAffiliation?: (rows: readonly Entity[], columns: ReadonlySet<string>) => ((e: Entity) => OverviewAffiliation) | null;
   /**
@@ -3059,7 +3059,7 @@ export class SpaceView {
     const bracketMask = this.overview.activeBracketPreset();
     const bracketSimNow = this.live.effectSimNow();
     // the relationships the presets' state filters and the state flags (stateSvc.GetIconAndBackgroundFlags) are read from
-    const relations = this.options.overviewRelationships?.();
+    const relations = this.options.overviewRelationships?.(snap?.entities ?? []);
     const misc = overviewMisc();
     if (this.frameCount % 60 === 30) this.updateDamageDealers();
     const inRangeNow = this.inRangeDue;
