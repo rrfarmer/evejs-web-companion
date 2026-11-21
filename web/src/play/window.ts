@@ -31,9 +31,11 @@ export class PlayWindow {
   readonly body = document.createElement("div");
   private readonly head = document.createElement("header");
   private minimized = false;
+  private minWidthNow: number;
 
   constructor(private readonly options: WindowOptions, onClose?: () => void) {
     const at = { ...options, ...kept(options.id) };
+    this.minWidthNow = options.minWidth ?? 180;
     this.root.className = "pw";
     Object.assign(this.root.style, { left: `${at.left}px`, top: `${at.top}px`, width: `${at.width}px`, height: `${at.height}px` });
     this.head.className = "pw-head";
@@ -56,7 +58,7 @@ export class PlayWindow {
       this.root.style.top = `${Math.max(0, start.top + dy)}px`;
     });
     this.drag(grip, (dx, dy, start) => {
-      this.root.style.width = `${Math.max(options.minWidth ?? 180, start.width + dx)}px`;
+      this.root.style.width = `${Math.max(this.minWidthNow, start.width + dx)}px`;
       this.root.style.height = `${Math.max(options.minHeight ?? 80, start.height + dy)}px`;
     });
   }
@@ -77,6 +79,12 @@ export class PlayWindow {
   headUnslot(el: HTMLElement, into: HTMLElement, before: Node | null): void {
     this.head.classList.remove("pw-head-slotted");
     into.insertBefore(el, before);
+  }
+
+  /** SetMinSize's width, changed at run time (a window narrower than it widened to it). */
+  setMinWidth(width: number): void {
+    this.minWidthNow = width;
+    if (this.root.getBoundingClientRect().width < width) this.root.style.width = `${width}px`;
   }
 
   /** MinimizeWindowAction (UI/Control/EveWindow/Minimize): the window folded to its header, or opened again. */
