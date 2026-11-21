@@ -14,6 +14,14 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
+  import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
+  import { showInfo } from "./showInfo.ts";
+  import { showMarketDetails, buyMarketType } from "./marketDetails.ts";
+  import { findInContracts } from "./contractsSearch.ts";
+  import { findInPersonalAssets } from "./assetsSearch.ts";
+  import { typeCompareTarget } from "./typeCompare.ts";
+  import { changeQuickbar } from "./marketQuickbar.ts";
+  import { addType } from "../bridge/marketQuickbar.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
@@ -29,7 +37,10 @@
   // svelte-ignore state_referenced_locally
   const fitting = store.fitting;
 
-  const WORDS = ["UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Common/SortBy", "UI/Inventory/ViewMode",
+  const MENU = { market: "UI/Inventory/ItemActions/ViewTypesMarketDetails", buy: "UI/Inventory/ItemActions/BuyThisType", compare: "UI/Compare/CompareButton",
+    jettison: "UI/Inventory/ItemActions/Jettison", launch: "UI/Drones/LaunchDrone", info: "UI/Commands/ShowInfo", contracts: "UI/Inventory/ItemActions/FindInContracts",
+    assets: "UI/Inventory/ItemActions/FindPersonalAssets", quickbar: "UI/Inventory/ItemActions/AddTypeToMarketQuickbar" } as const;
+  const WORDS = [...Object.values(MENU), "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Common/SortBy", "UI/Inventory/ViewMode",
     "UI/Inventory/Filters/MyFilters", "UI/Common/NothingFound", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
   flow.requestWords(WORDS);
   const word = (label: string, own: string, args: Record<string, string | number> = {}) => {
@@ -52,7 +63,7 @@
   const ship = $derived($space.snapshot?.ship ?? null);
   const typeName = (typeID: number | null) => resolvedName($names.resolved, "type", typeID, "");
   /** The ship's bays the hull has: its cargo (the ship node itself), then the others, the drone bay where it has one. */
-  interface Bay { key: string; label: string; items: { itemID: number; typeID: number; quantity: number; singleton: boolean }[] | null; capacity: number | null; used: number | null }
+  interface Bay { key: string; label: string; items: { itemID: number; typeID: number; quantity: number; singleton: boolean; categoryID: number | null }[] | null; capacity: number | null; used: number | null }
   const droneBayCapacity = $derived(($fitting.shipAttributes?.[283] as number | undefined) ?? null);
   const bays = $derived.by((): Bay[] => {
     const out: Bay[] = [];
@@ -60,11 +71,11 @@
       if (!h.present) continue;
       const def = h.key === "cargo" ? CARGO_HOLD : SHIP_HOLDS.find((d) => d.bayKey === h.key);
       out.push({ key: h.key, label: def ? word(def.label, h.label) : h.label,
-        items: h.items?.map((i) => ({ itemID: i.itemID, typeID: i.typeID, quantity: i.quantity < 0 ? 1 : i.quantity, singleton: i.quantity < 0 })) ?? null,
+        items: h.items?.map((i) => ({ itemID: i.itemID, typeID: i.typeID, quantity: i.quantity < 0 ? 1 : i.quantity, singleton: i.quantity < 0, categoryID: i.categoryID })) ?? null,
         capacity: h.capacity?.capacity ?? null, used: h.capacity?.used ?? null });
     }
     if ((droneBayCapacity ?? 0) > 0 || ($drones.bay?.length ?? 0) > 0) {
-      const items = ($drones.bay ?? []).map((d) => ({ itemID: d.itemID, typeID: d.typeID, quantity: d.quantity < 0 ? 1 : d.quantity, singleton: d.quantity < 0 }));
+      const items = ($drones.bay ?? []).map((d) => ({ itemID: d.itemID, typeID: d.typeID, quantity: d.quantity < 0 ? 1 : d.quantity, singleton: d.quantity < 0, categoryID: 18 }));
       const used = items.reduce((n, i) => n + (volumes[String(i.typeID)] ?? 0) * i.quantity, 0);
       out.push({ key: "drone", label: word("UI/Ship/DroneBay", "Drone Bay"), items, capacity: droneBayCapacity, used });
     }
@@ -136,6 +147,46 @@
     e.dataTransfer?.setData("text/plain", dragging.ids.join(","));
   }
   const dragOver = (key: string) => (e: DragEvent) => { if (dragging && dragging.from !== key) { e.preventDefault(); dropKey = key; } };
+  /**
+   * menusvc.InvItemMenu for the items selected, in space, as the 3698585 client builds it (read through gridcheck for
+   * ore in the mining hold and a drone in the bay): View Market Details, Buy This Type, Compare (modules, drones,
+   * ships), Launch Drone from the drone bay or else Jettison, Show Info, Find in Contracts, Find Personal Assets, Add
+   * to Market Quickbar. With several types the type's own entries fall away (MergeMenus keeps what all share).
+   */
+  const menu = new ContextMenu();
+  $effect(() => () => menu.close());
+  function itemMenu(id: number, e: MouseEvent): void {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!selected.includes(id)) { selected = [id]; lastClicked = id; }
+    const items = shown.filter((i) => selected.includes(i.itemID));
+    const ids = items.map((i) => i.itemID);
+    const types = [...new Set(items.map((i) => i.typeID))];
+    const one = types.length === 1 ? items[0]! : null;
+    const fromBay = current;
+    const entries: (ContextEntry | null)[] = [];
+    if (one) {
+      entries.push({ label: word(MENU.market, "View Market Details"), run: () => showMarketDetails(one.typeID) });
+      entries.push({ label: word(MENU.buy, "Buy This Type"), run: () => buyMarketType(one.typeID) });
+      if (one.categoryID !== null && [6, 7, 18].includes(one.categoryID)) entries.push({ label: word(MENU.compare, "Compare"), run: () => typeCompareTarget.ask(items.map((i) => ({ typeID: i.typeID, itemID: i.itemID }))) });
+    }
+    entries.push(fromBay === "drone"
+      ? { label: word(MENU.launch, ids.length > 1 ? "Launch Drones" : "Launch Drone", { numDrones: ids.length }), run: () => void act(() => flow.launchDrones(ids)) }
+      : { label: word(MENU.jettison, "Jettison"), run: () => void act(() => flow.jettisonItems(ids)) });
+    if (one) {
+      entries.push({ label: word(MENU.info, "Show Info"), info: true, run: () => showInfo({ kind: "type", typeID: one.typeID, itemID: one.itemID }) });
+      entries.push({ label: word(MENU.contracts, "Find in Contracts"), run: () => findInContracts(one.typeID) });
+      entries.push({ label: word(MENU.assets, "Find Personal Assets"), run: () => findInPersonalAssets(typeName(one.typeID)) });
+      entries.push({ label: word(MENU.quickbar, "Add to Market Quickbar"), run: () => { changeQuickbar((q) => addType(q, one.typeID)); } });
+    }
+    menu.open(e.clientX, e.clientY, entries);
+  }
+  async function act(run: () => Promise<void>): Promise<void> {
+    moveError = "";
+    try { await run(); } catch (cause) { moveError = cause instanceof Error ? cause.message : String(cause); }
+    selected = [];
+    await Promise.all([flow.loadMiningHolds().catch(() => {}), flow.loadDrones().catch(() => {})]);
+  }
   async function dropOn(key: string, e: DragEvent): Promise<void> {
     e.preventDefault();
     dropKey = null;
@@ -202,7 +253,7 @@
       {:else}
         {#each shown as i (i.itemID)}
           <div class="item" class:selected={selected.includes(i.itemID)} title={typeName(i.typeID)} role="listitem" draggable="true"
-            onclick={(e) => clickItem(i.itemID, e)} onkeydown={() => {}} ondragstart={(e) => dragStart(i.itemID, e)}>
+            onclick={(e) => clickItem(i.itemID, e)} onkeydown={() => {}} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
             <span class="icon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="lg" />
               {#if !i.singleton}<span class="qty">{i.quantity.toLocaleString("en-US")}</span>{/if}</span>
             <span class="iname">{typeName(i.typeID)}</span>
