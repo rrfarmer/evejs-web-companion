@@ -8,6 +8,7 @@
 // Draw order: the canvas paints bottom to top in the client's order (carbonui draws its first child on top).
 
 import type { HudModule, HudOverload, ShipHudState } from "./shipHud.ts";
+import { playUiEvent } from "./uiAudio.ts";
 import type { ModuleTooltipRow } from "./moduleTooltip.ts";
 import { labelColorCss, labelLines } from "../bridge/labelMarkup.ts";
 import { fmtAmt } from "../bridge/pyNumbers.ts";
@@ -518,7 +519,8 @@ export class NewShipHud {
     b.addEventListener("mouseleave", () => { this.cargoHover = false; this.closeTooltip(); });
     b.addEventListener("mousedown", () => { b.style.transform = "translateY(2px)"; });
     b.addEventListener("mouseup", () => { b.style.transform = ""; });
-    b.addEventListener("click", () => { this.holdPicker.style.display = "none"; this.onOpenHold(this.trackedHold); });
+    // CargoButton.OnClick: PlaySound(SOUND_BUTTON_CLICK), the flyout closed, the tracked hold opened
+    b.addEventListener("click", () => { void playUiEvent("ui_button_soft4_play"); this.holdPicker.style.display = "none"; this.onOpenHold(this.trackedHold); });
     // Right-click: the hold picker (two holds or more), the current hold last and centred on the button, the rest above.
     b.addEventListener("contextmenu", (ev) => {
       ev.preventDefault();
