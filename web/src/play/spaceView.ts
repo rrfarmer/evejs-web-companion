@@ -3162,6 +3162,8 @@ export class SpaceView {
    */
   private moveCmd: { state: 0 | 1; planar: THREE.Vector3; dest: THREE.Vector3; group: THREE.LineSegments; label: HTMLElement } | null = null;
   private movePointer: { x: number; y: number } | null = null;
+  /** When the last move command was given (its PendingMoveIndication lasts 3 s). */
+  private pendingMoveAt = -Infinity;
 
   private startMoveCommand(): void {
     if (this.moveCmd || !this.snapshot?.ship) return;
@@ -3195,6 +3197,8 @@ export class SpaceView {
     if (!ship) return;
     // _ConvertPositionToGlobalSpace: the point plus the ship's place
     const at: [number, number, number] = [ship.position.x + d.x, ship.position.y + d.y, ship.position.z - d.z];
+    // tacticalNavigation.IndicateMoveCommand: the pending move shown for 3 s (PendingMoveIndication._DelayedDestroy)
+    this.pendingMoveAt = performance.now();
     void this.act("Move", () => this.actions.goToPoint?.(at) ?? Promise.resolve());
   }
 
@@ -4162,6 +4166,23 @@ export class SpaceView {
       if (ship.mode === "GOTO" && moving.gotoPoint) {
         nav = { at: rel(moving.gotoPoint) };
         movement(nav.at);
+        // PendingMoveIndication: a second movement connector to the point, animated (lineConnectorMoving.red: overlay
+        // colour (0, 0, 0, 1), animationScale 0.5, animationSpeed -4) - Lines3DSizeClamped.fx multiplies its alpha by
+        // OverlayTexMap square.dds (opaque over rows 5 to 10 of 16) at v = (along the line 0..1 + speed x Time) x scale
+        const since = performance.now() - this.pendingMoveAt;
+        if (since >= 0 && since < 3000) {
+          const time = performance.now() / 1000;
+          const N = 48;
+          for (let i = 0; i < N; i++) {
+            const s0 = i / N, s1 = (i + 1) / N, mid = (s0 + s1) / 2;
+            const v = (mid - 4 * time) * 0.5;
+            const frac = v - Math.floor(v);
+            if (frac < 5 / 16 || frac >= 11 / 16) continue;
+            const a = nav.at.clone().multiplyScalar(s0), b = nav.at.clone().multiplyScalar(s1);
+            pts.push(a.x, a.y, a.z, b.x, b.y, b.z);
+            cols.push(C[0]!, C[1]!, C[2]!, 0.3, C[0]!, C[1]!, C[2]!, 0.3);
+          }
+        }
       } else if (ship.mode === "ORBIT" && follow) {
         const c = rel(follow.position);
         const radius = follow.radius + Number(moving.followRange ?? ball?.followRange ?? 0) + ship.radius;
