@@ -1019,6 +1019,9 @@
   let bookmarkMenus = new Map<number, (ContextEntry | null)[]>();
   /** The space menu asked for the journal once (GetMyAgentJournalBookmarks needs it read). */
   let menuJournalAsked = false;
+  /** Each mission bookmark's menu and its mission's place, as the space menu last built them (the overlay's brackets). */
+  let missionSpotMenus = new Map<string, (ContextEntry | null)[]>();
+  let missionSpotSites: { key: string; name: string; position: readonly [number, number, number] }[] = [];
   /** The space menu's home station (home_station.get_home_station), asked once. */
   let menuHomeStation: number | null = null;
   let menuHomeAsked = false;
@@ -1981,6 +1984,8 @@
       },
       bookmarkMenu: (bookmarkID) => bookmarkMenus.get(bookmarkID) ?? [],
       alignToBookmark: (bookmarkID) => s.flow.alignToBookmark(bookmarkID),
+      missionSites: () => missionSpotSites,
+      missionMenu: (key) => missionSpotMenus.get(key) ?? [],
       signatures: () => {
         const sc = s.store.scanner.get();
         const system = s.store.flight.get().status?.solarSystemID ?? null;
@@ -2029,6 +2034,7 @@
         const ship = snapshot?.ship ?? null;
         const out: ContextEntry[] = [];
         const wanted: string[] = [];
+        const sites: typeof missionSpotSites = [];
         for (const mission of [...journal.active, ...journal.offered]) {
           const spots = (mission.bookmarks ?? []).filter((spot) => spot.solarSystemID === systemID);
           if (!spots.length) continue;
@@ -2049,11 +2055,18 @@
             ];
             const near = ship && spot.x != null && spot.y != null && spot.z != null ? Math.hypot(spot.x - ship.position.x, spot.y - ship.position.y, spot.z - ship.position.z) < 150_000 : false;
             if (near) sub.push({ path: "UI/Inflight/ApproachLocationActionGroup", label: word("UI/Inflight/ApproachLocationActionGroup", "Approach Location"), icon: "res:/UI/Texture/eveicon/control_icons/approach_16px.png", run: () => ran(s.flow.approachMissionBookmark(spot)) });
+            // the overlay's MissionBracket: at the thing's place (GetBookmarkPosition) or the bookmark's point
+            const key = `ms:${spot.agentID}:${spot.locationType}:${spot.locationNumber}`;
+            const thing = spot.itemID != null ? (snapshot?.entities ?? []).find((e) => e.itemID === spot.itemID) ?? null : null;
+            const position = thing ? [thing.position.x, thing.position.y, thing.position.z] as const : spot.x != null && spot.y != null && spot.z != null ? [spot.x, spot.y, spot.z] as const : null;
+            if (position) sites.push({ key, name, position });
+            missionSpotMenus.set(key, sub);
             return { label: text, run: () => ran(s.flow.warpToMissionBookmark(spot, 0)), sub };
           });
           out.push({ label: word("UI/Neocom/MissionNameSubmenu", `${name}`, { missionName: name, agent: mission.agentID ?? 0 }), sub: entries });
         }
         if (wanted.length) s.flow.requestWords(wanted);
+        missionSpotSites = sites;
         return out.length ? [{ label: word("UI/PeopleAndPlaces/AgentMissions", "Agent Missions"), icon: "res:/UI/Texture/eveicon/category_icons/agent_mission_16px.png", sub: out }] : [];
       },
       locationsMenu: () => {

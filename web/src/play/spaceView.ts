@@ -338,6 +338,10 @@ export interface SpaceActions {
   bookmarkSites?(): readonly { readonly bookmarkID: number; readonly memo: string; readonly note: string; readonly shared: boolean; readonly position: readonly [number, number, number] }[];
   /** menusvc.BookmarkMenu of one of those bookmarks. */
   bookmarkMenu?(bookmarkID: number): (ContextEntry | null)[];
+  /** MissionHandler: the journal's mission bookmarks in the system, each by its key, its mission's name and place. */
+  missionSites?(): readonly { readonly key: string; readonly name: string; readonly position: readonly [number, number, number] }[];
+  /** A mission bookmark's menu (BookmarkMenu's moves), by its key. */
+  missionMenu?(key: string): (ContextEntry | null)[];
   /** menusvc.AlignToBookmark. */
   alignToBookmark?(bookmarkID: number): Promise<void>;
   /** sensorSuite.GetAnomalies for the system the pilot is in (empty where not read yet: the read is started). */
@@ -3359,10 +3363,14 @@ export class SpaceView {
     // and the pilot's bookmarks in the system (BookmarkBracket: Icons/38_16_150, bracket_bookmark_N in SITE_COLOR_BOOKMARK
     // (41, 181, 191); a shared one SharedBookmarkBracket: sharedBookmarkSensorOverlay, bracket_bookmark_corp_N), the
     // label its memo with its note under it, its menu BookmarkMenu, a double click AlignToBookmark
-    type Kind = "anomaly" | "signature" | "bookmark" | "sharedBookmark";
+    // and the journal's mission bookmarks (MissionBracket: SensorSuite/missions, bracket_mission_N in SITE_COLOR_MISSION
+    // (0, 255, 255), the label the mission's name, its menu the bookmark's)
+    type Kind = "anomaly" | "signature" | "bookmark" | "sharedBookmark" | "mission";
     const sites: (AnomalySite & { kind: Kind; accurate?: boolean; code?: string; bookmarkID?: number })[] = on
       ? [...(this.actions.anomalies?.() ?? []).map((a) => ({ ...a, kind: "anomaly" as const })), ...(this.actions.signatures?.() ?? []).map((g) => ({ ...g, kind: "signature" as const })),
-        ...(this.actions.bookmarkSites?.() ?? []).map((b) => ({ targetID: `bm:${b.bookmarkID}`, strength: 0, dungeonName: b.note, position: b.position, code: b.memo, bookmarkID: b.bookmarkID, kind: (b.shared ? "sharedBookmark" : "bookmark") as Kind }))]
+        ...(this.actions.bookmarkSites?.() ?? []).map((b) => ({ targetID: `bm:${b.bookmarkID}`, strength: 0, dungeonName: b.note, position: b.position, code: b.memo, bookmarkID: b.bookmarkID, kind: (b.shared ? "sharedBookmark" : "bookmark") as Kind })),
+        ...(this.frameCount % 60 === 0 ? (this.actions.missionsMenu?.(), []) : []),
+        ...(this.actions.missionSites?.() ?? []).map((m) => ({ targetID: m.key, strength: 0, dungeonName: m.name, position: m.position, code: m.name, kind: "mission" as Kind }))]
       : [];
     const seen = new Set<string>();
     for (const s of sites) {
@@ -3378,7 +3386,8 @@ export class SpaceView {
         const spinners = s.kind === "signature"
           ? `<img class="ss-spin ss-spin-in" src="${tex("res:/UI/Texture/classes/SensorSuite/CircleDots_Inner.png")}" alt=""><img class="ss-spin ss-spin-out" src="${tex("res:/UI/Texture/classes/SensorSuite/CircleDots_Outer.png")}" alt="">`
           : "";
-        const inner = s.kind === "bookmark" ? "res:/UI/Texture/Icons/38_16_150.png" : s.kind === "sharedBookmark" ? "res:/UI/Texture/classes/Bookmarks/sharedBookmarkSensorOverlay.png" : "res:/UI/Texture/classes/SensorSuite/diamond2.png";
+        const inner = s.kind === "bookmark" ? "res:/UI/Texture/Icons/38_16_150.png" : s.kind === "sharedBookmark" ? "res:/UI/Texture/classes/Bookmarks/sharedBookmarkSensorOverlay.png"
+          : s.kind === "mission" ? "res:/UI/Texture/classes/SensorSuite/missions.png" : "res:/UI/Texture/classes/SensorSuite/diamond2.png";
         el.innerHTML = `${spinners}<img class="ss-inner" src="${tex(inner)}" alt="">${corners}<div class="ss-label"><div class="ss-code"><b></b><span></span></div><div class="ss-name"></div></div>`;
         el.classList.add(s.kind);
         const id = s.targetID;
@@ -3388,10 +3397,16 @@ export class SpaceView {
         const bookmarkID = s.bookmarkID ?? null;
         el.addEventListener("dblclick", (ev) => {
           ev.stopPropagation();
+          if (s.kind === "mission") { this.actions.missionMenu?.(id).find((x): x is ContextEntry => x !== null)?.run?.(); return; }
           void this.act("Align", () => (bookmarkID !== null ? this.actions.alignToBookmark?.(bookmarkID) : this.actions.alignToSite?.(id)) ?? Promise.resolve());
         });
         el.addEventListener("contextmenu", (ev) => {
           ev.preventDefault(); ev.stopPropagation();
+          if (s.kind === "mission") {
+            const menu = this.actions.missionMenu?.(id) ?? [];
+            if (menu.length) { this.radial.close(); this.contextMenu.open(ev.clientX, ev.clientY, menu); }
+            return;
+          }
           if (bookmarkID !== null) {
             this.actions.locationsMenu?.();
             const menu = this.actions.bookmarkMenu?.(bookmarkID) ?? [];
@@ -3406,7 +3421,7 @@ export class SpaceView {
         this.sensorEls.set(id, el);
       }
       // the outer pieces' textures (the anomaly's four, a signature's accurate or inaccurate four)
-      const set = s.kind === "anomaly" ? "bracket_anomaly" : s.kind === "bookmark" ? "bracket_bookmark" : s.kind === "sharedBookmark" ? "bracket_bookmark_corp" : s.accurate ? "bracket_sig_accurate" : "bracket_sig_inaccurate";
+      const set = s.kind === "anomaly" ? "bracket_anomaly" : s.kind === "bookmark" ? "bracket_bookmark" : s.kind === "sharedBookmark" ? "bracket_bookmark_corp" : s.kind === "mission" ? "bracket_mission" : s.accurate ? "bracket_sig_accurate" : "bracket_sig_inaccurate";
       if (el.dataset.set !== set) {
         el.dataset.set = set;
         el.querySelectorAll<HTMLElement>(".ss-outer").forEach((o, n) => o.style.setProperty("--tex", `url(${clientTexture(`res:/UI/Texture/classes/SensorSuite/${set}_${n + 1}.png`)})`));
