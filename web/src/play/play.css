@@ -729,3 +729,9 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 .tactical-labels .tactical-nav-point { position: absolute; left: 0; top: 0; width: 24px; height: 24px; margin: -12px 0 0 -12px; background: rgba(0, 173, 238, 0.5); }
 /* the overview in compact mode: entries GetEntryHeight(compact) 19 */
 .pw.ov-compact .ov .ov-table td { height: 19px; }
+/* SelectedItemWnd in compact mode: no caption, the content up into the header (extend_content_into_header), its top
+   padded right by the header's buttons (header_inset); the header over it, still dragging the window */
+.pw.si-compact .pw-caption { visibility: hidden; }
+.pw.si-compact .pw-head { position: relative; z-index: 1; background: transparent; }
+.pw.si-compact .pw-body { margin-top: -26px; }
+.pw.si-compact .si-top { padding-right: 64px; }

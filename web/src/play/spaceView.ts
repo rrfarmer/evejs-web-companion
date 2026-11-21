@@ -1396,10 +1396,16 @@ export class SpaceView {
         const text = [...this.selectedWin.body.querySelectorAll<HTMLElement>(".si-name, .si-dist, .si-sec")].map((el) => el.textContent ?? "").filter(Boolean).join("\n");
         this.contextMenu.open(r.left, r.bottom, [
           { label: this.actions.word?.("UI/Control/EveWindow/Minimize") ?? "Minimize", icon: "res:/UI/Texture/eveicon/system_icons/minimize_16px.png", run: () => this.selectedWin.minimize() },
+          // CompactModeWindowAction (SelectedItemWnd._on_compact_mode_changed): no caption, the content up into the header
+          (() => { const on = this.selectedWin.root.classList.contains("si-compact"); return {
+            label: (on ? this.actions.word?.("/Carbon/UI/Controls/Window/DisableCompactMode") : this.actions.word?.("/Carbon/UI/Controls/Window/EnableCompactMode")) ?? (on ? "Disable compact mode" : "Enable compact mode"),
+            icon: on ? "res:/UI/Texture/eveicon/system_icons/uncompact_16px.png" : "res:/UI/Texture/eveicon/system_icons/compact_16px.png",
+            run: () => this.setSelectedCompact(!on) }; })(),
           { label: this.actions.word?.("UI/Generic/Copy") ?? "Copy", disabled: text ? null : "Nothing selected", run: () => void navigator.clipboard?.writeText(text).catch(() => {}) },
         ]);
       } });
     this.selectedWin.body.classList.add("si");
+    try { if (localStorage.getItem("evejs.ui.selectedItemCompact") === "1") this.setSelectedCompact(true); } catch { /* not compact */ }
     // the space components the menu reads (deployableTypes.json), read before the first right-click
     void spaceComponents();
     // SelectedItemWnd._OnResize -> _UpdateButtonSize: the button size follows the window width
@@ -1641,6 +1647,12 @@ export class SpaceView {
     addEventListener("resize", () => this.resize());
     this.resize();
     this.renderer.setAnimationLoop(() => this.frame());
+  }
+
+  /** SelectedItemWnd in compact mode (its caption hidden, the name row in the header, kept). */
+  private setSelectedCompact(on: boolean): void {
+    this.selectedWin.root.classList.toggle("si-compact", on);
+    try { localStorage.setItem("evejs.ui.selectedItemCompact", on ? "1" : "0"); } catch { /* lasts the page */ }
   }
 
   /** The new HUD's top alignment followed (the indication moves with the band). */
