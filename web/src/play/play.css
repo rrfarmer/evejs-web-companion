@@ -450,6 +450,7 @@ button { font: inherit; color: inherit; }
 .t-cantarget { width: 40px; height: 40px; left: -20px; top: -20px; opacity: .15; background: #fff;
   -webkit-mask: url(/client-res/ui/texture/classes/bracket/cantarget2.png) center / 100% 100% no-repeat; mask: url(/client-res/ui/texture/classes/bracket/cantarget2.png) center / 100% 100% no-repeat; }
 .bracket.in-range .t-cantarget { display: block; }
+.bracket.in-module-range .t-cantarget { opacity: 1; }
 body:not(.no-target-crosshair) .bracket.locked .t-line, body:not(.no-target-crosshair) .bracket.locking .t-line { display: block; }
 .bracket.active-target .t-circle { opacity: .5; }
 .bracket.active-target .t-line { background: rgba(255, 255, 255, 0.2); }

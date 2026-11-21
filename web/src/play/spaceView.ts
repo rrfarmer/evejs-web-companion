@@ -153,6 +153,8 @@ export interface SpaceViewOptions {
     overload?: { module(itemID: number, on: boolean): Promise<void>; rack(activationID: number, on: boolean): Promise<void> };
     /** The new HUD's module tooltip rows (moduleButtonTooltip.UpdateToolTips), null where it has none to give. */
     tooltip?(m: HudModule): readonly import("./moduleTooltip.ts").ModuleTooltipRow[] | null;
+    /** tactical.FindMaxRange: the module's range and falloff together (maxRange + falloff), 0 for none. */
+    range?(m: HudModule): number;
     /**
      * capacitorFlow: the ship's peak recharge and its fit's whole drain (CapacitorSimulator, GJ a second), and what its
      * running modules drain now (_GetActiveDrain); null where not known.
@@ -334,6 +336,9 @@ export class SpaceView {
   private readonly controls: OrbitControls;
   private readonly brackets = document.createElement("div");
   private readonly bracketEls = new Map<number, HTMLDivElement>();
+  /** bracketMgr.ShowModuleRange's distance while a module is hovered (its brackets within it brighter), else null. */
+  private moduleRange: number | null = null;
+  private inRangeDue = false;
   /** stateSvc.GetExclState(mouseOver): the one thing under the pointer, a bracket's or an overview row's. */
   private hoveredID: number | null = null;
 
@@ -853,6 +858,8 @@ export class SpaceView {
       this.shipHud.onSetSpeed = (ratio) => void this.setSpeedRatio(ratio);
       this.shipHud.onOpenHold = (key) => this.actions.openShipHold?.(key);
       this.shipHud.tooltipRows = (m) => this.options.rack?.tooltip?.(m) ?? null;
+      // ModuleController.ShowRange: bracketMgr.ShowModuleRange(maxRange + falloff) while a module is under the pointer
+      this.shipHud.onModuleHover = (m) => { const r = m ? this.options.rack?.range?.(m) ?? 0 : 0; this.moduleRange = r > 0 ? r : null; this.inRangeDue = true; };
       this.root.classList.add("new-hud-on");
       // _AlignToScreenEdge: the indication goes to the top with the band
       this.offHudTop = hudSetting("shipuialigntop").subscribe((top) => this.root.classList.toggle("new-hud-top", top));
@@ -2872,6 +2879,8 @@ export class SpaceView {
     // the relationships the presets' state filters and the state flags (stateSvc.GetIconAndBackgroundFlags) are read from
     const relations = this.options.overviewRelationships?.();
     const misc = overviewMisc();
+    const inRangeNow = this.inRangeDue;
+    this.inRangeDue = false;
     for (const e of snap?.entities ?? []) {
       seen.add(e.itemID);
       if (e.typeID) this.typeOfID.set(e.itemID, e.typeID);
@@ -2997,10 +3006,14 @@ export class SpaceView {
         if (this.frameCount % 10 === 0) this.updateBracketFlags(el, e, groupID, relations);
         // bracketMgr.ShowInTargetRange, about once a second: ships, NPCs, drones and fighters within the ship's
         // maxTargetRange show canTarget2 (40 px at 0.15), each category as the Misc panel allows
-        if (this.frameCount % 60 === 0) {
+        if (this.frameCount % 60 === 0 || inRangeNow) {
           const range = this.actions.shipAttribute?.(76) ?? null;
           const category = (e as Entity & { categoryID?: number | null }).categoryID ?? null;
-          el.classList.toggle("in-range", !e.isSelf && range !== null && [6, 11, 18, 87].includes(category ?? -1) && inRangeShown(category, misc) && this.distanceTo(e) <= range);
+          const dist = this.distanceTo(e);
+          const marked = !e.isSelf && range !== null && [6, 11, 18, 87].includes(category ?? -1) && inRangeShown(category, misc) && dist <= range;
+          el.classList.toggle("in-range", marked);
+          // brighterForRange: within the hovered module's range as well as the targeting range (opacity 1)
+          el.classList.toggle("in-module-range", marked && this.moduleRange !== null && dist <= this.moduleRange);
         }
       }
     }

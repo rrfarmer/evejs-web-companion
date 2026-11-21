@@ -338,6 +338,8 @@ export class NewShipHud {
   wordWith: ((label: string, args: Readonly<Record<string, unknown>>) => string | null) | null = null;
   /** The module tooltip's rows (moduleButtonTooltip.UpdateToolTips), the page's to give; null: no tooltips. */
   tooltipRows: ((m: HudModule) => readonly ModuleTooltipRow[] | null) | null = null;
+  /** ModuleController.ShowRange / HideRange: the module under the pointer, or null when it leaves. */
+  onModuleHover: ((m: HudModule | null) => void) | null = null;
   private readonly tooltip = document.createElement("div");
   private tipSlot: Slot | null = null;
   private tipTimer: ReturnType<typeof setTimeout> | null = null;
@@ -900,8 +902,8 @@ export class NewShipHud {
       // moduleSlot._BuildWidget: the cooldown timer over the icon, the quantity over the timer.
       el.append(disc, icon, cool, qty, badge, shortcut);
       const slot: Slot = { el, icon, qty, badge, shortcut, x, y, module: null, hover: false, wedge: { angle: 180, half: 7.5, lit: 0 }, cycles: -1, flashAt: 0, cool, coolShown: false, empty: false, flag: 0 };
-      el.addEventListener("mouseenter", () => { slot.hover = true; this.hoverTooltip(slot); this.previewModule(slot.module); });
-      el.addEventListener("mouseleave", () => { slot.hover = false; this.hideTooltip(slot); this.previewModule(null); });
+      el.addEventListener("mouseenter", () => { slot.hover = true; this.hoverTooltip(slot); this.previewModule(slot.module); if (slot.module) this.onModuleHover?.(slot.module); });
+      el.addEventListener("mouseleave", () => { slot.hover = false; this.hideTooltip(slot); this.previewModule(null); this.onModuleHover?.(null); });
       el.addEventListener("click", () => { if (slot.module && this.onModule) this.onModule(slot.module); });
       // moduleSlot drag and drop: the module's icon as the ghost; empty places shown while it is carried
       el.addEventListener("dragstart", (e) => {

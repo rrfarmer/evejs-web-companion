@@ -1789,6 +1789,18 @@
         },
         heat: () => s.store.space.get().snapshot?.ship?.rackHeat ?? null,
         tooltip: (m) => moduleTooltip(m),
+        // tactical.FindMaxRange: the default effect's range attribute (maxRange) and falloff; a launcher's charge's
+        // flight time x velocity where the module has no range of its own
+        range: (m) => {
+          const allInfo = s.store.dogma.get().allInfo;
+          const item = allInfo?.ships.find((i) => Number(i.itemID) === m.itemID);
+          const optimal = attrOf(item, 54) ?? 0;
+          if (optimal > 0) return optimal + (attrOf(item, 158) ?? 0);
+          const loaded = s.store.fitting.get().slots.find((sl) => sl.module?.itemID === m.itemID)?.module?.charge ?? null;
+          const chargeItem = loaded ? allInfo?.ships.find((i) => i.typeID === loaded.typeID && (i.sublocation || i.categoryID === 8) && i.flagID === item?.flagID) : undefined;
+          const flight = attrOf(chargeItem, 281) ?? 0, speed = attrOf(chargeItem, 37) ?? 0;
+          return flight > 0 && speed > 0 ? (flight * speed) / 1000 : 0;
+        },
         capacitorFlow: () => {
           const f = s.store.fitting.get();
           const capacity = f.shipAttributes?.[482] ?? null;
