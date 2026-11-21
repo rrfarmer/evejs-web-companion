@@ -625,7 +625,7 @@
   /** The Neocom's width: a window opens right of it, as the eve-cs mirror's windows never sit on its Neocom. */
   const NEOCOM_W = 44;
   /** The sizes the play page opens these windows at (the eve-cs mirror's, page pixels, title bar included). */
-  const FLY_SIZES: Partial<Record<TabID, { w: number; h: number }>> = { drones: { w: 288, h: 218 }, inventory: { w: 600, h: 450 } };
+  const FLY_SIZES: Partial<Record<TabID, { w: number; h: number }>> = { drones: { w: 566, h: 216 }, inventory: { w: 600, h: 450 } };
   /**
    * The client's default sizes of the windows the play page opens without a layout of their own: characterSheetWindow
    * 1235 x 768, assetsWindow 550 x 450, locations/window 450 x 450, addressBookWindow 600 x 500, evemail 800 x 600,
@@ -834,7 +834,9 @@
     const show = () => {
       const d = s.store.drones.get();
       const out = (d.inSpace ?? []).length, max = d.limits.maxActiveDrones;
-      dronesTitle = max === null ? `Drones ${out}` : `Drones ${out}/${max}`;
+      // DronesWindow's caption is "Drones" (the counts are in its parts' headers)
+      void out; void max;
+      dronesTitle = "Drones";
     };
     return s.store.drones.subscribe(show);
   });

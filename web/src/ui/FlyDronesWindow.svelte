@@ -36,7 +36,7 @@
   // droneGroupHeader.UpdateLabelText: "%s (%s)" of UI/Inflight/Drone/DronesInBay, "%s (%s/%s)" of DronesInSpace, in an
   // EveLabelMedium of TextColor.HIGHLIGHT
   const HEADER_WORDS = { bay: "UI/Inflight/Drone/DronesInBay", space: "UI/Inflight/Drone/DronesInSpace" } as const;
-  flow.requestWords(Object.values(HEADER_WORDS));
+  flow.requestWords([...Object.values(HEADER_WORDS), "/Carbon/UI/Controls/Common/NoItem"]);
   const headerWords = store.words;
   const headerWord = (label: string, own: string) => { const t = $headerWords.templates[label]; return typeof t === "string" && t !== "" ? t : own; };
 
@@ -389,7 +389,6 @@
     onclick={(e) => clickEntry("bay", row.itemID, e)} ondragstart={(e) => dragStart("bay", row.itemID, row.typeID, e)}
     ondblclick={() => run(() => flow.launchDrones(row.itemIDs))}
     oncontextmenu={(e) => { const ids = pickedFor("bay", row.itemID, row.typeID, true); openMenu(e, [moveMenu(ids, row.typeID), { label: say(MENU_WORDS.launch), act: () => flow.launchDrones(ids) }]); }}>
-    {@render picture(row.typeID, row.label)}
     <!-- dronesWindow: a stack's label UI/Inflight/DroneBayEntryWithStacksize, "Mining Drone I (2)" (3698585, through
          gridcheck); one drone its name alone -->
     <span class="name">{row.quantity > 1 ? `${row.label} (${row.quantity})` : row.label}</span>
@@ -403,7 +402,7 @@
 {/snippet}
 
 {#snippet spaceEntry(row: (typeof spaceRows)[number], sub: boolean)}
-  <div class="row" class:sub class:lost={row.unavailable !== null} class:selected={selected.space.includes(row.itemIDs[0]!)} role="listitem" title={row.unavailable ?? "Right-click for orders"} draggable="true"
+  <div class="row inspace" class:sub class:lost={row.unavailable !== null} class:selected={selected.space.includes(row.itemIDs[0]!)} role="listitem" title={row.unavailable ?? "Right-click for orders"} draggable="true"
     onclick={(e) => clickEntry("space", row.itemIDs[0]!, e)} ondragstart={(e) => dragStart("space", row.itemIDs[0]!, row.typeID, e)}
     oncontextmenu={(e) => {
       // GroupMenu takes the selected of the clicked one's drone group, the drone menu every selected one
@@ -474,7 +473,7 @@
   <div class="group" class:drop={dropOn === "bay"} role="list" ondragover={dragOver("bay")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("bay", null, e)}>
     <div class="sec" role="button" tabindex="-1" onclick={() => (bayOpen = !bayOpen)} onkeydown={() => {}}
       oncontextmenu={(e) => openMenu(e, [...deleteMenu(), { label: say(MENU_WORDS.launch), disabled: bayRows.length ? null : "Nothing in the drone bay", act: () => flow.launchDrones(bayRows.flatMap((r) => r.itemIDs)) }])}>
-      <span class="lbl">{headerWord(HEADER_WORDS.bay, "Drones in Bay")} ({bayCount})</span>
+      <span class="lbl"><span class="expander" class:open={bayOpen}></span>{headerWord(HEADER_WORDS.bay, "Drones in Bay")} ({bayCount})</span>
       <span class="commands">
         <button type="button" class="command" title={keyHint(say(MENU_WORDS.launch), "CmdLaunchFavoriteDrones")} disabled={busy || !bayRows.length}
           onclick={(e) => { e.stopPropagation(); void run(() => flow.launchDrones(dronesToLaunch(shipTypeID, bayRows.flatMap((r) => r.itemIDs), ($drones.inSpace ?? []).map((d) => d.itemID)))); }}>
@@ -486,6 +485,7 @@
       {#if $drones.bay === null}
         <p class="state">{$drones.loaded ? "Your drone bay could not be read." : "Looking…"}</p>
       {:else}
+        {#if !bayRows.length}<p class="none">{headerWord("/Carbon/UI/Controls/Common/NoItem", "No Item")}</p>{/if}
         {#each bayList.loose as row (row.itemID)}{@render bayEntry(row, false)}{/each}
         {#each bayList.heads as head (head.group.label)}
           {@const key = `bay:${head.group.id}`}
@@ -499,7 +499,7 @@
   <div class="group" class:drop={dropOn === "space"} role="list" ondragover={dragOver("space")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("space", null, e)}>
     <div class="sec" role="button" tabindex="-1" onclick={() => (spaceOpen = !spaceOpen)} onkeydown={() => {}}
       oncontextmenu={(e) => openMenu(e, [...deleteMenu(), ...spaceEntries(allDroneIDs, false)])}>
-      <span class="lbl">{headerWord(HEADER_WORDS.space, "Drones in Space")} ({maxActive === null ? outCount : `${outCount}/${maxActive}`})</span>
+      <span class="lbl"><span class="expander" class:open={spaceOpen}></span>{headerWord(HEADER_WORDS.space, "Drones in Space")} ({maxActive === null ? outCount : `${outCount}/${maxActive}`})</span>
       <span class="commands">
         <span class="settings-host">
           <button type="button" class="command" title="Settings" aria-expanded={settingsOpen}
@@ -538,6 +538,7 @@
       {#if $drones.inSpace === null}
         <p class="state">{$drones.loaded ? "Your drones in space could not be read." : "Looking…"}</p>
       {:else}
+        {#if !spaceRows.length}<p class="none">{headerWord("/Carbon/UI/Controls/Common/NoItem", "No Item")}</p>{/if}
         {#each spaceList.loose as row (row.key)}{@render spaceEntry(row, false)}{/each}
         {#each spaceList.heads as head (head.group.label)}
           {@const key = `space:${head.group.id}`}
@@ -565,8 +566,14 @@
   /* the eve-cs mirror's drone window: 11 px upper-case section labels in grey with white counts on a 2 % white strip,
      29 px rows of a 24 px type icon, the name at 13 px and its count at 11 px, 16 px command icons */
   .fly-drones { position: relative; font-size: 13px; color: #fff; user-select: none; }
-  .sec { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 5px 12px; background: rgba(255, 255, 255, 0.02); cursor: default; }
-  .lbl { font-size: 14px; color: rgba(255, 255, 255, 0.9); }
+  /* BaseDroneGroupHeader: a bar with the expander and the label; its buttons hidden until the mouse is over it */
+  .sec { display: flex; align-items: center; justify-content: space-between; height: 24px; margin: 4px 0 2px; padding: 0 4px 0 6px; background: rgba(255, 255, 255, 0.06); cursor: default; }
+  .sec .commands { opacity: 0; visibility: hidden; transition: opacity .1s, visibility .1s; }
+  .sec:hover .commands, .sec .commands:has(.menu) { opacity: 1; visibility: visible; }
+  .lbl .expander { display: inline-block; width: 0; height: 0; margin-right: 6px; border-top: 5px solid rgba(255, 255, 255, 0.8); border-left: 4px solid transparent; border-right: 4px solid transparent; vertical-align: middle; transform: rotate(-90deg); transition: transform .1s; }
+  .lbl .expander.open { transform: none; }
+  .none { margin: 0; padding: 4px 6px; color: rgba(255, 255, 255, 0.5); }
+  .lbl { font-size: 13px; color: rgba(255, 255, 255, 0.9); }
   .commands, .row-buttons { display: flex; gap: 2px; }
   /* DroneEntry.buttonCont: hidden, faded in (0.1 s) while the mouse is over the entry; left of the gauges */
   .row .row-buttons { opacity: 0; visibility: hidden; transition: opacity .1s, visibility .1s; margin-right: 4px; }
@@ -575,7 +582,11 @@
   .command:hover:not(:disabled) { opacity: 1; background: rgba(255, 255, 255, 0.08); }
   .command:disabled { opacity: 0.3; cursor: default; }
   .glyph { width: 16px; height: 16px; background: center / 16px 16px no-repeat; }
-  .row { display: flex; align-items: center; gap: 8px; padding: 2px 8px 2px 12px; min-height: 29px; box-sizing: border-box; }
+  /* DroneEntry: 24 high, the label 4 in (8 more a sublevel); an in-space one in the icons view 40 high with its 32 px icon */
+  .row { display: flex; align-items: center; gap: 8px; padding: 0 4px; min-height: 24px; box-sizing: border-box; }
+  .row.inspace { min-height: 40px; }
+  .row.inspace .picture { width: 32px; height: 32px; }
+  .row.inspace .picture :global(.type-icon) { width: 32px; height: 32px; }
   .row:hover { background: rgba(255, 255, 255, 0.05); }
   .row.lost { opacity: 0.55; }
   /* a selected entry (the scroll's selection fill) and a part or group a drag may drop on */
@@ -587,7 +598,7 @@
   .gauges { display: flex; gap: 2px; flex: none; margin-right: 8px; }
   .gauges.unknown { opacity: 0.05; }
   .gauge { position: relative; width: 32px; height: 4px; background: rgb(153, 31, 36); overflow: hidden; }
-  .gauge .health { position: absolute; left: 0; top: 0; bottom: 0; background: rgb(176, 176, 176); mix-blend-mode: plus-lighter; }
+  .gauge .health { position: absolute; left: 0; top: 0; bottom: 0; background: rgb(196, 196, 196); }
   .gauge .needle { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; }
   .count { font-size: 11px; color: rgb(176, 176, 169); }
   .activity { font-size: 11px; color: rgb(176, 176, 169); white-space: nowrap; }
@@ -608,7 +619,7 @@
   .menu .opener { display: flex; justify-content: space-between; gap: 12px; }
   .arrow { color: #aaa; }
   /* sublevel 1: 8 further in (GetLabelLeft 4 + 8 * sublevel) */
-  .row.sub { padding-left: 20px; }
+  .row.sub { padding-left: 12px; }
   .row.grouphead { min-height: 24px; gap: 4px; cursor: default; }
   .row.grouphead .name { color: #fff; }
   .expander { width: 0; height: 0; border-left: 4px solid rgba(255, 255, 255, 0.6); border-top: 4px solid transparent; border-bottom: 4px solid transparent; margin: 0 4px; transition: transform .1s; }
