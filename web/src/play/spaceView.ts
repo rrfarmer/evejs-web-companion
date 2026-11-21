@@ -1586,6 +1586,11 @@ export class SpaceView {
     const toggleMap = () => this.systemMap?.toggle();
     addEventListener("evejs:toggle-solar-system-map", toggleMap);
     this.unhold.push(() => removeEventListener("evejs:toggle-solar-system-map", toggleMap));
+    // a window's entry for an object in space (the drones window's DroneInSpaceEntry: TryExpandActionMenu with its itemID)
+    // opens that object's own radial menu
+    const radialFor = (e: Event) => { const d = (e as CustomEvent<{ itemID: number; x: number; y: number }>).detail; if (d) this.openRadial(d.itemID, d.x, d.y, 0); };
+    addEventListener("evejs:open-space-radial", radialFor);
+    this.unhold.push(() => removeEventListener("evejs:open-space-radial", radialFor));
     addEventListener("keyup", this.onKeyUp);
     addEventListener("blur", this.onBlur);
     addEventListener("pointerdown", this.onPointer, true);
@@ -3373,13 +3378,18 @@ export class SpaceView {
     } else {
       const dist = this.distanceTo(e);
       const drill = this.autoMoonMinerEntry(e);
-      const more = [lookAt, ...this.sovHubEntries(e, dist)];
+      // a drone (spaceRadialMenuFunctions: primaryCategoryActions / primaryGroupActions, secondaryCategoryActions): its
+      // order at the top - Mine (44_32_5) for a mining drone, Salvage (44_32_4) a salvage drone, else Engage Target
+      // (44_32_11) - and in the more ring Look At, Set Interest, Return and Orbit (44_32_3), Scoop to Cargo Hold, Return to
+      // Drone Bay (44_32_1), a gap, Scoop to Drone Bay (scoopDrone.png), each offered as the drone menu offers it
+      const droneRadial = (e as Entity & { categoryID?: number | null }).categoryID === 18 || e.kind === "drone" ? this.droneRadial(e, dist, icon, lookAt) : null;
+      const more: (RadialOption | null)[] = droneRadial ? droneRadial.more : [lookAt, ...this.sovHubEntries(e, dist)];
       if (drill) more.push({ label: drill.title, icon: drill.icon, run: run(drill.title, drill.run) });
       for (const entry of this.metenoxEntries(e)) more.push({ label: entry.title, icon: entry.icon, run: run(entry.title, entry.run) });
       const wormhole = this.wormholeEntry(e);
       const planet = this.planetViewEntry(e);
-      const primary: RadialOption | null =
-        e.kind === "station" || (e.kind === "structure" && e.typeID !== METENOX_TYPE_ID) ? { label: "Dock", icon: icon(9), run: run("Dock", () => this.actions.dock(id)) }
+      const primary: RadialOption | null = droneRadial ? droneRadial.primary
+        : e.kind === "station" || (e.kind === "structure" && e.typeID !== METENOX_TYPE_ID) ? { label: "Dock", icon: icon(9), run: run("Dock", () => this.actions.dock(id)) }
         : e.kind === "stargate" ? { label: "Jump", icon: icon(39), run: run("Jump", () => this.actions.jump(id)) }
         : wormhole ? { label: wormhole.title, icon: icon(39), disabled: wormhole.disabled, run: run(wormhole.title, wormhole.run) }
         : planet ? { label: planet.title, icon: planet.icon, run: run(planet.title, planet.run) }
@@ -3407,6 +3417,36 @@ export class SpaceView {
   }
 
   /** A Sov Hub's entries (typeInfrastructureHub 32458): Deposit Reagents within transfer range, the config window for its owner's station manager. */
+  /** The radial's drone entries (see openRadial), offered as menusvc._DroneMenu's DroneChecker offers them. */
+  private droneRadial(e: Entity, dist: number, icon: (n: number) => string, lookAt: RadialOption): { primary: RadialOption; more: (RadialOption | null)[] } {
+    const id = e.itemID;
+    const ship = this.snapshot?.ship ?? null;
+    const ego = this.snapshot?.entities.find((x) => x.isSelf) ?? null;
+    const me = (ego as (Entity & { characterID?: number | null }) | null)?.characterID ?? ego?.ownerID ?? null;
+    const d = e as Entity & { controllerID?: number | null; droneActivity?: string | null };
+    const owned = me !== null && e.ownerID === me;
+    const hasState = d.droneActivity !== undefined && d.droneActivity !== null;
+    const controlled = hasState && ship !== null && d.controllerID === ship.itemID;
+    const group = e.groupID ?? null;
+    const mining = group === 101, salvage = group === 1159;
+    const order = (kind: "primary" | "orbit" | "bay" | "scoop") => () => this.actions.droneOrder?.(kind, [id]);
+    const can = !!this.actions.droneOrder;
+    const word = (label: string, own: string) => this.actions.word?.(label) ?? own;
+    const primary: RadialOption = mining ? { label: word("UI/Drones/MineWithDrone", "Mine"), icon: icon(5), disabled: !(can && controlled), run: order("primary") }
+      : salvage ? { label: word("UI/Drones/Salvage", "Salvage"), icon: icon(4), disabled: !(can && controlled), run: order("primary") }
+      : { label: word("UI/Drones/EngageTarget", "Engage Target"), icon: icon(11), disabled: !(can && controlled), run: order("primary") };
+    const more: (RadialOption | null)[] = [
+      lookAt,
+      { label: word("UI/Inflight/SetInterest", "Set Interest"), icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/setInterest.png"), disabled: true },
+      { label: word("UI/Drones/ReturnDroneAndOrbit", "Return and Orbit"), icon: icon(3), disabled: !(can && controlled && owned), run: order("orbit") },
+      { label: word("UI/Inflight/ScoopToCargoHold", "Scoop to Cargo Hold"), icon: clientTexture("res:/UI/Texture/Icons/scoopcargo.png"), disabled: true },
+      { label: word("UI/Drones/ReturnDroneToBay", "Return to Drone Bay"), icon: icon(1), disabled: !(can && hasState && owned), run: order("bay") },
+      null,
+      { label: word("UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"), icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/scoopDrone.png"), disabled: !(can && !(owned && hasState) && dist <= 150_000), run: order("scoop") },
+    ];
+    return { primary, more };
+  }
+
   private sovHubEntries(e: Entity, dist: number): RadialOption[] {
     const hub = this.options.sovHub;
     if (!hub || e.typeID !== 32458) return [];

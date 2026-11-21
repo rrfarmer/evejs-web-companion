@@ -139,7 +139,14 @@
   onMount(() => {
     document.body.appendChild(radial.root);
     radial.root.style.zIndex = "100000";
-    const off = rootEl ? holdToOpen(rootEl, (_x, _y, e) => { const el = (e.target as HTMLElement).closest<HTMLElement>("[data-bay-item]"); return el ? Number(el.dataset.bayItem) : null; }, (id, x, y) => openBayRadial(id, x, y), false) : () => {};
+    // a bay entry its inventory radial; an in-space entry (a negative id here) the drone's own space radial
+    const off = rootEl ? holdToOpen(rootEl, (_x, _y, e) => {
+      const el = (e.target as HTMLElement).closest<HTMLElement>("[data-bay-item], [data-space-item]");
+      return !el ? null : el.dataset.bayItem ? Number(el.dataset.bayItem) : -Number(el.dataset.spaceItem);
+    }, (id, x, y) => {
+      if (id > 0) openBayRadial(id, x, y);
+      else { tipOff(); dispatchEvent(new CustomEvent("evejs:open-space-radial", { detail: { itemID: -id, x, y } })); }
+    }, false) : () => {};
     return () => { off(); radial.close(); radial.root.remove(); };
   });
   onMount(() => {
@@ -643,7 +650,7 @@
 {/snippet}
 
 {#snippet spaceEntry(row: (typeof spaceRows)[number], sub: boolean)}
-  <div class="row inspace" class:list={!$viewIcons} class:compact={$windowCompact} class:sub class:lost={row.unavailable !== null} class:selected={selected.space.includes(row.itemIDs[0]!)} role="listitem" title={row.unavailable ?? undefined} draggable="true"
+  <div class="row inspace" data-space-item={row.itemIDs[0]} class:list={!$viewIcons} class:compact={$windowCompact} class:sub class:lost={row.unavailable !== null} class:selected={selected.space.includes(row.itemIDs[0]!)} role="listitem" title={row.unavailable ?? undefined} draggable="true"
     onmouseenter={(e) => { if (row.typeID !== null) tipFor(row.typeID, row.unavailable ?? row.activity, row.color, row.targetID, e); }} onmouseleave={tipOff}
     onclick={(e) => clickEntry("space", row.itemIDs[0]!, e)} ondragstart={(e) => dragStart("space", row.itemIDs[0]!, row.typeID, e)}
     oncontextmenu={(e) => {
