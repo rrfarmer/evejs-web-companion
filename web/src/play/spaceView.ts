@@ -445,7 +445,7 @@ export class SpaceView {
   private readonly sensorLayer = document.createElement("div");
   private readonly sensorEls = new Map<string, HTMLDivElement>();
   /** The tactical overlay's compass (its geometry by base radius and active range, its labels' places). */
-  private tactical: { key: string; group: THREE.Group; labels: HTMLElement; places: { el: HTMLElement; at: THREE.Vector3 }[]; connectors: THREE.LineSegments; velocity: THREE.Mesh; action: THREE.LineSegments; navBracket: HTMLDivElement } | null = null;
+  private tactical: { key: string; group: THREE.Group; labels: HTMLElement; places: { el: HTMLElement; at: THREE.Vector3 }[]; connectors: THREE.LineSegments; velocity: THREE.Mesh; action: THREE.LineSegments; navBracket: HTMLDivElement; anchors: THREE.Mesh } | null = null;
   /**
    * sensorSuite._DoSystemEnterScan's sweep: started as a system's sites first come (systemReadyTime), the camera's view
    * angle in the plane then (GetViewAngleInPlane), each scannable site's delay (GetSiteListOrderedByDelay), the ones
@@ -3921,8 +3921,20 @@ export class SpaceView {
       navBracket.style.webkitMask = selection;
       navBracket.style.display = "none";
       labels.append(navBracket);
+      // the anchors: anchor.dds, its red channel above the plane and its green below, added
+      const anchorMap = new THREE.TextureLoader().load(clientTexture("res:/UI/inflight/tactical/anchor.dds"));
+      anchorMap.flipY = false;
+      const anchors = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
+        uniforms: { map: { value: anchorMap } },
+        vertexShader: "attribute vec4 tint; varying vec2 vUv; varying vec4 vTint; void main() { vUv = uv; vTint = tint; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+        fragmentShader: "uniform sampler2D map; varying vec2 vUv; varying vec4 vTint; void main() { vec4 t = texture2D(map, vUv); gl_FragColor = vec4(vec3(mix(t.g, t.r, vTint.a)) * vTint.rgb, 1.0); }",
+        transparent: true, depthWrite: false, side: THREE.DoubleSide,
+        blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+      }));
+      anchors.frustumCulled = false;
+      group.add(anchors);
       this.scene.add(group);
-      this.tactical = { key, group, labels, places, connectors, velocity, action, navBracket };
+      this.tactical = { key, group, labels, places, connectors, velocity, action, navBracket, anchors };
     }
     // the connectors, each frame: from the thing (relative to the ship) along the great circle to the plane
     const limit = active + base + Math.max(targeting * 0.25, 50_000);
@@ -3930,6 +3942,7 @@ export class SpaceView {
     const vel: { at: THREE.Vector3; v: THREE.Vector3; radius: number; blink: boolean }[] = [];
     const wantedVel = new Map<number, { at: THREE.Vector3; v: THREE.Vector3; radius: number; blink: boolean }>();
     const rates: { at: THREE.Vector3; v: THREE.Vector3; radius: number; blink: boolean; quad: 1 | 2 }[] = [];
+    const anchors: { plane: THREE.Vector3; above: boolean; dist: number; radius: number }[] = [];
     // relative to the ship as the brackets are (the scene's origin)
     const origin = this.snapshot?.ship?.position ?? this.lastOrigin;
     for (const e of this.snapshot?.entities ?? []) {
@@ -3944,6 +3957,7 @@ export class SpaceView {
       const flat = new THREE.Vector3(p.x, 0, p.z);
       if (flat.lengthSq() === 0) flat.x = 0.01;
       flat.setLength(d);
+      anchors.push({ plane: flat.clone(), above: p.y >= 0, dist: d, radius: e.radius });
       // _aggressorStates (blinking, isAggressive): targeted by me, or targeting me (threatTargetsMe)
       const aggressive = this.locked.has(e.itemID) || (e.targetEntityID != null && e.targetEntityID === this.snapshot?.ship?.itemID);
       const rgba = aggressive ? [1, 0.1, 0.025, 0.6] : [1, 1, 1, 0.25];
@@ -3983,7 +3997,12 @@ export class SpaceView {
     vel.push(...rates);
     this.drawTacticalVelocity(vel, w, h, ship ? new THREE.Vector3(ship.velocity.x, ship.velocity.y, -ship.velocity.z) : new THREE.Vector3());
     // ActionDisplay.SetMaxMoveRange(TacticalCompass.GetMaxRange()): 2 x (the active range + its fade)
-    this.drawActionDisplay(origin, 2 * (active + base + Math.max(targeting * 0.25, 50_000)), w, h);
+    const nav = this.drawActionDisplay(origin, 2 * (active + base + Math.max(targeting * 0.25, 50_000)), w, h);
+    // a navigation point is a connector of the overlay's too (RegisterNavBall), with its anchor
+    if (nav) { const nd = nav.at.length(); const nf = new THREE.Vector3(nav.at.x, 0, nav.at.z); if (nd > 1 && nf.lengthSq() > 0) anchors.push({ plane: nf.setLength(nd), above: nav.at.y >= 0, dist: nd, radius: 0 }); }
+    // the interest range: a hovered module's (SetFiringRange: max(optimal, optimal + falloff)), else the targeting range
+    const firingNow = this.firingRange;
+    this.drawTacticalAnchors(anchors, active + base, Math.max(targeting * 0.25, 50_000), base, firingNow ? Math.max(firingNow[0], firingNow[0] + firingNow[1]) : targeting);
     for (const p of this.tactical.places) {
       const v = p.at.clone().project(this.camera);
       const shown = v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
@@ -4145,6 +4164,43 @@ export class SpaceView {
     t.navBracket.style.display = shown ? "" : "none";
     if (shown && v) t.navBracket.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px)`;
     return nav;
+  }
+
+  /**
+   * EveTacticalOverlay's anchors (TacticalOverlayAnchor.fx with tacticalOverlay.red's AnchorParameters (0.875, 0.026),
+   * anchor.dds, added): for each connector a quad flat on the plane where its arc ends (the thing's direction in the
+   * plane at its distance), AnchorParameters.y |view z|^AnchorParameters.x across; the texture's red channel for a
+   * thing above the plane, its green for one below; faded past the active range over its fade (Fadeout: 1 -
+   * saturate((d - x z) / ((x + y) z - x z))) and to 1 - (1 - _outsideInterestIntensity 0.35) for a thing farther than
+   * the interest range beyond its radius and the ship's (the targeting range, a hovered module's optimal + falloff)
+   */
+  private drawTacticalAnchors(list: { plane: THREE.Vector3; above: boolean; dist: number; radius: number }[], active: number, fade: number, base: number, interest: number): void {
+    const t = this.tactical!;
+    const pos: number[] = [], uv: number[] = [], col: number[] = [], index: number[] = [];
+    const cam = this.camera.position;
+    const camDir = new THREE.Vector3();
+    this.camera.getWorldDirection(camDir);
+    const CORNERS = [[-0.5, -0.5, 0, 0], [0.5, -0.5, 1, 0], [0.5, 0.5, 1, 1], [-0.5, 0.5, 0, 1]] as const;
+    for (const a of list) {
+      const out = 1 - Math.min(1, Math.max(0, (a.dist - active) / fade));
+      const reduced = interest > 0.0001 && a.dist - a.radius - base > interest ? 1 - 0.35 : 0;
+      const k = out * (1 - reduced);
+      if (k <= 0) continue;
+      const size = 0.026 * Math.pow(Math.abs(a.plane.clone().sub(cam).dot(camDir)), 0.875);
+      const first = pos.length / 3;
+      for (const [x, z, u, v] of CORNERS) {
+        pos.push(a.plane.x + x * size, a.plane.y, a.plane.z + z * size);
+        uv.push(u, v);
+        col.push(k, k, k, a.above ? 1 : 0);
+      }
+      index.push(first, first + 1, first + 2, first, first + 2, first + 3);
+    }
+    const g = t.anchors.geometry;
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    g.setAttribute("tint", new THREE.Float32BufferAttribute(col, 4));
+    g.setIndex(index);
+    g.computeBoundingSphere();
   }
 
   private sensorOverlayOn(): boolean {
