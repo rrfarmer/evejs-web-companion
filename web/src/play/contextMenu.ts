@@ -18,6 +18,10 @@ export interface ContextEntry {
   readonly disabled?: string | null;
   /** A radio entry (MenuEntryDataRadioButton): true for the chosen one, false for the others. */
   readonly checked?: boolean;
+  /** With `checked`, a checkbox (MenuEntryDataCheckbox) rather than a radio entry. */
+  readonly checkbox?: boolean;
+  /** The entry's hint, shown on hover. */
+  readonly hint?: string | null;
   /** A caption (MenuData.AddCaption): a heading among the entries, not to be clicked. */
   readonly caption?: boolean;
 }
@@ -117,6 +121,7 @@ export class ContextMenu {
     const disabled = !!entry.disabled;
     Object.assign(row.style, { position: "relative", height: `${ROW}px`, lineHeight: `${ROW}px`, padding: "0 28px", cursor: disabled ? "default" : "pointer", opacity: disabled ? "0.4" : "1" });
     if (disabled) row.title = entry.disabled!;
+    else if (entry.hint) row.title = entry.hint;
     if (entry.info) {
       const disc = document.createElement("span");
       Object.assign(disc.style, { position: "absolute", left: "4px", top: "3px", width: "16px", height: "16px", borderRadius: "50%", background: "rgba(88,167,191,0.75)" });
@@ -127,8 +132,12 @@ export class ContextMenu {
       row.append(disc);
     } else if (entry.checked !== undefined) {
       const dot = document.createElement("span");
-      Object.assign(dot.style, { position: "absolute", left: "7px", top: "7px", width: "8px", height: "8px", borderRadius: "50%", boxSizing: "border-box",
-        border: "1px solid rgba(255,255,255,0.75)", background: entry.checked ? "rgba(255,255,255,0.9)" : "transparent" });
+      Object.assign(dot.style, entry.checkbox
+        ? { position: "absolute", left: "5px", top: "5px", width: "12px", height: "12px", boxSizing: "border-box", border: "1px solid rgba(255,255,255,0.6)",
+          background: entry.checked ? `center / 12px no-repeat url(${tex("res:/UI/Texture/eveicon/system_icons/checkmark_16px.png")})` : "transparent" }
+        : { position: "absolute", left: "7px", top: "7px", width: "8px", height: "8px", borderRadius: "50%", boxSizing: "border-box",
+          border: "1px solid rgba(255,255,255,0.75)", background: entry.checked ? "rgba(255,255,255,0.9)" : "transparent" });
+      if (entry.checkbox) row.setAttribute("aria-checked", String(!!entry.checked));
       row.append(dot);
     } else if (entry.icon) {
       const i = document.createElement("img");

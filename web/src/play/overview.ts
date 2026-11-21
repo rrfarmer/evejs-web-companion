@@ -14,7 +14,7 @@ import { ContextMenu, type ContextEntry } from "./contextMenu.ts";
 const MAX_TAB_NUM = 20;
 const MAX_TAB_NAME_LENGTH = 15;
 /** A tab's settings (presetSvc's settingsByTabID): its name, overview preset and bracket preset (null: Show All Brackets). */
-interface TabSettings { name: string; preset: string; bracket: string | null }
+interface TabSettings { name: string; preset: string; bracket: string | null; columns?: ColumnID[] }
 /** The pilot's tabs once changed (added, renamed, filtered, deleted): the whole list, kept per pilot in this browser. */
 const TABS_KEY = "evejs-play-overview-tabSettings";
 /** categories.CATEGORY_ICONS (eveicon star, warp_to, target, user_plus, mining at 16). */
@@ -54,14 +54,45 @@ function overviewPresets() {
 const TAB_KEY = "evejs-play-overview-tab";
 const SORT_KEY = "evejs-play-overview-sort";
 const SORT_ENABLED_KEY = "evejs-play-overview-headerSortingEnabled";
-type SortColumn = "distance" | "name" | "type" | "size" | "velocity" | "angular";
+type SortColumn = "distance" | "name" | "type" | "size" | "velocity" | "angular" | "radial" | "transversal" | "tag" | "corporation" | "alliance" | "faction" | "militia";
+const SORT_COLUMNS: readonly SortColumn[] = ["distance", "name", "type", "size", "velocity", "angular", "radial", "transversal", "tag", "corporation", "alliance", "faction", "militia"];
+
+/** An affiliation column's words for a thing (overviewWindow.py 937 to 975); null where it has none or the page none yet. */
+export interface OverviewAffiliation { tag: string | null; corporation: string | null; alliance: string | null; faction: string | null; militia: string | null }
+type ColumnID = "ICON" | "DISTANCE" | "NAME" | "TYPE" | "TAG" | "CORPORATION" | "ALLIANCE" | "FACTION" | "MILITIA" | "SIZE" | "VELOCITY" | "RADIALVELOCITY" | "TRANSVERSALVELOCITY" | "ANGULARVELOCITY";
+interface ColumnDef { id: ColumnID; label: string; own: string; unit?: string; hint?: string; width: number; right?: boolean; sort?: SortColumn }
+/**
+ * overviewConst.NAME_BY_COLUMN in its order (ALL_COLUMNS, the order GetColumns shows them in), with COLUMN_UNITS added to
+ * a header (GetColumnLabel addFormatUnit), COLUMN_DESCRIPTIONS as hints, FIXEDCOLUMNS / COLUMN_DEFAULTSIZE /
+ * COLUMNMINDEFAULTSIZE as widths and RIGHTALIGNEDCOLUMNS right aligned.
+ */
+const COLUMNS: readonly ColumnDef[] = [
+  { id: "ICON", label: "UI/Generic/Icon", own: "Icon", width: 22 },
+  { id: "DISTANCE", label: "UI/Common/Distance", own: "Distance", width: 80, right: true, sort: "distance" },
+  { id: "NAME", label: "UI/Common/Name", own: "Name", width: 112, sort: "name" },
+  { id: "TYPE", label: "UI/Common/Type", own: "Type", width: 112, sort: "type" },
+  { id: "TAG", label: "UI/Common/Tag", own: "Tag", hint: "UI/Overview/TagDescription", width: 80, sort: "tag" },
+  { id: "CORPORATION", label: "UI/Common/Corporation", own: "Corporation", width: 80, sort: "corporation" },
+  { id: "ALLIANCE", label: "UI/Common/Alliance", own: "Alliance", width: 80, sort: "alliance" },
+  { id: "FACTION", label: "UI/Common/Faction", own: "Faction", width: 80, sort: "faction" },
+  { id: "MILITIA", label: "UI/Common/Militia", own: "Militia", hint: "UI/Overview/MilitiaDescription", width: 80, sort: "militia" },
+  { id: "SIZE", label: "UI/Inventory/ItemSize", own: "Size", hint: "UI/Overview/SizeDescription", width: 80, right: true, sort: "size" },
+  { id: "VELOCITY", label: "UI/Overview/Velocity", own: "Velocity", unit: "UI/Overview/MetersPerSecondUnitShort", hint: "UI/Overview/VelocityDescription", width: 58, right: true, sort: "velocity" },
+  { id: "RADIALVELOCITY", label: "UI/Overview/RadialVelocity", own: "Radial Velocity", unit: "UI/Overview/MetersPerSecondUnitShort", hint: "UI/Overview/RadialVelocityDescription", width: 80, right: true, sort: "radial" },
+  { id: "TRANSVERSALVELOCITY", label: "UI/Overview/TraversalVelocity", own: "Transversal Velocity", unit: "UI/Overview/MetersPerSecondUnitShort", hint: "UI/Overview/TraversalVelocityDescription", width: 80, right: true, sort: "transversal" },
+  { id: "ANGULARVELOCITY", label: "UI/Generic/AngularVelocity", own: "Angular Velocity", unit: "UI/Overview/DegreesPerSecondUnitShort", hint: "UI/Overview/AngularVelocityDescription", width: 58, right: true, sort: "angular" },
+];
+/** The tabs' own columns in the client's Jotunn profile (overviewColumns), what a tab shows until the pilot changes it. */
+const DEFAULT_VISIBLE: readonly ColumnID[] = ["ICON", "DISTANCE", "NAME", "TYPE", "SIZE", "VELOCITY", "ANGULARVELOCITY"];
+const AFFILIATION_COLUMNS: ReadonlySet<ColumnID> = new Set(["TAG", "CORPORATION", "ALLIANCE", "FACTION", "MILITIA"]);
+export const OVERVIEW_COLUMN_WORDS = COLUMNS.flatMap((c) => [c.label, ...(c.unit ? [c.unit] : []), ...(c.hint ? [c.hint] : [])]);
 interface OverviewSort { column: SortColumn; down: boolean }
 const DEFAULT_SORT: OverviewSort = { column: "distance", down: false };
 const SORT_ENABLED = "UI/Tactical/HeaderSortingEnabledCb";
 const SORT_HINT = "UI/Tactical/HeaderSortingEnabledCbHint";
 const SORT_DISABLED = "UI/Tactical/HeaderSortingDisabled";
 const HACKED_HINT = "Tooltips/Overview/ScatterContainerHacked";
-export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HINT, "UI/Tactical/OverviewCaption",
+export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HINT, "UI/Tactical/OverviewCaption", ...OVERVIEW_COLUMN_WORDS,
   "UI/Overview/AddTab", "UI/Commands/OpenOverviewSettings", "UI/Overview/BracketVisibility", "UI/Overview/UseSelectedTabBracketPreset",
   "UI/Overview/ShowAll", "UI/Overview/HideAll", "UI/Overview/AddTabInstructions", "UI/Overview/TypeInLabel", "UI/Overview/Filter",
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
@@ -80,13 +111,11 @@ export function overviewDistance(m: number): string {
   return `${(Math.round((d / 149_597_870_700) * 10) / 10).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} AU`;
 }
 
-/** overviewConst: the icon column fixed at 22, Name and Type 112, Velocity and Angular 58, the others COLUMNMINDEFAULTSIZE 80. */
-const COLUMN_WIDTHS = [22, 80, 112, 112, 80, 58, 58];
 
 function readSort(key: string, fallback: OverviewSort = DEFAULT_SORT): OverviewSort {
   try {
     const saved = JSON.parse(localStorage.getItem(key) ?? "null");
-    if (["distance", "name", "type", "size", "velocity", "angular"].includes(saved?.column) && typeof saved.down === "boolean") return saved;
+    if (SORT_COLUMNS.includes(saved?.column) && typeof saved.down === "boolean") return saved;
   } catch { /* use the default */ }
   return fallback;
 }
@@ -136,6 +165,8 @@ export interface OverviewHooks {
   pilotID?: number;
   word?(label: string, args?: Readonly<Record<string, string | number>>): string | null;
   notice?(text: string): void;
+  /** The affiliation columns' words for the rows listed, the columns shown asked for where the page has them not yet. */
+  affiliation?(rows: readonly Entity[], columns: ReadonlySet<string>): ((e: Entity) => OverviewAffiliation) | null;
   /** bracketSettings' override (UseSelectedTabBracketPreset / ShowAll / HideAll), as the ⋮ menu's Bracket Visibility sets it. */
   bracketOverride?(): BracketOverride;
   setBracketOverride?(value: BracketOverride): void;
@@ -188,7 +219,7 @@ export class Overview {
       this.menu.open(e.clientX, e.clientY, this.tabMenu(i));
     });
     this.table.className = "ov-table";
-    this.table.innerHTML = `<colgroup>${COLUMN_WIDTHS.map((w) => `<col style="width:${w}px">`).join("")}</colgroup><thead><tr><th class="ov-icon"></th><th class="ov-dist" data-sort="distance"><button type="button">Distance</button></th><th data-sort="name"><button type="button">Name</button></th><th data-sort="type"><button type="button">Type</button></th><th class="ov-dist" data-sort="size"><button type="button">Size</button></th><th class="ov-dist" data-sort="velocity"><button type="button">Velocity</button></th><th class="ov-dist" data-sort="angular"><button type="button">Angular</button></th></tr></thead>`;
+    this.table.innerHTML = `<colgroup></colgroup><thead></thead>`;
     const pilotSuffix = hooks.pilotID === undefined ? "" : `:${hooks.pilotID}`;
     this.tabKey = TAB_KEY + pilotSuffix;
     this.sortKey = SORT_KEY + pilotSuffix;
@@ -238,58 +269,17 @@ export class Overview {
     this.lockIcon.className = "ov-sort-lock";
     this.lockIcon.src = clientTexture("res:/UI/Texture/eveicon/system_icons/locked_16px.png");
     this.lockIcon.alt = "";
-    for (const button of head.querySelectorAll("th[data-sort] button")) {
-      button.setAttribute("aria-label", button.textContent ?? "");
-    }
-    head.querySelector('th[data-sort="velocity"]')!.appendChild(this.lockIcon);
-    this.markSort();
-
-    const menu = document.createElement("div");
-    menu.className = "ov-header-menu";
-    menu.setAttribute("popover", "auto");
-    menu.setAttribute("role", "menu");
-    const option = document.createElement("button");
-    option.type = "button";
-    option.setAttribute("role", "menuitemcheckbox");
-    option.autofocus = true;
-    menu.appendChild(option);
-    this.window.body.appendChild(menu);
-    menu.addEventListener("keydown", (e) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      e.stopPropagation();
-      menu.hidePopover();
-    });
-    option.addEventListener("click", () => {
-      this.sortEnabled = !this.sortEnabled;
-      try { localStorage.setItem(this.sortEnabledKey, String(this.sortEnabled)); } catch { /* kept for this visit */ }
-      this.markSort();
-      menu.hidePopover();
-    });
-
-    const showMenu = (button: HTMLButtonElement | null, x: number, y: number) => {
-      const label = this.hooks.word?.(SORT_ENABLED) ?? "Header sorting enabled";
-      option.textContent = label;
-      option.setAttribute("aria-label", label);
-      option.title = this.hooks.word?.(SORT_HINT) ?? "Click a column header to sort the overview by that column.";
-      option.setAttribute("aria-checked", String(this.sortEnabled));
-      if (!menu.matches(":popover-open")) menu.showPopover({ source: button ?? head });
-      const { width, height } = menu.getBoundingClientRect();
-      menu.style.left = `${Math.max(0, Math.min(x, innerWidth - width))}px`;
-      menu.style.top = `${Math.max(0, Math.min(y, innerHeight - height))}px`;
-    };
+    this.drawHead();
     head.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      const cell = (e.target as HTMLElement).closest("th");
-      showMenu(cell?.querySelector("button") ?? null, e.clientX, e.clientY);
+      this.menu.open(e.clientX, e.clientY, this.headerMenu());
     });
     head.addEventListener("keydown", (e) => {
       if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
       e.preventDefault();
       e.stopPropagation();
-      const button = (e.target as HTMLElement).closest("button");
-      const rect = (button ?? head).getBoundingClientRect();
-      showMenu(button, rect.left, rect.bottom);
+      const rect = ((e.target as HTMLElement).closest("button") ?? head).getBoundingClientRect();
+      this.menu.open(rect.left, rect.bottom, this.headerMenu());
     });
     head.addEventListener("click", (e) => {
       const column = (e.target as HTMLElement).closest<HTMLElement>("th[data-sort]")?.dataset.sort as SortColumn | undefined;
@@ -308,6 +298,63 @@ export class Overview {
       this.lastDraw = 0;
     });
     head.addEventListener("pointerover", () => { this.lockIcon.title = this.hooks.word?.(SORT_DISABLED) ?? DISABLED_TEXT; });
+  }
+
+  /** The chosen tab's columns (presetSvc.GetTabVisibleColumnIDs), in ALL_COLUMNS' order. */
+  private visibleColumns(): readonly ColumnDef[] {
+    const shown = new Set<ColumnID>(this.tabSettings[this.tab]?.columns ?? DEFAULT_VISIBLE);
+    return COLUMNS.filter((c) => shown.has(c.id));
+  }
+
+  /** The header and the columns' widths, for the tab's columns. */
+  private drawHead(): void {
+    const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
+    const cols = this.visibleColumns();
+    this.table.querySelector("colgroup")!.innerHTML = cols.map((c) => `<col style="width:${c.width}px">`).join("");
+    this.table.style.width = `${cols.reduce((n, c) => n + c.width, 0)}px`;
+    this.table.tHead!.innerHTML = `<tr>${cols.map((c) => {
+      if (c.id === "ICON") return `<th class="ov-icon"></th>`;
+      const text = word(c.label, c.own) + (c.unit ? ` (${word(c.unit, c.unit.endsWith("DegreesPerSecondUnitShort") ? "deg/s" : "m/s")})` : "");
+      return `<th${c.right ? ` class="ov-dist"` : ""} data-sort="${c.sort}"><button type="button" aria-label="${esc(text)}">${esc(text)}</button></th>`;
+    }).join("")}</tr>`;
+    const lockAt = this.table.tHead!.querySelector('th[data-sort="velocity"]') ?? this.table.tHead!.querySelector("th:last-child");
+    lockAt?.appendChild(this.lockIcon);
+    this.markSort();
+    this.drawnRows = "";
+    this.lastDraw = 0;
+  }
+
+  /**
+   * SortHeaders' menu (OverviewWindow.GetMenuForsortHeaders): GetColumnVisibilitySubMenu's checkbox for each column of
+   * NAME_BY_COLUMN with its description, then GetHeaderSortingOptions' Header sorting enabled.
+   */
+  private headerMenu(): (ContextEntry | null)[] {
+    const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
+    const shown = new Set(this.visibleColumns().map((c) => c.id));
+    const out: (ContextEntry | null)[] = COLUMNS.map((c) => ({
+      label: word(c.label, c.own), checkbox: true, checked: shown.has(c.id), hint: c.hint ? word(c.hint, "") || null : null,
+      run: () => this.setColumnShown(c.id, !shown.has(c.id)),
+    }));
+    out.push(null, {
+      label: word(SORT_ENABLED, "Header sorting enabled"), checkbox: true, checked: this.sortEnabled, hint: word(SORT_HINT, "") || null,
+      run: () => {
+        this.sortEnabled = !this.sortEnabled;
+        try { localStorage.setItem(this.sortEnabledKey, String(this.sortEnabled)); } catch { /* kept for this visit */ }
+        this.markSort();
+      },
+    });
+    return out;
+  }
+
+  /** ColumnSetting's change (_OnColumnCheckbox): the column shown or not on the chosen tab, kept with the tab. */
+  private setColumnShown(id: ColumnID, shown: boolean): void {
+    const t = this.tabSettings[this.tab];
+    if (!t) return;
+    const now = new Set<ColumnID>(t.columns ?? DEFAULT_VISIBLE);
+    if (shown) now.add(id); else now.delete(id);
+    t.columns = COLUMNS.filter((c) => now.has(c.id)).map((c) => c.id);
+    try { localStorage.setItem(this.tabsKey, JSON.stringify(this.tabSettings)); } catch { /* the change lasts the page */ }
+    this.drawHead();
   }
 
   /** The sorted column's head marked, with the way it runs. */
@@ -337,6 +384,7 @@ export class Overview {
     if ((!initial && this.tab === i) || !this.tabs[i]) return;
     this.tab = i;
     this.drawTabs();
+    this.drawHead();
     // OverviewWindow.UpdateWindowCaption: UI/Tactical/OverviewCaption with the preset's display name ("General: General")
     const presetID = (this.tabs[i] as OverviewTab & { presetID?: string }).presetID;
     const preset = this.presetChoices.find((p) => p.id === presetID)?.label ?? this.tabs[i]!.overview?.name ?? "";
@@ -361,7 +409,8 @@ export class Overview {
     try {
       const v = JSON.parse(localStorage.getItem(this.tabsKey) ?? "null") as TabSettings[] | null;
       const tabs = Array.isArray(v) ? v.filter((t) => typeof t?.name === "string" && typeof t.preset === "string") : [];
-      return tabs.length ? tabs.map((t) => ({ name: t.name, preset: t.preset, bracket: typeof t.bracket === "string" ? t.bracket : null })) : null;
+      return tabs.length ? tabs.map((t) => ({ name: t.name, preset: t.preset, bracket: typeof t.bracket === "string" ? t.bracket : null,
+        ...(Array.isArray(t.columns) ? { columns: t.columns.filter((c) => COLUMNS.some((d) => d.id === c)) } : {}) })) : null;
     } catch {
       return null;
     }
@@ -578,13 +627,30 @@ export class Overview {
       const trans = Math.sqrt(Math.max(0, rel[0]! ** 2 + rel[1]! ** 2 + rel[2]! ** 2 - radial * radial));
       return trans / Math.max(1, d) * 180 / Math.PI;
     };
+    // overviewNodeUtil.UpdateVelocityData's radial (the relative velocity along the line, away positive) and transversal
+    const radialTransversal = (e: Entity): [number, number] | null => {
+      if (!ego || isStatic(e)) return null;
+      const rel = [e.velocity.x - ego.velocity.x, e.velocity.y - ego.velocity.y, e.velocity.z - ego.velocity.z];
+      const dir = [e.position.x - ego.position.x, e.position.y - ego.position.y, e.position.z - ego.position.z];
+      const len = Math.hypot(dir[0]!, dir[1]!, dir[2]!) || 1;
+      const radial = (rel[0]! * dir[0]! + rel[1]! * dir[1]! + rel[2]! * dir[2]!) / len;
+      return [radial, Math.sqrt(Math.max(0, rel[0]! ** 2 + rel[1]! ** 2 + rel[2]! ** 2 - radial * radial))];
+    };
+    const cols = this.visibleColumns();
+    const wantAffiliation = new Set(cols.filter((c) => AFFILIATION_COLUMNS.has(c.id)).map((c) => c.id as string));
+    const listed = entities.filter((e) => overviewRowWanted(e, this.groupOf(e), mask, relations));
+    const affiliationOf = wantAffiliation.size ? this.hooks.affiliation?.(listed, wantAffiliation) ?? null : null;
+    const words = (e: Entity, k: keyof OverviewAffiliation): string => affiliationOf?.(e)[k] ?? "";
     const key = this.sort.column;
-    const rows = entities.filter((e) => overviewRowWanted(e, this.groupOf(e), mask, relations)).map((e) => ({ e, d: distanceTo(e) })).sort((a, b) => {
+    const rows = listed.map((e) => ({ e, d: distanceTo(e) })).sort((a, b) => {
       const by = key === "distance" ? a.d - b.d
         : key === "velocity" ? speed(a.e) - speed(b.e)
         : key === "size" ? (a.e.radius ?? 0) - (b.e.radius ?? 0)
         : key === "angular" ? (angular(a.e, a.d) ?? -1) - (angular(b.e, b.d) ?? -1)
         : key === "type" ? typeColumn(a.e).localeCompare(typeColumn(b.e))
+        : key === "radial" ? (radialTransversal(a.e)?.[0] ?? -Infinity) - (radialTransversal(b.e)?.[0] ?? -Infinity)
+        : key === "transversal" ? (radialTransversal(a.e)?.[1] ?? -1) - (radialTransversal(b.e)?.[1] ?? -1)
+        : key === "tag" || key === "corporation" || key === "alliance" || key === "faction" || key === "militia" ? words(a.e, key).toLowerCase().localeCompare(words(b.e, key).toLowerCase())
         : rowName(a.e).localeCompare(rowName(b.e));
       // ties go nearest first, as the client's do
       return (this.sort.down ? -by : by) || a.d - b.d;
@@ -594,7 +660,23 @@ export class Overview {
       const typeName = typeColumn(e);
       const hackingHint = (e.hackingSecurityState ?? 0) > 1
         ? ` title="${esc(this.hooks.word?.(HACKED_HINT) ?? "Has already been hacked")}"` : "";
-      html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}"><td class="ov-icon"${hackingHint}>${this.hooks.glyph(e)}</td><td class="ov-dist">${overviewDistance(d)}</td><td>${esc(rowName(e))}</td><td>${esc(typeName)}</td><td class="ov-dist">${fmtDist(2 * (e.radius ?? 0))}</td><td class="ov-dist">${isStatic(e) ? "-" : Math.trunc(speed(e)).toLocaleString()}</td><td class="ov-dist">${(() => { const w = angular(e, d); return w === null ? "-" : w.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); })()}</td></tr>`);
+      const cell = (c: ColumnDef): string => {
+        switch (c.id) {
+          case "ICON": return `<td class="ov-icon"${hackingHint}>${this.hooks.glyph(e)}</td>`;
+          case "DISTANCE": return `<td class="ov-dist">${overviewDistance(d)}</td>`;
+          case "NAME": return `<td>${esc(rowName(e))}</td>`;
+          case "TYPE": return `<td>${esc(typeName)}</td>`;
+          case "SIZE": return `<td class="ov-dist">${fmtDist(2 * (e.radius ?? 0))}</td>`;
+          case "VELOCITY": return `<td class="ov-dist">${isStatic(e) ? "-" : Math.trunc(speed(e)).toLocaleString("en-US")}</td>`;
+          case "RADIALVELOCITY": case "TRANSVERSALVELOCITY": {
+            const rt = radialTransversal(e);
+            return `<td class="ov-dist">${rt === null ? "-" : (Math.trunc(rt[c.id === "RADIALVELOCITY" ? 0 : 1]) || 0).toLocaleString("en-US")}</td>`;
+          }
+          case "ANGULARVELOCITY": { const w = angular(e, d); return `<td class="ov-dist">${w === null ? "-" : w.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>`; }
+          default: return `<td>${esc(words(e, c.id.toLowerCase() as keyof OverviewAffiliation))}</td>`;
+        }
+      };
+      html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}">${cols.map(cell).join("")}</tr>`);
     }
     const markup = html.join("");
     if (markup !== this.drawnRows) {

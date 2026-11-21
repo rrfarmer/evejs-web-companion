@@ -57,7 +57,7 @@ import { alignText, indicationHeader, indicationText, pointText, shipIndication,
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { TARGET_LOCKED_LABEL, targetLockDurationMs, type TargetLockRadii } from "./targetLock.ts";
 import { loadDds } from "../three/ddsTexture.ts";
-import { Overview, typeNames } from "./overview.ts";
+import { Overview, typeNames, type OverviewAffiliation } from "./overview.ts";
 import { ContextMenu, type ContextEntry } from "./contextMenu.ts";
 import { fmtDist as fmtDistance } from "../space/overview.ts";
 import { DScanWindow } from "./dscan.ts";
@@ -187,6 +187,8 @@ export interface SpaceViewOptions {
   overviewPilotID?: number;
   overviewNotice?: (text: string) => void;
   overviewRelationships?: () => OverviewRelationships | undefined;
+  /** The overview's Tag, Corporation, Alliance, Faction and Militia words (see Overview's hooks). */
+  overviewAffiliation?: (rows: readonly Entity[], columns: ReadonlySet<string>) => ((e: Entity) => OverviewAffiliation) | null;
   /**
    * A Sov Hub's menu entries (celestialCheckers): Deposit Reagents (OfferOpenSovFuelDepositWindow: an infrastructure hub,
    * the pilot in a ship in space, not warping, within transfer range - 2,500 m surface to surface) and Open Sov Hub
@@ -837,6 +839,7 @@ export class SpaceView {
       pilotID: options.overviewPilotID,
       word: (label, args) => this.actions.word?.(label, args) ?? null,
       notice: options.overviewNotice,
+      affiliation: (rows, columns) => options.overviewAffiliation?.(rows, columns) ?? null,
       bracketOverride: () => this.bracketOverride,
       setBracketOverride: (value) => { this.bracketOverride = value; },
     });

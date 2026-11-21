@@ -90,11 +90,12 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { DSCAN_WORDS } from "../play/dscan.ts";
   import { LivePark } from "../three/livePark.ts";
-  import { SpaceView } from "../play/spaceView.ts";
+  import { SpaceView, type Entity } from "../play/spaceView.ts";
   import type { FlightMiningSurvey } from "../play/miningSurveyWave.ts";
   import MiningOverlayControl from "./MiningOverlayControl.svelte";
   import { OVERVIEW_WORDS, typeNames as typeData } from "../play/overview.ts";
   import type { OverviewRelationships } from "../play/overviewFilters.ts";
+  import type { OverviewAffiliation } from "../play/overview.ts";
   import { authoritativeFleetMemberCharacterIDs } from "../bridge/fleetCenter.ts";
   import { hangarGraphics } from "../play/hangarRegistry.ts";
   import { HangarView } from "../play/hangarView.ts";
@@ -1287,6 +1288,51 @@
 
     // Read relationships on demand for tabs with state exclusions. Refresh the held readings on the same
     // contact, fleet and war changes used by their windows.
+    /**
+     * The overview's text columns (overviewWindow.py 937 to 975): the fleet's tag on a thing (none where the pilot is in
+     * no fleet), its corporation's and alliance's tickers in brackets (overviewUtil.GetCorpTickerName /
+     * GetAllianceTickerName), the faction of an NPC owner (get_corporation_faction_id) and the militia it is in, by the
+     * factions' names. What the columns shown need and the page has not is asked for (each ticker once).
+     */
+    function overviewAffiliation(rows: readonly Entity[], columns: ReadonlySet<string>): (e: Entity) => OverviewAffiliation {
+      const flow = s.flow;
+      const isNpcOwner = (id: number | null | undefined): boolean => typeof id === "number" && id > 9999 && id < 90_000_000;
+      if (columns.has("CORPORATION") || columns.has("ALLIANCE")) {
+        flow.requestOwnerTickers(
+          columns.has("CORPORATION") ? rows.flatMap((e) => (e.corporationID ? [e.corporationID] : [])) : [],
+          columns.has("ALLIANCE") ? rows.flatMap((e) => (e.allianceID ? [e.allianceID] : [])) : [],
+        );
+      }
+      if (columns.has("FACTION")) flow.loadCorporationFactions();
+      const tickers = flow.ownerTickers.get();
+      const corpFactions = flow.corporationFactions.get();
+      const resolved = s.store.names.get().resolved;
+      const fleet = s.store.fleet.get();
+      const inFleet = (fleet.fleet?.fleetID ?? null) !== null;
+      const npcFaction = (e: Entity): number | null => {
+        if (!isNpcOwner(e.ownerID) && !isNpcOwner(e.characterID)) return null;
+        const owner = e.ownerID || e.characterID;
+        return owner ? corpFactions?.[String(owner)] ?? null : null;
+      };
+      const wanted = new Set<number>();
+      for (const e of rows) {
+        const f = columns.has("FACTION") ? npcFaction(e) : null;
+        if (f) wanted.add(f);
+        if (columns.has("MILITIA") && e.warFactionID) wanted.add(e.warFactionID);
+      }
+      const missing = [...wanted].filter((id) => resolved[nameKey("faction", id)] === undefined).map((id) => ({ kind: "faction" as const, id }));
+      if (missing.length) flow.requestNames(missing);
+      const ticker = (v: string | null | undefined) => (typeof v === "string" ? `[${v}]` : null);
+      const factionName = (id: number | null | undefined) => (id ? resolved[nameKey("faction", id)] ?? null : null);
+      return (e) => ({
+        tag: inFleet ? fleet.targetTags?.get(e.itemID) ?? null : "",
+        corporation: e.corporationID ? ticker(tickers.corporations[String(e.corporationID)]) : null,
+        alliance: e.allianceID ? ticker(tickers.alliances[String(e.allianceID)]) : null,
+        faction: factionName(npcFaction(e)),
+        militia: factionName(e.warFactionID),
+      });
+    }
+
     function overviewRelationships(): OverviewRelationships | undefined {
       const online = s.store.station.get().online;
       if (!online) return;
@@ -1625,6 +1671,7 @@
       wormholePolarization: (id) => s.flow.wormholePolarization(id),
       overviewNotice: (text) => s.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text),
       overviewRelationships,
+      overviewAffiliation,
       // the reloads the server announced (turret.py OnChargeBeingLoadedToModule: the turrets play Reload)
       reloads: () => s.store.fitting.get().reloads ?? {},
       corpTickers: (corpIDs) => corpTickers(corpIDs, false, s.flow.requestOptions()).then((r) => r.tickers),
