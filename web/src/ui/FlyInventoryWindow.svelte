@@ -39,7 +39,14 @@
 
   const MENU = { market: "UI/Inventory/ItemActions/ViewTypesMarketDetails", buy: "UI/Inventory/ItemActions/BuyThisType", compare: "UI/Compare/CompareButton",
     jettison: "UI/Inventory/ItemActions/Jettison", launch: "UI/Drones/LaunchDrone", info: "UI/Commands/ShowInfo", contracts: "UI/Inventory/ItemActions/FindInContracts",
-    assets: "UI/Inventory/ItemActions/FindPersonalAssets", quickbar: "UI/Inventory/ItemActions/AddTypeToMarketQuickbar" } as const;
+    assets: "UI/Inventory/ItemActions/FindPersonalAssets", quickbar: "UI/Inventory/ItemActions/AddTypeToMarketQuickbar", compress: "UI/Commands/Compress",
+    compressNone: "UI/Compression/FailureToCompressAny" } as const;
+  /** itemcompression.is_compressible_type: the client's compressibleTypes (compressibleTypes.json, tools/client-extract/compressibleTypes.py). */
+  let compressible = $state<ReadonlySet<number>>(new Set());
+  onMount(() => {
+    void fetch("/client-assets/compressibleTypes.json").then((r) => (r.ok ? r.json() : null))
+      .then((j: { pairs?: [number, number][] } | null) => { if (j?.pairs) compressible = new Set(j.pairs.map((p) => p[0])); }).catch(() => {});
+  });
   /** uix.GetInvItemDefaultHeaders, the details and list views' columns. */
   const HEADERS = ["UI/Common/Name", "UI/Common/Quantity", "UI/Inventory/ItemGroup", "UI/Inventory/ItemCategory", "UI/Inventory/ItemSize", "UI/Inventory/ItemSlot",
     "UI/Inventory/ItemVolume", "UI/Inventory/ItemMetaLevel", "UI/Inventory/ItemTechLevel", "UI/Contracts/ContractsWindow/EstPrice"] as const;
@@ -231,6 +238,8 @@
     if (one) {
       entries.push({ label: word(MENU.market, "View Market Details"), run: () => showMarketDetails(one.typeID) });
       entries.push({ label: word(MENU.buy, "Buy This Type"), run: () => buyMarketType(one.typeID) });
+      // OfferCompressInSpace: a compressible type directly in the active ship in space (DirectlyCompressInSpace)
+      if (compressible.has(one.typeID)) entries.push({ label: word(MENU.compress, "Compress"), run: () => compressInSpace() });
       if (one.categoryID !== null && [6, 7, 18].includes(one.categoryID)) entries.push({ label: word(MENU.compare, "Compare"), run: () => typeCompareTarget.ask(items.map((i) => ({ typeID: i.typeID, itemID: i.itemID }))) });
     }
     entries.push(fromBay === "drone"
@@ -265,6 +274,15 @@
   function stackAll(): void {
     if (!bay) return;
     void act(() => flow.stackContainer(bay.key === "cargo" ? "cargo" : { kind: "shipBay", bay: bay.key }));
+  }
+  /**
+   * CompressInSpaceController.CompressItems: each item compressed at a compression facility in range that takes its
+   * type (GetFacilitiesInRange: a fleet member's ship with an active compressor). The page reads no such facility, so
+   * none is in range and the client's own word for that is said (message_player FailureToCompressAny).
+   */
+  function compressInSpace(): void {
+    const text = word(MENU.compressNone, "No compression facility in range could compress those items.");
+    flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text);
   }
   async function act(run: () => Promise<void>): Promise<void> {
     moveError = "";
