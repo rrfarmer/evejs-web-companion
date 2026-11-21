@@ -83,6 +83,7 @@ import { ACTIVATE_GATE_LABEL, IN_WARP_HINT_LABEL, isWarpGate } from "../bridge/g
 import { ENTER_WORMHOLE_LABEL } from "../bridge/placeChanges.ts";
 import { hasJumpPolarization, POLARIZED_LABEL, polarizationTime, type WormholePolarization } from "./wormholePolarization.ts";
 import { activateCargoTarget, OPEN_CARGO_ICON, OPEN_CARGO_LABEL, selectedCargo } from "./containerInteraction.ts";
+import { isActiveComponent, spaceComponents, spaceComponentsNow } from "../space/deployables.ts";
 
 export interface Entity {
   kind: string; itemID: number; typeID: number | null; groupID: number | null; categoryID: number | null; name: string | null;
@@ -99,6 +100,8 @@ export interface Entity {
   dunRotation?: readonly [number, number, number];
   poseID?: number | null;
   jumpBridge?: JumpBridgeSlim;
+  /** The activate space component's isActive (component_activate); absent where the thing has none. */
+  componentActive?: boolean;
 }
 interface ItemAction {
   key: string;
@@ -263,6 +266,10 @@ export interface SpaceActions {
   shipAttribute?(attributeID: number): number | null;
   /** menusvc.OpenCargo on a wreck or a can: flown to within reach, opened, and the inventory window shown on it. */
   openCargo?(itemID: number): Promise<void>;
+  /** menusvc.Scoop: flown to within reach, then ship.Scoop(itemID). */
+  scoopToCargo?(itemID: number): Promise<void>;
+  /** Use Fitting Service: the fitting window (CmdOpenFitting). */
+  openFitting?(): void;
   /** Inventory opened on one of the ship's own holds (the new HUD's cargo indicator), by the bay's key. */
   openShipHold?(key: string): void;
   /** The menu's Set Destination and Add Waypoint (starmap.SetWaypoint), and Save Location... (the bookmark window). */
@@ -1020,6 +1027,8 @@ export class SpaceView {
         ]);
       } });
     this.selectedWin.body.classList.add("si");
+    // the space components the menu reads (deployableTypes.json), read before the first right-click
+    void spaceComponents();
     // SelectedItemWnd._OnResize -> _UpdateButtonSize: the button size follows the window width
     new ResizeObserver(() => this.sizeSelectedButtons()).observe(this.selectedWin.root);
     this.selectedEl = this.selectedWin.root;
@@ -2925,7 +2934,26 @@ export class SpaceView {
     const groupName = group !== null ? this.names?.groups[String(group)]?.[0] ?? "" : "";
     const shownInOverview = group !== null && this.overview.groupShown(group);
     if (group !== null && !shownInOverview) out.push({ path: "UI/Overview/AddGroupToOverview", label: word("UI/Overview/AddGroupToOverview", `Add ${groupName} to Overview`, { groupName }), run: () => this.overview.setGroupShown(group, true) });
+    // _CelestialMenu's space component entries (3698585): Use Fitting Service where the pilot's ship is within the
+    // fitting component's range of its own active one (OfferUseFittingService, IsShipWithinFittingRange), before Save
+    // Location...; after it, of one's own active thing Open Cargo (OfferOpenCargoBay: cargoBay, the owner or free for
+    // all) and Scoop to Cargo Hold (OfferScoopToCargoHold: a scoop component, IsOwnedByMe)
+    const comps = spaceComponentsNow();
+    const typeID = e.typeID ?? null;
+    const active = isActiveComponent(comps, typeID, e.componentActive);
+    const mine = e.ownerID != null && e.ownerID === this.snapshot?.ship?.ownerID;
+    const fittingRange = typeID !== null ? comps.fitting.get(typeID) : undefined;
+    if (fittingRange !== undefined && mine && active && dist <= fittingRange && this.actions.openFitting) {
+      out.push({ path: "UI/Fitting/UseFittingService", label: word("UI/Fitting/UseFittingService", "Use Fitting Service"), run: () => this.actions.openFitting?.() });
+    }
     if (this.actions.saveLocation && category !== 11 && category !== 6) out.push({ path: "UI/Inflight/BookmarkLocation", label: word("UI/Inflight/BookmarkLocation", "Save Location..."), run: () => this.actions.saveLocation?.(id, e.typeID ?? null) });
+    const bay = typeID !== null ? comps.cargoBay.get(typeID) : undefined;
+    if (bay && active && (mine || bay[1]) && this.actions.openCargo) {
+      out.push({ path: "UI/Commands/OpenCargo", label: word("UI/Commands/OpenCargo", "Open Cargo"), run: run("Open Cargo", () => this.actions.openCargo!(id)) });
+    }
+    if (typeID !== null && comps.scoop.has(typeID) && active && mine && this.actions.scoopToCargo) {
+      out.push({ path: "UI/Inflight/ScoopToCargoHold", label: word("UI/Inflight/ScoopToCargoHold", "Scoop to Cargo Hold"), run: run("Scoop", () => this.actions.scoopToCargo!(id)) });
+    }
     if (group === 7 && this.options.viewPlanet) out.push({ path: "UI/PI/Common/ViewInPlanetMode", label: word("UI/PI/Common/ViewInPlanetMode", "View Planetary Industry"), icon: I("enter_planet_view"), run: () => void this.options.viewPlanet?.(id) });
     if (group === 7) {
       // OfferMoonMenuOptions / GetMoons: "Moons", each "Moon N" (UI/Inflight/Submenus/MoonX by its orbit index) with the

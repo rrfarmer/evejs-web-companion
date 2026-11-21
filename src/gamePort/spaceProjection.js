@@ -246,6 +246,13 @@ function projectEntity(park, ball, slim, ego, placed) {
     isSelf: ego !== null && ball.id === ego,
     ...healthOf(park.damageState.get(ball.id), seen === undefined ? 0 : park.currentTime - seen),
   };
+  // The activate space component's state (slimItem.component_activate = (isActive, activeTimestamp), activate.py
+  // OnSlimItemUpdated): a deployable's menu offers its cargo, scoop and fitting service once it is active.
+  const activate = slim.get("component_activate");
+  if (activate !== undefined && activate !== null) {
+    const first = Array.isArray(activate) ? activate[0] : activate && typeof activate === "object" && Array.isArray(activate.items) ? activate.items[0] : activate;
+    row.componentActive = first === true || first === 1;
+  }
   if (kind === "wreck" || kind === "container") {
     // Whose it is to loot: the loot rights the client judges by.
     row.lootRights = lootRightsOf(slim.get("lootRights"));

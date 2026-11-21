@@ -1713,6 +1713,8 @@
         return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args ?? {}, { nameOf: (kind, id) => (kind === "owner" && online && Number(id) === online.characterID ? online.characterName ?? "" : "") })) : null;
       },
       openCargo: (id) => s.flow.openCargo(id),
+      scoopToCargo: (id) => s.flow.scoopToCargo(id),
+      openFitting: () => open("fitting"),
       openShipHold: (key) => shipHoldTarget.ask(key),
       // the space menu's Set Destination / Add Waypoint (starmap.SetWaypoint) and Save Location... (the bookmark window)
       setDestination: (itemID) => s.flow.setDestination(itemID),

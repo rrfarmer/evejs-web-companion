@@ -3154,6 +3154,8 @@ export interface AppFlow {
    * (QuickHasKillRight: GetKillRightsFromCache), with GetMyKillRights' own rights on them (fromID me, toID them).
    */
   bountiesAndKillRights(ownerIDs: readonly number[], characterIDs: readonly number[]): Promise<{ wanted: Set<number>; killRights: Set<number> }>;
+  /** menusvc.Scoop: flown to within reach (GetCloseAndTryCommand), then ship.Scoop(itemID); the holds read again. */
+  scoopToCargo(itemID: number): Promise<void>;
   /** deploy.DeployAction: LaunchFromShip(items, charID, maxQty=1) - ship.Drop of one of each stack; the holds read again. */
   deployItems(itemIDs: readonly number[]): Promise<void>;
   /** itemCompression.CompressItemInSpace(item, ballID): whether the stack was compressed (an answer other than None). */
@@ -19565,10 +19567,29 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     nameOwners(ownerIDs);
     return out;
   }
+  async function scoopToCargo(itemID: number): Promise<void> {
+    await navigateSystemTo(itemID, CARGO_INTERACTION_RANGE_M, async () => {
+      await bridgeDo("ship", "Scoop", [itemID]);
+      await loadMiningHolds().catch(() => {});
+    });
+  }
   async function deployItems(itemIDs: readonly number[]): Promise<void> {
-    // eveMisc.LaunchFromShip: what is not a drone goes by GetShipAccess().Drop(oldItems, whoseBehalfID, ignoreWarning)
+    // eveMisc.LaunchFromShip: what is not a drone goes by GetShipAccess().Drop(oldItems, whoseBehalfID, ignoreWarning);
+    // the answer is each stack's new items, or (message, values) where it was refused, each said as its UserError
     const stacks = itemIDs.filter((id) => Number.isSafeInteger(id) && id > 0).map((itemID) => [itemID, 1]);
-    if (stacks.length) await bridgeDo("ship", "Drop", [stacks as JsonValue, null, false]);
+    if (!stacks.length) return;
+    const answer = await bridgeDo("ship", "Drop", [stacks as JsonValue, null, false]);
+    const said = new Set<string>();
+    for (const [, seq] of readDictPairs(answer)) {
+      const each: readonly JsonValue[] = isListValue(seq) ? seq.items : Array.isArray(seq) ? (seq as JsonValue[]) : [];
+      for (const v of each) {
+        const pair: readonly JsonValue[] | null = Array.isArray(v) ? (v as JsonValue[]) : isListValue(v) ? v.items : null;
+        if (!pair || typeof pair[0] !== "string" || said.has(pair[0])) continue;
+        said.add(pair[0]);
+        const notify = readDictEntry(pair[1], "notify");
+        sayDialog(pair[0], (pair[1] ?? null) as JsonValue, typeof notify === "string" ? notify : pair[0]);
+      }
+    }
     await loadMiningHolds().catch(() => {});
   }
   async function compressItemAt(itemID: number, facilityBallID: number): Promise<boolean> {
@@ -37643,6 +37664,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     bountyAmounts,
     compressItemAt,
     deployItems,
+    scoopToCargo,
     corporationAllianceID,
     placeBounty,
     topBounties,
