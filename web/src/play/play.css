@@ -451,6 +451,9 @@ button { font: inherit; color: inherit; }
   -webkit-mask: url(/client-res/ui/texture/classes/bracket/cantarget2.png) center / 100% 100% no-repeat; mask: url(/client-res/ui/texture/classes/bracket/cantarget2.png) center / 100% 100% no-repeat; }
 .bracket.in-range .t-cantarget { display: block; }
 .bracket.in-module-range .t-cantarget { opacity: 1; }
+/* GetHitSprite: damageDealer.png in red, centred; its size and opacity set by rank, eased over 0.2 s */
+.bracket .t-ind > .t-hit { background: #f00; opacity: 0; transition: opacity .2s linear, width .2s linear, height .2s linear, left .2s linear, top .2s linear;
+  -webkit-mask: url(/client-res/ui/texture/classes/bracket/damagedealer.png) center / 100% 100% no-repeat; mask: url(/client-res/ui/texture/classes/bracket/damagedealer.png) center / 100% 100% no-repeat; }
 /* TargetingHairlines: the thin line and the 2.5 px trace (0.5, 0.7, 0.6, 0.5), over the space layer */
 .module-hairlines { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 5; display: none; }
 .module-hairlines .hl-line { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1; }

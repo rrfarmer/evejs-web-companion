@@ -7,12 +7,14 @@ export interface OverviewMiscSettings {
   targetCrosshair: boolean;
   /** Display Active Module Links (SETTING_MODULE_HAIRLINES): the hairline from a hovered module to its target. */
   moduleLinks: boolean;
+  /** Display Damage Indications (SETTING_BIGGEST_DMG_DEALER): the five biggest damage dealers' brackets marked. */
+  damageIndications: boolean;
   inRange: boolean;
   inRangeShips: boolean;
   inRangeNPCs: boolean;
   inRangeDrones: boolean;
 }
-const DEFAULTS: OverviewMiscSettings = { targetCrosshair: true, moduleLinks: true, inRange: true, inRangeShips: true, inRangeNPCs: true, inRangeDrones: true };
+const DEFAULTS: OverviewMiscSettings = { targetCrosshair: true, moduleLinks: true, damageIndications: true, inRange: true, inRangeShips: true, inRangeNPCs: true, inRangeDrones: true };
 const KEY = "evejs.ui.overview.misc";
 
 export function overviewMisc(): OverviewMiscSettings {

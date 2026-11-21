@@ -338,6 +338,40 @@ export class SpaceView {
   private readonly bracketEls = new Map<number, HTMLDivElement>();
   /** bracketMgr.ShowModuleRange's distance while a module is hovered (its brackets within it brighter), else null. */
   private moduleRange: number | null = null;
+  /** bracketMgr.damageByBracketID: each attacker's damage to the ship by the second (RECORDED_DAMAGE_PERIOD_SECONDS 120 kept). */
+  private readonly damageByAttacker = new Map<number, Map<number, number>>();
+  private biggestDamageDealers: number[] = [];
+
+  /**
+   * bracketMgr.ShowBiggestDamageDealers_thread, once a second: the five that did the most to the ship in the last two
+   * minutes (FindBiggestDamageDealers) get damageDealer.png in red on their brackets, 100 / 90 / 80 / 75 / 70 px at
+   * 0.25 / 0.2 / 0.15 / 0.12 / 0.08, changing over 0.2 s; one no longer among them loses it.
+   */
+  private updateDamageDealers(): void {
+    const since = Math.floor(Date.now() / 1000) - 120;
+    const sums: [number, number][] = [];
+    for (const [attacker, byTime] of this.damageByAttacker) {
+      for (const t of [...byTime.keys()]) if (t <= since) byTime.delete(t);
+      if (!byTime.size) { this.damageByAttacker.delete(attacker); continue; }
+      const total = [...byTime.values()].reduce((a, b) => a + b, 0);
+      if (total > 0 && this.bracketEls.has(attacker)) sums.push([total, attacker]);
+    }
+    const shown = overviewMisc().damageIndications;
+    const top = shown ? sums.sort((a, b) => b[0] - a[0] || b[1] - a[1]).slice(0, 5).map(([, id]) => id) : [];
+    const alphas = [0.25, 0.2, 0.15, 0.12, 0.08], sizes = [100, 90, 80, 75, 70];
+    top.forEach((id, i) => {
+      const hit = this.bracketEls.get(id)?.querySelector<HTMLElement>(".t-hit");
+      if (!hit) return;
+      Object.assign(hit.style, { display: "block", opacity: String(alphas[i]), width: `${sizes[i]}px`, height: `${sizes[i]}px`, left: `${-sizes[i]! / 2}px`, top: `${-sizes[i]! / 2}px` });
+      hit.dataset.base = String(alphas[i]);
+    });
+    for (const id of this.biggestDamageDealers) {
+      if (top.includes(id)) continue;
+      const hit = this.bracketEls.get(id)?.querySelector<HTMLElement>(".t-hit");
+      if (hit) hit.style.display = "none";
+    }
+    this.biggestDamageDealers = top;
+  }
   private readonly hairlineSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   private hairlineTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -2123,6 +2157,18 @@ export class SpaceView {
   readonly combatMessage: CombatMessage = new CombatMessage(this.root);
   showDamage(entry: { direction: "dealt" | "taken"; otherPartyID: number | null; amount: number; weaponTypeID?: number | null; quality?: number | null; routing?: DamageRouting }): void {
     // the shot's hit or miss to the turret that fired it, as the client routes the message (turretFx.damageMessage)
+    // bracketMgr.OnDamageMessage: what each attacker did to the ship, by the second, and its mark blinked
+    if (entry.direction === "taken" && entry.otherPartyID !== null && entry.amount > 0) {
+      const second = Math.floor(Date.now() / 1000);
+      const byTime = this.damageByAttacker.get(entry.otherPartyID) ?? new Map<number, number>();
+      byTime.set(second, (byTime.get(second) ?? 0) + Math.trunc(entry.amount));
+      this.damageByAttacker.set(entry.otherPartyID, byTime);
+      if (this.biggestDamageDealers.includes(entry.otherPartyID)) {
+        const hit = this.bracketEls.get(entry.otherPartyID)?.querySelector<HTMLElement>(".t-hit");
+        const base = Number(hit?.dataset.base ?? 0);
+        hit?.animate([{ opacity: base + 0.05 }, { opacity: base }], { duration: 750 });
+      }
+    }
     const own = this.snapshot?.ship?.itemID ?? null;
     if (own !== null && entry.routing) this.turretFx.damageMessage(own, entry.routing, entry.weaponTypeID ?? null, entry.quality ?? null);
   }
@@ -2931,6 +2977,7 @@ export class SpaceView {
     // the relationships the presets' state filters and the state flags (stateSvc.GetIconAndBackgroundFlags) are read from
     const relations = this.options.overviewRelationships?.();
     const misc = overviewMisc();
+    if (this.frameCount % 60 === 30) this.updateDamageDealers();
     const inRangeNow = this.inRangeDue;
     this.inRangeDue = false;
     for (const e of snap?.entities ?? []) {
@@ -3010,7 +3057,7 @@ export class SpaceView {
         // selectedTargetedItem), shown by the bracket's classes
         el.innerHTML = `${glyph(e)}<div class="label"></div><div class="t-ind"><span class="t-hilite"></span><span class="t-circle"></span>
           <span class="t-line t-top"></span><span class="t-line t-left"></span><span class="t-line t-right"></span><span class="t-line t-bottom"></span>
-          <span class="t-cantarget"></span><span class="t-locking"></span><span class="t-timer"></span><span class="t-lock-text"></span><span class="t-active-spin"></span><span class="t-active-circle"></span></div>`;
+          <span class="t-hit"></span><span class="t-cantarget"></span><span class="t-locking"></span><span class="t-timer"></span><span class="t-lock-text"></span><span class="t-active-spin"></span><span class="t-active-circle"></span></div>`;
         el.dataset.hackingState = hackingState;
         const id = e.itemID;
         el.dataset.id = String(id);
