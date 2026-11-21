@@ -1015,6 +1015,8 @@
   /** The space menu's bookmarks (accessGroupBookmarkMgr's, read again when a menu opens after 10 s). */
   let menuBookmarks: ActiveBookmarks | null = null;
   let menuBookmarksAt = 0;
+  /** Edit Location from the space menu: the bookmark window on that bookmark. */
+  let editingBookmark = $state<Bookmark | null>(null);
   const hudNames = $derived(session?.store.names);
   const hudWordStore = $derived(session?.store.words);
   const hudSafetyLocks = $derived.by(() => {
@@ -1578,7 +1580,7 @@
     const attributeLook = new Map<number, { readonly icon: string | null; readonly nameID: number | null }>();
     void s.flow.attributeDisplay(TIP_ATTRIBUTES).then((found) => {
       for (const [id, d] of found ?? []) attributeLook.set(id, { icon: d.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d.displayNameID });
-      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Inflight/ResetCamera", "UI/PeopleAndPlaces/NewBookmarkLocationLabel", "UI/PeopleAndPlaces/Locations", "UI/PeopleAndPlaces/PersonalLocations", "UI/PeopleAndPlaces/SharedLocations", "UI/Inflight/ApproachLocationActionGroup", "UI/Inflight/WarpToWithinDistance", "UI/Inflight/Scanner/AnomalySiteFilterLabel", ...["OreSite", "GasSite", "RelicSite", "DataSite", "Wormhole", "CombatSite"].map((t) => `UI/Inflight/Scanner/${t}`), "UI/Locations/LocationMoonLong", "UI/Locations/LocationMoonShort", "UI/Inflight/ShowSystemInMapBrowser", "UI/Common/LocationTypes/AsteroidBelts", "UI/Common/LocationTypes/Planets", "UI/Common/LocationTypes/Stargates", "UI/Common/LocationTypes/Stations", "UI/Common/LocationTypes/Structures", ...["Barren", "Storm", "Lava", "Scorched", "Shattered", "Temperate", "Ice", "Gas", "Oceanic", "Plasma"].map((t) => `UI/PI/PlanetType/${t}`), "UI/Menusvc/MenuHints/NoReasonGiven", "UI/Control/EveWindow/Minimize", "UI/Generic/Copy", "UI/Drones/EngageTarget", "UI/Drones/MineWithDrone", "UI/Drones/Salvage", "UI/Drones/ReturnDroneAndOrbit", "UI/Drones/ReturnDroneToBay", "UI/Drones/ScoopDroneToBay", "UI/Drones/AbandonDrone", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Menusvc/MoonsMenuOption", "UI/Common/Pilot", "UI/Inflight/BoardShip", "UI/Commands/GiveMoney", "UI/PeopleAndPlaces/BlockContact", "UI/EVEMail/SendPilotEVEMail", "UI/Fleet/FormFleetWith", "UI/Crimewatch/Duel/DuelMenuEntry", "UI/PeopleAndPlaces/AddContact", "UI/PeopleAndPlaces/EditContact", "UI/Commands/CapturePortrait", "UI/Station/BountyOffice/PlaceBounty", "UI/Chat/StartConversation", "UI/Chat/InviteToChat", "UI/Compression/FailureToCompressAny", "UI/Compression/FailureToCompressSome", "UI/Inflight/Submenus/MoonX", "UI/Menusvc/PlanetHasNoMoons", "UI/PI/Common/CustomsOffice", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
+      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Inflight/ResetCamera", "UI/Inflight/EditBookmark", "UI/Inflight/RemoveBookmark", "UI/Inflight/RemoveWaypoint", "UI/PeopleAndPlaces/NewBookmarkLocationLabel", "UI/PeopleAndPlaces/Locations", "UI/PeopleAndPlaces/PersonalLocations", "UI/PeopleAndPlaces/SharedLocations", "UI/Inflight/ApproachLocationActionGroup", "UI/Inflight/WarpToWithinDistance", "UI/Inflight/Scanner/AnomalySiteFilterLabel", ...["OreSite", "GasSite", "RelicSite", "DataSite", "Wormhole", "CombatSite"].map((t) => `UI/Inflight/Scanner/${t}`), "UI/Locations/LocationMoonLong", "UI/Locations/LocationMoonShort", "UI/Inflight/ShowSystemInMapBrowser", "UI/Common/LocationTypes/AsteroidBelts", "UI/Common/LocationTypes/Planets", "UI/Common/LocationTypes/Stargates", "UI/Common/LocationTypes/Stations", "UI/Common/LocationTypes/Structures", ...["Barren", "Storm", "Lava", "Scorched", "Shattered", "Temperate", "Ice", "Gas", "Oceanic", "Plasma"].map((t) => `UI/PI/PlanetType/${t}`), "UI/Menusvc/MenuHints/NoReasonGiven", "UI/Control/EveWindow/Minimize", "UI/Generic/Copy", "UI/Drones/EngageTarget", "UI/Drones/MineWithDrone", "UI/Drones/Salvage", "UI/Drones/ReturnDroneAndOrbit", "UI/Drones/ReturnDroneToBay", "UI/Drones/ScoopDroneToBay", "UI/Drones/AbandonDrone", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Menusvc/MoonsMenuOption", "UI/Common/Pilot", "UI/Inflight/BoardShip", "UI/Commands/GiveMoney", "UI/PeopleAndPlaces/BlockContact", "UI/EVEMail/SendPilotEVEMail", "UI/Fleet/FormFleetWith", "UI/Crimewatch/Duel/DuelMenuEntry", "UI/PeopleAndPlaces/AddContact", "UI/PeopleAndPlaces/EditContact", "UI/Commands/CapturePortrait", "UI/Station/BountyOffice/PlaceBounty", "UI/Chat/StartConversation", "UI/Chat/InviteToChat", "UI/Compression/FailureToCompressAny", "UI/Compression/FailureToCompressSome", "UI/Inflight/Submenus/MoonX", "UI/Menusvc/PlanetHasNoMoons", "UI/PI/Common/CustomsOffice", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
     }).catch(() => {});
     const stopAskedAt = new Map<number, number>();
     const tipWord = (label: string, args: Readonly<Record<string, unknown>>): string | null => {
@@ -1898,7 +1900,35 @@
             run: () => ran(s.flow.warpToBookmark(b.bookmarkID, d)), sub: [0, 10_000, 20_000, 30_000, 50_000, 70_000, 100_000].map((r) => ({ label: within(r), run: () => ran(s.flow.warpToBookmark(b.bookmarkID, r)) })) });
           if (offers.approach) sub.push({ path: "UI/Inflight/ApproachLocationActionGroup", label: word("UI/Inflight/ApproachLocationActionGroup", "Approach Location"), icon: "res:/UI/Texture/eveicon/control_icons/approach_16px.png", run: () => ran(s.flow.approachBookmark(b.bookmarkID)) });
           if (offers.align) sub.push({ path: "UI/Inflight/AlignTo", label: word("UI/Inflight/AlignTo", "Align to"), icon: "res:/UI/Texture/eveicon/control_icons/align_to_16px.png", run: () => ran(s.flow.alignToBookmark(b.bookmarkID)) });
-          return { label: hint, run: () => ran(s.flow.warpToBookmark(b.bookmarkID, 0)), sub };
+          // _BookmarkMenu's rest, as the live client gives it for a belt's bookmark: Show Info first (its slim's where
+          // the ballpark has it), Set Destination / Add Waypoint (or Remove Waypoint) on its map place, a line, Look at
+          // (in the ballpark), Edit Location and Remove Location (OfferEditBookmark)
+          const item = b.itemID ?? b.locationID;
+          const ball = balls.get(item);
+          sub.unshift({ path: "UI/Commands/ShowInfo", label: word("UI/Commands/ShowInfo", "Show Info"), info: true,
+            run: () => { void s.flow.infoWindows.show({ kind: "spaceObject", itemID: item, typeID: ball?.typeID ?? b.typeID }, {}).catch(() => {}); } });
+          const isPlace = (item >= 10_000_000 && item < 40_000_000) || (item >= 60_000_000 && item < 64_000_000) || (item >= 40_000_000 && item < 50_000_000);
+          const mapPlace = isPlace ? item : b.locationID;
+          const waypoints = storeValue(s.flow.waypoints);
+          if (mapPlace !== systemID && waypoints[waypoints.length - 1] !== mapPlace) sub.push({ path: "UI/Inflight/SetDestination", label: word("UI/Inflight/SetDestination", "Set Destination"), run: () => s.flow.setDestination(mapPlace) });
+          if (waypoints.includes(mapPlace)) sub.push({ path: "UI/Inflight/RemoveWaypoint", label: word("UI/Inflight/RemoveWaypoint", "Remove Waypoint"), run: () => s.flow.clearWaypoints(mapPlace) });
+          else sub.push({ path: "UI/Inflight/AddWaypoint", label: word("UI/Inflight/AddWaypoint", "Add Waypoint"), run: () => s.flow.addWaypoint(mapPlace) });
+          const tail: ContextEntry[] = [];
+          if (ball) tail.push({ path: "UI/Inflight/LookAtObject", label: word("UI/Inflight/LookAtObject", "Look at"), run: () => view?.lookAtItem(item) });
+          const folder = read.folders.find((f) => f.folderID === b.folderID);
+          if (folder && ([1, 4, 5].includes(folder.accessLevel) || (folder.accessLevel === 3 && b.creatorID === pilot))) {
+            tail.push({ path: "UI/Inflight/EditBookmark", label: word("UI/Inflight/EditBookmark", "Edit Location"), run: () => { editingBookmark = b; } });
+            tail.push({ path: "UI/Inflight/RemoveBookmark", label: word("UI/Inflight/RemoveBookmark", "Remove Location"), run: () => {
+              // addressbookService.DeleteBookmarks: RemoveLocation (the bookmark's label), then the deletion
+              void s.flow.askClientDialogWith("RemoveLocation", { locationName: hint }, `Remove the location ${hint}?`).then((yes) => {
+                if (!yes) return;
+                menuBookmarksAt = 0;
+                ran(s.flow.deleteBookmarks([{ bookmarkID: b.bookmarkID, folderID: b.folderID }]).then(() => undefined));
+              });
+            } });
+          }
+          const all: (ContextEntry | null)[] = [...sub, ...(tail.length ? [null, ...tail] : [])];
+          return { label: hint, run: () => ran(s.flow.warpToBookmark(b.bookmarkID, 0)), sub: all };
         }).sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));
         const byFolder = new Map<number, Map<number | null, Bookmark[]>>();
         for (const b of valid) {
@@ -2552,6 +2582,9 @@
   <Toasts />
   {#if systemMenu}
     <ErrorBoundary name="System menu"><SystemMenu store={session.store} flow={session.flow} onClose={() => (systemMenu = false)} /></ErrorBoundary>
+  {/if}
+  {#if editingBookmark}
+    <ErrorBoundary name="Edit Location"><BookmarkWindow store={session.store} flow={session.flow} editing={editingBookmark} onDone={() => { editingBookmark = null; menuBookmarksAt = 0; }} /></ErrorBoundary>
   {/if}
   {#if spaceBookmark}
     <ErrorBoundary name="Save Location"><BookmarkWindow store={session.store} flow={session.flow} place={spaceBookmark} onDone={() => (spaceBookmark = null)} /></ErrorBoundary>

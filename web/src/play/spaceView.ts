@@ -3238,6 +3238,11 @@ export class SpaceView {
     return out;
   }
 
+  /** menusvc.TryLookAt: the camera on the thing (Look at), where the ballpark has it. */
+  lookAtItem(itemID: number): void {
+    if (this.snapshot?.entities.some((e) => e.itemID === itemID)) this.focusOn(itemID);
+  }
+
   /** What the open context menu says (for checks). */
   get contextText(): string[] { return this.contextMenu.text; }
 
