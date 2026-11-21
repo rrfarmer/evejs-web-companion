@@ -1179,9 +1179,40 @@
         }).catch(say("Drones"));
         return true;
       }
-      // CmdDronesEngage: droneFunctions.PerformPrimaryAction - combat drones EngageTarget, salvage drones Salvage, mining
-      // drones MineRepeatedly, each at the active target (DroneCommandRequiresActiveTarget without one, but a salvage)
-      if (ids.length === 0) return true;
+      droneOrder("primary", ids);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * The drone orders the window's buttons, the keys and the space menu (menusvc._DroneMenu) give, for the drones named:
+   * PerformPrimaryAction (combat drones EngageTarget, salvage drones Salvage, mining drones MineRepeatedly, each at the
+   * active target; DroneCommandRequiresActiveTarget without one, but a salvage), Return and Orbit, Return to Drone Bay
+   * (the Command notice with an active target), Scoop to Drone Bay.
+   */
+  function droneOrder(kind: "primary" | "orbit" | "bay" | "scoop", ids: readonly number[]): void {
+    const s = session;
+    if (!s || ids.length === 0) return;
+    const say = (title: string) => (cause: unknown) => notify({ kind: "danger", title, detail: cause instanceof Error ? cause.message : String(cause) });
+    const word = (label: string, args: Record<string, unknown>, own: string) => {
+      const t = s.store.words.get().templates[label];
+      return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args as never, { nameOf: () => null } as never)) : own;
+    };
+    const inSpace = s.store.drones.get().inSpace;
+    const target = activeTargetID.get();
+    if (kind === "scoop") { void s.flow.scoopDrones(ids).catch(say("Drones")); return; }
+    if (kind === "orbit" || kind === "bay") {
+      const toBay = kind === "bay";
+      void (toBay ? s.flow.recallDrones(ids) : s.flow.returnDronesAndOrbit(ids)).then(() => {
+        if (target === null) return;
+        const text = toBay ? word("UI/Commands/DronesReturningToDroneBay", {}, "Drones returning to drone bay")
+          : word("UI/Commands/DronesReturningAndOrbiting", {}, "Drones returning and orbiting");
+        s.flow.sayDialog("Command", { type: "dict", entries: [["command", text]] }, text);
+      }).catch(say("Drones"));
+      return;
+    }
+    {
       const groupOf = (typeID: number) => s.store.names.get().resolved[nameKey("typeGroup", typeID)] ?? null;
       const salvage = salvageDroneIDs(ids, inSpace, groupOf);
       const mining = miningDroneIDs(ids, inSpace, groupOf);
@@ -1205,9 +1236,7 @@
         }
         return true;
       })().catch(say("Drones"));
-      return true;
     }
-    return false;
   }
 
   /** A key press as the client's command it is the default shortcut of (the command service's accelerators). */
@@ -1397,7 +1426,7 @@
     const attributeLook = new Map<number, { readonly icon: string | null; readonly nameID: number | null }>();
     void s.flow.attributeDisplay(TIP_ATTRIBUTES).then((found) => {
       for (const [id, d] of found ?? []) attributeLook.set(id, { icon: d.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d.displayNameID });
-      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
+      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Drones/EngageTarget", "UI/Drones/MineWithDrone", "UI/Drones/Salvage", "UI/Drones/ReturnDroneAndOrbit", "UI/Drones/ReturnDroneToBay", "UI/Drones/ScoopDroneToBay", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
     }).catch(() => {});
     const stopAskedAt = new Map<number, number>();
     const tipWord = (label: string, args: Readonly<Record<string, unknown>>): string | null => {
@@ -1592,6 +1621,7 @@
       openShipHold: (key) => shipHoldTarget.ask(key),
       // the space menu's Set Destination / Add Waypoint (starmap.SetWaypoint) and Save Location... (the bookmark window)
       setDestination: (itemID) => s.flow.setDestination(itemID),
+      droneOrder: (kind, ids) => droneOrder(kind, ids),
       addWaypoint: (itemID) => s.flow.addWaypoint(itemID),
       saveLocation: (itemID) => {
         const e = s.store.space.get().snapshot?.entities.find((x) => x.itemID === itemID);

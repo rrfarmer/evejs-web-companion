@@ -248,6 +248,8 @@ export interface SpaceActions {
   setDestination?(itemID: number): void;
   addWaypoint?(itemID: number): void;
   saveLocation?(itemID: number, typeID: number | null): void;
+  /** menusvc._DroneMenu's orders for the drones: PerformPrimaryAction (Engage Target / Mine with Drone / Salvage), Return and Orbit, Return to Drone Bay, Scoop to Drone Bay. */
+  droneOrder?(kind: "primary" | "orbit" | "bay" | "scoop", droneIDs: readonly number[]): void;
   /** The ship's holds read (fill and capacity), for the new HUD's cargo indicator. */
   loadShipHolds?(): Promise<void>;
   /** A client command run from a HUD button (ToggleProbeScanner, CmdToggleAutopilot, ...), as the page runs its shortcut. */
@@ -2568,6 +2570,25 @@ export class SpaceView {
     const warpRanges = [0, 10000, 20000, 30000, 50000, 70000, 100000];
     const within = (r: number) => word("UI/Inflight/WarpToWithin", `Within ${fmtDistance(r)}`, { distance: fmtDistance(r) });
     const out: (ContextEntry | null)[] = [];
+    // CelestialChecker.OfferDroneMenu: a drone's own menu first (menusvc._DroneMenu, DroneChecker's offers)
+    if (category === 18 && this.actions.droneOrder) {
+      const ship = this.snapshot?.ship ?? null;
+      const ego = this.snapshot?.entities.find((x) => x.isSelf) ?? null;
+      const me = (ego as (Entity & { characterID?: number | null }) | null)?.characterID ?? ego?.ownerID ?? null;
+      const d = e as Entity & { controllerID?: number | null; droneActivity?: string | null };
+      const owned = me !== null && e.ownerID === me;
+      const hasState = d.droneActivity !== undefined && d.droneActivity !== null;
+      const controlled = hasState && ship !== null && d.controllerID === ship.itemID;
+      const mining = group === 101, salvage = group === 1159, unanchoring = group === 470;
+      const order = (kind: "primary" | "orbit" | "bay" | "scoop") => () => this.actions.droneOrder?.(kind, [id]);
+      if (controlled && !mining && !unanchoring && !salvage) out.push({ label: word("UI/Drones/EngageTarget", "Engage Target"), run: order("primary") });
+      if (controlled && mining) out.push({ label: word("UI/Drones/MineWithDrone", "Mine"), run: order("primary") });
+      else if (controlled && salvage) out.push({ label: word("UI/Drones/Salvage", "Salvage"), run: order("primary") });
+      if (controlled && owned) out.push({ label: word("UI/Drones/ReturnDroneAndOrbit", "Return and Orbit"), run: order("orbit") });
+      if (hasState && owned) out.push({ label: word("UI/Drones/ReturnDroneToBay", "Return to Drone Bay"), run: order("bay") });
+      if (owned && dist < 150_000) out.push({ label: word("UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"), run: order("scoop") });
+      if (out.length) out.push(null);
+    }
     if (warp) {
       const d = defaultDistance("WarpTo");
       out.push({
