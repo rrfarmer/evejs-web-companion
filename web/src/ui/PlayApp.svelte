@@ -1733,6 +1733,8 @@
       openCargo: (id) => s.flow.openCargo(id),
       scoopToCargo: (id) => s.flow.scoopToCargo(id),
       openFitting: () => open("fitting"),
+      inFleet: () => s.store.fleet.get().availability === "ready",
+      broadcastOnItem: (name, id, typeID) => void s.flow.broadcastOnItem(name, id, typeID).catch(() => {}),
       openShipHold: (key) => shipHoldTarget.ask(key),
       // the space menu's Set Destination / Add Waypoint (starmap.SetWaypoint) and Save Location... (the bookmark window)
       setDestination: (itemID) => s.flow.setDestination(itemID),

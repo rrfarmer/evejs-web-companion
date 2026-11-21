@@ -173,6 +173,9 @@ export async function removeFromWatchlist(act: Ask, characterID: number, favorit
 /** The broadcasts the client sends to its bubble, by the names it sends them with (evefleet/const.py). */
 export type BubbleBroadcast = "HealArmor" | "HealShield" | "HealCapacitor" | "Target" | "HealTarget";
 
+/** The broadcasts the client sends to its solar system (fleetSvc.SendSystemBroadcast's callers: WarpTo, AlignTo, JumpTo). */
+export type SystemBroadcast = "WarpTo" | "AlignTo" | "JumpTo";
+
 /** The broadcasts the client sends to the whole fleet (fleetSvc.SendGlobalBroadcast's callers, 1010 to 1035 and 1128). */
 export type GlobalBroadcast = "EnemySpotted" | "NeedBackup" | "HoldPosition" | "TravelTo" | "InPosition" | "JumpBeacon" | "Location";
 
@@ -191,13 +194,15 @@ export interface FleetBroadcasts {
    * toBubble. No recording has one: its form is from the client's code alone.
    */
   toFleet(name: GlobalBroadcast, scope: number, itemID: number, typeID?: number | null): Promise<boolean>;
+  /** fleetSvc.SendSystemBroadcast: fleetMgr.BroadcastToSystem(name, scope, itemID, typeID), after the same wait. */
+  toSystem(name: SystemBroadcast, scope: number, itemID: number, typeID: number | null): Promise<boolean>;
 }
 
 /** A pilot's broadcasts, with the wait the client's fleet service keeps between them: one wait for them all. */
 export function createFleetBroadcasts(act: Ask, now: () => number = Date.now): FleetBroadcasts {
-  let last: { readonly name: BubbleBroadcast | GlobalBroadcast; readonly atMs: number } | null = null;
+  let last: { readonly name: BubbleBroadcast | GlobalBroadcast | SystemBroadcast; readonly atMs: number } | null = null;
   /** BroadcastTimeRestriction (962 to 981), the one wait for every broadcast: true where it is not over. */
-  const waiting = (name: BubbleBroadcast | GlobalBroadcast): boolean => {
+  const waiting = (name: BubbleBroadcast | GlobalBroadcast | SystemBroadcast): boolean => {
     const atMs = now();
     // 975 to 978: the whole wait after the same name, a third of it after another.
     if (last !== null && last.atMs + (last.name === name ? MIN_BROADCAST_MS : MIN_BROADCAST_MS / 3) > atMs) return true;
@@ -213,6 +218,10 @@ export function createFleetBroadcasts(act: Ask, now: () => number = Date.now): F
     async toFleet(name, scope, itemID, typeID = null) {
       if (waiting(name)) return false;
       return (await act("fleetObjectHandler", "SendBroadcast", [name, scope, itemID, typeID])) !== false;
+    },
+    async toSystem(name, scope, itemID, typeID) {
+      if (waiting(name)) return false;
+      return (await act("fleetMgr", "BroadcastToSystem", [name, scope, itemID, typeID])) !== false;
     },
   };
 }

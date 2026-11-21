@@ -2816,6 +2816,11 @@ export interface AppFlow {
    */
   broadcastTravelToMe(): Promise<"sent" | "unsent" | "not-in-fleet" | "in-station" | "in-structure">;
   /**
+   * The right-click menu's broadcasts on a thing in space (fleetSvc.SendBroadcast_Target / _Heal_Target to the bubble,
+   * _WarpTo / _AlignTo / _JumpTo to the system), at the client's default scope; false where nothing was sent.
+   */
+  broadcastOnItem(name: "Target" | "HealTarget" | "WarpTo" | "AlignTo" | "JumpTo", itemID: number, typeID: number | null): Promise<boolean>;
+  /**
    * Add Pilot to Watchlist, from the fleet's menu for a member: the pilots added to the pilot's watchlist and the
    * server told, after the client's checks. What came of it: added, nothing to add (the pilot's own, one no member,
    * or one already on it), or refused (not in a fleet: FleetNotInFleet; the list full: FleetTooManyFavorites).
@@ -17469,6 +17474,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // fleetSvc.SendBroadcast_TravelTo (1034): SendGlobalBroadcast('TravelTo', session.solarsystemid2), from the fleet's
   // menu for the pilot's own (menusvc.FleetMenu, Broadcast Travel To Me). CheckIsInFleet(inSpace=True) first (848 to
   // 858: no fleet's object, then no solar system, then docked in a structure), then the wait (fleetWrites.ts).
+  async function broadcastOnItem(name: "Target" | "HealTarget" | "WarpTo" | "AlignTo" | "JumpTo", itemID: number, typeID: number | null): Promise<boolean> {
+    if (store.fleet.get().availability !== "ready") return false;
+    return name === "Target" || name === "HealTarget"
+      ? fleetBroadcasts.toBubble(name, FLEET_BROADCAST_SCOPE_ALL, itemID)
+      : fleetBroadcasts.toSystem(name, FLEET_BROADCAST_SCOPE_ALL, itemID, typeID);
+  }
   async function broadcastTravelToMe(): Promise<"sent" | "unsent" | "not-in-fleet" | "in-station" | "in-structure"> {
     const current = callOptions.captureRequestGuard!();
     if (store.fleet.get().availability !== "ready") {
@@ -37662,6 +37673,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     ownerWars,
     bountiesAndKillRights,
     bountyAmounts,
+    broadcastOnItem,
     compressItemAt,
     deployItems,
     scoopToCargo,

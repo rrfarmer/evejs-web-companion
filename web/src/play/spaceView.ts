@@ -270,6 +270,10 @@ export interface SpaceActions {
   scoopToCargo?(itemID: number): Promise<void>;
   /** Use Fitting Service: the fitting window (CmdOpenFitting). */
   openFitting?(): void;
+  /** The pilot is in a fleet (session.IsPilotFleetMember). */
+  inFleet?(): boolean;
+  /** fleetSvc's broadcasts on a thing in space (Target, HealTarget to the bubble; WarpTo, AlignTo, JumpTo to the system). */
+  broadcastOnItem?(name: "Target" | "HealTarget" | "WarpTo" | "AlignTo" | "JumpTo", itemID: number, typeID: number | null): void;
   /** Inventory opened on one of the ship's own holds (the new HUD's cargo indicator), by the bay's key. */
   openShipHold?(key: string): void;
   /** The menu's Set Destination and Add Waypoint (starmap.SetWaypoint), and Save Location... (the bookmark window). */
@@ -2977,7 +2981,25 @@ export class SpaceView {
       if (poco) out.push({ path: "UI/PI/Common/CustomsOffice", label: word("UI/PI/Common/CustomsOffice", "Customs Office"),
         run: run("Warp", () => this.actions.warpTo(poco.itemID, defaultDistance("WarpTo"))), sub: this.contextEntries(poco) });
     }
+    // _CelestialMenu's fleet broadcasts (in the client's listing after the rest): Broadcast: Target (OfferBroadcastTarget:
+    // not the pilot's own ship, within maxFleetBroadcastTargetDistance), Warp to and Align to (OfferBroadcastWarpTo: not
+    // an entity, drone, ship or fighter), Jump to (a stargate), Repair Target (OfferBroadcastHealTarget)
+    const broadcasts: ContextEntry[] = [];
+    if (this.actions.inFleet?.() && this.actions.broadcastOnItem) {
+      const B = (n: string) => `res:/UI/Texture/classes/Fleet/Broadcast/16/${n}.png`;
+      const send = (name: "Target" | "HealTarget" | "WarpTo" | "AlignTo" | "JumpTo") => () => this.actions.broadcastOnItem?.(name, id, e.typeID ?? null);
+      const inRange = dist < 10_000_000;
+      const noWarpKind = e.kind === "ship" || e.kind === "drone" || e.kind === "npc" || e.kind === "fighter" || category === 11 || category === 6 || category === 18 || category === 87;
+      if (!e.isSelf && inRange) broadcasts.push({ path: "UI/Fleet/FleetBroadcast/Commands/BroadcastTarget", label: word("UI/Fleet/FleetBroadcast/Commands/BroadcastTarget", "Broadcast: Target"), icon: B("target"), run: send("Target") });
+      if (!noWarpKind) {
+        broadcasts.push({ path: "UI/Fleet/FleetBroadcast/Commands/BroadcastWarpTo", label: word("UI/Fleet/FleetBroadcast/Commands/BroadcastWarpTo", "Broadcast: Warp to"), icon: B("warpTo"), run: send("WarpTo") });
+        broadcasts.push({ path: "UI/Fleet/FleetBroadcast/Commands/BroadcastAlignTo", label: word("UI/Fleet/FleetBroadcast/Commands/BroadcastAlignTo", "Broadcast: Align to"), icon: B("alignTo"), run: send("AlignTo") });
+      }
+      if (stargate) broadcasts.push({ path: "UI/Fleet/FleetBroadcast/Commands/BroadcastJumpTo", label: word("UI/Fleet/FleetBroadcast/Commands/BroadcastJumpTo", "Broadcast: Jump to"), icon: B("jumpTo"), run: send("JumpTo") });
+      if (inRange) broadcasts.push({ path: "UI/Fleet/FleetBroadcast/Commands/BroadcastHealTarget", label: word("UI/Fleet/FleetBroadcast/Commands/BroadcastHealTarget", "Broadcast: Repair Target"), icon: "res:/UI/Texture/eveicon/system_icons/heal_first_aid_16px.png", run: send("HealTarget") });
+    }
     if (group !== null && shownInOverview) out.push(null, { path: "UI/Overview/RemoveGroupFromOverview", label: word("UI/Overview/RemoveGroupFromOverview", `Remove ${groupName} from Overview`, { groupName }), run: () => this.overview.setGroupShown(group, false) });
+    if (broadcasts.length) out.push(null, ...broadcasts);
     // an empty group draws no line: no two lines together, none first or last
     return out.filter((x, i, all) => x !== null || (i > 0 && i < all.length - 1 && all[i - 1] !== null));
   }
