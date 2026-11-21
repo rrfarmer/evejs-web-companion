@@ -1205,6 +1205,8 @@ export class SpaceView {
   private warpSound = { exploded: false, wind: false };
   /** CmdAccelerate / CmdDecelerate's CallCombiner (0.3 s). */
   private speedCombiner: ReturnType<typeof setTimeout> | null = null;
+  /** The system the space menu's reads were last primed for. */
+  private primedSystem: number | null = null;
   private shortcutIndication: { header: string; sub: string } | null = null;
   private temporaryIndication: { header: string; sub: string; until: number } | null = null;
   private readonly modeHeader = document.createElement("div");
@@ -1511,6 +1513,14 @@ export class SpaceView {
       const from = rightDown;
       rightDown = null;
       if (from && Math.hypot(e.clientX - from[0], e.clientY - from[1]) > 4) return;
+      // navigation.GetMenu with CmdGetLocationMenuForNavigation held (IsCombatCommandLoaded): the bookmarks' navigation
+      // menu alone (GetBookmarkMenuForNavigation, includeTopLevel False), else NoLocationsFoundForMenu
+      if (this.combat?.cmd === "CmdGetLocationMenuForNavigation") {
+        const locations = this.actions.locationsMenu?.()[0]?.sub ?? [];
+        if (locations.length) { this.radial.close(); this.contextMenu.open(e.clientX, e.clientY, locations); }
+        else this.options.overviewSay?.("NoLocationsFoundForMenu", "There are no locations to show.");
+        return;
+      }
       const id = this.pickAt(e.clientX, e.clientY);
       if (id !== null) this.openContext(id, e.clientX, e.clientY); else this.openSpaceMenu(e.clientX, e.clientY);
     });
@@ -3018,6 +3028,8 @@ export class SpaceView {
    */
   private loadCombat(cmd: CombatCommand, code: string): void {
     this.combat = { cmd, code };
+    // LoadLightCombatCommand (CmdGetLocationMenuForNavigation): held with no indication
+    if (cmd === "CmdGetLocationMenuForNavigation") return;
     const label = labelOf(cmd);
     const name = (label ? this.actions.word?.(label) : null) ?? cmd;
     const click = this.actions.word?.("UI/Commands/ClickTarget") ?? "";
@@ -3042,6 +3054,10 @@ export class SpaceView {
       case "CmdAlignToItem": run("Align To", () => this.actions.alignTo(id)); break;
       case "CmdLockTargetItem": run("Lock Target", () => this.lockTracked(id)); break;
       case "CmdUnlockTargetItem": run("Unlock Target", () => this.actions.unlock(id)); break;
+      // CmdOpenSelectedCargoContainer: menusvc.OpenCargo on the thing clicked
+      case "CmdOpenSelectedCargoContainer": run("Open Cargo", () => this.actions.openCargo?.(id) ?? Promise.resolve()); break;
+      // CmdGetLocationMenuForNavigation is a right-click's (navigation.GetMenu); a left click does nothing with it
+      case "CmdGetLocationMenuForNavigation": break;
       // targetMgr.ToggleLockTarget: unlocked where it is a target, else locked
       case "CmdToggleTargetItem": if (this.locked.has(id)) run("Unlock Target", () => this.actions.unlock(id)); else run("Lock Target", () => this.lockTracked(id)); break;
       case "CmdDockOrJumpOrActivateGate": {
@@ -3682,6 +3698,14 @@ export class SpaceView {
       if (this.gateJump && systemID !== null && this.seenSystem !== null && systemID !== this.seenSystem) {
         this.gateJump.arrivedAt = now;
       }
+    }
+    // a new system: the space menu's reads primed (the bookmarks, the journal, the anomalies), as the client's services hold
+    // them before any menu - so a first CmdGetLocationMenuForNavigation finds the bookmarks there
+    if (systemID !== null && systemID !== this.primedSystem) {
+      this.primedSystem = systemID;
+      this.actions.locationsMenu?.();
+      this.actions.missionsMenu?.();
+      this.actions.anomalies?.();
     }
     if (systemID !== null) this.seenSystem = systemID;
     // the ship's place is the scene's origin; with no ship (blown up, the capsule not yet in the park) the last one stays
