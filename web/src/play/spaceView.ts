@@ -196,6 +196,8 @@ export interface SpaceViewOptions {
   pilotName?: (characterID: number) => string | null;
   /** menusvc's "Pilot (<name>)" entry for a ship another pilot flies: its CharacterMenu as a submenu; null for none. */
   pilotMenu?: (characterID: number, affiliation?: { corporationID: number | null; allianceID: number | null }) => ContextEntry | null;
+  /** xmppChatSvc.Invite(charID): the Selected Item portrait's chat bubble (CharIcon.OnChatButton). */
+  startConversation?: (characterID: number) => void;
   /** stateSvc's selected state changed (an object selected, or none): for the panels that show it (the drone entries). */
   onSelectionChange?: (itemID: number | null) => void;
   overviewNotice?: (text: string) => void;
@@ -1764,6 +1766,22 @@ export class SpaceView {
       if (e.typeID !== null) pic.src = `/client-res/type-picture/${e.typeID}/64.png`;
       else pic.style.visibility = "hidden";
       pic.onerror = () => { pic.style.visibility = "hidden"; };
+      // CharIcon: a click is Show Info, a right-click the owner's menu (GetMenuForOwner), the chat bubble Start Conversation
+      const charEl = body.querySelector<HTMLElement>(".si-char");
+      const pilotID = e.characterID ?? null;
+      if (charEl && pilotID) {
+        const affiliation = { corporationID: e.corporationID ?? null, allianceID: e.allianceID ?? null };
+        const chat = charEl.querySelector<HTMLImageElement>(".si-chat")!;
+        chat.title = this.actions.word?.("UI/Chat/StartConversation") ?? "Start Conversation";
+        chat.addEventListener("click", (ev) => { ev.stopPropagation(); this.options.startConversation?.(pilotID); });
+        charEl.addEventListener("click", () => { this.options.pilotMenu?.(pilotID, affiliation)?.sub?.find((x) => x && "info" in x && x.info)?.run?.(); });
+        charEl.addEventListener("contextmenu", (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          const sub = this.options.pilotMenu?.(pilotID, affiliation)?.sub;
+          if (sub) this.contextMenu.open(ev.clientX, ev.clientY, sub);
+        });
+      }
       const nameEl = body.querySelector(".si-name")!;
       nameEl.textContent = this.nameOf(e);
       const jumpSystem = (e as Entity & { jumpSystemID?: number | null }).jumpSystemID ?? null;

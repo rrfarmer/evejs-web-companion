@@ -1756,6 +1756,7 @@
       // menusvc.CharacterMenu under "Pilot (<name>)" (UI/Common/Pilot), in the client's order (read through gridcheck),
       // the entries the page has a way for: Show Info, Give Money, Add Contact (Edit Contact for one), Block, Send
       // Message, Capture Portrait, Form Fleet With..., Invite to Duel
+      startConversation: (characterID) => void s.flow.conversations.start(characterID).catch(() => {}),
       pilotMenu: (characterID, affiliation) => {
         // AddContactMenu: Edit Contact where the pilot is in the address book (IsInAddressBook), else Add Contact
         if (!pilotBook) void s.flow.addressBook("contact").then((book) => { pilotBook = book; }).catch(() => {});
