@@ -127,3 +127,7 @@ export function watchLaunches(flow: { onItemLaunch(listener: (ids: ReadonlyMap<n
   watched.add(flow);
   flow.onItemLaunch(itemsLaunched);
 }
+
+/** The drones window's drag payload (DronesDragData), for a drop outside the window: the 3D view's. */
+export const DRONE_DRAG_TYPE = "application/x-evejs-drones";
+export interface DroneDragPayload { readonly section: "bay" | "space"; readonly ids: readonly number[] }

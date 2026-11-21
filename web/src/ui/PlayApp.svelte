@@ -89,7 +89,7 @@
   import { openWindow, closeWindow, focusWindow, moveWindow, resizeWindow, toggleMinimize, type WinState } from "./desktop.ts";
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import { dronesToLaunch, watchLaunches } from "./droneGroups.ts";
+  import { dronesToLaunch, watchLaunches, DRONE_DRAG_TYPE, type DroneDragPayload } from "./droneGroups.ts";
   import { DSCAN_WORDS } from "../play/dscan.ts";
   import { LivePark } from "../three/livePark.ts";
   import { SpaceView, type Entity } from "../play/spaceView.ts";
@@ -2038,7 +2038,16 @@
       </div>
     </div>
   {:else}
-    <div class="fly-space" class:planet-covered={planetInMode !== null} bind:this={spaceHost}></div>
+    <!-- navigation.OnDropData: drones dragged from the bay (the drones window) and dropped on space launch -->
+    <div class="fly-space" class:planet-covered={planetInMode !== null} bind:this={spaceHost} role="application"
+      ondragover={(e) => { if (e.dataTransfer?.types.includes(DRONE_DRAG_TYPE)) e.preventDefault(); }}
+      ondrop={(e) => {
+        const raw = e.dataTransfer?.getData(DRONE_DRAG_TYPE);
+        if (!raw || !session) return;
+        e.preventDefault();
+        const d = JSON.parse(raw) as DroneDragPayload;
+        if (d.section === "bay" && d.ids.length) void session.flow.launchDrones(d.ids).catch(() => {});
+      }}></div>
     {#if controllingMetenox}
       <button class="metenox-controls" onclick={reopenMetenoxFuel}>Fuel Bay</button>
     {/if}

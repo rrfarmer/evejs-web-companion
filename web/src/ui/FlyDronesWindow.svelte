@@ -19,7 +19,7 @@
   import TypeIcon from "./TypeIcon.svelte";
   import NamePopup from "./NamePopup.svelte";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import { createSubGroup, deleteGroup, droneGroups, dronesToLaunch, groupOf, moveToGroup, removeFromGroup, setFavoriteGroupID, type DroneGroup } from "./droneGroups.ts";
+  import { createSubGroup, deleteGroup, droneGroups, dronesToLaunch, groupOf, moveToGroup, removeFromGroup, setFavoriteGroupID, DRONE_DRAG_TYPE, type DroneGroup } from "./droneGroups.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { SpaceEntity } from "../store/types.ts";
@@ -203,6 +203,7 @@
   function dragStart(section: Section, id: number, typeID: number | null, e: DragEvent): void {
     dragging = { section, ids: selected[section].includes(id) ? [...selected[section]] : [id], typeID };
     e.dataTransfer?.setData("text/plain", dragging.ids.join(","));
+    e.dataTransfer?.setData(DRONE_DRAG_TYPE, JSON.stringify({ section, ids: dragging.ids }));
     if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
   }
   /**
