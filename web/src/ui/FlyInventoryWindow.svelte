@@ -497,11 +497,15 @@
   .top { display: flex; align-items: center; gap: 0; height: 24px; margin-bottom: 16px; }
   .tool { padding: 0; border: 0; background-color: transparent; cursor: pointer; width: 24px; height: 24px; flex: none; background: center / 16px 16px no-repeat; opacity: 0.8; }
   .tool:hover { opacity: 1; }
-  .gauge { position: relative; flex: 1; min-width: 0; height: 24px; margin: 0 8px; background: rgba(0, 0, 0, 0.3); }
+  /* the top row's dividerParent (gridcheck, 600 wide window): InvContCapacityGauge 170 wide at 262, the dragArea 8 (its
+     DividerLine at 3), the quick filter the rest (142, to the content's right) */
+  .gauge { position: relative; flex: none; width: 170px; min-width: 0; height: 24px; margin: 0 0 0 8px; background: rgba(0, 0, 0, 0.3); }
+  .gauge::after { content: ""; position: absolute; right: -4px; top: 0; width: 1px; height: 24px; background: rgba(255, 255, 255, 0.1); }
   .gfill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(88, 167, 191, 0.35); }
   .gtext { position: absolute; left: 8px; top: 0; line-height: 24px; font-size: 12px; color: rgba(255, 255, 255, 0.8); white-space: nowrap; }
-  .search { width: 128px; flex: none; height: 24px; box-sizing: border-box; border: 0; background: rgba(0, 0, 0, 0.3); color: #fff; padding: 0 6px; font-size: 14px; }
-  .items { flex: 1; overflow: auto; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 8px; }
+  .search { width: auto; flex: 1; min-width: 0; margin-left: 8px; height: 24px; box-sizing: border-box; border: 0; background: rgba(0, 0, 0, 0.3); color: #fff; padding: 0 6px; font-size: 14px; }
+  /* the ShipCargo scroll's entries and the footer's labels from 16 past the tree column (186) */
+  .items { padding-left: 4px; flex: 1; overflow: auto; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 8px; }
   .none { width: 100%; margin: 0; text-align: center; font-size: 24px; color: rgba(255, 255, 255, 0.6); letter-spacing: 0.5px; }
   .item { width: 64px; height: 103px; display: flex; flex-direction: column; align-items: center; }
   .icon { position: relative; width: 64px; height: 64px; display: grid; background: rgba(255, 255, 255, 0.05); }
@@ -509,7 +513,7 @@
   .qty { position: absolute; right: 2px; bottom: 2px; padding: 1px 4px 0; background: rgba(0, 0, 0, 0.75); font-size: 12px; line-height: 14px; }
   /* InvItem (gridcheck): 64 x 103, its quantity EveLabelSmall 12, its name a centred Label 14, 70 wide */
   .iname { margin-top: 2px; width: 70px; text-align: center; font-size: 14px; line-height: 18px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .foot { display: flex; align-items: center; gap: 8px; height: 24px; color: rgba(255, 255, 255, 0.55); }
+  .foot { padding-left: 4px; display: flex; align-items: center; gap: 8px; height: 24px; color: rgba(255, 255, 255, 0.55); }
   .count { font-weight: 700; }
   .rows { width: 100%; border-collapse: collapse; font-size: 12px; align-self: flex-start; }
   .rows th { position: sticky; top: 0; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 2px 6px; white-space: nowrap; background: rgba(0, 0, 0, 0.4); }
