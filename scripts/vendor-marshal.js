@@ -1,6 +1,7 @@
 "use strict";
 
-// Keep WC's copy of the game-port codec identical to the stock one.
+// Keep WC's copy of the game-port codec in step with the stock one, changed
+// only by the rewrites listed below.
 //
 // src/gameProtocol/ is a copy of the marshal codec the eve.js server itself
 // uses. Its wire behavior is copied so that what src/gameClient.js writes and

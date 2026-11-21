@@ -2,11 +2,17 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const v8 = require("node:v8");
+const vm = require("node:vm");
 const { createClientRowDescriptor } = require("../src/gamePort/clientRowDescriptor");
 const { parsePacket } = require("../src/gamePort/packets");
 const { readNotification } = require("../src/gamePort/session");
 const { getDecodedNumberKind, marshalDecode } = require("../src/gameProtocol/marshal");
 const { frames } = require("./fixtures/dogmaFlight.json");
+
+// `node --test` runs each file in a child without --expose-gc, so enable it here.
+v8.setFlagsFromString("--expose-gc");
+const gc = global.gc ?? vm.runInNewContext("gc");
 
 // A native descriptor can stay alive after the JS wrapper disappears.
 function standInRuntime() {
@@ -49,7 +55,23 @@ function decodeHeader() {
   return { wire: row.header, backing: payload.buffer };
 }
 
-test("inventory descriptor provenance follows native lifetime and survives rewrapping", { skip: !global.gc }, async () => {
+test("a freshly materialized descriptor projects the decoded header itself", async () => {
+  const { provider } = standInRuntime();
+  const descriptors = await createClientRowDescriptor({ provider });
+  const { wire } = decodeHeader();
+  const wrapper = descriptors.materialize(wire);
+  assert.equal(descriptors.provenance(wrapper).wire, wire);
+});
+
+test("descriptors without this owner's wire provenance are refused", async () => {
+  const { provider } = standInRuntime();
+  const descriptors = await createClientRowDescriptor({ provider });
+  const other = await createClientRowDescriptor({ provider });
+  assert.throws(() => descriptors.provenance(descriptors.create(null)), TypeError);
+  assert.throws(() => descriptors.provenance(other.materialize(decodeHeader().wire)), TypeError);
+});
+
+test("inventory descriptor provenance follows native lifetime and survives rewrapping", async () => {
   const { provider, nativeOf, wrap } = standInRuntime();
   const descriptors = await createClientRowDescriptor({ provider });
   const witnesses = [];
@@ -63,7 +85,7 @@ test("inventory descriptor provenance follows native lifetime and survives rewra
   for (let index = 0; index < 256; index++) live = materializeOne();
   for (let turn = 0; turn < 5; turn++) {
     await new Promise(setImmediate);
-    global.gc();
+    gc();
   }
   const alive = [0, 1, 2].map(index => witnesses.filter(refs => refs[index].deref() !== undefined).length);
   assert.deepEqual(alive, [0, 0, 0], "descriptor wrappers, input headers, or backing buffers still retained");

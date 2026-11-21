@@ -73,6 +73,8 @@ async function createClientRowDescriptor({ provider }) {
     // conversion succeed. The caller can then assign its real header slot.
     descriptor.setAttr("_wire_provenance", packWireHeader(wire));
     descriptor.setAttr("_wire_owner", owner);
+    // While this wrapper lives, projections keep the decoded header itself.
+    provenance.set(descriptor, Object.freeze({ wire }));
     return descriptor;
   }
   return Object.freeze({
