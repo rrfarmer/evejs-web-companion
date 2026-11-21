@@ -958,6 +958,8 @@ const PAGE_WRITE_PAIR_KEYS = Object.freeze([
   "seasonManager.claim_goal_reward",
   "charMgr.AddOwnerNote", "charMgr.EditOwnerNote", "charMgr.RemoveOwnerNote", "charMgr.SetNote",
   "entity.CmdReturnHome",
+  // droneFunctions.AbandonDrone (the drone's menu, after ConfirmAbandonDrone): entity.CmdAbandonDrone(droneIDs)
+  "entity.CmdAbandonDrone",
   // droneSettings.on_aggressive_changed / on_focus_fire_changed and DronesWindow's load: godma.ChangeDroneSettings
   // sends {droneIsAggressive 1275, droneFocusFire 1297} for the session's own character.
   "dogmaIM.ChangeDroneSettings",

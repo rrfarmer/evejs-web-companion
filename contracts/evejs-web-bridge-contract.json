@@ -1404,6 +1404,7 @@
       "dogmaIM.UnlinkAllModules",
       "dogmaIM.UnlinkModule",
       "dogmaIM.UnloadAmmo",
+      "entity.CmdAbandonDrone",
       "entity.CmdEngage",
       "entity.CmdMineRepeatedly",
       "entity.CmdReconnectToDrones",

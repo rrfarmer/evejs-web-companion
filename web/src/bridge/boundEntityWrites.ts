@@ -133,6 +133,15 @@ export async function returnDronesHome(act: Ask, droneIDs: readonly number[]): P
   return act("entity", "CmdReturnHome", [[...droneIDs]]);
 }
 
+/**
+ * Abandons these drones (droneFunctions.AbandonDrone: entity.CmdAbandonDrone(droneIDs), after ConfirmAbandonDrone):
+ * they stay in space, no longer the pilot's. With no drones nothing is asked.
+ */
+export async function abandonDrones(act: Ask, droneIDs: readonly number[]): Promise<JsonValue> {
+  if (droneIDs.length === 0) return null;
+  return act("entity", "CmdAbandonDrone", [[...droneIDs]]);
+}
+
 // --- A drone scooped (the plan's Phase 6b) ------------------------------------
 //
 // Until 2026-10-11 it was one route of the BFF (POST /api/bridge/drones/scoop).

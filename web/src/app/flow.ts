@@ -1217,6 +1217,7 @@ import {
   mineWithDrones as mineWithDronesCall,
   reconnectToDrones as reconnectToDronesCall,
   returnDronesHome,
+  abandonDrones as abandonDronesCall,
   returnDronesToBay,
   salvageWithDrones,
   scoopDrones as scoopDronesCall,
@@ -4386,6 +4387,8 @@ export interface AppFlow {
   recallDrones(droneIDs: readonly number[]): Promise<void>;
   /** Drones sent home to orbit the ship (CmdDronesReturnAndOrbit: entity.CmdReturnHome). */
   returnDronesAndOrbit(droneIDs: readonly number[]): Promise<void>;
+  /** droneFunctions.AbandonDrone: ConfirmAbandonDrone (YESNO), then entity.CmdAbandonDrone(droneIDs); false when declined. */
+  abandonDrones(droneIDs: readonly number[]): Promise<boolean>;
   /**
    * The pilot's drone settings told to the server (godma.ChangeDroneSettings: dogmaIM.ChangeDroneSettings of
    * {droneIsAggressive 1275, droneFocusFire 1297}), as the client does on a change and when its drones window opens.
@@ -27676,6 +27679,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     );
   }
 
+  async function abandonDrones(droneIDs: readonly number[]): Promise<boolean> {
+    if (droneIDs.length === 0) return false;
+    if (!(await askDialog("ConfirmAbandonDrone", null, "Are you sure you want to abandon the selected drones?", "yesno", { suppressAnswer: "yes" }))) return false;
+    await runDroneAction("Abandon drone", () => orderedThenRead(() => abandonDronesCall(bridgeDo, droneIDs)), () => null);
+    return true;
+  }
+
   async function returnDronesAndOrbit(droneIDs: readonly number[]): Promise<void> {
     await runDroneAction("Return and orbit", () => orderedThenRead(() => returnDronesHome(bridgeDo, droneIDs)), () => null);
   }
@@ -38182,6 +38192,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     recallDrones,
     reconnectDrones,
     returnDronesAndOrbit,
+    abandonDrones,
     changeDroneSettings,
     scoopDrones,
     runGmCommand,
