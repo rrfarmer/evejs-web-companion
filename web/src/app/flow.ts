@@ -27683,14 +27683,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         if (inSpace === null || launched === null) {
           return "The launch was accepted, but space could not be re-read, so what launched is unknown.";
         }
-        if (launched.length === 0) {
-          // The refusal case the server does not report: bandwidth, the active
-          // drone cap, a stack that moved. All of them answer an empty dict.
-          return "No drones launched. Check your bandwidth and how many are already out.";
-        }
-        if (launched.length < requestedCount) {
-          return `Only ${launched.length} of ${requestedCount} drones launched — the rest did not fit in your bandwidth or drone limit.`;
-        }
+        // The client says no more than the server's own refusals (raised above, LaunchFromShip): a drone left in the
+        // bay with no word is left so without one.
+        void requestedCount;
         return null;
       },
     );
@@ -27718,6 +27713,16 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const answer = await launchDronesCall(bridgeDo, stacks);
     const decodedLaunch = decodeLaunched(answer);
     const named = decodedLaunch?.droneIDs ?? [];
+    // eveMisc.LaunchFromShip: each refusal the answer holds raised as its UserError, once a message (errorByLabel)
+    const saidLabels = new Set<string>();
+    for (const refusal of decodedLaunch?.refusals ?? []) {
+      const tuple = refusal as readonly JsonValue[];
+      const label = typeof tuple[0] === "string" ? tuple[0] : null;
+      if (label === null || saidLabels.has(label)) continue;
+      saidLabels.add(label);
+      const notify = readDictEntry(tuple[1] ?? null, "notify");
+      sayDialog(label, (tuple[1] ?? null) as JsonValue, typeof notify === "string" ? notify : label);
+    }
     if (decodedLaunch && decodedLaunch.byStack.size) for (const listener of itemLaunchListeners) { try { listener(decodedLaunch.byStack); } catch { /* a listener's fault is its own */ } }
     let inSpace: JsonValue = null;
     try {
