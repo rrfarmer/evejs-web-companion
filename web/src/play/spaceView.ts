@@ -1023,7 +1023,7 @@ export class SpaceView {
     this.hairlineSvg.innerHTML = `<polyline class="hl-line" fill="none"/><polyline class="hl-trace" fill="none"/>`;
     this.layer.appendChild(this.hairlineSvg);
     // Weapon.OnMouseEnterWeapon: the hairline drawn the other way (reverse), from the weapon icon back to the module
-    this.targetBar.onWeaponHover = (moduleID) => { if (moduleID !== null) this.showHairlines(moduleID, true); else this.stopHairlines(); };
+    this.targetBar.onWeaponHover = (moduleID) => { this.shipHud?.highlightModule(moduleID); if (moduleID !== null) this.showHairlines(moduleID, true); else this.stopHairlines(); };
     // The radial menu: held or right-clicked on a bracket, an overview row or an object in space.
     if (!document.getElementById("radial-css")) {
       const style = document.createElement("style");

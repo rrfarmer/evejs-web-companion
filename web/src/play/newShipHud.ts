@@ -340,6 +340,8 @@ export class NewShipHud {
   tooltipRows: ((m: HudModule) => readonly ModuleTooltipRow[] | null) | null = null;
   /** The slot showing a module (GetModuleFromID), for its hairline; null when it is not on the HUD. */
   slotElement(moduleID: number): HTMLElement | null { return this.slots.find((s) => s.module?.itemID === moduleID)?.el ?? null; }
+  /** Weapon.OnMouseEnterWeapon / Exit: the module's slot lit as if hovered (module.InitHilite), or none. */
+  highlightModule(moduleID: number | null): void { for (const s of this.slots) if (s.module) s.hover = s.module.itemID === moduleID && moduleID !== null; }
   /** ModuleController.ShowRange / HideRange: the module under the pointer, or null when it leaves. */
   onModuleHover: ((m: HudModule | null) => void) | null = null;
   private readonly tooltip = document.createElement("div");
