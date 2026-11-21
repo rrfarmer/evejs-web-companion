@@ -1017,6 +1017,9 @@
   let menuBookmarksAt = 0;
   /** The space menu asked for the journal once (GetMyAgentJournalBookmarks needs it read). */
   let menuJournalAsked = false;
+  /** The space menu's home station (home_station.get_home_station), asked once. */
+  let menuHomeStation: number | null = null;
+  let menuHomeAsked = false;
   /** Edit Location from the space menu: the bookmark window on that bookmark. */
   let editingBookmark = $state<Bookmark | null>(null);
   const hudNames = $derived(session?.store.names);
@@ -1870,6 +1873,12 @@
       // the system as MissionNameSubmenu (its name and agent), its bookmarks' hints (_GetAgentEntryText: a site's
       // " - <system>" dropped, " - Moon " as " - M", a trailing "- " off) warping at nought on a click, with Warp to
       // Within and its ranges and Approach Location (where near) under each
+      homeStationID: () => {
+        const sheet = s.store.characterSheet.get().homeStationID;
+        if (sheet !== null) return sheet;
+        if (!menuHomeAsked) { menuHomeAsked = true; void s.flow.redeemHomeStation().then((id) => { menuHomeStation = id; }).catch(() => {}); }
+        return menuHomeStation;
+      },
       missionsMenu: () => {
         const journal = s.store.agents.get().journal;
         if (journal === null) {

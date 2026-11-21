@@ -24,6 +24,10 @@ export interface ContextEntry {
   readonly checkbox?: boolean;
   /** The entry's hint, shown on hover. */
   readonly hint?: string | null;
+  /** The label's colour (a <color> tag over the whole text: the home station's CRYO_BLUE, an unavailable gate's DANGER_RED). */
+  readonly color?: string;
+  /** A coloured part after the label (eveformat.solar_system_security_status: the security in its class's colour). */
+  readonly suffix?: { readonly text: string; readonly color: string };
   /** A caption (MenuData.AddCaption): a heading among the entries, not to be clicked. */
   readonly caption?: boolean;
 }
@@ -149,6 +153,13 @@ export class ContextMenu {
     }
     const label = document.createElement("span");
     label.textContent = entry.label;
+    if (entry.color) label.style.color = entry.color;
+    if (entry.suffix) {
+      const sfx = document.createElement("span");
+      sfx.textContent = ` ${entry.suffix.text}`;
+      sfx.style.color = entry.suffix.color;
+      label.append(sfx);
+    }
     row.append(label);
     if (entry.sub) {
       const arrow = document.createElement("img");

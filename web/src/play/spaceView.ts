@@ -326,6 +326,8 @@ export interface SpaceActions {
   safetyLevel?(): 0 | 1 | 2 | null;
   /** GetBookmarkMenuForNavigation: the Locations entry of the system's bookmarks (none where none, or not read yet). */
   locationsMenu?(): (ContextEntry | null)[];
+  /** home_station.get_home_station: the pilot's home station, null while not known (asked then). */
+  homeStationID?(): number | null;
   /** _GetAgentMissonsMenu: the Agent Missions entry (none where no mission has a bookmark in the system). */
   missionsMenu?(): (ContextEntry | null)[];
   /** sensorSuite.GetAnomalies for the system the pilot is in (empty where not read yet: the read is started). */
@@ -3154,17 +3156,24 @@ export class SpaceView {
         const long = word("UI/Locations/LocationMoonLong", "Moon") + " ", short = word("UI/Locations/LocationMoonShort", "M");
         return name.split(long).join(short).split(long.toLowerCase()).join(short.toLowerCase());
       }
+      return name;
+    };
+    // _GetEntryName's colours: the home station (home_station.is_home_station) in CRYO_BLUE; a gate the security of the
+    // system it jumps to in its class's colour (solar_system_security_status)
+    const homeStation = this.actions.homeStationID?.() ?? null;
+    const colourOf = (e: Entity): Pick<ContextEntry, "color" | "suffix"> => {
+      if (e.groupID === 15 && e.itemID === homeStation) return { color: "#58A7BF" };
       if (e.groupID === 10) {
         const to = (e as Entity & { jumpSystemID?: number | null }).jumpSystemID ?? null;
         const sec = to === null ? null : this.options.systemSecurity?.(to) ?? null;
-        return sec === null ? name : `${name} ${shownSecurity(sec).toFixed(1)}`;
+        if (sec !== null) return { suffix: { text: shownSecurity(sec).toFixed(1), color: securityStatusColor(shownSecurity(sec)) } };
       }
-      return name;
+      return {};
     };
     const typeMenu = (list: readonly Entity[]): ContextEntry[] => list
       .map((e) => ({ e, name: entryName(e), at: indices(this.nameOf(e)) }))
       .sort((a, b) => a.at[0] - b.at[0] || a.at[1] - b.at[1] || a.name.toLowerCase().localeCompare(b.name.toLowerCase()))
-      .map(({ e, name }) => ({ label: name, icon: e.categoryID === 65 ? iconOf(e) : null, run: () => void this.act("Warp To", () => this.actions.warpTo(e.itemID)), sub: this.contextEntries(e) }));
+      .map(({ e, name }) => ({ label: name, ...colourOf(e), icon: e.categoryID === 65 ? iconOf(e) : null, run: () => void this.act("Warp To", () => this.actions.warpTo(e.itemID)), sub: this.contextEntries(e) }));
     const GROUPS: [number, string, string][] = [[9, "UI/Common/LocationTypes/AsteroidBelts", "Asteroid Belts"], [7, "UI/Common/LocationTypes/Planets", "Planets"],
       [10, "UI/Common/LocationTypes/Stargates", "Stargates"], [15, "UI/Common/LocationTypes/Stations", "Stations"]];
     const groups: { label: string; list: Entity[]; split: boolean }[] = GROUPS.map(([g, l, own]) => ({ label: word(l, own), list: things.filter((e) => e.groupID === g), split: false }));
