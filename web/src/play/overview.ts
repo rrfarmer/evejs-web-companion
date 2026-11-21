@@ -20,6 +20,7 @@ export function flagMarkup(f: StateFlagLook | null): string {
   return `<span class="state-flag${f.flagBlink ? " blink" : ""}" style="background:${rgba(f.flagColor, 0.75)}" title="${esc(f.text)}"><span style="background:${rgba(f.iconColor)};-webkit-mask:url(${glyph}) center/8px no-repeat;mask:url(${glyph}) center/8px no-repeat"></span></span>`;
 }
 import { ContextMenu, type ContextEntry } from "./contextMenu.ts";
+import { readProfile, writeProfile, type OverviewProfile } from "./overviewProfileFile.ts";
 import { overviewMisc, setOverviewMisc, applyOverviewMisc } from "./overviewMisc.ts";
 import { SHIP_LABEL_PRESETS, saveShipLabelSettings, shipLabelMarkup, shipLabelSettings, type ShipLabelPart } from "./shipLabels.ts";
 
@@ -36,6 +37,7 @@ const TAB_COLORS: readonly number[][] = Array.from({ length: 24 }, (_, i) => {
 });
 const rgbCss = (c: readonly number[]) => `rgb(${c.slice(0, 3).map((n) => Math.round(n * 255)).join(",")})`;
 /** stateSvc.GetStateColors' values in the order the 3698585 client's dict gives them (read live through gridcheck). */
+const STATE_COLOR_NAMES = ["darkTurquoise", "indigo", "darkBlue", "turquoise", "yellow", "blue", "purple", "green", "orange", "black", "white", "red"] as const;
 const STATE_COLORS: readonly number[][] = [[0, 0.34, 0.33, 1], [0.3, 0, 0.5, 1], [0, 0.15, 0.6, 1], [0, 0.63, 0.57, 1], [1, 0.7, 0, 1], [0.2, 0.5, 1, 1],
   [0.6, 0.15, 0.9, 1], [0.1, 0.6, 0.1, 1], [1, 0.35, 0, 1], [0, 0, 0, 1], [0.7, 0.7, 0.7, 1], [0.75, 0, 0, 1]];
 /**
@@ -186,7 +188,7 @@ export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HI
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
   "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
   "UI/Overview/EditCurrentFilter", "UI/Commands/ChangeName", "UI/Overview/DeleteTab", "/Carbon/UI/Controls/ScrollEntries/TypeInNewName",
-  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Overview/ToggleBlink", "UI/Overview/MoveBroadcastersToTop", "UI/Overview/ShareOverview", "UI/Overview/SharableOverviewIconHint", "UI/Overview/ProfileHistory", "UI/Overview/HistoryText", "UI/Overview/AutomaticallyStoredOverviewHeader", "UI/Overview/RestoreProfile", "UI/Overview/StoredOverviewBasedOn", "UI/Overview/DefaultOverviewName", "UI/Overview/ProfileLinkWithTimestamp", "UI/Mail/Select Color", "UI/SystemMenu/ResetSettings/Clear", "UI/Common/Buttons/Save", "UI/Common/Buttons/SaveAs", "UI/Common/Delete", "UI/Overview/FilterName", "UI/Overview/CustomFilters", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
+  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Overview/ToggleBlink", "UI/Overview/ImportOverviewSettings", "UI/Overview/ExportOverviewSettings", "UI/Common/Files/FileNotValid", "UI/Overview/MoveBroadcastersToTop", "UI/Overview/ShareOverview", "UI/Overview/SharableOverviewIconHint", "UI/Overview/ProfileHistory", "UI/Overview/HistoryText", "UI/Overview/AutomaticallyStoredOverviewHeader", "UI/Overview/RestoreProfile", "UI/Overview/StoredOverviewBasedOn", "UI/Overview/DefaultOverviewName", "UI/Overview/ProfileLinkWithTimestamp", "UI/Mail/Select Color", "UI/SystemMenu/ResetSettings/Clear", "UI/Common/Buttons/Save", "UI/Common/Buttons/SaveAs", "UI/Common/Delete", "UI/Overview/FilterName", "UI/Overview/CustomFilters", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
 const DISABLED_TEXT = "Header sorting is disabled";
 
 /**
@@ -677,7 +679,7 @@ export class Overview {
         ${box("moduleLinks", "UI/Overview/DisplayModuleLinks", "Display Active Module Links")}
         ${box("inRange", "UI/Overview/DisplayRangeBrackets", "Display In-Range Brackets")}
         ${box("inRangeShips", "UI/Overview/Ships", "Ships", true)}${box("inRangeNPCs", "UI/Overview/NPCs", "NPCs", true)}${box("inRangeDrones", "UI/Overview/Drones", "Drones", true)}
-        <div class="ov-add-buttons"><button type="button" class="ov-misc-reset">${esc(word("UI/Overview/ResetOverview", "Reset All Settings"))}</button></div></div>`;
+        <div class="ov-add-buttons"><button type="button" class="ov-misc-import">${esc(word("UI/Overview/ImportOverviewSettings", "Import Settings"))}</button><button type="button" class="ov-misc-export">${esc(word("UI/Overview/ExportOverviewSettings", "Export Settings"))}</button><button type="button" class="ov-misc-reset">${esc(word("UI/Overview/ResetOverview", "Reset All Settings"))}</button></div></div>`;
     };
     const editLabels = (fn: (labels: ShipLabelPart[]) => void) => { const st = shipLabelSettings(); fn(st.labels); saveShipLabelSettings(st); draw(); };
     const draw = () => {
@@ -828,6 +830,15 @@ export class Overview {
       if (t.closest(".ov-filt-all")) { this.setPresetGroups(editing, all, true); draw(); return; }
       if (t.closest(".ov-filt-none")) { this.setPresetGroups(editing, all, false); draw(); return; }
       if (t.closest(".ov-history-restore-btn")) { this.restoreProfile(); draw(); return; }
+      if (t.closest(".ov-misc-export")) { this.exportFile(); return; }
+      if (t.closest(".ov-misc-import")) {
+        const pick = document.createElement("input");
+        pick.type = "file";
+        pick.accept = ".yaml,.yml,text/yaml";
+        pick.addEventListener("change", () => { const f = pick.files?.[0]; if (f) void f.text().then((text) => { this.importFile(text); draw(); }); });
+        pick.click();
+        return;
+      }
       const nameEl = t.closest<HTMLElement>(".ov-profile-name");
       if (nameEl && !nameEl.querySelector("input")) {
         const input = document.createElement("input");
@@ -993,6 +1004,67 @@ export class Overview {
   private restoreData(): { data: Record<string, string>; name: string; timestamp: number } | null {
     try { const v = JSON.parse(localStorage.getItem(RESTORE_KEY) ?? "null"); return v && typeof v.data === "object" ? v : null; } catch { return null; }
   }
+  /** The overview as the client's export writes it (ExportOverviewWindow.Export: general settings, profile, own presets). */
+  overviewProfile(): OverviewProfile {
+    const ids = (where: "flag" | "background") => this.appearanceList(where);
+    const colorName = (c: readonly number[]) => STATE_COLORS.findIndex((x) => x.every((v, i) => Math.abs(v - (c[i] ?? 1)) < 0.01));
+    const stateColors: Record<string, string> = {};
+    for (const [k, c] of Object.entries(this.appearance.colors ?? {})) { const i = colorName(c); if (i >= 0) stateColors[k.replace(":", "_")] = STATE_COLOR_NAMES[i]!; }
+    const stateBlinks: Record<string, boolean> = {};
+    for (const [k, b] of Object.entries(this.appearance.blinks ?? {})) stateBlinks[k.replace(":", "_")] = b;
+    const nameOf = (id: string | null) => (id && id.startsWith(CUSTOM_PREFIX) ? id.slice(CUSTOM_PREFIX.length) : id);
+    const labels = shipLabelSettings().labels;
+    return {
+      flagOrder: ids("flag").map((e) => e.flag), flagStates: ids("flag").filter((e) => e.on).map((e) => e.flag),
+      backgroundOrder: ids("background").map((e) => e.flag), backgroundStates: ids("background").filter((e) => e.on).map((e) => e.flag),
+      stateColors, stateBlinks,
+      columnOrder: this.columnOrder(0).map((c) => c.id), overviewColumns: this.visibleColumns(0).map((c) => c.id).sort(),
+      shipLabels: labels.map((l) => ({ ...l, type: l.type })),
+      tabs: this.tabSettings.map((t) => ({ name: t.name, overview: nameOf(t.preset)!, bracket: nameOf(t.bracket), color: t.color ?? null })),
+      presets: this.customPresets(),
+    };
+  }
+  /** ExportOverviewWindow: the file saved (the browser's download, as <overview name>.yaml). */
+  private exportFile(): void {
+    const blob = new Blob([writeProfile(this.overviewProfile())], { type: "text/yaml" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${this.profileName().replace(/[\\/:*?"<>|]+/g, "_")}.yaml`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  /**
+   * ImportOverviewWindow.Import: a file the client (or the page) wrote loaded - the pilot's own filters added (a
+   * name the overview has is a custom filter of that name), the tabs, the Appearance lists, colours and blinks and the
+   * ship labels taken where the file has them; false where it is no overview file.
+   */
+  importFile(text: string): boolean {
+    const p = readProfile(text);
+    if (!p) { this.hooks.notice?.(this.hooks.word?.("UI/Common/Files/FileNotValid") ?? "This file is not valid."); return false; }
+    try {
+      if (p.presets && Object.keys(p.presets).length) localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify({ ...this.customPresets(), ...p.presets }));
+      const custom = { ...this.customPresets() };
+      const idOf = (name: string | null) => (name === null ? null : custom[name] ? CUSTOM_PREFIX + name : name);
+      if (p.tabs && p.tabs.length) localStorage.setItem(this.tabsKey, JSON.stringify(p.tabs.map((t) => ({ name: t.name, preset: idOf(t.overview)!, bracket: idOf(t.bracket), ...(t.color ? { color: t.color } : {}) }))));
+      const appearance: AppearanceSettings = { ...this.appearance };
+      if (p.flagOrder) appearance.flag = p.flagOrder.map((flag) => ({ flag, on: (p.flagStates ?? []).includes(flag) }));
+      if (p.backgroundOrder) appearance.background = p.backgroundOrder.map((flag) => ({ flag, on: (p.backgroundStates ?? []).includes(flag) }));
+      if (p.stateColors) {
+        appearance.colors = Object.fromEntries(Object.entries(p.stateColors).flatMap(([k, n]) => {
+          const i = STATE_COLOR_NAMES.indexOf(n as (typeof STATE_COLOR_NAMES)[number]);
+          return i < 0 ? [] : [[k.replace("_", ":"), [...STATE_COLORS[i]!]]];
+        }));
+      }
+      if (p.stateBlinks) appearance.blinks = Object.fromEntries(Object.entries(p.stateBlinks).map(([k, b]) => [k.replace("_", ":"), b]));
+      localStorage.setItem(APPEARANCE_KEY, JSON.stringify(appearance));
+      if (p.shipLabels && p.shipLabels.length) {
+        saveShipLabelSettings({ labels: p.shipLabels.map((l) => ({ ...l, type: (l.type === "null" ? null : l.type) as ShipLabelPart["type"], color: l.color ?? undefined, fontsize: l.fontsize ?? undefined })) as ShipLabelPart[], hideCorpTicker: shipLabelSettings().hideCorpTicker });
+      }
+    } catch { return false; }
+    this.reloadSettings();
+    return true;
+  }
+
   /** RestoreAutoSavedOverviewProfile: the stored settings loaded (LoadOverviewProfileFromDict), the stored copy dropped. */
   private restoreProfile(): void {
     const r = this.restoreData();
@@ -1002,6 +1074,10 @@ export class Overview {
       for (const [k, v] of Object.entries(r.data)) localStorage.setItem(k, v);
       localStorage.removeItem(RESTORE_KEY);
     } catch { /* nothing kept */ }
+    this.reloadSettings();
+  }
+  /** The overview's settings read again from what is kept (LoadOverviewProfileFromDict's reload). */
+  private reloadSettings(): void {
     for (const [id, data] of Object.entries(this.presetData ?? {})) {
       const mask = this.masks.get(id);
       const fresh = presetMask(data, id);
