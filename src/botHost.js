@@ -1127,6 +1127,7 @@ function createBotHost(options) {
       expiresAt,
       resumedAt: resumed ? nowISO() : null,
       vitals: null,
+      samplingVitals: false,
       status: "starting",
       phase: null,
       why: null,
@@ -1971,17 +1972,23 @@ function createBotHost(options) {
   async function sampleBotVitals(record) {
     const flow = record.flow;
     const store = record.store;
-    if (!flow || !store || record.finalized) {
+    if (!flow || !store || record.finalized || record.samplingVitals) {
       return;
     }
+    record.samplingVitals = true;
+    // A pending read can outlast the session. Stop clears the flow and store.
+    const current = () => record.flow === flow && record.store === store;
     try {
       await flow.loadFlightStatus();
+      if (!current()) return;
       const flight = store.flight.get().status;
       const docked = flight === null ? null : flight.docked === true;
       if (docked === false) {
         await flow.loadSpaceSnapshot();
+        if (!current()) return;
       }
       await flow.loadMiningHolds();
+      if (!current()) return;
       const snapshot = docked === false ? store.space.get().snapshot : null;
       const ship = snapshot ? snapshot.ship : null;
       const holds = store.mining.get().holds || [];
@@ -2001,6 +2008,8 @@ function createBotHost(options) {
       };
     } catch {
       // Best-effort: the last sample stands until a read succeeds again.
+    } finally {
+      record.samplingVitals = false;
     }
   }
 

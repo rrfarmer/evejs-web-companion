@@ -1135,7 +1135,7 @@ test("an on-disk roster row with no `kind` field resumes exactly as a script alw
 test("vitals sampling projects ship health, hold fill and the bot's words", async () => {
   const host = makeHost();
   await host.start(START);
-  await host.sampleAllVitals();
+  await new Promise(setImmediate);
   const rows = host.activeBots();
   assert.equal(rows.length, 1);
   assert.equal(rows[0].characterID, 140000001);
@@ -1154,6 +1154,128 @@ test("vitals sampling projects ship health, hold fill and the bot's words", asyn
   assert.equal("botID" in rows[0], false);
   assert.equal("accountID" in rows[0], false);
   assert.equal("scriptID" in rows[0], false);
+});
+
+test("vitals ticks skip a busy pilot and recover after completion or error", { timeout: 5000 }, async (t) => {
+  const slowPilot = START.characterID;
+  const fastPilot = slowPilot + 1;
+  const sceneReads = new Map();
+  const { promise: hold, resolve: release } = Promise.withResolvers();
+  let holdNextScene = false;
+  let failNextScene = false;
+  let clock = 1_000;
+  const host = makeHost({
+    now: () => clock,
+    loadStack: makeFakeStack([], (flow, store) => ({
+      ...flow,
+      async loadSpaceSnapshot() {
+        const characterID = store.station.get().online.characterID;
+        sceneReads.set(characterID, (sceneReads.get(characterID) ?? 0) + 1);
+        if (characterID === slowPilot && holdNextScene) {
+          holdNextScene = false;
+          await hold;
+        }
+        if (characterID === slowPilot && failNextScene) {
+          failNextScene = false;
+          throw new Error("Space snapshot unavailable");
+        }
+        await flow.loadSpaceSnapshot();
+      },
+    })),
+  });
+  t.after(() => {
+    release();
+    return host.stopAll();
+  });
+
+  assert.equal((await host.start(START)).ok, true);
+  assert.equal((await host.start({ ...START, characterID: fastPilot })).ok, true);
+  await new Promise(setImmediate);
+  const vitalsFor = (characterID) => host.activeBots().find((bot) => bot.characterID === characterID).vitals;
+  const initialVitals = vitalsFor(slowPilot);
+
+  clock += 15_000;
+  holdNextScene = true;
+  const pending = host.sampleAllVitals();
+  try {
+    await new Promise(setImmediate);
+    assert.equal(sceneReads.get(slowPilot), 2);
+    clock += 15_000;
+    await host.sampleAllVitals();
+    assert.equal(sceneReads.get(slowPilot), 2, "no second scene read while the first is pending");
+    assert.equal(sceneReads.get(fastPilot), 3);
+    assert.equal(vitalsFor(fastPilot).sampledAt, new Date(clock).toISOString());
+    assert.deepEqual(vitalsFor(slowPilot), initialVitals);
+  } finally {
+    release();
+    await pending;
+  }
+  assert.equal(sceneReads.get(slowPilot), 2, "skipped ticks are not replayed");
+
+  clock += 15_000;
+  await host.sampleAllVitals();
+  assert.equal(sceneReads.get(slowPilot), 3);
+  const lastVitals = vitalsFor(slowPilot);
+  assert.equal(lastVitals.sampledAt, new Date(clock).toISOString());
+
+  clock += 15_000;
+  failNextScene = true;
+  await host.sampleAllVitals();
+  assert.equal(sceneReads.get(slowPilot), 4);
+  assert.deepEqual(vitalsFor(slowPilot), lastVitals);
+  clock += 15_000;
+  await host.sampleAllVitals();
+  assert.equal(sceneReads.get(slowPilot), 5);
+  assert.equal(vitalsFor(slowPilot).sampledAt, new Date(clock).toISOString());
+});
+
+test("stopping a pilot leaves a pending vitals read with no follow-up work", { timeout: 5000 }, async (t) => {
+  const { promise: hold, resolve: release } = Promise.withResolvers();
+  let sceneReads = 0;
+  let holdReads = 0;
+  const host = makeHost({
+    loadStack: makeFakeStack([], (flow) => ({
+      ...flow,
+      async loadSpaceSnapshot() {
+        if (++sceneReads === 2) await hold;
+        await flow.loadSpaceSnapshot();
+      },
+      async loadMiningHolds() {
+        holdReads += 1;
+        await flow.loadMiningHolds();
+      },
+    })),
+  });
+  t.after(() => {
+    release();
+    return host.stopAll();
+  });
+
+  const started = await host.start(START);
+  assert.equal(started.ok, true);
+  await new Promise(setImmediate);
+  const previousVitals = host.list(ACCOUNT.accountID)[0].vitals;
+  const pending = host.sampleAllVitals();
+  try {
+    await new Promise(setImmediate);
+    assert.equal(sceneReads, 2);
+    assert.equal(holdReads, 1);
+    assert.equal((await host.stop(started.bot.botID, ACCOUNT.accountID)).ok, true);
+    assert.equal(host.claimedBy(START.characterID), null);
+
+    const restarted = await host.start(START);
+    assert.equal(restarted.ok, true);
+    await new Promise(setImmediate);
+    assert.equal(holdReads, 2);
+    assert.ok(host.activeBots()[0].vitals);
+  } finally {
+    release();
+    await pending;
+  }
+  assert.equal(holdReads, 2, "the stopped run must not read holds after the scene returns");
+  const ended = host.list(ACCOUNT.accountID).find((bot) => bot.botID === started.bot.botID);
+  assert.ok(ended.endedAt);
+  assert.deepEqual(ended.vitals, previousVitals);
 });
 
 test("a bot whose script vanished leaves a visible error record, not silence", async () => {
