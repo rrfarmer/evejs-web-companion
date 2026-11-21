@@ -8,6 +8,7 @@
   import { DRONE_NOT_UNDER_YOUR_CONTROL, NO_DRONE_UNDER_YOUR_CONTROL, panelErrorWords } from "../bridge/refusals.ts";
   import { droneActivityColor, droneActivityLabel } from "../bridge/drones.ts";
   import { activeTargetID, activeTargetName } from "../play/activeTarget.ts";
+  import { playUiEvent } from "../play/uiAudio.ts";
   import { droneSettings, droneSettingsFor, droneWarpWarning, droneWarpWarningFor, setDroneSetting } from "./droneSettings.ts";
   import { shortcutOf } from "../play/shortcutKeys.ts";
   import { onMount } from "svelte";
@@ -123,6 +124,13 @@
   $effect(() => { const id = $character.selectedCharacterID; if (id !== null) droneWarpWarningFor(id); });
   flow.requestWords(["UI/Drones/WarpWarningMessage", "UI/Drones/StopAndRecall"]);
   const warpWarningShown = $derived($warpWarningOn && snapshot?.ship?.warp?.preparing === true && ($drones.inSpace ?? []).length > 0);
+  // WarpWarning.FadeIn: the audio service sounds ui_warning_abandoning_drones each time the warning comes up
+  let warpWarningWas = false;
+  $effect(() => {
+    const now = warpWarningShown;
+    if (now && !warpWarningWas) void playUiEvent("ui_warning_abandoning_drones");
+    warpWarningWas = now;
+  });
   function stopAndRecall(): void {
     const ids = ($drones.inSpace ?? []).map((d) => d.itemID);
     void run(async () => { await flow.stopShip(); if (ids.length) await flow.recallDrones(ids); });
