@@ -22,8 +22,11 @@
     loading = false,
     resizable = true,
     showTitle = true,
+    icon = null,
     children,
   }: {
+    /** The window's caption icon (Window.default_iconNum), a URL; none where null. */
+    icon?: string | null;
     win: Pick<WinState, "x" | "y" | "w" | "h" | "z" | "minimized"> & { readonly id?: string | number };
     title: string;
     focused: boolean;
@@ -118,7 +121,7 @@
     that survived — see the note on the buttons below.
   -->
   <header class="win-bar" onpointerdown={startDrag} ondblclick={onToggleMinimize}>
-    <span class="win-title">{#if showTitle}{title}{/if}</span>
+    {#if icon}<img class="win-icon" src={icon} alt="" />{/if}<span class="win-title">{#if showTitle}{title}{/if}</span>
     {#if headerActions}{@render headerActions()}{/if}
     <span class="win-actions">
       <!--

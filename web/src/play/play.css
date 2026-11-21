@@ -561,6 +561,7 @@ body:not(.no-target-crosshair) .bracket.locked .t-line, body:not(.no-target-cros
   backdrop-filter: var(--win-backdrop-focused, blur(6px)); }
 .fly-windows .win-bar { height: 26px; min-height: 26px; padding: 0 4px 0 10px; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
 .fly-windows .win-title { font-family: var(--font); font-size: 13px; font-weight: 400; letter-spacing: .02em; text-transform: none; color: #c8ccc8; }
+.fly-windows .win-icon { width: 24px; height: 24px; flex: none; margin: 0 6px 0 -2px; opacity: .85; }
 .fly-windows .win-btn { width: 20px; height: 20px; padding: 0; border: none; background: center / 16px 16px no-repeat; color: transparent; opacity: .55; overflow: hidden; }
 .fly-windows .win-btn:hover { opacity: 1; background-color: rgba(255, 255, 255, 0.08); }
 .fly-windows .win-btn:not(.win-close) { background-image: url(/client-res/ui/texture/eveicon/system_icons/minimize_16px.png); }
