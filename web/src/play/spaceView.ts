@@ -122,6 +122,9 @@ interface ItemAction {
   run: () => Promise<void>;
 }
 
+/** An anomaly as the space menu lists it: its scan id, strength attribute (its group) and dungeon name. */
+export interface AnomalySite { readonly targetID: string; readonly strength: number; readonly dungeonName: string }
+
 export interface JumpBridgePanelState {
   readonly bridge: JumpBridgeSlim;
   readonly shipTypeID: number | null;
@@ -321,6 +324,14 @@ export interface SpaceActions {
   safetySelector?(at: DOMRect | null): void;
   /** crimewatchSvc.GetSafetyLevel: 0 none, 1 partial, 2 full; null where not known. */
   safetyLevel?(): 0 | 1 | 2 | null;
+  /** sensorSuite.GetAnomalies for the system the pilot is in (empty where not read yet: the read is started). */
+  anomalies?(): readonly AnomalySite[];
+  /** A site warped to by its scan id (menusvc.WarpToScanResult), at the range. */
+  warpToSite?(targetID: string, range: number): Promise<void>;
+  /** scanSvc.AlignToPosition: the ship aligned to the site's position. */
+  alignToSite?(targetID: string): Promise<void>;
+  /** The site's position saved as a location (BookmarkLocationPopup). */
+  bookmarkSite?(targetID: string): void;
   /** A link followed from a play window (the overview's History: an overviewPreset link). */
   followLink?(url: string, text: string): void;
   /** The HUD health tooltip's figures for a pool (0 shield, 1 armor, 2 structure). */
@@ -3174,8 +3185,53 @@ export class SpaceView {
         .sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));
       menu.push({ label: word("UI/Common/LocationTypes/Structures", "Structures"), icon: iconOf(structures[0]!), sub });
     }
+    // sensorSuite.GetAnomalies: Anomalies (AnomalySiteFilterLabel), its sites by scan group (_GetAnomaliesMenu)
+    const sites = this.actions.anomalies?.() ?? [];
+    if (sites.length) menu.push({ label: word("UI/Inflight/Scanner/AnomalySiteFilterLabel", "Anomalies"), icon: "res:/UI/Texture/Shared/Brackets/combatSite_16.png", sub: this.anomaliesMenu(sites) });
     this.radial.close();
     this.contextMenu.open(x, y, menu);
+  }
+
+  /**
+   * ListSurroundingsBtn._GetAnomaliesMenu: the sites by scan group (their strength attribute, in order), each group a
+   * caption (get_exploration_site_name_label) and its sites by dungeon name, each "<dungeon> (<id>)" with its group's
+   * icon (ICONS_BY_SCANGROUP), a click warping to it at nought (WarpToAction) and under it GetScanResultMenuWithoutIgnore:
+   * Warp to Within (the default distance, and the ranges), Align to, Save Location... (BookmarkLocation).
+   */
+  private anomaliesMenu(sites: readonly AnomalySite[]): (ContextEntry | null)[] {
+    const word = (label: string, own: string, args?: Readonly<Record<string, string | number>>) => this.actions.word?.(label, args) ?? own;
+    const GROUP: Record<number, [string, string, string]> = {
+      211: ["UI/Inflight/Scanner/OreSite", "Ore Site", "res:/UI/Texture/Shared/Brackets/ore_site_16.png"],
+      209: ["UI/Inflight/Scanner/GasSite", "Gas Site", "res:/UI/Texture/Shared/Brackets/harvestableCloud.png"],
+      210: ["UI/Inflight/Scanner/RelicSite", "Relic Site", "res:/UI/Texture/Shared/Brackets/relic_site_16.png"],
+      208: ["UI/Inflight/Scanner/DataSite", "Data Site", "res:/UI/Texture/Shared/Brackets/data_site_16.png"],
+      1908: ["UI/Inflight/Scanner/Wormhole", "Wormhole", "res:/UI/Texture/Shared/Brackets/wormhole.png"],
+      1136: ["UI/Inflight/Scanner/CombatSite", "Combat Site", "res:/UI/Texture/Shared/Brackets/combatSite_16.png"],
+    };
+    const within = (r: number) => word("UI/Inflight/WarpToWithin", `Within ${fmtDistance(r)}`, { distance: fmtDistance(r) });
+    const warp = (label: string, r: number) => () => void this.act("Warp", () => this.actions.warpToSite?.(label, r) ?? Promise.resolve());
+    const out: (ContextEntry | null)[] = [];
+    const byStrength = new Map<number, AnomalySite[]>();
+    for (const s of sites) byStrength.set(s.strength, [...(byStrength.get(s.strength) ?? []), s]);
+    for (const strength of [...byStrength.keys()].sort((a, b) => a - b)) {
+      const g = GROUP[strength];
+      out.push({ label: g ? word(g[0], g[1]) : "", caption: true });
+      for (const s of byStrength.get(strength)!.sort((a, b) => a.dungeonName.localeCompare(b.dungeonName))) {
+        const d = defaultDistance("WarpTo");
+        out.push({
+          label: `${s.dungeonName} (${s.targetID})`, icon: g?.[2] ?? null, run: warp(s.targetID, 0),
+          sub: [
+            // movementFunctions.GetDefaultWarpToLabel: WarpToWithinDistance at the default
+            { label: word("UI/Inflight/WarpToWithinDistance", `Warp to Within ${fmtDistance(d)}`, { distance: fmtDistance(d) }), icon: "res:/UI/Texture/eveicon/control_icons/warp_to_16px.png", run: warp(s.targetID, d) },
+            { path: "UI/Inflight/Submenus/WarpToWithin", label: word("UI/Inflight/Submenus/WarpToWithin", "Warp to Within"), sub: [0, 10000, 20000, 30000, 50000, 70000, 100000].map((r) => ({ label: within(r), run: warp(s.targetID, r) })) },
+            { path: "UI/Inflight/AlignTo", label: word("UI/Inflight/AlignTo", "Align to"), icon: "res:/UI/Texture/eveicon/control_icons/align_to_16px.png", run: () => void this.act("Align", () => this.actions.alignToSite?.(s.targetID) ?? Promise.resolve()) },
+            null,
+            { path: "UI/Inflight/BookmarkLocation", label: word("UI/Inflight/BookmarkLocation", "Save Location..."), disabled: this.actions.bookmarkSite ? null : "", run: () => this.actions.bookmarkSite?.(s.targetID) },
+          ],
+        });
+      }
+    }
+    return out;
   }
 
   /** What the open context menu says (for checks). */

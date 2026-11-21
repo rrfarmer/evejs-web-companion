@@ -1005,6 +1005,9 @@
   const newHudOn = hudSettingNow("shipHudNew_preview");
   /** The new HUD safety badge's selector: where the badge is while it is open. */
   let safetyAnchor = $state<DOMRect | null>(null);
+  /** The space menu's anomalies' dungeon names, by dungeonNameID, and the ones asked. */
+  const anomalyNames = new Map<number, string>();
+  const anomalyNamesAsked = new Set<number>();
   const hudNames = $derived(session?.store.names);
   const hudWordStore = $derived(session?.store.words);
   const hudSafetyLocks = $derived.by(() => {
@@ -1568,7 +1571,7 @@
     const attributeLook = new Map<number, { readonly icon: string | null; readonly nameID: number | null }>();
     void s.flow.attributeDisplay(TIP_ATTRIBUTES).then((found) => {
       for (const [id, d] of found ?? []) attributeLook.set(id, { icon: d.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d.displayNameID });
-      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Inflight/ResetCamera", "UI/Locations/LocationMoonLong", "UI/Locations/LocationMoonShort", "UI/Inflight/ShowSystemInMapBrowser", "UI/Common/LocationTypes/AsteroidBelts", "UI/Common/LocationTypes/Planets", "UI/Common/LocationTypes/Stargates", "UI/Common/LocationTypes/Stations", "UI/Common/LocationTypes/Structures", ...["Barren", "Storm", "Lava", "Scorched", "Shattered", "Temperate", "Ice", "Gas", "Oceanic", "Plasma"].map((t) => `UI/PI/PlanetType/${t}`), "UI/Menusvc/MenuHints/NoReasonGiven", "UI/Control/EveWindow/Minimize", "UI/Generic/Copy", "UI/Drones/EngageTarget", "UI/Drones/MineWithDrone", "UI/Drones/Salvage", "UI/Drones/ReturnDroneAndOrbit", "UI/Drones/ReturnDroneToBay", "UI/Drones/ScoopDroneToBay", "UI/Drones/AbandonDrone", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Menusvc/MoonsMenuOption", "UI/Common/Pilot", "UI/Inflight/BoardShip", "UI/Commands/GiveMoney", "UI/PeopleAndPlaces/BlockContact", "UI/EVEMail/SendPilotEVEMail", "UI/Fleet/FormFleetWith", "UI/Crimewatch/Duel/DuelMenuEntry", "UI/PeopleAndPlaces/AddContact", "UI/PeopleAndPlaces/EditContact", "UI/Commands/CapturePortrait", "UI/Station/BountyOffice/PlaceBounty", "UI/Chat/StartConversation", "UI/Chat/InviteToChat", "UI/Compression/FailureToCompressAny", "UI/Compression/FailureToCompressSome", "UI/Inflight/Submenus/MoonX", "UI/Menusvc/PlanetHasNoMoons", "UI/PI/Common/CustomsOffice", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
+      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Inflight/ResetCamera", "UI/Inflight/WarpToWithinDistance", "UI/Inflight/Scanner/AnomalySiteFilterLabel", ...["OreSite", "GasSite", "RelicSite", "DataSite", "Wormhole", "CombatSite"].map((t) => `UI/Inflight/Scanner/${t}`), "UI/Locations/LocationMoonLong", "UI/Locations/LocationMoonShort", "UI/Inflight/ShowSystemInMapBrowser", "UI/Common/LocationTypes/AsteroidBelts", "UI/Common/LocationTypes/Planets", "UI/Common/LocationTypes/Stargates", "UI/Common/LocationTypes/Stations", "UI/Common/LocationTypes/Structures", ...["Barren", "Storm", "Lava", "Scorched", "Shattered", "Temperate", "Ice", "Gas", "Oceanic", "Plasma"].map((t) => `UI/PI/PlanetType/${t}`), "UI/Menusvc/MenuHints/NoReasonGiven", "UI/Control/EveWindow/Minimize", "UI/Generic/Copy", "UI/Drones/EngageTarget", "UI/Drones/MineWithDrone", "UI/Drones/Salvage", "UI/Drones/ReturnDroneAndOrbit", "UI/Drones/ReturnDroneToBay", "UI/Drones/ScoopDroneToBay", "UI/Drones/AbandonDrone", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Menusvc/MoonsMenuOption", "UI/Common/Pilot", "UI/Inflight/BoardShip", "UI/Commands/GiveMoney", "UI/PeopleAndPlaces/BlockContact", "UI/EVEMail/SendPilotEVEMail", "UI/Fleet/FormFleetWith", "UI/Crimewatch/Duel/DuelMenuEntry", "UI/PeopleAndPlaces/AddContact", "UI/PeopleAndPlaces/EditContact", "UI/Commands/CapturePortrait", "UI/Station/BountyOffice/PlaceBounty", "UI/Chat/StartConversation", "UI/Chat/InviteToChat", "UI/Compression/FailureToCompressAny", "UI/Compression/FailureToCompressSome", "UI/Inflight/Submenus/MoonX", "UI/Menusvc/PlanetHasNoMoons", "UI/PI/Common/CustomsOffice", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
     }).catch(() => {});
     const stopAskedAt = new Map<number, number>();
     const tipWord = (label: string, args: Readonly<Record<string, unknown>>): string | null => {
@@ -1817,6 +1820,28 @@
         spaceBookmark = { itemID, askIfKnown: false, typeName: () => (e?.typeID ? typeNames[String(e.typeID)]?.[0] ?? "" : ""), name: () => name };
       },
       safetySelector: (at) => { safetyAnchor = at; },
+      // sensorSuite's anomalies: the system scan manager's read (GetFullState), started where the system's is not had
+      anomalies: () => {
+        const sc = s.store.scanner.get();
+        const system = s.store.flight.get().status?.solarSystemID ?? null;
+        if (system === null) return [];
+        if (sc.scan.status !== "ready" || sc.solarSystemID !== system) {
+          if (!sc.loading) void s.flow.loadScanner().catch(() => {});
+          return [];
+        }
+        // the sites' dungeon names (GetDungeonName), asked once each as the scanner's list asks them
+        const missing: number[] = [];
+        const rows = sc.scan.value.anomalies.flatMap((a) => {
+          const nameID = typeof a.fields.dungeonNameID === "number" ? a.fields.dungeonNameID : null;
+          const name = nameID === null ? null : anomalyNames.get(nameID) ?? null;
+          if (nameID !== null && name === null && !anomalyNamesAsked.has(nameID)) { anomalyNamesAsked.add(nameID); missing.push(nameID); }
+          return a.targetID ? [{ targetID: a.targetID, strength: typeof a.fields.scanStrengthAttribute === "number" ? a.fields.scanStrengthAttribute : 0, dungeonName: name ?? "" }] : [];
+        });
+        if (missing.length) void s.flow.scannerSiteNames(missing).then((read) => { for (const [id, n] of read) if (n !== null) anomalyNames.set(id, n); }).catch(() => {});
+        return rows;
+      },
+      warpToSite: (targetID, range) => s.flow.warpToProbeResult(targetID, range),
+      alignToSite: (targetID) => s.flow.alignToScanSite(targetID),
       followLink: (url, text) => { void s.flow.followOverviewPresetLink(url, text); },
       // activeShipController: GetShieldHP / GetShieldHPMax and GetShieldResistances (EM, thermal, kinetic, explosive), and
       // the armor's and structure's - the ship's attributes as the fitting reads them, the HP now by the space read's ratio

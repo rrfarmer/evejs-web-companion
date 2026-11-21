@@ -2730,6 +2730,8 @@ export interface AppFlow {
   warpToProbeResult(resultID: string, range: number): Promise<void>;
   /** An accurate result's Align To (scanSvc.AlignToPosition): the ship turned toward the result's place. */
   alignToProbeResult(resultID: string): Promise<void>;
+  /** scanSvc.AlignToPosition on a site of the system's scan manager (an anomaly by its scan id). */
+  alignToScanSite(targetID: string): Promise<void>;
   /** The filter panel's box for a filter (resultFilter.AddToActiveFilterSet / RemoveFromActiveFilterSet). */
   setProbeResultFilterActive(filterID: number, active: boolean): void;
   /** The filter panel's Anomalies box (resultFilter.ShowAnomalies / StopShowingAnomalies). */
@@ -17746,6 +17748,16 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * An accurate probe result's Align To (scanSvc.AlignToPosition, 459 to 465): the ship turned toward the result's
    * place from its own position, as the space read has it (read first where there is none), by the page's own call.
    */
+  async function alignToScanSite(targetID: string): Promise<void> {
+    const sc = store.scanner.get();
+    const site = sc.scan.status === "ready" ? [...sc.scan.value.anomalies, ...sc.scan.value.structures].find((x) => x.targetID === targetID) ?? null : null;
+    if (site === null || site.position === null || site.position.length < 3) throw new Error("That site has no place to align to.");
+    if ((store.space.get().snapshot?.ship ?? null) === null) await loadSpaceSnapshot();
+    const position = store.space.get().snapshot?.ship?.position ?? null;
+    if (position === null) throw new Error("Your ship's position is not known yet.");
+    await alignToPositionCall(bridgeDo, readFlightNow, [site.position[0]!, site.position[1]!, site.position[2]!], [position.x, position.y, position.z]);
+  }
+
   async function alignToProbeResult(resultID: string): Promise<void> {
     const solarSystemID = store.flight.get().status?.solarSystemID ?? null;
     const result = solarSystemID === null ? null : heldResult(probeResultsBySystem.get(solarSystemID) ?? EMPTY_RESULTS_HISTORY, resultID);
@@ -37616,6 +37628,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     clearIgnoredProbeResults,
     warpToProbeResult,
     alignToProbeResult,
+    alignToScanSite,
     setProbeResultFilterActive,
     setShowingProbeAnomalies,
     createProbeResultFilter,
