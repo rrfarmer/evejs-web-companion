@@ -315,6 +315,24 @@
     hiddenCols = next;
     try { globalThis.localStorage?.setItem(HIDDEN_KEY, JSON.stringify(next)); } catch { /* lasts the page */ }
   }
+  /** The scroll's column widths (columnWidths): each header's ScaleHandle (8 wide at its right, the 1 px line at 3) dragged
+   * to a width no narrower than MINCOLUMNWIDTH 24, kept; a double-click on it fits the column to its content again
+   * (ResetColumnWidth). The inventory scroll has no smartSort, so no column reordering (ChangeColumnOrder). */
+  const WIDTHS_KEY = "evejs.ui.inventory.columnWidths";
+  let colWidths = $state<Record<number, number>>((() => { try { const v = JSON.parse(globalThis.localStorage?.getItem(WIDTHS_KEY) ?? "null"); return v && typeof v === "object" ? v : {}; } catch { return {}; } })());
+  function keepWidths(next: Record<number, number>): void {
+    colWidths = next;
+    try { globalThis.localStorage?.setItem(WIDTHS_KEY, JSON.stringify(next)); } catch { /* lasts the page */ }
+  }
+  function startScale(k: number, e: PointerEvent): void {
+    e.preventDefault(); e.stopPropagation();
+    const th = (e.currentTarget as HTMLElement).parentElement as HTMLElement;
+    const x0 = e.clientX, w0 = th.getBoundingClientRect().width;
+    const move = (m: PointerEvent) => { colWidths = { ...colWidths, [k]: Math.max(24, Math.round(w0 + m.clientX - x0)) }; };
+    const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); keepWidths({ ...colWidths }); };
+    addEventListener("pointermove", move); addEventListener("pointerup", up);
+  }
+  function resetWidth(k: number): void { const next = { ...colWidths }; delete next[k]; keepWidths(next); }
   function headerMenu(k: number, e: MouseEvent): void {
     e.preventDefault();
     const entries: (ContextEntry | null)[] = [];
@@ -444,7 +462,7 @@
         <!-- the scroll of listentry.InvItem rows under GetInvItemDefaultHeaders: details with the 32 px icon and the
              label 46 in, list without the icon -->
         <table class="rows" class:details={viewMode === "details"}>
-          <thead><tr>{#each HEADERS as h, k}<th class:sorted={column === k} class:hid={hiddenCols.includes(k)} onclick={() => sortByColumn(k)} oncontextmenu={(e) => headerMenu(k, e)}>{word(h, HEADER_OWN[k]!)}{#if column === k}<span class="dir">{reversed ? "▼" : "▲"}</span>{/if}</th>{/each}</tr></thead>
+          <thead><tr>{#each HEADERS as h, k}<th class:sorted={column === k} class:hid={hiddenCols.includes(k)} style:width={colWidths[k] ? `${colWidths[k]}px` : null} style:min-width={colWidths[k] ? `${colWidths[k]}px` : null} style:max-width={colWidths[k] ? `${colWidths[k]}px` : null} onclick={() => sortByColumn(k)} oncontextmenu={(e) => headerMenu(k, e)}>{word(h, HEADER_OWN[k]!)}{#if column === k}<span class="dir">{reversed ? "▼" : "▲"}</span>{/if}<span class="scaler" role="separator" aria-orientation="vertical" onpointerdown={(e) => startScale(k, e)} onclick={(e) => e.stopPropagation()} ondblclick={(e) => { e.stopPropagation(); resetWidth(k); }}></span></th>{/each}</tr></thead>
           <tbody>
             {#each shown as i (i.itemID)}
               {@const fa = facts[i.typeID]}
@@ -557,6 +575,9 @@
   .rows th { position: sticky; top: 0; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 0 8px; height: 24px; box-sizing: border-box; white-space: nowrap; background: rgba(0, 0, 0, 0.4); }
   /* uix.GetInvItemDefaultHiddenHeaders: Category, Meta Level and Tech Level hidden by default */
   .rows .hid { display: none; }
+  .rows th { overflow: hidden; text-overflow: clip; }
+  .rows .scaler { position: absolute; top: 0; right: 0; width: 8px; height: 24px; cursor: col-resize; }
+  .rows .scaler::after { content: ""; position: absolute; left: 3px; top: 4px; width: 1px; height: 16px; background: rgba(255, 255, 255, 0.15); }
   .rows td { padding: 0 6px; height: 20px; white-space: nowrap; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
   /* the details' Item entry 42 high, its EveLabelMedium 14, the 32 px icon at 5, 5 and the text 9 after it (46) */
   .rows.details td { height: 42px; font-size: 14px; }
