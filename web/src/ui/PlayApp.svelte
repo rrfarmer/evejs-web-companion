@@ -105,7 +105,7 @@
   import { openWindow, closeWindow, focusWindow, moveWindow, resizeWindow, toggleMinimize, type WinState } from "./desktop.ts";
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import { dronesToLaunch, watchLaunches, DRONE_DRAG_TYPE, INV_ITEMS_DRAG_TYPE, type DroneDragPayload, type InvItemsDragPayload } from "./droneGroups.ts";
+  import { dronesToLaunch, watchLaunches, DRONE_DRAG_TYPE, INV_FROM_DRAG_TYPE, INV_ITEMS_DRAG_TYPE, type DroneDragPayload, type InvItemsDragPayload } from "./droneGroups.ts";
   import { DSCAN_WORDS } from "../play/dscan.ts";
   import { LivePark } from "../three/livePark.ts";
   import { SpaceView, type Entity } from "../play/spaceView.ts";
@@ -1802,6 +1802,21 @@
         const e = s.store.space.get().snapshot?.entities.find((x) => x.itemID === itemID);
         const name = e?.name ?? (e?.typeID ? typeNames[String(e.typeID)]?.[0] ?? "" : "");
         spaceBookmark = { itemID, askIfKnown: false, typeName: () => (e?.typeID ? typeNames[String(e.typeID)]?.[0] ?? "" : ""), name: () => name };
+      },
+      dropOnCargo: (data) => {
+        let items: InvItemsDragPayload = [];
+        let from: import("../store/types.ts").InventoryPlace | null = null;
+        try { items = JSON.parse(data.getData(INV_ITEMS_DRAG_TYPE) || "[]") as InvItemsDragPayload; } catch { items = []; }
+        try { from = JSON.parse(data.getData(INV_FROM_DRAG_TYPE) || "null"); } catch { from = null; }
+        if (!items.length || !from || from.kind === "cargo") return;
+        const place = from;
+        void (async () => {
+          await s.flow.loadInventory().catch(() => {});
+          const shipID = s.store.space.get().snapshot?.ship?.itemID ?? null;
+          if (shipID !== null) await s.flow.openShipBays(shipID).catch(() => {});
+          await s.flow.transferItems(items.map((i) => i.itemID), place, { kind: "cargo" }).catch(() => {});
+          await s.flow.loadMiningHolds().catch(() => {});
+        })();
       },
       loadShipHolds: async () => {
         await s.flow.loadMiningHolds().catch(() => {});

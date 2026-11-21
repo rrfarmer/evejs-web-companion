@@ -311,6 +311,8 @@ export interface SpaceActions {
   droneOrder?(kind: "primary" | "orbit" | "bay" | "scoop" | "abandon", droneIDs: readonly number[]): void;
   /** The ship's holds read (fill and capacity), for the new HUD's cargo indicator. */
   loadShipHolds?(): Promise<void>;
+  /** ShipCargo().OnDropData: an inventory drag dropped on the HUD's cargo button, moved into the cargo hold. */
+  dropOnCargo?(data: DataTransfer): void;
   /**
    * HoldTracker.GetMyHolds (inventoryConst.GetHoldsInType): every hold the flown ship's type has, by its bay key,
    * with its capacity (the ship's bays read), for the cargo indicator's tooltip; null before it is read.
@@ -1226,6 +1228,7 @@ export class SpaceView {
     if (this.shipHud instanceof NewShipHud) {
       this.shipHud.onSetSpeed = (ratio) => void this.setSpeedRatio(ratio);
       this.shipHud.onOpenHold = (key) => this.actions.openShipHold?.(key);
+      this.shipHud.onDropOnCargo = (data) => this.actions.dropOnCargo?.(data);
       this.shipHud.tooltipRows = (m) => this.options.rack?.tooltip?.(m) ?? null;
       // ModuleController.ShowRange: bracketMgr.ShowModuleRange(maxRange + falloff) while a module is under the pointer
       this.shipHud.onModuleHover = (m) => {

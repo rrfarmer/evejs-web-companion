@@ -133,4 +133,6 @@ export const DRONE_DRAG_TYPE = "application/x-evejs-drones";
 /** The active ship's inventory items dragged out of its window (xtriui.InvItem drag data): each item and its type. */
 export const INV_ITEMS_DRAG_TYPE = "application/x-evejs-inv-items";
 export type InvItemsDragPayload = readonly { itemID: number; typeID: number }[];
+/** Where an inventory drag's items lie (an InventoryPlace as JSON), for a drop that moves them (the HUD's cargo button). */
+export const INV_FROM_DRAG_TYPE = "application/x-evejs-inv-from";
 export interface DroneDragPayload { readonly section: "bay" | "space"; readonly ids: readonly number[] }

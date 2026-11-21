@@ -283,6 +283,8 @@ export class NewShipHud {
   onSetSpeed: (ratio: number) => void = () => {};
   /** CargoIndicator.OnClick: Inventory opened on the tracked hold (OpenOrShow((holdID, shipID), toggle=True)). */
   onOpenHold: (key: string) => void = () => {};
+  /** CargoButton.OnDropData: ShipCargo().OnDropData - the items dropped moved into the active ship's cargo hold. */
+  onDropOnCargo: (data: DataTransfer) => void = () => {};
   /** A client command run from a HUD button (the scanner pill's, CmdToggleAutopilot): the page runs it as its shortcut would. */
   onCommand: (cmd: string) => void = () => {};
   private autopilotOn = false;
@@ -519,6 +521,9 @@ export class NewShipHud {
     b.addEventListener("mouseleave", () => { this.cargoHover = false; this.closeTooltip(); });
     b.addEventListener("mousedown", () => { b.style.transform = "translateY(2px)"; });
     b.addEventListener("mouseup", () => { b.style.transform = ""; });
+    b.addEventListener("dragover", (e) => { if (e.dataTransfer?.types.includes("application/x-evejs-inv-items")) { e.preventDefault(); this.cargoHover = true; } });
+    b.addEventListener("dragleave", () => { this.cargoHover = false; });
+    b.addEventListener("drop", (e) => { e.preventDefault(); this.cargoHover = false; if (e.dataTransfer) this.onDropOnCargo(e.dataTransfer); });
     // CargoButton.OnClick: PlaySound(SOUND_BUTTON_CLICK), the flyout closed, the tracked hold opened
     b.addEventListener("click", () => { void playUiEvent("ui_button_soft4_play"); this.holdPicker.style.display = "none"; this.onOpenHold(this.trackedHold); });
     // Right-click: the hold picker (two holds or more), the current hold last and centred on the button, the rest above.
