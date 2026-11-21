@@ -749,8 +749,7 @@
      29 px rows of a 24 px type icon, the name at 13 px and its count at 11 px, 16 px command icons */
   /* DronesWindow: the bay's part (topScroll) takes the room, the space part (bottomCont) at the foot while the bay is open */
   /* DroneEntry text TextBody 14, the group headers EveLabelMedium 14 (read through gridcheck) */
-  /* the window's content 18 from either side (gridcheck: the headers and scrolls at 18, 530 of the 566) */
-  .fly-drones { margin: 0 8px; position: relative; font-size: 14px; color: #fff; user-select: none; display: flex; flex-direction: column; min-height: 100%; }
+  .fly-drones { position: relative; font-size: 14px; color: #fff; user-select: none; display: flex; flex-direction: column; min-height: 100%; }
   .group.bay { flex: 1 1 auto; min-height: 0; overflow: auto; }
   /* compact (UpdateHeaderPadding, _get_header_fixed_height): the header 40 high with the content extended into it -
      the bay's header in the title row, short of the header's buttons on the right (reserved_space_right); the rest of
