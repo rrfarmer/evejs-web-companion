@@ -313,6 +313,10 @@ export interface SpaceActions {
   loadShipHolds?(): Promise<void>;
   /** ShipCargo().OnDropData: an inventory drag dropped on the HUD's cargo button, moved into the cargo hold. */
   dropOnCargo?(data: DataTransfer): void;
+  /** The new HUD safety badge's selector opened at the badge's box, or shut (null). */
+  safetySelector?(at: DOMRect | null): void;
+  /** crimewatchSvc.GetSafetyLevel: 0 none, 1 partial, 2 full; null where not known. */
+  safetyLevel?(): 0 | 1 | 2 | null;
   /**
    * HoldTracker.GetMyHolds (inventoryConst.GetHoldsInType): every hold the flown ship's type has, by its bay key,
    * with its capacity (the ship's bays read), for the cargo indicator's tooltip; null before it is read.
@@ -746,6 +750,12 @@ export class SpaceView {
       this.closeOverlapTooltip();
     };
     document.addEventListener("mousedown", this.overlapDown, true);
+  }
+
+  /** The safety selector (over the HUD badge) has the pointer, or has lost it. */
+  safetySelectorHover(over: boolean): void {
+    if (!(this.shipHud instanceof NewShipHud)) return;
+    if (over) this.shipHud.safetyHeld(); else this.shipHud.safetyLeft();
   }
 
   /** stateSvc.SetState(itemID, mouseOver): the bracket shows its label (ShowLabel's mouseOver) and the overview row lights. */
@@ -1229,6 +1239,7 @@ export class SpaceView {
       this.shipHud.onSetSpeed = (ratio) => void this.setSpeedRatio(ratio);
       this.shipHud.onOpenHold = (key) => this.actions.openShipHold?.(key);
       this.shipHud.onDropOnCargo = (data) => this.actions.dropOnCargo?.(data);
+      this.shipHud.onSafetySelector = (at) => this.actions.safetySelector?.(at);
       this.shipHud.tooltipRows = (m) => this.options.rack?.tooltip?.(m) ?? null;
       // ModuleController.ShowRange: bracketMgr.ShowModuleRange(maxRange + falloff) while a module is under the pointer
       this.shipHud.onModuleHover = (m) => {
@@ -3722,6 +3733,7 @@ export class SpaceView {
         ...(() => { const h = this.options.rack?.heat?.(); return { heatLow: h?.low, heatMed: h?.mid, heatHi: h?.high }; })(),
       });
       if (this.shipHud instanceof NewShipHud) {
+        this.shipHud.setSafetyLevel(this.actions.safetyLevel?.() ?? null);
         // the cargo indicator's holds, as the mining read keeps them: read once for each ship flown (the client's
         // HoldTracker reads the ship's holds as it loads), then kept by the item notices
         if (this.holdsReadFor !== ego.itemID) {

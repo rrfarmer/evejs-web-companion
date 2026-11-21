@@ -331,6 +331,31 @@ export class NewShipHud {
   private heatShown: Record<"Hi" | "Med" | "Lo", number> = { Hi: 0, Med: 0, Lo: 0 };
   /** A tooltip kept current while it is shown (the readouts' AutoTimer): redrawn on each update. */
   private liveTip: (() => void) | null = null;
+  private safetyTint: HTMLDivElement | null = null;
+  private safetyGlyph: HTMLImageElement | null = null;
+  private safetyOpenTimer: ReturnType<typeof setTimeout> | null = null;
+  private safetyCloseTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The badge's selector opened at the badge's box (null shuts it). */
+  onSafetySelector: (at: DOMRect | null) => void = () => {};
+
+  /** The pointer left the badge or the selector: it goes SELECTOR_LINGER_MS (0.3 s) later unless it comes back. */
+  safetyLeft(): void {
+    if (this.safetyOpenTimer) { clearTimeout(this.safetyOpenTimer); this.safetyOpenTimer = null; }
+    if (this.safetyCloseTimer) clearTimeout(this.safetyCloseTimer);
+    this.safetyCloseTimer = setTimeout(() => { this.safetyCloseTimer = null; this.onSafetySelector(null); }, 300);
+  }
+  /** The pointer is over the selector: it stays. */
+  safetyHeld(): void {
+    if (this.safetyCloseTimer) { clearTimeout(this.safetyCloseTimer); this.safetyCloseTimer = null; }
+  }
+  /** SafetyBadge._ApplyLevel: the glyph (TEX_SAFETY_GLYPHS) and the backing's colour for the level (0 none, 1 partial, 2 full). */
+  setSafetyLevel(level: 0 | 1 | 2 | null): void {
+    const l = level ?? 2;
+    const colour = l === 2 ? "#8DC169" : l === 1 ? "#F39058" : "#FF454B";
+    if (this.safetyTint) this.safetyTint.style.background = colour;
+    const src = res(`res:/UI/HUD/safety_glyph_${l === 2 ? "full" : l === 1 ? "partial" : "none"}.png`);
+    if (this.safetyGlyph && this.safetyGlyph.src !== src) this.safetyGlyph.src = src;
+  }
   private fullSpeedButton: HTMLButtonElement | null = null;
   private stopButton: HTMLButtonElement | null = null;
   private settingsGear: HTMLButtonElement | null = null;
@@ -652,12 +677,22 @@ export class NewShipHud {
     // the scanner group: 70x200, right of the tray; the safety badge (32x16 at (19, 12)) and the 24x105 pill
     Object.assign(this.scannerGroup.style, { position: "absolute", top: "0", width: "70px", height: "200px", pointerEvents: "none" });
     const badge = document.createElement("div");
-    badge.title = "Safety: Green";
-    Object.assign(badge.style, { position: "absolute", left: "27px", top: "12px", width: "16px", height: "16px", pointerEvents: "auto" });
+    // SafetyBadge: the level's glyph over the shield backing in the level's colour (COLOR_BRIGHT: SUCCESS_GREEN,
+    // WARNING_ORANGE, DANGER_RED); no hint of its own - a hover opens the level selector after the expand (0.15 s)
+    Object.assign(badge.style, { position: "absolute", left: "27px", top: "12px", width: "16px", height: "16px", pointerEvents: "auto", cursor: "pointer" });
+    badge.addEventListener("mouseenter", () => {
+      if (this.safetyCloseTimer) { clearTimeout(this.safetyCloseTimer); this.safetyCloseTimer = null; }
+      if (this.safetyOpenTimer) clearTimeout(this.safetyOpenTimer);
+      this.safetyOpenTimer = setTimeout(() => { this.safetyOpenTimer = null; this.onSafetySelector(badge.getBoundingClientRect()); }, 150);
+    });
+    badge.addEventListener("mouseleave", () => this.safetyLeft());
     const tint = document.createElement("div");
+    this.safetyTint = tint;
+    this.safetyGlyph = null;
     Object.assign(tint.style, { position: "absolute", inset: "0", background: "#8DC169", maskImage: `url("${res("res:/UI/HUD/safety_shield_backing.png")}")`, maskSize: "16px 16px", webkitMaskImage: `url("${res("res:/UI/HUD/safety_shield_backing.png")}")`, webkitMaskSize: "16px 16px" } as Partial<CSSStyleDeclaration>);
     const glyph = icon("res:/UI/HUD/safety_glyph_full.png");
     Object.assign(glyph.style, { position: "absolute", left: "0", top: "0" });
+    this.safetyGlyph = glyph;
     badge.append(tint, glyph);
     const pill = document.createElement("div");
     Object.assign(pill.style, {

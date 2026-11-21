@@ -111,6 +111,8 @@
   import { SpaceView, type Entity } from "../play/spaceView.ts";
   import type { FlightMiningSurvey } from "../play/miningSurveyWave.ts";
   import MiningOverlayControl from "./MiningOverlayControl.svelte";
+  import HudSafetySelector from "./HudSafetySelector.svelte";
+  import { safetyBadge, safetyLocks } from "../space/crimewatch.ts";
   import { OVERVIEW_WORDS, typeNames as typeData } from "../play/overview.ts";
   import type { OverviewRelationships } from "../play/overviewFilters.ts";
   import type { OverviewAffiliation } from "../play/overview.ts";
@@ -1001,6 +1003,15 @@
   /** The space menu's Save Location...: the bookmark window open for the thing, or none. */
   let spaceBookmark = $state<{ itemID: number; askIfKnown: boolean; typeName: () => string; name: () => string } | null>(null);
   const newHudOn = hudSettingNow("shipHudNew_preview");
+  /** The new HUD safety badge's selector: where the badge is while it is open. */
+  let safetyAnchor = $state<DOMRect | null>(null);
+  const hudNames = $derived(session?.store.names);
+  const hudSafetyLocks = $derived.by(() => {
+    const systemID = $flight?.status?.solarSystemID ?? null;
+    const sec = systemID === null ? null : $hudNames?.systemSecurity[systemID] ?? null;
+    return safetyLocks($station?.cloneGrade ?? null, sec);
+  });
+  const hudSafety = $derived(session ? safetyBadge($flight?.crimewatch?.states ?? null, hudSafetyLocks.full) : null);
   const hudTop = hudSetting("shipuialigntop");
   let mapHost = $state<HTMLDivElement | null>(null);
   let planetModeID = $state<number | null>(null);
@@ -1803,6 +1814,11 @@
         const name = e?.name ?? (e?.typeID ? typeNames[String(e.typeID)]?.[0] ?? "" : "");
         spaceBookmark = { itemID, askIfKnown: false, typeName: () => (e?.typeID ? typeNames[String(e.typeID)]?.[0] ?? "" : ""), name: () => name };
       },
+      safetySelector: (at) => { safetyAnchor = at; },
+      safetyLevel: () => {
+        const level = s.store.flight.get().crimewatch?.states?.safetyLevel;
+        return level === 0 || level === 1 || level === 2 ? level : null;
+      },
       dropOnCargo: (data) => {
         let items: InvItemsDragPayload = [];
         let from: import("../store/types.ts").InventoryPlace | null = null;
@@ -2308,6 +2324,10 @@
     {/if}
     <!-- hudLayer._ConstructKeepers: the new HUD's buff bar centred on the medallion, its foot on the band's top -->
     <div class="fly-buffs" class:new-hud={newHudOn} class:hud-top={$hudTop}><BuffBar store={session.store} flow={session.flow} /></div>
+    {#if hudSafety && !docked}
+      <HudSafetySelector flow={session.flow} safety={hudSafety} locks={hudSafetyLocks} anchor={safetyAnchor}
+        onhover={() => view?.safetySelectorHover(true)} onleave={() => { view?.safetySelectorHover(false); }} />
+    {/if}
   {/if}
   {#if session && reagentBay}<SovReagentBay store={session.store} flow={session.flow} hubID={reagentBay.hubID} solarSystemID={reagentBay.solarSystemID} isStationMgr={reagentBay.isStationMgr} onClose={() => { reagentBay = null; }} />{/if}
   {#if session && sovHubConfig}
