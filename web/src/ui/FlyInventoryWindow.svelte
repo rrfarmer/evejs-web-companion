@@ -115,20 +115,46 @@
 
   let filter = $state("");
   const KEPT = "evejs.ui.inventory.activeShipCargo";
-  const kept = (() => { try { return JSON.parse(localStorage.getItem(KEPT) ?? "{}") as { viewMode?: string; sortBy?: string; sortDir?: number }; } catch { return {}; } })();
+  const kept = (() => { try { return JSON.parse(localStorage.getItem(KEPT) ?? "{}") as { viewMode?: string; sortBy?: string; sortDir?: number; column?: number | null; reversed?: boolean }; } catch { return {}; } })();
+  /** The scroll's own sort (scroll.ChangeSortBy: the column clicked again turns about, another starts ascending; scrollsortby_). */
+  let column = $state<number | null>(typeof kept.column === "number" ? kept.column : null);
+  let reversed = $state<boolean>(kept.reversed === true);
+  function sortByColumn(k: number): void {
+    reversed = column === k ? !reversed : false;
+    column = k;
+  }
   /** containerViewMode_<name> and the icons' sort (sortIconsBy, sortIconsDir), kept as the client keeps them. */
   let viewMode = $state<"icons" | "details" | "list">((["icons", "details", "list"].includes(kept.viewMode ?? "") ? kept.viewMode : "icons") as "icons" | "details" | "list");
   let sortBy = $state<string>(kept.sortBy ?? "name");
   let sortDir = $state<number>(kept.sortDir ?? 0);
   const vm = $derived(VIEW_MODES.find((v) => v[0] === viewMode)!);
-  $effect(() => { try { localStorage.setItem(KEPT, JSON.stringify({ viewMode, sortBy, sortDir })); } catch { /* lasts the page */ } });
+  $effect(() => { try { localStorage.setItem(KEPT, JSON.stringify({ viewMode, sortBy, sortDir, column, reversed })); } catch { /* lasts the page */ } });
   const groupName = (typeID: number) => resolvedName($names.resolved, "typeGroup", typeID, "");
   const categoryName = (typeID: number) => resolvedName($names.resolved, "typeCategory", typeID, "");
   const shown = $derived.by(() => {
     const list = (bay?.items ?? []).filter((i) => !filter.trim() || typeName(i.typeID).toLowerCase().includes(filter.trim().toLowerCase()));
     const key = (i: (typeof list)[number]): string | number => sortBy === "qty" ? i.quantity : sortBy === "type" ? `${groupName(i.typeID)}\u0000${typeName(i.typeID)}`
       : sortBy === "estPrice" ? (prices?.get(i.typeID) ?? 0) * i.quantity : typeName(i.typeID).toLowerCase();
-    const sorted = [...list].sort((a, b) => { const x = key(a), y = key(b); return typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y)); });
+    const cmp = (x: string | number, y: string | number) => typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
+    if (viewMode !== "icons" && column !== null) {
+      // the columns' own values, in GetInvItemDefaultHeaders' order
+      const col = (i: (typeof list)[number]): string | number => {
+        const fa = facts[i.typeID];
+        switch (column) {
+          case 1: return i.quantity;
+          case 2: return groupName(i.typeID).toLowerCase();
+          case 3: return categoryName(i.typeID).toLowerCase();
+          case 6: return (fa?.volume ?? 0) * i.quantity;
+          case 7: return fa?.meta ?? -1;
+          case 8: return fa?.tech ?? -1;
+          case 9: return (prices?.get(i.typeID) ?? 0) * i.quantity;
+          default: return typeName(i.typeID).toLowerCase();
+        }
+      };
+      const byColumn = [...list].sort((a, b) => cmp(col(a), col(b)) || cmp(typeName(a.typeID), typeName(b.typeID)));
+      return reversed ? byColumn.reverse() : byColumn;
+    }
+    const sorted = [...list].sort((a, b) => cmp(key(a), key(b)));
     return sortDir ? sorted.reverse() : sorted;
   });
   // the details columns' facts: volume (evetypes) and meta and tech levels (typeFacts)
@@ -323,7 +349,7 @@
         <!-- the scroll of listentry.InvItem rows under GetInvItemDefaultHeaders: details with the 32 px icon and the
              label 46 in, list without the icon -->
         <table class="rows" class:details={viewMode === "details"}>
-          <thead><tr>{#each HEADERS as h, k}<th>{word(h, HEADER_OWN[k]!)}</th>{/each}</tr></thead>
+          <thead><tr>{#each HEADERS as h, k}<th class:sorted={column === k} onclick={() => sortByColumn(k)}>{word(h, HEADER_OWN[k]!)}{#if column === k}<span class="dir">{reversed ? "▼" : "▲"}</span>{/if}</th>{/each}</tr></thead>
           <tbody>
             {#each shown as i (i.itemID)}
               {@const fa = facts[i.typeID]}
@@ -405,6 +431,9 @@
   .rows tr:hover td { background: rgba(255, 255, 255, 0.05); }
   .rows tr.selected td { background: rgba(255, 255, 255, 0.12); }
   .rows .num { text-align: right; }
+  .rows th { cursor: pointer; }
+  .rows th.sorted { color: #fff; }
+  .rows th .dir { margin-left: 4px; font-size: 8px; }
   .rows .nm { display: flex; align-items: center; gap: 9px; }
   .ricon { width: 32px; height: 32px; display: grid; margin-left: 5px; }
   .ricon :global(.type-icon) { width: 32px; height: 32px; }
