@@ -17,6 +17,9 @@
   import { isSessionLost } from "../app/flow.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import TypeIcon from "./TypeIcon.svelte";
+  import NamePopup from "./NamePopup.svelte";
+  import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import { createSubGroup, deleteGroup, droneGroups, dronesToLaunch, groupOf, moveToGroup, removeFromGroup, setFavoriteGroupID, type DroneGroup } from "./droneGroups.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { SpaceEntity } from "../store/types.ts";
@@ -45,6 +48,7 @@
     recall: clientTexture("res:/ui/texture/eveicon/control_icons/recall_drones_16px.png"),
     orbit: clientTexture("res:/ui/texture/eveicon/control_icons/return_and_orbit_16px.png"),
     settings: clientTexture("res:/ui/texture/eveicon/system_icons/settings_16px.png"),
+    star: clientTexture("res:/ui/texture/eveicon/system_icons/star_16px.png"),
   };
   // the client's words for the window (3698585, through gridcheck)
   const MENU_WORDS = {
@@ -56,6 +60,20 @@
     focusFireHint: ["UI/Drones/AttackModeFocusFireHint", "Should drones focus their efforts on a single enemy (only applicable with Auto Attack enabled)"],
   } as const;
   flow.requestWords(Object.values(MENU_WORDS).map((w) => w[0]));
+  // the groups' words (dronesWindow.GroupMenu, GetSubFolderMenu, droneGroupHeader's Delete Group, ListGroup's menu)
+  const GROUP_WORDS = {
+    move: ["UI/Commands/MoveDrone", "Move Drone"], newGroup: ["UI/Commands/NewGroup", "New Group"], out: ["UI/Commands/OutOfThisGroup", "Out of this group"],
+    del: ["UI/Commands/DeleteGroup", "Delete Group"], fav: ["UI/Drones/MarkAsFavorite", "Mark as Favorite"], unfav: ["UI/Drones/UnmarkAsFavorite", "Unmark as Favorite"],
+    expand: ["UI/Common/Expand", "Expand"], collapse: ["UI/Common/Collapse", "Collapse"], caption: ["UI/Generic/TypeGroupName", "Type Group Name"],
+    field: ["UI/Generic/TypeNameForGroup", "Type in name for the group"], empty: ["UI/Common/PleaseTypeSomething", "Please type something"],
+    ok: ["UI/Common/Buttons/OK", "OK"], cancel: ["UI/Common/Buttons/Cancel", "Cancel"],
+  } as const;
+  flow.requestWords([...Object.values(GROUP_WORDS).map((w) => w[0]), "UI/Inflight/Drone/DroneGroupWithCount"]);
+  /** UI/Inflight/Drone/DroneGroupWithCount: "<group> (<count>)". */
+  const groupWithCount = (groupLabel: string, count: number) => {
+    const t = $headerWords.templates["UI/Inflight/Drone/DroneGroupWithCount"];
+    return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, { groupLabel, count }, { nameOf: () => "" })).trim() : `${groupLabel} (${count})`;
+  };
   const say = (w: readonly [string, string]) => headerWord(w[0], w[1]);
   const keyHint = (label: string, cmd: string) => { const k = shortcutOf(cmd); return k ? `${label} (${k})` : label; };
   // target.GetActiveTargetID: the drones' orders go to the active target
@@ -98,6 +116,66 @@
     void flow.bayDroneDamage(missing).then((got) => { if (got.size) bayDamage = new Map([...bayDamage, ...got]); }).catch(() => {});
   });
   const bayCount = $derived(bayRows.reduce((n, r) => n + r.quantity, 0));
+  /** A drone's inventory group (the groups' droneGroupID), by its group's name. */
+  const droneGroupOf = (typeID: number | null) => resolvedName($names.resolved, "typeGroup", typeID, "");
+  /**
+   * GetMainGroupEntriesInBay / InSpace and AppendSubGroups: the drones in no group as entries (sorted by label), then a
+   * header per group that has drones here (sorted by label), its drones under it at sublevel 1.
+   */
+  function split<R extends { itemIDs: number[]; label: string }>(rows: readonly R[], count: (r: R) => number) {
+    const groups = $droneGroups.groups;
+    const loose: R[] = [];
+    const byGroup = new Map<string, { group: DroneGroup; rows: R[] }>();
+    for (const r of rows) {
+      const g = groupOf(groups, r.itemIDs[0]!);
+      if (!g) { loose.push(r); continue; }
+      const e = byGroup.get(g.label) ?? { group: g, rows: [] };
+      e.rows.push(r);
+      byGroup.set(g.label, e);
+    }
+    const heads = [...byGroup.values()].map((e) => ({ ...e, ids: e.rows.flatMap((r) => r.itemIDs), count: e.rows.reduce((n, r) => n + count(r), 0) }))
+      .sort((a, b) => a.group.label.toLowerCase().localeCompare(b.group.label.toLowerCase()));
+    return { loose, heads };
+  }
+  const bayList = $derived(split(bayRows, (r) => r.quantity));
+  const shipTypeID = $derived(ship?.typeID ?? null);
+  const favoriteID = $derived($droneGroups.favorites[`evejs.ui.drones_favoriteGroupID_${shipTypeID ?? "None"}`] ?? null);
+  /** Groups shown open (ListGroup's open state; closed by default). */
+  let openGroups = $state(new Set<string>());
+  const toggleGroup = (key: string) => { const s = new Set(openGroups); if (s.has(key)) s.delete(key); else s.add(key); openGroups = s; };
+  /** New Group's name popup: for which drones (CreateSubGroup asks NamePopup first). */
+  let naming = $state<{ droneGroupID: string; ids: number[] } | null>(null);
+  /**
+   * dronesWindow.GroupMenu: Move Drone - New Group, Out of this group where it is in one, then every group by name
+   * (MoveToGroup; CannotMixDrones where the group holds drones of another drone group).
+   */
+  function moveMenu(ids: number[], typeID: number | null): MenuEntry {
+    const droneGroupID = droneGroupOf(typeID);
+    const groups = $droneGroups.groups;
+    const inGroup = ids.filter((id) => groupOf(groups, id));
+    const names = Object.keys(groups).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    return { label: say(GROUP_WORDS.move), sub: [
+      { label: say(GROUP_WORDS.newGroup), act: async () => { naming = { droneGroupID, ids }; } },
+      ...(inGroup.length ? [{ label: say(GROUP_WORDS.out), act: async () => removeFromGroup(inGroup) }] : []),
+      ...names.map((name) => ({ label: name, act: async () => {
+        if (!moveToGroup(droneGroupID, name, ids)) flow.sayDialog("CannotMixDrones", null, "You cannot mix drones of different types in the same group.");
+      } })),
+    ] };
+  }
+  /** GetDeleteGroupMenuEntry: Delete Group with every group, where there are groups. */
+  const deleteMenu = (): MenuEntry[] => {
+    const names = Object.keys($droneGroups.groups);
+    return names.length ? [{ label: say(GROUP_WORDS.del), sub: names.map((name) => ({ label: name, act: async () => deleteGroup(name) })) }] : [];
+  };
+  /** A group header's menu: Expand / Collapse, the group's drones' menu, Mark / Unmark as Favorite. */
+  function groupMenu(key: string, group: DroneGroup, ids: number[], inSpace: boolean): MenuEntry[] {
+    const favorite = favoriteID === group.id;
+    return [
+      { label: say(openGroups.has(key) ? GROUP_WORDS.collapse : GROUP_WORDS.expand), act: async () => toggleGroup(key) },
+      ...(inSpace ? spaceEntries(ids.filter((id) => allDroneIDs.includes(id)), false) : [{ label: say(MENU_WORDS.launch), act: () => flow.launchDrones(ids) }]),
+      { label: say(favorite ? GROUP_WORDS.unfav : GROUP_WORDS.fav), act: async () => setFavoriteGroupID(shipTypeID, favorite ? null : group.id) },
+    ];
+  }
 
   /**
    * Drones in space, one entry each (dronesWindow's in-space entries, a drone a row): "<name> <state>" with the state
@@ -121,6 +199,7 @@
     const x = e as (SpaceEntity & { shieldRatio?: number | null; armorRatio?: number | null; hullRatio?: number | null }) | null;
     return x && x.shieldRatio != null && x.armorRatio != null && x.hullRatio != null ? [x.shieldRatio, x.armorRatio, x.hullRatio] : null;
   }
+  const spaceList = $derived(split(spaceRows, () => 1));
   const outCount = $derived(($drones.inSpace ?? []).length);
   const maxActive = $derived($drones.limits.maxActiveDrones);
 
@@ -156,7 +235,7 @@
 
   $effect(() => {
     const refs: NameRef[] = [];
-    for (const stack of $drones.bay ?? []) refs.push({ kind: "type", id: stack.typeID });
+    for (const stack of $drones.bay ?? []) { refs.push({ kind: "type", id: stack.typeID }); refs.push({ kind: "typeGroup", id: stack.typeID }); }
     for (const drone of $drones.inSpace ?? []) {
       if (drone.typeID !== null) { refs.push({ kind: "type", id: drone.typeID }); refs.push({ kind: "typeGroup", id: drone.typeID }); }
     }
@@ -178,7 +257,7 @@
   }
 
   /** The right-click menu: where, and its entries (a reason in place of an entry that cannot run). */
-  type MenuEntry = { label: string; disabled?: string | null; act: () => Promise<void> };
+  type MenuEntry = { label: string; disabled?: string | null; act?: () => Promise<void>; sub?: MenuEntry[] };
   let menu = $state<{ x: number; y: number; entries: MenuEntry[] } | null>(null);
   function openMenu(event: MouseEvent, entries: MenuEntry[]): void {
     event.preventDefault();
@@ -224,14 +303,93 @@
   </span>
 {/snippet}
 
+{#snippet bayEntry(row: (typeof bayRows)[number], sub: boolean)}
+  <div class="row" class:sub role="listitem" title="Double-click to launch; right-click for more"
+    ondblclick={() => run(() => flow.launchDrones(row.itemIDs))}
+    oncontextmenu={(e) => openMenu(e, [moveMenu(row.itemIDs, row.typeID), { label: say(MENU_WORDS.launch), act: () => flow.launchDrones(row.itemIDs) }])}>
+    {@render picture(row.typeID, row.label)}
+    <!-- dronesWindow: a stack's label UI/Inflight/DroneBayEntryWithStacksize, "Mining Drone I (2)" (3698585, through
+         gridcheck); one drone its name alone -->
+    <span class="name">{row.quantity > 1 ? `${row.label} (${row.quantity})` : row.label}</span>
+    <span class="row-buttons">
+      <button type="button" class="command" title="Launch drones" disabled={busy} onclick={() => run(() => flow.launchDrones(row.itemIDs))}>
+        <span class="glyph" style:background-image={`url(${ICON.launch})`}></span>
+      </button>
+    </span>
+    {@render gauges(bayDamage.get(row.itemID) ?? null)}
+  </div>
+{/snippet}
+
+{#snippet spaceEntry(row: (typeof spaceRows)[number], sub: boolean)}
+  <div class="row" class:sub class:lost={row.unavailable !== null} role="listitem" title={row.unavailable ?? "Right-click for orders"}
+    oncontextmenu={(e) => openMenu(e, [moveMenu(row.itemIDs, row.typeID), ...spaceEntries(row.unavailable ? (row.recoverable ? row.itemIDs : []) : row.itemIDs.filter((id) => allDroneIDs.includes(id)), row.recoverable)])}>
+    {@render picture(row.typeID, row.label)}
+    <span class="name">{row.label} <span class="state-word" style:color={row.color}>{row.unavailable ?? row.activity}</span></span>
+    {@render gauges(row.damage)}
+  </div>
+{/snippet}
+
+<!-- DroneSubGroupInBay / InSpace: a ListGroup (its expander, the favourite's star, "<group> (<count>)" in the highlight
+     colour) whose buttons show while the mouse is over it: in the bay Launch Drones, in space the primary action,
+     Return and Orbit, a line, Return to Drone Bay -->
+{#snippet groupHead(key: string, group: DroneGroup, count: number, ids: number[], inSpace: boolean)}
+  {@const own = ids.filter((id) => allDroneIDs.includes(id))}
+  <div class="row grouphead" role="button" tabindex="-1" onclick={() => toggleGroup(key)} onkeydown={() => {}}
+    oncontextmenu={(e) => openMenu(e, groupMenu(key, group, ids, inSpace))}>
+    <span class="expander" class:open={openGroups.has(key)}></span>
+    {#if favoriteID === group.id}<span class="star" style:background-image={`url(${ICON.star})`}></span>{/if}
+    <span class="name">{groupWithCount(group.label, count)}</span>
+    <span class="row-buttons">
+      {#if inSpace}
+        <button type="button" class="command" title={say(MENU_WORDS.engage)} disabled={busy || !own.length} onclick={(e) => { e.stopPropagation(); void run(() => primaryAction(own)); }}>
+          <span class="glyph" style:background-image={`url(${ICON.engage})`}></span>
+        </button>
+        <button type="button" class="command" title={say(MENU_WORDS.orbit)} disabled={busy || !own.length} onclick={(e) => { e.stopPropagation(); void run(() => flow.returnDronesAndOrbit(own)); }}>
+          <span class="glyph" style:background-image={`url(${ICON.orbit})`}></span>
+        </button>
+        <span class="sep" aria-hidden="true"></span>
+        <button type="button" class="command" title={say(MENU_WORDS.bay)} disabled={busy || !own.length} onclick={(e) => { e.stopPropagation(); void run(() => flow.recallDrones(own)); }}>
+          <span class="glyph" style:background-image={`url(${ICON.recall})`}></span>
+        </button>
+      {:else}
+        <button type="button" class="command" title={favoriteID === group.id ? keyHint(say(MENU_WORDS.launch), "CmdLaunchFavoriteDrones") : say(MENU_WORDS.launch)} disabled={busy}
+          onclick={(e) => { e.stopPropagation(); void run(() => flow.launchDrones(ids)); }}>
+          <span class="glyph" style:background-image={`url(${ICON.launch})`}></span>
+        </button>
+      {/if}
+    </span>
+  </div>
+{/snippet}
+
+{#snippet menuList(entries: MenuEntry[], nested: boolean)}
+  <ul class="menu" class:sub={nested} role="menu">
+    {#each entries as entry}
+      <li role="menuitem" class:has-sub={!!entry.sub}>
+        {#if entry.sub}
+          <button type="button" class="opener" onclick={(e) => e.stopPropagation()}>{entry.label}<span class="arrow">▸</span></button>
+          {@render menuList(entry.sub, true)}
+        {:else}
+          <button type="button" disabled={busy || !!entry.disabled} title={entry.disabled ?? ""}
+            onclick={() => { const act = entry.act; menu = null; if (act) void run(act); }}>{entry.label}{#if entry.disabled}<span class="why">{" - "}{entry.disabled}</span>{/if}</button>
+        {/if}
+      </li>
+    {/each}
+  </ul>
+{/snippet}
+
+{#if naming}
+  <NamePopup caption={say(GROUP_WORDS.caption)} label={say(GROUP_WORDS.field)} refusal={say(GROUP_WORDS.empty)} okWord={say(GROUP_WORDS.ok)} cancelWord={say(GROUP_WORDS.cancel)}
+    onok={(name) => { const req = naming; naming = null; if (req) createSubGroup(req.droneGroupID, req.ids, name.trim()); }} oncancel={() => (naming = null)} />
+{/if}
+
 <div class="fly-drones">
   <div class="group">
     <div class="sec" role="button" tabindex="-1" onclick={() => (bayOpen = !bayOpen)} onkeydown={() => {}}
-      oncontextmenu={(e) => openMenu(e, [{ label: "Launch drones", disabled: bayRows.length ? null : "Nothing in the drone bay", act: () => flow.launchDrones(bayRows.flatMap((r) => r.itemIDs)) }])}>
+      oncontextmenu={(e) => openMenu(e, [...deleteMenu(), { label: say(MENU_WORDS.launch), disabled: bayRows.length ? null : "Nothing in the drone bay", act: () => flow.launchDrones(bayRows.flatMap((r) => r.itemIDs)) }])}>
       <span class="lbl">{headerWord(HEADER_WORDS.bay, "Drones in Bay")} ({bayCount})</span>
       <span class="commands">
         <button type="button" class="command" title={keyHint(say(MENU_WORDS.launch), "CmdLaunchFavoriteDrones")} disabled={busy || !bayRows.length}
-          onclick={(e) => { e.stopPropagation(); void run(() => flow.launchDrones(bayRows.flatMap((r) => r.itemIDs))); }}>
+          onclick={(e) => { e.stopPropagation(); void run(() => flow.launchDrones(dronesToLaunch(shipTypeID, bayRows.flatMap((r) => r.itemIDs), ($drones.inSpace ?? []).map((d) => d.itemID)))); }}>
           <span class="glyph" style:background-image={`url(${ICON.launch})`}></span>
         </button>
       </span>
@@ -240,21 +398,11 @@
       {#if $drones.bay === null}
         <p class="state">{$drones.loaded ? "Your drone bay could not be read." : "Looking…"}</p>
       {:else}
-        {#each bayRows as row (row.itemID)}
-          <div class="row" role="listitem" title="Double-click to launch; right-click for more"
-            ondblclick={() => run(() => flow.launchDrones(row.itemIDs))}
-            oncontextmenu={(e) => openMenu(e, [{ label: "Launch drones", act: () => flow.launchDrones(row.itemIDs) }])}>
-            {@render picture(row.typeID, row.label)}
-            <!-- dronesWindow: a stack's label UI/Inflight/DroneBayEntryWithStacksize, "Mining Drone I (2)" (3698585, through
-                 gridcheck); one drone its name alone -->
-            <span class="name">{row.quantity > 1 ? `${row.label} (${row.quantity})` : row.label}</span>
-            <span class="row-buttons">
-              <button type="button" class="command" title="Launch drones" disabled={busy} onclick={() => run(() => flow.launchDrones(row.itemIDs))}>
-                <span class="glyph" style:background-image={`url(${ICON.launch})`}></span>
-              </button>
-            </span>
-            {@render gauges(bayDamage.get(row.itemID) ?? null)}
-          </div>
+        {#each bayList.loose as row (row.itemID)}{@render bayEntry(row, false)}{/each}
+        {#each bayList.heads as head (head.group.label)}
+          {@const key = `bay:${head.group.id}`}
+          {@render groupHead(key, head.group, head.count, head.ids, false)}
+          {#if openGroups.has(key)}{#each head.rows as row (row.itemID)}{@render bayEntry(row, true)}{/each}{/if}
         {/each}
       {/if}
     {/if}
@@ -262,7 +410,7 @@
 
   <div class="group">
     <div class="sec" role="button" tabindex="-1" onclick={() => (spaceOpen = !spaceOpen)} onkeydown={() => {}}
-      oncontextmenu={(e) => openMenu(e, spaceEntries(allDroneIDs, false))}>
+      oncontextmenu={(e) => openMenu(e, [...deleteMenu(), ...spaceEntries(allDroneIDs, false)])}>
       <span class="lbl">{headerWord(HEADER_WORDS.space, "Drones in Space")} ({maxActive === null ? outCount : `${outCount}/${maxActive}`})</span>
       <span class="commands">
         <span class="settings-host">
@@ -302,13 +450,11 @@
       {#if $drones.inSpace === null}
         <p class="state">{$drones.loaded ? "Your drones in space could not be read." : "Looking…"}</p>
       {:else}
-        {#each spaceRows as row (row.key)}
-          <div class="row" class:lost={row.unavailable !== null} role="listitem" title={row.unavailable ?? "Right-click for orders"}
-            oncontextmenu={(e) => openMenu(e, spaceEntries(row.unavailable ? (row.recoverable ? row.itemIDs : []) : row.itemIDs.filter((id) => allDroneIDs.includes(id)), row.recoverable))}>
-            {@render picture(row.typeID, row.label)}
-            <span class="name">{row.label} <span class="state-word" style:color={row.color}>{row.unavailable ?? row.activity}</span></span>
-            {@render gauges(row.damage)}
-          </div>
+        {#each spaceList.loose as row (row.key)}{@render spaceEntry(row, false)}{/each}
+        {#each spaceList.heads as head (head.group.label)}
+          {@const key = `space:${head.group.id}`}
+          {@render groupHead(key, head.group, head.count, head.ids, true)}
+          {#if openGroups.has(key)}{#each head.rows as row (row.key)}{@render spaceEntry(row, true)}{/each}{/if}
         {/each}
       {/if}
     {/if}
@@ -323,14 +469,7 @@
   {/each}
 
   {#if menu}
-    <ul class="menu" style:left={`${menu.x}px`} style:top={`${menu.y}px`} role="menu">
-      {#each menu.entries as entry}
-        <li role="menuitem">
-          <button type="button" disabled={busy || !!entry.disabled} title={entry.disabled ?? ""}
-            onclick={() => { const act = entry.act; menu = null; void run(act); }}>{entry.label}{#if entry.disabled}<span class="why">{" - "}{entry.disabled}</span>{/if}</button>
-        </li>
-      {/each}
-    </ul>
+    <div class="menu-host" style:left={`${menu.x}px`} style:top={`${menu.y}px`}>{@render menuList(menu.entries, false)}</div>
   {/if}
 </div>
 
@@ -363,13 +502,27 @@
   .activity { font-size: 11px; color: rgb(176, 176, 169); white-space: nowrap; }
   .state { margin: 0; padding: 4px 12px 6px; font-size: 11px; color: rgb(108, 110, 107); }
   .said { margin: 0; padding: 3px 12px; font-size: 11px; color: #d08a6a; }
-  .menu { position: absolute; z-index: 10; margin: 0; padding: 2px 0; list-style: none; min-width: 150px; background: rgba(20, 21, 20, 0.97); border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6); }
+  .menu-host { position: absolute; z-index: 10; }
+  .menu { margin: 0; padding: 2px 0; list-style: none; min-width: 150px; background: rgba(20, 21, 20, 0.97); border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6); }
   .menu button { display: block; width: 100%; padding: 4px 12px; border: 0; background: transparent; color: #ddd; text-align: left; font-size: 12px; cursor: pointer; }
   .menu button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); color: #fff; }
   .menu button:disabled { color: #777; cursor: default; }
   .why { color: #8a8a84; font-size: 11px; }
   .settings-host { position: relative; display: inline-flex; }
-  .menu.settings { right: 0; left: auto; top: 24px; min-width: 160px; }
+  .menu.settings { position: absolute; z-index: 10; right: 0; left: auto; top: 24px; min-width: 160px; }
+  /* a submenu beside its entry while the mouse is over it */
+  .menu li.has-sub { position: relative; }
+  .menu.sub { display: none; position: absolute; left: 100%; top: -3px; }
+  .menu li.has-sub:hover > .menu.sub { display: block; }
+  .menu .opener { display: flex; justify-content: space-between; gap: 12px; }
+  .arrow { color: #aaa; }
+  /* sublevel 1: 8 further in (GetLabelLeft 4 + 8 * sublevel) */
+  .row.sub { padding-left: 20px; }
+  .row.grouphead { min-height: 24px; gap: 4px; cursor: default; }
+  .row.grouphead .name { color: #fff; }
+  .expander { width: 0; height: 0; border-left: 4px solid rgba(255, 255, 255, 0.6); border-top: 4px solid transparent; border-bottom: 4px solid transparent; margin: 0 4px; transition: transform .1s; }
+  .expander.open { transform: rotate(90deg); }
+  .star { width: 16px; height: 16px; background: center / 16px 16px no-repeat; flex: none; }
   .menu.settings .check { display: inline-block; width: 16px; }
   /* ButtonSeperatorLine between Return and Orbit and Return to Drone Bay */
   .sep { width: 1px; height: 14px; margin: 0 3px; align-self: center; background: rgba(255, 255, 255, 0.15); }

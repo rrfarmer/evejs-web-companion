@@ -88,6 +88,7 @@
   import { openWindow, closeWindow, focusWindow, moveWindow, resizeWindow, toggleMinimize, type WinState } from "./desktop.ts";
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import { dronesToLaunch } from "./droneGroups.ts";
   import { DSCAN_WORDS } from "../play/dscan.ts";
   import { LivePark } from "../three/livePark.ts";
   import { SpaceView, type Entity } from "../play/spaceView.ts";
@@ -1154,7 +1155,8 @@
       // CmdLaunchFavoriteDrones: in space, the favourite group's drones in the bay, else every drone in the bay
       if (cmd === "CmdLaunchFavoriteDrones") {
         if (!snap?.ship) return true;
-        const bay = (s.store.drones.get().bay ?? []).map((stack) => stack.itemID);
+        const bayIDs = (s.store.drones.get().bay ?? []).map((stack) => stack.itemID);
+        const bay = dronesToLaunch(snap.ship.typeID ?? null, bayIDs, (s.store.drones.get().inSpace ?? []).map((d) => d.itemID));
         if (bay.length) void s.flow.launchDrones(bay).catch(say("Drones"));
         return true;
       }
