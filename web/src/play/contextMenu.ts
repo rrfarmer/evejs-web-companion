@@ -8,6 +8,8 @@ import { clientTexture } from "../ui/skillGroupIcons.ts";
 
 export interface ContextEntry {
   readonly label: string;
+  /** The menu label's path (MenuLabel), which the Selected Item's buttons look for (_GetValidActionsByName). */
+  readonly path?: string;
   /** A res: path, or null for none. */
   readonly icon?: string | null;
   /** Show Info's own icon (classes/Menu/Icons/info.png on circleBG in FOCUS_BLUE). */

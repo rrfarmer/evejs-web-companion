@@ -1642,18 +1642,38 @@ export class SpaceView {
       { key: "orbit", title: "Orbit", icon: icon("orbit"), run: () => this.actions.orbit(id) },
       { key: "keep", title: "Keep at Range", icon: icon("keep_at_distance"), run: () => this.actions.keepAtRange(id) },
     );
-    const lockable = ["ship", "drone", "fighter", "wreck", "container", "asteroid", "structure", "station", "stargate"].includes(e.kind);
-    if (lockable) {
-      out.push(this.locked.has(id)
-        ? { key: "unlock", title: "Unlock Target", icon: icon("target"), run: () => this.actions.unlock(id) }
-        : { key: "lock", title: "Lock Target", icon: icon("target"), run: () => this.lockTracked(id) });
-    }
+    // ACTIONS_ALWAYS_VISIBLE: Lock Target (Unlock Target, its toggle) always shown, greyed where the menu has neither
+    out.push(this.locked.has(id)
+      ? { key: "unlock", title: "Unlock Target", icon: icon("target"), run: () => this.actions.unlock(id) }
+      : { key: "lock", title: "Lock Target", icon: icon("target"), run: () => this.lockTracked(id) });
     out.push({ key: "look", title: "Look At", icon: icon("look_at"), run: async () => this.focusOn(id) });
+    // UI/Inflight/SetAsCameraInterest: the camera tracks it (actionConst: camera_track)
+    out.push({ key: "track", title: this.actions.word?.("UI/Inflight/SetAsCameraInterest") ?? "Track", icon: icon("camera_track"),
+      run: async () => { this.endExplosionCamera(); this.trackedObjective = id; } });
     const showInfo = this.options.showInfo;
     if (showInfo) out.push({ key: "info", title: "Show Info", icon: icon("show_info"), run: async () => showInfo(id, e.typeID ?? null) });
     const drill = this.autoMoonMinerEntry(e);
     if (drill) out.push(drill);
     out.push(...this.metenoxEntries(e));
+    // SelectedItemWnd.ReconstructButtons: a button whose entry the object's menu has not now is drawn disabled
+    // (MenuHints/NoReasonGiven where no reason is known)
+    const available = this.menuPaths(e);
+    const PATH: Record<string, string> = { approach: "UI/Inflight/ApproachObject", align: "UI/Inflight/AlignTo", warp: "UI/Inflight/Submenus/WarpToWithin",
+      dock: "UI/Inflight/DockInStation", orbit: "UI/Inflight/OrbitObject", keep: "UI/Inflight/Submenus/KeepAtRange", lock: "UI/Inflight/LockTarget",
+      unlock: "UI/Inflight/UnlockTarget", look: "UI/Inflight/LookAtObject", track: "UI/Inflight/SetAsCameraInterest", info: "UI/Commands/ShowInfo" };
+    if (e.kind === "stargate") PATH.jump = "UI/Inflight/Jump";
+    return out.map((a) => {
+      const path = PATH[a.key];
+      if (!path || available.has(path) || a.disabled) return a;
+      return { ...a, disabled: true, disabledReason: a.disabledReason ?? this.actions.word?.("UI/Menusvc/MenuHints/NoReasonGiven") ?? "No reason given" };
+    });
+  }
+
+  /** The label paths of an object's menu now (its entries and their submenus'). */
+  private menuPaths(e: Entity): Set<string> {
+    const out = new Set<string>();
+    const walk = (list: readonly (ContextEntry | null)[]) => { for (const x of list) if (x) { if (x.path && !x.disabled) out.add(x.path); if (x.sub) walk(x.sub); } };
+    walk(this.contextEntries(e));
     return out;
   }
 
@@ -1702,7 +1722,8 @@ export class SpaceView {
     const wormholeLabel = e.groupID === WORMHOLE_GROUP ? this.actions.word?.(ENTER_WORMHOLE_LABEL) ?? "Enter Wormhole" : "";
     const metenoxRange = e.typeID === METENOX_TYPE_ID ? `${dist <= METENOX_BOARD_RANGE}:${dist < METENOX_DEPOSIT_RANGE}:${dist < METENOX_MATERIAL_RANGE}` : "";
     const gateSecurity = e.groupID === 10 ? this.options.systemSecurity?.((e as Entity & { jumpSystemID?: number | null }).jumpSystemID ?? 0) ?? null : null;
-    const sig = `${e.itemID}:${gateSecurity}:${this.locked.has(e.itemID)}:${dist >= 150_000}:${e.jumpBridge?.activationState ?? ""}:${this.snapshot?.ship?.mode === "WARP"}:${cargoLabel}:${wormholeLabel}:${metenoxRange}`;
+    const availableNow = [...this.menuPaths(e)].join(",");
+    const sig = `${e.itemID}:${gateSecurity}:${availableNow}:${this.locked.has(e.itemID)}:${dist >= 150_000}:${e.jumpBridge?.activationState ?? ""}:${this.snapshot?.ship?.mode === "WARP"}:${cargoLabel}:${wormholeLabel}:${metenoxRange}`;
     if (body.getAttribute("data-sig") !== sig) {
       body.setAttribute("data-sig", sig);
       // SelectedItemWnd._UpdateSlimItem: its picture, GetSlimItemName with a stargate's destination security after it
@@ -2693,7 +2714,7 @@ export class SpaceView {
     const id = e.itemID;
     const run = (title: string, fn: () => Promise<void>) => () => void this.act(title, fn).then(() => this.refreshTargets());
     const I = (name: string) => `res:/UI/Texture/eveicon/control_icons/${name}_16px.png`;
-    const showInfo: ContextEntry = { label: word("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => this.options.showInfo?.(id, e.typeID ?? null) };
+    const showInfo: ContextEntry = { path: "UI/Commands/ShowInfo", label: word("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => this.options.showInfo?.(id, e.typeID ?? null) };
     if (e.isSelf) {
       return [
         { label: word(e.groupID === 29 ? "UI/Inflight/StopMyCapsule" : "UI/Inflight/StopMyShip", e.groupID === 29 ? "Stop My Capsule" : "Stop My Ship"), run: run("Stop", () => this.actions.stop()) },
@@ -2739,58 +2760,59 @@ export class SpaceView {
       const controlled = hasState && ship !== null && d.controllerID === ship.itemID;
       const mining = group === 101, salvage = group === 1159, unanchoring = group === 470;
       const order = (kind: "primary" | "orbit" | "bay" | "scoop" | "abandon") => () => this.actions.droneOrder?.(kind, [id]);
-      if (controlled && !mining && !unanchoring && !salvage) out.push({ label: word("UI/Drones/EngageTarget", "Engage Target"), run: order("primary") });
-      if (controlled && mining) out.push({ label: word("UI/Drones/MineWithDrone", "Mine"), run: order("primary") });
-      else if (controlled && salvage) out.push({ label: word("UI/Drones/Salvage", "Salvage"), run: order("primary") });
-      if (controlled && owned) out.push({ label: word("UI/Drones/ReturnDroneAndOrbit", "Return and Orbit"), run: order("orbit") });
-      if (hasState && owned) out.push({ label: word("UI/Drones/ReturnDroneToBay", "Return to Drone Bay"), run: order("bay") });
-      if (owned && dist < 150_000) out.push({ label: word("UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"), run: order("scoop") });
-      if (owned && hasState) out.push({ label: word("UI/Drones/AbandonDrone", "Abandon Drone"), run: order("abandon") });
+      if (controlled && !mining && !unanchoring && !salvage) out.push({ path: "UI/Drones/EngageTarget", label: word("UI/Drones/EngageTarget", "Engage Target"), run: order("primary") });
+      if (controlled && mining) out.push({ path: "UI/Drones/MineWithDrone", label: word("UI/Drones/MineWithDrone", "Mine"), run: order("primary") });
+      else if (controlled && salvage) out.push({ path: "UI/Drones/Salvage", label: word("UI/Drones/Salvage", "Salvage"), run: order("primary") });
+      if (controlled && owned) out.push({ path: "UI/Drones/ReturnDroneAndOrbit", label: word("UI/Drones/ReturnDroneAndOrbit", "Return and Orbit"), run: order("orbit") });
+      if (hasState && owned) out.push({ path: "UI/Drones/ReturnDroneToBay", label: word("UI/Drones/ReturnDroneToBay", "Return to Drone Bay"), run: order("bay") });
+      if (owned && dist < 150_000) out.push({ path: "UI/Drones/ScoopDroneToBay", label: word("UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"), run: order("scoop") });
+      if (owned && hasState) out.push({ path: "UI/Drones/AbandonDrone", label: word("UI/Drones/AbandonDrone", "Abandon Drone"), run: order("abandon") });
       if (out.length) out.push(null);
     }
     if (warp) {
       const d = defaultDistance("WarpTo");
       out.push({
+        path: "UI/Inflight/Submenus/WarpToWithin",
         label: `${word("UI/Inflight/Submenus/WarpToWithin", "Warp to Within")} (${fmtDistance(d)})`, icon: I("warp_to"),
         run: run("Warp", () => this.actions.warpTo(id, d)),
         sub: [...warpRanges.map((r) => ({ label: within(r), run: run("Warp", () => this.actions.warpTo(id, r)) })), null, setDefault("WarpTo", warpRanges, within)],
       });
     }
     if (approach) {
-      out.push({ label: word("UI/Inflight/ApproachObject", "Approach"), icon: I("approach"), run: run("Approach", () => this.actions.approach(id)) });
+      out.push({ path: "UI/Inflight/ApproachObject", label: word("UI/Inflight/ApproachObject", "Approach"), icon: I("approach"), run: run("Approach", () => this.actions.approach(id)) });
       const orbitD = defaultDistance("Orbit"), keepD = defaultDistance("KeepAtRange");
-      out.push({ label: `${word("UI/Inflight/OrbitObject", "Orbit")} (${fmtDistance(orbitD)})`, icon: I("orbit"), run: run("Orbit", () => this.actions.orbit(id, orbitD)),
+      out.push({ path: "UI/Inflight/OrbitObject", label: `${word("UI/Inflight/OrbitObject", "Orbit")} (${fmtDistance(orbitD)})`, icon: I("orbit"), run: run("Orbit", () => this.actions.orbit(id, orbitD)),
         sub: ranges("Orbit", orbitRanges, "UI/Inflight/OrbitAtCurrentRange", (r) => void this.act("Orbit", () => this.actions.orbit(id, r))) });
-      if (!noKeep) out.push({ label: `${word("UI/Inflight/Submenus/KeepAtRange", "Keep at Range")} (${fmtDistance(keepD)})`, icon: I("keep_at_distance"), run: run("Keep at Range", () => this.actions.keepAtRange(id, keepD)),
+      if (!noKeep) out.push({ path: "UI/Inflight/Submenus/KeepAtRange", label: `${word("UI/Inflight/Submenus/KeepAtRange", "Keep at Range")} (${fmtDistance(keepD)})`, icon: I("keep_at_distance"), run: run("Keep at Range", () => this.actions.keepAtRange(id, keepD)),
         sub: ranges("KeepAtRange", orbitRanges, "UI/Inflight/KeepAtCurrentRange", (r) => void this.act("Keep at Range", () => this.actions.keepAtRange(id, r))) });
     } else if (warp) {
-      out.push({ label: word("UI/Inflight/AlignTo", "Align to"), icon: I("align_to"), run: run("Align", () => this.actions.alignTo(id)) });
+      out.push({ path: "UI/Inflight/AlignTo", label: word("UI/Inflight/AlignTo", "Align to"), icon: I("align_to"), run: run("Align", () => this.actions.alignTo(id)) });
     }
-    if (dockable && !warping) out.push({ label: word("UI/Inflight/DockInStation", "Dock"), icon: I("dock"), run: run("Dock", () => this.actions.dock(id)) });
+    if (dockable && !warping) out.push({ path: "UI/Inflight/DockInStation", label: word("UI/Inflight/DockInStation", "Dock"), icon: I("dock"), run: run("Dock", () => this.actions.dock(id)) });
     if (stargate) {
-      out.push({ label: word("UI/Inflight/Jump", "Jump"), icon: I("jump_to"), run: run("Jump", () => this.actions.jump(id)) });
+      out.push({ path: "UI/Inflight/Jump", label: word("UI/Inflight/Jump", "Jump"), icon: I("jump_to"), run: run("Jump", () => this.actions.jump(id)) });
     }
     // (the client's menu shows the movement entries, Look at, Track and the lock as one group)
-    if (!warping && group !== 7 && group !== 8) out.push({ label: word("UI/Inflight/LookAtObject", "Look at"), run: () => this.focusOn(id) });
-    out.push({ label: word("UI/Inflight/SetAsCameraInterest", "Track"), run: () => { this.endExplosionCamera(); this.trackedObjective = id; } });
-    if (this.locked.has(id)) out.push({ label: word("UI/Inflight/UnlockTarget", "Unlock Target"), icon: I("target"), run: run("Unlock Target", () => this.actions.unlock(id)) });
+    if (!warping && group !== 7 && group !== 8) out.push({ path: "UI/Inflight/LookAtObject", label: word("UI/Inflight/LookAtObject", "Look at"), run: () => this.focusOn(id) });
+    out.push({ path: "UI/Inflight/SetAsCameraInterest", label: word("UI/Inflight/SetAsCameraInterest", "Track"), run: () => { this.endExplosionCamera(); this.trackedObjective = id; } });
+    if (this.locked.has(id)) out.push({ path: "UI/Inflight/UnlockTarget", label: word("UI/Inflight/UnlockTarget", "Unlock Target"), icon: I("target"), run: run("Unlock Target", () => this.actions.unlock(id)) });
     else if (!planetMoonBelt && this.snapshot?.ship?.typeID !== 670) {
       const lockRange = this.actions.shipAttribute?.(76) ?? null;
-      if (lockRange === null || dist <= lockRange) out.push({ label: word("UI/Inflight/LockTarget", "Lock Target"), icon: I("target"), run: run("Lock Target", () => this.lockTracked(id)) });
+      if (lockRange === null || dist <= lockRange) out.push({ path: "UI/Inflight/LockTarget", label: word("UI/Inflight/LockTarget", "Lock Target"), icon: I("target"), run: run("Lock Target", () => this.lockTracked(id)) });
     }
     out.push(null, showInfo, null);
-    if (stargate) out.push({ label: word("UI/Inflight/AddFirstWaypoint", "Add as First Waypoint"), run: () => this.actions.addWaypoint?.(id) });
+    if (stargate) out.push({ path: "UI/Inflight/AddFirstWaypoint", label: word("UI/Inflight/AddFirstWaypoint", "Add as First Waypoint"), run: () => this.actions.addWaypoint?.(id) });
     else if (dockable && this.actions.setDestination) {
-      out.push({ label: word("UI/Inflight/SetDestination", "Set Destination"), icon: "res:/UI/Texture/eveicon/system_icons/set_destination_16px.png", run: () => this.actions.setDestination?.(id) });
-      out.push({ label: word("UI/Inflight/AddWaypoint", "Add Waypoint"), run: () => this.actions.addWaypoint?.(id) });
+      out.push({ path: "UI/Inflight/SetDestination", label: word("UI/Inflight/SetDestination", "Set Destination"), icon: "res:/UI/Texture/eveicon/system_icons/set_destination_16px.png", run: () => this.actions.setDestination?.(id) });
+      out.push({ path: "UI/Inflight/AddWaypoint", label: word("UI/Inflight/AddWaypoint", "Add Waypoint"), run: () => this.actions.addWaypoint?.(id) });
     }
     // overviewMenuUtil: a group not shown is offered to the Overview before Save Location...; one shown is taken off at the foot
     const groupName = group !== null ? this.names?.groups[String(group)]?.[0] ?? "" : "";
     const shownInOverview = group !== null && this.overview.groupShown(group);
-    if (group !== null && !shownInOverview) out.push({ label: word("UI/Overview/AddGroupToOverview", `Add ${groupName} to Overview`, { groupName }), run: () => this.overview.setGroupShown(group, true) });
-    if (this.actions.saveLocation && category !== 11 && category !== 6) out.push({ label: word("UI/Inflight/BookmarkLocation", "Save Location..."), run: () => this.actions.saveLocation?.(id, e.typeID ?? null) });
-    if (group === 7 && this.options.viewPlanet) out.push({ label: word("UI/PI/Common/ViewInPlanetMode", "View Planetary Industry"), icon: I("enter_planet_view"), run: () => void this.options.viewPlanet?.(id) });
-    if (group !== null && shownInOverview) out.push(null, { label: word("UI/Overview/RemoveGroupFromOverview", `Remove ${groupName} from Overview`, { groupName }), run: () => this.overview.setGroupShown(group, false) });
+    if (group !== null && !shownInOverview) out.push({ path: "UI/Overview/AddGroupToOverview", label: word("UI/Overview/AddGroupToOverview", `Add ${groupName} to Overview`, { groupName }), run: () => this.overview.setGroupShown(group, true) });
+    if (this.actions.saveLocation && category !== 11 && category !== 6) out.push({ path: "UI/Inflight/BookmarkLocation", label: word("UI/Inflight/BookmarkLocation", "Save Location..."), run: () => this.actions.saveLocation?.(id, e.typeID ?? null) });
+    if (group === 7 && this.options.viewPlanet) out.push({ path: "UI/PI/Common/ViewInPlanetMode", label: word("UI/PI/Common/ViewInPlanetMode", "View Planetary Industry"), icon: I("enter_planet_view"), run: () => void this.options.viewPlanet?.(id) });
+    if (group !== null && shownInOverview) out.push(null, { path: "UI/Overview/RemoveGroupFromOverview", label: word("UI/Overview/RemoveGroupFromOverview", `Remove ${groupName} from Overview`, { groupName }), run: () => this.overview.setGroupShown(group, false) });
     return out;
   }
 
