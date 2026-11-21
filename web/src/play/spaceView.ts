@@ -3996,6 +3996,25 @@ export class SpaceView {
         segs.push({ a: flat.clone(), b: inner, ka: k, kb: k * 0.75 });
       }
     }
+    const nav = this.drawActionDisplay(origin, 2 * (active + base + Math.max(targeting * 0.25, 50_000)), w, h);
+    // RegisterNavBall: the navigation point is one of the overlay's connectors too - its arc down to the plane
+    if (nav) {
+      const nd = nav.at.length();
+      const nf = new THREE.Vector3(nav.at.x, 0, nav.at.z);
+      if (nd > 1 && nf.lengthSq() > 0) {
+        const out = 1 - Math.min(1, Math.max(0, (nd - (active + base)) / fadeLength));
+        const reduced = interest > 0.0001 && nd - base > interest ? 1 - 0.35 : 0;
+        const k = (nav.at.y >= 0 ? 0.3 : 0.2) * out * (1 - reduced);
+        const from = nav.at.clone().normalize(), to = nf.clone().normalize();
+        const steps = Math.max(1, Math.ceil(from.angleTo(to) / 0.05));
+        let prev = nav.at.clone();
+        for (let i = 1; i <= steps; i++) {
+          const q = from.clone().lerp(to, i / steps).normalize().multiplyScalar(nd);
+          segs.push({ a: prev, b: q, ka: k, kb: k });
+          prev = q;
+        }
+      }
+    }
     this.drawConnectorStrips(segs, h);
     // EveTacticalOverlay's velocity quads (quad 0, TacticalOverlayVelocity.fx with tacticalOverlay.red's parameters):
     // each wanted thing's but an asteroid's (_HIDE_VELOCITY_CATEGORIES), the ship's own, and for the selected thing
@@ -4014,7 +4033,6 @@ export class SpaceView {
     vel.push(...rates);
     this.drawTacticalVelocity(vel, w, h, ship ? new THREE.Vector3(ship.velocity.x, ship.velocity.y, -ship.velocity.z) : new THREE.Vector3());
     // ActionDisplay.SetMaxMoveRange(TacticalCompass.GetMaxRange()): 2 x (the active range + its fade)
-    const nav = this.drawActionDisplay(origin, 2 * (active + base + Math.max(targeting * 0.25, 50_000)), w, h);
     // a navigation point is a connector of the overlay's too (RegisterNavBall), with its anchor
     if (nav) { const nd = nav.at.length(); const nf = new THREE.Vector3(nav.at.x, 0, nav.at.z); if (nd > 1 && nf.lengthSq() > 0) anchors.push({ plane: nf.setLength(nd), above: nav.at.y >= 0, dist: nd, radius: 0 }); }
     this.drawTacticalAnchors(anchors, active + base, fadeLength, base, interest);
@@ -4130,20 +4148,6 @@ export class SpaceView {
       if (ship.mode === "GOTO" && moving.gotoPoint) {
         nav = { at: rel(moving.gotoPoint) };
         movement(nav.at);
-        // RegisterNavBall: the overlay's connector for the point (an arc down to the plane, white 0.25)
-        const d = nav.at.length();
-        const flat = new THREE.Vector3(nav.at.x, 0, nav.at.z);
-        if (d > 1 && flat.lengthSq() > 0) {
-          const from = nav.at.clone().normalize(), to = flat.normalize();
-          const steps = Math.max(1, Math.ceil(from.angleTo(to) / 0.05));
-          let prev = nav.at.clone();
-          for (let i = 1; i <= steps; i++) {
-            const q = from.clone().lerp(to, i / steps).normalize().multiplyScalar(d);
-            pts.push(prev.x, prev.y, prev.z, q.x, q.y, q.z);
-            cols.push(1, 1, 1, 0.25, 1, 1, 1, 0.25);
-            prev = q;
-          }
-        }
       } else if (ship.mode === "ORBIT" && follow) {
         const c = rel(follow.position);
         const radius = follow.radius + Number(moving.followRange ?? ball?.followRange ?? 0) + ship.radius;
