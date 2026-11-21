@@ -80,7 +80,7 @@
     engage: ["UI/Drones/EngageTarget", "Engage Target"], mine: ["UI/Drones/MineWithDrone", "Mine"], salvage: ["UI/Drones/Salvage", "Salvage"],
     orbit: ["UI/Drones/ReturnDroneAndOrbit", "Return and Orbit"], bay: ["UI/Drones/ReturnDroneToBay", "Return to Drone Bay"],
     scoop: ["UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"], launch: ["UI/Drones/LaunchDrones", "Launch Drones"], launchOne: ["UI/Drones/LaunchDrone", "Launch Drone"],
-    info: ["UI/Commands/ShowInfo", "Show Info"], market: ["UI/Inventory/ItemActions/ViewTypesMarketDetails", "View Market Details"],
+    info: ["UI/Commands/ShowInfo", "Show Info"], buyAll: ["UI/Market/MarketQuote/BuyAll", "Buy All"], market: ["UI/Inventory/ItemActions/ViewTypesMarketDetails", "View Market Details"],
     assets: ["UI/Inventory/ItemActions/FindPersonalAssets", "Find in Personal Assets"], compare: ["UI/Compare/CompareButton", "Compare"],
     autoAttack: ["UI/Drones/AutoAttack", "Auto Attack"], focusFire: ["UI/Drones/AttackModeFocusFire", "Focus Fire"],
     autoAttackHint: ["UI/Drones/AutoAttackHint", "Should drones automatically attack if aggression is shown to you or them"],
@@ -478,6 +478,18 @@
    * Launch Drone and Compare.
    */
   function bayRowMenu(ids: number[], typeID: number): MenuEntry[] {
+    return bayItemsMenu(ids.map((itemID) => ({ itemID, typeID })), true);
+  }
+  /**
+   * The filtered InvItemMenu over bay drones, with the window's Move Drone where an entry's (GroupMenu): on several the
+   * merged entries - Launch Drone (n), View Market Details and Buy All (n) (the filter takes Buy This Type, not Buy All),
+   * Compare (n). DroneGroupHeaderInBay.GetMenu is it over the whole bay, no Move Drone; nothing on an empty bay.
+   */
+  function bayItemsMenu(items: { itemID: number; typeID: number }[], withMove: boolean): MenuEntry[] {
+    if (!items.length) return [];
+    const ids = items.map((i) => i.itemID);
+    const typeID = items[0]!.typeID;
+    const types = [...new Set(items.map((i) => i.typeID))];
     const multi = ids.length > 1;
     const count = (label: string) => (multi ? `${label} (${ids.length})` : label);
     const groups: MenuEntry[][] = [
@@ -485,11 +497,17 @@
       [{ label: count(plainText(formatTemplate(say(MENU_WORDS.launchOne), { numDrones: 1 }, { nameOf: () => "" }))), act: () => flow.launchDrones(ids) }],
       multi ? [] : [{ label: say(MENU_WORDS.info), act: async () => showInfo({ kind: "type", typeID, itemID: ids[0] }) }],
       [{ label: say(MENU_WORDS.market), act: async () => showMarketDetails(typeID) },
-        ...(multi ? [] : [{ label: say(MENU_WORDS.assets), act: async () => findInPersonalAssets(typeName(typeID, "")) }])],
-      [moveMenu(ids, typeID)],
-      [{ label: count(say(MENU_WORDS.compare)), act: async () => typeCompareTarget.ask(ids.map((itemID) => ({ typeID, itemID }))) }],
+        ...(multi ? [{ label: count(say(MENU_WORDS.buyAll)), act: async () => flow.openMultiBuy(new Map(types.map((t) => [t, 1]))) }]
+          : [{ label: say(MENU_WORDS.assets), act: async () => findInPersonalAssets(typeName(typeID, "")) }])],
+      withMove ? [moveMenu(ids, typeID)] : [],
+      [{ label: count(say(MENU_WORDS.compare)), act: async () => typeCompareTarget.ask(items.map((i) => ({ typeID: i.typeID, itemID: i.itemID }))) }],
     ];
     return groups.filter((g) => g.length).flatMap((g, n) => (n ? [SEP, ...g] : g));
+  }
+  /** A header's menu: none where it has no entries (CreateMenuView of an empty MenuList). */
+  function openMenuIfAny(event: MouseEvent, entries: MenuEntry[]): void {
+    event.preventDefault();
+    if (entries.length) openMenu(event, entries);
   }
   function openMenu(event: MouseEvent, entries: MenuEntry[]): void {
     event.preventDefault();
@@ -636,7 +654,7 @@
   {/if}
   <div class="group bay" class:closed={!bayOpen} class:drop={dropOn === "bay"} role="list" ondragover={dragOver("bay")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("bay", null, e)}>
     <div class="sec" role="button" tabindex="-1" onclick={() => (bayOpen = !bayOpen)} onkeydown={() => {}}
-      oncontextmenu={(e) => openMenu(e, [...deleteMenu(), { label: say(MENU_WORDS.launch), disabled: bayRows.length ? null : "Nothing in the drone bay", act: () => flow.launchDrones(bayRows.flatMap((r) => r.itemIDs)) }])}>
+      oncontextmenu={(e) => openMenuIfAny(e, [...deleteMenu(), ...bayItemsMenu(bayRows.flatMap((r) => r.itemIDs.map((itemID) => ({ itemID, typeID: r.typeID }))), false)])}>
       <span class="caret" style:mask-image={`url("${bayOpen ? CARET.open : CARET.closed}")`} style:-webkit-mask-image={`url("${bayOpen ? CARET.open : CARET.closed}")`}></span><span class="lbl">{headerWord(HEADER_WORDS.bay, "Drones in Bay")} ({bayCount})</span>
       <span class="commands">
         <button type="button" class="command" title={keyHint(say(MENU_WORDS.launch), "CmdLaunchFavoriteDrones")} disabled={busy || !bayRows.length}
@@ -662,7 +680,7 @@
 
   <div class="group" class:drop={dropOn === "space"} role="list" ondragover={dragOver("space")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("space", null, e)}>
     <div class="sec" role="button" tabindex="-1" onclick={() => (spaceOpen = !spaceOpen)} onkeydown={() => {}}
-      oncontextmenu={(e) => openMenu(e, [...deleteMenu(), ...spaceEntries(allDroneIDs, false)])}>
+      oncontextmenu={(e) => openMenuIfAny(e, [...deleteMenu(), ...(allDroneIDs.length ? spaceEntries(allDroneIDs, false) : [])])}>
       <span class="caret" style:mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`} style:-webkit-mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`}></span><span class="lbl">{headerWord(HEADER_WORDS.space, "Drones in Space")} ({maxActive === null ? outCount : `${outCount}/${maxActive}`})</span>
       <span class="commands">
         <span class="settings-host">
