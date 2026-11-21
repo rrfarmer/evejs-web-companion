@@ -103,6 +103,11 @@ button { font: inherit; color: inherit; }
   white-space: nowrap; color: rgba(255, 255, 255, 0.8); text-shadow: 0 0 2px #000, 0 0 2px #000; cursor: pointer; }
 .bracket-overlap .bo-hilite { background: rgba(255, 255, 255, 0.2); color: #fff; }
 .bracket.overlap-lit .glyph { filter: brightness(2); }
+.bracket-overlap { align-items: flex-start; }
+.bracket-overlap.side-left { flex-direction: row-reverse; }
+.bracket-overlap.side-left .bo-label { align-items: flex-end; }
+.bracket-overlap .bo-pointer { position: absolute; left: calc(50% - 12px); bottom: -16px; width: 24px; height: 24px; opacity: 0.8; pointer-events: none; }
+.bracket-overlap .bo-pointer.up { bottom: auto; top: -16px; }
 /* InSpaceBracket's fleetBroadcastIcon (16 x 16, 2 px left of the bracket, centred on it) */
 .bracket .bracket-bcast { position: absolute; left: -18px; top: 0; width: 16px; height: 16px; pointer-events: auto; }
 /* InSpaceBracket's fleetTagAndTarget (BracketShadowLabel, bold, medium): right of the bracket by the label margin, its height above */

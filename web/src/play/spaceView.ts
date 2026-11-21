@@ -711,9 +711,26 @@ export class SpaceView {
     tip.append(icons, side);
     tip.addEventListener("mouseenter", () => { if (this.overlapCloseTimer) { clearTimeout(this.overlapCloseTimer); this.overlapCloseTimer = null; } });
     tip.addEventListener("mouseleave", () => this.overlapLeft());
-    tip.style.left = `${Math.round(box.right - host.left + 6)}px`;
-    tip.style.top = `${Math.round(box.top - host.top + box.height / 2 - (list.length * 26 + 8) / 2)}px`;
+    // GetTooltipPointer, a compact one in the open: POINT_BOTTOM_2 - the panel over the bracket, centred on it, its
+    // pointer down (POINT_TOP_2 under it where the bracket is at the top edge); the side panel to the panel's right, or its
+    // left where it would leave the layer (UpdateSideContainer)
+    const pointer = document.createElement("img");
+    pointer.className = "bo-pointer";
+    pointer.alt = "";
+    icons.append(pointer);
     this.brackets.append(tip);
+    const iw = icons.offsetWidth, ih = icons.offsetHeight, sw = side.offsetWidth;
+    const cx = box.left - host.left + box.width / 2;
+    let top = box.top - host.top - 9 - ih;
+    const below = top < 0;
+    if (below) top = box.bottom - host.top + 9;
+    pointer.src = `/client-res/ui/texture/classes/framewithpointer/${below ? "pointer_up_02" : "pointer_down_02"}.png`;
+    pointer.classList.toggle("up", below);
+    const left = cx - iw / 2;
+    const sideLeft = left + iw + sw > host.width;
+    tip.classList.toggle("side-left", sideLeft);
+    tip.style.left = `${Math.round(sideLeft ? left - sw : left)}px`;
+    tip.style.top = `${Math.round(top)}px`;
     this.overlapTip = tip;
     this.overlapDown = (ev: MouseEvent) => {
       const t = ev.target;
