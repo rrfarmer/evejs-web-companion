@@ -4,6 +4,7 @@
   // the transport keeps it, by the client's own rules (bridge/scannerWrites.ts).
   // The flow reads the scanner again as an order is made, and makes the
   // client's call itself.
+  import { probeScannerCompact } from "./scannerWindowSettings.ts";
   import { getContext, onMount } from "svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import { PINPOINT_FORMATION, SPREAD_FORMATION } from "../bridge/probeFormations.ts";
@@ -26,6 +27,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import type { ScannerActionBindings } from "../scanner/scannerCenter.ts";
 
+  const psCompact = probeScannerCompact;
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   /**
    * On the play page the window as ProbeScannerWindow lays it out (400 x 400, caption UI/Inflight/Scanner/ProbeScanner;
@@ -241,7 +243,7 @@
   {@const ops = $scanner.operations.status === "ready" ? $scanner.operations.value : null}
   {@const probeTypeID = ops?.probes[0]?.typeID ?? ops?.launcher?.chargeTypeID ?? null}
   {@const numProbes = ops?.probes.length ?? 0}
-  <div class="ps-window">
+  <div class="ps-window" class:compact={$psCompact}>
     <div class="ps-results">
       {#if $scanner.probeResults === null}
         <!-- Before a scan: the filter row's caption (ScanResults) and the scroll's hint (NoScanResults) -->
@@ -287,4 +289,10 @@
     padding: 0.5rem;
     margin: 0.5rem 0;
   }
+  /* compact (ConstructFilterCont into the header's extra_content): no Scan Results label, the filter row in the
+     header to the left of its buttons (absolute to the window: the body and the panes static) */
+  :global(.win:has(.ps-window.compact) > .win-body) { position: static; }
+  .ps-window.compact :global(.probe-results) { position: static; }
+  .ps-window.compact :global(.ps-caption) { display: none; }
+  .ps-window.compact :global(.ignored-box) { position: absolute; top: 2px; right: 96px; margin: 0; z-index: 2; display: flex; gap: 4px; }
 </style>
