@@ -53,7 +53,7 @@ function createClientTextures({ clientRoot = null, readFile = fs.readFileSync } 
   }
   function pngFor(resPath) {
     const asked = String(resPath || "").toLowerCase();
-    if (!clientRoot || !(/^res:\/ui\/texture\/[a-z0-9_./-]+\.dds$/.test(asked) || asked === PLANET_RESOURCE_RAMP) || asked.includes("..")) return null;
+    if (!clientRoot || !(/^res:\/ui\/(texture|inflight\/tactical)\/[a-z0-9_./-]+\.dds$/.test(asked) || asked === PLANET_RESOURCE_RAMP) || asked.includes("..")) return null;
     if (converted.has(asked)) return converted.get(asked);
     if (index === null) index = readResourceIndex(readFile(path.join(clientRoot, "tq", "resfileindex.txt"), "utf8"));
     const relative = index.get(asked);

@@ -443,7 +443,7 @@ export class SpaceView {
   private readonly sensorLayer = document.createElement("div");
   private readonly sensorEls = new Map<string, HTMLDivElement>();
   /** The tactical overlay's compass (its geometry by base radius and active range, its labels' places). */
-  private tactical: { key: string; group: THREE.Group; labels: HTMLElement; places: { el: HTMLElement; at: THREE.Vector3 }[]; connectors: THREE.LineSegments } | null = null;
+  private tactical: { key: string; group: THREE.Group; labels: HTMLElement; places: { el: HTMLElement; at: THREE.Vector3 }[]; connectors: THREE.LineSegments; velocity: THREE.Mesh } | null = null;
   /**
    * sensorSuite._DoSystemEnterScan's sweep: started as a system's sites first come (systemReadyTime), the camera's view
    * angle in the plane then (GetViewAngleInPlane), each scannable site's delay (GetSiteListOrderedByDelay), the ones
@@ -3730,12 +3730,25 @@ export class SpaceView {
       const connectors = new THREE.LineSegments(new THREE.BufferGeometry(), material);
       connectors.frustumCulled = false;
       group.add(connectors);
+      // the velocity strips: arrow_tactical.dds (DiffuseMap, u wrapped, v clamped) added
+      const arrow = new THREE.TextureLoader().load(clientTexture("res:/UI/inflight/tactical/arrow_tactical.dds"));
+      arrow.flipY = false;
+      arrow.wrapS = THREE.RepeatWrapping;
+      arrow.wrapT = THREE.ClampToEdgeWrapping;
+      const velocity = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({
+        map: arrow, vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+        blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+      }));
+      velocity.frustumCulled = false;
+      group.add(velocity);
       this.scene.add(group);
-      this.tactical = { key, group, labels, places, connectors };
+      this.tactical = { key, group, labels, places, connectors, velocity };
     }
     // the connectors, each frame: from the thing (relative to the ship) along the great circle to the plane
     const limit = active + base + Math.max(targeting * 0.25, 50_000);
     const pts: number[] = [], cols: number[] = [];
+    const vel: { at: THREE.Vector3; v: THREE.Vector3; radius: number; blink: boolean }[] = [];
+    const wantedVel = new Map<number, { at: THREE.Vector3; v: THREE.Vector3; radius: number; blink: boolean }>();
     // relative to the ship as the brackets are (the scene's origin)
     const origin = this.snapshot?.ship?.position ?? this.lastOrigin;
     for (const e of this.snapshot?.entities ?? []) {
@@ -3746,6 +3759,7 @@ export class SpaceView {
       const p = new THREE.Vector3(e.position.x - origin.x, e.position.y - origin.y, -(e.position.z - origin.z));
       const d = p.length();
       if (d > limit || d < 1) continue;
+      if (e.categoryID !== 25) wantedVel.set(e.itemID, { at: p, v: new THREE.Vector3(e.velocity.x, e.velocity.y, -e.velocity.z), radius: e.radius, blink: false });
       const flat = new THREE.Vector3(p.x, 0, p.z);
       if (flat.lengthSq() === 0) flat.x = 0.01;
       flat.setLength(d);
@@ -3767,12 +3781,79 @@ export class SpaceView {
     conn.geometry.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
     conn.geometry.setAttribute("color", new THREE.Float32BufferAttribute(cols, 4));
     conn.geometry.computeBoundingSphere();
+    // EveTacticalOverlay's velocity quads (quad 0, TacticalOverlayVelocity.fx with tacticalOverlay.red's parameters):
+    // each wanted thing's but an asteroid's (_HIDE_VELOCITY_CATEGORIES), the ship's own, and for the selected thing
+    // (_ShowDirectionTo / SetInterest) the ship's velocity at it and its at the ship, both blinking
+    const ship = this.snapshot?.ship;
+    if (ship) {
+      const own = new THREE.Vector3(ship.velocity.x, ship.velocity.y, -ship.velocity.z);
+      vel.push({ at: new THREE.Vector3(), v: own, radius: base, blink: false });
+      const sel = this.selected === null ? null : wantedVel.get(this.selected) ?? null;
+      if (sel) {
+        vel.push({ at: sel.at, v: own, radius: sel.radius, blink: true });
+        vel.push({ at: new THREE.Vector3(), v: sel.v, radius: base, blink: true });
+      }
+    }
+    for (const x of wantedVel.values()) vel.push(x);
+    this.drawTacticalVelocity(vel, w, h);
     for (const p of this.tactical.places) {
       const v = p.at.clone().project(this.camera);
       const shown = v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
       p.el.style.display = shown ? "" : "none";
       if (shown) p.el.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px)`;
     }
+  }
+
+  /**
+   * TacticalOverlayVelocity.fx's quad 0 for each velocity: from the thing's surface along its velocity (floor(radius)),
+   * as long as its travel in clamp(falloffParams.w |view z|^falloffParams.x, 1, 10) seconds ((0.825, 0.0004, 0.62,
+   * 0.0002)); a strip LineParameters.z 14 px wide of arrow_tactical.dds, its head at the tip and its last row along the
+   * rest (u across, v from the tip in widths, v clamped); DiffuseColor0 (0, 0.6745, 0.9294) x 0.3 added; faded out
+   * above 40 km/s (1 - smoothstep of (speed - 40000) x 0.000017), by the length on the screen less half the width x 0.5,
+   * and a blinking one at 0.625 + 0.375 cos(8 t)
+   */
+  private drawTacticalVelocity(list: { at: THREE.Vector3; v: THREE.Vector3; radius: number; blink: boolean }[], w: number, h: number): void {
+    const t = this.tactical!;
+    const pos: number[] = [], uv: number[] = [], col: number[] = [], index: number[] = [];
+    const cam = this.camera.position;
+    const camDir = new THREE.Vector3();
+    this.camera.getWorldDirection(camDir);
+    const ahead = (p: THREE.Vector3) => p.clone().sub(cam).dot(camDir);
+    const pxWorld = (p: THREE.Vector3) => (2 * Math.tan((this.camera.fov * Math.PI) / 360) * Math.max(1e-3, ahead(p))) / h;
+    const toPx = (p: THREE.Vector3) => { const q = p.clone().project(this.camera); return new THREE.Vector2(((q.x + 1) / 2) * w, ((1 - q.y) / 2) * h); };
+    const WIDTH = 14;
+    const pulse = 0.625 + 0.375 * Math.cos(8 * (performance.now() / 1000));
+    for (const x of list) {
+      const speed = x.v.length();
+      if (speed < 1e-3) continue;
+      const dir = x.v.clone().divideScalar(speed);
+      const start = x.at.clone().addScaledVector(dir, Math.floor(x.radius));
+      const scale = Math.min(10, Math.max(1, 0.0004 * Math.pow(Math.abs(ahead(x.at)), 0.825)));
+      const end = start.clone().addScaledVector(x.v, scale);
+      if (ahead(start) <= 0 || ahead(end) <= 0) continue;
+      const lenPx = toPx(start).distanceTo(toPx(end));
+      const s = Math.min(1, Math.max(0, (speed - 40_000) * 0.000017));
+      const fade = (1 - s * s * (3 - 2 * s)) * (x.blink ? pulse : 1) * Math.min(1, Math.max(0, (lenPx - WIDTH / 2) * 0.5));
+      if (fade <= 0) continue;
+      const side = end.clone().sub(start).cross(camDir).normalize();
+      const first = pos.length / 3;
+      for (const [p, along] of [[start, 0], [end, 1]] as const) {
+        const half = (WIDTH / 2) * pxWorld(p);
+        for (const [sgn, u] of [[-1, 0], [1, 1]] as const) {
+          const q = p.clone().addScaledVector(side, sgn * half);
+          pos.push(q.x, q.y, q.z);
+          uv.push(u, ((1 - along) * lenPx) / WIDTH);
+          col.push(0, 0.6745 * 0.3 * fade, 0.9294 * 0.3 * fade);
+        }
+      }
+      index.push(first, first + 1, first + 3, first, first + 3, first + 2);
+    }
+    const g = t.velocity.geometry;
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(index);
+    g.computeBoundingSphere();
   }
 
   private sensorOverlayOn(): boolean {
