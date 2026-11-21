@@ -61,6 +61,8 @@
     fleeing: "res:/ui/texture/eveicon/system_icons/flag_16px.png", repairing: "res:/UI/Texture/classes/Drones/repairing_16px.png",
     salvaging: "res:/ui/texture/eveicon/control_icons/salvage_16px.png",
   };
+  /** BaseDroneGroupHeader.UpdateIcon: eveicon.caret_down when expanded, caret_right when not. */
+  const CARET = { open: clientTexture("res:/ui/texture/eveicon/system_icons/caret_down_16px.png"), closed: clientTexture("res:/ui/texture/eveicon/system_icons/caret_right_16px.png") };
   const ICON = {
     launch: clientTexture("res:/ui/texture/eveicon/control_icons/launch_drones_16px.png"),
     engage: clientTexture("res:/ui/texture/eveicon/control_icons/engage_target_16px.png"),
@@ -606,7 +608,7 @@
   <div class="group bay" class:closed={!bayOpen} class:drop={dropOn === "bay"} role="list" ondragover={dragOver("bay")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("bay", null, e)}>
     <div class="sec" role="button" tabindex="-1" onclick={() => (bayOpen = !bayOpen)} onkeydown={() => {}}
       oncontextmenu={(e) => openMenu(e, [...deleteMenu(), { label: say(MENU_WORDS.launch), disabled: bayRows.length ? null : "Nothing in the drone bay", act: () => flow.launchDrones(bayRows.flatMap((r) => r.itemIDs)) }])}>
-      <span class="lbl"><span class="expander" class:open={bayOpen}></span>{headerWord(HEADER_WORDS.bay, "Drones in Bay")} ({bayCount})</span>
+      <span class="caret" style:mask-image={`url("${bayOpen ? CARET.open : CARET.closed}")`} style:-webkit-mask-image={`url("${bayOpen ? CARET.open : CARET.closed}")`}></span><span class="lbl">{headerWord(HEADER_WORDS.bay, "Drones in Bay")} ({bayCount})</span>
       <span class="commands">
         <button type="button" class="command" title={keyHint(say(MENU_WORDS.launch), "CmdLaunchFavoriteDrones")} disabled={busy || !bayRows.length}
           onclick={(e) => { e.stopPropagation(); void run(() => flow.launchDrones(dronesToLaunch(shipTypeID, bayRows.flatMap((r) => r.itemIDs), ($drones.inSpace ?? []).map((d) => d.itemID)))); }}>
@@ -632,7 +634,7 @@
   <div class="group" class:drop={dropOn === "space"} role="list" ondragover={dragOver("space")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("space", null, e)}>
     <div class="sec" role="button" tabindex="-1" onclick={() => (spaceOpen = !spaceOpen)} onkeydown={() => {}}
       oncontextmenu={(e) => openMenu(e, [...deleteMenu(), ...spaceEntries(allDroneIDs, false)])}>
-      <span class="lbl"><span class="expander" class:open={spaceOpen}></span>{headerWord(HEADER_WORDS.space, "Drones in Space")} ({maxActive === null ? outCount : `${outCount}/${maxActive}`})</span>
+      <span class="caret" style:mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`} style:-webkit-mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`}></span><span class="lbl">{headerWord(HEADER_WORDS.space, "Drones in Space")} ({maxActive === null ? outCount : `${outCount}/${maxActive}`})</span>
       <span class="commands">
         <span class="settings-host">
           <button type="button" class="command" title="Settings" aria-expanded={settingsOpen}
@@ -747,7 +749,8 @@
      29 px rows of a 24 px type icon, the name at 13 px and its count at 11 px, 16 px command icons */
   /* DronesWindow: the bay's part (topScroll) takes the room, the space part (bottomCont) at the foot while the bay is open */
   /* DroneEntry text TextBody 14, the group headers EveLabelMedium 14 (read through gridcheck) */
-  .fly-drones { position: relative; font-size: 14px; color: #fff; user-select: none; display: flex; flex-direction: column; min-height: 100%; }
+  /* the window's content 18 from either side (gridcheck: the headers and scrolls at 18, 530 of the 566) */
+  .fly-drones { margin: 0 8px; position: relative; font-size: 14px; color: #fff; user-select: none; display: flex; flex-direction: column; min-height: 100%; }
   .group.bay { flex: 1 1 auto; min-height: 0; overflow: auto; }
   /* compact (UpdateHeaderPadding, _get_header_fixed_height): the header 40 high with the content extended into it -
      the bay's header in the title row, short of the header's buttons on the right (reserved_space_right); the rest of
@@ -755,14 +758,17 @@
   :global(.win:has(.fly-drones.compact) > .win-bar) { height: 40px; box-sizing: border-box; align-items: flex-start; padding-top: 4px; }
   :global(.win:has(.fly-drones.compact) > .win-body) { margin-top: -36px; pointer-events: none; }
   .fly-drones.compact > * { pointer-events: auto; }
-  .fly-drones.compact .group.bay > .sec { margin-right: 96px; }
+  .fly-drones.compact .group.bay > .sec { margin-right: 96px; margin-top: 4px; }
   .group.bay.closed { flex: none; }
   /* BaseDroneGroupHeader: a bar with the expander and the label; its buttons hidden until the mouse is over it */
-  .sec { display: flex; align-items: center; justify-content: space-between; height: 24px; margin: 4px 0 2px; padding: 0 4px 0 6px; background: rgba(255, 255, 255, 0.06); cursor: default; }
+  /* 24 high on a white 0.05 underlay; the caret a 16 px sprite at 4, the label (EveLabelMedium, TextColor.HIGHLIGHT) at
+     24; the bay's header at the content's top, the in-space one padTop 4 and its scroll padTop 2 */
+  .sec { display: flex; align-items: center; height: 24px; margin: 0; padding: 0 0 0 4px; background: rgba(255, 255, 255, 0.05); cursor: default; }
+  .group:not(.bay) > .sec { margin: 4px 0 2px; }
+  .sec .commands { margin-left: auto; margin-right: 4px; }
+  .caret { flex: none; width: 16px; height: 16px; margin-right: 4px; background: #fff; mask-size: 16px 16px; -webkit-mask-size: 16px 16px; mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat; }
   .sec .commands { opacity: 0; visibility: hidden; transition: opacity .1s, visibility .1s; }
   .sec:hover .commands, .sec .commands:has(.menu) { opacity: 1; visibility: visible; }
-  .lbl .expander { display: inline-block; width: 0; height: 0; margin-right: 6px; border-top: 5px solid rgba(255, 255, 255, 0.8); border-left: 4px solid transparent; border-right: 4px solid transparent; vertical-align: middle; transform: rotate(-90deg); transition: transform .1s; }
-  .lbl .expander.open { transform: none; }
   .none { margin: 0; padding: 4px 6px; color: rgba(255, 255, 255, 0.5); }
   .lbl { font-size: 14px; color: rgba(255, 255, 255, 0.9); }
   .commands, .row-buttons { display: flex; gap: 2px; }
