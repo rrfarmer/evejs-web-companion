@@ -334,6 +334,12 @@ export interface SpaceActions {
   missionsMenu?(): (ContextEntry | null)[];
   /** sensorSuite.GetSignatures: the system's signatures, each accurate where a probe result has it at full strength. */
   signatures?(): readonly (AnomalySite & { readonly accurate: boolean })[];
+  /** BookmarkHandler / SharedBookmarkHandler: the pilot's bookmarks in the system, each at its thing's place or its own. */
+  bookmarkSites?(): readonly { readonly bookmarkID: number; readonly memo: string; readonly note: string; readonly shared: boolean; readonly position: readonly [number, number, number] }[];
+  /** menusvc.BookmarkMenu of one of those bookmarks. */
+  bookmarkMenu?(bookmarkID: number): (ContextEntry | null)[];
+  /** menusvc.AlignToBookmark. */
+  alignToBookmark?(bookmarkID: number): Promise<void>;
   /** sensorSuite.GetAnomalies for the system the pilot is in (empty where not read yet: the read is started). */
   anomalies?(): readonly AnomalySite[];
   /** A site warped to by its scan id (menusvc.WarpToScanResult), at the range. */
@@ -3350,8 +3356,13 @@ export class SpaceView {
     const on = this.sensorOverlayOn() && this.snapshot?.ship !== null && this.snapshot?.ship !== undefined;
     // anomalies (AnomalyBracket) and signatures (SignatureBracket: SITE_COLOR_SIGNATURE, bracket_sig_accurate_N once its
     // signal strength is 1 else bracket_sig_inaccurate_N, the two CircleDots spinners at 0.15 turning 60 s and 40 s)
-    const sites: (AnomalySite & { kind: "anomaly" | "signature"; accurate?: boolean })[] = on
-      ? [...(this.actions.anomalies?.() ?? []).map((a) => ({ ...a, kind: "anomaly" as const })), ...(this.actions.signatures?.() ?? []).map((g) => ({ ...g, kind: "signature" as const }))]
+    // and the pilot's bookmarks in the system (BookmarkBracket: Icons/38_16_150, bracket_bookmark_N in SITE_COLOR_BOOKMARK
+    // (41, 181, 191); a shared one SharedBookmarkBracket: sharedBookmarkSensorOverlay, bracket_bookmark_corp_N), the
+    // label its memo with its note under it, its menu BookmarkMenu, a double click AlignToBookmark
+    type Kind = "anomaly" | "signature" | "bookmark" | "sharedBookmark";
+    const sites: (AnomalySite & { kind: Kind; accurate?: boolean; code?: string; bookmarkID?: number })[] = on
+      ? [...(this.actions.anomalies?.() ?? []).map((a) => ({ ...a, kind: "anomaly" as const })), ...(this.actions.signatures?.() ?? []).map((g) => ({ ...g, kind: "signature" as const })),
+        ...(this.actions.bookmarkSites?.() ?? []).map((b) => ({ targetID: `bm:${b.bookmarkID}`, strength: 0, dungeonName: b.note, position: b.position, code: b.memo, bookmarkID: b.bookmarkID, kind: (b.shared ? "sharedBookmark" : "bookmark") as Kind }))]
       : [];
     const seen = new Set<string>();
     for (const s of sites) {
@@ -3367,15 +3378,26 @@ export class SpaceView {
         const spinners = s.kind === "signature"
           ? `<img class="ss-spin ss-spin-in" src="${tex("res:/UI/Texture/classes/SensorSuite/CircleDots_Inner.png")}" alt=""><img class="ss-spin ss-spin-out" src="${tex("res:/UI/Texture/classes/SensorSuite/CircleDots_Outer.png")}" alt="">`
           : "";
-        el.innerHTML = `${spinners}<img class="ss-inner" src="${tex("res:/UI/Texture/classes/SensorSuite/diamond2.png")}" alt="">${corners}<div class="ss-label"><div class="ss-code"><b></b><span></span></div><div class="ss-name"></div></div>`;
+        const inner = s.kind === "bookmark" ? "res:/UI/Texture/Icons/38_16_150.png" : s.kind === "sharedBookmark" ? "res:/UI/Texture/classes/Bookmarks/sharedBookmarkSensorOverlay.png" : "res:/UI/Texture/classes/SensorSuite/diamond2.png";
+        el.innerHTML = `${spinners}<img class="ss-inner" src="${tex(inner)}" alt="">${corners}<div class="ss-label"><div class="ss-code"><b></b><span></span></div><div class="ss-name"></div></div>`;
         el.classList.add(s.kind);
         const id = s.targetID;
-        const hoverSound = s.kind === "signature" ? "ui_scanner_state_signature" : "ui_scanner_state_anomaly";
-        el.addEventListener("mouseenter", () => { el!.classList.add("hover"); void playUiEvent(hoverSound); });
+        const hoverSound = s.kind === "signature" ? "ui_scanner_state_signature" : s.kind === "anomaly" ? "ui_scanner_state_anomaly" : null;
+        el.addEventListener("mouseenter", () => { el!.classList.add("hover"); if (hoverSound) void playUiEvent(hoverSound); });
         el.addEventListener("mouseleave", () => el!.classList.remove("hover"));
-        el.addEventListener("dblclick", (ev) => { ev.stopPropagation(); void this.act("Align", () => this.actions.alignToSite?.(id) ?? Promise.resolve()); });
+        const bookmarkID = s.bookmarkID ?? null;
+        el.addEventListener("dblclick", (ev) => {
+          ev.stopPropagation();
+          void this.act("Align", () => (bookmarkID !== null ? this.actions.alignToBookmark?.(bookmarkID) : this.actions.alignToSite?.(id)) ?? Promise.resolve());
+        });
         el.addEventListener("contextmenu", (ev) => {
           ev.preventDefault(); ev.stopPropagation();
+          if (bookmarkID !== null) {
+            this.actions.locationsMenu?.();
+            const menu = this.actions.bookmarkMenu?.(bookmarkID) ?? [];
+            if (menu.length) { this.radial.close(); this.contextMenu.open(ev.clientX, ev.clientY, menu); }
+            return;
+          }
           const site = (this.actions.anomalies?.() ?? []).find((x) => x.targetID === id);
           const entry = site ? this.anomaliesMenu([site]).find((x): x is ContextEntry => x !== null && !x.caption) : null;
           if (entry?.sub) { this.radial.close(); this.contextMenu.open(ev.clientX, ev.clientY, entry.sub); }
@@ -3384,7 +3406,7 @@ export class SpaceView {
         this.sensorEls.set(id, el);
       }
       // the outer pieces' textures (the anomaly's four, a signature's accurate or inaccurate four)
-      const set = s.kind === "anomaly" ? "bracket_anomaly" : s.accurate ? "bracket_sig_accurate" : "bracket_sig_inaccurate";
+      const set = s.kind === "anomaly" ? "bracket_anomaly" : s.kind === "bookmark" ? "bracket_bookmark" : s.kind === "sharedBookmark" ? "bracket_bookmark_corp" : s.accurate ? "bracket_sig_accurate" : "bracket_sig_inaccurate";
       if (el.dataset.set !== set) {
         el.dataset.set = set;
         el.querySelectorAll<HTMLElement>(".ss-outer").forEach((o, n) => o.style.setProperty("--tex", `url(${clientTexture(`res:/UI/Texture/classes/SensorSuite/${set}_${n + 1}.png`)})`));
@@ -3396,7 +3418,7 @@ export class SpaceView {
       if (!onScreen) continue;
       el.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px)`;
       if (el.classList.contains("hover") || this.frameCount % 30 === 0) {
-        (el.querySelector(".ss-code b") as HTMLElement).textContent = s.targetID;
+        (el.querySelector(".ss-code b") as HTMLElement).textContent = s.code ?? s.targetID;
         (el.querySelector(".ss-code span") as HTMLElement).textContent = fmtDistance(rel.length(), 1);
         (el.querySelector(".ss-name") as HTMLElement).textContent = s.dungeonName;
       }

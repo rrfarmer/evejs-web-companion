@@ -1015,6 +1015,8 @@
   /** The space menu's bookmarks (accessGroupBookmarkMgr's, read again when a menu opens after 10 s). */
   let menuBookmarks: ActiveBookmarks | null = null;
   let menuBookmarksAt = 0;
+  /** Each bookmark's BookmarkMenu as the space menu last built it (the sensor overlay's bookmark brackets open it). */
+  let bookmarkMenus = new Map<number, (ContextEntry | null)[]>();
   /** The space menu asked for the journal once (GetMyAgentJournalBookmarks needs it read). */
   let menuJournalAsked = false;
   /** The space menu's home station (home_station.get_home_station), asked once. */
@@ -1959,6 +1961,26 @@
         if (missing.length) void s.flow.scannerSiteNames(missing).then((read) => { for (const [id, n] of read) if (n !== null) anomalyNames.set(id, n); }).catch(() => {});
         return rows;
       },
+      bookmarkSites: () => {
+        const read = menuBookmarks;
+        const status = s.store.flight.get().status;
+        const systemID = status?.solarSystemID ?? null;
+        if (!read || systemID === null) return [];
+        const ents = s.store.space.get().snapshot?.entities ?? [];
+        return read.bookmarks.flatMap((b) => {
+          if (b.locationID !== systemID) return [];
+          const folder = read.folders.find((f) => f.folderID === b.folderID);
+          // GetBookmarkPosition: the thing's place where the bookmark is of a thing (not the system), else its own point
+          const thing = b.itemID !== null && b.itemID !== systemID ? ents.find((e) => e.itemID === b.itemID) ?? null : null;
+          const position = thing ? [thing.position.x, thing.position.y, thing.position.z] as const
+            : b.x !== null && b.y !== null && b.z !== null ? [b.x, b.y, b.z] as const : null;
+          if (!position) return [];
+          const [memo, ] = unzipMemo(b.memo);
+          return [{ bookmarkID: b.bookmarkID, memo: memo.trim(), note: (b.note ?? "").trim(), shared: folder ? !folder.isPersonal : false, position }];
+        });
+      },
+      bookmarkMenu: (bookmarkID) => bookmarkMenus.get(bookmarkID) ?? [],
+      alignToBookmark: (bookmarkID) => s.flow.alignToBookmark(bookmarkID),
       signatures: () => {
         const sc = s.store.scanner.get();
         const system = s.store.flight.get().status?.solarSystemID ?? null;
@@ -2102,6 +2124,7 @@
           const toggle = groupID !== null && view ? view.overviewToggleEntry(groupID) : null;
           if (toggle) tail.push(toggle);
           const all: (ContextEntry | null)[] = [...sub, ...(tail.length ? [null, ...tail] : [])];
+          bookmarkMenus.set(b.bookmarkID, all);
           return { label: hint, run: () => ran(s.flow.warpToBookmark(b.bookmarkID, 0)), sub: all };
         }).sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));
         const byFolder = new Map<number, Map<number | null, Bookmark[]>>();
