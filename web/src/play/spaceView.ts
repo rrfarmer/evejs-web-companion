@@ -710,15 +710,22 @@ export class SpaceView {
    * right-click and held button are the bracket's (the rows carry the bracket's data-id in the brackets' layer); the
    * brackets it lists are drawn brighter (opacity 2.0). A press anywhere else closes it (OnGlobalMouseDown).
    */
-  private openOverlapTooltip(id: number): void {
+  private openOverlapTooltip(id: number | null, siteAnchor: HTMLElement | null = null): void {
     this.closeOverlapTooltip();
-    const el = this.bracketEls.get(id);
+    const el = id !== null ? this.bracketEls.get(id) ?? null : siteAnchor;
     if (!el || el.style.display === "none") return;
     const box = el.getBoundingClientRect();
     const entities = new Map((this.snapshot?.entities ?? []).map((e) => [e.itemID, e]));
-    const self = entities.get(id);
-    if (!self) return;
-    const list: { id: number; el: HTMLElement; e: Entity; name: string }[] = [{ id, el, e: self, name: this.nameOf(self) }];
+    const self = id !== null ? entities.get(id) : undefined;
+    if (id !== null && !self) return;
+    const list: { id: number; el: HTMLElement; e: Entity; name: string }[] = id !== null && self ? [{ id, el, e: self, name: this.nameOf(self) }] : [];
+    // sensorSuite.GetOverlappingSites: the overlay's sites under the cursor (within BRACKET_OVERLAP_DISTANCE 8 px of it)
+    const at = this.pointerAt;
+    const sites = at ? [...this.sensorEls.values()].filter((s) => {
+      if (s.style.display === "none" || s.style.pointerEvents === "none") return false;
+      const r = s.getBoundingClientRect();
+      return Math.abs(r.left + r.width / 2 - at.x) <= 8 && Math.abs(r.top + r.height / 2 - at.y) <= 8;
+    }) : [];
     for (const [other, oel] of this.bracketEls) {
       if (other === id || oel.style.display === "none") continue;
       const e = entities.get(other);
@@ -730,7 +737,8 @@ export class SpaceView {
       list.push({ id: other, el: oel, e, name });
       if (list.length === 15) break;
     }
-    if (list.length <= 1) return;
+    // a floating bracket alone (with no site) has none
+    if (list.length + sites.length <= 1) return;
     list.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     const host = this.brackets.getBoundingClientRect();
     const tip = document.createElement("div");
@@ -774,6 +782,35 @@ export class SpaceView {
       side.append(label);
       this.overlapIDs.add(one.id);
       one.el.classList.add("overlap-lit");
+    }
+    // SensorOverlaySiteTooltipRow: the site's inner icon (16 px) on its bracket's outer colour at 0.25, its label text
+    // (GetBracketLabelText) with its distance (FmtDist, compact); its menu, click and press are the bracket's
+    for (const s of sites) {
+      const icon = document.createElement("div");
+      icon.className = "bo-row bo-site";
+      const colour = getComputedStyle(s.querySelector(".ss-outer")!).backgroundColor;
+      icon.style.setProperty("--site", colour);
+      const img = document.createElement("img");
+      img.src = (s.querySelector(".ss-inner") as HTMLImageElement).src;
+      img.alt = "";
+      icon.append(img);
+      const label = document.createElement("div");
+      label.className = "bo-label bo-site";
+      label.style.setProperty("--site", colour);
+      const code = s.querySelector(".ss-code b")?.textContent ?? "";
+      const dist = s.querySelector(".ss-code span")?.textContent ?? "";
+      label.textContent = dist ? `${code} ${dist}` : code;
+      for (const part of [icon, label]) {
+        part.addEventListener("mouseenter", () => { icon.classList.add("bo-hilite"); label.classList.add("bo-hilite"); void playUiEvent("ui_button_soft2_play"); });
+        part.addEventListener("mouseleave", () => { icon.classList.remove("bo-hilite"); label.classList.remove("bo-hilite"); });
+        part.addEventListener("contextmenu", (ev) => {
+          ev.preventDefault(); ev.stopPropagation();
+          s.dispatchEvent(new MouseEvent("contextmenu", { bubbles: false, cancelable: true, clientX: ev.clientX, clientY: ev.clientY }));
+        });
+        part.addEventListener("dblclick", (ev) => { ev.stopPropagation(); s.dispatchEvent(new MouseEvent("dblclick", { bubbles: false })); });
+      }
+      icons.append(icon);
+      side.append(label);
     }
     tip.append(icons, side);
     tip.addEventListener("mouseenter", () => { if (this.overlapCloseTimer) { clearTimeout(this.overlapCloseTimer); this.overlapCloseTimer = null; } });
@@ -3420,7 +3457,14 @@ export class SpaceView {
         const id = s.targetID;
         const hoverSound = s.kind === "signature" ? "ui_scanner_state_signature" : s.kind === "anomaly" ? "ui_scanner_state_anomaly" : null;
         el.dataset.sound = hoverSound ?? "";
-        el.addEventListener("mouseenter", () => el!.classList.add("hover"));
+        // SensorSuiteBracket.LoadTooltipPanel: PrepareTooltipLoad on it (the overlapping brackets' and sites' tooltip)
+        el.addEventListener("mouseenter", () => {
+          el!.classList.add("hover");
+          if (this.overlapCloseTimer) { clearTimeout(this.overlapCloseTimer); this.overlapCloseTimer = null; }
+          if (this.overlapOpenTimer) clearTimeout(this.overlapOpenTimer);
+          this.overlapOpenTimer = setTimeout(() => { this.overlapOpenTimer = null; this.openOverlapTooltip(null, el!); }, 50);
+        });
+        el.addEventListener("mouseleave", () => this.overlapLeft());
         el.addEventListener("mouseleave", () => el!.classList.remove("hover"));
         const bookmarkID = s.bookmarkID ?? null;
         el.addEventListener("dblclick", (ev) => {

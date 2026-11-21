@@ -716,3 +716,7 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 @keyframes ss-spin-rev { to { transform: rotate(-360deg); } }
 .sensor-site.bookmark .ss-outer, .sensor-site.sharedBookmark .ss-outer { background: rgb(41, 181, 191); }
 .sensor-site.mission .ss-outer { background: rgb(0, 255, 255); }
+/* SensorOverlaySiteTooltipRow: its bracket's outer colour at 0.25 behind it, its inner icon at 16 px */
+.bracket-overlap .bo-row.bo-site, .bracket-overlap .bo-label.bo-site { position: relative; }
+.bracket-overlap .bo-row.bo-site::before, .bracket-overlap .bo-label.bo-site::before { content: ""; position: absolute; inset: 0; background: var(--site); opacity: 0.25; pointer-events: none; }
+.bracket-overlap .bo-row.bo-site img { width: 16px; height: 16px; }
