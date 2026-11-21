@@ -746,7 +746,8 @@
   /* the eve-cs mirror's drone window: 11 px upper-case section labels in grey with white counts on a 2 % white strip,
      29 px rows of a 24 px type icon, the name at 13 px and its count at 11 px, 16 px command icons */
   /* DronesWindow: the bay's part (topScroll) takes the room, the space part (bottomCont) at the foot while the bay is open */
-  .fly-drones { position: relative; font-size: 13px; color: #fff; user-select: none; display: flex; flex-direction: column; min-height: 100%; }
+  /* DroneEntry text TextBody 14, the group headers EveLabelMedium 14 (read through gridcheck) */
+  .fly-drones { position: relative; font-size: 14px; color: #fff; user-select: none; display: flex; flex-direction: column; min-height: 100%; }
   .group.bay { flex: 1 1 auto; min-height: 0; overflow: auto; }
   /* compact (UpdateHeaderPadding, _get_header_fixed_height): the header 40 high with the content extended into it -
      the bay's header in the title row, short of the header's buttons on the right (reserved_space_right); the rest of
@@ -763,7 +764,7 @@
   .lbl .expander { display: inline-block; width: 0; height: 0; margin-right: 6px; border-top: 5px solid rgba(255, 255, 255, 0.8); border-left: 4px solid transparent; border-right: 4px solid transparent; vertical-align: middle; transform: rotate(-90deg); transition: transform .1s; }
   .lbl .expander.open { transform: none; }
   .none { margin: 0; padding: 4px 6px; color: rgba(255, 255, 255, 0.5); }
-  .lbl { font-size: 13px; color: rgba(255, 255, 255, 0.9); }
+  .lbl { font-size: 14px; color: rgba(255, 255, 255, 0.9); }
   .commands, .row-buttons { display: flex; gap: 2px; }
   /* DroneEntry.buttonCont: hidden, faded in (0.1 s) while the mouse is over the entry; left of the gauges */
   .row .row-buttons { opacity: 0; visibility: hidden; transition: opacity .1s, visibility .1s; margin-right: 4px; }
