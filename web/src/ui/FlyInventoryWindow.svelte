@@ -73,7 +73,7 @@
   /** invCont.GetViewModeName / GetViewModeIcon. */
   const VIEW_MODES = [["icons", "UI/Inventory/Icons", "Icons", "grid_view"], ["details", "UI/Inventory/Details", "Details", "details_view"], ["list", "UI/Inventory/List", "List", "list_view"]] as const;
   const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SortBy", "UI/Inventory/ViewMode",
-    "UI/Inventory/Filters/MyFilters", "UI/Common/NothingFound", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
+    "UI/Inventory/Filters/MyFilters", "UI/Common/NothingFound", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
   flow.requestWords(WORDS);
   const word = (label: string, own: string, args: Record<string, string | number> = {}) => {
     const t = $words.templates[label];
@@ -306,6 +306,25 @@
     menu.open(e.clientX, e.clientY, entries);
   }
   /** _get_view_mode_menu: each mode with its icon. */
+  /** The scroll's hidden columns (filteredColumns, by default uix.GetInvItemDefaultHiddenHeaders: Category, Meta Level, Tech
+   * Level), kept; its header's menu (allowFilterColumns, no smartSort): Hide <label> while more than one shows, a line, then
+   * Show <label> for each hidden one. */
+  const HIDDEN_KEY = "evejs.ui.inventory.hiddenColumns";
+  let hiddenCols = $state<number[]>((() => { try { const v = JSON.parse(globalThis.localStorage?.getItem(HIDDEN_KEY) ?? "null"); return Array.isArray(v) ? v.filter((n) => typeof n === "number") : [3, 7, 8]; } catch { return [3, 7, 8]; } })());
+  function setHiddenCols(next: number[]): void {
+    hiddenCols = next;
+    try { globalThis.localStorage?.setItem(HIDDEN_KEY, JSON.stringify(next)); } catch { /* lasts the page */ }
+  }
+  function headerMenu(k: number, e: MouseEvent): void {
+    e.preventDefault();
+    const entries: (ContextEntry | null)[] = [];
+    const label = (n: number) => word(HEADERS[n]!, HEADER_OWN[n]!);
+    if (HEADERS.length - hiddenCols.length > 1) entries.push({ label: word("/Carbon/UI/Common/Hide", `Hide ${label(k)}`, { label: label(k) }), run: () => setHiddenCols([...hiddenCols, k]) });
+    const show = HEADERS.map((_, n) => n).filter((n) => hiddenCols.includes(n));
+    if (show.length) entries.push(null);
+    for (const n of show) entries.push({ label: word("/Carbon/UI/Common/Show", `Show ${label(n)}`, { label: label(n) }), run: () => setHiddenCols(hiddenCols.filter((x) => x !== n)) });
+    menu.open(e.clientX, e.clientY, entries);
+  }
   function viewModeMenu(e: MouseEvent): void {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     menu.open(r.left, r.bottom, VIEW_MODES.map(([id, label, own, icon]) => ({ label: word(label, own), icon: `res:/ui/texture/eveicon/system_icons/${icon}_16px.png`, run: () => { viewMode = id; } })));
@@ -425,21 +444,21 @@
         <!-- the scroll of listentry.InvItem rows under GetInvItemDefaultHeaders: details with the 32 px icon and the
              label 46 in, list without the icon -->
         <table class="rows" class:details={viewMode === "details"}>
-          <thead><tr>{#each HEADERS as h, k}<th class:sorted={column === k} onclick={() => sortByColumn(k)}>{word(h, HEADER_OWN[k]!)}{#if column === k}<span class="dir">{reversed ? "▼" : "▲"}</span>{/if}</th>{/each}</tr></thead>
+          <thead><tr>{#each HEADERS as h, k}<th class:sorted={column === k} class:hid={hiddenCols.includes(k)} onclick={() => sortByColumn(k)} oncontextmenu={(e) => headerMenu(k, e)}>{word(h, HEADER_OWN[k]!)}{#if column === k}<span class="dir">{reversed ? "▼" : "▲"}</span>{/if}</th>{/each}</tr></thead>
           <tbody>
             {#each shown as i (i.itemID)}
               {@const fa = facts[i.typeID]}
               <tr class:selected={selected.includes(i.itemID)} draggable="true" onclick={(e) => clickItem(i.itemID, e)} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
-                <td class="nm">{#if viewMode === "details"}<span class="ricon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="md" /></span>{/if}{typeName(i.typeID)}</td>
-                <td class="num">{i.quantity.toLocaleString("en-US")}</td>
-                <td>{groupName(i.typeID)}</td>
-                <td>{categoryName(i.typeID)}</td>
-                <td></td>
-                <td></td>
-                <td class="num">{fa?.volume != null ? `${(fa.volume * i.quantity).toLocaleString("en-US", { maximumFractionDigits: 2 })} m³` : ""}</td>
-                <td class="num">{fa?.meta ?? ""}</td>
-                <td class="num">{fa?.tech ?? ""}</td>
-                <td class="num">{prices?.get(i.typeID) ? `${Math.round((prices.get(i.typeID) ?? 0) * i.quantity).toLocaleString("en-US")} ISK` : ""}</td>
+                <td class="nm" class:hid={hiddenCols.includes(0)}>{#if viewMode === "details"}<span class="ricon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="md" /></span>{/if}{typeName(i.typeID)}</td>
+                <td class="num" class:hid={hiddenCols.includes(1)}>{i.quantity.toLocaleString("en-US")}</td>
+                <td class:hid={hiddenCols.includes(2)}>{groupName(i.typeID)}</td>
+                <td class:hid={hiddenCols.includes(3)}>{categoryName(i.typeID)}</td>
+                <td class:hid={hiddenCols.includes(4)}></td>
+                <td class:hid={hiddenCols.includes(5)}></td>
+                <td class="num" class:hid={hiddenCols.includes(6)}>{fa?.volume != null ? `${(fa.volume * i.quantity).toLocaleString("en-US", { maximumFractionDigits: 2 })} m³` : ""}</td>
+                <td class="num" class:hid={hiddenCols.includes(7)}>{fa?.meta ?? ""}</td>
+                <td class="num" class:hid={hiddenCols.includes(8)}>{fa?.tech ?? ""}</td>
+                <td class="num" class:hid={hiddenCols.includes(9)}>{prices?.get(i.typeID) ? `${Math.round((prices.get(i.typeID) ?? 0) * i.quantity).toLocaleString("en-US")} ISK` : ""}</td>
               </tr>
             {/each}
           </tbody>
@@ -537,7 +556,7 @@
   /* the scroll's ColumnHeaders (gridcheck, details): 24 high, the EveLabelSmall 12 at 8 */
   .rows th { position: sticky; top: 0; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 0 8px; height: 24px; box-sizing: border-box; white-space: nowrap; background: rgba(0, 0, 0, 0.4); }
   /* uix.GetInvItemDefaultHiddenHeaders: Category, Meta Level and Tech Level hidden by default */
-  .rows th:nth-child(4), .rows td:nth-child(4), .rows th:nth-child(8), .rows td:nth-child(8), .rows th:nth-child(9), .rows td:nth-child(9) { display: none; }
+  .rows .hid { display: none; }
   .rows td { padding: 0 6px; height: 20px; white-space: nowrap; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
   /* the details' Item entry 42 high, its EveLabelMedium 14, the 32 px icon at 5, 5 and the text 9 after it (46) */
   .rows.details td { height: 42px; font-size: 14px; }
