@@ -163,6 +163,9 @@
   // the container opened from space (store.inventory.container that is a thing on the grid), for its own window
   let containerWin = $state({ x: 220, y: 140, w: 480, h: 360, z: 25, minimized: false });
   let spaceContainer = $state.raw<{ itemID: number; title: string } | null>(null);
+  /** The container window over the others (opened or clicked last) or under the one clicked since. */
+  let containerFront = $state(true);
+  $effect(() => { if (spaceContainer) containerFront = true; });
   // the Pilot submenu's Place Bounty: openFunctions.OpenBountyOffice(charID), the owner's corporation and alliance kept
   let bountyOffice = $state.raw<{ n: number; target: { ownerID: number; corporationID: number | null; allianceID: number | null } } | null>(null);
   let autoMoonMiner = $state.raw<AutoMoonMiner | null>(null);
@@ -2250,7 +2253,7 @@
   <!-- The app's windows over space or the station, in front of the 3D view and under nothing else. -->
   <div class="fly-fade" bind:this={fadeEl}></div>
 
-  <div class="fly-windows" class:planet-covered={planetInMode !== null} bind:this={windowsEl}>
+  <div class="fly-windows" class:planet-covered={planetInMode !== null} bind:this={windowsEl} onpointerdowncapture={() => (containerFront = false)}>
     {#each wins as win (win.id)}
       <ErrorBoundary name={tabLabel(win.id)}>
         <DesktopWindow
@@ -2322,7 +2325,7 @@
        the container alone, named after it; closing it lets the container go -->
   {#if spaceContainer && !docked}
     {@const c = spaceContainer}
-    <div class="space-container-layer">
+    <div class="space-container-layer" class:behind={!containerFront} onpointerdowncapture={() => (containerFront = true)}>
       <DesktopWindow win={containerWin} title={c.title} icon={clientTexture("res:/UI/Texture/WindowIcons/cargo.png")} focused={true} onFocus={() => {}}
         onClose={() => void session.flow.openContainer(null)} onMove={(x, y) => { containerWin.x = x; containerWin.y = y; }}
         onResize={(w, h) => { containerWin.w = Math.max(300, w); containerWin.h = Math.max(200, h); }}>
@@ -3187,6 +3190,8 @@
   .lobby-svc:hover { background: rgba(255, 255, 255, 0.10); border-color: rgba(255, 255, 255, 0.2); }
   .lobby-svc img { width: 32px; height: 32px; }
   .char-card { padding: 0; text-align: left; color: inherit; font: inherit; }
-  .space-container-layer { position: fixed; inset: 0; pointer-events: none; z-index: 35; }
+  /* stacked with the app's windows: over them when opened or clicked, under them when one of theirs was clicked since */
+  .space-container-layer { position: fixed; inset: 0; pointer-events: none; z-index: 21; }
+  .space-container-layer.behind { z-index: 19; }
   .space-container-layer :global(> *) { pointer-events: auto; }
 </style>
