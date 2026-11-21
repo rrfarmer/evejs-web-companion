@@ -3785,6 +3785,7 @@ export class SpaceView {
     const pts: number[] = [], cols: number[] = [];
     const vel: { at: THREE.Vector3; v: THREE.Vector3; radius: number; blink: boolean }[] = [];
     const wantedVel = new Map<number, { at: THREE.Vector3; v: THREE.Vector3; radius: number; blink: boolean }>();
+    const rates: { at: THREE.Vector3; v: THREE.Vector3; radius: number; blink: boolean; quad: 1 | 2 }[] = [];
     // relative to the ship as the brackets are (the scene's origin)
     const origin = this.snapshot?.ship?.position ?? this.lastOrigin;
     for (const e of this.snapshot?.entities ?? []) {
@@ -3802,6 +3803,10 @@ export class SpaceView {
       // _aggressorStates (blinking, isAggressive): targeted by me, or targeting me (threatTargetsMe)
       const aggressive = this.locked.has(e.itemID) || (e.targetEntityID != null && e.targetEntityID === this.snapshot?.ship?.itemID);
       const rgba = aggressive ? [1, 0.1, 0.025, 0.6] : [1, 1, 1, 0.25];
+      // the thing's other velocity quads: 2 (its distance's change) always, 1 (its approach) where aggressive, blinking
+      const ev = new THREE.Vector3(e.velocity.x, e.velocity.y, -e.velocity.z);
+      rates.push({ at: p, v: ev, radius: e.radius, blink: false, quad: 2 });
+      if (aggressive) rates.push({ at: p, v: ev, radius: e.radius, blink: true, quad: 1 });
       const from = p.clone().normalize(), to = flat.clone().normalize();
       const angle = from.angleTo(to);
       const steps = Math.max(1, Math.ceil(angle / 0.05));
@@ -3831,7 +3836,8 @@ export class SpaceView {
       }
     }
     for (const x of wantedVel.values()) vel.push(x);
-    this.drawTacticalVelocity(vel, w, h);
+    vel.push(...rates);
+    this.drawTacticalVelocity(vel, w, h, ship ? new THREE.Vector3(ship.velocity.x, ship.velocity.y, -ship.velocity.z) : new THREE.Vector3());
     for (const p of this.tactical.places) {
       const v = p.at.clone().project(this.camera);
       const shown = v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
@@ -3846,9 +3852,13 @@ export class SpaceView {
    * 0.0002)); a strip LineParameters.z 14 px wide of arrow_tactical.dds, its head at the tip and its last row along the
    * rest (u across, v from the tip in widths, v clamped); DiffuseColor0 (0, 0.6745, 0.9294) x 0.3 added; faded out
    * above 40 km/s (1 - smoothstep of (speed - 40000) x 0.000017), by the length on the screen less half the width x 0.5,
-   * and a blinking one at 0.625 + 0.375 cos(8 t)
+   * and a blinking one at 0.625 + 0.375 cos(8 t). Quad 1 (an aggressor's approach): from its centre toward the ship
+   * (PlanePosition, the origin) by its velocity's part along the line x saturate((cos to the ship - 0.65) x 2.898551),
+   * twice the quad 0 time, DiffuseColor1 (1, 0.098, 0.0235) x 0.5, shown from 0.25 px; quad 2 (the relative approach):
+   * from its centre along the line by how its distance changes in a second against the ship's velocity (|p + v - root
+   * velocity| - |p|) x clamp(0.0002 |view z|^0.62, 1, 5), DiffuseColor2 white x 0.498
    */
-  private drawTacticalVelocity(list: { at: THREE.Vector3; v: THREE.Vector3; radius: number; blink: boolean }[], w: number, h: number): void {
+  private drawTacticalVelocity(list: { at: THREE.Vector3; v: THREE.Vector3; radius: number; blink: boolean; quad?: 0 | 1 | 2 }[], w: number, h: number, own: THREE.Vector3): void {
     const t = this.tactical!;
     const pos: number[] = [], uv: number[] = [], col: number[] = [], index: number[] = [];
     const cam = this.camera.position;
@@ -3860,16 +3870,32 @@ export class SpaceView {
     const WIDTH = 14;
     const pulse = 0.625 + 0.375 * Math.cos(8 * (performance.now() / 1000));
     for (const x of list) {
+      const quad = x.quad ?? 0;
       const speed = x.v.length();
-      if (speed < 1e-3) continue;
-      const dir = x.v.clone().divideScalar(speed);
-      const start = x.at.clone().addScaledVector(dir, Math.floor(x.radius));
-      const scale = Math.min(10, Math.max(1, 0.0004 * Math.pow(Math.abs(ahead(x.at)), 0.825)));
-      const end = start.clone().addScaledVector(x.v, scale);
+      if (quad !== 2 && speed < 1e-3) continue;
+      const depth = Math.abs(ahead(x.at));
+      const scale = Math.min(10, Math.max(1, 0.0004 * Math.pow(depth, 0.825)));
+      const dist = x.at.length();
+      const radial = dist > 0 ? x.at.clone().divideScalar(dist) : new THREE.Vector3(1, 0, 0);
+      let start: THREE.Vector3, end: THREE.Vector3;
+      if (quad === 0) {
+        start = x.at.clone().addScaledVector(x.v.clone().divideScalar(speed), Math.floor(x.radius));
+        end = start.clone().addScaledVector(x.v, scale);
+      } else if (quad === 1) {
+        const approach = Math.min(1, Math.max(0, (x.v.clone().divideScalar(speed).dot(radial.clone().negate()) - 0.65) * 2.898551));
+        start = x.at.clone();
+        end = start.clone().addScaledVector(radial, x.v.dot(radial) * approach * 2 * scale);
+      } else {
+        const rate = x.at.clone().add(x.v).sub(own).length() - dist;
+        start = x.at.clone();
+        end = start.clone().addScaledVector(radial, rate * Math.min(5, Math.max(1, 0.0002 * Math.pow(depth, 0.62))));
+      }
       if (ahead(start) <= 0 || ahead(end) <= 0) continue;
       const lenPx = toPx(start).distanceTo(toPx(end));
       const s = Math.min(1, Math.max(0, (speed - 40_000) * 0.000017));
-      const fade = (1 - s * s * (3 - 2 * s)) * (x.blink ? pulse : 1) * Math.min(1, Math.max(0, (lenPx - WIDTH / 2) * 0.5));
+      const shortest = quad === 1 ? 0.25 : WIDTH / 2;
+      const fade = (1 - s * s * (3 - 2 * s)) * (x.blink ? pulse : 1) * Math.min(1, Math.max(0, (lenPx - shortest) * 0.5));
+      const rgb = quad === 0 ? [0, 0.6745 * 0.3, 0.9294 * 0.3] : quad === 1 ? [0.5, 0.098 * 0.5, 0.0235 * 0.5] : [0.498, 0.498, 0.498];
       if (fade <= 0) continue;
       const side = end.clone().sub(start).cross(camDir).normalize();
       const first = pos.length / 3;
@@ -3879,7 +3905,7 @@ export class SpaceView {
           const q = p.clone().addScaledVector(side, sgn * half);
           pos.push(q.x, q.y, q.z);
           uv.push(u, ((1 - along) * lenPx) / WIDTH);
-          col.push(0, 0.6745 * 0.3 * fade, 0.9294 * 0.3 * fade);
+          col.push(rgb[0]! * fade, rgb[1]! * fade, rgb[2]! * fade);
         }
       }
       index.push(first, first + 1, first + 3, first, first + 3, first + 2);
