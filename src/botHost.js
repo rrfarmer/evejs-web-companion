@@ -742,6 +742,9 @@ function createBotHost(options) {
   async function startPluginLoop(record, resumed) {
     const host = pluginProcess();
     if (!host) return "This server cannot run plugins.";
+    // Ask the selected reach about this BFF's origin without issuing a request.
+    const inProcessBff = typeof reach.isInProcessRequest === "function" &&
+      reach.isInProcessRequest(new URL("/api/", baseUrl).href) === true;
     record.pluginStarted = true;
     const failure = await host.startRun(record.pluginID, {
       botID: record.botID,
@@ -753,6 +756,7 @@ function createBotHost(options) {
       held: record.flow.heldPilot(),
       routeSettings: record.flow.autopilotSettings(),
       baseUrl,
+      inProcessBff,
     });
     // A start that only answered late is still coming, so the plugin is told it is not wanted.
     if (failure) void stopPluginLoop(record);
@@ -1272,6 +1276,7 @@ function createBotHost(options) {
         hostedStartup,
         baseUrl,
         fetch: botFetch,
+        ...(typeof reach.isInProcessRequest === "function" ? { isInProcessRequest: reach.isInProcessRequest } : {}),
         perSessionToken: true,
         initialSessionToken: token,
         eventSource: url => stack.createHostedEventSource(url, { fetch: botFetch }),

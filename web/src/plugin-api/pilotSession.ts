@@ -24,13 +24,20 @@ export interface PilotSession {
 }
 
 /** The session for a run, attached and with its live stream open. */
-export async function createPilotSession(run: Pick<PluginRunContext, "baseUrl" | "fetch" | "held" | "routeSettings">): Promise<PilotSession> {
+export async function createPilotSession(run: Pick<PluginRunContext, "baseUrl" | "fetch" | "held" | "routeSettings" | "inProcessBff">): Promise<PilotSession> {
   // A process has no sessionStorage. Sessions here never use the global token, but its module reads one on load.
   setSessionTokenStorage(null);
   const store = createClientStore();
+  const localOrigin = run.inProcessBff === true ? URL.parse(run.baseUrl)?.origin : undefined;
   const flow = createAppFlow(store, {
     baseUrl: run.baseUrl,
     fetch: run.fetch,
+    // Match the API and body accepted by src/inProcessFetch.js after the IPC hop.
+    isInProcessRequest: localOrigin === undefined ? undefined : (input, { body }) => {
+      const url = URL.parse(input, run.baseUrl);
+      return url !== null && url.origin === localOrigin && url.pathname.startsWith("/api/") &&
+        (body === undefined || body === null || typeof body === "string");
+    },
     perSessionToken: true,
     initialSessionToken: TOKEN_HELD_BY_CORE,
     // A process has no browser storage, and with none every route is "Prefer safer", whatever the pilot chose.

@@ -86,6 +86,8 @@ export interface ApiOptions {
   readonly baseUrl?: string;
   /** Injectable fetch for tests; default globalThis.fetch. */
   readonly fetch?: typeof fetch;
+  /** Whether the injected fetch dispatches this request inside the BFF. */
+  readonly isInProcessRequest?: (url: string, init: RequestInit) => boolean;
   /**
    * R107 multibox — this call's OWN session token, threaded per flow so several
    * live characters can share one browser tab. When the `token` KEY is present
@@ -181,8 +183,9 @@ async function requestJson(
       assertCurrent?.();
       const deadline = AbortSignal.timeout(REQUEST_DEADLINE_MS);
       return doFetch(url, { signal: options.signal ? AbortSignal.any([deadline, options.signal]) : deadline, ...request });
-      // A request that goes on the tab's open socket holds none of the browser's connections, and so no lane.
-    }, { carried: options.fetch === undefined && pageCarries(url, request) });
+    }, {
+      carried: options.fetch === undefined ? pageCarries(url, request) : options.isInProcessRequest?.(url, request),
+    });
   } catch (cause) {
     assertCurrent?.();
     if (cause instanceof BridgeCallError && cause.code === "SESSION_REQUEST_RETIRED") throw cause;

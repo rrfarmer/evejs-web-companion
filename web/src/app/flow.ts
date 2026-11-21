@@ -904,6 +904,7 @@ export interface AppFlowOptions {
   readonly hostedOreJettisonRecovery?: boolean;
   readonly baseUrl?: string;
   readonly fetch?: typeof fetch;
+  readonly isInProcessRequest?: api.ApiOptions["isInProcessRequest"];
   /**
    * R10 — injectable EventSource factory for the live event channel. Defaults
    * to the browser's own EventSource; tests supply a fake.
@@ -4268,6 +4269,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const callOptions: {
     baseUrl?: string;
     fetch?: typeof fetch;
+    isInProcessRequest?: api.ApiOptions["isInProcessRequest"];
     eventSource?: (url: string) => api.EventSourceLike;
     token?: string | null;
     priority?: RequestPriority;
@@ -4276,6 +4278,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   } = {
     ...(options.baseUrl !== undefined ? { baseUrl: options.baseUrl } : {}),
     ...(options.fetch !== undefined ? { fetch: options.fetch } : {}),
+    ...(options.isInProcessRequest !== undefined ? { isInProcessRequest: options.isInProcessRequest } : {}),
     ...(options.eventSource !== undefined ? { eventSource: options.eventSource } : {}),
     ...(options.perSessionToken ? { token: options.initialSessionToken ?? null } : {}),
     captureRequestGuard: () => {

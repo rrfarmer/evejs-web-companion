@@ -41,6 +41,8 @@ export interface CallMethodOptions {
   readonly baseUrl?: string;
   /** Injectable fetch for tests; default globalThis.fetch. */
   readonly fetch?: typeof fetch;
+  /** Whether the injected fetch dispatches this request inside the BFF. */
+  readonly isInProcessRequest?: (url: string, init: RequestInit) => boolean;
   readonly signal?: AbortSignal;
   /**
    * R107 multibox — this call's OWN session token. Same contract as
@@ -193,8 +195,9 @@ export async function callMethod<TResult = JsonValue>(
         // still wins.
         signal: options.signal ?? AbortSignal.timeout(65_000),
       });
-      // A call that goes on the tab's open socket holds none of the browser's connections, and so no lane.
-    }, { carried: options.fetch === undefined && pageCarries(url, request) });
+    }, {
+      carried: options.fetch === undefined ? pageCarries(url, request) : options.isInProcessRequest?.(url, request),
+    });
   } catch (cause) {
     assertCurrent?.();
     if (cause instanceof BridgeCallError && cause.code === "SESSION_REQUEST_RETIRED") throw cause;

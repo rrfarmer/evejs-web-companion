@@ -151,20 +151,22 @@ function createInProcessFetch(app, options = {}) {
     });
   }
 
-  return function inProcessFetch(input, init = {}) {
-    let url = null;
-    if (typeof input === "string" || input instanceof URL) {
-      try {
-        url = new URL(input, options.baseUrl);
-      } catch {
-        url = null;
-      }
+  function localApiUrl(input, body) {
+    if (typeof input !== "string" && !(input instanceof URL)) return null;
+    if (body !== undefined && body !== null && typeof body !== "string") return null;
+    try {
+      const url = new URL(input, options.baseUrl);
+      return url.origin === origin && url.pathname.startsWith("/api/") ? url : null;
+    } catch {
+      return null;
     }
+  }
+
+  function inProcessFetch(input, init = {}) {
     const body = init.body;
+    const url = localApiUrl(input, body);
+    if (url === null) return elsewhere(input, init);
     const text = typeof body === "string";
-    if (url === null || url.origin !== origin || !url.pathname.startsWith("/api/") || (body !== undefined && body !== null && !text)) {
-      return elsewhere(input, init);
-    }
     const signal = init.signal || null;
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     const headers = {};
@@ -173,7 +175,11 @@ function createInProcessFetch(app, options = {}) {
     if (text && headers["content-type"] === undefined) headers["content-type"] = "text/plain;charset=UTF-8";
     const request = { method: init.method, path: `${url.pathname}${url.search}`, headers, rawBody: text ? body : undefined, remoteAddress: "127.0.0.1" };
     return url.pathname === EVENTS_PATH ? streamed(request, signal) : answered(request, signal);
-  };
+  }
+
+  // Share the routing check with callers deciding whether to reserve an HTTP lane.
+  inProcessFetch.isInProcessRequest = (input, init) => localApiUrl(input, init?.body) !== null;
+  return inProcessFetch;
 }
 
 module.exports = { createInProcessFetch, hostedBotReach };

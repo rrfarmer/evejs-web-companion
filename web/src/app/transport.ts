@@ -100,10 +100,8 @@ export interface TransportLane {
 /**
  * How a request is to be run.
  *
- * `carried`: it goes on the tab's socket (app/socketFetch.ts), not on a connection of its own. The cap exists
- * because a browser has six connections to an origin and queues what is over that where nobody can see; a
- * request on the socket uses none of them, however many are outstanding. It is started at once, holds no lane,
- * and waits behind nothing. It is still counted, and still has its own deadline, set inside the task.
+ * `carried`: the request uses the tab's open socket or dispatches inside the BFF. It starts at once and
+ * uses none of the browser's HTTP connections. It is still counted and has its own deadline inside the task.
  */
 export interface RunHow {
   readonly carried?: boolean;
@@ -149,7 +147,7 @@ export function createTransportLane(deps: TransportLaneDeps = {}): TransportLane
 
   /** Started, not yet settled: path -> when it started. */
   const running = new Map<symbol, { path: string; startedAtMs: number }>();
-  /** Outstanding on the socket: they hold no lane. */
+  /** Outstanding requests that use no HTTP lane. */
   let carrying = 0;
   const waiting: Waiting[] = [];
 

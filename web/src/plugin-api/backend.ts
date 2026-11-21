@@ -85,6 +85,8 @@ export interface PluginRunContext {
   readonly baseUrl: string;
   /** The BFF, as this pilot's session. Core refuses a select, the session's end, and starting or stopping a bot. */
   readonly fetch: typeof fetch;
+  /** Core dispatches this run's same-origin API requests with a text or empty body inside the BFF. */
+  readonly inProcessBff?: boolean;
   report(report: PluginRunReport): void;
 }
 
@@ -173,6 +175,7 @@ interface RunSpec {
   readonly held: HeldPilot;
   readonly routeSettings: JsonValue;
   readonly baseUrl: string;
+  readonly inProcessBff?: boolean;
 }
 
 type RunFetchAnswer =
@@ -380,6 +383,7 @@ export function startBackend(definition: BackendDefinition): void {
                 routeSettings: spec.routeSettings ?? {},
                 baseUrl: spec.baseUrl,
                 fetch: runFetch(spec.botID),
+                ...(spec.inProcessBff === true ? { inProcessBff: true } : {}),
                 report: (report) => send({ type: "runReport", botID: spec.botID, report }),
               }));
               runsFlying.set(spec.botID, flying);

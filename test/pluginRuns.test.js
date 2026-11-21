@@ -10,12 +10,16 @@ const { fork } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { once } = require("node:events");
 const { pathToFileURL } = require("node:url");
+const express = require("express");
 
 const { createBotHost } = require("../src/botHost");
+const { createInProcessFetch } = require("../src/inProcessFetch");
 const { createPluginHost } = require("../src/pluginHost");
 
 const REPO = path.resolve(__dirname, "..");
+const WEB_SRC = path.join(REPO, "web", "src");
 
 const BACKEND = `
 import { jsonStore, startBackend } from "../../web/src/plugin-api/backend.ts";
@@ -36,6 +40,36 @@ startBackend({
       const answer = await flying.fetch(new Request(new URL(request.body.url, flying.baseUrl), { method: "POST", headers: { "x-from-request": "yes" }, body: "given" }));
       return { body: { status: answer.status } };
     },
+    "POST /pilot-requests": async () => {
+      const source = ${JSON.stringify(pathToFileURL(WEB_SRC + path.sep).href)};
+      const [{ createPilotSession }, { loadBoundFleet }, { bridgeLane }, { callMethod }] = await Promise.all(
+        ["plugin-api/pilotSession.ts", "app/api.ts", "app/transport.ts", "bridge/callMethod.ts"]
+          .map(file => import(new URL(file, source))),
+      );
+      // Run instrumentation may wrap fetch while keeping the run's options.
+      const { flow } = await createPilotSession({ ...flying, fetch: (input, init) => flying.fetch(input, init) });
+      flow.setLivePush(false);
+      while (bridgeLane.inFlight() || bridgeLane.queued() || bridgeLane.carried()) {
+        await new Promise(resolve => setTimeout(resolve, 5));
+      }
+      const options = { ...flow.requestOptions(), fetch: flying.fetch };
+      const { bridgeDo } = flow.flying;
+      pilotRequests = Promise.all([
+        loadBoundFleet(options).then(answer => answer.result),
+        bridgeDo("ship", "Jettison", [[301]]),
+        bridgeDo("beyonce", "CmdStargateJump", [401, 402, 403]),
+        bridgeDo("beyonce", "CmdWarpToStuffAutopilot", [404]),
+        loadBoundFleet(options, true).then(answer => answer.result),
+        bridgeDo("dogmaIM", "AddTarget", [501]),
+      ]).then(async replies => {
+        const cancelled = await callMethod("dogmaIM", "AddTarget", [502], null, {
+          ...options, pilot: true, confirm: true, signal: AbortSignal.abort(new Error("retired")),
+        }).then(() => null, error => error.code);
+        return { replies, cancelled };
+      }).catch(error => ({ error: error.message }));
+      return { body: { inFlight: bridgeLane.inFlight(), queued: bridgeLane.queued(), carried: bridgeLane.carried() } };
+    },
+    "GET /pilot-requests": async () => ({ body: await pilotRequests }),
     "POST /report-too-much": () => {
       for (let time = 0; time < 2; time += 1) flying.report({ status: "running", phase: "Probing", resumeData: "x".repeat(70 * 1024) });
       return { body: {} };
@@ -81,6 +115,7 @@ startBackend({
   },
 });
 let flying = null;
+let pilotRequests = null;
 `;
 
 function makeRoot() {
@@ -180,8 +215,10 @@ async function makeFixture(t, extra = {}) {
       backoffMs: [50],
       log: () => {},
       runEvents: events,
-      fork: (...args) => {
-        const child = fork(...args);
+      fork: (file, args, options) => {
+        const child = fork(file, args, extra.readPilotFlow
+          ? { ...options, execArgv: [...options.execArgv, `--allow-fs-read=${WEB_SRC}`] }
+          : options);
         const send = child.send.bind(child);
         child.send = (message, ...rest) => { sentToPlugin.push(JSON.stringify(message)); return send(message, ...rest); };
         return child;
@@ -292,6 +329,72 @@ test("a Request given to a run's fetch goes as what it says", async (t) => {
   assert.equal(asked.headers.get("x-from-request"), "yes");
   await f.bots.stop(f.row().botID, ACCOUNT.accountID);
 });
+
+for (const reach of ["inprocess", "loopback", "fallback"]) {
+  test(`a plugin pilot's six requests keep the HTTP lane only where needed (${reach})`, { timeout: 12_000 }, async (t) => {
+    const local = reach === "inprocess";
+    const { promise: hold, resolve: release } = Promise.withResolvers();
+    const slow = ["fleet", "Jettison", "CmdStargateJump", "CmdWarpToStuffAutopilot"];
+    const fast = ["fleet-menu", "AddTarget"];
+    const seen = [];
+    const answered = [];
+    const app = express();
+    app.use(express.json());
+    async function answer(res, name, envelope) {
+      seen.push(name);
+      if (slow.includes(name)) await hold;
+      res.json({ ok: true, result: name, ...envelope });
+      answered.push(name);
+    }
+    app.get("/api/bridge/bound-fleet", (req, res) => answer(res, req.query.view === "menu" ? "fleet-menu" : "fleet"));
+    app.post("/api/bridge/call", (req, res) => {
+      const { service, method } = req.body;
+      const envelope = { service, method };
+      if (slow.includes(method) || fast.includes(method)) return answer(res, method, envelope);
+      res.json({ ok: true, result: null, ...envelope });
+    });
+    app.get("/api/bridge/events", (_req, res) => res.status(204).end());
+    app.use((_req, res) => res.json({ ok: true }));
+
+    let baseUrl = "http://bff.test";
+    if (!local) {
+      const server = app.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      baseUrl = `http://127.0.0.1:${server.address().port}`;
+      t.after(() => {
+        server.closeAllConnections();
+        return new Promise(resolve => server.close(resolve));
+      });
+    }
+    const fetch = reach === "loopback" ? undefined : createInProcessFetch(app, {
+      baseUrl: local ? baseUrl : "http://another-origin.test",
+    });
+    const f = await makeFixture(t, {
+      bots: { baseUrl, fetch },
+      readPilotFlow: true,
+      plugins: { pingMs: 4_000, requestTimeoutMs: 8_000 },
+    });
+    const started = await f.startRun();
+    assert.equal(started.ok, true, started.message);
+    let settled;
+    try {
+      const admission = await f.request("POST", "/pilot-requests");
+      assert.equal(admission.status, 200, admission.body?.message);
+      assert.ok(await until(() => seen.length >= 6 - admission.body.queued, 2_000), JSON.stringify(seen));
+      assert.equal(seen.length, local ? 6 : 4, "BFF arrivals while four replies are held");
+      assert.deepEqual(answered.sort(), local ? [...fast].sort() : []);
+      assert.deepEqual(admission.body, local ? { inFlight: 0, queued: 0, carried: 6 }
+        : { inFlight: 4, queued: 2, carried: 0 });
+    } finally {
+      release();
+      settled = await f.request("GET", "/pilot-requests");
+    }
+    assert.equal(settled.status, 200);
+    assert.deepEqual(settled.body, { replies: [...slow, ...fast], cancelled: "BRIDGE_NETWORK_ERROR" });
+    assert.deepEqual(seen.sort(), [...slow, ...fast].sort(), "each request reaches the BFF exactly once");
+    await f.bots.stop(started.bot.botID, ACCOUNT.accountID);
+  });
+}
 
 test("what a run keeps is bounded, and going over the bound is said once", async (t) => {
   const said = [];

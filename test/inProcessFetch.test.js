@@ -198,6 +198,7 @@ test("what is not the BFF's own API at the BFF's own address goes to the fetch g
     ["http://[not an address", init],
   ];
   for (const [input, given] of asked) {
+    assert.equal(h.inProcess.isInProcessRequest(input, given), false, String(input));
     const response = given === undefined ? await h.inProcess(input) : await h.inProcess(input, given);
     assert.equal(response.status, 299, String(input));
   }
