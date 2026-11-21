@@ -199,6 +199,18 @@ const npcKindOf = (groupID, hostileThreshold = null) => {
 const DRONE_ACTIVITY = Object.freeze({ 0: "idle", 1: "fighting", 2: "mining", 3: "approaching", 4: "returning", 5: "returning", 6: "chasing", 7: "fleeing", 9: "operating", 10: "repairing", 18: "salvaging" });
 
 /** One overview row: a ball with its slim item. `placed(ball)` says where the ball is shown and how fast: { p, v }. */
+/** A stargate's jumps rowset (header + lines): its first line's locationID, null where there is none. */
+function gateJumpSystemOf(jumps) {
+  const items = (value) => (Array.isArray(value) ? value : value && Array.isArray(value.items) ? value.items : []);
+  const text = (value) => (typeof value === "string" ? value : value && typeof value.value === "string" ? value.value : value && typeof value.str === "string" ? value.str : String(value ?? ""));
+  const entries = jumps && jumps.type === "object" && jumps.args && Array.isArray(jumps.args.entries) ? jumps.args.entries : [];
+  const part = (name) => (entries.find((each) => Array.isArray(each) && text(each[0]) === name) ?? [])[1];
+  const at = items(part("header")).map(text).indexOf("locationID");
+  const first = items(part("lines")).map(items)[0];
+  const id = at === -1 || !first ? null : Number(first[at]);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
 function projectEntity(park, ball, slim, ego, placed) {
   const itemID = number(ball.id);
   const categoryID = positive(slim.get("categoryID"));
@@ -255,6 +267,9 @@ function projectEntity(park, ball, slim, ego, placed) {
     row.npcEntityType = row.isNpc ? npcKindOf(groupID, hostileResponseThreshold) : null;
     row.compressionFacility = compressionFacilityOf(slim.get("compression_facility_typelists"));
   }
+  // A stargate: the solar system its first jump goes to (the slim item's jumps rowset, column locationID), for the
+  // Selected Item's "(security)" after its name (selectedItemWnd._GetStargateSecurityText: jumps[0].locationID).
+  if (groupID === 10) row.jumpSystemID = gateJumpSystemOf(slim.get("jumps"));
   // A drone in space: which ship is flying it, whose that ship is, what it is doing, and on what. A client is
   // told these of the pilot's own drones and of those its ship controls, by the park's drone states (michelle,
   // stateByDroneID); of anybody else's drone it is told nothing, and each is null. The gateway reports them of

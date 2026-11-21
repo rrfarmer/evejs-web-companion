@@ -60,6 +60,7 @@ import { loadDds } from "../three/ddsTexture.ts";
 import { Overview, flagMarkup, typeNames, type OverviewAffiliation } from "./overview.ts";
 import { ContextMenu, type ContextEntry } from "./contextMenu.ts";
 import { shipLabelMarkup } from "./shipLabels.ts";
+import { securityStatusColor, shownSecurity } from "../bridge/systemSecurity.ts";
 import { inRangeShown, overviewMisc } from "./overviewMisc.ts";
 import { fmtDist as fmtDistance } from "../space/overview.ts";
 import { DScanWindow } from "./dscan.ts";
@@ -193,6 +194,8 @@ export interface SpaceViewOptions {
   overviewAsk?: (dialog: string, fallback: string) => Promise<boolean>;
   /** cfg.corptickernames / allianceshortnames for a ship label (asked for where not known yet). */
   ownerTickers?: (corporationID: number | null, allianceID: number | null) => { corporation: string | null; alliance: string | null };
+  /** A solar system's security status (the star map's), null where not known. */
+  systemSecurity?: (solarSystemID: number) => number | null;
   overviewRelationships?: () => OverviewRelationships | undefined;
   /** The overview's Tag, Corporation, Alliance, Faction and Militia words (see Overview's hooks). */
   overviewAffiliation?: (rows: readonly Entity[], columns: ReadonlySet<string>) => ((e: Entity) => OverviewAffiliation) | null;
@@ -962,7 +965,8 @@ export class SpaceView {
     this.root.append(this.alertVignette);
     // (as the eve-cs mirror has it: always on screen, 464 x 135 at the top right, its icon the client's show-info one,
     // "No object selected" while nothing is)
-    this.selectedWin = new PlayWindow({ id: "selected-item", caption: "Selected Item", icon: clientTexture("res:/UI/Texture/eveicon/control_icons/show_info_32px.png"), left: innerWidth - 480, top: 15, width: 464, height: 135, closable: false });
+    // SelectedItemWnd: actionPanelDefaults' place and size (566 wide, 174 high, 16 from the right and the top), no icon
+    this.selectedWin = new PlayWindow({ id: "selected-item", caption: "Selected Item", left: innerWidth - 566 - 16, top: 16, width: 566, height: 174, closable: false });
     this.selectedWin.body.classList.add("si");
     this.selectedEl = this.selectedWin.root;
     this.root.insertBefore(this.targetBar.root, this.modeEl);
@@ -1697,25 +1701,30 @@ export class SpaceView {
     const cargoLabel = selectedCargo(e, false) === "hidden" ? "" : this.actions.word?.(OPEN_CARGO_LABEL) ?? "Open Cargo";
     const wormholeLabel = e.groupID === WORMHOLE_GROUP ? this.actions.word?.(ENTER_WORMHOLE_LABEL) ?? "Enter Wormhole" : "";
     const metenoxRange = e.typeID === METENOX_TYPE_ID ? `${dist <= METENOX_BOARD_RANGE}:${dist < METENOX_DEPOSIT_RANGE}:${dist < METENOX_MATERIAL_RANGE}` : "";
-    const sig = `${e.itemID}:${this.locked.has(e.itemID)}:${dist >= 150_000}:${e.jumpBridge?.activationState ?? ""}:${this.snapshot?.ship?.mode === "WARP"}:${cargoLabel}:${wormholeLabel}:${metenoxRange}`;
+    const gateSecurity = e.groupID === 10 ? this.options.systemSecurity?.((e as Entity & { jumpSystemID?: number | null }).jumpSystemID ?? 0) ?? null : null;
+    const sig = `${e.itemID}:${gateSecurity}:${this.locked.has(e.itemID)}:${dist >= 150_000}:${e.jumpBridge?.activationState ?? ""}:${this.snapshot?.ship?.mode === "WARP"}:${cargoLabel}:${wormholeLabel}:${metenoxRange}`;
     if (body.getAttribute("data-sig") !== sig) {
       body.setAttribute("data-sig", sig);
-      // its picture (the client's own, /client-res/type-picture), its name, its type (and Hostile for an NPC), how far
-      const typeName = e.typeID !== null ? this.names?.types[String(e.typeID)]?.[0] ?? null : null;
-      body.innerHTML = `<div class="si-top"><img class="si-icon" alt=""><div class="si-labels"><div class="si-name"></div><div class="si-type"></div><div class="si-dist"></div></div></div><div class="si-actions"></div>`;
+      // SelectedItemWnd._UpdateSlimItem: its picture, GetSlimItemName with a stargate's destination security after it
+      // (_GetJumpExtraText), the surface distance (FmtDist to one place), a pilot's security status (_GetSecurityStatusTex)
+      body.innerHTML = `<div class="si-top"><img class="si-icon" alt=""><div class="si-labels"><div class="si-name"></div><div class="si-dist"></div><div class="si-sec"></div></div></div><div class="si-actions"></div>`;
       const pic = body.querySelector(".si-icon") as HTMLImageElement;
       if (e.typeID !== null) pic.src = `/client-res/type-picture/${e.typeID}/64.png`;
       else pic.style.visibility = "hidden";
       pic.onerror = () => { pic.style.visibility = "hidden"; };
-      body.querySelector(".si-name")!.textContent = this.nameOf(e);
-      const typeEl = body.querySelector(".si-type")!;
-      typeEl.textContent = typeName ?? "";
-      if (e.isNpc) {
-        const hostile = document.createElement("span");
-        hostile.className = "si-hostile";
-        hostile.textContent = "Hostile";
-        typeEl.append(typeName ? " \u00b7 " : "", hostile);
+      const nameEl = body.querySelector(".si-name")!;
+      nameEl.textContent = this.nameOf(e);
+      const jumpSystem = (e as Entity & { jumpSystemID?: number | null }).jumpSystemID ?? null;
+      const security = e.groupID === 10 && jumpSystem !== null ? this.options.systemSecurity?.(jumpSystem) ?? null : null;
+      if (security !== null) {
+        // eveformat.solar_system_security_status: one place, coloured by its class
+        const sec = document.createElement("span");
+        sec.style.color = securityStatusColor(shownSecurity(security));
+        sec.textContent = shownSecurity(security).toFixed(1);
+        nameEl.append(" (", sec, ")");
       }
+      const pilotSec = e.characterID ? (e as Entity & { securityStatus?: number | null }).securityStatus ?? 0 : 0;
+      body.querySelector(".si-sec")!.textContent = pilotSec ? `${this.actions.word?.("UI/Inflight/ActiveItem/SelectedItemSecurity", { secStatus: pilotSec.toFixed(1) }) ?? `Security Status: ${pilotSec.toFixed(1)}`}` : "";
       const row = body.querySelector(".si-actions")!;
       for (const a of this.actionsFor(e)) {
         const b = document.createElement("button");
@@ -1727,7 +1736,7 @@ export class SpaceView {
         row.appendChild(b);
       }
     }
-    body.querySelector(".si-dist")!.textContent = distanceWords(dist);
+    body.querySelector(".si-dist")!.textContent = fmtDistance(dist, 1);
   }
 
   private lookAt: number | null = null;

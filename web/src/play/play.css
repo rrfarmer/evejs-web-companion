@@ -409,17 +409,18 @@ button { font: inherit; color: inherit; }
 .ov-table .ov-dist { text-align: right; font-variant-numeric: tabular-nums; color: #cfd3cf; }
 
 /* ── Selected Item (spaceView.ts) ── */
-/* the eve-cs mirror's Selected Item: a 32 px picture beside the name (13 px, 500, white), the type (12 px grey, an NPC's
-   "Hostile" red) and the distance (11 px white); a row of 34 px buttons with 32 px icons, 4 px apart, 7 px 8 px in */
+/* SelectedItemWnd: the 64 px picture (ITEM_ICON_SIZE_LARGE once the top is taller than 64) beside the labels stacked
+   (EveLabelMedium, 14 px, TextColor.HIGHLIGHT): the name with a gate's destination security, the distance, a pilot's
+   security status; the row of action buttons under them */
 .si { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
 .si-none { margin: auto; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: rgb(108, 110, 107); }
-.si-top { display: flex; gap: 8px; align-items: flex-start; padding: 6px 12px 0; flex: none; }
-.si-icon { width: 32px; height: 32px; flex: none; background: rgb(13, 14, 13); border: 1px solid rgba(255, 255, 255, 0.14); }
-.si-labels { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
-.si-name { color: #fff; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.si-type { color: rgb(176, 176, 169); font-size: 12px; white-space: nowrap; }
-.si-hostile { color: rgb(224, 80, 90); }
-.si-dist { flex-basis: 100%; color: #fff; font-size: 11px; font-variant-numeric: tabular-nums; }
+.si-top { display: flex; gap: 8px; align-items: flex-start; padding: 4px 16px 0; flex: none; }
+.si-icon { width: 64px; height: 64px; flex: none; background: rgb(13, 14, 13); }
+.si-labels { display: flex; flex-direction: column; min-width: 0; }
+.si-name { color: rgba(255, 255, 255, 0.9); font-size: 14px; line-height: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.si-sec:empty { display: none; }
+.si-sec { color: rgba(255, 255, 255, 0.9); font-size: 14px; }
+.si-dist { color: rgba(255, 255, 255, 0.9); font-size: 14px; font-variant-numeric: tabular-nums; }
 .si-actions { display: flex; gap: 4px; padding: 7px 8px; flex: none; }
 .si-act { width: 34px; height: 34px; padding: 0; background: transparent; border: 1px solid transparent; cursor: pointer; opacity: .85; }
 .si-act img { width: 32px; height: 32px; display: block; }

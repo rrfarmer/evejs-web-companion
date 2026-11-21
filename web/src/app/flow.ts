@@ -3010,6 +3010,8 @@ export interface AppFlow {
   allianceApplicationStandardText(allianceID: number): Promise<string>;
   /** A client yes / no dialog by name (prompt_player_fsd_dialog(name, {}, YESNO[, suppress=ID_YES])); true for Yes. */
   askClientDialog(dialog: string, fallback: string, suppressYes?: boolean): Promise<boolean>;
+  /** A solar system's security status from the route graph, null until the graph is read (asked for then). */
+  systemSecurity(solarSystemID: number): number | null;
   /** A dialog the client puts up with a custom box (CUSTOM_MESSAGE_BOXES): the dialog's title and buttons, this body. */
   askClientDialogBody(dialog: string, bodyMarkup: string, fallback: string, suppressYes?: boolean): Promise<boolean>;
   /** prompt_player_fsd_dialog('CustomWarning', {header, warning}, buttons=YESNO): true on Yes. */
@@ -37563,6 +37565,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
     async askClientWarning(header: string, warning: string) {
       return askDialog("CustomWarning", { type: "dict", entries: [["header", header], ["warning", warning]] }, warning, "yesno");
+    },
+    systemSecurity(solarSystemID: number): number | null {
+      if (!routeGraph) { void loadRouteGraph().catch(() => null); return null; }
+      return routeGraph.security(solarSystemID) ?? null;
     },
     async askClientDialog(dialog: string, fallback: string, suppressYes = false) {
       await wordsNow([`dialog:${dialog}/title`, `dialog:${dialog}/body`]).catch(() => {});
