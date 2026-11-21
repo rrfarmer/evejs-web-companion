@@ -146,6 +146,7 @@ export class Overview {
   private readonly table = document.createElement("table");
   private readonly tbody = document.createElement("tbody");
   private types: Record<string, [string | null, number | null]> = {};
+  private groupNames: Record<string, [string | null, number | null]> = {};
   private lastDraw = 0;
   private drawnRows = "";
   private selected: number | null = null;
@@ -211,6 +212,7 @@ export class Overview {
     void typeNames().then((n) => {
       if (!n) return;
       this.types = n.types;
+      this.groupNames = n.groups;
       this.lastDraw = 0;
     });
     void overviewPresets().then((p) => {
@@ -554,6 +556,14 @@ export class Overview {
     const mask = this.activePreset();
     const speed = (e: Entity) => Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z);
     const typeName = (e: Entity) => (e.typeID ? this.types[String(e.typeID)]?.[0] ?? "" : "");
+    // OverviewWindow.get_type_column_text: ice, gas clouds and phased asteroids by their group, other rocks by their
+    // category ("Asteroid"), everything else by its type
+    const typeColumn = (e: Entity): string => {
+      const group = this.groupOf(e);
+      if (group === 465 || group === 711 || group === 4918) return this.groupNames[String(group)]?.[0] ?? typeName(e);
+      const category = e.categoryID ?? (group === null ? null : this.groupNames[String(group)]?.[1] ?? null);
+      return category === 25 ? "Asteroid" : typeName(e);
+    };
     const rowName = (e: Entity) => this.hooks.name?.(e) ?? e.name ?? typeName(e);
     // overviewNodeUtil.UpdateVelocityData: the ball's speed; its angular velocity, the transversal of the two balls'
     // relative velocity over max(1, the surface distance), in degrees a second. A static ball (a station, a gate, a
@@ -574,14 +584,14 @@ export class Overview {
         : key === "velocity" ? speed(a.e) - speed(b.e)
         : key === "size" ? (a.e.radius ?? 0) - (b.e.radius ?? 0)
         : key === "angular" ? (angular(a.e, a.d) ?? -1) - (angular(b.e, b.d) ?? -1)
-        : key === "type" ? typeName(a.e).localeCompare(typeName(b.e))
+        : key === "type" ? typeColumn(a.e).localeCompare(typeColumn(b.e))
         : rowName(a.e).localeCompare(rowName(b.e));
       // ties go nearest first, as the client's do
       return (this.sort.down ? -by : by) || a.d - b.d;
     });
     const html: string[] = [];
     for (const { e, d } of rows) {
-      const typeName = e.typeID ? this.types[String(e.typeID)]?.[0] ?? "" : "";
+      const typeName = typeColumn(e);
       const hackingHint = (e.hackingSecurityState ?? 0) > 1
         ? ` title="${esc(this.hooks.word?.(HACKED_HINT) ?? "Has already been hacked")}"` : "";
       html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}"><td class="ov-icon"${hackingHint}>${this.hooks.glyph(e)}</td><td class="ov-dist">${overviewDistance(d)}</td><td>${esc(rowName(e))}</td><td>${esc(typeName)}</td><td class="ov-dist">${fmtDist(2 * (e.radius ?? 0))}</td><td class="ov-dist">${isStatic(e) ? "-" : Math.trunc(speed(e)).toLocaleString()}</td><td class="ov-dist">${(() => { const w = angular(e, d); return w === null ? "-" : w.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); })()}</td></tr>`);
