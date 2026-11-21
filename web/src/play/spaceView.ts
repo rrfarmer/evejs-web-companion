@@ -3473,6 +3473,18 @@ export class SpaceView {
           if (s.kind === "mission" && s.position) { const at = s.position; void this.act("Align", () => this.actions.alignToPoint?.(at) ?? Promise.resolve()); return; }
           void this.act("Align", () => (bookmarkID !== null ? this.actions.alignToBookmark?.(bookmarkID) : this.actions.alignToSite?.(id)) ?? Promise.resolve());
         });
+        // SensorSuiteBracket.OnMouseDown: TryExpandActionMenu with the site - the radial after the left button is held
+        // (150 ms without moving 12 px)
+        el.addEventListener("pointerdown", (ev) => {
+          if (ev.button !== 0) return;
+          ev.stopPropagation();
+          const x0 = ev.clientX, y0 = ev.clientY;
+          const timer = setTimeout(() => { cleanup(); this.openSiteRadial(el!, x0, y0); }, 150);
+          const move = (m: PointerEvent) => { if (Math.hypot(m.clientX - x0, m.clientY - y0) > 12) cleanup(); };
+          const cleanup = () => { clearTimeout(timer); removeEventListener("pointermove", move); removeEventListener("pointerup", cleanup); };
+          addEventListener("pointermove", move);
+          addEventListener("pointerup", cleanup);
+        });
         el.addEventListener("contextmenu", (ev) => {
           ev.preventDefault(); ev.stopPropagation();
           if (s.kind === "mission") {
@@ -3563,6 +3575,50 @@ export class SpaceView {
       setTimeout(() => { void playUiEvent(found ? "ui_scanner_result_positive" : "ui_scanner_result_negative"); }, 1000);
       this.sweep = null;
     }
+  }
+
+  /** A site bracket's menu (the entries its right click shows). */
+  private siteMenuOf(el: HTMLElement): readonly (ContextEntry | null)[] {
+    const id = [...this.sensorEls].find(([, x]) => x === el)?.[0] ?? null;
+    if (id === null) return [];
+    if (el.classList.contains("mission")) return this.actions.missionMenu?.(id) ?? [];
+    if (id.startsWith("bm:")) { this.actions.locationsMenu?.(); return this.actions.bookmarkMenu?.(Number(id.slice(3))) ?? []; }
+    const site = (this.actions.anomalies?.() ?? []).find((x) => x.targetID === id);
+    return (site ? this.anomaliesMenu([site]).find((x): x is ContextEntry => x !== null && !x.caption)?.sub : null) ?? [];
+  }
+
+  /**
+   * radialMenu for a site (spaceRadialMenuFunctions.GetObjectsActions with siteData): its site actions on top (a station
+   * bookmark's Dock, GetBookmarkSiteActions), then GetGeneralActions - Orbit, the second level, Keep at Range, Lock
+   * Target, Align to / Approach Location, Show Info, Warp to Within with its ranges - each available only where the
+   * site's menu (siteData.GetMenu) has it; its name the site's (fallBackDisplayName)
+   */
+  private openSiteRadial(el: HTMLElement, x: number, y: number): void {
+    const menu = this.siteMenuOf(el).filter((e): e is ContextEntry => e !== null);
+    const byPath = (p: string) => menu.find((e) => e.path === p) ?? null;
+    const icon = (n: number) => RADIAL_ICON(`res:/UI/Texture/Icons/44_32_${n}.png`);
+    const dock = byPath("UI/Inflight/DockInStation");
+    const align = byPath("UI/Inflight/AlignTo") ?? byPath("UI/Inflight/ApproachLocationActionGroup");
+    const info = byPath("UI/Commands/ShowInfo");
+    const warp = byPath("UI/Inflight/Submenus/WarpToWithin");
+    const warpRanges = [0, 10_000, 20_000, 30_000, 50_000, 70_000, 100_000];
+    const options: (RadialOption | null)[] = [
+      dock ? { label: dock.label, icon: icon(9), run: () => dock.run?.() } : null,
+      { label: "Orbit", icon: icon(21), disabled: true },
+      null,
+      { label: "Keep at Range", icon: icon(22), disabled: true },
+      { label: "Lock Target", icon: icon(17), disabled: true },
+      align ? { label: align.label, icon: icon(23), run: () => align.run?.() } : { label: "Align to", icon: icon(23), disabled: true },
+      info ? { label: info.label, icon: icon(24), run: () => info.run?.() } : { label: "Show Info", icon: icon(24), disabled: true },
+      warp ? { label: warp.label, icon: icon(18), ranges: WARP_RANGES, defaultRange: 0, run: (r) => {
+        const at = warpRanges.indexOf(r ?? 0);
+        const pick = at >= 0 ? warp.sub?.filter((x): x is ContextEntry => x !== null)[at] : null;
+        (pick ?? warp).run?.();
+      } } : { label: "Warp To Within", icon: icon(18), disabled: true },
+    ];
+    const name = el.querySelector(".ss-code b")?.textContent || el.querySelector(".ss-name")?.textContent || "";
+    this.contextMenu.close();
+    this.radial.open(x, y, name, options, 0);
   }
 
   private sensorOverlayOn(): boolean {
