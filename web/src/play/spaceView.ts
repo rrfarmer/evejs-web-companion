@@ -1721,7 +1721,15 @@ export class SpaceView {
     const planet = this.planetViewEntry(e);
     if (planet) out.push(planet);
     const cargo = this.actions.openCargo;
-    const cargoState = selectedCargo(e, this.snapshot?.ship?.mode === "WARP");
+    let cargoState = selectedCargo(e, this.snapshot?.ship?.mode === "WARP");
+    // a deployable's cargo bay (OfferOpenCargoBay: the cargoBay component active, its owner's or free for all), as the
+    // client's Selected Item shows Open Cargo for a Mobile Depot
+    if (cargoState === "hidden" && e.typeID !== null) {
+      const comps = spaceComponentsNow();
+      const bay = comps.cargoBay.get(e.typeID);
+      const mine = e.ownerID != null && e.ownerID === this.snapshot?.ship?.ownerID;
+      if (bay && isActiveComponent(comps, e.typeID, e.componentActive) && (mine || bay[1])) cargoState = this.snapshot?.ship?.mode === "WARP" ? "disabled" : "enabled";
+    }
     if (cargo && cargoState !== "hidden") {
       out.push({ key: "cargo", title: this.actions.word?.(OPEN_CARGO_LABEL) ?? "Open Cargo", icon: clientTexture(OPEN_CARGO_ICON),
         disabled: cargoState === "disabled", run: () => cargo(id) });
