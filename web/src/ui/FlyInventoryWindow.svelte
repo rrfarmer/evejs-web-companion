@@ -29,7 +29,7 @@
   // svelte-ignore state_referenced_locally
   const fitting = store.fitting;
 
-  const WORDS = ["UI/Inventory/NumItems2", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Common/SortBy", "UI/Inventory/ViewMode",
+  const WORDS = ["UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Common/SortBy", "UI/Inventory/ViewMode",
     "UI/Inventory/Filters/MyFilters", "UI/Common/NothingFound", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
   flow.requestWords(WORDS);
   const word = (label: string, own: string, args: Record<string, string | number> = {}) => {
@@ -60,7 +60,7 @@
       if (!h.present) continue;
       const def = h.key === "cargo" ? CARGO_HOLD : SHIP_HOLDS.find((d) => d.bayKey === h.key);
       out.push({ key: h.key, label: def ? word(def.label, h.label) : h.label,
-        items: h.items?.map((i) => ({ itemID: i.itemID, typeID: i.typeID, quantity: i.quantity, singleton: false })) ?? null,
+        items: h.items?.map((i) => ({ itemID: i.itemID, typeID: i.typeID, quantity: i.quantity < 0 ? 1 : i.quantity, singleton: i.quantity < 0 })) ?? null,
         capacity: h.capacity?.capacity ?? null, used: h.capacity?.used ?? null });
     }
     if ((droneBayCapacity ?? 0) > 0 || ($drones.bay?.length ?? 0) > 0) {
@@ -107,22 +107,73 @@
   const fmt1 = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   const fill = $derived(bay && bay.capacity ? Math.min(1, (bay.used ?? 0) / bay.capacity) : 0);
   const shipLabel = $derived(ship ? `${ship.name ?? typeName(ship.typeID)} (${typeName(ship.typeID)})` : "");
+
+  /** The items selected (the scroll's selection: a click alone, Ctrl toggling, Shift the run from the last clicked). */
+  let selected = $state<number[]>([]);
+  let lastClicked: number | null = null;
+  $effect(() => { void current; selected = []; lastClicked = null; });
+  function clickItem(id: number, e: MouseEvent): void {
+    e.stopPropagation();
+    const order = shown.map((i) => i.itemID);
+    if (e.ctrlKey && !e.shiftKey) selected = selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id];
+    else if (e.shiftKey && lastClicked !== null && order.includes(lastClicked)) {
+      const [a, b] = [order.indexOf(lastClicked), order.indexOf(id)].sort((x, y) => x - y);
+      selected = e.ctrlKey ? [...new Set([...selected, ...order.slice(a!, b! + 1)])] : order.slice(a!, b! + 1);
+    } else selected = [id];
+    if (!e.shiftKey) lastClicked = id;
+  }
+  /** A bay's place for the moves (invCtrl: the cargo, or the ship bay by its flag). */
+  const placeOf = (key: string) => (key === "cargo" ? { kind: "cargo" as const } : { kind: "shipBay" as const, bay: key });
+  /**
+   * The drag (InvItem.GetDragData: the selected items where the dragged one is among them) and its drop on a bay in the
+   * tree (TreeViewEntryInventory.OnDropData: the items moved into that bay's inventory, invCtrl.AddItems).
+   */
+  let dragging: { from: string; ids: number[] } | null = null;
+  let dropKey = $state<string | null>(null);
+  let moveError = $state("");
+  function dragStart(id: number, e: DragEvent): void {
+    dragging = { from: current, ids: selected.includes(id) ? [...selected] : [id] };
+    e.dataTransfer?.setData("text/plain", dragging.ids.join(","));
+  }
+  const dragOver = (key: string) => (e: DragEvent) => { if (dragging && dragging.from !== key) { e.preventDefault(); dropKey = key; } };
+  async function dropOn(key: string, e: DragEvent): Promise<void> {
+    e.preventDefault();
+    dropKey = null;
+    const d = dragging;
+    dragging = null;
+    if (!d || d.from === key) return;
+    moveError = "";
+    try {
+      // the moves judge by the inventory's own rows (the cargo's and the open ship's bays), read first
+      await flow.loadInventory();
+      if (ship) await flow.openShipBays(ship.itemID);
+      await flow.transferItems(d.ids, placeOf(d.from), placeOf(key));
+      const inv = store.inventory.get();
+      if (inv.actionError && !inv.actionErrorSaid) moveError = inv.actionError;
+    } catch (cause) {
+      moveError = cause instanceof Error ? cause.message : String(cause);
+    }
+    selected = [];
+    await Promise.all([flow.loadMiningHolds().catch(() => {}), flow.loadDrones().catch(() => {})]);
+  }
 </script>
 
 <div class="inv">
   <div class="tree">
     <div class="nodes">
       {#if ship}
-        <div class="node" class:sel={current === "cargo"} role="treeitem" aria-selected={current === "cargo"} tabindex="-1"
-          onclick={() => (current = "cargo")} onkeydown={() => {}}>
+        <div class="node" class:sel={current === "cargo"} class:drop={dropKey === "cargo"} role="treeitem" aria-selected={current === "cargo"} tabindex="-1"
+          onclick={() => (current = "cargo")} onkeydown={() => {}}
+          ondragover={dragOver("cargo")} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn("cargo", e)}>
           <button type="button" class="exp" class:open={treeOpen} aria-label="Expand" onclick={(e) => { e.stopPropagation(); treeOpen = !treeOpen; }}></button>
           <span class="ticon"><TypeIcon typeID={ship.typeID} name={shipLabel} size="sm" /></span>
           <span class="tlabel">{shipLabel}</span>
         </div>
         {#if treeOpen}
           {#each bays.filter((b) => b.key !== "cargo") as b (b.key)}
-            <div class="node sub" class:sel={current === b.key} role="treeitem" aria-selected={current === b.key} tabindex="-1"
-              onclick={() => (current = b.key)} onkeydown={() => {}}>
+            <div class="node sub" class:sel={current === b.key} class:drop={dropKey === b.key} role="treeitem" aria-selected={current === b.key} tabindex="-1"
+              onclick={() => (current = b.key)} onkeydown={() => {}}
+              ondragover={dragOver(b.key)} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn(b.key, e)}>
               <span class="ticon"><img src={clientTexture(BAY_ICON[b.key] ?? "res:/UI/Texture/WindowIcons/cargo.png")} alt=""></span>
               <span class="tlabel">{b.label}</span>
             </div>
@@ -143,14 +194,15 @@
       </div>
       <input class="search" placeholder="Search" bind:value={filter} />
     </div>
-    <div class="items">
+    <div class="items" role="list" onclick={() => (selected = [])} onkeydown={() => {}}>
       {#if bay && bay.items === null}
         <p class="none">…</p>
       {:else if !shown.length}
         <p class="none">{word("UI/Common/NothingFound", "Nothing Found")}</p>
       {:else}
         {#each shown as i (i.itemID)}
-          <div class="item" title={typeName(i.typeID)}>
+          <div class="item" class:selected={selected.includes(i.itemID)} title={typeName(i.typeID)} role="listitem" draggable="true"
+            onclick={(e) => clickItem(i.itemID, e)} onkeydown={() => {}} ondragstart={(e) => dragStart(i.itemID, e)}>
             <span class="icon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="lg" />
               {#if !i.singleton}<span class="qty">{i.quantity.toLocaleString("en-US")}</span>{/if}</span>
             <span class="iname">{typeName(i.typeID)}</span>
@@ -159,7 +211,10 @@
       {/if}
     </div>
     <div class="foot">
-      <span class="count">{word("UI/Inventory/NumItems2", `${shown.length} Items`, { numItems: shown.length, numFilteredTxt: filtered > 0 ? `(${filtered} filtered)` : "" })}</span>
+      <span class="count">{selected.length
+        ? word("UI/Inventory/NumItemsAndSelected2", `${shown.length} Items (${selected.length} selected)`, { numItems: shown.length, numSelected: selected.length, numFilteredTxt: filtered > 0 ? `(${filtered} filtered)` : "" })
+        : word("UI/Inventory/NumItems2", `${shown.length} Items`, { numItems: shown.length, numFilteredTxt: filtered > 0 ? `(${filtered} filtered)` : "" })}</span>
+      {#if moveError}<span class="err">{moveError}</span>{/if}
       <span class="price">{word("UI/Inventory/EstIskPrice2", `${Math.round(isk).toLocaleString("en-US")} ISK Est. price`, { iskString: `${Math.round(isk).toLocaleString("en-US")} ISK` })}</span>
     </div>
   </div>
@@ -200,4 +255,8 @@
   .iname { margin-top: 2px; width: 70px; text-align: center; font-size: 12px; line-height: 14px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .foot { display: flex; align-items: center; gap: 8px; height: 24px; color: rgba(255, 255, 255, 0.55); }
   .count { font-weight: 700; }
+  .err { color: #d08a6a; }
+  /* the selection frame, and a bay a drag may drop on */
+  .item.selected .icon { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5); background: rgba(255, 255, 255, 0.08); }
+  .node.drop { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4); }
 </style>
