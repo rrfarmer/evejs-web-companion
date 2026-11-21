@@ -66,3 +66,25 @@ export function setDroneWarpWarning(characterID: number, on: boolean): void {
   try { globalThis.localStorage?.setItem(key(characterID, "drone_warp_warning_enabled"), on ? "1" : "0"); } catch { /* lasts the page */ }
   droneWarpWarning.set(on);
 }
+
+/**
+ * droneSettings.drones_view_mode_setting (CharSettingEnum 'dronesViewMode', VIEW_MODE_ICONS 1, else VIEW_MODE_LIST 2):
+ * the drones window's view (its menu's View Mode radios); in Icons a drone in space shows its type's 32 px icon after
+ * its state and its entry is ICONSIZE + 8 high, in List it is ENTRY_HEIGHT 24 with no icon (DroneInSpaceEntry).
+ */
+export const droneViewIcons = createSignal<boolean>(true);
+let viewModeOf: number | null = null;
+export function droneViewModeFor(characterID: number): boolean {
+  if (viewModeOf !== characterID) {
+    viewModeOf = characterID;
+    let icons = true;
+    try { icons = globalThis.localStorage?.getItem(key(characterID, "dronesViewMode")) !== "2"; } catch { /* the default */ }
+    droneViewIcons.set(icons);
+  }
+  return droneViewIcons.get();
+}
+export function setDroneViewMode(characterID: number, icons: boolean): void {
+  viewModeOf = characterID;
+  try { globalThis.localStorage?.setItem(key(characterID, "dronesViewMode"), icons ? "1" : "2"); } catch { /* lasts the page */ }
+  droneViewIcons.set(icons);
+}
