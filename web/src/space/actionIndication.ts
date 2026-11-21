@@ -132,6 +132,8 @@ export const INDICATION_WORD_LABELS: readonly string[] = [
     ...Object.values(WARP_LABELS),
     ...Object.values(ALIGN_LABELS),
     SHIP_STOPPING_LABEL,
+    // the Selected Item window's hint with nothing selected (SelectedItemWnd.SetNoContentHint)
+    "UI/Inflight/ActiveItem/NoObjectSelected",
   ]),
 ];
 

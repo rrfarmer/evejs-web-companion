@@ -2233,7 +2233,10 @@ export class SpaceView {
     if (!e || e.isSelf) {
       if (body.getAttribute("data-sig") !== "none") {
         body.setAttribute("data-sig", "none");
-        body.innerHTML = `<div class="si-none">No object selected</div>`;
+        // SetNoContentHint(UI/Inflight/ActiveItem/NoObjectSelected): an EveCaptionMedium at (16, 18), 256 wide, SECONDARY
+        const hint = this.actions.word?.("UI/Inflight/ActiveItem/NoObjectSelected") ?? "No Object Selected";
+        body.innerHTML = `<div class="si-none"></div>`;
+        body.querySelector(".si-none")!.textContent = hint;
       }
       return;
     }
