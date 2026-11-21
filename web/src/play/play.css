@@ -270,6 +270,13 @@ button { font: inherit; color: inherit; }
 .ov-profile-edit { font: inherit; width: 220px; background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; padding: 1px 4px; }
 .ov-share { display: inline-flex; align-items: center; gap: 2px; padding: 2px 8px 2px 3px; border: 1px solid rgba(255, 255, 255, 0.2); cursor: grab; color: rgba(255, 255, 255, 0.85); }
 .ov-share img { width: 15px; height: 15px; }
+/* ExportOverviewWindow / ImportOverviewWindow: Check All, the scroll of parts, the file name and the button at the foot */
+.ov-xfer { display: flex; flex-direction: column; height: 100%; gap: 6px; }
+.ov-xfer-file { padding: 4px 0; color: rgba(255, 255, 255, 0.8); }
+.ov-xfer-list { flex: 1; overflow: auto; background: rgba(0, 0, 0, 0.25); padding: 4px 6px; }
+.ov-xfer-group { margin: 6px 0 2px; color: rgba(255, 255, 255, 0.6); }
+.ov-xfer-foot { display: flex; align-items: center; gap: 8px; }
+.ov-xfer-name { flex: 1; font: inherit; background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; padding: 2px 4px; }
 /* HistoryPanel: the text at the top (0.8), the list filling, the stored profile at the bottom under a 0.1 line, Restore Profile at its right */
 .ov-history { display: flex; flex-direction: column; height: calc(100% - 40px); }
 .ov-history-text { padding: 3px 10px 0; color: rgba(255, 255, 255, 0.8); }

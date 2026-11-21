@@ -188,7 +188,7 @@ export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HI
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
   "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
   "UI/Overview/EditCurrentFilter", "UI/Commands/ChangeName", "UI/Overview/DeleteTab", "/Carbon/UI/Controls/ScrollEntries/TypeInNewName",
-  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Overview/ToggleBlink", "UI/Overview/ImportOverviewSettings", "UI/Overview/ExportOverviewSettings", "UI/Common/Files/FileNotValid", "UI/Overview/MoveBroadcastersToTop", "UI/Overview/ShareOverview", "UI/Overview/SharableOverviewIconHint", "UI/Overview/ProfileHistory", "UI/Overview/HistoryText", "UI/Overview/AutomaticallyStoredOverviewHeader", "UI/Overview/RestoreProfile", "UI/Overview/StoredOverviewBasedOn", "UI/Overview/DefaultOverviewName", "UI/Overview/ProfileLinkWithTimestamp", "UI/Mail/Select Color", "UI/SystemMenu/ResetSettings/Clear", "UI/Common/Buttons/Save", "UI/Common/Buttons/SaveAs", "UI/Common/Delete", "UI/Overview/FilterName", "UI/Overview/CustomFilters", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
+  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Overview/ToggleBlink", "UI/Overview/ImportOverviewSettings", "UI/Overview/ExportOverviewSettings", "UI/Common/Files/FileNotValid", "UI/Commands/ExportOverviewSettings", "UI/Shared/CheckAllOn", "UI/Overview/GeneralOverviewSettings", "UI/Overview/OverviewProfile", "UI/Overview/OverviewProfileHint", "UI/Overview/TabPresetName", "UI/Overview/OtherTabPresets", "UI/Common/Files/FileName", "UI/Commands/Export", "UI/Commands/Import", "UI/Overview/SharableOverviewIconExportHint", "UI/Overview/OverviewExportDone", "UI/Common/NameInvalid", "UI/Overview/MoveBroadcastersToTop", "UI/Overview/ShareOverview", "UI/Overview/SharableOverviewIconHint", "UI/Overview/ProfileHistory", "UI/Overview/HistoryText", "UI/Overview/AutomaticallyStoredOverviewHeader", "UI/Overview/RestoreProfile", "UI/Overview/StoredOverviewBasedOn", "UI/Overview/DefaultOverviewName", "UI/Overview/ProfileLinkWithTimestamp", "UI/Mail/Select Color", "UI/SystemMenu/ResetSettings/Clear", "UI/Common/Buttons/Save", "UI/Common/Buttons/SaveAs", "UI/Common/Delete", "UI/Overview/FilterName", "UI/Overview/CustomFilters", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
 const DISABLED_TEXT = "Header sorting is disabled";
 
 /**
@@ -835,7 +835,7 @@ export class Overview {
         const pick = document.createElement("input");
         pick.type = "file";
         pick.accept = ".yaml,.yml,text/yaml";
-        pick.addEventListener("change", () => { const f = pick.files?.[0]; if (f) void f.text().then((text) => { this.importFile(text); draw(); }); });
+        pick.addEventListener("change", () => { const f = pick.files?.[0]; if (f) void f.text().then((text) => this.importChosenFile(text, f.name)); });
         pick.click();
         return;
       }
@@ -1005,7 +1005,81 @@ export class Overview {
     try { const v = JSON.parse(localStorage.getItem(RESTORE_KEY) ?? "null"); return v && typeof v.data === "object" ? v : null; } catch { return null; }
   }
   /** The overview as the client's export writes it (ExportOverviewWindow.Export: general settings, profile, own presets). */
-  overviewProfile(): OverviewProfile {
+  overviewProfile(selected?: ReadonlySet<string>): OverviewProfile {
+    const all = this.overviewProfileAll();
+    if (!selected) return all;
+    // Export: generalSettings is the Appearance, columns and ship labels; overviewProfile the tabs; the presets one by one
+    const general = selected.has("generalSettings"), profile = selected.has("overviewProfile");
+    return {
+      ...(general ? { flagOrder: all.flagOrder, flagStates: all.flagStates, backgroundOrder: all.backgroundOrder, backgroundStates: all.backgroundStates,
+        stateColors: all.stateColors, stateBlinks: all.stateBlinks, columnOrder: all.columnOrder, overviewColumns: all.overviewColumns, shipLabels: all.shipLabels } : {}),
+      ...(profile ? { tabs: all.tabs } : {}),
+      presets: Object.fromEntries(Object.entries(all.presets ?? {}).filter(([name]) => selected.has(name))),
+    };
+  }
+  /** The display name of a preset ID (a custom one's own name, a default's PresetChoice label). */
+  private presetLabel(id: string): string {
+    return id.startsWith(CUSTOM_PREFIX) ? id.slice(CUSTOM_PREFIX.length) : this.presetChoices.find((p) => p.id === id)?.label ?? id;
+  }
+  /**
+   * ExportOverviewWindow / ImportOverviewWindow: the overview's name and Share handle (export), Check All, the list
+   * (General Overview Settings, Overview Profile, each tab's preset as "Tab Preset: X", then Other Tab Presets), and
+   * the foot (the file's name and Export, or Import), the action given the parts ticked.
+   */
+  private openTransferWindow(kind: "export" | "import", parts: { key: string; label: string; hint?: string; group?: boolean }[], fileName: string,
+    act: (selected: Set<string>, fileName: string) => void): void {
+    const word = (label: string, own: string, args?: Record<string, string | number>) => this.hooks.word?.(label, args) ?? own;
+    document.querySelector(`.pw[data-xfer="${kind}"]`)?.remove();
+    const win = new PlayWindow({ id: `overview-${kind}`, caption: kind === "export" ? word("UI/Commands/ExportOverviewSettings", "Export Overview Settings") : word("UI/Overview/ImportOverviewSettings", "Import Overview Settings"),
+      left: Math.round(innerWidth / 2 - 200), top: Math.round(innerHeight / 2 - 220), width: 400, height: 440 });
+    win.root.dataset.xfer = kind;
+    (this.window.root.parentElement ?? document.body).append(win.root);
+    const selected = new Set(parts.filter((p) => !p.group).map((p) => p.key));
+    const draw = () => {
+      const allOn = parts.filter((p) => !p.group).every((p) => selected.has(p.key));
+      const top = kind === "export" ? `<div class="ov-set-top"><span class="ov-profile-name">${esc(this.profileName())}</span><span class="ov-share" draggable="true" title="${esc(word("UI/Overview/SharableOverviewIconExportHint", "Drag into chat to share these settings"))}"><img src="${clientTexture("res:/UI/Texture/classes/Overview/shareableOverview_small.png")}" alt="">${esc(word("UI/Overview/ShareOverview", "Share"))}</span></div>` : `<div class="ov-xfer-file">${esc(fileName)}</div>`;
+      win.body.innerHTML = `<div class="ov-xfer">${top}
+        <label class="ov-app-check"><input type="checkbox" data-xfer-all${allOn ? " checked" : ""}><span>${esc(word("UI/Shared/CheckAllOn", "Check All"))}</span></label>
+        <div class="ov-xfer-list">${parts.map((p) => p.group ? `<div class="ov-xfer-group">${esc(p.label)}</div>`
+          : `<label class="ov-app-check${p.key.startsWith("preset:") ? " sub" : ""}" title="${esc(p.hint ?? "")}"><input type="checkbox" data-xfer="${esc(p.key)}"${selected.has(p.key) ? " checked" : ""}><span>${esc(p.label)}</span></label>`).join("")}</div>
+        <div class="ov-xfer-foot">${kind === "export" ? `<span>${esc(word("UI/Common/Files/FileName", "File Name"))}</span><input class="ov-xfer-name" value="${esc(fileName)}">` : ""}
+          <button type="button" class="ov-xfer-go"${selected.size ? "" : " disabled"}>${esc(kind === "export" ? word("UI/Commands/Export", "Export") : word("UI/Commands/Import", "Import"))}</button></div></div>`;
+    };
+    win.body.addEventListener("change", (e) => {
+      const t = e.target as HTMLInputElement;
+      const name = (win.body.querySelector(".ov-xfer-name") as HTMLInputElement | null)?.value ?? fileName;
+      if (t.matches("[data-xfer-all]")) { for (const p of parts) if (!p.group) { if (t.checked) selected.add(p.key); else selected.delete(p.key); } }
+      else if (t.dataset.xfer) { if (t.checked) selected.add(t.dataset.xfer); else selected.delete(t.dataset.xfer); }
+      fileName = name;
+      draw();
+    });
+    win.body.addEventListener("click", (e) => {
+      if (!(e.target as HTMLElement).closest(".ov-xfer-go")) return;
+      const name = (win.body.querySelector(".ov-xfer-name") as HTMLInputElement | null)?.value.trim() ?? fileName;
+      if (kind === "export" && !name) { this.hooks.notice?.(word("UI/Common/NameInvalid", "Name is invalid.")); return; }
+      act(new Set([...selected].map((k) => k.replace(/^preset:/, ""))), name);
+      win.root.remove();
+    });
+    draw();
+  }
+  /** The parts a profile holds, as the windows list them. */
+  private transferParts(p: OverviewProfile, inUse: readonly string[]): { key: string; label: string; hint?: string; group?: boolean }[] {
+    const word = (label: string, own: string, args?: Record<string, string | number>) => this.hooks.word?.(label, args) ?? own;
+    const out: { key: string; label: string; hint?: string; group?: boolean }[] = [
+      { key: "generalSettings", label: word("UI/Overview/GeneralOverviewSettings", "General Overview Settings") },
+      { key: "overviewProfile", label: word("UI/Overview/OverviewProfile", "Overview Profile"), hint: word("UI/Overview/OverviewProfileHint", "") },
+    ];
+    const own = Object.keys(p.presets ?? {}).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    const tabPreset = (key: string) => { const name = this.presetChoices.some((c) => c.id === key) ? this.presetLabel(key) : key; return word("UI/Overview/TabPresetName", `Tab Preset: ${name}`, { presetName: name }); };
+    for (const name of own.filter((n) => inUse.includes(n))) out.push({ key: `preset:${name}`, label: tabPreset(name) });
+    const rest = own.filter((n) => !inUse.includes(n));
+    if (rest.length) {
+      out.push({ key: "group:rest", label: word("UI/Overview/OtherTabPresets", "Other Tab Presets"), group: true });
+      for (const name of rest) out.push({ key: `preset:${name}`, label: tabPreset(name) });
+    }
+    return out;
+  }
+  private overviewProfileAll(): OverviewProfile {
     const ids = (where: "flag" | "background") => this.appearanceList(where);
     const colorName = (c: readonly number[]) => STATE_COLORS.findIndex((x) => x.every((v, i) => Math.abs(v - (c[i] ?? 1)) < 0.01));
     const stateColors: Record<string, string> = {};
@@ -1026,21 +1100,40 @@ export class Overview {
   }
   /** ExportOverviewWindow: the file saved (the browser's download, as <overview name>.yaml). */
   private exportFile(): void {
-    const blob = new Blob([writeProfile(this.overviewProfile())], { type: "text/yaml" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${this.profileName().replace(/[\\/:*?"<>|]+/g, "_")}.yaml`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    const all = this.overviewProfileAll();
+    const inUse = (all.tabs ?? []).flatMap((t) => [t.overview, t.bracket ?? ""]);
+    this.openTransferWindow("export", this.transferParts(all, inUse), this.profileName(), (selected, name) => {
+      const blob = new Blob([writeProfile(this.overviewProfile(selected))], { type: "text/yaml" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${name.replace(/[\\/:*?"<>|]+/g, "_")}.yaml`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      // OverviewExportDone
+      this.hooks.notice?.(this.hooks.word?.("UI/Overview/OverviewExportDone", { filename: a.download }) ?? `Overview settings exported to ${a.download}`);
+    });
+  }
+  /** ImportOverviewWindow.OnFileSelected: the file's parts listed to tick, then Import. */
+  private importChosenFile(text: string, fileName: string): void {
+    const p = readProfile(text);
+    if (!p) { this.hooks.notice?.(this.hooks.word?.("UI/Common/Files/FileNotValid") ?? "This file is not valid."); return; }
+    const inUse = (p.tabs ?? []).flatMap((t) => [t.overview, t.bracket ?? ""]);
+    this.openTransferWindow("import", this.transferParts(p, inUse), fileName, (selected) => { this.importFile(text, selected); });
   }
   /**
    * ImportOverviewWindow.Import: a file the client (or the page) wrote loaded - the pilot's own filters added (a
    * name the overview has is a custom filter of that name), the tabs, the Appearance lists, colours and blinks and the
    * ship labels taken where the file has them; false where it is no overview file.
    */
-  importFile(text: string): boolean {
-    const p = readProfile(text);
-    if (!p) { this.hooks.notice?.(this.hooks.word?.("UI/Common/Files/FileNotValid") ?? "This file is not valid."); return false; }
+  importFile(text: string, selected?: ReadonlySet<string>): boolean {
+    const read = readProfile(text);
+    if (!read) { this.hooks.notice?.(this.hooks.word?.("UI/Common/Files/FileNotValid") ?? "This file is not valid."); return false; }
+    // only the parts ticked (ImportOverviewWindow's presetsSelected), all where none are given
+    const p: OverviewProfile = !selected ? read : {
+      ...(selected.has("generalSettings") ? { ...read, tabs: undefined, presets: undefined } : {}),
+      ...(selected.has("overviewProfile") ? { tabs: read.tabs } : {}),
+      presets: Object.fromEntries(Object.entries(read.presets ?? {}).filter(([name]) => selected.has(name))),
+    };
     try {
       if (p.presets && Object.keys(p.presets).length) localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify({ ...this.customPresets(), ...p.presets }));
       const custom = { ...this.customPresets() };
