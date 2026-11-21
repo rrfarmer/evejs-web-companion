@@ -21,3 +21,8 @@ export const invViewMode = createSignal<"icons" | "details" | "list" | null>(nul
 
 export function setInvSidebar(on: boolean): void { keep("evejs.ui.inventory.sidebar", on); invSidebar.set(on); }
 export function setInvCompact(on: boolean): void { keep("evejs.ui.inventory.compact", on); invCompact.set(on); }
+
+/** invSettings.keep_inv_quick_filter_setting (UserSettingBool keepInvQuickFilterInput, False): the quick filter kept when
+ * another container is shown (else Container.SetInvCont clears it). */
+export const invKeepFilter = createSignal<boolean>(read("evejs.ui.inventory.keepQuickFilter", false));
+export function setInvKeepFilter(on: boolean): void { keep("evejs.ui.inventory.keepQuickFilter", on); invKeepFilter.set(on); }

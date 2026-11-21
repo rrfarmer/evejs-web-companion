@@ -10,7 +10,7 @@
   // capacity gauge, the quick filter), the items (InvItem in icons view: a 64 px icon, its quantity at the bottom right
   // on black, the name under it in two lines at most; "Nothing Found" where none), and the foot's "<n> Items" and
   // "<isk> ISK Est. price" (UpdateNumberOfItems, UpdateIskPriceLabel).
-  import { invCompact, invFilter, invSidebar, invViewMode } from "./inventoryWindowSettings.ts";
+  import { invCompact, invFilter, invKeepFilter, invSidebar, invViewMode } from "./inventoryWindowSettings.ts";
   import { onMount, untrack } from "svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
@@ -148,6 +148,12 @@
   const compactSig = invCompact;
   const viewModeSig = invViewMode;
   const filter = $derived($filterSig);
+  // Container.SetInvCont: another container shown clears the quick filter unless keep_inv_quick_filter_setting
+  let shownBay: string | null = null;
+  $effect(() => {
+    const now = current;
+    untrack(() => { if (shownBay !== null && now !== shownBay && !invKeepFilter.get()) filterSig.set(""); shownBay = now; });
+  });
   const KEPT = "evejs.ui.inventory.activeShipCargo";
   const kept = (() => { try { return JSON.parse(localStorage.getItem(KEPT) ?? "{}") as { viewMode?: string; sortBy?: string; sortDir?: number; column?: number | null; reversed?: boolean }; } catch { return {}; } })();
   /** The scroll's own sort (scroll.ChangeSortBy: the column clicked again turns about, another starts ascending; scrollsortby_). */

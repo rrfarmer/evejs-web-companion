@@ -1,11 +1,11 @@
 <script lang="ts">
   // invWindow.Inventory in space: in compact mode its search field in the header (_get_search_field_parent:
   // _search_field_header_parent, centred), then the window's menu (CompactModeWindowAction, then GetMenuMoreOptions):
-  // Show Sidebar, and in compact mode a separator, the caption View Mode and the view modes' radio buttons.
+  // Show Sidebar, Keep Quick Filter Value, and in compact mode a separator, the caption View Mode and the view modes' radio buttons.
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import { invCompact, invFilter, invSidebar, invViewMode, setInvCompact, setInvSidebar } from "./inventoryWindowSettings.ts";
+  import { invCompact, invFilter, invKeepFilter, invSidebar, invViewMode, setInvCompact, setInvKeepFilter, setInvSidebar } from "./inventoryWindowSettings.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
@@ -14,8 +14,9 @@
   const sidebar = invSidebar;
   const filter = invFilter;
   const viewMode = invViewMode;
+  const keepFilter = invKeepFilter;
   const MODES = [["icons", "UI/Inventory/Icons", "Icons"], ["details", "UI/Inventory/Details", "Details"], ["list", "UI/Inventory/List", "List"]] as const;
-  $effect(() => { flow.requestWords(["UI/Inventory/ShowSidebar", "UI/Inventory/ViewMode", "UI/Inventory/Icons", "UI/Inventory/Details", "UI/Inventory/List",
+  $effect(() => { flow.requestWords(["UI/Inventory/ShowSidebar", "UI/Inventory/KeepQuickFilterValue", "UI/Inventory/ViewMode", "UI/Inventory/Icons", "UI/Inventory/Details", "UI/Inventory/List",
     "/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", "UI/Common/Search"]); });
 
   let open = $state(false);
@@ -44,6 +45,8 @@
       <hr class="sep" />
       <button type="button" role="menuitemcheckbox" aria-checked={$sidebar} onpointerdown={(event) => event.stopPropagation()}
         onclick={() => setInvSidebar(!$sidebar)}>{word("UI/Inventory/ShowSidebar", "Show Sidebar")}</button>
+      <button type="button" role="menuitemcheckbox" aria-checked={$keepFilter} onpointerdown={(event) => event.stopPropagation()}
+        onclick={() => setInvKeepFilter(!$keepFilter)}>{word("UI/Inventory/KeepQuickFilterValue", "Keep Quick Filter Value")}</button>
       {#if $compact}
         <hr class="sep" />
         <span class="caption">{word("UI/Inventory/ViewMode", "View Mode")}</span>
