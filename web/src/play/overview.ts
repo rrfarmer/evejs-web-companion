@@ -57,6 +57,13 @@ interface OverviewTab {
 }
 /** A default preset as a chooser lists it (GetPresetDisplayName with its category: "Category: Name"). */
 export interface PresetChoice { readonly id: string; readonly name: string; readonly label: string; readonly groups: ReadonlySet<number>; readonly category?: number; readonly categoryName?: string | null }
+/** TabPresetPanel.GetListOfCategories: the categories and their groups (a special group several group IDs), as the client lists them. */
+interface FilterCategory { category: string; groups: { name: string; groupIDs: number[] }[] }
+let filterGroupsRead: Promise<FilterCategory[] | null> | null = null;
+function overviewFilterGroups() {
+  filterGroupsRead ??= fetch("/client-assets/overviewFilterGroups.json").then((r) => (r.ok ? r.json() : null)).then((j) => (j?.categories ?? null) as FilterCategory[] | null).catch(() => null);
+  return filterGroupsRead;
+}
 let presetsRead: Promise<OverviewPresets | null> | null = null;
 function overviewPresets() {
   presetsRead ??= fetch("/client-assets/overviewPresets.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
@@ -109,7 +116,7 @@ export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HI
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
   "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
   "UI/Overview/EditCurrentFilter", "UI/Commands/ChangeName", "UI/Overview/DeleteTab", "/Carbon/UI/Controls/ScrollEntries/TypeInNewName",
-  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
+  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
 const DISABLED_TEXT = "Header sorting is disabled";
 
 /**
@@ -270,6 +277,7 @@ export class Overview {
       if (!p) return;
       const masks = new Map(Object.entries(p.presets).map(([id, preset]) => [id, presetMask(preset, id)]));
       this.masks = masks;
+      this.presetData = p.presets;
       this.tabSettings = this.storedTabs() ?? p.tabs.map((t) => ({ name: t.name, preset: t.preset, bracket: t.bracket ?? null }));
       this.tabs = this.tabSettings.map((t) => this.tabOf(t));
       // overviewUtil.GetDefaultFiltersSorted: by category (CATEGORY_ORDER), each sorted by its display name with category
@@ -437,20 +445,27 @@ export class Overview {
   }
 
   /**
-   * OverviewSettingsWnd (UI/Overview/OverviewSettings, 520 x 600): its tab group, of which the Tabs panel is here so far
-   * (TabsPanel: for each of MAX_TAB_NUM slots the Tab Name (MAX_TAB_NAME_LENGTH), Filter and Bracket Filter combos -
-   * Show All Brackets first - and a delete button; naming an empty slot adds the tab, UpdateOverviewTab on each change).
+   * OverviewSettingsWnd (UI/Overview/OverviewSettings, 520 x 600): its tab group, of which Tabs and Filters are here so
+   * far. TabsPanel: for each of MAX_TAB_NUM slots the Tab Name (MAX_TAB_NAME_LENGTH), Filter and Bracket Filter combos -
+   * Show All Brackets first - and a delete button; naming an empty slot adds the tab, UpdateOverviewTab on each change.
+   * TabPresetPanel: the filter to edit, its Types Shown - GetListOfCategories' categories (the client's own, read through
+   * gridcheck into overviewFilterGroups.json), each "shown / all" in the accent colour when all, white when some, grey
+   * when none, opened to its groups' checkboxes; Select All, Deselect All, the search; Revert while it has changes.
    */
-  openSettings(): void {
+  openSettings(panel: "tabs" | "filters" = "tabs", presetID?: string): void {
     const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
     document.querySelector(".ov-settings")?.closest(".pw")?.remove();
     const win = new PlayWindow({ id: "overview-settings", caption: word("UI/Overview/OverviewSettings", "Overview Settings"),
       left: Math.round(innerWidth / 2 - 260), top: Math.round(innerHeight / 2 - 300), width: 520, height: 600, minWidth: 520, minHeight: 500 });
     win.body.classList.add("ov-settings");
+    let current = panel;
+    let editing = presetID ?? this.tabSettings[this.tab]?.preset ?? this.presetChoices[0]?.id ?? "";
+    let search = "";
+    const open = new Set<string>();
     const options = (selected: string | null, showAll: boolean) =>
       (showAll ? `<option value=""${selected === null ? " selected" : ""}>${esc(word("UI/Overview/ShowAllBrackets", "Show All Brackets"))}</option>` : "") +
       this.presetChoices.map((p) => `<option value="${esc(p.id)}"${p.id === selected ? " selected" : ""}>${esc(p.label)}</option>`).join("");
-    const draw = () => {
+    const tabsPanel = () => {
       // an empty slot shows overviewPresetSvc.GetDefaultPreset (DefaultPreset_639452, "General: General", read from the client)
       const first = this.presetChoices.find((p) => p.id === "DefaultPreset_639452")?.id ?? this.presetChoices[0]?.id ?? null;
       const rows = Array.from({ length: MAX_TAB_NUM }, (_, i) => {
@@ -460,13 +475,36 @@ export class Overview {
           <select class="ov-set-bracket" title="${esc(word("UI/Overview/ChooseBracketPreset", ""))}">${options(t ? t.bracket : null, true)}</select>
           ${t ? `<img class="ov-set-delete" src="${clientTexture("res:/UI/Texture/eveicon/system_icons/close_16px.png")}" alt="" title="${esc(word("UI/Overview/DeleteTab", "Delete Tab"))}">` : `<span></span>`}</div>`;
       }).join("");
-      win.body.innerHTML = `<div class="ov-set-tabs"><span class="ov-set-tab active"></span></div>
-        <div class="ov-set-panel"><div class="ov-set-row ov-set-head"><span></span><span></span><span></span><span></span></div>${rows}</div>`;
-      win.body.querySelector(".ov-set-tab")!.textContent = word("UI/Overview/Tabs", "Tabs");
-      const heads = win.body.querySelectorAll<HTMLElement>(".ov-set-head span");
-      heads[0]!.textContent = word("UI/Overview/TabName", "Tab Name");
-      heads[1]!.textContent = word("UI/Overview/Filter", "Filter");
-      heads[2]!.textContent = word("UI/Overview/BracketFilter", "Bracket Filter");
+      return `<div class="ov-set-panel"><div class="ov-set-row ov-set-head"><span>${esc(word("UI/Overview/TabName", "Tab Name"))}</span><span>${esc(word("UI/Overview/Filter", "Filter"))}</span><span>${esc(word("UI/Overview/BracketFilter", "Bracket Filter"))}</span><span></span></div>${rows}</div>`;
+    };
+    const filtersPanel = () => {
+      const shown = this.masks.get(editing)?.groups ?? new Set<number>();
+      const q = search.trim().toLowerCase();
+      const cats = (this.filterGroups ?? []).map((c) => ({ ...c, groups: q ? c.groups.filter((g) => g.name.toLowerCase().includes(q)) : c.groups }))
+        .filter((c) => c.groups.length);
+      const tree = cats.map((c) => {
+        const on = c.groups.filter((g) => g.groupIDs.some((id) => shown.has(id))).length;
+        const tone = on >= c.groups.length ? "all" : on > 0 ? "some" : "none";
+        const expanded = open.has(c.category) || !!q;
+        const groups = expanded ? c.groups.map((g) => `<label class="ov-filt-group"><input type="checkbox" data-groups="${g.groupIDs.join(",")}"${g.groupIDs.some((id) => shown.has(id)) ? " checked" : ""}><span>${esc(g.name)}</span></label>`).join("") : "";
+        return `<div class="ov-filt-cat ${tone}${expanded ? " open" : ""}" data-cat="${esc(c.category)}"><span class="ov-filt-caret"></span>${esc(c.category)} ${on} / ${c.groups.length}</div>${groups}`;
+      }).join("");
+      const changed = groupOverrides(editing);
+      return `<div class="ov-set-panel ov-filt">
+        <div class="ov-filt-title">${esc(word("UI/Overview/FilterToEdit", "Select filter to edit"))}</div>
+        <select class="ov-filt-preset">${options(editing, false)}</select>
+        <div class="ov-set-tabs ov-filt-sub"><span class="ov-set-tab active">${esc(word("UI/Overview/TypesShown", "Types Shown"))}</span></div>
+        <div class="ov-filt-bar"><button type="button" class="ov-filt-all">${esc(word("UI/Common/SelectAll", "Select All"))}</button><button type="button" class="ov-filt-none">${esc(word("UI/Common/DeselectAll", "Deselect All"))}</button>
+          <input class="ov-filt-search" placeholder="${esc(word("UI/Common/Search", "Search"))}" value="${esc(search)}" autocomplete="off"></div>
+        <div class="ov-filt-tree">${tree}</div>
+        <div class="ov-add-buttons"><button type="button" class="ov-filt-revert"${changed.add.length || changed.remove.length ? "" : " disabled"}>${esc(word("UI/Common/Buttons/Revert", "Revert"))}</button></div></div>`;
+    };
+    const draw = () => {
+      const tabs: [typeof current, string][] = [["tabs", word("UI/Overview/Tabs", "Tabs")], ["filters", word("UI/Overview/Filters", "Filters")]];
+      const scroll = win.body.querySelector(".ov-filt-tree")?.scrollTop ?? 0;
+      win.body.innerHTML = `<div class="ov-set-tabs">${tabs.map(([k, t]) => `<span class="ov-set-tab${k === current ? " active" : ""}" data-panel="${k}">${esc(t)}</span>`).join("")}</div>${current === "tabs" ? tabsPanel() : filtersPanel()}`;
+      const tree = win.body.querySelector(".ov-filt-tree");
+      if (tree) tree.scrollTop = scroll;
     };
     // UpdateOverviewTab: each named slot updated, or added after the others
     const update = () => {
@@ -483,18 +521,72 @@ export class Overview {
       this.tabsChanged(Math.min(this.tab, next.length - 1));
       draw();
     };
-    win.body.addEventListener("change", (e) => { if ((e.target as HTMLElement).closest(".ov-set-row")) update(); });
+    win.body.addEventListener("change", (e) => {
+      const t = e.target as HTMLElement;
+      if (t.closest(".ov-set-row")) { update(); return; }
+      if (t.matches(".ov-filt-preset")) { editing = (t as HTMLSelectElement).value; draw(); return; }
+      const box = t.closest<HTMLInputElement>(".ov-filt-group input");
+      if (box) { this.setPresetGroups(editing, box.dataset.groups!.split(",").map(Number), box.checked); draw(); }
+    });
+    win.body.addEventListener("input", (e) => {
+      const t = e.target as HTMLInputElement;
+      if (!t.matches(".ov-filt-search")) return;
+      search = t.value;
+      draw();
+      const again = win.body.querySelector<HTMLInputElement>(".ov-filt-search")!;
+      again.focus();
+      again.setSelectionRange(search.length, search.length);
+    });
     win.body.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.target as HTMLElement).matches(".ov-set-name")) update(); });
     win.body.addEventListener("click", (e) => {
-      const del = (e.target as HTMLElement).closest(".ov-set-delete");
+      const t = e.target as HTMLElement;
+      const tab = t.closest<HTMLElement>("[data-panel]");
+      if (tab) { current = tab.dataset.panel as typeof current; draw(); return; }
+      const cat = t.closest<HTMLElement>(".ov-filt-cat");
+      if (cat) { const c = cat.dataset.cat!; if (open.has(c)) open.delete(c); else open.add(c); draw(); return; }
+      const all = (this.filterGroups ?? []).flatMap((c) => c.groups.flatMap((g) => g.groupIDs));
+      if (t.closest(".ov-filt-all")) { this.setPresetGroups(editing, all, true); draw(); return; }
+      if (t.closest(".ov-filt-none")) { this.setPresetGroups(editing, all, false); draw(); return; }
+      if (t.closest(".ov-filt-revert")) { this.revertPreset(editing); draw(); return; }
+      const del = t.closest(".ov-set-delete");
       if (!del || this.tabSettings.length <= 1) return;
       const i = Number(del.closest<HTMLElement>(".ov-set-row")!.dataset.slot);
       this.tabSettings.splice(i, 1);
       this.tabsChanged(this.tab > i ? this.tab - 1 : Math.min(this.tab, this.tabSettings.length - 1));
       draw();
     });
+    void overviewFilterGroups().then((g) => { this.filterGroups = g; if (current === "filters") draw(); });
     draw();
     (this.window.root.parentElement ?? document.body).append(win.root);
+  }
+
+  private filterGroups: FilterCategory[] | null = null;
+  private presetData: OverviewPresets["presets"] | null = null;
+
+  /** overviewPresetSvc.ChangeSettings(PRESET_SETTINGS_GROUPS, groups, isSelect) on a preset, kept as this browser's changes to it. */
+  private setPresetGroups(presetID: string, groupIDs: readonly number[], shown: boolean): void {
+    const mask = this.masks.get(presetID);
+    if (!mask) return;
+    const groups = mask.groups as Set<number>;
+    const o = groupOverrides(presetID);
+    const add = new Set(o.add), remove = new Set(o.remove);
+    for (const g of groupIDs) {
+      if (shown) { groups.add(g); add.add(g); remove.delete(g); } else { groups.delete(g); remove.add(g); add.delete(g); }
+    }
+    try { localStorage.setItem(groupOverrideKey(presetID), JSON.stringify({ add: [...add], remove: [...remove] })); } catch { /* the change lasts the page */ }
+    this.lastDraw = 0;
+  }
+
+  /** TabPresetPanel.OnRevertButton: the preset as the profile has it, this browser's changes dropped. */
+  private revertPreset(presetID: string): void {
+    const mask = this.masks.get(presetID);
+    const data = this.presetData?.[presetID];
+    if (!mask || !data) return;
+    try { localStorage.removeItem(groupOverrideKey(presetID)); } catch { /* nothing kept */ }
+    const groups = mask.groups as Set<number>;
+    groups.clear();
+    for (const g of data.groups) groups.add(g);
+    this.lastDraw = 0;
   }
 
   /** GetColumnVisibilitySubMenu(tabID): each column's checkbox for that tab, then Change Order. */
@@ -606,7 +698,7 @@ export class Overview {
         if (category === 0) continue;
         out.push({ label: presets[0]?.categoryName ?? String(category), icon: CATEGORY_ICONS[category] ?? null, sub: presets.map(entry) });
       }
-      out.push(null, { label: word("UI/Overview/EditCurrentFilter", "Edit Current Filter"), icon: SETTINGS_ICON, disabled: "Not here yet" });
+      out.push(null, { label: word("UI/Overview/EditCurrentFilter", "Edit Current Filter"), icon: SETTINGS_ICON, run: () => this.openSettings("filters", active ?? undefined) });
       return out;
     };
     const set = (change: Partial<TabSettings>) => { this.tabSettings[i] = { ...t, ...change }; this.tabsChanged(this.tab); };
