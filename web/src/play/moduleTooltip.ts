@@ -166,11 +166,20 @@ const siege: InfoRow = (f, _word, out) => {
   out.push({ icon: null, iconSize: 24, text: f.attributeName(ATTR.duration) ?? "", value: f.countdownText });
 };
 
+// AddScanProbeLauncherInfo (groupScanProbeLauncher 481): with probes loaded, AddAttributeInfoWithAttributeName on the charge's
+// baseSensorStrength (1371) - ScanProbeSensorStrength "Base Sensor Strength: 40 points", the attribute's icon
+const scanProbeLauncher: InfoRow = (f, word, out) => {
+  if (!f.charge) return;
+  const text = word("UI/Inflight/ModuleRacks/Tooltips/ScanProbeSensorStrength", { activeValue: f.chargeAttr(1371) ?? 0, activeName: f.attributeName(1371) ?? "" });
+  if (text !== null) out.push({ icon: f.attributeIcon(1371), iconSize: 24, text });
+};
+
 /** infoFunctionNames: a group's own rows. */
 const INFO_BY_GROUP = new Map<number, InfoRow>();
 for (const g of [54, 464, 483, 737, 4138]) INFO_BY_GROUP.set(g, miningLaser);
 INFO_BY_GROUP.set(4174, compressor);
 INFO_BY_GROUP.set(515, siege);
+INFO_BY_GROUP.set(481, scanProbeLauncher);
 INFO_BY_GROUP.set(650, tractorBeam);
 INFO_BY_GROUP.set(316, gangCoordinator);
 for (const g of [62, 1199, 1698, 2018]) {
@@ -376,7 +385,7 @@ export const MODULE_TOOLTIP_LABELS: readonly string[] = [
   "UI/Inflight/ModuleRacks/TypeNameWithNumInGroup", "UI/Inflight/ModuleRacks/ModuleDamaged", "UI/Inflight/ModuleRacks/AmmoNameWithQty",
   "UI/Inflight/ModuleRacks/MaxRange", "UI/Inflight/ModuleRacks/OptimalRangeAndFalloff", "UI/Inflight/ModuleRacks/OptimalRange",
   "UI/Inflight/ModuleRacks/AreaOfEffect", "UI/Inflight/ModuleRacks/RangeWithFalloff", "UI/Inflight/ModuleRacks/Range",
-  "UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", "UI/Inflight/ModuleRacks/Tooltips/CompressorModuleInfo", "UI/Inflight/ModuleRacks/Tooltips/TractorBeamTractorVelocity", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorCommandBonus", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorMaxCommandRelays", "UI/Inflight/ModuleRacks/Tooltips/ArmorRepairedPerTime",
+  "UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", "UI/Inflight/ModuleRacks/Tooltips/CompressorModuleInfo", "UI/Inflight/ModuleRacks/Tooltips/ScanProbeSensorStrength", "UI/Inflight/ModuleRacks/Tooltips/TractorBeamTractorVelocity", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorCommandBonus", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorMaxCommandRelays", "UI/Inflight/ModuleRacks/Tooltips/ArmorRepairedPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/HullRepairedPerTime", "UI/Inflight/ModuleRacks/Tooltips/ShieldBonusPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/MaxVelocityWithAndWithoutPropulsion", "UI/Inflight/ModuleRacks/Tooltips/CapacitorBoostPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/EnergyVampireAmountPerTime", "UI/Inflight/ModuleRacks/Tooltips/EnergDestabilizedPerTime",
