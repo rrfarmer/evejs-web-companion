@@ -104,3 +104,26 @@ export function dronesToLaunch(shipTypeID: number | null, bayIDs: readonly numbe
   const present = group ? group.droneIDs.filter((d) => bayIDs.includes(d) || spaceIDs.includes(d)) : [];
   return present.length ? bayIDs.filter((d) => present.includes(d)) : [...bayIDs];
 }
+
+/** _DroneGroupsController.OnItemLaunch: a stack in a group launched, the drones it became are put in that group too. */
+export function itemsLaunched(ids: ReadonlyMap<number, readonly number[]>): void {
+  const groups = get(droneGroups).groups;
+  let changed = false;
+  const next = { ...groups };
+  for (const [oldID, newIDs] of ids) {
+    const g = groupOf(next, oldID);
+    if (!g) continue;
+    const add = newIDs.filter((id) => id !== oldID && !g.droneIDs.includes(id));
+    if (!add.length) continue;
+    next[g.label] = { ...g, droneIDs: [...g.droneIDs, ...add] };
+    changed = true;
+  }
+  if (changed) save(next);
+}
+/** The controller registers for OnItemLaunch once (sm.RegisterNotify); here once per flow. */
+const watched = new WeakSet<object>();
+export function watchLaunches(flow: { onItemLaunch(listener: (ids: ReadonlyMap<number, readonly number[]>) => void): () => void }): void {
+  if (watched.has(flow)) return;
+  watched.add(flow);
+  flow.onItemLaunch(itemsLaunched);
+}

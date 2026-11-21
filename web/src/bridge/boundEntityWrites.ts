@@ -210,6 +210,8 @@ export interface DronesToLaunch {
 export interface Launched {
   readonly droneIDs: readonly number[];
   readonly refusals: readonly JsonValue[];
+  /** The answer's own pairs: each stack launched (its itemID) and the drones it became (OnItemLaunch's ids). */
+  readonly byStack: ReadonlyMap<number, readonly number[]>;
 }
 
 /**
@@ -233,8 +235,10 @@ export function decodeLaunched(answer: JsonValue): Launched | null {
   const entries = dict as readonly JsonValue[];
   const droneIDs: number[] = [];
   const refusals: JsonValue[] = [];
+  const byStack = new Map<number, number[]>();
   for (const entry of entries) {
     if (!Array.isArray(entry)) continue;
+    const stackID = Number(unwrapLong(entry[0] as JsonValue) ?? Number.NaN);
     const seq = entry[1];
     const items: readonly JsonValue[] = isListValue(seq) ? seq.items : Array.isArray(seq) ? seq : [];
     for (const each of items) {
@@ -243,10 +247,13 @@ export function decodeLaunched(answer: JsonValue): Launched | null {
         continue;
       }
       const id = Number(unwrapLong(each) ?? Number.NaN);
-      if (Number.isSafeInteger(id) && id > 0) droneIDs.push(id);
+      if (Number.isSafeInteger(id) && id > 0) {
+        droneIDs.push(id);
+        if (Number.isSafeInteger(stackID) && stackID > 0) byStack.set(stackID, [...(byStack.get(stackID) ?? []), id]);
+      }
     }
   }
-  return { droneIDs, refusals };
+  return { droneIDs, refusals, byStack };
 }
 
 // --- Lost drones reconnected to (the plan's Phase 6b) -------------------------

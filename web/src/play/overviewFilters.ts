@@ -189,7 +189,7 @@ export function iconAndBackgroundFlags(item: OverviewItem, groupID: number | nul
   const group = groupID ?? 0;
   const category = item.categoryID ?? 0;
   if (item.isSelf || !isUpdateItem(category, group)) return { icon: null, background: null };
-  if (group !== AGENT_IN_SPACE && (isNpcOwner(item.ownerID ?? null) || isNpcOwner(item.characterID ?? null))) return { icon: null, background: null };
+  if (group !== AGENT_IN_SPACE && ((item.ownerID != null && isNpcOwner(item.ownerID)) || (item.characterID != null && isNpcOwner(item.characterID)))) return { icon: null, background: null };
   const first = (order: readonly number[]) => {
     const f = order.find((flag) => flagHolds(flag, item, group, category, relations));
     const look = f === undefined ? null : STATE_FLAG_LOOKS.get(f) ?? null;

@@ -88,7 +88,7 @@
   import { openWindow, closeWindow, focusWindow, moveWindow, resizeWindow, toggleMinimize, type WinState } from "./desktop.ts";
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import { dronesToLaunch } from "./droneGroups.ts";
+  import { dronesToLaunch, watchLaunches } from "./droneGroups.ts";
   import { DSCAN_WORDS } from "../play/dscan.ts";
   import { LivePark } from "../three/livePark.ts";
   import { SpaceView, type Entity } from "../play/spaceView.ts";
@@ -1276,6 +1276,8 @@
   // Space: the SpaceView, made when the pilot is in space and let go when docked.
   let spaceHost = $state<HTMLDivElement | null>(null);
   let view: SpaceView | null = null;
+  /** What is selected in space (the view's), for the drones window's entries. */
+  let spaceSelected = $state<number | null>(null);
   const miningSurveyBusy = createSignal(false);
   const flightMiningSurvey: FlightMiningSurvey = {
     busy: miningSurveyBusy,
@@ -1693,6 +1695,7 @@
       entryWarpHistory: enteringSpace ?? undefined,
       recordCameraTask: s.flow.recordCameraTask,
       overviewPilotID: s.store.station.get().online?.characterID,
+      onSelectionChange: (id) => (spaceSelected = id),
       mountJumpBridge: (target, gate, initial) => {
         const state = createSignal(initial);
         const panel = mount(JumpBridgePanel, { target, props: { session: s, gate, state, simNow: () => live.simNow() } });
@@ -1845,6 +1848,8 @@
     });
     spaceHost.appendChild(v.root);
     view = v;
+    // the drone groups follow launched stacks (droneGroupsController.OnItemLaunch)
+    watchLaunches(s.flow);
     // the combat notification's moving-mode example text (UI/Accessories/Log/ExampleText)
     s.flow.requestWords([
       "UI/Accessories/Log/ExampleText", "UI/Accessories/Log/ExitMessageMovingMode",
@@ -2077,7 +2082,7 @@
           {/snippet}
           <!-- (the drones window in the client's layout: FlyDronesWindow; the workspace keeps DronesPanel) -->
           {#if win.id === "drones"}
-            <FlyDronesWindow store={session.store} flow={session.flow} onSelect={(id) => view?.selectObjectiveTarget(id)} onLock={(id) => void session?.flow.lockTarget(id).catch(() => {})} />
+            <FlyDronesWindow store={session.store} flow={session.flow} {spaceSelected} onSelect={(id) => view?.selectObjectiveTarget(id)} onLock={(id) => void session?.flow.lockTarget(id).catch(() => {})} />
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
               onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} {autoMoonMiner}

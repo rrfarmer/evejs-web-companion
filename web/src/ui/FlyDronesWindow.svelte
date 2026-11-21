@@ -24,8 +24,10 @@
   import type { AppFlow } from "../app/flow.ts";
   import type { SpaceEntity } from "../store/types.ts";
 
-  let { store, flow, onSelect, onLock }: {
+  let { store, flow, onSelect, onLock, spaceSelected = null }: {
     store: ClientStore; flow: AppFlow;
+    /** What is selected in space now (stateSvc selected), whose drone entry shows selected (DroneEntry.OnStateChange). */
+    spaceSelected?: number | null;
     /** stateSvc.SetState(itemID, selected): a drone in space picked in the view (the Selected Item window). */
     onSelect?: (itemID: number) => void;
     /** target.TryLockTarget: Ctrl-click on a drone in space. */
@@ -185,6 +187,17 @@
     const typeOf = (x: number) => section === "bay" ? bayRows.find((r) => r.itemID === x)?.typeID ?? null : spaceRows.find((r) => r.itemIDs[0] === x)?.typeID ?? null;
     return selected[section].filter((x) => droneGroupOf(typeOf(x)) === kind);
   }
+  // DroneEntry.OnStateChange(selected): the entry of the object deselected in space deselects, the newly selected one's selects
+  let lastSpaceSelected: number | null = null;
+  $effect(() => {
+    const now = spaceSelected;
+    if (now === lastSpaceSelected) return;
+    const prev = lastSpaceSelected;
+    lastSpaceSelected = now;
+    const ids = selected.space.filter((x) => x !== prev);
+    const shown = ($drones.inSpace ?? []).some((d) => d.itemID === now);
+    selected = { ...selected, space: now !== null && shown && !ids.includes(now) ? [...ids, now] : ids };
+  });
   /** DronesDragData: the drones dragged (the selection where the dragged entry is in it), where from, and their type. */
   let dragging: { section: Section; ids: number[]; typeID: number | null } | null = null;
   function dragStart(section: Section, id: number, typeID: number | null, e: DragEvent): void {

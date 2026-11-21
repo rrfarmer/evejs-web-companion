@@ -4380,6 +4380,8 @@ export interface AppFlow {
    * for CHOOSING a victim, not for being protected.
    */
   launchDrones(itemIDs: readonly number[]): Promise<void>;
+  /** OnItemLaunch: told, after each launch, each stack launched and the drones it became; answers the unsubscribe. */
+  onItemLaunch(listener: (ids: ReadonlyMap<number, readonly number[]>) => void): () => void;
   /** R25 — set drones on a target. */
   engageDrones(droneIDs: readonly number[], targetID: number): Promise<void>;
   /** R25 — put mining drones on a rock. */
@@ -27470,6 +27472,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await loadDrones().catch(() => {});
   }
 
+  const itemLaunchListeners = new Set<(ids: ReadonlyMap<number, readonly number[]>) => void>();
   async function launchDrones(itemIDs: readonly number[]): Promise<void> {
     // The whole stack, as the retail client's Launch does: the panel picks
     // stacks, the bay it was drawn from says how many are in each.
@@ -27515,7 +27518,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     const already = new Set((decodeDronesInSpace(before) ?? []).map((drone) => drone.itemID));
     const answer = await launchDronesCall(bridgeDo, stacks);
-    const named = decodeLaunched(answer)?.droneIDs ?? [];
+    const decodedLaunch = decodeLaunched(answer);
+    const named = decodedLaunch?.droneIDs ?? [];
+    if (decodedLaunch && decodedLaunch.byStack.size) for (const listener of itemLaunchListeners) { try { listener(decodedLaunch.byStack); } catch { /* a listener's fault is its own */ } }
     let inSpace: JsonValue = null;
     try {
       inSpace = (await api.getDrones(callOptions)).inSpace;
@@ -38217,6 +38222,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadMiningWindow,
     loadDrones,
     launchDrones,
+    onItemLaunch(listener) { itemLaunchListeners.add(listener); return () => { itemLaunchListeners.delete(listener); }; },
     engageDrones,
     mineWithDrones,
     salvageDrones,

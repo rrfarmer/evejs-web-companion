@@ -190,6 +190,8 @@ export interface SpaceViewOptions {
   entryWarpHistory?: Promise<boolean | null>;
   recordCameraTask?: (event: CameraTaskEvent) => void;
   overviewPilotID?: number;
+  /** stateSvc's selected state changed (an object selected, or none): for the panels that show it (the drone entries). */
+  onSelectionChange?: (itemID: number | null) => void;
   overviewNotice?: (text: string) => void;
   overviewAsk?: (dialog: string, fallback: string) => Promise<boolean>;
   overviewSay?: (dialog: string, fallback: string) => void;
@@ -394,7 +396,7 @@ export class SpaceView {
     const centre = (el: Element | null | undefined) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.width || r.height ? [r.left + r.width / 2, r.top + r.height / 2] as const : null; };
     const line = this.hairlineSvg.querySelector<SVGPolylineElement>(".hl-line")!, trace = this.hairlineSvg.querySelector<SVGPolylineElement>(".hl-trace")!;
     const place = (): boolean => {
-      const a = centre(this.shipHud?.slotElement(moduleID)), b = centre(this.bracketEls.get(targetID)), c = centre(this.targetBar.weaponElement(moduleID));
+      const a = centre(this.shipHud && "slotElement" in this.shipHud ? this.shipHud.slotElement(moduleID) : null), b = centre(this.bracketEls.get(targetID)), c = centre(this.targetBar.weaponElement(moduleID));
       if (!a || !b || !c || this.bracketEls.get(targetID)?.style.display === "none") { this.hairlineSvg.style.display = "none"; return false; }
       const pts = `${a[0]},${a[1]} ${b[0]},${b[1]} ${c[0]},${c[1]}`;
       line.setAttribute("points", pts);
@@ -1039,7 +1041,7 @@ export class SpaceView {
     this.hairlineSvg.innerHTML = `<polyline class="hl-line" fill="none"/><polyline class="hl-trace" fill="none"/>`;
     this.layer.appendChild(this.hairlineSvg);
     // Weapon.OnMouseEnterWeapon: the hairline drawn the other way (reverse), from the weapon icon back to the module
-    this.targetBar.onWeaponHover = (moduleID) => { this.shipHud?.highlightModule(moduleID); if (moduleID !== null) this.showHairlines(moduleID, true); else this.stopHairlines(); };
+    this.targetBar.onWeaponHover = (moduleID) => { if (this.shipHud && "highlightModule" in this.shipHud) this.shipHud.highlightModule(moduleID); if (moduleID !== null) this.showHairlines(moduleID, true); else this.stopHairlines(); };
     // The radial menu: held or right-clicked on a bracket, an overview row or an object in space.
     if (!document.getElementById("radial-css")) {
       const style = document.createElement("style");
@@ -1058,7 +1060,7 @@ export class SpaceView {
     this.systemMap = new SolarSystemMapWindow({
       celestials: () => (this.snapshot?.entities ?? []).filter((e) => e.groupID !== null && (MARKER_GROUPS.has(e.groupID))),
       ego: () => this.snapshot?.ship?.position ?? null,
-      word: (label, args) => this.actions.word?.(label, args) ?? null,
+      word: (label) => this.actions.word?.(label) ?? null,
       markerName: (itemID) => {
         const entity = this.snapshot?.entities.find((each) => each.itemID === itemID);
         return this.actions.locationName?.(itemID) ?? (entity ? this.nameOf(entity) : "");
@@ -1439,6 +1441,7 @@ export class SpaceView {
     const combat = itemID !== null ? this.combat?.cmd ?? this.modifierCombat() : null;
     if (combat && combat !== "CmdSelectTargetItem" && itemID !== null) { this.runCombat(combat, itemID); return false; }
     this.selected = itemID;
+    this.options.onSelectionChange?.(itemID);
     // overviewWindow.OnScrollSelectionChange and inSpaceBracket.OnClick:
     // a selected object becomes the active target when it is already locked.
     if (itemID !== null && this.locked.has(itemID)) this.activeTarget = itemID;
