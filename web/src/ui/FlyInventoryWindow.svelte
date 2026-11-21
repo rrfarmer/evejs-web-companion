@@ -303,11 +303,17 @@
   }
   /** CompressInSpaceController.CompressItems (ui/compressInSpace.ts). */
   const compressInSpace = (items: readonly { itemID: number }[]) => compressItemsInSpace(store, flow, items, (l, own) => word(l, own));
+  /** What a move changes read again: the ship's holds, the drone bay, and an opened container (either window shows it). */
+  async function refreshPlaces(): Promise<void> {
+    const open = store.inventory.get().container;
+    await Promise.all([flow.loadMiningHolds().catch(() => {}), flow.loadDrones().catch(() => {}),
+      open ? flow.openContainer(open.itemID).catch(() => {}) : Promise.resolve()]);
+  }
   async function act(run: () => Promise<void>): Promise<void> {
     moveError = "";
     try { await run(); } catch (cause) { moveError = cause instanceof Error ? cause.message : String(cause); }
     selected = [];
-    await Promise.all([flow.loadMiningHolds().catch(() => {}), flow.loadDrones().catch(() => {})]);
+    await refreshPlaces();
   }
   async function dropOn(key: string, e: DragEvent): Promise<void> {
     e.preventDefault();
@@ -334,7 +340,7 @@
       moveError = cause instanceof Error ? cause.message : String(cause);
     }
     selected = [];
-    await Promise.all([flow.loadMiningHolds().catch(() => {}), flow.loadDrones().catch(() => {})]);
+    await refreshPlaces();
   }
 </script>
 
