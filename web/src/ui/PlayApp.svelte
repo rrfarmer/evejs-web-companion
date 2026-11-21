@@ -2304,7 +2304,7 @@
     {/if}
     {#if !docked && session}
       <MiningOverlayControl store={session.store} survey={flightMiningSurvey}
-        openResults={() => open("miningScan")} openLedger={() => open("miningLedger")} disable={disableMiningOverlay} />
+        openResults={() => open("miningScan")} openLedger={() => open("miningLedger")} disable={disableMiningOverlay} requestWords={(labels) => session?.flow.requestWords(labels)} />
     {/if}
     <!-- hudLayer._ConstructKeepers: the new HUD's buff bar centred on the medallion, its foot on the band's top -->
     <div class="fly-buffs" class:new-hud={newHudOn} class:hud-top={$hudTop}><BuffBar store={session.store} flow={session.flow} /></div>

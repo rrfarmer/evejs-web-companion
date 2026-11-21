@@ -3,14 +3,38 @@
   import { INTEGRATED_MINING_SCANNER, MINING_SCANNER_UPGRADE, miningScanInWarp } from "../bridge/miningScanResults.ts";
   import type { FlightMiningSurvey } from "../play/miningSurveyWave.ts";
   import { hudSettingNow } from "../store/hudSettings.ts";
-
-  let { store, survey, openResults, openLedger, disable }: {
+  import { plainText } from "../bridge/clientWords.ts";
+  let { store, survey, openResults, openLedger, disable, requestWords }: {
     store: ClientStore;
     survey: FlightMiningSurvey;
     openResults: () => void;
     openLedger: () => void;
     disable: () => void;
+    requestWords?: (labels: readonly string[]) => void;
   } = $props();
+  // the client's words (MiningScannerButton.GetMenu and LoadTooltipPanel)
+  const WORDS = ["Tooltips/Hud/MiningScan", "UI/Mining/OreValue", "UI/Mining/LowValue", "UI/Mining/HighValue", "UI/Mining/OpenScanResultsWindow",
+    "UI/Mining/OpenMiningLedger", "UI/Mining/DisableMiningOverlay", "UI/Mining/MiningScannerUpgradeRequired"];
+  $effect(() => { requestWords?.(WORDS); });
+  const words = $derived(store.words);
+  const say = (label: string, own: string): string => {
+    const t = $words.templates[label];
+    return typeof t === "string" && t !== "" ? plainText(t) : own;
+  };
+  /** UI/Mining/MiningScannerUpgradeRequired with its module_name (typeSurveyScannerI 444's link): the text without its markup. */
+  const upgradeNote = $derived.by(() => {
+    const t = $words.templates["UI/Mining/MiningScannerUpgradeRequired"];
+    return typeof t === "string" && t !== "" ? plainText(t.replace(/\{module_name\}/g, "Mining Survey Chipset")) : null;
+  });
+  /** The tooltip (UtilityButton's command tooltip, then the ore value scale): where it stands, null while hidden. */
+  let tip = $state<{ x: number; y: number } | null>(null);
+  let tipTimer: ReturnType<typeof setTimeout> | null = null;
+  function tipOn(e: MouseEvent): void {
+    const el = e.currentTarget as HTMLElement;
+    if (tipTimer) clearTimeout(tipTimer);
+    tipTimer = setTimeout(() => { const r = el.getBoundingClientRect(); tip = { x: r.right + 12, y: r.top + r.height / 2 }; }, 300);
+  }
+  function tipOff(): void { if (tipTimer) clearTimeout(tipTimer); tipTimer = null; tip = null; }
   const flight = $derived(store.flight);
   const fitting = $derived(store.fitting);
   const space = $derived(store.space);
@@ -41,17 +65,34 @@
 
 {#if supported && newHud}
   <div class="new-hud-mining" class:busy={$busy} role="group" aria-label="Mining overlay controls">
-    <button type="button" class="util" onclick={run} oncontextmenu={showOptions}
-      title={detailed ? "Detailed mining scan" : "Basic mining scan"} disabled={miningScanInWarp($space.snapshot)}>
+    <button type="button" class="util" onclick={run} oncontextmenu={(e) => { tipOff(); showOptions(e); }}
+      onmouseenter={tipOn} onmouseleave={tipOff} disabled={miningScanInWarp($space.snapshot)}>
       <span class="pulse"></span><img src={glyph} alt="" width="16" height="16" />
     </button>
     {#if menu}
+      <!-- MiningScannerButton.GetMenu: the results window, the ledger, and with the overlay on, a line and Disable -->
       <div class="flight-mining-actions">
-        <button type="button" onclick={() => { menu = false; openResults(); }}>Open Scan Results</button>
-        <button type="button" onclick={() => { menu = false; openLedger(); }}>Open Mining Ledger</button>
+        <button type="button" onclick={() => { menu = false; openResults(); }}>{say("UI/Mining/OpenScanResultsWindow", "Open Scan Results Window")}</button>
+        <button type="button" onclick={() => { menu = false; openLedger(); }}>{say("UI/Mining/OpenMiningLedger", "Open Mining Ledger")}</button>
         {#if active || $busy}
-          <button type="button" onclick={() => { menu = false; disable(); }}>Disable Mining Overlay</button>
+          <span class="sep" role="separator"></span>
+          <button type="button" onclick={() => { menu = false; disable(); }}>{say("UI/Mining/DisableMiningOverlay", "Disable Mining Survey Overlay")}</button>
         {/if}
+      </div>
+    {/if}
+    {#if tip}
+      <!-- MiningScannerButton.LoadTooltipPanel: the command's tooltip (CmdMiningScan, Tooltips/Hud/MiningScan, no
+           shortcut by default), "Ore Value" over a 200 x 8 gradient (ULTRAMARINE_BLUE, AIR_TURQUOISE, SAND_YELLOW) with
+           Low and High under it; below the upgrade tier 2, the upgrade note in the secondary colour, 200 wide -->
+      <div class="mining-tip" style:left={`${tip.x}px`} style:top={`${tip.y}px`}>
+        <div class="mt-frame"></div>
+        <div class="mt-body">
+          <b>{say("Tooltips/Hud/MiningScan", "Mining Surveyor")}</b>
+          <span class="mt-label">{say("UI/Mining/OreValue", "Ore Value")}</span>
+          <span class="mt-bar"></span>
+          <span class="mt-ends"><span>{say("UI/Mining/LowValue", "Low")}</span><span>{say("UI/Mining/HighValue", "High")}</span></span>
+          {#if tier < 2 && upgradeNote}<span class="mt-note">{upgradeNote}</span>{/if}
+        </div>
       </div>
     {/if}
   </div>
@@ -93,6 +134,15 @@
     border: 1px solid #58666e; background: #111920f5; padding: 2px;
   }
   .flight-mining-actions button { text-align: left; }
+  .flight-mining-actions .sep { height: 1px; margin: 2px 4px; background: #ffffff22; }
+  .mining-tip { position: fixed; transform: translateY(-50%); z-index: 100000; pointer-events: none; padding: 16px; font: 14px var(--font); color: rgba(255, 255, 255, 0.75); }
+  .mt-frame { position: absolute; inset: 0; opacity: 0.75; border-style: solid; border-width: 0; border-image-source: url(/client-res/ui/texture/classes/framewithpointer/background_04.png); border-image-slice: 19 fill; border-image-width: 19px; border-image-outset: 15px; }
+  .mt-body { position: relative; display: grid; gap: 4px; width: 200px; }
+  .mt-body b { color: rgba(255, 255, 255, 0.95); white-space: nowrap; }
+  .mt-label { padding-top: 8px; }
+  .mt-bar { height: 8px; background: linear-gradient(to right, #2e4ebe, #70f0e3, #ffb845); }
+  .mt-ends { display: flex; justify-content: space-between; }
+  .mt-note { padding-top: 8px; color: rgba(255, 255, 255, 0.5); font-size: 13px; }
   /* UtilityButtonBase: ring r 15 w 2 (white 0.2, FOCUS_BLUE on hover), disc r 14 (black 0.1, SMOKE_BLUE on hover),
      a 30 px underlay black 0.4; the glyph 0.5 at rest, 1 on hover; a press dips it 2 px. */
   .new-hud-mining { position: absolute; left: calc(50% - 591px + 300px + 25px - 16px); bottom: 82px; z-index: 4; }
