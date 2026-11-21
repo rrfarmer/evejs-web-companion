@@ -17,24 +17,31 @@ let processRuntime = null;
  * means float, BigInt means long. Source int literals use int() explicitly.
  */
 function valueRuntime(binding) {
-  const handles = new WeakMap(), interned = new Map(), closed = new WeakSet();
+  const interned = new Map(), closed = new WeakSet();
+  let ownsValue, nativeOf;
   const collected = new FinalizationRegistry(identity => { if (!interned.get(identity)?.deref()) interned.delete(identity); });
   function handle(value) {
-    const native = handles.get(value);
+    const native = nativeOf(value);
     if (!native || value.disposed) throw new TypeError("A live value from this installed Python runtime is required.");
     return native;
   }
   function wrap(native, releaseDuplicate = true) {
     const identity = binding.identity(native), old = interned.get(identity)?.deref();
-    if (old && !old.disposed) { if (releaseDuplicate && handles.get(old) !== native) binding.dispose(native); return old; }
+    if (old && !old.disposed) { if (releaseDuplicate && nativeOf(old) !== native) binding.dispose(native); return old; }
     const value = new NativeValue(native, identity);
     interned.set(identity, new WeakRef(value));
     collected.register(value, identity);
     return value;
   }
   class NativeValue {
+    // Give the handle the wrapper's lifetime without a table sized by peak traffic.
+    #native;
+    static {
+      ownsValue = value => typeof value === "object" && value !== null && #native in value;
+      nativeOf = value => ownsValue(value) ? value.#native : undefined;
+    }
     constructor(native, identity) {
-      handles.set(this, native);
+      this.#native = native;
       Object.defineProperty(this, "identity", { value: identity, enumerable: true });
       Object.freeze(this);
     }
@@ -52,12 +59,12 @@ function valueRuntime(binding) {
     setItem(key, value) { binding.setItem(handle(this), handle(convert(key)), handle(convert(value))); return this; }
     call(...args) { return wrap(binding.call(handle(this), args.map(value => handle(convert(value))))); }
     dispose() {
-      if (!this.disposed) { binding.dispose(handles.get(this)); closed.add(this); if (interned.get(this.identity)?.deref() === this) interned.delete(this.identity); }
+      if (!this.disposed) { binding.dispose(this.#native); closed.add(this); if (interned.get(this.identity)?.deref() === this) interned.delete(this.identity); }
     }
   }
   function make(kind, value) { return wrap(binding.value(kind, value)); }
   function convert(value) {
-    if (handles.has(value)) { handle(value); return value; }
+    if (ownsValue(value)) { handle(value); return value; }
     if (value === null) return make("none", null);
     if (typeof value === "boolean") return make("bool", value);
     if (typeof value === "bigint") return make("long", value.toString());
