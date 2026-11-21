@@ -135,6 +135,8 @@
   import { applyClientTint } from "../play/clientTint.ts";
   import SovReagentBay from "./SovReagentBay.svelte";
   import SovHubWindow from "./SovHubWindow.svelte";
+  import ContactActionDialog from "./ContactActionDialog.svelte";
+  import type { ContactAction } from "./contactAction.ts";
   import type { MySovHub, SovHubDetails, SovHubExtras } from "../app/flow.ts";
 
   // The app's navy panels in the client's greys, for as long as the play mode is up (play/clientTint.ts).
@@ -151,6 +153,8 @@
   };
 
   let session = $state<Session | null>(null);
+  // the Pilot submenu's Add Contact / Edit Contact: the address book's contactmanagement window
+  let pilotContact = $state.raw<ContactAction | null>(null);
   let autoMoonMiner = $state.raw<AutoMoonMiner | null>(null);
   let moonMaterialBay = $state.raw<MoonMaterialBay | null>(null);
   let moonMaterialRequest = 0;
@@ -1350,6 +1354,7 @@
     let lastFleet: ReturnType<typeof s.store.fleet.get>["fleet"] = null;
     let fleetMembers = new Set<number>();
     let disposed = false;
+    let pilotBook: import("../bridge/contacts.ts").NamedAddressBook | null = null;
 
     // Read relationships on demand for tabs with state exclusions. Refresh the held readings on the same
     // contact, fleet and war changes used by their windows.
@@ -1471,7 +1476,7 @@
     const attributeLook = new Map<number, { readonly icon: string | null; readonly nameID: number | null }>();
     void s.flow.attributeDisplay(TIP_ATTRIBUTES).then((found) => {
       for (const [id, d] of found ?? []) attributeLook.set(id, { icon: d.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d.displayNameID });
-      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Menusvc/MenuHints/NoReasonGiven", "UI/Control/EveWindow/Minimize", "UI/Generic/Copy", "UI/Drones/EngageTarget", "UI/Drones/MineWithDrone", "UI/Drones/Salvage", "UI/Drones/ReturnDroneAndOrbit", "UI/Drones/ReturnDroneToBay", "UI/Drones/ScoopDroneToBay", "UI/Drones/AbandonDrone", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Menusvc/MoonsMenuOption", "UI/Common/Pilot", "UI/Inflight/BoardShip", "UI/Commands/GiveMoney", "UI/PeopleAndPlaces/BlockContact", "UI/EVEMail/SendPilotEVEMail", "UI/Fleet/FormFleetWith", "UI/Crimewatch/Duel/DuelMenuEntry", "UI/Inflight/Submenus/MoonX", "UI/Menusvc/PlanetHasNoMoons", "UI/PI/Common/CustomsOffice", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
+      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Menusvc/MenuHints/NoReasonGiven", "UI/Control/EveWindow/Minimize", "UI/Generic/Copy", "UI/Drones/EngageTarget", "UI/Drones/MineWithDrone", "UI/Drones/Salvage", "UI/Drones/ReturnDroneAndOrbit", "UI/Drones/ReturnDroneToBay", "UI/Drones/ScoopDroneToBay", "UI/Drones/AbandonDrone", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Menusvc/MoonsMenuOption", "UI/Common/Pilot", "UI/Inflight/BoardShip", "UI/Commands/GiveMoney", "UI/PeopleAndPlaces/BlockContact", "UI/EVEMail/SendPilotEVEMail", "UI/Fleet/FormFleetWith", "UI/Crimewatch/Duel/DuelMenuEntry", "UI/PeopleAndPlaces/AddContact", "UI/PeopleAndPlaces/EditContact", "UI/Commands/CapturePortrait", "UI/Inflight/Submenus/MoonX", "UI/Menusvc/PlanetHasNoMoons", "UI/PI/Common/CustomsOffice", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
     }).catch(() => {});
     const stopAskedAt = new Map<number, number>();
     const tipWord = (label: string, args: Readonly<Record<string, unknown>>): string | null => {
@@ -1743,8 +1748,12 @@
         return name || null;
       },
       // menusvc.CharacterMenu under "Pilot (<name>)" (UI/Common/Pilot), in the client's order (read through gridcheck),
-      // the entries the page has a way for: Show Info, Give Money, Block, Send Message, Form Fleet With..., Invite to Duel
+      // the entries the page has a way for: Show Info, Give Money, Add Contact (Edit Contact for one), Block, Send
+      // Message, Capture Portrait, Form Fleet With..., Invite to Duel
       pilotMenu: (characterID) => {
+        // AddContactMenu: Edit Contact where the pilot is in the address book (IsInAddressBook), else Add Contact
+        if (!pilotBook) void s.flow.addressBook("contact").then((book) => { pilotBook = book; }).catch(() => {});
+        const known = !!pilotBook?.contacts.some((c) => c.contactID === characterID);
         const resolved = s.store.names.get().resolved;
         const nameOf = (id: number) => resolvedName(resolved, "owner", id, "");
         s.flow.requestNames([{ kind: "owner", id: characterID }]);
@@ -1759,8 +1768,19 @@
           sub: [
             { label: w("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => showInfo({ kind: "character", characterID }) },
             { label: w("UI/Commands/GiveMoney", "Give Money"), run: () => void s.flow.openMoneyTransfer(characterID).catch(() => {}) },
+            { label: known ? w("UI/PeopleAndPlaces/EditContact", "Edit Contact") : w("UI/PeopleAndPlaces/AddContact", "Add Contact"),
+              run: () => void s.flow.addressBook("contact").then((book) => { pilotBook = book; pilotContact = { kind: "manage", ownerID: characterID, name: nameOf(characterID) || name, book }; }).catch(() => {}) },
             { label: w("UI/PeopleAndPlaces/BlockContact", "Block"), run: () => void s.flow.blockOwners([characterID]).catch(() => {}) },
             { label: w("UI/EVEMail/SendPilotEVEMail", "Send Message"), run: () => { focusMail({ kind: "compose", characterID, name }); open("mail"); } },
+            // CapturePortrait: the portrait at its largest size saved as <characterID>.jpg
+            { label: w("UI/Commands/CapturePortrait", "Capture Portrait"), run: () => void s.flow.capturePortraits([characterID], (id, image) => {
+              const bytes = Uint8Array.from(atob(image.base64), (ch) => ch.charCodeAt(0));
+              const link = document.createElement("a");
+              link.href = URL.createObjectURL(new Blob([bytes], { type: image.contentType }));
+              link.download = `${id}.jpg`;
+              link.click();
+              setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
+            }, () => {}).catch(() => {}) },
             { label: w("UI/Fleet/FormFleetWith", "Form Fleet With..."), run: () => void s.flow.formFleetWith(characterID).catch(() => {}) },
             { label: w("UI/Crimewatch/Duel/DuelMenuEntry", "Invite to Duel"), run: () => void s.flow.startDuel(characterID).catch(() => {}) },
           ],
@@ -2204,6 +2224,10 @@
   {/if}
   {#if damageAlertsOpen}
     <ErrorBoundary name="Ship health alerts"><DamageAlertSettings store={session.store} onClose={() => (damageAlertsOpen = false)} /></ErrorBoundary>
+  {/if}
+  {#if pilotContact}
+    {@const action = pilotContact}
+    <ErrorBoundary name="Contact"><ContactActionDialog store={session.store} flow={session.flow} {action} done={() => (pilotContact = null)} /></ErrorBoundary>
   {/if}
 {/if}
 
