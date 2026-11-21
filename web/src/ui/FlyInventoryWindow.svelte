@@ -40,7 +40,16 @@
   const MENU = { market: "UI/Inventory/ItemActions/ViewTypesMarketDetails", buy: "UI/Inventory/ItemActions/BuyThisType", compare: "UI/Compare/CompareButton",
     jettison: "UI/Inventory/ItemActions/Jettison", launch: "UI/Drones/LaunchDrone", info: "UI/Commands/ShowInfo", contracts: "UI/Inventory/ItemActions/FindInContracts",
     assets: "UI/Inventory/ItemActions/FindPersonalAssets", quickbar: "UI/Inventory/ItemActions/AddTypeToMarketQuickbar" } as const;
-  const WORDS = [...Object.values(MENU), "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Common/SortBy", "UI/Inventory/ViewMode",
+  /** uix.GetInvItemDefaultHeaders, the details and list views' columns. */
+  const HEADERS = ["UI/Common/Name", "UI/Common/Quantity", "UI/Inventory/ItemGroup", "UI/Inventory/ItemCategory", "UI/Inventory/ItemSize", "UI/Inventory/ItemSlot",
+    "UI/Inventory/ItemVolume", "UI/Inventory/ItemMetaLevel", "UI/Inventory/ItemTechLevel", "UI/Contracts/ContractsWindow/EstPrice"] as const;
+  const HEADER_OWN = ["Name", "Quantity", "Group", "Category", "Size", "Slot", "Volume", "Meta Level", "Tech Level", "Est. Price"];
+  /** invWindow.SORT_OPTIONS: each criterion's ascending and descending words. */
+  const SORT_OPTIONS = [["UI/Common/Name", "UI/Inventory/NameReversed", "name", "Name", "Name (reversed)"], ["UI/Inventory/ItemQuantity", "UI/Inventory/QuantityReversed", "qty", "Quantity", "Quantity (reversed)"],
+    ["UI/Common/Type", "UI/Inventory/TypeReversed", "type", "Type", "Type (reversed)"], ["UI/Inventory/EstPrice", "UI/Inventory/EstPriceReversed", "estPrice", "Est. Price", "Est. Price (reversed)"]] as const;
+  /** invCont.GetViewModeName / GetViewModeIcon. */
+  const VIEW_MODES = [["icons", "UI/Inventory/Icons", "Icons", "grid_view"], ["details", "UI/Inventory/Details", "Details", "details_view"], ["list", "UI/Inventory/List", "List", "list_view"]] as const;
+  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Common/SortBy", "UI/Inventory/ViewMode",
     "UI/Inventory/Filters/MyFilters", "UI/Common/NothingFound", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
   flow.requestWords(WORDS);
   const word = (label: string, own: string, args: Record<string, string | number> = {}) => {
@@ -89,7 +98,7 @@
   $effect(() => {
     const refs: NameRef[] = [];
     if (ship?.typeID) refs.push({ kind: "type", id: ship.typeID });
-    for (const b of bays) for (const i of b.items ?? []) refs.push({ kind: "type", id: i.typeID });
+    for (const b of bays) for (const i of b.items ?? []) { refs.push({ kind: "type", id: i.typeID }); refs.push({ kind: "typeGroup", id: i.typeID }); refs.push({ kind: "typeCategory", id: i.typeID }); }
     if (refs.length) flow.requestNames(refs);
   });
 
@@ -105,8 +114,36 @@
   let treeOpen = $state(true);
 
   let filter = $state("");
-  const shown = $derived((bay?.items ?? []).filter((i) => !filter.trim() || typeName(i.typeID).toLowerCase().includes(filter.trim().toLowerCase()))
-    .sort((a, b) => typeName(a.typeID).localeCompare(typeName(b.typeID))));
+  const KEPT = "evejs.ui.inventory.activeShipCargo";
+  const kept = (() => { try { return JSON.parse(localStorage.getItem(KEPT) ?? "{}") as { viewMode?: string; sortBy?: string; sortDir?: number }; } catch { return {}; } })();
+  /** containerViewMode_<name> and the icons' sort (sortIconsBy, sortIconsDir), kept as the client keeps them. */
+  let viewMode = $state<"icons" | "details" | "list">((["icons", "details", "list"].includes(kept.viewMode ?? "") ? kept.viewMode : "icons") as "icons" | "details" | "list");
+  let sortBy = $state<string>(kept.sortBy ?? "name");
+  let sortDir = $state<number>(kept.sortDir ?? 0);
+  const vm = $derived(VIEW_MODES.find((v) => v[0] === viewMode)!);
+  $effect(() => { try { localStorage.setItem(KEPT, JSON.stringify({ viewMode, sortBy, sortDir })); } catch { /* lasts the page */ } });
+  const groupName = (typeID: number) => resolvedName($names.resolved, "typeGroup", typeID, "");
+  const categoryName = (typeID: number) => resolvedName($names.resolved, "typeCategory", typeID, "");
+  const shown = $derived.by(() => {
+    const list = (bay?.items ?? []).filter((i) => !filter.trim() || typeName(i.typeID).toLowerCase().includes(filter.trim().toLowerCase()));
+    const key = (i: (typeof list)[number]): string | number => sortBy === "qty" ? i.quantity : sortBy === "type" ? `${groupName(i.typeID)}\u0000${typeName(i.typeID)}`
+      : sortBy === "estPrice" ? (prices?.get(i.typeID) ?? 0) * i.quantity : typeName(i.typeID).toLowerCase();
+    const sorted = [...list].sort((a, b) => { const x = key(a), y = key(b); return typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y)); });
+    return sortDir ? sorted.reverse() : sorted;
+  });
+  // the details columns' facts: volume (evetypes) and meta and tech levels (typeFacts)
+  let facts = $state<Record<number, { volume: number | null; meta: number | null; tech: number | null }>>({});
+  $effect(() => {
+    if (viewMode === "icons") return;
+    const missing = [...new Set((bay?.items ?? []).map((i) => i.typeID))].filter((t) => !facts[t]);
+    if (!missing.length) return;
+    for (const t of missing) facts[t] = { volume: null, meta: null, tech: null };
+    void Promise.all([flow.typeVolumes(missing).catch(() => ({} as Record<string, number>)), flow.typeFacts(missing).catch(() => null)]).then(([v, m]) => {
+      const next = { ...facts };
+      for (const t of missing) next[t] = { volume: v[String(t)] ?? null, meta: m?.get(t)?.metaLevel ?? null, tech: m?.get(t)?.techLevel ?? null };
+      facts = next;
+    });
+  });
   const filtered = $derived((bay?.items?.length ?? 0) - shown.length);
 
   // typeHelpers.GetAveragePrice: the cfg's average prices
@@ -181,6 +218,28 @@
     }
     menu.open(e.clientX, e.clientY, entries);
   }
+  /** _get_view_mode_menu: each mode with its icon. */
+  function viewModeMenu(e: MouseEvent): void {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    menu.open(r.left, r.bottom, VIEW_MODES.map(([id, label, own, icon]) => ({ label: word(label, own), icon: `res:/ui/texture/eveicon/system_icons/${icon}_16px.png`, run: () => { viewMode = id; } })));
+  }
+  /** _get_sort_menu: each criterion ascending and descending, a line between, the one in use ticked. */
+  function sortMenu(e: MouseEvent): void {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const entries: (ContextEntry | null)[] = [];
+    SORT_OPTIONS.forEach(([asc, desc, criteria, ownAsc, ownDesc], i) => {
+      if (i > 0) entries.push(null);
+      for (const [dir, label, own] of [[0, asc, ownAsc], [1, desc, ownDesc]] as const) {
+        entries.push({ label: word(label, own), icon: sortBy === criteria && sortDir === dir ? "res:/UI/Texture/eveicon/system_icons/checkmark_16px.png" : null, run: () => { sortBy = criteria; sortDir = dir; } });
+      }
+    });
+    menu.open(r.left, r.bottom, entries);
+  }
+  /** _stack_all: invCont.StackAll of the bay shown. */
+  function stackAll(): void {
+    if (!bay) return;
+    void act(() => flow.stackContainer(bay.key === "cargo" ? "cargo" : { kind: "shipBay", bay: bay.key }));
+  }
   async function act(run: () => Promise<void>): Promise<void> {
     moveError = "";
     try { await run(); } catch (cause) { moveError = cause instanceof Error ? cause.message : String(cause); }
@@ -236,9 +295,12 @@
   </div>
   <div class="right">
     <div class="top">
-      <span class="tool" title={word("UI/Inventory/StackAll", "Stack All")} style:background-image={`url(${clientTexture("res:/ui/texture/eveicon/system_icons/stack_16px.png")})`}></span>
-      <span class="tool" title={word("UI/Inventory/ViewMode", "View mode")} style:background-image={`url(${clientTexture("res:/ui/texture/eveicon/system_icons/grid_view_16px.png")})`}></span>
-      <span class="tool" title={word("UI/Common/SortBy", "Sort by")} style:background-image={`url(${clientTexture("res:/ui/texture/eveicon/system_icons/bars_sort_ascending_16px.png")})`}></span>
+      <button type="button" class="tool" title={word("UI/Inventory/StackAll", "Stack All")} onclick={stackAll} style:background-image={`url(${clientTexture("res:/ui/texture/eveicon/system_icons/stack_16px.png")})`}></button>
+      <button type="button" class="tool" title={word("UI/Inventory/ViewModeWithCurrent", `View mode (${vm[2]})`, { current_view_mode: word(vm[1], vm[2]) })} onclick={viewModeMenu}
+        style:background-image={`url(${clientTexture(`res:/ui/texture/eveicon/system_icons/${vm[3]}_16px.png`)})`}></button>
+      {#if viewMode === "icons"}
+        <button type="button" class="tool" title={word("UI/Common/SortBy", "Sort by")} onclick={sortMenu} style:background-image={`url(${clientTexture("res:/ui/texture/eveicon/system_icons/bars_sort_ascending_16px.png")})`}></button>
+      {/if}
       <div class="gauge">
         <span class="gfill" style:width={`${fill * 100}%`}></span>
         <span class="gtext">{bay ? `${fmt1(bay.used ?? 0)}/${bay.capacity === null ? "?" : fmt1(bay.capacity)} m³` : ""}</span>
@@ -250,6 +312,29 @@
         <p class="none">…</p>
       {:else if !shown.length}
         <p class="none">{word("UI/Common/NothingFound", "Nothing Found")}</p>
+      {:else if viewMode !== "icons"}
+        <!-- the scroll of listentry.InvItem rows under GetInvItemDefaultHeaders: details with the 32 px icon and the
+             label 46 in, list without the icon -->
+        <table class="rows" class:details={viewMode === "details"}>
+          <thead><tr>{#each HEADERS as h, k}<th>{word(h, HEADER_OWN[k]!)}</th>{/each}</tr></thead>
+          <tbody>
+            {#each shown as i (i.itemID)}
+              {@const fa = facts[i.typeID]}
+              <tr class:selected={selected.includes(i.itemID)} draggable="true" onclick={(e) => clickItem(i.itemID, e)} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
+                <td class="nm">{#if viewMode === "details"}<span class="ricon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="md" /></span>{/if}{typeName(i.typeID)}</td>
+                <td class="num">{i.quantity.toLocaleString("en-US")}</td>
+                <td>{groupName(i.typeID)}</td>
+                <td>{categoryName(i.typeID)}</td>
+                <td></td>
+                <td></td>
+                <td class="num">{fa?.volume != null ? `${(fa.volume * i.quantity).toLocaleString("en-US", { maximumFractionDigits: 2 })} m³` : ""}</td>
+                <td class="num">{fa?.meta ?? ""}</td>
+                <td class="num">{fa?.tech ?? ""}</td>
+                <td class="num">{prices?.get(i.typeID) ? `${Math.round((prices.get(i.typeID) ?? 0) * i.quantity).toLocaleString("en-US")} ISK` : ""}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
       {:else}
         {#each shown as i (i.itemID)}
           <div class="item" class:selected={selected.includes(i.itemID)} title={typeName(i.typeID)} role="listitem" draggable="true"
@@ -291,7 +376,7 @@
   .caret { font-size: 10px; }
   .right { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   .top { display: flex; align-items: center; gap: 0; height: 24px; margin-bottom: 16px; }
-  .tool { width: 24px; height: 24px; flex: none; background: center / 16px 16px no-repeat; opacity: 0.8; }
+  .tool { padding: 0; border: 0; background-color: transparent; cursor: pointer; width: 24px; height: 24px; flex: none; background: center / 16px 16px no-repeat; opacity: 0.8; }
   .tool:hover { opacity: 1; }
   .gauge { position: relative; flex: 1; min-width: 0; height: 24px; margin: 0 8px; background: rgba(0, 0, 0, 0.3); }
   .gfill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(88, 167, 191, 0.35); }
@@ -306,6 +391,16 @@
   .iname { margin-top: 2px; width: 70px; text-align: center; font-size: 12px; line-height: 14px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .foot { display: flex; align-items: center; gap: 8px; height: 24px; color: rgba(255, 255, 255, 0.55); }
   .count { font-weight: 700; }
+  .rows { width: 100%; border-collapse: collapse; font-size: 12px; align-self: flex-start; }
+  .rows th { position: sticky; top: 0; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 2px 6px; white-space: nowrap; background: rgba(0, 0, 0, 0.4); }
+  .rows td { padding: 0 6px; height: 20px; white-space: nowrap; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
+  .rows.details td { height: 36px; }
+  .rows tr:hover td { background: rgba(255, 255, 255, 0.05); }
+  .rows tr.selected td { background: rgba(255, 255, 255, 0.12); }
+  .rows .num { text-align: right; }
+  .rows .nm { display: flex; align-items: center; gap: 9px; }
+  .ricon { width: 32px; height: 32px; display: grid; margin-left: 5px; }
+  .ricon :global(.type-icon) { width: 32px; height: 32px; }
   .err { color: #d08a6a; }
   /* the selection frame, and a bay a drag may drop on */
   .item.selected .icon { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5); background: rgba(255, 255, 255, 0.08); }
