@@ -18,6 +18,10 @@
   import { isSessionLost } from "../app/flow.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import TypeIcon from "./TypeIcon.svelte";
+  import { showInfo } from "./showInfo.ts";
+  import { showMarketDetails } from "./marketDetails.ts";
+  import { findInPersonalAssets } from "./assetsSearch.ts";
+  import { typeCompareTarget } from "./typeCompare.ts";
   import NamePopup from "./NamePopup.svelte";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { createSubGroup, deleteGroup, droneGroups, dronesToLaunch, groupOf, moveToGroup, removeFromGroup, setFavoriteGroupID, DRONE_DRAG_TYPE, type DroneGroup } from "./droneGroups.ts";
@@ -75,7 +79,9 @@
   const MENU_WORDS = {
     engage: ["UI/Drones/EngageTarget", "Engage Target"], mine: ["UI/Drones/MineWithDrone", "Mine"], salvage: ["UI/Drones/Salvage", "Salvage"],
     orbit: ["UI/Drones/ReturnDroneAndOrbit", "Return and Orbit"], bay: ["UI/Drones/ReturnDroneToBay", "Return to Drone Bay"],
-    scoop: ["UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"], launch: ["UI/Drones/LaunchDrones", "Launch Drones"],
+    scoop: ["UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"], launch: ["UI/Drones/LaunchDrones", "Launch Drones"], launchOne: ["UI/Drones/LaunchDrone", "Launch Drone"],
+    info: ["UI/Commands/ShowInfo", "Show Info"], market: ["UI/Inventory/ItemActions/ViewTypesMarketDetails", "View Market Details"],
+    assets: ["UI/Inventory/ItemActions/FindPersonalAssets", "Find in Personal Assets"], compare: ["UI/Compare/CompareButton", "Compare"],
     autoAttack: ["UI/Drones/AutoAttack", "Auto Attack"], focusFire: ["UI/Drones/AttackModeFocusFire", "Focus Fire"],
     autoAttackHint: ["UI/Drones/AutoAttackHint", "Should drones automatically attack if aggression is shown to you or them"],
     focusFireHint: ["UI/Drones/AttackModeFocusFireHint", "Should drones focus their efforts on a single enemy (only applicable with Auto Attack enabled)"],
@@ -461,8 +467,30 @@
   }
 
   /** The right-click menu: where, and its entries (a reason in place of an entry that cannot run). */
-  type MenuEntry = { label: string; disabled?: string | null; act?: () => Promise<void>; sub?: MenuEntry[] };
+  type MenuEntry = { label: string; disabled?: string | null; act?: () => Promise<void>; sub?: MenuEntry[]; sep?: boolean };
+  const SEP: MenuEntry = { label: "", sep: true };
   let menu = $state<{ x: number; y: number; entries: MenuEntry[] } | null>(null);
+  /**
+   * DroneInBayEntry.GetMenu (read through gridcheck on a bay Hobgoblin): the window's GroupMenu (Move Drone) and InvItemMenu
+   * over the selection without Buy This Type, Add to Market Quickbar and Find in Contracts, ordered by menuHierarchy with
+   * a line between groups: Launch Drone | Show Info | View Market Details, Find in Personal Assets | Move Drone | Compare.
+   * On more than one drone (isMultiSelection, MergeMenus) no Show Info or Find in Personal Assets, and " (<n>)" after
+   * Launch Drone and Compare.
+   */
+  function bayRowMenu(ids: number[], typeID: number): MenuEntry[] {
+    const multi = ids.length > 1;
+    const count = (label: string) => (multi ? `${label} (${ids.length})` : label);
+    const groups: MenuEntry[][] = [
+      // UI/Drones/LaunchDrone is a plural template: the client's entry says it with numDrones 1, its count after it
+      [{ label: count(plainText(formatTemplate(say(MENU_WORDS.launchOne), { numDrones: 1 }, { nameOf: () => "" }))), act: () => flow.launchDrones(ids) }],
+      multi ? [] : [{ label: say(MENU_WORDS.info), act: async () => showInfo({ kind: "type", typeID, itemID: ids[0] }) }],
+      [{ label: say(MENU_WORDS.market), act: async () => showMarketDetails(typeID) },
+        ...(multi ? [] : [{ label: say(MENU_WORDS.assets), act: async () => findInPersonalAssets(typeName(typeID, "")) }])],
+      [moveMenu(ids, typeID)],
+      [{ label: count(say(MENU_WORDS.compare)), act: async () => typeCompareTarget.ask(ids.map((itemID) => ({ typeID, itemID }))) }],
+    ];
+    return groups.filter((g) => g.length).flatMap((g, n) => (n ? [SEP, ...g] : g));
+  }
   function openMenu(event: MouseEvent, entries: MenuEntry[]): void {
     event.preventDefault();
     const host = (event.currentTarget as HTMLElement).closest(".fly-drones")!.getBoundingClientRect();
@@ -512,7 +540,7 @@
     onmouseenter={(e) => tipFor(row.typeID, null, null, null, e)} onmouseleave={tipOff}
     onclick={(e) => clickEntry("bay", row.itemID, e)} ondragstart={(e) => dragStart("bay", row.itemID, row.typeID, e)}
     ondblclick={() => run(() => flow.launchDrones(row.itemIDs))}
-    oncontextmenu={(e) => { const ids = pickedFor("bay", row.itemID, row.typeID, true); openMenu(e, [moveMenu(ids, row.typeID), { label: say(MENU_WORDS.launch), act: () => flow.launchDrones(ids) }]); }}>
+    oncontextmenu={(e) => { const ids = pickedFor("bay", row.itemID, row.typeID, true); openMenu(e, bayRowMenu(ids, row.typeID)); }}>
     <!-- dronesWindow: a stack's label UI/Inflight/DroneBayEntryWithStacksize, "Mining Drone I (2)" (3698585, through
          gridcheck); one drone its name alone -->
     <span class="name">{row.quantity > 1 ? `${row.label} (${row.quantity})` : row.label}</span>
@@ -578,6 +606,7 @@
 {#snippet menuList(entries: MenuEntry[], nested: boolean)}
   <ul class="menu" class:sub={nested} role="menu">
     {#each entries as entry}
+      {#if entry.sep}<li class="sep" role="separator"></li>{:else}
       <li role="menuitem" class:has-sub={!!entry.sub}>
         {#if entry.sub}
           <button type="button" class="opener" onclick={(e) => e.stopPropagation()}>{entry.label}<span class="arrow">▸</span></button>
@@ -586,7 +615,7 @@
           <button type="button" disabled={busy || !!entry.disabled} title={entry.disabled ?? ""}
             onclick={() => { const act = entry.act; menu = null; if (act) void run(act); }}>{entry.label}{#if entry.disabled}<span class="why">{" - "}{entry.disabled}</span>{/if}</button>
         {/if}
-      </li>
+      </li>{/if}
     {/each}
   </ul>
 {/snippet}
@@ -812,6 +841,7 @@
   .state { margin: 0; padding: 4px 12px 6px; font-size: 11px; color: rgb(108, 110, 107); }
   .said { margin: 0; padding: 3px 12px; font-size: 11px; color: #d08a6a; }
   .menu-host { position: absolute; z-index: 10; }
+  .menu .sep { height: 1px; margin: 6px 0; background: rgba(255, 255, 255, 0.12); }
   .menu { margin: 0; padding: 2px 0; list-style: none; min-width: 150px; background: rgba(20, 21, 20, 0.97); border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6); }
   .menu button { display: block; width: 100%; padding: 4px 12px; border: 0; background: transparent; color: #ddd; text-align: left; font-size: 12px; cursor: pointer; }
   .menu button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); color: #fff; }
