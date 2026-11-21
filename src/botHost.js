@@ -519,6 +519,11 @@ function createBotHost(options) {
     }
     record.startup?.end();
     record.preparationCheckpoint?.end();
+    // The ended-run ring keeps this record. Drop the callbacks from start(),
+    // whose closure still refers to the retired flow and store.
+    record.startProductive = null;
+    record.recoverSession = null;
+    record.pluginFetch = null;
     record.finalized = true;
     record.endedAt = nowISO();
     persistRoster();
@@ -1231,7 +1236,7 @@ function createBotHost(options) {
                 if (url.pathname === "/api/bridge/ship/jettison" && record.hostedOreJettisonRecovery) record.jettisonWriteUnresolved = true;
                 else record.recoveryWriteUnresolved = true;
               }
-              if (!record.recovering && secret === record.claimSecret) void record.recoverSession(false).catch(logError);
+              if (!record.recovering && secret === record.claimSecret) void record.recoverSession?.(false).catch(logError);
             }
           }
           return response;
@@ -1517,7 +1522,7 @@ function createBotHost(options) {
       const online = store.station.get().online;
       record.characterName = online ? online.characterName : null;
       if (record.operationPreparation) await prepareOperationRecord(record);
-      if (record.operationPreparation && (record.finalized || record.manualStopRequested || record.operationStopRequested)) {
+      if (record.finalized || (record.operationPreparation && (record.manualStopRequested || record.operationStopRequested))) {
         record.giveBackSession = null;
         return { ok: true, bot: publicBot(record) };
       }
@@ -1576,6 +1581,7 @@ function createBotHost(options) {
         return { ok: false, code: "BOT_START_FAILED", message: record.startError };
       }
       record.giveBackSession = null;
+      if (record.finalized || record.windingDown) return { ok: true, bot: publicBot(record) };
       record.recoveryEnabled = !!record.operationID && (record.restartSafe || record.hostedOreJettisonRecovery) && typeof flow.suspendHostedSession === "function";
       const remainingMs = Math.max(1, Date.parse(record.expiresAt) - now());
       record.deadlineTimer = setDeadlineTimeout(() => {

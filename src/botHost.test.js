@@ -1504,6 +1504,89 @@ test("hosted attachment keeps one logical run and WC restart restores its startu
 const PREPARED_OPERATION = { ...START, operationID: "mining-op", operationRole: "MINER", operationRunID: "operation-run-1",
   operationPreparation: { providerCharacterID: 140000002, corporationID: 20, fittingID: 4, source: { kind: "hangar" } }, deferMain: true };
 
+test("finished bot history releases pilot flows, stores, and their data", { skip: !global.gc }, async (t) => {
+  const log = [], references = [];
+  const host = makeHost({
+    log,
+    webAuth: { createSessionToken: () => "owned-token", verifySessionToken: () => ({ sessionID: "owned-web-session" }) },
+    prepareOperation: async () => ({ state: "VERIFIED", evidence: { supplies: "FULL" } }),
+    loadStack: makeFakeStack(log, (flow, store) => {
+      const routeGraph = { systems: Array(2 ** 20).fill(42) };
+      const names = { entries: Array(2 ** 20).fill(43) };
+      const hostedFlow = { ...flow, routeGraph };
+      store._set({ names });
+      references.push([hostedFlow, store, routeGraph, names].map(value => new WeakRef(value)));
+      return hostedFlow;
+    }),
+  });
+  t.after(() => host.stopAll());
+
+  const started = [];
+  for (const launch of [START, PLUGIN_START, { ...PREPARED_OPERATION, characterID: START.characterID + 2 }]) {
+    const result = await host.start(launch);
+    assert.equal(result.ok, true);
+    started.push(result.bot);
+  }
+  await new Promise(setImmediate);
+  // The fake stack normally logs a strong reference so other tests can drive its store.
+  log.length = 0;
+  for (const bot of started) {
+    const first = await host.stop(bot.botID, ACCOUNT.accountID);
+    const again = await host.stop(bot.botID, ACCOUNT.accountID);
+    assert.equal(first.ok, true);
+    assert.ok(first.bot.endedAt);
+    assert.deepEqual(again, first);
+    assert.equal(host.claimedBy(bot.characterID), null);
+  }
+  assert.equal(log.filter(row => row[0] === "logout").length, started.length);
+  assert.equal(host.list(ACCOUNT.accountID).length, started.length);
+
+  for (let turn = 0; turn < 4; turn++) {
+    await new Promise(setImmediate);
+    global.gc();
+  }
+  assert.deepEqual(references.map(run => run.map(ref => ref.deref() !== undefined)), [
+    [false, false, false, false],
+    [false, false, false, false],
+    [false, false, false, false],
+  ], "ended rows still retain flow, store, graph, or names");
+
+  assert.equal((await host.start(START)).ok, true);
+  const history = host.list(ACCOUNT.accountID).filter(bot => bot.endedAt);
+  assert.deepEqual(new Set(history.map(bot => bot.botID)), new Set(started.map(bot => bot.botID)));
+});
+
+test("a bot ending during startup does not leave a deadline timer behind", async () => {
+  const log = [];
+  const logoutStarted = Promise.withResolvers();
+  const finishLogout = Promise.withResolvers();
+  let deadline = null;
+  const host = makeHost({
+    log,
+    loadStack: makeFakeStack(log, (flow, store) => ({
+      ...flow,
+      async startCustomBot(doc) {
+        await flow.startCustomBot(doc);
+        store._set({ customBot: { ...IDLE_SLICE, status: "stopped" } });
+        await logoutStarted.promise;
+      },
+      async logout() {
+        logoutStarted.resolve();
+        await finishLogout.promise;
+      },
+    })),
+    setDeadlineTimeout(callback) {
+      deadline = callback;
+      return {};
+    },
+  });
+  const started = await host.start(START);
+  finishLogout.resolve();
+  assert.equal(started.ok, true);
+  assert.ok((await host.stop(started.bot.botID, ACCOUNT.accountID)).bot.endedAt);
+  assert.equal(deadline, null);
+});
+
 test("final hosted selection precedes preparation, and required members open MAIN together exactly once", async () => {
   const log = []; let releasePreparation;
   const preparationGate = new Promise(resolve => { releasePreparation = resolve; });
