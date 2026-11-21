@@ -337,7 +337,7 @@ export interface SpaceActions {
   /** scanSvc.AlignToPosition: the ship aligned to the site's position. */
   alignToSite?(targetID: string): Promise<void>;
   /** The site's position saved as a location (BookmarkLocationPopup). */
-  bookmarkSite?(targetID: string): void;
+  bookmarkSite?(targetID: string, name: string): void;
   /** A link followed from a play window (the overview's History: an overviewPreset link). */
   followLink?(url: string, text: string): void;
   /** The HUD health tooltip's figures for a pool (0 shield, 1 armor, 2 structure). */
@@ -3243,7 +3243,7 @@ export class SpaceView {
             { path: "UI/Inflight/Submenus/WarpToWithin", label: word("UI/Inflight/Submenus/WarpToWithin", "Warp to Within"), sub: [0, 10000, 20000, 30000, 50000, 70000, 100000].map((r) => ({ label: within(r), run: warp(s.targetID, r) })) },
             { path: "UI/Inflight/AlignTo", label: word("UI/Inflight/AlignTo", "Align to"), icon: "res:/UI/Texture/eveicon/control_icons/align_to_16px.png", run: () => void this.act("Align", () => this.actions.alignToSite?.(s.targetID) ?? Promise.resolve()) },
             null,
-            { path: "UI/Inflight/BookmarkLocation", label: word("UI/Inflight/BookmarkLocation", "Save Location..."), disabled: this.actions.bookmarkSite ? null : "", run: () => this.actions.bookmarkSite?.(s.targetID) },
+            { path: "UI/Inflight/BookmarkLocation", label: word("UI/Inflight/BookmarkLocation", "Save Location..."), disabled: this.actions.bookmarkSite ? null : "", run: () => this.actions.bookmarkSite?.(s.targetID, `${s.targetID} ${s.dungeonName}`) },
           ],
         });
       }

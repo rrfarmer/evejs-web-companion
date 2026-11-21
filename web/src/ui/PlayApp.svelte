@@ -1022,6 +1022,8 @@
   let menuHomeAsked = false;
   /** Edit Location from the space menu: the bookmark window on that bookmark. */
   let editingBookmark = $state<Bookmark | null>(null);
+  /** Save Location... on an anomaly from the space menu: the bookmark window on the site. */
+  let siteBookmark = $state<{ readonly resultID: string; readonly name: string } | null>(null);
   const hudNames = $derived(session?.store.names);
   const hudWordStore = $derived(session?.store.words);
   const hudSafetyLocks = $derived.by(() => {
@@ -2036,6 +2038,8 @@
         return out.length ? [{ label: word("UI/PeopleAndPlaces/Locations", "Locations"), icon: "res:/UI/Texture/eveicon/system_icons/location_16px.png", sub: out }] : [];
       },
       alignToSite: (targetID) => s.flow.alignToScanSite(targetID),
+      // scanSvc.GetScannedDownMenu's Save Location...: BookmarkLocationPopup with the site as scannerInfo ("<id> <name>")
+      bookmarkSite: (targetID, name) => { siteBookmark = { resultID: targetID, name }; },
       followLink: (url, text) => { void s.flow.followOverviewPresetLink(url, text); },
       // activeShipController: GetShieldHP / GetShieldHPMax and GetShieldResistances (EM, thermal, kinetic, explosive), and
       // the armor's and structure's - the ship's attributes as the fitting reads them, the HP now by the space read's ratio
@@ -2649,6 +2653,9 @@
   <Toasts />
   {#if systemMenu}
     <ErrorBoundary name="System menu"><SystemMenu store={session.store} flow={session.flow} onClose={() => (systemMenu = false)} /></ErrorBoundary>
+  {/if}
+  {#if siteBookmark}
+    <ErrorBoundary name="Save Location"><BookmarkWindow store={session.store} flow={session.flow} scanResult={siteBookmark} onDone={() => { siteBookmark = null; menuBookmarksAt = 0; }} /></ErrorBoundary>
   {/if}
   {#if editingBookmark}
     <ErrorBoundary name="Edit Location"><BookmarkWindow store={session.store} flow={session.flow} editing={editingBookmark} onDone={() => { editingBookmark = null; menuBookmarksAt = 0; }} /></ErrorBoundary>
