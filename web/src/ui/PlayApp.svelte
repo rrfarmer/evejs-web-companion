@@ -1249,7 +1249,9 @@
     }
     // CmdHideUI (Ctrl-F9): uiSvc.ToggleUiVisible - every UI layer hidden (UI_LAYER_NAMES: main, shipui, bracket, target,
     // tactical, space_ui ...), the scene alone left; nothing while the system menu is open
-    if (cmd === "CmdHideUI") {
+      // CmdToggleSystemMenu: the system menu opened, or shut where it is open
+      if (cmd === "CmdToggleSystemMenu") { systemMenu = !systemMenu; return true; }
+      if (cmd === "CmdHideUI") {
       if (systemMenu) return true;
       document.body.classList.toggle("evejs-ui-hidden");
       return true;
@@ -1956,6 +1958,17 @@
         });
         if (missing.length) void s.flow.scannerSiteNames(missing).then((read) => { for (const [id, n] of read) if (n !== null) anomalyNames.set(id, n); }).catch(() => {});
         return rows;
+      },
+      signatures: () => {
+        const sc = s.store.scanner.get();
+        const system = s.store.flight.get().status?.solarSystemID ?? null;
+        if (system === null || sc.scan.status !== "ready" || sc.solarSystemID !== system) return [];
+        const results = sc.probeResults?.results ?? [];
+        return sc.scan.value.signatures.flatMap((g) => {
+          if (!g.targetID || !g.position || g.position.length < 3) return [];
+          const accurate = results.some((r) => r.id === g.targetID && r.certainty >= 1);
+          return [{ targetID: g.targetID, strength: 0, dungeonName: "", position: [g.position[0]!, g.position[1]!, g.position[2]!] as const, accurate }];
+        });
       },
       warpToSite: (targetID, range) => s.flow.warpToProbeResult(targetID, range),
       // bookmarkUtil.GetACLBookmarkMenuForSystem (includeTopLevel): the bookmarks in the system (IsBookmarkAvailable:

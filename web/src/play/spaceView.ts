@@ -332,6 +332,8 @@ export interface SpaceActions {
   homeStationID?(): number | null;
   /** _GetAgentMissonsMenu: the Agent Missions entry (none where no mission has a bookmark in the system). */
   missionsMenu?(): (ContextEntry | null)[];
+  /** sensorSuite.GetSignatures: the system's signatures, each accurate where a probe result has it at full strength. */
+  signatures?(): readonly (AnomalySite & { readonly accurate: boolean })[];
   /** sensorSuite.GetAnomalies for the system the pilot is in (empty where not read yet: the read is started). */
   anomalies?(): readonly AnomalySite[];
   /** A site warped to by its scan id (menusvc.WarpToScanResult), at the range. */
@@ -3346,7 +3348,11 @@ export class SpaceView {
    */
   private drawSensorOverlay(origin: { x: number; y: number; z: number }, w: number, h: number): void {
     const on = this.sensorOverlayOn() && this.snapshot?.ship !== null && this.snapshot?.ship !== undefined;
-    const sites = on ? this.actions.anomalies?.() ?? [] : [];
+    // anomalies (AnomalyBracket) and signatures (SignatureBracket: SITE_COLOR_SIGNATURE, bracket_sig_accurate_N once its
+    // signal strength is 1 else bracket_sig_inaccurate_N, the two CircleDots spinners at 0.15 turning 60 s and 40 s)
+    const sites: (AnomalySite & { kind: "anomaly" | "signature"; accurate?: boolean })[] = on
+      ? [...(this.actions.anomalies?.() ?? []).map((a) => ({ ...a, kind: "anomaly" as const })), ...(this.actions.signatures?.() ?? []).map((g) => ({ ...g, kind: "signature" as const }))]
+      : [];
     const seen = new Set<string>();
     for (const s of sites) {
       if (!s.position) continue;
@@ -3356,11 +3362,16 @@ export class SpaceView {
         el = document.createElement("div");
         el.className = "sensor-site";
         const tex = (p: string) => clientTexture(p);
-        const corners = [[1, -1], [-1, -1], [-1, 1], [1, 1]].map(([x, y], n) =>
-          `<span class="ss-outer" style="--tex:url(${tex(`res:/UI/Texture/classes/SensorSuite/bracket_anomaly_${n + 1}.png`)});transform:translate(${x! * 11}px,${y! * 11}px)"></span>`).join("");
-        el.innerHTML = `<img class="ss-inner" src="${tex("res:/UI/Texture/classes/SensorSuite/diamond2.png")}" alt="">${corners}<div class="ss-label"><div class="ss-code"><b></b><span></span></div><div class="ss-name"></div></div>`;
+        const corners = [[1, -1], [-1, -1], [-1, 1], [1, 1]].map(([x, y]) =>
+          `<span class="ss-outer" style="transform:translate(${x! * 11}px,${y! * 11}px)"></span>`).join("");
+        const spinners = s.kind === "signature"
+          ? `<img class="ss-spin ss-spin-in" src="${tex("res:/UI/Texture/classes/SensorSuite/CircleDots_Inner.png")}" alt=""><img class="ss-spin ss-spin-out" src="${tex("res:/UI/Texture/classes/SensorSuite/CircleDots_Outer.png")}" alt="">`
+          : "";
+        el.innerHTML = `${spinners}<img class="ss-inner" src="${tex("res:/UI/Texture/classes/SensorSuite/diamond2.png")}" alt="">${corners}<div class="ss-label"><div class="ss-code"><b></b><span></span></div><div class="ss-name"></div></div>`;
+        el.classList.add(s.kind);
         const id = s.targetID;
-        el.addEventListener("mouseenter", () => { el!.classList.add("hover"); void playUiEvent("ui_scanner_state_anomaly"); });
+        const hoverSound = s.kind === "signature" ? "ui_scanner_state_signature" : "ui_scanner_state_anomaly";
+        el.addEventListener("mouseenter", () => { el!.classList.add("hover"); void playUiEvent(hoverSound); });
         el.addEventListener("mouseleave", () => el!.classList.remove("hover"));
         el.addEventListener("dblclick", (ev) => { ev.stopPropagation(); void this.act("Align", () => this.actions.alignToSite?.(id) ?? Promise.resolve()); });
         el.addEventListener("contextmenu", (ev) => {
@@ -3371,6 +3382,12 @@ export class SpaceView {
         });
         this.sensorLayer.append(el);
         this.sensorEls.set(id, el);
+      }
+      // the outer pieces' textures (the anomaly's four, a signature's accurate or inaccurate four)
+      const set = s.kind === "anomaly" ? "bracket_anomaly" : s.accurate ? "bracket_sig_accurate" : "bracket_sig_inaccurate";
+      if (el.dataset.set !== set) {
+        el.dataset.set = set;
+        el.querySelectorAll<HTMLElement>(".ss-outer").forEach((o, n) => o.style.setProperty("--tex", `url(${clientTexture(`res:/UI/Texture/classes/SensorSuite/${set}_${n + 1}.png`)})`));
       }
       const rel = new THREE.Vector3(s.position[0] - origin.x, s.position[1] - origin.y, -(s.position[2] - origin.z));
       const p = rel.clone().project(this.camera);

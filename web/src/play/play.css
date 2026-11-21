@@ -708,3 +708,9 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 .sensor-site .ss-label { display: none; position: absolute; left: 32px; top: 50%; transform: translateY(-50%); min-width: 200px; white-space: nowrap; font: 10px/1.25 var(--eve-font, "Segoe UI", sans-serif); color: rgba(255, 255, 255, 0.75); text-shadow: 0 0 2px #000; }
 .sensor-site.hover .ss-label { display: block; }
 .sensor-site .ss-code b { font-weight: 700; margin-right: 4px; }
+.sensor-site.signature .ss-outer { background: rgb(255, 51, 0); }
+.sensor-site .ss-spin { left: -79.5px; top: -79.5px; width: 175px; height: 175px; opacity: 0.15; }
+.sensor-site .ss-spin-in { animation: ss-spin-rev 60s linear infinite; }
+.sensor-site .ss-spin-out { animation: ss-spin 40s linear infinite; }
+@keyframes ss-spin { to { transform: rotate(360deg); } }
+@keyframes ss-spin-rev { to { transform: rotate(-360deg); } }
