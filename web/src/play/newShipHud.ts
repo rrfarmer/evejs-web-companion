@@ -333,6 +333,8 @@ export class NewShipHud {
   private liveTip: (() => void) | null = null;
   /** The health ring's pool under the pointer (0 shield, 1 armor, 2 structure), or null. */
   private ringHover: number | null = null;
+  /** SEGMENT_ICONS (eveicon shields, armor, structure_management at 32 px): the hovered segment's icon. */
+  private readonly ringIcons = ["shields", "armor", "structure_management"].map((n) => { const i = new Image(); i.src = res("res:/UI/Texture/eveicon/category_icons/" + n + "_32px.png"); return i; });
   /**
    * healthTooltip.LoadHealthTooltip's figures for a pool: its HP now and at most, and its resistances (EM, thermal,
    * kinetic, explosive: (1 - resonance) x 100) with their attributes' icons; null where not known.
@@ -1720,6 +1722,13 @@ export class NewShipHud {
       const ghost = pool.ghost ?? portion;
       const gLo = seg.a1 - span * Math.max(ghost, portion);
       const gHi = seg.a1 - span * Math.min(ghost, portion);
+      // _Segment.SetHovered: hoverRemaining (white, HOVER_BAND_ALPHA 0.8) and hoverLost (DAMAGE_COLOR, HOVER_LOST_ALPHA
+      // 0.3) under the bands, and the pool's icon (HOVER_ICON_COLOR black, ICON_GLYPH_PX 16) at R_ICON on iconDeg
+      const hovered = this.ringHover === i;
+      if (hovered) {
+        this.band(c, seg, seg.a0, split, css(DANGER_RED, 0.3));
+        this.band(c, seg, split, seg.a1, css(WHITE, 0.8));
+      }
       this.band(c, seg, seg.a0, split, css(DANGER_RED, 0.2));
       this.band(c, seg, split, seg.a1, css(WHITE, 0.2));
       if (pool.ghost !== null) this.band(c, seg, gLo, gHi, css(DANGER_RED, 0.4));
@@ -1744,6 +1753,15 @@ export class NewShipHud {
         c.strokeStyle = grad;
         c.stroke();
         if (half) this.radial(c, d, 80, 85, 1, css(WHITE), 0.5);
+      }
+      const icon = this.ringIcons[i];
+      if (hovered && icon && icon.complete && icon.naturalWidth > 0) {
+        const mid = rad((seg.a0 + seg.a1) / 2), rIcon = (R_TRACK_IN + R_TRACK_OUT) / 2;
+        const x = Math.round(rIcon * Math.cos(mid) - 8), y = Math.round(-rIcon * Math.sin(mid) - 8);
+        c.save();
+        c.filter = "brightness(0)";
+        c.drawImage(icon, x, y, 16, 16);
+        c.restore();
       }
       if (flash && i <= flash.level) {
         const phase = ((now - (flash.until - 1e9)) % flash.period) / flash.period;
