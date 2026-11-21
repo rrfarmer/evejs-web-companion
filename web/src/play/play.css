@@ -241,7 +241,19 @@ button { font: inherit; color: inherit; }
 .ov-set-tab { display: flex; align-items: center; color: rgba(255, 255, 255, 0.5); cursor: pointer; }
 .ov-set-tab.active { color: rgba(255, 255, 255, 0.9); box-shadow: inset 0 -1px 0 #fff; }
 .ov-set-panel { flex: 1; overflow: auto; padding: 8px 4px 4px 14px; scrollbar-width: thin; }
-.ov-set-row { display: grid; grid-template-columns: 120px 120px 120px 24px; gap: 15px; align-items: center; margin-bottom: 8px; }
+.ov-set-row { display: grid; grid-template-columns: 27px 120px 120px 120px 24px; gap: 15px; align-items: center; margin-bottom: 8px; }
+/* DropdownColorPicker: 27 x 20, the 12 px swatch framed at white 0.2 at the left, the 38_16_229 arrow at 0.5 at the right */
+.ov-set-color { position: relative; width: 27px; height: 20px; cursor: pointer; }
+.ov-set-color > span { position: absolute; left: 2px; top: 4px; width: 12px; height: 12px; box-sizing: border-box; border: 1px solid rgba(255, 255, 255, 0.2); }
+.ov-set-color > img { position: absolute; right: -2px; top: 2px; width: 16px; height: 16px; opacity: .5; }
+.ov-set-color[data-empty] { opacity: .35; cursor: default; }
+/* ColorPanel in its tooltip: Select Color, the colours 4 apart, 8 to a row, the chosen framed, the clear button */
+.ov-color-panel { position: fixed; z-index: 100002; padding: 8px; background: rgba(6, 10, 12, 0.95); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1); font-size: 12px; color: rgba(255, 255, 255, 0.75); }
+.ov-color-title { margin-bottom: 6px; }
+.ov-color-grid { display: grid; grid-template-columns: repeat(8, 16px); gap: 4px; }
+.ov-color-grid > span { width: 16px; height: 16px; cursor: pointer; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15); }
+.ov-color-grid > span.sel { box-shadow: 0 0 0 2px rgb(180, 180, 180); }
+.ov-color-grid > img { width: 16px; height: 16px; cursor: pointer; opacity: .75; }
 .ov-set-head { color: rgba(255, 255, 255, 0.75); margin-bottom: 8px; }
 .ov-set-row input, .ov-set-row select { height: 32px; box-sizing: border-box; min-width: 0; background: rgba(0, 0, 0, 0.3); color: #fff;
   border: 1px solid rgba(255, 255, 255, 0.15); padding: 0 8px; font: inherit; }

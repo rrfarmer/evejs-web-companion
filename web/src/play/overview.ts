@@ -27,7 +27,14 @@ import { SHIP_LABEL_PRESETS, saveShipLabelSettings, shipLabelMarkup, shipLabelSe
 const MAX_TAB_NUM = 20;
 const MAX_TAB_NAME_LENGTH = 15;
 /** A tab's settings (presetSvc's settingsByTabID): its name, overview preset and bracket preset (null: Show All Brackets). */
-interface TabSettings { name: string; preset: string; bracket: string | null; columns?: ColumnID[]; order?: ColumnID[] }
+interface TabSettings { name: string; preset: string; bracket: string | null; columns?: ColumnID[]; order?: ColumnID[]; color?: number[] | null }
+/** OverviewColorPickerCont.GetColors: 24 hues at saturation 0.75 and brightness 1 (Color.SetHSB), 8 to a row. */
+const TAB_COLORS: readonly number[][] = Array.from({ length: 24 }, (_, i) => {
+  const h = (i / 24) * 6, s = 0.75, v = 1, c = v * s, x = c * (1 - Math.abs((h % 2) - 1)), m = v - c;
+  const [r, g, b] = h < 1 ? [c, x, 0] : h < 2 ? [x, c, 0] : h < 3 ? [0, c, x] : h < 4 ? [0, x, c] : h < 5 ? [x, 0, c] : [c, 0, x];
+  return [r + m, g + m, b + m].map((n) => Math.round(n * 1000) / 1000);
+});
+const rgbCss = (c: readonly number[]) => `rgb(${c.slice(0, 3).map((n) => Math.round(n * 255)).join(",")})`;
 /** The pilot's tabs once changed (added, renamed, filtered, deleted): the whole list, kept per pilot in this browser. */
 const TABS_KEY = "evejs-play-overview-tabSettings";
 /** categories.CATEGORY_ICONS (eveicon star, warp_to, target, user_plus, mining at 16). */
@@ -141,7 +148,7 @@ export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HI
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
   "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
   "UI/Overview/EditCurrentFilter", "UI/Commands/ChangeName", "UI/Overview/DeleteTab", "/Carbon/UI/Controls/ScrollEntries/TypeInNewName",
-  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Common/Buttons/Save", "UI/Common/Buttons/SaveAs", "UI/Common/Delete", "UI/Overview/FilterName", "UI/Overview/CustomFilters", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
+  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Mail/Select Color", "UI/SystemMenu/ResetSettings/Clear", "UI/Common/Buttons/Save", "UI/Common/Buttons/SaveAs", "UI/Common/Delete", "UI/Overview/FilterName", "UI/Overview/CustomFilters", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
 const DISABLED_TEXT = "Header sorting is disabled";
 
 /**
@@ -499,7 +506,7 @@ export class Overview {
     const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
     document.querySelector(".ov-settings")?.closest(".pw")?.remove();
     const win = new PlayWindow({ id: "overview-settings", caption: word("UI/Overview/OverviewSettings", "Overview Settings"),
-      left: Math.round(innerWidth / 2 - 260), top: Math.round(innerHeight / 2 - 300), width: 520, height: 600, minWidth: 520, minHeight: 500 });
+      left: Math.round(innerWidth / 2 - 285), top: Math.round(innerHeight / 2 - 300), width: 570, height: 600, minWidth: 570, minHeight: 500 });
     win.body.classList.add("ov-settings");
     let current = panel;
     let editing = presetID ?? this.tabSettings[this.tab]?.preset ?? this.presetChoices[0]?.id ?? "";
@@ -515,12 +522,13 @@ export class Overview {
       const first = this.presetChoices.find((p) => p.id === "DefaultPreset_639452")?.id ?? this.presetChoices[0]?.id ?? null;
       const rows = Array.from({ length: MAX_TAB_NUM }, (_, i) => {
         const t = this.tabSettings[i];
-        return `<div class="ov-set-row" data-slot="${i}"><input class="ov-set-name" maxlength="${MAX_TAB_NAME_LENGTH}" value="${esc(t?.name ?? "")}" autocomplete="off">
+        const c = t?.color ?? null;
+        return `<div class="ov-set-row" data-slot="${i}"><span class="ov-set-color"${t ? "" : " data-empty"}><span style="${c ? `background:${rgbCss(c)}` : ""}"></span><img src="${clientTexture("res:/ui/texture/icons/38_16_229.png")}" alt=""></span><input class="ov-set-name" maxlength="${MAX_TAB_NAME_LENGTH}" value="${esc(t?.name ?? "")}" autocomplete="off">
           <select class="ov-set-filter" title="${esc(word("UI/Overview/ChooseOverviewPreset", ""))}">${options(t?.preset ?? first, false)}</select>
           <select class="ov-set-bracket" title="${esc(word("UI/Overview/ChooseBracketPreset", ""))}">${options(t ? t.bracket : null, true)}</select>
           ${t ? `<img class="ov-set-delete" src="${clientTexture("res:/UI/Texture/eveicon/system_icons/close_16px.png")}" alt="" title="${esc(word("UI/Overview/DeleteTab", "Delete Tab"))}">` : `<span></span>`}</div>`;
       }).join("");
-      return `<div class="ov-set-panel"><div class="ov-set-row ov-set-head"><span>${esc(word("UI/Overview/TabName", "Tab Name"))}</span><span>${esc(word("UI/Overview/Filter", "Filter"))}</span><span>${esc(word("UI/Overview/BracketFilter", "Bracket Filter"))}</span><span></span></div>${rows}</div>`;
+      return `<div class="ov-set-panel"><div class="ov-set-row ov-set-head"><span></span><span>${esc(word("UI/Overview/TabName", "Tab Name"))}</span><span>${esc(word("UI/Overview/Filter", "Filter"))}</span><span>${esc(word("UI/Overview/BracketFilter", "Bracket Filter"))}</span><span></span></div>${rows}</div>`;
     };
     const filtersPanel = () => {
       const shown = this.masks.get(editing)?.groups ?? new Set<number>();
@@ -757,6 +765,33 @@ export class Overview {
       if (t.closest(".ov-filt-revert")) {
         void (this.hooks.ask?.("RevertOverviewPresetChanges", "Are you sure you want to revert the changes to this filter?") ?? Promise.resolve(true))
           .then((yes) => { if (yes) { this.revertPreset(editing); draw(); } });
+        return;
+      }
+      // DropdownColorPicker: the ColorPanel (Select Color, the colours, the clear button) under the swatch; the tab's colour set
+      const swatch = t.closest<HTMLElement>(".ov-set-color");
+      if (swatch && !swatch.hasAttribute("data-empty")) {
+        const i = Number(swatch.closest<HTMLElement>(".ov-set-row")!.dataset.slot);
+        const r = swatch.getBoundingClientRect();
+        document.querySelector(".ov-color-panel")?.remove();
+        const panel = document.createElement("div");
+        panel.className = "ov-color-panel";
+        const current = this.tabSettings[i]?.color ?? null;
+        panel.innerHTML = `<div class="ov-color-title">${esc(word("UI/Mail/Select Color", "Select Color"))}</div><div class="ov-color-grid">${TAB_COLORS.map((c, k) =>
+          `<span data-color="${k}" class="${current && current.every((v, j) => Math.abs(v - c[j]!) < 0.01) ? "sel" : ""}" style="background:${rgbCss(c)}"></span>`).join("")}<img data-clear src="${clientTexture("res:/UI/Texture/eveicon/system_icons/close_16px.png")}" title="${esc(word("UI/SystemMenu/ResetSettings/Clear", "Clear"))}" alt=""></div>`;
+        Object.assign(panel.style, { left: `${Math.round(r.right + 4)}px`, top: `${Math.round(r.top - 8)}px` });
+        document.body.append(panel);
+        const close = (e: MouseEvent) => { if (!panel.contains(e.target as Node)) { panel.remove(); removeEventListener("mousedown", close, true); } };
+        addEventListener("mousedown", close, true);
+        panel.addEventListener("click", (e) => {
+          const cell = (e.target as HTMLElement).closest<HTMLElement>("[data-color], [data-clear]");
+          if (!cell) return;
+          const color = cell.hasAttribute("data-clear") ? null : TAB_COLORS[Number(cell.dataset.color)]!;
+          this.tabSettings[i] = { ...this.tabSettings[i]!, color };
+          this.tabsChanged(this.tab);
+          panel.remove();
+          removeEventListener("mousedown", close, true);
+          draw();
+        });
         return;
       }
       const del = t.closest(".ov-set-delete");
@@ -1011,7 +1046,8 @@ export class Overview {
   private drawTabs(): void {
     const add = this.tabs.length < MAX_TAB_NUM
       ? `<img class="ov-add-tab" src="${clientTexture("res:/UI/Texture/eveicon/system_icons/add_16px.png")}" alt="" title="${esc(this.hooks.word?.("UI/Overview/AddTab") ?? "Add Tab")}">` : "";
-    this.tabsEl.innerHTML = this.tabs.map((t, n) => `<span class="ov-tab${n === this.tab ? " active" : ""}" data-tab="${n}">${esc(t.name)}</span>`).join("") + add;
+    // _ConstructTabs: a tab with a colour shows its name in it
+    this.tabsEl.innerHTML = this.tabs.map((t, n) => { const c = this.tabSettings[n]?.color; return `<span class="ov-tab${n === this.tab ? " active" : ""}" data-tab="${n}"${c ? ` style="color:${rgbCss(c)}"` : ""}>${esc(t.name)}</span>`; }).join("") + add;
   }
 
   private get tabsKey(): string { return TABS_KEY + (this.hooks.pilotID === undefined ? "" : `:${this.hooks.pilotID}`); }
