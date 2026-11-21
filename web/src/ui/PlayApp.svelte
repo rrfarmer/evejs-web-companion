@@ -51,6 +51,7 @@
   import { METENOX_TYPE_ID, type AutoMoonMiner, type MoonMaterialBay } from "../bridge/autoMoonMining.ts";
   import PlayInfoPanels from "./PlayInfoPanels.svelte";
   import FlyDronesWindow from "./FlyDronesWindow.svelte";
+  import FlyInventoryWindow from "./FlyInventoryWindow.svelte";
   import BuffBar from "./BuffBar.svelte";
   import { INDICATION_WORD_LABELS } from "../space/actionIndication.ts";
   import NoticeBridge from "./NoticeBridge.svelte";
@@ -620,7 +621,7 @@
   /** The Neocom's width: a window opens right of it, as the eve-cs mirror's windows never sit on its Neocom. */
   const NEOCOM_W = 44;
   /** The sizes the play page opens these windows at (the eve-cs mirror's, page pixels, title bar included). */
-  const FLY_SIZES: Partial<Record<TabID, { w: number; h: number }>> = { drones: { w: 288, h: 218 } };
+  const FLY_SIZES: Partial<Record<TabID, { w: number; h: number }>> = { drones: { w: 288, h: 218 }, inventory: { w: 600, h: 450 } };
   /**
    * The client's default sizes of the windows the play page opens without a layout of their own: characterSheetWindow
    * 1235 x 768, assetsWindow 550 x 450, locations/window 450 x 450, addressBookWindow 600 x 500, evemail 800 x 600,
@@ -805,11 +806,15 @@
     shipTree: SHIP_TREE_CAPTION,
   };
   let captions = $state<Partial<Record<TabID, string>>>({});
+  /** ActiveShipCargo's caption (UI/Neocom/ActiveShipCargoBtn), "Active ship": the inventory window's in space. */
+  let activeShipCaption = $state("Active ship");
   $effect(() => {
     if (!session) return;
     const s = session;
-    s.flow.requestWords([...Object.values(CAPTION_LABELS) as string[], ...DSCAN_WORDS, ...COMBAT_WORDS, TARGET_LOCKED_LABEL, ACADEMY_BUTTON]);
+    s.flow.requestWords([...Object.values(CAPTION_LABELS) as string[], ...DSCAN_WORDS, ...COMBAT_WORDS, TARGET_LOCKED_LABEL, ACADEMY_BUTTON, "UI/Neocom/ActiveShipCargoBtn"]);
     return s.store.words.subscribe((w) => {
+      const a = w.templates["UI/Neocom/ActiveShipCargoBtn"];
+      if (typeof a === "string" && a !== "") activeShipCaption = plainText(a);
       const next: Partial<Record<TabID, string>> = {};
       for (const [tab, label] of Object.entries(CAPTION_LABELS) as [TabID, string][]) {
         const t = w.templates[label];
@@ -2069,7 +2074,7 @@
       <ErrorBoundary name={tabLabel(win.id)}>
         <DesktopWindow
           {win}
-          title={win.id === "drones" ? dronesTitle : captions[win.id] ?? tabLabel(win.id)}
+          title={win.id === "drones" ? dronesTitle : win.id === "inventory" && !docked ? activeShipCaption : captions[win.id] ?? tabLabel(win.id)}
           focused={win.id === focusedId}
           onFocus={() => { wins = focusWindow(wins, win.id); raiseApp(win.id); }}
           onClose={() => (wins = closeWindow(wins, win.id))}
@@ -2083,6 +2088,9 @@
           <!-- (the drones window in the client's layout: FlyDronesWindow; the workspace keeps DronesPanel) -->
           {#if win.id === "drones"}
             <FlyDronesWindow store={session.store} flow={session.flow} {spaceSelected} onSelect={(id) => view?.selectObjectiveTarget(id)} onLock={(id) => void session?.flow.lockTarget(id).catch(() => {})} />
+          {:else if win.id === "inventory" && !docked}
+            <!-- in space, the active ship's inventory in the client's layout (ActiveShipCargo) -->
+            <FlyInventoryWindow store={session.store} flow={session.flow} />
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
               onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} {autoMoonMiner}

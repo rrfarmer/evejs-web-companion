@@ -4380,6 +4380,8 @@ export interface AppFlow {
    * for CHOOSING a victim, not for being protected.
    */
   launchDrones(itemIDs: readonly number[]): Promise<void>;
+  /** Types' volumes (the static data's), kept once had; those with none left out. */
+  typeVolumes(typeIDs: readonly number[]): Promise<Record<string, number>>;
   /** OnItemLaunch: told, after each launch, each stack launched and the drones it became; answers the unsubscribe. */
   onItemLaunch(listener: (ids: ReadonlyMap<number, readonly number[]>) => void): () => void;
   /** R25 — set drones on a target. */
@@ -38222,6 +38224,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadMiningWindow,
     loadDrones,
     launchDrones,
+    typeVolumes: volumesOfTypes,
     onItemLaunch(listener) { itemLaunchListeners.add(listener); return () => { itemLaunchListeners.delete(listener); }; },
     engageDrones,
     mineWithDrones,
