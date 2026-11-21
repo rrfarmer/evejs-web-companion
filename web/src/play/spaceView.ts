@@ -2788,7 +2788,7 @@ export class SpaceView {
       const d = defaultDistance("WarpTo");
       out.push({
         path: "UI/Inflight/Submenus/WarpToWithin",
-        label: `${word("UI/Inflight/Submenus/WarpToWithin", "Warp to Within")} (${fmtDistance(d)})`, icon: I("warp_to"),
+        label: word("UI/Inflight/Submenus/WarpToWithin", "Warp to Within"), icon: I("warp_to"),
         run: run("Warp", () => this.actions.warpTo(id, d)),
         sub: [...warpRanges.map((r) => ({ label: within(r), run: run("Warp", () => this.actions.warpTo(id, r)) })), null, setDefault("WarpTo", warpRanges, within)],
       });
@@ -2796,9 +2796,9 @@ export class SpaceView {
     if (approach) {
       out.push({ path: "UI/Inflight/ApproachObject", label: word("UI/Inflight/ApproachObject", "Approach"), icon: I("approach"), run: run("Approach", () => this.actions.approach(id)) });
       const orbitD = defaultDistance("Orbit"), keepD = defaultDistance("KeepAtRange");
-      out.push({ path: "UI/Inflight/OrbitObject", label: `${word("UI/Inflight/OrbitObject", "Orbit")} (${fmtDistance(orbitD)})`, icon: I("orbit"), run: run("Orbit", () => this.actions.orbit(id, orbitD)),
+      out.push({ path: "UI/Inflight/OrbitObject", label: word("UI/Inflight/OrbitObject", "Orbit"), icon: I("orbit"), run: run("Orbit", () => this.actions.orbit(id, orbitD)),
         sub: ranges("Orbit", orbitRanges, "UI/Inflight/OrbitAtCurrentRange", (r) => void this.act("Orbit", () => this.actions.orbit(id, r))) });
-      if (!noKeep) out.push({ path: "UI/Inflight/Submenus/KeepAtRange", label: `${word("UI/Inflight/Submenus/KeepAtRange", "Keep at Range")} (${fmtDistance(keepD)})`, icon: I("keep_at_distance"), run: run("Keep at Range", () => this.actions.keepAtRange(id, keepD)),
+      if (!noKeep) out.push({ path: "UI/Inflight/Submenus/KeepAtRange", label: word("UI/Inflight/Submenus/KeepAtRange", "Keep at Range"), icon: I("keep_at_distance"), run: run("Keep at Range", () => this.actions.keepAtRange(id, keepD)),
         sub: ranges("KeepAtRange", orbitRanges, "UI/Inflight/KeepAtCurrentRange", (r) => void this.act("Keep at Range", () => this.actions.keepAtRange(id, r))) });
     } else if (warp) {
       out.push({ path: "UI/Inflight/AlignTo", label: word("UI/Inflight/AlignTo", "Align to"), icon: I("align_to"), run: run("Align", () => this.actions.alignTo(id)) });
@@ -2827,6 +2827,24 @@ export class SpaceView {
     if (group !== null && !shownInOverview) out.push({ path: "UI/Overview/AddGroupToOverview", label: word("UI/Overview/AddGroupToOverview", `Add ${groupName} to Overview`, { groupName }), run: () => this.overview.setGroupShown(group, true) });
     if (this.actions.saveLocation && category !== 11 && category !== 6) out.push({ path: "UI/Inflight/BookmarkLocation", label: word("UI/Inflight/BookmarkLocation", "Save Location..."), run: () => this.actions.saveLocation?.(id, e.typeID ?? null) });
     if (group === 7 && this.options.viewPlanet) out.push({ path: "UI/PI/Common/ViewInPlanetMode", label: word("UI/PI/Common/ViewInPlanetMode", "View Planetary Industry"), icon: I("enter_planet_view"), run: () => void this.options.viewPlanet?.(id) });
+    if (group === 7) {
+      // OfferMoonMenuOptions / GetMoons: "Moons", each "Moon N" (UI/Inflight/Submenus/MoonX by its orbit index) with the
+      // moon's own menu, a click on it a warp there; none, PlanetHasNoMoons. The planet's moons are the celestials
+      // numbered after it, before the next planet (the static data's order); the index is the name's.
+      const ents = this.snapshot?.entities ?? [];
+      const nextPlanet = Math.min(...ents.filter((x) => x.groupID === 7 && x.itemID > id).map((x) => x.itemID), Infinity);
+      const moons = ents.filter((x) => x.groupID === 8 && x.itemID > id && x.itemID < nextPlanet)
+        .map((m) => ({ m, n: Number(/(\d+)\s*$/.exec(this.nameOf(m))?.[1] ?? 0) })).sort((a, b) => a.n - b.n);
+      out.push({ path: "UI/Menusvc/MoonsMenuOption", label: word("UI/Menusvc/MoonsMenuOption", "Moons"), icon: null,
+        sub: moons.length ? moons.map(({ m, n }) => ({ label: word("UI/Inflight/Submenus/MoonX", `Moon ${n}`, { moonNumber: n }),
+          run: run("Warp", () => this.actions.warpTo(m.itemID, defaultDistance("WarpTo"))), sub: this.contextEntries(m) }))
+          : [{ label: word("UI/Menusvc/PlanetHasNoMoons", "This planet has no moons"), run: () => {} }] });
+      // OfferCustomsOfficeMenu / GetCustomsOfficeMenu: the planet's customs office (EveJS numbers it 1,200,000,000,000
+      // past the planet) with its own menu, a click on it a warp there
+      const poco = ents.find((x) => x.itemID === 1_200_000_000_000 + id);
+      if (poco) out.push({ path: "UI/PI/Common/CustomsOffice", label: word("UI/PI/Common/CustomsOffice", "Customs Office"),
+        run: run("Warp", () => this.actions.warpTo(poco.itemID, defaultDistance("WarpTo"))), sub: this.contextEntries(poco) });
+    }
     if (group !== null && shownInOverview) out.push(null, { path: "UI/Overview/RemoveGroupFromOverview", label: word("UI/Overview/RemoveGroupFromOverview", `Remove ${groupName} from Overview`, { groupName }), run: () => this.overview.setGroupShown(group, false) });
     return out;
   }
