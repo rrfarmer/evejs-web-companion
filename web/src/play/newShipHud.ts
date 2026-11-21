@@ -8,6 +8,7 @@
 // Draw order: the canvas paints bottom to top in the client's order (carbonui draws its first child on top).
 
 import type { HudModule, HudOverload, ShipHudState } from "./shipHud.ts";
+import { fmtDist } from "../space/overview.ts";
 import { playUiEvent } from "./uiAudio.ts";
 import type { ModuleTooltipRow } from "./moduleTooltip.ts";
 import { labelColorCss, labelLines } from "../bridge/labelMarkup.ts";
@@ -328,6 +329,11 @@ export class NewShipHud {
   private hoverDeg: number | null = null;
   private desiredFromPreset = true;
   private heatShown: Record<"Hi" | "Med" | "Lo", number> = { Hi: 0, Med: 0, Lo: 0 };
+  /** A tooltip kept current while it is shown (the readouts' AutoTimer): redrawn on each update. */
+  private liveTip: (() => void) | null = null;
+  private fullSpeedButton: HTMLButtonElement | null = null;
+  private stopButton: HTMLButtonElement | null = null;
+  private settingsGear: HTMLButtonElement | null = null;
   private overloadMode = false;
   private overloadHover = false;
   private rackHover: "Hi" | "Med" | "Lo" | null = null;
@@ -420,7 +426,9 @@ export class NewShipHud {
     pill.append(this.speedLabel);
     pill.addEventListener("mouseenter", () => { pill.style.background = css(FOCUS_BLUE, 0.5); this.speedLabel.style.color = "#fff"; });
     pill.addEventListener("mouseleave", () => { pill.style.background = css(SMOKE_BLUE, 0.2); this.speedLabel.style.color = "rgba(255,255,255,0.5)"; });
-    pill.title = "Current Speed";
+    // CommandButton.LoadTooltipPanel (the speed readout): Current Speed and the speed, kept current while shown
+    pill.addEventListener("mouseenter", () => { this.liveTip = () => this.showSpeedTooltip(pill); this.liveTip(); });
+    pill.addEventListener("mouseleave", () => { this.liveTip = null; this.closeTooltip(); });
     root.append(pill);
 
     const tick = () => {
@@ -490,6 +498,7 @@ export class NewShipHud {
       const b = document.createElement("button");
       b.type = "button";
       b.title = title;
+      if (dy < 0) this.fullSpeedButton = b; else this.stopButton = b;
       b.className = "new-hud-cmd";
       Object.assign(b.style, { position: "absolute", left: `${cx - 88 - 12}px`, top: `${cy + dy - 12}px`, width: "24px", height: "24px", pointerEvents: "auto" });
       b.innerHTML = `<svg viewBox="0 0 16 16" width="16" height="16"><path d="${glyph}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -506,7 +515,9 @@ export class NewShipHud {
       return h;
     };
     const ob = hex(OVERLOAD_CENTRE[0], OVERLOAD_CENTRE[1]);
-    ob.title = "Heat Status";
+    // OverloadButton.LoadTooltipPanel: Heat Status, then the three racks' heat, kept current while shown
+    ob.addEventListener("mouseenter", () => { this.liveTip = () => this.showHeatTooltip(ob); this.liveTip(); });
+    ob.addEventListener("mouseleave", () => { this.liveTip = null; this.closeTooltip(); });
     ob.addEventListener("mouseenter", () => { this.overloadHover = true; });
     ob.addEventListener("mouseleave", () => { this.overloadHover = false; });
     ob.addEventListener("click", () => { this.overloadMode = !this.overloadMode; this.syncRackButtons(); });
@@ -594,7 +605,9 @@ export class NewShipHud {
     // the HUD settings gear: opacity 0.5, 0.9 hovered
     const gear = document.createElement("button");
     gear.type = "button";
-    gear.title = "HUD settings";
+    // SettingsButton: its hint UI/Common/Settings
+    gear.title = this.word("UI/Common/Settings") ?? "Settings";
+    this.settingsGear = gear;
     Object.assign(gear.style, { position: "absolute", left: `${cx + 70 - 8}px`, top: `${cy - 78 - 8}px`, width: "16px", height: "16px", padding: "0", border: "0", background: "transparent", opacity: "0.5", pointerEvents: "auto", cursor: "pointer" });
     gear.append(icon("res:/UI/Texture/eveicon/system_icons/settings_16px.png"));
     gear.addEventListener("mouseenter", () => { gear.style.opacity = "0.9"; });
@@ -820,6 +833,8 @@ export class NewShipHud {
     "UI/Inflight/HUDOptions/DisplayEmptySlots", "UI/Inflight/HUDOptions/DisplayReadout", "UI/Inflight/HUDOptions/DisplayReadoutAsPercentage",
     "UI/Inflight/HUDOptions/LockModulesInPlace", "UI/Inflight/HUDOptions/AlignHUDToTop", "UI/Inflight/NotifySettingsWindow/DamageAlertSettings",
     "UI/Accessories/Log/EnterMessageMovingMode", ...COMMAND_TIP_LABELS,
+    "Tooltips/Hud/CurrentSpeed", "UI/Inflight/CanNotChangeSpeedWhileWarping", "UI/Inflight/MetersPerSecond", "UI/Inflight/StopTheShip",
+    "UI/Inflight/SetFullSpeed", "Tooltips/Hud/HeatStatus", "Tooltips/Hud/HeatStatusLow", "Tooltips/Hud/HeatStatusMedium", "Tooltips/Hud/HeatStatusHigh", "UI/Common/Settings",
     ...["CapacitorFlowUnavailable", "CapStable", "CapIncreasing", "CapDecreasing", "CapRecharge", "CapDrain", "CapInjection",
       "SourceExplanation", "RechargeExplanation"].map((l) => `Tooltips/Hud/ConsumptionGauge/${l}`),
   ];
@@ -919,6 +934,70 @@ export class NewShipHud {
     const a = anchor.getBoundingClientRect();
     t.style.left = `${Math.round(a.right + 12)}px`;
     t.style.top = `${Math.round(a.top + a.height / 2 - t.offsetHeight / 2)}px`;
+  }
+
+  /** A framed tooltip of the given rows (grid cells), beside the anchor; drawn again only when its key changes. */
+  private showRowsTooltip(anchor: HTMLElement, key: string, cells: readonly HTMLElement[], columns: string): void {
+    const t = this.tooltip;
+    if (key === this.tipKey && t.style.display !== "none") return;
+    this.tipKey = key;
+    if (!t.isConnected) {
+      t.className = "new-hud-tooltip";
+      Object.assign(t.style, { position: "fixed", pointerEvents: "none", zIndex: "100000", padding: `${TOOLTIP_MARGIN}px`, font: "14px 'EVE Sans Neue','Segoe UI',sans-serif", color: "rgba(255,255,255,0.75)", whiteSpace: "nowrap" });
+      document.body.append(t);
+    }
+    t.replaceChildren();
+    const frame = document.createElement("div");
+    Object.assign(frame.style, { position: "absolute", inset: "0", opacity: "0.75", borderStyle: "solid", borderWidth: "0", borderImageSource: `url(${res("res:/UI/Texture/classes/FrameWithPointer/background_04.png")})`, borderImageSlice: "19 fill", borderImageWidth: "19px", borderImageOutset: "15px" } as Partial<CSSStyleDeclaration>);
+    const grid = document.createElement("div");
+    Object.assign(grid.style, { position: "relative", display: "grid", gridTemplateColumns: columns, columnGap: "8px", rowGap: "4px", alignItems: "center" });
+    grid.append(...cells);
+    t.append(frame, grid);
+    t.style.display = "";
+    const a = anchor.getBoundingClientRect();
+    t.style.left = `${Math.round(a.right + 12)}px`;
+    t.style.top = `${Math.round(a.top + a.height / 2 - t.offsetHeight / 2)}px`;
+  }
+  private cell(text: string, style: Partial<CSSStyleDeclaration> = {}): HTMLDivElement {
+    const d = document.createElement("div");
+    d.dataset.tipRow = "";
+    d.textContent = text;
+    Object.assign(d.style, style);
+    return d;
+  }
+  /** _GetSpeedFormatted: UI/Inflight/MetersPerSecond, a tenth under 100 m/s, whole above. */
+  private speedWords(speed: number): string {
+    const v = speed < 100 ? Math.round(speed * 10) / 10 : Math.trunc(speed);
+    return this.wordWith?.("UI/Inflight/MetersPerSecond", { speed: v }) ?? `${v} m/s`;
+  }
+  /**
+   * The speed readout's tooltip (LoadGeneric3ColumnTemplate): the 22_32_13 icon (24 px), Current Speed, the speed
+   * (GetSpeedFormatted; in warp FmtDist(speed, 2)/s and under it UI/Inflight/CanNotChangeSpeedWhileWarping).
+   */
+  private showSpeedTooltip(anchor: HTMLElement): void {
+    const st = this.state;
+    const warping = st?.warping === true;
+    const speed = st?.speed ?? 0;
+    const value = warping ? `${fmtDist(speed, 2)}/s` : this.speedWords(speed);
+    const icon = document.createElement("img");
+    icon.src = res("res:/UI/Texture/Icons/22_32_13.png");
+    icon.alt = "";
+    Object.assign(icon.style, { width: "24px", height: "24px" });
+    const cells: HTMLElement[] = [icon, this.cell(this.word("Tooltips/Hud/CurrentSpeed") ?? "Current Speed"), this.cell(value, { textAlign: "right", fontWeight: "bold" })];
+    if (warping) cells.push(this.cell(""), this.cell(this.word("UI/Inflight/CanNotChangeSpeedWhileWarping") ?? "You cannot change speed while warping", { gridColumn: "2 / 4", width: "180px", whiteSpace: "normal" }));
+    this.showRowsTooltip(anchor, `speed:${value}:${warping}`, cells, "auto auto auto");
+  }
+  /** OverloadButton's tooltip: Heat Status in bold, then Low / Medium / High with each rack's heat (HeatStatusLow etc.), bold. */
+  private showHeatTooltip(anchor: HTMLElement): void {
+    const st = this.state;
+    const pct = (v: number | undefined) => (typeof v === "number" ? v * 100 : 0);
+    const one = (label: string, own: string, v: number) => this.wordWith?.(label, { percentage: v }) ?? `${own} ${Math.round(v)}%`;
+    const low = one("Tooltips/Hud/HeatStatusLow", "Low", pct(st?.heatLow ?? undefined));
+    const med = one("Tooltips/Hud/HeatStatusMedium", "Medium", pct(st?.heatMed ?? undefined));
+    const hi = one("Tooltips/Hud/HeatStatusHigh", "High", pct(st?.heatHi ?? undefined));
+    const cells = [this.cell(this.word("Tooltips/Hud/HeatStatus") ?? "Heat Status", { fontWeight: "bold", gridColumn: "1 / 4", color: "rgba(255,255,255,0.95)" }),
+      this.cell(low, { fontWeight: "bold", paddingRight: "14px" }), this.cell(med, { fontWeight: "bold", paddingRight: "14px" }), this.cell(hi, { fontWeight: "bold" })];
+    this.showRowsTooltip(anchor, `heat:${low}:${med}:${hi}`, cells, "auto auto auto");
   }
 
   private showHoldsTooltip(anchor: HTMLElement): void {
@@ -1231,6 +1310,14 @@ export class NewShipHud {
 
   update(s: NewShipHudState): void {
     this.state = s;
+    this.liveTip?.();
+    // the command buttons' hints (CommandButton.GetHint): Stop The Ship; Set Full Speed with the ship's top speed
+    if (this.stopButton) this.stopButton.title = this.word("UI/Inflight/StopTheShip") ?? "Stop The Ship";
+    if (this.fullSpeedButton) {
+      const max = typeof s.maxSpeed === "number" && s.maxSpeed > 0 ? this.speedWords(s.maxSpeed) : null;
+      this.fullSpeedButton.title = (max !== null ? this.wordWith?.("UI/Inflight/SetFullSpeed", { maxSpeed: max }) : null) ?? (max !== null ? `Set Full Speed (${max})` : "Set Full Speed");
+    }
+    if (this.settingsGear) this.settingsGear.title = this.word("UI/Common/Settings") ?? "Settings";
     const now = performance.now();
     const maxes = [s.shieldMax, s.armorMax, s.hullMax].map((v) => (typeof v === "number" && v > 0 ? v : 1));
     const key = maxes.map((v) => v.toFixed(2)).join("/");
