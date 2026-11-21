@@ -1563,7 +1563,8 @@
       }
       return typeFacts.get(typeID) ?? null;
     };
-    const TIP_ATTRIBUTES = [37, 160, 84, 83, 68, 67, 90, 97, 20, 105, 114, 118, 117, 116];
+    // (and the pools' resonances for the HUD health tooltip: shield 271/274/273/272, armor 267/270/269/268, hull 113/110/109/111)
+    const TIP_ATTRIBUTES = [37, 160, 84, 83, 68, 67, 90, 97, 20, 105, 114, 118, 117, 116, 271, 274, 273, 272, 267, 270, 269, 268, 113, 110, 109, 111];
     const attributeLook = new Map<number, { readonly icon: string | null; readonly nameID: number | null }>();
     void s.flow.attributeDisplay(TIP_ATTRIBUTES).then((found) => {
       for (const [id, d] of found ?? []) attributeLook.set(id, { icon: d.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d.displayNameID });
@@ -1816,6 +1817,21 @@
         spaceBookmark = { itemID, askIfKnown: false, typeName: () => (e?.typeID ? typeNames[String(e.typeID)]?.[0] ?? "" : ""), name: () => name };
       },
       safetySelector: (at) => { safetyAnchor = at; },
+      // activeShipController: GetShieldHP / GetShieldHPMax and GetShieldResistances (EM, thermal, kinetic, explosive), and
+      // the armor's and structure's - the ship's attributes as the fitting reads them, the HP now by the space read's ratio
+      healthFacts: (index) => {
+        const attrs = s.store.fitting.get().shipAttributes ?? {};
+        const ego = s.store.space.get().snapshot?.entities.find((e) => e.isSelf) ?? null;
+        const MAX = [263, 265, 9][index]!;
+        const RES = [[271, 274, 273, 272], [267, 270, 269, 268], [113, 110, 109, 111]][index]!;
+        const max = typeof attrs[MAX] === "number" ? attrs[MAX] as number : null;
+        const ratio = [ego?.shieldRatio, ego?.armorRatio, ego?.hullRatio][index];
+        if (max === null) return null;
+        return {
+          hp: typeof ratio === "number" ? ratio * max : max, max,
+          resists: RES.map((id) => ({ icon: attributeLook.get(id)?.icon ?? null, percent: (1 - (typeof attrs[id] === "number" ? attrs[id] as number : 1)) * 100 })),
+        };
+      },
       safetyLevel: () => {
         const level = s.store.flight.get().crimewatch?.states?.safetyLevel;
         return level === 0 || level === 1 || level === 2 ? level : null;

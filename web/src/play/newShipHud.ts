@@ -331,6 +331,13 @@ export class NewShipHud {
   private heatShown: Record<"Hi" | "Med" | "Lo", number> = { Hi: 0, Med: 0, Lo: 0 };
   /** A tooltip kept current while it is shown (the readouts' AutoTimer): redrawn on each update. */
   private liveTip: (() => void) | null = null;
+  /** The health ring's pool under the pointer (0 shield, 1 armor, 2 structure), or null. */
+  private ringHover: number | null = null;
+  /**
+   * healthTooltip.LoadHealthTooltip's figures for a pool: its HP now and at most, and its resistances (EM, thermal,
+   * kinetic, explosive: (1 - resonance) x 100) with their attributes' icons; null where not known.
+   */
+  healthFacts: (index: number) => { readonly hp: number; readonly max: number; readonly resists: readonly { readonly icon: string | null; readonly percent: number }[] } | null = () => null;
   private safetyTint: HTMLDivElement | null = null;
   private safetyGlyph: HTMLImageElement | null = null;
   private safetyOpenTimer: ReturnType<typeof setTimeout> | null = null;
@@ -490,8 +497,77 @@ export class NewShipHud {
 
   // ── inputs ─────────────────────────────────────────────────────────────────────────────────────────────
 
+  /**
+   * HealthRing's segments (_SegmentHitArea): the pointer over a pool's band (R_TRACK_IN..R_TRACK_OUT, within its arc)
+   * shows its tooltip (LoadHealthTooltip), kept current (REFRESH_MS 100) while it is over it.
+   */
+  private watchRing(): void {
+    const [cx, cy] = MEDALLION_CENTRE;
+    const move = (ev: MouseEvent) => {
+      if (this.disposed) { document.removeEventListener("mousemove", move); return; }
+      const box = this.root.getBoundingClientRect();
+      const x = ev.clientX - box.left - cx, y = ev.clientY - box.top - cy;
+      const r = Math.hypot(x, y);
+      const deg = ((Math.atan2(-y, x) * 180 / Math.PI) + 360) % 360;
+      const at = r >= R_TRACK_IN && r <= R_TRACK_OUT && this.root.style.display !== "none" ? this.segments.findIndex((s) => deg >= s.a0 && deg <= s.a1) : -1;
+      const index = at >= 0 ? at : null;
+      if (index === this.ringHover) return;
+      this.ringHover = index;
+      if (index === null) { this.liveTip = null; this.closeTooltip(); return; }
+      const anchor = { getBoundingClientRect: () => new DOMRect(ev.clientX - 8, ev.clientY - 8, 16, 16) } as unknown as HTMLElement;
+      this.liveTip = () => this.showHealthTooltip(anchor, index);
+      this.liveTip();
+    };
+    document.addEventListener("mousemove", move);
+  }
+  /**
+   * LoadHealthTooltip: the pool's icon (eveicon shields / armor / structure_management, 24 px) and its name in bold
+   * (Tooltips/Hud/Shield, Armor, Structure), its HP right of it as "<now> / <max>" (FormatNumeric, grouped, no
+   * decimals); under it the resistances' row (AttributeValueRowContainer: each its 24 px icon and
+   * ResistanceActiveBonusValues of its percentage, 65 px apart).
+   */
+  private showHealthTooltip(anchor: HTMLElement, index: number): void {
+    const facts = this.healthFacts(index);
+    if (!facts) return;
+    const POOL = [["Tooltips/Hud/Shield", "Shield", "shields"], ["Tooltips/Hud/Armor", "Armor", "armor"], ["Tooltips/Hud/Structure", "Structure", "structure_management"]] as const;
+    const [label, own, glyph] = POOL[index]!;
+    const group = (v: number) => Math.round(v).toLocaleString("en-US");
+    const hpText = `${group(facts.hp)} / ${group(facts.max)}`;
+    const title = document.createElement("div");
+    Object.assign(title.style, { gridColumn: "1 / 4", display: "flex", alignItems: "center", gap: "6px", minWidth: `${65 * Math.max(1, facts.resists.length)}px` });
+    const icon = document.createElement("img");
+    icon.src = res(`res:/UI/Texture/eveicon/category_icons/${glyph}_32px.png`);
+    icon.alt = "";
+    Object.assign(icon.style, { width: "24px", height: "24px" });
+    const name = this.cell(this.word(label) ?? own, { fontWeight: "bold", color: "rgba(255,255,255,0.95)" });
+    const hp = this.cell(hpText, { marginLeft: "auto" });
+    title.append(icon, name, hp);
+    const row = document.createElement("div");
+    Object.assign(row.style, { gridColumn: "1 / 4", display: "flex" });
+    const texts: string[] = [];
+    for (const r of facts.resists) {
+      const cell = document.createElement("span");
+      Object.assign(cell.style, { display: "inline-flex", alignItems: "center", width: "65px" });
+      if (r.icon) {
+        const ri = document.createElement("img");
+        ri.src = r.icon;
+        ri.alt = "";
+        Object.assign(ri.style, { width: "24px", height: "24px" });
+        cell.append(ri);
+      }
+      const text = this.wordWith?.("UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusValues", { activeValue: r.percent }) ?? `${Math.round(r.percent)}%`;
+      texts.push(text);
+      const t = document.createElement("span");
+      t.textContent = text;
+      cell.append(t);
+      row.append(cell);
+    }
+    this.showRowsTooltip(anchor, `health:${index}:${hpText}:${texts.join(",")}`, [title, row], "auto auto auto");
+  }
+
   private buildMedallionInputs(): void {
     const [cx, cy] = MEDALLION_CENTRE;
+    this.watchRing();
     // The speedometer widget, 75x160 at medallion (-135, -76): every action wants the cursor 90..122 px out.
     const speed = document.createElement("div");
     Object.assign(speed.style, { position: "absolute", left: `${cx - 135}px`, top: `${cy - 76}px`, width: "75px", height: "144px", pointerEvents: "auto", cursor: "pointer" });
@@ -868,6 +944,7 @@ export class NewShipHud {
     "UI/Inflight/HUDOptions/DisplayEmptySlots", "UI/Inflight/HUDOptions/DisplayReadout", "UI/Inflight/HUDOptions/DisplayReadoutAsPercentage",
     "UI/Inflight/HUDOptions/LockModulesInPlace", "UI/Inflight/HUDOptions/AlignHUDToTop", "UI/Inflight/NotifySettingsWindow/DamageAlertSettings",
     "UI/Accessories/Log/EnterMessageMovingMode", ...COMMAND_TIP_LABELS,
+    "Tooltips/Hud/Shield", "Tooltips/Hud/Armor", "Tooltips/Hud/Structure", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusValues",
     "Tooltips/Hud/CurrentSpeed", "UI/Inflight/CanNotChangeSpeedWhileWarping", "UI/Inflight/MetersPerSecond", "UI/Inflight/StopTheShip",
     "UI/Inflight/SetFullSpeed", "Tooltips/Hud/HeatStatus", "Tooltips/Hud/HeatStatusLow", "Tooltips/Hud/HeatStatusMedium", "Tooltips/Hud/HeatStatusHigh", "UI/Common/Settings",
     ...["CapacitorFlowUnavailable", "CapStable", "CapIncreasing", "CapDecreasing", "CapRecharge", "CapDrain", "CapInjection",
