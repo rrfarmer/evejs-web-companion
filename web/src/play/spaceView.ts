@@ -4471,11 +4471,14 @@ export class SpaceView {
       if (owned && hasState) droneAbandon = { path: "UI/Drones/AbandonDrone", label: word("UI/Drones/AbandonDrone", "Abandon Drone"), run: order("abandon") };
       if (out.length) out.push(null);
     }
+    // Orbit / KeepAtRange / WarpToMenuEntryData.GetTextDescriptive: the entry with its default distance (GetActionTextWithDistance:
+    // SelectedItemActionWithDist, "Orbit (1,000 m)" on the client)
+    const withDist = (label: string, d: number) => this.actions.word?.("UI/Menusvc/MenuHints/SelectedItemActionWithDist", { actionName: label, distanceString: fmtDistance(d) }) ?? label;
     if (warp) {
       const d = defaultDistance("WarpTo");
       out.push({
         path: "UI/Inflight/Submenus/WarpToWithin",
-        label: word("UI/Inflight/Submenus/WarpToWithin", "Warp to Within"), icon: I("warp_to"),
+        label: withDist(word("UI/Inflight/Submenus/WarpToWithin", "Warp to Within"), d), icon: I("warp_to"),
         run: run("Warp", () => this.actions.warpTo(id, d)),
         sub: [...warpRanges.map((r) => ({ label: within(r), run: run("Warp", () => this.actions.warpTo(id, r)) })), null, setDefault("WarpTo", warpRanges, within)],
       });
@@ -4483,9 +4486,9 @@ export class SpaceView {
     if (approach) {
       out.push({ path: "UI/Inflight/ApproachObject", label: word("UI/Inflight/ApproachObject", "Approach"), icon: I("approach"), run: run("Approach", () => this.actions.approach(id)) });
       const orbitD = defaultDistance("Orbit"), keepD = defaultDistance("KeepAtRange");
-      out.push({ path: "UI/Inflight/OrbitObject", label: word("UI/Inflight/OrbitObject", "Orbit"), icon: I("orbit"), run: run("Orbit", () => this.actions.orbit(id, orbitD)),
+      out.push({ path: "UI/Inflight/OrbitObject", label: withDist(word("UI/Inflight/OrbitObject", "Orbit"), orbitD), icon: I("orbit"), run: run("Orbit", () => this.actions.orbit(id, orbitD)),
         sub: ranges("Orbit", orbitRanges, "UI/Inflight/OrbitAtCurrentRange", (r) => void this.act("Orbit", () => this.actions.orbit(id, r))) });
-      if (!noKeep) out.push({ path: "UI/Inflight/Submenus/KeepAtRange", label: word("UI/Inflight/Submenus/KeepAtRange", "Keep at Range"), icon: I("keep_at_distance"), run: run("Keep at Range", () => this.actions.keepAtRange(id, keepD)),
+      if (!noKeep) out.push({ path: "UI/Inflight/Submenus/KeepAtRange", label: withDist(word("UI/Inflight/Submenus/KeepAtRange", "Keep at Range"), keepD), icon: I("keep_at_distance"), run: run("Keep at Range", () => this.actions.keepAtRange(id, keepD)),
         sub: ranges("KeepAtRange", orbitRanges, "UI/Inflight/KeepAtCurrentRange", (r) => void this.act("Keep at Range", () => this.actions.keepAtRange(id, r))) });
     } else if (warp) {
       out.push({ path: "UI/Inflight/AlignTo", label: word("UI/Inflight/AlignTo", "Align to"), icon: I("align_to"), run: run("Align", () => this.actions.alignTo(id)) });
