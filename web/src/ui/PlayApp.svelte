@@ -1218,6 +1218,23 @@
       void s.flow.reloadAll(reloading).catch(say("Reload all"));
       return true;
     }
+    // carbonui command.py's window commands on the page's windows, the active one the one on top that is not minimized:
+    // CmdCloseActiveWindow (Ctrl-W) its close (CloseByUser), CmdMinimizeActiveWindow its minimize, CmdCloseAllWindows
+    // (Ctrl-Alt-W) every window closed, CmdToggleMinimizeMaximizeAllWindows all minimized where any is open, else all back
+    if (cmd === "CmdCloseActiveWindow" || cmd === "CmdMinimizeActiveWindow") {
+      const open = wins.filter((w) => !w.minimized);
+      const active = open.length ? open.reduce((a, b) => (b.z > a.z ? b : a)) : null;
+      if (!active) return true;
+      if (cmd === "CmdCloseActiveWindow") { void playUiEvent("ui_object_close_play"); wins = closeWindow(wins, active.id); }
+      else wins = toggleMinimize(wins, active.id);
+      return true;
+    }
+    if (cmd === "CmdCloseAllWindows") { if (wins.length) void playUiEvent("ui_object_close_play"); wins = []; return true; }
+    if (cmd === "CmdToggleMinimizeMaximizeAllWindows") {
+      const anyOpen = wins.some((w) => !w.minimized);
+      wins = wins.map((w) => ({ ...w, minimized: anyOpen }));
+      return true;
+    }
     // CmdRefreshProbeScan (B): the probe scanner's Analyze where its window is open (ProbeScannerWindow.Confirm);
     // CmdIncrease/DecreaseProbeScanRange: scanSvc.ScaleFormation(2 / 0.5) - nothing unless every probe's range so scaled
     // is one of its type's steps, else each idle probe moved about the formation's centre (_ScaleFromCenterIterator) and
@@ -2653,6 +2670,9 @@
   <div class="fly-fade" bind:this={fadeEl}></div>
 
   <div class="fly-windows" class:planet-covered={planetInMode !== null} bind:this={windowsEl} onpointerdowncapture={() => (containerFront = false)}>
+    <!-- not the each block's only child: an each that is the only child of its element is emptied by clearing the
+         element, which would take the space view's own windows (the overview, Selected Item, ...) kept in it too -->
+    <span class="fly-windows-anchor" hidden></span>
     {#each wins as win (win.id)}
       <ErrorBoundary name={tabLabel(win.id)}>
         <DesktopWindow
