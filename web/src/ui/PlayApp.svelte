@@ -3351,13 +3351,14 @@
      reconnect at the right), the formation buttons 32, the size slider, Analyze 100 wide */
   .fly-windows :global(.ps-window) { display: flex; flex-direction: column; height: 100%; min-height: 300px; }
   .fly-windows :global(.ps-results) { flex: 1; min-height: 0; overflow: auto; }
-  .fly-windows :global(.ps-filter) { height: 22px; line-height: 22px; padding-left: 2px; font-size: 13px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+  .fly-windows :global(.ps-filter) { height: 22px; line-height: 22px; padding-left: 2px; font-size: 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
   .fly-windows :global(.ps-none) { text-align: center; color: rgba(255, 255, 255, 0.5); font-size: 12px; margin-top: 24px; }
   /* ScanResultNew: 24 high; the icon 16 in the certainty's colour (GetResultColor); the status bar 2 high at the bottom
      - the base and the change; the warp button 22 in the signal column; the filter row: Scan Results at the left */
   /* The columns as GetColumnsDefaultSize has them (Distance 70, ID 60, Name 100), Group stretched, the signal column 50
      at the right; long text cut; the row's menu on a right-click, its button not drawn, the menu under the row */
-  .fly-windows :global(.ps-retail table) { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+  /* measured in the client through gridcheck: the rows EveLabelMedium 14, the column headers EveLabelSmall 12 */
+  .fly-windows :global(.ps-retail table) { width: 100%; border-collapse: collapse; font-size: 14px; table-layout: fixed; }
   .fly-windows :global(.ps-retail :is(th, td):nth-child(2)) { width: 70px; }
   .fly-windows :global(.ps-retail :is(th, td):nth-child(3)) { width: 60px; }
   .fly-windows :global(.ps-retail :is(th, td):nth-child(4)) { width: 100px; }
@@ -3367,7 +3368,7 @@
   .fly-windows :global(.ps-retail td:nth-child(7) > .result-menu) { position: absolute; right: 0; top: 22px; z-index: 3; flex-direction: column;
     background: rgba(18, 20, 23, 0.97); border: 1px solid rgba(255, 255, 255, 0.15); padding: 4px; white-space: nowrap; }
   .fly-windows :global(.ps-retail td) { overflow: hidden; text-overflow: ellipsis; }
-  .fly-windows :global(.ps-retail th) { text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 2px 4px; }
+  .fly-windows :global(.ps-retail th) { font-size: 12px; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 2px 4px; }
   .fly-windows :global(.ps-row) { height: 24px; background-image: linear-gradient(90deg, color-mix(in srgb, var(--cert) 35%, black) var(--base),
     color-mix(in srgb, var(--cert) 50%, black) var(--base) calc(var(--base) + var(--change)), transparent 0);
     background-size: 100% 2px; background-repeat: no-repeat; background-position: bottom; }
@@ -3381,25 +3382,27 @@
   .fly-windows :global(.ps-warp img) { width: 22px; height: 22px; display: block; }
   .fly-windows :global(.ps-retail) { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
   .fly-windows :global(.ps-retail > :is(table, p, .error, .filter-panel)) { flex: 0 0 100%; }
-  .fly-windows :global(.ps-retail > .ps-caption) { font-size: 13px; margin-right: auto; padding-left: 2px; }
+  .fly-windows :global(.ps-retail > .ps-caption) { font-size: 14px; margin-right: auto; padding-left: 2px; }
   .fly-windows :global(.ps-results) { overflow-x: hidden !important; }
   .fly-windows :global(.ps-bottom) { height: 64px; margin-top: 4px; padding: 4px; background: rgba(255, 255, 255, 0.04); border-top: 1px solid rgba(255, 255, 255, 0.08); }
   .fly-windows :global(.ps-state) { display: flex; align-items: center; height: 24px; margin-bottom: 4px; gap: 4px; padding-left: 4px; }
   .fly-windows :global(.ps-probe) { width: 28px; height: 28px; display: inline-flex; }
   .fly-windows :global(.ps-probe img) { width: 28px; height: 28px; }
   .fly-windows :global(.ps-probe.dim) { opacity: 0.3; }
-  .fly-windows :global(.ps-count) { font-size: 13px; }
+  .fly-windows :global(.ps-count) { font-size: 14px; }
+  /* the filtered and ignored boxes' text EveLabelSmall 12 */
+  .fly-windows :global(.ps-retail .ignored-box button) { font-size: 12px; }
   .fly-windows :global(.ps-count.warn) { color: #f39b2c; }
   .fly-windows :global(.ps-gap) { flex: 1; }
   .fly-windows :global(.ps-icon) { background: none; border: 0; padding: 0; width: 16px; height: 16px; cursor: pointer; }
   .fly-windows :global(.ps-icon:disabled), .fly-windows :global(.ps-form:disabled) { opacity: 0.35; cursor: default; }
   .fly-windows :global(.ps-icon img) { width: 16px; height: 16px; display: block; }
   .fly-windows :global(.ps-footer) { display: flex; align-items: center; gap: 2px; height: 32px; }
-  .fly-windows :global(.ps-form) { background: none; border: 0; padding: 0; width: 32px; height: 32px; cursor: pointer; }
+  .fly-windows :global(.ps-form) { background: none; border: 0; padding: 0; width: 32px; height: 36px; cursor: pointer; }
   .fly-windows :global(.ps-form img) { width: 32px; height: 32px; display: block; }
   .fly-windows :global(.ps-slider) { flex: 1; display: flex; justify-content: flex-end; padding-left: 8px; }
   .fly-windows :global(.ps-slider input) { width: 100%; max-width: 120px; }
-  .fly-windows :global(.ps-analyze) { width: 100px; margin-left: 8px; font-size: 13px; padding: 4px 0; }
+  .fly-windows :global(.ps-analyze) { width: 100px; height: 32px; margin-left: 8px; font-size: 14px; padding: 0; }
   /* A client window says its caption once, in its header: the panels' own title (the companion's) is not drawn here */
   .fly-windows :global(.win .panel-head > .panel-title) { display: none; }
   /* WalletWindow: the header's tabs; the WalletTabGroup 76 high - ISK and PLEX a third each, LP and EverMarks stacked;
