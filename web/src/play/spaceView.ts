@@ -1582,6 +1582,10 @@ export class SpaceView {
       this.raiseOnClick(this.dscan.window.root);
     }
     addEventListener("keydown", this.onKey);
+    // a panel's MapBtnClicked (the probe scanner's solar system map button): CmdToggleSolarSystemMap
+    const toggleMap = () => this.systemMap?.toggle();
+    addEventListener("evejs:toggle-solar-system-map", toggleMap);
+    this.unhold.push(() => removeEventListener("evejs:toggle-solar-system-map", toggleMap));
     addEventListener("keyup", this.onKeyUp);
     addEventListener("blur", this.onBlur);
     addEventListener("pointerdown", this.onPointer, true);

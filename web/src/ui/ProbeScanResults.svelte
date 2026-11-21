@@ -189,7 +189,10 @@
 
 {#if held !== null}
   <section class="probe-results" class:ps-retail={retail}>
-    {#if retail}<span class="ps-caption">{word(PROBE_RESULT_LABELS.scanResults) ?? "Scan Results"}</span>{/if}
+    {#if retail}<span class="ps-caption">{word(PROBE_RESULT_LABELS.scanResults) ?? "Scan Results"}</span>
+      <!-- ConstructFilterCont's solarSystemMapButton (24 wide, solarSystem.png, btnSolarsystemMap): MapBtnClicked -->
+      <button type="button" class="ps-map" title={word("UI/Map/MapPallet/btnSolarsystemMap") ?? "Solar System Map"}
+        onclick={() => window.dispatchEvent(new CustomEvent("evejs:toggle-solar-system-map"))}><img alt="" src="/client-res/ui/texture/shared/brackets/solarsystem.png" /></button>{/if}
     <!-- The filtered box and its panel, "Show results for" (_LoadFilterTooltipPanel, 445 to 480): the anomalies' box
          and each standard filter's. -->
     <div class="ignored-box">
@@ -346,6 +349,10 @@
 {/if}
 
 <style>
+  /* the map button left of the filtered box (TORIGHT after it) */
+  .ps-map { all: unset; display: inline-grid; place-items: center; width: 24px; height: 24px; cursor: pointer; opacity: 0.7; vertical-align: middle; }
+  .ps-map:hover { opacity: 1; }
+  .ps-map img { width: 16px; height: 16px; }
   .ignored-box {
     margin-bottom: 0.4rem;
   }

@@ -294,5 +294,7 @@
   :global(.win:has(.ps-window.compact) > .win-body) { position: static; }
   .ps-window.compact :global(.probe-results) { position: static; }
   .ps-window.compact :global(.ps-caption) { display: none; }
+  /* and the map button at the header's left (TOLEFT when compact) */
+  .ps-window.compact :global(.ps-map) { position: absolute; top: 3px; left: 8px; z-index: 2; }
   .ps-window.compact :global(.ignored-box) { position: absolute; top: 2px; right: 96px; margin: 0; z-index: 2; display: flex; gap: 4px; }
 </style>
