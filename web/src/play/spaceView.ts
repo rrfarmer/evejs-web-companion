@@ -1411,6 +1411,8 @@ export class SpaceView {
     this.radial.root.style.zIndex = "100000";
     for (const el of [this.selectedEl, this.overview.window.root]) this.raiseOnClick(el);
     // a held left button opens the radial menu; a right-click the context menu (menusvc's, as the client's right-click)
+    // CmdOpenRadialMenu held: the radial menu at the press, with no delay (radialMenuSvc's noDelay)
+    const radialNow = () => this.combat?.cmd === "CmdOpenRadialMenu";
     const openRadial = (id: number, x: number, y: number, button: number) => (button === 2 ? this.openContext(id, x, y) : this.openRadial(id, x, y, button));
     const rowID = (_x: number, _y: number, e: Event) => Number((e.target as HTMLElement).closest?.("[data-id]")?.getAttribute("data-id")) || null;
     // The solar system map (CmdToggleSolarSystemMap, F9; the directional scanner's map button), over the park's celestials.
@@ -1493,11 +1495,11 @@ export class SpaceView {
     addEventListener("blur", this.onBlur);
     addEventListener("pointerdown", this.onPointer, true);
     this.unhold.push(
-      holdToOpen(this.brackets, rowID, openRadial),
-      holdToOpen(this.overview.window.body, rowID, openRadial),
-      holdToOpen(this.renderer.domElement, (x, y) => this.pickAt(x, y), openRadial),
+      holdToOpen(this.brackets, rowID, openRadial, true, radialNow),
+      holdToOpen(this.overview.window.body, rowID, openRadial, true, radialNow),
+      holdToOpen(this.renderer.domElement, (x, y) => this.pickAt(x, y), openRadial, true, radialNow),
     );
-    this.holdOverviewRow = (el) => holdToOpen(el, rowID, openRadial);
+    this.holdOverviewRow = (el) => holdToOpen(el, rowID, openRadial, true, radialNow);
     // the overview windows the tabs were moved to before, opened again (OverviewWindow per windowInstanceID)
     for (const id of this.overview.storedWindowIDs()) this.addOverviewWindow(this.makeOverview!, id);
     // Brackets drawn before the client's tables are here are drawn again with the client's icons.
@@ -3058,6 +3060,8 @@ export class SpaceView {
       case "CmdOpenSelectedCargoContainer": run("Open Cargo", () => this.actions.openCargo?.(id) ?? Promise.resolve()); break;
       // CmdGetLocationMenuForNavigation is a right-click's (navigation.GetMenu); a left click does nothing with it
       case "CmdGetLocationMenuForNavigation": break;
+      // CmdOpenRadialMenu is the press's (holdToOpen); the click after it does nothing more
+      case "CmdOpenRadialMenu": break;
       // targetMgr.ToggleLockTarget: unlocked where it is a target, else locked
       case "CmdToggleTargetItem": if (this.locked.has(id)) run("Unlock Target", () => this.actions.unlock(id)); else run("Lock Target", () => this.lockTracked(id)); break;
       case "CmdDockOrJumpOrActivateGate": {

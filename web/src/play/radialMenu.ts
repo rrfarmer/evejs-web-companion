@@ -220,7 +220,8 @@ export const RADIAL_CSS = `
  * The radial menu's opening on `target` (radialMenuSvc.TryExpandActionMenu): the left button held 150 ms without the
  * pointer moving 12 px, or the right button. `idOf` says which object the pointer is on (null for none).
  */
-export function holdToOpen(target: HTMLElement, idOf: (x: number, y: number, e: Event) => number | null, open: (id: number, x: number, y: number, button: number) => void, rightClick = true): () => void {
+export function holdToOpen(target: HTMLElement, idOf: (x: number, y: number, e: Event) => number | null, open: (id: number, x: number, y: number, button: number) => void, rightClick = true,
+  noDelay: () => boolean = () => false): () => void {
   let held: { id: number; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
   const cancel = () => { if (held) clearTimeout(held.timer); held = null; };
   const down = (e: PointerEvent) => {
@@ -229,6 +230,8 @@ export function holdToOpen(target: HTMLElement, idOf: (x: number, y: number, e: 
     const id = idOf(e.clientX, e.clientY, e);
     if (id === null) return;
     const x = e.clientX, y = e.clientY;
+    // CmdOpenRadialMenu loaded (radialMenuSvc: noDelay): opened at the press
+    if (noDelay()) { e.preventDefault(); open(id, x, y, 0); return; }
     held = { id, x, y, timer: setTimeout(() => { const h = held; held = null; if (h) open(h.id, h.x, h.y, 0); }, 150) };
   };
   const move = (e: PointerEvent) => { if (held && Math.hypot(e.clientX - held.x, e.clientY - held.y) > 12) cancel(); };
