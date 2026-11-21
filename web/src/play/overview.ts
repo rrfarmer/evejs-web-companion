@@ -109,7 +109,7 @@ export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HI
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
   "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
   "UI/Overview/EditCurrentFilter", "UI/Commands/ChangeName", "UI/Overview/DeleteTab", "/Carbon/UI/Controls/ScrollEntries/TypeInNewName",
-  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
+  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
 const DISABLED_TEXT = "Header sorting is disabled";
 
 /**
@@ -436,6 +436,67 @@ export class Overview {
     return out;
   }
 
+  /**
+   * OverviewSettingsWnd (UI/Overview/OverviewSettings, 520 x 600): its tab group, of which the Tabs panel is here so far
+   * (TabsPanel: for each of MAX_TAB_NUM slots the Tab Name (MAX_TAB_NAME_LENGTH), Filter and Bracket Filter combos -
+   * Show All Brackets first - and a delete button; naming an empty slot adds the tab, UpdateOverviewTab on each change).
+   */
+  openSettings(): void {
+    const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
+    document.querySelector(".ov-settings")?.closest(".pw")?.remove();
+    const win = new PlayWindow({ id: "overview-settings", caption: word("UI/Overview/OverviewSettings", "Overview Settings"),
+      left: Math.round(innerWidth / 2 - 260), top: Math.round(innerHeight / 2 - 300), width: 520, height: 600, minWidth: 520, minHeight: 500 });
+    win.body.classList.add("ov-settings");
+    const options = (selected: string | null, showAll: boolean) =>
+      (showAll ? `<option value=""${selected === null ? " selected" : ""}>${esc(word("UI/Overview/ShowAllBrackets", "Show All Brackets"))}</option>` : "") +
+      this.presetChoices.map((p) => `<option value="${esc(p.id)}"${p.id === selected ? " selected" : ""}>${esc(p.label)}</option>`).join("");
+    const draw = () => {
+      // an empty slot shows overviewPresetSvc.GetDefaultPreset (DefaultPreset_639452, "General: General", read from the client)
+      const first = this.presetChoices.find((p) => p.id === "DefaultPreset_639452")?.id ?? this.presetChoices[0]?.id ?? null;
+      const rows = Array.from({ length: MAX_TAB_NUM }, (_, i) => {
+        const t = this.tabSettings[i];
+        return `<div class="ov-set-row" data-slot="${i}"><input class="ov-set-name" maxlength="${MAX_TAB_NAME_LENGTH}" value="${esc(t?.name ?? "")}" autocomplete="off">
+          <select class="ov-set-filter" title="${esc(word("UI/Overview/ChooseOverviewPreset", ""))}">${options(t?.preset ?? first, false)}</select>
+          <select class="ov-set-bracket" title="${esc(word("UI/Overview/ChooseBracketPreset", ""))}">${options(t ? t.bracket : null, true)}</select>
+          ${t ? `<img class="ov-set-delete" src="${clientTexture("res:/UI/Texture/eveicon/system_icons/close_16px.png")}" alt="" title="${esc(word("UI/Overview/DeleteTab", "Delete Tab"))}">` : `<span></span>`}</div>`;
+      }).join("");
+      win.body.innerHTML = `<div class="ov-set-tabs"><span class="ov-set-tab active"></span></div>
+        <div class="ov-set-panel"><div class="ov-set-row ov-set-head"><span></span><span></span><span></span><span></span></div>${rows}</div>`;
+      win.body.querySelector(".ov-set-tab")!.textContent = word("UI/Overview/Tabs", "Tabs");
+      const heads = win.body.querySelectorAll<HTMLElement>(".ov-set-head span");
+      heads[0]!.textContent = word("UI/Overview/TabName", "Tab Name");
+      heads[1]!.textContent = word("UI/Overview/Filter", "Filter");
+      heads[2]!.textContent = word("UI/Overview/BracketFilter", "Bracket Filter");
+    };
+    // UpdateOverviewTab: each named slot updated, or added after the others
+    const update = () => {
+      const next: TabSettings[] = [];
+      for (const row of win.body.querySelectorAll<HTMLElement>(".ov-set-row[data-slot]")) {
+        const i = Number(row.dataset.slot);
+        const name = row.querySelector<HTMLInputElement>(".ov-set-name")!.value.trim();
+        const old = this.tabSettings[i];
+        if (!name) { if (old) next.push(old); continue; }
+        next.push({ ...(old ?? {}), name, preset: row.querySelector<HTMLSelectElement>(".ov-set-filter")!.value,
+          bracket: row.querySelector<HTMLSelectElement>(".ov-set-bracket")!.value || null });
+      }
+      this.tabSettings = next;
+      this.tabsChanged(Math.min(this.tab, next.length - 1));
+      draw();
+    };
+    win.body.addEventListener("change", (e) => { if ((e.target as HTMLElement).closest(".ov-set-row")) update(); });
+    win.body.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.target as HTMLElement).matches(".ov-set-name")) update(); });
+    win.body.addEventListener("click", (e) => {
+      const del = (e.target as HTMLElement).closest(".ov-set-delete");
+      if (!del || this.tabSettings.length <= 1) return;
+      const i = Number(del.closest<HTMLElement>(".ov-set-row")!.dataset.slot);
+      this.tabSettings.splice(i, 1);
+      this.tabsChanged(this.tab > i ? this.tab - 1 : Math.min(this.tab, this.tabSettings.length - 1));
+      draw();
+    });
+    draw();
+    (this.window.root.parentElement ?? document.body).append(win.root);
+  }
+
   /** GetColumnVisibilitySubMenu(tabID): each column's checkbox for that tab, then Change Order. */
   private columnsSubMenu(tab: number): (ContextEntry | null)[] {
     const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
@@ -601,7 +662,7 @@ export class Overview {
       ({ label: word(label, own), checked: current === value, run: () => this.hooks.setBracketOverride?.(value) });
     return [
       { label: word("UI/Overview/AddTab", "Add Tab"), icon: "res:/UI/Texture/eveicon/system_icons/add_16px.png", run: () => this.openAddTab() },
-      { label: word("UI/Commands/OpenOverviewSettings", "Open Overview Settings"), icon: "res:/UI/Texture/eveicon/system_icons/settings_16px.png", disabled: "Not here yet" },
+      { label: word("UI/Commands/OpenOverviewSettings", "Open Overview Settings"), icon: "res:/UI/Texture/eveicon/system_icons/settings_16px.png", run: () => this.openSettings() },
       { label: word("UI/Overview/BracketVisibility", "Bracket Visibility"), sub: [
         radio("UI/Overview/UseSelectedTabBracketPreset", "Use Selected Tab's Bracket Preset", "default"),
         radio("UI/Overview/ShowAll", "Show All", "all"),
