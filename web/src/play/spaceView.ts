@@ -2194,10 +2194,20 @@ export class SpaceView {
       dock: "UI/Inflight/DockInStation", board: "UI/Inflight/BoardShip", orbit: "UI/Inflight/OrbitObject", keep: "UI/Inflight/Submenus/KeepAtRange", lock: "UI/Inflight/LockTarget",
       unlock: "UI/Inflight/UnlockTarget", look: "UI/Inflight/LookAtObject", track: "UI/Inflight/SetAsCameraInterest", info: "UI/Commands/ShowInfo" };
     if (e.kind === "stargate") PATH.jump = "UI/Inflight/Jump";
+    // the menu's reasonsWhyNotAvailable the checkers give: IsValidForKeepAtRange (CannotKeepInRange with the group's name:
+    // an asteroid, a cloud, a mining drone, a container, a station, a stargate, a wreck) and IsWithinTargettingRange
+    // (NotInTargetRange: farther than the ship's maxTargetRange)
+    const reasons: Record<string, string | undefined> = {};
+    const category = (e as Entity & { categoryID?: number | null }).categoryID ?? null;
+    if (category === 25 || e.kind === "asteroid" || [711, 101, 12, 340, 448, 15, 10, 649, 186].includes(e.groupID ?? -1)) {
+      reasons.keep = this.actions.word?.("UI/Menusvc/MenuHints/CannotKeepInRange", { groupName: this.options.groupName?.(e.groupID ?? 0) ?? "" }) ?? undefined;
+    }
+    const lockRange = this.actions.shipAttribute?.(76) ?? null;
+    if (lockRange !== null && this.distanceTo(e) >= lockRange) reasons.lock = this.actions.word?.("UI/Menusvc/MenuHints/NotInTargetRange") ?? undefined;
     return out.map((a) => {
       const path = PATH[a.key];
       if (!path || available.has(path) || a.disabled) return a;
-      return { ...a, disabled: true, disabledReason: a.disabledReason ?? this.actions.word?.("UI/Menusvc/MenuHints/NoReasonGiven") ?? "No reason given" };
+      return { ...a, disabled: true, disabledReason: a.disabledReason ?? reasons[a.key] ?? this.actions.word?.("UI/Menusvc/MenuHints/NoReasonGiven") ?? "No reason given" };
     });
   }
 
