@@ -3931,9 +3931,9 @@ export class SpaceView {
       const anchorMap = new THREE.TextureLoader().load(clientTexture("res:/UI/inflight/tactical/anchor.dds"));
       anchorMap.flipY = false;
       const anchors = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
-        uniforms: { map: { value: anchorMap } },
+        uniforms: { map: { value: anchorMap }, diffuse: { value: new THREE.Color(1, 1, 1) } },
         vertexShader: "attribute vec4 tint; varying vec2 vUv; varying vec4 vTint; void main() { vUv = uv; vTint = tint; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
-        fragmentShader: "uniform sampler2D map; varying vec2 vUv; varying vec4 vTint; void main() { vec4 t = texture2D(map, vUv); gl_FragColor = vec4(vec3(mix(t.g, t.r, vTint.a)) * vTint.rgb, 1.0); }",
+        fragmentShader: "uniform sampler2D map; uniform vec3 diffuse; varying vec2 vUv; varying vec4 vTint; void main() { vec4 t = texture2D(map, vUv); gl_FragColor = vec4(mix(t.g, t.r, vTint.a) * vTint.rgb * diffuse, 1.0); }",
         transparent: true, depthWrite: false, side: THREE.DoubleSide,
         blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
       }));
@@ -4214,6 +4214,9 @@ export class SpaceView {
       }
       index.push(first, first + 1, first + 2, first, first + 2, first + 3);
     }
+    // TacticalCompass.SetMoveMode: the anchors' DiffuseColor COLOR_MOVE (0, 0.678, 0.933) while the move command is on
+    const diffuse = (t.anchors.material as THREE.ShaderMaterial).uniforms.diffuse!.value as THREE.Color;
+    if (this.moveCmd) diffuse.setRGB(0, 0.678, 0.933, THREE.LinearSRGBColorSpace); else diffuse.setRGB(1, 1, 1, THREE.LinearSRGBColorSpace);
     const g = t.anchors.geometry;
     g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
