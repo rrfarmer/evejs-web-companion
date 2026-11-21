@@ -2468,15 +2468,18 @@
         tooltip: (m) => moduleTooltip(m),
         // tactical.FindMaxRange: the default effect's range attribute (maxRange) and falloff; a launcher's charge's
         // flight time x velocity where the module has no range of its own
-        range: (m) => {
+        // (falloffEffectivnessModuleGroups: the remote and electronic warfare groups' falloff is attributeFalloffEffectiveness)
+        rangeParts: (m) => {
           const allInfo = s.store.dogma.get().allInfo;
           const item = allInfo?.ships.find((i) => Number(i.itemID) === m.itemID);
           const optimal = attrOf(item, 54) ?? 0;
-          if (optimal > 0) return optimal + (attrOf(item, 158) ?? 0);
+          const groupID = Number((item as { groupID?: unknown } | undefined)?.groupID);
+          const FALLOFF_EFFECTIVENESS_GROUPS = [71, 68, 67, 325, 41, 585, 208, 201, 290, 209, 1672, 379, 291, 1697];
+          if (optimal > 0) return [optimal, attrOf(item, FALLOFF_EFFECTIVENESS_GROUPS.includes(groupID) ? 2044 : 158) ?? 0] as const;
           const loaded = s.store.fitting.get().slots.find((sl) => sl.module?.itemID === m.itemID)?.module?.charge ?? null;
           const chargeItem = loaded ? allInfo?.ships.find((i) => i.typeID === loaded.typeID && (i.sublocation || i.categoryID === 8) && i.flagID === item?.flagID) : undefined;
           const flight = attrOf(chargeItem, 281) ?? 0, speed = attrOf(chargeItem, 37) ?? 0;
-          return flight > 0 && speed > 0 ? (flight * speed) / 1000 : 0;
+          return [flight > 0 && speed > 0 ? (flight * speed) / 1000 : 0, 0] as const;
         },
         capacitorFlow: () => {
           const f = s.store.fitting.get();

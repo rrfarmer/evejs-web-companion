@@ -172,8 +172,8 @@ export interface SpaceViewOptions {
     overload?: { module(itemID: number, on: boolean): Promise<void>; rack(activationID: number, on: boolean): Promise<void> };
     /** The new HUD's module tooltip rows (moduleButtonTooltip.UpdateToolTips), null where it has none to give. */
     tooltip?(m: HudModule): readonly import("./moduleTooltip.ts").ModuleTooltipRow[] | null;
-    /** tactical.FindMaxRange: the module's range and falloff together (maxRange + falloff), 0 for none. */
-    range?(m: HudModule): number;
+    /** tactical.FindMaxRange: the module's range and its falloff (maxRange, falloffDist), the range 0 for none. */
+    rangeParts?(m: HudModule): readonly [number, number];
     /**
      * capacitorFlow: the ship's peak recharge and its fit's whole drain (CapacitorSimulator, GJ a second), and what its
      * running modules drain now (_GetActiveDrain); null where not known.
@@ -458,6 +458,9 @@ export class SpaceView {
   private readonly bracketEls = new Map<number, HTMLDivElement>();
   /** bracketMgr.ShowModuleRange's distance while a module is hovered (its brackets within it brighter), else null. */
   private moduleRange: number | null = null;
+  /** The tactical compass's firing range (optimal, falloff) of the module hovered, null for none. */
+  private firingRange: readonly [number, number] | null = null;
+  private firingRangeClear: ReturnType<typeof setTimeout> | undefined;
   /** bracketMgr.damageByBracketID: each attacker's damage to the ship by the second (RECORDED_DAMAGE_PERIOD_SECONDS 120 kept). */
   private readonly damageByAttacker = new Map<number, Map<number, number>>();
   private biggestDamageDealers: number[] = [];
@@ -1345,8 +1348,14 @@ export class SpaceView {
       this.shipHud.tooltipRows = (m) => this.options.rack?.tooltip?.(m) ?? null;
       // ModuleController.ShowRange: bracketMgr.ShowModuleRange(maxRange + falloff) while a module is under the pointer
       this.shipHud.onModuleHover = (m) => {
-        const r = m ? this.options.rack?.range?.(m) ?? 0 : 0;
+        const [optimal, falloff] = m ? this.options.rack?.rangeParts?.(m) ?? [0, 0] : [0, 0];
+        const r = optimal + falloff;
         this.moduleRange = r > 0 ? r : null;
+        // tactical.ShowModuleRange / ClearModuleRange (cleared 500 ms after the pointer leaves, unless another is shown):
+        // TacticalCompass.SetFiringRange(optimal, falloff) where the optimal is above 0
+        clearTimeout(this.firingRangeClear);
+        if (m) this.firingRange = optimal > 0 ? [optimal, falloff] : null;
+        else this.firingRangeClear = setTimeout(() => { this.firingRange = null; }, 500);
         this.inRangeDue = true;
         // ShowHairlinesForModule after ShowModuleRange (StopShowingModuleRange stops them)
         if (m) this.showHairlines(m.itemID, false); else this.stopHairlines();
@@ -3635,7 +3644,7 @@ export class SpaceView {
    * (_COLOR_TARGETING_LINE (1, 0.1, 0.025, 0.5)); each circle's km at the four points (_COLOR_LABEL white 0.5).
    * And its connectors (EveTacticalOverlay.UpdateVisibility): each thing the overlay wants (its bracket shown) within
    * the active range and its fade, an arc on the sphere about the ship from it to the plane at its distance, and its
-   * anchor; an aggressor's in the attack colour.
+   * anchor; an aggressor's in the attack colour. The hovered module's firing range (tactical.ShowModuleRange).
    */
   private drawTactical(w: number, h: number): void {
     const on = hudSettingNow("viewTactical") && this.snapshot?.ship !== null && this.snapshot?.ship !== undefined;
@@ -3647,7 +3656,8 @@ export class SpaceView {
     const targeting = this.actions.shipAttribute?.(76) ?? 0;
     // TacticalCompass.SetTargetingRange: the active range max(150 km, 1.1 x the targeting range)
     const active = Math.max(150_000, targeting * 1.1);
-    const key = `${Math.round(base)}:${Math.round(active)}`;
+    const firing = this.firingRange;
+    const key = `${Math.round(base)}:${Math.round(active)}:${firing ? firing.map(Math.round).join(",") : ""}`;
     if (!this.tactical || this.tactical.key !== key) {
       if (this.tactical) { this.scene.remove(this.tactical.group); this.tactical.labels.remove(); }
       const RANGES = [5, 10, 20, 30, 40, 50, 75, 100, 150, 200, 250, 300, 400, 500, 750, 1000, 1500, 2000];
@@ -3697,6 +3707,12 @@ export class SpaceView {
         straight(angle + 3 * incS, [1, 1, 1, 0.015]);
       }
       if (targeting > 0) circle(targeting + base, [1, 0.1, 0.025, 0.5]);
+      // CompassDisc.ShowFiringRange(optimal, falloff + optimal): _COLOR_OPTIMAL (attack 0.66) at the optimal, and
+      // _COLOR_FALLOFF (0.33) at optimal + falloff where there is falloff, both beyond the ship's radius
+      if (firing) {
+        circle(firing[0] + base, [1, 0.1, 0.025, 0.66]);
+        if (firing[1] > 0) circle(firing[0] + firing[1] + base, [1, 0.1, 0.025, 0.33]);
+      }
       const labels = document.createElement("div");
       labels.className = "tactical-labels";
       const places: { el: HTMLElement; at: THREE.Vector3 }[] = [];
