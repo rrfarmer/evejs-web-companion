@@ -131,10 +131,33 @@ const compressor: InfoRow = (f, word, out) => {
   if (text !== null) out.push({ icon: "/client-res/ui/texture/classes/skillplan/infoicon.png", iconSize: 34, text });
 };
 
+// AddTractorBeamInfo (groupTractorBeam 650): TractorBeamTractorVelocity with maxTractorVelocity (1045), its attribute's icon
+// and display name ("1250 m/s Max Tractor Velocity")
+const tractorBeam: InfoRow = (f, word, out) => {
+  const text = word("UI/Inflight/ModuleRacks/Tooltips/TractorBeamTractorVelocity", { maxTractorVel: f.attr(1045) ?? 0, attributeName: f.attributeName(1045) ?? "" });
+  if (text !== null) out.push({ icon: f.attributeIcon(1045), iconSize: 24, text });
+};
+// AddGangCoordinatorInfo (groupGangCoordinator 316, the command bursts): GangCoordinatorCommandBonus for a commandBonus
+// (833) not 0, and GangCoordinatorMaxCommandRelays where the module has maxGangModules (435); no icon
+const gangCoordinator: InfoRow = (f, word, out) => {
+  const bonus = f.attr(833) ?? 0;
+  if (bonus !== 0) {
+    const text = word("UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorCommandBonus", { commandBonus: bonus, attributeName: f.attributeName(833) ?? "" });
+    if (text !== null) out.push({ icon: null, iconSize: 24, text });
+  }
+  const relays = f.attr(435);
+  if (relays !== null) {
+    const text = word("UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorMaxCommandRelays", { maxGangModules: relays, attributeName: f.attributeName(435) ?? "" });
+    if (text !== null) out.push({ icon: null, iconSize: 24, text });
+  }
+};
+
 /** infoFunctionNames: a group's own rows. */
 const INFO_BY_GROUP = new Map<number, InfoRow>();
 for (const g of [54, 464, 483, 737, 4138]) INFO_BY_GROUP.set(g, miningLaser);
 INFO_BY_GROUP.set(4174, compressor);
+INFO_BY_GROUP.set(650, tractorBeam);
+INFO_BY_GROUP.set(316, gangCoordinator);
 for (const g of [62, 1199, 1698, 2018]) {
   INFO_BY_GROUP.set(g, perTime(ATTR.armorDamageAmount, "UI/Inflight/ModuleRacks/Tooltips/ArmorRepairedPerTime",
     (f) => (f.charge ? f.attr(ATTR.chargedArmorDamageMultiplier) ?? 1 : 1)));
@@ -336,7 +359,7 @@ export const MODULE_TOOLTIP_LABELS: readonly string[] = [
   "UI/Inflight/ModuleRacks/TypeNameWithNumInGroup", "UI/Inflight/ModuleRacks/ModuleDamaged", "UI/Inflight/ModuleRacks/AmmoNameWithQty",
   "UI/Inflight/ModuleRacks/MaxRange", "UI/Inflight/ModuleRacks/OptimalRangeAndFalloff", "UI/Inflight/ModuleRacks/OptimalRange",
   "UI/Inflight/ModuleRacks/AreaOfEffect", "UI/Inflight/ModuleRacks/RangeWithFalloff", "UI/Inflight/ModuleRacks/Range",
-  "UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", "UI/Inflight/ModuleRacks/Tooltips/CompressorModuleInfo", "UI/Inflight/ModuleRacks/Tooltips/ArmorRepairedPerTime",
+  "UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", "UI/Inflight/ModuleRacks/Tooltips/CompressorModuleInfo", "UI/Inflight/ModuleRacks/Tooltips/TractorBeamTractorVelocity", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorCommandBonus", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorMaxCommandRelays", "UI/Inflight/ModuleRacks/Tooltips/ArmorRepairedPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/HullRepairedPerTime", "UI/Inflight/ModuleRacks/Tooltips/ShieldBonusPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/MaxVelocityWithAndWithoutPropulsion", "UI/Inflight/ModuleRacks/Tooltips/CapacitorBoostPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/EnergyVampireAmountPerTime", "UI/Inflight/ModuleRacks/Tooltips/EnergDestabilizedPerTime",
