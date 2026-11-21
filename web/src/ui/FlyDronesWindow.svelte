@@ -50,6 +50,14 @@
   const names = store.names;
 
   /** The client's control icons (res:/ui/texture/eveicon/control_icons). */
+  /** dronesConst.DRONE_STATES_TEXTURES: each state's sprite (tinted COLOR_BY_STATE, TextColor.NORMAL where none). */
+  const STATE_SPRITE: Record<string, string> = {
+    idle: "res:/ui/texture/eveicon/system_icons/hourglass_16px.png", fighting: "res:/ui/texture/eveicon/control_icons/engage_target_16px.png",
+    mining: "res:/ui/texture/eveicon/system_icons/mining_16px.png", approaching: "res:/ui/texture/eveicon/control_icons/approach_16px.png",
+    returning: "res:/ui/texture/eveicon/control_icons/recall_drones_16px.png", chasing: "res:/ui/texture/eveicon/system_icons/visibility_16px.png",
+    fleeing: "res:/ui/texture/eveicon/system_icons/flag_16px.png", repairing: "res:/UI/Texture/classes/Drones/repairing_16px.png",
+    salvaging: "res:/ui/texture/eveicon/control_icons/salvage_16px.png",
+  };
   const ICON = {
     launch: clientTexture("res:/ui/texture/eveicon/control_icons/launch_drones_16px.png"),
     engage: clientTexture("res:/ui/texture/eveicon/control_icons/engage_target_16px.png"),
@@ -273,6 +281,7 @@
         activity: droneActivityLabel(drone.activity), color: droneActivityColor(drone.activity), itemIDs: [drone.itemID],
         unavailable: lost ? DRONE_NOT_UNDER_YOUR_CONTROL : null, recoverable: drone.controlled === false,
         damage: layersOf(byID.get(drone.itemID) ?? null),
+        sprite: drone.activity ? STATE_SPRITE[drone.activity] ?? null : null,
       };
     });
   });
@@ -409,6 +418,8 @@
       const same = pickedFor("space", row.itemIDs[0]!, row.typeID, true), all = pickedFor("space", row.itemIDs[0]!, row.typeID, false);
       openMenu(e, [moveMenu(same, row.typeID), ...spaceEntries(row.unavailable ? (row.recoverable ? all : []) : all.filter((id) => allDroneIDs.includes(id)), row.recoverable)]);
     }}>
+    {#if row.sprite}<span class="state-sprite" title={row.activity} style:background-color={row.color ?? "rgba(255,255,255,0.75)"}
+      style:mask-image={`url(${clientTexture(row.sprite)})`} style:-webkit-mask-image={`url(${clientTexture(row.sprite)})`}></span>{:else}<span class="state-sprite"></span>{/if}
     {@render picture(row.typeID, row.label)}
     <span class="name">{row.label} <span class="state-word" style:color={row.color}>{row.unavailable ?? row.activity}</span></span>
     {@render gauges(row.damage)}
@@ -470,7 +481,7 @@
 {/if}
 
 <div class="fly-drones">
-  <div class="group" class:drop={dropOn === "bay"} role="list" ondragover={dragOver("bay")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("bay", null, e)}>
+  <div class="group bay" class:closed={!bayOpen} class:drop={dropOn === "bay"} role="list" ondragover={dragOver("bay")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("bay", null, e)}>
     <div class="sec" role="button" tabindex="-1" onclick={() => (bayOpen = !bayOpen)} onkeydown={() => {}}
       oncontextmenu={(e) => openMenu(e, [...deleteMenu(), { label: say(MENU_WORDS.launch), disabled: bayRows.length ? null : "Nothing in the drone bay", act: () => flow.launchDrones(bayRows.flatMap((r) => r.itemIDs)) }])}>
       <span class="lbl"><span class="expander" class:open={bayOpen}></span>{headerWord(HEADER_WORDS.bay, "Drones in Bay")} ({bayCount})</span>
@@ -565,7 +576,10 @@
 <style>
   /* the eve-cs mirror's drone window: 11 px upper-case section labels in grey with white counts on a 2 % white strip,
      29 px rows of a 24 px type icon, the name at 13 px and its count at 11 px, 16 px command icons */
-  .fly-drones { position: relative; font-size: 13px; color: #fff; user-select: none; }
+  /* DronesWindow: the bay's part (topScroll) takes the room, the space part (bottomCont) at the foot while the bay is open */
+  .fly-drones { position: relative; font-size: 13px; color: #fff; user-select: none; display: flex; flex-direction: column; min-height: 100%; }
+  .group.bay { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .group.bay.closed { flex: none; }
   /* BaseDroneGroupHeader: a bar with the expander and the label; its buttons hidden until the mouse is over it */
   .sec { display: flex; align-items: center; justify-content: space-between; height: 24px; margin: 4px 0 2px; padding: 0 4px 0 6px; background: rgba(255, 255, 255, 0.06); cursor: default; }
   .sec .commands { opacity: 0; visibility: hidden; transition: opacity .1s, visibility .1s; }
@@ -584,7 +598,8 @@
   .glyph { width: 16px; height: 16px; background: center / 16px 16px no-repeat; }
   /* DroneEntry: 24 high, the label 4 in (8 more a sublevel); an in-space one in the icons view 40 high with its 32 px icon */
   .row { display: flex; align-items: center; gap: 8px; padding: 0 4px; min-height: 24px; box-sizing: border-box; }
-  .row.inspace { min-height: 40px; }
+  .row.inspace { min-height: 40px; gap: 4px; }
+  .state-sprite { width: 16px; height: 16px; flex: none; mask-size: 16px 16px; -webkit-mask-size: 16px 16px; mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat; }
   .row.inspace .picture { width: 32px; height: 32px; }
   .row.inspace .picture :global(.type-icon) { width: 32px; height: 32px; }
   .row:hover { background: rgba(255, 255, 255, 0.05); }
