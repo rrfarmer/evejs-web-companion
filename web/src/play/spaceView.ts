@@ -1598,6 +1598,13 @@ export class SpaceView {
       holdToOpen(this.brackets, rowID, openRadial, true, radialNow),
       holdToOpen(this.overview.window.body, rowID, openRadial, true, radialNow),
       holdToOpen(this.renderer.domElement, (x, y) => this.pickAt(x, y), openRadial, true, radialNow),
+      // TargetInBar.OnTargetMouseDown: a locked target's own radial (TryExpandActionMenu) - not off a weapon icon under it;
+      // its right click is its own CelestialMenu
+      holdToOpen(this.targetBar.root, (_x, _y, e) => {
+        const el = e.target as HTMLElement;
+        if (el.closest?.("[data-module]")) return null;
+        return Number(el.closest?.<HTMLElement>("[data-item-id]")?.dataset.itemId) || null;
+      }, openRadial, false, radialNow),
     );
     this.holdOverviewRow = (el) => holdToOpen(el, rowID, openRadial, true, radialNow);
     // the overview windows the tabs were moved to before, opened again (OverviewWindow per windowInstanceID)
