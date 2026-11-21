@@ -10,6 +10,7 @@
   // capacity gauge, the quick filter), the items (InvItem in icons view: a 64 px icon, its quantity at the bottom right
   // on black, the name under it in two lines at most; "Nothing Found" where none), and the foot's "<n> Items" and
   // "<isk> ISK Est. price" (UpdateNumberOfItems, UpdateIskPriceLabel).
+  import { invCompact, invFilter, invSidebar, invViewMode } from "./inventoryWindowSettings.ts";
   import { onMount, untrack } from "svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
@@ -141,7 +142,12 @@
   const bay = $derived(bays.find((b) => b.key === current) ?? bays.find((b) => b.key === "cargo") ?? null);
   let treeOpen = $state(true);
 
-  let filter = $state("");
+  // the quick filter, the sidebar and compact mode shared with the window's header (InventoryWindowActions)
+  const filterSig = invFilter;
+  const sidebarSig = invSidebar;
+  const compactSig = invCompact;
+  const viewModeSig = invViewMode;
+  const filter = $derived($filterSig);
   const KEPT = "evejs.ui.inventory.activeShipCargo";
   const kept = (() => { try { return JSON.parse(localStorage.getItem(KEPT) ?? "{}") as { viewMode?: string; sortBy?: string; sortDir?: number; column?: number | null; reversed?: boolean }; } catch { return {}; } })();
   /** The scroll's own sort (scroll.ChangeSortBy: the column clicked again turns about, another starts ascending; scrollsortby_). */
@@ -156,6 +162,9 @@
   let sortBy = $state<string>(kept.sortBy ?? "name");
   let sortDir = $state<number>(kept.sortDir ?? 0);
   const vm = $derived(VIEW_MODES.find((v) => v[0] === viewMode)!);
+  // the compact menu's View Mode radios: the window's mode told to them, and theirs taken
+  $effect(() => { viewModeSig.set(viewMode); });
+  $effect(() => { const picked = $viewModeSig; if (picked && picked !== untrack(() => viewMode)) viewMode = picked; });
   $effect(() => { try { localStorage.setItem(KEPT, JSON.stringify({ viewMode, sortBy, sortDir, column, reversed })); } catch { /* lasts the page */ } });
   const groupName = (typeID: number) => resolvedName($names.resolved, "typeGroup", typeID, "");
   const categoryName = (typeID: number) => resolvedName($names.resolved, "typeCategory", typeID, "");
@@ -345,8 +354,8 @@
   }
 </script>
 
-<div class="inv" class:container={containerMode}>
-  {#if !containerMode}
+<div class="inv" class:container={containerMode} class:compact={$compactSig}>
+  {#if !containerMode && $sidebarSig}
   <div class="tree">
     <div class="nodes">
       {#if ship}
@@ -373,6 +382,8 @@
   </div>
   {/if}
   <div class="right">
+    <!-- _top_action_container: gone in compact mode (_get_top_action_container_display), the search in the header -->
+    {#if !$compactSig}
     <div class="top">
       <button type="button" class="tool" title={word("UI/Inventory/StackAll", "Stack All")} onclick={stackAll} style:background-image={`url(${clientTexture("res:/ui/texture/eveicon/system_icons/stack_16px.png")})`}></button>
       <button type="button" class="tool" title={word("UI/Inventory/ViewModeWithCurrent", `View mode (${vm[2]})`, { current_view_mode: word(vm[1], vm[2]) })} onclick={viewModeMenu}
@@ -384,8 +395,9 @@
         <span class="gfill" style:width={`${fill * 100}%`}></span>
         <span class="gtext">{bay ? `${fmt1(bay.used ?? 0)}/${bay.capacity === null ? "?" : fmt1(bay.capacity)} m³` : ""}</span>
       </div>
-      <input class="search" placeholder="Search" bind:value={filter} />
+      <input class="search" placeholder="Search" value={$filterSig} oninput={(e) => filterSig.set((e.target as HTMLInputElement).value)} />
     </div>
+    {/if}
     <div class="items" role="list" onclick={() => (selected = [])} onkeydown={() => {}}
       ondragover={containerMode ? dragOver("container") : undefined} ondrop={containerMode ? (e) => void dropOn("container", e) : undefined}>
       {#if bay && bay.items === null}

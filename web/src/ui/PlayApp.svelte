@@ -26,6 +26,7 @@
   import { addGameLogLine, beginGameLog } from "./gameLog.ts";
   import GameLogActions from "./GameLogActions.svelte";
   import DronesWindowActions from "./DronesWindowActions.svelte";
+  import InventoryWindowActions from "./InventoryWindowActions.svelte";
   import { droneWindowCompact } from "./droneSettings.ts";
   // the drones window in compact mode shows no caption (DronesWindow: SmallWindowHeader show_caption not compact)
   const dronesCompact = droneWindowCompact;
@@ -2784,6 +2785,7 @@
           {#snippet headerActions()}
             {#if win.id === "log"}<GameLogActions store={session.store} flow={session.flow} />{/if}
             {#if win.id === "drones"}<DronesWindowActions store={session.store} flow={session.flow} />{/if}
+            {#if win.id === "inventory" && !docked}<InventoryWindowActions store={session.store} flow={session.flow} />{/if}
           {/snippet}
           <!-- (the drones window in the client's layout: FlyDronesWindow; the workspace keeps DronesPanel) -->
           {#if win.id === "drones"}
