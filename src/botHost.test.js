@@ -5,7 +5,14 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const v8 = require("node:v8");
+const vm = require("node:vm");
 const { createBotHost, MAX_ENDED_RUNS } = require("./botHost");
+
+// The retention test needs a collector it can run on demand. Plain `node --test` has no --expose-gc, so turn it on
+// here and take the function from a fresh context rather than skipping the test.
+v8.setFlagsFromString("--expose-gc");
+const collectGarbage = global.gc ?? vm.runInNewContext("gc");
 
 // The host is exercised with a FAKE browser stack (the loadStack seam): the
 // real one is the shipping web/src modules, proven live; these tests pin the
@@ -1504,7 +1511,7 @@ test("hosted attachment keeps one logical run and WC restart restores its startu
 const PREPARED_OPERATION = { ...START, operationID: "mining-op", operationRole: "MINER", operationRunID: "operation-run-1",
   operationPreparation: { providerCharacterID: 140000002, corporationID: 20, fittingID: 4, source: { kind: "hangar" } }, deferMain: true };
 
-test("finished bot history releases pilot flows, stores, and their data", { skip: !global.gc }, async (t) => {
+test("finished bot history releases pilot flows, stores, and their data", async (t) => {
   const log = [], references = [];
   const host = makeHost({
     log,
@@ -1543,7 +1550,7 @@ test("finished bot history releases pilot flows, stores, and their data", { skip
 
   for (let turn = 0; turn < 4; turn++) {
     await new Promise(setImmediate);
-    global.gc();
+    collectGarbage();
   }
   assert.deepEqual(references.map(run => run.map(ref => ref.deref() !== undefined)), [
     [false, false, false, false],
@@ -1556,7 +1563,7 @@ test("finished bot history releases pilot flows, stores, and their data", { skip
   assert.deepEqual(new Set(history.map(bot => bot.botID)), new Set(started.map(bot => bot.botID)));
 });
 
-test("a bot ending during startup does not leave a deadline timer behind", async () => {
+test("a bot ending during startup does not leave a deadline timer behind", async (t) => {
   const log = [];
   const logoutStarted = Promise.withResolvers();
   const finishLogout = Promise.withResolvers();
@@ -1580,11 +1587,60 @@ test("a bot ending during startup does not leave a deadline timer behind", async
       return {};
     },
   });
+  t.after(() => host.stopAll());
   const started = await host.start(START);
   finishLogout.resolve();
   assert.equal(started.ok, true);
   assert.ok((await host.stop(started.bot.botID, ACCOUNT.accountID)).bot.endedAt);
   assert.equal(deadline, null);
+});
+
+test("a Stop that begins while the character is being selected starts no work and keeps no store listener", async (t) => {
+  const log = [];
+  const selecting = Promise.withResolvers();
+  const finishSelect = Promise.withResolvers();
+  const logoutStarted = Promise.withResolvers();
+  const finishLogout = Promise.withResolvers();
+  let listeners = 0;
+  const host = makeHost({
+    log,
+    loadStack: makeFakeStack(log, (flow, store) => {
+      const subscribe = store.subscribe;
+      store.subscribe = (listener) => {
+        listeners++;
+        const unsubscribe = subscribe(listener);
+        return () => { listeners--; unsubscribe(); };
+      };
+      return {
+        ...flow,
+        async selectCharacter(characterID) {
+          selecting.resolve();
+          await finishSelect.promise;
+          await flow.selectCharacter(characterID);
+        },
+        async logout() {
+          logoutStarted.resolve();
+          await finishLogout.promise;
+          await flow.logout();
+        },
+      };
+    }),
+  });
+  t.after(() => host.stopAll());
+  const starting = host.start(START);
+  await selecting.promise;
+  const botID = host.claimedBy(START.characterID);
+  assert.ok(botID);
+  const stopping = host.stop(botID, ACCOUNT.accountID);
+  await logoutStarted.promise;
+  finishSelect.resolve();
+  const started = await starting;
+  finishLogout.resolve();
+  const stopped = await stopping;
+  assert.equal(started.ok, true);
+  assert.ok(stopped.bot.endedAt);
+  assert.equal(log.some(row => row[0] === "startCustomBot"), false);
+  assert.equal(listeners, 0);
 });
 
 test("final hosted selection precedes preparation, and required members open MAIN together exactly once", async () => {

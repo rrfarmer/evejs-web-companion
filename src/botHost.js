@@ -485,6 +485,7 @@ function createBotHost(options) {
     // Before the logoff, so what the plugin writes in its `stop` reaches the pilot's log.
     if (record.kind === "plugin") await stopPluginLoop(record);
     const flow = record.flow;
+    const store = record.store;
     record.flow = null;
     record.store = null;
     let released = true;
@@ -510,6 +511,7 @@ function createBotHost(options) {
     }
     if (!released) {
       record.flow = flow;
+      record.store = store;
       record.status = "paused";
       record.phase = "Session release blocked";
       record.why = "The pilot session release could not be confirmed. Retry Stop before selecting this character elsewhere.";
@@ -1522,7 +1524,10 @@ function createBotHost(options) {
       const online = store.station.get().online;
       record.characterName = online ? online.characterName : null;
       if (record.operationPreparation) await prepareOperationRecord(record);
-      if (record.finalized || (record.operationPreparation && (record.manualStopRequested || record.operationStopRequested))) {
+      // A Stop or finalize already in progress set windingDown before its first await: subscribing now would outlive
+      // its unsubscribe, and the productive start would run on a flow it is logging out.
+      if (record.finalized || record.windingDown ||
+          (record.operationPreparation && (record.manualStopRequested || record.operationStopRequested))) {
         record.giveBackSession = null;
         return { ok: true, bot: publicBot(record) };
       }
@@ -1619,11 +1624,15 @@ function createBotHost(options) {
       return { ok: true, bot: publicBot(record) };
     } catch (error) {
       logError(error);
-      record.status = "error";
-      record.why = error && error.message ? String(error.message) : "The bot could not be started.";
+      const message = error && error.message ? String(error.message) : "The bot could not be started.";
+      // A run that already ended (a Stop during startup) keeps the row its finalize wrote.
+      if (!record.finalized) {
+        record.status = "error";
+        record.why = message;
+      }
       await finalize(record);
       return { ok: false, code: error && ["CHARACTER_IN_USE", "PILOT_RELEASE_UNVERIFIED", "DRONE_HANDOFF_UNSAFE", "DRONE_RECOVERY_PENDING"].includes(error.code)
-        ? error.code : "BOT_START_FAILED", message: record.why };
+        ? error.code : "BOT_START_FAILED", message };
     }
   }
 
