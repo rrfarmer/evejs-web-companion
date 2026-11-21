@@ -14,6 +14,7 @@
   import { onMount, untrack } from "svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import { fmtAmtShort } from "../bridge/pyNumbers.ts";
+  import { COMPARE_CATEGORIES } from "../bridge/dogmaAttributeGroups.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { shipHoldTarget } from "./shipHold.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
@@ -286,24 +287,33 @@
     const types = [...new Set(items.map((i) => i.typeID))];
     const one = types.length === 1 ? items[0]! : null;
     const fromBay = current;
-    const entries: (ContextEntry | null)[] = [];
+    // each entry's menuUtil group's place in menuHierarchy (ACTIONSGROUP 1, SHOWINFOGROUP 2, TRADEGROUP 10, none 14,
+    // DESTRUCTIVEGROUP 17): _SortMenuEntries orders by it, stable, and a line goes between groups
+    const ranked: [number, ContextEntry][] = [];
+    const entries = { push: (e: ContextEntry, rank: number) => ranked.push([rank, e]) };
     if (one) {
-      entries.push({ label: word(MENU.market, "View Market Details"), run: () => showMarketDetails(one.typeID) });
-      entries.push({ label: word(MENU.buy, "Buy This Type"), run: () => buyMarketType(one.typeID) });
+      entries.push({ label: word(MENU.market, "View Market Details"), run: () => showMarketDetails(one.typeID) }, 10);
+      entries.push({ label: word(MENU.buy, "Buy This Type"), run: () => buyMarketType(one.typeID) }, 10);
       // OfferCompressInSpace: a compressible type directly in the active ship in space (DirectlyCompressInSpace)
-      if (compressible.has(one.typeID)) entries.push({ label: word(MENU.compress, "Compress"), run: () => void compressInSpace(items) });
-      if (one.categoryID !== null && [6, 7, 18].includes(one.categoryID)) entries.push({ label: word(MENU.compare, "Compare"), run: () => typeCompareTarget.ask(items.map((i) => ({ typeID: i.typeID, itemID: i.itemID }))) });
+      if (compressible.has(one.typeID)) entries.push({ label: word(MENU.compress, "Compress"), run: () => void compressInSpace(items) }, 14);
+      // OfferCompareButton: IsComparible (inventorycommon.const.compareCategories) with dogma attributes to show
+      if (one.categoryID !== null && COMPARE_CATEGORIES.includes(one.categoryID)) entries.push({ label: word(MENU.compare, "Compare"), run: () => typeCompareTarget.ask(items.map((i) => ({ typeID: i.typeID, itemID: i.itemID }))) }, 14);
     }
     entries.push(fromBay === "drone"
       ? { label: word(MENU.launch, ids.length > 1 ? "Launch Drones" : "Launch Drone", { numDrones: ids.length }), run: () => void act(() => flow.launchDrones(ids)) }
-      : { label: word(MENU.jettison, "Jettison"), run: () => void act(() => flow.jettisonItems(ids)) });
+      : { label: word(MENU.jettison, "Jettison"), run: () => void act(() => flow.jettisonItems(ids)) }, fromBay === "drone" ? 1 : 17);
     if (one) {
-      entries.push({ label: word(MENU.info, "Show Info"), info: true, run: () => showInfo({ kind: "type", typeID: one.typeID, itemID: one.itemID }) });
-      entries.push({ label: word(MENU.contracts, "Find in Contracts"), run: () => findInContracts(one.typeID) });
-      entries.push({ label: word(MENU.assets, "Find Personal Assets"), run: () => findInPersonalAssets(typeName(one.typeID)) });
-      entries.push({ label: word(MENU.quickbar, "Add to Market Quickbar"), run: () => { changeQuickbar((q) => addType(q, one.typeID)); } });
+      entries.push({ label: word(MENU.info, "Show Info"), info: true, run: () => showInfo({ kind: "type", typeID: one.typeID, itemID: one.itemID }) }, 2);
+      entries.push({ label: word(MENU.contracts, "Find in Contracts"), run: () => findInContracts(one.typeID) }, 10);
+      entries.push({ label: word(MENU.assets, "Find Personal Assets"), run: () => findInPersonalAssets(typeName(one.typeID)) }, 10);
+      entries.push({ label: word(MENU.quickbar, "Add to Market Quickbar"), run: () => { changeQuickbar((q) => addType(q, one.typeID)); } }, 10);
     }
-    menu.open(e.clientX, e.clientY, entries);
+    const sorted: (ContextEntry | null)[] = [];
+    ranked.map((r, n) => [r, n] as const).sort((a, b) => a[0][0] - b[0][0] || a[1] - b[1]).forEach(([[rank, entry]], n, all) => {
+      if (n > 0 && all[n - 1]![0][0] !== rank) sorted.push(null);
+      sorted.push(entry);
+    });
+    menu.open(e.clientX, e.clientY, sorted);
   }
   /** _get_view_mode_menu: each mode with its icon. */
   /** The scroll's hidden columns (filteredColumns, by default uix.GetInvItemDefaultHiddenHeaders: Category, Meta Level, Tech
