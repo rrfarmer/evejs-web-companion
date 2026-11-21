@@ -9,7 +9,8 @@
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { safetyChoices, safetyPress, type SafetyBadge, type SafetyLevel, type SafetyLocks, type SafetyChoice } from "../space/crimewatch.ts";
   import SafetyMenu from "./SafetyMenu.svelte";
-  let { flow, safety, locks, anchor, onhover, onleave }: {
+  import { plainText } from "../bridge/clientWords.ts";
+  let { flow, safety, locks, anchor, onhover, onleave, words }: {
     flow: AppFlow;
     safety: SafetyBadge;
     locks: SafetyLocks;
@@ -17,7 +18,18 @@
     anchor: DOMRect | null;
     onhover: () => void;
     onleave: () => void;
+    /** The words the page has (store.words' templates). */
+    words: Readonly<Record<string, string | null | undefined>>;
   } = $props();
+  const LABELS = ["UI/Crimewatch/SafetyLevel/SafetySettingsCaption", "UI/Crimewatch/SafetyLevel/SafetyLevelSelectionBody", "UI/Common/Confirm",
+    "UI/Crimewatch/SafetyLevel/SafetyConfirmHint", "UI/Crimewatch/SafetyLevel/SafetyButtonLocked", "UI/Crimewatch/SafetyLevel/SafetyButtonNoneOptionHintAlphaLocked",
+    ...["None", "Partial", "Full"].flatMap((l) => [`UI/Crimewatch/SafetyLevel/SafetyButton${l}`, `UI/Crimewatch/SafetyLevel/SafetyButton${l}OptionHint`])];
+  $effect(() => { flow.requestWords(LABELS); });
+  // (the hints' markup and colour tags dropped: a title carries text)
+  const say = (label: string, own: string): string => {
+    const t = words[label];
+    return typeof t === "string" && t !== "" ? plainText(t.replace(/\{[^}]*color[^}]*\}/gi, "")).replace(/\r\n/g, "\n") : own;
+  };
   let confirming = $state<SafetyLevel | null>(null);
   let setting = $state(false);
   let error = $state("");
@@ -47,7 +59,7 @@
 {#if anchor}
   <div class="hud-safety-pop" role="group" style:left="{Math.max(8, Math.min(anchor.left + anchor.width / 2 - 140, window.innerWidth - 288))}px"
     style:bottom="{window.innerHeight - anchor.top + 6}px" onmouseenter={onhover} onmouseleave={onleave}>
-    <SafetyMenu {choices} {confirming} {setting} {locks} {error} onpress={press} onconfirm={(level) => void set(level)} oncancel={() => { confirming = null; }} />
+    <SafetyMenu {choices} {confirming} {setting} {locks} {error} {say} onpress={press} onconfirm={(level) => void set(level)} oncancel={() => { confirming = null; }} />
   </div>
 {/if}
 

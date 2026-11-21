@@ -1006,6 +1006,7 @@
   /** The new HUD safety badge's selector: where the badge is while it is open. */
   let safetyAnchor = $state<DOMRect | null>(null);
   const hudNames = $derived(session?.store.names);
+  const hudWordStore = $derived(session?.store.words);
   const hudSafetyLocks = $derived.by(() => {
     const systemID = $flight?.status?.solarSystemID ?? null;
     const sec = systemID === null ? null : $hudNames?.systemSecurity[systemID] ?? null;
@@ -2325,7 +2326,7 @@
     <!-- hudLayer._ConstructKeepers: the new HUD's buff bar centred on the medallion, its foot on the band's top -->
     <div class="fly-buffs" class:new-hud={newHudOn} class:hud-top={$hudTop}><BuffBar store={session.store} flow={session.flow} /></div>
     {#if hudSafety && !docked}
-      <HudSafetySelector flow={session.flow} safety={hudSafety} locks={hudSafetyLocks} anchor={safetyAnchor}
+      <HudSafetySelector flow={session.flow} safety={hudSafety} locks={hudSafetyLocks} anchor={safetyAnchor} words={$hudWordStore?.templates ?? {}}
         onhover={() => view?.safetySelectorHover(true)} onleave={() => { view?.safetySelectorHover(false); }} />
     {/if}
   {/if}
