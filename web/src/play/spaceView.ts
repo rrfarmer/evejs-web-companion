@@ -344,6 +344,8 @@ export interface SpaceActions {
   missionMenu?(key: string): (ContextEntry | null)[];
   /** scanSvc.AlignToPosition: aligned to a point. */
   alignToPoint?(position: readonly [number, number, number]): Promise<void>;
+  /** movementFunctions.GoToPoint: the ship sent to a point in the system. */
+  goToPoint?(position: readonly [number, number, number]): Promise<void>;
   /** menusvc.AlignToBookmark. */
   alignToBookmark?(bookmarkID: number): Promise<void>;
   /** sensorSuite.GetAnomalies for the system the pilot is in (empty where not read yet: the read is started). */
@@ -1619,7 +1621,17 @@ export class SpaceView {
       if (this.endExplosionCamera()) e.stopImmediatePropagation();
     }, { capture: true, passive: true });
     // a click in space: with a combat command loaded, on the object under it (its pick); else the selection cleared
+    // navigation.CheckStartMoveCommand / OnMouseMove / OnMouseExit: the move command started with Approach held and no
+    // button down, dropped by a left drag, and on leaving space before its first point
+    this.renderer.domElement.addEventListener("pointermove", (e) => {
+      this.movePointer = { x: e.clientX, y: e.clientY };
+      if (this.combat?.cmd === "CmdApproachItem" && !this.moveCmd && !(e.buttons & 1)) this.startMoveCommand();
+      if (this.moveCmd && (e.buttons & 1)) this.abortMoveCommand();
+    });
+    this.renderer.domElement.addEventListener("pointerleave", () => { if (this.moveCmd && this.moveCmd.state === 0) this.abortMoveCommand(); });
     this.renderer.domElement.addEventListener("click", (e) => {
+      // navigation.OnMouseUp: with the move command on, a left click is its next point
+      if (this.moveCmd) { this.addMovePoint(); return; }
       const picking = this.dscanKey || this.combat || this.modifierCombat(false) || !this.targetingCursor.hidden;
       const id = picking ? this.pickAt(e.clientX, e.clientY) : null;
       this.select(id);
@@ -3130,8 +3142,129 @@ export class SpaceView {
   }
 
   private unloadCombat(): void {
+    // _CmdApproacItemUnloadCallback: the move command dropped unless its first point is set
+    if (this.moveCmd && this.moveCmd.state === 0) this.abortMoveCommand();
     this.combat = null;
     this.shortcutIndication = null;
+  }
+
+  /**
+   * PositionalControl.StartMoveCommand (navigation.CheckStartMoveCommand: CmdApproachItem held, the pointer over space,
+   * no button down): a controlPaths.SinglePointPath from the ship - first the point on the ship's plane under the
+   * pointer (PICK_XZ: the pick ray met with the plane; behind the camera or beyond _MAX_PICK_DISTANCE 4,000 km, that
+   * far along its direction), a click fixing it; then its height (PICK_Y: the ray met with the upright plane through
+   * that direction, the length kept), a second click finishing it (_MoveSelected: GoToPoint); each click
+   * msg_ComboEntryEnter_play. Drawn in COLOR_MOVE (0, 0.678, 0.933): the path (STYLE_STRONG 0.5), the range circle
+   * through the point (STRONG), the dotted line along the plane and the dotted arc down to it, the faint (0.1) upright
+   * line, the distance in km at the middle (ALPHA_SOLID, 20 px).
+   */
+  private moveCmd: { state: 0 | 1; planar: THREE.Vector3; dest: THREE.Vector3; group: THREE.LineSegments; label: HTMLElement } | null = null;
+  private movePointer: { x: number; y: number } | null = null;
+
+  private startMoveCommand(): void {
+    if (this.moveCmd || !this.snapshot?.ship) return;
+    const group = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, depthTest: false }));
+    group.frustumCulled = false;
+    group.renderOrder = 6;
+    this.scene.add(group);
+    const label = document.createElement("span");
+    label.className = "move-command-label";
+    this.brackets.append(label);
+    this.moveCmd = { state: 0, planar: new THREE.Vector3(), dest: new THREE.Vector3(), group, label };
+  }
+
+  private abortMoveCommand(): void {
+    if (!this.moveCmd) return;
+    this.scene.remove(this.moveCmd.group);
+    this.moveCmd.group.geometry.dispose();
+    this.moveCmd.label.remove();
+    this.moveCmd = null;
+  }
+
+  /** PositionalControl.AddPoint: the next point fixed; with the second, the ship sent there. */
+  private addMovePoint(): void {
+    const m = this.moveCmd;
+    if (!m) return;
+    void playUiEvent("msg_ComboEntryEnter_play");
+    if (m.state === 0) { m.state = 1; return; }
+    const ship = this.snapshot?.ship;
+    const d = m.dest.clone();
+    this.abortMoveCommand();
+    if (!ship) return;
+    // _ConvertPositionToGlobalSpace: the point plus the ship's place
+    const at: [number, number, number] = [ship.position.x + d.x, ship.position.y + d.y, ship.position.z - d.z];
+    void this.act("Move", () => this.actions.goToPoint?.(at) ?? Promise.resolve());
+  }
+
+  private drawMoveCommand(w: number, h: number): void {
+    const m = this.moveCmd;
+    if (!m) return;
+    if (!this.snapshot?.ship) { this.abortMoveCommand(); return; }
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (this.movePointer && rect.width > 0) {
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(new THREE.Vector2(((this.movePointer.x - rect.left) / rect.width) * 2 - 1, -(((this.movePointer.y - rect.top) / rect.height) * 2 - 1)), this.camera);
+      const start = ray.ray.origin, dir = ray.ray.direction;
+      const MAX = 4_000_000;
+      if (m.state === 0 && dir.y !== 0) {
+        const t = start.y / -dir.y;
+        let pick = start.clone().addScaledVector(dir, t);
+        if (t < 0) pick = pick.clone().negate().normalize().multiplyScalar(MAX);
+        if (pick.length() > MAX) pick.setLength(MAX);
+        m.planar.copy(pick);
+        m.dest.copy(pick);
+      } else if (m.state === 1) {
+        const len = m.planar.length();
+        const xz = m.planar.clone().normalize();
+        const normal = new THREE.Vector3().crossVectors(xz, new THREE.Vector3(0, 1, 0)).normalize();
+        const denom = normal.dot(dir);
+        if (Math.abs(denom) > 1e-9 && len > 0) {
+          const t = -normal.dot(start) / denom;
+          const p = start.clone().addScaledVector(dir, t);
+          if (p.lengthSq() > 0) m.dest.copy(p.normalize().multiplyScalar(t < 0 ? -len : len));
+        }
+      }
+    }
+    const pts: number[] = [], cols: number[] = [];
+    const C = [0, 0.678, 0.933];
+    const seg = (a: THREE.Vector3, b: THREE.Vector3, alpha: number) => { pts.push(a.x, a.y, a.z, b.x, b.y, b.z); cols.push(C[0]!, C[1]!, C[2]!, alpha, C[0]!, C[1]!, C[2]!, alpha); };
+    const dotted = (a: THREE.Vector3, b: THREE.Vector3) => {
+      const n = Math.max(2, Math.min(200, Math.round(a.distanceTo(b) / Math.max(1, b.length() * 0.02))));
+      for (let i = 0; i < n; i += 2) seg(a.clone().lerp(b, i / n), a.clone().lerp(b, Math.min(1, (i + 1) / n)), 1);
+    };
+    const o = new THREE.Vector3();
+    const r = m.dest.length();
+    // the path, STYLE_STRONG
+    seg(o, m.dest, 0.5);
+    // the range circle (LINE_CONNECTOR_RANGE_SPHERE) through the point, in the plane
+    for (let i = 0; i < 96; i++) {
+      const a0 = (i / 96) * Math.PI * 2, a1 = ((i + 1) / 96) * Math.PI * 2;
+      seg(new THREE.Vector3(Math.cos(a0) * r, 0, Math.sin(a0) * r), new THREE.Vector3(Math.cos(a1) * r, 0, Math.sin(a1) * r), 0.5);
+    }
+    // XZPlaneRotationFunction: the point turned down into the plane, its distance kept
+    const flat = new THREE.Vector3(m.dest.x, 0, m.dest.z);
+    if (flat.lengthSq() === 0) flat.set(1, 0, 0);
+    flat.setLength(r);
+    dotted(o, flat);
+    // the upright line (STYLE_FAINT) from the point in the plane to the destination
+    seg(m.planar, m.dest, 0.1);
+    // the dotted arc (LINE_CONNECTOR_ANCHOR_SPHERE) from the destination down to the plane
+    const from = m.dest.clone().normalize(), to = flat.clone().normalize();
+    const steps = Math.max(2, Math.ceil(from.angleTo(to) / 0.05));
+    for (let i = 0; i < steps; i += 2) {
+      const p0 = from.clone().lerp(to, i / steps).normalize().multiplyScalar(r);
+      const p1 = from.clone().lerp(to, Math.min(1, (i + 1) / steps)).normalize().multiplyScalar(r);
+      seg(p0, p1, 1);
+    }
+    m.group.geometry.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+    m.group.geometry.setAttribute("color", new THREE.Float32BufferAttribute(cols, 4));
+    m.group.geometry.computeBoundingSphere();
+    // _UpdateDistanceText: int(distance / 1000 + 0.5) at the middle of the path
+    m.label.textContent = String(Math.max(0, Math.floor(r / 1000 + 0.5)));
+    const v = m.dest.clone().multiplyScalar(0.5).project(this.camera);
+    const shown = v.z < 1;
+    m.label.style.display = shown ? "" : "none";
+    if (shown) m.label.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px)`;
   }
 
   /** The loaded command's function on the object clicked (movementFunctions / the menu's, as the page has them). */
@@ -4485,6 +4618,7 @@ export class SpaceView {
     for (const [id, el] of this.bracketEls) if (!seen.has(id)) { el.remove(); this.bracketEls.delete(id); }
     this.drawSensorOverlay(origin, w, h);
     this.drawTactical(w, h);
+    this.drawMoveCommand(w, h);
     for (const id of this.polarization.keys()) if (!seen.has(id)) this.polarization.delete(id);
     for (const [id, panel] of this.jumpBridgePanels) {
       if (seen.has(id)) continue;

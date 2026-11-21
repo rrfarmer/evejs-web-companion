@@ -723,3 +723,5 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 /* the tactical overlay's range labels (_COLOR_LABEL white 0.5) */
 .tactical-labels { position: absolute; inset: 0; pointer-events: none; }
 .tactical-labels span { position: absolute; left: 0; top: 0; font: 10px/1 var(--eve-font, "Segoe UI", sans-serif); color: rgba(255, 255, 255, 0.5); margin: -5px 0 0 -6px; }
+/* the move command's distance (SinglePointPath's label: COLOR_MOVE solid, 20 px) */
+.move-command-label { position: absolute; left: 0; top: 0; pointer-events: none; font: 20px/1 var(--eve-font, "Segoe UI", sans-serif); color: rgb(0, 173, 238); margin: -10px 0 0 -8px; }

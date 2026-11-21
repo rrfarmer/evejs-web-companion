@@ -1985,6 +1985,12 @@
       bookmarkMenu: (bookmarkID) => bookmarkMenus.get(bookmarkID) ?? [],
       alignToBookmark: (bookmarkID) => s.flow.alignToBookmark(bookmarkID),
       alignToPoint: (position) => s.flow.alignToPoint(position),
+      goToPoint: async (position) => {
+        const snap = s.store.space.get().snapshot;
+        const shipID = snap?.ship?.itemID ?? null, systemID = snap?.solarSystemID ?? null;
+        if (shipID === null || systemID === null) return;
+        await s.flow.flyToPoint({ x: position[0], y: position[1], z: position[2] }, shipID, systemID);
+      },
       missionSites: () => missionSpotSites,
       missionMenu: (key) => missionSpotMenus.get(key) ?? [],
       signatures: () => {
