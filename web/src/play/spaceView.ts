@@ -1020,6 +1020,8 @@ export class SpaceView {
         ]);
       } });
     this.selectedWin.body.classList.add("si");
+    // SelectedItemWnd._OnResize -> _UpdateButtonSize: the button size follows the window width
+    new ResizeObserver(() => this.sizeSelectedButtons()).observe(this.selectedWin.root);
     this.selectedEl = this.selectedWin.root;
     this.root.insertBefore(this.targetBar.root, this.modeEl);
     this.targetBar.onSelect = (id) => this.select(id);
@@ -1849,8 +1851,25 @@ export class SpaceView {
         b.addEventListener("click", () => void this.act(a.title, a.run).then(() => this.refreshTargets()));
         row.appendChild(b);
       }
+      this.sizeSelectedButtons();
     }
     body.querySelector(".si-dist")!.textContent = fmtDistance(dist, 1);
+  }
+
+  /**
+   * SelectedItemWnd.button_size (3698585): 32 px buttons with 32 px icons where the window is at least
+   * get_min_button_container_width - max(the buttons x (32 + BUTTON_PADDING 4), BUTTON_CONTAINER_MIN_WIDTH 270) - wide,
+   * else 20 px buttons (BUTTON_ICON_SMALL 16 + 4) with the 16 px icons (ICON_BY_ACTIONID resolved at the icon size).
+   */
+  private sizeSelectedButtons(): void {
+    const row = this.selectedWin.body.querySelector<HTMLElement>(".si-actions");
+    if (!row) return;
+    const width = this.selectedWin.root.getBoundingClientRect().width;
+    const small = width < Math.max(row.children.length * (32 + 4), 270);
+    if (row.classList.contains("small") === small && row.dataset.sized) return;
+    row.dataset.sized = "1";
+    row.classList.toggle("small", small);
+    for (const img of row.querySelectorAll<HTMLImageElement>(".si-act img")) img.src = img.src.replace(small ? /_32px\.png$/ : /_16px\.png$/, small ? "_16px.png" : "_32px.png");
   }
 
   private lookAt: number | null = null;
