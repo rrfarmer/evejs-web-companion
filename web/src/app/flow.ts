@@ -8845,6 +8845,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       allowed = maxToAdd as number;
     } else {
       await refreshOpenPlaces().catch(() => {});
+      // the client's GetCapacity asks the place itself: a bay of the ship flown the page has not read yet is read now
+      // (a drop on the drone window or a move from the fitting window reaches the drone bay with no bay window open)
+      if (capacityAt(to) === null && to.kind === "shipBay") {
+        await openShipBays(store.get().inventory.activeShipID).catch(() => {});
+      }
       const capacity = capacityAt(to);
       if (capacity === null || volume === null) toHandler();
       const free = (capacity as CapacityInfo).capacity - (capacity as CapacityInfo).used;
