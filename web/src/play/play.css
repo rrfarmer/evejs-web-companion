@@ -1,3 +1,15 @@
+/* The client's UI typeface, served from the install (carbonui.fontconst.EVEFONTFAMILY) */
+@font-face { font-family: "EVE Sans Neue"; src: url("/client-res/ui/fonts/evesansneue-regular.otf") format("opentype"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "EVE Sans Neue"; src: url("/client-res/ui/fonts/evesansneue-italic.otf") format("opentype"); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: "EVE Sans Neue"; src: url("/client-res/ui/fonts/evesansneue-bold.otf") format("opentype"); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "EVE Sans Neue"; src: url("/client-res/ui/fonts/evesansneue-bolditalic.otf") format("opentype"); font-weight: 700; font-style: italic; font-display: swap; }
+@font-face { font-family: "EVE Sans Neue Condensed"; src: url("/client-res/ui/fonts/evesansneue-condensed.otf") format("opentype"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "EVE Sans Neue Condensed"; src: url("/client-res/ui/fonts/evesansneue-condensedbold.otf") format("opentype"); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "EVE Sans Neue Expanded"; src: url("/client-res/ui/fonts/evesansneue-expanded.otf") format("opentype"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "EVE Sans Neue Expanded"; src: url("/client-res/ui/fonts/evesansneue-expandedbold.otf") format("opentype"); font-weight: 700; font-style: normal; font-display: swap; }
+/* the play windows in the client's letters (EveLabel: STYLE_DEFAULT), the controls inside them as well */
+.pw, .pw button, .pw input, .pw select, .pw th { font-family: "EVE Sans Neue", "Barlow Semi Condensed", "Segoe UI", sans-serif; }
+
 /* The play page's chrome: the retail client's dark, thin-lined look. Colours and sizes are ours,
    aimed at the client's (and eve-cs.com's) feel; the client's own UI textures come later. */
 :root {
@@ -194,7 +206,7 @@ button { font: inherit; color: inherit; }
 .ov .ov-tab:hover:not(.active) { color: rgba(255, 255, 255, 0.75); background: none; }
 .ov .ov-tab.active { color: rgba(255, 255, 255, 0.9); background: none; border: 0; box-shadow: inset 0 -1px 0 #fff; }
 .ov .ov-scroll { margin: 8px 0 0 2px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.25) transparent; }
-.ov .ov-table { table-layout: fixed; font-size: 14px; }
+.ov .ov-table { table-layout: fixed; font-size: 14px; font-family: "EVE Sans Neue", "Barlow Semi Condensed", sans-serif; }
 .ov .ov-table th.ov-dist { text-align: left; }
 .ov .ov-table th { height: 24px; box-sizing: border-box; padding: 0 8px; font-size: 12px; color: rgba(255, 255, 255, 0.5); background: transparent;
   border: 0; overflow: hidden; white-space: nowrap; }

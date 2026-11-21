@@ -19017,6 +19017,17 @@ app.get("/client-res/dx9/texture/ui/resdistpattern1.dds", (_req, res) => {
   });
 });
 
+// The client's own UI typeface (carbonui.fontconst.EVEFONTFAMILY: EVE Sans Neue regular, condensed and expanded, each in
+// its italic and bold), for the page to draw its windows in the client's letters.
+app.get(/^\/client-res\/(ui\/fonts\/evesansneue-[a-z]+\.otf)$/, (req, res) => {
+  const file = clientTextures.fileFor(`res:/${req.params[0]}`);
+  if (!file) { res.status(404).end(); return; }
+  res.set("Cache-Control", "public, max-age=2592000, immutable");
+  res.type("otf").sendFile(file, (error) => {
+    if (error && !res.headersSent) res.status(404).end();
+  });
+});
+
 app.get(/^\/client-res\/(ui\/fonts\/factions\/[a-z]+\/[a-z0-9_-]+\.ttf)$/, (req, res) => {
   const file = clientTextures.fileFor(`res:/${req.params[0]}`);
   if (!file) { res.status(404).end(); return; }
