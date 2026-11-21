@@ -727,3 +727,5 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 .move-command-label { position: absolute; left: 0; top: 0; pointer-events: none; font: 20px/1 var(--eve-font, "Segoe UI", sans-serif); color: rgb(0, 173, 238); margin: -10px 0 0 -8px; }
 /* the action display's navigation point (NavigationPointBracket: selectioncircle.png 24 px, COLOR_MOVE at 0.5) */
 .tactical-labels .tactical-nav-point { position: absolute; left: 0; top: 0; width: 24px; height: 24px; margin: -12px 0 0 -12px; background: rgba(0, 173, 238, 0.5); }
+/* the overview in compact mode: entries GetEntryHeight(compact) 19 */
+.pw.ov-compact .ov .ov-table td { height: 19px; }

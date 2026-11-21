@@ -73,6 +73,12 @@ export class PlayWindow {
     this.head.insertBefore(el, this.head.querySelector(".pw-buttons"));
   }
 
+  /** The slotted element put back where it was (before `before` in `into`), the caption shown again. */
+  headUnslot(el: HTMLElement, into: HTMLElement, before: Node | null): void {
+    this.head.classList.remove("pw-head-slotted");
+    into.insertBefore(el, before);
+  }
+
   /** MinimizeWindowAction (UI/Control/EveWindow/Minimize): the window folded to its header, or opened again. */
   minimize(): void { this.toggleMinimized(); }
 

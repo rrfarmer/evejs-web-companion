@@ -193,7 +193,7 @@ const SORT_HINT = "UI/Tactical/HeaderSortingEnabledCbHint";
 const SORT_DISABLED = "UI/Tactical/HeaderSortingDisabled";
 const HACKED_HINT = "Tooltips/Overview/ScatterContainerHacked";
 export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HINT, "UI/Tactical/OverviewCaption", ...OVERVIEW_COLUMN_WORDS,
-  "UI/Overview/AddTab", "UI/Commands/OpenOverviewSettings", "UI/Overview/BracketVisibility", "UI/Overview/UseSelectedTabBracketPreset",
+  "UI/Overview/AddTab", "/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", "UI/Commands/OpenOverviewSettings", "UI/Overview/BracketVisibility", "UI/Overview/UseSelectedTabBracketPreset",
   "UI/Overview/ShowAll", "UI/Overview/HideAll", "UI/Overview/AddTabInstructions", "UI/Overview/TypeInLabel", "UI/Overview/Filter",
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
   "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
@@ -353,9 +353,11 @@ export class Overview {
     this.tabKey = TAB_KEY + pilotSuffix;
     this.sortKey = SORT_KEY + pilotSuffix;
     this.sortEnabledKey = SORT_ENABLED_KEY + pilotSuffix;
+    this.compactKey = "evejs.ui.overviewCompact" + (this.instanceID ? `:w${this.instanceID}` : "");
     this.sort = readSort(this.sortKey, readSort(SORT_KEY));
     try { this.sortEnabled = localStorage.getItem(this.sortEnabledKey) !== "false"; } catch { /* enabled by default */ }
     this.setupHeaders();
+    try { if (localStorage.getItem(this.compactKey) === "1") this.setCompact(true); } catch { /* not compact */ }
     this.table.appendChild(this.tbody);
     const scroller = document.createElement("div");
     scroller.className = "ov-scroll";
@@ -1409,9 +1411,24 @@ export class Overview {
     this.lastDraw = 0;
   }
 
+  /**
+   * CompactModeWindowAction on the overview (OverviewWindow._on_compact_mode_changed): no caption, the tabs in the
+   * header (extend_content_into_header), no add_16px (ReconstructTabs: not compact), entries GetEntryHeight(compact) 19.
+   */
+  private compact = false;
+  private compactKey = "evejs.ui.overviewCompact";
+  setCompact(on: boolean): void {
+    this.compact = on;
+    try { localStorage.setItem(this.compactKey, on ? "1" : "0"); } catch { /* lasts the page */ }
+    if (on) this.window.headSlot(this.tabsEl);
+    else if (this.tabsEl.parentElement !== this.window.body) this.window.headUnslot(this.tabsEl, this.window.body, this.window.body.firstChild);
+    this.window.root.classList.toggle("ov-compact", on);
+    this.drawTabs();
+  }
+
   /** OverviewTabGroup: the tabs, the chosen one lit, and the TrailingContainer's add_16px while there is room (MAX_TAB_NUM). */
   private drawTabs(): void {
-    const add = this.tabs.length < MAX_TAB_NUM
+    const add = !this.compact && this.tabs.length < MAX_TAB_NUM
       ? `<img class="ov-add-tab" src="${clientTexture("res:/UI/Texture/eveicon/system_icons/add_16px.png")}" alt="" title="${esc(this.hooks.word?.("UI/Overview/AddTab") ?? "Add Tab")}">` : "";
     // _ConstructTabs: a tab with a colour shows its name in it
     this.tabsEl.innerHTML = this.tabs.map((t, n) => { const c = this.tabSettings[n]?.color; return `<span class="ov-tab${n === this.tab ? " active" : ""}" data-tab="${n}"${c ? ` style="color:${rgbCss(c)}"` : ""}>${esc(t.name)}</span>`; }).join("") + add;
@@ -1568,6 +1585,10 @@ export class Overview {
     const radio = (label: string, own: string, value: BracketOverride): ContextEntry =>
       ({ label: word(label, own), checked: current === value, run: () => this.hooks.setBracketOverride?.(value) });
     return [
+      // CompactModeWindowAction (the window's action, then GetMenuMoreOptions)
+      { label: this.compact ? word("/Carbon/UI/Controls/Window/DisableCompactMode", "Disable compact mode") : word("/Carbon/UI/Controls/Window/EnableCompactMode", "Enable compact mode"),
+        icon: this.compact ? "res:/UI/Texture/eveicon/system_icons/uncompact_16px.png" : "res:/UI/Texture/eveicon/system_icons/compact_16px.png", run: () => this.setCompact(!this.compact) },
+      null,
       { label: word("UI/Overview/AddTab", "Add Tab"), icon: "res:/UI/Texture/eveicon/system_icons/add_16px.png", run: () => this.openAddTab() },
       { label: word("UI/Commands/OpenOverviewSettings", "Open Overview Settings"), icon: "res:/UI/Texture/eveicon/system_icons/settings_16px.png", run: () => this.openSettings() },
       { label: word("UI/Overview/BracketVisibility", "Bracket Visibility"), sub: [
