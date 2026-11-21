@@ -196,6 +196,14 @@ button { font: inherit; color: inherit; }
 .ov .ov-table td { height: 24px; box-sizing: border-box; padding: 0 8px; border: 0; overflow: hidden; text-overflow: clip; color: #fff;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6); }
 .ov .ov-table .ov-icon { padding: 0 0 0 3px; }
+.ov-icon-wrap { position: relative; display: inline-block; width: 16px; height: 16px; vertical-align: middle; }
+/* FlagIconWithState (stateFlag.py): 10 x 10 at the icon's bottom right, its glyph 8 x 8 centred */
+.state-flag { position: absolute; right: -1px; bottom: -2px; width: 10px; height: 10px; display: flex; align-items: center; justify-content: center; pointer-events: auto; }
+.state-flag > span { width: 8px; height: 8px; }
+.state-flag.blink { animation: state-flag-blink 1s ease-in-out infinite; }
+@keyframes state-flag-blink { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
+.ov .ov-table tbody tr.flagged { background: var(--flag-bg); }
+.ov .ov-table tbody tr.flag-blink { animation: state-flag-blink 1.5s ease-in-out infinite; }
 .ov .ov-table .ov-dist { color: #fff; }
 .ov .ov-table tbody tr:hover, .ov .ov-table tbody tr.hover { background: rgba(255, 255, 255, 0.05); }
 .ov .ov-table tbody tr.sel { background: rgba(88, 167, 191, 0.18); }

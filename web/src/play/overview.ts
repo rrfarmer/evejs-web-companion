@@ -7,7 +7,18 @@ import { PlayWindow, clientTexture } from "./window.ts";
 import type { Entity } from "./spaceView.ts";
 import { fmtDist } from "../space/overview.ts";
 import { playUiEvent } from "./uiAudio.ts";
-import { overviewRowWanted, type BracketOverride, type OverviewRelationships, type PresetMask } from "./overviewFilters.ts";
+import { iconAndBackgroundFlags, overviewRowWanted, type BracketOverride, type OverviewRelationships, type PresetMask, type StateFlagLook } from "./overviewFilters.ts";
+
+const rgba = (c: readonly number[], alpha = c[3] ?? 1) => `rgba(${Math.round(c[0]! * 255)},${Math.round(c[1]! * 255)},${Math.round(c[2]! * 255)},${alpha})`;
+/**
+ * FlagIconWithState: a 10 px square at the icon's bottom right (SpaceObjectIcon.SetIconFlag left -1, top -2), the flag
+ * colour at 0.75, the 8 px FlagIcon/8/<iconIndex + 1> glyph in the flag's icon colour; a blinking one fades 0..1 over 0.5 s.
+ */
+export function flagMarkup(f: StateFlagLook | null): string {
+  if (!f) return "";
+  const glyph = clientTexture(`res:/UI/Texture/classes/FlagIcon/8/${f.iconIndex + 1}.png`);
+  return `<span class="state-flag${f.flagBlink ? " blink" : ""}" style="background:${rgba(f.flagColor, 0.75)}" title="${esc(f.text)}"><span style="background:${rgba(f.iconColor)};-webkit-mask:url(${glyph}) center/8px no-repeat;mask:url(${glyph}) center/8px no-repeat"></span></span>`;
+}
 import { ContextMenu, type ContextEntry } from "./contextMenu.ts";
 
 /** overviewSettingsConst: MAX_TAB_NUM, MAX_TAB_NAME_LENGTH. */
@@ -759,9 +770,12 @@ export class Overview {
       const typeName = typeColumn(e);
       const hackingHint = (e.hackingSecurityState ?? 0) > 1
         ? ` title="${esc(this.hooks.word?.(HACKED_HINT) ?? "Has already been hacked")}"` : "";
+      // OverviewScrollEntry.UpdateFlagAndBackground: the icon's flag and the row's background (alpha x 0.5, structures 0.125)
+      const flags = iconAndBackgroundFlags(e, this.groupOf(e), relations);
+      const bg = flags.background ? ` style="--flag-bg:${rgba(flags.background.backgroundColor, (flags.background.backgroundColor[3] ?? 1) * (e.categoryID === 65 || e.categoryID === 40 ? 0.125 : 0.5))}"` : "";
       const cell = (c: ColumnDef): string => {
         switch (c.id) {
-          case "ICON": return `<td class="ov-icon"${hackingHint}>${this.hooks.glyph(e)}</td>`;
+          case "ICON": return `<td class="ov-icon"${hackingHint}><span class="ov-icon-wrap">${this.hooks.glyph(e)}${flagMarkup(flags.icon)}</span></td>`;
           case "DISTANCE": return `<td class="ov-dist">${overviewDistance(d)}</td>`;
           case "NAME": return `<td>${esc(rowName(e))}</td>`;
           case "TYPE": return `<td>${esc(typeName)}</td>`;
@@ -775,7 +789,7 @@ export class Overview {
           default: return `<td>${esc(words(e, c.id.toLowerCase() as keyof OverviewAffiliation))}</td>`;
         }
       };
-      html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}${e.itemID === this.hovered ? " hover" : ""}">${cols.map(cell).join("")}</tr>`);
+      html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}${e.itemID === this.hovered ? " hover" : ""}${flags.background ? ` flagged${flags.background.backgroundBlink ? " flag-blink" : ""}` : ""}"${bg}>${cols.map(cell).join("")}</tr>`);
     }
     const markup = html.join("");
     if (markup !== this.drawnRows) {

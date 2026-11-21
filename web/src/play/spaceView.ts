@@ -2775,9 +2775,8 @@ export class SpaceView {
     const overviewMask = this.overview.activePreset();
     const bracketMask = this.overview.activeBracketPreset();
     const bracketSimNow = this.live.effectSimNow();
-    const relations = overviewMask?.filteredStates.length || bracketMask?.filteredStates.length
-      ? this.options.overviewRelationships?.()
-      : undefined;
+    // the relationships the presets' state filters and the state flags (stateSvc.GetIconAndBackgroundFlags) are read from
+    const relations = this.options.overviewRelationships?.();
     for (const e of snap?.entities ?? []) {
       seen.add(e.itemID);
       if (e.typeID) this.typeOfID.set(e.itemID, e.typeID);
