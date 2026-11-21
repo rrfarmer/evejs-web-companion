@@ -125,7 +125,9 @@ export class ContextMenu {
     }
     row.dataset.entry = entry.label;
     const disabled = !!entry.disabled;
-    Object.assign(row.style, { position: "relative", height: `${ROW}px`, lineHeight: `${ROW}px`, padding: "0 28px", cursor: disabled ? "default" : "pointer", opacity: disabled ? "0.4" : "1" });
+    Object.assign(row.style, { position: "relative", height: `${ROW}px`, lineHeight: `${ROW}px`,
+      // MenuEntryView.GetRequiredWidth: the label from 28, 16 more for a submenu's arrow, and ContextMenu.UpdateSize's 8 after
+      padding: `0 ${entry.sub ? 24 : 8}px 0 28px`, cursor: disabled ? "default" : "pointer", opacity: disabled ? "0.4" : "1" });
     if (disabled) row.title = entry.disabled!;
     else if (entry.hint) row.title = entry.hint;
     if (entry.info) {
