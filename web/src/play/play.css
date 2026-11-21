@@ -451,6 +451,10 @@ button { font: inherit; color: inherit; }
   -webkit-mask: url(/client-res/ui/texture/classes/bracket/cantarget2.png) center / 100% 100% no-repeat; mask: url(/client-res/ui/texture/classes/bracket/cantarget2.png) center / 100% 100% no-repeat; }
 .bracket.in-range .t-cantarget { display: block; }
 .bracket.in-module-range .t-cantarget { opacity: 1; }
+/* TargetingHairlines: the thin line and the 2.5 px trace (0.5, 0.7, 0.6, 0.5), over the space layer */
+.module-hairlines { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 5; display: none; }
+.module-hairlines .hl-line { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1; }
+.module-hairlines .hl-trace { stroke: rgba(128, 179, 153, 0.5); stroke-width: 2.5; }
 body:not(.no-target-crosshair) .bracket.locked .t-line, body:not(.no-target-crosshair) .bracket.locking .t-line { display: block; }
 .bracket.active-target .t-circle { opacity: .5; }
 .bracket.active-target .t-line { background: rgba(255, 255, 255, 0.2); }

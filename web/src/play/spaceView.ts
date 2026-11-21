@@ -338,6 +338,45 @@ export class SpaceView {
   private readonly bracketEls = new Map<number, HTMLDivElement>();
   /** bracketMgr.ShowModuleRange's distance while a module is hovered (its brackets within it brighter), else null. */
   private moduleRange: number | null = null;
+  private readonly hairlineSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  private hairlineTimer: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * bracketMgr.ShowHairlinesForModule / TargetingHairlines: where the module runs on a locked target, a line from its
+   * slot through the target's bracket to its weapon icon in the target bar (GetHairlinePoints), and the 2.5 px trace
+   * (0.5, 0.7, 0.6, 0.5) running along it once in a second (StartAnimation; the other way from the weapon icon), the
+   * points kept up every 50 ms (AnimateVectorLine). Not drawn with Display Active Module Links off.
+   */
+  private showHairlines(moduleID: number, reverse: boolean): void {
+    this.stopHairlines();
+    if (!overviewMisc().moduleLinks) return;
+    const m = this.options.rack?.modules().find((each) => each.itemID === moduleID);
+    const targetID = m?.active ? m.targetID ?? null : null;
+    if (targetID === null || !this.locked.has(targetID)) return;
+    const centre = (el: Element | null | undefined) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.width || r.height ? [r.left + r.width / 2, r.top + r.height / 2] as const : null; };
+    const line = this.hairlineSvg.querySelector<SVGPolylineElement>(".hl-line")!, trace = this.hairlineSvg.querySelector<SVGPolylineElement>(".hl-trace")!;
+    const place = (): boolean => {
+      const a = centre(this.shipHud?.slotElement(moduleID)), b = centre(this.bracketEls.get(targetID)), c = centre(this.targetBar.weaponElement(moduleID));
+      if (!a || !b || !c || this.bracketEls.get(targetID)?.style.display === "none") { this.hairlineSvg.style.display = "none"; return false; }
+      const pts = `${a[0]},${a[1]} ${b[0]},${b[1]} ${c[0]},${c[1]}`;
+      line.setAttribute("points", pts);
+      trace.setAttribute("points", pts);
+      this.hairlineSvg.style.display = "block";
+      return true;
+    };
+    if (!place()) return;
+    const length = line.getTotalLength();
+    trace.style.strokeDasharray = `${length * 0.01} ${length * 2}`;
+    trace.animate([{ strokeDashoffset: reverse ? -length * 0.99 : 0 }, { strokeDashoffset: reverse ? 0 : -length * 0.99 }], { duration: 1000, easing: "linear", fill: "forwards" });
+    this.hairlineTimer = setInterval(place, 50);
+  }
+
+  /** StopShowingHairlines. */
+  private stopHairlines(): void {
+    if (this.hairlineTimer) clearInterval(this.hairlineTimer);
+    this.hairlineTimer = null;
+    this.hairlineSvg.style.display = "none";
+  }
   private inRangeDue = false;
   /** stateSvc.GetExclState(mouseOver): the one thing under the pointer, a bracket's or an overview row's. */
   private hoveredID: number | null = null;
@@ -859,7 +898,13 @@ export class SpaceView {
       this.shipHud.onOpenHold = (key) => this.actions.openShipHold?.(key);
       this.shipHud.tooltipRows = (m) => this.options.rack?.tooltip?.(m) ?? null;
       // ModuleController.ShowRange: bracketMgr.ShowModuleRange(maxRange + falloff) while a module is under the pointer
-      this.shipHud.onModuleHover = (m) => { const r = m ? this.options.rack?.range?.(m) ?? 0 : 0; this.moduleRange = r > 0 ? r : null; this.inRangeDue = true; };
+      this.shipHud.onModuleHover = (m) => {
+        const r = m ? this.options.rack?.range?.(m) ?? 0 : 0;
+        this.moduleRange = r > 0 ? r : null;
+        this.inRangeDue = true;
+        // ShowHairlinesForModule after ShowModuleRange (StopShowingModuleRange stops them)
+        if (m) this.showHairlines(m.itemID, false); else this.stopHairlines();
+      };
       this.root.classList.add("new-hud-on");
       // _AlignToScreenEdge: the indication goes to the top with the band
       this.offHudTop = hudSetting("shipuialigntop").subscribe((top) => this.root.classList.toggle("new-hud-top", top));
@@ -940,6 +985,11 @@ export class SpaceView {
     });
     this.overview.window.root.classList.add("space-only-window");
     this.layer.appendChild(this.overview.window.root);
+    this.hairlineSvg.setAttribute("class", "module-hairlines");
+    this.hairlineSvg.innerHTML = `<polyline class="hl-line" fill="none"/><polyline class="hl-trace" fill="none"/>`;
+    this.layer.appendChild(this.hairlineSvg);
+    // Weapon.OnMouseEnterWeapon: the hairline drawn the other way (reverse), from the weapon icon back to the module
+    this.targetBar.onWeaponHover = (moduleID) => { if (moduleID !== null) this.showHairlines(moduleID, true); else this.stopHairlines(); };
     // The radial menu: held or right-clicked on a bracket, an overview row or an object in space.
     if (!document.getElementById("radial-css")) {
       const style = document.createElement("style");

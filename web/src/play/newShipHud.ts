@@ -338,6 +338,8 @@ export class NewShipHud {
   wordWith: ((label: string, args: Readonly<Record<string, unknown>>) => string | null) | null = null;
   /** The module tooltip's rows (moduleButtonTooltip.UpdateToolTips), the page's to give; null: no tooltips. */
   tooltipRows: ((m: HudModule) => readonly ModuleTooltipRow[] | null) | null = null;
+  /** The slot showing a module (GetModuleFromID), for its hairline; null when it is not on the HUD. */
+  slotElement(moduleID: number): HTMLElement | null { return this.slots.find((s) => s.module?.itemID === moduleID)?.el ?? null; }
   /** ModuleController.ShowRange / HideRange: the module under the pointer, or null when it leaves. */
   onModuleHover: ((m: HudModule | null) => void) | null = null;
   private readonly tooltip = document.createElement("div");
