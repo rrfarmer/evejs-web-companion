@@ -628,6 +628,10 @@ body:not(.no-target-crosshair) .bracket.locked .t-line, body:not(.no-target-cros
 /* in-space windows' SmallWindowHeader caption: a 12 px Label (Drones, Local, Selected Item read through gridcheck) */
 .fly-windows .win-title { font-family: var(--font); font-size: 12px; font-weight: 400; letter-spacing: .02em; text-transform: none; color: #c8ccc8; }
 .fly-windows .win-icon { width: 24px; height: 24px; flex: none; margin: 0 6px 0 -2px; opacity: .85; }
+/* the WindowControls' buttons edge to edge (gridcheck: menu 290, 314, minimize 338, close 362 on a 400 wide scanner) */
+.fly-windows .win-bar { gap: 0; }
+.fly-windows .win-bar .win-title { margin-right: 8px; }
+.fly-windows .win-actions { gap: 0; }
 .fly-windows .win-btn { width: 24px; min-width: 24px; height: 24px; min-height: 0; padding: 0; border: none; background: center / 16px 16px no-repeat; color: transparent; opacity: .55; overflow: hidden; }
 .fly-windows .win-btn:hover { opacity: 1; background-color: rgba(255, 255, 255, 0.08); }
 .fly-windows .win-btn:not(.win-close) { background-image: url(/client-res/ui/texture/eveicon/system_icons/minimize_16px.png); }
@@ -766,6 +770,9 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 /* the inventory's big window header (ActiveShipCargo: the header 48 high, its caption a Label of 18 px) */
 .fly-windows .win[data-win="inventory"] > .win-bar { height: 48px; box-sizing: border-box; }
 .fly-windows .win[data-win="inventory"] > .win-bar .win-title { font-size: 18px; }
+/* the probe scanner's and the inventory's content padding as the drones window's (gridcheck: ProbeScannerWindow content 364 wide
+   at 18, 34; ActiveShipCargo content_padding (16, 0, 16, 16)) */
+.fly-windows .win[data-win="scanner"]:not(:has(.ps-compact, .compact)) > .win-body, .fly-windows .win[data-win="inventory"]:not(:has(.compact)) > .win-body { padding: 0 17px 17px; }
 /* the drones window's content padding (Window.content_padding: 16 a side and below, none on top under a header with its own
    bottom padding; the frame's 1 px makes 17); compact keeps the window's own */
 .fly-windows .win[data-win="drones"]:not(:has(.fly-drones.compact)) > .win-body { padding: 0 17px 17px; }
