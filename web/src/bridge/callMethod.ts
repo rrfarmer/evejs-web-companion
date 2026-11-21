@@ -12,6 +12,7 @@ import { pageCarries, pageFetch } from "../app/pageFetch.ts";
 import {
   TransportQueueError,
   bridgeLane,
+  hostedRoute,
   type RequestPriority,
 } from "../app/transport.ts";
 import type {
@@ -53,8 +54,10 @@ export interface CallMethodOptions {
    * whoever last wrote the shared cookie.
    */
   readonly token?: string | null;
-  /** R92 — lane priority; defaults to "read". See app/transport.ts. */
+  /** R92 — lane priority; confirmed writes default to "user", reads to "read". See app/transport.ts. */
   readonly priority?: RequestPriority;
+  /** Apply the caller's fence at dispatch, after lane admission. */
+  readonly beforeDispatch?: (signal: AbortSignal) => AbortSignal | void;
   readonly captureRequestGuard?: () => () => void;
   /** The call is a pilot's (wire.ts, BridgeCallRequestBody.pilot): with no pilot held it is refused as NO_LIVE_SESSION. */
   readonly pilot?: boolean;
@@ -164,6 +167,7 @@ export async function callMethod<TResult = JsonValue>(
     ...(options.of !== undefined ? { of: options.of } : {}),
   };
 
+  let lane = bridgeLane;
   let response: Response;
   try {
     // R92 — the SECOND fetch site in the client shares the one request lane, or
@@ -183,23 +187,24 @@ export async function callMethod<TResult = JsonValue>(
       credentials,
       body: JSON.stringify(body),
     };
-    response = await bridgeLane.run(options.priority ?? "read", "/api/bridge/call", () => {
+    const local = hostedRoute(options.fetch, url, request);
+    lane = local?.lane ?? bridgeLane;
+    const priority = options.priority ?? (options.confirm ? "user" : "read");
+    response = await lane.run(priority, "/api/bridge/call", () => {
       assertCurrent?.();
-      return doFetch(url, {
-        ...request,
-        // The same 65 s browser-side deadline as api.ts requestJson (see the
-        // note there): a half-dead socket must abort into BRIDGE_NETWORK_ERROR
-        // rather than freeze the awaiting loop forever. A caller's own signal
-        // still wins.
-        signal: options.signal ?? AbortSignal.timeout(65_000),
-      });
-      // A call that goes on the tab's open socket holds none of the browser's connections, and so no lane.
-    }, { carried: options.fetch === undefined && pageCarries(url, request) });
+      const signal = options.signal ?? AbortSignal.timeout(65_000);
+      const ready = { ...request, signal: options.beforeDispatch?.(signal) ?? signal };
+      return local ? local.send(url, ready, priority) : doFetch(url, ready);
+    }, {
+      pilot: local?.pilot,
+      signal: local && options.signal,
+      carried: options.fetch === undefined && !options.beforeDispatch && pageCarries(url, request),
+    });
   } catch (cause) {
     assertCurrent?.();
     if (cause instanceof BridgeCallError && cause.code === "SESSION_REQUEST_RETIRED") throw cause;
     const diagnosis =
-      cause instanceof TransportQueueError ? cause.diagnosis.verdict : bridgeLane.diagnose().verdict;
+      cause instanceof TransportQueueError ? cause.diagnosis.verdict : lane.diagnose().verdict;
     throw new BridgeCallError(
       "BRIDGE_NETWORK_ERROR",
       cause instanceof TransportQueueError

@@ -1,5 +1,7 @@
 "use strict";
 
+const { hostedFetch, hostedRoute } = require("../web/src/app/transport.ts");
+
 // ── Server-side bot host ─────────────────────────────────────────────────────
 //
 // Bots used to run ENTIRELY in the browser tab that started them: the tab
@@ -749,6 +751,9 @@ function createBotHost(options) {
   async function startPluginLoop(record, resumed) {
     const host = pluginProcess();
     if (!host) return "This server cannot run plugins.";
+    // Ask the selected reach about this BFF's origin without issuing a request.
+    const inProcessBff = typeof reach.isInProcessRequest === "function" &&
+      reach.isInProcessRequest(new URL("/api/", baseUrl).href) === true;
     record.pluginStarted = true;
     const failure = await host.startRun(record.pluginID, {
       botID: record.botID,
@@ -760,6 +765,7 @@ function createBotHost(options) {
       held: record.flow.heldPilot(),
       routeSettings: record.flow.autopilotSettings(),
       baseUrl,
+      inProcessBff,
     });
     // A start that only answered late is still coming, so the plugin is told it is not wanted.
     if (failure) void stopPluginLoop(record);
@@ -825,7 +831,8 @@ function createBotHost(options) {
             } else {
               // The flow's stand-in for the token goes in the URL of its event stream.
               url.searchParams.delete("token");
-              response = await record.pluginFetch(url.href, { method: message.method, headers: message.headers, body: message.body, redirect: message.redirect, signal: controller.signal });
+              const priority = message.priority === "user" || message.priority === "poll" ? message.priority : "read";
+              response = await record.pluginFetch(url.href, { method: message.method, headers: message.headers, body: message.body, redirect: message.redirect, signal: controller.signal }, priority);
             }
           }
           await answerPluginFetch(send, message.id, response);
@@ -1199,7 +1206,8 @@ function createBotHost(options) {
       // Same fetch the server itself trusts, plus the bot's name on every
       // request so the select guard can tell the bot's own select from a tab's.
       const pendingRequests = new Set();
-      const botFetch = (input, init) => {
+      const send = (input, init) => {
+        if (record.finalized) return Promise.reject(new Error("Hosted run ended"));
         const secret = record.claimSecret;
         const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url, baseUrl);
         const method = String(init?.method || "GET").toUpperCase();
@@ -1251,6 +1259,9 @@ function createBotHost(options) {
         pendingRequests.add(pending);
         return pending;
       };
+      const botFetch = reach.isInProcessRequest
+        ? hostedFetch(send, String(record.characterID), reach.isInProcessRequest)
+        : send;
       let hostedStartup;
       if (record.operationPreparation) {
         const checkpointSecret = record.claimSecret;
@@ -1293,10 +1304,19 @@ function createBotHost(options) {
       record.store = store;
       // What the plugin's process asks is asked as this run: its token and claim are added here and stay here.
       if (isPlugin) {
-        record.pluginFetch = (input, init = {}) => {
-          const headers = new Headers(init.headers);
-          headers.set("authorization", `Bearer ${token}`);
-          return botFetch(input, { ...init, headers });
+        record.pluginFetch = (input, init, priority) => {
+          const secret = record.claimSecret;
+          const dispatch = () => {
+            if (record.finalized || record.claimSecret !== secret ||
+                (record.windingDown && !isPluginLastWords({ method: init.method, url: input }))) {
+              return refusedPluginFetch(409, "PLUGIN_RUN_ENDED", "This run has ended or is being stopped.");
+            }
+            const headers = new Headers(init.headers);
+            headers.set("authorization", `Bearer ${token}`);
+            return send(input, { ...init, headers });
+          };
+          const local = hostedRoute(botFetch, input, init);
+          return local ? local.lane.run(priority, new URL(input).pathname, dispatch, { pilot: local.pilot, signal: init.signal }) : dispatch();
         };
       }
       record.startProductive = async () => {
