@@ -3958,8 +3958,11 @@ export class SpaceView {
     for (const e of this.snapshot?.entities ?? []) {
       if (e.isSelf) continue;
       const el = this.bracketEls.get(e.itemID);
-      // tactical.WantIt: the things the brackets' preset wants, on the screen or not
-      if (!el || el.dataset.wanted !== "1") continue;
+      // tactical.WantIt: the things the brackets' preset wants, on the screen or not; and _CheckInterest: any thing in
+      // one of _interestStates (targeting, targeted, mouseOver, selected, lookingAt) whatever the preset
+      const interesting = this.lockingIDs.has(e.itemID) || this.locked.has(e.itemID) || this.hoveredID === e.itemID ||
+        this.selected === e.itemID || this.lookAt === e.itemID;
+      if (!interesting && (!el || el.dataset.wanted !== "1")) continue;
       const p = new THREE.Vector3(e.position.x - origin.x, e.position.y - origin.y, -(e.position.z - origin.z));
       const d = p.length();
       if (d > limit || d < 1) continue;
@@ -4014,6 +4017,12 @@ export class SpaceView {
           prev = q;
         }
       }
+    }
+    // _ShowDirectionTo: the selected thing a straight connector from the ship (STYLE_FAINT: COLOR_GENERIC at ALPHA_LOW 0.1)
+    const chosen = this.selected === null ? null : this.snapshot?.entities.find((e) => e.itemID === this.selected && !e.isSelf) ?? null;
+    if (chosen) {
+      const at = new THREE.Vector3(chosen.position.x - origin.x, chosen.position.y - origin.y, -(chosen.position.z - origin.z));
+      segs.push({ a: new THREE.Vector3(), b: at, ka: 0.1, kb: 0.1 });
     }
     this.drawConnectorStrips(segs, h);
     // EveTacticalOverlay's velocity quads (quad 0, TacticalOverlayVelocity.fx with tacticalOverlay.red's parameters):
