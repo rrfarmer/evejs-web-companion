@@ -417,7 +417,8 @@ export class Overview {
         this.hooks.notice?.(this.hooks.word?.(SORT_DISABLED) ?? DISABLED_TEXT);
         void playUiEvent("msg_uiwarning03_play");
         this.lockFlash?.cancel();
-        this.lockFlash = this.lockIcon.animate([{ opacity: 0.75 }, { opacity: 1 }, { opacity: 0.75 }], { duration: 500 });
+        // animations.FadeTo(cont, 0.75, 1.5, curveType=ANIM_WAVE): its default 0.75 s, out and back (above 1 shows as 1)
+        this.lockFlash = this.lockIcon.animate([{ opacity: 0.75 }, { opacity: 1 }, { opacity: 0.75 }], { duration: 750 });
         return;
       }
       // SortHeaders.SetCurrentActive carries the direction to a new column.
