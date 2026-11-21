@@ -694,3 +694,7 @@ body:not(.no-target-crosshair) .bracket.locked .t-line, body:not(.no-target-cros
 .space .combat-msg-fake { position: absolute; left: 6px; top: 5px; width: 380px; font: 12px/20px var(--font); color: #fff; }
 .space .combat-msg[data-text-align="center"] .combat-msg-fake { text-align: center; }
 .space .combat-msg[data-text-align="right"] .combat-msg-fake { text-align: right; }
+
+/* CmdHideUI (Ctrl-F9): the UI layers hidden, the scene left (uiSvc.HideUi) */
+body.evejs-ui-hidden .fly-space ~ *:not(.fly-fade):not(.fly-map) { visibility: hidden; }
+body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibility: hidden; }

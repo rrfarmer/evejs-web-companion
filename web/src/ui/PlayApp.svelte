@@ -1247,6 +1247,13 @@
       for (const w of spaceWindows()) if (w.classList.contains("minimized") !== anyOpen) w.querySelector<HTMLElement>(".pw-min")?.click();
       return true;
     }
+    // CmdHideUI (Ctrl-F9): uiSvc.ToggleUiVisible - every UI layer hidden (UI_LAYER_NAMES: main, shipui, bracket, target,
+    // tactical, space_ui ...), the scene alone left; nothing while the system menu is open
+    if (cmd === "CmdHideUI") {
+      if (systemMenu) return true;
+      document.body.classList.toggle("evejs-ui-hidden");
+      return true;
+    }
     // CmdRefreshProbeScan (B): the probe scanner's Analyze where its window is open (ProbeScannerWindow.Confirm);
     // CmdIncrease/DecreaseProbeScanRange: scanSvc.ScaleFormation(2 / 0.5) - nothing unless every probe's range so scaled
     // is one of its type's steps, else each idle probe moved about the formation's centre (_ScaleFromCenterIterator) and
