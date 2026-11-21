@@ -1803,7 +1803,17 @@
         const name = e?.name ?? (e?.typeID ? typeNames[String(e.typeID)]?.[0] ?? "" : "");
         spaceBookmark = { itemID, askIfKnown: false, typeName: () => (e?.typeID ? typeNames[String(e.typeID)]?.[0] ?? "" : ""), name: () => name };
       },
-      loadShipHolds: () => s.flow.loadMiningHolds().catch(() => {}),
+      loadShipHolds: async () => {
+        await s.flow.loadMiningHolds().catch(() => {});
+        const shipID = s.store.space.get().snapshot?.ship?.itemID ?? null;
+        if (shipID !== null) await s.flow.openShipBays(shipID).catch(() => {});
+      },
+      shipBays: (shipID) => {
+        const open = s.store.inventory.get().openShip;
+        if (!open || open.itemID !== shipID) return null;
+        return open.bays.filter((b) => b.present && b.capacity && b.capacity.capacity > 0)
+          .map((b) => ({ key: b.key, used: b.capacity?.used ?? null, capacity: b.capacity?.capacity ?? null }));
+      },
       autopilotOn: () => s.flow.autopilotOn.get(),
       runCommand: (cmd) => {
         // LeftSideButtonAutopilot / the new HUD's autopilot button: autoPilot.SetOn, or SetOff where it is on

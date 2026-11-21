@@ -311,6 +311,11 @@ export interface SpaceActions {
   droneOrder?(kind: "primary" | "orbit" | "bay" | "scoop" | "abandon", droneIDs: readonly number[]): void;
   /** The ship's holds read (fill and capacity), for the new HUD's cargo indicator. */
   loadShipHolds?(): Promise<void>;
+  /**
+   * HoldTracker.GetMyHolds (inventoryConst.GetHoldsInType): every hold the flown ship's type has, by its bay key,
+   * with its capacity (the ship's bays read), for the cargo indicator's tooltip; null before it is read.
+   */
+  shipBays?(shipID: number): readonly { readonly key: string; readonly used: number | null; readonly capacity: number | null }[] | null;
   /** A client command run from a HUD button (ToggleProbeScanner, CmdToggleAutopilot, ...), as the page runs its shortcut. */
   runCommand?(cmd: string): void;
   /** autoPilotSvc.GetState: whether the autopilot is on, for the new HUD's autopilot button. */
@@ -3720,7 +3725,10 @@ export class SpaceView {
           this.holdsReadFor = ego.itemID;
           void this.actions.loadShipHolds?.();
         }
-        const holds = this.options.miningSurvey?.()?.holds ?? [];
+        // the mining read's holds, and the ship's other bays from its bays read (the tracker holds every one)
+        const mined = (this.options.miningSurvey?.()?.holds ?? []).filter((h) => h.present);
+        const bays = (this.actions.shipBays?.(ego.itemID) ?? []).filter((b) => !mined.some((h) => h.key === b.key));
+        const holds = [...mined, ...bays.map((b) => ({ key: b.key, label: b.key, present: true, capacity: { used: b.used ?? 0, capacity: b.capacity ?? 0 } }))];
         // the cargo indicator names each hold as the client does (invControllers.GetNameForFlag: "Mining Hold", "Cargo Hold")
         const holdWords = this.options.indicationWords?.() ?? {};
         const holdName = (key: string, own: string) => {
@@ -3728,7 +3736,7 @@ export class SpaceView {
           const t = hold ? holdWords[hold.label] : null;
           return typeof t === "string" && t !== "" ? plainText(t) : own;
         };
-        this.shipHud.setHolds(holds.filter((h) => h.present).map((h) => ({ key: h.key, label: holdName(h.key, h.label), used: h.capacity?.used ?? null, capacity: h.capacity?.capacity ?? null })), ego.typeID);
+        this.shipHud.setHolds(holds.map((h) => ({ key: h.key, label: holdName(h.key, h.label), used: h.capacity?.used ?? null, capacity: h.capacity?.capacity ?? null })), ego.typeID);
         this.shipHud.setAutopilot(this.actions.autopilotOn?.() ?? false);
       }
     }

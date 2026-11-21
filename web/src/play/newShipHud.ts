@@ -514,8 +514,8 @@ export class NewShipHud {
     this.cargoGlyph.alt = "";
     this.cargoGlyph.src = holdGlyph("cargo");
     b.append(this.cargoGlyph);
-    b.addEventListener("mouseenter", () => { this.cargoHover = true; });
-    b.addEventListener("mouseleave", () => { this.cargoHover = false; });
+    b.addEventListener("mouseenter", () => { this.cargoHover = true; this.showHoldsTooltip(b); });
+    b.addEventListener("mouseleave", () => { this.cargoHover = false; this.closeTooltip(); });
     b.addEventListener("mousedown", () => { b.style.transform = "translateY(2px)"; });
     b.addEventListener("mouseup", () => { b.style.transform = ""; });
     b.addEventListener("click", () => { this.holdPicker.style.display = "none"; this.onOpenHold(this.trackedHold); });
@@ -792,7 +792,7 @@ export class NewShipHud {
     "UI/Inflight/HUDOptions/DisplayUtilityButtons", "UI/Inflight/HUDOptions/DisplayModuleTooltips", "UI/Inflight/HUDOptions/DisplayPassiveModules",
     "UI/Inflight/HUDOptions/DisplayEmptySlots", "UI/Inflight/HUDOptions/DisplayReadout", "UI/Inflight/HUDOptions/DisplayReadoutAsPercentage",
     "UI/Inflight/HUDOptions/LockModulesInPlace", "UI/Inflight/HUDOptions/AlignHUDToTop", "UI/Inflight/NotifySettingsWindow/DamageAlertSettings",
-    "UI/Accessories/Log/EnterMessageMovingMode",
+    "UI/Accessories/Log/EnterMessageMovingMode", "Tooltips/Hud/CargoHold",
     ...["CapacitorFlowUnavailable", "CapStable", "CapIncreasing", "CapDecreasing", "CapRecharge", "CapDrain", "CapInjection",
       "SourceExplanation", "RechargeExplanation"].map((l) => `Tooltips/Hud/ConsumptionGauge/${l}`),
   ];
@@ -837,9 +837,54 @@ export class NewShipHud {
       this.trackedHold = holds.some((h) => h.key === "cargo") ? "cargo" : holds[0]!.key;
       this.cargoGlyph.src = holdGlyph(this.trackedHold);
     }
-    const h = holds.find((x) => x.key === this.trackedHold);
-    const pct = h && h.capacity ? Math.round(100 * (h.used ?? 0) / h.capacity) : null;
-    (this.cargoGlyph.parentElement as HTMLElement | null)?.setAttribute("title", h ? `${h.label}${pct === null ? "" : ` ${pct}%`}` : "Cargo");
+    if (this.cargoHover) this.showHoldsTooltip(this.cargoGlyph.parentElement as HTMLElement);
+  }
+
+  /**
+   * CargoButton.LoadTooltipPanel: the command's tooltip (LoadCommandTooltip: OpenCargoHoldOfActiveShip, its label
+   * Tooltips/Hud/CargoHold - "Holds & Bays" - and its shortcut, none by default), then a label and value row for each
+   * hold the tracker holds (GetNameForFlag, the fill as '{:.2%}'), the cargo hold first and the rest by name; the
+   * tracked hold's row in bold, in THEME_FOCUS (CRYO_BLUE).
+   */
+  private showHoldsTooltip(anchor: HTMLElement): void {
+    const rows = [...this.holds].sort((a, b) => (a.key === "cargo" ? -1 : b.key === "cargo" ? 1 : a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
+    const pct = (h: HudHold) => (h.capacity ? (100 * (h.used ?? 0) / h.capacity).toFixed(2) + "%" : "0.00%");
+    const key = "holds:" + JSON.stringify(rows.map((h) => [h.key, h.label, pct(h)])) + this.trackedHold;
+    const t = this.tooltip;
+    if (key === this.tipKey && t.style.display !== "none") return;
+    this.tipKey = key;
+    if (!t.isConnected) {
+      t.className = "new-hud-tooltip";
+      Object.assign(t.style, { position: "fixed", pointerEvents: "none", zIndex: "100000", padding: `${TOOLTIP_MARGIN}px`, font: "14px 'EVE Sans Neue','Segoe UI',sans-serif", color: "rgba(255,255,255,0.75)", whiteSpace: "nowrap" });
+      document.body.append(t);
+    }
+    t.replaceChildren();
+    const frame = document.createElement("div");
+    Object.assign(frame.style, { position: "absolute", inset: "0", opacity: "0.75", borderStyle: "solid", borderWidth: "0", borderImageSource: `url(${res("res:/UI/Texture/classes/FrameWithPointer/background_04.png")})`, borderImageSlice: "19 fill", borderImageWidth: "19px", borderImageOutset: "15px" } as Partial<CSSStyleDeclaration>);
+    const grid = document.createElement("div");
+    Object.assign(grid.style, { position: "relative", display: "grid", gridTemplateColumns: "auto auto", columnGap: "16px", rowGap: "4px" });
+    const head = document.createElement("div");
+    head.dataset.tipRow = "";
+    head.textContent = this.word("Tooltips/Hud/CargoHold") ?? "Holds & Bays";
+    Object.assign(head.style, { fontWeight: "bold", gridColumn: "1 / 3", color: "rgba(255,255,255,0.95)" });
+    grid.append(head);
+    for (const h of rows) {
+      const label = document.createElement("div");
+      const value = document.createElement("div");
+      label.dataset.tipRow = "";
+      label.textContent = h.label;
+      value.textContent = pct(h);
+      value.style.textAlign = "right";
+      if (h.key === this.trackedHold) {
+        for (const el of [label, value]) Object.assign(el.style, { fontWeight: "bold", color: css(FOCUS_BLUE) });
+      }
+      grid.append(label, value);
+    }
+    t.append(frame, grid);
+    t.style.display = "";
+    const a = anchor.getBoundingClientRect();
+    t.style.left = `${Math.round(a.right + 12)}px`;
+    t.style.top = `${Math.round(a.top + a.height / 2 - t.offsetHeight / 2)}px`;
   }
 
   /** cargo_indicator: track r 22.5 w 8 black 0.2 (0.6 hovered), the fill r 22.5 w 3 from 12 o'clock counter-clockwise. */
