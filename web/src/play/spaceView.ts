@@ -327,6 +327,17 @@ export class SpaceView {
   private readonly controls: OrbitControls;
   private readonly brackets = document.createElement("div");
   private readonly bracketEls = new Map<number, HTMLDivElement>();
+  /** stateSvc.GetExclState(mouseOver): the one thing under the pointer, a bracket's or an overview row's. */
+  private hoveredID: number | null = null;
+
+  /** stateSvc.SetState(itemID, mouseOver): the bracket shows its label (ShowLabel's mouseOver) and the overview row lights. */
+  private setHovered(id: number | null): void {
+    if (this.hoveredID === id) return;
+    if (this.hoveredID !== null) this.bracketEls.get(this.hoveredID)?.classList.remove("hovered");
+    this.hoveredID = id;
+    if (id !== null) this.bracketEls.get(id)?.classList.add("hovered");
+    this.overview.setHovered(id);
+  }
   private readonly polarization = new Map<number, { timer: WormholePolarization | null }>();
   private readonly jumpBridgePanels = new Map<number, {
     host: HTMLDivElement; signature: string; update(state: JumpBridgePanelState): void; destroy(): void;
@@ -840,6 +851,7 @@ export class SpaceView {
       word: (label, args) => this.actions.word?.(label, args) ?? null,
       notice: options.overviewNotice,
       affiliation: (rows, columns) => options.overviewAffiliation?.(rows, columns) ?? null,
+      hover: (id) => this.setHovered(id),
       bracketOverride: () => this.bracketOverride,
       setBracketOverride: (value) => { this.bracketOverride = value; },
     });
@@ -2844,6 +2856,10 @@ export class SpaceView {
         el.dataset.id = String(id);
         el.addEventListener("click", (ev) => { ev.stopPropagation(); this.select(id); });
         el.addEventListener("dblclick", (ev) => { ev.stopPropagation(); this.activateSpaceTarget(id); });
+        // InSpaceBracket.OnMouseEnter / OnMouseExit: stateSvc's mouseOver, which lights the overview row as well
+        el.addEventListener("mouseenter", () => this.setHovered(id));
+        el.addEventListener("mouseleave", () => { if (this.hoveredID === id) this.setHovered(null); });
+        el.classList.toggle("hovered", this.hoveredID === id);
         el.classList.toggle("locked", this.locked.has(id));
         el.classList.toggle("targeting-me", this.targeters.has(id));
         el.classList.toggle("selected", this.selected === id);
@@ -2872,7 +2888,7 @@ export class SpaceView {
       if (onScreen) {
         el.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px)`;
         if (this.selected === e.itemID || el.classList.contains("mining-selected")) this.updateMiningBracket(el, e, survey);
-        if (this.frameCount % 10 === 0 || highlighted || el.classList.contains("selected")) {
+        if (this.frameCount % 10 === 0 || highlighted || el.classList.contains("selected") || this.hoveredID === e.itemID) {
           el.querySelector<HTMLElement>(".label")!.textContent = labelText(this.nameOf(e), this.distanceTo(e));
         }
       }

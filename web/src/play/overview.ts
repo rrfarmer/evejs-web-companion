@@ -165,6 +165,8 @@ export interface OverviewHooks {
   pilotID?: number;
   word?(label: string, args?: Readonly<Record<string, string | number>>): string | null;
   notice?(text: string): void;
+  /** stateSvc's mouseOver: the thing a row is under the pointer (null when none), shared with its bracket in space. */
+  hover?(itemID: number | null): void;
   /** The affiliation columns' words for the rows listed, the columns shown asked for where the page has them not yet. */
   affiliation?(rows: readonly Entity[], columns: ReadonlySet<string>): ((e: Entity) => OverviewAffiliation) | null;
   /** bracketSettings' override (UseSelectedTabBracketPreset / ShowAll / HideAll), as the ⋮ menu's Bracket Visibility sets it. */
@@ -232,6 +234,12 @@ export class Overview {
     scroller.className = "ov-scroll";
     scroller.appendChild(this.table);
     this.window.body.appendChild(scroller);
+    // OverviewScrollEntry.OnMouseEnter / OnMouseExit: stateSvc.SetState(itemID, mouseOver, 1 / 0)
+    this.tbody.addEventListener("mouseover", (e) => {
+      const id = Number((e.target as HTMLElement).closest("tr")?.dataset.id);
+      if (id && id !== this.hovered) this.hooks.hover?.(id);
+    });
+    this.tbody.addEventListener("mouseleave", () => this.hooks.hover?.(null));
     this.tbody.addEventListener("click", (e) => {
       const id = Number((e.target as HTMLElement).closest("tr")?.dataset.id);
       if (id) this.hooks.select(id);
@@ -597,6 +605,15 @@ export class Overview {
 
   setSelected(itemID: number | null): void { this.selected = itemID; this.lastDraw = 0; }
 
+  private hovered: number | null = null;
+  /** OverviewScrollEntry.OnStateChange(mouseOver): the row of the thing under the pointer, here or in space, lit (Hilite). */
+  setHovered(itemID: number | null): void {
+    if (this.hovered === itemID) return;
+    this.hovered = itemID;
+    for (const tr of this.tbody.querySelectorAll<HTMLElement>("tr.hover")) tr.classList.remove("hover");
+    if (itemID !== null) this.tbody.querySelector(`tr[data-id="${itemID}"]`)?.classList.add("hover");
+  }
+
   /** Redrawn a few times a second: the client's overview is not repainted every frame either. */
   update(entities: readonly Entity[], distanceTo: (e: Entity) => number, relations?: OverviewRelationships, ego?: Entity | null): void {
     const now = performance.now();
@@ -676,7 +693,7 @@ export class Overview {
           default: return `<td>${esc(words(e, c.id.toLowerCase() as keyof OverviewAffiliation))}</td>`;
         }
       };
-      html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}">${cols.map(cell).join("")}</tr>`);
+      html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}${e.itemID === this.hovered ? " hover" : ""}">${cols.map(cell).join("")}</tr>`);
     }
     const markup = html.join("");
     if (markup !== this.drawnRows) {
