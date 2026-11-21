@@ -269,6 +269,20 @@ button { font: inherit; color: inherit; }
 .ov-state-row { display: grid; grid-template-columns: 14px 1fr 16px 16px 16px; gap: 14px 6px; column-gap: 14px; align-items: center; height: 22px; padding: 0 12px 0 6px; }
 .ov-state-row .state-flag { position: static; }
 .ov-state-row input[type=radio] { margin: 0; accent-color: rgb(88, 167, 191); }
+/* AppearancePanel */
+.ov-app { display: flex; flex-direction: column; padding: 8px; }
+.ov-app-check { display: flex; align-items: center; gap: 8px; height: 24px; }
+.ov-app-check input, .ov-app-row input { accent-color: rgb(88, 167, 191); margin: 0; }
+.ov-app-note { margin: 12px 0 4px; }
+.ov-app-row { display: grid; grid-template-columns: 16px 1fr 14px; gap: 6px; align-items: center; height: 22px; padding: 0 14px 0 6px; cursor: grab; }
+.ov-app-row .state-flag { position: static; }
+.ov-app-bg { width: 9px; height: 9px; }
+.ov-app-bg.blink { animation: state-flag-blink 1s ease-in-out infinite; }
+/* UseSmallFont: the entries in EVE_SMALL_FONTSIZE; UseSmallColortags: the flags 6 x 6 without their glyph */
+.ov.ov-small-font .ov-table { font-size: 12px; }
+.ov-small-tags .ov-table .state-flag { width: 6px; height: 6px; }
+.ov-small-tags .bracket .bracket-flag .state-flag { width: 5px; height: 5px; left: 10px; top: 10px; }
+.ov-small-tags .ov-table .state-flag > span, .ov-small-tags .bracket .state-flag > span { display: none; }
 .ov .ov-table th.sorted button::after { content: ""; position: absolute; right: 3px; top: 3px; width: 16px; height: 16px; opacity: .75;
   background: url(/client-res/ui/texture/eveicon/system_icons/caret_up_16px.png) center / 16px no-repeat; }
 .ov .ov-table th.sorted.down button::after { content: ""; background-image: url(/client-res/ui/texture/eveicon/system_icons/caret_down_16px.png); }

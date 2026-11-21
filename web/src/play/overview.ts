@@ -7,7 +7,7 @@ import { PlayWindow, clientTexture } from "./window.ts";
 import type { Entity } from "./spaceView.ts";
 import { fmtDist } from "../space/overview.ts";
 import { playUiEvent } from "./uiAudio.ts";
-import { iconAndBackgroundFlags, overviewRowWanted, type BracketOverride, type OverviewRelationships, type PresetMask, type StateFlagLook } from "./overviewFilters.ts";
+import { iconAndBackgroundFlags, overviewRowWanted, setStateAppearance, type BracketOverride, type OverviewRelationships, type PresetMask, type StateFlagLook } from "./overviewFilters.ts";
 
 const rgba = (c: readonly number[], alpha = c[3] ?? 1) => `rgba(${Math.round(c[0]! * 255)},${Math.round(c[1]! * 255)},${Math.round(c[2]! * 255)},${alpha})`;
 /**
@@ -71,6 +71,22 @@ function overviewStates() {
   statesRead ??= fetch("/client-assets/overviewStates.json").then((r) => (r.ok ? r.json() : null)).then((j) => (j?.states ?? null) as StateProps[] | null).catch(() => null);
   return statesRead;
 }
+/** AppearancePanel's lists as the client has them by default (overviewStateOrders.json, tools/client-extract/overviewStateOrders.py). */
+interface StateOrderEntry { flag: number; on: boolean; color: number[]; blink: boolean }
+interface StateOrders { flag: StateOrderEntry[]; background: StateOrderEntry[]; filterGroups: number[] }
+let ordersRead: Promise<StateOrders | null> | null = null;
+function overviewStateOrders() {
+  ordersRead ??= fetch("/client-assets/overviewStateOrders.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  return ordersRead;
+}
+/** The pilot's Appearance settings (the client's settings.user.overview), kept in this browser. */
+interface AppearanceSettings { smallTags: boolean; smallFont: boolean; applyStructures: boolean; applyOther: boolean;
+  flag?: { flag: number; on: boolean }[]; background?: { flag: number; on: boolean }[] }
+const APPEARANCE_KEY = "evejs.ui.overview.appearance";
+function readAppearance(): AppearanceSettings {
+  const base: AppearanceSettings = { smallTags: false, smallFont: false, applyStructures: true, applyOther: false };
+  try { return { ...base, ...(JSON.parse(localStorage.getItem(APPEARANCE_KEY) ?? "{}") as Partial<AppearanceSettings>) }; } catch { return base; }
+}
 let presetsRead: Promise<OverviewPresets | null> | null = null;
 function overviewPresets() {
   presetsRead ??= fetch("/client-assets/overviewPresets.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
@@ -123,7 +139,7 @@ export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HI
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
   "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
   "UI/Overview/EditCurrentFilter", "UI/Commands/ChangeName", "UI/Overview/DeleteTab", "/Carbon/UI/Controls/ScrollEntries/TypeInNewName",
-  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
+  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
 const DISABLED_TEXT = "Header sorting is disabled";
 
 /**
@@ -279,6 +295,10 @@ export class Overview {
       const id = Number((e.target as HTMLElement).closest("tr")?.dataset.id);
       if (id) this.hooks.activate(id);
     });
+    void overviewStateOrders().then((o) => { this.stateOrders = o; this.applyAppearance(false); });
+    // the settings window's lists, read ahead so they are there when it opens
+    void overviewStates().then((st) => { this.states = st; });
+    void overviewFilterGroups().then((g) => { this.filterGroups = g; });
     void typeNames().then((n) => {
       if (!n) return;
       this.types = n.types;
@@ -464,7 +484,7 @@ export class Overview {
    * gridcheck into overviewFilterGroups.json), each "shown / all" in the accent colour when all, white when some, grey
    * when none, opened to its groups' checkboxes; Select All, Deselect All, the search; Revert while it has changes.
    */
-  openSettings(panel: "tabs" | "filters" = "tabs", presetID?: string): void {
+  openSettings(panel: "tabs" | "filters" | "appearance" = "tabs", presetID?: string): void {
     const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
     document.querySelector(".ov-settings")?.closest(".pw")?.remove();
     const win = new PlayWindow({ id: "overview-settings", caption: word("UI/Overview/OverviewSettings", "Overview Settings"),
@@ -474,6 +494,7 @@ export class Overview {
     let editing = presetID ?? this.tabSettings[this.tab]?.preset ?? this.presetChoices[0]?.id ?? "";
     let search = "";
     let sub: "types" | "states" = "types";
+    let appearanceSub: "flag" | "background" = "flag";
     const open = new Set<string>();
     const options = (selected: string | null, showAll: boolean) =>
       (showAll ? `<option value=""${selected === null ? " selected" : ""}>${esc(word("UI/Overview/ShowAllBrackets", "Show All Brackets"))}</option>` : "") +
@@ -520,12 +541,38 @@ export class Overview {
         ${sub === "types" ? `<div class="ov-filt-bar"><button type="button" class="ov-filt-all">${esc(word("UI/Common/SelectAll", "Select All"))}</button><button type="button" class="ov-filt-none">${esc(word("UI/Common/DeselectAll", "Deselect All"))}</button>
           <input class="ov-filt-search" placeholder="${esc(word("UI/Common/Search", "Search"))}" value="${esc(search)}" autocomplete="off"></div>
         <div class="ov-filt-tree">${tree}</div>` : statesPane}
-        <div class="ov-add-buttons"><button type="button" class="ov-filt-revert"${hasOverrides(changed) ? "" : " disabled"}>${esc(word("UI/Common/Buttons/Revert", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "Revert"))}</button></div></div>`;
+        <div class="ov-add-buttons"><button type="button" class="ov-filt-revert"${hasOverrides(changed) ? "" : " disabled"}>${esc(word("UI/Common/Buttons/Revert", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "Revert"))}</button></div></div>`;
+    };
+    // AppearancePanel: the two checkboxes, the note and the two apply-to checkboxes, the Colortag / Background lists (each
+    // state's checkbox, its text and, while on, its flag; dragged to reorder) and Reset All
+    const appearancePanel = () => {
+      const a = this.appearance;
+      const check = (key: keyof AppearanceSettings, label: string, own: string) => `<label class="ov-app-check"><input type="checkbox" data-app="${key}"${a[key] ? " checked" : ""}><span>${esc(word(label, own))}</span></label>`;
+      if (!this.states || !this.stateOrders) void Promise.all([overviewStates(), overviewStateOrders()]).then(([st, o]) => { this.states = st; this.stateOrders = o; if (st && o && current === "appearance") draw(); });
+      const props = new Map((this.states ?? []).map((st) => [st.flag, st]));
+      const colors = new Map((this.stateOrders?.[appearanceSub] ?? []).map((e) => [e.flag, e.color]));
+      const rows = this.appearanceList(appearanceSub).map((e) => {
+        const st = props.get(e.flag);
+        if (!st) return "";
+        const color = colors.get(e.flag) ?? st.flagColor;
+        // FlagEntry: the Colortag list its FlagIconWithState, the Background list a 9 x 9 Fill of the colour; either blinking as set
+        const blink = this.stateOrders?.[appearanceSub].find((x) => x.flag === e.flag)?.blink ?? false;
+        const preview = appearanceSub === "flag"
+          ? flagMarkup({ flag: e.flag, text: st.text, iconIndex: st.iconIndex, flagColor: color, backgroundColor: color, flagBlink: blink, backgroundBlink: false, iconColor: st.iconColor })
+          : `<span class="ov-app-bg${blink ? " blink" : ""}" style="background:rgba(${color.map((c, i) => (i < 3 ? Math.round(c * 255) : c)).join(",")})"></span>`;
+        return `<div class="ov-app-row" draggable="true" data-flag="${e.flag}" title="${esc(word("UI/Overview/HintToggleDisplayState", ""))}"><input type="checkbox" data-flag="${e.flag}"${e.on ? " checked" : ""}><span>${esc(st.text)}</span>${preview}</div>`;
+      }).join("");
+      return `<div class="ov-set-panel ov-app">${check("smallTags", "UI/Overview/UseSmallColortags", "Use small colortags")}${check("smallFont", "UI/Overview/UseSmallFont", "Use small font")}
+        <p class="ov-app-note">${esc(word("UI/Overview/ApplyToShipsAndDronesByDefault", "The Colortag and Background settings apply to ships and drones by default"))}</p>
+        ${check("applyStructures", "UI/Overview/ApplyToStructures", "Also apply to structures")}${check("applyOther", "UI/Overview/ApplyToOtherObjects", "Also apply to other objects in space")}
+        <div class="ov-set-tabs ov-filt-sub"><span class="ov-set-tab${appearanceSub === "flag" ? " active" : ""}" data-appsub="flag">${esc(word("UI/Overview/Colortag", "Colortag"))}</span><span class="ov-set-tab${appearanceSub === "background" ? " active" : ""}" data-appsub="background">${esc(word("UI/Overview/Background", "Background"))}</span></div>
+        <div class="ov-filt-tree ov-app-list">${rows}</div>
+        <div class="ov-add-buttons"><button type="button" class="ov-app-reset">${esc(word("UI/Commands/ResetAll", "Reset All"))}</button></div></div>`;
     };
     const draw = () => {
-      const tabs: [typeof current, string][] = [["tabs", word("UI/Overview/Tabs", "Tabs")], ["filters", word("UI/Overview/Filters", "Filters")]];
+      const tabs: [typeof current, string][] = [["tabs", word("UI/Overview/Tabs", "Tabs")], ["filters", word("UI/Overview/Filters", "Filters")], ["appearance", word("UI/Generic/Appearance", "Appearance")]];
       const scroll = win.body.querySelector(".ov-filt-tree")?.scrollTop ?? 0;
-      win.body.innerHTML = `<div class="ov-set-tabs">${tabs.map(([k, t]) => `<span class="ov-set-tab${k === current ? " active" : ""}" data-panel="${k}">${esc(t)}</span>`).join("")}</div>${current === "tabs" ? tabsPanel() : filtersPanel()}`;
+      win.body.innerHTML = `<div class="ov-set-tabs">${tabs.map(([k, t]) => `<span class="ov-set-tab${k === current ? " active" : ""}" data-panel="${k}">${esc(t)}</span>`).join("")}</div>${current === "tabs" ? tabsPanel() : current === "filters" ? filtersPanel() : appearancePanel()}`;
       const tree = win.body.querySelector(".ov-filt-tree");
       if (tree) tree.scrollTop = scroll;
     };
@@ -548,6 +595,14 @@ export class Overview {
       const t = e.target as HTMLElement;
       if (t.closest(".ov-set-row")) { update(); return; }
       if (t.matches(".ov-filt-preset")) { editing = (t as HTMLSelectElement).value; draw(); return; }
+      if (t.matches("[data-app]")) { (this.appearance as unknown as Record<string, boolean>)[t.dataset.app!] = (t as HTMLInputElement).checked; this.applyAppearance(); draw(); return; }
+      if (t.matches(".ov-app-row input")) {
+        const list = this.appearanceList(appearanceSub).map((e) => (e.flag === Number(t.dataset.flag) ? { ...e, on: (t as HTMLInputElement).checked } : e));
+        this.appearance = { ...this.appearance, [appearanceSub]: list };
+        this.applyAppearance();
+        draw();
+        return;
+      }
       if (t.matches(".ov-state-row input")) { this.setPresetState(editing, Number(t.dataset.flag), (t as HTMLInputElement).value as "alwaysShow" | "filterOut" | "unfiltered"); draw(); return; }
       const box = t.closest<HTMLInputElement>(".ov-filt-group input");
       if (box) { this.setPresetGroups(editing, box.dataset.groups!.split(",").map(Number), box.checked); draw(); }
@@ -562,10 +617,31 @@ export class Overview {
       again.setSelectionRange(search.length, search.length);
     });
     win.body.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.target as HTMLElement).matches(".ov-set-name")) update(); });
+    // AppearancePanel.Move: a state dragged onto another goes before it
+    let draggedFlag: number | null = null;
+    win.body.addEventListener("dragstart", (e) => { draggedFlag = Number((e.target as HTMLElement).closest<HTMLElement>(".ov-app-row")?.dataset.flag) || null; });
+    win.body.addEventListener("dragover", (e) => { if (draggedFlag !== null) e.preventDefault(); });
+    win.body.addEventListener("drop", (e) => {
+      const onto = (e.target as HTMLElement).closest<HTMLElement>(".ov-app-row");
+      if (draggedFlag === null || !onto) return;
+      e.preventDefault();
+      const list = this.appearanceList(appearanceSub);
+      const moved = list.find((x) => x.flag === draggedFlag)!;
+      const rest = list.filter((x) => x.flag !== draggedFlag);
+      rest.splice(rest.findIndex((x) => x.flag === Number(onto.dataset.flag)), 0, moved);
+      this.appearance = { ...this.appearance, [appearanceSub]: rest };
+      draggedFlag = null;
+      this.applyAppearance();
+      draw();
+    });
     win.body.addEventListener("click", (e) => {
       const t = e.target as HTMLElement;
       const tab = t.closest<HTMLElement>("[data-panel]");
       if (tab) { current = tab.dataset.panel as typeof current; draw(); return; }
+      const appSub = t.closest<HTMLElement>("[data-appsub]");
+      if (appSub) { appearanceSub = appSub.dataset.appsub as typeof appearanceSub; draw(); return; }
+      // AppearancePanel.ResetStateSettings: the lists' orders and switches back to the client's defaults
+      if (t.closest(".ov-app-reset")) { const { flag: _f, background: _b, ...rest } = this.appearance; this.appearance = rest; this.applyAppearance(); draw(); return; }
       const subTab = t.closest<HTMLElement>("[data-sub]");
       if (subTab) { sub = subTab.dataset.sub as typeof sub; draw(); return; }
       const cat = t.closest<HTMLElement>(".ov-filt-cat");
@@ -587,12 +663,32 @@ export class Overview {
       draw();
     });
     void overviewFilterGroups().then((g) => { this.filterGroups = g; if (current === "filters") draw(); });
-    void overviewStates().then((st) => { this.states = st; if (current === "filters") draw(); });
+    void overviewStates().then((st) => { this.states = st; if (current !== "tabs") draw(); });
     draw();
     (this.window.root.parentElement ?? document.body).append(win.root);
   }
 
   private filterGroups: FilterCategory[] | null = null;
+  private appearance: AppearanceSettings = readAppearance();
+  private stateOrders: StateOrders | null = null;
+
+  /** The two lists as the pilot has them: their own order and switches, the client's defaults otherwise. */
+  private appearanceList(where: "flag" | "background"): { flag: number; on: boolean }[] {
+    return this.appearance[where] ?? (this.stateOrders?.[where] ?? []).map((e) => ({ flag: e.flag, on: e.on }));
+  }
+
+  /** The settings applied: the flag rules' orders and apply-to switches, the small font and colortags, kept. */
+  private applyAppearance(save = true): void {
+    if (save) { try { localStorage.setItem(APPEARANCE_KEY, JSON.stringify(this.appearance)); } catch { /* the settings last the page */ } }
+    if (this.stateOrders) {
+      setStateAppearance({ flag: this.appearanceList("flag").filter((e) => e.on).map((e) => e.flag), background: this.appearanceList("background").filter((e) => e.on).map((e) => e.flag),
+        applyStructures: this.appearance.applyStructures, applyOther: this.appearance.applyOther, otherGroups: this.stateOrders.filterGroups });
+    }
+    document.body.classList.toggle("ov-small-tags", this.appearance.smallTags);
+    this.window.body.classList.toggle("ov-small-font", this.appearance.smallFont);
+    this.drawnRows = "";
+    this.lastDraw = 0;
+  }
   private states: StateProps[] | null = null;
 
   /** StatesPanel.OnFilteredStatesChange: the state always shown, filtered out, or neither, on the preset (whole lists kept). */

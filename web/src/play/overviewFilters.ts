@@ -88,6 +88,29 @@ export const STATE_FLAG_LOOKS: ReadonlyMap<number, StateFlagLook> = new Map([
  */
 const FLAG_ORDER = [13, 44, 11, 12, 14, 15, 16, 45, 9, 19, 18, 49, 10, 17, 48, 21];
 const BACKGROUND_ORDER = [13, 44, 11, 12, 14, 15, 16, 45, 49, 19, 18, 9, 10, 21, 17, 48];
+/**
+ * The Appearance settings the flags are drawn by (AppearancePanel): the active Colortag and Background orders, and
+ * which things carry flags at all (stateSvc.CheckIfUpdateItem: ships, NPCs, drones and fighters, stations and
+ * stargates; structures with Also apply to structures, on by default; the filter groups with Also apply to other
+ * objects in space, off by default).
+ */
+let activeFlagOrder: readonly number[] = FLAG_ORDER;
+let activeBackgroundOrder: readonly number[] = BACKGROUND_ORDER;
+let applyToStructures = true;
+let applyToOtherObjects = false;
+let otherObjectGroups: ReadonlySet<number> = new Set([10, 12, 186, 340, 366, 411, 502, 517, 711, 1991]);
+export function setStateAppearance(a: { flag: readonly number[]; background: readonly number[]; applyStructures: boolean; applyOther: boolean; otherGroups?: readonly number[] }): void {
+  activeFlagOrder = a.flag;
+  activeBackgroundOrder = a.background;
+  applyToStructures = a.applyStructures;
+  applyToOtherObjects = a.applyOther;
+  if (a.otherGroups) otherObjectGroups = new Set(a.otherGroups);
+}
+function isUpdateItem(category: number, group: number): boolean {
+  if ([6, 11, 18, 87, 3].includes(category)) return true;
+  if (applyToStructures && [23, 40, 65].includes(category)) return true;
+  return group === 10 || (applyToOtherObjects && otherObjectGroups.has(group));
+}
 /** factionWarfare's combat enemies (IsMyCombatEnemyFaction): Caldari and Gallente, Amarr and Minmatar, Guristas and Angels. */
 const FW_ENEMIES: Readonly<Record<number, number>> = { 500001: 500004, 500004: 500001, 500003: 500002, 500002: 500003, 500010: 500011, 500011: 500010 };
 const OUTLAW_SECURITY_STATUS = -5;
@@ -159,13 +182,13 @@ function flagHolds(flag: number, item: OverviewItem, group: number, category: nu
 export function iconAndBackgroundFlags(item: OverviewItem, groupID: number | null, relations?: OverviewRelationships): { icon: StateFlagLook | null; background: StateFlagLook | null } {
   const group = groupID ?? 0;
   const category = item.categoryID ?? 0;
-  if (item.isSelf) return { icon: null, background: null };
+  if (item.isSelf || !isUpdateItem(category, group)) return { icon: null, background: null };
   if (group !== AGENT_IN_SPACE && (isNpcOwner(item.ownerID ?? null) || isNpcOwner(item.characterID ?? null))) return { icon: null, background: null };
   const first = (order: readonly number[]) => {
     const f = order.find((flag) => flagHolds(flag, item, group, category, relations));
     return f === undefined ? null : STATE_FLAG_LOOKS.get(f) ?? null;
   };
-  return { icon: first(FLAG_ORDER), background: first(BACKGROUND_ORDER) };
+  return { icon: first(activeFlagOrder), background: first(activeBackgroundOrder) };
 }
 
 /** war_cso.GetRelationship checks a currently hostile war before shared allies. */
