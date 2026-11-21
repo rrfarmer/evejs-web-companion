@@ -107,6 +107,7 @@
 <section
   bind:this={el}
   class="win"
+  data-win={win.id}
   class:focused
   class:ship-tree-window={win.id === "shipTree"}
   style:display={win.minimized ? "none" : undefined}

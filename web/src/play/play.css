@@ -744,3 +744,6 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 .pw.dscan-compact .pw-head .dscan-head { flex: 1; height: auto; padding: 0; }
 .pw.dscan-compact .pw-head .dscan-caption { display: none; }
 .pw.dscan-compact .pw-head .dscan-filter { order: 9; margin-left: auto; }
+/* the inventory's big window header (ActiveShipCargo: the header 48 high, its caption a Label of 18 px) */
+.fly-windows .win[data-win="inventory"] > .win-bar { height: 48px; box-sizing: border-box; }
+.fly-windows .win[data-win="inventory"] > .win-bar .win-title { font-size: 18px; }

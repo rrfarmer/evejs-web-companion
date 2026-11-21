@@ -461,7 +461,9 @@
 <style>
   .special { display: flex; justify-content: flex-end; padding: 4px 0; }
   .special button { height: 24px; padding: 0 14px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.25); color: inherit; font: inherit; cursor: pointer; }
-  .inv { display: flex; height: 100%; min-height: 0; font-size: 13px; color: rgba(255, 255, 255, 0.85); user-select: none; }
+  /* measured in the client through gridcheck: the tree, filters and footer TextBody / EveLabelMedium 14, the search 14,
+     the capacity EveLabelSmall 12, Nothing Found EveCaptionLarge 24 */
+  .inv { display: flex; height: 100%; min-height: 0; font-size: 14px; color: rgba(255, 255, 255, 0.85); user-select: none; }
   .tree { width: 160px; flex: none; display: flex; flex-direction: column; background: rgba(255, 255, 255, 0.03); margin: 0 8px 0 0; }
   .nodes { flex: 1; overflow: auto; padding: 4px 0; }
   .node { display: flex; align-items: center; gap: 4px; height: 24px; padding: 0 6px; cursor: default; }
@@ -485,9 +487,9 @@
   .gauge { position: relative; flex: 1; min-width: 0; height: 24px; margin: 0 8px; background: rgba(0, 0, 0, 0.3); }
   .gfill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(88, 167, 191, 0.35); }
   .gtext { position: absolute; left: 8px; top: 0; line-height: 24px; font-size: 12px; color: rgba(255, 255, 255, 0.8); white-space: nowrap; }
-  .search { width: 128px; flex: none; height: 24px; box-sizing: border-box; border: 0; background: rgba(0, 0, 0, 0.3); color: #fff; padding: 0 6px; font-size: 12px; }
+  .search { width: 128px; flex: none; height: 24px; box-sizing: border-box; border: 0; background: rgba(0, 0, 0, 0.3); color: #fff; padding: 0 6px; font-size: 14px; }
   .items { flex: 1; overflow: auto; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 8px; }
-  .none { width: 100%; margin: 0; text-align: center; font-size: 20px; color: rgba(255, 255, 255, 0.6); letter-spacing: 0.5px; }
+  .none { width: 100%; margin: 0; text-align: center; font-size: 24px; color: rgba(255, 255, 255, 0.6); letter-spacing: 0.5px; }
   .item { width: 64px; display: flex; flex-direction: column; align-items: center; }
   .icon { position: relative; width: 64px; height: 64px; display: grid; background: rgba(255, 255, 255, 0.05); }
   .icon :global(.type-icon) { width: 64px; height: 64px; }
