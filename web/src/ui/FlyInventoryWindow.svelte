@@ -499,10 +499,12 @@
   .tool:hover { opacity: 1; }
   /* the top row's dividerParent (gridcheck, 600 wide window): InvContCapacityGauge 170 wide at 262, the dragArea 8 (its
      DividerLine at 3), the quick filter the rest (142, to the content's right) */
-  .gauge { position: relative; flex: none; width: 170px; min-width: 0; height: 24px; margin: 0 0 0 8px; background: rgba(0, 0, 0, 0.3); }
+  .gauge { position: relative; flex: none; width: 170px; min-width: 0; height: 24px; margin: 0 0 0 8px; background: rgba(0, 0, 0, 0.4); }
   .gauge::after { content: ""; position: absolute; right: -4px; top: 0; width: 1px; height: 24px; background: rgba(255, 255, 255, 0.1); }
-  .gfill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(88, 167, 191, 0.35); }
-  .gtext { position: absolute; left: 8px; top: 0; line-height: 24px; font-size: 12px; color: rgba(255, 255, 255, 0.8); white-space: nowrap; }
+  /* its fills (gridcheck): the bg black 0.4, the gauge THEME_FOCUSDARK at 0.6 (Photon 48, 86, 101), the label EveLabelSmall
+     white 0.75 at 8, 1 below the middle */
+  .gfill { position: absolute; left: 0; top: 0; bottom: 0; background: color-mix(in srgb, var(--theme-focus-dark, #305665) 60%, transparent); }
+  .gtext { position: absolute; left: 8px; top: 1px; line-height: 24px; font-size: 12px; color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
   .search { width: auto; flex: 1; min-width: 0; margin-left: 8px; height: 24px; box-sizing: border-box; border: 0; background: rgba(0, 0, 0, 0.3); color: #fff; padding: 0 6px; font-size: 14px; }
   /* the ShipCargo scroll's entries and the footer's labels from 16 past the tree column (186) */
   .items { padding-left: 4px; flex: 1; overflow: auto; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 8px; }
