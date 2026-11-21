@@ -3706,12 +3706,48 @@ export class SpaceView {
         straight(angle + 2 * incS, [1, 1, 1, 0.025]);
         straight(angle + 3 * incS, [1, 1, 1, 0.015]);
       }
+      // gradientcircle.fx on a unit plane in the compass's plane (tacticalDarkDisc.red and tacticalOptimal/FalloffGradient.red):
+      // r = 2 |uv - 0.5|; Color0 to Color1 over GradientControls x..y, to Color2 over y..z; FadeControls.w premultiplies;
+      // the edge cut beyond FadeControls.z; faded within FadeControls.y of the camera (the scene-depth fade not drawn)
+      const gradientDisc = (diameter: number, c0: readonly number[], c1: readonly number[], c2: readonly number[],
+        g: readonly number[], f: readonly number[], additive: boolean, order: number) => {
+        const v4 = (x: readonly number[]) => new THREE.Vector4(x[0], x[1], x[2], x[3]);
+        const m = new THREE.ShaderMaterial({
+          uniforms: { c0: { value: v4(c0) }, c1: { value: v4(c1) }, c2: { value: v4(c2) }, g: { value: v4(g) }, f: { value: v4(f) } },
+          vertexShader: "varying vec2 vUv; varying float vDepth; void main() { vUv = uv; vec4 mv = modelViewMatrix * vec4(position, 1.0); vDepth = -mv.z; gl_Position = projectionMatrix * mv; }",
+          fragmentShader: [
+            "uniform vec4 c0; uniform vec4 c1; uniform vec4 c2; uniform vec4 g; uniform vec4 f; varying vec2 vUv; varying float vDepth;",
+            "void main() {",
+            "  float r = 2.0 * length(vUv - 0.5);",
+            "  vec4 c = mix(mix(c0, c1, clamp((r - g.x) / (g.y - g.x), 0.0, 1.0)), c2, clamp((r - g.y) / (g.z - g.y), 0.0, 1.0));",
+            "  float a = c.a * clamp(vDepth / f.y, 0.0, 1.0);",
+            "  vec3 rgb = c.rgb * (f.w * (a - 1.0) + 1.0);",
+            "  gl_FragColor = (1.0 - clamp((r - f.z) / (1.0 - f.z), 0.0, 1.0)) * vec4(rgb, a);",
+            "}",
+          ].join("\n"),
+          transparent: true, depthWrite: false, side: THREE.DoubleSide,
+          blending: THREE.CustomBlending, blendSrc: additive ? THREE.OneFactor : THREE.SrcAlphaFactor,
+          blendDst: additive ? THREE.OneFactor : THREE.OneMinusSrcAlphaFactor,
+        });
+        const plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), m);
+        plane.rotation.x = -Math.PI / 2;
+        plane.scale.setScalar(diameter);
+        plane.renderOrder = order;
+        plane.frustumCulled = false;
+        group.add(plane);
+      };
+      // the dark disc: CompassDisc.SetActiveRange scales it to the outer circle's diameter
+      gradientDisc(2 * R, [0, 0, 0, 0.1961], [0, 0, 0, 0.1569], [0, 0, 0, 0], [0, 0.5, 1, 0], [1000, 250, 0.999, 0], false, -1);
       if (targeting > 0) circle(targeting + base, [1, 0.1, 0.025, 0.5]);
       // CompassDisc.ShowFiringRange(optimal, falloff + optimal): _COLOR_OPTIMAL (attack 0.66) at the optimal, and
       // _COLOR_FALLOFF (0.33) at optimal + falloff where there is falloff, both beyond the ship's radius
       if (firing) {
         circle(firing[0] + base, [1, 0.1, 0.025, 0.66]);
         if (firing[1] > 0) circle(firing[0] + firing[1] + base, [1, 0.1, 0.025, 0.33]);
+        // the optimal and falloff gradients (optimalQuad 2 x optimal, falloffQuad 2 x falloff x 1.1), added
+        const RED = [[1, 0, 0, 0], [1, 0, 0, 0.0784], [1, 0, 0, 0], [0.2, 0.4, 1, 0], [1000, 250, 0.999, 1]] as const;
+        gradientDisc(2 * (firing[0] + base), RED[0], RED[1], RED[2], RED[3], RED[4], true, 0);
+        if (firing[1] > 0) gradientDisc(2 * (firing[0] + firing[1] + base) * 1.1, RED[0], RED[1], RED[2], RED[3], RED[4], true, 0);
       }
       const labels = document.createElement("div");
       labels.className = "tactical-labels";
