@@ -3005,9 +3005,10 @@ export class SpaceView {
       else if (controlled && salvage) out.push({ path: "UI/Drones/Salvage", label: word("UI/Drones/Salvage", "Salvage"), run: order("primary") });
       if (controlled && owned) droneChanges.push({ path: "UI/Drones/ReturnDroneAndOrbit", label: word("UI/Drones/ReturnDroneAndOrbit", "Return and Orbit"), run: order("orbit") });
       if (hasState && owned) droneChanges.push({ path: "UI/Drones/ReturnDroneToBay", label: word("UI/Drones/ReturnDroneToBay", "Return to Drone Bay"), run: order("bay") });
-      // OfferScoopDroneToBay: in space, within minWarpDistance (150 km), and IsScoopableDrone - no drone state (none
-      // controls it: abandoned or left behind)
-      if (!hasState && dist <= 150_000) droneChanges.push({ path: "UI/Drones/ScoopDroneToBay", label: word("UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"), run: order("scoop") });
+      // OfferScoopDroneToBay: in space, within minWarpDistance (150 km), and IsScoopableDrone - no drone state in the
+      // pilot's michelle (GetDroneState holds the pilot's own drones only: another pilot's drone has none, one's own
+      // abandoned or left behind has none; seen on the live client for the page pilot's drone)
+      if (!(owned && hasState) && dist <= 150_000) droneChanges.push({ path: "UI/Drones/ScoopDroneToBay", label: word("UI/Drones/ScoopDroneToBay", "Scoop to Drone Bay"), run: order("scoop") });
       // OfferDroneAssist / OfferDroneGuard: one's own drone under the active ship's control, in a fleet - each a
       // submenu of GetFleetMemberMenu (the members in the ballpark save the pilot, by name; the watchlist's first under
       // Watch List; past 20, by letters; none, No Valid Options)
