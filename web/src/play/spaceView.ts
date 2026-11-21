@@ -186,6 +186,7 @@ export interface SpaceViewOptions {
   recordCameraTask?: (event: CameraTaskEvent) => void;
   overviewPilotID?: number;
   overviewNotice?: (text: string) => void;
+  overviewAsk?: (dialog: string, fallback: string) => Promise<boolean>;
   overviewRelationships?: () => OverviewRelationships | undefined;
   /** The overview's Tag, Corporation, Alliance, Faction and Militia words (see Overview's hooks). */
   overviewAffiliation?: (rows: readonly Entity[], columns: ReadonlySet<string>) => ((e: Entity) => OverviewAffiliation) | null;
@@ -880,6 +881,7 @@ export class SpaceView {
       pilotID: options.overviewPilotID,
       word: (label, args) => this.actions.word?.(label, args) ?? null,
       notice: options.overviewNotice,
+      ask: options.overviewAsk,
       affiliation: (rows, columns) => options.overviewAffiliation?.(rows, columns) ?? null,
       hover: (id) => this.setHovered(id),
       bracketOverride: () => this.bracketOverride,

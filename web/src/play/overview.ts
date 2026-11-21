@@ -64,6 +64,13 @@ function overviewFilterGroups() {
   filterGroupsRead ??= fetch("/client-assets/overviewFilterGroups.json").then((r) => (r.ok ? r.json() : null)).then((j) => (j?.categories ?? null) as FilterCategory[] | null).catch(() => null);
   return filterGroupsRead;
 }
+/** StatesPanel's states (stateSvc.GetStateProps but flagForcedOn), read from the client into overviewStates.json. */
+interface StateProps { flag: number; text: string; hint: string | null; iconIndex: number; iconColor: number[]; flagColor: number[] }
+let statesRead: Promise<StateProps[] | null> | null = null;
+function overviewStates() {
+  statesRead ??= fetch("/client-assets/overviewStates.json").then((r) => (r.ok ? r.json() : null)).then((j) => (j?.states ?? null) as StateProps[] | null).catch(() => null);
+  return statesRead;
+}
 let presetsRead: Promise<OverviewPresets | null> | null = null;
 function overviewPresets() {
   presetsRead ??= fetch("/client-assets/overviewPresets.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
@@ -116,7 +123,7 @@ export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HI
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
   "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
   "UI/Overview/EditCurrentFilter", "UI/Commands/ChangeName", "UI/Overview/DeleteTab", "/Carbon/UI/Controls/ScrollEntries/TypeInNewName",
-  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
+  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
 const DISABLED_TEXT = "Header sorting is disabled";
 
 /**
@@ -144,28 +151,31 @@ function readSort(key: string, fallback: OverviewSort = DEFAULT_SORT): OverviewS
  * preset in this browser (the client keeps its edited copy of the preset in its settings).
  */
 const groupOverrideKey = (presetID: string) => `evejs.ui.overview.preset.${presetID}`;
-function groupOverrides(presetID: string): { add: number[]; remove: number[] } {
+/** The pilot's changes to a preset: groups added and removed, and its exception states where changed (whole lists). */
+interface PresetOverrides { add: number[]; remove: number[]; filtered?: number[]; alwaysShown?: number[] }
+function groupOverrides(presetID: string): PresetOverrides {
   try {
-    const v = JSON.parse(localStorage.getItem(groupOverrideKey(presetID)) ?? "null") as { add?: number[]; remove?: number[] } | null;
-    return { add: v?.add ?? [], remove: v?.remove ?? [] };
+    const v = JSON.parse(localStorage.getItem(groupOverrideKey(presetID)) ?? "null") as Partial<PresetOverrides> | null;
+    return { add: v?.add ?? [], remove: v?.remove ?? [], ...(v?.filtered ? { filtered: v.filtered } : {}), ...(v?.alwaysShown ? { alwaysShown: v.alwaysShown } : {}) };
   } catch {
     return { add: [], remove: [] };
   }
 }
+const hasOverrides = (o: PresetOverrides) => o.add.length > 0 || o.remove.length > 0 || o.filtered !== undefined || o.alwaysShown !== undefined;
 
 function presetMask(data: OverviewPresetData | undefined, presetID?: string): OverviewTab["overview"] {
   if (!data) return null;
   const groups = new Set(data.groups);
-  if (presetID) {
-    const o = groupOverrides(presetID);
+  const o = presetID ? groupOverrides(presetID) : null;
+  if (o) {
     for (const g of o.add) groups.add(g);
     for (const g of o.remove) groups.delete(g);
   }
   return {
     name: data.name,
     groups,
-    filteredStates: data.filteredStates ?? [],
-    alwaysShownStates: data.alwaysShownStates ?? [],
+    filteredStates: o?.filtered ?? data.filteredStates ?? [],
+    alwaysShownStates: o?.alwaysShown ?? data.alwaysShownStates ?? [],
   };
 }
 
@@ -184,6 +194,8 @@ export interface OverviewHooks {
   pilotID?: number;
   word?(label: string, args?: Readonly<Record<string, string | number>>): string | null;
   notice?(text: string): void;
+  /** A client yes / no question by its dialog name; true on Yes. */
+  ask?(dialog: string, fallback: string): Promise<boolean>;
   /** stateSvc's mouseOver: the thing a row is under the pointer (null when none), shared with its bracket in space. */
   hover?(itemID: number | null): void;
   /** The affiliation columns' words for the rows listed, the columns shown asked for where the page has them not yet. */
@@ -461,6 +473,7 @@ export class Overview {
     let current = panel;
     let editing = presetID ?? this.tabSettings[this.tab]?.preset ?? this.presetChoices[0]?.id ?? "";
     let search = "";
+    let sub: "types" | "states" = "types";
     const open = new Set<string>();
     const options = (selected: string | null, showAll: boolean) =>
       (showAll ? `<option value=""${selected === null ? " selected" : ""}>${esc(word("UI/Overview/ShowAllBrackets", "Show All Brackets"))}</option>` : "") +
@@ -490,14 +503,24 @@ export class Overview {
         return `<div class="ov-filt-cat ${tone}${expanded ? " open" : ""}" data-cat="${esc(c.category)}"><span class="ov-filt-caret"></span>${esc(c.category)} ${on} / ${c.groups.length}</div>${groups}`;
       }).join("");
       const changed = groupOverrides(editing);
+      const mask = this.masks.get(editing);
+      const statesList = (this.states ?? []).slice().sort((a, b) => a.text.localeCompare(b.text));
+      const radio = (flag: number, value: string, on: boolean) => `<input type="radio" name="ov-state-${flag}" value="${value}" data-flag="${flag}"${on ? " checked" : ""}>`;
+      const states = statesList.map((st) => {
+        const always = mask?.alwaysShownStates.includes(st.flag) ?? false, filtered = mask?.filteredStates.includes(st.flag) ?? false;
+        return `<div class="ov-state-row" title="${esc(st.hint ?? "")}">${flagMarkup({ flag: st.flag, text: st.text, iconIndex: st.iconIndex, flagColor: st.flagColor, backgroundColor: st.flagColor, flagBlink: false, backgroundBlink: false, iconColor: st.iconColor })}<span>${esc(st.text)}</span>
+          ${radio(st.flag, "alwaysShow", always)}${radio(st.flag, "filterOut", filtered && !always)}${radio(st.flag, "unfiltered", !always && !filtered)}</div>`;
+      }).join("");
+      const eye = (tex: string, color: string, hint: string, own: string) => `<span class="ov-state-eye" title="${esc(word(hint, own))}" style="background:${color};-webkit-mask:url(${clientTexture(tex)}) center/16px no-repeat;mask:url(${clientTexture(tex)}) center/16px no-repeat"></span>`;
+      const statesPane = `<div class="ov-state-head">${eye("res:/ui/texture/icons/generic/visible_default_16.png", "rgba(26,255,26,0.75)", "UI/Overview/FilterStateAlwaysShowLong", "Always show")}${eye("res:/ui/texture/icons/generic/visible_dontshow_16.png", "rgba(255,13,13,0.75)", "UI/Overview/FilterStateFilterOutLong", "Filter out")}${eye("res:/ui/texture/icons/generic/visible_matchstate_16.png", "rgba(51,102,153,0.75)", "UI/Overview/FilterStateNotFilterOutLong", "Do not filter out")}</div><div class="ov-filt-tree ov-state-list">${states}</div>`;
       return `<div class="ov-set-panel ov-filt">
         <div class="ov-filt-title">${esc(word("UI/Overview/FilterToEdit", "Select filter to edit"))}</div>
         <select class="ov-filt-preset">${options(editing, false)}</select>
-        <div class="ov-set-tabs ov-filt-sub"><span class="ov-set-tab active">${esc(word("UI/Overview/TypesShown", "Types Shown"))}</span></div>
-        <div class="ov-filt-bar"><button type="button" class="ov-filt-all">${esc(word("UI/Common/SelectAll", "Select All"))}</button><button type="button" class="ov-filt-none">${esc(word("UI/Common/DeselectAll", "Deselect All"))}</button>
+        <div class="ov-set-tabs ov-filt-sub"><span class="ov-set-tab${sub === "types" ? " active" : ""}" data-sub="types">${esc(word("UI/Overview/TypesShown", "Types Shown"))}</span><span class="ov-set-tab${sub === "states" ? " active" : ""}" data-sub="states">${esc(word("UI/Overview/Exceptions", "Exceptions"))}</span></div>
+        ${sub === "types" ? `<div class="ov-filt-bar"><button type="button" class="ov-filt-all">${esc(word("UI/Common/SelectAll", "Select All"))}</button><button type="button" class="ov-filt-none">${esc(word("UI/Common/DeselectAll", "Deselect All"))}</button>
           <input class="ov-filt-search" placeholder="${esc(word("UI/Common/Search", "Search"))}" value="${esc(search)}" autocomplete="off"></div>
-        <div class="ov-filt-tree">${tree}</div>
-        <div class="ov-add-buttons"><button type="button" class="ov-filt-revert"${changed.add.length || changed.remove.length ? "" : " disabled"}>${esc(word("UI/Common/Buttons/Revert", "Revert"))}</button></div></div>`;
+        <div class="ov-filt-tree">${tree}</div>` : statesPane}
+        <div class="ov-add-buttons"><button type="button" class="ov-filt-revert"${hasOverrides(changed) ? "" : " disabled"}>${esc(word("UI/Common/Buttons/Revert", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "Revert"))}</button></div></div>`;
     };
     const draw = () => {
       const tabs: [typeof current, string][] = [["tabs", word("UI/Overview/Tabs", "Tabs")], ["filters", word("UI/Overview/Filters", "Filters")]];
@@ -525,6 +548,7 @@ export class Overview {
       const t = e.target as HTMLElement;
       if (t.closest(".ov-set-row")) { update(); return; }
       if (t.matches(".ov-filt-preset")) { editing = (t as HTMLSelectElement).value; draw(); return; }
+      if (t.matches(".ov-state-row input")) { this.setPresetState(editing, Number(t.dataset.flag), (t as HTMLInputElement).value as "alwaysShow" | "filterOut" | "unfiltered"); draw(); return; }
       const box = t.closest<HTMLInputElement>(".ov-filt-group input");
       if (box) { this.setPresetGroups(editing, box.dataset.groups!.split(",").map(Number), box.checked); draw(); }
     });
@@ -542,12 +566,19 @@ export class Overview {
       const t = e.target as HTMLElement;
       const tab = t.closest<HTMLElement>("[data-panel]");
       if (tab) { current = tab.dataset.panel as typeof current; draw(); return; }
+      const subTab = t.closest<HTMLElement>("[data-sub]");
+      if (subTab) { sub = subTab.dataset.sub as typeof sub; draw(); return; }
       const cat = t.closest<HTMLElement>(".ov-filt-cat");
       if (cat) { const c = cat.dataset.cat!; if (open.has(c)) open.delete(c); else open.add(c); draw(); return; }
       const all = (this.filterGroups ?? []).flatMap((c) => c.groups.flatMap((g) => g.groupIDs));
       if (t.closest(".ov-filt-all")) { this.setPresetGroups(editing, all, true); draw(); return; }
       if (t.closest(".ov-filt-none")) { this.setPresetGroups(editing, all, false); draw(); return; }
-      if (t.closest(".ov-filt-revert")) { this.revertPreset(editing); draw(); return; }
+      // TabPresetPanel.OnRevertButton: RevertOverviewPresetChanges (YESNO) first
+      if (t.closest(".ov-filt-revert")) {
+        void (this.hooks.ask?.("RevertOverviewPresetChanges", "Are you sure you want to revert the changes to this filter?") ?? Promise.resolve(true))
+          .then((yes) => { if (yes) { this.revertPreset(editing); draw(); } });
+        return;
+      }
       const del = t.closest(".ov-set-delete");
       if (!del || this.tabSettings.length <= 1) return;
       const i = Number(del.closest<HTMLElement>(".ov-set-row")!.dataset.slot);
@@ -556,11 +587,27 @@ export class Overview {
       draw();
     });
     void overviewFilterGroups().then((g) => { this.filterGroups = g; if (current === "filters") draw(); });
+    void overviewStates().then((st) => { this.states = st; if (current === "filters") draw(); });
     draw();
     (this.window.root.parentElement ?? document.body).append(win.root);
   }
 
   private filterGroups: FilterCategory[] | null = null;
+  private states: StateProps[] | null = null;
+
+  /** StatesPanel.OnFilteredStatesChange: the state always shown, filtered out, or neither, on the preset (whole lists kept). */
+  private setPresetState(presetID: string, flag: number, choice: "alwaysShow" | "filterOut" | "unfiltered"): void {
+    const mask = this.masks.get(presetID) as { filteredStates: number[]; alwaysShownStates: number[] } | null | undefined;
+    if (!mask) return;
+    const filtered = mask.filteredStates.filter((f) => f !== flag), always = mask.alwaysShownStates.filter((f) => f !== flag);
+    if (choice === "filterOut") filtered.push(flag);
+    if (choice === "alwaysShow") always.push(flag);
+    mask.filteredStates = filtered;
+    mask.alwaysShownStates = always;
+    const o = groupOverrides(presetID);
+    try { localStorage.setItem(groupOverrideKey(presetID), JSON.stringify({ ...o, filtered, alwaysShown: always })); } catch { /* the change lasts the page */ }
+    this.lastDraw = 0;
+  }
   private presetData: OverviewPresets["presets"] | null = null;
 
   /** overviewPresetSvc.ChangeSettings(PRESET_SETTINGS_GROUPS, groups, isSelect) on a preset, kept as this browser's changes to it. */
@@ -573,7 +620,7 @@ export class Overview {
     for (const g of groupIDs) {
       if (shown) { groups.add(g); add.add(g); remove.delete(g); } else { groups.delete(g); remove.add(g); add.delete(g); }
     }
-    try { localStorage.setItem(groupOverrideKey(presetID), JSON.stringify({ add: [...add], remove: [...remove] })); } catch { /* the change lasts the page */ }
+    try { localStorage.setItem(groupOverrideKey(presetID), JSON.stringify({ ...o, add: [...add], remove: [...remove] })); } catch { /* the change lasts the page */ }
     this.lastDraw = 0;
   }
 
@@ -586,6 +633,9 @@ export class Overview {
     const groups = mask.groups as Set<number>;
     groups.clear();
     for (const g of data.groups) groups.add(g);
+    const m = mask as { filteredStates: readonly number[]; alwaysShownStates: readonly number[] };
+    m.filteredStates = data.filteredStates ?? [];
+    m.alwaysShownStates = data.alwaysShownStates ?? [];
     this.lastDraw = 0;
   }
 
@@ -843,7 +893,7 @@ export class Overview {
     const o = groupOverrides(tab.presetID);
     const add = new Set(o.add), remove = new Set(o.remove);
     if (shown) { add.add(groupID); remove.delete(groupID); } else { remove.add(groupID); add.delete(groupID); }
-    try { localStorage.setItem(groupOverrideKey(tab.presetID), JSON.stringify({ add: [...add], remove: [...remove] })); } catch { /* the change lasts the page */ }
+    try { localStorage.setItem(groupOverrideKey(tab.presetID), JSON.stringify({ ...o, add: [...add], remove: [...remove] })); } catch { /* the change lasts the page */ }
     this.lastDraw = 0;
   }
 

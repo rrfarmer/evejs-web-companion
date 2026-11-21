@@ -263,6 +263,12 @@ button { font: inherit; color: inherit; }
 .ov-filt-caret { display: inline-block; width: 0; height: 0; margin-right: 8px; border: 4px solid transparent; border-left: 5px solid currentColor; vertical-align: 1px; }
 .ov-filt-cat.open .ov-filt-caret { border: 4px solid transparent; border-top: 5px solid currentColor; vertical-align: -2px; }
 .ov-filt-group { display: flex; align-items: center; gap: 8px; height: 24px; padding-left: 28px; }
+/* StatesPanel: the three icons over the columns (64, 34 and 4 from the right), each state's flag, text and radios */
+.ov-state-head { display: flex; justify-content: flex-end; gap: 14px; height: 20px; padding-right: 12px; }
+.ov-state-eye { width: 16px; height: 16px; cursor: help; }
+.ov-state-row { display: grid; grid-template-columns: 14px 1fr 16px 16px 16px; gap: 14px 6px; column-gap: 14px; align-items: center; height: 22px; padding: 0 12px 0 6px; }
+.ov-state-row .state-flag { position: static; }
+.ov-state-row input[type=radio] { margin: 0; accent-color: rgb(88, 167, 191); }
 .ov .ov-table th.sorted button::after { content: ""; position: absolute; right: 3px; top: 3px; width: 16px; height: 16px; opacity: .75;
   background: url(/client-res/ui/texture/eveicon/system_icons/caret_up_16px.png) center / 16px no-repeat; }
 .ov .ov-table th.sorted.down button::after { content: ""; background-image: url(/client-res/ui/texture/eveicon/system_icons/caret_down_16px.png); }

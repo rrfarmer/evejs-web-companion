@@ -1701,6 +1701,7 @@
       transferMetenoxFuel: transferToMetenox,
       wormholePolarization: (id) => s.flow.wormholePolarization(id),
       overviewNotice: (text) => s.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text),
+      overviewAsk: (dialog, fallback) => s.flow.askClientDialog(dialog, fallback),
       overviewRelationships,
       overviewAffiliation,
       // the reloads the server announced (turret.py OnChargeBeingLoadedToModule: the turrets play Reload)
