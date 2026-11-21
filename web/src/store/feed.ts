@@ -835,6 +835,8 @@ export type FeedEvent =
   | {
       readonly type: "targeting/cycle";
       readonly moduleID: number;
+      /** The effect's target (its environment's targetID), null for none. */
+      readonly targetID?: number | null;
       readonly durationMs: number | null;
       readonly running: boolean;
       readonly repeating: boolean;

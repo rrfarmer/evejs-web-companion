@@ -268,6 +268,8 @@ export interface TargetBarEntry {
   /** When locking began on the view's simulation clock. */
   lockStartedAt?: number | null;
   mining?: MiningTargetReading;
+  /** TargetInBar.activeModules: the modules running on it, each shown by its icon in the assigned box. */
+  weapons?: readonly { itemID: number; typeID: number }[];
 }
 
 export interface MiningTargetReading extends MiningSurveyProgress {
@@ -316,6 +318,9 @@ class TargetInBar {
   private miningGauge: {
     root: HTMLDivElement; fill: HTMLSpanElement; effects: HTMLSpanElement; number: HTMLDivElement;
   } | undefined;
+  private readonly assigned: HTMLDivElement;
+  private weaponsKey = "";
+  private assignedHeight = ASSIGNED_HEIGHT;
   private name: string | null = null;
   private typeName: string | null = null;
   private typeID: number | null = null;
@@ -365,6 +370,19 @@ class TargetInBar {
       const l = div(this.labelBox, 0, 0, MAX_TARGET_WIDTH, LINE_HEIGHT, "tb-label");
       this.labels.push(l);
     }
+    // assignedPar / assigned: the Weapon icons (weaponIcons.Weapon), laid out by ArrangeWeapons
+    this.assigned = div(this.root, 0, BAR_HEIGHT, MAX_TARGET_WIDTH, ASSIGNED_HEIGHT, "tb-assigned");
+    this.assigned.addEventListener("click", (e) => {
+      const w = (e.target as HTMLElement).closest<HTMLElement>("[data-module]");
+      if (w) { e.stopPropagation(); this.owner.onWeaponClick?.(Number(w.dataset.module)); }
+    });
+    this.assigned.addEventListener("mouseover", (e) => {
+      const w = (e.target as HTMLElement).closest<HTMLElement>("[data-module]");
+      if (w) this.owner.onWeaponHover?.(Number(w.dataset.module));
+    });
+    this.assigned.addEventListener("mouseout", (e) => {
+      if ((e.target as HTMLElement).closest("[data-module]") && !(e.relatedTarget as HTMLElement | null)?.closest?.("[data-module]")) this.owner.onWeaponHover?.(null);
+    });
     this.bar.addEventListener("click", (e) => { e.stopPropagation(); this.owner.onSelect(this.itemID); });
     this.bar.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); this.owner.openMenu(this.itemID, e.clientX, e.clientY); });
   }
@@ -402,8 +420,41 @@ class TargetInBar {
     }
     this.stepHealth(now);
     this.updateMining(e.mining);
+    if (this.arrangeWeapons(e.weapons ?? [])) resized = this.setLabels() || true;
     return resized;
   }
+
+  /**
+   * TargetInBar.ArrangeWeapons: 32 px icons, 24 px from three on, four to a row; the box at least 32 high. Returns true
+   * when its height changed.
+   */
+  private arrangeWeapons(weapons: readonly { itemID: number; typeID: number }[]): boolean {
+    const key = weapons.map((w) => `${w.itemID}:${w.typeID}`).join(",");
+    if (key === this.weaponsKey) return false;
+    this.weaponsKey = key;
+    const size = weapons.length > 2 ? 24 : 32;
+    this.assigned.replaceChildren(...weapons.map((w, i) => {
+      const img = document.createElement("img");
+      img.className = "tb-weapon";
+      img.dataset.module = String(w.itemID);
+      img.src = typeIcon(w.typeID);
+      img.alt = "";
+      Object.assign(img.style, { position: "absolute", left: `${(i % 4) * size}px`, top: `${Math.floor(i / 4) * size}px`, width: `${size}px`, height: `${size}px`, cursor: "pointer" });
+      return img;
+    }));
+    const rows = Math.max(1, Math.ceil(weapons.length / 4));
+    const width = weapons.length > 4 ? 4 * size : size * weapons.length;
+    this.assigned.style.width = `${width}px`;
+    this.assigned.style.left = `${mid(MAX_TARGET_WIDTH, width)}px`;
+    const height = Math.max(32, size * rows);
+    const changed = height !== this.assignedHeight;
+    this.assignedHeight = height;
+    this.assigned.style.height = `${height}px`;
+    return changed;
+  }
+
+  /** The weapon icon of a module (TargetInBar.GetWeapon), for its hairline. */
+  weaponElement(moduleID: number): HTMLElement | null { return this.assigned.querySelector<HTMLElement>(`[data-module="${moduleID}"]`); }
 
   private updateMining(reading: MiningTargetReading | undefined): void {
     const previous = this.miningReading;
@@ -505,7 +556,8 @@ class TargetInBar {
       top += LINE_HEIGHT;
     }
     this.labelBox.style.height = `${top}px`;
-    const height = BAR_HEIGHT + top + ASSIGNED_HEIGHT;
+    this.assigned.style.top = `${BAR_HEIGHT + top}px`;
+    const height = BAR_HEIGHT + top + this.assignedHeight;
     const changed = height !== this.height;
     this.height = height;
     return changed;
@@ -667,6 +719,11 @@ export interface TargetBarAnchor { left: number; top: number; width: number }
 export class TargetBar {
   readonly root = document.createElement("div");
   onSelect: (itemID: number) => void = () => {};
+  /** Weapon.ClickWeapon (the module clicked) and OnMouseEnterWeapon / Exit (its hairline the other way). */
+  onWeaponClick: ((moduleID: number) => void) | null = null;
+  onWeaponHover: ((moduleID: number | null) => void) | null = null;
+  /** The weapon icon of a module under any target. */
+  weaponElement(moduleID: number): HTMLElement | null { for (const t of this.targets.values()) { const el = t.weaponElement(moduleID); if (el) return el; } return null; }
   onUnlock: (itemID: number) => void = () => {};
   gaugeColor: HTMLImageElement | null = null;
 

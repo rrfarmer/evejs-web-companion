@@ -63,6 +63,8 @@ export interface HudModule {
   online: boolean;
   active: boolean;
   waitingForTarget?: boolean;
+  /** What its running effect is on (TargetInBar.AddWeapon puts its icon under that target), null for none. */
+  targetID?: number | null;
   /** The type's icon (64 px). */
   icon: string;
   /** How far through its cycle a running module is, 0..1; null when not cycling or not known. */

@@ -888,6 +888,8 @@ export class SpaceView {
     this.selectedEl = this.selectedWin.root;
     this.root.insertBefore(this.targetBar.root, this.modeEl);
     this.targetBar.onSelect = (id) => this.select(id);
+    // Weapon.ClickWeapon: the module clicked, as its slot would be (switched off)
+    this.targetBar.onWeaponClick = (moduleID) => { const m = this.options.rack?.modules().find((each) => each.itemID === moduleID); if (m) void this.useRackModule(m); };
     this.targetBar.onUnlock = (id) => void this.act("Unlock Target", () => this.actions.unlock(id)).then(() => this.refreshTargets());
     this.selectedEl.classList.add("space-only-window");
     this.layer.appendChild(this.selectedEl);
@@ -3446,6 +3448,7 @@ export class SpaceView {
     if (this.activeTarget !== null && !this.locked.has(this.activeTarget)) this.activeTarget = null;
     const entries: TargetBarEntry[] = [];
     const survey = this.locked.size ? this.options.miningSurvey?.() : undefined;
+    const rackModules = this.locked.size ? this.options.rack?.modules() ?? [] : [];
     for (const id of this.locked) {
       const e = byID.get(id) as (Entity & { shieldRatio?: number | null; armorRatio?: number | null; hullRatio?: number | null }) | undefined;
       if (!e) continue;
@@ -3459,6 +3462,7 @@ export class SpaceView {
         itemID: id, typeID: e.typeID, name: this.targetLabelOf(e), distance: this.distanceTo(e),
         shieldRatio: e.shieldRatio ?? null, armorRatio: e.armorRatio ?? null, hullRatio: e.hullRatio ?? null,
         locking: false, active: id === this.activeTarget, mining,
+        weapons: rackModules.filter((m) => m.active && m.targetID === id).map((m) => ({ itemID: m.itemID, typeID: m.typeID })),
       });
     }
     const pending = this.lockingIDs.size ? new Map([...this.acquiringTargets, ...this.lockingIDs]) : this.acquiringTargets;

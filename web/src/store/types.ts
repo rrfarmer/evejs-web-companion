@@ -2522,6 +2522,8 @@ export interface DamageEvent {
 export interface ModuleCycle {
   /** One cycle's length in milliseconds. */
   readonly durationMs: number;
+  /** What the running effect is on (OnGodmaShipEffect's environment targetID); null when none or not running. */
+  readonly targetID?: number | null;
   /** "server" = the effective duration; "base" = attribute 73 off the type. */
   readonly source: "server" | "base";
   /**

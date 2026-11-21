@@ -2420,6 +2420,7 @@ export function createClientStore(): ClientStore {
                   : (existing?.source ?? "base"),
               startedAtMs: event.running ? event.observedAtMs : null,
               repeating: event.running ? event.repeating : false,
+              targetID: event.running ? event.targetID ?? null : null,
             },
           },
         });

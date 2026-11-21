@@ -8326,9 +8326,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const durationMs = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
     const running = Number(args[3]) === 1;
     const repeat = args[8];
+    // [5] environment: (itemID, charID, shipID, targetID, otherID, area, effectID) - targetID its fourth
+    const env = args[5] as unknown;
+    const envItems = Array.isArray(env) ? env : (env as { items?: unknown[] } | null)?.items;
+    const envTarget = Number(envItems?.[3]);
     store.apply({
       type: "targeting/cycle",
       moduleID,
+      targetID: Number.isFinite(envTarget) && envTarget > 0 ? envTarget : null,
       durationMs,
       running,
       repeating: repeat === true || Number(repeat) > 0,
