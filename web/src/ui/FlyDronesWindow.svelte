@@ -594,7 +594,7 @@
     onok={(name) => { const req = naming; naming = null; if (req) createSubGroup(req.droneGroupID, req.ids, name.trim()); }} oncancel={() => (naming = null)} />
 {/if}
 
-<div class="fly-drones">
+<div class="fly-drones" class:compact={$windowCompact}>
   {#if warpWarningShown}
     <div class="warp-warning" role="alert">
       <span class="ww-whiteout"></span>
@@ -748,6 +748,13 @@
   /* DronesWindow: the bay's part (topScroll) takes the room, the space part (bottomCont) at the foot while the bay is open */
   .fly-drones { position: relative; font-size: 13px; color: #fff; user-select: none; display: flex; flex-direction: column; min-height: 100%; }
   .group.bay { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  /* compact (UpdateHeaderPadding, _get_header_fixed_height): the header 40 high with the content extended into it -
+     the bay's header in the title row, short of the header's buttons on the right (reserved_space_right); the rest of
+     the header still drags the window */
+  :global(.win:has(.fly-drones.compact) > .win-bar) { height: 40px; box-sizing: border-box; align-items: flex-start; padding-top: 4px; }
+  :global(.win:has(.fly-drones.compact) > .win-body) { margin-top: -36px; pointer-events: none; }
+  .fly-drones.compact > * { pointer-events: auto; }
+  .fly-drones.compact .group.bay > .sec { margin-right: 96px; }
   .group.bay.closed { flex: none; }
   /* BaseDroneGroupHeader: a bar with the expander and the label; its buttons hidden until the mouse is over it */
   .sec { display: flex; align-items: center; justify-content: space-between; height: 24px; margin: 4px 0 2px; padding: 0 4px 0 6px; background: rgba(255, 255, 255, 0.06); cursor: default; }
