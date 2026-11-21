@@ -177,8 +177,17 @@ const scanProbeLauncher: InfoRow = (f, word, out) => {
 // AddAttributeInfoWithAttributeName with ValuePercentageWithAttributeName ("-30% Signature Radius"): the attribute's icon,
 // skipped at 0 where the client skips it
 const VALUE_PERCENT = "UI/Inflight/ModuleRacks/Tooltips/ValuePercentageWithAttributeName";
+// GetEffectiveAttributeValue: an attribute in unitInverseAbsolutePercent (108) or unitInversedModifierPercent (111) as
+// (1 - v) * 100, in unitModifierPercent (109) as -(1 - v) * 100 (dogma_data.get_attribute_unit_id, read through gridcheck)
+const INVERSE_PERCENT = new Set([267, 268, 269, 270, 271, 272, 273, 274, 974, 975, 976, 977, 3113]);
+const MODIFIER_PERCENT = new Set([306]);
+const effective = (f: ModuleTooltipFacts, attributeID: number): number | null => {
+  const v = f.attr(attributeID);
+  if (v === null) return null;
+  return INVERSE_PERCENT.has(attributeID) ? (1 - v) * 100 : MODIFIER_PERCENT.has(attributeID) ? -(1 - v) * 100 : v;
+};
 const withName = (attributeID: number, skipZero = false): InfoRow => (f, word, out) => {
-  const value = f.attr(attributeID) ?? 0;
+  const value = effective(f, attributeID) ?? 0;
   if (skipZero && value === 0) return;
   const text = word(VALUE_PERCENT, { activeValue: value, activeName: f.attributeName(attributeID) ?? "" });
   if (text !== null) out.push({ icon: f.attributeIcon(attributeID), iconSize: 24, text });
@@ -205,6 +214,38 @@ const sensorDamper: InfoRow = rowsOf(withName(566, true), withName(309, true), e
 // AddTrackingDisruptorInfo: falloff, optimal, tracking, missile velocity, flight time, explosion velocity and radius, each not 0
 const trackingDisruptor: InfoRow = rowsOf(...[349, 351, 767, 547, 596, 847, 848].map((id) => withName(id, true)));
 
+// AddRowAndHeaderForManyAttributes: the header (24 high, its label at the foot), then the values' row - each attribute's icon
+// and ResistanceActiveBonusValues ("-25.0%"), the row's own icon (texturePath) at its left
+const RES_TIPS = "UI/Inflight/ModuleRacks/Tooltips/";
+const headerAndValues = (f: ModuleTooltipFacts, word: TooltipWord, out: ModuleTooltipRow[], values: readonly (readonly [number, number])[], headerLabel: string, icon: string | null): void => {
+  const header = word(RES_TIPS + headerLabel, {});
+  out.push({ icon: null, iconSize: 24, text: header ?? "", header: true });
+  out.push({ icon, iconSize: 24, text: "", values: values.map(([id, v]) => ({ icon: f.attributeIcon(id), text: word(RES_TIPS + "ResistanceActiveBonusValues", { activeValue: v }) ?? "" })) });
+};
+const valuesOf = (f: ModuleTooltipFacts, ids: readonly number[], includeZeros: boolean): (readonly [number, number])[] =>
+  ids.flatMap((id) => { const v = effective(f, id) ?? 0; return !v && !includeZeros ? [] : [[id, v] as const]; });
+// AddArmorHardenerInfo (hardeners, coatings, shield hardeners and amplifiers, energized platings): the resistance bonuses
+// (EM 984, thermal 987, kinetic 986, explosive 985) not 0 - one by ResistanceActiveBonusText with its icon, several under
+// ResistanceActiveBonusesHeader
+const hardener: InfoRow = (f, word, out) => {
+  const values = valuesOf(f, [984, 987, 986, 985], false);
+  if (values.length === 1) {
+    const [id, v] = values[0]!;
+    const text = word(RES_TIPS + "ResistanceActiveBonusText", { activeName: f.attributeName(id) ?? "", activeValue: v });
+    if (text !== null) out.push({ icon: f.attributeIcon(id), iconSize: 24, text });
+  } else if (values.length) headerAndValues(f, word, out, values, "ResistanceActiveBonusesHeader", null);
+};
+// AddDamageControlInfo: shield (1_64_13), armor (1_64_9) and hull (2_64_12) resonances, zeros too, each under its header
+const damageControl: InfoRow = (f, word, out) => {
+  for (const [ids, icon, header] of [
+    [[271, 274, 273, 272], "/client-res/ui/texture/icons/1_64_13.png", "ShieldDamageResistanceHeader"],
+    [[267, 270, 269, 268], "/client-res/ui/texture/icons/1_64_9.png", "ArmorDamageResistanceHeader"],
+    [[974, 977, 976, 975], "/client-res/ui/texture/icons/2_64_12.png", "HullDamageResistanceHeader"],
+  ] as const) headerAndValues(f, word, out, valuesOf(f, ids, true), header, icon);
+};
+// AddArmorResistanceShiftHardenerInfo: the armor resonances under ArmorDamageResistanceHeader, no row icon
+const reactiveHardener: InfoRow = (f, word, out) => headerAndValues(f, word, out, valuesOf(f, [267, 270, 269, 268], true), "ArmorDamageResistanceHeader", null);
+
 /** infoFunctionNames: a group's own rows. */
 const INFO_BY_GROUP = new Map<number, InfoRow>();
 for (const g of [54, 464, 483, 737, 4138]) INFO_BY_GROUP.set(g, miningLaser);
@@ -218,6 +259,9 @@ INFO_BY_GROUP.set(291, trackingDisruptor);
 for (const g of [208, 290, 212]) INFO_BY_GROUP.set(g, sensorDamper);
 for (const g of [202, 289]) INFO_BY_GROUP.set(g, eccm);
 for (const g of [80, 201]) INFO_BY_GROUP.set(g, ecm);
+for (const g of [328, 98, 77, 295, 326]) INFO_BY_GROUP.set(g, hardener);
+INFO_BY_GROUP.set(60, damageControl);
+INFO_BY_GROUP.set(1150, reactiveHardener);
 INFO_BY_GROUP.set(650, tractorBeam);
 INFO_BY_GROUP.set(316, gangCoordinator);
 for (const g of [62, 1199, 1698, 2018]) {
@@ -423,7 +467,7 @@ export const MODULE_TOOLTIP_LABELS: readonly string[] = [
   "UI/Inflight/ModuleRacks/TypeNameWithNumInGroup", "UI/Inflight/ModuleRacks/ModuleDamaged", "UI/Inflight/ModuleRacks/AmmoNameWithQty",
   "UI/Inflight/ModuleRacks/MaxRange", "UI/Inflight/ModuleRacks/OptimalRangeAndFalloff", "UI/Inflight/ModuleRacks/OptimalRange",
   "UI/Inflight/ModuleRacks/AreaOfEffect", "UI/Inflight/ModuleRacks/RangeWithFalloff", "UI/Inflight/ModuleRacks/Range",
-  "UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", "UI/Inflight/ModuleRacks/Tooltips/CompressorModuleInfo", "UI/Inflight/ModuleRacks/Tooltips/ScanProbeSensorStrength", "UI/Inflight/ModuleRacks/Tooltips/TractorBeamTractorVelocity", "UI/Inflight/ModuleRacks/Tooltips/ValuePercentageWithAttributeName", "UI/Inflight/ModuleRacks/Tooltips/ECMStrengthBonus", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorCommandBonus", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorMaxCommandRelays", "UI/Inflight/ModuleRacks/Tooltips/ArmorRepairedPerTime",
+  "UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", "UI/Inflight/ModuleRacks/Tooltips/CompressorModuleInfo", "UI/Inflight/ModuleRacks/Tooltips/ScanProbeSensorStrength", "UI/Inflight/ModuleRacks/Tooltips/TractorBeamTractorVelocity", "UI/Inflight/ModuleRacks/Tooltips/ValuePercentageWithAttributeName", "UI/Inflight/ModuleRacks/Tooltips/ECMStrengthBonus", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusText", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusValues", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusesHeader", "UI/Inflight/ModuleRacks/Tooltips/ShieldDamageResistanceHeader", "UI/Inflight/ModuleRacks/Tooltips/ArmorDamageResistanceHeader", "UI/Inflight/ModuleRacks/Tooltips/HullDamageResistanceHeader", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorCommandBonus", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorMaxCommandRelays", "UI/Inflight/ModuleRacks/Tooltips/ArmorRepairedPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/HullRepairedPerTime", "UI/Inflight/ModuleRacks/Tooltips/ShieldBonusPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/MaxVelocityWithAndWithoutPropulsion", "UI/Inflight/ModuleRacks/Tooltips/CapacitorBoostPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/EnergyVampireAmountPerTime", "UI/Inflight/ModuleRacks/Tooltips/EnergDestabilizedPerTime",
