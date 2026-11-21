@@ -251,6 +251,9 @@ button { font: inherit; color: inherit; }
 .ov-color-panel { position: fixed; z-index: 100002; padding: 8px; background: rgba(6, 10, 12, 0.95); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1); font-size: 12px; color: rgba(255, 255, 255, 0.75); }
 .ov-color-title { margin-bottom: 6px; }
 .ov-color-grid { display: grid; grid-template-columns: repeat(8, 16px); gap: 4px; }
+/* FlagEntry's colorPicker: 25 x 20 at the right, the flag (or the 9 x 9 fill) at its left, the arrow at 0.5 */
+.ov-app-color { position: relative; display: inline-flex; align-items: center; width: 25px; height: 20px; margin-left: auto; cursor: pointer; flex: none; }
+.ov-app-color > img { position: absolute; right: 0; top: 2px; width: 16px; height: 16px; opacity: .5; pointer-events: none; }
 .ov-color-grid > span { width: 16px; height: 16px; cursor: pointer; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15); }
 .ov-color-grid > span.sel { box-shadow: 0 0 0 2px rgb(180, 180, 180); }
 .ov-color-grid > img { width: 16px; height: 16px; cursor: pointer; opacity: .75; }
@@ -288,7 +291,7 @@ button { font: inherit; color: inherit; }
 .ov-app-check { display: flex; align-items: center; gap: 8px; height: 24px; }
 .ov-app-check input, .ov-app-row input { accent-color: rgb(88, 167, 191); margin: 0; }
 .ov-app-note { margin: 12px 0 4px; }
-.ov-app-row { display: grid; grid-template-columns: 16px 1fr 14px; gap: 6px; align-items: center; height: 22px; padding: 0 14px 0 6px; cursor: grab; }
+.ov-app-row { display: grid; grid-template-columns: 16px 1fr 25px; gap: 6px; align-items: center; height: 22px; padding: 0 14px 0 6px; cursor: grab; }
 .ov-app-row .state-flag { position: static; }
 .ov-app-bg { width: 9px; height: 9px; }
 /* ShipsPanel */

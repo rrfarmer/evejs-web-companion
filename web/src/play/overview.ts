@@ -35,6 +35,34 @@ const TAB_COLORS: readonly number[][] = Array.from({ length: 24 }, (_, i) => {
   return [r + m, g + m, b + m].map((n) => Math.round(n * 1000) / 1000);
 });
 const rgbCss = (c: readonly number[]) => `rgb(${c.slice(0, 3).map((n) => Math.round(n * 255)).join(",")})`;
+/** stateSvc.GetStateColors' values in the order the 3698585 client's dict gives them (read live through gridcheck). */
+const STATE_COLORS: readonly number[][] = [[0, 0.34, 0.33, 1], [0.3, 0, 0.5, 1], [0, 0.15, 0.6, 1], [0, 0.63, 0.57, 1], [1, 0.7, 0, 1], [0.2, 0.5, 1, 1],
+  [0.6, 0.15, 0.9, 1], [0.1, 0.6, 0.1, 1], [1, 0.35, 0, 1], [0, 0, 0, 1], [0.7, 0.7, 0.7, 1], [0.75, 0, 0, 1]];
+/**
+ * A ColorPanel in its tooltip beside the picker: "Select Color", the colours (16 px, 4 apart, the chosen one framed),
+ * the clear button where it has one. Picking (or clearing) calls back and closes it; a click elsewhere closes it.
+ */
+function openColorPanel(anchor: HTMLElement, word: (label: string, own: string) => string, colors: readonly (readonly number[])[], columns: number, current: readonly number[] | null, clear: boolean,
+  picked: (color: readonly number[] | null) => void): void {
+  const r = anchor.getBoundingClientRect();
+  document.querySelector(".ov-color-panel")?.remove();
+  const panel = document.createElement("div");
+  panel.className = "ov-color-panel";
+  panel.innerHTML = `<div class="ov-color-title">${esc(word("UI/Mail/Select Color", "Select Color"))}</div><div class="ov-color-grid" style="grid-template-columns:repeat(${columns},16px)">${colors.map((c, k) =>
+    `<span data-color="${k}" class="${current && current.every((v, j) => Math.abs(v - (c[j] ?? 1)) < 0.01) ? "sel" : ""}" style="background:${rgbCss(c)}"></span>`).join("")}${clear
+    ? `<img data-clear src="${clientTexture("res:/UI/Texture/eveicon/system_icons/close_16px.png")}" title="${esc(word("UI/SystemMenu/ResetSettings/Clear", "Clear"))}" alt="">` : ""}</div>`;
+  Object.assign(panel.style, { left: `${Math.round(r.right + 4)}px`, top: `${Math.round(r.top - 8)}px` });
+  document.body.append(panel);
+  const done = () => { panel.remove(); removeEventListener("mousedown", close, true); };
+  const close = (e: MouseEvent) => { if (!panel.contains(e.target as Node)) done(); };
+  addEventListener("mousedown", close, true);
+  panel.addEventListener("click", (e) => {
+    const cell = (e.target as HTMLElement).closest<HTMLElement>("[data-color], [data-clear]");
+    if (!cell) return;
+    done();
+    picked(cell.hasAttribute("data-clear") ? null : colors[Number(cell.dataset.color)]!);
+  });
+}
 /** The pilot's tabs once changed (added, renamed, filtered, deleted): the whole list, kept per pilot in this browser. */
 const TABS_KEY = "evejs-play-overview-tabSettings";
 /** categories.CATEGORY_ICONS (eveicon star, warp_to, target, user_plus, mining at 16). */
@@ -90,7 +118,9 @@ function overviewStateOrders() {
 }
 /** The pilot's Appearance settings (the client's settings.user.overview), kept in this browser. */
 interface AppearanceSettings { smallTags: boolean; smallFont: boolean; applyStructures: boolean; applyOther: boolean;
-  flag?: { flag: number; on: boolean }[]; background?: { flag: number; on: boolean }[] }
+  flag?: { flag: number; on: boolean }[]; background?: { flag: number; on: boolean }[];
+  /** stateSvc's SETTING_STATE_COLORS / SETTING_STATE_BLINKS: "where:flag" to the colour / blink set */
+  colors?: Record<string, number[]>; blinks?: Record<string, boolean> }
 const APPEARANCE_KEY = "evejs.ui.overview.appearance";
 function readAppearance(): AppearanceSettings {
   const base: AppearanceSettings = { smallTags: false, smallFont: false, applyStructures: true, applyOther: false };
@@ -148,7 +178,7 @@ export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HI
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
   "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
   "UI/Overview/EditCurrentFilter", "UI/Commands/ChangeName", "UI/Overview/DeleteTab", "/Carbon/UI/Controls/ScrollEntries/TypeInNewName",
-  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Mail/Select Color", "UI/SystemMenu/ResetSettings/Clear", "UI/Common/Buttons/Save", "UI/Common/Buttons/SaveAs", "UI/Common/Delete", "UI/Overview/FilterName", "UI/Overview/CustomFilters", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
+  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Overview/ToggleBlink", "UI/Mail/Select Color", "UI/SystemMenu/ResetSettings/Clear", "UI/Common/Buttons/Save", "UI/Common/Buttons/SaveAs", "UI/Common/Delete", "UI/Overview/FilterName", "UI/Overview/CustomFilters", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/DisplayModuleLinks", "UI/Overview/DisplayDamageIndications", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
 const DISABLED_TEXT = "Header sorting is disabled";
 
 /**
@@ -575,13 +605,13 @@ export class Overview {
       const rows = this.appearanceList(appearanceSub).map((e) => {
         const st = props.get(e.flag);
         if (!st) return "";
-        const color = colors.get(e.flag) ?? st.flagColor;
+        const color = this.appearance.colors?.[`${appearanceSub}:${e.flag}`] ?? colors.get(e.flag) ?? st.flagColor;
         // FlagEntry: the Colortag list its FlagIconWithState, the Background list a 9 x 9 Fill of the colour; either blinking as set
-        const blink = this.stateOrders?.[appearanceSub].find((x) => x.flag === e.flag)?.blink ?? false;
+        const blink = this.appearance.blinks?.[`${appearanceSub}:${e.flag}`] ?? this.stateOrders?.[appearanceSub].find((x) => x.flag === e.flag)?.blink ?? false;
         const preview = appearanceSub === "flag"
           ? flagMarkup({ flag: e.flag, text: st.text, iconIndex: st.iconIndex, flagColor: color, backgroundColor: color, flagBlink: blink, backgroundBlink: false, iconColor: st.iconColor })
           : `<span class="ov-app-bg${blink ? " blink" : ""}" style="background:rgba(${color.map((c, i) => (i < 3 ? Math.round(c * 255) : c)).join(",")})"></span>`;
-        return `<div class="ov-app-row" draggable="true" data-flag="${e.flag}" title="${esc(word("UI/Overview/HintToggleDisplayState", ""))}"><input type="checkbox" data-flag="${e.flag}"${e.on ? " checked" : ""}><span>${esc(st.text)}</span>${preview}</div>`;
+        return `<div class="ov-app-row" draggable="true" data-flag="${e.flag}" title="${esc(word("UI/Overview/HintToggleDisplayState", ""))}"><input type="checkbox" data-flag="${e.flag}"${e.on ? " checked" : ""}><span>${esc(st.text)}</span><span class="ov-app-color">${preview}<img src="${clientTexture("res:/ui/texture/icons/38_16_229.png")}" alt=""></span></div>`;
       }).join("");
       return `<div class="ov-set-panel ov-app">${check("smallTags", "UI/Overview/UseSmallColortags", "Use small colortags")}${check("smallFont", "UI/Overview/UseSmallFont", "Use small font")}
         <p class="ov-app-note">${esc(word("UI/Overview/ApplyToShipsAndDronesByDefault", "The Colortag and Background settings apply to ships and drones by default"))}</p>
@@ -692,6 +722,19 @@ export class Overview {
       again.setSelectionRange(search.length, search.length);
     });
     win.body.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.target as HTMLElement).matches(".ov-set-name")) update(); });
+    // FlagEntry.GetMenu: Toggle Blink (stateSvc.SetStateBlink(where, flag, not current))
+    win.body.addEventListener("contextmenu", (e) => {
+      const row = (e.target as HTMLElement).closest<HTMLElement>(".ov-app-row");
+      if (!row) return;
+      e.preventDefault();
+      const flag = Number(row.dataset.flag), where = appearanceSub, key = `${where}:${flag}`;
+      const current = this.appearance.blinks?.[key] ?? this.stateOrders?.[where].find((x) => x.flag === flag)?.blink ?? false;
+      this.menu.open(e.clientX, e.clientY, [{ label: word("UI/Overview/ToggleBlink", "Toggle Blink"), run: () => {
+        this.appearance = { ...this.appearance, blinks: { ...this.appearance.blinks, [key]: !current } };
+        this.applyAppearance();
+        draw();
+      } }]);
+    });
     // AppearancePanel.Move: a state dragged onto another goes before it (ShipsPanel.MoveShipLabel the same for the labels)
     let draggedFlag: number | null = null;
     let draggedLabel: number | null = null;
@@ -749,7 +792,7 @@ export class Overview {
       const appSub = t.closest<HTMLElement>("[data-appsub]");
       if (appSub) { appearanceSub = appSub.dataset.appsub as typeof appearanceSub; draw(); return; }
       // AppearancePanel.ResetStateSettings: the lists' orders and switches back to the client's defaults
-      if (t.closest(".ov-app-reset")) { const { flag: _f, background: _b, ...rest } = this.appearance; this.appearance = rest; this.applyAppearance(); draw(); return; }
+      if (t.closest(".ov-app-reset")) { const { flag: _f, background: _b, colors: _c, blinks: _k, ...rest } = this.appearance; this.appearance = rest; this.applyAppearance(); draw(); return; }
       const subTab = t.closest<HTMLElement>("[data-sub]");
       if (subTab) { sub = subTab.dataset.sub as typeof sub; draw(); return; }
       const cat = t.closest<HTMLElement>(".ov-filt-cat");
@@ -771,25 +814,21 @@ export class Overview {
       const swatch = t.closest<HTMLElement>(".ov-set-color");
       if (swatch && !swatch.hasAttribute("data-empty")) {
         const i = Number(swatch.closest<HTMLElement>(".ov-set-row")!.dataset.slot);
-        const r = swatch.getBoundingClientRect();
-        document.querySelector(".ov-color-panel")?.remove();
-        const panel = document.createElement("div");
-        panel.className = "ov-color-panel";
-        const current = this.tabSettings[i]?.color ?? null;
-        panel.innerHTML = `<div class="ov-color-title">${esc(word("UI/Mail/Select Color", "Select Color"))}</div><div class="ov-color-grid">${TAB_COLORS.map((c, k) =>
-          `<span data-color="${k}" class="${current && current.every((v, j) => Math.abs(v - c[j]!) < 0.01) ? "sel" : ""}" style="background:${rgbCss(c)}"></span>`).join("")}<img data-clear src="${clientTexture("res:/UI/Texture/eveicon/system_icons/close_16px.png")}" title="${esc(word("UI/SystemMenu/ResetSettings/Clear", "Clear"))}" alt=""></div>`;
-        Object.assign(panel.style, { left: `${Math.round(r.right + 4)}px`, top: `${Math.round(r.top - 8)}px` });
-        document.body.append(panel);
-        const close = (e: MouseEvent) => { if (!panel.contains(e.target as Node)) { panel.remove(); removeEventListener("mousedown", close, true); } };
-        addEventListener("mousedown", close, true);
-        panel.addEventListener("click", (e) => {
-          const cell = (e.target as HTMLElement).closest<HTMLElement>("[data-color], [data-clear]");
-          if (!cell) return;
-          const color = cell.hasAttribute("data-clear") ? null : TAB_COLORS[Number(cell.dataset.color)]!;
-          this.tabSettings[i] = { ...this.tabSettings[i]!, color };
+        openColorPanel(swatch, word, TAB_COLORS, 8, this.tabSettings[i]?.color ?? null, true, (color) => {
+          this.tabSettings[i] = { ...this.tabSettings[i]!, color: color ? [...color] : null };
           this.tabsChanged(this.tab);
-          panel.remove();
-          removeEventListener("mousedown", close, true);
+          draw();
+        });
+        return;
+      }
+      // FlagEntry's colour picker: the state colours (ColorPanel, no clear); stateSvc.SetStateColor(where, flag, color)
+      const stateSwatch = t.closest<HTMLElement>(".ov-app-color");
+      if (stateSwatch) {
+        const flag = Number(stateSwatch.closest<HTMLElement>(".ov-app-row")!.dataset.flag);
+        const where = appearanceSub;
+        openColorPanel(stateSwatch, word, STATE_COLORS, 5, this.stateColor(where, flag), false, (color) => {
+          this.appearance = { ...this.appearance, colors: { ...this.appearance.colors, [`${where}:${flag}`]: [...color!] } };
+          this.applyAppearance();
           draw();
         });
         return;
@@ -921,6 +960,10 @@ export class Overview {
   private stateOrders: StateOrders | null = null;
 
   /** The two lists as the pilot has them: their own order and switches, the client's defaults otherwise. */
+  /** stateSvc.GetStateColor(flag, where): the one set, else the default. */
+  private stateColor(where: "flag" | "background", flag: number): readonly number[] | null {
+    return this.appearance.colors?.[`${where}:${flag}`] ?? this.stateOrders?.[where].find((x) => x.flag === flag)?.color ?? null;
+  }
   private appearanceList(where: "flag" | "background"): { flag: number; on: boolean }[] {
     return this.appearance[where] ?? (this.stateOrders?.[where] ?? []).map((e) => ({ flag: e.flag, on: e.on }));
   }
@@ -930,7 +973,8 @@ export class Overview {
     if (save) { try { localStorage.setItem(APPEARANCE_KEY, JSON.stringify(this.appearance)); } catch { /* the settings last the page */ } }
     if (this.stateOrders) {
       setStateAppearance({ flag: this.appearanceList("flag").filter((e) => e.on).map((e) => e.flag), background: this.appearanceList("background").filter((e) => e.on).map((e) => e.flag),
-        applyStructures: this.appearance.applyStructures, applyOther: this.appearance.applyOther, otherGroups: this.stateOrders.filterGroups });
+        applyStructures: this.appearance.applyStructures, applyOther: this.appearance.applyOther, otherGroups: this.stateOrders.filterGroups,
+        colors: this.appearance.colors, blinks: this.appearance.blinks });
     }
     document.body.classList.toggle("ov-small-tags", this.appearance.smallTags);
     this.window.body.classList.toggle("ov-small-font", this.appearance.smallFont);

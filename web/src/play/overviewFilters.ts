@@ -99,7 +99,13 @@ let activeBackgroundOrder: readonly number[] = BACKGROUND_ORDER;
 let applyToStructures = true;
 let applyToOtherObjects = false;
 let otherObjectGroups: ReadonlySet<number> = new Set([10, 12, 186, 340, 366, 411, 502, 517, 711, 1991]);
-export function setStateAppearance(a: { flag: readonly number[]; background: readonly number[]; applyStructures: boolean; applyOther: boolean; otherGroups?: readonly number[] }): void {
+/** stateSvc.SetStateColor / SetStateBlink: the colours and blinks set per (where, flag), "flag:13" / "background:13". */
+let stateColors: Readonly<Record<string, readonly number[]>> = {};
+let stateBlinks: Readonly<Record<string, boolean>> = {};
+export function setStateAppearance(a: { flag: readonly number[]; background: readonly number[]; applyStructures: boolean; applyOther: boolean; otherGroups?: readonly number[];
+  colors?: Readonly<Record<string, readonly number[]>>; blinks?: Readonly<Record<string, boolean>> }): void {
+  stateColors = a.colors ?? {};
+  stateBlinks = a.blinks ?? {};
   activeFlagOrder = a.flag;
   activeBackgroundOrder = a.background;
   applyToStructures = a.applyStructures;
@@ -186,7 +192,11 @@ export function iconAndBackgroundFlags(item: OverviewItem, groupID: number | nul
   if (group !== AGENT_IN_SPACE && (isNpcOwner(item.ownerID ?? null) || isNpcOwner(item.characterID ?? null))) return { icon: null, background: null };
   const first = (order: readonly number[]) => {
     const f = order.find((flag) => flagHolds(flag, item, group, category, relations));
-    return f === undefined ? null : STATE_FLAG_LOOKS.get(f) ?? null;
+    const look = f === undefined ? null : STATE_FLAG_LOOKS.get(f) ?? null;
+    if (!look) return null;
+    // GetStateFlagColor / GetStateBackgroundColor and the blinks: the set ones over the defaults
+    return { ...look, flagColor: stateColors[`flag:${look.flag}`] ?? look.flagColor, backgroundColor: stateColors[`background:${look.flag}`] ?? look.backgroundColor,
+      flagBlink: stateBlinks[`flag:${look.flag}`] ?? look.flagBlink, backgroundBlink: stateBlinks[`background:${look.flag}`] ?? look.backgroundBlink };
   };
   return { icon: first(activeFlagOrder), background: first(activeBackgroundOrder) };
 }
