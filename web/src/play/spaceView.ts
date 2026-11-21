@@ -1203,6 +1203,8 @@ export class SpaceView {
   private showSpecialBrackets = false;
   /** Warp.py's sound flags for the ship's own warp: the explosion played (hasExploded), the wind playing (hasWind). */
   private warpSound = { exploded: false, wind: false };
+  /** CmdAccelerate / CmdDecelerate's CallCombiner (0.3 s). */
+  private speedCombiner: ReturnType<typeof setTimeout> | null = null;
   private shortcutIndication: { header: string; sub: string } | null = null;
   private temporaryIndication: { header: string; sub: string; until: number } | null = null;
   private readonly modeHeader = document.createElement("div");
@@ -2913,6 +2915,40 @@ export class SpaceView {
     }
     if (cmd === "CmdStopShip") { e.preventDefault(); void this.stopShip(); return; }
     if (cmd === "CmdSetShipFullSpeed") { e.preventDefault(); void this.fullSpeed(); return; }
+    // CmdAccelerate / CmdDecelerate: the ball's speed fraction a tenth up or down (SetSpeedFractionThrottled, a
+    // CallCombiner of 0.3 s: the last asked within it is sent); a stopped ship, with no autopilot, first set going along
+    // its own heading (CmdGotoDirection)
+    if (cmd === "CmdAccelerate" || cmd === "CmdDecelerate") {
+      e.preventDefault();
+      const ego = this.snapshot?.ship;
+      if (!ego) return;
+      const up = cmd === "CmdAccelerate";
+      if (up && ego.mode === "STOP" && !this.actions.autopilotOn?.()) {
+        const holder = this.marks.get(ego.itemID);
+        if (holder) {
+          const f = new THREE.Vector3(0, 0, 1).applyQuaternion(holder.quaternion);
+          void this.act("Accelerate", () => this.actions.gotoDirection(f.x, f.y, -f.z));
+        }
+      }
+      const fraction = Math.max(0, Math.min(1, (ego.speedFraction ?? 0) + (up ? 0.1 : -0.1)));
+      if (this.speedCombiner) clearTimeout(this.speedCombiner);
+      this.speedCombiner = setTimeout(() => { this.speedCombiner = null; void this.act("Set speed", () => this.actions.setSpeedFraction(fraction)); }, 300);
+      return;
+    }
+    // CmdUnlockTargetItems: targetMgr.UnlockTargets - every locked target unlocked
+    if (cmd === "CmdUnlockTargetItems") {
+      e.preventDefault();
+      for (const id of [...this.locked]) void this.act("Unlock Target", () => this.actions.unlock(id)).then(() => this.refreshTargets());
+      return;
+    }
+    // CmdCreateBookmark: addressbook.BookmarkCurrentLocation - in space the pilot's ship's spot (BookmarkLocationPopup on
+    // the ship: its default name SpotInSolarSystem)
+    if (cmd === "CmdCreateBookmark") {
+      e.preventDefault();
+      const ego = this.snapshot?.ship;
+      if (ego) this.actions.saveLocation?.(ego.itemID, ego.typeID ?? null);
+      return;
+    }
     const RACKS = { High: "high", Medium: "mid", Low: "low" } as const;
     const rack = /^CmdOverload(High|Medium|Low)PowerRack$/.exec(cmd);
     if (rack) {
@@ -3006,6 +3042,8 @@ export class SpaceView {
       case "CmdAlignToItem": run("Align To", () => this.actions.alignTo(id)); break;
       case "CmdLockTargetItem": run("Lock Target", () => this.lockTracked(id)); break;
       case "CmdUnlockTargetItem": run("Unlock Target", () => this.actions.unlock(id)); break;
+      // targetMgr.ToggleLockTarget: unlocked where it is a target, else locked
+      case "CmdToggleTargetItem": if (this.locked.has(id)) run("Unlock Target", () => this.actions.unlock(id)); else run("Lock Target", () => this.lockTracked(id)); break;
       case "CmdDockOrJumpOrActivateGate": {
         if (e?.kind === "station" || e?.kind === "structure") run("Dock", () => this.actions.dock(id));
         else if (e?.kind === "stargate") run("Jump", () => this.actions.jump(id));
