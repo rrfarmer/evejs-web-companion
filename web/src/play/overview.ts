@@ -7,7 +7,24 @@ import { PlayWindow, clientTexture } from "./window.ts";
 import type { Entity } from "./spaceView.ts";
 import { fmtDist } from "../space/overview.ts";
 import { playUiEvent } from "./uiAudio.ts";
-import { overviewRowWanted, type OverviewRelationships, type PresetMask } from "./overviewFilters.ts";
+import { overviewRowWanted, type BracketOverride, type OverviewRelationships, type PresetMask } from "./overviewFilters.ts";
+import { ContextMenu, type ContextEntry } from "./contextMenu.ts";
+
+/** overviewSettingsConst: MAX_TAB_NUM, MAX_TAB_NAME_LENGTH. */
+const MAX_TAB_NUM = 20;
+const MAX_TAB_NAME_LENGTH = 15;
+/** A tab's settings (presetSvc's settingsByTabID): its name, overview preset and bracket preset (null: Show All Brackets). */
+interface TabSettings { name: string; preset: string; bracket: string | null }
+/** The pilot's tabs once changed (added, renamed, filtered, deleted): the whole list, kept per pilot in this browser. */
+const TABS_KEY = "evejs-play-overview-tabSettings";
+/** categories.CATEGORY_ICONS (eveicon star, warp_to, target, user_plus, mining at 16). */
+const CATEGORY_ICONS: Readonly<Record<number, string>> = {
+  1: "res:/UI/Texture/eveicon/system_icons/star_16px.png", 2: "res:/UI/Texture/eveicon/control_icons/warp_to_16px.png",
+  3: "res:/UI/Texture/eveicon/control_icons/target_16px.png", 4: "res:/UI/Texture/eveicon/system_icons/user_plus_16px.png",
+  5: "res:/UI/Texture/eveicon/system_icons/mining_16px.png",
+};
+const CHECKMARK = "res:/UI/Texture/eveicon/system_icons/checkmark_16px.png";
+const SETTINGS_ICON = "res:/UI/Texture/eveicon/system_icons/settings_16px.png";
 
 interface OverviewPresetData {
   name: string;
@@ -28,7 +45,7 @@ interface OverviewTab {
   bracket: PresetMask | null;
 }
 /** A default preset as a chooser lists it (GetPresetDisplayName with its category: "Category: Name"). */
-export interface PresetChoice { readonly id: string; readonly name: string; readonly label: string; readonly groups: ReadonlySet<number> }
+export interface PresetChoice { readonly id: string; readonly name: string; readonly label: string; readonly groups: ReadonlySet<number>; readonly category?: number; readonly categoryName?: string | null }
 let presetsRead: Promise<OverviewPresets | null> | null = null;
 function overviewPresets() {
   presetsRead ??= fetch("/client-assets/overviewPresets.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
@@ -44,7 +61,12 @@ const SORT_ENABLED = "UI/Tactical/HeaderSortingEnabledCb";
 const SORT_HINT = "UI/Tactical/HeaderSortingEnabledCbHint";
 const SORT_DISABLED = "UI/Tactical/HeaderSortingDisabled";
 const HACKED_HINT = "Tooltips/Overview/ScatterContainerHacked";
-export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HINT, "UI/Tactical/OverviewCaption"];
+export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HINT, "UI/Tactical/OverviewCaption",
+  "UI/Overview/AddTab", "UI/Commands/OpenOverviewSettings", "UI/Overview/BracketVisibility", "UI/Overview/UseSelectedTabBracketPreset",
+  "UI/Overview/ShowAll", "UI/Overview/HideAll", "UI/Overview/AddTabInstructions", "UI/Overview/TypeInLabel", "UI/Overview/Filter",
+  "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
+  "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
+  "UI/Overview/EditCurrentFilter", "UI/Commands/ChangeName", "UI/Overview/DeleteTab", "/Carbon/UI/Controls/ScrollEntries/TypeInNewName"];
 const DISABLED_TEXT = "Header sorting is disabled";
 
 /**
@@ -114,6 +136,9 @@ export interface OverviewHooks {
   pilotID?: number;
   word?(label: string, args?: Readonly<Record<string, string | number>>): string | null;
   notice?(text: string): void;
+  /** bracketSettings' override (UseSelectedTabBracketPreset / ShowAll / HideAll), as the ⋮ menu's Bracket Visibility sets it. */
+  bracketOverride?(): BracketOverride;
+  setBracketOverride?(value: BracketOverride): void;
 }
 
 export class Overview {
@@ -135,18 +160,31 @@ export class Overview {
   private sort: OverviewSort;
   private sortEnabled = true;
   private readonly lockIcon = document.createElement("img");
+  private readonly menu = new ContextMenu();
+  private masks = new Map<string, OverviewTab["overview"]>();
+  private addTabWindow: PlayWindow | null = null;
+  private tabSettings: TabSettings[] = [];
   private lockFlash?: Animation;
 
   constructor(private readonly hooks: OverviewHooks) {
-    this.window = new PlayWindow({ id: "overview", caption: "Overview", left: innerWidth - 586, top: 260, width: 566, height: 380, closable: false });
+    this.window = new PlayWindow({ id: "overview", caption: "Overview", left: innerWidth - 586, top: 260, width: 566, height: 380, closable: false,
+      menu: (button) => { const r = button.getBoundingClientRect(); this.menu.open(r.left, r.bottom, this.moreOptions()); } });
     this.window.body.classList.add("ov");
     // the client's default (not compact) layout: the caption "Overview (preset)" in the header, the tabs in a row under
     // it (OverviewTabGroup, 32 high, the chosen one marked by a SelectionIndicatorLine), a DividerLine, then the scroll
     this.window.body.innerHTML = `<div class="ov-tabs"><span class="ov-tab active">General</span></div>`;
     this.tabsEl = this.window.body.querySelector(".ov-tabs")!;
     this.tabsEl.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest(".ov-add-tab")) { this.openAddTab(); return; }
       const i = Number((e.target as HTMLElement).closest<HTMLElement>(".ov-tab")?.dataset.tab);
       if (Number.isInteger(i)) this.choose(i);
+    });
+    // a right-click on a tab: its menu (OverviewTab.GetMenu)
+    this.tabsEl.addEventListener("contextmenu", (e) => {
+      const i = Number((e.target as HTMLElement).closest<HTMLElement>(".ov-tab")?.dataset.tab);
+      if (!Number.isInteger(i) || !this.tabSettings[i]) return;
+      e.preventDefault();
+      this.menu.open(e.clientX, e.clientY, this.tabMenu(i));
     });
     this.table.className = "ov-table";
     this.table.innerHTML = `<colgroup>${COLUMN_WIDTHS.map((w) => `<col style="width:${w}px">`).join("")}</colgroup><thead><tr><th class="ov-icon"></th><th class="ov-dist" data-sort="distance"><button type="button">Distance</button></th><th data-sort="name"><button type="button">Name</button></th><th data-sort="type"><button type="button">Type</button></th><th class="ov-dist" data-sort="size"><button type="button">Size</button></th><th class="ov-dist" data-sort="velocity"><button type="button">Velocity</button></th><th class="ov-dist" data-sort="angular"><button type="button">Angular</button></th></tr></thead>`;
@@ -178,19 +216,15 @@ export class Overview {
     void overviewPresets().then((p) => {
       if (!p) return;
       const masks = new Map(Object.entries(p.presets).map(([id, preset]) => [id, presetMask(preset, id)]));
-      this.tabs = p.tabs.map((t) => ({
-        name: t.name,
-        presetID: t.preset,
-        overview: masks.get(t.preset) ?? null,
-        bracket: t.bracket ? masks.get(t.bracket) ?? null : null,
-      }));
+      this.masks = masks;
+      this.tabSettings = this.storedTabs() ?? p.tabs.map((t) => ({ name: t.name, preset: t.preset, bracket: t.bracket ?? null }));
+      this.tabs = this.tabSettings.map((t) => this.tabOf(t));
       // overviewUtil.GetDefaultFiltersSorted: by category (CATEGORY_ORDER), each sorted by its display name with category
       const order = p.categoryOrder ?? [0, 1, 2, 3, 4, 5];
       this.presetChoices = Object.entries(p.presets)
         .flatMap(([id, preset]) => preset ? [{ id, name: preset.name, label: preset.categoryName ? `${preset.categoryName}: ${preset.name}` : preset.name,
-          groups: masks.get(id)!.groups, category: preset.categoryID ?? 0 }] : [])
-        .sort((a, b) => (order.indexOf(a.category) - order.indexOf(b.category)) || a.label.localeCompare(b.label))
-        .map(({ id, name, label, groups }) => ({ id, name, label, groups }));
+          groups: masks.get(id)!.groups, category: preset.categoryID ?? 0, categoryName: preset.categoryName ?? null }] : [])
+        .sort((a, b) => (order.indexOf(a.category) - order.indexOf(b.category)) || a.label.localeCompare(b.label));
       let saved = 0;
       try { saved = Number(localStorage.getItem(this.tabKey) ?? localStorage.getItem(TAB_KEY)); } catch { /* no storage: the first tab */ }
       this.choose(Number.isInteger(saved) && this.tabs[saved] ? saved : 0, true);
@@ -300,7 +334,7 @@ export class Overview {
   private choose(i: number, initial = false): void {
     if ((!initial && this.tab === i) || !this.tabs[i]) return;
     this.tab = i;
-    this.tabsEl.innerHTML = this.tabs.map((t, n) => `<span class="ov-tab${n === i ? " active" : ""}" data-tab="${n}">${esc(t.name)}</span>`).join("");
+    this.drawTabs();
     // OverviewWindow.UpdateWindowCaption: UI/Tactical/OverviewCaption with the preset's display name ("General: General")
     const presetID = (this.tabs[i] as OverviewTab & { presetID?: string }).presetID;
     const preset = this.presetChoices.find((p) => p.id === presetID)?.label ?? this.tabs[i]!.overview?.name ?? "";
@@ -310,6 +344,169 @@ export class Overview {
     this.markSort();
     try { localStorage.setItem(this.tabKey, String(i)); } catch { /* not kept */ }
     this.lastDraw = 0;
+  }
+
+  /** OverviewTabGroup: the tabs, the chosen one lit, and the TrailingContainer's add_16px while there is room (MAX_TAB_NUM). */
+  private drawTabs(): void {
+    const add = this.tabs.length < MAX_TAB_NUM
+      ? `<img class="ov-add-tab" src="${clientTexture("res:/UI/Texture/eveicon/system_icons/add_16px.png")}" alt="" title="${esc(this.hooks.word?.("UI/Overview/AddTab") ?? "Add Tab")}">` : "";
+    this.tabsEl.innerHTML = this.tabs.map((t, n) => `<span class="ov-tab${n === this.tab ? " active" : ""}" data-tab="${n}">${esc(t.name)}</span>`).join("") + add;
+  }
+
+  private get tabsKey(): string { return TABS_KEY + (this.hooks.pilotID === undefined ? "" : `:${this.hooks.pilotID}`); }
+
+  private storedTabs(): TabSettings[] | null {
+    try {
+      const v = JSON.parse(localStorage.getItem(this.tabsKey) ?? "null") as TabSettings[] | null;
+      const tabs = Array.isArray(v) ? v.filter((t) => typeof t?.name === "string" && typeof t.preset === "string") : [];
+      return tabs.length ? tabs.map((t) => ({ name: t.name, preset: t.preset, bracket: typeof t.bracket === "string" ? t.bracket : null })) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private tabOf(t: TabSettings): OverviewTab {
+    return { name: t.name, presetID: t.preset, overview: this.masks.get(t.preset) ?? null, bracket: t.bracket ? this.masks.get(t.bracket) ?? null : null } as OverviewTab;
+  }
+
+  /** The tab list changed (presetSvc.UpdateSettingsByTabID): kept, the tabs drawn again, the chosen one shown. */
+  private tabsChanged(chosen: number): void {
+    try { localStorage.setItem(this.tabsKey, JSON.stringify(this.tabSettings)); } catch { /* the change lasts the page */ }
+    this.tabs = this.tabSettings.map((t) => this.tabOf(t));
+    this.tab = -1;
+    this.choose(Math.max(0, Math.min(chosen, this.tabs.length - 1)), true);
+  }
+
+  /**
+   * OverviewTab.GetMenu: Filter ▸ and Bracket Filter ▸ (the default filters under their caption, each category a
+   * submenu with its icon, the tab's own checked; Edit Current Filter), Change Name, Delete Tab while there is another.
+   */
+  private tabMenu(i: number): (ContextEntry | null)[] {
+    const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
+    const t = this.tabSettings[i]!;
+    const filters = (active: string | null, apply: (id: string) => void): (ContextEntry | null)[] => {
+      const byCategory = new Map<number, PresetChoice[]>();
+      for (const p of this.presetChoices) byCategory.set(p.category ?? 0, [...(byCategory.get(p.category ?? 0) ?? []), p]);
+      const entry = (p: PresetChoice): ContextEntry => ({ label: p.name, icon: p.id === active ? CHECKMARK : null, run: () => apply(p.id) });
+      const out: (ContextEntry | null)[] = [{ label: word("UI/Overview/DefaultFilters", "Default Filters"), caption: true }];
+      for (const p of byCategory.get(0) ?? []) out.push(entry(p));
+      for (const [category, presets] of byCategory) {
+        if (category === 0) continue;
+        out.push({ label: presets[0]?.categoryName ?? String(category), icon: CATEGORY_ICONS[category] ?? null, sub: presets.map(entry) });
+      }
+      out.push(null, { label: word("UI/Overview/EditCurrentFilter", "Edit Current Filter"), icon: SETTINGS_ICON, disabled: "Not here yet" });
+      return out;
+    };
+    const set = (change: Partial<TabSettings>) => { this.tabSettings[i] = { ...t, ...change }; this.tabsChanged(this.tab); };
+    const bracketFilters = filters(t.bracket, (id) => set({ bracket: id }));
+    bracketFilters.unshift({ label: word("UI/Overview/ShowAllBrackets", "Show All Brackets"), icon: t.bracket === null ? CHECKMARK : null, run: () => set({ bracket: null }) });
+    const out: (ContextEntry | null)[] = [
+      { label: word("UI/Overview/Filter", "Filter"), sub: filters(t.preset, (id) => set({ preset: id })) },
+      { label: word("UI/Overview/BracketFilter", "Bracket Filter"), sub: bracketFilters },
+      null,
+      { label: word("UI/Commands/ChangeName", "Change Name"), run: () => this.renameTab(i) },
+    ];
+    if (this.tabSettings.length > 1) {
+      out.push({ label: word("UI/Overview/DeleteTab", "Delete Tab"), run: () => {
+        this.tabSettings.splice(i, 1);
+        this.tabsChanged(this.tab > i ? this.tab - 1 : this.tab === i ? Math.max(0, i - 1) : this.tab);
+      } });
+    }
+    return out;
+  }
+
+  /** OverviewTab.ChangeTabName: NamePopup (UI/Commands/ChangeName, TypeInNewName, maxLength 30). */
+  private renameTab(i: number): void {
+    const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
+    const win = new PlayWindow({ id: "overview-rename-tab", caption: word("UI/Commands/ChangeName", "Change Name"), left: Math.round(innerWidth / 2 - 160), top: Math.round(innerHeight / 2 - 80), width: 320, height: 160, minWidth: 320, minHeight: 160 });
+    win.body.classList.add("ov-add");
+    win.body.innerHTML = `<label class="ov-add-label"><span></span><input maxlength="30" autocomplete="off"></label>
+      <div class="ov-add-buttons"><button type="button" class="ov-add-ok"></button><button type="button" class="ov-add-cancel"></button></div>`;
+    win.body.querySelector("span")!.textContent = word("/Carbon/UI/Controls/ScrollEntries/TypeInNewName", "Type in new name");
+    const input = win.body.querySelector("input")!;
+    input.value = this.tabSettings[i]!.name;
+    win.body.querySelector(".ov-add-ok")!.textContent = word("UI/Common/Buttons/OK", "OK");
+    win.body.querySelector(".ov-add-cancel")!.textContent = word("UI/Common/Buttons/Cancel", "Cancel");
+    const ok = () => {
+      const name = input.value.trim();
+      if (!name) { this.hooks.notice?.(word("UI/Common/PleaseTypeSomething", "Please type something")); return; }
+      win.root.remove();
+      this.tabSettings[i] = { ...this.tabSettings[i]!, name };
+      this.tabsChanged(this.tab);
+    };
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") ok(); if (e.key === "Escape") win.root.remove(); });
+    win.body.querySelector(".ov-add-ok")!.addEventListener("click", ok);
+    win.body.querySelector(".ov-add-cancel")!.addEventListener("click", () => win.root.remove());
+    (this.window.root.parentElement ?? document.body).append(win.root);
+    input.select();
+  }
+
+  /** OverviewWindow.GetMenuMoreOptions as a pilot sees it: Add Tab, Open Overview Settings, Bracket Visibility ▸. */
+  private moreOptions(): (ContextEntry | null)[] {
+    const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
+    const current = this.hooks.bracketOverride?.() ?? "default";
+    const radio = (label: string, own: string, value: BracketOverride): ContextEntry =>
+      ({ label: word(label, own), checked: current === value, run: () => this.hooks.setBracketOverride?.(value) });
+    return [
+      { label: word("UI/Overview/AddTab", "Add Tab"), icon: "res:/UI/Texture/eveicon/system_icons/add_16px.png", run: () => this.openAddTab() },
+      { label: word("UI/Commands/OpenOverviewSettings", "Open Overview Settings"), icon: "res:/UI/Texture/eveicon/system_icons/settings_16px.png", disabled: "Not here yet" },
+      { label: word("UI/Overview/BracketVisibility", "Bracket Visibility"), sub: [
+        radio("UI/Overview/UseSelectedTabBracketPreset", "Use Selected Tab's Bracket Preset", "default"),
+        radio("UI/Overview/ShowAll", "Show All", "all"),
+        radio("UI/Overview/HideAll", "Hide All", "none"),
+      ] },
+    ];
+  }
+
+  /**
+   * AddTabPopup: the name (TypeInLabel, MAX_TAB_NAME_LENGTH, CheckName's PleaseTypeSomething), the overview Filter
+   * (GetDefaultFiltersSorted's first by default) and the Bracket Filter (Show All Brackets by default), OK and Cancel;
+   * presetSvc.AddTab appends it (TooManyTabs past MAX_TAB_NUM) and it is chosen.
+   */
+  openAddTab(): void {
+    void playUiEvent("ui_button_soft4_play");
+    if (this.addTabWindow) { this.addTabWindow.root.remove(); this.addTabWindow = null; }
+    const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
+    const win = new PlayWindow({ id: "overview-add-tab", caption: word("UI/Overview/AddTab", "Add Tab"), left: Math.round(innerWidth / 2 - 180), top: Math.round(innerHeight / 2 - 175), width: 360, height: 350, minWidth: 360, minHeight: 350 },
+      () => { this.addTabWindow = null; });
+    this.addTabWindow = win;
+    const options = this.presetChoices.map((p) => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join("");
+    win.body.classList.add("ov-add");
+    win.body.innerHTML = `<p class="ov-add-body"></p>
+      <label class="ov-add-label"><span></span><input maxlength="${MAX_TAB_NAME_LENGTH}" autocomplete="off"><small class="ov-add-count"></small></label>
+      <div class="ov-add-title"></div><select class="ov-add-filter">${options}</select>
+      <div class="ov-add-title"></div><select class="ov-add-bracket"><option value=""></option>${options}</select>
+      <div class="ov-add-buttons"><button type="button" class="ov-add-ok"></button><button type="button" class="ov-add-cancel"></button></div>`;
+    const q = <T extends Element>(s: string) => win.body.querySelector<T>(s)!;
+    q<HTMLElement>(".ov-add-body").textContent = word("UI/Overview/AddTabInstructions", "Type in the name of the new tab and choose its filters.");
+    q<HTMLElement>(".ov-add-label span").textContent = word("UI/Overview/TypeInLabel", "Type in label");
+    const titles = win.body.querySelectorAll<HTMLElement>(".ov-add-title");
+    titles[0]!.textContent = word("UI/Overview/Filter", "Filter");
+    titles[0]!.title = word("UI/Overview/ChooseOverviewPreset", "");
+    titles[1]!.textContent = word("UI/Overview/BracketFilter", "Bracket Filter");
+    titles[1]!.title = word("UI/Overview/ChooseBracketPreset", "");
+    q<HTMLOptionElement>(".ov-add-bracket option").textContent = word("UI/Overview/ShowAllBrackets", "Show All Brackets");
+    q<HTMLButtonElement>(".ov-add-ok").textContent = word("UI/Common/Buttons/OK", "OK");
+    q<HTMLButtonElement>(".ov-add-cancel").textContent = word("UI/Common/Buttons/Cancel", "Cancel");
+    const input = q<HTMLInputElement>("input");
+    const count = q<HTMLElement>(".ov-add-count");
+    const counted = () => { count.textContent = `${input.value.length}/${MAX_TAB_NAME_LENGTH}`; };
+    counted();
+    input.addEventListener("input", counted);
+    const confirm = () => {
+      const name = input.value.trim();
+      if (!name) { this.hooks.notice?.(word("UI/Common/PleaseTypeSomething", "Please type something")); return; }
+      if (this.tabs.length >= MAX_TAB_NUM) { this.hooks.notice?.(`You cannot have more than ${MAX_TAB_NUM} tabs`); return; }
+      this.tabSettings.push({ name, preset: q<HTMLSelectElement>(".ov-add-filter").value, bracket: q<HTMLSelectElement>(".ov-add-bracket").value || null });
+      win.root.remove();
+      this.addTabWindow = null;
+      this.tabsChanged(this.tabSettings.length - 1);
+    };
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") confirm(); if (e.key === "Escape") { win.root.remove(); this.addTabWindow = null; } });
+    q<HTMLButtonElement>(".ov-add-ok").addEventListener("click", confirm);
+    q<HTMLButtonElement>(".ov-add-cancel").addEventListener("click", () => { win.root.remove(); this.addTabWindow = null; });
+    (this.window.root.parentElement ?? document.body).append(win.root);
+    input.focus();
   }
 
   private tabSortKey(): string { return `${this.sortKey}:tab:${this.tab}`; }
@@ -387,7 +584,7 @@ export class Overview {
       const typeName = e.typeID ? this.types[String(e.typeID)]?.[0] ?? "" : "";
       const hackingHint = (e.hackingSecurityState ?? 0) > 1
         ? ` title="${esc(this.hooks.word?.(HACKED_HINT) ?? "Has already been hacked")}"` : "";
-      html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}${e.isNpc ? " npc" : ""}"><td class="ov-icon"${hackingHint}>${this.hooks.glyph(e)}</td><td class="ov-dist">${overviewDistance(d)}</td><td>${esc(rowName(e))}</td><td>${esc(typeName)}</td><td class="ov-dist">${fmtDist(2 * (e.radius ?? 0))}</td><td class="ov-dist">${isStatic(e) ? "-" : Math.trunc(speed(e)).toLocaleString()}</td><td class="ov-dist">${(() => { const w = angular(e, d); return w === null ? "-" : w.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); })()}</td></tr>`);
+      html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}"><td class="ov-icon"${hackingHint}>${this.hooks.glyph(e)}</td><td class="ov-dist">${overviewDistance(d)}</td><td>${esc(rowName(e))}</td><td>${esc(typeName)}</td><td class="ov-dist">${fmtDist(2 * (e.radius ?? 0))}</td><td class="ov-dist">${isStatic(e) ? "-" : Math.trunc(speed(e)).toLocaleString()}</td><td class="ov-dist">${(() => { const w = angular(e, d); return w === null ? "-" : w.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); })()}</td></tr>`);
     }
     const markup = html.join("");
     if (markup !== this.drawnRows) {

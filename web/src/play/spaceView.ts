@@ -837,6 +837,8 @@ export class SpaceView {
       pilotID: options.overviewPilotID,
       word: (label, args) => this.actions.word?.(label, args) ?? null,
       notice: options.overviewNotice,
+      bracketOverride: () => this.bracketOverride,
+      setBracketOverride: (value) => { this.bracketOverride = value; },
     });
     this.overview.window.root.classList.add("space-only-window");
     this.layer.appendChild(this.overview.window.root);

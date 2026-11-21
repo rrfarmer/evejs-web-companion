@@ -18,6 +18,8 @@ export interface WindowOptions {
   left: number; top: number; width: number; height: number;
   minWidth?: number; minHeight?: number;
   closable?: boolean;
+  /** The window's ⋮ (MenuButtonIcon, GetMenuMoreOptions): given the button, opens the window's menu. */
+  menu?: (button: HTMLElement) => void;
 }
 
 function kept(id: string): Partial<WindowOptions> {
@@ -36,13 +38,18 @@ export class PlayWindow {
     Object.assign(this.root.style, { left: `${at.left}px`, top: `${at.top}px`, width: `${at.width}px`, height: `${at.height}px` });
     this.head.className = "pw-head";
     this.head.innerHTML = `${options.icon ? `<img class="pw-icon" src="${options.icon}" alt="">` : ""}<span class="pw-caption"></span>
-      <span class="pw-buttons"><img class="pw-btn pw-min" src="${SYSTEM_ICON.minimize}" alt="Minimize" title="Minimize">${options.closable === false ? "" : `<img class="pw-btn pw-close" src="${SYSTEM_ICON.close}" alt="Close" title="Close">`}</span>`;
+      <span class="pw-buttons">${options.menu ? `<img class="pw-btn pw-more" src="${SYSTEM_ICON.more}" alt="More" title="">` : ""}<img class="pw-btn pw-min" src="${SYSTEM_ICON.minimize}" alt="Minimize" title="Minimize">${options.closable === false ? "" : `<img class="pw-btn pw-close" src="${SYSTEM_ICON.close}" alt="Close" title="Close">`}</span>`;
     (this.head.querySelector(".pw-caption") as HTMLElement).textContent = options.caption;
     this.body.className = "pw-body";
     const grip = document.createElement("div");
     grip.className = "pw-grip";
     this.root.append(this.head, this.body, grip);
     this.head.querySelector(".pw-min")!.addEventListener("click", () => this.toggleMinimized());
+    const more = this.head.querySelector<HTMLElement>(".pw-more");
+    if (more && options.menu) {
+      more.addEventListener("pointerdown", (e) => e.stopPropagation());
+      more.addEventListener("click", (e) => { e.stopPropagation(); options.menu!(more); });
+    }
     this.head.querySelector(".pw-close")?.addEventListener("click", () => { this.root.remove(); onClose?.(); });
     this.drag(this.head, (dx, dy, start) => {
       this.root.style.left = `${Math.max(0, start.left + dx)}px`;

@@ -16,6 +16,10 @@ export interface ContextEntry {
   readonly sub?: readonly (ContextEntry | null)[];
   /** Why it cannot run, shown greyed with this hint (menuEntries.reasonsWhyNotAvailable). */
   readonly disabled?: string | null;
+  /** A radio entry (MenuEntryDataRadioButton): true for the chosen one, false for the others. */
+  readonly checked?: boolean;
+  /** A caption (MenuData.AddCaption): a heading among the entries, not to be clicked. */
+  readonly caption?: boolean;
 }
 
 const ROW = 22;
@@ -102,6 +106,13 @@ export class ContextMenu {
 
   private row(entry: ContextEntry, depth: number): HTMLDivElement {
     const row = document.createElement("div");
+    if (entry.caption) {
+      row.dataset.caption = entry.label;
+      row.textContent = entry.label;
+      Object.assign(row.style, { height: `${ROW}px`, lineHeight: `${ROW}px`, padding: "0 8px", fontSize: "12px", color: "rgba(255,255,255,0.5)", cursor: "default" });
+      row.addEventListener("mouseenter", () => this.closeFrom(depth + 1));
+      return row;
+    }
     row.dataset.entry = entry.label;
     const disabled = !!entry.disabled;
     Object.assign(row.style, { position: "relative", height: `${ROW}px`, lineHeight: `${ROW}px`, padding: "0 28px", cursor: disabled ? "default" : "pointer", opacity: disabled ? "0.4" : "1" });
@@ -114,6 +125,11 @@ export class ContextMenu {
       Object.assign(i.style, { position: "absolute", left: "0", top: "0", width: "16px", height: "16px" });
       disc.append(i);
       row.append(disc);
+    } else if (entry.checked !== undefined) {
+      const dot = document.createElement("span");
+      Object.assign(dot.style, { position: "absolute", left: "7px", top: "7px", width: "8px", height: "8px", borderRadius: "50%", boxSizing: "border-box",
+        border: "1px solid rgba(255,255,255,0.75)", background: entry.checked ? "rgba(255,255,255,0.9)" : "transparent" });
+      row.append(dot);
     } else if (entry.icon) {
       const i = document.createElement("img");
       i.src = tex(entry.icon);
