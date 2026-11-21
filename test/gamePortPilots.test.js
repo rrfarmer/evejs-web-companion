@@ -13,6 +13,9 @@ const { brokersFeeRate, brokersFeeRateInStructure } = require("../src/gamePort/b
 const { GAME_PORT_HANDLE_PREFIX, PILOT_FUNCTIONS } = require("../src/pilotTransport");
 const { list } = require("../src/gamePort/retailCalls");
 const { createPilotSpace } = require("../src/gamePort/pilotSpace");
+const { anyAddress, buildPacket, nodeAddress, parsePacket, TYPE } = require("../src/gamePort/packets");
+const { readNotification } = require("../src/gamePort/session");
+const { marshalDecode, marshalEncode } = require("../src/gameProtocol/marshal");
 const undockRecording = require("./fixtures/destinyUndock.json");
 const { answers: recordedAnswers, notifications: recordedNotifications } = require("./helpers/destinyRecording");
 const probeFlight = require("./fixtures/probeFlight.json");
@@ -354,7 +357,10 @@ function fakeSession({ answers = {}, userid = ACCOUNT, loginError = null, comesO
     },
     /** The server pushes a notification. */
     notify(method, args = [], service = null) {
-      for (const listener of listeners.notification) listener({ service, method, idtype: service ? null : "charid", args, kwargs: null });
+      session.emitNotification({ service, method, idtype: service ? null : "charid", args, kwargs: null });
+    },
+    emitNotification(notification) {
+      for (const listener of listeners.notification) listener(notification);
     },
     change(changes) {
       for (const listener of listeners.sessionChange) listener(changes, session.attributes);
@@ -4457,6 +4463,56 @@ test("different modules fitted at once can refresh independently, and a read of 
   assert.deepEqual((await reading).online.sort((a, b) => a - b), [SHIP + 1, SHIP + 8, SHIP + 9]);
 });
 
+// A collector without --expose-gc on the command line: the test runner starts each file in a process of its own and
+// does not pass that flag on, so a test that waits for global.gc never runs under `npm test`.
+const collectGarbage = () => {
+  require("node:v8").setFlagsFromString("--expose-gc");
+  return require("node:vm").runInNewContext("gc");
+};
+
+test("completed inventory notices are collectible while another item is waiting for its RPC", { timeout: 5000 }, async (t) => {
+  const gc = collectGarbage();
+  const waiting = Promise.withResolvers();
+  const requested = Promise.withResolvers();
+  const moduleID = SHIP + 9;
+  const { pilots, session, handle } = await selected({ answers: {
+    "bound:GetAllInfo": ownShipAllInfo(),
+    "bound:ItemGetInfo": ([itemID]) => {
+      assert.equal(Number(itemID), moduleID);
+      requested.resolve();
+      return waiting.promise;
+    },
+  } }, onlineByType);
+  t.after(() => pilots.shutdown());
+  await pilots.shipInfo(FIELDS, handle);
+  session.notify("OnItemsChanged", fittedNow(moduleID));
+  await requested.promise;
+  let readDone = false;
+  const reading = pilots.shipInfo(FIELDS, handle).then(result => {
+    readDone = true;
+    return result;
+  });
+
+  const references = Array.from({ length: 4 }, () => {
+    // Decoded afresh each time, so each notice is objects of its own for the references to watch.
+    const notice = recordedNotifications(primingRecording).find(each => each.method === "OnItemsChanged");
+    session.notify(notice.method, notice.args, notice.service);
+    return [new WeakRef(notice.args[0].items[0]), new WeakRef(notice.args[1])];
+  }).flat();
+  try {
+    for (let turn = 0; turn < 4; turn++) {
+      await settled();
+      gc();
+    }
+    assert.equal(readDone, false, "shipInfo still waits for the in-flight module refresh");
+    assert.ok(references.every(ref => ref.deref() === undefined), "completed rows or change dicts are still retained");
+  } finally {
+    waiting.resolve(itemRow(moduleID, true));
+    await reading;
+  }
+  assert.ok((await reading).online.includes(moduleID));
+});
+
 test("the undock hands over the modules that are online once the one just fitted has been answered for", async () => {
   let answer;
   const waiting = new Promise((resolve) => { answer = resolve; });
@@ -6707,6 +6763,89 @@ test("where godma cannot be primed an attribute's value is asked of the server, 
   );
   assert.equal((await pilots.callMethod("dogmaIM", "QueryAttributeValue", [FITTED_MODULE, 73], null, FIELDS, handle)).result, 8500);
   assert.deepEqual(session.boundCalls.at(-1).args, [FITTED_MODULE, 73]);
+});
+
+function decodedAttributeNotice(value) {
+  const time = DOGMA_T + BigInt(value) * 10000000n;
+  const args = [PILOT, BigInt(SHIP), 9, time, value, 151, time];
+  const inner = marshalEncode([1, Buffer.from("OnModuleAttributeChange"), args, null]);
+  const frame = marshalEncode(buildPacket(TYPE.NOTIFICATION, {
+    source: nodeAddress(1), destination: anyAddress(), body: [[0, inner]],
+  }));
+  return readNotification(parsePacket(marshalDecode(frame, { preserveNumberKinds: true })));
+}
+
+test("Godma Prime releases decoded notices on failure and close, and delivers a later successful Prime", { timeout: 5000 }, async () => {
+  const attempts = Array.from({ length: 4 }, () => ({ entered: Promise.withResolvers(), reply: Promise.withResolvers() }));
+  let calls = 0;
+  const { pilots, session, handle } = await selected({ answers: {
+    "bound:GetAllInfo": () => {
+      const attempt = attempts[calls++];
+      attempt.entered.resolve();
+      return attempt.reply.promise;
+    },
+  } });
+  const nextTurn = () => new Promise(setImmediate);
+  async function start(attempt) {
+    const read = pilots.shipInfo(FIELDS, handle);
+    await attempt.entered.promise;
+    return { read };
+  }
+  function notices(first, count = 64) {
+    return Array.from({ length: count }, (_, offset) => {
+      const notification = decodedAttributeNotice(first + offset);
+      session.emitNotification(notification);
+      return new WeakRef(notification.packet);
+    });
+  }
+  // `node --test` runs without --expose-gc; take V8's gc so the check always runs.
+  const collect = typeof global.gc === "function"
+    ? global.gc
+    : (require("node:v8").setFlagsFromString("--expose-gc"), require("node:vm").runInNewContext("gc"));
+  async function packetsReleased(refs) {
+    for (let turn = 0; turn < 3; turn++) {
+      await nextTurn();
+      collect();
+    }
+    assert.equal(refs.filter(ref => ref.deref()).length, 0, "the receive queue retained decoded packets");
+  }
+  async function finished(read) {
+    const pending = Symbol();
+    // Long enough for any honest settling; a barrier that never settles still loses the race.
+    const answer = await Promise.race([read, new Promise(resolve => setTimeout(resolve, 200)).then(() => pending)]);
+    assert.notEqual(answer, pending, "the Godma work barrier stayed pending");
+    return answer;
+  }
+
+  for (const [index, attempt] of attempts.slice(0, 2).entries()) {
+    const { read } = await start(attempt);
+    const queued = notices(300 + index * 64);
+    attempt.reply.reject(refusedBy("NotNow"));
+    assert.equal((await finished(read)).row, null);
+    await packetsReleased([...queued, ...notices(500 + index * 64)]);
+  }
+
+  const successful = attempts[2];
+  const { read } = await start(successful);
+  const queued = notices(200, 2);
+  successful.reply.resolve(shipAllInfo());
+  assert.ok((await finished(read)).row);
+  assert.equal(await pilots.shipAttribute(9, FIELDS, handle), 201);
+  await packetsReleased(queued);
+  notices(202, 1);
+  assert.equal(await pilots.shipAttribute(9, FIELDS, handle), 202);
+
+  const station = STATION + 1;
+  session.attributes.stationid = station;
+  session.change({ stationid: [STATION, station] });
+  const closing = attempts[3];
+  const { read: closingRead } = await start(closing);
+  const retiring = notices(800);
+  await pilots.releaseBridgeSession(handle, FIELDS);
+  // Release the queued packets while the stand-in still holds the GetAllInfo reply.
+  await packetsReleased(retiring);
+  closing.reply.resolve(shipAllInfo(50, station));
+  assert.equal((await finished(closingRead)).row, null);
 });
 
 // ── the formations, asked for once ───────────────────────────────────────────

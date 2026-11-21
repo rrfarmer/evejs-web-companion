@@ -5,7 +5,14 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const v8 = require("node:v8");
+const vm = require("node:vm");
 const { createBotHost, MAX_ENDED_RUNS } = require("./botHost");
+
+// The retention test needs a collector it can run on demand. Plain `node --test` has no --expose-gc, so turn it on
+// here and take the function from a fresh context rather than skipping the test.
+v8.setFlagsFromString("--expose-gc");
+const collectGarbage = global.gc ?? vm.runInNewContext("gc");
 
 // The host is exercised with a FAKE browser stack (the loadStack seam): the
 // real one is the shipping web/src modules, proven live; these tests pin the
@@ -1214,6 +1221,7 @@ test("an on-disk roster row with no `kind` field resumes exactly as a script alw
 test("vitals sampling projects ship health, hold fill and the bot's words", async () => {
   const host = makeHost();
   await host.start(START);
+  // The start's own first sample is still running: the tick waits for it.
   await host.sampleAllVitals();
   const rows = host.activeBots();
   assert.equal(rows.length, 1);
@@ -1233,6 +1241,133 @@ test("vitals sampling projects ship health, hold fill and the bot's words", asyn
   assert.equal("botID" in rows[0], false);
   assert.equal("accountID" in rows[0], false);
   assert.equal("scriptID" in rows[0], false);
+});
+
+test("vitals ticks skip a busy pilot and recover after completion or error", { timeout: 5000 }, async (t) => {
+  const slowPilot = START.characterID;
+  const fastPilot = slowPilot + 1;
+  const sceneReads = new Map();
+  const { promise: hold, resolve: release } = Promise.withResolvers();
+  let holdNextScene = false;
+  let failNextScene = false;
+  let clock = 1_000;
+  const host = makeHost({
+    now: () => clock,
+    loadStack: makeFakeStack([], (flow, store) => ({
+      ...flow,
+      async loadSpaceSnapshot() {
+        const characterID = store.station.get().online.characterID;
+        sceneReads.set(characterID, (sceneReads.get(characterID) ?? 0) + 1);
+        if (characterID === slowPilot && holdNextScene) {
+          holdNextScene = false;
+          await hold;
+        }
+        if (characterID === slowPilot && failNextScene) {
+          failNextScene = false;
+          throw new Error("Space snapshot unavailable");
+        }
+        await flow.loadSpaceSnapshot();
+      },
+    })),
+  });
+  t.after(() => {
+    release();
+    return host.stopAll();
+  });
+
+  assert.equal((await host.start(START)).ok, true);
+  assert.equal((await host.start({ ...START, characterID: fastPilot })).ok, true);
+  await new Promise(setImmediate);
+  const vitalsFor = (characterID) => host.activeBots().find((bot) => bot.characterID === characterID).vitals;
+  const initialVitals = vitalsFor(slowPilot);
+
+  clock += 15_000;
+  holdNextScene = true;
+  const pending = host.sampleAllVitals();
+  let overlapping = Promise.resolve();
+  try {
+    await new Promise(setImmediate);
+    assert.equal(sceneReads.get(slowPilot), 2);
+    clock += 15_000;
+    overlapping = host.sampleAllVitals();
+    await new Promise(setImmediate);
+    assert.equal(sceneReads.get(slowPilot), 2, "no second scene read while the first is pending");
+    assert.equal(sceneReads.get(fastPilot), 3);
+    assert.equal(vitalsFor(fastPilot).sampledAt, new Date(clock).toISOString());
+    assert.deepEqual(vitalsFor(slowPilot), initialVitals);
+  } finally {
+    release();
+    await pending;
+  }
+  // The overlapping tick waited for the slow pilot's sample rather than starting its own.
+  await overlapping;
+  assert.equal(sceneReads.get(slowPilot), 2, "skipped ticks are not replayed");
+  assert.equal(vitalsFor(slowPilot).sampledAt, new Date(clock).toISOString());
+
+  clock += 15_000;
+  await host.sampleAllVitals();
+  assert.equal(sceneReads.get(slowPilot), 3);
+  const lastVitals = vitalsFor(slowPilot);
+  assert.equal(lastVitals.sampledAt, new Date(clock).toISOString());
+
+  clock += 15_000;
+  failNextScene = true;
+  await host.sampleAllVitals();
+  assert.equal(sceneReads.get(slowPilot), 4);
+  assert.deepEqual(vitalsFor(slowPilot), lastVitals);
+  clock += 15_000;
+  await host.sampleAllVitals();
+  assert.equal(sceneReads.get(slowPilot), 5);
+  assert.equal(vitalsFor(slowPilot).sampledAt, new Date(clock).toISOString());
+});
+
+test("stopping a pilot leaves a pending vitals read with no follow-up work", { timeout: 5000 }, async (t) => {
+  const { promise: hold, resolve: release } = Promise.withResolvers();
+  let sceneReads = 0;
+  let holdReads = 0;
+  const host = makeHost({
+    loadStack: makeFakeStack([], (flow) => ({
+      ...flow,
+      async loadSpaceSnapshot() {
+        if (++sceneReads === 2) await hold;
+        await flow.loadSpaceSnapshot();
+      },
+      async loadMiningHolds() {
+        holdReads += 1;
+        await flow.loadMiningHolds();
+      },
+    })),
+  });
+  t.after(() => {
+    release();
+    return host.stopAll();
+  });
+
+  const started = await host.start(START);
+  assert.equal(started.ok, true);
+  await new Promise(setImmediate);
+  const previousVitals = host.list(ACCOUNT.accountID)[0].vitals;
+  const pending = host.sampleAllVitals();
+  try {
+    await new Promise(setImmediate);
+    assert.equal(sceneReads, 2);
+    assert.equal(holdReads, 1);
+    assert.equal((await host.stop(started.bot.botID, ACCOUNT.accountID)).ok, true);
+    assert.equal(host.claimedBy(START.characterID), null);
+
+    const restarted = await host.start(START);
+    assert.equal(restarted.ok, true);
+    await new Promise(setImmediate);
+    assert.equal(holdReads, 2);
+    assert.ok(host.activeBots()[0].vitals);
+  } finally {
+    release();
+    await pending;
+  }
+  assert.equal(holdReads, 2, "the stopped run must not read holds after the scene returns");
+  const ended = host.list(ACCOUNT.accountID).find((bot) => bot.botID === started.bot.botID);
+  assert.ok(ended.endedAt);
+  assert.deepEqual(ended.vitals, previousVitals);
 });
 
 test("a bot whose script vanished leaves a visible error record, not silence", async () => {
@@ -1582,6 +1717,138 @@ test("hosted attachment keeps one logical run and WC restart restores its startu
 
 const PREPARED_OPERATION = { ...START, operationID: "mining-op", operationRole: "MINER", operationRunID: "operation-run-1",
   operationPreparation: { providerCharacterID: 140000002, corporationID: 20, fittingID: 4, source: { kind: "hangar" } }, deferMain: true };
+
+test("finished bot history releases pilot flows, stores, and their data", async (t) => {
+  const log = [], references = [];
+  const host = makeHost({
+    log,
+    webAuth: { createSessionToken: () => "owned-token", verifySessionToken: () => ({ sessionID: "owned-web-session" }) },
+    prepareOperation: async () => ({ state: "VERIFIED", evidence: { supplies: "FULL" } }),
+    loadStack: makeFakeStack(log, (flow, store) => {
+      const routeGraph = { systems: Array(2 ** 20).fill(42) };
+      const names = { entries: Array(2 ** 20).fill(43) };
+      const hostedFlow = { ...flow, routeGraph };
+      store._set({ names });
+      references.push([hostedFlow, store, routeGraph, names].map(value => new WeakRef(value)));
+      return hostedFlow;
+    }),
+  });
+  t.after(() => host.stopAll());
+
+  const started = [];
+  for (const launch of [START, PLUGIN_START, { ...PREPARED_OPERATION, characterID: START.characterID + 2 }]) {
+    const result = await host.start(launch);
+    assert.equal(result.ok, true);
+    started.push(result.bot);
+  }
+  await new Promise(setImmediate);
+  // The fake stack normally logs a strong reference so other tests can drive its store.
+  log.length = 0;
+  for (const bot of started) {
+    const first = await host.stop(bot.botID, ACCOUNT.accountID);
+    const again = await host.stop(bot.botID, ACCOUNT.accountID);
+    assert.equal(first.ok, true);
+    assert.ok(first.bot.endedAt);
+    assert.deepEqual(again, first);
+    assert.equal(host.claimedBy(bot.characterID), null);
+  }
+  assert.equal(log.filter(row => row[0] === "logout").length, started.length);
+  assert.equal(host.list(ACCOUNT.accountID).length, started.length);
+
+  for (let turn = 0; turn < 4; turn++) {
+    await new Promise(setImmediate);
+    collectGarbage();
+  }
+  assert.deepEqual(references.map(run => run.map(ref => ref.deref() !== undefined)), [
+    [false, false, false, false],
+    [false, false, false, false],
+    [false, false, false, false],
+  ], "ended rows still retain flow, store, graph, or names");
+
+  assert.equal((await host.start(START)).ok, true);
+  const history = host.list(ACCOUNT.accountID).filter(bot => bot.endedAt);
+  assert.deepEqual(new Set(history.map(bot => bot.botID)), new Set(started.map(bot => bot.botID)));
+});
+
+test("a bot ending during startup does not leave a deadline timer behind", async (t) => {
+  const log = [];
+  const logoutStarted = Promise.withResolvers();
+  const finishLogout = Promise.withResolvers();
+  let deadline = null;
+  const host = makeHost({
+    log,
+    loadStack: makeFakeStack(log, (flow, store) => ({
+      ...flow,
+      async startCustomBot(doc) {
+        await flow.startCustomBot(doc);
+        store._set({ customBot: { ...IDLE_SLICE, status: "stopped" } });
+        await logoutStarted.promise;
+      },
+      async logout() {
+        logoutStarted.resolve();
+        await finishLogout.promise;
+      },
+    })),
+    setDeadlineTimeout(callback) {
+      deadline = callback;
+      return {};
+    },
+  });
+  t.after(() => host.stopAll());
+  const started = await host.start(START);
+  finishLogout.resolve();
+  assert.equal(started.ok, true);
+  assert.ok((await host.stop(started.bot.botID, ACCOUNT.accountID)).bot.endedAt);
+  assert.equal(deadline, null);
+});
+
+test("a Stop that begins while the character is being selected starts no work and keeps no store listener", async (t) => {
+  const log = [];
+  const selecting = Promise.withResolvers();
+  const finishSelect = Promise.withResolvers();
+  const logoutStarted = Promise.withResolvers();
+  const finishLogout = Promise.withResolvers();
+  let listeners = 0;
+  const host = makeHost({
+    log,
+    loadStack: makeFakeStack(log, (flow, store) => {
+      const subscribe = store.subscribe;
+      store.subscribe = (listener) => {
+        listeners++;
+        const unsubscribe = subscribe(listener);
+        return () => { listeners--; unsubscribe(); };
+      };
+      return {
+        ...flow,
+        async selectCharacter(characterID) {
+          selecting.resolve();
+          await finishSelect.promise;
+          await flow.selectCharacter(characterID);
+        },
+        async logout() {
+          logoutStarted.resolve();
+          await finishLogout.promise;
+          await flow.logout();
+        },
+      };
+    }),
+  });
+  t.after(() => host.stopAll());
+  const starting = host.start(START);
+  await selecting.promise;
+  const botID = host.claimedBy(START.characterID);
+  assert.ok(botID);
+  const stopping = host.stop(botID, ACCOUNT.accountID);
+  await logoutStarted.promise;
+  finishSelect.resolve();
+  const started = await starting;
+  finishLogout.resolve();
+  const stopped = await stopping;
+  assert.equal(started.ok, true);
+  assert.ok(stopped.bot.endedAt);
+  assert.equal(log.some(row => row[0] === "startCustomBot"), false);
+  assert.equal(listeners, 0);
+});
 
 test("final hosted selection precedes preparation, and required members open MAIN together exactly once", async () => {
   const log = []; let releasePreparation;

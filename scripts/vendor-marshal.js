@@ -1,9 +1,10 @@
 "use strict";
 
-// Keep WC's copy of the game-port codec identical to the stock one.
+// Keep WC's copy of the game-port codec in step with the stock one, changed
+// only by the rewrites listed below.
 //
 // src/gameProtocol/ is a copy of the marshal codec the eve.js server itself
-// uses. It is copied, never edited, so that what src/gameClient.js writes and
+// uses. Its wire behavior is copied so that what src/gameClient.js writes and
 // reads is exactly what the game port does. A copy drifts silently: it missed
 // three upstream wire fixes before this script existed.
 //
@@ -23,17 +24,18 @@ const VENDORED_FILES = [
   {
     source: "server/src/network/tcp/utils/marshal.js",
     target: "src/gameProtocol/marshal.js",
-    // The one edit the copy needs: the string table sits beside it here.
     rewrites: [
       [
         'path.join(__dirname, "../../../common/marshalStringTable")',
         'path.join(__dirname, "marshalStringTable")',
       ],
+      // Native row descriptors restore their saved numeric slot metadata.
+      ["  getDecodedNumberKind,", "  getDecodedNumberKind,\n  setDecodedNumberKind,"],
     ],
     header: (commit) => [
       `// VENDORED from the eve.js server (server/src/network/tcp/utils/marshal.js at`,
-      `// eve.js ${commit}, AGPL-3.0-only, same developers), unchanged except for the`,
-      `// string-table path. It is the codec the game port itself speaks;`,
+      `// eve.js ${commit}, AGPL-3.0-only, same developers), with the local string-table`,
+      `// path and decoded-number export. It is the codec the game port itself speaks;`,
       `// src/gameClient.js uses it to talk to the server the way the retail client`,
       `// does. Do not edit it: re-copy with \`npm run vendor:marshal -- --write\`.`,
     ],
