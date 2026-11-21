@@ -1741,6 +1741,16 @@
       openFitting: () => open("fitting"),
       setName: (id, current) => { namingItem = { itemID: id, value: current }; s.flow.requestWords(["UI/Menusvc/SetName", "UI/Menusvc/TypeInNewName", "UI/Common/PleaseTypeSomething", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel"]); },
       inFleet: () => s.store.fleet.get().availability === "ready",
+      // BroadcastState: each broadcast on a thing holds for FLEETBROADCASTTIMEOUT (15 s) from when it was heard
+      currentBroadcasts: () => {
+        const now = Date.now();
+        const out = new Set<number>();
+        for (const b of s.store.fleet.get().broadcastHistory ?? []) {
+          if (now - b.receivedAtMs > 15_000) break;
+          if (b.itemID !== null) out.add(b.itemID);
+        }
+        return out;
+      },
       broadcastOnItem: (name, id, typeID) => void s.flow.broadcastOnItem(name, id, typeID).catch(() => {}),
       openShipHold: (key) => shipHoldTarget.ask(key),
       // the space menu's Set Destination / Add Waypoint (starmap.SetWaypoint) and Save Location... (the bookmark window)

@@ -272,6 +272,8 @@ export interface SpaceActions {
   openFitting?(): void;
   /** menuFunctions.SetName: the name asked (NamePopup) for one's own thing in space, with what it is called now. */
   setName?(itemID: number, current: string): void;
+  /** fleetSvc.GetCurrentFleetBroadcasts' things (the overview's Move entries with broadcasts to top). */
+  currentBroadcasts?(): ReadonlySet<number>;
   /** The pilot is in a fleet (session.IsPilotFleetMember). */
   inFleet?(): boolean;
   /** fleetSvc's broadcasts on a thing in space (Target, HealTarget to the bubble; WarpTo, AlignTo, JumpTo to the system). */
@@ -1089,6 +1091,7 @@ export class SpaceView {
       say: options.overviewSay,
       affiliation: (rows, columns) => options.overviewAffiliation?.(rows, columns) ?? null,
       hover: (id) => this.setHovered(id),
+      currentBroadcasts: () => this.actions.currentBroadcasts?.() ?? new Set(),
       bracketOverride: () => this.bracketOverride,
       setBracketOverride: (value) => { this.bracketOverride = value; },
       otherWindows: (from) => [this.overview, ...this.extraOverviews].filter((o) => o !== from),

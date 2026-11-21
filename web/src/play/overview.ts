@@ -256,6 +256,8 @@ export function typeNames() {
 }
 
 export interface OverviewHooks {
+  /** fleetSvc.GetCurrentFleetBroadcasts: the things a fleet broadcast is on now (BroadcastState, FLEETBROADCASTTIMEOUT 15 s). */
+  currentBroadcasts?(): ReadonlySet<number>;
   /** The overview window this is (overviewWindowUtil's windowInstanceID): 0 the first, others made by Move Tab To. */
   instanceID?: number;
   /** presetSvc.MoveTab(tabID, windowInstanceID): the tab moved to that window, or to a new one where null. */
@@ -1695,7 +1697,14 @@ export class Overview {
     const affiliationOf = wantAffiliation.size ? this.hooks.affiliation?.(listed, wantAffiliation) ?? null : null;
     const words = (e: Entity, k: keyof OverviewAffiliation): string => affiliationOf?.(e)[k] ?? "";
     const key = this.sort.column;
+    // GetSortValueWhenBroadcastGoToTop (Move entries with broadcasts to top): those a broadcast is on before the rest,
+    // whichever way the column runs
+    const broadcasts = overviewMisc().broadcastsToTop ? this.hooks.currentBroadcasts?.() ?? null : null;
     const rows = listed.map((e) => ({ e, d: distanceTo(e) })).sort((a, b) => {
+      if (broadcasts && broadcasts.size) {
+        const top = (broadcasts.has(a.e.itemID) ? 0 : 1) - (broadcasts.has(b.e.itemID) ? 0 : 1);
+        if (top) return top;
+      }
       const by = key === "distance" ? a.d - b.d
         : key === "velocity" ? speed(a.e) - speed(b.e)
         : key === "size" ? (a.e.radius ?? 0) - (b.e.radius ?? 0)
