@@ -57,7 +57,7 @@ import { alignText, indicationHeader, indicationText, pointText, shipIndication,
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { TARGET_LOCKED_LABEL, targetLockDurationMs, type TargetLockRadii } from "./targetLock.ts";
 import { loadDds } from "../three/ddsTexture.ts";
-import { Overview, typeNames, type OverviewAffiliation } from "./overview.ts";
+import { Overview, flagMarkup, typeNames, type OverviewAffiliation } from "./overview.ts";
 import { ContextMenu, type ContextEntry } from "./contextMenu.ts";
 import { fmtDist as fmtDistance } from "../space/overview.ts";
 import { DScanWindow } from "./dscan.ts";
@@ -66,7 +66,7 @@ import { Neocom } from "./neocom.ts";
 import { bracketIcon, hasBracketData, loadBrackets } from "./brackets.ts";
 import { PROXIMITY_TRAP_RANGES } from "./proximityTraps.ts";
 import { probeNumber } from "../bridge/scannerWrites.ts";
-import { gridBracketWanted, type BracketOverride, type OverviewRelationships } from "./overviewFilters.ts";
+import { gridBracketWanted, iconAndBackgroundFlags, type BracketOverride, type OverviewRelationships } from "./overviewFilters.ts";
 import { panelErrorWords } from "../bridge/refusals.ts";
 import { PlayWindow, clientTexture } from "./window.ts";
 import { bloomFor, type Bloom } from "../three/bloom.ts";
@@ -329,6 +329,34 @@ export class SpaceView {
   private readonly bracketEls = new Map<number, HTMLDivElement>();
   /** stateSvc.GetExclState(mouseOver): the one thing under the pointer, a bracket's or an overview row's. */
   private hoveredID: number | null = null;
+
+  /**
+   * InSpaceBracket.UpdateFlagAndBackground: the state flag at the icon's left + 9, top + 8 (9 x 9) and the bracket's
+   * background (bracketBackground.png in the background colour at half its alpha, fading 0..1 over 0.75 s where it
+   * blinks); drawn again only when they change.
+   */
+  private updateBracketFlags(el: HTMLDivElement, e: Entity, groupID: number | null, relations: OverviewRelationships | undefined): void {
+    const flags = iconAndBackgroundFlags(e, groupID, relations);
+    const key = `${flags.icon?.flag ?? 0}:${flags.background?.flag ?? 0}`;
+    if (el.dataset.flags === key) return;
+    el.dataset.flags = key;
+    el.querySelector(".bracket-flag")?.remove();
+    el.querySelector(".bracket-bg")?.remove();
+    if (flags.icon) {
+      const f = document.createElement("span");
+      f.className = "bracket-flag";
+      f.innerHTML = flagMarkup(flags.icon);
+      el.append(f);
+    }
+    const bg = flags.background;
+    if (bg) {
+      const c = bg.backgroundColor;
+      const d = document.createElement("span");
+      d.className = `bracket-bg${bg.backgroundBlink ? " blink" : ""}`;
+      d.style.background = `rgba(${Math.round(c[0]! * 255)},${Math.round(c[1]! * 255)},${Math.round(c[2]! * 255)},${(c[3] ?? 1) * 0.5})`;
+      el.prepend(d);
+    }
+  }
 
   /** stateSvc.SetState(itemID, mouseOver): the bracket shows its label (ShowLabel's mouseOver) and the overview row lights. */
   private setHovered(id: number | null): void {
@@ -2890,6 +2918,7 @@ export class SpaceView {
         if (this.frameCount % 10 === 0 || highlighted || el.classList.contains("selected") || this.hoveredID === e.itemID) {
           el.querySelector<HTMLElement>(".label")!.textContent = labelText(this.nameOf(e), this.distanceTo(e));
         }
+        if (this.frameCount % 10 === 0) this.updateBracketFlags(el, e, groupID, relations);
       }
     }
     this.updateMiningHold(survey, ego, w, h);
