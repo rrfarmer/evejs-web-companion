@@ -6,11 +6,12 @@
 // disruptor, cloak, cyno, siege, smartbomb and fighter rows, and the reactivation and reload countdowns.
 
 import { formatNumeric } from "../bridge/pyNumbers.ts";
+import { fmtDist } from "../space/overview.ts";
 
 /** One row: a 26 px type icon (the type and charge rows) or a 24 px attribute icon, its text (client markup), a shortcut. */
 export interface ModuleTooltipRow {
   readonly icon: string | null;
-  readonly iconSize: 24 | 26;
+  readonly iconSize: 24 | 26 | 34;
   readonly text: string;
   readonly shortcut?: string | null;
   /** AddAttributeRow: a row of attribute values, each its icon and its text, under a header row. */
@@ -123,9 +124,17 @@ const attributeInfo = (attributeID: number, label: string, keyword: string, valu
   if (text !== null) out.push({ icon: f.attributeIcon(attributeID), iconSize: 24, text });
 };
 
+// AddCompressorInfo (groupCompressors 4174): the SkillPlan info icon at 34 and CompressorModuleInfo with the module's
+// maxRange as FmtDist ("Ships in your fleet have to be within 5,000 m to use compression.")
+const compressor: InfoRow = (f, word, out) => {
+  const text = word("UI/Inflight/ModuleRacks/Tooltips/CompressorModuleInfo", { range: fmtDist(f.attr(ATTR.maxRange) ?? 0) });
+  if (text !== null) out.push({ icon: "/client-res/ui/texture/classes/skillplan/infoicon.png", iconSize: 34, text });
+};
+
 /** infoFunctionNames: a group's own rows. */
 const INFO_BY_GROUP = new Map<number, InfoRow>();
 for (const g of [54, 464, 483, 737, 4138]) INFO_BY_GROUP.set(g, miningLaser);
+INFO_BY_GROUP.set(4174, compressor);
 for (const g of [62, 1199, 1698, 2018]) {
   INFO_BY_GROUP.set(g, perTime(ATTR.armorDamageAmount, "UI/Inflight/ModuleRacks/Tooltips/ArmorRepairedPerTime",
     (f) => (f.charge ? f.attr(ATTR.chargedArmorDamageMultiplier) ?? 1 : 1)));
@@ -327,7 +336,7 @@ export const MODULE_TOOLTIP_LABELS: readonly string[] = [
   "UI/Inflight/ModuleRacks/TypeNameWithNumInGroup", "UI/Inflight/ModuleRacks/ModuleDamaged", "UI/Inflight/ModuleRacks/AmmoNameWithQty",
   "UI/Inflight/ModuleRacks/MaxRange", "UI/Inflight/ModuleRacks/OptimalRangeAndFalloff", "UI/Inflight/ModuleRacks/OptimalRange",
   "UI/Inflight/ModuleRacks/AreaOfEffect", "UI/Inflight/ModuleRacks/RangeWithFalloff", "UI/Inflight/ModuleRacks/Range",
-  "UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", "UI/Inflight/ModuleRacks/Tooltips/ArmorRepairedPerTime",
+  "UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", "UI/Inflight/ModuleRacks/Tooltips/CompressorModuleInfo", "UI/Inflight/ModuleRacks/Tooltips/ArmorRepairedPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/HullRepairedPerTime", "UI/Inflight/ModuleRacks/Tooltips/ShieldBonusPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/MaxVelocityWithAndWithoutPropulsion", "UI/Inflight/ModuleRacks/Tooltips/CapacitorBoostPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/EnergyVampireAmountPerTime", "UI/Inflight/ModuleRacks/Tooltips/EnergDestabilizedPerTime",
