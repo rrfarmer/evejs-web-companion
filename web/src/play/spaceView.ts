@@ -694,10 +694,11 @@ export class SpaceView {
         label.append(document.createElement("br"), b);
       }
       for (const part of [icon, label]) {
-        part.addEventListener("mouseenter", () => { icon.classList.add("bo-hilite"); label.classList.add("bo-hilite"); this.setHovered(one.id); });
+        part.addEventListener("mouseenter", () => { icon.classList.add("bo-hilite"); label.classList.add("bo-hilite"); void playUiEvent("ui_button_soft2_play"); this.setHovered(one.id); });
         part.addEventListener("mouseleave", () => { icon.classList.remove("bo-hilite"); label.classList.remove("bo-hilite"); if (this.hoveredID === one.id) this.setHovered(null); });
         part.addEventListener("click", (ev) => {
           ev.stopPropagation();
+          void playUiEvent("msg_ListEntryClick_play");
           this.select(one.id);
           for (const r of icons.children) r.classList.toggle("bo-selected", (r as HTMLElement).dataset.id === String(one.id));
         });
@@ -3555,10 +3556,12 @@ export class SpaceView {
         el.dataset.hackingState = hackingState;
         const id = e.itemID;
         el.dataset.id = String(id);
-        el.addEventListener("click", (ev) => { ev.stopPropagation(); this.select(id); });
+        // InSpaceBracket.OnClick: PlaySound(SOUND_ENTRY_SELECT), then the selection
+        el.addEventListener("click", (ev) => { ev.stopPropagation(); void playUiEvent("msg_ListEntryClick_play"); this.select(id); });
         el.addEventListener("dblclick", (ev) => { ev.stopPropagation(); this.activateSpaceTarget(id); });
         // InSpaceBracket.OnMouseEnter / OnMouseExit: stateSvc's mouseOver, which lights the overview row as well
-        el.addEventListener("mouseenter", () => { this.setHovered(id); this.overlapEntered(id); });
+        // (OnMouseEnter: not with the left button down; PlaySound(SOUND_ENTRY_HOVER) and the mouseOver state)
+        el.addEventListener("mouseenter", (ev) => { if (ev.buttons & 1) return; void playUiEvent("ui_button_soft2_play"); this.setHovered(id); this.overlapEntered(id); });
         el.addEventListener("mouseleave", () => { if (this.hoveredID === id) this.setHovered(null); this.overlapLeft(); });
         el.classList.toggle("hovered", this.hoveredID === id);
         el.classList.toggle("locked", this.locked.has(id));
