@@ -1229,10 +1229,22 @@
       else wins = toggleMinimize(wins, active.id);
       return true;
     }
-    if (cmd === "CmdCloseAllWindows") { if (wins.length) void playUiEvent("ui_object_close_play"); wins = []; return true; }
+    // (the space view's own windows too: one that can be closed (IsKillable) closed, one that cannot minimized)
+    const spaceWindows = (): HTMLElement[] => [...(windowsEl?.querySelectorAll<HTMLElement>(":scope > section.pw") ?? [])];
+    if (cmd === "CmdCloseAllWindows") {
+      if (wins.length) void playUiEvent("ui_object_close_play");
+      wins = [];
+      for (const w of spaceWindows()) {
+        const close = w.querySelector<HTMLElement>(".pw-close");
+        if (close) close.click();
+        else if (!w.classList.contains("minimized")) w.querySelector<HTMLElement>(".pw-min")?.click();
+      }
+      return true;
+    }
     if (cmd === "CmdToggleMinimizeMaximizeAllWindows") {
-      const anyOpen = wins.some((w) => !w.minimized);
+      const anyOpen = wins.some((w) => !w.minimized) || spaceWindows().some((w) => !w.classList.contains("minimized"));
       wins = wins.map((w) => ({ ...w, minimized: anyOpen }));
+      for (const w of spaceWindows()) if (w.classList.contains("minimized") !== anyOpen) w.querySelector<HTMLElement>(".pw-min")?.click();
       return true;
     }
     // CmdRefreshProbeScan (B): the probe scanner's Analyze where its window is open (ProbeScannerWindow.Confirm);
