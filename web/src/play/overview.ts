@@ -20,6 +20,7 @@ export function flagMarkup(f: StateFlagLook | null): string {
   return `<span class="state-flag${f.flagBlink ? " blink" : ""}" style="background:${rgba(f.flagColor, 0.75)}" title="${esc(f.text)}"><span style="background:${rgba(f.iconColor)};-webkit-mask:url(${glyph}) center/8px no-repeat;mask:url(${glyph}) center/8px no-repeat"></span></span>`;
 }
 import { ContextMenu, type ContextEntry } from "./contextMenu.ts";
+import { overviewMisc, setOverviewMisc, applyOverviewMisc } from "./overviewMisc.ts";
 import { SHIP_LABEL_PRESETS, saveShipLabelSettings, shipLabelMarkup, shipLabelSettings, type ShipLabelPart } from "./shipLabels.ts";
 
 /** overviewSettingsConst: MAX_TAB_NUM, MAX_TAB_NAME_LENGTH. */
@@ -140,7 +141,7 @@ export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HI
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
   "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
   "UI/Overview/EditCurrentFilter", "UI/Commands/ChangeName", "UI/Overview/DeleteTab", "/Carbon/UI/Controls/ScrollEntries/TypeInNewName",
-  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
+  "UI/Overview/ChangeOrder", "UI/Overview/TabColumnsCaption", "UI/Overview/OverviewSettings", "UI/Overview/Tabs", "UI/Overview/TabName", "UI/Overview/Filters", "UI/Overview/FilterToEdit", "UI/Overview/TypesShown", "UI/Common/SelectAll", "UI/Common/DeselectAll", "UI/Common/Search", "UI/Common/Buttons/Revert", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "UI/Overview/HintToggleDisplayStateAndOrder", "UI/Overview/ResetColumns", "UI/Generic/Columns"];
 const DISABLED_TEXT = "Header sorting is disabled";
 
 /**
@@ -297,6 +298,7 @@ export class Overview {
       if (id) this.hooks.activate(id);
     });
     void overviewStateOrders().then((o) => { this.stateOrders = o; this.applyAppearance(false); });
+    applyOverviewMisc();
     // the settings window's lists, read ahead so they are there when it opens
     void overviewStates().then((st) => { this.states = st; });
     void overviewFilterGroups().then((g) => { this.filterGroups = g; });
@@ -311,7 +313,8 @@ export class Overview {
       const masks = new Map(Object.entries(p.presets).map(([id, preset]) => [id, presetMask(preset, id)]));
       this.masks = masks;
       this.presetData = p.presets;
-      this.tabSettings = this.storedTabs() ?? p.tabs.map((t) => ({ name: t.name, preset: t.preset, bracket: t.bracket ?? null }));
+      this.profileTabs = p.tabs.map((t) => ({ name: t.name, preset: t.preset, bracket: t.bracket ?? null }));
+      this.tabSettings = this.storedTabs() ?? this.profileTabs.map((t) => ({ ...t }));
       this.tabs = this.tabSettings.map((t) => this.tabOf(t));
       // overviewUtil.GetDefaultFiltersSorted: by category (CATEGORY_ORDER), each sorted by its display name with category
       const order = p.categoryOrder ?? [0, 1, 2, 3, 4, 5];
@@ -485,7 +488,7 @@ export class Overview {
    * gridcheck into overviewFilterGroups.json), each "shown / all" in the accent colour when all, white when some, grey
    * when none, opened to its groups' checkboxes; Select All, Deselect All, the search; Revert while it has changes.
    */
-  openSettings(panel: "tabs" | "filters" | "appearance" | "ships" = "tabs", presetID?: string): void {
+  openSettings(panel: "tabs" | "filters" | "appearance" | "ships" | "misc" = "tabs", presetID?: string): void {
     const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
     document.querySelector(".ov-settings")?.closest(".pw")?.remove();
     const win = new PlayWindow({ id: "overview-settings", caption: word("UI/Overview/OverviewSettings", "Overview Settings"),
@@ -542,7 +545,7 @@ export class Overview {
         ${sub === "types" ? `<div class="ov-filt-bar"><button type="button" class="ov-filt-all">${esc(word("UI/Common/SelectAll", "Select All"))}</button><button type="button" class="ov-filt-none">${esc(word("UI/Common/DeselectAll", "Deselect All"))}</button>
           <input class="ov-filt-search" placeholder="${esc(word("UI/Common/Search", "Search"))}" value="${esc(search)}" autocomplete="off"></div>
         <div class="ov-filt-tree">${tree}</div>` : statesPane}
-        <div class="ov-add-buttons"><button type="button" class="ov-filt-revert"${hasOverrides(changed) ? "" : " disabled"}>${esc(word("UI/Common/Buttons/Revert", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "Revert"))}</button></div></div>`;
+        <div class="ov-add-buttons"><button type="button" class="ov-filt-revert"${hasOverrides(changed) ? "" : " disabled"}>${esc(word("UI/Common/Buttons/Revert", "UI/Generic/Misc", "UI/Overview/BracketAndTargetsHeader", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "UI/Overview/DisplayRangeBrackets", "UI/Overview/Ships", "UI/Overview/NPCs", "UI/Overview/Drones", "UI/Overview/ResetOverview", "UI/Common/ItemTypes/Ships", "UI/Common/ShipType", "UI/Shared/AllianceTicker", "UI/Common/CorpTicker", "UI/Common/ShipName", "UI/Common/PilotName", "UI/Overview/Linebreak", "UI/Overview/OnlyShownWhenAvailable", "UI/Overview/AdditionalTextForCorpTicker", "UI/Overview/HideTickerIfInAlliance", "UI/Overview/AddLinebreak", "UI/Common/Preview", "UI/Overview/ShipLabelFormatPilotCC", "UI/Overview/ShipLabelFormatPilotCCAA", "UI/Overview/ShipLabelFormatCCPilotAA", "UI/Generic/Appearance", "UI/Overview/UseSmallColortags", "UI/Overview/UseSmallFont", "UI/Overview/ApplyToShipsAndDronesByDefault", "UI/Overview/ApplyToStructures", "UI/Overview/ApplyToOtherObjects", "UI/Overview/Colortag", "UI/Overview/Background", "UI/Overview/HintToggleDisplayState", "UI/Commands/ResetAll", "UI/Overview/Exceptions", "UI/Overview/FilterStateAlwaysShowLong", "UI/Overview/FilterStateFilterOutLong", "UI/Overview/FilterStateNotFilterOutLong", "Revert"))}</button></div></div>`;
     };
     // AppearancePanel: the two checkboxes, the note and the two apply-to checkboxes, the Colortag / Background lists (each
     // state's checkbox, its text and, while on, its flag; dragged to reorder) and Reset All
@@ -596,11 +599,22 @@ export class Overview {
         <div class="ov-add-buttons"><button type="button" class="ov-ship-addbr">${esc(word("UI/Overview/AddLinebreak", "Add Linebreak"))}</button></div>
         <div class="ov-ship-preview-title">${esc(word("UI/Common/Preview", "Preview"))}:</div><div class="ov-ship-preview">${preview}</div></div>`;
     };
+    // MiscPanel, the switches with something behind them so far: Show Targeting Crosshair, Display In-Range Brackets with
+    // its Ships / NPCs / Drones, and Reset All Settings (ResetAllOverviewSettings first)
+    const miscPanel = () => {
+      const m = overviewMisc();
+      const box = (key: keyof typeof m, label: string, own: string, sub = false) => `<label class="ov-app-check${sub ? " sub" : ""}"><input type="checkbox" data-misc="${key}"${m[key] ? " checked" : ""}><span>${esc(word(label, own))}</span></label>`;
+      return `<div class="ov-set-panel ov-misc"><div class="ov-misc-head">${esc(word("UI/Overview/BracketAndTargetsHeader", "Brackets and Targets"))}</div>
+        ${box("targetCrosshair", "UI/SystemMenu/GeneralSettings/Inflight/ShowTargettingCrosshair", "Show Targeting Crosshair")}
+        ${box("inRange", "UI/Overview/DisplayRangeBrackets", "Display In-Range Brackets")}
+        ${box("inRangeShips", "UI/Overview/Ships", "Ships", true)}${box("inRangeNPCs", "UI/Overview/NPCs", "NPCs", true)}${box("inRangeDrones", "UI/Overview/Drones", "Drones", true)}
+        <div class="ov-add-buttons"><button type="button" class="ov-misc-reset">${esc(word("UI/Overview/ResetOverview", "Reset All Settings"))}</button></div></div>`;
+    };
     const editLabels = (fn: (labels: ShipLabelPart[]) => void) => { const st = shipLabelSettings(); fn(st.labels); saveShipLabelSettings(st); draw(); };
     const draw = () => {
-      const tabs: [typeof current, string][] = [["tabs", word("UI/Overview/Tabs", "Tabs")], ["filters", word("UI/Overview/Filters", "Filters")], ["appearance", word("UI/Generic/Appearance", "Appearance")], ["ships", word("UI/Common/ItemTypes/Ships", "Ships")]];
+      const tabs: [typeof current, string][] = [["tabs", word("UI/Overview/Tabs", "Tabs")], ["filters", word("UI/Overview/Filters", "Filters")], ["appearance", word("UI/Generic/Appearance", "Appearance")], ["ships", word("UI/Common/ItemTypes/Ships", "Ships")], ["misc", word("UI/Generic/Misc", "Misc")]];
       const scroll = win.body.querySelector(".ov-filt-tree")?.scrollTop ?? 0;
-      win.body.innerHTML = `<div class="ov-set-tabs">${tabs.map(([k, t]) => `<span class="ov-set-tab${k === current ? " active" : ""}" data-panel="${k}">${esc(t)}</span>`).join("")}</div>${current === "tabs" ? tabsPanel() : current === "filters" ? filtersPanel() : current === "appearance" ? appearancePanel() : shipsPanel()}`;
+      win.body.innerHTML = `<div class="ov-set-tabs">${tabs.map(([k, t]) => `<span class="ov-set-tab${k === current ? " active" : ""}" data-panel="${k}">${esc(t)}</span>`).join("")}</div>${current === "tabs" ? tabsPanel() : current === "filters" ? filtersPanel() : current === "appearance" ? appearancePanel() : current === "ships" ? shipsPanel() : miscPanel()}`;
       const tree = win.body.querySelector(".ov-filt-tree");
       if (tree) tree.scrollTop = scroll;
     };
@@ -623,6 +637,7 @@ export class Overview {
       const t = e.target as HTMLElement;
       if (t.closest(".ov-set-row")) { update(); return; }
       if (t.matches(".ov-filt-preset")) { editing = (t as HTMLSelectElement).value; draw(); return; }
+      if (t.matches("[data-misc]")) { setOverviewMisc({ [t.dataset.misc!]: (t as HTMLInputElement).checked }); draw(); return; }
       if (t.matches("[data-hide]")) { const st = shipLabelSettings(); st.hideCorpTicker = (t as HTMLInputElement).checked; saveShipLabelSettings(st); draw(); return; }
       const shipRow = t.closest<HTMLElement>(".ov-ship-row");
       if (shipRow && t.dataset.f) {
@@ -692,6 +707,12 @@ export class Overview {
       const t = e.target as HTMLElement;
       const tab = t.closest<HTMLElement>("[data-panel]");
       if (tab) { current = tab.dataset.panel as typeof current; draw(); return; }
+      // MiscPanel.ResetAllOverviewSettings: ResetAllOverviewSettings (YESNO), then every overview setting back to the profile's
+      if (t.closest(".ov-misc-reset")) {
+        void (this.hooks.ask?.("ResetAllOverviewSettings", "Are you sure you want to reset all overview settings?") ?? Promise.resolve(true))
+          .then((yes) => { if (yes) { this.resetAllSettings(); draw(); } });
+        return;
+      }
       // ShipsPanel.GetShipLabelMenu: the three formats (SetDefaultShipLabel)
       if (t.closest(".ov-ship-menu")) {
         const r = t.getBoundingClientRect();
@@ -737,6 +758,29 @@ export class Overview {
   }
 
   private filterGroups: FilterCategory[] | null = null;
+  private profileTabs: TabSettings[] = [];
+
+  /** overviewPresetSvc.ResetOverviewSettingsToDefault: tabs, filters' changes, columns, sorts, appearance, ship labels, misc. */
+  private resetAllSettings(): void {
+    try {
+      for (const k of Object.keys(localStorage)) {
+        if (k.startsWith("evejs.ui.overview.") || k.startsWith(TABS_KEY) || k.startsWith(SORT_KEY) || k.startsWith(TAB_KEY) || k.startsWith(SORT_ENABLED_KEY)) localStorage.removeItem(k);
+      }
+    } catch { /* nothing kept */ }
+    for (const id of this.masks.keys()) this.revertPreset(id);
+    this.appearance = readAppearance();
+    this.applyAppearance(false);
+    saveShipLabelSettings(null);
+    applyOverviewMisc();
+    this.tabSorts.clear();
+    this.sort = DEFAULT_SORT;
+    this.sortEnabled = true;
+    this.tabSettings = this.profileTabs.map((t) => ({ ...t }));
+    this.tabs = this.tabSettings.map((t) => this.tabOf(t));
+    this.tab = -1;
+    this.choose(0, true);
+    try { localStorage.removeItem(this.tabsKey); } catch { /* nothing kept */ }
+  }
   private appearance: AppearanceSettings = readAppearance();
   private stateOrders: StateOrders | null = null;
 

@@ -60,6 +60,7 @@ import { loadDds } from "../three/ddsTexture.ts";
 import { Overview, flagMarkup, typeNames, type OverviewAffiliation } from "./overview.ts";
 import { ContextMenu, type ContextEntry } from "./contextMenu.ts";
 import { shipLabelMarkup } from "./shipLabels.ts";
+import { inRangeShown, overviewMisc } from "./overviewMisc.ts";
 import { fmtDist as fmtDistance } from "../space/overview.ts";
 import { DScanWindow } from "./dscan.ts";
 import { SolarSystemMapWindow, MARKER_GROUPS, type MapScanResult } from "./solarSystemMap.ts";
@@ -2870,6 +2871,7 @@ export class SpaceView {
     const bracketSimNow = this.live.effectSimNow();
     // the relationships the presets' state filters and the state flags (stateSvc.GetIconAndBackgroundFlags) are read from
     const relations = this.options.overviewRelationships?.();
+    const misc = overviewMisc();
     for (const e of snap?.entities ?? []) {
       seen.add(e.itemID);
       if (e.typeID) this.typeOfID.set(e.itemID, e.typeID);
@@ -2947,7 +2949,7 @@ export class SpaceView {
         // selectedTargetedItem), shown by the bracket's classes
         el.innerHTML = `${glyph(e)}<div class="label"></div><div class="t-ind"><span class="t-hilite"></span><span class="t-circle"></span>
           <span class="t-line t-top"></span><span class="t-line t-left"></span><span class="t-line t-right"></span><span class="t-line t-bottom"></span>
-          <span class="t-locking"></span><span class="t-timer"></span><span class="t-lock-text"></span><span class="t-active-spin"></span><span class="t-active-circle"></span></div>`;
+          <span class="t-cantarget"></span><span class="t-locking"></span><span class="t-timer"></span><span class="t-lock-text"></span><span class="t-active-spin"></span><span class="t-active-circle"></span></div>`;
         el.dataset.hackingState = hackingState;
         const id = e.itemID;
         el.dataset.id = String(id);
@@ -2993,6 +2995,13 @@ export class SpaceView {
           this.drawBracketLabel(el.querySelector<HTMLElement>(".label")!, e);
         }
         if (this.frameCount % 10 === 0) this.updateBracketFlags(el, e, groupID, relations);
+        // bracketMgr.ShowInTargetRange, about once a second: ships, NPCs, drones and fighters within the ship's
+        // maxTargetRange show canTarget2 (40 px at 0.15), each category as the Misc panel allows
+        if (this.frameCount % 60 === 0) {
+          const range = this.actions.shipAttribute?.(76) ?? null;
+          const category = (e as Entity & { categoryID?: number | null }).categoryID ?? null;
+          el.classList.toggle("in-range", !e.isSelf && range !== null && [6, 11, 18, 87].includes(category ?? -1) && inRangeShown(category, misc) && this.distanceTo(e) <= range);
+        }
       }
     }
     this.updateMiningHold(survey, ego, w, h);
