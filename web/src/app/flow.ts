@@ -3154,6 +3154,16 @@ export interface AppFlow {
    * (QuickHasKillRight: GetKillRightsFromCache), with GetMyKillRights' own rights on them (fromID me, toID them).
    */
   bountiesAndKillRights(ownerIDs: readonly number[], characterIDs: readonly number[]): Promise<{ wanted: Set<number>; killRights: Set<number> }>;
+  /** bountySvc.GetBounties: each owner's bounty (0 where none), the owners named. */
+  bountyAmounts(ownerIDs: readonly number[]): Promise<Map<number, number>>;
+  /** BountyWindow.PlaceBounty: bountyProxy.AddToBounty(ownerID, amount); fails as the call fails (NotEnoughMoney...). */
+  placeBounty(ownerID: number, amount: number): Promise<void>;
+  /** bountySvc.GetTopPilotBounties / GetTopCorpBounties / GetTopAllianceBounties(0): the Most Wanted, named. */
+  topBounties(kind: "char" | "corp" | "alliance"): Promise<readonly { ownerID: number; bounty: number }[]>;
+  /** bountySvc.GetTopPilotBountyHunters / ...Corporation... / ...Alliance...(0): the hunters and what they claimed, named. */
+  topBountyHunters(kind: "char" | "corp" | "alliance"): Promise<readonly { ownerID: number; claimed: number; kills: number }[]>;
+  /** bountySvc.GetMyBounties: the bounties this pilot placed (targetID, amount), the targets named. */
+  myBounties(): Promise<readonly { targetID: number; amount: number }[]>;
   /** PopulateTop50: warsInfoMgr.GetTop50(maxWarID) (WARS_PER_PAGE 50 below that war), or GetWarsRequiringAssistance
    * (Show cry for help), the owners primed. */
   recentWars(maxWarID: number, cryForHelp: boolean): Promise<readonly CorpWar[]>;
@@ -19533,6 +19543,43 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     for (const r of decodeKillRights(rights ?? null)) if (r.toID) killRights.add(r.toID);
     for (const r of decodeKillRights(mine ?? null)) if (r.fromID === pilotID && characterIDs.includes(r.toID)) killRights.add(r.toID);
     return { wanted, killRights };
+  }
+  const bountyItems = (v: JsonValue | undefined | null): readonly JsonValue[] => (isListValue(v) ? v.items : Array.isArray(v) ? v : []);
+  const bountyNum = (v: JsonValue | undefined) => (typeof v === "number" ? v : Number(unwrapLong(v) ?? v ?? 0));
+  const nameOwners = (ids: readonly number[]) => { const want = [...new Set(ids)].filter((id) => id > 0); if (want.length) requestNames(want.map((id) => ({ kind: "owner" as const, id }))); };
+  async function bountyAmounts(ownerIDs: readonly number[]): Promise<Map<number, number>> {
+    const out = new Map<number, number>();
+    for (const entry of bountyItems(await bridgeAsk("bountyProxy", "GetBounties", [{ type: "list", items: [...ownerIDs] } as JsonValue]))) {
+      const [targetID, payload] = bountyItems(entry);
+      out.set(bountyNum(targetID), bountyNum(readKeyVal(payload, "bounty")));
+    }
+    nameOwners(ownerIDs);
+    return out;
+  }
+  async function placeBounty(ownerID: number, amount: number): Promise<void> {
+    await bridgeDo("bountyProxy", "AddToBounty", [ownerID, amount]);
+  }
+  async function topBounties(kind: "char" | "corp" | "alliance"): Promise<readonly { ownerID: number; bounty: number }[]> {
+    const method = kind === "char" ? "GetTopPilotBounties" : kind === "corp" ? "GetTopCorpBounties" : "GetTopAllianceBounties";
+    const [rows] = bountyItems(await bridgeAsk("bountyProxy", method, [0]));
+    const out = bountyItems(rows).map((r) => ({ ownerID: bountyNum(readKeyVal(r, "targetID")), bounty: bountyNum(readKeyVal(r, "bounty")) })).filter((r) => r.ownerID > 0);
+    nameOwners(out.map((r) => r.ownerID));
+    return out;
+  }
+  async function topBountyHunters(kind: "char" | "corp" | "alliance"): Promise<readonly { ownerID: number; claimed: number; kills: number }[]> {
+    const method = kind === "char" ? "GetTopPilotBountyHunters" : kind === "corp" ? "GetTopCorporationBountyHunters" : "GetTopAllianceBountyHunters";
+    const answer = await bridgeAsk("bountyProxy", method, [0]);
+    const first = bountyItems(answer)[0];
+    const rows = isListValue(first) || Array.isArray(first) ? bountyItems(first) : bountyItems(answer);
+    const idKey = kind === "char" ? "bountyHunterID" : kind === "corp" ? "corporationID" : "allianceID";
+    const out = rows.map((r) => ({ ownerID: bountyNum(readKeyVal(r, idKey)), claimed: bountyNum(readKeyVal(r, "bountiesClaimed")), kills: bountyNum(readKeyVal(r, "numberOfKills")) })).filter((r) => r.ownerID > 0);
+    nameOwners(out.map((r) => r.ownerID));
+    return out;
+  }
+  async function myBounties(): Promise<readonly { targetID: number; amount: number }[]> {
+    const out = bountyItems(await bridgeAsk("bountyProxy", "GetMyBounties", [])).map((r) => ({ targetID: bountyNum(readKeyVal(r, "targetID")), amount: bountyNum(readKeyVal(r, "amount")) })).filter((r) => r.targetID > 0);
+    nameOwners(out.map((r) => r.targetID));
+    return out;
   }
   async function ownerWars(ownerID: number): Promise<readonly CorpWar[]> {
     return warsNamed(decodeWars(await bridgeAsk("warRegistry", "GetWars", [ownerID])));
@@ -37571,6 +37618,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     warLandingInfo,
     ownerWars,
     bountiesAndKillRights,
+    bountyAmounts,
+    placeBounty,
+    topBounties,
+    topBountyHunters,
+    myBounties,
     recentWars,
     warHistory,
     warReport,

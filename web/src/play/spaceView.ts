@@ -195,7 +195,7 @@ export interface SpaceViewOptions {
   /** A character's name (cfg.eveowners), asked for where not yet had; null until it is. */
   pilotName?: (characterID: number) => string | null;
   /** menusvc's "Pilot (<name>)" entry for a ship another pilot flies: its CharacterMenu as a submenu; null for none. */
-  pilotMenu?: (characterID: number) => ContextEntry | null;
+  pilotMenu?: (characterID: number, affiliation?: { corporationID: number | null; allianceID: number | null }) => ContextEntry | null;
   /** stateSvc's selected state changed (an object selected, or none): for the panels that show it (the drone entries). */
   onSelectionChange?: (itemID: number | null) => void;
   overviewNotice?: (text: string) => void;
@@ -2833,7 +2833,7 @@ export class SpaceView {
     }
     out.push(null, showInfo);
     // _CelestialMenu (2050): a ship with a pilot not the pilot's own, "Pilot (<name>)" with the CharacterMenu after Show Info
-    if (e.characterID && !e.isSelf && this.options.pilotMenu) { const pilot = this.options.pilotMenu(e.characterID); if (pilot) out.push(pilot); }
+    if (e.characterID && !e.isSelf && this.options.pilotMenu) { const pilot = this.options.pilotMenu(e.characterID, { corporationID: e.corporationID ?? null, allianceID: e.allianceID ?? null }); if (pilot) out.push(pilot); }
     out.push(null);
     if (stargate) out.push({ path: "UI/Inflight/AddFirstWaypoint", label: word("UI/Inflight/AddFirstWaypoint", "Add as First Waypoint"), run: () => this.actions.addWaypoint?.(id) });
     else if (dockable && this.actions.setDestination) {

@@ -136,6 +136,7 @@
   import SovReagentBay from "./SovReagentBay.svelte";
   import SovHubWindow from "./SovHubWindow.svelte";
   import ContactActionDialog from "./ContactActionDialog.svelte";
+  import BountyOfficeWindow from "./BountyOfficeWindow.svelte";
   import type { ContactAction } from "./contactAction.ts";
   import type { MySovHub, SovHubDetails, SovHubExtras } from "../app/flow.ts";
 
@@ -155,6 +156,8 @@
   let session = $state<Session | null>(null);
   // the Pilot submenu's Add Contact / Edit Contact: the address book's contactmanagement window
   let pilotContact = $state.raw<ContactAction | null>(null);
+  // the Pilot submenu's Place Bounty: openFunctions.OpenBountyOffice(charID), the owner's corporation and alliance kept
+  let bountyOffice = $state.raw<{ n: number; target: { ownerID: number; corporationID: number | null; allianceID: number | null } } | null>(null);
   let autoMoonMiner = $state.raw<AutoMoonMiner | null>(null);
   let moonMaterialBay = $state.raw<MoonMaterialBay | null>(null);
   let moonMaterialRequest = 0;
@@ -1476,7 +1479,7 @@
     const attributeLook = new Map<number, { readonly icon: string | null; readonly nameID: number | null }>();
     void s.flow.attributeDisplay(TIP_ATTRIBUTES).then((found) => {
       for (const [id, d] of found ?? []) attributeLook.set(id, { icon: d.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d.displayNameID });
-      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Menusvc/MenuHints/NoReasonGiven", "UI/Control/EveWindow/Minimize", "UI/Generic/Copy", "UI/Drones/EngageTarget", "UI/Drones/MineWithDrone", "UI/Drones/Salvage", "UI/Drones/ReturnDroneAndOrbit", "UI/Drones/ReturnDroneToBay", "UI/Drones/ScoopDroneToBay", "UI/Drones/AbandonDrone", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Menusvc/MoonsMenuOption", "UI/Common/Pilot", "UI/Inflight/BoardShip", "UI/Commands/GiveMoney", "UI/PeopleAndPlaces/BlockContact", "UI/EVEMail/SendPilotEVEMail", "UI/Fleet/FormFleetWith", "UI/Crimewatch/Duel/DuelMenuEntry", "UI/PeopleAndPlaces/AddContact", "UI/PeopleAndPlaces/EditContact", "UI/Commands/CapturePortrait", "UI/Inflight/Submenus/MoonX", "UI/Menusvc/PlanetHasNoMoons", "UI/PI/Common/CustomsOffice", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
+      s.flow.requestWords([...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Menusvc/MenuHints/NoReasonGiven", "UI/Control/EveWindow/Minimize", "UI/Generic/Copy", "UI/Drones/EngageTarget", "UI/Drones/MineWithDrone", "UI/Drones/Salvage", "UI/Drones/ReturnDroneAndOrbit", "UI/Drones/ReturnDroneToBay", "UI/Drones/ScoopDroneToBay", "UI/Drones/AbandonDrone", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Menusvc/MoonsMenuOption", "UI/Common/Pilot", "UI/Inflight/BoardShip", "UI/Commands/GiveMoney", "UI/PeopleAndPlaces/BlockContact", "UI/EVEMail/SendPilotEVEMail", "UI/Fleet/FormFleetWith", "UI/Crimewatch/Duel/DuelMenuEntry", "UI/PeopleAndPlaces/AddContact", "UI/PeopleAndPlaces/EditContact", "UI/Commands/CapturePortrait", "UI/Station/BountyOffice/PlaceBounty", "UI/Inflight/Submenus/MoonX", "UI/Menusvc/PlanetHasNoMoons", "UI/PI/Common/CustomsOffice", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
     }).catch(() => {});
     const stopAskedAt = new Map<number, number>();
     const tipWord = (label: string, args: Readonly<Record<string, unknown>>): string | null => {
@@ -1750,7 +1753,7 @@
       // menusvc.CharacterMenu under "Pilot (<name>)" (UI/Common/Pilot), in the client's order (read through gridcheck),
       // the entries the page has a way for: Show Info, Give Money, Add Contact (Edit Contact for one), Block, Send
       // Message, Capture Portrait, Form Fleet With..., Invite to Duel
-      pilotMenu: (characterID) => {
+      pilotMenu: (characterID, affiliation) => {
         // AddContactMenu: Edit Contact where the pilot is in the address book (IsInAddressBook), else Add Contact
         if (!pilotBook) void s.flow.addressBook("contact").then((book) => { pilotBook = book; }).catch(() => {});
         const known = !!pilotBook?.contacts.some((c) => c.contactID === characterID);
@@ -1768,6 +1771,7 @@
           sub: [
             { label: w("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => showInfo({ kind: "character", characterID }) },
             { label: w("UI/Commands/GiveMoney", "Give Money"), run: () => void s.flow.openMoneyTransfer(characterID).catch(() => {}) },
+            { label: w("UI/Station/BountyOffice/PlaceBounty", "Place Bounty"), run: () => { bountyOffice = { n: (bountyOffice?.n ?? 0) + 1, target: { ownerID: characterID, corporationID: affiliation?.corporationID ?? null, allianceID: affiliation?.allianceID ?? null } }; } },
             { label: known ? w("UI/PeopleAndPlaces/EditContact", "Edit Contact") : w("UI/PeopleAndPlaces/AddContact", "Add Contact"),
               run: () => void s.flow.addressBook("contact").then((book) => { pilotBook = book; pilotContact = { kind: "manage", ownerID: characterID, name: nameOf(characterID) || name, book }; }).catch(() => {}) },
             { label: w("UI/PeopleAndPlaces/BlockContact", "Block"), run: () => void s.flow.blockOwners([characterID]).catch(() => {}) },
@@ -2224,6 +2228,12 @@
   {/if}
   {#if damageAlertsOpen}
     <ErrorBoundary name="Ship health alerts"><DamageAlertSettings store={session.store} onClose={() => (damageAlertsOpen = false)} /></ErrorBoundary>
+  {/if}
+  {#if bountyOffice}
+    {#key bountyOffice.n}
+      <ErrorBoundary name="Bounty Office"><BountyOfficeWindow store={session.store} flow={session.flow} target={bountyOffice.target} onClose={() => (bountyOffice = null)}
+        showInfo={(id, kind) => showInfo(kind === "corp" ? { kind: "corporation", corporationID: id } : kind === "alliance" ? { kind: "alliance", allianceID: id } : { kind: "character", characterID: id })} /></ErrorBoundary>
+    {/key}
   {/if}
   {#if pilotContact}
     {@const action = pilotContact}
