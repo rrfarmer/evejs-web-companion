@@ -54,7 +54,7 @@
   // svelte-ignore state_referenced_locally
   const fitting = store.fitting;
 
-  const MENU = { market: "UI/Inventory/ItemActions/ViewTypesMarketDetails", buy: "UI/Inventory/ItemActions/BuyThisType", compare: "UI/Compare/CompareButton",
+  const MENU = { market: "UI/Inventory/ItemActions/ViewTypesMarketDetails", buy: "UI/Inventory/ItemActions/BuyThisType", buyAll: "UI/Market/MarketQuote/BuyAll", compare: "UI/Compare/CompareButton",
     jettison: "UI/Inventory/ItemActions/Jettison", launch: "UI/Drones/LaunchDrone", info: "UI/Commands/ShowInfo", contracts: "UI/Inventory/ItemActions/FindInContracts",
     assets: "UI/Inventory/ItemActions/FindPersonalAssets", quickbar: "UI/Inventory/ItemActions/AddTypeToMarketQuickbar", compress: "UI/Commands/Compress",
     compressNone: "UI/Compression/FailureToCompressAny" } as const;
@@ -291,22 +291,30 @@
     // DESTRUCTIVEGROUP 17): _SortMenuEntries orders by it, stable, and a line goes between groups
     const ranked: [number, ContextEntry][] = [];
     const entries = { push: (e: ContextEntry, rank: number) => ranked.push([rank, e]) };
-    if (one) {
-      entries.push({ label: word(MENU.market, "View Market Details"), run: () => showMarketDetails(one.typeID) }, 10);
-      entries.push({ label: word(MENU.buy, "Buy This Type"), run: () => buyMarketType(one.typeID) }, 10);
-      // OfferCompressInSpace: a compressible type directly in the active ship in space (DirectlyCompressInSpace)
-      if (compressible.has(one.typeID)) entries.push({ label: word(MENU.compress, "Compress"), run: () => void compressInSpace(items) }, 14);
-      // OfferCompareButton: IsComparible (inventorycommon.const.compareCategories) with dogma attributes to show
-      if (one.categoryID !== null && COMPARE_CATEGORIES.includes(one.categoryID)) entries.push({ label: word(MENU.compare, "Compare"), run: () => typeCompareTarget.ask(items.map((i) => ({ typeID: i.typeID, itemID: i.itemID }))) }, 14);
-    }
+    // menusvc._InvItemMenu per item, MergeMenus over a selection (read through gridcheck on two bay drones): with more than one
+    // item (isMultiSelection) no Show Info, Find in Contracts / Personal Assets or Quickbar, Buy All for Buy This Type
+    // (BuyMultipleTypes: one of each type), and the merged list entries' MenuEntryData.GetText " (<quantity>)" - the
+    // items' count for Buy All and Compare, their stack sizes summed (_GetEntryQuantity) for Launch Drone and Jettison
+    const multi = items.length > 1;
+    const first = items[0]!;
+    const count = (label: string, n: number) => (multi ? `${label} (${n})` : label);
+    const units = items.reduce((n, i) => n + i.quantity, 0);
+    entries.push({ label: word(MENU.market, "View Market Details"), run: () => showMarketDetails(first.typeID) }, 10);
+    entries.push(multi
+      ? { label: count(word(MENU.buyAll, "Buy All"), items.length), run: () => void flow.openMultiBuy(new Map(types.map((t) => [t, 1]))) }
+      : { label: word(MENU.buy, "Buy This Type"), run: () => buyMarketType(first.typeID) }, 10);
+    // OfferCompressInSpace: a compressible type directly in the active ship in space (DirectlyCompressInSpace)
+    if (one && compressible.has(one.typeID)) entries.push({ label: word(MENU.compress, "Compress"), run: () => void compressInSpace(items) }, 14);
+    // OfferCompareButton: IsComparible (inventorycommon.const.compareCategories) with dogma attributes to show
+    if (items.every((i) => i.categoryID !== null && COMPARE_CATEGORIES.includes(i.categoryID))) entries.push({ label: count(word(MENU.compare, "Compare"), items.length), run: () => typeCompareTarget.ask(items.map((i) => ({ typeID: i.typeID, itemID: i.itemID }))) }, 14);
     entries.push(fromBay === "drone"
-      ? { label: word(MENU.launch, ids.length > 1 ? "Launch Drones" : "Launch Drone", { numDrones: ids.length }), run: () => void act(() => flow.launchDrones(ids)) }
-      : { label: word(MENU.jettison, "Jettison"), run: () => void act(() => flow.jettisonItems(ids)) }, fromBay === "drone" ? 1 : 17);
-    if (one) {
-      entries.push({ label: word(MENU.info, "Show Info"), info: true, run: () => showInfo({ kind: "type", typeID: one.typeID, itemID: one.itemID }) }, 2);
-      entries.push({ label: word(MENU.contracts, "Find in Contracts"), run: () => findInContracts(one.typeID) }, 10);
-      entries.push({ label: word(MENU.assets, "Find Personal Assets"), run: () => findInPersonalAssets(typeName(one.typeID)) }, 10);
-      entries.push({ label: word(MENU.quickbar, "Add to Market Quickbar"), run: () => { changeQuickbar((q) => addType(q, one.typeID)); } }, 10);
+      ? { label: count(word(MENU.launch, "Launch Drone", { numDrones: 1 }), units), run: () => void act(() => flow.launchDrones(ids)) }
+      : { label: count(word(MENU.jettison, "Jettison"), units), run: () => void act(() => flow.jettisonItems(ids)) }, fromBay === "drone" ? 1 : 17);
+    if (!multi) {
+      entries.push({ label: word(MENU.info, "Show Info"), info: true, run: () => showInfo({ kind: "type", typeID: first.typeID, itemID: first.itemID }) }, 2);
+      entries.push({ label: word(MENU.contracts, "Find in Contracts"), run: () => findInContracts(first.typeID) }, 10);
+      entries.push({ label: word(MENU.assets, "Find Personal Assets"), run: () => findInPersonalAssets(typeName(first.typeID)) }, 10);
+      entries.push({ label: word(MENU.quickbar, "Add to Market Quickbar"), run: () => { changeQuickbar((q) => addType(q, first.typeID)); } }, 10);
     }
     const sorted: (ContextEntry | null)[] = [];
     ranked.map((r, n) => [r, n] as const).sort((a, b) => a[0][0] - b[0][0] || a[1] - b[1]).forEach(([[rank, entry]], n, all) => {
