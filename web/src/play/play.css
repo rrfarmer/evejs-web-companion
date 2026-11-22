@@ -273,7 +273,8 @@ button { font: inherit; color: inherit; }
 .ov-add-label input, .ov-add select { height: 28px; box-sizing: border-box; background: rgba(0, 0, 0, 0.3); color: #fff; border: 1px solid rgba(255, 255, 255, 0.2); padding: 0 8px; font: inherit; }
 .ov-add-count { position: absolute; right: 8px; bottom: 6px; font-size: 11px; color: rgba(255, 255, 255, 0.4); }
 .ov-add-title { margin: 16px 0 8px; height: 16px; }
-.ov-add-buttons { display: flex; gap: 8px; justify-content: center; margin-top: 16px; }
+/* ButtonGroup: its buttons all as wide as the widest, 8 apart, centred (Misc's three 143 x 32, read through gridcheck) */
+.ov-add-buttons { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; width: fit-content; margin: 16px auto 0; }
 /* a ButtonGroup's Buttons: 32 high, at least 80 wide, the label 16 in (read through gridcheck on the settings panels) */
 .ov-add-buttons button { box-sizing: border-box; min-width: 80px; height: 32px; padding: 0 16px; letter-spacing: 0; background: rgba(255, 255, 255, 0.1); color: #fff; border: 1px solid rgba(255, 255, 255, 0.2); font: inherit; cursor: pointer; }
 .ov-add-buttons button:hover { background: rgba(255, 255, 255, 0.18); }
@@ -432,9 +433,11 @@ button { font: inherit; color: inherit; }
 .ov-ship-br .ov-ship-grip { width: 16px; color: rgba(255, 255, 255, 0.5); }
 .ov-ship-remove { width: 16px; height: 16px; opacity: .75; cursor: pointer; margin-left: 8px; }
 .ov-ship-preview-title { margin-top: auto; }
-.ov-misc { display: flex; flex-direction: column; padding: 8px; gap: 2px; }
-.ov-misc-head { font-size: 16px; color: rgba(255, 255, 255, 0.9); margin: 16px 0 4px; }
-.ov-misc .sub { padding-left: 12px; }
+/* MiscPanel (read through gridcheck): flush with the main at 130, its Checkboxes 24 high one under another, Brackets and
+   Targets an EveCaptionSmall (19 px, 24 high) 16 below the first, the category checkboxes 8 in, the ButtonGroup at the foot */
+.ov-set-panel.ov-misc { display: flex; flex-direction: column; padding: 8px 0 0; gap: 0; }
+.ov-misc-head { flex: none; font-size: 19px; line-height: 24px; height: 24px; color: #fff; margin: 16px 0 0; }
+.ov-misc .sub { margin-left: 8px; }
 .ov-misc .ov-add-buttons { margin-top: auto; }
 .ov-ship-preview { padding: 6px 8px; border: 1px solid rgba(255, 255, 255, 0.15); font-size: 12px; line-height: 1.25; min-height: 34px; }
 .ov-app-bg.blink { animation: state-flag-blink 1s ease-in-out infinite; }
