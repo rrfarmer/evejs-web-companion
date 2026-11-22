@@ -3751,12 +3751,15 @@ export class SpaceView {
     const structures = things.filter((e) => e.categoryID === 65);
     const splitStructures = structures.length > 10;
     if (!splitStructures) groups.push({ label: word("UI/Common/LocationTypes/Structures", "Structures"), list: structures, split: false });
+    // as the client draws navigation.GetMenu (read through gridcheck: Look At My Ship | Show Info | Show Solar System in
+    // Map Browser | Asteroid Belts .. Anomalies | Locations): its menu data's groups put Show Info before the map
     const menu: (ContextEntry | null)[] = [
       { path: "UI/Inflight/ResetCamera", label: word("UI/Inflight/ResetCamera", "Look At My Ship"), run: () => this.focusOn(null) },
       null,
+      { path: "UI/Commands/ShowInfo", label: word("UI/Commands/ShowInfo", "Show Info"), info: true, disabled: systemID === null ? "" : null, run: () => { if (systemID !== null) this.options.showInfo?.(systemID, 5); } },
+      null,
       { path: "UI/Inflight/ShowSystemInMapBrowser", label: word("UI/Inflight/ShowSystemInMapBrowser", "Show Solar System in Map Browser"), disabled: systemID === null ? "" : null, run: () => { if (systemID !== null) this.options.showSystemOnMap?.(systemID); } },
       null,
-      { path: "UI/Commands/ShowInfo", label: word("UI/Commands/ShowInfo", "Show Info"), info: true, disabled: systemID === null ? "" : null, run: () => { if (systemID !== null) this.options.showInfo?.(systemID, 5); } },
     ];
     for (const g of groups.filter((x) => x.list.length).sort((a, b) => a.label.localeCompare(b.label))) {
       menu.push({ label: g.label, icon: iconOf(g.list[0]!), sub: typeMenu(g.list) });
@@ -3772,12 +3775,13 @@ export class SpaceView {
     // sensorSuite.GetAnomalies: Anomalies (AnomalySiteFilterLabel), its sites by scan group (_GetAnomaliesMenu)
     const sites = this.actions.anomalies?.() ?? [];
     if (sites.length) menu.push({ label: word("UI/Inflight/Scanner/AnomalySiteFilterLabel", "Anomalies"), icon: "res:/UI/Texture/Shared/Brackets/combatSite_16.png", sub: this.anomaliesMenu(sites) });
-    // bookmarkSvc.GetBookmarkMenuForNavigation: Locations, the system's bookmarks
-    menu.push(...(this.actions.locationsMenu?.() ?? []));
+    // bookmarkSvc.GetBookmarkMenuForNavigation: Locations, the system's bookmarks, in a group of their own
+    menu.push(null, ...(this.actions.locationsMenu?.() ?? []));
     // _GetAgentMissonsMenu: Agent Missions, the journal's mission bookmarks in the system
     menu.push(...(this.actions.missionsMenu?.() ?? []));
     this.radial.close();
-    this.contextMenu.open(x, y, menu);
+    // (no line first, last or twice)
+    this.contextMenu.open(x, y, menu.filter((m, i, all) => m !== null || (i > 0 && i < all.length - 1 && all[i - 1] !== null)));
   }
 
   /**
