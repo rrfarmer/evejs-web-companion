@@ -121,6 +121,8 @@ button { font: inherit; color: inherit; }
 .bracket.mining-selected { z-index: 2; }
 .mining-details { display: none; pointer-events: none; position: absolute; left: 118px; top: 60px; white-space: nowrap; }
 .bracket.asteroid:not(.selected) > .glyph { visibility: hidden; }
+/* InSpaceBracket._is_label_visible: no label while the expanded bracket shows (it carries the name) */
+.bracket.mining-selected > .label { display: none !important; }
 .mining-details .eb-callout { position: absolute; left: -100px; top: -46px; width: 95px; height: 65px; max-width: none; opacity: 0.5; }
 .mining-details .eb-grid { position: relative; top: 8px; display: grid; row-gap: 4px; }
 .mining-details .eb-name { position: relative; justify-self: start; padding-bottom: 4px; font-size: 14px; line-height: 18px; color: #fff; text-shadow: 1px 1px 0 #000; }
