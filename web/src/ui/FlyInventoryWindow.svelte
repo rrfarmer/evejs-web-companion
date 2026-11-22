@@ -117,7 +117,7 @@
     ["UI/Common/Type", "UI/Inventory/TypeReversed", "type", "Type", "Type (reversed)"], ["UI/Inventory/EstPrice", "UI/Inventory/EstPriceReversed", "estPrice", "Est. Price", "Est. Price (reversed)"]] as const;
   /** invCont.GetViewModeName / GetViewModeIcon. */
   const VIEW_MODES = [["icons", "UI/Inventory/Icons", "Icons", "grid_view"], ["details", "UI/Inventory/Details", "Details", "details_view"], ["list", "UI/Inventory/List", "List", "list_view"]] as const;
-  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/ShortcutBrackets", "UI/Inventory/SlotRigs", "UI/Inventory/SlotHigh", "UI/Inventory/SlotMedium", "UI/Inventory/SlotLow", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SortBy", "UI/Inventory/ViewMode",
+  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/ShortcutBrackets", "UI/Inventory/SlotRigs", "UI/Inventory/SlotHigh", "UI/Inventory/SlotMedium", "UI/Inventory/SlotLow", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SelectAll", "UI/Inventory/InvertSelection", "UI/Common/SortBy", "UI/Inventory/ViewMode",
     "UI/Inventory/Filters/MyFilters", "UI/Common/NothingFound", "UI/Inventory/OpenInNewWindow", "UI/Common/Buttons/Close", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
   flow.requestWords(WORDS);
   const word = (label: string, own: string, args: Record<string, string | number> = {}) => {
@@ -548,7 +548,31 @@
       if (n > 0 && all[n - 1]![0][0] !== rank) sorted.push(null);
       sorted.push(entry);
     });
-    menu.open(e.clientX, e.clientY, sorted);
+    // InvItem.GetMenu: the items' menu, a line, then the container's (GetContainerMenu)
+    menu.open(e.clientX, e.clientY, [...sorted, null, ...containerMenu()]);
+  }
+  /**
+   * container.GetContainerMenu: Select All, Invert Selection; in the icon view (ShouldShowSortBy: not a scroll view mode) a
+   * line and Sort By with the sort options; not view-only and offered (should_offer_stack_all), a line and Stack All.
+   */
+  function containerMenu(): (ContextEntry | null)[] {
+    const ids = shown.map((i) => i.itemID);
+    const out: (ContextEntry | null)[] = [
+      { label: word("UI/Common/SelectAll", "Select All"), run: () => { selected = ids; } },
+      { label: word("UI/Inventory/InvertSelection", "Invert Selection"), run: () => { selected = ids.filter((id) => !selected.includes(id)); } },
+    ];
+    if (viewMode === "icons") {
+      const sub: (ContextEntry | null)[] = [];
+      SORT_OPTIONS.forEach(([asc, desc, criteria, ownAsc, ownDesc], i) => {
+        if (i > 0) sub.push(null);
+        for (const [dir, label, own] of [[0, asc, ownAsc], [1, desc, ownDesc]] as const) {
+          sub.push({ label: word(label, own), icon: sortBy === criteria && sortDir === dir ? "res:/UI/Texture/eveicon/system_icons/checkmark_16px.png" : null, run: () => { sortBy = criteria; sortDir = dir; } });
+        }
+      });
+      out.push(null, { label: word("UI/Common/SortBy", "Sort By"), icon: "res:/UI/Texture/eveicon/system_icons/bars_sort_ascending_16px.png", sub });
+    }
+    if (bay && !(current === "container" || current.startsWith("temp:"))) out.push(null, { label: word("UI/Inventory/StackAll", "Stack All"), icon: "res:/UI/Texture/eveicon/system_icons/stack_16px.png", run: stackAll });
+    return out;
   }
   /** _get_view_mode_menu: each mode with its icon. */
   /** The scroll's hidden columns (filteredColumns, by default uix.GetInvItemDefaultHiddenHeaders: Category, Meta Level, Tech
@@ -713,7 +737,7 @@
       <input class="search" placeholder="Search" value={$filterSig} oninput={(e) => filterSig.set((e.target as HTMLInputElement).value)} />
     </div>
     {/if}
-    <div class="items" role="list" onclick={() => (selected = [])} onkeydown={() => {}}
+    <div class="items" role="list" onclick={() => (selected = [])} onkeydown={() => {}} oncontextmenu={(e) => { e.preventDefault(); menu.open(e.clientX, e.clientY, containerMenu()); }}
       ondragover={areaDragOver} ondragleave={areaDragLeave}
       ondrop={(e) => { addStacks = null; if (dragging && dragging.from !== areaKey) void dropOn(areaKey, e); }}>
       {#if bay && bay.items === null}
