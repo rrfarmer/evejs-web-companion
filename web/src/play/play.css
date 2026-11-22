@@ -1025,3 +1025,9 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 .ov-icon-tip-grid b { color: rgba(255, 255, 255, 0.9); }
 .ov-icon-tip-icon { width: 16px; height: 16px; display: grid; place-items: center; }
 .ov-icon-tip-icon .glyph { width: 16px; height: 16px; }
+
+/* the target's state flag and an NPC's bracket icon at the bottom of its icon (targetInBar SetStandingIcon / SetBracketIcon) */
+.tb-badges { position: absolute; inset: 0; pointer-events: none; }
+.tb-badges > span { position: absolute; }
+.tb-bracket { width: 16px; height: 16px; }
+.tb-flag .state-flag { position: static; display: block; width: 10px; height: 10px; }

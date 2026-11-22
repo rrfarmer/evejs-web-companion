@@ -5672,6 +5672,11 @@ export class SpaceView {
       entries.push({
         // (targetInBar.SetTargetLabel: uix.GetSlimItemName - its own name, else its type's, as an NPC's)
         itemID: id, typeID: e.typeID, name: this.targetLabelOf(e), distance: this.distanceTo(e),
+        // (SetTargetLabel's shipLabel: a ship whose slim item has a corporation, its type's name under the name)
+        typeName: e.categoryID === 6 && e.corporationID && e.typeID !== null ? this.names?.types[String(e.typeID)]?.[0] ?? null : null,
+        // SetStandingIcon (stateSvc.CheckStates(slim, 'flag')) and, for an NPC entity (category 11), SetBracketIcon
+        flagHtml: (() => { const f = iconAndBackgroundFlags(e, this.overview.groupOf(e), this.lastRelations).icon; return f ? flagMarkup(f).replace(/ title="[^"]*"/, "") : null; })(),
+        bracket: e.categoryID === 11 ? (() => { const url = bracketIcon(e); return url ? { url, colour: iconLook(e).colour } : null; })() : null,
         shieldRatio: e.shieldRatio ?? null, armorRatio: e.armorRatio ?? null, hullRatio: e.hullRatio ?? null,
         locking: false, active: id === this.activeTarget, mining,
         weapons: rackModules.filter((m) => m.active && m.targetID === id).map((m) => ({ itemID: m.itemID, typeID: m.typeID })),

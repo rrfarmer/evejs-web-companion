@@ -260,6 +260,10 @@ export interface TargetBarEntry {
   name: string | null;
   /** The ship type's name, shown for a player's ship (SetTargetLabel). */
   typeName?: string | null;
+  /** SetStandingIcon: the state flag's markup (overview.flagMarkup), at the icon's bottom centre. */
+  flagHtml?: string | null;
+  /** SetBracketIcon (an NPC entity): its bracket texture and GetIconColor, at the icon's bottom centre. */
+  bracket?: { readonly url: string; readonly colour: string } | null;
   /** Surface distance in metres. */
   distance: number;
   shieldRatio: number | null;
@@ -328,6 +332,8 @@ class TargetInBar {
   private assignedHeight = ASSIGNED_HEIGHT;
   private name: string | null = null;
   private typeName: string | null = null;
+  private badges: HTMLDivElement | null = null;
+  private badgeKey = "";
   private typeID: number | null = null;
   private active: boolean | null = null;
   private lastDistance: number | null = null;
@@ -405,6 +411,34 @@ class TargetInBar {
       this.iconContainer.style.opacity = e.active ? "1" : "0.8";
       this.circle.style.opacity = e.active ? "0.5" : "0.25";
       this.indicator.style.display = e.active ? "" : "none";
+    }
+    // SetStandingIcon (AddAndSetFlagIcon CENTERBOTTOM top 8, the 10 px FlagIconWithState) and, for an NPC, SetBracketIcon
+    // (a 16 px Sprite CENTERBOTTOM top 5 in its icon colour), both in the icon's container
+    const badgeKey = `${e.flagHtml ?? ""}|${e.bracket?.url ?? ""}|${e.bracket?.colour ?? ""}`;
+    if (badgeKey !== this.badgeKey) {
+      this.badgeKey = badgeKey;
+      this.badges?.remove();
+      this.badges = null;
+      if (e.flagHtml || e.bracket) {
+        const b = document.createElement("div");
+        b.className = "tb-badges";
+        if (e.bracket) {
+          const br = document.createElement("span");
+          br.className = "tb-bracket";
+          Object.assign(br.style, { left: `${(ICON_SIZE - 16) / 2}px`, top: `${ICON_SIZE - 5 - 16}px`, background: e.bracket.colour,
+            webkitMask: `url(${e.bracket.url}) center / 16px 16px no-repeat`, mask: `url(${e.bracket.url}) center / 16px 16px no-repeat` });
+          b.appendChild(br);
+        }
+        if (e.flagHtml) {
+          const fl = document.createElement("span");
+          fl.className = "tb-flag";
+          Object.assign(fl.style, { left: `${(ICON_SIZE - 10) / 2}px`, top: `${ICON_SIZE - 8 - 10}px` });
+          fl.innerHTML = e.flagHtml;
+          b.appendChild(fl);
+        }
+        this.iconContainer.appendChild(b);
+        this.badges = b;
+      }
     }
     let resized = false;
     const name = e.name ?? "";
