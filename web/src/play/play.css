@@ -301,6 +301,8 @@ button { font: inherit; color: inherit; }
 .ov .ov-scroll { margin: 8px 0 0 2px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.25) transparent; }
 .ov .ov-table { table-layout: fixed; font-size: 14px; font-family: "EVE Sans Neue", "Barlow Semi Condensed", sans-serif; }
 .ov .ov-table th.ov-dist { text-align: left; }
+.ov .ov-table th[data-col] { position: relative; }
+.ov .ov-table th .ov-scaler { position: absolute; top: 0; right: 0; width: 4px; height: 100%; cursor: ew-resize; z-index: 1; }
 .ov .ov-table th { height: 24px; box-sizing: border-box; padding: 0 8px; font-size: 12px; color: rgba(255, 255, 255, 0.5); background: transparent;
   border: 0; overflow: hidden; white-space: nowrap; }
 .ov .ov-table thead { background: transparent; }

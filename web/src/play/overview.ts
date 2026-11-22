@@ -197,6 +197,9 @@ const COLUMNS: readonly ColumnDef[] = [
 ];
 /** The tabs' own columns in the client's Jotunn profile (overviewColumns), what a tab shows until the pilot changes it. */
 const DEFAULT_VISIBLE: readonly ColumnID[] = ["ICON", "DISTANCE", "NAME", "TYPE", "SIZE", "VELOCITY", "ANGULARVELOCITY"];
+/** overviewConst COLUMNMINSIZE and COLUMNMARGIN (uiconst.LABELTABMARGIN). */
+const COLUMN_MIN_SIZE = 24;
+const COLUMN_MARGIN = 8;
 const AFFILIATION_COLUMNS: ReadonlySet<ColumnID> = new Set(["TAG", "CORPORATION", "ALLIANCE", "FACTION", "MILITIA"]);
 export const OVERVIEW_COLUMN_WORDS = COLUMNS.flatMap((c) => [c.label, ...(c.unit ? [c.unit] : []), ...(c.hint ? [c.hint] : [])]);
 interface OverviewSort { column: SortColumn; down: boolean }
@@ -489,7 +492,62 @@ export class Overview {
       const rect = ((e.target as HTMLElement).closest("button") ?? head).getBoundingClientRect();
       this.menu.open(rect.left, rect.bottom, this.headerMenu());
     });
+    // SortHeaders.StartHeaderScale / ScaleHeader: the column's width the start's and the pointer's move (no further right
+    // than the headers' own edge less 2: _GetColumnWidthDiff), not below COLUMNMINSIZE; RegisterCurrentSizes at the end
+    let scaled = false;
+    head.addEventListener("pointerdown", (e) => {
+      const grip = (e.target as HTMLElement).closest<HTMLElement>(".ov-scaler");
+      const th = grip?.closest<HTMLElement>("th[data-col]");
+      if (!grip || !th || e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const col = th.dataset.col as ColumnID;
+      const index = [...th.parentElement!.children].indexOf(th);
+      const colEl = this.table.querySelectorAll<HTMLElement>("colgroup col")[index];
+      const startX = e.clientX, startW = th.getBoundingClientRect().width;
+      const area = (this.table.parentElement ?? this.table).getBoundingClientRect();
+      const maxDiff = area.width - (startX - area.left) - 2;
+      const widthNow = () => [...this.table.querySelectorAll<HTMLElement>("colgroup col")].reduce((n, c) => n + (parseFloat(c.style.width) || 0), 0);
+      const move = (ev: PointerEvent) => {
+        const w = Math.round(Math.max(COLUMN_MIN_SIZE, startW + Math.min(ev.clientX - startX, maxDiff)));
+        if (colEl) colEl.style.width = `${w}px`;
+        this.table.style.width = `${widthNow()}px`;
+        scaled = true;
+      };
+      const up = () => {
+        removeEventListener("pointermove", move);
+        removeEventListener("pointerup", up);
+        if (!scaled) return;
+        const widths: Partial<Record<ColumnID, number>> = {};
+        const cols = this.table.querySelectorAll<HTMLElement>("colgroup col");
+        this.visibleColumns().forEach((c, i) => { if (c.id !== "ICON") widths[c.id] = Math.round(parseFloat(cols[i]?.style.width ?? "") || c.width); });
+        this.registerSizes(widths);
+        void col;
+        setTimeout(() => { scaled = false; }, 0);
+      };
+      addEventListener("pointermove", move);
+      addEventListener("pointerup", up);
+    });
+    // SortHeaders.DblClickHeader: a column that is not fixed fitted to its widest value (OverviewWindow.OnColumnSizeReset:
+    // the cells' text widths, at least COLUMNMINSIZE less the margins, and COLUMNMARGIN either side)
+    head.addEventListener("dblclick", (e) => {
+      const th = (e.target as HTMLElement).closest<HTMLElement>("th[data-col]");
+      if (!th) return;
+      const col = th.dataset.col as ColumnID;
+      const index = [...th.parentElement!.children].indexOf(th);
+      let widest = COLUMN_MIN_SIZE - COLUMN_MARGIN * 2;
+      const range = document.createRange();
+      for (const tr of this.table.tBodies[0]?.rows ?? []) {
+        const td = tr.cells[index];
+        if (!td || !td.textContent?.trim()) continue;
+        range.selectNodeContents(td);
+        widest = Math.max(widest, range.getBoundingClientRect().width);
+      }
+      this.registerSizes({ [col]: Math.ceil(widest) + COLUMN_MARGIN * 2 });
+      this.drawHead();
+    });
     head.addEventListener("click", (e) => {
+      if (scaled || (e.target as HTMLElement).closest(".ov-scaler")) return;
       const column = (e.target as HTMLElement).closest<HTMLElement>("th[data-sort]")?.dataset.sort as SortColumn | undefined;
       if (!column) return;
       if (!this.sortEnabled) {
@@ -519,7 +577,20 @@ export class Overview {
   /** overviewColumns.GetColumns: the tab's visible columns (presetSvc.GetTabVisibleColumnIDs) in the tab's order. */
   private visibleColumns(tab = this.tab): readonly ColumnDef[] {
     const shown = new Set<ColumnID>(this.tabSettings[tab]?.columns ?? DEFAULT_VISIBLE);
-    return this.columnOrder(tab).filter((c) => shown.has(c.id));
+    const sizes = this.columnSizes(tab);
+    // SortHeaders.CreateColumns: a kept size where there is one (not below COLUMNMINSIZE 24), the icon fixed at 22
+    return this.columnOrder(tab).filter((c) => shown.has(c.id))
+      .map((c) => (c.id !== "ICON" && typeof sizes[c.id] === "number" ? { ...c, width: Math.max(COLUMN_MIN_SIZE, sizes[c.id]!) } : c));
+  }
+
+  /** SortHeadersSizes[(overviewScroll2, tabID)]: the tab's columns' widths as the pilot left them. */
+  private sizesKey(tab = this.tab): string { return `evejs-play-overview-sizes:${this.hooks.pilotID ?? 0}:${this.instanceID}:${tab}`; }
+  private columnSizes(tab = this.tab): Partial<Record<ColumnID, number>> {
+    try { const v = JSON.parse(localStorage.getItem(this.sizesKey(tab)) ?? "{}") as unknown; return v && typeof v === "object" ? v as Partial<Record<ColumnID, number>> : {}; } catch { return {}; }
+  }
+  /** RegisterCurrentSizes: every shown column's width now, kept for the tab. */
+  private registerSizes(widths: Partial<Record<ColumnID, number>>): void {
+    try { localStorage.setItem(this.sizesKey(), JSON.stringify({ ...this.columnSizes(), ...widths })); } catch { /* this visit only */ }
   }
 
   /**
@@ -595,7 +666,8 @@ export class Overview {
       // the icon's header: no label, sorting by the icon (sortIconIndex)
       if (c.id === "ICON") return `<th class="ov-icon" data-sort="icon"><button type="button" aria-label="${esc(word(c.label, c.own))}"></button></th>`;
       const text = word(c.label, c.own) + (c.unit ? ` (${word(c.unit, c.unit.endsWith("DegreesPerSecondUnitShort") ? "deg/s" : "m/s")})` : "");
-      return `<th${c.right ? ` class="ov-dist"` : ""} data-sort="${c.sort}"><button type="button" aria-label="${esc(text)}">${esc(text)}</button></th>`;
+      // Header: a scaler 4 wide at its right edge (TORIGHT_NOPUSH, the left-right drag cursor) where the column is not fixed
+      return `<th${c.right ? ` class="ov-dist"` : ""} data-sort="${c.sort}" data-col="${c.id}"><button type="button" aria-label="${esc(text)}">${esc(text)}</button><span class="ov-scaler"></span></th>`;
     }).join("")}</tr>`;
     const lockAt = this.table.tHead!.querySelector('th[data-sort="velocity"]') ?? this.table.tHead!.querySelector("th:last-child");
     lockAt?.appendChild(this.lockIcon);
