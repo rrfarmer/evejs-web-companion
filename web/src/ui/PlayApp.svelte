@@ -1,5 +1,6 @@
 <script lang="ts">
   import { BROADCAST_ICONS, BROADCAST_NAME_LABELS, FleetBroadcastStates } from "../bridge/fleetBroadcasts.ts";
+  import { GROUPABLE_GROUP_IDS } from "../bridge/fitModule.ts";
   /** fleetSvc's broadcast state, fed from the history the store keeps (one per session). */
   const broadcastStates = new WeakMap<object, FleetBroadcastStates>();
   function fedBroadcasts(sess: { store: { fleet: { get(): import("../store/types.ts").FleetCenterState } } }): FleetBroadcastStates {
@@ -2707,6 +2708,32 @@
           }
           return counts;
         },
+        // modulesCollectionOwner.HasGroupableWeapons and clientDogmaLocation.CanGroupAll (GetGroupableTypes: the online
+        // turrets and launchers of the high slots by type; IsInWeaponBank: a bank's master or one of its slaves)
+        groupAll: () => {
+          const banks = s.store.space.get().snapshot?.ship?.weaponBanks ?? {};
+          const masterOf = (id: number): number | null => { for (const [k, v] of Object.entries(banks)) if (v.includes(id)) return Number(k); return null; };
+          const counts = new Map<number, number>();
+          const weapons: { itemID: number; typeID: number }[] = [];
+          for (const slot of s.store.fitting.get().slots ?? []) {
+            const m = slot.module;
+            if (!m || !m.online || !GROUPABLE_GROUP_IDS.has(m.groupID ?? -1)) continue;
+            weapons.push(m);
+            if (slot.family === "high") counts.set(m.typeID, (counts.get(m.typeID) ?? 0) + 1);
+          }
+          if (![...counts.values()].some((q) => q > 1)) return null;
+          let canGroup = false;
+          const groups = new Map<number, number>();
+          for (const m of weapons) {
+            const master = masterOf(m.itemID);
+            if (!(String(m.itemID) in banks) && master === null && (counts.get(m.typeID) ?? 0) > 1) { canGroup = true; break; }
+            const of = master ?? m.itemID;
+            if (!groups.has(m.typeID)) groups.set(m.typeID, of);
+            else if (groups.get(m.typeID) !== of) { canGroup = true; break; }
+          }
+          return { canGroup, readiness: s.flow.groupAllReadiness(canGroup) };
+        },
+        setGroupAll: (link) => s.flow.setWeaponBanks(link),
         overload: {
           module: (itemID, on) => s.flow.setModuleOverload(itemID, on),
           rack: (activationID, on) => s.flow.setRackOverload(activationID, on),

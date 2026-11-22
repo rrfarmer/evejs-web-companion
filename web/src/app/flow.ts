@@ -4357,6 +4357,8 @@ export interface AppFlow {
   repairModule(itemID: number): Promise<void>;
   /** Bank every weapon into groups, or break every bank. */
   setWeaponBanks(linked: boolean): Promise<void>;
+  /** GetGroupAllReadiness for the kind (link: lastGroupAllRequest, else lastUngroupAllRequest), 0..1. */
+  groupAllReadiness(link: boolean): number;
   // --- R23 slice B: the mining loop --------------------------------------
   // Built ON TOP of the generic layer above, not into it. There is no "start
   // mining" method: mining a rock is lockTarget + activateModule with a mining
@@ -38730,6 +38732,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       ?? (heldWeaponBanks().get(itemID) ?? []).map((slave) => moduleRepairs.repairOf(slave)).find((r) => r !== null) ?? null,
     repairModule,
     setWeaponBanks,
+    groupAllReadiness: (link: boolean) => weaponGrouping.readiness(link),
     loadMiningHolds,
     loadMiningWindow,
     loadDrones,

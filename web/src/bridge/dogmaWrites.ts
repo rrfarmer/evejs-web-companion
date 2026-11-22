@@ -202,6 +202,8 @@ export interface WeaponGrouping {
   linkAll(shipID: number): Promise<boolean>;
   /** Breaks every bank of the ship, the same way. */
   unlinkAll(shipID: number): Promise<boolean>;
+  /** clientDogmaLocation.GetGroupAllOpacity: 1 with no request of the kind answered, else the share of the wait gone by. */
+  readiness(link: boolean): number;
 }
 
 /** A pilot's linking and unlinking of all its weapons, with the wait the client's button keeps between two of a kind. */
@@ -211,6 +213,12 @@ export function createWeaponGrouping(act: Ask, now: () => number = Date.now): We
   // UpdateGroupAllButton: dead until the time since, as a share of the wait, is above 0.999.
   const dead = (at: number | null): boolean => at !== null && (now() - at) / GROUP_ALL_WAIT_MS <= 0.999;
   return {
+    readiness(link) {
+      const at = link ? answered.link : answered.unlink;
+      if (at === null) return 1;
+      const wait = Math.min(GROUP_ALL_WAIT_MS, GROUP_ALL_WAIT_MS - (now() - at));
+      return Math.max(0, 1 - wait / GROUP_ALL_WAIT_MS);
+    },
     async linkAll(shipID) {
       if (dead(answered.link)) return false;
       await act("dogmaIM", "LinkAllWeapons", [shipID]);

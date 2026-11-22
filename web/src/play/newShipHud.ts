@@ -416,6 +416,15 @@ export class NewShipHud {
   onModuleHover: ((m: HudModule | null) => void) | null = null;
   /** moduleSlot's GetMenu (ShipModuleButton.GetMenu): the module's menu at the pointer. */
   onModuleMenu: ((m: HudModule, x: number, y: number) => void) | null = null;
+  /** GroupAllIcon.OnClick: GroupAll (link true) where some weapon can still be grouped (CanGroupAll), else UngroupAll. */
+  onGroupAll: ((link: boolean) => void) | null = null;
+  /**
+   * trayUtilities.GroupAllButton (hud/client/moduleTray/groupAllButton.py): 16 x 16 at the tray mount's (35, 14)
+   * (WIDTH 70 - TRAY_OVERLAP 15 - GROUP_ALL_GAP 4 - 16; 22 - 8), the band's (265, 14) for a ship without stances.
+   */
+  private readonly groupAllEl = document.createElement("div");
+  private readonly groupAllIcon = document.createElement("img");
+  private groupAllState: { canGroup: boolean; readiness: number } | null = null;
   private readonly tooltip = document.createElement("div");
   private tipSlot: Slot | null = null;
   private tipTimer: ReturnType<typeof setTimeout> | null = null;
@@ -460,6 +469,7 @@ export class NewShipHud {
     this.buildMedallionInputs();
     this.buildCargoIndicator();
     this.buildButtons();
+    this.buildGroupAll();
 
     // speedometer.py _ConstructReadout: the 75x16 pill at medallion (-135..-60, 68..84), its text right-aligned 4 px in.
     const pill = document.createElement("div");
@@ -699,6 +709,51 @@ export class NewShipHud {
     });
     this.holdPicker.addEventListener("mouseleave", () => { this.holdPicker.style.display = "none"; });
     this.root.append(b, this.holdPicker);
+  }
+
+  /**
+   * GroupAllButton / GroupAllIcon: hidden without groupable weapons (HasGroupableWeapons: two online of a type in the
+   * high slots); 73_16_252 (UI/Inflight/GroupAllWeapons) where CanGroupAll, else 73_16_251 (UngroupAllWeapons), the hint
+   * in UI/Inflight/Locked with the modules locked in place. The icon TextColor.NORMAL, HIGHLIGHT hovered (ButtonIcon).
+   */
+  private buildGroupAll(): void {
+    const el = this.groupAllEl;
+    el.dataset.groupAll = "";
+    Object.assign(el.style, { position: "absolute", left: "265px", top: "14px", width: "16px", height: "16px", display: "none", pointerEvents: "auto", cursor: "pointer" });
+    Object.assign(this.groupAllIcon.style, { width: "16px", height: "16px", display: "block", opacity: "0.75" });
+    this.groupAllIcon.draggable = false;
+    el.append(this.groupAllIcon);
+    el.addEventListener("mouseenter", () => { this.groupAllIcon.style.opacity = "0.9"; void playUiEvent("ui_button_soft1_play"); });
+    el.addEventListener("mouseleave", () => { this.groupAllIcon.style.opacity = "0.75"; });
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const s = this.groupAllState;
+      // GroupAllIcon.OnClick: nothing with the modules locked in place
+      if (!s || s.readiness <= 0.999 || hudSettingNow("lockModules")) return;
+      void playUiEvent("ui_button_soft4_play");
+      void playUiEvent(s.canGroup ? "hud_group_weapons_play" : "hud_ungroup_weapons_play");
+      this.onGroupAll?.(s.canGroup);
+    });
+    this.root.append(el);
+  }
+
+  /**
+   * GroupAllButton.Refresh and _ThrottleLoop: null hides it; while the last request of its kind is under two seconds
+   * old (GetGroupAllOpacity at or under 0.999) it takes no click and its opacity is 0.2 + readiness x 0.6.
+   */
+  setGroupAll(state: { canGroup: boolean; readiness: number } | null): void {
+    this.groupAllState = state;
+    const el = this.groupAllEl;
+    if (!state) { el.style.display = "none"; return; }
+    el.style.display = "";
+    const src = res(state.canGroup ? "res:/UI/Texture/Icons/73_16_252.png" : "res:/UI/Texture/Icons/73_16_251.png");
+    if (this.groupAllIcon.getAttribute("src") !== src) this.groupAllIcon.src = src;
+    let hint = state.canGroup ? this.word("UI/Inflight/GroupAllWeapons") ?? "Group All Weapons" : this.word("UI/Inflight/UngroupAllWeapons") ?? "Ungroup All Weapons";
+    if (hudSettingNow("lockModules")) hint = this.wordWith?.("UI/Inflight/Locked", { unit: hint }) ?? `${hint} (Locked)`;
+    if (el.title !== hint) el.title = hint;
+    const ready = state.readiness > 0.999;
+    el.style.opacity = ready ? "1" : String(0.2 + state.readiness * 0.6);
+    el.style.pointerEvents = ready ? "auto" : "none";
   }
 
   /**
@@ -964,7 +1019,7 @@ export class NewShipHud {
     "UI/Inflight/HUDOptions/DisplayUtilityButtons", "UI/Inflight/HUDOptions/DisplayModuleTooltips", "UI/Inflight/HUDOptions/DisplayPassiveModules",
     "UI/Inflight/HUDOptions/DisplayEmptySlots", "UI/Inflight/HUDOptions/DisplayReadout", "UI/Inflight/HUDOptions/DisplayReadoutAsPercentage",
     "UI/Inflight/HUDOptions/LockModulesInPlace", "UI/Inflight/HUDOptions/AlignHUDToTop", "UI/Inflight/ShowTacticalOverlay", "UI/Inflight/NotifySettingsWindow/DamageAlertSettings",
-    "UI/Accessories/Log/EnterMessageMovingMode", ...COMMAND_TIP_LABELS,
+    "UI/Accessories/Log/EnterMessageMovingMode", "UI/Inflight/GroupAllWeapons", "UI/Inflight/UngroupAllWeapons", "UI/Inflight/Locked", ...COMMAND_TIP_LABELS,
     "Tooltips/Hud/Shield", "Tooltips/Hud/Armor", "Tooltips/Hud/Structure", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusValues",
     "Tooltips/Hud/CurrentSpeed", "UI/Inflight/CanNotChangeSpeedWhileWarping", "UI/Inflight/MetersPerSecond", "UI/Inflight/StopTheShip",
     "UI/Inflight/SetFullSpeed", "Tooltips/Hud/HeatStatus", "Tooltips/Hud/HeatStatusLow", "Tooltips/Hud/HeatStatusMedium", "Tooltips/Hud/HeatStatusHigh", "UI/Common/Settings",

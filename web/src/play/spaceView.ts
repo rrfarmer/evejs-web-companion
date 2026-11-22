@@ -197,6 +197,10 @@ export interface SpaceViewOptions {
     dropSlot?(toFlag: number, fromFlag: number, peel: boolean): Promise<void>;
     /** The ship's slots per rack (present ones), for the new HUD's empty slots. */
     slotCounts?(): { high: number; mid: number; low: number };
+    /** The group-all button (GroupAllButton.Refresh): null without groupable weapons; whether CanGroupAll, and the readiness. */
+    groupAll?(): { canGroup: boolean; readiness: number } | null;
+    /** GroupAll (link) or UngroupAll: LinkAllWeapons / UnlinkAllModules of the ship. */
+    setGroupAll?(link: boolean): Promise<void>;
   };
   /** The session's snapshot includes the acknowledged align and warp targets. */
   flightSnapshot?: () => SpaceSnapshot | null;
@@ -5731,6 +5735,11 @@ export class SpaceView {
         this.shipHud.onDropSlot = (to, from, peel) => void this.act("Move module", () => drop(to, from, peel));
       }
       if (this.shipHud instanceof NewShipHud && rack.capacitorFlow) this.shipHud.setCapacitorFlow(rack.capacitorFlow());
+      if (this.shipHud instanceof NewShipHud && rack.groupAll) this.shipHud.setGroupAll(rack.groupAll());
+      if (this.shipHud instanceof NewShipHud && rack.setGroupAll && !this.shipHud.onGroupAll) {
+        const group = rack.setGroupAll;
+        this.shipHud.onGroupAll = (link) => void this.act(link ? "Group all weapons" : "Ungroup all weapons", () => group(link));
+      }
       if (this.moduleTargetOrders.size) this.finishModuleTargetOrders(modules);
       for (const m of modules) m.waitingForTarget = !!this.moduleTargetOrders.get(m.itemID)?.mode;
       this.shipHud.setModules(modules, (m) => this.useRackModule(m), overload ? {
