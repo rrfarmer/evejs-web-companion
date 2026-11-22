@@ -689,7 +689,7 @@
     title={damage ? [damage[0], damage[1], damage[2]].map((v) => `${Math.round(Math.max(0, Math.min(1, v)) * 100)}%`).join("  ") : undefined}>
     {#each damage ? [damage[2], damage[1], damage[0]] : [1, 1, 1] as v}
       {@const p = Math.max(0, Math.min(1, Math.round(v * 1000) / 1000))}
-      <span class="gauge"><span class="health" style:width={`${Math.floor(32 * p)}px`}></span>{#if p > 0 && p < 1}<span class="needle" style:left={`${Math.floor(32 * p)}px`}></span>{/if}</span>
+      <span class="gauge" style:--hp={`${Math.floor(32 * p)}px`}><span class="health" style:width={`${Math.floor(32 * p)}px`}></span>{#if p > 0 && p < 1}<span class="needle" style:left={`${Math.floor(32 * p)}px`}></span>{/if}</span>
     {/each}
   </span>
 {/snippet}
@@ -1024,13 +1024,13 @@
      measured the gauges ending at the entry's 530) */
   .gauges { display: flex; gap: 2px; flex: none; margin-right: 0; }
   .gauges.unknown { opacity: 0.05; }
-  .gauge { position: relative; width: 32px; height: 4px; background: rgb(153, 31, 36); overflow: hidden; }
-  .gauge .health { position: absolute; left: 0; top: 0; bottom: 0; background: rgb(196, 196, 196); }
+  /* HealthGauge (droneEntry.py): droneGaugeBar COLOR_HEALTH (0.69 grey) drawn additively (TR2_SBM_ADD) over what is behind,
+     droneGaugeBarDmg COLOR_DAMAGE filling the rest, the two side by side */
+  .gauge { position: relative; width: 32px; height: 4px; overflow: hidden; background: linear-gradient(to right, transparent var(--hp, 32px), rgb(153, 31, 36) var(--hp, 32px)); }
+  .gauge .health { position: absolute; left: 0; top: 0; bottom: 0; background: rgb(176, 176, 176); mix-blend-mode: plus-lighter; }
   .gauge .needle { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; }
-  /* DroneInSpaceEntry (read through gridcheck on a Hobgoblin): its entryLabel TextBody at white 0.9, the HealthGauges' droneGaugeBar
-     at (0.69, 0.69, 0.69) over droneGaugeBarDmg's red */
+  /* DroneInSpaceEntry (read through gridcheck on a Hobgoblin): its entryLabel TextBody at white 0.9 */
   .row.inspace .name { color: rgba(255, 255, 255, 0.9); }
-  .row.inspace .gauge .health { background: rgb(176, 176, 176); }
   .count { font-size: 11px; color: rgb(176, 176, 169); }
   .activity { font-size: 11px; color: rgb(176, 176, 169); white-space: nowrap; }
   .state { margin: 0; padding: 4px 12px 6px; font-size: 11px; color: rgb(108, 110, 107); }
