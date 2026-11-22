@@ -103,8 +103,8 @@ export const STATE_FLAG_LOOKS: ReadonlyMap<number, StateFlagLook> = new Map([
 ].map((l) => [l.flag, l]));
 /**
  * The active orders (the client's defaults, as read): the first flag whose Check holds is the thing's. Criminal (51),
- * Suspect (50), Limited Engagement (52), Has Kill Right (53) and Is Wanted (20) are in the client's orders too; the
- * page does not read crimewatch or bounties, so they are left out here.
+ * Suspect (50), Limited Engagement (52) and Has Kill Right (53) are checked against crimewatchSvc's sets, Is Wanted
+ * (20) against the bounties read (flagHolds below).
  */
 const FLAG_ORDER = [13, 44, 52, 11, 12, 14, 15, 16, 45, 9, 51, 50, 53, 19, 18, 49, 10, 17, 48, 21, 20];
 const BACKGROUND_ORDER = [13, 44, 52, 11, 12, 14, 15, 16, 45, 49, 19, 18, 9, 51, 50, 53, 10, 20, 21, 17, 48];
