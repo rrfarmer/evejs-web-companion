@@ -21,6 +21,8 @@ import { celestialModel, systemCelestials, setPlanetEnvironment, type CelestialI
 import { ShipHud, type HudModule } from "./shipHud.ts";
 import { formatTemplate, plainText } from "../bridge/clientWords.ts";
 import { CARGO_HOLD, SHIP_HOLDS } from "../bridge/shipHolds.ts";
+/** openFunctions.GetOpenShipHoldMenus' entries in its order: [the page's bay key, label, own words]. */
+const OPEN_HOLD_ENTRIES: readonly (readonly [string, string, string])[] = [["cargo", "UI/Commands/OpenCargoHold", "Open Cargohold"], ["drone", "UI/Commands/OpenDroneBay", "Open Drone Bay"], ["fighter", "UI/Commands/OpenFighterBay", "Open Fighter Bay"], ["shipMaintenance", "UI/Commands/OpenShipMaintenanceBay", "Open Ship Maintenance Bay"], ["fleet", "UI/Commands/OpenFleetHangar", "Open Fleet Hangar"], ["fuel", "UI/Commands/OpenFuelBay", "Open Fuel Bay"], ["ore", "UI/Commands/OpenGeneralMiningHold", "Open General Mining Hold"], ["gas", "UI/Commands/OpenGasHold", "Open Gas Hold"], ["mineral", "UI/Commands/OpenMineralHold", "Open Mineral Hold"], ["salvage", "UI/Commands/OpenSalvageHold", "Open Salvage Hold"], ["ship", "UI/Commands/OpenShipHold", "Open Ship Hold"], ["smallShip", "UI/Commands/OpenSmallShipHold", "Open Small Ship Hold"], ["mediumShip", "UI/Commands/OpenMediumShipHold", "Open Medium Ship Hold"], ["largeShip", "UI/Commands/OpenLargeShipHold", "Open Large Ship Hold"], ["industrialShip", "UI/Commands/OpenIndustrialShipHold", "Open Industrial Ship Hold"], ["ammo", "UI/Commands/OpenAmmoHold", "Open Ammo Hold"], ["commandCenter", "UI/Commands/OpenCommandCenterHold", "Open Command Center Hold"], ["planetary", "UI/PI/Common/OpenPlanetaryCommoditiesHold", "Open Planetary Commodities Hold"], ["quafe", "UI/Commands/OpenQuafeBay", "Open Quafe Bay"], ["corpse", "UI/Commands/OpenCorpseBay", "Open Corpse Bay"], ["booster", "UI/Commands/OpenBoosterBay", "Open Booster Bay"], ["subsystem", "UI/Commands/OpenSubsystemBay", "Open Subsystem Bay"], ["mobileDepot", "UI/Commands/OpenMobileDepotHold", "Open Mobile Depot Hold"], ["colony", "UI/Commands/OpenInfrastructureHold", "Open Infrastructure Hold"], ["expedition", "UI/Commands/OpenExpeditionHold", "Open Expedition Hold"]];
 import { NewShipHud } from "./newShipHud.ts";
 import { hudSetting, hudSettingNow, setHudSetting } from "../store/hudSettings.ts";
 import { activeTargetID, activeTargetName } from "./activeTarget.ts";
@@ -4711,10 +4713,22 @@ export class SpaceView {
     const I = (name: string) => `res:/UI/Texture/eveicon/control_icons/${name}_16px.png`;
     const showInfo: ContextEntry = { path: "UI/Commands/ShowInfo", label: word("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => this.options.showInfo?.(id, e.typeID ?? null) };
     if (e.isSelf) {
+      // openFunctions.GetOpenShipHoldMenus: the active ship (not a capsule) - Open Cargohold (eveicon.inventory), then each
+      // hold the ship has in the client's order; read through gridcheck on the client's Porpoise: Open Cargohold, Open
+      // Drone Bay, Open Fleet Hangar, Open Fuel Bay, Open General Mining Hold
+      const present = new Set<string>([
+        ...(this.options.miningSurvey?.()?.holds ?? []).filter((h) => h.present).map((h) => h.key),
+        ...(this.actions.shipBays?.(id) ?? []).map((b) => b.key),
+      ]);
+      const holds: ContextEntry[] = e.groupID === 29 ? [] : OPEN_HOLD_ENTRIES.filter(([key]) => key === "cargo" || present.has(key)).map(([key, label, own]) => ({
+        path: label, label: word(label, own), ...(key === "cargo" ? { icon: "res:/UI/Texture/eveicon/system_icons/inventory_16px.png" } : {}),
+        run: () => this.actions.openShipHold?.(key),
+      }));
       return [
         { label: word(e.groupID === 29 ? "UI/Inflight/StopMyCapsule" : "UI/Inflight/StopMyShip", e.groupID === 29 ? "Stop My Capsule" : "Stop My Ship"), run: run("Stop", () => this.actions.stop()) },
         null,
         showInfo,
+        ...(holds.length ? [null, ...holds] : []),
       ];
     }
     const group = e.groupID ?? null;
