@@ -9,6 +9,9 @@
   import { shortcutOf } from "../play/shortcutKeys.ts";
   /** uix ESTIMATED_PRICE column: FmtISK(stacksize * GetAveragePrice) - whole where the sum is whole, else two places
    *  (read through gridcheck: 2,468 ISK; 2,468.50 ISK). */
+  /** uix GetItemData volume: ValueAndUnit of FmtAmt(volume, two places where it has a fraction, else none) and the unit's
+   *  display name, "m3" (read through gridcheck: 603.70 m3, 12.34 m3, 50 m3, 12,345.60 m3). */
+  const volCell = (v: number): string => `${v.toLocaleString("en-US", Math.abs(v - Math.trunc(v)) > 1e-6 ? { minimumFractionDigits: 2, maximumFractionDigits: 2 } : { maximumFractionDigits: 0 })} m3`;
   const fmtIskCell = (v: number): string => `${v.toLocaleString("en-US", Number.isInteger(v) ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ISK`;
   // The active ship's inventory window in space, laid out as the 3698585 client's ActiveShipCargo (invWindow.Inventory,
   // 600 x 450): the tree at the left (TREE_DEFAULT_WIDTH 160) with the ship as "<name> (<type>)" - its cargo - and its
@@ -664,7 +667,7 @@
                 <td class:hid={hiddenCols.includes(3)}>{categoryName(i.typeID)}</td>
                 <td class:hid={hiddenCols.includes(4)}></td>
                 <td class:hid={hiddenCols.includes(5)}></td>
-                <td class="num" class:hid={hiddenCols.includes(6)}>{fa?.volume != null ? `${(fa.volume * i.quantity).toLocaleString("en-US", { maximumFractionDigits: 2 })} m³` : ""}</td>
+                <td class="num" class:hid={hiddenCols.includes(6)}>{fa?.volume != null ? volCell(fa.volume * i.quantity) : ""}</td>
                 <td class="num" class:hid={hiddenCols.includes(7)}>{fa?.meta ?? ""}</td>
                 <td class="num" class:hid={hiddenCols.includes(8)}>{fa?.tech ?? ""}</td>
                 <td class="num" class:hid={hiddenCols.includes(9)}>{prices?.get(i.typeID) ? fmtIskCell((prices.get(i.typeID) ?? 0) * i.quantity) : ""}</td>
