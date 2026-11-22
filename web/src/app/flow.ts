@@ -463,6 +463,7 @@ import { abandonmentBasis, COMMAND_CENTER_BAYS, deploymentLocationError, findCom
 import { exportColonyTemplate, planColonyTemplate, planetCommandCenterType, type ColonyTemplate, type ColonyTemplateRules, type TemplatePlacement, type TemplateRotation } from "../bridge/colonyTemplate.ts";
 import { filetimeToUnixMs } from "../bridge/activity.ts";
 import { readWormholePolarization, type WormholePolarization } from "../play/wormholePolarization.ts";
+import { autoTargetBackNow } from "../ui/autoTargetBack.ts";
 import { extractorReroute, factoryInputTypeIDs, type ExtractorReroute } from "../bridge/colonyRoutes.ts";
 import { decodeRecipeBook } from "../bridge/piRecipes.ts";
 import { repairTargets, type RepairQuotePart, type RepairQuoteRow } from "../bridge/repairQuotes.ts";
@@ -6549,6 +6550,24 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       ?? dogmaNumber(allInfo?.character ?? null, ATTRIBUTE_MAX_LOCKED_TARGETS);
     return lockLimitOf(fit.stats.targeting.maxLockedTargets, pilot);
   }
+  /** targetMgr.autoTargeting: the ships being locked back, each until its lock is made or fails (OnTarget add, 606). */
+  const autoTargeting = new Set<number>();
+  /**
+   * targetMgr.OnTargetByOther's lock back: not this ship, not locked or being locked, not already being locked back,
+   * while fewer than min(Auto Target Back, the pilot's and the ship's maxLockedTargets) are locked or being locked and
+   * fewer than the setting are being locked back.
+   */
+  function targetBack(otherID: number): void {
+    const setting = autoTargetBackNow();
+    if (setting <= 0) return;
+    const targeting = store.targeting.get();
+    const tgts = new Set([...targeting.lockedTargetIDs, ...targeting.acquiringTargetIDs]);
+    if (otherID === store.flight.get().status?.shipID || tgts.has(otherID) || autoTargeting.has(otherID)) return;
+    const limit = lockLimit(store.fitting.get()) ?? setting;
+    if (Math.min(setting, limit) <= tgts.size || autoTargeting.size >= setting) return;
+    autoTargeting.add(otherID);
+    void lockTarget(otherID).catch(() => undefined).finally(() => autoTargeting.delete(otherID));
+  }
   /** dogma/const.py attributeDamage and attributeShipBrokenModuleRepairCostMultiplier; inventorycommon typeNaniteRepairPaste. */
   const ATTRIBUTE_DAMAGE = 3;
   const ATTRIBUTE_REPAIR_COST_MULTIPLIER = 1277;
@@ -7612,6 +7631,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const targeterEvent = decodeTargeterNotification(method, args);
     if (targeterEvent !== null) {
       store.apply({ type: "targeting/targeter-event", event: targeterEvent });
+      if (targeterEvent.locking) targetBack(targeterEvent.sourceID);
       return;
     }
     // tactical.OnEwarStart and OnEwarEnd: another ship's module working on the pilot's, counted for the buff bar.

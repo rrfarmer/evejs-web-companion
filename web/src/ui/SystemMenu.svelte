@@ -16,6 +16,7 @@
   import { onDestroy } from "svelte";
   import { COLOR_THEMES } from "../play/colorThemes.ts";
   import { playUiEvent } from "../play/uiAudio.ts";
+  import { AUTO_TARGET_BACK_MAX, AUTO_TARGET_BACK_WORDS, autoTargetBack } from "./autoTargetBack.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
@@ -110,7 +111,7 @@
   let fullScreen = $state(typeof document !== "undefined" && document.fullscreenElement !== null);
   onMount(() => {
     flow.requestWords([...Object.values(WORDS), ...PANELS.map((p) => p[1]), ...SHORTCUT_PANELS.map((p) => p[1]), ...Object.values(Q),
-      ...COMBOS.map((c) => c.label), ...EFFECTS.map((e) => e.label), ...COLOR_THEMES.map((t) => t.id), ...VOLUMES.map((v) => v[1])]);
+      ...COMBOS.map((c) => c.label), ...EFFECTS.map((e) => e.label), ...COLOR_THEMES.map((t) => t.id), ...VOLUMES.map((v) => v[1]), ...AUTO_TARGET_BACK_WORDS]);
     const off = onGfx((s) => { settings = { ...s }; });
     const onFull = () => { fullScreen = document.fullscreenElement !== null; };
     document.addEventListener("fullscreenchange", onFull);
@@ -351,6 +352,19 @@
                 oninput={(ev) => setGfx({ [key]: Number(ev.currentTarget.value) } as Partial<GfxSettings>)} />
             </div>
           {/each}
+        {:else if panel === "gameplay"}
+          <!-- LoadGameplay: ConstructInflightMenuData first - the Inflight header, then Auto Target Back's combo
+               (_GetAutoTargetBackOptions: ZeroTargets for 0, Targets for 1 to 12); the panel's other sections are not
+               on the play page yet -->
+          <h3 class="first">{word("UI/SystemMenu/GeneralSettings/Inflight/Header", "Inflight")}</h3>
+          <label class="sm-combo"><span>{word("UI/SystemMenu/GeneralSettings/Inflight/AutoTargetBack", "Auto Target Back")}</span>
+            <select value={$autoTargetBack} onchange={(e) => autoTargetBack.set(Number(e.currentTarget.value))}>
+              {#each Array.from({ length: AUTO_TARGET_BACK_MAX + 1 }, (_, i) => i) as i (i)}
+                <option value={i}>{i === 0
+                  ? wordWith("UI/SystemMenu/GeneralSettings/Inflight/ZeroTargets", "Don't Target", { targetCount: i })
+                  : wordWith("UI/SystemMenu/GeneralSettings/Inflight/Targets", `${i} Targets`, { targetCount: i })}</option>
+              {/each}
+            </select></label>
         {:else if panel === "camera"}
           <h3 class="first">{word(WORDS.cameraHeader, "In-Space Camera Settings")}</h3>
           <label class="sm-check" title={word(WORDS.dynamicCameraHint, "")}><input type="checkbox" checked={settings.dynamicCameraMovement}
