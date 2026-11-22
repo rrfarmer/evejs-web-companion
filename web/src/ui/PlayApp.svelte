@@ -198,10 +198,10 @@
   // the container opened from space (store.inventory.container that is a thing on the grid), for its own window
   let containerWin = $state({ x: 220, y: 140, w: 480, h: 360, z: 25, minimized: false });
   // a ship bay opened in a window of its own (the inventory tree's Open in new window): 600 x 450, the bay's name its caption
-  let bayWindow = $state.raw<{ key: string; title: string } | null>(null);
-  let bayWin = $state({ x: 260, y: 180, w: 600, h: 450, z: 25, minimized: false });
+  // (the client keeps one per bay: windowID the bay's controller name; a second Open on a bay already open shows it)
+  let bayWindows = $state<{ key: string; title: string; win: { x: number; y: number; w: number; h: number; z: number; minimized: boolean } }[]>([]);
   $effect(() => {
-    const show = (e: Event) => { const d = (e as CustomEvent<{ key: string; title: string }>).detail; if (d) bayWindow = { key: d.key, title: d.title }; };
+    const show = (e: Event) => { const d = (e as CustomEvent<{ key: string; title: string }>).detail; if (!d || bayWindows.some((w) => w.key === d.key)) return; const n = bayWindows.length; bayWindows = [...bayWindows, { key: d.key, title: d.title, win: { x: 260 + 24 * n, y: 180 + 24 * n, w: 600, h: 450, z: 25, minimized: false } }]; };
     window.addEventListener("evejs:open-bay-window", show);
     return () => window.removeEventListener("evejs:open-bay-window", show);
   });
@@ -3119,15 +3119,16 @@
       </DesktopWindow>
     </div>
   {/if}
-  {#if bayWindow && !docked}
-    {@const b = bayWindow}
-    <div class="space-container-layer">
-      <DesktopWindow win={bayWin} title={b.title} icon={clientTexture("res:/UI/Texture/WindowIcons/cargo.png")} focused={true} onFocus={() => {}}
-        onClose={() => (bayWindow = null)} onMove={(x, y) => { bayWin.x = x; bayWin.y = y; }}
-        onResize={(w, h) => { bayWin.w = Math.max(300, w); bayWin.h = Math.max(200, h); }}>
-        {#key b.key}<FlyInventoryWindow store={session.store} flow={session.flow} bayMode={b.key} />{/key}
-      </DesktopWindow>
-    </div>
+  {#if !docked}
+    {#each bayWindows as b (b.key)}
+      <div class="space-container-layer">
+        <DesktopWindow win={b.win} title={b.title} icon={clientTexture("res:/UI/Texture/WindowIcons/cargo.png")} focused={true} onFocus={() => {}}
+          onClose={() => (bayWindows = bayWindows.filter((w) => w.key !== b.key))} onMove={(x, y) => { b.win.x = x; b.win.y = y; }}
+          onResize={(w, h) => { b.win.w = Math.max(300, w); b.win.h = Math.max(200, h); }}>
+          <FlyInventoryWindow store={session.store} flow={session.flow} bayMode={b.key} />
+        </DesktopWindow>
+      </div>
+    {/each}
   {/if}
   {#if shipPasswordAsk}
     {@const t = session.store.words.get().templates}
