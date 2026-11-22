@@ -27519,6 +27519,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         type: "mining/action-error",
         message: `Jettison refused: ${flightRefusalWords(error)}`,
       });
+      // the server's UserError (ShpJettisonPending with its {eta} inside the 3-minute jetcan cooldown, and the rest) as
+      // the client shows it - it was only kept in the mining state, which nothing in space draws
+      sayRefusalDialog(error, flightRefusalWords(error));
       return;
     }
     store.apply({ type: "mining/action", action: "Jettison" });
