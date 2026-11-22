@@ -985,3 +985,9 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
     linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) left 3px top 0 / 2px 3px, linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) right 3px top 0 / 2px 3px, linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) left 3px bottom 0 / 2px 3px, linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) right 3px bottom 0 / 2px 3px; background-repeat: no-repeat; }
 /* AnimateTargeting: the box 28 - 2i for i 1..7 (26 down to 14), a step each 50 ms, round again */
 @keyframes ov-tgt-locking { from { width: 26px; height: 26px; } to { width: 12px; height: 12px; } }
+/* SetHostileState (threatTargetsMe): hostileBracket.png 18 at (-1, -1) in (1, 0.8, 0); BlinkingSpriteOnSharedCurve binds its
+   opacity to the sharedHostileCurveSet, 0.3 to 0.6 and back over 0.5 s, cycling */
+.ov .ov-tgt-hostile { position: absolute; left: -1px; top: -1px; width: 18px; height: 18px; pointer-events: none; background: rgb(255, 204, 0);
+  -webkit-mask: url(/client-res/ui/texture/classes/bracket/hostilebracket.png) center / 18px 18px no-repeat; mask: url(/client-res/ui/texture/classes/bracket/hostilebracket.png) center / 18px 18px no-repeat;
+  animation: ov-hostile-blink 0.5s linear infinite; }
+@keyframes ov-hostile-blink { 0% { opacity: 0.3; } 50% { opacity: 0.6; } 100% { opacity: 0.3; } }
