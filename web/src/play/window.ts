@@ -75,11 +75,7 @@ export class PlayWindow {
     this.root.append(this.head, this.body, grip);
     // Window.active (the last window pressed): SmallWindowHeader.caption_color - HIGHLIGHT while active, NORMAL otherwise
     // (the light background on)
-    const activate = () => {
-      if (this.root.classList.contains("pw-active")) return;
-      for (const w of document.querySelectorAll(".pw.pw-active")) w.classList.remove("pw-active");
-      this.root.classList.add("pw-active");
-    };
+    const activate = () => this.activate();
     this.root.addEventListener("pointerdown", activate, { capture: true });
     // (a window that opens is the active one)
     queueMicrotask(() => { if (this.root.isConnected && this.root.style.display !== "none") activate(); });
@@ -154,6 +150,12 @@ export class PlayWindow {
 
   /** MinimizeWindowAction (UI/Control/EveWindow/Minimize): the window folded to its header, or opened again. */
   minimize(): void { this.toggleMinimized(); }
+  /** Window.active (uicore.registry.SetFocus): this the active window, the others not. */
+  activate(): void {
+    if (this.root.classList.contains("pw-active")) return;
+    for (const w of document.querySelectorAll(".pw.pw-active")) w.classList.remove("pw-active");
+    this.root.classList.add("pw-active");
+  }
 
   private toggleMinimized(): void {
     this.minimized = !this.minimized;

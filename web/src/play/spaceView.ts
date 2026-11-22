@@ -3399,6 +3399,8 @@ export class SpaceView {
     }
     // CmdToggleTacticalOverlay (Ctrl-D): tactical.ToggleOnOff - the overlay shown or hidden (viewTactical)
     if (cmd === "CmdToggleTacticalOverlay") { e.preventDefault(); setHudSetting("viewTactical", !hudSettingNow("viewTactical")); return; }
+    // CmdSetOverviewFocus (Alt-Space): uicore.registry.SetFocus of the overview window where it is open
+    if (cmd === "CmdSetOverviewFocus") { e.preventDefault(); if (this.overview.window.root.style.display !== "none") this.overview.window.activate(); return; }
     // CmdToggleSensorOverlay (Ctrl-O): sensorSuite.ToggleOverlay - the overlay shown or hidden (ui_scanner_stop)
     if (cmd === "CmdToggleSensorOverlay") {
       e.preventDefault();
