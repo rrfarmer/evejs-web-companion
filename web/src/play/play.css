@@ -361,16 +361,23 @@ button { font: inherit; color: inherit; }
 .ov-filt-top button { height: 32px; padding: 0 12px; background: transparent; color: rgba(255, 255, 255, 0.9); border: 1px solid rgba(255, 255, 255, 0.2); font: inherit; cursor: pointer; }
 .ov-filt-preset { height: 32px; width: 286px; background: rgba(0, 0, 0, 0.3); color: #fff; border: 1px solid rgba(255, 255, 255, 0.15); padding: 0 8px; font: inherit; }
 .ov-filt-sub { margin: 16px 0 0; padding: 0; width: max-content; }
-.ov-filt-bar { display: flex; gap: 4px; align-items: center; margin-bottom: 8px; }
-.ov-filt-bar button { height: 30px; padding: 0 8px; background: transparent; color: rgba(255, 255, 255, 0.9); border: 1px solid rgba(255, 255, 255, 0.2); font: inherit; cursor: pointer; }
-.ov-filt-search { margin-left: auto; width: 150px; height: 30px; box-sizing: border-box; background: rgba(0, 0, 0, 0.3); color: #fff; border: 1px solid rgba(255, 255, 255, 0.15); padding: 0 8px; font: inherit; }
-.ov-filt-tree { flex: 1; overflow: auto; background: rgba(0, 0, 0, 0.2); padding: 4px 0; scrollbar-width: thin; }
-.ov-filt-cat { height: 24px; line-height: 24px; padding: 0 8px; cursor: pointer; color: rgba(255, 255, 255, 0.9); }
+/* Types Shown (read through gridcheck): filterCont 16 below the tabs - Select All / Deselect All, 32 high, their labels 8
+   in, 4 apart; the QuickFilterEdit 150 x 32 5 from the right, search_16px 8 in at 0.5 - then presetScroll 8 below: each
+   ListGroup 24 high (its 38_16_228 / _229 expander 16 px 4 in and 4 down, the label 22 in, 3 down), each
+   OverviewTabPresetEntry 22 high (the 16 px checkbox 20 in, 3 down, its TextBody 40 in, 2 down) */
+.ov-filt-bar { display: flex; flex: none; gap: 4px; align-items: center; margin: 16px 0 0; }
+.ov-filt-bar button, .ov-filt .ov-add-buttons button { letter-spacing: 0; }
+.ov-filt-bar button { box-sizing: border-box; height: 32px; padding: 0 8px; background: transparent; color: rgba(255, 255, 255, 0.75); border: 0; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2); font: inherit; cursor: pointer; }
+.ov-filt-search { margin: 0 5px 0 auto; width: 150px; height: 32px; box-sizing: border-box; background: rgba(0, 0, 0, 0.3) url(/client-res/ui/texture/eveicon/system_icons/search_16px.png) 8px center / 16px no-repeat; color: #fff; border: 1px solid rgba(255, 255, 255, 0.15); padding: 0 8px 0 32px; font: inherit; }
+.ov-filt-tree { flex: 1; overflow: auto; margin-top: 8px; padding: 0; scrollbar-width: thin; }
+.ov-filt-cat { position: relative; box-sizing: border-box; height: 24px; padding: 3px 0 0 22px; line-height: 18px; cursor: pointer; color: rgba(255, 255, 255, 0.9); }
 .ov-filt-cat.all { color: rgb(88, 167, 191); }
 .ov-filt-cat.none { color: rgba(255, 255, 255, 0.5); }
-.ov-filt-caret { display: inline-block; width: 0; height: 0; margin-right: 8px; border: 4px solid transparent; border-left: 5px solid currentColor; vertical-align: 1px; }
-.ov-filt-cat.open .ov-filt-caret { border: 4px solid transparent; border-top: 5px solid currentColor; vertical-align: -2px; }
-.ov-filt-group { display: flex; align-items: center; gap: 8px; height: 24px; padding-left: 28px; }
+.ov-filt-caret { position: absolute; left: 4px; top: 4px; width: 16px; height: 16px; background: url(/client-res/ui/texture/icons/38_16_228.png) center / 16px no-repeat; }
+.ov-filt-cat.open .ov-filt-caret { background-image: url(/client-res/ui/texture/icons/38_16_229.png); }
+.ov-filt-group { position: relative; display: block; height: 22px; }
+.ov-filt-group > input { position: absolute; left: 20px; top: 3px; width: 16px; height: 16px; min-height: 0; margin: 0; padding: 0; }
+.ov-filt-group > span { position: absolute; left: 40px; top: 2px; right: 6px; line-height: 18px; white-space: nowrap; overflow: hidden; }
 /* StatesPanel: the three icons over the columns (64, 34 and 4 from the right), each state's flag, text and radios */
 /* StatesPanel: iconCont 20 high (the three eyes 16 px at 380 / 410 / 440, 2 down), then the scroll's StateOverviewEntry
    rows 22 high - the flag 3 in and 7 down, the TextBody 16 in and 2 down, the RadioButtons' 16 px diodes at 380 / 410 /
