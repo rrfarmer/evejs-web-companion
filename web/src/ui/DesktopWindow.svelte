@@ -57,6 +57,8 @@
   // window can always be dragged back into view.
   function startDrag(ev: PointerEvent): void {
     if (ev.button !== 0) return;
+    // (LockWindowAction: a locked window neither moves nor resizes)
+    if (el?.classList.contains("win-locked")) { onFocus(); return; }
     onFocus();
     const parent = el?.parentElement;
     if (!parent) return;
@@ -83,6 +85,7 @@
 
   function startResize(ev: PointerEvent, edge: "e" | "s" | "se"): void {
     if (ev.button !== 0) return;
+    if (el?.classList.contains("win-locked")) return;
     ev.stopPropagation();
     onFocus();
     const startX = ev.clientX;
