@@ -6,6 +6,7 @@
 <script lang="ts">
   import { iskAndRound, roundIsk } from "../bridge/miningScanResults.ts";
   import { hideLabelShortcutTooltip, showItemTooltip } from "../play/labelShortcutTooltip.ts";
+  import { shortcutOf } from "../play/shortcutKeys.ts";
   /** uix ESTIMATED_PRICE column: FmtISK(stacksize * GetAveragePrice) - whole where the sum is whole, else two places
    *  (read through gridcheck: 2,468 ISK; 2,468.50 ISK). */
   const fmtIskCell = (v: number): string => `${v.toLocaleString("en-US", Number.isInteger(v) ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ISK`;
@@ -87,7 +88,7 @@
     ["UI/Common/Type", "UI/Inventory/TypeReversed", "type", "Type", "Type (reversed)"], ["UI/Inventory/EstPrice", "UI/Inventory/EstPriceReversed", "estPrice", "Est. Price", "Est. Price (reversed)"]] as const;
   /** invCont.GetViewModeName / GetViewModeIcon. */
   const VIEW_MODES = [["icons", "UI/Inventory/Icons", "Icons", "grid_view"], ["details", "UI/Inventory/Details", "Details", "details_view"], ["list", "UI/Inventory/List", "List", "list_view"]] as const;
-  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SortBy", "UI/Inventory/ViewMode",
+  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/ShortcutBrackets", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SortBy", "UI/Inventory/ViewMode",
     "UI/Inventory/Filters/MyFilters", "UI/Common/NothingFound", "UI/Inventory/OpenInNewWindow", "UI/Common/Buttons/Close", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
   flow.requestWords(WORDS);
   const word = (label: string, own: string, args: Record<string, string | number> = {}) => {
@@ -145,6 +146,8 @@
     return out.sort((a, b) => treeRank(a.key) - treeRank(b.key));
   });
   let volumes = $state<Record<string, number>>({});
+  /** TreeDataInv.GetHint: UI/Inventory/ShortcutBrackets of the node's command's shortcut, nothing where it has none. */
+  const shortcutHint = (cmd: string): string => { const k = shortcutOf(cmd); return k ? word("UI/Inventory/ShortcutBrackets", `[${k}]`, { shortcut: k }) : ""; };
   /** FmtISKAndRound(v, showFractionsAlways): rounded as RoundISK, with two places always or only where it has a fraction. */
   const iskRound = (v: number, always: boolean): string => {
     const r = Math.round(roundIsk(v) * 100) / 100; // (12,677,700 rounds to 12700000.000000002)
@@ -584,7 +587,8 @@
   <div class="tree">
     <div class="nodes">
       {#if ship}
-        <div onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node" class:sel={current === "cargo"} class:drop={dropKey === "cargo"} role="treeitem" aria-selected={current === "cargo"} tabindex="-1"
+        <!-- TreeDataShip.GetHint: the type name, with TreeDataInv's "[<shortcut>]" (ShortcutBrackets) of OpenCargoHoldOfActiveShip where it has one -->
+        <div title={typeName(ship.typeID) + shortcutHint("OpenCargoHoldOfActiveShip")} onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node" class:sel={current === "cargo"} class:drop={dropKey === "cargo"} role="treeitem" aria-selected={current === "cargo"} tabindex="-1"
           onclick={() => (current = "cargo")} onkeydown={() => {}}
           ondragover={dragOver("cargo")} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn("cargo", e)}>
           <button type="button" class="exp" class:open={treeOpen} aria-label="Expand" onclick={(e) => { e.stopPropagation(); treeOpen = !treeOpen; }}></button>
@@ -593,7 +597,7 @@
         </div>
         {#if treeOpen}
           {#each bays.filter((b) => b.key !== "cargo" && !b.key.startsWith("temp:")) as b (b.key)}
-            <div onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node sub" class:sel={current === b.key} class:drop={dropKey === b.key} role="treeitem" aria-selected={current === b.key} tabindex="-1"
+            <div title={b.key === "drone" ? shortcutHint("OpenDroneBayOfActiveShip").trim() || undefined : undefined} onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node sub" class:sel={current === b.key} class:drop={dropKey === b.key} role="treeitem" aria-selected={current === b.key} tabindex="-1"
               onclick={() => (current = b.key)} onkeydown={() => {}}
               ondragover={dragOver(b.key)} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn(b.key, e)}>
               <span class="ticon"><img src={clientTexture(BAY_ICON[b.key] ?? "res:/UI/Texture/WindowIcons/cargo.png")} alt=""></span>
