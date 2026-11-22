@@ -22,7 +22,9 @@
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
-  let { store, flow, onClose }: { store: ClientStore; flow: AppFlow; onClose: () => void } = $props();
+  let { store, flow, onClose, inSpace = false, onSafeLogoff, onLogOff }: { store: ClientStore; flow: AppFlow; onClose: () => void;
+    inSpace?: boolean; onSafeLogoff?: () => void; onLogOff?: () => void } = $props();
+  const safeLogoffRunning = flow.safeLogoff;
   // svelte-ignore state_referenced_locally
   const words = store.words;
   const P = "UI/SystemMenu/DisplayAndGraphics/";
@@ -66,6 +68,7 @@
     { key: "droneModelsEnabled", label: `${P}Effects/DroneModels`, own: "Drone Models" },
   ];
   const WORDS = {
+    safeLogoff: "UI/Inflight/SafeLogoff", safeLogoffHint: "UI/SystemMenu/SafeLogoffHint", logOffHint: "UI/SystemMenu/LogOffHint",
     settings: "UI/Common/Settings", returnToGame: "UI/SystemMenu/ReturnToGame", logOff: "UI/SystemMenu/LogOff", quit: "UI/SystemMenu/QuitGame",
     displaySetup: `${P}DisplaySetup/Header`, windowed: `${P}DisplaySetup/WindowedOrFullscreen`, windowMode: "/Carbon/UI/Service/Device/WindowMode",
     fullScreen: "/Carbon/UI/Service/Device/FullScreen", contentHeader: `${G}Header`, contentDescription: `${G}Description`,
@@ -427,7 +430,15 @@
     </div>
     <div class="sm-bottom">
       <button type="button" onclick={closeMenuClick}>{word(WORDS.returnToGame, "Return to Game")}</button>
-      <button type="button" disabled title="Not on the play page yet">{word(WORDS.logOff, "Log Off")}</button>
+      <!-- ConstructBottomButtons: in space (and no safe logoff running) Log Off Safely (SafeLogoff: the menu closed, CmdLogOff's
+           safe logoff); else, with a character, Log Off (LogoffBtnClick: the menu closed, CmdLogOff) -->
+      {#if inSpace}
+        {#if !$safeLogoffRunning}
+          <button type="button" title={word("UI/SystemMenu/SafeLogoffHint", "")} onclick={() => { closeMenuClick(); onSafeLogoff?.(); }}>{word("UI/Inflight/SafeLogoff", "Log Off Safely")}</button>
+        {/if}
+      {:else}
+        <button type="button" title={word("UI/SystemMenu/LogOffHint", "")} onclick={() => { closeMenuClick(); onLogOff?.(); }}>{word(WORDS.logOff, "Log Off")}</button>
+      {/if}
       <button type="button" disabled title="Close the tab to quit">{word(WORDS.quit, "Quit Game")}</button>
     </div>
   </div>

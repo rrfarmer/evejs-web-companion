@@ -310,13 +310,21 @@
       const text = typeof t === "string" && t !== "" ? plainText(t) : "You have safely logged off.";
       pilot.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text);
     }
-    setTimeout(() => {
-      live?.close();
-      live = null;
-      spaceClaimed = null;
-      void pilot.flow.releaseSession().catch(() => {}).finally(() => { if (session === pilot) stage = "select"; });
-    }, 1000);
+    setTimeout(() => backToCharacterSelection(pilot), 1000);
   });
+  /** gameui.DoCharacterLogoff: the pilot released and the page back on character selection. */
+  function backToCharacterSelection(pilot: Session): void {
+    live?.close();
+    live = null;
+    spaceClaimed = null;
+    void pilot.flow.releaseSession().catch(() => {}).finally(() => { if (session === pilot) stage = "select"; });
+  }
+  /** eveCommands.CmdLogOff docked: AskLogoffToCharacterSelection (yes / no, a yes kept by its suppress box), then LogOffCharacter. */
+  async function logOffDocked(): Promise<void> {
+    const pilot = session;
+    if (!pilot) return;
+    if (await pilot.flow.askClientDialog("AskLogoffToCharacterSelection", "Log off to character selection?", true)) backToCharacterSelection(pilot);
+  }
 
   // A refusal the server gave an order (a lock, a module, a move, a fit, an item's move), as the client puts it up:
   // the flow says some in the client's own dialogs (actionErrorSaid); the rest are said here, once each, in space on
@@ -2968,7 +2976,9 @@
   <ErrorBoundary name="Hacking"><HackingWindow {session} /></ErrorBoundary>
   <Toasts />
   {#if systemMenu}
-    <ErrorBoundary name="System menu"><SystemMenu store={session.store} flow={session.flow} onClose={() => (systemMenu = false)} /></ErrorBoundary>
+    <ErrorBoundary name="System menu"><SystemMenu store={session.store} flow={session.flow} onClose={() => (systemMenu = false)} inSpace={!docked}
+      onSafeLogoff={() => { session?.flow.requestWords(SAFE_LOGOFF_WORDS); safeLogoffQuitting = false; void session?.flow.startSafeLogoff().catch(() => {}); }}
+      onLogOff={() => void logOffDocked()} /></ErrorBoundary>
   {/if}
   {#if siteBookmark}
     <ErrorBoundary name="Save Location"><BookmarkWindow store={session.store} flow={session.flow} scanResult={siteBookmark} onDone={() => { siteBookmark = null; menuBookmarksAt = 0; }} /></ErrorBoundary>
