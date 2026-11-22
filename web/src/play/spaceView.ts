@@ -982,6 +982,9 @@ export class SpaceView {
   }
 
   /** stateSvc.SetState(itemID, mouseOver): the bracket shows its label (ShowLabel's mouseOver) and the overview row lights. */
+  /** An object's mouseOver state from outside the view (a window's entry: MiningScanEntry.OnMouseEnter / OnMouseExit). */
+  hoverObject(id: number | null): void { this.setHovered(id); }
+
   private setHovered(id: number | null): void {
     if (this.hoveredID === id) return;
     if (this.hoveredID !== null) this.bracketEls.get(this.hoveredID)?.classList.remove("hovered");

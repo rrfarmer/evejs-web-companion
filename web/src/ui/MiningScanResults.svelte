@@ -12,6 +12,7 @@
   import { showInfo } from "./showInfo.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { loadMiningScanSort, miningScanSort } from "./miningScanSort.ts";
+  import { clientTexture } from "../play/window.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const flightView = getContext<(() => SpaceView | null) | undefined>("flightSpaceView");
@@ -114,11 +115,19 @@
           {#if !collapsed.has(group.typeID)}
             {#each group.rows as row (row.itemID)}
               {@const locked = $targeting.lockedTargetIDs?.includes(row.itemID) ?? false}
-              <tr data-rock-id={row.itemID}>
+              {@const acquiring = !locked && ($targeting.acquiringTargetIDs?.includes(row.itemID) ?? false)}
+              <!-- MiningScanEntry: hover the rock's mouseOver state, right-click its CelestialMenu (the space menu), click
+                   ExecuteCombatCommand then select (the view's select runs a held combat command); its TargetIconCont
+                   (2, 0, 16 x 16) the activeTarget icon when locked, the shrinking targetFrame while locking -->
+              <tr data-rock-id={row.itemID}
+                onmouseenter={() => flightView?.()?.hoverObject(row.itemID)}
+                onmouseleave={() => flightView?.()?.hoverObject(null)}
+                oncontextmenu={(e) => { e.preventDefault(); dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID: row.itemID, x: e.clientX, y: e.clientY } })); }}>
                 <td>
+                  <span class="tgt-icon">{#if locked}<img src={clientTexture("res:/UI/Texture/classes/Bracket/activeTarget.png")} alt="" />{:else if acquiring}<span class="tgt-frame" style:border-image-source={`url(${clientTexture("res:/UI/Texture/classes/Bracket/targetFrame.png")})`}></span>{/if}</span>
                   {#if flightView}
                     <button type="button" class="rock" onclick={() => flightView()?.selectObjectiveTarget(row.itemID)} aria-label={`Select ${group.name}${locked ? ", locked target" : ""}`}>
-                      {group.name}{#if locked}<span class="locked" title="Locked target"> ◉</span>{/if}
+                      {group.name}
                     </button>
                   {:else}{group.name}{/if}
                 </td>
@@ -146,6 +155,10 @@
 </section>
 
 <style>
+  .tgt-icon { display: inline-flex; width: 16px; height: 16px; margin: 0 4px 0 2px; vertical-align: middle; align-items: center; justify-content: center; }
+  .tgt-icon img { width: 16px; height: 16px; }
+  .tgt-frame { width: 22px; height: 22px; opacity: 0.75; border-style: solid; border-width: 4px; border-image-slice: 4; animation: tgt-shrink 0.4s linear infinite; }
+  @keyframes tgt-shrink { from { width: 22px; height: 22px; } to { width: 12px; height: 12px; } }
   .scan-bottom { margin: 0 -0.65rem -0.65rem; padding: 4px 0.65rem 0.65rem; background: rgba(255, 255, 255, 0.04); }
   .scan-buttons { display: flex; justify-content: center; padding-top: 4px; }
   .upgrade .link { all: unset; cursor: pointer; }
