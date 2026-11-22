@@ -12,7 +12,8 @@ export const RADIAL_BUTTON_OPTIONS: readonly (readonly [string, number])[] = [
 ];
 export const RADIAL_SETTING_WORDS: readonly string[] = [
   "UI/SystemMenu/GeneralSettings/Inflight/ExpandActionMenu", "UI/SystemMenu/GeneralSettings/Inflight/RadialMenuDelay",
-  "UI/SystemMenu/GeneralSettings/Inflight/BracketListDelay", "UI/SystemMenu/GeneralSettings/Inflight/NoBracketListDelay", "UI/SystemMenu/GeneralSettings/Inflight/LongBracketListDelay",
+  "UI/SystemMenu/GeneralSettings/Inflight/BracketListDelay", "UI/SystemMenu/GeneralSettings/Inflight/CompactBracketListWhenSnapped",
+  "UI/SystemMenu/GeneralSettings/Inflight/CompactBracketListWhenNotSnapped", "UI/SystemMenu/GeneralSettings/Inflight/NoBracketListDelay", "UI/SystemMenu/GeneralSettings/Inflight/LongBracketListDelay",
   ...RADIAL_BUTTON_OPTIONS.map((o) => o[0]),
 ];
 const BTN = "evejs.play.actionmenuBtn", DELAY = "evejs.play.actionMenuExpandTime";
@@ -42,3 +43,9 @@ export function bracketListDelay(): number {
   return v === null || !Number.isFinite(v) ? BRACKET_DELAY_DEFAULT : Math.min(BRACKET_DELAY_MAX, Math.max(BRACKET_DELAY_MIN, Math.round(v)));
 }
 export function setBracketListDelay(v: number): void { writeNum(BRACKET, v); }
+/** Compact Bracket List When Snapped / Not Snapped (bracketmenu_docked False, bracketmenu_floating True): the list of a
+ *  bracket at the layer's edge (InSpaceBracket.IsFloating false) or inside it is the compact one (icons, names beside). */
+const DOCKED = "evejs.play.bracketmenu_docked", FLOATING = "evejs.play.bracketmenu_floating";
+const readBool = (k: string, d: boolean): boolean => { try { const v = localStorage.getItem(k); return v === null ? d : v === "1"; } catch { return d; } };
+export function bracketListCompact(floating: boolean): boolean { return floating ? readBool(FLOATING, true) : readBool(DOCKED, false); }
+export function setBracketListCompact(floating: boolean, v: boolean): void { try { localStorage.setItem(floating ? FLOATING : DOCKED, v ? "1" : "0"); } catch { /* not kept */ } }

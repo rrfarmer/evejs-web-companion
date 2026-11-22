@@ -944,7 +944,14 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 .sensor-site.bookmark .ss-outer, .sensor-site.sharedBookmark .ss-outer { background: rgb(41, 181, 191); }
 .sensor-site.mission .ss-outer { background: rgb(0, 255, 255); }
 /* SensorOverlaySiteTooltipRow: its bracket's outer colour at 0.25 behind it, its inner icon at 16 px */
-.bracket-overlap .bo-row.bo-site, .bracket-overlap .bo-label.bo-site { position: relative; }
+.bracket-overlap .bo-row.bo-site, .bracket-overlap .bo-label.bo-site, .bracket-overlap .bo-dist.bo-site { position: relative; }
+/* the list not compact: icon | name (150 at most, faded at its end) | distance */
+.bracket-overlap.wide .bo-icons { display: grid; grid-template-columns: 26px auto auto; }
+.bracket-overlap.wide .bo-label { max-width: 150px; padding: 2px 6px 2px 2px; white-space: nowrap; overflow: hidden; }
+.bracket-overlap.wide .bo-label.cut {
+  -webkit-mask-image: linear-gradient(to left, transparent 0, #000 20px); mask-image: linear-gradient(to left, transparent 0, #000 20px); }
+.bracket-overlap.wide .bo-dist { display: flex; align-items: center; justify-content: flex-end; padding: 0 4px; font-size: 10px; cursor: pointer; }
+.bracket-overlap.wide .bo-dist.bo-site::before { content: ""; position: absolute; inset: 0; background: var(--site); opacity: 0.25; pointer-events: none; }
 .bracket-overlap .bo-row.bo-site::before, .bracket-overlap .bo-label.bo-site::before { content: ""; position: absolute; inset: 0; background: var(--site); opacity: 0.25; pointer-events: none; }
 .bracket-overlap .bo-row.bo-site img { width: 16px; height: 16px; }
 /* the tactical overlay's range labels (_COLOR_LABEL white 0.5) */

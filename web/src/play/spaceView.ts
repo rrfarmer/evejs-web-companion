@@ -82,7 +82,7 @@ import { PlayWindow, clientTexture } from "./window.ts";
 import { bloomFor, type Bloom } from "../three/bloom.ts";
 import { DynamicExposure } from "../three/exposure.ts";
 import { CombatMessage } from "./combatMessage.ts";
-import { bracketListDelay } from "./radialSettings.ts";
+import { bracketListCompact, bracketListDelay } from "./radialSettings.ts";
 import { RadialMenu, RADIAL_CSS, RADIAL_ICON, WARP_RANGES, holdToOpen, radialRanges, type RadialOption } from "./radialMenu.ts";
 import { METENOX_BOARD_RANGE, METENOX_DEPOSIT_RANGE, METENOX_MATERIAL_RANGE, METENOX_TYPE_ID } from "../bridge/autoMoonMining.ts";
 import { hideMetenoxBeam, updateMetenoxPresentation } from "./metenoxPresentation.ts";
@@ -857,8 +857,13 @@ export class SpaceView {
     if (list.length + sites.length <= 1) return;
     list.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     const host = this.brackets.getBoundingClientRect();
+    // LoadTooltip: compact by Compact Bracket List When Not Snapped (a floating bracket, inside the layer) or When
+    // Snapped (at its edge, IsFloating false); not compact a 3-column grid - the icon, the name (BracketShadowLabel,
+    // 150 wide, padding 2 2 6 2) with the tag under it, the distance (EveLabelSmall, right, 4 in) - and no side panel
+    const floating = box.left > host.left && box.top > host.top && box.right < host.right && box.bottom < host.bottom;
+    const compact = bracketListCompact(floating);
     const tip = document.createElement("div");
-    tip.className = "bracket-overlap";
+    tip.className = compact ? "bracket-overlap" : "bracket-overlap wide";
     const icons = document.createElement("div");
     icons.className = "bo-icons";
     const side = document.createElement("div");
@@ -876,16 +881,21 @@ export class SpaceView {
       const dist = this.distanceTo(one.e);
       const tag = this.actions.fleetTagAndTarget?.(one.id) ?? "";
       const main = document.createElement("span");
-      main.textContent = dist ? `${one.name} ${fmtDistance(dist)}` : one.name;
+      main.textContent = dist && compact ? `${one.name} ${fmtDistance(dist)}` : one.name;
       label.append(main);
+      const distEl = document.createElement("div");
+      distEl.className = "bo-dist";
+      distEl.dataset.id = String(one.id);
+      distEl.textContent = dist ? fmtDistance(dist) : "";
       if (tag) {
         const b = document.createElement("b");
         b.textContent = tag;
         label.append(document.createElement("br"), b);
       }
-      for (const part of [icon, label]) {
-        part.addEventListener("mouseenter", () => { icon.classList.add("bo-hilite"); label.classList.add("bo-hilite"); void playUiEvent("ui_button_soft2_play"); this.setHovered(one.id); });
-        part.addEventListener("mouseleave", () => { icon.classList.remove("bo-hilite"); label.classList.remove("bo-hilite"); if (this.hoveredID === one.id) this.setHovered(null); });
+      const parts = compact ? [icon, label] : [icon, label, distEl];
+      for (const part of parts) {
+        part.addEventListener("mouseenter", () => { for (const p of parts) p.classList.add("bo-hilite"); void playUiEvent("ui_button_soft2_play"); this.setHovered(one.id); });
+        part.addEventListener("mouseleave", () => { for (const p of parts) p.classList.remove("bo-hilite"); if (this.hoveredID === one.id) this.setHovered(null); });
         part.addEventListener("click", (ev) => {
           ev.stopPropagation();
           void playUiEvent("msg_ListEntryClick_play");
@@ -894,8 +904,7 @@ export class SpaceView {
         });
         part.addEventListener("dblclick", (ev) => { ev.stopPropagation(); this.activateSpaceTarget(one.id); });
       }
-      icons.append(icon);
-      side.append(label);
+      if (compact) { icons.append(icon); side.append(label); } else icons.append(icon, label, distEl);
       this.overlapIDs.add(one.id);
       one.el.classList.add("overlap-lit");
     }
@@ -915,20 +924,24 @@ export class SpaceView {
       label.style.setProperty("--site", colour);
       const code = s.querySelector(".ss-code b")?.textContent ?? "";
       const dist = s.querySelector(".ss-code span")?.textContent ?? "";
-      label.textContent = dist ? `${code} ${dist}` : code;
-      for (const part of [icon, label]) {
-        part.addEventListener("mouseenter", () => { icon.classList.add("bo-hilite"); label.classList.add("bo-hilite"); void playUiEvent("ui_button_soft2_play"); });
-        part.addEventListener("mouseleave", () => { icon.classList.remove("bo-hilite"); label.classList.remove("bo-hilite"); });
+      label.textContent = dist && compact ? `${code} ${dist}` : code;
+      const distEl = document.createElement("div");
+      distEl.className = "bo-dist bo-site";
+      distEl.style.setProperty("--site", colour);
+      distEl.textContent = dist;
+      const parts = compact ? [icon, label] : [icon, label, distEl];
+      for (const part of parts) {
+        part.addEventListener("mouseenter", () => { for (const p of parts) p.classList.add("bo-hilite"); void playUiEvent("ui_button_soft2_play"); });
+        part.addEventListener("mouseleave", () => { for (const p of parts) p.classList.remove("bo-hilite"); });
         part.addEventListener("contextmenu", (ev) => {
           ev.preventDefault(); ev.stopPropagation();
           s.dispatchEvent(new MouseEvent("contextmenu", { bubbles: false, cancelable: true, clientX: ev.clientX, clientY: ev.clientY }));
         });
         part.addEventListener("dblclick", (ev) => { ev.stopPropagation(); s.dispatchEvent(new MouseEvent("dblclick", { bubbles: false })); });
       }
-      icons.append(icon);
-      side.append(label);
+      if (compact) { icons.append(icon); side.append(label); } else icons.append(icon, label, distEl);
     }
-    tip.append(icons, side);
+    if (compact) tip.append(icons, side); else tip.append(icons);
     tip.addEventListener("mouseenter", () => { if (this.overlapCloseTimer) { clearTimeout(this.overlapCloseTimer); this.overlapCloseTimer = null; } });
     tip.addEventListener("mouseleave", () => this.overlapLeft());
     // GetTooltipPointer, a compact one in the open: POINT_BOTTOM_2 - the panel over the bracket, centred on it, its
@@ -939,7 +952,9 @@ export class SpaceView {
     pointer.alt = "";
     icons.append(pointer);
     this.brackets.append(tip);
-    const iw = icons.offsetWidth, ih = icons.offsetHeight, sw = side.offsetWidth;
+    // a name cut at 150 fades out over its last 20 px (TOOLTIPLABELCUTOFFFADELENGTH)
+    if (!compact) for (const l of icons.querySelectorAll<HTMLElement>(".bo-label")) l.classList.toggle("cut", l.scrollWidth > l.clientWidth);
+    const iw = icons.offsetWidth, ih = icons.offsetHeight, sw = compact ? side.offsetWidth : 0;
     const cx = box.left - host.left + box.width / 2;
     let top = box.top - host.top - 9 - ih;
     const below = top < 0;

@@ -18,7 +18,7 @@
   import { playUiEvent } from "../play/uiAudio.ts";
   import { AUTO_TARGET_BACK_MAX, AUTO_TARGET_BACK_WORDS, autoTargetBack } from "./autoTargetBack.ts";
   import { RADIAL_BUTTON_OPTIONS, RADIAL_DELAY_MAX, RADIAL_DELAY_MIN, RADIAL_SETTING_WORDS, radialButton, radialDelay, setRadialButton, setRadialDelay,
-    BRACKET_DELAY_MAX, BRACKET_DELAY_MIN, bracketListDelay, setBracketListDelay } from "../play/radialSettings.ts";
+    BRACKET_DELAY_MAX, BRACKET_DELAY_MIN, bracketListCompact, bracketListDelay, setBracketListCompact, setBracketListDelay } from "../play/radialSettings.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
@@ -112,6 +112,8 @@
   let radialBtn = $state(radialButton());
   let radialMs = $state(radialDelay());
   let bracketMs = $state(bracketListDelay());
+  let compactDocked = $state(bracketListCompact(false));
+  let compactFloating = $state(bracketListCompact(true));
   let settings = $state<GfxSettings>({ ...gfx() });
   let fullScreen = $state(typeof document !== "undefined" && document.fullscreenElement !== null);
   onMount(() => {
@@ -391,6 +393,9 @@
               oninput={(ev) => { bracketMs = Number(ev.currentTarget.value); setBracketListDelay(bracketMs); }} />
             <small>{word("UI/SystemMenu/GeneralSettings/Inflight/LongBracketListDelay", "Long")}</small>
           </div>
+          <!-- bracketmenu_docked (False), bracketmenu_floating (True) -->
+          <label class="sm-check"><input type="checkbox" checked={compactDocked} onchange={(ev) => { compactDocked = ev.currentTarget.checked; setBracketListCompact(false, compactDocked); }} /> {word("UI/SystemMenu/GeneralSettings/Inflight/CompactBracketListWhenSnapped", "Compact Bracket List When Snapped")}</label>
+          <label class="sm-check"><input type="checkbox" checked={compactFloating} onchange={(ev) => { compactFloating = ev.currentTarget.checked; setBracketListCompact(true, compactFloating); }} /> {word("UI/SystemMenu/GeneralSettings/Inflight/CompactBracketListWhenNotSnapped", "Compact Bracket List When Not Snapped")}</label>
         {:else if panel === "camera"}
           <h3 class="first">{word(WORDS.cameraHeader, "In-Space Camera Settings")}</h3>
           <label class="sm-check" title={word(WORDS.dynamicCameraHint, "")}><input type="checkbox" checked={settings.dynamicCameraMovement}
