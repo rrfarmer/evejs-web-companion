@@ -5,6 +5,7 @@
 
 <script lang="ts">
   import { iskAndRound, roundIsk } from "../bridge/miningScanResults.ts";
+  import { fittedColumnWidth } from "./scrollColumnFit.ts";
   import { hideLabelShortcutTooltip, showItemTooltip } from "../play/labelShortcutTooltip.ts";
   import { shortcutOf } from "../play/shortcutKeys.ts";
   /** uix ESTIMATED_PRICE column: FmtISK(stacksize * GetAveragePrice) - whole where the sum is whole, else two places
@@ -723,7 +724,7 @@
     const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); keepWidths({ ...colWidths }); };
     addEventListener("pointermove", move); addEventListener("pointerup", up);
   }
-  function resetWidth(k: number): void { const next = { ...colWidths }; delete next[k]; keepWidths(next); }
+  function resetWidth(k: number, e: MouseEvent): void { const th = (e.currentTarget as HTMLElement).closest("th"); if (th) keepWidths({ ...colWidths, [k]: fittedColumnWidth(th) }); }
   function headerMenu(k: number, e: MouseEvent): void {
     e.preventDefault();
     const entries: (ContextEntry | null)[] = [];
@@ -888,7 +889,7 @@
         <!-- the scroll of listentry.InvItem rows under GetInvItemDefaultHeaders: details with the 32 px icon and the
              label 46 in, list without the icon -->
         <table class="rows" class:details={viewMode === "details"}>
-          <thead><tr>{#each HEADERS as h, k}<th class:sorted={column === k} class:hid={hiddenCols.includes(k)} style:width={colWidths[k] ? `${colWidths[k]}px` : null} style:min-width={colWidths[k] ? `${colWidths[k]}px` : null} style:max-width={colWidths[k] ? `${colWidths[k]}px` : null} onclick={() => sortByColumn(k)} oncontextmenu={(e) => headerMenu(k, e)}>{word(h, HEADER_OWN[k]!)}{#if column === k}<span class="dir" class:down={reversed}></span>{/if}<span class="scaler" role="separator" aria-orientation="vertical" onpointerdown={(e) => startScale(k, e)} onclick={(e) => e.stopPropagation()} ondblclick={(e) => { e.stopPropagation(); resetWidth(k); }}></span></th>{/each}</tr></thead>
+          <thead><tr>{#each HEADERS as h, k}<th class:sorted={column === k} class:hid={hiddenCols.includes(k)} style:width={colWidths[k] ? `${colWidths[k]}px` : null} style:min-width={colWidths[k] ? `${colWidths[k]}px` : null} style:max-width={colWidths[k] ? `${colWidths[k]}px` : null} onclick={() => sortByColumn(k)} oncontextmenu={(e) => headerMenu(k, e)}>{word(h, HEADER_OWN[k]!)}{#if column === k}<span class="dir" class:down={reversed}></span>{/if}<span class="scaler" role="separator" aria-orientation="vertical" onpointerdown={(e) => startScale(k, e)} onclick={(e) => e.stopPropagation()} ondblclick={(e) => { e.stopPropagation(); resetWidth(k, e); }}></span></th>{/each}</tr></thead>
           <tbody>
             {#each shown as i (i.itemID)}
               {@const fa = facts[i.typeID]}

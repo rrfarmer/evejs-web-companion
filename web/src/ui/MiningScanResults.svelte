@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getContext } from "svelte";
+  import { fittedColumnWidth } from "./scrollColumnFit.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { miningScanInWarp, miningScanRows, MINING_SCANNER_UPGRADE, roundIsk, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
   import type { SpaceView } from "../play/spaceView.ts";
@@ -127,7 +128,7 @@
     const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); keepWidths({ ...colWidths }); };
     addEventListener("pointermove", move); addEventListener("pointerup", up);
   }
-  function resetWidth(k: number): void { const next = { ...colWidths }; delete next[k]; keepWidths(next); }
+  function resetWidth(k: number, e: MouseEvent): void { const th = (e.currentTarget as HTMLElement).closest("th"); if (th) keepWidths({ ...colWidths, [k]: fittedColumnWidth(th) }); }
 </script>
 
 <section class="mining-scan-results" aria-label="Mining Scan Results">
@@ -135,7 +136,7 @@
   {#if $mining.surveyError}<p role="alert" class="status">{$mining.surveyError}</p>{/if}
   <div class="scan-table">
     <table>
-      <thead><tr>{#each COLUMNS as [label, own], k (label)}<th scope="col" class:sorted={colSort === k} style:width={colWidths[k] ? `${colWidths[k]}px` : null} style:min-width={colWidths[k] ? `${colWidths[k]}px` : null} style:max-width={colWidths[k] ? `${colWidths[k]}px` : null} onclick={() => sortByColumn(k)}>{say(label, own)}{#if colSort === k}<span class="dir" class:down={colReversed}></span>{/if}<span class="scaler" role="separator" aria-orientation="vertical" onpointerdown={(e) => startScale(k, e)} onclick={(e) => e.stopPropagation()} ondblclick={(e) => { e.stopPropagation(); resetWidth(k); }}></span></th>{/each}</tr></thead>
+      <thead><tr>{#each COLUMNS as [label, own], k (label)}<th scope="col" class:sorted={colSort === k} style:width={colWidths[k] ? `${colWidths[k]}px` : null} style:min-width={colWidths[k] ? `${colWidths[k]}px` : null} style:max-width={colWidths[k] ? `${colWidths[k]}px` : null} onclick={() => sortByColumn(k)}>{say(label, own)}{#if colSort === k}<span class="dir" class:down={colReversed}></span>{/if}<span class="scaler" role="separator" aria-orientation="vertical" onpointerdown={(e) => startScale(k, e)} onclick={(e) => e.stopPropagation()} ondblclick={(e) => { e.stopPropagation(); resetWidth(k, e); }}></span></th>{/each}</tr></thead>
       {#each groups as group (group.typeID)}
         <tbody data-ore-type={group.typeID}>
           <tr class="ore-group"><th colspan="5" scope="rowgroup">
