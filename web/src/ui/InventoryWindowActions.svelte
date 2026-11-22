@@ -5,6 +5,9 @@
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import { onMount } from "svelte";
+  import WindowActionItems from "./WindowActionItems.svelte";
+  import { applyWindowFlags, WINDOW_ACTION_WORDS } from "./windowFlags.ts";
   import { invCompact, invFilter, invKeepFilter, invSidebar, invViewMode, setInvCompact, setInvKeepFilter, setInvSidebar } from "./inventoryWindowSettings.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
@@ -16,7 +19,8 @@
   const viewMode = invViewMode;
   const keepFilter = invKeepFilter;
   const MODES = [["icons", "UI/Inventory/Icons", "Icons"], ["details", "UI/Inventory/Details", "Details"], ["list", "UI/Inventory/List", "List"]] as const;
-  $effect(() => { flow.requestWords(["UI/Inventory/ShowSidebar", "UI/Inventory/KeepQuickFilterValue", "UI/Inventory/ViewMode", "UI/Inventory/Icons", "UI/Inventory/Details", "UI/Inventory/List",
+  onMount(() => applyWindowFlags("inventory"));
+  $effect(() => { flow.requestWords([...WINDOW_ACTION_WORDS, "UI/Inventory/ShowSidebar", "UI/Inventory/KeepQuickFilterValue", "UI/Inventory/ViewMode", "UI/Inventory/Icons", "UI/Inventory/Details", "UI/Inventory/List",
     "/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", "UI/Common/Search"]); });
 
   let open = $state(false);
@@ -40,9 +44,7 @@
     onpointerdown={(event) => event.stopPropagation()} onclick={() => (open = !open)}>⋯</button>
   {#if open}
     <div class="log-menu" role="menu" aria-label="Options">
-      <button type="button" role="menuitem" onpointerdown={(event) => event.stopPropagation()}
-        onclick={() => { setInvCompact(!$compact); open = false; }}>{$compact ? word("/Carbon/UI/Controls/Window/DisableCompactMode", "Disable compact mode") : word("/Carbon/UI/Controls/Window/EnableCompactMode", "Enable compact mode")}</button>
-      <hr class="sep" />
+      <WindowActionItems id="inventory" lightByDefault={false} {word} compact={{ on: $compact, toggle: () => setInvCompact(!$compact) }} onDone={() => (open = false)} />
       <button type="button" role="menuitemcheckbox" aria-checked={$sidebar} onpointerdown={(event) => event.stopPropagation()}
         onclick={() => setInvSidebar(!$sidebar)}>{word("UI/Inventory/ShowSidebar", "Show Sidebar")}</button>
       <button type="button" role="menuitemcheckbox" aria-checked={$keepFilter} onpointerdown={(event) => event.stopPropagation()}

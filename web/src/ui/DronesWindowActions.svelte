@@ -5,8 +5,10 @@
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import WindowActionItems from "./WindowActionItems.svelte";
   import { onMount } from "svelte";
-  import { applyWindowFlags, setWindowFlag, windowFlags, WINDOW_ACTION_WORDS } from "./windowFlags.ts";
+  import { applyWindowFlags, WINDOW_ACTION_WORDS } from "./windowFlags.ts";
+  onMount(() => applyWindowFlags("drones"));
   import { droneViewIcons, droneViewModeFor, droneWarpWarning, droneWarpWarningFor, droneWindowCompact, setDroneViewMode, setDroneWarpWarning, setDroneWindowCompact } from "./droneSettings.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
@@ -18,10 +20,6 @@
   const icons = droneViewIcons;
   const compact = droneWindowCompact;
   $effect(() => { flow.requestWords(["UI/Drones/WarpWarningOption", "UI/Inventory/ViewMode", "UI/Inventory/Icons", "UI/Inventory/List", "/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", ...WINDOW_ACTION_WORDS]); });
-  // the window actions' state (windowFlags.ts), kept per window and put back on the window when it opens
-  let flags = $state(windowFlags("drones"));
-  onMount(() => applyWindowFlags("drones"));
-  function flag(which: "locked" | "nolight" | "collapsed"): void { setWindowFlag("drones", which, !flags[which]); flags = windowFlags("drones"); open = false; }
   $effect(() => { const id = $character.selectedCharacterID; if (id !== null) { droneWarpWarningFor(id); droneViewModeFor(id); } });
 
   let open = $state(false);
@@ -50,17 +48,7 @@
     onpointerdown={(event) => event.stopPropagation()} onclick={() => (open = !open)}>⋯</button>
   {#if open}
     <div class="log-menu" role="menu" aria-label="Options">
-      <!-- the window's actions as the client's More menu lists them (read through gridcheck): Lock window size and position,
-           Enable / Disable Compact Mode, Disable / Enable Light Background, Collapse / Expand; then the window's own options -->
-      <button type="button" role="menuitem" onpointerdown={(event) => event.stopPropagation()}
-        onclick={() => flag("locked")}>{flags.locked ? word("/Carbon/UI/Controls/Window/Unlock", "Unlock window size and position") : word("/Carbon/UI/Controls/Window/Lock", "Lock window size and position")}</button>
-      <button type="button" role="menuitem" onpointerdown={(event) => event.stopPropagation()}
-        onclick={() => { setDroneWindowCompact(!$compact); open = false; }}>{$compact ? word("/Carbon/UI/Controls/Window/DisableCompactMode", "Disable Compact Mode") : word("/Carbon/UI/Controls/Window/EnableCompactMode", "Enable Compact Mode")}</button>
-      <button type="button" role="menuitem" onpointerdown={(event) => event.stopPropagation()}
-        onclick={() => flag("nolight")}>{flags.nolight ? word("/Carbon/UI/Controls/Window/EnableLightBackground", "Enable Light Background") : word("/Carbon/UI/Controls/Window/DisableLightBackground", "Disable Light Background")}</button>
-      <button type="button" role="menuitem" onpointerdown={(event) => event.stopPropagation()}
-        onclick={() => flag("collapsed")}>{flags.collapsed ? word("/Carbon/UI/Controls/Window/Expand", "Expand") : word("/Carbon/UI/Controls/Window/Collapse", "Collapse")}</button>
-      <hr class="sep" />
+      <WindowActionItems id="drones" lightByDefault={true} {word} compact={{ on: $compact, toggle: () => setDroneWindowCompact(!$compact) }} onDone={() => (open = false)} />
       <button type="button" role="menuitemcheckbox" aria-checked={$on} onpointerdown={(event) => event.stopPropagation()}
         onclick={toggle}><span class="check">{$on ? "✓" : ""}</span>{word("UI/Drones/WarpWarningOption", "Warp Warning")}</button>
       <hr class="sep" />

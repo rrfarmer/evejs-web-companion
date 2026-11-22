@@ -2,6 +2,9 @@
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import { onMount } from "svelte";
+  import WindowActionItems from "./WindowActionItems.svelte";
+  import { applyWindowFlags, WINDOW_ACTION_WORDS } from "./windowFlags.ts";
   import { captureGameLog, clearGameLog } from "./gameLog.ts";
   import { noticeBoard } from "./notices.ts";
 
@@ -10,7 +13,8 @@
   const words = store.words;
   const prefix = "UI/Accessories/Log/";
   const labels = ["CaptureLog", "CopyLog", "ClearLog", "GameLog", "Listener", "SessionStarted"];
-  $effect(() => { flow.requestWords(labels.map((label) => prefix + label)); });
+  $effect(() => { flow.requestWords([...labels.map((label) => prefix + label), ...WINDOW_ACTION_WORDS]); });
+  onMount(() => applyWindowFlags("log"));
 
   let open = $state(false);
   let root: HTMLElement;
@@ -68,6 +72,7 @@
     onpointerdown={(event) => event.stopPropagation()} onclick={() => (open = !open)}>⋯</button>
   {#if open}
     <div id="game-log-actions-menu" class="log-menu" role="menu" aria-label="Log actions">
+      <WindowActionItems id="log" lightByDefault={true} word={(label, own) => { const t = $words?.templates[label]; return typeof t === "string" && t ? plainText(formatTemplate(t, {}, { nameOf: () => "" })) : own; }} onDone={() => (open = false)} />
       <button type="button" role="menuitem" onpointerdown={(event) => event.stopPropagation()}
         onclick={download}>{word("CaptureLog", "Capture Log")}</button>
       <button type="button" role="menuitem" onpointerdown={(event) => event.stopPropagation()}
