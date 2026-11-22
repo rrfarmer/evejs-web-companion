@@ -2075,7 +2075,7 @@ export class SpaceView {
         rows.push(`<span class="eb-crit"><span class="eb-crit-icon"></span>${escapeHtml(text)}</span>`);
         continue;
       }
-      const m = /^(Total value|Value|Quantity)\s*(.*)$/.exec(line);
+      const m = /^(Total Value|Value|Quantity)\s*(.*)$/.exec(line);
       rows.push(m ? pair(m[1]!, m[2]!) : escapeHtml(line));
     }
     const html = rows.map((r) => `<div class="eb-line">${r}</div>`).join("");

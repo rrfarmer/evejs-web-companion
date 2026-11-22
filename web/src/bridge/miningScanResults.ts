@@ -57,21 +57,36 @@ const units = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 const isk = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
 
 // A selected harvestable shows estimated value after either scan. A lock gives the exact quantity.
+/** eveFormat.RoundISK: an ISK amount to the precision the client shows it at. */
+function roundIsk(v: number): number {
+  const at = v < 10 ? 2 : v < 100 ? 1 : v < 1e3 ? 0 : v < 1e4 ? -1 : v < 1e5 ? -2 : v < 1e6 ? -3 : v < 1e7 ? -4 : v < 1e8 ? -5 : -6;
+  const f = 10 ** at;
+  return Math.round(v * f) / f;
+}
+const whole = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const cents = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/**
+ * ExpandedBracketAsteroid's lines (read through gridcheck): Value as mining_util.get_volume_est_price_formatted
+ * (UI/Shared/EstimatedPricePerSquareMeter of FmtISKAndRound(price, False): '53 ISK / m³'), Total Value FmtISK of the
+ * unit price times the quantity ('5,280.00 ISK'), Quantity UI/Shared/NumberOfUnits for a locked rock ('1,234 Units'), else
+ * UI/Mining/EstNumberOfUnits of it rounded to hundreds (under 1,000) or thousands ('Approx. 1,000 Units').
+ */
 export function miningBracketReadout(
   scan: SurveyResult,
   locked: boolean,
   pricePerM3: number | null,
   unitVolume: number | null,
 ): string[] {
-  const details = [pricePerM3 !== null && pricePerM3 > 0 ? `Value ${isk.format(pricePerM3)} ISK/m³` : "Value unknown"];
+  const details = [pricePerM3 !== null && pricePerM3 > 0 ? `Value ${whole.format(Math.round(roundIsk(pricePerM3)))} ISK / m³` : "Value Unknown"];
   const quantity = scan.remainingQuantity;
   if (quantity === null || quantity <= 0) return details;
   if (pricePerM3 !== null && pricePerM3 > 0 && unitVolume !== null && unitVolume > 0) {
-    details.push(`Total value ${units.format(pricePerM3 * unitVolume * quantity)} ISK`);
+    details.push(`Total Value ${cents.format(pricePerM3 * unitVolume * quantity)} ISK`);
   }
   const step = quantity < 1_000 ? 100 : 1_000;
-  const amount = locked ? units.format(quantity) : `≈ ${units.format(Math.round(quantity / step) * step)}`;
-  details.push(`Quantity ${amount} units`);
+  const amount = locked ? `${whole.format(quantity)} Units` : `Approx. ${whole.format(Math.round(quantity / step) * step)} Units`;
+  details.push(`Quantity ${amount}`);
   return details;
 }
 
