@@ -264,6 +264,35 @@
     tail.push(null, { label: word("UI/Common/Buttons/Close", "Close"), run: () => removeTemp(t.id) });
     dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID: t.id, x: e.clientX, y: e.clientY, tail } }));
   }
+  /**
+   * TreeDataInv.GetMenu on the ship's own entries (read through gridcheck on the client's): the cargo hold's controller
+   * (ShipCargo.GetMenu) gives the active ship's space menu in space (GetMenuFromItemIDTypeID); a bay's (BaseShipBay,
+   * BaseInvContainer.GetMenu) the ship's item menu (InvItemMenu) - Show Info, the market and assets entries, Compare.
+   * (TreeDataInv's Open in new window after it is not here: the page has one inventory window for the ship's holds.)
+   */
+  function cargoNodeMenu(e: MouseEvent): void {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!ship || !$space.snapshot?.ship) return;
+    dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID: ship.itemID, x: e.clientX, y: e.clientY, tail: [] } }));
+  }
+  function bayNodeMenu(e: MouseEvent): void {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!ship) return;
+    const typeID = ship.typeID, itemID = ship.itemID;
+    menu.open(e.clientX, e.clientY, [
+      { label: word(MENU.info, "Show Info"), info: true, run: () => showInfo({ kind: "type", typeID, itemID }) },
+      null,
+      { label: word(MENU.market, "View Market Details"), run: () => showMarketDetails(typeID) },
+      { label: word(MENU.buy, "Buy This Type"), run: () => buyMarketType(typeID) },
+      { label: word(MENU.contracts, "Find in Contracts"), run: () => findInContracts(typeID) },
+      { label: word(MENU.assets, "Find Personal Assets"), run: () => findInPersonalAssets(typeName(typeID)) },
+      { label: word(MENU.quickbar, "Add to Market Quickbar"), run: () => { changeQuickbar((q) => addType(q, typeID)); } },
+      null,
+      { label: word(MENU.compare, "Compare"), run: () => typeCompareTarget.ask([{ typeID, itemID }]) },
+    ]);
+  }
   /** TreeDataInv.OpenNewWindow: the container in an inventory window of its own (the cargo shown here again). */
   function openTempInNewWindow(id: number): void {
     if (current === `temp:${id}`) current = "cargo";
@@ -630,7 +659,7 @@
       {#if ship}
         <!-- TreeDataShip.GetHint: the type name, with TreeDataInv's "[<shortcut>]" (ShortcutBrackets) of OpenCargoHoldOfActiveShip where it has one -->
         <div title={typeName(ship.typeID) + shortcutHint("OpenCargoHoldOfActiveShip")} onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node" class:sel={current === "cargo"} class:drop={dropKey === "cargo"} role="treeitem" aria-selected={current === "cargo"} tabindex="-1"
-          onclick={() => (current = "cargo")} onkeydown={() => {}}
+          onclick={() => (current = "cargo")} onkeydown={() => {}} oncontextmenu={(e) => cargoNodeMenu(e)}
           ondragover={dragOver("cargo")} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn("cargo", e)}>
           <button type="button" class="exp" class:open={treeOpen} aria-label="Expand" onclick={(e) => { e.stopPropagation(); treeOpen = !treeOpen; }}></button>
           <span class="ticon"><TypeIcon typeID={ship.typeID} name={shipLabel} size="sm" /></span>
@@ -639,7 +668,7 @@
         {#if treeOpen}
           {#each bays.filter((b) => b.key !== "cargo" && !b.key.startsWith("temp:")) as b (b.key)}
             <div title={b.key === "drone" ? shortcutHint("OpenDroneBayOfActiveShip").trim() || undefined : undefined} onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node sub" class:sel={current === b.key} class:drop={dropKey === b.key} role="treeitem" aria-selected={current === b.key} tabindex="-1"
-              onclick={() => (current = b.key)} onkeydown={() => {}}
+              onclick={() => (current = b.key)} onkeydown={() => {}} oncontextmenu={(e) => bayNodeMenu(e)}
               ondragover={dragOver(b.key)} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn(b.key, e)}>
               <span class="ticon"><img src={clientTexture(BAY_ICON[b.key] ?? "res:/UI/Texture/WindowIcons/cargo.png")} alt=""></span>
               <span class="tlabel">{b.label}</span>
