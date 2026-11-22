@@ -274,7 +274,8 @@ button { font: inherit; color: inherit; }
 .ov-add-count { position: absolute; right: 8px; bottom: 6px; font-size: 11px; color: rgba(255, 255, 255, 0.4); }
 .ov-add-title { margin: 16px 0 8px; height: 16px; }
 .ov-add-buttons { display: flex; gap: 8px; justify-content: center; margin-top: 16px; }
-.ov-add-buttons button { min-width: 80px; height: 28px; background: rgba(255, 255, 255, 0.1); color: #fff; border: 1px solid rgba(255, 255, 255, 0.2); font: inherit; cursor: pointer; }
+/* a ButtonGroup's Buttons: 32 high, at least 80 wide, the label 16 in (read through gridcheck on the settings panels) */
+.ov-add-buttons button { box-sizing: border-box; min-width: 80px; height: 32px; padding: 0 16px; letter-spacing: 0; background: rgba(255, 255, 255, 0.1); color: #fff; border: 1px solid rgba(255, 255, 255, 0.2); font: inherit; cursor: pointer; }
 .ov-add-buttons button:hover { background: rgba(255, 255, 255, 0.18); }
 /* ColumnConfigurationWindow: the hint (EveLabelLarge), the scroll of ColumnEntry rows (a checkbox each, dragged to reorder) */
 .ov-columns-window { padding: 4px 8px 8px; font-size: 14px; color: rgba(255, 255, 255, 0.75); }
@@ -396,12 +397,25 @@ button { font: inherit; color: inherit; }
 .ov-state-row input[type=radio] { position: absolute; top: 3px; width: 16px; height: 16px; min-height: 0; padding: 0; margin: 0; accent-color: rgb(88, 167, 191); }
 .ov-state-row input[type=radio]:nth-of-type(1) { left: 380px; } .ov-state-row input[type=radio]:nth-of-type(2) { left: 410px; } .ov-state-row input[type=radio]:nth-of-type(3) { left: 440px; }
 /* AppearancePanel */
-.ov-app { display: flex; flex-direction: column; padding: 8px; }
-.ov-app-check { display: flex; align-items: center; gap: 8px; height: 24px; }
-.ov-app-check input, .ov-app-row input { accent-color: rgb(88, 167, 191); margin: 0; }
-.ov-app-note { margin: 12px 0 4px; }
-.ov-app-row { display: grid; grid-template-columns: 16px 1fr 25px; gap: 6px; align-items: center; height: 22px; padding: 0 14px 0 6px; cursor: grab; }
-.ov-app-row .state-flag { position: static; }
+/* AppearancePanel (read through gridcheck): flush with the main at 130 - each Checkbox 24 high (its 16 px diode 4 down, the
+   label 24 in, 3 down), the note (18 high) 16 below the second, two more 4 below it, the Colortag / Background TabGroup
+   (32 high, labels 7 down) 8 below, appearanceScroll 8 below that down to the Reset All ButtonGroup; each FlagEntry 22
+   high - its checkbox 4 in, 3 down, the TextBody 24 in, 2 down, the 25 x 20 colour picker at the right, 1 down */
+.ov-set-panel.ov-app { display: flex; flex-direction: column; padding: 8px 0 0; }
+.ov-app-check { position: relative; display: block; flex: none; height: 24px; }
+.ov-app-check > input { position: absolute; left: 0; top: 4px; }
+.ov-app-check > span { position: absolute; left: 24px; top: 3px; line-height: 18px; white-space: nowrap; }
+.ov-app-check input, .ov-app-row input { width: 16px; height: 16px; min-height: 0; padding: 0; accent-color: rgb(88, 167, 191); margin: 0; }
+.ov-app-note { flex: none; margin: 16px 0 4px; line-height: 18px; }
+.ov-app .ov-filt-sub { height: 32px; margin-top: 8px; }
+.ov-app .ov-filt-sub .ov-set-tab { padding-top: 7px; }
+.ov-filt-tree.ov-app-list { margin-top: 8px; padding: 0; background: none; }
+.ov-app .ov-add-buttons { margin-top: 0; }
+.ov-app-row { position: relative; height: 22px; cursor: grab; }
+.ov-app-row > input { position: absolute; left: 4px; top: 3px; }
+.ov-app-row > span:not(.ov-app-color) { position: absolute; left: 24px; top: 2px; right: 40px; line-height: 18px; white-space: nowrap; overflow: hidden; }
+.ov-app-row > .ov-app-color { position: absolute; right: 6px; top: 1px; }
+.ov-app-row .state-flag { position: absolute; left: 0; top: 4px; }
 .ov-app-bg { width: 9px; height: 9px; }
 /* ShipsPanel */
 .ov-ships { display: flex; flex-direction: column; padding: 8px; gap: 4px; }
