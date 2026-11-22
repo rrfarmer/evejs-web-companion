@@ -1,4 +1,5 @@
 import type { CorpWar } from "../bridge/corpWars.ts";
+import { isViewedWreck } from "./viewedWrecks.ts";
 import { isNpcOwner } from "../bridge/mail.ts";
 import { militiaFactionID } from "../bridge/militiaEnlistment.ts";
 import { isNpcCorporation } from "../bridge/ownerInfo.ts";
@@ -29,6 +30,9 @@ export interface OverviewRelationships {
 }
 
 interface OverviewItem {
+  readonly itemID?: number;
+  /** A wreck's slimItem.isEmpty. */
+  readonly isEmpty?: boolean;
   readonly isSelf: boolean;
   readonly typeID: number | null;
   readonly groupID: number | null;
@@ -58,7 +62,7 @@ const FILTER_LCS_NAMES = new Set(["wall_x", "wall_z", " wall", " barricade", " f
 
 const FLAG = {
   sameFleet: 11, samePlayerCorp: 12, sameAlliance: 14, standingHigh: 15, standingGood: 16,
-  agentInteractable: 21, sameMilitia: 45, alliesAtWar: 49,
+  agentInteractable: 21, wreckViewed: 36, wreckEmpty: 37, sameMilitia: 45, alliesAtWar: 49,
 } as const;
 
 /**
@@ -256,6 +260,9 @@ function alliesAtWar(other: number, relations: OverviewRelationships): boolean {
 
 function stateMatches(flag: number, item: OverviewItem, group: number, category: number, relations?: OverviewRelationships): boolean {
   if (flag === FLAG.agentInteractable) return group === AGENT_IN_SPACE;
+  // stateSvc.CheckWreckViewed (wrecksvc.IsViewedWreck) and CheckWreckEmpty (a wreck whose slim item says isEmpty)
+  if (flag === FLAG.wreckViewed) return item.itemID !== undefined && isViewedWreck(item.itemID);
+  if (flag === FLAG.wreckEmpty) return group === 186 && item.isEmpty === true;
   if (!relations) return false;
   switch (flag) {
     case FLAG.sameFleet: {
