@@ -10,6 +10,10 @@
   import { createSignal } from "../store/signals.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import { showInfo } from "./showInfo.ts";
+  import { ContextMenu } from "../play/contextMenu.ts";
+  import { clientTexture } from "../play/window.ts";
+  import { onDestroy } from "svelte";
+  import { plainText } from "../bridge/clientWords.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const flightView = getContext<(() => SpaceView | null) | undefined>("flightSpaceView");
@@ -40,7 +44,31 @@
 
   let busy = $state(false);
   let facts = $state<ReadonlyMap<number, MiningScanTypeFacts>>(new Map());
-  let sortGroups = $state<"name" | "value" | "type">("name");
+  /**
+   * GetCustomHeaderButtons: the bars_sort_ascending button, UI/Mining/SortGroupsBy, opening on_filter_button's menu - its
+   * label, then the radio entries Alphabetically, Value, Type of the char setting miningScanSortGroupsBy (default
+   * ALPHABETICALLY), the groups sorted again on a change (read through gridcheck: 'Sort Groups By', 'Alphabetically',
+   * 'Value', 'Type').
+   */
+  const SORT_KEY = () => `evejs.miningScanSortGroupsBy.${store.character.get().selectedCharacterID ?? 0}`;
+  const readSort = (): "name" | "value" | "type" => { try { const v = localStorage.getItem(SORT_KEY()); return v === "value" || v === "type" ? v : "name"; } catch { return "name"; } };
+  let sortGroups = $state<"name" | "value" | "type">(readSort());
+  const SORT_WORDS = ["UI/Mining/SortGroupsBy", "UI/Mining/SortGroupsByAlphabetically", "UI/Mining/SortGroupsByValue", "UI/Mining/SortGroupsByType"];
+  flow.requestWords(SORT_WORDS);
+  const words = $derived(store.words);
+  const sortWord = (label: string, own: string) => { const t = $words.templates[label]; return typeof t === "string" && t !== "" ? plainText(t) : own; };
+  const sortMenu = new ContextMenu();
+  onDestroy(() => sortMenu.close());
+  function openSortMenu(e: MouseEvent): void {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const pick = (v: "name" | "value" | "type") => () => { sortGroups = v; try { localStorage.setItem(SORT_KEY(), v); } catch { /* kept for this page only */ } };
+    sortMenu.open(r.left, r.bottom, [
+      { label: sortWord("UI/Mining/SortGroupsBy", "Sort Groups By"), caption: true },
+      { label: sortWord("UI/Mining/SortGroupsByAlphabetically", "Alphabetically"), checked: sortGroups === "name", run: pick("name") },
+      { label: sortWord("UI/Mining/SortGroupsByValue", "Value"), checked: sortGroups === "value", run: pick("value") },
+      { label: sortWord("UI/Mining/SortGroupsByType", "Type"), checked: sortGroups === "type", run: pick("type") },
+    ]);
+  }
   let collapsed = $state<ReadonlySet<number>>(new Set());
   const rows = $derived(miningScanRows($mining.survey, snapshot, facts));
   const groups = $derived.by(() => {
@@ -89,9 +117,8 @@
 
 <section class="mining-scan-results" aria-label="Mining Scan Results">
   <div class="scan-toolbar">
-    <label>Sort ore groups <select bind:value={sortGroups}>
-      <option value="name">Name</option><option value="value">Value per m³</option><option value="type">Type</option>
-    </select></label>
+    <button type="button" class="sort-groups" title={sortWord("UI/Mining/SortGroupsBy", "Sort Groups By")} aria-label={sortWord("UI/Mining/SortGroupsBy", "Sort Groups By")}
+      onclick={openSortMenu} style:background-image={`url(${clientTexture("res:/ui/texture/eveicon/system_icons/bars_sort_ascending_16px.png")})`}></button>
     <button class="scan-button" type="button" onclick={scan} disabled={busy || $waveBusy || inWarp || !snapshot?.inSpace}>{busy || $waveBusy ? "Scanning…" : "Scan"}</button>
   </div>
   {#if inWarp}<p class="status">Mining scans are unavailable while warping.</p>{/if}
@@ -138,6 +165,8 @@
 </section>
 
 <style>
+  .sort-groups { width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; background: center / 16px no-repeat; opacity: 0.75; cursor: pointer; }
+  .sort-groups:hover { opacity: 1; }
   section { display: flex; flex-direction: column; min-height: 0; height: 100%; padding: 0.65rem; gap: 0.55rem; color: #e0e9ed; }
   .scan-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; }
   label { display: flex; align-items: center; gap: 0.45rem; font-size: 0.8rem; }
