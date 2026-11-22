@@ -471,7 +471,8 @@ export class Overview {
     document.querySelector(".ov-columns-window")?.closest(".pw")?.remove();
     const tabName = this.tabSettings[tab]?.name ?? "";
     const win = new PlayWindow({ id: "overview-columns", caption: word("UI/Overview/TabColumnsCaption", `Columns: ${tabName}`, { tabName }),
-      left: Math.round(innerWidth / 2 - 200), top: Math.round(innerHeight / 2 - 220), width: 400, height: 440, minWidth: 400, minHeight: 440 });
+      left: Math.round(innerWidth / 2 - 200), top: Math.round(innerHeight / 2 - 220), width: 400, height: 440, minWidth: 400, minHeight: 440,
+      icon: clientTexture("res:/UI/Texture/WindowIcons/other.png"), chrome: "default" });
     win.body.classList.add("ov-columns-window");
     const draw = () => {
       const shown = new Set(this.visibleColumns(tab).map((c) => c.id));
@@ -577,7 +578,7 @@ export class Overview {
     document.querySelector(".ov-settings")?.closest(".pw")?.remove();
     const win = new PlayWindow({ id: "overview-settings", caption: word("UI/Overview/OverviewSettings", "Overview Settings"),
       left: Math.round(innerWidth / 2 - 260), top: Math.round(innerHeight / 2 - 300), width: 520, height: 600, minWidth: 520, minHeight: 500,
-      icon: clientTexture("res:/UI/Texture/WindowIcons/other.png"),
+      icon: clientTexture("res:/UI/Texture/WindowIcons/other.png"), chrome: "default",
       // GetMenuMoreOptions (read through gridcheck): the window's own, then GetPresetsMenu - Export Overview Settings,
       // Import Settings and, with any saved filter, Delete's submenu of them by name
       menu: (button) => {

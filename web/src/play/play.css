@@ -279,24 +279,30 @@ button { font: inherit; color: inherit; }
 .ov-add-buttons button { box-sizing: border-box; min-width: 80px; height: 32px; padding: 0 16px; letter-spacing: 0; background: rgba(255, 255, 255, 0.1); color: #fff; border: 1px solid rgba(255, 255, 255, 0.2); font: inherit; cursor: pointer; }
 .ov-add-buttons button:hover { background: rgba(255, 255, 255, 0.18); }
 /* ColumnConfigurationWindow: the hint (EveLabelLarge), the scroll of ColumnEntry rows (a checkbox each, dragged to reorder) */
-.ov-columns-window { padding: 4px 8px 8px; font-size: 14px; color: rgba(255, 255, 255, 0.75); }
-.ov-columns-hint { margin: 4px 0 8px 8px; font-size: 16px; }
-.ov-columns-list { flex: 1; overflow: auto; border: 1px solid rgba(255, 255, 255, 0.1); }
-.ov-columns-row { display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 8px; cursor: grab; }
+/* ColumnsPanel in ColumnConfigurationWindow (read through gridcheck): the main 16 in; the hint EveLabelLarge 16 (21 high) 8
+   in, 4 down; columnsScroll 4 in a side, 12 below it, down to 4 above the ButtonGroup at the foot; each ColumnEntry 22 high,
+   its checkbox 4 in, 3 down, the TextBody 24 in, 2 down */
+.ov-columns-window { padding: 0 16px 16px; font-size: 14px; color: rgba(255, 255, 255, 0.75); }
+.ov-columns-hint { flex: none; margin: 4px 0 12px 8px; font-size: 16px; line-height: 21px; }
+.ov-columns-list { flex: 1; overflow: auto; margin: 0 4px 4px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1); }
+.ov-columns-window .ov-add-buttons { margin-top: 0; }
+.ov-columns-row { position: relative; display: block; height: 22px; cursor: grab; }
+.ov-columns-row > input { position: absolute; left: 4px; top: 3px; width: 16px; height: 16px; min-height: 0; margin: 0; padding: 0; accent-color: rgb(88, 167, 191); }
+.ov-columns-row > span { position: absolute; left: 24px; top: 2px; line-height: 18px; white-space: nowrap; }
 .ov-columns-row:hover { background: rgba(255, 255, 255, 0.05); }
 .ov-columns-end { height: 16px; }
 /* OverviewSettingsWnd: a TabGroup over the panel; TabsPanel's grid (15 apart across, 8 down; 120 wide fields) */
 /* OverviewSettingsWnd (read through gridcheck, 520 x 600): its content 2 in, a DefaultWindowHeader 48 high - the 32 px
    WindowIcons/other.png at 14, 10, the 18 px caption (white 0.9) at 54, the 24 px More / Minimize / Close at 434, 458, 482,
-   14 - then the main 16 in a side and below. Its PlayWindow is a <section> and so not the global panel's padding and
-   hairline */
-.pw:has(> .pw-body.ov-settings) { padding: 1px; margin: 0; border-radius: 0; }
-.pw:has(> .pw-body.ov-settings)::before { display: none; }
-.pw:has(> .pw-body.ov-settings) > .pw-head { box-sizing: border-box; height: 48px; padding: 0 12px; gap: 8px; border-bottom: 0; }
-.pw:has(> .pw-body.ov-settings) > .pw-head .pw-icon { width: 32px; height: 32px; opacity: 1; }
-.pw:has(> .pw-body.ov-settings) > .pw-head .pw-caption { font-size: 18px; letter-spacing: 0; color: rgba(255, 255, 255, 0.9); }
-.pw:has(> .pw-body.ov-settings) > .pw-head .pw-buttons { gap: 0; }
-.pw:has(> .pw-body.ov-settings) > .pw-head .pw-btn { box-sizing: border-box; width: 24px; height: 24px; padding: 4px; }
+   14 - then the main 16 in a side and below (ColumnConfigurationWindow the same). A PlayWindow with chrome "default"; a
+   <section>, so not the global panel's padding and hairline */
+.pw.pw-default { padding: 1px; margin: 0; border-radius: 0; }
+.pw.pw-default::before { display: none; }
+.pw.pw-default > .pw-head { box-sizing: border-box; height: 48px; padding: 0 12px; gap: 8px; border-bottom: 0; }
+.pw.pw-default > .pw-head .pw-icon { width: 32px; height: 32px; opacity: 1; }
+.pw.pw-default > .pw-head .pw-caption { font-size: 18px; letter-spacing: 0; color: rgba(255, 255, 255, 0.9); }
+.pw.pw-default > .pw-head .pw-buttons { gap: 0; }
+.pw.pw-default > .pw-head .pw-btn { box-sizing: border-box; width: 24px; height: 24px; padding: 4px; }
 .ov-settings { padding: 0 16px 16px; font-size: 14px; color: rgba(255, 255, 255, 0.75); }
 /* a TabGroup: 30 high, each Tab its EveLabelMedium 6 down (white 0.5, the selected 0.9), 24 apart; the DividerLine (white
    0.1) under the tabs only, the selected's SelectionIndicatorLine 1 px in the accent */
