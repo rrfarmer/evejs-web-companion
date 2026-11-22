@@ -1459,6 +1459,8 @@ export class SpaceView {
     // (CircularInventoryGauge has no OnClick or menu of its own: it takes the mouse for its label, nothing more)
     this.miningHoldBracket.addEventListener("pointerdown", event => event.stopPropagation());
     this.miningHoldBracket.addEventListener("click", event => event.stopPropagation());
+    // uilib.FindMenuHandler asks the control under the mouse alone: no GetMenu, no menu (nor the browser's)
+    this.miningHoldBracket.addEventListener("contextmenu", event => { event.preventDefault(); event.stopPropagation(); });
     this.brackets.appendChild(this.miningHoldBracket);
     this.root.appendChild(this.brackets);
     this.sensorLayer.className = "sensor-overlay";
