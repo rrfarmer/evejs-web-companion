@@ -1360,7 +1360,8 @@
       const active = activeWinKey === null ? undefined : wins.find((w) => w.id === activeWinKey && !w.minimized);
       if (active) {
         if (close) { if (active.id !== "drones") { void playUiEvent("ui_object_close_play"); wins = closeWindow(wins, active.id); } }
-        else wins = toggleMinimize(wins, active.id);
+        // (Window.Minimize: SetFocus(None) - none active after)
+        else { wins = toggleMinimize(wins, active.id); activeWinKey = null; }
         return true;
       }
       const bay = bayWindows.find((b) => b.win.id === activeWinKey);
@@ -3085,7 +3086,7 @@
           focused={win.id === activeWinKey}
           onFocus={() => { wins = focusWindow(wins, win.id); raiseApp(win.id); }}
           onClose={() => (wins = closeWindow(wins, win.id))}
-          onToggleMinimize={() => (wins = toggleMinimize(wins, win.id))}
+          onToggleMinimize={() => { const was = win.minimized; wins = toggleMinimize(wins, win.id); if (!was && activeWinKey === win.id) activeWinKey = null; }}
           onMove={(x, y) => (wins = moveWindow(wins, win.id, x, y))}
           onResize={(w, h) => (wins = resizeWindow(wins, win.id, w, h))}
         >

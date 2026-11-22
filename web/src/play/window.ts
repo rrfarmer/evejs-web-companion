@@ -162,6 +162,8 @@ export class PlayWindow {
   private toggleMinimized(): void {
     this.minimized = !this.minimized;
     this.root.classList.toggle("minimized", this.minimized);
+    // Window.Minimize: uicore.registry.SetFocus(None) - the minimized window is no longer the active one
+    if (this.minimized) this.root.classList.remove("pw-active");
   }
 
   private drag(handle: HTMLElement, move: (dx: number, dy: number, start: { left: number; top: number; width: number; height: number }) => void): void {
