@@ -1594,11 +1594,12 @@ export class SpaceView {
     // and its context menu: DroneInSpaceEntry.GetMenu - the window's own entries (Move Drone) with CelestialMenu over the
     // drone, the window's merged into the drone group by menuHierarchy
     const menuFor = (ev: Event) => {
-      const d = (ev as CustomEvent<{ itemID: number; x: number; y: number; droneExtra?: ContextEntry[] }>).detail;
+      const d = (ev as CustomEvent<{ itemID: number; itemIDs?: number[]; x: number; y: number; droneExtra?: ContextEntry[] }>).detail;
       const e = d ? this.snapshot?.entities.find((x) => x.itemID === d.itemID) : null;
       if (!d || !e) return;
       this.radial.close();
-      this.contextMenu.open(d.x, d.y, this.contextEntries(e, d.droneExtra ?? []));
+      const ids = (d.itemIDs ?? [d.itemID]).filter((id) => this.snapshot?.entities.some((x) => x.itemID === id));
+      this.contextMenu.open(d.x, d.y, ids.length > 1 ? this.mergedDroneEntries(e, ids, d.droneExtra ?? []) : this.contextEntries(e, d.droneExtra ?? []));
     };
     addEventListener("evejs:open-space-menu", menuFor);
     this.unhold.push(() => removeEventListener("evejs:open-space-menu", menuFor));
@@ -4419,6 +4420,28 @@ export class SpaceView {
    * not from a capsule); Show Info; Set Destination, Add Waypoint, Save Location..., View Planetary Industry; and Add/Remove
    * the group to/from the Overview.
    */
+  /**
+   * MergeMenus over the selected drones' CelestialMenus (read through gridcheck on two of the client's drones): the first's
+   * menu without Show Info, each drone order run on them all and counted - "Engage Target (2)", "Return and Orbit (2)",
+   * "Return to Drone Bay (2)", "Scoop to Cargo Hold (2)", "Abandon Drone (2)"; the movement, Add to Overview and Move
+   * Drone as the first's.
+   */
+  private mergedDroneEntries(e: Entity, ids: readonly number[], droneExtra: readonly ContextEntry[]): (ContextEntry | null)[] {
+    const n = ids.length;
+    const order = (kind: "primary" | "orbit" | "bay" | "scoop" | "abandon") => () => this.actions.droneOrder?.(kind, [...ids]);
+    const runs: Record<string, () => void> = {
+      "UI/Drones/EngageTarget": order("primary"), "UI/Drones/MineWithDrone": order("primary"), "UI/Drones/Salvage": order("primary"),
+      "UI/Drones/ReturnDroneAndOrbit": order("orbit"), "UI/Drones/ReturnDroneToBay": order("bay"), "UI/Drones/ScoopDroneToBay": order("scoop"),
+      "UI/Drones/AbandonDrone": order("abandon"),
+      "UI/Inflight/ScoopToCargoHold": () => { for (const id of ids) void this.act("Scoop", () => this.actions.scoopToCargo!(id)); },
+      "UI/Inflight/ScoopToFleetHangar": () => { for (const id of ids) void this.act("Scoop", () => this.actions.scoopToFleetHangar!(id)); },
+    };
+    const merged = this.contextEntries(e, droneExtra)
+      .filter((x) => x === null || x.path !== "UI/Commands/ShowInfo")
+      .map((x) => (x && x.path && runs[x.path] ? { ...x, label: `${x.label} (${n})`, run: runs[x.path] } : x));
+    return merged.filter((x, i, all) => x !== null || (i > 0 && i < all.length - 1 && all[i - 1] !== null));
+  }
+
   private contextEntries(e: Entity, droneExtra: readonly ContextEntry[] = []): (ContextEntry | null)[] {
     const word = (label: string, own: string, args?: Readonly<Record<string, string | number>>) => this.actions.word?.(label, args) ?? own;
     const id = e.itemID;

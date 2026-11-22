@@ -721,13 +721,14 @@
       const same = pickedFor("space", row.itemIDs[0]!, row.typeID, true), all = pickedFor("space", row.itemIDs[0]!, row.typeID, false);
       // one drone in space: its CelestialMenu as the scene draws it, Move Drone in its drone group (read through gridcheck:
       // Engage / Mine, Approach .. Lock Target | Show Info | Add to Overview | Move Drone, Return and Orbit, Return to
-      // Drone Bay, Scoop to Cargo Hold | Abandon Drone); several, the merged drone menu
-      if (all.length === 1 && row.unavailable === null) {
+      // Drone Bay, Scoop to Cargo Hold | Abandon Drone); several, MergeMenus over them (the space view's mergedDroneEntries)
+      const inSpaceNow = all.filter((id) => allDroneIDs.includes(id));
+      if (row.unavailable === null && inSpaceNow.length >= 1 && inSpaceNow.length === all.length) {
         e.preventDefault(); e.stopPropagation(); tipOff();
         type Ctx = { label: string; run?: () => void; sub?: Ctx[] };
         const toContext = (m: MenuEntry): Ctx =>
           ({ label: m.label, ...(m.act ? { run: () => void m.act!() } : {}), ...(m.sub ? { sub: m.sub.map(toContext) } : {}) });
-        dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID: all[0], x: e.clientX, y: e.clientY, droneExtra: [toContext(moveMenu(same, row.typeID))] } }));
+        dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID: row.itemIDs[0], itemIDs: inSpaceNow, x: e.clientX, y: e.clientY, droneExtra: [toContext(moveMenu(same, row.typeID))] } }));
         return;
       }
       openMenu(e, [moveMenu(same, row.typeID), ...spaceEntries(row.unavailable ? (row.recoverable ? all : []) : all.filter((id) => allDroneIDs.includes(id)), row.recoverable)]);
