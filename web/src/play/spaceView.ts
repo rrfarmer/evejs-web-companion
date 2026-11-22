@@ -4679,6 +4679,8 @@ export class SpaceView {
       const nextPlanet = Math.min(...ents.filter((x) => x.groupID === 7 && x.itemID > id).map((x) => x.itemID), Infinity);
       const moons = ents.filter((x) => x.groupID === 8 && x.itemID > id && x.itemID < nextPlanet)
         .map((m) => ({ m, n: Number(/(\d+)\s*$/.exec(this.nameOf(m))?.[1] ?? 0) })).sort((a, b) => a.n - b.n);
+      // (Moons and the Customs Office a group of their own after View Planetary Industry: read through gridcheck)
+      out.push(null);
       out.push({ path: "UI/Menusvc/MoonsMenuOption", label: word("UI/Menusvc/MoonsMenuOption", "Moons"), icon: null,
         sub: moons.length ? moons.map(({ m, n }) => ({ label: word("UI/Inflight/Submenus/MoonX", `Moon ${n}`, { moonNumber: n }),
           run: run("Warp", () => this.actions.warpTo(m.itemID, defaultDistance("WarpTo"))), sub: this.contextEntries(m) }))
