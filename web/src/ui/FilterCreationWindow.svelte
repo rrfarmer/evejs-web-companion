@@ -7,11 +7,14 @@
   // While it is open its filter applies to the inventories as the temporary filter (FilterSvc.SetTempFilter), let go on
   // closing. Save: CannotSaveBlankFilter without a condition, SaveFilterNoName without a name, SaveFilterPrompt over a
   // filter of that name (not when editing it), the filters kept (PersistFilters), FilterSaved.
-  // (Not here: the import-from-clipboard and share buttons at the bottom right, dropping items on the rows.)
+  // ImportTypeList (the paste button at the bottom right) and OnDropData (items dropped on the rows) add a Name Is row for
+  // each type not already there (_AddTypeIDs), before the empty last row. (Not here: the share button.)
   import { onDestroy, onMount } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
-  import { getCategories, getCategoryGroups, getGroupCategories, getTypeMeta } from "../app/api.ts";
+  import { getCategories, getCategoryGroups, getGroupCategories, getTypeMeta, importMultibuy, resolveNames } from "../app/api.ts";
+  import { ASSET_ITEM_DRAG_MIME, decodeAssetItemDrag, decodeDrag, DRAG_MIME } from "./dragDrop.ts";
+  import { formatTemplate } from "../bridge/clientWords.ts";
   import { plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
@@ -84,7 +87,8 @@
   }
 
   onMount(() => {
-    flow.requestWords([P + "ItemFilterCaption", P + "Match", P + "FilterName", P + "All", P + "Any", "UI/Common/Buttons/Save", "UI/Common/Buttons/Close", "UI/Common/All",
+    flow.requestNames([{ kind: "type" as const, id: 1230 }, { kind: "type" as const, id: 34 }]);
+    flow.requestWords([P + "ImportFilterItems", P + "ImportFilterItemsHint", "UI/SkillQueue/CouldNotReadLines", P + "ItemFilterCaption", P + "Match", P + "FilterName", P + "All", P + "Any", "UI/Common/Buttons/Save", "UI/Common/Buttons/Close", "UI/Common/All",
       ...CONDITIONS.map(([, key]) => P + key), ...Object.values(CRIT).map(([key]) => P + key), P + "CritIsTrue", P + "CritIsFalse",
       ...SLOTS.map(([, key]) => P + key), ...DEFAULT_INVENTORY_FILTERS.map(([key]) => key)]);
     void getCategories(flow.requestOptions()).then((rows) => {
@@ -139,6 +143,44 @@
     });
     return conditions.length ? [filterName, match, conditions] : null;
   }
+  /** _AddTypeIDs: each type's name a [ITEM_NAME, CRIT_IS, name] row unless one is there already, then ApplyFilter. */
+  async function addTypes(typeIDs: readonly number[]): Promise<void> {
+    const ids = [...new Set(typeIDs)];
+    const missing = ids.filter((id) => !resolvedName($names.resolved, "type", id, ""));
+    const fetched: Record<string, string | null> = {};
+    for (let i = 0; i < missing.length; i += 100) Object.assign(fetched, (await resolveNames(missing.slice(i, i + 100).map((id) => ({ kind: "type" as const, id })), flow.requestOptions()).catch(() => ({ names: {} }))).names);
+    for (const id of ids) {
+      const name = resolvedName($names.resolved, "type", id, "") || fetched[`type:${id}`] || "";
+      if (!name || rows.some((row) => row.field === F.name && row.op === O.is && row.value === name)) continue;
+      rows.splice(rows.length - 1, 0, { field: F.name, op: O.is, value: name, category: 0 });
+    }
+    applyTemp();
+  }
+  /** ImportTypeList: the clipboard read as a multibuy list, its types added; the lines it could not read in CustomInfo. */
+  async function importClipboard(): Promise<void> {
+    let text = "";
+    try { text = await navigator.clipboard.readText(); } catch { return; }
+    if (!text.trim()) return;
+    const read = await importMultibuy(text, flow.requestOptions()).catch(() => null);
+    if (!read) return;
+    await addTypes(read.found.map(([typeID]) => typeID));
+    if (read.failedLines.length) flow.sayDialog("CustomInfo", { type: "dict", entries: [["info", `${word("UI/SkillQueue/CouldNotReadLines", "Could not read these lines:")}<br>${read.failedLines.join("<br>")}`]] }, read.failedLines.join("\n"));
+  }
+  function dropped(e: DragEvent): void {
+    const item = decodeDrag(e.dataTransfer?.getData(DRAG_MIME));
+    const assets = decodeAssetItemDrag(e.dataTransfer?.getData(ASSET_ITEM_DRAG_MIME));
+    const ids = item && "typeID" in item && typeof item.typeID === "number" ? [item.typeID] : assets.map((a) => a.typeID);
+    if (!ids.length) return;
+    e.preventDefault();
+    void addTypes(ids);
+  }
+  // the paste button's hint: ImportFilterItems, then ImportFilterItemsHint (Veldspar and Tritanium the examples)
+  const importHint = $derived.by(() => {
+    const hint = $words.templates[P + "ImportFilterItemsHint"];
+    const nameOf = (_kind: string, id: unknown) => resolvedName($names.resolved, "type", Number(id), "") || null;
+    const tail = typeof hint === "string" && hint ? plainText(formatTemplate(hint, { type1: 1230, type2: 34 }, { nameOf } as never)) : "";
+    return `${word(P + "ImportFilterItems", "Import Items")}+${tail ? `\n\n${tail}` : ""}`;
+  });
   function applyTemp(): void { dispatchEvent(new CustomEvent("evejs:inventory-temp-filter", { detail: { filter: currentFilter() } })); }
   onDestroy(() => { dispatchEvent(new CustomEvent("evejs:inventory-temp-filter", { detail: { filter: null } })); });
 
@@ -167,7 +209,7 @@
 </script>
 
 <div class="fcw">
-  <div class="rows">
+  <div class="rows" role="presentation" ondragover={(e) => e.preventDefault()} ondrop={dropped}>
     {#each rows as row, i (i)}
       <div class="crit">
         <button type="button" class="minus" disabled={i === rows.length - 1} aria-label="Remove" style:--minus={`url("${clientTexture("res:/UI/Texture/Icons/Minus.png")}")`} onclick={() => removeRow(i)}></button>
@@ -235,6 +277,8 @@
       <button type="button" class="btn primary" disabled={busy} onclick={() => void save()}>{word("UI/Common/Buttons/Save", "Save")}</button>
       <button type="button" class="btn" onclick={onClose}>{word("UI/Common/Buttons/Close", "Close")}</button>
     </div>
+    <button type="button" class="paste" title={importHint} aria-label={word(P + "ImportFilterItems", "Import Items")}
+      style:--paste={`url("${clientTexture("res:/UI/Texture/Shared/pasteFrom.png")}")`} onclick={() => void importClipboard()}></button>
   </div>
 </div>
 
@@ -252,7 +296,10 @@
   .twofifths { flex: 1 1 40%; }
   select, input[type=text], input[type=number] { box-sizing: border-box; height: 22px; background: rgba(0, 0, 0, 0.3); color: rgba(255, 255, 255, 0.9);
     border: 1px solid rgba(255, 255, 255, 0.2); font: inherit; padding: 0 4px; }
-  .bottom { flex: none; }
+  .bottom { flex: none; position: relative; }
+  /* importMenu: 32 x 32 at the bottom right, its icon 28 */
+  .paste { position: absolute; right: 0; bottom: 0; width: 32px; height: 32px; padding: 0; border: 0; background: var(--paste) center / 28px 28px no-repeat; opacity: 0.75; cursor: pointer; }
+  .paste:hover { opacity: 1; }
   .opts { display: grid; grid-template-columns: auto auto; justify-content: center; align-items: center; row-gap: 2px; }
   .small { font-size: 10px; color: rgba(255, 255, 255, 0.5); }
   .pad { margin-left: 32px; }
