@@ -331,8 +331,18 @@ button { font: inherit; color: inherit; }
 /* ButtonGroup: its buttons all as wide as the widest, 8 apart, centred (Misc's three 143 x 32, read through gridcheck) */
 .ov-add-buttons { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; width: fit-content; margin: 16px auto 0; }
 /* a ButtonGroup's Buttons: 32 high, at least 80 wide, the label 16 in (read through gridcheck on the settings panels) */
-.ov-add-buttons button { box-sizing: border-box; min-width: 80px; height: 32px; padding: 0 16px; letter-spacing: 0; background: rgba(255, 255, 255, 0.1); color: #fff; border: 1px solid rgba(255, 255, 255, 0.2); font: inherit; cursor: pointer; }
-.ov-add-buttons button:hover { background: rgba(255, 255, 255, 0.18); }
+/* carbonui Button (read through gridcheck, carbonui.button.styling for NORMAL/NORMAL): CUT_BOTTOM_RIGHT background and
+   frame textures, cornerSize 9, tinted - idle THEME_FOCUSDARK at 0.2 under a FOCUSDARK stroke, hovered FOCUSDARK 0.6 under
+   a THEME_FOCUS stroke, pressed (0.851 grey) with a black label, disabled 0.188 grey at 0.2 / 0.6; the label
+   EveLabelMedium white 0.75 (0.3 disabled) */
+.ov-add-buttons button { position: relative; isolation: isolate; box-sizing: border-box; min-width: 80px; height: 32px; padding: 0 16px; letter-spacing: 0; background: transparent; color: rgba(255, 255, 255, 0.75); border: 0; font: inherit; cursor: pointer;
+  --btn-bg: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); --btn-stroke: var(--theme-focus-dark, #305665); }
+.ov-add-buttons button::before, .ov-add-buttons button::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; transition: background-color 0.3s; }
+.ov-add-buttons button::before { background-color: var(--btn-bg); -webkit-mask-box-image: url(/client-res/ui/texture/classes/button/background_cut_bottom_right.png) 9 fill / 9px; }
+.ov-add-buttons button::after { background-color: var(--btn-stroke); -webkit-mask-box-image: url(/client-res/ui/texture/classes/button/frame_cut_bottom_right.png) 9 fill / 9px; }
+.ov-add-buttons button:hover { --btn-bg: color-mix(in srgb, var(--theme-focus-dark, #305665) 60%, transparent); --btn-stroke: var(--theme-focus, #58a7bf); }
+.ov-add-buttons button:active { --btn-bg: rgb(217, 217, 217); --btn-stroke: rgb(217, 217, 217); color: #000; }
+.ov-add-buttons button:disabled { --btn-bg: color-mix(in srgb, rgb(48, 48, 48) 20%, transparent); --btn-stroke: color-mix(in srgb, rgb(48, 48, 48) 60%, transparent); color: rgba(255, 255, 255, 0.3); cursor: default; }
 /* ColumnConfigurationWindow: the hint (EveLabelLarge), the scroll of ColumnEntry rows (a checkbox each, dragged to reorder) */
 /* ColumnsPanel in ColumnConfigurationWindow (read through gridcheck): the main 16 in; the hint EveLabelLarge 16 (21 high) 8
    in, 4 down; columnsScroll 4 in a side, 12 below it, down to 4 above the ButtonGroup at the foot; each ColumnEntry 22 high,
