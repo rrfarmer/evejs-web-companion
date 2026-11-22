@@ -934,6 +934,9 @@ export class SpaceView {
   private readonly selectedWin: PlayWindow;
   private locked = new Set<number>();
   private targeters = new Set<number>();
+  /** tactical.OnSpecialFX's attackers: each thing an offensive effect on the pilot's ship is under way from, by its
+   *  effects' signatures (module, guid, start time, duration) - threatAttackingMe while any is. */
+  private readonly attackers = new Map<number, Set<string>>();
   private readonly feedEl: HTMLDivElement;
   private readonly toastEl: HTMLDivElement;
   private selected: number | null = null;
@@ -1107,6 +1110,14 @@ export class SpaceView {
     // effect's emitter (its guid, ship and module); stopped (the flag 0): the effect's emitter goes, and its sounds with
     // it - a looping one (a tracking computer's) would sound on for ever
     if (name === "OnSpecialFX") {
+      // tactical.OnSpecialFX: an offensive effect on the pilot's ship marks its source as attacking while it lasts
+      const me = this.snapshot?.ship?.itemID ?? null, shooter = Number(args[0]);
+      if (me !== null && Number(args[3]) === me && (args[6] === true || Number(args[6]) === 1)) {
+        const key = `${String(args[1])}|${fxGuid(args[5])}|${String(args[11] ?? "")}|${String(args[9] ?? "")}`;
+        const data = this.attackers.get(shooter) ?? new Set<string>();
+        if (Number(args[7]) === 1 && shooter !== me) data.add(key); else data.delete(key);
+        if (data.size) this.attackers.set(shooter, data); else this.attackers.delete(shooter);
+      }
       const guids = fxGuid(args[5]).split(",").map((g) => g.trim()).filter(Boolean);
       const ship = Number(args[0]), target = Number(args[3]);
       const start = Number(args[7]) === 1;
@@ -1469,7 +1480,7 @@ export class SpaceView {
       select: (id) => this.select(id),
       activate: (id) => this.activateSpaceTarget(id),
       glyph,
-      targetState: (id) => ({ locked: this.locked.has(id), active: id === this.activeTarget, hostile: this.targeters.has(id),
+      targetState: (id) => ({ locked: this.locked.has(id), active: id === this.activeTarget, hostile: this.targeters.has(id), attacking: this.attackers.has(id),
         fleet: this.isFleetMemberShip(id),
         locking: !this.locked.has(id) && (this.lockingIDs.has(id) || this.acquiringTargets.has(id)) }),
       name: (e) => this.nameOf(e),

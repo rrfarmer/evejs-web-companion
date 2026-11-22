@@ -19,11 +19,12 @@ const rgba = (c: readonly number[], alpha = c[3] ?? 1) => `rgba(${Math.round(c[0
  * thing, myActiveTargetIndicator (the same at full) over it for the active target, and for a lock under way the
  * targetingIndicator, a 28 px box centred one left with its four corners drawn in white 0.5.
  */
-export function targetMarkup(t: { readonly locked: boolean; readonly active: boolean; readonly locking: boolean; readonly hostile?: boolean; readonly fleet?: boolean } | undefined): string {
+export function targetMarkup(t: { readonly locked: boolean; readonly active: boolean; readonly locking: boolean; readonly hostile?: boolean; readonly fleet?: boolean; readonly attacking?: boolean } | undefined): string {
   if (!t) return "";
   // SetHostileState: the thing targeting the pilot, hostileBracket.png 18 at (-1, -1) in (1, 0.8, 0) blinking on the shared curve
   // (a fleet member's in bracketMgr.GetFleetBracketColor, the fleet flag's colour)
-  return (t.hostile ? `<span class="ov-tgt-hostile${t.fleet ? " fleet" : ""}"></span>` : "") + (t.locked ? "<span class=\"ov-tgt\"></span>" : "") + (t.active ? "<span class=\"ov-tgt active\"></span>" : "") + (t.locking && !t.locked ? "<span class=\"ov-tgt-locking\"></span>" : "");
+  // SetAttackingState (threatAttackingMe): the same bracket in (0.8, 0, 0), in place of the targeting one
+  return (t.attacking ? "<span class=\"ov-tgt-hostile attacking\"></span>" : t.hostile ? `<span class="ov-tgt-hostile${t.fleet ? " fleet" : ""}"></span>` : "") + (t.locked ? "<span class=\"ov-tgt\"></span>" : "") + (t.active ? "<span class=\"ov-tgt active\"></span>" : "") + (t.locking && !t.locked ? "<span class=\"ov-tgt-locking\"></span>" : "");
 }
 
 export function flagMarkup(f: StateFlagLook | null): string {
@@ -291,7 +292,7 @@ export interface OverviewHooks {
   activate(itemID: number): void;
   glyph(e: Entity): string;
   /** stateSvc's targeted / activeTarget / targeting for the row's SpaceObjectIcon (UpdateSpaceObjectState). */
-  targetState?(itemID: number): { readonly locked: boolean; readonly active: boolean; readonly locking: boolean; readonly hostile?: boolean; readonly fleet?: boolean };
+  targetState?(itemID: number): { readonly locked: boolean; readonly active: boolean; readonly locking: boolean; readonly hostile?: boolean; readonly fleet?: boolean; readonly attacking?: boolean };
   /** The row's Name (uix.GetSlimItemName); the slim's name, else the type's, where it is not given. */
   name?(e: Entity): string;
   pilotID?: number;
