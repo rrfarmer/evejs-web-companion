@@ -697,9 +697,12 @@
   <div class="tree">
     <div class="nodes">
       {#if ship}
+        <!-- invWindow.OnTreeViewDblClick: an entry with a container opens in a window of its own with Always open in separate
+             window on (always_open_secondary_inventory_setting), else its children are shown or hidden -->
         <!-- TreeDataShip.GetHint: the type name, with TreeDataInv's "[<shortcut>]" (ShortcutBrackets) of OpenCargoHoldOfActiveShip where it has one -->
         <div title={typeName(ship.typeID) + shortcutHint("OpenCargoHoldOfActiveShip")} onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node" class:sel={current === "cargo"} class:drop={dropKey === "cargo"} role="treeitem" aria-selected={current === "cargo"} tabindex="-1"
           onclick={() => (current = "cargo")} onkeydown={() => {}} oncontextmenu={(e) => cargoNodeMenu(e)}
+          ondblclick={() => { if (invAlwaysSeparate.get()) current = "cargo"; else treeOpen = !treeOpen; }}
           ondragover={dragOver("cargo")} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn("cargo", e)}>
           <button type="button" class="exp" class:open={treeOpen} aria-label="Expand" onclick={(e) => { e.stopPropagation(); treeOpen = !treeOpen; }}></button>
           <span class="ticon"><TypeIcon typeID={ship.typeID} name={shipLabel} size="sm" /></span>
@@ -708,7 +711,8 @@
         {#if treeOpen}
           {#each bays.filter((b) => b.key !== "cargo" && !b.key.startsWith("temp:")) as b (b.key)}
             <div title={b.key === "drone" ? shortcutHint("OpenDroneBayOfActiveShip").trim() || undefined : undefined} onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node sub" class:sel={current === b.key} class:drop={dropKey === b.key} role="treeitem" aria-selected={current === b.key} tabindex="-1"
-              onclick={(e) => { if (e.shiftKey) openBayInNewWindow(b.key, b.label); else current = b.key; }} onkeydown={() => {}} oncontextmenu={(e) => (b.key === "fleet" || b.key === "shipMaintenance" ? cargoNodeMenu(e) : bayNodeMenu(e, b.key, b.label))}
+              onclick={(e) => { if (e.shiftKey) openBayInNewWindow(b.key, b.label); else current = b.key; }}
+              ondblclick={() => { if (invAlwaysSeparate.get()) openBayInNewWindow(b.key, b.label); }} onkeydown={() => {}} oncontextmenu={(e) => (b.key === "fleet" || b.key === "shipMaintenance" ? cargoNodeMenu(e) : bayNodeMenu(e, b.key, b.label))}
               ondragover={dragOver(b.key)} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn(b.key, e)}>
               <span class="ticon"><img src={clientTexture(BAY_ICON[b.key] ?? "res:/UI/Texture/WindowIcons/cargo.png")} alt=""></span>
               <span class="tlabel">{b.label}</span>
