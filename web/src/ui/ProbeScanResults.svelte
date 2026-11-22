@@ -185,6 +185,33 @@
       actionError = panelErrorWords(cause);
     }
   }
+  // ScanResults' ScrollColumnHeader (settingsID probescannerwindow_resultScrollList, ScanResultNew's columns): Distance, ID
+  // and Name scalable - a 4 px scaler at each header's top right dragged to a width no narrower than the column's own
+  // (GetColumnsMinSize 50 / 30 / 70), kept (RegisterCurrentSizes); a double-click puts the column back to its
+  // GetColumnsDefaultSize (70 / 60 / 100: OnColumnSizeReset). Group stretches; the icon (16) and Signal Strength (60) are fixed.
+  const SCALABLE = [
+    { key: "distance", own: "Distance", min: 50, def: 70 },
+    { key: "id", own: "ID", min: 30, def: 60 },
+    { key: "name", own: "Name", min: 70, def: 100 },
+  ] as const;
+  type Scalable = (typeof SCALABLE)[number];
+  const WIDTHS_KEY = "evejs.ui.columnWidths.probescannerwindow_resultScrollList";
+  let colWidths = $state<Record<string, number>>((() => { try { const v = JSON.parse(globalThis.localStorage?.getItem(WIDTHS_KEY) ?? "null"); return v && typeof v === "object" ? v : {}; } catch { return {}; } })());
+  function keepWidths(next: Record<string, number>): void {
+    colWidths = next;
+    try { globalThis.localStorage?.setItem(WIDTHS_KEY, JSON.stringify(next)); } catch { /* lasts the page */ }
+  }
+  function startScale(col: Scalable, e: PointerEvent): void {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const th = (e.currentTarget as HTMLElement).parentElement as HTMLElement;
+    const x0 = e.clientX, w0 = th.getBoundingClientRect().width;
+    if (w0 <= 0) return;
+    const move = (m: PointerEvent) => { colWidths = { ...colWidths, [col.key]: Math.max(col.min, Math.round(w0 + m.clientX - x0)) }; };
+    const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); keepWidths({ ...colWidths }); };
+    addEventListener("pointermove", move); addEventListener("pointerup", up);
+  }
+  function resetWidth(col: Scalable): void { keepWidths({ ...colWidths, [col.key]: col.def }); }
 </script>
 
 {#if held !== null}
@@ -272,9 +299,10 @@
         <thead>
           <tr>
             {#if retail}<th class="ps-ic"></th>{/if}
-            <th>{word(PROBE_RESULT_LABELS.distance) ?? "Distance"}</th>
-            <th>{word(PROBE_RESULT_LABELS.id) ?? "ID"}</th>
-            <th>{word(PROBE_RESULT_LABELS.name) ?? "Name"}</th>
+            {#each SCALABLE as col (col.key)}
+              <th style:width={retail && colWidths[col.key] ? `${colWidths[col.key]}px` : null}>{word(PROBE_RESULT_LABELS[col.key]) ?? col.own}{#if retail}<span class="ps-scaler" role="separator" aria-orientation="vertical"
+                onpointerdown={(e) => startScale(col, e)} onclick={(e) => e.stopPropagation()} ondblclick={(e) => { e.stopPropagation(); resetWidth(col); }}></span>{/if}</th>
+            {/each}
             <th>{word(PROBE_RESULT_LABELS.group) ?? "Group"}</th>
             <th class="num">{word(PROBE_RESULT_LABELS.signalStrength) ?? "Signal"}</th>
             <th></th>

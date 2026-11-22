@@ -3722,7 +3722,9 @@
   .fly-windows :global(.ps-retail :is(th, td):nth-child(2)) { width: 70px; }
   .fly-windows :global(.ps-retail :is(th, td):nth-child(3)) { width: 60px; }
   .fly-windows :global(.ps-retail :is(th, td):nth-child(4)) { width: 100px; }
-  .fly-windows :global(.ps-retail :is(th, td):nth-child(6)) { width: 50px; text-align: right; }
+  .fly-windows :global(.ps-retail :is(th, td):nth-child(6)) { width: 60px; text-align: right; }
+  .fly-windows :global(.ps-retail th) { position: relative; }
+  .fly-windows :global(.ps-retail th .ps-scaler) { position: absolute; top: 0; right: 0; width: 4px; height: calc(100% - 1px); cursor: ew-resize; }
   .fly-windows :global(.ps-retail :is(th, td):nth-child(7)) { width: 0; padding: 0; position: relative; }
   .fly-windows :global(.ps-retail td:nth-child(7) > button) { display: none; }
   .fly-windows :global(.ps-retail td:nth-child(7) > .result-menu) { position: absolute; right: 0; top: 22px; z-index: 3; flex-direction: column;
