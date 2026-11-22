@@ -117,7 +117,7 @@ button { font: inherit; color: inherit; }
 .bracket .label { line-height: 1.25; position: absolute; left: 22px; top: 1px; white-space: nowrap; font-size: 12px; color: var(--text);
   text-shadow: 0 0 3px #000, 0 0 2px #000; display: none; }
 .bracket:hover .label, .bracket.hovered .label, .bracket.selected .label, .bracket.objective-highlight .label { display: block; }
-.bracket.selected .glyph, .bracket.objective-highlight .glyph { filter: drop-shadow(0 0 3px #fff); }
+.bracket.objective-highlight .glyph { filter: drop-shadow(0 0 3px #fff); }
 .bracket.mining-selected { z-index: 2; }
 .mining-details { display: none; pointer-events: none; position: absolute; left: 118px; top: 60px; white-space: nowrap; }
 .bracket.asteroid:not(.selected) > .glyph { visibility: hidden; }
@@ -553,6 +553,8 @@ button { font: inherit; color: inherit; }
 .t-hilite { width: 30px; height: 30px; left: -15px; top: -15px; opacity: .3;
   -webkit-mask-image: url(/client-res/ui/texture/classes/bracket/selectioncircle.png); mask-image: url(/client-res/ui/texture/classes/bracket/selectioncircle.png); }
 .bracket:hover .t-hilite, .bracket.hovered .t-hilite { display: block; }
+/* InSpaceBracket.Select: its selection_sprite, the same selectionCircle 30 x 30 at 0.5 (the hover's Hilite is 0.3) */
+.bracket.selected .t-hilite { display: block; opacity: .5; }
 .t-circle { width: 96px; height: 96px; left: -48px; top: -48px; opacity: .2;
   -webkit-mask-image: url(/client-res/ui/texture/classes/target/outercircle.png); mask-image: url(/client-res/ui/texture/classes/target/outercircle.png); }
 .t-line { background: rgba(255, 255, 255, 0.1); }
