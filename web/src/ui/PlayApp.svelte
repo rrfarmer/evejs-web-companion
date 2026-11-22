@@ -2033,7 +2033,7 @@
       droneFleetOrder: (kind, charID, ids) => void s.flow.droneFleetOrder(kind, charID, ids).catch((cause) => notify({ kind: "danger", title: "Drones", detail: cause instanceof Error ? cause.message : String(cause) })),
       openFitting: () => open("fitting"),
       renameShip: (id) => { void s.flow.renameShip(id).catch(() => {}); },
-      ejectFromShip: () => { void s.flow.ejectFromShip().catch(() => {}); },
+      ejectFromShip: () => { view?.noteEject(); void s.flow.ejectFromShip().catch(() => {}); },
       moduleMenu: (moduleID, typeID, x, y) => void openModuleMenu(s, moduleID, typeID, x, y),
       safeLogoff: () => { s.flow.requestWords(SAFE_LOGOFF_WORDS); safeLogoffQuitting = false; void s.flow.startSafeLogoff().catch(() => {}); },
       loggingOffSafely: () => !!s.flow.safeLogoff.get(),

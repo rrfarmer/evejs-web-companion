@@ -1454,6 +1454,10 @@ export class SpaceView {
   private readonly modeProgress = document.createElement("div");
   private readonly modeProgressFill = document.createElement("div");
   private readonly alertVignette = document.createElement("div");
+  /** ShipAlertContainer.warningLabel (TextHeadline 24, bold, uppercase), 100 px above the HUD's edge. */
+  private readonly alertLabel = document.createElement("div");
+  /** When the page itself ejected (menuFunctions.Eject: the session change 'eject', which brings no warning). */
+  private ejectNotedAt = -Infinity;
   private alertShipID: number | null = null;
   private alertState = initialShipAlertState();
   private alertSettings = healthNotificationSettings.get();
@@ -1557,6 +1561,11 @@ export class SpaceView {
     this.alertVignette.className = "ship-hud-vignette";
     this.alertVignette.setAttribute("aria-hidden", "true");
     this.root.append(this.alertVignette);
+    this.alertLabel.className = "ship-alert-label";
+    this.alertLabel.setAttribute("aria-hidden", "true");
+    Object.assign(this.alertLabel.style, { position: "absolute", left: "50%", transform: "translateX(-50%)", width: "400px", height: "40px", lineHeight: "40px",
+      textAlign: "center", font: "bold 24px 'EVE Sans Neue','Segoe UI',sans-serif", textTransform: "uppercase", color: "rgb(255,0,0)", opacity: "0", pointerEvents: "none", zIndex: "5" });
+    this.root.append(this.alertLabel);
     // (as the eve-cs mirror has it: always on screen, 464 x 135 at the top right, its icon the client's show-info one,
     // "No object selected" while nothing is)
     // SelectedItemWnd: actionPanelDefaults' place and size (566 wide, 174 high, 16 from the right and the top), no icon
@@ -5064,6 +5073,19 @@ export class SpaceView {
     return { hint: head.includes(MARK) ? head.replace(MARK, lines) : `Drones\n${lines}` };
   }
 
+  /** The page's own eject (no CapsuleEjected warning follows it). */
+  noteEject(): void { this.ejectNotedAt = performance.now(); }
+
+  private flashCapsuleEjected(): void {
+    const text = this.actions.word?.("UI/Inflight/CapsuleEjected") ?? "Capsule Ejected";
+    this.alertLabel.textContent = text;
+    // CENTERBOTTOM over the HUD (TOBOTTOM, top 100): the label's box 100 px above the HUD's top edge
+    const hud = this.shipHud.root.getBoundingClientRect(), view = this.root.getBoundingClientRect();
+    const hudTop = hud.height > 0 ? hud.top - view.top : view.height - 200;
+    this.alertLabel.style.top = `${Math.round(hudTop - 100 - 40)}px`;
+    this.alertLabel.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 2000, fill: "forwards" });
+  }
+
   private distanceTo(e: Entity): number {
     const s = this.snapshot?.ship;
     if (!s) return 0;
@@ -5212,7 +5234,14 @@ export class SpaceView {
     lootWho = { characterID: self?.characterID ?? null, corporationID: self?.corporationID ?? null, fleetID: this.actions.fleetID?.() ?? null };
     // tactical.ProcessSessionChange: a new ship ('shipid' in the change) clears every attacker
     const shipNow = snap?.ship?.itemID ?? null;
-    if (shipNow !== this.attackersShipID) { this.attackers.clear(); this.attackersShipID = shipNow; }
+    if (shipNow !== this.attackersShipID) {
+      // ShipAlertController.OnSessionChanged: a new ship that is a capsule (not by an eject or a stored vessel, not in
+      // a structure) - on_entering_capsule: ShipAlertContainer.OnEnteringCapsule, UI/Inflight/CapsuleEjected in red,
+      // its opacity 1 to 0 over 2 s
+      if (this.attackersShipID !== null && shipNow !== null && snap?.ship?.groupID === 29 && performance.now() - this.ejectNotedAt > 15_000) this.flashCapsuleEjected();
+      this.attackers.clear();
+      this.attackersShipID = shipNow;
+    }
     if (snap) this.primeEntityLocations(snap.entities);
     this.checkModuleTargetSession();
     const ego = snap?.ship ?? null;
