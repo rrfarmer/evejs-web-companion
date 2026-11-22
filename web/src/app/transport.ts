@@ -34,6 +34,17 @@
 /** What kind of request this is. Lower sorts first. */
 export type RequestPriority = "user" | "read" | "poll";
 
+/**
+ * The priority of a request whose caller named none.
+ *
+ * In the hosted lane every request is a bot's, so a confirmed write is the command the bot is waiting on and
+ * goes ahead of its reads and polls. In a tab, `user` is the player's own action (above): a confirmed write there
+ * may be a bot's running in the tab, and must not go ahead of what the player clicked.
+ */
+export function defaultPriority(hosted: boolean, confirmed: boolean): RequestPriority {
+  return hosted && confirmed ? "user" : "read";
+}
+
 const PRIORITY_ORDER: Record<RequestPriority, number> = { user: 0, read: 1, poll: 2 };
 
 /**

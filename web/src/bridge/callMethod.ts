@@ -12,6 +12,7 @@ import { pageCarries, pageFetch } from "../app/pageFetch.ts";
 import {
   TransportQueueError,
   bridgeLane,
+  defaultPriority,
   hostedRequestWaitsByDesign,
   hostedRoute,
   type RequestPriority,
@@ -55,7 +56,7 @@ export interface CallMethodOptions {
    * whoever last wrote the shared cookie.
    */
   readonly token?: string | null;
-  /** R92 — lane priority; confirmed writes default to "user", reads to "read". See app/transport.ts. */
+  /** R92 — lane priority; defaults to "read", and to "user" for a hosted confirmed write (transport.ts defaultPriority). */
   readonly priority?: RequestPriority;
   /** Apply the caller's fence at dispatch, after lane admission. */
   readonly beforeDispatch?: (signal: AbortSignal) => AbortSignal | void;
@@ -190,7 +191,7 @@ export async function callMethod<TResult = JsonValue>(
     };
     const local = hostedRoute(options.fetch, url, request);
     lane = local?.lane ?? bridgeLane;
-    const priority = options.priority ?? (options.confirm ? "user" : "read");
+    const priority = options.priority ?? defaultPriority(local !== undefined, options.confirm === true);
     response = await lane.run(priority, "/api/bridge/call", () => {
       assertCurrent?.();
       const signal = options.signal ?? AbortSignal.timeout(65_000);

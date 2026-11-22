@@ -29,6 +29,7 @@ import {
 import {
   TransportQueueError,
   bridgeLane,
+  defaultPriority,
   hostedRequestWaitsByDesign,
   hostedRoute,
   type RequestPriority,
@@ -159,6 +160,7 @@ async function requestJson(
   path: string,
   init: RequestInit,
   options: ApiOptions,
+  confirmed = false,
 ): Promise<Record<string, JsonValue>> {
   // Over HTTP, or on the tab's socket where the page is set to (app/pageFetch.ts). A fetch handed in is used as it is.
   const doFetch = options.fetch ?? pageFetch();
@@ -184,7 +186,7 @@ async function requestJson(
     };
     const local = hostedRoute(options.fetch, url, request);
     lane = local?.lane ?? bridgeLane;
-    const priority = options.priority ?? "read";
+    const priority = options.priority ?? defaultPriority(local !== undefined, confirmed);
     response = await lane.run(priority, path, () => {
       assertCurrent?.();
       const deadline = AbortSignal.timeout(REQUEST_DEADLINE_MS);
@@ -257,7 +259,8 @@ async function postJson(
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     },
-    confirmed && !options.priority ? { ...options, priority: "user" } : options,
+    options,
+    confirmed,
   );
 }
 

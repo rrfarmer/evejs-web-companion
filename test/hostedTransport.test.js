@@ -5,7 +5,8 @@ const assert = require("node:assert/strict");
 const { setTimeout: delay } = require("node:timers/promises");
 const { bridgeDo, jettisonItems, loadBoundFleet, getSpaceSnapshot } = require("../web/src/app/api.ts");
 const {
-  hostedFetch, hostedLane, hostedRequestWaitsByDesign, HOSTED_MAX_IN_FLIGHT, HOSTED_PLACE_CHANGE_CALLS,
+  bridgeLane, hostedFetch, hostedLane, hostedRequestWaitsByDesign, HOSTED_MAX_IN_FLIGHT, HOSTED_PLACE_CHANGE_CALLS,
+  MAX_IN_FLIGHT,
 } = require("../web/src/app/transport.ts");
 const { PAGE_PLACE_CHANGE_CALLS } = require("../src/bridgeCallPolicy");
 
@@ -89,6 +90,26 @@ test("the hosted place changes are the BFF's own", () => {
   assert.equal(hostedRequestWaitsByDesign("/api/bridge/call", call("abyssalMgr", "AbyssalEntranceDeployment", [1, 2])), false);
   assert.equal(hostedRequestWaitsByDesign("/api/bridge/call", { body: "not json" }), false);
   assert.equal(hostedRequestWaitsByDesign("http://bff.test/api/bridge/ship/jettison/reconcile", { body: "{}" }), true);
+});
+
+test("in a tab, a bot's confirmed write does not go ahead of the player's own read", { timeout: 2000 }, async () => {
+  const held = Promise.withResolvers();
+  const sent = [];
+  // A fetch of the tab's own: no hosted route, so the tab's lane.
+  const fetch = async (url, init) => {
+    const body = init?.body ? JSON.parse(init.body) : {};
+    const name = body.method ?? new URL(url, "http://bff.test").pathname;
+    sent.push(name);
+    if (name === "/api/held") await held.promise;
+    return Response.json({ ok: true, service: body.service, method: body.method, result: null });
+  };
+  const before = bridgeLane.inFlight();
+  const occupied = Array.from({ length: MAX_IN_FLIGHT - before }, () => bridgeLane.run("read", "/api/held", () => fetch("/api/held")));
+  const botWrite = bridgeDo({ fetch })("dogmaIM", "AddTarget", [1]);
+  const playerRead = loadBoundFleet({ fetch, priority: "user" });
+  held.resolve();
+  await Promise.all([...occupied, botWrite, playerRead]);
+  assert.deepEqual(sent.filter(name => name !== "/api/held"), ["/api/bridge/bound-fleet", "AddTarget"]);
 });
 
 for (const count of [5, 10, 20, 50]) {
