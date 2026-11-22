@@ -201,9 +201,18 @@
   let containerWin = $state({ id: "spaceContainer", x: 220, y: 140, w: 480, h: 360, z: 25, minimized: false });
   // a ship bay opened in a window of its own (the inventory tree's Open in new window): 600 x 450, the bay's name its caption
   // (the client keeps one per bay: windowID the bay's controller name; a second Open on a bay already open shows it)
+  // Window.RegisterPositionAndSize / GetRegisteredPositionAndSize (settings.char.windows windowSizesAndPositions_1): a
+  // window opened again where the pilot last left it, by its windowID, for the character
+  const placeKey = (windowID: string) => `evejs-play-subwin:${session?.store.station.get().online?.characterID ?? 0}:${windowID}`;
+  function keptPlace(windowID: string): { x: number; y: number; w: number; h: number } | null {
+    try { const v = JSON.parse(localStorage.getItem(placeKey(windowID)) ?? "null") as { x?: unknown; y?: unknown; w?: unknown; h?: unknown } | null; return v && [v.x, v.y, v.w, v.h].every((n) => typeof n === "number") ? v as { x: number; y: number; w: number; h: number } : null; } catch { return null; }
+  }
+  function keepPlace(win: { id: string; x: number; y: number; w: number; h: number }): void {
+    try { localStorage.setItem(placeKey(win.id), JSON.stringify({ x: win.x, y: win.y, w: win.w, h: win.h })); } catch { /* this visit only */ }
+  }
   let bayWindows = $state<{ key: string; title: string; win: { id: string; x: number; y: number; w: number; h: number; z: number; minimized: boolean } }[]>([]);
   $effect(() => {
-    const show = (e: Event) => { const d = (e as CustomEvent<{ key: string; title: string }>).detail; if (!d) return; const open = bayWindows.find((w) => w.key === d.key); if (open) { open.win.minimized = false; bayWindows = [...bayWindows.filter((w) => w !== open), open]; activeWinKey = open.win.id; return; } const n = bayWindows.length; bayWindows = [...bayWindows, { key: d.key, title: d.title, win: { id: `bay:${d.key}`, x: 260 + 24 * n, y: 180 + 24 * n, w: 600, h: 450, z: 25, minimized: false } }]; activeWinKey = `bay:${d.key}`; };
+    const show = (e: Event) => { const d = (e as CustomEvent<{ key: string; title: string }>).detail; if (!d) return; const open = bayWindows.find((w) => w.key === d.key); if (open) { open.win.minimized = false; bayWindows = [...bayWindows.filter((w) => w !== open), open]; activeWinKey = open.win.id; return; } const n = bayWindows.length; bayWindows = [...bayWindows, { key: d.key, title: d.title, win: { id: `bay:${d.key}`, x: 260 + 24 * n, y: 180 + 24 * n, w: 600, h: 450, ...keptPlace(`bay:${d.key}`), z: 25, minimized: false } }]; activeWinKey = `bay:${d.key}`; };
     window.addEventListener("evejs:open-bay-window", show);
     return () => window.removeEventListener("evejs:open-bay-window", show);
   });
@@ -213,7 +222,7 @@
     const open = (e: Event) => {
       const filter = (e as CustomEvent<{ filter: InventoryFilter | null }>).detail?.filter ?? null;
       const n = (filterWindow?.n ?? 0) + 1;
-      filterWindow = { filter, n, win: filterWindow?.win ?? { id: "FilterCreationWindow", x: Math.round(innerWidth / 2 - 225), y: Math.round(innerHeight / 2 - 125), w: 450, h: 250, z: 26, minimized: false } };
+      filterWindow = { filter, n, win: filterWindow?.win ?? { id: "FilterCreationWindow", x: Math.round(innerWidth / 2 - 225), y: Math.round(innerHeight / 2 - 125), w: 450, h: 250, ...keptPlace("FilterCreationWindow"), z: 26, minimized: false } };
       filterWindow.win.minimized = false;
       activeWinKey = "FilterCreationWindow";
     };
@@ -3194,8 +3203,8 @@
       <div class="space-container-layer">
         {#key fw.n}
           <DesktopWindow win={fw.win} title={(() => { const t = session.store.words.get().templates["UI/Inventory/Filters/ItemFilterCaption"]; return typeof t === "string" && t ? plainText(t) : "Item Filter"; })()} icon={null} focused={activeWinKey === fw.win.id} onFocus={() => {}}
-            onClose={() => (filterWindow = null)} onMove={(x, y) => { fw.win.x = x; fw.win.y = y; }}
-            onResize={(w, h) => { fw.win.w = Math.max(450, w); fw.win.h = Math.max(250, h); }}>
+            onClose={() => (filterWindow = null)} onMove={(x, y) => { fw.win.x = x; fw.win.y = y; keepPlace(fw.win); }}
+            onResize={(w, h) => { fw.win.w = Math.max(450, w); fw.win.h = Math.max(250, h); keepPlace(fw.win); }}>
             <FilterCreationWindow store={session.store} flow={session.flow} filter={fw.filter} onClose={() => (filterWindow = null)} />
           </DesktopWindow>
         {/key}
@@ -3204,8 +3213,8 @@
     {#each bayWindows as b (b.key)}
       <div class="space-container-layer">
         <DesktopWindow win={b.win} title={b.title} icon={clientTexture("res:/UI/Texture/WindowIcons/cargo.png")} focused={activeWinKey === b.win.id} onFocus={() => {}}
-          onClose={() => (bayWindows = bayWindows.filter((w) => w.key !== b.key))} onMove={(x, y) => { b.win.x = x; b.win.y = y; }}
-          onResize={(w, h) => { b.win.w = Math.max(300, w); b.win.h = Math.max(200, h); }}>
+          onClose={() => (bayWindows = bayWindows.filter((w) => w.key !== b.key))} onMove={(x, y) => { b.win.x = x; b.win.y = y; keepPlace(b.win); }}
+          onResize={(w, h) => { b.win.w = Math.max(300, w); b.win.h = Math.max(200, h); keepPlace(b.win); }}>
           <FlyInventoryWindow store={session.store} flow={session.flow} bayMode={b.key} />
         </DesktopWindow>
       </div>
