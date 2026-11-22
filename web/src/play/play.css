@@ -341,10 +341,12 @@ button { font: inherit; color: inherit; }
 .ov-color-grid > span { width: 16px; height: 16px; cursor: pointer; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15); }
 .ov-color-grid > span.sel { box-shadow: 0 0 0 2px rgb(180, 180, 180); }
 .ov-color-grid > img { width: 16px; height: 16px; cursor: pointer; opacity: .75; }
-.ov-set-head { color: rgba(255, 255, 255, 0.75); margin-bottom: 8px; }
+/* TabsPanel's LayoutGrid (read through gridcheck): a 0-high spacer row, then the headers (EveLabelMedium 18 high, white
+   0.75) 8 below, the rows 32 high 8 apart; the delete ButtonIcon 24 x 24 centred, its 16 px close icon at 0.75 */
+.ov-set-head { color: rgba(255, 255, 255, 0.75); margin: 8px 0; line-height: 18px; }
 .ov-set-row input, .ov-set-row select { height: 32px; box-sizing: border-box; min-width: 0; background: rgba(0, 0, 0, 0.3); color: #fff;
   border: 1px solid rgba(255, 255, 255, 0.15); padding: 0 8px; font: inherit; }
-.ov-set-delete { width: 16px; height: 16px; padding: 4px; opacity: .75; cursor: pointer; }
+.ov-set-delete { box-sizing: border-box; width: 24px; height: 24px; padding: 4px; opacity: .75; cursor: pointer; }
 .ov-set-delete:hover { opacity: 1; background: rgba(255, 255, 255, 0.08); }
 /* TabPresetPanel: EveLabelLarge title, the preset combo, Types Shown, the compact buttons and the search, the category
    ListGroups (THEME_ACCENT all, HIGHLIGHT some, SECONDARY none) and their groups checkboxes, the button group */
