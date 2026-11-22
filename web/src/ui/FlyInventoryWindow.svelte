@@ -842,7 +842,8 @@
   .gtext { position: absolute; left: 8px; top: 1px; line-height: 24px; font-size: 12px; color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
   .search { width: auto; flex: 1; min-width: 0; margin-left: 8px; height: 24px; box-sizing: border-box; border: 0; background: rgba(0, 0, 0, 0.3); color: #fff; padding: 0 6px; font-size: 14px; }
   /* the ShipCargo scroll's entries and the footer's labels from 16 past the tree column (186) */
-  .items { padding-left: 4px; flex: 1; overflow: auto; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 8px; }
+  /* the icon view: InvItem 64 wide, GetEntryColMargin 16 between columns, rows of GetEntryHeight (103) touching */
+  .items { padding-left: 4px; flex: 1; overflow: auto; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 0 16px; }
   .none { width: 100%; margin: 0; text-align: center; font-size: 24px; color: rgba(255, 255, 255, 0.6); letter-spacing: 0.5px; }
   .item { width: 64px; height: 103px; display: flex; flex-direction: column; align-items: center; }
   .icon { position: relative; width: 64px; height: 64px; display: grid; background: rgba(255, 255, 255, 0.05); }
