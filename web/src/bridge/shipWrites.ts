@@ -145,6 +145,17 @@ export async function ejectFromShip(act: Ask): Promise<void> {
   await act("ship", "Eject", []);
 }
 
+/** menuFunctions.SelfDestructShip (556 to 575): after its confirmation, the session change 'selfdestruct' with
+ *  GetShipAccess().SelfDestruct(shipID) - the ship's countdown begun (its slim item's selfDestructTime). */
+export async function selfDestructShip(act: Ask, shipID: number): Promise<void> {
+  await act("ship", "SelfDestruct", [shipID]);
+}
+
+/** menuFunctions.AbortSelfDestructShip (547 to 553): after ConfirmAbortSelfDestruct, GetShipAccess().AbortSelfDestruct(shipID). */
+export async function abortSelfDestructShip(act: Ask, shipID: number): Promise<void> {
+  await act("ship", "AbortSelfDestruct", [shipID]);
+}
+
 export async function leaveShip(act: Ask, shipID: number): Promise<void> {
   if (!Number.isSafeInteger(shipID) || shipID <= 0) {
     throw new Error("Which ship this is is not known yet.");

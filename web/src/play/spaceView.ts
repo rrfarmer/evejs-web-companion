@@ -308,6 +308,9 @@ export interface SpaceActions {
   droneFleetOrder?(kind: "assist" | "guard", charID: number, droneIDs: readonly number[]): void;
   /** Use Fitting Service: the fitting window (CmdOpenFitting). */
   openFitting?(): void;
+  /** menuFunctions.SelfDestructShip / AbortSelfDestructShip of the active ship, each confirmed first. */
+  selfDestructShip?(shipID: number, capsule: boolean): void;
+  abortSelfDestructShip?(shipID: number): void;
   /** menuFunctions.Eject: out of the active ship into a capsule beside it (ConfirmEject first). */
   ejectFromShip?(): void;
   /** menuFunctions.Board of an unpiloted ship in space. */
@@ -4756,6 +4759,14 @@ export class SpaceView {
         ...tail,
         // OfferEjectFromShip (the active ship, not a capsule), DESTRUCTIVE: last
         ...(e.groupID !== 29 && this.actions.ejectFromShip ? [null, { path: "UI/Inflight/EjectFromShip", label: word("UI/Inflight/EjectFromShip", "Eject"), run: () => this.actions.ejectFromShip?.() }] : []),
+        // OfferSelfDestructShip (not warping, not counting down: the slim item's selfDestructTime) or, counting down,
+        // OfferAbortSelfDestructShip - DESTRUCTIVE, after Eject (_CelestialMenu 1652)
+        ...((): ContextEntry[] => {
+          const counting = this.live.park.slimItems.get(id)?.get("selfDestructTime") != null;
+          if (counting && this.actions.abortSelfDestructShip) return [{ path: "UI/Inflight/AbortSelfDestruct", label: word("UI/Inflight/AbortSelfDestruct", "Abort Self-Destruct"), run: () => this.actions.abortSelfDestructShip?.(id) }];
+          if (!counting && this.snapshot?.ship?.mode !== "WARP" && this.actions.selfDestructShip) return [{ path: "UI/Inflight/SelfDestructShipOrPod", label: word("UI/Inflight/SelfDestructShipOrPod", "Self-Destruct..."), run: () => this.actions.selfDestructShip?.(id, e.groupID === 29) }];
+          return [];
+        })(),
       ];
     }
     const group = e.groupID ?? null;

@@ -1954,6 +1954,8 @@
       openFitting: () => open("fitting"),
       renameShip: (id) => { void s.flow.renameShip(id).catch(() => {}); },
       ejectFromShip: () => { void s.flow.ejectFromShip().catch(() => {}); },
+      selfDestructShip: (id, capsule) => { void s.flow.selfDestructShip(id, capsule).catch(() => {}); },
+      abortSelfDestructShip: (id) => { void s.flow.abortSelfDestructShip(id).catch(() => {}); },
       boardShip: (id, typeID) => { void s.flow.boardSpaceShip(id, typeID).catch(() => {}); },
       setName: (id, current) => { namingItem = { itemID: id, value: current }; s.flow.requestWords(["UI/Menusvc/SetName", "UI/Menusvc/TypeInNewName", "UI/Common/PleaseTypeSomething", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel"]); },
       inFleet: () => s.store.fleet.get().availability === "ready",

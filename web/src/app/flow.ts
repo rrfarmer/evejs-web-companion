@@ -1231,7 +1231,7 @@ import { alignTo as alignToCall, alignToPosition as alignToPositionCall, alignTo
 import { dock as dockCall, dockAtStructure as dockAtStructureCall, enterWormhole as enterWormholeCall, isStation, jump as jumpCall, jumpThroughJumpGate as jumpThroughJumpGateCall, undock as undockCall, WORMHOLE_ENTRY_RANGE_M } from "../bridge/placeChanges.ts";
 import { jumpBridgeZone, readJumpBridgeCharge } from "../bridge/jumpBridgePanel.ts";
 import { sessionPlace } from "../bridge/sessionPlace.ts";
-import { assembleShip as assembleShipCall, boardCorvette as boardCorvetteCall, boardShip as boardShipCall, ejectFromShip as ejectFromShipCall, jettison as jettisonCall, leaveShip as leaveShipCall, type JettisonOutcome } from "../bridge/shipWrites.ts";
+import { assembleShip as assembleShipCall, boardCorvette as boardCorvetteCall, boardShip as boardShipCall, ejectFromShip as ejectFromShipCall, selfDestructShip as selfDestructShipCall, abortSelfDestructShip as abortSelfDestructShipCall, jettison as jettisonCall, leaveShip as leaveShipCall, type JettisonOutcome } from "../bridge/shipWrites.ts";
 import { activityIDOf, averagePrices, createJobReckoner, type JobReckoner, type JobReckoning } from "../bridge/industryJobReckoning.ts";
 import { connectJob, decodeFacilityPlaces, disconnectJob, installJob, jobDump, jobPlaces, monitoredAs, type Monitored } from "../bridge/industryMonitor.ts";
 import { NO_OPTIONAL_MATERIAL } from "../bridge/industryReckonings.mjs";
@@ -2254,6 +2254,10 @@ export interface AppFlow {
   boardSpaceShip(shipID: number, typeID: number | null): Promise<void>;
   /** menuFunctions.Eject: ConfirmEject (yes / no), then ship.Eject - the pilot in a capsule beside the ship. */
   ejectFromShip(): Promise<void>;
+  /** menuFunctions.SelfDestructShip: ConfirmSelfDestruct (ConfirmSelfDestructCapsule in a capsule), then ship.SelfDestruct. */
+  selfDestructShip(shipID: number, capsule: boolean): Promise<void>;
+  /** menuFunctions.AbortSelfDestructShip: ConfirmAbortSelfDestruct, then ship.AbortSelfDestruct. */
+  abortSelfDestructShip(shipID: number): Promise<void>;
   /**
    * Board the corvette while docked (the station-services "Board my Corvette"):
    * the server spawns/repairs/starter-fits one as needed, then refresh. `sure`
@@ -36561,6 +36565,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     async boardSpaceShip(shipID, typeID) {
       await boardShipChecked(shipID, typeID);
+    },
+
+    async selfDestructShip(shipID, capsule) {
+      // (the capsule's implantsText - UI/Inflight/ImplantsLostOnSelfDestruct of the implants' cost - not reckoned here)
+      const dialog = capsule ? "ConfirmSelfDestructCapsule" : "ConfirmSelfDestruct";
+      const values = capsule ? { type: "dict", entries: [["implantsText", ""]] } as JsonValue : null;
+      if (!(await askDialog(dialog, values, "Are you sure you want to self-destruct?"))) return;
+      await runMutation(() => selfDestructShipCall(bridgeDo, shipID));
+    },
+
+    async abortSelfDestructShip(shipID) {
+      if (!(await askDialog("ConfirmAbortSelfDestruct", null, "Are you sure you want to abort the self-destruct?"))) return;
+      await runMutation(() => abortSelfDestructShipCall(bridgeDo, shipID));
     },
 
     async ejectFromShip() {
