@@ -1604,10 +1604,10 @@
       });
     }
 
-    function crimewatchSets(): { criminals: Set<number>; suspects: Set<number>; engagedWith: Set<number> } {
+    function crimewatchSets(): { criminals: Set<number>; suspects: Set<number>; engagedWith: Set<number>; disapproved: ReadonlySet<number> } {
       const states = s.store.flight.get().crimewatch?.states;
       const ids = (list: readonly (number | string)[] | undefined) => new Set((list ?? []).map(Number).filter((n) => Number.isFinite(n)));
-      return { criminals: ids(states?.criminals.members), suspects: ids(states?.suspects.members), engagedWith: ids(states?.engagements.map((e) => e.characterID)) };
+      return { criminals: ids(states?.criminals.members), suspects: ids(states?.suspects.members), engagedWith: ids(states?.engagements.map((e) => e.characterID)), disapproved: s.flow.disapprovedCharacters.get() };
     }
     function overviewRelationships(entities: readonly Entity[]): OverviewRelationships | undefined {
       const online = s.store.station.get().online;

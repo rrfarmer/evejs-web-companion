@@ -24,6 +24,8 @@ export interface OverviewRelationships {
   readonly suspects?: ReadonlySet<number>;
   /** The pilots this one has a limited engagement with (crimewatchSvc.HasLimitedEngagmentWith). */
   readonly engagedWith?: ReadonlySet<number>;
+  /** The pilots with an active disapproval timer (crimewatchSvc.IsDisapproved). */
+  readonly disapproved?: ReadonlySet<number>;
   /** bountySvc: the owners (pilots, corporations, alliances) with a bounty, and the pilots a kill right is held on. */
   readonly wanted?: ReadonlySet<number>;
   readonly killRights?: ReadonlySet<number>;
@@ -200,6 +202,8 @@ function flagHolds(flag: number, item: OverviewItem, group: number, category: nu
     case 50: return charID !== null && !!relations?.suspects?.has(charID);
     case 51: return charID !== null && !!relations?.criminals?.has(charID);
     case 52: return charID !== null && !!relations?.engagedWith?.has(charID);
+    // CheckDisapproval: crimewatchSvc.IsDisapproved of the ship's pilot
+    case 68: return charID !== null && !!relations?.disapproved?.has(charID);
     // CheckWanted: bountySvc.QuickHasBounty - a ship with a pilot, the pilot, corporation or alliance with a bounty
     case 20: return charID !== null && [charID, item.corporationID, item.allianceID].some((id) => id != null && !!relations?.wanted?.has(id));
     // CheckHasKillRight: bountySvc.QuickHasKillRight

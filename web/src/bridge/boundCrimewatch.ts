@@ -176,6 +176,12 @@ function decodeFlaggedSet(value: JsonValue | undefined): CrimewatchFlaggedSet {
   return { members };
 }
 
+/** The pilots a crimewatch notice names (OnSystemDisapprovalFlagUpdates' newIdles / newNaughty): a list, or a set. */
+export function crimewatchCharacterIDs(value: JsonValue | undefined): number[] {
+  const items = Array.isArray(value) ? value : isListValue(value) ? value.items : decodeFlaggedSet(value).members;
+  return items.map((item) => Number(idData(item as JsonValue))).filter((id) => Number.isSafeInteger(id) && id > 0);
+}
+
 /** Decode one combat-timer tuple [stateCode, expiry]. */
 function decodeTimer(tuple: JsonValue): CrimewatchTimer {
   const cells = asArray(tuple);

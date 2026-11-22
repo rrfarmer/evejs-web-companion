@@ -424,7 +424,7 @@ import type { DungeonData } from "./api.ts";
 import { ACADEMY_TRAVEL_DECLINED, ACADEMY_UNDOCK_DIALOG, academyShipDeclineDialog, isAcademyTravelDecline } from "../bridge/academyShipNotices.ts";
 import { EXORDIUM_REGION, academyFit, academyPlanRequirements, academyStandardType, academyStandardTypes, academyStateOf, academyTutorialLocked, type AcademyCatalogue, type AcademyOffer, type AcademyShipState } from "../bridge/academyShips.ts";
 import { readCloneGrade } from "../bridge/cloneGradeReads.ts";
-import { decodeClientStates, decodeSecurityStatus } from "../bridge/boundCrimewatch.ts";
+import { crimewatchCharacterIDs, decodeClientStates, decodeSecurityStatus } from "../bridge/boundCrimewatch.ts";
 import {
   classifyStandingKind,
   decodeStandingCompositions,
@@ -3961,6 +3961,8 @@ export interface AppFlow {
   readonly activeDungeon: ReadableSignal<CurrentDungeon | null>;
   readonly hackBoard: ReadableSignal<HackBoard | null>;
   readonly cargoScans: ReadableSignal<readonly CargoScanWindow[]>;
+  /** crimewatchSvc.disapprovalFlagsByCharID: the pilots in the system with an active disapproval (retribution) timer, as OnSystemDisapprovalFlagUpdates has said. */
+  readonly disapprovedCharacters: ReadableSignal<ReadonlySet<number>>;
   closeCargoScan(targetID: number): void;
   readonly shipScans: ReadableSignal<readonly ShipScanWindow[]>;
   closeShipScan(targetID: number): void;
@@ -8012,6 +8014,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     // crimewatchSvc.ProcessSessionChange and OnSessionChanged: another place, or another system or ship, and
     // the client asks crimewatch its states again. So does the page, of the BFF.
+    // crimewatchSvc.UpdateDisapprovals: OnSystemDisapprovalFlagUpdates(newIdles, newNaughty) - those let go, those flagged
+    if (method === "OnSystemDisapprovalFlagUpdates") {
+      const list = Array.isArray(args) ? args : [];
+      const next = new Set(disapprovedSignal.get());
+      for (const id of crimewatchCharacterIDs(list[0] as JsonValue | undefined)) next.delete(id);
+      for (const id of crimewatchCharacterIDs(list[1] as JsonValue | undefined)) next.add(id);
+      disapprovedSignal.set(next);
+    }
     if (sessionNames?.some((name) => CRIMEWATCH_SESSION_NAMES.has(name)) || (method !== null && CRIMEWATCH_NOTICES.has(method))) {
       if (sessionNames?.some(name => name === "locationid" || name === "charid")) {
         duelInvitationSignal.set(null);
@@ -17876,6 +17886,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const currentDungeon = createSignal<CurrentDungeon | null>(null);
   const hackBoard = createSignal<HackBoard | null>(null);
   const cargoScans = createSignal<readonly CargoScanWindow[]>([]);
+  const disapprovedSignal = createSignal<ReadonlySet<number>>(new Set());
   const shipScans = createSignal<readonly ShipScanWindow[]>([]);
 
   async function playHack(action: HackAction): Promise<void> {
@@ -38103,6 +38114,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     activeDungeon: readonlySignal(currentDungeon),
     hackBoard: readonlySignal(hackBoard),
     cargoScans: readonlySignal(cargoScans),
+    disapprovedCharacters: readonlySignal(disapprovedSignal),
     closeCargoScan: targetID => cargoScans.update(windows => windows.filter(window => window.targetID !== targetID)),
     shipScans: readonlySignal(shipScans),
     closeShipScan: targetID => shipScans.update(windows => windows.filter(window => window.targetID !== targetID)),
