@@ -167,11 +167,11 @@
   </div>
   {#if resizable}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <span class="win-resize win-resize-e" title="Resize" onpointerdown={(e) => startResize(e, "e")}></span>
+  <span class="win-resize win-resize-e" onpointerdown={(e) => startResize(e, "e")}></span>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <span class="win-resize win-resize-s" title="Resize" onpointerdown={(e) => startResize(e, "s")}></span>
+  <span class="win-resize win-resize-s" onpointerdown={(e) => startResize(e, "s")}></span>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <span class="win-resize win-resize-se" title="Resize" onpointerdown={(e) => startResize(e, "se")}></span>
+  <span class="win-resize win-resize-se" onpointerdown={(e) => startResize(e, "se")}></span>
   {/if}
 </section>
 

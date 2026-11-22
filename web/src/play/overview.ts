@@ -367,6 +367,17 @@ export class Overview {
       this.menu.open(e.clientX, e.clientY, this.tabMenu(i));
     });
     this.table.className = "ov-table";
+    // SortHeaders' header hint: the header's own text where the column is 32 or narrower or the text does not fit
+    // (overViewLabel 428 to 432), else none; judged as the mouse comes over it
+    this.table.addEventListener("mouseover", (ev) => {
+      const th = (ev.target as Element | null)?.closest?.("thead th") as HTMLElement | null;
+      if (!th) return;
+      const btn = th.querySelector("button");
+      const text = btn?.getAttribute("aria-label") ?? "";
+      const cut = th.offsetWidth <= 32 || (btn !== null && btn.scrollWidth > btn.clientWidth);
+      const want = cut ? text : "";
+      if (th.title !== want) th.title = want;
+    });
     this.table.innerHTML = `<colgroup></colgroup><thead></thead>`;
     const pilotSuffix = (hooks.pilotID === undefined ? "" : `:${hooks.pilotID}`) + (this.instanceID ? `:w${this.instanceID}` : "");
     this.tabKey = TAB_KEY + pilotSuffix;
@@ -1928,7 +1939,8 @@ export class Overview {
         switch (c.id) {
           case "ICON": return `<td class="ov-icon"><span class="ov-icon-wrap">${this.hooks.glyph(e)}${targetMarkup(this.hooks.targetState?.(e.itemID))}${flagMarkup(flags.icon).replace(/ title="[^"]*"/, "")}</span></td>`;
           case "DISTANCE": return `<td class="ov-dist">${overviewDistance(d)}</td>`;
-          case "NAME": return `<td>${esc(rowName(e))}</td>`;
+          // PrimeDisplayName: the cell's hint the bracket's display name (bracketMgr.GetDisplayNameForBracket), the full name
+          case "NAME": return `<td title="${esc(e.name || rowName(e))}">${esc(rowName(e))}</td>`;
           case "TYPE": return `<td>${esc(typeName)}</td>`;
           case "SIZE": return `<td class="ov-dist">${fmtDist(2 * (e.radius ?? 0))}</td>`;
           case "VELOCITY": return `<td class="ov-dist">${isStatic(e) ? "-" : Math.trunc(speed(e)).toLocaleString("en-US")}</td>`;
