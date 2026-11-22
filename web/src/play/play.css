@@ -421,27 +421,42 @@ button { font: inherit; color: inherit; }
 .ov-app-row .state-flag { position: absolute; left: 0; top: 4px; }
 .ov-app-bg { width: 9px; height: 9px; }
 /* ShipsPanel */
-.ov-ships { display: flex; flex-direction: column; padding: 8px; gap: 4px; }
-.ov-ship-menu { align-self: flex-start; background: none; border: 0; color: rgba(255, 255, 255, 0.75); font-size: 16px; cursor: pointer; padding: 0 4px; }
-.ov-ship-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
-.ov-ship-row { display: flex; align-items: center; gap: 6px; height: 28px; cursor: grab; }
-.ov-ship-row input[type=checkbox] { accent-color: rgb(88, 167, 191); margin: 0; }
-.ov-ship-row label { display: flex; align-items: center; gap: 2px; }
-.ov-ship-text { width: 22px; height: 24px; box-sizing: border-box; background: rgba(0, 0, 0, 0.3); color: #fff; border: 1px solid rgba(255, 255, 255, 0.15); font: inherit; padding: 0 3px; }
-.ov-ship-name { width: 150px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.ov-ship-row select { height: 24px; width: 52px; background: rgba(0, 0, 0, 0.3); color: #fff; border: 1px solid rgba(255, 255, 255, 0.15); font: inherit; }
-.ov-ship-row input[type=color] { width: 22px; height: 18px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.2); background: none; }
+/* ShipsPanel (read through gridcheck): filtertop 57 high - the 73_16_50 MenuIcon (16 px at 0.8) 6 in, 10 down, Hide corp
+   ticker 8 in, 30 down - then shipPanelScroll to the Add Linebreak button, each ShipEntry 32 high: its checkbox 4 in, 8
+   down, the pre edit 20 x 24 at 32, 4 down, the label at 60, 7 down, the post edit at 185, 3 down, B / I / U checkboxes at
+   298 / 328 / 358 (their letters 16 further, white 0.6), the font size combo 56 x 24 at 398, the colour picker 27 x 20 at
+   457, 7 down; under the scroll Add Linebreak, Preview: 10 in and 10 below it, the preview 10 in a side, its text 4 in */
+.ov-set-panel.ov-ships { display: flex; flex-direction: column; padding: 8px 0 0; gap: 0; }
+.ov-ship-menu { flex: none; align-self: flex-start; box-sizing: content-box; width: 16px; height: 16px; min-height: 0; margin: 10px 0 4px 6px; padding: 0; background: none; border: 0; cursor: pointer; opacity: 0.8; }
+.ov-ship-menu:hover { opacity: 1; }
+.ov-ship-menu img { display: block; width: 16px; height: 16px; }
+.ov-ships > .ov-app-check { margin: 0 0 3px 8px; }
+.ov-ship-list { flex: 1; min-height: 0; overflow: auto; display: block; margin: 0; }
+.ov-ship-row { position: relative; height: 32px; cursor: grab; }
+.ov-ship-row input[type=checkbox] { width: 16px; height: 16px; min-height: 0; padding: 0; accent-color: rgb(88, 167, 191); margin: 0; }
+.ov-ship-row > input[data-f=state] { position: absolute; left: 4px; top: 8px; }
+.ov-ship-row > .ov-ship-text[data-f=pre] { position: absolute; left: 32px; top: 4px; }
+.ov-ship-row > .ov-ship-text[data-f=post] { position: absolute; left: 185px; top: 3px; }
+.ov-ship-row > label { position: absolute; top: 9px; height: 16px; }
+.ov-ship-row > label > b, .ov-ship-row > label > i, .ov-ship-row > label > u { position: absolute; left: 16px; top: -1px; line-height: 18px; color: rgba(255, 255, 255, 0.6); }
+.ov-ship-row > label:nth-of-type(1) { left: 298px; } .ov-ship-row > label:nth-of-type(2) { left: 328px; } .ov-ship-row > label:nth-of-type(3) { left: 358px; }
+.ov-ship-text { width: 20px; height: 24px; min-height: 0; box-sizing: border-box; background: rgba(0, 0, 0, 0.3); color: #fff; border: 1px solid rgba(255, 255, 255, 0.15); font: inherit; padding: 0 3px; }
+.ov-ship-name { position: absolute; left: 60px; top: 7px; width: 120px; line-height: 18px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ov-ship-row select { position: absolute; left: 398px; top: 5px; box-sizing: border-box; height: 24px; min-height: 0; width: 56px; background: rgba(0, 0, 0, 0.3); color: #fff; border: 1px solid rgba(255, 255, 255, 0.15); font: inherit; }
+.ov-ship-row input[type=color] { position: absolute; left: 457px; top: 7px; box-sizing: border-box; width: 27px; height: 20px; min-height: 0; padding: 0; border: 1px solid rgba(255, 255, 255, 0.2); background: none; }
+.ov-ships .ov-add-buttons { margin-top: 0; }
 .ov-ship-row input[type=color].unset { opacity: 0.35; }
+.ov-ship-row.ov-ship-br { display: flex; align-items: center; gap: 6px; padding-left: 4px; }
 .ov-ship-br .ov-ship-grip { width: 16px; color: rgba(255, 255, 255, 0.5); }
 .ov-ship-remove { width: 16px; height: 16px; opacity: .75; cursor: pointer; margin-left: 8px; }
-.ov-ship-preview-title { margin-top: auto; }
+.ov-ship-preview-title { flex: none; margin: 10px 10px 4px; line-height: 18px; }
 /* MiscPanel (read through gridcheck): flush with the main at 130, its Checkboxes 24 high one under another, Brackets and
    Targets an EveCaptionSmall (19 px, 24 high) 16 below the first, the category checkboxes 8 in, the ButtonGroup at the foot */
 .ov-set-panel.ov-misc { display: flex; flex-direction: column; padding: 8px 0 0; gap: 0; }
 .ov-misc-head { flex: none; font-size: 19px; line-height: 24px; height: 24px; color: #fff; margin: 16px 0 0; }
 .ov-misc .sub { margin-left: 8px; }
 .ov-misc .ov-add-buttons { margin-top: auto; }
-.ov-ship-preview { padding: 6px 8px; border: 1px solid rgba(255, 255, 255, 0.15); font-size: 12px; line-height: 1.25; min-height: 34px; }
+.ov-ship-preview { flex: none; box-sizing: border-box; margin: 0 10px 10px; padding: 4px; border: 0; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15); font-size: 12px; line-height: 15px; min-height: 38px; }
 .ov-app-bg.blink { animation: state-flag-blink 1s ease-in-out infinite; }
 /* UseSmallFont: the entries in EVE_SMALL_FONTSIZE; UseSmallColortags: the flags 6 x 6 without their glyph */
 .ov.ov-small-font .ov-table { font-size: 12px; }

@@ -710,12 +710,12 @@ export class Overview {
         const size = l.fontsize ?? 12;
         return `<div class="ov-ship-row" draggable="true" data-i="${i}"><input type="checkbox" data-f="state"${l.state ? " checked" : ""}>
           <input class="ov-ship-text" data-f="pre" value="${esc(l.pre ?? "")}"><span class="ov-ship-name" title="${esc(hint)}">${name ? esc(word(name[0], name[1])) : ""}</span><input class="ov-ship-text" data-f="post" value="${esc(l.post ?? "")}">
-          <label><input type="checkbox" data-f="bold"${l.bold ? " checked" : ""}><b>B</b></label><label><input type="checkbox" data-f="italic"${l.italic ? " checked" : ""}><i>/</i></label><label><input type="checkbox" data-f="underline"${l.underline ? " checked" : ""}><u>U</u></label>
+          <label><input type="checkbox" data-f="bold"${l.bold ? " checked" : ""}><b>B</b></label><label><input type="checkbox" data-f="italic"${l.italic ? " checked" : ""}><i>I</i></label><label><input type="checkbox" data-f="underline"${l.underline ? " checked" : ""}><u>U</u></label>
           <select data-f="fontsize">${[8, 9, 10, 11, 12, 14].map((n) => `<option${n === size ? " selected" : ""}>${n}</option>`).join("")}</select>
           <input type="color" data-f="color" value="${hex(l.color)}"${l.color ? "" : " class=\"unset\""}></div>`;
       }).join("");
       const preview = shipLabelMarkup({ typeName: "Ibis", shipName: "Ibis", displayName: "Pilot", corporationID: 98000001, allianceID: 99000001, corpTicker: "CORP_TICKER", allianceTicker: "ALLIANCE_TICKER" }, st);
-      return `<div class="ov-set-panel ov-ships"><button type="button" class="ov-ship-menu" title="">≡</button>
+      return `<div class="ov-set-panel ov-ships"><button type="button" class="ov-ship-menu" title=""><img src="${clientTexture("res:/ui/texture/icons/73_16_50.png")}" alt=""></button>
         <label class="ov-app-check"><input type="checkbox" data-hide${st.hideCorpTicker ? " checked" : ""}><span>${esc(word("UI/Overview/HideTickerIfInAlliance", "Hide corp ticker if pilot is in Alliance"))}</span></label>
         <div class="ov-ship-list">${rows}</div>
         <div class="ov-add-buttons"><button type="button" class="ov-ship-addbr">${esc(word("UI/Overview/AddLinebreak", "Add Linebreak"))}</button></div>
