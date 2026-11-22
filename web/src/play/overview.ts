@@ -1769,9 +1769,12 @@ export class Overview {
     };
     const rowName = (e: Entity) => this.hooks.name?.(e) ?? e.name ?? typeName(e);
     // overviewNodeUtil.UpdateVelocityData: the ball's speed; its angular velocity, the transversal of the two balls'
-    // relative velocity over max(1, the surface distance), in degrees a second. A static ball (a station, a gate, a
-    // celestial) has neither, and shows "-".
-    const isStatic = (e: Entity) => ["station", "stargate", "planet", "moon", "sun", "belt"].includes(e.kind) || [6, 7, 8, 9, 10].includes(e.groupID ?? -1) || e.categoryID === 3;
+    // relative velocity over max(1, the surface distance), in degrees a second - only for a free ball (overviewWindow:
+    // "if showVelocityCombined and ball.isFree and myBall"); any other (an asteroid, a station, a gate, a celestial) has
+    // neither and shows "-". The ball flags come from destiny where the page has them; else the static kinds stand in.
+    const freeKnown = entities.some((e) => e.isFree === true);
+    const isStatic = (e: Entity) => freeKnown ? e.isFree !== true
+      : ["station", "stargate", "planet", "moon", "sun", "belt"].includes(e.kind) || [6, 7, 8, 9, 10].includes(e.groupID ?? -1) || e.categoryID === 3;
     const angular = (e: Entity, d: number): number | null => {
       if (!ego || isStatic(e)) return null;
       const rel = [e.velocity.x - ego.velocity.x, e.velocity.y - ego.velocity.y, e.velocity.z - ego.velocity.z];
