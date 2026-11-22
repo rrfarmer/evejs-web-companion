@@ -84,6 +84,18 @@ Core defines what each of these looks like, reads what each plugin registered,
 and decides where and when to show or call it. These are the plugin API's only
 extension points: a plugin that needs another one proposes it as a core change.
 
+### A standalone page
+
+Declare `page: {}` in the manifest and `page: () => import("./Page.svelte")`
+in the same plugin's views. The ordinary WC build serves the page at
+`/<plugin id>/` and hands subpaths to the page component. Use the same
+authorization and backend routes as a window. The page mounts in its own
+browser tab without opening a global window or owning any hosted sessions.
+
+A page-only plugin has a direct link in the Plugins menu and, when pinned,
+in the usual strip. A plugin with both a page and windows lists them together.
+The browser's enable/disable and pin settings apply in both cases.
+
 ### A global window
 
 A window about every pilot rather than the one on screen. It floats on the global

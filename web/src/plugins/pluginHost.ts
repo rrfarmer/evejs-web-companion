@@ -12,7 +12,7 @@
 
 import { PLUGIN_API_VERSION, type PluginEntry, type PluginManifest, type PluginViews, type PluginViewsEntry } from "../plugin-api/index.ts";
 import { loadPluginModules } from "./loadPlugins.ts";
-import { registerGlobalWindow, isGlobalTab } from "../ui/globalWindow.ts";
+import { registerGlobalWindow, registerPluginPage, isGlobalTab } from "../ui/globalWindow.ts";
 import { registerGlobalWindowView } from "../ui/pluginWindowViews.ts";
 import { registerHangarViews } from "../ui/pluginHangarViews.ts";
 import { allTabs } from "../ui/tabs.ts";
@@ -45,6 +45,7 @@ const PLUGIN_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 /** Why this plugin cannot load, or null when it may. Pure: registers nothing. */
 export function pluginProblem(manifest: PluginManifest, views: PluginViews | null): string | null {
   if (!PLUGIN_ID.test(manifest.id)) return `"${manifest.id}" is not a plugin id: lowercase words joined by hyphens.`;
+  if (manifest.page && views !== null && typeof views.page !== "function") return "The plugin page has nothing to draw.";
   // Seen within this manifest too: a second window or block of the same id is
   // refused here, not when registering it, by which time the first is in.
   const windowsSeen = new Set<string>();
@@ -118,14 +119,17 @@ export function activatePlugins(
         say("failed", problem);
         continue;
       }
+      const plugin = {
+        id: manifest.id, name: manifest.name,
+        label: manifest.label ?? manifest.windows?.[0]?.label ?? manifest.name,
+        ...(manifest.glyph ? { glyph: manifest.glyph } : {}),
+      };
       for (const window of manifest.windows ?? []) {
-        registerGlobalWindow({
-          ...window,
-          plugin: { id: manifest.id, name: manifest.name, label: manifest.label ?? manifest.windows![0]!.label, ...(manifest.glyph ? { glyph: manifest.glyph } : {}) },
-        });
+        registerGlobalWindow({ ...window, plugin });
         const view = pluginViews?.windows[window.id];
         if (view !== undefined) registerGlobalWindowView(window.id, view);
       }
+      if (manifest.page && pluginViews?.page) registerPluginPage(plugin, pluginViews.page, manifest.description);
       if (pluginViews !== null) registerHangarViews(manifest.id, pluginViews);
       for (const macro of manifest.macros ?? []) registerPluginMacro(macro);
       say("active");

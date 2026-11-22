@@ -41,6 +41,7 @@
 // before desktop.ts had finished initialising whenever that module loads first.
 // Hence the sizes below are written out rather than derived from its defaults.
 import type { WinState } from "./desktop.ts";
+import type { PluginViews } from "../plugin-api/index.ts";
 import { registerTab, type PluginTabID, type TabID } from "./tabs.ts";
 
 /** One launcher of a global window, as the brand strip draws it. */
@@ -90,6 +91,7 @@ export const CORE_GLOBAL_LAUNCHERS: readonly GlobalLauncher[] = [
 
 // The global windows plugins added, in the order they registered.
 const pluginLaunchers: GlobalLauncher[] = [];
+const pluginPages = new Map<string, RegisteredPluginPage>();
 
 /** Which plugin a window is one of, as the Plugins menu groups them. */
 export interface PluginOfWindow {
@@ -108,6 +110,13 @@ export interface PluginGlobalWindow extends GlobalLauncher {
   readonly plugin: PluginOfWindow;
 }
 
+interface RegisteredPluginPage {
+  readonly plugin: PluginOfWindow;
+  readonly href: string;
+  readonly hint: string;
+  readonly load: NonNullable<PluginViews["page"]>;
+}
+
 /**
  * Add a plugin's global window: a tab of its own (tabs.ts `registerTab`), out of
  * the rail like every global window, and a launcher beside the brand. Called while
@@ -118,6 +127,18 @@ export interface PluginGlobalWindow extends GlobalLauncher {
 export function registerGlobalWindow(window: PluginGlobalWindow): void {
   registerTab({ id: window.id, label: window.title, where: "both", launchable: false, glyph: window.glyph });
   pluginLaunchers.push({ id: window.id, label: window.label, title: window.title, hint: window.hint, plugin: window.plugin });
+}
+
+export function registerPluginPage(
+  plugin: PluginOfWindow,
+  load: RegisteredPluginPage["load"],
+  hint: string,
+): void {
+  pluginPages.set(plugin.id, { plugin, href: `/${plugin.id}/`, hint, load });
+}
+
+export function pluginPageAt(pathname: string): RegisteredPluginPage | undefined {
+  return pluginPages.get(pathname.split("/")[1] ?? "");
 }
 
 /** Every global window's launcher: core's, then the plugins'. */
@@ -133,20 +154,26 @@ export function coreStripLaunchers(): readonly GlobalLauncher[] {
   return CORE_GLOBAL_LAUNCHERS.filter((launcher) => launcher.id !== "pluginManager");
 }
 
-/** One plugin's windows, in the order it registered them. */
+/** One plugin's windows and optional page in the Plugins menu. */
 export interface PluginWindowGroup {
   readonly plugin: PluginOfWindow;
   readonly windows: readonly GlobalLauncher[];
+  readonly page?: Pick<RegisteredPluginPage, "href" | "hint">;
 }
 
-/** Every plugin window, grouped by its plugin, plugins in the order they loaded. */
+/** Every plugin with a window or a page, grouped for pins and the Plugins menu. */
 export function pluginWindowGroups(): readonly PluginWindowGroup[] {
-  const groups: { plugin: PluginOfWindow; windows: GlobalLauncher[] }[] = [];
+  const groups: { plugin: PluginOfWindow; windows: GlobalLauncher[]; page?: PluginWindowGroup["page"] }[] = [];
   for (const launcher of pluginLaunchers) {
     if (!launcher.plugin) continue;
     const known = groups.find((group) => group.plugin.id === launcher.plugin!.id);
     if (known) known.windows.push(launcher);
     else groups.push({ plugin: launcher.plugin, windows: [launcher] });
+  }
+  for (const page of pluginPages.values()) {
+    const known = groups.find((group) => group.plugin.id === page.plugin.id);
+    if (known) known.page = page;
+    else groups.push({ plugin: page.plugin, windows: [], page });
   }
   return groups;
 }

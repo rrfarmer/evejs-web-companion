@@ -1,5 +1,5 @@
 <script lang="ts">
-  // THE PLUGINS MENU — every plugin window, from one button beside the brand.
+  // THE PLUGINS MENU — every plugin window and page, from one button beside the brand.
   //
   // A row per plugin. One with several windows opens them in place, on hover
   // or on a click of the row (a phone has no hover), and each window row opens
@@ -92,31 +92,40 @@
 {#if shown}
   <div use:portal class="plugin-panel" role="menu" aria-label="Plugins" style:top="{place.top}px" style:left="{place.left}px" bind:this={panel}>
     {#if groups.length > 3}
-      <input class="plugin-panel-find" type="search" placeholder="Find a plugin window" aria-label="Find a plugin window" bind:value={query} />
+      <input class="plugin-panel-find" type="search" placeholder="Find a plugin" aria-label="Find a plugin" bind:value={query} />
     {/if}
     {#if groups.length === 0}
       <p class="plugin-panel-note">This client carries no plugins.</p>
     {/if}
     {#each visible as group (group.plugin.id)}
-      {@const several = group.windows.length > 1}
+      {@const several = group.windows.length + Number(group.page !== undefined) > 1}
       {@const whole = isPluginPinned($pins, group.plugin.id)}
       {@const isOpen = expanded === group.plugin.id || (query.trim().length > 0 && several)}
       <div class="plugin-panel-row" role="none" onmouseenter={() => { if (several) expanded = group.plugin.id; }}>
-        <button
-          type="button"
-          class="plugin-panel-name"
-          role="menuitem"
-          aria-expanded={several ? isOpen : undefined}
-          onclick={() => (several ? (expanded = isOpen ? null : group.plugin.id) : open(group.windows[0]!.id))}
-        >
+        {#snippet pluginName()}
           {#if several}
             <svg class="plugin-panel-chevron" class:down={isOpen} viewBox="0 0 24 24" aria-hidden="true">{#each CHEVRON as d (d)}<path {d} />{/each}</svg>
           {:else}
             <span class="plugin-panel-chevron" aria-hidden="true"></span>
           {/if}
-          <svg class="global-launch-glyph" viewBox="0 0 24 24" aria-hidden="true">{#each group.plugin.glyph ?? neocomGlyph(group.windows[0]!.id) as d (d)}<path {d} />{/each}</svg>
+          <svg class="global-launch-glyph" viewBox="0 0 24 24" aria-hidden="true">{#each group.plugin.glyph ?? neocomGlyph(group.windows[0]?.id ?? "pluginManager") as d (d)}<path {d} />{/each}</svg>
           <span>{group.plugin.name}</span>
-        </button>
+        {/snippet}
+        {#if group.page && !several}
+          <a class="plugin-panel-name" role="menuitem" href={group.page.href} target="_blank" rel="noopener" onclick={() => { shown = false; }}>
+            {@render pluginName()}
+          </a>
+        {:else}
+          <button
+            type="button"
+            class="plugin-panel-name"
+            role="menuitem"
+            aria-expanded={several ? isOpen : undefined}
+            onclick={() => (several ? (expanded = isOpen ? null : group.plugin.id) : open(group.windows[0]!.id))}
+          >
+            {@render pluginName()}
+          </button>
+        {/if}
         <button
           type="button"
           class="plugin-panel-pin"
@@ -130,6 +139,13 @@
         </button>
       </div>
       {#if several && isOpen}
+        {#if group.page}
+          <div class="plugin-panel-row plugin-panel-window" role="none">
+            <a class="plugin-panel-name" role="menuitem" href={group.page.href} target="_blank" rel="noopener" onclick={() => { shown = false; }}>
+              <span>Open page</span>
+            </a>
+          </div>
+        {/if}
         {#each group.windows as win (win.id)}
           {@const alone = isWindowPinned($pins, win.id)}
           <div class="plugin-panel-row plugin-panel-window" role="none">
@@ -158,7 +174,7 @@
       {/if}
     {/each}
     {#if query.trim().length > 0 && visible.length === 0}
-      <p class="plugin-panel-note">No plugin window is called that.</p>
+      <p class="plugin-panel-note">No plugin matches that name.</p>
     {/if}
     <button type="button" class="plugin-panel-manage" role="menuitem" onclick={() => open("pluginManager")}>Manage plugins</button>
   </div>
