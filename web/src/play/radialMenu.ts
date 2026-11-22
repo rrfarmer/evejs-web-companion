@@ -12,6 +12,7 @@
 // - the "more" slice opens a second ring, its options placed either side of it in turn (alternate).
 
 import { clientTexture } from "./window.ts";
+import { radialDelay, radialDomButton } from "./radialSettings.ts";
 
 export interface RadialOption {
   label: string;
@@ -90,7 +91,7 @@ export class RadialMenu {
     this.root.innerHTML = `<div class="radial-shadow" style="--tex:url(${TEX("menuShadow2.png")})"></div>`;
     this.root.appendChild(this.label);
     addEventListener("pointermove", (e) => this.move(e.clientX, e.clientY));
-    addEventListener("pointerup", (e) => { if (this.isOpen && e.button === this.button) this.release(e.clientX, e.clientY); });
+    addEventListener("pointerup", (e) => { if (this.isOpen && e.button === (this.button === RADIAL_BY_RIGHT ? 2 : this.button)) this.release(e.clientX, e.clientY); });
     addEventListener("pointerdown", (e) => { if (this.isOpen && !this.root.contains(e.target as Node)) this.close(); }, true);
     addEventListener("keydown", (e) => { if (e.key === "Escape" && this.isOpen) this.close(); });
     this.root.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -220,19 +221,29 @@ export const RADIAL_CSS = `
  * The radial menu's opening on `target` (radialMenuSvc.TryExpandActionMenu): the left button held 150 ms without the
  * pointer moving 12 px, or the right button. `idOf` says which object the pointer is on (null for none).
  */
+/** The button a right-button radial is opened with (2 is the context menu's). */
+export const RADIAL_BY_RIGHT = -2;
 export function holdToOpen(target: HTMLElement, idOf: (x: number, y: number, e: Event) => number | null, open: (id: number, x: number, y: number, button: number) => void, rightClick = true,
   noDelay: () => boolean = () => false): () => void {
   let held: { id: number; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
+  /** A right-button radial opened by the hold: the context menu its release brings is not opened. */
+  let radialByRight = false;
   const cancel = () => { if (held) clearTimeout(held.timer); held = null; };
   const down = (e: PointerEvent) => {
-    if (e.button !== 0) return;
+    // radialMenuSvc.TryExpandActionMenu: the button of Open Radial Menu With (actionmenuBtn), not with Alt or Ctrl
+    // held, after Radial Menu Delay (actionMenuExpandTime; none at 0)
+    radialByRight = false;
+    const button = radialDomButton();
+    if (e.button !== button || e.altKey || e.ctrlKey) return;
     cancel();
     const id = idOf(e.clientX, e.clientY, e);
     if (id === null) return;
     const x = e.clientX, y = e.clientY;
+    const fire = (i: number) => { radialByRight = button === 2; open(i, x, y, button === 2 ? RADIAL_BY_RIGHT : button); };
     // CmdOpenRadialMenu loaded (radialMenuSvc: noDelay): opened at the press
-    if (noDelay()) { e.preventDefault(); open(id, x, y, 0); return; }
-    held = { id, x, y, timer: setTimeout(() => { const h = held; held = null; if (h) open(h.id, h.x, h.y, 0); }, 150) };
+    const delay = radialDelay();
+    if (noDelay() || delay === 0) { e.preventDefault(); fire(id); return; }
+    held = { id, x, y, timer: setTimeout(() => { const h = held; held = null; if (h) fire(h.id); }, delay) };
   };
   const move = (e: PointerEvent) => { if (held && Math.hypot(e.clientX - held.x, e.clientY - held.y) > 12) cancel(); };
   const menu = (e: MouseEvent) => {
@@ -241,6 +252,7 @@ export function holdToOpen(target: HTMLElement, idOf: (x: number, y: number, e: 
     e.preventDefault();
     e.stopPropagation();
     cancel();
+    if (radialByRight) { radialByRight = false; return; }
     open(id, e.clientX, e.clientY, 2);
   };
   target.addEventListener("pointerdown", down);

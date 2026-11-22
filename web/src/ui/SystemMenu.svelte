@@ -17,6 +17,7 @@
   import { COLOR_THEMES } from "../play/colorThemes.ts";
   import { playUiEvent } from "../play/uiAudio.ts";
   import { AUTO_TARGET_BACK_MAX, AUTO_TARGET_BACK_WORDS, autoTargetBack } from "./autoTargetBack.ts";
+  import { RADIAL_BUTTON_OPTIONS, RADIAL_DELAY_MAX, RADIAL_DELAY_MIN, RADIAL_SETTING_WORDS, radialButton, radialDelay, setRadialButton, setRadialDelay } from "../play/radialSettings.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
@@ -107,11 +108,13 @@
   flow.requestWords(["UI/Commands/EnterNewShortcutPrompt", "UI/Common/None", "UI/Common/Cancel", "UI/Commands/ShortcutAlreadyUsedByCmd",
     "UI/Commands/ShortcutAlreadyUsedReassign", "UI/Commands/ShortcutAlreadyUsedReassignHeader", "UI/Commands/ReassingCmd", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel"]);
   let panel = $state<string>("displayandgraphics");
+  let radialBtn = $state(radialButton());
+  let radialMs = $state(radialDelay());
   let settings = $state<GfxSettings>({ ...gfx() });
   let fullScreen = $state(typeof document !== "undefined" && document.fullscreenElement !== null);
   onMount(() => {
     flow.requestWords([...Object.values(WORDS), ...PANELS.map((p) => p[1]), ...SHORTCUT_PANELS.map((p) => p[1]), ...Object.values(Q),
-      ...COMBOS.map((c) => c.label), ...EFFECTS.map((e) => e.label), ...COLOR_THEMES.map((t) => t.id), ...VOLUMES.map((v) => v[1]), ...AUTO_TARGET_BACK_WORDS]);
+      ...COMBOS.map((c) => c.label), ...EFFECTS.map((e) => e.label), ...COLOR_THEMES.map((t) => t.id), ...VOLUMES.map((v) => v[1]), ...AUTO_TARGET_BACK_WORDS, ...RADIAL_SETTING_WORDS]);
     const off = onGfx((s) => { settings = { ...s }; });
     const onFull = () => { fullScreen = document.fullscreenElement !== null; };
     document.addEventListener("fullscreenchange", onFull);
@@ -365,6 +368,19 @@
                   : wordWith("UI/SystemMenu/GeneralSettings/Inflight/Targets", `${i} Targets`, { targetCount: i })}</option>
               {/each}
             </select></label>
+          <!-- Expand Action Menu (actionmenuBtn: GetMouseButtonOptions), then Radial Menu Delay (actionMenuExpandTime
+               0 to 450, label 120 wide, None to Long, no value hint: GetSliderHint gives it none) -->
+          <label class="sm-combo"><span>{word("UI/SystemMenu/GeneralSettings/Inflight/ExpandActionMenu", "Open Radial Menu With")}</span>
+            <select value={radialBtn} onchange={(e) => { radialBtn = Number(e.currentTarget.value); setRadialButton(radialBtn); }}>
+              {#each RADIAL_BUTTON_OPTIONS as [label, value] (value)}<option value={value}>{word(label, label.split("/").pop() ?? "")}</option>{/each}
+            </select></label>
+          <div class="sm-slider">
+            <span>{word("UI/SystemMenu/GeneralSettings/Inflight/RadialMenuDelay", "Radial Menu Delay")}</span>
+            <small>{word("UI/SystemMenu/GeneralSettings/Inflight/NoBracketListDelay", "None")}</small>
+            <input type="range" min={RADIAL_DELAY_MIN} max={RADIAL_DELAY_MAX} step="1" value={radialMs}
+              oninput={(ev) => { radialMs = Number(ev.currentTarget.value); setRadialDelay(radialMs); }} />
+            <small>{word("UI/SystemMenu/GeneralSettings/Inflight/LongBracketListDelay", "Long")}</small>
+          </div>
         {:else if panel === "camera"}
           <h3 class="first">{word(WORDS.cameraHeader, "In-Space Camera Settings")}</h3>
           <label class="sm-check" title={word(WORDS.dynamicCameraHint, "")}><input type="checkbox" checked={settings.dynamicCameraMovement}
