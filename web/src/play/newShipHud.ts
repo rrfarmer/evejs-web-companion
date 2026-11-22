@@ -15,6 +15,7 @@ import { labelColorCss, labelLines } from "../bridge/labelMarkup.ts";
 import { fmtAmt } from "../bridge/pyNumbers.ts";
 import { hudSetting, hudSettingNow, setHudSetting, type HudSettingName } from "../store/hudSettings.ts";
 import { shortcutOf } from "./shortcutKeys.ts";
+import { SHIP_HOLDS } from "../bridge/shipHolds.ts";
 
 const res = (path: string): string => `/client-res/${path.replace(/^res:\//i, "").toLowerCase()}`;
 const HUD = (name: string) => res(`res:/UI/HUD/${name}.png`);
@@ -659,7 +660,9 @@ export class NewShipHud {
     b.addEventListener("contextmenu", (ev) => {
       ev.preventDefault();
       if (this.holds.length < 2) return;
-      const order = [...this.holds.filter((h) => h.key !== this.trackedHold)].sort((x, y) => (x.key === "cargo" ? -1 : y.key === "cargo" ? 1 : 0));
+      // _GetHolds: the others sorted the cargo hold first, then by their hold IDs (ShipDroneBay, ShipGeneralMiningHold ...)
+      const holdID = (key: string) => (key === "cargo" ? "ShipCargo" : SHIP_HOLDS.find((d) => d.bayKey === key)?.holdName ?? key);
+      const order = [...this.holds.filter((h) => h.key !== this.trackedHold)].sort((x, y) => (x.key === "cargo" ? -1 : y.key === "cargo" ? 1 : holdID(x.key) < holdID(y.key) ? -1 : holdID(x.key) > holdID(y.key) ? 1 : 0));
       const current = this.holds.find((h) => h.key === this.trackedHold);
       const items = current ? [...order, current] : order;
       this.holdPicker.replaceChildren(...items.map((h) => {
