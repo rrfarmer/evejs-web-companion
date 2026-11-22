@@ -616,6 +616,13 @@
   .ricon :global(.type-icon) { width: 32px; height: 32px; }
   .err { color: #d08a6a; }
   /* the selection frame, and a bay a drag may drop on */
-  .item.selected .icon { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5); background: rgba(255, 255, 255, 0.08); }
+  /* InvItem in the icon view (read in item.py): hovered or selected, the icon padded 4 in (_get_icon_frame_padding), the
+     ItemSelectionFrame's 2 px FRAME_BORDER2 in the UI highlight colour with its glow at 0.5, the ListEntryUnderlay in
+     THEME_FOCUSDARK at 0.2 hovered, 0.4 selected */
+  .item .icon :global(.type-icon) { transition: transform .1s; }
+  .item:hover .icon, .item.selected .icon { box-shadow: inset 0 0 0 2px var(--theme-focus, #58a7bf), 0 0 6px color-mix(in srgb, var(--theme-focus, #58a7bf) 50%, transparent); }
+  .item:hover .icon { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); }
+  .item.selected .icon { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 40%, transparent); }
+  .item:hover .icon :global(.type-icon), .item.selected .icon :global(.type-icon) { transform: scale(0.875); }
   .node.drop { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4); }
 </style>
