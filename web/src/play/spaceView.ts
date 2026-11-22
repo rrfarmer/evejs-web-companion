@@ -4617,8 +4617,8 @@ export class SpaceView {
       if (lockRange === null || dist <= lockRange) out.push({ path: "UI/Inflight/LockTarget", label: word("UI/Inflight/LockTarget", "Lock Target"), icon: I("target"), run: run("Lock Target", () => this.lockTracked(id)) });
     }
     out.push(null, showInfo);
-    // _CelestialMenu (2050): a ship with a pilot not the pilot's own, "Pilot (<name>)" with the CharacterMenu after Show Info
-    if (e.characterID && !e.isSelf && this.options.pilotMenu) { const pilot = this.options.pilotMenu(e.characterID, { corporationID: e.corporationID ?? null, allianceID: e.allianceID ?? null }); if (pilot) out.push(pilot); }
+    // _CelestialMenu (2050): a ship with a pilot not the pilot's own, "Pilot (<name>)" with the CharacterMenu after Show Info, a group of its own (read through gridcheck)
+    if (e.characterID && !e.isSelf && this.options.pilotMenu) { const pilot = this.options.pilotMenu(e.characterID, { corporationID: e.corporationID ?? null, allianceID: e.allianceID ?? null }); if (pilot) out.push(null, pilot); }
     out.push(null);
     if (stargate) out.push({ path: "UI/Inflight/AddFirstWaypoint", label: word("UI/Inflight/AddFirstWaypoint", "Add as First Waypoint"), run: () => this.actions.addWaypoint?.(id) });
     else if (dockable && this.actions.setDestination) {
