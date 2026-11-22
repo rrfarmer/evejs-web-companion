@@ -640,5 +640,6 @@
   .item:hover .icon { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); }
   .item.selected .icon { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 40%, transparent); }
   .item:hover .icon :global(.type-icon), .item.selected .icon :global(.type-icon) { transform: scale(0.875); }
-  .node.drop { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4); }
+  /* TreeViewEntry.OnDragEnter: the hover underlay, as the mouse over it (hoverBG.hovered) */
+  .node.drop:not(.sel)::before { opacity: 0.2; }
 </style>
