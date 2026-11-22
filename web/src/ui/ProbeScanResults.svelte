@@ -313,7 +313,7 @@
             <tr class:ps-row={retail} class:ps-selected={retail && $selectedSites.has(row.id)}
               onclick={retail ? (event) => { if ((event.target as HTMLElement).closest("button")) return; selectSite(row.id, event.shiftKey || event.ctrlKey); } : undefined}
               style={retail ? `--cert: ${resultColor(row.certainty)}; --base: ${Math.min(row.certainty, row.prevCertainty) * 100}%; --change: ${Math.abs(row.certainty - row.prevCertainty) * 100}%` : undefined}
-              oncontextmenu={retail ? (event) => { event.preventDefault(); menuFor = menuFor === row.id ? null : row.id; } : undefined}>
+              oncontextmenu={retail ? (event) => { event.preventDefault(); if (!$selectedSites.has(row.id)) selectSite(row.id, false); menuFor = menuFor === row.id ? null : row.id; } : undefined}>
               {#if retail}<td class="ps-ic"><span class="ps-result-icon" style={`--icon: url(/client-res/${row.icon})`}></span></td>{/if}
               <td class="num">{row.distance === null ? "" : fmtDist(row.distance)}</td>
               <td>{row.id}</td>
