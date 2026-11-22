@@ -2261,6 +2261,8 @@ export interface AppFlow {
   /** gameui's safe logoff, as the server tells it (OnSafeLogoffTimerStarted / Activated / Aborted / Failed): the timer's
    *  end in epoch ms and whether it has run out; null with none running. */
   readonly safeLogoff: ReadableSignal<{ readonly deadlineMs: number; readonly completed: boolean } | null>;
+  /** playerOwned.EnterShipPassword's OK: the ship's shield harmonic password (ship.SetShipPassword). */
+  setShipPassword(password: string): Promise<void>;
   /** menuFunctions.SafeLogoff: ship.SafeLogoff(); its failed conditions said (CustomNotify under ConditionsFailedHeader). */
   startSafeLogoff(): Promise<void>;
   /** SafeLogoffTimer.AbortSafeLogoff: ship.AbortSafeLogoff(), the timer taken down. */
@@ -36630,6 +36632,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const failed = await bridgeDo("ship", "SafeLogoff", []);
       const list = isListValue(failed as JsonValue) ? (failed as { items: JsonValue[] }).items : Array.isArray(failed) ? failed as JsonValue[] : [];
       if (list.length > 0) await saySafeLogoffStop(list.map((x) => String(x)), true);
+    },
+
+    async setShipPassword(password) {
+      await bridgeDo("ship", "SetShipPassword", [password]);
     },
 
     async abortSafeLogoff() {

@@ -324,6 +324,8 @@ export interface SpaceActions {
   abortSelfDestructShip?(shipID: number): void;
   /** menuFunctions.Eject: out of the active ship into a capsule beside it (ConfirmEject first). */
   ejectFromShip?(): void;
+  /** menusvc.EnterPOSPassword (playerOwned.EnterShipPassword): the shield harmonic password asked for and set. */
+  enterShipPassword?(): void;
   /** menuFunctions.Board of an unpiloted ship in space. */
   boardShip?(shipID: number, typeID: number | null): void;
   /** menuFunctions.SetName of a ship: the ship naming window (prompt_rename_ship) for one's own active ship. */
@@ -4776,6 +4778,8 @@ export class SpaceView {
         { path: "UI/Inflight/ResetCamera", label: word("UI/Inflight/ResetCamera", "Look At My Ship"), run: () => this.focusOn(null) },
         null,
         showInfo,
+        // OfferEnterStarbasePassword (the active ship, not in a structure): its own group (17, hierarchy 5), after Show Info
+        ...(this.actions.enterShipPassword ? [null, { path: "UI/Inflight/POS/EnterStarbasePassword", label: word("UI/Inflight/POS/EnterStarbasePassword", "Enter Starbase Forcefield Password"), run: () => this.actions.enterShipPassword?.() }] : []),
         // OfferPilotMenu (a ship with an owner): "Pilot (<name>)" with one's own CharacterMenu, after Show Info
         ...((): (ContextEntry | null)[] => { const p = e.characterID ? this.options.pilotMenu?.(e.characterID, { corporationID: e.corporationID ?? null, allianceID: e.allianceID ?? null }) ?? null : null; return p ? [null, p] : []; })(),
         // OfferSetName (one's own specific thing; a ship's through the ship naming window), CONFIGGROUP
