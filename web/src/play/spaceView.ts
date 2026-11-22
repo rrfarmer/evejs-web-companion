@@ -5721,6 +5721,8 @@ export class SpaceView {
         flagHtml: (() => { const f = iconAndBackgroundFlags(e, this.overview.groupOf(e), this.lastRelations).icon; return f ? flagMarkup(f).replace(/ title="[^"]*"/, "") : null; })(),
         bracket: e.categoryID === 11 ? (() => { const url = bracketIcon(e); return url ? { url, colour: iconLook(e).colour } : null; })() : null,
         shieldRatio: e.shieldRatio ?? null, armorRatio: e.armorRatio ?? null, hullRatio: e.hullRatio ?? null,
+        // (has_damage_bar: none on an asteroid, a fighter, a harvestable cloud, an orbital target)
+        noDamageBar: e.categoryID === 25 || e.categoryID === 87 || e.groupID === 711 || e.groupID === 1198,
         locking: false, active: id === this.activeTarget, mining,
         weapons: rackModules.filter((m) => m.active && m.targetID === id).map((m) => ({ itemID: m.itemID, typeID: m.typeID })),
       });

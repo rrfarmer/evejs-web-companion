@@ -277,6 +277,11 @@ export interface TargetBarEntry {
   /** When locking began on the view's simulation clock. */
   lockStartedAt?: number | null;
   mining?: MiningTargetReading;
+  /**
+   * TargetInBar.has_damage_bar false - an asteroid (category 25), a fighter (87), a harvestable cloud (group 711), an
+   * orbital target (1198) or a mineable type: no TargetHealthBars (their background with them).
+   */
+  noDamageBar?: boolean;
   /** TargetInBar.activeModules: the modules running on it, each shown by its icon in the assigned box. */
   weapons?: readonly { itemID: number; typeID: number }[];
 }
@@ -324,6 +329,7 @@ class TargetInBar {
   private readonly labels: HTMLDivElement[] = [];
   private readonly labelBox: HTMLDivElement;
   private miningReading: MiningTargetReading | undefined;
+  private health!: HTMLDivElement;
   private miningGauge: {
     root: HTMLDivElement;
     arcs: { asteroid: SVGPathElement; yieldArc: SVGPathElement; waste: SVGPathElement; crit: SVGPathElement };
@@ -361,6 +367,7 @@ class TargetInBar {
     sprite(this.indicator, TEX.spinCorners, 0, 0, 120, 120, 0.2, "tb-spin");
     this.circle = sprite(ic, TEX.outerCircle, mid(ICON_SIZE, ICON_SIZE + 2), mid(ICON_SIZE, ICON_SIZE + 2), ICON_SIZE + 2, ICON_SIZE + 2, 0.5);
     const health = div(ic, 0, 0, ICON_SIZE, ICON_SIZE, "tb-health");
+    this.health = health;
     this.background = sprite(health, TEX.background, 0, 0, ICON_SIZE, ICON_SIZE);
     // hull, armour, shield: the client adds shield first, so it is on top; within a layer the right half is on top
     for (const i of [2, 1, 0]) {
@@ -403,6 +410,7 @@ class TargetInBar {
 
   /** Returns true when the target's height changed (the row is then laid out again). */
   update(e: TargetBarEntry, now: number): boolean {
+    if (this.health.hidden !== !!e.noDamageBar) this.health.hidden = !!e.noDamageBar;
     if (e.typeID !== this.typeID) {
       this.typeID = e.typeID;
       this.icon.style.visibility = "hidden";
