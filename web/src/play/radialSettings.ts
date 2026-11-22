@@ -12,7 +12,7 @@ export const RADIAL_BUTTON_OPTIONS: readonly (readonly [string, number])[] = [
 ];
 export const RADIAL_SETTING_WORDS: readonly string[] = [
   "UI/SystemMenu/GeneralSettings/Inflight/ExpandActionMenu", "UI/SystemMenu/GeneralSettings/Inflight/RadialMenuDelay",
-  "UI/SystemMenu/GeneralSettings/Inflight/NoBracketListDelay", "UI/SystemMenu/GeneralSettings/Inflight/LongBracketListDelay",
+  "UI/SystemMenu/GeneralSettings/Inflight/BracketListDelay", "UI/SystemMenu/GeneralSettings/Inflight/NoBracketListDelay", "UI/SystemMenu/GeneralSettings/Inflight/LongBracketListDelay",
   ...RADIAL_BUTTON_OPTIONS.map((o) => o[0]),
 ];
 const BTN = "evejs.play.actionmenuBtn", DELAY = "evejs.play.actionMenuExpandTime";
@@ -33,3 +33,12 @@ export function radialDelay(): number {
   return v === null || !Number.isFinite(v) ? RADIAL_DELAY_DEFAULT : Math.min(RADIAL_DELAY_MAX, Math.max(RADIAL_DELAY_MIN, Math.round(v)));
 }
 export function setRadialDelay(v: number): void { writeNum(DELAY, v); }
+/** The Inflight section's Bracket List Delay (tooltipHandler TOOLTIP_SETTINGS_BRACKET tooltipDelayBracket, 5 to 3005 ms, 50 by
+ *  default: TOOLTIP_DELAY_MIN / MAX / BRACKET): what InSpaceBracket.GetTooltipDelay gives the overlapping brackets' list. */
+export const BRACKET_DELAY_MIN = 5, BRACKET_DELAY_MAX = 3005, BRACKET_DELAY_DEFAULT = 50;
+const BRACKET = "evejs.play.tooltipDelayBracket";
+export function bracketListDelay(): number {
+  const v = readNum(BRACKET);
+  return v === null || !Number.isFinite(v) ? BRACKET_DELAY_DEFAULT : Math.min(BRACKET_DELAY_MAX, Math.max(BRACKET_DELAY_MIN, Math.round(v)));
+}
+export function setBracketListDelay(v: number): void { writeNum(BRACKET, v); }

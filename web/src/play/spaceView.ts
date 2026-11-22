@@ -82,6 +82,7 @@ import { PlayWindow, clientTexture } from "./window.ts";
 import { bloomFor, type Bloom } from "../three/bloom.ts";
 import { DynamicExposure } from "../three/exposure.ts";
 import { CombatMessage } from "./combatMessage.ts";
+import { bracketListDelay } from "./radialSettings.ts";
 import { RadialMenu, RADIAL_CSS, RADIAL_ICON, WARP_RANGES, holdToOpen, radialRanges, type RadialOption } from "./radialMenu.ts";
 import { METENOX_BOARD_RANGE, METENOX_DEPOSIT_RANGE, METENOX_MATERIAL_RANGE, METENOX_TYPE_ID } from "../bridge/autoMoonMining.ts";
 import { hideMetenoxBeam, updateMetenoxPresentation } from "./metenoxPresentation.ts";
@@ -793,12 +794,12 @@ export class SpaceView {
   private overlapCloseTimer: ReturnType<typeof setTimeout> | null = null;
   private overlapDown: ((ev: MouseEvent) => void) | null = null;
 
-  /** InSpaceBracket.LoadTooltipPanel after the bracket tooltip delay (TOOLTIP_DELAY_BRACKET, 50 ms); an overlapped bracket keeps it. */
+  /** InSpaceBracket.LoadTooltipPanel after the Bracket List Delay (tooltipDelayBracket, 50 ms by default); an overlapped bracket keeps it. */
   private overlapEntered(id: number): void {
     if (this.overlapCloseTimer) { clearTimeout(this.overlapCloseTimer); this.overlapCloseTimer = null; }
     if (this.overlapTip && this.overlapIDs.has(id)) return;
     if (this.overlapOpenTimer) clearTimeout(this.overlapOpenTimer);
-    this.overlapOpenTimer = setTimeout(() => { this.overlapOpenTimer = null; this.openOverlapTooltip(id); }, 50);
+    this.overlapOpenTimer = setTimeout(() => { this.overlapOpenTimer = null; this.openOverlapTooltip(id); }, bracketListDelay());
   }
   private overlapLeft(): void {
     if (this.overlapOpenTimer) { clearTimeout(this.overlapOpenTimer); this.overlapOpenTimer = null; }
@@ -3902,7 +3903,7 @@ export class SpaceView {
           el!.classList.add("hover");
           if (this.overlapCloseTimer) { clearTimeout(this.overlapCloseTimer); this.overlapCloseTimer = null; }
           if (this.overlapOpenTimer) clearTimeout(this.overlapOpenTimer);
-          this.overlapOpenTimer = setTimeout(() => { this.overlapOpenTimer = null; this.openOverlapTooltip(null, el!); }, 50);
+          this.overlapOpenTimer = setTimeout(() => { this.overlapOpenTimer = null; this.openOverlapTooltip(null, el!); }, bracketListDelay());
         });
         el.addEventListener("mouseleave", () => this.overlapLeft());
         el.addEventListener("mouseleave", () => el!.classList.remove("hover"));
