@@ -148,8 +148,8 @@
                     </button>
                   {:else}{group.name}{/if}
                 </td>
-                <td>{row.quantity === null ? "—" : row.quantity.toLocaleString()}</td>
-                <td>{row.volume === null ? "—" : volumeText(row.volume)}</td>
+                <td>{row.quantity === null ? "-" : row.quantity.toLocaleString()}</td>
+                <td>{row.volume === null ? "-" : volumeText(row.volume)}</td>
                 <td>{row.value === null ? "-" : iskRound(row.value, true)}</td>
                 <td>{fmtDist(row.distance)}</td>
               </tr>
