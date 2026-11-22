@@ -649,10 +649,16 @@ button { font: inherit; color: inherit; }
 .dscan-ic:first-of-type { margin-left: 0; }
 .dscan-ic img { width: 16px; height: 16px; display: block; }
 .dscan-ic:disabled { opacity: 0.6; }
+/* the scroll's columns at their own widths (GetColumnsDefaultSize, the icon fixed at 20), wider than the window scrolling it */
+.dscan-scroll .ov-table { width: max-content; table-layout: fixed; }
+.dscan-scroll .ov-table th:nth-child(1) { width: 20px; }
 .dscan-scroll .ov-table th:nth-child(2) { width: 160px; }
 .dscan-scroll .ov-table th:nth-child(3) { width: 130px; }
 .dscan-scroll .ov-table th:nth-child(4) { width: 100px; }
 .dscan-scroll .ov-table th[data-sort] button { width: 100%; min-height: 16px; text-align: inherit; }
+.dscan-scroll .ov-table th[data-sort] { position: relative; }
+.dscan-scroll .ov-table th .dscan-scaler { position: absolute; top: 0; right: 0; width: 8px; height: 100%; cursor: col-resize; }
+.dscan-scroll .ov-table th .dscan-scaler::after { content: ""; position: absolute; left: 3px; top: 4px; bottom: 4px; width: 1px; background: rgba(255, 255, 255, 0.15); }
 .dscan-scroll .ov-table th.ov-icon, .dscan-scroll .ov-table td.ov-icon { padding-inline: 2px; }
 .dscan-scroll .ov-table th.ov-icon button { min-width: 16px; text-align: center; }
 .dscan-bracket { width: 16px; height: 16px; display: block; }

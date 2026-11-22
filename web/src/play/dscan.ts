@@ -210,6 +210,7 @@ export class DScanWindow {
       });
     }
     this.drawSortHeaders();
+    this.columnScaling();
     this.tbody = this.window.body.querySelector("tbody")!;
     this.status = this.window.body.querySelector(".dscan-status")!;
     const angleLabel = this.window.body.querySelector(".dscan-angle-label")!;
@@ -370,6 +371,57 @@ export class DScanWindow {
     this.filterList = list;
   }
   private hideFilters(): void { this.filterList?.remove(); this.filterList = null; }
+
+  /**
+   * The scroll's id (scanner_dirscroll) makes its columns scalable (Scroll: scalable = sr.id and not fixed; the icon column
+   * fixed at 20): each header's ScaleHandle (8 wide at its right, the 1 px line at 3) dragged to a width no narrower than
+   * MINCOLUMNWIDTH 24, kept in columnWidths for the scroll's id; a double-click on it fits the column to its widest - the
+   * header's text or a row's - with the tab margin either side (ResetColumnWidth).
+   */
+  private columnScaling(): void {
+    const KEY = "evejs.ui.columnWidths.scanner_dirscroll";
+    const MARGIN = 8;
+    const read = (): Record<string, number> => { try { const v = JSON.parse(localStorage.getItem(KEY) ?? "{}") as unknown; return v && typeof v === "object" ? v as Record<string, number> : {}; } catch { return {}; } };
+    const keep = (v: Record<string, number>) => { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch { /* this visit only */ } };
+    const setWidth = (th: HTMLElement, w: number) => { th.style.width = th.style.minWidth = th.style.maxWidth = `${w}px`; };
+    const kept = read();
+    for (const th of this.sortHeaders) {
+      const column = th.dataset.sort as string;
+      if (column === "group") continue;
+      if (typeof kept[column] === "number") setWidth(th, kept[column]!);
+      const grip = document.createElement("span");
+      grip.className = "dscan-scaler";
+      grip.setAttribute("role", "separator");
+      th.append(grip);
+      grip.addEventListener("click", (e) => e.stopPropagation());
+      grip.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const x0 = e.clientX, w0 = th.getBoundingClientRect().width;
+        if (w0 <= 0) return; // (a folded window: nothing to scale)
+        const move = (m: PointerEvent) => setWidth(th, Math.max(24, Math.round(w0 + m.clientX - x0)));
+        const up = () => {
+          removeEventListener("pointermove", move);
+          removeEventListener("pointerup", up);
+          keep({ ...read(), [column]: Math.round(th.getBoundingClientRect().width) });
+        };
+        addEventListener("pointermove", move);
+        addEventListener("pointerup", up);
+      });
+      grip.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+        const index = [...th.parentElement!.children].indexOf(th);
+        const range = document.createRange();
+        const textWidth = (el: Element | undefined | null) => { if (!el || !el.textContent?.trim()) return 0; range.selectNodeContents(el); return range.getBoundingClientRect().width; };
+        let widest = textWidth(th.querySelector("button"));
+        for (const tr of this.tbody?.rows ?? []) widest = Math.max(widest, textWidth(tr.cells[index]));
+        const w = Math.max(24, Math.ceil(widest) + MARGIN * 2);
+        setWidth(th, w);
+        keep({ ...read(), [column]: w });
+      });
+    }
+  }
 
   private drawSortHeaders(): void {
     for (const th of this.sortHeaders) {
