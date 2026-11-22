@@ -394,7 +394,8 @@ const GROUPS_WITH_LOOTRIGHTS: ReadonlySet<number> = new Set([186, 12, 649]);
 /** A bracket glyph by kind, in the client's spirit: the shape says what it is, the colour whose. */
 export function glyph(e: Entity): string {
   // bracketVarious.GetIconColor: OVERVIEW_NORMAL_COLOR (white) for all but the pilot's own ship (OVERVIEW_OWN_SHIP_COLOR, 0.7),
-  // an NPC (its standing's colour, kept as the page draws it), and a wreck or can: abandoned OVERVIEW_ABANDONED_CONTAINER_COLOR
+  // an NPC (its owner's standing's colour - ICON_COLOR_BAD (1, 0.1, 0.1) 'Hostile' for the belt rats, read through gridcheck;
+  // the other standings not drawn yet), and a wreck or can: abandoned OVERVIEW_ABANDONED_CONTAINER_COLOR
   // (0.2, 0.5, 1.0), else one the pilot has no loot right to OVERVIEW_FORBIDDEN_CONTAINER_COLOR (1, 1, 0) (read through
   // gridcheck: the page pilot's jetcan yellow in the client's overview); the autopilot destination not yet
   const rights = (e as Entity & { lootRights?: { ownerID: number | null; corpID: number | null; fleetID: number | null; abandoned: boolean } | null }).lootRights ?? null;
@@ -409,7 +410,7 @@ export function glyph(e: Entity): string {
   const jumpTo = (e as Entity & { jumpSystemID?: number | null }).jumpSystemID ?? null;
   const onRoute = (e.groupID === 10 && jumpTo !== null && jumpTo === routeNext.nextSystemID)
     || ((e.groupID === 15 || e.categoryID === 65) && e.itemID === routeNext.firstWaypoint);
-  const c = onRoute ? "rgb(240, 255, 69)" : e.isNpc ? "var(--hostile)" : e.isSelf ? "#b3b3b3" : looted === "abandoned" ? "rgb(51, 128, 255)" : looted === "forbidden" ? "rgb(255, 255, 0)" : "#ffffff";
+  const c = onRoute ? "rgb(240, 255, 69)" : e.isNpc ? "rgb(255, 26, 26)" : e.isSelf ? "#b3b3b3" : looted === "abandoned" ? "rgb(51, 128, 255)" : looted === "forbidden" ? "rgb(255, 255, 0)" : "#ffffff";
   const icon = bracketIcon(e);
   if (icon) return `<span class="glyph bi" style="--icon:url('${icon}');--tint:${c}"></span>`;
   switch (e.kind) {
