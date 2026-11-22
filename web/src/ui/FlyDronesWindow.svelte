@@ -1049,7 +1049,8 @@
   .gauge .health { position: absolute; left: 0; top: 0; bottom: 0; background: rgb(176, 176, 176); mix-blend-mode: plus-lighter; }
   .gauge .needle { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; }
   /* DroneInSpaceEntry (read through gridcheck on a Hobgoblin): its entryLabel TextBody at white 0.9 */
-  .row.inspace .name { color: rgba(255, 255, 255, 0.9); }
+  /* DroneInBayEntry and DroneInSpaceEntry: TextBody entryLabel at white 0.9 (read through gridcheck) */
+  .row .name { color: rgba(255, 255, 255, 0.9); }
   .count { font-size: 11px; color: rgb(176, 176, 169); }
   .activity { font-size: 11px; color: rgb(176, 176, 169); white-space: nowrap; }
   .state { margin: 0; padding: 4px 12px 6px; font-size: 11px; color: rgb(108, 110, 107); }
