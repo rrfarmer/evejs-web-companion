@@ -47,6 +47,7 @@
   import { typeCompareTarget } from "./typeCompare.ts";
   import { fittingWindowTarget } from "./fittingWindowTarget.ts";
   import { shipHoldTarget } from "./shipHold.ts";
+  import { standingWithSkillBonus } from "../bridge/agencyAgents.ts";
   import { addTempInvLocation, treeShownContainer } from "./invTemp.ts";
   import { get as storeGet } from "svelte/store";
   import { hudSetting, hudSettingNow, setHudSetting, slotOrderOf } from "../store/hudSettings.ts";
@@ -1780,6 +1781,7 @@
 
     // starmap GetDestinationPath's first system (the next on the way, the pilot's own left out) and GetWaypoints' first,
     // for GetIconColor's autopilot-destination colour; read again as the waypoints or the system change
+    let npcStandingsAsked = false;
     let routeNextNow: { nextSystemID: number | null; firstWaypoint: number | null } = { nextSystemID: null, firstWaypoint: null };
     const readRouteNext = () => void s.flow.routeWindowWaypoints().then((read) => {
       const path: number[] = [];
@@ -1929,6 +1931,18 @@
       inFleet: () => s.store.fleet.get().availability === "ready",
       fleetID: () => s.store.fleet.get().fleet?.fleetID ?? null,
       routeNext: () => routeNextNow,
+      // get_standing_between_npc_and_player: the owner's faction (get_npc_faction: a faction itself, else its NPC
+      // corporation's), unknown 0; GetStandingWithSkillBonus of the pilot's standing with it
+      npcStanding: (ownerID) => {
+        const factions = s.flow.corporationFactions.get();
+        if (factions === null) s.flow.loadCorporationFactions();
+        const faction = ownerID === null ? null : ownerID >= 500_000 && ownerID < 1_000_000 ? ownerID : factions?.[String(ownerID)] ?? null;
+        if (faction === null) return 0;
+        const st = s.store.standings.get(), sk = s.store.skills.get();
+        if (st.char === null && !npcStandingsAsked) { npcStandingsAsked = true; void s.flow.loadStandings().catch(() => {}); void (sk.skills === null ? s.flow.loadSkills().catch(() => {}) : null); }
+        const levels = new Map((sk.skills ?? []).map((x) => [x.typeID, x.level]));
+        return standingWithSkillBonus(faction, faction, new Map((st.char ?? []).map((r) => [r.fromID, r.standing])), (t) => levels.get(t) ?? 0);
+      },
       // BroadcastState: each broadcast on a thing holds for FLEETBROADCASTTIMEOUT (15 s) from when it was heard
       currentBroadcasts: () => fedBroadcasts(s).items(Date.now()),
       currentBroadcastOn: (itemID) => {

@@ -219,6 +219,7 @@ function projectEntity(park, ball, slim, ego, placed) {
   const seen = park.damageSeen ? park.damageSeen.get(ball.id) : undefined;
   const hackingState = slim.get("hackingSecurityState");
   const hostileResponseThreshold = number(slim.get("hostile_response_threshold"));
+  const friendlyResponseThreshold = number(slim.get("friendly_response_threshold"));
   const nameMessageID = positive(slim.get("nameID"));
   const characterID = positive(slim.get("charID"));
   const objectiveTargetGroup = slim.get("objectiveTargetGroup");
@@ -234,6 +235,8 @@ function projectEntity(park, ball, slim, ego, placed) {
     ...(characterID !== null ? { characterID } : {}),
     ownerID: positive(slim.get("ownerID")),
     ...(hostileResponseThreshold !== null ? { hostileResponseThreshold } : {}),
+    // (the entity-standings component's other threshold, for the icon colour of entitystandings._get_icon_color_and_hint_from_entity_standing_response)
+    ...(friendlyResponseThreshold !== null ? { friendlyResponseThreshold } : {}),
     ...(Number.isSafeInteger(hackingState) && hackingState >= 0 ? { hackingSecurityState: hackingState } : {}),
     // Whose side it is on, as its slim item says: its corporation, alliance and militia, which the client's overview
     // reads of any slim item that has them (overviewWindow.py 951 to 966). None where there is none.

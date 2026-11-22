@@ -320,6 +320,8 @@ export interface SpaceActions {
   fleetID?(): number | null;
   /** starmap GetDestinationPath()[0] and GetWaypoints()[0], for the route's colour on its gate or station. */
   routeNext?(): { nextSystemID: number | null; firstWaypoint: number | null };
+  /** npcs.client.entitystandings.get_standing_between_npc_and_player: the pilot's standing (with its skill bonus) with the NPC owner's faction. */
+  npcStanding?(ownerID: number | null): number;
   /** fleetSvc's broadcasts on a thing in space (Target, HealTarget to the bubble; WarpTo, AlignTo, JumpTo to the system). */
   broadcastOnItem?(name: "Target" | "HealTarget" | "WarpTo" | "AlignTo" | "JumpTo", itemID: number, typeID: number | null): void;
   /** Inventory opened on one of the ship's own holds (the new HUD's cargo indicator), by the bay's key. */
@@ -385,11 +387,31 @@ export interface SpaceActions {
 
 
 /** The pilot, for the containers' loot rights in glyph (set on each space update). */
+let npcStandingOf: ((ownerID: number | null) => number) | null = null;
 let routeNext: { nextSystemID: number | null; firstWaypoint: number | null } = { nextSystemID: null, firstWaypoint: null };
 let lootWho: { characterID: number | null; corporationID: number | null; fleetID: number | null } = { characterID: null, corporationID: null, fleetID: null };
 
 /** bracketVarious.GROUPS_WITH_LOOTRIGHTS: wreck, cargo container, freight container. */
 const GROUPS_WITH_LOOTRIGHTS: ReadonlySet<number> = new Set([186, 12, 649]);
+
+/**
+ * GetIconColor of an NPC: without the entity-standings component (no response thresholds on its slim item)
+ * ICON_COLOR_NEUTRAL (white); with it, entitystandings._get_icon_color_and_hint_from_entity_standing_response on the
+ * pilot's standing with the owner's faction - at or under hostile_response_threshold ICON_COLOR_BAD (1, 0.1, 0.1),
+ * no friendly threshold or at or over it ICON_COLOR_GOOD (0, 0.4, 1), else neutral; a non-hostile one attacking the
+ * pilot is bad.
+ */
+function npcColour(e: Entity): string {
+  const t = e as Entity & { hostileResponseThreshold?: number | null; friendlyResponseThreshold?: number | null };
+  const hostile = t.hostileResponseThreshold ?? null, friendly = t.friendlyResponseThreshold ?? null;
+  if (hostile === null && friendly === null) return "#ffffff";
+  const standing = npcStandingOf?.(e.ownerID ?? null) ?? 0;
+  const colour = hostile !== null && standing <= hostile ? "rgb(255, 26, 26)" : friendly === null || standing >= friendly ? "rgb(0, 102, 255)" : "#ffffff";
+  return colour !== "rgb(255, 26, 26)" && attackingMe.has(e.itemID) ? "rgb(255, 26, 26)" : colour;
+}
+
+/** The ships attacking the pilot (tactical's attackers), for npcColour (set on each space update). */
+let attackingMe: ReadonlySet<number> = new Set();
 
 /** A bracket glyph by kind, in the client's spirit: the shape says what it is, the colour whose. */
 export function glyph(e: Entity): string {
@@ -410,7 +432,7 @@ export function glyph(e: Entity): string {
   const jumpTo = (e as Entity & { jumpSystemID?: number | null }).jumpSystemID ?? null;
   const onRoute = (e.groupID === 10 && jumpTo !== null && jumpTo === routeNext.nextSystemID)
     || ((e.groupID === 15 || e.categoryID === 65) && e.itemID === routeNext.firstWaypoint);
-  const c = onRoute ? "rgb(240, 255, 69)" : e.isNpc ? "rgb(255, 26, 26)" : e.isSelf ? "#b3b3b3" : looted === "abandoned" ? "rgb(51, 128, 255)" : looted === "forbidden" ? "rgb(255, 255, 0)" : "#ffffff";
+  const c = onRoute ? "rgb(240, 255, 69)" : e.isNpc ? npcColour(e) : e.isSelf ? "#b3b3b3" : looted === "abandoned" ? "rgb(51, 128, 255)" : looted === "forbidden" ? "rgb(255, 255, 0)" : "#ffffff";
   const icon = bracketIcon(e);
   if (icon) return `<span class="glyph bi" style="--icon:url('${icon}');--tint:${c}"></span>`;
   switch (e.kind) {
@@ -4891,6 +4913,8 @@ export class SpaceView {
     this.snapshot = snap;
     const self = snap?.entities.find((x) => x.isSelf) ?? null;
     routeNext = this.actions.routeNext?.() ?? routeNext;
+    npcStandingOf = this.actions.npcStanding ?? null;
+    attackingMe = new Set(this.attackers.keys());
     lootWho = { characterID: self?.characterID ?? null, corporationID: self?.corporationID ?? null, fleetID: this.actions.fleetID?.() ?? null };
     // tactical.ProcessSessionChange: a new ship ('shipid' in the change) clears every attacker
     const shipNow = snap?.ship?.itemID ?? null;
