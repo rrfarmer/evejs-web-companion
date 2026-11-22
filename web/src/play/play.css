@@ -274,6 +274,8 @@ button { font: inherit; color: inherit; }
 .pw.pw-small.pw-active > .pw-head .pw-caption { color: rgba(255, 255, 255, 0.9); }
 .pw.pw-small > .pw-head .pw-buttons { gap: 0; }
 .pw.pw-small > .pw-head .pw-btn { box-sizing: border-box; width: 24px; height: 24px; padding: 4px; opacity: .75; }
+/* ButtonIcon (read through gridcheck on every open window's header buttons: 24 x 24, the icon 16 at 0.75, isHoverBGUsed False): HIGHLIGHT 0.9 under the mouse, no fill */
+.pw.pw-small > .pw-head .pw-btn:hover { opacity: .9; background: transparent; }
 .pw.pw-small > .pw-body.ov { padding: 0 16px 16px; }
 .pw.pw-small > .pw-body.ov > .ov-tabs { box-sizing: border-box; margin: -8px -16px 0; padding: 0 16px; }
 .pw.pw-small > .pw-body.ov .ov-tab.active { box-shadow: 0 1px 0 #58a7bf; }
@@ -845,7 +847,7 @@ body:not(.no-target-crosshair) .bracket.locked .t-line, body:not(.no-target-cros
 .fly-windows .win-bar .win-title { margin-right: 8px; }
 .fly-windows .win-actions { gap: 0; }
 .fly-windows .win-btn { width: 24px; min-width: 24px; height: 24px; min-height: 0; padding: 0; border: none; background: center / 16px 16px no-repeat; color: transparent; opacity: .75; overflow: hidden; }
-.fly-windows .win-btn:hover { opacity: 1; background-color: rgba(255, 255, 255, 0.08); }
+.fly-windows .win-btn:hover { opacity: .9; background-color: transparent; }
 .fly-windows .win-btn:not(.win-close) { background-image: url(/client-res/ui/texture/eveicon/system_icons/minimize_16px.png); }
 .fly-windows .win-close { background-image: url(/client-res/ui/texture/eveicon/system_icons/close_16px.png); }
 .fly-windows .win-body { background: transparent; }
