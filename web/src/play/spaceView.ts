@@ -478,7 +478,7 @@ export function iconLook(e: Entity): { colour: string; hint: string | null; sort
 export function glyph(e: Entity): string {
   // a viewed wreck dimmed (InSpaceBracket.SetViewState attenuation 0.55; SpaceObjectIcon's SetBrightness 0.55 gives the
   // same on these colours)
-  const c = e.groupID === 186 && isViewedWreck(e.itemID) ? attenuated(iconLook(e).colour, 0.55) : iconLook(e).colour;
+  const c = (e.groupID === 186 || e.groupID === 306) && isViewedWreck(e.itemID) ? attenuated(iconLook(e).colour, 0.55) : iconLook(e).colour;
   const icon = bracketIcon(e);
   if (icon) return `<span class="glyph bi" style="--icon:url('${icon}');--tint:${c}"></span>`;
   switch (e.kind) {

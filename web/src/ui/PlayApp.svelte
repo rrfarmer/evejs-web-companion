@@ -1665,8 +1665,9 @@
       // a can or a wreck becomes a temporary location of the inventory trees; one the Active ship cargo window's tree
       // shows needs no window of its own
       if (e.kind === "container" || e.kind === "wreck") addTempInvLocation(c.itemID);
-      // ItemWreck.GetItems: a wreck's contents read mark it viewed (wrecksvc.MarkViewed, with its sound), once per opening
-      if (e.kind === "wreck" && c.itemID !== wreckMarkedFor) { wreckMarkedFor = c.itemID; markWreckViewed(c.itemID, true, true); }
+      // menusvc._OpenCargo: ItemWreck.GetItems marks a wreck viewed (wrecksvc.MarkViewed, with its sound); any other can
+      // is an ItemFloatingCargo, whose GetItems marks it viewed too, without the sound - once per opening
+      if ((e.kind === "wreck" || e.kind === "container") && c.itemID !== wreckMarkedFor) { wreckMarkedFor = c.itemID; markWreckViewed(c.itemID, true, e.kind === "wreck"); }
       if (storeGet(treeShownContainer) === c.itemID) { if (spaceContainer) spaceContainer = null; return; }
       const typeName = resolvedName(s.store.names.get().resolved, "type", c.typeID, "");
       if (!typeName && !e.name) s.flow.requestNames([{ kind: "type", id: c.typeID }]);
