@@ -1076,6 +1076,8 @@ export class SpaceView {
   readonly shipFx = new ShipFx();
   private readonly miningSurvey = new MiningSurveyWave();
   private readonly miningHoldBracket = document.createElement("button");
+  /** The hold's used volume at the last update, for CircularInventoryGauge.animate_full on an arrival into a full hold. */
+  private miningHoldUsed: number | null = null;
   private readonly miningVolumes = new Map<number, number | null>();
   private lastMiningShip: number | null = null;
   private miningInWarp = false;
@@ -2242,9 +2244,22 @@ export class SpaceView {
     const { minDistance, maxDistance } = this.controls;
     const zoom = Math.pow(THREE.MathUtils.clamp((this.controls.getDistance() - minDistance) / Math.max(1, maxDistance - minDistance), 0, 1), 1 / 9);
     const opacity = Math.max(0, 1 - 30 * Math.max(0, zoom - 0.65) ** 2);
-    const p = new THREE.Vector3().project(this.camera);
-    badge.hidden = opacity === 0 || p.z >= 1 || Math.abs(p.x) > 1 || Math.abs(p.y) > 1;
-    if (badge.hidden) return;
+    // OreHoldBracket._update_offset: a transform on the ship's model at shapeEllipsoidCenter + (0, 0, -(zoom + 1) x
+    // shapeEllipsoidRadius.z) - behind the hull, whose nose is +z in its own space; the model's origin without one
+    let model: THREE.Object3D | null = null;
+    this.marks.get(ego.itemID)?.traverse((o) => { if (!model && o.userData && "shapeEllipsoid" in o.userData) model = o; });
+    const anchor = new THREE.Vector3();
+    const ell = (model as THREE.Object3D | null)?.userData.shapeEllipsoid as { center: number[]; radius: number[] } | null | undefined;
+    if (model) {
+      const m = model as THREE.Object3D;
+      if (ell) anchor.set(ell.center[0] ?? 0, ell.center[1] ?? 0, (ell.center[2] ?? 0) - (zoom + 1) * (ell.radius[2] ?? 0));
+      m.updateWorldMatrix(true, false);
+      m.localToWorld(anchor);
+    }
+    const p = anchor.project(this.camera);
+    // EveProjectBracket: hidden behind the camera (dock off), centred on the projected point otherwise
+    badge.hidden = opacity === 0 || p.z >= 1;
+    if (badge.hidden) { this.miningHoldUsed = null; return; }
     // update_segments: segment i lit where the ratio passes i / 9, white and the last two WARNING_ORANGE, every one
     // orange when the hold is full; update_label_text: UI/Mining/MiningHoldCapacityPercentage of the hold's name
     // (GetNameForFlag) and int(ratio x 100), orange when full
@@ -2264,8 +2279,15 @@ export class SpaceView {
     const label = badge.querySelector<HTMLElement>(".mh-label")!;
     if (label.textContent !== text) label.textContent = text;
     label.style.color = ratio >= 1 ? ORANGE : "";
+    // animate_full: an item arriving while the hold is full morphs every segment's glowBrightness 2.0 back to 0.2 over 2 s
+    if (ratio >= 1 && this.miningHoldUsed !== null && capacity.used > this.miningHoldUsed) {
+      badge.querySelectorAll<HTMLElement>(".mh-seg").forEach((seg) => seg.animate(
+        [{ filter: "brightness(2) drop-shadow(0 0 3px currentColor)" }, { filter: "brightness(1) drop-shadow(0 0 0 transparent)" }],
+        { duration: 2000, easing: "ease-in-out" }));
+    }
+    this.miningHoldUsed = capacity.used;
     badge.style.opacity = String(opacity);
-    badge.style.transform = `translate(${(p.x + 1) * width / 2 + 36}px, ${(1 - p.y) * height / 2 + 30}px)`;
+    badge.style.transform = `translate(${Math.round((p.x + 1) * width / 2 - 16)}px, ${Math.round((1 - p.y) * height / 2 - 16)}px)`;
   }
 
   trackObjectiveTarget(itemID: number): void {
