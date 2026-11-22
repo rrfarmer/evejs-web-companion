@@ -86,7 +86,22 @@
   const MENU = { market: "UI/Inventory/ItemActions/ViewTypesMarketDetails", buy: "UI/Inventory/ItemActions/BuyThisType", buyAll: "UI/Market/MarketQuote/BuyAll", compare: "UI/Compare/CompareButton",
     jettison: "UI/Inventory/ItemActions/Jettison", launch: "UI/Drones/LaunchDrone", info: "UI/Commands/ShowInfo", contracts: "UI/Inventory/ItemActions/FindInContracts",
     assets: "UI/Inventory/ItemActions/FindPersonalAssets", quickbar: "UI/Inventory/ItemActions/AddTypeToMarketQuickbar", compress: "UI/Commands/Compress",
-    compressNone: "UI/Compression/FailureToCompressAny" } as const;
+    compressNone: "UI/Compression/FailureToCompressAny", moveToDroneBay: "UI/Drones/MoveToDroneBay" } as const;
+  // godma hasShipMaintenanceBay (attribute 907) of the ship types on the grid, read once each
+  const maintenanceBayTypes = new Map<number, boolean>();
+  $effect(() => {
+    const unknown = [...new Set(($space.snapshot?.entities ?? []).filter((x) => x.categoryID === 6 && x.typeID != null && !maintenanceBayTypes.has(x.typeID)).map((x) => x.typeID!))];
+    if (unknown.length === 0) return;
+    for (const t of unknown) maintenanceBayTypes.set(t, false);
+    void flow.typeAttributes(unknown, [907]).then((a) => { for (const t of unknown) maintenanceBayTypes.set(t, (a[t]?.[907] ?? 0) > 0); });
+  });
+  function maintenanceNearby(): boolean {
+    const snap = $space.snapshot;
+    const own = snap?.entities.find((x) => x.isSelf);
+    if (!snap || !own) return false;
+    return snap.entities.some((x) => (x.groupID === 363 || (x.categoryID === 6 && x.typeID != null && maintenanceBayTypes.get(x.typeID) === true))
+      && surfaceDistanceMeters(own.position, own.radius, x.position, x.radius) < 5000);
+  }
   /** itemcompression.is_compressible_type: the client's compressibleTypes (compressibleTypes.json, tools/client-extract/compressibleTypes.py). */
   let compressible = $state<ReadonlySet<number>>(new Set());
   onMount(() => {
@@ -482,6 +497,12 @@
         // invItemFunctions.Jettison: ConfirmJettison (yes / no, a yes kept by its suppress box) before the ship's Jettison
         if (await flow.askClientDialog("ConfirmJettison", "Are you sure you want to jettison these items?", true)) await act(() => flow.jettisonItems(ids));
       })() }, fromBay === "drone" ? 1 : 17);
+    // OfferMoveToDroneBay: a drone not in the drone bay, the pilot in a ship in space, and a ship maintenance array or a
+    // ship with hasShipMaintenanceBay within maxConfigureDistance (5,000 m of its surface), the pilot's own among the
+    // ballpark's slim items (an Orca's pilot moves their own drones) - CHANGESGROUP; FitDrone
+    if (fromBay !== "drone" && items.every((i) => i.categoryID === 18) && maintenanceNearby()) {
+      entries.push({ label: word(MENU.moveToDroneBay, "Move to Drone Bay"), run: () => void act(() => flow.transferItems(ids, placeOf(fromBay), placeOf("drone"), null)) }, 11);
+    }
     if (!multi) {
       entries.push({ label: word(MENU.info, "Show Info"), info: true, run: () => showInfo({ kind: "type", typeID: first.typeID, itemID: first.itemID }) }, 2);
       entries.push({ label: word(MENU.contracts, "Find in Contracts"), run: () => findInContracts(first.typeID) }, 10);

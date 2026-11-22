@@ -4458,6 +4458,8 @@ export interface AppFlow {
    * implantness (331) and boosterness (1087) where it has them.
    */
   typeColumnFacts(typeIDs: readonly number[]): Promise<Readonly<Record<number, TypeColumnFacts>>>;
+  /** Types' dogma attributes (the godma type's), by typeID then attributeID; a type or attribute unread is absent. */
+  typeAttributes(typeIDs: readonly number[], attributeIDs: readonly number[]): Promise<Readonly<Record<number, Readonly<Record<number, number>>>>>;
   /** OnItemLaunch: told, after each launch, each stack launched and the drones it became; answers the unsubscribe. */
   onItemLaunch(listener: (ids: ReadonlyMap<number, readonly number[]>) => void): () => void;
   /** R25 — set drones on a target. */
@@ -38611,6 +38613,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadDrones,
     launchDrones,
     typeVolumes: volumesOfTypes,
+    typeAttributes: (typeIDs, attributeIDs) => api.fetchTypeDogma([...new Set(typeIDs)], attributeIDs, callOptions)
+      .catch(() => ({} as Readonly<Record<number, Readonly<Record<number, number>>>>)),
     typeColumnFacts: async (typeIDs) => {
       const ids = [...new Set(typeIDs)];
       const [effects, attrs] = await Promise.all([
