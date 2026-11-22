@@ -48,3 +48,23 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
 export function hideLabelShortcutTooltip(): void {
   if (tip) tip.style.display = "none";
 }
+
+/**
+ * TooltipGeneric's LoadGeneric2ColumnTemplate as InventoryItemTooltip fills it (tooltip/item.py): its first line in
+ * EveLabelMediumBold, the rest AddLabelMedium at opacity 0.5, over both columns; pointed from below (InvItem
+ * GetTooltipPointer POINT_BOTTOM_2: the panel above its anchor).
+ */
+export function showItemTooltip(anchor: HTMLElement, head: string, dimLines: readonly string[]): void {
+  showLabelShortcutTooltip(anchor, head, "", [], "top");
+  if (!tip) return;
+  const grid = tip.lastElementChild as HTMLElement | null;
+  for (const line of dimLines) {
+    const d = document.createElement("div");
+    d.textContent = line;
+    Object.assign(d.style, { gridColumn: "1 / 3", color: "rgba(255,255,255,0.5)" });
+    grid?.append(d);
+  }
+  const a = anchor.getBoundingClientRect();
+  tip.style.left = `${Math.round(Math.max(4, a.left + a.width / 2 - tip.offsetWidth / 2))}px`;
+  tip.style.top = `${Math.round(Math.max(4, a.top - 12 - tip.offsetHeight))}px`;
+}

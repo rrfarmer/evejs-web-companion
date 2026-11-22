@@ -58,7 +58,7 @@ const isk = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
 
 // A selected harvestable shows estimated value after either scan. A lock gives the exact quantity.
 /** eveFormat.RoundISK: an ISK amount to the precision the client shows it at. */
-function roundIsk(v: number): number {
+export function roundIsk(v: number): number {
   const at = v < 10 ? 2 : v < 100 ? 1 : v < 1e3 ? 0 : v < 1e4 ? -1 : v < 1e5 ? -2 : v < 1e6 ? -3 : v < 1e7 ? -4 : v < 1e8 ? -5 : -6;
   const f = 10 ** at;
   return Math.round(v * f) / f;

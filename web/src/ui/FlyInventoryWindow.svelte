@@ -4,7 +4,8 @@
 </script>
 
 <script lang="ts">
-  import { iskAndRound } from "../bridge/miningScanResults.ts";
+  import { iskAndRound, roundIsk } from "../bridge/miningScanResults.ts";
+  import { hideLabelShortcutTooltip, showItemTooltip } from "../play/labelShortcutTooltip.ts";
   /** uix ESTIMATED_PRICE column: FmtISK(stacksize * GetAveragePrice) - whole where the sum is whole, else two places
    *  (read through gridcheck: 2,468 ISK; 2,468.50 ISK). */
   const fmtIskCell = (v: number): string => `${v.toLocaleString("en-US", Number.isInteger(v) ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ISK`;
@@ -86,7 +87,7 @@
     ["UI/Common/Type", "UI/Inventory/TypeReversed", "type", "Type", "Type (reversed)"], ["UI/Inventory/EstPrice", "UI/Inventory/EstPriceReversed", "estPrice", "Est. Price", "Est. Price (reversed)"]] as const;
   /** invCont.GetViewModeName / GetViewModeIcon. */
   const VIEW_MODES = [["icons", "UI/Inventory/Icons", "Icons", "grid_view"], ["details", "UI/Inventory/Details", "Details", "details_view"], ["list", "UI/Inventory/List", "List", "list_view"]] as const;
-  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SortBy", "UI/Inventory/ViewMode",
+  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SortBy", "UI/Inventory/ViewMode",
     "UI/Inventory/Filters/MyFilters", "UI/Common/NothingFound", "UI/Inventory/OpenInNewWindow", "UI/Common/Buttons/Close", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
   flow.requestWords(WORDS);
   const word = (label: string, own: string, args: Record<string, string | number> = {}) => {
@@ -144,6 +145,42 @@
     return out.sort((a, b) => treeRank(a.key) - treeRank(b.key));
   });
   let volumes = $state<Record<string, number>>({});
+  /** FmtISKAndRound(v, showFractionsAlways): rounded as RoundISK, with two places always or only where it has a fraction. */
+  const iskRound = (v: number, always: boolean): string => {
+    const r = Math.round(roundIsk(v) * 100) / 100; // (12,677,700 rounds to 12700000.000000002)
+    return `${r.toLocaleString("en-US", always || !Number.isInteger(r) ? { minimumFractionDigits: 2, maximumFractionDigits: 2 } : { maximumFractionDigits: 0 })} ISK`;
+  };
+  /** eveformat.volume: two places where a tenth has a fraction, one where the whole has, else none; no grouping. */
+  const volText = (v: number): string => {
+    const places = Math.abs((10 * v) % 1) > 1e-9 ? 2 : Math.abs(v % 1) > 1e-9 ? 1 : 0;
+    const n = v.toLocaleString("en-US", { useGrouping: false, minimumFractionDigits: places, maximumFractionDigits: places });
+    return word("UI/Util/VolumeWithUnit", `${n} m³`, { volume: n });
+  };
+  /**
+   * InvItem.LoadTooltipPanel -> InventoryItemTooltip (tooltip/item.py): the name, "<quantity> x <name>" for a stack
+   * (UI/Inventory/QuantityAndName); the estimated price (ItemStackEstimatedPrice "Est. <sum> (<unit> per unit)" -
+   * the unit with places under 100 ISK - or ItemEstimatedPrice); the volume (volume_from_item include_per_unit:
+   * ItemStackVolume "<sum> (<unit> per unit)"). Read through gridcheck: "1,234 x Tritanium", "Est. 2,470 ISK (2.00 ISK
+   * per unit)", "12.34 m³ (0.01 m³ per unit)".
+   */
+  function itemTip(i: { typeID: number; quantity: number }, e: MouseEvent): void {
+    const anchor = e.currentTarget as HTMLElement;
+    const name = typeName(i.typeID);
+    const q = i.quantity;
+    const head = q > 1 ? word("UI/Inventory/QuantityAndName", `${q.toLocaleString("en-US")} x ${name}`, { quantity: q, name }) : name;
+    const lines: string[] = [];
+    const price = prices?.get(i.typeID) ?? null;
+    if (price !== null && price !== undefined) {
+      const sum = iskRound(price * q, false);
+      lines.push(q > 1
+        ? word("UI/Inventory/ItemStackEstimatedPrice", `Est. ${sum} (${iskRound(price, price < 100)} per unit)`, { estPrice: sum, estPricePerUnit: iskRound(price, price < 100) })
+        : word("UI/Inventory/ItemEstimatedPrice", `Est. ${sum}`, { estPrice: sum }));
+    }
+    const unit = volumes[String(i.typeID)];
+    if (unit === undefined) void flow.typeVolumes([i.typeID]).then((v) => { volumes = { ...volumes, ...v }; }).catch(() => {});
+    else lines.push(q > 1 ? word("UI/Inventory/ItemStackVolume", `${volText(unit * q)} (${volText(unit)} per unit)`, { itemVolume: volText(unit * q), typeVolume: volText(unit) }) : volText(unit));
+    showItemTooltip(anchor, head, lines);
+  }
   $effect(() => {
     const ids = [...new Set(($drones.bay ?? []).map((d) => d.typeID))].filter((t) => volumes[String(t)] === undefined);
     if (ids.length) void flow.typeVolumes(ids).then((v) => { volumes = { ...volumes, ...v }; }).catch(() => {});
@@ -341,6 +378,7 @@
   let dropKey = $state<string | null>(null);
   let moveError = $state("");
   function dragStart(id: number, e: DragEvent): void {
+    hideLabelShortcutTooltip();
     const picked = selected.includes(id) ? [...selected] : [id];
     dragging = { from: current, ids: picked, stacks: shown.filter((i) => picked.includes(i.itemID)).map((i) => ({ typeID: i.typeID, quantity: i.quantity })) };
     const types = [...new Set(dragging.stacks.map((x) => x.typeID))].filter((t) => volumes[String(t)] === undefined);
@@ -615,7 +653,7 @@
           <tbody>
             {#each shown as i (i.itemID)}
               {@const fa = facts[i.typeID]}
-              <tr class:selected={selected.includes(i.itemID)} draggable="true" onmouseenter={hoverSound} onclick={(e) => clickItem(i.itemID, e)} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
+              <tr class:selected={selected.includes(i.itemID)} draggable="true" onmouseenter={(e) => { hoverSound(e); itemTip(i, e); }} onmouseleave={hideLabelShortcutTooltip} onclick={(e) => clickItem(i.itemID, e)} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
                 <td class="nm" class:hid={hiddenCols.includes(0)}>{#if viewMode === "details"}<span class="ricon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="md" /></span>{/if}{typeName(i.typeID)}</td>
                 <td class="num" class:hid={hiddenCols.includes(1)}>{i.quantity.toLocaleString("en-US")}</td>
                 <td class:hid={hiddenCols.includes(2)}>{groupName(i.typeID)}</td>
@@ -632,7 +670,7 @@
         </table>
       {:else}
         {#each shown as i (i.itemID)}
-          <div class="item" class:selected={selected.includes(i.itemID)} onmouseenter={hoverSound} title={typeName(i.typeID)} role="listitem" draggable="true"
+          <div class="item" class:selected={selected.includes(i.itemID)} onmouseenter={(e) => { hoverSound(e); itemTip(i, e); }} onmouseleave={hideLabelShortcutTooltip} role="listitem" draggable="true"
             onclick={(e) => clickItem(i.itemID, e)} onkeydown={() => {}} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
             <span class="icon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="lg" />
               {#if !i.singleton}<span class="qty">{fmtAmtShort(i.quantity)}</span>{/if}</span>
