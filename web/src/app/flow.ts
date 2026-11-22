@@ -8040,6 +8040,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (method === "OnSignalTrackerAnomalyUpdate") {
       agencyAnomaliesChanged.set(agencyAnomaliesChanged.get() + 1);
     }
+    // sensorSuiteService.OnSignalTrackerAnomalyUpdate / SignatureUpdate / FullState: the sites changed, and the probe
+    // scanner's results with them (InjectScannerResults, UpdateScanner, PruneSites) - the scanner read again, where it
+    // has been read, so its sites are put among the results and the gone ones let go
+    if ((method === "OnSignalTrackerAnomalyUpdate" || method === "OnSignalTrackerSignatureUpdate" || method === "OnSignalTrackerFullState")
+      && store.scanner.get().solarSystemID !== null) {
+      scheduleScannerRefresh();
+    }
     // invCache.ProcessSessionChange143-170: these place changes invalidate
     // cached parent inventories as well as any read still coming from them.
     if (sessionNames?.some(name => name === "stationid" || name === "structureid" || name === "solarsystemid")) {
@@ -12693,7 +12700,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // has none yet - so the scanner lists them before any probe scan, as the client does
     if (scan.status === "ready" && solarSystemID !== null) {
       const sites = sitesAsProbeResults(scan.value.anomalies, scan.value.signatures);
-      probeResultsBySystem.set(solarSystemID, injectResults(probeResultsBySystem.get(solarSystemID) ?? EMPTY_RESULTS_HISTORY, sites));
+      const held = injectResults(probeResultsBySystem.get(solarSystemID) ?? EMPTY_RESULTS_HISTORY, sites);
+      // scanSvc.PruneSites (and UpdateScanner's ClearResults of the removed sites): an anomaly or a signature the sensor
+      // suite no longer has leaves the results (the combat targets stay: COMBAT_TARGETS)
+      const siteIDs = new Set(sites.map((site) => site.id));
+      const gone = [...held.results.values()].filter((h) => (h.entry.scanGroupID === 8 || h.entry.scanGroupID === 3) && !siteIDs.has(h.entry.id)).map((h) => h.entry.id);
+      probeResultsBySystem.set(solarSystemID, clearResults(held, gone));
     }
     // And the probe results the session's system's scan handler keeps (a change of system shows that system's).
     publishProbeResults();
