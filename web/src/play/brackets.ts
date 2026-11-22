@@ -7,7 +7,7 @@ interface BracketTables {
   byType: Record<string, number>;
   byGroup: Record<string, number>;
   byCategory: Record<string, number>;
-  brackets: Record<string, { name: string | null; texturePath: string | null }>;
+  brackets: Record<string, { name: string | null; texturePath: string | null; texturePathEmpty?: string | null }>;
 }
 
 interface BracketType {
@@ -15,6 +15,8 @@ interface BracketType {
   groupID: number | null;
   categoryID: number | null;
   hackingSecurityState?: number;
+  /** A wreck's slim isEmpty: bracketMgr._GetBracketIcon's texturePathEmpty where the bracket has one. */
+  isEmpty?: boolean;
 }
 
 let tables: BracketTables | null = null;
@@ -45,6 +47,7 @@ export function bracketIcon(thing: BracketType): string | null {
     const texture = state === 0 ? "unopened" : state === 1 ? "beinghacked" : "empty";
     return `/client-res/ui/texture/shared/brackets/scattercontainer${texture}.png`;
   }
-  const path = bracketEntry(thing)?.texturePath;
+  const entry = bracketEntry(thing);
+  const path = (thing.isEmpty && entry?.texturePathEmpty) || entry?.texturePath;
   return path ? `/client-res/${path.replace(/^res:\//i, "").toLowerCase()}` : null;
 }

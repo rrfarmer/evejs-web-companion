@@ -262,6 +262,8 @@ function projectEntity(park, ball, slim, ego, placed) {
   if (kind === "wreck" || kind === "container") {
     // Whose it is to loot: the loot rights the client judges by.
     row.lootRights = lootRightsOf(slim.get("lootRights"));
+    // a wreck's slimItem.isEmpty: its bracket's texturePathEmpty and the overview's EmptyWreck / ContainsLoot hint
+    if (kind === "wreck") { const empty = slim.get("isEmpty"); row.isEmpty = empty === true || empty === 1; }
   }
   if (kind === "ship" || kind === "structure") {
     const security = number(slim.get("securityStatus"));

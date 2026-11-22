@@ -205,7 +205,7 @@ const SORT_ENABLED = "UI/Tactical/HeaderSortingEnabledCb";
 const SORT_HINT = "UI/Tactical/HeaderSortingEnabledCbHint";
 const SORT_DISABLED = "UI/Tactical/HeaderSortingDisabled";
 const HACKED_HINT = "Tooltips/Overview/ScatterContainerHacked";
-export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HINT, "Tooltips/Overview/HostileNPC", "Tooltips/Overview/NeutralNPC", "Tooltips/Overview/AbandonedContainer", "Tooltips/Overview/RestrictedContainer", "Tooltips/Overview/StargateOnRoute", "Tooltips/Overview/HostileAction", "Tooltips/Overview/TargetLock", "UI/Shared/EstimatedPricePerSquareMeter", "UI/Tactical/OverviewCaption", ...OVERVIEW_COLUMN_WORDS,
+export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HINT, "Tooltips/Overview/HostileNPC", "Tooltips/Overview/EmptyWreck", "Tooltips/Overview/ContainsLoot", "Tooltips/Overview/NeutralNPC", "Tooltips/Overview/AbandonedContainer", "Tooltips/Overview/RestrictedContainer", "Tooltips/Overview/StargateOnRoute", "Tooltips/Overview/HostileAction", "Tooltips/Overview/TargetLock", "UI/Shared/EstimatedPricePerSquareMeter", "UI/Tactical/OverviewCaption", ...OVERVIEW_COLUMN_WORDS,
   ...WINDOW_ACTION_WORDS, "UI/Overview/AddTab", "/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", "UI/Commands/OpenOverviewSettings", "UI/Overview/BracketVisibility", "UI/Overview/UseSelectedTabBracketPreset",
   "UI/Overview/ShowAll", "UI/Overview/HideAll", "UI/Overview/AddTabInstructions", "UI/Overview/TypeInLabel", "UI/Overview/Filter",
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
@@ -294,7 +294,7 @@ export interface OverviewHooks {
   /** The icon tooltip's lines after the group's name (OverviewScrollEntry.LoadIconTooltipPanel). */
   /** GetIconColor's sort value (getSortValue=True), for the Icon column's sort. */
   iconSortValue?(e: Entity): number;
-  iconTooltipLines?(e: Entity): { readonly threat: readonly string[]; readonly after: readonly string[] };
+  iconTooltipLines?(e: Entity): { readonly threat: readonly string[]; readonly icon?: readonly string[]; readonly after: readonly string[] };
   /** stateSvc's targeted / activeTarget / targeting for the row's SpaceObjectIcon (UpdateSpaceObjectState). */
   targetState?(itemID: number): { readonly locked: boolean; readonly active: boolean; readonly locking: boolean; readonly hostile?: boolean; readonly fleet?: boolean; readonly attacking?: boolean };
   /** The row's Name (uix.GetSlimItemName); the slim's name, else the type's, where it is not given. */
@@ -1800,7 +1800,7 @@ export class Overview {
     const lines = this.hooks.iconTooltipLines?.(e) ?? { threat: [], after: [] };
     const flags = iconAndBackgroundFlags(e, group, this.tipRelations);
     const hacked = (e.hackingSecurityState ?? 0) > 1 ? [this.hooks.word?.(HACKED_HINT) ?? "Has already been hacked"] : [];
-    const rows = [...lines.threat, ...hacked, ...(flags.icon?.text ? [flags.icon.text] : []), ...lines.after];
+    const rows = [...lines.threat, ...hacked, ...(lines.icon ?? []), ...(flags.icon?.text ? [flags.icon.text] : []), ...lines.after];
     if (!this.iconTip) {
       this.iconTip = document.createElement("div");
       this.iconTip.className = "ov-icon-tip";

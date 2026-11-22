@@ -1556,7 +1556,12 @@ export class SpaceView {
       iconSortValue: (e) => iconLook(e).sort,
       iconTooltipLines: (e) => {
         const word = (label: string, own: string, args?: Readonly<Record<string, string | number>>) => this.actions.word?.(label, args) ?? own;
-        const threat: string[] = [], out: string[] = [];
+        const threat: string[] = [], icon: string[] = [], out: string[] = [];
+        // SpaceObjectIcon.UpdateSpaceObjectIcon's iconHint for a wreck: EmptyWreck or ContainsLoot
+        if (e.groupID === 186) {
+          const empty = (e as Entity & { isEmpty?: boolean }).isEmpty === true;
+          icon.push(empty ? word("Tooltips/Overview/EmptyWreck", "Empty wreck") : word("Tooltips/Overview/ContainsLoot", "Contains loot items"));
+        }
         if (this.attackers.has(e.itemID)) threat.push(word("Tooltips/Overview/HostileAction", "Hostile action"));
         else if (this.targeters.has(e.itemID)) threat.push(word("Tooltips/Overview/TargetLock", "Target lock"));
         const hint = iconLook(e).hint;
@@ -1566,7 +1571,7 @@ export class SpaceView {
           const isk = iskAndRound(price);
           out.push(word("UI/Shared/EstimatedPricePerSquareMeter", `${isk} / m³`, { iskString: isk }));
         }
-        return { threat, after: out };
+        return { threat, icon, after: out };
       },
       targetState: (id) => ({ locked: this.locked.has(id), active: id === this.activeTarget, hostile: this.targeters.has(id), attacking: this.attackers.has(id),
         fleet: this.isFleetMemberShip(id),
