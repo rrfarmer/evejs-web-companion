@@ -991,3 +991,4 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
   -webkit-mask: url(/client-res/ui/texture/classes/bracket/hostilebracket.png) center / 18px 18px no-repeat; mask: url(/client-res/ui/texture/classes/bracket/hostilebracket.png) center / 18px 18px no-repeat;
   animation: ov-hostile-blink 0.5s linear infinite; }
 @keyframes ov-hostile-blink { 0% { opacity: 0.3; } 50% { opacity: 0.6; } 100% { opacity: 0.3; } }
+.ov .ov-tgt-hostile.fleet { background: rgb(153, 38, 230); }

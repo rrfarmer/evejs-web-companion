@@ -576,6 +576,13 @@ export class SpaceView {
   }
 
   /** menusvc.GetFleetMemberMenu: the members' entries for `run`, as the client lays them out. */
+  /** overviewUtil.IsFleetMember: in a fleet, the thing's owner one of its members. */
+  private isFleetMemberShip(id: number): boolean {
+    if (!this.actions.inFleet?.()) return false;
+    const owner = this.snapshot?.entities.find((x) => x.itemID === id)?.ownerID ?? null;
+    return owner !== null && (this.actions.fleetMembersHere?.() ?? []).some((m) => m.charID === owner);
+  }
+
   private fleetMemberMenu(run: (charID: number) => () => void, word: (label: string, fallback: string) => string): (ContextEntry | null)[] {
     const all = [...(this.actions.fleetMembersHere?.() ?? [])].sort((a, b) => (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : a.name.toLowerCase() > b.name.toLowerCase() ? 1 : 0));
     const entries = (list: typeof all): ContextEntry[] => list.map((m) => ({ label: m.name, run: run(m.charID) }));
@@ -1463,6 +1470,7 @@ export class SpaceView {
       activate: (id) => this.activateSpaceTarget(id),
       glyph,
       targetState: (id) => ({ locked: this.locked.has(id), active: id === this.activeTarget, hostile: this.targeters.has(id),
+        fleet: this.isFleetMemberShip(id),
         locking: !this.locked.has(id) && (this.lockingIDs.has(id) || this.acquiringTargets.has(id)) }),
       name: (e) => this.nameOf(e),
       pilotID: options.overviewPilotID,
