@@ -954,7 +954,7 @@
   const AL = "UI/Inflight/ActivityLog/";
   // (the bounty's {[numeric]bounty.isk} written by FmtISK: UI/Util/FmtIsk)
   const ACTION_WORDS = [...["OreMined", "VariableRewardMined", "OreWasted", "GroupWasted", "MiningCriticalHit", "BountyAddedToPayoutMessage1", "ModifiedBountyAddedToPayoutMessage1"].map((k) => AL + k),
-    "UI/Util/FmtIsk", "UI/Util/FmtIskNoDecimal"];
+    "UI/Util/FmtIsk", "UI/Util/FmtIskNoDecimal", "UI/Inflight/ModuleRacks/TryingToActivatePassiveModule"];
   const CATEGORY_ASTEROID = 25;
   let offActionMessages: (() => void) | null = null;
   async function sayActionMessage(m: ActionMessage): Promise<void> {
@@ -2534,6 +2534,15 @@
         // shipmodulebutton.ActivateEffect uses the active lock for targeted effects.
         use: async (m, targetID, passiveLock) => {
           const running = (s.store.space.get().snapshot?.ship?.activeModuleIDs ?? []).includes(m.itemID);
+          // ModuleButton.Click: a module with no default effect (def_effect None - a passive one) is not activated;
+          // CustomNotify of UI/Inflight/ModuleRacks/TryingToActivatePassiveModule says so
+          if (m.passive && !running) {
+            const label = "UI/Inflight/ModuleRacks/TryingToActivatePassiveModule";
+            const t = s.store.words.get().templates[label];
+            const text = typeof t === "string" && t !== "" ? plainText(t) : "You are trying to activate a passive module.";
+            s.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text);
+            return;
+          }
           if (running && m.windingDown) return; // moduleController: a module winding down takes no click
           if (running) { stopAskedAt.set(m.itemID, Date.now()); await s.flow.deactivateModule(m.itemID, { typeID: m.typeID }); }
           else await s.flow.activateModule(m.itemID, {
