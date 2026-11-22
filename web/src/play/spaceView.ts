@@ -1456,11 +1456,9 @@ export class SpaceView {
       const layer = (n: string, cls: string) => `<span class="${cls}" style="-webkit-mask-image:${tex(n)};mask-image:${tex(n)}"></span>`;
       this.miningHoldBracket.innerHTML = layer("cargo_hold_bg", "mh-bg") + Array.from({ length: 10 }, (_, i) => layer(`cargo_hold_segment_${i + 1}`, "mh-seg")).join("") + `<span class="mh-label"></span>`;
     }
+    // (CircularInventoryGauge has no OnClick or menu of its own: it takes the mouse for its label, nothing more)
     this.miningHoldBracket.addEventListener("pointerdown", event => event.stopPropagation());
-    this.miningHoldBracket.addEventListener("click", event => {
-      event.stopPropagation();
-      this.options.onNeocom?.("inventory");
-    });
+    this.miningHoldBracket.addEventListener("click", event => event.stopPropagation());
     this.brackets.appendChild(this.miningHoldBracket);
     this.root.appendChild(this.brackets);
     this.sensorLayer.className = "sensor-overlay";
