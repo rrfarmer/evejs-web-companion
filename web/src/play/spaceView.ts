@@ -992,6 +992,8 @@ export class SpaceView {
     if (id !== null) this.bracketEls.get(id)?.classList.add("hovered");
     this.overview.setHovered(id);
     for (const o of this.extraOverviews) o.setHovered(id);
+    // stateSvc's mouseOver flag goes to every listener (OnStateChange): the drone window's entries among them
+    dispatchEvent(new CustomEvent("evejs:space-hover", { detail: { itemID: id } }));
   }
   private makeOverview: ((instanceID: number) => Overview) | null = null;
   /** Another overview window: made, put in the layer, its rows held and right-clicked as the first's. */

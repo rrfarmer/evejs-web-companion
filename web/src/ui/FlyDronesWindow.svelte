@@ -687,6 +687,10 @@
   // DroneEntry.OnMouseEnter / OnMouseExit: stateSvc.SetState(itemID, state.mouseOver, 1 / 0) - the drone's bracket and
   // overview row hovered while the mouse is on its entry
   const flightView = getContext<(() => SpaceView | null) | undefined>("flightSpaceView");
+  // DroneEntry.OnStateChange(mouseOver): the entry's ShowHilite / HideHilite as the drone is hovered anywhere
+  let spaceHovered = $state<number | null>(null);
+  const onSpaceHover = (event: Event) => { spaceHovered = (event as CustomEvent<{ itemID: number | null }>).detail.itemID; };
+  onMount(() => { addEventListener("evejs:space-hover", onSpaceHover); return () => removeEventListener("evejs:space-hover", onSpaceHover); });
   let gaugeTipTimer: ReturnType<typeof setInterval> | null = null;
   const GAUGE_ICONS = ["structureHP", "armorHP", "shieldHP"].map((n) => clientTexture(`res:/UI/Texture/classes/Fitting/StatsIcons/${n}.png`));
   function gaugeTipShow(el: HTMLElement): void {
@@ -744,7 +748,7 @@
 {/snippet}
 
 {#snippet spaceEntry(row: (typeof spaceRows)[number], sub: boolean)}
-  <div class="row inspace" data-space-item={row.itemIDs[0]} class:list={!$viewIcons} class:compact={$windowCompact} class:sub class:lost={row.unavailable !== null} class:selected={selected.space.includes(row.itemIDs[0]!)} role="listitem" title={row.unavailable ?? undefined} draggable="true"
+  <div class="row inspace" data-space-item={row.itemIDs[0]} class:list={!$viewIcons} class:compact={$windowCompact} class:sub class:lost={row.unavailable !== null} class:selected={selected.space.includes(row.itemIDs[0]!)} class:hilite={spaceHovered !== null && spaceHovered === row.itemIDs[0]} role="listitem" title={row.unavailable ?? undefined} draggable="true"
     onmouseenter={(e) => { hoverSound(e); flightView?.()?.hoverObject(row.itemIDs[0]!); if (row.typeID !== null) tipFor(row.typeID, row.unavailable ?? row.activity, row.color, row.targetID, e); }}
     onmouseleave={() => { flightView?.()?.hoverObject(null); tipOff(); }}
     onclick={(e) => clickEntry("space", row.itemIDs[0]!, e)} ondragstart={(e) => dragStart("space", row.itemIDs[0]!, row.typeID, e)}
@@ -1044,7 +1048,7 @@
   .row.inspace .picture { width: 32px; height: 32px; }
   .row.inspace .picture :global(.type-icon) { width: 32px; height: 32px; }
   /* the entries' ListEntryUnderlay (SE_BaseClassCore's highlight): THEME_FOCUSDARK at 0.2 under the mouse, 0.4 selected */
-  .row:hover { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); }
+  .row:hover, .row.hilite { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); }
   .row.lost { opacity: 0.55; }
   /* a selected entry (the scroll's selection fill) and a part or group a drag may drop on */
   .row.selected { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 40%, transparent); }
