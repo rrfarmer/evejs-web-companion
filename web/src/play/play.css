@@ -237,6 +237,22 @@ button { font: inherit; color: inherit; }
    chosen one, a white 0.1 DividerLine; SortHeaders 24 high in 12 px white 0.5; entries 24 high in 14 px (EVE_MEDIUM_FONTSIZE),
    each column clipped at its width with LABELTABMARGIN 8; the chosen row in FOCUS_BLUE */
 .ov .ov-tabs { gap: 24px; height: 32px; padding: 0 2px; align-items: stretch; border-bottom: 1px solid rgba(255, 255, 255, 0.1); margin-top: -8px; }
+/* the overview in the client's SmallWindowHeader chrome (read through gridcheck): content 2 in, the header 32 high (the
+   caption Label 12 px at white 0.9 16 in; More and Minimize 24 px at 504 / 528, 6), the main 16 in a side and below; the
+   OverviewTabGroup 8 above the main (26), 32 high, its DividerLine (white 0.1) across the whole content at 57, the
+   selected tab's SelectionIndicatorLine in the accent there, the add ButtonIcon 24 px 24 after the last tab; the scroll
+   8 below at 66 */
+.pw.pw-small { padding: 1px; margin: 0; border-radius: 0; }
+.pw.pw-small::before { display: none; }
+.pw.pw-small > .pw-head:not(.pw-head-slotted) { box-sizing: border-box; height: 32px; padding: 0 12px 0 16px; gap: 0; border-bottom: 0; }
+.pw.pw-small > .pw-head .pw-caption { color: rgba(255, 255, 255, 0.9); letter-spacing: 0; }
+.pw.pw-small > .pw-head .pw-buttons { gap: 0; }
+.pw.pw-small > .pw-head .pw-btn { box-sizing: border-box; width: 24px; height: 24px; padding: 4px; opacity: .75; }
+.pw.pw-small > .pw-body.ov { padding: 0 16px 16px; }
+.pw.pw-small > .pw-body.ov > .ov-tabs { box-sizing: border-box; margin: -8px -16px 0; padding: 0 16px; }
+.pw.pw-small > .pw-body.ov .ov-tab.active { box-shadow: 0 1px 0 #58a7bf; }
+.pw.pw-small > .pw-body.ov .ov-add-tab { box-sizing: border-box; width: 24px; height: 24px; margin-left: 0; }
+.pw.pw-small > .pw-body.ov > .ov-scroll { margin-left: 0; margin-right: -8px; }
 .ov .ov-tab { display: flex; align-items: center; padding: 0; font-size: 14px; color: rgba(255, 255, 255, 0.5); border: 0; background: none;
   box-shadow: none; white-space: nowrap; }
 .ov .ov-tab:hover:not(.active) { color: rgba(255, 255, 255, 0.75); background: none; }

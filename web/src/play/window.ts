@@ -22,9 +22,10 @@ export interface WindowOptions {
   menu?: (button: HTMLElement) => void;
   /**
    * "default": the client's DefaultWindowHeader chrome (48 high, a 32 px icon, the 18 px caption, 24 px controls), as a
-   * full-size window draws it; omitted, the small header (SmallWindowHeader) the in-space panels use.
+   * full-size window draws it; "small": the client's SmallWindowHeader (32 high, the 12 px caption, 24 px controls), as
+   * the in-space panels draw it; omitted, the older small header.
    */
-  chrome?: "default";
+  chrome?: "default" | "small";
 }
 
 function kept(id: string): Partial<WindowOptions> {
@@ -41,7 +42,7 @@ export class PlayWindow {
   constructor(private readonly options: WindowOptions, onClose?: () => void) {
     const at = { ...options, ...kept(options.id) };
     this.minWidthNow = options.minWidth ?? 180;
-    this.root.className = options.chrome === "default" ? "pw pw-default" : "pw";
+    this.root.className = options.chrome ? `pw pw-${options.chrome}` : "pw";
     Object.assign(this.root.style, { left: `${at.left}px`, top: `${at.top}px`, width: `${at.width}px`, height: `${at.height}px` });
     this.head.className = "pw-head";
     this.head.innerHTML = `${options.icon ? `<img class="pw-icon" src="${options.icon}" alt="">` : ""}<span class="pw-caption"></span>

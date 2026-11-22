@@ -328,7 +328,7 @@ export class Overview {
   constructor(private readonly hooks: OverviewHooks) {
     this.instanceID = hooks.instanceID ?? 0;
     if (this.instanceID === 0) profileTarget = this;
-    this.window = new PlayWindow({ id: this.instanceID ? `overview-${this.instanceID}` : "overview", caption: "Overview", left: innerWidth - 586 - this.instanceID * 40, top: 260 + this.instanceID * 40, width: 566, height: 380, closable: false,
+    this.window = new PlayWindow({ id: this.instanceID ? `overview-${this.instanceID}` : "overview", caption: "Overview", left: innerWidth - 586 - this.instanceID * 40, top: 260 + this.instanceID * 40, width: 566, height: 380, closable: false, chrome: "small",
       menu: (button) => { const r = button.getBoundingClientRect(); this.menu.open(r.left, r.bottom, this.moreOptions()); } });
     this.window.body.classList.add("ov");
     // the client's default (not compact) layout: the caption "Overview (preset)" in the header, the tabs in a row under
