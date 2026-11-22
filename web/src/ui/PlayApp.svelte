@@ -201,7 +201,7 @@
   // (the client keeps one per bay: windowID the bay's controller name; a second Open on a bay already open shows it)
   let bayWindows = $state<{ key: string; title: string; win: { x: number; y: number; w: number; h: number; z: number; minimized: boolean } }[]>([]);
   $effect(() => {
-    const show = (e: Event) => { const d = (e as CustomEvent<{ key: string; title: string }>).detail; if (!d || bayWindows.some((w) => w.key === d.key)) return; const n = bayWindows.length; bayWindows = [...bayWindows, { key: d.key, title: d.title, win: { x: 260 + 24 * n, y: 180 + 24 * n, w: 600, h: 450, z: 25, minimized: false } }]; };
+    const show = (e: Event) => { const d = (e as CustomEvent<{ key: string; title: string }>).detail; if (!d) return; const open = bayWindows.find((w) => w.key === d.key); if (open) { open.win.minimized = false; bayWindows = [...bayWindows.filter((w) => w !== open), open]; return; } const n = bayWindows.length; bayWindows = [...bayWindows, { key: d.key, title: d.title, win: { x: 260 + 24 * n, y: 180 + 24 * n, w: 600, h: 450, z: 25, minimized: false } }]; };
     window.addEventListener("evejs:open-bay-window", show);
     return () => window.removeEventListener("evejs:open-bay-window", show);
   });
