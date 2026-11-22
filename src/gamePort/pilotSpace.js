@@ -48,12 +48,17 @@
 // no drone rows at all while the server held eighteen controlled drones in the
 // bubble; the same question two minutes later was answered in full.
 //
-// ⚠ AND IT NEVER STOPS ASKING while the drone stays so, only asks less often.
-// Seen 2026-10-12 14:31: three asks in 36 s after a landing, all answered
-// without the five drones, and then nothing more; a bot flying the pilot could
-// not see its own drones for eleven minutes and sent a launch it could not make
-// on every tick. After the first DRONE_STATE_ASKS the asking goes on every
-// DRONE_STATE_SLOW_RETRY_MS for as long as the drone is in space with no state.
+// ⚠ AND IT GIVES UP after DRONE_STATE_ASKS asks for a drone (until it has a
+// state again and loses it). Until 2026-11-22 it went on every 30 s for as long
+// as the drone stayed so (seen 2026-10-12 14:31: three asks in 36 s after a
+// landing, all answered without the five drones; a bot flying the pilot could
+// not see its own drones for eleven minutes). But a drone of the pilot's that
+// nobody controls (left in space by a lost ship: owned, no state row, as the
+// server rightly sends it) is always stateless, and each answer's SetState
+// empties the pilot's targets (pilotTargets ballClear, as the client's
+// targetMgr.DoBallClear -> CleanUp): seen 2026-11-22, two Mining Drone I of a
+// destroyed Venture asked for 10 times, every lock the pilot made gone within
+// seconds, the mining laser stopped on its target. The client never asks.
 //
 // ⚠ NOT THE CLIENT'S EITHER: a bound park without a valid state asks for the
 // whole state again, and goes on asking until it has one. The client asks once
@@ -78,8 +83,6 @@ const DRONE_STATE_GRACE_MS = 5000;
 /** How long after asking it is asked again, while the drone still has no state; and how many times at that pace. */
 const DRONE_STATE_RETRY_MS = 15000;
 const DRONE_STATE_ASKS = 3;
-/** How long after asking it is asked again once those are spent, for as long as the drone stays so. */
-const DRONE_STATE_SLOW_RETRY_MS = 30000;
 /** invCategories: Drone. */
 const CATEGORY_DRONE = 18;
 
@@ -189,8 +192,9 @@ function createPilotSpace({
     for (const id of stray) {
       if (!strays.has(id)) strays.set(id, { since: at, asks: 0, askedAt: null });
       const each = strays.get(id);
-      const wait = each.asks === 0 ? DRONE_STATE_GRACE_MS
-        : each.asks < DRONE_STATE_ASKS ? DRONE_STATE_RETRY_MS : DRONE_STATE_SLOW_RETRY_MS;
+      // past its asks a drone is left alone: one nobody controls has no state to come (see above)
+      if (each.asks >= DRONE_STATE_ASKS) continue;
+      const wait = each.asks === 0 ? DRONE_STATE_GRACE_MS : DRONE_STATE_RETRY_MS;
       if (at - (each.askedAt ?? each.since) >= wait) due.push(id);
     }
     if (due.length === 0 || remotePark === null) return;
@@ -206,8 +210,7 @@ function createPilotSpace({
     park.requestState();
     // Told as the park's other troubles are, so that each time it happens is on record.
     const asks = Math.max(...due.map((id) => strays.get(id).asks));
-    const pace = asks <= DRONE_STATE_ASKS ? `ask ${asks} of ${DRONE_STATE_ASKS}`
-      : `ask ${asks}, every ${DRONE_STATE_SLOW_RETRY_MS / 1000} s while it lasts`;
+    const pace = asks < DRONE_STATE_ASKS ? `ask ${asks} of ${DRONE_STATE_ASKS}` : `ask ${asks} of ${DRONE_STATE_ASKS}, the last: a drone nobody controls has no state`;
     onError(new Error(`${due.length} of the pilot's drones in space had no state (${due.join(", ")}); the whole state was asked for (${pace})`), "drone state");
   }
   const guard = (what, action) => {
