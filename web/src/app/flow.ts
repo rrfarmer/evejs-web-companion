@@ -27538,7 +27538,17 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return;
     }
     store.apply({ type: "mining/action", action: "Jettison" });
+    // invItemFunctions.Jettison: the types of what stayed, read before the holds are read again
+    const stayedTypes = [...new Set(outcome.stayed.map((itemID) =>
+      store.mining.get().holds.flatMap((hold) => hold.items ?? []).find((item) => item.itemID === itemID)?.typeID
+        ?? store.inventory.get().cargo.rows.find((row) => row.itemID === itemID)?.typeID ?? null)
+      .filter((typeID): typeID is number => typeID !== null))];
     await loadMiningHolds().catch(() => {});
+    // ... and raises NotAllItemsWereJettisoned over them ({itemList} a UE_TYPEIDL), which its handler puts up
+    if (outcome.stayed.length > 0) {
+      sayDialog("NotAllItemsWereJettisoned", { type: "dict", entries: [["itemList", [29, { type: "list", items: stayedTypes }]]] },
+        "Not all items were jettisoned.");
+    }
     const asked = new Set(itemIDs).size;
     const left = asked - outcome.stayed.length;
     if (left === 0) {
