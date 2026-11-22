@@ -2192,6 +2192,14 @@ export interface ShipScanWindow extends ShipScanResult {
   readonly groups: readonly ShipScanGroup[];
 }
 
+/** See AppFlow.typeColumnFacts. */
+export interface TypeColumnFacts {
+  readonly slot: "rig" | "high" | "mid" | "low" | null;
+  readonly chargeSize: number | null;
+  readonly implantness: number | null;
+  readonly boosterness: number | null;
+}
+
 export interface AppFlow {
   infoUsedWith(typeID: number): Promise<readonly TypeUsedWithGroup[]>;
   /** What a plugin's loop flies this pilot with. */
@@ -4444,6 +4452,12 @@ export interface AppFlow {
   launchDrones(itemIDs: readonly number[]): Promise<void>;
   /** Types' volumes (the static data's), kept once had; those with none left out. */
   typeVolumes(typeIDs: readonly number[]): Promise<Record<string, number>>;
+  /**
+   * The inventory details' Size and Slot facts of types (uix._get_item_size / _get_item_slot): the power slot its
+   * fitting effect names (GetPowerSlotSizeSymbol: rigSlot, hiPower, medPower, loPower), and its chargeSize (128),
+   * implantness (331) and boosterness (1087) where it has them.
+   */
+  typeColumnFacts(typeIDs: readonly number[]): Promise<Readonly<Record<number, TypeColumnFacts>>>;
   /** OnItemLaunch: told, after each launch, each stack launched and the drones it became; answers the unsubscribe. */
   onItemLaunch(listener: (ids: ReadonlyMap<number, readonly number[]>) => void): () => void;
   /** R25 — set drones on a target. */
@@ -38597,6 +38611,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadDrones,
     launchDrones,
     typeVolumes: volumesOfTypes,
+    typeColumnFacts: async (typeIDs) => {
+      const ids = [...new Set(typeIDs)];
+      const [effects, attrs] = await Promise.all([
+        api.loadTypeEffects(ids, callOptions).catch(() => ({} as Readonly<Record<number, readonly number[] | null>>)),
+        api.fetchTypeDogma(ids, [128, 331, 1087], callOptions).catch(() => ({} as Readonly<Record<number, Readonly<Record<number, number>>>>)),
+      ]);
+      // slotTextByEffect: effectRigSlot 2663, effectHiPower 12, effectMedPower 13, effectLoPower 11
+      const SLOT_BY_EFFECT: Readonly<Record<number, TypeColumnFacts["slot"]>> = { 2663: "rig", 12: "high", 13: "mid", 11: "low" };
+      const out: Record<number, TypeColumnFacts> = {};
+      for (const t of ids) {
+        const slot = (effects[t] ?? []).map((e) => SLOT_BY_EFFECT[e]).find((x) => x !== undefined) ?? null;
+        const a = attrs[t] ?? {};
+        out[t] = { slot, chargeSize: a[128] ?? null, implantness: a[331] ?? null, boosterness: a[1087] ?? null };
+      }
+      return out;
+    },
     onItemLaunch(listener) { itemLaunchListeners.add(listener); return () => { itemLaunchListeners.delete(listener); }; },
     engageDrones,
     mineWithDrones,

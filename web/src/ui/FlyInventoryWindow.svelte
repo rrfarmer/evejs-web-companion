@@ -12,6 +12,17 @@
   /** uix GetItemData volume: ValueAndUnit of FmtAmt(volume, two places where it has a fraction, else none) and the unit's
    *  display name, "m3" (read through gridcheck: 603.70 m3, 12.34 m3, 50 m3, 12,345.60 m3). */
   const volCell = (v: number): string => `${v.toLocaleString("en-US", Math.abs(v - Math.trunc(v)) > 1e-6 ? { minimumFractionDigits: 2, maximumFractionDigits: 2 } : { maximumFractionDigits: 0 })} m3`;
+  /** uix._get_item_size: the chargeSize by its sizeclass unit (read through gridcheck: 1 Small, 2 Medium, 3 Large, 4 X-Large). */
+  const sizeCell = (c: TypeColumnFacts | undefined): string => (c?.chargeSize ? (["", "Small", "Medium", "Large", "X-Large"][c.chargeSize] ?? String(c.chargeSize)) : "");
+  /** uix._get_item_slot: an implant's or booster's slot number, else GetPowerSlotSizeSymbol (UI/Inventory/SlotRigs, SlotHigh, SlotMedium, SlotLow). */
+  const slotCell = (c: TypeColumnFacts | undefined): string => {
+    if (!c) return "";
+    if (c.implantness !== null) return String(c.implantness);
+    if (c.boosterness !== null) return String(c.boosterness);
+    const SLOT: Record<string, readonly [string, string]> = { rig: ["UI/Inventory/SlotRigs", "Rigs"], high: ["UI/Inventory/SlotHigh", "High"], mid: ["UI/Inventory/SlotMedium", "Medium"], low: ["UI/Inventory/SlotLow", "Low"] };
+    const w = c.slot ? SLOT[c.slot] : undefined;
+    return w ? word(w[0], w[1]) : "";
+  };
   const fmtIskCell = (v: number): string => `${v.toLocaleString("en-US", Number.isInteger(v) ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ISK`;
   // The active ship's inventory window in space, laid out as the 3698585 client's ActiveShipCargo (invWindow.Inventory,
   // 600 x 450): the tree at the left (TREE_DEFAULT_WIDTH 160) with the ship as "<name> (<type>)" - its cargo - and its
@@ -39,7 +50,7 @@
   const hoverSound = (e: MouseEvent) => { if (!(e.buttons & 1)) void playUiEvent("ui_button_soft2_play"); };
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
-  import type { AppFlow } from "../app/flow.ts";
+  import type { AppFlow, TypeColumnFacts } from "../app/flow.ts";
   import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import { showInfo } from "./showInfo.ts";
   import { showMarketDetails, buyMarketType } from "./marketDetails.ts";
@@ -91,7 +102,7 @@
     ["UI/Common/Type", "UI/Inventory/TypeReversed", "type", "Type", "Type (reversed)"], ["UI/Inventory/EstPrice", "UI/Inventory/EstPriceReversed", "estPrice", "Est. Price", "Est. Price (reversed)"]] as const;
   /** invCont.GetViewModeName / GetViewModeIcon. */
   const VIEW_MODES = [["icons", "UI/Inventory/Icons", "Icons", "grid_view"], ["details", "UI/Inventory/Details", "Details", "details_view"], ["list", "UI/Inventory/List", "List", "list_view"]] as const;
-  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/ShortcutBrackets", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SortBy", "UI/Inventory/ViewMode",
+  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/ShortcutBrackets", "UI/Inventory/SlotRigs", "UI/Inventory/SlotHigh", "UI/Inventory/SlotMedium", "UI/Inventory/SlotLow", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SortBy", "UI/Inventory/ViewMode",
     "UI/Inventory/Filters/MyFilters", "UI/Common/NothingFound", "UI/Inventory/OpenInNewWindow", "UI/Common/Buttons/Close", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
   flow.requestWords(WORDS);
   const word = (label: string, own: string, args: Record<string, string | number> = {}) => {
@@ -325,15 +336,16 @@
     return sortDir ? sorted.reverse() : sorted;
   });
   // the details columns' facts: volume (evetypes) and meta and tech levels (typeFacts)
-  let facts = $state<Record<number, { volume: number | null; meta: number | null; tech: number | null; loaded?: boolean }>>({});
+  let facts = $state<Record<number, { volume: number | null; meta: number | null; tech: number | null; loaded?: boolean; col?: TypeColumnFacts }>>({});
   $effect(() => {
     if (viewMode === "icons") return;
     const missing = [...new Set((bay?.items ?? []).map((i) => i.typeID))].filter((t) => !facts[t]);
     if (!missing.length) return;
     for (const t of missing) facts[t] = { volume: null, meta: null, tech: null };
-    void Promise.all([flow.typeVolumes(missing).catch(() => ({} as Record<string, number>)), flow.typeFacts(missing).catch(() => null)]).then(([v, m]) => {
+    void Promise.all([flow.typeVolumes(missing).catch(() => ({} as Record<string, number>)), flow.typeFacts(missing).catch(() => null),
+      flow.typeColumnFacts(missing).catch(() => ({} as Readonly<Record<number, TypeColumnFacts>>))]).then(([v, m, c]) => {
       const next = { ...facts };
-      for (const t of missing) next[t] = { volume: v[String(t)] ?? null, meta: m?.get(t)?.metaLevel ?? null, tech: m?.get(t)?.techLevel ?? null, loaded: !!m?.has(t) };
+      for (const t of missing) next[t] = { volume: v[String(t)] ?? null, meta: m?.get(t)?.metaLevel ?? null, tech: m?.get(t)?.techLevel ?? null, loaded: !!m?.has(t), col: c[t] };
       facts = next;
     });
   });
@@ -667,8 +679,8 @@
                 <td class="num" class:hid={hiddenCols.includes(1)}>{i.singleton ? "" : i.quantity.toLocaleString("en-US")}</td>
                 <td class:hid={hiddenCols.includes(2)}>{groupName(i.typeID)}</td>
                 <td class:hid={hiddenCols.includes(3)}>{categoryName(i.typeID)}</td>
-                <td class:hid={hiddenCols.includes(4)}></td>
-                <td class:hid={hiddenCols.includes(5)}></td>
+                <td class:hid={hiddenCols.includes(4)}>{sizeCell(fa?.col)}</td>
+                <td class:hid={hiddenCols.includes(5)}>{slotCell(fa?.col)}</td>
                 <td class="num" class:hid={hiddenCols.includes(6)}>{fa?.volume != null ? volCell(fa.volume * i.quantity) : ""}</td>
                 <td class="num" class:hid={hiddenCols.includes(7)}>{fa?.meta ? fa.meta.toLocaleString("en-US") : ""}</td>
                 <td class="num" class:hid={hiddenCols.includes(8)}>{fa?.loaded ? (fa.tech ? fa.tech.toLocaleString("en-US") : "None") : ""}</td>
