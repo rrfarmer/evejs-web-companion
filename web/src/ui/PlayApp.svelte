@@ -2426,9 +2426,15 @@
         // _CharacterMenu of oneself (read through gridcheck on the client pilot's own ship): Show Info, Fleet >, View
         // Member Details, Place Bounty, Capture Portrait - no money, contacts, conversation, mail, fleet invite or duel
         // (the Fleet submenu and View Member Details not on the page yet)
+        // OfferViewCorpMemberDetails (one's own corporation, not a director) or EditCorpMember (a director): oneself is
+        // always of one's own corporation
+        s.flow.requestWords(["UI/Corporations/Common/ViewCorpMemberDetails", "UI/Corporations/Common/EditCorpMember"]);
+        const director = (BigInt(s.store.station.get().online?.corpRole ?? "0") & 1n) !== 0n;
+        const memberDetailsEntry = { label: director ? w("UI/Corporations/Common/EditCorpMember", "Edit Corporation Member") : w("UI/Corporations/Common/ViewCorpMemberDetails", "View Member Details"),
+          run: () => void s.flow.openCorporationMemberDetails(characterID).catch(() => {}) };
         if (characterID === s.store.station.get().online?.characterID) {
           return { path: "UI/Common/Pilot", label: w("UI/Common/Pilot", `Pilot (${name})`, { character: characterID }), icon: "res:/UI/Texture/eveicon/system_icons/person_16px.png",
-            sub: [showInfoEntry, bountyEntry, portraitEntry] };
+            sub: [showInfoEntry, memberDetailsEntry, bountyEntry, portraitEntry] };
         }
         return {
           path: "UI/Common/Pilot", label: w("UI/Common/Pilot", `Pilot (${name})`, { character: characterID }), icon: "res:/UI/Texture/eveicon/system_icons/person_16px.png",
