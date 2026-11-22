@@ -125,7 +125,7 @@
   import type { FlightMiningSurvey } from "../play/miningSurveyWave.ts";
   import MiningOverlayControl from "./MiningOverlayControl.svelte";
   import HudSafetySelector from "./HudSafetySelector.svelte";
-  import type { ContextEntry } from "../play/contextMenu.ts";
+  import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import { spaceOffersOf, subfolderNameOf, unzipMemo, type SpaceBall } from "../bridge/locationsList.ts";
   import type { ActiveBookmarks, Bookmark } from "../bridge/bookmarks.ts";
   import { safetyBadge, safetyLocks } from "../space/crimewatch.ts";
@@ -312,6 +312,48 @@
     }
     setTimeout(() => backToCharacterSelection(pilot), 1000);
   });
+  /**
+   * ShipModuleButton.GetMenu (shipmodulebutton.py 453 to 523) in space: GetAmmoMenu's entries for a charge-taking module
+   * (flow.rackAmmoMenu: Reload used / Reload / the cargo's other types, Reload all, Unload to Cargo), then the button's
+   * own (flow.rackModuleMenu: auto reload, auto repeat, a line and Put Offline / Online, overload and the rack's,
+   * repair, Show Info) - the docked rack's menu (ModuleRack.svelte) in the shared context menu.
+   */
+  const moduleContextMenu = new ContextMenu();
+  async function openModuleMenu(s: Session, moduleID: number, typeID: number, x: number, y: number): Promise<void> {
+    const fit = s.store.fitting.get();
+    const reload = (fit.reloads as Record<number, { startedAtMs: number; durationMs: number }> | undefined)?.[moduleID];
+    const reloading = reload !== undefined && Date.now() < reload.startedAtMs + reload.durationMs;
+    const [ammo, own] = await Promise.all([
+      s.flow.rackAmmoMenu(moduleID, { reloading, bankCount: 1 }).catch(() => null),
+      s.flow.rackModuleMenu(moduleID).catch(() => null),
+    ]);
+    const entries: (ContextEntry | null)[] = [];
+    for (const a of ammo ?? []) {
+      entries.push({ label: a.text, run: () => {
+        if (a.kind === "load") void s.flow.loadAmmo([moduleID], a.itemIDs, "cargo").catch(() => {});
+        else if (a.kind === "reloadAll") void s.flow.reloadAll(new Set(reloading ? [moduleID] : [])).catch(() => {});
+        else void s.flow.unloadRackCharge(moduleID).catch(() => {});
+      } });
+    }
+    for (const o of own ?? []) {
+      if (o.kind === "rule") { entries.push(null); continue; }
+      entries.push({ label: o.text, info: o.kind === "showInfo", run: () => {
+        if (o.kind === "autoRepeat") s.flow.setAutoRepeat(moduleID, !o.on);
+        else if (o.kind === "autoReload") void s.flow.setAutoReload(moduleID, !o.on).catch(() => {});
+        else if (o.kind === "showInfo") showInfo({ kind: "module", itemID: moduleID, typeID });
+        else if (o.kind === "overload") void s.flow.setModuleOverload(moduleID, !o.on).catch(() => {});
+        else if (o.kind === "online") void s.flow.setRackModuleOnline(moduleID, !o.on).catch(() => {});
+        else if (o.kind === "overloadRack" || o.kind === "stopOverloadRack") void s.flow.setRackOverload(moduleID, o.kind === "overloadRack").catch(() => {});
+        else if (o.kind === "clearGroup") void s.flow.clearRackGroup(moduleID).catch(() => {});
+        else if (o.kind === "repair") void s.flow.repairRackModule(moduleID).catch(() => {});
+        else if (o.kind === "cancelRepair") void s.flow.cancelRackRepair(moduleID).catch(() => {});
+        else if (o.kind === "repairAll") void s.flow.repairRackModules(o.moduleIDs).catch(() => {});
+        else if (o.kind === "cancelAllRepairs") void s.flow.cancelRackRepairs(o.moduleIDs).catch(() => {});
+      } });
+    }
+    if (ammo && ammo.length && own && own.length && own[0]?.kind !== "rule") entries.splice(ammo.length, 0, null);
+    if (entries.length) moduleContextMenu.open(x, y, entries);
+  }
   /** gameui.DoCharacterLogoff: the pilot released and the page back on character selection. */
   function backToCharacterSelection(pilot: Session): void {
     live?.close();
@@ -1992,6 +2034,7 @@
       openFitting: () => open("fitting"),
       renameShip: (id) => { void s.flow.renameShip(id).catch(() => {}); },
       ejectFromShip: () => { void s.flow.ejectFromShip().catch(() => {}); },
+      moduleMenu: (moduleID, typeID, x, y) => void openModuleMenu(s, moduleID, typeID, x, y),
       safeLogoff: () => { s.flow.requestWords(SAFE_LOGOFF_WORDS); safeLogoffQuitting = false; void s.flow.startSafeLogoff().catch(() => {}); },
       loggingOffSafely: () => !!s.flow.safeLogoff.get(),
       selfDestructShip: (id, capsule) => { void s.flow.selfDestructShip(id, capsule).catch(() => {}); },

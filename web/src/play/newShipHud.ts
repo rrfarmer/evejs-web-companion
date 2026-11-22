@@ -414,6 +414,8 @@ export class NewShipHud {
   highlightModule(moduleID: number | null): void { for (const s of this.slots) if (s.module) s.hover = s.module.itemID === moduleID && moduleID !== null; }
   /** ModuleController.ShowRange / HideRange: the module under the pointer, or null when it leaves. */
   onModuleHover: ((m: HudModule | null) => void) | null = null;
+  /** moduleSlot's GetMenu (ShipModuleButton.GetMenu): the module's menu at the pointer. */
+  onModuleMenu: ((m: HudModule, x: number, y: number) => void) | null = null;
   private readonly tooltip = document.createElement("div");
   private tipSlot: Slot | null = null;
   private tipTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1218,6 +1220,7 @@ export class NewShipHud {
       el.addEventListener("mouseenter", () => { slot.hover = true; this.hoverTooltip(slot); this.previewModule(slot.module); if (slot.module) this.onModuleHover?.(slot.module); });
       el.addEventListener("mouseleave", () => { slot.hover = false; this.hideTooltip(slot); this.previewModule(null); this.onModuleHover?.(null); });
       el.addEventListener("click", () => { if (slot.module && this.onModule) this.onModule(slot.module); });
+      el.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); if (slot.module) { this.hideTooltip(slot); this.onModuleMenu?.(slot.module, e.clientX, e.clientY); } });
       // moduleSlot drag and drop: the module's icon as the ghost; empty places shown while it is carried
       el.addEventListener("dragstart", (e) => {
         if (!slot.module || hudSettingNow("lockModules")) { e.preventDefault(); return; }

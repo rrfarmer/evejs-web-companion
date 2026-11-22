@@ -308,6 +308,9 @@ export interface SpaceActions {
   droneFleetOrder?(kind: "assist" | "guard", charID: number, droneIDs: readonly number[]): void;
   /** Use Fitting Service: the fitting window (CmdOpenFitting). */
   openFitting?(): void;
+  /** ShipModuleButton.GetMenu of a fitted module: its ammunition, its own entries (auto reload / repeat, online,
+   *  overload, repair), at the pointer. */
+  moduleMenu?(moduleID: number, typeID: number, x: number, y: number): void;
   /** eveCommands.CmdLogOff in space: menuFunctions.SafeLogoff, the timer started. */
   safeLogoff?(): void;
   /** Whether a safe logoff runs (celestialChecker.IsLoggingOffSafely). */
@@ -1519,6 +1522,7 @@ export class SpaceView {
       this.shipHud.healthFacts = (index) => this.actions.healthFacts?.(index) ?? null;
       this.shipHud.tooltipRows = (m) => this.options.rack?.tooltip?.(m) ?? null;
       // ModuleController.ShowRange: bracketMgr.ShowModuleRange(maxRange + falloff) while a module is under the pointer
+      this.shipHud.onModuleMenu = (m, x, y) => this.actions.moduleMenu?.(m.itemID, m.typeID, x, y);
       this.shipHud.onModuleHover = (m) => {
         const [optimal, falloff] = m ? this.options.rack?.rangeParts?.(m) ?? [0, 0] : [0, 0];
         const r = optimal + falloff;
