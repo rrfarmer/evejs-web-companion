@@ -801,14 +801,17 @@
   .tdist { color: rgba(255, 255, 255, 0.4); }
   /* TreeViewEntry.SetAccessability (invWindow.UpdateCelestialEntryStatus every 500 ms): out of range the icon and the
      label TextColor.DISABLED 0.3 (selected or not) */
-  .node.temp .ticon img { opacity: 0.75; }
+  /* every entry's icon at 0.75 (read through gridcheck on the client's ShipHangar, ShipDroneBay and the rest) */
+  .ticon :global(img) { opacity: 0.75; }
   .node.temp.far .ticon img { opacity: 0.3; }
   .node.temp.far, .node.temp.far.sel { color: rgba(255, 255, 255, 0.3); }
   .exp { flex: none; width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; background: transparent; position: relative; cursor: pointer; }
-  .exp::before { content: ""; position: absolute; left: 12px; top: 8px; width: 7px; height: 7px; background: rgba(255, 255, 255, 0.5);
+  .exp::before { content: ""; position: absolute; left: 12px; top: 8px; width: 7px; height: 7px; background: #8a8a8a;
     mask: url(/client-res/ui/texture/classes/neocom/arrowdown.png) center / 7px 7px no-repeat; -webkit-mask: url(/client-res/ui/texture/classes/neocom/arrowdown.png) center / 7px 7px no-repeat;
     transform: rotate(-90deg); transition: transform .15s; }
   .exp.open::before { transform: none; }
+  /* UpdateToggleBtnSpriteColor: the arrow WHITE on the selected entry, LED_GREY (#8A8A8A) on the others */
+  .node.sel .exp::before { background: #fff; }
   .ticon { width: 22px; height: 22px; flex: none; display: grid; overflow: hidden; margin-right: 4px; }
   .ticon :global(.type-icon) { width: 22px; height: 22px; }
   .ticon :global(.type-icon img) { width: 22px; height: 22px; }
