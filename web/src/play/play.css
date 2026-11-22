@@ -286,8 +286,11 @@ button { font: inherit; color: inherit; }
 .ov .ov-table tbody tr.flagged { background: var(--flag-bg); }
 .ov .ov-table tbody tr.flag-blink { animation: state-flag-blink 1.5s ease-in-out infinite; }
 .ov .ov-table .ov-dist { color: #fff; }
-.ov .ov-table tbody tr:hover, .ov .ov-table tbody tr.hover { background: rgba(255, 255, 255, 0.05); }
-.ov .ov-table tbody tr.sel { background: rgba(88, 167, 191, 0.18); }
+/* SE_BaseClassCore's ListEntryUnderlay (read in eveWindowUnderlay.py): THEME_FOCUSDARK at 0.2 under the mouse, 0.4 selected,
+   over the row's state background (an image layer, so a flagged row keeps its colour beneath) */
+.ov .ov-table tbody tr:hover, .ov .ov-table tbody tr.hover { background-image: linear-gradient(color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent), color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent)); }
+.ov .ov-table tbody tr:is(:hover, .hover, .sel):not(.flagged) { background-color: transparent; }
+.ov .ov-table tbody tr.sel { background-image: linear-gradient(color-mix(in srgb, var(--theme-focus-dark, #305665) 40%, transparent), color-mix(in srgb, var(--theme-focus-dark, #305665) 40%, transparent)); }
 /* SortHeaders' Header (read through gridcheck): its EveLabelSmall 12 px 8 in, white 0.5 (TextColor.SECONDARY) sorted or
    not, HIGHLIGHT under the mouse; the label within the header less the 4 px scaler; the sort triangle 16 px 3 from the
    right at NORMAL (0.75), HIGHLIGHT under the mouse */
