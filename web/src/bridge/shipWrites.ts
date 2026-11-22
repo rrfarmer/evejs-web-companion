@@ -137,6 +137,14 @@ export async function assembleShip(act: Ask, shipID: number, name: string | null
  * Leaves the ship the pilot is in, docked: the pilot is in its capsule when this is answered. Fails as the call
  * fails, and before it where the ship is not known.
  */
+/**
+ * The pilot ejected from the ship it flies in space (menuFunctions.Eject, 177 to 187): after ConfirmEject, the session
+ * change 'eject' with gameui.GetShipAccess().Eject() - the pilot in a capsule beside the ship from then on.
+ */
+export async function ejectFromShip(act: Ask): Promise<void> {
+  await act("ship", "Eject", []);
+}
+
 export async function leaveShip(act: Ask, shipID: number): Promise<void> {
   if (!Number.isSafeInteger(shipID) || shipID <= 0) {
     throw new Error("Which ship this is is not known yet.");

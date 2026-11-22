@@ -308,6 +308,10 @@ export interface SpaceActions {
   droneFleetOrder?(kind: "assist" | "guard", charID: number, droneIDs: readonly number[]): void;
   /** Use Fitting Service: the fitting window (CmdOpenFitting). */
   openFitting?(): void;
+  /** menuFunctions.Eject: out of the active ship into a capsule beside it (ConfirmEject first). */
+  ejectFromShip?(): void;
+  /** menuFunctions.Board of an unpiloted ship in space. */
+  boardShip?(shipID: number, typeID: number | null): void;
   /** menuFunctions.SetName of a ship: the ship naming window (prompt_rename_ship) for one's own active ship. */
   renameShip?(shipID: number): void;
   /** menuFunctions.SetName: the name asked (NamePopup) for one's own thing in space, with what it is called now. */
@@ -4750,6 +4754,8 @@ export class SpaceView {
         ...(this.actions.renameShip ? [null, { path: "UI/Commands/SetName", label: word("UI/Commands/SetName", "Set Name"), run: () => this.actions.renameShip?.(id) }] : []),
         ...(holds.length ? [null, ...holds] : []),
         ...tail,
+        // OfferEjectFromShip (the active ship, not a capsule), DESTRUCTIVE: last
+        ...(e.groupID !== 29 && this.actions.ejectFromShip ? [null, { path: "UI/Inflight/EjectFromShip", label: word("UI/Inflight/EjectFromShip", "Eject"), run: () => this.actions.ejectFromShip?.() }] : []),
       ];
     }
     const group = e.groupID ?? null;
@@ -4779,6 +4785,11 @@ export class SpaceView {
     const warpRanges = [0, 10000, 20000, 30000, 50000, 70000, 100000];
     const within = (r: number) => word("UI/Inflight/WarpToWithin", `Within ${fmtDistance(r)}`, { distance: fmtDistance(r) });
     const out: (ContextEntry | null)[] = [];
+    // OfferBoardShip (_CelestialMenu 1603, ahead of Approach): a ship no pilot flies, not the active one, within
+    // maxBoardingDistance (6,550 m), the pilot in a ship in space and not warping
+    if (category === 6 && !e.characterID && !warping && dist <= 6550 && this.actions.boardShip) {
+      out.push({ path: "UI/Inflight/BoardShip", label: word("UI/Inflight/BoardShip", "Board Ship"), run: () => this.actions.boardShip?.(id, e.typeID ?? null) });
+    }
     // The drone's own entries (menusvc._DroneMenu) fall in menuUtil's groups as the client sorts them: Engage / Mine /
     // Salvage (ACTIONSGROUP) first; Return and Orbit, Return to Drone Bay, Scoop to Drone Bay (CHANGESGROUP) with the
     // scoops after Show Info and the overview entry; Abandon Drone (DESTRUCTIVEGROUP) last (read off the live client's

@@ -1231,7 +1231,7 @@ import { alignTo as alignToCall, alignToPosition as alignToPositionCall, alignTo
 import { dock as dockCall, dockAtStructure as dockAtStructureCall, enterWormhole as enterWormholeCall, isStation, jump as jumpCall, jumpThroughJumpGate as jumpThroughJumpGateCall, undock as undockCall, WORMHOLE_ENTRY_RANGE_M } from "../bridge/placeChanges.ts";
 import { jumpBridgeZone, readJumpBridgeCharge } from "../bridge/jumpBridgePanel.ts";
 import { sessionPlace } from "../bridge/sessionPlace.ts";
-import { assembleShip as assembleShipCall, boardCorvette as boardCorvetteCall, boardShip as boardShipCall, jettison as jettisonCall, leaveShip as leaveShipCall, type JettisonOutcome } from "../bridge/shipWrites.ts";
+import { assembleShip as assembleShipCall, boardCorvette as boardCorvetteCall, boardShip as boardShipCall, ejectFromShip as ejectFromShipCall, jettison as jettisonCall, leaveShip as leaveShipCall, type JettisonOutcome } from "../bridge/shipWrites.ts";
 import { activityIDOf, averagePrices, createJobReckoner, type JobReckoner, type JobReckoning } from "../bridge/industryJobReckoning.ts";
 import { connectJob, decodeFacilityPlaces, disconnectJob, installJob, jobDump, jobPlaces, monitoredAs, type Monitored } from "../bridge/industryMonitor.ts";
 import { NO_OPTIONAL_MATERIAL } from "../bridge/industryReckonings.mjs";
@@ -2250,6 +2250,10 @@ export interface AppFlow {
   stackContainer(target: StackPlace): Promise<void>;
   /** Board a hangar ship (it becomes active), then refresh. */
   boardShip(shipID: number): Promise<void>;
+  /** menuFunctions.Board of a ship in space (an unpiloted one within boarding range): the skills checked, then ship.Board. */
+  boardSpaceShip(shipID: number, typeID: number | null): Promise<void>;
+  /** menuFunctions.Eject: ConfirmEject (yes / no), then ship.Eject - the pilot in a capsule beside the ship. */
+  ejectFromShip(): Promise<void>;
   /**
    * Board the corvette while docked (the station-services "Board my Corvette"):
    * the server spawns/repairs/starter-fits one as needed, then refresh. `sure`
@@ -36553,6 +36557,16 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // invControllers.StackAll382-407 has a distinct legacy PermissionDenied branch; its installed popup
       // composition is broken. Secure containers' working EnterPassword proxy is a separate pending unit.
       await runMutation(() => stackPlaceNow(target), STACK_KEPT);
+    },
+
+    async boardSpaceShip(shipID, typeID) {
+      await boardShipChecked(shipID, typeID);
+    },
+
+    async ejectFromShip() {
+      if (!(await askDialog("ConfirmEject", null, "Are you sure you want to eject from your ship?"))) return;
+      await runMutation(() => ejectFromShipCall(bridgeDo));
+      await refreshActiveShipViews();
     },
 
     async boardShip(shipID) {

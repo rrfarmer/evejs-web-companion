@@ -3325,6 +3325,7 @@ const RETAIL_CALLS = Object.freeze({
     }),
     "fittingSvc.DoFitManyShips: GetShipAccess().FitShips(shipTypeID=, fitInfo=, itemLocationID=session.stationid or session.structureid, cargoItemsByType=, fitRigs=, name=, numToFit=, itemContainerID=), from the multifit window's Fit (multiFitWnd.DoFitShips, 363 to 405): every argument a keyword; the fitting the util.KeyVal of six dicts its Fitting makes (shipfitting/fitting.py 119), the cargo a dict of the rigs by type where rigs are not fitted, the name the window's edit's (unicode) or the fitting's, the container the equipment's place or None for the item hangar. Answered None, or (failedToLoad, failedShipID). In no recording.",
   ),
+  "ship.Eject": same("eve/client/script/ui/services/menuSvcExtras/menuFunctions.py:186", "GetShipAccess().Eject() through sessionMgr.PerformSessionChange('eject', ...), after ConfirmEject, in space; no arguments. In no recording."),
   "ship.Board": same("eve/client/script/ui/services/menuSvcExtras/menuFunctions.py:209", "GetShipAccess().Board(shipID, session.shipid or session.stationid), through sessionMgr.PerformSessionChange('board', ...). Recorded on Tranquility in space as (shipID, the ship left), the bind carrying it."),
   "repackagingSvc.RepackageItems": judged(
     "eve/client/script/ui/services/menuSvcExtras/invItemFunctions.py:544",

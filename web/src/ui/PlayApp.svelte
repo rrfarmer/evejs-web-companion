@@ -1953,6 +1953,8 @@
       droneFleetOrder: (kind, charID, ids) => void s.flow.droneFleetOrder(kind, charID, ids).catch((cause) => notify({ kind: "danger", title: "Drones", detail: cause instanceof Error ? cause.message : String(cause) })),
       openFitting: () => open("fitting"),
       renameShip: (id) => { void s.flow.renameShip(id).catch(() => {}); },
+      ejectFromShip: () => { void s.flow.ejectFromShip().catch(() => {}); },
+      boardShip: (id, typeID) => { void s.flow.boardSpaceShip(id, typeID).catch(() => {}); },
       setName: (id, current) => { namingItem = { itemID: id, value: current }; s.flow.requestWords(["UI/Menusvc/SetName", "UI/Menusvc/TypeInNewName", "UI/Common/PleaseTypeSomething", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel"]); },
       inFleet: () => s.store.fleet.get().availability === "ready",
       fleetID: () => s.store.fleet.get().fleet?.fleetID ?? null,
