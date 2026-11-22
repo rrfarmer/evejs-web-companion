@@ -5135,7 +5135,12 @@ export class SpaceView {
       this.clearMiningSurvey();
       this.options.onMiningGridExit?.();
     }
-    if (inMiningWarp) this.warpToItemID = (ego as { warp?: { destinationID: number | null } | null } | null)?.warp?.destinationID ?? this.warpToItemID;
+    // the park's ball has no warp target of its own; the session's flight read says what the warp is to (as the
+    // action indication's warp line takes it)
+    if (inMiningWarp) {
+      this.warpToItemID = (ego as { warp?: { destinationID: number | null } | null } | null)?.warp?.destinationID
+        ?? this.options.flightSnapshot?.()?.ship?.warp?.destinationID ?? this.warpToItemID;
+    }
     else if (this.miningInWarp && snap) { const id = this.warpToItemID; this.warpToItemID = null; void this.indicateArrival(snap, id); }
     if (gridReset) this.locationBanner.clear();
     this.miningInWarp = inMiningWarp;
