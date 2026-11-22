@@ -370,6 +370,21 @@ export function decodeDroneEngageOutcome(
  * "Unknown", never silently as "Idle" — a player who is told their drones are
  * idle when nobody looked will not launch the ones that would have saved them.
  */
+/** dronesConst.DRONE_STATES' label paths by the page's activity words (Incapacitated for one it does not know). */
+export const DRONE_STATE_LABELS: Readonly<Record<string, string>> = {
+  idle: "UI/Inflight/Drone/Idle", fighting: "UI/Inflight/Drone/Fighting", mining: "UI/Inflight/Drone/Mining",
+  approaching: "UI/Inflight/Drone/Approaching", returning: "UI/Inflight/Drone/ReturningToShip", chasing: "UI/Inflight/Drone/Following",
+  fleeing: "UI/Inflight/Drone/Fleeing", operating: "UI/Inflight/Drone/Operating", repairing: "UI/Inflight/Drone/Repairing",
+  salvaging: "UI/Inflight/Drone/Salvaging", none: "UI/Inflight/Drone/NoState", unknown: "UI/Inflight/Drone/Incapacitated",
+};
+
+/** The state's words as the client's localization has them (DRONE_STATE_LABELS), else droneActivityLabel's English. */
+export function droneActivityWords(activity: string | null, templates: Readonly<Record<string, unknown>> | null | undefined): string {
+  const label = activity === null ? DRONE_STATE_LABELS.none! : DRONE_STATE_LABELS[activity] ?? DRONE_STATE_LABELS.unknown!;
+  const t = templates?.[label];
+  return typeof t === "string" && t !== "" && activity !== null ? t : droneActivityLabel(activity);
+}
+
 export function droneActivityLabel(activity: string | null): string {
   // dronesConst.DRONE_STATES (3698585's words, through gridcheck): each state's label, "-" for none, Incapacitated for one it does not know
   switch (activity) {

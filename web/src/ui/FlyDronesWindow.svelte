@@ -6,7 +6,7 @@
   // bay, reconnect, scoop). The orders, the ownership gates and the server's own refusal lines are DronesPanel's
   // (the workspace and mobile keep that panel); this is the same flow with the client's look.
   import { DRONE_NOT_UNDER_YOUR_CONTROL, NO_DRONE_UNDER_YOUR_CONTROL, panelErrorWords } from "../bridge/refusals.ts";
-  import { droneActivityColor, droneActivityLabel } from "../bridge/drones.ts";
+  import { droneActivityColor, droneActivityLabel, droneActivityWords, DRONE_STATE_LABELS } from "../bridge/drones.ts";
   import { activeTargetID, activeTargetName } from "../play/activeTarget.ts";
   import { playUiEvent } from "../play/uiAudio.ts";
   // SE_BaseClassCore.OnMouseEnter: PlaySound(sound_hover = uiconst.SOUND_ENTRY_HOVER, ui_button_soft2_play) as an entry lights; an
@@ -105,7 +105,7 @@
     field: ["UI/Generic/TypeNameForGroup", "Type in name for the group"], empty: ["UI/Common/PleaseTypeSomething", "Please type something"],
     ok: ["UI/Common/Buttons/OK", "OK"], cancel: ["UI/Common/Buttons/Cancel", "Cancel"],
   } as const;
-  flow.requestWords([...Object.values(GROUP_WORDS).map((w) => w[0]), "UI/Inflight/Drone/DroneGroupWithCount"]);
+  flow.requestWords([...Object.values(GROUP_WORDS).map((w) => w[0]), "UI/Inflight/Drone/DroneGroupWithCount", ...Object.values(DRONE_STATE_LABELS)]);
   /** UI/Inflight/Drone/DroneGroupWithCount: "<group> (<count>)". */
   const groupWithCount = (groupLabel: string, count: number) => {
     const t = $headerWords.templates["UI/Inflight/Drone/DroneGroupWithCount"];
@@ -506,7 +506,7 @@
       const lost = drone.controlled === false || orderable === false;
       return {
         key: String(drone.itemID), typeID: drone.typeID, label: typeName(drone.typeID, "Drone"),
-        activity: droneActivityLabel(drone.activity), color: droneActivityColor(drone.activity), itemIDs: [drone.itemID],
+        activity: droneActivityWords(drone.activity, $headerWords?.templates), color: droneActivityColor(drone.activity), itemIDs: [drone.itemID],
         unavailable: lost ? DRONE_NOT_UNDER_YOUR_CONTROL : null, recoverable: drone.controlled === false,
         damage: layersOf(byID.get(drone.itemID) ?? null),
         sprite: drone.activity ? STATE_SPRITE[drone.activity] ?? null : null,
