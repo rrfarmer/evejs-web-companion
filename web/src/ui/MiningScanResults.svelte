@@ -212,7 +212,8 @@
   button { cursor: pointer; }
   button:disabled { opacity: 0.55; cursor: default; }
   .scan-table { overflow: auto; flex: 1; min-height: 0; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  /* the scroll's columns at their own widths - their content's (GetTabStops) or the pilot's - not the window's shared out */
+  table { width: max-content; min-width: 0; border-collapse: collapse; font-size: 0.8rem; }
   td, th { padding: 0.28rem 0.42rem; text-align: right; border-bottom: 1px solid #34444a; white-space: nowrap; tab-size: 4; }
   th:first-child, td:first-child { text-align: left; }
   thead th { color: #bdd1d9; position: sticky; top: 0; background: #263239; }
