@@ -1541,6 +1541,7 @@ export class SpaceView {
       this.shipHud.tooltipRows = (m) => this.options.rack?.tooltip?.(m) ?? null;
       // ModuleController.ShowRange: bracketMgr.ShowModuleRange(maxRange + falloff) while a module is under the pointer
       this.shipHud.onModuleMenu = (m, x, y) => this.actions.moduleMenu?.(m.itemID, m.typeID, x, y);
+      if ("onShipMenu" in this.shipHud) this.shipHud.onShipMenu = (x, y) => { const id = this.snapshot?.ship?.itemID; if (id) dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID: id, x, y, tail: [] } })); };
       this.shipHud.onModuleHover = (m) => {
         const [optimal, falloff] = m ? this.options.rack?.rangeParts?.(m) ?? [0, 0] : [0, 0];
         const r = optimal + falloff;

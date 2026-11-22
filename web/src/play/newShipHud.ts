@@ -416,6 +416,8 @@ export class NewShipHud {
   onModuleHover: ((m: HudModule | null) => void) | null = null;
   /** moduleSlot's GetMenu (ShipModuleButton.GetMenu): the module's menu at the pointer. */
   onModuleMenu: ((m: HudModule, x: number, y: number) => void) | null = null;
+  /** The speedometer's and the capacitor core's GetMenu: ActiveShipController.GetMenu - the active ship's CelestialMenu. */
+  onShipMenu: ((x: number, y: number) => void) | null = null;
   /** GroupAllIcon.OnClick: GroupAll (link true) where some weapon can still be grouped (CanGroupAll), else UngroupAll. */
   onGroupAll: ((link: boolean) => void) | null = null;
   /**
@@ -552,6 +554,27 @@ export class NewShipHud {
    * decimals); under it the resistances' row (AttributeValueRowContainer: each its 24 px icon and
    * ResistanceActiveBonusValues of its percentage, 65 px apart).
    */
+  /**
+   * CapacitorCore.LoadTooltipPanel (Generic3ColumnTemplate, margin 6 / 4 / 8 / 4): the capacitor icon (ui_1_64_1, 40 px),
+   * Tooltips/Hud/Capacitor and under it "<now> / <max>" (FormatNumeric, grouped, no decimals), and the portion as
+   * UI/Common/Formatting/Percentage (16, bold); nothing where the capacitor is not known.
+   */
+  private showCapacitorTooltip(anchor: HTMLElement): void {
+    const s = this.state;
+    const max = s?.capacitorMax ?? null;
+    const ratio = s?.capacitorRatio ?? null;
+    if (max === null || ratio === null || !(max > 0)) { this.closeTooltip(); return; }
+    const portion = max * Math.max(0, Math.min(1, ratio));
+    const group = (v: number) => Math.round(v).toLocaleString("en-US");
+    const icon = document.createElement("img");
+    icon.src = res("res:/ui/texture/icons/1_64_1.png");
+    icon.alt = "";
+    Object.assign(icon.style, { width: "40px", height: "40px" });
+    const label = this.cell(`${this.word("Tooltips/Hud/Capacitor") ?? "Capacitor"}\n${group(portion)} / ${group(max)}`, { whiteSpace: "pre-line" });
+    const percent = this.wordWith?.("UI/Common/Formatting/Percentage", { percentage: portion / max * 100 }) ?? `${Math.round(portion / max * 100)}%`;
+    const value = this.cell(percent, { fontSize: "16px", fontWeight: "bold", marginTop: "-2px", color: "rgba(255,255,255,0.95)" });
+    this.showRowsTooltip(anchor, `cap:${group(portion)}:${group(max)}`, [icon, label, value], "auto auto auto");
+  }
   private showHealthTooltip(anchor: HTMLElement, index: number): void {
     const facts = this.healthFacts(index);
     if (!facts) return;
@@ -603,6 +626,16 @@ export class NewShipHud {
       const y = ev.clientY - box.top - cy;
       return { deg: ((Math.atan2(-y, x) * 180 / Math.PI) + 360) % 360, r: Math.hypot(x, y) };
     };
+    speed.addEventListener("contextmenu", (ev) => { ev.preventDefault(); ev.stopPropagation(); this.onShipMenu?.(ev.clientX, ev.clientY); });
+    // CapacitorCore (DISC_SIZE 56, centred): its tooltip (LoadTooltipPanel, kept current every 10 ms while shown) and its
+    // menu (GetMenu: the controller's - the active ship's)
+    const core = document.createElement("div");
+    Object.assign(core.style, { position: "absolute", left: `${cx - CAP_RADIUS}px`, top: `${cy - CAP_RADIUS}px`, width: `${CAP_RADIUS * 2}px`, height: `${CAP_RADIUS * 2}px`, borderRadius: "50%", pointerEvents: "auto" });
+    core.dataset.hud = "capacitorCore";
+    core.addEventListener("mouseenter", () => { this.liveTip = () => this.showCapacitorTooltip(core); this.liveTip(); });
+    core.addEventListener("mouseleave", () => { this.liveTip = null; this.closeTooltip(); });
+    core.addEventListener("contextmenu", (ev) => { ev.preventDefault(); ev.stopPropagation(); this.onShipMenu?.(ev.clientX, ev.clientY); });
+    this.root.append(core);
     speed.addEventListener("mouseenter", () => { this.speedHover = true; });
     speed.addEventListener("mouseleave", () => { this.speedHover = false; this.hoverDeg = null; });
     speed.addEventListener("mousemove", (ev) => {
