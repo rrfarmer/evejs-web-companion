@@ -270,9 +270,16 @@ button { font: inherit; color: inherit; }
    right, the entries 514 (8 short of the bar), clipping the columns past it; here the thin scrollbar (10) at the edge and the rows clipped at it */
 .pw.pw-small > .pw-body.ov > .ov-scroll { margin-left: 0; margin-right: 0; overflow-x: hidden; scrollbar-width: auto; scrollbar-color: auto;
   mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent 0 calc(100% - 8px), #000 0); -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent 0 calc(100% - 8px), #000 0); }
-.pw.pw-small > .pw-body.ov > .ov-scroll::-webkit-scrollbar { width: 8px; }
-.pw.pw-small > .pw-body.ov > .ov-scroll::-webkit-scrollbar-track { background: transparent; }
-.pw.pw-small > .pw-body.ov > .ov-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.25); }
+/* every in-space window's scroll as the client's Scrollbar (carbonui scrollbar.py, read through gridcheck): 8 px wide, no
+   track, the ScrollHandle a 2 px line inset 3 (its Fill padding) in TextColor.DISABLED (white 0.25), THEME_FOCUSDARK at 0.6
+   while the scroll is hovered, and widened to 4 (the expanded fill) in the highlight colour under the mouse. Chrome draws
+   ::-webkit-scrollbar only where scrollbar-width / -color are auto */
+:is(.fly-windows, .pw) * { scrollbar-width: auto !important; scrollbar-color: auto !important; }
+:is(.fly-windows, .pw) *::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+:is(.fly-windows, .pw) *::-webkit-scrollbar-track, :is(.fly-windows, .pw) *::-webkit-scrollbar-corner { background: transparent; }
+:is(.fly-windows, .pw) *::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.25); background-clip: padding-box; border: 3px solid transparent; border-radius: 0; }
+:is(.fly-windows, .pw) *:hover::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--theme-focus-dark, #305665) 60%, transparent); }
+:is(.fly-windows, .pw) *::-webkit-scrollbar-thumb:hover { background-color: var(--theme-focus, #58a7bf); border-width: 3px 2px; }
 .ov .ov-tab { display: flex; align-items: center; padding: 0; font-size: 14px; color: rgba(255, 255, 255, 0.5); border: 0; background: none;
   box-shadow: none; white-space: nowrap; }
 .ov .ov-tab:hover:not(.active) { color: rgba(255, 255, 255, 0.75); background: none; }
