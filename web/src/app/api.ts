@@ -29,6 +29,9 @@ import {
 import {
   TransportQueueError,
   bridgeLane,
+  defaultPriority,
+  hostedRequestWaitsByDesign,
+  hostedRoute,
   type RequestPriority,
 } from "./transport.ts";
 import { pageCarries, pageFetch, pageSocket } from "./pageFetch.ts";
@@ -105,6 +108,8 @@ export interface ApiOptions {
   readonly priority?: RequestPriority;
   /** Capture the current flow/session before awaiting a response drain. */
   readonly captureNotificationSink?: () => (notifications: readonly JsonValue[]) => void;
+  /** Apply the caller's fence at dispatch, after lane admission. */
+  readonly beforeDispatch?: (signal: AbortSignal) => AbortSignal | void;
   /** Reject queued dispatch or late replies after this flow's session retires. */
   readonly captureRequestGuard?: () => () => void;
 }
@@ -142,19 +147,20 @@ const REQUEST_DEADLINE_MS = 65_000;
  * Naming the bystander sends whoever reads the report to the wrong route, so the
  * lane's own verdict is appended to every transport failure.
  */
-export function transportFailureWords(path: string, cause: unknown): string {
+export function transportFailureWords(path: string, cause: unknown, lane = bridgeLane): string {
   if (cause instanceof TransportQueueError) {
     // It never left the browser, so there is nothing to say about the server.
     return cause.message;
   }
   const detail = cause instanceof Error ? cause.message : String(cause);
-  return `${path} could not reach the BFF: ${detail} — ${bridgeLane.diagnose().verdict}`;
+  return `${path} could not reach the BFF: ${detail} — ${lane.diagnose().verdict}`;
 }
 
 async function requestJson(
   path: string,
   init: RequestInit,
   options: ApiOptions,
+  confirmed = false,
 ): Promise<Record<string, JsonValue>> {
   // Over HTTP, or on the tab's socket where the page is set to (app/pageFetch.ts). A fetch handed in is used as it is.
   const doFetch = options.fetch ?? pageFetch();
@@ -162,6 +168,7 @@ async function requestJson(
   const assertCurrent = options.captureRequestGuard?.();
   const authHeaders = "token" in options ? tokenAuthHeaders(options.token) : sessionAuthHeaders();
   const credentials = "token" in options ? "omit" : "same-origin";
+  let lane = bridgeLane;
   let response: Response;
   try {
     // ⚠ THE DEADLINE IS ARMED INSIDE THE LANE, NOT OUTSIDE IT. A request that
@@ -177,22 +184,31 @@ async function requestJson(
         ...((init.headers as Record<string, string> | undefined) ?? {}),
       },
     };
-    response = await bridgeLane.run(options.priority ?? "read", path, () => {
+    const local = hostedRoute(options.fetch, url, request);
+    lane = local?.lane ?? bridgeLane;
+    const priority = options.priority ?? defaultPriority(local !== undefined, confirmed);
+    response = await lane.run(priority, path, () => {
       assertCurrent?.();
       const deadline = AbortSignal.timeout(REQUEST_DEADLINE_MS);
-      return doFetch(url, { signal: options.signal ? AbortSignal.any([deadline, options.signal]) : deadline, ...request });
-      // A request that goes on the tab's open socket holds none of the browser's connections, and so no lane.
-    }, { carried: options.fetch === undefined && pageCarries(url, request) });
+      const signal = options.signal ? AbortSignal.any([deadline, options.signal]) : deadline;
+      const ready = { ...request, signal: options.beforeDispatch?.(signal) ?? signal };
+      return local ? local.send(url, ready, priority) : doFetch(url, ready);
+    }, {
+      pilot: local?.pilot,
+      signal: local && options.signal,
+      carried: local ? hostedRequestWaitsByDesign(url, request)
+        : options.fetch === undefined && !options.beforeDispatch && pageCarries(url, request),
+    });
   } catch (cause) {
     assertCurrent?.();
     if (cause instanceof BridgeCallError && cause.code === "SESSION_REQUEST_RETIRED") throw cause;
     throw new BridgeCallError(
       "BRIDGE_NETWORK_ERROR",
-      transportFailureWords(path, cause),
+      transportFailureWords(path, cause, lane),
       0,
       cause instanceof TransportQueueError
         ? cause.diagnosis.verdict
-        : bridgeLane.diagnose().verdict,
+        : lane.diagnose().verdict,
     );
   }
   let data: unknown = null;
@@ -235,6 +251,7 @@ async function postJson(
   body: unknown,
   options: ApiOptions,
 ): Promise<Record<string, JsonValue>> {
+  const confirmed = body !== null && typeof body === "object" && "confirm" in body && body.confirm === true;
   return requestJson(
     path,
     {
@@ -243,6 +260,7 @@ async function postJson(
       body: JSON.stringify(body),
     },
     options,
+    confirmed,
   );
 }
 

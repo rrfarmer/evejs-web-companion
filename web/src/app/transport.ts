@@ -34,6 +34,17 @@
 /** What kind of request this is. Lower sorts first. */
 export type RequestPriority = "user" | "read" | "poll";
 
+/**
+ * The priority of a request whose caller named none.
+ *
+ * In the hosted lane every request is a bot's, so a confirmed write is the command the bot is waiting on and
+ * goes ahead of its reads and polls. In a tab, `user` is the player's own action (above): a confirmed write there
+ * may be a bot's running in the tab, and must not go ahead of what the player clicked.
+ */
+export function defaultPriority(hosted: boolean, confirmed: boolean): RequestPriority {
+  return hosted && confirmed ? "user" : "read";
+}
+
 const PRIORITY_ORDER: Record<RequestPriority, number> = { user: 0, read: 1, poll: 2 };
 
 /**
@@ -46,6 +57,8 @@ const PRIORITY_ORDER: Record<RequestPriority, number> = { user: 0, read: 1, poll
  * do not control and cannot see queue. Four leaves the margin deliberately.
  */
 export const MAX_IN_FLIGHT = 4;
+// Process-wide, including work forwarded by plugin children. Independent of the HTTP socket budget.
+export const HOSTED_MAX_IN_FLIGHT = 8;
 
 /**
  * The longest a request may wait for a free lane before we give up on it.
@@ -57,6 +70,17 @@ export const MAX_IN_FLIGHT = 4;
  * "timed out" about a request that never left the browser.
  */
 export const QUEUE_DEADLINE_MS = 20_000;
+
+/**
+ * How long a hosted request may wait for a hosted slot: as long as a request already sent may wait for its
+ * answer (REQUEST_DEADLINE_MS in api.ts).
+ *
+ * The hosted budget holds requests back from a server that is itself the bottleneck. When the game server
+ * stalls, the requests in the slots are waiting for it too, and every one of them is answered when it resumes.
+ * A shorter limit here fails the queued ones first: on 2026-11-22 the stall reproduction failed a pilot's stop
+ * and its logout after 20 s of a 25 s stall, while each would have been answered the moment the server resumed.
+ */
+export const HOSTED_QUEUE_DEADLINE_MS = 65_000;
 
 /**
  * How long a request has to be outstanding before it counts as evidence that
@@ -100,20 +124,22 @@ export interface TransportLane {
 /**
  * How a request is to be run.
  *
- * `carried`: it goes on the tab's socket (app/socketFetch.ts), not on a connection of its own. The cap exists
- * because a browser has six connections to an origin and queues what is over that where nobody can see; a
- * request on the socket uses none of them, however many are outstanding. It is started at once, holds no lane,
- * and waits behind nothing. It is still counted, and still has its own deadline, set inside the task.
+ * `carried`: the request holds no slot. In a tab, it uses the tab's open socket and none of the browser's HTTP
+ * connections; in the hosted lane, the BFF keeps it open by design (hostedRequestWaitsByDesign). It starts at
+ * once, is still counted and has its own deadline inside the task.
  */
 export interface RunHow {
   readonly carried?: boolean;
+  readonly pilot?: string;
+  readonly signal?: AbortSignal | null;
 }
 
 /** Thrown when a request never got a lane. Distinct so callers can word it. */
 export class TransportQueueError extends Error {
   readonly diagnosis: TransportDiagnosis;
-  constructor(path: string, waitedMs: number, diagnosis: TransportDiagnosis) {
+  constructor(path: string, waitedMs: number, diagnosis: TransportDiagnosis, hosted = false) {
     super(
+      hosted ? `${path} waited ${Math.round(waitedMs / 1000)}s for a hosted request slot. ${diagnosis.verdict}` :
       `${path} never got a connection: it waited ${Math.round(waitedMs / 1000)}s ` +
         `for one of the browser's ${MAX_IN_FLIGHT} request lanes. ${diagnosis.verdict}`,
     );
@@ -123,16 +149,13 @@ export class TransportQueueError extends Error {
 }
 
 interface Waiting {
-  readonly priority: RequestPriority;
-  readonly path: string;
-  readonly queuedAtMs: number;
   readonly start: () => void;
-  readonly giveUp: () => void;
   timer: unknown;
 }
 
 export interface TransportLaneDeps {
   readonly maxInFlight?: number;
+  readonly hosted?: boolean;
   readonly queueDeadlineMs?: number;
   readonly now?: () => number;
   readonly setTimeout?: (handler: () => void, ms: number) => unknown;
@@ -149,9 +172,11 @@ export function createTransportLane(deps: TransportLaneDeps = {}): TransportLane
 
   /** Started, not yet settled: path -> when it started. */
   const running = new Map<symbol, { path: string; startedAtMs: number }>();
-  /** Outstanding on the socket: they hold no lane. */
+  /** Outstanding requests that use no HTTP lane. */
   let carrying = 0;
-  const waiting: Waiting[] = [];
+  // Each priority rotates its nonempty pilot queues. A tab uses one FIFO per priority.
+  const waiting = [new Map<string, Waiting[]>(), new Map<string, Waiting[]>(), new Map<string, Waiting[]>()] as const;
+  let queuedCount = 0;
 
   function diagnose(atMs?: number): TransportDiagnosis {
     const nowMs = atMs ?? now();
@@ -160,9 +185,12 @@ export function createTransportLane(deps: TransportLaneDeps = {}): TransportLane
       oldest = Math.max(oldest, nowMs - entry.startedAtMs);
     }
     const inFlight = running.size;
-    const queued = waiting.length;
+    const queued = queuedCount;
     let verdict: string;
-    if (inFlight >= limit && oldest >= STUCK_MS) {
+    if (deps.hosted) {
+      const paths = Array.from(running.values(), entry => entry.path.split("?", 1)[0]);
+      verdict = `Hosted BFF requests: ${inFlight} active, ${queued} queued, oldest ${oldest} ms. Active routes: ${paths.join(", ") || "none"}.`;
+    } else if (inFlight >= limit && oldest >= STUCK_MS) {
       // ⚠ The state the field reports were made in. Say so explicitly: the
       // request that failed is a bystander, and looking at what it asked for
       // will not explain anything.
@@ -183,25 +211,13 @@ export function createTransportLane(deps: TransportLaneDeps = {}): TransportLane
   }
 
   function pump(): void {
-    while (running.size < limit && waiting.length > 0) {
-      // Stable within a priority: the queue is built in arrival order and this
-      // picks the first of the best priority, so equal work stays FIFO.
-      let best = 0;
-      for (let index = 1; index < waiting.length; index += 1) {
-        const candidate = waiting[index];
-        const incumbent = waiting[best];
-        if (
-          candidate &&
-          incumbent &&
-          PRIORITY_ORDER[candidate.priority] < PRIORITY_ORDER[incumbent.priority]
-        ) {
-          best = index;
-        }
-      }
-      const next = waiting.splice(best, 1)[0];
-      if (!next) {
-        return;
-      }
+    while (running.size < limit && queuedCount > 0) {
+      const queues = waiting.find(group => group.size)!;
+      const [pilot, queue] = queues.entries().next().value!;
+      const next = queue.shift()!;
+      queues.delete(pilot);
+      if (queue.length) queues.set(pilot, queue);
+      queuedCount--;
       if (next.timer !== null) {
         clearTimer(next.timer);
       }
@@ -220,6 +236,7 @@ export function createTransportLane(deps: TransportLaneDeps = {}): TransportLane
   }
 
   function run<T>(priority: RequestPriority, path: string, task: () => Promise<T>, how: RunHow = {}): Promise<T> {
+    if (how.signal?.aborted) return Promise.reject(how.signal.reason);
     if (how.carried === true) {
       // No lane to take and none to hand on: started in this tick, like a request that found a lane free.
       carrying += 1;
@@ -243,7 +260,7 @@ export function createTransportLane(deps: TransportLaneDeps = {}): TransportLane
     // without awaiting it would no longer have started one when it returns.
     // That is a behaviour change for the whole client in the common case, in
     // exchange for nothing: when a lane is free there is nothing to wait for.
-    if (running.size < limit && waiting.length === 0) {
+    if (running.size < limit && queuedCount === 0) {
       running.set(ticket, { path, startedAtMs: queuedAtMs });
       try {
         return occupy(ticket, task);
@@ -256,7 +273,7 @@ export function createTransportLane(deps: TransportLaneDeps = {}): TransportLane
       }
     }
 
-    return queueThenRun(priority, path, task, ticket, queuedAtMs);
+    return queueThenRun(priority, path, task, ticket, queuedAtMs, how.pilot ?? "", how.signal);
   }
 
   async function queueThenRun<T>(
@@ -265,37 +282,40 @@ export function createTransportLane(deps: TransportLaneDeps = {}): TransportLane
     task: () => Promise<T>,
     ticket: symbol,
     queuedAtMs: number,
+    pilot: string,
+    signal?: AbortSignal | null,
   ): Promise<T> {
     await new Promise<void>((resolve, reject) => {
+      const queues = waiting[PRIORITY_ORDER[priority]]!;
+      const queue = queues.get(pilot) ?? [];
+      const cancel = () => {
+        const index = queue.indexOf(entry);
+        if (index < 0) return;
+        queue.splice(index, 1);
+        queuedCount--;
+        if (!queue.length) queues.delete(pilot);
+        clearTimer(entry.timer);
+        signal?.removeEventListener("abort", cancel);
+        reject(signal?.aborted ? signal.reason : new TransportQueueError(path, now() - queuedAtMs, diagnose(), deps.hosted));
+      };
       const entry: Waiting = {
-        priority,
-        path,
-        queuedAtMs,
         // ⚠ THE LANE IS TAKEN HERE, SYNCHRONOUSLY — not after the `await` below
         // settles. Resolving a promise only schedules a microtask, so several
         // callers in the same tick would all look at an empty `running` map,
         // all decide a lane was free, and all start: a cap that holds only when
         // requests happen to be spaced out is not a cap at all.
         start: () => {
+          signal?.removeEventListener("abort", cancel);
           running.set(ticket, { path, startedAtMs: now() });
           resolve();
         },
-        giveUp: () => {
-          const index = waiting.indexOf(entry);
-          if (index >= 0) {
-            waiting.splice(index, 1);
-          }
-          reject(new TransportQueueError(path, now() - queuedAtMs, diagnose()));
-        },
         timer: null,
       };
-      waiting.push(entry);
-      pump();
-      if (waiting.includes(entry)) {
-        // Still queued, so it can starve: arm the give-up timer. A request that
-        // got a lane immediately never arms one at all.
-        entry.timer = setTimer(() => entry.giveUp(), queueDeadlineMs);
-      }
+      queue.push(entry);
+      queues.set(pilot, queue);
+      queuedCount++;
+      entry.timer = setTimer(cancel, queueDeadlineMs);
+      signal?.addEventListener("abort", cancel, { once: true });
     });
 
     return occupy(ticket, task);
@@ -305,7 +325,7 @@ export function createTransportLane(deps: TransportLaneDeps = {}): TransportLane
     run,
     diagnose,
     inFlight: () => running.size,
-    queued: () => waiting.length,
+    queued: () => queuedCount,
     carried: () => carrying,
   };
 }
@@ -319,3 +339,75 @@ export function createTransportLane(deps: TransportLaneDeps = {}): TransportLane
  * four-times-the-roster, which is the exact problem this exists to prevent.
  */
 export const bridgeLane: TransportLane = createTransportLane();
+
+export const hostedLane = createTransportLane({
+  maxInFlight: HOSTED_MAX_IN_FLIGHT,
+  hosted: true,
+  queueDeadlineMs: HOSTED_QUEUE_DEADLINE_MS,
+});
+
+export function localApiUrl(input: RequestInfo | URL, init: RequestInit | undefined, base: URL): URL | null {
+  if (typeof input !== "string" && !(input instanceof URL)) return null;
+  if (init?.body != null && typeof init.body !== "string") return null;
+  const url = URL.parse(input, base);
+  return url?.origin === base.origin && url.pathname.startsWith("/api/") ? url : null;
+}
+
+/**
+ * The generic calls the BFF keeps open until the session change they start is ready, up to its transition timeout
+ * (TRANSITION_READY_TIMEOUT_MS, 45 s, src/transitionBarrier.js): src/bridgeCallPolicy.js PAGE_PLACE_CHANGE_CALLS,
+ * which test/hostedTransport.test.js holds this list to.
+ */
+export const HOSTED_PLACE_CHANGE_CALLS: ReadonlySet<string> = new Set([
+  "ship.Undock", "structureDocking.Undock", "beyonce.CmdDock", "structureDocking.Dock", "beyonce.CmdStargateJump",
+  "beyonce.CmdJumpToFleetModuleBeacon", "beyonce.CmdGroupJumpToFleetModuleBeacon",
+  "structureJumpBridgeMgr.CmdJumpThroughStructureStargate", "abyssalMgr.AbyssalEntranceDeployment",
+  "abyssalMgr.AbyssalEndGateActivation", "abyssalMgr.AbyssalEntranceGateActivation",
+]);
+
+/** Routes that wait inside the request: a jettison looks for its new can for up to 3 s (src/server.js). */
+const HOSTED_WAITING_PATHS: ReadonlySet<string> = new Set(["/api/bridge/ship/jettison", "/api/bridge/ship/jettison/reconcile"]);
+
+/**
+ * Whether the BFF keeps this hosted request open by design, waiting on the game rather than working it.
+ *
+ * Such a request holds no hosted slot. A slot stands for work the game server is doing; a fleet that jumps
+ * together would otherwise fill every slot for as long as the session change takes, and every other pilot's
+ * stops, locks and reads would wait behind it with the server idle (the 2026-11-22 reproduction: 14 jumps held
+ * all 8 slots for 48 s). Kubernetes API Priority and Fairness leaves long-running requests out of its seats for
+ * the same reason. They are still counted (`carried`).
+ */
+export function hostedRequestWaitsByDesign(input: RequestInfo | URL, init: RequestInit | undefined): boolean {
+  const url = URL.parse(input instanceof Request ? input.url : String(input), "http://hosted.invalid");
+  if (url === null) return false;
+  if (HOSTED_WAITING_PATHS.has(url.pathname)) return true;
+  if (url.pathname !== "/api/bridge/call" || typeof init?.body !== "string") return false;
+  let call: { service?: unknown; method?: unknown; args?: unknown };
+  try { call = JSON.parse(init.body); } catch { return false; }
+  const key = `${String(call?.service)}.${String(call?.method)}`;
+  if (!HOSTED_PLACE_CHANGE_CALLS.has(key)) return false;
+  // A filament's deploy changes place in solo's game mode alone (bridgeCallPolicy.js placeChangeOf).
+  return key !== "abyssalMgr.AbyssalEntranceDeployment" || (Array.isArray(call.args) && Number(call.args[1]) === 1);
+}
+
+type Send = (input: RequestInfo | URL, init?: RequestInit, priority?: RequestPriority) => Promise<Response>;
+type HostedRoute = { pilot: string; send: Send; lane: TransportLane };
+
+// The capability belongs to this fetch. Replacing the fetch also replaces its routing.
+export function hostedFetch(send: Send, pilot: string, accepts: (input: RequestInfo | URL, init?: RequestInit) => boolean) {
+  const route: HostedRoute = { pilot, send, lane: hostedLane };
+  function fetch(input: RequestInfo | URL, init?: RequestInit, priority: RequestPriority = "read") {
+    if (!accepts(input, init)) return send(input, init);
+    const url = input instanceof Request ? input.url : String(input);
+    const path = URL.parse(url, "http://hosted.invalid")?.pathname ?? "/api/";
+    return hostedLane.run(priority, path, () => {
+      init?.signal?.throwIfAborted();
+      return send(input, init, priority);
+    }, { pilot, signal: init?.signal, carried: hostedRequestWaitsByDesign(input, init) });
+  }
+  return Object.assign(fetch, { hostedRoute: (input: RequestInfo | URL, init?: RequestInit) => accepts(input, init) ? route : undefined });
+}
+
+export function hostedRoute(fetch: typeof globalThis.fetch | undefined, url: string, init: RequestInit) {
+  return (fetch as Partial<ReturnType<typeof hostedFetch>> | undefined)?.hostedRoute?.(url, init);
+}

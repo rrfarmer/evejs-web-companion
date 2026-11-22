@@ -4367,9 +4367,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   });
   // The same write under a caller's own fence. The shared lane may hold a call back: the fence is run at the
   // dispatch itself, before a hosted fetch can be taken by a newer generation of its caller.
-  const fencedDo = (assertCurrent: () => void) => api.bridgeDo({ ...callOptions, fetch: (input, init) => {
-    assertCurrent(); return (callOptions.fetch ?? pageFetch())(input, init);
-  } }, (serverNowMs) => {
+  const fencedDo = (assertCurrent: () => void) => api.bridgeDo({ ...callOptions, beforeDispatch: assertCurrent }, (serverNowMs) => {
     serverClockAheadMs = serverNowMs - Date.now();
   });
   /** The pilot's own character, as the page has it. Null with none chosen. */
@@ -13336,12 +13334,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const finish = reads?.begin();
     // Fence dispatch in the shared lane, but keep the pilot's notification sink:
     // retiring one window must not discard notices accompanying an in-flight RPC.
-    const infoAsk = (signal?: AbortSignal): Ask => api.bridgeAsk({ ...callOptions, fetch: (input, init) => {
+    const infoAsk = (signal?: AbortSignal): Ask => api.bridgeAsk({ ...callOptions, beforeDispatch: deadline => {
       reads?.assertCurrent();
       // Keep this call's existing transport deadline. Only a native scalar
       // cache owner receives tasklet retirement, not every operation of a view.
-      return (callOptions.fetch ?? pageFetch())(input, signal
-        ? { ...init, signal: AbortSignal.any([signal, ...(init?.signal ? [init.signal] : [])]) } : init);
+      return signal ? AbortSignal.any([signal, deadline]) : deadline;
     } }, serverNowMs => { serverClockAheadMs = serverNowMs - Date.now(); });
     const ask = reads ? infoAsk() : bridgeAsk;
     try {
@@ -13395,9 +13392,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             // one owner before converting the next key. Never filter failures
             // or batch later owners ahead of a bad key or missing record.
             reads?.assertCurrent();
-            const records = await api.readEveOwners([id], reads ? { ...callOptions, signal: reads.signal, fetch: (input, init) => {
-              reads.assertCurrent(); return (callOptions.fetch ?? pageFetch())(input, init);
-            } } : callOptions);
+            const records = await api.readEveOwners([id], reads ? { ...callOptions, signal: reads.signal, beforeDispatch: () => reads.assertCurrent() } : callOptions);
             reads?.assertCurrent();
             const row = records[String(id)];
             if (row === null) throw Object.assign(new Error(`('RecordNotFound', ${id})`), { name: "KeyError", code: "INFO_CORPORATION_ENLISTMENT_OWNER_MISSING", args: ["RecordNotFound", id] });
@@ -16221,10 +16216,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     try {
       await previous; scope.current();
       let sent = false;
-      const send = callOptions.fetch ?? pageFetch();
       const mutationOptions: api.ApiOptions = { ...scope.options,
         captureRequestGuard: () => () => { pilotCurrent(); if (!sent) scope.current(); },
-        fetch: (input, init) => { scope.current(); sent = true; return send(input, init); },
+        beforeDispatch: () => { scope.current(); sent = true; },
       };
       await api.bridgeDo(mutationOptions)("corpRegistry", "UpdateApplicationOffer", [application.applicationID, application.characterID, application.corporationID, application.applicationText, status, "", null], null, scope.online.corporationID);
       // An intended acceptance changes corpid before its None reply. The
@@ -16514,11 +16508,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         if (!await askDialog(dialog, values, "Resign as CEO? The corporation may be closed if there is no successor.", "yesno", { defaultAnswer: "no" })) return;
         scope.current();
         const mutate = async (successor: number | null): Promise<JsonValue> => {
-          const pilotCurrent = callOptions.captureRequestGuard!(), send = callOptions.fetch ?? pageFetch();
+          const pilotCurrent = callOptions.captureRequestGuard!();
           let sent = false;
           const mutationOptions: api.ApiOptions = { ...scope.options,
             captureRequestGuard: () => () => { pilotCurrent(); if (!sent) scope.current(); },
-            fetch: (input, init) => { scope.current(); sent = true; return send(input, init); },
+            beforeDispatch: () => { scope.current(); sent = true; },
           };
           scope.current();
           const result = await api.resignCorporationCEO(successor, scope.online.corporationID, mutationOptions);
@@ -16747,11 +16741,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           if (!await confirmCorporationWarKick(scope) || !await confirmCorporationMemberKick(scope, [self])) return;
           // Keep the originating corporation until actual dispatch. The intended successful reply
           // may change it; notification delivery and the response still belong to this same pilot.
-          const pilotCurrent = callOptions.captureRequestGuard!(), send = callOptions.fetch ?? pageFetch();
+          const pilotCurrent = callOptions.captureRequestGuard!();
           let sent = false;
           const quitOptions: api.ApiOptions = { ...scope.options,
             captureRequestGuard: () => () => { pilotCurrent(); if (!sent) scope.current(); },
-            fetch: (input, init) => { scope.current(); sent = true; return send(input, init); },
+            beforeDispatch: () => { scope.current(); sent = true; },
           };
           scope.current();
           await api.quitCorporation(self, scope.online.corporationID, quitOptions);

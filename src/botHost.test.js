@@ -226,6 +226,88 @@ test("start flies the character on its own session and lists it", async () => {
   assert.deepEqual(flowCall.slice(2), [true, "bot-token"]);
 });
 
+test("hosted pilots reach the in-process BFF while four other pilots are still waiting for replies", { timeout: 5000 }, async (t) => {
+  const express = require("express");
+  const { createInProcessFetch } = require("./inProcessFetch");
+  const { loadBoundFleet } = await import("../web/src/app/api.ts");
+  const { createAppFlow } = await import("../web/src/app/flow.ts");
+  const { bridgeLane, hostedLane, MAX_IN_FLIGHT } = await import("../web/src/app/transport.ts");
+  const { callMethod } = await import("../web/src/bridge/callMethod.ts");
+  const { createClientStore } = await import("../web/src/store/clientStore.ts");
+  const { promise: hold, resolve: release } = Promise.withResolvers();
+  const received = [];
+  const forwarded = [];
+  const app = express();
+  app.use(express.json());
+  app.get("/api/bridge/bound-fleet", async (req, res) => {
+    const token = req.get("authorization");
+    received.push([req.path, token]);
+    if (token !== `Bearer hosted-${MAX_IN_FLIGHT + 1}`) await hold;
+    res.json({ ok: true });
+  });
+  app.post("/api/bridge/call", (req, res) => {
+    received.push([req.path, req.get("authorization")]);
+    res.json({ ok: true, service: req.body.service, method: req.body.method, result: 42 });
+  });
+
+  const baseUrl = "http://bff.test";
+  const pilots = [];
+  let tokenNumber = 0;
+  const host = makeHost({
+    baseUrl,
+    fetch: createInProcessFetch(app, { baseUrl, fetch: async (input) => {
+      forwarded.push(input);
+      return Response.json({ ok: true });
+    } }),
+    webAuth: { createSessionToken: () => `hosted-${++tokenNumber}` },
+    loadStack: makeFakeStack([], (flow, _store, options) => {
+      pilots.push(createAppFlow(createClientStore(), options).requestOptions());
+      return flow;
+    }),
+  });
+  t.after(() => host.stopAll());
+  for (let i = 0; i < MAX_IN_FLIGHT + 2; i += 1) {
+    const started = await host.start({ ...START, characterID: START.characterID + i });
+    assert.equal(started.ok, true);
+  }
+
+  const before = { http: bridgeLane.inFlight(), hosted: hostedLane.inFlight(), queued: hostedLane.queued() };
+  const slow = pilots.slice(0, MAX_IN_FLIGHT).map(options => loadBoundFleet(options));
+  const read = loadBoundFleet(pilots[MAX_IN_FLIGHT]);
+  const call = callMethod("account", "GetCashBalance", [false], null, pilots[MAX_IN_FLIGHT + 1]);
+  const requests = Promise.allSettled([...slow, read, call]);
+  try {
+    assert.equal(hostedLane.inFlight() - before.hosted, MAX_IN_FLIGHT + 2);
+    assert.equal(hostedLane.queued(), before.queued);
+    assert.equal(bridgeLane.inFlight(), before.http);
+    assert.deepEqual(await read, { ok: true });
+    assert.equal((await call).result, 42);
+    assert.equal(hostedLane.inFlight() - before.hosted, MAX_IN_FLIGHT);
+
+    const fallback = loadBoundFleet({ ...pilots[MAX_IN_FLIGHT], baseUrl: "http://elsewhere.test" });
+    const fallbackInFlight = bridgeLane.inFlight();
+    assert.deepEqual(await fallback, { ok: true });
+    assert.equal(fallbackInFlight - before.http, 1);
+    assert.deepEqual(forwarded, ["http://elsewhere.test/api/bridge/bound-fleet"]);
+
+    const replaced = loadBoundFleet({ ...pilots[0], fetch: async () => Response.json({ ok: true }) });
+    assert.equal(bridgeLane.inFlight() - before.http, 1);
+    await replaced;
+    await assert.rejects(callMethod("beyonce", "CmdStop", [], null, {
+      ...pilots[MAX_IN_FLIGHT + 1], pilot: true, confirm: true,
+      signal: AbortSignal.abort(new Error("command retired")),
+    }), { code: "BRIDGE_NETWORK_ERROR", status: 0, message: /command retired.*Hosted BFF/ });
+  } finally {
+    release();
+    await requests;
+  }
+  await Promise.all(slow);
+  assert.deepEqual(received, pilots.map((options, i) => [
+    i === MAX_IN_FLIGHT + 1 ? "/api/bridge/call" : "/api/bridge/bound-fleet", `Bearer ${options.token}`,
+  ]));
+  assert.equal(hostedLane.inFlight(), before.hosted);
+});
+
 test("unsafe browser handoff refuses before hosted selection and releases only its temporary claim", async () => {
   const log = [];
   const host = makeHost({ log });

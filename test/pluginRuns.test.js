@@ -10,12 +10,16 @@ const { fork } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { once } = require("node:events");
 const { pathToFileURL } = require("node:url");
+const express = require("express");
 
 const { createBotHost } = require("../src/botHost");
+const { createInProcessFetch } = require("../src/inProcessFetch");
 const { createPluginHost } = require("../src/pluginHost");
 
 const REPO = path.resolve(__dirname, "..");
+const WEB_SRC = path.join(REPO, "web", "src");
 
 const BACKEND = `
 import { jsonStore, startBackend } from "../../web/src/plugin-api/backend.ts";
@@ -36,6 +40,48 @@ startBackend({
       const answer = await flying.fetch(new Request(new URL(request.body.url, flying.baseUrl), { method: "POST", headers: { "x-from-request": "yes" }, body: "given" }));
       return { body: { status: answer.status } };
     },
+    "POST /ask-call": async (request) => {
+      const answer = await flying.fetch(new URL("/api/bridge/call", flying.baseUrl), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ service: request.body.service, method: request.body.method, args: request.body.args, pilot: true, confirm: true }),
+      });
+      return { body: { status: answer.status } };
+    },
+    "POST /pilot-requests": async () => {
+      const source = ${JSON.stringify(pathToFileURL(WEB_SRC + path.sep).href)};
+      const [{ createPilotSession }, { loadBoundFleet }, { bridgeLane, hostedRoute }, { callMethod }] = await Promise.all(
+        ["plugin-api/pilotSession.ts", "app/api.ts", "app/transport.ts", "bridge/callMethod.ts"]
+          .map(file => import(new URL(file, source))),
+      );
+      const { flow } = await createPilotSession(flying);
+      flow.setLivePush(false);
+      const options = flow.requestOptions();
+      const lane = hostedRoute(options.fetch, new URL("/api/", flying.baseUrl).href, {})?.lane ?? bridgeLane;
+      const deadline = Date.now() + 2000;
+      while (lane.inFlight() || lane.queued()) {
+        if (Date.now() >= deadline) throw new Error("Pilot attachment did not settle");
+        await new Promise(resolve => setTimeout(resolve, 5));
+      }
+      const before = { active: lane.inFlight(), queued: lane.queued() };
+      const { bridgeDo } = flow.flying;
+      pilotRequests = Promise.all([
+        loadBoundFleet(options).then(answer => answer.result),
+        bridgeDo("ship", "Jettison", [[301]]),
+        // (A command that holds a slot. A stargate jump would not: the BFF keeps it open by design.)
+        bridgeDo("beyonce", "CmdApproach", [401, 500]),
+        bridgeDo("beyonce", "CmdWarpToStuffAutopilot", [404]),
+        loadBoundFleet(options, true).then(answer => answer.result),
+        bridgeDo("dogmaIM", "AddTarget", [501]),
+      ]).then(async replies => {
+        const cancelled = await callMethod("dogmaIM", "AddTarget", [502], null, {
+          ...options, pilot: true, confirm: true, signal: AbortSignal.abort(new Error("retired")),
+        }).then(() => null, error => error.code);
+        return { replies, cancelled };
+      }).catch(error => ({ error: error.message }));
+      return { body: { inFlight: lane.inFlight() - before.active, queued: lane.queued() - before.queued } };
+    },
+    "GET /pilot-requests": async () => ({ body: await pilotRequests }),
     "POST /report-too-much": () => {
       for (let time = 0; time < 2; time += 1) flying.report({ status: "running", phase: "Probing", resumeData: "x".repeat(70 * 1024) });
       return { body: {} };
@@ -81,6 +127,7 @@ startBackend({
   },
 });
 let flying = null;
+let pilotRequests = null;
 `;
 
 function makeRoot() {
@@ -90,6 +137,8 @@ function makeRoot() {
   fs.mkdirSync(path.join(root, "node_modules"), { recursive: true });
   fs.mkdirSync(path.join(root, "data"), { recursive: true });
   fs.copyFileSync(path.join(REPO, "web", "src", "plugin-api", "backend.ts"), path.join(root, "web", "src", "plugin-api", "backend.ts"));
+  fs.mkdirSync(path.join(root, "web", "src", "app"), { recursive: true });
+  fs.copyFileSync(path.join(WEB_SRC, "app", "transport.ts"), path.join(root, "web", "src", "app", "transport.ts"));
   fs.writeFileSync(path.join(root, "plugins", "probe", "backend.ts"), BACKEND);
   fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ type: "module" }));
   return root;
@@ -180,8 +229,10 @@ async function makeFixture(t, extra = {}) {
       backoffMs: [50],
       log: () => {},
       runEvents: events,
-      fork: (...args) => {
-        const child = fork(...args);
+      fork: (file, args, options) => {
+        const child = fork(file, args, extra.readPilotFlow
+          ? { ...options, execArgv: [...options.execArgv, `--allow-fs-read=${WEB_SRC}`] }
+          : options);
         const send = child.send.bind(child);
         child.send = (message, ...rest) => { sentToPlugin.push(JSON.stringify(message)); return send(message, ...rest); };
         return child;
@@ -291,6 +342,118 @@ test("a Request given to a run's fetch goes as what it says", async (t) => {
   assert.equal(asked.body, "given");
   assert.equal(asked.headers.get("x-from-request"), "yes");
   await f.bots.stop(f.row().botID, ACCOUNT.accountID);
+});
+
+for (const reach of ["inprocess", "loopback", "fallback"]) {
+  test(`a plugin pilot's six requests keep the HTTP lane only where needed (${reach})`, { timeout: 12_000 }, async (t) => {
+    const local = reach === "inprocess";
+    const { promise: hold, resolve: release } = Promise.withResolvers();
+    const slow = ["fleet", "Jettison", "CmdApproach", "CmdWarpToStuffAutopilot"];
+    const fast = ["fleet-menu", "AddTarget"];
+    const seen = [];
+    const answered = [];
+    const app = express();
+    app.use(express.json());
+    async function answer(res, name, envelope) {
+      seen.push(name);
+      if (slow.includes(name)) await hold;
+      res.json({ ok: true, result: name, ...envelope });
+      answered.push(name);
+    }
+    app.get("/api/bridge/bound-fleet", (req, res) => answer(res, req.query.view === "menu" ? "fleet-menu" : "fleet"));
+    app.post("/api/bridge/call", (req, res) => {
+      const { service, method } = req.body;
+      const envelope = { service, method };
+      if (slow.includes(method) || fast.includes(method)) return answer(res, method, envelope);
+      res.json({ ok: true, result: null, ...envelope });
+    });
+    app.get("/api/bridge/events", (_req, res) => res.status(204).end());
+    app.use((_req, res) => res.json({ ok: true }));
+
+    let baseUrl = "http://bff.test";
+    if (!local) {
+      const server = app.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      baseUrl = `http://127.0.0.1:${server.address().port}`;
+      t.after(() => {
+        server.closeAllConnections();
+        return new Promise(resolve => server.close(resolve));
+      });
+    }
+    const fetch = reach === "loopback" ? undefined : createInProcessFetch(app, {
+      baseUrl: local ? baseUrl : "http://another-origin.test",
+    });
+    const f = await makeFixture(t, {
+      bots: { baseUrl, fetch },
+      readPilotFlow: true,
+      plugins: { pingMs: 4_000, requestTimeoutMs: 8_000 },
+    });
+    const started = await f.startRun();
+    assert.equal(started.ok, true, started.message);
+    const { hostedLane, HOSTED_MAX_IN_FLIGHT } = require("../web/src/app/transport.ts");
+    const slots = local ? Array.from({ length: HOSTED_MAX_IN_FLIGHT - 2 }, () => Promise.withResolvers()) : [];
+    const before = hostedLane.queued();
+    // Leave two slots in the parent BFF. The child has its own budget, and must share the parent with other pilots.
+    const occupants = slots.map((slot, id) => hostedLane.run("read", "/api/held", () => slot.promise, { pilot: String(id) }));
+    let settled;
+    try {
+      const admission = await f.request("POST", "/pilot-requests");
+      assert.equal(admission.status, 200, admission.body?.message);
+      if (local) {
+        assert.ok(await until(() => hostedLane.queued() - before === 4 && seen.length === 2, 2000));
+        // Three queued writes can start. The fast AddTarget reply then frees a slot for the fleet read.
+        for (const slot of slots.slice(0, 3)) slot.resolve();
+      }
+      assert.ok(await until(() => seen.length >= 6 - admission.body.queued, 2_000), JSON.stringify(seen));
+      if (local) assert.ok(seen.indexOf("AddTarget") < seen.indexOf("fleet-menu"), "IPC preserves command priority at the parent");
+      assert.equal(seen.length, local ? 6 : 4, "BFF arrivals while four replies are held");
+      assert.deepEqual(answered.sort(), local ? [...fast].sort() : []);
+      assert.deepEqual(admission.body, local ? { inFlight: 6, queued: 0 }
+        : { inFlight: 4, queued: 2 });
+    } finally {
+      for (const slot of slots) slot.resolve();
+      release();
+      await Promise.all(occupants);
+      settled = await f.request("GET", "/pilot-requests");
+    }
+    assert.equal(settled.status, 200);
+    assert.deepEqual(settled.body, { replies: [...slow, ...fast], cancelled: "BRIDGE_NETWORK_ERROR" });
+    assert.deepEqual(seen.sort(), [...slow, ...fast].sort(), "each request reaches the BFF exactly once");
+    await f.bots.stop(started.bot.botID, ACCOUNT.accountID);
+  });
+}
+
+test("a plugin pilot's jump reaches the BFF while every BFF slot is taken; its lock waits", { timeout: 12_000 }, async (t) => {
+  const seen = [];
+  const app = express();
+  app.use(express.json());
+  app.post("/api/bridge/call", (req, res) => {
+    seen.push(req.body.method);
+    res.json({ ok: true, service: req.body.service, method: req.body.method, result: null });
+  });
+  app.get("/api/bridge/events", (_req, res) => res.status(204).end());
+  app.use((_req, res) => res.json({ ok: true }));
+  const baseUrl = "http://bff.test";
+  const f = await makeFixture(t, { bots: { baseUrl, fetch: createInProcessFetch(app, { baseUrl }) } });
+  const started = await f.startRun();
+  assert.equal(started.ok, true, started.message);
+  const { hostedLane, HOSTED_MAX_IN_FLIGHT } = require("../web/src/app/transport.ts");
+  const slots = Array.from({ length: HOSTED_MAX_IN_FLIGHT - hostedLane.inFlight() }, () => Promise.withResolvers());
+  const occupants = slots.map((slot, id) => hostedLane.run("read", "/api/held", () => slot.promise, { pilot: `other-${id}` }));
+  let lock;
+  try {
+    lock = f.request("POST", "/ask-call", { service: "dogmaIM", method: "AddTarget", args: [501] });
+    const jump = await f.request("POST", "/ask-call", { service: "beyonce", method: "CmdStargateJump", args: [401, 402, 9001] });
+    assert.equal(jump.status, 200, jump.body?.message);
+    assert.equal(jump.body.status, 200);
+    assert.deepEqual(seen, ["CmdStargateJump"], "the lock is still queued at the BFF");
+  } finally {
+    for (const slot of slots) slot.resolve();
+    await Promise.all(occupants);
+  }
+  assert.equal((await lock).body.status, 200);
+  assert.deepEqual(seen, ["CmdStargateJump", "AddTarget"]);
+  await f.bots.stop(started.bot.botID, ACCOUNT.accountID);
 });
 
 test("what a run keeps is bounded, and going over the bound is said once", async (t) => {
