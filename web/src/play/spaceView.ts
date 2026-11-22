@@ -2305,7 +2305,8 @@ export class SpaceView {
     const metenoxRange = e.typeID === METENOX_TYPE_ID ? `${dist <= METENOX_BOARD_RANGE}:${dist < METENOX_DEPOSIT_RANGE}:${dist < METENOX_MATERIAL_RANGE}` : "";
     const gateSecurity = e.groupID === 10 ? this.options.systemSecurity?.((e as Entity & { jumpSystemID?: number | null }).jumpSystemID ?? 0) ?? null : null;
     const availableNow = [...this.menuPaths(e)].join(",");
-    const sig = `${e.itemID}:${gateSecurity}:${availableNow}:${this.locked.has(e.itemID)}:${dist >= 150_000}:${e.jumpBridge?.activationState ?? ""}:${this.snapshot?.ship?.mode === "WARP"}:${cargoLabel}:${wormholeLabel}:${metenoxRange}`;
+    // (the group name too: the buttons' reasons name it - CannotKeepInRange - and the names load after the page)
+    const sig = `${this.options.groupName?.(e.groupID ?? 0) ?? ""}:${e.itemID}:${gateSecurity}:${availableNow}:${this.locked.has(e.itemID)}:${dist >= 150_000}:${e.jumpBridge?.activationState ?? ""}:${this.snapshot?.ship?.mode === "WARP"}:${cargoLabel}:${wormholeLabel}:${metenoxRange}`;
     if (body.getAttribute("data-sig") !== sig) {
       body.setAttribute("data-sig", sig);
       // SelectedItemWnd._UpdateSlimItem: its picture, GetSlimItemName with a stargate's destination security after it
