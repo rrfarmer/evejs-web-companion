@@ -170,7 +170,9 @@
     const own = $space.snapshot?.entities.find((x) => x.isSelf);
     const icon = e.kind === "container" ? clientTexture("res:/UI/Texture/Shared/Brackets/containerCargo_20x20.png")
       : bracketIcon({ typeID: e.typeID ?? null, groupID: e.groupID ?? null, categoryID: e.categoryID ?? null }) ?? clientTexture("res:/UI/Texture/WindowIcons/cargo.png");
-    return [{ id, typeID: e.typeID ?? 0, name: e.name || typeName(e.typeID ?? 0) || "", dist: own ? fmtDist(surfaceDistanceMeters(own.position, own.radius, e.position, e.radius), 1) : "", icon }];
+    const surface = own ? surfaceDistanceMeters(own.position, own.radius, e.position, e.radius) : null;
+    // BaseCelestialContainer.IsInRange: within maxCargoContainerTransferDistance (2,500 m) of its surface
+    return [{ id, typeID: e.typeID ?? 0, name: e.name || typeName(e.typeID ?? 0) || "", dist: surface === null ? "" : fmtDist(surface, 1), icon, inRange: surface === null || surface <= 2500 }];
   }));
   function openTemp(id: number): void {
     current = `temp:${id}`;
@@ -502,7 +504,7 @@
       {#each temps as t (t.id)}
         <!-- TreeViewEntry of a removable TreeDataInv: the 73_16_210 remove sprite at the spacer's end (hint Close), the
              icon 4 after it, the label with its distance -->
-        <div onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node temp" class:sel={current === `temp:${t.id}`} role="treeitem" aria-selected={current === `temp:${t.id}`} tabindex="-1"
+        <div onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node temp" class:far={!t.inRange} class:sel={current === `temp:${t.id}`} role="treeitem" aria-selected={current === `temp:${t.id}`} tabindex="-1"
           class:drop={dropKey === `temp:${t.id}`} onclick={() => openTemp(t.id)} onkeydown={() => {}}
           ondragover={$inventoryState.container?.itemID === t.id ? dragOver(`temp:${t.id}`) : undefined} ondragleave={() => (dropKey = null)}
           ondrop={$inventoryState.container?.itemID === t.id ? (e) => void dropOn(`temp:${t.id}`, e) : undefined}>
@@ -617,6 +619,11 @@
   .node.temp { margin-top: 8px; padding-left: 24px; }
   .tremove { flex: none; width: 16px; height: 16px; min-height: 0; margin-right: 4px; padding: 0; border: 0; background: center / 16px 16px no-repeat; cursor: pointer; }
   .tdist { color: rgba(255, 255, 255, 0.4); }
+  /* TreeViewEntry.SetAccessability (invWindow.UpdateCelestialEntryStatus every 500 ms): out of range the icon and the
+     label TextColor.DISABLED 0.3 (selected or not) */
+  .node.temp .ticon img { opacity: 0.75; }
+  .node.temp.far .ticon img { opacity: 0.3; }
+  .node.temp.far, .node.temp.far.sel { color: rgba(255, 255, 255, 0.3); }
   .exp { flex: none; width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; background: transparent; position: relative; cursor: pointer; }
   .exp::before { content: ""; position: absolute; left: 12px; top: 8px; width: 7px; height: 7px; background: rgba(255, 255, 255, 0.5);
     mask: url(/client-res/ui/texture/classes/neocom/arrowdown.png) center / 7px 7px no-repeat; -webkit-mask: url(/client-res/ui/texture/classes/neocom/arrowdown.png) center / 7px 7px no-repeat;
