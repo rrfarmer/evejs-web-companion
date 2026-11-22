@@ -325,7 +325,10 @@ class TargetInBar {
   private readonly labelBox: HTMLDivElement;
   private miningReading: MiningTargetReading | undefined;
   private miningGauge: {
-    root: HTMLDivElement; fill: HTMLSpanElement; effects: HTMLSpanElement; number: HTMLDivElement;
+    root: HTMLDivElement;
+    arcs: { asteroid: SVGPathElement; yieldArc: SVGPathElement; waste: SVGPathElement; crit: SVGPathElement };
+    critIcon: HTMLSpanElement;
+    resetTimer: ReturnType<typeof setTimeout> | null;
   } | undefined;
   private readonly assigned: HTMLDivElement;
   private weaponsKey = "";
@@ -495,6 +498,14 @@ class TargetInBar {
   /** The weapon icon of a module (TargetInBar.GetWeapon), for its hairline. */
   weaponElement(moduleID: number): HTMLElement | null { return this.assigned.querySelector<HTMLElement>(`[data-module="${moduleID}"]`); }
 
+  /**
+   * AsteroidQuantityGaugeCircular (mining/client/ui, in TargetInBar's icon_container, centred): 80 x 80, a 270 degree arc
+   * from 0.75 pi (DonutSegment, line 3) - the bg arc white 0.2 under the crit (DESTINATION_YELLOW), waste (DANGER_RED)
+   * and yield (SUCCESS_GREEN) arcs and the asteroid arc (white) on top, each from the start to its cumulative share
+   * (_get_proportional: at least 0.02 of the original for a yield, crit or waste), the gauge_overlay sprite (black 0.35)
+   * over them and the crit_success icon (16, CENTERBOTTOM) fading 1.5 to 0 over 2.2 s on a crit. A mined cycle shows
+   * its diff for 1 s (_reset_value), then the asteroid's own share alone.
+   */
   private updateMining(reading: MiningTargetReading | undefined): void {
     const previous = this.miningReading;
     this.miningReading = reading;
@@ -504,46 +515,74 @@ class TargetInBar {
     }
     if (previous?.remainingQuantity === reading.remainingQuantity && previous.originalQuantity === reading.originalQuantity &&
         previous.extraction === reading.extraction) return;
+    const SIZE = 80, R = SIZE / 2 - 1.5, LEN = R * 1.5 * Math.PI;
     if (!this.miningGauge) {
-      const root = div(this.iconContainer, 10, 78, 74, 19, "tb-mining");
+      const root = div(this.iconContainer, (ICON_SIZE - SIZE) / 2, (ICON_SIZE - SIZE) / 2, SIZE, SIZE, "tb-mining");
       root.setAttribute("role", "meter");
       root.setAttribute("aria-label", "Resource quantity");
       root.setAttribute("aria-valuemin", "0");
-      const track = div(root, 0, 0, 74, 5, "tb-mining-track");
-      const fill = document.createElement("span");
-      fill.className = "tb-mining-fill";
-      const effects = document.createElement("span");
-      track.append(fill, effects);
-      const number = div(root, 0, 6, 74, 14, "tb-mining-number");
-      this.miningGauge = { root, fill, effects, number };
+      root.style.pointerEvents = "none";
+      const NS = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(NS, "svg");
+      svg.setAttribute("width", String(SIZE));
+      svg.setAttribute("height", String(SIZE));
+      svg.style.position = "absolute";
+      const a0 = 0.75 * Math.PI, a1 = a0 + 1.5 * Math.PI;
+      const pt = (t: number) => `${(SIZE / 2 + R * Math.cos(t)).toFixed(3)} ${(SIZE / 2 + R * Math.sin(t)).toFixed(3)}`;
+      const d = `M ${pt(a0)} A ${R} ${R} 0 1 1 ${pt(a1)}`;
+      const arc = (colour: string) => {
+        const path = document.createElementNS(NS, "path");
+        path.setAttribute("d", d);
+        path.setAttribute("fill", "none");
+        path.setAttribute("stroke", colour);
+        path.setAttribute("stroke-width", "3");
+        path.setAttribute("stroke-dasharray", `0 ${LEN}`);
+        path.style.transition = "stroke-dasharray 0.5s";
+        svg.appendChild(path);
+        return path;
+      };
+      const bg = arc("rgba(255,255,255,0.2)");
+      bg.setAttribute("stroke-dasharray", `${LEN} ${LEN}`);
+      const crit = arc("rgb(240,255,69)"), waste = arc("rgb(255,69,75)"), yieldArc = arc("rgb(141,193,105)"), asteroid = arc("#fff");
+      const overlay = document.createElement("span");
+      Object.assign(overlay.style, { position: "absolute", inset: "0", background: "rgba(0,0,0,0.35)",
+        webkitMask: `url(/client-res/ui/texture/classes/mining/gauge_overlay.png) center / 100% 100% no-repeat`,
+        mask: `url(/client-res/ui/texture/classes/mining/gauge_overlay.png) center / 100% 100% no-repeat` });
+      const critIcon = document.createElement("span");
+      Object.assign(critIcon.style, { position: "absolute", left: `${SIZE / 2 - 8}px`, bottom: "0", width: "16px", height: "16px", opacity: "0",
+        background: "rgb(240,255,69)", webkitMask: "url(/client-res/ui/texture/eveicon/category_icons/crit_success_16px.png) center / 16px no-repeat",
+        mask: "url(/client-res/ui/texture/eveicon/category_icons/crit_success_16px.png) center / 16px no-repeat" });
+      root.append(svg, overlay, critIcon);
+      this.miningGauge = { root, arcs: { asteroid, yieldArc, waste, crit }, critIcon, resetTimer: null };
     }
-    const { root, fill, effects, number } = this.miningGauge;
+    const g = this.miningGauge;
     const quantity = grouped(reading.remainingQuantity);
-    root.hidden = false;
-    root.setAttribute("aria-valuemax", String(Math.max(1, reading.originalQuantity, reading.remainingQuantity)));
-    root.setAttribute("aria-valuenow", String(reading.remainingQuantity));
-    root.setAttribute("aria-valuetext", `${quantity} units remaining`);
-    number.textContent = `${quantity} units`;
+    g.root.hidden = false;
+    g.root.setAttribute("aria-valuemax", String(Math.max(1, reading.originalQuantity, reading.remainingQuantity)));
+    g.root.setAttribute("aria-valuenow", String(reading.remainingQuantity));
+    g.root.setAttribute("aria-valuetext", `${quantity} units remaining`);
+    const original = reading.originalQuantity;
+    const share = (q: number, min = 0.02) => (original > 0 ? Math.max(min, q / original) : 0);
+    const set = (path: SVGPathElement, v: number) => path.setAttribute("stroke-dasharray", `${Math.min(1, v) * LEN} ${LEN}`);
+    const remaining = share(reading.remainingQuantity, 0);
+    set(g.arcs.asteroid, remaining);
     const extraction = previous && previous.extraction !== reading.extraction ? reading.extraction : null;
-    const age = extraction ? Math.max(0, Date.now() - extraction.atMs) : Infinity;
-    const { remaining, segments } = miningGaugeSegments(reading, age < MINING_FLASH_MS);
-    fill.style.width = `${remaining * 100}%`;
-    effects.replaceChildren();
-    root.querySelector(".tb-mining-critical")?.remove();
-    for (const part of segments) {
-      const segment = document.createElement("span");
-      segment.className = `tb-mining-segment ${part.kind}`;
-      segment.style.left = `${part.left * 100}%`;
-      segment.style.width = `${part.width * 100}%`;
-      segment.style.animationDelay = `${-age}ms`;
-      effects.appendChild(segment);
-    }
-    if (extraction && extraction.criticalQuantity > 0 && age < MINING_CRITICAL_MS) {
-      const critical = document.createElement("span");
-      critical.className = "tb-mining-critical";
-      critical.textContent = "Critical yield";
-      critical.style.animationDelay = `${-age}ms`;
-      root.appendChild(critical);
+    if (g.resetTimer) { clearTimeout(g.resetTimer); g.resetTimer = null; }
+    if (extraction && original > 0) {
+      let v = remaining + share(extraction.yieldQuantity);
+      set(g.arcs.yieldArc, v);
+      if (extraction.residueQuantity) { v += share(extraction.residueQuantity); set(g.arcs.waste, v); } else set(g.arcs.waste, 0);
+      if (extraction.criticalQuantity) {
+        v += share(extraction.criticalQuantity);
+        set(g.arcs.crit, v);
+        g.critIcon.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 2200, easing: "linear" });
+      } else set(g.arcs.crit, 0);
+      g.resetTimer = setTimeout(() => {
+        if (!this.miningGauge) return;
+        for (const arc of [g.arcs.yieldArc, g.arcs.waste, g.arcs.crit]) set(arc, 0);
+      }, 1000);
+    } else {
+      for (const arc of [g.arcs.yieldArc, g.arcs.waste, g.arcs.crit]) set(arc, 0);
     }
   }
 
