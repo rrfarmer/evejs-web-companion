@@ -2274,6 +2274,8 @@ export class SpaceView {
     if (category === 25 || e.kind === "asteroid" || [711, 101, 12, 340, 448, 15, 10, 649, 186].includes(e.groupID ?? -1)) {
       reasons.keep = this.actions.word?.("UI/Menusvc/MenuHints/CannotKeepInRange", { groupName: this.options.groupName?.(e.groupID ?? 0) ?? "" }) ?? undefined;
     }
+    // celestialCheckers.IsInteractive (ShipAlreadyPiloted): a ship with a pilot in it cannot be boarded
+    if (e.categoryID === 6 && !e.isSelf && e.characterID) reasons.board = this.actions.word?.("UI/Menusvc/MenuHints/ShipAlreadyPiloted") ?? "There is already a pilot in this ship";
     const lockRange = this.actions.shipAttribute?.(76) ?? null;
     if (lockRange !== null && this.distanceTo(e) >= lockRange) reasons.lock = this.actions.word?.("UI/Menusvc/MenuHints/NotInTargetRange") ?? undefined;
     return out.map((a) => {
