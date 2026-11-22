@@ -419,7 +419,7 @@ let attackingMe: ReadonlySet<number> = new Set();
 
 /** A bracket glyph by kind, in the client's spirit: the shape says what it is, the colour whose. */
 /** GetIconColor(slimItem, getColorHint=True): the icon's colour and its hint's label (Tooltips/Overview/...), or none. */
-export function iconLook(e: Entity): { colour: string; hint: string | null } {
+export function iconLook(e: Entity): { colour: string; hint: string | null; sort: number } {
   // bracketVarious.GetIconColor: OVERVIEW_NORMAL_COLOR (white) for all but the pilot's own ship (OVERVIEW_OWN_SHIP_COLOR, 0.7),
   // an NPC (its owner's standing's colour, npcColour - ICON_COLOR_BAD (1, 0.1, 0.1) 'Hostile' for the belt rats, read
   // through gridcheck), and a wreck or can: abandoned OVERVIEW_ABANDONED_CONTAINER_COLOR
@@ -437,15 +437,18 @@ export function iconLook(e: Entity): { colour: string; hint: string | null } {
   const jumpTo = (e as Entity & { jumpSystemID?: number | null }).jumpSystemID ?? null;
   const onRoute = (e.groupID === 10 && jumpTo !== null && jumpTo === routeNext.nextSystemID)
     || ((e.groupID === 15 || e.categoryID === 65) && e.itemID === routeNext.firstWaypoint);
-  if (onRoute) return { colour: "rgb(240, 255, 69)", hint: "Tooltips/Overview/StargateOnRoute" };
+  // (and its sort value: -1 on route or forbidden, an NPC's standing class 1 hostile / 3 neutral / 5 friendly, else 0)
+  if (onRoute) return { colour: "rgb(240, 255, 69)", hint: "Tooltips/Overview/StargateOnRoute", sort: -1 };
   if (e.isNpc) {
     const colour = npcColour(e);
-    return { colour, hint: colour === "rgb(255, 26, 26)" ? "Tooltips/Overview/HostileNPC" : colour === "#ffffff" && npcHasStandings(e) ? "Tooltips/Overview/NeutralNPC" : null };
+    if (!npcHasStandings(e)) return { colour, hint: null, sort: 0 };
+    return colour === "rgb(255, 26, 26)" ? { colour, hint: "Tooltips/Overview/HostileNPC", sort: 1 }
+      : colour === "#ffffff" ? { colour, hint: "Tooltips/Overview/NeutralNPC", sort: 3 } : { colour, hint: null, sort: 5 };
   }
-  if (e.isSelf) return { colour: "#b3b3b3", hint: null };
-  if (looted === "abandoned") return { colour: "rgb(51, 128, 255)", hint: "Tooltips/Overview/AbandonedContainer" };
-  if (looted === "forbidden") return { colour: "rgb(255, 255, 0)", hint: "Tooltips/Overview/RestrictedContainer" };
-  return { colour: "#ffffff", hint: null };
+  if (e.isSelf) return { colour: "#b3b3b3", hint: null, sort: 0 };
+  if (looted === "abandoned") return { colour: "rgb(51, 128, 255)", hint: "Tooltips/Overview/AbandonedContainer", sort: 0 };
+  if (looted === "forbidden") return { colour: "rgb(255, 255, 0)", hint: "Tooltips/Overview/RestrictedContainer", sort: -1 };
+  return { colour: "#ffffff", hint: null, sort: 0 };
 }
 
 export function glyph(e: Entity): string {
@@ -1550,6 +1553,7 @@ export class SpaceView {
       glyph,
       // OverviewScrollEntry.LoadIconTooltipPanel's lines after the group: HostileAction or TargetLock, the hacked hint,
       // GetIconColor's hint, and for a harvestable thing mining_util.get_volume_est_price_formatted
+      iconSortValue: (e) => iconLook(e).sort,
       iconTooltipLines: (e) => {
         const word = (label: string, own: string, args?: Readonly<Record<string, string | number>>) => this.actions.word?.(label, args) ?? own;
         const threat: string[] = [], out: string[] = [];

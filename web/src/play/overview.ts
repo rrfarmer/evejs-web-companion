@@ -167,7 +167,7 @@ if (typeof window !== "undefined") {
 const isOverviewSettingKey = (k: string) => k.startsWith("evejs.ui.overview.") || k.startsWith(TABS_KEY) || k.startsWith(SORT_KEY) || k.startsWith(TAB_KEY) || k.startsWith(SORT_ENABLED_KEY);
 /** FmtDate: 2026.11.20 22:16 */
 const fmtDate = (ms: number) => { const d = new Date(ms), p = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
-type SortColumn = "distance" | "name" | "type" | "size" | "velocity" | "angular" | "radial" | "transversal" | "tag" | "corporation" | "alliance" | "faction" | "militia";
+type SortColumn = "icon" | "distance" | "name" | "type" | "size" | "velocity" | "angular" | "radial" | "transversal" | "tag" | "corporation" | "alliance" | "faction" | "militia";
 const SORT_COLUMNS: readonly SortColumn[] = ["distance", "name", "type", "size", "velocity", "angular", "radial", "transversal", "tag", "corporation", "alliance", "faction", "militia"];
 
 /** An affiliation column's words for a thing (overviewWindow.py 937 to 975); null where it has none or the page none yet. */
@@ -180,7 +180,7 @@ interface ColumnDef { id: ColumnID; label: string; own: string; unit?: string; h
  * COLUMNMINDEFAULTSIZE as widths and RIGHTALIGNEDCOLUMNS right aligned.
  */
 const COLUMNS: readonly ColumnDef[] = [
-  { id: "ICON", label: "UI/Generic/Icon", own: "Icon", width: 22 },
+  { id: "ICON", label: "UI/Generic/Icon", own: "Icon", width: 22, sort: "icon" },
   { id: "DISTANCE", label: "UI/Common/Distance", own: "Distance", width: 80, right: true, sort: "distance" },
   { id: "NAME", label: "UI/Common/Name", own: "Name", width: 112, sort: "name" },
   { id: "TYPE", label: "UI/Common/Type", own: "Type", width: 112, sort: "type" },
@@ -292,6 +292,8 @@ export interface OverviewHooks {
   activate(itemID: number): void;
   glyph(e: Entity): string;
   /** The icon tooltip's lines after the group's name (OverviewScrollEntry.LoadIconTooltipPanel). */
+  /** GetIconColor's sort value (getSortValue=True), for the Icon column's sort. */
+  iconSortValue?(e: Entity): number;
   iconTooltipLines?(e: Entity): { readonly threat: readonly string[]; readonly after: readonly string[] };
   /** stateSvc's targeted / activeTarget / targeting for the row's SpaceObjectIcon (UpdateSpaceObjectState). */
   targetState?(itemID: number): { readonly locked: boolean; readonly active: boolean; readonly locking: boolean; readonly hostile?: boolean; readonly fleet?: boolean; readonly attacking?: boolean };
@@ -579,7 +581,8 @@ export class Overview {
     this.table.querySelector("colgroup")!.innerHTML = cols.map((c) => `<col style="width:${c.width}px">`).join("");
     this.table.style.width = `${cols.reduce((n, c) => n + c.width, 0)}px`;
     this.table.tHead!.innerHTML = `<tr>${cols.map((c) => {
-      if (c.id === "ICON") return `<th class="ov-icon"></th>`;
+      // the icon's header: no label, sorting by the icon (sortIconIndex)
+      if (c.id === "ICON") return `<th class="ov-icon" data-sort="icon"><button type="button" aria-label="${esc(word(c.label, c.own))}"></button></th>`;
       const text = word(c.label, c.own) + (c.unit ? ` (${word(c.unit, c.unit.endsWith("DegreesPerSecondUnitShort") ? "deg/s" : "m/s")})` : "");
       return `<th${c.right ? ` class="ov-dist"` : ""} data-sort="${c.sort}"><button type="button" aria-label="${esc(text)}">${esc(text)}</button></th>`;
     }).join("")}</tr>`;
@@ -1870,7 +1873,16 @@ export class Overview {
         if (top) return top;
       }
       // (a ball with no velocity data keeps defaultSortValue 0 in the velocity columns, as the client sorts it)
-      const by = key === "distance" ? a.d - b.d
+      // the Icon column (overviewWindow sortValue[sortIconIndex]): [iconFlag, colorSortValue, backgroundFlag, categoryID,
+      // groupID, typeID], a structure's icon flag its colour's sort value where it has one
+      const iconKey = (e: Entity): number[] => {
+        const f = iconAndBackgroundFlags(e, this.groupOf(e), relations);
+        const colour = this.hooks.iconSortValue?.(e) ?? 0;
+        return [e.categoryID === 65 && colour ? colour : f.icon?.flag ?? 0, colour, f.background?.flag ?? 0, e.categoryID ?? 0, this.groupOf(e) ?? 0, e.typeID ?? 0];
+      };
+      const tuple = (x: number[], y: number[]): number => { for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i]! - y[i]!; return 0; };
+      const by = key === "icon" ? tuple(iconKey(a.e), iconKey(b.e))
+        : key === "distance" ? a.d - b.d
         : key === "velocity" ? (isStatic(a.e) ? 0 : speed(a.e)) - (isStatic(b.e) ? 0 : speed(b.e))
         : key === "size" ? (a.e.radius ?? 0) - (b.e.radius ?? 0)
         : key === "angular" ? (angular(a.e, a.d) ?? 0) - (angular(b.e, b.d) ?? 0)
