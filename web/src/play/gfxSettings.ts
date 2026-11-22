@@ -34,6 +34,8 @@ export interface GfxSettings {
   windowTransparency: number;
   /** window_transparency_noblur_setting (0 .. 1, default 0.05): without it. */
   windowTransparencyNoBlur: number;
+  /** window_transparency_light_mode_setting (windowTransparencyLightMode, 0 .. 1, default 1): the light-background windows'. */
+  windowTransparencyLightMode: number;
   /** uiColorSvc's theme (settings.char.windows wndColorThemeID; colorThemes.DEFAULT_COLORTHEMEID Photon). */
   colorThemeID: string;
   /** The Audio panel (settings.public.audio): audioEnabled, masterVolume 0.8, uiGain 0.5, eveampGain (music) 0.5,
@@ -55,7 +57,7 @@ export const GFX_DEFAULTS: Readonly<GfxSettings> = {
   shaderQuality: 3, postProcessingQuality: 2, textureQuality: 0, lodQuality: 3, shadowQuality: 2, aoQuality: 3,
   volumetricQuality: 3, reflectionQuality: 3, turretsEnabled: true, effectsEnabled: true, missilesEnabled: true,
   explosionEffectsEnabled: true, droneModelsEnabled: true, cameraShakeEnabled: true, dynamicCameraMovement: true,
-  windowBlur: true, windowTransparency: 1, windowTransparencyNoBlur: 0.05, colorThemeID: DEFAULT_COLORTHEMEID,
+  windowBlur: true, windowTransparency: 1, windowTransparencyNoBlur: 0.05, windowTransparencyLightMode: 1, colorThemeID: DEFAULT_COLORTHEMEID,
   audioEnabled: true, useCombatMusic: true, suppressTurret: false, useOldJukeboxOverride: false, masterVolume: 0.8, uiGain: 0.5, eveampGain: 0.5, evevoiceGain: 0.7, worldVolume: 0.7,
 };
 
@@ -103,7 +105,7 @@ export function setGfx(change: Partial<GfxSettings>): void {
 /** ResetGraphicsSettings: every setting to its default. */
 export function resetGfx(): void {
   // (the graphics only: the window appearance is the User Interface panel's)
-  const { windowBlur: _b, windowTransparency: _t, windowTransparencyNoBlur: _n, colorThemeID: _c, audioEnabled: _a,
+  const { windowBlur: _b, windowTransparency: _t, windowTransparencyNoBlur: _n, windowTransparencyLightMode: _l, colorThemeID: _c, audioEnabled: _a,
     masterVolume: _m, uiGain: _u, eveampGain: _e, evevoiceGain: _v, worldVolume: _w, ...graphics } = GFX_DEFAULTS;
   setGfx(graphics);
 }
@@ -119,7 +121,7 @@ export function windowAppearance(s: Readonly<GfxSettings> = current): { blur: bo
   const blur = s.windowBlur && s.shaderQuality > 1;
   // a window with the light background (IsLightBackground: the widgets) lerps on to BRIGHTNESS_LIGHT_IDLE 0.85 /
   // _IN_FOCUS 0.5 - without the blur to the opacity 0.3 / 0.7 - by windowTransparencyLightMode (1 by default)
-  const light = 1;
+  const light = Math.min(1, Math.max(0, s.windowTransparencyLightMode ?? 1));
   if (blur) {
     const t = Math.min(1, Math.max(0, s.windowTransparency));
     const idle = lerp(0, 0.3, t), focused = lerp(0, 0.2, t);

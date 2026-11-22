@@ -70,7 +70,8 @@
     effects: `${P}Effects/Header`, cameraHeader: `${P}CameraSettings/InSpaceCameraSettings`, cameraShake: `${P}Effects/CameraShake`,
     dynamicCamera: `${P}CameraSettings/CameraDynamicMovement`, dynamicCameraHint: `${P}CameraSettings/CameraDynamicMovementTooltip`,
     windowAppearance: "UI/SystemMenu/GeneralSettings/WindowAppearance", windowBlur: "UI/SystemMenu/GeneralSettings/General/EnableWindowBlur",
-    blurDisabledHint: "UI/SystemMenu/GeneralSettings/WindowBlurDisabledHint", transparency: "UI/SystemMenu/GeneralSettings/Transparency",
+    blurDisabledHint: "UI/SystemMenu/GeneralSettings/WindowBlurDisabledHint", transparency: "UI/SystemMenu/GeneralSettings/Transparency", transparencyLight: "UI/SystemMenu/GeneralSettings/TransparencyLightMode",
+    transparencyHint: "UI/SystemMenu/GeneralSettings/Tooltips/TransparencyHint", transparencyLightHint: "UI/SystemMenu/GeneralSettings/Tooltips/LightTransparencyHint",
     off: `${P}Common/Off`, fullTransparency: "UI/SystemMenu/GeneralSettings/FullTransparency",
     filter: "UI/Inventory/Filter", command: "UI/SystemMenu/Shortcuts/Command", shortcut: "UI/SystemMenu/Shortcuts/Shortcut",
     noShortcut: "UI/SystemMenu/Shortcuts/NoShortcut", noneFound: "UI/SystemMenu/Shortcuts/NoShortcutsFoundWithFilter",
@@ -262,11 +263,19 @@
           <label class="sm-check" title={settings.shaderQuality <= 1 ? word(WORDS.blurDisabledHint, "") : ""}><input type="checkbox" disabled={settings.shaderQuality <= 1}
             checked={settings.windowBlur} onchange={(ev) => setGfx({ windowBlur: ev.currentTarget.checked })} /> {word(WORDS.windowBlur, "Enable Window Blur")}</label>
           {@const key = settings.windowBlur ? "windowTransparency" : "windowTransparencyNoBlur"}
-          <div class="sm-slider">
+          <div class="sm-slider" title={word(WORDS.transparencyHint, "")}>
             <span>{word(WORDS.transparency, "Transparency")}</span>
             <small>{word(WORDS.off, "Off")}</small>
             <input type="range" min="0" max="1" step="0.01" value={settings[key]}
               oninput={(ev) => setGfx({ [key]: Number(ev.currentTarget.value) } as Partial<GfxSettings>)} />
+            <small>{word(WORDS.fullTransparency, "Full Transparency")}</small>
+          </div>
+          <!-- the light-background windows' transparency (window_transparency_light_mode_setting, TransparencyLightMode) -->
+          <div class="sm-slider" title={word(WORDS.transparencyLightHint, "")}>
+            <span>{word(WORDS.transparencyLight, "Transparency (Light Mode)")}</span>
+            <small>{word(WORDS.off, "Off")}</small>
+            <input type="range" min="0" max="1" step="0.01" value={settings.windowTransparencyLightMode}
+              oninput={(ev) => setGfx({ windowTransparencyLightMode: Number(ev.currentTarget.value) })} />
             <small>{word(WORDS.fullTransparency, "Full Transparency")}</small>
           </div>
           <!-- ConstructColorThemeSection: the ship-faction checkbox, then ColorThemeContainer's presets - each entry 32
