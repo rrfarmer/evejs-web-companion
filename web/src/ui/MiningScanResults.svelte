@@ -53,6 +53,14 @@
   const words = $derived(store.words);
   const say = (label: string, own: string, args: Record<string, string | number> = {}) => { const t = $words.templates[label]; return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args as never, { nameOf: () => null } as never)) : own; };
   let collapsed = $state<ReadonlySet<number>>(new Set());
+  // the scroll's selected entry (Generic.OnClick: scroll.SelectNode), shown by its ListEntryUnderlay; a right-click
+  // selects too, since Generic.GetMenu runs the entry's OnClick first - for a MiningScanEntry that is the combat command
+  // and the rock selected in space, before its CelestialMenu
+  let selectedRock = $state<number | null>(null);
+  function clickRock(itemID: number): void {
+    selectedRock = itemID;
+    flightView?.()?.selectObjectiveTarget(itemID);
+  }
   let colSort = $state<number | null>(null);
   let colReversed = $state(false);
   function sortByColumn(k: number): void { if (colSort === k) colReversed = !colReversed; else { colSort = k; colReversed = false; } }
@@ -155,14 +163,14 @@
               <!-- MiningScanEntry: hover the rock's mouseOver state, right-click its CelestialMenu (the space menu), click
                    ExecuteCombatCommand then select (the view's select runs a held combat command); its TargetIconCont
                    (2, 0, 16 x 16) the activeTarget icon when locked, the shrinking targetFrame while locking -->
-              <tr data-rock-id={row.itemID}
+              <tr data-rock-id={row.itemID} class:selected={selectedRock === row.itemID} onclick={() => clickRock(row.itemID)}
                 onmouseenter={() => flightView?.()?.hoverObject(row.itemID)}
                 onmouseleave={() => flightView?.()?.hoverObject(null)}
-                oncontextmenu={(e) => { e.preventDefault(); dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID: row.itemID, x: e.clientX, y: e.clientY } })); }}>
+                oncontextmenu={(e) => { e.preventDefault(); clickRock(row.itemID); dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID: row.itemID, x: e.clientX, y: e.clientY } })); }}>
                 <td>
                   <span class="tgt-icon">{#if locked}<img src={clientTexture("res:/UI/Texture/classes/Bracket/activeTarget.png")} alt="" />{:else if acquiring}<span class="tgt-frame" style:border-image-source={`url(${clientTexture("res:/UI/Texture/classes/Bracket/targetFrame.png")})`}></span>{/if}</span>
                   {#if flightView}
-                    <button type="button" class="rock" onclick={() => flightView()?.selectObjectiveTarget(row.itemID)} aria-label={`Select ${group.name}${locked ? ", locked target" : ""}`}>
+                    <button type="button" class="rock" aria-label={`Select ${group.name}${locked ? ", locked target" : ""}`}>
                       {group.name}
                     </button>
                   {:else}{group.name}{/if}
@@ -221,6 +229,9 @@
   tbody button, .upgrade button { background: transparent; border: 0; color: inherit; }
   tbody th button { display: flex; align-items: center; gap: 0.4rem; width: 100%; padding: 0.26rem 0.42rem; text-align: left; }
   tbody button:hover, .upgrade button:hover { color: #8ad0e3; }
+  /* ListEntryUnderlay: THEME_FOCUSDARK at 0.2 under the mouse, 0.4 selected */
+  tbody tr[data-rock-id]:hover { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); }
+  tbody tr[data-rock-id].selected { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 40%, transparent); }
   .price { margin-left: auto; color: #bdd1d9; font-weight: normal; }
   .rock { padding: 0 0 0 0.7rem; }
   .locked { color: #8ad0e3; }
