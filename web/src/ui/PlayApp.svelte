@@ -1366,11 +1366,11 @@
       }
       const bay = bayWindows.find((b) => b.win.id === activeWinKey);
       if (bay) {
-        if (close) { void playUiEvent("ui_object_close_play"); bayWindows = bayWindows.filter((b) => b !== bay); } else bay.win.minimized = true;
+        if (close) { void playUiEvent("ui_object_close_play"); bayWindows = bayWindows.filter((b) => b !== bay); } else { bay.win.minimized = true; activeWinKey = null; }
         return true;
       }
       if (activeWinKey === containerWin.id && spaceContainer) {
-        if (close) { void playUiEvent("ui_object_close_play"); void s.flow.openContainer(null); } else containerWin.minimized = true;
+        if (close) { void playUiEvent("ui_object_close_play"); void s.flow.openContainer(null); } else { containerWin.minimized = true; activeWinKey = null; }
         return true;
       }
       const pw = document.querySelector<HTMLElement>(".pw.pw-active");
