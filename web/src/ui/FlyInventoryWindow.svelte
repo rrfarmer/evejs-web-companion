@@ -541,9 +541,15 @@
      spacer (1 + level) * LEFTPUSH 8 + 16 wide with the 16 px toggle at its right (the Neocom arrowDown in it, padded 4 4 5 5,
      LED grey, turned a quarter while collapsed), the icon height - 2 = 22, the TextBody label 4 after it */
   .nodes { flex: 1; overflow: auto; padding: 16px 0 0; margin-left: -8px; }
-  .node { display: flex; align-items: center; gap: 0; height: 24px; padding: 0; cursor: default; }
-  .node:hover { background: rgba(255, 255, 255, 0.06); }
-  .node.sel { background: rgba(88, 167, 191, 0.25); color: rgba(255, 255, 255, 0.9); }
+  .node { position: relative; display: flex; align-items: center; gap: 0; height: 24px; padding: 0; cursor: default; }
+  /* TreeViewEntry (read through gridcheck): a ListEntryUnderlay 23 high, THEME_FOCUSDARK at 0.2 hovered and 0.4 selected, and
+     for the selected one a SelectionIndicatorLine 1 x 16 at (4, 4) in 0.69 grey */
+  .node::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 23px; background: var(--theme-focus-dark, #305665); opacity: 0; pointer-events: none; }
+  .node:hover::before { opacity: 0.2; }
+  .node.sel::before { opacity: 0.4; }
+  .node.sel::after { content: ""; position: absolute; left: 4px; top: 4px; width: 1px; height: 16px; background: rgb(176, 176, 176); pointer-events: none; }
+  .node.sel { color: rgba(255, 255, 255, 0.9); }
+  .node > * { position: relative; }
   .node.sub { padding-left: 32px; }
   .exp { flex: none; width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; background: transparent; position: relative; cursor: pointer; }
   .exp::before { content: ""; position: absolute; left: 12px; top: 8px; width: 7px; height: 7px; background: rgba(255, 255, 255, 0.5);
