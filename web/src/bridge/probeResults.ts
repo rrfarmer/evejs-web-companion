@@ -301,6 +301,61 @@ export function registerResults(history: ResultsHistory, entries: readonly Probe
   return { scanNumber, results };
 }
 
+/**
+ * ScanHandler.InjectResults -> ResultsHistory.RegisterResults(results, incrementScanNumber=False, force): the sensor
+ * suite's sites put among the results at the scan number there is, each only where the history has no result of its
+ * target yet (unless forced).
+ */
+export function injectResults(history: ResultsHistory, entries: readonly ProbeResultEntry[], force = false): ResultsHistory {
+  let results: Map<string, HeldResult> | null = null;
+  for (const entry of entries) {
+    if (!force && history.results.has(entry.id)) continue;
+    results ??= new Map(history.results);
+    results.set(entry.id, withEntry(results.get(entry.id), entry, history.scanNumber));
+  }
+  return results === null ? history : { scanNumber: history.scanNumber, results };
+}
+
+/** probescanning.const probeScanGroupAnomalies / probeScanGroupSignatures; inventory groupCosmicAnomaly / groupCosmicSignature. */
+const SCAN_GROUP_ANOMALIES = 8, SCAN_GROUP_SIGNATURES = 3, GROUP_COSMIC_ANOMALY = 885;
+
+/** A site of the system scan manager's read (GetFullState's anomalies and signatures): its position, its fields. */
+export interface SiteForResults {
+  readonly targetID: string | null;
+  readonly position: readonly number[] | null;
+  readonly fields: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * probescanner.GetSitesAsProbeResults: each site as a result - its target ID, its signal strength the certainty (an
+ * anomaly 1.0, AnomalySiteData; a signature 0.0 where no scan has measured it, SignatureSiteData), the site class's
+ * group as group and type, the scan group, the dungeon's name ID, dungeon and archetype, and GetSitePositionalData's
+ * data and pos (an anomaly, positional: its position, pos none; a signature not yet measured: its deviation, pos its
+ * position).
+ */
+export function sitesAsProbeResults(anomalies: readonly SiteForResults[], signatures: readonly SiteForResults[]): ProbeResultEntry[] {
+  const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const place = (p: readonly number[] | null): Vec3 | null => (p && p.length >= 3 ? [p[0]!, p[1]!, p[2]!] : null);
+  const out: ProbeResultEntry[] = [];
+  for (const [sites, anomaly] of [[anomalies, true], [signatures, false]] as const) {
+    for (const site of sites) {
+      if (!site.targetID) continue;
+      const position = place(site.position);
+      const groupID = anomaly ? GROUP_COSMIC_ANOMALY : GROUP_COSMIC_SIGNATURE;
+      out.push({
+        id: site.targetID, scanGroupID: anomaly ? SCAN_GROUP_ANOMALIES : SCAN_GROUP_SIGNATURES, groupID, typeID: groupID,
+        strengthAttributeID: anomaly ? num(site.fields.scanStrengthAttribute) : null,
+        dungeonID: num(site.fields.dungeonID), dungeonNameID: num(site.fields.dungeonNameID), archetypeID: num(site.fields.archetypeID),
+        factionID: null, itemID: null, difficulty: null,
+        certainty: anomaly ? 1 : 0,
+        data: anomaly ? position : num(site.fields.deviation),
+        pos: anomaly ? null : position,
+      });
+    }
+  }
+  return out;
+}
+
 /** ResultsHistory.ClearResults. */
 export function clearResults(history: ResultsHistory, targetIDs: readonly string[]): ResultsHistory {
   if (targetIDs.length === 0) return history;

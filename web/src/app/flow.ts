@@ -276,7 +276,7 @@ import { standingsAfter } from "../bridge/standingChanges.ts";
 import { decodeMissionTimes } from "../bridge/missionTime.ts";
 import { decodeAgentLocationWrap } from "../bridge/agentHeader.ts";
 import { ABYSSAL_COLLAPSE_WARNING_SECONDS, ATTRIBUTE_DIFFICULTY_TIER, ATTRIBUTE_WEATHER_ID, DEFAULT_GAME_MODE_SETTING, EXPIRATION_INDICATION_MS, GAME_MODES, abyssalExpiryMs, abyssErrorsOfRefusal, activateEntranceGate, deployEntranceGate, type AbyssErrorEntry, type GameModeID } from "../bridge/abyssalKeys.ts";
-import { DEFAULT_ACTIVE_RESULT_FILTERS, EMPTY_RESULTS_HISTORY, type CustomResultFilter, clearResults, decodeScanStopped, heldResult, lastResults, registerResults, type ResultFilterSettings, type ResultsHistory } from "../bridge/probeResults.ts";
+import { DEFAULT_ACTIVE_RESULT_FILTERS, EMPTY_RESULTS_HISTORY, type CustomResultFilter, clearResults, decodeScanStopped, heldResult, injectResults, lastResults, registerResults, sitesAsProbeResults, type ResultFilterSettings, type ResultsHistory } from "../bridge/probeResults.ts";
 import { decodeObjectives } from "../bridge/missionObjectives.ts";
 import { decodeClientMission, pageObjectives, pageOnMissionChange, type ClientMission } from "../bridge/missionPage.ts";
 import {
@@ -12688,6 +12688,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       operations,
       refreshedAtMs: Date.now(),
     });
+    // sensorSuite.probeScannerController.InjectSiteScanResults (the signal tracker's anomalies and signatures as they
+    // are read, sensorSuiteService 156 and 526): the system's sites among its scan handler's results, each only where it
+    // has none yet - so the scanner lists them before any probe scan, as the client does
+    if (scan.status === "ready" && solarSystemID !== null) {
+      const sites = sitesAsProbeResults(scan.value.anomalies, scan.value.signatures);
+      probeResultsBySystem.set(solarSystemID, injectResults(probeResultsBySystem.get(solarSystemID) ?? EMPTY_RESULTS_HISTORY, sites));
+    }
     // And the probe results the session's system's scan handler keeps (a change of system shows that system's).
     publishProbeResults();
     // A probe the read shows for the first time takes its place in the formation (AddProbe); read again after.
