@@ -1010,10 +1010,11 @@
   .state-sprite { width: 16px; height: 16px; flex: none; mask-size: 16px 16px; -webkit-mask-size: 16px 16px; mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat; }
   .row.inspace .picture { width: 32px; height: 32px; }
   .row.inspace .picture :global(.type-icon) { width: 32px; height: 32px; }
-  .row:hover { background: rgba(255, 255, 255, 0.05); }
+  /* the entries' ListEntryUnderlay (SE_BaseClassCore's highlight): THEME_FOCUSDARK at 0.2 under the mouse, 0.4 selected */
+  .row:hover { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); }
   .row.lost { opacity: 0.55; }
   /* a selected entry (the scroll's selection fill) and a part or group a drag may drop on */
-  .row.selected { background: rgba(255, 255, 255, 0.12); }
+  .row.selected { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 40%, transparent); }
   .group.drop, .row.grouphead.drop { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35); }
   .group { margin: 0; padding: 0; border: 0; background: none; }
   .picture { width: 24px; height: 24px; flex: none; display: grid; }
