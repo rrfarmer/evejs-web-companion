@@ -62,7 +62,7 @@ import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTur
 import type { DamageRouting, MiningState, SpaceSnapshot, SurveyResult } from "../store/types.ts";
 import { healthNotificationSettings, HEALTH_NOTIFICATIONS } from "../store/notifySettings.ts";
 import { ALERT_ANIMATION_MS, ALERT_DURATION_MS, CAPACITOR, HULL, activeAlertLevel, capacitorAlerting, capacitorChanged, damageStateChanged, initialShipAlertState, isLevelActive } from "../ui/shipAlert.ts";
-import { LocationBanner, DEPLETION_COLORS, DEPLETION_FORMATTED_LABEL, DEPLETION_LABELS, PLANET_TYPE_LABELS, beltOriginalCounts, depletionStatus, locationNameParts } from "./locationBanner.ts";
+import { LocationBanner, DEPLETION_COLORS, DEPLETION_FORMATTED_LABEL, DEPLETION_LABELS, PLANET_TYPE_LABELS, beltOriginalCounts, depletionStatus, dungeonOriginalCounts, locationNameParts, RESOURCE_HARVESTING_ARCHETYPES } from "./locationBanner.ts";
 import { alignText, indicationHeader, indicationText, pointText, shipIndication, shipStoppingText, warpProgress, warpText, SHIP_STOPPING_MS } from "../space/actionIndication.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { TARGET_LOCKED_LABEL, targetLockDurationMs, type TargetLockRadii } from "./targetLock.ts";
@@ -284,6 +284,12 @@ export interface SpaceActions {
   primeLocations?(itemIDs: readonly number[]): void;
   /** cfg.evelocations.Get(itemID).name where it is known; null until it is. */
   locationName?(itemID: number): string | null;
+  /**
+   * dungeonTracking.get_current_dungeon and sensorSuite.GetAnomaly(dungeon.instance_id): the anomaly of the dungeon the
+   * pilot is in, its name (GetByMessageID(dungeonNameID)) and archetype, with the dungeon and room; null where the pilot
+   * is in none, or the system's anomalies have no such site.
+   */
+  arrivalDungeonSite?(): Promise<{ readonly name: string; readonly systemName: string | null; readonly archetypeID: number | null; readonly dungeonID: number; readonly roomID: number | null } | null>;
   /** The pilot's active probes as the scanner has them (its operations), or none. */
   probes?(): readonly { readonly probeID: number; readonly pos: readonly [number, number, number]; readonly destination: readonly [number, number, number]; readonly scanRange: number; readonly state?: number; readonly rangeSteps?: readonly number[] | null }[];
   /** The probe scan's results shown in the session's system (the solar system map's UpdateScanResult). */
@@ -5055,6 +5061,7 @@ export class SpaceView {
    * system shows its banner (locationBanner.ts).
    */
   private async indicateArrival(snap: Snapshot, itemID: number | null): Promise<void> {
+    if (await this.indicateArrivalDungeon(snap)) return;
     let e = itemID === null ? null : snap.entities.find((x) => x.itemID === itemID) ?? null;
     if (!e) e = snap.entities.find((x) => x.groupID === 9 && this.distanceTo(x) <= 100_000) ?? null;
     if (!e || ![9, 7, 15, 5].includes(e.groupID ?? -1)) return;
@@ -5081,6 +5088,35 @@ export class SpaceView {
     }
     const [title, caption] = locationNameParts(this.nameOf(e));
     this.locationBanner.show(title, caption, text);
+  }
+
+  /**
+   * _indicate_arrival_dungeon: in a dungeon that is one of the system's anomalies, the system's name over the site's
+   * (the title the system's name, the caption the site's), an ore site's (a resource-harvesting archetype's) text its
+   * depletion status against the dungeon room's original asteroids (get_depletion_status_for_dungeon), shown 8 s.
+   */
+  private async indicateArrivalDungeon(snap: Snapshot): Promise<boolean> {
+    const site = await this.actions.arrivalDungeonSite?.().catch(() => null);
+    if (!site) return false;
+    const word = (label: string, args?: Readonly<Record<string, string | number>>) => this.actions.word?.(label, args) ?? null;
+    let text: { text: string; colored?: { from: number; to: number; color: string } } | null = null;
+    if (site.archetypeID !== null && RESOURCE_HARVESTING_ARCHETYPES.has(site.archetypeID)) {
+      const original = await dungeonOriginalCounts(site.dungeonID, site.roomID);
+      if (original) {
+        const now = new Map<number, number>();
+        for (const x of this.snapshot?.entities ?? snap.entities) {
+          if ((x.categoryID === 25 || x.groupID === 711) && x.typeID != null) now.set(x.typeID, (now.get(x.typeID) ?? 0) + 1);
+        }
+        const status = depletionStatus(now, original);
+        const [label, own] = DEPLETION_LABELS[status];
+        const statusText = word(label) ?? own;
+        const full = word(DEPLETION_FORMATTED_LABEL, { color: "", status: statusText }) ?? `Depletion Status: ${statusText}`;
+        const at = full.lastIndexOf(statusText);
+        text = { text: full, colored: at < 0 ? undefined : { from: at, to: at + statusText.length, color: DEPLETION_COLORS[status] } };
+      }
+    }
+    this.locationBanner.show(site.systemName, site.name, text, 8000);
+    return true;
   }
 
   /**

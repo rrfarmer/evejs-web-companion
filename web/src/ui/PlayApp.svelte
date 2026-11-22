@@ -2040,6 +2040,28 @@
         return splitResults(held.results, new Set(held.ignored.map((result) => result.id)), held.filter).shown;
       },
       primeLocations: (itemIDs) => s.flow.requestNames(itemIDs.map((id) => ({ kind: "evelocation" as const, id }))),
+      arrivalDungeonSite: async () => {
+        const dungeon = s.flow.activeDungeon.get();
+        if (!dungeon || dungeon.instanceID === null) return null;
+        const system = s.store.flight.get().status?.solarSystemID ?? null;
+        let sc = s.store.scanner.get();
+        if (sc.scan.status !== "ready" || sc.solarSystemID !== system) { await s.flow.loadScanner().catch(() => {}); sc = s.store.scanner.get(); }
+        if (sc.scan.status !== "ready") return null;
+        // GetAnomaly(instanceID): the anomaly row whose instanceID is the dungeon's (the row's own field, not its site key)
+        const site = sc.scan.value.anomalies.find((a) => a.fields.instanceID === dungeon.instanceID);
+        if (!site) return null;
+        const nameID = typeof site.fields.dungeonNameID === "number" ? site.fields.dungeonNameID : null;
+        let name = nameID === null ? null : anomalyNames.get(nameID) ?? null;
+        if (nameID !== null && name === null) { name = (await s.flow.scannerSiteNames([nameID]).catch(() => new Map<number, string | null>())).get(nameID) ?? null; if (name !== null) anomalyNames.set(nameID, name); }
+        if (name === null) return null;
+        // the title: cfg.evelocations.Get(session.solarsystemid).locationName
+        let systemName = system === null ? "" : resolvedName(s.store.names.get().resolved, "system", system, "");
+        if (system !== null && systemName === "") {
+          s.flow.requestNames([{ kind: "system" as const, id: system }]);
+          for (let i = 0; i < 20 && systemName === ""; i++) { await new Promise((done) => setTimeout(done, 100)); systemName = resolvedName(s.store.names.get().resolved, "system", system, ""); }
+        }
+        return { name, systemName: systemName || null, archetypeID: typeof site.fields.archetypeID === "number" ? site.fields.archetypeID : null, dungeonID: dungeon.dungeonID, roomID: dungeon.roomID };
+      },
       locationName: (itemID) => {
         const name = s.store.names.get().resolved[nameKey("evelocation", itemID)];
         return typeof name === "string" && name !== "" ? name : null;

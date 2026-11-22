@@ -80,6 +80,27 @@ export async function beltOriginalCounts(beltID: number): Promise<Map<number, nu
   return counts;
 }
 
+let dungeonLoad: Promise<Record<string, Record<string, number[]>> | null> | null = null;
+
+/**
+ * AsteroidCount.get_asteroid_count_by_type_id_for_dungeon: the FSD asteroidCountByTypeIDRoomIDDungeonID counts of the
+ * dungeon's room where a room is named (and has any), else all its rooms' (each room's counts laid over the last's,
+ * as dict.update does); null where the dungeon has none.
+ */
+export async function dungeonOriginalCounts(dungeonID: number, roomID: number | null): Promise<Map<number, number> | null> {
+  dungeonLoad ??= fetch("/client-assets/asteroidCounts/dungeons.json").then((r) => (r.ok ? r.json() as Promise<Record<string, Record<string, number[]>>> : null)).catch(() => null);
+  const rooms = (await dungeonLoad)?.[String(dungeonID)];
+  if (!rooms) return null;
+  const counts = new Map<number, number>();
+  const add = (pairs: readonly number[]) => { for (let i = 0; i + 1 < pairs.length; i += 2) counts.set(pairs[i]!, pairs[i + 1]!); };
+  if (roomID) add(rooms[String(roomID)] ?? []);
+  else for (const pairs of Object.values(rooms)) add(pairs);
+  return counts.size ? counts : null;
+}
+
+/** appConst.dungeon_archetypes_resource_harvesting: ore anomaly, ice belt, gas clouds, resource wars. */
+export const RESOURCE_HARVESTING_ARCHETYPES: ReadonlySet<number> = new Set([27, 28, 30, 47]);
+
 /** _get_location_name_parts: [title, caption]. */
 export function locationNameParts(name: string): [string | null, string] {
   const at = name.lastIndexOf(" - ");

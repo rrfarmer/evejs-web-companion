@@ -34,3 +34,17 @@ const out = path.join(REPO, "_local", "client-assets", build, "asteroidCounts");
 fs.mkdirSync(out, { recursive: true });
 for (const [shard, belts] of shards) fs.writeFileSync(path.join(out, `${shard}.json`), JSON.stringify(belts));
 console.log(`${entries.length} belts in ${shards.size} shards -> ${out}`);
+// The same for dungeons (AsteroidCount.get_asteroid_count_by_type_id_for_dungeon: the FSD
+// res:/staticdata/asteroidCountByTypeIDRoomIDDungeonID.static, dungeonID -> {roomID: {typeID: count}}), what
+// get_depletion_status_for_dungeon measures an ore site's present asteroids against: dungeons.json,
+// {dungeonID: {roomID: [typeID, count, ...]}}.
+const dname = "res:/staticdata/asteroidCountByTypeIDRoomIDDungeonID.static";
+const ddata = readFsdStatic(rf.read(dname), dname);
+const pairsOf = (m) => (m instanceof Map ? [...m.entries()] : Object.entries(m));
+const dungeons = {};
+for (const [dungeonID, rooms] of pairsOf(ddata)) {
+  dungeons[dungeonID] = {};
+  for (const [roomID, counts] of pairsOf(rooms)) dungeons[dungeonID][roomID] = pairsOf(counts).flatMap(([typeID, count]) => [Number(typeID), Number(count)]);
+}
+fs.writeFileSync(path.join(out, "dungeons.json"), JSON.stringify(dungeons));
+console.log(`${Object.keys(dungeons).length} dungeons -> ${path.join(out, "dungeons.json")}`);
