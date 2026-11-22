@@ -77,10 +77,10 @@
       <button type="button" role="menuitem" onpointerdown={(event) => event.stopPropagation()}
         onclick={download}>{word("CaptureLog", "Capture Log")}</button>
       <button type="button" role="menuitem" onpointerdown={(event) => event.stopPropagation()}
-        onclick={copy}>{word("CopyLog", "Copy Log")}</button>
+        onclick={copy}><img class="mi" src="/client-res/ui/texture/eveicon/system_icons/copy_16px.png" alt="" />{word("CopyLog", "Copy Log")}</button>
       <span class="sep" role="separator"></span>
       <button type="button" role="menuitem" class="destructive" onpointerdown={(event) => event.stopPropagation()}
-        onclick={() => { clearGameLog(); close(); }}>{word("ClearLog", "Clear Log")}</button>
+        onclick={() => { clearGameLog(); close(); }}><img class="mi" src="/client-res/ui/texture/eveicon/system_icons/trashcan_16px.png" alt="" />{word("ClearLog", "Clear Log")}</button>
     </div>
   {/if}
 </div>
@@ -88,4 +88,6 @@
 <style>
   .game-log-actions { position: relative; }
   .game-log-actions > .log-menu { left: auto; right: 0; }
+  /* LoggerWindow.GetMenuMoreOptions: Copy Log with eveicon.copy, Clear Log with eveicon.trashcan, in the entry's icon slot */
+  .mi { position: absolute; left: 4px; top: 50%; width: 16px; height: 16px; transform: translateY(-50%); }
 </style>
