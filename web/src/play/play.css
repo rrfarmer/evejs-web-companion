@@ -350,12 +350,17 @@ button { font: inherit; color: inherit; }
 .ov-set-delete:hover { opacity: 1; background: rgba(255, 255, 255, 0.08); }
 /* TabPresetPanel: EveLabelLarge title, the preset combo, Types Shown, the compact buttons and the search, the category
    ListGroups (THEME_ACCENT all, HIGHLIGHT some, SECONDARY none) and their groups checkboxes, the button group */
-.ov-filt { display: flex; flex-direction: column; padding: 8px 8px 4px; }
-.ov-filt-title { font-size: 16px; color: rgba(255, 255, 255, 0.9); margin: 4px 0 8px; }
+/* TabPresetPanel (read through gridcheck): flush with the main - EveLabelLarge 16 (white 0.75, 21 high) 16 below the tabs,
+   the preset Combo 286 x 32 4 below it, the Types Shown / Exceptions TabGroup 16 below that, the panel under it; the
+   ButtonGroup's 80 x 32 buttons 8 apart, centred, 8 below the panel, at the foot */
+.ov-set-panel.ov-filt { display: flex; flex-direction: column; padding: 0; }
+.ov-filt-title { font-size: 16px; line-height: 21px; color: rgba(255, 255, 255, 0.75); margin: 16px 0 4px; }
+.ov-filt .ov-add-buttons { margin-top: 8px; }
+.ov-filt .ov-add-buttons button { box-sizing: border-box; min-width: 80px; height: 32px; }
 .ov-filt-top { display: flex; gap: 4px; align-items: center; }
 .ov-filt-top button { height: 32px; padding: 0 12px; background: transparent; color: rgba(255, 255, 255, 0.9); border: 1px solid rgba(255, 255, 255, 0.2); font: inherit; cursor: pointer; }
 .ov-filt-preset { height: 32px; width: 286px; background: rgba(0, 0, 0, 0.3); color: #fff; border: 1px solid rgba(255, 255, 255, 0.15); padding: 0 8px; font: inherit; }
-.ov-filt-sub { margin: 16px 0 8px; padding: 0; width: max-content; }
+.ov-filt-sub { margin: 16px 0 0; padding: 0; width: max-content; }
 .ov-filt-bar { display: flex; gap: 4px; align-items: center; margin-bottom: 8px; }
 .ov-filt-bar button { height: 30px; padding: 0 8px; background: transparent; color: rgba(255, 255, 255, 0.9); border: 1px solid rgba(255, 255, 255, 0.2); font: inherit; cursor: pointer; }
 .ov-filt-search { margin-left: auto; width: 150px; height: 30px; box-sizing: border-box; background: rgba(0, 0, 0, 0.3); color: #fff; border: 1px solid rgba(255, 255, 255, 0.15); padding: 0 8px; font: inherit; }
@@ -367,11 +372,18 @@ button { font: inherit; color: inherit; }
 .ov-filt-cat.open .ov-filt-caret { border: 4px solid transparent; border-top: 5px solid currentColor; vertical-align: -2px; }
 .ov-filt-group { display: flex; align-items: center; gap: 8px; height: 24px; padding-left: 28px; }
 /* StatesPanel: the three icons over the columns (64, 34 and 4 from the right), each state's flag, text and radios */
-.ov-state-head { display: flex; justify-content: flex-end; gap: 14px; height: 20px; padding-right: 12px; }
-.ov-state-eye { width: 16px; height: 16px; cursor: help; }
-.ov-state-row { display: grid; grid-template-columns: 14px 1fr 16px 16px 16px; gap: 14px 6px; column-gap: 14px; align-items: center; height: 22px; padding: 0 12px 0 6px; }
-.ov-state-row .state-flag { position: static; }
-.ov-state-row input[type=radio] { margin: 0; accent-color: rgb(88, 167, 191); }
+/* StatesPanel: iconCont 20 high (the three eyes 16 px at 380 / 410 / 440, 2 down), then the scroll's StateOverviewEntry
+   rows 22 high - the flag 3 in and 7 down, the TextBody 16 in and 2 down, the RadioButtons' 16 px diodes at 380 / 410 /
+   440, 3 down */
+.ov-state-head { position: relative; flex: none; height: 20px; }
+.ov-state-eye { position: absolute; top: 2px; width: 16px; height: 16px; cursor: help; }
+.ov-state-eye:nth-child(1) { left: 380px; } .ov-state-eye:nth-child(2) { left: 410px; } .ov-state-eye:nth-child(3) { left: 440px; }
+.ov-filt-tree.ov-state-list { padding: 0; background: none; }
+.ov-state-row { position: relative; height: 22px; }
+.ov-state-row .state-flag { position: absolute; left: 3px; top: 7px; }
+.ov-state-row > span:not(.state-flag) { position: absolute; left: 16px; top: 2px; right: 104px; line-height: 18px; white-space: nowrap; overflow: hidden; }
+.ov-state-row input[type=radio] { position: absolute; top: 3px; width: 16px; height: 16px; min-height: 0; padding: 0; margin: 0; accent-color: rgb(88, 167, 191); }
+.ov-state-row input[type=radio]:nth-of-type(1) { left: 380px; } .ov-state-row input[type=radio]:nth-of-type(2) { left: 410px; } .ov-state-row input[type=radio]:nth-of-type(3) { left: 440px; }
 /* AppearancePanel */
 .ov-app { display: flex; flex-direction: column; padding: 8px; }
 .ov-app-check { display: flex; align-items: center; gap: 8px; height: 24px; }
