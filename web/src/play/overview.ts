@@ -99,7 +99,7 @@ interface OverviewTab {
 /** A default preset as a chooser lists it (GetPresetDisplayName with its category: "Category: Name"). */
 export interface PresetChoice { readonly id: string; readonly name: string; readonly label: string; readonly groups: ReadonlySet<number>; readonly category?: number; readonly categoryName?: string | null }
 /** TabPresetPanel.GetListOfCategories: the categories and their groups (a special group several group IDs), as the client lists them. */
-interface FilterCategory { category: string; groups: { name: string; groupIDs: number[] }[] }
+interface FilterCategory { category: string; groups: { name: string; groupIDs: number[]; brackets?: string[] }[] }
 let filterGroupsRead: Promise<FilterCategory[] | null> | null = null;
 function overviewFilterGroups() {
   filterGroupsRead ??= fetch("/client-assets/overviewFilterGroups.json").then((r) => (r.ok ? r.json() : null)).then((j) => (j?.categories ?? null) as FilterCategory[] | null).catch(() => null);
@@ -629,7 +629,7 @@ export class Overview {
         const on = c.groups.filter((g) => g.groupIDs.some((id) => shown.has(id))).length;
         const tone = on >= c.groups.length ? "all" : on > 0 ? "some" : "none";
         const expanded = open.has(c.category) || !!q;
-        const groups = expanded ? c.groups.map((g) => `<label class="ov-filt-group"><input type="checkbox" data-groups="${g.groupIDs.join(",")}"${g.groupIDs.some((id) => shown.has(id)) ? " checked" : ""}><span>${esc(g.name)}</span></label>`).join("") : "";
+        const groups = expanded ? c.groups.map((g) => `<label class="ov-filt-group"><input type="checkbox" data-groups="${g.groupIDs.join(",")}"${g.groupIDs.some((id) => shown.has(id)) ? " checked" : ""}><span>${esc(g.name)}</span>${g.brackets && g.brackets.length < 5 ? `<span class="ov-filt-br">${g.brackets.map((t) => `<img src="${clientTexture(t)}" alt="">`).join("")}</span>` : ""}</label>`).join("") : "";
         return `<div class="ov-filt-cat ${tone}${expanded ? " open" : ""}" data-cat="${esc(c.category)}"><span class="ov-filt-caret"></span>${esc(c.category)} ${on} / ${c.groups.length}</div>${groups}`;
       }).join("");
       const changed = groupOverrides(editing);

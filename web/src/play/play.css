@@ -378,6 +378,10 @@ button { font: inherit; color: inherit; }
 .ov-filt-group { position: relative; display: block; height: 22px; }
 .ov-filt-group > input { position: absolute; left: 20px; top: 3px; width: 16px; height: 16px; min-height: 0; margin: 0; padding: 0; }
 .ov-filt-group > span { position: absolute; left: 40px; top: 2px; right: 6px; line-height: 18px; white-space: nowrap; overflow: hidden; }
+/* OverviewTabPresetEntry's bracketSpriteCont (6 from the right of the scroll's 468 px content - our row is 6 wider - centred): fewer than five of the group's bracket textures
+   (GetBracketTextureForGroupID, extra large / large / medium / small first), each 16 px at 0.75, the first rightmost */
+.ov-filt-group > .ov-filt-br { left: auto; right: 12px; top: 3px; display: flex; flex-direction: row-reverse; overflow: visible; }
+.ov-filt-br img { width: 16px; height: 16px; opacity: 0.75; }
 /* StatesPanel: the three icons over the columns (64, 34 and 4 from the right), each state's flag, text and radios */
 /* StatesPanel: iconCont 20 high (the three eyes 16 px at 380 / 410 / 440, 2 down), then the scroll's StateOverviewEntry
    rows 22 high - the flag 3 in and 7 down, the TextBody 16 in and 2 down, the RadioButtons' 16 px diodes at 380 / 410 /
