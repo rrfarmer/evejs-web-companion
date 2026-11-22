@@ -1462,6 +1462,8 @@ export class SpaceView {
       select: (id) => this.select(id),
       activate: (id) => this.activateSpaceTarget(id),
       glyph,
+      targetState: (id) => ({ locked: this.locked.has(id), active: id === this.activeTarget,
+        locking: !this.locked.has(id) && (this.lockingIDs.has(id) || this.acquiringTargets.has(id)) }),
       name: (e) => this.nameOf(e),
       pilotID: options.overviewPilotID,
       word: (label, args) => this.actions.word?.(label, args) ?? null,

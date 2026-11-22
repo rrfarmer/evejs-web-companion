@@ -973,3 +973,12 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 .fly-windows .win[data-win="drones"]:not(:has(.fly-drones.compact)) > .win-body { padding: 0 16px 16px; }
 /* the probe scanner (a WidgetWindow, as the directional scanner): its header 32 high */
 .fly-windows .win[data-win="scanner"] > .win-bar { height: 32px; box-sizing: border-box; }
+
+/* SpaceObjectIcon's target indicators (spaceObjectIcon.py SetTargetedByMeState / SetActiveTargetState / SetTargetingState) */
+.ov .ov-icon-wrap { position: relative; }
+.ov .ov-tgt { position: absolute; left: -1px; top: -1px; width: 18px; height: 18px; pointer-events: none; opacity: 0.5;
+  background: url(/client-res/ui/texture/classes/bracket/activetarget.png) center / 18px 18px no-repeat; }
+.ov .ov-tgt.active { opacity: 1; }
+.ov .ov-tgt-locking { position: absolute; left: calc(50% - 15px); top: calc(50% - 14px); width: 28px; height: 28px; pointer-events: none;
+  background: linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) left 0 top 3px / 5px 2px, linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) right 0 top 3px / 5px 2px, linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) left 0 bottom 3px / 5px 2px, linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) right 0 bottom 3px / 5px 2px,
+    linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) left 3px top 0 / 2px 3px, linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) right 3px top 0 / 2px 3px, linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) left 3px bottom 0 / 2px 3px, linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) right 3px bottom 0 / 2px 3px; background-repeat: no-repeat; }

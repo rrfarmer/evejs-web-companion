@@ -14,6 +14,16 @@ const rgba = (c: readonly number[], alpha = c[3] ?? 1) => `rgba(${Math.round(c[0
  * FlagIconWithState: a 10 px square at the icon's bottom right (SpaceObjectIcon.SetIconFlag left -1, top -2), the flag
  * colour at 0.75, the 8 px FlagIcon/8/<iconIndex + 1> glyph in the flag's icon colour; a blinking one fades 0..1 over 0.5 s.
  */
+/**
+ * SpaceObjectIcon's target indicators: targetedByMeIndicator (activeTarget.png 18 at (-1, -1), white 0.5) for a locked
+ * thing, myActiveTargetIndicator (the same at full) over it for the active target, and for a lock under way the
+ * targetingIndicator, a 28 px box centred one left with its four corners drawn in white 0.5.
+ */
+export function targetMarkup(t: { readonly locked: boolean; readonly active: boolean; readonly locking: boolean } | undefined): string {
+  if (!t) return "";
+  return (t.locked ? "<span class=\"ov-tgt\"></span>" : "") + (t.active ? "<span class=\"ov-tgt active\"></span>" : "") + (t.locking && !t.locked ? "<span class=\"ov-tgt-locking\"></span>" : "");
+}
+
 export function flagMarkup(f: StateFlagLook | null): string {
   if (!f) return "";
   const glyph = clientTexture(`res:/UI/Texture/classes/FlagIcon/8/${f.iconIndex + 1}.png`);
@@ -278,6 +288,8 @@ export interface OverviewHooks {
   select(itemID: number): void;
   activate(itemID: number): void;
   glyph(e: Entity): string;
+  /** stateSvc's targeted / activeTarget / targeting for the row's SpaceObjectIcon (UpdateSpaceObjectState). */
+  targetState?(itemID: number): { readonly locked: boolean; readonly active: boolean; readonly locking: boolean };
   /** The row's Name (uix.GetSlimItemName); the slim's name, else the type's, where it is not given. */
   name?(e: Entity): string;
   pilotID?: number;
@@ -1830,7 +1842,7 @@ export class Overview {
       const bg = flags.background ? ` style="--flag-bg:${rgba(flags.background.backgroundColor, (flags.background.backgroundColor[3] ?? 1) * (e.categoryID === 65 || e.categoryID === 40 ? 0.125 : 0.5))}"` : "";
       const cell = (c: ColumnDef): string => {
         switch (c.id) {
-          case "ICON": return `<td class="ov-icon"${hackingHint}><span class="ov-icon-wrap">${this.hooks.glyph(e)}${flagMarkup(flags.icon)}</span></td>`;
+          case "ICON": return `<td class="ov-icon"${hackingHint}><span class="ov-icon-wrap">${this.hooks.glyph(e)}${targetMarkup(this.hooks.targetState?.(e.itemID))}${flagMarkup(flags.icon)}</span></td>`;
           case "DISTANCE": return `<td class="ov-dist">${overviewDistance(d)}</td>`;
           case "NAME": return `<td>${esc(rowName(e))}</td>`;
           case "TYPE": return `<td>${esc(typeName)}</td>`;
