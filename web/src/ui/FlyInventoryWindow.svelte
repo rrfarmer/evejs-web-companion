@@ -892,11 +892,13 @@
   /* InvItem in the icon view (read in item.py): hovered or selected, the icon padded 4 in (_get_icon_frame_padding), the
      ItemSelectionFrame's 2 px FRAME_BORDER2 in the UI highlight colour with its glow at 0.5, the ListEntryUnderlay in
      THEME_FOCUSDARK at 0.2 hovered, 0.4 selected */
-  .item .icon :global(.type-icon) { transition: transform .1s; }
-  .item:hover .icon, .item.selected .icon { box-shadow: inset 0 0 0 2px var(--theme-focus, #58a7bf), 0 0 6px color-mix(in srgb, var(--theme-focus, #58a7bf) 50%, transparent); }
+  /* InvItem: _get_icon_frame_padding 4 hovered or selected - the icon (still 64) clipped 4 px in, not scaled */
+  .item .icon :global(.type-icon) { transition: clip-path .1s; }
+  /* ItemSelectionFrame: FRAME_BORDER2_CORNER0 in UIHILIGHT, glow 0.5, only on a selected item (hovered: the underlay alone) */
+  .item.selected .icon { box-shadow: inset 0 0 0 2px var(--theme-focus, #58a7bf), 0 0 6px color-mix(in srgb, var(--theme-focus, #58a7bf) 50%, transparent); }
   .item:hover .icon { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); }
   .item.selected .icon { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 40%, transparent); }
-  .item:hover .icon :global(.type-icon), .item.selected .icon :global(.type-icon) { transform: scale(0.875); }
+  .item:hover .icon :global(.type-icon), .item.selected .icon :global(.type-icon) { clip-path: inset(4px); }
   /* TreeViewEntry.OnDragEnter: the hover underlay, as the mouse over it (hoverBG.hovered) */
   .node.drop:not(.sel)::before { opacity: 0.2; }
 </style>
