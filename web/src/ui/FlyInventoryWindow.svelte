@@ -45,6 +45,9 @@
   import { SHIP_HOLDS, CARGO_HOLD } from "../bridge/shipHolds.ts";
   // TreeViewEntry.OnMouseEnter: PlaySound(uiconst.SOUND_ENTRY_HOVER), ui_button_soft2_play
   import { playUiEvent } from "../play/uiAudio.ts";
+  import { DEFAULT_INVENTORY_FILTERS, FILTER_FIELD, INVENTORY_FILTERS_SETTING, matchInventoryFilter, readInventoryFilters, roundInventoryFilterPrice, type InventoryFilter, type InventoryFilterFacts } from "../bridge/inventoryFilters.ts";
+  import { loadInventoryFilterFacts, TYPE_FILTER_FIELDS } from "../app/inventoryFilterFacts.ts";
+  import { getTypeMeta } from "../app/api.ts";
   // SE_BaseClassCore.OnMouseEnter: PlaySound(sound_hover = uiconst.SOUND_ENTRY_HOVER, ui_button_soft2_play) as an entry lights; an
   // InvItem not while the left button is down
   const hoverSound = (e: MouseEvent) => { if (!(e.buttons & 1)) void playUiEvent("ui_button_soft2_play"); };
@@ -120,7 +123,7 @@
   /** invCont.GetViewModeName / GetViewModeIcon. */
   const VIEW_MODES = [["icons", "UI/Inventory/Icons", "Icons", "grid_view"], ["details", "UI/Inventory/Details", "Details", "details_view"], ["list", "UI/Inventory/List", "List", "list_view"]] as const;
   const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/ShortcutBrackets", "UI/Inventory/SlotRigs", "UI/Inventory/SlotHigh", "UI/Inventory/SlotMedium", "UI/Inventory/SlotLow", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SelectAll", "UI/Inventory/NothingFoundFiltered", "UI/Common/NothingFound", "UI/Fitting/FittingWindow/SimulateShipFitting", "UI/Inventory/InvertSelection", "UI/Common/SortBy", "UI/Inventory/ViewMode",
-    "UI/Inventory/Filters/MyFilters", "UI/Common/NothingFound", "UI/Inventory/OpenInNewWindow", "UI/Common/Buttons/Close", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
+    "UI/Inventory/Filters/MyFilters", "UI/Inventory/CreateFilter", ...DEFAULT_INVENTORY_FILTERS.map(([key]) => key), "UI/Common/NothingFound", "UI/Inventory/OpenInNewWindow", "UI/Common/Buttons/Close", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
   flow.requestWords(WORDS);
   const word = (label: string, own: string, args: Record<string, string | number> = {}) => {
     const t = $words.templates[label];
@@ -375,7 +378,7 @@
   const groupName = (typeID: number) => resolvedName($names.resolved, "typeGroup", typeID, "");
   const categoryName = (typeID: number) => resolvedName($names.resolved, "typeCategory", typeID, "");
   const shown = $derived.by(() => {
-    const list = (bay?.items ?? []).filter((i) => !filter.trim() || typeName(i.typeID).toLowerCase().includes(filter.trim().toLowerCase()));
+    const list = (bay?.items ?? []).filter((i) => (!filter.trim() || typeName(i.typeID).toLowerCase().includes(filter.trim().toLowerCase())) && passesFilters(i));
     const key = (i: (typeof list)[number]): string | number => sortBy === "qty" ? i.quantity : sortBy === "type" ? `${groupName(i.typeID)}\u0000${typeName(i.typeID)}`
       : sortBy === "estPrice" ? (prices?.get(i.typeID) ?? 0) * i.quantity : typeName(i.typeID).toLowerCase();
     const cmp = (x: string | number, y: string | number) => typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
@@ -419,6 +422,54 @@
   // typeHelpers.GetAveragePrice: the cfg's average prices
   let prices = $state<ReadonlyMap<number, number | null> | null>(null);
   onMount(() => { void flow.cfgAveragePrices().then((p) => (prices = p)).catch(() => {}); });
+  // InvFilters (invFilters.py): the pilot's item filters (itemFilter.GetFilters: the character's setting, the client's
+  // GetDefaultFilters where none is kept, by name), each a FilterEntry checkbox; the checked ones narrow the items one
+  // after another (Container.FilterItems: FilterSvc.FilterItems for each active filter)
+  let savedFilters = $state<readonly InventoryFilter[] | null>(null);
+  onMount(() => { void flow.readCharacterSetting(INVENTORY_FILTERS_SETTING).then((t) => { savedFilters = t === null ? null : readInventoryFilters(t); }).catch(() => {}); });
+  const itemFilters = $derived([...(savedFilters ?? DEFAULT_INVENTORY_FILTERS.map(([key, own, match, conditions]) => [word(key, own), match, conditions] as InventoryFilter))]
+    .sort((a, b) => a[0].toLowerCase().localeCompare(b[0].toLowerCase())));
+  let checkedFilters = $state<readonly string[]>([]);
+  // ExpandFilters / CollapseFilters, kept per window (invFiltersExpanded_<windowID>), collapsed where nothing is kept
+  // svelte-ignore state_referenced_locally
+  const FILTERS_OPEN_KEY = `evejs.ui.invFiltersExpanded.${bayMode ?? (containerMode ? "container" : "ActiveShipCargo")}`;
+  let filtersOpen = $state((() => { try { return localStorage.getItem(FILTERS_OPEN_KEY) === "1"; } catch { return false; } })());
+  function toggleFiltersOpen(): void { filtersOpen = !filtersOpen; try { localStorage.setItem(FILTERS_OPEN_KEY, filtersOpen ? "1" : "0"); } catch { /* this visit */ } }
+  function setFilterChecked(name: string, on: boolean): void { checkedFilters = on ? [...checkedFilters.filter((n) => n !== name), name] : checkedFilters.filter((n) => n !== name); }
+  const activeFilters = $derived(itemFilters.filter((f) => checkedFilters.includes(f[0])));
+  // what the active filters ask of the items' types: the group and category (the type's record) and FilterSvc.GetValue's
+  // dogma and meta facts (TYPE_FILTER_FIELDS); the price is the average price the window shows
+  let filterMeta = $state<ReadonlyMap<number, { groupID: number | null; categoryID: number | null }>>(new Map());
+  let filterTypeFacts = $state<ReadonlyMap<number, InventoryFilterFacts>>(new Map());
+  $effect(() => {
+    if (!activeFilters.length) return;
+    const ids = [...new Set((bay?.items ?? []).map((i) => i.typeID))].filter((t) => !untrack(() => filterMeta).has(t));
+    if (!ids.length) return;
+    void getTypeMeta(ids, flow.requestOptions()).then((m) => {
+      const next = new Map(filterMeta);
+      for (const t of ids) { const x = m.types.get(t); next.set(t, { groupID: x?.groupID ?? null, categoryID: x?.categoryID ?? null }); }
+      filterMeta = next;
+    }).catch(() => {});
+  });
+  const typeFilterFields = $derived([...new Set(activeFilters.flatMap(([, , c]) => c.map(([f]) => f)))].filter((f) => TYPE_FILTER_FIELDS.has(f)).sort((a, b) => a - b).join(","));
+  $effect(() => {
+    const fields = typeFilterFields;
+    const ids = [...new Set((bay?.items ?? []).map((i) => i.typeID))];
+    if (!fields || !ids.length) return;
+    let live = true;
+    void loadInventoryFilterFacts(ids, new Set(fields.split(",").map(Number)), flow.requestOptions()).then((f) => { if (live) filterTypeFacts = f; }).catch(() => {});
+    return () => { live = false; };
+  });
+  function passesFilters(i: { itemID: number; typeID: number; quantity: number; singleton: boolean; categoryID: number | null }): boolean {
+    if (!activeFilters.length) return true;
+    const meta = filterMeta.get(i.typeID);
+    const row = { itemID: i.itemID, typeID: i.typeID, quantity: i.quantity, singleton: i.singleton,
+      categoryID: i.categoryID ?? meta?.categoryID ?? null, groupID: meta?.groupID ?? null } as unknown as Parameters<typeof matchInventoryFilter>[0];
+    const price = prices?.get(i.typeID);
+    const facts: InventoryFilterFacts = { ...filterTypeFacts.get(i.typeID), [FILTER_FIELD.price]: price == null ? null : roundInventoryFilterPrice(price) };
+    const name = typeName(i.typeID);
+    return activeFilters.every((f) => matchInventoryFilter(row, name, f, facts) !== false);
+  }
   // invWindow._UpdateSelectedItems: with a selection, the price label the selected items' (UpdateIskPriceLabel(items)) and the
   // gauge's secondary fill and "(<volume>) " their volume (SetSecondaryVolume); else every item's price
   const selectedItems = $derived((bay?.items ?? []).filter((i) => selected.includes(i.itemID)));
@@ -740,7 +791,17 @@
         </div>
       {/each}
     </div>
-    <div class="filters"><span class="caret"></span><span class="flabel">{word("UI/Inventory/Filters/MyFilters", "My filters")}</span><span class="plus" style:background-image={`url("${clientTexture("res:/ui/texture/eveicon/system_icons/add_16px.png")}")`}></span></div>
+    <!-- InvFilters' header (a double-click expands or collapses it), FilterEntry rows under it while expanded -->
+    <div class="filters" role="presentation" ondblclick={toggleFiltersOpen}><span class="caret" class:open={filtersOpen} role="button" tabindex="-1" onclick={toggleFiltersOpen} onkeydown={() => {}}></span><span class="flabel">{word("UI/Inventory/Filters/MyFilters", "My filters")}</span><span class="fon" class:lit={activeFilters.length > 0} role="button" tabindex="-1" onclick={() => (checkedFilters = [])} onkeydown={() => {}}></span><span class="plus" title={word("UI/Inventory/CreateFilter", "Create Filter")} style:background-image={`url("${clientTexture("res:/ui/texture/eveicon/system_icons/add_16px.png")}")`}></span></div>
+    {#if filtersOpen}
+      <div class="flist">
+        {#each itemFilters as f (f[0])}
+          <label class="fentry" onmouseenter={() => void playUiEvent("ui_button_soft2_play")} ondblclick={(e) => { e.preventDefault(); checkedFilters = [f[0]]; }}>
+            <input type="checkbox" checked={checkedFilters.includes(f[0])} onchange={(e) => setFilterChecked(f[0], e.currentTarget.checked)} /><span>{f[0]}</span>
+          </label>
+        {/each}
+      </div>
+    {/if}
   </div>
   {/if}
   <div class="right">
@@ -873,9 +934,21 @@
   .filters::before { content: ""; position: absolute; left: 0; right: 0; top: -5px; height: 1px; background: rgba(255, 255, 255, 0.1); }
   .filters .flabel { flex: 1; font-size: 14px; }
   .filters .plus { flex: none; width: 24px; height: 24px; background: center / 16px 16px no-repeat; opacity: 0.75; cursor: pointer; }
-  .filters .caret { flex: none; width: 24px; height: 24px; position: relative; }
+  .filters .caret { flex: none; width: 24px; height: 24px; position: relative; cursor: pointer; }
+  /* filtersEnabledBtn: 24 wide, the radio button's back at 0.4 and its colour SUCCESS_GREEN faded in while a filter is on;
+     a click turns every filter off */
+  .filters .fon { flex: none; width: 24px; height: 24px; position: relative; cursor: pointer; }
+  .filters .fon::before { content: ""; position: absolute; left: 7px; top: 7px; width: 10px; height: 10px; border-radius: 50%; background: rgba(255, 255, 255, 0.16); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2); transition: background .3s; }
+  .filters .fon.lit::before { background: rgba(141, 193, 105, 0.9); }
+  /* FilterEntry: 22 high, the checkbox at 5 with its label, ListEntryUnderlay under the mouse */
+  .flist { max-height: 118px; overflow-y: auto; }
+  .fentry { display: flex; align-items: center; gap: 6px; height: 22px; padding-left: 5px; color: rgba(255, 255, 255, 0.75); font-size: 14px; white-space: nowrap; cursor: pointer; }
+  .fentry:hover { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); }
+  .fentry input { width: 14px; height: 14px; margin: 0; accent-color: rgb(88, 167, 191); flex: none; }
+  .fentry span { overflow: hidden; text-overflow: ellipsis; }
   .filters .caret::before { content: ""; position: absolute; left: 9px; top: 9px; width: 7px; height: 7px; background: rgba(255, 255, 255, 0.5);
-    mask: url(/client-res/ui/texture/classes/neocom/arrowdown.png) center / 7px 7px no-repeat; -webkit-mask: url(/client-res/ui/texture/classes/neocom/arrowdown.png) center / 7px 7px no-repeat; transform: rotate(-90deg); }
+    mask: url(/client-res/ui/texture/classes/neocom/arrowdown.png) center / 7px 7px no-repeat; -webkit-mask: url(/client-res/ui/texture/classes/neocom/arrowdown.png) center / 7px 7px no-repeat; transform: rotate(180deg); }
+  .filters .caret.open::before { transform: none; }
   .right { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   .top { display: flex; align-items: center; gap: 0; height: 24px; margin-bottom: 16px; }
   /* ButtonIcon: its icon TextColor.NORMAL (0.75), HIGHLIGHT (0.9) hovered (read through gridcheck on Stack All, View mode, Sort By) */
