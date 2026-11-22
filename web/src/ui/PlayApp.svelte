@@ -3549,7 +3549,7 @@
   .fly-windows :global(.notice-log .panel-head) { display: none; }
   /* LoggerWindow (read through gridcheck): its toolbar TOTOP padLeft -4 (the two 24 px MenuButtonIcons at 14, 50), the scroll
      below it padLeft -8 (at 10, 74) */
-  .fly-windows :global(.log-actions) { position: relative; display: flex; margin: 1px 0 0 -4px; }
+  .fly-windows :global(.log-actions) { position: relative; display: flex; margin: 0 0 0 -4px; }
   .fly-windows :global(.notice-log .log-table) { margin-left: -8px; width: calc(100% + 8px); }
   .fly-windows :global(.log-filter) { all: unset; width: 24px; height: 24px; display: grid; place-items: center; cursor: pointer; opacity: 0.8; }
   .fly-windows :global(.log-filter img) { width: 16px; height: 16px; }

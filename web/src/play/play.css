@@ -751,20 +751,23 @@ body:not(.no-target-crosshair) .bracket.locked .t-line, body:not(.no-target-cros
 }
 /* the window's background as the system menu's Window Appearance sets it (gfxSettings.ts windowAppearance); .win.win outranks the tinted copies clientTint.ts makes of the windows' own rules */
 .fly-windows .win.win { background: var(--win-bg, rgba(14, 16, 18, 0.9)); border: 1px solid rgba(255, 255, 255, 0.10); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
-  backdrop-filter: var(--win-backdrop, blur(6px)); border-radius: 0; }
+  backdrop-filter: var(--win-backdrop, blur(6px)); border-radius: 0; padding: 1px; }
 .fly-windows .win.win.focused { border-color: rgba(255, 255, 255, 0.18); background: var(--win-bg-focused, rgba(14, 16, 18, 0.9));
   backdrop-filter: var(--win-backdrop-focused, blur(6px)); }
 /* SmallWindowHeader (read through gridcheck on the drones window, 566 wide): 32 high inside the 2 px frame, its caption at
    18 from the window's edge, the WindowControls' 24 x 24 buttons ending 14 from its right */
-.fly-windows .win-bar { height: 32px; min-height: 32px; box-sizing: border-box; padding: 0 13px 0 17px; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
+.fly-windows .win-bar { height: 32px; min-height: 32px; box-sizing: border-box; padding: 0 12px 0 16px; background: transparent; border-bottom: 0; }
 /* in-space windows' SmallWindowHeader caption: a 12 px Label (Drones, Local, Selected Item read through gridcheck) */
-.fly-windows .win-title { font-family: var(--font); font-size: 12px; font-weight: 400; letter-spacing: .02em; text-transform: none; color: #c8ccc8; }
+/* (the content 1 in from the 1 px frame, as the client's underlay and content; the caption NORMAL, HIGHLIGHT on the active
+   window - SmallWindowHeader.caption_color) */
+.fly-windows .win-title { font-family: var(--font); font-size: 12px; font-weight: 400; letter-spacing: 0; text-transform: none; color: rgba(255, 255, 255, 0.75); }
+.fly-windows .win.focused .win-title { color: rgba(255, 255, 255, 0.9); }
 .fly-windows .win-icon { width: 24px; height: 24px; flex: none; margin: 0 6px 0 -2px; opacity: .85; }
 /* the WindowControls' buttons edge to edge (gridcheck: menu 290, 314, minimize 338, close 362 on a 400 wide scanner) */
 .fly-windows .win-bar { gap: 0; }
 .fly-windows .win-bar .win-title { margin-right: 8px; }
 .fly-windows .win-actions { gap: 0; }
-.fly-windows .win-btn { width: 24px; min-width: 24px; height: 24px; min-height: 0; padding: 0; border: none; background: center / 16px 16px no-repeat; color: transparent; opacity: .55; overflow: hidden; }
+.fly-windows .win-btn { width: 24px; min-width: 24px; height: 24px; min-height: 0; padding: 0; border: none; background: center / 16px 16px no-repeat; color: transparent; opacity: .75; overflow: hidden; }
 .fly-windows .win-btn:hover { opacity: 1; background-color: rgba(255, 255, 255, 0.08); }
 .fly-windows .win-btn:not(.win-close) { background-image: url(/client-res/ui/texture/eveicon/system_icons/minimize_16px.png); }
 .fly-windows .win-close { background-image: url(/client-res/ui/texture/eveicon/system_icons/close_16px.png); }
@@ -903,15 +906,17 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
    inventory's; the content padded 16 a side and below */
 .fly-windows .win[data-win="log"] > .win-bar { height: 48px; box-sizing: border-box; }
 .fly-windows .win[data-win="log"] > .win-bar .win-title { font-size: 18px; }
-.fly-windows .win[data-win="log"] > .win-body { padding: 0 17px 17px; }
+/* DefaultWindowHeader's icon 32 px at 14, 10 and its caption 8 after it (54), as the client's logger and inventory */
+.fly-windows .win:is([data-win="log"], [data-win="inventory"]) > .win-bar .win-icon { width: 32px; height: 32px; margin: 0 8px 0 -4px; opacity: 1; }
+.fly-windows .win[data-win="log"] > .win-body { padding: 0 16px 16px; }
 /* the inventory's big window header (ActiveShipCargo: the header 48 high, its caption a Label of 18 px) */
 .fly-windows .win[data-win="inventory"] > .win-bar { height: 48px; box-sizing: border-box; }
 .fly-windows .win[data-win="inventory"] > .win-bar .win-title { font-size: 18px; }
 /* the probe scanner's and the inventory's content padding as the drones window's (gridcheck: ProbeScannerWindow content 364 wide
    at 18, 34; ActiveShipCargo content_padding (16, 0, 16, 16)) */
-.fly-windows .win[data-win="scanner"]:not(:has(.ps-compact, .compact)) > .win-body, .fly-windows .win[data-win="inventory"]:not(:has(.compact)) > .win-body { padding: 0 17px 17px; }
+.fly-windows .win[data-win="scanner"]:not(:has(.ps-compact, .compact)) > .win-body, .fly-windows .win[data-win="inventory"]:not(:has(.compact)) > .win-body { padding: 0 16px 16px; }
 /* the drones window's content padding (Window.content_padding: 16 a side and below, none on top under a header with its own
-   bottom padding; the frame's 1 px makes 17); compact keeps the window's own */
-.fly-windows .win[data-win="drones"]:not(:has(.fly-drones.compact)) > .win-body { padding: 0 17px 17px; }
+   bottom padding; inside the frame and its 1 px inset); compact keeps the window's own */
+.fly-windows .win[data-win="drones"]:not(:has(.fly-drones.compact)) > .win-body { padding: 0 16px 16px; }
 /* the probe scanner (a WidgetWindow, as the directional scanner): its header 32 high */
 .fly-windows .win[data-win="scanner"] > .win-bar { height: 32px; box-sizing: border-box; }
