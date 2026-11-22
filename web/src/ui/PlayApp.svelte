@@ -1909,6 +1909,7 @@
       openFitting: () => open("fitting"),
       setName: (id, current) => { namingItem = { itemID: id, value: current }; s.flow.requestWords(["UI/Menusvc/SetName", "UI/Menusvc/TypeInNewName", "UI/Common/PleaseTypeSomething", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel"]); },
       inFleet: () => s.store.fleet.get().availability === "ready",
+      fleetID: () => s.store.fleet.get().fleet?.fleetID ?? null,
       // BroadcastState: each broadcast on a thing holds for FLEETBROADCASTTIMEOUT (15 s) from when it was heard
       currentBroadcasts: () => fedBroadcasts(s).items(Date.now()),
       currentBroadcastOn: (itemID) => {

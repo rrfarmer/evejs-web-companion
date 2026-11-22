@@ -90,6 +90,7 @@ import { ACTIVATE_GATE_LABEL, IN_WARP_HINT_LABEL, isWarpGate } from "../bridge/g
 import { ENTER_WORMHOLE_LABEL } from "../bridge/placeChanges.ts";
 import { hasJumpPolarization, POLARIZED_LABEL, polarizationTime, type WormholePolarization } from "./wormholePolarization.ts";
 import { activateCargoTarget, OPEN_CARGO_ICON, OPEN_CARGO_LABEL, selectedCargo } from "./containerInteraction.ts";
+import { isNpcCorporation } from "../bridge/standingsReads.ts";
 import { isActiveComponent, spaceComponents, spaceComponentsNow } from "../space/deployables.ts";
 
 export interface Entity {
@@ -315,6 +316,8 @@ export interface SpaceActions {
   fleetTagAndTarget?(itemID: number): string;
   /** The pilot is in a fleet (session.IsPilotFleetMember). */
   inFleet?(): boolean;
+  /** The pilot's fleet's ID, or null (Michelle.HaveLootRight's fleet). */
+  fleetID?(): number | null;
   /** fleetSvc's broadcasts on a thing in space (Target, HealTarget to the bubble; WarpTo, AlignTo, JumpTo to the system). */
   broadcastOnItem?(name: "Target" | "HealTarget" | "WarpTo" | "AlignTo" | "JumpTo", itemID: number, typeID: number | null): void;
   /** Inventory opened on one of the ship's own holds (the new HUD's cargo indicator), by the bay's key. */
@@ -379,11 +382,26 @@ export interface SpaceActions {
 }
 
 
+/** The pilot, for the containers' loot rights in glyph (set on each space update). */
+let lootWho: { characterID: number | null; corporationID: number | null; fleetID: number | null } = { characterID: null, corporationID: null, fleetID: null };
+
+/** bracketVarious.GROUPS_WITH_LOOTRIGHTS: wreck, cargo container, freight container. */
+const GROUPS_WITH_LOOTRIGHTS: ReadonlySet<number> = new Set([186, 12, 649]);
+
 /** A bracket glyph by kind, in the client's spirit: the shape says what it is, the colour whose. */
 export function glyph(e: Entity): string {
-  // bracketVarious.GetIconColor: OVERVIEW_NORMAL_COLOR (white) for all but the pilot's own ship (OVERVIEW_OWN_SHIP_COLOR, 0.7)
-  // and an NPC (its standing's colour, kept as the page draws it); the autopilot destination and containers not yet
-  const c = e.isNpc ? "var(--hostile)" : e.isSelf ? "#b3b3b3" : "#ffffff";
+  // bracketVarious.GetIconColor: OVERVIEW_NORMAL_COLOR (white) for all but the pilot's own ship (OVERVIEW_OWN_SHIP_COLOR, 0.7),
+  // an NPC (its standing's colour, kept as the page draws it), and a wreck or can: abandoned OVERVIEW_ABANDONED_CONTAINER_COLOR
+  // (0.2, 0.5, 1.0), else one the pilot has no loot right to OVERVIEW_FORBIDDEN_CONTAINER_COLOR (1, 1, 0) (read through
+  // gridcheck: the page pilot's jetcan yellow in the client's overview); the autopilot destination not yet
+  const rights = (e as Entity & { lootRights?: { ownerID: number | null; corpID: number | null; fleetID: number | null; abandoned: boolean } | null }).lootRights ?? null;
+  const looted = e.groupID !== null && GROUPS_WITH_LOOTRIGHTS.has(e.groupID) && rights
+    ? rights.abandoned ? "abandoned"
+      : (lootWho.characterID !== null && rights.ownerID === lootWho.characterID)
+        || (lootWho.corporationID !== null && !isNpcCorporation(lootWho.corporationID) && (rights.ownerID === lootWho.corporationID || rights.corpID === lootWho.corporationID))
+        || (lootWho.fleetID !== null && rights.fleetID === lootWho.fleetID) ? null : "forbidden"
+    : null;
+  const c = e.isNpc ? "var(--hostile)" : e.isSelf ? "#b3b3b3" : looted === "abandoned" ? "rgb(51, 128, 255)" : looted === "forbidden" ? "rgb(255, 255, 0)" : "#ffffff";
   const icon = bracketIcon(e);
   if (icon) return `<span class="glyph bi" style="--icon:url('${icon}');--tint:${c}"></span>`;
   switch (e.kind) {
@@ -4862,6 +4880,8 @@ export class SpaceView {
       snap = projectSpace(park, { solarSystemID: null, shipID: this.live.hello?.shipID ?? null, simTime: this.live.simNow() }) as unknown as Snapshot;
     }
     this.snapshot = snap;
+    const self = snap?.entities.find((x) => x.isSelf) ?? null;
+    lootWho = { characterID: self?.characterID ?? null, corporationID: self?.corporationID ?? null, fleetID: this.actions.fleetID?.() ?? null };
     // tactical.ProcessSessionChange: a new ship ('shipid' in the change) clears every attacker
     const shipNow = snap?.ship?.itemID ?? null;
     if (shipNow !== this.attackersShipID) { this.attackers.clear(); this.attackersShipID = shipNow; }
