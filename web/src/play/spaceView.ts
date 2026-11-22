@@ -2353,6 +2353,8 @@ export class SpaceView {
         b.className = `si-act${a.key === "unlock" ? " on" : ""}`;
         // SelectedItemButton.LoadTooltipPanel: AddLabelShortcut (the action's descriptive text, its command's shortcut),
         // then the disabled hint; pointed from above (POINT_TOP_2)
+        // SelectedItemButton.OnMouseEnter: an enabled button plays SOUND_BUTTON_HOVER (ui_button_soft1_play); a disabled one nothing
+        b.addEventListener("mouseenter", () => { if (!a.disabledReason) void playUiEvent("ui_button_soft1_play"); });
         b.addEventListener("mouseenter", () => showLabelShortcutTooltip(b, a.title, shortcutOf((a.key === "warp" && a.disabledReason ? "" : CMD_BY_ACTION[a.key]) ?? ""), a.disabledReason ? [a.disabledReason] : []));
         b.addEventListener("mouseleave", hideLabelShortcutTooltip);
         b.setAttribute("aria-label", a.title);
