@@ -10,6 +10,7 @@ const eveStore = require("./eveStore");
 const eveGatewayClient = require("./eveGatewayClient");
 const webAuth = require("./webAuth");
 const staticDataModule = require("./staticData");
+const effectiveCatalog = require("./effectiveCatalog");
 const { createServerSiteNames } = require("./serverSiteNames");
 const { createClientWords } = require("./clientData/clientWords");
 const { createClientTextures } = require("./clientData/clientTextures");
@@ -385,14 +386,16 @@ const serverSiteNames = options.serverSiteNames || createServerSiteNames({
 });
 // The retail client's built data, read by the client's own loaders from the
 // same install (src/clientData/clientBuiltData.js).
-const clientBuiltData = options.clientBuiltData || createClientBuiltData({
+const clientBuiltData = effectiveCatalog.withEffectiveCatalog(options.clientBuiltData || createClientBuiltData({
   clientRoot: config.clientRoot,
   python: config.clientPython,
   onError: (error) => console.warn(`[client-data] a table of the client's built data could not be read: ${error && error.message}`),
-});
+}));
 // Where there is no install, the tables the dogma-types route reads, from CCP's SDE of the same build
 // (src/clientData/sdeBuiltData.js; docs/native-layer-optional-plan.md, phase 2). With one, the client's own are read.
-const sdeBuiltData = options.sdeBuiltData || createSdeBuiltData({ jsonl: staticDataModule.buildJsonlIndex });
+const sdeBuiltData = effectiveCatalog.withEffectiveCatalog(
+  options.sdeBuiltData || createSdeBuiltData({ jsonl: staticDataModule.buildJsonlIndex }),
+);
 const dogmaBuiltData = () => (typeof clientBuiltData.available === "function" && !clientBuiltData.available() ? sdeBuiltData : clientBuiltData);
 // The retail client's own constants, read by running its code from the same
 // install (src/clientData/clientConstants.js).
@@ -13774,12 +13777,18 @@ app.get("/api/client-data/required-skills", requireAuth, async (req, res, next) 
       const typeID = Number(part);
       if (Number.isSafeInteger(typeID) && typeID > 0 && !asked.includes(typeID)) asked.push(typeID);
     }
-    const table = await clientBuiltData.table("requiredSkillsForTypes");
+    const built = dogmaBuiltData();
+    const table = await built.table("requiredSkillsForTypes");
     const required = {};
     const order = {};
+    const missing = new Set();
     const walk = (typeID) => {
-      if (Object.prototype.hasOwnProperty.call(required, typeID)) return;
-      const row = table && Array.isArray(table[typeID]) ? table[typeID] : [];
+      if (Object.hasOwn(required, typeID) || missing.has(typeID)) return;
+      const row = table[typeID];
+      if (!Array.isArray(row)) {
+        missing.add(typeID);
+        return;
+      }
       const skills = {};
       const inOrder = [];
       for (const [skillID, level] of row) {
@@ -13794,7 +13803,19 @@ app.get("/api/client-data/required-skills", requireAuth, async (req, res, next) 
       order[typeID] = inOrder;
       for (const [skill] of inOrder) walk(skill);
     };
-    if (table) for (const typeID of asked.slice(0, 50)) walk(typeID);
+    if (table) {
+      for (const typeID of asked.slice(0, 50)) walk(typeID);
+      // The installed skill table is sparse. Confirm an ordinary type before
+      // treating its missing row as known empty. A mod needs its own Dogma row.
+      const ordinary = [...missing].filter(id => !effectiveCatalog.getType(id));
+      const needsClientType = new Set(ordinary.filter(id => !staticData.getType?.(id)));
+      const types = needsClientType.size ? await built.rows("types", [...needsClientType]) : null;
+      for (const id of ordinary) {
+        if (needsClientType.has(id) && !types?.[id]) continue;
+        required[id] = {};
+        order[id] = [];
+      }
+    }
     res.json({ ok: true, available: Boolean(table), required, order });
   } catch (error) {
     next(error);
@@ -14199,8 +14220,9 @@ app.get("/api/client-data/type-attributes", requireAuth, async (req, res, next) 
         if (record && record.unitID === 119 && value !== null && Number.isSafeInteger(Math.trunc(value))) keep(Math.trunc(value));
       }
       const groupID = whole(type.groupID);
-      const categoryID = groupID !== null && groupCategories && groupCategories[String(groupID)] !== undefined ? whole(groupCategories[String(groupID)]) : null;
+      const categoryID = whole(type.effectiveSource ? type.categoryID : groupCategories?.[groupID]);
       types[typeID] = {
+        ...(type.effectiveSource ? { source: type.effectiveSource } : {}),
         attributes: rows,
         groupID,
         categoryID,
@@ -14333,6 +14355,7 @@ app.get("/api/client-data/dogma-types", requireAuth, async (req, res, next) => {
         else if (category === 11 && (name === "fitsToShipType" || name.startsWith("canFitShipType"))) fitsShipTypes.push(value);
       }
       types[typeID] = {
+        ...(type.effectiveSource ? { source: type.effectiveSource } : {}),
         attributes: rows,
         effects,
         defaultEffectID,
@@ -14341,7 +14364,7 @@ app.get("/api/client-data/dogma-types", requireAuth, async (req, res, next) => {
         fitsShipTypes,
         chargeGroups,
         groupID,
-        categoryID: groupID !== null && groupCategories && groupCategories[String(groupID)] !== undefined ? whole(groupCategories[String(groupID)]) : null,
+        categoryID: whole(type.effectiveSource ? type.categoryID : groupCategories?.[groupID]),
         requiredSkills: required.map(([skillID]) => whole(skillID)).filter((skillID) => skillID !== null && skillID > 0),
         // evetypes.IsPublished.
         published: type.published === undefined || type.published === null ? null : Boolean(type.published),
@@ -14500,7 +14523,7 @@ app.get("/api/client-data/type-meta", requireAuth, async (req, res, next) => {
     const [typeRows, metaGroupNames, groupCategories] = await Promise.all([
       clientBuiltData.rows("types", wanted), clientBuiltData.table("metaGroupNameIDs"), clientBuiltData.table("groupCategories"),
     ]);
-    if (!typeRows || !metaGroupNames) {
+    if (!typeRows || (!metaGroupNames && !wanted.some(id => typeRows[id]?.effectiveSource))) {
       res.json({ ok: true, available: false, types: {}, metaGroupNameIDs: {} });
       return;
     }
@@ -14518,12 +14541,12 @@ app.get("/api/client-data/type-meta", requireAuth, async (req, res, next) => {
           // evetypes.GetDescriptionID: the message the type's description is (GetDescription words it).
           descriptionID: whole(type.descriptionID),
           groupID: whole(type.groupID),
-          categoryID: whole(type.groupID) !== null && groupCategories && groupCategories[String(type.groupID)] !== undefined ? whole(groupCategories[String(type.groupID)]) : null,
+          categoryID: whole(type.effectiveSource ? type.categoryID : groupCategories?.[whole(type.groupID)]),
         }
         : null;
     }
     const metaGroupNameIDs = {};
-    for (const [metaGroupID, nameID] of Object.entries(metaGroupNames)) metaGroupNameIDs[metaGroupID] = whole(nameID);
+    for (const [metaGroupID, nameID] of Object.entries(metaGroupNames ?? {})) metaGroupNameIDs[metaGroupID] = whole(nameID);
     res.json({ ok: true, available: true, types, metaGroupNameIDs });
   } catch (error) {
     next(error);

@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const config = require("./config");
+const effectiveCatalog = require("./effectiveCatalog");
 
 // Resolved in config.js, which defaults both to the native
 // <eveRoot>/_local/... layout and lets EVEJS_GAMESTORE_DATA_DIR /
@@ -89,6 +90,7 @@ function buildJsonlIndex(fileName, idField = "_key") {
 function getType(typeID) {
   const numericTypeID = Number(typeID) || 0;
   return (
+    effectiveCatalog.getType(numericTypeID) ||
     buildIndex("itemTypes", "types", "typeID").get(numericTypeID) ||
     getSkillType(numericTypeID) ||
     null
@@ -529,7 +531,10 @@ function getTypeIconUrl(typeID, size = 64, variation = "icon") {
 }
 
 function getSkillType(typeID) {
-  return buildIndex("skillTypes", "skills", "typeID").get(Number(typeID) || 0) || null;
+  const id = Number(typeID) || 0;
+  const effective = effectiveCatalog.getType(id);
+  if (effective) return effective.categoryID === CATEGORY_SKILL ? effective : null;
+  return buildIndex("skillTypes", "skills", "typeID").get(id) || null;
 }
 
 /** Every skill type: its type, name, group and group's name, and whether it is published. */
@@ -562,7 +567,8 @@ function buildTypeDogmaIndex() {
 }
 
 function getTypeDogma(typeID) {
-  return buildTypeDogmaIndex().get(Number(typeID) || 0) || null;
+  const id = Number(typeID) || 0;
+  return effectiveCatalog.getDogma(id) || buildTypeDogmaIndex().get(id) || null;
 }
 
 /**
@@ -572,6 +578,8 @@ function getTypeDogma(typeID) {
  * 4 online, 5 overload).
  */
 function getEffect(effectID) {
+  const effective = effectiveCatalog.getEffect(effectID);
+  if (effective) return effective;
   const cacheKey = "typeDogma:effectTypesByID";
   if (!caches.has(cacheKey)) caches.set(cacheKey, readStaticTable("typeDogma").effectTypesByID || {});
   return caches.get(cacheKey)[String(Number(effectID) || 0)] || null;
@@ -1597,6 +1605,17 @@ const MARKET_FIND_DEFAULT_LIMIT = 25;
 const MARKET_FIND_MAX_LIMIT = 100;
 const MARKET_FIND_MIN_QUERY = 2;
 
+function* marketTypes() {
+  const base = buildIndex("itemTypes", "types", "typeID");
+  const added = effectiveCatalog.listTypes();
+  if (!added.length) {
+    yield* base.values();
+    return;
+  }
+  for (const [id, type] of base) yield effectiveCatalog.getType(id) ?? type;
+  for (const type of added) if (!base.has(type.typeID)) yield type;
+}
+
 function findMarketTypes(filters = {}) {
   const q = filters.q === undefined || filters.q === null ? "" : String(filters.q).trim();
   const requestedLimit = Number(filters.limit);
@@ -1609,7 +1628,7 @@ function findMarketTypes(filters = {}) {
 
   const needle = q.toLowerCase();
   const scored = [];
-  for (const entry of buildIndex("itemTypes", "types", "typeID").values()) {
+  for (const entry of marketTypes()) {
     if (!entry || entry.published !== true) {
       continue;
     }

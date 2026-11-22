@@ -28,6 +28,7 @@
 
 const zlib = require("node:zlib");
 const crypto = require("node:crypto");
+const { observeLogin } = require("../effectiveCatalog");
 const { marshalDecode, getDecodedNumberKind } = require("../gameProtocol/marshal");
 const { remoteObjectReference } = require("./objectReference");
 const { attributePythonType } = require("./clientDogmaArithmetic");
@@ -564,6 +565,7 @@ class GamePortSession {
     const marshaled = Array.isArray(signedFunction) ? signedFunction[0] : signedFunction;
     const source = Buffer.isBuffer(marshaled) ? marshaled : Buffer.from(String(text(marshaled) ?? ""), "latin1");
     const digest = crypto.createHash("sha256").update(source).digest("hex");
+    observeLogin(source, digest);
     const known = this.handshakeFunctions.get(digest);
     if (known === undefined) {
       this.unknownHandshakeFunction = digest;
