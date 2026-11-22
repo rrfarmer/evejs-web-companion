@@ -163,6 +163,8 @@ function sprite(parent: HTMLElement, url: string, left: number, top: number, w: 
   const img = document.createElement("img");
   img.src = url; img.alt = ""; img.draggable = false;
   place(img, left, top, w, h);
+  // (its own size, not the page's img max-width: 100% - the outer circle is wider than the icon box it sits in)
+  img.style.maxWidth = "none";
   if (opacity !== 1) img.style.opacity = String(opacity);
   if (cls) img.className = cls;
   parent.appendChild(img);
