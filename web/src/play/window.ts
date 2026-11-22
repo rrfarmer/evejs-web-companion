@@ -52,6 +52,13 @@ export class PlayWindow {
     const grip = document.createElement("div");
     grip.className = "pw-grip";
     this.root.append(this.head, this.body, grip);
+    // Window.active (the last window pressed): SmallWindowHeader.caption_color - HIGHLIGHT while active, NORMAL otherwise
+    // (the light background on)
+    this.root.addEventListener("pointerdown", () => {
+      if (this.root.classList.contains("pw-active")) return;
+      for (const w of document.querySelectorAll(".pw.pw-active")) w.classList.remove("pw-active");
+      this.root.classList.add("pw-active");
+    }, { capture: true });
     this.head.querySelector(".pw-min")!.addEventListener("click", () => this.toggleMinimized());
     const more = this.head.querySelector<HTMLElement>(".pw-more");
     if (more && options.menu) {

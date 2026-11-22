@@ -245,7 +245,8 @@ button { font: inherit; color: inherit; }
 .pw.pw-small { padding: 1px; margin: 0; border-radius: 0; }
 .pw.pw-small::before { display: none; }
 .pw.pw-small > .pw-head:not(.pw-head-slotted) { box-sizing: border-box; height: 32px; padding: 0 12px 0 16px; gap: 0; border-bottom: 0; }
-.pw.pw-small > .pw-head .pw-caption { color: rgba(255, 255, 255, 0.9); letter-spacing: 0; }
+.pw.pw-small > .pw-head .pw-caption { color: rgba(255, 255, 255, 0.75); letter-spacing: 0; transition: color .15s; }
+.pw.pw-small.pw-active > .pw-head .pw-caption { color: rgba(255, 255, 255, 0.9); }
 .pw.pw-small > .pw-head .pw-buttons { gap: 0; }
 .pw.pw-small > .pw-head .pw-btn { box-sizing: border-box; width: 24px; height: 24px; padding: 4px; opacity: .75; }
 .pw.pw-small > .pw-body.ov { padding: 0 16px 16px; }
@@ -622,7 +623,10 @@ button { font: inherit; color: inherit; }
 .si { position: relative; padding: 0; display: flex; flex-direction: column; overflow: hidden; }
 /* the no-selection hint (gridcheck: EveCaptionMedium 20, STYLE_HEADER - EveSansNeue-Condensed - white 0.5, not upper-cased) */
 .si-none { position: absolute; left: 16px; top: 18px; width: 256px; font: 20px "EVE Sans Neue Condensed", var(--font); color: rgba(255, 255, 255, 0.5); }
-.si-top { display: flex; gap: 8px; align-items: flex-start; padding: 4px 16px 0; flex: none; }
+/* SelectedItemView (read through gridcheck on a selected Veldspar): topCont 74 high - the 64 px icon 16 in, 2 down, the
+   labels 8 right of it (the name 22 high, the distance under it) - then bottomCont with the 32 px buttons 16 in and 16
+   down, 4 apart, at 0.75 (0.3 when they can't act) */
+.si-top { display: flex; gap: 8px; align-items: flex-start; box-sizing: border-box; height: 74px; padding: 2px 16px 0; flex: none; }
 .si-icon { width: 64px; height: 64px; flex: none; }
 /* CharIcon: the portrait, 64 square, its chat button at the bottom right */
 .si-char { position: relative; width: 64px; height: 64px; flex: none; margin-left: 4px; }
@@ -631,16 +635,16 @@ button { font: inherit; color: inherit; }
 .si-chat:hover { opacity: 1; }
 .si-char { cursor: pointer; }
 .si-labels { display: flex; flex-direction: column; min-width: 0; }
-.si-name { color: rgba(255, 255, 255, 0.9); font-size: 14px; line-height: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.si-name { color: rgba(255, 255, 255, 0.9); font-size: 14px; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .si-sec:empty { display: none; }
 .si-sec { color: rgba(255, 255, 255, 0.9); font-size: 14px; }
-.si-dist { color: rgba(255, 255, 255, 0.9); font-size: 14px; font-variant-numeric: tabular-nums; }
-.si-actions { display: flex; gap: 4px; padding: 7px 8px; flex: none; }
+.si-dist { color: rgba(255, 255, 255, 0.9); font-size: 14px; line-height: 18px; font-variant-numeric: tabular-nums; }
+.si-actions { display: flex; gap: 4px; padding: 16px; flex: none; }
 /* the buttons keep their size and the row clips them (buttonCont clipChildren) rather than squeezing them */
 .si-actions { overflow: hidden; }
-.si-act { flex: none; width: 32px; height: 32px; padding: 0; background: transparent; border: 0; box-sizing: border-box; cursor: pointer; opacity: .85; display: flex; }
+.si-act { flex: none; width: 32px; height: 32px; padding: 0; background: transparent; border: 0; box-sizing: border-box; cursor: pointer; opacity: .75; display: flex; }
 .si-act img { width: 32px; height: 32px; display: block; }
-.si-act:disabled { cursor: default; opacity: .4; }
+.si-act:disabled { cursor: default; opacity: .3; }
 .si-act:not(:disabled):hover { opacity: 1; background: rgba(255, 255, 255, 0.08); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); }
 .si-act.on { background: rgba(210, 59, 47, 0.25); box-shadow: inset 0 0 0 1px rgba(210, 59, 47, 0.6); }
 /* the narrow window's buttons (button_size BUTTON_SIZE_SMALL: 20 wide, 16 px icons, BUTTON_PADDING 4 apart) */
@@ -880,7 +884,7 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
    padded right by the header's buttons (header_inset); the header over it, still dragging the window */
 .pw.si-compact .pw-caption { visibility: hidden; }
 .pw.si-compact .pw-head { position: relative; z-index: 1; background: transparent; }
-.pw.si-compact .pw-body { margin-top: -26px; }
+.pw.si-compact .pw-body { margin-top: -32px; }
 .pw.si-compact .si-top { padding-right: 64px; }
 /* the directional scanner in compact mode: its header row in the 32 px header, no Scan Results label, the buttons at
    the left and the filter box at the right (ReconstructHeader with _IsCompactHeaderWindow) */

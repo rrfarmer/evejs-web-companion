@@ -1390,7 +1390,7 @@ export class SpaceView {
     // SelectedItemWnd: actionPanelDefaults' place and size (566 wide, 174 high, 16 from the right and the top), no icon
     // its window menu (GetMenuMoreOptions as a pilot has it): Minimize, then Copy (_CopyText: the name with a gate's
     // security, the distance and the security status, a line each)
-    this.selectedWin = new PlayWindow({ id: "selected-item", caption: "Selected Item", left: innerWidth - 566 - 16, top: 16, width: 566, height: 174, minWidth: 256, closable: false,
+    this.selectedWin = new PlayWindow({ id: "selected-item", caption: "Selected Item", left: innerWidth - 566 - 16, top: 16, width: 566, height: 174, minWidth: 256, closable: false, chrome: "small",
       menu: (button) => {
         const r = button.getBoundingClientRect();
         const text = [...this.selectedWin.body.querySelectorAll<HTMLElement>(".si-name, .si-dist, .si-sec")].map((el) => el.textContent ?? "").filter(Boolean).join("\n");
