@@ -3579,8 +3579,9 @@
   .fly-windows :global(.log-table th[aria-sort]) { color: var(--color-text-bright); }
   .fly-windows :global(.log-table td) { padding: 2px 8px; height: 22px; line-height: 18px; box-sizing: border-box; vertical-align: top; color: rgba(255, 255, 255, 0.85); overflow: hidden; }
   .fly-windows :global(.log-table tbody tr) { cursor: default; user-select: none; }
-  .fly-windows :global(.log-table tbody tr:hover) { background: rgba(255, 255, 255, 0.06); }
-  .fly-windows :global(.log-table tbody tr[aria-selected="true"]) { background: rgba(84, 156, 193, 0.25); }
+  /* (ListEntryUnderlay: THEME_FOCUSDARK at 0.2 under the mouse, 0.4 selected) */
+  .fly-windows :global(.log-table tbody tr:hover) { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); }
+  .fly-windows :global(.log-table tbody tr[aria-selected="true"]) { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 40%, transparent); }
   /* each ColumnHeader 74 / 71 wide but the next 4 in (Time at 10, Type at 80, Message at 147); an entry one line, clipped (a
      22 high Generic, its text past the scroll cut off) */
   .fly-windows :global(.log-table td) { white-space: nowrap; text-overflow: clip; }

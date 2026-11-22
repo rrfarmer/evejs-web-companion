@@ -605,8 +605,9 @@
   /* the list's Item entry (gridcheck, VIEWMODE_LIST): 21 high, its EveLabelMedium 14 from 12 */
   .rows:not(.details) td { height: 21px; font-size: 14px; }
   .rows:not(.details) td.nm { padding-left: 12px; }
-  .rows tr:hover td { background: rgba(255, 255, 255, 0.05); }
-  .rows tr.selected td { background: rgba(255, 255, 255, 0.12); }
+  /* (the scroll's entries' ListEntryUnderlay: THEME_FOCUSDARK at 0.2 under the mouse, 0.4 selected) */
+  .rows tr:hover td { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); }
+  .rows tr.selected td { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 40%, transparent); }
   .rows .num { text-align: right; }
   .rows th { cursor: pointer; }
   /* the scroll's ColumnHeader (read through gridcheck on the cargo's list view): its EveLabelSmall at white 0.5, sorted

@@ -325,7 +325,7 @@ button { font: inherit; color: inherit; }
 .ov-columns-row { position: relative; display: block; height: 22px; cursor: grab; }
 .ov-columns-row > input { position: absolute; left: 4px; top: 3px; width: 16px; height: 16px; min-height: 0; margin: 0; padding: 0; accent-color: rgb(88, 167, 191); }
 .ov-columns-row > span { position: absolute; left: 24px; top: 2px; line-height: 18px; white-space: nowrap; }
-.ov-columns-row:hover { background: rgba(255, 255, 255, 0.05); }
+.ov-columns-row:hover { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); }
 .ov-columns-end { height: 16px; }
 /* OverviewSettingsWnd: a TabGroup over the panel; TabsPanel's grid (15 apart across, 8 down; 120 wide fields) */
 /* OverviewSettingsWnd (read through gridcheck, 520 x 600): its content 2 in, a DefaultWindowHeader 48 high - the 32 px
@@ -629,8 +629,9 @@ button { font: inherit; color: inherit; }
   padding: 3px 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
 .ov-table td { padding: 1px 6px; white-space: nowrap; height: 19px; border-bottom: 1px solid rgba(255, 255, 255, 0.025); }
 .ov-table tbody tr { cursor: pointer; }
-.ov-table tbody tr:hover { background: rgba(255, 255, 255, 0.05); }
-.ov-table tbody tr.sel { background: rgba(255, 255, 255, 0.12); }
+/* every scroll entry's ListEntryUnderlay (THEME_FOCUSDARK at 0.2 under the mouse, 0.4 selected): the d-scan's results too */
+.ov-table tbody tr:hover { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); }
+.ov-table tbody tr.sel { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 40%, transparent); }
 .ov-table .ov-icon { width: 16px; padding-right: 0; }
 .ov-table .ov-icon svg { width: 14px; height: 14px; display: block; }
 .ov-table .ov-dist { text-align: right; font-variant-numeric: tabular-nums; color: #cfd3cf; }
@@ -811,7 +812,7 @@ body:not(.no-target-crosshair) .bracket.locked .t-line, body:not(.no-target-cros
   .fly-windows section.bulk { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.16); }
   /* tables: the client's column heads are small, grey and plain; its rows a faint line apart */
   .fly-windows th { color: #9a9e99; font-weight: 500; letter-spacing: 0.04em; background: transparent; }
-  .fly-windows tbody tr:hover > td { background: rgba(255, 255, 255, 0.05); }
+  .fly-windows tbody tr:hover > td { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); }
 }
 
 /* The app's button variants (primary, active, minor) are its components layer's: restated there at the same
