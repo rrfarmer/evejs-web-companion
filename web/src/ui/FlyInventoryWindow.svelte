@@ -305,6 +305,11 @@
     ]);
   }
   /** TreeDataInv.OpenNewWindow on a ship bay: an inventory window of its own, captioned with the bay's name (PlayApp's). */
+  // invWindow.OnTreeViewClick / OnTreeViewMouseEnter / OnTreeViewMouseExit: an entry of an object in space (the ship, a
+  // container) selected in space on a click, its mouse-over state on while the mouse is over the entry
+  function spaceSelect(itemID: number): void { dispatchEvent(new CustomEvent("evejs:select-space-item", { detail: { itemID } })); }
+  function spaceHover(itemID: number, on: boolean): void { dispatchEvent(new CustomEvent("evejs:hover-space-item", { detail: { itemID, on } })); }
+
   function openBayInNewWindow(key: string, label: string): void {
     if (current === key) current = "cargo";
     dispatchEvent(new CustomEvent("evejs:open-bay-window", { detail: { key, title: label } }));
@@ -700,8 +705,8 @@
         <!-- invWindow.OnTreeViewDblClick: an entry with a container opens in a window of its own with Always open in separate
              window on (always_open_secondary_inventory_setting), else its children are shown or hidden -->
         <!-- TreeDataShip.GetHint: the type name, with TreeDataInv's "[<shortcut>]" (ShortcutBrackets) of OpenCargoHoldOfActiveShip where it has one -->
-        <div title={typeName(ship.typeID) + shortcutHint("OpenCargoHoldOfActiveShip")} onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node" class:sel={current === "cargo"} class:drop={dropKey === "cargo"} role="treeitem" aria-selected={current === "cargo"} tabindex="-1"
-          onclick={() => (current = "cargo")} onkeydown={() => {}} oncontextmenu={(e) => cargoNodeMenu(e)}
+        <div title={typeName(ship.typeID) + shortcutHint("OpenCargoHoldOfActiveShip")} onmouseenter={() => { void playUiEvent("ui_button_soft2_play"); spaceHover(ship.itemID, true); }} onmouseleave={() => spaceHover(ship.itemID, false)} class="node" class:sel={current === "cargo"} class:drop={dropKey === "cargo"} role="treeitem" aria-selected={current === "cargo"} tabindex="-1"
+          onclick={() => { spaceSelect(ship.itemID); current = "cargo"; }} onkeydown={() => {}} oncontextmenu={(e) => cargoNodeMenu(e)}
           ondblclick={() => { if (invAlwaysSeparate.get()) current = "cargo"; else treeOpen = !treeOpen; }}
           ondragover={dragOver("cargo")} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn("cargo", e)}>
           <button type="button" class="exp" class:open={treeOpen} aria-label="Expand" onclick={(e) => { e.stopPropagation(); treeOpen = !treeOpen; }}></button>
@@ -723,8 +728,8 @@
       {#each temps as t (t.id)}
         <!-- TreeViewEntry of a removable TreeDataInv: the 73_16_210 remove sprite at the spacer's end (hint Close), the
              icon 4 after it, the label with its distance -->
-        <div onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node temp" class:far={!t.inRange} class:sel={current === `temp:${t.id}`} role="treeitem" aria-selected={current === `temp:${t.id}`} tabindex="-1"
-          class:drop={dropKey === `temp:${t.id}`} onclick={(e) => (e.shiftKey && t.inRange ? openTempInNewWindow(t.id) : openTemp(t.id))}
+        <div onmouseenter={() => { void playUiEvent("ui_button_soft2_play"); spaceHover(t.id, true); }} onmouseleave={() => spaceHover(t.id, false)} class="node temp" class:far={!t.inRange} class:sel={current === `temp:${t.id}`} role="treeitem" aria-selected={current === `temp:${t.id}`} tabindex="-1"
+          class:drop={dropKey === `temp:${t.id}`} onclick={(e) => { spaceSelect(t.id); if (e.shiftKey && t.inRange) openTempInNewWindow(t.id); else openTemp(t.id); }}
           ondblclick={() => { if (invAlwaysSeparate.get() && t.inRange) openTempInNewWindow(t.id); }} onkeydown={() => {}} oncontextmenu={(e) => tempMenu(t, e)}
           ondragover={$inventoryState.container?.itemID === t.id ? dragOver(`temp:${t.id}`) : undefined} ondragleave={() => (dropKey = null)}
           ondrop={$inventoryState.container?.itemID === t.id ? (e) => void dropOn(`temp:${t.id}`, e) : undefined}>

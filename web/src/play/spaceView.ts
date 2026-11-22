@@ -1829,6 +1829,13 @@ export class SpaceView {
       this.contextMenu.open(d.x, d.y, d.tail?.length ? [...entries, null, ...d.tail] : entries);
     };
     addEventListener("evejs:open-space-menu", menuFor);
+    // invWindow.OnTreeViewClick / OnTreeViewMouseEnter / OnTreeViewMouseExit: an inventory tree entry of an object in the
+    // ballpark (not the station docked at) sets its selected state on a click and its mouse-over state while under the mouse
+    const selectFor = (ev: Event) => { const id = (ev as CustomEvent<{ itemID: number }>).detail.itemID; if (this.snapshot?.ship?.itemID === id || this.snapshot?.entities.some((x) => x.itemID === id)) this.setSelectedState(id); };
+    const hoverFor = (ev: Event) => { const d = (ev as CustomEvent<{ itemID: number; on: boolean }>).detail; if (d.on) this.setHovered(d.itemID); else if (this.hoveredID === d.itemID) this.setHovered(null); };
+    addEventListener("evejs:select-space-item", selectFor);
+    addEventListener("evejs:hover-space-item", hoverFor);
+    this.unhold.push(() => { removeEventListener("evejs:select-space-item", selectFor); removeEventListener("evejs:hover-space-item", hoverFor); });
     this.unhold.push(() => removeEventListener("evejs:open-space-menu", menuFor));
     addEventListener("keyup", this.onKeyUp);
     addEventListener("blur", this.onBlur);
@@ -2188,6 +2195,12 @@ export class SpaceView {
     // ExecuteCombatCommand: a click on an object while a combat command is loaded runs it on the object
     const combat = itemID !== null ? this.combat?.cmd ?? this.modifierCombat() : null;
     if (combat && combat !== "CmdSelectTargetItem" && itemID !== null) { this.runCombat(combat, itemID); return false; }
+    this.setSelectedState(itemID);
+    return true;
+  }
+
+  /** stateSvc.SetState(itemID, selected, 1): the object selected, with no click's combat command or scan run on it. */
+  private setSelectedState(itemID: number | null): void {
     this.selected = itemID;
     this.options.onSelectionChange?.(itemID);
     // overviewWindow.OnScrollSelectionChange and inSpaceBracket.OnClick:
@@ -2198,7 +2211,6 @@ export class SpaceView {
     for (const o of this.extraOverviews) o.setSelected(itemID);
     if (itemID !== null && !this.targetingCursor.hidden) this.chooseModuleTarget(itemID);
     this.renderSelected();
-    return true;
   }
 
   selectObjectiveTarget(itemID: number): boolean {
