@@ -249,6 +249,9 @@ button { font: inherit; color: inherit; }
 .ov .ov-table thead { background: transparent; }
 .ov .ov-table td { height: 24px; box-sizing: border-box; padding: 0 8px; border: 0; overflow: hidden; text-overflow: clip; color: #fff;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6); }
+/* OverviewLabel: its text limited to the column less COLUMNMARGIN a side (measurer.limit = columnWidth), so a long name
+   stops 8 px short of the next column rather than at its edge */
+.ov .ov-table td:not(.ov-icon) { overflow: clip; overflow-clip-margin: content-box; }
 .ov .ov-table .ov-icon { padding: 0 0 0 3px; }
 .ov-icon-wrap { position: relative; display: inline-block; width: 16px; height: 16px; vertical-align: middle; }
 /* FlagIconWithState (stateFlag.py): 10 x 10 at the icon's bottom right, its glyph 8 x 8 centred */
