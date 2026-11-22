@@ -266,7 +266,9 @@ button { font: inherit; color: inherit; }
 .pw.pw-small > .pw-body.ov > .ov-tabs { box-sizing: border-box; margin: -8px -16px 0; padding: 0 16px; }
 .pw.pw-small > .pw-body.ov .ov-tab.active { box-shadow: 0 1px 0 #58a7bf; }
 .pw.pw-small > .pw-body.ov .ov-add-tab { box-sizing: border-box; width: 24px; height: 24px; margin-left: 0; }
-.pw.pw-small > .pw-body.ov > .ov-scroll { margin-left: 0; margin-right: -8px; }
+/* the overview scroll (read through gridcheck): BasicDynamicScroll 530 wide to the content's edge, its 8 px Scrollbar at the
+   right, the entries 514 (8 short of the bar), clipping the columns past it; here the thin scrollbar (10) at the edge and the rows clipped at it */
+.pw.pw-small > .pw-body.ov > .ov-scroll { margin-left: 0; margin-right: 0; overflow-x: hidden; }
 .ov .ov-tab { display: flex; align-items: center; padding: 0; font-size: 14px; color: rgba(255, 255, 255, 0.5); border: 0; background: none;
   box-shadow: none; white-space: nowrap; }
 .ov .ov-tab:hover:not(.active) { color: rgba(255, 255, 255, 0.75); background: none; }
