@@ -715,6 +715,13 @@ ${shader.vertexShader.replace("#include <uv_vertex>", `#include <uv_vertex>
       shader.vertexShader = `attribute vec4 color; varying float vWreckV;
 ${shader.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n  vWreckV = color.x;")}`;
     }
+    // A hull area with no albedo texture compiles without USE_MAP, so three declares no vMapUv - yet the area's other
+    // maps (material, paint mask, details, dust) are read at it: declared and set here from the mesh's UV. (The console
+    // held 398 "'vMapUv' : undeclared identifier" fragment errors from such areas.)
+    if (!m.map) {
+      shader.vertexShader = `varying vec2 vMapUv;\n${shader.vertexShader.replace("#include <uv_vertex>", "#include <uv_vertex>\n  vMapUv = uv;")}`;
+      shader.fragmentShader = `varying vec2 vMapUv;\n${shader.fragmentShader}`;
+    }
     base.call(m, shader, renderer);
     if (wreck) shader.fragmentShader = change(shader.fragmentShader, "totalEmissiveRadiance *= vec3( pow( emissiveColor.r, 2.4 ) );", `vec2 wreckQ = floor( vEmissiveMapUv * 15.0 ) * 0.066667;
         float wreckL = length( wreckQ );
