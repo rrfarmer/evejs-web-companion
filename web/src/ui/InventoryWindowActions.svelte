@@ -1,14 +1,14 @@
 <script lang="ts">
   // invWindow.Inventory in space: in compact mode its search field in the header (_get_search_field_parent:
   // _search_field_header_parent, centred), then the window's menu (CompactModeWindowAction, then GetMenuMoreOptions):
-  // Show Sidebar, Keep Quick Filter Value, and in compact mode a separator, the caption View Mode and the view modes' radio buttons.
+  // Show Sidebar, Always Open Separate, Keep Quick Filter Value, and in compact mode a separator, the caption View Mode and the view modes' radio buttons.
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { onMount } from "svelte";
   import WindowActionItems from "./WindowActionItems.svelte";
   import { applyWindowFlags, WINDOW_ACTION_WORDS } from "./windowFlags.ts";
-  import { invCompact, invFilter, invKeepFilter, invSidebar, invViewMode, setInvCompact, setInvKeepFilter, setInvSidebar } from "./inventoryWindowSettings.ts";
+  import { invAlwaysSeparate, invCompact, invFilter, invKeepFilter, invSidebar, invViewMode, setInvAlwaysSeparate, setInvCompact, setInvKeepFilter, setInvSidebar } from "./inventoryWindowSettings.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
@@ -18,9 +18,10 @@
   const filter = invFilter;
   const viewMode = invViewMode;
   const keepFilter = invKeepFilter;
+  const alwaysSeparate = invAlwaysSeparate;
   const MODES = [["icons", "UI/Inventory/Icons", "Icons"], ["details", "UI/Inventory/Details", "Details"], ["list", "UI/Inventory/List", "List"]] as const;
   onMount(() => applyWindowFlags("inventory"));
-  $effect(() => { flow.requestWords([...WINDOW_ACTION_WORDS, "UI/Inventory/ShowSidebar", "UI/Inventory/KeepQuickFilterValue", "UI/Inventory/ViewMode", "UI/Inventory/Icons", "UI/Inventory/Details", "UI/Inventory/List",
+  $effect(() => { flow.requestWords([...WINDOW_ACTION_WORDS, "UI/Inventory/ShowSidebar", "UI/Inventory/AlwaysOpenSeparate", "UI/Inventory/KeepQuickFilterValue", "UI/Inventory/ViewMode", "UI/Inventory/Icons", "UI/Inventory/Details", "UI/Inventory/List",
     "/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", "UI/Common/Search"]); });
 
   let open = $state(false);
@@ -47,6 +48,8 @@
       <WindowActionItems id="inventory" lightByDefault={false} {word} compact={{ on: $compact, toggle: () => setInvCompact(!$compact) }} onDone={() => (open = false)} />
       <button type="button" role="menuitemcheckbox" aria-checked={$sidebar} onpointerdown={(event) => event.stopPropagation()}
         onclick={() => setInvSidebar(!$sidebar)}>{word("UI/Inventory/ShowSidebar", "Show Sidebar")}</button>
+      <button type="button" role="menuitemcheckbox" aria-checked={$alwaysSeparate} onpointerdown={(event) => event.stopPropagation()}
+        onclick={() => setInvAlwaysSeparate(!$alwaysSeparate)}>{word("UI/Inventory/AlwaysOpenSeparate", "Always Open Separate")}</button>
       <button type="button" role="menuitemcheckbox" aria-checked={$keepFilter} onpointerdown={(event) => event.stopPropagation()}
         onclick={() => setInvKeepFilter(!$keepFilter)}>{word("UI/Inventory/KeepQuickFilterValue", "Keep Quick Filter Value")}</button>
       {#if $compact}

@@ -30,7 +30,7 @@
   // capacity gauge, the quick filter), the items (InvItem in icons view: a 64 px icon, its quantity at the bottom right
   // on black, the name under it in two lines at most; "Nothing Found" where none), and the foot's "<n> Items" and
   // "<isk> ISK Est. price" (UpdateNumberOfItems, UpdateIskPriceLabel).
-  import { invCompact, invFilter, invKeepFilter, invSidebar, invViewMode } from "./inventoryWindowSettings.ts";
+  import { invAlwaysSeparate, invCompact, invFilter, invKeepFilter, invSidebar, invViewMode } from "./inventoryWindowSettings.ts";
   import { onMount, untrack } from "svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import { fmtAmtShort } from "../bridge/pyNumbers.ts";
@@ -625,7 +625,8 @@
         <!-- TreeViewEntry of a removable TreeDataInv: the 73_16_210 remove sprite at the spacer's end (hint Close), the
              icon 4 after it, the label with its distance -->
         <div onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node temp" class:far={!t.inRange} class:sel={current === `temp:${t.id}`} role="treeitem" aria-selected={current === `temp:${t.id}`} tabindex="-1"
-          class:drop={dropKey === `temp:${t.id}`} onclick={(e) => (e.shiftKey && t.inRange ? openTempInNewWindow(t.id) : openTemp(t.id))} onkeydown={() => {}} oncontextmenu={(e) => tempMenu(t, e)}
+          class:drop={dropKey === `temp:${t.id}`} onclick={(e) => (e.shiftKey && t.inRange ? openTempInNewWindow(t.id) : openTemp(t.id))}
+          ondblclick={() => { if (invAlwaysSeparate.get() && t.inRange) openTempInNewWindow(t.id); }} onkeydown={() => {}} oncontextmenu={(e) => tempMenu(t, e)}
           ondragover={$inventoryState.container?.itemID === t.id ? dragOver(`temp:${t.id}`) : undefined} ondragleave={() => (dropKey = null)}
           ondrop={$inventoryState.container?.itemID === t.id ? (e) => void dropOn(`temp:${t.id}`, e) : undefined}>
           <button type="button" class="tremove" title={word("UI/Common/Buttons/Close", "Close")} aria-label={word("UI/Common/Buttons/Close", "Close")}

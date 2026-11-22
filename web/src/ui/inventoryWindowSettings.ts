@@ -26,3 +26,9 @@ export function setInvCompact(on: boolean): void { keep("evejs.ui.inventory.comp
  * another container is shown (else Container.SetInvCont clears it). */
 export const invKeepFilter = createSignal<boolean>(read("evejs.ui.inventory.keepQuickFilter", false));
 export function setInvKeepFilter(on: boolean): void { keep("evejs.ui.inventory.keepQuickFilter", on); invKeepFilter.set(on); }
+
+/** invSettings.always_open_secondary_inventory_setting (UserSettingBool openSecondaryInv, False): a double-click on a
+ * container's tree entry opens it in a window of its own (OnTreeViewDblClick: TreeDataInv.OpenNewWindow, else the
+ * entry's children toggled). */
+export const invAlwaysSeparate = createSignal<boolean>(read("evejs.ui.inventory.openSecondary", false));
+export function setInvAlwaysSeparate(on: boolean): void { keep("evejs.ui.inventory.openSecondary", on); invAlwaysSeparate.set(on); }
