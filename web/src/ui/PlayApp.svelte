@@ -88,6 +88,7 @@
   import ClientDialogs from "./ClientDialogs.svelte";
   import ScannerWindows from "./ScannerWindows.svelte";
   import { INTEGRATED_MINING_SCANNER } from "../bridge/miningScanResults.ts";
+  import MiningScanWindowActions from "./MiningScanWindowActions.svelte";
   import FleetInvitation from "./FleetInvitation.svelte";
   import InfoWindows from "./InfoWindows.svelte";
   import CalendarWindows from "./CalendarWindows.svelte";
@@ -2863,6 +2864,7 @@
             {#if win.id === "drones"}<DronesWindowActions store={session.store} flow={session.flow} />{/if}
             {#if win.id === "inventory" && !docked}<InventoryWindowActions store={session.store} flow={session.flow} />{/if}
             {#if win.id === "scanner" && !docked}<ScannerWindowActions store={session.store} flow={session.flow} />{/if}
+            {#if win.id === "miningScan"}<MiningScanWindowActions store={session.store} flow={session.flow} />{/if}
           {/snippet}
           <!-- (the drones window in the client's layout: FlyDronesWindow; the workspace keeps DronesPanel) -->
           {#if win.id === "drones"}

@@ -10,10 +10,8 @@
   import { createSignal } from "../store/signals.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import { showInfo } from "./showInfo.ts";
-  import { ContextMenu } from "../play/contextMenu.ts";
-  import { clientTexture } from "../play/window.ts";
-  import { onDestroy } from "svelte";
-  import { plainText } from "../bridge/clientWords.ts";
+  import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import { loadMiningScanSort, miningScanSort } from "./miningScanSort.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const flightView = getContext<(() => SpaceView | null) | undefined>("flightSpaceView");
@@ -44,31 +42,13 @@
 
   let busy = $state(false);
   let facts = $state<ReadonlyMap<number, MiningScanTypeFacts>>(new Map());
-  /**
-   * GetCustomHeaderButtons: the bars_sort_ascending button, UI/Mining/SortGroupsBy, opening on_filter_button's menu - its
-   * label, then the radio entries Alphabetically, Value, Type of the char setting miningScanSortGroupsBy (default
-   * ALPHABETICALLY), the groups sorted again on a change (read through gridcheck: 'Sort Groups By', 'Alphabetically',
-   * 'Value', 'Type').
-   */
-  const SORT_KEY = () => `evejs.miningScanSortGroupsBy.${store.character.get().selectedCharacterID ?? 0}`;
-  const readSort = (): "name" | "value" | "type" => { try { const v = localStorage.getItem(SORT_KEY()); return v === "value" || v === "type" ? v : "name"; } catch { return "name"; } };
-  let sortGroups = $state<"name" | "value" | "type">(readSort());
-  const SORT_WORDS = ["UI/Mining/SortGroupsBy", "UI/Mining/SortGroupsByAlphabetically", "UI/Mining/SortGroupsByValue", "UI/Mining/SortGroupsByType"];
-  flow.requestWords(SORT_WORDS);
+  // the group order (sort_groups_by_setting), chosen in the window's header (MiningScanWindowActions)
+  const sortStore = miningScanSort;
+  $effect(() => { loadMiningScanSort(store.character.get().selectedCharacterID ?? null); });
+  const sortGroups = $derived($sortStore);
+  flow.requestWords(["UI/Inflight/Scanner/Scan", "UI/Mining/MiningScannerUpgradeRequired", "UI/Mining/NoScanResultsFound"]);
   const words = $derived(store.words);
-  const sortWord = (label: string, own: string) => { const t = $words.templates[label]; return typeof t === "string" && t !== "" ? plainText(t) : own; };
-  const sortMenu = new ContextMenu();
-  onDestroy(() => sortMenu.close());
-  function openSortMenu(e: MouseEvent): void {
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const pick = (v: "name" | "value" | "type") => () => { sortGroups = v; try { localStorage.setItem(SORT_KEY(), v); } catch { /* kept for this page only */ } };
-    sortMenu.open(r.left, r.bottom, [
-      { label: sortWord("UI/Mining/SortGroupsBy", "Sort Groups By"), caption: true },
-      { label: sortWord("UI/Mining/SortGroupsByAlphabetically", "Alphabetically"), checked: sortGroups === "name", run: pick("name") },
-      { label: sortWord("UI/Mining/SortGroupsByValue", "Value"), checked: sortGroups === "value", run: pick("value") },
-      { label: sortWord("UI/Mining/SortGroupsByType", "Type"), checked: sortGroups === "type", run: pick("type") },
-    ]);
-  }
+  const say = (label: string, own: string, args: Record<string, string | number> = {}) => { const t = $words.templates[label]; return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args as never, { nameOf: () => null } as never)) : own; };
   let collapsed = $state<ReadonlySet<number>>(new Set());
   const rows = $derived(miningScanRows($mining.survey, snapshot, facts));
   const groups = $derived.by(() => {
@@ -116,11 +96,6 @@
 </script>
 
 <section class="mining-scan-results" aria-label="Mining Scan Results">
-  <div class="scan-toolbar">
-    <button type="button" class="sort-groups" title={sortWord("UI/Mining/SortGroupsBy", "Sort Groups By")} aria-label={sortWord("UI/Mining/SortGroupsBy", "Sort Groups By")}
-      onclick={openSortMenu} style:background-image={`url(${clientTexture("res:/ui/texture/eveicon/system_icons/bars_sort_ascending_16px.png")})`}></button>
-    <button class="scan-button" type="button" onclick={scan} disabled={busy || $waveBusy || inWarp || !snapshot?.inSpace}>{busy || $waveBusy ? "Scanning…" : "Scan"}</button>
-  </div>
   {#if inWarp}<p class="status">Mining scans are unavailable while warping.</p>{/if}
   {#if $mining.surveyError}<p role="alert" class="status">{$mining.surveyError}</p>{/if}
   <div class="scan-table">
@@ -157,16 +132,23 @@
         </tbody>
       {/each}
     </table>
-    {#if groups.length === 0}<p class="status">{$mining.surveyAtMs === null ? "Run a scan to find nearby ore." : "No scan results found."}</p>{/if}
+    <!-- the scroll's noContentHint, UI/Mining/NoScanResultsFound -->
+    {#if groups.length === 0}<p class="status">{say("UI/Mining/NoScanResultsFound", "No Scan Results Found")}</p>{/if}
   </div>
-  {#if upgrade <= 0}
-    <p class="upgrade">Fit <button type="button" onclick={() => showInfo({ kind: "type", typeID: upgradeTypeID })}>{typeName(upgradeTypeID)}</button> to reveal ore quantities.</p>
-  {/if}
+  <!-- construct_layout's bottom_cont (WindowSegmentUnderlay): under a tier below 2 the WarningContainer of
+       UI/Mining/MiningScannerUpgradeRequired (its module the Survey Scanner's link), then the ButtonGroup's Scan -->
+  <div class="scan-bottom">
+    {#if upgrade <= 0}
+      <p class="upgrade"><button type="button" class="link" onclick={() => showInfo({ kind: "type", typeID: upgradeTypeID })}>{say("UI/Mining/MiningScannerUpgradeRequired", `Fit ${typeName(upgradeTypeID)} to reveal ore quantities.`, { module_name: typeName(upgradeTypeID) })}</button></p>
+    {/if}
+    <div class="scan-buttons"><button class="scan-button client-btn" type="button" onclick={scan} disabled={busy || $waveBusy || inWarp || !snapshot?.inSpace}>{say("UI/Inflight/Scanner/Scan", "Scan")}</button></div>
+  </div>
 </section>
 
 <style>
-  .sort-groups { width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; background: center / 16px no-repeat; opacity: 0.75; cursor: pointer; }
-  .sort-groups:hover { opacity: 1; }
+  .scan-bottom { margin: 0 -0.65rem -0.65rem; padding: 4px 0.65rem 0.65rem; background: rgba(255, 255, 255, 0.04); }
+  .scan-buttons { display: flex; justify-content: center; padding-top: 4px; }
+  .upgrade .link { all: unset; cursor: pointer; }
   section { display: flex; flex-direction: column; min-height: 0; height: 100%; padding: 0.65rem; gap: 0.55rem; color: #e0e9ed; }
   .scan-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; }
   label { display: flex; align-items: center; gap: 0.45rem; font-size: 0.8rem; }
