@@ -872,7 +872,9 @@
   /* the ShipCargo scroll's entries and the footer's labels from 16 past the tree column (186) */
   /* the icon view: InvItem 64 wide, GetEntryColMargin 16 between columns, rows of GetEntryHeight (103) touching */
   .items { padding-left: 4px; flex: 1; overflow: auto; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 0 16px; }
-  .none { width: 100%; margin: 0; text-align: center; font-size: 24px; color: rgba(255, 255, 255, 0.6); letter-spacing: 0.5px; }
+  /* Scroll.ShowHint: EveCaptionLarge (24) centred, padding 16 all round, TextColor.SECONDARY (0.5), faded in over 0.3 s */
+  .none { width: 100%; box-sizing: border-box; margin: 0; padding: 16px; text-align: center; font-size: 24px; color: rgba(255, 255, 255, 0.5); letter-spacing: 0.5px; animation: none-in 0.3s; }
+  @keyframes none-in { from { opacity: 0; } to { opacity: 1; } }
   .item { width: 64px; height: 103px; display: flex; flex-direction: column; align-items: center; }
   .icon { position: relative; width: 64px; height: 64px; display: grid; background: rgba(255, 255, 255, 0.05); }
   .icon :global(.type-icon) { width: 64px; height: 64px; }
