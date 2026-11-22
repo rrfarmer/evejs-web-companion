@@ -1000,3 +1000,7 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 @keyframes ov-hostile-blink { 0% { opacity: 0.3; } 50% { opacity: 0.6; } 100% { opacity: 0.3; } }
 .ov .ov-tgt-hostile.fleet { background: rgb(153, 38, 230); }
 .ov .ov-tgt-hostile.attacking { background: rgb(204, 0, 0); }
+.mining-details .eb-line .eb-crit.eb-crit { display: inline-flex; align-items: center; gap: 4px; color: rgb(240, 255, 69); animation: eb-crit 2.6s linear forwards; }
+.mining-details .eb-crit-icon { width: 16px; height: 16px; background: rgb(240, 255, 69);
+  -webkit-mask: url(/client-res/ui/texture/eveicon/category_icons/crit_success_16px.png) center / 16px no-repeat; mask: url(/client-res/ui/texture/eveicon/category_icons/crit_success_16px.png) center / 16px no-repeat; }
+@keyframes eb-crit { 0% { opacity: 0; } 3% { opacity: 1; } 6% { opacity: 0; } 9% { opacity: 1; } 12% { opacity: 0; } 15% { opacity: 1; } 77% { opacity: 1; } 100% { opacity: 0; } }

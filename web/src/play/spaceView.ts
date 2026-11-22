@@ -2066,7 +2066,16 @@ export class SpaceView {
     const pair = (label: string, value: string) => `<b>${escapeHtml(label)}</b> <span>${escapeHtml(value)}</span>`;
     const rows = [pair(this.actions.word?.("UI/Common/Distance") ?? "Distance", fmtDistance(this.distanceTo(entity), 1))];
     for (const line of lines) {
-      const m = /^(Total value|Value|Quantity|Critical yield)\s*(.*)$/.exec(line);
+      // ExpandedBracketAsteroid._show_critical_hit: the crit_success icon (16) and UI/Mining/CriticalHit in
+      // MiningQuantityColor.CRIT_BONUS (DESTINATION_YELLOW), blinking in three times, held 2 s, faded over 0.6 s
+      const crit = /^Critical yield \+([0-9,]+)$/.exec(line);
+      if (crit) {
+        const amount = Number(crit[1]!.replace(/,/g, ""));
+        const text = this.actions.word?.("UI/Mining/CriticalHit", { amount }) ?? `Critical Success +${amount.toLocaleString()}`;
+        rows.push(`<span class="eb-crit"><span class="eb-crit-icon"></span>${escapeHtml(text)}</span>`);
+        continue;
+      }
+      const m = /^(Total value|Value|Quantity)\s*(.*)$/.exec(line);
       rows.push(m ? pair(m[1]!, m[2]!) : escapeHtml(line));
     }
     const html = rows.map((r) => `<div class="eb-line">${r}</div>`).join("");
