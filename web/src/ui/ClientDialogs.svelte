@@ -774,9 +774,20 @@
 
   // dialog_handler.handle_player_fsd_dialog: the dialog logged once, as it is put up, where its type is logged.
   const loggedDialogs = new Set<number>();
+  // (the log keeps the line as written, so it waits for the names its body asks for - "The target Veldspar is too far
+  // away", not "type 64071" - up to NAME_WAIT_MS, then writes what it has)
+  const NAME_WAIT_MS = 3000;
+  const firstSeen = new Map<number, number>();
+  let nameWaitTick = $state(0);
+  const UNRESOLVED = "\u0000";
   $effect(() => {
+    void nameWaitTick;
     for (const one of shown) {
       if (one.kind === "pending" || loggedDialogs.has(one.said.n)) continue;
+      const seen = firstSeen.get(one.said.n) ?? Date.now();
+      if (!firstSeen.has(one.said.n)) { firstSeen.set(one.said.n, seen); setTimeout(() => { nameWaitTick += 1; }, NAME_WAIT_MS + 50); }
+      if (one.type !== null && LOGGED_DIALOG_TYPES.has(one.type) && Date.now() - seen < NAME_WAIT_MS
+        && questionText(partOf(one.said, "body"), (kind, id) => resolvedName($names.resolved, kind, id, UNRESOLVED), client).includes(UNRESOLVED)) continue;
       loggedDialogs.add(one.said.n);
       // audioService.AudioMessage, before the dialog is put up: its urlAudio sent as a UI event (the audio type's whole effect)
       const audio = $words.templates[audioKey(one.said)];
