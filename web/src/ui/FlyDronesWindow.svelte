@@ -391,8 +391,14 @@
   const shipTypeID = $derived(ship?.typeID ?? null);
   const favoriteID = $derived($droneGroups.favorites[`evejs.ui.drones_favoriteGroupID_${shipTypeID ?? "None"}`] ?? null);
   /** Groups shown open (ListGroup's open state; closed by default). */
-  let openGroups = $state(new Set<string>());
-  const toggleGroup = (key: string) => { const s = new Set(openGroups); if (s.has(key)) s.delete(key); else s.add(key); openGroups = s; };
+  // ListGroup open state (uicore.registry.GetListGroupOpenState / SetListGroupOpenState): each drone group's, by its
+  // drone state and group (the node id (state, groupID)), kept, closed where none is kept
+  const OPEN_GROUPS_KEY = "evejs.ui.listgroups.dronegroups";
+  let openGroups = $state(new Set<string>((() => { try { const v = JSON.parse(globalThis.localStorage?.getItem(OPEN_GROUPS_KEY) ?? "[]"); return Array.isArray(v) ? v.filter((x) => typeof x === "string") : []; } catch { return []; } })()));
+  const toggleGroup = (key: string) => {
+    const s = new Set(openGroups); if (s.has(key)) s.delete(key); else s.add(key); openGroups = s;
+    try { globalThis.localStorage?.setItem(OPEN_GROUPS_KEY, JSON.stringify([...s])); } catch { /* this visit */ }
+  };
   /**
    * The two lists' selections (topScroll and bottomScroll, multiSelect): a click selects the entry alone, Ctrl a toggle,
    * Shift the run from the last one clicked, Ctrl+Shift that run added (scroll.SelectNode); entries in the order shown.
