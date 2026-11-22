@@ -955,7 +955,7 @@
   const AL = "UI/Inflight/ActivityLog/";
   // (the bounty's {[numeric]bounty.isk} written by FmtISK: UI/Util/FmtIsk)
   const ACTION_WORDS = [...["OreMined", "VariableRewardMined", "OreWasted", "GroupWasted", "MiningCriticalHit", "BountyAddedToPayoutMessage1", "ModifiedBountyAddedToPayoutMessage1"].map((k) => AL + k),
-    "UI/Util/FmtIsk", "UI/Util/FmtIskNoDecimal", "UI/Inflight/ModuleRacks/TryingToActivatePassiveModule"];
+    "UI/Util/FmtIsk", "UI/Util/FmtIskNoDecimal", "UI/Inflight/ModuleRacks/TryingToActivatePassiveModule", "UI/Mining/MiningHoldCapacityPercentage"];
   const CATEGORY_ASTEROID = 25;
   let offActionMessages: (() => void) | null = null;
   async function sayActionMessage(m: ActionMessage): Promise<void> {

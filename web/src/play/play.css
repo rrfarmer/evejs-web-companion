@@ -132,9 +132,14 @@ button { font: inherit; color: inherit; }
 .mining-details .eb-line b { color: #fff; }
 .mining-details .eb-line span { color: #e6e6e6; }
 .bracket.mining-selected .mining-details:not([hidden]) { display: block; }
-.mining-hold-bracket { position: absolute; left: 0; top: 0; pointer-events: auto;
-  border: 1px solid #71978d; border-radius: 4px; background: #141d24e8; color: #e2eeee; padding: 3px 7px;
-  white-space: nowrap; cursor: pointer; font: inherit; font-size: 11px; }
+.mining-hold-bracket { position: absolute; left: 0; top: 0; pointer-events: auto; width: 32px; height: 32px; min-height: 0;
+  padding: 0; border: 0; background: none; color: rgba(255, 255, 255, 0.75); cursor: pointer; font: inherit; }
+.mining-hold-bracket .mh-bg, .mining-hold-bracket .mh-seg { position: absolute; inset: 0; -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
+  transition: background-color 0.3s; }
+.mining-hold-bracket .mh-bg { background: #fff; opacity: 0.2; }
+.mining-hold-bracket .mh-label { position: absolute; left: 40px; top: 50%; transform: translateY(-50%); white-space: nowrap; font-size: 13px;
+  opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+.mining-hold-bracket:hover .mh-label { opacity: 1; }
 .bracket.polarized-wormhole::before {
   content: ""; position: absolute; inset: -8px; pointer-events: none; border-radius: 50%;
   background: conic-gradient(#ff8000 var(--polarization-sweep), rgba(255, 128, 0, .25) 0turn);

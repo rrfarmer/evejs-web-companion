@@ -1447,6 +1447,13 @@ export class SpaceView {
     this.miningHoldBracket.type = "button";
     this.miningHoldBracket.className = "mining-hold-bracket";
     this.miningHoldBracket.hidden = true;
+    // my_ship_bracket.OreHoldBracket's CircularInventoryGauge (32 x 32): its ten cargo_hold_segment sprites over
+    // cargo_hold_bg (0.2), and the TextBody label 8 px to its right, shown on a hover
+    {
+      const tex = (n: string) => `url(${clientTexture(`res:/UI/Texture/Classes/Mining/${n}.png`)})`;
+      const layer = (n: string, cls: string) => `<span class="${cls}" style="-webkit-mask-image:${tex(n)};mask-image:${tex(n)}"></span>`;
+      this.miningHoldBracket.innerHTML = layer("cargo_hold_bg", "mh-bg") + Array.from({ length: 10 }, (_, i) => layer(`cargo_hold_segment_${i + 1}`, "mh-seg")).join("") + `<span class="mh-label"></span>`;
+    }
     this.miningHoldBracket.addEventListener("pointerdown", event => event.stopPropagation());
     this.miningHoldBracket.addEventListener("click", event => {
       event.stopPropagation();
@@ -2238,8 +2245,25 @@ export class SpaceView {
     const p = new THREE.Vector3().project(this.camera);
     badge.hidden = opacity === 0 || p.z >= 1 || Math.abs(p.x) > 1 || Math.abs(p.y) > 1;
     if (badge.hidden) return;
-    const text = `${hold.label} ${Math.round(100 * capacity.used / capacity.capacity)}%`;
-    if (badge.textContent !== text) badge.textContent = text;
+    // update_segments: segment i lit where the ratio passes i / 9, white and the last two WARNING_ORANGE, every one
+    // orange when the hold is full; update_label_text: UI/Mining/MiningHoldCapacityPercentage of the hold's name
+    // (GetNameForFlag) and int(ratio x 100), orange when full
+    const ratio = capacity.used / capacity.capacity;
+    const ORANGE = "rgb(243, 144, 88)";
+    badge.querySelectorAll<HTMLElement>(".mh-seg").forEach((seg, i) => {
+      const lit = ratio > i / 9 || ratio >= 1;
+      const colour = ratio >= 1 ? ORANGE : lit ? (i >= 8 ? ORANGE : "#fff") : "transparent";
+      if (seg.style.backgroundColor !== colour) seg.style.backgroundColor = colour;
+    });
+    const holdWords = this.options.indicationWords?.() ?? {};
+    const def = hold.key === CARGO_HOLD.bayKey ? CARGO_HOLD : SHIP_HOLDS.find((x) => x.bayKey === hold.key);
+    const t = def ? holdWords[def.label] : null;
+    const name = typeof t === "string" && t !== "" ? plainText(t) : hold.label;
+    const pct = Math.floor(ratio * 100);
+    const text = this.actions.word?.("UI/Mining/MiningHoldCapacityPercentage", { hold_name: name, capacity: pct }) ?? `${name} ${pct}%`;
+    const label = badge.querySelector<HTMLElement>(".mh-label")!;
+    if (label.textContent !== text) label.textContent = text;
+    label.style.color = ratio >= 1 ? ORANGE : "";
     badge.style.opacity = String(opacity);
     badge.style.transform = `translate(${(p.x + 1) * width / 2 + 36}px, ${(1 - p.y) * height / 2 + 30}px)`;
   }
