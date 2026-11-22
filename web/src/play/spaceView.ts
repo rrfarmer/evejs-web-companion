@@ -1802,6 +1802,12 @@ export class SpaceView {
         scanStarted: () => this.systemMap?.scanStarted(),
         scanned: (result) => this.systemMap?.scanEffect(result),
         hoverResult: (typeID) => this.systemMap?.hoverScanResult(typeID),
+        combatClick: (itemID) => {
+          const combat = this.combat?.cmd ?? this.modifierCombat();
+          if (combat && combat !== "CmdSelectTargetItem" && this.snapshot?.entities.some((x) => x.itemID === itemID)) this.runCombat(combat, itemID);
+        },
+        showInfo: (itemID, typeID) => this.options.showInfo?.(itemID, typeID),
+        menu: (itemID, _typeID, x, y) => dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID, x, y } })),
       }, this.layer);
       this.dscan.window.root.classList.add("space-only-window");
       this.layer.appendChild(this.dscan.window.root);

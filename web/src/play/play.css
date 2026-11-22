@@ -651,6 +651,9 @@ button { font: inherit; color: inherit; }
 .dscan-ic:disabled { opacity: 0.6; }
 /* the scroll's columns at their own widths (GetColumnsDefaultSize, the icon fixed at 20), wider than the window scrolling it */
 .dscan-scroll .ov-table { width: max-content; table-layout: fixed; }
+/* BaseListEntry's underlay: THEME_FOCUSDARK 0.2 under the mouse, 0.4 selected */
+.dscan-scroll .ov-table tbody tr[data-id]:hover { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); }
+.dscan-scroll .ov-table tbody tr[data-id].sel { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 40%, transparent); }
 .dscan-scroll .ov-table th:nth-child(1) { width: 20px; }
 .dscan-scroll .ov-table th:nth-child(2) { width: 160px; }
 .dscan-scroll .ov-table th:nth-child(3) { width: 130px; }

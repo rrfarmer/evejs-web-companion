@@ -64,6 +64,12 @@ export interface DScanHooks {
   /** OnDirectionalScanComplete: the unfiltered answer and the direction the server scanned. */
   scanned?(result: DScanResult): void;
   hoverResult?(typeID: number | null): void;
+  /** DirectionalScanResultEntry.OnClick's ExecuteCombatCommand(itemID, UI_CLICK): a loaded combat command run on it. */
+  combatClick?(itemID: number): void;
+  /** Its OnDblClick: the result's info window (ShowInfo(typeID, itemID)). */
+  showInfo?(itemID: number, typeID: number): void;
+  /** Its GetMenu: CelestialMenu(itemID, typeID) - the object's menu, at x, y. */
+  menu?(itemID: number, typeID: number, x: number, y: number): void;
   /** MapBtnClicked: the solar system map opened. */
   openMap?(): void;
   /** The ship's maxDirectionalScanRange in metres (GetMaxRangeM); null where it is not read. */
@@ -146,6 +152,24 @@ export class DScanWindow {
   private inKm = false;
   private sort = readSort();
   private readonly sortHeaders: NodeListOf<HTMLTableCellElement>;
+  /** The scroll's selected entries by itemID (Scroll.SelectNode: a click one, Ctrl toggles, Shift from the last clicked). */
+  private selectedIDs = new Set<number>();
+  private anchorID: number | null = null;
+  private selectEntry(id: number, order: readonly number[], ev: MouseEvent): void {
+    const from = this.anchorID === null ? -1 : order.indexOf(this.anchorID);
+    if (ev.shiftKey && from >= 0) {
+      const to = order.indexOf(id);
+      const range = order.slice(Math.min(from, to), Math.max(from, to) + 1);
+      this.selectedIDs = new Set(ev.ctrlKey ? [...this.selectedIDs, ...range] : range);
+    } else if (ev.ctrlKey) {
+      if (this.selectedIDs.has(id)) this.selectedIDs.delete(id); else this.selectedIDs.add(id);
+      this.anchorID = id;
+    } else {
+      this.selectedIDs = new Set([id]);
+      this.anchorID = id;
+    }
+    for (const tr of this.tbody.querySelectorAll<HTMLTableRowElement>("tr[data-id]")) tr.classList.toggle("sel", this.selectedIDs.has(Number(tr.dataset.id)));
+  }
   private readonly tbody: HTMLTableSectionElement;
   private readonly status: HTMLDivElement;
   private readonly filterBox: HTMLSpanElement;
@@ -506,8 +530,17 @@ export class DScanWindow {
       return a[column] < b[column] ? -1 : a[column] > b[column] ? 1 : 0;
     });
     if (this.sort.reversed) entries.reverse();
+    const order = entries.map((e) => e.row.id);
+    for (const id of [...this.selectedIDs]) if (!order.includes(id)) this.selectedIDs.delete(id);
     for (const { row, name, type, distance } of entries) {
       const tr = document.createElement("tr");
+      // DirectionalScanResultEntry: a click selects it and runs a loaded combat command on it, a double-click selects
+      // it and shows its info, a right-click its CelestialMenu (its own GetMenu, not the base's: no selection first)
+      tr.dataset.id = String(row.id);
+      if (this.selectedIDs.has(row.id)) tr.classList.add("sel");
+      tr.addEventListener("click", (ev) => { this.selectEntry(row.id, order, ev); this.hooks.combatClick?.(row.id); });
+      tr.addEventListener("dblclick", () => { this.selectedIDs = new Set([row.id]); this.anchorID = row.id; for (const x of this.tbody.querySelectorAll<HTMLTableRowElement>("tr[data-id]")) x.classList.toggle("sel", x === tr); this.hooks.showInfo?.(row.id, row.typeID); });
+      tr.addEventListener("contextmenu", (ev) => { ev.preventDefault(); ev.stopPropagation(); this.hooks.menu?.(row.id, row.typeID, ev.clientX, ev.clientY); });
       tr.addEventListener("mouseenter", () => this.hooks.hoverResult?.(row.typeID));
       tr.addEventListener("mouseleave", () => this.hooks.hoverResult?.(null));
       const iconCell = document.createElement("td");
