@@ -229,7 +229,7 @@
     window.addEventListener("evejs:open-filter-window", open);
     return () => window.removeEventListener("evejs:open-filter-window", open);
   });
-  let spaceContainer = $state.raw<{ itemID: number; title: string } | null>(null);
+  let spaceContainer = $state.raw<{ itemID: number; title: string; windowID: string } | null>(null);
   /** The container window over the others (opened or clicked last) or under the one clicked since. */
   let containerFront = $state(true);
   $effect(() => { if (spaceContainer) { containerFront = true; activeWinKey = "spaceContainer"; } });
@@ -1853,7 +1853,16 @@
       const typeName = resolvedName(s.store.names.get().resolved, "type", c.typeID, "");
       if (!typeName && !e.name) s.flow.requestNames([{ kind: "type", id: c.typeID }]);
       const title = e.name || typeName || "Container";
-      if (spaceContainer?.itemID !== c.itemID || spaceContainer.title !== title) spaceContainer = { itemID: c.itemID, title };
+      // Inventory.GetWindowIDFromInvID: the window named after its inventory controller - ItemWreck for a wreck, else
+      // ItemFloatingCargo - so every can's window opens where the last was left (RegisterPositionAndSize by windowID)
+      const windowID = e.kind === "wreck" ? "ItemWreck" : "ItemFloatingCargo";
+      if (spaceContainer?.itemID !== c.itemID || spaceContainer.title !== title || spaceContainer.windowID !== windowID) {
+        if (spaceContainer?.itemID !== c.itemID) {
+          const kept = keptPlace(windowID);
+          if (kept) Object.assign(containerWin, kept);
+        }
+        spaceContainer = { itemID: c.itemID, title, windowID };
+      }
     };
     s.store.inventory.subscribe(syncSpaceContainer);
     s.store.names.subscribe(syncSpaceContainer);
@@ -3191,8 +3200,8 @@
     {@const c = spaceContainer}
     <div class="space-container-layer" class:behind={!containerFront} onpointerdowncapture={() => (containerFront = true)}>
       <DesktopWindow win={containerWin} title={c.title} icon={clientTexture("res:/UI/Texture/WindowIcons/cargo.png")} focused={activeWinKey === containerWin.id} onFocus={() => {}}
-        onClose={() => void session.flow.openContainer(null)} onMove={(x, y) => { containerWin.x = x; containerWin.y = y; }}
-        onResize={(w, h) => { containerWin.w = Math.max(300, w); containerWin.h = Math.max(200, h); }}>
+        onClose={() => void session.flow.openContainer(null)} onMove={(x, y) => { containerWin.x = x; containerWin.y = y; keepPlace({ ...containerWin, id: c.windowID }); }}
+        onResize={(w, h) => { containerWin.w = Math.max(300, w); containerWin.h = Math.max(200, h); keepPlace({ ...containerWin, id: c.windowID }); }}>
         <FlyInventoryWindow store={session.store} flow={session.flow} containerMode={true} />
       </DesktopWindow>
     </div>
