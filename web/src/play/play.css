@@ -979,6 +979,9 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 .ov .ov-tgt { position: absolute; left: -1px; top: -1px; width: 18px; height: 18px; pointer-events: none; opacity: 0.5;
   background: url(/client-res/ui/texture/classes/bracket/activetarget.png) center / 18px 18px no-repeat; }
 .ov .ov-tgt.active { opacity: 1; }
-.ov .ov-tgt-locking { position: absolute; left: calc(50% - 15px); top: calc(50% - 14px); width: 28px; height: 28px; pointer-events: none;
+.ov .ov-tgt-locking { position: absolute; left: 50%; top: 50%; transform: translate(calc(-50% - 1px), -50%); width: 28px; height: 28px; pointer-events: none;
+  animation: ov-tgt-locking 350ms steps(7, end) infinite;
   background: linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) left 0 top 3px / 5px 2px, linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) right 0 top 3px / 5px 2px, linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) left 0 bottom 3px / 5px 2px, linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) right 0 bottom 3px / 5px 2px,
     linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) left 3px top 0 / 2px 3px, linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) right 3px top 0 / 2px 3px, linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) left 3px bottom 0 / 2px 3px, linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5)) right 3px bottom 0 / 2px 3px; background-repeat: no-repeat; }
+/* AnimateTargeting: the box 28 - 2i for i 1..7 (26 down to 14), a step each 50 ms, round again */
+@keyframes ov-tgt-locking { from { width: 26px; height: 26px; } to { width: 12px; height: 12px; } }
