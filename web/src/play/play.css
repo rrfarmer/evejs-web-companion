@@ -331,9 +331,11 @@ button { font: inherit; color: inherit; }
 .ov-xfer-foot { display: flex; align-items: center; gap: 8px; }
 .ov-xfer-name { flex: 1; font: inherit; background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; padding: 2px 4px; }
 /* HistoryPanel: the text at the top (0.8), the list filling, the stored profile at the bottom under a 0.1 line, Restore Profile at its right */
-.ov-history { display: flex; flex-direction: column; height: calc(100% - 40px); }
-.ov-history-text { padding: 3px 10px 0; color: rgba(255, 255, 255, 0.8); }
-.ov-history-list { flex: 1; overflow: auto; padding: 4px 10px; line-height: 18px; }
+/* HistoryPanel (read through gridcheck): historyCont flush with the main at 130 down to its foot, a 1 px line at the
+   bottom; HistoryText 10 in, 3 down (white 0.8, 18 px lines), then the EditPlainText 10 in a side to the line, its text 8 in */
+.ov-set-panel.ov-history { display: flex; flex-direction: column; padding: 8px 0 0; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+.ov-history-text { flex: none; padding: 3px 10px 0; line-height: 18px; color: rgba(255, 255, 255, 0.8); }
+.ov-history-list { flex: 1; overflow: auto; margin: -2px 10px 0; padding: 8px; line-height: 18px; }
 .ov-history-restore { display: flex; align-items: center; gap: 10px; padding: 3px 10px 2px; border-top: 1px solid rgba(255, 255, 255, 0.1); }
 .ov-history-labels { flex: 1; }
 .ov-history-based { font-size: 11px; color: rgba(255, 255, 255, 0.6); }
