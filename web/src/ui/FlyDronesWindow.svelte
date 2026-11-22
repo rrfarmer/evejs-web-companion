@@ -1016,8 +1016,9 @@
   /* its ButtonIcons buttonSize 20 wide, the row's height */
   .row .row-buttons .command { width: 20px; height: 24px; }
   .row:hover .row-buttons { opacity: 1; visibility: visible; }
-  .command { width: 24px; height: 22px; padding: 0; border: 0; background: transparent; display: grid; place-items: center; cursor: pointer; opacity: 0.85; }
-  .command:hover:not(:disabled) { opacity: 1; background: rgba(255, 255, 255, 0.08); }
+  /* ButtonIcon: TextColor.NORMAL 0.75, HIGHLIGHT 0.9 hovered, DISABLED 0.3; no hover background (isHoverBGUsed only under noBgSize) */
+  .command { width: 24px; height: 22px; padding: 0; border: 0; background: transparent; display: grid; place-items: center; cursor: pointer; opacity: 0.75; }
+  .command:hover:not(:disabled) { opacity: 0.9; }
   .command:disabled { opacity: 0.3; cursor: default; }
   .glyph { width: 16px; height: 16px; background: center / 16px 16px no-repeat; }
   /* DroneEntry: 24 high, the label 4 in (8 more a sublevel); an in-space one in the icons view 40 high with its 32 px icon */
