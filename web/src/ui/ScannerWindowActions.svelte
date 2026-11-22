@@ -1,15 +1,20 @@
 <script lang="ts">
-  // ProbeScannerWindow's menu in space: CompactModeWindowAction (Enable / Disable compact mode).
+  // ProbeScannerWindow's menu in space: its window actions only (read through gridcheck: Lock window size and position,
+  // compact mode, Disable Light Background, Collapse).
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { probeScannerCompact, setProbeScannerCompact } from "./scannerWindowSettings.ts";
+  import { onMount } from "svelte";
+  import WindowActionItems from "./WindowActionItems.svelte";
+  import { applyWindowFlags, WINDOW_ACTION_WORDS } from "./windowFlags.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   const compact = probeScannerCompact;
-  $effect(() => { flow.requestWords(["/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode"]); });
+  $effect(() => { flow.requestWords(["/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", ...WINDOW_ACTION_WORDS]); });
+  onMount(() => applyWindowFlags("scanner"));
 
   let open = $state(false);
   let root: HTMLElement;
@@ -28,8 +33,7 @@
     onpointerdown={(event) => event.stopPropagation()} onclick={() => (open = !open)}>⋯</button>
   {#if open}
     <div class="log-menu" role="menu" aria-label="Options">
-      <button type="button" role="menuitem" onpointerdown={(event) => event.stopPropagation()}
-        onclick={() => { setProbeScannerCompact(!$compact); open = false; }}>{$compact ? word("/Carbon/UI/Controls/Window/DisableCompactMode", "Disable compact mode") : word("/Carbon/UI/Controls/Window/EnableCompactMode", "Enable compact mode")}</button>
+      <WindowActionItems id="scanner" lightByDefault={true} {word} compact={{ on: $compact, toggle: () => setProbeScannerCompact(!$compact) }} onDone={() => (open = false)} />
     </div>
   {/if}
 </div>

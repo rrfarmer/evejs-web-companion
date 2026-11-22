@@ -36,4 +36,6 @@
 
 <style>
   .sep { border: 0; border-top: 1px solid rgba(255, 255, 255, 0.15); margin: 4px 0; width: 100%; }
+  /* (no line closing a menu with nothing of its own after the actions: the probe scanner) */
+  .sep:last-child { display: none; }
 </style>
