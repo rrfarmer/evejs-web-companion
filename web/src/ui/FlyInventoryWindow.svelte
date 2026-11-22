@@ -45,7 +45,7 @@
   import { SHIP_HOLDS, CARGO_HOLD } from "../bridge/shipHolds.ts";
   // TreeViewEntry.OnMouseEnter: PlaySound(uiconst.SOUND_ENTRY_HOVER), ui_button_soft2_play
   import { playUiEvent } from "../play/uiAudio.ts";
-  import { DEFAULT_INVENTORY_FILTERS, FILTER_FIELD, INVENTORY_FILTERS_SETTING, matchInventoryFilter, readInventoryFilters, roundInventoryFilterPrice, type InventoryFilter, type InventoryFilterFacts } from "../bridge/inventoryFilters.ts";
+  import { DEFAULT_INVENTORY_FILTERS, FILTER_FIELD, INVENTORY_FILTERS_SETTING, matchInventoryFilter, readInventoryFilters, roundInventoryFilterPrice, writeInventoryFilters, type InventoryFilter, type InventoryFilterFacts } from "../bridge/inventoryFilters.ts";
   import { loadInventoryFilterFacts, TYPE_FILTER_FIELDS } from "../app/inventoryFilterFacts.ts";
   import { getTypeMeta } from "../app/api.ts";
   // SE_BaseClassCore.OnMouseEnter: PlaySound(sound_hover = uiconst.SOUND_ENTRY_HOVER, ui_button_soft2_play) as an entry lights; an
@@ -123,7 +123,7 @@
   /** invCont.GetViewModeName / GetViewModeIcon. */
   const VIEW_MODES = [["icons", "UI/Inventory/Icons", "Icons", "grid_view"], ["details", "UI/Inventory/Details", "Details", "details_view"], ["list", "UI/Inventory/List", "List", "list_view"]] as const;
   const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/ShortcutBrackets", "UI/Inventory/SlotRigs", "UI/Inventory/SlotHigh", "UI/Inventory/SlotMedium", "UI/Inventory/SlotLow", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SelectAll", "UI/Inventory/NothingFoundFiltered", "UI/Common/NothingFound", "UI/Fitting/FittingWindow/SimulateShipFitting", "UI/Inventory/InvertSelection", "UI/Common/SortBy", "UI/Inventory/ViewMode",
-    "UI/Inventory/Filters/MyFilters", "UI/Inventory/CreateFilter", ...DEFAULT_INVENTORY_FILTERS.map(([key]) => key), "UI/Common/NothingFound", "UI/Inventory/OpenInNewWindow", "UI/Common/Buttons/Close", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
+    "UI/Inventory/Filters/MyFilters", "UI/Inventory/CreateFilter", "UI/Commands/Remove", ...DEFAULT_INVENTORY_FILTERS.map(([key]) => key), "UI/Common/NothingFound", "UI/Inventory/OpenInNewWindow", "UI/Common/Buttons/Close", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
   flow.requestWords(WORDS);
   const word = (label: string, own: string, args: Record<string, string | number> = {}) => {
     const t = $words.templates[label];
@@ -437,6 +437,20 @@
   function toggleFiltersOpen(): void { filtersOpen = !filtersOpen; try { localStorage.setItem(FILTERS_OPEN_KEY, filtersOpen ? "1" : "0"); } catch { /* this visit */ } }
   function setFilterChecked(name: string, on: boolean): void { checkedFilters = on ? [...checkedFilters.filter((n) => n !== name), name] : checkedFilters.filter((n) => n !== name); }
   const activeFilters = $derived(itemFilters.filter((f) => checkedFilters.includes(f[0])));
+  // FilterEntry.GetMenu: Edit (the filter in FilterCreationWindow, not here yet) and Remove (FilterSvc.RemoveFilter: the
+  // RemoveFilterPrompt question, then every filter but it kept - PersistFilters)
+  function filterMenu(e: MouseEvent, name: string): void {
+    e.preventDefault();
+    e.stopPropagation();
+    menu.open(e.clientX, e.clientY, [{ label: word("UI/Commands/Remove", "Remove"), run: () => void removeFilter(name) }]);
+  }
+  async function removeFilter(name: string): Promise<void> {
+    if (!(await flow.askClientDialogWith("RemoveFilterPrompt", {}, "Are you sure you want to remove this filter?"))) return;
+    const next = itemFilters.filter((f) => f[0].toLowerCase() !== name.toLowerCase());
+    await flow.saveCharacterSetting(INVENTORY_FILTERS_SETTING, writeInventoryFilters(next));
+    savedFilters = next;
+    checkedFilters = checkedFilters.filter((n) => n !== name);
+  }
   // what the active filters ask of the items' types: the group and category (the type's record) and FilterSvc.GetValue's
   // dogma and meta facts (TYPE_FILTER_FIELDS); the price is the average price the window shows
   let filterMeta = $state<ReadonlyMap<number, { groupID: number | null; categoryID: number | null }>>(new Map());
@@ -796,7 +810,7 @@
     {#if filtersOpen}
       <div class="flist">
         {#each itemFilters as f (f[0])}
-          <label class="fentry" onmouseenter={() => void playUiEvent("ui_button_soft2_play")} ondblclick={(e) => { e.preventDefault(); checkedFilters = [f[0]]; }}>
+          <label class="fentry" oncontextmenu={(e) => filterMenu(e, f[0])} onmouseenter={() => void playUiEvent("ui_button_soft2_play")} ondblclick={(e) => { e.preventDefault(); checkedFilters = [f[0]]; }}>
             <input type="checkbox" checked={checkedFilters.includes(f[0])} onchange={(e) => setFilterChecked(f[0], e.currentTarget.checked)} /><span>{f[0]}</span>
           </label>
         {/each}
