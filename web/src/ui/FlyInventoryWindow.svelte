@@ -19,6 +19,8 @@
   import { shipHoldTarget } from "./shipHold.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
   import { SHIP_HOLDS, CARGO_HOLD } from "../bridge/shipHolds.ts";
+  // TreeViewEntry.OnMouseEnter: PlaySound(uiconst.SOUND_ENTRY_HOVER), ui_button_soft2_play
+  import { playUiEvent } from "../play/uiAudio.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
@@ -434,7 +436,7 @@
   <div class="tree">
     <div class="nodes">
       {#if ship}
-        <div class="node" class:sel={current === "cargo"} class:drop={dropKey === "cargo"} role="treeitem" aria-selected={current === "cargo"} tabindex="-1"
+        <div onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node" class:sel={current === "cargo"} class:drop={dropKey === "cargo"} role="treeitem" aria-selected={current === "cargo"} tabindex="-1"
           onclick={() => (current = "cargo")} onkeydown={() => {}}
           ondragover={dragOver("cargo")} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn("cargo", e)}>
           <button type="button" class="exp" class:open={treeOpen} aria-label="Expand" onclick={(e) => { e.stopPropagation(); treeOpen = !treeOpen; }}></button>
@@ -443,7 +445,7 @@
         </div>
         {#if treeOpen}
           {#each bays.filter((b) => b.key !== "cargo") as b (b.key)}
-            <div class="node sub" class:sel={current === b.key} class:drop={dropKey === b.key} role="treeitem" aria-selected={current === b.key} tabindex="-1"
+            <div onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node sub" class:sel={current === b.key} class:drop={dropKey === b.key} role="treeitem" aria-selected={current === b.key} tabindex="-1"
               onclick={() => (current = b.key)} onkeydown={() => {}}
               ondragover={dragOver(b.key)} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn(b.key, e)}>
               <span class="ticon"><img src={clientTexture(BAY_ICON[b.key] ?? "res:/UI/Texture/WindowIcons/cargo.png")} alt=""></span>
