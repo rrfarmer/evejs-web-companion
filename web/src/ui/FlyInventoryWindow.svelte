@@ -5,6 +5,9 @@
 
 <script lang="ts">
   import { iskAndRound } from "../bridge/miningScanResults.ts";
+  /** uix ESTIMATED_PRICE column: FmtISK(stacksize * GetAveragePrice) - whole where the sum is whole, else two places
+   *  (read through gridcheck: 2,468 ISK; 2,468.50 ISK). */
+  const fmtIskCell = (v: number): string => `${v.toLocaleString("en-US", Number.isInteger(v) ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ISK`;
   // The active ship's inventory window in space, laid out as the 3698585 client's ActiveShipCargo (invWindow.Inventory,
   // 600 x 450): the tree at the left (TREE_DEFAULT_WIDTH 160) with the ship as "<name> (<type>)" - its cargo - and its
   // other bays under it, My filters at its foot; at the right the top row (Stack All, the view mode and sort buttons, the
@@ -622,7 +625,7 @@
                 <td class="num" class:hid={hiddenCols.includes(6)}>{fa?.volume != null ? `${(fa.volume * i.quantity).toLocaleString("en-US", { maximumFractionDigits: 2 })} m³` : ""}</td>
                 <td class="num" class:hid={hiddenCols.includes(7)}>{fa?.meta ?? ""}</td>
                 <td class="num" class:hid={hiddenCols.includes(8)}>{fa?.tech ?? ""}</td>
-                <td class="num" class:hid={hiddenCols.includes(9)}>{prices?.get(i.typeID) ? `${Math.round((prices.get(i.typeID) ?? 0) * i.quantity).toLocaleString("en-US")} ISK` : ""}</td>
+                <td class="num" class:hid={hiddenCols.includes(9)}>{prices?.get(i.typeID) ? fmtIskCell((prices.get(i.typeID) ?? 0) * i.quantity) : ""}</td>
               </tr>
             {/each}
           </tbody>
