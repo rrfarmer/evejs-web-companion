@@ -2782,7 +2782,7 @@
         <DesktopWindow
           {win}
           title={win.id === "drones" ? ($dronesCompact ? "" : dronesTitle) : win.id === "scanner" && !docked && $scannerCompact ? "" : win.id === "inventory" && !docked ? activeShipCaption : captions[win.id] ?? tabLabel(win.id)}
-          icon={win.id === "inventory" && !docked ? clientTexture("res:/UI/Texture/WindowIcons/cargo.png") : null}
+          icon={win.id === "inventory" && !docked ? clientTexture("res:/UI/Texture/WindowIcons/cargo.png") : win.id === "log" ? clientTexture("res:/ui/Texture/WindowIcons/log.png") : null}
           killable={win.id !== "drones"}
           focused={win.id === focusedId}
           onFocus={() => { wins = focusWindow(wins, win.id); raiseApp(win.id); }}
@@ -3566,11 +3566,15 @@
   .fly-windows :global(.log-menu .sep) { height: 1px; margin: 3px 0; background: rgba(255, 255, 255, 0.12); }
   .fly-windows :global(.log-menu .has-icon img) { position: absolute; left: 4px; top: 3px; width: 16px; height: 16px; }
   .fly-windows :global(.log-menu .destructive) { color: #ff6a5a; }
-  .fly-windows :global(.log-table) { width: 100%; border-collapse: collapse; font-size: 12px; }
-  .fly-windows :global(.log-table th) { position: sticky; top: 0; background: #1b1d20; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 2px 6px; }
-  .fly-windows :global(.log-table th button) { background: transparent; border: 0; color: inherit; font: inherit; padding: 0; text-align: left; width: 100%; }
+  /* LoggerWindow's scroll (read through gridcheck): its column headers 24 high, EveLabelSmall 12 at 8, Time 74 and Type 71
+     wide; each entry a TextBody 14, 22 apart */
+  .fly-windows :global(.log-table) { width: 100%; border-collapse: collapse; font-size: 14px; table-layout: fixed; }
+  .fly-windows :global(.log-table th) { position: sticky; top: 0; background: #1b1d20; text-align: left; font-weight: 400; font-size: 12px; color: rgba(255, 255, 255, 0.6); padding: 0 8px; height: 24px; box-sizing: border-box; }
+  .fly-windows :global(.log-table th:nth-child(1)) { width: 74px; }
+  .fly-windows :global(.log-table th:nth-child(2)) { width: 71px; }
+  .fly-windows :global(.log-table th button) { background: transparent; border: 0; color: inherit; font: inherit; padding: 0; min-height: 0; text-align: left; width: 100%; }
   .fly-windows :global(.log-table th[aria-sort]) { color: var(--color-text-bright); }
-  .fly-windows :global(.log-table td) { padding: 1px 6px; vertical-align: top; color: rgba(255, 255, 255, 0.85); }
+  .fly-windows :global(.log-table td) { padding: 2px 8px; height: 22px; line-height: 18px; box-sizing: border-box; vertical-align: top; color: rgba(255, 255, 255, 0.85); overflow: hidden; }
   .fly-windows :global(.log-table tbody tr) { cursor: default; user-select: none; }
   .fly-windows :global(.log-table tbody tr:hover) { background: rgba(255, 255, 255, 0.06); }
   .fly-windows :global(.log-table tbody tr[aria-selected="true"]) { background: rgba(84, 156, 193, 0.25); }

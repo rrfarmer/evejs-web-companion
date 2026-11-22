@@ -778,6 +778,11 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 .pw.dscan-compact .pw-head .dscan-head { flex: 1; height: auto; padding: 0; }
 .pw.dscan-compact .pw-head .dscan-caption { display: none; }
 .pw.dscan-compact .pw-head .dscan-filter { order: 9; margin-left: auto; }
+/* LoggerWindow (default_iconNum WindowIcons/log.png): a DefaultWindowHeader 48 high, its caption a Label of 18 px, as the
+   inventory's; the content padded 16 a side and below */
+.fly-windows .win[data-win="log"] > .win-bar { height: 48px; box-sizing: border-box; }
+.fly-windows .win[data-win="log"] > .win-bar .win-title { font-size: 18px; }
+.fly-windows .win[data-win="log"] > .win-body { padding: 0 17px 17px; }
 /* the inventory's big window header (ActiveShipCargo: the header 48 high, its caption a Label of 18 px) */
 .fly-windows .win[data-win="inventory"] > .win-bar { height: 48px; box-sizing: border-box; }
 .fly-windows .win[data-win="inventory"] > .win-bar .win-title { font-size: 18px; }
