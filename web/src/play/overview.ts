@@ -3,7 +3,7 @@
 // aligned). Its tabs show the groups of the client's Jotunn profile (extract.mjs --overview). A click
 // selects as a bracket click does. Double-click invokes the selected entity's activation.
 
-import { PlayWindow, clientTexture } from "./window.ts";
+import { PlayWindow, WINDOW_ACTION_WORDS, clientTexture } from "./window.ts";
 import type { Entity } from "./spaceView.ts";
 import { fmtDist } from "../space/overview.ts";
 import { playUiEvent } from "./uiAudio.ts";
@@ -193,7 +193,7 @@ const SORT_HINT = "UI/Tactical/HeaderSortingEnabledCbHint";
 const SORT_DISABLED = "UI/Tactical/HeaderSortingDisabled";
 const HACKED_HINT = "Tooltips/Overview/ScatterContainerHacked";
 export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HINT, "UI/Tactical/OverviewCaption", ...OVERVIEW_COLUMN_WORDS,
-  "UI/Overview/AddTab", "/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", "UI/Commands/OpenOverviewSettings", "UI/Overview/BracketVisibility", "UI/Overview/UseSelectedTabBracketPreset",
+  ...WINDOW_ACTION_WORDS, "UI/Overview/AddTab", "/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", "UI/Commands/OpenOverviewSettings", "UI/Overview/BracketVisibility", "UI/Overview/UseSelectedTabBracketPreset",
   "UI/Overview/ShowAll", "UI/Overview/HideAll", "UI/Overview/AddTabInstructions", "UI/Overview/TypeInLabel", "UI/Overview/Filter",
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
   "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething", "UI/Overview/DefaultFilters",
@@ -1621,10 +1621,9 @@ export class Overview {
     const radio = (label: string, own: string, value: BracketOverride): ContextEntry =>
       ({ label: word(label, own), checked: current === value, run: () => this.hooks.setBracketOverride?.(value) });
     return [
-      // CompactModeWindowAction (the window's action, then GetMenuMoreOptions)
-      { label: this.compact ? word("/Carbon/UI/Controls/Window/DisableCompactMode", "Disable compact mode") : word("/Carbon/UI/Controls/Window/EnableCompactMode", "Enable compact mode"),
-        icon: this.compact ? "res:/UI/Texture/eveicon/system_icons/uncompact_16px.png" : "res:/UI/Texture/eveicon/system_icons/compact_16px.png", run: () => this.setCompact(!this.compact) },
-      null,
+      // the window's actions (CompactModeWindowAction among them), then GetMenuMoreOptions
+      ...this.window.windowActions(word, { label: this.compact ? word("/Carbon/UI/Controls/Window/DisableCompactMode", "Disable compact mode") : word("/Carbon/UI/Controls/Window/EnableCompactMode", "Enable compact mode"),
+        icon: this.compact ? "res:/UI/Texture/eveicon/system_icons/uncompact_16px.png" : "res:/UI/Texture/eveicon/system_icons/compact_16px.png", run: () => this.setCompact(!this.compact) }),
       { label: word("UI/Overview/AddTab", "Add Tab"), icon: "res:/UI/Texture/eveicon/system_icons/add_16px.png", run: () => this.openAddTab() },
       { label: word("UI/Commands/OpenOverviewSettings", "Open Overview Settings"), icon: "res:/UI/Texture/eveicon/system_icons/settings_16px.png", run: () => this.openSettings() },
       { label: word("UI/Overview/BracketVisibility", "Bracket Visibility"), sub: [

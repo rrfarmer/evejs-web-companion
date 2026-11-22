@@ -6,7 +6,7 @@
 
 import { ContextMenu } from "./contextMenu.ts";
 import { playUiEvent } from "./uiAudio.ts";
-import { PlayWindow, clientTexture } from "./window.ts";
+import { PlayWindow, WINDOW_ACTION_WORDS, clientTexture } from "./window.ts";
 import { bracketIcon } from "./brackets.ts";
 
 const AU = 149_597_870_700;
@@ -74,7 +74,7 @@ export interface DScanHooks {
 }
 
 /** The labels the window asks the install for (directionalScannerPalette.py, directionalScanResultEntry.py). */
-export const DSCAN_WORDS: readonly string[] = ["UI/Inflight/Scanner/DirectionalScanner", "/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", "UI/Inflight/Scanner/ScanResults",
+export const DSCAN_WORDS: readonly string[] = [...WINDOW_ACTION_WORDS, "UI/Inflight/Scanner/DirectionalScanner", "/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", "UI/Inflight/Scanner/ScanResults",
   "UI/Inflight/Scanner/Range", "UI/Inflight/Scanner/UnitAU", "UI/Inflight/Scanner/UnitKm", "UI/Inflight/Scanner/Angle",
   "UI/Inflight/Scanner/AngleDegrees", "UI/Inflight/Scanner/Scan", "UI/Common/Group", "UI/Common/Name", "UI/Common/Type", "UI/Common/Distance",
   "UI/Inflight/Scanner/AlignWithCamera", "UI/Inflight/Scanner/ShowScanCone", "UI/Map/MapPallet/btnSolarsystemMap",
@@ -167,10 +167,10 @@ export class DScanWindow {
     const w = (label: string, own: string, args?: Readonly<Record<string, string | number>>) => hooks.word?.(label, args) ?? own;
     this.window = new PlayWindow({ id: "dscan", caption: w("UI/Inflight/Scanner/DirectionalScanner", "Directional Scanner"), chrome: "small", left: Math.max(16, Math.round(innerWidth / 2 - 200)), top: 40, width: 400, height: 350, minWidth: 320, closable: true,
       // the window's menu: CompactModeWindowAction (Enable / Disable compact mode)
-      menu: (button) => { const r = button.getBoundingClientRect(); this.menu.open(r.left, r.bottom, [{
+      menu: (button) => { const r = button.getBoundingClientRect(); this.menu.open(r.left, r.bottom, this.window.windowActions(w, {
         label: this.compact ? w("/Carbon/UI/Controls/Window/DisableCompactMode", "Disable compact mode") : w("/Carbon/UI/Controls/Window/EnableCompactMode", "Enable compact mode"),
         icon: this.compact ? "res:/UI/Texture/eveicon/system_icons/uncompact_16px.png" : "res:/UI/Texture/eveicon/system_icons/compact_16px.png",
-        run: () => this.setCompact(!this.compact) }]); } }, () => { this.detached = true; });
+        run: () => this.setCompact(!this.compact) })); } }, () => { this.detached = true; });
     this.window.body.classList.add("dscan");
     queueMicrotask(() => { try { if (localStorage.getItem("evejs.ui.dscanCompact") === "1") this.setCompact(true); } catch { /* not compact */ } });
     const icon = (path: string, title: string) => `<button type="button" class="dscan-ic" title="${title}" disabled><img alt="" src="/client-res/${path}"></button>`;

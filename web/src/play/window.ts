@@ -11,6 +11,12 @@ export const SYSTEM_ICON = {
 };
 export const clientTexture = ICON;
 
+import type { ContextEntry } from "./contextMenu.ts";
+
+/** The window actions' words (WindowAction labels), for the More menus. */
+export const WINDOW_ACTION_WORDS: readonly string[] = ["/Carbon/UI/Controls/Window/Lock", "/Carbon/UI/Controls/Window/Unlock", "/Carbon/UI/Controls/Window/EnableLightBackground",
+  "/Carbon/UI/Controls/Window/DisableLightBackground", "/Carbon/UI/Controls/Window/Collapse", "/Carbon/UI/Controls/Window/Expand"];
+
 export interface WindowOptions {
   id: string;
   caption: string;
@@ -45,12 +51,19 @@ export class PlayWindow {
   readonly body = document.createElement("div");
   private readonly head = document.createElement("header");
   private minimized = false;
+  /** LockWindowAction: no moving or resizing while locked. */
+  private locked = false;
+  /** LightBackgroundWindowAction, off: the light-background window drawn as the others. */
+  private lightOff = false;
   private minWidthNow: number;
 
   constructor(private readonly options: WindowOptions, onClose?: () => void) {
     const at = { ...options, ...kept(options.id) };
     this.minWidthNow = options.minWidth ?? 180;
     this.root.className = options.chrome ? `pw pw-${options.chrome}` : "pw";
+    try { const f = JSON.parse(localStorage.getItem(`evejs-play-window-flags:${options.id}`) ?? "{}") as { locked?: boolean; lightOff?: boolean }; this.locked = !!f.locked; this.lightOff = !!f.lightOff; } catch { /* none kept */ }
+    this.root.classList.toggle("pw-locked", this.locked);
+    this.root.classList.toggle("pw-nolight", this.lightOff);
     Object.assign(this.root.style, { left: `${at.left}px`, top: `${at.top}px`, width: `${at.width}px`, height: `${at.height}px` });
     this.head.className = "pw-head";
     this.head.innerHTML = `${options.icon ? `<img class="pw-icon" src="${options.icon}" alt="">` : ""}<span class="pw-caption"></span>
@@ -111,6 +124,34 @@ export class PlayWindow {
     if (this.root.getBoundingClientRect().width < width) this.root.style.width = `${width}px`;
   }
 
+  /**
+   * The window's actions as its More menu lists them first (Window.GetMenuMoreOptions over its WindowActions, read through
+   * gridcheck): Lock window size and position, the window's compact mode where it has one, Disable / Enable Light
+   * Background on a light-background window (IsLightBackgroundConfigurable), Collapse / Expand; a line after them.
+   * (Enable always above fullscreen views has no fullscreen view to rise above on this page, so it is not offered.)
+   */
+  windowActions(word: (label: string, own: string) => string, compact: ContextEntry | null = null): (ContextEntry | null)[] {
+    const I = (n: string) => `res:/UI/Texture/eveicon/system_icons/${n}_16px.png`;
+    const out: (ContextEntry | null)[] = [
+      { label: this.locked ? word("/Carbon/UI/Controls/Window/Unlock", "Unlock window size and position") : word("/Carbon/UI/Controls/Window/Lock", "Lock window size and position"),
+        icon: I(this.locked ? "locked" : "unlocked"), run: () => this.setFlags({ locked: !this.locked }) },
+    ];
+    if (compact) out.push(compact);
+    if (this.options.chrome === "small") out.push({ label: this.lightOff ? word("/Carbon/UI/Controls/Window/EnableLightBackground", "Enable Light Background") : word("/Carbon/UI/Controls/Window/DisableLightBackground", "Disable Light Background"),
+      icon: I(this.lightOff ? "light_background_off" : "light_background_on"), run: () => this.setFlags({ lightOff: !this.lightOff }) });
+    out.push({ label: this.minimized ? word("/Carbon/UI/Controls/Window/Expand", "Expand") : word("/Carbon/UI/Controls/Window/Collapse", "Collapse"),
+      icon: I(this.minimized ? "expand" : "collapse"), run: () => this.toggleMinimized() }, null);
+    return out;
+  }
+
+  private setFlags(change: { locked?: boolean; lightOff?: boolean }): void {
+    if (change.locked !== undefined) this.locked = change.locked;
+    if (change.lightOff !== undefined) this.lightOff = change.lightOff;
+    this.root.classList.toggle("pw-locked", this.locked);
+    this.root.classList.toggle("pw-nolight", this.lightOff);
+    try { localStorage.setItem(`evejs-play-window-flags:${this.options.id}`, JSON.stringify({ locked: this.locked, lightOff: this.lightOff })); } catch { /* this visit only */ }
+  }
+
   /** MinimizeWindowAction (UI/Control/EveWindow/Minimize): the window folded to its header, or opened again. */
   minimize(): void { this.toggleMinimized(); }
 
@@ -121,7 +162,7 @@ export class PlayWindow {
 
   private drag(handle: HTMLElement, move: (dx: number, dy: number, start: { left: number; top: number; width: number; height: number }) => void): void {
     handle.addEventListener("pointerdown", (e) => {
-      if ((e.target as HTMLElement).classList.contains("pw-btn") || (e.target as HTMLElement).closest(".pw-nodrag")) return;
+      if (this.locked || (e.target as HTMLElement).classList.contains("pw-btn") || (e.target as HTMLElement).closest(".pw-nodrag")) return;
       e.preventDefault();
       const r = this.root.getBoundingClientRect();
       const start = { left: r.left, top: r.top, width: r.width, height: r.height };

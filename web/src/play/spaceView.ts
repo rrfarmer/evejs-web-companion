@@ -1394,13 +1394,16 @@ export class SpaceView {
       menu: (button) => {
         const r = button.getBoundingClientRect();
         const text = [...this.selectedWin.body.querySelectorAll<HTMLElement>(".si-name, .si-dist, .si-sec")].map((el) => el.textContent ?? "").filter(Boolean).join("\n");
+        const say = (label: string, own: string) => this.actions.word?.(label) ?? own;
+        // the window's actions (CompactModeWindowAction - SelectedItemWnd._on_compact_mode_changed: no caption, the content up
+        // into the header), then GetMenuMoreOptions: Minimize, Copy
+        const on = this.selectedWin.root.classList.contains("si-compact");
         this.contextMenu.open(r.left, r.bottom, [
-          { label: this.actions.word?.("UI/Control/EveWindow/Minimize") ?? "Minimize", icon: "res:/UI/Texture/eveicon/system_icons/minimize_16px.png", run: () => this.selectedWin.minimize() },
-          // CompactModeWindowAction (SelectedItemWnd._on_compact_mode_changed): no caption, the content up into the header
-          (() => { const on = this.selectedWin.root.classList.contains("si-compact"); return {
-            label: (on ? this.actions.word?.("/Carbon/UI/Controls/Window/DisableCompactMode") : this.actions.word?.("/Carbon/UI/Controls/Window/EnableCompactMode")) ?? (on ? "Disable compact mode" : "Enable compact mode"),
+          ...this.selectedWin.windowActions(say, {
+            label: on ? say("/Carbon/UI/Controls/Window/DisableCompactMode", "Disable compact mode") : say("/Carbon/UI/Controls/Window/EnableCompactMode", "Enable compact mode"),
             icon: on ? "res:/UI/Texture/eveicon/system_icons/uncompact_16px.png" : "res:/UI/Texture/eveicon/system_icons/compact_16px.png",
-            run: () => this.setSelectedCompact(!on) }; })(),
+            run: () => this.setSelectedCompact(!on) }),
+          { label: this.actions.word?.("UI/Control/EveWindow/Minimize") ?? "Minimize", icon: "res:/UI/Texture/eveicon/system_icons/minimize_16px.png", run: () => this.selectedWin.minimize() },
           { label: this.actions.word?.("UI/Generic/Copy") ?? "Copy", disabled: text ? null : "Nothing selected", run: () => void navigator.clipboard?.writeText(text).catch(() => {}) },
         ]);
       } });

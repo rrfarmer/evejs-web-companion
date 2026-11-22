@@ -248,6 +248,12 @@ button { font: inherit; color: inherit; }
    (the default-header windows) at 0.3 / 0.2 */
 .pw.pw-small { background: var(--win-bg-light, rgba(14, 16, 18, 0.88)); backdrop-filter: var(--win-backdrop-light, blur(6px)); }
 .pw.pw-small.pw-active { background: var(--win-bg-light-focused, rgba(14, 16, 18, 0.88)); backdrop-filter: var(--win-backdrop-light-focused, blur(6px)); }
+/* (its light background turned off from the More menu: drawn as the other windows, its caption SECONDARY when not active;
+   locked: no resize grip) */
+.pw.pw-small.pw-nolight { background: var(--win-bg, rgba(14, 16, 18, 0.88)); backdrop-filter: var(--win-backdrop, blur(6px)); }
+.pw.pw-small.pw-nolight.pw-active { background: var(--win-bg-focused, rgba(14, 16, 18, 0.88)); backdrop-filter: var(--win-backdrop-focused, blur(6px)); }
+.pw.pw-small.pw-nolight:not(.pw-active) > .pw-head .pw-caption { color: rgba(255, 255, 255, 0.5); }
+.pw.pw-locked > .pw-grip { display: none; }
 .pw.pw-default { background: var(--win-bg, rgba(14, 16, 18, 0.88)); backdrop-filter: var(--win-backdrop, blur(6px)); }
 .pw.pw-default.pw-active { background: var(--win-bg-focused, rgba(14, 16, 18, 0.88)); backdrop-filter: var(--win-backdrop-focused, blur(6px)); }
 .pw.pw-small::before { display: none; }
