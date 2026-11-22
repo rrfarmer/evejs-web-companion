@@ -97,7 +97,7 @@
     autoAttackHint: ["UI/Drones/AutoAttackHint", "Should drones automatically attack if aggression is shown to you or them"],
     focusFireHint: ["UI/Drones/AttackModeFocusFireHint", "Should drones focus their efforts on a single enemy (only applicable with Auto Attack enabled)"],
   } as const;
-  flow.requestWords([...Object.values(MENU_WORDS).map((w) => w[0]), "UI/Common/More"]);
+  flow.requestWords(Object.values(MENU_WORDS).map((w) => w[0]));
   // the groups' words (dronesWindow.GroupMenu, GetSubFolderMenu, droneGroupHeader's Delete Group, ListGroup's menu)
   const GROUP_WORDS = {
     move: ["UI/Commands/MoveDrone", "Move Drone"], newGroup: ["UI/Commands/NewGroup", "New Group"], out: ["UI/Commands/OutOfThisGroup", "Out of this group"],
@@ -227,11 +227,10 @@
     const now = setDroneSetting(characterID, name, !droneSettingsFor(characterID)[name]);
     void run(() => flow.changeDroneSettings(now));
   }
-  function openSettingsMenu(button: HTMLElement): void {
-    const r = button.getBoundingClientRect();
+  function openSettingsMenu(x: number, y: number): void {
     const now = droneSettingsFor(store.character.get().selectedCharacterID ?? 0);
     void playUiEvent("ui_expand_play");
-    ctxMenu.open(r.left + 2, r.bottom, ([["aggressive", MENU_WORDS.autoAttack, MENU_WORDS.autoAttackHint], ["focusFire", MENU_WORDS.focusFire, MENU_WORDS.focusFireHint]] as const)
+    ctxMenu.open(x + 10, y, ([["aggressive", MENU_WORDS.autoAttack, MENU_WORDS.autoAttackHint], ["focusFire", MENU_WORDS.focusFire, MENU_WORDS.focusFireHint]] as const)
       .map(([name, label, hint]) => ({ label: say(label), hint: say(hint), checkbox: true, checked: now[name], run: () => toggleSetting(name) })));
   }
 
@@ -753,7 +752,7 @@
          gridcheck); one drone its name alone -->
     <span class="name">{row.quantity > 1 ? `${row.label} (${row.quantity})` : row.label}</span>
     <span class="row-buttons">
-      <button type="button" class="command" title="Launch drones" disabled={busy} onclick={() => run(() => flow.launchDrones(row.itemIDs))}>
+      <button type="button" class="command" title={plainText(formatTemplate(say(MENU_WORDS.launchOne), { numDrones: 1 }, { nameOf: () => "" }))} disabled={busy} onclick={() => run(() => flow.launchDrones(row.itemIDs))}>
         <span class="glyph" style:background-image={`url(${ICON.launch})`}></span>
       </button>
     </span>
@@ -888,10 +887,10 @@
       <span class="caret" style:mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`} style:-webkit-mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`}></span><span class="lbl">{headerWord(HEADER_WORDS.space, "Drones in Space")} ({maxActive === null ? outCount : `${outCount}/${maxActive}`})</span>
       <span class="commands">
         <span class="settings-host">
-          <!-- DroneGroupHeaderInSpace's settings: a MenuButtonIcon (hint UI/Common/More), its GetSettingsMenu's two
-               checkboxes (MenuData.AddCheckbox, each with its hint) under it at (absoluteLeft + 2, absoluteBottom) -->
-          <button type="button" class="command" title={say(["UI/Common/More", "More"])}
-            onclick={(e) => { e.stopPropagation(); openSettingsMenu(e.currentTarget as HTMLElement); }}>
+          <!-- DroneGroupHeaderInSpace's settings: a ButtonIcon with no hint (read through gridcheck), its GetSettingsMenu's
+               two checkboxes (MenuData.AddCheckbox, each with its hint) at the pointer (ShowMenu: uilib.x + 10, uilib.y) -->
+          <button type="button" class="command"
+            onclick={(e) => { e.stopPropagation(); openSettingsMenu(e.clientX, e.clientY); }}>
             <span class="glyph" style:background-image={`url(${ICON.settings})`}></span>
           </button>
         </span>
