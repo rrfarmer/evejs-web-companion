@@ -4,7 +4,7 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { onMount } from "svelte";
   import WindowActionItems from "./WindowActionItems.svelte";
-  import { applyWindowFlags, WINDOW_ACTION_WORDS } from "./windowFlags.ts";
+  import { applyWindowFlags, setWindowFlag, windowFlags, WINDOW_ACTION_WORDS } from "./windowFlags.ts";
   import { captureGameLog, clearGameLog } from "./gameLog.ts";
   import { noticeBoard } from "./notices.ts";
 
@@ -72,7 +72,8 @@
     onpointerdown={(event) => event.stopPropagation()} onclick={() => (open = !open)}>⋯</button>
   {#if open}
     <div id="game-log-actions-menu" class="log-menu" role="menu" aria-label="Log actions">
-      <WindowActionItems id="log" lightByDefault={true} word={(label, own) => { const t = $words?.templates[label]; return typeof t === "string" && t ? plainText(formatTemplate(t, {}, { nameOf: () => "" })) : own; }} onDone={() => (open = false)} />
+      <WindowActionItems id="log" lightByDefault={true}
+        compact={{ on: windowFlags("log").compact, toggle: () => setWindowFlag("log", "compact", !windowFlags("log").compact) }} word={(label, own) => { const t = $words?.templates[label]; return typeof t === "string" && t ? plainText(formatTemplate(t, {}, { nameOf: () => "" })) : own; }} onDone={() => (open = false)} />
       <button type="button" role="menuitem" onpointerdown={(event) => event.stopPropagation()}
         onclick={download}>{word("CaptureLog", "Capture Log")}</button>
       <button type="button" role="menuitem" onpointerdown={(event) => event.stopPropagation()}

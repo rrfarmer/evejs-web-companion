@@ -942,6 +942,13 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 /* DefaultWindowHeader's icon 32 px at 14, 10 and its caption 8 after it (54), as the client's logger and inventory */
 .fly-windows .win:is([data-win="log"], [data-win="inventory"]) > .win-bar .win-icon { width: 32px; height: 32px; margin: 0 8px 0 -4px; opacity: 1; }
 .fly-windows .win[data-win="log"] > .win-body { padding: 0 16px 16px; }
+/* LoggerWindow compact (default_isCompactable): the header COLLAPSED_HEIGHT 32 with a 12 px caption and no icon, the content
+   padded 8 (none on top: the scroll at 2, 34), and the toolbar's two MenuButtonIcons moved into the header's extra_content, CENTERRIGHT (_get_actions_parent): measured at 270, 6, 48 x 24, against the window controls */
+.fly-windows .win[data-win="log"].win-compact > .win-bar { height: 32px; }
+.fly-windows .win[data-win="log"].win-compact > .win-bar .win-title { font-size: 12px; }
+.fly-windows .win[data-win="log"].win-compact > .win-bar .win-icon { display: none; }
+.fly-windows .win[data-win="log"].win-compact > .win-body { padding: 0 8px 8px; }
+.fly-windows .win[data-win="log"].win-compact .log-actions { position: absolute; top: -28px; right: 76px; margin: 0; z-index: 2; }
 /* the inventory's big window header (ActiveShipCargo: the header 48 high, its caption a Label of 18 px) */
 .fly-windows .win[data-win="inventory"] > .win-bar { height: 48px; box-sizing: border-box; }
 .fly-windows .win[data-win="inventory"] > .win-bar .win-title { font-size: 18px; }
