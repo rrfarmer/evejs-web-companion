@@ -374,10 +374,13 @@
       ? { label: count(word(MENU.buyAll, "Buy All"), items.length), run: () => void flow.openMultiBuy(new Map(types.map((t) => [t, 1]))) }
       : { label: word(MENU.buy, "Buy This Type"), run: () => buyMarketType(first.typeID) }, 10);
     // OfferCompressInSpace: a compressible type directly in the active ship in space (DirectlyCompressInSpace)
-    if (one && compressible.has(one.typeID)) entries.push({ label: word(MENU.compress, "Compress"), run: () => void compressInSpace(items) }, 14);
+    // (items in a can or a wreck are not in the ship: no Compress, and no Jettison - IsJettisonable's jettisonableFlags,
+    // read through gridcheck on Tritanium in a jetcan: Show Info | market | Compare)
+    const inShip = !(fromBay === "container" || fromBay.startsWith("temp:"));
+    if (inShip && one && compressible.has(one.typeID)) entries.push({ label: word(MENU.compress, "Compress"), run: () => void compressInSpace(items) }, 14);
     // OfferCompareButton: IsComparible (inventorycommon.const.compareCategories) with dogma attributes to show
     if (items.every((i) => i.categoryID !== null && COMPARE_CATEGORIES.includes(i.categoryID))) entries.push({ label: count(word(MENU.compare, "Compare"), items.length), run: () => typeCompareTarget.ask(items.map((i) => ({ typeID: i.typeID, itemID: i.itemID }))) }, 14);
-    entries.push(fromBay === "drone"
+    if (inShip) entries.push(fromBay === "drone"
       ? { label: count(word(MENU.launch, "Launch Drone", { numDrones: 1 }), units), run: () => void act(() => flow.launchDrones(ids)) }
       : { label: count(word(MENU.jettison, "Jettison"), units), run: () => void (async () => {
         // invItemFunctions.Jettison: ConfirmJettison (yes / no, a yes kept by its suppress box) before the ship's Jettison
