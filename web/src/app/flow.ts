@@ -2595,6 +2595,9 @@ export interface AppFlow {
   ): Promise<AmmoOutcome>;
   /** Empty modules of their charges into cargo or the station hangar. */
   unloadAmmo(moduleIDs: readonly number[], destination: AmmoPlace): Promise<AmmoOutcome>;
+  /** The item menu's Load Charges (clientDogmaLocation.LoadChargeToAllModules): a cargo stack of charges into every
+   *  fitted module that takes it and has room, the fewest it fills first; NoSuitableModules where none. */
+  loadChargeToAllModules(chargeItemID: number): Promise<void>;
   /**
    * DESTROY a fitted rig. Rigs cannot be unfitted, so this is irreversible —
    * the panel confirms before calling it and the BFF confirms again.
@@ -37526,6 +37529,35 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         }
       }
       return outcomes;
+    },
+
+    async loadChargeToAllModules(chargeItemID) {
+      // LoadChargeToAllModules (1034 to 1078): each fitted module in a fitting flag that takes the charge
+      // (IsChargeCompatibleWithLauncher), not a bank's slave, not reloading, with rounds still to take
+      // (GetModuleCapacityForAmmoType less what it holds of the same type); sorted by (offline, holds charges, holds
+      // another type, rounds needed, itemID); taken until the stack's rounds are spent; LoadAmmoToModules with them
+      const row = store.inventory.get().cargo.rows.find((r) => r.itemID === chargeItemID) ?? null;
+      if (row === null) return;
+      const banks = heldWeaponBanks();
+      const isSlave = (moduleID: number): boolean => [...banks.values()].some((slaves) => slaves.includes(moduleID));
+      const modules = store.fitting.get().slots.flatMap((slot) => (slot.module ? [slot.module] : [])).filter((m) => !isSlave(m.itemID));
+      const staticData = await dogmaStaticFor([...new Set([...modules.map((m) => m.typeID), row.typeID])], AMMO_MENU_ATTRIBUTES);
+      if (staticData === null) return;
+      const suitable: { key: (number | boolean)[]; moduleID: number; needed: number }[] = [];
+      for (const m of modules) {
+        if (!isChargeCompatibleWithLauncher(staticData, row.typeID, row.groupID, m.typeID)) continue;
+        const holds = m.charge !== null && m.charge.quantity > 0;
+        const same = holds && m.charge!.typeID === row.typeID;
+        const needed = roomForReload(staticData, m.typeID, row.typeID, same ? m.charge!.quantity : 0);
+        if (needed <= 0) continue;
+        suitable.push({ key: [!m.online, holds, !same, needed, m.itemID], moduleID: m.itemID, needed });
+      }
+      suitable.sort((a, b) => { for (let i = 0; i < a.key.length; i++) { const x = Number(a.key[i]), y = Number(b.key[i]); if (x !== y) return x - y; } return 0; });
+      let available = row.quantity;
+      const loading: number[] = [];
+      for (const s of suitable) { loading.push(s.moduleID); available -= s.needed; if (available <= 0) break; }
+      if (loading.length === 0) { sayDialog("NoSuitableModules", null, "There are no suitable modules to load that into."); return; }
+      await loadAmmoNow(loading, [chargeItemID], "cargo");
     },
 
     async unloadAmmo(moduleIDs, destination) {

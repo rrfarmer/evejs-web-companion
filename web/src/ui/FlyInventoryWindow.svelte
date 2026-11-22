@@ -86,7 +86,7 @@
   const MENU = { market: "UI/Inventory/ItemActions/ViewTypesMarketDetails", buy: "UI/Inventory/ItemActions/BuyThisType", buyAll: "UI/Market/MarketQuote/BuyAll", compare: "UI/Compare/CompareButton",
     jettison: "UI/Inventory/ItemActions/Jettison", launch: "UI/Drones/LaunchDrone", info: "UI/Commands/ShowInfo", contracts: "UI/Inventory/ItemActions/FindInContracts",
     assets: "UI/Inventory/ItemActions/FindPersonalAssets", quickbar: "UI/Inventory/ItemActions/AddTypeToMarketQuickbar", compress: "UI/Commands/Compress",
-    compressNone: "UI/Compression/FailureToCompressAny", moveToDroneBay: "UI/Drones/MoveToDroneBay" } as const;
+    compressNone: "UI/Compression/FailureToCompressAny", moveToDroneBay: "UI/Drones/MoveToDroneBay", loadCharges: "UI/Inventory/ItemActions/LoadCharges" } as const;
   // godma hasShipMaintenanceBay (attribute 907) of the ship types on the grid, read once each
   const maintenanceBayTypes = new Map<number, boolean>();
   $effect(() => {
@@ -497,6 +497,11 @@
         // invItemFunctions.Jettison: ConfirmJettison (yes / no, a yes kept by its suppress box) before the ship's Jettison
         if (await flow.askClientDialog("ConfirmJettison", "Are you sure you want to jettison these items?", true)) await act(() => flow.jettisonItems(ids));
       })() }, fromBay === "drone" ? 1 : 17);
+    // OfferLoadCharges: in a ship in space, a charge (category 8) in the cargo hold (or an ammo hold, not on the page);
+    // a single item (menusvc's per-item entry) - LoadChargeToAllModules
+    if (!multi && fromBay === "cargo" && first.categoryID === 8 && $space.snapshot?.ship) {
+      entries.push({ label: word(MENU.loadCharges, "Load Charges"), run: () => void act(() => flow.loadChargeToAllModules(first.itemID)) }, 14);
+    }
     // OfferMoveToDroneBay: a drone not in the drone bay, the pilot in a ship in space, and a ship maintenance array or a
     // ship with hasShipMaintenanceBay within maxConfigureDistance (5,000 m of its surface), the pilot's own among the
     // ballpark's slim items (an Orca's pilot moves their own drones) - CHANGESGROUP; FitDrone
