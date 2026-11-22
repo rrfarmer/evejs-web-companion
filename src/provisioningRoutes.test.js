@@ -4,30 +4,55 @@ const { registerProvisioningRoutes } = require("./provisioningRoutes");
 const { createReplenishment } = require("./replenishment");
 const { createPilotMutationFence } = require("./pilotMutationFence");
 const types = { 1: { categoryID: 6, groupID: 25 }, 2: { categoryID: 7 }, 3: { categoryID: 8, groupID: 83, volume: .01 },
-  4: { categoryID: 2, groupID: 12 }, 6: { categoryID: 4, groupID: 1136 } };
-const data = { getType: id => types[id], getTypeName: id => `Type ${id}` };
+  4: { categoryID: 2, groupID: 12 }, 5: { categoryID: 18, volume: 5 }, 6: { categoryID: 4, groupID: 1136 },
+  7: { categoryID: 7 } };
 const wireList = items => ({ type: "list", items });
 const wireObject = fields => ({ type: "object", args: { type: "dict", entries: Object.entries(fields) } });
-function fixture() {
+function fixture(hull = null) {
   const routes = new Map(), operations = new Map();
   const held = { accountID: 7, characterID: 10, corporationID: 30, activeShipID: 50, stationID: 60, bridgeSessionID: "own-generation" };
+  const division = hull ? 7 : 1, divisionFlag = 114 + division;
+  const data = {
+    getType: id => id === hull?.typeID ? { categoryID: 6, groupID: hull.groupID, published: hull.published ?? true } : types[id],
+    getTypeName: id => id === hull?.typeID ? hull.name : `Type ${id}`,
+  };
   const state = { writes: [], date: "100", stock: 4000, aboard: 3200, take: true, query: true, incomplete: false,
-    providerCalls: [], sourceReads: [], failAfter: false, duplicateFit: false, heldFittingCalls: [], heldFittingError: null };
-  const library = owner => { const fit = id => [id, wireObject({ fittingID: id, ownerID: owner, shipTypeID: 1,
-    name: "Exact", savedDate: { type: "long", value: state.date }, fitData: wireList([
-      { type: "tuple", items: [2, 27, 1] }, { type: "tuple", items: [3, 5, 5000] }]) })];
+    providerCalls: [], sourceReads: [], failAfter: false, duplicateFit: false, heldFittingCalls: [], heldFittingError: null,
+    assembled: [], shipRows: [], shipActions: [], fitted: [] };
+  const fitItems = hull ? [[2, 27, 1], [7, 92, 1], [3, 27, 1], ...(hull.drones ? [[5, 87, hull.drones]] : [])]
+    : [[2, 27, 1], [3, 5, 5000]];
+  const library = owner => { const fit = id => [id, wireObject({ fittingID: id, ownerID: owner, shipTypeID: hull?.typeID ?? 1,
+    name: "Exact", savedDate: { type: "long", value: state.date },
+    fitData: wireList(fitItems.map(items => ({ type: "tuple", items }))) })];
     return { type: "dict", entries: [fit(4), ...(state.duplicateFit ? [fit(5)] : [])] }; };
   const engine = createReplenishment({ operations, data });
   engine.withTemporaryControl = () => { throw new Error("Held provisioning must not acquire temporary Factory control."); };
   const mutationFence = createPilotMutationFence({ heldSessions: new Map([["tab", held]]), assertWritable: engine.assertWritable });
   const row = (itemID, typeID, quantity, locationID, flagID, ownerID = 10, singleton = 0) =>
     ({ itemID, typeID, quantity, locationID, flagID, ownerID, singleton });
-  function items(key, flag) {
+  const provisionStock = hull ? [
+    row(101, hull.typeID, 1, 777, divisionFlag, 30),
+    row(102, 2, 1, 777, divisionFlag, 30),
+    row(103, 7, 1, 777, divisionFlag, 30),
+    ...(hull.drones ? [row(104, 5, hull.drones, 777, divisionFlag, 30)] : []),
+  ] : [];
+  function withdrawStock(id, sourceID, quantity) {
+    assert.equal(sourceID, 777);
+    const index = provisionStock.findIndex(item => item.itemID === id);
+    assert.ok(index >= 0, "the transfer uses exact reviewed corporate stock");
+    const [item] = provisionStock.splice(index, 1);
+    assert.equal(item.quantity, quantity);
+    return item;
+  }
+  function items(key, flag, shipID) {
+    if (hull && key === "ship" && shipID !== 50) {
+      return state.shipRows.filter(r => r.locationID === shipID && (flag === undefined || r.flagID === flag));
+    }
     if (key === "ship") return [row(70, 2, 1, 50, 27, 10, 1), row(90, 3, state.aboard, 50, 5), row(91, 6, 7, 50, 5)]
       .filter(r => flag === undefined || r.flagID === flag);
     if (key === "hangar") return [row(50, 1, 1, 60, 4, 10, 1), row(300, 4, -1, 60, 4, 10, 1),
-      ...(state.stock ? [row(100, 3, state.stock, 60, 4)] : [])];
-    if (key === "corp") return state.stock ? [row(100, 3, state.stock, 777, 115, 30)] : [];
+      ...(state.stock ? [row(100, 3, state.stock, 60, 4)] : []), ...state.assembled];
+    if (key === "corp") return [...(state.stock ? [row(100, 3, state.stock, 777, divisionFlag, 30)] : []), ...provisionStock];
     if (key === "container") return state.stock ? [row(100, 3, state.stock, 300, 0)] : [];
     throw new Error(`unexpected inventory ${key}`);
   }
@@ -43,8 +68,37 @@ function fixture() {
     async callBoundMethod(service, method, args, kwargs, fields, bridgeSessionID, spec) {
       assert.equal(bridgeSessionID, held.bridgeSessionID);
       if (method === "GetCapacity") return { result: { capacity: args[0] === 5 ? 10000 : 0, used: 0 } };
-      if (method === "ListByFlags") return { result: state.incomplete ? null : wireList(items("ship")) };
-      if (method === "List") { state.sourceReads.push(spec.key); return { result: wireList(items(spec.key, args[0])) }; }
+      if (method === "ListByFlags") return { result: state.incomplete ? null
+        : wireList(items("ship", undefined, spec.shipID).filter(item => args[0].includes(item.flagID))) };
+      if (method === "List") { state.sourceReads.push(spec.key); return { result: wireList(items(spec.key, args[0], spec.shipID)) }; }
+      if (hull && method === "FitFitting") {
+        const [shipID, , selected, sourceID, slots, , fitRigs] = args;
+        const [[flag, typeID]] = Object.entries(slots);
+        assert.equal(spec.key, "inventory-manager");
+        assert.equal(spec.expectedShipID, held.activeShipID);
+        assert.equal(spec.expectedDockedLocationID, held.stationID);
+        assert.equal(shipID, held.activeShipID);
+        assert.deepEqual(Object.keys(selected), [String(typeID)]);
+        const [itemID] = selected[typeID];
+        assert.deepEqual(selected[typeID], [itemID]);
+        const item = withdrawStock(itemID, sourceID, 1);
+        assert.equal(item.typeID, typeID);
+        state.fitted.push({ flagID: Number(flag), typeID, fitRigs });
+        state.shipRows.push(row(itemID, typeID, 1, shipID, Number(flag), 10, 1));
+        return { result: null };
+      }
+      if (hull && method === "Add" && [4, 87].includes(kwargs.flag)) {
+        const item = withdrawStock(args[0], args[1], kwargs.qty);
+        if (kwargs.flag === 4) {
+          state.assembled.push(row(item.itemID, item.typeID, 1, held.stationID, 4));
+          state.shipActions.push("withdraw hull");
+        } else {
+          assert.equal(spec.expectedShipID, held.activeShipID);
+          state.shipRows.push(row(item.itemID, item.typeID, item.quantity, held.activeShipID, 87));
+          state.shipActions.push("load drones");
+        }
+        return { result: null };
+      }
       assert.equal(method, "Add"); assert.equal(spec.expectedShipID, 50); assert.equal(spec.expectedDockedLocationID, 60);
       assert.equal(args.length, 2); assert.ok(Number.isSafeInteger(kwargs.qty) && kwargs.qty > 0);
       assert.equal(kwargs.flag, 5); state.writes.push([...args, kwargs.qty]);
@@ -57,10 +111,11 @@ function fixture() {
   const resolvePlace = async (_held, _session, descriptor) => {
     if (descriptor.kind === "hangar") return { spec: { key: "hangar" }, flag: 4, locationID: 60 };
     if (descriptor.kind === "cargo") return { spec: { key: "ship" }, flag: 5, locationID: 50 };
-    if (descriptor.kind === "shipBay") return { spec: { key: "ship" }, flag: 143, locationID: 50 };
+    if (descriptor.kind === "shipBay") return { spec: { key: "ship", shipID: held.activeShipID },
+      flag: descriptor.bay === "drone" ? 87 : 143, locationID: held.activeShipID };
     if (descriptor.kind === "container") return { spec: { key: "container" }, flag: 0, locationID: descriptor.itemID };
     if (descriptor.kind === "corp") {
-      assert.equal(descriptor.division, 1); return { spec: { key: "corp" }, flag: 115, locationID: null };
+      assert.equal(descriptor.division, division); return { spec: { key: "corp" }, flag: divisionFlag, locationID: null };
     }
     throw new Error("invalid descriptor");
   };
@@ -69,12 +124,22 @@ function fixture() {
     store: { listCharactersForAccount: async () => [{ accountID: 7, characterID: 10, corporationID: 30, characterName: "Current" },
       { accountID: 7, characterID: 11, corporationID: 20, characterName: "Provider" },
       { accountID: 7, characterID: 12, corporationID: 30, characterName: "Other cockpit pilot" }] },
-    flight: async () => ({ flight: { docked: true, shipID: held.activeShipID, shipTypeID: 1 } }),
+    flight: async () => ({ flight: { docked: true, shipID: held.activeShipID,
+      shipTypeID: (hull && state.assembled.find(item => item.itemID === held.activeShipID)?.typeID) ?? 1 } }),
     currentHeld: () => {}, inventoryLocation: () => held.stationID, pendingRecovery: () => false,
-    resolvePlace, cargoBindSpec: () => ({ key: "ship" }), slots: () => [27], shipBays: () => [{ key: "ammo", flag: 143, label: "Ammo" }],
+    resolvePlace, cargoBindSpec: (_held, shipID) => ({ key: "ship", shipID }),
+    inventoryManagerBindSpec: () => ({ key: "inventory-manager" }), slots: () => [27, 92],
+    shipBays: () => [{ key: "ammo", flag: 143, label: "Ammo" }],
     capacity: raw => raw, mutationFence,
     boundCall: (_held, _session, spec, method, args, kwargs) => gateway.callBoundMethod("invbroker", method, args, kwargs, {}, held.bridgeSessionID, spec),
     heldCall: async (asked, session, service, method, args, kwargs) => {
+      if (hull && service === "ship" && method === "AssembleShip") {
+        const item = state.assembled.find(row => row.itemID === args[0][0]);
+        assert.equal(item?.singleton, 0);
+        item.singleton = 1;
+        state.shipActions.push("assemble hull");
+        return { result: null };
+      }
       if (service !== "corpFittingMgr") return memberOrCorporation(method);
       // The held pilot's own read of its corporation's fittings, as its client makes it.
       assert.equal(asked, held); assert.equal(session, "tab"); assert.equal(method, "GetFittings"); assert.equal(kwargs, null);
@@ -82,10 +147,16 @@ function fixture() {
       if (state.heldFittingError) throw Object.assign(new Error(state.heldFittingError), { code: state.heldFittingError });
       return { result: library(args[0]) };
     },
+    boardShip: async (_held, _session, shipID, revalidate) => {
+      await revalidate();
+      assert.ok(state.assembled.some(item => item.itemID === shipID && item.singleton === 1));
+      held.activeShipID = shipID;
+      state.shipActions.push("board hull");
+    },
   });
   function memberOrCorporation(method) {
     return ({ result: method === "GetMember" ? wireObject({ characterID: 10,
-      corporationID: 30, roles: "0", rolesAtHQ: String((state.query ? 1048576 : 0) | (state.take ? 8192 : 0)), rolesAtBase: "0", rolesAtOther: "0", baseID: 0, titleMask: 0 }) :
+      corporationID: 30, roles: "0", rolesAtHQ: String(((state.query ? 1048576 : 0) | (state.take ? 8192 : 0)) << (division - 1)), rolesAtBase: "0", rolesAtOther: "0", baseID: 0, titleMask: 0 }) :
       wireObject({ corporationID: 30, stationID: 60 }) });
   }
   async function invoke(name, body = {}, method = "POST", query = {}) {
@@ -94,10 +165,59 @@ function fixture() {
     assert.ok(fns); await fns[0](req, res, error => { if (error) throw error; });
     await fns[1](req, res, error => { throw error; }); return res.body;
   }
-  const input = { providerCharacterID: 11, corporationID: 20, fittingID: 4, source: { kind: "hangar" } };
+  const input = { providerCharacterID: 11, corporationID: 20, fittingID: 4,
+    source: hull ? { kind: "corp", corporationID: 30, division } : { kind: "hangar" } };
   return { state, held, engine, operations, invoke, input,
     adapter: () => registered.adapter({ webSessionID: "tab", account: { accountID: 7 } }, held) };
 }
+
+for (const hull of [
+  { name: "Pioneer", typeID: 89240, drones: 2 },
+  { name: "Custom transport", typeID: 2100000923, groupID: 28, drones: 0 },
+  { name: "Omen", typeID: 2006, groupID: 26, drones: 2 },
+  { name: "Covetor", typeID: 17476, groupID: 463, drones: 2 },
+]) test(`${hull.name} reviews and applies from Division 7 with rigs and the selected drone bay load`, async () => {
+  const f = fixture(hull);
+  const plan = await f.invoke("ship-review", f.input);
+  assert.equal(plan.canApply, true);
+  assert.equal(plan.plan.targetHullTypeID, hull.typeID);
+  assert.equal(plan.plan.mode, "NEW_HULL");
+  assert.equal(plan.plan.targetHullID, null, "a provisioning client can preview the reviewed packaged hull");
+  assert.deepEqual(plan.plan.unsupported, []);
+  assert.deepEqual(plan.plan.shortages, []);
+  assert.deepEqual(f.state.shipActions, []);
+  const request = { reviewID: plan.reviewID, reviewHash: plan.reviewHash };
+  await assert.rejects(f.invoke("provision-ship", request), { code: "CONFIRMATION_REQUIRED" });
+  const result = await f.invoke("provision-ship", { ...request, confirm: true });
+  assert.equal(result.state, "COMPLETE");
+  assert.equal(result.result.equipment, "VERIFIED");
+  assert.equal(result.result.targets[0].current, 0, "optional saved charge in a module slot is not ordered as cargo");
+  assert.equal(result.manifest.targetHullID, f.held.activeShipID);
+  assert.deepEqual(f.state.shipActions, ["withdraw hull", "assemble hull", "board hull", ...(hull.drones ? ["load drones"] : [])]);
+  assert.deepEqual(f.state.fitted, [
+    { flagID: 92, typeID: 7, fitRigs: true },
+    { flagID: 27, typeID: 2, fitRigs: false },
+  ]);
+  assert.equal(f.state.shipRows.find(item => item.flagID === 87)?.quantity ?? 0, hull.drones);
+});
+
+test("a published non-frigate still needs authority to take the reviewed stock", async () => {
+  const f = fixture({ name: "Covetor", typeID: 17476, groupID: 463, drones: 2 });
+  f.state.take = false;
+  const plan = await f.invoke("ship-review", f.input);
+  assert.equal(plan.canApply, false);
+  await assert.rejects(f.invoke("provision-ship", { ...plan, confirm: true }), { code: "REVIEW_REQUIRED" });
+  assert.deepEqual(f.state.shipActions, []);
+});
+
+test("an unpublished hull cannot be assembled by Provision Ship", async () => {
+  const f = fixture({ name: "Covetor", typeID: 17476, groupID: 463, published: false, drones: 2 });
+  const plan = await f.invoke("ship-review", f.input);
+  assert.equal(plan.canApply, false);
+  assert.match(plan.plan.unsupported.join(" "), /usable ship hull/);
+  await assert.rejects(f.invoke("provision-ship", { ...plan, confirm: true }), { code: "REVIEW_REQUIRED" });
+  assert.deepEqual(f.state.shipActions, []);
+});
 test("route consumer separates provider from physical authority and routes deficits into ordinary cargo", async () => {
   const f = fixture();
   const options = await f.invoke("options", {}, "GET", { providerCharacterID: "11" });

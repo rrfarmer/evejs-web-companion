@@ -3,7 +3,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { readAccountCorpFittings } = require("./pilotTrainingFittings");
 const { row: serviceRow } = require("./trainingOnboarding");
-const { hash, fail, inventoryRows, buildContract, matchFittings } = require("./provisioningContracts");
+const { hash, fail, inventoryRows, buildContract, matchFittings, isRigSlotFlag } = require("./provisioningContracts");
 const containerGroups = new Set([12, 340, 448, 649]); // EveJS itemStore's cargo-container groups.
 
 async function readProvisioningDefinitions({ store, gateway, data, accountID, providerCharacterID, supplyPolicy, ask = null }) {
@@ -262,7 +262,7 @@ function registerProvisioningRoutes(d) {
           if (action.kind === "FIT_ITEM") {
             const spec = { ...inventoryManagerBindSpec(held), expectedDockedLocationID: current.context.locationID, expectedShipID: move.shipID };
             return boundCall(held, sessionID, spec, "FitFitting", [move.shipID, null, { [move.typeID]: [move.itemID] },
-              move.sourceLocationID, { [move.flag]: move.typeID }, {}, false], null);
+              move.sourceLocationID, { [move.flag]: move.typeID }, {}, isRigSlotFlag(move.flag)], null);
           }
           return dispatch(move, current, lease); // SAME authorized loader as Replenish.
         });
