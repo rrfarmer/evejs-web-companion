@@ -1118,6 +1118,7 @@ export class SpaceView {
         const data = this.attackers.get(shooter) ?? new Set<string>();
         if (Number(args[7]) === 1 && shooter !== me) data.add(key); else data.delete(key);
         if (data.size) this.attackers.set(shooter, data); else this.attackers.delete(shooter);
+        this.bracketEls.get(shooter)?.classList.toggle("attacking-me", this.attackers.has(shooter));
       }
       const guids = fxGuid(args[5]).split(",").map((g) => g.trim()).filter(Boolean);
       const ship = Number(args[0]), target = Number(args[3]);
@@ -2816,7 +2817,7 @@ export class SpaceView {
         id, this.lockingIDs.get(id) ?? this.acquiringTargets.get(id) ?? now,
       ]));
       this.targeters = new Set(t.targeterIDs);
-      for (const [id, el] of this.bracketEls) { el.classList.toggle("locked", this.locked.has(id)); el.classList.toggle("targeting-me", this.targeters.has(id)); }
+      for (const [id, el] of this.bracketEls) { el.classList.toggle("locked", this.locked.has(id)); el.classList.toggle("targeting-me", this.targeters.has(id)); el.classList.toggle("attacking-me", this.attackers.has(id)); el.classList.toggle("fleet-member", this.isFleetMemberShip(id)); }
       this.renderSelected();
     } catch { /* the next poll tries again */ }
   }
@@ -4978,7 +4979,7 @@ export class SpaceView {
         // selectedTargetedItem), shown by the bracket's classes
         el.innerHTML = `${glyph(e)}<div class="label"></div><div class="t-ind"><span class="t-hilite"></span><span class="t-circle"></span>
           <span class="t-line t-top"></span><span class="t-line t-left"></span><span class="t-line t-right"></span><span class="t-line t-bottom"></span>
-          <span class="t-hit"></span><span class="t-cantarget"></span><span class="t-locking"></span><span class="t-timer"></span><span class="t-lock-text"></span><span class="t-active-spin"></span><span class="t-active-circle"></span></div>`;
+          <span class="t-hit"></span><span class="t-aggress"></span><span class="t-cantarget"></span><span class="t-locking"></span><span class="t-timer"></span><span class="t-lock-text"></span><span class="t-active-spin"></span><span class="t-active-circle"></span></div>`;
         el.dataset.hackingState = hackingState;
         const id = e.itemID;
         el.dataset.id = String(id);
@@ -4992,6 +4993,8 @@ export class SpaceView {
         el.classList.toggle("hovered", this.hoveredID === id);
         el.classList.toggle("locked", this.locked.has(id));
         el.classList.toggle("targeting-me", this.targeters.has(id));
+        el.classList.toggle("attacking-me", this.attackers.has(id));
+        el.classList.toggle("fleet-member", this.isFleetMemberShip(id));
         el.classList.toggle("selected", this.selected === id);
         this.brackets.appendChild(el);
         this.bracketEls.set(e.itemID, el);

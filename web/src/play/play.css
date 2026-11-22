@@ -749,7 +749,14 @@ body:not(.no-target-crosshair) .bracket.locked .t-line, body:not(.no-target-cros
 .t-active-circle { width: 80px; height: 80px; left: -40px; top: -40px; opacity: .15;
   -webkit-mask-image: url(/client-res/ui/texture/classes/target/selectedtargeteditem.png); mask-image: url(/client-res/ui/texture/classes/target/selectedtargeteditem.png); }
 .bracket.active-target .t-active-spin, .bracket.active-target .t-active-circle { display: block; }
-.bracket.targeting-me .glyph { filter: drop-shadow(0 0 2px #e3b542) drop-shadow(0 0 2px #e3b542); }
+/* InSpaceBracket.Hostile / Attacking: targetAggressIcon.png 32 centred, on the shared blinking curve (opacity 0.3 to 0.6 over
+   0.5 s); (1, 0.8, 0) for a thing targeting the pilot (the fleet colour for a fleet member), (0.8, 0, 0) attacking */
+.bracket .t-aggress { display: none; position: absolute; left: 50%; top: 50%; width: 32px; height: 32px; margin: -16px 0 0 -16px; pointer-events: none;
+  background: rgb(255, 204, 0); -webkit-mask: url(/client-res/ui/texture/classes/bracket/targetaggressicon.png) center / 32px 32px no-repeat;
+  mask: url(/client-res/ui/texture/classes/bracket/targetaggressicon.png) center / 32px 32px no-repeat; animation: ov-hostile-blink 0.5s linear infinite; }
+.bracket.targeting-me .t-aggress, .bracket.attacking-me .t-aggress { display: block; }
+.bracket.targeting-me.fleet-member .t-aggress { background: rgb(153, 38, 230); }
+.bracket.attacking-me.attacking-me.attacking-me .t-aggress { background: rgb(204, 0, 0); }
 
 /* a bracket with the client's own icon (brackets.ts): white art, tinted by what the thing is to the pilot */
 .glyph.bi { display: block; background-color: var(--tint); -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
