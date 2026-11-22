@@ -1780,6 +1780,8 @@ export class Overview {
   }
 
   /** Redrawn a few times a second: the client's overview is not repainted every frame either. */
+  /** The rows' order as last drawn: the ties of the next sort keep it (scroll.SetOrderedNodes of a stable sort). */
+  private lastOrder: ReadonlyMap<number, number> = new Map();
   private tipEntities: readonly Entity[] = [];
   private tipRelations: OverviewRelationships | undefined;
   private iconTip: HTMLDivElement | null = null;
@@ -1867,33 +1869,55 @@ export class Overview {
     // GetSortValueWhenBroadcastGoToTop (Move entries with broadcasts to top): those a broadcast is on before the rest,
     // whichever way the column runs
     const broadcasts = overviewMisc().broadcastsToTop ? this.hooks.currentBroadcasts?.() ?? null : null;
-    const rows = listed.map((e) => ({ e, d: distanceTo(e) })).sort((a, b) => {
+    // the Icon column (overviewWindow sortValue[sortIconIndex]): [iconFlag, colorSortValue, backgroundFlag, categoryID,
+    // groupID, typeID], a structure's icon flag its colour's sort value where it has one
+    const iconKey = (e: Entity): number[] => {
+      const f = iconAndBackgroundFlags(e, this.groupOf(e), relations);
+      const colour = this.hooks.iconSortValue?.(e) ?? 0;
+      return [e.categoryID === 65 && colour ? colour : f.icon?.flag ?? 0, colour, f.background?.flag ?? 0, e.categoryID ?? 0, this.groupOf(e) ?? 0, e.typeID ?? 0];
+    };
+    // each column's sort value as _UpdateStaticDataForNodes / _UpdateDynamicDataForNodes set it (names and words lowered;
+    // a ball with no velocity data keeps defaultSortValue 0 in the velocity columns)
+    type SortValue = number | string | number[];
+    const valueOf = (column: SortColumn, e: Entity, d: number): SortValue => {
+      switch (column) {
+        case "icon": return iconKey(e);
+        case "distance": return d;
+        case "velocity": return isStatic(e) ? 0 : speed(e);
+        case "size": return e.radius ?? 0;
+        case "angular": return angular(e, d) ?? 0;
+        case "type": return typeColumn(e).toLowerCase();
+        case "radial": return radialTransversal(e)?.[0] ?? 0;
+        case "transversal": return radialTransversal(e)?.[1] ?? 0;
+        case "tag": case "corporation": case "alliance": case "faction": case "militia": return words(e, column).toLowerCase();
+        default: return rowName(e).toLowerCase();
+      }
+    };
+    // Python's ordering: numbers by value, text by code point, lists item by item
+    const compare = (x: SortValue, y: SortValue): number => {
+      if (Array.isArray(x) && Array.isArray(y)) { for (let i = 0; i < Math.min(x.length, y.length); i++) if (x[i] !== y[i]) return x[i]! - y[i]!; return x.length - y.length; }
+      if (typeof x === "number" && typeof y === "number") return x - y;
+      const a = String(x), b = String(y);
+      return a < b ? -1 : a > b ? 1 : 0;
+    };
+    // GetColumnSettingsAndSortKeys: the sort keys are the tab's columns from the one sorted by to the last, so a tie on
+    // it goes to the next column along; the rest keep the order they had (sorted() is stable, reverse=True too)
+    const sortColumns = cols.slice(Math.max(0, cols.findIndex((c) => c.sort === key))).map((c) => c.sort).filter((c): c is SortColumn => !!c);
+    const before = this.lastOrder;
+    const rows = listed.map((e) => { const d = distanceTo(e); return { e, d, keys: sortColumns.map((c) => valueOf(c, e, d)) }; }).sort((a, b) => {
+      // GetSortValueWhenBroadcastGoToTop (Move entries with broadcasts to top): those a broadcast is on before the rest,
+      // whichever way the column runs
       if (broadcasts && broadcasts.size) {
         const top = (broadcasts.has(a.e.itemID) ? 0 : 1) - (broadcasts.has(b.e.itemID) ? 0 : 1);
         if (top) return top;
       }
-      // (a ball with no velocity data keeps defaultSortValue 0 in the velocity columns, as the client sorts it)
-      // the Icon column (overviewWindow sortValue[sortIconIndex]): [iconFlag, colorSortValue, backgroundFlag, categoryID,
-      // groupID, typeID], a structure's icon flag its colour's sort value where it has one
-      const iconKey = (e: Entity): number[] => {
-        const f = iconAndBackgroundFlags(e, this.groupOf(e), relations);
-        const colour = this.hooks.iconSortValue?.(e) ?? 0;
-        return [e.categoryID === 65 && colour ? colour : f.icon?.flag ?? 0, colour, f.background?.flag ?? 0, e.categoryID ?? 0, this.groupOf(e) ?? 0, e.typeID ?? 0];
-      };
-      const tuple = (x: number[], y: number[]): number => { for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i]! - y[i]!; return 0; };
-      const by = key === "icon" ? tuple(iconKey(a.e), iconKey(b.e))
-        : key === "distance" ? a.d - b.d
-        : key === "velocity" ? (isStatic(a.e) ? 0 : speed(a.e)) - (isStatic(b.e) ? 0 : speed(b.e))
-        : key === "size" ? (a.e.radius ?? 0) - (b.e.radius ?? 0)
-        : key === "angular" ? (angular(a.e, a.d) ?? 0) - (angular(b.e, b.d) ?? 0)
-        : key === "type" ? typeColumn(a.e).localeCompare(typeColumn(b.e))
-        : key === "radial" ? (radialTransversal(a.e)?.[0] ?? 0) - (radialTransversal(b.e)?.[0] ?? 0)
-        : key === "transversal" ? (radialTransversal(a.e)?.[1] ?? 0) - (radialTransversal(b.e)?.[1] ?? 0)
-        : key === "tag" || key === "corporation" || key === "alliance" || key === "faction" || key === "militia" ? words(a.e, key).toLowerCase().localeCompare(words(b.e, key).toLowerCase())
-        : rowName(a.e).localeCompare(rowName(b.e));
-      // ties go nearest first, as the client's do
-      return (this.sort.down ? -by : by) || a.d - b.d;
+      for (let i = 0; i < a.keys.length; i++) {
+        const by = compare(a.keys[i]!, b.keys[i]!);
+        if (by) return this.sort.down ? -by : by;
+      }
+      return (before.get(a.e.itemID) ?? Infinity) - (before.get(b.e.itemID) ?? Infinity) || a.d - b.d;
     });
+    this.lastOrder = new Map(rows.map((r, i) => [r.e.itemID, i]));
     const html: string[] = [];
     for (const { e, d } of rows) {
       const typeName = typeColumn(e);
