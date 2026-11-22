@@ -581,9 +581,11 @@
   .icon { position: relative; width: 64px; height: 64px; display: grid; background: rgba(255, 255, 255, 0.05); }
   .icon :global(.type-icon) { width: 64px; height: 64px; }
   /* InvItem qtypar: BOTTOMRIGHT at 2, 2, black OPACITY_BG 0.9, its EveLabelSmall padded 4 1 4 0, FmtAmt(qty, "ss") */
-  .qty { position: absolute; right: 2px; bottom: 2px; padding: 1px 4px 0; background: rgba(0, 0, 0, 0.9); font-size: 12px; line-height: 14px; }
+  /* InvItemIconContainer's qtypar (read through gridcheck on a Tritanium stack): 2 in from the icon's corner, its 12 px
+     EveLabelSmall white 4 in and 1 down (17 high); the itemNameLabel at 0.75 */
+  .qty { position: absolute; right: 2px; bottom: 2px; padding: 1px 4px 0; background: rgba(0, 0, 0, 0.9); font-size: 12px; line-height: 16px; color: #fff; }
   /* InvItem (gridcheck): 64 x 103, its quantity EveLabelSmall 12, its name a centred Label 14, 70 wide */
-  .iname { margin-top: 2px; width: 70px; text-align: center; font-size: 14px; line-height: 18px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .iname { margin-top: 2px; width: 70px; text-align: center; font-size: 14px; line-height: 18px; color: rgba(255, 255, 255, 0.75); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .foot { padding-left: 4px; display: flex; align-items: center; gap: 8px; height: 24px; color: rgba(255, 255, 255, 0.55); }
   .count { font-weight: 700; }
   /* UpdateNumberOfItems: with items filtered out, its text SUCCESS_GREEN */
