@@ -1053,6 +1053,10 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 .ov-icon-tip-grid { position: relative; display: grid; grid-template-columns: 16px auto; column-gap: 6px; row-gap: 2px; align-items: center; }
 .ov-icon-tip-grid b { color: rgba(255, 255, 255, 0.9); }
 .ov-icon-tip-icon { width: 16px; height: 16px; display: grid; place-items: center; }
+/* the tab's tooltip: two columns 150 wide at most, the description across both, SECONDARY, its own padding */
+.ov-tab-tip-grid { position: relative; display: grid; grid-template-columns: auto auto; column-gap: 8px; row-gap: 2px; max-width: 300px; white-space: normal; }
+.ov-tab-tip-grid b { color: rgba(255, 255, 255, 0.9); font-weight: 400; max-width: 150px; }
+.ov-tab-tip-desc { grid-column: 1 / span 2; color: rgba(255, 255, 255, 0.5); padding: 0 8px 8px; }
 .ov-icon-tip-icon .glyph { width: 16px; height: 16px; }
 
 /* the target's state flag and an NPC's bracket icon at the bottom of its icon (targetInBar SetStandingIcon / SetBracketIcon) */

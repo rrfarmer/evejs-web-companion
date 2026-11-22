@@ -2105,6 +2105,7 @@
         return splitResults(held.results, new Set(held.ignored.map((result) => result.id)), held.filter).shown;
       },
       primeLocations: (itemIDs) => s.flow.requestNames(itemIDs.map((id) => ({ kind: "evelocation" as const, id }))),
+      requestWords: (labels) => s.flow.requestWords(labels),
       arrivalDungeonSite: async () => {
         const dungeon = s.flow.activeDungeon.get();
         if (!dungeon || dungeon.instanceID === null) return null;

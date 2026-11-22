@@ -110,7 +110,7 @@ interface OverviewTab {
   bracket: PresetMask | null;
 }
 /** A default preset as a chooser lists it (GetPresetDisplayName with its category: "Category: Name"). */
-export interface PresetChoice { readonly id: string; readonly name: string; readonly label: string; readonly groups: ReadonlySet<number>; readonly category?: number; readonly categoryName?: string | null }
+export interface PresetChoice { readonly id: string; readonly name: string; readonly label: string; readonly groups: ReadonlySet<number>; readonly category?: number; readonly categoryName?: string | null; readonly descriptionID?: number | null }
 /** TabPresetPanel.GetListOfCategories: the categories and their groups (a special group several group IDs), as the client lists them. */
 interface FilterCategory { category: string; groups: { name: string; groupIDs: number[]; brackets?: string[] }[] }
 let filterGroupsRead: Promise<FilterCategory[] | null> | null = null;
@@ -304,6 +304,8 @@ export interface OverviewHooks {
   name?(e: Entity): string;
   pilotID?: number;
   word?(label: string, args?: Readonly<Record<string, string | number>>): string | null;
+  /** The install's words asked for (a message by "#<messageID>" too), to be had by word() when they come. */
+  requestWords?(labels: readonly string[]): void;
   notice?(text: string): void;
   /** A client message by its dialog name (prompt_player_fsd_dialog, OK only). */
   say?(dialog: string, fallback: string): void;
@@ -357,6 +359,17 @@ export class Overview {
     // it (OverviewTabGroup, 32 high, the chosen one marked by a SelectionIndicatorLine), a DividerLine, then the scroll
     this.window.body.innerHTML = `<div class="ov-tabs"><span class="ov-tab active">General</span></div>`;
     this.tabsEl = this.window.body.querySelector(".ov-tabs")!;
+    // OverviewTab.LoadTooltipPanel: Filter and the tab's filter by its display name (HIGHLIGHT), the default filter's
+    // description under them (SECONDARY, GetDefaultOverviewDescription), and in the first overview window
+    // (IsBracketFilterDictatingTab) Bracket Filter and the tab's bracket filter, Show All Brackets where it has none
+    this.tabsEl.addEventListener("mouseover", (e) => {
+      const tab = (e.target as HTMLElement).closest<HTMLElement>(".ov-tab[data-tab]");
+      if (!tab) return;
+      const n = Number(tab.dataset.tab);
+      if (this.tabTipFor === n && this.tabTip?.isConnected) return;
+      this.showTabTip(tab, n);
+    });
+    this.tabsEl.addEventListener("mouseleave", () => this.hideTabTip());
     this.tabsEl.addEventListener("click", (e) => {
       if ((e.target as HTMLElement).closest(".ov-add-tab")) { this.openAddTab(); return; }
       const i = Number((e.target as HTMLElement).closest<HTMLElement>(".ov-tab")?.dataset.tab);
@@ -466,8 +479,11 @@ export class Overview {
       const order = p.categoryOrder ?? [0, 1, 2, 3, 4, 5];
       this.presetChoices = Object.entries(p.presets)
         .flatMap(([id, preset]) => preset ? [{ id, name: preset.name, label: preset.categoryName ? `${preset.categoryName}: ${preset.name}` : preset.name,
-          groups: masks.get(id)!.groups, category: preset.categoryID ?? 0, categoryName: preset.categoryName ?? null }] : [])
+          groups: masks.get(id)!.groups, category: preset.categoryID ?? 0, categoryName: preset.categoryName ?? null,
+          descriptionID: typeof (preset as { descriptionID?: unknown }).descriptionID === "number" ? (preset as unknown as { descriptionID: number }).descriptionID : null }] : [])
         .sort((a, b) => (order.indexOf(a.category) - order.indexOf(b.category)) || a.label.localeCompare(b.label));
+      // (the default filters' descriptions, which the client has in its own data, asked for ahead of the tabs' tooltips)
+      this.hooks.requestWords?.(this.presetChoices.flatMap((c) => (c.descriptionID ? [`#${c.descriptionID}`] : [])));
       this.addCustomPresets();
       let saved = 0;
       try { saved = Number(localStorage.getItem(this.tabKey) ?? localStorage.getItem(TAB_KEY)); } catch { /* no storage: the first tab */ }
@@ -1894,6 +1910,30 @@ export class Overview {
     const a = cell.getBoundingClientRect();
     this.iconTip.style.left = `${Math.round(a.left - this.iconTip.offsetWidth - 4)}px`;
     this.iconTip.style.top = `${Math.round(a.top + a.height / 2 - this.iconTip.offsetHeight / 2)}px`;
+  }
+  private tabTip: HTMLDivElement | null = null;
+  private tabTipFor: number | null = null;
+  private showTabTip(tab: HTMLElement, n: number): void {
+    const t = this.tabSettings[n];
+    if (!t) return;
+    const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
+    const preset = this.presetChoices.find((c) => c.id === t.preset);
+    const description = preset?.descriptionID ? this.hooks.word?.(`#${preset.descriptionID}`) ?? null : null;
+    if (preset?.descriptionID && description === null) this.hooks.requestWords?.([`#${preset.descriptionID}`]);
+    const rows = [`<span>${esc(word("UI/Overview/Filter", "Filter"))}</span><b>${esc(preset ? this.presetLabel(preset.id) : t.preset)}</b>`];
+    if (description) rows.push(`<span class="ov-tab-tip-desc">${esc(description)}</span>`);
+    if (this.instanceID === 0) rows.push(`<span>${esc(word("UI/Overview/BracketFilter", "Bracket Filter"))}</span><b>${esc(t.bracket ? this.presetLabel(t.bracket) : word("UI/Overview/ShowAllBrackets", "Show All Brackets"))}</b>`);
+    if (!this.tabTip) { this.tabTip = document.createElement("div"); this.tabTip.className = "ov-icon-tip ov-tab-tip"; }
+    if (!this.tabTip.isConnected) document.body.append(this.tabTip);
+    this.tabTip.innerHTML = `<div class="ov-icon-tip-frame"></div><div class="ov-tab-tip-grid">${rows.join("")}</div>`;
+    this.tabTipFor = n;
+    const a = tab.getBoundingClientRect();
+    this.tabTip.style.left = `${Math.round(a.left)}px`;
+    this.tabTip.style.top = `${Math.round(a.bottom + 4)}px`;
+  }
+  private hideTabTip(): void {
+    this.tabTip?.remove();
+    this.tabTipFor = null;
   }
   private hideIconTip(): void {
     this.iconTip?.remove();

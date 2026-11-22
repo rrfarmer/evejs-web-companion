@@ -282,6 +282,8 @@ export interface SpaceActions {
   word?(label: string, args?: Readonly<Record<string, string | number>>): string | null;
   /** cfg.evelocations.Prime: the locations' names asked for (config.GetMultiLocationsEx). */
   primeLocations?(itemIDs: readonly number[]): void;
+  /** The install's words asked for. */
+  requestWords?(labels: readonly string[]): void;
   /** cfg.evelocations.Get(itemID).name where it is known; null until it is. */
   locationName?(itemID: number): string | null;
   /**
@@ -1678,6 +1680,7 @@ export class SpaceView {
       name: (e) => this.nameOf(e),
       pilotID: options.overviewPilotID,
       word: (label, args) => this.actions.word?.(label, args) ?? null,
+      requestWords: (labels) => this.actions.requestWords?.(labels),
       notice: options.overviewNotice,
       ask: options.overviewAsk,
       say: options.overviewSay,
