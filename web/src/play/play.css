@@ -119,9 +119,16 @@ button { font: inherit; color: inherit; }
 .bracket:hover .label, .bracket.hovered .label, .bracket.selected .label, .bracket.objective-highlight .label { display: block; }
 .bracket.selected .glyph, .bracket.objective-highlight .glyph { filter: drop-shadow(0 0 3px #fff); }
 .bracket.mining-selected { z-index: 2; }
-.mining-details { display: none; pointer-events: none; position: absolute; top: 18px; left: 19px;
-  background: #141d24ed; border-left: 2px solid #90bbab; padding: 4px 7px;
-  white-space: pre; font-size: 11px; line-height: 1.45; color: #e2eeee; }
+.mining-details { display: none; pointer-events: none; position: absolute; left: 118px; top: 60px; white-space: nowrap; }
+.bracket.asteroid:not(.selected) > .glyph { visibility: hidden; }
+.mining-details .eb-callout { position: absolute; left: -100px; top: -46px; width: 95px; height: 65px; max-width: none; opacity: 0.5; }
+.mining-details .eb-grid { position: relative; top: 8px; display: grid; row-gap: 4px; }
+.mining-details .eb-name { position: relative; justify-self: start; padding-bottom: 4px; font-size: 14px; line-height: 18px; color: #fff; text-shadow: 1px 1px 0 #000; }
+.mining-details .eb-name::before { content: ""; position: absolute; inset: -4px -8px 0 -8px; z-index: -1; opacity: 0.2;
+  border-style: solid; border-width: 0; border-image-source: url(/client-res/ui/texture/shared/darkstyle/panel1cornertopright.png); border-image-slice: 10 fill; border-image-width: 10px; }
+.mining-details .eb-line { font-size: 12px; line-height: 16px; opacity: 0.75; }
+.mining-details .eb-line b { color: #fff; }
+.mining-details .eb-line span { color: #e6e6e6; }
 .bracket.mining-selected .mining-details:not([hidden]) { display: block; }
 .mining-hold-bracket { position: absolute; left: 0; top: 0; pointer-events: auto;
   border: 1px solid #71978d; border-radius: 4px; background: #141d24e8; color: #e2eeee; padding: 3px 7px;

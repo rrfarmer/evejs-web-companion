@@ -2005,15 +2005,31 @@ export class SpaceView {
         lines.push(`Critical yield +${hit.criticalQuantity.toLocaleString()}`);
       }
     }
+    // ExpandedBracketAsteroid (read through gridcheck on a selected Veldspar): at the bracket +118, +60, the diagonal callout
+    // line (95 x 65 at -100, -46, 0.5), its grid 8 down - the type's name (TextBody 14 white, shadowed, on panel1CornerTopRight
+    // at 0.2), then TextDetail 12 lines at 0.75, each "<b>label</b> value" (white, then HIGHLIGHT's e6e6e6): Distance (the
+    // surface distance, FmtDist), and with a survey Value, Total value and Quantity
     let details = el.querySelector<HTMLElement>(".mining-details");
     if (!details) {
       details = document.createElement("div");
       details.className = "mining-details";
+      details.innerHTML = `<img class="eb-callout" alt="" src="${clientTexture("res:/UI/Texture/classes/Bracket/callout_line_diagonal.png")}"><div class="eb-grid"><div class="eb-name"></div><div class="eb-lines"></div></div>`;
       el.appendChild(details);
     }
-    const text = lines.join("\n");
-    if (details.textContent !== text) details.textContent = text;
-    details.hidden = !lines.length;
+    const name = this.nameOf(entity);
+    const nameEl = details.querySelector<HTMLElement>(".eb-name")!;
+    if (nameEl.textContent !== name) nameEl.textContent = name;
+    const escapeHtml = (t: string) => t.replace(/[&<>]/g, (c) => (c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;"));
+    const pair = (label: string, value: string) => `<b>${escapeHtml(label)}</b> <span>${escapeHtml(value)}</span>`;
+    const rows = [pair(this.actions.word?.("UI/Common/Distance") ?? "Distance", fmtDistance(this.distanceTo(entity), 1))];
+    for (const line of lines) {
+      const m = /^(Total value|Value|Quantity|Critical yield)\s*(.*)$/.exec(line);
+      rows.push(m ? pair(m[1]!, m[2]!) : escapeHtml(line));
+    }
+    const html = rows.map((r) => `<div class="eb-line">${r}</div>`).join("");
+    const linesEl = details.querySelector<HTMLElement>(".eb-lines")!;
+    if (linesEl.innerHTML !== html) linesEl.innerHTML = html;
+    details.hidden = false;
   }
 
   private updateMiningHold(survey: MiningOverlayState | undefined, ego: Entity | null,
@@ -4876,6 +4892,8 @@ export class SpaceView {
       if (!el) {
         el = document.createElement("div");
         el.className = "bracket";
+        // AsteroidBracket.update_icon_visibility: an asteroid's icon only while it is selected
+        if ((e as Entity & { categoryID?: number | null }).categoryID === 25) el.classList.add("asteroid");
         // InSpaceBracket's indicators: Hilite's selectionCircle, TargetedIndicator (outerCircle and the four TargetLines
         // across the screen; its targetingArrows while locking) and ActiveTargetIndicator (the turning spinCorners and
         // selectedTargetedItem), shown by the bracket's classes
