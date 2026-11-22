@@ -828,8 +828,9 @@
     mask: url(/client-res/ui/texture/classes/neocom/arrowdown.png) center / 7px 7px no-repeat; -webkit-mask: url(/client-res/ui/texture/classes/neocom/arrowdown.png) center / 7px 7px no-repeat; transform: rotate(-90deg); }
   .right { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   .top { display: flex; align-items: center; gap: 0; height: 24px; margin-bottom: 16px; }
-  .tool { padding: 0; border: 0; background-color: transparent; cursor: pointer; width: 24px; height: 24px; flex: none; background: center / 16px 16px no-repeat; opacity: 0.8; }
-  .tool:hover { opacity: 1; }
+  /* ButtonIcon: its icon TextColor.NORMAL (0.75), HIGHLIGHT (0.9) hovered (read through gridcheck on Stack All, View mode, Sort By) */
+  .tool { padding: 0; border: 0; background-color: transparent; cursor: pointer; width: 24px; height: 24px; flex: none; background: center / 16px 16px no-repeat; opacity: 0.75; }
+  .tool:hover { opacity: 0.9; }
   /* the top row's dividerParent (gridcheck, 600 wide window): InvContCapacityGauge 170 wide at 262, the dragArea 8 (its
      DividerLine at 3), the quick filter the rest (142, to the content's right) */
   .gauge { position: relative; flex: none; width: 170px; min-width: 0; height: 24px; margin: 0 0 0 8px; background: rgba(0, 0, 0, 0.4); }
