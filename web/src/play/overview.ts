@@ -205,7 +205,7 @@ const SORT_ENABLED = "UI/Tactical/HeaderSortingEnabledCb";
 const SORT_HINT = "UI/Tactical/HeaderSortingEnabledCbHint";
 const SORT_DISABLED = "UI/Tactical/HeaderSortingDisabled";
 const HACKED_HINT = "Tooltips/Overview/ScatterContainerHacked";
-export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HINT, "UI/Tactical/OverviewCaption", ...OVERVIEW_COLUMN_WORDS,
+export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HINT, "Tooltips/Overview/HostileNPC", "Tooltips/Overview/NeutralNPC", "Tooltips/Overview/AbandonedContainer", "Tooltips/Overview/RestrictedContainer", "Tooltips/Overview/StargateOnRoute", "Tooltips/Overview/HostileAction", "Tooltips/Overview/TargetLock", "UI/Shared/EstimatedPricePerSquareMeter", "UI/Tactical/OverviewCaption", ...OVERVIEW_COLUMN_WORDS,
   ...WINDOW_ACTION_WORDS, "UI/Overview/AddTab", "/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", "UI/Commands/OpenOverviewSettings", "UI/Overview/BracketVisibility", "UI/Overview/UseSelectedTabBracketPreset",
   "UI/Overview/ShowAll", "UI/Overview/HideAll", "UI/Overview/AddTabInstructions", "UI/Overview/TypeInLabel", "UI/Overview/Filter",
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
@@ -291,6 +291,8 @@ export interface OverviewHooks {
   select(itemID: number): void;
   activate(itemID: number): void;
   glyph(e: Entity): string;
+  /** The icon tooltip's lines after the group's name (OverviewScrollEntry.LoadIconTooltipPanel). */
+  iconTooltipLines?(e: Entity): { readonly threat: readonly string[]; readonly after: readonly string[] };
   /** stateSvc's targeted / activeTarget / targeting for the row's SpaceObjectIcon (UpdateSpaceObjectState). */
   targetState?(itemID: number): { readonly locked: boolean; readonly active: boolean; readonly locking: boolean; readonly hostile?: boolean; readonly fleet?: boolean; readonly attacking?: boolean };
   /** The row's Name (uix.GetSlimItemName); the slim's name, else the type's, where it is not given. */
@@ -407,7 +409,15 @@ export class Overview {
       // (SE_BaseClassCore.OnMouseEnter: sound_hover, SOUND_ENTRY_HOVER, as the row lights)
       if (id && id !== this.hovered) { void playUiEvent("ui_button_soft2_play"); this.hooks.hover?.(id); }
     });
-    this.tbody.addEventListener("mouseleave", () => this.hooks.hover?.(null));
+    this.tbody.addEventListener("mouseleave", () => { this.hooks.hover?.(null); this.hideIconTip(); });
+    // the icon's own tooltip (mainIcon.LoadTooltipPanel = LoadIconTooltipPanel), pointed from its right (POINT_RIGHT_2)
+    this.tbody.addEventListener("mouseover", (e) => {
+      const cell = (e.target as HTMLElement).closest<HTMLElement>("td.ov-icon");
+      const id = Number(cell?.closest("tr")?.dataset.id);
+      if (!cell || !id) { this.hideIconTip(); return; }
+      if (this.iconTipFor === id) return;
+      this.showIconTip(cell, id);
+    });
     this.tbody.addEventListener("click", (e) => {
       const id = Number((e.target as HTMLElement).closest("tr")?.dataset.id);
       // OverviewScrollEntry.OnClick: prompt_player_fsd_dialog('ListEntryClick') - an audio message, msg_ListEntryClick_play
@@ -1767,7 +1777,44 @@ export class Overview {
   }
 
   /** Redrawn a few times a second: the client's overview is not repainted every frame either. */
+  private tipEntities: readonly Entity[] = [];
+  private tipRelations: OverviewRelationships | undefined;
+  private iconTip: HTMLDivElement | null = null;
+  private iconTipFor: number | null = null;
+  /**
+   * OverviewScrollEntry.LoadIconTooltipPanel (Generic3ColumnTemplate): the SpaceObjectIcon, the group's name bold; then
+   * HostileAction / TargetLock, the icon's hint (a hacked can's), the state flag's hint, GetIconColor's hint and a
+   * harvestable thing's estimated price per m³, each a line of its own (read through gridcheck: 'Asteroid Guristas
+   * Frigate' / 'Hostile', 'Frigate' / 'Pilot has No Standing.', 'Scordite' / '54 ISK / m³').
+   */
+  private showIconTip(cell: HTMLElement, id: number): void {
+    const e = this.tipEntities.find((x) => x.itemID === id);
+    if (!e) { this.hideIconTip(); return; }
+    const group = this.groupOf(e);
+    const groupName = (group === null ? null : this.groupNames[String(group)]?.[0]) ?? "";
+    const lines = this.hooks.iconTooltipLines?.(e) ?? { threat: [], after: [] };
+    const flags = iconAndBackgroundFlags(e, group, this.tipRelations);
+    const hacked = (e.hackingSecurityState ?? 0) > 1 ? [this.hooks.word?.(HACKED_HINT) ?? "Has already been hacked"] : [];
+    const rows = [...lines.threat, ...hacked, ...(flags.icon?.text ? [flags.icon.text] : []), ...lines.after];
+    if (!this.iconTip) {
+      this.iconTip = document.createElement("div");
+      this.iconTip.className = "ov-icon-tip";
+    }
+    if (!this.iconTip.isConnected) document.body.append(this.iconTip);
+    this.iconTip.innerHTML = `<div class="ov-icon-tip-frame"></div><div class="ov-icon-tip-grid"><span class="ov-icon-tip-icon">${this.hooks.glyph(e)}</span><b>${esc(groupName)}</b>${rows.map((r) => `<span></span><span>${esc(r)}</span>`).join("")}</div>`;
+    this.iconTipFor = id;
+    const a = cell.getBoundingClientRect();
+    this.iconTip.style.left = `${Math.round(a.left - this.iconTip.offsetWidth - 4)}px`;
+    this.iconTip.style.top = `${Math.round(a.top + a.height / 2 - this.iconTip.offsetHeight / 2)}px`;
+  }
+  private hideIconTip(): void {
+    this.iconTip?.remove();
+    this.iconTipFor = null;
+  }
+
   update(entities: readonly Entity[], distanceTo: (e: Entity) => number, relations?: OverviewRelationships, ego?: Entity | null): void {
+    this.tipEntities = entities;
+    this.tipRelations = relations;
     const now = performance.now();
     if (now - this.lastDraw < 400) return;
     this.lastDraw = now;
@@ -1838,14 +1885,12 @@ export class Overview {
     const html: string[] = [];
     for (const { e, d } of rows) {
       const typeName = typeColumn(e);
-      const hackingHint = (e.hackingSecurityState ?? 0) > 1
-        ? ` title="${esc(this.hooks.word?.(HACKED_HINT) ?? "Has already been hacked")}"` : "";
       // OverviewScrollEntry.UpdateFlagAndBackground: the icon's flag and the row's background (alpha x 0.5, structures 0.125)
       const flags = iconAndBackgroundFlags(e, this.groupOf(e), relations);
       const bg = flags.background ? ` style="--flag-bg:${rgba(flags.background.backgroundColor, (flags.background.backgroundColor[3] ?? 1) * (e.categoryID === 65 || e.categoryID === 40 ? 0.125 : 0.5))}"` : "";
       const cell = (c: ColumnDef): string => {
         switch (c.id) {
-          case "ICON": return `<td class="ov-icon"${hackingHint}><span class="ov-icon-wrap">${this.hooks.glyph(e)}${targetMarkup(this.hooks.targetState?.(e.itemID))}${flagMarkup(flags.icon)}</span></td>`;
+          case "ICON": return `<td class="ov-icon"><span class="ov-icon-wrap">${this.hooks.glyph(e)}${targetMarkup(this.hooks.targetState?.(e.itemID))}${flagMarkup(flags.icon).replace(/ title="[^"]*"/, "")}</span></td>`;
           case "DISTANCE": return `<td class="ov-dist">${overviewDistance(d)}</td>`;
           case "NAME": return `<td>${esc(rowName(e))}</td>`;
           case "TYPE": return `<td>${esc(typeName)}</td>`;

@@ -64,6 +64,11 @@ function roundIsk(v: number): number {
   return Math.round(v * f) / f;
 }
 const whole = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+
+/** FmtISKAndRound(price, False): the ISK rounded as the client rounds it, whole, with " ISK". */
+export function iskAndRound(price: number): string {
+  return `${whole.format(Math.round(roundIsk(price)))} ISK`;
+}
 const cents = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /**

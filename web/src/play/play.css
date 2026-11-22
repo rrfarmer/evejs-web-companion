@@ -1016,3 +1016,12 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 .mining-details .eb-crit-icon { width: 16px; height: 16px; background: rgb(240, 255, 69);
   -webkit-mask: url(/client-res/ui/texture/eveicon/category_icons/crit_success_16px.png) center / 16px no-repeat; mask: url(/client-res/ui/texture/eveicon/category_icons/crit_success_16px.png) center / 16px no-repeat; }
 @keyframes eb-crit { 0% { opacity: 0; } 3% { opacity: 1; } 6% { opacity: 0; } 9% { opacity: 1; } 12% { opacity: 0; } 15% { opacity: 1; } 77% { opacity: 1; } 100% { opacity: 0; } }
+
+/* OverviewScrollEntry.LoadIconTooltipPanel: a tooltip panel (FrameWithPointer background_04 at 0.75) to the icon's left,
+   Generic3ColumnTemplate - the 16 px icon, the group's name bold, then a line for each hint */
+.ov-icon-tip { position: fixed; z-index: 100000; pointer-events: none; padding: 12px 14px; font: 14px "EVE Sans Neue", "Segoe UI", sans-serif; color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
+.ov-icon-tip-frame { position: absolute; inset: 0; opacity: 0.75; border-style: solid; border-width: 0; border-image: url(/client-res/ui/texture/classes/framewithpointer/background_04.png) 19 fill / 19px / 15px; }
+.ov-icon-tip-grid { position: relative; display: grid; grid-template-columns: 16px auto; column-gap: 6px; row-gap: 2px; align-items: center; }
+.ov-icon-tip-grid b { color: rgba(255, 255, 255, 0.9); }
+.ov-icon-tip-icon { width: 16px; height: 16px; display: grid; place-items: center; }
+.ov-icon-tip-icon .glyph { width: 16px; height: 16px; }

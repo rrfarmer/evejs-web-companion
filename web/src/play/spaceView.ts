@@ -31,7 +31,7 @@ import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three
 import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { MiningSurveyWave, miningWaveSounds, miningWaveTargets } from "./miningSurveyWave.ts";
-import { miningBracketReadout, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
+import { iskAndRound, miningBracketReadout, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
 import { AsteroidModels } from "../three/asteroidModel.ts";
 import type { ApiOptions } from "../app/api.ts";
 import { DRIFTER_COLLECTION, DrifterCollectionExplosions } from "./drifterCollectionExplosions.ts";
@@ -401,6 +401,10 @@ const GROUPS_WITH_LOOTRIGHTS: ReadonlySet<number> = new Set([186, 12, 649]);
  * no friendly threshold or at or over it ICON_COLOR_GOOD (0, 0.4, 1), else neutral; a non-hostile one attacking the
  * pilot is bad.
  */
+function npcHasStandings(e: Entity): boolean {
+  const t = e as Entity & { hostileResponseThreshold?: number | null; friendlyResponseThreshold?: number | null };
+  return (t.hostileResponseThreshold ?? null) !== null || (t.friendlyResponseThreshold ?? null) !== null;
+}
 function npcColour(e: Entity): string {
   const t = e as Entity & { hostileResponseThreshold?: number | null; friendlyResponseThreshold?: number | null };
   const hostile = t.hostileResponseThreshold ?? null, friendly = t.friendlyResponseThreshold ?? null;
@@ -414,12 +418,13 @@ function npcColour(e: Entity): string {
 let attackingMe: ReadonlySet<number> = new Set();
 
 /** A bracket glyph by kind, in the client's spirit: the shape says what it is, the colour whose. */
-export function glyph(e: Entity): string {
+/** GetIconColor(slimItem, getColorHint=True): the icon's colour and its hint's label (Tooltips/Overview/...), or none. */
+export function iconLook(e: Entity): { colour: string; hint: string | null } {
   // bracketVarious.GetIconColor: OVERVIEW_NORMAL_COLOR (white) for all but the pilot's own ship (OVERVIEW_OWN_SHIP_COLOR, 0.7),
-  // an NPC (its owner's standing's colour - ICON_COLOR_BAD (1, 0.1, 0.1) 'Hostile' for the belt rats, read through gridcheck;
-  // the other standings not drawn yet), and a wreck or can: abandoned OVERVIEW_ABANDONED_CONTAINER_COLOR
+  // an NPC (its owner's standing's colour, npcColour - ICON_COLOR_BAD (1, 0.1, 0.1) 'Hostile' for the belt rats, read
+  // through gridcheck), and a wreck or can: abandoned OVERVIEW_ABANDONED_CONTAINER_COLOR
   // (0.2, 0.5, 1.0), else one the pilot has no loot right to OVERVIEW_FORBIDDEN_CONTAINER_COLOR (1, 1, 0) (read through
-  // gridcheck: the page pilot's jetcan yellow in the client's overview); the autopilot destination not yet
+  // gridcheck: the page pilot's jetcan yellow in the client's overview)
   const rights = (e as Entity & { lootRights?: { ownerID: number | null; corpID: number | null; fleetID: number | null; abandoned: boolean } | null }).lootRights ?? null;
   const looted = e.groupID !== null && GROUPS_WITH_LOOTRIGHTS.has(e.groupID) && rights
     ? rights.abandoned ? "abandoned"
@@ -432,7 +437,19 @@ export function glyph(e: Entity): string {
   const jumpTo = (e as Entity & { jumpSystemID?: number | null }).jumpSystemID ?? null;
   const onRoute = (e.groupID === 10 && jumpTo !== null && jumpTo === routeNext.nextSystemID)
     || ((e.groupID === 15 || e.categoryID === 65) && e.itemID === routeNext.firstWaypoint);
-  const c = onRoute ? "rgb(240, 255, 69)" : e.isNpc ? npcColour(e) : e.isSelf ? "#b3b3b3" : looted === "abandoned" ? "rgb(51, 128, 255)" : looted === "forbidden" ? "rgb(255, 255, 0)" : "#ffffff";
+  if (onRoute) return { colour: "rgb(240, 255, 69)", hint: "Tooltips/Overview/StargateOnRoute" };
+  if (e.isNpc) {
+    const colour = npcColour(e);
+    return { colour, hint: colour === "rgb(255, 26, 26)" ? "Tooltips/Overview/HostileNPC" : colour === "#ffffff" && npcHasStandings(e) ? "Tooltips/Overview/NeutralNPC" : null };
+  }
+  if (e.isSelf) return { colour: "#b3b3b3", hint: null };
+  if (looted === "abandoned") return { colour: "rgb(51, 128, 255)", hint: "Tooltips/Overview/AbandonedContainer" };
+  if (looted === "forbidden") return { colour: "rgb(255, 255, 0)", hint: "Tooltips/Overview/RestrictedContainer" };
+  return { colour: "#ffffff", hint: null };
+}
+
+export function glyph(e: Entity): string {
+  const c = iconLook(e).colour;
   const icon = bracketIcon(e);
   if (icon) return `<span class="glyph bi" style="--icon:url('${icon}');--tint:${c}"></span>`;
   switch (e.kind) {
@@ -1531,6 +1548,22 @@ export class SpaceView {
       select: (id) => this.select(id),
       activate: (id) => this.activateSpaceTarget(id),
       glyph,
+      // OverviewScrollEntry.LoadIconTooltipPanel's lines after the group: HostileAction or TargetLock, the hacked hint,
+      // GetIconColor's hint, and for a harvestable thing mining_util.get_volume_est_price_formatted
+      iconTooltipLines: (e) => {
+        const word = (label: string, own: string, args?: Readonly<Record<string, string | number>>) => this.actions.word?.(label, args) ?? own;
+        const threat: string[] = [], out: string[] = [];
+        if (this.attackers.has(e.itemID)) threat.push(word("Tooltips/Overview/HostileAction", "Hostile action"));
+        else if (this.targeters.has(e.itemID)) threat.push(word("Tooltips/Overview/TargetLock", "Target lock"));
+        const hint = iconLook(e).hint;
+        if (hint) out.push(word(hint, hint));
+        const price = (e.categoryID === 25 || e.groupID === 711) ? this.options.flightSnapshot?.()?.entities.find((x) => x.itemID === e.itemID)?.oreValuePerM3 ?? null : null;
+        if (price !== null && price > 0) {
+          const isk = iskAndRound(price);
+          out.push(word("UI/Shared/EstimatedPricePerSquareMeter", `${isk} / m³`, { iskString: isk }));
+        }
+        return { threat, after: out };
+      },
       targetState: (id) => ({ locked: this.locked.has(id), active: id === this.activeTarget, hostile: this.targeters.has(id), attacking: this.attackers.has(id),
         fleet: this.isFleetMemberShip(id),
         locking: !this.locked.has(id) && (this.lockingIDs.has(id) || this.acquiringTargets.has(id)) }),
