@@ -32,6 +32,14 @@ function kept(id: string): Partial<WindowOptions> {
   try { return JSON.parse(localStorage.getItem(`evejs-play-window:${id}`) ?? "{}") as Partial<WindowOptions>; } catch { return {}; }
 }
 
+// one active window: a press anywhere outside the active PlayWindow (another window, the scene) ends its active state
+if (typeof document !== "undefined") {
+  document.addEventListener("pointerdown", (e) => {
+    const active = document.querySelector(".pw.pw-active");
+    if (active && !active.contains(e.target as Node)) active.classList.remove("pw-active");
+  }, { capture: true });
+}
+
 export class PlayWindow {
   readonly root = document.createElement("section");
   readonly body = document.createElement("div");
@@ -54,11 +62,14 @@ export class PlayWindow {
     this.root.append(this.head, this.body, grip);
     // Window.active (the last window pressed): SmallWindowHeader.caption_color - HIGHLIGHT while active, NORMAL otherwise
     // (the light background on)
-    this.root.addEventListener("pointerdown", () => {
+    const activate = () => {
       if (this.root.classList.contains("pw-active")) return;
       for (const w of document.querySelectorAll(".pw.pw-active")) w.classList.remove("pw-active");
       this.root.classList.add("pw-active");
-    }, { capture: true });
+    };
+    this.root.addEventListener("pointerdown", activate, { capture: true });
+    // (a window that opens is the active one)
+    queueMicrotask(() => { if (this.root.isConnected && this.root.style.display !== "none") activate(); });
     this.head.querySelector(".pw-min")!.addEventListener("click", () => this.toggleMinimized());
     const more = this.head.querySelector<HTMLElement>(".pw-more");
     if (more && options.menu) {

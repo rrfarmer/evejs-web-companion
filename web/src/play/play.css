@@ -326,7 +326,8 @@ button { font: inherit; color: inherit; }
 .pw.pw-default::before { display: none; }
 .pw.pw-default > .pw-head { box-sizing: border-box; height: 48px; padding: 0 12px; gap: 8px; border-bottom: 0; }
 .pw.pw-default > .pw-head .pw-icon { width: 32px; height: 32px; opacity: 1; }
-.pw.pw-default > .pw-head .pw-caption { font-size: 18px; letter-spacing: 0; color: rgba(255, 255, 255, 0.9); }
+.pw.pw-default > .pw-head .pw-caption { font-size: 18px; letter-spacing: 0; color: rgba(255, 255, 255, 0.5); }
+.pw.pw-default.pw-active > .pw-head .pw-caption { color: rgba(255, 255, 255, 0.9); }
 .pw.pw-default > .pw-head .pw-buttons { gap: 0; }
 .pw.pw-default > .pw-head .pw-btn { box-sizing: border-box; width: 24px; height: 24px; padding: 4px; }
 .ov-settings { padding: 0 16px 16px; font-size: 14px; color: rgba(255, 255, 255, 0.75); }
@@ -762,6 +763,9 @@ body:not(.no-target-crosshair) .bracket.locked .t-line, body:not(.no-target-cros
    window - SmallWindowHeader.caption_color) */
 .fly-windows .win-title { font-family: var(--font); font-size: 12px; font-weight: 400; letter-spacing: 0; text-transform: none; color: rgba(255, 255, 255, 0.75); }
 .fly-windows .win.focused .win-title { color: rgba(255, 255, 255, 0.9); }
+/* (SECONDARY, 0.5, on a window without the light background - Window.default_isLightBackground False: the inventory;
+   the widgets - overview, selected item, drones, scanners, logger, chat - have it) */
+.fly-windows .win[data-win="inventory"]:not(.focused) .win-title { color: rgba(255, 255, 255, 0.5); }
 .fly-windows .win-icon { width: 24px; height: 24px; flex: none; margin: 0 6px 0 -2px; opacity: .85; }
 /* the WindowControls' buttons edge to edge (gridcheck: menu 290, 314, minimize 338, close 362 on a 400 wide scanner) */
 .fly-windows .win-bar { gap: 0; }
