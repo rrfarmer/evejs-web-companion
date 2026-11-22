@@ -7,6 +7,7 @@
   //
   // Newest first, because the question is almost always "what just happened".
   import { getContext, untrack } from "svelte";
+  import LabelText from "./LabelText.svelte";
   import { noticeBoard } from "./notices.ts";
   import {
     formatLogTime, gameLog, gameLogClipboard, logCount, logFilters, setLogCount, setLogFilter, sortGameLogLines,
@@ -229,7 +230,7 @@
           <tr tabindex={tabbable === line.n ? 0 : -1} aria-selected={selected.has(line.n)}
             onfocus={() => (focused = line.n)} onclick={(event) => selectRow(line.n, event)} onkeydown={(event) => rowKey(event, line.n)}>
             <td>{at(line.atMs)}</td><td style:color={LOG_TYPE_COLOURS[line.type] ?? "#ffffff"}>{typeLabel(line.type)}</td>
-            <td>{line.text}</td></tr>
+            <td>{#if line.markup}<LabelText markup={line.markup} />{:else}{line.text}{/if}</td></tr>
         {/each}
       </tbody>
     </table>

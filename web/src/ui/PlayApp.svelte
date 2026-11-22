@@ -972,7 +972,7 @@
       const nameOf = (kind: Parameters<typeof nameKey>[0], id: number) => resolved[nameKey(kind, id)] ?? "";
       const markup = formatTemplate(template, { ...fonts, ...args } as never, { nameOf, writeIsk: (amount, places) => iskWords(amount, places, words, nameOf) });
       view?.combatMessage.addAction(markup, icons);
-      addGameLogLine(plainText(markup).trim(), type);
+      addGameLogLine(plainText(markup).trim(), type, markup);
     };
     if (m.kind === "bounty") {
       say(m.isModified ? "ModifiedBountyAddedToPayoutMessage1" : "BountyAddedToPayoutMessage1", { bountyPayoutColor: "<color=0xff00aa00>", bounty: m.amount }, "bounty");

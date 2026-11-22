@@ -7,7 +7,9 @@
 import { get, writable } from "svelte/store";
 import { sortScrollRows } from "../bridge/scrollSort.ts";
 
-export interface GameLogLine { readonly n: number; readonly atMs: number; readonly type: string; readonly text: string }
+/** A line of the log: its plain text (the saved log, the filters) and, where it came as the client's label markup, that
+ * markup (the log window draws its colours and sizes as the client's logger does). */
+export interface GameLogLine { readonly n: number; readonly atMs: number; readonly type: string; readonly text: string; readonly markup?: string }
 
 /** uilog.MessageType's filtered types and their settings (MESSAGE_FILTER_SETTING_BY_MESSAGE_TYPE), in the filter
  * menu's order (LABEL_BY_MESSAGE_FILTER_SETTING). */
@@ -93,9 +95,9 @@ export function logShows(type: string): boolean {
 }
 
 /** AddText writes to the session capture before applying the window's filter and retention limit. */
-export function addGameLogLine(text: string, type: string | null): void {
+export function addGameLogLine(text: string, type: string | null, markup?: string): void {
   const msgtype = type || "notify";
-  const line = { n: next++, atMs: Date.now(), type: msgtype, text };
+  const line: GameLogLine = markup ? { n: next++, atMs: Date.now(), type: msgtype, text, markup } : { n: next++, atMs: Date.now(), type: msgtype, text };
   captureLines.push(line);
   if (!logShows(msgtype)) return;
   const max = get(logCount);
