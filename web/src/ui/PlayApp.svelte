@@ -197,6 +197,14 @@
   let shipPasswordAsk = $state(false);
   // the container opened from space (store.inventory.container that is a thing on the grid), for its own window
   let containerWin = $state({ x: 220, y: 140, w: 480, h: 360, z: 25, minimized: false });
+  // a ship bay opened in a window of its own (the inventory tree's Open in new window): 600 x 450, the bay's name its caption
+  let bayWindow = $state.raw<{ key: string; title: string } | null>(null);
+  let bayWin = $state({ x: 260, y: 180, w: 600, h: 450, z: 25, minimized: false });
+  $effect(() => {
+    const show = (e: Event) => { const d = (e as CustomEvent<{ key: string; title: string }>).detail; if (d) bayWindow = { key: d.key, title: d.title }; };
+    window.addEventListener("evejs:open-bay-window", show);
+    return () => window.removeEventListener("evejs:open-bay-window", show);
+  });
   let spaceContainer = $state.raw<{ itemID: number; title: string } | null>(null);
   /** The container window over the others (opened or clicked last) or under the one clicked since. */
   let containerFront = $state(true);
@@ -3108,6 +3116,16 @@
         onClose={() => void session.flow.openContainer(null)} onMove={(x, y) => { containerWin.x = x; containerWin.y = y; }}
         onResize={(w, h) => { containerWin.w = Math.max(300, w); containerWin.h = Math.max(200, h); }}>
         <FlyInventoryWindow store={session.store} flow={session.flow} containerMode={true} />
+      </DesktopWindow>
+    </div>
+  {/if}
+  {#if bayWindow && !docked}
+    {@const b = bayWindow}
+    <div class="space-container-layer">
+      <DesktopWindow win={bayWin} title={b.title} icon={clientTexture("res:/UI/Texture/WindowIcons/cargo.png")} focused={true} onFocus={() => {}}
+        onClose={() => (bayWindow = null)} onMove={(x, y) => { bayWin.x = x; bayWin.y = y; }}
+        onResize={(w, h) => { bayWin.w = Math.max(300, w); bayWin.h = Math.max(200, h); }}>
+        {#key b.key}<FlyInventoryWindow store={session.store} flow={session.flow} bayMode={b.key} />{/key}
       </DesktopWindow>
     </div>
   {/if}

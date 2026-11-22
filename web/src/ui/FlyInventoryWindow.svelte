@@ -67,7 +67,9 @@
    * wreck, a deployable's cargo bay) - the opened container alone (store.inventory.container), no tree; items drag
    * between it and the active ship's window (the drag is shared by both windows).
    */
-  let { store, flow, containerMode = false }: { store: ClientStore; flow: AppFlow; containerMode?: boolean } = $props();
+  // bayMode: a ship bay in an inventory window of its own (TreeDataInv.OpenNewWindow on a bay: the window captioned with
+  // the bay's name, its tree collapsed), the bay's key
+  let { store, flow, containerMode = false, bayMode = null }: { store: ClientStore; flow: AppFlow; containerMode?: boolean; bayMode?: string | null } = $props();
   // svelte-ignore state_referenced_locally
   const inventoryState = store.inventory;
   // svelte-ignore state_referenced_locally
@@ -227,7 +229,7 @@
 
   /** The bay shown (the tree's selected node): the one a hold button asked for, else the cargo. */
   // svelte-ignore state_referenced_locally
-  let current = $state(containerMode ? "container" : "cargo");
+  let current = $state(containerMode ? "container" : bayMode ?? "cargo");
   function takeRequest(): void {
     const asked = shipHoldTarget.take();
     if (asked) current = asked.key;
@@ -276,7 +278,7 @@
     if (!ship || !$space.snapshot?.ship) return;
     dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID: ship.itemID, x: e.clientX, y: e.clientY, tail: [] } }));
   }
-  function bayNodeMenu(e: MouseEvent): void {
+  function bayNodeMenu(e: MouseEvent, key: string, label: string): void {
     e.preventDefault();
     e.stopPropagation();
     if (!ship) return;
@@ -294,7 +296,15 @@
       { label: word(MENU.quickbar, "Add to Market Quickbar"), run: () => { changeQuickbar((q) => addType(q, typeID)); } },
       null,
       { label: word(MENU.compare, "Compare"), run: () => typeCompareTarget.ask([{ typeID, itemID }]) },
+      // TreeDataInv.GetMenu: Open in new window (SHIFT+Click) after the controller's entries
+      null,
+      { label: word("UI/Inventory/OpenInNewWindow", "Open in new window (SHIFT+Click)"), run: () => openBayInNewWindow(key, label) },
     ]);
+  }
+  /** TreeDataInv.OpenNewWindow on a ship bay: an inventory window of its own, captioned with the bay's name (PlayApp's). */
+  function openBayInNewWindow(key: string, label: string): void {
+    if (current === key) current = "cargo";
+    dispatchEvent(new CustomEvent("evejs:open-bay-window", { detail: { key, title: label } }));
   }
   /** TreeDataInv.OpenNewWindow: the container in an inventory window of its own (the cargo shown here again). */
   function openTempInNewWindow(id: number): void {
@@ -680,7 +690,7 @@
 </script>
 
 <div class="inv" class:container={containerMode} class:compact={$compactSig}>
-  {#if !containerMode && $sidebarSig}
+  {#if !containerMode && !bayMode && $sidebarSig}
   <div class="tree">
     <div class="nodes">
       {#if ship}
@@ -695,7 +705,7 @@
         {#if treeOpen}
           {#each bays.filter((b) => b.key !== "cargo" && !b.key.startsWith("temp:")) as b (b.key)}
             <div title={b.key === "drone" ? shortcutHint("OpenDroneBayOfActiveShip").trim() || undefined : undefined} onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node sub" class:sel={current === b.key} class:drop={dropKey === b.key} role="treeitem" aria-selected={current === b.key} tabindex="-1"
-              onclick={() => (current = b.key)} onkeydown={() => {}} oncontextmenu={(e) => (b.key === "fleet" || b.key === "shipMaintenance" ? cargoNodeMenu(e) : bayNodeMenu(e))}
+              onclick={(e) => { if (e.shiftKey) openBayInNewWindow(b.key, b.label); else current = b.key; }} onkeydown={() => {}} oncontextmenu={(e) => (b.key === "fleet" || b.key === "shipMaintenance" ? cargoNodeMenu(e) : bayNodeMenu(e, b.key, b.label))}
               ondragover={dragOver(b.key)} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn(b.key, e)}>
               <span class="ticon"><img src={clientTexture(BAY_ICON[b.key] ?? "res:/UI/Texture/WindowIcons/cargo.png")} alt=""></span>
               <span class="tlabel">{b.label}</span>
