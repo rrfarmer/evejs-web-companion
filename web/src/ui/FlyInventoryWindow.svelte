@@ -4,6 +4,7 @@
 </script>
 
 <script lang="ts">
+  import { iskAndRound } from "../bridge/miningScanResults.ts";
   // The active ship's inventory window in space, laid out as the 3698585 client's ActiveShipCargo (invWindow.Inventory,
   // 600 x 450): the tree at the left (TREE_DEFAULT_WIDTH 160) with the ship as "<name> (<type>)" - its cargo - and its
   // other bays under it, My filters at its foot; at the right the top row (Stack All, the view mode and sort buttons, the
@@ -642,7 +643,8 @@
         ? word("UI/Inventory/NumItemsAndSelected2", `${shown.length} Items (${selected.length} selected)`, { numItems: shown.length, numSelected: selected.length, numFilteredTxt: filtered > 0 ? word("UI/Inventory/NumFiltered", `(${filtered} filtered)`, { numFiltered: filtered }) : "" })
         : word("UI/Inventory/NumItems2", `${shown.length} Items`, { numItems: shown.length, numFilteredTxt: filtered > 0 ? word("UI/Inventory/NumFiltered", `(${filtered} filtered)`, { numFiltered: filtered }) : "" })}</span>
       {#if moveError}<span class="err">{moveError}</span>{/if}
-      <span class="price">{word("UI/Inventory/EstIskPrice2", `${Math.round(isk).toLocaleString("en-US")} ISK Est. price`, { iskString: `${Math.round(isk).toLocaleString("en-US")} ISK` })}</span>
+      <!-- UpdateIskPriceLabel: FmtISKAndRound(total, False) - three figures (2,468 -> 2,470 ISK, read through gridcheck) -->
+      <span class="price">{word("UI/Inventory/EstIskPrice2", `${iskAndRound(isk)} Est. price`, { iskString: iskAndRound(isk) })}</span>
       {#if (containerMode || current.startsWith("temp:")) && lootable}
         <!-- BaseCelestialContainer.GetSpecialActions: Loot All for a lootable can or wreck (ShipCargo().AddItems of its items),
              in specialActionsCont at the right of the window's foot, 16 from the labels, a Density.COMPACT Button -->
