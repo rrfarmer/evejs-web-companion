@@ -1353,12 +1353,27 @@
     // carbonui command.py's window commands on the page's windows, the active one the one on top that is not minimized:
     // CmdCloseActiveWindow (Ctrl-W) its close (CloseByUser), CmdMinimizeActiveWindow its minimize, CmdCloseAllWindows
     // (Ctrl-Alt-W) every window closed, CmdToggleMinimizeMaximizeAllWindows all minimized where any is open, else all back
+    // (the active window is uicore.registry.GetActive: the one window pressed or opened last, of any kind - activeWinKey,
+    // or the active PlayWindow; Window.CloseByUser does nothing for a window that is not killable (the Drones window))
     if (cmd === "CmdCloseActiveWindow" || cmd === "CmdMinimizeActiveWindow") {
-      const open = wins.filter((w) => !w.minimized);
-      const active = open.length ? open.reduce((a, b) => (b.z > a.z ? b : a)) : null;
-      if (!active) return true;
-      if (cmd === "CmdCloseActiveWindow") { void playUiEvent("ui_object_close_play"); wins = closeWindow(wins, active.id); }
-      else wins = toggleMinimize(wins, active.id);
+      const close = cmd === "CmdCloseActiveWindow";
+      const active = activeWinKey === null ? undefined : wins.find((w) => w.id === activeWinKey && !w.minimized);
+      if (active) {
+        if (close) { if (active.id !== "drones") { void playUiEvent("ui_object_close_play"); wins = closeWindow(wins, active.id); } }
+        else wins = toggleMinimize(wins, active.id);
+        return true;
+      }
+      const bay = bayWindows.find((b) => b.win.id === activeWinKey);
+      if (bay) {
+        if (close) { void playUiEvent("ui_object_close_play"); bayWindows = bayWindows.filter((b) => b !== bay); } else bay.win.minimized = true;
+        return true;
+      }
+      if (activeWinKey === containerWin.id && spaceContainer) {
+        if (close) { void playUiEvent("ui_object_close_play"); void s.flow.openContainer(null); } else containerWin.minimized = true;
+        return true;
+      }
+      const pw = document.querySelector<HTMLElement>(".pw.pw-active");
+      if (pw && !pw.classList.contains("minimized")) pw.querySelector<HTMLElement>(close ? ".pw-close" : ".pw-min")?.click();
       return true;
     }
     // (the space view's own windows too: one that can be closed (IsKillable) closed, one that cannot minimized)
