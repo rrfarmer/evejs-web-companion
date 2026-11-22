@@ -335,14 +335,16 @@ button { font: inherit; color: inherit; }
    frame textures, cornerSize 9, tinted - idle THEME_FOCUSDARK at 0.2 under a FOCUSDARK stroke, hovered FOCUSDARK 0.6 under
    a THEME_FOCUS stroke, pressed (0.851 grey) with a black label, disabled 0.188 grey at 0.2 / 0.6; the label
    EveLabelMedium white 0.75 (0.3 disabled) */
-.ov-add-buttons button { position: relative; isolation: isolate; box-sizing: border-box; min-width: 80px; height: 32px; padding: 0 16px; letter-spacing: 0; background: transparent; color: rgba(255, 255, 255, 0.75); border: 0; font: inherit; cursor: pointer;
+:is(.ov-add-buttons button, .client-btn) { position: relative; isolation: isolate; box-sizing: border-box; min-width: 80px; min-height: 0; height: 32px; padding: 0 16px; letter-spacing: 0; background: transparent; color: rgba(255, 255, 255, 0.75); border: 0; font: inherit; cursor: pointer;
   --btn-bg: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); --btn-stroke: var(--theme-focus-dark, #305665); }
-.ov-add-buttons button::before, .ov-add-buttons button::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; transition: background-color 0.3s; }
-.ov-add-buttons button::before { background-color: var(--btn-bg); -webkit-mask-box-image: url(/client-res/ui/texture/classes/button/background_cut_bottom_right.png) 9 fill / 9px; }
-.ov-add-buttons button::after { background-color: var(--btn-stroke); -webkit-mask-box-image: url(/client-res/ui/texture/classes/button/frame_cut_bottom_right.png) 9 fill / 9px; }
-.ov-add-buttons button:hover { --btn-bg: color-mix(in srgb, var(--theme-focus-dark, #305665) 60%, transparent); --btn-stroke: var(--theme-focus, #58a7bf); }
-.ov-add-buttons button:active { --btn-bg: rgb(217, 217, 217); --btn-stroke: rgb(217, 217, 217); color: #000; }
-.ov-add-buttons button:disabled { --btn-bg: color-mix(in srgb, rgb(48, 48, 48) 20%, transparent); --btn-stroke: color-mix(in srgb, rgb(48, 48, 48) 60%, transparent); color: rgba(255, 255, 255, 0.3); cursor: default; }
+:is(.ov-add-buttons button, .client-btn)::before, :is(.ov-add-buttons button, .client-btn)::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; transition: background-color 0.3s; }
+:is(.ov-add-buttons button, .client-btn)::before { background-color: var(--btn-bg); -webkit-mask-box-image: url(/client-res/ui/texture/classes/button/background_cut_bottom_right.png) 9 fill / 9px; }
+:is(.ov-add-buttons button, .client-btn)::after { background-color: var(--btn-stroke); -webkit-mask-box-image: url(/client-res/ui/texture/classes/button/frame_cut_bottom_right.png) 9 fill / 9px; }
+:is(.ov-add-buttons button, .client-btn):hover { --btn-bg: color-mix(in srgb, var(--theme-focus-dark, #305665) 60%, transparent); --btn-stroke: var(--theme-focus, #58a7bf); }
+:is(.ov-add-buttons button, .client-btn):active { --btn-bg: rgb(217, 217, 217); --btn-stroke: rgb(217, 217, 217); color: #000; }
+:is(.ov-add-buttons button, .client-btn):disabled { --btn-bg: color-mix(in srgb, rgb(48, 48, 48) 20%, transparent); --btn-stroke: color-mix(in srgb, rgb(48, 48, 48) 60%, transparent); color: rgba(255, 255, 255, 0.3); cursor: default; }
+/* Density.COMPACT (styling.get_height / get_side_padding): 24 high, 8 in a side */
+:is(.fly-windows, body) .client-btn.compact { box-sizing: border-box; min-height: 0; height: 24px; min-width: 24px; padding: 0 8px; }
 /* ColumnConfigurationWindow: the hint (EveLabelLarge), the scroll of ColumnEntry rows (a checkbox each, dragged to reorder) */
 /* ColumnsPanel in ColumnConfigurationWindow (read through gridcheck): the main 16 in; the hint EveLabelLarge 16 (21 high) 8
    in, 4 down; columnsScroll 4 in a side, 12 below it, down to 4 above the ButtonGroup at the foot; each ColumnEntry 22 high,

@@ -519,23 +519,23 @@
         {/each}
       {/if}
     </div>
-    {#if containerMode && lootable}
-      <!-- BaseCelestialContainer.GetSpecialActions: Loot All for a lootable can or wreck (ShipCargo().AddItems of its items) -->
-      <div class="special"><button type="button" onclick={() => { const id = $inventoryState.container?.itemID; if (id) void act(async () => { await flow.lootContainer(id); }); }}>{word("UI/Inventory/LootAll", "Loot All")}</button></div>
-    {/if}
     <div class="foot">
       <span class="count" class:filtered={filtered > 0}>{selected.length
         ? word("UI/Inventory/NumItemsAndSelected2", `${shown.length} Items (${selected.length} selected)`, { numItems: shown.length, numSelected: selected.length, numFilteredTxt: filtered > 0 ? word("UI/Inventory/NumFiltered", `(${filtered} filtered)`, { numFiltered: filtered }) : "" })
         : word("UI/Inventory/NumItems2", `${shown.length} Items`, { numItems: shown.length, numFilteredTxt: filtered > 0 ? word("UI/Inventory/NumFiltered", `(${filtered} filtered)`, { numFiltered: filtered }) : "" })}</span>
       {#if moveError}<span class="err">{moveError}</span>{/if}
       <span class="price">{word("UI/Inventory/EstIskPrice2", `${Math.round(isk).toLocaleString("en-US")} ISK Est. price`, { iskString: `${Math.round(isk).toLocaleString("en-US")} ISK` })}</span>
+      {#if containerMode && lootable}
+        <!-- BaseCelestialContainer.GetSpecialActions: Loot All for a lootable can or wreck (ShipCargo().AddItems of its items),
+             in specialActionsCont at the right of the window's foot, 16 from the labels, a Density.COMPACT Button -->
+        <span class="special"><button type="button" class="client-btn compact" onclick={() => { const id = $inventoryState.container?.itemID; if (id) void act(async () => { await flow.lootContainer(id); }); }}>{word("UI/Inventory/LootAll", "Loot All")}</button></span>
+      {/if}
     </div>
   </div>
 </div>
 
 <style>
-  .special { display: flex; justify-content: flex-end; padding: 4px 0; }
-  .special button { height: 24px; padding: 0 14px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.25); color: inherit; font: inherit; cursor: pointer; }
+  .special { margin-left: auto; padding-left: 16px; display: flex; flex: none; }
   /* measured in the client through gridcheck: the tree, filters and footer TextBody / EveLabelMedium 14, the search 14,
      the capacity EveLabelSmall 12, Nothing Found EveCaptionLarge 24 */
   /* the tree entries TextCustom at TextColor.NORMAL 0.75, the selected one HIGHLIGHT 0.9 (read through gridcheck) */
