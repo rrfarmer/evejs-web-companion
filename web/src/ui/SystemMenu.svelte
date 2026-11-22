@@ -117,9 +117,14 @@
   /** Disable Emergency Warp: a server setting (characterSettingsConsts DISABLE_EMERGENCY_WARP), read once the panel opens and saved
    *  as the client saves it, str(int(checked)) (OnCheckBoxChange). Null until read. */
   let emergencyWarpOff = $state<boolean | null>(null);
+  /** ConstructDuelMenuData: Auto-reject duel invitations, the server setting crimewatch const.autoRejectDuelSettingsKey
+   *  (autoRejectDuelInvitations), saved as str(int(checked)) as the other. Null until read. */
+  let autoRejectDuels = $state<boolean | null>(null);
+  const settingOn = (v: string | null): boolean => (parseInt(v ?? "0", 10) || 0) !== 0;
   $effect(() => {
     if (panel !== "gameplay" || emergencyWarpOff !== null) return;
-    void flow.readCharacterSetting("emergencyWarpDisabled").then((v) => { emergencyWarpOff = (parseInt(v ?? "0", 10) || 0) !== 0; }).catch(() => { emergencyWarpOff = false; });
+    void flow.readCharacterSetting("emergencyWarpDisabled").then((v) => { emergencyWarpOff = settingOn(v); }).catch(() => { emergencyWarpOff = false; });
+    void flow.readCharacterSetting("autoRejectDuelInvitations").then((v) => { autoRejectDuels = settingOn(v); }).catch(() => { autoRejectDuels = false; });
   });
   let settings = $state<GfxSettings>({ ...gfx() });
   let fullScreen = $state(typeof document !== "undefined" && document.fullscreenElement !== null);
@@ -405,6 +410,10 @@
           <label class="sm-check"><input type="checkbox" checked={compactFloating} onchange={(ev) => { compactFloating = ev.currentTarget.checked; setBracketListCompact(true, compactFloating); }} /> {word("UI/SystemMenu/GeneralSettings/Inflight/CompactBracketListWhenNotSnapped", "Compact Bracket List When Not Snapped")}</label>
           <label class="sm-check"><input type="checkbox" disabled={emergencyWarpOff === null} checked={emergencyWarpOff === true}
             onchange={(ev) => { const on = ev.currentTarget.checked; emergencyWarpOff = on; void flow.saveCharacterSetting("emergencyWarpDisabled", on ? "1" : "0").catch(() => { emergencyWarpOff = !on; }); }} /> {word("UI/SystemMenu/GeneralSettings/Inflight/DisableEmergencyWarp", "Disable Emergency Warp")}</label>
+          <!-- LoadGameplay: ConstructDuelMenuData after the Inflight section, with a character -->
+          <h3>{word("UI/Crimewatch/Duel/EscMenuSectionHeader", "Duels")}</h3>
+          <label class="sm-check"><input type="checkbox" disabled={autoRejectDuels === null} checked={autoRejectDuels === true}
+            onchange={(ev) => { const on = ev.currentTarget.checked; autoRejectDuels = on; void flow.saveCharacterSetting("autoRejectDuelInvitations", on ? "1" : "0").catch(() => { autoRejectDuels = !on; }); }} /> {word("UI/Crimewatch/Duel/AutoRejectDuelInvites", "Auto-reject duel invitations")}</label>
         {:else if panel === "camera"}
           <h3 class="first">{word(WORDS.cameraHeader, "In-Space Camera Settings")}</h3>
           <label class="sm-check" title={word(WORDS.dynamicCameraHint, "")}><input type="checkbox" checked={settings.dynamicCameraMovement}
