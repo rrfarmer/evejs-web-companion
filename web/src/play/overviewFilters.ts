@@ -193,6 +193,8 @@ function flagHolds(flag: number, item: OverviewItem, group: number, category: nu
       const sameAlliance = relations.allianceID !== null && item.allianceID === relations.allianceID;
       return set.length > 0 && set.every((s) => s === 0) && !sameCorp && !sameAlliance;
     }
+    // CheckSameNpcCorp: the pilot in an NPC corporation, the thing's slim corpID the same, of a state-filtered category
+    case 66: return !!relations && relations.corporationID !== null && isNpcCorporation(relations.corporationID) && item.corporationID === relations.corporationID && filtered;
     case 48: return (!relations || standingsWith(item, relations).length === 0) && isCharacter(item.ownerID) && filtered;
     // CheckSuspect / CheckCriminal / CheckLimitedEngagement: crimewatchSvc of the ship's pilot
     case 50: return charID !== null && !!relations?.suspects?.has(charID);
