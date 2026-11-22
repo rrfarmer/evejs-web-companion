@@ -64,6 +64,9 @@ const MASK_SIZE = 50;
 const BAR_HEIGHT = 100;
 const ASSIGNED_HEIGHT = 32;
 const LINE_HEIGHT = 12; // EveLabelSmall: 10 px
+// TargetInBar's labelContainer lines (gridcheck on a locked Veldspar in 3698585: EveLabelSmall 12 px, each 16 high, the
+// name at 100 and the distance at 116, the assigned row at 132)
+const LABEL_LINE = 16;
 const HEALTH_READ_MS = [750, 1000] as const;
 const MINING_FLASH_MS = 1500;
 const MINING_CRITICAL_MS = 2200;
@@ -208,8 +211,8 @@ const CSS = `
 .target-bar .tb-hilite { display: none; }
 .target-bar .tb-bar:hover .tb-hilite { display: block; }
 .target-bar .tb-icon { -webkit-mask: url("${TEX.shipMask}") center / 100% 100% no-repeat; mask: url("${TEX.shipMask}") center / 100% 100% no-repeat; }
-.target-bar .tb-label { position: absolute; left: 0; width: ${MAX_TARGET_WIDTH}px; height: ${LINE_HEIGHT}px; line-height: ${LINE_HEIGHT}px;
-  font-size: 10px; font-family: ${FONT}; color: rgba(255,255,255,0.75); text-align: center; white-space: nowrap; overflow: hidden;
+.target-bar .tb-label { position: absolute; left: 0; width: ${MAX_TARGET_WIDTH}px; height: ${LABEL_LINE}px; line-height: ${LABEL_LINE}px;
+  font-size: 12px; font-family: ${FONT}; color: rgba(255,255,255,0.75); text-align: center; white-space: nowrap; overflow: hidden;
   text-shadow: 1px 1px 0 rgba(0,0,0,0.6); }
 .target-bar .tb-label.fade { text-align: left; -webkit-mask-image: linear-gradient(to right, #000 ${MAX_TARGET_WIDTH - 10}px, transparent ${MAX_TARGET_WIDTH}px);
   mask-image: linear-gradient(to right, #000 ${MAX_TARGET_WIDTH - 10}px, transparent ${MAX_TARGET_WIDTH}px); }
@@ -243,7 +246,7 @@ function ensureStyle(): void {
 let measureCtx: CanvasRenderingContext2D | null = null;
 function textWidth(text: string): number {
   measureCtx ??= document.createElement("canvas").getContext("2d")!;
-  measureCtx.font = `10px ${FONT}`;
+  measureCtx.font = `12px ${FONT}`;
   return measureCtx.measureText(text).width;
 }
 
@@ -367,7 +370,7 @@ class TargetInBar {
     // labelContainer: TOTOP under the bar, then the 32 px assignedPar (module and drone icons; not drawn yet)
     this.labelBox = div(this.root, 0, BAR_HEIGHT, MAX_TARGET_WIDTH, 0, "tb-labels");
     for (let i = 0; i < 4; i++) {
-      const l = div(this.labelBox, 0, 0, MAX_TARGET_WIDTH, LINE_HEIGHT, "tb-label");
+      const l = div(this.labelBox, 0, 0, MAX_TARGET_WIDTH, LABEL_LINE, "tb-label");
       this.labels.push(l);
     }
     // assignedPar / assigned: the Weapon icons (weaponIcons.Weapon), laid out by ArrangeWeapons
@@ -553,7 +556,7 @@ class TargetInBar {
     for (const l of this.labels) {
       if (l.style.display === "none") continue;
       l.style.top = `${top}px`;
-      top += LINE_HEIGHT;
+      top += LABEL_LINE;
     }
     this.labelBox.style.height = `${top}px`;
     this.assigned.style.top = `${BAR_HEIGHT + top}px`;
