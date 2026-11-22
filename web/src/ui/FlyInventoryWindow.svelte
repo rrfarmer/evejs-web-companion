@@ -117,7 +117,7 @@
     ["UI/Common/Type", "UI/Inventory/TypeReversed", "type", "Type", "Type (reversed)"], ["UI/Inventory/EstPrice", "UI/Inventory/EstPriceReversed", "estPrice", "Est. Price", "Est. Price (reversed)"]] as const;
   /** invCont.GetViewModeName / GetViewModeIcon. */
   const VIEW_MODES = [["icons", "UI/Inventory/Icons", "Icons", "grid_view"], ["details", "UI/Inventory/Details", "Details", "details_view"], ["list", "UI/Inventory/List", "List", "list_view"]] as const;
-  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/ShortcutBrackets", "UI/Inventory/SlotRigs", "UI/Inventory/SlotHigh", "UI/Inventory/SlotMedium", "UI/Inventory/SlotLow", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SelectAll", "UI/Inventory/InvertSelection", "UI/Common/SortBy", "UI/Inventory/ViewMode",
+  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/ShortcutBrackets", "UI/Inventory/SlotRigs", "UI/Inventory/SlotHigh", "UI/Inventory/SlotMedium", "UI/Inventory/SlotLow", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SelectAll", "UI/Inventory/NothingFoundFiltered", "UI/Common/NothingFound", "UI/Inventory/InvertSelection", "UI/Common/SortBy", "UI/Inventory/ViewMode",
     "UI/Inventory/Filters/MyFilters", "UI/Common/NothingFound", "UI/Inventory/OpenInNewWindow", "UI/Common/Buttons/Close", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
   flow.requestWords(WORDS);
   const word = (label: string, own: string, args: Record<string, string | number> = {}) => {
@@ -743,7 +743,8 @@
       {#if bay && bay.items === null}
         <p class="none">…</p>
       {:else if !shown.length}
-        <p class="none">{word("UI/Common/NothingFound", "Nothing Found")}</p>
+        <!-- UpdateHint: with items filtered out UI/Inventory/NothingFoundFiltered, else UI/Common/NothingFound -->
+        <p class="none">{filtered > 0 ? word("UI/Inventory/NothingFoundFiltered", `Nothing Found (${filtered} filtered)`, { numFilters: filtered }) : word("UI/Common/NothingFound", "Nothing Found")}</p>
       {:else if viewMode !== "icons"}
         <!-- the scroll of listentry.InvItem rows under GetInvItemDefaultHeaders: details with the 32 px icon and the
              label 46 in, list without the icon -->
