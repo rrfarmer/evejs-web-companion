@@ -252,7 +252,7 @@
       <tbody>
         {#each logLines as line (line.n)}
           <tr tabindex={tabbable === line.n ? 0 : -1} aria-selected={selected.has(line.n)} onmouseenter={hoverSound}
-            onfocus={() => (focused = line.n)} onclick={(event) => selectRow(line.n, event)} onkeydown={(event) => rowKey(event, line.n)}>
+            onfocus={() => (focused = line.n)} onclick={(event) => selectRow(line.n, event)} oncontextmenu={(event) => { event.preventDefault(); if (retail) selectRow(line.n, event); }} onkeydown={(event) => rowKey(event, line.n)}>
             <td style:width={colWidth(0)}>{at(line.atMs)}</td><td style:width={colWidth(1)} style:color={LOG_TYPE_COLOURS[line.type] ?? "#ffffff"}>{typeLabel(line.type)}</td>
             <td>{#if line.markup}<LabelText markup={line.markup} />{:else}{line.text}{/if}</td></tr>
         {/each}
