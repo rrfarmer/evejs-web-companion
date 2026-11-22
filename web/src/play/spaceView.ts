@@ -4646,6 +4646,9 @@ export class SpaceView {
     // OfferSetName: one's own specific thing (not a drone, fighter or biomass, not a ship: that is the ship naming
     // window), after Save Location...
     if (mine && !e.isSelf && e.kind !== "drone" && e.kind !== "fighter" && category !== 6 && category !== 18 && category !== 87 && this.actions.setName) {
+      // (read through gridcheck on a pilot's own Mobile Depot: Save Location..., Set Name, Open Cargo and the scoops each a
+      // group of their own, the scoops with the overview group's entry)
+      out.push(null);
       out.push({ path: "UI/Commands/SetName", label: word("UI/Commands/SetName", "Set Name"), run: () => this.actions.setName?.(id, e.name ?? "") });
     }
     const bay = typeID !== null ? comps.cargoBay.get(typeID) : undefined;
@@ -4654,15 +4657,17 @@ export class SpaceView {
       out.push({ path: "UI/Commands/OpenCargo", label: word("UI/Commands/OpenCargo", "Open Cargo"), run: run("Open Cargo", () => this.actions.openCargo!(id)) });
     }
     if (bay && active && (mine || bay[1]) && this.actions.openCargo) {
+      out.push(null);
       out.push({ path: "UI/Commands/OpenCargo", label: word("UI/Commands/OpenCargo", "Open Cargo"), run: run("Open Cargo", () => this.actions.openCargo!(id)) });
     }
     // (the drone group under a line of its own, after Add ... to Overview)
     if (droneChanges.length) out.push(null, ...droneChanges);
     // OfferScoopToCargoHold (IsScoopable) and OfferScoopToFleetHangar (the same, a ship with hasFleetHangars, 911)
+    const scoops: ContextEntry[] = [];
     if (this.isScoopable(e, comps) && this.actions.scoopToCargo) {
-      out.push({ path: "UI/Inflight/ScoopToCargoHold", label: word("UI/Inflight/ScoopToCargoHold", "Scoop to Cargo Hold"), run: run("Scoop", () => this.actions.scoopToCargo!(id)) });
+      scoops.push({ path: "UI/Inflight/ScoopToCargoHold", label: word("UI/Inflight/ScoopToCargoHold", "Scoop to Cargo Hold"), run: run("Scoop", () => this.actions.scoopToCargo!(id)) });
       if ((this.actions.shipAttribute?.(911) ?? 0) > 0 && this.actions.scoopToFleetHangar) {
-        out.push({ path: "UI/Inflight/ScoopToFleetHangar", label: word("UI/Inflight/ScoopToFleetHangar", "Scoop to Fleet Hangar"), run: run("Scoop", () => this.actions.scoopToFleetHangar!(id)) });
+        scoops.push({ path: "UI/Inflight/ScoopToFleetHangar", label: word("UI/Inflight/ScoopToFleetHangar", "Scoop to Fleet Hangar"), run: run("Scoop", () => this.actions.scoopToFleetHangar!(id)) });
       }
     }
     if (group === 7 && this.options.viewPlanet) out.push({ path: "UI/PI/Common/ViewInPlanetMode", label: word("UI/PI/Common/ViewInPlanetMode", "View Planetary Industry"), icon: I("enter_planet_view"), run: () => void this.options.viewPlanet?.(id) });
@@ -4701,7 +4706,8 @@ export class SpaceView {
       if (stargate) broadcasts.push({ path: "UI/Fleet/FleetBroadcast/Commands/BroadcastJumpTo", label: word("UI/Fleet/FleetBroadcast/Commands/BroadcastJumpTo", "Broadcast: Jump to"), icon: B("jumpTo"), run: send("JumpTo") });
       if (inRange) broadcasts.push({ path: "UI/Fleet/FleetBroadcast/Commands/BroadcastHealTarget", label: word("UI/Fleet/FleetBroadcast/Commands/BroadcastHealTarget", "Broadcast: Repair Target"), icon: "res:/UI/Texture/eveicon/system_icons/heal_first_aid_16px.png", run: send("HealTarget") });
     }
-    if (group !== null && shownInOverview) out.push(null, { path: "UI/Overview/RemoveGroupFromOverview", label: word("UI/Overview/RemoveGroupFromOverview", `Remove ${groupName} from Overview`, { groupName }), run: () => this.overview.setGroupShown(group, false) });
+    if (scoops.length && !(group !== null && shownInOverview)) out.push(null, ...scoops);
+    if (group !== null && shownInOverview) out.push(null, ...scoops, { path: "UI/Overview/RemoveGroupFromOverview", label: word("UI/Overview/RemoveGroupFromOverview", `Remove ${groupName} from Overview`, { groupName }), run: () => this.overview.setGroupShown(group, false) });
     out.push(...droneFleet);
     if (broadcasts.length) out.push(null, ...broadcasts);
     if (droneAbandon) out.push(null, droneAbandon);
