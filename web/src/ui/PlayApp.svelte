@@ -3547,7 +3547,10 @@
   .fly-windows :global(.pc-buttons) { display: flex; justify-content: center; gap: 8px; padding-top: 8px; }
   /* The flight Log keeps its actions in the window header and toolbar. */
   .fly-windows :global(.notice-log .panel-head) { display: none; }
-  .fly-windows :global(.log-actions) { position: relative; display: flex; margin-bottom: 4px; }
+  /* LoggerWindow (read through gridcheck): its toolbar TOTOP padLeft -4 (the two 24 px MenuButtonIcons at 14, 50), the scroll
+     below it padLeft -8 (at 10, 74) */
+  .fly-windows :global(.log-actions) { position: relative; display: flex; margin: 1px 0 0 -4px; }
+  .fly-windows :global(.notice-log .log-table) { margin-left: -8px; width: calc(100% + 8px); }
   .fly-windows :global(.log-filter) { all: unset; width: 24px; height: 24px; display: grid; place-items: center; cursor: pointer; opacity: 0.8; }
   .fly-windows :global(.log-filter img) { width: 16px; height: 16px; }
   .fly-windows :global(.log-menu) { position: absolute; left: 0; top: 24px; z-index: 5; display: flex; flex-direction: column; min-width: 180px; padding: 4px 0;
@@ -3570,15 +3573,18 @@
      wide; each entry a TextBody 14, 22 apart */
   .fly-windows :global(.log-table) { width: 100%; border-collapse: collapse; font-size: 14px; table-layout: fixed; }
   .fly-windows :global(.log-table th) { position: sticky; top: 0; background: #1b1d20; text-align: left; font-weight: 400; font-size: 12px; color: rgba(255, 255, 255, 0.6); padding: 0 8px; height: 24px; box-sizing: border-box; }
-  .fly-windows :global(.log-table th:nth-child(1)) { width: 74px; }
-  .fly-windows :global(.log-table th:nth-child(2)) { width: 71px; }
+  .fly-windows :global(.log-table th:nth-child(1)) { width: 70px; }
+  .fly-windows :global(.log-table th:nth-child(2)) { width: 67px; }
   .fly-windows :global(.log-table th button) { background: transparent; border: 0; color: inherit; font: inherit; padding: 0; min-height: 0; text-align: left; width: 100%; }
   .fly-windows :global(.log-table th[aria-sort]) { color: var(--color-text-bright); }
   .fly-windows :global(.log-table td) { padding: 2px 8px; height: 22px; line-height: 18px; box-sizing: border-box; vertical-align: top; color: rgba(255, 255, 255, 0.85); overflow: hidden; }
   .fly-windows :global(.log-table tbody tr) { cursor: default; user-select: none; }
   .fly-windows :global(.log-table tbody tr:hover) { background: rgba(255, 255, 255, 0.06); }
   .fly-windows :global(.log-table tbody tr[aria-selected="true"]) { background: rgba(84, 156, 193, 0.25); }
-  .fly-windows :global(.log-table td:first-child), .fly-windows :global(.log-table td:nth-child(2)) { white-space: nowrap; }
+  /* each ColumnHeader 74 / 71 wide but the next 4 in (Time at 10, Type at 80, Message at 147); an entry one line, clipped (a
+     22 high Generic, its text past the scroll cut off) */
+  .fly-windows :global(.log-table td) { white-space: nowrap; text-overflow: clip; }
+  .fly-windows :global(.log-table td *) { line-height: 18px; vertical-align: top; }
   .fly-windows :global(.fl-form) { display: flex; flex-direction: column; min-height: 280px; }
   .fly-windows :global(.fl-form-text) { flex: 1; }
   .fly-windows :global(.fl-form-text h3) { margin: 0 0 4px; font-size: 18px; font-weight: 400; }
