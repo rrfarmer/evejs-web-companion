@@ -4667,6 +4667,12 @@ export class SpaceView {
     return merged.filter((x, i, all) => x !== null || (i > 0 && i < all.length - 1 && all[i - 1] !== null));
   }
 
+  /** An object's own space menu (its CelestialMenu), for another window's menu to open as a submenu; null off the grid. */
+  menuEntriesFor(itemID: number): (ContextEntry | null)[] | null {
+    const e = this.snapshot?.entities.find((x) => x.itemID === itemID);
+    return e ? this.contextEntries(e) : null;
+  }
+
   private contextEntries(e: Entity, droneExtra: readonly ContextEntry[] = []): (ContextEntry | null)[] {
     const word = (label: string, own: string, args?: Readonly<Record<string, string | number>>) => this.actions.word?.(label, args) ?? own;
     const id = e.itemID;

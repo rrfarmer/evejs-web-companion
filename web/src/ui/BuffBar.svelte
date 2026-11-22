@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { getContext, onDestroy } from "svelte";
+  import { ContextMenu } from "../play/contextMenu.ts";
+  import type { SpaceView } from "../play/spaceView.ts";
   // The ship HUD's buff bar (buffBarContainer.py, buffButtons.py; bridge/buffBar.ts): a slot for each kind of buff the
   // server says is on the pilot's ship and each kind of electronic warfare other ships' modules are working on it, as
   // the bar lays them out, each with its icon, its timer (the latest end of its buffs, or its jammer's cycle), and its
@@ -201,12 +204,21 @@
       categoryID: row.categoryID,
     }).filter((action) => isSingleCallAction(action.id));
   }
+  // in flight, the sources in the shared context menu, each its object's own CelestialMenu as the submenu
+  const flightView = getContext<(() => SpaceView | null) | undefined>("flightSpaceView");
+  const sharedMenu = new ContextMenu();
+  onDestroy(() => sharedMenu.close());
   function openMenu(event: MouseEvent, name: string): void {
     event.preventDefault();
     tip = null;
     const sources = menuSources(name);
     if (sources.length === 0) {
       menu = null;
+      return;
+    }
+    const view = flightView?.();
+    if (view) {
+      sharedMenu.open(event.clientX, event.clientY, sources.map((source) => ({ label: source.name || "-", sub: view.menuEntriesFor(source.itemID) ?? [] })));
       return;
     }
     menu = { slot: name, x: event.clientX, y: event.clientY, open: null };
