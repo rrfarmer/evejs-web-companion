@@ -533,7 +533,8 @@
   .special button { height: 24px; padding: 0 14px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.25); color: inherit; font: inherit; cursor: pointer; }
   /* measured in the client through gridcheck: the tree, filters and footer TextBody / EveLabelMedium 14, the search 14,
      the capacity EveLabelSmall 12, Nothing Found EveCaptionLarge 24 */
-  .inv { display: flex; height: 100%; min-height: 0; font-size: 14px; color: rgba(255, 255, 255, 0.85); user-select: none; }
+  /* the tree entries TextCustom at TextColor.NORMAL 0.75, the selected one HIGHLIGHT 0.9 (read through gridcheck) */
+  .inv { display: flex; height: 100%; min-height: 0; font-size: 14px; color: rgba(255, 255, 255, 0.75); user-select: none; }
   /* the tree column 152 wide (gridcheck: mainCont 18..170), its dragArea's 1 px line at its right, the right side's buttons from 12 past it (182) */
   .tree { width: 152px; flex: none; display: flex; flex-direction: column; background: rgba(255, 255, 255, 0.03); margin: 0 12px 0 0; box-shadow: 1px 0 0 rgba(255, 255, 255, 0.1); }
   /* invWindow's tree (read through gridcheck): a ScrollContainer padLeft -8 with 16 on top; each TreeViewEntry 24 high, its
@@ -542,7 +543,7 @@
   .nodes { flex: 1; overflow: auto; padding: 16px 0 0; margin-left: -8px; }
   .node { display: flex; align-items: center; gap: 0; height: 24px; padding: 0; cursor: default; }
   .node:hover { background: rgba(255, 255, 255, 0.06); }
-  .node.sel { background: rgba(88, 167, 191, 0.25); color: #fff; }
+  .node.sel { background: rgba(88, 167, 191, 0.25); color: rgba(255, 255, 255, 0.9); }
   .node.sub { padding-left: 32px; }
   .exp { flex: none; width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; background: transparent; position: relative; cursor: pointer; }
   .exp::before { content: ""; position: absolute; left: 12px; top: 8px; width: 7px; height: 7px; background: rgba(255, 255, 255, 0.5);
@@ -556,7 +557,7 @@
   .tlabel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* InvFilters: a drag area 8 high (its line at 3) over the filterHeaderCont, 24 high, padRight 8: expandFiltersBtn 24 wide
      with the 7 px Neocom arrowDown, the Label 14, createFilterBtn 24 x 24 with eveicon.add 16 at the right */
-  .filters { position: relative; display: flex; align-items: center; height: 24px; margin-top: 8px; padding: 0 8px 0 0; color: rgba(255, 255, 255, 0.8); }
+  .filters { position: relative; display: flex; align-items: center; height: 24px; margin-top: 8px; padding: 0 8px 0 0; color: rgba(255, 255, 255, 0.75); }
   .filters::before { content: ""; position: absolute; left: 0; right: 0; top: -5px; height: 1px; background: rgba(255, 255, 255, 0.1); }
   .filters .flabel { flex: 1; font-size: 14px; }
   .filters .plus { flex: none; width: 24px; height: 24px; background: center / 16px 16px no-repeat; opacity: 0.75; cursor: pointer; }
@@ -590,7 +591,8 @@
   .qty { position: absolute; right: 2px; bottom: 2px; padding: 1px 4px 0; background: rgba(0, 0, 0, 0.9); font-size: 12px; line-height: 16px; color: #fff; }
   /* InvItem (gridcheck): 64 x 103, its quantity EveLabelSmall 12, its name a centred Label 14, 70 wide */
   .iname { margin-top: 2px; width: 70px; text-align: center; font-size: 14px; line-height: 18px; color: rgba(255, 255, 255, 0.75); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .foot { padding-left: 4px; display: flex; align-items: center; gap: 8px; height: 24px; color: rgba(255, 255, 255, 0.55); }
+  /* numItemsLabel / totalPriceLabel: TextColor.SECONDARY 0.5 */
+  .foot { padding-left: 4px; display: flex; align-items: center; gap: 8px; height: 24px; color: rgba(255, 255, 255, 0.5); }
   .count { font-weight: 700; }
   /* UpdateNumberOfItems: with items filtered out, its text SUCCESS_GREEN */
   .count.filtered { color: #8dc169; }
