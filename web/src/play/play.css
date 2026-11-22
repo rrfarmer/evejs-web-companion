@@ -284,10 +284,23 @@ button { font: inherit; color: inherit; }
 .ov-columns-row:hover { background: rgba(255, 255, 255, 0.05); }
 .ov-columns-end { height: 16px; }
 /* OverviewSettingsWnd: a TabGroup over the panel; TabsPanel's grid (15 apart across, 8 down; 120 wide fields) */
-.ov-settings { padding: 0 8px 8px; font-size: 14px; color: rgba(255, 255, 255, 0.75); }
-.ov-set-tabs { display: flex; gap: 24px; height: 28px; align-items: stretch; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding: 0 8px; flex: none; }
-.ov-set-tab { display: flex; align-items: center; color: rgba(255, 255, 255, 0.5); cursor: pointer; }
-.ov-set-tab.active { color: rgba(255, 255, 255, 0.9); box-shadow: inset 0 -1px 0 #fff; }
+/* OverviewSettingsWnd (read through gridcheck, 520 x 600): its content 2 in, a DefaultWindowHeader 48 high - the 32 px
+   WindowIcons/other.png at 14, 10, the 18 px caption (white 0.9) at 54, the 24 px More / Minimize / Close at 434, 458, 482,
+   14 - then the main 16 in a side and below. Its PlayWindow is a <section> and so not the global panel's padding and
+   hairline */
+.pw:has(> .pw-body.ov-settings) { padding: 1px; margin: 0; border-radius: 0; }
+.pw:has(> .pw-body.ov-settings)::before { display: none; }
+.pw:has(> .pw-body.ov-settings) > .pw-head { box-sizing: border-box; height: 48px; padding: 0 12px; gap: 8px; border-bottom: 0; }
+.pw:has(> .pw-body.ov-settings) > .pw-head .pw-icon { width: 32px; height: 32px; opacity: 1; }
+.pw:has(> .pw-body.ov-settings) > .pw-head .pw-caption { font-size: 18px; letter-spacing: 0; color: rgba(255, 255, 255, 0.9); }
+.pw:has(> .pw-body.ov-settings) > .pw-head .pw-buttons { gap: 0; }
+.pw:has(> .pw-body.ov-settings) > .pw-head .pw-btn { box-sizing: border-box; width: 24px; height: 24px; padding: 4px; }
+.ov-settings { padding: 0 16px 16px; font-size: 14px; color: rgba(255, 255, 255, 0.75); }
+/* a TabGroup: 30 high, each Tab its EveLabelMedium 6 down (white 0.5, the selected 0.9), 24 apart; the DividerLine (white
+   0.1) under the tabs only, the selected's SelectionIndicatorLine 1 px in the accent */
+.ov-set-tabs { display: flex; gap: 24px; height: 30px; box-sizing: border-box; align-items: stretch; align-self: flex-start; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding: 0; flex: none; }
+.ov-set-tab { display: flex; align-items: flex-start; padding-top: 6px; line-height: 18px; color: rgba(255, 255, 255, 0.5); cursor: pointer; }
+.ov-set-tab.active { color: rgba(255, 255, 255, 0.9); box-shadow: 0 1px 0 #58a7bf; }
 .ov-set-panel { flex: 1; overflow: auto; padding: 8px 4px 4px 14px; scrollbar-width: thin; }
 .ov-set-row { display: grid; grid-template-columns: 27px 120px 120px 120px 24px; gap: 15px; align-items: center; margin-bottom: 8px; }
 /* DropdownColorPicker: 27 x 20, the 12 px swatch framed at white 0.2 at the left, the 38_16_229 arrow at 0.5 at the right */
@@ -300,10 +313,13 @@ button { font: inherit; color: inherit; }
 .ov-color-title { margin-bottom: 6px; }
 .ov-color-grid { display: grid; grid-template-columns: repeat(8, 16px); gap: 4px; }
 /* OverviewSettingsWnd's top: the overview's name (editable on a click) and the Share handle at the right */
-.ov-set-top { display: flex; justify-content: flex-end; align-items: center; gap: 8px; height: 28px; margin-bottom: 4px; }
-.ov-profile-name { cursor: text; color: rgba(255, 255, 255, 0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%; }
+/* topParent 42 high: the DraggableShareContainer at the right, 6 from the content's edge - the LabelEditable (its 14 px
+   white text 8 in, 32 high), then dragCont 21 high (Frame 1_16_193 at 0.15 on a white 0.125 Fill, the 15 px icon 3 in,
+   Share at 20 in white 0.75) */
+.ov-set-top { display: flex; justify-content: flex-end; align-items: center; gap: 0; height: 42px; margin: 0 -10px 0 0; flex: none; }
+.ov-profile-name { cursor: text; color: #fff; box-sizing: border-box; height: 32px; padding: 7px 10px 7px 8px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%; }
 .ov-profile-edit { font: inherit; width: 220px; background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; padding: 1px 4px; }
-.ov-share { display: inline-flex; align-items: center; gap: 2px; padding: 2px 8px 2px 3px; border: 1px solid rgba(255, 255, 255, 0.2); cursor: grab; color: rgba(255, 255, 255, 0.85); }
+.ov-share { display: inline-flex; align-items: center; gap: 2px; box-sizing: border-box; height: 21px; padding: 0 9px 0 3px; line-height: 18px; background: rgba(255, 255, 255, 0.125); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15); cursor: grab; color: rgba(255, 255, 255, 0.75); }
 .ov-share img { width: 15px; height: 15px; }
 /* ExportOverviewWindow / ImportOverviewWindow: Check All, the scroll of parts, the file name and the button at the foot */
 .ov-xfer { display: flex; flex-direction: column; height: 100%; gap: 6px; }

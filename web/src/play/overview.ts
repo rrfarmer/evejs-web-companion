@@ -576,7 +576,26 @@ export class Overview {
     const word = (label: string, own: string) => this.hooks.word?.(label) ?? own;
     document.querySelector(".ov-settings")?.closest(".pw")?.remove();
     const win = new PlayWindow({ id: "overview-settings", caption: word("UI/Overview/OverviewSettings", "Overview Settings"),
-      left: Math.round(innerWidth / 2 - 285), top: Math.round(innerHeight / 2 - 300), width: 570, height: 600, minWidth: 570, minHeight: 500 });
+      left: Math.round(innerWidth / 2 - 260), top: Math.round(innerHeight / 2 - 300), width: 520, height: 600, minWidth: 520, minHeight: 500,
+      icon: clientTexture("res:/UI/Texture/WindowIcons/other.png"),
+      // GetMenuMoreOptions (read through gridcheck): the window's own, then GetPresetsMenu - Export Overview Settings,
+      // Import Settings and, with any saved filter, Delete's submenu of them by name
+      menu: (button) => {
+        const r = button.getBoundingClientRect();
+        const saved = this.presetChoices.filter((c) => c.id.startsWith(CUSTOM_PREFIX)).sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));
+        this.menu.open(r.left, r.bottom, [
+          { label: word("UI/Commands/ExportOverviewSettings", "Export Overview Settings"), run: () => this.exportFile() },
+          { label: word("UI/Overview/ImportOverviewSettings", "Import Settings"), run: () => pickImport() },
+          ...(saved.length ? [null, { label: word("UI/Common/Delete", "Delete"), sub: saved.map((c) => ({ label: c.label, run: () => { this.deletePreset(c.id); if (editing === c.id) editing = this.tabSettings[this.tab]?.preset ?? DEFAULT_PRESET; draw(); } })) }] : []),
+        ]);
+      } });
+    const pickImport = () => {
+      const pick = document.createElement("input");
+      pick.type = "file";
+      pick.accept = ".yaml,.yml,text/yaml";
+      pick.addEventListener("change", () => { const f = pick.files?.[0]; if (f) void f.text().then((text) => this.importChosenFile(text, f.name)); });
+      pick.click();
+    };
     win.body.classList.add("ov-settings");
     let current = panel;
     let editing = presetID ?? this.tabSettings[this.tab]?.preset ?? this.presetChoices[0]?.id ?? "";
@@ -875,14 +894,7 @@ export class Overview {
       const historyLink = t.closest<HTMLAnchorElement>(".ov-history-link");
       if (historyLink) { e.preventDefault(); this.hooks.followLink?.(historyLink.getAttribute("href") ?? "", historyLink.dataset.name ?? ""); return; }
       if (t.closest(".ov-misc-export")) { this.exportFile(); return; }
-      if (t.closest(".ov-misc-import")) {
-        const pick = document.createElement("input");
-        pick.type = "file";
-        pick.accept = ".yaml,.yml,text/yaml";
-        pick.addEventListener("change", () => { const f = pick.files?.[0]; if (f) void f.text().then((text) => this.importChosenFile(text, f.name)); });
-        pick.click();
-        return;
-      }
+      if (t.closest(".ov-misc-import")) { pickImport(); return; }
       const nameEl = t.closest<HTMLElement>(".ov-profile-name");
       if (nameEl && !nameEl.querySelector("input")) {
         const input = document.createElement("input");
