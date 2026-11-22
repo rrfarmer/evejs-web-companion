@@ -249,7 +249,7 @@
   const viewIcons = droneViewIcons;
   const windowCompact = droneWindowCompact;
   flow.requestWords(["UI/Drones/WarpWarningMessage", "UI/Drones/StopAndRecall"]);
-  const warpWarningShown = $derived($warpWarningOn && snapshot?.ship?.warp?.preparing === true && ($drones.inSpace ?? []).length > 0);
+  const warpWarningShown = $derived($warpWarningOn && snapshot?.ship?.warp?.preparing === true && localDrones.length > 0);
   // WarpWarning.FadeIn: the audio service sounds ui_warning_abandoning_drones each time the warning comes up
   let warpWarningWas = false;
   $effect(() => {
@@ -507,7 +507,7 @@
   const spaceRows = $derived.by(() => {
     const byID = new Map<number, SpaceEntity>();
     for (const entity of snapshot?.entities ?? []) byID.set(entity.itemID, entity);
-    return ($drones.inSpace ?? []).map((drone) => {
+    return localDrones.map((drone) => {
       const orderable = canMyShipOrderDrone(byID.get(drone.itemID) ?? null, ship?.itemID ?? null);
       const lost = drone.controlled === false || orderable === false;
       return {
@@ -525,7 +525,10 @@
     return x && x.shieldRatio != null && x.armorRatio != null && x.hullRatio != null ? [x.shieldRatio, x.armorRatio, x.hullRatio] : null;
   }
   const spaceList = $derived(split(spaceRows, () => 1));
-  const outCount = $derived(($drones.inSpace ?? []).length);
+  // dronesUtil.GetDronesInLocalSpace: michelle's drone states only (owned, or controlled by the ship); a drone nobody
+  // controls has no state row and is not in the window (reconnected from the ship's menu, scooped from space)
+  const localDrones = $derived(($drones.inSpace ?? []).filter((d) => d.orphaned !== true));
+  const outCount = $derived(localDrones.length);
   const maxActive = $derived($drones.limits.maxActiveDrones);
 
   const allDroneIDs = $derived(orderableDroneIDs($drones.inSpace, snapshot?.entities ?? null, ship?.itemID ?? null));

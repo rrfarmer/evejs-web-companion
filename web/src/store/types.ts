@@ -2629,6 +2629,8 @@ export interface DroneInSpace {
    * scooped first. `false` is a real answer, not "unknown".
    */
   readonly controlled: boolean;
+  /** Owned by the pilot and controlled by nobody (the server's controllerID none): michelle keeps no drone state for it. */
+  readonly orphaned?: boolean;
 }
 
 /**

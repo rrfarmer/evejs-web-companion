@@ -145,6 +145,7 @@ export function decodeDronesInSpace(raw: JsonValue | undefined): readonly DroneI
       // recovery on a drone that may not need it, rather than offering Recall
       // on one that cannot hear the order.
       controlled: row.controlled === true,
+      orphaned: row.reconnectCandidate === true,
     });
   }
   return drones;
