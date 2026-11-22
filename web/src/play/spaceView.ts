@@ -378,14 +378,12 @@ export interface SpaceActions {
   autopilotOn?(): boolean;
 }
 
-const KIND_COLOUR: Record<string, string> = {
-  ship: "#c9c9c9", drone: "#c9c9c9", station: "#d7dad6", stargate: "#d7dad6", planet: "#9fb3c8", moon: "#9fb3c8", sun: "#ffd27a",
-  asteroid: "#a08c74", celestial: "#9fb3c8", wreck: "#8d918c", container: "#8d918c", structure: "#d7dad6", billboard: "#8d918c",
-};
 
 /** A bracket glyph by kind, in the client's spirit: the shape says what it is, the colour whose. */
 export function glyph(e: Entity): string {
-  const c = e.isNpc ? "var(--hostile)" : KIND_COLOUR[e.kind] ?? "#c9c9c9";
+  // bracketVarious.GetIconColor: OVERVIEW_NORMAL_COLOR (white) for all but the pilot's own ship (OVERVIEW_OWN_SHIP_COLOR, 0.7)
+  // and an NPC (its standing's colour, kept as the page draws it); the autopilot destination and containers not yet
+  const c = e.isNpc ? "var(--hostile)" : e.isSelf ? "#b3b3b3" : "#ffffff";
   const icon = bracketIcon(e);
   if (icon) return `<span class="glyph bi" style="--icon:url('${icon}');--tint:${c}"></span>`;
   switch (e.kind) {
