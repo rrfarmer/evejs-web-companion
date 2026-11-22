@@ -2860,6 +2860,8 @@ export interface AppFlow {
    * _WarpTo / _AlignTo / _JumpTo to the system), at the client's default scope; false where nothing was sent.
    */
   broadcastOnItem(name: "Target" | "HealTarget" | "WarpTo" | "AlignTo" | "JumpTo", itemID: number, typeID: number | null): Promise<boolean>;
+  /** fleetSvc.SendBroadcast_EnemySpotted: SendGlobalBroadcast('EnemySpotted', the nearest celestial); FleetNotInFleetInSpace outside a fleet. */
+  broadcastEnemySpotted(nearID: number | null): Promise<boolean>;
   /**
    * Add Pilot to Watchlist, from the fleet's menu for a member: the pilots added to the pilot's watchlist and the
    * server told, after the client's checks. What came of it: added, nothing to add (the pilot's own, one no member,
@@ -17671,10 +17673,20 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // menu for the pilot's own (menusvc.FleetMenu, Broadcast Travel To Me). CheckIsInFleet(inSpace=True) first (848 to
   // 858: no fleet's object, then no solar system, then docked in a structure), then the wait (fleetWrites.ts).
   async function broadcastOnItem(name: "Target" | "HealTarget" | "WarpTo" | "AlignTo" | "JumpTo", itemID: number, typeID: number | null): Promise<boolean> {
-    if (store.fleet.get().availability !== "ready") return false;
+    // SendBubbleBroadcast / SendGlobalBroadcast: CheckIsInFleet(inSpace=True) first (FleetNotInFleetInSpace)
+    if (store.fleet.get().availability !== "ready") { sayDialog("FleetNotInFleetInSpace", null, "You are not in a fleet."); return false; }
     return name === "Target" || name === "HealTarget"
       ? fleetBroadcasts.toBubble(name, FLEET_BROADCAST_SCOPE_ALL, itemID)
       : fleetBroadcasts.toSystem(name, FLEET_BROADCAST_SCOPE_ALL, itemID, typeID);
+  }
+  // fleetSvc.SendBroadcast_EnemySpotted (1011): SendGlobalBroadcast(BROADCAST_ENEMY_SPOTTED, GetNearestBall's itemID or None),
+  // CheckIsInFleet(inSpace=True) first (FleetNotInFleetInSpace)
+  async function broadcastEnemySpotted(nearID: number | null): Promise<boolean> {
+    if (store.fleet.get().availability !== "ready") {
+      sayDialog("FleetNotInFleetInSpace", null, "You are not in a fleet.");
+      return false;
+    }
+    return fleetBroadcasts.toFleet("EnemySpotted", FLEET_BROADCAST_SCOPE_ALL, nearID as number);
   }
   async function broadcastTravelToMe(): Promise<"sent" | "unsent" | "not-in-fleet" | "in-station" | "in-structure"> {
     const current = callOptions.captureRequestGuard!();
@@ -38022,6 +38034,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     bountiesAndKillRights,
     bountyAmounts,
     broadcastOnItem,
+    broadcastEnemySpotted,
     compressItemAt,
     deployItems,
     renameSpaceItem,

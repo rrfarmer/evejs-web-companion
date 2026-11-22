@@ -1406,6 +1406,21 @@
       else if (refusal) s.flow.sayDialog(refusal, null, refusal === "ShipHasNoDroneBay" ? "Your ship has no drone bay." : "Your ship has no fighter bay.");
       return true;
     }
+    // CmdFleetBroadcast_EnemySpotted (Z): fleetSvc.SendBroadcast_EnemySpotted with GetNearestBall - the nearest belt, moon,
+    // planet, acceleration gate, stargate, station or structure of the ballpark
+    if (cmd === "CmdFleetBroadcast_EnemySpotted") {
+      const snap = s.store.space.get().snapshot;
+      const ego = snap?.entities.find((e) => e.itemID === snap?.ship?.itemID) ?? null;
+      const NEAR_GROUPS = new Set([9, 8, 7, 366, 10, 15]);
+      let nearID: number | null = null, best = Infinity;
+      for (const e of snap?.entities ?? []) {
+        if (!ego || !(NEAR_GROUPS.has(e.groupID ?? -1) || e.categoryID === 65)) continue;
+        const d = Math.hypot((e.x ?? 0) - (ego.x ?? 0), (e.y ?? 0) - (ego.y ?? 0), (e.z ?? 0) - (ego.z ?? 0));
+        if (d < best) { best = d; nearID = e.itemID; }
+      }
+      void s.flow.broadcastEnemySpotted(nearID).catch(say("Fleet"));
+      return true;
+    }
     // The drone commands (eveCommands.py): each on the drones this ship controls in space (michelle.GetDrones).
     const DRONE_COMMANDS = ["CmdDronesEngage", "CmdDronesReturnToBay", "CmdDronesReturnAndOrbit", "CmdLaunchFavoriteDrones",
       "CmdReconnectToDrones", "CmdToggleAggressivePassive", "CmdToggleDroneFocusFire"];

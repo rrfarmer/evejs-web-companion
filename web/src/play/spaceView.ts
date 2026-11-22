@@ -3662,6 +3662,8 @@ export class SpaceView {
       case "CmdShowItemInfo": this.options.showInfo?.(id, e?.typeID ?? null); break;
       case "CmdToggleLookAtItem": this.focusOn(this.lookAt === id ? null : id); break;
       case "CmdSelectTargetItem": break;
+      // CmdSendBroadcast_Target (X): fleetSvc.SendBroadcast_Target - SendBubbleBroadcast('Target') on the thing clicked
+      case "CmdSendBroadcast_Target": this.actions.broadcastOnItem?.("Target", id, e?.typeID ?? null); break;
     }
   }
 
