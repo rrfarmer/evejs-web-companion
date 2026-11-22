@@ -3572,11 +3572,17 @@
   /* LoggerWindow's scroll (read through gridcheck): its column headers 24 high, EveLabelSmall 12 at 8, Time 74 and Type 71
      wide; each entry a TextBody 14, 22 apart */
   .fly-windows :global(.log-table) { width: 100%; border-collapse: collapse; font-size: 14px; table-layout: fixed; }
-  .fly-windows :global(.log-table th) { position: sticky; top: 0; background: #1b1d20; text-align: left; font-weight: 400; font-size: 12px; color: rgba(255, 255, 255, 0.6); padding: 0 8px; height: 24px; box-sizing: border-box; }
+  .fly-windows :global(.log-table th) { position: sticky; top: 0; background: #1b1d20; text-align: left; font-weight: 400; font-size: 12px; color: rgba(255, 255, 255, 0.5); padding: 0 8px; height: 24px; box-sizing: border-box; }
   .fly-windows :global(.log-table th:nth-child(1)) { width: 70px; }
   .fly-windows :global(.log-table th:nth-child(2)) { width: 67px; }
   .fly-windows :global(.log-table th button) { background: transparent; border: 0; color: inherit; font: inherit; padding: 0; min-height: 0; text-align: left; width: 100%; }
-  .fly-windows :global(.log-table th[aria-sort]) { color: var(--color-text-bright); }
+  /* the logger scroll's ColumnHeader (read through gridcheck): its EveLabelSmall at white 0.5, sorted or not, 8 in; the sorted
+     one's direction_indicator a 16 px caret at 0.75, 4 from its right (the header band: the client's sits above the scroll, here a
+     sticky row keeps a fill so the lines do not show through) */
+  .fly-windows :global(.log-table th[aria-sort]) { color: rgba(255, 255, 255, 0.5); position: sticky; }
+  .fly-windows :global(.log-table th[aria-sort]::after) { content: ""; position: absolute; right: 4px; top: 4px; width: 16px; height: 16px; opacity: 0.75;
+    background: url(/client-res/ui/texture/eveicon/system_icons/caret_down_16px.png) center / 16px no-repeat; }
+  .fly-windows :global(.log-table th[aria-sort="ascending"]::after) { background-image: url(/client-res/ui/texture/eveicon/system_icons/caret_up_16px.png); }
   .fly-windows :global(.log-table td) { padding: 2px 8px; height: 22px; line-height: 18px; box-sizing: border-box; vertical-align: top; color: rgba(255, 255, 255, 0.85); overflow: hidden; }
   .fly-windows :global(.log-table tbody tr) { cursor: default; user-select: none; }
   /* (ListEntryUnderlay: THEME_FOCUSDARK at 0.2 under the mouse, 0.4 selected) */

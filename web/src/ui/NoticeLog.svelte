@@ -223,7 +223,7 @@
           <th scope="col" aria-sort={sortedColumn === index ? $sortPreference?.reversed ? "descending" : "ascending" : undefined}>
             <button type="button" onclick={() => sort?.set(title, sortedColumn === index && !$sortPreference?.reversed)}>
               {title}
-              {#if sortedColumn === index}<span aria-hidden="true">{$sortPreference?.reversed ? "▾" : "▴"}</span>{/if}
+              {#if sortedColumn === index && !retail}<span aria-hidden="true">{$sortPreference?.reversed ? "▾" : "▴"}</span>{/if}
             </button>
           </th>
         {/each}
