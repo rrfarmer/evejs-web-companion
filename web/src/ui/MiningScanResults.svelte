@@ -110,6 +110,24 @@
     else next.add(typeID);
     collapsed = next;
   }
+  // The scroll's id (mining_scan_scroll) makes its columns scalable (Scroll: scalable = sr.id and not fixed): each header's
+  // ScaleHandle (8 wide at its right, the 1 px line at 3) dragged to a width no narrower than MINCOLUMNWIDTH 24, kept in
+  // columnWidths for the scroll's id; a double-click on it fits the column to its content again (ResetColumnWidth)
+  const WIDTHS_KEY = "evejs.ui.columnWidths.mining_scan_scroll";
+  let colWidths = $state<Record<number, number>>((() => { try { const v = JSON.parse(globalThis.localStorage?.getItem(WIDTHS_KEY) ?? "null"); return v && typeof v === "object" ? v : {}; } catch { return {}; } })());
+  function keepWidths(next: Record<number, number>): void {
+    colWidths = next;
+    try { globalThis.localStorage?.setItem(WIDTHS_KEY, JSON.stringify(next)); } catch { /* lasts the page */ }
+  }
+  function startScale(k: number, e: PointerEvent): void {
+    e.preventDefault(); e.stopPropagation();
+    const th = (e.currentTarget as HTMLElement).parentElement as HTMLElement;
+    const x0 = e.clientX, w0 = th.getBoundingClientRect().width;
+    const move = (m: PointerEvent) => { colWidths = { ...colWidths, [k]: Math.max(24, Math.round(w0 + m.clientX - x0)) }; };
+    const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); keepWidths({ ...colWidths }); };
+    addEventListener("pointermove", move); addEventListener("pointerup", up);
+  }
+  function resetWidth(k: number): void { const next = { ...colWidths }; delete next[k]; keepWidths(next); }
 </script>
 
 <section class="mining-scan-results" aria-label="Mining Scan Results">
@@ -117,7 +135,7 @@
   {#if $mining.surveyError}<p role="alert" class="status">{$mining.surveyError}</p>{/if}
   <div class="scan-table">
     <table>
-      <thead><tr>{#each COLUMNS as [label, own], k (label)}<th scope="col" class:sorted={colSort === k} onclick={() => sortByColumn(k)}>{say(label, own)}{#if colSort === k}<span class="dir" class:down={colReversed}></span>{/if}</th>{/each}</tr></thead>
+      <thead><tr>{#each COLUMNS as [label, own], k (label)}<th scope="col" class:sorted={colSort === k} style:width={colWidths[k] ? `${colWidths[k]}px` : null} style:min-width={colWidths[k] ? `${colWidths[k]}px` : null} style:max-width={colWidths[k] ? `${colWidths[k]}px` : null} onclick={() => sortByColumn(k)}>{say(label, own)}{#if colSort === k}<span class="dir" class:down={colReversed}></span>{/if}<span class="scaler" role="separator" aria-orientation="vertical" onpointerdown={(e) => startScale(k, e)} onclick={(e) => e.stopPropagation()} ondblclick={(e) => { e.stopPropagation(); resetWidth(k); }}></span></th>{/each}</tr></thead>
       {#each groups as group (group.typeID)}
         <tbody data-ore-type={group.typeID}>
           <tr class="ore-group"><th colspan="5" scope="rowgroup">
@@ -173,7 +191,9 @@
 
 <style>
   .group-icon { width: 16px; height: 16px; }
-  thead th { cursor: pointer; user-select: none; }
+  thead th { cursor: pointer; user-select: none; position: relative; overflow: hidden; text-overflow: ellipsis; }
+  thead th .scaler { position: absolute; top: 0; right: 0; width: 8px; height: 100%; cursor: col-resize; }
+  thead th .scaler::after { content: ""; position: absolute; left: 3px; top: 4px; width: 1px; bottom: 4px; background: rgba(255, 255, 255, 0.15); }
   thead th .dir { display: inline-block; margin-left: 4px; border: 4px solid transparent; border-bottom-color: currentColor; vertical-align: 2px; }
   thead th .dir.down { border-bottom-color: transparent; border-top-color: currentColor; vertical-align: -2px; }
   .tgt-icon { display: inline-flex; width: 16px; height: 16px; margin: 0 4px 0 2px; vertical-align: middle; align-items: center; justify-content: center; }
