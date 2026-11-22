@@ -91,6 +91,7 @@ import { ENTER_WORMHOLE_LABEL } from "../bridge/placeChanges.ts";
 import { hasJumpPolarization, POLARIZED_LABEL, polarizationTime, type WormholePolarization } from "./wormholePolarization.ts";
 import { activateCargoTarget, OPEN_CARGO_ICON, OPEN_CARGO_LABEL, selectedCargo } from "./containerInteraction.ts";
 import { isNpcCorporation } from "../bridge/standingsReads.ts";
+import { isViewedWreck, markWreckViewed, viewedWrecksFor } from "./viewedWrecks.ts";
 import { isActiveComponent, spaceComponents, spaceComponentsNow } from "../space/deployables.ts";
 
 export interface Entity {
@@ -414,6 +415,13 @@ function npcColour(e: Entity): string {
   return colour !== "rgb(255, 26, 26)" && attackingMe.has(e.itemID) ? "rgb(255, 26, 26)" : colour;
 }
 
+/** A CSS colour (#rrggbb or rgb(...)) with its channels multiplied. */
+function attenuated(colour: string, by: number): string {
+  const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(colour);
+  const parts = hex ? hex.slice(1).map((h) => parseInt(h, 16)) : (/rgb\(([^)]+)\)/.exec(colour)?.[1]?.split(",").map((x) => Number(x.trim())) ?? null);
+  return parts && parts.length >= 3 ? `rgb(${parts.slice(0, 3).map((v) => Math.round(v * by)).join(", ")})` : colour;
+}
+
 /** The ships attacking the pilot (tactical's attackers), for npcColour (set on each space update). */
 let attackingMe: ReadonlySet<number> = new Set();
 
@@ -452,7 +460,9 @@ export function iconLook(e: Entity): { colour: string; hint: string | null; sort
 }
 
 export function glyph(e: Entity): string {
-  const c = iconLook(e).colour;
+  // a viewed wreck dimmed (InSpaceBracket.SetViewState attenuation 0.55; SpaceObjectIcon's SetBrightness 0.55 gives the
+  // same on these colours)
+  const c = e.groupID === 186 && isViewedWreck(e.itemID) ? attenuated(iconLook(e).colour, 0.55) : iconLook(e).colour;
   const icon = bracketIcon(e);
   if (icon) return `<span class="glyph bi" style="--icon:url('${icon}');--tint:${c}"></span>`;
   switch (e.kind) {
@@ -4746,8 +4756,10 @@ export class SpaceView {
       out.push({ path: "UI/Commands/SetName", label: word("UI/Commands/SetName", "Set Name"), run: () => this.actions.setName?.(id, e.name ?? "") });
     }
     const bay = typeID !== null ? comps.cargoBay.get(typeID) : undefined;
-    // a can or a wreck: Open Cargo after Save Location... (read from the live client for a pilot's jettisoned can)
+    // a can or a wreck: Open Cargo in a group of its own after Save Location... (read through gridcheck on a jettisoned can
+      // and a wreck: Save Location... | Open Cargo)
     if ((e.kind === "container" || e.kind === "wreck") && !bay && this.actions.openCargo) {
+      out.push(null);
       out.push({ path: "UI/Commands/OpenCargo", label: word("UI/Commands/OpenCargo", "Open Cargo"), run: run("Open Cargo", () => this.actions.openCargo!(id)) });
     }
     if (bay && active && (mine || bay[1]) && this.actions.openCargo) {
@@ -4806,6 +4818,13 @@ export class SpaceView {
     if (group !== null && shownInOverview) out.push(null, ...scoops, { path: "UI/Overview/RemoveGroupFromOverview", label: word("UI/Overview/RemoveGroupFromOverview", `Remove ${groupName} from Overview`, { groupName }), run: () => this.overview.setGroupShown(group, false) });
     out.push(...droneFleet);
     if (broadcasts.length) out.push(null, ...broadcasts);
+    // OfferMarkWreckNotViewed / OfferMarkWreckViewed (wrecksvc), a group of its own after the broadcasts
+    if (e.kind === "wreck") {
+      const seen = isViewedWreck(id);
+      out.push(null, seen
+        ? { path: "UI/Inflight/MarkWreckNotViewed", label: word("UI/Inflight/MarkWreckNotViewed", "Mark Wreck as Not Viewed"), run: () => markWreckViewed(id, false) }
+        : { path: "UI/Inflight/MarkWreckViewed", label: word("UI/Inflight/MarkWreckViewed", "Mark Wreck as Viewed"), run: () => markWreckViewed(id, true) });
+    }
     if (droneAbandon) out.push(null, droneAbandon);
     // _CelestialMenu: menuEntries += [None], then CancelLockTarget (targetSvc.CancelAddTarget) while the lock is being made
     if (lockingNow) out.push(null, { path: "UI/Inflight/CancelLockTarget", label: word("UI/Inflight/CancelLockTarget", "Cancel Locking Attempt"), run: run("Cancel Locking Attempt", () => this.actions.unlock(id)) });
@@ -4956,6 +4975,7 @@ export class SpaceView {
     const self = snap?.entities.find((x) => x.isSelf) ?? null;
     routeNext = this.actions.routeNext?.() ?? routeNext;
     npcStandingOf = this.actions.npcStanding ?? null;
+    viewedWrecksFor(self?.characterID ?? null);
     attackingMe = new Set(this.attackers.keys());
     lootWho = { characterID: self?.characterID ?? null, corporationID: self?.corporationID ?? null, fleetID: this.actions.fleetID?.() ?? null };
     // tactical.ProcessSessionChange: a new ship ('shipid' in the change) clears every attacker
