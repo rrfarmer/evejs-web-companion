@@ -4516,8 +4516,10 @@ export class SpaceView {
     // (the client's menu shows the movement entries, Look at, Track and the lock as one group)
     if (!warping && group !== 7 && group !== 8) out.push({ path: "UI/Inflight/LookAtObject", label: word("UI/Inflight/LookAtObject", "Look at"), run: () => this.focusOn(id) });
     out.push({ path: "UI/Inflight/SetAsCameraInterest", label: word("UI/Inflight/SetAsCameraInterest", "Track"), run: () => { this.endExplosionCamera(); this.trackedObjective = id; } });
+    // (OfferCancelLockTarget: a lock being made offers no Lock Target here, its Cancel Locking Attempt at the menu's end)
+    const lockingNow = !this.locked.has(id) && (this.lockingIDs.has(id) || this.acquiringTargets.has(id));
     if (this.locked.has(id)) out.push({ path: "UI/Inflight/UnlockTarget", label: word("UI/Inflight/UnlockTarget", "Unlock Target"), icon: I("target"), run: run("Unlock Target", () => this.actions.unlock(id)) });
-    else if (!planetMoonBelt && this.snapshot?.ship?.typeID !== 670) {
+    else if (!lockingNow && !planetMoonBelt && this.snapshot?.ship?.typeID !== 670) {
       const lockRange = this.actions.shipAttribute?.(76) ?? null;
       if (lockRange === null || dist <= lockRange) out.push({ path: "UI/Inflight/LockTarget", label: word("UI/Inflight/LockTarget", "Lock Target"), icon: I("target"), run: run("Lock Target", () => this.lockTracked(id)) });
     }
@@ -4609,6 +4611,8 @@ export class SpaceView {
     out.push(...droneFleet);
     if (broadcasts.length) out.push(null, ...broadcasts);
     if (droneAbandon) out.push(null, droneAbandon);
+    // _CelestialMenu: menuEntries += [None], then CancelLockTarget (targetSvc.CancelAddTarget) while the lock is being made
+    if (lockingNow) out.push(null, { path: "UI/Inflight/CancelLockTarget", label: word("UI/Inflight/CancelLockTarget", "Cancel Locking Attempt"), run: run("Cancel Locking Attempt", () => this.actions.unlock(id)) });
     // an empty group draws no line: no two lines together, none first or last
     return out.filter((x, i, all) => x !== null || (i > 0 && i < all.length - 1 && all[i - 1] !== null));
   }
