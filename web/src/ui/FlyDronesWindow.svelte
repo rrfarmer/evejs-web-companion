@@ -9,6 +9,9 @@
   import { droneActivityColor, droneActivityLabel } from "../bridge/drones.ts";
   import { activeTargetID, activeTargetName } from "../play/activeTarget.ts";
   import { playUiEvent } from "../play/uiAudio.ts";
+  // SE_BaseClassCore.OnMouseEnter: PlaySound(sound_hover = uiconst.SOUND_ENTRY_HOVER, ui_button_soft2_play) as an entry lights; an
+  // InvItem not while the left button is down
+  const hoverSound = (e: MouseEvent) => { if (!(e.buttons & 1)) void playUiEvent("ui_button_soft2_play"); };
   import { droneSettings, droneSettingsFor, droneViewIcons, droneViewModeFor, droneWindowCompact, droneWarpWarning, droneWarpWarningFor, setDroneSetting } from "./droneSettings.ts";
   import { shortcutOf } from "../play/shortcutKeys.ts";
   import { onMount } from "svelte";
@@ -696,7 +699,7 @@
 
 {#snippet bayEntry(row: (typeof bayRows)[number], sub: boolean)}
   <div class="row" class:sub class:selected={selected.bay.includes(row.itemID)} role="listitem" draggable="true" data-bay-item={row.itemID}
-    onmouseenter={(e) => tipFor(row.typeID, null, null, null, e)} onmouseleave={tipOff}
+    onmouseenter={(e) => { hoverSound(e); tipFor(row.typeID, null, null, null, e); }} onmouseleave={tipOff}
     onclick={(e) => clickEntry("bay", row.itemID, e)} ondragstart={(e) => dragStart("bay", row.itemID, row.typeID, e)}
     ondblclick={() => run(() => flow.launchDrones(row.itemIDs))}
     oncontextmenu={(e) => { const ids = pickedFor("bay", row.itemID, row.typeID, true); openMenu(e, bayRowMenu(ids, row.typeID)); }}>
@@ -714,7 +717,7 @@
 
 {#snippet spaceEntry(row: (typeof spaceRows)[number], sub: boolean)}
   <div class="row inspace" data-space-item={row.itemIDs[0]} class:list={!$viewIcons} class:compact={$windowCompact} class:sub class:lost={row.unavailable !== null} class:selected={selected.space.includes(row.itemIDs[0]!)} role="listitem" title={row.unavailable ?? undefined} draggable="true"
-    onmouseenter={(e) => { if (row.typeID !== null) tipFor(row.typeID, row.unavailable ?? row.activity, row.color, row.targetID, e); }} onmouseleave={tipOff}
+    onmouseenter={(e) => { hoverSound(e); if (row.typeID !== null) tipFor(row.typeID, row.unavailable ?? row.activity, row.color, row.targetID, e); }} onmouseleave={tipOff}
     onclick={(e) => clickEntry("space", row.itemIDs[0]!, e)} ondragstart={(e) => dragStart("space", row.itemIDs[0]!, row.typeID, e)}
     oncontextmenu={(e) => {
       // GroupMenu takes the selected of the clicked one's drone group, the drone menu every selected one

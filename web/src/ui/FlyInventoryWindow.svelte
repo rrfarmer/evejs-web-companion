@@ -21,6 +21,9 @@
   import { SHIP_HOLDS, CARGO_HOLD } from "../bridge/shipHolds.ts";
   // TreeViewEntry.OnMouseEnter: PlaySound(uiconst.SOUND_ENTRY_HOVER), ui_button_soft2_play
   import { playUiEvent } from "../play/uiAudio.ts";
+  // SE_BaseClassCore.OnMouseEnter: PlaySound(sound_hover = uiconst.SOUND_ENTRY_HOVER, ui_button_soft2_play) as an entry lights; an
+  // InvItem not while the left button is down
+  const hoverSound = (e: MouseEvent) => { if (!(e.buttons & 1)) void playUiEvent("ui_button_soft2_play"); };
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
@@ -490,7 +493,7 @@
           <tbody>
             {#each shown as i (i.itemID)}
               {@const fa = facts[i.typeID]}
-              <tr class:selected={selected.includes(i.itemID)} draggable="true" onclick={(e) => clickItem(i.itemID, e)} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
+              <tr class:selected={selected.includes(i.itemID)} draggable="true" onmouseenter={hoverSound} onclick={(e) => clickItem(i.itemID, e)} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
                 <td class="nm" class:hid={hiddenCols.includes(0)}>{#if viewMode === "details"}<span class="ricon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="md" /></span>{/if}{typeName(i.typeID)}</td>
                 <td class="num" class:hid={hiddenCols.includes(1)}>{i.quantity.toLocaleString("en-US")}</td>
                 <td class:hid={hiddenCols.includes(2)}>{groupName(i.typeID)}</td>
@@ -507,7 +510,7 @@
         </table>
       {:else}
         {#each shown as i (i.itemID)}
-          <div class="item" class:selected={selected.includes(i.itemID)} title={typeName(i.typeID)} role="listitem" draggable="true"
+          <div class="item" class:selected={selected.includes(i.itemID)} onmouseenter={hoverSound} title={typeName(i.typeID)} role="listitem" draggable="true"
             onclick={(e) => clickItem(i.itemID, e)} onkeydown={() => {}} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
             <span class="icon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="lg" />
               {#if !i.singleton}<span class="qty">{fmtAmtShort(i.quantity)}</span>{/if}</span>
