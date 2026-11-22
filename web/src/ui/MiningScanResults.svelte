@@ -13,6 +13,7 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { loadMiningScanSort, miningScanSort } from "./miningScanSort.ts";
   import { clientTexture } from "../play/window.ts";
+  import { bracketIcon } from "../play/brackets.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const flightView = getContext<(() => SpaceView | null) | undefined>("flightSpaceView");
@@ -51,6 +52,11 @@
   const words = $derived(store.words);
   const say = (label: string, own: string, args: Record<string, string | number> = {}) => { const t = $words.templates[label]; return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args as never, { nameOf: () => null } as never)) : own; };
   let collapsed = $state<ReadonlySet<number>>(new Set());
+  let colSort = $state<number | null>(null);
+  let colReversed = $state(false);
+  function sortByColumn(k: number): void { if (colSort === k) colReversed = !colReversed; else { colSort = k; colReversed = false; } }
+  const COLUMNS = [["UI/Common/Ore", "Ore"], ["UI/Common/Quantity", "Quantity"], ["UI/Common/Volume", "Volume"], ["UI/Common/Value", "Value"], ["UI/Common/Distance", "Distance"]] as const;
+  flow.requestWords(COLUMNS.map((c) => c[0]));
   const rows = $derived(miningScanRows($mining.survey, snapshot, facts));
   const groups = $derived.by(() => {
     const byType = new Map<number, typeof rows>();
@@ -59,8 +65,18 @@
       if (group) group.push(row);
       else byType.set(row.typeID, [row]);
     }
+    // the scroll's headers sort each group's entries by their sort_ values (quantity, volume, value, distance; the
+    // name as the label), a second click on the same header the other way
+    const key = (row: (typeof rows)[number]): number | string => colSort === 1 ? row.quantity ?? -1 : colSort === 2 ? row.volume ?? -1
+      : colSort === 3 ? row.value ?? -1 : colSort === 4 ? row.distance ?? Infinity : typeName(row.typeID).toLowerCase();
+    const ordered = (list: typeof rows) => colSort === null ? list : [...list].sort((a, b) => {
+      const x = key(a), y = key(b);
+      const c = typeof x === "string" || typeof y === "string" ? String(x).localeCompare(String(y)) : x - y;
+      return colReversed ? -c : c;
+    });
     return Array.from(byType, ([typeID, rows]) => ({
-      typeID, name: typeName(typeID), rows,
+      typeID, name: typeName(typeID), rows: ordered(rows),
+      icon: bracketIcon({ typeID, groupID: rows[0]?.groupID ?? null, categoryID: 25 }),
       groupID: rows[0]?.groupID ?? Infinity,
       pricePerM3: rows.find(row => row.pricePerM3 !== null)?.pricePerM3 ?? null,
     })).sort((a, b) => {
@@ -101,13 +117,14 @@
   {#if $mining.surveyError}<p role="alert" class="status">{$mining.surveyError}</p>{/if}
   <div class="scan-table">
     <table>
-      <thead><tr><th scope="col">Ore</th><th scope="col">Quantity</th><th scope="col">Volume</th><th scope="col">Value</th><th scope="col">Distance</th></tr></thead>
+      <thead><tr>{#each COLUMNS as [label, own], k (label)}<th scope="col" class:sorted={colSort === k} onclick={() => sortByColumn(k)}>{say(label, own)}{#if colSort === k}<span class="dir" class:down={colReversed}></span>{/if}</th>{/each}</tr></thead>
       {#each groups as group (group.typeID)}
         <tbody data-ore-type={group.typeID}>
           <tr class="ore-group"><th colspan="5" scope="rowgroup">
             <button type="button" aria-expanded={!collapsed.has(group.typeID)} onclick={() => toggleGroup(group.typeID)}>
               <span aria-hidden="true">{collapsed.has(group.typeID) ? "▸" : "▾"}</span>
-              <TypeIcon typeID={group.typeID} name={group.name} size="sm" />
+              <!-- the ListGroup's iconID: the type's bracket icon (bracket.GetBracketIcon) -->
+              {#if group.icon}<img class="group-icon" src={group.icon} alt="" />{:else}<TypeIcon typeID={group.typeID} name={group.name} size="sm" />{/if}
               <span>{group.name} [{group.rows.length}]</span>
               {#if group.pricePerM3 !== null && group.pricePerM3 > 0}<span class="price">{iskRound(group.pricePerM3, false)} / m³</span>{/if}
             </button>
@@ -155,6 +172,10 @@
 </section>
 
 <style>
+  .group-icon { width: 16px; height: 16px; }
+  thead th { cursor: pointer; user-select: none; }
+  thead th .dir { display: inline-block; margin-left: 4px; border: 4px solid transparent; border-bottom-color: currentColor; vertical-align: 2px; }
+  thead th .dir.down { border-bottom-color: transparent; border-top-color: currentColor; vertical-align: -2px; }
   .tgt-icon { display: inline-flex; width: 16px; height: 16px; margin: 0 4px 0 2px; vertical-align: middle; align-items: center; justify-content: center; }
   .tgt-icon img { width: 16px; height: 16px; }
   .tgt-frame { width: 22px; height: 22px; opacity: 0.75; border-style: solid; border-width: 4px; border-image-slice: 4; animation: tgt-shrink 0.4s linear infinite; }
