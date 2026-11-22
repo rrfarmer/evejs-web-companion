@@ -5,7 +5,7 @@
   // what is locked and recalls; a right-click on a row or header offers every order (engage, mine, salvage, return to
   // bay, reconnect, scoop). The orders, the ownership gates and the server's own refusal lines are DronesPanel's
   // (the workspace and mobile keep that panel); this is the same flow with the client's look.
-  import { DRONE_NOT_UNDER_YOUR_CONTROL, NO_DRONE_UNDER_YOUR_CONTROL, panelErrorWords } from "../bridge/refusals.ts";
+  import { DRONE_NOT_UNDER_YOUR_CONTROL, panelErrorWords } from "../bridge/refusals.ts";
   import { droneActivityColor, droneActivityLabel, droneActivityWords, DRONE_STATE_LABELS } from "../bridge/drones.ts";
   import { activeTargetID, activeTargetName } from "../play/activeTarget.ts";
   import { playUiEvent } from "../play/uiAudio.ts";
@@ -555,8 +555,8 @@
       await flow.mineWithDrones(mining, autoTargetID);
     }
   }
-  const groupUnavailable = $derived(outCount > 0 && allDroneIDs.length === 0 ? NO_DRONE_UNDER_YOUR_CONTROL : null);
-  const targetUnavailable = $derived(groupUnavailable ?? (outCount === 0 ? "No drones in space" : null));
+  // DroneGroupHeaderInSpace's Engage, Return and Orbit and Return to Drone Bay stay enabled with a shortcut tooltip
+  // (read through gridcheck: enabled, no hint, LoadShortcutTooltip); with no drone in space they ask nothing.
 
   $effect(() => {
     const refs: NameRef[] = [];
@@ -894,17 +894,17 @@
             <span class="glyph" style:background-image={`url(${ICON.settings})`}></span>
           </button>
         </span>
-        <button type="button" class="command" title={targetUnavailable ?? keyHint(say(MENU_WORDS.engage), "CmdDronesEngage")} disabled={busy || targetUnavailable !== null}
-          onclick={(e) => { e.stopPropagation(); void run(() => primaryAction(allDroneIDs)); }}>
+        <button type="button" class="command" title={keyHint(say(MENU_WORDS.engage), "CmdDronesEngage")} disabled={busy}
+          onclick={(e) => { e.stopPropagation(); if (allDroneIDs.length) void run(() => primaryAction(allDroneIDs)); }}>
           <span class="glyph" style:background-image={`url(${ICON.engage})`}></span>
         </button>
-        <button type="button" class="command" title={groupUnavailable ?? keyHint(say(MENU_WORDS.orbit), "CmdDronesReturnAndOrbit")} disabled={busy || groupUnavailable !== null || outCount === 0}
-          onclick={(e) => { e.stopPropagation(); void run(() => flow.returnDronesAndOrbit(allDroneIDs)); }}>
+        <button type="button" class="command" title={keyHint(say(MENU_WORDS.orbit), "CmdDronesReturnAndOrbit")} disabled={busy}
+          onclick={(e) => { e.stopPropagation(); if (allDroneIDs.length) void run(() => flow.returnDronesAndOrbit(allDroneIDs)); }}>
           <span class="glyph" style:background-image={`url(${ICON.orbit})`}></span>
         </button>
         <span class="sep" aria-hidden="true"></span>
-        <button type="button" class="command" title={groupUnavailable ?? keyHint(say(MENU_WORDS.bay), "CmdDronesReturnToBay")} disabled={busy || groupUnavailable !== null || outCount === 0}
-          onclick={(e) => { e.stopPropagation(); void run(() => flow.recallDrones(allDroneIDs)); }}>
+        <button type="button" class="command" title={keyHint(say(MENU_WORDS.bay), "CmdDronesReturnToBay")} disabled={busy}
+          onclick={(e) => { e.stopPropagation(); if (allDroneIDs.length) void run(() => flow.recallDrones(allDroneIDs)); }}>
           <span class="glyph" style:background-image={`url(${ICON.recall})`}></span>
         </button>
       </span>
