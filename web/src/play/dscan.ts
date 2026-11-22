@@ -4,6 +4,7 @@
 // for each thing it saw ({id, typeID, groupID}). Opened with Alt+D, scanned with V or its button
 // (eveCommands: OpenDirectionalScanner, CmdRefreshDirectionalScan).
 
+import { fittedColumnWidth } from "../ui/scrollColumnFit.ts";
 import { ContextMenu } from "./contextMenu.ts";
 import { playUiEvent } from "./uiAudio.ts";
 import { PlayWindow, WINDOW_ACTION_WORDS, clientTexture } from "./window.ts";
@@ -380,7 +381,6 @@ export class DScanWindow {
    */
   private columnScaling(): void {
     const KEY = "evejs.ui.columnWidths.scanner_dirscroll";
-    const MARGIN = 8;
     const read = (): Record<string, number> => { try { const v = JSON.parse(localStorage.getItem(KEY) ?? "{}") as unknown; return v && typeof v === "object" ? v as Record<string, number> : {}; } catch { return {}; } };
     const keep = (v: Record<string, number>) => { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch { /* this visit only */ } };
     const setWidth = (th: HTMLElement, w: number) => { th.style.width = th.style.minWidth = th.style.maxWidth = `${w}px`; };
@@ -411,12 +411,7 @@ export class DScanWindow {
       });
       grip.addEventListener("dblclick", (e) => {
         e.stopPropagation();
-        const index = [...th.parentElement!.children].indexOf(th);
-        const range = document.createRange();
-        const textWidth = (el: Element | undefined | null) => { if (!el || !el.textContent?.trim()) return 0; range.selectNodeContents(el); return range.getBoundingClientRect().width; };
-        let widest = textWidth(th.querySelector("button"));
-        for (const tr of this.tbody?.rows ?? []) widest = Math.max(widest, textWidth(tr.cells[index]));
-        const w = Math.max(24, Math.ceil(widest) + MARGIN * 2);
+        const w = fittedColumnWidth(th as HTMLTableCellElement);
         setWidth(th, w);
         keep({ ...read(), [column]: w });
       });
