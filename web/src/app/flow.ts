@@ -8124,6 +8124,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     if (method === "OnGodmaShipEffect") {
       applyCycleNotification(args);
+      // shipUI / hudLayer.ProcessShipEffect: an effect that ends with an error puts that dialog up
+      // (prompt_player_fsd_dialog(error[0], error[1])) - a laser stopped on a full hold (MiningDronesDeactivatedCargoHoldNowFull),
+      // on an emptied rock (MiningDronesDeactivatedAsteroidEmpty), a launcher out of charges (NoCharges)
+      const effectError = args[9];
+      const said = Array.isArray(effectError) && typeof effectError[0] === "string" ? remoteDialogOf(effectError) : null;
+      if (said !== null) sayDialog(said.dialog, said.values, said.fallback, said.fallbackType);
       // ⚠ THE SAFETY NET UNDER THE ROUND COUNTS. A repeating weapon sends one
       // start and one stop, not a frame per shot, so the counts ride on the
       // quantity pushes below. When a gun that holds charges STOPS — it ran
