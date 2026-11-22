@@ -10,6 +10,7 @@ import type { ClientStore } from "../store/clientStore.ts";
 import type { AppFlow } from "../app/flow.ts";
 import { authoritativeFleetMemberCharacterIDs } from "../bridge/fleetCenter.ts";
 import { compressionFacilities } from "../space/compression.ts";
+import { playUiEvent } from "../play/uiAudio.ts";
 
 let compressible: Promise<ReadonlySet<number>> | null = null;
 /** itemcompression.is_compressible_type: the client's compressibleTypes (compressibleTypes.json). */
@@ -39,7 +40,8 @@ export async function compressItemsInSpace(store: ClientStore, flow: AppFlow, it
   let some = false, failed = false;
   for (const item of items) {
     if (!facility) { failed = true; continue; }
-    try { if (await flow.compressItemAt(item.itemID, facility.itemID)) some = true; else failed = true; } catch { failed = true; }
+    // a UserError (put up by the flow) ends the loop with nothing more said, as the client's raise does
+    try { if (await flow.compressItemAt(item.itemID, facility.itemID)) some = true; else failed = true; } catch { await flow.loadMiningHolds().catch(() => {}); return; }
   }
   if (failed) {
     const text = some
@@ -47,5 +49,7 @@ export async function compressItemsInSpace(store: ClientStore, flow: AppFlow, it
       : word("UI/Compression/FailureToCompressAny", "No compression facility in range could compress those items.");
     flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text);
   }
+  // mining_audio_events.ORE_COMPRESSED where any was compressed
+  if (some) void playUiEvent("mining_ore_compressed");
   await flow.loadMiningHolds().catch(() => {});
 }

@@ -24,7 +24,7 @@ import { fittingSkillRequirements, fittingSkillWarning, type FittingSkillRequire
 import { FREIGHT_BAYS, planLootTransfers } from "../bridge/bayRouting.ts";
 import { holdFreeM3 } from "../bridge/holdFit.ts";
 import { dispatchSupportCollectionAction } from "./supportCollectionFlow.ts";
-import { compressItemInSpace } from "../bridge/compressionWrites.ts";
+import { compressItemInSpace, decodeCompressed } from "../bridge/compressionWrites.ts";
 import { NO_ROOM_CODE } from "../nav/refusalLedger.ts";
 import { confirmControlledDronesHome, controlledFlightSettled } from "../nav/controlledDroneStop.ts";
 import { runFleetParking, parkingScript, type FleetParkingPolicy } from "../nav/fleetParking.ts";
@@ -19717,9 +19717,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     await loadMiningHolds().catch(() => {});
   }
+  // itemCompression.CompressItemInSpace: what was made told to the pilot (ItemCompression_CompressedItemInSpace with the
+  // source type, the output type and quantity); the call's UserError put up as the client's handler puts it up, and
+  // thrown on, as the client's raise ends CompressItems there
   async function compressItemAt(itemID: number, facilityBallID: number): Promise<boolean> {
-    const result = await compressItemInSpace(bridgeDo, itemID, facilityBallID);
-    return result !== null && result !== undefined;
+    let result;
+    try {
+      result = await compressItemInSpace(bridgeDo, itemID, facilityBallID);
+    } catch (error) {
+      if (!isSessionLost(error)) sayRefusalDialog(error, flightRefusalWords(error));
+      throw error;
+    }
+    if (result === null || result === undefined) return false;
+    const made = decodeCompressed(result);
+    if (made) sayDialog("ItemCompression_CompressedItemInSpace", { type: "dict", entries: [["sourceTypeID", made.sourceTypeID], ["outputTypeID", made.outputTypeID], ["outputQuantity", made.outputQuantity]] },
+      `Compressed into ${made.outputQuantity} units.`);
+    return true;
   }
   async function corporationAllianceID(corporationID: number): Promise<number | null> {
     return corporationPublicInfoOf(await bridgeAsk("corpmgr", "GetPublicInfo", [corporationID]))?.allianceID ?? null;
