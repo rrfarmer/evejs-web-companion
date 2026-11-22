@@ -986,7 +986,8 @@
   .caret { flex: none; width: 16px; height: 16px; margin-right: 4px; background: #fff; mask-size: 16px 16px; -webkit-mask-size: 16px 16px; mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat; }
   .sec .commands { opacity: 0; visibility: hidden; transition: opacity .1s, visibility .1s; }
   .sec:hover .commands, .sec .commands:has(.menu) { opacity: 1; visibility: visible; }
-  .none { margin: 0; padding: 4px 6px; color: rgba(255, 255, 255, 0.5); }
+  /* NoDroneInBayEntry (read through gridcheck): a 24 px entry, its TextBody 8 in and 3 down on an 18 px line */
+  .none { margin: 0; box-sizing: border-box; height: 24px; padding: 3px 8px; line-height: 18px; color: rgba(255, 255, 255, 0.5); }
   .lbl { font-size: 14px; color: rgba(255, 255, 255, 0.9); }
   .commands, .row-buttons { display: flex; gap: 2px; }
   /* DroneEntry.buttonCont: hidden, faded in (0.1 s) while the mouse is over the entry; left of the gauges */
