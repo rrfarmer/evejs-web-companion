@@ -109,6 +109,7 @@
   // treeData.TreeDataShip.GetChildren: the ship's bays in this order (the drone bay first, then the holds as its checks run)
   const TREE_ORDER = ["drone", "fighter", "shipMaintenance", "fleet", "fuel", "ore", "asteroid", "ice", "gas", "mineral", "salvage", "ship", "smallShip",
     "mediumShip", "largeShip", "industrialShip", "ammo", "commandCenter", "planetary", "quafe", "corpse", "booster", "subsystem", "mobileDepot", "colony", "expedition"];
+  const JETTISONABLE_FLAGS: ReadonlySet<number> = new Set([5, 134, 136, 143, 149, 182, 135, 181, 185, 188]);
   const treeRank = (key: string) => { const i = TREE_ORDER.indexOf(key); return key === "cargo" ? -1 : i < 0 ? TREE_ORDER.length : i; };
   const droneBayCapacity = $derived(($fitting.shipAttributes?.[283] as number | undefined) ?? null);
   const bays = $derived.by((): Bay[] => {
@@ -377,10 +378,15 @@
     // (items in a can or a wreck are not in the ship: no Compress, and no Jettison - IsJettisonable's jettisonableFlags,
     // read through gridcheck on Tritanium in a jetcan: Show Info | market | Compare)
     const inShip = !(fromBay === "container" || fromBay.startsWith("temp:"));
+    // itemCheckers.IsJettisonable: a hold among inventorycommon.const.jettisonableFlags (cargo, the mining, mineral,
+    // ammo, planetary, asteroid, gas, ice, colony resources and expedition holds - not fuel, fleet, maintenance or the
+    // ship holds), and no ship
+    const bayFlag = fromBay === "cargo" ? CARGO_HOLD.flag : SHIP_HOLDS.find((h) => h.bayKey === fromBay)?.flag ?? null;
+    const jettisonable = bayFlag !== null && JETTISONABLE_FLAGS.has(bayFlag) && items.every((i) => i.categoryID !== 6);
     if (inShip && one && compressible.has(one.typeID)) entries.push({ label: word(MENU.compress, "Compress"), run: () => void compressInSpace(items) }, 14);
     // OfferCompareButton: IsComparible (inventorycommon.const.compareCategories) with dogma attributes to show
     if (items.every((i) => i.categoryID !== null && COMPARE_CATEGORIES.includes(i.categoryID))) entries.push({ label: count(word(MENU.compare, "Compare"), items.length), run: () => typeCompareTarget.ask(items.map((i) => ({ typeID: i.typeID, itemID: i.itemID }))) }, 14);
-    if (inShip) entries.push(fromBay === "drone"
+    if (fromBay === "drone" || jettisonable) entries.push(fromBay === "drone"
       ? { label: count(word(MENU.launch, "Launch Drone", { numDrones: 1 }), units), run: () => void act(() => flow.launchDrones(ids)) }
       : { label: count(word(MENU.jettison, "Jettison"), units), run: () => void (async () => {
         // invItemFunctions.Jettison: ConfirmJettison (yes / no, a yes kept by its suppress box) before the ship's Jettison
