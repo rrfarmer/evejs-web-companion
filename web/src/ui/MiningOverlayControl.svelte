@@ -4,6 +4,8 @@
   import type { FlightMiningSurvey } from "../play/miningSurveyWave.ts";
   import { hudSettingNow } from "../store/hudSettings.ts";
   import { plainText } from "../bridge/clientWords.ts";
+  import { ContextMenu } from "../play/contextMenu.ts";
+  import { onDestroy } from "svelte";
   let { store, survey, openResults, openLedger, disable, requestWords }: {
     store: ClientStore;
     survey: FlightMiningSurvey;
@@ -57,9 +59,20 @@
     void survey.scan().catch(() => {});
   }
 
+  /**
+   * MiningScannerButton.GetMenu as a MenuData: Open Scan Results Window (eveicon.open_window), Open Mining Ledger
+   * (eveicon.mining) and, with the overlay on, a separator and Disable (eveicon.close) - the client's context menu.
+   */
+  const optionsMenu = new ContextMenu();
+  onDestroy(() => optionsMenu.close());
   function showOptions(event: MouseEvent) {
     event.preventDefault();
-    menu = !menu;
+    const icon = (n: string) => `res:/UI/Texture/eveicon/system_icons/${n}_16px.png`;
+    optionsMenu.open(event.clientX, event.clientY, [
+      { label: say("UI/Mining/OpenScanResultsWindow", "Open Scan Results Window"), icon: icon("open_window"), run: openResults },
+      { label: say("UI/Mining/OpenMiningLedger", "Open Mining Ledger"), icon: icon("mining"), run: openLedger },
+      ...(active || $busy ? [null, { label: say("UI/Mining/DisableMiningOverlay", "Disable Mining Survey Overlay"), icon: icon("close"), run: disable }] : []),
+    ]);
   }
 </script>
 
@@ -69,17 +82,6 @@
       onmouseenter={tipOn} onmouseleave={tipOff} disabled={miningScanInWarp($space.snapshot)}>
       <span class="pulse"></span><img src={glyph} alt="" width="16" height="16" />
     </button>
-    {#if menu}
-      <!-- MiningScannerButton.GetMenu: the results window, the ledger, and with the overlay on, a line and Disable -->
-      <div class="flight-mining-actions">
-        <button type="button" onclick={() => { menu = false; openResults(); }}>{say("UI/Mining/OpenScanResultsWindow", "Open Scan Results Window")}</button>
-        <button type="button" onclick={() => { menu = false; openLedger(); }}>{say("UI/Mining/OpenMiningLedger", "Open Mining Ledger")}</button>
-        {#if active || $busy}
-          <span class="sep" role="separator"></span>
-          <button type="button" onclick={() => { menu = false; disable(); }}>{say("UI/Mining/DisableMiningOverlay", "Disable Mining Survey Overlay")}</button>
-        {/if}
-      </div>
-    {/if}
     {#if tip}
       <!-- MiningScannerButton.LoadTooltipPanel: the command's tooltip (CmdMiningScan, Tooltips/Hud/MiningScan, no
            shortcut by default), "Ore Value" over a 200 x 8 gradient (ULTRAMARINE_BLUE, AIR_TURQUOISE, SAND_YELLOW) with
@@ -104,17 +106,8 @@
       {$busy ? "Scanning…" : "Mining Scan"}
     </button>
     <button type="button" aria-label="Mining scan options" aria-expanded={menu}
-      onclick={() => { menu = !menu; }}
+      onclick={showOptions}
       oncontextmenu={showOptions}>⋯</button>
-    {#if menu}
-      <div class="flight-mining-actions">
-        <button type="button" onclick={() => { menu = false; openResults(); }}>Open Scan Results</button>
-        <button type="button" onclick={() => { menu = false; openLedger(); }}>Open Mining Ledger</button>
-        {#if active || $busy}
-          <button type="button" onclick={() => { menu = false; disable(); }}>Disable Mining Overlay</button>
-        {/if}
-      </div>
-    {/if}
   </div>
 {/if}
 
