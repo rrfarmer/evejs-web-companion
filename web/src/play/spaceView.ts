@@ -308,6 +308,8 @@ export interface SpaceActions {
   droneFleetOrder?(kind: "assist" | "guard", charID: number, droneIDs: readonly number[]): void;
   /** Use Fitting Service: the fitting window (CmdOpenFitting). */
   openFitting?(): void;
+  /** menuFunctions.SetName of a ship: the ship naming window (prompt_rename_ship) for one's own active ship. */
+  renameShip?(shipID: number): void;
   /** menuFunctions.SetName: the name asked (NamePopup) for one's own thing in space, with what it is called now. */
   setName?(itemID: number, current: string): void;
   /** fleetSvc.GetCurrentFleetBroadcasts' things (the overview's Move entries with broadcasts to top). */
@@ -4742,6 +4744,8 @@ export class SpaceView {
         { path: "UI/Inflight/ResetCamera", label: word("UI/Inflight/ResetCamera", "Look At My Ship"), run: () => this.focusOn(null) },
         null,
         showInfo,
+        // OfferSetName (one's own specific thing; a ship's through the ship naming window), CONFIGGROUP
+        ...(this.actions.renameShip ? [null, { path: "UI/Commands/SetName", label: word("UI/Commands/SetName", "Set Name"), run: () => this.actions.renameShip?.(id) }] : []),
         ...(holds.length ? [null, ...holds] : []),
         ...tail,
       ];

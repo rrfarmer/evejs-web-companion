@@ -36580,12 +36580,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // the hangar where it is docked): its row of cfg.evelocations primed and its name the field's start, the ship
       // naming window asked with no Do Not Ask Again, and on a name, SetLabel on the inventory manager. Later is
       // nothing. The new name comes back as the ship's row (OnCfgDataChanged), which the page's names follow.
+      // (in space, the active ship: celestialCheckers.OfferSetName - one's own specific thing - from its space menu)
       const row = store.inventory.get().hangar.rows.find((each) => each.itemID === shipID) ?? null;
-      if (row === null || !row.singleton) return;
+      const flying = store.space.get().snapshot?.ship ?? null;
+      const typeID = row !== null && row.singleton ? row.typeID : flying !== null && flying.itemID === shipID ? flying.typeID ?? null : null;
+      if (typeID === null) return;
       const key = nameKey("evelocation", shipID);
       const known = await api.resolveNames([{ kind: "evelocation", id: shipID }], callOptions).catch(() => null);
       const current = known?.names[key] ?? nameCache.get(key) ?? "";
-      const name = await askShipName(row.typeID, typeof current === "string" ? current : "", false);
+      const name = await askShipName(typeID, typeof current === "string" ? current : "", false);
       if (!name) return;
       await runMutation(async () => {
         await setLabelCall(bridgeDo, shipID, name);
