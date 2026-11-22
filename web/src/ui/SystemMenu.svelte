@@ -114,6 +114,13 @@
   let bracketMs = $state(bracketListDelay());
   let compactDocked = $state(bracketListCompact(false));
   let compactFloating = $state(bracketListCompact(true));
+  /** Disable Emergency Warp: a server setting (characterSettingsConsts DISABLE_EMERGENCY_WARP), read once the panel opens and saved
+   *  as the client saves it, str(int(checked)) (OnCheckBoxChange). Null until read. */
+  let emergencyWarpOff = $state<boolean | null>(null);
+  $effect(() => {
+    if (panel !== "gameplay" || emergencyWarpOff !== null) return;
+    void flow.readCharacterSetting("emergencyWarpDisabled").then((v) => { emergencyWarpOff = (parseInt(v ?? "0", 10) || 0) !== 0; }).catch(() => { emergencyWarpOff = false; });
+  });
   let settings = $state<GfxSettings>({ ...gfx() });
   let fullScreen = $state(typeof document !== "undefined" && document.fullscreenElement !== null);
   onMount(() => {
@@ -396,6 +403,8 @@
           <!-- bracketmenu_docked (False), bracketmenu_floating (True) -->
           <label class="sm-check"><input type="checkbox" checked={compactDocked} onchange={(ev) => { compactDocked = ev.currentTarget.checked; setBracketListCompact(false, compactDocked); }} /> {word("UI/SystemMenu/GeneralSettings/Inflight/CompactBracketListWhenSnapped", "Compact Bracket List When Snapped")}</label>
           <label class="sm-check"><input type="checkbox" checked={compactFloating} onchange={(ev) => { compactFloating = ev.currentTarget.checked; setBracketListCompact(true, compactFloating); }} /> {word("UI/SystemMenu/GeneralSettings/Inflight/CompactBracketListWhenNotSnapped", "Compact Bracket List When Not Snapped")}</label>
+          <label class="sm-check"><input type="checkbox" disabled={emergencyWarpOff === null} checked={emergencyWarpOff === true}
+            onchange={(ev) => { const on = ev.currentTarget.checked; emergencyWarpOff = on; void flow.saveCharacterSetting("emergencyWarpDisabled", on ? "1" : "0").catch(() => { emergencyWarpOff = !on; }); }} /> {word("UI/SystemMenu/GeneralSettings/Inflight/DisableEmergencyWarp", "Disable Emergency Warp")}</label>
         {:else if panel === "camera"}
           <h3 class="first">{word(WORDS.cameraHeader, "In-Space Camera Settings")}</h3>
           <label class="sm-check" title={word(WORDS.dynamicCameraHint, "")}><input type="checkbox" checked={settings.dynamicCameraMovement}

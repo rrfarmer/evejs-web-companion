@@ -13,7 +13,7 @@ export const RADIAL_BUTTON_OPTIONS: readonly (readonly [string, number])[] = [
 export const RADIAL_SETTING_WORDS: readonly string[] = [
   "UI/SystemMenu/GeneralSettings/Inflight/ExpandActionMenu", "UI/SystemMenu/GeneralSettings/Inflight/RadialMenuDelay",
   "UI/SystemMenu/GeneralSettings/Inflight/BracketListDelay", "UI/SystemMenu/GeneralSettings/Inflight/CompactBracketListWhenSnapped",
-  "UI/SystemMenu/GeneralSettings/Inflight/CompactBracketListWhenNotSnapped", "UI/SystemMenu/GeneralSettings/Inflight/NoBracketListDelay", "UI/SystemMenu/GeneralSettings/Inflight/LongBracketListDelay",
+  "UI/SystemMenu/GeneralSettings/Inflight/CompactBracketListWhenNotSnapped", "UI/SystemMenu/GeneralSettings/Inflight/DisableEmergencyWarp", "UI/SystemMenu/GeneralSettings/Inflight/NoBracketListDelay", "UI/SystemMenu/GeneralSettings/Inflight/LongBracketListDelay",
   ...RADIAL_BUTTON_OPTIONS.map((o) => o[0]),
 ];
 const BTN = "evejs.play.actionmenuBtn", DELAY = "evejs.play.actionMenuExpandTime";
