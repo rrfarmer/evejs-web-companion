@@ -2205,6 +2205,10 @@ export class SpaceView {
         : { key: "approach", title: "Approach", icon: icon("approach"), run: () => this.actions.approach(id) },
       { key: "warp", title: "Warp To Within 0 m", icon: icon("warp_to"), run: () => this.actions.warpTo(id) },
     ];
+    // a drone: Scoop to Drone Bay (selectedItemScoopToDroneBay, ICON_DRONE_RETURN 44_32_1), greyed where the menu has it not (one
+    // under the pilot's control, droneCheckers.IsScoopableDrone)
+    if (e.categoryID === 18) out.push({ key: "scoop", title: this.actions.word?.("UI/Drones/ScoopDroneToBay") ?? "Scoop to Drone Bay", icon: clientTexture("res:/UI/Texture/icons/44_32_1.png"),
+      run: async () => this.actions.droneOrder?.("scoop", [id]) });
     if (e.categoryID === 6 && !e.isSelf) out.push({ key: "board", title: this.actions.word?.("UI/Inflight/BoardShip") ?? "Board Ship", icon: icon("board"), run: async () => {} });
     if (this.overview.groupOf(e) === JUMP_BRIDGE_GROUP) {
       const jump = this.options.jumpBridge;
@@ -2260,7 +2264,7 @@ export class SpaceView {
     const available = this.menuPaths(e);
     const PATH: Record<string, string> = { approach: "UI/Inflight/ApproachObject", align: "UI/Inflight/AlignTo", warp: "UI/Inflight/Submenus/WarpToWithin",
       dock: "UI/Inflight/DockInStation", board: "UI/Inflight/BoardShip", orbit: "UI/Inflight/OrbitObject", keep: "UI/Inflight/Submenus/KeepAtRange", lock: "UI/Inflight/LockTarget",
-      unlock: "UI/Inflight/UnlockTarget", look: "UI/Inflight/LookAtObject", track: "UI/Inflight/SetAsCameraInterest", info: "UI/Commands/ShowInfo" };
+      unlock: "UI/Inflight/UnlockTarget", look: "UI/Inflight/LookAtObject", track: "UI/Inflight/SetAsCameraInterest", info: "UI/Commands/ShowInfo", scoop: "UI/Drones/ScoopDroneToBay" };
     if (e.kind === "stargate") PATH.jump = "UI/Inflight/Jump";
     // the menu's reasonsWhyNotAvailable the checkers give: IsValidForKeepAtRange (CannotKeepInRange with the group's name:
     // an asteroid, a cloud, a mining drone, a container, a station, a stargate, a wreck) and IsWithinTargettingRange
