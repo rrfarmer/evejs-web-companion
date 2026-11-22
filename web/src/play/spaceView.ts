@@ -1810,14 +1810,22 @@ export class SpaceView {
     // and its context menu: DroneInSpaceEntry.GetMenu - the window's own entries (Move Drone) with CelestialMenu over the
     // drone, the window's merged into the drone group by menuHierarchy
     const menuFor = (ev: Event) => {
-      const d = (ev as CustomEvent<{ itemID: number; itemIDs?: number[]; x: number; y: number; droneExtra?: ContextEntry[]; tail?: (ContextEntry | null)[] }>).detail;
+      const d = (ev as CustomEvent<{ itemID: number; itemIDs?: number[]; x: number; y: number; droneExtra?: ContextEntry[]; tail?: (ContextEntry | null)[]; beforeLogoff?: ContextEntry[] }>).detail;
       const e = d ? this.snapshot?.entities.find((x) => x.itemID === d.itemID) : null;
       if (!d || !e) return;
       this.radial.close();
       const ids = (d.itemIDs ?? [d.itemID]).filter((id) => this.snapshot?.entities.some((x) => x.itemID === id));
       // a window's own entries after the object's menu, a group of their own (an inventory tree entry's TreeDataInv and
       // TreeViewEntry.GetMenu: Open in new window, then a line and Close)
-      const entries = ids.length > 1 ? this.mergedDroneEntries(e, ids, d.droneExtra ?? []) : this.contextEntries(e, d.droneExtra ?? []);
+      let entries = ids.length > 1 ? this.mergedDroneEntries(e, ids, d.droneExtra ?? []) : this.contextEntries(e, d.droneExtra ?? []);
+      // a tree entry's own entries that the client sorts ahead of the ship's destructive ones (the ship's cargo entry's Open
+      // in new window, before Log Off Safely / Eject / Self-Destruct), a group of their own
+      if (d.beforeLogoff?.length) {
+        const LAST = new Set(["UI/Inflight/SafeLogoff", "UI/Inflight/EjectFromShip", "UI/Inflight/SelfDestructShipOrPod", "UI/Inflight/AbortSelfDestruct"]);
+        const at = entries.findIndex((x) => x !== null && LAST.has(x.path ?? ""));
+        const cut = at < 0 ? entries.length : at > 0 && entries[at - 1] === null ? at - 1 : at;
+        entries = [...entries.slice(0, cut), null, ...d.beforeLogoff, ...entries.slice(cut)];
+      }
       this.contextMenu.open(d.x, d.y, d.tail?.length ? [...entries, null, ...d.tail] : entries);
     };
     addEventListener("evejs:open-space-menu", menuFor);

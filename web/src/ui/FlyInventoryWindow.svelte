@@ -276,7 +276,10 @@
     e.preventDefault();
     e.stopPropagation();
     if (!ship || !$space.snapshot?.ship) return;
-    dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID: ship.itemID, x: e.clientX, y: e.clientY, tail: [] } }));
+    // TreeDataInv.GetMenu's Open in new window: for the ship's cargo, Inventory.OpenOrShow(('ShipCargo', shipID),
+    // usePrimary=False) shows the Active ship window (read through gridcheck), this window: the cargo shown in it
+    dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID: ship.itemID, x: e.clientX, y: e.clientY, tail: [],
+      beforeLogoff: [{ label: word("UI/Inventory/OpenInNewWindow", "Open in new window (SHIFT+Click)"), run: () => { current = "cargo"; } }] } }));
   }
   function bayNodeMenu(e: MouseEvent, key: string, label: string): void {
     e.preventDefault();
