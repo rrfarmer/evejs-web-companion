@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getContext } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
-  import { miningScanInWarp, miningScanRows, MINING_SCANNER_UPGRADE, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
+  import { miningScanInWarp, miningScanRows, MINING_SCANNER_UPGRADE, roundIsk, type MiningScanTypeFacts } from "../bridge/miningScanResults.ts";
   import type { SpaceView } from "../play/spaceView.ts";
   import type { FlightMiningSurvey } from "../play/miningSurveyWave.ts";
   import { fmtDist } from "../space/overview.ts";
@@ -25,6 +25,17 @@
   const inWarp = $derived(miningScanInWarp(snapshot));
   const upgradeTypeID = 444;
   const format = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+  /**
+   * The client's formatting of the scan's tier 2 rows (mining_scan_results_window get_entries_tier_2, read through
+   * gridcheck): FmtISKAndRound(price x quantity) - RoundISK's three figures, two places ('766,000,000.00 ISK'); the
+   * volume ValueAndUnit of FmtAmt(volume, showFraction=0) - the whole part, not rounded - and the unit's 'm3'
+   * ('22,999 m3' of 22,999.95); the group's post text EstimatedPricePerSquareMeter of FmtISKAndRound(per m3, False),
+   * whole ('52 ISK / m³'), and its label LabelWithLength 'Scordite [38]'.
+   */
+  const whole = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+  const cents = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const iskRound = (v: number, places: boolean) => { const r = Math.round(roundIsk(v) * 100) / 100; return `${places ? cents.format(r) : whole.format(Math.round(r))} ISK`; };
+  const volumeText = (v: number) => `${whole.format(Math.trunc(v))} m3`;
   const typeName = (id: number) => resolvedName($names.resolved, "type", id, `Type ${id}`);
 
   let busy = $state(false);
@@ -94,8 +105,8 @@
             <button type="button" aria-expanded={!collapsed.has(group.typeID)} onclick={() => toggleGroup(group.typeID)}>
               <span aria-hidden="true">{collapsed.has(group.typeID) ? "▸" : "▾"}</span>
               <TypeIcon typeID={group.typeID} name={group.name} size="sm" />
-              <span>{group.name} ({group.rows.length})</span>
-              {#if group.pricePerM3 !== null}<span class="price">{format.format(group.pricePerM3)} ISK/m³</span>{/if}
+              <span>{group.name} [{group.rows.length}]</span>
+              {#if group.pricePerM3 !== null && group.pricePerM3 > 0}<span class="price">{iskRound(group.pricePerM3, false)} / m³</span>{/if}
             </button>
           </th></tr>
           {#if !collapsed.has(group.typeID)}
@@ -110,8 +121,8 @@
                   {:else}{group.name}{/if}
                 </td>
                 <td>{row.quantity === null ? "—" : row.quantity.toLocaleString()}</td>
-                <td>{row.volume === null ? "—" : `${format.format(row.volume)} m³`}</td>
-                <td>{row.value === null ? "—" : `${format.format(row.value)} ISK`}</td>
+                <td>{row.volume === null ? "—" : volumeText(row.volume)}</td>
+                <td>{row.value === null ? "-" : iskRound(row.value, true)}</td>
                 <td>{fmtDist(row.distance)}</td>
               </tr>
             {/each}

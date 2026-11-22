@@ -165,7 +165,7 @@
   /** FmtISKAndRound(v, showFractionsAlways): rounded as RoundISK, with two places always or only where it has a fraction. */
   const iskRound = (v: number, always: boolean): string => {
     const r = Math.round(roundIsk(v) * 100) / 100; // (12,677,700 rounds to 12700000.000000002)
-    return `${r.toLocaleString("en-US", always || !Number.isInteger(r) ? { minimumFractionDigits: 2, maximumFractionDigits: 2 } : { maximumFractionDigits: 0 })} ISK`;
+    return `${always ? r.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Math.round(r).toLocaleString("en-US")} ISK`;
   };
   /** eveformat.volume: two places where a tenth has a fraction, one where the whole has, else none; no grouping. */
   const volText = (v: number): string => {
