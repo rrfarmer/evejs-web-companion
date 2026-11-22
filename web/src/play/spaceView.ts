@@ -319,6 +319,8 @@ export interface SpaceActions {
   inFleet?(): boolean;
   /** The pilot's fleet's ID, or null (Michelle.HaveLootRight's fleet). */
   fleetID?(): number | null;
+  /** menuFunctions.AbandonLoot (one) / AbandonAllLoot (all of its group the pilot may loot). */
+  abandonLoot?(itemID: number, all: boolean): void;
   /** starmap GetDestinationPath()[0] and GetWaypoints()[0], for the route's colour on its gate or station. */
   routeNext?(): { nextSystemID: number | null; firstWaypoint: number | null };
   /** npcs.client.entitystandings.get_standing_between_npc_and_player: the pilot's standing (with its skill bonus) with the NPC owner's faction. */
@@ -413,6 +415,19 @@ function npcColour(e: Entity): string {
   const standing = npcStandingOf?.(e.ownerID ?? null) ?? 0;
   const colour = hostile !== null && standing <= hostile ? "rgb(255, 26, 26)" : friendly === null || standing >= friendly ? "rgb(0, 102, 255)" : "#ffffff";
   return colour !== "rgb(255, 26, 26)" && attackingMe.has(e.itemID) ? "rgb(255, 26, 26)" : colour;
+}
+
+type LootRights = { ownerID: number | null; corpID: number | null; fleetID: number | null; abandoned: boolean };
+const lootRightsField = (e: Entity): LootRights | null => (e as Entity & { lootRights?: LootRights | null }).lootRights ?? null;
+/** Michelle.IsAbandoned. */
+function abandonedOf(e: Entity): boolean { return lootRightsField(e)?.abandoned === true; }
+/** Michelle.HaveLootRight: abandoned, or the pilot, its player corporation or its fleet named. */
+function lootRightOf(e: Entity): boolean {
+  const rights = lootRightsField(e);
+  if (!rights) return false;
+  return rights.abandoned || (lootWho.characterID !== null && rights.ownerID === lootWho.characterID)
+    || (lootWho.corporationID !== null && !isNpcCorporation(lootWho.corporationID) && (rights.ownerID === lootWho.corporationID || rights.corpID === lootWho.corporationID))
+    || (lootWho.fleetID !== null && rights.fleetID === lootWho.fleetID);
 }
 
 /** A CSS colour (#rrggbb or rgb(...)) with its channels multiplied. */
@@ -4826,6 +4841,15 @@ export class SpaceView {
         : { path: "UI/Inflight/MarkWreckViewed", label: word("UI/Inflight/MarkWreckViewed", "Mark Wreck as Viewed"), run: () => markWreckViewed(id, true) });
     }
     if (droneAbandon) out.push(null, droneAbandon);
+    // OfferAbandonWreck (a wreck the pilot has the loot right to, not abandoned) / OfferAbandonCargo (a cargo container
+    // the pilot has the loot right to): the one, and all of its group nearby (read through gridcheck on the client's own
+    // wreck: ... Mark Wreck as Viewed | Abandon Wreck, Abandon All Nearby Wrecks)
+    if ((e.kind === "wreck" || e.groupID === 12) && this.actions.abandonLoot && lootRightOf(e) && !(e.kind === "wreck" && abandonedOf(e))) {
+      const wreck = e.kind === "wreck";
+      out.push(null,
+        { path: wreck ? "UI/Inflight/AbandonWreack" : "UI/Inflight/AbandonCargo", label: word(wreck ? "UI/Inflight/AbandonWreack" : "UI/Inflight/AbandonCargo", wreck ? "Abandon Wreck" : "Abandon Cargo"), run: () => this.actions.abandonLoot?.(id, false) },
+        { path: wreck ? "UI/Inflight/AbandonAllWrecks" : "UI/Inflight/AbandonAllCargo", label: word(wreck ? "UI/Inflight/AbandonAllWrecks" : "UI/Inflight/AbandonAllCargo", wreck ? "Abandon All Nearby Wrecks" : "Abandon All Nearby Cargo"), run: () => this.actions.abandonLoot?.(id, true) });
+    }
     // _CelestialMenu: menuEntries += [None], then CancelLockTarget (targetSvc.CancelAddTarget) while the lock is being made
     if (lockingNow) out.push(null, { path: "UI/Inflight/CancelLockTarget", label: word("UI/Inflight/CancelLockTarget", "Cancel Locking Attempt"), run: run("Cancel Locking Attempt", () => this.actions.unlock(id)) });
     // an empty group draws no line: no two lines together, none first or last

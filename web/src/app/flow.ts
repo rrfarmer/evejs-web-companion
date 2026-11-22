@@ -26,6 +26,7 @@ import { holdFreeM3 } from "../bridge/holdFit.ts";
 import { dispatchSupportCollectionAction } from "./supportCollectionFlow.ts";
 import { compressItemInSpace, decodeCompressed } from "../bridge/compressionWrites.ts";
 import { NO_ROOM_CODE } from "../nav/refusalLedger.ts";
+import { lootRightsGrant } from "../nav/lootableContainers.ts";
 import { confirmControlledDronesHome, controlledFlightSettled } from "../nav/controlledDroneStop.ts";
 import { runFleetParking, parkingScript, type FleetParkingPolicy } from "../nav/fleetParking.ts";
 import { iceHoldFraction, iceMiningType, scriptMinesScannerSites, siteMiningFitRefusal, scriptScannerSites } from "../nav/miningSite.ts";
@@ -4387,6 +4388,12 @@ export interface AppFlow {
    * decline when nothing actually moved — never a phantom success.
    */
   jettisonItems(itemIDs: readonly number[]): Promise<void>;
+  /**
+   * menuFunctions.AbandonLoot / AbandonAllLoot: ConfirmAbandonLoot or ConfirmAbandonLootAll ({type} the thing's group, a
+   * yes kept by its suppress box), then the ballpark's CmdAbandonLoot of the one, or of every one of its group the pilot
+   * has the loot right to and is not abandoned already.
+   */
+  abandonLoot(itemID: number, all: boolean): Promise<void>;
   /**
    * ⚠ THE INVERSE OF JETTISON — empty a wreck or a can ON THE GRID into this
    * hull, each stack going to the bay that wants it (ore to the ore hold, gas to
@@ -27515,6 +27522,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * failure mode this whole client exists to stop looking like a success. The
    * hold is read again after, for the window.
    */
+  async function abandonLoot(itemID: number, all: boolean): Promise<void> {
+    const entities = store.space.get().snapshot?.entities ?? [];
+    const group = entities.find((entity) => entity.itemID === itemID)?.groupID ?? null;
+    const dialog = all ? "ConfirmAbandonLootAll" : "ConfirmAbandonLoot";
+    await wordsNow([`dialog:${dialog}/title`, `dialog:${dialog}/body`]).catch(() => {});
+    const asked = await askDialog(dialog, { type: "dict", entries: [["type", [7, group]]] },
+      all ? "Abandon all of these that are yours?" : "Abandon this so that anyone may take from it?", "yesno", { suppressAnswer: "yes" });
+    if (!asked) return;
+    const online = store.station.get().online;
+    const who = { characterID: online?.characterID ?? null, corporationID: online?.corporationID ?? null, fleetID: store.fleet.get().fleet?.fleetID ?? null };
+    const ids = all
+      ? entities.filter((entity) => entity.groupID === group && lootRightsGrant(entity, who) && !entity.lootRights?.abandoned).map((entity) => entity.itemID)
+      : [itemID];
+    if (ids.length) await bridgeDo("beyonce", "CmdAbandonLoot", [{ type: "list", items: ids }]);
+  }
+
   async function jettisonItems(itemIDs: readonly number[]): Promise<void> {
     if (itemIDs.length === 0) {
       return;
@@ -38588,6 +38611,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     unloadMiningHolds,
     reprocessItems,
     jettisonItems,
+    abandonLoot,
     compressOre,
     compressedTypesOf,
     loadSkills,
