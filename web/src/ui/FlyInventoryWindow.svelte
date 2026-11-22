@@ -123,7 +123,7 @@
   /** invCont.GetViewModeName / GetViewModeIcon. */
   const VIEW_MODES = [["icons", "UI/Inventory/Icons", "Icons", "grid_view"], ["details", "UI/Inventory/Details", "Details", "details_view"], ["list", "UI/Inventory/List", "List", "list_view"]] as const;
   const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/ShortcutBrackets", "UI/Inventory/SlotRigs", "UI/Inventory/SlotHigh", "UI/Inventory/SlotMedium", "UI/Inventory/SlotLow", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SelectAll", "UI/Inventory/NothingFoundFiltered", "UI/Common/NothingFound", "UI/Fitting/FittingWindow/SimulateShipFitting", "UI/Inventory/InvertSelection", "UI/Common/SortBy", "UI/Inventory/ViewMode",
-    "UI/Inventory/Filters/MyFilters", "UI/Inventory/CreateFilter", "UI/Commands/Remove", ...DEFAULT_INVENTORY_FILTERS.map(([key]) => key), "UI/Common/NothingFound", "UI/Inventory/OpenInNewWindow", "UI/Common/Buttons/Close", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
+    "UI/Inventory/Filters/MyFilters", "UI/Inventory/CreateFilter", "UI/Commands/Remove", "UI/Inventory/Filters/Edit", ...DEFAULT_INVENTORY_FILTERS.map(([key]) => key), "UI/Common/NothingFound", "UI/Inventory/OpenInNewWindow", "UI/Common/Buttons/Close", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
   flow.requestWords(WORDS);
   const word = (label: string, own: string, args: Record<string, string | number> = {}) => {
     const t = $words.templates[label];
@@ -436,14 +436,28 @@
   let filtersOpen = $state((() => { try { return localStorage.getItem(FILTERS_OPEN_KEY) === "1"; } catch { return false; } })());
   function toggleFiltersOpen(): void { filtersOpen = !filtersOpen; try { localStorage.setItem(FILTERS_OPEN_KEY, filtersOpen ? "1" : "0"); } catch { /* this visit */ } }
   function setFilterChecked(name: string, on: boolean): void { checkedFilters = on ? [...checkedFilters.filter((n) => n !== name), name] : checkedFilters.filter((n) => n !== name); }
-  const activeFilters = $derived(itemFilters.filter((f) => checkedFilters.includes(f[0])));
+  const activeFilters = $derived([...itemFilters.filter((f) => checkedFilters.includes(f[0])), ...(tempFilter ? [tempFilter] : [])]);
   // FilterEntry.GetMenu: Edit (the filter in FilterCreationWindow, not here yet) and Remove (FilterSvc.RemoveFilter: the
   // RemoveFilterPrompt question, then every filter but it kept - PersistFilters)
   function filterMenu(e: MouseEvent, name: string): void {
     e.preventDefault();
     e.stopPropagation();
-    menu.open(e.clientX, e.clientY, [{ label: word("UI/Commands/Remove", "Remove"), run: () => void removeFilter(name) }]);
+    const f = itemFilters.find((x) => x[0] === name) ?? null;
+    menu.open(e.clientX, e.clientY, [
+      { label: word("UI/Inventory/Filters/Edit", "Edit"), run: () => { dispatchEvent(new CustomEvent("evejs:open-filter-window", { detail: { filter: f } })); } },
+      { label: word("UI/Commands/Remove", "Remove"), run: () => void removeFilter(name) },
+    ]);
   }
+  // FilterSvc.SetTempFilter: the open FilterCreationWindow's filter, applied to the items too (ApplyTempFilter) until it closes;
+  // OnInvFiltersChanged: the filters read again after a save
+  let tempFilter = $state<InventoryFilter | null>(null);
+  $effect(() => {
+    const temp = (e: Event) => { tempFilter = (e as CustomEvent<{ filter: InventoryFilter | null }>).detail?.filter ?? null; };
+    const changed = () => { void flow.readCharacterSetting(INVENTORY_FILTERS_SETTING).then((t) => { savedFilters = t === null ? null : readInventoryFilters(t); }).catch(() => {}); };
+    addEventListener("evejs:inventory-temp-filter", temp);
+    addEventListener("evejs:inventory-filters-changed", changed);
+    return () => { removeEventListener("evejs:inventory-temp-filter", temp); removeEventListener("evejs:inventory-filters-changed", changed); };
+  });
   async function removeFilter(name: string): Promise<void> {
     if (!(await flow.askClientDialogWith("RemoveFilterPrompt", {}, "Are you sure you want to remove this filter?"))) return;
     const next = itemFilters.filter((f) => f[0].toLowerCase() !== name.toLowerCase());
@@ -806,7 +820,7 @@
       {/each}
     </div>
     <!-- InvFilters' header (a double-click expands or collapses it), FilterEntry rows under it while expanded -->
-    <div class="filters" role="presentation" ondblclick={toggleFiltersOpen}><span class="caret" class:open={filtersOpen} role="button" tabindex="-1" onclick={toggleFiltersOpen} onkeydown={() => {}}></span><span class="flabel">{word("UI/Inventory/Filters/MyFilters", "My filters")}</span><span class="fon" class:lit={activeFilters.length > 0} role="button" tabindex="-1" onclick={() => (checkedFilters = [])} onkeydown={() => {}}></span><span class="plus" title={word("UI/Inventory/CreateFilter", "Create Filter")} style:background-image={`url("${clientTexture("res:/ui/texture/eveicon/system_icons/add_16px.png")}")`}></span></div>
+    <div class="filters" role="presentation" ondblclick={toggleFiltersOpen}><span class="caret" class:open={filtersOpen} role="button" tabindex="-1" onclick={toggleFiltersOpen} onkeydown={() => {}}></span><span class="flabel">{word("UI/Inventory/Filters/MyFilters", "My filters")}</span><span class="fon" class:lit={activeFilters.length > 0} role="button" tabindex="-1" onclick={() => (checkedFilters = [])} onkeydown={() => {}}></span><span class="plus" role="button" tabindex="-1" onkeydown={() => {}} onclick={() => dispatchEvent(new CustomEvent("evejs:open-filter-window", { detail: { filter: null } }))} title={word("UI/Inventory/CreateFilter", "Create Filter")} style:background-image={`url("${clientTexture("res:/ui/texture/eveicon/system_icons/add_16px.png")}")`}></span></div>
     {#if filtersOpen}
       <div class="flist">
         {#each itemFilters as f (f[0])}
@@ -947,6 +961,7 @@
   .filters { position: relative; display: flex; align-items: center; height: 24px; margin-top: 8px; padding: 0 8px 0 0; color: rgba(255, 255, 255, 0.75); }
   .filters::before { content: ""; position: absolute; left: 0; right: 0; top: -5px; height: 1px; background: rgba(255, 255, 255, 0.1); }
   .filters .flabel { flex: 1; font-size: 14px; }
+  .filters .plus:hover { opacity: 1; }
   .filters .plus { flex: none; width: 24px; height: 24px; background: center / 16px 16px no-repeat; opacity: 0.75; cursor: pointer; }
   .filters .caret { flex: none; width: 24px; height: 24px; position: relative; cursor: pointer; }
   /* filtersEnabledBtn: 24 wide, the radio button's back at 0.4 and its colour SUCCESS_GREEN faded in while a filter is on;

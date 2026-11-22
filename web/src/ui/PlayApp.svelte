@@ -77,6 +77,8 @@
   import PlayInfoPanels from "./PlayInfoPanels.svelte";
   import FlyDronesWindow from "./FlyDronesWindow.svelte";
   import FlyInventoryWindow from "./FlyInventoryWindow.svelte";
+  import FilterCreationWindow from "./FilterCreationWindow.svelte";
+  import type { InventoryFilter } from "../bridge/inventoryFilters.ts";
   import { resolvedName } from "../store/names.ts";
   import { showInfo } from "./showInfo.ts";
   import { focusMail } from "./mailFocus.ts";
@@ -204,6 +206,19 @@
     const show = (e: Event) => { const d = (e as CustomEvent<{ key: string; title: string }>).detail; if (!d) return; const open = bayWindows.find((w) => w.key === d.key); if (open) { open.win.minimized = false; bayWindows = [...bayWindows.filter((w) => w !== open), open]; activeWinKey = open.win.id; return; } const n = bayWindows.length; bayWindows = [...bayWindows, { key: d.key, title: d.title, win: { id: `bay:${d.key}`, x: 260 + 24 * n, y: 180 + 24 * n, w: 600, h: 450, z: 25, minimized: false } }]; activeWinKey = `bay:${d.key}`; };
     window.addEventListener("evejs:open-bay-window", show);
     return () => window.removeEventListener("evejs:open-bay-window", show);
+  });
+  // FilterSvc.CreateFilter / EditFilter: FilterCreationWindow.Open (one window: an Edit closes the open one first), 450 x 250
+  let filterWindow = $state<{ filter: InventoryFilter | null; n: number; win: { id: string; x: number; y: number; w: number; h: number; z: number; minimized: boolean } } | null>(null);
+  $effect(() => {
+    const open = (e: Event) => {
+      const filter = (e as CustomEvent<{ filter: InventoryFilter | null }>).detail?.filter ?? null;
+      const n = (filterWindow?.n ?? 0) + 1;
+      filterWindow = { filter, n, win: filterWindow?.win ?? { id: "FilterCreationWindow", x: Math.round(innerWidth / 2 - 225), y: Math.round(innerHeight / 2 - 125), w: 450, h: 250, z: 26, minimized: false } };
+      filterWindow.win.minimized = false;
+      activeWinKey = "FilterCreationWindow";
+    };
+    window.addEventListener("evejs:open-filter-window", open);
+    return () => window.removeEventListener("evejs:open-filter-window", open);
   });
   let spaceContainer = $state.raw<{ itemID: number; title: string } | null>(null);
   /** The container window over the others (opened or clicked last) or under the one clicked since. */
@@ -3174,6 +3189,18 @@
     </div>
   {/if}
   {#if !docked}
+    {#if filterWindow}
+      {@const fw = filterWindow}
+      <div class="space-container-layer">
+        {#key fw.n}
+          <DesktopWindow win={fw.win} title={(() => { const t = session.store.words.get().templates["UI/Inventory/Filters/ItemFilterCaption"]; return typeof t === "string" && t ? plainText(t) : "Item Filter"; })()} icon={null} focused={activeWinKey === fw.win.id} onFocus={() => {}}
+            onClose={() => (filterWindow = null)} onMove={(x, y) => { fw.win.x = x; fw.win.y = y; }}
+            onResize={(w, h) => { fw.win.w = Math.max(450, w); fw.win.h = Math.max(250, h); }}>
+            <FilterCreationWindow store={session.store} flow={session.flow} filter={fw.filter} onClose={() => (filterWindow = null)} />
+          </DesktopWindow>
+        {/key}
+      </div>
+    {/if}
     {#each bayWindows as b (b.key)}
       <div class="space-container-layer">
         <DesktopWindow win={b.win} title={b.title} icon={clientTexture("res:/UI/Texture/WindowIcons/cargo.png")} focused={activeWinKey === b.win.id} onFocus={() => {}}
