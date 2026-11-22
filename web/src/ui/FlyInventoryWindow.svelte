@@ -1,6 +1,6 @@
 <script lang="ts" module>
   // one drag for every inventory window: a stack dragged out of a container drops on the ship's tree, and back
-  let dragging: { from: string; ids: number[] } | null = null;
+  let dragging: { from: string; ids: number[]; stacks: { typeID: number; quantity: number }[] } | null = null;
 </script>
 
 <script lang="ts">
@@ -333,7 +333,10 @@
   let dropKey = $state<string | null>(null);
   let moveError = $state("");
   function dragStart(id: number, e: DragEvent): void {
-    dragging = { from: current, ids: selected.includes(id) ? [...selected] : [id] };
+    const picked = selected.includes(id) ? [...selected] : [id];
+    dragging = { from: current, ids: picked, stacks: shown.filter((i) => picked.includes(i.itemID)).map((i) => ({ typeID: i.typeID, quantity: i.quantity })) };
+    const types = [...new Set(dragging.stacks.map((x) => x.typeID))].filter((t) => volumes[String(t)] === undefined);
+    if (types.length) void flow.typeVolumes(types).then((v) => { volumes = { ...volumes, ...v }; }).catch(() => {});
     e.dataTransfer?.setData("text/plain", dragging.ids.join(","));
     // the items for a drop on space (navigation.OnDropData deploys the deployable ones)
     const ids = dragging.ids;
@@ -341,6 +344,29 @@
     e.dataTransfer?.setData(INV_FROM_DRAG_TYPE, JSON.stringify(placeOf(current)));
   }
   const dragOver = (key: string) => (e: DragEvent) => { if (dragging && dragging.from !== key) { e.preventDefault(); dropKey = key; } };
+  /**
+   * The shown container takes a drop as the client's invCont does (OnDropData), and while items from elsewhere are over
+   * it, invWindow.OnInvContDragEnter puts their volume on the gauge (InvContCapacityGauge.SetAdditionalVolume: a fill
+   * after the used share in THEME_FOCUS 0.6, WARNING_ORANGE where they would not fit, and the label's quantity with
+   * them); OnInvContDragExit takes it off.
+   */
+  let addStacks = $state<{ typeID: number; quantity: number }[] | null>(null);
+  const areaKey = $derived(containerMode ? "container" : current);
+  function areaDragOver(e: DragEvent): void {
+    if (!dragging || dragging.from === areaKey) return;
+    e.preventDefault();
+    if (addStacks !== dragging.stacks) {
+      addStacks = dragging.stacks;
+      const types = [...new Set(addStacks.map((x) => x.typeID))].filter((t) => volumes[String(t)] === undefined);
+      if (types.length) void flow.typeVolumes(types).then((v) => { volumes = { ...volumes, ...v }; }).catch(() => {});
+    }
+  }
+  function areaDragLeave(e: DragEvent): void {
+    if (!(e.currentTarget as Node).contains(e.relatedTarget as Node | null)) addStacks = null;
+  }
+  const additionalVolume = $derived((addStacks ?? []).reduce((n, x) => n + (volumes[String(x.typeID)] ?? 0) * x.quantity, 0));
+  const addFill = $derived(bay && bay.capacity ? Math.min(additionalVolume / bay.capacity, 1 - fill) : 0);
+  const addOver = $derived(!!(bay && bay.capacity && additionalVolume + (bay.used ?? 0) > bay.capacity));
   /**
    * menusvc.InvItemMenu for the items selected, in space, as the 3698585 client builds it (read through gridcheck for
    * ore in the mining hold and a drone in the bay): View Market Details, Buy This Type, Compare (modules, drones,
@@ -559,15 +585,16 @@
       {/if}
       <div class="gauge">
         <span class="gfill" style:width={`${fill * 100}%`}></span>
+        <span class="gfill add" class:over={addOver} style:left={`${fill * 100}%`} style:width={`${addFill * 100}%`}></span>
         <span class="gfill sec" style:width={`${secondaryFill * 100}%`}></span>
-        <span class="gtext">{bay ? `${secondaryVolume ? `(${fmt1(secondaryVolume)}) ` : ""}${fmt1(bay.used ?? 0)}/${bay.capacity === null ? "?" : fmt1(bay.capacity)} m³` : ""}</span>
+        <span class="gtext">{bay ? `${secondaryVolume ? `(${fmt1(secondaryVolume)}) ` : ""}${fmt1((bay.used ?? 0) + additionalVolume)}/${bay.capacity === null ? "?" : fmt1(bay.capacity)} m³` : ""}</span>
       </div>
       <input class="search" placeholder="Search" value={$filterSig} oninput={(e) => filterSig.set((e.target as HTMLInputElement).value)} />
     </div>
     {/if}
     <div class="items" role="list" onclick={() => (selected = [])} onkeydown={() => {}}
-      ondragover={containerMode ? dragOver("container") : current.startsWith("temp:") ? dragOver(current) : undefined}
-      ondrop={containerMode ? (e) => void dropOn("container", e) : current.startsWith("temp:") ? (e) => void dropOn(current, e) : undefined}>
+      ondragover={areaDragOver} ondragleave={areaDragLeave}
+      ondrop={(e) => { addStacks = null; if (dragging && dragging.from !== areaKey) void dropOn(areaKey, e); }}>
       {#if bay && bay.items === null}
         <p class="none">…</p>
       {:else if !shown.length}
@@ -685,6 +712,9 @@
   .gfill { position: absolute; left: 0; top: 0; bottom: 0; background: color-mix(in srgb, var(--theme-focus-dark, #305665) 60%, transparent); }
   /* capacityGaugeSec, over the gauge: the selected items' share in THEME_FOCUS 0.6 */
   .gfill.sec { background: color-mix(in srgb, var(--theme-focus, #58a7bf) 60%, transparent); }
+  /* capacityGaugeAdd, after the gauge: what is dragged over it, THEME_FOCUS 0.6 or eveColor.WARNING_ORANGE (#F39058) */
+  .gfill.add { background: color-mix(in srgb, var(--theme-focus, #58a7bf) 60%, transparent); transition: width 0.3s; }
+  .gfill.add.over { background: rgb(243, 144, 88); }
   .gtext { position: absolute; left: 8px; top: 1px; line-height: 24px; font-size: 12px; color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
   .search { width: auto; flex: 1; min-width: 0; margin-left: 8px; height: 24px; box-sizing: border-box; border: 0; background: rgba(0, 0, 0, 0.3); color: #fff; padding: 0 6px; font-size: 14px; }
   /* the ShipCargo scroll's entries and the footer's labels from 16 past the tree column (186) */
