@@ -2278,6 +2278,12 @@ export class SpaceView {
     if (e.categoryID === 6 && !e.isSelf && e.characterID) reasons.board = this.actions.word?.("UI/Menusvc/MenuHints/ShipAlreadyPiloted") ?? "There is already a pilot in this ship";
     const lockRange = this.actions.shipAttribute?.(76) ?? null;
     if (lockRange !== null && this.distanceTo(e) >= lockRange) reasons.lock = this.actions.word?.("UI/Menusvc/MenuHints/NotInTargetRange") ?? undefined;
+    // IsPlanetMoonAsteroidBelt (BadGroupForAction, 'You can't do that with <group>'): a planet, moon or belt can be neither
+    // orbited, kept at range nor locked - its reason before the others
+    if ([7, 8, 9].includes(e.groupID ?? -1)) {
+      const bad = this.actions.word?.("UI/Menusvc/MenuHints/BadGroupForAction", { groupName: this.options.groupName?.(e.groupID ?? 0) ?? "" }) ?? undefined;
+      if (bad) { reasons.orbit = bad; reasons.keep = bad; reasons.lock = bad; }
+    }
     return out.map((a) => {
       const path = PATH[a.key];
       if (!path || available.has(path) || a.disabled) return a;
