@@ -264,7 +264,13 @@ button { font: inherit; color: inherit; }
 .ov .ov-table .ov-dist { color: #fff; }
 .ov .ov-table tbody tr:hover, .ov .ov-table tbody tr.hover { background: rgba(255, 255, 255, 0.05); }
 .ov .ov-table tbody tr.sel { background: rgba(88, 167, 191, 0.18); }
-.ov .ov-table th.sorted { color: rgba(255, 255, 255, 0.75); }
+/* SortHeaders' Header (read through gridcheck): its EveLabelSmall 12 px 8 in, white 0.5 (TextColor.SECONDARY) sorted or
+   not, HIGHLIGHT under the mouse; the label within the header less the 4 px scaler; the sort triangle 16 px 3 from the
+   right at NORMAL (0.75), HIGHLIGHT under the mouse */
+.ov .ov-table th.sorted, .ov .ov-table th[data-sort] { color: rgba(255, 255, 255, 0.5); }
+.ov .ov-table th[data-sort]:hover { color: #e6e6e6; }
+.ov .ov-table th[data-sort] button { display: block; box-sizing: border-box; width: calc(100% + 4px); padding: 0; overflow: hidden; white-space: nowrap; text-align: left; }
+.ov .ov-table th.sorted:hover button::after { opacity: .9; }
 /* SortHeaders: the sorted column's caret_up / caret_down 16 px at its right edge */
 .ov .ov-table th { position: relative; }
 .ov .ov-add-tab { align-self: center; width: 16px; height: 16px; padding: 4px; margin-left: -4px; opacity: .75; cursor: pointer; }
