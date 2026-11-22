@@ -434,6 +434,28 @@
   // svelte-ignore state_referenced_locally
   const FILTERS_OPEN_KEY = `evejs.ui.invFiltersExpanded.${bayMode ?? (containerMode ? "container" : "ActiveShipCargo")}`;
   let filtersOpen = $state((() => { try { return localStorage.getItem(FILTERS_OPEN_KEY) === "1"; } catch { return false; } })());
+  // DragResizeCont (invFilters: TOBOTTOM, dragArea 8 above it): expanded, the area's height kept per window
+  // (invFiltersHeight_<windowID>, 150 where none is kept), between minSize 100 and maxSize half the tree's height; the
+  // drag area moves its top edge
+  // svelte-ignore state_referenced_locally
+  const FILTERS_HEIGHT_KEY = FILTERS_OPEN_KEY.replace("invFiltersExpanded", "invFiltersHeight");
+  let filtersHeight = $state((() => { try { const v = Number(localStorage.getItem(FILTERS_HEIGHT_KEY)); return v > 0 ? v : 150; } catch { return 150; } })());
+  let treeEl: HTMLElement | undefined = $state();
+  const clampFilters = (h: number) => Math.max(100, Math.min(Math.max(100, (treeEl?.clientHeight ?? 400) * 0.5), h));
+  function startFiltersDrag(e: PointerEvent): void {
+    if (!filtersOpen) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const y0 = e.clientY, h0 = clampFilters(filtersHeight);
+    const move = (ev: PointerEvent) => { filtersHeight = clampFilters(h0 + (y0 - ev.clientY)); };
+    const up = () => {
+      removeEventListener("pointermove", move);
+      removeEventListener("pointerup", up);
+      try { localStorage.setItem(FILTERS_HEIGHT_KEY, String(Math.round(filtersHeight))); } catch { /* this visit */ }
+    };
+    addEventListener("pointermove", move);
+    addEventListener("pointerup", up);
+  }
   function toggleFiltersOpen(): void { filtersOpen = !filtersOpen; try { localStorage.setItem(FILTERS_OPEN_KEY, filtersOpen ? "1" : "0"); } catch { /* this visit */ } }
   function setFilterChecked(name: string, on: boolean): void { checkedFilters = on ? [...checkedFilters.filter((n) => n !== name), name] : checkedFilters.filter((n) => n !== name); }
   const activeFilters = $derived([...itemFilters.filter((f) => checkedFilters.includes(f[0])), ...(tempFilter ? [tempFilter] : [])]);
@@ -778,7 +800,7 @@
 
 <div class="inv" class:container={containerMode} class:compact={$compactSig}>
   {#if !containerMode && !bayMode && $sidebarSig}
-  <div class="tree">
+  <div class="tree" bind:this={treeEl}>
     <div class="nodes">
       {#if ship}
         <!-- invWindow.OnTreeViewDblClick: an entry with a container opens in a window of its own with Always open in separate
@@ -820,6 +842,8 @@
       {/each}
     </div>
     <!-- InvFilters' header (a double-click expands or collapses it), FilterEntry rows under it while expanded -->
+    <div class="fbox" class:open={filtersOpen} style:height={filtersOpen ? `${clampFilters(filtersHeight)}px` : undefined}>
+    <div class="fdrag" class:live={filtersOpen} role="presentation" onpointerdown={startFiltersDrag}></div>
     <div class="filters" role="presentation" ondblclick={toggleFiltersOpen}><span class="caret" class:open={filtersOpen} role="button" tabindex="-1" onclick={toggleFiltersOpen} onkeydown={() => {}}></span><span class="flabel">{word("UI/Inventory/Filters/MyFilters", "My filters")}</span><span class="fon" class:lit={activeFilters.length > 0} role="button" tabindex="-1" onclick={() => (checkedFilters = [])} onkeydown={() => {}}></span><span class="plus" role="button" tabindex="-1" onkeydown={() => {}} onclick={() => dispatchEvent(new CustomEvent("evejs:open-filter-window", { detail: { filter: null } }))} title={word("UI/Inventory/CreateFilter", "Create Filter")} style:background-image={`url("${clientTexture("res:/ui/texture/eveicon/system_icons/add_16px.png")}")`}></span></div>
     {#if filtersOpen}
       <div class="flist">
@@ -830,6 +854,7 @@
         {/each}
       </div>
     {/if}
+    </div>
   </div>
   {/if}
   <div class="right">
@@ -958,8 +983,13 @@
   .tlabel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* InvFilters: a drag area 8 high (its line at 3) over the filterHeaderCont, 24 high, padRight 8: expandFiltersBtn 24 wide
      with the 7 px Neocom arrowDown, the Label 14, createFilterBtn 24 x 24 with eveicon.add 16 at the right */
-  .filters { position: relative; display: flex; align-items: center; height: 24px; margin-top: 8px; padding: 0 8px 0 0; color: rgba(255, 255, 255, 0.75); }
-  .filters::before { content: ""; position: absolute; left: 0; right: 0; top: -5px; height: 1px; background: rgba(255, 255, 255, 0.1); }
+  .fbox { flex: none; display: flex; flex-direction: column; min-height: 0; }
+  /* the drag area: 8 high, its line at 3; it resizes only while the filters are expanded */
+  .fdrag { flex: none; height: 8px; position: relative; }
+  .fdrag::before { content: ""; position: absolute; left: 0; right: 0; top: 3px; height: 1px; background: rgba(255, 255, 255, 0.1); }
+  .fdrag.live { cursor: ns-resize; }
+  .fdrag.live:hover::before { background: rgba(255, 255, 255, 0.25); }
+  .filters { position: relative; flex: none; display: flex; align-items: center; height: 24px; padding: 0 8px 0 0; color: rgba(255, 255, 255, 0.75); }
   .filters .flabel { flex: 1; font-size: 14px; }
   .filters .plus:hover { opacity: 1; }
   .filters .plus { flex: none; width: 24px; height: 24px; background: center / 16px 16px no-repeat; opacity: 0.75; cursor: pointer; }
@@ -970,7 +1000,7 @@
   .filters .fon::before { content: ""; position: absolute; left: 7px; top: 7px; width: 10px; height: 10px; border-radius: 50%; background: rgba(255, 255, 255, 0.16); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2); transition: background .3s; }
   .filters .fon.lit::before { background: rgba(141, 193, 105, 0.9); }
   /* FilterEntry: 22 high, the checkbox at 5 with its label, ListEntryUnderlay under the mouse */
-  .flist { max-height: 118px; overflow-y: auto; }
+  .flist { flex: 1; min-height: 0; overflow-y: auto; }
   .fentry { display: flex; align-items: center; gap: 6px; height: 22px; padding-left: 5px; color: rgba(255, 255, 255, 0.75); font-size: 14px; white-space: nowrap; cursor: pointer; }
   .fentry:hover { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); }
   .fentry input { width: 14px; height: 14px; margin: 0; accent-color: rgb(88, 167, 191); flex: none; }
