@@ -284,6 +284,9 @@ export interface TargetBarEntry {
   noDamageBar?: boolean;
   /** TargetInBar.activeModules: the modules running on it, each shown by its icon in the assigned box. */
   weapons?: readonly { itemID: number; typeID: number }[];
+  /** TargetInBar.UpdateDrones: one's drones busy with this target (fighting, repairing, mining, salvaging) - an icon
+   *  among the weapons, its hint UI/Inflight/Target/DroneHintLabel of a DroneHintLine per drone type; null for none. */
+  drones?: { readonly hint: string } | null;
 }
 
 export interface MiningTargetReading extends MiningSurveyProgress {
@@ -470,7 +473,7 @@ class TargetInBar {
     }
     this.stepHealth(now);
     this.updateMining(e.mining);
-    if (this.arrangeWeapons(e.weapons ?? [])) resized = this.setLabels() || true;
+    if (this.arrangeWeapons(e.weapons ?? [], e.drones ?? null)) resized = this.setLabels() || true;
     return resized;
   }
 
@@ -478,8 +481,10 @@ class TargetInBar {
    * TargetInBar.ArrangeWeapons: 32 px icons, 24 px from three on, four to a row; the box at least 32 high. Returns true
    * when its height changed.
    */
-  private arrangeWeapons(weapons: readonly { itemID: number; typeID: number }[]): boolean {
-    const key = weapons.map((w) => `${w.itemID}:${w.typeID}`).join(",");
+  private arrangeWeapons(modules: readonly { itemID: number; typeID: number }[], drones: { readonly hint: string } | null = null): boolean {
+    // the drones' icon (res:/UI/Texture/Icons/56_64_5.png, moduleID 'drones') after the modules'
+    const weapons: { itemID: number | "drones"; typeID: number; hint?: string }[] = [...modules, ...(drones ? [{ itemID: "drones" as const, typeID: 0, hint: drones.hint }] : [])];
+    const key = weapons.map((w) => `${w.itemID}:${w.typeID}:${w.hint ?? ""}`).join(",");
     if (key === this.weaponsKey) return false;
     this.weaponsKey = key;
     const size = weapons.length > 2 ? 24 : 32;
@@ -487,8 +492,9 @@ class TargetInBar {
       const img = document.createElement("img");
       img.className = "tb-weapon";
       img.dataset.module = String(w.itemID);
-      img.src = typeIcon(w.typeID);
+      img.src = w.itemID === "drones" ? "/client-res/ui/texture/icons/56_64_5.png" : typeIcon(w.typeID);
       img.alt = "";
+      if (w.hint) img.title = w.hint;
       Object.assign(img.style, { position: "absolute", left: `${(i % 4) * size}px`, top: `${Math.floor(i / 4) * size}px`, width: `${size}px`, height: `${size}px`, cursor: "pointer" });
       return img;
     }));

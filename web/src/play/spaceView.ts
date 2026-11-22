@@ -4973,6 +4973,28 @@ export class SpaceView {
     this.locationBanner.show(title, caption, text);
   }
 
+  /**
+   * TargetInBar.OnDroneStateChange2: the active ship's drones in combat, engage, mining or salvaging whose drone state
+   * targets this one (michelle.GetDroneState: one's own), counted by type - UpdateDroneHint's DroneHintLine "<type>:
+   * <count>" each, joined under DroneHintLabel ("Drones").
+   */
+  private targetDrones(targetID: number): { hint: string } | null {
+    const shipID = this.snapshot?.ship?.itemID ?? null;
+    if (shipID === null) return null;
+    const byType = new Map<number, number>();
+    for (const x of this.snapshot?.entities ?? []) {
+      const d = x as Entity & { controllerID?: number | null; droneActivity?: string | null; targetEntityID?: number | null };
+      if (d.controllerID !== shipID || d.targetEntityID !== targetID || x.typeID == null) continue;
+      if (!["fighting", "repairing", "mining", "salvaging"].includes(d.droneActivity ?? "")) continue;
+      byType.set(x.typeID, (byType.get(x.typeID) ?? 0) + 1);
+    }
+    if (byType.size === 0) return null;
+    const lines = [...byType].map(([typeID, n]) => `${this.names?.types[String(typeID)]?.[0] ?? typeID}: ${n}`).join("\n");
+    const MARK = "@@droneHintLines@@";
+    const head = this.actions.word?.("UI/Inflight/Target/DroneHintLabel", { droneHintLines: MARK }) ?? `Drones\n${MARK}`;
+    return { hint: head.includes(MARK) ? head.replace(MARK, lines) : `Drones\n${lines}` };
+  }
+
   private distanceTo(e: Entity): number {
     const s = this.snapshot?.ship;
     if (!s) return 0;
@@ -5803,6 +5825,7 @@ export class SpaceView {
         noDamageBar: e.categoryID === 25 || e.categoryID === 87 || e.groupID === 711 || e.groupID === 1198,
         locking: false, active: id === this.activeTarget, mining,
         weapons: rackModules.filter((m) => m.active && m.targetID === id).map((m) => ({ itemID: m.itemID, typeID: m.typeID })),
+        drones: this.targetDrones(id),
       });
     }
     const pending = this.lockingIDs.size ? new Map([...this.acquiringTargets, ...this.lockingIDs]) : this.acquiringTargets;
