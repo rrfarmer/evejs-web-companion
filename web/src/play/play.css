@@ -685,7 +685,10 @@ body:not(.no-target-crosshair) .bracket.locked .t-line, body:not(.no-target-cros
 
 /* a bracket with the client's own icon (brackets.ts): white art, tinted by what the thing is to the pilot */
 .glyph.bi { display: block; background-color: var(--tint); -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
-.ov-table .ov-icon .glyph.bi { width: 14px; height: 14px; }
+/* OverviewScrollEntry's mainIcon (read through gridcheck): its iconSprite 16 x 16 at 3, 4, the FlagIconWithState 10 x 10 at
+   12, 12 (the icon's 9, 8), its 8 px flag 1 in */
+.ov-table .ov-icon .glyph.bi { width: 16px; height: 16px; }
+.ov-icon-wrap > .state-flag { right: -3px; bottom: -2px; }
 
 /* ── the app's windows in the play mode (/fly, PlayApp.svelte): its design system re-tinted to the client's look ──
    Only under .fly-windows: the multibox app keeps its own. The variables are the app's (styles.css :root); the
