@@ -668,7 +668,7 @@
         {#if treeOpen}
           {#each bays.filter((b) => b.key !== "cargo" && !b.key.startsWith("temp:")) as b (b.key)}
             <div title={b.key === "drone" ? shortcutHint("OpenDroneBayOfActiveShip").trim() || undefined : undefined} onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node sub" class:sel={current === b.key} class:drop={dropKey === b.key} role="treeitem" aria-selected={current === b.key} tabindex="-1"
-              onclick={() => (current = b.key)} onkeydown={() => {}} oncontextmenu={(e) => bayNodeMenu(e)}
+              onclick={() => (current = b.key)} onkeydown={() => {}} oncontextmenu={(e) => (b.key === "fleet" || b.key === "shipMaintenance" ? cargoNodeMenu(e) : bayNodeMenu(e))}
               ondragover={dragOver(b.key)} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn(b.key, e)}>
               <span class="ticon"><img src={clientTexture(BAY_ICON[b.key] ?? "res:/UI/Texture/WindowIcons/cargo.png")} alt=""></span>
               <span class="tlabel">{b.label}</span>
