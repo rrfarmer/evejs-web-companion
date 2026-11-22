@@ -83,7 +83,7 @@
   /** invCont.GetViewModeName / GetViewModeIcon. */
   const VIEW_MODES = [["icons", "UI/Inventory/Icons", "Icons", "grid_view"], ["details", "UI/Inventory/Details", "Details", "details_view"], ["list", "UI/Inventory/List", "List", "list_view"]] as const;
   const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SortBy", "UI/Inventory/ViewMode",
-    "UI/Inventory/Filters/MyFilters", "UI/Common/NothingFound", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
+    "UI/Inventory/Filters/MyFilters", "UI/Common/NothingFound", "UI/Inventory/OpenInNewWindow", "UI/Common/Buttons/Close", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
   flow.requestWords(WORDS);
   const word = (label: string, own: string, args: Record<string, string | number> = {}) => {
     const t = $words.templates[label];
@@ -177,6 +177,23 @@
   function openTemp(id: number): void {
     current = `temp:${id}`;
     treeShownContainer.set(id);
+    void flow.showInventoryContainer(id).catch(() => {});
+  }
+  /** TreeViewEntry.GetMenu on a temporary location: the container's own menu (CelestialMenu, as the scene builds it), then
+   *  TreeDataInv's Open in new window while in range, then a line and Close (read through gridcheck on a can in
+   *  ActiveShipCargo). */
+  function tempMenu(t: { id: number; inRange: boolean }, e: MouseEvent): void {
+    e.preventDefault();
+    e.stopPropagation();
+    const tail: ({ label: string; run: () => void } | null)[] = [];
+    if (t.inRange) tail.push({ label: word("UI/Inventory/OpenInNewWindow", "Open in new window (SHIFT+Click)"), run: () => openTempInNewWindow(t.id) });
+    tail.push(null, { label: word("UI/Common/Buttons/Close", "Close"), run: () => removeTemp(t.id) });
+    dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID: t.id, x: e.clientX, y: e.clientY, tail } }));
+  }
+  /** TreeDataInv.OpenNewWindow: the container in an inventory window of its own (the cargo shown here again). */
+  function openTempInNewWindow(id: number): void {
+    if (current === `temp:${id}`) current = "cargo";
+    treeShownContainer.set(null);
     void flow.showInventoryContainer(id).catch(() => {});
   }
   function removeTemp(id: number): void {
@@ -505,7 +522,7 @@
         <!-- TreeViewEntry of a removable TreeDataInv: the 73_16_210 remove sprite at the spacer's end (hint Close), the
              icon 4 after it, the label with its distance -->
         <div onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node temp" class:far={!t.inRange} class:sel={current === `temp:${t.id}`} role="treeitem" aria-selected={current === `temp:${t.id}`} tabindex="-1"
-          class:drop={dropKey === `temp:${t.id}`} onclick={() => openTemp(t.id)} onkeydown={() => {}}
+          class:drop={dropKey === `temp:${t.id}`} onclick={(e) => (e.shiftKey && t.inRange ? openTempInNewWindow(t.id) : openTemp(t.id))} onkeydown={() => {}} oncontextmenu={(e) => tempMenu(t, e)}
           ondragover={$inventoryState.container?.itemID === t.id ? dragOver(`temp:${t.id}`) : undefined} ondragleave={() => (dropKey = null)}
           ondrop={$inventoryState.container?.itemID === t.id ? (e) => void dropOn(`temp:${t.id}`, e) : undefined}>
           <button type="button" class="tremove" title={word("UI/Common/Buttons/Close", "Close")} aria-label={word("UI/Common/Buttons/Close", "Close")}

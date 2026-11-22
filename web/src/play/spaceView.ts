@@ -1625,12 +1625,15 @@ export class SpaceView {
     // and its context menu: DroneInSpaceEntry.GetMenu - the window's own entries (Move Drone) with CelestialMenu over the
     // drone, the window's merged into the drone group by menuHierarchy
     const menuFor = (ev: Event) => {
-      const d = (ev as CustomEvent<{ itemID: number; itemIDs?: number[]; x: number; y: number; droneExtra?: ContextEntry[] }>).detail;
+      const d = (ev as CustomEvent<{ itemID: number; itemIDs?: number[]; x: number; y: number; droneExtra?: ContextEntry[]; tail?: (ContextEntry | null)[] }>).detail;
       const e = d ? this.snapshot?.entities.find((x) => x.itemID === d.itemID) : null;
       if (!d || !e) return;
       this.radial.close();
       const ids = (d.itemIDs ?? [d.itemID]).filter((id) => this.snapshot?.entities.some((x) => x.itemID === id));
-      this.contextMenu.open(d.x, d.y, ids.length > 1 ? this.mergedDroneEntries(e, ids, d.droneExtra ?? []) : this.contextEntries(e, d.droneExtra ?? []));
+      // a window's own entries after the object's menu, a group of their own (an inventory tree entry's TreeDataInv and
+      // TreeViewEntry.GetMenu: Open in new window, then a line and Close)
+      const entries = ids.length > 1 ? this.mergedDroneEntries(e, ids, d.droneExtra ?? []) : this.contextEntries(e, d.droneExtra ?? []);
+      this.contextMenu.open(d.x, d.y, d.tail?.length ? [...entries, null, ...d.tail] : entries);
     };
     addEventListener("evejs:open-space-menu", menuFor);
     this.unhold.push(() => removeEventListener("evejs:open-space-menu", menuFor));
