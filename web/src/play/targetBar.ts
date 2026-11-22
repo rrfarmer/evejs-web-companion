@@ -333,6 +333,7 @@ class TargetInBar {
   private readonly labelBox: HTMLDivElement;
   private miningReading: MiningTargetReading | undefined;
   private health!: HTMLDivElement;
+  private hintRatios: (number | null)[] = [1, 1, 1];
   private miningGauge: {
     root: HTMLDivElement;
     arcs: { asteroid: SVGPathElement; yieldArc: SVGPathElement; waste: SVGPathElement; crit: SVGPathElement };
@@ -408,12 +409,37 @@ class TargetInBar {
       if ((e.target as HTMLElement).closest("[data-module]") && !(e.relatedTarget as HTMLElement | null)?.closest?.("[data-module]")) this.owner.onWeaponHover?.(null);
     });
     this.bar.addEventListener("click", (e) => { e.stopPropagation(); this.owner.onSelect(this.itemID); });
+    // OnTargetMouseHover (every HOVERTIME 250 ms while the mouse is on barAndImageCont): from the icon container's centre,
+    // more than 55 px below it no hint; outside the ring (28 - 42 px) no hint; between 45 and 135 degrees (the ring's
+    // gap at the bottom) the hint left as it is; else SetHintText - each layer's remaining share, floor(100 x),
+    // UI/Inflight/Target/Gauge{Shield,Armor,Structure}Remaining, one a line. None with no health bars.
+    this.bar.addEventListener("mousemove", (e) => {
+      if (this.health.hidden) { this.bar.title = ""; return; }
+      const r = this.iconContainer.getBoundingClientRect();
+      const x = e.clientX - (r.left + r.width / 2), y = e.clientY - (r.top + r.height / 2);
+      if (y > 55) { this.bar.title = ""; return; }
+      const length2 = x * x + y * y;
+      if (length2 < 28 * 28 || length2 > 42 * 42) { this.bar.title = ""; return; }
+      let degrees = Math.atan2(y, x) * 180 / Math.PI;
+      if (degrees < 0) degrees += 360;
+      if (degrees > 45 && degrees < 135) return;
+      const lines: string[] = [];
+      (["Shield", "Armor", "Structure"] as const).forEach((layer, i) => {
+        const v = this.hintRatios[i];
+        if (v === null || v === undefined) return;
+        const percentage = Math.floor(100 * v);
+        lines.push(this.owner.word?.(`UI/Inflight/Target/Gauge${layer}Remaining`, { percentage }) ?? `${percentage}% ${layer.toLowerCase()} remaining`);
+      });
+      this.bar.title = lines.join(String.fromCharCode(10));
+    });
     this.bar.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); this.owner.openMenu(this.itemID, e.clientX, e.clientY); });
   }
 
   /** Returns true when the target's height changed (the row is then laid out again). */
   update(e: TargetBarEntry, now: number): boolean {
     if (this.health.hidden !== !!e.noDamageBar) this.health.hidden = !!e.noDamageBar;
+    // damageValuseForTooltip: each layer's share, unknown as 1.0 (GetDamageHint's default)
+    this.hintRatios = [e.shieldRatio ?? 1, e.armorRatio ?? 1, e.hullRatio ?? 1];
     if (e.typeID !== this.typeID) {
       this.typeID = e.typeID;
       this.icon.style.visibility = "hidden";
@@ -818,6 +844,8 @@ export class TargetBar {
   weaponElement(moduleID: number): HTMLElement | null { for (const t of this.targets.values()) { const el = t.weaponElement(moduleID); if (el) return el; } return null; }
   onUnlock: (itemID: number) => void = () => {};
   gaugeColor: HTMLImageElement | null = null;
+  /** The client's words (the health ring's hint lines). */
+  word: ((label: string, args: Readonly<Record<string, string | number>>) => string | null) | null = null;
 
   private readonly targets = new Map<number, TargetInBar>();
   private readonly depleted = new Set<number>();
