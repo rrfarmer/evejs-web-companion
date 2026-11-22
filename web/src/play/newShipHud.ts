@@ -280,8 +280,19 @@ const COMMAND_TIPS: Readonly<Record<string, { readonly name: string; readonly ow
 const COMMAND_TIP_LABELS: readonly string[] = Object.values(COMMAND_TIPS).flatMap((t) => (t.desc ? [t.name, t.desc] : [t.name]));
 
 /** cargo_indicator.py's glyph per hold kind (eveicon, 16 px): inventory, mining, drones, else the ship's areas. */
-const holdGlyph = (key: string): string => res(`res:/UI/Texture/eveicon/${
-  key === "cargo" ? "system_icons/inventory" : /ore|mining|asteroid|ice|gas/.test(key) ? "system_icons/mining" : /drone|fighter/.test(key) ? "category_icons/drones" : "category_icons/ship_areas"}_16px.png`);
+// cargo_indicator._HOLD_ICONS (resolved at 16 through gridcheck), by the bays' keys; a hold not in it takes its controller's
+// GetIconName (the fuel and gas bays' window icons), else _ICON_DEFAULT (inventory)
+const HOLD_GLYPH: Readonly<Record<string, string>> = {
+  cargo: "res:/UI/Texture/eveicon/system_icons/inventory_16px.png", drone: "res:/UI/Texture/eveicon/category_icons/drones_16px.png", fighter: "res:/UI/Texture/eveicon/category_icons/drones_16px.png",
+  ship: "res:/UI/Texture/eveicon/category_icons/ship_areas_16px.png", smallShip: "res:/UI/Texture/eveicon/category_icons/ship_areas_16px.png", mediumShip: "res:/UI/Texture/eveicon/category_icons/ship_areas_16px.png",
+  largeShip: "res:/UI/Texture/eveicon/category_icons/ship_areas_16px.png", industrialShip: "res:/UI/Texture/eveicon/category_icons/ship_areas_16px.png",
+  ore: "res:/UI/Texture/eveicon/system_icons/mining_16px.png", asteroid: "res:/UI/Texture/eveicon/system_icons/mining_16px.png", ice: "res:/UI/Texture/eveicon/system_icons/ice_field_16px.png",
+  salvage: "res:/UI/Texture/eveicon/control_icons/salvage_16px.png", ammo: "res:/UI/Texture/eveicon/category_icons/gunnery_16px.png", planetary: "res:/UI/Texture/eveicon/category_icons/planet_16px.png",
+  fleet: "res:/UI/Texture/eveicon/category_icons/fleet_16px.png", shipMaintenance: "res:/UI/Texture/eveicon/system_icons/settings_16px.png", subsystem: "res:/UI/Texture/eveicon/category_icons/subsystems_16px.png",
+  corpse: "res:/UI/Texture/eveicon/category_icons/skull_16px.png", mobileDepot: "res:/UI/Texture/eveicon/system_icons/structure_16px.png",
+  fuel: "res:/UI/Texture/WindowIcons/fuelbay.png", gas: "res:/UI/Texture/WindowIcons/gashold.png",
+};
+const holdGlyph = (key: string): string => res(HOLD_GLYPH[key] ?? HOLD_GLYPH.cargo!);
 
 /** Extra readings the new HUD shows beyond the classic's state: each pool's max HP, for the ring's segment spans. */
 export interface NewShipHudState extends ShipHudState {
