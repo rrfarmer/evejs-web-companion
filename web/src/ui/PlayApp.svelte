@@ -48,7 +48,7 @@
   import { fittingWindowTarget } from "./fittingWindowTarget.ts";
   import { shipHoldTarget } from "./shipHold.ts";
   import { standingWithSkillBonus } from "../bridge/agencyAgents.ts";
-  import { addTempInvLocation, treeShownContainer } from "./invTemp.ts";
+  import { addTempInvLocation, removeTempInvLocation, tempInvLocations, treeShownContainer } from "./invTemp.ts";
   import { markWreckViewed } from "../play/viewedWrecks.ts";
   import { get as storeGet } from "svelte/store";
   import { hudSetting, hudSettingNow, setHudSetting, slotOrderOf } from "../store/hudSettings.ts";
@@ -1676,6 +1676,18 @@
     };
     s.store.inventory.subscribe(syncSpaceContainer);
     s.store.names.subscribe(syncSpaceContainer);
+    // Inventory.DoBallRemove: a thing leaving the park takes its tree entries with it (RemoveTreeEntry: its temporary
+    // location removed, a window rooted on it closed, a tree showing it back to the default) - here the temporary
+    // locations no longer on the grid dropped and the container's own window closed (syncSpaceContainer finds no ball)
+    s.store.space.subscribe(() => {
+      if (disposed) return;
+      const entities = s.store.space.get().snapshot?.entities;
+      if (!entities || entities.length === 0) return;
+      const present = new Set(entities.map((x) => x.itemID));
+      for (const id of storeGet(tempInvLocations)) if (!present.has(id)) removeTempInvLocation(id);
+      const c = s.store.inventory.get().container;
+      if (spaceContainer && (!c || !present.has(spaceContainer.itemID))) syncSpaceContainer();
+    });
 
     // droneSvc: what each drone is doing comes from the park's OnDroneStateChange (and OnDroneControlLost), which the
     // server sends through destiny, not as a notification; the Drones window's read is taken again on each, coalesced.

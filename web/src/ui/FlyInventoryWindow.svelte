@@ -197,6 +197,10 @@
     treeShownContainer.set(null);
     void flow.showInventoryContainer(id).catch(() => {});
   }
+  // RemoveTreeEntry: the shown temporary location gone (its ball left the park), the tree back to the default
+  $effect(() => {
+    if (current.startsWith("temp:") && !$tempInvLocations.includes(Number(current.slice(5)))) untrack(() => { current = "cargo"; });
+  });
   function removeTemp(id: number): void {
     removeTempInvLocation(id);
     if (current === `temp:${id}`) current = "cargo";
