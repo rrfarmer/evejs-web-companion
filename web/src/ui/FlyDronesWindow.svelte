@@ -29,6 +29,7 @@
   import { findInPersonalAssets } from "./assetsSearch.ts";
   import { typeCompareTarget } from "./typeCompare.ts";
   import NamePopup from "./NamePopup.svelte";
+  import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { createSubGroup, deleteGroup, droneGroups, dronesToLaunch, groupOf, moveToGroup, removeFromGroup, setFavoriteGroupID, DRONE_DRAG_TYPE, type DroneGroup } from "./droneGroups.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -96,7 +97,7 @@
     autoAttackHint: ["UI/Drones/AutoAttackHint", "Should drones automatically attack if aggression is shown to you or them"],
     focusFireHint: ["UI/Drones/AttackModeFocusFireHint", "Should drones focus their efforts on a single enemy (only applicable with Auto Attack enabled)"],
   } as const;
-  flow.requestWords(Object.values(MENU_WORDS).map((w) => w[0]));
+  flow.requestWords([...Object.values(MENU_WORDS).map((w) => w[0]), "UI/Common/More"]);
   // the groups' words (dronesWindow.GroupMenu, GetSubFolderMenu, droneGroupHeader's Delete Group, ListGroup's menu)
   const GROUP_WORDS = {
     move: ["UI/Commands/MoveDrone", "Move Drone"], newGroup: ["UI/Commands/NewGroup", "New Group"], out: ["UI/Commands/OutOfThisGroup", "Out of this group"],
@@ -116,7 +117,6 @@
   // target.GetActiveTargetID: the drones' orders go to the active target
   const activeTarget = activeTargetID;
   const settingsNow = droneSettings;
-  let settingsOpen = $state(false);
   // DronesWindow's load: the pilot's drone settings told to the server (godma.ChangeDroneSettings)
   // The radial menu on a bay entry (DroneEntry ExpandRadialMenu -> TryExpandActionMenu, inventoryRadialMenuFunctions'
   // droneMapping): Launch Drone at the top (1), the rework ring (3, nothing offered in space), the market ring (6: View
@@ -226,6 +226,13 @@
     if (characterID === null) return;
     const now = setDroneSetting(characterID, name, !droneSettingsFor(characterID)[name]);
     void run(() => flow.changeDroneSettings(now));
+  }
+  function openSettingsMenu(button: HTMLElement): void {
+    const r = button.getBoundingClientRect();
+    const now = droneSettingsFor(store.character.get().selectedCharacterID ?? 0);
+    void playUiEvent("ui_expand_play");
+    ctxMenu.open(r.left + 2, r.bottom, ([["aggressive", MENU_WORDS.autoAttack, MENU_WORDS.autoAttackHint], ["focusFire", MENU_WORDS.focusFire, MENU_WORDS.focusFireHint]] as const)
+      .map(([name, label, hint]) => ({ label: say(label), hint: say(hint), checkbox: true, checked: now[name], run: () => toggleSetting(name) })));
   }
 
   const snapshot = $derived($space.snapshot);
@@ -578,7 +585,14 @@
   /** The right-click menu: where, and its entries (a reason in place of an entry that cannot run). */
   type MenuEntry = { label: string; disabled?: string | null; act?: () => Promise<void>; sub?: MenuEntry[]; sep?: boolean };
   const SEP: MenuEntry = { label: "", sep: true };
-  let menu = $state<{ x: number; y: number; entries: MenuEntry[] } | null>(null);
+  // The window's menus in the client's ContextMenu (CreateMenuView: MenuUnderlay, 22 px entries), as the space menu's
+  const ctxMenu = new ContextMenu();
+  onDestroy(() => ctxMenu.close());
+  const toCtx = (entries: readonly MenuEntry[]): (ContextEntry | null)[] => entries.map((m) => (m.sep ? null : {
+    label: m.label, disabled: m.disabled ?? null,
+    ...(m.act ? { run: () => { const act = m.act!; void run(act); } } : {}),
+    ...(m.sub ? { sub: toCtx(m.sub) } : {}),
+  }));
   /**
    * DroneInBayEntry.GetMenu (read through gridcheck on a bay Hobgoblin): the window's GroupMenu (Move Drone) and InvItemMenu
    * over the selection without Buy This Type, Add to Market Quickbar and Find in Contracts, ordered by menuHierarchy with
@@ -643,8 +657,9 @@
   }
   function openMenu(event: MouseEvent, entries: MenuEntry[]): void {
     event.preventDefault();
-    const host = (event.currentTarget as HTMLElement).closest(".fly-drones")!.getBoundingClientRect();
-    menu = { x: event.clientX - host.left, y: event.clientY - host.top, entries };
+    // ShowMenu: at the pointer (uilib.x + 10, uilib.y), ui_expand_play
+    void playUiEvent("ui_expand_play");
+    ctxMenu.open(event.clientX + 10, event.clientY, toCtx(entries));
   }
   /**
    * menusvc.DroneMenu: by the drones' kind Engage Target (combat), Mine (mining) or Salvage (salvage), then Return and
@@ -711,7 +726,6 @@
   onDestroy(gaugeTipOff);
 </script>
 
-<svelte:window onclick={() => { menu = null; settingsOpen = false; }} />
 
 {#snippet picture(typeID: number | null, label: string)}
   <span class="picture"><TypeIcon {typeID} name={label} size="sm" /></span>
@@ -828,23 +842,6 @@
   </div>
 {/snippet}
 
-{#snippet menuList(entries: MenuEntry[], nested: boolean)}
-  <ul class="menu" class:sub={nested} role="menu">
-    {#each entries as entry}
-      {#if entry.sep}<li class="sep" role="separator"></li>{:else}
-      <li role="menuitem" class:has-sub={!!entry.sub}>
-        {#if entry.sub}
-          <button type="button" class="opener" onclick={(e) => e.stopPropagation()}>{entry.label}<span class="arrow">▸</span></button>
-          {@render menuList(entry.sub, true)}
-        {:else}
-          <button type="button" disabled={busy || !!entry.disabled} title={entry.disabled ?? ""}
-            onclick={() => { const act = entry.act; menu = null; if (act) void run(act); }}>{entry.label}{#if entry.disabled}<span class="why">{" - "}{entry.disabled}</span>{/if}</button>
-        {/if}
-      </li>{/if}
-    {/each}
-  </ul>
-{/snippet}
-
 {#if naming}
   <NamePopup caption={say(GROUP_WORDS.caption)} label={say(GROUP_WORDS.field)} refusal={say(GROUP_WORDS.empty)} okWord={say(GROUP_WORDS.ok)} cancelWord={say(GROUP_WORDS.cancel)}
     onok={(name) => { const req = naming; naming = null; if (req) createSubGroup(req.droneGroupID, req.ids, name.trim()); }} oncancel={() => (naming = null)} />
@@ -891,22 +888,12 @@
       <span class="caret" style:mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`} style:-webkit-mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`}></span><span class="lbl">{headerWord(HEADER_WORDS.space, "Drones in Space")} ({maxActive === null ? outCount : `${outCount}/${maxActive}`})</span>
       <span class="commands">
         <span class="settings-host">
-          <button type="button" class="command" title="Settings" aria-expanded={settingsOpen}
-            onclick={(e) => { e.stopPropagation(); settingsOpen = !settingsOpen; }}>
+          <!-- DroneGroupHeaderInSpace's settings: a MenuButtonIcon (hint UI/Common/More), its GetSettingsMenu's two
+               checkboxes (MenuData.AddCheckbox, each with its hint) under it at (absoluteLeft + 2, absoluteBottom) -->
+          <button type="button" class="command" title={say(["UI/Common/More", "More"])}
+            onclick={(e) => { e.stopPropagation(); openSettingsMenu(e.currentTarget as HTMLElement); }}>
             <span class="glyph" style:background-image={`url(${ICON.settings})`}></span>
           </button>
-          {#if settingsOpen}
-            <!-- DroneGroupHeaderInSpace.GetSettingsMenu: the two settings' checkboxes -->
-            <ul class="menu settings" role="menu">
-              {#each [["aggressive", MENU_WORDS.autoAttack, MENU_WORDS.autoAttackHint], ["focusFire", MENU_WORDS.focusFire, MENU_WORDS.focusFireHint]] as const as [name, label, hint]}
-                <li role="menuitemcheckbox" aria-checked={$settingsNow[name]}>
-                  <button type="button" title={say(hint)} onclick={(e) => { e.stopPropagation(); toggleSetting(name); }}>
-                    <span class="check">{$settingsNow[name] ? "✓" : ""}</span>{say(label)}
-                  </button>
-                </li>
-              {/each}
-            </ul>
-          {/if}
         </span>
         <button type="button" class="command" title={targetUnavailable ?? keyHint(say(MENU_WORDS.engage), "CmdDronesEngage")} disabled={busy || targetUnavailable !== null}
           onclick={(e) => { e.stopPropagation(); void run(() => primaryAction(allDroneIDs)); }}>
@@ -946,9 +933,6 @@
     <p class="said">{report.label ?? "One of your drones"}: {report.text}</p>
   {/each}
 
-  {#if menu}
-    <div class="menu-host" style:left={`${menu.x}px`} style:top={`${menu.y}px`}>{@render menuList(menu.entries, false)}</div>
-  {/if}
 </div>
 
 {#if tip}
@@ -1021,7 +1005,7 @@
   .sec .commands { margin-left: auto; margin-right: 4px; }
   .caret { flex: none; width: 16px; height: 16px; margin-right: 4px; background: #fff; mask-size: 16px 16px; -webkit-mask-size: 16px 16px; mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat; }
   .sec .commands { opacity: 0; visibility: hidden; transition: opacity .1s, visibility .1s; }
-  .sec:hover .commands, .sec .commands:has(.menu) { opacity: 1; visibility: visible; }
+  .sec:hover .commands { opacity: 1; visibility: visible; }
   /* NoDroneInBayEntry (read through gridcheck): a 24 px entry, its TextBody 8 in and 3 down on an 18 px line */
   .none { margin: 0; box-sizing: border-box; height: 24px; padding: 3px 8px; line-height: 18px; color: rgba(255, 255, 255, 0.5); }
   .lbl { font-size: 14px; color: rgba(255, 255, 255, 0.9); }
@@ -1071,21 +1055,7 @@
   .activity { font-size: 11px; color: rgb(176, 176, 169); white-space: nowrap; }
   .state { margin: 0; padding: 4px 12px 6px; font-size: 11px; color: rgb(108, 110, 107); }
   .said { margin: 0; padding: 3px 12px; font-size: 11px; color: #d08a6a; }
-  .menu-host { position: absolute; z-index: 10; }
-  .menu .sep { height: 1px; margin: 6px 0; background: rgba(255, 255, 255, 0.12); }
-  .menu { margin: 0; padding: 2px 0; list-style: none; min-width: 150px; background: rgba(20, 21, 20, 0.97); border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6); }
-  .menu button { display: block; width: 100%; padding: 4px 12px; border: 0; background: transparent; color: #ddd; text-align: left; font-size: 12px; cursor: pointer; }
-  .menu button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); color: #fff; }
-  .menu button:disabled { color: #777; cursor: default; }
-  .why { color: #8a8a84; font-size: 11px; }
   .settings-host { position: relative; display: inline-flex; }
-  .menu.settings { position: absolute; z-index: 10; right: 0; left: auto; top: 24px; min-width: 160px; }
-  /* a submenu beside its entry while the mouse is over it */
-  .menu li.has-sub { position: relative; }
-  .menu.sub { display: none; position: absolute; left: 100%; top: -3px; }
-  .menu li.has-sub:hover > .menu.sub { display: block; }
-  .menu .opener { display: flex; justify-content: space-between; gap: 12px; }
-  .arrow { color: #aaa; }
   /* sublevel 1: 8 further in (GetLabelLeft 4 + 8 * sublevel) */
   .row.sub { padding-left: 12px; }
   .row.grouphead { min-height: 24px; gap: 4px; cursor: default; }
@@ -1093,7 +1063,6 @@
   .expander { width: 0; height: 0; border-left: 4px solid rgba(255, 255, 255, 0.6); border-top: 4px solid transparent; border-bottom: 4px solid transparent; margin: 0 4px; transition: transform .1s; }
   .expander.open { transform: rotate(90deg); }
   .star { width: 16px; height: 16px; background: center / 16px 16px no-repeat; flex: none; }
-  .menu.settings .check { display: inline-block; width: 16px; }
   /* ButtonSeperatorLine between Return and Orbit and Return to Drone Bay */
   .sep { width: 1px; height: 14px; margin: 0 3px; align-self: center; background: rgba(255, 255, 255, 0.15); }
   .row .row-sep { flex: none; height: auto; align-self: stretch; margin: 4px; background: rgba(255, 255, 255, 0.1); }
