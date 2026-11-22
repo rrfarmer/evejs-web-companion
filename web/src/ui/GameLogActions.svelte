@@ -13,7 +13,7 @@
   const words = store.words;
   const prefix = "UI/Accessories/Log/";
   const labels = ["CaptureLog", "CopyLog", "ClearLog", "GameLog", "Listener", "SessionStarted"];
-  $effect(() => { flow.requestWords([...labels.map((label) => prefix + label), ...WINDOW_ACTION_WORDS]); });
+  $effect(() => { flow.requestWords(["UI/Common/More", ...labels.map((label) => prefix + label), ...WINDOW_ACTION_WORDS]); });
   onMount(() => applyWindowFlags("log"));
 
   let open = $state(false);
@@ -67,7 +67,7 @@
   onkeydown={(event) => { if (open && event.key === "Escape") { event.stopPropagation(); close(); } }} />
 
 <div class="game-log-actions" bind:this={root}>
-  <button type="button" class="win-btn" title="Log actions" aria-label="Log actions"
+  <button type="button" class="win-btn" title={word("UI/Common/More", "More")} aria-label={word("UI/Common/More", "More")}
     aria-expanded={open} aria-controls="game-log-actions-menu" bind:this={trigger}
     onpointerdown={(event) => event.stopPropagation()} onclick={() => (open = !open)}>⋯</button>
   {#if open}

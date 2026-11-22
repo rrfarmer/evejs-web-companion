@@ -21,7 +21,7 @@
   const alwaysSeparate = invAlwaysSeparate;
   const MODES = [["icons", "UI/Inventory/Icons", "Icons"], ["details", "UI/Inventory/Details", "Details"], ["list", "UI/Inventory/List", "List"]] as const;
   onMount(() => applyWindowFlags("inventory"));
-  $effect(() => { flow.requestWords([...WINDOW_ACTION_WORDS, "UI/Inventory/ShowSidebar", "UI/Inventory/AlwaysOpenSeparate", "UI/Inventory/KeepQuickFilterValue", "UI/Inventory/ViewMode", "UI/Inventory/Icons", "UI/Inventory/Details", "UI/Inventory/List",
+  $effect(() => { flow.requestWords(["UI/Common/More", ...WINDOW_ACTION_WORDS, "UI/Inventory/ShowSidebar", "UI/Inventory/AlwaysOpenSeparate", "UI/Inventory/KeepQuickFilterValue", "UI/Inventory/ViewMode", "UI/Inventory/Icons", "UI/Inventory/Details", "UI/Inventory/List",
     "/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", "UI/Common/Search"]); });
 
   let open = $state(false);
@@ -41,7 +41,7 @@
     <input class="inv-head-search" placeholder={word("UI/Common/Search", "Search")} value={$filter}
       oninput={(event) => filter.set((event.target as HTMLInputElement).value)} onpointerdown={(event) => event.stopPropagation()} />
   {/if}
-  <button type="button" class="win-btn" title="Options" aria-label="Options" aria-expanded={open}
+  <button type="button" class="win-btn" title={word("UI/Common/More", "More")} aria-label={word("UI/Common/More", "More")} aria-expanded={open}
     onpointerdown={(event) => event.stopPropagation()} onclick={() => (open = !open)}>⋯</button>
   {#if open}
     <div class="log-menu" role="menu" aria-label="Options">

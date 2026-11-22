@@ -146,8 +146,8 @@
       {#if onToggleMinimize}<button
         type="button"
         class="win-btn"
-        title="Put away"
-        aria-label="Put away"
+        title="Minimize"
+        aria-label="Minimize"
         onpointerdown={(e) => e.stopPropagation()}
         onclick={onToggleMinimize}
       >—</button>{/if}

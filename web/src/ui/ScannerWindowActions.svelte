@@ -13,7 +13,7 @@
   // svelte-ignore state_referenced_locally
   const words = store.words;
   const compact = probeScannerCompact;
-  $effect(() => { flow.requestWords(["/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", ...WINDOW_ACTION_WORDS]); });
+  $effect(() => { flow.requestWords(["UI/Common/More", "/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", ...WINDOW_ACTION_WORDS]); });
   onMount(() => applyWindowFlags("scanner"));
 
   let open = $state(false);
@@ -29,7 +29,7 @@
   onkeydown={(event) => { if (open && event.key === "Escape") { event.stopPropagation(); open = false; } }} />
 
 <div class="scanner-actions" bind:this={root}>
-  <button type="button" class="win-btn" title="Options" aria-label="Options" aria-expanded={open}
+  <button type="button" class="win-btn" title={word("UI/Common/More", "More")} aria-label={word("UI/Common/More", "More")} aria-expanded={open}
     onpointerdown={(event) => event.stopPropagation()} onclick={() => (open = !open)}>⋯</button>
   {#if open}
     <div class="log-menu" role="menu" aria-label="Options">
