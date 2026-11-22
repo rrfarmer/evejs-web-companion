@@ -52,7 +52,9 @@
   // band (25, 122), its glyph by the scanner upgrade tier; the classic HUD keeps its labelled control.
   const newHud = hudSettingNow("shipHudNew_preview");
   const tier = $derived(($fitting.shipAttributes?.[MINING_SCANNER_UPGRADE] ?? 0));
-  const glyph = $derived(`/client-res/ui/texture/eveicon/control_icons/mining_overlay_toggle_${tier >= 3 ? "fleet_shared" : tier >= 2 ? "local" : "default"}_16px.png`);
+  // _GLYPH_BY_TIER: MiningScan.TIER_2 (1) mining_overlay_toggle_local, TIER_3 (2) fleet_shared, any other the default
+  // (mining.MiningScan: TIER_1 0, TIER_2 1, TIER_3 2; the tier is int(attributeMiningScannerUpgrade))
+  const glyph = $derived(`/client-res/ui/texture/eveicon/control_icons/mining_overlay_toggle_${Math.trunc(tier) === 2 ? "fleet_shared" : Math.trunc(tier) === 1 ? "local" : "default"}_16px.png`);
 
   function run() {
     menu = false;
@@ -85,7 +87,7 @@
     {#if tip}
       <!-- MiningScannerButton.LoadTooltipPanel: the command's tooltip (CmdMiningScan, Tooltips/Hud/MiningScan, no
            shortcut by default), "Ore Value" over a 200 x 8 gradient (ULTRAMARINE_BLUE, AIR_TURQUOISE, SAND_YELLOW) with
-           Low and High under it; below the upgrade tier 2, the upgrade note in the secondary colour, 200 wide -->
+           Low and High under it; below MiningScan.TIER_2 (the attribute under 1), the upgrade note in the secondary colour, 200 wide -->
       <div class="mining-tip" style:left={`${tip.x}px`} style:top={`${tip.y}px`}>
         <div class="mt-frame"></div>
         <div class="mt-body">
@@ -94,7 +96,7 @@
           <span class="mt-label">{say("UI/Mining/OreValue", "Ore Value")}</span>
           <span class="mt-bar"></span>
           <span class="mt-ends"><span>{say("UI/Mining/LowValue", "Low")}</span><span>{say("UI/Mining/HighValue", "High")}</span></span>
-          {#if tier < 2 && upgradeNote}<span class="mt-note">{upgradeNote}</span>{/if}
+          {#if tier < 1 && upgradeNote}<span class="mt-note">{upgradeNote}</span>{/if}
         </div>
       </div>
     {/if}
