@@ -575,7 +575,11 @@ button { font: inherit; color: inherit; }
 .dscan-filter-key { width: 10px; opacity: 0.5; font-size: 10px; }
 /* measured in the client through gridcheck: Scan Results, Range, Angle, the AU toggle, the range field, Scan and the
    results EveLabelMedium / Label 14, the column headers and the filter box EveLabelSmall 12 */
-.dscan-caption { margin-right: auto; font-size: 14px; }
+.dscan-caption { margin-right: auto; font-size: 14px; color: rgba(255, 255, 255, 0.75); }
+/* the scanner in SmallWindowHeader chrome (read through gridcheck): its palette 16 in a side and below, headerCont 32 high
+   with Scan Results 2 in, the dirscroll 2 below it */
+.pw.pw-small > .pw-body.dscan { padding: 0 16px 16px; }
+.pw.pw-small > .pw-body.dscan > .dscan-scroll { margin-top: 2px; }
 /* the FilterBox (Density.COMPACT, maxWidth 120): a combo underlay filling the row's 32, its EveLabelSmall at +5 clipped, the
    7 x 7 Neocom arrowDown 5 from its right */
 .dscan-filter { order: 9; position: relative; display: block; box-sizing: border-box; height: 32px; line-height: 32px; min-width: 40px; max-width: 120px;
