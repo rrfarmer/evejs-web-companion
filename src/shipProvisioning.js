@@ -92,6 +92,16 @@ function proveShipAction(action, after, verifyMovement) {
   return null;
 }
 
+function validCompletedEquipment(row, observation, data) {
+  const hullTypeID = row.contract.shipTypeID;
+  if (observation?.shipTypeID !== hullTypeID) return false;
+  // A verified receipt already identifies its hull. Runtime-only hulls may
+  // be absent until GamePort logs in. Still recheck the saved fit against it.
+  const savedHull = row.result.actualEquipmentFingerprint === row.contract.equipmentFingerprint && !data.getType(hullTypeID);
+  const catalog = savedHull ? { getType: typeID => typeID === hullTypeID ? { categoryID: 6 } : data.getType(typeID) } : data;
+  return inspectContract(row.contract, observation, catalog).equipment === "VERIFIED";
+}
+
 function validShipRecord(row, verifyMovement, data) {
   if (!Array.isArray(row.actions) || !Array.isArray(row.contract?.equipment) || !Array.isArray(row.contract?.supplies)) return false;
   const snapshots = snapshot => snapshot && Array.isArray(snapshot.hangar) && Array.isArray(snapshot.source?.rows) &&
@@ -126,7 +136,7 @@ function validShipRecord(row, verifyMovement, data) {
     (!["READY", "COMPLETE", "REFUSED"].includes(row.state) || row.actions.every(a => a.state === "VERIFIED")) &&
     (row.state !== "COMPLETE" || (row.result?.equipment === "VERIFIED" && row.manifest.boardedShipID === row.manifest.targetHullID &&
       row.expected.context.shipID === row.manifest.targetHullID &&
-      inspectContract(row.contract, exact ? row.expected.observation : row.expected.target, data).equipment === "VERIFIED"));
+      validCompletedEquipment(row, exact ? row.expected.observation : row.expected.target, data)));
 }
 
 module.exports = { shipPlan, proveShipAction, validShipRecord, quantity, equal };

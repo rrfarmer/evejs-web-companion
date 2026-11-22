@@ -9,7 +9,12 @@ const data = { getType: id => ({ 1: { categoryID: 6, groupID: 25 }, 2: { categor
 const clone = x => structuredClone(x);
 function fixture(t, corp = false) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wc-ship-"));
-  t.after(() => { assert.ok(path.resolve(dir).startsWith(path.resolve(os.tmpdir()) + path.sep)); fs.rmSync(dir, { recursive: true }); });
+  t.after(() => {
+    const resolved = fs.realpathSync(dir);
+    assert.equal(path.dirname(resolved), fs.realpathSync(os.tmpdir()));
+    assert.match(path.basename(resolved), /^wc-ship-/);
+    fs.rmSync(resolved, { recursive: true });
+  });
   const filePath = path.join(dir, "journal.json"), operations = new Map();
   const items = [{ typeID: 2, flagID: 19, quantity: 1 }, { typeID: 2, flagID: 27, quantity: 1 },
     { typeID: 4, flagID: 87, quantity: 2 }, { typeID: 3, flagID: 5, quantity: 5 }];
@@ -64,7 +69,9 @@ function fixture(t, corp = false) {
   let engine = createReplenishment({ filePath, operations, data }), operationID;
   return { world, adapter, input, filePath, operations, engine: () => engine,
     async review(id = null) { const review = await engine.reviewShip(adapter, input, id); operationID = id || review.reviewID; return review; },
-    apply: review => engine.applyShip(adapter, review), restart() { operations.clear(); engine = createReplenishment({ filePath, operations, data }); } };
+    apply: review => engine.applyShip(adapter, review), restart(catalog = data) {
+      operations.clear(); engine = createReplenishment({ filePath, operations, data: catalog });
+    } };
 }
 test("personal packaged stack consumes one, uniquely boards, fits, loads, verifies and repeats without dispatch", async t => {
   const f = fixture(t), review = await f.review(); assert.equal(review.plan.hullQuantity, 1);
@@ -76,6 +83,30 @@ test("personal packaged stack consumes one, uniquely boards, fits, loads, verifi
   const again = await f.review(); assert.equal(again.plan.mode, "ALREADY_SATISFIED"); assert.equal(again.plan.hullQuantity, 0);
   assert.equal((await f.apply(again)).result.alreadySatisfied, true); assert.equal(f.world.dispatched.length, count);
   f.restart(); assert.equal(f.engine().unresolved(11).length, 0);
+});
+test("completed runtime hull receipts survive a cold catalog while their saved fitting is still checked", async t => {
+  const f = fixture(t), assembled = await f.review();
+  assert.equal((await f.apply(assembled)).state, "COMPLETE");
+  const exact = await f.review();
+  assert.equal((await f.apply(exact)).result.alreadySatisfied, true);
+  const cold = { ...data, getType: id => id === 1 ? null : data.getType(id) };
+  const saved = fs.readFileSync(f.filePath, "utf8"), count = f.world.dispatched.length;
+  f.restart(cold);
+  assert.equal(fs.readFileSync(f.filePath, "utf8"), saved);
+  assert.equal(f.engine().unresolved(11).length, 0);
+  for (const { reviewID } of [assembled, exact]) assert.equal(f.engine().journal.get(reviewID).state, "COMPLETE");
+  await assert.rejects(f.apply(assembled), { code: "COMPLETED_EQUIPMENT_CHANGED" });
+  assert.equal(f.world.dispatched.length, count);
+
+  const wrongResult = JSON.parse(saved);
+  wrongResult.records[assembled.reviewID].result.actualEquipmentFingerprint = "0".repeat(64);
+  fs.writeFileSync(f.filePath, JSON.stringify(wrongResult));
+  assert.throws(() => f.restart(cold), { code: "CUSTODY_JOURNAL_INVALID" });
+
+  const damaged = JSON.parse(saved);
+  damaged.records[assembled.reviewID].expected.target.rows = [];
+  fs.writeFileSync(f.filePath, JSON.stringify(damaged));
+  assert.throws(() => f.restart(cold), { code: "CUSTODY_JOURNAL_INVALID" });
 });
 for (const fault of ["WITHDRAW_HULL", "ASSEMBLE_HULL", "FIT_ITEM"]) test(`${fault}: persisted fence, restart, reread and explicit continuation do not duplicate`, async t => {
   const f = fixture(t, fault === "WITHDRAW_HULL"); f.world.fault = fault;
