@@ -14,7 +14,8 @@
   const hoverSound = (e: MouseEvent) => { if (!(e.buttons & 1)) void playUiEvent("ui_button_soft2_play"); };
   import { droneSettings, droneSettingsFor, droneViewIcons, droneViewModeFor, droneWindowCompact, droneWarpWarning, droneWarpWarningFor, setDroneSetting } from "./droneSettings.ts";
   import { shortcutOf } from "../play/shortcutKeys.ts";
-  import { onDestroy, onMount } from "svelte";
+  import { getContext, onDestroy, onMount } from "svelte";
+  import type { SpaceView } from "../play/spaceView.ts";
   import { hideLabelShortcutTooltip, showIconValuesTooltip } from "../play/labelShortcutTooltip.ts";
   import { canMyShipOrderDrone } from "../space/overview.ts";
   import { miningDroneIDs, orderableDroneIDs, salvageDroneIDs } from "./droneFlight.ts";
@@ -683,6 +684,9 @@
    * int(round(x 100)) clamped 0 - 100 as UI/Common/Formatting/Percentage under its damageIconInfo stats icon (structureHP,
    * armorHP, shieldHP); reloaded every 500 ms while the mouse stays (AutoTimer(500)); nothing while the damage is not read.
    */
+  // DroneEntry.OnMouseEnter / OnMouseExit: stateSvc.SetState(itemID, state.mouseOver, 1 / 0) - the drone's bracket and
+  // overview row hovered while the mouse is on its entry
+  const flightView = getContext<(() => SpaceView | null) | undefined>("flightSpaceView");
   let gaugeTipTimer: ReturnType<typeof setInterval> | null = null;
   const GAUGE_ICONS = ["structureHP", "armorHP", "shieldHP"].map((n) => clientTexture(`res:/UI/Texture/classes/Fitting/StatsIcons/${n}.png`));
   function gaugeTipShow(el: HTMLElement): void {
@@ -741,7 +745,8 @@
 
 {#snippet spaceEntry(row: (typeof spaceRows)[number], sub: boolean)}
   <div class="row inspace" data-space-item={row.itemIDs[0]} class:list={!$viewIcons} class:compact={$windowCompact} class:sub class:lost={row.unavailable !== null} class:selected={selected.space.includes(row.itemIDs[0]!)} role="listitem" title={row.unavailable ?? undefined} draggable="true"
-    onmouseenter={(e) => { hoverSound(e); if (row.typeID !== null) tipFor(row.typeID, row.unavailable ?? row.activity, row.color, row.targetID, e); }} onmouseleave={tipOff}
+    onmouseenter={(e) => { hoverSound(e); flightView?.()?.hoverObject(row.itemIDs[0]!); if (row.typeID !== null) tipFor(row.typeID, row.unavailable ?? row.activity, row.color, row.targetID, e); }}
+    onmouseleave={() => { flightView?.()?.hoverObject(null); tipOff(); }}
     onclick={(e) => clickEntry("space", row.itemIDs[0]!, e)} ondragstart={(e) => dragStart("space", row.itemIDs[0]!, row.typeID, e)}
     oncontextmenu={(e) => {
       // GroupMenu takes the selected of the clicked one's drone group, the drone menu every selected one
