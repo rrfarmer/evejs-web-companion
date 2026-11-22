@@ -1027,6 +1027,10 @@
   .gauge { position: relative; width: 32px; height: 4px; background: rgb(153, 31, 36); overflow: hidden; }
   .gauge .health { position: absolute; left: 0; top: 0; bottom: 0; background: rgb(196, 196, 196); }
   .gauge .needle { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; }
+  /* DroneInSpaceEntry (read through gridcheck on a Hobgoblin): its entryLabel TextBody at white 0.9, the HealthGauges' droneGaugeBar
+     at (0.69, 0.69, 0.69) over droneGaugeBarDmg's red */
+  .row.inspace .name { color: rgba(255, 255, 255, 0.9); }
+  .row.inspace .gauge .health { background: rgb(176, 176, 176); }
   .count { font-size: 11px; color: rgb(176, 176, 169); }
   .activity { font-size: 11px; color: rgb(176, 176, 169); white-space: nowrap; }
   .state { margin: 0; padding: 4px 12px 6px; font-size: 11px; color: rgb(108, 110, 107); }
