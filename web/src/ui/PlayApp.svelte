@@ -1778,6 +1778,24 @@
       }, tipWord, (meters) => fmtDist(meters));
     }
 
+    // starmap GetDestinationPath's first system (the next on the way, the pilot's own left out) and GetWaypoints' first,
+    // for GetIconColor's autopilot-destination colour; read again as the waypoints or the system change
+    let routeNextNow: { nextSystemID: number | null; firstWaypoint: number | null } = { nextSystemID: null, firstWaypoint: null };
+    const readRouteNext = () => void s.flow.routeWindowWaypoints().then((read) => {
+      const path: number[] = [];
+      for (const w of read?.waypoints ?? []) {
+        const systemID = w.id >= 30_000_000 && w.id <= 39_999_999 ? w.id : w.within.find((x) => x >= 30_000_000 && x <= 39_999_999);
+        path.push(...w.between);
+        if (systemID !== undefined) path.push(systemID);
+      }
+      routeNextNow = { nextSystemID: path.find((x) => x !== read?.currentSystemID) ?? null, firstWaypoint: read?.waypoints[0]?.id ?? null };
+    }).catch(() => {});
+    const stopRouteNext = s.flow.waypoints.subscribe(() => readRouteNext());
+    let routeNextSystem: number | null = null;
+    const stopRouteNextSystem = s.store.flight.subscribe((f) => {
+      const here = f.status?.solarSystemID ?? null;
+      if (here !== routeNextSystem) { routeNextSystem = here; readRouteNext(); }
+    });
     const v = new SpaceView(live, {
       gotoDirection: (x, y, z) => act("beyonce", "CmdGotoDirection", [x, y, z]).then(() => undefined),
       setSpeedFraction: (fraction) => act("beyonce", "CmdSetSpeedFraction", [fraction]).then(() => undefined),
@@ -1910,6 +1928,7 @@
       setName: (id, current) => { namingItem = { itemID: id, value: current }; s.flow.requestWords(["UI/Menusvc/SetName", "UI/Menusvc/TypeInNewName", "UI/Common/PleaseTypeSomething", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel"]); },
       inFleet: () => s.store.fleet.get().availability === "ready",
       fleetID: () => s.store.fleet.get().fleet?.fleetID ?? null,
+      routeNext: () => routeNextNow,
       // BroadcastState: each broadcast on a thing holds for FLEETBROADCASTTIMEOUT (15 s) from when it was heard
       currentBroadcasts: () => fedBroadcasts(s).items(Date.now()),
       currentBroadcastOn: (itemID) => {
@@ -2565,7 +2584,7 @@
       for (const d of t.damageLog) if (d.id > lastDamageID) { v.showDamage(d); logCombatLine(d); }
       lastDamageID = t.damageLog.at(-1)?.id ?? lastDamageID;
     });
-    return () => { disposed = true; stopDamage(); v.dispose(); view = null; };
+    return () => { disposed = true; stopDamage(); stopRouteNext(); stopRouteNextSystem(); v.dispose(); view = null; };
   });
 
   // The client's view transitions (ui/view/transitions.py, viewStateConfig.py): docking (ToHangarTransition) fades to

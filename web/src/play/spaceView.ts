@@ -318,6 +318,8 @@ export interface SpaceActions {
   inFleet?(): boolean;
   /** The pilot's fleet's ID, or null (Michelle.HaveLootRight's fleet). */
   fleetID?(): number | null;
+  /** starmap GetDestinationPath()[0] and GetWaypoints()[0], for the route's colour on its gate or station. */
+  routeNext?(): { nextSystemID: number | null; firstWaypoint: number | null };
   /** fleetSvc's broadcasts on a thing in space (Target, HealTarget to the bubble; WarpTo, AlignTo, JumpTo to the system). */
   broadcastOnItem?(name: "Target" | "HealTarget" | "WarpTo" | "AlignTo" | "JumpTo", itemID: number, typeID: number | null): void;
   /** Inventory opened on one of the ship's own holds (the new HUD's cargo indicator), by the bay's key. */
@@ -383,6 +385,7 @@ export interface SpaceActions {
 
 
 /** The pilot, for the containers' loot rights in glyph (set on each space update). */
+let routeNext: { nextSystemID: number | null; firstWaypoint: number | null } = { nextSystemID: null, firstWaypoint: null };
 let lootWho: { characterID: number | null; corporationID: number | null; fleetID: number | null } = { characterID: null, corporationID: null, fleetID: null };
 
 /** bracketVarious.GROUPS_WITH_LOOTRIGHTS: wreck, cargo container, freight container. */
@@ -401,7 +404,12 @@ export function glyph(e: Entity): string {
         || (lootWho.corporationID !== null && !isNpcCorporation(lootWho.corporationID) && (rights.ownerID === lootWho.corporationID || rights.corpID === lootWho.corporationID))
         || (lootWho.fleetID !== null && rights.fleetID === lootWho.fleetID) ? null : "forbidden"
     : null;
-  const c = e.isNpc ? "var(--hostile)" : e.isSelf ? "#b3b3b3" : looted === "abandoned" ? "rgb(51, 128, 255)" : looted === "forbidden" ? "rgb(255, 255, 0)" : "#ffffff";
+  // ... and OVERVIEW_AUTO_PILOT_DESTINATION_COLOR (DESTINATION_YELLOW #FFF0FF45) on the gate to the route's next system and
+  // the station or structure that is the first waypoint
+  const jumpTo = (e as Entity & { jumpSystemID?: number | null }).jumpSystemID ?? null;
+  const onRoute = (e.groupID === 10 && jumpTo !== null && jumpTo === routeNext.nextSystemID)
+    || ((e.groupID === 15 || e.categoryID === 65) && e.itemID === routeNext.firstWaypoint);
+  const c = onRoute ? "rgb(240, 255, 69)" : e.isNpc ? "var(--hostile)" : e.isSelf ? "#b3b3b3" : looted === "abandoned" ? "rgb(51, 128, 255)" : looted === "forbidden" ? "rgb(255, 255, 0)" : "#ffffff";
   const icon = bracketIcon(e);
   if (icon) return `<span class="glyph bi" style="--icon:url('${icon}');--tint:${c}"></span>`;
   switch (e.kind) {
@@ -4881,6 +4889,7 @@ export class SpaceView {
     }
     this.snapshot = snap;
     const self = snap?.entities.find((x) => x.isSelf) ?? null;
+    routeNext = this.actions.routeNext?.() ?? routeNext;
     lootWho = { characterID: self?.characterID ?? null, corporationID: self?.corporationID ?? null, fleetID: this.actions.fleetID?.() ?? null };
     // tactical.ProcessSessionChange: a new ship ('shipid' in the change) clears every attacker
     const shipNow = snap?.ship?.itemID ?? null;
@@ -5029,7 +5038,9 @@ export class SpaceView {
         // InSpaceBracket's indicators: Hilite's selectionCircle, TargetedIndicator (outerCircle and the four TargetLines
         // across the screen; its targetingArrows while locking) and ActiveTargetIndicator (the turning spinCorners and
         // selectedTargetedItem), shown by the bracket's classes
-        el.innerHTML = `${glyph(e)}<div class="label"></div><div class="t-ind"><span class="t-hilite"></span><span class="t-circle"></span>
+        const drawn = glyph(e);
+        el.dataset.glyph = drawn;
+        el.innerHTML = `${drawn}<div class="label"></div><div class="t-ind"><span class="t-hilite"></span><span class="t-circle"></span>
           <span class="t-line t-top"></span><span class="t-line t-left"></span><span class="t-line t-right"></span><span class="t-line t-bottom"></span>
           <span class="t-hit"></span><span class="t-aggress"></span><span class="t-cantarget"></span><span class="t-locking"></span><span class="t-timer"></span><span class="t-lock-text"></span><span class="t-active-spin"></span><span class="t-active-circle"></span></div>`;
         el.dataset.hackingState = hackingState;
@@ -5050,8 +5061,11 @@ export class SpaceView {
         el.classList.toggle("selected", this.selected === id);
         this.brackets.appendChild(el);
         this.bracketEls.set(e.itemID, el);
-      } else if (el.dataset.hackingState !== hackingState) {
-        el.firstElementChild!.outerHTML = glyph(e);
+      } else {
+        // the glyph drawn again when it changes: the hacking state, or GetIconColor's colour (a can's loot right, the
+        // route's gate or station)
+        const drawn = glyph(e);
+        if (el.dataset.glyph !== drawn) { el.firstElementChild!.outerHTML = drawn; el.dataset.glyph = drawn; }
         el.dataset.hackingState = hackingState;
       }
       el.classList.toggle("objective-highlight", highlighted);
