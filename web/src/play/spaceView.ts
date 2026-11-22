@@ -937,6 +937,7 @@ export class SpaceView {
   /** tactical.OnSpecialFX's attackers: each thing an offensive effect on the pilot's ship is under way from, by its
    *  effects' signatures (module, guid, start time, duration) - threatAttackingMe while any is. */
   private readonly attackers = new Map<number, Set<string>>();
+  private attackersShipID: number | null = null;
   private readonly feedEl: HTMLDivElement;
   private readonly toastEl: HTMLDivElement;
   private selected: number | null = null;
@@ -4828,6 +4829,9 @@ export class SpaceView {
       snap = projectSpace(park, { solarSystemID: null, shipID: this.live.hello?.shipID ?? null, simTime: this.live.simNow() }) as unknown as Snapshot;
     }
     this.snapshot = snap;
+    // tactical.ProcessSessionChange: a new ship ('shipid' in the change) clears every attacker
+    const shipNow = snap?.ship?.itemID ?? null;
+    if (shipNow !== this.attackersShipID) { this.attackers.clear(); this.attackersShipID = shipNow; }
     if (snap) this.primeEntityLocations(snap.entities);
     this.checkModuleTargetSession();
     const ego = snap?.ship ?? null;
