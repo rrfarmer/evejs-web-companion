@@ -325,7 +325,7 @@
     return sortDir ? sorted.reverse() : sorted;
   });
   // the details columns' facts: volume (evetypes) and meta and tech levels (typeFacts)
-  let facts = $state<Record<number, { volume: number | null; meta: number | null; tech: number | null }>>({});
+  let facts = $state<Record<number, { volume: number | null; meta: number | null; tech: number | null; loaded?: boolean }>>({});
   $effect(() => {
     if (viewMode === "icons") return;
     const missing = [...new Set((bay?.items ?? []).map((i) => i.typeID))].filter((t) => !facts[t]);
@@ -333,7 +333,7 @@
     for (const t of missing) facts[t] = { volume: null, meta: null, tech: null };
     void Promise.all([flow.typeVolumes(missing).catch(() => ({} as Record<string, number>)), flow.typeFacts(missing).catch(() => null)]).then(([v, m]) => {
       const next = { ...facts };
-      for (const t of missing) next[t] = { volume: v[String(t)] ?? null, meta: m?.get(t)?.metaLevel ?? null, tech: m?.get(t)?.techLevel ?? null };
+      for (const t of missing) next[t] = { volume: v[String(t)] ?? null, meta: m?.get(t)?.metaLevel ?? null, tech: m?.get(t)?.techLevel ?? null, loaded: !!m?.has(t) };
       facts = next;
     });
   });
@@ -662,14 +662,16 @@
               {@const fa = facts[i.typeID]}
               <tr class:selected={selected.includes(i.itemID)} draggable="true" onmouseenter={(e) => { hoverSound(e); itemTip(i, e); }} onmouseleave={hideLabelShortcutTooltip} onclick={(e) => clickItem(i.itemID, e)} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
                 <td class="nm" class:hid={hiddenCols.includes(0)}>{#if viewMode === "details"}<span class="ricon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="md" /></span>{/if}{typeName(i.typeID)}</td>
-                <td class="num" class:hid={hiddenCols.includes(1)}>{i.quantity.toLocaleString("en-US")}</td>
+                <!-- uix columns (read through gridcheck): QUANTITY GetItemQty - none for a singleton; META_LEVEL FmtAmt where the
+                     type has one (0 blank); TECH_LEVEL FmtAmt, and where evetypes has none the client prints None -->
+                <td class="num" class:hid={hiddenCols.includes(1)}>{i.singleton ? "" : i.quantity.toLocaleString("en-US")}</td>
                 <td class:hid={hiddenCols.includes(2)}>{groupName(i.typeID)}</td>
                 <td class:hid={hiddenCols.includes(3)}>{categoryName(i.typeID)}</td>
                 <td class:hid={hiddenCols.includes(4)}></td>
                 <td class:hid={hiddenCols.includes(5)}></td>
                 <td class="num" class:hid={hiddenCols.includes(6)}>{fa?.volume != null ? volCell(fa.volume * i.quantity) : ""}</td>
-                <td class="num" class:hid={hiddenCols.includes(7)}>{fa?.meta ?? ""}</td>
-                <td class="num" class:hid={hiddenCols.includes(8)}>{fa?.tech ?? ""}</td>
+                <td class="num" class:hid={hiddenCols.includes(7)}>{fa?.meta ? fa.meta.toLocaleString("en-US") : ""}</td>
+                <td class="num" class:hid={hiddenCols.includes(8)}>{fa?.loaded ? (fa.tech ? fa.tech.toLocaleString("en-US") : "None") : ""}</td>
                 <td class="num" class:hid={hiddenCols.includes(9)}>{prices?.get(i.typeID) ? fmtIskCell((prices.get(i.typeID) ?? 0) * i.quantity) : ""}</td>
               </tr>
             {/each}
