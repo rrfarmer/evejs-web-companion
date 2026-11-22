@@ -2412,12 +2412,30 @@
           return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args, { nameOf: (kind, id) => (kind === "owner" ? nameOf(Number(id)) : "") })).trim() : own;
         };
         const name = nameOf(characterID);
+        const showInfoEntry = { label: w("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => showInfo({ kind: "character", characterID }) };
+        const bountyEntry = { label: w("UI/Station/BountyOffice/PlaceBounty", "Place Bounty"), run: () => { bountyOffice = { n: (bountyOffice?.n ?? 0) + 1, target: { ownerID: characterID, corporationID: affiliation?.corporationID ?? null, allianceID: affiliation?.allianceID ?? null } }; } };
+        // CapturePortrait: the portrait at its largest size saved as <characterID>.jpg
+        const portraitEntry = { label: w("UI/Commands/CapturePortrait", "Capture Portrait"), run: () => void s.flow.capturePortraits([characterID], (id, image) => {
+              const bytes = Uint8Array.from(atob(image.base64), (ch) => ch.charCodeAt(0));
+              const link = document.createElement("a");
+              link.href = URL.createObjectURL(new Blob([bytes], { type: image.contentType }));
+              link.download = `${id}.jpg`;
+              link.click();
+              setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
+            }, () => {}).catch(() => {}) };
+        // _CharacterMenu of oneself (read through gridcheck on the client pilot's own ship): Show Info, Fleet >, View
+        // Member Details, Place Bounty, Capture Portrait - no money, contacts, conversation, mail, fleet invite or duel
+        // (the Fleet submenu and View Member Details not on the page yet)
+        if (characterID === s.store.station.get().online?.characterID) {
+          return { path: "UI/Common/Pilot", label: w("UI/Common/Pilot", `Pilot (${name})`, { character: characterID }), icon: "res:/UI/Texture/eveicon/system_icons/person_16px.png",
+            sub: [showInfoEntry, bountyEntry, portraitEntry] };
+        }
         return {
           path: "UI/Common/Pilot", label: w("UI/Common/Pilot", `Pilot (${name})`, { character: characterID }), icon: "res:/UI/Texture/eveicon/system_icons/person_16px.png",
           sub: [
-            { label: w("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => showInfo({ kind: "character", characterID }) },
+            showInfoEntry,
             { label: w("UI/Commands/GiveMoney", "Give Money"), run: () => void s.flow.openMoneyTransfer(characterID).catch(() => {}) },
-            { label: w("UI/Station/BountyOffice/PlaceBounty", "Place Bounty"), run: () => { bountyOffice = { n: (bountyOffice?.n ?? 0) + 1, target: { ownerID: characterID, corporationID: affiliation?.corporationID ?? null, allianceID: affiliation?.allianceID ?? null } }; } },
+            bountyEntry,
             { label: known ? w("UI/PeopleAndPlaces/EditContact", "Edit Contact") : w("UI/PeopleAndPlaces/AddContact", "Add Contact"),
               run: () => void s.flow.addressBook("contact").then((book) => { pilotBook = book; pilotContact = { kind: "manage", ownerID: characterID, name: nameOf(characterID) || name, book }; }).catch(() => {}) },
             { label: w("UI/PeopleAndPlaces/BlockContact", "Block"), run: () => void s.flow.blockOwners([characterID]).catch(() => {}) },
@@ -2427,15 +2445,7 @@
               ...[...(pilotInvitable.get(characterID) ?? [])].sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0)).map((c) => ({ label: c.title, run: () => converse(c.channel) })),
             ] },
             { label: w("UI/EVEMail/SendPilotEVEMail", "Send Message"), run: () => { focusMail({ kind: "compose", characterID, name }); open("mail"); } },
-            // CapturePortrait: the portrait at its largest size saved as <characterID>.jpg
-            { label: w("UI/Commands/CapturePortrait", "Capture Portrait"), run: () => void s.flow.capturePortraits([characterID], (id, image) => {
-              const bytes = Uint8Array.from(atob(image.base64), (ch) => ch.charCodeAt(0));
-              const link = document.createElement("a");
-              link.href = URL.createObjectURL(new Blob([bytes], { type: image.contentType }));
-              link.download = `${id}.jpg`;
-              link.click();
-              setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
-            }, () => {}).catch(() => {}) },
+            portraitEntry,
             { label: w("UI/Fleet/FormFleetWith", "Form Fleet With..."), run: () => void s.flow.formFleetWith(characterID).catch(() => {}) },
             { label: w("UI/Crimewatch/Duel/DuelMenuEntry", "Invite to Duel"), run: () => void s.flow.startDuel(characterID).catch(() => {}) },
           ],

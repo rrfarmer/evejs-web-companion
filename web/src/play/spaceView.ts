@@ -4744,6 +4744,8 @@ export class SpaceView {
         { path: "UI/Inflight/ResetCamera", label: word("UI/Inflight/ResetCamera", "Look At My Ship"), run: () => this.focusOn(null) },
         null,
         showInfo,
+        // OfferPilotMenu (a ship with an owner): "Pilot (<name>)" with one's own CharacterMenu, after Show Info
+        ...((): (ContextEntry | null)[] => { const p = e.characterID ? this.options.pilotMenu?.(e.characterID, { corporationID: e.corporationID ?? null, allianceID: e.allianceID ?? null }) ?? null : null; return p ? [null, p] : []; })(),
         // OfferSetName (one's own specific thing; a ship's through the ship naming window), CONFIGGROUP
         ...(this.actions.renameShip ? [null, { path: "UI/Commands/SetName", label: word("UI/Commands/SetName", "Set Name"), run: () => this.actions.renameShip?.(id) }] : []),
         ...(holds.length ? [null, ...holds] : []),
