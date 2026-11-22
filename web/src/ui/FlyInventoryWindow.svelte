@@ -97,6 +97,10 @@
   const typeName = (typeID: number | null) => resolvedName($names.resolved, "type", typeID, "");
   /** The ship's bays the hull has: its cargo (the ship node itself), then the others, the drone bay where it has one. */
   interface Bay { key: string; label: string; items: { itemID: number; typeID: number; quantity: number; singleton: boolean; categoryID: number | null }[] | null; capacity: number | null; used: number | null }
+  // treeData.TreeDataShip.GetChildren: the ship's bays in this order (the drone bay first, then the holds as its checks run)
+  const TREE_ORDER = ["drone", "fighter", "shipMaintenance", "fleet", "fuel", "ore", "asteroid", "ice", "gas", "mineral", "salvage", "ship", "smallShip",
+    "mediumShip", "largeShip", "industrialShip", "ammo", "commandCenter", "planetary", "quafe", "corpse", "booster", "subsystem", "mobileDepot", "colony", "expedition"];
+  const treeRank = (key: string) => { const i = TREE_ORDER.indexOf(key); return key === "cargo" ? -1 : i < 0 ? TREE_ORDER.length : i; };
   const droneBayCapacity = $derived(($fitting.shipAttributes?.[283] as number | undefined) ?? null);
   const bays = $derived.by((): Bay[] => {
     const out: Bay[] = [];
@@ -118,7 +122,7 @@
       const used = items.reduce((n, i) => n + (volumes[String(i.typeID)] ?? 0) * i.quantity, 0);
       out.push({ key: "drone", label: word("UI/Ship/DroneBay", "Drone Bay"), items, capacity: droneBayCapacity, used });
     }
-    return out;
+    return out.sort((a, b) => treeRank(a.key) - treeRank(b.key));
   });
   let volumes = $state<Record<string, number>>({});
   $effect(() => {
