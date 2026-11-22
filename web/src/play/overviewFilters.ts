@@ -179,7 +179,7 @@ function flagHolds(flag: number, item: OverviewItem, group: number, category: nu
     case 21: return group === AGENT_IN_SPACE;
     case 9: return charID !== null && security <= OUTLAW_SECURITY_STATUS;
     case 10: return charID !== null && -0.1 > security && security >= OUTLAW_SECURITY_STATUS;
-    case 11: case 12: case 14: case 45: case 49: case 15: case 16: return stateMatches(flag, item, group, category, relations);
+    case 11: case 12: case 14: case 45: case 49: case 15: case 16: case 36: case 37: return stateMatches(flag, item, group, category, relations);
     case 13: { const owner = item.allianceID ?? item.corporationID; return !!relations && owner != null && atWarCanFight(owner, relations); }
     case 44: return !!relations && relations.warFactionID != null && item.warFactionID != null && FW_ENEMIES[relations.warFactionID] === item.warFactionID;
     case 18: case 19: {
@@ -307,7 +307,9 @@ function matchesMask(item: OverviewItem, groupID: number | null, mask: PresetMas
   if (groupID !== null && !mask.groups.has(group)) return false;
   const category = item.categoryID ?? 0;
   if (!mask.filteredStates.length || (!FILTER_CATEGORIES.has(category) && !FILTER_GROUPS.has(group))) return true;
-  const matches = (state: number) => stateMatches(state, item, group, category, relations);
+  // tactical.CheckFiltered: each state by its stateSvc Check function, the same ones the flags are drawn by (flagHolds) -
+  // the outlaw, war, standing, crimewatch, bounty and kill-right states as well
+  const matches = (state: number) => flagHolds(state, item, group, category, relations);
   return alwaysShownStates.some(matches) || !mask.filteredStates.some(matches);
 }
 
