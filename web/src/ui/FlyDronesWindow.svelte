@@ -14,7 +14,8 @@
   const hoverSound = (e: MouseEvent) => { if (!(e.buttons & 1)) void playUiEvent("ui_button_soft2_play"); };
   import { droneSettings, droneSettingsFor, droneViewIcons, droneViewModeFor, droneWindowCompact, droneWarpWarning, droneWarpWarningFor, setDroneSetting } from "./droneSettings.ts";
   import { shortcutOf } from "../play/shortcutKeys.ts";
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
+  import { hideLabelShortcutTooltip, showIconValuesTooltip } from "../play/labelShortcutTooltip.ts";
   import { canMyShipOrderDrone } from "../space/overview.ts";
   import { miningDroneIDs, orderableDroneIDs, salvageDroneIDs } from "./droneFlight.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
@@ -677,6 +678,29 @@
     ];
     return groups.filter((g) => g.length).flatMap((g, k) => (k ? [SEP, ...g] : g));
   }
+  /**
+   * DroneEntry.LoadDamageGaugeTooltipPanel: the Michelle tuple's three layers (shield, armor, structure) reversed, each
+   * int(round(x 100)) clamped 0 - 100 as UI/Common/Formatting/Percentage under its damageIconInfo stats icon (structureHP,
+   * armorHP, shieldHP); reloaded every 500 ms while the mouse stays (AutoTimer(500)); nothing while the damage is not read.
+   */
+  let gaugeTipTimer: ReturnType<typeof setInterval> | null = null;
+  const GAUGE_ICONS = ["structureHP", "armorHP", "shieldHP"].map((n) => clientTexture(`res:/UI/Texture/classes/Fitting/StatsIcons/${n}.png`));
+  function gaugeTipShow(el: HTMLElement): void {
+    const raw = el.dataset.damage;
+    if (!raw) { hideLabelShortcutTooltip(); return; }
+    const layers = raw.split(",").map(Number).slice(0, 3).reverse();
+    showIconValuesTooltip(el, layers.map((v, i) => ({ icon: GAUGE_ICONS[i]!, text: `${Math.min(100, Math.max(0, Math.round(v * 100)))}%` })));
+  }
+  function gaugeTipOn(el: HTMLElement): void {
+    gaugeTipOff();
+    gaugeTipShow(el);
+    gaugeTipTimer = setInterval(() => { if (el.isConnected && el.matches(":hover")) gaugeTipShow(el); else gaugeTipOff(); }, 500);
+  }
+  function gaugeTipOff(): void {
+    if (gaugeTipTimer) { clearInterval(gaugeTipTimer); gaugeTipTimer = null; }
+    hideLabelShortcutTooltip();
+  }
+  onDestroy(gaugeTipOff);
 </script>
 
 <svelte:window onclick={() => { menu = null; settingsOpen = false; }} />
@@ -688,8 +712,8 @@
 <!-- DroneEntry.ConstructGauges: structure, armor, shield, 32 x 4 each, 2 apart, 8 from the right; HealthGauge the
      silver-grey health (added) over cherry red with a white 2 px needle where it ends; unknown, full at 0.05 -->
 {#snippet gauges(damage: readonly [number, number, number] | null)}
-  <span class="gauges" class:unknown={damage === null}
-    title={damage ? [damage[0], damage[1], damage[2]].map((v) => `${Math.round(Math.max(0, Math.min(1, v)) * 100)}%`).join("  ") : undefined}>
+  <span class="gauges" class:unknown={damage === null} data-damage={damage ? damage.join(",") : ""}
+    onmouseenter={(e) => gaugeTipOn(e.currentTarget as HTMLElement)} onmouseleave={gaugeTipOff}>
     {#each damage ? [damage[2], damage[1], damage[0]] : [1, 1, 1] as v}
       {@const p = Math.max(0, Math.min(1, Math.round(v * 1000) / 1000))}
       <span class="gauge" style:--hp={`${Math.floor(32 * p)}px`}><span class="health" style:width={`${Math.floor(32 * p)}px`}></span>{#if p > 0 && p < 1}<span class="needle" style:left={`${Math.floor(32 * p)}px`}></span>{/if}</span>

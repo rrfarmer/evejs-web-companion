@@ -45,6 +45,35 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
   }
 }
 
+/**
+ * A panel of icons over values, as DroneEntry.LoadDamageGaugeTooltipPanel builds one: an iconCont row of 16 px sprites
+ * and a textCont row of EveLabelMedium values, each centred in a 40 px column; above its anchor.
+ */
+export function showIconValuesTooltip(anchor: HTMLElement, cells: readonly { icon: string; text: string }[]): void {
+  showLabelShortcutTooltip(anchor, "", "", [], "top");
+  if (!tip) return;
+  const grid = tip.lastElementChild as HTMLElement | null;
+  if (!grid) return;
+  grid.replaceChildren();
+  Object.assign(grid.style, { gridTemplateColumns: `repeat(${cells.length}, 40px)`, columnGap: "0", rowGap: "2px", justifyItems: "center" });
+  for (const cell of cells) {
+    const img = document.createElement("img");
+    img.src = cell.icon;
+    img.alt = "";
+    Object.assign(img.style, { width: "16px", height: "16px", marginTop: "4px" });
+    grid.append(img);
+  }
+  for (const cell of cells) {
+    const d = document.createElement("div");
+    d.textContent = cell.text;
+    Object.assign(d.style, { fontSize: "12px", lineHeight: "16px" });
+    grid.append(d);
+  }
+  const a = anchor.getBoundingClientRect();
+  tip.style.left = `${Math.round(Math.max(4, a.left + a.width / 2 - tip.offsetWidth / 2))}px`;
+  tip.style.top = `${Math.round(Math.max(4, a.top - 12 - tip.offsetHeight))}px`;
+}
+
 export function hideLabelShortcutTooltip(): void {
   if (tip) tip.style.display = "none";
 }
