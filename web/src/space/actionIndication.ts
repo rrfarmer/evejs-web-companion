@@ -132,6 +132,11 @@ export const INDICATION_WORD_LABELS: readonly string[] = [
     ...Object.values(WARP_LABELS),
     ...Object.values(ALIGN_LABELS),
     SHIP_STOPPING_LABEL,
+    // the location banner on arriving out of warp (play/locationBanner.ts)
+    "UI/Mining/DepletionStatusFormatted", "UI/Mining/DepletionStatusLargelyUntouched", "UI/Mining/DepletionStatusPartiallyMined",
+    "UI/Mining/DepletionStatusHeavilyMined", "UI/Mining/DepletionStatusFullyDepleted", "UI/PI/PlanetType/Barren", "UI/PI/PlanetType/Storm",
+    "UI/PI/PlanetType/Temperate", "UI/PI/PlanetType/Ice", "UI/PI/PlanetType/Gas", "UI/PI/PlanetType/Plasma", "UI/PI/PlanetType/Oceanic",
+    "UI/PI/PlanetType/Lava", "UI/PI/PlanetType/Shattered", "UI/PI/PlanetType/Scorched",
     // the Selected Item window's hint with nothing selected (SelectedItemWnd.SetNoContentHint)
     "UI/Inflight/ActiveItem/NoObjectSelected",
   ]),

@@ -60,6 +60,7 @@ import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTur
 import type { DamageRouting, MiningState, SpaceSnapshot, SurveyResult } from "../store/types.ts";
 import { healthNotificationSettings, HEALTH_NOTIFICATIONS } from "../store/notifySettings.ts";
 import { ALERT_ANIMATION_MS, ALERT_DURATION_MS, CAPACITOR, HULL, activeAlertLevel, capacitorAlerting, capacitorChanged, damageStateChanged, initialShipAlertState, isLevelActive } from "../ui/shipAlert.ts";
+import { LocationBanner, DEPLETION_COLORS, DEPLETION_FORMATTED_LABEL, DEPLETION_LABELS, PLANET_TYPE_LABELS, beltOriginalCounts, depletionStatus, locationNameParts } from "./locationBanner.ts";
 import { alignText, indicationHeader, indicationText, pointText, shipIndication, shipStoppingText, warpProgress, warpText, SHIP_STOPPING_MS } from "../space/actionIndication.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { TARGET_LOCKED_LABEL, targetLockDurationMs, type TargetLockRadii } from "./targetLock.ts";
@@ -1083,6 +1084,9 @@ export class SpaceView {
   private readonly miningVolumes = new Map<number, number | null>();
   private lastMiningShip: number | null = null;
   private miningInWarp = false;
+  /** The thing the current warp is to (warp_signals.on_warp_finished's warpToItemID), kept while the ship warps. */
+  private warpToItemID: number | null = null;
+  private readonly locationBanner = new LocationBanner();
   private readonly asteroidModels = new AsteroidModels();
   private miningSurveyUsesSimClock = false;
   private readonly collectionExplosions = new DrifterCollectionExplosions(this.scene);
@@ -1530,7 +1534,7 @@ export class SpaceView {
     this.modeSub.className = "ship-mode-detail";
     this.modeProgress.className = "ship-mode-progress";
     this.modeProgress.append(this.modeProgressFill);
-    this.modeEl.append(this.modeHeader, this.modeSub, this.modeProgress);
+    this.modeEl.append(this.modeHeader, this.modeSub, this.modeProgress, this.locationBanner.el);
     this.alertVignette.className = "ship-hud-vignette";
     this.alertVignette.setAttribute("aria-hidden", "true");
     this.root.append(this.alertVignette);
@@ -2028,7 +2032,9 @@ export class SpaceView {
         else text = { header, sub: pointText(indication.kind, words) };
       }
     }
-    const header = text?.header ?? "", sub = text?.sub ?? "";
+    // the location banner, a temporary indication, holds the indication while it is up
+    const bannerUp = this.locationBanner.active && !this.shortcutIndication;
+    const header = bannerUp ? "" : text?.header ?? "", sub = bannerUp ? "" : text?.sub ?? "";
     if (this.modeHeader.textContent !== header) this.modeHeader.textContent = header;
     if (this.modeSub.textContent !== sub) this.modeSub.textContent = sub;
     const progress = !this.shortcutIndication && !this.temporaryIndication ? warpProgress(flight) : null;
@@ -4933,6 +4939,40 @@ export class SpaceView {
     return out.filter((x, i, all) => x !== null || (i > 0 && i < all.length - 1 && all[i - 1] !== null));
   }
 
+  /**
+   * LocationArrivalIndicationService.check_indicate_arrival on the warp's end: the thing warped to, else the nearest
+   * asteroid belt within 100 km of its surface (get_closest_location_slim_item); a belt, planet, station or solar
+   * system shows its banner (locationBanner.ts).
+   */
+  private async indicateArrival(snap: Snapshot, itemID: number | null): Promise<void> {
+    let e = itemID === null ? null : snap.entities.find((x) => x.itemID === itemID) ?? null;
+    if (!e) e = snap.entities.find((x) => x.groupID === 9 && this.distanceTo(x) <= 100_000) ?? null;
+    if (!e || ![9, 7, 15, 5].includes(e.groupID ?? -1)) return;
+    const word = (label: string, args?: Readonly<Record<string, string | number>>) => this.actions.word?.(label, args) ?? null;
+    let text: { text: string; colored?: { from: number; to: number; color: string } } | null = null;
+    if (e.groupID === 9) {
+      // indicate_arrived_at_asteroid_belt: get_depletion_status_for_belt - the harvestable things here by type (asteroids,
+      // harvestable clouds) against the belt's original counts - and get_formatted_depletion_status_text
+      const original = await beltOriginalCounts(e.itemID);
+      const now = new Map<number, number>();
+      for (const x of this.snapshot?.entities ?? snap.entities) {
+        if ((x.categoryID === 25 || x.groupID === 711) && x.typeID != null) now.set(x.typeID, (now.get(x.typeID) ?? 0) + 1);
+      }
+      const status = original ? depletionStatus(now, original) : null;
+      const [label, own] = status === null ? [null, "None"] : DEPLETION_LABELS[status];
+      const statusText = label ? word(label) ?? own : own;
+      const full = word(DEPLETION_FORMATTED_LABEL, { color: "", status: statusText }) ?? `Depletion Status: ${statusText}`;
+      const at = full.lastIndexOf(statusText);
+      text = { text: full, colored: at < 0 ? undefined : { from: at, to: at + statusText.length, color: status === null ? "#fff" : DEPLETION_COLORS[status] } };
+    } else if (e.groupID === 7) {
+      const label = PLANET_TYPE_LABELS[e.typeID ?? -1];
+      const t = label ? word(label) : null;
+      text = t ? { text: t } : null;
+    }
+    const [title, caption] = locationNameParts(this.nameOf(e));
+    this.locationBanner.show(title, caption, text);
+  }
+
   private distanceTo(e: Entity): number {
     const s = this.snapshot?.ship;
     if (!s) return 0;
@@ -5095,6 +5135,9 @@ export class SpaceView {
       this.clearMiningSurvey();
       this.options.onMiningGridExit?.();
     }
+    if (inMiningWarp) this.warpToItemID = (ego as { warp?: { destinationID: number | null } | null } | null)?.warp?.destinationID ?? this.warpToItemID;
+    else if (this.miningInWarp && snap) { const id = this.warpToItemID; this.warpToItemID = null; void this.indicateArrival(snap, id); }
+    if (gridReset) this.locationBanner.clear();
     this.miningInWarp = inMiningWarp;
     // A new park in another system marks the arrival. Observe it before using
     // a new ego position to rebase the old camera.
