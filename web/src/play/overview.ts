@@ -1807,13 +1807,14 @@ export class Overview {
         const top = (broadcasts.has(a.e.itemID) ? 0 : 1) - (broadcasts.has(b.e.itemID) ? 0 : 1);
         if (top) return top;
       }
+      // (a ball with no velocity data keeps defaultSortValue 0 in the velocity columns, as the client sorts it)
       const by = key === "distance" ? a.d - b.d
-        : key === "velocity" ? speed(a.e) - speed(b.e)
+        : key === "velocity" ? (isStatic(a.e) ? 0 : speed(a.e)) - (isStatic(b.e) ? 0 : speed(b.e))
         : key === "size" ? (a.e.radius ?? 0) - (b.e.radius ?? 0)
-        : key === "angular" ? (angular(a.e, a.d) ?? -1) - (angular(b.e, b.d) ?? -1)
+        : key === "angular" ? (angular(a.e, a.d) ?? 0) - (angular(b.e, b.d) ?? 0)
         : key === "type" ? typeColumn(a.e).localeCompare(typeColumn(b.e))
-        : key === "radial" ? (radialTransversal(a.e)?.[0] ?? -Infinity) - (radialTransversal(b.e)?.[0] ?? -Infinity)
-        : key === "transversal" ? (radialTransversal(a.e)?.[1] ?? -1) - (radialTransversal(b.e)?.[1] ?? -1)
+        : key === "radial" ? (radialTransversal(a.e)?.[0] ?? 0) - (radialTransversal(b.e)?.[0] ?? 0)
+        : key === "transversal" ? (radialTransversal(a.e)?.[1] ?? 0) - (radialTransversal(b.e)?.[1] ?? 0)
         : key === "tag" || key === "corporation" || key === "alliance" || key === "faction" || key === "militia" ? words(a.e, key).toLowerCase().localeCompare(words(b.e, key).toLowerCase())
         : rowName(a.e).localeCompare(rowName(b.e));
       // ties go nearest first, as the client's do
