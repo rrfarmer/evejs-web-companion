@@ -11,6 +11,7 @@
   // the logger scroll's Generic entries: SE_BaseClassCore.OnMouseEnter plays SOUND_ENTRY_HOVER (ui_button_soft2_play) - in the play page
   const hoverSound = (e: MouseEvent) => { if (retail && !(e.buttons & 1)) void playUiEvent("ui_button_soft2_play"); };
   import LabelText from "./LabelText.svelte";
+  import { fittedColumnWidth } from "./scrollColumnFit.ts";
   import { noticeBoard } from "./notices.ts";
   import {
     formatLogTime, gameLog, gameLogClipboard, logCount, logFilters, setLogCount, setLogFilter, sortGameLogLines,
@@ -54,6 +55,25 @@
     const label = LOG_TYPE_LABELS[type];
     return label ? w(label, type) : type;
   }
+  // the scroll's id is logScroll, so its columns scale (Scroll.sr.id: ScaleHandle 8 wide at each header's right, dragged no
+  // narrower than MINCOLUMNWIDTH 24, kept in columnWidths by that id; a double-click fits the column to its content,
+  // ResetColumnWidth); the last column takes what is left
+  const WIDTHS_KEY = "evejs.ui.columnWidths.logScroll";
+  let colWidths = $state<Record<number, number>>((() => { try { const v = JSON.parse(globalThis.localStorage?.getItem(WIDTHS_KEY) ?? "null"); return v && typeof v === "object" ? v : {}; } catch { return {}; } })());
+  function keepWidths(next: Record<number, number>): void {
+    colWidths = next;
+    try { globalThis.localStorage?.setItem(WIDTHS_KEY, JSON.stringify(next)); } catch { /* lasts the page */ }
+  }
+  function startScale(k: number, e: PointerEvent): void {
+    e.preventDefault(); e.stopPropagation();
+    const th = (e.currentTarget as HTMLElement).parentElement as HTMLElement;
+    const x0 = e.clientX, w0 = th.getBoundingClientRect().width;
+    const move = (m: PointerEvent) => { colWidths = { ...colWidths, [k]: Math.max(24, Math.round(w0 + m.clientX - x0)) }; };
+    const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); keepWidths({ ...colWidths }); };
+    addEventListener("pointermove", move); addEventListener("pointerup", up);
+  }
+  function resetWidth(k: number, e: MouseEvent): void { const th = (e.currentTarget as HTMLElement).closest("th"); if (th) keepWidths({ ...colWidths, [k]: fittedColumnWidth(th) }); }
+  const colWidth = (k: number): string | null => (retail && colWidths[k] ? `${colWidths[k]}px` : null);
   const columnTitles = $derived(columns.map(({ label, fallback }) => w(label, fallback)));
   const sortedColumn = $derived(columnTitles.findIndex((title) => title === $sortPreference?.by));
   const logLines = $derived.by(() => {
@@ -220,11 +240,12 @@
     <table class="log-table" role="grid" aria-label="Game log" aria-multiselectable="true">
       <thead><tr>
         {#each columnTitles as title, index (index)}
-          <th scope="col" aria-sort={sortedColumn === index ? $sortPreference?.reversed ? "descending" : "ascending" : undefined}>
+          <th scope="col" style:width={colWidth(index)} aria-sort={sortedColumn === index ? $sortPreference?.reversed ? "descending" : "ascending" : undefined}>
             <button type="button" onclick={() => sort?.set(title, sortedColumn === index && !$sortPreference?.reversed)}>
               {title}
               {#if sortedColumn === index && !retail}<span aria-hidden="true">{$sortPreference?.reversed ? "▾" : "▴"}</span>{/if}
             </button>
+            {#if retail && index < columnTitles.length - 1}<span class="scaler" role="separator" aria-orientation="vertical" onpointerdown={(e) => startScale(index, e)} onclick={(e) => e.stopPropagation()} ondblclick={(e) => { e.stopPropagation(); resetWidth(index, e); }}></span>{/if}
           </th>
         {/each}
       </tr></thead>
@@ -232,7 +253,7 @@
         {#each logLines as line (line.n)}
           <tr tabindex={tabbable === line.n ? 0 : -1} aria-selected={selected.has(line.n)} onmouseenter={hoverSound}
             onfocus={() => (focused = line.n)} onclick={(event) => selectRow(line.n, event)} onkeydown={(event) => rowKey(event, line.n)}>
-            <td>{at(line.atMs)}</td><td style:color={LOG_TYPE_COLOURS[line.type] ?? "#ffffff"}>{typeLabel(line.type)}</td>
+            <td style:width={colWidth(0)}>{at(line.atMs)}</td><td style:width={colWidth(1)} style:color={LOG_TYPE_COLOURS[line.type] ?? "#ffffff"}>{typeLabel(line.type)}</td>
             <td>{#if line.markup}<LabelText markup={line.markup} />{:else}{line.text}{/if}</td></tr>
         {/each}
       </tbody>

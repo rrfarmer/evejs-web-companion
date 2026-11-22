@@ -3959,6 +3959,8 @@
   .fly-windows :global(.log-table th) { position: relative; background: transparent; text-align: left; font-weight: 400; font-size: 12px; color: rgba(255, 255, 255, 0.5); padding: 0 8px; height: 24px; box-sizing: border-box; }
   .fly-windows :global(.log-table :is(th, td):nth-child(1)) { width: 70px; }
   .fly-windows :global(.log-table :is(th, td):nth-child(2)) { width: 67px; }
+  .fly-windows :global(.log-table th .scaler) { position: absolute; top: 0; right: 0; width: 8px; height: 100%; cursor: col-resize; z-index: 1; }
+  .fly-windows :global(.log-table th .scaler::after) { content: ""; position: absolute; left: 3px; top: 4px; width: 1px; bottom: 4px; background: rgba(255, 255, 255, 0.15); }
   .fly-windows :global(.log-table th button) { background: transparent; border: 0; color: inherit; font: inherit; padding: 0; min-height: 0; text-align: left; width: 100%; }
   /* the logger scroll's ColumnHeader (read through gridcheck): its EveLabelSmall at white 0.5, sorted or not, 8 in; the sorted
      one's direction_indicator a 16 px caret at 0.75, 4 from its right (the header band: the client's sits above the scroll, here a
