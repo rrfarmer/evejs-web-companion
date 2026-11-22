@@ -719,6 +719,17 @@
     oncontextmenu={(e) => {
       // GroupMenu takes the selected of the clicked one's drone group, the drone menu every selected one
       const same = pickedFor("space", row.itemIDs[0]!, row.typeID, true), all = pickedFor("space", row.itemIDs[0]!, row.typeID, false);
+      // one drone in space: its CelestialMenu as the scene draws it, Move Drone in its drone group (read through gridcheck:
+      // Engage / Mine, Approach .. Lock Target | Show Info | Add to Overview | Move Drone, Return and Orbit, Return to
+      // Drone Bay, Scoop to Cargo Hold | Abandon Drone); several, the merged drone menu
+      if (all.length === 1 && row.unavailable === null) {
+        e.preventDefault(); e.stopPropagation(); tipOff();
+        type Ctx = { label: string; run?: () => void; sub?: Ctx[] };
+        const toContext = (m: MenuEntry): Ctx =>
+          ({ label: m.label, ...(m.act ? { run: () => void m.act!() } : {}), ...(m.sub ? { sub: m.sub.map(toContext) } : {}) });
+        dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID: all[0], x: e.clientX, y: e.clientY, droneExtra: [toContext(moveMenu(same, row.typeID))] } }));
+        return;
+      }
       openMenu(e, [moveMenu(same, row.typeID), ...spaceEntries(row.unavailable ? (row.recoverable ? all : []) : all.filter((id) => allDroneIDs.includes(id)), row.recoverable)]);
     }}>
     {#if row.sprite}<span class="state-sprite" title={row.activity} style:background-color={row.color ?? "rgba(255,255,255,0.75)"}

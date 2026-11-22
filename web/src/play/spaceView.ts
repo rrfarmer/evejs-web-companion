@@ -1591,6 +1591,17 @@ export class SpaceView {
     const radialFor = (e: Event) => { const d = (e as CustomEvent<{ itemID: number; x: number; y: number }>).detail; if (d) this.openRadial(d.itemID, d.x, d.y, 0); };
     addEventListener("evejs:open-space-radial", radialFor);
     this.unhold.push(() => removeEventListener("evejs:open-space-radial", radialFor));
+    // and its context menu: DroneInSpaceEntry.GetMenu - the window's own entries (Move Drone) with CelestialMenu over the
+    // drone, the window's merged into the drone group by menuHierarchy
+    const menuFor = (ev: Event) => {
+      const d = (ev as CustomEvent<{ itemID: number; x: number; y: number; droneExtra?: ContextEntry[] }>).detail;
+      const e = d ? this.snapshot?.entities.find((x) => x.itemID === d.itemID) : null;
+      if (!d || !e) return;
+      this.radial.close();
+      this.contextMenu.open(d.x, d.y, this.contextEntries(e, d.droneExtra ?? []));
+    };
+    addEventListener("evejs:open-space-menu", menuFor);
+    this.unhold.push(() => removeEventListener("evejs:open-space-menu", menuFor));
     addEventListener("keyup", this.onKeyUp);
     addEventListener("blur", this.onBlur);
     addEventListener("pointerdown", this.onPointer, true);
@@ -4408,7 +4419,7 @@ export class SpaceView {
    * not from a capsule); Show Info; Set Destination, Add Waypoint, Save Location..., View Planetary Industry; and Add/Remove
    * the group to/from the Overview.
    */
-  private contextEntries(e: Entity): (ContextEntry | null)[] {
+  private contextEntries(e: Entity, droneExtra: readonly ContextEntry[] = []): (ContextEntry | null)[] {
     const word = (label: string, own: string, args?: Readonly<Record<string, string | number>>) => this.actions.word?.(label, args) ?? own;
     const id = e.itemID;
     const run = (title: string, fn: () => Promise<void>) => () => void this.act(title, fn).then(() => this.refreshTargets());
@@ -4452,7 +4463,7 @@ export class SpaceView {
     // Salvage (ACTIONSGROUP) first; Return and Orbit, Return to Drone Bay, Scoop to Drone Bay (CHANGESGROUP) with the
     // scoops after Show Info and the overview entry; Abandon Drone (DESTRUCTIVEGROUP) last (read off the live client's
     // menu for its own idle Mining Drone I)
-    const droneChanges: ContextEntry[] = [];
+    const droneChanges: ContextEntry[] = [...droneExtra];
     const droneFleet: ContextEntry[] = [];
     let droneAbandon: ContextEntry | null = null;
     // CelestialChecker.OfferDroneMenu (menusvc._DroneMenu, DroneChecker's offers)
@@ -4485,7 +4496,7 @@ export class SpaceView {
         droneFleet.push({ path: "UI/Drones/DroneGuard", label: word("UI/Drones/DroneGuard", "Guard"), sub: guard });
       }
       if (owned && hasState) droneAbandon = { path: "UI/Drones/AbandonDrone", label: word("UI/Drones/AbandonDrone", "Abandon Drone"), run: order("abandon") };
-      if (out.length) out.push(null);
+      // (the drone's order heads the movement group, as the client's Engage Target: no line after it)
     }
     // Orbit / KeepAtRange / WarpToMenuEntryData.GetTextDescriptive: the entry with its default distance (GetActionTextWithDistance:
     // SelectedItemActionWithDist, "Orbit (1,000 m)" on the client)
@@ -4563,7 +4574,8 @@ export class SpaceView {
     if (bay && active && (mine || bay[1]) && this.actions.openCargo) {
       out.push({ path: "UI/Commands/OpenCargo", label: word("UI/Commands/OpenCargo", "Open Cargo"), run: run("Open Cargo", () => this.actions.openCargo!(id)) });
     }
-    out.push(...droneChanges);
+    // (the drone group under a line of its own, after Add ... to Overview)
+    if (droneChanges.length) out.push(null, ...droneChanges);
     // OfferScoopToCargoHold (IsScoopable) and OfferScoopToFleetHangar (the same, a ship with hasFleetHangars, 911)
     if (this.isScoopable(e, comps) && this.actions.scoopToCargo) {
       out.push({ path: "UI/Inflight/ScoopToCargoHold", label: word("UI/Inflight/ScoopToCargoHold", "Scoop to Cargo Hold"), run: run("Scoop", () => this.actions.scoopToCargo!(id)) });
