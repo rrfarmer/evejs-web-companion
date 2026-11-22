@@ -55,6 +55,7 @@ const CMD_BY_ACTION: Readonly<Record<string, string>> = { info: "CmdShowItemInfo
   keep: "CmdKeepItemAtRange", lock: "CmdLockTargetItem", unlock: "CmdUnlockTargetItem", look: "CmdToggleLookAtItem", track: "CmdToggleCameraTracking",
   dock: "CmdDockOrJumpOrActivateGate", jump: "CmdDockOrJumpOrActivateGate", activateGate: "CmdDockOrJumpOrActivateGate", enterWormhole: "CmdDockOrJumpOrActivateGate",
   warp: "CmdWarpToItem", cargo: "CmdOpenSelectedCargoContainer" };
+// (a warp it cannot make comes as UI/Inflight/Submenus/WarpToWithin, which is not in CMD_BY_ACTIONID: no shortcut then)
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
 import type { DamageRouting, MiningState, SpaceSnapshot, SurveyResult } from "../store/types.ts";
 import { healthNotificationSettings, HEALTH_NOTIFICATIONS } from "../store/notifySettings.ts";
@@ -2352,7 +2353,7 @@ export class SpaceView {
         b.className = `si-act${a.key === "unlock" ? " on" : ""}`;
         // SelectedItemButton.LoadTooltipPanel: AddLabelShortcut (the action's descriptive text, its command's shortcut),
         // then the disabled hint; pointed from above (POINT_TOP_2)
-        b.addEventListener("mouseenter", () => showLabelShortcutTooltip(b, a.title, shortcutOf(CMD_BY_ACTION[a.key] ?? ""), a.disabledReason ? [a.disabledReason] : []));
+        b.addEventListener("mouseenter", () => showLabelShortcutTooltip(b, a.title, shortcutOf((a.key === "warp" && a.disabledReason ? "" : CMD_BY_ACTION[a.key]) ?? ""), a.disabledReason ? [a.disabledReason] : []));
         b.addEventListener("mouseleave", hideLabelShortcutTooltip);
         b.setAttribute("aria-label", a.title);
         b.disabled = a.disabled ?? false;
