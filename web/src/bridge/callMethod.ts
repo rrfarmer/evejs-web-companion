@@ -12,6 +12,7 @@ import { pageCarries, pageFetch } from "../app/pageFetch.ts";
 import {
   TransportQueueError,
   bridgeLane,
+  hostedRequestWaitsByDesign,
   hostedRoute,
   type RequestPriority,
 } from "../app/transport.ts";
@@ -198,7 +199,8 @@ export async function callMethod<TResult = JsonValue>(
     }, {
       pilot: local?.pilot,
       signal: local && options.signal,
-      carried: options.fetch === undefined && !options.beforeDispatch && pageCarries(url, request),
+      carried: local ? hostedRequestWaitsByDesign(url, request)
+        : options.fetch === undefined && !options.beforeDispatch && pageCarries(url, request),
     });
   } catch (cause) {
     assertCurrent?.();

@@ -61,6 +61,17 @@ export const HOSTED_MAX_IN_FLIGHT = 8;
 export const QUEUE_DEADLINE_MS = 20_000;
 
 /**
+ * How long a hosted request may wait for a hosted slot: as long as a request already sent may wait for its
+ * answer (REQUEST_DEADLINE_MS in api.ts).
+ *
+ * The hosted budget holds requests back from a server that is itself the bottleneck. When the game server
+ * stalls, the requests in the slots are waiting for it too, and every one of them is answered when it resumes.
+ * A shorter limit here fails the queued ones first: on 2026-11-22 the stall reproduction failed a pilot's stop
+ * and its logout after 20 s of a 25 s stall, while each would have been answered the moment the server resumed.
+ */
+export const HOSTED_QUEUE_DEADLINE_MS = 65_000;
+
+/**
  * How long a request has to be outstanding before it counts as evidence that
  * the lane is jammed rather than merely busy. A healthy read is tens of
  * milliseconds; anything still open after five seconds is stuck on something.
@@ -102,8 +113,9 @@ export interface TransportLane {
 /**
  * How a request is to be run.
  *
- * `carried`: the request uses the tab's open socket. It starts at once and
- * uses none of the browser's HTTP connections. It is still counted and has its own deadline inside the task.
+ * `carried`: the request holds no slot. In a tab, it uses the tab's open socket and none of the browser's HTTP
+ * connections; in the hosted lane, the BFF keeps it open by design (hostedRequestWaitsByDesign). It starts at
+ * once, is still counted and has its own deadline inside the task.
  */
 export interface RunHow {
   readonly carried?: boolean;
@@ -317,13 +329,54 @@ export function createTransportLane(deps: TransportLaneDeps = {}): TransportLane
  */
 export const bridgeLane: TransportLane = createTransportLane();
 
-export const hostedLane = createTransportLane({ maxInFlight: HOSTED_MAX_IN_FLIGHT, hosted: true });
+export const hostedLane = createTransportLane({
+  maxInFlight: HOSTED_MAX_IN_FLIGHT,
+  hosted: true,
+  queueDeadlineMs: HOSTED_QUEUE_DEADLINE_MS,
+});
 
 export function localApiUrl(input: RequestInfo | URL, init: RequestInit | undefined, base: URL): URL | null {
   if (typeof input !== "string" && !(input instanceof URL)) return null;
   if (init?.body != null && typeof init.body !== "string") return null;
   const url = URL.parse(input, base);
   return url?.origin === base.origin && url.pathname.startsWith("/api/") ? url : null;
+}
+
+/**
+ * The generic calls the BFF keeps open until the session change they start is ready, up to its transition timeout
+ * (TRANSITION_READY_TIMEOUT_MS, 45 s, src/transitionBarrier.js): src/bridgeCallPolicy.js PAGE_PLACE_CHANGE_CALLS,
+ * which test/hostedTransport.test.js holds this list to.
+ */
+export const HOSTED_PLACE_CHANGE_CALLS: ReadonlySet<string> = new Set([
+  "ship.Undock", "structureDocking.Undock", "beyonce.CmdDock", "structureDocking.Dock", "beyonce.CmdStargateJump",
+  "beyonce.CmdJumpToFleetModuleBeacon", "beyonce.CmdGroupJumpToFleetModuleBeacon",
+  "structureJumpBridgeMgr.CmdJumpThroughStructureStargate", "abyssalMgr.AbyssalEntranceDeployment",
+  "abyssalMgr.AbyssalEndGateActivation", "abyssalMgr.AbyssalEntranceGateActivation",
+]);
+
+/** Routes that wait inside the request: a jettison looks for its new can for up to 3 s (src/server.js). */
+const HOSTED_WAITING_PATHS: ReadonlySet<string> = new Set(["/api/bridge/ship/jettison", "/api/bridge/ship/jettison/reconcile"]);
+
+/**
+ * Whether the BFF keeps this hosted request open by design, waiting on the game rather than working it.
+ *
+ * Such a request holds no hosted slot. A slot stands for work the game server is doing; a fleet that jumps
+ * together would otherwise fill every slot for as long as the session change takes, and every other pilot's
+ * stops, locks and reads would wait behind it with the server idle (the 2026-11-22 reproduction: 14 jumps held
+ * all 8 slots for 48 s). Kubernetes API Priority and Fairness leaves long-running requests out of its seats for
+ * the same reason. They are still counted (`carried`).
+ */
+export function hostedRequestWaitsByDesign(input: RequestInfo | URL, init: RequestInit | undefined): boolean {
+  const url = URL.parse(input instanceof Request ? input.url : String(input), "http://hosted.invalid");
+  if (url === null) return false;
+  if (HOSTED_WAITING_PATHS.has(url.pathname)) return true;
+  if (url.pathname !== "/api/bridge/call" || typeof init?.body !== "string") return false;
+  let call: { service?: unknown; method?: unknown; args?: unknown };
+  try { call = JSON.parse(init.body); } catch { return false; }
+  const key = `${String(call?.service)}.${String(call?.method)}`;
+  if (!HOSTED_PLACE_CHANGE_CALLS.has(key)) return false;
+  // A filament's deploy changes place in solo's game mode alone (bridgeCallPolicy.js placeChangeOf).
+  return key !== "abyssalMgr.AbyssalEntranceDeployment" || (Array.isArray(call.args) && Number(call.args[1]) === 1);
 }
 
 type Send = (input: RequestInfo | URL, init?: RequestInit, priority?: RequestPriority) => Promise<Response>;
@@ -339,7 +392,7 @@ export function hostedFetch(send: Send, pilot: string, accepts: (input: RequestI
     return hostedLane.run(priority, path, () => {
       init?.signal?.throwIfAborted();
       return send(input, init, priority);
-    }, { pilot, signal: init?.signal });
+    }, { pilot, signal: init?.signal, carried: hostedRequestWaitsByDesign(input, init) });
   }
   return Object.assign(fetch, { hostedRoute: (input: RequestInfo | URL, init?: RequestInit) => accepts(input, init) ? route : undefined });
 }

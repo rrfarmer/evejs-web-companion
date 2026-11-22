@@ -40,6 +40,14 @@ startBackend({
       const answer = await flying.fetch(new Request(new URL(request.body.url, flying.baseUrl), { method: "POST", headers: { "x-from-request": "yes" }, body: "given" }));
       return { body: { status: answer.status } };
     },
+    "POST /ask-call": async (request) => {
+      const answer = await flying.fetch(new URL("/api/bridge/call", flying.baseUrl), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ service: request.body.service, method: request.body.method, args: request.body.args, pilot: true, confirm: true }),
+      });
+      return { body: { status: answer.status } };
+    },
     "POST /pilot-requests": async () => {
       const source = ${JSON.stringify(pathToFileURL(WEB_SRC + path.sep).href)};
       const [{ createPilotSession }, { loadBoundFleet }, { bridgeLane, hostedRoute }, { callMethod }] = await Promise.all(
@@ -60,7 +68,8 @@ startBackend({
       pilotRequests = Promise.all([
         loadBoundFleet(options).then(answer => answer.result),
         bridgeDo("ship", "Jettison", [[301]]),
-        bridgeDo("beyonce", "CmdStargateJump", [401, 402, 403]),
+        // (A command that holds a slot. A stargate jump would not: the BFF keeps it open by design.)
+        bridgeDo("beyonce", "CmdApproach", [401, 500]),
         bridgeDo("beyonce", "CmdWarpToStuffAutopilot", [404]),
         loadBoundFleet(options, true).then(answer => answer.result),
         bridgeDo("dogmaIM", "AddTarget", [501]),
@@ -339,7 +348,7 @@ for (const reach of ["inprocess", "loopback", "fallback"]) {
   test(`a plugin pilot's six requests keep the HTTP lane only where needed (${reach})`, { timeout: 12_000 }, async (t) => {
     const local = reach === "inprocess";
     const { promise: hold, resolve: release } = Promise.withResolvers();
-    const slow = ["fleet", "Jettison", "CmdStargateJump", "CmdWarpToStuffAutopilot"];
+    const slow = ["fleet", "Jettison", "CmdApproach", "CmdWarpToStuffAutopilot"];
     const fast = ["fleet-menu", "AddTarget"];
     const seen = [];
     const answered = [];
@@ -413,6 +422,39 @@ for (const reach of ["inprocess", "loopback", "fallback"]) {
     await f.bots.stop(started.bot.botID, ACCOUNT.accountID);
   });
 }
+
+test("a plugin pilot's jump reaches the BFF while every BFF slot is taken; its lock waits", { timeout: 12_000 }, async (t) => {
+  const seen = [];
+  const app = express();
+  app.use(express.json());
+  app.post("/api/bridge/call", (req, res) => {
+    seen.push(req.body.method);
+    res.json({ ok: true, service: req.body.service, method: req.body.method, result: null });
+  });
+  app.get("/api/bridge/events", (_req, res) => res.status(204).end());
+  app.use((_req, res) => res.json({ ok: true }));
+  const baseUrl = "http://bff.test";
+  const f = await makeFixture(t, { bots: { baseUrl, fetch: createInProcessFetch(app, { baseUrl }) } });
+  const started = await f.startRun();
+  assert.equal(started.ok, true, started.message);
+  const { hostedLane, HOSTED_MAX_IN_FLIGHT } = require("../web/src/app/transport.ts");
+  const slots = Array.from({ length: HOSTED_MAX_IN_FLIGHT - hostedLane.inFlight() }, () => Promise.withResolvers());
+  const occupants = slots.map((slot, id) => hostedLane.run("read", "/api/held", () => slot.promise, { pilot: `other-${id}` }));
+  let lock;
+  try {
+    lock = f.request("POST", "/ask-call", { service: "dogmaIM", method: "AddTarget", args: [501] });
+    const jump = await f.request("POST", "/ask-call", { service: "beyonce", method: "CmdStargateJump", args: [401, 402, 9001] });
+    assert.equal(jump.status, 200, jump.body?.message);
+    assert.equal(jump.body.status, 200);
+    assert.deepEqual(seen, ["CmdStargateJump"], "the lock is still queued at the BFF");
+  } finally {
+    for (const slot of slots) slot.resolve();
+    await Promise.all(occupants);
+  }
+  assert.equal((await lock).body.status, 200);
+  assert.deepEqual(seen, ["CmdStargateJump", "AddTarget"]);
+  await f.bots.stop(started.bot.botID, ACCOUNT.accountID);
+});
 
 test("what a run keeps is bounded, and going over the bound is said once", async (t) => {
   const said = [];

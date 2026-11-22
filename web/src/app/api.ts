@@ -29,6 +29,7 @@ import {
 import {
   TransportQueueError,
   bridgeLane,
+  hostedRequestWaitsByDesign,
   hostedRoute,
   type RequestPriority,
 } from "./transport.ts";
@@ -193,7 +194,8 @@ async function requestJson(
     }, {
       pilot: local?.pilot,
       signal: local && options.signal,
-      carried: options.fetch === undefined && !options.beforeDispatch && pageCarries(url, request),
+      carried: local ? hostedRequestWaitsByDesign(url, request)
+        : options.fetch === undefined && !options.beforeDispatch && pageCarries(url, request),
     });
   } catch (cause) {
     assertCurrent?.();

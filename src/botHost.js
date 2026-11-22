@@ -1,6 +1,6 @@
 "use strict";
 
-const { hostedFetch, hostedRoute } = require("../web/src/app/transport.ts");
+const { hostedFetch, hostedRequestWaitsByDesign, hostedRoute } = require("../web/src/app/transport.ts");
 
 // ── Server-side bot host ─────────────────────────────────────────────────────
 //
@@ -1316,7 +1316,9 @@ function createBotHost(options) {
             return send(input, { ...init, headers });
           };
           const local = hostedRoute(botFetch, input, init);
-          return local ? local.lane.run(priority, new URL(input).pathname, dispatch, { pilot: local.pilot, signal: init.signal }) : dispatch();
+          // (A refusal is a Response, not a promise of one; the lane's slotless start needs the promise.)
+          return local ? local.lane.run(priority, new URL(input).pathname, async () => dispatch(),
+            { pilot: local.pilot, signal: init.signal, carried: hostedRequestWaitsByDesign(input, init) }) : dispatch();
         };
       }
       record.startProductive = async () => {

@@ -4,7 +4,10 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { setTimeout: delay } = require("node:timers/promises");
 const { bridgeDo, jettisonItems, loadBoundFleet, getSpaceSnapshot } = require("../web/src/app/api.ts");
-const { hostedFetch, HOSTED_MAX_IN_FLIGHT } = require("../web/src/app/transport.ts");
+const {
+  hostedFetch, hostedLane, hostedRequestWaitsByDesign, HOSTED_MAX_IN_FLIGHT, HOSTED_PLACE_CHANGE_CALLS,
+} = require("../web/src/app/transport.ts");
+const { PAGE_PLACE_CHANGE_CALLS } = require("../src/bridgeCallPolicy");
 
 test("a queued hosted command can retire without reaching the BFF", { timeout: 2000 }, async () => {
   const hold = Promise.withResolvers();
@@ -16,7 +19,7 @@ test("a queued hosted command can retire without reaching the BFF", { timeout: 2
   }, "pilot", () => true);
   const occupied = Array.from({ length: HOSTED_MAX_IN_FLIGHT }, () => fetch("/api/held"));
   const abort = new AbortController();
-  const cancelled = jettisonItems([1], { fetch, signal: abort.signal });
+  const cancelled = bridgeDo({ fetch, signal: abort.signal })("ship", "Jettison", [[1]]);
   const retired = bridgeDo({ fetch, beforeDispatch() { throw new Error("retired generation"); } })("dogmaIM", "AddTarget", [1]);
   try {
     abort.abort(new Error("pilot stopped"));
@@ -27,6 +30,65 @@ test("a queued hosted command can retire without reaching the BFF", { timeout: 2
   }
   await assert.rejects(retired, /retired generation.*Hosted BFF/);
   assert.equal(writes, 0);
+});
+
+// The 2026-11-22 stall reproduction: the live server freezes for 20 s and more several times a day. The requests in
+// the slots wait it out at the server; a stop queued behind them must not fail before they do.
+test("a hosted stop queued through a 25 s server stall is sent when the server answers again", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const stall = Promise.withResolvers();
+  const sent = [];
+  const fetch = hostedFetch(async (url, init) => {
+    const body = init?.body ? JSON.parse(init.body) : {};
+    const method = body.method ?? url;
+    sent.push(method);
+    if (method !== "CmdStop") await stall.promise;
+    return Response.json({ ok: true, service: body.service, method, result: null });
+  }, "pilot", () => true);
+  const occupied = Array.from({ length: HOSTED_MAX_IN_FLIGHT }, () => fetch("/api/held"));
+  const stop = bridgeDo({ fetch })("beyonce", "CmdStop", []);
+  t.mock.timers.tick(25_000);
+  stall.resolve();
+  await Promise.all(occupied);
+  assert.equal(await stop, null);
+  assert.equal(sent.at(-1), "CmdStop");
+});
+
+test("place changes and the hosted jettison hold no hosted slot", { timeout: 2000 }, async () => {
+  const jumps = Promise.withResolvers();
+  const sent = [];
+  const fetch = hostedFetch(async (url, init) => {
+    const body = init?.body ? JSON.parse(init.body) : {};
+    sent.push(body.method ?? new URL(url, "http://bff.test").pathname);
+    if (body.method === "CmdStargateJump" || url.endsWith("/jettison")) await jumps.promise;
+    return Response.json({ ok: true, service: body.service, method: body.method, result: null });
+  }, "pilot", () => true);
+  // A fleet jumps together, and more pilots jettison than there are slots.
+  const before = hostedLane.inFlight();
+  const held = [
+    ...Array.from({ length: HOSTED_MAX_IN_FLIGHT }, (_, i) => bridgeDo({ fetch })("beyonce", "CmdStargateJump", [i, 100 + i, 9001])),
+    ...Array.from({ length: HOSTED_MAX_IN_FLIGHT }, (_, i) => jettisonItems([i], { fetch })),
+  ];
+  try {
+    assert.equal(hostedLane.inFlight(), before);
+    assert.equal(await bridgeDo({ fetch })("beyonce", "CmdStop", []), null, "a stop is not held behind them");
+  } finally {
+    jumps.resolve();
+    await Promise.allSettled(held);
+  }
+  assert.equal(sent.filter(method => method === "CmdStargateJump").length, HOSTED_MAX_IN_FLIGHT);
+});
+
+test("the hosted place changes are the BFF's own", () => {
+  assert.deepEqual([...HOSTED_PLACE_CHANGE_CALLS].sort(), [...PAGE_PLACE_CHANGE_CALLS.keys()].sort());
+  const call = (service, method, args) => ({ body: JSON.stringify({ service, method, args }) });
+  assert.equal(hostedRequestWaitsByDesign("/api/bridge/call", call("beyonce", "CmdDock", [1, 2])), true);
+  assert.equal(hostedRequestWaitsByDesign("/api/bridge/call", call("dogmaIM", "AddTarget", [1])), false);
+  // A filament changes place in solo's game mode alone (bridgeCallPolicy.js placeChangeOf).
+  assert.equal(hostedRequestWaitsByDesign("/api/bridge/call", call("abyssalMgr", "AbyssalEntranceDeployment", [1, 1])), true);
+  assert.equal(hostedRequestWaitsByDesign("/api/bridge/call", call("abyssalMgr", "AbyssalEntranceDeployment", [1, 2])), false);
+  assert.equal(hostedRequestWaitsByDesign("/api/bridge/call", { body: "not json" }), false);
+  assert.equal(hostedRequestWaitsByDesign("http://bff.test/api/bridge/ship/jettison/reconcile", { body: "{}" }), true);
 });
 
 for (const count of [5, 10, 20, 50]) {
@@ -60,8 +122,10 @@ for (const count of [5, 10, 20, 50]) {
         latency.AddTarget.push(performance.now() - start);
         assert.equal(result, pilot);
       }));
+      // The page's own jettison (bridge/shipWrites.ts): the generic call, which holds a slot like any command.
+      // The hosted jettison route waits by design and holds none (see the tests below).
       const jettisonStart = performance.now();
-      work.push(jettisonItems([pilot], options).then(() => latency.Jettison.push(performance.now() - jettisonStart)));
+      work.push(bridgeDo(options)("ship", "Jettison", [[pilot]]).then(() => latency.Jettison.push(performance.now() - jettisonStart)));
     }
     await Promise.all(work);
     assert.equal(peak, HOSTED_MAX_IN_FLIGHT);
