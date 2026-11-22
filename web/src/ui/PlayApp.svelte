@@ -196,19 +196,19 @@
   /** playerOwned.EnterShipPassword open (the ship menu's Enter Starbase Forcefield Password). */
   let shipPasswordAsk = $state(false);
   // the container opened from space (store.inventory.container that is a thing on the grid), for its own window
-  let containerWin = $state({ x: 220, y: 140, w: 480, h: 360, z: 25, minimized: false });
+  let containerWin = $state({ id: "spaceContainer", x: 220, y: 140, w: 480, h: 360, z: 25, minimized: false });
   // a ship bay opened in a window of its own (the inventory tree's Open in new window): 600 x 450, the bay's name its caption
   // (the client keeps one per bay: windowID the bay's controller name; a second Open on a bay already open shows it)
-  let bayWindows = $state<{ key: string; title: string; win: { x: number; y: number; w: number; h: number; z: number; minimized: boolean } }[]>([]);
+  let bayWindows = $state<{ key: string; title: string; win: { id: string; x: number; y: number; w: number; h: number; z: number; minimized: boolean } }[]>([]);
   $effect(() => {
-    const show = (e: Event) => { const d = (e as CustomEvent<{ key: string; title: string }>).detail; if (!d) return; const open = bayWindows.find((w) => w.key === d.key); if (open) { open.win.minimized = false; bayWindows = [...bayWindows.filter((w) => w !== open), open]; return; } const n = bayWindows.length; bayWindows = [...bayWindows, { key: d.key, title: d.title, win: { x: 260 + 24 * n, y: 180 + 24 * n, w: 600, h: 450, z: 25, minimized: false } }]; };
+    const show = (e: Event) => { const d = (e as CustomEvent<{ key: string; title: string }>).detail; if (!d) return; const open = bayWindows.find((w) => w.key === d.key); if (open) { open.win.minimized = false; bayWindows = [...bayWindows.filter((w) => w !== open), open]; activeWinKey = open.win.id; return; } const n = bayWindows.length; bayWindows = [...bayWindows, { key: d.key, title: d.title, win: { id: `bay:${d.key}`, x: 260 + 24 * n, y: 180 + 24 * n, w: 600, h: 450, z: 25, minimized: false } }]; activeWinKey = `bay:${d.key}`; };
     window.addEventListener("evejs:open-bay-window", show);
     return () => window.removeEventListener("evejs:open-bay-window", show);
   });
   let spaceContainer = $state.raw<{ itemID: number; title: string } | null>(null);
   /** The container window over the others (opened or clicked last) or under the one clicked since. */
   let containerFront = $state(true);
-  $effect(() => { if (spaceContainer) containerFront = true; });
+  $effect(() => { if (spaceContainer) { containerFront = true; activeWinKey = "spaceContainer"; } });
   // ghostFittingSvc.SimulateFitting's OpenFittingWindowIfNeeded: a simulation started from elsewhere (an inventory bay's
   // Simulate Fit) shows the Fitting window
   $effect(() => {
@@ -295,6 +295,22 @@
   let password = $state("");
   let wins = $state<WinState[]>([]);
   const focusedId = $derived(wins.length ? wins.reduce((a, b) => (b.z > a.z ? b : a)).id : null);
+  // uicore.registry's one active window (Window.active, its header's caption HIGHLIGHT): the window pressed last of
+  // every kind - a desktop window, a bay or container window (by its data-win), or a PlayWindow (none of these then);
+  // a window opened or raised becomes it, and a press outside every window leaves none
+  let activeWinKey = $state<string | null>(null);
+  let lastFocusedId: string | null = null;
+  $effect(() => { const id = focusedId; if (id !== lastFocusedId) { lastFocusedId = id; if (id !== null) { activeWinKey = id; for (const w of document.querySelectorAll(".pw.pw-active")) w.classList.remove("pw-active"); } } });
+  $effect(() => {
+    const press = (e: PointerEvent) => {
+      const w = (e.target as Element | null)?.closest?.("section.win[data-win], .pw");
+      activeWinKey = w && w.matches("section.win") ? w.getAttribute("data-win") : null;
+    };
+    const pw = () => { activeWinKey = null; };
+    document.addEventListener("pointerdown", press, { capture: true });
+    window.addEventListener("evejs:play-window-activated", pw);
+    return () => { document.removeEventListener("pointerdown", press, { capture: true }); window.removeEventListener("evejs:play-window-activated", pw); };
+  });
 
   // The pilot's slices, once there is a session.
   const characters = $derived(session?.store.character);
@@ -3051,7 +3067,7 @@
           title={win.id === "drones" ? ($dronesCompact ? "" : dronesTitle) : win.id === "scanner" && !docked && $scannerCompact ? "" : win.id === "inventory" && !docked ? activeShipCaption : captions[win.id] ?? tabLabel(win.id)}
           icon={win.id === "inventory" && !docked ? clientTexture("res:/UI/Texture/WindowIcons/cargo.png") : win.id === "log" ? clientTexture("res:/ui/Texture/WindowIcons/log.png") : null}
           killable={win.id !== "drones"}
-          focused={win.id === focusedId}
+          focused={win.id === activeWinKey}
           onFocus={() => { wins = focusWindow(wins, win.id); raiseApp(win.id); }}
           onClose={() => (wins = closeWindow(wins, win.id))}
           onToggleMinimize={() => (wins = toggleMinimize(wins, win.id))}
@@ -3134,7 +3150,7 @@
   {#if spaceContainer && !docked}
     {@const c = spaceContainer}
     <div class="space-container-layer" class:behind={!containerFront} onpointerdowncapture={() => (containerFront = true)}>
-      <DesktopWindow win={containerWin} title={c.title} icon={clientTexture("res:/UI/Texture/WindowIcons/cargo.png")} focused={true} onFocus={() => {}}
+      <DesktopWindow win={containerWin} title={c.title} icon={clientTexture("res:/UI/Texture/WindowIcons/cargo.png")} focused={activeWinKey === containerWin.id} onFocus={() => {}}
         onClose={() => void session.flow.openContainer(null)} onMove={(x, y) => { containerWin.x = x; containerWin.y = y; }}
         onResize={(w, h) => { containerWin.w = Math.max(300, w); containerWin.h = Math.max(200, h); }}>
         <FlyInventoryWindow store={session.store} flow={session.flow} containerMode={true} />
@@ -3144,7 +3160,7 @@
   {#if !docked}
     {#each bayWindows as b (b.key)}
       <div class="space-container-layer">
-        <DesktopWindow win={b.win} title={b.title} icon={clientTexture("res:/UI/Texture/WindowIcons/cargo.png")} focused={true} onFocus={() => {}}
+        <DesktopWindow win={b.win} title={b.title} icon={clientTexture("res:/UI/Texture/WindowIcons/cargo.png")} focused={activeWinKey === b.win.id} onFocus={() => {}}
           onClose={() => (bayWindows = bayWindows.filter((w) => w.key !== b.key))} onMove={(x, y) => { b.win.x = x; b.win.y = y; }}
           onResize={(w, h) => { b.win.w = Math.max(300, w); b.win.h = Math.max(200, h); }}>
           <FlyInventoryWindow store={session.store} flow={session.flow} bayMode={b.key} />

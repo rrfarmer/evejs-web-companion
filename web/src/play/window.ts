@@ -155,6 +155,8 @@ export class PlayWindow {
     if (this.root.classList.contains("pw-active")) return;
     for (const w of document.querySelectorAll(".pw.pw-active")) w.classList.remove("pw-active");
     this.root.classList.add("pw-active");
+    // (the one active window: the page's other windows are not active now)
+    dispatchEvent(new CustomEvent("evejs:play-window-activated"));
   }
 
   private toggleMinimized(): void {

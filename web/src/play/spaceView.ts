@@ -3429,6 +3429,19 @@ export class SpaceView {
     if (cmd === "CmdToggleTacticalOverlay") { e.preventDefault(); setHudSetting("viewTactical", !hudSettingNow("viewTactical")); return; }
     // CmdSetOverviewFocus (Alt-Space): uicore.registry.SetFocus of the overview window where it is open
     if (cmd === "CmdSetOverviewFocus") { e.preventDefault(); if (this.overview.window.root.style.display !== "none") this.overview.window.activate(); return; }
+    // CmdPrevTab / CmdNextTab (Ctrl-Page Up / Ctrl-Page Down): _GetTabgroup - the first tab group in the active window
+    // (uicore.registry.GetActive) - its SelectPrev / SelectNext, round from the last tab to the first; nothing where no tab
+    // of it is selected
+    if (cmd === "CmdPrevTab" || cmd === "CmdNextTab") {
+      const wnd = document.querySelector<HTMLElement>(".pw.pw-active, .fly-windows .win.focused");
+      const first = wnd?.querySelector<HTMLElement>(".ov-tab, [role=tab]");
+      const tabs = first?.parentElement ? [...first.parentElement.children].filter((t): t is HTMLElement => t instanceof HTMLElement && (t.matches(".ov-tab, [role=tab]")) && t.offsetParent !== null) : [];
+      const at = tabs.findIndex((t) => t.classList.contains("active") || t.getAttribute("aria-selected") === "true");
+      if (at < 0) return;
+      e.preventDefault();
+      tabs[(at + (cmd === "CmdNextTab" ? 1 : tabs.length - 1)) % tabs.length]!.click();
+      return;
+    }
     // CmdToggleSensorOverlay (Ctrl-O): sensorSuite.ToggleOverlay - the overlay shown or hidden (ui_scanner_stop)
     if (cmd === "CmdToggleSensorOverlay") {
       e.preventDefault();
