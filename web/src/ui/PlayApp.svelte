@@ -199,6 +199,13 @@
   /** The container window over the others (opened or clicked last) or under the one clicked since. */
   let containerFront = $state(true);
   $effect(() => { if (spaceContainer) containerFront = true; });
+  // ghostFittingSvc.SimulateFitting's OpenFittingWindowIfNeeded: a simulation started from elsewhere (an inventory bay's
+  // Simulate Fit) shows the Fitting window
+  $effect(() => {
+    const show = () => open("fitting");
+    window.addEventListener("evejs:open-fitting", show);
+    return () => window.removeEventListener("evejs:open-fitting", show);
+  });
   // the Pilot submenu's Place Bounty: openFunctions.OpenBountyOffice(charID), the owner's corporation and alliance kept
   let bountyOffice = $state.raw<{ n: number; target: { ownerID: number; corporationID: number | null; allianceID: number | null } } | null>(null);
   let autoMoonMiner = $state.raw<AutoMoonMiner | null>(null);

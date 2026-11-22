@@ -117,7 +117,7 @@
     ["UI/Common/Type", "UI/Inventory/TypeReversed", "type", "Type", "Type (reversed)"], ["UI/Inventory/EstPrice", "UI/Inventory/EstPriceReversed", "estPrice", "Est. Price", "Est. Price (reversed)"]] as const;
   /** invCont.GetViewModeName / GetViewModeIcon. */
   const VIEW_MODES = [["icons", "UI/Inventory/Icons", "Icons", "grid_view"], ["details", "UI/Inventory/Details", "Details", "details_view"], ["list", "UI/Inventory/List", "List", "list_view"]] as const;
-  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/ShortcutBrackets", "UI/Inventory/SlotRigs", "UI/Inventory/SlotHigh", "UI/Inventory/SlotMedium", "UI/Inventory/SlotLow", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SelectAll", "UI/Inventory/NothingFoundFiltered", "UI/Common/NothingFound", "UI/Inventory/InvertSelection", "UI/Common/SortBy", "UI/Inventory/ViewMode",
+  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/ShortcutBrackets", "UI/Inventory/SlotRigs", "UI/Inventory/SlotHigh", "UI/Inventory/SlotMedium", "UI/Inventory/SlotLow", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SelectAll", "UI/Inventory/NothingFoundFiltered", "UI/Common/NothingFound", "UI/Fitting/FittingWindow/SimulateShipFitting", "UI/Inventory/InvertSelection", "UI/Common/SortBy", "UI/Inventory/ViewMode",
     "UI/Inventory/Filters/MyFilters", "UI/Common/NothingFound", "UI/Inventory/OpenInNewWindow", "UI/Common/Buttons/Close", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
   flow.requestWords(WORDS);
   const word = (label: string, own: string, args: Record<string, string | number> = {}) => {
@@ -282,6 +282,9 @@
     if (!ship) return;
     const typeID = ship.typeID, itemID = ship.itemID;
     menu.open(e.clientX, e.clientY, [
+      // OfferSimulateShipFitting (the pilot's own ship): UI/Fitting/FittingWindow/SimulateShipFitting, GhostFitShip
+      { label: word("UI/Fitting/FittingWindow/SimulateShipFitting", "Simulate Fit"), run: () => void flow.simulateShip().then(() => { dispatchEvent(new CustomEvent("evejs:open-fitting")); }).catch(() => {}) },
+      null,
       { label: word(MENU.info, "Show Info"), info: true, run: () => showInfo({ kind: "type", typeID, itemID }) },
       null,
       { label: word(MENU.market, "View Market Details"), run: () => showMarketDetails(typeID) },
