@@ -115,19 +115,26 @@ function lerp(a: number, b: number, t: number): number { return a + (b - a) * t;
  * above low: _IsBlurEnabled) the scene behind blurred at the brightness lerp(0, 0.2 focused / 0.3 not, transparency);
  * without it a fill of DEFAULT_BRIGHTNESS 0.04 at the opacity lerp(1, 0.95 focused / 0.75 not, transparency).
  */
-export function windowAppearance(s: Readonly<GfxSettings> = current): { blur: boolean; bg: string; bgFocused: string; backdrop: string; backdropFocused: string } {
+export function windowAppearance(s: Readonly<GfxSettings> = current): { blur: boolean; bg: string; bgFocused: string; backdrop: string; backdropFocused: string; bgLight: string; bgLightFocused: string; backdropLight: string; backdropLightFocused: string } {
   const blur = s.windowBlur && s.shaderQuality > 1;
+  // a window with the light background (IsLightBackground: the widgets) lerps on to BRIGHTNESS_LIGHT_IDLE 0.85 /
+  // _IN_FOCUS 0.5 - without the blur to the opacity 0.3 / 0.7 - by windowTransparencyLightMode (1 by default)
+  const light = 1;
   if (blur) {
     const t = Math.min(1, Math.max(0, s.windowTransparency));
-    return { blur, bg: "transparent", bgFocused: "transparent",
-      backdrop: `blur(6px) brightness(${lerp(0, 0.3, t).toFixed(3)})`, backdropFocused: `blur(6px) brightness(${lerp(0, 0.2, t).toFixed(3)})` };
+    const idle = lerp(0, 0.3, t), focused = lerp(0, 0.2, t);
+    return { blur, bg: "transparent", bgFocused: "transparent", bgLight: "transparent", bgLightFocused: "transparent",
+      backdrop: `blur(6px) brightness(${idle.toFixed(3)})`, backdropFocused: `blur(6px) brightness(${focused.toFixed(3)})`,
+      backdropLight: `blur(6px) brightness(${lerp(idle, 0.85, light).toFixed(3)})`, backdropLightFocused: `blur(6px) brightness(${lerp(focused, 0.5, light).toFixed(3)})` };
   }
   const t = Math.min(1, Math.max(0, s.windowTransparencyNoBlur));
   // UpdateColor: the fill is the theme's tint, its saturation scaled by SATURATION_MULTIPLIER_MAX 0.3 (+ 0.7 x the
   // transparency, which is 0 without the blur)
   const [r, g, b] = scaleSaturation(colorTheme(s.colorThemeID).tint, 0.3);
-  return { blur, backdrop: "none", backdropFocused: "none",
-    bg: `rgba(${r}, ${g}, ${b}, ${lerp(1, 0.75, t).toFixed(3)})`, bgFocused: `rgba(${r}, ${g}, ${b}, ${lerp(1, 0.95, t).toFixed(3)})` };
+  const idle = lerp(1, 0.75, t), focused = lerp(1, 0.95, t);
+  return { blur, backdrop: "none", backdropFocused: "none", backdropLight: "none", backdropLightFocused: "none",
+    bg: `rgba(${r}, ${g}, ${b}, ${idle.toFixed(3)})`, bgFocused: `rgba(${r}, ${g}, ${b}, ${focused.toFixed(3)})`,
+    bgLight: `rgba(${r}, ${g}, ${b}, ${lerp(idle, 0.3, light).toFixed(3)})`, bgLightFocused: `rgba(${r}, ${g}, ${b}, ${lerp(focused, 0.7, light).toFixed(3)})` };
 }
 
 function applyWindowAppearance(s: Readonly<GfxSettings>): void {
@@ -138,6 +145,10 @@ function applyWindowAppearance(s: Readonly<GfxSettings>): void {
   root.style.setProperty("--win-bg-focused", a.bgFocused);
   root.style.setProperty("--win-backdrop", a.backdrop);
   root.style.setProperty("--win-backdrop-focused", a.backdropFocused);
+  root.style.setProperty("--win-bg-light", a.bgLight);
+  root.style.setProperty("--win-bg-light-focused", a.bgLightFocused);
+  root.style.setProperty("--win-backdrop-light", a.backdropLight);
+  root.style.setProperty("--win-backdrop-light-focused", a.backdropLightFocused);
   // the theme's colours for the page's chrome (play.css: the accent is its focus, the dim its focus_dark)
   const theme = colorTheme(s.colorThemeID);
   root.style.setProperty("--theme-focus", theme.focus);
