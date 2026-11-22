@@ -363,6 +363,29 @@ export class Overview {
     scroller.className = "ov-scroll";
     scroller.appendChild(this.table);
     this.window.body.appendChild(scroller);
+    // OverviewLabel.UpdateFade's global fade: the column the window's right edge cuts (globalMaxWidth - left < columnWidth)
+    // has its labels faded out over COLUMNFADESIZE (20) up to that edge; the others are only limited to their column
+    const fadeAtEdge = () => {
+      const edge = scroller.scrollLeft + scroller.clientWidth;
+      let left = 0, col = 0, at = 0;
+      for (const [i, th] of [...this.table.querySelectorAll<HTMLElement>("thead th")].entries()) {
+        const w = th.offsetWidth;
+        if (left < edge && edge < left + w) { col = i + 1; at = edge - left; break; }
+        left += w;
+      }
+      if (col) { this.table.dataset.fadeCol = String(col); this.table.style.setProperty("--ov-fade-at", `${at}px`); }
+      else delete this.table.dataset.fadeCol;
+    };
+    new ResizeObserver(fadeAtEdge).observe(scroller);
+    new ResizeObserver(fadeAtEdge).observe(this.table);
+    scroller.addEventListener("scroll", fadeAtEdge, { passive: true });
+    if (!document.getElementById("ov-fade-rules")) {
+      const style = document.createElement("style");
+      style.id = "ov-fade-rules";
+      style.textContent = Array.from({ length: 24 }, (_, i) => `.ov-table[data-fade-col="${i + 1}"] td:nth-child(${i + 1})`).join(", ") +
+        " { -webkit-mask-image: linear-gradient(to right, #000 calc(var(--ov-fade-at) - 20px), transparent var(--ov-fade-at)); mask-image: linear-gradient(to right, #000 calc(var(--ov-fade-at) - 20px), transparent var(--ov-fade-at)); }";
+      document.head.appendChild(style);
+    }
     // OverviewScrollEntry.OnMouseEnter / OnMouseExit: stateSvc.SetState(itemID, mouseOver, 1 / 0)
     this.tbody.addEventListener("mouseover", (e) => {
       const id = Number((e.target as HTMLElement).closest("tr")?.dataset.id);
