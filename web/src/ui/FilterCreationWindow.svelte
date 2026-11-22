@@ -11,7 +11,7 @@
   import { onDestroy, onMount } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
-  import { getCategories, getCategoryGroups, getTypeMeta } from "../app/api.ts";
+  import { getCategories, getCategoryGroups, getGroupCategories, getTypeMeta } from "../app/api.ts";
   import { plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
@@ -97,6 +97,14 @@
     }).catch(() => {});
     const groupIDs = Object.values(groupOf);
     if (groupIDs.length) flow.requestNames(groupIDs.map((id) => ({ kind: "group" as const, id })));
+    // CriteriaValueCategory with a group: its category chosen (evetypes.GetCategoryIDByGroup) and that category's groups listed
+    if (groupIDs.length) void getGroupCategories(groupIDs, flow.requestOptions()).then((read) => {
+      for (const [i, g] of Object.entries(groupOf)) {
+        const category = read.groups[g] ?? null;
+        const row = rows[Number(i)];
+        if (category && row) { row.category = category; void loadGroups(category); }
+      }
+    }).catch(() => {});
   });
 
   /** CriteriaEntry.OnFilterTypeCombo: the condition's controls at their defaults; on the last row, a new empty row under it. */
