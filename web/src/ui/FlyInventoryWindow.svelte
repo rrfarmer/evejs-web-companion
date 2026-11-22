@@ -17,6 +17,10 @@
   import { COMPARE_CATEGORIES } from "../bridge/dogmaAttributeGroups.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { shipHoldTarget } from "./shipHold.ts";
+  import { get as getStore } from "svelte/store";
+  import { tempInvLocations, treeShownContainer, removeTempInvLocation } from "./invTemp.ts";
+  import { fmtDist, surfaceDistanceMeters } from "../space/overview.ts";
+  import { bracketIcon } from "../play/brackets.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
   import { SHIP_HOLDS, CARGO_HOLD } from "../bridge/shipHolds.ts";
   // TreeViewEntry.OnMouseEnter: PlaySound(uiconst.SOUND_ENTRY_HOVER), ui_button_soft2_play
@@ -115,6 +119,11 @@
         capacity: c.capacity?.capacity ?? null, used: c.capacity?.used ?? null });
       return out;
     }
+    // a temporary location selected in the tree: the opened container's items (store.inventory.container)
+    const tc = $inventoryState.container;
+    if (current.startsWith("temp:") && tc && `temp:${tc.itemID}` === current)
+      out.push({ key: current, label: "", items: tc.rows.map((i) => ({ itemID: i.itemID, typeID: i.typeID, quantity: i.quantity < 0 ? 1 : i.quantity, singleton: i.singleton, categoryID: i.categoryID })),
+        capacity: tc.capacity?.capacity ?? null, used: tc.capacity?.used ?? null });
     for (const h of $mining.holds) {
       if (!h.present) continue;
       const def = h.key === "cargo" ? CARGO_HOLD : SHIP_HOLDS.find((d) => d.bayKey === h.key);
@@ -137,6 +146,7 @@
   $effect(() => {
     const refs: NameRef[] = [];
     if (ship?.typeID) refs.push({ kind: "type", id: ship.typeID });
+    for (const t of temps) if (t.typeID) refs.push({ kind: "type", id: t.typeID });
     for (const b of bays) for (const i of b.items ?? []) { refs.push({ kind: "type", id: i.typeID }); refs.push({ kind: "typeGroup", id: i.typeID }); refs.push({ kind: "typeCategory", id: i.typeID }); }
     if (refs.length) flow.requestNames(refs);
   });
@@ -150,7 +160,39 @@
   }
   const requests = shipHoldTarget.requests;
   $effect(() => { void $requests; untrack(takeRequest); });
-  const bay = $derived(bays.find((b) => b.key === current) ?? bays.find((b) => b.key === "cargo") ?? null);
+  const bay = $derived(bays.find((b) => b.key === current) ?? (current.startsWith("temp:") ? { key: current, label: "", items: null, capacity: null, used: null } : null) ?? bays.find((b) => b.key === "cargo") ?? null);
+  /** The temporary locations still on the grid, as the tree shows them: TreeDataInv.GetLabelWithDistance (the name and,
+   *  in 0.4 white, FmtDist of its surface distance to 1 decimal) and the controller's icon - ItemFloatingCargo's
+   *  containerCargo_20x20, a wreck's bracket. */
+  const temps = $derived(containerMode ? [] : $tempInvLocations.flatMap((id) => {
+    const e = $space.snapshot?.entities.find((x) => x.itemID === id);
+    if (!e) return [];
+    const own = $space.snapshot?.entities.find((x) => x.isSelf);
+    const icon = e.kind === "container" ? clientTexture("res:/UI/Texture/Shared/Brackets/containerCargo_20x20.png")
+      : bracketIcon({ typeID: e.typeID ?? null, groupID: e.groupID ?? null, categoryID: e.categoryID ?? null }) ?? clientTexture("res:/UI/Texture/WindowIcons/cargo.png");
+    return [{ id, typeID: e.typeID ?? 0, name: e.name || typeName(e.typeID ?? 0) || "", dist: own ? fmtDist(surfaceDistanceMeters(own.position, own.radius, e.position, e.radius), 1) : "", icon }];
+  }));
+  function openTemp(id: number): void {
+    current = `temp:${id}`;
+    treeShownContainer.set(id);
+    void flow.showInventoryContainer(id).catch(() => {});
+  }
+  function removeTemp(id: number): void {
+    removeTempInvLocation(id);
+    if (current === `temp:${id}`) current = "cargo";
+  }
+  // leaving a temporary location lets its read go (the tree no longer shows it)
+  $effect(() => {
+    if (current.startsWith("temp:")) return;
+    untrack(() => {
+      const shown = getStore(treeShownContainer);
+      if (shown === null) return;
+      treeShownContainer.set(null);
+      if (getStore(inventoryState).container?.itemID === shown) void flow.openContainer(null).catch(() => {});
+    });
+  });
+  // a temporary location gone from the tree (removed, or off the grid) while shown: back to the cargo
+  $effect(() => { if (current.startsWith("temp:") && !temps.some((t) => `temp:${t.id}` === current)) untrack(() => { current = "cargo"; }); });
   let treeOpen = $state(true);
 
   // the quick filter, the sidebar and compact mode shared with the window's header (InventoryWindowActions)
@@ -262,7 +304,7 @@
   /** A bay's place for the moves (invCtrl: the cargo, or the ship bay by its flag). */
   /** IsLootable: a can or a wreck in space (a deployable's cargo bay has no Loot All). */
   const lootable = $derived.by(() => { const id = $inventoryState.container?.itemID; const e = id ? $space.snapshot?.entities.find((x) => x.itemID === id) : null; return e?.kind === "wreck" || e?.kind === "container"; });
-  const placeOf = (key: string) => (key === "cargo" ? { kind: "cargo" as const } : key === "container" ? { kind: "container" as const, itemID: store.inventory.get().container?.itemID ?? 0 } : { kind: "shipBay" as const, bay: key });
+  const placeOf = (key: string) => (key === "cargo" ? { kind: "cargo" as const } : key === "container" || key.startsWith("temp:") ? { kind: "container" as const, itemID: store.inventory.get().container?.itemID ?? 0 } : { kind: "shipBay" as const, bay: key });
   /**
    * The drag (InvItem.GetDragData: the selected items where the dragged one is among them) and its drop on a bay in the
    * tree (TreeViewEntryInventory.OnDropData: the items moved into that bay's inventory, invCtrl.AddItems).
@@ -447,7 +489,7 @@
           <span class="tlabel">{shipLabel}</span>
         </div>
         {#if treeOpen}
-          {#each bays.filter((b) => b.key !== "cargo") as b (b.key)}
+          {#each bays.filter((b) => b.key !== "cargo" && !b.key.startsWith("temp:")) as b (b.key)}
             <div onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node sub" class:sel={current === b.key} class:drop={dropKey === b.key} role="treeitem" aria-selected={current === b.key} tabindex="-1"
               onclick={() => (current = b.key)} onkeydown={() => {}}
               ondragover={dragOver(b.key)} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn(b.key, e)}>
@@ -457,6 +499,19 @@
           {/each}
         {/if}
       {/if}
+      {#each temps as t (t.id)}
+        <!-- TreeViewEntry of a removable TreeDataInv: the 73_16_210 remove sprite at the spacer's end (hint Close), the
+             icon 4 after it, the label with its distance -->
+        <div onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node temp" class:sel={current === `temp:${t.id}`} role="treeitem" aria-selected={current === `temp:${t.id}`} tabindex="-1"
+          class:drop={dropKey === `temp:${t.id}`} onclick={() => openTemp(t.id)} onkeydown={() => {}}
+          ondragover={$inventoryState.container?.itemID === t.id ? dragOver(`temp:${t.id}`) : undefined} ondragleave={() => (dropKey = null)}
+          ondrop={$inventoryState.container?.itemID === t.id ? (e) => void dropOn(`temp:${t.id}`, e) : undefined}>
+          <button type="button" class="tremove" title={word("UI/Common/Buttons/Close", "Close")} aria-label={word("UI/Common/Buttons/Close", "Close")}
+            style:background-image={`url(${clientTexture("res:/UI/Texture/icons/73_16_210.png")})`} onclick={(e) => { e.stopPropagation(); removeTemp(t.id); }}></button>
+          <span class="ticon"><img src={t.icon} alt=""></span>
+          <span class="tlabel">{t.name}{#if t.dist}{" "}<span class="tdist">{t.dist}</span>{/if}</span>
+        </div>
+      {/each}
     </div>
     <div class="filters"><span class="caret"></span><span class="flabel">{word("UI/Inventory/Filters/MyFilters", "My filters")}</span><span class="plus" style:background-image={`url("${clientTexture("res:/ui/texture/eveicon/system_icons/add_16px.png")}")`}></span></div>
   </div>
@@ -480,7 +535,8 @@
     </div>
     {/if}
     <div class="items" role="list" onclick={() => (selected = [])} onkeydown={() => {}}
-      ondragover={containerMode ? dragOver("container") : undefined} ondrop={containerMode ? (e) => void dropOn("container", e) : undefined}>
+      ondragover={containerMode ? dragOver("container") : current.startsWith("temp:") ? dragOver(current) : undefined}
+      ondrop={containerMode ? (e) => void dropOn("container", e) : current.startsWith("temp:") ? (e) => void dropOn(current, e) : undefined}>
       {#if bay && bay.items === null}
         <p class="none">…</p>
       {:else if !shown.length}
@@ -525,7 +581,7 @@
         : word("UI/Inventory/NumItems2", `${shown.length} Items`, { numItems: shown.length, numFilteredTxt: filtered > 0 ? word("UI/Inventory/NumFiltered", `(${filtered} filtered)`, { numFiltered: filtered }) : "" })}</span>
       {#if moveError}<span class="err">{moveError}</span>{/if}
       <span class="price">{word("UI/Inventory/EstIskPrice2", `${Math.round(isk).toLocaleString("en-US")} ISK Est. price`, { iskString: `${Math.round(isk).toLocaleString("en-US")} ISK` })}</span>
-      {#if containerMode && lootable}
+      {#if (containerMode || current.startsWith("temp:")) && lootable}
         <!-- BaseCelestialContainer.GetSpecialActions: Loot All for a lootable can or wreck (ShipCargo().AddItems of its items),
              in specialActionsCont at the right of the window's foot, 16 from the labels, a Density.COMPACT Button -->
         <span class="special"><button type="button" class="client-btn compact" onclick={() => { const id = $inventoryState.container?.itemID; if (id) void act(async () => { await flow.lootContainer(id); }); }}>{word("UI/Inventory/LootAll", "Loot All")}</button></span>
@@ -556,6 +612,11 @@
   .node.sel { color: rgba(255, 255, 255, 0.9); }
   .node > * { position: relative; }
   .node.sub { padding-left: 32px; }
+  /* a temporary location (read through gridcheck on a can in ActiveShipCargo): a root entry 8 below the one before, the
+     remove sprite 16 x 16 at 24, the icon at 44, the label at 70, its distance <color=#66FFFFFF> */
+  .node.temp { margin-top: 8px; padding-left: 24px; }
+  .tremove { flex: none; width: 16px; height: 16px; min-height: 0; margin-right: 4px; padding: 0; border: 0; background: center / 16px 16px no-repeat; cursor: pointer; }
+  .tdist { color: rgba(255, 255, 255, 0.4); }
   .exp { flex: none; width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; background: transparent; position: relative; cursor: pointer; }
   .exp::before { content: ""; position: absolute; left: 12px; top: 8px; width: 7px; height: 7px; background: rgba(255, 255, 255, 0.5);
     mask: url(/client-res/ui/texture/classes/neocom/arrowdown.png) center / 7px 7px no-repeat; -webkit-mask: url(/client-res/ui/texture/classes/neocom/arrowdown.png) center / 7px 7px no-repeat;

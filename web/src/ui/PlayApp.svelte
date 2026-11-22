@@ -47,6 +47,8 @@
   import { typeCompareTarget } from "./typeCompare.ts";
   import { fittingWindowTarget } from "./fittingWindowTarget.ts";
   import { shipHoldTarget } from "./shipHold.ts";
+  import { addTempInvLocation, treeShownContainer } from "./invTemp.ts";
+  import { get as storeGet } from "svelte/store";
   import { hudSetting, hudSettingNow, setHudSetting, slotOrderOf } from "../store/hudSettings.ts";
   import { createSession, type Session } from "../app/sessions.ts";
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
@@ -1657,6 +1659,10 @@
       const c = s.store.inventory.get().container;
       const e = c ? s.store.space.get().snapshot?.entities.find((x) => x.itemID === c.itemID) : null;
       if (!c || !e) { if (spaceContainer) spaceContainer = null; return; }
+      // a can or a wreck becomes a temporary location of the inventory trees; one the Active ship cargo window's tree
+      // shows needs no window of its own
+      if (e.kind === "container" || e.kind === "wreck") addTempInvLocation(c.itemID);
+      if (storeGet(treeShownContainer) === c.itemID) { if (spaceContainer) spaceContainer = null; return; }
       const typeName = resolvedName(s.store.names.get().resolved, "type", c.typeID, "");
       if (!typeName && !e.name) s.flow.requestNames([{ kind: "type", id: c.typeID }]);
       const title = e.name || typeName || "Container";
