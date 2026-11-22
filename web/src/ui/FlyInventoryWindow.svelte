@@ -480,7 +480,7 @@
         <!-- the scroll of listentry.InvItem rows under GetInvItemDefaultHeaders: details with the 32 px icon and the
              label 46 in, list without the icon -->
         <table class="rows" class:details={viewMode === "details"}>
-          <thead><tr>{#each HEADERS as h, k}<th class:sorted={column === k} class:hid={hiddenCols.includes(k)} style:width={colWidths[k] ? `${colWidths[k]}px` : null} style:min-width={colWidths[k] ? `${colWidths[k]}px` : null} style:max-width={colWidths[k] ? `${colWidths[k]}px` : null} onclick={() => sortByColumn(k)} oncontextmenu={(e) => headerMenu(k, e)}>{word(h, HEADER_OWN[k]!)}{#if column === k}<span class="dir">{reversed ? "▼" : "▲"}</span>{/if}<span class="scaler" role="separator" aria-orientation="vertical" onpointerdown={(e) => startScale(k, e)} onclick={(e) => e.stopPropagation()} ondblclick={(e) => { e.stopPropagation(); resetWidth(k); }}></span></th>{/each}</tr></thead>
+          <thead><tr>{#each HEADERS as h, k}<th class:sorted={column === k} class:hid={hiddenCols.includes(k)} style:width={colWidths[k] ? `${colWidths[k]}px` : null} style:min-width={colWidths[k] ? `${colWidths[k]}px` : null} style:max-width={colWidths[k] ? `${colWidths[k]}px` : null} onclick={() => sortByColumn(k)} oncontextmenu={(e) => headerMenu(k, e)}>{word(h, HEADER_OWN[k]!)}{#if column === k}<span class="dir" class:down={reversed}></span>{/if}<span class="scaler" role="separator" aria-orientation="vertical" onpointerdown={(e) => startScale(k, e)} onclick={(e) => e.stopPropagation()} ondblclick={(e) => { e.stopPropagation(); resetWidth(k); }}></span></th>{/each}</tr></thead>
           <tbody>
             {#each shown as i (i.itemID)}
               {@const fa = facts[i.typeID]}
@@ -592,7 +592,7 @@
   .count.filtered { color: #8dc169; }
   .rows { width: 100%; border-collapse: collapse; font-size: 12px; align-self: flex-start; }
   /* the scroll's ColumnHeaders (gridcheck, details): 24 high, the EveLabelSmall 12 at 8 */
-  .rows th { position: sticky; top: 0; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 0 8px; height: 24px; box-sizing: border-box; white-space: nowrap; background: rgba(0, 0, 0, 0.4); }
+  .rows th { position: sticky; top: 0; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.5); padding: 0 8px; height: 24px; box-sizing: border-box; white-space: nowrap; background: rgba(0, 0, 0, 0.4); }
   /* uix.GetInvItemDefaultHiddenHeaders: Category, Meta Level and Tech Level hidden by default */
   .rows .hid { display: none; }
   .rows th { overflow: hidden; text-overflow: clip; }
@@ -609,8 +609,11 @@
   .rows tr.selected td { background: rgba(255, 255, 255, 0.12); }
   .rows .num { text-align: right; }
   .rows th { cursor: pointer; }
-  .rows th.sorted { color: #fff; }
-  .rows th .dir { margin-left: 4px; font-size: 8px; }
+  /* the scroll's ColumnHeader (read through gridcheck on the cargo's list view): its EveLabelSmall at white 0.5, sorted
+     or not; the sorted one's direction_indicator a 16 px caret at 0.75, 4 from its right (before the scaler) */
+  .rows th.sorted { color: rgba(255, 255, 255, 0.5); }
+  .rows th .dir { position: absolute; right: 4px; top: 4px; width: 16px; height: 16px; opacity: 0.75; background: url(/client-res/ui/texture/eveicon/system_icons/caret_up_16px.png) center / 16px no-repeat; }
+  .rows th .dir.down { background-image: url(/client-res/ui/texture/eveicon/system_icons/caret_down_16px.png); }
   .rows .nm { display: flex; align-items: center; gap: 9px; }
   .ricon { width: 32px; height: 32px; display: grid; margin-left: 5px; }
   .ricon :global(.type-icon) { width: 32px; height: 32px; }
