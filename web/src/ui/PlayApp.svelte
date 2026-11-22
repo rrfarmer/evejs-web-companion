@@ -3551,6 +3551,15 @@
      below it padLeft -8 (at 10, 74) */
   .fly-windows :global(.log-actions) { position: relative; display: flex; margin: 0 0 0 -4px; }
   .fly-windows :global(.notice-log .log-table) { margin-left: -8px; width: calc(100% + 8px); }
+  /* LoggerWindow: the toolbar and the scroll's column headers stay put and only the entries scroll (the client's headers sit
+     above its scroll): the body does not scroll, the table a column of a fixed head and a scrolling body, each row laid out
+     as a fixed table so the columns keep their widths */
+  .fly-windows :global(.win[data-win="log"] > .win-body) { overflow: hidden; display: flex; flex-direction: column; }
+  .fly-windows :global(.win[data-win="log"] .notice-log) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .fly-windows :global(.notice-log .log-table) { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .fly-windows :global(.notice-log .log-table thead) { display: block; flex: none; }
+  .fly-windows :global(.notice-log .log-table tbody) { display: block; flex: 1; min-height: 0; overflow-y: auto; }
+  .fly-windows :global(.notice-log .log-table tr) { display: table; width: 100%; table-layout: fixed; }
   .fly-windows :global(.log-filter) { all: unset; width: 24px; height: 24px; display: grid; place-items: center; cursor: pointer; opacity: 0.8; }
   .fly-windows :global(.log-filter img) { width: 16px; height: 16px; }
   .fly-windows :global(.log-menu) { position: absolute; left: 0; top: 24px; z-index: 5; display: flex; flex-direction: column; min-width: 180px; padding: 4px 0;
@@ -3572,9 +3581,9 @@
   /* LoggerWindow's scroll (read through gridcheck): its column headers 24 high, EveLabelSmall 12 at 8, Time 74 and Type 71
      wide; each entry a TextBody 14, 22 apart */
   .fly-windows :global(.log-table) { width: 100%; border-collapse: collapse; font-size: 14px; table-layout: fixed; }
-  .fly-windows :global(.log-table th) { position: sticky; top: 0; background: #1b1d20; text-align: left; font-weight: 400; font-size: 12px; color: rgba(255, 255, 255, 0.5); padding: 0 8px; height: 24px; box-sizing: border-box; }
-  .fly-windows :global(.log-table th:nth-child(1)) { width: 70px; }
-  .fly-windows :global(.log-table th:nth-child(2)) { width: 67px; }
+  .fly-windows :global(.log-table th) { position: relative; background: transparent; text-align: left; font-weight: 400; font-size: 12px; color: rgba(255, 255, 255, 0.5); padding: 0 8px; height: 24px; box-sizing: border-box; }
+  .fly-windows :global(.log-table :is(th, td):nth-child(1)) { width: 70px; }
+  .fly-windows :global(.log-table :is(th, td):nth-child(2)) { width: 67px; }
   .fly-windows :global(.log-table th button) { background: transparent; border: 0; color: inherit; font: inherit; padding: 0; min-height: 0; text-align: left; width: 100%; }
   /* the logger scroll's ColumnHeader (read through gridcheck): its EveLabelSmall at white 0.5, sorted or not, 8 in; the sorted
      one's direction_indicator a 16 px caret at 0.75, 4 from its right (the header band: the client's sits above the scroll, here a
