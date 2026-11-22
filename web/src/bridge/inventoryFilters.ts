@@ -4,6 +4,8 @@ import type { Ask } from "./ask.ts";
 import { readKeyVal } from "./wire.ts";
 
 export const INVENTORY_FILTERS_SETTING = "inventoryFilters";
+/** FilterCreationWindow.OnFilterDragged: an ItemFilterDragData (the filter's name and the filter) in a drag, its link made where it is dropped. */
+export const ITEM_FILTER_DRAG_TYPE = "application/x-evejs-item-filter";
 
 // filterSvc.py ITEM_*, CRIT_* and RESULT_* values are persisted by the retail client.
 export const FILTER_FIELD = {

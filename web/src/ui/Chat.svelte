@@ -23,6 +23,7 @@
   import { labelEscaped } from "../bridge/labelMarkup.ts";
   import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
   import { OVERVIEW_PROFILE_DRAG_TYPE } from "../bridge/overviewProfileLink.ts";
+  import { ITEM_FILTER_DRAG_TYPE, readInventoryFilters, writeInventoryFilters } from "../bridge/inventoryFilters.ts";
   import { ASSET_ITEM_DRAG_MIME, decodeAssetItemDrag, type AssetItemDrag } from "./dragDrop.ts";
   import { droppedFittingDrag, isFittingDrag } from "./fittingDrag.ts";
   import type { DroppedLink } from "../app/flow.ts";
@@ -109,7 +110,7 @@
   /** A link or a fitting dragged over the send box is taken. */
   function linkDragOver(event: DragEvent): void {
     const types = event.dataTransfer?.types;
-    if (types?.includes(LINK_DRAG_TYPE) || types?.includes(OVERVIEW_PROFILE_DRAG_TYPE) || types?.includes(ASSET_ITEM_DRAG_MIME) || isFittingDrag(event)) event.preventDefault();
+    if (types?.includes(LINK_DRAG_TYPE) || types?.includes(OVERVIEW_PROFILE_DRAG_TYPE) || types?.includes(ITEM_FILTER_DRAG_TYPE) || types?.includes(ASSET_ITEM_DRAG_MIME) || isFittingDrag(event)) event.preventDefault();
   }
 
   // eveEditPlainText adds links in scroll order, preserving the text on either side of the caret.
@@ -150,6 +151,15 @@
       try {
         const p = JSON.parse(profileRaw) as { text?: unknown; data?: unknown };
         if (typeof p.text === "string" && p.data && typeof p.data === "object") profile = { kind: "overviewProfile", text: p.text, data: p.data as Record<string, unknown> };
+      } catch { /* not one */ }
+    }
+    const filterRaw = profile === null ? event.dataTransfer?.getData(ITEM_FILTER_DRAG_TYPE) : null;
+    if (filterRaw) {
+      try {
+        const p = JSON.parse(filterRaw) as { text?: unknown; filter?: unknown };
+        // the filter read back as a kept one is, so that only a well-formed filter is shared
+        const filter = readInventoryFilters(writeInventoryFilters([p.filter as never]))[0];
+        if (typeof p.text === "string" && filter) profile = { kind: "itemFilter", text: p.text, filter };
       } catch { /* not one */ }
     }
     const fitting = profile === null ? droppedFittingDrag(event) : null;

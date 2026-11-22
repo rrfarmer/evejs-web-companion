@@ -1896,7 +1896,9 @@ export type DroppedLink =
   /** A fitting the Fitting window gives, read as it is dropped: its ghost ship icon's or its fit-name label's. */
   | { readonly kind: "fittingSource"; readonly source: "activeShip" | "fittingWindow" }
   /** The overview Settings' Share handle (fakeentry.OverviewProfile): the overview's name and GetOverviewDataForSave. */
-  | { readonly kind: "overviewProfile"; readonly text: string; readonly data: Readonly<Record<string, unknown>> };
+  | { readonly kind: "overviewProfile"; readonly text: string; readonly data: Readonly<Record<string, unknown>> }
+  /** FilterCreationWindow's share handle (ItemFilterDragData): the filter's name and the filter, shared as it is dropped. */
+  | { readonly kind: "itemFilter"; readonly text: string; readonly filter: InventoryFilter };
 
 /** The text a link is dropped on: its length now (its tags counted), how much of it is selected, its most. */
 export interface LinkDropRoom {
@@ -13318,8 +13320,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function droppedLinkMarkup(given: DroppedLink, room: LinkDropRoom): Promise<string | null> {
     let url: string;
     let text: string;
-    let dropped: Exclude<DroppedLink, { readonly kind: "fittingSource" } | { readonly kind: "overviewProfile" }>;
-    if (given.kind === "overviewProfile") {
+    let dropped: Exclude<DroppedLink, { readonly kind: "fittingSource" } | { readonly kind: "overviewProfile" } | { readonly kind: "itemFilter" }>;
+    if (given.kind === "itemFilter") {
+      // ItemFilterDragData.get_link: sharedSettingsMgr.StoreSettingLinkAndGetID of the filter, the link its url and name
+      let url: string;
+      try { url = await shareInventoryFilter(bridgeDo, given.filter); } catch { sayDialog("ItemFilterLoadingError", null, "The item filter could not be shared."); return null; }
+      dropped = { kind: "link", url, text: given.text };
+    } else if (given.kind === "overviewProfile") {
       // eveEditPlainText.OnDropData's fakeentry.OverviewProfile: StoreLinkAndGetID, None OverviewProfileLoadingError
       const key = await storeOverviewProfile(bridgeDo, given.data);
       if (key === null) { sayDialog("OverviewProfileLoadingError", null, "The overview profile could not be loaded."); return null; }

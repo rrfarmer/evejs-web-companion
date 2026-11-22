@@ -8,7 +8,9 @@
   // closing. Save: CannotSaveBlankFilter without a condition, SaveFilterNoName without a name, SaveFilterPrompt over a
   // filter of that name (not when editing it), the filters kept (PersistFilters), FilterSaved.
   // ImportTypeList (the paste button at the bottom right) and OnDropData (items dropped on the rows) add a Name Is row for
-  // each type not already there (_AddTypeIDs), before the empty last row. (Not here: the share button.)
+  // each type not already there (_AddTypeIDs), before the empty last row. The share handle left of it
+  // (DraggableShareContainer, hint UI/Inventory/Filters/ShareFilter) drags the filter (OnFilterDragged: with a name and a
+  // condition) for a text to take as a link, shared where it is dropped.
   import { onDestroy, onMount } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -20,7 +22,7 @@
   import { clientTexture } from "./skillGroupIcons.ts";
   import {
     DEFAULT_INVENTORY_FILTERS, FILTER_FIELD as F, FILTER_OP as O, INVENTORY_FILTERS_SETTING, readInventoryFilters, writeInventoryFilters,
-    type FilterComparison, type InventoryCondition, type InventoryFilter,
+    ITEM_FILTER_DRAG_TYPE, type FilterComparison, type InventoryCondition, type InventoryFilter,
   } from "../bridge/inventoryFilters.ts";
 
   let { store, flow, filter = null, onClose }: { store: ClientStore; flow: AppFlow; filter?: InventoryFilter | null; onClose: () => void } = $props();
@@ -88,7 +90,7 @@
 
   onMount(() => {
     flow.requestNames([{ kind: "type" as const, id: 1230 }, { kind: "type" as const, id: 34 }]);
-    flow.requestWords([P + "ImportFilterItems", P + "ImportFilterItemsHint", "UI/SkillQueue/CouldNotReadLines", P + "ItemFilterCaption", P + "Match", P + "FilterName", P + "All", P + "Any", "UI/Common/Buttons/Save", "UI/Common/Buttons/Close", "UI/Common/All",
+    flow.requestWords([P + "ShareFilter", "UI/Overview/ShareOverview", P + "ImportFilterItems", P + "ImportFilterItemsHint", "UI/SkillQueue/CouldNotReadLines", P + "ItemFilterCaption", P + "Match", P + "FilterName", P + "All", P + "Any", "UI/Common/Buttons/Save", "UI/Common/Buttons/Close", "UI/Common/All",
       ...CONDITIONS.map(([, key]) => P + key), ...Object.values(CRIT).map(([key]) => P + key), P + "CritIsTrue", P + "CritIsFalse",
       ...SLOTS.map(([, key]) => P + key), ...DEFAULT_INVENTORY_FILTERS.map(([key]) => key)]);
     void getCategories(flow.requestOptions()).then((rows) => {
@@ -181,6 +183,14 @@
     const tail = typeof hint === "string" && hint ? plainText(formatTemplate(hint, { type1: 1230, type2: 34 }, { nameOf } as never)) : "";
     return `${word(P + "ImportFilterItems", "Import Items")}+${tail ? `\n\n${tail}` : ""}`;
   });
+  /** OnFilterDragged: the filter's name (its tags' brackets back, trimmed) and the filter; nothing to drag without both. */
+  function shareDrag(e: DragEvent): void {
+    const f = currentFilter();
+    const name = (f?.[0] ?? "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim();
+    if (!f || !name || !e.dataTransfer) { e.preventDefault(); return; }
+    e.dataTransfer.setData(ITEM_FILTER_DRAG_TYPE, JSON.stringify({ text: name, filter: f }));
+    e.dataTransfer.effectAllowed = "copy";
+  }
   function applyTemp(): void { dispatchEvent(new CustomEvent("evejs:inventory-temp-filter", { detail: { filter: currentFilter() } })); }
   onDestroy(() => { dispatchEvent(new CustomEvent("evejs:inventory-temp-filter", { detail: { filter: null } })); });
 
@@ -277,6 +287,9 @@
       <button type="button" class="btn primary" disabled={busy} onclick={() => void save()}>{word("UI/Common/Buttons/Save", "Save")}</button>
       <button type="button" class="btn" onclick={onClose}>{word("UI/Common/Buttons/Close", "Close")}</button>
     </div>
+    <span class="share" draggable="true" role="button" tabindex="-1" title={word(P + "ShareFilter", "Share Filter")} ondragstart={shareDrag}>
+      <img src={clientTexture("res:/UI/Texture/classes/Overview/shareableOverview_small.png")} alt="" />{word("UI/Overview/ShareOverview", "Share")}
+    </span>
     <button type="button" class="paste" title={importHint} aria-label={word(P + "ImportFilterItems", "Import Items")}
       style:--paste={`url("${clientTexture("res:/UI/Texture/Shared/pasteFrom.png")}")`} onclick={() => void importClipboard()}></button>
   </div>
@@ -300,6 +313,11 @@
   /* importMenu: 32 x 32 at the bottom right, its icon 28 */
   .paste { position: absolute; right: 0; bottom: 0; width: 32px; height: 32px; padding: 0; border: 0; background: var(--paste) center / 28px 28px no-repeat; opacity: 0.75; cursor: pointer; }
   .paste:hover { opacity: 1; }
+  /* DraggableShareContainer's dragCont: 21 high, a frame at 0.15, a fill 0.125 under the mouse, the 15 px sprite at 3 and the label at 20 */
+  .share { position: absolute; right: 38px; bottom: 5px; display: inline-flex; align-items: center; gap: 2px; box-sizing: border-box; height: 21px; padding: 0 9px 0 3px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15); cursor: grab; color: rgba(255, 255, 255, 0.75); font-size: 12px; }
+  .share:hover { background: rgba(255, 255, 255, 0.125); }
+  .share img { width: 15px; height: 15px; pointer-events: none; }
   .opts { display: grid; grid-template-columns: auto auto; justify-content: center; align-items: center; row-gap: 2px; }
   .small { font-size: 10px; color: rgba(255, 255, 255, 0.5); }
   .pad { margin-left: 32px; }
