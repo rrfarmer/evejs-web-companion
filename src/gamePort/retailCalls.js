@@ -672,6 +672,8 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
 const GAME_PORT_ONLY_CALLS = Object.freeze([
   // menuFunctions.SelfDestructShip / AbortSelfDestructShip (the active ship's space menu): not on the gateway contract's list
   "ship.SelfDestruct", "ship.AbortSelfDestruct",
+  // safeLogoffTimer.AbortSafeLogoff: GetShipAccess().AbortSafeLogoff(), the timer's Abort button
+  "ship.AbortSafeLogoff",
   "repackagingSvc.RepackageItems",
   "structureControl.TakeControl", "structureControl.ReleaseControl",
   "structureControl.BoardStructure", "structureControl.EjectFromStructure", "structureCargoDelivery.DropOffItems",
@@ -3327,6 +3329,7 @@ const RETAIL_CALLS = Object.freeze({
     }),
     "fittingSvc.DoFitManyShips: GetShipAccess().FitShips(shipTypeID=, fitInfo=, itemLocationID=session.stationid or session.structureid, cargoItemsByType=, fitRigs=, name=, numToFit=, itemContainerID=), from the multifit window's Fit (multiFitWnd.DoFitShips, 363 to 405): every argument a keyword; the fitting the util.KeyVal of six dicts its Fitting makes (shipfitting/fitting.py 119), the cargo a dict of the rigs by type where rigs are not fitted, the name the window's edit's (unicode) or the fitting's, the container the equipment's place or None for the item hangar. Answered None, or (failedToLoad, failedShipID). In no recording.",
   ),
+  "ship.AbortSafeLogoff": same("eve/client/script/ui/inflight/shipHud/safeLogoffTimer.py:173", "GetShipAccess().AbortSafeLogoff() from the safe logoff timer's Abort button; no arguments. In no recording."),
   "ship.SelfDestruct": same("eve/client/script/ui/services/menuSvcExtras/menuFunctions.py:575", "GetShipAccess().SelfDestruct(pickid) through sessionMgr.PerformSessionChange('selfdestruct', ...), after ConfirmSelfDestruct / ConfirmSelfDestructCapsule. In no recording."),
   "ship.AbortSelfDestruct": same("eve/client/script/ui/services/menuSvcExtras/menuFunctions.py:552", "GetShipAccess().AbortSelfDestruct(pickid) through sessionMgr.PerformSessionChange('abortselfdestruct', ...), after ConfirmAbortSelfDestruct. In no recording."),
   "ship.Eject": same("eve/client/script/ui/services/menuSvcExtras/menuFunctions.py:186", "GetShipAccess().Eject() through sessionMgr.PerformSessionChange('eject', ...), after ConfirmEject, in space; no arguments. In no recording."),

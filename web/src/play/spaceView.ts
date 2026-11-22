@@ -308,6 +308,10 @@ export interface SpaceActions {
   droneFleetOrder?(kind: "assist" | "guard", charID: number, droneIDs: readonly number[]): void;
   /** Use Fitting Service: the fitting window (CmdOpenFitting). */
   openFitting?(): void;
+  /** eveCommands.CmdLogOff in space: menuFunctions.SafeLogoff, the timer started. */
+  safeLogoff?(): void;
+  /** Whether a safe logoff runs (celestialChecker.IsLoggingOffSafely). */
+  loggingOffSafely?(): boolean;
   /** menuFunctions.SelfDestructShip / AbortSelfDestructShip of the active ship, each confirmed first. */
   selfDestructShip?(shipID: number, capsule: boolean): void;
   abortSelfDestructShip?(shipID: number): void;
@@ -4758,6 +4762,9 @@ export class SpaceView {
         ...(holds.length ? [null, ...holds] : []),
         ...tail,
         // OfferEjectFromShip (the active ship, not a capsule), DESTRUCTIVE: last
+        // OfferSafeLogoff (the active ship, not warping, not already logging off), group 17 ahead of Eject: Log Off Safely
+        ...(this.actions.safeLogoff && this.snapshot?.ship?.mode !== "WARP" && !this.actions.loggingOffSafely?.()
+          ? [null, { path: "UI/Inflight/SafeLogoff", label: word("UI/Inflight/SafeLogoff", "Log Off Safely"), run: () => this.actions.safeLogoff?.() }] : []),
         ...(e.groupID !== 29 && this.actions.ejectFromShip ? [null, { path: "UI/Inflight/EjectFromShip", label: word("UI/Inflight/EjectFromShip", "Eject"), run: () => this.actions.ejectFromShip?.() }] : []),
         // OfferSelfDestructShip (not warping, not counting down: the slim item's selfDestructTime) or, counting down,
         // OfferAbortSelfDestructShip - DESTRUCTIVE, after Eject (_CelestialMenu 1652)

@@ -171,6 +171,7 @@
   import NamePopup from "./NamePopup.svelte";
   import { compressItemsInSpace, compressibleTypes, HARVESTABLE_ORE_HOLDS } from "./compressInSpace.ts";
   import type { ContactAction } from "./contactAction.ts";
+  import SafeLogoffTimer from "./SafeLogoffTimer.svelte";
   import type { MySovHub, SovHubDetails, SovHubExtras } from "../app/flow.ts";
 
   // The app's navy panels in the client's greys, for as long as the play mode is up (play/clientTint.ts).
@@ -287,6 +288,35 @@
   const inventory = $derived(session?.store.inventory);
   const fleet = $derived(session?.store.fleet);
   const memberDetails = $derived(session?.flow.memberDetailsShown);
+  // gameui's safe logoff timer (OnSafeLogoffTimerStarted ... OnSafeLogoffActivated), and the choice its radios make
+  const safeLogoff = $derived(session?.flow.safeLogoff);
+  let safeLogoffQuitting = false;
+  const SAFE_LOGOFF_WORDS = ["UI/Inflight/SafeLogoffTimerCaption", "UI/Inflight/SafeExitTimerCaption", "UI/Inflight/SafeLogoffTimerHint", "UI/Inflight/SafeExitTimerHint",
+    "UI/Inflight/SafeLogoffLogOutCb", "UI/Inflight/SafeLogoffQuitGameCb", "UI/Commands/Abort", "UI/Inflight/SafeLogoffDisconnect"];
+  /**
+   * gameui.OnSafeLogoffActivated: the timer at 0.0, then, logging out, the session change 'character logoff' -
+   * DoCharacterLogoff back to character selection; quitting, CustomNotify UI/Inflight/SafeLogoffDisconnect and the
+   * client's exit (a page has no exit of its own: it goes back to character selection as well).
+   */
+  let safeLogoffHandled = false;
+  $effect(() => {
+    const state = $safeLogoff;
+    if (!state?.completed) { safeLogoffHandled = false; return; }
+    if (safeLogoffHandled || !session) return;
+    safeLogoffHandled = true;
+    const pilot = session;
+    if (safeLogoffQuitting) {
+      const t = pilot.store.words.get().templates["UI/Inflight/SafeLogoffDisconnect"];
+      const text = typeof t === "string" && t !== "" ? plainText(t) : "You have safely logged off.";
+      pilot.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text);
+    }
+    setTimeout(() => {
+      live?.close();
+      live = null;
+      spaceClaimed = null;
+      void pilot.flow.releaseSession().catch(() => {}).finally(() => { if (session === pilot) stage = "select"; });
+    }, 1000);
+  });
 
   // A refusal the server gave an order (a lock, a module, a move, a fit, an item's move), as the client puts it up:
   // the flow says some in the client's own dialogs (actionErrorSaid); the rest are said here, once each, in space on
@@ -1954,6 +1984,8 @@
       openFitting: () => open("fitting"),
       renameShip: (id) => { void s.flow.renameShip(id).catch(() => {}); },
       ejectFromShip: () => { void s.flow.ejectFromShip().catch(() => {}); },
+      safeLogoff: () => { s.flow.requestWords(SAFE_LOGOFF_WORDS); safeLogoffQuitting = false; void s.flow.startSafeLogoff().catch(() => {}); },
+      loggingOffSafely: () => !!s.flow.safeLogoff.get(),
       selfDestructShip: (id, capsule) => { void s.flow.selfDestructShip(id, capsule).catch(() => {}); },
       abortSelfDestructShip: (id) => { void s.flow.abortSelfDestructShip(id).catch(() => {}); },
       boardShip: (id, typeID) => { void s.flow.boardSpaceShip(id, typeID).catch(() => {}); },
@@ -2923,6 +2955,11 @@
     <div class="fleet-invitations fly-invitations"><FleetInvitation {session} inFront={true} /></div>
   </ErrorBoundary>
   <ErrorBoundary name="Server question"><ServerQuestion store={session.store} flow={session.flow} /></ErrorBoundary>
+  {#if stage === "game" && session && $safeLogoff}
+    <SafeLogoffTimer deadlineMs={$safeLogoff.deadlineMs} completed={$safeLogoff.completed}
+      word={(label, own) => { const t = session?.store.words.get().templates[label]; return typeof t === "string" && t !== "" ? plainText(t) : own; }}
+      onAbort={() => void session?.flow.abortSafeLogoff().catch(() => {})} onQuitChange={(q) => { safeLogoffQuitting = q; }} />
+  {/if}
   <ErrorBoundary name="Client dialogs"><ClientDialogs {session} inFront={true} /></ErrorBoundary>
   <ErrorBoundary name="Scanner results"><ScannerWindows {session} inFront={true} /></ErrorBoundary>
   <ErrorBoundary name="Info windows"><InfoWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>

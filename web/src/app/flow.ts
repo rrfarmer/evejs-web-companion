@@ -2258,6 +2258,13 @@ export interface AppFlow {
   selfDestructShip(shipID: number, capsule: boolean): Promise<void>;
   /** menuFunctions.AbortSelfDestructShip: ConfirmAbortSelfDestruct, then ship.AbortSelfDestruct. */
   abortSelfDestructShip(shipID: number): Promise<void>;
+  /** gameui's safe logoff, as the server tells it (OnSafeLogoffTimerStarted / Activated / Aborted / Failed): the timer's
+   *  end in epoch ms and whether it has run out; null with none running. */
+  readonly safeLogoff: ReadableSignal<{ readonly deadlineMs: number; readonly completed: boolean } | null>;
+  /** menuFunctions.SafeLogoff: ship.SafeLogoff(); its failed conditions said (CustomNotify under ConditionsFailedHeader). */
+  startSafeLogoff(): Promise<void>;
+  /** SafeLogoffTimer.AbortSafeLogoff: ship.AbortSafeLogoff(), the timer taken down. */
+  abortSafeLogoff(): Promise<void>;
   /**
    * Board the corvette while docked (the station-services "Board my Corvette"):
    * the server spawns/repairs/starter-fits one as needed, then refresh. `sure`
@@ -8351,6 +8358,29 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       oneItemChanged(args);
       return;
     }
+    if (method === "OnSafeLogoffTimerStarted") {
+      // gameui.OnSafeLogoffTimerStarted(safeLogoffTime): the timer to that blue time
+      const raw = args[0] as unknown;
+      const v = raw !== null && typeof raw === "object" && "value" in (raw as Record<string, unknown>) ? (raw as Record<string, unknown>).value : raw;
+      try {
+        const ms = Number(BigInt(String(v)) - 116444736000000000n) / 10000;
+        if (Number.isFinite(ms)) safeLogoffSignal.set({ deadlineMs: ms, completed: false });
+      } catch { /* not a time */ }
+      return;
+    }
+    if (method === "OnSafeLogoffActivated") {
+      const running = safeLogoffSignal.get();
+      safeLogoffSignal.set({ deadlineMs: running?.deadlineMs ?? Date.now(), completed: true });
+      return;
+    }
+    if (method === "OnSafeLogoffAborted" || method === "OnSafeLogoffFailed") {
+      safeLogoffSignal.set(null);
+      const first = args[0] as unknown;
+      const labels = method === "OnSafeLogoffAborted" ? [String(first ?? "")]
+        : (isListValue(first as JsonValue) ? (first as { items: JsonValue[] }).items : Array.isArray(first) ? first as JsonValue[] : []).map((x) => String(x));
+      void saySafeLogoffStop(labels.filter((x) => x !== ""), method === "OnSafeLogoffFailed");
+      return;
+    }
     if (method === "OnDamageMessage") {
       applyDamageNotification(args);
     }
@@ -13009,6 +13039,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // The dialogs the server's refusals named (dialogsSaid), as the client puts up a UserError. A box stays until its
   // OK, the passing strip until its time is gone by (ClientDialogs.svelte); twenty at most are kept.
   const dialogsSaidSignal = createSignal<readonly SaidDialog[]>([]);
+  const safeLogoffSignal = createSignal<{ readonly deadlineMs: number; readonly completed: boolean } | null>(null);
+  /** gameui.OnSafeLogoffFailed / OnSafeLogoffAborted: CustomNotify of the failed conditions under their header, or of
+   *  the reason the running one stopped. */
+  async function saySafeLogoffStop(labels: readonly string[], failed: boolean): Promise<void> {
+    const header = "UI/Inflight/SafeLogoff/ConditionsFailedHeader";
+    await wordsNow([...(failed ? [header] : []), ...labels]).catch(() => {});
+    const t = store.words.get().templates;
+    const say = (label: string) => { const w = t[label]; return typeof w === "string" && w !== "" ? plainText(w) : label; };
+    const lines = [...(failed ? [say(header)] : []), ...labels.map(say)];
+    const text = lines.join(String.fromCharCode(10));
+    sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] } as JsonValue, text, "notify");
+  }
   let dialogsSaidCount = 0;
   const NONE_SILENT: ReadonlySet<string> = new Set();
   /** targetMgr._LockTarget: the refusals of a lock the client puts up nothing for. */
@@ -36565,6 +36607,20 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     async boardSpaceShip(shipID, typeID) {
       await boardShipChecked(shipID, typeID);
+    },
+
+    safeLogoff: readonlySignal(safeLogoffSignal),
+
+    async startSafeLogoff() {
+      // menuFunctions.SafeLogoff: the failed conditions it answers said at once (the timer, if any, by OnSafeLogoffTimerStarted)
+      const failed = await bridgeDo("ship", "SafeLogoff", []);
+      const list = isListValue(failed as JsonValue) ? (failed as { items: JsonValue[] }).items : Array.isArray(failed) ? failed as JsonValue[] : [];
+      if (list.length > 0) await saySafeLogoffStop(list.map((x) => String(x)), true);
+    },
+
+    async abortSafeLogoff() {
+      await bridgeDo("ship", "AbortSafeLogoff", []);
+      safeLogoffSignal.set(null);
     },
 
     async selfDestructShip(shipID, capsule) {
