@@ -48,7 +48,13 @@ import { ENTRY_CAMERA_DURATION_MS, entryCameraFov, spaceEntryCamera, type EntryC
 import { explosionCameraFov, spaceExplosionCamera, type ExplosionCameraPath } from "./spaceExplosionCamera.ts";
 import { gfx, spaceRendering, lodSettings } from "./gfxSettings.ts";
 import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, stopEmitter, type WorldLoop } from "./uiAudio.ts";
-import { commandForKey, combatForModifiers, isCombatCommand, labelOf, type CombatCommand } from "./shortcutKeys.ts";
+import { commandForKey, combatForModifiers, isCombatCommand, labelOf, shortcutOf, type CombatCommand } from "./shortcutKeys.ts";
+import { hideLabelShortcutTooltip, showLabelShortcutTooltip } from "./labelShortcutTooltip.ts";
+// actionConst.CMD_BY_ACTIONID: each Selected Item button's command, whose shortcut its tooltip shows
+const CMD_BY_ACTION: Readonly<Record<string, string>> = { info: "CmdShowItemInfo", approach: "CmdApproachItem", align: "CmdAlignToItem", orbit: "CmdOrbitItem",
+  keep: "CmdKeepItemAtRange", lock: "CmdLockTargetItem", unlock: "CmdUnlockTargetItem", look: "CmdToggleLookAtItem", track: "CmdToggleCameraTracking",
+  dock: "CmdDockOrJumpOrActivateGate", jump: "CmdDockOrJumpOrActivateGate", activateGate: "CmdDockOrJumpOrActivateGate", enterWormhole: "CmdDockOrJumpOrActivateGate",
+  warp: "CmdWarpToItem", cargo: "CmdOpenSelectedCargoContainer" };
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
 import type { DamageRouting, MiningState, SpaceSnapshot, SurveyResult } from "../store/types.ts";
 import { healthNotificationSettings, HEALTH_NOTIFICATIONS } from "../store/notifySettings.ts";
@@ -2343,7 +2349,11 @@ export class SpaceView {
       for (const a of this.actionsFor(e)) {
         const b = document.createElement("button");
         b.className = `si-act${a.key === "unlock" ? " on" : ""}`;
-        b.title = a.disabledReason ? `${a.title}\n${a.disabledReason}` : a.title;
+        // SelectedItemButton.LoadTooltipPanel: AddLabelShortcut (the action's descriptive text, its command's shortcut),
+        // then the disabled hint; pointed from above (POINT_TOP_2)
+        b.addEventListener("mouseenter", () => showLabelShortcutTooltip(b, a.title, shortcutOf(CMD_BY_ACTION[a.key] ?? ""), a.disabledReason ? [a.disabledReason] : []));
+        b.addEventListener("mouseleave", hideLabelShortcutTooltip);
+        b.setAttribute("aria-label", a.title);
         b.disabled = a.disabled ?? false;
         b.innerHTML = `<img src="${a.icon}" alt="">`;
         b.addEventListener("click", () => void this.act(a.title, a.run).then(() => this.refreshTargets()));
