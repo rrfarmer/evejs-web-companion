@@ -1,5 +1,6 @@
 import { retimeTargetLockStart } from "./targetLock.ts";
 import { playUiEvent } from "./uiAudio.ts";
+import { cancelGenericHint, scheduleGenericHint } from "./labelShortcutTooltip.ts";
 import type { MiningSurveyProgress } from "../store/types.ts";
 
 // The target bar: the retail client's locked targets, ported from its own Python and drawn with its own textures
@@ -391,12 +392,12 @@ class TargetInBar {
     // gap at the bottom) the hint left as it is; else SetHintText - each layer's remaining share, floor(100 x),
     // UI/Inflight/Target/Gauge{Shield,Armor,Structure}Remaining, one a line. None with no health bars.
     this.bar.addEventListener("mousemove", (e) => {
-      if (this.health.hidden) { this.bar.title = ""; return; }
+      if (this.health.hidden) { this.setHint(""); return; }
       const r = this.iconContainer.getBoundingClientRect();
       const x = e.clientX - (r.left + r.width / 2), y = e.clientY - (r.top + r.height / 2);
-      if (y > 55) { this.bar.title = ""; return; }
+      if (y > 55) { this.setHint(""); return; }
       const length2 = x * x + y * y;
-      if (length2 < 28 * 28 || length2 > 42 * 42) { this.bar.title = ""; return; }
+      if (length2 < 28 * 28 || length2 > 42 * 42) { this.setHint(""); return; }
       let degrees = Math.atan2(y, x) * 180 / Math.PI;
       if (degrees < 0) degrees += 360;
       if (degrees > 45 && degrees < 135) return;
@@ -407,9 +408,23 @@ class TargetInBar {
         const percentage = Math.floor(100 * v);
         lines.push(this.owner.word?.(`UI/Inflight/Target/Gauge${layer}Remaining`, { percentage }) ?? `${percentage}% ${layer.toLowerCase()} remaining`);
       });
-      this.bar.title = lines.join(String.fromCharCode(10));
+      this.setHint(lines.join(String.fromCharCode(10)));
     });
+    this.bar.addEventListener("mouseleave", () => this.setHint(""));
     this.bar.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); this.owner.openMenu(this.itemID, e.clientX, e.clientY); });
+  }
+
+  /**
+   * barAndImageCont.SetHint: the hint the generic tooltip shows for the bar, set as the mouse moves over it - a new text
+   * shown after the hint delay (or its renew time), none closing it.
+   */
+  private hintText = "";
+  private setHint(text: string): void {
+    if (text === this.hintText) return;
+    this.hintText = text;
+    if (!text) { cancelGenericHint(); return; }
+    const esc = text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+    scheduleGenericHint(this.bar, esc.split(String.fromCharCode(10)).join("<br>"));
   }
 
   /** Returns true when the target's height changed (the row is then laid out again). */
