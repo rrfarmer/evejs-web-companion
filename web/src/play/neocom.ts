@@ -49,6 +49,7 @@ const NEOCOM_TOOLTIPS: Readonly<Record<string, { cmd: string | null; name: strin
   assets: { cmd: "OpenAssets", name: "Personal Assets", description: "Locate your personal assets across New Eden" },
   wallet: { cmd: "OpenWallet", name: "Wallet", description: "" },
   market: { cmd: "OpenMarket", name: "Regional Market", description: "Visit the regional market to buy and sell assets" },
+  shipTree: { cmd: "CmdToggleShipTree", name: "Ship Tree", description: "Browse each faction's ships using the Ship Tree" },
   fitting: { cmd: "OpenFitting", name: "Fitting", description: "Fit your ship or structure with different equipment, or personalize its appearance" },
   map: { cmd: "CmdToggleMap", name: "Map", description: "View star and solar system maps in many information modes" },
   charactersheet: { cmd: "OpenCharactersheet", name: "Character Sheet", description: "Manage your Augmentations, Clones, Pilot's Services, Standings and more" },
@@ -84,6 +85,8 @@ export const NEOCOM_DEFAULT: readonly NeocomButton[] = [
   { id: "assets", label: "Assets", icon: icon("assets") },
   { id: "wallet", label: "Wallet", icon: icon("wallet") },
   { id: "market", label: "Regional Market", icon: icon("market") },
+  // the Ship Tree ButtonWindow between Market and Fitting (CmdToggleShipTree, ISIS.png; the live client, gridcheck g267)
+  { id: "shipTree", label: "Ship Tree", icon: icon("isis") },
   { id: "fitting", label: "Fitting", icon: icon("fitting") },
   { id: "map", label: "Map", icon: icon("map") },
   // ButtonChat's chatchannel.png, then the Log and Messages ButtonWindow (LoggerWindow, OpenLog, log.png) - the live
