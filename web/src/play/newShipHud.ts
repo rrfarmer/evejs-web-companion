@@ -1848,9 +1848,23 @@ export class NewShipHud {
     this.drawCargo(c);
     c.save();
     c.translate(TRAY_LEFT, TRAY_TOP);
+    // ModuleTray.OnRackOverloadHover -> ModuleSlot.SetRackHover / _UpdateRackRing: a rack overload button under the pointer
+    // rings its rack's fitted slots - a 2 px VectorArc of the housing's half size (SLOT_SIZE 52, a passive one
+    // PASSIVE_HOUSING_SIZE 38), COLOR_MODULE_DAMAGE where the module can overload, else COLOR_MODULE_OVERLOAD x 0.6
+    const ringFamily = this.rackHover === null ? null : RACK_BUTTONS.find((b) => b.rack === this.rackHover)!.family;
     for (const slot of this.slots) {
       if (slot.module) this.drawSlot(c, slot, now, dt);
       else if (slot.empty) this.drawEmptySlot(c, slot);
+      const m = slot.module;
+      if (m && ringFamily !== null && m.family === ringFamily) {
+        const heatable = !m.passive && !!m.overloadable;
+        const colour: RGBA = heatable ? DANGER_RED : [CHERRY_RED[0] * 0.6, CHERRY_RED[1] * 0.6, CHERRY_RED[2] * 0.6, 1];
+        c.beginPath();
+        c.arc(slot.x + 26, slot.y + 26, m.passive ? 19 : 26, 0, Math.PI * 2);
+        c.lineWidth = 2;
+        c.strokeStyle = css(colour);
+        c.stroke();
+      }
     }
     for (const slot of this.slots) this.drawCooldown(slot);
     c.restore();
