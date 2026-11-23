@@ -150,6 +150,10 @@ export function showDronesInSpaceTooltip(anchor: HTMLElement, rows: {
   bw.append(label, document.createTextNode(" " + rows.bandwidthValue));
   grid.append(max, name, bar, spacer, icon, bw);
   const a = anchor.getBoundingClientRect();
-  tip.style.left = `${Math.round(Math.max(4, a.left - 12 - tip.offsetWidth))}px`;
+  // pointerPanel.UpdatePanelPosition: POINT_RIGHT_2 first; where it is cut by the desktop's edge, its fallbacks in
+  // turn (POINT_CORRECTION: the right group, then the left - the panel to the anchor's right), the first not cut kept
+  const leftOf = Math.round(a.left - 12 - tip.offsetWidth);
+  const rightOf = Math.round(a.right + 12);
+  tip.style.left = `${leftOf >= 0 ? leftOf : rightOf + tip.offsetWidth <= innerWidth ? rightOf : Math.max(0, leftOf)}px`;
   tip.style.top = `${Math.round(a.top + a.height / 2 - tip.offsetHeight / 2)}px`;
 }
