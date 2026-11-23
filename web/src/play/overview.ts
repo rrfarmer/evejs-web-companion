@@ -1970,6 +1970,9 @@ export class Overview {
   private lastSortAt = -1e9;
   private lastSortKey = "";
   private pointerInside = false;
+  private lastTab = -1;
+  private lastRows = new Map<number, { e: Entity; d: number; keys: (number | string | number[])[] }>();
+  private readonly leaving = new Map<number, { e: Entity; d: number; keys: (number | string | number[])[] }>();
   private pointerMoved = false;
   private sortFrozen = false;
   update(entities: readonly Entity[], distanceTo: (e: Entity) => number, relations?: OverviewRelationships, ego?: Entity | null): void {
@@ -2090,6 +2093,16 @@ export class Overview {
       return (before.get(a.e.itemID) ?? Infinity) - (before.get(b.e.itemID) ?? Infinity) || a.d - b.d;
     };
     const all = listed.map((e) => { const d = distanceTo(e); return { e, d, keys: sortColumns.map((c) => valueOf(c, e, d)) }; });
+    // DoBallRemove: a row whose ball is gone is marked leavingOverview - its panel at opacity 0.25, UI_DISABLED - and stays
+    // in its place until a pass that is not frozen removes it (scroll.RemoveNodes); a new tab is a FullReload, none kept
+    if (this.tab !== this.lastTab) { this.leaving.clear(); this.lastTab = this.tab; }
+    else {
+      const now_ = new Set(listed.map((e) => e.itemID));
+      for (const id of before.keys()) if (!now_.has(id) && this.lastRows.has(id)) this.leaving.set(id, this.lastRows.get(id)!);
+      for (const id of now_) this.leaving.delete(id);
+    }
+    if (reorder) this.leaving.clear();
+    else for (const r of this.leaving.values()) all.push(r);
     let rows: typeof all;
     if (reorder) rows = all.sort(byValue);
     else {
@@ -2113,6 +2126,7 @@ export class Overview {
       }
     }
     this.lastOrder = new Map(rows.map((r, i) => [r.e.itemID, i]));
+    this.lastRows = new Map(rows.map((r) => [r.e.itemID, r]));
     const html: string[] = [];
     for (const { e, d } of rows) {
       const typeName = typeColumn(e);
@@ -2136,7 +2150,7 @@ export class Overview {
           default: return `<td>${esc(words(e, c.id.toLowerCase() as keyof OverviewAffiliation))}</td>`;
         }
       };
-      html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}${e.itemID === this.hovered ? " hover" : ""}${flags.background ? ` flagged${flags.background.backgroundBlink ? " flag-blink" : ""}` : ""}"${bg}>${cols.map(cell).join("")}</tr>`);
+      html.push(`<tr data-id="${e.itemID}" class="${this.leaving.has(e.itemID) ? "ov-leaving " : ""}${e.itemID === this.selected ? "sel" : ""}${e.itemID === this.hovered ? " hover" : ""}${flags.background ? ` flagged${flags.background.backgroundBlink ? " flag-blink" : ""}` : ""}"${bg}>${cols.map(cell).join("")}</tr>`);
     }
     const markup = html.join("");
     if (markup !== this.drawnRows) {
