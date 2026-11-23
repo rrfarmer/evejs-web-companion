@@ -652,6 +652,26 @@
     if (!(e.currentTarget as Node).contains(e.relatedTarget as Node | null)) addStacks = null;
   }
   const additionalVolume = $derived((addStacks ?? []).reduce((n, x) => n + (volumes[String(x.typeID)] ?? 0) * x.quantity, 0));
+  /**
+   * InvContCapacityGauge's fills move by uicore.animations.MorphScalar on their width, over 0.5 x |change| ^ 0.3 seconds
+   * (RefreshCapacity, SetAdditionalVolume, SetSecondaryVolume); the dragged fill (TOLEFT_PROP after the gauge in the same
+   * parent) starts where the gauge ends, moving with it.
+   */
+  function morphFill(node: HTMLElement, at: { width: number; left?: number }) {
+    let width = at.width, left = at.left ?? 0;
+    node.style.width = `${width * 100}%`;
+    if (at.left !== undefined) node.style.left = `${left * 100}%`;
+    return {
+      update(next: { width: number; left?: number }) {
+        const dw = 0.5 * Math.abs(next.width - width) ** 0.3, dl = 0.5 * Math.abs((next.left ?? 0) - left) ** 0.3;
+        node.style.transition = `width ${dw}s ease-in-out, left ${dl}s ease-in-out`;
+        node.style.width = `${next.width * 100}%`;
+        if (next.left !== undefined) node.style.left = `${next.left * 100}%`;
+        width = next.width;
+        left = next.left ?? 0;
+      },
+    };
+  }
   const addFill = $derived(bay && bay.capacity ? Math.min(additionalVolume / bay.capacity, 1 - fill) : 0);
   const addOver = $derived(!!(bay && bay.capacity && additionalVolume + (bay.used ?? 0) > bay.capacity));
   /**
@@ -927,9 +947,9 @@
         <button type="button" class="tool" title={word("UI/Common/SortBy", "Sort by")} onclick={sortMenu} style:background-image={`url(${clientTexture("res:/ui/texture/eveicon/system_icons/bars_sort_ascending_16px.png")})`}></button>
       {/if}
       <div class="gauge">
-        <span class="gfill" style:width={`${fill * 100}%`}></span>
-        <span class="gfill add" class:over={addOver} style:left={`${fill * 100}%`} style:width={`${addFill * 100}%`}></span>
-        <span class="gfill sec" style:width={`${secondaryFill * 100}%`}></span>
+        <span class="gfill" use:morphFill={{ width: fill }}></span>
+        <span class="gfill add" class:over={addOver} use:morphFill={{ width: addFill, left: fill }}></span>
+        <span class="gfill sec" use:morphFill={{ width: secondaryFill }}></span>
         <span class="gtext">{bay ? `${secondaryVolume ? `(${fmt1(secondaryVolume)}) ` : ""}${fmt1((bay.used ?? 0) + additionalVolume)}/${bay.capacity === null ? "?" : fmt1(bay.capacity)} m³` : ""}</span>
       </div>
       <input class="search" placeholder="Search" value={$filterSig} oninput={(e) => filterSig.set((e.target as HTMLInputElement).value)} />
@@ -1082,7 +1102,7 @@
   /* capacityGaugeSec, over the gauge: the selected items' share in THEME_FOCUS 0.6 */
   .gfill.sec { background: color-mix(in srgb, var(--theme-focus, #58a7bf) 60%, transparent); }
   /* capacityGaugeAdd, after the gauge: what is dragged over it, THEME_FOCUS 0.6 or eveColor.WARNING_ORANGE (#F39058) */
-  .gfill.add { background: color-mix(in srgb, var(--theme-focus, #58a7bf) 60%, transparent); transition: width 0.3s; }
+  .gfill.add { background: color-mix(in srgb, var(--theme-focus, #58a7bf) 60%, transparent); }
   .gfill.add.over { background: rgb(243, 144, 88); }
   .gtext { position: absolute; left: 8px; top: 1px; line-height: 24px; font-size: 12px; color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
   .search { width: auto; flex: 1; min-width: 0; margin-left: 8px; height: 24px; box-sizing: border-box; border: 0; background: rgba(0, 0, 0, 0.3); color: #fff; padding: 0 6px; font-size: 14px; }
