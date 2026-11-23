@@ -182,8 +182,8 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
 }
 
 /**
- * A panel of icons over values, as DroneEntry.LoadDamageGaugeTooltipPanel builds one: an iconCont row of 16 px sprites
- * and a textCont row of EveLabelMedium values, each centred in a 40 px column; above its anchor.
+ * A panel of icons and values, as DroneEntry.LoadDamageGaugeTooltipPanel builds one: an iconCont of 16 px sprites and
+ * a textCont of EveLabelMedium values, each centred in a 40 px column, side by side; above its anchor.
  */
 export function showIconValuesTooltip(anchor: HTMLElement, cells: readonly { icon: string; text: string }[]): void {
   showLabelShortcutTooltip(anchor, "", "", [], "top");
@@ -191,20 +191,28 @@ export function showIconValuesTooltip(anchor: HTMLElement, cells: readonly { ico
   const grid = tip.querySelector<HTMLElement>(":scope > .lst-grid");
   if (!grid) return;
   grid.replaceChildren();
-  Object.assign(grid.style, { gridTemplateColumns: `repeat(${cells.length}, 40px)`, columnGap: "0", rowGap: "2px", justifyItems: "center" });
+  // LoadStandardSpacing (cell padding 8, 0) and the two containers parented to the panel, which takes each as a cell of
+  // its row: the icons and the values side by side, each 40 px a column (the live client, gridcheck g246: three layers,
+  // 304 x 48, sprites at 36 / 76 / 116, 18; the EveLabelMedium values centred at 160 / 200 / 240, 16)
+  Object.assign(grid.style, { gridTemplateColumns: "auto auto", columnGap: "0", rowGap: "0", alignItems: "start" });
+  const icons = document.createElement("div");
+  const values = document.createElement("div");
+  for (const part of [icons, values]) Object.assign(part.style, { display: "flex", padding: "0 8px", height: "16px" });
   for (const cell of cells) {
+    const box = document.createElement("div");
+    Object.assign(box.style, { width: "40px", height: "16px", display: "flex", justifyContent: "center" });
     const img = document.createElement("img");
     img.src = cell.icon;
     img.alt = "";
-    Object.assign(img.style, { width: "16px", height: "16px", marginTop: "4px" });
-    grid.append(img);
-  }
-  for (const cell of cells) {
+    Object.assign(img.style, { width: "16px", height: "16px", position: "relative", top: "2px" });
+    box.append(img);
+    icons.append(box);
     const d = document.createElement("div");
     d.textContent = cell.text;
-    Object.assign(d.style, { fontSize: "12px", lineHeight: "16px" });
-    grid.append(d);
+    Object.assign(d.style, { width: "40px", textAlign: "center", lineHeight: "18px", whiteSpace: "nowrap" });
+    values.append(d);
   }
+  grid.append(icons, values);
   placeTip(tip, anchor, POINT.BOTTOM_2);
 }
 
