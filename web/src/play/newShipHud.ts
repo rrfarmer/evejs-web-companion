@@ -2794,13 +2794,35 @@ export class NewShipHud {
     c.stroke();
     c.restore();
     // damageGauge: a 38x2 bar at the slot's foot, shown between 0.5 % and burnt out
-    const dmg = m.damage ?? 0;
+    let dmg = m.damage ?? 0;
+    // ModuleSlot._SetRepairing: while a repair runs, repairPulse MorphScalar 0.1 -> 0.9 -> 0.1 over _REPAIR_PULSE_SEC 1.25
+    // (ANIM_BOUNCE, HERMITE) - the repair glow (circle-64, the slot less 2) at that glow, the gauge's fill alpha
+    // _PULSE_ALPHA_MIN 0.35 .. 1 by it - and _RepairSweepLoop sweeps the damage down to nought over the repair time
+    const rep = m.repair, wall = Date.now();
+    const repairing = !!rep && rep.durationMs > 0 && wall >= rep.startedAtMs && wall < rep.startedAtMs + rep.durationMs;
+    let fillAlpha = 1;
+    if (repairing) {
+      dmg *= Math.max(0, Math.min(1, 1 - (wall - rep!.startedAtMs) / rep!.durationMs));
+      const phase = ((wall - rep!.startedAtMs) % 1250) / 1250;
+      const pulse = 0.1 + 0.8 * (phase < 0.5 ? smooth(phase * 2) : smooth(2 - phase * 2));
+      fillAlpha = 0.35 + 0.65 * (pulse / 0.9);
+      const g = c.createRadialGradient(cx, cy, 0, cx, cy, 25);
+      g.addColorStop(0, `rgba(255,255,255,${(0.35 * pulse).toFixed(3)})`);
+      g.addColorStop(1, "rgba(255,255,255,0)");
+      c.save();
+      c.globalCompositeOperation = "lighter";
+      c.fillStyle = g;
+      c.beginPath();
+      c.arc(cx, cy, 25, 0, Math.PI * 2);
+      c.fill();
+      c.restore();
+    }
     if (dmg > 0.005 && dmg < 1) {
       c.fillStyle = "#000";
       c.fillRect(slot.x + 6, slot.y + 46, 40, 4);
       c.fillStyle = "rgba(176,176,176,0.3)";
       c.fillRect(slot.x + 7, slot.y + 47, 38, 2);
-      c.fillStyle = css(DANGER_RED);
+      c.fillStyle = css(DANGER_RED, fillAlpha);
       c.fillRect(slot.x + 7, slot.y + 47, Math.max(1, Math.round(38 * dmg)), 2);
     }
   }
