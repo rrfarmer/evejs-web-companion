@@ -322,6 +322,12 @@ export class NewShipHud {
   onCommand: (cmd: string) => void = () => {};
   private autopilotOn = false;
   private readonly autopilotRing = document.createElement("div");
+  private readonly autopilotDisc = document.createElement("div");
+  private readonly autopilotHalo = document.createElement("div");
+  private readonly autopilotGlow = document.createElement("div");
+  private readonly autopilotGlyph = document.createElement("img");
+  private autopilotHover = false;
+  private autopilotPressed = false;
   private readonly scannerGroup = document.createElement("div");
 
   // cargo_indicator.py: the tracked hold's fill ring around a 32 px button at band (25, 64)
@@ -963,13 +969,24 @@ export class NewShipHud {
     ap.addEventListener("mouseenter", () => { void playUiEvent("ui_button_soft1_play"); this.showCommandTooltip(ap, "CmdToggleAutopilot"); });
     ap.addEventListener("mouseleave", () => this.closeTooltip());
     Object.assign(ap.style, { position: "absolute", left: `${cx - 69 - 12}px`, top: `${cy - 78 - 12}px`, width: "24px", height: "24px", padding: "0", border: "0", background: "transparent", pointerEvents: "auto", cursor: "pointer", display: "grid", placeItems: "center" });
-    Object.assign(this.autopilotRing.style, { position: "absolute", inset: "1px", borderRadius: "50%", background: "rgba(0,0,0,0.55)", boxShadow: "0 0 0 2px rgba(255,255,255,0.1) inset" });
-    const apGlyph = icon("res:/UI/Texture/Icons/44_32_12.png");
-    Object.assign(apGlyph.style, { position: "relative", opacity: "0.5", mixBlendMode: "plus-lighter" });
-    ap.append(this.autopilotRing, apGlyph);
-    ap.addEventListener("mouseenter", () => { apGlyph.style.opacity = "0.9"; this.autopilotRing.style.boxShadow = `0 0 0 2px ${css(FOCUS_BLUE)} inset`; });
-    ap.addEventListener("mouseleave", () => { apGlyph.style.opacity = this.autopilotOn ? "0.9" : "0.5"; this.syncAutopilot(); });
-    ap.addEventListener("click", () => this.onCommand("CmdToggleAutopilot"));
+    // CommandButton: the disc (BUTTON_DISC_R 10, black - SMOKE_BLUE under the pointer or pressed), the ring (r 11, 2 wide,
+    // white 0.1 - FOCUS_BLUE lit), the halo (r 12, 4 wide, FOCUS_BLUE, while pressed), the engaged glow (radialGradient,
+    // 16 px, white 0.4, FadeTo over GLOW_FADE_SEC 0.15) and the glyph (16 px additive, white 0.5 - 0.9 lit); lit is hovered,
+    // pressed or engaged (_ApplyLook); a press dips it PRESS_DIP_PX 2 (_Dip) and a click plays SOUND_BUTTON_CLICK
+    Object.assign(this.autopilotDisc.style, { position: "absolute", inset: "2px", borderRadius: "50%", background: "#000" });
+    Object.assign(this.autopilotRing.style, { position: "absolute", inset: "0", borderRadius: "50%", boxShadow: "0 0 0 2px rgba(255,255,255,0.1) inset" });
+    Object.assign(this.autopilotHalo.style, { position: "absolute", inset: "-2px", borderRadius: "50%", boxShadow: `0 0 0 4px ${css(FOCUS_BLUE)} inset`, display: "none" });
+    Object.assign(this.autopilotGlow.style, { position: "absolute", left: "4px", top: "4px", width: "16px", height: "16px", borderRadius: "50%", opacity: "0",
+      background: "radial-gradient(circle, rgba(255,255,255,0.4), rgba(255,255,255,0) 70%)", transition: "opacity 0.15s cubic-bezier(0.3333, 0, 0.6667, 1)", mixBlendMode: "plus-lighter" });
+    this.autopilotGlyph.src = res("res:/UI/Texture/Icons/44_32_12.png");
+    this.autopilotGlyph.alt = "";
+    Object.assign(this.autopilotGlyph.style, { position: "absolute", left: "4px", top: "4px", width: "16px", height: "16px", opacity: "0.5", mixBlendMode: "plus-lighter", pointerEvents: "none" });
+    ap.append(this.autopilotDisc, this.autopilotGlow, this.autopilotRing, this.autopilotHalo, this.autopilotGlyph);
+    ap.addEventListener("mouseenter", () => { this.autopilotHover = true; this.syncAutopilot(); });
+    ap.addEventListener("mouseleave", () => { this.autopilotHover = false; this.autopilotPressed = false; ap.style.transform = ""; this.syncAutopilot(); });
+    ap.addEventListener("mousedown", () => { this.autopilotPressed = true; ap.style.transform = "translateY(2px)"; this.syncAutopilot(); });
+    ap.addEventListener("mouseup", () => { this.autopilotPressed = false; ap.style.transform = ""; this.syncAutopilot(); });
+    ap.addEventListener("click", () => { void playUiEvent("ui_button_soft4_play"); this.onCommand("CmdToggleAutopilot"); });
     // the HUD settings gear: opacity 0.5, 0.9 hovered
     const gear = document.createElement("button");
     gear.type = "button";
@@ -1246,7 +1263,12 @@ export class NewShipHud {
   }
 
   private syncAutopilot(): void {
-    this.autopilotRing.style.boxShadow = `0 0 0 2px ${this.autopilotOn ? css(FOCUS_BLUE) : "rgba(255,255,255,0.1)"} inset`;
+    const active = this.autopilotHover || this.autopilotPressed, lit = active || this.autopilotOn;
+    this.autopilotDisc.style.background = active ? css(SMOKE_BLUE) : "#000";
+    this.autopilotRing.style.boxShadow = `0 0 0 2px ${lit ? css(FOCUS_BLUE) : "rgba(255,255,255,0.1)"} inset`;
+    this.autopilotGlyph.style.opacity = lit ? "0.9" : "0.5";
+    this.autopilotHalo.style.display = this.autopilotPressed ? "" : "none";
+    this.autopilotGlow.style.opacity = this.autopilotOn ? "1" : "0";
   }
 
   /** holdTrackerSettings: the tracked hold, kept per ship type, the cargo hold where none is kept. */
