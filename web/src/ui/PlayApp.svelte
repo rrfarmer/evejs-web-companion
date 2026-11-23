@@ -53,7 +53,7 @@
   import { standingWithSkillBonus } from "../bridge/agencyAgents.ts";
   import { addTempInvLocation, removeTempInvLocation, tempInvLocations, treeShownContainer } from "./invTemp.ts";
   import { markWreckViewed } from "../play/viewedWrecks.ts";
-  import { installClientHints } from "../play/labelShortcutTooltip.ts";
+  import { installClientHints, tooltipDue, showLabelShortcutTooltip, hideLabelShortcutTooltip } from "../play/labelShortcutTooltip.ts";
   import { get as storeGet } from "svelte/store";
   import { hudSetting, hudSettingNow, setHudSetting, slotOrderOf } from "../store/hudSettings.ts";
   import { createSession, type Session } from "../app/sessions.ts";
@@ -3193,6 +3193,16 @@
     {#if controllingMetenox}
       <button class="metenox-controls" onclick={reopenMetenoxFuel}>Fuel Bay</button>
     {/if}
+    <!-- notificationCenter's closed widget (the abovemain layer, over the windows): a 32 x 32 WindowUnderlay holding the
+         WidgetIcon ButtonIcon (widgetIcon.png 32, 0.75), at its default offset 48 from the right and the bottom (the live
+         client, gridcheck g268: (2512, 1392) on 2560 x 1440). Its tooltip: Generic1Column, Notification Feed and the
+         drag note (wrap 200); with one column and no shortcut AddLabelShortcut's AddCell makes an empty row (the note at 50,
+         not 42: g268), the empty line here. The drawer it opens is not on the page yet. -->
+    <button class="fly-notify-widget" aria-label="Notification Feed"
+      onmouseenter={(e) => { const el = e.currentTarget; tooltipDue(el, () => showLabelShortcutTooltip(el, "Notification Feed", "", ["", "Click, hold and drag to reposition notifications feed"], "top", "wrap")); }}
+      onmouseleave={() => hideLabelShortcutTooltip()}>
+      <img alt="" src={clientTexture("res:/UI/Texture/classes/Notifications/widgetIcon.png")} />
+    </button>
     {#if !docked && session}
       <MiningOverlayControl store={session.store} survey={flightMiningSurvey}
         openResults={() => open("miningScan")} openLedger={() => open("miningLedger")} disable={disableMiningOverlay} requestWords={(labels) => session?.flow.requestWords(labels)} />
@@ -3375,6 +3385,11 @@
   .fly-space { position: fixed; inset: 0; }
   .fly-hangar.planet-covered, .fly-space.planet-covered :global(.space > :not(.neocom)),
   .fly-windows.planet-covered :global(.space-only-window) { visibility: hidden; }
+  /* WindowUnderlay: the blurred scene under a 0.1 white frame; the icon 0.75, lit under the mouse (ButtonIcon) */
+  .fly-notify-widget { position: fixed; right: 16px; bottom: 16px; width: 32px; height: 32px; padding: 0; margin: 0; display: block; line-height: 0; min-width: 0; min-height: 0; z-index: 25; cursor: pointer;
+    background: var(--win-bg, rgba(14, 16, 18, 0.88)); backdrop-filter: var(--win-backdrop, blur(6px)); border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box; }
+  .fly-notify-widget img { position: absolute; inset: -1px; width: 32px; height: 32px; max-width: none; opacity: 0.75; pointer-events: none; }
+  .fly-notify-widget:hover img { opacity: 1; }
   .fly-buffs { position: fixed; bottom: 200px; left: 50%; transform: translateX(-50%); pointer-events: none; }
   .fly-buffs :global(.buff-slot) { pointer-events: auto; }
   /* band 1182 wide, 300 right of centre, its medallion 175 in: the medallion 116 left of the screen's centre; 200 + 20 up */
