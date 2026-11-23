@@ -1969,7 +1969,8 @@ export class Overview {
     this.tipEntities = entities;
     this.tipRelations = relations;
     const now = performance.now();
-    if (now - this.lastDraw < 400) return;
+    // overviewPulse: the visible entries updated every overviewConst.VISIBLE_ENTRY_UPDATE_SLEEP (0.5 s)
+    if (now - this.lastDraw < 500) return;
     this.lastDraw = now;
     const mask = this.activePreset();
     const speed = (e: Entity) => Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z);
