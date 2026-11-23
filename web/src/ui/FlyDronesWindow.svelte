@@ -606,6 +606,8 @@
   const groupDragOver = (key: string, inSpace: boolean, ids: number[]) => (e: DragEvent) => {
     if (!dragging) return;
     e.preventDefault();
+    // the group's own OnDragEnter, not its part's as well
+    e.stopPropagation();
     dropOn = (dragging.section === "space") !== inSpace ? (inSpace ? "space" : "bay") : dragging.ids.some((id) => !ids.includes(id)) ? key : null;
   };
   /** New Group's name popup: for which drones (CreateSubGroup asks NamePopup first). */
