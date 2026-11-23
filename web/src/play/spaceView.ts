@@ -2595,7 +2595,7 @@ export class SpaceView {
     const reasons: Record<string, string | undefined> = {};
     const category = (e as Entity & { categoryID?: number | null }).categoryID ?? null;
     if (category === 25 || e.kind === "asteroid" || [711, 101, 12, 340, 448, 15, 10, 649, 186].includes(e.groupID ?? -1)) {
-      reasons.keep = this.actions.word?.("UI/Menusvc/MenuHints/CannotKeepInRange", { groupName: this.options.groupName?.(e.groupID ?? 0) ?? "" }) ?? undefined;
+      reasons.keep = this.actions.word?.("UI/Menusvc/MenuHints/CannotKeepInRange", { groupName: this.options.groupName?.(e.groupID ?? 0) || this.names?.groups[String(e.groupID)]?.[0] || "" }) ?? undefined;
     }
     // celestialCheckers.IsInteractive (ShipAlreadyPiloted): a ship with a pilot in it cannot be boarded
     // baseCheckers IsYourShip ('UI/Menusvc/MenuHints/IsYourShip'): the movement entries, Board and Lock on the own ship;
@@ -2610,9 +2610,22 @@ export class SpaceView {
     if (lockRange !== null && this.distanceTo(e) >= lockRange) reasons.lock = this.actions.word?.("UI/Menusvc/MenuHints/NotInTargetRange") ?? undefined;
     // IsPlanetMoonAsteroidBelt (BadGroupForAction, 'You can't do that with <group>'): a planet, moon or belt can be neither
     // orbited, kept at range nor locked - its reason before the others
+    // celestialCheckers isInApproachRange / isInOrbitRange (NotInApproachRange / NotInOrbitRange: not nearer than
+    // maxApproachDistance, 10,000 km) and NotInWarpRange (nearer than the 150 km a warp needs)
+    const range = this.distanceTo(e);
+    if (range >= 10_000_000) {
+      reasons.approach = this.actions.word?.("UI/Menusvc/MenuHints/NotInApproachRange") ?? reasons.approach;
+      reasons.orbit = this.actions.word?.("UI/Menusvc/MenuHints/NotInOrbitRange") ?? reasons.orbit;
+    }
+    // celestialCheckers.GetMiningBeaconPosition (explain_failure_with UI/Moonmining/MoonHasNoMiningPoint): a moon with no
+    // mining point's beacon
+    if (e.groupID === 8 && !this.snapshot?.entities.some((x) => x.itemID === 1_000_000_000 + e.itemID)) reasons.moonPoint = this.actions.word?.("UI/Moonmining/MoonHasNoMiningPoint") ?? reasons.moonPoint;
+    if (range < 150_000 && !e.isSelf) reasons.warp = this.actions.word?.("UI/Menusvc/MenuHints/NotInWarpRange") ?? reasons.warp;
     if ([7, 8, 9].includes(e.groupID ?? -1)) {
-      const bad = this.actions.word?.("UI/Menusvc/MenuHints/BadGroupForAction", { groupName: this.options.groupName?.(e.groupID ?? 0) ?? "" }) ?? undefined;
-      if (bad) { reasons.orbit = bad; reasons.keep = bad; reasons.lock = bad; }
+      // (GetGroupNameByGroup: the group's own name - from the space view's name table where the page's resolver has none)
+      const groupName = this.options.groupName?.(e.groupID ?? 0) || this.names?.groups[String(e.groupID)]?.[0] || "";
+      const bad = this.actions.word?.("UI/Menusvc/MenuHints/BadGroupForAction", { groupName }) ?? undefined;
+      if (bad) { reasons.approach = bad; reasons.orbit = bad; reasons.keep = bad; reasons.lock = bad; if (!reasons.look) reasons.look = bad; }
     }
     // SelectedItemButton._GetActionLabel: the menu entry's descriptive text (Orbit (1,000 m), Look at); a disabled
     // button's is its label path's alone (_GetDisabledMenuLabel: Warp to Within)
