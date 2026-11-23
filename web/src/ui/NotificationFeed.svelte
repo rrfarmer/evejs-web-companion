@@ -142,10 +142,10 @@
   // between (slotSpacing), at most 3 (GetStackSize), the rest queued and shown as a slot frees, the last queued first
   // (overFlowStack.pop()); on show notify_beep3_play and the entry's Blink; each fades out over 0.5 s once the
   // pointer has been off it for GetFadeTime 5 s (its AutoCloser), or goes at once by its close button. A click does
-  // what the history's does. Not ported: the 0.5 s move of the stack (it re-flows), the swoop of the blink (a fade of
+  // what the history's does. Not ported: the swoop of the blink (a fade of
   // buttonBlink.png here), the popup settings (all types pop up).
   interface Popup { readonly id: number; readonly title: string; readonly detail: string | null; readonly typeID: number | null;
-    readonly action: (() => void) | null; outSince: number | null; fading: boolean }
+    readonly action: (() => void) | null; outSince: number | null; fading: boolean; h: number }
   let popups = $state<Popup[]>([]);
   const queued: Popup[] = [];
   let popupSeq = 0;
@@ -174,7 +174,7 @@
     } else {
       liveCount += 1;
     }
-    const p: Popup = { id: ++popupSeq, title: input.title, detail: input.detail ?? null, typeID, action: input.action ?? null, outSince: null, fading: false };
+    const p: Popup = { id: ++popupSeq, title: input.title, detail: input.detail ?? null, typeID, action: input.action ?? null, outSince: null, fading: false, h: 50 };
     if (popups.length < 3) showPopup(p); else queued.push(p);
   }
   $effect(() => watchNotificationPopups(store, flow, (id) => onOpen(id), addPopup));
@@ -288,9 +288,10 @@
   <span class="nf-badge-n">{unread}</span>
 </div>
 <div class="nf-popups">
-  {#each popups as p (p.id)}
+  {#each popups as p, i (p.id)}
     {@const icon = p.typeID === null ? null : notificationIconPath(p.typeID)}
-    <div class="nf-entry nf-popup" class:fading={p.fading} role="listitem"
+    <div class="nf-entry nf-popup" class:fading={p.fading} role="listitem" bind:offsetHeight={p.h}
+      style:bottom={`${popups.slice(0, i).reduce((y, q) => y + q.h + 5, 0)}px`}
       style={`border-image-source: url("${clientTexture(p.outSince === null ? "res:/UI/Texture/classes/Notifications/historyBackReadOver.png" : "res:/UI/Texture/classes/Notifications/historyBackReadUp.png")}")`}
       onmouseenter={() => { if (!p.fading) { p.outSince = null; popups = [...popups]; void playUiEvent("ui_button_soft2_play"); } }}
       onmouseleave={() => { p.outSince = Date.now(); popups = [...popups]; }}
@@ -352,11 +353,13 @@
   .nf-header { position: absolute; left: 0; right: 0; top: 4px; height: 18px; line-height: 18px; text-align: center; font-size: 12px; font-weight: bold;
     white-space: nowrap; opacity: 0; transition: opacity 0.25s; pointer-events: none; }
   .nf-header.shown { opacity: 1; }
-  .nf-popups { position: fixed; right: 16px; bottom: 53px; width: 300px; z-index: 25; display: flex; flex-direction: column-reverse; gap: 5px; pointer-events: none;
+  /* PushDisplayedItems: each shown popup moved over 0.5 s (MoveTo, ANIM_SMOOTH) to its slot, the newest at the foot */
+  .nf-popups { position: fixed; right: 16px; bottom: 53px; width: 300px; height: 0; z-index: 25; pointer-events: none;
     font: 14px 'EVE Sans Neue', 'Segoe UI', sans-serif; color: rgba(255, 255, 255, 0.75); }
-  .nf-popup { pointer-events: auto; height: auto; min-height: 50px; transition: opacity 0.5s;
+  .nf-entry.nf-popup { position: absolute; left: 0; width: 300px; pointer-events: auto; height: auto; min-height: 50px;
+    transition: opacity 0.5s, bottom 0.5s cubic-bezier(0.3333, 0, 0.6667, 1);
     background: var(--win-bg, rgba(14, 16, 18, 0.88)); }
-  .nf-popup.fading { opacity: 0; }
+  .nf-entry.nf-popup.fading { opacity: 0; }
   .nf-wrap { position: relative; left: 0; top: 0; margin-left: 55px; padding: 5px 0; width: 224px; }
   .nf-wrap .nf-subject { white-space: normal; }
   .nf-detail { line-height: 18px; }
