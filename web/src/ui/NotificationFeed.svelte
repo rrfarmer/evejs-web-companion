@@ -245,8 +245,37 @@
   /** actualX / actualY: the widget's right and bottom edges. */
   const ax = $derived(vw - cx);
   const ay = $derived(vh - cy);
-  const upHeight = $derived(Math.min(400, vh - cy));
-  const downHeight = $derived(400 - Math.max(0, 400 + ay - vh));
+  // the preferred height (GetPreferredHeight, default 400, kept MIN_HISTORY_HEIGHT 100 .. MAX 1000; the resize line
+  // sets it 132 .. 1002 and saves it - here localStorage)
+  const HEIGHT_KEY = "evejs.play.notificationFeedHeight";
+  let prefH = $state((() => { try { const v = Number(localStorage.getItem(HEIGHT_KEY)); return v > 0 ? v : 400; } catch { return 400; } })());
+  const upHeight = $derived(Math.min(prefH, vh - cy));
+  const downHeight = $derived(prefH - Math.max(0, prefH + ay - vh));
+
+  // _ConstructResizeLine: a 3 high invisible Line on the edge the drawer grows from (TOTOP opening up, TOBOTTOM down),
+  // the up-down drag cursor, enabled once the drawer is filled; OnResizerDrag: the pointer's travel added to the
+  // height at the press (inverted opening down), the auto-closer paused while it drags
+  let resizing = $state(false);
+  function resizeDown(e: PointerEvent): void {
+    if (e.button !== 0 || !filled) return;
+    e.preventDefault();
+    resizing = true;
+    const y0 = e.clientY, h0 = drawerHeight;
+    const move = (m: PointerEvent) => {
+      const diff = goesUp ? y0 - m.clientY : m.clientY - y0;
+      prefH = Math.min(Math.max(h0 + diff, 100 + 32), 1000 + 2);
+      queueMicrotask(updateBar);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", up, true);
+      resizing = false;
+      outSince = null;
+      try { localStorage.setItem(HEIGHT_KEY, String(prefH)); } catch { /* kept for this session */ }
+    };
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", up, true);
+  }
   const goesUp = $derived(upHeight >= 100 || downHeight < 100);
   const goesLeft = $derived(ax - 300 > 0);
   const ptr = $derived(clientTexture(goesLeft ? "res:/UI/Texture/classes/Notifications/pointer_right_02.png" : "res:/UI/Texture/classes/Notifications/pointer_left_02.png"));
@@ -312,7 +341,7 @@
   function armAutoClose() {
     outSince = null;
     window.addEventListener("pointermove", onMove, true);
-    watch = setInterval(() => { now = Date.now(); if (outSince !== null && Date.now() - outSince >= 1000) closeDrawer(); }, 100);
+    watch = setInterval(() => { now = Date.now(); if (!resizing && outSince !== null && Date.now() - outSince >= 1000) closeDrawer(); }, 100);
   }
   function disarmAutoClose() {
     window.removeEventListener("pointermove", onMove, true);
@@ -384,7 +413,8 @@
     </div>
   {/each}
 </div>
-<div class="nf" class:open class:dragging class:right={!goesLeft} class:down={!goesUp} bind:this={root} style={boxStyle}>
+<div class="nf" class:open class:resizing class:dragging class:right={!goesLeft} class:down={!goesUp} bind:this={root} style={boxStyle}>
+  {#if filled}<div class="nf-resize" role="separator" aria-orientation="horizontal" onpointerdown={resizeDown}></div>{/if}
   <div class="nf-header" class:shown={open}>{word(HISTORY_CAPTION, "Notification History")}</div>
   <div class="nf-list" bind:this={list} onscroll={updateBar}>
     {#if filled}
@@ -427,6 +457,9 @@
     transition: width 0.25s, height 0.25s, transform 0.25s cubic-bezier(0.3333, 0, 0.6667, 1); font: 14px 'EVE Sans Neue', 'Segoe UI', sans-serif; color: rgba(255, 255, 255, 0.75); }
   .nf.open { width: 300px; height: 400px; }
   .nf.dragging { transform: scale(1.25); }
+  .nf-resize { position: absolute; left: 0; right: 0; top: 0; height: 3px; cursor: ns-resize; z-index: 1; }
+  .nf.down .nf-resize { top: auto; bottom: 0; }
+  .nf.resizing { transition: none; }
   /* _ConstructControlContainer / _ConstructSettingsButton / _ConstructScroll by the alignment: opening right, the widget
      at the left (TOLEFT) and the settings at the right (TORIGHT); opening down, the strip at the top (TOTOP, pulled up
      over the header's 22) and the list under it, 5 from the foot (NOTIFICATION_CENTER_PADDING_H) */
