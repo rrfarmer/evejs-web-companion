@@ -342,6 +342,14 @@ export class NewShipHud {
   private hoverDeg: number | null = null;
   private desiredFromPreset = true;
   private heatShown: Record<"Hi" | "Med" | "Lo", number> = { Hi: 0, Med: 0, Lo: 0 };
+  // _GaugeBar.GlideTo: MorphScalar(fillPortion, shown -> new, FILL_GLIDE_SEC 0.5, ANIM_SMOOTH); HeatGauges.Update snaps the first reading
+  private heatGlide: Record<"Hi" | "Med" | "Lo", { from: number; to: number; start: number } | null> = { Hi: null, Med: null, Lo: null };
+  private heatFirst = true;
+  // Medallion._UpdatePump: HeatGauges.Update every UPDATE_INTERVAL_MSEC (500), so a glide runs out before the next reading
+  private heatPumpAt = -1e9;
+  // _SetBarsShown(animate=True): each bar FadeTo(its opacity -> 1 or 0, HAND_OVER_SEC 0.15, ANIM_SMOOTH, timeOffset i x 0.03)
+  private heatBarsHidden = false;
+  private heatBarsAt = -1e9;
   /** A tooltip kept current while it is shown (the readouts' AutoTimer): redrawn on each update. */
   private liveTip: (() => void) | null = null;
   /** The health ring's pool under the pointer (0 shield, 1 armor, 2 structure), or null. */
@@ -1582,9 +1590,18 @@ export class NewShipHud {
     });
     const label = s.warping ? "(Warping)" : `${s.speed < 100 ? (Math.round(s.speed * 10) / 10).toFixed(1) : Math.trunc(s.speed)} m/s`;
     if (this.speedLabel.textContent !== label) this.speedLabel.textContent = label;
-    if (s.heatHi !== undefined) this.heatShown.Hi = s.heatHi;
-    if (s.heatMed !== undefined) this.heatShown.Med = s.heatMed;
-    if (s.heatLow !== undefined) this.heatShown.Lo = s.heatLow;
+    const heatNow = performance.now(), snap = this.heatFirst;
+    const pump = snap || heatNow - this.heatPumpAt >= 500;
+    if (pump) this.heatPumpAt = heatNow;
+    if (pump) for (const [rack, v] of [["Hi", s.heatHi], ["Med", s.heatMed], ["Lo", s.heatLow]] as const) {
+      if (v === undefined) continue;
+      this.heatFirst = false;
+      const to = Math.max(0, Math.min(1, v)), at = this.heatAt(rack, heatNow);
+      if (snap) { this.heatShown[rack] = to; this.heatGlide[rack] = null; continue; }
+      if (Math.abs(to - at) < 0.001) continue;
+      this.heatShown[rack] = to;
+      this.heatGlide[rack] = { from: at, to, start: heatNow };
+    }
     this.paintReadout();
   }
 
@@ -2010,20 +2027,34 @@ export class NewShipHud {
     void now;
   }
 
+  private heatAt(rack: "Hi" | "Med" | "Lo", now: number): number {
+    const g = this.heatGlide[rack];
+    if (!g) return this.heatShown[rack];
+    const t = (now - g.start) / 500;
+    if (t >= 1) { this.heatGlide[rack] = null; return g.to; }
+    return g.from + (g.to - g.from) * smooth(t);
+  }
+
   private drawHeat(c: CanvasRenderingContext2D): void {
-    if (this.overloadMode) return; // the bars fade out while overload mode is on
+    const now = performance.now();
+    if (this.overloadMode !== this.heatBarsHidden) { this.heatBarsHidden = this.overloadMode; this.heatBarsAt = now; }
+    // the bars fade out while overload mode is on, and back in as it ends, one after another
+    const barsAlpha = (i: number): number => { const k = smooth((now - this.heatBarsAt - i * 30) / 150); return this.heatBarsHidden ? 1 - k : k; };
+    if (this.heatBarsHidden && barsAlpha(HEAT_BARS.length - 1) <= 0) return;
     const bar = image(HUD("rack_gauge_bar"));
     if (!bar) return;
-    for (const b of HEAT_BARS) {
-      const p = Math.max(0, Math.min(1, this.heatShown[b.rack]));
+    for (const [i, b] of HEAT_BARS.entries()) {
+      const p = Math.max(0, Math.min(1, this.heatAt(b.rack, now)));
+      const a = barsAlpha(i);
+      if (a <= 0) continue;
       c.save();
       c.translate(b.x, b.y);
       c.rotate(rad(b.rot));
-      c.globalAlpha = 0.35;
+      c.globalAlpha = 0.35 * a;
       c.drawImage(bar, -12, -3, 24, 6);
       const w = Math.round(24 * p);
       if (w > 0) {
-        c.globalAlpha = 1;
+        c.globalAlpha = a;
         const tint = p >= 0.75 ? "rgb(255,48,56)" : p >= 0.5 ? "rgb(255,190,60)" : "rgba(255,255,255,0.9)";
         const off = capScratch();
         const o = off.getContext("2d")!;
