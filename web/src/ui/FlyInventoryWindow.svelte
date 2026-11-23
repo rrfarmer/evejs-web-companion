@@ -876,6 +876,8 @@
     selected = [];
     await refreshPlaces();
   }
+  /** InvContCapacityGauge.capacityText: the used volume (with what is being dragged in) over the capacity. */
+  const capacityText = $derived(bay ? `${secondaryVolume ? `(${fmt1(secondaryVolume)}) ` : ""}${(bay.used ?? 0) === 0 && additionalVolume === 0 ? "0" : fmt1((bay.used ?? 0) + additionalVolume)}/${bay.capacity === null ? "?" : fmt1(bay.capacity)} m³` : "");
 </script>
 
 <div class="inv" class:container={containerMode} class:compact={$compactSig} bind:this={invRoot}>
@@ -949,11 +951,12 @@
       {#if viewMode === "icons"}
         <button type="button" class="tool" title={word("UI/Common/SortBy", "Sort by")} onclick={sortMenu} style:background-image={`url(${clientTexture("res:/ui/texture/eveicon/system_icons/bars_sort_ascending_16px.png")})`}></button>
       {/if}
-      <div class="gauge">
+      <!-- InvContCapacityGauge.GetHint: its capacity text -->
+      <div class="gauge" title={capacityText || undefined}>
         <span class="gfill" use:morphFill={{ width: fill }}></span>
         <span class="gfill add" class:over={addOver} use:morphFill={{ width: addFill, left: fill }}></span>
         <span class="gfill sec" use:morphFill={{ width: secondaryFill }}></span>
-        <span class="gtext">{bay ? `${secondaryVolume ? `(${fmt1(secondaryVolume)}) ` : ""}${(bay.used ?? 0) === 0 && additionalVolume === 0 ? "0" : fmt1((bay.used ?? 0) + additionalVolume)}/${bay.capacity === null ? "?" : fmt1(bay.capacity)} m³` : ""}</span>
+        <span class="gtext">{capacityText}</span>
       </div>
       <input class="search" placeholder="Search" value={$filterSig} oninput={(e) => filterSig.set((e.target as HTMLInputElement).value)} />
     </div>
