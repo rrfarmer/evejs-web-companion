@@ -117,6 +117,34 @@ function proveShipAction(action, after, verifyMovement) {
   return null;
 }
 
+function validCompletedEquipment(row, observation, data) {
+  const hullTypeID = row.contract.shipTypeID;
+  if (observation?.shipTypeID !== hullTypeID || !observation.complete || !Array.isArray(observation.rows) ||
+      row.result.actualEquipmentFingerprint !== row.contract.equipmentFingerprint) return false;
+  const equipment = new Set(row.contract.equipment.map(([flag, type]) => `${flag}:${type}`));
+  const coldTypes = new Map([[hullTypeID, { categoryID: 6 }]]);
+  for (const item of observation.rows) {
+    if (!positive(item.typeID) || !positive(item.quantity) || !Number.isSafeInteger(item.flagID) ||
+        item.locationID !== row.manifest.targetHullID || item.ownerID !== row.characterID ||
+        !(positive(item.itemID) || item.loaded === true)) return false;
+    if (data.getType(item.typeID)) continue;
+    // Only the charge/equipment distinction affects the saved slot fingerprint.
+    // Cargo and bay rows need no guessed type category. An unrecognised slot
+    // item must never disappear from the fingerprint as a presumed charge.
+    if (slot(item.flagID)) {
+      const fitted = equipment.has(`${item.flagID}:${item.typeID}`);
+      const charge = item.loaded === true || row.contract.supplies.some(s => s.typeID === item.typeID && s.mode === "TOTAL_ABOARD");
+      if ((fitted && item.loaded) || (!fitted && !charge)) return false;
+      const categoryID = fitted ? 7 : 8;
+      const previous = coldTypes.get(item.typeID)?.categoryID;
+      if (previous != null && previous !== categoryID) return false;
+      coldTypes.set(item.typeID, { categoryID });
+    } else if (!coldTypes.has(item.typeID)) coldTypes.set(item.typeID, {});
+  }
+  const result = inspectContract(row.contract, observation, { getType: id => data.getType(id) ?? coldTypes.get(id) });
+  return result.equipment === "VERIFIED" && result.supplies === row.result.supplies && equal(result.targets, row.result.targets);
+}
+
 function validShipRecord(row, verifyMovement, data) {
   if (!Array.isArray(row.actions) || !Array.isArray(row.contract?.equipment) || !Array.isArray(row.contract?.supplies)) return false;
   const snapshots = snapshot => snapshot && Array.isArray(snapshot.hangar) && Array.isArray(snapshot.source?.rows) &&
@@ -151,7 +179,7 @@ function validShipRecord(row, verifyMovement, data) {
     (!["READY", "COMPLETE", "REFUSED"].includes(row.state) || row.actions.every(a => a.state === "VERIFIED")) &&
     (row.state !== "COMPLETE" || (row.result?.equipment === "VERIFIED" && row.manifest.boardedShipID === row.manifest.targetHullID &&
       row.expected.context.shipID === row.manifest.targetHullID &&
-      inspectContract(row.contract, exact ? row.expected.observation : row.expected.target, data).equipment === "VERIFIED"));
+      validCompletedEquipment(row, exact ? row.expected.observation : row.expected.target, data)));
 }
 
 module.exports = { shipPlan, proveShipAction, validShipRecord, quantity, equal };
@@ -259,9 +287,13 @@ function createShipOperations({ journal, reviews, reserve, release, assertWritab
     if (prior) {
       owned(prior, context); if (prior.reviewHash !== reviewHash) fail("REVIEW_REQUIRED"); prior.key = reviewID;
       if (prior.state === "COMPLETE") {
+        const saved = prior.result.alreadySatisfied ? prior.expected.observation : prior.expected.target;
+        if ([saved.shipTypeID, ...saved.rows.map(r => r.typeID)].some(id => !data.getType(id)))
+          fail("COMPLETED_METADATA_UNAVAILABLE", "Saved equipment types are unavailable for a fresh comparison.");
         const fresh = await adapter.readShip(prior.input, prior.manifest.targetHullID, prior.sourcePin); scope(prior, fresh);
         if (fresh.context.shipID !== prior.manifest.targetHullID) fail("COMPLETED_SHIP_CHANGED");
         const status = inspectContract(prior.contract, fresh.target, data);
+        if (status.equipment === "UNKNOWN") fail("COMPLETED_EQUIPMENT_UNVERIFIED");
         if (status.equipment !== "VERIFIED") fail("COMPLETED_EQUIPMENT_CHANGED");
         return { ...result(prior), result: { ...prior.result, ...status } };
       }
