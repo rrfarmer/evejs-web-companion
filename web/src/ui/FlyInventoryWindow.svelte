@@ -6,7 +6,7 @@
 <script lang="ts">
   import { iskAndRound, roundIsk } from "../bridge/miningScanResults.ts";
   import { fittedColumnWidth, scrollListHomeEnd } from "./scrollColumnFit.ts";
-  import { hideLabelShortcutTooltip, showItemTooltip } from "../play/labelShortcutTooltip.ts";
+  import { hideLabelShortcutTooltip, showItemTooltip, tooltipDue } from "../play/labelShortcutTooltip.ts";
   import { shortcutOf } from "../play/shortcutKeys.ts";
   /** uix ESTIMATED_PRICE column: FmtISK(stacksize * GetAveragePrice) - whole where the sum is whole, else two places
    *  (read through gridcheck: 2,468 ISK; 2,468.50 ISK). */
@@ -219,7 +219,7 @@
     const unit = volumes[String(i.typeID)];
     if (unit === undefined) void flow.typeVolumes([i.typeID]).then((v) => { volumes = { ...volumes, ...v }; }).catch(() => {});
     else lines.push(q > 1 ? word("UI/Inventory/ItemStackVolume", `${volText(unit * q)} (${volText(unit)} per unit)`, { itemVolume: volText(unit * q), typeVolume: volText(unit) }) : volText(unit));
-    showItemTooltip(anchor, head, lines);
+    tooltipDue(anchor, () => showItemTooltip(anchor, head, lines));
   }
   $effect(() => {
     const ids = [...new Set(($drones.bay ?? []).map((d) => d.typeID))].filter((t) => volumes[String(t)] === undefined);

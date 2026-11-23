@@ -16,7 +16,7 @@
   import { shortcutOf } from "../play/shortcutKeys.ts";
   import { getContext, onDestroy, onMount } from "svelte";
   import type { SpaceView } from "../play/spaceView.ts";
-  import { hideLabelShortcutTooltip, placePointerPanel, showDronesInSpaceTooltip, showIconValuesTooltip, showLabelShortcutTooltip } from "../play/labelShortcutTooltip.ts";
+  import { hideLabelShortcutTooltip, placePointerPanel, showDronesInSpaceTooltip, showIconValuesTooltip, showLabelShortcutTooltip, tooltipDue } from "../play/labelShortcutTooltip.ts";
   import { canMyShipOrderDrone } from "../space/overview.ts";
   import { miningDroneIDs, orderableDroneIDs, salvageDroneIDs } from "./droneFlight.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
@@ -124,7 +124,7 @@
   flow.requestWords([...Object.values(CMD_WORDS).map((w) => w[0]), "UI/Drones/HintOnFavoriteIcon"]);
   /** A label-and-shortcut tooltip on a button (TooltipPanel.AddLabelShortcut), pointed from above. */
   function shortcutTip(node: HTMLElement, tip: () => { label: string; cmd: string; lines?: readonly string[] } | null) {
-    const enter = () => { const t = tip(); if (t) showLabelShortcutTooltip(node, t.label, t.cmd ? shortcutOf(t.cmd) : "", t.lines ?? []); };
+    const enter = () => tooltipDue(node, () => { const t = tip(); if (t) showLabelShortcutTooltip(node, t.label, t.cmd ? shortcutOf(t.cmd) : "", t.lines ?? []); });
     node.addEventListener("mouseenter", enter);
     node.addEventListener("mouseleave", hideLabelShortcutTooltip);
     return { destroy() { node.removeEventListener("mouseenter", enter); node.removeEventListener("mouseleave", hideLabelShortcutTooltip); hideLabelShortcutTooltip(); } };
@@ -916,7 +916,7 @@
   }
   function gaugeTipOn(el: HTMLElement): void {
     gaugeTipOff();
-    gaugeTipShow(el);
+    tooltipDue(el, () => gaugeTipShow(el));
     gaugeTipTimer = setInterval(() => { if (el.isConnected && el.matches(":hover")) gaugeTipShow(el); else gaugeTipOff(); }, 500);
   }
   function gaugeTipOff(): void {
@@ -1092,7 +1092,7 @@
 
   <div class="group" class:drop={dropOn === "space"} role="list" tabindex="-1" onkeydown={(e) => listKey("space", e)} ondragover={dragOver("space")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("space", null, e)}>
     <div class="sec" data-drone-head="space" role="button" tabindex="-1" onclick={() => { if (headHeld) { headHeld = false; return; } spaceOpen = !spaceOpen; if (!spaceOpen && !bayOpen) bayOpen = true; }} onkeydown={() => {}}
-      onmouseenter={(e) => void showSpaceHeadTip(e.currentTarget as HTMLElement)} onmouseleave={() => { spaceHeadTipAt = null; hideLabelShortcutTooltip(); }}
+      onmouseenter={(e) => { const el = e.currentTarget as HTMLElement; tooltipDue(el, () => void showSpaceHeadTip(el)); }} onmouseleave={() => { spaceHeadTipAt = null; hideLabelShortcutTooltip(); }}
       oncontextmenu={(e) => openMenuIfAny(e, headerMenu(allDroneIDs.length ? spaceEntries(allDroneIDs, false) : []))}>
       <span class="caret" style:mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`} style:-webkit-mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`}></span><span class="lbl">{headerWord(HEADER_WORDS.space, "Drones in Space")} ({maxActive === null ? outCount : `${outCount}/${maxActive}`})</span>
       <span class="commands">

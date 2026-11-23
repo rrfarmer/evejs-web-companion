@@ -290,8 +290,23 @@ export function showSecurityStatusTooltip(anchor: HTMLElement, tagline: string, 
   placeTip(tip, anchor, POINT.TOP_1);
 }
 
+/**
+ * tooltipHandler._GetSleepTime for a tooltip panel: it loads after the generic delay (TOOLTIP_DELAY_GENERIC 250 ms), or
+ * the renew time (a fifth, 50 ms) while a panel shows or within SLEEPTIME_COOLDOWN (500 ms) of one closing - so moving
+ * along a row of buttons swaps their panels at once. show runs then, while the anchor is still in the page.
+ */
+let dueTimer: ReturnType<typeof setTimeout> | null = null;
+let panelClosedAt = -Infinity;
+export function tooltipDue(anchor: HTMLElement, show: () => void): void {
+  if (dueTimer !== null) clearTimeout(dueTimer);
+  const open = !!tip && tip.isConnected && tip.style.display !== "none";
+  const wait = open || performance.now() - panelClosedAt < 500 ? 50 : 250;
+  dueTimer = setTimeout(() => { dueTimer = null; if (anchor.isConnected) show(); }, wait);
+}
+
 export function hideLabelShortcutTooltip(): void {
-  if (tip) tip.style.display = "none";
+  if (dueTimer !== null) { clearTimeout(dueTimer); dueTimer = null; }
+  if (tip && tip.style.display !== "none") { tip.style.display = "none"; panelClosedAt = performance.now(); }
 }
 
 /**

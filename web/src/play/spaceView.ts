@@ -51,7 +51,7 @@ import { explosionCameraFov, spaceExplosionCamera, type ExplosionCameraPath } fr
 import { gfx, spaceRendering, lodSettings } from "./gfxSettings.ts";
 import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, stopEmitter, type WorldLoop } from "./uiAudio.ts";
 import { commandForKey, combatForModifiers, isCombatCommand, labelOf, shortcutOf, type CombatCommand } from "./shortcutKeys.ts";
-import { hideLabelShortcutTooltip, showLabelShortcutTooltip } from "./labelShortcutTooltip.ts";
+import { hideLabelShortcutTooltip, showLabelShortcutTooltip, tooltipDue } from "./labelShortcutTooltip.ts";
 // actionConst.CMD_BY_ACTIONID: each Selected Item button's command, whose shortcut its tooltip shows
 const CMD_BY_ACTION: Readonly<Record<string, string>> = { info: "CmdShowItemInfo", approach: "CmdApproachItem", align: "CmdAlignToItem", orbit: "CmdOrbitItem",
   keep: "CmdKeepItemAtRange", lock: "CmdLockTargetItem", unlock: "CmdUnlockTargetItem", look: "CmdToggleLookAtItem", track: "CmdToggleCameraTracking",
@@ -2766,7 +2766,7 @@ export class SpaceView {
         // then the disabled hint; pointed from above (POINT_TOP_2)
         // SelectedItemButton.OnMouseEnter: an enabled button plays SOUND_BUTTON_HOVER (ui_button_soft1_play); a disabled one nothing
         b.addEventListener("mouseenter", () => { if (!a.disabledReason) void playUiEvent("ui_button_soft1_play"); });
-        b.addEventListener("mouseenter", () => showLabelShortcutTooltip(b, a.title, shortcutOf((a.key === "warp" && a.disabledReason ? "" : CMD_BY_ACTION[a.key]) ?? ""), a.disabledReason ? [a.disabledReason] : []));
+        b.addEventListener("mouseenter", () => tooltipDue(b, () => showLabelShortcutTooltip(b, a.title, shortcutOf((a.key === "warp" && a.disabledReason ? "" : CMD_BY_ACTION[a.key]) ?? ""), a.disabledReason ? [a.disabledReason] : [])));
         b.addEventListener("mouseleave", hideLabelShortcutTooltip);
         b.setAttribute("aria-label", a.title);
         b.disabled = a.disabled ?? false;
