@@ -1090,8 +1090,10 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 /* OverviewTab.LoadTooltipPanel: LoadStandardSpacing (margin 16, cell padding 8 across, rows 8 apart, no column gap), two
    columns of labels wrapped at 150, the description over both wrapped at 300 with cell padding (8, 0, 8, 8) */
 .ov-icon-tip.ov-tab-tip { padding: 16px; }
-.ov-tab-tip-grid { position: relative; display: grid; grid-template-columns: auto auto; column-gap: 0; row-gap: 8px; white-space: normal; }
-.ov-tab-tip-grid > span, .ov-tab-tip-grid > b { padding: 0 8px; max-width: 150px; }
+/* (measured on the live client, gridcheck: a TooltipPanel loaded by OverviewTab.LoadTooltipPanel is 334 x 146 - lines 18 high,
+   the LayoutGrid's two columns equal (151 each), sharing the description's width) */
+.ov-tab-tip-grid { position: relative; display: grid; grid-template-columns: 1fr 1fr; column-gap: 0; row-gap: 8px; white-space: normal; line-height: 18px; }
+.ov-tab-tip-grid > span, .ov-tab-tip-grid > b { box-sizing: content-box; padding: 0 8px; max-width: 150px; }
 .ov-tab-tip-grid b { color: rgba(255, 255, 255, 0.9); font-weight: 400; }
 .ov-tab-tip-grid > .ov-tab-tip-desc { grid-column: 1 / span 2; color: rgba(255, 255, 255, 0.5); padding: 0 8px 8px; max-width: 300px; }
 .ov-icon-tip-icon .glyph { width: 16px; height: 16px; }
