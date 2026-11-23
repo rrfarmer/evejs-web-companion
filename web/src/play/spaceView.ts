@@ -2162,7 +2162,7 @@ export class SpaceView {
       this.nextDamageFlash = now + duration;
       this.shipHud.flashDamage(level, duration);
       this.alertVignetteFlash = this.alertVignette.animate([{ opacity: 0 }, { opacity: level === HULL ? 1 : 0.7 }, { opacity: 0 }], {
-        duration, easing: "ease-in-out",
+        duration, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)",
       });
       void playUiEvent(["ui_warning_shield", "ui_warning_armor", "ui_warning_hull"][level]!);
     }
@@ -2382,7 +2382,7 @@ export class SpaceView {
     if (ratio >= 1 && this.miningHoldUsed !== null && capacity.used > this.miningHoldUsed) {
       badge.querySelectorAll<HTMLElement>(".mh-seg").forEach((seg) => seg.animate(
         [{ filter: "brightness(2) drop-shadow(0 0 3px currentColor)" }, { filter: "brightness(1) drop-shadow(0 0 0 transparent)" }],
-        { duration: 2000, easing: "ease-in-out" }));
+        { duration: 2000, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" }));
     }
     this.miningHoldUsed = capacity.used;
     badge.style.opacity = String(opacity);

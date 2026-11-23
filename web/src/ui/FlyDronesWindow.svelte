@@ -1123,8 +1123,8 @@
      flash */
   .warp-warning { position: relative; margin-bottom: 2px; padding: 8px 8px 8px 52px; min-height: 48px; background: rgba(243, 144, 88, 0.15);
     color: #f39058; animation: ww-in 0.3s ease-out; }
-  .ww-whiteout { position: absolute; inset: 0; background: rgba(255, 255, 255, 0.5); opacity: 0; animation: ww-flash 0.3s 0.1s ease-in-out; pointer-events: none; }
-  .ww-icon { position: absolute; left: 10px; top: 8px; width: 32px; height: 32px; animation: ww-pulse 0.7s ease-in-out infinite alternate; }
+  .ww-whiteout { position: absolute; inset: 0; background: rgba(255, 255, 255, 0.5); opacity: 0; animation: ww-flash 0.3s 0.1s cubic-bezier(0.3333, 0, 0.6667, 1); pointer-events: none; }
+  .ww-icon { position: absolute; left: 10px; top: 8px; width: 32px; height: 32px; animation: ww-pulse 0.7s cubic-bezier(0.3333, 0, 0.6667, 1) infinite alternate; }
   .ww-text { margin: 0 0 8px; font: 14px var(--font); }
   .ww-buttons button { font: 13px var(--font); }
   @keyframes ww-in { from { opacity: 0; } to { opacity: 1; } }

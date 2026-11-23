@@ -290,10 +290,10 @@ const CSS = `
   font-family: "EVE Sans Neue Expanded", "EveSansNeue-Expanded", "Eve Sans Neue", "Barlow Semi Condensed", "Segoe UI", sans-serif;
   text-shadow: 1px 1px 0 rgba(0,0,0,0.5); }
 @keyframes ship-hud-blink { from { opacity: 1; } to { opacity: 0.15; } }
-.ship-hud-root .cap-blink { animation: ship-hud-blink 0.75s ease-in-out infinite alternate; }
+.ship-hud-root .cap-blink { animation: ship-hud-blink 0.75s cubic-bezier(0.3333, 0, 0.6667, 1) infinite alternate; }
 .ship-hud-root .slot-glow { position: absolute; background-color: rgb(61, 171, 41); pointer-events: none;
   -webkit-mask: var(--glow) center / 100% 100% no-repeat; mask: var(--glow) center / 100% 100% no-repeat;
-  animation: ship-hud-slot-blink 1s ease-in-out infinite alternate; }
+  animation: ship-hud-slot-blink 1s cubic-bezier(0.3333, 0, 0.6667, 1) infinite alternate; }
 @keyframes ship-hud-slot-blink { from { opacity: 0.75; } to { opacity: 0.15; } }
 .ship-hud-root .slot-glow.repairing { background-color: rgb(255, 255, 255); animation: ship-hud-repair-glow 2500ms linear infinite; }
 @keyframes ship-hud-repair-glow { 0% { opacity: 0.9; } 50% { opacity: 0; } 100% { opacity: 0.9; } }
@@ -463,7 +463,7 @@ export class ShipHud {
         { filter: "drop-shadow(0 1px #000)" },
         { filter: "drop-shadow(0 0 3px rgba(255, 102, 102, 0.8))" },
         { filter: "drop-shadow(0 1px #000)" },
-      ], { duration, easing: "ease-in-out" }));
+      ], { duration, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" }));
     }
   }
 
@@ -471,7 +471,7 @@ export class ShipHud {
   flashCapacitor(duration: number): void {
     this.capFlash?.cancel();
     this.capFlash = this.capCtx.canvas.parentElement!.animate([{ opacity: 1 }, { opacity: 0.5 }, { opacity: 1 }], {
-      duration, easing: "ease-in-out",
+      duration, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)",
     });
   }
 

@@ -220,7 +220,7 @@ const CSS = `
   mask-image: linear-gradient(to right, #000 ${MAX_TARGET_WIDTH - 10}px, transparent ${MAX_TARGET_WIDTH}px); }
 @keyframes tb-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes tb-pulse { 0%, 100% { opacity: 0.2; } 50% { opacity: 0.5; } }
-.target-bar .tb-spin { animation: tb-spin 3.5s linear infinite, tb-pulse 3s ease-in-out infinite; }
+.target-bar .tb-spin { animation: tb-spin 3.5s linear infinite, tb-pulse 3s cubic-bezier(0.3333, 0, 0.6667, 1) infinite; }
 .tb-menu { position: fixed; z-index: 1000; min-width: 140px; padding: 3px 0; background: rgba(12,14,16,0.95); border: 1px solid rgba(255,255,255,0.18);
   font: 12px/1.35 ${FONT}; color: rgba(255,255,255,0.85); }
 .tb-menu div { padding: 3px 12px; cursor: default; }

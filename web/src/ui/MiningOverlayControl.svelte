@@ -169,7 +169,7 @@
   .new-hud-mining .util img { opacity: .5; mix-blend-mode: plus-lighter; }
   .new-hud-mining .util:hover img { opacity: 1; }
   .new-hud-mining .pulse { position: absolute; inset: 0; border-radius: 50%; background: url("/client-res/ui/texture/classes/shipui/utilbtnglow.png") center / 32px 32px; opacity: 0; mix-blend-mode: plus-lighter; }
-  .new-hud-mining.busy .pulse { animation: mining-pulse 1.6s ease-in-out infinite; }
+  .new-hud-mining.busy .pulse { animation: mining-pulse 1.6s cubic-bezier(0.3333, 0, 0.6667, 1) infinite; }
   @keyframes mining-pulse { 0%, 100% { opacity: 0; } 50% { opacity: .2; } }
   .new-hud-mining .flight-mining-actions { bottom: calc(100% + 4px); left: 0; }
 </style>
