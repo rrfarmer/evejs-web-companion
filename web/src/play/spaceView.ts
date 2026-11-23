@@ -3596,6 +3596,8 @@ export class SpaceView {
     this.combat = { cmd, code };
     // LoadLightCombatCommand (CmdGetLocationMenuForNavigation): held with no indication
     if (cmd === "CmdGetLocationMenuForNavigation") return;
+    // LoadCombatCommand: sm.ScatterEvent('OnFreezeOverviewWindows') - every overview's order held while the key is down
+    for (const o of [this.overview, ...this.extraOverviews]) o.setFrozen(true);
     const label = labelOf(cmd);
     const name = (label ? this.actions.word?.(label) : null) ?? cmd;
     const click = this.actions.word?.("UI/Commands/ClickTarget") ?? "";
@@ -3606,6 +3608,8 @@ export class SpaceView {
   private unloadCombat(): void {
     // _CmdApproacItemUnloadCallback: the move command dropped unless its first point is set
     if (this.moveCmd && this.moveCmd.state === 0) this.abortMoveCommand();
+    // _UnloadCombatCommand: sm.ScatterEvent('OnUnfreezeOverviewWindows')
+    if (this.combat) for (const o of [this.overview, ...this.extraOverviews]) o.setFrozen(false);
     this.combat = null;
     this.shortcutIndication = null;
   }

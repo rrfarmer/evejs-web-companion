@@ -1975,6 +1975,17 @@ export class Overview {
   private readonly leaving = new Map<number, { e: Entity; d: number; keys: (number | string | number[])[] }>();
   private pointerMoved = false;
   private sortFrozen = false;
+  /** _freezeOverview: OnFreezeOverviewWindows (a combat command key held) until OnUnfreezeOverviewWindows. */
+  private freezeOverview = false;
+  /**
+   * _SetFreezeOverview: held (a combat command's key down) or let go; let go after a frozen pass (overviewSorted False)
+   * it sorts at once (TriggerInstantUpdate('SetFreezeOverview')).
+   */
+  setFrozen(freeze: boolean): void {
+    const trigger = !freeze && this.freezeOverview;
+    this.freezeOverview = freeze;
+    if (trigger && this.sortFrozen) { this.lastSortAt = -1e9; this.lastDraw = 0; }
+  }
   update(entities: readonly Entity[], distanceTo: (e: Entity) => number, relations?: OverviewRelationships, ego?: Entity | null): void {
     this.tipEntities = entities;
     this.tipRelations = relations;
@@ -2073,7 +2084,7 @@ export class Overview {
     const pass = sortKey !== this.lastSortKey || now - this.lastSortAt >= 1000;
     if (pass) {
       this.lastSortAt = now;
-      this.sortFrozen = sortKey === this.lastSortKey && this.pointerInside && this.pointerMoved;
+      this.sortFrozen = sortKey === this.lastSortKey && (this.pointerInside && this.pointerMoved || this.freezeOverview);
       this.pointerMoved = false;
       this.lastSortKey = sortKey;
       this.table.classList.toggle("ov-sort-frozen", this.sortFrozen);
