@@ -278,6 +278,8 @@ export interface SpaceActions {
   approach(itemID: number): Promise<void>;
   orbit(itemID: number, range?: number): Promise<void>;
   warpTo(itemID: number, range?: number): Promise<void>;
+  /** movementFunctions.WarpToMiningPointPoint: a moon's mining point, `range` short of it. */
+  warpToMoonMiningPoint?(moonID: number, range: number): Promise<void>;
   dock(itemID: number): Promise<void>;
   /** scanMgr.ConeScan(angle, range, x, y, z): the directional scanner's call, where the page can make it. */
   coneScan?(angle: number, range: number, x: number, y: number, z: number): Promise<unknown>;
@@ -3875,6 +3877,16 @@ export class SpaceView {
       const category = (e as Entity & { categoryID?: number | null }).categoryID ?? null;
       const placed = category === null ? e.kind !== "ship" && e.kind !== "npc" : [25, 3, 65, 23, 40, 2, 46, 22].includes(category);
       const more: (RadialOption | null)[] = droneRadial ? droneRadial.more : [...(placed ? [lookAt, bookmark, setInterest] : [lookAt, setInterest]), ...this.sovHubEntries(e, dist)];
+      // secondaryGroupActions[groupMoon]: two empty slots, then Warp to Moon Mining Point (warp_to_mining_point) - offered
+      // (CelestialChecker.OfferWarpToMoonMiningPoint) where the moon has a mining point (its beacon, moonMiningPoint
+      // authority's 1,000,000,000 + moonID, in the scene), the ship is not warping and the moon is in warp range
+      if (!droneRadial && (e.kind === "moon" || (e as Entity & { groupID?: number | null }).groupID === 8)) {
+        const beacon = this.snapshot?.entities.some((x) => x.itemID === 1_000_000_000 + id) ?? false;
+        const offered = beacon && !!this.actions.warpToMoonMiningPoint && dist >= 150_000 && this.snapshot?.ship?.mode !== "WARP";
+        more.push(null, null, offered
+          ? { label: this.actions.word?.("UI/Inflight/WarpToMoonMiningPoint", { distance: fmtDistance(defaultDistance("WarpTo")) }) ?? "Warp to Moon Mining Point", icon: RADIAL_ICON("res:/UI/Texture/eveicon/system_icons/warp_to_mining_point_16px.png"), run: run("Warp", () => this.actions.warpToMoonMiningPoint!(id, defaultDistance("WarpTo"))) }
+          : null);
+      }
       if (drill) more.push({ label: drill.title, icon: drill.icon, run: run(drill.title, drill.run) });
       for (const entry of this.metenoxEntries(e)) more.push({ label: entry.title, icon: entry.icon, run: run(entry.title, entry.run) });
       const wormhole = this.wormholeEntry(e);

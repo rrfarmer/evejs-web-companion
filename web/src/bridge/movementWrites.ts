@@ -538,6 +538,21 @@ export async function warpToItem(act: Ask, flightNow: () => Promise<FlightNow>, 
 }
 
 /**
+ * Warps the pilot's ship to a moon's mining point, as the client's moon menu and radial do
+ * (movementFunctions._WarpToMoonMiningPoint, 484 to 494): michelle.CmdWarpToStuff(WarpSubjects.MOON_MINING_POINT
+ * 'moonMiningPoint', moonID, minRange=warpRange, fleet=False), the range a float of the pilot's own warp distance (or
+ * one of the seven). The server (beyonceService, WARP_SUBJECT_MOON_MINING_POINT) resolves the moon's point in the
+ * session's own system and refuses one it has none for (MOON_MINING_POINT_NOT_FOUND).
+ *
+ * ⚠ THE CALL COMING BACK IS AN ORDER TAKEN, NEVER AN ARRIVAL.
+ */
+export async function warpToMoonMiningPoint(act: Ask, flightNow: () => Promise<FlightNow>, moonID: number, range: number): Promise<void> {
+  if (!Number.isFinite(range) || range < 0) throw new Error("The warp range must be a distance.");
+  await aThingToOrderAbout(flightNow, moonID, "A ship cannot warp to itself.");
+  await act("beyonce", "CmdWarpToStuff", ["moonMiningPoint", moonID], { minRange: range, fleet: false });
+}
+
+/**
  * Warps the pilot's ship to a thing as the client's autopilot does: by the autopilot's own call, with the thing
  * alone. The server stops the ship ten kilometres short. Fails as the call fails, and before it for what is no
  * thing, for a pilot that is not in space, and for the pilot's own ship.

@@ -1228,7 +1228,7 @@ import {
   scoopDrones as scoopDronesCall,
   droneFleetOrder,
 } from "../bridge/boundEntityWrites.ts";
-import { alignTo as alignToCall, alignToPosition as alignToPositionCall, alignToBookmark as alignToBookmarkCall, approach as approachCall, approachBookmark as approachBookmarkCall, approachMissionLocation as approachMissionLocationCall, autopilotWarp as autopilotWarpCall, warpToFleetMember as warpToFleetMemberCall, warpFleetToMember as warpFleetToMemberCall, toMemberBeacon as toMemberBeaconCall, warpToItem as warpToItemCall, goToPoint, keepAtRange as keepAtRangeCall, orbit as orbitCall, stopShip as stopShipCall, warpToBookmark as warpToBookmarkCall, warpToLaunch as warpToLaunchCall, warpToMissionLocation as warpToMissionLocationCall, warpToScanResult as warpToScanResultCall, type FlightNow, type SitesReadIn } from "../bridge/movementWrites.ts";
+import { alignTo as alignToCall, alignToPosition as alignToPositionCall, alignToBookmark as alignToBookmarkCall, approach as approachCall, approachBookmark as approachBookmarkCall, approachMissionLocation as approachMissionLocationCall, autopilotWarp as autopilotWarpCall, warpToFleetMember as warpToFleetMemberCall, warpFleetToMember as warpFleetToMemberCall, toMemberBeacon as toMemberBeaconCall, warpToItem as warpToItemCall, warpToMoonMiningPoint as warpToMoonMiningPointCall, goToPoint, keepAtRange as keepAtRangeCall, orbit as orbitCall, stopShip as stopShipCall, warpToBookmark as warpToBookmarkCall, warpToLaunch as warpToLaunchCall, warpToMissionLocation as warpToMissionLocationCall, warpToScanResult as warpToScanResultCall, type FlightNow, type SitesReadIn } from "../bridge/movementWrites.ts";
 import { dock as dockCall, dockAtStructure as dockAtStructureCall, enterWormhole as enterWormholeCall, isStation, jump as jumpCall, jumpThroughJumpGate as jumpThroughJumpGateCall, undock as undockCall, WORMHOLE_ENTRY_RANGE_M } from "../bridge/placeChanges.ts";
 import { jumpBridgeZone, readJumpBridgeCharge } from "../bridge/jumpBridgePanel.ts";
 import { sessionPlace } from "../bridge/sessionPlace.ts";
@@ -3799,6 +3799,8 @@ export interface AppFlow {
    * the autopilot warp; a number warps to that distance from the target (R13).
    */
   warpTo(destinationID: number, minRange?: number | null): Promise<void>;
+  /** movementFunctions.WarpToMiningPointPoint: the moon's mining point, `range` short of it. */
+  warpToMoonMiningPoint(moonID: number, range: number): Promise<void>;
   /**
    * R11 — approach an object at full speed (the same atomic move the autopilot
    * uses to close the last gap to a gate). Offered on every overview row.
@@ -38697,6 +38699,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // The page's own calls (bridge/movementWrites.ts): the autopilot's with no range said, the menu's with one.
       await runFlightStep("Warp", () => orderedStep((flightNow) => (
         minRange === null ? autopilotWarpCall(bridgeDo, flightNow, destinationID) : warpToItemCall(bridgeDo, flightNow, destinationID, minRange))));
+    },
+
+    async warpToMoonMiningPoint(moonID, range) {
+      // _WarpToMoonMiningPoint: autoPilot.CancelSystemNavigation, then the warp
+      cancelSystemNavigation();
+      await runFlightStep("Warp", () => orderedStep((flightNow) => warpToMoonMiningPointCall(bridgeDo, flightNow, moonID, range)));
     },
 
     async approach(destinationID, range = null) {

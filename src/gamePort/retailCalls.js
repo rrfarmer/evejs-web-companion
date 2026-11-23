@@ -326,8 +326,13 @@ const warping = (args, kwargs, context) => {
     case "launch":
       if (!aThingsID(which) || said.length > 0) return notAClients("The client warps to a launch by its number, and with nothing else.");
       return {};
+    // movementFunctions._WarpToMoonMiningPoint (484 to 494): CmdWarpToStuff(WarpSubjects.MOON_MINING_POINT, moonID,
+    // minRange=warpRange, fleet=fleet) - the range the menu's float (GetDefaultActionDistance('WarpTo') or one of the seven)
+    case "moonMiningPoint":
+      if (!aThingsID(which)) return notAClients("The client warps to a moon's mining point by the moon's number.");
+      return made({ minRange: asReal(range ?? 0), fleet: false });
     default:
-      return notAClients("No route warps to that: an item, a fleet member, a bookmark, a scan result or a launch.");
+      return notAClients("No route warps to that: an item, a fleet member, a bookmark, a scan result, a launch or a moon's mining point.");
   }
 };
 /** autopilot.AP_WarpToDestID (465): GetRemotePark().CmdWarpToStuffAutopilot(destinationID), the one thing and nothing else. */

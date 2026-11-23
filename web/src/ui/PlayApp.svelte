@@ -2034,6 +2034,7 @@
       keepAtRange: (id, range) => s.flow.keepAtRange(id, range ?? 1000),
       alignTo: (id) => s.flow.alignTo(id),
       warpTo: (id, range) => s.flow.warpTo(id, range ?? 0),
+      warpToMoonMiningPoint: (moonID, range) => s.flow.warpToMoonMiningPoint(moonID, range),
       activateGate: (id, typeID) => s.flow.activateGate(id, typeID),
       enterWormhole: (id) => s.flow.enterWormhole(id),
       // menusvc.Dock -> DockStation -> GetCloseAndTryCommand(itemID, RealDock): the client's system navigation (warp,
