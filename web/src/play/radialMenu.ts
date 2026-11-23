@@ -12,6 +12,7 @@
 // - the "more" slice opens a second ring, its options placed either side of it in turn (alternate).
 
 import { clientTexture } from "./window.ts";
+import { playUiEvent } from "./uiAudio.ts";
 import { radialDelay, radialDomButton } from "./radialSettings.ts";
 
 export interface RadialOption {
@@ -193,10 +194,14 @@ export class RadialMenu {
     this.lay(options.slice(0, 8), 0, false);
     this.say(title);
     this.sayOption(null, null);
+    // RadialMenu.ApplyAttributes: ui_radial_open_play
+    void playUiEvent("ui_radial_open_play");
   }
 
   close(): void {
     if (!this.isOpen) return;
+    // RadialMenu._OnClose: ui_radial_close
+    void playUiEvent("ui_radial_close");
     this.root.style.display = "none";
     for (const s of this.slots) s.el.remove();
     this.slots = [];
@@ -289,7 +294,8 @@ export class RadialMenu {
     if (index !== this.hovered) {
       if (this.hovered !== null) this.slots[this.hovered]?.el.classList.remove("hover");
       this.hovered = index;
-      if (index !== null) this.slots[index]?.el.classList.add("hover");
+      // RadialMenuActionBase.ShowButtonHilite (every slice, disabled and empty too, as it lights): ui_radial_mouseover_play
+      if (index !== null) { this.slots[index]?.el.classList.add("hover"); void playUiEvent("ui_radial_mouseover_play"); }
     }
     const option = index === null ? null : this.slots[index]?.option ?? null;
     this.range = option && !option.disabled ? rangeAt(option, length) : undefined;
@@ -300,6 +306,8 @@ export class RadialMenu {
     if (option?.more && !option.disabled && !this.second) {
       this.second = true;
       this.lay(option.more, this.slots[index!]!.degree, true);
+      // MoveMouseSecondLevel: the second level loaded - ui_radial_expand_play
+      void playUiEvent("ui_radial_expand_play");
       this.hovered = null;
     }
   }
@@ -313,6 +321,8 @@ export class RadialMenu {
     const option = this.slots[index]?.option ?? null;
     if (!option || option.disabled || option.more || !option.run) { if (click) this.close(); return; }
     const range = option.ranges ? this.range : undefined;
+    // RadialMenu.ClickButton: ui_radial_select_play, then the menu closes
+    void playUiEvent("ui_radial_select_play");
     this.close();
     option.run(range === undefined ? undefined : Math.round(range));
   }
