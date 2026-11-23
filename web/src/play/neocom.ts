@@ -26,6 +26,7 @@ const NEOCOM_TOOLTIPS: Readonly<Record<string, { cmd: string | null; name: strin
   map: { cmd: "CmdToggleMap", name: "Map", description: "View star and solar system maps in many information modes" },
   charactersheet: { cmd: "OpenCharactersheet", name: "Character Sheet", description: "Manage your Augmentations, Clones, Pilot's Services, Standings and more" },
   // ButtonChat.LoadTooltipPanel: AddCommandTooltip(OpenChannels) - UI/Neocom/ChatChannelsBtn, Tooltips/Neocom/ChatChannels_description (g241)
+  log: { cmd: "OpenLog", name: "Log and Messages", description: "" },
   chat: { cmd: "OpenChannels", name: "Chat Channels", description: "Browse available chat channels or create your own channel" },
 };
 /** tooltipHandler: a panel after the generic delay, the renew time (a fifth) while one shows or just closed. */
@@ -58,7 +59,10 @@ export const NEOCOM_DEFAULT: readonly NeocomButton[] = [
   { id: "market", label: "Regional Market", icon: icon("market") },
   { id: "fitting", label: "Fitting", icon: icon("fitting") },
   { id: "map", label: "Map", icon: icon("map") },
-  { id: "chat", label: "Chat", icon: icon("chatchannels") },
+  // ButtonChat's chatchannel.png, then the Log and Messages ButtonWindow (LoggerWindow, OpenLog, log.png) - the live
+  // client, gridcheck g250 / g251
+  { id: "chat", label: "Chat", icon: icon("chatchannel") },
+  { id: "log", label: "Log and Messages", icon: icon("log") },
 ];
 
 /**
