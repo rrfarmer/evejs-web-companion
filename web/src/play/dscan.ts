@@ -580,6 +580,13 @@ export class DScanWindow {
       tr.addEventListener("click", (ev) => { this.selectEntry(row.id, order, ev); tr.focus({ preventScroll: true }); this.hooks.combatClick?.(row.id); });
       tr.addEventListener("keydown", (ev) => {
         if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "c") { ev.preventDefault(); ev.stopPropagation(); void this.copy(); return; }
+        // commandSvc.OnCtrlA: the focused scroll's SelectAll - every entry selected
+        if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "a") {
+          ev.preventDefault(); ev.stopPropagation();
+          this.selectedIDs = new Set(order);
+          for (const x of this.tbody.querySelectorAll<HTMLTableRowElement>("tr[data-id]")) x.classList.add("sel");
+          return;
+        }
         if (ev.key === "ArrowUp" || ev.key === "ArrowDown") { ev.preventDefault(); ev.stopPropagation(); this.browse(ev.key === "ArrowUp", ev.shiftKey, order); }
       });
       tr.addEventListener("dblclick", () => { this.selectedIDs = new Set([row.id]); this.anchorID = row.id; for (const x of this.tbody.querySelectorAll<HTMLTableRowElement>("tr[data-id]")) x.classList.toggle("sel", x === tr); this.hooks.showInfo?.(row.id, row.typeID); });

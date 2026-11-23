@@ -119,6 +119,24 @@
     }
   }
 
+  // Scroll.OnUp / OnDown (BrowseNodes, ActivateIdx): nothing selected - the last / first line; else the one past the
+  // selection (its last going down, its first going up; with Shift the end away from the last clicked), past either end
+  // nothing; the line selected (SelectNode, Shift growing the range) and brought into view
+  function browseLog(up: boolean, shift: boolean, row: HTMLTableRowElement): void {
+    const order = logLines.map((line) => line.n);
+    if (!order.length) return;
+    const sel = order.map((n, i) => (selected.has(n) ? i : -1)).filter((i) => i >= 0);
+    const last = anchor === null ? -1 : order.indexOf(anchor);
+    let idx: number;
+    if (!sel.length) idx = up ? order.length - 1 : 0;
+    else if (shift && last >= 0) idx = (sel[0]! < last ? sel[0]! : sel[sel.length - 1]!) + (up ? -1 : 1);
+    else idx = (sel.length > 1 ? sel[up ? 0 : sel.length - 1]! : sel[0]!) + (up ? -1 : 1);
+    if (idx < 0 || idx >= order.length) return;
+    selectRow(order[idx]!, { shiftKey: shift && sel.length > 0, ctrlKey: false, metaKey: false } as KeyboardEvent);
+    const target = row.parentElement?.children[idx] as HTMLTableRowElement | undefined;
+    target?.focus();
+    target?.scrollIntoView({ block: "nearest" });
+  }
   function rowKey(event: KeyboardEvent, id: number): void {
     const key = event.key.toLowerCase();
     const control = event.ctrlKey || event.metaKey;
@@ -126,8 +144,7 @@
     if (control && key === "c") void copyRows();
     else if (control && key === "a") selected = new Set(logLines.map((line) => line.n));
     else if (key === " " || key === "enter") selectRow(id, event);
-    else if (key === "arrowup") (row.previousElementSibling as HTMLTableRowElement | null)?.focus();
-    else if (key === "arrowdown") (row.nextElementSibling as HTMLTableRowElement | null)?.focus();
+    else if (key === "arrowup" || key === "arrowdown") browseLog(key === "arrowup", event.shiftKey, row);
     else return;
     event.preventDefault();
     event.stopPropagation();
