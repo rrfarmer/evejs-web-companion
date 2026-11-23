@@ -104,6 +104,8 @@ export class RadialMenu {
   private readonly optionName = document.createElement("div");
   private readonly optionRange = document.createElement("div");
   private slots: { option: RadialOption | null; degree: number; el: HTMLDivElement }[] = [];
+  /** firstLayerCont's slices: kept under the second layer (at 0.3) while it is expanded. */
+  private firstSlots: { option: RadialOption | null; degree: number; el: HTMLDivElement }[] = [];
   private hovered: number | null = null;
   private cx = 0;
   private cy = 0;
@@ -211,8 +213,9 @@ export class RadialMenu {
     // RadialMenu._OnClose: ui_radial_close
     void playUiEvent("ui_radial_close");
     this.root.style.display = "none";
-    for (const s of this.slots) s.el.remove();
+    for (const s of new Set([...this.slots, ...this.firstSlots])) s.el.remove();
     this.slots = [];
+    this.firstSlots = [];
     this.hovered = null;
     const done = this.onClose;
     this.onClose = null;
@@ -220,7 +223,9 @@ export class RadialMenu {
   }
 
   private lay(options: readonly (RadialOption | null)[], start: number, alternate: boolean): void {
-    for (const s of this.slots) s.el.remove();
+    // UpdateSecondLevel: firstLayerCont.SetOpacity(0.3) and the second layer laid over it; a first layer replaces both
+    if (alternate) { for (const s of this.slots) if (!this.firstSlots.includes(s)) s.el.remove(); for (const s of this.firstSlots) { s.el.style.opacity = "0.3"; s.el.classList.remove("hover"); } }
+    else { for (const s of new Set([...this.slots, ...this.firstSlots])) s.el.remove(); this.firstSlots = []; }
     this.slots = [];
     const count = alternate ? options.length : 8;
     for (let i = 0; i < count; i++) {
@@ -235,7 +240,14 @@ export class RadialMenu {
         ${option ? `<img class="radial-icon" alt="" src="${option.more ? option.icon || TEX("plus.png") : option.icon}" style="transform: rotate(${-degree}deg)">` : ""}`;
       this.root.appendChild(el);
       this.slots.push({ option, degree, el });
+      // RadialMenuLayer.AnimateButtonsIn: each second-level slice turned out from the opening slice's degree to its own
+      // over 0.25 s (the far way round taken as negative), ANIM_SMOOTH
+      if (alternate) {
+        const to = degree > 180 + start ? degree - 360 : degree;
+        el.animate([{ transform: `rotate(${start}deg)` }, { transform: `rotate(${to}deg)` }], { duration: 250, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" });
+      }
     }
+    if (!alternate) this.firstSlots = this.slots;
   }
 
   /** The displayLabel: the object's name at the top (AddDisplayLabel). */
@@ -279,6 +291,15 @@ export class RadialMenu {
     const dyMove = this.lastY === null ? 0 : y - this.lastY;
     this.lastY = y;
     let { index, length } = this.aim(x, y);
+    // ResetFromCenter (nearer the middle than 46): the second layer hidden, the first back at full opacity
+    if (this.second && index === null && length < ACTION_DISTANCE - BUTTON_HEIGHT + BUTTON_PADDING_BOTTOM) {
+      for (const s of this.slots) if (!this.firstSlots.includes(s)) s.el.remove();
+      for (const s of this.firstSlots) s.el.style.opacity = "";
+      this.slots = this.firstSlots;
+      this.second = false;
+      this.hovered = null;
+      this.rangeHeld = null;
+    }
     // _OnGlobalMove: a range option selected stays the one while the pointer is past its minRangeDistance (110), whatever
     // the angle
     if (this.rangeHeld !== null && this.slots[this.rangeHeld]?.option?.ranges && Math.hypot(x - this.cx, y - this.cy) > ACTION_DISTANCE) index = this.rangeHeld;
@@ -349,6 +370,7 @@ export class RadialMenu {
         s.el.animate([{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1, offset: 0.6 }, { opacity: 0.5, offset: 0.7 }, { opacity: 1, offset: 0.8 }, { opacity: 0, offset: 1 }], { duration: 500, fill: "forwards" });
       } else s.el.animate([{ transform: `rotate(${s.degree}deg) scale(1)`, opacity: 1 }, { transform: `rotate(${s.degree}deg) scale(0.5)`, opacity: 0 }], { duration: 250, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)", fill: "forwards" });
     });
+    if (this.second) for (const s of this.firstSlots) s.el.animate([{ transform: `rotate(${s.degree}deg) scale(1)`, opacity: 0.3 }, { transform: `rotate(${s.degree}deg) scale(0.5)`, opacity: 0 }], { duration: 250, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)", fill: "forwards" });
     this.root.querySelector<HTMLElement>(".radial-shadow")?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 250, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)", fill: "forwards" });
     this.closeTimer = setTimeout(() => this.close(), 500);
   }
