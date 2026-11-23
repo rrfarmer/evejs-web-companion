@@ -789,10 +789,40 @@ export class NewShipHud {
       b.title = title;
       if (dy < 0) this.fullSpeedButton = b; else this.stopButton = b;
       b.className = "new-hud-cmd";
-      Object.assign(b.style, { position: "absolute", left: `${cx - 88 - 12}px`, top: `${cy + dy - 12}px`, width: "24px", height: "24px", pointerEvents: "auto" });
-      b.innerHTML = `<svg viewBox="0 0 16 16" width="16" height="16"><path d="${glyph}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-      b.addEventListener("mouseenter", () => { this.speedHover = true; });
-      b.addEventListener("mouseleave", () => { this.speedHover = false; });
+      b.dataset.ownSound = "";
+      Object.assign(b.style, { position: "absolute", left: `${cx - 88 - 12}px`, top: `${cy + dy - 12}px`, width: "24px", height: "24px", pointerEvents: "auto",
+        padding: "0", border: "0", background: "transparent", borderRadius: "50%", cursor: "pointer" });
+      // _SpeedCommandButton (a CommandButton with no sounds and no dip): the disc, ring, halo and glyph of _ApplyLook - the
+      // glyph eveicon.chevron_right_double (full speed) or chevron_right with its stop bar (2 x 10, 4 px right of the glyph,
+      // both shifted STOP_GLYPH_SHIFT -1.6) - the page had drawn them as its plain square buttons with stroked chevrons
+      const disc = document.createElement("div"), ring = document.createElement("div"), halo = document.createElement("div");
+      Object.assign(disc.style, { position: "absolute", inset: "2px", borderRadius: "50%", background: "#000", pointerEvents: "none" });
+      Object.assign(ring.style, { position: "absolute", inset: "0", borderRadius: "50%", boxShadow: "0 0 0 2px rgba(255,255,255,0.1) inset", pointerEvents: "none" });
+      Object.assign(halo.style, { position: "absolute", inset: "-2px", borderRadius: "50%", boxShadow: `0 0 0 4px ${css(FOCUS_BLUE)} inset`, display: "none", pointerEvents: "none" });
+      const stop = dy > 0;
+      const glyphImg = icon(`res:/UI/Texture/eveicon/system_icons/${stop ? "chevron_right" : "chevron_right_double"}_16px.png`);
+      Object.assign(glyphImg.style, { position: "absolute", left: `${4 + (stop ? -1.6 : 0)}px`, top: "4px", opacity: "0.5", mixBlendMode: "plus-lighter", pointerEvents: "none" });
+      const parts: HTMLElement[] = [glyphImg];
+      b.append(disc, ring, halo, glyphImg);
+      if (stop) {
+        const bar = document.createElement("div");
+        Object.assign(bar.style, { position: "absolute", left: `${12 + 4 - 1.6 - 1}px`, top: "7px", width: "2px", height: "10px", background: "#fff", opacity: "0.5", mixBlendMode: "plus-lighter", pointerEvents: "none" });
+        b.append(bar);
+        parts.push(bar);
+      }
+      void glyph;
+      let hovered = false, pressed = false;
+      const look = () => {
+        const lit = hovered || pressed;
+        disc.style.background = lit ? css(SMOKE_BLUE) : "#000";
+        ring.style.boxShadow = `0 0 0 2px ${lit ? css(FOCUS_BLUE) : "rgba(255,255,255,0.1)"} inset`;
+        for (const p of parts) p.style.opacity = lit ? "0.9" : "0.5";
+        halo.style.display = pressed ? "" : "none";
+      };
+      b.addEventListener("mouseenter", () => { this.speedHover = true; hovered = true; look(); });
+      b.addEventListener("mouseleave", () => { this.speedHover = false; hovered = false; pressed = false; look(); });
+      b.addEventListener("mousedown", () => { pressed = true; look(); });
+      b.addEventListener("mouseup", () => { pressed = false; look(); });
       b.addEventListener("click", act);
       this.root.append(b);
     }
