@@ -885,7 +885,7 @@
              window on (always_open_secondary_inventory_setting), else its children are shown or hidden -->
         <!-- TreeDataShip.GetHint: the type name, with TreeDataInv's "[<shortcut>]" (ShortcutBrackets) of OpenCargoHoldOfActiveShip where it has one -->
         <div title={typeName(ship.typeID) + shortcutHint("OpenCargoHoldOfActiveShip")} onmouseenter={() => { void playUiEvent("ui_button_soft2_play"); spaceHover(ship.itemID, true); }} onmouseleave={() => spaceHover(ship.itemID, false)} class="node" class:sel={current === "cargo"} class:drop={dropKey === "cargo"} role="treeitem" aria-selected={current === "cargo"} tabindex="-1"
-          onclick={(e) => { void playUiEvent("msg_ListEntryClick_play"); spaceSelect(ship.itemID); if (e.shiftKey) openBayInNewWindow("cargo", bays.find((x) => x.key === "cargo")?.label ?? word("UI/Ship/CargoHold", "Cargo Hold")); else current = "cargo"; }} onkeydown={() => {}} oncontextmenu={(e) => cargoNodeMenu(e)}
+          onclick={(e) => { void playUiEvent("msg_ListEntryClick_play"); spaceSelect(ship.itemID); if (e.shiftKey) openBayInNewWindow("cargo", word("UI/Neocom/ActiveShipCargoBtn", "Active ship")); else current = "cargo"; }} onkeydown={() => {}} oncontextmenu={(e) => cargoNodeMenu(e)}
           ondblclick={() => { if (invAlwaysSeparate.get()) current = "cargo"; else toggleTree(); }}
           ondragover={dragOver("cargo")} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn("cargo", e)}>
           <!-- (TreeViewEntry.OnToggleBtnClick: the toggle's own sounds, not a button's) -->
