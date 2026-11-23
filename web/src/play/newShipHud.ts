@@ -345,6 +345,15 @@ export class NewShipHud {
   // _GaugeBar.GlideTo: MorphScalar(fillPortion, shown -> new, FILL_GLIDE_SEC 0.5, ANIM_SMOOTH); HeatGauges.Update snaps the first reading
   private heatGlide: Record<"Hi" | "Med" | "Lo", { from: number; to: number; start: number } | null> = { Hi: null, Med: null, Lo: null };
   private heatFirst = true;
+  /**
+   * CapacitorCore.Update on the 500 ms pump: GetCapacitorPortion, round(charge / capacity, 2), where the charge is godma's own -
+   * recharging between the server's readings. The page's reading comes with the 1 Hz space snapshot; between two the
+   * charge recharges along the capacitor curve (dC/dt = 10 C / tau (sqrt(c) - c), tau = 2.5 C / peak), sampled on the pump.
+   */
+  private capBase: { ratio: number; at: number } | null = null;
+  private capIncoming: number | null = null;
+  private capPumped: number | null = null;
+  private capPumpAt = -1e9;
   // Medallion._UpdatePump: HeatGauges.Update every UPDATE_INTERVAL_MSEC (500), so a glide runs out before the next reading
   private heatPumpAt = -1e9;
   // _SetBarsShown(animate=True): each bar FadeTo(its opacity -> 1 or 0, HAND_OVER_SEC 0.15, ANIM_SMOOTH, timeOffset i x 0.03)
@@ -1559,7 +1568,7 @@ export class NewShipHud {
   }
 
   update(s: NewShipHudState): void {
-    this.state = s;
+    this.state = { ...s, capacitorRatio: this.capacitorNow(s.capacitorRatio ?? null) };
     this.liveTip?.();
     // the command buttons' hints (CommandButton.GetHint): Stop The Ship; Set Full Speed with the ship's top speed
     if (this.stopButton) this.stopButton.title = this.word("UI/Inflight/StopTheShip") ?? "Stop The Ship";
@@ -1620,6 +1629,24 @@ export class NewShipHud {
     this.onModule = onModule;
     this.overload = overload ?? null;
     this.placeSlots();
+  }
+
+  private capacitorNow(incoming: number | null): number | null {
+    const now = performance.now();
+    if (incoming === null) { this.capBase = null; this.capIncoming = null; this.capPumped = null; return null; }
+    const fresh = incoming !== this.capIncoming;
+    if (fresh) { this.capIncoming = incoming; this.capBase = { ratio: Math.max(0, Math.min(1, incoming)), at: now }; }
+    // a fresh reading too waits for the next pump, as godma's charge does for the next CapacitorCore.Update
+    if (this.capPumped !== null && now - this.capPumpAt < MEDALLION_UPDATE_MS) return this.capPumped;
+    this.capPumpAt = now;
+    const b = this.capBase!, f = this.capFlow;
+    let x = b.ratio;
+    if (f && f.peak > 0 && x < 1 && this.state?.capacitorMax) {
+      const tau = (2.5 * this.state.capacitorMax) / f.peak, t = (now - b.at) / 1000;
+      x = (1 + (Math.sqrt(x) - 1) * Math.exp((-5 * t) / tau)) ** 2;
+    }
+    this.capPumped = Math.round(Math.max(0, Math.min(1, x)) * 100) / 100;
+    return this.capPumped;
   }
 
   /** capacitorFlow's inputs (the page's): the peak recharge, the fit's whole drain and the running drain, GJ a second. */
