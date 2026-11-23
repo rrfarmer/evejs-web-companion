@@ -5,7 +5,7 @@
 
 <script lang="ts">
   import { iskAndRound, roundIsk } from "../bridge/miningScanResults.ts";
-  import { fittedColumnWidth } from "./scrollColumnFit.ts";
+  import { fittedColumnWidth, scrollListHomeEnd } from "./scrollColumnFit.ts";
   import { hideLabelShortcutTooltip, showItemTooltip } from "../play/labelShortcutTooltip.ts";
   import { shortcutOf } from "../play/shortcutKeys.ts";
   /** uix ESTIMATED_PRICE column: FmtISK(stacksize * GetAveragePrice) - whole where the sum is whole, else two places
@@ -541,8 +541,11 @@
   let selected = $state<number[]>([]);
   let lastClicked: number | null = null;
   $effect(() => { void current; selected = []; lastClicked = null; });
+  // invCont.SelectAll (commandSvc.OnCtrlA to the focused container: scroll.SelectAll - every item shown) and Home / End
+  // (Scroll.OnHome / OnEnd) on the items once one is clicked
   function clickItem(id: number, e: MouseEvent): void {
     e.stopPropagation();
+    (e.currentTarget as HTMLElement).closest<HTMLElement>(".items")?.focus({ preventScroll: true });
     const order = shown.map((i) => i.itemID);
     if (e.ctrlKey && !e.shiftKey) selected = selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id];
     else if (e.shiftKey && lastClicked !== null && order.includes(lastClicked)) {
@@ -877,7 +880,7 @@
       <input class="search" placeholder="Search" value={$filterSig} oninput={(e) => filterSig.set((e.target as HTMLInputElement).value)} />
     </div>
     {/if}
-    <div class="items" role="list" onclick={() => (selected = [])} onkeydown={() => {}} oncontextmenu={(e) => { e.preventDefault(); menu.open(e.clientX, e.clientY, containerMenu()); }}
+    <div class="items" role="list" tabindex="-1" onclick={(e) => { selected = []; (e.currentTarget as HTMLElement).focus({ preventScroll: true }); }} onkeydown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); e.stopPropagation(); selected = shown.map((i) => i.itemID); } else if (!e.ctrlKey && !e.altKey && (e.key === "Home" || e.key === "End")) { e.preventDefault(); e.stopPropagation(); scrollListHomeEnd(e.currentTarget.firstElementChild as HTMLElement ?? e.currentTarget, e.key === "End"); } }} oncontextmenu={(e) => { e.preventDefault(); menu.open(e.clientX, e.clientY, containerMenu()); }}
       ondragover={areaDragOver} ondragleave={areaDragLeave}
       ondrop={(e) => { addStacks = null; if (dragging && dragging.from !== areaKey) void dropOn(areaKey, e); }}>
       {#if bay && bay.items === null}
