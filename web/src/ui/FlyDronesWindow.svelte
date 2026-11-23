@@ -424,7 +424,9 @@
   const OPEN_GROUPS_KEY = "evejs.ui.listgroups.dronegroups";
   let openGroups = $state(new Set<string>((() => { try { const v = JSON.parse(globalThis.localStorage?.getItem(OPEN_GROUPS_KEY) ?? "[]"); return Array.isArray(v) ? v.filter((x) => typeof x === "string") : []; } catch { return []; } })()));
   const toggleGroup = (key: string) => {
+    // SE_ListGroupCore.Toggle: SOUND_EXPAND opening, SOUND_COLLAPSE closing
     const s = new Set(openGroups); if (s.has(key)) s.delete(key); else s.add(key); openGroups = s;
+    void playUiEvent(s.has(key) ? "ui_expand_play" : "ui_collapse_play");
     try { globalThis.localStorage?.setItem(OPEN_GROUPS_KEY, JSON.stringify([...s])); } catch { /* this visit */ }
   };
   /**
@@ -952,7 +954,8 @@
      Return and Orbit, a line, Return to Drone Bay -->
 {#snippet groupHead(key: string, group: DroneGroup, count: number, ids: number[], inSpace: boolean)}
   {@const own = ids.filter((id) => allDroneIDs.includes(id))}
-  <div class="row grouphead" class:drop={dropOn === key} role="button" tabindex="-1" onclick={() => toggleGroup(key)} onkeydown={() => {}}
+  <!-- DroneSubGroup, a ListGroup: SOUND_ENTRY_HOVER on enter (SE_BaseClassCore) -->
+  <div class="row grouphead" class:drop={dropOn === key} role="button" tabindex="-1" onclick={() => toggleGroup(key)} onkeydown={() => {}} onmouseenter={hoverSound}
     ondragover={dragOver(key)} ondragleave={() => (dropOn = null)} ondrop={(e) => drop(inSpace ? "space" : "bay", group.label, e)}
     oncontextmenu={(e) => openMenu(e, groupMenu(key, group, ids, inSpace))}>
     <span class="expander" class:open={openGroups.has(key)}></span>
