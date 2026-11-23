@@ -325,6 +325,9 @@ button { font: inherit; color: inherit; }
 .ov .ov-table tbody tr.flagged { background: var(--flag-bg); }
 /* OverviewWindow.DoBallRemove: a leaving row at opacity 0.25, disabled, until the next unfrozen pass removes it */
 .ov .ov-table tbody tr.ov-leaving { opacity: .25; pointer-events: none; }
+/* Scroll.ShowHint: EveCaptionLarge (24) centred at the top of the scroll, padding 16 all round, TextColor.SECONDARY (0.5) */
+.ov .ov-no-results { box-sizing: border-box; width: 100%; padding: 16px; text-align: center; font-size: 24px; color: rgba(255, 255, 255, 0.5); letter-spacing: 0.5px; pointer-events: none; }
+.ov .ov-no-results[hidden] { display: none; }
 /* OverviewScrollEntry: FadeTo(flagBackground, 0 -> a, duration 0.75, ANIM_WAVE) fades the row's state Fill alone, not its
    text or underlays - the background colour waves, the hover/selection images over it stay */
 .ov .ov-table tbody tr.flag-blink { animation: flag-bg-blink 0.75s cubic-bezier(0.3333, 0, 0.6667, 1) infinite; }

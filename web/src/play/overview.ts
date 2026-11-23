@@ -208,8 +208,9 @@ const DEFAULT_SORT: OverviewSort = { column: "distance", down: false };
 const SORT_ENABLED = "UI/Tactical/HeaderSortingEnabledCb";
 const SORT_HINT = "UI/Tactical/HeaderSortingEnabledCbHint";
 const SORT_DISABLED = "UI/Tactical/HeaderSortingDisabled";
+const NOTHING_FOUND = "UI/Common/NothingFound";
 const HACKED_HINT = "Tooltips/Overview/ScatterContainerHacked";
-export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HINT, "Tooltips/Overview/HostileNPC", "Tooltips/Overview/EmptyWreck", "Tooltips/Overview/ContainsLoot", "Tooltips/Overview/NeutralNPC", "Tooltips/Overview/AbandonedContainer", "Tooltips/Overview/RestrictedContainer", "Tooltips/Overview/StargateOnRoute", "Tooltips/Overview/HostileAction", "Tooltips/Overview/TargetLock", "UI/Shared/EstimatedPricePerSquareMeter", "UI/Tactical/OverviewCaption", ...OVERVIEW_COLUMN_WORDS,
+export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, NOTHING_FOUND, HACKED_HINT, "Tooltips/Overview/HostileNPC", "Tooltips/Overview/EmptyWreck", "Tooltips/Overview/ContainsLoot", "Tooltips/Overview/NeutralNPC", "Tooltips/Overview/AbandonedContainer", "Tooltips/Overview/RestrictedContainer", "Tooltips/Overview/StargateOnRoute", "Tooltips/Overview/HostileAction", "Tooltips/Overview/TargetLock", "UI/Shared/EstimatedPricePerSquareMeter", "UI/Tactical/OverviewCaption", ...OVERVIEW_COLUMN_WORDS,
   ...WINDOW_ACTION_WORDS, "UI/Overview/AddTab", "/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", "UI/Commands/OpenOverviewSettings", "UI/Overview/BracketVisibility", "UI/Overview/UseSelectedTabBracketPreset",
   "UI/Overview/ShowAll", "UI/Overview/HideAll", "UI/Overview/AddTabInstructions", "UI/Overview/TypeInLabel", "UI/Overview/Filter",
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
@@ -328,6 +329,8 @@ export class Overview {
   readonly instanceID: number;
   private readonly table = document.createElement("table");
   private readonly tbody = document.createElement("tbody");
+  /** Scroll.ShowHint's noResultsContainer: UpdateEntryOrder's CheckShowNoContentHint, UI/Common/NothingFound with no rows. */
+  private readonly noResults = document.createElement("div");
   private types: Record<string, [string | null, number | null]> = {};
   private groupNames: Record<string, [string | null, number | null]> = {};
   private lastDraw = 0;
@@ -409,6 +412,9 @@ export class Overview {
     const scroller = document.createElement("div");
     scroller.className = "ov-scroll";
     scroller.appendChild(this.table);
+    this.noResults.className = "ov-no-results";
+    this.noResults.hidden = true;
+    scroller.appendChild(this.noResults);
     this.window.body.appendChild(scroller);
     // OverviewLabel.UpdateFade's global fade: the column the window's right edge cuts (globalMaxWidth - left < columnWidth)
     // has its labels faded out over COLUMNFADESIZE (20) up to that edge; the others are only limited to their column
@@ -2162,6 +2168,14 @@ export class Overview {
         }
       };
       html.push(`<tr data-id="${e.itemID}" class="${this.leaving.has(e.itemID) ? "ov-leaving " : ""}${e.itemID === this.selected ? "sel" : ""}${e.itemID === this.hovered ? " hover" : ""}${flags.background ? ` flagged${flags.background.backgroundBlink ? " flag-blink" : ""}` : ""}"${bg}>${cols.map(cell).join("")}</tr>`);
+    }
+    // CheckShowNoContentHint: with no nodes, ShowHint('<center>' + UI/Common/NothingFound + '</center>') - its container
+    // faded in (0 -> 1, 0.3 s) when the text is new; with nodes, hidden
+    const hint = rows.length ? null : this.hooks.word?.(NOTHING_FOUND) ?? "Nothing Found";
+    if (hint === null) this.noResults.hidden = true;
+    else {
+      if (this.noResults.textContent !== hint) { this.noResults.textContent = hint; this.noResults.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300 }); }
+      this.noResults.hidden = false;
     }
     const markup = html.join("");
     if (markup !== this.drawnRows) {
