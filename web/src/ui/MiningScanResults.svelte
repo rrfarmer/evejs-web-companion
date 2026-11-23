@@ -11,6 +11,7 @@
   import { createSignal } from "../store/signals.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import { showInfo } from "./showInfo.ts";
+  import { noticeBoard } from "./notices.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { loadMiningScanSort, miningScanSort } from "./miningScanSort.ts";
   import { clientTexture } from "../play/window.ts";
@@ -49,7 +50,7 @@
   const sortStore = miningScanSort;
   $effect(() => { loadMiningScanSort(store.character.get().selectedCharacterID ?? null); });
   const sortGroups = $derived($sortStore);
-  flow.requestWords(["UI/Inflight/Scanner/Scan", "UI/Mining/MiningScannerUpgradeRequired", "UI/Mining/NoScanResultsFound"]);
+  flow.requestWords(["UI/Inflight/Scanner/Scan", "UI/Mining/MiningScannerUpgradeRequired", "UI/Mining/NoScanResultsFound", "UI/Common/EntriesCopied"]);
   const words = $derived(store.words);
   const say = (label: string, own: string, args: Record<string, string | number> = {}) => { const t = $words.templates[label]; return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args as never, { nameOf: () => null } as never)) : own; };
   let collapsed = $state<ReadonlySet<number>>(new Set());
@@ -57,6 +58,20 @@
   // selects too, since Generic.GetMenu runs the entry's OnClick first - for a MiningScanEntry that is the combat command
   // and the rock selected in space, before its CelestialMenu
   let selectedRock = $state<number | null>(null);
+  // Scroll.Copy (Ctrl+C on the list): the selected entries' GetCopyData - a MiningScanEntry is a Generic, its label
+  // (the ore, then quantity, volume, value and distance, <t>-separated); a ListGroup copies nothing - every entry shown
+  // where none is selected, one a line, then UI/Common/EntriesCopied
+  async function copyEntries(table: HTMLElement): Promise<void> {
+    const shownRows = [...table.querySelectorAll<HTMLTableRowElement>("tr[data-rock-id]")];
+    const chosen = shownRows.filter((tr) => Number(tr.dataset.rockId) === selectedRock);
+    const list = chosen.length ? chosen : shownRows;
+    if (!list.length) return;
+    const text = list.map((tr) => [...tr.cells].map((td) => (td.textContent ?? "").trim()).join("\t")).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      noticeBoard.post({ kind: "info", title: say("UI/Common/EntriesCopied", `Copied ${list.length} entries to clipboard`, { numEntries: list.length }) });
+    } catch { /* the clipboard refused */ }
+  }
   function clickRock(itemID: number): void {
     selectedRock = itemID;
     flightView?.()?.selectObjectiveTarget(itemID);
@@ -163,7 +178,8 @@
               <!-- MiningScanEntry: hover the rock's mouseOver state, right-click its CelestialMenu (the space menu), click
                    ExecuteCombatCommand then select (the view's select runs a held combat command); its TargetIconCont
                    (2, 0, 16 x 16) the activeTarget icon when locked, the shrinking targetFrame while locking -->
-              <tr data-rock-id={row.itemID} class:selected={selectedRock === row.itemID} onclick={() => clickRock(row.itemID)}
+              <tr data-rock-id={row.itemID} class:selected={selectedRock === row.itemID} tabindex="-1" onclick={(e) => { clickRock(row.itemID); (e.currentTarget as HTMLElement).focus({ preventScroll: true }); }}
+                onkeydown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") { e.preventDefault(); e.stopPropagation(); const t = (e.currentTarget as HTMLElement).closest("table"); if (t) void copyEntries(t); } }}
                 onmouseenter={() => flightView?.()?.hoverObject(row.itemID)}
                 onmouseleave={() => flightView?.()?.hoverObject(null)}
                 oncontextmenu={(e) => { e.preventDefault(); clickRock(row.itemID); dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID: row.itemID, x: e.clientX, y: e.clientY } })); }}>
