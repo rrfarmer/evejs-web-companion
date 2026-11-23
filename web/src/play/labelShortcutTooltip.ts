@@ -191,6 +191,8 @@ export function scheduleGenericHint(anchor: HTMLElement | (() => HTMLElement | n
     hintTimer = null;
     const owner = typeof anchor === "function" ? anchor() : anchor;
     if (!owner?.isConnected) return;
+    // a panel of the owner's own (a label-and-shortcut tooltip ...) open in the shared panel: the hint gives way
+    if (tip?.isConnected && tip.style.display !== "none" && tip.dataset.generic !== "1") return;
     const fresh = !hintShown;
     showGenericHint(owner, html);
     hintShown = true;
@@ -210,6 +212,40 @@ export function cancelGenericHint(): void {
   for (const a of t.getAnimations()) a.cancel();
   const fade = t.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 100, fill: "forwards" });
   fade.onfinish = () => { if (!hintShown && t.dataset.generic === "1") t.style.display = "none"; fade.cancel(); };
+}
+/**
+ * Every UI object's hint as the client shows one (tooltipHandler -> TooltipGeneric, with its timing): an element's title
+ * is taken off it as the pointer comes on (kept in data-client-hint, so the browser's own tooltip never shows) and shown
+ * by scheduleGenericHint, as text; leaving the element closes it. Returns the uninstall.
+ */
+export function installClientHints(doc: Document = document): () => void {
+  let owner: HTMLElement | null = null;
+  const textOf = (el: HTMLElement): string | null => {
+    const t = el.getAttribute("title");
+    if (t !== null) { el.removeAttribute("title"); if (t) el.dataset.clientHint = t; else delete el.dataset.clientHint; }
+    return el.dataset.clientHint ?? null;
+  };
+  const over = (ev: Event) => {
+    const target = ev.target as HTMLElement | null;
+    const el = target?.closest?.<HTMLElement>("[title], [data-client-hint]") ?? null;
+    if (el && el.closest(".label-shortcut-tooltip")) return;
+    const text = el ? textOf(el) : null;
+    if (!el || !text) { if (owner) { owner = null; cancelGenericHint(); } return; }
+    if (el === owner) return;
+    owner = el;
+    const esc = text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+    scheduleGenericHint(el, esc.split("\n").join("<br>"));
+  };
+  const out = (ev: MouseEvent) => {
+    if (!owner) return;
+    const to = ev.relatedTarget as Node | null;
+    if (to && owner.contains(to)) return;
+    owner = null;
+    cancelGenericHint();
+  };
+  doc.addEventListener("mouseover", over, true);
+  doc.addEventListener("mouseout", out, true);
+  return () => { doc.removeEventListener("mouseover", over, true); doc.removeEventListener("mouseout", out, true); if (owner) cancelGenericHint(); owner = null; };
 }
 export function showGenericHint(anchor: HTMLElement, html: string): void {
   showLabelShortcutTooltip(anchor, "", "", [], "top");

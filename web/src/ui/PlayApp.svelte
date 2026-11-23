@@ -51,6 +51,7 @@
   import { standingWithSkillBonus } from "../bridge/agencyAgents.ts";
   import { addTempInvLocation, removeTempInvLocation, tempInvLocations, treeShownContainer } from "./invTemp.ts";
   import { markWreckViewed } from "../play/viewedWrecks.ts";
+  import { installClientHints } from "../play/labelShortcutTooltip.ts";
   import { get as storeGet } from "svelte/store";
   import { hudSetting, hudSettingNow, setHudSetting, slotOrderOf } from "../store/hudSettings.ts";
   import { createSession, type Session } from "../app/sessions.ts";
@@ -233,6 +234,8 @@
   /** The container window over the others (opened or clicked last) or under the one clicked since. */
   let containerFront = $state(true);
   $effect(() => { if (spaceContainer) { containerFront = true; activeWinKey = "spaceContainer"; } });
+  // tooltipHandler: every hint (an element's title) shown as the client's TooltipGeneric, with its delay and fades
+  $effect(() => installClientHints());
   // ghostFittingSvc.SimulateFitting's OpenFittingWindowIfNeeded: a simulation started from elsewhere (an inventory bay's
   // Simulate Fit) shows the Fitting window
   $effect(() => {
