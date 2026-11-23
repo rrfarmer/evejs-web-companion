@@ -2006,6 +2006,7 @@
     // starmap GetDestinationPath's first system (the next on the way, the pilot's own left out) and GetWaypoints' first,
     // for GetIconColor's autopilot-destination colour; read again as the waypoints or the system change
     let npcStandingsAsked = false;
+    let overloadSkillsAsked = false;
     let routeNextNow: { nextSystemID: number | null; firstWaypoint: number | null } = { nextSystemID: null, firstWaypoint: null };
     const readRouteNext = () => void s.flow.routeWindowWaypoints().then((read) => {
       const path: number[] = [];
@@ -2513,6 +2514,12 @@
       followLink: (url, text) => { void s.flow.followOverviewPresetLink(url, text); },
       // activeShipController: GetShieldHP / GetShieldHPMax and GetShieldResistances (EM, thermal, kinetic, explosive), and
       // the armor's and structure's - the ship's attributes as the fitting reads them, the HP now by the space read's ratio
+      // HudLayer.IsOverloadAllowed: skills.GetMyLevel(typeThermodynamics 28164); the skills asked for once if not read
+      overloadAllowed: () => {
+        const sk = s.store.skills.get();
+        if (sk.skills === null) { if (!overloadSkillsAsked) { overloadSkillsAsked = true; void s.flow.loadSkills().catch(() => {}); } return null; }
+        return (sk.skills.find((x) => x.typeID === 28164)?.level ?? 0) > 0;
+      },
       healthFacts: (index) => {
         const attrs = s.store.fitting.get().shipAttributes ?? {};
         const ego = s.store.space.get().snapshot?.entities.find((e) => e.isSelf) ?? null;

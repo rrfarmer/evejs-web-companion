@@ -402,6 +402,8 @@ export class NewShipHud {
   private settingsGear: HTMLButtonElement | null = null;
   private overloadMode = false;
   private overloadHover = false;
+  /** HudLayer.IsOverloadAllowed: the pilot has Thermodynamics (null: the skills not read yet - taken as allowed). */
+  overloadAllowed: () => boolean | null = () => null;
   private readonly overloadGlyph = document.createElement("span");
   private rackHover: "Hi" | "Med" | "Lo" | null = null;
   private overload: HudOverload | null = null;
@@ -703,7 +705,11 @@ export class NewShipHud {
     ob.addEventListener("mouseenter", () => { this.overloadHover = true; });
     ob.addEventListener("mouseleave", () => { this.overloadHover = false; });
     // OverloadButton.OnClick: PlaySound(SOUND_HEAT_STATUS_SELECT) as the mode is turned on
-    ob.addEventListener("click", () => { this.overloadMode = !this.overloadMode; if (this.overloadMode) void playUiEvent("hud_heat_status_select_play"); this.syncRackButtons(); });
+    ob.addEventListener("click", () => {
+      // OnClick does nothing while the button is disabled; _SetOverloadActive keeps the mode off without the skill
+      if (this.overloadAllowed() === false) return;
+      this.overloadMode = !this.overloadMode; if (this.overloadMode) void playUiEvent("hud_heat_status_select_play"); this.syncRackButtons();
+    });
     for (const b of RACK_BUTTONS) {
       const h = hex(b.x, b.y);
       h.dataset.rack = b.rack;
@@ -1096,6 +1102,7 @@ export class NewShipHud {
     "Tooltips/Hud/Shield", "Tooltips/Hud/Armor", "Tooltips/Hud/Structure", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusValues",
     "Tooltips/Hud/CurrentSpeed", "UI/Inflight/CanNotChangeSpeedWhileWarping", "UI/Inflight/MetersPerSecond", "UI/Inflight/StopTheShip",
     "UI/Inflight/SetFullSpeed", "Tooltips/Hud/HeatStatus", "Tooltips/Hud/HeatStatusLow", "Tooltips/Hud/HeatStatusMedium", "Tooltips/Hud/HeatStatusHigh", "UI/Common/Settings",
+    "Tooltips/Hud/SkillMissingForOverheating", "UI/Inflight/OverloadRack", "UI/Inflight/StopOverloadingRack",
     ...["CapacitorFlowUnavailable", "CapStable", "CapIncreasing", "CapDecreasing", "CapRecharge", "CapDrain", "CapInjection",
       "SourceExplanation", "RechargeExplanation"].map((l) => `Tooltips/Hud/ConsumptionGauge/${l}`),
   ];
@@ -1252,6 +1259,12 @@ export class NewShipHud {
   }
   /** OverloadButton's tooltip: Heat Status in bold, then Low / Medium / High with each rack's heat (HeatStatusLow etc.), bold. */
   private showHeatTooltip(anchor: HTMLElement): void {
+    // _LoadSkillTooltip while disabled: Tooltips/Hud/SkillMissingForOverheating with the Thermodynamics link (240 wide)
+    if (this.overloadAllowed() === false) {
+      const name = "Thermodynamics"; // the skill type's name (type 28164)
+      this.showLinesTooltip(anchor, [this.wordWith?.("Tooltips/Hud/SkillMissingForOverheating", { skillLink: name }) ?? `${name} skill must be trained to overheat modules.`]);
+      return;
+    }
     const st = this.state;
     const pct = (v: number | undefined) => (typeof v === "number" ? v * 100 : 0);
     const one = (label: string, own: string, v: number) => this.wordWith?.(label, { percentage: v }) ?? `${own} ${Math.round(v)}%`;
@@ -2152,13 +2165,16 @@ export class NewShipHud {
       o.fillRect(0, 0, 32, 32);
       c.drawImage(off, 0, 0, 32, 32, x - 16, y - 16, 32, 32);
     };
+    const disabled = this.overloadAllowed() === false;
+    if (disabled && this.overloadMode) { this.overloadMode = false; this.syncRackButtons(); }
     const active = this.overloadMode;
-    const hover = this.overloadHover;
-    const glyphColour = active ? css(WHITE) : hover ? css(DANGER_RED) : css(WHITE, 0.75);
+    const hover = this.overloadHover && !disabled;
+    // _Restyle: disabled - the idle colours at DISABLED_DIM 0.3 of their alpha, no fill
+    const glyphColour = disabled ? css(WHITE, 0.75 * 0.3) : active ? css(WHITE) : hover ? css(DANGER_RED) : css(WHITE, 0.75);
     if (this.overloadGlyph.style.backgroundColor !== glyphColour) this.overloadGlyph.style.backgroundColor = glyphColour;
     if (active) tinted(fill, ox, oy, css(CHERRY_RED));
-    else tinted(inset, ox, oy, hover ? css(CHERRY_RED, 0.2) : css(WHITE, 0.2));
-    tinted(outline, ox, oy, active || hover ? css(DANGER_RED) : css(WHITE, 0.25));
+    else tinted(inset, ox, oy, disabled ? css(WHITE, 0.2 * 0.3) : hover ? css(CHERRY_RED, 0.2) : css(WHITE, 0.2));
+    tinted(outline, ox, oy, disabled ? css(WHITE, 0.25 * 0.3) : active || hover ? css(DANGER_RED) : css(WHITE, 0.25));
     // RackOverloadButtons._HandOver: each rack button MorphVector2(scale, SCALE_CLOSED 0.15 <-> 1) and FadeTo(0 <-> 1) over
     // HAND_OVER_SEC 0.15 on ANIM_SMOOTH, button i after i x 0.03 s - the same hand-over clock as the heat bars (drawHeat)
     const now = performance.now();

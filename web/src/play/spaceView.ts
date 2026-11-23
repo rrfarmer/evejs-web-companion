@@ -413,6 +413,8 @@ export interface SpaceActions {
   followLink?(url: string, text: string): void;
   /** The HUD health tooltip's figures for a pool (0 shield, 1 armor, 2 structure). */
   healthFacts?(index: number): { readonly hp: number; readonly max: number; readonly resists: readonly { readonly icon: string | null; readonly percent: number }[] } | null;
+  /** HudLayer.IsOverloadAllowed: the character has Thermodynamics at any level (null: not known yet). */
+  overloadAllowed?(): boolean | null;
   /**
    * HoldTracker.GetMyHolds (inventoryConst.GetHoldsInType): every hold the flown ship's type has, by its bay key,
    * with its capacity (the ship's bays read), for the cargo indicator's tooltip; null before it is read.
@@ -1548,6 +1550,7 @@ export class SpaceView {
       this.shipHud.onDropOnCargo = (data) => this.actions.dropOnCargo?.(data);
       this.shipHud.onSafetySelector = (at) => this.actions.safetySelector?.(at);
       this.shipHud.healthFacts = (index) => this.actions.healthFacts?.(index) ?? null;
+      this.shipHud.overloadAllowed = () => this.actions.overloadAllowed?.() ?? null;
       this.shipHud.tooltipRows = (m) => this.options.rack?.tooltip?.(m) ?? null;
       // ModuleController.ShowRange: bracketMgr.ShowModuleRange(maxRange + falloff) while a module is under the pointer
       this.shipHud.onModuleMenu = (m, x, y) => this.actions.moduleMenu?.(m.itemID, m.typeID, x, y);
