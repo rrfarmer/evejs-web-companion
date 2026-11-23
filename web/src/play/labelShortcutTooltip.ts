@@ -139,6 +139,10 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
   }
   tip.append(frame, grid);
   tip.style.display = "";
+  // PointerPanel.ShowPanel: from nothing to full over 0.05 s (ANIM_SMOOTH); a closing one stopped
+  closing = null;
+  for (const a of tip.getAnimations()) a.cancel();
+  tip.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 50, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" });
   // POINT_TOP_2: the panel below its anchor; POINT_LEFT_2: to its right
   placeTip(tip, anchor, pointer === "top" ? POINT.TOP_2 : POINT.LEFT_2);
 }
@@ -296,6 +300,9 @@ export function showSecurityStatusTooltip(anchor: HTMLElement, tagline: string, 
  * along a row of buttons swaps their panels at once. show runs then, while the anchor is still in the page.
  */
 let dueTimer: ReturnType<typeof setTimeout> | null = null;
+/** The close running (its serial), if any. */
+let closing: number | null = null;
+let closeSerial = 0;
 let panelClosedAt = -Infinity;
 export function tooltipDue(anchor: HTMLElement, show: () => void): void {
   if (dueTimer !== null) clearTimeout(dueTimer);
@@ -306,7 +313,20 @@ export function tooltipDue(anchor: HTMLElement, show: () => void): void {
 
 export function hideLabelShortcutTooltip(): void {
   if (dueTimer !== null) { clearTimeout(dueTimer); dueTimer = null; }
-  if (tip && tip.style.display !== "none") { tip.style.display = "none"; panelClosedAt = performance.now(); }
+  if (!tip || tip.style.display === "none" || closing !== null) return;
+  panelClosedAt = performance.now();
+  // FadeOutPanelAndClose (FADEOUT_FAST 0.1 s): faded out over half the time while scaled to nothing about the pointer's
+  // tip over all of it, then closed; a panel with no pointer closes at once
+  const t = tip;
+  const pointer = t.querySelector<HTMLImageElement>(":scope > img.pp-pointer");
+  if (!pointer) { t.style.display = "none"; return; }
+  for (const a of t.getAnimations()) a.cancel();
+  const token = closing = ++closeSerial;
+  t.style.transformOrigin = `${pointer.offsetLeft + pointer.offsetWidth / 2}px ${pointer.offsetTop + pointer.offsetHeight / 2}px`;
+  const ease = "cubic-bezier(0.3333, 0, 0.6667, 1)";
+  t.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 50, easing: ease, fill: "forwards" });
+  const shrink = t.animate([{ transform: "scale(1)" }, { transform: "scale(0)" }], { duration: 100, easing: ease, fill: "forwards" });
+  shrink.onfinish = () => { if (closing !== token) return; closing = null; t.style.display = "none"; for (const a of t.getAnimations()) a.cancel(); };
 }
 
 /**
