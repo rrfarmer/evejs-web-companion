@@ -2008,9 +2008,9 @@ export class Overview {
     if (fresh) document.body.append(this.tabTip);
     this.tabTip.innerHTML = `<div class="ov-icon-tip-frame"></div><div class="ov-tab-tip-grid">${rows.join("")}</div>`;
     this.tabTipFor = n;
-    const a = tab.getBoundingClientRect();
-    this.tabTip.style.left = `${Math.round(a.left)}px`;
-    this.tabTip.style.top = `${Math.round(a.bottom + 4)}px`;
+    // OverviewTab (carbonui Tab) has no GetTooltipPointer: the TooltipPanel's default_pointerDirection POINT_BOTTOM_2 - the
+    // panel over the tab, centred, its pointer down, 9 px off (UpdatePanelPosition's fallbacks where the screen's edge cuts it)
+    placePointerPanel(this.tabTip, tab.getBoundingClientRect(), "BOTTOM_2");
     if (fresh || this.tabTip.getAnimations().length) fadePanelIn(this.tabTip);
   }
   private hideTabTip(): void {
