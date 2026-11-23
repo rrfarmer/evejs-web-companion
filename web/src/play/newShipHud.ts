@@ -91,9 +91,9 @@ const HEAT_BARS = [
 ];
 const OVERLOAD_CENTRE: readonly [number, number] = [77, 0];
 const RACK_BUTTONS = [
-  { rack: "Hi" as const, family: "high" as const, x: 94, y: -29, glyph: "rack_glyph_high" },
-  { rack: "Med" as const, family: "mid" as const, x: 110, y: 0, glyph: "rack_glyph_mid" },
-  { rack: "Lo" as const, family: "low" as const, x: 94, y: 29, glyph: "rack_glyph_low" },
+  { rack: "Hi" as const, family: "high" as const, x: 94, y: -29, glyph: "rack_glyph_high", deg: 30 },
+  { rack: "Med" as const, family: "mid" as const, x: 110, y: 0, glyph: "rack_glyph_mid", deg: 90 },
+  { rack: "Lo" as const, family: "low" as const, x: 94, y: 29, glyph: "rack_glyph_low", deg: 150 },
 ];
 
 const rad = (deg: number): number => deg * Math.PI / 180;
@@ -706,7 +706,12 @@ export class NewShipHud {
       const h = hex(b.x, b.y);
       h.dataset.rack = b.rack;
       h.style.display = "none";
-      h.addEventListener("mouseenter", () => { this.rackHover = b.rack; });
+      // _RackButton.GetHint: UI/Inflight/StopOverloadingRack while the rack is overloaded, else UI/Inflight/OverloadRack
+      h.addEventListener("mouseenter", () => {
+        this.rackHover = b.rack;
+        const on = this.modules.filter((m) => m.family === b.family && m.overloadable).some((m) => m.overloaded);
+        h.title = (on ? this.word("UI/Inflight/StopOverloadingRack") : this.word("UI/Inflight/OverloadRack")) ?? (on ? "Stop Overloading Rack" : "Overload Rack");
+      });
       h.addEventListener("mouseleave", () => { if (this.rackHover === b.rack) this.rackHover = null; });
       h.addEventListener("click", () => { this.toggleRackOverload(b.rack); });
     }
@@ -2141,15 +2146,29 @@ export class NewShipHud {
       const k = openAt(i);
       if (k <= 0) continue;
       const scale = 0.15 + 0.85 * k;
+      // scaled about the hex's inner edge, the side towards the medallion (_InnerEdgeCentre)
+      const inr = (15.4 * Math.sqrt(3)) / 2;
+      const sx = b.x - Math.sin(rad(b.deg)) * inr, sy = b.y + Math.cos(rad(b.deg)) * inr;
       c.save();
       c.globalAlpha = k;
-      c.translate(b.x, b.y);
+      c.translate(sx, sy);
       c.scale(scale, scale);
-      c.translate(-b.x, -b.y);
+      c.translate(-sx, -sy);
       const overloaded = this.modules.filter((m) => m.family === b.family && m.overloadable).some((m) => m.overloaded);
       const hovered = this.rackHover === b.rack;
       tinted(fill, b.x, b.y, "rgba(0,0,0,0.8)");
       tinted(fill, b.x, b.y, css(WHITE, hovered ? 0.8 : 0.5));
+      // SetHeat: the hex fill in HEAT_COLOR (WARNING_ORANGE) clipped from the left to HEX_LEFT + HEX_SPAN x the rack's heat
+      const heat = Math.max(0, Math.min(1, this.heatShown[b.rack]));
+      const inr2 = (15.4 * Math.sqrt(3)) / 2, heatW = heat <= 0 ? 0 : Math.round(16 - inr2 + 2 * inr2 * heat);
+      if (heatW > 0) {
+        c.save();
+        c.beginPath();
+        c.rect(b.x - 16, b.y - 16, heatW, 32);
+        c.clip();
+        tinted(fill, b.x, b.y, "rgb(243, 144, 88)");
+        c.restore();
+      }
       const glyph = image(HUD(b.glyph));
       if (glyph) {
         const off = capScratch();
