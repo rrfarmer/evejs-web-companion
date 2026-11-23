@@ -16,7 +16,7 @@
   import { shortcutOf } from "../play/shortcutKeys.ts";
   import { getContext, onDestroy, onMount } from "svelte";
   import type { SpaceView } from "../play/spaceView.ts";
-  import { hideLabelShortcutTooltip, showIconValuesTooltip, showLabelShortcutTooltip } from "../play/labelShortcutTooltip.ts";
+  import { hideLabelShortcutTooltip, showDronesInSpaceTooltip, showIconValuesTooltip, showLabelShortcutTooltip } from "../play/labelShortcutTooltip.ts";
   import { canMyShipOrderDrone } from "../space/overview.ts";
   import { miningDroneIDs, orderableDroneIDs, salvageDroneIDs } from "./droneFlight.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
@@ -619,6 +619,30 @@
   // controls has no state row and is not in the window (reconnected from the ship's menu, scooped from space)
   const localDrones = $derived(($drones.inSpace ?? []).filter((d) => d.orphaned !== true));
   const outCount = $derived(localDrones.length);
+  // DroneGroupHeaderInSpace.ConstructTooltipPanel (DroneGroupHeaderInSpaceTooltipPanel): the drones in space out of the
+  // most the Drones skill allows, the skill's row and bar, the bandwidth used of the ship's
+  flow.requestWords(["UI/Inflight/Drone/MaxDronesInSpace", "UI/Inflight/Drone/BandwidthUsed"]);
+  const SKILL_BOX_COLOR: Record<string, string> = { trained: "rgba(204,204,204,1)", training: "rgba(204,204,204,0.6)", queued: "#3ea8d9",
+    untrained: "rgba(255,255,255,0.3)", "trained-omega": "rgba(252,194,7,0.8)", none: "transparent", small: "rgba(255,255,255,0.3)", "small-omega": "rgba(252,194,7,0.6)" };
+  let spaceHeadTipAt: HTMLElement | null = null;
+  async function showSpaceHeadTip(anchor: HTMLElement): Promise<void> {
+    spaceHeadTipAt = anchor;
+    const types = [...new Set(localDrones.flatMap((d) => (d.typeID === null ? [] : [d.typeID])))];
+    const [states] = await Promise.all([flow.skillCatalogueStates([3436]).catch(() => null),
+      ...types.filter((t) => !bandwidth.has(t)).map((t) => flow.typeDogmaFacts(t).then((f) => { bandwidth.set(t, f?.attributes.find((a) => a[0] === 1272)?.[1] ?? null); }).catch(() => {}))]);
+    if (spaceHeadTipAt !== anchor) return;
+    const used = localDrones.reduce((sum, d) => sum + (d.typeID === null ? 0 : bandwidth.get(d.typeID) ?? 0), 0);
+    const total = $drones.limits.droneBandwidth ?? 0;
+    showDronesInSpaceTooltip(anchor, {
+      maxLine: plainText(formatTemplate(headerWord("UI/Inflight/Drone/MaxDronesInSpace", "{numDrones} out of maximum {numMax} drones in space as allowed by the Drones skill"), { numDrones: outCount, numMax: maxActive ?? 0 }, { nameOf: () => "" })),
+      skillName: typeName(3436, "Drones"),
+      skillBoxes: (states?.get(3436)?.boxes ?? []).map((b) => ({ color: SKILL_BOX_COLOR[b.box] ?? "transparent", outline: b.partial || b.box === "training" })),
+      bandwidthIcon: clientTexture("res:/ui/texture/icons/56_64_5.png"),
+      bandwidthLabel: headerWord("UI/Inflight/Drone/BandwidthUsed", "Bandwidth used"),
+      // (int(used), attributeFormat.GetFormatAndValue of the total: 50 Mbit/sec)
+      bandwidthValue: `${Math.trunc(used)}/${Number(total.toFixed(2))} Mbit/sec`,
+    });
+  }
   const maxActive = $derived($drones.limits.maxActiveDrones);
 
   const allDroneIDs = $derived(orderableDroneIDs($drones.inSpace, snapshot?.entities ?? null, ship?.itemID ?? null));
@@ -992,6 +1016,7 @@
 
   <div class="group" class:drop={dropOn === "space"} role="list" tabindex="-1" onkeydown={(e) => listKey("space", e)} ondragover={dragOver("space")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("space", null, e)}>
     <div class="sec" data-drone-head="space" role="button" tabindex="-1" onclick={() => { if (headHeld) { headHeld = false; return; } spaceOpen = !spaceOpen; if (!spaceOpen && !bayOpen) bayOpen = true; }} onkeydown={() => {}}
+      onmouseenter={(e) => void showSpaceHeadTip(e.currentTarget as HTMLElement)} onmouseleave={() => { spaceHeadTipAt = null; hideLabelShortcutTooltip(); }}
       oncontextmenu={(e) => openMenuIfAny(e, [...deleteMenu(), ...(allDroneIDs.length ? spaceEntries(allDroneIDs, false) : [])])}>
       <span class="caret" style:mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`} style:-webkit-mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`}></span><span class="lbl">{headerWord(HEADER_WORDS.space, "Drones in Space")} ({maxActive === null ? outCount : `${outCount}/${maxActive}`})</span>
       <span class="commands">

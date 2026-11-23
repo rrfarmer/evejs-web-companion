@@ -97,3 +97,57 @@ export function showItemTooltip(anchor: HTMLElement, head: string, dimLines: rea
   tip.style.left = `${Math.round(Math.max(4, a.left + a.width / 2 - tip.offsetWidth / 2))}px`;
   tip.style.top = `${Math.round(Math.max(4, a.top - 12 - tip.offsetHeight))}px`;
 }
+
+/**
+ * DroneGroupHeaderInSpaceTooltipPanel (droneGroupHeader.py, 3698585): MaxDronesInSpace over both columns (wrapWidth 250),
+ * the Drones skill's SkillEntry (showLevel off: the skill's name, then its SkillBar), an 8 px spacer, and AddIconLabel of
+ * the drone bandwidth attribute's icon with "<LED_GREY>Bandwidth used</color> used/total"; pointed from the right
+ * (POINT_RIGHT_2: the panel to its anchor's left), 16 px margin.
+ */
+export function showDronesInSpaceTooltip(anchor: HTMLElement, rows: {
+  readonly maxLine: string;
+  readonly skillName: string;
+  readonly skillBoxes: readonly { readonly color: string; readonly outline: boolean }[];
+  readonly bandwidthIcon: string;
+  readonly bandwidthLabel: string;
+  readonly bandwidthValue: string;
+}): void {
+  showLabelShortcutTooltip(anchor, "", "", [], "top");
+  if (!tip) return;
+  const grid = tip.lastElementChild as HTMLElement | null;
+  if (!grid) return;
+  grid.replaceChildren();
+  Object.assign(grid.style, { gridTemplateColumns: "auto auto", columnGap: "0", rowGap: "0" });
+  const max = document.createElement("div");
+  max.textContent = rows.maxLine;
+  Object.assign(max.style, { gridColumn: "1 / 3", whiteSpace: "normal", maxWidth: "250px" });
+  const name = document.createElement("div");
+  name.textContent = rows.skillName;
+  Object.assign(name.style, { padding: "3px 0 3px 10px" });
+  const bar = document.createElement("div");
+  Object.assign(bar.style, { display: "inline-flex", gap: "2px", padding: "8px 8px 8px 24px", justifySelf: "end" });
+  for (const box of rows.skillBoxes) {
+    const b = document.createElement("span");
+    Object.assign(b.style, { width: "8px", height: "8px", boxSizing: "border-box", background: box.color, outline: box.outline ? "1px solid rgba(204,204,204,1)" : "" });
+    bar.append(b);
+  }
+  const spacer = document.createElement("div");
+  Object.assign(spacer.style, { gridColumn: "1 / 3", height: "8px" });
+  const bw = document.createElement("div");
+  // AddIconLabel: the 32 px icon (cell padding -3, 0, 7, 0), the label bold (cell padding 0, 0, 7, 0)
+  Object.assign(bw.style, { gridColumn: "1 / 3", display: "flex", alignItems: "center", gap: "7px", fontWeight: "bold" });
+  const icon = document.createElement("img");
+  icon.src = rows.bandwidthIcon;
+  icon.alt = "";
+  Object.assign(icon.style, { width: "32px", height: "32px", marginLeft: "-3px" });
+  const label = document.createElement("span");
+  label.textContent = rows.bandwidthLabel;
+  label.style.color = "#8A8A8A";
+  const value = document.createElement("span");
+  value.append(label, document.createTextNode(` ${rows.bandwidthValue}`));
+  bw.append(icon, value);
+  grid.append(max, name, bar, spacer, bw);
+  const a = anchor.getBoundingClientRect();
+  tip.style.left = `${Math.round(Math.max(4, a.left - 12 - tip.offsetWidth))}px`;
+  tip.style.top = `${Math.round(a.top + a.height / 2 - tip.offsetHeight / 2)}px`;
+}
