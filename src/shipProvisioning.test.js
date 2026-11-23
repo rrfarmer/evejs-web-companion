@@ -5,7 +5,7 @@ const { createReplenishment } = require("./replenishment");
 const { buildContract } = require("./provisioningContracts");
 const { fittingFingerprint } = require("./pilotTrainingFittings");
 const data = { getType: id => ({ 1: { categoryID: 6, groupID: 25 }, 2: { categoryID: 7 }, 3: { categoryID: 8 },
-  4: { categoryID: 18 }, 99: { categoryID: 6, groupID: 25 } })[id], getTypeName: id => `Type ${id}` };
+  4: { categoryID: 18 }, 5: { categoryID: 7 }, 99: { categoryID: 6, groupID: 25 } })[id], getTypeName: id => `Type ${id}` };
 const clone = x => structuredClone(x);
 function fixture(t, corp = false) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wc-ship-"));
@@ -119,10 +119,13 @@ test("partial supplies finish with equipment VERIFIED / LOW", async t => {
   assert.equal(result.result.equipment, "VERIFIED"); assert.equal(result.result.supplies, "LOW");
   assert.equal(result.result.targets[0].current, 3); assert.equal(result.result.targets[0].deficit, 2);
 });
-test("rig requirements refuse new-hull Apply visibly", async t => {
+test("missing rig stock blocks Review before any new-hull mutation", async t => {
   const f = fixture(t); const c = f.world.contract;
-  c.structural.push([92, 2, 1]); c.equipment.push([92, 2, 1]);
-  const review = await f.review(); assert.equal(review.canApply, false); assert.match(review.plan.unsupported.join(" "), /rigs/);
+  c.structural.push([92, 5, 1]); c.equipment.push([92, 5, 1]);
+  const review = await f.review();
+  assert.equal(review.canApply, false);
+  assert.deepEqual(review.plan.unsupported, []);
+  assert.match(review.plan.shortages.join(" "), /Required equipment Type 5/);
   await assert.rejects(f.apply(review), { code: "REVIEW_REQUIRED" }); assert.equal(f.world.dispatched.length, 0);
 });
 test("late result from a changed generation remains fenced until readonly reconciliation", async t => {
