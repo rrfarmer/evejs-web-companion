@@ -27,8 +27,11 @@ function correctionFor(flag: PointFlag): readonly PointFlag[] {
   if (y === 0 && x >= 1 && x <= 3) return [...TOPGROUP, ...LEFTGROUP, ...BOTTOMGROUP, ...RIGHTGROUP];
   return [];
 }
-/** The page's gap between the anchor and its panel (the client's pointerSize, with the frame's outset). */
-const POINTER_GAP = 12;
+/**
+ * PointerPanel.pointerSize: the panel 9 px from its anchor (measured on the live client: a TooltipPanel at a 40 px anchor
+ * by UpdatePanelPosition - POINT_BOTTOM_2 9 above it, POINT_LEFT_2 9 to its right; its pointer sprite 16 out, centred).
+ */
+const POINTER_GAP = 9;
 /**
  * pointerPanel.AlignPointPanelToInterest: the panel beside its anchor by the flag - above (y 4), below (y 0) or centred
  * on the pointer (FrameWithPointer.UpdatePointerPosition: 12 in from an end, or the middle), and the same across.
@@ -80,7 +83,7 @@ function placeBeside(panel: HTMLElement, a: DOMRect, flag: PointFlag): void {
 /**
  * FrameWithPointer.UpdatePointerPosition: the 24 px pointer sprite of the flag's side (pointer_up/down/left/right_02 of
  * GeneralFrameWithPointerSkin) at the panel's edge toward its anchor, at the pointer's place along it (12 in from an end,
- * or the middle) - 16 px outside the edge as the page's other framed tooltips draw it; none for a corner flag.
+ * or the middle) - 16 px outside the edge (measured on the live client); none for a corner flag.
  */
 function drawPointer(panel: HTMLElement, [fx, fy]: PointFlag): void {
   let img = panel.querySelector<HTMLImageElement>(":scope > img.pp-pointer");
