@@ -224,6 +224,18 @@
     }, (id, x, y) => { tipOff(); headHeld = true; openHeaderRadial(id === 1 ? "bay" : "space", x, y); }, false) : () => {};
     return () => offHead();
   });
+  // navigation.OnDragEnter (bay drones over space): droneSignals.on_in_space_entry_drag_enter -> the space header's
+  // ShowDragHighlight until the drag leaves (OnGlobalDragExit); navigation.OnDropData -> on_drones_dropped_in_space -> Blink
+  onMount(() => {
+    const enter = () => { if (dragging?.section === "bay") dropOn = "space"; };
+    const dropped = () => { dropOn = null; blinkHead("space"); };
+    // the drag over wherever it ended (UI_DRAGEXIT): HideDragHighlight
+    const ended = () => { dragging = null; dropOn = null; };
+    addEventListener("dragend", ended);
+    addEventListener("evejs:drones-space-drag-enter", enter);
+    addEventListener("evejs:drones-dropped-in-space", dropped);
+    return () => { removeEventListener("evejs:drones-space-drag-enter", enter); removeEventListener("evejs:drones-dropped-in-space", dropped); removeEventListener("dragend", ended); };
+  });
   onMount(() => {
     document.body.appendChild(radial.root);
     radial.root.style.zIndex = "100000";

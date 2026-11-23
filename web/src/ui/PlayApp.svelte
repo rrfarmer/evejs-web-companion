@@ -3099,13 +3099,18 @@
          items from the active ship deploy where their type has the deploy component (deploy.DeployAction) -->
     <div class="fly-space" class:planet-covered={planetInMode !== null} bind:this={spaceHost} role="application"
       ondragover={(e) => { if (e.dataTransfer?.types.includes(DRONE_DRAG_TYPE) || e.dataTransfer?.types.includes(INV_ITEMS_DRAG_TYPE)) e.preventDefault(); }}
+      ondragenter={(e) => { if (e.dataTransfer?.types.includes(DRONE_DRAG_TYPE)) dispatchEvent(new CustomEvent("evejs:drones-space-drag-enter")); }}
       ondrop={(e) => {
         if (!session) return;
         const raw = e.dataTransfer?.getData(DRONE_DRAG_TYPE);
         if (raw) {
           e.preventDefault();
           const d = JSON.parse(raw) as DroneDragPayload;
-          if (d.section === "bay" && d.ids.length) void session.flow.launchDrones(d.ids).catch(() => {});
+          if (d.section === "bay" && d.ids.length) {
+            void session.flow.launchDrones(d.ids).catch(() => {});
+            // droneSignals.on_drones_dropped_in_space: the drones window's Drones in Space header blinks
+            dispatchEvent(new CustomEvent("evejs:drones-dropped-in-space"));
+          }
           return;
         }
         const items = e.dataTransfer?.getData(INV_ITEMS_DRAG_TYPE);
