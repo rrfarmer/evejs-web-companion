@@ -154,6 +154,8 @@ interface Snapshot {
     shieldRatio?: number | null; armorRatio?: number | null; hullRatio?: number | null; capacitorRatio?: number | null;
   }) | null;
 }
+/** Where a radial menu was opened from, for its indicator: a bracket (or space), an overview window's entry, or neither. */
+type RadialFrom = "bracket" | Overview | null;
 type MiningOverlayState = Pick<MiningState, "survey" | "surveyProgress" | "surveyAtMs" | "holds">;
 
 /**
@@ -1755,7 +1757,12 @@ export class SpaceView {
     // a held left button opens the radial menu; a right-click the context menu (menusvc's, as the client's right-click)
     // CmdOpenRadialMenu held: the radial menu at the press, with no delay (radialMenuSvc's noDelay)
     const radialNow = () => this.combat?.cmd === "CmdOpenRadialMenu";
-    const openRadial = (id: number, x: number, y: number, button: number) => (button === 2 ? this.openContext(id, x, y) : this.openRadial(id, x, y, button));
+    const openRadialFrom = (from: () => RadialFrom) => (id: number, x: number, y: number, button: number) => (button === 2 ? this.openContext(id, x, y) : this.openRadial(id, x, y, button, from()));
+    const openRadial = openRadialFrom(() => null);
+    // RadialMenu.UpdateIndicator: the clicked object's ShowRadialMenuIndicator - a bracket's (navigation's, for space,
+    // is the bracket's too) or an overview entry's
+    const openFromBracket = openRadialFrom(() => "bracket");
+    const openFromRow = (el: HTMLElement) => openRadialFrom(() => [this.overview, ...this.extraOverviews].find((o) => o.window.body === el) ?? null);
     const rowID = (_x: number, _y: number, e: Event) => Number((e.target as HTMLElement).closest?.("[data-id]")?.getAttribute("data-id")) || null;
     // The solar system map (CmdToggleSolarSystemMap, F9; the directional scanner's map button), over the park's celestials.
     this.systemMap = new SolarSystemMapWindow({
@@ -1892,9 +1899,9 @@ export class SpaceView {
     addEventListener("blur", this.onBlur);
     addEventListener("pointerdown", this.onPointer, true);
     this.unhold.push(
-      holdToOpen(this.brackets, rowID, openRadial, true, radialNow),
-      holdToOpen(this.overview.window.body, rowID, openRadial, true, radialNow),
-      holdToOpen(this.renderer.domElement, (x, y) => this.pickAt(x, y), openRadial, true, radialNow),
+      holdToOpen(this.brackets, rowID, openFromBracket, true, radialNow),
+      holdToOpen(this.overview.window.body, rowID, openFromRow(this.overview.window.body), true, radialNow),
+      holdToOpen(this.renderer.domElement, (x, y) => this.pickAt(x, y), openFromBracket, true, radialNow),
       // TargetInBar.OnTargetMouseDown: a locked target's own radial (TryExpandActionMenu) - not off a weapon icon under it;
       // its right click is its own CelestialMenu
       holdToOpen(this.targetBar.root, (_x, _y, e) => {
@@ -1903,7 +1910,7 @@ export class SpaceView {
         return Number(el.closest?.<HTMLElement>("[data-item-id]")?.dataset.itemId) || null;
       }, openRadial, false, radialNow),
     );
-    this.holdOverviewRow = (el) => holdToOpen(el, rowID, openRadial, true, radialNow);
+    this.holdOverviewRow = (el) => holdToOpen(el, rowID, openFromRow(el), true, radialNow);
     // the overview windows the tabs were moved to before, opened again (OverviewWindow per windowInstanceID)
     for (const id of this.overview.storedWindowIDs()) this.addOverviewWindow(this.makeOverview!, id);
     // Brackets drawn before the client's tables are here are drawn again with the client's icons.
@@ -3806,7 +3813,21 @@ export class SpaceView {
    * at the top, then orbit, more, keep at range, lock, approach, show info and warp to, clockwise; for the pilot's own
    * ship, stop, the default orbit, more, the default keep at range, its cargo hold, show info and the default warp.
    */
-  private openRadial(id: number, x: number, y: number, button: number): void {
+  /** The object the open radial menu marks (RadialMenu.clickedObject's radial menu indicator). */
+  private radialMarked: { id: number; from: Exclude<RadialFrom, null> } | null = null;
+
+  private markRadial(mark: { id: number; from: Exclude<RadialFrom, null> } | null): void {
+    const old = this.radialMarked;
+    if (old?.from === "bracket") this.bracketEls.get(old.id)?.classList.remove("radial-marked");
+    else if (old) old.from.setRadialMarked(null);
+    this.radialMarked = mark;
+    // InSpaceBracket.ShowRadialMenuIndicator: radialMenuSprite, bracketHilite.png 20 x 20 centred under the icon, (0.5, 0.5,
+    // 0.5, 0.5); OverviewScrollEntry's: a FillThemeColored COLORTYPE_UIHILIGHT behind the entry
+    if (mark?.from === "bracket") this.bracketEls.get(mark.id)?.classList.add("radial-marked");
+    else if (mark) mark.from.setRadialMarked(mark.id);
+  }
+
+  private openRadial(id: number, x: number, y: number, button: number, from: RadialFrom = null): void {
     const e = this.snapshot?.entities.find((each) => each.itemID === id) ?? null;
     if (!e) return;
     this.select(e.isSelf ? this.selected : id);
@@ -3866,7 +3887,10 @@ export class SpaceView {
         { label: "Warp To Within", icon: icon(18), ranges: WARP_RANGES, defaultRange: 0, disabled: dist < 150_000, run: (r) => run("Warp To", () => this.actions.warpTo(id, r))() },
       ];
     }
-    this.radial.open(x, y, this.nameOf(e), options, button);
+    this.markRadial(null);
+    // RadialMenu._OnClose: the clicked object's HideRadialMenuIndicator
+    this.radial.open(x, y, this.nameOf(e), options, button, () => this.markRadial(null));
+    if (from) this.markRadial({ id, from });
   }
 
   /** A Sov Hub's entries (typeInfrastructureHub 32458): Deposit Reagents within transfer range, the config window for its owner's station manager. */

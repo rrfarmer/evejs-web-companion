@@ -1902,6 +1902,14 @@ export class Overview {
 
   setSelected(itemID: number | null): void { this.selected = itemID; this.lastDraw = 0; }
 
+  /** OverviewScrollEntry.ShowRadialMenuIndicator / HideRadialMenuIndicator: the entry a radial menu was opened from. */
+  private radialMarked: number | null = null;
+  setRadialMarked(itemID: number | null): void {
+    this.radialMarked = itemID;
+    for (const tr of this.tbody.querySelectorAll<HTMLElement>("tr")) tr.classList.toggle("radial-marked", Number(tr.dataset.id) === itemID);
+    this.lastDraw = 0;
+  }
+
   private hovered: number | null = null;
   /** OverviewScrollEntry.OnStateChange(mouseOver): the row of the thing under the pointer, here or in space, lit (Hilite). */
   setHovered(itemID: number | null): void {
@@ -2173,7 +2181,7 @@ export class Overview {
           default: return `<td>${esc(words(e, c.id.toLowerCase() as keyof OverviewAffiliation))}</td>`;
         }
       };
-      html.push(`<tr data-id="${e.itemID}" class="${this.leaving.has(e.itemID) ? "ov-leaving " : ""}${e.itemID === this.selected ? "sel" : ""}${e.itemID === this.hovered ? " hover" : ""}${flags.background ? ` flagged${flags.background.backgroundBlink ? " flag-blink" : ""}` : ""}"${bg}>${cols.map(cell).join("")}</tr>`);
+      html.push(`<tr data-id="${e.itemID}" class="${this.leaving.has(e.itemID) ? "ov-leaving " : ""}${e.itemID === this.selected ? "sel" : ""}${e.itemID === this.hovered ? " hover" : ""}${e.itemID === this.radialMarked ? " radial-marked" : ""}${flags.background ? ` flagged${flags.background.backgroundBlink ? " flag-blink" : ""}` : ""}"${bg}>${cols.map(cell).join("")}</tr>`);
     }
     // CheckShowNoContentHint: with no nodes, ShowHint('<center>' + UI/Common/NothingFound + '</center>') - its container
     // faded in (0 -> 1, 0.3 s) when the text is new; with nodes, hidden
