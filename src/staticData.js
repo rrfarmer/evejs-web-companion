@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const config = require("./config");
+const { createEffectiveCatalog } = require("./effectiveCatalog");
 
 // Resolved in config.js, which defaults both to the native
 // <eveRoot>/_local/... layout and lets EVEJS_GAMESTORE_DATA_DIR /
@@ -86,11 +87,13 @@ function buildJsonlIndex(fileName, idField = "_key") {
   return index;
 }
 
+// Static file indexes are shared. Each BFF supplies its own login additions.
+function createStaticData(effectiveCatalog = createEffectiveCatalog()) {
 function getType(typeID) {
   const numericTypeID = Number(typeID) || 0;
   return (
     buildIndex("itemTypes", "types", "typeID").get(numericTypeID) ||
-    getSkillType(numericTypeID) ||
+    getSkillType(numericTypeID) || effectiveCatalog.getType(numericTypeID) ||
     null
   );
 }
@@ -529,7 +532,11 @@ function getTypeIconUrl(typeID, size = 64, variation = "icon") {
 }
 
 function getSkillType(typeID) {
-  return buildIndex("skillTypes", "skills", "typeID").get(Number(typeID) || 0) || null;
+  const id = Number(typeID) || 0;
+  const stock = buildIndex("skillTypes", "skills", "typeID").get(id);
+  if (stock) return stock;
+  const extra = effectiveCatalog.getType(id);
+  return extra?.categoryID === CATEGORY_SKILL ? extra : null;
 }
 
 /** Every skill type: its type, name, group and group's name, and whether it is published. */
@@ -562,7 +569,8 @@ function buildTypeDogmaIndex() {
 }
 
 function getTypeDogma(typeID) {
-  return buildTypeDogmaIndex().get(Number(typeID) || 0) || null;
+  const id = Number(typeID) || 0;
+  return buildTypeDogmaIndex().get(id) || effectiveCatalog.getDogma(id) || null;
 }
 
 /**
@@ -574,7 +582,7 @@ function getTypeDogma(typeID) {
 function getEffect(effectID) {
   const cacheKey = "typeDogma:effectTypesByID";
   if (!caches.has(cacheKey)) caches.set(cacheKey, readStaticTable("typeDogma").effectTypesByID || {});
-  return caches.get(cacheKey)[String(Number(effectID) || 0)] || null;
+  return caches.get(cacheKey)[String(Number(effectID) || 0)] || effectiveCatalog.getEffect(effectID) || null;
 }
 
 // dogmaEffects: moduleBonusAfterburner / moduleBonusMicrowarpdrive. The two
@@ -1597,6 +1605,17 @@ const MARKET_FIND_DEFAULT_LIMIT = 25;
 const MARKET_FIND_MAX_LIMIT = 100;
 const MARKET_FIND_MIN_QUERY = 2;
 
+function* marketTypes() {
+  const base = buildIndex("itemTypes", "types", "typeID");
+  const added = effectiveCatalog.listTypes();
+  if (!added.length) {
+    yield* base.values();
+    return;
+  }
+  yield* base.values();
+  for (const type of added) if (!base.has(type.typeID)) yield type;
+}
+
 function findMarketTypes(filters = {}) {
   const q = filters.q === undefined || filters.q === null ? "" : String(filters.q).trim();
   const requestedLimit = Number(filters.limit);
@@ -1609,7 +1628,7 @@ function findMarketTypes(filters = {}) {
 
   const needle = q.toLowerCase();
   const scored = [];
-  for (const entry of buildIndex("itemTypes", "types", "typeID").values()) {
+  for (const entry of marketTypes()) {
     if (!entry || entry.published !== true) {
       continue;
     }
@@ -1783,7 +1802,8 @@ function getTypeUnitEstimatedPrice(typeID) {
 function getOreValuePerM3(typeID) {
   const numericTypeID = Number(typeID) || 0;
   const cacheKey = `oreValuePerM3:${numericTypeID}`;
-  if (caches.has(cacheKey)) {
+  const runtime = effectiveCatalog.getType(numericTypeID);
+  if (!runtime && caches.has(cacheKey)) {
     return caches.get(cacheKey);
   }
   const entry = getType(numericTypeID);
@@ -1791,7 +1811,7 @@ function getOreValuePerM3(typeID) {
   const unitPrice = getTypeUnitEstimatedPrice(numericTypeID);
   const value =
     unitPrice === null || !Number.isFinite(volume) || volume <= 0 ? null : unitPrice / volume;
-  caches.set(cacheKey, value);
+  if (!runtime) caches.set(cacheKey, value);
   return value;
 }
 
@@ -2358,7 +2378,7 @@ function getDogmaUnitDisplayName(unitID) {
   return row && row.displayName && typeof row.displayName.en === "string" ? row.displayName.en : "";
 }
 
-module.exports = {
+return {
   buildJsonlIndex,
   getDbuffCollection,
   getDogmaUnitDisplayName,
@@ -2457,3 +2477,6 @@ module.exports = {
   listAncestries,
   normalizeIconRequest,
 };
+}
+
+module.exports = { ...createStaticData(), createStaticData };

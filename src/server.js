@@ -10,6 +10,7 @@ const eveStore = require("./eveStore");
 const eveGatewayClient = require("./eveGatewayClient");
 const webAuth = require("./webAuth");
 const staticDataModule = require("./staticData");
+const { createEffectiveCatalog } = require("./effectiveCatalog");
 const { createServerSiteNames } = require("./serverSiteNames");
 const { createClientWords } = require("./clientData/clientWords");
 const { createClientTextures } = require("./clientData/clientTextures");
@@ -28,7 +29,7 @@ const { createFactorySessions } = require("./factorySessions");
 const { createReplenishment } = require("./replenishment");
 const { createPilotMutationFence } = require("./pilotMutationFence");
 const { createPilotTransport, isGamePortHandle, pilotTransportSetting } = require("./pilotTransport");
-const { createGamePortPilots } = require("./gamePort/pilots");
+const pilotPort = require("./gamePort/pilots");
 const { createEwarTypes } = require("./gamePort/ewarTypes");
 const { createGodmaEffectData } = require("./gamePort/godmaEffectData");
 const { createGodmaAttributeData } = require("./gamePort/godmaAttributeData");
@@ -163,6 +164,8 @@ function sendBotScriptError(res, error, next) {
 }
 
 function createApp(options = {}) {
+const effectiveCatalog = options.effectiveCatalog || createEffectiveCatalog();
+const staticData = options.staticData || staticDataModule.createStaticData(effectiveCatalog);
 const app = express();
 const store = options.eveStore || eveStore;
 let replenishment;
@@ -220,7 +223,9 @@ const nativePreferencesProvider = nativeClientOn ? createClientPreferencesProvid
 const gamePortPilots = options.gamePortPilots !== undefined
   ? options.gamePortPilots
   : someoneOnGamePort && !options.eveGatewayClient
-    ? createGamePortPilots({
+    ? pilotPort.createGamePortPilots({
+      ...pilotPort.pilotTypeLookups(() => staticData),
+      onLoginProgram: effectiveCatalog.observeLogin,
       // "Released" is said once the server itself has the character offline.
       isOnline: async (accountID, characterID) => (await accountGateway.getCharacterStatus(accountID, characterID))?.online,
       // Each pilot's public gateway notices, on the connection its gateway requests go on (gamePort/publicGateway.js).
@@ -370,7 +375,6 @@ const trackedPilotTransport = journaledPilotTransport(createPilotTransport({
 }), bridgeSessionJournal);
 const gateway = mutationFence.wrap(trackedPilotTransport);
 const auth = options.webAuth || webAuth;
-const staticData = options.staticData || staticDataModule;
 // The retail client's own text for the labels the server sends, read from the
 // player's installed client when there is one (src/clientData/clientWords.js).
 const clientWords = options.clientWords || createClientWords({
@@ -385,14 +389,17 @@ const serverSiteNames = options.serverSiteNames || createServerSiteNames({
 });
 // The retail client's built data, read by the client's own loaders from the
 // same install (src/clientData/clientBuiltData.js).
-const clientBuiltData = options.clientBuiltData || createClientBuiltData({
+const clientDataSource = options.clientBuiltData || createClientBuiltData({
   clientRoot: config.clientRoot,
   python: config.clientPython,
   onError: (error) => console.warn(`[client-data] a table of the client's built data could not be read: ${error && error.message}`),
 });
+const clientBuiltData = effectiveCatalog.withEffectiveCatalog(clientDataSource);
 // Where there is no install, the tables the dogma-types route reads, from CCP's SDE of the same build
 // (src/clientData/sdeBuiltData.js; docs/native-layer-optional-plan.md, phase 2). With one, the client's own are read.
-const sdeBuiltData = options.sdeBuiltData || createSdeBuiltData({ jsonl: staticDataModule.buildJsonlIndex });
+const sdeBuiltData = effectiveCatalog.withEffectiveCatalog(
+  options.sdeBuiltData || createSdeBuiltData({ jsonl: staticDataModule.buildJsonlIndex }),
+);
 const dogmaBuiltData = () => (typeof clientBuiltData.available === "function" && !clientBuiltData.available() ? sdeBuiltData : clientBuiltData);
 // The retail client's own constants, read by running its code from the same
 // install (src/clientData/clientConstants.js).
@@ -13774,15 +13781,25 @@ app.get("/api/client-data/required-skills", requireAuth, async (req, res, next) 
       const typeID = Number(part);
       if (Number.isSafeInteger(typeID) && typeID > 0 && !asked.includes(typeID)) asked.push(typeID);
     }
-    const table = await clientBuiltData.table("requiredSkillsForTypes");
-    const required = {};
-    const order = {};
+    const ids = asked.slice(0, 50);
+    const stock = await clientDataSource.table("requiredSkillsForTypes");
+    const runtime = id => effectiveCatalog.getType(id) && !staticDataModule.getType(id);
+    const hasRuntime = ids.some(runtime);
+    // Only requests for documented runtime additions may use the SDE to resolve
+    // their skill dependencies when client data is unavailable.
+    const table = hasRuntime && (stock || ids.every(runtime))
+      ? await (stock ? clientBuiltData : sdeBuiltData).table("requiredSkillsForTypes") : stock;
+    const required = {}, order = {}, unknown = new Set();
     const walk = (typeID) => {
-      if (Object.prototype.hasOwnProperty.call(required, typeID)) return;
-      const row = table && Array.isArray(table[typeID]) ? table[typeID] : [];
+      if (Object.hasOwn(required, typeID) || unknown.has(typeID)) return;
+      const row = table?.[typeID];
+      if (hasRuntime && !Array.isArray(row) && (runtime(typeID) || !staticData.getType(typeID))) {
+        unknown.add(typeID);
+        return;
+      }
       const skills = {};
       const inOrder = [];
-      for (const [skillID, level] of row) {
+      for (const [skillID, level] of row ?? []) {
         const skill = Number(skillID);
         const atLevel = Number(level);
         if (Number.isSafeInteger(skill) && skill > 0 && Number.isSafeInteger(atLevel)) {
@@ -13794,8 +13811,9 @@ app.get("/api/client-data/required-skills", requireAuth, async (req, res, next) 
       order[typeID] = inOrder;
       for (const [skill] of inOrder) walk(skill);
     };
-    if (table) for (const typeID of asked.slice(0, 50)) walk(typeID);
-    res.json({ ok: true, available: Boolean(table), required, order });
+    if (table) for (const id of ids) walk(id);
+    res.json({ ok: true, available: Boolean(table) && !unknown.size, required, order,
+      ...(unknown.size ? { unknownTypeIDs: [...unknown] } : {}) });
   } catch (error) {
     next(error);
   }
@@ -14199,8 +14217,9 @@ app.get("/api/client-data/type-attributes", requireAuth, async (req, res, next) 
         if (record && record.unitID === 119 && value !== null && Number.isSafeInteger(Math.trunc(value))) keep(Math.trunc(value));
       }
       const groupID = whole(type.groupID);
-      const categoryID = groupID !== null && groupCategories && groupCategories[String(groupID)] !== undefined ? whole(groupCategories[String(groupID)]) : null;
+      const categoryID = whole(type.effectiveSource ? type.categoryID : groupCategories?.[groupID]);
       types[typeID] = {
+        ...(type.effectiveSource ? { source: type.effectiveSource } : {}),
         attributes: rows,
         groupID,
         categoryID,
@@ -14333,6 +14352,7 @@ app.get("/api/client-data/dogma-types", requireAuth, async (req, res, next) => {
         else if (category === 11 && (name === "fitsToShipType" || name.startsWith("canFitShipType"))) fitsShipTypes.push(value);
       }
       types[typeID] = {
+        ...(type.effectiveSource ? { source: type.effectiveSource } : {}),
         attributes: rows,
         effects,
         defaultEffectID,
@@ -14341,7 +14361,7 @@ app.get("/api/client-data/dogma-types", requireAuth, async (req, res, next) => {
         fitsShipTypes,
         chargeGroups,
         groupID,
-        categoryID: groupID !== null && groupCategories && groupCategories[String(groupID)] !== undefined ? whole(groupCategories[String(groupID)]) : null,
+        categoryID: whole(type.effectiveSource ? type.categoryID : groupCategories?.[groupID]),
         requiredSkills: required.map(([skillID]) => whole(skillID)).filter((skillID) => skillID !== null && skillID > 0),
         // evetypes.IsPublished.
         published: type.published === undefined || type.published === null ? null : Boolean(type.published),
@@ -14500,7 +14520,7 @@ app.get("/api/client-data/type-meta", requireAuth, async (req, res, next) => {
     const [typeRows, metaGroupNames, groupCategories] = await Promise.all([
       clientBuiltData.rows("types", wanted), clientBuiltData.table("metaGroupNameIDs"), clientBuiltData.table("groupCategories"),
     ]);
-    if (!typeRows || !metaGroupNames) {
+    if (!typeRows || (!metaGroupNames && !wanted.every(id => typeRows[id]?.effectiveSource))) {
       res.json({ ok: true, available: false, types: {}, metaGroupNameIDs: {} });
       return;
     }
@@ -14518,12 +14538,12 @@ app.get("/api/client-data/type-meta", requireAuth, async (req, res, next) => {
           // evetypes.GetDescriptionID: the message the type's description is (GetDescription words it).
           descriptionID: whole(type.descriptionID),
           groupID: whole(type.groupID),
-          categoryID: whole(type.groupID) !== null && groupCategories && groupCategories[String(type.groupID)] !== undefined ? whole(groupCategories[String(type.groupID)]) : null,
+          categoryID: whole(type.effectiveSource ? type.categoryID : groupCategories?.[whole(type.groupID)]),
         }
         : null;
     }
     const metaGroupNameIDs = {};
-    for (const [metaGroupID, nameID] of Object.entries(metaGroupNames)) metaGroupNameIDs[metaGroupID] = whole(nameID);
+    for (const [metaGroupID, nameID] of Object.entries(metaGroupNames ?? {})) metaGroupNameIDs[metaGroupID] = whole(nameID);
     res.json({ ok: true, available: true, types, metaGroupNameIDs });
   } catch (error) {
     next(error);
