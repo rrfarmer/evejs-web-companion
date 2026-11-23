@@ -435,7 +435,7 @@ export class NewShipHud {
   /** The open tooltip's rows as last drawn: drawn again only when they change. */
   private tipKey = "";
   private onModule: ((m: HudModule) => void) | null = null;
-  private damageFlash: { level: number; until: number; period: number } | null = null;
+  private damageFlash: { level: number; start: number; until: number; period: number } | null = null;
   private capFlashUntil = 0;
   private frame = 0;
   private lastFrame = performance.now();
@@ -1529,9 +1529,12 @@ export class NewShipHud {
     this.tooltip.remove();
   }
 
-  /** shipAlertController: segments 0..level flash red, each over its level's period (shield 2 s, armor 1 s, hull 0.6 s). */
+  /** shipAlertController: segments 0..level flash red, each once over its level's period (shield 2 s, armor 1 s, hull 0.6 s). */
   flashDamage(level: number, duration: number): void {
-    this.damageFlash = { level, until: performance.now() + duration, period: [2000, 1000, 600][Math.max(0, Math.min(2, level))]! };
+    // HealthRing.OnDamageAlertFlash: each segment's Flash(ALERT_FLASH_COLOR, duration) - one ANIM_WAVE over the duration
+    // (the alert controller asks again each time one ends while the alert lasts)
+    const start = performance.now();
+    this.damageFlash = { level, start, until: start + duration, period: duration };
   }
 
   /** capacitorCore: the low-capacitor alert waves the core's opacity 1 -> 0.5 -> 1 every 2 s. */
@@ -1886,7 +1889,7 @@ export class NewShipHud {
         c.restore();
       }
       if (flash && i <= flash.level) {
-        const phase = ((now - (flash.until - 1e9)) % flash.period) / flash.period;
+        const phase = Math.min(1, Math.max(0, (now - flash.start) / flash.period));
         const wave = phase < 0.5 ? smooth(phase * 2) : smooth(2 - phase * 2);
         this.band(c, seg, seg.a0, seg.a1, css(ALERT_FLASH, 0.25 * wave));
       }
