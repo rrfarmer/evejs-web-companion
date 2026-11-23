@@ -297,6 +297,11 @@ button { font: inherit; color: inherit; }
 :is(.fly-windows, .pw) *::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.25); background-clip: padding-box; border: 3px solid transparent; border-radius: 0; }
 :is(.fly-windows, .pw) *:hover::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--theme-focus-dark, #305665) 60%, transparent); }
 :is(.fly-windows, .pw) *::-webkit-scrollbar-thumb:hover { background-color: var(--theme-focus, #58a7bf); border-width: 3px 2px; }
+/* the drones window's scroll (read through gridcheck: DronesWindow dronesInSpaceScroll 530 wide, its 8 px Scrollbar at the right edge, the
+   entries 514 - 8 short of the bar): the bar here 16 wide with its handle in the right 8, so the rows end 8 before it */
+.win-body:has(> .fly-drones)::-webkit-scrollbar { width: 16px; }
+.win-body:has(> .fly-drones)::-webkit-scrollbar-thumb { border-width: 3px 3px 3px 11px; }
+.win-body:has(> .fly-drones)::-webkit-scrollbar-thumb:hover { border-width: 3px 2px 3px 10px; }
 .ov .ov-tab { display: flex; align-items: center; padding: 0; font-size: 14px; color: rgba(255, 255, 255, 0.5); border: 0; background: none;
   box-shadow: none; white-space: nowrap; }
 .ov .ov-tab:hover:not(.active) { color: rgba(255, 255, 255, 0.75); background: none; }
