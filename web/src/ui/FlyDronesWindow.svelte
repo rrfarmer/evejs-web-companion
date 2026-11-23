@@ -593,10 +593,12 @@
   const dragOver = (key: string) => (e: DragEvent) => { if (dragging) { e.preventDefault(); dropOn = key; } };
   // DroneSubGroupInBay / InSpace.OnDragEnter: drones of the other part over a group light that part's header
   // (on_in_bay_entry_drag_enter / on_in_space_entry_drag_enter -> ShowDragHighlight), its own part's the group
-  const groupDragOver = (key: string, inSpace: boolean) => (e: DragEvent) => {
+  // ... and its own part's drones not all in the group already its icon (ShowIconGlow - the favourite's star, the only
+  // icon a sub-group shows)
+  const groupDragOver = (key: string, inSpace: boolean, ids: number[]) => (e: DragEvent) => {
     if (!dragging) return;
     e.preventDefault();
-    dropOn = (dragging.section === "space") !== inSpace ? (inSpace ? "space" : "bay") : key;
+    dropOn = (dragging.section === "space") !== inSpace ? (inSpace ? "space" : "bay") : dragging.ids.some((id) => !ids.includes(id)) ? key : null;
   };
   /** New Group's name popup: for which drones (CreateSubGroup asks NamePopup first). */
   let naming = $state<{ droneGroupID: string; ids: number[] } | null>(null);
@@ -1004,7 +1006,7 @@
   {@const own = ids.filter((id) => allDroneIDs.includes(id))}
   <!-- DroneSubGroup, a ListGroup: SOUND_ENTRY_HOVER on enter (SE_BaseClassCore) -->
   <div class="row grouphead" class:drop={dropOn === key} role="button" tabindex="-1" onclick={() => toggleGroup(key)} onkeydown={() => {}} onmouseenter={hoverSound}
-    ondragover={groupDragOver(key, inSpace)} ondragleave={() => (dropOn = null)} ondrop={(e) => drop(inSpace ? "space" : "bay", group.label, e)}
+    ondragover={groupDragOver(key, inSpace, ids)} ondragleave={() => (dropOn = null)} ondrop={(e) => drop(inSpace ? "space" : "bay", group.label, e)}
     oncontextmenu={(e) => openMenu(e, groupMenu(key, group, ids, inSpace))}>
     <span class="expander" class:open={openGroups.has(key)}></span>
     {#if favoriteID === group.id}<span class="star" style:background-image={`url(${ICON.star})`}></span>{/if}
@@ -1246,7 +1248,9 @@
      HideDragHighlight back to 0.05 over TIME_EXIT 0.3 */
   .group > .sec { transition: background-color 0.3s, box-shadow 0.3s; }
   .group.drop > .sec { background-color: rgba(255, 255, 255, 0.1); box-shadow: 0 0 6px rgba(255, 255, 255, 0.25); transition: background-color 0.1s, box-shadow 0.1s; }
-  .row.grouphead.drop { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35); }
+  /* DroneSubGroup.ShowIconGlow: the icon's glowBrightness to 1 over TIME_ENTRY 0.1 (HideIconGlow to 0 over TIME_EXIT 0.3) */
+  .row.grouphead .star { transition: filter 0.3s; }
+  .row.grouphead.drop .star { filter: brightness(1.8) drop-shadow(0 0 3px rgba(255, 255, 255, 0.8)); transition: filter 0.1s; }
   .group { margin: 0; padding: 0; border: 0; background: none; }
   .picture { width: 24px; height: 24px; flex: none; display: grid; }
   .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
