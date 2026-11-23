@@ -907,6 +907,9 @@
     return { x: 16, y: Math.max(0, H - h - 16), w: Math.min(w, W), h };
   }
   function open(tab: TabID) {
+    // OpenInventory (the Neocom button, Alt-C) shows InventoryPrimary, captioned "Inventory" (read through gridcheck: in space
+    // it opens on the ship's cargo); a hold command (OpenCargoHoldOfActiveShip ...) the Active ship window (below)
+    if (tab === "inventory") inventoryPrimary = true;
     if (tab === "moonMining" && (!moonRefinery || !controllingStructure)) return;
     if (tab === "autoMoonMiner" && !autoMoonMiner) return;
     if (tab === "moonMaterialBay" && !moonMaterialBay) return;
@@ -976,6 +979,7 @@
         if (count === served) return;
         served = count;
         open(tab);
+        if (requests === shipHoldTarget.requests) inventoryPrimary = false;
       });
     });
     return () => stop.forEach(unsubscribe => unsubscribe());
@@ -1009,10 +1013,14 @@
     theatersOfWar: "UI/TheatersOfWar/TheatersOfWarCaption",
     academyShips: ACADEMY_TITLE,
     shipTree: SHIP_TREE_CAPTION,
+    // InventoryPrimary's caption (OpenInventory's label): "Inventory"
+    inventory: "UI/Neocom/InventoryBtn",
   };
   let captions = $state<Partial<Record<TabID, string>>>({});
   /** ActiveShipCargo's caption (UI/Neocom/ActiveShipCargoBtn), "Active ship": the inventory window's in space. */
   let activeShipCaption = $state("Active ship");
+  /** The inventory window opened as InventoryPrimary ("Inventory") rather than as a hold's ActiveShipCargo ("Active ship"). */
+  let inventoryPrimary = $state(false);
   $effect(() => {
     if (!session) return;
     const s = session;
@@ -3167,7 +3175,7 @@
       <ErrorBoundary name={tabLabel(win.id)}>
         <DesktopWindow
           {win}
-          title={win.id === "drones" ? ($dronesCompact ? "" : dronesTitle) : win.id === "scanner" && !docked && $scannerCompact ? "" : win.id === "inventory" && !docked ? activeShipCaption : captions[win.id] ?? tabLabel(win.id)}
+          title={win.id === "drones" ? ($dronesCompact ? "" : dronesTitle) : win.id === "scanner" && !docked && $scannerCompact ? "" : win.id === "inventory" && !docked ? (inventoryPrimary ? captions[win.id] ?? tabLabel(win.id) : activeShipCaption) : captions[win.id] ?? tabLabel(win.id)}
           icon={win.id === "inventory" && !docked ? clientTexture("res:/UI/Texture/WindowIcons/cargo.png") : win.id === "log" ? clientTexture("res:/ui/Texture/WindowIcons/log.png") : null}
           killable={win.id !== "drones"}
           focused={win.id === activeWinKey}
