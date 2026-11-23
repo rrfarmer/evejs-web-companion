@@ -4,8 +4,7 @@
 
 import { clientTexture } from "./window.ts";
 import { shortcutOf } from "./shortcutKeys.ts";
-import { hideLabelShortcutTooltip, showLabelShortcutTooltip } from "./labelShortcutTooltip.ts";
-import { genericTooltipDelay } from "./radialSettings.ts";
+import { hideLabelShortcutTooltip, showLabelShortcutTooltip, tooltipDue } from "./labelShortcutTooltip.ts";
 
 /**
  * BaseNeocomButton.LoadTooltipPanel: a button with a command (btnData.cmdName) AddCommandTooltip - the command's name
@@ -27,21 +26,16 @@ const NEOCOM_TOOLTIPS: Readonly<Record<string, { cmd: string | null; name: strin
   charactersheet: { cmd: "OpenCharactersheet", name: "Character Sheet", description: "Manage your Augmentations, Clones, Pilot's Services, Standings and more" },
   chat: { cmd: null, name: "Channels", description: "" },
 };
-/** tooltipHandler: a panel after the generic delay (TOOLTIP_DELAY_GENERIC, 250 ms). */
-let neocomTipTimer: ReturnType<typeof setTimeout> | null = null;
+/** tooltipHandler: a panel after the generic delay, the renew time (a fifth) while one shows or just closed. */
 function neocomTipOn(el: HTMLElement, id: string): void {
   const t = NEOCOM_TOOLTIPS[id];
   if (!t) return;
-  if (neocomTipTimer !== null) clearTimeout(neocomTipTimer);
-  neocomTipTimer = setTimeout(() => {
-    neocomTipTimer = null;
-    if (!el.isConnected) return;
+  tooltipDue(el, () => {
     if (t.cmd) showLabelShortcutTooltip(el, t.name, shortcutOf(t.cmd), t.description ? [t.description] : [], "left");
     else showLabelShortcutTooltip(el, "", "", [t.name], "left", true);
-  }, genericTooltipDelay());
+  });
 }
 function neocomTipOff(): void {
-  if (neocomTipTimer !== null) { clearTimeout(neocomTipTimer); neocomTipTimer = null; }
   hideLabelShortcutTooltip();
 }
 
