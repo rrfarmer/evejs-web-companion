@@ -30,6 +30,8 @@ const TEX = (name: string) => clientTexture(`res:/UI/Texture/classes/RadialMenu/
 export const RADIAL_ICON = (path: string) => clientTexture(path);
 
 const SIZE = 220, ACTION_DISTANCE = 110, MAX_RANGE_DISTANCE = 300, STEP = 45;
+/** RMO_SizeInfo: buttonHeight 70, buttonPaddingTop 12, buttonPaddingBottom 6. */
+const BUTTON_HEIGHT = 70, BUTTON_PADDING_TOP = 12, BUTTON_PADDING_BOTTOM = 6;
 
 /** spaceRadialMenuFunctions.GetRanges: from min to max, in steps that widen with the distance. */
 export function radialRanges(min: number, max: number): number[] {
@@ -49,7 +51,7 @@ export const WARP_RANGES = [0, 10_000, 20_000, 30_000, 50_000, 70_000, 100_000] 
  */
 export function rangeShareAt(option: RadialOption, length: number): number | null {
   const list = option.ranges;
-  if (!list?.length || length < ACTION_DISTANCE) return null;
+  if (!list?.length || length < ACTION_DISTANCE - BUTTON_PADDING_TOP) return null;
   const each = (MAX_RANGE_DISTANCE - ACTION_DISTANCE) / list.length;
   const into = length - ACTION_DISTANCE;
   for (let i = 0; i < list.length; i++) {
@@ -64,14 +66,14 @@ export function rangeShareAt(option: RadialOption, length: number): number | nul
 export function rangeAt(option: RadialOption, length: number): number | undefined {
   const list = option.ranges;
   if (!list?.length) return undefined;
-  if (length < ACTION_DISTANCE) return option.defaultRange ?? list[0];
+  if (length < ACTION_DISTANCE - BUTTON_PADDING_TOP) return option.defaultRange ?? list[0];
   const each = (MAX_RANGE_DISTANCE - ACTION_DISTANCE) / list.length;
   const into = length - ACTION_DISTANCE;
   for (let i = 0; i < list.length; i++) {
     if (into > i * each) continue;
     if (i === 0) return list[0];
-    const share = (into - each * (i - 1)) / each;
-    return share * (list[i]! - list[i - 1]!) + list[i - 1]!;
+    // RadialMenuSpace.default_usePreciseRanges False: the step's own range (previousStepDistance), not one between
+    return list[i - 1]!;
   }
   return list[list.length - 1];
 }
@@ -186,6 +188,7 @@ export class RadialMenu {
     this.root.style.display = "";
     this.root.dataset.title = title;
     this.second = false;
+    this.rangeHeld = this.lastLength = this.lastY = null;
     this.drawRange(null, 0);
     this.lay(options.slice(0, 8), 0, false);
     this.say(title);
@@ -241,7 +244,8 @@ export class RadialMenu {
   private aim(x: number, y: number): { index: number | null; length: number } {
     const dx = x - this.cx, dy = y - this.cy;
     const length = Math.hypot(dx, dy);
-    if (length < 30) return { index: null, length };
+    // _OnGlobalMove: nearer the middle than actionDistance - buttonHeight + buttonPaddingBottom (46) is ResetFromCenter
+    if (length < ACTION_DISTANCE - BUTTON_HEIGHT + BUTTON_PADDING_BOTTOM) return { index: null, length };
     let degree = (Math.atan2(dx, -dy) * 180) / Math.PI;
     if (degree < 0) degree += 360;
     let best: number | null = null, bestGap = Infinity;
@@ -252,9 +256,36 @@ export class RadialMenu {
     return { index: best, length };
   }
 
+  /** RadialMenu.selectedBtn while it is a range option, and its RadialMenuRangeAction.lastLength. */
+  private rangeHeld: number | null = null;
+  private lastLength: number | null = null;
+  private lastY: number | null = null;
+
   private move(x: number, y: number): void {
     if (!this.isOpen) return;
-    const { index, length } = this.aim(x, y);
+    const dyMove = this.lastY === null ? 0 : y - this.lastY;
+    this.lastY = y;
+    let { index, length } = this.aim(x, y);
+    // _OnGlobalMove: a range option selected stays the one while the pointer is past its minRangeDistance (110), whatever
+    // the angle
+    if (this.rangeHeld !== null && this.slots[this.rangeHeld]?.option?.ranges && Math.hypot(x - this.cx, y - this.cy) > ACTION_DISTANCE) index = this.rangeHeld;
+    const held = index === null ? null : this.slots[index]!;
+    if (held?.option?.ranges && !held.option.disabled) {
+      // RadialMenuRangeAction.FindLengthToUse (past the default's reach): off the option's slice the length follows the
+      // pointer's vertical move - more by going down for an option in the lower half (90 < degree < 270), else up
+      if (length >= ACTION_DISTANCE - BUTTON_PADDING_TOP) {
+        const into0 = length - ACTION_DISTANCE;
+        if (this.lastLength === null) this.lastLength = into0;
+        let into = into0;
+        const deg = (Math.atan2(x - this.cx, -(y - this.cy)) * 180) / Math.PI;
+        const gap = Math.abs((((deg + 360) % 360) - held.degree + 540) % 360 - 180);
+        if (gap >= STEP / 2) into = this.lastLength + (held.degree > 90 && held.degree < 270 ? dyMove : -dyMove);
+        into = Math.max(0, into);
+        this.lastLength = into;
+        length = into + ACTION_DISTANCE;
+      }
+      this.rangeHeld = index;
+    } else { this.rangeHeld = null; this.lastLength = null; }
     if (index !== this.hovered) {
       if (this.hovered !== null) this.slots[this.hovered]?.el.classList.remove("hover");
       this.hovered = index;
@@ -274,12 +305,14 @@ export class RadialMenu {
   }
 
   private release(x: number, y: number, click = false): void {
-    const { index, length } = this.aim(x, y);
+    // OnMouseUp acts on the selected button and its range as the last move left them
+    this.move(x, y);
+    const index = this.hovered;
     // Let go in the middle soon after opening: the menu stays for a click.
     if (index === null) { if (!click && performance.now() - this.openedAt < 150) return; if (click) this.close(); return; }
     const option = this.slots[index]?.option ?? null;
     if (!option || option.disabled || option.more || !option.run) { if (click) this.close(); return; }
-    const range = option.ranges ? rangeAt(option, length) : undefined;
+    const range = option.ranges ? this.range : undefined;
     this.close();
     option.run(range === undefined ? undefined : Math.round(range));
   }
