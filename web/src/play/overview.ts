@@ -1965,6 +1965,8 @@ export class Overview {
     this.iconTipFor = null;
   }
 
+  private lastSortAt = -1e9;
+  private lastSortKey = "";
   update(entities: readonly Entity[], distanceTo: (e: Entity) => number, relations?: OverviewRelationships, ego?: Entity | null): void {
     this.tipEntities = entities;
     this.tipRelations = relations;
@@ -2053,7 +2055,16 @@ export class Overview {
     // it goes to the next column along; the rest keep the order they had (sorted() is stable, reverse=True too)
     const sortColumns = cols.slice(Math.max(0, cols.findIndex((c) => c.sort === key))).map((c) => c.sort).filter((c): c is SortColumn => !!c);
     const before = this.lastOrder;
+    // OverviewWindow.UpdateEntryOrder: the order is set again about once a second (ENTRY_ORDER_UPDATE_SLEEP 1.0 less the
+    // update's own time, at least ENTRY_ORDER_UPDATE_SLEEP_MIN 0.5), while the values change on the 0.5 s pulse; rows
+    // joining or leaving are placed at once
+    const sameRows = listed.length === before.size && listed.every((e) => before.has(e.itemID));
+    // (a new sort column or direction - a header clicked - is applied at once)
+    const sortKey = `${this.sort.column}:${this.sort.down}`;
+    const reorder = !sameRows || sortKey !== this.lastSortKey || now - this.lastSortAt >= 1000;
+    if (reorder) { this.lastSortAt = now; this.lastSortKey = sortKey; }
     const rows = listed.map((e) => { const d = distanceTo(e); return { e, d, keys: sortColumns.map((c) => valueOf(c, e, d)) }; }).sort((a, b) => {
+      if (!reorder) return before.get(a.e.itemID)! - before.get(b.e.itemID)!;
       // GetSortValueWhenBroadcastGoToTop (Move entries with broadcasts to top): those a broadcast is on before the rest,
       // whichever way the column runs
       if (broadcasts && broadcasts.size) {
