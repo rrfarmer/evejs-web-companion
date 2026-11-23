@@ -43,6 +43,23 @@ export function radialRanges(min: number, max: number): number[] {
 /** movementFunctions.GetWarpToRanges with minWarpEndDistance 0 and maxWarpEndDistance 100 km. */
 export const WARP_RANGES = [0, 10_000, 20_000, 30_000, 50_000, 70_000, 100_000] as const;
 
+/**
+ * RadialMenuRangeAction.MoveMouse's percOfAllRange: how far along its list the range is, 0 to 1 - null inside
+ * actionDistance (the default range, no circle), 0 on the first step, 1 past the last.
+ */
+export function rangeShareAt(option: RadialOption, length: number): number | null {
+  const list = option.ranges;
+  if (!list?.length || length < ACTION_DISTANCE) return null;
+  const each = (MAX_RANGE_DISTANCE - ACTION_DISTANCE) / list.length;
+  const into = length - ACTION_DISTANCE;
+  for (let i = 0; i < list.length; i++) {
+    if (into > i * each) continue;
+    if (i === 0) return 0;
+    return list.length > 1 ? (i - 1 + (into - each * (i - 1)) / each) / (list.length - 1) : 1;
+  }
+  return 1;
+}
+
 /** RadialMenuRangeAction.MoveMouse: the range at `length` px from the middle; the default inside actionDistance. */
 export function rangeAt(option: RadialOption, length: number): number | undefined {
   const list = option.ranges;
@@ -80,6 +97,46 @@ export class RadialMenu {
   private cx = 0;
   private cy = 0;
   private range: number | undefined;
+  /**
+   * RangeCircle (rangeSize 128, centred, over the slices): rangeShadow (1, 1, 1, 0.4) and the ring masks rangeMaskL / R
+   * through the half-filled gaugeFill turned by the range's share - the ring lit clockwise from the hovered option's
+   * direction (rotation -degree) over percOfAllRange of the turn, in COLORTYPE_UIHILIGHTGLOW (read live: 0.8, 0.9534,
+   * 1.0) at 0.5; hidden inside actionDistance
+   */
+  private readonly rangeCanvas = document.createElement("canvas");
+  private readonly rangeImages = ["rangeShadow.png", "rangeMaskL.png", "rangeMaskR.png"].map((n) => { const i = new Image(); i.src = TEX(n); return i; });
+  private drawRange(share: number | null, degree: number): void {
+    const c = this.rangeCanvas;
+    c.style.display = share === null ? "none" : "";
+    if (share === null) return;
+    const dpr = Math.max(1, Math.min(2, devicePixelRatio || 1));
+    if (c.width !== 128 * dpr) { c.width = c.height = 128 * dpr; }
+    const x = c.getContext("2d")!;
+    x.setTransform(dpr, 0, 0, dpr, 0, 0);
+    x.clearRect(0, 0, 128, 128);
+    const [shadow, maskL, maskR] = this.rangeImages as [HTMLImageElement, HTMLImageElement, HTMLImageElement];
+    if (shadow.complete) { x.globalAlpha = 0.4; x.drawImage(shadow, 0, 0, 128, 128); }
+    if (share <= 0 || !maskL.complete || !maskR.complete) return;
+    x.save();
+    x.globalAlpha = 0.5;
+    const from = ((degree - 90) * Math.PI) / 180;
+    x.beginPath();
+    x.moveTo(64, 64);
+    x.arc(64, 64, 64, from, from + Math.PI * 2 * Math.min(1, share));
+    x.closePath();
+    x.clip();
+    // the masks are a half ring each in the frame of the circle turned to the option
+    x.translate(64, 64);
+    x.rotate((degree * Math.PI) / 180);
+    x.translate(-64, -64);
+    x.drawImage(maskL, 0, 0, 128, 128);
+    x.drawImage(maskR, 0, 0, 128, 128);
+    x.globalCompositeOperation = "source-atop";
+    x.globalAlpha = 1;
+    x.fillStyle = "rgb(204, 243, 255)";
+    x.fillRect(0, 0, 128, 128);
+    x.restore();
+  }
   private onClose: (() => void) | null = null;
   /** The second ring is up. */
   private second = false;
@@ -90,6 +147,9 @@ export class RadialMenu {
     this.label.className = "radial-label";
     this.root.innerHTML = `<div class="radial-shadow" style="--tex:url(${TEX("menuShadow2.png")})"></div>`;
     this.root.appendChild(this.label);
+    this.rangeCanvas.className = "radial-range";
+    this.rangeCanvas.style.display = "none";
+    this.root.appendChild(this.rangeCanvas);
     addEventListener("pointermove", (e) => this.move(e.clientX, e.clientY));
     addEventListener("pointerup", (e) => { if (this.isOpen && e.button === (this.button === RADIAL_BY_RIGHT ? 2 : this.button)) this.release(e.clientX, e.clientY); });
     addEventListener("pointerdown", (e) => { if (this.isOpen && !this.root.contains(e.target as Node)) this.close(); }, true);
@@ -114,6 +174,7 @@ export class RadialMenu {
     this.root.style.display = "";
     this.root.dataset.title = title;
     this.second = false;
+    this.drawRange(null, 0);
     this.lay(options.slice(0, 8), 0, false);
     this.say(title);
   }
@@ -175,6 +236,8 @@ export class RadialMenu {
     }
     const option = index === null ? null : this.slots[index]?.option ?? null;
     this.range = option && !option.disabled ? rangeAt(option, length) : undefined;
+    // RadialMenu.MoveMouseRangeAction -> SetRangeCircle(buttonCont.degree, percOfAllRange)
+    this.drawRange(option && !option.disabled ? rangeShareAt(option, length) : null, index === null ? 0 : this.slots[index]!.degree);
     this.say(option ? (this.range !== undefined ? `${option.label} ${metres(this.range)}` : option.label) : this.root.dataset.title ?? "");
     // The second ring opens as the pointer comes onto "more" (the client loads it on mouse-over).
     if (option?.more && !option.disabled && !this.second) {
@@ -212,6 +275,7 @@ export const RADIAL_CSS = `
 .radial-slot.disabled .radial-arrow { background: rgba(255,255,255,0.35); }
 .radial-icon { position: absolute; left: 34px; top: 22px; width: 32px; height: 32px; }
 .radial-slot.disabled .radial-icon { opacity: 0.4; }
+.radial-range { position: absolute; left: ${(SIZE - 128) / 2}px; top: ${(SIZE - 128) / 2}px; width: 128px; height: 128px; z-index: 2; pointer-events: none; }
 .radial-label { position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); white-space: nowrap;
   padding: 4px 14px; font: 600 12px/1.2 "Segoe UI", system-ui, sans-serif; color: #e8edf2; letter-spacing: 0.02em;
   background: radial-gradient(ellipse at center, rgba(0,0,0,0.75) 40%, rgba(0,0,0,0) 75%); text-shadow: 0 1px 2px #000; pointer-events: none; }
