@@ -72,6 +72,21 @@
       noticeBoard.post({ kind: "info", title: say("UI/Common/EntriesCopied", `Copied ${list.length} entries to clipboard`, { numEntries: list.length }) });
     } catch { /* the clipboard refused */ }
   }
+  // Scroll.OnUp / OnDown (BrowseNodes, ActivateIdx) over the scroll's nodes - the ore groups' ListGroups and the open
+  // groups' entries: with nothing selected the last / first node, else the one past it, past either end nothing. ActivateIdx
+  // is SelectNode, no click (no combat command, nothing selected in space); a ListGroup is not selectable (selectGroup 0),
+  // so landing on one leaves the scroll with no selection, and the next key starts again from the end
+  function browse(up: boolean, table: HTMLElement): void {
+    const nodes = [...table.querySelectorAll<HTMLTableRowElement>("tr.ore-group, tr[data-rock-id]")];
+    if (!nodes.length) return;
+    const at = nodes.findIndex((tr) => tr.dataset.rockId !== undefined && Number(tr.dataset.rockId) === selectedRock);
+    const idx = at < 0 ? (up ? nodes.length - 1 : 0) : at + (up ? -1 : 1);
+    if (idx < 0 || idx >= nodes.length) return;
+    const tr = nodes[idx]!;
+    selectedRock = tr.dataset.rockId !== undefined ? Number(tr.dataset.rockId) : null;
+    (tr.dataset.rockId !== undefined ? tr : tr.querySelector<HTMLElement>("button") ?? tr).focus({ preventScroll: true });
+    tr.scrollIntoView({ block: "nearest" });
+  }
   function clickRock(itemID: number): void {
     selectedRock = itemID;
     flightView?.()?.selectObjectiveTarget(itemID);
@@ -158,7 +173,8 @@
   {#if inWarp}<p class="status">Mining scans are unavailable while warping.</p>{/if}
   {#if $mining.surveyError}<p role="alert" class="status">{$mining.surveyError}</p>{/if}
   <div class="scan-table">
-    <table>
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <table onkeydown={(e) => { if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); browse(e.key === "ArrowUp", e.currentTarget as HTMLElement); } }}>
       <thead><tr>{#each COLUMNS as [label, own], k (label)}<th scope="col" class:sorted={colSort === k} style:width={colWidths[k] ? `${colWidths[k]}px` : null} style:min-width={colWidths[k] ? `${colWidths[k]}px` : null} style:max-width={colWidths[k] ? `${colWidths[k]}px` : null} onclick={() => sortByColumn(k)}>{say(label, own)}{#if colSort === k}<span class="dir" class:down={colReversed}></span>{/if}<span class="scaler" role="separator" aria-orientation="vertical" onpointerdown={(e) => startScale(k, e)} onclick={(e) => e.stopPropagation()} ondblclick={(e) => { e.stopPropagation(); resetWidth(k, e); }}></span></th>{/each}</tr></thead>
       {#each groups as group (group.typeID)}
         <tbody data-ore-type={group.typeID}>
