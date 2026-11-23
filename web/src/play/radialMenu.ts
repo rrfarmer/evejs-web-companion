@@ -210,6 +210,7 @@ export class RadialMenu {
     this.closing = false;
     this.root.style.pointerEvents = "";
     for (const a of this.root.querySelector<HTMLElement>(".radial-shadow")?.getAnimations() ?? []) a.cancel();
+    for (const a of this.rangeCanvas.getAnimations()) a.cancel();
     // RadialMenu._OnClose: ui_radial_close
     void playUiEvent("ui_radial_close");
     this.root.style.display = "none";
@@ -374,6 +375,9 @@ export class RadialMenu {
     });
     if (this.second) for (const s of this.firstSlots) s.el.animate([{ transform: `rotate(${s.degree}deg) scale(1)`, opacity: 0.3 }, { transform: `rotate(${s.degree}deg) scale(0.5)`, opacity: 0 }], { duration: 250, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)", fill: "forwards" });
     this.root.querySelector<HTMLElement>(".radial-shadow")?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 250, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)", fill: "forwards" });
+    // rangeCont.AnimateFromCenter(grow False, opacityRatio 0): the range circle (CleanUp leaves it shown) from its opacity
+    // to nothing over the same 0.25 s
+    this.rangeCanvas.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 250, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)", fill: "forwards" });
     this.closeTimer = setTimeout(() => this.close(), 500);
   }
 }
