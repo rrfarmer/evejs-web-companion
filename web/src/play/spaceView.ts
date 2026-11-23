@@ -3525,6 +3525,8 @@ export class SpaceView {
     if (slot[1] === "Activate") { if (!e.repeat) this.useRackModule(m); return; }
     const overload = this.options.rack?.overload;
     if (!overload || m.overloadable === false) { this.toast("Disabled"); return; }
+    // ModuleController.ToggleOverload -> SetOverload: SOUND_MODULE_OVERLOAD on, SOUND_MODULE_OVERLOAD_STOP off
+    void playUiEvent(m.overloaded ? "hud_module_overload_stop" : "hud_module_overload_play");
     void this.act(m.name ?? "Module", () => overload.module(m.itemID, !m.overloaded));
   }
 

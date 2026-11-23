@@ -1391,7 +1391,21 @@ export class NewShipHud {
       const slot: Slot = { el, icon, qty, badge, shortcut, x, y, module: null, hover: false, wedge: { angle: 180, half: 7.5, lit: 0 }, cycles: -1, flashAt: 0, cool, coolShown: false, empty: false, flag: 0 };
       el.addEventListener("mouseenter", () => { slot.hover = true; this.hoverTooltip(slot); this.previewModule(slot.module); if (slot.module) this.onModuleHover?.(slot.module); });
       el.addEventListener("mouseleave", () => { slot.hover = false; this.hideTooltip(slot); this.previewModule(null); this.onModuleHover?.(null); });
-      el.addEventListener("click", () => { if (slot.module && this.onModule) this.onModule(slot.module); });
+      // ModuleSlot.OnClick: in overload mode a click toggles the module's overload (ModuleController.ToggleOverload ->
+      // SetOverload, SOUND_MODULE_OVERLOAD hud_module_overload_play on / _STOP hud_module_overload_stop off) and is not an
+      // activation; a module without an overload effect does nothing then
+      el.addEventListener("click", () => {
+        const m = slot.module;
+        if (!m) return;
+        if (this.overloadMode) {
+          if (m.overloadable && this.overload) {
+            void playUiEvent(m.overloaded ? "hud_module_overload_stop" : "hud_module_overload_play");
+            this.overload.module(m, !m.overloaded);
+          }
+          return;
+        }
+        if (this.onModule) this.onModule(m);
+      });
       el.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); if (slot.module) { this.hideTooltip(slot); this.onModuleMenu?.(slot.module, e.clientX, e.clientY); } });
       // moduleSlot drag and drop: the module's icon as the ghost; empty places shown while it is carried
       el.addEventListener("dragstart", (e) => {
@@ -1684,7 +1698,10 @@ export class NewShipHud {
     const inRack = this.modules.filter((m) => m.family === family).sort((a, b) => a.index - b.index);
     const first = inRack.find((m) => m.overloadable) ?? null;
     if (!first || !this.overload) return false;
-    const on = !(inRack.filter((m) => m.overloadable).every((m) => m.overloaded));
+    // ModulesCollectionOwner.ToggleRackOverload: IsRackOverloaded is any overloadable module of the rack overloaded - then
+    // StopOverloadRack, else OverloadRack (which plays SOUND_RACK_OVERLOAD hud_rack_overload_play)
+    const on = !inRack.filter((m) => m.overloadable).some((m) => m.overloaded);
+    if (on) void playUiEvent("hud_rack_overload_play");
     this.overload.rack(inRack[0]!.itemID, on);
     return true;
   }
