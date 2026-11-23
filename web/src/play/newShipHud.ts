@@ -1691,6 +1691,7 @@ export class NewShipHud {
 
   setModules(modules: readonly HudModule[], onModule: (m: HudModule) => void, overload?: HudOverload): void {
     this.modules = modules;
+    this.moduleSounds(modules);
     this.onModule = onModule;
     this.overload = overload ?? null;
     this.placeSlots();
@@ -1715,6 +1716,29 @@ export class NewShipHud {
     }
     this.capPumped = Math.round(Math.max(0, Math.min(1, x)) * 100) / 100;
     return this.capPumped;
+  }
+
+  /**
+   * ModuleSlot._UpdateCycleSound / _UpdateSwitchSound (an active module's slot, each update): cycling (IsCycling - active or
+   * deactivating) starting plays its rack's SOUND_MODULE_ACTIVATE_HI / _MED / _LO, stopping _DEACTIVATE_; switched on
+   * (IsActive or IsActivating) plays SOUND_MODULE_SWITCH_ON hud_module_start, off _OFF hud_module_end. A slot's state is
+   * seeded silently as it is bound to its module (line 304).
+   */
+  private readonly slotSound = new Map<number, { cycling: boolean; on: boolean }>();
+  private moduleSounds(modules: readonly HudModule[]): void {
+    const seen = new Set<number>();
+    const rack = { high: "high", mid: "mid", low: "low" } as const;
+    for (const m of modules) {
+      if (m.passive) continue;
+      seen.add(m.itemID);
+      const cycling = m.active, on = (m.active && !m.windingDown) || !!m.waitingForTarget;
+      const was = this.slotSound.get(m.itemID);
+      this.slotSound.set(m.itemID, { cycling, on });
+      if (!was) continue;
+      if (cycling !== was.cycling) void playUiEvent(`hud_module_${rack[m.family]}_slot_${cycling ? "play" : "stop"}`);
+      if (on !== was.on) void playUiEvent(on ? "hud_module_start" : "hud_module_end");
+    }
+    for (const id of [...this.slotSound.keys()]) if (!seen.has(id)) this.slotSound.delete(id);
   }
 
   /** capacitorFlow's inputs (the page's): the peak recharge, the fit's whole drain and the running drain, GJ a second. */
