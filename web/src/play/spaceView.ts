@@ -3918,7 +3918,10 @@ export class SpaceView {
         { label: "More", icon: "", more },
         { label: "Keep at Range", icon: icon(22), ranges: radialRanges(500, 30000), defaultRange: 1000, run: (r) => run("Keep at Range", () => this.actions.keepAtRange(id, r))() },
         lock,
-        { label: "Approach", icon: icon(23), run: run("Approach", () => this.actions.approach(id)) },
+        // GetApproachOption: option1 Align To (44_32_59) where the menu offers it - in warp range - else Approach (44_32_23)
+        dist >= 150_000
+          ? { label: this.actions.word?.("UI/Inflight/AlignTo") ?? "Align to", icon: icon(59), run: run("Align", () => this.actions.alignTo(id)) }
+          : { label: "Approach", icon: icon(23), run: run("Approach", () => this.actions.approach(id)) },
         showInfo,
         // A warp needs the object 150 km away or more (the server refuses a nearer one).
         { label: "Warp To Within", icon: icon(18), ranges: WARP_RANGES, defaultRange: 0, disabled: dist < 150_000, run: (r) => run("Warp To", () => this.actions.warpTo(id, r))() },
