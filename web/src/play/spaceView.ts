@@ -2620,7 +2620,8 @@ export class SpaceView {
     // celestialCheckers.GetMiningBeaconPosition (explain_failure_with UI/Moonmining/MoonHasNoMiningPoint): a moon with no
     // mining point's beacon
     if (e.groupID === 8 && !this.snapshot?.entities.some((x) => x.itemID === 1_000_000_000 + e.itemID)) reasons.moonPoint = this.actions.word?.("UI/Moonmining/MoonHasNoMiningPoint") ?? reasons.moonPoint;
-    if (range < 150_000 && !e.isSelf) reasons.warp = this.actions.word?.("UI/Menusvc/MenuHints/NotInWarpRange") ?? reasons.warp;
+    // (no reason on the Warp button: its action name is 'UI/Inflight/Submenus/WarpToWithin', and the menu files
+    // NotInWarpRange under 'UI/Inflight/WarpToWithinDistance' - SelectedItemWnd shows NoReasonGiven; read live, g187)
     if ([7, 8, 9].includes(e.groupID ?? -1)) {
       // (GetGroupNameByGroup: the group's own name - from the space view's name table where the page's resolver has none)
       const groupName = this.options.groupName?.(e.groupID ?? 0) || this.names?.groups[String(e.groupID)]?.[0] || "";
@@ -3941,6 +3942,10 @@ export class SpaceView {
         // spaceRadialMenuFunctions: a wreck's and a can's first action is Open Cargo (44_32_35)
         : (e.kind === "wreck" || e.kind === "container") && this.actions.openCargo
           ? { label: this.actions.word?.("UI/Commands/OpenCargo") ?? "Open Cargo", icon: icon(35), run: run("Open Cargo", () => this.actions.openCargo!(id)) }
+        // primaryCategoryActions[categoryAsteroid]: Set Destination - never offered for a rock (FindRadialMenuOptions'
+        // filterList), so an inactive option: a disabled slice with its label and setDestination.png (read live, g187)
+        : (e as Entity & { categoryID?: number | null }).categoryID === 25 || e.kind === "asteroid"
+          ? { label: this.actions.word?.("UI/Inflight/SetDestination") ?? "Set Destination", icon: RADIAL_ICON("res:/UI/Texture/classes/RadialMenuActions/setDestination.png"), disabled: true }
         : null;
       const lockable = ["ship", "drone", "fighter", "wreck", "container", "asteroid", "structure", "station", "stargate"].includes(e.kind);
       const lock: RadialOption = this.locked.has(id)
@@ -3959,7 +3964,7 @@ export class SpaceView {
           : { label: this.actions.word?.("UI/Inflight/ApproachObject") ?? "Approach", icon: icon(23), run: run("Approach", () => this.actions.approach(id)) },
         showInfo,
         // A warp needs the object 150 km away or more (the server refuses a nearer one).
-        { label: this.actions.word?.("UI/Inflight/Submenus/WarpToWithin") ?? "Warp To Within", icon: icon(18), ranges: WARP_RANGES, defaultRange: 0, disabled: dist < 150_000, run: (r) => run("Warp To", () => this.actions.warpTo(id, r))() },
+        { label: this.actions.word?.("UI/Inflight/Submenus/WarpToWithin") ?? "Warp to Within", icon: icon(18), ranges: WARP_RANGES, defaultRange: 0, disabled: dist < 150_000, run: (r) => run("Warp To", () => this.actions.warpTo(id, r))() },
       ];
     }
     this.markRadial(null);
