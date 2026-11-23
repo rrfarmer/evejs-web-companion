@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getContext } from "svelte";
+  import { playUiEvent } from "../play/uiAudio.ts";
   import { resultColor } from "../bridge/probeResults.ts";
   import { selectedSites, selectSite, setSelectedSites } from "../app/probeSiteSelection.ts";
   // The probe scanner's results (bridge/probeResults.ts): the session's system's results as the client's scan handler
@@ -345,7 +346,7 @@
         </thead>
         <tbody>
           {#each rows as row (row.id)}
-            <tr class:ps-row={retail} class:ps-selected={retail && $selectedSites.has(row.id)}
+            <tr class:ps-row={retail} class:ps-selected={retail && $selectedSites.has(row.id)} onmouseenter={retail ? () => void playUiEvent("ui_button_soft2_play") : undefined}
               onclick={retail ? (event) => { if ((event.target as HTMLElement).closest("button")) return; selectSite(row.id, event.shiftKey || event.ctrlKey); browseAnchor = row.id; (event.currentTarget as HTMLElement).focus({ preventScroll: true }); } : undefined}
               style={retail ? `--cert: ${resultColor(row.certainty)}; --base: ${Math.min(row.certainty, row.prevCertainty) * 100}%; --change: ${Math.abs(row.certainty - row.prevCertainty) * 100}%` : undefined}
               tabindex={retail ? -1 : undefined}

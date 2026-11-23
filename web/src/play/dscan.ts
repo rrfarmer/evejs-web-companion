@@ -592,7 +592,8 @@ export class DScanWindow {
       });
       tr.addEventListener("dblclick", () => { this.selectedIDs = new Set([row.id]); this.anchorID = row.id; for (const x of this.tbody.querySelectorAll<HTMLTableRowElement>("tr[data-id]")) x.classList.toggle("sel", x === tr); this.hooks.showInfo?.(row.id, row.typeID); });
       tr.addEventListener("contextmenu", (ev) => { ev.preventDefault(); ev.stopPropagation(); this.hooks.menu?.(row.id, row.typeID, ev.clientX, ev.clientY); });
-      tr.addEventListener("mouseenter", () => this.hooks.hoverResult?.(row.typeID));
+      // DirectionalScanResultEntry (an SE_BaseClassCore): OnMouseEnter plays SOUND_ENTRY_HOVER
+      tr.addEventListener("mouseenter", () => { void playUiEvent("ui_button_soft2_play"); this.hooks.hoverResult?.(row.typeID); });
       tr.addEventListener("mouseleave", () => this.hooks.hoverResult?.(null));
       const iconCell = document.createElement("td");
       iconCell.className = "ov-icon";

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { playUiEvent } from "../play/uiAudio.ts";
   import { getContext } from "svelte";
   import { fittedColumnWidth, scrollListHomeEnd } from "./scrollColumnFit.ts";
   import type { AppFlow } from "../app/flow.ts";
@@ -223,7 +224,7 @@
                    (2, 0, 16 x 16) the activeTarget icon when locked, the shrinking targetFrame while locking -->
               <tr data-rock-id={row.itemID} class:selected={selectedRocks.has(row.itemID)} tabindex="-1" onclick={(e) => { clickRock(row.itemID, e); (e.currentTarget as HTMLElement).focus({ preventScroll: true }); }}
                 onkeydown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") { e.preventDefault(); e.stopPropagation(); const t = (e.currentTarget as HTMLElement).closest("table"); if (t) void copyEntries(t); } }}
-                onmouseenter={() => flightView?.()?.hoverObject(row.itemID)}
+                onmouseenter={() => { void playUiEvent("ui_button_soft2_play"); flightView?.()?.hoverObject(row.itemID); }}
                 onmouseleave={() => flightView?.()?.hoverObject(null)}
                 oncontextmenu={(e) => { e.preventDefault(); clickRock(row.itemID, e); dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID: row.itemID, x: e.clientX, y: e.clientY } })); }}>
                 <td>
