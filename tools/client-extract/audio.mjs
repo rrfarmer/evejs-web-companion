@@ -240,6 +240,10 @@ function propsAt(body, p) {
   const out = {};
   ids.forEach((id, k) => {
     if (id === 0x00) out.v = f32(body, vals + 4 * k);
+    // 0x01: Pitch, in cents (bank 150 numbers its properties and its RTPC parameters alike: 0 Volume, 1 Pitch, 2 LPF,
+    // 3 HPF, 4 BusVolume - an RTPC on parameter 1 is additive with values -4,064 .. 2,651 on 522 curves, on 2 and 3 a
+    // Filter one at -100 .. 100)
+    if (id === 0x01) out.p = f32(body, vals + 4 * k);
     if (id === 0x54) out.l = u32(body, vals + 4 * k);
     // 0x55: the attenuation's id (on 1,513 objects, each naming an attenuation - HIRC 14)
     if (id === 0x55) out.a = u32(body, vals + 4 * k);
@@ -400,8 +404,63 @@ function isMuffled(id) {
   return false;
 }
 /** A sound's volume (volumeOf), its own loop count, its attenuation and whether the turret suppression reaches it. */
+/** The game parameters (init.bnk STMG): each RTPC id to its default (the f32 after the id - radial_value 1). */
+const rtpcDefaults = new Map();
+for (let p = 0; p + 8 <= stmg.length; p++) {
+  const id = u32(stmg, p);
+  if (id > 1_000_000 && !rtpcDefaults.has(id)) { const d = f32(stmg, p + 4); if (Number.isFinite(d) && Math.abs(d) < 1e7) rtpcDefaults.set(id, d); }
+}
+/**
+ * An object's pitch RTPCs (its node RTPC list: the game parameter id, rtpcType 0, rtpcAccum 2 additive, parameter 1
+ * Pitch, the curve id, scaling 0, a u16 point count and {x f32, y f32, interpolation u32} points), each read at its game
+ * parameter's default (linear between the points; a constant segment its first value). The client sets some of these
+ * at run time; at the default the sound plays as authored.
+ */
+const pitchRtpcs = new Map();
+function rtpcPitch(id) {
+  const b = objects.get(id)?.body;
+  if (!b) return 0;
+  let cents = 0;
+  for (let q = 4; q + 14 <= b.length; q++) {
+    const rtpc = u32(b, q);
+    if (!rtpcDefaults.has(rtpc) || b[q + 4] !== 0 || b[q + 5] !== 2 || b[q + 6] !== 1 || b[q + 11] !== 0) continue;
+    const n = u16(b, q + 12);
+    if (n < 2 || n > 32 || q + 14 + 12 * n > b.length) continue;
+    const pts = [];
+    for (let k = 0; k < n; k++) pts.push([f32(b, q + 14 + 12 * k), f32(b, q + 18 + 12 * k), u32(b, q + 22 + 12 * k)]);
+    if (pts.some(([x, y, i]) => !Number.isFinite(x) || !Number.isFinite(y) || i > 9 || Math.abs(y) > 4800)) continue;
+    const at = rtpcDefaults.get(rtpc);
+    let y = at <= pts[0][0] ? pts[0][1] : pts[n - 1][1];
+    for (let k = 0; k + 1 < n; k++) {
+      const [x0, y0, i0] = pts[k], [x1, y1] = pts[k + 1];
+      if (at >= x0 && at <= x1) { y = i0 === 9 || x1 === x0 ? y0 : y0 + (y1 - y0) * ((at - x0) / (x1 - x0)); break; }
+    }
+    cents += y;
+    const seen = pitchRtpcs.get(rtpc) ?? { objects: 0, at, min: Infinity, max: -Infinity };
+    seen.objects++; seen.min = Math.min(seen.min, y); seen.max = Math.max(seen.max, y);
+    pitchRtpcs.set(rtpc, seen);
+    q += 13 + 12 * n;
+  }
+  return cents;
+}
+/** An object's pitch in cents: its own and each parent's Pitch property, summed (Wwise adds them). */
+function pitchOf(id) {
+  let cents = 0;
+  const seen = new Set();
+  for (let at = id; at && !seen.has(at) && seen.size < 24; at = nodeOf(at).parent) {
+    seen.add(at);
+    const own = nodeOf(at).props.p;
+    if (own !== undefined && Number.isFinite(own) && Math.abs(own) <= 4800) cents += own;
+    // the pitch RTPCs are measured (printed below) but not applied: the client drives many at run time (338 objects at
+    // -1,200 by one whose default is 0), so a default is no reading of what plays
+    rtpcPitch(at);
+  }
+  return cents;
+}
 function propsOf(id) {
   const out = {};
+  const p = Math.round(pitchOf(id));
+  if (p !== 0) out.p = p;
   const v = Math.round(volumeOf(id) * 100) / 100;
   if (v !== 0) out.v = v;
   const l = nodeOf(id).props.l;
@@ -494,6 +553,7 @@ fs.writeFileSync(path.join(root, "events.json"), JSON.stringify(events));
 // soundProps.json: a sound file's volume (v, dB: its own and its parents' summed), loop count (l: 0 for ever) and
 // attenuation (a); attenuations.json: each attenuation's volume curve by distance (s its scaling, p its points)
 fs.writeFileSync(path.join(root, "soundProps.json"), JSON.stringify(soundProps));
+console.log(`sounds with a pitch: ${Object.values(soundProps).filter((p) => p.p).length}; pitch RTPCs read at their defaults: ${JSON.stringify([...pitchRtpcs])}`);
 for (const k of Object.keys(attenuations)) if (attenuations[k] === null) delete attenuations[k];
 fs.writeFileSync(path.join(root, "attenuations.json"), JSON.stringify(attenuations));
 // muffler.json: the turret suppression's compressor

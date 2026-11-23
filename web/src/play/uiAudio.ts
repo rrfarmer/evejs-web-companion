@@ -157,8 +157,8 @@ export function setListener(at: Vec3, forward: Vec3, up: Vec3): void {
   }
 }
 
-/** The sounds' own properties (soundProps.json: v its volume in dB, l its loop count - 0 for ever, a its attenuation, m under the turret suppression). */
-let soundProps: Record<string, { v?: number; l?: number; a?: number; m?: number }> = {};
+/** The sounds' own properties (soundProps.json: v its volume in dB, l its loop count - 0 for ever, a its attenuation, m under the turret suppression, p its pitch in cents). */
+let soundProps: Record<string, { v?: number; l?: number; a?: number; m?: number; p?: number }> = {};
 /** The turret suppression's compressor (muffler.json: threshold dB, ratio, attack s, release s, output gain dB). */
 let muffler: { threshold: number; ratio: number; attack: number; release: number; gain: number } | null = null;
 let soundPropsReady: Promise<void> | null = null;
@@ -204,11 +204,14 @@ function placer(ctx: AudioContext, at: Vec3): PannerNode {
   return new PannerNode(ctx, { panningModel: "equalpower", distanceModel: "linear", refDistance: 1, maxDistance: 1e12, rolloffFactor: 0,
     positionX: at.x, positionY: at.y, positionZ: at.z });
 }
-/** A sound's own level as a gain (its volume property in dB), and whether it loops for ever. */
-export function ownOf(sound: string): { gain: number; loop: boolean } {
+/**
+ * A sound's own level as a gain (its volume property in dB), whether it loops for ever, and its pitch as a playback rate
+ * (its and its parents' Pitch properties in cents: Wwise resamples, so the rate 2^(cents / 1200)).
+ */
+export function ownOf(sound: string): { gain: number; loop: boolean; rate: number } {
   askSoundProps();
   const p = soundProps[sound];
-  return { gain: p?.v !== undefined ? Math.pow(10, p.v / 20) : 1, loop: p?.l === 0 };
+  return { gain: p?.v !== undefined ? Math.pow(10, p.v / 20) : 1, loop: p?.l === 0, rate: p?.p ? Math.pow(2, p.p / 1200) : 1 };
 }
 
 /** A sound's buffer, decoded once. */
@@ -237,6 +240,7 @@ async function start(name: string, sounds: { sound: string; gain: number }[], vo
     const own = ownOf(sounds[n]!.sound);
     // (a sound that loops for ever in Wwise loops here until its event's stop)
     source.loop = own.loop;
+    source.playbackRate.value = own.rate;
     const gain = ctx.createGain();
     gain.gain.value = volume * sounds[n]!.gain * own.gain;
     source.connect(gain).connect(out(ctx, sounds[n]!.sound));
@@ -386,6 +390,7 @@ async function playMovingWorldSound(name: string, at: Vec3, forceLoop: boolean, 
     const sound = sounds[n]!.sound;
     const own = ownOf(sound);
     source.loop = forceLoop || own.loop;
+    source.playbackRate.value = own.rate;
     const gain = ctx.createGain();
     const envelope = ctx.createGain();
     const base = sounds[n]!.gain * own.gain;
