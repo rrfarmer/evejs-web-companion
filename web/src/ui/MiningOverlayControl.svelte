@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { notePanelClosed, panelDelay } from "../play/labelShortcutTooltip.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { INTEGRATED_MINING_SCANNER, MINING_SCANNER_UPGRADE, miningScanInWarp } from "../bridge/miningScanResults.ts";
   import type { FlightMiningSurvey } from "../play/miningSurveyWave.ts";
@@ -50,9 +51,10 @@
     if (!(e.currentTarget as HTMLButtonElement).disabled) void playUiEvent("ui_button_soft1_play");
     const el = e.currentTarget as HTMLElement;
     if (tipTimer) clearTimeout(tipTimer);
-    tipTimer = setTimeout(() => { const r = el.getBoundingClientRect(); tip = { anchor: r }; }, 300);
+    // no GetTooltipDelay: the generic delay, the renew time while a panel shows or just closed
+    tipTimer = setTimeout(() => { const r = el.getBoundingClientRect(); tip = { anchor: r }; }, panelDelay(tip !== null));
   }
-  function tipOff(): void { if (tipTimer) clearTimeout(tipTimer); tipTimer = null; tip = null; }
+  function tipOff(): void { if (tipTimer) clearTimeout(tipTimer); tipTimer = null; if (tip !== null) notePanelClosed(); tip = null; }
   const flight = $derived(store.flight);
   const fitting = $derived(store.fitting);
   const space = $derived(store.space);
@@ -172,13 +174,15 @@
   .flight-mining-actions .sep { height: 1px; margin: 2px 4px; background: #ffffff22; }
   .mining-tip { position: fixed; z-index: 100000; pointer-events: none; padding: 16px; font: 14px var(--font); color: rgba(255, 255, 255, 0.75); }
   .mt-frame { position: absolute; inset: 0; opacity: 0.75; border-style: solid; border-width: 0; border-image-source: url(/client-res/ui/texture/classes/framewithpointer/background_04.png); border-image-slice: 19 fill; border-image-width: 19px; border-image-outset: 15px; }
-  .mt-body { position: relative; display: grid; gap: 4px; width: 200px; }
-  .mt-body b { color: rgba(255, 255, 255, 0.95); white-space: nowrap; }
+  /* LoadGeneric2ColumnTemplate: cells 8 apart, EveLabelMedium / TextBody lines 18 high (the live client, gridcheck g232:
+     title 16, description 42, Ore Value 94 after its padTop 8, gradient 120, Low / High 136) */
+  .mt-body { position: relative; display: grid; gap: 8px; width: 200px; line-height: 18px; }
+  .mt-body b { color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
   .mt-label { padding-top: 8px; }
   .mt-desc { color: rgba(255, 255, 255, 0.5); }
   .mt-bar { height: 8px; background: linear-gradient(to right, #2e4ebe, #70f0e3, #ffb845); }
   .mt-ends { display: flex; justify-content: space-between; }
-  .mt-note { padding-top: 8px; color: rgba(255, 255, 255, 0.5); font-size: 13px; }
+  .mt-note { padding-top: 8px; color: rgba(255, 255, 255, 0.5); }
   /* UtilityButtonBase: ring r 15 w 2 (white 0.2, FOCUS_BLUE on hover), disc r 14 (black 0.1, SMOKE_BLUE on hover),
      a 30 px underlay black 0.4; the glyph 0.5 at rest, 1 on hover; a press dips it 2 px. */
   .new-hud-mining { position: absolute; left: calc(50% - 591px + 300px + 25px - 16px); bottom: 82px; z-index: 4; }
