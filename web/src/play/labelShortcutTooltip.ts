@@ -133,7 +133,8 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
   Object.assign(grid.style, { position: "relative", display: "grid", gridTemplateColumns: "auto auto", columnGap: "8px", rowGap: "8px", alignItems: "center", lineHeight: "18px" });
   const head = document.createElement("div");
   head.textContent = label;
-  Object.assign(head.style, { fontWeight: "bold", color: "rgba(255,255,255,0.95)" });
+  // AddLabelShortcut: a bold EveLabelMedium in the normal colour (0.75 on the live client, gridcheck g231 / g239)
+  Object.assign(head.style, { fontWeight: "bold", color: "rgba(255,255,255,0.75)" });
   const hint = document.createElement("div");
   if (shortcut) {
     hint.textContent = shortcut;
@@ -379,10 +380,12 @@ export function showItemTooltip(anchor: HTMLElement, head: string, dimLines: rea
   showLabelShortcutTooltip(anchor, head, "", [], "top");
   if (!tip) return;
   const grid = tip.querySelector<HTMLElement>(":scope > .lst-grid");
+  // InventoryItemTooltip: one column, no shortcut cell (the live client, g239: Mining Drone I 128 x 76)
+  if (grid) { grid.style.gridTemplateColumns = "auto"; grid.children[1]?.remove(); }
   for (const line of dimLines) {
     const d = document.createElement("div");
     d.textContent = line;
-    Object.assign(d.style, { gridColumn: "1 / 3", color: "rgba(255,255,255,0.5)" });
+    Object.assign(d.style, { color: "rgba(255,255,255,0.5)" });
     grid?.append(d);
   }
   placeTip(tip, anchor, POINT.BOTTOM_2);
