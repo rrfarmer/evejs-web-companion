@@ -2523,7 +2523,8 @@ export class SpaceView {
     // under the pilot's control, droneCheckers.IsScoopableDrone)
     if (e.categoryID === 18) out.push({ key: "scoop", title: this.actions.word?.("UI/Drones/ScoopDroneToBay") ?? "Scoop to Drone Bay", icon: clientTexture("res:/UI/Texture/icons/44_32_1.png"),
       run: async () => this.actions.droneOrder?.("scoop", [id]) });
-    if (e.categoryID === 6 && !e.isSelf) out.push({ key: "board", title: this.actions.word?.("UI/Inflight/BoardShip") ?? "Board Ship", icon: icon("board"), run: async () => {} });
+    // (the own ship too: its Board Ship button shown disabled, IsYourShip)
+    if (e.categoryID === 6 || e.isSelf) out.push({ key: "board", title: this.actions.word?.("UI/Inflight/BoardShip") ?? "Board Ship", icon: icon("board"), run: async () => {} });
     if (this.overview.groupOf(e) === JUMP_BRIDGE_GROUP) {
       const jump = this.options.jumpBridge;
       if (jump && e.jumpBridge?.targetSystemID && e.jumpBridge.activationState === 2) {
@@ -2597,6 +2598,13 @@ export class SpaceView {
       reasons.keep = this.actions.word?.("UI/Menusvc/MenuHints/CannotKeepInRange", { groupName: this.options.groupName?.(e.groupID ?? 0) ?? "" }) ?? undefined;
     }
     // celestialCheckers.IsInteractive (ShipAlreadyPiloted): a ship with a pilot in it cannot be boarded
+    // baseCheckers IsYourShip ('UI/Menusvc/MenuHints/IsYourShip'): the movement entries, Board and Lock on the own ship;
+    // celestialCheckers AlreadyLookingAtItem: Look At on the thing the camera already looks at (the own ship by default)
+    if (e.isSelf) {
+      const mine = this.actions.word?.("UI/Menusvc/MenuHints/IsYourShip") ?? "This is your ship";
+      for (const k of ["approach", "align", "board", "orbit", "keep", "lock"]) reasons[k] = mine;
+    }
+    if ((this.lookAt ?? this.snapshot?.entities.find((x) => x.isSelf)?.itemID) === e.itemID) reasons.look = this.actions.word?.("UI/Menusvc/MenuHints/AlreadyLookingAtItem") ?? "Looking at this item";
     if (e.categoryID === 6 && !e.isSelf && e.characterID) reasons.board = this.actions.word?.("UI/Menusvc/MenuHints/ShipAlreadyPiloted") ?? "There is already a pilot in this ship";
     const lockRange = this.actions.shipAttribute?.(76) ?? null;
     if (lockRange !== null && this.distanceTo(e) >= lockRange) reasons.lock = this.actions.word?.("UI/Menusvc/MenuHints/NotInTargetRange") ?? undefined;

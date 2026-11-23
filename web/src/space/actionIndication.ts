@@ -137,6 +137,8 @@ export const INDICATION_WORD_LABELS: readonly string[] = [
     "UI/Inflight/WarpToMoonMiningPoint", "UI/Inflight/MoonMiningPoint",
     // the own ship radial default-distance slices (GetOrbitOption / GetKeepAtRangeOption / GetWarpToOption, isMyShip)
     "UI/Inflight/SetDefaultOrbitDistanceShort", "UI/Inflight/SetDefaultKeepAtRangeDistanceShort", "UI/Inflight/SetDefaultWarpWithinDistanceShort",
+    // Selected Item disabled-button reasons (baseCheckers IsYourShip, celestialCheckers AlreadyLookingAtItem)
+    "UI/Menusvc/MenuHints/IsYourShip", "UI/Menusvc/MenuHints/AlreadyLookingAtItem",
     // the own ship's open-hold entries (spaceView OPEN_HOLD_ENTRIES)
     "UI/Commands/OpenCargoHold", "UI/Commands/OpenDroneBay", "UI/Commands/OpenFighterBay", "UI/Commands/OpenShipMaintenanceBay", "UI/Commands/OpenFleetHangar", "UI/Commands/OpenFuelBay", "UI/Commands/OpenGeneralMiningHold", "UI/Commands/OpenGasHold", "UI/Commands/OpenMineralHold", "UI/Commands/OpenSalvageHold", "UI/Commands/OpenShipHold", "UI/Commands/OpenSmallShipHold", "UI/Commands/OpenMediumShipHold", "UI/Commands/OpenLargeShipHold", "UI/Commands/OpenIndustrialShipHold", "UI/Commands/OpenAmmoHold", "UI/Commands/OpenCommandCenterHold", "UI/PI/Common/OpenPlanetaryCommoditiesHold", "UI/Commands/OpenQuafeBay", "UI/Commands/OpenCorpseBay", "UI/Commands/OpenBoosterBay", "UI/Commands/OpenSubsystemBay", "UI/Commands/OpenMobileDepotHold", "UI/Commands/OpenInfrastructureHold", "UI/Commands/OpenExpeditionHold",
     // the location banner on arriving out of warp (play/locationBanner.ts)
