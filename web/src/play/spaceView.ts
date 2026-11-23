@@ -3911,7 +3911,8 @@ export class SpaceView {
       const lockable = ["ship", "drone", "fighter", "wreck", "container", "asteroid", "structure", "station", "stargate"].includes(e.kind);
       const lock: RadialOption = this.locked.has(id)
         ? { label: "Unlock Target", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/untarget.png"), run: run("Unlock Target", () => this.actions.unlock(id)) }
-        : { label: "Lock Target", icon: icon(17), disabled: !lockable, run: run("Lock Target", () => this.lockTracked(id)) };
+        // OfferLockTarget: also IsWithinTargettingRange - nearer than the ship's maxTargetRange (attribute 76)
+        : { label: "Lock Target", icon: icon(17), disabled: !lockable || dist >= (this.actions.shipAttribute?.(76) ?? Infinity), run: run("Lock Target", () => this.lockTracked(id)) };
       options = [
         primary,
         { label: "Orbit", icon: icon(21), ranges: radialRanges(500, 30000), defaultRange: 1000, run: (r) => run("Orbit", () => this.actions.orbit(id, r))() },
