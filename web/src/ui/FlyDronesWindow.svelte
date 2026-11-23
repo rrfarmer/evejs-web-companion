@@ -16,7 +16,7 @@
   import { shortcutOf } from "../play/shortcutKeys.ts";
   import { getContext, onDestroy, onMount } from "svelte";
   import type { SpaceView } from "../play/spaceView.ts";
-  import { hideLabelShortcutTooltip, placePointerPanel, showDronesInSpaceTooltip, showIconValuesTooltip, showLabelShortcutTooltip, tooltipDue } from "../play/labelShortcutTooltip.ts";
+  import { hideLabelShortcutTooltip, placePointerPanel, showDronesInSpaceTooltip, showIconValuesTooltip, showLabelShortcutTooltip, tooltipDue, panelDelay, notePanelClosed } from "../play/labelShortcutTooltip.ts";
   import { canMyShipOrderDrone } from "../space/overview.ts";
   import { miningDroneIDs, orderableDroneIDs, salvageDroneIDs } from "./droneFlight.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
@@ -342,6 +342,8 @@
   function tipFor(typeID: number, state: string | null, color: string | null, targetID: number | null, e: MouseEvent): void {
     if (tipTimer) clearTimeout(tipTimer);
     const el = e.currentTarget as HTMLElement;
+    // DroneEntry's DroneTooltipWrapper has no GetTooltipDelay: the generic delay, the renew time while one shows or just closed
+    const wait = panelDelay(tip !== null);
     tipTimer = setTimeout(() => {
       const r = el.getBoundingClientRect();
       const t = targetID ? snapshot?.entities.find((x) => x.itemID === targetID) ?? null : null;
@@ -365,9 +367,9 @@
           attributeLooks = looks;
         }).catch(() => {});
       }
-    }, 400);
+    }, wait);
   }
-  function tipOff(): void { if (tipTimer) clearTimeout(tipTimer); tipTimer = null; tip = null; }
+  function tipOff(): void { if (tipTimer) clearTimeout(tipTimer); tipTimer = null; if (tip !== null) notePanelClosed(); tip = null; }
   /** GetDroneStateDescription's target: the pilot's name for a ship, else the thing's (GetSlimItemName), Unknown where neither. */
   const tipTarget = $derived.by(() => {
     if (!tip?.targetID) return null;
