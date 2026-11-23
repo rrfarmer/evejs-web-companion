@@ -405,6 +405,8 @@ export class NewShipHud {
   private overloadMode = false;
   private overloadHover = false;
   private shiftHeld = false;
+  /** The Disabled notice (a rack with nothing to overload), as the page says it. */
+  onRackDisabled: () => void = () => {};
   private lastShipID: number | null = null;
   /** HudLayer.IsOverloadAllowed: the pilot has Thermodynamics (null: the skills not read yet - taken as allowed). */
   overloadAllowed: () => boolean | null = () => null;
@@ -726,7 +728,8 @@ export class NewShipHud {
         h.title = (on ? this.word("UI/Inflight/StopOverloadingRack") : this.word("UI/Inflight/OverloadRack")) ?? (on ? "Stop Overloading Rack" : "Overload Rack");
       });
       h.addEventListener("mouseleave", () => { if (this.rackHover === b.rack) this.rackHover = null; });
-      h.addEventListener("click", () => { this.toggleRackOverload(b.rack); });
+      // HudLayer.ToggleRackOverloadByEffect: nothing overloadable in the rack - prompt_player_fsd_dialog('Disabled')
+      h.addEventListener("click", () => { if (!this.toggleRackOverload(b.rack)) this.onRackDisabled(); });
       h.dataset.overloadControl = "";
     }
     // HudLayer._RegisterOverloadInput: key down / up polls Shift (_PollShift) - held, overload mode is on (not with a text

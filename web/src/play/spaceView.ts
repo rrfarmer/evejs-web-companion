@@ -1551,6 +1551,7 @@ export class SpaceView {
       this.shipHud.onSafetySelector = (at) => this.actions.safetySelector?.(at);
       this.shipHud.healthFacts = (index) => this.actions.healthFacts?.(index) ?? null;
       this.shipHud.overloadAllowed = () => this.actions.overloadAllowed?.() ?? null;
+      this.shipHud.onRackDisabled = () => this.toast("Disabled");
       this.shipHud.tooltipRows = (m) => this.options.rack?.tooltip?.(m) ?? null;
       // ModuleController.ShowRange: bracketMgr.ShowModuleRange(maxRange + falloff) while a module is under the pointer
       this.shipHud.onModuleMenu = (m, x, y) => this.actions.moduleMenu?.(m.itemID, m.typeID, x, y);
