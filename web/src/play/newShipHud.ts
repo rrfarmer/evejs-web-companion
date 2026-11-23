@@ -821,7 +821,8 @@ export class NewShipHud {
     this.settingsGear = gear;
     Object.assign(gear.style, { position: "absolute", left: `${cx + 70 - 8}px`, top: `${cy - 78 - 8}px`, width: "16px", height: "16px", padding: "0", border: "0", background: "transparent", opacity: "0.5", pointerEvents: "auto", cursor: "pointer" });
     gear.append(icon("res:/UI/Texture/eveicon/system_icons/settings_16px.png"));
-    gear.addEventListener("mouseenter", () => { gear.style.opacity = "0.9"; });
+    // SettingsButton is a UtilMenu, a ButtonIcon: OnMouseEnter plays SOUND_BUTTON_HOVER
+    gear.addEventListener("mouseenter", () => { gear.style.opacity = "0.9"; void playUiEvent("ui_button_soft1_play"); });
     gear.addEventListener("mouseleave", () => { gear.style.opacity = "0.5"; });
     // the settings menu (hudLayer.GetHudOptionMenu), its bottom-left at the gear's centre, 16 px above it
     // In the client's utility-menu layer (uicore.layer.utilmenu), over every window: the page's body here.
@@ -832,6 +833,8 @@ export class NewShipHud {
     for (const t of ["background_04", "pointer_down_02"]) image(res(`res:/UI/Texture/classes/FrameWithPointer/${t}.png`));
     const closeMenu = (e: MouseEvent) => { if (!menu.contains(e.target as Node) && e.target !== gear && !gear.contains(e.target as Node)) menu.style.display = "none"; };
     gear.addEventListener("click", () => {
+      // UtilMenu.OnClick: SOUND_EXPAND, then ExpandMenu
+      void playUiEvent("ui_expand_play");
       const open = menu.style.display === "none";
       if (open) {
         this.fillSettingsMenu(menu, () => { menu.style.display = "none"; });
@@ -996,10 +999,13 @@ export class NewShipHud {
       text.textContent = say(label, own);
       Object.assign(text.style, { position: "absolute", left: "22px", top: "2px", lineHeight: "18px" });
       row.append(box, text);
-      row.addEventListener("mouseenter", () => { if (opts.enabled !== false) row.style.background = "rgba(255,255,255,0.05)"; });
+      // UtilMenuEntryBase.OnMouseEnter: with a callback, SOUND_ENTRY_HOVER
+      row.addEventListener("mouseenter", () => { if (opts.enabled !== false) { row.style.background = "rgba(255,255,255,0.05)"; void playUiEvent("ui_button_soft2_play"); } });
       row.addEventListener("mouseleave", () => { row.style.background = ""; });
       if (opts.enabled !== false) {
         row.addEventListener("click", () => {
+          // UtilMenuEntryBase.OnClick: with a callback, SOUND_BUTTON_CLICK
+          void playUiEvent("ui_button_soft4_play");
           setHudSetting(name, opts.invert ? on : !on);
           opts.after?.();
           this.fillSettingsMenu(menu, close);
@@ -1024,9 +1030,9 @@ export class NewShipHud {
       t.textContent = text;
       Object.assign(t.style, { position: "absolute", left: "22px", top: "2px", lineHeight: "18px" });
       row.append(b, t);
-      row.addEventListener("mouseenter", () => { row.style.background = "rgba(255,255,255,0.05)"; });
+      row.addEventListener("mouseenter", () => { row.style.background = "rgba(255,255,255,0.05)"; void playUiEvent("ui_button_soft2_play"); });
       row.addEventListener("mouseleave", () => { row.style.background = ""; });
-      row.addEventListener("click", () => { close(); act(); });
+      row.addEventListener("click", () => { void playUiEvent("ui_button_soft4_play"); close(); act(); });
       list.append(row);
     };
     const H = "UI/Inflight/HUDOptions/";
