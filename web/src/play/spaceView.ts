@@ -3167,6 +3167,8 @@ export class SpaceView {
         hit?.animate([{ opacity: base + 0.05 }, { opacity: base }], { duration: 750 });
       }
     }
+    // TargetInBar.OnDamageMessage: our hit on a locked target blinks its entry (DoBlink)
+    if (entry.direction === "dealt" && entry.otherPartyID !== null && entry.amount > 0) this.targetBar.blinkTarget(entry.otherPartyID);
     const own = this.snapshot?.ship?.itemID ?? null;
     if (own !== null && entry.routing) this.turretFx.damageMessage(own, entry.routing, entry.weaponTypeID ?? null, entry.quality ?? null);
   }

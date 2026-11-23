@@ -902,6 +902,18 @@ export class TargetBar {
   }
 
   /**
+   * TargetInBar.OnDamageMessage: a hit of ours on the target (attackType 'me', damage > 0) - DoBlink, FadeTo(1.3 -> 1.0,
+   * 0.75 s, ANIM_OVERSHOT): HERMITE keys 1.3 at 0, 0.97 at OVERSHOT_TIME 0.4 of it (the end overshot by 0.1 of the
+   * change), 1.0 at the end; the opacity above 1 a brightening here
+   */
+  blinkTarget(itemID: number): void {
+    const t = this.targets.get(itemID);
+    if (!t) return;
+    const E = "cubic-bezier(0.3333, 0, 0.6667, 1)";
+    t.root.animate([{ filter: "brightness(1.3)", easing: E }, { offset: 0.4, filter: "brightness(0.97)", easing: E }, { filter: "brightness(1)" }], { duration: 750 });
+  }
+
+  /**
    * targetMgr.OnTargetLost(reason 'Exploding') -> ClearDeadTarget -> TargetInBar.anim_disappear: a target that is not an
    * asteroid plays anim_death as it goes (the page hears the explosion as TerminalPlayDestructionEffect).
    */
