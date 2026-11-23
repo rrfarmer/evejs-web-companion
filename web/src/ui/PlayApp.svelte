@@ -385,17 +385,27 @@
       s.flow.rackAmmoMenu(moduleID, { reloading, bankCount: 1 }).catch(() => null),
       s.flow.rackModuleMenu(moduleID).catch(() => null),
     ]);
-    const entries: (ContextEntry | null)[] = [];
+    // menuDataFactory.CreateMenuDataWithEntries: the entries sorted (stable) by their caption's menuUtil group's place
+    // in menuHierarchy, a line where it changes (read through gridcheck on a module's menu: Show Info | Set Auto-Repeat
+    // Off | Put Offline). ACTIONSGROUP 1 (Reload / Reload Used / the ammo types / Reload All), SHOWINFOGROUP 2,
+    // CHANGESGROUP 11 (Cancel Repair, Cancel All Repairs), no group 14 (auto reload / repeat, Put Online, Unload to
+    // Cargo, the repairs, overload), DESTRUCTIVEGROUP 17 (Put Offline, Clear Group). The new HUD's
+    // ModuleController.GetMenu has no overload entries.
+    const ranked: { entry: ContextEntry; rank: number }[] = [];
+    const newHud = hudSettingNow("shipHudNew_preview");
     for (const a of ammo ?? []) {
-      entries.push({ label: a.text, run: () => {
+      ranked.push({ rank: a.kind === "unload" ? 14 : 1, entry: { label: a.text, run: () => {
         if (a.kind === "load") void s.flow.loadAmmo([moduleID], a.itemIDs, "cargo").catch(() => {});
         else if (a.kind === "reloadAll") void s.flow.reloadAll(new Set(reloading ? [moduleID] : [])).catch(() => {});
         else void s.flow.unloadRackCharge(moduleID).catch(() => {});
-      } });
+      } } });
     }
     for (const o of own ?? []) {
-      if (o.kind === "rule") { entries.push(null); continue; }
-      entries.push({ label: o.text, info: o.kind === "showInfo", run: () => {
+      if (o.kind === "rule") continue;
+      if (newHud && (o.kind === "overload" || o.kind === "overloadRack" || o.kind === "stopOverloadRack")) continue;
+      const rank = o.kind === "showInfo" ? 2 : o.kind === "cancelRepair" || o.kind === "cancelAllRepairs" ? 11
+        : (o.kind === "online" && o.on) || o.kind === "clearGroup" ? 17 : 14;
+      ranked.push({ rank, entry: { label: o.text, info: o.kind === "showInfo", run: () => {
         if (o.kind === "autoRepeat") s.flow.setAutoRepeat(moduleID, !o.on);
         else if (o.kind === "autoReload") void s.flow.setAutoReload(moduleID, !o.on).catch(() => {});
         else if (o.kind === "showInfo") showInfo({ kind: "module", itemID: moduleID, typeID });
@@ -407,9 +417,11 @@
         else if (o.kind === "cancelRepair") void s.flow.cancelRackRepair(moduleID).catch(() => {});
         else if (o.kind === "repairAll") void s.flow.repairRackModules(o.moduleIDs).catch(() => {});
         else if (o.kind === "cancelAllRepairs") void s.flow.cancelRackRepairs(o.moduleIDs).catch(() => {});
-      } });
+      } } });
     }
-    if (ammo && ammo.length && own && own.length && own[0]?.kind !== "rule") entries.splice(ammo.length, 0, null);
+    const sorted = ranked.map((x, i) => ({ ...x, i })).sort((a, b) => a.rank - b.rank || a.i - b.i);
+    const entries: (ContextEntry | null)[] = [];
+    sorted.forEach((x, k) => { if (k > 0 && sorted[k - 1]!.rank !== x.rank) entries.push(null); entries.push(x.entry); });
     if (entries.length) moduleContextMenu.open(x, y, entries);
   }
   /** gameui.DoCharacterLogoff: the pilot released and the page back on character selection. */
