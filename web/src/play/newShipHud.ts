@@ -1094,7 +1094,20 @@ export class NewShipHud {
     Object.assign(pill.style, {
       position: "absolute", left: "23px", top: "47.5px", width: "24px", height: "105px", borderRadius: "12px",
       background: "rgba(0,0,0,0.6)", boxShadow: "0 0 0 1px rgba(255,255,255,0.4)", pointerEvents: "auto",
+      transition: "background-color 0.15s cubic-bezier(0.3333, 0, 0.6667, 1)",
     });
+    // ScannerFlyout._OnPillEnter / _OnPillExit: a ProximitySensor _PILL_PROXIMITY_PX 40 round the pill MorphScalars its alpha
+    // _PILL_COLOR 0.6 -> _PILL_HOVER_ALPHA 1.0 and back over _PILL_HOVER_SEC 0.15 (the default ANIM_SMOOTH)
+    let pillNear = false;
+    const onPillMove = (e: MouseEvent) => {
+      const r = pill.getBoundingClientRect();
+      const near = r.width > 0 && e.clientX >= r.left - 40 && e.clientX <= r.right + 40 && e.clientY >= r.top - 40 && e.clientY <= r.bottom + 40;
+      if (near === pillNear) return;
+      pillNear = near;
+      pill.style.backgroundColor = near ? "rgba(0,0,0,1)" : "rgba(0,0,0,0.6)";
+    };
+    document.addEventListener("mousemove", onPillMove);
+    this.unsubscribe.push(() => document.removeEventListener("mousemove", onPillMove));
     for (const [top, cmd, id, title] of [
       [0, "CmdToggleSolarSystemMap", "solar_system", "Solar System Map"],
       [33, "OpenMoonScan", "moon_scan", "Moon Probe and Analysis"],
@@ -1112,8 +1125,11 @@ export class NewShipHud {
       g.style.opacity = "0.5";
       b.append(g);
       b.addEventListener("mouseenter", () => { g.style.opacity = "1"; g.style.width = g.style.height = "20px"; });
-      b.addEventListener("mouseleave", () => { g.style.opacity = "0.5"; g.style.width = g.style.height = "16px"; });
-      b.addEventListener("click", () => this.onCommand(cmd));
+      b.addEventListener("mouseleave", () => { g.style.opacity = "0.5"; g.style.width = g.style.height = "16px"; b.style.transform = ""; });
+      // FlyoutItem: a press dips it PRESS_DIP_PX 2; OnClick plays SOUND_BUTTON_CLICK
+      b.addEventListener("mousedown", () => { b.style.transform = "translateY(2px)"; });
+      b.addEventListener("mouseup", () => { b.style.transform = ""; });
+      b.addEventListener("click", () => { void playUiEvent("ui_button_soft4_play"); this.onCommand(cmd); });
       pill.append(b);
     }
     const sep = document.createElement("div");
