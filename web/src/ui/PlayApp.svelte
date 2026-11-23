@@ -824,6 +824,18 @@
     return () => { neocomInst = null; neocom.root.remove(); neocom.dispose(); };
   });
   let neocomInst = $state<Neocom | null>(null);
+  // the Neocom buttons' indicators: a window there is open, the one in front active (ButtonWindow highlight states)
+  $effect(() => {
+    const shown = wins.filter((w) => !w.minimized);
+    const front = shown.reduce<WinState | null>((top, w) => (top && top.z > w.z ? top : w), null);
+    const states = new Map<string, "open" | "active">();
+    for (const [id, tab] of Object.entries(NEOCOM_TABS)) {
+      const win = wins.find((w) => w.id === tab);
+      if (win) states.set(id, win === front ? "active" : "open");
+    }
+    neocomInst?.setWindowStates(states);
+    view?.setNeocomStates(states);
+  });
   // the character sheet button's portrait: the pilot's (photo.GetPortrait at 64), as the Selected Item window gets one
   $effect(() => {
     const s = session, nc = neocomInst;

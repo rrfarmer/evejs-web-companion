@@ -174,7 +174,13 @@ button { font: inherit; color: inherit; }
 .eve-menu-entry:hover:not(:disabled) { background: url(/client-res/ui/texture/classes/neocom/panelentrybg.png) center / 100% 100% no-repeat; color: #fff; }
 .eve-menu-entry.group::after { content: "\203A"; position: absolute; right: 16px; color: #9aa0a6; }
 .eve-menu-entry:disabled { opacity: 0.4; cursor: default; }
-.nc-btn { width: 48px; height: 48px; padding: 0; display: grid; place-items: center; background: transparent; border: none; cursor: pointer; }
+/* ButtonIndicator: a 2 px Line at the button's right edge, centred; HighlightState.open 8 high in SILVER_GREY (0.69),
+   active 16 high in THEME_ACCENT; height over 0.2 s, colour and opacity over 0.3 s (the live client, gridcheck g252) */
+.nc-ind { position: absolute; right: 0; top: 50%; width: 2px; height: 0; transform: translateY(-50%); opacity: 0; pointer-events: none;
+  transition: height 0.2s, opacity 0.3s, background-color 0.3s; }
+.nc-ind[data-state="open"] { height: 8px; opacity: 1; background: rgb(176, 176, 176); }
+.nc-ind[data-state="active"] { height: 16px; opacity: 1; background: rgb(88, 167, 191); }
+.nc-btn { position: relative; width: 48px; height: 48px; padding: 0; display: grid; place-items: center; background: transparent; border: none; cursor: pointer; }
 .nc-btn img { width: 40px; height: 40px; opacity: .78; }
 .nc-btn.nc-portrait img { width: 48px; height: 48px; opacity: 1; }
 .nc-btn:hover { background: url(/client-res/ui/texture/classes/neocom/buttonhover.png) center / 100% 100% no-repeat; }

@@ -1077,6 +1077,8 @@ export class SpaceView {
   private neocom: Neocom | null = null;
   /** The Neocom's character sheet button portrait (ButtonCharacterIcon). */
   setNeocomPortrait(url: string | null): void { this.neocom?.setPortrait(url); }
+  /** The Neocom buttons' window indicators (ButtonIndicator). */
+  setNeocomStates(states: ReadonlyMap<string, "open" | "active">): void { this.neocom?.setWindowStates(states); }
   private readonly shipHud: ShipHud | NewShipHud = hudSettingNow("shipHudNew_preview") ? new NewShipHud() : new ShipHud({ slots: { hi: 0, med: 0, low: 0 } });
   private readonly targetBar = new TargetBar();
   /** Lock requests awaiting a response, keyed by target ID and local start time. */

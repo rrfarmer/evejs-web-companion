@@ -126,11 +126,29 @@ export class Neocom {
   private readonly clock = document.createElement("div");
   /** ButtonCharacterIcon (charSheetBtn): the pilot's portrait filling a 48 x 48 button under the EVE button. */
   private readonly portrait = document.createElement("img");
+  /** Each button's ButtonIndicator, by its id. */
+  private readonly indicators = new Map<string, HTMLElement>();
   /** The EVE menu's panels, on the page's body. */
   private menuParts: HTMLElement[] = [];
   /** Takes the EVE menu's panels off the page. */
   dispose(): void { for (const el of this.menuParts) el.remove(); }
+  private indicator(id: string): HTMLElement {
+    const ind = document.createElement("span");
+    ind.className = "nc-ind";
+    this.indicators.set(id, ind);
+    return ind;
+  }
   /** The portrait the character sheet button shows (photo.GetPortrait), or none while the pilot is not known. */
+  /**
+   * ButtonIndicator.SetHighlightState for the windows the buttons open: HighlightState.open (the window there, a
+   * 2 x 8 SILVER_GREY bar) or active (the window in front, 2 x 16 THEME_ACCENT); none otherwise.
+   */
+  setWindowStates(states: ReadonlyMap<string, "open" | "active">): void {
+    for (const [id, ind] of this.indicators) {
+      const state = states.get(id) ?? "";
+      if (ind.dataset.state !== state) ind.dataset.state = state;
+    }
+  }
   setPortrait(url: string | null): void {
     if (url) this.portrait.src = url; else this.portrait.removeAttribute("src");
     this.portrait.style.visibility = url ? "" : "hidden";
@@ -196,7 +214,7 @@ export class Neocom {
     sheet.setAttribute("aria-label", "Character Sheet");
     this.portrait.alt = "";
     this.portrait.style.visibility = "hidden";
-    sheet.append(this.portrait);
+    sheet.append(this.portrait, this.indicator("charactersheet"));
     sheet.addEventListener("click", () => { neocomTipOff(); open("charactersheet"); });
     sheet.addEventListener("mouseenter", () => neocomTipOn(sheet, "charactersheet"));
     sheet.addEventListener("mouseleave", neocomTipOff);
@@ -206,6 +224,7 @@ export class Neocom {
       el.className = "nc-btn";
       el.setAttribute("aria-label", b.label);
       el.innerHTML = `<img src="${b.icon}" alt="">`;
+      el.append(this.indicator(b.id));
       el.addEventListener("click", () => { neocomTipOff(); open(b.id); });
       el.addEventListener("mouseenter", () => neocomTipOn(el, b.id));
       el.addEventListener("mouseleave", neocomTipOff);
