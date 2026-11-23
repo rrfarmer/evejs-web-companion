@@ -203,8 +203,12 @@
    * ItemStackVolume "<sum> (<unit> per unit)"). Read through gridcheck: "1,234 x Tritanium", "Est. 2,470 ISK (2.00 ISK
    * per unit)", "12.34 m³ (0.01 m³ per unit)".
    */
+  /** The item the pointer is on (its tooltip wanted), until it leaves. */
+  let itemTipAt: HTMLElement | null = null;
+  function itemTipOff(): void { itemTipAt = null; hideLabelShortcutTooltip(); }
   function itemTip(i: { typeID: number; quantity: number }, e: MouseEvent): void {
     const anchor = e.currentTarget as HTMLElement;
+    itemTipAt = anchor;
     const name = typeName(i.typeID);
     const q = i.quantity;
     const head = q > 1 ? word("UI/Inventory/QuantityAndName", `${q.toLocaleString("en-US")} x ${name}`, { quantity: q, name }) : name;
@@ -216,10 +220,18 @@
         ? word("UI/Inventory/ItemStackEstimatedPrice", `Est. ${sum} (${iskRound(price, price < 100)} per unit)`, { estPrice: sum, estPricePerUnit: iskRound(price, price < 100) })
         : word("UI/Inventory/ItemEstimatedPrice", `Est. ${sum}`, { estPrice: sum }));
     }
-    const unit = volumes[String(i.typeID)];
-    if (unit === undefined) void flow.typeVolumes([i.typeID]).then((v) => { volumes = { ...volumes, ...v }; }).catch(() => {});
-    else lines.push(q > 1 ? word("UI/Inventory/ItemStackVolume", `${volText(unit * q)} (${volText(unit)} per unit)`, { itemVolume: volText(unit * q), typeVolume: volText(unit) }) : volText(unit));
-    tooltipDue(anchor, () => showItemTooltip(anchor, head, lines));
+    // eveformat.volume_from_item(include_per_unit=True), always the last line: a type whose volume is not known yet is
+    // asked for and the tooltip shown once it is (the pointer still on the item)
+    const withVolume = (unit: number) => [...lines, q > 1 ? word("UI/Inventory/ItemStackVolume", `${volText(unit * q)} (${volText(unit)} per unit)`, { itemVolume: volText(unit * q), typeVolume: volText(unit) }) : volText(unit)];
+    tooltipDue(anchor, () => {
+      const unit = volumes[String(i.typeID)];
+      if (unit !== undefined) { showItemTooltip(anchor, head, withVolume(unit)); return; }
+      void flow.typeVolumes([i.typeID]).then((v) => {
+        volumes = { ...volumes, ...v };
+        const got = volumes[String(i.typeID)];
+        if (anchor.isConnected && itemTipAt === anchor) showItemTooltip(anchor, head, got === undefined ? lines : withVolume(got));
+      }).catch(() => { if (anchor.isConnected && itemTipAt === anchor) showItemTooltip(anchor, head, lines); });
+    });
   }
   $effect(() => {
     const ids = [...new Set(($drones.bay ?? []).map((d) => d.typeID))].filter((t) => volumes[String(t)] === undefined);
@@ -985,7 +997,7 @@
           <tbody>
             {#each shown as i (i.itemID)}
               {@const fa = facts[i.typeID]}
-              <tr class:selected={selected.includes(i.itemID)} draggable="true" onmouseenter={(e) => { hoverSound(e); itemTip(i, e); }} onmouseleave={hideLabelShortcutTooltip} onclick={(e) => clickItem(i.itemID, e)} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
+              <tr class:selected={selected.includes(i.itemID)} draggable="true" onmouseenter={(e) => { hoverSound(e); itemTip(i, e); }} onmouseleave={itemTipOff} onclick={(e) => clickItem(i.itemID, e)} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
                 <td class="nm" class:hid={hiddenCols.includes(0)}>{#if viewMode === "details"}<span class="ricon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="md" /></span>{/if}{typeName(i.typeID)}</td>
                 <!-- uix columns (read through gridcheck): QUANTITY GetItemQty - none for a singleton; META_LEVEL FmtAmt where the
                      type has one (0 blank); TECH_LEVEL FmtAmt, and where evetypes has none the client prints None -->
@@ -1004,7 +1016,7 @@
         </table>
       {:else}
         {#each shown as i (i.itemID)}
-          <div class="item" class:selected={selected.includes(i.itemID)} onmouseenter={(e) => { hoverSound(e); itemTip(i, e); }} onmouseleave={hideLabelShortcutTooltip} role="listitem" draggable="true"
+          <div class="item" class:selected={selected.includes(i.itemID)} onmouseenter={(e) => { hoverSound(e); itemTip(i, e); }} onmouseleave={itemTipOff} role="listitem" draggable="true"
             onclick={(e) => clickItem(i.itemID, e)} onkeydown={() => {}} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
             <span class="icon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="lg" />
               {#if !i.singleton}<span class="qty">{fmtAmtShort(i.quantity)}</span>{/if}</span>
