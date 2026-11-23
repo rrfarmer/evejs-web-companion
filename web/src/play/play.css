@@ -764,7 +764,7 @@ button { font: inherit; color: inherit; }
 /* InSpaceBracket.Select: its selection_sprite, the same selectionCircle 30 x 30 at 0.5 (the hover's Hilite is 0.3) */
 .bracket.selected .t-hilite { display: block; opacity: .5; }
 /* InSpaceBracket.ShowRadialMenuIndicator: radialMenuSprite - RadialMenu/bracketHilite.png 20 x 20 centred, behind the icon (idx -1), colour (0.5, 0.5, 0.5, 0.5) */
-.bracket.radial-marked::before { content: ""; position: absolute; left: -2px; top: -2px; width: 20px; height: 20px; z-index: -1; pointer-events: none; opacity: .5; filter: brightness(.5);
+.bracket.radial-marked::after { content: ""; position: absolute; left: -2px; top: -2px; width: 20px; height: 20px; z-index: -1; pointer-events: none; opacity: .5; filter: brightness(.5);
   background: url(/client-res/ui/texture/classes/radialmenu/brackethilite.png) center / 20px no-repeat; }
 .t-circle { width: 96px; height: 96px; left: -48px; top: -48px; opacity: .2;
   -webkit-mask-image: url(/client-res/ui/texture/classes/target/outercircle.png); mask-image: url(/client-res/ui/texture/classes/target/outercircle.png); }
