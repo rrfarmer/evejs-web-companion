@@ -583,6 +583,28 @@
     } else selected = [id];
     if (!e.shiftKey) lastClicked = id;
   }
+  /**
+   * Scroll.OnUp / OnDown (BrowseNodes, ActivateIdx) in the details and list views, whose scroll nodes are the items:
+   * nothing selected - the last / first; else past the selection (its last going down, its first going up; with Shift
+   * the end away from the last clicked, the range from there), past either end nothing; brought into view. Not in the
+   * icon view, where the scroll's nodes are rows of icons (container.py RefreshView, Row with internalNodes).
+   */
+  function browseItems(up: boolean, shift: boolean, list: HTMLElement): void {
+    if (viewMode === "icons") return;
+    const order = shown.map((i) => i.itemID);
+    if (!order.length) return;
+    const sel = order.map((id, i) => (selected.includes(id) ? i : -1)).filter((i) => i >= 0);
+    const lastAt = lastClicked === null ? -1 : order.indexOf(lastClicked);
+    let idx: number;
+    if (!sel.length) idx = up ? order.length - 1 : 0;
+    else if (shift && lastAt >= 0) idx = (sel[0]! < lastAt ? sel[0]! : sel[sel.length - 1]!) + (up ? -1 : 1);
+    else idx = (sel.length > 1 ? sel[up ? 0 : sel.length - 1]! : sel[0]!) + (up ? -1 : 1);
+    if (idx < 0 || idx >= order.length) return;
+    if (shift && sel.length && lastAt >= 0) selected = order.slice(Math.min(lastAt, idx), Math.max(lastAt, idx) + 1);
+    else { selected = [order[idx]!]; lastClicked = order[idx]!; }
+    const id = order[idx]!;
+    void id; requestAnimationFrame(() => list.querySelectorAll<HTMLElement>("[draggable='true']")[idx]?.scrollIntoView({ block: "nearest" }));
+  }
   /** A bay's place for the moves (invCtrl: the cargo, or the ship bay by its flag). */
   /** IsLootable: a can or a wreck in space (a deployable's cargo bay has no Loot All). */
   const lootable = $derived.by(() => { const id = $inventoryState.container?.itemID; const e = id ? $space.snapshot?.entities.find((x) => x.itemID === id) : null; return e?.kind === "wreck" || e?.kind === "container"; });
@@ -909,7 +931,7 @@
       <input class="search" placeholder="Search" value={$filterSig} oninput={(e) => filterSig.set((e.target as HTMLInputElement).value)} />
     </div>
     {/if}
-    <div class="items" role="list" tabindex="-1" onclick={(e) => { selected = []; (e.currentTarget as HTMLElement).focus({ preventScroll: true }); }} onkeydown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); e.stopPropagation(); selected = shown.map((i) => i.itemID); } else if (!e.ctrlKey && !e.altKey && (e.key === "Home" || e.key === "End")) { e.preventDefault(); e.stopPropagation(); scrollListHomeEnd(e.currentTarget.firstElementChild as HTMLElement ?? e.currentTarget, e.key === "End"); } }} oncontextmenu={(e) => { e.preventDefault(); menu.open(e.clientX, e.clientY, containerMenu()); }}
+    <div class="items" role="list" tabindex="-1" onclick={(e) => { selected = []; (e.currentTarget as HTMLElement).focus({ preventScroll: true }); }} onkeydown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); e.stopPropagation(); selected = shown.map((i) => i.itemID); } else if (!e.ctrlKey && !e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) { if (viewMode !== "icons") { e.preventDefault(); e.stopPropagation(); browseItems(e.key === "ArrowUp", e.shiftKey, e.currentTarget as HTMLElement); } } else if (!e.ctrlKey && !e.altKey && (e.key === "Home" || e.key === "End")) { e.preventDefault(); e.stopPropagation(); scrollListHomeEnd(e.currentTarget.firstElementChild as HTMLElement ?? e.currentTarget, e.key === "End"); } }} oncontextmenu={(e) => { e.preventDefault(); menu.open(e.clientX, e.clientY, containerMenu()); }}
       ondragover={areaDragOver} ondragleave={areaDragLeave}
       ondrop={(e) => { addStacks = null; if (dragging && dragging.from !== areaKey) void dropOn(areaKey, e); }}>
       {#if bay && bay.items === null}
