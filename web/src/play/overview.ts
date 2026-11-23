@@ -28,6 +28,10 @@ export function targetMarkup(t: { readonly locked: boolean; readonly active: boo
   return (t.attacking ? "<span class=\"ov-tgt-hostile attacking\"></span>" : t.hostile ? `<span class="ov-tgt-hostile${t.fleet ? " fleet" : ""}"></span>` : "") + (t.locked ? "<span class=\"ov-tgt\"></span>" : "") + (t.active ? "<span class=\"ov-tgt active\"></span>" : "") + (t.locking && !t.locked ? "<span class=\"ov-tgt-locking\"></span>" : "");
 }
 
+/** A hint's markup as the title's text: <br> a new line, the tags dropped, the entities read. */
+function hintText(html: string): string {
+  return html.replace(/<br>/g, "\n").replace(/<[^>]*>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+}
 export function flagMarkup(f: StateFlagLook | null): string {
   if (!f) return "";
   const glyph = clientTexture(`res:/UI/Texture/classes/FlagIcon/8/${f.iconIndex + 1}.png`);
@@ -301,6 +305,8 @@ export interface OverviewHooks {
   /** The icon tooltip's lines after the group's name (OverviewScrollEntry.LoadIconTooltipPanel). */
   /** GetIconColor's sort value (getSortValue=True), for the Icon column's sort. */
   iconSortValue?(e: Entity): number;
+  /** bracketMgr.GetDisplayNameForBracket's ship-label name (HTML) for the Name cell's hint; null for a thing without one. */
+  nameHint?(e: Entity): string | null;
   iconTooltipLines?(e: Entity): { readonly threat: readonly string[]; readonly icon?: readonly string[]; readonly after: readonly string[] };
   /** stateSvc's targeted / activeTarget / targeting for the row's SpaceObjectIcon (UpdateSpaceObjectState). */
   targetState?(itemID: number): { readonly locked: boolean; readonly active: boolean; readonly locking: boolean; readonly hostile?: boolean; readonly fleet?: boolean; readonly attacking?: boolean };
@@ -2173,7 +2179,12 @@ export class Overview {
           case "ICON": return `<td class="ov-icon"><span class="ov-icon-wrap">${this.hooks.glyph(e)}${targetMarkup(this.hooks.targetState?.(e.itemID))}${flagMarkup(flags.icon).replace(/ title="[^"]*"/, "")}</span></td>`;
           case "DISTANCE": return `<td class="ov-dist">${overviewDistance(d)}</td>`;
           // PrimeDisplayName: the cell's hint the bracket's display name (bracketMgr.GetDisplayNameForBracket), the full name
-          case "NAME": return `<td title="${esc(e.name || rowName(e))}">${esc(rowName(e))}</td>`;
+          case "NAME": {
+            // a ship's hint the ship labels (<br> a new line), else the full name
+            const label = this.hooks.nameHint?.(e) ?? null;
+            const hint = label === null ? e.name || rowName(e) : hintText(label);
+            return `<td title="${esc(hint)}">${esc(rowName(e))}</td>`;
+          }
           case "TYPE": return `<td>${esc(typeName)}</td>`;
           case "SIZE": return `<td class="ov-dist">${fmtDist(2 * (e.radius ?? 0))}</td>`;
           case "VELOCITY": return `<td class="ov-dist">${isStatic(e) ? "-" : Math.trunc(speed(e)).toLocaleString("en-US")}</td>`;

@@ -795,19 +795,25 @@ export class SpaceView {
    * (category 46) by the ship labels (GetDisplayNameWithShipLabels), anything else by its name; the distance after.
    */
   private drawBracketLabel(label: HTMLElement, e: Entity): void {
-    const category = (e as Entity & { categoryID?: number | null }).categoryID ?? null;
-    const corp = (e as Entity & { corporationID?: number | null }).corporationID ?? null;
-    if (corp && category !== 46) {
-      const alliance = (e as Entity & { allianceID?: number | null }).allianceID ?? null;
-      const tickers = this.options.ownerTickers?.(corp, alliance) ?? { corporation: null, alliance: null };
+    const name = this.shipLabelName(e);
+    if (name !== null) {
       const dist = this.distanceTo(e);
-      const html = shipLabelMarkup({ typeName: (e.typeID ? this.names?.types[String(e.typeID)]?.[0] : null) ?? "", shipName: e.name ?? null,
-        displayName: this.nameOf(e), corporationID: corp, allianceID: alliance, corpTicker: tickers.corporation, allianceTicker: tickers.alliance }) +
-        (dist ? ` ${fmtDistance(dist)}` : "");
+      const html = name + (dist ? ` ${fmtDistance(dist)}` : "");
       if (label.innerHTML !== html) label.innerHTML = html;
       return;
     }
     label.textContent = labelText(this.nameOf(e), this.distanceTo(e));
+  }
+
+  /** GetDisplayNameForBracket's ship-label branch (GetDisplayNameWithShipLabels) as HTML; null where it does not apply. */
+  private shipLabelName(e: Entity): string | null {
+    const category = (e as Entity & { categoryID?: number | null }).categoryID ?? null;
+    const corp = (e as Entity & { corporationID?: number | null }).corporationID ?? null;
+    if (!corp || category === 46) return null;
+    const alliance = (e as Entity & { allianceID?: number | null }).allianceID ?? null;
+    const tickers = this.options.ownerTickers?.(corp, alliance) ?? { corporation: null, alliance: null };
+    return shipLabelMarkup({ typeName: (e.typeID ? this.names?.types[String(e.typeID)]?.[0] : null) ?? "", shipName: e.name ?? null,
+      displayName: this.nameOf(e), corporationID: corp, allianceID: alliance, corpTicker: tickers.corporation, allianceTicker: tickers.alliance });
   }
 
   /**
@@ -1679,6 +1685,7 @@ export class SpaceView {
     void options.entryWarpHistory?.then(hasWarped => { this.entryWarped = hasWarped ?? true; });
     const makeOverview = (instanceID: number) => new Overview({
       instanceID,
+      nameHint: (e) => this.shipLabelName(e),
       select: (id) => this.select(id),
       activate: (id) => this.activateSpaceTarget(id),
       glyph,
