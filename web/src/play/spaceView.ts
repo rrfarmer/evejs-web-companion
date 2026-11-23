@@ -3884,7 +3884,8 @@ export class SpaceView {
       : { label: this.actions.word?.("UI/Commands/ShowInfo") ?? "Show Info", icon: icon(24), disabled: true };
     const say = (label: string, own: string) => this.actions.word?.(label) ?? own;
     // lookAtOption: Look At (44_32_20), or Reset Camera (resetCamera.png) on the object looked at
-    const lookAt: RadialOption = this.lookAt === id
+    // (the own ship: LookAtObject never offered, ResetCamera in its place)
+    const lookAt: RadialOption = this.lookAt === id || e.isSelf
       ? { label: say("UI/Inflight/ResetCamera", "Look At My Ship"), icon: RADIAL_ICON("res:/UI/Texture/classes/RadialMenuActions/resetCamera.png"), run: () => this.focusOn(null) }
       : { label: say("UI/Inflight/LookAtObject", "Look At"), icon: icon(20), run: () => this.focusOn(id) };
     // setInterestOption (44_32_65): the camera tracks it; bookMarkOption (bookmark.png): Save Location
