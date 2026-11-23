@@ -68,8 +68,6 @@ const LINE_HEIGHT = 12; // EveLabelSmall: 10 px
 // name at 100 and the distance at 116, the assigned row at 132)
 const LABEL_LINE = 16;
 const HEALTH_READ_MS = [750, 1000] as const;
-const MINING_FLASH_MS = 1500;
-const MINING_CRITICAL_MS = 2200;
 const MINING_DEPARTURE_MS = 1750;
 const MINING_REMOVAL_GRACE_MS = 5000;
 
@@ -188,20 +186,6 @@ const CSS = `
 .target-bar .tb-bar { pointer-events: auto; }
 .target-bar .tb-target-depleted .tb-bar { pointer-events: none; }
 .target-bar .tb-mining { pointer-events: none; text-align: center; font: 10px/14px ${FONT}; color: #e9f8ff; }
-.target-bar .tb-mining-track { position: relative; height: 5px; overflow: hidden; border-radius: 2px;
-  background: #202b32; box-shadow: 0 0 0 1px #111a20, 0 1px 5px #050a0f; }
-.target-bar .tb-mining-track::after { content: ""; position: absolute; inset: 0;
-  background: repeating-linear-gradient(to right, transparent 0 calc(25% - 1px), #10191e 0 25%); }
-.target-bar .tb-mining-fill, .target-bar .tb-mining-segment { position: absolute; top: 0; height: 100%; }
-.target-bar .tb-mining-fill { left: 0; background: #c5e4f3; }
-.target-bar .tb-mining-segment { animation: tb-mining-flash ${MINING_FLASH_MS}ms linear both; }
-.target-bar .tb-mining-segment.yield { background: #74e5ae; }
-.target-bar .tb-mining-segment.residue { background: #ff847e; }
-.target-bar .tb-mining-segment.critical { background: #ffd878; }
-.target-bar .tb-mining-number, .target-bar .tb-mining-critical { text-shadow: 0 1px 3px #000, 0 1px 5px #000; }
-.target-bar .tb-mining-critical { position: absolute; left: 0; right: 0; bottom: 22px; color: #ffd878;
-  animation: tb-mining-flash ${MINING_CRITICAL_MS}ms ease-out both; }
-@keyframes tb-mining-flash { 0%, 65% { opacity: 1; } 100% { opacity: 0; } }
 .target-bar .tb-hilite { display: none; }
 .target-bar .tb-bar:hover .tb-hilite { display: block; }
 .target-bar .tb-icon { -webkit-mask: url("${TEX.shipMask}") center / 100% 100% no-repeat; mask: url("${TEX.shipMask}") center / 100% 100% no-repeat; }
