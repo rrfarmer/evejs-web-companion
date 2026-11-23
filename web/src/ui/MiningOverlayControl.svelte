@@ -94,6 +94,8 @@
   const glyph = $derived(`/client-res/ui/texture/eveicon/control_icons/mining_overlay_toggle_${Math.trunc(tier) === 2 ? "fleet_shared" : Math.trunc(tier) === 1 ? "local" : "default"}_16px.png`);
 
   function run() {
+    // UtilityButton.OnClick: SOUND_BUTTON_CLICK
+    void playUiEvent("ui_button_soft4_play");
     menu = false;
     void survey.scan().catch(() => {});
   }
@@ -183,10 +185,14 @@
   .new-hud-mining .util {
     position: relative; width: 32px; height: 32px; padding: 0; border-radius: 50%; display: grid; place-items: center;
     background: radial-gradient(circle, rgba(0,0,0,0.1) 0 14px, transparent 14.5px), radial-gradient(circle, rgba(0,0,0,0.4) 0 15px, transparent 15.5px);
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2), 0 0 0 1px rgba(255,255,255,0.2);
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,0.2);
   }
-  .new-hud-mining .util:hover:not(:disabled) { background: radial-gradient(circle, #305665 0 14px, transparent 14.5px); box-shadow: 0 0 0 2px #58a7bf; }
-  .new-hud-mining .util:active:not(:disabled) { transform: translateY(2px); }
+  /* UtilityButtonBase.SetVisualState: the disc (r 14) black 0.1, SMOKE_BLUE hovered or pressed; the ring (r 15, 2 wide) white
+     0.2, FOCUS_BLUE active; the press ring (r 16, 4 wide, FOCUS_BLUE) while pressed; the underlay (30 px, black 0.4) always;
+     a press dips PRESS_DIP_PX 2 */
+  .new-hud-mining .util:hover:not(:disabled) { background: radial-gradient(circle, #305665 0 14px, transparent 14.5px), radial-gradient(circle, rgba(0,0,0,0.4) 0 15px, transparent 15.5px); box-shadow: inset 0 0 0 2px #58a7bf; }
+  .new-hud-mining .util:active:not(:disabled) { transform: translateY(2px); background: radial-gradient(circle, #305665 0 14px, transparent 14.5px), radial-gradient(circle, rgba(0,0,0,0.4) 0 15px, transparent 15.5px); box-shadow: inset 0 0 0 2px #58a7bf, 0 0 0 2px #58a7bf; }
+  .new-hud-mining .util:active:not(:disabled) img { opacity: 1; }
   .new-hud-mining .util img { opacity: .5; mix-blend-mode: plus-lighter; }
   .new-hud-mining .util:hover img { opacity: 1; }
   .new-hud-mining .pulse { position: absolute; inset: 0; border-radius: 50%; background: url("/client-res/ui/texture/classes/shipui/utilbtnglow.png") center / 32px 32px; opacity: 0; mix-blend-mode: plus-lighter; }
