@@ -176,7 +176,7 @@ button { font: inherit; color: inherit; }
 .nc-btn:hover { background: url(/client-res/ui/texture/classes/neocom/buttonhover.png) center / 100% 100% no-repeat; }
 .nc-btn:hover img { opacity: 1; }
 .nc-fill { flex: 1; }
-.nc-clock { height: 28px; flex: none; display: grid; place-items: center; font-size: 12px; color: #c8ccc8; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.nc-clock { height: 28px; flex: none; display: grid; place-items: center; font-size: 12px; color: #c8ccc8; border-top: 1px solid rgba(255, 255, 255, 0.08);; cursor: pointer; }
 
 /* The ship HUD draws itself (shipHud.ts). What the ship is doing sits where the client's
    HudActionIndicationContainer does: centred, hudContainer (200) + buff bar (44) + 8 px above the bottom. */

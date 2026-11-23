@@ -5,6 +5,7 @@
 import { clientTexture } from "./window.ts";
 import { shortcutOf } from "./shortcutKeys.ts";
 import { hideLabelShortcutTooltip, showLabelShortcutTooltip, tooltipDue } from "./labelShortcutTooltip.ts";
+import { playUiEvent } from "./uiAudio.ts";
 
 /**
  * BaseNeocomButton.LoadTooltipPanel: a button with a command (btnData.cmdName) AddCommandTooltip - the command's name
@@ -201,6 +202,8 @@ export class Neocom {
     };
     this.clock.addEventListener("mouseenter", () => tooltipDue(this.clock, clockTip));
     this.clock.addEventListener("mouseleave", neocomTipOff);
+    // ClockButton.OnClick: PlaySound(SOUND_BUTTON_CLICK), then OpenCalendar
+    this.clock.addEventListener("click", () => { neocomTipOff(); void playUiEvent("ui_button_soft4_play"); open("calendar"); });
     const tick = () => {
       const d = new Date();
       this.clock.textContent = `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
