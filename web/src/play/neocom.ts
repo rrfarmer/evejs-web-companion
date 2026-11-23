@@ -3,6 +3,46 @@
 // EVE-time clock at the bottom. A button opens its window where the play page has one, and says so where not yet.
 
 import { clientTexture } from "./window.ts";
+import { shortcutOf } from "./shortcutKeys.ts";
+import { hideLabelShortcutTooltip, showLabelShortcutTooltip } from "./labelShortcutTooltip.ts";
+
+/**
+ * BaseNeocomButton.LoadTooltipPanel: a button with a command (btnData.cmdName) AddCommandTooltip - the command's name
+ * bold beside its shortcut, its detailed description under them (wrapWidth 200, secondary) -, one without it its
+ * label (AddLabelMedium); GetTooltipPointer POINT_LEFT_2, the panel to the button's right. Read from the live client
+ * (gridcheck: neocom mainBtnDataRoot / charSheetBtnDataRoot children, commandMap.GetCommandByName): name, description.
+ */
+const NEOCOM_TOOLTIPS: Readonly<Record<string, { cmd: string | null; name: string; description: string }>> = {
+  achievements: { cmd: "OpenAchievementsWindow", name: "Achievements", description: "View your achievements, claim rewards, and discover what else there is to accomplish." },
+  agency: { cmd: "OpenAgencyNew", name: "The Agency", description: "Find activities to suit your interests" },
+  jobboard: { cmd: "OpenJobBoardWindow", name: "Opportunities", description: "Discover new opportunities and track your ongoing activities" },
+  mail: { cmd: "OpenMail", name: "Mail", description: "Send and receive mail" },
+  inventory: { cmd: "OpenInventory", name: "Inventory", description: "Access your cargo hold, hangars, and other local inventories" },
+  assets: { cmd: "OpenAssets", name: "Personal Assets", description: "Locate your personal assets across New Eden" },
+  wallet: { cmd: "OpenWallet", name: "Wallet", description: "" },
+  market: { cmd: "OpenMarket", name: "Regional Market", description: "Visit the regional market to buy and sell assets" },
+  fitting: { cmd: "OpenFitting", name: "Fitting", description: "Fit your ship or structure with different equipment, or personalize its appearance" },
+  map: { cmd: "CmdToggleMap", name: "Map", description: "View star and solar system maps in many information modes" },
+  charactersheet: { cmd: "OpenCharactersheet", name: "Character Sheet", description: "Manage your Augmentations, Clones, Pilot's Services, Standings and more" },
+  chat: { cmd: null, name: "Channels", description: "" },
+};
+/** tooltipHandler: a panel after the generic delay (TOOLTIP_DELAY_GENERIC, 250 ms). */
+let neocomTipTimer: ReturnType<typeof setTimeout> | null = null;
+function neocomTipOn(el: HTMLElement, id: string): void {
+  const t = NEOCOM_TOOLTIPS[id];
+  if (!t) return;
+  if (neocomTipTimer !== null) clearTimeout(neocomTipTimer);
+  neocomTipTimer = setTimeout(() => {
+    neocomTipTimer = null;
+    if (!el.isConnected) return;
+    if (t.cmd) showLabelShortcutTooltip(el, t.name, shortcutOf(t.cmd), t.description ? [t.description] : [], "left");
+    else showLabelShortcutTooltip(el, "", "", [t.name], "left");
+  }, 250);
+}
+function neocomTipOff(): void {
+  if (neocomTipTimer !== null) { clearTimeout(neocomTipTimer); neocomTipTimer = null; }
+  hideLabelShortcutTooltip();
+}
 
 export interface NeocomButton { id: string; label: string; icon: string }
 
@@ -145,9 +185,11 @@ export class Neocom {
     for (const b of NEOCOM_DEFAULT) {
       const el = document.createElement("button");
       el.className = "nc-btn";
-      el.title = b.label;
+      el.setAttribute("aria-label", b.label);
       el.innerHTML = `<img src="${b.icon}" alt="">`;
-      el.addEventListener("click", () => open(b.id));
+      el.addEventListener("click", () => { neocomTipOff(); open(b.id); });
+      el.addEventListener("mouseenter", () => neocomTipOn(el, b.id));
+      el.addEventListener("mouseleave", neocomTipOff);
       list.appendChild(el);
     }
     this.clock.className = "nc-clock";
