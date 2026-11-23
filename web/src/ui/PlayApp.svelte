@@ -1717,6 +1717,13 @@
     const host = spaceHost, sess = session, liveFeed = live;
     return untrack(() => {
     const s = sess;
+    /** The pilot's home station: the character sheet's, else asked once (the menu's Set Destination and the overview's flag). */
+    const homeStationNow = (): number | null => {
+      const sheet = s.store.characterSheet.get().homeStationID;
+      if (sheet !== null) return sheet;
+      if (!menuHomeAsked) { menuHomeAsked = true; void s.flow.redeemHomeStation().then((id) => { menuHomeStation = id; }).catch(() => {}); }
+      return menuHomeStation;
+    };
     const act = bridgeDo(s.flow.requestOptions());
     const st = s.store.station.get().station;
     const enteringSpace = entryWarpHistory;
@@ -1848,6 +1855,7 @@
         // crimewatchSvc: the system's criminals and suspects and this pilot's limited engagements (its client states)
         ...crimewatchSets(),
         ...bountySets,
+        homeStationID: homeStationNow(),
       };
     }
 
@@ -2325,12 +2333,7 @@
       // the system as MissionNameSubmenu (its name and agent), its bookmarks' hints (_GetAgentEntryText: a site's
       // " - <system>" dropped, " - Moon " as " - M", a trailing "- " off) warping at nought on a click, with Warp to
       // Within and its ranges and Approach Location (where near) under each
-      homeStationID: () => {
-        const sheet = s.store.characterSheet.get().homeStationID;
-        if (sheet !== null) return sheet;
-        if (!menuHomeAsked) { menuHomeAsked = true; void s.flow.redeemHomeStation().then((id) => { menuHomeStation = id; }).catch(() => {}); }
-        return menuHomeStation;
-      },
+      homeStationID: homeStationNow,
       missionsMenu: () => {
         const journal = s.store.agents.get().journal;
         if (journal === null) {

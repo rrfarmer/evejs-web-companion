@@ -210,7 +210,9 @@ const SORT_HINT = "UI/Tactical/HeaderSortingEnabledCbHint";
 const SORT_DISABLED = "UI/Tactical/HeaderSortingDisabled";
 const NOTHING_FOUND = "UI/Common/NothingFound";
 const HACKED_HINT = "Tooltips/Overview/ScatterContainerHacked";
-export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, NOTHING_FOUND, HACKED_HINT, "Tooltips/Overview/HostileNPC", "Tooltips/Overview/EmptyWreck", "Tooltips/Overview/ContainsLoot", "Tooltips/Overview/NeutralNPC", "Tooltips/Overview/AbandonedContainer", "Tooltips/Overview/RestrictedContainer", "Tooltips/Overview/StargateOnRoute", "Tooltips/Overview/HostileAction", "Tooltips/Overview/TargetLock", "UI/Shared/EstimatedPricePerSquareMeter", "UI/Tactical/OverviewCaption", ...OVERVIEW_COLUMN_WORDS,
+/** homestation.text.bracket_hint. */
+const HOME_STATION_HINT = "UI/HomeStation/BracketHint";
+export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, NOTHING_FOUND, HACKED_HINT, HOME_STATION_HINT, "Tooltips/Overview/HostileNPC", "Tooltips/Overview/EmptyWreck", "Tooltips/Overview/ContainsLoot", "Tooltips/Overview/NeutralNPC", "Tooltips/Overview/AbandonedContainer", "Tooltips/Overview/RestrictedContainer", "Tooltips/Overview/StargateOnRoute", "Tooltips/Overview/HostileAction", "Tooltips/Overview/TargetLock", "UI/Shared/EstimatedPricePerSquareMeter", "UI/Tactical/OverviewCaption", ...OVERVIEW_COLUMN_WORDS,
   ...WINDOW_ACTION_WORDS, "UI/Overview/AddTab", "/Carbon/UI/Controls/Window/EnableCompactMode", "/Carbon/UI/Controls/Window/DisableCompactMode", "UI/Commands/OpenOverviewSettings", "UI/Overview/BracketVisibility", "UI/Overview/UseSelectedTabBracketPreset",
   "UI/Overview/ShowAll", "UI/Overview/HideAll", "UI/Overview/AddTabInstructions", "UI/Overview/TypeInLabel", "UI/Overview/Filter",
   "UI/Overview/ChooseOverviewPreset", "UI/Overview/BracketFilter", "UI/Overview/ChooseBracketPreset", "UI/Overview/ShowAllBrackets",
@@ -1940,7 +1942,9 @@ export class Overview {
     const lines = this.hooks.iconTooltipLines?.(e) ?? { threat: [], after: [] };
     const flags = iconAndBackgroundFlags(e, group, this.tipRelations);
     const hacked = (e.hackingSecurityState ?? 0) > 1 ? [this.hooks.word?.(HACKED_HINT) ?? "Has already been hacked"] : [];
-    const rows = [...lines.threat, ...hacked, ...(lines.icon ?? []), ...(flags.icon?.text ? [flags.icon.text] : []), ...lines.after];
+    const rows = [...lines.threat, ...hacked, ...(lines.icon ?? []), ...(flags.icon?.text ? [flags.icon.text] : []), ...lines.after,
+      // LoadIconTooltipPanel: after the type's own lines, the home station's hint
+      ...(flags.icon?.homeStation ? [this.hooks.word?.(HOME_STATION_HINT) ?? "This is your home station"] : [])];
     if (!this.iconTip) {
       this.iconTip = document.createElement("div");
       this.iconTip.className = "ov-icon-tip";

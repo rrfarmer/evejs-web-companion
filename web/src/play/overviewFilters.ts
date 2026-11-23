@@ -29,6 +29,8 @@ export interface OverviewRelationships {
   /** bountySvc: the owners (pilots, corporations, alliances) with a bounty, and the pilots a kill right is held on. */
   readonly wanted?: ReadonlySet<number>;
   readonly killRights?: ReadonlySet<number>;
+  /** homestation.Service.get_home_station: the pilot's home station (stateFlag.IsHomeStation). */
+  readonly homeStationID?: number | null;
 }
 
 interface OverviewItem {
@@ -73,7 +75,9 @@ const FLAG = {
  * whether the flag / the background blinks, and its icon's colour (flagProperties.iconColor).
  */
 export interface StateFlagLook { readonly flag: number; readonly text: string; readonly iconIndex: number; readonly flagColor: readonly number[];
-  readonly backgroundColor: readonly number[]; readonly flagBlink: boolean; readonly backgroundBlink: boolean; readonly iconColor: readonly number[] }
+  readonly backgroundColor: readonly number[]; readonly flagBlink: boolean; readonly backgroundBlink: boolean; readonly iconColor: readonly number[];
+  /** The home station's flag (node.isHomeStation): its tooltip adds homestation.text.bracket_hint. */
+  readonly homeStation?: boolean }
 const W = [1, 1, 1, 1];
 const look = (flag: number, text: string, iconIndex: number, flagColor: number[], backgroundColor: number[], flagBlink = false, backgroundBlink = false, iconColor = W): StateFlagLook =>
   ({ flag, text, iconIndex, flagColor, backgroundColor, flagBlink, backgroundBlink, iconColor });
@@ -232,7 +236,11 @@ export function iconAndBackgroundFlags(item: OverviewItem, groupID: number | nul
   const group = groupID ?? 0;
   const category = item.categoryID ?? 0;
   if (item.isSelf || !isUpdateItem(category, group)) return { icon: null, background: null };
-  if (group !== AGENT_IN_SPACE && ((item.ownerID != null && isNpcOwner(item.ownerID)) || (item.characterID != null && isNpcOwner(item.characterID)))) return { icon: null, background: null };
+  // stateFlag.IsHomeStation (a station or a structure, the home station's id): the NPC owner's exception, its icon flag
+  // forced on (GetIconFlagAndBackgroundFlag: flagForcedOn) and drawn as FlagIconWithState.ModifyIcon draws it with the
+  // extra info's isHomeStation - homestation.texture.flag_icon_index (11) on Color.home_station_icon_background (CRYO_BLUE)
+  const home = item.itemID !== undefined && relations?.homeStationID != null && item.itemID === relations.homeStationID && (category === 3 || category === 65);
+  if (!home && group !== AGENT_IN_SPACE && ((item.ownerID != null && isNpcOwner(item.ownerID)) || (item.characterID != null && isNpcOwner(item.characterID)))) return { icon: null, background: null };
   const first = (order: readonly number[]) => {
     const f = order.find((flag) => flagHolds(flag, item, group, category, relations));
     const look = f === undefined ? null : STATE_FLAG_LOOKS.get(f) ?? null;
@@ -241,8 +249,16 @@ export function iconAndBackgroundFlags(item: OverviewItem, groupID: number | nul
     return { ...look, flagColor: stateColors[`flag:${look.flag}`] ?? look.flagColor, backgroundColor: stateColors[`background:${look.flag}`] ?? look.backgroundColor,
       flagBlink: stateBlinks[`flag:${look.flag}`] ?? look.flagBlink, backgroundBlink: stateBlinks[`background:${look.flag}`] ?? look.backgroundBlink };
   };
-  return { icon: first(activeFlagOrder), background: first(activeBackgroundOrder) };
+  const icon = first(activeFlagOrder);
+  if (home) return { icon: { ...(icon ?? FORCED_ON), iconIndex: HOME_STATION_FLAG_ICON - 1, flagColor: CRYO_BLUE, homeStation: true }, background: first(activeBackgroundOrder) };
+  return { icon, background: first(activeBackgroundOrder) };
 }
+/** state.py's flagForcedOn (65): StateProperty('', 'ForcedOn', 'white', '', 4, Color.WHITE). */
+const FORCED_ON: StateFlagLook = { flag: 65, text: "", iconIndex: 4, flagColor: [1, 1, 1, 1], backgroundColor: [1, 1, 1, 1], flagBlink: false, backgroundBlink: false, iconColor: [1, 1, 1, 1] };
+/** homestation.texture.flag_icon_index: FlagIcon/8/11.png. */
+const HOME_STATION_FLAG_ICON = 11;
+/** eveColor.CRYO_BLUE ('#FF58A7BF'). */
+const CRYO_BLUE = [0x58 / 255, 0xa7 / 255, 0xbf / 255, 1];
 
 /** war_cso.GetRelationship checks a currently hostile war before shared allies. */
 function alliesAtWar(other: number, relations: OverviewRelationships): boolean {
