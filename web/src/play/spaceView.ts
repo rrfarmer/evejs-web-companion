@@ -3944,8 +3944,16 @@ export class SpaceView {
           ? { label: this.actions.word?.("UI/Commands/OpenCargo") ?? "Open Cargo", icon: icon(35), run: run("Open Cargo", () => this.actions.openCargo!(id)) }
         // primaryCategoryActions[categoryAsteroid]: Set Destination - never offered for a rock (FindRadialMenuOptions'
         // filterList), so an inactive option: a disabled slice with its label and setDestination.png (read live, g187)
-        : (e as Entity & { categoryID?: number | null }).categoryID === 25 || e.kind === "asteroid"
+        : (e as Entity & { categoryID?: number | null }).categoryID === 25 || e.kind === "asteroid" || e.groupID === 8 || e.groupID === 6 || e.kind === "moon" || e.kind === "sun"
           ? { label: this.actions.word?.("UI/Inflight/SetDestination") ?? "Set Destination", icon: RADIAL_ICON("res:/UI/Texture/classes/RadialMenuActions/setDestination.png"), disabled: true }
+        // the other inactive first options (the menu offers them not): a ship's Board Ship (44_32_40), a wreck's or a
+        // can's Open Cargo (44_32_35), a planet's View in Planet Mode (77_32_34)
+        : e.categoryID === 6 || e.kind === "ship"
+          ? { label: this.actions.word?.("UI/Inflight/BoardShip") ?? "Board Ship", icon: icon(40), disabled: true }
+        : e.kind === "wreck" || e.kind === "container"
+          ? { label: this.actions.word?.("UI/Commands/OpenCargo") ?? "Open Cargo", icon: icon(35), disabled: true }
+        : e.kind === "planet"
+          ? { label: this.actions.word?.("UI/PI/Common/ViewInPlanetMode") ?? "View in Planet Mode", icon: RADIAL_ICON("res:/UI/Texture/Icons/77_32_34.png"), disabled: true }
         : null;
       const lockable = ["ship", "drone", "fighter", "wreck", "container", "asteroid", "structure", "station", "stargate"].includes(e.kind);
       const lock: RadialOption = this.locked.has(id)
