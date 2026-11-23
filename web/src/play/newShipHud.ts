@@ -1093,9 +1093,69 @@ export class NewShipHud {
     const pill = document.createElement("div");
     Object.assign(pill.style, {
       position: "absolute", left: "23px", top: "47.5px", width: "24px", height: "105px", borderRadius: "12px",
-      background: "rgba(0,0,0,0.6)", boxShadow: "0 0 0 1px rgba(255,255,255,0.4)", pointerEvents: "auto",
-      transition: "background-color 0.15s cubic-bezier(0.3333, 0, 0.6667, 1)",
+      pointerEvents: "auto",
     });
+    // _PillMesh: the pill drawn from its samples (17 a cap, 24 a side), each pushed out along its normal by the blister
+    // (_Bulge: _BLISTER_PX at the hovered item's centre, falling off over _BLISTER_FALLOFF_PX 10 on a raised cosine); the
+    // fill _PILL_COLOR, the border white 0.4 in the 1 px outside it
+    const SVGNS = "http://www.w3.org/2000/svg";
+    const pillSvg = document.createElementNS(SVGNS, "svg");
+    pillSvg.setAttribute("width", "24"); pillSvg.setAttribute("height", "105");
+    Object.assign(pillSvg.style, { position: "absolute", left: "0", top: "0", overflow: "visible", pointerEvents: "none" });
+    const pillFill = document.createElementNS(SVGNS, "path"), pillBorder = document.createElementNS(SVGNS, "path");
+    pillFill.setAttribute("fill", "#000");
+    Object.assign(pillFill.style, { fillOpacity: "0.6", transition: "fill-opacity 0.15s cubic-bezier(0.3333, 0, 0.6667, 1)" });
+    pillBorder.setAttribute("fill", "none"); pillBorder.setAttribute("stroke", "rgba(255,255,255,0.4)"); pillBorder.setAttribute("stroke-width", "1");
+    pillSvg.append(pillFill, pillBorder);
+    pill.append(pillSvg);
+    const pillSamples = (() => {
+      const width = 24, length = 105, radius = 12, n = 17, m = 24, straight = length - 2 * radius;
+      const out: [number, number, number, number][] = [];
+      for (let i = 0; i < n; i++) { const a = Math.PI + Math.PI * i / (n - 1); out.push([radius + Math.cos(a) * radius, radius + Math.sin(a) * radius, Math.cos(a), Math.sin(a)]); }
+      for (let j = 1; j <= m; j++) out.push([width, radius + straight * j / (m + 1), 1, 0]);
+      for (let i = 0; i < n; i++) { const a = Math.PI * i / (n - 1); out.push([radius + Math.cos(a) * radius, length - radius + Math.sin(a) * radius, Math.cos(a), Math.sin(a)]); }
+      for (let j = 1; j <= m; j++) out.push([0, length - radius - straight * j / (m + 1), -1, 0]);
+      return out;
+    })();
+    let blisterY = 0, blisterAmount = 0, blisterShown = false;
+    const layPill = () => {
+      const path = (extra: number) => pillSamples.map(([px, py, nx, ny], i) => {
+        const dd = Math.hypot(px - 12, py - blisterY) - 12;
+        const bulge = blisterAmount <= 0 ? 0 : dd <= 0 ? blisterAmount : dd >= 10 ? 0 : blisterAmount * 0.5 * (1 + Math.cos(Math.PI * dd / 10));
+        const d = bulge + extra;
+        return `${i ? "L" : "M"}${(px + nx * d).toFixed(2)} ${(py + ny * d).toFixed(2)}`;
+      }).join("") + "Z";
+      pillFill.setAttribute("d", path(0));
+      pillBorder.setAttribute("d", path(0.5));
+    };
+    layPill();
+    // MorphScalar (ANIM_SMOOTH) of blisterY over _BLISTER_SLIDE_SEC 0.075 and blisterAmount over _BLISTER_GROW_SEC 0.1
+    let morphs: { key: "y" | "amount"; from: number; to: number; start: number; dur: number }[] = [];
+    const morphTo = (key: "y" | "amount", to: number, dur: number) => {
+      morphs = morphs.filter((x) => x.key !== key);
+      morphs.push({ key, from: key === "y" ? blisterY : blisterAmount, to, start: performance.now(), dur });
+      if (morphs.length === 1) requestAnimationFrame(stepMorphs);
+    };
+    const stepMorphs = () => {
+      const now = performance.now();
+      for (const x of morphs) {
+        const k = smooth((now - x.start) / x.dur), v = x.from + (x.to - x.from) * k;
+        if (x.key === "y") blisterY = v; else blisterAmount = v;
+      }
+      morphs = morphs.filter((x) => now - x.start < x.dur);
+      layPill();
+      if (morphs.length) requestAnimationFrame(stepMorphs);
+    };
+    // _OnButtonHover: the first hover puts the blister at the item and grows it; later ones slide it; _OnBlisterRelax (the
+    // pointer out of the pill) lets it go
+    const blisterAt = (y: number) => {
+      if (blisterShown) { morphTo("y", y, 75); return; }
+      blisterShown = true;
+      morphs = morphs.filter((x) => x.key !== "y");
+      blisterY = y;
+      morphTo("amount", 4, 100);
+    };
+    pill.addEventListener("mouseleave", () => { if (!blisterShown) return; blisterShown = false; morphTo("amount", 0, 100); });
     // ScannerFlyout._OnPillEnter / _OnPillExit: a ProximitySensor _PILL_PROXIMITY_PX 40 round the pill MorphScalars its alpha
     // _PILL_COLOR 0.6 -> _PILL_HOVER_ALPHA 1.0 and back over _PILL_HOVER_SEC 0.15 (the default ANIM_SMOOTH)
     let pillNear = false;
@@ -1104,7 +1164,8 @@ export class NewShipHud {
       const near = r.width > 0 && e.clientX >= r.left - 40 && e.clientX <= r.right + 40 && e.clientY >= r.top - 40 && e.clientY <= r.bottom + 40;
       if (near === pillNear) return;
       pillNear = near;
-      pill.style.backgroundColor = near ? "rgba(0,0,0,1)" : "rgba(0,0,0,0.6)";
+      // (MorphScalar over 0.15 s, ANIM_SMOOTH: the SVG fill's opacity transitions)
+      pillFill.style.fillOpacity = near ? "1" : "0.6";
     };
     document.addEventListener("mousemove", onPillMove);
     this.unsubscribe.push(() => document.removeEventListener("mousemove", onPillMove));
@@ -1118,7 +1179,7 @@ export class NewShipHud {
       b.type = "button";
       void title;
       // _ScannerItem (FlyoutItem with its cmdName): the command's tooltip
-      b.addEventListener("mouseenter", () => { void playUiEvent("ui_button_soft1_play"); this.showCommandTooltip(b, cmd, [], "", "LEFT_2"); });
+      b.addEventListener("mouseenter", () => { void playUiEvent("ui_button_soft1_play"); this.showCommandTooltip(b, cmd, [], "", "LEFT_2"); blisterAt(top + 12); });
       b.addEventListener("mouseleave", () => this.closeTooltip());
       Object.assign(b.style, { position: "absolute", left: "0", top: `${top}px`, width: "24px", height: "24px", padding: "0", border: "0", background: "transparent", cursor: "pointer", display: "grid", placeItems: "center" });
       const g = icon(`res:/UI/Texture/eveicon/category_icons/${id}_16px.png`);
