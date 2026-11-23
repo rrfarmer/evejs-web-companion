@@ -1013,7 +1013,7 @@
       <span class="ww-whiteout"></span>
       <img class="ww-icon" src="/client-res/ui/texture/classes/agency/iconexclamation.png" alt="" />
       <p class="ww-text">{headerWord("UI/Drones/WarpWarningMessage", "You are about to warp off leaving your drones behind.")}</p>
-      <div class="ww-buttons"><button type="button" onclick={stopAndRecall}>{headerWord("UI/Drones/StopAndRecall", "Stop and Recall")}</button></div>
+      <div class="ww-buttons"><button type="button" class="client-btn" onclick={stopAndRecall}>{headerWord("UI/Drones/StopAndRecall", "Stop and Recall")}</button></div>
     </div>
   {/if}
   <div class="group bay" class:closed={!bayOpen} class:drop={dropOn === "bay"} role="list" tabindex="-1" onkeydown={(e) => listKey("bay", e)} ondragover={dragOver("bay")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("bay", null, e)}>
@@ -1137,7 +1137,7 @@
   .ww-whiteout { position: absolute; inset: 0; background: rgba(255, 255, 255, 0.5); opacity: 0; animation: ww-flash 0.3s 0.1s cubic-bezier(0.3333, 0, 0.6667, 1); pointer-events: none; }
   .ww-icon { position: absolute; left: 10px; top: 8px; width: 32px; height: 32px; animation: ww-pulse 0.7s linear infinite; }
   .ww-text { margin: 0 0 8px; font: 14px var(--font); }
-  .ww-buttons button { font: 13px var(--font); }
+  /* Button(label StopAndRecall, TOPLEFT): the carbonui Button (play.css client-btn) */
   @keyframes ww-in { from { opacity: 0; } to { opacity: 1; } }
   @keyframes ww-flash { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
   /* FadeTo(warning_icon, 0.5 -> 1.5, 0.7 s, loops -1, ANIM_WAVE): a smoothstep up to 1.5 at 0.35 s and down again,
