@@ -7,6 +7,7 @@ import { PlayWindow, WINDOW_ACTION_WORDS, clientTexture } from "./window.ts";
 import type { Entity } from "./spaceView.ts";
 import { fmtDist } from "../space/overview.ts";
 import { playUiEvent } from "./uiAudio.ts";
+import { scrollListHomeEnd } from "../ui/scrollColumnFit.ts";
 import { iconAndBackgroundFlags, overviewRowWanted, setStateAppearance, type BracketOverride, type OverviewRelationships, type PresetMask, type StateFlagLook } from "./overviewFilters.ts";
 
 const rgba = (c: readonly number[], alpha = c[3] ?? 1) => `rgba(${Math.round(c[0]! * 255)},${Math.round(c[1]! * 255)},${Math.round(c[2]! * 255)},${alpha})`;
@@ -447,7 +448,29 @@ export class Overview {
       if (this.iconTipFor === id) return;
       this.showIconTip(cell, id);
     });
+    // the scroll takes the keys once an entry is clicked (Scroll.OnUp / OnDown / OnHome / OnEnd from commandSvc to the
+    // focused scroll): the arrows BrowseNodes - nothing selected, the last / first entry; else the one past it, past
+    // either end nothing; ActivateIdx = SelectNode on a scroll that is not multiSelect, and OnScrollSelectionChange
+    // makes that the object's selected state (no click, so no combat command); Home / End ScrollToProportion
+    this.tbody.tabIndex = -1;
+    this.tbody.style.outline = "none";
+    this.tbody.addEventListener("keydown", (e) => {
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      if (e.key === "Home" || e.key === "End") { e.preventDefault(); e.stopPropagation(); scrollListHomeEnd(this.tbody, e.key === "End"); return; }
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      e.preventDefault(); e.stopPropagation();
+      const order = [...this.tbody.querySelectorAll<HTMLTableRowElement>("tr[data-id]")].map((tr) => Number(tr.dataset.id));
+      if (!order.length) return;
+      const up = e.key === "ArrowUp";
+      const at = this.selected === null ? -1 : order.indexOf(this.selected);
+      const idx = at < 0 ? (up ? order.length - 1 : 0) : at + (up ? -1 : 1);
+      if (idx < 0 || idx >= order.length) return;
+      const id = order[idx]!;
+      dispatchEvent(new CustomEvent("evejs:select-space-item", { detail: { itemID: id } }));
+      requestAnimationFrame(() => this.tbody.querySelector<HTMLElement>(`tr[data-id="${id}"]`)?.scrollIntoView({ block: "nearest" }));
+    });
     this.tbody.addEventListener("click", (e) => {
+      this.tbody.focus({ preventScroll: true });
       const id = Number((e.target as HTMLElement).closest("tr")?.dataset.id);
       // OverviewScrollEntry.OnClick: prompt_player_fsd_dialog('ListEntryClick') - an audio message, msg_ListEntryClick_play
       if (id) { void playUiEvent("msg_ListEntryClick_play"); this.hooks.select(id); }
