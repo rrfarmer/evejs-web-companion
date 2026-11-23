@@ -2800,6 +2800,8 @@
         // shipmodulebutton.ActivateEffect uses the active lock for targeted effects.
         use: async (m, targetID, passiveLock) => {
           const running = (s.store.space.get().snapshot?.ship?.activeModuleIDs ?? []).includes(m.itemID);
+          // ModuleSlot.PrimaryActivate: a reloading module takes no click
+          if (m.reload && Date.now() < m.reload.startedAtMs + m.reload.durationMs) return;
           // ModuleButton.Click: a module with no default effect (def_effect None - a passive one) is not activated;
           // CustomNotify of UI/Inflight/ModuleRacks/TryingToActivatePassiveModule says so
           if (m.passive && !running) {
@@ -2807,6 +2809,11 @@
             const t = s.store.words.get().templates[label];
             const text = typeof t === "string" && t !== "" ? plainText(t) : "You are trying to activate a passive module.";
             s.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text);
+            return;
+          }
+          // PrimaryActivate: an offline module is not asked for - ClickOffllineModule (a notify) says so
+          if (!m.online && !running) {
+            s.flow.sayDialog("ClickOffllineModule", null, "You can't activate this module because it is offline. You can try and turn it online by right clicking on it and choosing \"Put Online\" in the contextual menu.", "notify");
             return;
           }
           if (running && m.windingDown) return; // moduleController: a module winding down takes no click
