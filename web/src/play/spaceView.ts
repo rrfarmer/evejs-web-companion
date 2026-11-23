@@ -2766,7 +2766,7 @@ export class SpaceView {
         // then the disabled hint; pointed from above (POINT_TOP_2)
         // SelectedItemButton.OnMouseEnter: an enabled button plays SOUND_BUTTON_HOVER (ui_button_soft1_play); a disabled one nothing
         b.addEventListener("mouseenter", () => { if (!a.disabledReason) void playUiEvent("ui_button_soft1_play"); });
-        b.addEventListener("mouseenter", () => tooltipDue(b, () => showLabelShortcutTooltip(b, a.title, shortcutOf((a.key === "warp" && a.disabledReason ? "" : CMD_BY_ACTION[a.key]) ?? ""), a.disabledReason ? [a.disabledReason] : [])));
+        b.addEventListener("mouseenter", () => tooltipDue(b, () => showLabelShortcutTooltip(b, a.title, shortcutOf((a.key === "warp" && a.disabledReason ? "" : CMD_BY_ACTION[a.key]) ?? ""), a.disabledReason ? [a.disabledReason] : [], "top", true)));
         b.addEventListener("mouseleave", hideLabelShortcutTooltip);
         b.setAttribute("aria-label", a.title);
         b.disabled = a.disabled ?? false;

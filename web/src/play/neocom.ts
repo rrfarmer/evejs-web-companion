@@ -36,7 +36,7 @@ function neocomTipOn(el: HTMLElement, id: string): void {
     neocomTipTimer = null;
     if (!el.isConnected) return;
     if (t.cmd) showLabelShortcutTooltip(el, t.name, shortcutOf(t.cmd), t.description ? [t.description] : [], "left");
-    else showLabelShortcutTooltip(el, "", "", [t.name], "left");
+    else showLabelShortcutTooltip(el, "", "", [t.name], "left", true);
   }, 250);
 }
 function neocomTipOff(): void {

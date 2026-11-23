@@ -107,7 +107,11 @@ function drawPointer(panel: HTMLElement, [fx, fy]: PointFlag): void {
   });
 }
 
-export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, shortcut: string, lines: readonly string[] = [], pointer: "top" | "left" = "top"): void {
+/**
+ * lines: a command's detailed description by default (AddCommandTooltip: AddLabelMedium wrapWidth 200, TextColor.SECONDARY);
+ * plain: AddLabelMedium as it is (no wrap, the normal colour) - a Selected Item button's disabled hint.
+ */
+export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, shortcut: string, lines: readonly string[] = [], pointer: "top" | "left" = "top", plain = false): void {
   if (!tip) {
     tip = document.createElement("div");
     tip.className = "label-shortcut-tooltip";
@@ -121,24 +125,34 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
   Object.assign(frame.style, { position: "absolute", inset: "0", opacity: "0.75", borderStyle: "solid", borderWidth: "0", borderImageSource: `url(${clientTexture("res:/UI/Texture/classes/FrameWithPointer/background_04.png")})`, borderImageSlice: "19 fill", borderImageWidth: "19px", borderImageOutset: "15px" } as Partial<CSSStyleDeclaration>);
   const grid = document.createElement("div");
   grid.className = "lst-grid";
-  Object.assign(grid.style, { position: "relative", display: "grid", gridTemplateColumns: "auto auto", columnGap: "16px", rowGap: "4px", alignItems: "center" });
+  // LoadGeneric2/3ColumnTemplate: LoadStandardSpacingOld - margin 16, no cell padding, cell spacing (8, 8); EveLabelMedium lines
+  // 18 high (measured on the live client: the Neocom Inventory panel, 188 x 112)
+  Object.assign(grid.style, { position: "relative", display: "grid", gridTemplateColumns: "auto auto", columnGap: "8px", rowGap: "8px", alignItems: "center", lineHeight: "18px" });
   const head = document.createElement("div");
   head.textContent = label;
   Object.assign(head.style, { fontWeight: "bold", color: "rgba(255,255,255,0.95)" });
   const hint = document.createElement("div");
   if (shortcut) {
     hint.textContent = shortcut;
-    Object.assign(hint.style, { justifySelf: "end", padding: "0 13px", height: "18px", lineHeight: "18px", background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)", fontWeight: "bold" });
+    // ShortcutHint: the bold label centred on a fill (1, 1, 1, 0.1), its width the label's + 8 rounded up past the next 16
+    // (AdjustSize: width - width % 16 + 16; "Alt-C" 34 -> 48), its height the label's
+    Object.assign(hint.style, { justifySelf: "end", padding: "0", height: "18px", lineHeight: "18px", textAlign: "center", background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)", fontWeight: "bold", whiteSpace: "nowrap" });
   }
   grid.append(head, hint);
   for (const line of lines) {
     const d = document.createElement("div");
     d.textContent = line;
-    Object.assign(d.style, { gridColumn: "1 / 3", whiteSpace: "normal", maxWidth: "260px" });
+    Object.assign(d.style, plain ? { gridColumn: "1 / 3", whiteSpace: "nowrap" } : { gridColumn: "1 / 3", whiteSpace: "normal", maxWidth: "200px", color: "rgba(255,255,255,0.5)" });
     grid.append(d);
   }
   tip.append(frame, grid);
   tip.style.display = "";
+  if (shortcut) {
+    const r = document.createRange();
+    r.selectNodeContents(hint);
+    const w = Math.ceil(r.getBoundingClientRect().width) + 8;
+    hint.style.width = `${w - (w % 16) + 16}px`;
+  }
   // PointerPanel.ShowPanel: from nothing to full over 0.05 s (ANIM_SMOOTH); a closing one stopped
   closing = null;
   for (const a of tip.getAnimations()) a.cancel();
