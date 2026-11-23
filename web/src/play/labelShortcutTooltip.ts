@@ -267,6 +267,7 @@ export function cancelGenericHint(): void {
  */
 export function installClientHints(doc: Document = document): () => void {
   let owner: HTMLElement | null = null;
+  let ownerText: string | null = null;
   const textOf = (el: HTMLElement): string | null => {
     const t = el.getAttribute("title");
     if (t !== null) { el.removeAttribute("title"); if (t) el.dataset.clientHint = t; else delete el.dataset.clientHint; }
@@ -277,9 +278,11 @@ export function installClientHints(doc: Document = document): () => void {
     const el = target?.closest?.<HTMLElement>("[title], [data-client-hint]") ?? null;
     if (el && el.closest(".label-shortcut-tooltip")) return;
     const text = el ? textOf(el) : null;
-    if (!el || !text) { if (owner) { owner = null; cancelGenericHint(); } return; }
-    if (el === owner) return;
+    if (!el || !text) { if (owner) { owner = null; ownerText = null; cancelGenericHint(); } return; }
+    // SetHint while the mouse is on it (a hint that follows a value, or where on its owner it is): the new text shown
+    if (el === owner && text === ownerText) return;
     owner = el;
+    ownerText = text;
     const esc = text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
     scheduleGenericHint(el, esc.split("\n").join("<br>"));
   };
@@ -288,11 +291,13 @@ export function installClientHints(doc: Document = document): () => void {
     const to = ev.relatedTarget as Node | null;
     if (to && owner.contains(to)) return;
     owner = null;
+    ownerText = null;
     cancelGenericHint();
   };
   doc.addEventListener("mouseover", over, true);
+  doc.addEventListener("mousemove", over, true);
   doc.addEventListener("mouseout", out, true);
-  return () => { doc.removeEventListener("mouseover", over, true); doc.removeEventListener("mouseout", out, true); if (owner) cancelGenericHint(); owner = null; };
+  return () => { doc.removeEventListener("mouseover", over, true); doc.removeEventListener("mousemove", over, true); doc.removeEventListener("mouseout", out, true); if (owner) cancelGenericHint(); owner = null; ownerText = null; };
 }
 export function showGenericHint(anchor: HTMLElement, html: string): void {
   showLabelShortcutTooltip(anchor, "", "", [], "top");
