@@ -820,7 +820,18 @@
     if (!neocomHost) return;
     const neocom = new Neocom(neocomOpen);
     neocomHost.appendChild(neocom.root);
-    return () => { neocom.root.remove(); neocom.dispose(); };
+    neocomInst = neocom;
+    return () => { neocomInst = null; neocom.root.remove(); neocom.dispose(); };
+  });
+  let neocomInst = $state<Neocom | null>(null);
+  // the character sheet button's portrait: the pilot's (photo.GetPortrait at 64), as the Selected Item window gets one
+  $effect(() => {
+    const s = session, nc = neocomInst;
+    if (!s || !nc) return;
+    return s.store.character.subscribe((c) => {
+      const id = c.selectedCharacterID;
+      nc.setPortrait(id ? portraitUrl(s.flow.imageServer.get(), id, 64) ?? clientTexture(portraitDefaultPath(64)) : null);
+    });
   });
 
   /** The Neocom's width: a window opens right of it, as the eve-cs mirror's windows never sit on its Neocom. */
@@ -2924,6 +2935,8 @@
     });
     host.appendChild(v.root);
     view = v;
+    // the Neocom's character sheet button: the pilot's portrait (photo.GetPortrait at 64)
+    const stopNeocomPortrait = s.store.character.subscribe((ch) => { const id = ch.selectedCharacterID; v.setNeocomPortrait(id ? portraitUrl(s.flow.imageServer.get(), id, 64) ?? clientTexture(portraitDefaultPath(64)) : null); });
     // the drone groups follow launched stacks (droneGroupsController.OnItemLaunch)
     watchLaunches(s.flow);
     // the combat notification's moving-mode example text (UI/Accessories/Log/ExampleText)
@@ -2946,7 +2959,7 @@
       for (const d of t.damageLog) if (d.id > lastDamageID) { v.showDamage(d); logCombatLine(d); }
       lastDamageID = t.damageLog.at(-1)?.id ?? lastDamageID;
     });
-    return () => { disposed = true; stopDamage(); stopRouteNext(); stopRouteNextSystem(); v.dispose(); if (view === v) view = null; };
+    return () => { disposed = true; stopDamage(); stopRouteNext(); stopRouteNextSystem(); stopNeocomPortrait(); v.dispose(); if (view === v) view = null; };
     });
   });
 

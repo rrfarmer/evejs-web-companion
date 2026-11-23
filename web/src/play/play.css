@@ -176,6 +176,7 @@ button { font: inherit; color: inherit; }
 .eve-menu-entry:disabled { opacity: 0.4; cursor: default; }
 .nc-btn { width: 48px; height: 48px; padding: 0; display: grid; place-items: center; background: transparent; border: none; cursor: pointer; }
 .nc-btn img { width: 40px; height: 40px; opacity: .78; }
+.nc-btn.nc-portrait img { width: 48px; height: 48px; opacity: 1; }
 .nc-btn:hover { background: url(/client-res/ui/texture/classes/neocom/buttonhover.png) center / 100% 100% no-repeat; }
 .nc-btn:hover img { opacity: 1; }
 .nc-fill { flex: 1; }

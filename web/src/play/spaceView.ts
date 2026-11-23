@@ -1074,6 +1074,9 @@ export class SpaceView {
   private readonly collapsingWormholes: { mark: THREE.Object3D; audio: WormholeAudio; until: number }[] = [];
   // Empty slots hidden, as the client's default (showEmptySlots off) has them, until the module rack knows the fit.
   // hud/client/rollout.py IsNewHudWanted: the 24.02 new HUD where its preview setting is on, else the classic ship UI.
+  private neocom: Neocom | null = null;
+  /** The Neocom's character sheet button portrait (ButtonCharacterIcon). */
+  setNeocomPortrait(url: string | null): void { this.neocom?.setPortrait(url); }
   private readonly shipHud: ShipHud | NewShipHud = hudSettingNow("shipHudNew_preview") ? new NewShipHud() : new ShipHud({ slots: { hi: 0, med: 0, low: 0 } });
   private readonly targetBar = new TargetBar();
   /** Lock requests awaiting a response, keyed by target ID and local start time. */
@@ -1924,7 +1927,8 @@ export class SpaceView {
     for (const id of this.overview.storedWindowIDs()) this.addOverviewWindow(this.makeOverview!, id);
     // Brackets drawn before the client's tables are here are drawn again with the client's icons.
     void loadBrackets().then(() => { for (const el of this.bracketEls.values()) el.remove(); this.bracketEls.clear(); });
-    this.root.appendChild(new Neocom((id) => (this.options.onNeocom ? this.options.onNeocom(id) : this.toast(`${id[0]!.toUpperCase()}${id.slice(1)} is not on the play page yet.`))).root);
+    this.neocom = new Neocom((id) => (this.options.onNeocom ? this.options.onNeocom(id) : this.toast(`${id[0]!.toUpperCase()}${id.slice(1)} is not on the play page yet.`)));
+    this.root.appendChild(this.neocom.root);
     this.renderer.domElement.addEventListener("dblclick", (e) => this.doubleClick(e));
     // a right-click in space (navigation.OnMouseUp, GetMenu): the thing under it (its pick) its CelestialMenu, else the
     // space menu; a right drag is no click

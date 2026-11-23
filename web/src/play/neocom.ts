@@ -58,7 +58,6 @@ export const NEOCOM_DEFAULT: readonly NeocomButton[] = [
   { id: "market", label: "Regional Market", icon: icon("market") },
   { id: "fitting", label: "Fitting", icon: icon("fitting") },
   { id: "map", label: "Map", icon: icon("map") },
-  { id: "charactersheet", label: "Character Sheet", icon: icon("charactersheet") },
   { id: "chat", label: "Chat", icon: icon("chatchannels") },
 ];
 
@@ -121,10 +120,17 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
 export class Neocom {
   readonly root = document.createElement("nav");
   private readonly clock = document.createElement("div");
+  /** ButtonCharacterIcon (charSheetBtn): the pilot's portrait filling a 48 x 48 button under the EVE button. */
+  private readonly portrait = document.createElement("img");
   /** The EVE menu's panels, on the page's body. */
   private menuParts: HTMLElement[] = [];
   /** Takes the EVE menu's panels off the page. */
   dispose(): void { for (const el of this.menuParts) el.remove(); }
+  /** The portrait the character sheet button shows (photo.GetPortrait), or none while the pilot is not known. */
+  setPortrait(url: string | null): void {
+    if (url) this.portrait.src = url; else this.portrait.removeAttribute("src");
+    this.portrait.style.visibility = url ? "" : "hidden";
+  }
 
   constructor(open: (id: string) => void) {
     this.root.className = "neocom";
@@ -179,6 +185,18 @@ export class Neocom {
     menu.addEventListener("click", (e) => e.stopPropagation());
     sub.addEventListener("click", (e) => e.stopPropagation());
     document.addEventListener("click", close);
+    // ButtonCharacterIcon: first under the EVE button (the live client, gridcheck g250: charSheetBtn at 48, its charPic
+    // 48 x 48, OpenCharactersheet); ButtonSkills follows it there and is not on the page yet
+    const sheet = document.createElement("button");
+    sheet.className = "nc-btn nc-portrait";
+    sheet.setAttribute("aria-label", "Character Sheet");
+    this.portrait.alt = "";
+    this.portrait.style.visibility = "hidden";
+    sheet.append(this.portrait);
+    sheet.addEventListener("click", () => { neocomTipOff(); open("charactersheet"); });
+    sheet.addEventListener("mouseenter", () => neocomTipOn(sheet, "charactersheet"));
+    sheet.addEventListener("mouseleave", neocomTipOff);
+    list.appendChild(sheet);
     for (const b of NEOCOM_DEFAULT) {
       const el = document.createElement("button");
       el.className = "nc-btn";
