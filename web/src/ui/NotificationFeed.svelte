@@ -114,6 +114,33 @@
     flow.requestWords([HISTORY_CAPTION, TIME_AGO, ...INTERVAL_WORD_LABELS]);
   });
 
+  // NotificationUIService's unread counter (notificationUI.py _CheckAndFillCache / ResetUnreadCounter): the notifications
+  // made after the last seen time (and shown at all: every type by default), the time kept per pilot
+  // (notificationSettings.SetLastSeenTime - here localStorage); FillWithNotifications after the drawer opens calls the
+  // provider, which resets the count to 0 and the time to the newest notification's. The history is read at login for
+  // it, again every 30 s while it cannot be had (a read made as the session starts can fail).
+  const seenKey = () => `evejs.play.notificationsSeen.${store.character.get().selectedCharacterID ?? 0}`;
+  function seenTime(): bigint {
+    try { return BigInt(localStorage.getItem(seenKey()) ?? "0"); } catch { return 0n; }
+  }
+  let seen = $state(seenTime());
+  function markSeen(): void {
+    const newest = rows.reduce((m, r) => (r.created !== null && r.created > m ? r.created : m), seen);
+    seen = newest;
+    try { localStorage.setItem(seenKey(), String(newest)); } catch { /* the count comes back next time */ }
+  }
+  const unread = $derived(rows.filter((r) => r.created !== null && r.created > seen).length);
+  $effect(() => {
+    let triedAt = 0;
+    const tick = () => {
+      const a = store.activity.get();
+      if (a.notifications.status !== "ready" && !a.loading && Date.now() - triedAt > 30000) { triedAt = Date.now(); void flow.loadActivity().catch(() => {}); }
+    };
+    tick();
+    const t = setInterval(tick, 5000);
+    return () => clearInterval(t);
+  });
+
   let timers: ReturnType<typeof setTimeout>[] = [];
   function later(ms: number, run: () => void) { timers.push(setTimeout(run, ms)); }
   $effect(() => () => { for (const t of timers) clearTimeout(t); });
@@ -126,7 +153,7 @@
     now = Date.now();
     if (formats === null) void flow.notificationFormats().then((f) => { formats = f; }).catch(() => {});
     if ($activity.notifications.status !== "ready" && !$activity.loading) void flow.loadActivity().catch(() => {});
-    later(250, () => { animating = false; filled = true; armAutoClose(); });
+    later(250, () => { animating = false; filled = true; markSeen(); armAutoClose(); });
   }
   function closeDrawer() {
     if (animating) return;
@@ -190,6 +217,15 @@
   }
 </script>
 
+<!-- BadgeContainer (FrameWithPointer badgeStyle, POINT_RIGHT_2): the count bold (EveLabelMedium 0.75) in a box 10 wider
+     than it and 20 high, its right edge 2 left of the widget, 6 down its side; newItemsBadgeBase.png (corner 10, offset
+     -6) and pointer_right_02.png 24 at (w - 8, -2), both in COLORTYPE_UIHILIGHTGLOW at 0.95; fades 0.25 (the live client,
+     gridcheck g274: "3" 18 x 20 at (2492, 1398), "12" 26 x 20 at (2484, 1398), the widget at (2512, 1392)) -->
+<div class="nf-badge" class:shown={unread > 0 && !open}>
+  <span class="nf-badge-bg" style={`-webkit-mask-box-image: url("${clientTexture("res:/UI/Texture/classes/Notifications/newItemsBadgeBase.png")}") 10 / 10px`}></span>
+  <span class="nf-badge-ptr" style={`-webkit-mask-image: url("${clientTexture("res:/UI/Texture/classes/Notifications/pointer_right_02.png")}"); mask-image: url("${clientTexture("res:/UI/Texture/classes/Notifications/pointer_right_02.png")}")`}></span>
+  <span class="nf-badge-n">{unread}</span>
+</div>
 <div class="nf" class:open bind:this={root}>
   <div class="nf-header" class:shown={open}>{word(HISTORY_CAPTION, "Notification History")}</div>
   <div class="nf-list" bind:this={list} onscroll={updateBar}>
@@ -235,6 +271,13 @@
   .nf-header { position: absolute; left: 0; right: 0; top: 4px; height: 18px; line-height: 18px; text-align: center; font-size: 12px; font-weight: bold;
     white-space: nowrap; opacity: 0; transition: opacity 0.25s; pointer-events: none; }
   .nf-header.shown { opacity: 1; }
+  .nf-badge { position: fixed; right: 50px; bottom: 22px; height: 20px; z-index: 25; pointer-events: none; opacity: 0; transition: opacity 0.25s;
+    font: bold 14px/18px 'EVE Sans Neue', 'Segoe UI', sans-serif; color: rgba(255, 255, 255, 0.75); }
+  .nf-badge.shown { opacity: 1; }
+  .nf-badge-bg { position: absolute; inset: -6px; background: var(--theme-focus-glow, #ccf3ff); opacity: 0.95; }
+  .nf-badge-ptr { position: absolute; right: -16px; top: -2px; width: 24px; height: 24px; background: var(--theme-focus-glow, #ccf3ff); opacity: 0.95;
+    -webkit-mask-size: 24px 24px; mask-size: 24px 24px; }
+  .nf-badge-n { position: relative; display: block; padding: 1px 5px; }
   .nf-list { position: absolute; left: 5px; right: 5px; top: 22px; bottom: 32px; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
   .nf-bar { position: absolute; left: 287px; width: 8px; cursor: default; }
   .nf-bar i { position: absolute; left: 3px; top: 3px; bottom: 3px; width: 2px; background: rgba(255, 255, 255, 0.25); }
