@@ -1126,8 +1126,14 @@
   /* WarpWarning: panel1Corner_Solid in WARNING_ORANGE at 0.15, the corner triangle, a 32 px exclamation pulsing
      0.5..1.5 every 0.7 s, the message in orange 52 px in, Stop and Recall under it; faded in over 0.3 s with a white
      flash */
-  .warp-warning { position: relative; margin-bottom: 2px; padding: 8px 8px 8px 52px; min-height: 48px; background: rgba(243, 144, 88, 0.15);
+  .warp-warning { position: relative; margin-bottom: 2px; padding: 8px 8px 8px 52px; min-height: 48px;
     color: #f39058; animation: ww-in 0.3s cubic-bezier(0.3333, 0, 0.6667, 1); }
+  /* Frame(bgParent, panel1Corner_Solid, rotation pi, cornerSize 9, WARNING_ORANGE, opacity 0.15): the sliced texture as
+     a mask over the orange, turned half round; cornerTriSmall 5 x 5 at the top left, WARNING_ORANGE 0.5 */
+  .warp-warning::before { content: ""; position: absolute; inset: 0; background: rgba(243, 144, 88, 0.15); transform: rotate(180deg); pointer-events: none;
+    -webkit-mask-box-image: url(/client-res/ui/texture/shared/darkstyle/panel1corner_solid.png) 9 fill / 9px; }
+  .warp-warning::after { content: ""; position: absolute; left: 0; top: 0; width: 5px; height: 5px; background: rgba(243, 144, 88, 0.5); pointer-events: none;
+    -webkit-mask: url(/client-res/ui/texture/shared/darkstyle/cornertrismall.png) center / 5px 5px no-repeat; mask: url(/client-res/ui/texture/shared/darkstyle/cornertrismall.png) center / 5px 5px no-repeat; }
   .ww-whiteout { position: absolute; inset: 0; background: rgba(255, 255, 255, 0.5); opacity: 0; animation: ww-flash 0.3s 0.1s cubic-bezier(0.3333, 0, 0.6667, 1); pointer-events: none; }
   .ww-icon { position: absolute; left: 10px; top: 8px; width: 32px; height: 32px; animation: ww-pulse 0.7s linear infinite; }
   .ww-text { margin: 0 0 8px; font: 14px var(--font); }
