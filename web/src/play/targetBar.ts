@@ -1,4 +1,5 @@
 import { retimeTargetLockStart } from "./targetLock.ts";
+import { playUiEvent } from "./uiAudio.ts";
 import type { MiningSurveyProgress } from "../store/types.ts";
 
 // The target bar: the retail client's locked targets, ported from its own Python and drawn with its own textures
@@ -637,6 +638,26 @@ class TargetInBar {
     this.root.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, delay: 1600, easing: E, fill: "forwards" });
   }
 
+  /**
+   * anim_death: after a random 0-0.2 s, target_destroy_play; the discSprite (target_killed, 94 px) red from alpha 0 to 0.2
+   * over 0.1 s, the remove_animation_icon target_killed_skull (64 px, additive) shown; the whole BlinkIn (0 -> 1 over 0.2 s,
+   * 6 loops, linear); then the icon container Tr2DScaleTo (1, 1) -> (1, 0) over 0.04 s and hidden.
+   */
+  showDeath(): void {
+    this.root.className = "tb-target-depleted";
+    this.root.removeAttribute("data-item-id");
+    const wait = Math.random() * 200;
+    window.setTimeout(() => void playUiEvent("target_destroy_play"), wait);
+    const disc = div(this.iconContainer, 0, 0, ICON_SIZE, ICON_SIZE, "tb-depleted-disc");
+    const killed = "url(/client-res/ui/texture/icons/target_killed.png) center / 100% 100% no-repeat";
+    Object.assign(disc.style, { background: "rgb(255, 0, 0)", webkitMask: killed, mask: killed, opacity: "0", pointerEvents: "none" });
+    disc.animate([{ opacity: 0 }, { opacity: 0.2 }], { duration: 100, delay: wait, fill: "forwards" });
+    const skull = sprite(this.iconContainer, res("res:/UI/Texture/Icons/target_killed_skull.png"), mid(ICON_SIZE, 64), mid(ICON_SIZE, 64), 64, 64, 1, "tb-death-skull");
+    skull.style.mixBlendMode = "plus-lighter";
+    this.root.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, iterations: 6, delay: wait });
+    this.iconContainer.animate([{ transform: "scaleY(1)" }, { transform: "scaleY(0)" }], { duration: 40, delay: wait + 1200, fill: "forwards" });
+  }
+
   /** SetNameLabels: the name on one line, broken at the last space that fits, the rest on a second; then the ship type. */
   private setLabels(): boolean {
     const [label, label2, shipLabel] = this.labels as [HTMLDivElement, HTMLDivElement, HTMLDivElement, HTMLDivElement];
@@ -842,6 +863,9 @@ export class TargetBar {
   private readonly depleted = new Set<number>();
   private readonly awaitingMiningRemoval = new Map<number, { target: TargetInBar; expires: number }>();
   private readonly retiring = new Map<HTMLElement, ReturnType<typeof setTimeout>>();
+  /** Targets lost in the last second, kept for a TerminalPlayDestructionEffect explosion (OnTargetLost 'Exploding'). */
+  private readonly awaitingExplosion = new Map<number, { target: TargetInBar; expires: number }>();
+  private readonly exploded = new Set<number>();
   /** Rows of itemIDs, in the order the client's rowDict holds them. */
   private rows: number[][] = [];
   private readonly locking = new Map<number, LockingIndicator>();
@@ -875,6 +899,23 @@ export class TargetBar {
     } else if (this.targets.get(itemID)?.hasMiningGauge()) {
       this.depleted.add(itemID);
     }
+  }
+
+  /**
+   * targetMgr.OnTargetLost(reason 'Exploding') -> ClearDeadTarget -> TargetInBar.anim_disappear: a target that is not an
+   * asteroid plays anim_death as it goes (the page hears the explosion as TerminalPlayDestructionEffect).
+   */
+  markExploded(itemID: number): void {
+    const pending = this.awaitingExplosion.get(itemID);
+    if (pending) { this.awaitingExplosion.delete(itemID); this.showDeath(pending.target); }
+    else if (this.targets.has(itemID) && !this.targets.get(itemID)!.hasMiningGauge()) this.exploded.add(itemID);
+  }
+
+  private showDeath(target: TargetInBar): void {
+    const root = target.root;
+    target.showDeath();
+    if (!root.parentElement) this.root.appendChild(root);
+    this.retiring.set(root, setTimeout(() => { root.remove(); this.retiring.delete(root); }, 1500));
   }
 
   clearMiningDepartures(): void {
@@ -926,14 +967,18 @@ export class TargetBar {
       if (seen.has(id)) continue;
       if (this.depleted.delete(id) || (t.hasEmptyMiningGauge() && grid?.has(id) === false)) {
         this.showMiningDeparture(t);
+      } else if (this.exploded.delete(id)) {
+        this.showDeath(t);
       } else {
         t.root.remove();
+        if (!t.hasMiningGauge()) this.awaitingExplosion.set(id, { target: t, expires: now + 1000 });
         // The lock can disappear before the native terminal cue or the next valid grid.
         if (t.hasMiningGauge()) this.awaitingMiningRemoval.set(id, { target: t, expires: now + MINING_REMOVAL_GRACE_MS });
       }
       this.targets.delete(id);
       changed = true;
     }
+    for (const [id, pending] of this.awaitingExplosion) if (now >= pending.expires) this.awaitingExplosion.delete(id);
     for (const [id, pending] of this.awaitingMiningRemoval) {
       if (now >= pending.expires) {
         this.awaitingMiningRemoval.delete(id);

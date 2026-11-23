@@ -1238,6 +1238,8 @@ export class SpaceView {
       // An unspecified terminal effect defaults to EXPLOSION. Release also calls Explode for EXPLOSION_OVERRIDE.
       const effect = Number(args[1] ?? 3);
       if (effect === 2) this.targetBar.markMiningDepleted(Number(args[0]));
+      // (an explosion: the target lost 'Exploding' - anim_death in the target bar)
+      if (effect === 3 || effect === 1) this.targetBar.markExploded(Number(args[0]));
       if (mark?.userData.ordinaryWormhole && (effect === 3 || effect === 1)) mark.userData.wormholeTerminal = this.live.resets;
     }
     // a ball blown up (TerminalPlayDestructionEffect -> spaceObject.Explode): with Ship Explosions on, one of its type's
