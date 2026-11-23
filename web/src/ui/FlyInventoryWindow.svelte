@@ -892,7 +892,8 @@
           ondblclick={() => { if (invAlwaysSeparate.get() && t.inRange) openTempInNewWindow(t.id); }} onkeydown={() => {}} oncontextmenu={(e) => tempMenu(t, e)}
           ondragover={$inventoryState.container?.itemID === t.id ? dragOver(`temp:${t.id}`) : undefined} ondragleave={() => (dropKey = null)}
           ondrop={$inventoryState.container?.itemID === t.id ? (e) => void dropOn(`temp:${t.id}`, e) : undefined}>
-          <button type="button" class="tremove" title={word("UI/Common/Buttons/Close", "Close")} aria-label={word("UI/Common/Buttons/Close", "Close")}
+          <!-- (a plain Sprite in the client, its OnClick Remove: no button sounds) -->
+          <button type="button" class="tremove" data-own-sound title={word("UI/Common/Buttons/Close", "Close")} aria-label={word("UI/Common/Buttons/Close", "Close")}
             style:background-image={`url(${clientTexture("res:/UI/Texture/icons/73_16_210.png")})`} onclick={(e) => { e.stopPropagation(); removeTemp(t.id); }}></button>
           <span class="ticon"><img src={t.icon} alt=""></span>
           <span class="tlabel">{t.name}{#if t.dist}{" "}<span class="tdist">{t.dist}</span>{/if}</span>
