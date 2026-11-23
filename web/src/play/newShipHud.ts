@@ -437,6 +437,7 @@ export class NewShipHud {
   private onModule: ((m: HudModule) => void) | null = null;
   private damageFlash: { level: number; start: number; until: number; period: number } | null = null;
   private capFlashUntil = 0;
+  private capFlashStart = 0;
   private frame = 0;
   private lastFrame = performance.now();
   private disposed = false;
@@ -1539,7 +1540,9 @@ export class NewShipHud {
 
   /** capacitorCore: the low-capacitor alert waves the core's opacity 1 -> 0.5 -> 1 every 2 s. */
   flashCapacitor(duration: number): void {
-    this.capFlashUntil = performance.now() + duration;
+    // CapacitorCore.OnCapacitorAlertFlash: MorphScalar(opacity, 1.0, 0.5, duration, ANIM_WAVE) - one wave from 1 over the duration
+    this.capFlashStart = performance.now();
+    this.capFlashUntil = this.capFlashStart + duration;
   }
 
   cancelAlerts(): void {
@@ -1907,7 +1910,7 @@ export class NewShipHud {
     const under = image(HUD("capacitor_04"));
     c.save();
     if (now < this.capFlashUntil) {
-      const phase = ((now - this.started) % 2000) / 2000;
+      const phase = Math.min(1, Math.max(0, (now - this.capFlashStart) / (this.capFlashUntil - this.capFlashStart)));
       c.globalAlpha = phase < 0.5 ? 1 - 0.5 * smooth(phase * 2) : 0.5 + 0.5 * smooth(phase * 2 - 1);
     }
     const ga = c.globalAlpha;
