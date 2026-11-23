@@ -1127,14 +1127,16 @@
      0.5..1.5 every 0.7 s, the message in orange 52 px in, Stop and Recall under it; faded in over 0.3 s with a white
      flash */
   .warp-warning { position: relative; margin-bottom: 2px; padding: 8px 8px 8px 52px; min-height: 48px; background: rgba(243, 144, 88, 0.15);
-    color: #f39058; animation: ww-in 0.3s ease-out; }
+    color: #f39058; animation: ww-in 0.3s cubic-bezier(0.3333, 0, 0.6667, 1); }
   .ww-whiteout { position: absolute; inset: 0; background: rgba(255, 255, 255, 0.5); opacity: 0; animation: ww-flash 0.3s 0.1s cubic-bezier(0.3333, 0, 0.6667, 1); pointer-events: none; }
-  .ww-icon { position: absolute; left: 10px; top: 8px; width: 32px; height: 32px; animation: ww-pulse 0.7s cubic-bezier(0.3333, 0, 0.6667, 1) infinite alternate; }
+  .ww-icon { position: absolute; left: 10px; top: 8px; width: 32px; height: 32px; animation: ww-pulse 0.7s linear infinite; }
   .ww-text { margin: 0 0 8px; font: 14px var(--font); }
   .ww-buttons button { font: 13px var(--font); }
   @keyframes ww-in { from { opacity: 0; } to { opacity: 1; } }
   @keyframes ww-flash { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
-  @keyframes ww-pulse { from { opacity: 0.5; } to { opacity: 1; } }
+  /* FadeTo(warning_icon, 0.5 -> 1.5, 0.7 s, loops -1, ANIM_WAVE): a smoothstep up to 1.5 at 0.35 s and down again,
+     the opacity held at 1 above it (from 0.175 s to 0.525 s); the halves of the smoothstep as their own beziers */
+  @keyframes ww-pulse { 0% { opacity: 0.5; animation-timing-function: cubic-bezier(0.3333, 0, 0.6667, 0.5); } 25% { opacity: 1; animation-timing-function: linear; } 75% { opacity: 1; animation-timing-function: cubic-bezier(0.3333, 0.5, 0.6667, 1); } 100% { opacity: 0.5; } }
   .drone-tip { position: fixed; z-index: 100000; pointer-events: none; padding: 8px; font: 14px var(--font); color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
   .tip-frame { position: absolute; inset: 0; opacity: 0.75; border-style: solid; border-width: 0; border-image-source: url(/client-res/ui/texture/classes/framewithpointer/background_04.png); border-image-slice: 19 fill; border-image-width: 19px; border-image-outset: 15px; }
   .tip-grid { position: relative; display: grid; grid-template-columns: 30px auto; align-items: center; }
