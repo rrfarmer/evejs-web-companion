@@ -118,6 +118,7 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
   const frame = document.createElement("div");
   Object.assign(frame.style, { position: "absolute", inset: "0", opacity: "0.75", borderStyle: "solid", borderWidth: "0", borderImageSource: `url(${clientTexture("res:/UI/Texture/classes/FrameWithPointer/background_04.png")})`, borderImageSlice: "19 fill", borderImageWidth: "19px", borderImageOutset: "15px" } as Partial<CSSStyleDeclaration>);
   const grid = document.createElement("div");
+  grid.className = "lst-grid";
   Object.assign(grid.style, { position: "relative", display: "grid", gridTemplateColumns: "auto auto", columnGap: "16px", rowGap: "4px", alignItems: "center" });
   const head = document.createElement("div");
   head.textContent = label;
@@ -147,7 +148,7 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
 export function showIconValuesTooltip(anchor: HTMLElement, cells: readonly { icon: string; text: string }[]): void {
   showLabelShortcutTooltip(anchor, "", "", [], "top");
   if (!tip) return;
-  const grid = tip.lastElementChild as HTMLElement | null;
+  const grid = tip.querySelector<HTMLElement>(":scope > .lst-grid");
   if (!grid) return;
   grid.replaceChildren();
   Object.assign(grid.style, { gridTemplateColumns: `repeat(${cells.length}, 40px)`, columnGap: "0", rowGap: "2px", justifyItems: "center" });
@@ -167,6 +168,25 @@ export function showIconValuesTooltip(anchor: HTMLElement, cells: readonly { ico
   placeTip(tip, anchor, POINT.BOTTOM_2);
 }
 
+/**
+ * TooltipGeneric.SetTooltipString: a UI object's hint (its markup) in an EveLabelMedium 200 px wide at most and fitted
+ * to its text, 16 px in from the FrameWithPointer frame; default_pointerDirection POINT_BOTTOM_2, the panel above its
+ * owner, centred.
+ */
+export function showGenericHint(anchor: HTMLElement, html: string): void {
+  showLabelShortcutTooltip(anchor, "", "", [], "top");
+  if (!tip) return;
+  const grid = tip.querySelector<HTMLElement>(":scope > .lst-grid");
+  if (!grid) return;
+  grid.replaceChildren();
+  grid.style.gridTemplateColumns = "auto";
+  const d = document.createElement("div");
+  d.innerHTML = html;
+  Object.assign(d.style, { maxWidth: "200px", whiteSpace: "normal" });
+  grid.append(d);
+  placeTip(tip, anchor, POINT.BOTTOM_2);
+}
+
 export function hideLabelShortcutTooltip(): void {
   if (tip) tip.style.display = "none";
 }
@@ -179,7 +199,7 @@ export function hideLabelShortcutTooltip(): void {
 export function showItemTooltip(anchor: HTMLElement, head: string, dimLines: readonly string[]): void {
   showLabelShortcutTooltip(anchor, head, "", [], "top");
   if (!tip) return;
-  const grid = tip.lastElementChild as HTMLElement | null;
+  const grid = tip.querySelector<HTMLElement>(":scope > .lst-grid");
   for (const line of dimLines) {
     const d = document.createElement("div");
     d.textContent = line;
@@ -205,7 +225,7 @@ export function showDronesInSpaceTooltip(anchor: HTMLElement, rows: {
 }): void {
   showLabelShortcutTooltip(anchor, "", "", [], "top");
   if (!tip) return;
-  const grid = tip.lastElementChild as HTMLElement | null;
+  const grid = tip.querySelector<HTMLElement>(":scope > .lst-grid");
   if (!grid) return;
   grid.replaceChildren();
   // a two-column LayoutGrid (measured on the live client's panel, 299 x 142: the line at 16,16 246 wide; Drones at 26,60;

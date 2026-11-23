@@ -28,10 +28,7 @@ export function targetMarkup(t: { readonly locked: boolean; readonly active: boo
   return (t.attacking ? "<span class=\"ov-tgt-hostile attacking\"></span>" : t.hostile ? `<span class="ov-tgt-hostile${t.fleet ? " fleet" : ""}"></span>` : "") + (t.locked ? "<span class=\"ov-tgt\"></span>" : "") + (t.active ? "<span class=\"ov-tgt active\"></span>" : "") + (t.locking && !t.locked ? "<span class=\"ov-tgt-locking\"></span>" : "");
 }
 
-/** A hint's markup as the title's text: <br> a new line, the tags dropped, the entities read. */
-function hintText(html: string): string {
-  return html.replace(/<br>/g, "\n").replace(/<[^>]*>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
-}
+import { hideLabelShortcutTooltip, showGenericHint } from "./labelShortcutTooltip.ts";
 export function flagMarkup(f: StateFlagLook | null): string {
   if (!f) return "";
   const glyph = clientTexture(`res:/UI/Texture/classes/FlagIcon/8/${f.iconIndex + 1}.png`);
@@ -453,7 +450,17 @@ export class Overview {
       // (SE_BaseClassCore.OnMouseEnter: sound_hover, SOUND_ENTRY_HOVER, as the row lights)
       if (id && id !== this.hovered) { void playUiEvent("ui_button_soft2_play"); this.hooks.hover?.(id); }
     });
-    this.tbody.addEventListener("mouseleave", () => { this.hooks.hover?.(null); this.hideIconTip(); this.pointerInside = false; });
+    this.tbody.addEventListener("mouseleave", () => { this.hooks.hover?.(null); this.hideIconTip(); this.hideNameHint(); this.pointerInside = false; });
+    // the Name label's hint (OverviewScrollEntry.UpdateColumns: label.hint = node.hint_NAME) over the label alone
+    this.tbody.addEventListener("mouseover", (ev) => {
+      const name = (ev.target as HTMLElement).closest<HTMLElement>(".ov-name");
+      const id = Number(name?.closest("tr")?.dataset.id);
+      const html = name && id ? this.nameHints.get(id) : undefined;
+      if (!name || !html) { this.hideNameHint(); return; }
+      if (this.nameHintFor === id) return;
+      this.nameHintFor = id;
+      showGenericHint(name, html);
+    });
     // UpdateEntryOrder's freeze: the pointer over the scroll's content, and whether it moved since the last pass
     this.tbody.addEventListener("mousemove", () => { this.pointerInside = true; this.pointerMoved = true; });
     // the icon's own tooltip (mainIcon.LoadTooltipPanel = LoadIconTooltipPanel), pointed from its right (POINT_RIGHT_2)
@@ -1986,6 +1993,14 @@ export class Overview {
     this.tabTip?.remove();
     this.tabTipFor = null;
   }
+  /** Each row's Name hint (markup) as the last pass drew it, and the row whose hint shows. */
+  private readonly nameHints = new Map<number, string>();
+  private nameHintFor: number | null = null;
+  private hideNameHint(): void {
+    if (this.nameHintFor === null) return;
+    this.nameHintFor = null;
+    hideLabelShortcutTooltip();
+  }
   private hideIconTip(): void {
     this.iconTip?.remove();
     this.iconTipFor = null;
@@ -2180,10 +2195,11 @@ export class Overview {
           case "DISTANCE": return `<td class="ov-dist">${overviewDistance(d)}</td>`;
           // PrimeDisplayName: the cell's hint the bracket's display name (bracketMgr.GetDisplayNameForBracket), the full name
           case "NAME": {
-            // a ship's hint the ship labels (<br> a new line), else the full name
+            // PrimeDisplayName's hint_NAME on the column's label (the label, not the cell, owns it): a ship's ship labels,
+            // else the full name - shown as TooltipGeneric shows a hint
             const label = this.hooks.nameHint?.(e) ?? null;
-            const hint = label === null ? e.name || rowName(e) : hintText(label);
-            return `<td title="${esc(hint)}">${esc(rowName(e))}</td>`;
+            this.nameHints.set(e.itemID, label ?? esc(e.name || rowName(e)));
+            return `<td><span class="ov-name">${esc(rowName(e))}</span></td>`;
           }
           case "TYPE": return `<td>${esc(typeName)}</td>`;
           case "SIZE": return `<td class="ov-dist">${fmtDist(2 * (e.radius ?? 0))}</td>`;
