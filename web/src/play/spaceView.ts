@@ -5014,7 +5014,6 @@ export class SpaceView {
       out.push({ path: "UI/Commands/OpenCargo", label: word("UI/Commands/OpenCargo", "Open Cargo"), run: run("Open Cargo", () => this.actions.openCargo!(id)) });
     }
     // (the drone group under a line of its own, after Add ... to Overview)
-    if (droneChanges.length) out.push(null, ...droneChanges);
     // OfferScoopToCargoHold (IsScoopable) and OfferScoopToFleetHangar (the same, a ship with hasFleetHangars, 911)
     const scoops: ContextEntry[] = [];
     if (this.isScoopable(e, comps) && this.actions.scoopToCargo) {
@@ -5023,6 +5022,10 @@ export class SpaceView {
         scoops.push({ path: "UI/Inflight/ScoopToFleetHangar", label: word("UI/Inflight/ScoopToFleetHangar", "Scoop to Fleet Hangar"), run: run("Scoop", () => this.actions.scoopToFleetHangar!(id)) });
       }
     }
+    // a drone's: its drone entries under a line of their own, after Add ... to Overview, and its scoops in that same
+    // group, no line between (read through gridcheck on a pilot's own Mining Drone I: Return and Orbit, Return to Drone
+    // Bay, Scoop to Cargo Hold, Scoop to Fleet Hangar together)
+    if (droneChanges.length) { out.push(null, ...droneChanges, ...scoops); scoops.length = 0; }
     if (group === 7 && this.options.viewPlanet) out.push({ path: "UI/PI/Common/ViewInPlanetMode", label: word("UI/PI/Common/ViewInPlanetMode", "View Planetary Industry"), icon: I("enter_planet_view"), run: () => void this.options.viewPlanet?.(id) });
     if (group === 7) {
       // OfferMoonMenuOptions / GetMoons: "Moons", each "Moon N" (UI/Inflight/Submenus/MoonX by its orbit index) with the
