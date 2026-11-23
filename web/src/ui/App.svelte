@@ -28,7 +28,7 @@
   import Workspace from "./Workspace.svelte";
   import ErrorBoundary from "./ErrorBoundary.svelte";
   import { countPluginPilots, setPluginPilotCounts } from "./pluginPilotCounts.ts";
-  import { sharePageRoster } from "../app/pluginPageSession.ts";
+  import { closePageSource, sharePageRoster } from "../app/pluginPageSession.ts";
   import { createSession, type Session } from "../app/sessions.ts";
   import type { LaunchEntry, LaunchTarget } from "../app/hangarLaunch.ts";
   import { BridgeCallError } from "../bridge/callMethod.ts";
@@ -91,7 +91,14 @@
   let hangarOpen = $state(!hasRetained);
   let onboarding = $state<Session | null>(null);
 
-  $effect(() => sharePageRoster(() => sessions, () => activeId));
+  $effect(() => sharePageRoster(sessions, activeId));
+  $effect(() => {
+    window.addEventListener("pagehide", closePageSource);
+    return () => {
+      window.removeEventListener("pagehide", closePageSource);
+      closePageSource();
+    };
+  });
   const active = $derived(sessions.find((s) => s.id === activeId) ?? null);
   let infoHost = $state<{ sessionID: string; host: InfoWindowHost } | null>(null);
   function setInfoHost(sessionID: string, host: InfoWindowHost | null): void {

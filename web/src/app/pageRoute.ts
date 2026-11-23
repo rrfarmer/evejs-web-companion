@@ -8,3 +8,10 @@ export function isShipProvisioningPath(pathname: string): boolean { return /^\/s
 export function isMiningCommandCenterPath(pathname: string): boolean {
   return /^\/mining-command-center\/?$/.test(pathname);
 }
+
+/** Page ownership follows the same predicates as main.ts; the other roots serve BFF resources. */
+export function reservedPluginPage(id: string): boolean {
+  const path = "/" + id;
+  return ["api", "assets", "client-res", "dist", "icon-cache"].includes(id) ||
+    isGoblinFactoryPath(path) || isPilotTrainingPath(path) || isShipProvisioningPath(path) || isMiningCommandCenterPath(path);
+}

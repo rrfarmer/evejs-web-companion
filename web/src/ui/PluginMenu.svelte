@@ -113,7 +113,7 @@
           <span>{group.plugin.name}</span>
         {/snippet}
         {#if group.page && !several}
-          <a class="plugin-panel-name" role="menuitem" href={group.page.href} target="_blank" rel="noopener" onclick={(event) => { launchPluginPage(event); shown = false; }}>
+          <a class="plugin-panel-name" role="menuitem" href={group.page.href} target="_blank" rel="noopener" onclick={(event) => { if (launchPluginPage(event)) shown = false; }}>
             {@render pluginName()}
           </a>
         {:else}
@@ -142,7 +142,7 @@
       {#if several && isOpen}
         {#if group.page}
           <div class="plugin-panel-row plugin-panel-window" role="none">
-            <a class="plugin-panel-name" role="menuitem" href={group.page.href} target="_blank" rel="noopener" onclick={(event) => { launchPluginPage(event); shown = false; }}>
+            <a class="plugin-panel-name" role="menuitem" href={group.page.href} target="_blank" rel="noopener" onclick={(event) => { if (launchPluginPage(event)) shown = false; }}>
               <span>Open page</span>
             </a>
           </div>

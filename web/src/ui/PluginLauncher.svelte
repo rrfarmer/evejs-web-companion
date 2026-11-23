@@ -82,7 +82,7 @@
   <div use:portal class="plugin-panel plugin-launcher-panel" role="menu" aria-label={launcher.title} style:top="{place.top}px" style:left="{place.left}px" bind:this={panel}>
     {#if launcher.pageHref}
       <div class="plugin-panel-row" role="none">
-        <a class="plugin-panel-name" role="menuitem" href={launcher.pageHref} target="_blank" rel="noopener" onclick={(event) => { launchPluginPage(event); shown = false; }}>
+        <a class="plugin-panel-name" role="menuitem" href={launcher.pageHref} target="_blank" rel="noopener" onclick={(event) => { if (launchPluginPage(event)) shown = false; }}>
           <span>Open page</span>
         </a>
       </div>

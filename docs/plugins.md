@@ -87,16 +87,28 @@ extension points: a plugin that needs another one proposes it as a core change.
 ### A standalone page
 
 Declare `page: {}` in the manifest and `page: () => import("./Page.svelte")`
-in the same plugin's views. The ordinary WC build serves the page at
-`/<plugin id>/` and hands subpaths to the page component. Use the same
-backend routes as a window. The page receives `PluginPageProps`: `sessions` lists
-the launching tab's signed-in pilots, each with account name, character ID and
-its own WC token. For example, pass `{ token: pilot.token }` to `pluginGetJson`.
-`activeSession` identifies the launching tab's active pilot. Refresh retains this
-snapshot in the page tab. A direct link in a fresh tab starts with an empty
-roster and can use the existing explicit account sign-in. API calls from a page
-omit the shared cookie. Closing the page does not log any borrowed session out. The page mounts in its own
-browser tab without opening a global window or owning any hosted sessions.
+in the plugin's views. The ordinary WC build serves `/<plugin id>/` and hands
+subpaths to the page component.
+
+A plain click on the pin or menu link opens a new tab with `noopener`. The page
+receives the source WC tab's roster over a same-origin channel. Its reactive
+`PluginPageProps` include `sessions` (account name, character ID and WC token)
+and `activeSession`. Use the current props when making a request, for example
+`pluginGetJson(id, path, { token: pilot.token })`. Login, logout and changing
+the active cockpit update these props without remounting the plugin.
+
+The page removes the launch ID from the URL and retains only that ID in its
+session storage. Bearers stay in memory. Refresh asks the source for its current
+roster. Closing the source clears the borrowed roster. Where the browser
+provides Web Locks, release of the source's document lock also detects a lost
+tab. On LAN HTTP without Web Locks, 90 seconds without a presence message
+clears the roster while the page's timers are running. Closing either tab
+leaves hosted runs under the control of their original owner.
+
+A fresh direct URL, a middle-click, a modified click (including Ctrl, Cmd and
+Shift) or “Open link in new tab” follows the ordinary link without attaching
+the source roster. The plugin can show an empty state or use its existing
+explicit account sign-in. WC API calls from a plugin page omit the shared cookie.
 
 A page-only plugin has a direct link in the Plugins menu and, when pinned,
 in the usual strip. A plugin with both a page and windows lists them together.
