@@ -2567,17 +2567,23 @@ export class SpaceView {
       const bad = this.actions.word?.("UI/Menusvc/MenuHints/BadGroupForAction", { groupName: this.options.groupName?.(e.groupID ?? 0) ?? "" }) ?? undefined;
       if (bad) { reasons.orbit = bad; reasons.keep = bad; reasons.lock = bad; }
     }
+    // SelectedItemButton._GetActionLabel: the menu entry's descriptive text (Orbit (1,000 m), Look at); a disabled
+    // button's is its label path's alone (_GetDisabledMenuLabel: Warp to Within)
     return out.map((a) => {
       const path = PATH[a.key];
-      if (!path || available.has(path) || a.disabled) return a;
-      return { ...a, disabled: true, disabledReason: a.disabledReason ?? reasons[a.key] ?? this.actions.word?.("UI/Menusvc/MenuHints/NoReasonGiven") ?? "No reason given" };
+      if (!path) return a;
+      const label = available.get(path);
+      if (label) return { ...a, title: label };
+      if (a.disabled) return a;
+      return { ...a, title: this.actions.word?.(path) ?? a.title, disabled: true, disabledReason: a.disabledReason ?? reasons[a.key] ?? this.actions.word?.("UI/Menusvc/MenuHints/NoReasonGiven") ?? "No reason given" };
     });
   }
 
   /** The label paths of an object's menu now (its entries and their submenus'). */
-  private menuPaths(e: Entity): Set<string> {
-    const out = new Set<string>();
-    const walk = (list: readonly (ContextEntry | null)[]) => { for (const x of list) if (x) { if (x.path && !x.disabled) out.add(x.path); if (x.sub) walk(x.sub); } };
+  /** The object's menu entries now, by label path, with their texts (the Selected Item's _GetValidActionsByName). */
+  private menuPaths(e: Entity): Map<string, string> {
+    const out = new Map<string, string>();
+    const walk = (list: readonly (ContextEntry | null)[]) => { for (const x of list) if (x) { if (x.path && !x.disabled && !out.has(x.path)) out.set(x.path, x.label); if (x.sub) walk(x.sub); } };
     walk(this.contextEntries(e));
     return out;
   }
