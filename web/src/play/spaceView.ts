@@ -2537,6 +2537,13 @@ export class SpaceView {
     if (wormhole) out.push(wormhole);
     const planet = this.planetViewEntry(e);
     if (planet) out.push(planet);
+    // selectedItemConst groupMoon: 'UI/Inflight/WarpToMoonMiningPoint' (ICON_WARP_TO_MOON_MINING_POINT
+    // Moonmining/warpToMiningPoint.png) - enabled where the moon menu has the entry (a mining point's beacon in the
+    // scene), else shown disabled (_GetDisabledMenuLabel: the label with distance 0)
+    if (e.groupID === 8 && this.actions.warpToMoonMiningPoint) {
+      const warpPoint = this.actions.warpToMoonMiningPoint;
+      out.push({ key: "moonPoint", title: "Warp to Mining Point", icon: clientTexture("res:/UI/Texture/Classes/Moonmining/warpToMiningPoint.png"), run: () => warpPoint(id, defaultDistance("WarpTo")) });
+    }
     const cargo = this.actions.openCargo;
     let cargoState = selectedCargo(e, this.snapshot?.ship?.mode === "WARP");
     // a deployable's cargo bay (OfferOpenCargoBay: the cargoBay component active, its owner's or free for all), as the
@@ -2580,6 +2587,7 @@ export class SpaceView {
       dock: "UI/Inflight/DockInStation", board: "UI/Inflight/BoardShip", orbit: "UI/Inflight/OrbitObject", keep: "UI/Inflight/Submenus/KeepAtRange", lock: "UI/Inflight/LockTarget",
       unlock: "UI/Inflight/UnlockTarget", look: "UI/Inflight/LookAtObject", track: "UI/Inflight/SetAsCameraInterest", info: "UI/Commands/ShowInfo", scoop: "UI/Drones/ScoopDroneToBay" };
     if (e.kind === "stargate") PATH.jump = "UI/Inflight/Jump";
+    PATH.moonPoint = "UI/Inflight/WarpToMoonMiningPoint";
     // the menu's reasonsWhyNotAvailable the checkers give: IsValidForKeepAtRange (CannotKeepInRange with the group's name:
     // an asteroid, a cloud, a mining drone, a container, a station, a stargate, a wreck) and IsWithinTargettingRange
     // (NotInTargetRange: farther than the ship's maxTargetRange)
@@ -2606,7 +2614,7 @@ export class SpaceView {
       const label = available.get(path);
       if (label) return { ...a, title: label };
       if (a.disabled) return a;
-      return { ...a, title: this.actions.word?.(path) ?? a.title, disabled: true, disabledReason: a.disabledReason ?? reasons[a.key] ?? this.actions.word?.("UI/Menusvc/MenuHints/NoReasonGiven") ?? "No reason given" };
+      return { ...a, title: (a.key === "moonPoint" ? this.actions.word?.(path, { distance: fmtDistance(0) }) : this.actions.word?.(path)) ?? a.title, disabled: true, disabledReason: a.disabledReason ?? reasons[a.key] ?? this.actions.word?.("UI/Menusvc/MenuHints/NoReasonGiven") ?? "No reason given" };
     });
   }
 
