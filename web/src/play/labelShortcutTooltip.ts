@@ -123,6 +123,8 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
   if (!tip.isConnected) document.body.append(tip);
   delete tip.dataset.generic;
   tip.style.padding = "16px";
+  // as wide as its content wherever it is placed (fixed, left only: near the right edge the page would shrink it)
+  tip.style.width = "max-content";
   tip.replaceChildren();
   const frame = document.createElement("div");
   Object.assign(frame.style, { position: "absolute", inset: "0", opacity: "0.75", borderStyle: "solid", borderWidth: "0", borderImageSource: `url(${clientTexture("res:/UI/Texture/classes/FrameWithPointer/background_04.png")})`, borderImageSlice: "19 fill", borderImageWidth: "19px", borderImageOutset: "15px" } as Partial<CSSStyleDeclaration>);
@@ -151,6 +153,9 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
     Object.assign(d.style, plain ? { gridColumn: "1 / 3", whiteSpace: "nowrap" } : { gridColumn: "1 / 3", whiteSpace: "normal", maxWidth: "200px", color: "rgba(255,255,255,0.5)" });
     grid.append(d);
   }
+  // a closing one stopped first: its fold scales the panel, and the widths below are measured on the page
+  closing = null;
+  for (const a of tip.getAnimations()) a.cancel();
   tip.append(frame, grid);
   tip.style.display = "";
   // AddLabelMedium(wrapWidth=200) sets autoFitToText: the box as wide as its longest wrapped line (the live client, g240:
@@ -167,9 +172,7 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
     const w = Math.ceil(r.getBoundingClientRect().width) + 8;
     hint.style.width = `${w - (w % 16) + 16}px`;
   }
-  // PointerPanel.ShowPanel: from nothing to full over 0.05 s (ANIM_SMOOTH); a closing one stopped
-  closing = null;
-  for (const a of tip.getAnimations()) a.cancel();
+  // PointerPanel.ShowPanel: from nothing to full over 0.05 s (ANIM_SMOOTH)
   tip.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 50, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" });
   // POINT_TOP_2: the panel below its anchor; POINT_LEFT_2: to its right
   placeTip(tip, anchor, pointer === "top" ? POINT.TOP_2 : POINT.LEFT_2);
