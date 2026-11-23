@@ -115,17 +115,16 @@
     return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, { groupLabel, count }, { nameOf: () => "" })).trim() : `${groupLabel} (${count})`;
   };
   const say = (w: readonly [string, string]) => headerWord(w[0], w[1]);
-  const keyHint = (label: string, cmd: string) => { const k = shortcutOf(cmd); return k ? `${label} (${k})` : label; };
   // DroneGroupHeaderInSpace's buttons: dronesUtil.LoadShortcutTooltip - the command's name and shortcut (AddLabelShortcut)
   const CMD_WORDS: Record<string, readonly [string, string]> = {
     CmdDronesEngage: ["UI/Commands/CmdDronesEngage", "All Drones: Engage"],
     CmdDronesReturnAndOrbit: ["UI/Commands/CmdDronesReturnAndOrbit", "All Drones: Return and Orbit"],
     CmdDronesReturnToBay: ["UI/Commands/CmdDronesReturnToBay", "All Drones: Return to Drone Bay"],
   };
-  flow.requestWords(Object.values(CMD_WORDS).map((w) => w[0]));
+  flow.requestWords([...Object.values(CMD_WORDS).map((w) => w[0]), "UI/Drones/HintOnFavoriteIcon"]);
   /** A label-and-shortcut tooltip on a button (TooltipPanel.AddLabelShortcut), pointed from above. */
-  function shortcutTip(node: HTMLElement, tip: () => { label: string; cmd: string } | null) {
-    const enter = () => { const t = tip(); if (t) showLabelShortcutTooltip(node, t.label, t.cmd ? shortcutOf(t.cmd) : ""); };
+  function shortcutTip(node: HTMLElement, tip: () => { label: string; cmd: string; lines?: readonly string[] } | null) {
+    const enter = () => { const t = tip(); if (t) showLabelShortcutTooltip(node, t.label, t.cmd ? shortcutOf(t.cmd) : "", t.lines ?? []); };
     node.addEventListener("mouseenter", enter);
     node.addEventListener("mouseleave", hideLabelShortcutTooltip);
     return { destroy() { node.removeEventListener("mouseenter", enter); node.removeEventListener("mouseleave", hideLabelShortcutTooltip); hideLabelShortcutTooltip(); } };
@@ -921,7 +920,11 @@
           <span class="glyph" style:background-image={`url(${ICON.recall})`}></span>
         </button>
       {:else}
-        <button type="button" class="command" title={favoriteID === group.id ? keyHint(say(MENU_WORDS.launch), "CmdLaunchFavoriteDrones") : say(MENU_WORDS.launch)} disabled={busy}
+        <!-- DroneSubGroupInBay.LoadLaunchButtonTooltipPanel: the favourite group's LoadShortcutTooltip (Launch Drones, its
+             shortcut, the command's detailed description), another group's command name alone -->
+        <button type="button" class="command" use:shortcutTip={() => (favoriteID === group.id
+            ? { label: say(MENU_WORDS.launch), cmd: "CmdLaunchFavoriteDrones", lines: [headerWord("UI/Drones/HintOnFavoriteIcon", "Favorite Group: This group will be launched when using the \"Launch Drones\" shortcut.")] }
+            : { label: say(MENU_WORDS.launch), cmd: "" })} disabled={busy}
           onclick={(e) => { e.stopPropagation(); void run(() => flow.launchDrones(ids)); }}>
           <span class="glyph" style:background-image={`url(${ICON.launch})`}></span>
         </button>
