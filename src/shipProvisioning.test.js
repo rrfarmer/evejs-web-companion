@@ -9,12 +9,7 @@ const data = { getType: id => ({ 1: { categoryID: 6, groupID: 25 }, 2: { categor
 const clone = x => structuredClone(x);
 function fixture(t, corp = false) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wc-ship-"));
-  t.after(() => {
-    const resolved = fs.realpathSync(dir);
-    assert.equal(path.dirname(resolved), fs.realpathSync(os.tmpdir()));
-    assert.match(path.basename(resolved), /^wc-ship-/);
-    fs.rmSync(resolved, { recursive: true });
-  });
+  t.after(() => { assert.ok(path.resolve(dir).startsWith(path.resolve(os.tmpdir()) + path.sep)); fs.rmSync(dir, { recursive: true }); });
   const filePath = path.join(dir, "journal.json"), operations = new Map();
   const items = [{ typeID: 2, flagID: 19, quantity: 1 }, { typeID: 2, flagID: 27, quantity: 1 },
     { typeID: 4, flagID: 87, quantity: 2 }, { typeID: 3, flagID: 5, quantity: 5 }];
@@ -84,20 +79,29 @@ test("personal packaged stack consumes one, uniquely boards, fits, loads, verifi
   assert.equal((await f.apply(again)).result.alreadySatisfied, true); assert.equal(f.world.dispatched.length, count);
   f.restart(); assert.equal(f.engine().unresolved(11).length, 0);
 });
-test("completed runtime hull receipts survive a cold catalog while their saved fitting is still checked", async t => {
+test("completed runtime hull and module receipts survive a cold catalog while their saved fitting is still checked", async t => {
   const f = fixture(t), assembled = await f.review();
   assert.equal((await f.apply(assembled)).state, "COMPLETE");
   const exact = await f.review();
   assert.equal((await f.apply(exact)).result.alreadySatisfied, true);
-  const cold = { ...data, getType: id => id === 1 ? null : data.getType(id) };
+  const cold = { ...data, getType: id => [1, 2, 3, 4].includes(id) ? null : data.getType(id) };
   const saved = fs.readFileSync(f.filePath, "utf8"), count = f.world.dispatched.length;
   f.restart(cold);
   assert.equal(fs.readFileSync(f.filePath, "utf8"), saved);
   assert.equal(f.engine().unresolved(11).length, 0);
   for (const { reviewID } of [assembled, exact]) assert.equal(f.engine().journal.get(reviewID).state, "COMPLETE");
-  await assert.rejects(f.apply(assembled), { code: "COMPLETED_EQUIPMENT_CHANGED" });
+  await assert.rejects(f.apply(assembled), { code: "COMPLETED_METADATA_UNAVAILABLE" });
   assert.equal(f.world.dispatched.length, count);
 
+  f.restart();
+  const fitted = f.world.targetRows[f.world.context.shipID];
+  fitted.splice(fitted.findIndex(i => i.flagID === 19), 1);
+  await assert.rejects(f.apply(assembled), { code: "COMPLETED_EQUIPMENT_CHANGED" });
+
+  const changedSlot = JSON.parse(saved);
+  changedSlot.records[exact.reviewID].expected.observation.rows.find(r => r.flagID === 19).typeID = 98765;
+  fs.writeFileSync(f.filePath, JSON.stringify(changedSlot));
+  assert.throws(() => f.restart(cold), { code: "CUSTODY_JOURNAL_INVALID" });
   const wrongResult = JSON.parse(saved);
   wrongResult.records[assembled.reviewID].result.actualEquipmentFingerprint = "0".repeat(64);
   fs.writeFileSync(f.filePath, JSON.stringify(wrongResult));
