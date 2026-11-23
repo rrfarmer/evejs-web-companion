@@ -6,7 +6,7 @@ const { row: serviceRow } = require("./trainingOnboarding");
 const { hash, fail, inventoryRows, buildContract, matchFittings, isRigSlotFlag } = require("./provisioningContracts");
 const containerGroups = new Set([12, 340, 448, 649]); // EveJS itemStore's cargo-container groups.
 
-async function readProvisioningDefinitions({ store, gateway, data, accountID, providerCharacterID, supplyPolicy, ask = null }) {
+async function readProvisioningDefinitions({ store, gateway, data, accountID, providerCharacterID, supplyPolicy, ask = null, includeFitItems = false }) {
   const value = await readAccountCorpFittings({ store, gateway, data, accountID, characterID: providerCharacterID, ask });
   const contracts = [], invalid = [];
   for (const fit of value.fittings || []) {
@@ -15,7 +15,8 @@ async function readProvisioningDefinitions({ store, gateway, data, accountID, pr
         corporationID: value.corporationID }, data, supplyPolicy));
     } catch { invalid.push({ fittingID: fit.fittingID, reason: "INVALID_FIT" }); }
   }
-  return { status: value.status, corporationID: value.corporationID || null, providerCharacterID, contracts, invalid };
+  return { status: value.status, corporationID: value.corporationID || null, providerCharacterID, contracts, invalid,
+    ...(includeFitItems ? { fittings: value.fittings } : {}) };
 }
 
 // Keep browser additions (including credentials) out of the durable contract.
@@ -89,17 +90,25 @@ function registerProvisioningRoutes(d) {
         recoveryReady: !pendingRecovery(held),
         sessionGeneration: hash([held.bridgeSessionID, held.botClaimSecret || null]) };
     }
-    async function library(input, allowMatch = false) {
+    async function library(input, allowMatch = false, includeFitItems = false) {
       if (!Number.isSafeInteger(input.providerCharacterID) || !Number.isSafeInteger(input.corporationID)) fail("INVALID_DEFINITION_SOURCE");
       const result = await readProvisioningDefinitions({ store, gateway, data, accountID: Number(req.account.accountID),
         providerCharacterID: input.providerCharacterID, supplyPolicy: input.supplyPolicy,
-        ask: askAs(held, sessionID, input.providerCharacterID) });
+        ask: askAs(held, sessionID, input.providerCharacterID), includeFitItems });
       currentHeld(held, sessionID);
       if (result.status !== "READY" || result.corporationID !== input.corporationID) fail("FITTING_SOURCE_CHANGED");
       const contracts = result.contracts;
       const contract = contracts.find(c => c.definition.fittingID === input.fittingID);
       if (!contract && !(allowMatch && input.fittingID === 0)) fail("INVALID_FIT");
-      return { contract, contracts };
+      const mixedCargo = [];
+      if (includeFitItems) {
+        const fit = result.fittings.find(f => f.fittingID === input.fittingID);
+        for (const target of contract.supplies.filter(t => t.mode === "TOTAL_ABOARD")) {
+          const count = fit.items.filter(i => i.typeID === target.typeID && i.flagID === 5).reduce((n, i) => n + i.quantity, 0);
+          if (count) mixedCargo.push({ typeID: target.typeID, target: count, eligibleFlags: [5] });
+        }
+      }
+      return { contract, contracts, mixedCargo };
     }
     async function source(input, scope, recoveryPin = null) {
       const descriptor = input.source;
@@ -171,7 +180,7 @@ function registerProvisioningRoutes(d) {
       return { context: scope, ...definitions, contract, observation: observed, source: origin, target: { complete: observed.complete } };
     }
     async function readShip(input, targetHullID = null, sourcePin = null) {
-      const scope = await context(), definitions = await library(input);
+      const scope = await context(), definitions = await library(input, false, true);
       const observed = await observation(scope), origin = await source(input, scope, sourcePin);
       const place = await resolvePlace(held, sessionID, { kind: "hangar" });
       const hangar = await strictList(held, sessionID, place);
@@ -243,7 +252,7 @@ function registerProvisioningRoutes(d) {
       return mutationFence.withLease(lease, () => boundCall(held, sessionID, spec, "Add",
         [move.itemID, move.sourceLocationID], { flag: to.flag, qty: move.quantity }));
     }
-    return { context, read, readPreparation, readShip, plan, readMovement, dispatch,
+    return { context, read, readPreparation, readShip, readSkills: () => gateway.getSkills(held.accountID, held.characterID), plan, readMovement, dispatch,
       async dispatchShip(action, current, lease) {
         engine.assertWritable(held.characterID, lease);
         const revalidate = async () => {

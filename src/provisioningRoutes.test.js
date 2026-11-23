@@ -5,7 +5,7 @@ const { createReplenishment } = require("./replenishment");
 const { createPilotMutationFence } = require("./pilotMutationFence");
 const types = { 1: { categoryID: 6, groupID: 25 }, 2: { categoryID: 7 }, 3: { categoryID: 8, groupID: 83, volume: .01 },
   4: { categoryID: 2, groupID: 12 }, 5: { categoryID: 18, volume: 5 }, 6: { categoryID: 4, groupID: 1136 },
-  7: { categoryID: 7 } };
+  7: { categoryID: 7 }, 8: { categoryID: 32 } };
 const wireList = items => ({ type: "list", items });
 const wireObject = fields => ({ type: "object", args: { type: "dict", entries: Object.entries(fields) } });
 function fixture(hull = null) {
@@ -14,12 +14,13 @@ function fixture(hull = null) {
   const division = hull ? 7 : 1, divisionFlag = 114 + division;
   const data = {
     getType: id => id === hull?.typeID ? { categoryID: 6, groupID: hull.groupID, published: hull.published ?? true } : types[id],
+    getTypeDogmaAttribute: (id, attribute, fallback) => hull?.attributes?.[id]?.[attribute] ?? fallback,
     getTypeName: id => id === hull?.typeID ? hull.name : `Type ${id}`,
   };
   const state = { writes: [], date: "100", stock: 4000, aboard: 3200, take: true, query: true, incomplete: false,
     providerCalls: [], sourceReads: [], failAfter: false, duplicateFit: false, heldFittingCalls: [], heldFittingError: null,
     assembled: [], shipRows: [], shipActions: [], fitted: [] };
-  const fitItems = hull ? [[2, 27, 1], [7, 92, 1], [3, 27, 1], ...(hull.drones ? [[5, 87, hull.drones]] : [])]
+  const fitItems = hull ? [[2, 27, 1], [7, 92, 1], [3, 27, 1], ...(hull.subsystem ? [[8, 125, 1]] : []), ...(hull.spares ? [[3, 5, hull.spares]] : []), ...(hull.drones ? [[5, 87, hull.drones]] : [])]
     : [[2, 27, 1], [3, 5, 5000]];
   const library = owner => { const fit = id => [id, wireObject({ fittingID: id, ownerID: owner, shipTypeID: hull?.typeID ?? 1,
     name: "Exact", savedDate: { type: "long", value: state.date },
@@ -57,6 +58,7 @@ function fixture(hull = null) {
     throw new Error(`unexpected inventory ${key}`);
   }
   const gateway = mutationFence.wrap({
+    async getSkills() { return { skills: [] }; },
     selectFactoryCharacter() { throw new Error("Held provisioning must not select a Factory pilot."); },
     selectCharacter() { throw new Error("Held provisioning must not select or take over a pilot."); },
     releaseBridgeSession() { throw new Error("Held provisioning must keep the cockpit pilot selected."); },
@@ -85,6 +87,12 @@ function fixture(hull = null) {
         assert.equal(item.typeID, typeID);
         state.fitted.push({ flagID: Number(flag), typeID, fitRigs });
         state.shipRows.push(row(itemID, typeID, 1, shipID, Number(flag), 10, 1));
+        return { result: null };
+      }
+      if (hull && method === "Add" && kwargs.flag === 5) {
+        assert.equal(args[0], 100);
+        state.stock -= kwargs.qty;
+        state.shipRows.push(row(500, 3, kwargs.qty, held.activeShipID, 5));
         return { result: null };
       }
       if (hull && method === "Add" && [4, 87].includes(kwargs.flag)) {
@@ -172,8 +180,7 @@ function fixture(hull = null) {
 }
 
 for (const hull of [
-  { name: "Pioneer", typeID: 89240, drones: 2 },
-  { name: "Custom transport", typeID: 2100000923, groupID: 28, drones: 0 },
+  { name: "Pioneer", typeID: 89240, groupID: 420, drones: 2 },
   { name: "Omen", typeID: 2006, groupID: 26, drones: 2 },
   { name: "Covetor", typeID: 17476, groupID: 463, drones: 2 },
 ]) test(`${hull.name} reviews and applies from Division 7 with rigs and the selected drone bay load`, async () => {
@@ -455,4 +462,44 @@ test("the held pilot's session going while its fittings are read surfaces; a ref
   assert.equal((await f.invoke("options", {}, "GET")).definitionStatus, "CORP_UNAVAILABLE");
   await assert.rejects(f.invoke("review", input), { code: "FITTING_SOURCE_CHANGED" });
   assert.deepEqual(f.state.providerCalls, [], "and the gateway is not tried in its place");
+});
+
+test("a loaded charge and five spares require five confirmed charges in cargo", async () => {
+  const f = fixture({ name: "Omen", typeID: 2006, groupID: 26, spares: 5 });
+  const review = await f.invoke("ship-review", f.input);
+  assert.equal(review.canApply, true);
+  const result = await f.invoke("provision-ship", { reviewID: review.reviewID, reviewHash: review.reviewHash, confirm: true });
+  assert.equal(result.state, "COMPLETE");
+  assert.equal(f.state.shipRows.find(row => row.typeID === 3 && row.flagID === 5)?.quantity, 5);
+});
+
+for (const [name, attributes, groupID, reason] of [
+  ["rig size", { 2006: { 1547: 2 }, 7: { 1547: 1 } }, 26, /rig size/],
+  ["calibration", { 2006: { 1132: 100 }, 7: { 1153: 150 } }, 26, /calibration/],
+  ["skills", { 7: { 182: 42, 277: 3 } }, 26, /skill 42/],
+  ["capsule", {}, 29, /usable ship/], ["strategic cruiser", {}, 963, /usable ship/],
+]) test(`Review refuses ${name} before assembly`, async () => {
+  const f = fixture({ name, typeID: 2006, groupID, attributes });
+  const review = await f.invoke("ship-review", f.input);
+  assert.equal(review.canApply, false);
+  assert.match(review.plan.unsupported.join(" "), reason);
+  assert.deepEqual(f.state.shipActions, []);
+});
+
+test("a subsystem on an otherwise supported hull is refused before taking it", async () => {
+  const f = fixture({ name: "Probe hull", typeID: 2006, groupID: 26, subsystem: true });
+  const review = await f.invoke("ship-review", f.input);
+  assert.equal(review.canApply, false);
+  assert.match(review.plan.unsupported.join(" "), /slot\/type 125\/8/);
+  assert.deepEqual(f.state.shipActions, []);
+});
+
+test("mixed ammunition cannot complete with missing cargo stock", async () => {
+  const f = fixture({ name: "Omen", typeID: 2006, groupID: 26, spares: 5 });
+  f.state.stock = 4;
+  const review = await f.invoke("ship-review", f.input);
+  assert.equal(review.canApply, false);
+  assert.match(review.plan.shortages.join(" "), /cargo spares/);
+  await assert.rejects(f.invoke("provision-ship", { ...review, confirm: true }), { code: "REVIEW_REQUIRED" });
+  assert.deepEqual(f.state.shipActions, []);
 });
