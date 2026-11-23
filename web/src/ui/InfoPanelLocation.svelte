@@ -24,6 +24,7 @@
   import { clientTexture } from "../play/window.ts";
   import { showInfo } from "./showInfo.ts";
   import { hideLabelShortcutTooltip, showSecurityStatusTooltip } from "../play/labelShortcutTooltip.ts";
+  import { genericTooltipDelay } from "../play/radialSettings.ts";
   let { store, flow, compact, onToggle }: { store: ClientStore; flow: AppFlow; compact: boolean; onToggle: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -92,7 +93,7 @@
       const description = texts ? esc(texts[1]).replace("{1.0}", `<span style="color:${securityStatusColor(security)}">1.0</span>`).split("\n").join("<br>") : "";
       // UI/SecurityStatus/ShowOnMap with its map link (UI/SecurityStatus/LinkText) - drawn as a link, not yet a working one
       showSecurityStatusTooltip(el, texts ? texts[0] : "", description, `Show <span style="font-weight:700;color:#d98d00">security rules</span> on map.`);
-    }, 250);
+    }, genericTooltipDelay());
   }
   function secTipOff(): void {
     if (secTipTimer !== null) { clearTimeout(secTipTimer); secTipTimer = null; }

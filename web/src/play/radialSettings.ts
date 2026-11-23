@@ -38,6 +38,16 @@ export function setRadialDelay(v: number): void { writeNum(DELAY, v); }
  *  default: TOOLTIP_DELAY_MIN / MAX / BRACKET): what InSpaceBracket.GetTooltipDelay gives the overlapping brackets' list. */
 export const BRACKET_DELAY_MIN = 5, BRACKET_DELAY_MAX = 3005, BRACKET_DELAY_DEFAULT = 50;
 const BRACKET = "evejs.play.tooltipDelayBracket";
+/** The User Interface section's General Tooltips Delay (systemmenu GetTooltipSection: tooltipHandler TOOLTIP_SETTINGS_GENERIC
+ *  tooltipDelayGeneric, TOOLTIP_DELAY_MIN 5 to TOOLTIP_DELAY_MAX 3005, TOOLTIP_DELAY_GENERIC 250 by default): the wait before a
+ *  hint or a tooltip panel shows (_GetSleepTime; a fifth of it while one shows or just closed). */
+export const GENERIC_DELAY_DEFAULT = 250;
+const GENERIC = "evejs.play.tooltipDelayGeneric";
+export function genericTooltipDelay(): number {
+  const v = readNum(GENERIC);
+  return v === null || !Number.isFinite(v) ? GENERIC_DELAY_DEFAULT : Math.min(BRACKET_DELAY_MAX, Math.max(BRACKET_DELAY_MIN, Math.round(v)));
+}
+export function setGenericTooltipDelay(v: number): void { writeNum(GENERIC, v); }
 export function bracketListDelay(): number {
   const v = readNum(BRACKET);
   return v === null || !Number.isFinite(v) ? BRACKET_DELAY_DEFAULT : Math.min(BRACKET_DELAY_MAX, Math.max(BRACKET_DELAY_MIN, Math.round(v)));

@@ -2,6 +2,9 @@
 // bold beside its shortcut's ShortcutHint) and, below, any further lines (AddLabelMedium over both columns) - in the
 // FrameWithPointer background_04 frame at 0.75, 16 px in, as the HUD's command tooltips (newShipHud.ts).
 import { clientTexture } from "./window.ts";
+import { genericTooltipDelay } from "./radialSettings.ts";
+/** _GetSleepTime: the generic delay, or its renew time (a fifth) where a panel shows or one just closed. */
+const sleepTime = (renew: boolean) => { const init = genericTooltipDelay(); return renew ? Math.max(1, Math.trunc(init / 5)) : init; };
 
 let tip: HTMLDivElement | null = null;
 
@@ -205,7 +208,7 @@ let hintClosedAt = -Infinity;
 /** anchor: the owner, or how to find it when the delay is up (a list redrawn meanwhile has a new one). */
 export function scheduleGenericHint(anchor: HTMLElement | (() => HTMLElement | null), html: string): void {
   if (hintTimer !== null) clearTimeout(hintTimer);
-  const wait = hintShown || performance.now() - hintClosedAt < 500 ? 50 : 250;
+  const wait = sleepTime(hintShown || performance.now() - hintClosedAt < 500);
   hintTimer = setTimeout(() => {
     hintTimer = null;
     const owner = typeof anchor === "function" ? anchor() : anchor;
@@ -321,12 +324,12 @@ let panelClosedAt = -Infinity;
 export function tooltipDue(anchor: HTMLElement, show: () => void): void {
   if (dueTimer !== null) clearTimeout(dueTimer);
   const open = !!tip && tip.isConnected && tip.style.display !== "none";
-  const wait = open || performance.now() - panelClosedAt < 500 ? 50 : 250;
+  const wait = sleepTime(open || performance.now() - panelClosedAt < 500);
   dueTimer = setTimeout(() => { dueTimer = null; if (anchor.isConnected) show(); }, wait);
 }
 
 /** _GetSleepTime for a panel of its own: the renew time while one shows or just closed, else the generic delay. */
-export function panelDelay(open: boolean): number { return open || performance.now() - panelClosedAt < 500 ? 50 : 250; }
+export function panelDelay(open: boolean): number { return sleepTime(open || performance.now() - panelClosedAt < 500); }
 /** A panel of its own closed (for the next one's renew time). */
 export function notePanelClosed(): void { panelClosedAt = performance.now(); }
 /** PointerPanel.ShowPanel on a panel of its own: from nothing to full over 0.05 s. */

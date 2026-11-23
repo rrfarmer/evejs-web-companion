@@ -18,7 +18,7 @@
   import { playUiEvent } from "../play/uiAudio.ts";
   import { AUTO_TARGET_BACK_MAX, AUTO_TARGET_BACK_WORDS, autoTargetBack } from "./autoTargetBack.ts";
   import { RADIAL_BUTTON_OPTIONS, RADIAL_DELAY_MAX, RADIAL_DELAY_MIN, RADIAL_SETTING_WORDS, radialButton, radialDelay, setRadialButton, setRadialDelay,
-    BRACKET_DELAY_MAX, BRACKET_DELAY_MIN, bracketListCompact, bracketListDelay, setBracketListCompact, setBracketListDelay } from "../play/radialSettings.ts";
+    BRACKET_DELAY_MAX, BRACKET_DELAY_MIN, bracketListCompact, bracketListDelay, setBracketListCompact, setBracketListDelay, genericTooltipDelay, setGenericTooltipDelay } from "../play/radialSettings.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
@@ -115,6 +115,7 @@
   let radialBtn = $state(radialButton());
   let radialMs = $state(radialDelay());
   let bracketMs = $state(bracketListDelay());
+  let tooltipMs = $state(genericTooltipDelay());
   let compactDocked = $state(bracketListCompact(false));
   let compactFloating = $state(bracketListCompact(true));
   /** Disable Emergency Warp: a server setting (characterSettingsConsts DISABLE_EMERGENCY_WARP), read once the panel opens and saved
@@ -133,7 +134,8 @@
   let fullScreen = $state(typeof document !== "undefined" && document.fullscreenElement !== null);
   onMount(() => {
     flow.requestWords([...Object.values(WORDS), ...PANELS.map((p) => p[1]), ...SHORTCUT_PANELS.map((p) => p[1]), ...Object.values(Q),
-      ...COMBOS.map((c) => c.label), ...EFFECTS.map((e) => e.label), ...COLOR_THEMES.map((t) => t.id), ...VOLUMES.map((v) => v[1]), ...AUTO_TARGET_BACK_WORDS, ...RADIAL_SETTING_WORDS]);
+      ...COMBOS.map((c) => c.label), ...EFFECTS.map((e) => e.label), ...COLOR_THEMES.map((t) => t.id), ...VOLUMES.map((v) => v[1]), ...AUTO_TARGET_BACK_WORDS, ...RADIAL_SETTING_WORDS,
+      "UI/SystemMenu/GeneralSettings/TooltipsHeader", "UI/SystemMenu/GeneralSettings/Tooltips/GeneralTooltipsDelay", "UI/SystemMenu/GeneralSettings/Tooltips/NoTooltipsDelay", "UI/SystemMenu/GeneralSettings/Tooltips/LongTooltipsDelay"]);
     const off = onGfx((s) => { settings = { ...s }; });
     const onFull = () => { fullScreen = document.fullscreenElement !== null; };
     document.addEventListener("fullscreenchange", onFull);
@@ -282,7 +284,16 @@
         {:else if panel === "generic"}
           <!-- ConstructWindowAppearanceSection: the blur (disabled at low shader quality), the transparency slider of
                the blur's setting or the no-blur one -->
-          <h3 class="first">{word(WORDS.windowAppearance, "Window Appearance")}</h3>
+          <!-- GetTooltipSection: General Tooltips Delay (tooltipDelayGeneric 5 to 3005, None to Long) -->
+          <h3 class="first">{word("UI/SystemMenu/GeneralSettings/TooltipsHeader", "Tooltips")}</h3>
+          <div class="sm-slider">
+            <span>{word("UI/SystemMenu/GeneralSettings/Tooltips/GeneralTooltipsDelay", "General Tooltips Delay")}</span>
+            <small>{word("UI/SystemMenu/GeneralSettings/Tooltips/NoTooltipsDelay", "None")}</small>
+            <input type="range" min={BRACKET_DELAY_MIN} max={BRACKET_DELAY_MAX} step="1" value={tooltipMs}
+              oninput={(ev) => { tooltipMs = Number(ev.currentTarget.value); setGenericTooltipDelay(tooltipMs); }} />
+            <small>{word("UI/SystemMenu/GeneralSettings/Tooltips/LongTooltipsDelay", "Long")}</small>
+          </div>
+          <h3>{word(WORDS.windowAppearance, "Window Appearance")}</h3>
           <label class="sm-check" title={settings.shaderQuality <= 1 ? word(WORDS.blurDisabledHint, "") : ""}><input type="checkbox" disabled={settings.shaderQuality <= 1}
             checked={settings.windowBlur} onchange={(ev) => setGfx({ windowBlur: ev.currentTarget.checked })} /> {word(WORDS.windowBlur, "Enable Window Blur")}</label>
           {@const key = settings.windowBlur ? "windowTransparency" : "windowTransparencyNoBlur"}

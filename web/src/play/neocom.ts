@@ -5,6 +5,7 @@
 import { clientTexture } from "./window.ts";
 import { shortcutOf } from "./shortcutKeys.ts";
 import { hideLabelShortcutTooltip, showLabelShortcutTooltip } from "./labelShortcutTooltip.ts";
+import { genericTooltipDelay } from "./radialSettings.ts";
 
 /**
  * BaseNeocomButton.LoadTooltipPanel: a button with a command (btnData.cmdName) AddCommandTooltip - the command's name
@@ -37,7 +38,7 @@ function neocomTipOn(el: HTMLElement, id: string): void {
     if (!el.isConnected) return;
     if (t.cmd) showLabelShortcutTooltip(el, t.name, shortcutOf(t.cmd), t.description ? [t.description] : [], "left");
     else showLabelShortcutTooltip(el, "", "", [t.name], "left", true);
-  }, 250);
+  }, genericTooltipDelay());
 }
 function neocomTipOff(): void {
   if (neocomTipTimer !== null) { clearTimeout(neocomTipTimer); neocomTipTimer = null; }
