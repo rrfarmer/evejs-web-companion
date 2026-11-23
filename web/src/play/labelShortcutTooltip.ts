@@ -171,7 +171,8 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
   if (shortcut) {
     const r = document.createRange();
     r.selectNodeContents(hint);
-    const w = Math.ceil(r.getBoundingClientRect().width) + 8;
+    // the label's whole width to the nearest pixel: 18 of the 20 client hint boxes read (g231-g243), against 16 rounding up
+    const w = Math.round(r.getBoundingClientRect().width) + 8;
     hint.style.width = `${w - (w % 16) + 16}px`;
   }
   // PointerPanel.ShowPanel: from nothing to full over 0.05 s (ANIM_SMOOTH)

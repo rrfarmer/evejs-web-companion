@@ -1511,7 +1511,8 @@ export class NewShipHud {
     if (shortcut) {
       const range = document.createRange();
       range.selectNodeContents(hint);
-      const w = Math.ceil(range.getBoundingClientRect().width) + 8;
+      // the label's whole width to the nearest pixel: 18 of the 20 client hint boxes read (g231-g243), against 16 rounding up
+      const w = Math.round(range.getBoundingClientRect().width) + 8;
       hint.style.width = `${w - (w % 16) + 16}px`;
     }
     const at = anchor.getBoundingClientRect();
