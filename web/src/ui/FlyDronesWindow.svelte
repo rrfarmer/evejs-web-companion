@@ -127,7 +127,7 @@
   flow.requestWords([...Object.values(CMD_WORDS).map((w) => w[0]), "UI/Drones/HintOnFavoriteIcon"]);
   /** A label-and-shortcut tooltip on a button (TooltipPanel.AddLabelShortcut), pointed from above. */
   function shortcutTip(node: HTMLElement, tip: () => { label: string; cmd: string; lines?: readonly string[] } | null) {
-    const enter = () => tooltipDue(node, () => { const t = tip(); if (t) showLabelShortcutTooltip(node, t.label, t.cmd ? shortcutOf(t.cmd) : "", t.lines ?? []); });
+    const enter = () => tooltipDue(node, () => { const t = tip(); if (t) showLabelShortcutTooltip(node, t.label, t.cmd ? shortcutOf(t.cmd) : "", t.lines ?? [], "top", "wrap"); });
     node.addEventListener("mouseenter", enter);
     node.addEventListener("mouseleave", hideLabelShortcutTooltip);
     return { destroy() { node.removeEventListener("mouseenter", enter); node.removeEventListener("mouseleave", hideLabelShortcutTooltip); hideLabelShortcutTooltip(); } };

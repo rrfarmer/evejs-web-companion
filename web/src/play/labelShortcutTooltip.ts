@@ -114,7 +114,7 @@ function drawPointer(panel: HTMLElement, [fx, fy]: PointFlag): void {
  * lines: a command's detailed description by default (AddCommandTooltip: AddLabelMedium wrapWidth 200, TextColor.SECONDARY);
  * plain: AddLabelMedium as it is (no wrap, the normal colour) - a Selected Item button's disabled hint.
  */
-export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, shortcut: string, lines: readonly string[] = [], pointer: "top" | "left" = "top", plain = false): void {
+export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, shortcut: string, lines: readonly string[] = [], pointer: "top" | "left" = "top", plain: boolean | "wrap" = false): void {
   if (!tip) {
     tip = document.createElement("div");
     tip.className = "label-shortcut-tooltip";
@@ -149,8 +149,10 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
   for (const line of lines) {
     const d = document.createElement("div");
     d.textContent = line;
-    if (!plain) wrapped.push(d);
-    Object.assign(d.style, plain ? { gridColumn: "1 / 3", whiteSpace: "nowrap" } : { gridColumn: "1 / 3", whiteSpace: "normal", maxWidth: "200px", color: "rgba(255,255,255,0.5)" });
+    if (plain !== true) wrapped.push(d);
+    // plain: AddLabelMedium as it is; "wrap": AddLabelMedium(wrapWidth=200) in the normal colour (dronesUtil.LoadShortcutTooltip);
+    // otherwise AddCommandTooltip's detailed description, wrapWidth 200 in the secondary colour
+    Object.assign(d.style, plain === true ? { gridColumn: "1 / 3", whiteSpace: "nowrap" } : { gridColumn: "1 / 3", whiteSpace: "normal", maxWidth: "200px", color: plain === "wrap" ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.5)" });
     grid.append(d);
   }
   // a closing one stopped first: its fold scales the panel, and the widths below are measured on the page
