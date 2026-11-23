@@ -1173,7 +1173,7 @@
   <div class="drone-tip" bind:this={tipEl}>
     <div class="tip-frame"></div>
     <div class="tip-grid">
-      <span class="tip-icon"><TypeIcon typeID={tip.typeID} name={tip.name} size="sm" /></span>
+      <span class="tip-icon tip-type"><TypeIcon typeID={tip.typeID} name={tip.name} size="sm" /></span>
       <span class="tip-text"><b>{tip.name}</b>{#if tip.state}<br><span style:color={tip.color}>{tip.state}</span>{#if tipTarget}&nbsp;{tipTarget}{/if}{/if}</span>
       {#each tipRows as row, i (i)}
         <span class="tip-icon" class:tip-header={row.header}>{#if row.icon}<img src={row.icon} alt="" />{/if}</span>
@@ -1213,13 +1213,17 @@
   /* FadeTo(warning_icon, 0.5 -> 1.5, 0.7 s, loops -1, ANIM_WAVE): a smoothstep up to 1.5 at 0.35 s and down again,
      the opacity held at 1 above it (from 0.175 s to 0.525 s); the halves of the smoothstep as their own beziers */
   @keyframes ww-pulse { 0% { opacity: 0.5; animation-timing-function: cubic-bezier(0.3333, 0, 0.6667, 0.5); } 25% { opacity: 1; animation-timing-function: linear; } 75% { opacity: 1; animation-timing-function: cubic-bezier(0.3333, 0.5, 0.6667, 1); } 100% { opacity: 0.5; } }
-  .drone-tip { position: fixed; z-index: 100000; pointer-events: none; padding: 8px; font: 14px var(--font); color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
+  /* ModuleButtonTooltip: margin 16 (the live client, gridcheck g238: Mining Drone I 252 x 202, the type icon 26 at 18,20,
+     the name at 50,24, then rows 34 apart with their 24 px icons at 19 and labels at 50) */
+  .drone-tip { position: fixed; z-index: 100000; pointer-events: none; padding: 16px; font: 14px var(--font); color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
   .tip-frame { position: absolute; inset: 0; opacity: 0.75; border-style: solid; border-width: 0; border-image-source: url(/client-res/ui/texture/classes/framewithpointer/background_04.png); border-image-slice: 19 fill; border-image-width: 19px; border-image-outset: 15px; }
   .tip-grid { position: relative; display: grid; grid-template-columns: 30px auto; align-items: center; }
   .tip-icon { width: 30px; min-height: 30px; display: grid; place-items: center; }
   .tip-icon img { width: 24px; height: 24px; }
   .tip-text { padding: 8px 4px; line-height: 18px; }
-  .tip-text b { color: rgba(255, 255, 255, 0.95); }
+  .tip-text b { color: rgba(255, 255, 255, 0.75); }
+  /* AddTypeAndIcon: iconSize 26 */
+  .tip-type :global(.type-icon) { width: 26px; height: 26px; }
   .tip-icon.tip-header { min-height: 24px; }
   .tip-text.tip-header { padding: 4px 4px 0; align-self: end; }
   .tip-values { display: flex; padding: 4px 0; margin-left: -4px; }
