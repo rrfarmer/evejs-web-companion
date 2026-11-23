@@ -1277,6 +1277,10 @@ import { fmtAmt } from "../bridge/pyNumbers.ts";
 import { disableAutopilotAtEachWaypoint } from "./autopilotStopAtEachWaypoint.ts";
 import { routeData, routeJumps, routeMarkers, type RouteMarker } from "../nav/routeMarkers.ts";
 import { optimizedWaypoints, routeToOptimize, UNREACHABLE_JUMP_COUNT } from "../nav/optimizeRoute.ts";
+import { playUiEvent } from "../play/uiAudio.ts";
+
+/** The messages the page says that are of type audio on the client (cfg.GetMessage, read through gridcheck): their sound. */
+const AUDIO_MESSAGES: Readonly<Record<string, string>> = { Disabled: "msg_Disabled_play", uiwarning03: "msg_uiwarning03_play", ComboExpand: "msg_ComboExpand_play" };
 
 /** A place the route panel's search found: the kind the search names it by, its number, its name and its system. */
 export interface LocationFound {
@@ -13119,6 +13123,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   /** A dialog put up by its name, with the values for it and the page's own words for it (dialogsSaid). */
   function sayDialog(dialog: string, values: JsonValue | null, fallback: string, fallbackType?: RemoteDialogFallbackType): void {
+    // A message of type audio (cfg.GetMessage on the live client: no title or text) is only its sound (AudioMessage)
+    const audio = AUDIO_MESSAGES[dialog];
+    if (audio !== undefined) { void playUiEvent(audio); return; }
     // An answer kept for it (_handle_player_fsd_dialog, 59 to 64): not put up.
     if (dialogAnswerKept(dialog) !== null) return;
     dialogsSaidCount += 1;
