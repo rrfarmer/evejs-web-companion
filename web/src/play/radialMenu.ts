@@ -92,6 +92,14 @@ function metres(m: number): string {
 export class RadialMenu {
   readonly root = document.createElement("div");
   private readonly label = document.createElement("div");
+  /**
+   * AddOptionText: the hovered option's name (EveLabelLarge, bold, CENTER top -10) and its range (EveLabelLarge, top 6)
+   * in the middle, over labelShadow - a ThreePartContainer (textShadowLeft / Center / Right, sides 24, black 0.5) the
+   * text's width plus the sides, the name's height + 4 at top -10, or both lines' + 4 centred with a range
+   */
+  private readonly optionBox = document.createElement("div");
+  private readonly optionName = document.createElement("div");
+  private readonly optionRange = document.createElement("div");
   private slots: { option: RadialOption | null; degree: number; el: HTMLDivElement }[] = [];
   private hovered: number | null = null;
   private cx = 0;
@@ -147,6 +155,10 @@ export class RadialMenu {
     this.label.className = "radial-label";
     this.root.innerHTML = `<div class="radial-shadow" style="--tex:url(${TEX("menuShadow2.png")})"></div>`;
     this.root.appendChild(this.label);
+    this.optionBox.className = "radial-option-shadow";
+    this.optionName.className = "radial-option-name";
+    this.optionRange.className = "radial-option-range";
+    this.root.append(this.optionBox, this.optionName, this.optionRange);
     this.rangeCanvas.className = "radial-range";
     this.rangeCanvas.style.display = "none";
     this.root.appendChild(this.rangeCanvas);
@@ -177,6 +189,7 @@ export class RadialMenu {
     this.drawRange(null, 0);
     this.lay(options.slice(0, 8), 0, false);
     this.say(title);
+    this.sayOption(null, null);
   }
 
   close(): void {
@@ -209,7 +222,20 @@ export class RadialMenu {
     }
   }
 
+  /** The displayLabel: the object's name at the top (AddDisplayLabel). */
   private say(text: string): void { this.label.textContent = text; }
+
+  /** SetOptionText / SetOptionRangeText / ClearOptionText and AdjustTextShadow. */
+  private sayOption(name: string | null, range: string | null): void {
+    this.optionName.textContent = name ?? "";
+    this.optionRange.textContent = range ?? "";
+    this.optionName.hidden = this.optionBox.hidden = !name;
+    this.optionRange.hidden = !name || !range;
+    if (!name) return;
+    const width = Math.max(this.optionName.offsetWidth, range ? this.optionRange.offsetWidth : 0);
+    const height = range ? 21 + 21 + 4 : 21 + 4;
+    Object.assign(this.optionBox.style, { width: `${width + 48}px`, height: `${height}px`, top: `${SIZE / 2 + (range ? 0 : -10) - height / 2}px` });
+  }
 
   /** The slice the pointer's angle falls in (FindMyButton), and how far out it is. */
   private aim(x: number, y: number): { index: number | null; length: number } {
@@ -238,7 +264,7 @@ export class RadialMenu {
     this.range = option && !option.disabled ? rangeAt(option, length) : undefined;
     // RadialMenu.MoveMouseRangeAction -> SetRangeCircle(buttonCont.degree, percOfAllRange)
     this.drawRange(option && !option.disabled ? rangeShareAt(option, length) : null, index === null ? 0 : this.slots[index]!.degree);
-    this.say(option ? (this.range !== undefined ? `${option.label} ${metres(this.range)}` : option.label) : this.root.dataset.title ?? "");
+    this.sayOption(option ? option.label : null, option && this.range !== undefined ? metres(this.range) : null);
     // The second ring opens as the pointer comes onto "more" (the client loads it on mouse-over).
     if (option?.more && !option.disabled && !this.second) {
       this.second = true;
@@ -276,9 +302,17 @@ export const RADIAL_CSS = `
 .radial-icon { position: absolute; left: 34px; top: 22px; width: 32px; height: 32px; }
 .radial-slot.disabled .radial-icon { opacity: 0.4; }
 .radial-range { position: absolute; left: ${(SIZE - 128) / 2}px; top: ${(SIZE - 128) / 2}px; width: 128px; height: 128px; z-index: 2; pointer-events: none; }
-.radial-label { position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); white-space: nowrap;
-  padding: 4px 14px; font: 600 12px/1.2 "Segoe UI", system-ui, sans-serif; color: #e8edf2; letter-spacing: 0.02em;
-  background: radial-gradient(ellipse at center, rgba(0,0,0,0.75) 40%, rgba(0,0,0,0) 75%); text-shadow: 0 1px 2px #000; pointer-events: none; }
+/* AddDisplayLabel: EveLabelLarge (16, 21 high) CENTERTOP at -18 over a ThreePartContainer (textShadow*, sides 24, black 0.5) its
+   width plus the sides, its height + 2 */
+.radial-label, .radial-option-shadow { --shadow-mask: url(${TEX("textShadowLeft.png")}) left / 24px 100% no-repeat, url(${TEX("textShadowCenter.png")}) center / calc(100% - 48px) 100% no-repeat, url(${TEX("textShadowRight.png")}) right / 24px 100% no-repeat; }
+.radial-label { position: absolute; left: 50%; top: -18px; transform: translateX(-50%); white-space: nowrap; padding: 0 24px; height: 23px; box-sizing: border-box;
+  font: 16px/21px "EVE Sans Neue", "Segoe UI", system-ui, sans-serif; color: #fff; pointer-events: none; isolation: isolate; }
+.radial-label::before { content: ""; position: absolute; inset: 0; z-index: -1; background: rgba(0,0,0,0.5); -webkit-mask: var(--shadow-mask); mask: var(--shadow-mask); }
+.radial-option-shadow { position: absolute; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.5); -webkit-mask: var(--shadow-mask); mask: var(--shadow-mask); pointer-events: none; z-index: 3; }
+.radial-option-name, .radial-option-range { position: absolute; left: 50%; transform: translateX(-50%); white-space: nowrap; font: 16px/21px "EVE Sans Neue", "Segoe UI", system-ui, sans-serif; color: #fff; pointer-events: none; z-index: 4; }
+.radial-option-name { top: ${SIZE / 2 - 10 - 10.5}px; font-weight: 700; }
+.radial-option-range { top: ${SIZE / 2 + 6 - 10.5}px; }
+.radial-option-shadow[hidden], .radial-option-name[hidden], .radial-option-range[hidden] { display: none; }
 `;
 
 /**
