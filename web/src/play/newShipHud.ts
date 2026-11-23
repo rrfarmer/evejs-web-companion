@@ -514,8 +514,64 @@ export class NewShipHud {
       color: "rgba(255,255,255,0.5)", textShadow: "1px 1px 0 rgba(0,0,0,0.6)", whiteSpace: "nowrap",
     });
     pill.append(this.speedLabel);
-    pill.addEventListener("mouseenter", () => { pill.style.background = css(FOCUS_BLUE, 0.5); this.speedLabel.style.color = "#fff"; });
-    pill.addEventListener("mouseleave", () => { pill.style.background = css(SMOKE_BLUE, 0.2); this.speedLabel.style.color = "rgba(255,255,255,0.5)"; });
+    // _SpeedReadout: hover COLOR_READOUT_BG_HOVER / TEXT_HOVER, pressed BG_PRESSED (FOCUS_BLUE 0.6) - not while editing
+    let editing = false;
+    pill.addEventListener("mouseenter", () => { if (editing) return; pill.style.background = css(FOCUS_BLUE, 0.5); this.speedLabel.style.color = "#fff"; });
+    pill.addEventListener("mouseleave", () => { if (editing) return; pill.style.background = css(SMOKE_BLUE, 0.2); this.speedLabel.style.color = "rgba(255,255,255,0.5)"; });
+    pill.addEventListener("mousedown", () => { if (!editing) pill.style.background = css(FOCUS_BLUE, 0.6); });
+    // OnClick -> BeginEdit: not in warp, a known top speed; the label hidden and _SpeedEdit (SingleLineEditFloat, 0..max)
+    // seeded with the speed - READOUT_DECIMAL_PLACES 1 below SPEED_WHOLE_NUMBER_FROM 100 m/s, whole above - focused and
+    // all selected; Return sets the speed (SetSpeed(value / max), clamped), Escape or losing focus ends it unchanged;
+    // the arrow keys step READOUT_STEP_FRACTION 0.05 of the top speed (ChangeNumericValue)
+    const edit = document.createElement("input");
+    edit.type = "text";
+    Object.assign(edit.style, { display: "none", position: "absolute", inset: "0", width: "100%", boxSizing: "border-box", padding: "1px 4px 0",
+      border: "0", outline: "none", background: "transparent", color: "#fff", textAlign: "right", font: "bold 11px 'EVE Sans Neue', 'Segoe UI', sans-serif" });
+    let places = 1;
+    const endEdit = () => {
+      if (!editing) return;
+      editing = false;
+      edit.style.display = "none";
+      this.speedLabel.style.display = "";
+      pill.style.background = css(SMOKE_BLUE, 0.2);
+      this.speedLabel.style.color = "rgba(255,255,255,0.5)";
+    };
+    pill.addEventListener("click", () => {
+      const st = this.state;
+      if (editing || !st || st.warping) return;
+      const max = st.maxSpeed ?? 0;
+      if (!(max > 0)) return;
+      editing = true;
+      pill.style.background = css(FOCUS_BLUE, 0.6);
+      this.speedLabel.style.display = "none";
+      const seed = Math.min(st.speed, max);
+      places = seed < 100 ? 1 : 0;
+      edit.value = places ? (Math.round(seed * 10) / 10).toFixed(1) : String(Math.trunc(seed));
+      edit.style.display = "";
+      edit.focus();
+      edit.select();
+    });
+    edit.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      const max = this.state?.maxSpeed ?? 0;
+      if (e.key === "Escape") { endEdit(); return; }
+      if (e.key === "Enter") {
+        const value = parseFloat(edit.value);
+        endEdit();
+        if (Number.isFinite(value) && max > 0) this.onSetSpeed(Math.max(0, Math.min(1, value / max)));
+        return;
+      }
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        e.preventDefault();
+        const step = Number(((e.key === "ArrowUp" ? 1 : -1) * 0.05 * max).toFixed(places));
+        const next = Math.max(0, Math.min(max, (parseFloat(edit.value) || 0) + step));
+        edit.value = next.toFixed(places);
+      }
+    });
+    edit.addEventListener("keyup", (e) => e.stopPropagation());
+    edit.addEventListener("blur", endEdit);
+    edit.addEventListener("click", (e) => e.stopPropagation());
+    pill.append(edit);
     // CommandButton.LoadTooltipPanel (the speed readout): Current Speed and the speed, kept current while shown
     pill.addEventListener("mouseenter", () => { this.liveTip = () => this.showSpeedTooltip(pill); this.liveTip(); });
     pill.addEventListener("mouseleave", () => { this.liveTip = null; this.closeTooltip(); });
