@@ -79,6 +79,9 @@
   /** BaseDroneGroupHeader.UpdateIcon: eveicon.caret_down when expanded, caret_right when not. */
   const CARET = { open: clientTexture("res:/ui/texture/eveicon/system_icons/caret_down_16px.png"), closed: clientTexture("res:/ui/texture/eveicon/system_icons/caret_right_16px.png") };
   const ICON = {
+    // ListGroup.ShowOpenState: the expander's icon, 38_16_229 open, 38_16_228 closed
+    expanderOpen: clientTexture("res:/UI/Texture/Icons/38_16_229.png"),
+    expanderClosed: clientTexture("res:/UI/Texture/Icons/38_16_228.png"),
     launch: clientTexture("res:/ui/texture/eveicon/control_icons/launch_drones_16px.png"),
     engage: clientTexture("res:/ui/texture/eveicon/control_icons/engage_target_16px.png"),
     recall: clientTexture("res:/ui/texture/eveicon/control_icons/recall_drones_16px.png"),
@@ -1018,7 +1021,7 @@
   <div class="row grouphead" class:drop={dropOn === key} role="button" tabindex="-1" onclick={() => toggleGroup(key)} onkeydown={() => {}} onmouseenter={hoverSound}
     ondragover={groupDragOver(key, inSpace, ids)} ondragleave={() => (dropOn = null)} ondrop={(e) => drop(inSpace ? "space" : "bay", group.label, e)}
     oncontextmenu={(e) => openMenu(e, groupMenu(key, group, ids, inSpace))}>
-    <span class="expander" class:open={openGroups.has(key)}></span>
+    <span class="expander" style:background-image={`url(${openGroups.has(key) ? ICON.expanderOpen : ICON.expanderClosed})`}></span>
     {#if favoriteID === group.id}<span class="star" style:background-image={`url(${ICON.star})`}></span>{/if}
     <span class="name">{groupWithCount(group.label, count)}</span>
     <span class="row-buttons">
@@ -1283,10 +1286,13 @@
   .settings-host { position: relative; display: inline-flex; }
   /* sublevel 1: 8 further in (GetLabelLeft 4 + 8 * sublevel) */
   .row.sub { padding-left: 12px; }
-  .row.grouphead { min-height: 24px; gap: 4px; cursor: default; }
+  .row.grouphead { min-height: 24px; gap: 0; cursor: default; }
+  .row.grouphead .star { margin-left: 2px; }
+  .row.grouphead .name { margin-left: 4px; }
   .row.grouphead .name { color: #fff; }
-  .expander { width: 0; height: 0; border-left: 4px solid rgba(255, 255, 255, 0.6); border-top: 4px solid transparent; border-bottom: 4px solid transparent; margin: 0 4px; transition: transform .1s; }
-  .expander.open { transform: rotate(90deg); }
+  /* ListGroup: the expander a 16 x 16 GlowSprite 4 px into the row; the favourite's star 2 px after it, the label 4 px after the star
+     (measured on the live client, gridcheck: a DroneSubGroupInBay row - expander 22, star 40, label 60 from the window) */
+  .expander { width: 16px; height: 16px; flex: none; background: center / 16px 16px no-repeat; }
   .star { width: 16px; height: 16px; background: center / 16px 16px no-repeat; flex: none; }
   /* ButtonSeperatorLine between Return and Orbit and Return to Drone Bay */
   .sep { width: 1px; height: 14px; margin: 0 3px; align-self: center; background: rgba(255, 255, 255, 0.15); }
