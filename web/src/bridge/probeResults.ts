@@ -576,6 +576,10 @@ export interface ResultRow {
   readonly prevCertainty: number;
   /** A perfect result, which the client's row offers a warp to in place of its percentage. */
   readonly isPerfect: boolean;
+  /** For ScanResultNew.GetCopyData: GetScanGroupName, GetTypeName and UI/Common/Percentage of certainty * 100 (uncut). */
+  readonly scanGroupName: string;
+  readonly typeName: string;
+  readonly copyPercent: string;
   /**
    * The row's icon (mapMarkerUtil.GetResultTexturePath): the scan group's bracket (ICONS_BY_SCANGROUP) where the result
    * has one, else the result-location mark; res: path below res:/, lower-cased as the page serves the install.
@@ -642,7 +646,11 @@ export function resultRows(results: readonly ShownResult[], myPosition: Vec3 | n
     const distance = myPosition === null || result.pos === null ? null : Math.hypot(result.pos[0] - myPosition[0], result.pos[1] - myPosition[1], result.pos[2] - myPosition[2]);
     // ScanResultNew.Load: the certainty to a tenth of a per cent, cut down.
     const percentage = Math.floor(result.certainty * 1000) / 10;
+    const scanGroupLabel = result.scanGroupID === null ? undefined : SCAN_GROUP_LABELS[result.scanGroupID];
     return {
+      scanGroupName: (scanGroupLabel ? wording.words(scanGroupLabel) : null) ?? "",
+      typeName: typeNameOf(result, wording),
+      copyPercent: wording.words(PROBE_RESULT_LABELS.percentage, { percentage: result.certainty * 100 }) ?? `${result.certainty * 100}%`,
       id: result.id,
       distance,
       name,

@@ -36,6 +36,7 @@
   import { nameKey, type NameKind } from "../store/names.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
+  import { noticeBoard } from "./notices.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
@@ -64,7 +65,7 @@
 
   $effect(() => {
     flow.requestWords([
-      ...PROBE_RESULT_WORD_LABELS,
+      ...PROBE_RESULT_WORD_LABELS, "UI/Common/EntriesCopied",
       ...STANDARD_RESULT_FILTERS.map((each) => each.label),
       ...["DeleteFilter", "TooManyFilters"].flatMap((dialog) => [`dialog:${dialog}/title`, `dialog:${dialog}/body`, suppressableKey(dialog)]),
       DO_NOT_ASK_AGAIN_LABEL,
@@ -153,6 +154,19 @@
   const ignoredRows = $derived(held === null ? [] : resultRows(held.ignored, myPosition, wording));
 
   let menuFor = $state<string | null>(null);
+  // Scroll.Copy (Ctrl+C on the list): the selected results' ScanResultNew.GetCopyData - id, scan group, group, type,
+  // the certainty as UI/Common/Percentage, the distance (FmtDist) - every result where none is selected, one a line,
+  // tab-separated; then UI/Common/EntriesCopied
+  async function copyResults(): Promise<void> {
+    const chosen = rows.filter((row) => $selectedSites.has(row.id));
+    const list = chosen.length ? chosen : rows;
+    if (!list.length) return;
+    const text = list.map((row) => [row.id, row.scanGroupName, row.group, row.typeName, row.copyPercent, row.distance === null ? "" : fmtDist(row.distance)].join("\t")).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      noticeBoard.post({ kind: "info", title: word("UI/Common/EntriesCopied", { numEntries: list.length }) ?? `Copied ${list.length} entries to clipboard` });
+    } catch { /* the clipboard refused */ }
+  }
   let ignoredOpen = $state(false);
 
   // An accurate result's warp (scanSvc.GetScannedDownMenu): offered where it is farther off than a warp's least
@@ -311,8 +325,10 @@
         <tbody>
           {#each rows as row (row.id)}
             <tr class:ps-row={retail} class:ps-selected={retail && $selectedSites.has(row.id)}
-              onclick={retail ? (event) => { if ((event.target as HTMLElement).closest("button")) return; selectSite(row.id, event.shiftKey || event.ctrlKey); } : undefined}
+              onclick={retail ? (event) => { if ((event.target as HTMLElement).closest("button")) return; selectSite(row.id, event.shiftKey || event.ctrlKey); (event.currentTarget as HTMLElement).focus({ preventScroll: true }); } : undefined}
               style={retail ? `--cert: ${resultColor(row.certainty)}; --base: ${Math.min(row.certainty, row.prevCertainty) * 100}%; --change: ${Math.abs(row.certainty - row.prevCertainty) * 100}%` : undefined}
+              tabindex={retail ? -1 : undefined}
+              onkeydown={retail ? (event) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") { event.preventDefault(); event.stopPropagation(); void copyResults(); } } : undefined}
               oncontextmenu={retail ? (event) => { event.preventDefault(); if (!$selectedSites.has(row.id)) selectSite(row.id, false); menuFor = menuFor === row.id ? null : row.id; } : undefined}>
               {#if retail}<td class="ps-ic"><span class="ps-result-icon" style={`--icon: url(/client-res/${row.icon})`}></span></td>{/if}
               <td class="num">{row.distance === null ? "" : fmtDist(row.distance)}</td>
