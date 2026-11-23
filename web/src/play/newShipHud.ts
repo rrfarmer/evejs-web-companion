@@ -304,6 +304,8 @@ export interface NewShipHudState extends ShipHudState {
   hullMax?: number | null;
   /** The ship's wanted speed fraction (activeShipController.GetDesiredSpeedPortion), when it is known. */
   desiredRatio?: number | null;
+  /** The active ship's itemID (HudLayer.OnShipChanged). */
+  shipID?: number | null;
 }
 
 export class NewShipHud {
@@ -403,6 +405,7 @@ export class NewShipHud {
   private overloadMode = false;
   private overloadHover = false;
   private shiftHeld = false;
+  private lastShipID: number | null = null;
   /** HudLayer.IsOverloadAllowed: the pilot has Thermodynamics (null: the skills not read yet - taken as allowed). */
   overloadAllowed: () => boolean | null = () => null;
   private readonly overloadGlyph = document.createElement("span");
@@ -1618,6 +1621,12 @@ export class NewShipHud {
   }
 
   update(s: NewShipHudState): void {
+    // HudLayer.OnShipChanged: _EndButtonOverload - a button-started overload ends with the ship (Shift held keeps it)
+    if (s.shipID != null && this.lastShipID != null && s.shipID !== this.lastShipID && !this.shiftHeld && this.overloadMode) {
+      this.overloadMode = false;
+      this.syncRackButtons();
+    }
+    if (s.shipID != null) this.lastShipID = s.shipID;
     this.state = { ...s, capacitorRatio: this.capacitorNow(s.capacitorRatio ?? null) };
     this.liveTip?.();
     // the command buttons' hints (CommandButton.GetHint): Stop The Ship; Set Full Speed with the ship's top speed

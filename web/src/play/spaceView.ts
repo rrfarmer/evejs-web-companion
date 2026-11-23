@@ -5691,6 +5691,7 @@ export class SpaceView {
         // the ring segments by each pool's max HP (shieldCapacity 263, armorHP 265, hp 9), the wanted speed fraction
         shieldMax: this.actions.shipAttribute?.(263) ?? null, armorMax: this.actions.shipAttribute?.(265) ?? null, hullMax: this.actions.shipAttribute?.(9) ?? null,
         desiredRatio: ego.speedFraction ?? null,
+        shipID: ego.itemID,
         // the racks' heat (the ship's heatLow / heatMed / heatHi over their capacities, as the BFF's dogma reckons
         // them: the app's space snapshot, not this view's park)
         ...(() => { const h = this.options.rack?.heat?.(); return { heatLow: h?.low, heatMed: h?.mid, heatHi: h?.high }; })(),
