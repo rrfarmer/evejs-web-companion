@@ -167,7 +167,13 @@ export class RadialMenu {
     this.rangeCanvas.className = "radial-range";
     this.rangeCanvas.style.display = "none";
     this.root.appendChild(this.rangeCanvas);
-    addEventListener("pointermove", (e) => this.move(e.clientX, e.clientY));
+    // _OnGlobalMove: a move within 25 ms (250,000 x 100 ns) of the last one taken is dropped, nothing made of it later
+    addEventListener("pointermove", (e) => {
+      const now = performance.now();
+      if (now - this.lastMoveAt < 25) return;
+      this.lastMoveAt = now;
+      this.move(e.clientX, e.clientY);
+    });
     addEventListener("pointerup", (e) => { if (this.isOpen && e.button === (this.button === RADIAL_BY_RIGHT ? 2 : this.button)) this.release(e.clientX, e.clientY); });
     addEventListener("pointerdown", (e) => { if (this.isOpen && !this.root.contains(e.target as Node)) this.close(); }, true);
     addEventListener("keydown", (e) => { if (e.key === "Escape" && this.isOpen) this.close(); });
@@ -286,6 +292,7 @@ export class RadialMenu {
   private rangeHeld: number | null = null;
   private lastLength: number | null = null;
   private lastY: number | null = null;
+  private lastMoveAt = -Infinity;
 
   private move(x: number, y: number): void {
     if (!this.isOpen || this.closing) return;
