@@ -54,16 +54,37 @@
   const words = $derived(store.words);
   const say = (label: string, own: string, args: Record<string, string | number> = {}) => { const t = $words.templates[label]; return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args as never, { nameOf: () => null } as never)) : own; };
   let collapsed = $state<ReadonlySet<number>>(new Set());
-  // the scroll's selected entry (Generic.OnClick: scroll.SelectNode), shown by its ListEntryUnderlay; a right-click
-  // selects too, since Generic.GetMenu runs the entry's OnClick first - for a MiningScanEntry that is the combat command
-  // and the rock selected in space, before its CelestialMenu
-  let selectedRock = $state<number | null>(null);
+  // the scroll's selection (a multiSelect Scroll), shown by each entry's ListEntryUnderlay. Its nodes are the ore groups'
+  // ListGroups - not selectable (selectGroup 0) - and the open groups' entries, by their place (node.idx).
+  // Scroll.SelectNode: alone - the node only; Ctrl - toggled; Shift - the range from the last selected node, replacing the
+  // selection, the last selected kept; Ctrl+Shift - the range added; lastSelected then the node. A click (Generic.OnClick)
+  // and a right-click (Generic.GetMenu runs OnClick first) select so, and for a MiningScanEntry run the combat command and
+  // select the rock in space, before its CelestialMenu.
+  let selectedRocks = $state<ReadonlySet<number>>(new Set());
+  let lastSelected: number | null = null;
+  const scrollNodes = (table: HTMLElement) => [...table.querySelectorAll<HTMLTableRowElement>("tr.ore-group, tr[data-rock-id]")];
+  const rockOf = (tr: HTMLTableRowElement | undefined) => (tr?.dataset.rockId !== undefined ? Number(tr.dataset.rockId) : null);
+  function selectNode(nodes: readonly HTMLTableRowElement[], idx: number, control: boolean, shift: boolean): void {
+    const id = rockOf(nodes[idx]);
+    const range = (from: number, to: number) => nodes.slice(Math.min(from, to), Math.max(from, to) + 1).map(rockOf).filter((x): x is number => x !== null);
+    if (shift && !control) {
+      if (lastSelected !== null && lastSelected !== idx) { selectedRocks = new Set(range(lastSelected, idx)); return; }
+      selectedRocks = new Set(id === null ? [] : [id]);
+    } else if (shift && control) {
+      if (lastSelected !== null && lastSelected !== idx) selectedRocks = new Set([...selectedRocks, ...range(lastSelected, idx)]);
+    } else if (control) {
+      const next = new Set(selectedRocks);
+      if (id !== null) { if (next.has(id)) next.delete(id); else next.add(id); }
+      selectedRocks = next;
+    } else selectedRocks = new Set(id === null ? [] : [id]);
+    lastSelected = idx;
+  }
   // Scroll.Copy (Ctrl+C on the list): the selected entries' GetCopyData - a MiningScanEntry is a Generic, its label
   // (the ore, then quantity, volume, value and distance, <t>-separated); a ListGroup copies nothing - every entry shown
   // where none is selected, one a line, then UI/Common/EntriesCopied
   async function copyEntries(table: HTMLElement): Promise<void> {
     const shownRows = [...table.querySelectorAll<HTMLTableRowElement>("tr[data-rock-id]")];
-    const chosen = shownRows.filter((tr) => Number(tr.dataset.rockId) === selectedRock);
+    const chosen = shownRows.filter((tr) => selectedRocks.has(Number(tr.dataset.rockId)));
     const list = chosen.length ? chosen : shownRows;
     if (!list.length) return;
     const text = list.map((tr) => [...tr.cells].map((td) => (td.textContent ?? "").trim()).join("\t")).join("\n");
@@ -72,23 +93,27 @@
       noticeBoard.post({ kind: "info", title: say("UI/Common/EntriesCopied", `Copied ${list.length} entries to clipboard`, { numEntries: list.length }) });
     } catch { /* the clipboard refused */ }
   }
-  // Scroll.OnUp / OnDown (BrowseNodes, ActivateIdx) over the scroll's nodes - the ore groups' ListGroups and the open
-  // groups' entries: with nothing selected the last / first node, else the one past it, past either end nothing. ActivateIdx
-  // is SelectNode, no click (no combat command, nothing selected in space); a ListGroup is not selectable (selectGroup 0),
-  // so landing on one leaves the scroll with no selection, and the next key starts again from the end
-  function browse(up: boolean, table: HTMLElement): void {
-    const nodes = [...table.querySelectorAll<HTMLTableRowElement>("tr.ore-group, tr[data-rock-id]")];
+  // Scroll.OnUp / OnDown (BrowseNodes, ActivateIdx): nothing selected - the last / first node; else the one past the
+  // selection (its last going down, its first going up; with Shift the end away from lastSelected), past either end
+  // nothing; ActivateIdx is SelectNode with the keys held - no click, so no combat command and nothing selected in space.
+  // Landing on a ListGroup leaves nothing selected, and the next key starts again from the end.
+  function browse(up: boolean, shift: boolean, table: HTMLElement): void {
+    const nodes = scrollNodes(table);
     if (!nodes.length) return;
-    const at = nodes.findIndex((tr) => tr.dataset.rockId !== undefined && Number(tr.dataset.rockId) === selectedRock);
-    const idx = at < 0 ? (up ? nodes.length - 1 : 0) : at + (up ? -1 : 1);
+    const sel = nodes.map((tr, i) => (selectedRocks.has(rockOf(tr) ?? NaN) ? i : -1)).filter((i) => i >= 0);
+    let idx: number;
+    if (!sel.length) idx = up ? nodes.length - 1 : 0;
+    else if (shift && lastSelected !== null) idx = (sel[0]! < lastSelected ? sel[0]! : sel[sel.length - 1]!) + (up ? -1 : 1);
+    else idx = (sel.length > 1 ? sel[up ? 0 : sel.length - 1]! : sel[0]!) + (up ? -1 : 1);
     if (idx < 0 || idx >= nodes.length) return;
+    selectNode(nodes, idx, false, shift && sel.length > 0);
     const tr = nodes[idx]!;
-    selectedRock = tr.dataset.rockId !== undefined ? Number(tr.dataset.rockId) : null;
     (tr.dataset.rockId !== undefined ? tr : tr.querySelector<HTMLElement>("button") ?? tr).focus({ preventScroll: true });
     tr.scrollIntoView({ block: "nearest" });
   }
-  function clickRock(itemID: number): void {
-    selectedRock = itemID;
+  function clickRock(itemID: number, e: MouseEvent): void {
+    const table = (e.currentTarget as HTMLElement).closest("table");
+    if (table) { const nodes = scrollNodes(table); selectNode(nodes, nodes.findIndex((tr) => rockOf(tr) === itemID), e.ctrlKey || e.metaKey, e.shiftKey); }
     flightView?.()?.selectObjectiveTarget(itemID);
   }
   let colSort = $state<number | null>(null);
@@ -174,7 +199,7 @@
   {#if $mining.surveyError}<p role="alert" class="status">{$mining.surveyError}</p>{/if}
   <div class="scan-table">
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <table onkeydown={(e) => { if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); browse(e.key === "ArrowUp", e.currentTarget as HTMLElement); } }}>
+    <table onkeydown={(e) => { if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); browse(e.key === "ArrowUp", e.shiftKey, e.currentTarget as HTMLElement); } }}>
       <thead><tr>{#each COLUMNS as [label, own], k (label)}<th scope="col" class:sorted={colSort === k} style:width={colWidths[k] ? `${colWidths[k]}px` : null} style:min-width={colWidths[k] ? `${colWidths[k]}px` : null} style:max-width={colWidths[k] ? `${colWidths[k]}px` : null} onclick={() => sortByColumn(k)}>{say(label, own)}{#if colSort === k}<span class="dir" class:down={colReversed}></span>{/if}<span class="scaler" role="separator" aria-orientation="vertical" onpointerdown={(e) => startScale(k, e)} onclick={(e) => e.stopPropagation()} ondblclick={(e) => { e.stopPropagation(); resetWidth(k, e); }}></span></th>{/each}</tr></thead>
       {#each groups as group (group.typeID)}
         <tbody data-ore-type={group.typeID}>
@@ -194,11 +219,11 @@
               <!-- MiningScanEntry: hover the rock's mouseOver state, right-click its CelestialMenu (the space menu), click
                    ExecuteCombatCommand then select (the view's select runs a held combat command); its TargetIconCont
                    (2, 0, 16 x 16) the activeTarget icon when locked, the shrinking targetFrame while locking -->
-              <tr data-rock-id={row.itemID} class:selected={selectedRock === row.itemID} tabindex="-1" onclick={(e) => { clickRock(row.itemID); (e.currentTarget as HTMLElement).focus({ preventScroll: true }); }}
+              <tr data-rock-id={row.itemID} class:selected={selectedRocks.has(row.itemID)} tabindex="-1" onclick={(e) => { clickRock(row.itemID, e); (e.currentTarget as HTMLElement).focus({ preventScroll: true }); }}
                 onkeydown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") { e.preventDefault(); e.stopPropagation(); const t = (e.currentTarget as HTMLElement).closest("table"); if (t) void copyEntries(t); } }}
                 onmouseenter={() => flightView?.()?.hoverObject(row.itemID)}
                 onmouseleave={() => flightView?.()?.hoverObject(null)}
-                oncontextmenu={(e) => { e.preventDefault(); clickRock(row.itemID); dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID: row.itemID, x: e.clientX, y: e.clientY } })); }}>
+                oncontextmenu={(e) => { e.preventDefault(); clickRock(row.itemID, e); dispatchEvent(new CustomEvent("evejs:open-space-menu", { detail: { itemID: row.itemID, x: e.clientX, y: e.clientY } })); }}>
                 <td>
                   <span class="tgt-icon">{#if locked}<img src={clientTexture("res:/UI/Texture/classes/Bracket/activeTarget.png")} alt="" />{:else if acquiring}<span class="tgt-frame" style:border-image-source={`url(${clientTexture("res:/UI/Texture/classes/Bracket/targetFrame.png")})`}></span>{/if}</span>
                   {#if flightView}
