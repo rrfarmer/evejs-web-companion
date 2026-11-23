@@ -319,13 +319,13 @@
   function bayNodeMenu(e: MouseEvent, key: string, label: string): void {
     e.preventDefault();
     e.stopPropagation();
-    if (!ship) return;
+    if (!ship || ship.typeID === null) return;
     const typeID = ship.typeID, itemID = ship.itemID;
     menu.open(e.clientX, e.clientY, [
       // OfferSimulateShipFitting (the pilot's own ship): UI/Fitting/FittingWindow/SimulateShipFitting, GhostFitShip
       { label: word("UI/Fitting/FittingWindow/SimulateShipFitting", "Simulate Fit"), run: () => void flow.simulateShip().then(() => { dispatchEvent(new CustomEvent("evejs:open-fitting")); }).catch(() => {}) },
       null,
-      { label: word(MENU.info, "Show Info"), info: true, run: () => showInfo({ kind: "type", typeID, itemID }) },
+      { label: word(MENU.info, "Show Info"), info: true, run: () => showInfo({ kind: "type", typeID, itemID: itemID ?? undefined }) },
       null,
       { label: word(MENU.market, "View Market Details"), run: () => showMarketDetails(typeID) },
       { label: word(MENU.buy, "Buy This Type"), run: () => buyMarketType(typeID) },
@@ -342,8 +342,8 @@
   /** TreeDataInv.OpenNewWindow on a ship bay: an inventory window of its own, captioned with the bay's name (PlayApp's). */
   // invWindow.OnTreeViewClick / OnTreeViewMouseEnter / OnTreeViewMouseExit: an entry of an object in space (the ship, a
   // container) selected in space on a click, its mouse-over state on while the mouse is over the entry
-  function spaceSelect(itemID: number): void { dispatchEvent(new CustomEvent("evejs:select-space-item", { detail: { itemID } })); }
-  function spaceHover(itemID: number, on: boolean): void { dispatchEvent(new CustomEvent("evejs:hover-space-item", { detail: { itemID, on } })); }
+  function spaceSelect(itemID: number | null): void { if (itemID === null) return; dispatchEvent(new CustomEvent("evejs:select-space-item", { detail: { itemID } })); }
+  function spaceHover(itemID: number | null, on: boolean): void { if (itemID === null) return; dispatchEvent(new CustomEvent("evejs:hover-space-item", { detail: { itemID, on } })); }
 
   function openBayInNewWindow(key: string, label: string): void {
     if (current === key) current = "cargo";
@@ -490,6 +490,9 @@
   }
   function toggleFiltersOpen(): void { filtersOpen = !filtersOpen; try { localStorage.setItem(FILTERS_OPEN_KEY, filtersOpen ? "1" : "0"); } catch { /* this visit */ } }
   function setFilterChecked(name: string, on: boolean): void { checkedFilters = on ? [...checkedFilters.filter((n) => n !== name), name] : checkedFilters.filter((n) => n !== name); }
+  // FilterSvc.SetTempFilter: the open FilterCreationWindow's filter, applied to the items too (ApplyTempFilter) until it closes;
+  // OnInvFiltersChanged: the filters read again after a save
+  let tempFilter = $state<InventoryFilter | null>(null);
   const activeFilters = $derived([...itemFilters.filter((f) => checkedFilters.includes(f[0])), ...(tempFilter ? [tempFilter] : [])]);
   // FilterEntry.GetMenu: Edit (the filter in FilterCreationWindow, not here yet) and Remove (FilterSvc.RemoveFilter: the
   // RemoveFilterPrompt question, then every filter but it kept - PersistFilters)
@@ -502,9 +505,6 @@
       { label: word("UI/Commands/Remove", "Remove"), run: () => void removeFilter(name) },
     ]);
   }
-  // FilterSvc.SetTempFilter: the open FilterCreationWindow's filter, applied to the items too (ApplyTempFilter) until it closes;
-  // OnInvFiltersChanged: the filters read again after a save
-  let tempFilter = $state<InventoryFilter | null>(null);
   $effect(() => {
     const temp = (e: Event) => { tempFilter = (e as CustomEvent<{ filter: InventoryFilter | null }>).detail?.filter ?? null; };
     const changed = () => { void flow.readCharacterSetting(INVENTORY_FILTERS_SETTING).then((t) => { savedFilters = t === null ? null : readInventoryFilters(t); }).catch(() => {}); };
