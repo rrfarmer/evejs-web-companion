@@ -210,6 +210,8 @@ interface Slot {
   wedge: { angle: number; half: number; lit: number };
   cycles: number;
   flashAt: number;
+  /** _RefuseClick: when a click was refused (Date.now()), for the track and cooldown digit's REFUSED_BLINK_MS 800 flash. */
+  refusedAt?: number;
   /** cooldownTimer: the dim disc, the fill arc, the shade and the seconds over the icon, drawn while it shows. */
   cool: HTMLCanvasElement;
   coolShown: boolean;
@@ -1647,6 +1649,8 @@ export class NewShipHud {
           }
           return;
         }
+        // PrimaryActivate: an unavailable module (deactivating - winding down) is refused (_RefuseClick), not asked for
+        if (m.windingDown && Date.now() < m.windingDown.startedAtMs + m.windingDown.durationMs) { slot.refusedAt = Date.now(); return; }
         if (this.onModule) this.onModule(m);
       });
       el.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); if (slot.module) { this.hideTooltip(slot); this.onModuleMenu?.(slot.module, e.clientX, e.clientY); } });
@@ -2624,7 +2628,8 @@ export class NewShipHud {
     c.font = `${COOL_DIGIT_SIZES[Math.min(text.length, COOL_DIGIT_SIZES.length) - 1]}px 'EVE Sans Neue','Segoe UI',sans-serif`;
     c.textAlign = "center";
     c.textBaseline = "middle";
-    c.fillStyle = "rgba(255,255,255,0.9)";
+    // CooldownTimer.FlashRefused: the digit COLOR_MODULE_DAMAGE for REFUSED_BLINK_MS 800 after a refused click
+    c.fillStyle = slot.refusedAt !== undefined && now - slot.refusedAt < 800 ? css(COLOR_MODULE_DAMAGE, 0.9) : "rgba(255,255,255,0.9)";
     c.fillText(text, mid, mid + 1);
   }
 
@@ -2704,6 +2709,14 @@ export class NewShipHud {
       const env = flashT < 0.1 ? flashT / 0.1 : Math.pow(1 - (flashT - 0.1) / 0.9, 2);
       trackColour = withAlpha(WHITE, trackA + (0.6 - trackA) * env);
       wedge = mix(wedge, WHITE, env);
+    }
+    // ActivationIndicator.FlashRefused: _TrackPulseLoop to COLOR_MODULE_OVERLOAD at _REFUSED_TRACK_ALPHA 1.0 over
+    // _REFUSED_DURATION_MS 800, _REFUSED_PULSES 2, each rising linearly over _REFUSED_ATTACK 0.5 and falling linearly after
+    const refusedT = slot.refusedAt === undefined ? 1 : (Date.now() - slot.refusedAt) / 800;
+    if (refusedT >= 0 && refusedT < 1) {
+      const phase = (refusedT * 2) % 1;
+      const env = phase < 0.5 ? phase / 0.5 : 1 - (phase - 0.5) / 0.5;
+      trackColour = mix(trackColour, CHERRY_RED, env);
     }
     // the 40 px backing disc
     c.beginPath();
