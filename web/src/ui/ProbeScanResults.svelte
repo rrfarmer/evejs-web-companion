@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getContext } from "svelte";
   import { resultColor } from "../bridge/probeResults.ts";
-  import { selectedSites, selectSite } from "../app/probeSiteSelection.ts";
+  import { selectedSites, selectSite, setSelectedSites } from "../app/probeSiteSelection.ts";
   // The probe scanner's results (bridge/probeResults.ts): the session's system's results as the client's scan handler
   // keeps them from OnSystemScanStopped, listed as its results scroll lists them (scanResults.py, ScanResultNew):
   // distance from the ship, ID, name, group and signal strength, by ID; the client's words for "no results" where
@@ -154,6 +154,26 @@
   const ignoredRows = $derived(held === null ? [] : resultRows(held.ignored, myPosition, wording));
 
   let menuFor = $state<string | null>(null);
+  // Scroll.OnUp / OnDown (BrowseNodes): with nothing selected the last / first result; else the one past the selection
+  // (its last going down, its first going up), Shift growing the range from where it began, past either end nothing;
+  // ActivateIdx selects it (the scroll's selection, SetSelectedSites) and brings it into view
+  let browseAnchor: string | null = null;
+  function browse(up: boolean, shift: boolean, from: HTMLElement): void {
+    const order = rows.map((row) => row.id);
+    if (!order.length) return;
+    const sel = order.map((id, i) => ($selectedSites.has(id) ? i : -1)).filter((i) => i >= 0);
+    let idx: number;
+    const anchorAt = browseAnchor === null ? -1 : order.indexOf(browseAnchor);
+    if (!sel.length) idx = up ? order.length - 1 : 0;
+    else if (shift && anchorAt >= 0) idx = (sel[0]! < anchorAt ? sel[0]! : sel[sel.length - 1]!) + (up ? -1 : 1);
+    else idx = (sel.length > 1 ? sel[up ? 0 : sel.length - 1]! : sel[0]!) + (up ? -1 : 1);
+    if (idx < 0 || idx >= order.length) return;
+    if (shift && sel.length && anchorAt >= 0) setSelectedSites(order.slice(Math.min(anchorAt, idx), Math.max(anchorAt, idx) + 1));
+    else { setSelectedSites([order[idx]!]); browseAnchor = order[idx]!; }
+    const tr = from.closest("tbody")?.querySelectorAll<HTMLElement>("tr.ps-row")[idx];
+    tr?.focus({ preventScroll: true });
+    tr?.scrollIntoView({ block: "nearest" });
+  }
   // Scroll.Copy (Ctrl+C on the list): the selected results' ScanResultNew.GetCopyData - id, scan group, group, type,
   // the certainty as UI/Common/Percentage, the distance (FmtDist) - every result where none is selected, one a line,
   // tab-separated; then UI/Common/EntriesCopied
@@ -325,10 +345,10 @@
         <tbody>
           {#each rows as row (row.id)}
             <tr class:ps-row={retail} class:ps-selected={retail && $selectedSites.has(row.id)}
-              onclick={retail ? (event) => { if ((event.target as HTMLElement).closest("button")) return; selectSite(row.id, event.shiftKey || event.ctrlKey); (event.currentTarget as HTMLElement).focus({ preventScroll: true }); } : undefined}
+              onclick={retail ? (event) => { if ((event.target as HTMLElement).closest("button")) return; selectSite(row.id, event.shiftKey || event.ctrlKey); browseAnchor = row.id; (event.currentTarget as HTMLElement).focus({ preventScroll: true }); } : undefined}
               style={retail ? `--cert: ${resultColor(row.certainty)}; --base: ${Math.min(row.certainty, row.prevCertainty) * 100}%; --change: ${Math.abs(row.certainty - row.prevCertainty) * 100}%` : undefined}
               tabindex={retail ? -1 : undefined}
-              onkeydown={retail ? (event) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") { event.preventDefault(); event.stopPropagation(); void copyResults(); } } : undefined}
+              onkeydown={retail ? (event) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") { event.preventDefault(); event.stopPropagation(); void copyResults(); } else if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); event.stopPropagation(); browse(event.key === "ArrowUp", event.shiftKey, event.currentTarget as HTMLElement); } } : undefined}
               oncontextmenu={retail ? (event) => { event.preventDefault(); if (!$selectedSites.has(row.id)) selectSite(row.id, false); menuFor = menuFor === row.id ? null : row.id; } : undefined}>
               {#if retail}<td class="ps-ic"><span class="ps-result-icon" style={`--icon: url(/client-res/${row.icon})`}></span></td>{/if}
               <td class="num">{row.distance === null ? "" : fmtDist(row.distance)}</td>
