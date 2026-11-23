@@ -190,6 +190,17 @@ export class Neocom {
     }
     this.clock.className = "nc-clock";
     this.root.appendChild(this.clock);
+    // ClockButton.LoadTooltipPanel: AddCommandTooltip(OpenCalendar) - Calendar, no shortcut by default - then the EVE time
+    // as FormatDateTime(dateFormat='full') in a plain AddLabelMedium (the live client, gridcheck g231: 144 x 76,
+    // "2026.11.23 18:52" at 16,42)
+    const clockTip = () => {
+      const d = new Date();
+      const two = (n: number) => String(n).padStart(2, "0");
+      const when = `${d.getUTCFullYear()}.${two(d.getUTCMonth() + 1)}.${two(d.getUTCDate())} ${two(d.getUTCHours())}:${two(d.getUTCMinutes())}`;
+      showLabelShortcutTooltip(this.clock, "Calendar", shortcutOf("OpenCalendar"), [when], "left", true);
+    };
+    this.clock.addEventListener("mouseenter", () => tooltipDue(this.clock, clockTip));
+    this.clock.addEventListener("mouseleave", neocomTipOff);
     const tick = () => {
       const d = new Date();
       this.clock.textContent = `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
