@@ -210,6 +210,8 @@ interface Slot {
   wedge: { angle: number; half: number; lit: number };
   cycles: number;
   flashAt: number;
+  /** StateOverlay: the module_offline (12 x 18) or module_ruined (16) glyph over the icon. */
+  stateGlyph?: HTMLImageElement;
   /** _RefuseClick: when a click was refused (Date.now()), for the track and cooldown digit's REFUSED_BLINK_MS 800 flash. */
   refusedAt?: number;
   /** cooldownTimer: the dim disc, the fill arc, the shade and the seconds over the icon, drawn while it shows. */
@@ -1632,8 +1634,12 @@ export class NewShipHud {
       const shortcut = document.createElement("div");
       Object.assign(shortcut.style, { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", font: "bold 11px 'EVE Sans Neue','Segoe UI',sans-serif", color: "rgba(255,255,255,0.3)" });
       // moduleSlot._BuildWidget: the cooldown timer over the icon, the quantity over the timer.
-      el.append(disc, icon, cool, qty, badge, shortcut);
-      const slot: Slot = { el, icon, qty, badge, shortcut, x, y, module: null, hover: false, wedge: { angle: 180, half: 7.5, lit: 0 }, cycles: -1, flashAt: 0, cool, coolShown: false, empty: false, flag: 0 };
+      // StateOverlay (moduleSlot._BuildWidget): its glyph centred over the icon, under the count
+      const stateGlyph = document.createElement("img");
+      stateGlyph.alt = "";
+      Object.assign(stateGlyph.style, { position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", display: "none", pointerEvents: "none" });
+      el.append(disc, icon, stateGlyph, cool, qty, badge, shortcut);
+      const slot: Slot = { el, icon, qty, badge, shortcut, stateGlyph, x, y, module: null, hover: false, wedge: { angle: 180, half: 7.5, lit: 0 }, cycles: -1, flashAt: 0, cool, coolShown: false, empty: false, flag: 0 };
       el.addEventListener("mouseenter", () => { slot.hover = true; this.hoverTooltip(slot); this.previewModule(slot.module); if (slot.module) this.onModuleHover?.(slot.module); });
       el.addEventListener("mouseleave", () => { slot.hover = false; this.hideTooltip(slot); this.previewModule(null); this.onModuleHover?.(null); });
       // ModuleSlot.OnClick: in overload mode a click toggles the module's overload (ModuleController.ToggleOverload ->
@@ -2142,20 +2148,34 @@ export class NewShipHud {
         if (this.tipSlot === slot) this.hideTooltip(slot);
         slot.icon.style.display = "none";
         slot.qty.style.display = "none";
+        if (slot.stateGlyph) slot.stateGlyph.style.display = "none";
         slot.shortcut.textContent = slot.empty ? shortcutOf(`CmdActivate${["High", "Medium", "Low"][row]}PowerSlot${(position % 8) + 1}`) || "_" : "";
         return;
       }
       slot.icon.style.display = "";
       if (slot.icon.dataset.src !== m.icon) { slot.icon.src = m.icon; slot.icon.dataset.src = m.icon; }
       // _UpdateGreyOut: an offline (or burnt out) module's icon at 0.4, its count hidden
-      slot.icon.style.opacity = m.online ? "1" : "0.4";
+      // (burnt out: _UpdateDamage's GetDamagePortion >= 1.0)
+      const destroyed = (m.damage ?? 0) >= 1;
+      const greyed = destroyed || !m.online;
+      slot.icon.style.opacity = greyed ? "0.4" : "1";
+      // StateOverlay._UpdateGlyphs: the ruined glyph for a burnt-out module, else the offline glyph for an offline one
+      if (slot.stateGlyph) {
+        const glyph = destroyed ? "module_ruined_19px.png" : !m.online ? "module_offline_18px.png" : null;
+        slot.stateGlyph.style.display = glyph ? "" : "none";
+        if (glyph && slot.stateGlyph.dataset.src !== glyph) {
+          slot.stateGlyph.dataset.src = glyph;
+          slot.stateGlyph.src = res(`res:/UI/Texture/eveicon/command_board_icons/${glyph}`);
+          Object.assign(slot.stateGlyph.style, destroyed ? { width: "16px", height: "16px" } : { width: "12px", height: "18px" });
+        }
+      }
       // The client's slot has no title of its own: its tooltip is the module tooltip.
       slot.el.removeAttribute("title");
       slot.shortcut.textContent = "";
       // _OnChargeChanged: the count of a loaded charge (FmtAmt), none for a crystal
       const count = m.charge && m.charge.quantity && !m.charge.crystal ? fmtAmt(m.charge.quantity) : "";
       if (slot.qty.textContent !== count) slot.qty.textContent = count;
-      slot.qty.style.display = count && m.online ? "" : "none";
+      slot.qty.style.display = count && !greyed ? "" : "none";
     });
     this.placeScannerGroup();
   }
