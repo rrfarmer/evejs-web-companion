@@ -234,6 +234,35 @@
   /** The bay shown (the tree's selected node): the one a hold button asked for, else the cargo. */
   // svelte-ignore state_referenced_locally
   let current = $state(containerMode ? "container" : bayMode ?? "cargo");
+  // invWindow.history (HistoryBuffer(HISTORY_LENGTH 50)): each container shown is appended - what lay ahead of the place
+  // dropped, the same one twice not - and OnBack / OnForward (CmdBack / CmdForward, Mouse 4 / Mouse 5, to the active
+  // window) show the one before / after, branchHistory off; one no longer in the tree is stepped over (GoForward again)
+  let invRoot: HTMLElement | undefined = $state();
+  const history: string[] = [];
+  let historyAt = -1;
+  let stepping = false;
+  $effect(() => {
+    const now = current;
+    if (stepping) { stepping = false; return; }
+    if (historyAt >= 0) history.splice(historyAt + 1);
+    if (history[history.length - 1] !== now) history.push(now);
+    if (history.length > 50) history.shift();
+    historyAt = history.length - 1;
+  });
+  $effect(() => {
+    const step = (by: number) => () => {
+      if (!invRoot?.closest(".win.focused")) return;
+      const to = historyAt + by;
+      if (to < 0 || to >= history.length) return;
+      historyAt = to;
+      stepping = history[to] !== current;
+      current = history[to]!;
+    };
+    const back = step(-1), forward = step(1);
+    addEventListener("evejs:cmd-back", back);
+    addEventListener("evejs:cmd-forward", forward);
+    return () => { removeEventListener("evejs:cmd-back", back); removeEventListener("evejs:cmd-forward", forward); };
+  });
   function takeRequest(): void {
     const asked = shipHoldTarget.take();
     if (asked) current = asked.key;
@@ -802,7 +831,7 @@
   }
 </script>
 
-<div class="inv" class:container={containerMode} class:compact={$compactSig}>
+<div class="inv" class:container={containerMode} class:compact={$compactSig} bind:this={invRoot}>
   {#if !containerMode && !bayMode && $sidebarSig}
   <div class="tree" bind:this={treeEl}>
     <div class="nodes">

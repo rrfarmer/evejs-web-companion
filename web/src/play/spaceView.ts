@@ -1822,6 +1822,16 @@ export class SpaceView {
     // opens that object's own radial menu
     const radialFor = (e: Event) => { const d = (e as CustomEvent<{ itemID: number; x: number; y: number }>).detail; if (d) this.openRadial(d.itemID, d.x, d.y, 0); };
     addEventListener("evejs:open-space-radial", radialFor);
+    // CmdBack / CmdForward (Mouse 4 / Mouse 5, commandSvc: the active window's OnBack / OnForward): to the windows; the
+    // browser's own back / forward on those buttons kept from leaving the page
+    const mouseCmd = (e: MouseEvent) => {
+      if (e.button !== 3 && e.button !== 4) return;
+      e.preventDefault();
+      if (e.type === "mouseup") dispatchEvent(new CustomEvent(e.button === 3 ? "evejs:cmd-back" : "evejs:cmd-forward"));
+    };
+    addEventListener("mousedown", mouseCmd);
+    addEventListener("mouseup", mouseCmd);
+    this.unhold.push(() => { removeEventListener("mousedown", mouseCmd); removeEventListener("mouseup", mouseCmd); });
     this.unhold.push(() => removeEventListener("evejs:open-space-radial", radialFor));
     // and its context menu: DroneInSpaceEntry.GetMenu - the window's own entries (Move Drone) with CelestialMenu over the
     // drone, the window's merged into the drone group by menuHierarchy
