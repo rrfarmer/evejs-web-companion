@@ -1464,11 +1464,13 @@ export class NewShipHud {
     const frame = document.createElement("div");
     Object.assign(frame.style, { position: "absolute", inset: "0", opacity: "0.75", borderStyle: "solid", borderWidth: "0", borderImageSource: `url(${res("res:/UI/Texture/classes/FrameWithPointer/background_04.png")})`, borderImageSlice: "19 fill", borderImageWidth: "19px", borderImageOutset: "15px" } as Partial<CSSStyleDeclaration>);
     const grid = document.createElement("div");
-    Object.assign(grid.style, { position: "relative", display: "grid", gridTemplateColumns: "auto auto", columnGap: "16px", rowGap: "4px", alignItems: "center" });
+    // LoadGeneric2ColumnTemplate: cell spacing (8, 8), EveLabelMedium lines 18 high (rows 26 apart on the live client, g229)
+    Object.assign(grid.style, { position: "relative", display: "grid", gridTemplateColumns: "auto auto", columnGap: "16px", rowGap: "8px", alignItems: "center", lineHeight: "18px" });
     const head = document.createElement("div");
     head.dataset.tipRow = "";
     head.textContent = name;
-    Object.assign(head.style, { fontWeight: "bold", color: "rgba(255,255,255,0.95)" });
+    // AddLabelShortcut: a bold EveLabelMedium in the normal text colour (0.75 on the live client, g229)
+    Object.assign(head.style, { fontWeight: "bold", color: "rgba(255,255,255,0.75)" });
     const hint = document.createElement("div");
     if (shortcut) {
       hint.textContent = shortcut;
@@ -1479,7 +1481,8 @@ export class NewShipHud {
       const d = document.createElement("div");
       d.dataset.tipRow = "";
       d.textContent = desc;
-      Object.assign(d.style, { gridColumn: "1 / 3", width: "200px", whiteSpace: "normal", color: "rgba(255,255,255,0.5)" });
+      // wrapWidth 200 with autoFitToText: as wide as its text, at most 200 (the cargo tooltip 208 wide on the live client, g229)
+      Object.assign(d.style, { gridColumn: "1 / 3", maxWidth: "200px", whiteSpace: "normal", color: "rgba(255,255,255,0.5)" });
       grid.append(d);
     }
     grid.append(...extra);
@@ -1567,6 +1570,10 @@ export class NewShipHud {
       const value = document.createElement("div");
       label.dataset.tipRow = "";
       label.textContent = h.label;
+      // AddLabelValue: the label bold on every row (measured on the live client, gridcheck g229)
+      // ... and AddLabelValue opacity 1.0: label and value full white (g229)
+      label.style.fontWeight = "bold";
+      label.style.color = value.style.color = "#fff";
       value.textContent = pct(h);
       value.style.textAlign = "right";
       if (h.key === this.trackedHold) {
