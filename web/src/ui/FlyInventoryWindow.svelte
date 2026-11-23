@@ -332,8 +332,8 @@
       { label: word(MENU.quickbar, "Add to Market Quickbar"), run: () => { changeQuickbar((q) => addType(q, typeID)); } },
       null,
       { label: word(MENU.compare, "Compare"), run: () => typeCompareTarget.ask([{ typeID, itemID }]) },
-      // TreeDataInv.GetMenu: Open in new window (SHIFT+Click) after the controller's entries
-      null,
+      // TreeDataInv.GetMenu: Open in new window (SHIFT+Click) after the controller's entries, in Compare's group (no
+      // line between: read through gridcheck on the live client's Drone Bay / Fuel Bay / Mining Hold entries)
       { label: word("UI/Inventory/OpenInNewWindow", "Open in new window (SHIFT+Click)"), run: () => openBayInNewWindow(key, label) },
     ]);
   }
