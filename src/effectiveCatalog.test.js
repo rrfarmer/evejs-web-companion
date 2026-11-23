@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { deflateSync } = require("node:zlib");
+const { loginProgram, marshal } = require("../test/helpers/catalogLogin");
 const { createInProcessFetch } = require("./inProcessFetch");
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "wc-effective-catalog-"));
@@ -54,19 +54,6 @@ staticTable("typeDogma", { typesByTypeID: { [Bestower]: { attributes: { 182: Ama
 const { createApp } = require("./server");
 const { GamePortSession } = require("./gamePort/session");
 const { createEffectiveCatalog } = require("./effectiveCatalog");
-
-function marshal(source) {
-  const body = Buffer.from(source);
-  const header = Buffer.alloc(5);
-  header[0] = 0x74;
-  header.writeUInt32LE(body.length, 1);
-  return Buffer.concat([header, body]);
-}
-function loginProgram(catalog, inner = "fixture_native()") {
-  const bundle = deflateSync(Buffer.from(JSON.stringify({ catalog, visuals: {} }))).toString("base64");
-  const program = Buffer.from(`_family_bundle = "${bundle}"\nraise Exception("never execute server code")`).toString("base64");
-  return marshal(`(lambda _result: (eval(compile(__import__('base64').b64decode('${program}'), '<empire-hauler-login>', 'exec'), {'__builtins__': __builtins__, '_family_context': globals()}), _result)[1])(${inner})`);
-}
 
 const nativeCatalog = {
   additions: {
@@ -198,6 +185,58 @@ test("GamePort publishes one catalog for training, ship reviews and Dogma while 
   assert.equal(createEffectiveCatalog().getType(FixtureHauler), null);
   assert.equal(graph.available, false);
   assert.deepEqual(graph.unknownTypeIDs.sort(), [Unknown, ModMaterial].sort());
+});
+
+test("the BFF wires its live type readers into GamePort, including specialized hold Dogma", t => {
+  const pilotPort = require("./gamePort/pilots");
+  const factory = t.mock.method(pilotPort, "createGamePortPilots");
+  const app = createApp({ env: { EVEJS_PILOT_TRANSPORT: "gameport" }, eveStore: {} });
+  assert.equal(factory.mock.callCount(), 1);
+  const options = factory.mock.calls[0].arguments[0];
+  const first = new GamePortSession({ transport: {}, onLoginProgram: options.onLoginProgram });
+  const second = new GamePortSession({ transport: {}, onLoginProgram: options.onLoginProgram });
+  const { shipHasHold } = require("./clientData/holdCapacity");
+  const gasFlag = 135, gasCapacity = 1557;
+  const hasGasHold = () => shipHasHold(gasFlag, id => options.typeAttribute(FixtureHauler, id),
+    options.typeGroup(FixtureHauler), { byFlag: new Map([[gasFlag, gasCapacity]]) });
+
+  function checkStock() {
+    assert.deepEqual(options.typeNames(Bestower), { name: "Bestower", groupName: "" });
+    assert.deepEqual(options.typeFacts(Bestower), { groupID: 28, categoryID: 6 });
+    assert.deepEqual(options.typeBasePrice(Bestower), { basePrice: 500, portionSize: 1 });
+    assert.equal(options.typeAttribute(Bestower, 182), AmarrHauler);
+    assert.deepEqual(options.typeEffects(Bestower), []);
+  }
+  checkStock();
+  assert.equal(options.typeGroup(FixtureHauler), null);
+  assert.equal(hasGasHold(), false);
+  const catalog = structuredClone(nativeCatalog);
+  const hull = catalog.additions.itemTypes.find(row => row.typeID === FixtureHauler);
+  hull.groupName = "Hauler";
+  const dogma = catalog.additions.typeDogma[FixtureHauler];
+  dogma.attributes[gasCapacity] = 12000;
+  dogma.effects = [ModEffect];
+  // A partial row for an installed hull cannot overwrite its name, price or Dogma.
+  catalog.additions.itemTypes.push({ typeID: Bestower, name: "Conflicting name", categoryID: 6, groupID: 999, published: true });
+  catalog.additions.typeDogma[Bestower] = { typeID: Bestower, attributes: { 12: 0 }, effects: [ModEffect] };
+  first._runHandshakeFunction(loginProgram(catalog));
+  assert.deepEqual(options.typeNames(FixtureHauler), { name: "FixtureHauler", groupName: "Hauler" });
+  assert.deepEqual(options.typeFacts(FixtureHauler), { groupID: 28, categoryID: 6 });
+  assert.equal(options.typeGroup(FixtureHauler), 28);
+  assert.deepEqual(options.typeBasePrice(FixtureHauler), { basePrice: 500, portionSize: 1 });
+  assert.equal(options.effectCategory(ModEffect), 1);
+  assert.deepEqual(options.typeEffects(FixtureHauler).map(e => e.name), ["fixtureCycle"]);
+  assert.equal(hasGasHold(), true);
+  assert.equal(options.typeAttribute(FixtureHauler, gasCapacity), 12000);
+  second._runHandshakeFunction(marshal("ordinary_login()"));
+  assert.equal(options.typeAttribute(FixtureHauler, gasCapacity), 12000);
+  dogma.attributes[gasCapacity] = 16500;
+  catalog.effects[ModEffect].name = "revisedCycle";
+  second._runHandshakeFunction(loginProgram(catalog));
+  assert.deepEqual(options.typeEffects(FixtureHauler).map(e => e.name), ["revisedCycle"]);
+  assert.equal(options.typeAttribute(FixtureHauler, gasCapacity), 16500);
+  checkStock();
+  assert.equal(app.locals.gamePortPilots.size, 0);
 });
 
 test("only the documented carrier can extend data or recover a known native reply", () => {

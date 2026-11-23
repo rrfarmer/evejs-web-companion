@@ -978,40 +978,42 @@ function answerFits(question, answer) {
   }
 }
 
-/** The kind of a dogma effect, from the static data the BFF already reads. Loaded when first asked. */
-function defaultEffectCategory(effectID) {
-  // eslint-disable-next-line global-require
-  const effect = require("../staticData").getEffect(effectID);
-  return effect && Number.isInteger(effect.effectCategoryID) ? effect.effectCategoryID : null;
+/** The existing pilot lookups, bound to the same source for the lifetime of a BFF. */
+function pilotTypeLookups(readStaticData) {
+  return {
+    effectCategory(effectID) {
+      const effect = readStaticData().getEffect(effectID);
+      return Number.isInteger(effect?.effectCategoryID) ? effect.effectCategoryID : null;
+    },
+    typeAttribute: (typeID, attributeID) => readStaticData().getTypeDogmaAttribute(typeID, attributeID),
+    typeGroup(typeID) {
+      const type = readStaticData().getType(typeID);
+      return Number.isInteger(type?.groupID) ? type.groupID : null;
+    },
+    typeFacts(typeID) {
+      const type = readStaticData().getType(typeID);
+      return type ? { groupID: Number.isInteger(type.groupID) ? type.groupID : null, categoryID: Number.isInteger(type.categoryID) ? type.categoryID : null } : null;
+    },
+    typeBasePrice(typeID) {
+      const type = readStaticData().getType(typeID);
+      return type ? { basePrice: Number(type.basePrice) || 0, portionSize: Number(type.portionSize) || 1 } : null;
+    },
+    typeNames(typeID) {
+      const type = readStaticData().getType(typeID);
+      return type ? { name: String(type.name ?? ""), groupName: String(type.groupName ?? "") } : null;
+    },
+    typeEffects(typeID) {
+      const data = readStaticData();
+      const dogma = data.getTypeDogma(typeID);
+      return Array.isArray(dogma?.effects) ? dogma.effects.map(id => data.getEffect(id)).filter(Boolean) : [];
+    },
+  };
 }
 
-/** A type's dogma attribute and its group, from the same static data (godma.GetTypeAttribute, evetypes.GetGroupID). */
-function defaultTypeAttribute(typeID, attributeID) {
-  // eslint-disable-next-line global-require
-  return require("../staticData").getTypeDogmaAttribute(typeID, attributeID);
-}
-/** A type's dogma effects, each as the static data has it: { effectID, name, effectCategoryID, durationAttributeID, ... }. */
-function defaultTypeEffects(typeID) {
-  // eslint-disable-next-line global-require
-  const staticData = require("../staticData");
-  const dogma = staticData.getTypeDogma(typeID);
-  return (dogma && Array.isArray(dogma.effects) ? dogma.effects : []).map((effectID) => staticData.getEffect(effectID)).filter(Boolean);
-}
+// Direct transport callers retain the lazy stock-data defaults.
+const stockTypes = pilotTypeLookups(() => require("../staticData"));
 /** const.attributeDisallowRepeatingActivation: a module that is set off once each time. */
 const ATTRIBUTE_DISALLOW_REPEATING = 1014;
-/** A type's name and its group's, as the static data has them: what the client knows of a type without asking. */
-function defaultTypeNames(typeID) {
-  // eslint-disable-next-line global-require
-  const type = require("../staticData").getType(typeID);
-  return type ? { name: String(type.name ?? ""), groupName: String(type.groupName ?? "") } : null;
-}
-/** A type's { basePrice, portionSize } from the game's static data; null for a type it has not. */
-function defaultTypeBasePrice(typeID) {
-  // eslint-disable-next-line global-require
-  const type = require("../staticData").getType(typeID);
-  return type ? { basePrice: Number(type.basePrice) || 0, portionSize: Number(type.portionSize) || 1 } : null;
-}
-
 /** A station's { ownerID, factionID } from the game's static data; null for what is no station there. */
 function defaultStationOwner(stationID) {
   // eslint-disable-next-line global-require
@@ -1021,19 +1023,6 @@ function defaultStationOwner(stationID) {
   if (ownerID === null) return null;
   const corporation = staticData.getCorporation(ownerID);
   return { ownerID, factionID: corporation ? positive(corporation.factionID) : null };
-}
-
-/** A type's group and category (evetypes.GetGroupID and GetCategoryID on the retail client), or null. */
-function defaultTypeFacts(typeID) {
-  // eslint-disable-next-line global-require
-  const type = require("../staticData").getType(typeID);
-  return type ? { groupID: Number.isInteger(type.groupID) ? type.groupID : null, categoryID: Number.isInteger(type.categoryID) ? type.categoryID : null } : null;
-}
-
-function defaultTypeGroup(typeID) {
-  // eslint-disable-next-line global-require
-  const type = require("../staticData").getType(typeID);
-  return type && Number.isInteger(type.groupID) ? type.groupID : null;
 }
 
 /** A positive whole number, however the wire or the JSON spelled it; else null. */
@@ -1117,19 +1106,19 @@ function createGamePortPilots({
   createSpace = (options) => createPilotSpace(options),
   onSpaceError = () => {},
   // What kind a dogma effect is, from the game's static data (dogma.data.get_effect on the retail client).
-  effectCategory = defaultEffectCategory,
+  effectCategory = stockTypes.effectCategory,
   // A type's dogma attribute and its group, for the scanner: a probe's range steps, and whether a launcher's charge is a probe.
-  typeAttribute = defaultTypeAttribute,
-  typeGroup = defaultTypeGroup,
+  typeAttribute = stockTypes.typeAttribute,
+  typeGroup = stockTypes.typeGroup,
   // A type's group and category, for a charge in a module as godma makes its inventory row.
-  typeFacts = defaultTypeFacts,
+  typeFacts = stockTypes.typeFacts,
   // A station's owner and that owner's faction, for the broker's fee: cfg.stations and get_corporation_faction_id on the retail client.
   stationOwner = defaultStationOwner,
   // A type's base price and portion size, for its average price where nothing has traded: evetypes on the retail client.
-  typeBasePrice = defaultTypeBasePrice,
-  typeNames = defaultTypeNames,
+  typeBasePrice = stockTypes.typeBasePrice,
+  typeNames = stockTypes.typeNames,
   // A type's dogma effects, for naming the one a module is switched on by and saying whether it repeats.
-  typeEffects = defaultTypeEffects,
+  typeEffects = stockTypes.typeEffects,
   // Original installed type-effect relations/definitions, distinct from the
   // server SDE summaries used by the existing fitting projection.
   nativeEffectData = null,
@@ -6719,4 +6708,4 @@ function createGamePortPilots({
   };
 }
 
-module.exports = { GamePortPilotError, argumentsToWire, boundObjectID, createGamePortPilots };
+module.exports = { GamePortPilotError, argumentsToWire, boundObjectID, createGamePortPilots, pilotTypeLookups };

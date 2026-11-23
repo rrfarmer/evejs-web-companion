@@ -29,7 +29,7 @@ const { createFactorySessions } = require("./factorySessions");
 const { createReplenishment } = require("./replenishment");
 const { createPilotMutationFence } = require("./pilotMutationFence");
 const { createPilotTransport, isGamePortHandle, pilotTransportSetting } = require("./pilotTransport");
-const { createGamePortPilots } = require("./gamePort/pilots");
+const pilotPort = require("./gamePort/pilots");
 const { createEwarTypes } = require("./gamePort/ewarTypes");
 const { createGodmaEffectData } = require("./gamePort/godmaEffectData");
 const { createGodmaAttributeData } = require("./gamePort/godmaAttributeData");
@@ -165,6 +165,7 @@ function sendBotScriptError(res, error, next) {
 
 function createApp(options = {}) {
 const effectiveCatalog = options.effectiveCatalog || createEffectiveCatalog();
+const staticData = options.staticData || staticDataModule.createStaticData(effectiveCatalog);
 const app = express();
 const store = options.eveStore || eveStore;
 let replenishment;
@@ -222,7 +223,8 @@ const nativePreferencesProvider = nativeClientOn ? createClientPreferencesProvid
 const gamePortPilots = options.gamePortPilots !== undefined
   ? options.gamePortPilots
   : someoneOnGamePort && !options.eveGatewayClient
-    ? createGamePortPilots({
+    ? pilotPort.createGamePortPilots({
+      ...pilotPort.pilotTypeLookups(() => staticData),
       onLoginProgram: effectiveCatalog.observeLogin,
       // "Released" is said once the server itself has the character offline.
       isOnline: async (accountID, characterID) => (await accountGateway.getCharacterStatus(accountID, characterID))?.online,
@@ -373,7 +375,6 @@ const trackedPilotTransport = journaledPilotTransport(createPilotTransport({
 }), bridgeSessionJournal);
 const gateway = mutationFence.wrap(trackedPilotTransport);
 const auth = options.webAuth || webAuth;
-const staticData = options.staticData || staticDataModule.createStaticData(effectiveCatalog);
 // The retail client's own text for the labels the server sends, read from the
 // player's installed client when there is one (src/clientData/clientWords.js).
 const clientWords = options.clientWords || createClientWords({

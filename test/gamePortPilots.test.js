@@ -2989,6 +2989,50 @@ const TYPE_EFFECTS = {
 const MODULE_PAIRS = new Set(["ship.MachoBindObject", "ship.Undock", "dogmaIM.Activate", "dogmaIM.Deactivate"]);
 const moduleOptions = (more = {}) => ({ typeEffects: (typeID) => TYPE_EFFECTS[typeID] ?? [], typeAttribute: () => null, allowed: MODULE_PAIRS, ...more });
 
+test("two held GamePort pilots resolve their fitted module against the current login catalog", async t => {
+  const { createEffectiveCatalog } = require("../src/effectiveCatalog");
+  const { createStaticData } = require("../src/staticData");
+  const { pilotTypeLookups } = require("../src/gamePort/pilots");
+  const { GamePortSession } = require("../src/gamePort/session");
+  const { loginProgram, marshal } = require("./helpers/catalogLogin");
+  const catalog = createEffectiveCatalog();
+  const data = createStaticData(catalog);
+  const moduleID = 2100000921, effectID = 2100000998;
+  const wrapped = name => loginProgram({
+    additions: {
+      itemTypes: [{ typeID: moduleID, groupID: 46, categoryID: 7, name: "Fixture module", published: true }],
+      typeDogma: { [moduleID]: { typeID: moduleID, attributes: {}, effects: [effectID], defaultEffectID: effectID } },
+    },
+    effects: { [effectID]: { effectID, name, effectCategoryID: 1 } },
+  });
+  const allInfo = fittedAllInfo({ locationID: SYSTEM });
+  const [, moduleRow] = allInfo.args.entries[0][1].entries;
+  moduleRow[1].args.entries.find(([key]) => key.toString() === "invItem")[1].fields.typeID = moduleID;
+  const fields = [FIELDS, { userid: ACCOUNT + 1, userName: "other" }];
+  const built = build({ ...IN_SPACE, userid: name => name === "other" ? ACCOUNT + 1 : ACCOUNT,
+    answers: { ...IN_SPACE.answers, "bound:GetAllInfo": allInfo, "charUnboundMgr.GetCharacterSelectionData":
+      selectionData([characterRow(), characterRow({ characterID: PILOT + 1 })]) },
+  }, { ...handTicked().options, ...pilotTypeLookups(() => data), allowed: MODULE_PAIRS });
+  t.after(() => built.pilots.shutdown());
+
+  const handles = [];
+  for (const [i, program] of [wrapped("fixtureCycle"), marshal("ordinary_login()")].entries()) {
+    new GamePortSession({ transport: {}, onLoginProgram: catalog.observeLogin })._runHandshakeFunction(program);
+    const selected = await built.pilots.selectCharacter([PILOT + i, null, true], null, fields[i]);
+    handles.push(selected.bridgeSessionID);
+  }
+  assert.equal(built.pilots.size, 2);
+  async function checkEffect(name) {
+    for (const [i, handle] of handles.entries()) {
+      await built.pilots.callMethod("dogmaIM", "Deactivate", [FITTED_MODULE, ""], null, fields[i], handle);
+      assert.deepEqual(built.made[i].boundCalls.findLast(call => call.method === "Deactivate").args, [FITTED_MODULE, name]);
+    }
+  }
+  await checkEffect("fixtureCycle");
+  new GamePortSession({ transport: {}, onLoginProgram: catalog.observeLogin })._runHandshakeFunction(wrapped("updatedCycle"));
+  await checkEffect("updatedCycle");
+});
+
 test("undock is made as the client makes it: on the ship object bound for the station, with the online modules by slot", async () => {
   const { pilots, session, handle } = await selected({ answers: { "bound:GetAllInfo": fittedAllInfo() } }, moduleOptions());
   // The BFF's route asks the service by name, with an empty list.
