@@ -125,7 +125,7 @@
     ["UI/Common/Type", "UI/Inventory/TypeReversed", "type", "Type", "Type (reversed)"], ["UI/Inventory/EstPrice", "UI/Inventory/EstPriceReversed", "estPrice", "Est. Price", "Est. Price (reversed)"]] as const;
   /** invCont.GetViewModeName / GetViewModeIcon. */
   const VIEW_MODES = [["icons", "UI/Inventory/Icons", "Icons", "grid_view"], ["details", "UI/Inventory/Details", "Details", "details_view"], ["list", "UI/Inventory/List", "List", "list_view"]] as const;
-  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/ShortcutBrackets", "UI/Inventory/SlotRigs", "UI/Inventory/SlotHigh", "UI/Inventory/SlotMedium", "UI/Inventory/SlotLow", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SelectAll", "UI/Inventory/NothingFoundFiltered", "UI/Common/NothingFound", "UI/Fitting/FittingWindow/SimulateShipFitting", "UI/Inventory/InvertSelection", "UI/Common/SortBy", "UI/Inventory/ViewMode",
+  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/ShortcutBrackets", "UI/Inventory/SlotRigs", "UI/Inventory/SlotHigh", "UI/Inventory/SlotMedium", "UI/Inventory/SlotLow", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SelectAll", "UI/Inventory/NothingFoundFiltered", "UI/Common/NothingFound", "UI/Fitting/FittingWindow/SimulateShipFitting", "UI/Inventory/InvertSelection", "UI/Common/SortBy", "UI/Inventory/ViewMode", "UI/Inventory/Clear",
     "UI/Inventory/Filters/MyFilters", "UI/Inventory/CreateFilter", "UI/Commands/Remove", "UI/Inventory/Filters/Edit", ...DEFAULT_INVENTORY_FILTERS.map(([key]) => key), "UI/Common/NothingFound", "UI/Inventory/OpenInNewWindow", "UI/Common/Buttons/Close", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
   flow.requestWords(WORDS);
   const word = (label: string, own: string, args: Record<string, string | number> = {}) => {
@@ -958,7 +958,15 @@
         <span class="gfill sec" use:morphFill={{ width: secondaryFill }}></span>
         <span class="gtext">{capacityText}</span>
       </div>
-      <input class="search" placeholder="Search" value={$filterSig} oninput={(e) => filterSig.set((e.target as HTMLInputElement).value)} />
+      <!-- InvContQuickFilter: the SingleLineEdit (hint text UI/Common/Search) and its clear button (ShowClearButton: the
+           73_16_210 ButtonIcon, 16 x 16 at the right, shown once there is text; hint UI/Inventory/Clear) -->
+      <span class="search-box">
+        <input class="search" placeholder="Search" value={$filterSig} oninput={(e) => filterSig.set((e.target as HTMLInputElement).value)} />
+        {#if $filterSig}
+          <button type="button" class="sclear" title={word("UI/Inventory/Clear", "Clear")} aria-label={word("UI/Inventory/Clear", "Clear")}
+            style:background-image={`url(${clientTexture("res:/UI/Texture/icons/73_16_210.png")})`} onclick={() => filterSig.set("")}></button>
+        {/if}
+      </span>
     </div>
     {/if}
     <div class="items" role="list" tabindex="-1" onclick={(e) => { selected = []; (e.currentTarget as HTMLElement).focus({ preventScroll: true }); }} onkeydown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); e.stopPropagation(); selected = shown.map((i) => i.itemID); } else if (!e.ctrlKey && !e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) { if (viewMode !== "icons") { e.preventDefault(); e.stopPropagation(); browseItems(e.key === "ArrowUp", e.shiftKey, e.currentTarget as HTMLElement); } } else if (!e.ctrlKey && !e.altKey && (e.key === "Home" || e.key === "End")) { e.preventDefault(); e.stopPropagation(); scrollListHomeEnd(e.currentTarget.firstElementChild as HTMLElement ?? e.currentTarget, e.key === "End"); } }} oncontextmenu={(e) => { e.preventDefault(); menu.open(e.clientX, e.clientY, containerMenu()); }}
@@ -1111,7 +1119,10 @@
   .gfill.add { background: color-mix(in srgb, var(--theme-focus, #58a7bf) 60%, transparent); }
   .gfill.add.over { background: rgb(243, 144, 88); }
   .gtext { position: absolute; left: 8px; top: 1px; line-height: 24px; font-size: 12px; color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
-  .search { width: auto; flex: 1; min-width: 0; margin-left: 8px; height: 24px; box-sizing: border-box; border: 0; background: rgba(0, 0, 0, 0.3); color: #fff; padding: 0 6px; font-size: 14px; }
+  .search-box { position: relative; flex: 1; min-width: 0; margin-left: 8px; display: flex; }
+  .sclear { position: absolute; right: 4px; top: 50%; width: 16px; height: 16px; min-height: 0; max-height: 16px; box-sizing: border-box; margin-top: -8px; padding: 0; border: 0; background: center / 16px 16px no-repeat; opacity: 0.75; cursor: pointer; }
+  .sclear:hover { opacity: 1; }
+  .search { width: auto; flex: 1; min-width: 0; margin-left: 0; height: 24px; box-sizing: border-box; border: 0; background: rgba(0, 0, 0, 0.3); color: #fff; padding: 0 6px; font-size: 14px; }
   /* the ShipCargo scroll's entries and the footer's labels from 16 past the tree column (186) */
   /* the icon view: InvItem 64 wide, GetEntryColMargin 16 between columns, rows of GetEntryHeight (103) touching */
   .items { padding-left: 4px; flex: 1; overflow: auto; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 0 16px; }
