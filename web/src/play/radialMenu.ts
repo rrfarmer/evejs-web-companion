@@ -334,7 +334,9 @@ export class RadialMenu {
     // The second ring opens as the pointer comes onto "more" (the client loads it on mouse-over).
     if (option?.more && !option.disabled && !this.second) {
       this.second = true;
-      this.lay(option.more, this.slots[index!]!.degree, true);
+      // GetObjectsSecondaryActions: the second level starts with SecondLevelRadialMenuAction(hasExtraOptions False) - a
+      // disabled plus.png slice over the opening one
+      this.lay([{ label: "", icon: TEX("plus.png"), disabled: true }, ...option.more], this.slots[index!]!.degree, true);
       // MoveMouseSecondLevel: the second level loaded - ui_radial_expand_play
       void playUiEvent("ui_radial_expand_play");
       this.hovered = null;

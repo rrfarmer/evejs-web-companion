@@ -3839,7 +3839,14 @@ export class SpaceView {
     const showInfo: RadialOption = this.options.showInfo
       ? { label: "Show Info", icon: icon(24), run: () => this.options.showInfo!(id, e.typeID ?? null) }
       : { label: "Show Info", icon: icon(24), disabled: true };
-    const lookAt: RadialOption = { label: "Look At", icon: icon(20), run: () => this.focusOn(id) };
+    const say = (label: string, own: string) => this.actions.word?.(label) ?? own;
+    // lookAtOption: Look At (44_32_20), or Reset Camera (resetCamera.png) on the object looked at
+    const lookAt: RadialOption = this.lookAt === id
+      ? { label: say("UI/Inflight/ResetCamera", "Look At My Ship"), icon: RADIAL_ICON("res:/UI/Texture/classes/RadialMenuActions/resetCamera.png"), run: () => this.focusOn(null) }
+      : { label: say("UI/Inflight/LookAtObject", "Look At"), icon: icon(20), run: () => this.focusOn(id) };
+    // setInterestOption (44_32_65): the camera tracks it; bookMarkOption (bookmark.png): Save Location
+    const setInterest: RadialOption = { label: say("UI/Inflight/SetAsCameraInterest", "Set as Camera Interest"), icon: icon(65), run: () => { this.endExplosionCamera(); this.trackedObjective = id; } };
+    const bookmark: RadialOption = { label: say("UI/Inflight/BookmarkLocation", "Save Location..."), icon: RADIAL_ICON("res:/UI/Texture/Icons/bookmark.png"), disabled: !this.actions.saveLocation, run: () => this.actions.saveLocation?.(id, e.typeID ?? null) };
     let options: (RadialOption | null)[];
     if (e.isSelf) {
       options = [
@@ -3860,7 +3867,12 @@ export class SpaceView {
       // (44_32_11) - and in the more ring Look At, Set Interest, Return and Orbit (44_32_3), Scoop to Cargo Hold, Return to
       // Drone Bay (44_32_1), a gap, Scoop to Drone Bay (scoopDrone.png), each offered as the drone menu offers it
       const droneRadial = (e as Entity & { categoryID?: number | null }).categoryID === 18 || e.kind === "drone" ? this.droneRadial(e, dist, icon, lookAt) : null;
-      const more: (RadialOption | null)[] = droneRadial ? droneRadial.more : [lookAt, ...this.sovHubEntries(e, dist)];
+      // secondaryCategoryActions: Look At, Save Location and Set as Camera Interest for an asteroid, station, structure,
+      // starbase, sovereignty structure, celestial, orbital or deployable; Look At and Set Interest for an entity, ship
+      // or fighter
+      const category = (e as Entity & { categoryID?: number | null }).categoryID ?? null;
+      const placed = category === null ? e.kind !== "ship" && e.kind !== "npc" : [25, 3, 65, 23, 40, 2, 46, 22].includes(category);
+      const more: (RadialOption | null)[] = droneRadial ? droneRadial.more : [...(placed ? [lookAt, bookmark, setInterest] : [lookAt, setInterest]), ...this.sovHubEntries(e, dist)];
       if (drill) more.push({ label: drill.title, icon: drill.icon, run: run(drill.title, drill.run) });
       for (const entry of this.metenoxEntries(e)) more.push({ label: entry.title, icon: entry.icon, run: run(entry.title, entry.run) });
       const wormhole = this.wormholeEntry(e);
