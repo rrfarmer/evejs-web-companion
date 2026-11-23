@@ -192,6 +192,10 @@ export class RadialMenu {
     this.rangeHeld = this.lastLength = this.lastY = null;
     this.drawRange(null, 0);
     this.lay(options.slice(0, 8), 0, false);
+    // RadialMenuSpace.LoadMyActions(animate) -> AnimateMenuFromCenter(duration 0.1): each slice from half its size and
+    // half opacity, the shadow from half size and half opacity (to 1.3, shown as 1), ANIM_SMOOTH
+    for (const s of this.slots) s.el.animate([{ transform: `rotate(${s.degree}deg) scale(0.5)`, opacity: 0.5 }, { transform: `rotate(${s.degree}deg) scale(1)`, opacity: 1 }], { duration: 100, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" });
+    this.root.querySelector<HTMLElement>(".radial-shadow")?.animate([{ transform: "scale(0.5)", opacity: 0.5 }, { transform: "scale(1)", opacity: 1 }], { duration: 100, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" });
     this.say(title);
     this.sayOption(null, null);
     // RadialMenu.ApplyAttributes: ui_radial_open_play
@@ -200,6 +204,10 @@ export class RadialMenu {
 
   close(): void {
     if (!this.isOpen) return;
+    if (this.closeTimer !== null) { clearTimeout(this.closeTimer); this.closeTimer = null; }
+    this.closing = false;
+    this.root.style.pointerEvents = "";
+    for (const a of this.root.querySelector<HTMLElement>(".radial-shadow")?.getAnimations() ?? []) a.cancel();
     // RadialMenu._OnClose: ui_radial_close
     void playUiEvent("ui_radial_close");
     this.root.style.display = "none";
@@ -221,7 +229,7 @@ export class RadialMenu {
       const el = document.createElement("div");
       el.className = `radial-slot${option ? "" : " empty"}${option?.disabled ? " disabled" : ""}`;
       el.style.transform = `rotate(${degree}deg)`;
-      el.innerHTML = `<div class="radial-slice" style="--tex:url(${TEX(option ? "slice_45.png" : "emptySlice_45.png")})"></div>
+      el.innerHTML = `<div class="radial-slice" style="--tex:url(${TEX(option ? "slice_45.png" : "emptySlice_45.png")}); --sel:url(${TEX("selected_45.png")})"></div>
         <div class="radial-hilite" style="--tex:url(${TEX("mouseOver_45.png")})"></div>
         ${option?.ranges ? `<div class="radial-arrow" style="--tex:url(${TEX("rangeArrow.png")})"></div>` : ""}
         ${option ? `<img class="radial-icon" alt="" src="${option.more ? option.icon || TEX("plus.png") : option.icon}" style="transform: rotate(${-degree}deg)">` : ""}`;
@@ -267,7 +275,7 @@ export class RadialMenu {
   private lastY: number | null = null;
 
   private move(x: number, y: number): void {
-    if (!this.isOpen) return;
+    if (!this.isOpen || this.closing) return;
     const dyMove = this.lastY === null ? 0 : y - this.lastY;
     this.lastY = y;
     let { index, length } = this.aim(x, y);
@@ -312,7 +320,12 @@ export class RadialMenu {
     }
   }
 
+  /** RunClosingAnimation_thread running (isClosing): moves and releases ignored until it closes. */
+  private closing = false;
+  private closeTimer: ReturnType<typeof setTimeout> | null = null;
+
   private release(x: number, y: number, click = false): void {
+    if (this.closing) return;
     // OnMouseUp acts on the selected button and its range as the last move left them
     this.move(x, y);
     const index = this.hovered;
@@ -323,8 +336,21 @@ export class RadialMenu {
     const range = option.ranges ? this.range : undefined;
     // RadialMenu.ClickButton: ui_radial_select_play, then the menu closes
     void playUiEvent("ui_radial_select_play");
-    this.close();
     option.run(range === undefined ? undefined : Math.round(range));
+    // RunClosingAnimation_thread (0.5 s): the other slices AnimateFromCenter(grow False) to half size and nothing over
+    // 0.25 s; the taken one's SelectButtonSlice - its selection slice shown, moved out 10 (top 0 -> -10 by the half,
+    // then held), its opacity blinking (0.5: as it was, 0.6: 1.5, 0.7: 0.5, 0.8: 1.5, 1: 0) - then Close
+    this.closing = true;
+    this.root.style.pointerEvents = "none";
+    this.slots.forEach((s, i) => {
+      if (i === index) {
+        s.el.classList.add("selected");
+        s.el.animate([{ transform: `rotate(${s.degree}deg) translateY(0)`, offset: 0 }, { transform: `rotate(${s.degree}deg) translateY(-10px)`, offset: 0.5 }, { transform: `rotate(${s.degree}deg) translateY(-10px)`, offset: 1 }], { duration: 500, fill: "forwards" });
+        s.el.animate([{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1, offset: 0.6 }, { opacity: 0.5, offset: 0.7 }, { opacity: 1, offset: 0.8 }, { opacity: 0, offset: 1 }], { duration: 500, fill: "forwards" });
+      } else s.el.animate([{ transform: `rotate(${s.degree}deg) scale(1)`, opacity: 1 }, { transform: `rotate(${s.degree}deg) scale(0.5)`, opacity: 0 }], { duration: 250, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)", fill: "forwards" });
+    });
+    this.root.querySelector<HTMLElement>(".radial-shadow")?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 250, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)", fill: "forwards" });
+    this.closeTimer = setTimeout(() => this.close(), 500);
   }
 }
 
@@ -339,6 +365,8 @@ export const RADIAL_CSS = `
 .radial-slice { background: rgba(28, 33, 38, 0.82); }
 .radial-slot.empty .radial-slice { background: rgba(160, 170, 180, 0.35); }
 .radial-hilite { background: rgba(170, 210, 240, 0.0); transition: background 0.12s; }
+/* SelectButtonSlice -> ShowSelectionSlice: the slice's own texture swapped for selected_45 (opacity 0.9) */
+.radial-slot.selected .radial-slice { -webkit-mask-image: var(--sel); mask-image: var(--sel); background: rgba(170, 210, 240, 0.9); }
 .radial-slot.hover:not(.disabled):not(.empty) .radial-hilite { background: rgba(170, 210, 240, 0.55); }
 .radial-arrow { left: 41px !important; top: 1px !important; width: 18px !important; height: 12px !important; background: rgba(255,255,255,0.9); }
 .radial-slot.disabled .radial-arrow { background: rgba(255,255,255,0.35); }
