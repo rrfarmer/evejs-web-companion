@@ -9,6 +9,7 @@ import { ContextMenu } from "./contextMenu.ts";
 import { playUiEvent } from "./uiAudio.ts";
 import { PlayWindow, WINDOW_ACTION_WORDS, clientTexture } from "./window.ts";
 import { bracketIcon } from "./brackets.ts";
+import { noticeBoard } from "../ui/notices.ts";
 
 const AU = 149_597_870_700;
 /** The angles the client's scanner offers, in degrees. */
@@ -85,7 +86,7 @@ export const DSCAN_WORDS: readonly string[] = [...WINDOW_ACTION_WORDS, "UI/Infli
   "UI/Inflight/Scanner/Range", "UI/Inflight/Scanner/UnitAU", "UI/Inflight/Scanner/UnitKm", "UI/Inflight/Scanner/Angle",
   "UI/Inflight/Scanner/AngleDegrees", "UI/Inflight/Scanner/Scan", "UI/Common/Group", "UI/Common/Name", "UI/Common/Type", "UI/Common/Distance",
   "UI/Inflight/Scanner/AlignWithCamera", "UI/Inflight/Scanner/ShowScanCone", "UI/Map/MapPallet/btnSolarsystemMap",
-  "UI/Inflight/Scanner/Filtered", "UI/Inflight/Scanner/DirectionalNoResult", "UI/Inflight/Scanner/UseActiveOverviewSettings"];
+  "UI/Inflight/Scanner/Filtered", "UI/Inflight/Scanner/DirectionalNoResult", "UI/Common/EntriesCopied", "UI/Inflight/Scanner/UseActiveOverviewSettings"];
 /**
  * The scanner's settings the client keeps for the user (settings.user.ui): dir_scanrange (km; SetScanRange),
  * scan_angleSlider (radians; SetScanAngle), scanner_rangeEditMode (RANGEMODE_AU 1, RANGEMODE_KM 2). Here in the
@@ -155,6 +156,21 @@ export class DScanWindow {
   /** The scroll's selected entries by itemID (Scroll.SelectNode: a click one, Ctrl toggles, Shift from the last clicked). */
   private selectedIDs = new Set<number>();
   private anchorID: number | null = null;
+  /** Each entry as GetCopyData gives it (typeID, name, type, the distance as shown), in the scroll's order. */
+  private copyRows: { id: number; text: string }[] = [];
+  /**
+   * Scroll.Copy (Ctrl+C on the scroll): the selected entries' GetCopyData - every entry where none is selected - one a
+   * line, <t> as a tab, tags stripped; then UI/Common/EntriesCopied with their count.
+   */
+  private async copy(): Promise<void> {
+    const chosen = this.copyRows.filter((row) => this.selectedIDs.has(row.id));
+    const rows = chosen.length ? chosen : this.copyRows;
+    if (!rows.length) return;
+    try {
+      await navigator.clipboard.writeText(rows.map((row) => row.text).join("\n"));
+      noticeBoard.post({ kind: "info", title: this.word("UI/Common/EntriesCopied", `${rows.length} entries copied`, { numEntries: rows.length }) });
+    } catch { /* the clipboard refused */ }
+  }
   private selectEntry(id: number, order: readonly number[], ev: MouseEvent): void {
     const from = this.anchorID === null ? -1 : order.indexOf(this.anchorID);
     if (ev.shiftKey && from >= 0) {
@@ -531,14 +547,17 @@ export class DScanWindow {
     });
     if (this.sort.reversed) entries.reverse();
     const order = entries.map((e) => e.row.id);
+    this.copyRows = entries.map((e) => ({ id: e.row.id, text: [String(e.row.typeID), e.name, e.type, distanceWords(e.distance)].join("\t") }));
     for (const id of [...this.selectedIDs]) if (!order.includes(id)) this.selectedIDs.delete(id);
     for (const { row, name, type, distance } of entries) {
       const tr = document.createElement("tr");
       // DirectionalScanResultEntry: a click selects it and runs a loaded combat command on it, a double-click selects
       // it and shows its info, a right-click its CelestialMenu (its own GetMenu, not the base's: no selection first)
       tr.dataset.id = String(row.id);
+      tr.tabIndex = -1;
       if (this.selectedIDs.has(row.id)) tr.classList.add("sel");
-      tr.addEventListener("click", (ev) => { this.selectEntry(row.id, order, ev); this.hooks.combatClick?.(row.id); });
+      tr.addEventListener("click", (ev) => { this.selectEntry(row.id, order, ev); tr.focus({ preventScroll: true }); this.hooks.combatClick?.(row.id); });
+      tr.addEventListener("keydown", (ev) => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "c") { ev.preventDefault(); ev.stopPropagation(); void this.copy(); } });
       tr.addEventListener("dblclick", () => { this.selectedIDs = new Set([row.id]); this.anchorID = row.id; for (const x of this.tbody.querySelectorAll<HTMLTableRowElement>("tr[data-id]")) x.classList.toggle("sel", x === tr); this.hooks.showInfo?.(row.id, row.typeID); });
       tr.addEventListener("contextmenu", (ev) => { ev.preventDefault(); ev.stopPropagation(); this.hooks.menu?.(row.id, row.typeID, ev.clientX, ev.clientY); });
       tr.addEventListener("mouseenter", () => this.hooks.hoverResult?.(row.typeID));
