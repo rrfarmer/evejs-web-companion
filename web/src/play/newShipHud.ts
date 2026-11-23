@@ -916,17 +916,22 @@ export class NewShipHud {
       const order = [...this.holds.filter((h) => h.key !== this.trackedHold)].sort((x, y) => (x.key === "cargo" ? -1 : y.key === "cargo" ? 1 : holdID(x.key) < holdID(y.key) ? -1 : holdID(x.key) > holdID(y.key) ? 1 : 0));
       const current = this.holds.find((h) => h.key === this.trackedHold);
       const items = current ? [...order, current] : order;
-      this.holdPicker.replaceChildren(...items.map((h) => {
+      // OpenFlyout: _HoldItem slots of 16 at _FLYOUT_PAD 4 + index x _HOLD_PITCH 24
+      this.holdPicker.replaceChildren(...items.map((h, index) => {
         const i = document.createElement("button");
         i.type = "button";
         i.title = h.label;
-        Object.assign(i.style, { width: "16px", height: "16px", margin: "4px", padding: "0", border: "0", background: "transparent", cursor: "pointer", display: "block" });
+        Object.assign(i.style, { position: "absolute", left: "4px", top: `${4 + index * 24}px`, width: "16px", height: "16px", padding: "0", border: "0", background: "transparent", cursor: "pointer", display: "block" });
         const g = document.createElement("img");
         g.src = holdGlyph(h.key);
         g.alt = "";
         Object.assign(g.style, { width: "16px", height: "16px" });
         i.append(g);
-        i.addEventListener("click", () => { this.setTrackedHold(h.key); this.holdPicker.style.display = "none"; });
+        // FlyoutItem: a press dips it PRESS_DIP_PX 2; OnClick plays SOUND_BUTTON_CLICK, then OnHoldPicked and the flyout closed
+        i.addEventListener("mousedown", (e) => { e.stopPropagation(); i.style.transform = "translateY(2px)"; });
+        i.addEventListener("mouseup", () => { i.style.transform = ""; });
+        i.addEventListener("mouseleave", () => { i.style.transform = ""; });
+        i.addEventListener("click", () => { void playUiEvent("ui_button_soft4_play"); this.setTrackedHold(h.key); this.holdPicker.style.display = "none"; });
         // _HoldItem (a FlyoutItem): SOUND_BUTTON_HOVER
         i.addEventListener("mouseenter", () => void playUiEvent("ui_button_soft1_play"));
         return i;
@@ -937,7 +942,20 @@ export class NewShipHud {
     Object.assign(this.holdPicker.style, {
       position: "absolute", width: "24px", borderRadius: "12px", background: "rgba(0,0,0,0.8)", display: "none", pointerEvents: "auto",
     });
-    this.holdPicker.addEventListener("mouseleave", () => { this.holdPicker.style.display = "none"; });
+    // CloseFlyout: a ProximitySensor _FLYOUT_PROXIMITY 30 round the flyout closes it as the pointer goes further, and the
+    // scrim under it closes it on a press anywhere else
+    const pickerOpen = () => this.holdPicker.style.display !== "none";
+    const onPickerMove = (e: MouseEvent) => {
+      if (!pickerOpen()) return;
+      const r = this.holdPicker.getBoundingClientRect();
+      if (e.clientX < r.left - 30 || e.clientX > r.right + 30 || e.clientY < r.top - 30 || e.clientY > r.bottom + 30) this.holdPicker.style.display = "none";
+    };
+    const onPickerDown = (e: MouseEvent) => {
+      if (pickerOpen() && !this.holdPicker.contains(e.target as Node)) this.holdPicker.style.display = "none";
+    };
+    document.addEventListener("mousemove", onPickerMove);
+    document.addEventListener("mousedown", onPickerDown, true);
+    this.unsubscribe.push(() => { document.removeEventListener("mousemove", onPickerMove); document.removeEventListener("mousedown", onPickerDown, true); });
     this.root.append(b, this.holdPicker);
   }
 
