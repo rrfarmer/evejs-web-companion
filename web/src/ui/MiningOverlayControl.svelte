@@ -58,6 +58,27 @@
   const space = $derived(store.space);
   const mining = $derived(store.mining);
   const busy = $derived(survey.busy);
+  /**
+   * MiningScannerButton's scanPulse: OnScanEffectStarted FadeTo(0 -> PULSE_PEAK 0.2, PULSE_PERIOD_SEC 1.6, ANIM_REPEAT,
+   * ANIM_WAVE) - each half a smoothstep; OnScanEffectCompleted FadeOut(PULSE_FADE_OUT_SEC 0.6) from wherever the wave is, on
+   * FadeOut's default ANIM_SMOOTH (the page had dropped it to 0 at once).
+   */
+  function scanPulse(node: HTMLElement, on: boolean) {
+    let wave: Animation | null = null;
+    const set = (next: boolean) => {
+      if (next) {
+        if (wave) return;
+        wave = node.animate([{ opacity: 0, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" }, { opacity: 0.2, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" }, { opacity: 0 }], { duration: 1600, iterations: Infinity });
+      } else if (wave) {
+        const from = Number(getComputedStyle(node).opacity);
+        wave.cancel();
+        wave = null;
+        node.animate([{ opacity: from }, { opacity: 0 }], { duration: 600, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" });
+      }
+    };
+    set(on);
+    return { update: set, destroy: () => wave?.cancel() };
+  }
   const shipID = $derived($space.snapshot?.shipID ?? $flight.status?.shipID);
   const supported = $derived(shipID != null && shipID === $fitting.activeShipID &&
     ($fitting.shipAttributes?.[INTEGRATED_MINING_SCANNER] ?? 0) > 0);
@@ -98,7 +119,7 @@
   <div class="new-hud-mining" class:busy={$busy} role="group" aria-label="Mining overlay controls">
     <button type="button" class="util" onclick={run} oncontextmenu={(e) => { tipOff(); showOptions(e); }}
       onmouseenter={tipOn} onmouseleave={tipOff} disabled={miningScanInWarp($space.snapshot)}>
-      <span class="pulse"></span><img src={glyph} alt="" width="16" height="16" />
+      <span class="pulse" use:scanPulse={$busy}></span><img src={glyph} alt="" width="16" height="16" />
     </button>
     {#if tip}
       <!-- MiningScannerButton.LoadTooltipPanel: the command's tooltip (CmdMiningScan, Tooltips/Hud/MiningScan, no
@@ -169,7 +190,5 @@
   .new-hud-mining .util img { opacity: .5; mix-blend-mode: plus-lighter; }
   .new-hud-mining .util:hover img { opacity: 1; }
   .new-hud-mining .pulse { position: absolute; inset: 0; border-radius: 50%; background: url("/client-res/ui/texture/classes/shipui/utilbtnglow.png") center / 32px 32px; opacity: 0; mix-blend-mode: plus-lighter; }
-  .new-hud-mining.busy .pulse { animation: mining-pulse 1.6s cubic-bezier(0.3333, 0, 0.6667, 1) infinite; }
-  @keyframes mining-pulse { 0%, 100% { opacity: 0; } 50% { opacity: .2; } }
   .new-hud-mining .flight-mining-actions { bottom: calc(100% + 4px); left: 0; }
 </style>
