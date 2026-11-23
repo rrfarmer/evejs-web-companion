@@ -142,8 +142,7 @@
   // between (slotSpacing), at most 3 (GetStackSize), the rest queued and shown as a slot frees, the last queued first
   // (overFlowStack.pop()); on show notify_beep3_play and the entry's Blink; each fades out over 0.5 s once the
   // pointer has been off it for GetFadeTime 5 s (its AutoCloser), or goes at once by its close button. A click does
-  // what the history's does. Not ported: the swoop of the blink (a fade of
-  // buttonBlink.png here), the popup settings (all types pop up).
+  // what the history's does. Not ported: the popup settings (all types pop up).
   interface Popup { readonly id: number; readonly title: string; readonly detail: string | null; readonly typeID: number | null;
     readonly action: (() => void) | null; outSince: number | null; fading: boolean; h: number }
   let popups = $state<Popup[]>([]);
@@ -363,8 +362,16 @@
   .nf-wrap { position: relative; left: 0; top: 0; margin-left: 55px; padding: 5px 0; width: 224px; }
   .nf-wrap .nf-subject { white-space: normal; }
   .nf-detail { line-height: 18px; }
-  .nf-blink { position: absolute; inset: 0; background-size: 100% 100%; opacity: 0; pointer-events: none; animation: nf-blink 0.8s ease-out; }
-  @keyframes nf-blink { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: 0; } }
+  /* NotificationEntry.Blink: SpSwoopBlink(buttonBlink.png, rotation 0.75 pi, 0.8 s, once, ANIM_LINEAR) - the sprite
+     modulated by swoopGradient.png (a band one texture wide: alpha 0 at its edges, half at 0.24 / 0.76, full 0.44 - 0.55,
+     read in the page) turned 135 degrees and slid from -1 to 2: here a 135 deg gradient mask, the band 70.7 % of the
+     gradient line wide (one texture width along u + v), its middle from -106 % to 106 % */
+  .nf-blink { position: absolute; inset: 0; background-size: 100% 100%; pointer-events: none; --nf-swoop: -106%;
+    -webkit-mask-image: linear-gradient(135deg, transparent calc(50% + var(--nf-swoop) - 35%), rgba(0, 0, 0, 0.5) calc(50% + var(--nf-swoop) - 19%), #000 calc(50% + var(--nf-swoop) - 4%), #000 calc(50% + var(--nf-swoop) + 4%), rgba(0, 0, 0, 0.5) calc(50% + var(--nf-swoop) + 19%), transparent calc(50% + var(--nf-swoop) + 35%));
+    mask-image: linear-gradient(135deg, transparent calc(50% + var(--nf-swoop) - 35%), rgba(0, 0, 0, 0.5) calc(50% + var(--nf-swoop) - 19%), #000 calc(50% + var(--nf-swoop) - 4%), #000 calc(50% + var(--nf-swoop) + 4%), rgba(0, 0, 0, 0.5) calc(50% + var(--nf-swoop) + 19%), transparent calc(50% + var(--nf-swoop) + 35%));
+    animation: nf-swoop 0.8s linear forwards; }
+  @keyframes nf-swoop { from { --nf-swoop: -106%; } to { --nf-swoop: 106%; } }
+  @property --nf-swoop { syntax: "<percentage>"; inherits: false; initial-value: -106%; }
   .nf-badge { position: fixed; right: 50px; bottom: 22px; height: 20px; z-index: 25; pointer-events: none; opacity: 0; transition: opacity 0.25s;
     font: bold 14px/18px 'EVE Sans Neue', 'Segoe UI', sans-serif; color: rgba(255, 255, 255, 0.75); }
   .nf-badge.shown { opacity: 1; }
