@@ -271,6 +271,34 @@ export function decodeDroneOrderRefusals(
   return refusals;
 }
 
+/** One drone's error as the client raises it: UserError(key, values) - the tuple the order's answer holds for it. */
+export interface DroneOrderError {
+  readonly droneID: number;
+  readonly key: string;
+  readonly values: JsonValue | null;
+}
+
+function errorTupleOf(value: JsonValue | undefined, depth = 0): { key: string; values: JsonValue | null } | null {
+  if (depth > 4 || !Array.isArray(value)) return null;
+  if (value.length >= 1 && typeof value[0] === "string" && value[0] !== "") return { key: value[0], values: value.length > 1 ? value[1] ?? null : null };
+  for (const item of value) { const found = errorTupleOf(item, depth + 1); if (found) return found; }
+  return null;
+}
+
+/** Each refused drone's (key, values), in the order the answer gives them (ret's values, as HandleMultipleCallError reads). */
+export function decodeDroneOrderErrors(raw: JsonValue | undefined): readonly DroneOrderError[] {
+  const entries = asObject(raw).entries;
+  if (!Array.isArray(entries)) return [];
+  const out: DroneOrderError[] = [];
+  for (const entry of entries as JsonValue[]) {
+    if (!Array.isArray(entry) || entry.length < 2) continue;
+    const droneID = idOrNull(entry[0]);
+    const tuple = errorTupleOf(entry[1]);
+    if (droneID !== null && tuple) out.push({ droneID, ...tuple });
+  }
+  return out;
+}
+
 export interface DroneEngageOutcome {
   readonly status: "accepted" | "refused" | "uncertain";
   readonly acceptedDroneIDs: readonly number[];

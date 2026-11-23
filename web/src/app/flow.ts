@@ -447,6 +447,7 @@ import {
 import {
   decodeDroneBay,
   decodeDroneEngageOutcome,
+  decodeDroneOrderErrors,
   decodeDroneLimits,
   decodeDroneOrderRefusals,
   decodeDronesInSpace,
@@ -27861,6 +27862,26 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }));
   }
 
+  function sayMultipleCallError(droneIDs: readonly number[], errors: readonly { readonly droneID: number; readonly key: string; readonly values: JsonValue | null }[], messageName: string, fallback: string): boolean {
+    if (!errors.length) return false;
+    if (droneIDs.length === 1) {
+      const pick = errors.find((e) => e.droneID === droneIDs[0]) ?? errors[0]!;
+      sayDialog(pick.key, pick.values, fallback);
+      return true;
+    }
+    let lastKey = "";
+    for (const e of errors) {
+      if (e.key !== lastKey && lastKey !== "") {
+        const failed = errors.length;
+        sayDialog(messageName, { type: "dict", entries: [["succeeded", droneIDs.length - failed], ["failed", failed], ["total", droneIDs.length]] }, `${failed} of ${droneIDs.length} drones could not do that.`);
+        return true;
+      }
+      lastKey = e.key;
+    }
+    sayDialog(errors[0]!.key, errors[0]!.values, fallback);
+    return true;
+  }
+
   async function runDroneAction(
     label: string,
     step: () => Promise<{
@@ -27879,6 +27900,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
        */
       reports: readonly { readonly label: string | null; readonly text: string }[],
     ) => string | null,
+    /** The drones ordered and the message for mixed refusals: droneFunctions' HandleMultipleCallError(droneIDs, ret, messageName). */
+    multi?: { readonly droneIDs: readonly number[]; readonly messageName: string },
   ): Promise<void> {
     let result;
     try {
@@ -27903,7 +27926,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // reports) and independently of the verifier below, so a refusal the server
     // explained can never be displaced by our own guess about the same call.
     const reports = droneOrderReports(result.result, inSpace);
-    store.apply({ type: "drones/order-reports", reports });
+    // droneFunctions.HandleMultipleCallError: nothing where every drone took the order; one drone ordered - its own
+    // error; several - the first error, unless two kinds of error came back, then messageName with succeeded / failed /
+    // total. Raised as a UserError, so it is put up as the client puts one up, and not listed in the window as well.
+    const said = multi ? sayMultipleCallError(multi.droneIDs, decodeDroneOrderErrors(result.result), multi.messageName, reports[0]?.text ?? `${label} refused.`) : false;
+    store.apply({ type: "drones/order-reports", reports: said ? [] : reports });
     const complaint = verify(inSpace, decodeDronesInSpace(result.launched), reports);
     if (complaint !== null) {
       store.apply({ type: "drones/silent-decline", message: complaint });
@@ -28099,7 +28126,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await runDroneAction(
       "Engage",
       () => orderedThenRead(() => engageWithDrones(bridgeDo, droneIDs, targetID)),
-      orderVerifier(droneIDs, "The order was accepted, but space could not be re-read."),
+      orderVerifier(droneIDs, "The order was accepted, but space could not be re-read."), { droneIDs, messageName: "MultiDroneCmdResult" },
     );
   }
 
@@ -28107,7 +28134,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await runDroneAction(
       "Mine",
       () => orderedThenRead(() => mineWithDronesCall(bridgeDo, droneIDs, targetID)),
-      orderVerifier(droneIDs, "The order was accepted, but space could not be re-read."),
+      orderVerifier(droneIDs, "The order was accepted, but space could not be re-read."), { droneIDs, messageName: "MultiDroneCmdResult" },
     );
   }
 
@@ -28123,7 +28150,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         const read = await api.getDrones(callOptions);
         return { inSpace: read.inSpace, launched: null, result };
       },
-      orderVerifier(droneIDs, "The order was accepted, but space could not be re-read."),
+      orderVerifier(droneIDs, "The order was accepted, but space could not be re-read."), { droneIDs, messageName: "MultiDroneCmdResult" },
     );
   }
 
@@ -28137,23 +28164,23 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           : // A recalled drone stays visibly in space, flying home, until the
             // runtime scoops it inside 2500 m. So there is nothing to complain
             // about either way: still-there is in progress, gone is done.
-            null,
+            null, { droneIDs, messageName: "MultiDroneCmdResult" },
     );
   }
 
   async function abandonDrones(droneIDs: readonly number[]): Promise<boolean> {
     if (droneIDs.length === 0) return false;
     if (!(await askDialog("ConfirmAbandonDrone", null, "Are you sure you want to abandon the selected drones?", "yesno", { suppressAnswer: "yes" }))) return false;
-    await runDroneAction("Abandon drone", () => orderedThenRead(() => abandonDronesCall(bridgeDo, droneIDs)), () => null);
+    await runDroneAction("Abandon drone", () => orderedThenRead(() => abandonDronesCall(bridgeDo, droneIDs)), () => null, { droneIDs, messageName: "MultDroneCmdResult" });
     return true;
   }
 
   async function droneFleetOrderOf(kind: "assist" | "guard", charID: number, droneIDs: readonly number[]): Promise<void> {
-    await runDroneAction(kind === "assist" ? "Assist" : "Guard", () => orderedThenRead(() => droneFleetOrder(bridgeDo, kind, charID, droneIDs)), () => null);
+    await runDroneAction(kind === "assist" ? "Assist" : "Guard", () => orderedThenRead(() => droneFleetOrder(bridgeDo, kind, charID, droneIDs)), () => null, { droneIDs, messageName: "MultiDroneCmdResult" });
   }
 
   async function returnDronesAndOrbit(droneIDs: readonly number[]): Promise<void> {
-    await runDroneAction("Return and orbit", () => orderedThenRead(() => returnDronesHome(bridgeDo, droneIDs)), () => null);
+    await runDroneAction("Return and orbit", () => orderedThenRead(() => returnDronesHome(bridgeDo, droneIDs)), () => null, { droneIDs, messageName: "MultiDroneCmdResult" });
   }
 
   async function changeDroneSettings(settings: { readonly aggressive: boolean; readonly focusFire: boolean }): Promise<void> {
@@ -28242,6 +28269,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           ? "Nothing was scooped, and the server gave no reason."
           : `${stillOut} of ${droneIDs.length} stayed in space, and the server gave no reason.`;
       },
+      { droneIDs, messageName: "MultiDroneCmdResult" },
     );
   }
 
