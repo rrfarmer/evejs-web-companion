@@ -1631,6 +1631,9 @@ export class NewShipHud {
     this.placeSlots();
   }
 
+  /** The capacitor portion as CapacitorCore last took it (null before a reading). */
+  get capacitorShown(): number | null { return this.capPumped; }
+
   private capacitorNow(incoming: number | null): number | null {
     const now = performance.now();
     if (incoming === null) { this.capBase = null; this.capIncoming = null; this.capPumped = null; return null; }

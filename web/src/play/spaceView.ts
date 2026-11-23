@@ -5672,7 +5672,9 @@ export class SpaceView {
     for (const [id, g] of this.gone) if (performance.now() - g.at > 5000) this.gone.delete(id);
 
     const cap = this.options.rack?.capacitor?.().ratio ?? ego?.capacitorRatio ?? null;
-    this.updateShipAlerts(ego, cap, performance.now());
+    // ShipAlertController.OnCapacitorChange hears CapacitorCore.Update's ScatterEvent: the HUD's own charge on its 500 ms pump
+    const alertCap = this.shipHud instanceof NewShipHud ? (this.shipHud.capacitorShown ?? cap) : cap;
+    this.updateShipAlerts(ego, alertCap, performance.now());
     this.updateIndication(snap, performance.now());
     if (ego) {
       const speed = Math.hypot(ego.velocity.x, ego.velocity.y, ego.velocity.z);
