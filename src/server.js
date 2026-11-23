@@ -10,7 +10,7 @@ const eveStore = require("./eveStore");
 const eveGatewayClient = require("./eveGatewayClient");
 const webAuth = require("./webAuth");
 const staticDataModule = require("./staticData");
-const effectiveCatalog = require("./effectiveCatalog");
+const { createEffectiveCatalog } = require("./effectiveCatalog");
 const { createServerSiteNames } = require("./serverSiteNames");
 const { createClientWords } = require("./clientData/clientWords");
 const { createClientTextures } = require("./clientData/clientTextures");
@@ -164,6 +164,7 @@ function sendBotScriptError(res, error, next) {
 }
 
 function createApp(options = {}) {
+const effectiveCatalog = options.effectiveCatalog || createEffectiveCatalog();
 const app = express();
 const store = options.eveStore || eveStore;
 let replenishment;
@@ -222,6 +223,7 @@ const gamePortPilots = options.gamePortPilots !== undefined
   ? options.gamePortPilots
   : someoneOnGamePort && !options.eveGatewayClient
     ? createGamePortPilots({
+      onLoginProgram: effectiveCatalog.observeLogin,
       // "Released" is said once the server itself has the character offline.
       isOnline: async (accountID, characterID) => (await accountGateway.getCharacterStatus(accountID, characterID))?.online,
       // Each pilot's public gateway notices, on the connection its gateway requests go on (gamePort/publicGateway.js).
@@ -371,7 +373,7 @@ const trackedPilotTransport = journaledPilotTransport(createPilotTransport({
 }), bridgeSessionJournal);
 const gateway = mutationFence.wrap(trackedPilotTransport);
 const auth = options.webAuth || webAuth;
-const staticData = options.staticData || staticDataModule;
+const staticData = options.staticData || staticDataModule.createStaticData(effectiveCatalog);
 // The retail client's own text for the labels the server sends, read from the
 // player's installed client when there is one (src/clientData/clientWords.js).
 const clientWords = options.clientWords || createClientWords({
@@ -386,11 +388,12 @@ const serverSiteNames = options.serverSiteNames || createServerSiteNames({
 });
 // The retail client's built data, read by the client's own loaders from the
 // same install (src/clientData/clientBuiltData.js).
-const clientBuiltData = effectiveCatalog.withEffectiveCatalog(options.clientBuiltData || createClientBuiltData({
+const clientDataSource = options.clientBuiltData || createClientBuiltData({
   clientRoot: config.clientRoot,
   python: config.clientPython,
   onError: (error) => console.warn(`[client-data] a table of the client's built data could not be read: ${error && error.message}`),
-}));
+});
+const clientBuiltData = effectiveCatalog.withEffectiveCatalog(clientDataSource);
 // Where there is no install, the tables the dogma-types route reads, from CCP's SDE of the same build
 // (src/clientData/sdeBuiltData.js; docs/native-layer-optional-plan.md, phase 2). With one, the client's own are read.
 const sdeBuiltData = effectiveCatalog.withEffectiveCatalog(
@@ -13777,21 +13780,25 @@ app.get("/api/client-data/required-skills", requireAuth, async (req, res, next) 
       const typeID = Number(part);
       if (Number.isSafeInteger(typeID) && typeID > 0 && !asked.includes(typeID)) asked.push(typeID);
     }
-    const built = dogmaBuiltData();
-    const table = await built.table("requiredSkillsForTypes");
-    const required = {};
-    const order = {};
-    const missing = new Set();
+    const ids = asked.slice(0, 50);
+    const stock = await clientDataSource.table("requiredSkillsForTypes");
+    const runtime = id => effectiveCatalog.getType(id) && !staticDataModule.getType(id);
+    const hasRuntime = ids.some(runtime);
+    // Only requests for documented runtime additions may use the SDE to resolve
+    // their skill dependencies when client data is unavailable.
+    const table = hasRuntime && (stock || ids.every(runtime))
+      ? await (stock ? clientBuiltData : sdeBuiltData).table("requiredSkillsForTypes") : stock;
+    const required = {}, order = {}, unknown = new Set();
     const walk = (typeID) => {
-      if (Object.hasOwn(required, typeID) || missing.has(typeID)) return;
-      const row = table[typeID];
-      if (!Array.isArray(row)) {
-        missing.add(typeID);
+      if (Object.hasOwn(required, typeID) || unknown.has(typeID)) return;
+      const row = table?.[typeID];
+      if (hasRuntime && !Array.isArray(row) && (runtime(typeID) || !staticData.getType(typeID))) {
+        unknown.add(typeID);
         return;
       }
       const skills = {};
       const inOrder = [];
-      for (const [skillID, level] of row) {
+      for (const [skillID, level] of row ?? []) {
         const skill = Number(skillID);
         const atLevel = Number(level);
         if (Number.isSafeInteger(skill) && skill > 0 && Number.isSafeInteger(atLevel)) {
@@ -13803,20 +13810,9 @@ app.get("/api/client-data/required-skills", requireAuth, async (req, res, next) 
       order[typeID] = inOrder;
       for (const [skill] of inOrder) walk(skill);
     };
-    if (table) {
-      for (const typeID of asked.slice(0, 50)) walk(typeID);
-      // The installed skill table is sparse. Confirm an ordinary type before
-      // treating its missing row as known empty. A mod needs its own Dogma row.
-      const ordinary = [...missing].filter(id => !effectiveCatalog.getType(id));
-      const needsClientType = new Set(ordinary.filter(id => !staticData.getType?.(id)));
-      const types = needsClientType.size ? await built.rows("types", [...needsClientType]) : null;
-      for (const id of ordinary) {
-        if (needsClientType.has(id) && !types?.[id]) continue;
-        required[id] = {};
-        order[id] = [];
-      }
-    }
-    res.json({ ok: true, available: Boolean(table), required, order });
+    if (table) for (const id of ids) walk(id);
+    res.json({ ok: true, available: Boolean(table) && !unknown.size, required, order,
+      ...(unknown.size ? { unknownTypeIDs: [...unknown] } : {}) });
   } catch (error) {
     next(error);
   }
@@ -14523,7 +14519,7 @@ app.get("/api/client-data/type-meta", requireAuth, async (req, res, next) => {
     const [typeRows, metaGroupNames, groupCategories] = await Promise.all([
       clientBuiltData.rows("types", wanted), clientBuiltData.table("metaGroupNameIDs"), clientBuiltData.table("groupCategories"),
     ]);
-    if (!typeRows || (!metaGroupNames && !wanted.some(id => typeRows[id]?.effectiveSource))) {
+    if (!typeRows || (!metaGroupNames && !wanted.every(id => typeRows[id]?.effectiveSource))) {
       res.json({ ok: true, available: false, types: {}, metaGroupNameIDs: {} });
       return;
     }

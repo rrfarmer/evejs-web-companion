@@ -53,12 +53,19 @@ staticTable("typeDogma", { typesByTypeID: { [Bestower]: { attributes: { 182: Ama
 
 const { createApp } = require("./server");
 const { GamePortSession } = require("./gamePort/session");
-const { getType, getDogma, getEffect, withEffectiveCatalog } = require("./effectiveCatalog");
+const { createEffectiveCatalog } = require("./effectiveCatalog");
 
-function loginProgram(catalog) {
-  const packed = deflateSync(Buffer.from(JSON.stringify({ catalog }))).toString("base64");
-  const program = Buffer.from(`catalog = "${packed}"\nraise Exception("the data reader must never run this")`);
-  return Buffer.from(`eval(base64.b64decode('${program.toString("base64")}'))`);
+function marshal(source) {
+  const body = Buffer.from(source);
+  const header = Buffer.alloc(5);
+  header[0] = 0x74;
+  header.writeUInt32LE(body.length, 1);
+  return Buffer.concat([header, body]);
+}
+function loginProgram(catalog, inner = "fixture_native()") {
+  const bundle = deflateSync(Buffer.from(JSON.stringify({ catalog, visuals: {} }))).toString("base64");
+  const program = Buffer.from(`_family_bundle = "${bundle}"\nraise Exception("never execute server code")`).toString("base64");
+  return marshal(`(lambda _result: (eval(compile(__import__('base64').b64decode('${program}'), '<empire-hauler-login>', 'exec'), {'__builtins__': __builtins__, '_family_context': globals()}), _result)[1])(${inner})`);
 }
 
 const nativeCatalog = {
@@ -116,7 +123,9 @@ const installedData = {
 };
 
 test("GamePort publishes one catalog for training, ship reviews and Dogma while retaining stock types", async () => {
+  const effectiveCatalog = createEffectiveCatalog();
   const app = createApp({
+    effectiveCatalog,
     eveStore: {
       async getAccount() { return account; },
       async listCharactersForAccount() { return [{ ...account, characterID, corporationID, characterName: "Fixture pilot" }]; },
@@ -144,9 +153,9 @@ test("GamePort publishes one catalog for training, ship reviews and Dogma while 
   const before = (await read(skillsQuery)).required;
   assert.deepEqual(before[Bestower], { [AmarrHauler]: 1 });
   assert.deepEqual(before[SpaceshipCommand], {});
-  assert.equal(Object.hasOwn(before, FixtureHauler), false);
+  assert.deepEqual(before[FixtureHauler], {});
 
-  const session = new GamePortSession({ transport: { send() {}, close() {} } });
+  const session = new GamePortSession({ transport: {}, onLoginProgram: effectiveCatalog.observeLogin });
   session._runHandshakeFunction([loginProgram(nativeCatalog)]);
   assert.deepEqual(await listedFits(), ["Corp FixtureHauler", "Corp Bestower Hauler", "Other transport"]);
   assert.equal((await read(review + "32")).selected.shipTypeID, FixtureHauler);
@@ -181,21 +190,65 @@ test("GamePort publishes one catalog for training, ship reviews and Dogma while 
   assert.equal(dogma.types[Unknown], null);
   const rawDogma = await read("/api/types/dogma", { typeIDs: [FixtureHauler, ModModule], attributeIDs: [12, 73] });
   assert.deepEqual(rawDogma.attributes, { [FixtureHauler]: { 12: 5 }, [ModModule]: { 73: 1000 } });
-  const groups = await withEffectiveCatalog(installedData).table("typesGroupIDsOrdered");
+  const groups = await effectiveCatalog.withEffectiveCatalog(installedData).table("typesGroupIDsOrdered");
   assert.equal(groups, tables.typesGroupIDsOrdered);
 
   session._runHandshakeFunction(Buffer.from("ordinary login program"));
-  assert.deepEqual(await listedFits(), ["Corp Bestower Hauler"]);
-  assert.equal(getType(FixtureHauler), null);
-  assert.equal(getDogma(FixtureHauler), null);
-  assert.equal(getEffect(ModEffect), null);
+  assert.equal((await listedFits()).length, 3);
+  assert.equal(createEffectiveCatalog().getType(FixtureHauler), null);
+  assert.equal(graph.available, false);
+  assert.deepEqual(graph.unknownTypeIDs.sort(), [Unknown, ModMaterial].sort());
 });
 
-test("malformed catalog records cannot supply type or Dogma metadata", () => {
-  const session = new GamePortSession({ transport: { send() {}, close() {} } });
-  const invalid = structuredClone(nativeCatalog);
-  invalid.additions.typeDogma[FixtureHauler].attributes[12] = "5";
-  session._runHandshakeFunction(loginProgram(invalid));
-  assert.equal(getType(FixtureHauler), null);
-  assert.equal(getDogma(FixtureHauler), null);
+test("only the documented carrier can extend data or recover a known native reply", () => {
+  const catalog = createEffectiveCatalog();
+  const digest = require("node:crypto").createHash("sha256").update(marshal("fixture_native()")).digest("hex");
+  const session = new GamePortSession({ transport: {}, onLoginProgram: catalog.observeLogin,
+    handshakeFunctions: new Map([[digest, "recorded reply"]]) });
+  assert.equal(session._runHandshakeFunction(loginProgram(nativeCatalog)), "recorded reply");
+  assert.equal(session._runHandshakeFunction(loginProgram(nativeCatalog, "different()")), "");
+  const unrelated = createEffectiveCatalog();
+  unrelated.observeLogin(Buffer.from(JSON.stringify({ catalog: nativeCatalog })));
+  assert.equal(unrelated.getType(FixtureHauler), null);
+  for (const change of [c => { c.additions.typeDogma[FixtureHauler].attributes[12] = "5"; },
+    c => { c.additions.typeDogma[ModModule].defaultEffectID = 999; }]) {
+    const invalid = structuredClone(nativeCatalog);
+    change(invalid);
+    unrelated.observeLogin(loginProgram(invalid));
+    assert.equal(unrelated.getType(FixtureHauler), null);
+  }
+});
+
+test("stock rows and skill values win, merged tables are reused", async () => {
+  const catalog = createEffectiveCatalog();
+  const incoming = structuredClone(nativeCatalog);
+  incoming.additions.typeDogma[FixtureHauler].attributes[277] = 9;
+  catalog.observeLogin(loginProgram(incoming));
+  const original = { [FixtureHauler]: [[42, 2]] };
+  const wrapped = catalog.withEffectiveCatalog({ table: async () => original,
+    rows: async () => ({ [FixtureHauler]: { iconID: 42, marketGroupID: 73 } }) });
+  assert.deepEqual((await wrapped.rows("types", [FixtureHauler]))[FixtureHauler], { iconID: 42, marketGroupID: 73 });
+  const table = await wrapped.table("requiredSkillsForTypes");
+  assert.deepEqual(table[FixtureHauler], [[42, 2]]);
+  assert.equal(await wrapped.table("requiredSkillsForTypes"), table);
+});
+
+test("without client data ordinary required-skills and mixed type-meta retain unavailable", async () => {
+  const effectiveCatalog = createEffectiveCatalog();
+  effectiveCatalog.observeLogin(loginProgram(nativeCatalog));
+  const empty = { available: () => false, table: async () => null, rows: async () => null };
+  const app = createApp({ effectiveCatalog, clientBuiltData: empty, sdeBuiltData: installedData,
+    eveStore: { getAccount: async () => account }, eveGatewayClient: gateway,
+    webAuth: { verifySessionToken: () => ({ ...account, sessionID: "read-only" }) } });
+  const baseUrl = "http://catalog.test";
+  const fetch = createInProcessFetch(app, { baseUrl, fetch: () => assert.fail() });
+  async function read(route) {
+    const response = await fetch(new URL("/api/client-data/" + route, baseUrl), { headers: { authorization: "Bearer fixture" } });
+    assert.equal(response.status, 200);
+    return response.json();
+  }
+  assert.equal((await read("required-skills?typeIDs=" + Bestower)).available, false);
+  assert.equal((await read("type-meta?typeIDs=" + FixtureHauler + "," + Bestower)).available, false);
+  assert.equal((await read("type-meta?typeIDs=" + FixtureHauler)).available, true);
+  assert.deepEqual((await read("required-skills?typeIDs=" + FixtureHauler)).required[FixtureHauler], { [AmarrHauler]: 1 });
 });

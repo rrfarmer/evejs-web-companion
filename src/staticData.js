@@ -3,7 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const config = require("./config");
-const effectiveCatalog = require("./effectiveCatalog");
+const { createEffectiveCatalog } = require("./effectiveCatalog");
 
 // Resolved in config.js, which defaults both to the native
 // <eveRoot>/_local/... layout and lets EVEJS_GAMESTORE_DATA_DIR /
@@ -87,12 +87,13 @@ function buildJsonlIndex(fileName, idField = "_key") {
   return index;
 }
 
+// Static file indexes are shared. Each BFF supplies its own login additions.
+function createStaticData(effectiveCatalog = createEffectiveCatalog()) {
 function getType(typeID) {
   const numericTypeID = Number(typeID) || 0;
   return (
-    effectiveCatalog.getType(numericTypeID) ||
     buildIndex("itemTypes", "types", "typeID").get(numericTypeID) ||
-    getSkillType(numericTypeID) ||
+    getSkillType(numericTypeID) || effectiveCatalog.getType(numericTypeID) ||
     null
   );
 }
@@ -532,9 +533,10 @@ function getTypeIconUrl(typeID, size = 64, variation = "icon") {
 
 function getSkillType(typeID) {
   const id = Number(typeID) || 0;
-  const effective = effectiveCatalog.getType(id);
-  if (effective) return effective.categoryID === CATEGORY_SKILL ? effective : null;
-  return buildIndex("skillTypes", "skills", "typeID").get(id) || null;
+  const stock = buildIndex("skillTypes", "skills", "typeID").get(id);
+  if (stock) return stock;
+  const extra = effectiveCatalog.getType(id);
+  return extra?.categoryID === CATEGORY_SKILL ? extra : null;
 }
 
 /** Every skill type: its type, name, group and group's name, and whether it is published. */
@@ -568,7 +570,7 @@ function buildTypeDogmaIndex() {
 
 function getTypeDogma(typeID) {
   const id = Number(typeID) || 0;
-  return effectiveCatalog.getDogma(id) || buildTypeDogmaIndex().get(id) || null;
+  return buildTypeDogmaIndex().get(id) || effectiveCatalog.getDogma(id) || null;
 }
 
 /**
@@ -578,11 +580,9 @@ function getTypeDogma(typeID) {
  * 4 online, 5 overload).
  */
 function getEffect(effectID) {
-  const effective = effectiveCatalog.getEffect(effectID);
-  if (effective) return effective;
   const cacheKey = "typeDogma:effectTypesByID";
   if (!caches.has(cacheKey)) caches.set(cacheKey, readStaticTable("typeDogma").effectTypesByID || {});
-  return caches.get(cacheKey)[String(Number(effectID) || 0)] || null;
+  return caches.get(cacheKey)[String(Number(effectID) || 0)] || effectiveCatalog.getEffect(effectID) || null;
 }
 
 // dogmaEffects: moduleBonusAfterburner / moduleBonusMicrowarpdrive. The two
@@ -1612,7 +1612,7 @@ function* marketTypes() {
     yield* base.values();
     return;
   }
-  for (const [id, type] of base) yield effectiveCatalog.getType(id) ?? type;
+  yield* base.values();
   for (const type of added) if (!base.has(type.typeID)) yield type;
 }
 
@@ -1802,7 +1802,8 @@ function getTypeUnitEstimatedPrice(typeID) {
 function getOreValuePerM3(typeID) {
   const numericTypeID = Number(typeID) || 0;
   const cacheKey = `oreValuePerM3:${numericTypeID}`;
-  if (caches.has(cacheKey)) {
+  const runtime = effectiveCatalog.getType(numericTypeID);
+  if (!runtime && caches.has(cacheKey)) {
     return caches.get(cacheKey);
   }
   const entry = getType(numericTypeID);
@@ -1810,7 +1811,7 @@ function getOreValuePerM3(typeID) {
   const unitPrice = getTypeUnitEstimatedPrice(numericTypeID);
   const value =
     unitPrice === null || !Number.isFinite(volume) || volume <= 0 ? null : unitPrice / volume;
-  caches.set(cacheKey, value);
+  if (!runtime) caches.set(cacheKey, value);
   return value;
 }
 
@@ -2377,7 +2378,7 @@ function getDogmaUnitDisplayName(unitID) {
   return row && row.displayName && typeof row.displayName.en === "string" ? row.displayName.en : "";
 }
 
-module.exports = {
+return {
   buildJsonlIndex,
   getDbuffCollection,
   getDogmaUnitDisplayName,
@@ -2476,3 +2477,6 @@ module.exports = {
   listAncestries,
   normalizeIconRequest,
 };
+}
+
+module.exports = { ...createStaticData(), createStaticData };

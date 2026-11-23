@@ -1102,7 +1102,8 @@ function selectionRow(selection, characterID) {
 function createGamePortPilots({
   endpoint = gameEndpoint(),
   connect = () => connectTcp(endpoint),
-  createSession = (transport) => new GamePortSession({ transport, provisionalWaitLimitMs: PROVISIONAL_WAIT_LIMIT_MS }),
+  onLoginProgram = null,
+  createSession = (transport) => new GamePortSession({ transport, onLoginProgram, provisionalWaitLimitMs: PROVISIONAL_WAIT_LIMIT_MS }),
   passwordFor = () => "",
   isOnline = null,
   allowed = new Set([...contract.gatewayAllowlist.pairs, ...GAME_PORT_ONLY_CALLS]),
