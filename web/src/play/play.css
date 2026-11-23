@@ -113,7 +113,8 @@ button { font: inherit; color: inherit; }
 /* InSpaceBracket's fleetTagAndTarget (BracketShadowLabel, bold, medium): right of the bracket by the label margin, its height above */
 .bracket .bracket-fleet-tag { position: absolute; left: 22px; bottom: 100%; white-space: nowrap; font-size: 12px; font-weight: bold; line-height: 1.25;
   color: var(--text); text-shadow: 0 0 3px #000, 0 0 2px #000; pointer-events: none; }
-.bracket .bracket-bg.blink { animation: state-flag-blink 1.5s cubic-bezier(0.3333, 0, 0.6667, 1) infinite; }
+/* InSpaceBracket.UpdateFlagAndBackground: FadeTo(bgColor, 0 -> a, duration 0.75, ANIM_REPEAT, ANIM_WAVE) - one wave every 0.75 s */
+.bracket .bracket-bg.blink { animation: state-flag-blink 0.75s cubic-bezier(0.3333, 0, 0.6667, 1) infinite; }
 .bracket .label { line-height: 1.25; position: absolute; left: 22px; top: 1px; white-space: nowrap; font-size: 12px; color: var(--text);
   text-shadow: 0 0 3px #000, 0 0 2px #000; display: none; }
 .bracket:hover .label, .bracket.hovered .label, .bracket.selected .label, .bracket.objective-highlight .label { display: block; }
@@ -316,10 +317,14 @@ button { font: inherit; color: inherit; }
 /* FlagIconWithState (stateFlag.py): 10 x 10 at the icon's bottom right, its glyph 8 x 8 centred */
 .state-flag { position: absolute; right: -1px; bottom: -2px; width: 10px; height: 10px; display: flex; align-items: center; justify-content: center; pointer-events: auto; }
 .state-flag > span { width: 8px; height: 8px; }
-.state-flag.blink { animation: state-flag-blink 1s cubic-bezier(0.3333, 0, 0.6667, 1) infinite; }
+/* FlagIcon.ModifyIcon: FadeTo(0 -> 1, duration 0.5, ANIM_REPEAT, ANIM_WAVE) - a wave every 0.5 s, each half a smoothstep */
+.state-flag.blink { animation: state-flag-blink 0.5s cubic-bezier(0.3333, 0, 0.6667, 1) infinite; }
 @keyframes state-flag-blink { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
 .ov .ov-table tbody tr.flagged { background: var(--flag-bg); }
-.ov .ov-table tbody tr.flag-blink { animation: state-flag-blink 1.5s cubic-bezier(0.3333, 0, 0.6667, 1) infinite; }
+/* OverviewScrollEntry: FadeTo(flagBackground, 0 -> a, duration 0.75, ANIM_WAVE) fades the row's state Fill alone, not its
+   text or underlays - the background colour waves, the hover/selection images over it stay */
+.ov .ov-table tbody tr.flag-blink { animation: flag-bg-blink 0.75s cubic-bezier(0.3333, 0, 0.6667, 1) infinite; }
+@keyframes flag-bg-blink { 0%, 100% { background-color: transparent; } 50% { background-color: var(--flag-bg); } }
 .ov .ov-table .ov-dist { color: #fff; }
 /* SE_BaseClassCore's ListEntryUnderlay (read in eveWindowUnderlay.py): THEME_FOCUSDARK at 0.2 under the mouse, 0.4 selected,
    over the row's state background (an image layer, so a flagged row keeps its colour beneath) */
@@ -547,7 +552,8 @@ button { font: inherit; color: inherit; }
 .ov-misc .sub { margin-left: 8px; }
 .ov-misc .ov-add-buttons { margin-top: auto; }
 .ov-ship-preview { flex: none; box-sizing: border-box; margin: 0 10px 10px; padding: 4px; border: 0; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15); font-size: 12px; line-height: 15px; min-height: 38px; }
-.ov-app-bg.blink { animation: state-flag-blink 1s cubic-bezier(0.3333, 0, 0.6667, 1) infinite; }
+/* SpaceObjectIcon.SetBackgroundColorFlag: FadeTo(0 -> a, duration 0.75, ANIM_WAVE) */
+.ov-app-bg.blink { animation: state-flag-blink 0.75s cubic-bezier(0.3333, 0, 0.6667, 1) infinite; }
 /* UseSmallFont: the entries in EVE_SMALL_FONTSIZE; UseSmallColortags: the flags 6 x 6 without their glyph */
 .ov.ov-small-font .ov-table { font-size: 12px; }
 /* GetEntryHeight: small text 17 high, compact or not */
