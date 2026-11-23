@@ -3195,7 +3195,7 @@
       <button class="metenox-controls" onclick={reopenMetenoxFuel}>Fuel Bay</button>
     {/if}
     <!-- the notification feed: its widget and history drawer (NotificationFeed.svelte, notificationCenter.py) -->
-    {#if session}<NotificationFeed store={session.store} flow={session.flow} />{/if}
+    {#if session}<NotificationFeed store={session.store} flow={session.flow} onOpen={(id) => open(id)} />{/if}
     {#if !docked && session}
       <MiningOverlayControl store={session.store} survey={flightMiningSurvey}
         openResults={() => open("miningScan")} openLedger={() => open("miningLedger")} disable={disableMiningOverlay} requestWords={(labels) => session?.flow.requestWords(labels)} />

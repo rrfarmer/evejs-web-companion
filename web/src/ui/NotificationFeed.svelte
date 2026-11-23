@@ -14,7 +14,7 @@
   //    EveLabelMedium bold at (55, 5), 224 wide; under it, 5 apart, the time since it came (NotificationTimeAgo,
   //    EveLabelSmall in TIMETEXT_COLOR 0.5 grey); a close button (close 16) at the top right, 2 in, faded in under the mouse.
   //  - SetupDrawerAutoCloser: the drawer closes once the pointer has been out of it (10 px around) for a second.
-  // Not on the page yet: dragging the widget, the badge, the popups, an entry's click (GetNotificationAction), its
+  // Not on the page yet: dragging the widget, the badge, the popups, the kill report / CCP / calendar entry clicks, an entry's
   // portrait / kill ship icon, the settings window, the resize line.
   import { onMount } from "svelte";
   import { filetimeToUnixMs } from "../bridge/activity.ts";
@@ -30,8 +30,32 @@
   import { notificationIconPath } from "../play/notificationIcons.ts";
   import { playUiEvent } from "../play/uiAudio.ts";
   import { tooltipDue, showLabelShortcutTooltip, hideLabelShortcutTooltip } from "../play/labelShortcutTooltip.ts";
+  import { corporationApplicationNotification } from "../bridge/corporationApplications.ts";
+  import { focusMail } from "./mailFocus.ts";
+  import type { TabID } from "./tabs.ts";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, onOpen }: { store: ClientStore; flow: AppFlow; onOpen: (id: TabID) => void } = $props();
+
+  /**
+   * NotificationCenter.OnEntryClick (SOUND_BUTTON_CLICK, then by the type; notificationconst read from the live client,
+   * gridcheck g273), as far as the page has the windows: the corporation applications (16 / 139 / 18 / 17 / 142, as the
+   * popups do), the character sheet for a medal (3), an NPC standings change (3001) or a title (6003), the wallet for a
+   * corporation bill (10), the Ship Tree for an unlocked ship group (6020); kill reports (140 / 141), the CCP group
+   * (170 - 173, 4001, 4002), the server shutdown (180) and the calendar event (1050) do what they do in the client
+   * where the page cannot yet - nothing; every other type MailInteractor.SelectByNotificationID, the mail window's
+   * notifications on its group.
+   */
+  function entryClick(row: ActivityNotificationRow): void {
+    void playUiEvent("ui_button_soft4_play");
+    const typeID = row.typeID ?? 0;
+    if (typeID === 16 || corporationApplicationNotification(typeID)) { flow.requestCorporationApplications(); onOpen("corporation"); return; }
+    if (typeID === 3 || typeID === 3001 || typeID === 6003) { onOpen("characterSheet"); return; }
+    if (typeID === 10) { onOpen("wallet"); return; }
+    if (typeID === 6020) { onOpen("shipTree"); return; }
+    if ([140, 141, 170, 171, 172, 173, 4001, 4002, 180, 1050].includes(typeID)) return;
+    onOpen("mail");
+    focusMail({ kind: "notification", notificationID: row.notificationID, typeID });
+  }
   const activity = store.activity;
   const words = store.words;
   const names = store.names;
@@ -146,7 +170,8 @@
         <div class="nf-entry" role="listitem"
           style={`border-image-source: url("${clientTexture(hovered === row.notificationID ? "res:/UI/Texture/classes/Notifications/historyBackReadOver.png" : "res:/UI/Texture/classes/Notifications/historyBackReadUp.png")}")`}
           onmouseenter={() => { hovered = row.notificationID; void playUiEvent("ui_button_soft2_play"); }}
-          onmouseleave={() => { if (hovered === row.notificationID) hovered = null; }}>
+          onmouseleave={() => { if (hovered === row.notificationID) hovered = null; }}
+          onclick={(e) => { if (!(e.target as HTMLElement).closest(".nf-close")) entryClick(row); }}>
           {#if icon}<img class="nf-icon" alt="" src={clientTexture(icon)} />{/if}
           <div class="nf-text">
             <div class="nf-subject">{subjectOf(row)}</div>
@@ -180,7 +205,7 @@
   .nf-header.shown { opacity: 1; }
   .nf-list { position: absolute; left: 5px; right: 5px; top: 22px; bottom: 32px; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
   /* the list's own scrollbar (NotificationScrollContainer's, over its right edge) is not drawn yet: the wheel scrolls it */
-  .nf-entry { position: relative; height: 50px; border-style: solid; border-width: 0; box-sizing: border-box;
+  .nf-entry { position: relative; height: 50px; cursor: pointer; border-style: solid; border-width: 0; box-sizing: border-box;
     border-image-slice: 6 fill; border-image-width: 6px; border-image-outset: 5px; }
   .nf-icon { position: absolute; left: 5px; top: 5px; width: 40px; height: 40px; }
   .nf-text { position: absolute; left: 55px; top: 5px; width: 224px; }
