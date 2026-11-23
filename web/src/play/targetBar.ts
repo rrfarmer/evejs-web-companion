@@ -201,15 +201,7 @@ const CSS = `
 .target-bar .tb-mining-number, .target-bar .tb-mining-critical { text-shadow: 0 1px 3px #000, 0 1px 5px #000; }
 .target-bar .tb-mining-critical { position: absolute; left: 0; right: 0; bottom: 22px; color: #ffd878;
   animation: tb-mining-flash ${MINING_CRITICAL_MS}ms ease-out both; }
-.target-bar .tb-depletion-badge { display: grid; place-content: center; color: #aaf3ce; text-align: center;
-  text-shadow: 0 1px 4px #000; font: 11px/16px ${FONT}; border: 1px solid #78c9a3; border-radius: 8px;
-  background: #102c25ed; }
-.target-bar .tb-target-depleted { animation: tb-mining-departure ${MINING_DEPARTURE_MS}ms ease-out both; }
 @keyframes tb-mining-flash { 0%, 65% { opacity: 1; } 100% { opacity: 0; } }
-@keyframes tb-mining-departure { 0% { opacity: 0.65; } 20%, 90% { opacity: 1; } 100% { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) {
-  .target-bar .tb-target-depleted { animation: none; }
-}
 .target-bar .tb-hilite { display: none; }
 .target-bar .tb-bar:hover .tb-hilite { display: block; }
 .target-bar .tb-icon { -webkit-mask: url("${TEX.shipMask}") center / 100% 100% no-repeat; mask: url("${TEX.shipMask}") center / 100% 100% no-repeat; }
@@ -638,12 +630,27 @@ class TargetInBar {
     this.root.className = "tb-target-depleted";
     this.root.removeAttribute("data-item-id");
     this.root.dataset.depletedItemId = String(this.itemID);
-    this.indicator.hidden = true;
-    this.icon.style.visibility = "hidden";
     if (this.miningGauge) this.miningGauge.root.hidden = true;
-    const badge = div(this.iconContainer, 11, 24, 72, 45, "tb-depletion-badge");
-    badge.textContent = "✓ Depleted";
-    badge.setAttribute("role", "status");
+    // TargetInBar.anim_asteroid_depleted: the discSprite (target_killed, 94 px) SUCCESS_GREEN from alpha 0 to 0.4 over
+    // 0.6 s (SpColorMorphTo, ANIM_SMOOTH); the icon BlinkOut (1 -> 0 over 0.1 s, twice, linear); the remove_animation_icon
+    // checkmark_claimReward (36 px, additive) faded in over 0.6 s and SpMaskIn swept over 0.3 s, both 0.1 s in; the active
+    // target indicator Tr2DScaleOut over 0.3 s from 0.1 s; then, 1.6 s in, the whole FadeOut over 0.15 s
+    const E = "cubic-bezier(0.3333, 0, 0.6667, 1)";
+    const disc = div(this.iconContainer, 0, 0, ICON_SIZE, ICON_SIZE, "tb-depleted-disc");
+    const killed = "url(/client-res/ui/texture/icons/target_killed.png) center / 100% 100% no-repeat";
+    Object.assign(disc.style, { background: "rgb(141, 193, 105)", webkitMask: killed, mask: killed, opacity: "0", pointerEvents: "none" });
+    disc.animate([{ opacity: 0 }, { opacity: 0.4 }], { duration: 600, easing: E, fill: "forwards" });
+    this.icon.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 100, iterations: 2, fill: "forwards" });
+    const check = sprite(this.iconContainer, res("res:/UI/Texture/classes/Seasons/Agency/ContentCard/checkmark_claimReward.png"), mid(ICON_SIZE, 36), mid(ICON_SIZE, 36), 36, 36, 0, "tb-depleted-check");
+    check.style.mixBlendMode = "plus-lighter";
+    check.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 600, delay: 100, easing: E, fill: "forwards" });
+    // (SpMaskIn: a wipe at 0.75 pi, from fully masked to fully shown)
+    check.animate([
+      { webkitMaskImage: "linear-gradient(135deg, #000 -100%, transparent -100%)", maskImage: "linear-gradient(135deg, #000 -100%, transparent -100%)" },
+      { webkitMaskImage: "linear-gradient(135deg, #000 100%, transparent 100%)", maskImage: "linear-gradient(135deg, #000 100%, transparent 100%)" },
+    ] as Keyframe[], { duration: 300, delay: 100, easing: E, fill: "backwards" });
+    this.indicator.animate([{ transform: "scale(1)" }, { transform: "scale(0)" }], { duration: 300, delay: 100, easing: E, fill: "forwards" });
+    this.root.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, delay: 1600, easing: E, fill: "forwards" });
   }
 
   /** SetNameLabels: the name on one line, broken at the last space that fits, the rest on a second; then the ship type. */
