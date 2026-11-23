@@ -38,6 +38,7 @@
   import { DRONE_TOOLTIP_ATTRIBUTES, MODULE_TOOLTIP_LABELS, droneTooltipRows, type ModuleTooltipRow } from "../play/moduleTooltip.ts";
   import { fmtDist } from "../space/overview.ts";
   import { scrollListHomeEnd } from "./scrollColumnFit.ts";
+  import { noticeBoard } from "./notices.ts";
 
   let { store, flow, onSelect, onLock, spaceSelected = null }: {
     store: ClientStore; flow: AppFlow;
@@ -51,7 +52,7 @@
   // droneGroupHeader.UpdateLabelText: "%s (%s)" of UI/Inflight/Drone/DronesInBay, "%s (%s/%s)" of DronesInSpace, in an
   // EveLabelMedium of TextColor.HIGHLIGHT
   const HEADER_WORDS = { bay: "UI/Inflight/Drone/DronesInBay", space: "UI/Inflight/Drone/DronesInSpace" } as const;
-  flow.requestWords([...Object.values(HEADER_WORDS), "/Carbon/UI/Controls/Common/NoItem"]);
+  flow.requestWords([...Object.values(HEADER_WORDS), "/Carbon/UI/Controls/Common/NoItem", "UI/Common/EntriesCopied"]);
   const headerWords = store.words;
   const headerWord = (label: string, own: string) => { const t = $headerWords.templates[label]; return typeof t === "string" && t !== "" ? t : own; };
 
@@ -436,6 +437,27 @@
   function listKey(section: Section, e: KeyboardEvent): void {
     const list = e.currentTarget as HTMLElement;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); e.stopPropagation(); selected = { ...selected, [section]: shownOrder(section) }; return; }
+    // Scroll.Copy (Ctrl+C): a DroneEntry is a Generic, its GetCopyData its label - in the bay the type's name, a stack
+    // DroneBayEntryWithStacksize ("Mining Drone I (2)"), in space the type's name; a group copies nothing - the selected
+    // entries, every one shown where none is, one a line, then UI/Common/EntriesCopied
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+      e.preventDefault(); e.stopPropagation();
+      const order = shownOrder(section);
+      const chosen = order.filter((id) => selected[section].includes(id));
+      const ids = chosen.length ? chosen : order;
+      const labelOf = (id: number) => {
+        if (section === "space") return spaceRows.find((x) => x.itemIDs[0] === id)?.label ?? null;
+        const row = bayRows.find((x) => x.itemID === id);
+        return row ? (row.quantity > 1 ? `${row.label} (${row.quantity})` : row.label) : null;
+      };
+      const lines = ids.map(labelOf).filter((x): x is string => !!x);
+      if (!lines.length) return;
+      void navigator.clipboard.writeText(lines.join("\n")).then(() => {
+        const t = $headerWords?.templates["UI/Common/EntriesCopied"];
+        noticeBoard.post({ kind: "info", title: typeof t === "string" && t ? plainText(formatTemplate(t, { numEntries: lines.length }, { nameOf: () => "" })) : `Copied ${lines.length} entries to clipboard` });
+      }).catch(() => {});
+      return;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === "Home" || e.key === "End") { e.preventDefault(); e.stopPropagation(); scrollListHomeEnd(list, e.key === "End"); return; }
     if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
