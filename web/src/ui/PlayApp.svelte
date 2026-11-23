@@ -212,7 +212,7 @@
   }
   let bayWindows = $state<{ key: string; title: string; win: { id: string; x: number; y: number; w: number; h: number; z: number; minimized: boolean } }[]>([]);
   $effect(() => {
-    const show = (e: Event) => { const d = (e as CustomEvent<{ key: string; title: string }>).detail; if (!d) return; const open = bayWindows.find((w) => w.key === d.key); if (open) { open.win.minimized = false; bayWindows = [...bayWindows.filter((w) => w !== open), open]; activeWinKey = open.win.id; return; } const n = bayWindows.length; bayWindows = [...bayWindows, { key: d.key, title: d.title, win: { id: `bay:${d.key}`, x: 260 + 24 * n, y: 180 + 24 * n, w: 600, h: 450, ...keptPlace(`bay:${d.key}`), z: 25, minimized: false } }]; activeWinKey = `bay:${d.key}`; };
+    const show = (e: Event) => { const d = (e as CustomEvent<{ key: string; title: string }>).detail; if (!d) return; const open = bayWindows.find((w) => w.key === d.key); if (open) { /* Inventory.OpenOrShow(toggle=True) -> Window.ToggleOpenClose: a minimised or obscured window comes up and takes focus, one already up front closes */ if (!open.win.minimized && activeWinKey === open.win.id) { bayWindows = bayWindows.filter((w) => w !== open); return; } open.win.minimized = false; bayWindows = [...bayWindows.filter((w) => w !== open), open]; activeWinKey = open.win.id; return; } const n = bayWindows.length; bayWindows = [...bayWindows, { key: d.key, title: d.title, win: { id: `bay:${d.key}`, x: 260 + 24 * n, y: 180 + 24 * n, w: 600, h: 450, ...keptPlace(`bay:${d.key}`), z: 25, minimized: false } }]; activeWinKey = `bay:${d.key}`; };
     window.addEventListener("evejs:open-bay-window", show);
     return () => window.removeEventListener("evejs:open-bay-window", show);
   });
