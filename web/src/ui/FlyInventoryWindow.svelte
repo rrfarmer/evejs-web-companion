@@ -52,6 +52,8 @@
   // SE_BaseClassCore.OnMouseEnter: PlaySound(sound_hover = uiconst.SOUND_ENTRY_HOVER, ui_button_soft2_play) as an entry lights; an
   // InvItem not while the left button is down
   const hoverSound = (e: MouseEvent) => { if (!(e.buttons & 1)) void playUiEvent("ui_button_soft2_play"); };
+  // TreeViewEntry.OnExpanded / OnCollapsed: SOUND_EXPAND / SOUND_COLLAPSE as the ship's children show or hide
+  const toggleTree = () => { treeOpen = !treeOpen; void playUiEvent(treeOpen ? "ui_expand_play" : "ui_collapse_play"); };
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, TypeColumnFacts } from "../app/flow.ts";
@@ -862,17 +864,18 @@
              window on (always_open_secondary_inventory_setting), else its children are shown or hidden -->
         <!-- TreeDataShip.GetHint: the type name, with TreeDataInv's "[<shortcut>]" (ShortcutBrackets) of OpenCargoHoldOfActiveShip where it has one -->
         <div title={typeName(ship.typeID) + shortcutHint("OpenCargoHoldOfActiveShip")} onmouseenter={() => { void playUiEvent("ui_button_soft2_play"); spaceHover(ship.itemID, true); }} onmouseleave={() => spaceHover(ship.itemID, false)} class="node" class:sel={current === "cargo"} class:drop={dropKey === "cargo"} role="treeitem" aria-selected={current === "cargo"} tabindex="-1"
-          onclick={() => { spaceSelect(ship.itemID); current = "cargo"; }} onkeydown={() => {}} oncontextmenu={(e) => cargoNodeMenu(e)}
-          ondblclick={() => { if (invAlwaysSeparate.get()) current = "cargo"; else treeOpen = !treeOpen; }}
+          onclick={() => { void playUiEvent("msg_ListEntryClick_play"); spaceSelect(ship.itemID); current = "cargo"; }} onkeydown={() => {}} oncontextmenu={(e) => cargoNodeMenu(e)}
+          ondblclick={() => { if (invAlwaysSeparate.get()) current = "cargo"; else toggleTree(); }}
           ondragover={dragOver("cargo")} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn("cargo", e)}>
-          <button type="button" class="exp" class:open={treeOpen} aria-label="Expand" onclick={(e) => { e.stopPropagation(); treeOpen = !treeOpen; }}></button>
+          <!-- (TreeViewEntry.OnToggleBtnClick: the toggle's own sounds, not a button's) -->
+          <button type="button" class="exp" data-own-sound class:open={treeOpen} aria-label="Expand" onclick={(e) => { e.stopPropagation(); toggleTree(); }}></button>
           <span class="ticon"><TypeIcon typeID={ship.typeID} name={shipLabel} size="sm" /></span>
           <span class="tlabel">{shipLabel}</span>
         </div>
         {#if treeOpen}
           {#each bays.filter((b) => b.key !== "cargo" && !b.key.startsWith("temp:")) as b (b.key)}
             <div title={b.key === "drone" ? shortcutHint("OpenDroneBayOfActiveShip").trim() || undefined : undefined} onmouseenter={() => void playUiEvent("ui_button_soft2_play")} class="node sub" class:sel={current === b.key} class:drop={dropKey === b.key} role="treeitem" aria-selected={current === b.key} tabindex="-1"
-              onclick={(e) => { if (e.shiftKey) openBayInNewWindow(b.key, b.label); else current = b.key; }}
+              onclick={(e) => { void playUiEvent("msg_ListEntryClick_play"); if (e.shiftKey) openBayInNewWindow(b.key, b.label); else current = b.key; }}
               ondblclick={() => { if (invAlwaysSeparate.get()) openBayInNewWindow(b.key, b.label); }} onkeydown={() => {}} oncontextmenu={(e) => (b.key === "fleet" || b.key === "shipMaintenance" ? cargoNodeMenu(e) : bayNodeMenu(e, b.key, b.label))}
               ondragover={dragOver(b.key)} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn(b.key, e)}>
               <span class="ticon"><img src={clientTexture(BAY_ICON[b.key] ?? "res:/UI/Texture/WindowIcons/cargo.png")} alt=""></span>
@@ -885,7 +888,7 @@
         <!-- TreeViewEntry of a removable TreeDataInv: the 73_16_210 remove sprite at the spacer's end (hint Close), the
              icon 4 after it, the label with its distance -->
         <div onmouseenter={() => { void playUiEvent("ui_button_soft2_play"); spaceHover(t.id, true); }} onmouseleave={() => spaceHover(t.id, false)} class="node temp" class:far={!t.inRange} class:sel={current === `temp:${t.id}`} role="treeitem" aria-selected={current === `temp:${t.id}`} tabindex="-1"
-          class:drop={dropKey === `temp:${t.id}`} onclick={(e) => { spaceSelect(t.id); if (e.shiftKey && t.inRange) openTempInNewWindow(t.id); else openTemp(t.id); }}
+          class:drop={dropKey === `temp:${t.id}`} onclick={(e) => { void playUiEvent("msg_ListEntryClick_play"); spaceSelect(t.id); if (e.shiftKey && t.inRange) openTempInNewWindow(t.id); else openTemp(t.id); }}
           ondblclick={() => { if (invAlwaysSeparate.get() && t.inRange) openTempInNewWindow(t.id); }} onkeydown={() => {}} oncontextmenu={(e) => tempMenu(t, e)}
           ondragover={$inventoryState.container?.itemID === t.id ? dragOver(`temp:${t.id}`) : undefined} ondragleave={() => (dropKey = null)}
           ondrop={$inventoryState.container?.itemID === t.id ? (e) => void dropOn(`temp:${t.id}`, e) : undefined}>
