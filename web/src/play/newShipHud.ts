@@ -402,6 +402,7 @@ export class NewShipHud {
   private settingsGear: HTMLButtonElement | null = null;
   private overloadMode = false;
   private overloadHover = false;
+  private shiftHeld = false;
   /** HudLayer.IsOverloadAllowed: the pilot has Thermodynamics (null: the skills not read yet - taken as allowed). */
   overloadAllowed: () => boolean | null = () => null;
   private readonly overloadGlyph = document.createElement("span");
@@ -699,6 +700,7 @@ export class NewShipHud {
       return h;
     };
     const ob = hex(OVERLOAD_CENTRE[0], OVERLOAD_CENTRE[1]);
+    ob.dataset.overloadControl = "";
     // OverloadButton.LoadTooltipPanel: Heat Status, then the three racks' heat, kept current while shown
     ob.addEventListener("mouseenter", () => { this.liveTip = () => this.showHeatTooltip(ob); this.liveTip(); });
     ob.addEventListener("mouseleave", () => { this.liveTip = null; this.closeTooltip(); });
@@ -722,7 +724,30 @@ export class NewShipHud {
       });
       h.addEventListener("mouseleave", () => { if (this.rackHover === b.rack) this.rackHover = null; });
       h.addEventListener("click", () => { this.toggleRackOverload(b.rack); });
+      h.dataset.overloadControl = "";
     }
+    // HudLayer._RegisterOverloadInput: key down / up polls Shift (_PollShift) - held, overload mode is on (not with a text
+    // field focused), let go, it is off; a mouse down anywhere but a module slot, the overload button or a rack button
+    // ends a button-started overload (_OnOverloadMouseDown / _EndButtonOverload), unless Shift is held
+    const typing = () => { const a = document.activeElement as HTMLElement | null; return !!a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable); };
+    const pollShift = (held: boolean) => {
+      if (held === this.shiftHeld || (held && typing())) return;
+      this.shiftHeld = held;
+      this.overloadMode = held && this.overloadAllowed() !== false;
+      this.syncRackButtons();
+    };
+    const onKey = (e: KeyboardEvent) => pollShift(e.shiftKey);
+    const onBlur = () => pollShift(false);
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Element | null;
+      if (t?.closest?.("[data-overload-control], .new-hud-slot")) return;
+      if (!this.shiftHeld && this.overloadMode) { this.overloadMode = false; this.syncRackButtons(); }
+    };
+    addEventListener("keydown", onKey, true);
+    addEventListener("keyup", onKey, true);
+    addEventListener("blur", onBlur);
+    document.addEventListener("mousedown", onDown, true);
+    this.unsubscribe.push(() => { removeEventListener("keydown", onKey, true); removeEventListener("keyup", onKey, true); removeEventListener("blur", onBlur); document.removeEventListener("mousedown", onDown, true); });
   }
 
   private buildCargoIndicator(): void {
