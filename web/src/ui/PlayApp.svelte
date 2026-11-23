@@ -1712,7 +1712,11 @@
   setContext("flightSimNow", () => live?.simNow() || null);
   $effect(() => {
     if (stage !== "game" || docked || !spaceHost || !session || !live) return;
-    const s = session;
+    // the view depends on these alone: what its setup reads (the opened container, the windows, the HUD settings)
+    // must not rebuild it - opening a loot window did, and the new view had no snapshot for a while
+    const host = spaceHost, sess = session, liveFeed = live;
+    return untrack(() => {
+    const s = sess;
     const act = bridgeDo(s.flow.requestOptions());
     const st = s.store.station.get().station;
     const enteringSpace = entryWarpHistory;
@@ -1864,7 +1868,8 @@
       if (storeGet(treeShownContainer) === c.itemID) { if (spaceContainer) spaceContainer = null; return; }
       const typeName = resolvedName(s.store.names.get().resolved, "type", c.typeID, "");
       if (!typeName && !e.name) s.flow.requestNames([{ kind: "type", id: c.typeID }]);
-      const title = e.name || typeName || "Container";
+      // invCtrl.BaseCelestialContainer.GetName: uix.GetSlimItemName - a wreck is "<the ship it was> Wreck"
+      const title = view?.slimItemName(c.itemID) || e.name || typeName || "Container";
       // Inventory.GetWindowIDFromInvID: the window named after its inventory controller - ItemWreck for a wreck, else
       // ItemFloatingCargo - so every can's window opens where the last was left (RegisterPositionAndSize by windowID)
       const windowID = e.kind === "wreck" ? "ItemWreck" : "ItemFloatingCargo";
@@ -1894,7 +1899,7 @@
     // droneSvc: what each drone is doing comes from the park's OnDroneStateChange (and OnDroneControlLost), which the
     // server sends through destiny, not as a notification; the Drones window's read is taken again on each, coalesced.
     let droneReread: ReturnType<typeof setTimeout> | null = null;
-    live.fxListeners.add((name) => {
+    liveFeed.fxListeners.add((name) => {
       if (!["OnDroneStateChange", "OnDroneActivityChange", "OnDroneControlLost"].includes(name) || droneReread !== null) return;
       droneReread = setTimeout(() => { droneReread = null; void s.flow.loadDrones().catch(() => {}); }, 1000);
     });
@@ -2017,7 +2022,7 @@
       const here = f.status?.solarSystemID ?? null;
       if (here !== routeNextSystem) { routeNextSystem = here; readRouteNext(); }
     });
-    const v = new SpaceView(live, {
+    const v = new SpaceView(liveFeed, {
       gotoDirection: (x, y, z) => act("beyonce", "CmdGotoDirection", [x, y, z]).then(() => undefined),
       setSpeedFraction: (fraction) => act("beyonce", "CmdSetSpeedFraction", [fraction]).then(() => undefined),
       stop: () => s.flow.stopShip(),
@@ -2686,7 +2691,7 @@
       },
       mountJumpBridge: (target, gate, initial) => {
         const state = createSignal(initial);
-        const panel = mount(JumpBridgePanel, { target, props: { session: s, gate, state, simNow: () => live.simNow() } });
+        const panel = mount(JumpBridgePanel, { target, props: { session: s, gate, state, simNow: () => liveFeed.simNow() } });
         return { update: next => state.set(next), destroy: () => { void unmount(panel); } };
       },
       jumpBridge: (id) => s.flow.jumpThroughAnsiblex(id),
@@ -2879,7 +2884,7 @@
         },
       },
     });
-    spaceHost.appendChild(v.root);
+    host.appendChild(v.root);
     view = v;
     // the drone groups follow launched stacks (droneGroupsController.OnItemLaunch)
     watchLaunches(s.flow);
@@ -2896,14 +2901,15 @@
       const d = s.store.drones.get();
       if ((d.limits.droneBandwidth ?? 0) > 0 || (d.bay?.length ?? 0) > 0) open("drones");
     }).catch(() => {});
-    (window as unknown as { __play: unknown }).__play = { live, view: v, session: s, audio: uiAudioLog };
+    (window as unknown as { __play: unknown }).__play = { live: liveFeed, view: v, session: s, audio: uiAudioLog, appView: () => view };
     // Damage numbers: each new entry of the damage log (the client's damage notifications) floats up in space.
     let lastDamageID = s.store.targeting.get().damageLog.at(-1)?.id ?? 0;
     const stopDamage = s.store.targeting.subscribe((t) => {
       for (const d of t.damageLog) if (d.id > lastDamageID) { v.showDamage(d); logCombatLine(d); }
       lastDamageID = t.damageLog.at(-1)?.id ?? lastDamageID;
     });
-    return () => { disposed = true; stopDamage(); stopRouteNext(); stopRouteNextSystem(); v.dispose(); view = null; };
+    return () => { disposed = true; stopDamage(); stopRouteNext(); stopRouteNextSystem(); v.dispose(); if (view === v) view = null; };
+    });
   });
 
   // The client's view transitions (ui/view/transitions.py, viewStateConfig.py): docking (ToHangarTransition) fades to

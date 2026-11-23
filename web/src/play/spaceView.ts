@@ -1376,6 +1376,11 @@ export class SpaceView {
    * or a harvestable cloud by its type, anything else by its cfg.evelocations name where that is known and not a
    * label ('@'), else its type's. Celestials, stations and stargates carry no name in their slim item.
    */
+  /** uix.GetSlimItemName of a ball in the park (a loot window's caption, invCtrl.BaseCelestialContainer.GetName), or null. */
+  slimItemName(itemID: number): string | null {
+    const e = this.snapshot?.entities.find((x) => x.itemID === itemID);
+    return e ? this.nameOf(e) : null;
+  }
   private nameOf(e: Entity): string {
     const typeName = e.typeID !== null ? this.names?.types[String(e.typeID)]?.[0] ?? null : null;
     // uix.GetSlimItemName: a ship with no pilot, or the pilot's own ship not the one flown, is its type; one a character
