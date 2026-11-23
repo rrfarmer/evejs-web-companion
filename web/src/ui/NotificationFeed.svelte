@@ -33,6 +33,9 @@
   import { corporationApplicationNotification } from "../bridge/corporationApplications.ts";
   import { focusMail } from "./mailFocus.ts";
   import type { TabID } from "./tabs.ts";
+  import { watchNotificationPopups } from "./notificationPopups.ts";
+  import type { NoticeInput } from "./notices.ts";
+  import { unwrapLong } from "../bridge/wire.ts";
 
   let { store, flow, onOpen }: { store: ClientStore; flow: AppFlow; onOpen: (id: TabID) => void } = $props();
 
@@ -129,7 +132,65 @@
     seen = newest;
     try { localStorage.setItem(seenKey(), String(newest)); } catch { /* the count comes back next time */ }
   }
-  const unread = $derived(rows.filter((r) => r.created !== null && r.created > seen).length);
+  /** Live notifications taken in since the history was read (_InsertNotification: each one counted). */
+  let liveCount = $state(0);
+  const unread = $derived(rows.filter((r) => r.created !== null && r.created > seen).length + liveCount);
+
+  // The popups (notificationCenter.MakeAndDisplayNormalNotification and StackFader): each live notification and new
+  // mail as the page words it (notificationPopups.ts), a NotificationEntry 300 wide (popupEntryWidth) with no time line,
+  // its height max(50, 5 + the subject wrapped at 224 + the subtext + 5); stacked up from 5 above the widget with 5
+  // between (slotSpacing), at most 3 (GetStackSize), the rest queued and shown as a slot frees, the last queued first
+  // (overFlowStack.pop()); on show notify_beep3_play and the entry's Blink; each fades out over 0.5 s once the
+  // pointer has been off it for GetFadeTime 5 s (its AutoCloser), or goes at once by its close button. A click does
+  // what the history's does. Not ported: the 0.5 s move of the stack (it re-flows), the swoop of the blink (a fade of
+  // buttonBlink.png here), the popup settings (all types pop up).
+  interface Popup { readonly id: number; readonly title: string; readonly detail: string | null; readonly typeID: number | null;
+    readonly action: (() => void) | null; outSince: number | null; fading: boolean }
+  let popups = $state<Popup[]>([]);
+  const queued: Popup[] = [];
+  let popupSeq = 0;
+  function showPopup(p: Popup): void {
+    void playUiEvent("notify_beep3_play");
+    p.outSince = Date.now();
+    popups = [p, ...popups];
+  }
+  function closePopup(id: number): void {
+    popups = popups.filter((p) => p.id !== id);
+    const next = queued.pop();
+    if (next) showPopup(next);
+  }
+  function addPopup(input: NoticeInput): void {
+    const key = input.key ?? "";
+    let typeID: number | null = null;
+    if (key.startsWith("notification:")) {
+      const id = Number(key.slice(13));
+      for (const n of store.live.get().notifications) {
+        if (n.method !== "OnNotificationReceived" || !Array.isArray(n.args)) continue;
+        const nid = unwrapLong(n.args[0]);
+        if (nid !== null && Number(nid) === id) { const t = unwrapLong(n.args[1]); typeID = typeof n.args[1] === "number" ? n.args[1] : t === null ? null : Number(t); }
+      }
+      // the server's history has it now: read again for the drawer
+      void flow.loadActivity().catch(() => {});
+    } else {
+      liveCount += 1;
+    }
+    const p: Popup = { id: ++popupSeq, title: input.title, detail: input.detail ?? null, typeID, action: input.action ?? null, outSince: null, fading: false };
+    if (popups.length < 3) showPopup(p); else queued.push(p);
+  }
+  $effect(() => watchNotificationPopups(store, flow, (id) => onOpen(id), addPopup));
+  $effect(() => {
+    const t = setInterval(() => {
+      const at = Date.now();
+      for (const p of popups) {
+        if (!p.fading && p.outSince !== null && at - p.outSince >= 5000) {
+          p.fading = true;
+          later(500, () => closePopup(p.id));
+        }
+      }
+      popups = [...popups];
+    }, 200);
+    return () => clearInterval(t);
+  });
   $effect(() => {
     let triedAt = 0;
     const tick = () => {
@@ -153,7 +214,7 @@
     now = Date.now();
     if (formats === null) void flow.notificationFormats().then((f) => { formats = f; }).catch(() => {});
     if ($activity.notifications.status !== "ready" && !$activity.loading) void flow.loadActivity().catch(() => {});
-    later(250, () => { animating = false; filled = true; markSeen(); armAutoClose(); });
+    later(250, () => { animating = false; filled = true; markSeen(); liveCount = 0; armAutoClose(); });
   }
   function closeDrawer() {
     if (animating) return;
@@ -226,6 +287,26 @@
   <span class="nf-badge-ptr" style={`-webkit-mask-image: url("${clientTexture("res:/UI/Texture/classes/Notifications/pointer_right_02.png")}"); mask-image: url("${clientTexture("res:/UI/Texture/classes/Notifications/pointer_right_02.png")}")`}></span>
   <span class="nf-badge-n">{unread}</span>
 </div>
+<div class="nf-popups">
+  {#each popups as p (p.id)}
+    {@const icon = p.typeID === null ? null : notificationIconPath(p.typeID)}
+    <div class="nf-entry nf-popup" class:fading={p.fading} role="listitem"
+      style={`border-image-source: url("${clientTexture(p.outSince === null ? "res:/UI/Texture/classes/Notifications/historyBackReadOver.png" : "res:/UI/Texture/classes/Notifications/historyBackReadUp.png")}")`}
+      onmouseenter={() => { if (!p.fading) { p.outSince = null; popups = [...popups]; void playUiEvent("ui_button_soft2_play"); } }}
+      onmouseleave={() => { p.outSince = Date.now(); popups = [...popups]; }}
+      onclick={(e) => { if (!(e.target as HTMLElement).closest(".nf-close")) { void playUiEvent("ui_button_soft4_play"); p.action?.(); } }}>
+      <span class="nf-blink" style={`background-image: url("${clientTexture("res:/UI/Texture/classes/Neocom/buttonBlink.png")}")`}></span>
+      {#if icon}<img class="nf-icon" alt="" src={clientTexture(icon)} />{/if}
+      <div class="nf-wrap">
+        <div class="nf-subject">{p.title}</div>
+        {#if p.detail}<div class="nf-detail">{p.detail}</div>{/if}
+      </div>
+      <button class="nf-close" aria-label="Close" onclick={() => closePopup(p.id)}>
+        <img alt="" src={clientTexture("res:/UI/Texture/eveicon/system_icons/close_16px.png")} />
+      </button>
+    </div>
+  {/each}
+</div>
 <div class="nf" class:open bind:this={root}>
   <div class="nf-header" class:shown={open}>{word(HISTORY_CAPTION, "Notification History")}</div>
   <div class="nf-list" bind:this={list} onscroll={updateBar}>
@@ -271,6 +352,16 @@
   .nf-header { position: absolute; left: 0; right: 0; top: 4px; height: 18px; line-height: 18px; text-align: center; font-size: 12px; font-weight: bold;
     white-space: nowrap; opacity: 0; transition: opacity 0.25s; pointer-events: none; }
   .nf-header.shown { opacity: 1; }
+  .nf-popups { position: fixed; right: 16px; bottom: 53px; width: 300px; z-index: 25; display: flex; flex-direction: column-reverse; gap: 5px; pointer-events: none;
+    font: 14px 'EVE Sans Neue', 'Segoe UI', sans-serif; color: rgba(255, 255, 255, 0.75); }
+  .nf-popup { pointer-events: auto; height: auto; min-height: 50px; transition: opacity 0.5s;
+    background: var(--win-bg, rgba(14, 16, 18, 0.88)); }
+  .nf-popup.fading { opacity: 0; }
+  .nf-wrap { position: relative; left: 0; top: 0; margin-left: 55px; padding: 5px 0; width: 224px; }
+  .nf-wrap .nf-subject { white-space: normal; }
+  .nf-detail { line-height: 18px; }
+  .nf-blink { position: absolute; inset: 0; background-size: 100% 100%; opacity: 0; pointer-events: none; animation: nf-blink 0.8s ease-out; }
+  @keyframes nf-blink { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: 0; } }
   .nf-badge { position: fixed; right: 50px; bottom: 22px; height: 20px; z-index: 25; pointer-events: none; opacity: 0; transition: opacity 0.25s;
     font: bold 14px/18px 'EVE Sans Neue', 'Segoe UI', sans-serif; color: rgba(255, 255, 255, 0.75); }
   .nf-badge.shown { opacity: 1; }
