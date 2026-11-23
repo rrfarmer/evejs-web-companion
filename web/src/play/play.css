@@ -182,6 +182,17 @@ button { font: inherit; color: inherit; }
 .nc-ind[data-state="active"] { height: 16px; opacity: 1; background: rgb(88, 167, 191); }
 .nc-btn { position: relative; width: 48px; height: 48px; padding: 0; display: grid; place-items: center; background: transparent; border: none; cursor: pointer; }
 .nc-btn img { width: 40px; height: 40px; opacity: .78; }
+/* ButtonSkills (g265): the gauges over the 48 button, the icon 40 x 40 in SILVER_GREY only while not training */
+.nc-btn.nc-skills svg.nc-sk-gauges { position: absolute; inset: 0; width: 48px; height: 48px; pointer-events: none; }
+.nc-skills circle { fill: none; }
+.nc-skills .nc-sk-bg { stroke: #000; opacity: 0; }
+.nc-skills .nc-sk-plan { stroke: rgba(243, 144, 88, 0.6); opacity: 0; }
+.nc-skills .nc-sk-skill { stroke: rgb(88, 167, 191); stroke-dasharray: 0 1000; mix-blend-mode: plus-lighter; }
+.nc-skills[data-state="training"] .nc-sk-bg { opacity: 0.6; }
+.nc-skills[data-state="training"] .nc-sk-plan { opacity: 1; stroke: rgba(217, 217, 217, 0.1); mix-blend-mode: plus-lighter; }
+.nc-skills[data-state="idle"] .nc-sk-plan { opacity: 1; }
+.nc-btn.nc-skills img.nc-sk-icon { visibility: hidden; }
+.nc-btn.nc-skills[data-state="idle"] img.nc-sk-icon { visibility: visible; }
 .nc-btn.nc-portrait img { width: 48px; height: 48px; opacity: 1; }
 .nc-btn:hover { background: url(/client-res/ui/texture/classes/neocom/buttonhover.png) center / 100% 100% no-repeat; }
 .nc-btn:hover img { opacity: 1; }

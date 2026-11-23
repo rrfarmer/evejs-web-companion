@@ -75,7 +75,7 @@ import { inRangeShown, overviewMisc } from "./overviewMisc.ts";
 import { fmtDist as fmtDistance } from "../space/overview.ts";
 import { DScanWindow } from "./dscan.ts";
 import { SolarSystemMapWindow, MARKER_GROUPS, type MapScanResult } from "./solarSystemMap.ts";
-import { Neocom } from "./neocom.ts";
+import { Neocom, type NeocomSkillState } from "./neocom.ts";
 import { bracketIcon, hasBracketData, loadBrackets } from "./brackets.ts";
 import { PROXIMITY_TRAP_RANGES } from "./proximityTraps.ts";
 import { probeNumber } from "../bridge/scannerWrites.ts";
@@ -1077,6 +1077,8 @@ export class SpaceView {
   private neocom: Neocom | null = null;
   /** The Neocom's character sheet button portrait (ButtonCharacterIcon). */
   setNeocomPortrait(url: string | null): void { this.neocom?.setPortrait(url); }
+  /** The Neocom's skills button gauges (ButtonSkills). */
+  setNeocomSkills(state: NeocomSkillState): void { this.neocom?.setSkills(state); }
   /** The Neocom buttons' window indicators (ButtonIndicator). */
   setNeocomStates(states: ReadonlyMap<string, "open" | "active">): void { this.neocom?.setWindowStates(states); }
   private readonly shipHud: ShipHud | NewShipHud = hudSettingNow("shipHudNew_preview") ? new NewShipHud() : new ShipHud({ slots: { hi: 0, med: 0, low: 0 } });

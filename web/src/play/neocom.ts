@@ -6,6 +6,33 @@ import { clientTexture } from "./window.ts";
 import { shortcutOf } from "./shortcutKeys.ts";
 import { hideLabelShortcutTooltip, showLabelShortcutTooltip, tooltipDue } from "./labelShortcutTooltip.ts";
 import { playUiEvent } from "./uiAudio.ts";
+import type { SkillsState } from "../store/types.ts";
+
+/**
+ * ButtonSkills' state: the level in training's progress (SkillController.GetTrainingProgressForCurrLevel - the points
+ * made in the level over the level's points), or not training. null while the queue is not known.
+ */
+export type NeocomSkillState = { training: true; progress: number } | { training: false } | null;
+
+/** The skill queue's head as ButtonSkills reads it (skillqueue.GetActiveSkillTypeID), at the browser time `now`. */
+export function neocomSkillState(sk: SkillsState, now = Date.now()): NeocomSkillState {
+  const q = sk.queue;
+  if (!q) return null;
+  const head = q.active ? q.entries[0] : undefined;
+  if (!head || head.startTimeMs === null || head.endTimeMs === null) return { training: false };
+  const at = now + sk.clockOffsetMs;
+  if (at >= head.endTimeMs) return { training: true, progress: 1 };
+  const row = sk.skills?.find((r) => r.typeID === head.typeID);
+  const floor = head.toLevel > 1 ? (row?.levelSkillPoints[head.toLevel - 2] ?? 0) : 0;
+  const ceiling = head.destinationSP;
+  // the points made: from the level's start points at the queue's rate (time-scaled where no rate came)
+  const span = head.endTimeMs - head.startTimeMs;
+  const sp = head.skillPointsPerMinute > 0
+    ? head.startSP + head.skillPointsPerMinute * Math.max(0, at - head.startTimeMs) / 60000
+    : head.startSP + (ceiling - head.startSP) * (span > 0 ? Math.max(0, at - head.startTimeMs) / span : 0);
+  const progress = ceiling > floor ? Math.max(0, Math.min(1, (Math.min(sp, ceiling) - floor) / (ceiling - floor))) : 0;
+  return { training: true, progress };
+}
 
 /**
  * BaseNeocomButton.LoadTooltipPanel: a button with a command (btnData.cmdName) AddCommandTooltip - the command's name
@@ -128,6 +155,8 @@ export class Neocom {
   private readonly portrait = document.createElement("img");
   /** Each button's ButtonIndicator, by its id. */
   private readonly indicators = new Map<string, HTMLElement>();
+  /** ButtonSkills (skillsBtn): its gauges and its icon. */
+  private readonly skills = document.createElement("button");
   /** The EVE menu's panels, on the page's body. */
   private menuParts: HTMLElement[] = [];
   /** Takes the EVE menu's panels off the page. */
@@ -148,6 +177,19 @@ export class Neocom {
       const state = states.get(id) ?? "";
       if (ind.dataset.state !== state) ind.dataset.state = state;
     }
+  }
+  /**
+   * ButtonSkills._UpdateGaugesAndIcon: in training, the black bgGauge (12 wide, 0.6) under a TUNGSTEN_GREY 0.1 skill
+   * plan ring (no plan tracked: full) and the level's progress in CRYO_BLUE inside it, no icon; not training, the plan
+   * ring full in THEME_ALERT at 0.6 round warningIcon.png (pauseIcon.png when every training slot is used - not read
+   * here). Radii from the 48 button: 20 for the plan and bg rings, 13 for the skill ring (UpdateGaugeRadius); the
+   * DonutSegment line lies inside its radius, starting at the top, clockwise.
+   */
+  setSkills(state: NeocomSkillState): void {
+    const el = this.skills;
+    el.dataset.state = state === null ? "" : state.training ? "training" : "idle";
+    const ring = el.querySelector<SVGCircleElement>(".nc-sk-skill");
+    if (ring) ring.style.strokeDasharray = `${(state?.training ? state.progress : 0) * 2 * Math.PI * 11} 1000`;
   }
   setPortrait(url: string | null): void {
     if (url) this.portrait.src = url; else this.portrait.removeAttribute("src");
@@ -208,7 +250,7 @@ export class Neocom {
     sub.addEventListener("click", (e) => e.stopPropagation());
     document.addEventListener("click", close);
     // ButtonCharacterIcon: first under the EVE button (the live client, gridcheck g250: charSheetBtn at 48, its charPic
-    // 48 x 48, OpenCharactersheet); ButtonSkills follows it there and is not on the page yet
+    // 48 x 48, OpenCharactersheet); ButtonSkills follows it
     const sheet = document.createElement("button");
     sheet.className = "nc-btn nc-portrait";
     sheet.setAttribute("aria-label", "Character Sheet");
@@ -219,6 +261,30 @@ export class Neocom {
     sheet.addEventListener("mouseenter", () => neocomTipOn(sheet, "charactersheet"));
     sheet.addEventListener("mouseleave", neocomTipOff);
     list.appendChild(sheet);
+    // ButtonSkills: under the portrait (the live client, gridcheck g265: skillsBtn at 96, 48 x 48, OpenSkillsWindow)
+    const skills = this.skills;
+    skills.className = "nc-btn nc-skills";
+    skills.setAttribute("aria-label", "Skills");
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 48 48");
+    svg.setAttribute("class", "nc-sk-gauges");
+    for (const [cls, r, w] of [["nc-sk-bg", 14, 12], ["nc-sk-plan", 18, 4], ["nc-sk-skill", 11, 4]] as const) {
+      const c = document.createElementNS(svgNS, "circle");
+      c.setAttribute("class", cls);
+      c.setAttribute("cx", "24"); c.setAttribute("cy", "24"); c.setAttribute("r", String(r));
+      c.setAttribute("stroke-width", String(w));
+      c.setAttribute("transform", "rotate(-90 24 24)");
+      svg.append(c);
+    }
+    const warn = document.createElement("img");
+    warn.className = "nc-sk-icon";
+    warn.alt = "";
+    warn.src = clientTexture("res:/UI/Texture/classes/Skills/warningIcon.png");
+    skills.append(svg, warn, this.indicator("skills"));
+    this.setSkills(null);
+    skills.addEventListener("click", () => { neocomTipOff(); open("skills"); });
+    list.appendChild(skills);
     for (const b of NEOCOM_DEFAULT) {
       const el = document.createElement("button");
       el.className = "nc-btn";

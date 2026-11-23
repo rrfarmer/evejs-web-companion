@@ -142,7 +142,7 @@
   import { hangarGraphics } from "../play/hangarRegistry.ts";
   import { HangarView } from "../play/hangarView.ts";
   import { dirtLevelFromTime } from "../three/hullModel.ts";
-  import { Neocom } from "../play/neocom.ts";
+  import { Neocom, neocomSkillState } from "../play/neocom.ts";
   import { clientTexture } from "../play/window.ts";
   import { OPEN_CARGO_LABEL } from "../play/containerInteraction.ts";
   import { ENTER_WORMHOLE_LABEL } from "../bridge/placeChanges.ts";
@@ -187,7 +187,7 @@
   const NEOCOM_TABS: Record<string, TabID> = {
     theatersOfWar: "theatersOfWar",
     achievements: "achievements", agency: "finder", jobboard: "jobBoard", mail: "mail", inventory: "inventory", assets: "assets", wallet: "wallet", market: "market",
-    fitting: "fitting", map: "travel", charactersheet: "characterSheet", chat: "chat", shipTree: "shipTree",
+    fitting: "fitting", map: "travel", charactersheet: "characterSheet", skills: "skills", chat: "chat", shipTree: "shipTree",
     // the EVE menu's commands (play/neocom.ts EVE_MENU)
     marketorders: "market", contracts: "contracts", industry: "industry", miningScan: "miningScan", miningLedger: "miningLedger", planets: "planets", locations: "locations",
     contacts: "contacts", fleet: "fleet", corporation: "corporation", structureBrowser: "structureBrowser", compare: "compare", log: "log", notepad: "notepad", calendar: "calendar",
@@ -846,6 +846,25 @@
       const id = c.selectedCharacterID;
       nc.setPortrait(id ? portraitUrl(s.flow.imageServer.get(), id, 64) ?? clientTexture(portraitDefaultPath(64)) : null);
     });
+  });
+
+  // the skills button: the skill queue's head, its gauges again each second (ButtonSkills.UpdateThread)
+  $effect(() => {
+    const s = session;
+    if (!s) return;
+    // the queue read again every 30 s while it is not known (a read made as the session starts can fail)
+    let triedAt = 0;
+    const paint = () => {
+      const sk = s.store.skills.get();
+      if (sk.queue === null && Date.now() - triedAt > 30000) { triedAt = Date.now(); void s.flow.loadSkills().catch(() => {}); }
+      const state = neocomSkillState(sk);
+      neocomInst?.setSkills(state);
+      view?.setNeocomSkills(state);
+    };
+    paint();
+    const stop = s.store.skills.subscribe(paint);
+    const timer = setInterval(paint, 1000);
+    return () => { stop(); clearInterval(timer); };
   });
 
   /** The Neocom's width: a window opens right of it, as the eve-cs mirror's windows never sit on its Neocom. */
