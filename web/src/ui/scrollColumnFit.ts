@@ -26,3 +26,14 @@ export function fittedColumnWidth(th: HTMLTableCellElement): number {
   }
   return Math.max(MIN_COLUMN_WIDTH, Math.ceil(widest) + TAB_MARGIN * 2);
 }
+
+
+/**
+ * Scroll.OnHome / OnEnd (commandSvc's Home / End to the focused scroll): ScrollToProportion(0.0 / 1.0) - the list
+ * scrolled to its top or its end, the selection as it was. The scroll is the nearest ancestor that scrolls.
+ */
+export function scrollListHomeEnd(from: HTMLElement, end: boolean): void {
+  let el: HTMLElement | null = from.parentElement;
+  while (el && !(el.scrollHeight > el.clientHeight && /(auto|scroll)/.test(getComputedStyle(el).overflowY))) el = el.parentElement;
+  if (el) el.scrollTop = end ? el.scrollHeight : 0;
+}

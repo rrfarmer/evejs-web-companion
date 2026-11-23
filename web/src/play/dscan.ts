@@ -4,7 +4,7 @@
 // for each thing it saw ({id, typeID, groupID}). Opened with Alt+D, scanned with V or its button
 // (eveCommands: OpenDirectionalScanner, CmdRefreshDirectionalScan).
 
-import { fittedColumnWidth } from "../ui/scrollColumnFit.ts";
+import { fittedColumnWidth, scrollListHomeEnd } from "../ui/scrollColumnFit.ts";
 import { ContextMenu } from "./contextMenu.ts";
 import { playUiEvent } from "./uiAudio.ts";
 import { PlayWindow, WINDOW_ACTION_WORDS, clientTexture } from "./window.ts";
@@ -587,6 +587,7 @@ export class DScanWindow {
           for (const x of this.tbody.querySelectorAll<HTMLTableRowElement>("tr[data-id]")) x.classList.add("sel");
           return;
         }
+        if (ev.key === "Home" || ev.key === "End") { ev.preventDefault(); ev.stopPropagation(); scrollListHomeEnd(tr, ev.key === "End"); return; }
         if (ev.key === "ArrowUp" || ev.key === "ArrowDown") { ev.preventDefault(); ev.stopPropagation(); this.browse(ev.key === "ArrowUp", ev.shiftKey, order); }
       });
       tr.addEventListener("dblclick", () => { this.selectedIDs = new Set([row.id]); this.anchorID = row.id; for (const x of this.tbody.querySelectorAll<HTMLTableRowElement>("tr[data-id]")) x.classList.toggle("sel", x === tr); this.hooks.showInfo?.(row.id, row.typeID); });

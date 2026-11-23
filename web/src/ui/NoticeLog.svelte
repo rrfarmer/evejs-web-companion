@@ -11,7 +11,7 @@
   // the logger scroll's Generic entries: SE_BaseClassCore.OnMouseEnter plays SOUND_ENTRY_HOVER (ui_button_soft2_play) - in the play page
   const hoverSound = (e: MouseEvent) => { if (retail && !(e.buttons & 1)) void playUiEvent("ui_button_soft2_play"); };
   import LabelText from "./LabelText.svelte";
-  import { fittedColumnWidth } from "./scrollColumnFit.ts";
+  import { fittedColumnWidth, scrollListHomeEnd } from "./scrollColumnFit.ts";
   import { noticeBoard } from "./notices.ts";
   import {
     formatLogTime, gameLog, gameLogClipboard, logCount, logFilters, setLogCount, setLogFilter, sortGameLogLines,
@@ -145,6 +145,7 @@
     else if (control && key === "a") selected = new Set(logLines.map((line) => line.n));
     else if (key === " " || key === "enter") selectRow(id, event);
     else if (key === "arrowup" || key === "arrowdown") browseLog(key === "arrowup", event.shiftKey, row);
+    else if (key === "home" || key === "end") scrollListHomeEnd(row, key === "end");
     else return;
     event.preventDefault();
     event.stopPropagation();
