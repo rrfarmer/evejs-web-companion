@@ -3878,7 +3878,7 @@ export class SpaceView {
       // order at the top - Mine (44_32_5) for a mining drone, Salvage (44_32_4) a salvage drone, else Engage Target
       // (44_32_11) - and in the more ring Look At, Set Interest, Return and Orbit (44_32_3), Scoop to Cargo Hold, Return to
       // Drone Bay (44_32_1), a gap, Scoop to Drone Bay (scoopDrone.png), each offered as the drone menu offers it
-      const droneRadial = (e as Entity & { categoryID?: number | null }).categoryID === 18 || e.kind === "drone" ? this.droneRadial(e, dist, icon, lookAt) : null;
+      const droneRadial = (e as Entity & { categoryID?: number | null }).categoryID === 18 || e.kind === "drone" ? this.droneRadial(e, dist, icon, lookAt, setInterest) : null;
       // secondaryCategoryActions: Look At, Save Location and Set as Camera Interest for an asteroid, station, structure,
       // starbase, sovereignty structure, celestial, orbital or deployable; Look At and Set Interest for an entity, ship
       // or fighter
@@ -3936,7 +3936,7 @@ export class SpaceView {
 
   /** A Sov Hub's entries (typeInfrastructureHub 32458): Deposit Reagents within transfer range, the config window for its owner's station manager. */
   /** The radial's drone entries (see openRadial), offered as menusvc._DroneMenu's DroneChecker offers them. */
-  private droneRadial(e: Entity, dist: number, icon: (n: number) => string, lookAt: RadialOption): { primary: RadialOption; more: (RadialOption | null)[] } {
+  private droneRadial(e: Entity, dist: number, icon: (n: number) => string, lookAt: RadialOption, setInterest: RadialOption): { primary: RadialOption; more: (RadialOption | null)[] } {
     const id = e.itemID;
     const ship = this.snapshot?.ship ?? null;
     const ego = this.snapshot?.entities.find((x) => x.isSelf) ?? null;
@@ -3954,8 +3954,10 @@ export class SpaceView {
       : salvage ? { label: word("UI/Drones/Salvage", "Salvage"), icon: icon(4), disabled: !(can && controlled), run: order("primary") }
       : { label: word("UI/Drones/EngageTarget", "Engage Target"), icon: icon(11), disabled: !(can && controlled), run: order("primary") };
     const more: (RadialOption | null)[] = [
+      // secondaryCategoryActions[categoryDrone]: lookAtOption, setInterestOption (SetAsCameraInterest, 44_32_65), then the
+      // drone's own
       lookAt,
-      { label: word("UI/Inflight/SetInterest", "Set Interest"), icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/setInterest.png"), disabled: true },
+      setInterest,
       { label: word("UI/Drones/ReturnDroneAndOrbit", "Return and Orbit"), icon: icon(3), disabled: !(can && controlled && owned), run: order("orbit") },
       { label: word("UI/Inflight/ScoopToCargoHold", "Scoop to Cargo Hold"), icon: clientTexture("res:/UI/Texture/Icons/scoopcargo.png"), disabled: true },
       { label: word("UI/Drones/ReturnDroneToBay", "Return to Drone Bay"), icon: icon(1), disabled: !(can && hasState && owned), run: order("bay") },
