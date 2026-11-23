@@ -2671,7 +2671,8 @@ export class NewShipHud {
     c.fill();
     c.beginPath();
     c.arc(cx, cy, 18, 0, Math.PI * 2);
-    c.fillStyle = "rgba(255,255,255,0.2)";
+    // _SetHovered: the shade _PASSIVE_SHADE_COLOR white 0.2, lifted slotConst.BACKING_HOVER_LIFT 0.1 under the pointer
+    c.fillStyle = slot.hover ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.2)";
     c.fill();
     c.beginPath();
     c.arc(cx, cy, 23.5, 0, Math.PI * 2);
