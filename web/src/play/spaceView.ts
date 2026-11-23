@@ -3847,8 +3847,8 @@ export class SpaceView {
     const icon = (n: number) => RADIAL_ICON(`res:/UI/Texture/Icons/44_32_${n}.png`);
     const run = (title: string, fn: () => Promise<void>) => () => void this.act(title, fn).then(() => this.refreshTargets());
     const showInfo: RadialOption = this.options.showInfo
-      ? { label: "Show Info", icon: icon(24), run: () => this.options.showInfo!(id, e.typeID ?? null) }
-      : { label: "Show Info", icon: icon(24), disabled: true };
+      ? { label: this.actions.word?.("UI/Commands/ShowInfo") ?? "Show Info", icon: icon(24), run: () => this.options.showInfo!(id, e.typeID ?? null) }
+      : { label: this.actions.word?.("UI/Commands/ShowInfo") ?? "Show Info", icon: icon(24), disabled: true };
     const say = (label: string, own: string) => this.actions.word?.(label) ?? own;
     // lookAtOption: Look At (44_32_20), or Reset Camera (resetCamera.png) on the object looked at
     const lookAt: RadialOption = this.lookAt === id
@@ -3860,13 +3860,13 @@ export class SpaceView {
     let options: (RadialOption | null)[];
     if (e.isSelf) {
       options = [
-        { label: "Stop Ship", icon: clientTexture("res:/UI/Texture/Icons/44_32_38.png"), run: run("Stop", () => this.actions.stop()) },
+        { label: this.actions.word?.("UI/Inflight/StopMyShip") ?? "Stop Ship", icon: clientTexture("res:/UI/Texture/Icons/44_32_38.png"), run: run("Stop", () => this.actions.stop()) },
         { label: "Set Default Orbit Distance", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/setOrbitDefault.png"), disabled: true },
         // the own ship's second level: secondaryCategoryActions[categoryShip] (Look At, Set Interest) and
         // GetMyShipSpecialCaseSecondLevel - Save Location (menuSvc.Bookmark, alwaysAvailable) in space, not in a structure
         { label: "More", icon: "", more: [lookAt, setInterest, { ...bookmark, disabled: !this.actions.saveLocation }] },
         { label: "Set Default Keep at Range Distance", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/setKeepRangeDefault.png"), disabled: true },
-        { label: "Open Cargo Hold", icon: icon(35), run: () => this.options.onNeocom?.("inventory") },
+        { label: this.actions.word?.("UI/Commands/OpenCargoHold") ?? "Open Cargo Hold", icon: icon(35), run: () => this.options.onNeocom?.("inventory") },
         null,
         showInfo,
         { label: "Set Default Warp To Distance", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/setWarpDefault.png"), disabled: true },
@@ -3900,32 +3900,32 @@ export class SpaceView {
       const wormhole = this.wormholeEntry(e);
       const planet = this.planetViewEntry(e);
       const primary: RadialOption | null = droneRadial ? droneRadial.primary
-        : e.kind === "station" || (e.kind === "structure" && e.typeID !== METENOX_TYPE_ID) ? { label: "Dock", icon: icon(9), run: run("Dock", () => this.actions.dock(id)) }
-        : e.kind === "stargate" ? { label: "Jump", icon: icon(39), run: run("Jump", () => this.actions.jump(id)) }
+        : e.kind === "station" || (e.kind === "structure" && e.typeID !== METENOX_TYPE_ID) ? { label: this.actions.word?.("UI/Inflight/DockInStation") ?? "Dock", icon: icon(9), run: run("Dock", () => this.actions.dock(id)) }
+        : e.kind === "stargate" ? { label: this.actions.word?.("UI/Inflight/Jump") ?? "Jump", icon: icon(39), run: run("Jump", () => this.actions.jump(id)) }
         : wormhole ? { label: wormhole.title, icon: icon(39), disabled: wormhole.disabled, run: run(wormhole.title, wormhole.run) }
         : planet ? { label: planet.title, icon: planet.icon, run: run(planet.title, planet.run) }
         // spaceRadialMenuFunctions: a wreck's and a can's first action is Open Cargo (44_32_35)
         : (e.kind === "wreck" || e.kind === "container") && this.actions.openCargo
-          ? { label: "Open Cargo", icon: icon(35), run: run("Open Cargo", () => this.actions.openCargo!(id)) }
+          ? { label: this.actions.word?.("UI/Commands/OpenCargo") ?? "Open Cargo", icon: icon(35), run: run("Open Cargo", () => this.actions.openCargo!(id)) }
         : null;
       const lockable = ["ship", "drone", "fighter", "wreck", "container", "asteroid", "structure", "station", "stargate"].includes(e.kind);
       const lock: RadialOption = this.locked.has(id)
-        ? { label: "Unlock Target", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/untarget.png"), run: run("Unlock Target", () => this.actions.unlock(id)) }
+        ? { label: this.actions.word?.("UI/Inflight/UnlockTarget") ?? "Unlock Target", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/untarget.png"), run: run("Unlock Target", () => this.actions.unlock(id)) }
         // OfferLockTarget: also IsWithinTargettingRange - nearer than the ship's maxTargetRange (attribute 76)
-        : { label: "Lock Target", icon: icon(17), disabled: !lockable || dist >= (this.actions.shipAttribute?.(76) ?? Infinity), run: run("Lock Target", () => this.lockTracked(id)) };
+        : { label: this.actions.word?.("UI/Inflight/LockTarget") ?? "Lock Target", icon: icon(17), disabled: !lockable || dist >= (this.actions.shipAttribute?.(76) ?? Infinity), run: run("Lock Target", () => this.lockTracked(id)) };
       options = [
         primary,
-        { label: "Orbit", icon: icon(21), ranges: radialRanges(500, 30000), defaultRange: 1000, run: (r) => run("Orbit", () => this.actions.orbit(id, r))() },
+        { label: this.actions.word?.("UI/Inflight/OrbitObject") ?? "Orbit", icon: icon(21), ranges: radialRanges(500, 30000), defaultRange: 1000, run: (r) => run("Orbit", () => this.actions.orbit(id, r))() },
         { label: "More", icon: "", more },
-        { label: "Keep at Range", icon: icon(22), ranges: radialRanges(500, 30000), defaultRange: 1000, run: (r) => run("Keep at Range", () => this.actions.keepAtRange(id, r))() },
+        { label: this.actions.word?.("UI/Inflight/Submenus/KeepAtRange") ?? "Keep at Range", icon: icon(22), ranges: radialRanges(500, 30000), defaultRange: 1000, run: (r) => run("Keep at Range", () => this.actions.keepAtRange(id, r))() },
         lock,
         // GetApproachOption: option1 Align To (44_32_59) where the menu offers it - in warp range - else Approach (44_32_23)
         dist >= 150_000
           ? { label: this.actions.word?.("UI/Inflight/AlignTo") ?? "Align to", icon: icon(59), run: run("Align", () => this.actions.alignTo(id)) }
-          : { label: "Approach", icon: icon(23), run: run("Approach", () => this.actions.approach(id)) },
+          : { label: this.actions.word?.("UI/Inflight/ApproachObject") ?? "Approach", icon: icon(23), run: run("Approach", () => this.actions.approach(id)) },
         showInfo,
         // A warp needs the object 150 km away or more (the server refuses a nearer one).
-        { label: "Warp To Within", icon: icon(18), ranges: WARP_RANGES, defaultRange: 0, disabled: dist < 150_000, run: (r) => run("Warp To", () => this.actions.warpTo(id, r))() },
+        { label: this.actions.word?.("UI/Inflight/Submenus/WarpToWithin") ?? "Warp To Within", icon: icon(18), ranges: WARP_RANGES, defaultRange: 0, disabled: dist < 150_000, run: (r) => run("Warp To", () => this.actions.warpTo(id, r))() },
       ];
     }
     this.markRadial(null);
