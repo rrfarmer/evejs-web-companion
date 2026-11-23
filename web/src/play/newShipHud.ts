@@ -17,6 +17,7 @@ import { hudSetting, hudSettingNow, setHudSetting, type HudSettingName } from ".
 import { shortcutOf } from "./shortcutKeys.ts";
 import { SHIP_HOLDS } from "../bridge/shipHolds.ts";
 import { placePointerPanel } from "./labelShortcutTooltip.ts";
+import { genericTooltipDelay } from "./radialSettings.ts";
 
 const res = (path: string): string => `/client-res/${path.replace(/^res:\//i, "").toLowerCase()}`;
 const HUD = (name: string) => res(`res:/UI/HUD/${name}.png`);
@@ -473,6 +474,7 @@ export class NewShipHud {
   private tipSlot: Slot | null = null;
   private tipTimer: ReturnType<typeof setTimeout> | null = null;
   private tipClosedAt = -Infinity;
+  private dueTimer: ReturnType<typeof setTimeout> | null = null;
   private tipRefresh: ReturnType<typeof setInterval> | null = null;
   /** The open tooltip's rows as last drawn: drawn again only when they change. */
   private tipKey = "";
@@ -624,7 +626,7 @@ export class NewShipHud {
     edit.addEventListener("click", (e) => e.stopPropagation());
     pill.append(edit);
     // CommandButton.LoadTooltipPanel (the speed readout): Current Speed and the speed, kept current while shown
-    pill.addEventListener("mouseenter", () => { this.liveTip = () => this.showSpeedTooltip(pill); this.liveTip(); });
+    pill.addEventListener("mouseenter", () => this.due(() => { this.liveTip = () => this.showSpeedTooltip(pill); this.liveTip(); }));
     pill.addEventListener("mouseleave", () => { this.liveTip = null; this.closeTooltip(); });
     root.append(pill);
 
@@ -680,8 +682,9 @@ export class NewShipHud {
       this.ringHover = index;
       if (index === null) { this.liveTip = null; this.closeTooltip(); return; }
       const anchor = { getBoundingClientRect: () => new DOMRect(ev.clientX - 8, ev.clientY - 8, 16, 16) } as unknown as HTMLElement;
-      this.liveTip = () => this.showHealthTooltip(anchor, index);
-      this.liveTip();
+      this.liveTip = null;
+      this.closeTooltip();
+      this.due(() => { this.liveTip = () => this.showHealthTooltip(anchor, index); this.liveTip(); });
     };
     document.addEventListener("mousemove", move);
   }
@@ -769,7 +772,7 @@ export class NewShipHud {
     const core = document.createElement("div");
     Object.assign(core.style, { position: "absolute", left: `${cx - CAP_RADIUS}px`, top: `${cy - CAP_RADIUS}px`, width: `${CAP_RADIUS * 2}px`, height: `${CAP_RADIUS * 2}px`, borderRadius: "50%", pointerEvents: "auto" });
     core.dataset.hud = "capacitorCore";
-    core.addEventListener("mouseenter", () => { this.liveTip = () => this.showCapacitorTooltip(core); this.liveTip(); });
+    core.addEventListener("mouseenter", () => this.due(() => { this.liveTip = () => this.showCapacitorTooltip(core); this.liveTip(); }));
     core.addEventListener("mouseleave", () => { this.liveTip = null; this.closeTooltip(); });
     core.addEventListener("contextmenu", (ev) => { ev.preventDefault(); ev.stopPropagation(); this.onShipMenu?.(ev.clientX, ev.clientY); });
     this.root.append(core);
@@ -844,7 +847,7 @@ export class NewShipHud {
     const ob = hex(OVERLOAD_CENTRE[0], OVERLOAD_CENTRE[1]);
     ob.dataset.overloadControl = "";
     // OverloadButton.LoadTooltipPanel: Heat Status, then the three racks' heat, kept current while shown
-    ob.addEventListener("mouseenter", () => { this.liveTip = () => this.showHeatTooltip(ob); this.liveTip(); });
+    ob.addEventListener("mouseenter", () => this.due(() => { this.liveTip = () => this.showHeatTooltip(ob); this.liveTip(); }));
     ob.addEventListener("mouseleave", () => { this.liveTip = null; this.closeTooltip(); });
     ob.addEventListener("mouseenter", () => { this.overloadHover = true; });
     ob.addEventListener("mouseleave", () => { this.overloadHover = false; });
@@ -906,7 +909,7 @@ export class NewShipHud {
     this.cargoGlyph.src = holdGlyph("cargo");
     b.append(this.cargoGlyph);
     // CargoButton.OnMouseEnter: SOUND_BUTTON_HOVER
-    b.addEventListener("mouseenter", () => { void playUiEvent("ui_button_soft1_play"); this.cargoHover = true; this.showHoldsTooltip(b); });
+    b.addEventListener("mouseenter", () => { void playUiEvent("ui_button_soft1_play"); this.cargoHover = true; this.due(() => { if (this.cargoHover) this.showHoldsTooltip(b); }); });
     b.addEventListener("mouseleave", () => { this.cargoHover = false; this.closeTooltip(); });
     b.addEventListener("mousedown", () => { b.style.transform = "translateY(2px)"; });
     b.addEventListener("mouseup", () => { b.style.transform = ""; });
@@ -1022,7 +1025,7 @@ export class NewShipHud {
     // the autopilot: a 20 px dark disc, a 1 px ring at r 11 (white 0.1, FOCUS_BLUE engaged or hovered), the glyph
     const ap = document.createElement("button");
     ap.type = "button";
-    ap.addEventListener("mouseenter", () => { void playUiEvent("ui_button_soft1_play"); this.showCommandTooltip(ap, "CmdToggleAutopilot"); });
+    ap.addEventListener("mouseenter", () => { void playUiEvent("ui_button_soft1_play"); this.due(() => this.showCommandTooltip(ap, "CmdToggleAutopilot")); });
     ap.addEventListener("mouseleave", () => this.closeTooltip());
     Object.assign(ap.style, { position: "absolute", left: `${cx - 69 - 12}px`, top: `${cy - 78 - 12}px`, width: "24px", height: "24px", padding: "0", border: "0", background: "transparent", pointerEvents: "auto", cursor: "pointer", display: "grid", placeItems: "center" });
     // CommandButton: the disc (BUTTON_DISC_R 10, black - SMOKE_BLUE under the pointer or pressed), the ring (r 11, 2 wide,
@@ -1086,7 +1089,7 @@ export class NewShipHud {
     // the camera flyout's header: the orbit camera's glyph (idle 0.8)
     const cam = document.createElement("button");
     cam.type = "button";
-    cam.addEventListener("mouseenter", () => { void playUiEvent("ui_button_soft1_play"); this.showCommandTooltip(cam, "CmdSetCameraOrbit"); });
+    cam.addEventListener("mouseenter", () => { void playUiEvent("ui_button_soft1_play"); this.due(() => this.showCommandTooltip(cam, "CmdSetCameraOrbit")); });
     cam.addEventListener("mouseleave", () => this.closeTooltip());
     Object.assign(cam.style, {
       position: "absolute", left: `${25 - 16}px`, top: `${158 - 16}px`, width: "32px", height: "32px", padding: "0", borderRadius: "50%",
@@ -1205,7 +1208,7 @@ export class NewShipHud {
       b.type = "button";
       void title;
       // _ScannerItem (FlyoutItem with its cmdName): the command's tooltip
-      b.addEventListener("mouseenter", () => { void playUiEvent("ui_button_soft1_play"); this.showCommandTooltip(b, cmd, [], "", "LEFT_2"); blisterAt(top + 12); });
+      b.addEventListener("mouseenter", () => { void playUiEvent("ui_button_soft1_play"); this.due(() => this.showCommandTooltip(b, cmd, [], "", "LEFT_2")); blisterAt(top + 12); });
       b.addEventListener("mouseleave", () => this.closeTooltip());
       Object.assign(b.style, { position: "absolute", left: "0", top: `${top}px`, width: "24px", height: "24px", padding: "0", border: "0", background: "transparent", cursor: "pointer", display: "grid", placeItems: "center" });
       const g = icon(`res:/UI/Texture/eveicon/category_icons/${id}_16px.png`);
@@ -1249,8 +1252,7 @@ export class NewShipHud {
     let gaugeTimer: ReturnType<typeof setInterval> | null = null;
     hover.addEventListener("mouseenter", () => {
       const show = () => this.showLinesTooltip(hover, this.consumptionLines);
-      show();
-      gaugeTimer = setInterval(show, 250); // TOOLTIP_REFRESH_MS
+      this.due(() => { show(); gaugeTimer = setInterval(show, 250); }); // TOOLTIP_REFRESH_MS
     });
     hover.addEventListener("mouseleave", () => { if (gaugeTimer) clearInterval(gaugeTimer); gaugeTimer = null; this.closeTooltip(); });
     this.root.append(hover);
@@ -1425,7 +1427,7 @@ export class NewShipHud {
       this.trackedHold = holds.some((h) => h.key === "cargo") ? "cargo" : holds[0]!.key;
       this.cargoGlyph.src = holdGlyph(this.trackedHold);
     }
-    if (this.cargoHover) this.showHoldsTooltip(this.cargoGlyph.parentElement as HTMLElement);
+    if (this.cargoHover && this.tooltip.style.display !== "none") this.showHoldsTooltip(this.cargoGlyph.parentElement as HTMLElement);
   }
 
   /**
@@ -1695,7 +1697,7 @@ export class NewShipHud {
   /** The tooltip opens TOOLTIP_DELAY_MODULE after the pointer comes onto a module's slot (the renew time from another's). */
   private hoverTooltip(slot: Slot): void {
     this.clearTooltipTimers();
-    const renew = this.tipSlot !== null || performance.now() - this.tipClosedAt < TOOLTIP_COOLDOWN;
+    const renew = this.tipRenews();
     this.closeTooltip();
     if (!slot.module || !this.tooltipRows || !hudSettingNow("showModuleTooltips")) return;
     this.tipTimer = setTimeout(() => {
@@ -1721,8 +1723,22 @@ export class NewShipHud {
     this.tipRefresh = null;
   }
 
+  /** _GetSleepTime's renew case: a tooltip shows, or one closed within SLEEPTIME_COOLDOWN. */
+  private tipRenews(): boolean {
+    return this.tooltip.style.display !== "none" || performance.now() - this.tipClosedAt < TOOLTIP_COOLDOWN;
+  }
+  /**
+   * tooltipHandler for the HUD's other owners (none has GetTooltipDelay): show after the General Tooltips Delay
+   * (tooltipDelayGeneric, 250 ms), or a fifth of it in the renew case; closeTooltip drops a pending one.
+   */
+  private due(show: () => void): void {
+    if (this.dueTimer !== null) clearTimeout(this.dueTimer);
+    const init = genericTooltipDelay();
+    this.dueTimer = setTimeout(() => { this.dueTimer = null; show(); }, this.tipRenews() ? Math.max(1, Math.trunc(init / 5)) : init);
+  }
   private closeTooltip(): void {
-    if (this.tipSlot !== null) this.tipClosedAt = performance.now();
+    if (this.dueTimer !== null) { clearTimeout(this.dueTimer); this.dueTimer = null; }
+    if (this.tooltip.style.display !== "none") this.tipClosedAt = performance.now();
     this.tipSlot = null;
     this.tipKey = "";
     this.tooltip.style.display = "none";
