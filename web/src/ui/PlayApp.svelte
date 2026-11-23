@@ -48,6 +48,7 @@
   import { typeCompareTarget } from "./typeCompare.ts";
   import { fittingWindowTarget } from "./fittingWindowTarget.ts";
   import { shipHoldTarget } from "./shipHold.ts";
+  import { invSidebar } from "./inventoryWindowSettings.ts";
   import { standingWithSkillBonus } from "../bridge/agencyAgents.ts";
   import { addTempInvLocation, removeTempInvLocation, tempInvLocations, treeShownContainer } from "./invTemp.ts";
   import { markWreckViewed } from "../play/viewedWrecks.ts";
@@ -1896,14 +1897,25 @@
     // An opened container that is a thing on the grid gets its own inventory window (Inventory.OpenOrShow on its invID),
     // named after it (its slim item's name, else its type's)
     let wreckMarkedFor: number | null = null;
+    let openedIntoPrimary: number | null = null;
     const syncSpaceContainer = () => {
       if (disposed) return;
       const c = s.store.inventory.get().container;
       const e = c ? s.store.space.get().snapshot?.entities.find((x) => x.itemID === c.itemID) : null;
-      if (!c || !e) { if (spaceContainer) spaceContainer = null; return; }
+      if (!c || !e) { openedIntoPrimary = null; if (spaceContainer) spaceContainer = null; return; }
       // a can or a wreck becomes a temporary location of the inventory trees; one the Active ship cargo window's tree
       // shows needs no window of its own
       if (e.kind === "container" || e.kind === "wreck") addTempInvLocation(c.itemID);
+      // Inventory.OpenOrShow(invID) after AddTemporaryInvLocation: with the primary window's tree shown (IsPrimaryInvTreeExpanded)
+      // the primary inventory opens on the can or wreck, kept captioned Inventory - no window of its own (the live client,
+      // gridcheck g263: OpenCargo on a can left InventoryPrimary on (ItemFloatingCargo, can)); the opening marked once
+      const intoPrimary = (e.kind === "container" || e.kind === "wreck") && invSidebar.get() && c.itemID !== openedIntoPrimary;
+      if (intoPrimary) {
+        openedIntoPrimary = c.itemID;
+        treeShownContainer.set(c.itemID);
+        shipHoldTarget.ask(`temp:${c.itemID}`);
+        inventoryPrimary = true;
+      }
       // menusvc._OpenCargo: ItemWreck.GetItems marks a wreck viewed (wrecksvc.MarkViewed, with its sound); any other can
       // is an ItemFloatingCargo, whose GetItems marks it viewed too, without the sound - once per opening
       if ((e.kind === "wreck" || e.kind === "container") && c.itemID !== wreckMarkedFor) { wreckMarkedFor = c.itemID; markWreckViewed(c.itemID, true, e.kind === "wreck"); }
