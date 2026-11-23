@@ -80,17 +80,19 @@
     lastSelected = idx;
   }
   // Scroll.Copy (Ctrl+C on the list): the selected entries' GetCopyData - a MiningScanEntry is a Generic, its label
-  // (the ore, then quantity, volume, value and distance, <t>-separated); a ListGroup copies nothing - every entry shown
-  // where none is selected, one a line, then UI/Common/EntriesCopied
+  // (the ore, then quantity, volume, value and distance, <t>-separated), a ListGroup's its label (the ore's name); the
+  // selected nodes (GetSelected - groups are not selectable), every node where none is selected (GetNodes: each group and
+  // the entries of the open ones, in order), one a line, then UI/Common/EntriesCopied with their count
   async function copyEntries(table: HTMLElement): Promise<void> {
-    const shownRows = [...table.querySelectorAll<HTMLTableRowElement>("tr[data-rock-id]")];
-    const chosen = shownRows.filter((tr) => selectedRocks.has(Number(tr.dataset.rockId)));
-    const list = chosen.length ? chosen : shownRows;
-    if (!list.length) return;
-    const text = list.map((tr) => [...tr.cells].map((td) => (td.textContent ?? "").trim()).join("\t")).join("\n");
+    const nodes = scrollNodes(table);
+    const chosen = nodes.filter((tr) => selectedRocks.has(rockOf(tr) ?? NaN));
+    const list = chosen.length ? chosen : nodes;
+    const lines = list.map((tr) => (tr.dataset.rockId !== undefined ? [...tr.cells].map((td) => (td.textContent ?? "").trim()).join("\t") : tr.dataset.oreName ?? "")).filter(Boolean);
+    if (!lines.length) return;
+    const text = lines.join("\n");
     try {
       await navigator.clipboard.writeText(text);
-      noticeBoard.post({ kind: "info", title: say("UI/Common/EntriesCopied", `Copied ${list.length} entries to clipboard`, { numEntries: list.length }) });
+      noticeBoard.post({ kind: "info", title: say("UI/Common/EntriesCopied", `Copied ${lines.length} entries to clipboard`, { numEntries: lines.length }) });
     } catch { /* the clipboard refused */ }
   }
   // Scroll.OnUp / OnDown (BrowseNodes, ActivateIdx): nothing selected - the last / first node; else the one past the
@@ -203,7 +205,7 @@
       <thead><tr>{#each COLUMNS as [label, own], k (label)}<th scope="col" class:sorted={colSort === k} style:width={colWidths[k] ? `${colWidths[k]}px` : null} style:min-width={colWidths[k] ? `${colWidths[k]}px` : null} style:max-width={colWidths[k] ? `${colWidths[k]}px` : null} onclick={() => sortByColumn(k)}>{say(label, own)}{#if colSort === k}<span class="dir" class:down={colReversed}></span>{/if}<span class="scaler" role="separator" aria-orientation="vertical" onpointerdown={(e) => startScale(k, e)} onclick={(e) => e.stopPropagation()} ondblclick={(e) => { e.stopPropagation(); resetWidth(k, e); }}></span></th>{/each}</tr></thead>
       {#each groups as group (group.typeID)}
         <tbody data-ore-type={group.typeID}>
-          <tr class="ore-group"><th colspan="5" scope="rowgroup">
+          <tr class="ore-group" data-ore-name={group.name}><th colspan="5" scope="rowgroup">
             <button type="button" aria-expanded={!collapsed.has(group.typeID)} onclick={() => toggleGroup(group.typeID)}>
               <span aria-hidden="true">{collapsed.has(group.typeID) ? "▸" : "▾"}</span>
               <!-- the ListGroup's iconID: the type's bracket icon (bracket.GetBracketIcon) -->

@@ -438,19 +438,23 @@
     const list = e.currentTarget as HTMLElement;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); e.stopPropagation(); selected = { ...selected, [section]: shownOrder(section) }; return; }
     // Scroll.Copy (Ctrl+C): a DroneEntry is a Generic, its GetCopyData its label - in the bay the type's name, a stack
-    // DroneBayEntryWithStacksize ("Mining Drone I (2)"), in space the type's name; a group copies nothing - the selected
-    // entries, every one shown where none is, one a line, then UI/Common/EntriesCopied
+    // DroneBayEntryWithStacksize ("Mining Drone I (2)"), in space the type's name; a group (a ListGroup) its label,
+    // DroneGroupWithCount - the selected entries (groups are not selectable), every node where none is (the groups and the
+    // open groups' entries, in order), one a line, then UI/Common/EntriesCopied
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
       e.preventDefault(); e.stopPropagation();
-      const order = shownOrder(section);
-      const chosen = order.filter((id) => selected[section].includes(id));
-      const ids = chosen.length ? chosen : order;
-      const labelOf = (id: number) => {
+      const attr = section === "bay" ? "bayItem" : "spaceItem";
+      const nodes = [...list.querySelectorAll<HTMLElement>(`.row.grouphead, .row[data-${section}-item]`)];
+      const chosen = nodes.filter((el) => el.dataset[attr] !== undefined && selected[section].includes(Number(el.dataset[attr])));
+      const pick = chosen.length ? chosen : nodes;
+      const labelOf = (el: HTMLElement) => {
+        if (el.dataset[attr] === undefined) return el.querySelector(".name")?.textContent?.trim() || null;
+        const id = Number(el.dataset[attr]);
         if (section === "space") return spaceRows.find((x) => x.itemIDs[0] === id)?.label ?? null;
         const row = bayRows.find((x) => x.itemID === id);
         return row ? (row.quantity > 1 ? `${row.label} (${row.quantity})` : row.label) : null;
       };
-      const lines = ids.map(labelOf).filter((x): x is string => !!x);
+      const lines = pick.map(labelOf).filter((x): x is string => !!x);
       if (!lines.length) return;
       void navigator.clipboard.writeText(lines.join("\n")).then(() => {
         const t = $headerWords?.templates["UI/Common/EntriesCopied"];
