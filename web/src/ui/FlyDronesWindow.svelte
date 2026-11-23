@@ -565,9 +565,18 @@
     const d = dragging;
     dragging = null;
     if (!d) return;
-    if (d.section === "space" && section === "bay") { void run(() => flow.recallDrones(d.ids)); return; }
-    if (d.section === "bay" && section === "space") { void run(() => flow.launchDrones(d.ids)); return; }
+    if (d.section === "space" && section === "bay") { void run(() => flow.recallDrones(d.ids)); blinkHead("bay"); return; }
+    if (d.section === "bay" && section === "space") { void run(() => flow.launchDrones(d.ids)); blinkHead("space"); return; }
     if (group && !moveToGroup(droneGroupOf(d.typeID), group, d.ids)) flow.sayDialog("CannotMixDrones", null, "You cannot mix drones of different types in the same group.");
+  }
+  /**
+   * BaseDroneGroupHeader.Blink (droneSignals.on_drones_dropped_to_bay / on_drones_dropped_in_space): the header's
+   * blinkUnderlay, a white Fill with glow, opacity 0.25 -> 0 (and its glow 1 -> 0) over 0.6 s, ANIM_SMOOTH
+   */
+  function blinkHead(which: "bay" | "space"): void {
+    rootEl?.querySelector<HTMLElement>(`[data-drone-head="${which}"]`)?.animate(
+      [{ boxShadow: "inset 0 0 0 999px rgba(255, 255, 255, 0.25)" }, { boxShadow: "inset 0 0 0 999px rgba(255, 255, 255, 0)" }],
+      { duration: 600, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" });
   }
   const dragOver = (key: string) => (e: DragEvent) => { if (dragging) { e.preventDefault(); dropOn = key; } };
   /** New Group's name popup: for which drones (CreateSubGroup asks NamePopup first). */
