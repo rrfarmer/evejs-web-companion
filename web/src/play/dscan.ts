@@ -156,6 +156,27 @@ export class DScanWindow {
   /** The scroll's selected entries by itemID (Scroll.SelectNode: a click one, Ctrl toggles, Shift from the last clicked). */
   private selectedIDs = new Set<number>();
   private anchorID: number | null = null;
+  /**
+   * Scroll.OnUp / OnDown (BrowseNodes): with nothing selected the last / first entry; else the one past the selection
+   * (the last selected going down, the first going up), Shift growing the range from where it began; ActivateIdx selects it
+   * (SelectNode - no click, so no combat command) and brings it into view.
+   */
+  private browse(up: boolean, shift: boolean, order: readonly number[]): void {
+    if (!order.length) return;
+    const sel = order.map((id, i) => (this.selectedIDs.has(id) ? i : -1)).filter((i) => i >= 0);
+    let idx: number;
+    if (!sel.length) idx = up ? order.length - 1 : 0;
+    else if (shift && this.anchorID !== null && order.includes(this.anchorID)) {
+      const last = order.indexOf(this.anchorID);
+      idx = (sel[0]! < last ? sel[0]! : sel[sel.length - 1]!) + (up ? -1 : 1);
+    } else idx = (sel.length > 1 ? sel[up ? 0 : sel.length - 1]! : sel[0]!) + (up ? -1 : 1);
+    if (idx < 0 || idx >= order.length) return;
+    const id = order[idx]!;
+    this.selectEntry(id, order, { shiftKey: shift && sel.length > 0, ctrlKey: false } as MouseEvent);
+    const tr = this.tbody.querySelector<HTMLTableRowElement>(`tr[data-id="${id}"]`);
+    tr?.focus({ preventScroll: true });
+    tr?.scrollIntoView({ block: "nearest" });
+  }
   /** Each entry as GetCopyData gives it (typeID, name, type, the distance as shown), in the scroll's order. */
   private copyRows: { id: number; text: string }[] = [];
   /**
@@ -557,7 +578,10 @@ export class DScanWindow {
       tr.tabIndex = -1;
       if (this.selectedIDs.has(row.id)) tr.classList.add("sel");
       tr.addEventListener("click", (ev) => { this.selectEntry(row.id, order, ev); tr.focus({ preventScroll: true }); this.hooks.combatClick?.(row.id); });
-      tr.addEventListener("keydown", (ev) => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "c") { ev.preventDefault(); ev.stopPropagation(); void this.copy(); } });
+      tr.addEventListener("keydown", (ev) => {
+        if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "c") { ev.preventDefault(); ev.stopPropagation(); void this.copy(); return; }
+        if (ev.key === "ArrowUp" || ev.key === "ArrowDown") { ev.preventDefault(); ev.stopPropagation(); this.browse(ev.key === "ArrowUp", ev.shiftKey, order); }
+      });
       tr.addEventListener("dblclick", () => { this.selectedIDs = new Set([row.id]); this.anchorID = row.id; for (const x of this.tbody.querySelectorAll<HTMLTableRowElement>("tr[data-id]")) x.classList.toggle("sel", x === tr); this.hooks.showInfo?.(row.id, row.typeID); });
       tr.addEventListener("contextmenu", (ev) => { ev.preventDefault(); ev.stopPropagation(); this.hooks.menu?.(row.id, row.typeID, ev.clientX, ev.clientY); });
       tr.addEventListener("mouseenter", () => this.hooks.hoverResult?.(row.typeID));
