@@ -368,6 +368,9 @@ button { font: inherit; color: inherit; }
 :is(.ov-add-buttons button, .client-btn):disabled { --btn-bg: color-mix(in srgb, rgb(48, 48, 48) 20%, transparent); --btn-stroke: color-mix(in srgb, rgb(48, 48, 48) 60%, transparent); color: rgba(255, 255, 255, 0.3); cursor: default; }
 /* Density.COMPACT (styling.get_height / get_side_padding): 24 high, 8 in a side */
 :is(.fly-windows, body) .client-btn.compact { box-sizing: border-box; min-height: 0; height: 24px; min-width: 24px; padding: 0 8px; }
+/* ButtonFrameType.CUT_BOTTOM_LEFT_RIGHT (button.py 712): both bottom corners cut */
+.client-btn.cut-blr::before { -webkit-mask-box-image: url(/client-res/ui/texture/classes/button/background_cut_bottom_left_right.png) 9 fill / 9px; }
+.client-btn.cut-blr::after { -webkit-mask-box-image: url(/client-res/ui/texture/classes/button/frame_cut_bottom_left_right.png) 9 fill / 9px; }
 /* ColumnConfigurationWindow: the hint (EveLabelLarge), the scroll of ColumnEntry rows (a checkbox each, dragged to reorder) */
 /* ColumnsPanel in ColumnConfigurationWindow (read through gridcheck): the main 16 in; the hint EveLabelLarge 16 (21 high) 8
    in, 4 down; columnsScroll 4 in a side, 12 below it, down to 4 above the ButtonGroup at the foot; each ColumnEntry 22 high,

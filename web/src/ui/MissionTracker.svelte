@@ -32,6 +32,14 @@
   import { resolvedName, type NameKind, type NameRef } from "../store/names.ts";
   import { approachedBallID } from "../space/actionIndication.ts";
   import type { JsonValue } from "../bridge/wire.ts";
+  // buttonConst.BUTTON_TEXTURE_PATH_BY_STATE (eveicon at 16 px)
+  const EVEICON = (dir: string, name: string) => `/client-res/ui/texture/eveicon/${dir}/${name}_16px.png`;
+  const STATE_ICONS: Partial<Record<ButtonState, string>> = {
+    undock: "/client-res/ui/texture/shared/actions/undock.png", dock: EVEICON("control_icons", "dock"), warpTo: EVEICON("control_icons", "warp_to"),
+    setDestination: EVEICON("system_icons", "set_destination"), destinationSet: EVEICON("system_icons", "checkmark"), approach: EVEICON("control_icons", "approach"),
+    startConversation: EVEICON("control_icons", "start_conversation"), completeReferral: EVEICON("control_icons", "start_conversation"),
+    readDetails: "/client-res/ui/texture/icons/38_16_190.png", dropItemInMissionContainer: "/client-res/ui/texture/shared/brackets/containercargonpc.png",
+  };
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, DungeonOpportunityJob } from "../app/flow.ts";
   import type { JournalMission, MissionSpot } from "../store/types.ts";
@@ -385,11 +393,14 @@
             {/if}
             {#if shown.button !== "none"}
               <p class="controls">
+                <!-- info_panel_entry: StatefulButton (a carbonui Button) - Density.COMPACT, ButtonFrameType.CUT_BOTTOM_LEFT_RIGHT,
+                     the width of the entry (align to_top), padTop 4, its state's icon (BUTTON_TEXTURE_PATH_BY_STATE) before the label -->
                 <button
                   type="button"
+                  class="client-btn compact cut-blr"
                   disabled={busy || BUTTON_DISABLED.has(shown.button) || shown.button === "dropItemInMissionContainer"}
                   onclick={() => void press(shown.button, shown.objective, mission.agentID!)}
-                >{word(BUTTON_LABELS[shown.button].label, BUTTON_LABELS[shown.button].own)}</button>
+                >{#if STATE_ICONS[shown.button]}<span class="btn-icon" style:--icon={`url(${STATE_ICONS[shown.button]})`}></span>{/if}{word(BUTTON_LABELS[shown.button].label, BUTTON_LABELS[shown.button].own)}</button>
               </p>
             {/if}
           {/if}
@@ -424,6 +435,9 @@
 </section>
 
 <style>
+  /* the StatefulButton: the entry's width, 4 above; the icon get_icon_offset 2 in, get_icon_gap 6 before the label */
+  .controls .client-btn { width: 100%; margin-top: 4px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .controls .btn-icon { width: 16px; height: 16px; flex: none; background-color: currentColor; -webkit-mask: var(--icon) center / 16px 16px no-repeat; mask: var(--icon) center / 16px 16px no-repeat; }
   .mission-tracker.embedded { padding: 0; background: none; border: none; }
   .mission-tracker .tracked-mission { margin-bottom: 0.75rem; }
   .mission-tracker .tracked-mission h3 { margin: 0.25rem 0; }
