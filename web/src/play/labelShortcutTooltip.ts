@@ -114,6 +114,7 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
     Object.assign(tip.style, { position: "fixed", pointerEvents: "none", zIndex: "100000", padding: "16px", font: "14px 'EVE Sans Neue','Segoe UI',sans-serif", color: "rgba(255,255,255,0.75)", whiteSpace: "nowrap" });
   }
   if (!tip.isConnected) document.body.append(tip);
+  delete tip.dataset.generic;
   tip.replaceChildren();
   const frame = document.createElement("div");
   Object.assign(frame.style, { position: "absolute", inset: "0", opacity: "0.75", borderStyle: "solid", borderWidth: "0", borderImageSource: `url(${clientTexture("res:/UI/Texture/classes/FrameWithPointer/background_04.png")})`, borderImageSlice: "19 fill", borderImageWidth: "19px", borderImageOutset: "15px" } as Partial<CSSStyleDeclaration>);
@@ -173,6 +174,43 @@ export function showIconValuesTooltip(anchor: HTMLElement, cells: readonly { ico
  * to its text, 16 px in from the FrameWithPointer frame; default_pointerDirection POINT_BOTTOM_2, the panel above its
  * owner, centred.
  */
+/**
+ * tooltipHandler._UpdateTooltip for a plain hint: shown after the generic delay (TOOLTIP_DELAY_GENERIC 250 ms), or its
+ * renew time (a fifth: 50 ms) while a hint shows or within SLEEPTIME_COOLDOWN (500 ms) of one closing; a new
+ * TooltipGeneric fades in over 0.2 s (ANIM_SMOOTH), one already shown takes the new string at once; closing fades it
+ * out over FADEOUT_FAST (0.1 s).
+ */
+let hintTimer: ReturnType<typeof setTimeout> | null = null;
+let hintShown = false;
+let hintClosedAt = -Infinity;
+/** anchor: the owner, or how to find it when the delay is up (a list redrawn meanwhile has a new one). */
+export function scheduleGenericHint(anchor: HTMLElement | (() => HTMLElement | null), html: string): void {
+  if (hintTimer !== null) clearTimeout(hintTimer);
+  const wait = hintShown || performance.now() - hintClosedAt < 500 ? 50 : 250;
+  hintTimer = setTimeout(() => {
+    hintTimer = null;
+    const owner = typeof anchor === "function" ? anchor() : anchor;
+    if (!owner?.isConnected) return;
+    const fresh = !hintShown;
+    showGenericHint(owner, html);
+    hintShown = true;
+    if (fresh && tip) {
+      for (const a of tip.getAnimations()) a.cancel();
+      tip.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" });
+    }
+  }, wait);
+}
+export function cancelGenericHint(): void {
+  if (hintTimer !== null) { clearTimeout(hintTimer); hintTimer = null; }
+  if (!hintShown) return;
+  hintShown = false;
+  hintClosedAt = performance.now();
+  const t = tip;
+  if (!t || t.dataset.generic !== "1") return;
+  for (const a of t.getAnimations()) a.cancel();
+  const fade = t.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 100, fill: "forwards" });
+  fade.onfinish = () => { if (!hintShown && t.dataset.generic === "1") t.style.display = "none"; fade.cancel(); };
+}
 export function showGenericHint(anchor: HTMLElement, html: string): void {
   showLabelShortcutTooltip(anchor, "", "", [], "top");
   if (!tip) return;
@@ -184,6 +222,7 @@ export function showGenericHint(anchor: HTMLElement, html: string): void {
   d.innerHTML = html;
   Object.assign(d.style, { maxWidth: "200px", whiteSpace: "normal" });
   grid.append(d);
+  tip.dataset.generic = "1";
   placeTip(tip, anchor, POINT.BOTTOM_2);
 }
 

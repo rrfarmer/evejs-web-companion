@@ -28,7 +28,7 @@ export function targetMarkup(t: { readonly locked: boolean; readonly active: boo
   return (t.attacking ? "<span class=\"ov-tgt-hostile attacking\"></span>" : t.hostile ? `<span class="ov-tgt-hostile${t.fleet ? " fleet" : ""}"></span>` : "") + (t.locked ? "<span class=\"ov-tgt\"></span>" : "") + (t.active ? "<span class=\"ov-tgt active\"></span>" : "") + (t.locking && !t.locked ? "<span class=\"ov-tgt-locking\"></span>" : "");
 }
 
-import { hideLabelShortcutTooltip, showGenericHint } from "./labelShortcutTooltip.ts";
+import { cancelGenericHint, scheduleGenericHint } from "./labelShortcutTooltip.ts";
 export function flagMarkup(f: StateFlagLook | null): string {
   if (!f) return "";
   const glyph = clientTexture(`res:/UI/Texture/classes/FlagIcon/8/${f.iconIndex + 1}.png`);
@@ -459,7 +459,7 @@ export class Overview {
       if (!name || !html) { this.hideNameHint(); return; }
       if (this.nameHintFor === id) return;
       this.nameHintFor = id;
-      showGenericHint(name, html);
+      scheduleGenericHint(() => this.tbody.querySelector<HTMLElement>(`tr[data-id="${id}"] .ov-name`), html);
     });
     // UpdateEntryOrder's freeze: the pointer over the scroll's content, and whether it moved since the last pass
     this.tbody.addEventListener("mousemove", () => { this.pointerInside = true; this.pointerMoved = true; });
@@ -1999,7 +1999,7 @@ export class Overview {
   private hideNameHint(): void {
     if (this.nameHintFor === null) return;
     this.nameHintFor = null;
-    hideLabelShortcutTooltip();
+    cancelGenericHint();
   }
   private hideIconTip(): void {
     this.iconTip?.remove();
