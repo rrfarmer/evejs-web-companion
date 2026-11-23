@@ -1,0 +1,10 @@
+import type { Identity } from './security.ts';
+interface Sample {identity:Pick<Identity,"acceptedKey"|"dungeonID"|"instanceID"|"roomID">;mission:{acceptedKey:string;status:string}|null;dungeon:{dungeonID:number;instanceID:number;roomID:number}|null;flight:{inSpace:boolean;shipID:number};scene:{inSpace:boolean;stateValid?:boolean;shipID:number|null;ship:{itemID:number|null;geometryAvailable?:boolean;position:{x:number;y:number;z:number}}|null;entities:readonly {itemID:number;kind:string|null;ownerID?:number|null;controllerID?:number|null}[]};anchor:{x:number;y:number;z:number}|null;ownerID:number;ids:readonly number[];target:number}
+/** Absence is only usable inside a fresh, verified copy of the same mission room. */
+export function confirmAbsentTarget(x:Sample):boolean{
+ const {identity:i,mission:m,dungeon:d,scene:s,flight:f,anchor:a}=x;
+ const positive=(n:unknown):n is number=>typeof n==='number'&&Number.isSafeInteger(n)&&n>0;
+ if(!positive(x.ownerID)||!positive(x.target)||!positive(f.shipID)||!positive(i.dungeonID)||!positive(i.instanceID)||!Number.isSafeInteger(i.roomID)||i.roomID!<0||!i.acceptedKey||!x.ids.every(positive)||new Set(x.ids).size!==x.ids.length||!a||![a.x,a.y,a.z].every(Number.isFinite)||!s.ship||![s.ship.position.x,s.ship.position.y,s.ship.position.z].every(Number.isFinite))throw new Error('Security target absence scope is malformed.');
+ if(!m||m.status!=='accepted'||m.acceptedKey!==i.acceptedKey||!d||d.dungeonID!==i.dungeonID||d.instanceID!==i.instanceID||d.roomID!==i.roomID||!f.inSpace||!s.inSpace||s.stateValid===false||!s.ship||!s.ship.geometryAvailable||s.shipID!==f.shipID||s.ship.itemID!==f.shipID||!a||Math.hypot(s.ship.position.x-a.x,s.ship.position.y-a.y,s.ship.position.z-a.z)>250000||!x.ids.length||!x.ids.every(id=>s.entities.some(e=>e.itemID===id&&e.kind==='drone'&&e.ownerID===x.ownerID&&e.controllerID===f.shipID)))throw new Error('Security target absence scope is unreadable or changed.');
+ return !s.entities.some(e=>e.itemID===x.target);
+}

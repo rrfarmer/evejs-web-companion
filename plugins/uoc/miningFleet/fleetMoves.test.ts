@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {planFleetMoves} from './fleetMoves.ts';
+const row=(characterID:number,fleetID:number|null,memberIDs:number[]=[])=>({characterID,shipID:characterID+10,fleet:fleetID===null?{state:'not-in-fleet' as const}:{state:'ready' as const,fleetID,memberIDs}});
+test('only selected pilots are requested to leave a leader fleet containing outsiders',()=>{const rows=[row(1,91,[1,2,3,5]),row(2,91,[1,2,3,5]),row(3,91,[1,2,3,5]),row(4,null)];assert.deepEqual(planFleetMoves(rows,1),[1,2,3].map(characterID=>({characterID,shipID:characterID+10,fromFleetID:91})));});
+test('selected-only leader fleet is retained and unrelated solo pilot alone moves',()=>{assert.deepEqual(planFleetMoves([row(1,90,[1,2]),row(2,90,[1,2]),row(3,91,[3,4])],1),[{characterID:3,shipID:13,fromFleetID:91}]);});
+test('inconsistent selected views are rejected before review',()=>{assert.throws(()=>planFleetMoves([row(1,90,[1,2,4]),row(2,90,[2]),row(3,null)],1),/disagree/);});

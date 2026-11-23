@@ -31,12 +31,11 @@ test("Command Center has a dedicated page entry without mounting a pilot workspa
   assert.doesNotMatch(readFileSync(new URL("./PanelHost.svelte", import.meta.url), "utf8"), /<MiningOperations/);
 });
 
-test("the shared WC header opens the standalone MCC URL instead of a floating window", () => {
+test("the shared WC header retains stock actions without a standalone MCC launcher", () => {
   const output = render(GlobalLaunchers as never, {
     props: { openIds: new Set(), onOpen: () => {} },
   } as never);
-  assert.match(output.body, /<a\b[^>]*data-launch="miningOperations"[^>]*href="\/mining-command-center"/);
-  assert.doesNotMatch(output.body, /<button\b[^>]*data-launch="miningOperations"/);
+  assert.doesNotMatch(output.body, /data-launch="miningOperations"|href="\/mining-command-center"/);
   for (const id of ["botManager", "plugins", "industryManager"]) {
     assert.match(output.body, new RegExp(`<button\\b[^>]*data-launch="${id}"`));
   }

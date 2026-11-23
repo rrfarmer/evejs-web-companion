@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {parseAccountRoster} from './accountRoster.ts';
+test('fresh authenticated roster retains exact account and pilot identity',()=>{assert.deepEqual(parseAccountRoster({ok:true,account:'Test47',characters:[{characterID:42,name:'Pilot'}]},'test47'),[{characterID:42,name:'Pilot',accountName:'Test47'}]);});
+test('foreign, malformed or duplicate rosters cannot become pilot choices',()=>{for(const data of [{ok:true,account:'Other',characters:[]},{ok:false,account:'Test47',characters:[]},{ok:true,account:'Test47',characters:[{characterID:42,name:'P'},{characterID:42,name:'Q'}]},{ok:true,account:'Test47',characters:[{characterID:0,name:'P'}]}])assert.throws(()=>parseAccountRoster(data,'Test47'));});

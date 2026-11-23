@@ -193,7 +193,6 @@
   </header>
   <p class="note">Review equipment and supplies for this pilot. Replenish Consumables fills current-ship deficits; Provision Ship creates one new local hull only when its equipment does not already match.</p>
   <p class="note">NEW_HULL_ONLY: an exact equipment match acquires no hull and loads no duplicate equipment or supplies. Replenish Consumables is a separate action.</p>
-  <p class="note"><a href="/ship-provisioning" target="_blank" rel="noopener">Open separate Provisioning Center</a></p>
   {#if !ready}<p class="note">Dock this pilot and wait for the current ship session to be ready before reviewing local sources.</p>{/if}
   <button type="button" disabled={busy || !ready} onclick={() => void run(loadProvider)}>{busy ? "Working…" : "Refresh sources"}</button>
   {#if options}

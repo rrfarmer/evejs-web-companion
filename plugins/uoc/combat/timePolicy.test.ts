@@ -1,0 +1,4 @@
+import test from "node:test";import assert from "node:assert/strict";import {securityTimePolicy} from "./timePolicy.ts";
+import {combatWorkDeadline} from './timePolicy.ts';
+test('an optional early lease cannot shorten the required healthy fleet work boundary',()=>{const members=[{characterID:1,required:true},{characterID:2,required:false}];assert.equal(combatWorkDeadline(members,id=>id===1?900000:200000),720000);assert.equal(combatWorkDeadline(members.map(m=>({...m,required:false})),id=>id===1?900000:200000),20000);});
+test("time grant reserves cleanup when possible and shows the hard 72-hour boundary",()=>{assert.deepEqual(securityTimePolicy(60,4320),{requestedMinutes:60,grantMinutes:63,workBoundaryMinutes:60,cleanupReserveMinutes:3});assert.deepEqual(securityTimePolicy(4320,4320),{requestedMinutes:4320,grantMinutes:4320,workBoundaryMinutes:4317,cleanupReserveMinutes:3});assert.throws(()=>securityTimePolicy(4321,4320));});

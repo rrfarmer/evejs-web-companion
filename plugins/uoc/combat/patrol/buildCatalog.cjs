@@ -1,0 +1,11 @@
+// Offline source-data generator. No server modules are imported or executed.
+// Usage: node buildCatalog.cjs <npcProfiles/data.json> <itemTypes/data.json> <output.json>
+const fs=require('node:fs'),crypto=require('node:crypto');
+const [profilesPath,typesPath,out]=process.argv.slice(2);if(!profilesPath||!typesPath||!out)throw Error('Expected profile, item type and output paths.');
+const profilesBytes=fs.readFileSync(profilesPath),typesBytes=fs.readFileSync(typesPath),profiles=JSON.parse(profilesBytes).profiles,types=JSON.parse(typesBytes).types;
+if(!Array.isArray(profiles)||!Array.isArray(types))throw Error('Source tables are malformed.');
+const typeByID=new Map(types.map(t=>[t.typeID,t])),byPair=new Map(),pirates=new Set([500010,500011,500012,500019,500020]);
+for(const p of profiles){const typeID=p.presentationTypeID||p.shipTypeID,corp=p.corporationID,t=typeByID.get(typeID);if(!Number.isSafeInteger(typeID)||!Number.isSafeInteger(corp)||!t)continue;const key=`${typeID}:${corp}`,rows=byPair.get(key)??[];rows.push(p);byPair.set(key,rows);}
+const entries=[];for(const [key,rows] of byPair){const [typeID,corp]=key.split(':').map(Number),t=typeByID.get(typeID);if(t.categoryID!==11||![t.groupID,corp].every(Number.isSafeInteger)||[301,182,446,288,319,383].includes(t.groupID)||typeof t.groupName!=='string'||!/frigate|destroyer|cruiser|battleship|dreadnought|carrier|titan/i.test(t.groupName))continue;
+ const qualified=rows.every(p=>{const hostile=p.hostileResponseThreshold??p.hostile_response_threshold,friendly=p.friendlyResponseThreshold??p.friendly_response_threshold,threshold=Number.isFinite(Number(hostile))&&hostile!=null&&Number.isFinite(Number(friendly))&&friendly!=null?Number(hostile):String(p.entityType??'').toLowerCase()==='concord'?-11:11;return pirates.has(p.factionID)&&String(p.entityType??'').toLowerCase()!=='concord'&&threshold>0;});if(qualified)entries.push([typeID,t.groupID,corp]);}
+entries.sort((a,b)=>a[0]-b[0]||a[2]-b[2]);const sha=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');fs.writeFileSync(out,JSON.stringify({version:1,source:{profilesSHA256:sha(profilesBytes),itemTypesSHA256:sha(typesBytes),presentation:'npcPresentation.js:22-57'},entries})+'\n','utf8');
