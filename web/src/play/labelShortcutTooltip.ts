@@ -5,6 +5,64 @@ import { clientTexture } from "./window.ts";
 
 let tip: HTMLDivElement | null = null;
 
+/** A pointer flag (uiconst.POINT_*): x 0..4 (left, 1, middle, 3, right), y 0..4 (top, 1, middle, 3, bottom). */
+type PointFlag = readonly [number, number];
+const POINT = {
+  TOP_1: [1, 0], TOP_2: [2, 0], TOP_3: [3, 0], BOTTOM_1: [1, 4], BOTTOM_2: [2, 4], BOTTOM_3: [3, 4],
+  LEFT_1: [0, 1], LEFT_2: [0, 2], LEFT_3: [0, 3], RIGHT_1: [4, 1], RIGHT_2: [4, 2], RIGHT_3: [4, 3],
+  TOPLEFT: [0, 0], TOPRIGHT: [4, 0], BOTTOMLEFT: [0, 4], BOTTOMRIGHT: [4, 4],
+} as const satisfies Record<string, PointFlag>;
+const LEFTGROUP = [POINT.LEFT_2, POINT.LEFT_1, POINT.LEFT_3];
+const RIGHTGROUP = [POINT.RIGHT_2, POINT.RIGHT_1, POINT.RIGHT_3];
+const TOPGROUP = [POINT.TOP_2, POINT.TOP_1, POINT.TOP_3];
+const BOTTOMGROUP = [POINT.BOTTOM_2, POINT.BOTTOM_1, POINT.BOTTOM_3];
+const CORNERGROUP = [POINT.TOPLEFT, POINT.TOPRIGHT, POINT.BOTTOMLEFT, POINT.BOTTOMRIGHT];
+/** pointerPanel.POINT_CORRECTION: the flags tried, in turn, where the first is cut by the desktop's edge. */
+function correctionFor(flag: PointFlag): readonly PointFlag[] {
+  const [x, y] = flag;
+  if (x === 0 && y >= 1 && y <= 3) return [...LEFTGROUP, ...RIGHTGROUP, ...BOTTOMGROUP, ...TOPGROUP];
+  if (x === 4 && y >= 1 && y <= 3) return [...RIGHTGROUP, ...LEFTGROUP, ...BOTTOMGROUP, ...TOPGROUP];
+  if (y === 4 && x === 2) return [POINT.LEFT_2, ...BOTTOMGROUP, ...LEFTGROUP, ...TOPGROUP, ...RIGHTGROUP];
+  if (y === 4 && (x === 1 || x === 3)) return [...BOTTOMGROUP, ...LEFTGROUP, ...TOPGROUP, ...RIGHTGROUP];
+  if (y === 0 && x >= 1 && x <= 3) return [...TOPGROUP, ...LEFTGROUP, ...BOTTOMGROUP, ...RIGHTGROUP];
+  return [];
+}
+/** The page's gap between the anchor and its panel (the client's pointerSize, with the frame's outset). */
+const POINTER_GAP = 12;
+/**
+ * pointerPanel.AlignPointPanelToInterest: the panel beside its anchor by the flag - above (y 4), below (y 0) or centred
+ * on the pointer (FrameWithPointer.UpdatePointerPosition: 12 in from an end, or the middle), and the same across.
+ */
+function alignToFlag(a: DOMRect, w: number, h: number, [fx, fy]: PointFlag): { left: number; top: number } {
+  const along = (i: number, size: number) => (i === 1 ? 12 : i === 2 ? size / 2 : size - 12);
+  const top = fy === 4 ? a.top - h - POINTER_GAP : fy === 0 ? a.bottom + POINTER_GAP : a.top + a.height / 2 - along(fy, h);
+  const left = fx === 4 ? a.left - w - POINTER_GAP : fx === 0 ? a.right + POINTER_GAP : a.left + a.width / 2 - along(fx, w);
+  return { left, top };
+}
+/**
+ * pointerPanel.UpdatePanelPosition: the flag asked for; where the desktop's edge cuts it, POINT_CORRECTION's flags and
+ * then the corners in turn, the first not cut kept - else the one cut least (its deeper cut, then its other).
+ */
+function placeTip(panel: HTMLElement, anchor: HTMLElement, flag: PointFlag): void {
+  const a = anchor.getBoundingClientRect();
+  const w = panel.offsetWidth, h = panel.offsetHeight;
+  const cut = (p: { left: number; top: number }): [number, number] => {
+    const x = p.left < 0 ? -p.left : p.left + w > innerWidth ? p.left + w - innerWidth : 0;
+    const y = p.top < 0 ? -p.top : p.top + h > innerHeight ? p.top + h - innerHeight : 0;
+    return x > y ? [x, y] : [y, x];
+  };
+  let best = alignToFlag(a, w, h, flag);
+  let bestCut = cut(best);
+  for (const next of [...correctionFor(flag), ...CORNERGROUP]) {
+    if (bestCut[0] === 0 && bestCut[1] === 0) break;
+    const p = alignToFlag(a, w, h, next);
+    const c = cut(p);
+    if (c[0] < bestCut[0] || (c[0] === bestCut[0] && c[1] < bestCut[1])) { best = p; bestCut = c; }
+  }
+  panel.style.left = `${Math.round(best.left)}px`;
+  panel.style.top = `${Math.round(best.top)}px`;
+}
+
 export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, shortcut: string, lines: readonly string[] = [], pointer: "top" | "left" = "top"): void {
   if (!tip) {
     tip = document.createElement("div");
@@ -34,15 +92,8 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
   }
   tip.append(frame, grid);
   tip.style.display = "";
-  const a = anchor.getBoundingClientRect();
-  if (pointer === "top") {
-    // POINT_TOP_*: the panel below its anchor
-    tip.style.left = `${Math.round(Math.max(4, a.left + a.width / 2 - tip.offsetWidth / 2))}px`;
-    tip.style.top = `${Math.round(a.bottom + 12)}px`;
-  } else {
-    tip.style.left = `${Math.round(a.right + 12)}px`;
-    tip.style.top = `${Math.round(a.top + a.height / 2 - tip.offsetHeight / 2)}px`;
-  }
+  // POINT_TOP_2: the panel below its anchor; POINT_LEFT_2: to its right
+  placeTip(tip, anchor, pointer === "top" ? POINT.TOP_2 : POINT.LEFT_2);
 }
 
 /**
@@ -69,9 +120,7 @@ export function showIconValuesTooltip(anchor: HTMLElement, cells: readonly { ico
     Object.assign(d.style, { fontSize: "12px", lineHeight: "16px" });
     grid.append(d);
   }
-  const a = anchor.getBoundingClientRect();
-  tip.style.left = `${Math.round(Math.max(4, a.left + a.width / 2 - tip.offsetWidth / 2))}px`;
-  tip.style.top = `${Math.round(Math.max(4, a.top - 12 - tip.offsetHeight))}px`;
+  placeTip(tip, anchor, POINT.BOTTOM_2);
 }
 
 export function hideLabelShortcutTooltip(): void {
@@ -93,9 +142,7 @@ export function showItemTooltip(anchor: HTMLElement, head: string, dimLines: rea
     Object.assign(d.style, { gridColumn: "1 / 3", color: "rgba(255,255,255,0.5)" });
     grid?.append(d);
   }
-  const a = anchor.getBoundingClientRect();
-  tip.style.left = `${Math.round(Math.max(4, a.left + a.width / 2 - tip.offsetWidth / 2))}px`;
-  tip.style.top = `${Math.round(Math.max(4, a.top - 12 - tip.offsetHeight))}px`;
+  placeTip(tip, anchor, POINT.BOTTOM_2);
 }
 
 /**
@@ -149,11 +196,5 @@ export function showDronesInSpaceTooltip(anchor: HTMLElement, rows: {
   Object.assign(bw.style, { fontWeight: "bold", paddingRight: "7px", lineHeight: "18px" });
   bw.append(label, document.createTextNode(" " + rows.bandwidthValue));
   grid.append(max, name, bar, spacer, icon, bw);
-  const a = anchor.getBoundingClientRect();
-  // pointerPanel.UpdatePanelPosition: POINT_RIGHT_2 first; where it is cut by the desktop's edge, its fallbacks in
-  // turn (POINT_CORRECTION: the right group, then the left - the panel to the anchor's right), the first not cut kept
-  const leftOf = Math.round(a.left - 12 - tip.offsetWidth);
-  const rightOf = Math.round(a.right + 12);
-  tip.style.left = `${leftOf >= 0 ? leftOf : rightOf + tip.offsetWidth <= innerWidth ? rightOf : Math.max(0, leftOf)}px`;
-  tip.style.top = `${Math.round(a.top + a.height / 2 - tip.offsetHeight / 2)}px`;
+  placeTip(tip, anchor, POINT.RIGHT_2);
 }
