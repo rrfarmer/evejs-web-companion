@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { launchPluginPage } from "../app/pluginPageSession.ts";
   // ONE PLUGIN LAUNCHER in the strip (pluginPins.ts `pluginLaunchers`): a pinned
   // window, which a click opens, or a plugin pinned whole, which a click lists
   // the windows of. Lit while any of its windows is open.
@@ -12,7 +13,8 @@
 
   // How many pilots this plugin is flying in this tab. Absent at nought.
   const counts = pluginPilotCounts;
-  const count = $derived($counts.get(pluginIDOf(String(launcher.windows[0]?.id ?? "")) ?? "") ?? 0);
+  const count = $derived($counts.get(launcher.pluginID ?? pluginIDOf(String(launcher.windows[0]?.id ?? "")) ?? "") ?? 0);
+  const label = $derived(count > 0 ? `${launcher.title} - ${count} flying` : launcher.title);
 
   let shown = $state(false);
   let place = $state({ top: 0, left: 0 });
@@ -43,19 +45,7 @@
 
 <svelte:window onpointerdown={outside} onkeydown={(event) => { if (event.key === "Escape") shown = false; }} />
 
-<button
-  type="button"
-  class="global-launch plugin-launcher"
-  class:open={launcher.open || shown}
-  data-launch={launcher.key}
-  aria-pressed={launcher.kind === "window" ? launcher.open : undefined}
-  aria-haspopup={launcher.kind === "plugin" ? "true" : undefined}
-  aria-expanded={launcher.kind === "plugin" ? shown : undefined}
-  aria-label={count > 0 ? `${launcher.title} - ${count} flying` : launcher.title}
-  title={launcher.hint}
-  bind:this={button}
-  onclick={press}
->
+{#snippet launcherFace()}
   <svg class="global-launch-glyph" viewBox="0 0 24 24" aria-hidden="true">
     {#each launcher.glyph ?? neocomGlyph(launcher.glyphOf) as d (d)}<path {d} />{/each}
   </svg>
@@ -63,10 +53,40 @@
   {#if count > 0}
     <span class="global-launch-count" aria-hidden="true">{count}</span>
   {/if}
-</button>
+{/snippet}
+
+{#if launcher.kind === "page"}
+  <a class="global-launch plugin-launcher" data-launch={launcher.key} href={launcher.pageHref}
+    target="_blank" rel="noopener" onclick={launchPluginPage} aria-label={label} title={launcher.hint}>
+    {@render launcherFace()}
+  </a>
+{:else}
+  <button
+    type="button"
+    class="global-launch plugin-launcher"
+    class:open={launcher.open || shown}
+    data-launch={launcher.key}
+    aria-pressed={launcher.kind === "window" ? launcher.open : undefined}
+    aria-haspopup={launcher.kind === "plugin" ? "true" : undefined}
+    aria-expanded={launcher.kind === "plugin" ? shown : undefined}
+    aria-label={label}
+    title={launcher.hint}
+    bind:this={button}
+    onclick={press}
+  >
+    {@render launcherFace()}
+  </button>
+{/if}
 
 {#if shown}
   <div use:portal class="plugin-panel plugin-launcher-panel" role="menu" aria-label={launcher.title} style:top="{place.top}px" style:left="{place.left}px" bind:this={panel}>
+    {#if launcher.pageHref}
+      <div class="plugin-panel-row" role="none">
+        <a class="plugin-panel-name" role="menuitem" href={launcher.pageHref} target="_blank" rel="noopener" onclick={(event) => { if (launchPluginPage(event)) shown = false; }}>
+          <span>Open page</span>
+        </a>
+      </div>
+    {/if}
     {#each launcher.windows as win (win.id)}
       <div class="plugin-panel-row" role="none">
         <button

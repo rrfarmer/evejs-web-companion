@@ -20,6 +20,7 @@ import {
 import {
   clearSessionToken,
   getSessionToken,
+  allowSessionCookie,
   sessionAuthHeaders,
   setSessionToken,
   tokenAuthHeaders,
@@ -167,7 +168,7 @@ async function requestJson(
   const notificationSink = options.captureNotificationSink?.();
   const assertCurrent = options.captureRequestGuard?.();
   const authHeaders = "token" in options ? tokenAuthHeaders(options.token) : sessionAuthHeaders();
-  const credentials = "token" in options ? "omit" : "same-origin";
+  const credentials = "token" in options || !allowSessionCookie() ? "omit" : "same-origin";
   let lane = bridgeLane;
   let response: Response;
   try {

@@ -88,8 +88,10 @@ export function toggleWindow(state: PinState, group: PluginWindowGroup, windowID
 /** One launcher the strip draws for plugins. */
 export interface PluginLauncher {
   readonly key: string;
-  /** `plugin`: a click lists `windows`. `window`: a click opens `windowID`. */
-  readonly kind: "plugin" | "window";
+  /** A group menu, a window, or a direct link to a standalone page. */
+  readonly kind: "plugin" | "window" | "page";
+  readonly pluginID?: string;
+  readonly pageHref?: string;
   readonly label: string;
   readonly title: string;
   readonly hint: string;
@@ -141,22 +143,24 @@ export function pluginLaunchers(
   for (const pin of state.pins) {
     if (pin.kind === "plugin") {
       const group = groups.find((entry) => entry.plugin.id === pin.pluginID);
-      if (!group || group.windows.length === 0) continue;
+      if (!group || (!group.page && group.windows.length === 0)) continue;
       group.windows.forEach((window) => covered.add(window.id));
       const glyph = group.plugin.glyph ? { glyph: group.plugin.glyph } : {};
-      if (group.windows.length === 1) {
+      if (!group.page && group.windows.length === 1) {
         // Its menu row's pin made this, so it wears what that row wears.
         launchers.push({ ...windowLauncher(group.windows[0]!), ...glyph });
         continue;
       }
       launchers.push({
         key: `plugin:${group.plugin.id}`,
-        kind: "plugin",
+        kind: group.windows.length ? "plugin" : "page",
+        pluginID: group.plugin.id,
+        ...(group.page ? { pageHref: group.page.href } : {}),
         ...glyph,
         label: launcherWord(group.plugin.label),
         title: group.plugin.name,
-        hint: `${group.plugin.name}: ${group.windows.map((window) => window.title).join(", ")}`,
-        glyphOf: group.windows[0]!.id,
+        hint: group.page && !group.windows.length ? group.page.hint : `${group.plugin.name}: ${group.windows.map((window) => window.title).join(", ")}`,
+        glyphOf: group.windows[0]?.id ?? "pluginManager",
         windowID: null,
         windows: group.windows,
         open: group.windows.some((window) => openIds.has(window.id)),

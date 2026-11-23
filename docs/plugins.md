@@ -84,6 +84,36 @@ Core defines what each of these looks like, reads what each plugin registered,
 and decides where and when to show or call it. These are the plugin API's only
 extension points: a plugin that needs another one proposes it as a core change.
 
+### A standalone page
+
+Declare `page: {}` in the manifest and `page: () => import("./Page.svelte")`
+in the plugin's views. The ordinary WC build serves `/<plugin id>/` and hands
+subpaths to the page component.
+
+A plain click on the pin or menu link opens a new tab with `noopener`. The page
+receives the source WC tab's roster over a same-origin channel. Its reactive
+`PluginPageProps` include `sessions` (account name, character ID and WC token)
+and `activeSession`. Use the current props when making a request, for example
+`pluginGetJson(id, path, { token: pilot.token })`. Login, logout and changing
+the active cockpit update these props without remounting the plugin.
+
+The page removes the launch ID from the URL and retains only that ID in its
+session storage. Bearers stay in memory. Refresh asks the source for its current
+roster. Closing the source clears the borrowed roster. Where the browser
+provides Web Locks, release of the source's document lock also detects a lost
+tab. On LAN HTTP without Web Locks, 90 seconds without a presence message
+clears the roster while the page's timers are running. Closing either tab
+leaves hosted runs under the control of their original owner.
+
+A fresh direct URL, a middle-click, a modified click (including Ctrl, Cmd and
+Shift) or “Open link in new tab” follows the ordinary link without attaching
+the source roster. The plugin can show an empty state or use its existing
+explicit account sign-in. WC API calls from a plugin page omit the shared cookie.
+
+A page-only plugin has a direct link in the Plugins menu and, when pinned,
+in the usual strip. A plugin with both a page and windows lists them together.
+The browser's enable/disable and pin settings apply in both cases.
+
 ### A global window
 
 A window about every pilot rather than the one on screen. It floats on the global

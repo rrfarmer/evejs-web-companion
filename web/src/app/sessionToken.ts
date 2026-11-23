@@ -50,6 +50,15 @@ function detectStorage(): SessionTokenStorage | null {
 }
 
 let storage: SessionTokenStorage | null = detectStorage();
+let allowCookie = true;
+/** Standalone pages borrow bearers in memory. Drop any token left by the first page implementation. */
+export function usePluginPageAuth(): void {
+  allowCookie = false;
+  clearSessionToken();
+  setSessionTokenStorage(null);
+}
+export function allowSessionCookie(): boolean { return allowCookie; }
+
 let cachedToken: string | null = null;
 
 /**

@@ -12,6 +12,10 @@ import { mount } from "svelte";
 import { isGoblinFactoryPath, isMiningCommandCenterPath, isPilotTrainingPath, isShipProvisioningPath } from "./app/pageRoute.ts";
 import { installErrorOverlay } from "./app/errorOverlay.ts";
 import { activatePagePlugins } from "./plugins/pluginHost.ts";
+import PluginPageHost from "./ui/PluginPageHost.svelte";
+import { pageLink, pageStorage } from "./app/pluginPageSession.ts";
+import { usePluginPageAuth } from "./app/sessionToken.ts";
+import { pluginPageAt } from "./ui/globalWindow.ts";
 import { PLUGINS } from "../../plugins/index.ts";
 import { PLUGIN_VIEWS } from "../../plugins/views.ts";
 
@@ -29,6 +33,18 @@ void activatePagePlugins(PLUGINS, PLUGIN_VIEWS).catch((error) => console.error(e
   // pilot (store + per-session-token flow) and warms each one's health ping
   // itself (app/sessions.ts). There is no single app-wide store/flow any more.
   const target = document.getElementById("app");
+  const page = pluginPageAt(window.location.pathname);
+  if (target && page) {
+    usePluginPageAuth();
+    const url = new URL(location.href);
+    const link = pageLink(url, pageStorage(), () => {
+      history.replaceState(history.state, "", url.pathname + url.search);
+    });
+    void page.load().then(({ default: Page }) => mount(PluginPageHost, { target, props: { Page, link } })).catch((error) => {
+      target.textContent = `Could not open ${page.plugin.name}: ${error instanceof Error ? error.message : String(error)}`;
+    });
+    return;
+  }
   if (isGoblinFactoryPath(window.location.pathname)) window.location.replace(`/pilot-training${window.location.search}${window.location.hash}`);
   if (target && !isGoblinFactoryPath(window.location.pathname)) {
     if (isShipProvisioningPath(window.location.pathname)) {
