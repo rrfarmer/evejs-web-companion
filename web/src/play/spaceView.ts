@@ -2634,6 +2634,10 @@ export class SpaceView {
       if (!path) return a;
       const label = available.get(path);
       if (label) return { ...a, title: label };
+      // _GetMenuEntryData's TOGGLE_ACTIONS: Look At not offered, the menu's Reset Camera (Look At My Ship) in its place - the
+      // own ship's, and the thing the camera already looks at
+      const reset = a.key === "look" ? available.get("UI/Inflight/ResetCamera") : undefined;
+      if (reset) return { key: a.key, icon: a.icon, title: reset, run: async () => this.focusOn(null) };
       if (a.disabled) return a;
       return { ...a, title: (a.key === "moonPoint" ? this.actions.word?.(path, { distance: fmtDistance(0) }) : this.actions.word?.(path)) ?? a.title, disabled: true, disabledReason: a.disabledReason ?? reasons[a.key] ?? this.actions.word?.("UI/Menusvc/MenuHints/NoReasonGiven") ?? "No reason given" };
     });
@@ -5128,7 +5132,10 @@ export class SpaceView {
       out.push({ path: "UI/Inflight/Jump", label: word("UI/Inflight/Jump", "Jump"), icon: I("jump_to"), run: run("Jump", () => this.actions.jump(id)) });
     }
     // (the client's menu shows the movement entries, Look at, Track and the lock as one group)
-    if (!warping && group !== 7 && group !== 8) out.push({ path: "UI/Inflight/LookAtObject", label: word("UI/Inflight/LookAtObject", "Look at"), run: () => this.focusOn(id) });
+    // OfferLookAtObject (not the thing looked at) / OfferResetCamera (isLookingAtMe): Look At My Ship on the thing the
+    // camera already looks at
+    if (!warping && this.lookAt === id) out.push({ path: "UI/Inflight/ResetCamera", label: word("UI/Inflight/ResetCamera", "Look At My Ship"), run: () => this.focusOn(null) });
+    else if (!warping && group !== 7 && group !== 8) out.push({ path: "UI/Inflight/LookAtObject", label: word("UI/Inflight/LookAtObject", "Look at"), run: () => this.focusOn(id) });
     out.push({ path: "UI/Inflight/SetAsCameraInterest", label: word("UI/Inflight/SetAsCameraInterest", "Track"), run: () => { this.endExplosionCamera(); this.trackedObjective = id; } });
     // (OfferCancelLockTarget: a lock being made offers no Lock Target here, its Cancel Locking Attempt at the menu's end)
     const lockingNow = !this.locked.has(id) && (this.lockingIDs.has(id) || this.acquiringTargets.has(id));
