@@ -2622,8 +2622,16 @@ export class SpaceView {
   /** The object's menu entries now, by label path, with their texts (the Selected Item's _GetValidActionsByName). */
   private menuPaths(e: Entity): Map<string, string> {
     const out = new Map<string, string>();
-    const walk = (list: readonly (ContextEntry | null)[]) => { for (const x of list) if (x) { if (x.path && !x.disabled && !out.has(x.path)) out.set(x.path, x.label); if (x.sub) walk(x.sub); } };
-    walk(this.contextEntries(e));
+    // SelectedItemWnd.GetAllActionsFromMenus: the menu's enabled entries, and one level into the SUB_MENU_ACTIONS
+    // submenus only ('UI/Inflight/MoonMiningPoint'), an entry of the top level winning - never another object's
+    // entries (a planet's Moons submenu holds each moon's Warp to Within)
+    const top = this.contextEntries(e);
+    const sub: ContextEntry[] = [];
+    for (const x of top) if (x && !x.disabled) {
+      if (x.path && !out.has(x.path)) out.set(x.path, x.label);
+      if (x.path === "UI/Inflight/MoonMiningPoint") for (const y of x.sub ?? []) if (y) sub.push(y);
+    }
+    for (const y of sub) if (y.path && !y.disabled && !out.has(y.path)) out.set(y.path, y.label);
     return out;
   }
 
