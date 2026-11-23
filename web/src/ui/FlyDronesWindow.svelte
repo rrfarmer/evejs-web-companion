@@ -16,7 +16,7 @@
   import { shortcutOf } from "../play/shortcutKeys.ts";
   import { getContext, onDestroy, onMount } from "svelte";
   import type { SpaceView } from "../play/spaceView.ts";
-  import { hideLabelShortcutTooltip, showIconValuesTooltip } from "../play/labelShortcutTooltip.ts";
+  import { hideLabelShortcutTooltip, showIconValuesTooltip, showLabelShortcutTooltip } from "../play/labelShortcutTooltip.ts";
   import { canMyShipOrderDrone } from "../space/overview.ts";
   import { miningDroneIDs, orderableDroneIDs, salvageDroneIDs } from "./droneFlight.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
@@ -116,6 +116,20 @@
   };
   const say = (w: readonly [string, string]) => headerWord(w[0], w[1]);
   const keyHint = (label: string, cmd: string) => { const k = shortcutOf(cmd); return k ? `${label} (${k})` : label; };
+  // DroneGroupHeaderInSpace's buttons: dronesUtil.LoadShortcutTooltip - the command's name and shortcut (AddLabelShortcut)
+  const CMD_WORDS: Record<string, readonly [string, string]> = {
+    CmdDronesEngage: ["UI/Commands/CmdDronesEngage", "All Drones: Engage"],
+    CmdDronesReturnAndOrbit: ["UI/Commands/CmdDronesReturnAndOrbit", "All Drones: Return and Orbit"],
+    CmdDronesReturnToBay: ["UI/Commands/CmdDronesReturnToBay", "All Drones: Return to Drone Bay"],
+  };
+  flow.requestWords(Object.values(CMD_WORDS).map((w) => w[0]));
+  /** A label-and-shortcut tooltip on a button (TooltipPanel.AddLabelShortcut), pointed from above. */
+  function shortcutTip(node: HTMLElement, tip: () => { label: string; cmd: string } | null) {
+    const enter = () => { const t = tip(); if (t) showLabelShortcutTooltip(node, t.label, t.cmd ? shortcutOf(t.cmd) : ""); };
+    node.addEventListener("mouseenter", enter);
+    node.addEventListener("mouseleave", hideLabelShortcutTooltip);
+    return { destroy() { node.removeEventListener("mouseenter", enter); node.removeEventListener("mouseleave", hideLabelShortcutTooltip); hideLabelShortcutTooltip(); } };
+  }
   // target.GetActiveTargetID: the drones' orders go to the active target
   const activeTarget = activeTargetID;
   const settingsNow = droneSettings;
@@ -935,7 +949,9 @@
       oncontextmenu={(e) => openMenuIfAny(e, [...deleteMenu(), ...bayItemsMenu(bayRows.flatMap((r) => r.itemIDs.map((itemID) => ({ itemID, typeID: r.typeID }))), false)])}>
       <span class="caret" style:mask-image={`url("${bayOpen ? CARET.open : CARET.closed}")`} style:-webkit-mask-image={`url("${bayOpen ? CARET.open : CARET.closed}")`}></span><span class="lbl">{headerWord(HEADER_WORDS.bay, "Drones in Bay")} ({bayCount})</span>
       <span class="commands">
-        <button type="button" class="command" title={keyHint(say(MENU_WORDS.launch), "CmdLaunchFavoriteDrones")} disabled={busy || !bayRows.length}
+        <!-- DroneGroupHeaderInBay's launch button: LoadLaunchDronesTooltipPanel (Launch Drones and its shortcut) with no favourite
+             group, else its hint alone -->
+        <button type="button" class="command" title={favoriteID !== null ? say(MENU_WORDS.launch) : undefined} use:shortcutTip={() => (favoriteID === null ? { label: say(MENU_WORDS.launch), cmd: "CmdLaunchFavoriteDrones" } : null)} disabled={busy || !bayRows.length}
           onclick={(e) => { e.stopPropagation(); void run(() => flow.launchDrones(dronesToLaunch(shipTypeID, bayRows.flatMap((r) => r.itemIDs), ($drones.inSpace ?? []).map((d) => d.itemID)))); }}>
           <span class="glyph" style:background-image={`url(${ICON.launch})`}></span>
         </button>
@@ -969,16 +985,16 @@
             <span class="glyph" style:background-image={`url(${ICON.settings})`}></span>
           </button>
         </span>
-        <button type="button" class="command" title={keyHint(say(MENU_WORDS.engage), "CmdDronesEngage")} disabled={busy}
+        <button type="button" class="command" use:shortcutTip={() => ({ label: say(CMD_WORDS.CmdDronesEngage!), cmd: "CmdDronesEngage" })} disabled={busy}
           onclick={(e) => { e.stopPropagation(); if (allDroneIDs.length) void run(() => primaryAction(allDroneIDs)); }}>
           <span class="glyph" style:background-image={`url(${ICON.engage})`}></span>
         </button>
-        <button type="button" class="command" title={keyHint(say(MENU_WORDS.orbit), "CmdDronesReturnAndOrbit")} disabled={busy}
+        <button type="button" class="command" use:shortcutTip={() => ({ label: say(CMD_WORDS.CmdDronesReturnAndOrbit!), cmd: "CmdDronesReturnAndOrbit" })} disabled={busy}
           onclick={(e) => { e.stopPropagation(); if (allDroneIDs.length) void run(() => flow.returnDronesAndOrbit(allDroneIDs)); }}>
           <span class="glyph" style:background-image={`url(${ICON.orbit})`}></span>
         </button>
         <span class="sep" aria-hidden="true"></span>
-        <button type="button" class="command" title={keyHint(say(MENU_WORDS.bay), "CmdDronesReturnToBay")} disabled={busy}
+        <button type="button" class="command" use:shortcutTip={() => ({ label: say(CMD_WORDS.CmdDronesReturnToBay!), cmd: "CmdDronesReturnToBay" })} disabled={busy}
           onclick={(e) => { e.stopPropagation(); if (allDroneIDs.length) void run(() => flow.recallDrones(allDroneIDs)); }}>
           <span class="glyph" style:background-image={`url(${ICON.recall})`}></span>
         </button>
