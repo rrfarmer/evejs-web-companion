@@ -16,7 +16,7 @@
   import { shortcutOf } from "../play/shortcutKeys.ts";
   import { getContext, onDestroy, onMount } from "svelte";
   import type { SpaceView } from "../play/spaceView.ts";
-  import { hideLabelShortcutTooltip, showDronesInSpaceTooltip, showIconValuesTooltip, showLabelShortcutTooltip } from "../play/labelShortcutTooltip.ts";
+  import { hideLabelShortcutTooltip, placePointerPanel, showDronesInSpaceTooltip, showIconValuesTooltip, showLabelShortcutTooltip } from "../play/labelShortcutTooltip.ts";
   import { canMyShipOrderDrone } from "../space/overview.ts";
   import { miningDroneIDs, orderableDroneIDs, salvageDroneIDs } from "./droneFlight.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
@@ -283,7 +283,20 @@
    * ship, else the thing's name) - then for a mining drone AddMiningDroneInfo (its miningAmount and duration with the
    * pilot's skills applied, flow.droneAttribute) and AddDroneBandwidthUsed (the attribute's icon, its name and value).
    */
-  let tip = $state<{ typeID: number; name: string; state: string | null; color: string | null; targetID: number | null; x: number; y: number } | null>(null);
+  let tip = $state<{ typeID: number; name: string; state: string | null; color: string | null; targetID: number | null; anchor: DOMRect } | null>(null);
+  // DroneEntry.GetTooltipPointer is POINT_RIGHT_2 (read through gridcheck): the panel to the row's left, falling back
+  // by pointerPanel.UpdatePanelPosition where the desktop's edge cuts it
+  let tipEl = $state<HTMLDivElement | null>(null);
+  $effect(() => {
+    const el = tipEl, anchor = tip?.anchor;
+    if (!el || !anchor) return;
+    // (placed again as its lines come in: the panel is centred on its pointer)
+    const place = () => placePointerPanel(el, anchor, "RIGHT_2");
+    place();
+    const seen = new ResizeObserver(place);
+    seen.observe(el);
+    return () => seen.disconnect();
+  });
   let tipTimer: ReturnType<typeof setTimeout> | null = null;
   const bandwidth = new Map<number, number | null>();
   const groupOfType = new Map<number, number | null>();
@@ -301,7 +314,7 @@
       const t = targetID ? snapshot?.entities.find((x) => x.itemID === targetID) ?? null : null;
       if (t?.typeID) flow.requestNames([{ kind: "type", id: t.typeID }]);
       if (t?.characterID) flow.requestNames([{ kind: "owner", id: t.characterID }]);
-      tip = { typeID, name: typeName(typeID, ""), state, color, targetID, x: r.right + 12, y: r.top + r.height / 2 };
+      tip = { typeID, name: typeName(typeID, ""), state, color, targetID, anchor: r };
       // the mining row's attributes may wait on a reckoning of the ship: read again shortly
       if (flow.droneTooltipFigures(typeID) === null) setTimeout(() => bandwidthVersion++, 1500);
       if (!bandwidth.has(typeID)) {
@@ -1070,7 +1083,7 @@
 
 {#if tip}
   <!-- TooltipPanel (the hint layer): background_04's frame, the 26 px type icon and the name, the bandwidth row -->
-  <div class="drone-tip" style:left={`${tip.x}px`} style:top={`${tip.y}px`}>
+  <div class="drone-tip" bind:this={tipEl}>
     <div class="tip-frame"></div>
     <div class="tip-grid">
       <span class="tip-icon"><TypeIcon typeID={tip.typeID} name={tip.name} size="sm" /></span>
@@ -1105,7 +1118,7 @@
   @keyframes ww-in { from { opacity: 0; } to { opacity: 1; } }
   @keyframes ww-flash { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
   @keyframes ww-pulse { from { opacity: 0.5; } to { opacity: 1; } }
-  .drone-tip { position: fixed; transform: translateY(-50%); z-index: 100000; pointer-events: none; padding: 8px; font: 14px var(--font); color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
+  .drone-tip { position: fixed; z-index: 100000; pointer-events: none; padding: 8px; font: 14px var(--font); color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
   .tip-frame { position: absolute; inset: 0; opacity: 0.75; border-style: solid; border-width: 0; border-image-source: url(/client-res/ui/texture/classes/framewithpointer/background_04.png); border-image-slice: 19 fill; border-image-width: 19px; border-image-outset: 15px; }
   .tip-grid { position: relative; display: grid; grid-template-columns: 30px auto; align-items: center; }
   .tip-icon { width: 30px; min-height: 30px; display: grid; place-items: center; }

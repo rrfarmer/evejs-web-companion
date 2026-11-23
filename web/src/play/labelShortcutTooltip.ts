@@ -44,7 +44,19 @@ function alignToFlag(a: DOMRect, w: number, h: number, [fx, fy]: PointFlag): { l
  * then the corners in turn, the first not cut kept - else the one cut least (its deeper cut, then its other).
  */
 function placeTip(panel: HTMLElement, anchor: HTMLElement, flag: PointFlag): void {
-  const a = anchor.getBoundingClientRect();
+  placeBeside(panel, anchor.getBoundingClientRect(), flag);
+}
+/** A pointer panel the page draws itself (a Svelte tooltip) placed beside its anchor's rect by a flag name. */
+export function placePointerPanel(panel: HTMLElement, anchor: DOMRect, flag: keyof typeof POINT): void {
+  // (a fixed panel inside a transformed window is placed in that window's box: measured at 0,0 and taken off)
+  panel.style.left = "0px";
+  panel.style.top = "0px";
+  const origin = panel.getBoundingClientRect();
+  placeBeside(panel, anchor, POINT[flag]);
+  panel.style.left = `${Math.round(parseFloat(panel.style.left) - origin.left)}px`;
+  panel.style.top = `${Math.round(parseFloat(panel.style.top) - origin.top)}px`;
+}
+function placeBeside(panel: HTMLElement, a: DOMRect, flag: PointFlag): void {
   const w = panel.offsetWidth, h = panel.offsetHeight;
   const cut = (p: { left: number; top: number }): [number, number] => {
     const x = p.left < 0 ? -p.left : p.left + w > innerWidth ? p.left + w - innerWidth : 0;
