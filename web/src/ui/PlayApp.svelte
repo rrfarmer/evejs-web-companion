@@ -49,6 +49,7 @@
   import { fittingWindowTarget } from "./fittingWindowTarget.ts";
   import { shipHoldTarget } from "./shipHold.ts";
   import { invAlwaysSeparate, invSidebar } from "./inventoryWindowSettings.ts";
+  import { shiftHeld } from "../play/keyState.ts";
   import { standingWithSkillBonus } from "../bridge/agencyAgents.ts";
   import { addTempInvLocation, removeTempInvLocation, tempInvLocations, treeShownContainer } from "./invTemp.ts";
   import { markWreckViewed } from "../play/viewedWrecks.ts";
@@ -1907,9 +1908,9 @@
       // shows needs no window of its own
       if (e.kind === "container" || e.kind === "wreck") addTempInvLocation(c.itemID);
       // Inventory.OpenOrShow(invID) after AddTemporaryInvLocation: with the primary window's tree shown (IsPrimaryInvTreeExpanded)
-      // and always_open_secondary_inventory_setting off, the primary inventory opens on the can or wreck, kept captioned Inventory - no window of its own (the live client,
+      // and always_open_secondary_inventory_setting off and Shift not held, the primary inventory opens on the can or wreck, kept captioned Inventory - no window of its own (the live client,
       // gridcheck g263: OpenCargo on a can left InventoryPrimary on (ItemFloatingCargo, can)); the opening marked once
-      const intoPrimary = (e.kind === "container" || e.kind === "wreck") && invSidebar.get() && !invAlwaysSeparate.get() && c.itemID !== openedIntoPrimary;
+      const intoPrimary = (e.kind === "container" || e.kind === "wreck") && invSidebar.get() && !invAlwaysSeparate.get() && !shiftHeld() && c.itemID !== openedIntoPrimary;
       if (intoPrimary) {
         openedIntoPrimary = c.itemID;
         treeShownContainer.set(c.itemID);
