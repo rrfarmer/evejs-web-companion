@@ -156,13 +156,15 @@ button { font: inherit; color: inherit; }
 .hud-top-left .sub { color: var(--text-dim); }
 
 /* the Neocom (neocom.ts): the client's left bar, its button art from res:/UI/Texture/classes/Neocom */
-.neocom { position: absolute; left: 0; top: 0; bottom: 0; width: 44px; display: flex; flex-direction: column; z-index: 6;
+/* NeocomContainer: 48 wide; its buttons 48 x 48, their icons 40 at 4, 4; the EVE menu button 48 x 48 (the live client,
+   gridcheck g248) */
+.neocom { position: absolute; left: 0; top: 0; bottom: 0; width: 48px; display: flex; flex-direction: column; z-index: 6;
   /* the app's own .neocom (styles.css) pads and frames its panel; none of that here */
-  padding: 0; border: 0; background: rgba(6, 7, 8, 0.92); border-right: 1px solid rgba(255, 255, 255, 0.08); }
-.neocom .eve { height: 44px; flex: none; background: url(/client-res/ui/texture/classes/neocom/evebuttonbg.png) center / 44px 44px no-repeat;
+  padding: 0; border: 0; gap: 0; background: rgba(6, 7, 8, 0.92); border-right: 1px solid rgba(255, 255, 255, 0.08); }
+.neocom .eve { height: 48px; flex: none; background: url(/client-res/ui/texture/classes/neocom/evebuttonbg.png) center / 48px 48px no-repeat;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08); cursor: pointer; }
 .nc-buttons { display: flex; flex-direction: column; }
-.eve-menu, .eve-menu-sub { position: fixed; left: 44px; top: 0; z-index: 1000; width: 240px; background: rgba(12, 14, 16, 0.96);
+.eve-menu, .eve-menu-sub { position: fixed; left: 48px; top: 0; z-index: 1000; width: 240px; background: rgba(12, 14, 16, 0.96);
   border-right: 1px solid rgba(255, 255, 255, 0.08); padding: 4px 0 0 8px; box-sizing: border-box; }
 .eve-menu { overflow: auto; }
 .eve-menu-sub { padding: 0; }
@@ -172,8 +174,8 @@ button { font: inherit; color: inherit; }
 .eve-menu-entry:hover:not(:disabled) { background: url(/client-res/ui/texture/classes/neocom/panelentrybg.png) center / 100% 100% no-repeat; color: #fff; }
 .eve-menu-entry.group::after { content: "\203A"; position: absolute; right: 16px; color: #9aa0a6; }
 .eve-menu-entry:disabled { opacity: 0.4; cursor: default; }
-.nc-btn { width: 44px; height: 40px; padding: 0; display: grid; place-items: center; background: transparent; border: none; cursor: pointer; }
-.nc-btn img { width: 32px; height: 32px; opacity: .78; }
+.nc-btn { width: 48px; height: 48px; padding: 0; display: grid; place-items: center; background: transparent; border: none; cursor: pointer; }
+.nc-btn img { width: 40px; height: 40px; opacity: .78; }
 .nc-btn:hover { background: url(/client-res/ui/texture/classes/neocom/buttonhover.png) center / 100% 100% no-repeat; }
 .nc-btn:hover img { opacity: 1; }
 .nc-fill { flex: 1; }

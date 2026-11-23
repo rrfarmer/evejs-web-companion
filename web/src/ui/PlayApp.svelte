@@ -824,7 +824,7 @@
   });
 
   /** The Neocom's width: a window opens right of it, as the eve-cs mirror's windows never sit on its Neocom. */
-  const NEOCOM_W = 44;
+  const NEOCOM_W = 48;
   /** The sizes the play page opens these windows at (the eve-cs mirror's, page pixels, title bar included). */
   const FLY_SIZES: Partial<Record<TabID, { w: number; h: number }>> = { drones: { w: 566, h: 216 }, inventory: { w: 600, h: 450 } };
   /**
