@@ -159,11 +159,40 @@
   $effect(() => () => disarmAutoClose());
 
   let hovered = $state<number | null>(null);
+
+  // NotificationScrollContainer's Scrollbar (carbonui scrollbar.py, as the in-space windows draw it in play.css): 8 wide
+  // over the list's right edge - the entries keep their 290 -, no track, the ScrollHandle a 2 px line inset 3 in white
+  // 0.25, THEME_FOCUSDARK 0.6 while the list is hovered, 4 wide in THEME_FOCUS under the mouse; hidden while all fits
+  // (the live client, g271: no Scrollbar shown with 3 entries in 346).
+  let list: HTMLDivElement | undefined = $state();
+  let bar = $state({ show: false, top: 0, height: 0 });
+  function updateBar(): void {
+    const l = list;
+    if (!l) return;
+    const over = l.scrollHeight - l.clientHeight;
+    if (over <= 1) { if (bar.show) bar = { show: false, top: 0, height: 0 }; return; }
+    const height = Math.max(16, (l.clientHeight * l.clientHeight) / l.scrollHeight);
+    bar = { show: true, height, top: (l.scrollTop / over) * (l.clientHeight - height) };
+  }
+  $effect(() => { void rows.length; void filled; queueMicrotask(updateBar); });
+  function dragBar(e: PointerEvent): void {
+    const l = list;
+    if (!l) return;
+    e.preventDefault();
+    const handle = e.currentTarget as HTMLElement;
+    handle.setPointerCapture(e.pointerId);
+    const y0 = e.clientY, top0 = l.scrollTop;
+    const per = (l.scrollHeight - l.clientHeight) / Math.max(1, l.clientHeight - bar.height);
+    const move = (m: PointerEvent) => { l.scrollTop = top0 + (m.clientY - y0) * per; };
+    const up = () => { handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+  }
 </script>
 
 <div class="nf" class:open bind:this={root}>
   <div class="nf-header" class:shown={open}>{word(HISTORY_CAPTION, "Notification History")}</div>
-  <div class="nf-list">
+  <div class="nf-list" bind:this={list} onscroll={updateBar}>
     {#if filled}
       {#each rows as row (row.notificationID)}
         {@const icon = notificationIconPath(row.typeID ?? 0)}
@@ -184,6 +213,9 @@
       {/each}
     {/if}
   </div>
+  {#if bar.show && filled}
+    <div class="nf-bar" role="scrollbar" aria-controls="" aria-valuenow={0} style={`top: ${22 + bar.top}px; height: ${bar.height}px`} onpointerdown={dragBar}><i></i></div>
+  {/if}
   <div class="nf-strip">
     <img class="nf-settings" class:shown={filled} alt="" src={clientTexture("res:/UI/Texture/Icons/77_32_30.png")} />
     <button class="nf-widget" aria-label="Notification Feed" onclick={onWidgetClick}
@@ -204,7 +236,10 @@
     white-space: nowrap; opacity: 0; transition: opacity 0.25s; pointer-events: none; }
   .nf-header.shown { opacity: 1; }
   .nf-list { position: absolute; left: 5px; right: 5px; top: 22px; bottom: 32px; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
-  /* the list's own scrollbar (NotificationScrollContainer's, over its right edge) is not drawn yet: the wheel scrolls it */
+  .nf-bar { position: absolute; left: 287px; width: 8px; cursor: default; }
+  .nf-bar i { position: absolute; left: 3px; top: 3px; bottom: 3px; width: 2px; background: rgba(255, 255, 255, 0.25); }
+  .nf:has(.nf-list:hover) .nf-bar i { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 60%, transparent); }
+  .nf-bar:hover i { left: 2px; width: 4px; background: var(--theme-focus, #58a7bf); }
   .nf-entry { position: relative; height: 50px; cursor: pointer; border-style: solid; border-width: 0; box-sizing: border-box;
     border-image-slice: 6 fill; border-image-width: 6px; border-image-outset: 5px; }
   .nf-icon { position: absolute; left: 5px; top: 5px; width: 40px; height: 40px; }
