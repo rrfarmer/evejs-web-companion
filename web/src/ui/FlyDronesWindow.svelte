@@ -923,7 +923,8 @@
     <span class="name">{groupWithCount(group.label, count)}</span>
     <span class="row-buttons">
       {#if inSpace}
-        <button type="button" class="command" title={say(MENU_WORDS.engage)} disabled={busy || !own.length} onclick={(e) => { e.stopPropagation(); void run(() => primaryAction(own)); }}>
+        <!-- DroneSubGroupInSpace.GetPrimaryActionBtnHint: GetPrimaryActionName of the group's first drone -->
+        <button type="button" class="command" title={say(miningIDs.includes(ids[0] ?? -1) ? MENU_WORDS.mine : salvageIDs.includes(ids[0] ?? -1) ? MENU_WORDS.salvage : MENU_WORDS.engage)} disabled={busy || !own.length} onclick={(e) => { e.stopPropagation(); void run(() => primaryAction(own)); }}>
           <span class="glyph" style:background-image={`url(${ICON.engage})`}></span>
         </button>
         <button type="button" class="command" title={say(MENU_WORDS.orbit)} disabled={busy || !own.length} onclick={(e) => { e.stopPropagation(); void run(() => flow.returnDronesAndOrbit(own)); }}>
