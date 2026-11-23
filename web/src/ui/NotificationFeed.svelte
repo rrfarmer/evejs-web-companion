@@ -222,7 +222,83 @@
     void playUiEvent("notify_slide_close_play");
     later(250, () => { animating = false; });
   }
-  function onWidgetClick() { if (open) closeDrawer(); else openDrawer(); }
+  /** clickInterruptedByDrag: the click that ends a drag does not open the drawer. */
+  let dragEnded = false;
+  function onWidgetClick() { if (dragEnded) { dragEnded = false; return; } if (open) closeDrawer(); else openDrawer(); }
+
+  // The widget's place (notificationCenter LoadPositionValues / capWidgetPosition / DragMovable): its distance from the
+  // right and the bottom of the screen (GetNotificationBadgeOffset, default (16, 16)), kept 0 .. the screen less 32;
+  // the drawer, badge and popups hang from it. ExpandEvaluator / AlignmentTransitioner: it opens up and to the left as
+  // wanted, down when the drawer would have under MIN_HISTORY_HEIGHT 100 above it (its height cut to fit either way),
+  // right when 300 does not fit to its left.
+  const OFFSET_KEY = "evejs.play.notificationFeedOffset";
+  function loadOffset(): { x: number; y: number } {
+    try { const v = JSON.parse(localStorage.getItem(OFFSET_KEY) ?? "null"); if (v && Number.isFinite(v.x) && Number.isFinite(v.y)) return v; } catch { /* default */ }
+    return { x: 16, y: 16 };
+  }
+  let off = $state(loadOffset());
+  let vw = $state(typeof window === "undefined" ? 1200 : window.innerWidth);
+  let vh = $state(typeof window === "undefined" ? 800 : window.innerHeight);
+  $effect(() => { const r = () => { vw = window.innerWidth; vh = window.innerHeight; }; window.addEventListener("resize", r); return () => window.removeEventListener("resize", r); });
+  const cx = $derived(Math.min(Math.max(0, off.x), vw - 32));
+  const cy = $derived(Math.min(Math.max(0, off.y), vh - 32));
+  /** actualX / actualY: the widget's right and bottom edges. */
+  const ax = $derived(vw - cx);
+  const ay = $derived(vh - cy);
+  const upHeight = $derived(Math.min(400, vh - cy));
+  const downHeight = $derived(400 - Math.max(0, 400 + ay - vh));
+  const goesUp = $derived(upHeight >= 100 || downHeight < 100);
+  const goesLeft = $derived(ax - 300 > 0);
+  const ptr = $derived(clientTexture(goesLeft ? "res:/UI/Texture/classes/Notifications/pointer_right_02.png" : "res:/UI/Texture/classes/Notifications/pointer_left_02.png"));
+  const drawerHeight = $derived(goesUp ? upHeight : downHeight);
+  const boxStyle = $derived([
+    goesLeft ? `right: ${cx}px` : `left: ${ax - 32}px`,
+    goesUp ? `bottom: ${cy}px` : `top: ${ay - 32}px`,
+    open ? `height: ${drawerHeight}px` : "",
+  ].join("; "));
+  // _AutoPositionBadgeContainer: 6 down the widget's side, 2 to its left pointing right, or past its right pointing left
+  const badgeStyle = $derived(goesLeft ? `right: ${cx + 34}px; top: ${ay - 32 + 6}px` : `left: ${ax + 12}px; top: ${ay - 32 + 6}px`);
+  // _AutoPositionStackFader: the stack 300 wide on the widget's right edge (left edge when it opens right), going up from
+  // 5 above it or down from 5 under it
+  const stackStyle = $derived([
+    goesLeft ? `right: ${cx}px` : `left: ${ax - 32}px`,
+    goesUp ? `bottom: ${cy + 32 + 5}px` : `top: ${ay + 5}px`,
+  ].join("; "));
+
+  // DragMovable: a press held 300 ms with under 5 px of movement starts the drag (not while the drawer is open); the
+  // widget grows to 1.25 over 0.25 s (ANIM_SMOOTH) and follows the pointer, back to 1 on release, the place saved
+  let dragging = $state(false);
+  let pressTimer: ReturnType<typeof setTimeout> | null = null;
+  function widgetDown(e: PointerEvent): void {
+    if (e.button !== 0 || open || animating) return;
+    const x0 = e.clientX, y0 = e.clientY;
+    let lastX = x0, lastY = y0;
+    const track = (m: PointerEvent) => { lastX = m.clientX; lastY = m.clientY; };
+    const btn = e.currentTarget as HTMLElement;
+    window.addEventListener("pointermove", track, true);
+    const cancel = () => { if (pressTimer) clearTimeout(pressTimer); pressTimer = null; window.removeEventListener("pointermove", track, true); window.removeEventListener("pointerup", cancel, true); };
+    window.addEventListener("pointerup", cancel, true);
+    pressTimer = setTimeout(() => {
+      cancel();
+      if (Math.abs(x0 - lastX) + Math.abs(y0 - lastY) >= 5) return;
+      hideLabelShortcutTooltip();
+      dragging = true;
+      const start = { x: cx, y: cy };
+      const move = (m: PointerEvent) => { off = { x: start.x + (x0 - m.clientX), y: start.y + (y0 - m.clientY) }; };
+      const up = () => {
+        window.removeEventListener("pointermove", move, true);
+        window.removeEventListener("pointerup", up, true);
+        dragging = false;
+        dragEnded = true;
+        setTimeout(() => { dragEnded = false; }, 0);
+        off = { x: cx, y: cy };
+        try { localStorage.setItem(OFFSET_KEY, JSON.stringify(off)); } catch { /* the place is kept for this session */ }
+      };
+      window.addEventListener("pointermove", move, true);
+      window.addEventListener("pointerup", up, true);
+      void btn;
+    }, 300);
+  }
 
   // AutoCloser(thresholdInSeconds=1.0, buffer=10): out of the drawer's area for a second closes it
   let outSince: number | null = null;
@@ -281,16 +357,17 @@
      than it and 20 high, its right edge 2 left of the widget, 6 down its side; newItemsBadgeBase.png (corner 10, offset
      -6) and pointer_right_02.png 24 at (w - 8, -2), both in COLORTYPE_UIHILIGHTGLOW at 0.95; fades 0.25 (the live client,
      gridcheck g274: "3" 18 x 20 at (2492, 1398), "12" 26 x 20 at (2484, 1398), the widget at (2512, 1392)) -->
-<div class="nf-badge" class:shown={unread > 0 && !open}>
+<div class="nf-badge" class:shown={unread > 0 && !open && !dragging} class:right={!goesLeft} style={badgeStyle}>
   <span class="nf-badge-bg" style={`-webkit-mask-box-image: url("${clientTexture("res:/UI/Texture/classes/Notifications/newItemsBadgeBase.png")}") 10 / 10px`}></span>
-  <span class="nf-badge-ptr" style={`-webkit-mask-image: url("${clientTexture("res:/UI/Texture/classes/Notifications/pointer_right_02.png")}"); mask-image: url("${clientTexture("res:/UI/Texture/classes/Notifications/pointer_right_02.png")}")`}></span>
+  <span class="nf-badge-ptr" style={`-webkit-mask-image: url("${ptr}"); mask-image: url("${ptr}")`}></span>
   <span class="nf-badge-n">{unread}</span>
 </div>
-<div class="nf-popups">
+<div class="nf-popups" class:down={!goesUp} style={stackStyle}>
   {#each popups as p, i (p.id)}
     {@const icon = p.typeID === null ? null : notificationIconPath(p.typeID)}
     <div class="nf-entry nf-popup" class:fading={p.fading} role="listitem" bind:offsetHeight={p.h}
-      style:bottom={`${popups.slice(0, i).reduce((y, q) => y + q.h + 5, 0)}px`}
+      style:bottom={goesUp ? `${popups.slice(0, i).reduce((y, q) => y + q.h + 5, 0)}px` : null}
+      style:top={goesUp ? null : `${popups.slice(0, i).reduce((y, q) => y + q.h + 5, 0)}px`}
       style={`border-image-source: url("${clientTexture(p.outSince === null ? "res:/UI/Texture/classes/Notifications/historyBackReadOver.png" : "res:/UI/Texture/classes/Notifications/historyBackReadUp.png")}")`}
       onmouseenter={() => { if (!p.fading) { p.outSince = null; popups = [...popups]; void playUiEvent("ui_button_soft2_play"); } }}
       onmouseleave={() => { p.outSince = Date.now(); popups = [...popups]; }}
@@ -307,7 +384,7 @@
     </div>
   {/each}
 </div>
-<div class="nf" class:open bind:this={root}>
+<div class="nf" class:open class:dragging class:right={!goesLeft} class:down={!goesUp} bind:this={root} style={boxStyle}>
   <div class="nf-header" class:shown={open}>{word(HISTORY_CAPTION, "Notification History")}</div>
   <div class="nf-list" bind:this={list} onscroll={updateBar}>
     {#if filled}
@@ -335,8 +412,8 @@
   {/if}
   <div class="nf-strip">
     <img class="nf-settings" class:shown={filled} alt="" src={clientTexture("res:/UI/Texture/Icons/77_32_30.png")} />
-    <button class="nf-widget" aria-label="Notification Feed" onclick={onWidgetClick}
-      onmouseenter={(e) => { if (open) return; const el = e.currentTarget; tooltipDue(el, () => showLabelShortcutTooltip(el, "Notification Feed", "", ["", "Click, hold and drag to reposition notifications feed"], "top", "wrap")); }}
+    <button class="nf-widget" aria-label="Notification Feed" onclick={onWidgetClick} onpointerdown={widgetDown}
+      onmouseenter={(e) => { if (open || dragging) return; const el = e.currentTarget; tooltipDue(el, () => showLabelShortcutTooltip(el, "Notification Feed", "", ["", "Click, hold and drag to reposition notifications feed"], "top", "wrap")); }}
       onmouseleave={() => hideLabelShortcutTooltip()}>
       <img alt="" src={clientTexture("res:/UI/Texture/classes/Notifications/widgetIcon.png")} />
     </button>
@@ -345,15 +422,23 @@
 
 <style>
   /* WindowUnderlay: the blurred scene under a 0.1 white frame; the container grows from the widget's right and bottom */
-  .nf { position: fixed; right: 16px; bottom: 16px; width: 32px; height: 32px; z-index: 25; overflow: hidden; box-sizing: border-box;
+  .nf { position: fixed; width: 32px; height: 32px; z-index: 25; overflow: hidden; box-sizing: border-box;
     background: var(--win-bg, rgba(14, 16, 18, 0.88)); backdrop-filter: var(--win-backdrop, blur(6px)); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
-    transition: width 0.25s, height 0.25s; font: 14px 'EVE Sans Neue', 'Segoe UI', sans-serif; color: rgba(255, 255, 255, 0.75); }
+    transition: width 0.25s, height 0.25s, transform 0.25s cubic-bezier(0.3333, 0, 0.6667, 1); font: 14px 'EVE Sans Neue', 'Segoe UI', sans-serif; color: rgba(255, 255, 255, 0.75); }
   .nf.open { width: 300px; height: 400px; }
+  .nf.dragging { transform: scale(1.25); }
+  /* _ConstructControlContainer / _ConstructSettingsButton / _ConstructScroll by the alignment: opening right, the widget
+     at the left (TOLEFT) and the settings at the right (TORIGHT); opening down, the strip at the top (TOTOP, pulled up
+     over the header's 22) and the list under it, 5 from the foot (NOTIFICATION_CENTER_PADDING_H) */
+  .nf.right .nf-widget { right: auto; left: 0; }
+  .nf.right .nf-settings { left: auto; right: 5px; }
+  .nf.down .nf-strip { bottom: auto; top: 0; }
+  .nf.down .nf-list { top: 32px; bottom: 5px; }
   .nf-header { position: absolute; left: 0; right: 0; top: 4px; height: 18px; line-height: 18px; text-align: center; font-size: 12px; font-weight: bold;
     white-space: nowrap; opacity: 0; transition: opacity 0.25s; pointer-events: none; }
   .nf-header.shown { opacity: 1; }
   /* PushDisplayedItems: each shown popup moved over 0.5 s (MoveTo, ANIM_SMOOTH) to its slot, the newest at the foot */
-  .nf-popups { position: fixed; right: 16px; bottom: 53px; width: 300px; height: 0; z-index: 25; pointer-events: none;
+  .nf-popups { position: fixed; width: 300px; height: 0; z-index: 25; pointer-events: none;
     font: 14px 'EVE Sans Neue', 'Segoe UI', sans-serif; color: rgba(255, 255, 255, 0.75); }
   .nf-entry.nf-popup { position: absolute; left: 0; width: 300px; pointer-events: auto; height: auto; min-height: 50px;
     transition: opacity 0.5s, bottom 0.5s cubic-bezier(0.3333, 0, 0.6667, 1);
@@ -372,10 +457,11 @@
     animation: nf-swoop 0.8s linear forwards; }
   @keyframes nf-swoop { from { --nf-swoop: -106%; } to { --nf-swoop: 106%; } }
   @property --nf-swoop { syntax: "<percentage>"; inherits: false; initial-value: -106%; }
-  .nf-badge { position: fixed; right: 50px; bottom: 22px; height: 20px; z-index: 25; pointer-events: none; opacity: 0; transition: opacity 0.25s;
+  .nf-badge { position: fixed; height: 20px; z-index: 25; pointer-events: none; opacity: 0; transition: opacity 0.25s;
     font: bold 14px/18px 'EVE Sans Neue', 'Segoe UI', sans-serif; color: rgba(255, 255, 255, 0.75); }
   .nf-badge.shown { opacity: 1; }
   .nf-badge-bg { position: absolute; inset: -6px; background: var(--theme-focus-glow, #ccf3ff); opacity: 0.95; }
+  .nf-badge.right .nf-badge-ptr { left: -16px; right: auto; }
   .nf-badge-ptr { position: absolute; right: -16px; top: -2px; width: 24px; height: 24px; background: var(--theme-focus-glow, #ccf3ff); opacity: 0.95;
     -webkit-mask-size: 24px 24px; mask-size: 24px 24px; }
   .nf-badge-n { position: relative; display: block; padding: 1px 5px; }
