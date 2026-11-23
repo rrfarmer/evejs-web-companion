@@ -5047,6 +5047,20 @@ export class SpaceView {
     // Orbit / KeepAtRange / WarpToMenuEntryData.GetTextDescriptive: the entry with its default distance (GetActionTextWithDistance:
     // SelectedItemActionWithDist, "Orbit (1,000 m)" on the client)
     const withDist = (label: string, d: number) => this.actions.word?.("UI/Menusvc/MenuHints/SelectedItemActionWithDist", { actionName: label, distanceString: fmtDistance(d) }) ?? label;
+    // CelestialMenu: OfferMoonMiningPointMenu (a moon) -> GetMoonMiningPointMenu before the warp entries: where
+    // OfferWarpToMoonMiningPoint (its mining point's beacon in the scene, not warping, in warp range) a Moon Mining
+    // Point submenu of _GetWarpOptions - Warp to Mining Point Within <default> and Warp to Within > the seven ranges
+    // and Set Default Warp Range (WarpToMenu); else nothing
+    if (group === 8 && this.actions.warpToMoonMiningPoint && !warping && (this.distanceTo(e) ?? 0) >= 150_000
+      && this.snapshot?.entities.some((x) => x.itemID === 1_000_000_000 + id)) {
+      const d = defaultDistance("WarpTo");
+      const toPoint = (r: number) => run("Warp", () => this.actions.warpToMoonMiningPoint!(id, r));
+      out.push({ path: "UI/Inflight/MoonMiningPoint", label: word("UI/Inflight/MoonMiningPoint", "Moon Mining Point"), sub: [
+        { path: "UI/Inflight/WarpToMoonMiningPoint", label: word("UI/Inflight/WarpToMoonMiningPoint", `Warp to Mining Point Within ${fmtDistance(d)}`, { distance: fmtDistance(d) }), run: toPoint(d) },
+        { path: "UI/Inflight/Submenus/WarpToWithin", label: word("UI/Inflight/Submenus/WarpToWithin", "Warp to Within"),
+          sub: [...warpRanges.map((r) => ({ label: within(r), run: toPoint(r) })), null, setDefault("WarpTo", warpRanges, within)] },
+      ] });
+    }
     if (warp) {
       const d = defaultDistance("WarpTo");
       out.push({
