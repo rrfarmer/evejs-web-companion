@@ -704,7 +704,8 @@ export class NewShipHud {
     this.cargoGlyph.alt = "";
     this.cargoGlyph.src = holdGlyph("cargo");
     b.append(this.cargoGlyph);
-    b.addEventListener("mouseenter", () => { this.cargoHover = true; this.showHoldsTooltip(b); });
+    // CargoButton.OnMouseEnter: SOUND_BUTTON_HOVER
+    b.addEventListener("mouseenter", () => { void playUiEvent("ui_button_soft1_play"); this.cargoHover = true; this.showHoldsTooltip(b); });
     b.addEventListener("mouseleave", () => { this.cargoHover = false; this.closeTooltip(); });
     b.addEventListener("mousedown", () => { b.style.transform = "translateY(2px)"; });
     b.addEventListener("mouseup", () => { b.style.transform = ""; });
@@ -733,6 +734,8 @@ export class NewShipHud {
         Object.assign(g.style, { width: "16px", height: "16px" });
         i.append(g);
         i.addEventListener("click", () => { this.setTrackedHold(h.key); this.holdPicker.style.display = "none"; });
+        // _HoldItem (a FlyoutItem): SOUND_BUTTON_HOVER
+        i.addEventListener("mouseenter", () => void playUiEvent("ui_button_soft1_play"));
         return i;
       }));
       const height = (items.length - 1) * 24 + 16 + 8;
@@ -800,7 +803,7 @@ export class NewShipHud {
     // the autopilot: a 20 px dark disc, a 1 px ring at r 11 (white 0.1, FOCUS_BLUE engaged or hovered), the glyph
     const ap = document.createElement("button");
     ap.type = "button";
-    ap.addEventListener("mouseenter", () => this.showCommandTooltip(ap, "CmdToggleAutopilot"));
+    ap.addEventListener("mouseenter", () => { void playUiEvent("ui_button_soft1_play"); this.showCommandTooltip(ap, "CmdToggleAutopilot"); });
     ap.addEventListener("mouseleave", () => this.closeTooltip());
     Object.assign(ap.style, { position: "absolute", left: `${cx - 69 - 12}px`, top: `${cy - 78 - 12}px`, width: "24px", height: "24px", padding: "0", border: "0", background: "transparent", pointerEvents: "auto", cursor: "pointer", display: "grid", placeItems: "center" });
     Object.assign(this.autopilotRing.style, { position: "absolute", inset: "1px", borderRadius: "50%", background: "rgba(0,0,0,0.55)", boxShadow: "0 0 0 2px rgba(255,255,255,0.1) inset" });
@@ -847,7 +850,7 @@ export class NewShipHud {
     // the camera flyout's header: the orbit camera's glyph (idle 0.8)
     const cam = document.createElement("button");
     cam.type = "button";
-    cam.addEventListener("mouseenter", () => this.showCommandTooltip(cam, "CmdSetCameraOrbit"));
+    cam.addEventListener("mouseenter", () => { void playUiEvent("ui_button_soft1_play"); this.showCommandTooltip(cam, "CmdSetCameraOrbit"); });
     cam.addEventListener("mouseleave", () => this.closeTooltip());
     Object.assign(cam.style, {
       position: "absolute", left: `${25 - 16}px`, top: `${158 - 16}px`, width: "32px", height: "32px", padding: "0", borderRadius: "50%",
@@ -892,7 +895,7 @@ export class NewShipHud {
       b.type = "button";
       void title;
       // _ScannerItem (FlyoutItem with its cmdName): the command's tooltip
-      b.addEventListener("mouseenter", () => this.showCommandTooltip(b, cmd, [], "", "LEFT_2"));
+      b.addEventListener("mouseenter", () => { void playUiEvent("ui_button_soft1_play"); this.showCommandTooltip(b, cmd, [], "", "LEFT_2"); });
       b.addEventListener("mouseleave", () => this.closeTooltip());
       Object.assign(b.style, { position: "absolute", left: "0", top: `${top}px`, width: "24px", height: "24px", padding: "0", border: "0", background: "transparent", cursor: "pointer", display: "grid", placeItems: "center" });
       const g = icon(`res:/UI/Texture/eveicon/category_icons/${id}_16px.png`);
@@ -1119,7 +1122,7 @@ export class NewShipHud {
    * part leaves unset (read through gridcheck on the live client) but the scanner flyout's items (POINT_LEFT_2) - so the
    * panel's default_pointerDirection, POINT_BOTTOM_2: above its anchor, centred - with UpdatePanelPosition's fallbacks.
    */
-  private showCommandTooltip(anchor: HTMLElement, cmd: string, extra: readonly HTMLElement[] = [], key = "", flag: "BOTTOM_2" | "LEFT_2" = "BOTTOM_2"): void {
+  private showCommandTooltip(anchor: HTMLElement, cmd: string, extra: readonly HTMLElement[] = [], key = "", flag: "BOTTOM_2" | "LEFT_2" = "BOTTOM_2", offsetY = 0): void {
     const t = this.tooltip;
     const tip = COMMAND_TIPS[cmd];
     const name = tip ? this.word(tip.name) ?? tip.own : cmd;
@@ -1158,7 +1161,8 @@ export class NewShipHud {
     grid.append(...extra);
     t.append(frame, grid);
     t.style.display = "";
-    placePointerPanel(t, anchor.getBoundingClientRect(), flag);
+    const at = anchor.getBoundingClientRect();
+    placePointerPanel(t, new DOMRect(at.x, at.y + offsetY, at.width, at.height), flag);
   }
 
   /** A framed tooltip of the given rows (grid cells), beside the anchor; drawn again only when its key changes. */
@@ -1240,7 +1244,8 @@ export class NewShipHud {
       }
       extra.push(label, value);
     }
-    this.showCommandTooltip(anchor, "OpenCargoHoldOfActiveShip", extra, key);
+    // CargoButton.GetTooltipPosition: its rect _TOOLTIP_OFFSET_Y (-8) higher
+    this.showCommandTooltip(anchor, "OpenCargoHoldOfActiveShip", extra, key, "BOTTOM_2", -8);
   }
 
   /** cargo_indicator: track r 22.5 w 8 black 0.2 (0.6 hovered), the fill r 22.5 w 3 from 12 o'clock counter-clockwise. */

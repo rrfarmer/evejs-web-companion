@@ -7,6 +7,7 @@
   import { ContextMenu } from "../play/contextMenu.ts";
   import { onDestroy } from "svelte";
   import { placePointerPanel } from "../play/labelShortcutTooltip.ts";
+  import { playUiEvent } from "../play/uiAudio.ts";
   let { store, survey, openResults, openLedger, disable, requestWords }: {
     store: ClientStore;
     survey: FlightMiningSurvey;
@@ -45,6 +46,8 @@
   });
   let tipTimer: ReturnType<typeof setTimeout> | null = null;
   function tipOn(e: MouseEvent): void {
+    // UtilityButton.OnMouseEnter: SOUND_BUTTON_HOVER
+    if (!(e.currentTarget as HTMLButtonElement).disabled) void playUiEvent("ui_button_soft1_play");
     const el = e.currentTarget as HTMLElement;
     if (tipTimer) clearTimeout(tipTimer);
     tipTimer = setTimeout(() => { const r = el.getBoundingClientRect(); tip = { anchor: r }; }, 300);
