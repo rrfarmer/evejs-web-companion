@@ -16,6 +16,7 @@ import { fmtAmt } from "../bridge/pyNumbers.ts";
 import { hudSetting, hudSettingNow, setHudSetting, type HudSettingName } from "../store/hudSettings.ts";
 import { shortcutOf } from "./shortcutKeys.ts";
 import { SHIP_HOLDS } from "../bridge/shipHolds.ts";
+import { placePointerPanel } from "./labelShortcutTooltip.ts";
 
 const res = (path: string): string => `/client-res/${path.replace(/^res:\//i, "").toLowerCase()}`;
 const HUD = (name: string) => res(`res:/UI/HUD/${name}.png`);
@@ -891,7 +892,7 @@ export class NewShipHud {
       b.type = "button";
       void title;
       // _ScannerItem (FlyoutItem with its cmdName): the command's tooltip
-      b.addEventListener("mouseenter", () => this.showCommandTooltip(b, cmd));
+      b.addEventListener("mouseenter", () => this.showCommandTooltip(b, cmd, [], "", "LEFT_2"));
       b.addEventListener("mouseleave", () => this.closeTooltip());
       Object.assign(b.style, { position: "absolute", left: "0", top: `${top}px`, width: "24px", height: "24px", padding: "0", border: "0", background: "transparent", cursor: "pointer", display: "grid", placeItems: "center" });
       const g = icon(`res:/UI/Texture/eveicon/category_icons/${id}_16px.png`);
@@ -1113,7 +1114,12 @@ export class NewShipHud {
    * (AddLabelShortcut, ShortcutHint), its detailed description under it (secondary, wrapped at 200 px); then any rows
    * the button adds, in the same framed panel beside the anchor.
    */
-  private showCommandTooltip(anchor: HTMLElement, cmd: string, extra: readonly HTMLElement[] = [], key = ""): void {
+  /**
+   * The HUD's pointer tooltips are placed as pointerPanel places them: by the owner's tooltipPointer, which every new HUD
+   * part leaves unset (read through gridcheck on the live client) but the scanner flyout's items (POINT_LEFT_2) - so the
+   * panel's default_pointerDirection, POINT_BOTTOM_2: above its anchor, centred - with UpdatePanelPosition's fallbacks.
+   */
+  private showCommandTooltip(anchor: HTMLElement, cmd: string, extra: readonly HTMLElement[] = [], key = "", flag: "BOTTOM_2" | "LEFT_2" = "BOTTOM_2"): void {
     const t = this.tooltip;
     const tip = COMMAND_TIPS[cmd];
     const name = tip ? this.word(tip.name) ?? tip.own : cmd;
@@ -1152,13 +1158,11 @@ export class NewShipHud {
     grid.append(...extra);
     t.append(frame, grid);
     t.style.display = "";
-    const a = anchor.getBoundingClientRect();
-    t.style.left = `${Math.round(a.right + 12)}px`;
-    t.style.top = `${Math.round(a.top + a.height / 2 - t.offsetHeight / 2)}px`;
+    placePointerPanel(t, anchor.getBoundingClientRect(), flag);
   }
 
   /** A framed tooltip of the given rows (grid cells), beside the anchor; drawn again only when its key changes. */
-  private showRowsTooltip(anchor: HTMLElement, key: string, cells: readonly HTMLElement[], columns: string): void {
+  private showRowsTooltip(anchor: HTMLElement, key: string, cells: readonly HTMLElement[], columns: string, flag: "BOTTOM_2" | "LEFT_2" = "BOTTOM_2"): void {
     const t = this.tooltip;
     if (key === this.tipKey && t.style.display !== "none") return;
     this.tipKey = key;
@@ -1175,9 +1179,7 @@ export class NewShipHud {
     grid.append(...cells);
     t.append(frame, grid);
     t.style.display = "";
-    const a = anchor.getBoundingClientRect();
-    t.style.left = `${Math.round(a.right + 12)}px`;
-    t.style.top = `${Math.round(a.top + a.height / 2 - t.offsetHeight / 2)}px`;
+    placePointerPanel(t, anchor.getBoundingClientRect(), flag);
   }
   private cell(text: string, style: Partial<CSSStyleDeclaration> = {}): HTMLDivElement {
     const d = document.createElement("div");
@@ -1476,7 +1478,7 @@ export class NewShipHud {
    * LoadGeneric1ColumnTemplate: a heading (bold), body lines, and the last two as secondary details (white 0.5,
    * wrapped at 220 px), in the same framed panel over the anchor.
    */
-  private showLinesTooltip(anchor: HTMLElement, lines: readonly string[]): void {
+  private showLinesTooltip(anchor: HTMLElement, lines: readonly string[], flag: "BOTTOM_2" | "LEFT_2" = "BOTTOM_2"): void {
     const t = this.tooltip;
     const key = "lines:" + JSON.stringify(lines);
     if (key === this.tipKey && t.style.display !== "none") return;
@@ -1502,9 +1504,7 @@ export class NewShipHud {
     });
     t.append(frame, body);
     t.style.display = "";
-    const a = anchor.getBoundingClientRect();
-    t.style.left = `${Math.round(a.right + 12)}px`;
-    t.style.top = `${Math.round(a.top + a.height / 2 - t.offsetHeight / 2)}px`;
+    placePointerPanel(t, anchor.getBoundingClientRect(), flag);
   }
 
   // ── the classic HUD's API ──────────────────────────────────────────────────────────────────────────────
