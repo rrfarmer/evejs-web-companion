@@ -3852,7 +3852,9 @@ export class SpaceView {
       options = [
         { label: "Stop Ship", icon: clientTexture("res:/UI/Texture/Icons/44_32_38.png"), run: run("Stop", () => this.actions.stop()) },
         { label: "Set Default Orbit Distance", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/setOrbitDefault.png"), disabled: true },
-        { label: "More", icon: "", more: [lookAt] },
+        // the own ship's second level: secondaryCategoryActions[categoryShip] (Look At, Set Interest) and
+        // GetMyShipSpecialCaseSecondLevel - Save Location (menuSvc.Bookmark, alwaysAvailable) in space, not in a structure
+        { label: "More", icon: "", more: [lookAt, setInterest, { ...bookmark, disabled: !this.actions.saveLocation }] },
         { label: "Set Default Keep at Range Distance", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/setKeepRangeDefault.png"), disabled: true },
         { label: "Open Cargo Hold", icon: icon(35), run: () => this.options.onNeocom?.("inventory") },
         null,
