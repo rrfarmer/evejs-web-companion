@@ -625,6 +625,15 @@
       };
     });
   });
+  // DroneTooltip reads the drones' attributes off the dogma location the client already holds: the page's reckoning of
+  // the ship is asked for as the window first lists a drone type, so a first hover finds its figures (not 1.5 s later)
+  $effect(() => {
+    const types = new Set([...bayRows.map((r) => r.typeID), ...spaceRows.flatMap((r) => (r.typeID === null ? [] : [r.typeID]))]);
+    let missing = false;
+    for (const t of types) if (flow.droneTooltipFigures(t) === null) missing = true;
+    for (const t of types) if (!bandwidth.has(t)) { bandwidth.set(t, null); void flow.typeDogmaFacts(t).then((f) => { bandwidth.set(t, f?.attributes.find((x) => x[0] === 1272)?.[1] ?? null); groupOfType.set(t, f?.groupID ?? null); bandwidthVersion++; }).catch(() => {}); }
+    if (missing) { const again = setTimeout(() => bandwidthVersion++, 1500); return () => clearTimeout(again); }
+  });
   function layersOf(e: SpaceEntity | null): readonly [number, number, number] | null {
     const x = e as (SpaceEntity & { shieldRatio?: number | null; armorRatio?: number | null; hullRatio?: number | null }) | null;
     return x && x.shieldRatio != null && x.armorRatio != null && x.hullRatio != null ? [x.shieldRatio, x.armorRatio, x.hullRatio] : null;
