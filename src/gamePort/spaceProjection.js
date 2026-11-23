@@ -211,6 +211,18 @@ function gateJumpSystemOf(jumps) {
   return Number.isFinite(id) && id > 0 ? id : null;
 }
 
+/** A wreck's slim nameID is the tuple ('UI/Inflight/WreckNameTypeID', {'WreckTypeID': typeID}) - the ship it was;
+ * michelle hints it into cfg.evelocations, so GetSlimItemName shows "<that type's name> Wreck". Null otherwise. */
+function wreckTypeIDOf(nameID) {
+  const parts = Array.isArray(nameID) ? nameID : nameID && Array.isArray(nameID.items) ? nameID.items : null;
+  if (!parts || parts.length < 2 || text(parts[0]) !== "UI/Inflight/WreckNameTypeID") return null;
+  const dict = parts[1];
+  const entries = dict && dict.type === "dict" && Array.isArray(dict.entries) ? dict.entries
+    : dict instanceof Map ? [...dict.entries()] : [];
+  const found = entries.find((pair) => Array.isArray(pair) && text(pair[0]) === "WreckTypeID");
+  return found ? positive(found[1]) : null;
+}
+
 function projectEntity(park, ball, slim, ego, placed) {
   const itemID = number(ball.id);
   const categoryID = positive(slim.get("categoryID"));
@@ -221,6 +233,7 @@ function projectEntity(park, ball, slim, ego, placed) {
   const hostileResponseThreshold = number(slim.get("hostile_response_threshold"));
   const friendlyResponseThreshold = number(slim.get("friendly_response_threshold"));
   const nameMessageID = positive(slim.get("nameID"));
+  const wreckTypeID = wreckTypeIDOf(slim.get("nameID"));
   const characterID = positive(slim.get("charID"));
   const objectiveTargetGroup = slim.get("objectiveTargetGroup");
   const row = {
@@ -231,6 +244,7 @@ function projectEntity(park, ball, slim, ego, placed) {
     categoryID,
     name: text(slim.get("name")) || null,
     ...(nameMessageID !== null ? { nameMessageID } : {}),
+    ...(wreckTypeID !== null ? { wreckTypeID } : {}),
     ...(typeof objectiveTargetGroup === "string" ? { objectiveTargetGroup } : {}),
     ...(characterID !== null ? { characterID } : {}),
     ownerID: positive(slim.get("ownerID")),

@@ -2010,6 +2010,8 @@ export interface SpaceEntity {
   readonly name: string | null;
   /** A numeric localization message from the native grid slim. */
   readonly nameMessageID?: number;
+  /** A wreck's: the ship type it was (its slim nameID's WreckTypeID). */
+  readonly wreckTypeID?: number;
   readonly ownerID: number | null;
   readonly radius: number;
   readonly position: SpaceVector;

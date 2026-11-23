@@ -137,6 +137,7 @@ function decodeEntity(value: JsonValue): SpaceEntity | null {
     return null;
   }
   const nameMessageID = idOrNull(raw.nameMessageID);
+  const wreckTypeID = idOrNull(raw.wreckTypeID);
   return {
     kind: stringOrNull(raw.kind),
     itemID,
@@ -145,6 +146,7 @@ function decodeEntity(value: JsonValue): SpaceEntity | null {
     categoryID: idOrNull(raw.categoryID),
     name: stringOrNull(raw.name),
     ...(nameMessageID !== null ? { nameMessageID } : {}),
+    ...(wreckTypeID !== null ? { wreckTypeID } : {}),
     ownerID: idOrNull(raw.ownerID),
     ...(typeof raw.hackingSecurityState === "number" && Number.isSafeInteger(raw.hackingSecurityState) && raw.hackingSecurityState >= 0
       ? { hackingSecurityState: raw.hackingSecurityState } : {}),

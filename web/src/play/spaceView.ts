@@ -102,6 +102,8 @@ export interface Entity {
   kind: string; itemID: number; typeID: number | null; groupID: number | null; categoryID: number | null; name: string | null;
   radius: number; position: { x: number; y: number; z: number }; velocity: { x: number; y: number; z: number };
   isSelf: boolean; mode?: string | null; maxVelocity?: number | null; isNpc?: boolean; targetEntityID?: number | null;
+  /** A wreck's: the ship type it was (its slim nameID's WreckTypeID). */
+  wreckTypeID?: number;
   /** Its slim item's corporation (spaceProjection), or null. */
   corporationID?: number | null;
   ownerID?: number | null;
@@ -1386,6 +1388,9 @@ export class SpaceView {
     }
     if (e.categoryID === 6 || e.isNpc || e.kind === "ship") return e.name ?? typeName ?? e.kind;
     if (e.categoryID === 25 || e.groupID === 711) return typeName ?? e.name ?? e.kind;
+    // michelle's cfg.evelocations.Hint of a wreck's nameID, UI/Inflight/WreckNameTypeID: "<the ship's type> Wreck"
+    const wreckOf = e.wreckTypeID !== undefined ? this.names?.types[String(e.wreckTypeID)]?.[0] ?? null : null;
+    if (wreckOf) return `${wreckOf} Wreck`;
     const located = this.actions.locationName?.(e.itemID) ?? null;
     // eveCfg._GetCelestialNameDataFromLocalRow: a stargate is named by UI/Locations/LocationStargateFormatter,
     // "{[location]destinationSystemID.rawName}" - its destination alone (the server's row says "Stargate (X)").
