@@ -1465,16 +1465,19 @@ export class NewShipHud {
     Object.assign(frame.style, { position: "absolute", inset: "0", opacity: "0.75", borderStyle: "solid", borderWidth: "0", borderImageSource: `url(${res("res:/UI/Texture/classes/FrameWithPointer/background_04.png")})`, borderImageSlice: "19 fill", borderImageWidth: "19px", borderImageOutset: "15px" } as Partial<CSSStyleDeclaration>);
     const grid = document.createElement("div");
     // LoadGeneric2ColumnTemplate: cell spacing (8, 8), EveLabelMedium lines 18 high (rows 26 apart on the live client, g229)
-    Object.assign(grid.style, { position: "relative", display: "grid", gridTemplateColumns: "auto auto", columnGap: "16px", rowGap: "8px", alignItems: "center", lineHeight: "18px" });
+    Object.assign(grid.style, { position: "relative", display: "grid", gridTemplateColumns: "auto auto", columnGap: "8px", rowGap: "8px", alignItems: "center", lineHeight: "18px" });
     const head = document.createElement("div");
     head.dataset.tipRow = "";
     head.textContent = name;
     // AddLabelShortcut: a bold EveLabelMedium in the normal text colour (0.75 on the live client, g229)
     Object.assign(head.style, { fontWeight: "bold", color: "rgba(255,255,255,0.75)" });
     const hint = document.createElement("div");
+    let descEl: HTMLElement | null = null;
     if (shortcut) {
       hint.textContent = shortcut;
-      Object.assign(hint.style, { justifySelf: "end", padding: "0 13px", height: "18px", lineHeight: "18px", background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)", fontWeight: "bold" });
+      // ShortcutHint: the bold label centred on its fill, the width the label + 8 rounded up past the next 16 (AdjustSize;
+      // "Ctrl-S" 39 -> 48 on the live client, g231)
+      Object.assign(hint.style, { justifySelf: "end", padding: "0", height: "18px", lineHeight: "18px", textAlign: "center", whiteSpace: "nowrap", background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)", fontWeight: "bold" });
     }
     grid.append(head, hint);
     if (desc) {
@@ -1484,10 +1487,24 @@ export class NewShipHud {
       // wrapWidth 200 with autoFitToText: as wide as its text, at most 200 (the cargo tooltip 208 wide on the live client, g229)
       Object.assign(d.style, { gridColumn: "1 / 3", maxWidth: "200px", whiteSpace: "normal", color: "rgba(255,255,255,0.5)" });
       grid.append(d);
+      descEl = d;
     }
     grid.append(...extra);
     t.append(frame, grid);
     t.style.display = "";
+    if (descEl) {
+      // autoFitToText: the box as wide as its longest wrapped line
+      const range = document.createRange();
+      range.selectNodeContents(descEl);
+      const widest = Math.max(0, ...[...range.getClientRects()].map((q) => q.width));
+      if (widest > 0) descEl.style.width = `${Math.ceil(widest)}px`;
+    }
+    if (shortcut) {
+      const range = document.createRange();
+      range.selectNodeContents(hint);
+      const w = Math.ceil(range.getBoundingClientRect().width) + 8;
+      hint.style.width = `${w - (w % 16) + 16}px`;
+    }
     const at = anchor.getBoundingClientRect();
     placePointerPanel(t, new DOMRect(at.x, at.y + offsetY, at.width, at.height), flag);
   }
@@ -1573,6 +1590,7 @@ export class NewShipHud {
       // AddLabelValue: the label bold on every row (measured on the live client, gridcheck g229)
       // ... and AddLabelValue opacity 1.0: label and value full white (g229)
       label.style.fontWeight = "bold";
+      label.style.paddingRight = "16px"; // its cellPadding (0, 0, 16, 0)
       label.style.color = value.style.color = "#fff";
       value.textContent = pct(h);
       value.style.textAlign = "right";
