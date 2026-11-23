@@ -141,6 +141,18 @@
   // Market Details, Buy This Type), Show Info (7); held 150 ms without moving 12 px, as in space
   const radial = new RadialMenu();
   let rootEl: HTMLElement | undefined = $state();
+  /** DronesWindow.UpdateBottomScrollHeight: the space scroll at most the window's height less 128 (86 compact). */
+  let spaceMax = $state<number | null>(null);
+  $effect(() => {
+    const win = rootEl?.closest<HTMLElement>(".win");
+    if (!win) return;
+    const compact = $windowCompact;
+    const measure = () => { spaceMax = Math.max(win.offsetHeight - (compact ? 86 : 128), 0); };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(win);
+    return () => ro.disconnect();
+  });
   /** The entry a hold last went down on (RadialMenu.clickedObject). */
   let heldEntry: HTMLElement | null = null;
   function openBayRadial(itemID: number, x: number, y: number): void {
@@ -1079,6 +1091,8 @@
       </span>
     </div>
     {#if bayOpen}
+      <!-- topScroll (dronesInBayScroll, TOALL): the bay's entries scroll in the room the space part leaves -->
+      <div class="list bay-list">
       {#if $drones.bay === null}
         <p class="state">{$drones.loaded ? "Your drone bay could not be read." : "Looking…"}</p>
       {:else}
@@ -1090,6 +1104,7 @@
           {#if openGroups.has(key)}{#each head.rows as row (row.itemID)}{@render bayEntry(row, true)}{/each}{/if}
         {/each}
       {/if}
+      </div>
     {/if}
   </div>
 
@@ -1123,6 +1138,9 @@
       </span>
     </div>
     {#if spaceOpen}
+      <!-- bottomScroll (dronesInSpaceScroll, padTop 2): as high as its entries, at most the window's height less 128 (86
+           compact) - UpdateBottomScrollHeight -->
+      <div class="list space-list" style:max-height={spaceMax === null ? undefined : `${spaceMax}px`}>
       {#if $drones.inSpace === null}
         <p class="state">{$drones.loaded ? "Your drones in space could not be read." : "Looking…"}</p>
       {:else}
@@ -1134,6 +1152,7 @@
           {#if openGroups.has(key)}{#each head.rows as row (row.key)}{@render spaceEntry(row, true)}{/each}{/if}
         {/each}
       {/if}
+      </div>
     {/if}
   </div>
 
@@ -1207,8 +1226,14 @@
      29 px rows of a 24 px type icon, the name at 13 px and its count at 11 px, 16 px command icons */
   /* DronesWindow: the bay's part (topScroll) takes the room, the space part (bottomCont) at the foot while the bay is open */
   /* DroneEntry text TextBody 14, the group headers EveLabelMedium 14 (read through gridcheck) */
-  .fly-drones { position: relative; font-size: 14px; color: #fff; user-select: none; display: flex; flex-direction: column; min-height: 100%; }
-  .group.bay { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .fly-drones { position: relative; font-size: 14px; color: #fff; user-select: none; display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .group.bay { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .group:not(.bay) { flex: none; }
+  /* each part scrolls by itself (the client's two Scrolls), its header fixed above it */
+  .list { overflow-y: auto; overflow-x: hidden; min-height: 0; }
+  .bay-list { flex: 1 1 auto; }
+  .group.bay > .sec { flex: none; }
+  .space-list { margin-top: 2px; }
   /* compact (UpdateHeaderPadding, _get_header_fixed_height): the header 40 high with the content extended into it -
      the bay's header in the title row, short of the header's buttons on the right (reserved_space_right); the rest of
      the header still drags the window */
