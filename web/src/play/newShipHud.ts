@@ -1961,6 +1961,18 @@ export class NewShipHud {
     this.placeSlots();
   }
 
+  /** ModuleTray._overload_mode, for the slot shortcuts (ActivateAtPosition). */
+  get overloadModeOn(): boolean { return this.overloadMode; }
+
+  /** PrimaryActivate's IsUnavailable refusal for a module given by shortcut: its slot flashes (_RefuseClick); true if refused. */
+  refuseIfUnavailable(itemID: number): boolean {
+    const slot = this.slots.find((s) => s.module?.itemID === itemID);
+    const w = slot?.module?.windingDown;
+    if (!slot || !w || Date.now() >= w.startedAtMs + w.durationMs) return false;
+    slot.refusedAt = Date.now();
+    return true;
+  }
+
   /** The capacitor portion as CapacitorCore last took it (null before a reading). */
   get capacitorShown(): number | null { return this.capPumped; }
 

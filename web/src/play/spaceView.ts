@@ -3527,9 +3527,18 @@ export class SpaceView {
     const placeFlag = order ? order[({ high: 0, mid: 1, low: 2 } as const)[family] * 8 + index] ?? null : null;
     const FLAG_BASE = { high: 27, mid: 19, low: 11 } as const;
     const m = this.options.rack?.modules().find((each) => (placeFlag !== null ? FLAG_BASE[each.family] + each.index === placeFlag : each.family === family && each.index === index)) ?? null;
-    // (an empty slot or a module offline: the client's "Disabled" notice)
-    if (!m || !m.online) { this.sayDisabled(); return; }
-    if (slot[1] === "Activate") { if (!e.repeat) this.useRackModule(m); return; }
+    // ModuleTray.ActivateAtPosition: an empty place is Disabled; in overload mode, so is a module with no overload effect;
+    // otherwise the slot's PrimaryActivate (an offline module says ClickOffllineModule there, a winding-down one flashes)
+    if (!m) { this.sayDisabled(); return; }
+    if (slot[1] === "Activate") {
+      if (e.repeat) return;
+      const hud = this.shipHud instanceof NewShipHud ? this.shipHud : null;
+      if (hud?.overloadModeOn && m.overloadable === false) { this.sayDisabled(); return; }
+      if (hud?.refuseIfUnavailable(m.itemID)) return;
+      this.useRackModule(m);
+      return;
+    }
+    // ToggleOverloadAtPosition: Disabled for an empty place or a module with no overload effect
     const overload = this.options.rack?.overload;
     if (!overload || m.overloadable === false) { this.sayDisabled(); return; }
     // ModuleController.ToggleOverload -> SetOverload: SOUND_MODULE_OVERLOAD on, SOUND_MODULE_OVERLOAD_STOP off
