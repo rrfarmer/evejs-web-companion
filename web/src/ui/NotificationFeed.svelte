@@ -36,6 +36,7 @@
   import { watchNotificationPopups } from "./notificationPopups.ts";
   import type { NoticeInput } from "./notices.ts";
   import { unwrapLong } from "../bridge/wire.ts";
+  import { PlayWindow } from "../play/window.ts";
 
   let { store, flow, onOpen }: { store: ClientStore; flow: AppFlow; onOpen: (id: TabID) => void } = $props();
 
@@ -95,9 +96,19 @@
     const ticks = Math.max(0, now - ms) * 10000;
     return plainText(formatTemplate(word(TIME_AGO, "{[timeinterval]time.writtenForm, to=minute} ago"), { time: ticks }, { nameOf, ...intervalWriters($words.templates) }));
   }
+  // notificationSettingHandler: popups (GetPopupsEnabled True), sound (GetNotificationSoundEnabled True), the fade
+  // delay (GetFadeTime 5) and stack size (GetStackSize 3), the wanted expand directions (left / up), and the history
+  // cleared up to a time (ClearHistory: lastHistoryCleanTime = the last seen time; UnClearHistory: 0) - here localStorage
+  const SETTINGS_KEY = "evejs.play.notificationSettings";
+  interface FeedSettings { popups: boolean; sound: boolean; fade: number; stack: number; h: "left" | "right"; v: "up" | "down"; cleared: string }
+  const DEFAULT_SETTINGS: FeedSettings = { popups: true, sound: true, fade: 5, stack: 3, h: "left", v: "up", cleared: "0" };
+  let settings = $state<FeedSettings>((() => { try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}") }; } catch { return { ...DEFAULT_SETTINGS }; } })());
+  function saveSettings(): void { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* kept this session */ } }
+  const clearedAt = $derived(BigInt(settings.cleared || "0"));
+
   const rows = $derived.by(() => {
     if ($activity.notifications.status !== "ready") return [];
-    return [...$activity.notifications.value].filter((r) => !closedIDs.has(r.notificationID))
+    return [...$activity.notifications.value].filter((r) => !closedIDs.has(r.notificationID) && (r.created ?? 0n) > clearedAt)
       .sort((a, b) => Number((b.created ?? 0n) - (a.created ?? 0n)));
   });
   // the words the subjects take, and the names in them
@@ -149,7 +160,7 @@
   const queued: Popup[] = [];
   let popupSeq = 0;
   function showPopup(p: Popup): void {
-    void playUiEvent("notify_beep3_play");
+    if (settings.sound) void playUiEvent("notify_beep3_play");
     p.outSince = Date.now();
     popups = [p, ...popups];
   }
@@ -174,14 +185,15 @@
       liveCount += 1;
     }
     const p: Popup = { id: ++popupSeq, title: input.title, detail: input.detail ?? null, typeID, action: input.action ?? null, outSince: null, fading: false, h: 50 };
-    if (popups.length < 3) showPopup(p); else queued.push(p);
+    if (!settings.popups) return;
+    if (popups.length < settings.stack) showPopup(p); else queued.push(p);
   }
   $effect(() => watchNotificationPopups(store, flow, (id) => onOpen(id), addPopup));
   $effect(() => {
     const t = setInterval(() => {
       const at = Date.now();
       for (const p of popups) {
-        if (!p.fading && p.outSince !== null && at - p.outSince >= 5000) {
+        if (!p.fading && p.outSince !== null && at - p.outSince >= settings.fade * 1000) {
           p.fading = true;
           later(500, () => closePopup(p.id));
         }
@@ -256,6 +268,52 @@
   // the up-down drag cursor, enabled once the drawer is filled; OnResizerDrag: the pointer's travel added to the
   // height at the press (inverted opening down), the auto-closer paused while it drags
   let resizing = $state(false);
+
+  // OnSettingsClick: NotificationSettingsWindow.ToggleOpenClose - 660 x 400 (minimum the same), settings.png, the
+  // caption Notification Settings; read from the live client (gridcheck g277 / g278): the category list on the left
+  // (Category Subscriptions, EveLabelLarge, a list 358 wide - not on the page yet), on the right from 382: Pop-ups
+  // (EveLabelLarge), Use Pop-up Notifications and Play Sound checkboxes (24 high), the Fade Delay (0 - 10 by 0.5) and
+  // Stack Size (1 - 10) rows (EveLabelSmall label 120, value 30, slider 92), the Default H / V Expand combos (label 120,
+  // 32 high, 8 apart), History (EveLabelLarge, 8 down) with Restore Notification History and Clear Notification History
+  let settingsWin: PlayWindow | null = null;
+  function toggleSettings(): void {
+    if (settingsWin?.root.isConnected) { settingsWin.root.remove(); settingsWin = null; return; }
+    const win = new PlayWindow({ id: "notification-settings", caption: "Notification Settings", icon: clientTexture("res:/UI/Texture/WindowIcons/settings.png"),
+      left: Math.round(innerWidth / 2 - 330), top: Math.round(innerHeight / 2 - 200), width: 660, height: 400, minWidth: 660, minHeight: 400, chrome: "default" },
+      () => { settingsWin = null; });
+    settingsWin = win;
+    win.body.classList.add("nf-set");
+    const sel = (on: boolean) => (on ? " selected" : "");
+    win.body.innerHTML = `<div class="nf-set-left"><div class="nf-set-large">Category Subscriptions</div></div>
+      <div class="nf-set-right">
+        <div class="nf-set-large">Pop-ups</div>
+        <label class="nf-set-check" style="margin-top: 8px"><input type="checkbox" data-k="popups"${settings.popups ? " checked" : ""}><span>Use Pop-up Notifications</span></label>
+        <label class="nf-set-check"><input type="checkbox" data-k="sound"${settings.sound ? " checked" : ""}><span>Play Sound</span></label>
+        <div class="nf-set-slider" style="margin-top: 8px"><span>Fade Delay</span><b data-v="fade">${settings.fade}</b><input type="range" min="0" max="10" step="0.5" data-k="fade" value="${settings.fade}"></div>
+        <div class="nf-set-slider"><span>Stack Size</span><b data-v="stack">${settings.stack}</b><input type="range" min="1" max="10" step="1" data-k="stack" value="${settings.stack}"></div>
+        <label class="nf-set-combo" title="Horizontal expand direction"><span>Default H Expand</span><select data-k="h"><option value="left"${sel(settings.h === "left")}>Left</option><option value="right"${sel(settings.h === "right")}>Right</option></select></label>
+        <label class="nf-set-combo" title="Vertical expand direction" style="margin-top: 8px"><span>Default V Expand</span><select data-k="v"><option value="up"${sel(settings.v === "up")}>Up</option><option value="down"${sel(settings.v === "down")}>Down</option></select></label>
+        <div class="nf-set-large" style="margin-top: 16px">History</div>
+        <button type="button" class="nf-set-btn" data-act="restore">Restore Notification History</button>
+        <button type="button" class="nf-set-btn" data-act="clear">Clear Notification History</button>
+      </div>`;
+    for (const el of win.body.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-k]")) {
+      const k = el.dataset.k as keyof FeedSettings;
+      const apply = () => {
+        if (el instanceof HTMLInputElement && el.type === "checkbox") (settings as unknown as Record<string, unknown>)[k] = el.checked;
+        else if (el instanceof HTMLInputElement) { (settings as unknown as Record<string, unknown>)[k] = Number(el.value); const v = win.body.querySelector<HTMLElement>(`[data-v="${k}"]`); if (v) v.textContent = el.value; }
+        else (settings as unknown as Record<string, unknown>)[k] = el.value;
+        saveSettings();
+      };
+      el.addEventListener(el instanceof HTMLInputElement && el.type === "range" ? "input" : "change", apply);
+    }
+    win.body.querySelector("[data-act=clear]")!.addEventListener("click", () => {
+      // ClearHistory: hidden up to the last seen time
+      settings.cleared = String(seen); saveSettings();
+    });
+    win.body.querySelector("[data-act=restore]")!.addEventListener("click", () => { settings.cleared = "0"; saveSettings(); });
+    (document.querySelector(".pw")?.parentElement ?? document.body).append(win.root);
+  }
   function resizeDown(e: PointerEvent): void {
     if (e.button !== 0 || !filled) return;
     e.preventDefault();
@@ -276,8 +334,9 @@
     window.addEventListener("pointermove", move, true);
     window.addEventListener("pointerup", up, true);
   }
-  const goesUp = $derived(upHeight >= 100 || downHeight < 100);
-  const goesLeft = $derived(ax - 300 > 0);
+  // AlignmentTransitioner: the wanted direction where it can, the other where not
+  const goesUp = $derived(settings.v === "up" ? (upHeight >= 100 || downHeight < 100) : !(downHeight >= 100 || upHeight < 100));
+  const goesLeft = $derived(settings.h === "left" ? ax - 300 > 0 : !(ax + 300 < vw));
   const ptr = $derived(clientTexture(goesLeft ? "res:/UI/Texture/classes/Notifications/pointer_right_02.png" : "res:/UI/Texture/classes/Notifications/pointer_left_02.png"));
   const drawerHeight = $derived(goesUp ? upHeight : downHeight);
   const boxStyle = $derived([
@@ -441,7 +500,12 @@
     <div class="nf-bar" role="scrollbar" aria-controls="" aria-valuenow={0} style={`top: ${22 + bar.top}px; height: ${bar.height}px`} onpointerdown={dragBar}><i></i></div>
   {/if}
   <div class="nf-strip">
-    <img class="nf-settings" class:shown={filled} alt="" src={clientTexture("res:/UI/Texture/Icons/77_32_30.png")} />
+    <!-- _ConstructSettingsButton: a ButtonIcon 24 (77_32_30.png), its hint Notification Settings, OnSettingsClick -->
+    <button class="nf-settings" class:shown={filled} aria-label="Notification Settings" onclick={toggleSettings}
+      onmouseenter={(e) => { const el = e.currentTarget; tooltipDue(el, () => showLabelShortcutTooltip(el, "", "", ["Notification Settings"], "top", true)); }}
+      onmouseleave={() => hideLabelShortcutTooltip()}>
+      <img alt="" src={clientTexture("res:/UI/Texture/Icons/77_32_30.png")} />
+    </button>
     <button class="nf-widget" aria-label="Notification Feed" onclick={onWidgetClick} onpointerdown={widgetDown}
       onmouseenter={(e) => { if (open || dragging) return; const el = e.currentTarget; tooltipDue(el, () => showLabelShortcutTooltip(el, "Notification Feed", "", ["", "Click, hold and drag to reposition notifications feed"], "top", "wrap")); }}
       onmouseleave={() => hideLabelShortcutTooltip()}>
@@ -514,8 +578,22 @@
   .nf-close img { display: block; width: 16px; height: 16px; opacity: 0.75; }
   .nf-entry:hover .nf-close { opacity: 1; }
   .nf-strip { position: absolute; left: 0; right: 0; bottom: 0; height: 32px; }
-  .nf-settings { position: absolute; left: 5px; top: 4px; width: 24px; height: 24px; opacity: 0; transition: opacity 0.25s; pointer-events: none; }
-  .nf-settings.shown { opacity: 0.75; }
+  .nf-settings { position: absolute; left: 5px; top: 4px; width: 24px; height: 24px; padding: 0; margin: 0; border: 0; background: none; cursor: pointer;
+    opacity: 0; transition: opacity 0.25s; pointer-events: none; display: block; line-height: 0; min-width: 0; min-height: 0; }
+  .nf-settings img { width: 24px; height: 24px; max-width: none; opacity: 0.75; }
+  .nf-settings:hover img { opacity: 1; }
+  .nf-settings.shown { opacity: 1; pointer-events: auto; }
+  :global(.pw-body.nf-set) { position: relative; font: 14px 'EVE Sans Neue', 'Segoe UI', sans-serif; color: rgba(255, 255, 255, 0.75); }
+  :global(.nf-set .nf-set-left) { position: absolute; left: 0; top: 0; bottom: 0; width: 358px; }
+  :global(.nf-set .nf-set-right) { position: absolute; left: 382px; top: 0; width: 242px; display: flex; flex-direction: column; }
+  :global(.nf-set .nf-set-large) { font-size: 16px; line-height: 21px; }
+  :global(.nf-set .nf-set-check) { display: flex; align-items: center; gap: 8px; height: 24px; }
+  :global(.nf-set .nf-set-check input) { width: 16px; height: 16px; margin: 0; }
+  :global(.nf-set .nf-set-slider) { display: grid; grid-template-columns: 120px 30px 92px; align-items: center; height: 24px; font-size: 12px; }
+  :global(.nf-set .nf-set-slider b) { font-weight: normal; }
+  :global(.nf-set .nf-set-slider input) { width: 92px; margin: 0; }
+  :global(.nf-set .nf-set-combo) { display: grid; grid-template-columns: 120px 122px; align-items: center; height: 32px; }
+  :global(.nf-set .nf-set-btn) { align-self: center; margin-top: 8px; height: 32px; padding: 0 16px; }
   .nf-widget { position: absolute; right: 0; bottom: 0; width: 32px; height: 32px; padding: 0; margin: 0; border: 0; background: none; cursor: pointer;
     display: block; line-height: 0; min-width: 0; min-height: 0; }
   .nf-widget img { width: 32px; height: 32px; max-width: none; opacity: 0.75; pointer-events: none; }
