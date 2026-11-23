@@ -1120,8 +1120,8 @@
   .gfill.add.over { background: rgb(243, 144, 88); }
   .gtext { position: absolute; left: 8px; top: 1px; line-height: 24px; font-size: 12px; color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
   .search-box { position: relative; flex: 1; min-width: 0; margin-left: 8px; display: flex; }
-  .sclear { position: absolute; right: 4px; top: 50%; width: 16px; height: 16px; min-height: 0; max-height: 16px; box-sizing: border-box; margin-top: -8px; padding: 0; border: 0; background: center / 16px 16px no-repeat; opacity: 0.75; cursor: pointer; }
-  .sclear:hover { opacity: 1; }
+  /* the live client (gridcheck g253): in the 142 x 24 edit at 121, 4 (5 from its right), opacity 1 */
+  .sclear { position: absolute; right: 5px; top: 50%; width: 16px; height: 16px; min-height: 0; max-height: 16px; box-sizing: border-box; margin-top: -8px; padding: 0; border: 0; background: center / 16px 16px no-repeat; cursor: pointer; }
   .search { width: auto; flex: 1; min-width: 0; margin-left: 0; height: 24px; box-sizing: border-box; border: 0; background: rgba(0, 0, 0, 0.3); color: #fff; padding: 0 6px; font-size: 14px; }
   /* the ShipCargo scroll's entries and the footer's labels from 16 past the tree column (186) */
   /* the icon view: InvItem 64 wide, GetEntryColMargin 16 between columns, rows of GetEntryHeight (103) touching */
