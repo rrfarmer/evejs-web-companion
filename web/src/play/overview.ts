@@ -28,7 +28,7 @@ export function targetMarkup(t: { readonly locked: boolean; readonly active: boo
   return (t.attacking ? "<span class=\"ov-tgt-hostile attacking\"></span>" : t.hostile ? `<span class="ov-tgt-hostile${t.fleet ? " fleet" : ""}"></span>` : "") + (t.locked ? "<span class=\"ov-tgt\"></span>" : "") + (t.active ? "<span class=\"ov-tgt active\"></span>" : "") + (t.locking && !t.locked ? "<span class=\"ov-tgt-locking\"></span>" : "");
 }
 
-import { cancelGenericHint, scheduleGenericHint } from "./labelShortcutTooltip.ts";
+import { cancelGenericHint, fadePanelIn, foldPanelAway, notePanelClosed, panelDelay, placePointerPanel, scheduleGenericHint } from "./labelShortcutTooltip.ts";
 export function flagMarkup(f: StateFlagLook | null): string {
   if (!f) return "";
   const glyph = clientTexture(`res:/UI/Texture/classes/FlagIcon/8/${f.iconIndex + 1}.png`);
@@ -375,8 +375,16 @@ export class Overview {
       const tab = (e.target as HTMLElement).closest<HTMLElement>(".ov-tab[data-tab]");
       if (!tab) return;
       const n = Number(tab.dataset.tab);
-      if (this.tabTipFor === n && this.tabTip?.isConnected) return;
-      this.showTabTip(tab, n);
+      if ((this.tabTipFor === n && this.tabTip?.isConnected) || this.tabTipWant === n) return;
+      // tooltipHandler: the panel after the generic delay (the renew time while one shows or just closed)
+      this.tabTipWant = n;
+      if (this.tabTipTimer !== null) clearTimeout(this.tabTipTimer);
+      this.tabTipTimer = setTimeout(() => {
+        this.tabTipTimer = null;
+        this.tabTipWant = null;
+        const at = this.tabsEl.querySelector<HTMLElement>(`.ov-tab[data-tab="${n}"]`);
+        if (at) this.showTabTip(at, n);
+      }, panelDelay(!!this.tabTip?.isConnected));
     });
     this.tabsEl.addEventListener("mouseleave", () => this.hideTabTip());
     this.tabsEl.addEventListener("click", (e) => {
@@ -468,8 +476,17 @@ export class Overview {
       const cell = (e.target as HTMLElement).closest<HTMLElement>("td.ov-icon");
       const id = Number(cell?.closest("tr")?.dataset.id);
       if (!cell || !id) { this.hideIconTip(); return; }
-      if (this.iconTipFor === id) return;
-      this.showIconTip(cell, id);
+      if (this.iconTipFor === id || this.iconTipWant === id) return;
+      // tooltipHandler: the panel after the generic delay (the renew time while one shows or just closed); the row is
+      // found again then (the list redraws)
+      this.iconTipWant = id;
+      if (this.iconTipTimer !== null) clearTimeout(this.iconTipTimer);
+      this.iconTipTimer = setTimeout(() => {
+        this.iconTipTimer = null;
+        this.iconTipWant = null;
+        const at = this.tbody.querySelector<HTMLElement>(`tr[data-id="${id}"] td.ov-icon`);
+        if (at) this.showIconTip(at, id);
+      }, panelDelay(!!this.iconTip?.isConnected));
     });
     // the scroll takes the keys once an entry is clicked (Scroll.OnUp / OnDown / OnHome / OnEnd from commandSvc to the
     // focused scroll): the arrows BrowseNodes - nothing selected, the last / first entry; else the one past it, past
@@ -1962,13 +1979,18 @@ export class Overview {
       this.iconTip = document.createElement("div");
       this.iconTip.className = "ov-icon-tip";
     }
-    if (!this.iconTip.isConnected) document.body.append(this.iconTip);
+    const fresh = !this.iconTip.isConnected;
+    if (fresh) document.body.append(this.iconTip);
     this.iconTip.innerHTML = `<div class="ov-icon-tip-frame"></div><div class="ov-icon-tip-grid"><span class="ov-icon-tip-icon">${this.hooks.glyph(e)}</span><b>${esc(groupName)}</b>${rows.map((r) => `<span></span><span>${esc(r)}</span>`).join("")}</div>`;
     this.iconTipFor = id;
-    const a = cell.getBoundingClientRect();
-    this.iconTip.style.left = `${Math.round(a.left - this.iconTip.offsetWidth - 4)}px`;
-    this.iconTip.style.top = `${Math.round(a.top + a.height / 2 - this.iconTip.offsetHeight / 2)}px`;
+    // GetIconTooltipPointer POINT_RIGHT_2: the panel to the icon's left, its pointer on the right, 9 px off
+    placePointerPanel(this.iconTip, cell.getBoundingClientRect(), "RIGHT_2");
+    if (fresh || this.iconTip.getAnimations().length) fadePanelIn(this.iconTip);
   }
+  private iconTipTimer: ReturnType<typeof setTimeout> | null = null;
+  private iconTipWant: number | null = null;
+  private tabTipTimer: ReturnType<typeof setTimeout> | null = null;
+  private tabTipWant: number | null = null;
   private tabTip: HTMLDivElement | null = null;
   private tabTipFor: number | null = null;
   private showTabTip(tab: HTMLElement, n: number): void {
@@ -1982,15 +2004,20 @@ export class Overview {
     if (description) rows.push(`<span class="ov-tab-tip-desc">${esc(description)}</span>`);
     if (this.instanceID === 0) rows.push(`<span>${esc(word("UI/Overview/BracketFilter", "Bracket Filter"))}</span><b>${esc(t.bracket ? this.presetLabel(t.bracket) : word("UI/Overview/ShowAllBrackets", "Show All Brackets"))}</b>`);
     if (!this.tabTip) { this.tabTip = document.createElement("div"); this.tabTip.className = "ov-icon-tip ov-tab-tip"; }
-    if (!this.tabTip.isConnected) document.body.append(this.tabTip);
+    const fresh = !this.tabTip.isConnected;
+    if (fresh) document.body.append(this.tabTip);
     this.tabTip.innerHTML = `<div class="ov-icon-tip-frame"></div><div class="ov-tab-tip-grid">${rows.join("")}</div>`;
     this.tabTipFor = n;
     const a = tab.getBoundingClientRect();
     this.tabTip.style.left = `${Math.round(a.left)}px`;
     this.tabTip.style.top = `${Math.round(a.bottom + 4)}px`;
+    if (fresh || this.tabTip.getAnimations().length) fadePanelIn(this.tabTip);
   }
   private hideTabTip(): void {
-    this.tabTip?.remove();
+    if (this.tabTipTimer !== null) { clearTimeout(this.tabTipTimer); this.tabTipTimer = null; }
+    this.tabTipWant = null;
+    const tip = this.tabTip;
+    if (tip?.isConnected) { notePanelClosed(); foldPanelAway(tip, () => { if (this.tabTipFor === null) tip.remove(); }); }
     this.tabTipFor = null;
   }
   /** Each row's Name hint (markup) as the last pass drew it, and the row whose hint shows. */
@@ -2002,7 +2029,10 @@ export class Overview {
     cancelGenericHint();
   }
   private hideIconTip(): void {
-    this.iconTip?.remove();
+    if (this.iconTipTimer !== null) { clearTimeout(this.iconTipTimer); this.iconTipTimer = null; }
+    this.iconTipWant = null;
+    const tip = this.iconTip;
+    if (tip?.isConnected && this.iconTipFor !== null) { notePanelClosed(); foldPanelAway(tip, () => { if (this.iconTipFor === null) tip.remove(); }); }
     this.iconTipFor = null;
   }
 

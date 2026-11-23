@@ -311,6 +311,30 @@ export function tooltipDue(anchor: HTMLElement, show: () => void): void {
   dueTimer = setTimeout(() => { dueTimer = null; if (anchor.isConnected) show(); }, wait);
 }
 
+/** _GetSleepTime for a panel of its own: the renew time while one shows or just closed, else the generic delay. */
+export function panelDelay(open: boolean): number { return open || performance.now() - panelClosedAt < 500 ? 50 : 250; }
+/** A panel of its own closed (for the next one's renew time). */
+export function notePanelClosed(): void { panelClosedAt = performance.now(); }
+/** PointerPanel.ShowPanel on a panel of its own: from nothing to full over 0.05 s. */
+export function fadePanelIn(el: HTMLElement): void {
+  for (const a of el.getAnimations()) a.cancel();
+  el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 50, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" });
+}
+/**
+ * FadeOutPanelAndClose (FADEOUT_FAST) on a panel of its own: faded out over 0.05 s and scaled to nothing about its
+ * pointer over 0.1 s, then done(); with no pointer done() at once.
+ */
+export function foldPanelAway(el: HTMLElement, done: () => void): void {
+  const pointer = el.querySelector<HTMLImageElement>(":scope > img.pp-pointer");
+  if (!pointer) { done(); return; }
+  for (const a of el.getAnimations()) a.cancel();
+  el.style.transformOrigin = `${pointer.offsetLeft + pointer.offsetWidth / 2}px ${pointer.offsetTop + pointer.offsetHeight / 2}px`;
+  const ease = "cubic-bezier(0.3333, 0, 0.6667, 1)";
+  el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 50, easing: ease, fill: "forwards" });
+  const shrink = el.animate([{ transform: "scale(1)" }, { transform: "scale(0)" }], { duration: 100, easing: ease, fill: "forwards" });
+  shrink.onfinish = () => { done(); for (const a of el.getAnimations()) a.cancel(); };
+}
+
 export function hideLabelShortcutTooltip(): void {
   if (dueTimer !== null) { clearTimeout(dueTimer); dueTimer = null; }
   if (!tip || tip.style.display === "none" || closing !== null) return;
