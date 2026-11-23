@@ -576,17 +576,18 @@
   /**
    * A group header's menu (ListGroup.GetMenu, its node locked and BlockOpenWindow): Expand / Collapse, then
    * dronesWindow.GetSubFolderMenu - a line, the drones' menu (in space DroneMenu, in the bay InvItemMenu without its
-   * market entries), Mark / Unmark as Favorite.
+   * market entries), Mark / Unmark as Favorite - shown sorted (bay: Launch Drone | Show Info | Expand | Find in Personal
+   * Assets | Compare, Mark Group as Favorite for Launching).
    */
   function groupMenu(key: string, group: DroneGroup, ids: number[], inSpace: boolean): MenuEntry[] {
     const favorite = favoriteID === group.id;
     const bayItems = inSpace ? [] : ids.flatMap((itemID) => { const row = bayRows.find((r) => r.itemIDs.includes(itemID)); return row ? [{ itemID, typeID: row.typeID }] : []; });
-    return [
-      { label: say(openGroups.has(key) ? GROUP_WORDS.collapse : GROUP_WORDS.expand), act: async () => toggleGroup(key) },
-      SEP,
-      ...(inSpace ? spaceEntries(ids.filter((id) => allDroneIDs.includes(id)), false) : bayItemsMenu(bayItems, false, true)),
-      { label: say(favorite ? GROUP_WORDS.unfav : GROUP_WORDS.fav), act: async () => setFavoriteGroupID(shipTypeID, favorite ? null : group.id) },
-    ];
+    // menuDataFactory sorts them by menuHierarchy (Expand and the favourite entry have no group)
+    const folder = {
+      expand: { label: say(openGroups.has(key) ? GROUP_WORDS.collapse : GROUP_WORDS.expand), act: async () => toggleGroup(key) },
+      favorite: { label: say(favorite ? GROUP_WORDS.unfav : GROUP_WORDS.fav), act: async () => setFavoriteGroupID(shipTypeID, favorite ? null : group.id) },
+    };
+    return inSpace ? spaceEntries(ids.filter((id) => allDroneIDs.includes(id)), false, folder) : bayItemsMenu(bayItems, false, true, folder);
   }
 
   /**
@@ -701,7 +702,7 @@
    * merged entries - Launch Drone (n), View Market Details and Buy All (n) (the filter takes Buy This Type, not Buy All),
    * Compare (n). DroneGroupHeaderInBay.GetMenu is it over the whole bay, no Move Drone; nothing on an empty bay.
    */
-  function bayItemsMenu(items: { itemID: number; typeID: number }[], withMove: boolean, noMarket = false): MenuEntry[] {
+  function bayItemsMenu(items: { itemID: number; typeID: number }[], withMove: boolean, noMarket = false, folder?: { expand: MenuEntry; favorite: MenuEntry }): MenuEntry[] {
     if (!items.length) return [];
     const ids = items.map((i) => i.itemID);
     const typeID = items[0]!.typeID;
@@ -712,12 +713,14 @@
       // UI/Drones/LaunchDrone is a plural template: the client's entry says it with numDrones 1, its count after it
       [{ label: count(plainText(formatTemplate(say(MENU_WORDS.launchOne), { numDrones: 1 }, { nameOf: () => "" }))), act: () => flow.launchDrones(ids) }],
       multi ? [] : [{ label: say(MENU_WORDS.info), act: async () => showInfo({ kind: "type", typeID, itemID: ids[0] }) }],
+      // a group's Expand / Collapse has no menu group: after Show Info (menuHierarchy's None after SHOWINFOGROUP), its line kept
+      folder ? [folder.expand] : [],
       // (a drone group's menu filters out ViewTypesMarketDetails and BuyThisType: dronesWindow.GetSubFolderMenu)
       [...(noMarket ? [] : [{ label: say(MENU_WORDS.market), act: async () => showMarketDetails(typeID) }]),
         ...(multi ? (noMarket ? [] : [{ label: count(say(MENU_WORDS.buyAll)), act: async () => flow.openMultiBuy(new Map(types.map((t) => [t, 1]))) }])
           : [{ label: say(MENU_WORDS.assets), act: async () => findInPersonalAssets(typeName(typeID, "")) }])],
       withMove ? [moveMenu(ids, typeID)] : [],
-      [{ label: count(say(MENU_WORDS.compare)), act: async () => typeCompareTarget.ask(items.map((i) => ({ typeID: i.typeID, itemID: i.itemID }))) }],
+      [{ label: count(say(MENU_WORDS.compare)), act: async () => typeCompareTarget.ask(items.map((i) => ({ typeID: i.typeID, itemID: i.itemID }))) }, ...(folder ? [folder.favorite] : [])],
     ];
     return groups.filter((g) => g.length).flatMap((g, n) => (n ? [SEP, ...g] : g));
   }
@@ -759,7 +762,7 @@
    * menusvc.DroneMenu: by the drones' kind Engage Target (combat), Mine (mining) or Salvage (salvage), then Return and
    * Orbit, Return to Drone Bay and Scoop to Drone Bay; a lost drone's Reconnect (menusvc.ReconnectToDrones).
    */
-  function spaceEntries(ids: readonly number[], recoverable: boolean): MenuEntry[] {
+  function spaceEntries(ids: readonly number[], recoverable: boolean, folder?: { expand: MenuEntry; favorite: MenuEntry }): MenuEntry[] {
     const salvage = ids.filter((id) => salvageIDs.includes(id));
     const mining = ids.filter((id) => miningIDs.includes(id));
     const combat = ids.filter((id) => !salvage.includes(id) && !mining.includes(id));
@@ -778,11 +781,15 @@
       [...(controlled.length ? [{ label: n(say(MENU_WORDS.orbit), controlled.length), act: () => flow.returnDronesAndOrbit(controlled) },
         { label: n(say(MENU_WORDS.bay), controlled.length), act: () => flow.recallDrones(controlled) }] : []),
         ...(recoverable ? [{ label: n(say(MENU_WORDS.scoop), ids.length), act: () => flow.scoopDrones(ids) }] : [])],
+      // a group's Expand / Collapse (no menu group) after the changes, its line kept (read through gridcheck on the
+      // client's group: Mine | Return and Orbit, Return to Drone Bay | Expand | Assist, Guard, Mark Group as Favorite for
+      // Launching | Abandon Drone)
+      folder ? [folder.expand] : [],
       // OfferDroneAssist / OfferDroneGuard: one's own controlled drones, the pilot in a fleet - each GetFleetMemberMenu
-      controlled.length && $fleetState.availability === "ready"
+      [...(controlled.length && $fleetState.availability === "ready"
         ? [{ label: n(say(MENU_WORDS.assist), controlled.length), sub: fleetMemberMenu("assist", controlled) },
           { label: n(say(MENU_WORDS.guard), controlled.length), sub: fleetMemberMenu("guard", controlled) }]
-        : [],
+        : []), ...(folder ? [folder.favorite] : [])],
       [...(controlled.length ? [{ label: n(say(MENU_WORDS.abandon), controlled.length), act: async () => { await flow.abandonDrones(controlled); } }] : []),
         ...(recoverable ? [{ label: "Reconnect", act: () => flow.reconnectDrones(ids) }] : [])],
     ];
