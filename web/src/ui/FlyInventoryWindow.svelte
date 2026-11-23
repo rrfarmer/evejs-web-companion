@@ -623,6 +623,20 @@
   }
   /** A bay's place for the moves (invCtrl: the cargo, or the ship bay by its flag). */
   /** IsLootable: a can or a wreck in space (a deployable's cargo bay has no Loot All). */
+  /**
+   * invCtrl.ItemFloatingCargo / ItemWreck LootAll: every item into the active ship's cargo hold (ShipCargo().AddItems -
+   * the cargo hold, no specialised hold), then the ui_notify_mission_rewards_play sound; a stack with too little room
+   * is the move's own refusal (invControllers._AddItem).
+   */
+  function lootAllIntoCargo(): void {
+    const c = $inventoryState.container;
+    if (!c || !c.rows.length) return;
+    const ids = c.rows.map((r) => r.itemID);
+    void act(async () => {
+      await flow.transferItems(ids, placeOf("container"), placeOf("cargo"), null);
+      void playUiEvent("ui_notify_mission_rewards_play");
+    });
+  }
   const lootable = $derived.by(() => { const id = $inventoryState.container?.itemID; const e = id ? $space.snapshot?.entities.find((x) => x.itemID === id) : null; return e?.kind === "wreck" || e?.kind === "container"; });
   const placeOf = (key: string) => (key === "cargo" ? { kind: "cargo" as const } : key === "container" || key.startsWith("temp:") ? { kind: "container" as const, itemID: store.inventory.get().container?.itemID ?? 0 } : { kind: "shipBay" as const, bay: key });
   /**
@@ -1035,7 +1049,7 @@
       {#if (containerMode || current.startsWith("temp:")) && lootable}
         <!-- BaseCelestialContainer.GetSpecialActions: Loot All for a lootable can or wreck (ShipCargo().AddItems of its items),
              in specialActionsCont at the right of the window's foot, 16 from the labels, a Density.COMPACT Button -->
-        <span class="special"><button type="button" class="client-btn compact" onclick={() => { const id = $inventoryState.container?.itemID; if (id) void act(async () => { await flow.lootContainer(id); }); }}>{word("UI/Inventory/LootAll", "Loot All")}</button></span>
+        <span class="special"><button type="button" class="client-btn compact" onclick={lootAllIntoCargo}>{word("UI/Inventory/LootAll", "Loot All")}</button></span>
       {/if}
     </div>
   </div>

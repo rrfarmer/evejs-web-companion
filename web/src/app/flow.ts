@@ -9105,7 +9105,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     if (place.kind === "container") return { inventory: place.itemID, liesIn: place.itemID };
     if (place.kind === "cargo" || place.kind === "shipBay") {
-      const shipID = store.get().inventory.activeShipID;
+      // the ship the pilot is in: the inventory read's where it has one, else (in space, where the hangar read gives
+      // none) the one the flight read has - session.shipid
+      const shipID = store.get().inventory.activeShipID ?? store.space.get().snapshot?.shipID ?? store.inventory.get().openShip?.itemID ?? null;
       if (shipID === null) throw new Error("Which ship this is is not known yet.");
       return { inventory: shipID, liesIn: shipID };
     }
