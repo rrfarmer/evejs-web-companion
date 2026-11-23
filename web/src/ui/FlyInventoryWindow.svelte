@@ -664,7 +664,8 @@
     return {
       update(next: { width: number; left?: number }) {
         const dw = 0.5 * Math.abs(next.width - width) ** 0.3, dl = 0.5 * Math.abs((next.left ?? 0) - left) ** 0.3;
-        node.style.transition = `width ${dw}s ease-in-out, left ${dl}s ease-in-out`;
+        // (ANIM_SMOOTH: a Hermite curve with zero tangents, smoothstep - cubic-bezier(1/3, 0, 2/3, 1) exactly)
+        node.style.transition = `width ${dw}s cubic-bezier(0.3333, 0, 0.6667, 1), left ${dl}s cubic-bezier(0.3333, 0, 0.6667, 1)`;
         node.style.width = `${next.width * 100}%`;
         if (next.left !== undefined) node.style.left = `${next.left * 100}%`;
         width = next.width;
