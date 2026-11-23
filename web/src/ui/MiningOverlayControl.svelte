@@ -6,6 +6,7 @@
   import { plainText } from "../bridge/clientWords.ts";
   import { ContextMenu } from "../play/contextMenu.ts";
   import { onDestroy } from "svelte";
+  import { placePointerPanel } from "../play/labelShortcutTooltip.ts";
   let { store, survey, openResults, openLedger, disable, requestWords }: {
     store: ClientStore;
     survey: FlightMiningSurvey;
@@ -29,12 +30,24 @@
     return typeof t === "string" && t !== "" ? plainText(t.replace(/\{module_name\}/g, "Mining Survey Chipset")) : null;
   });
   /** The tooltip (UtilityButton's command tooltip, then the ore value scale): where it stands, null while hidden. */
-  let tip = $state<{ x: number; y: number } | null>(null);
+  let tip = $state<{ anchor: DOMRect } | null>(null);
+  // MiningScannerButton has no tooltipPointer: the panel's own default_pointerDirection, POINT_BOTTOM_2 (above the
+  // button, centred), with pointerPanel.UpdatePanelPosition's fallbacks; placed again as its lines settle
+  let tipEl = $state<HTMLDivElement | null>(null);
+  $effect(() => {
+    const el = tipEl, anchor = tip?.anchor;
+    if (!el || !anchor) return;
+    const place = () => placePointerPanel(el, anchor, "BOTTOM_2");
+    place();
+    const seen = new ResizeObserver(place);
+    seen.observe(el);
+    return () => seen.disconnect();
+  });
   let tipTimer: ReturnType<typeof setTimeout> | null = null;
   function tipOn(e: MouseEvent): void {
     const el = e.currentTarget as HTMLElement;
     if (tipTimer) clearTimeout(tipTimer);
-    tipTimer = setTimeout(() => { const r = el.getBoundingClientRect(); tip = { x: r.right + 12, y: r.top + r.height / 2 }; }, 300);
+    tipTimer = setTimeout(() => { const r = el.getBoundingClientRect(); tip = { anchor: r }; }, 300);
   }
   function tipOff(): void { if (tipTimer) clearTimeout(tipTimer); tipTimer = null; tip = null; }
   const flight = $derived(store.flight);
@@ -88,7 +101,7 @@
       <!-- MiningScannerButton.LoadTooltipPanel: the command's tooltip (CmdMiningScan, Tooltips/Hud/MiningScan, no
            shortcut by default), "Ore Value" over a 200 x 8 gradient (ULTRAMARINE_BLUE, AIR_TURQUOISE, SAND_YELLOW) with
            Low and High under it; below MiningScan.TIER_2 (the attribute under 1), the upgrade note in the secondary colour, 200 wide -->
-      <div class="mining-tip" style:left={`${tip.x}px`} style:top={`${tip.y}px`}>
+      <div class="mining-tip" bind:this={tipEl}>
         <div class="mt-frame"></div>
         <div class="mt-body">
           <b>{say("Tooltips/Hud/MiningScan", "Mining Surveyor")}</b>
@@ -131,7 +144,7 @@
   }
   .flight-mining-actions button { text-align: left; }
   .flight-mining-actions .sep { height: 1px; margin: 2px 4px; background: #ffffff22; }
-  .mining-tip { position: fixed; transform: translateY(-50%); z-index: 100000; pointer-events: none; padding: 16px; font: 14px var(--font); color: rgba(255, 255, 255, 0.75); }
+  .mining-tip { position: fixed; z-index: 100000; pointer-events: none; padding: 16px; font: 14px var(--font); color: rgba(255, 255, 255, 0.75); }
   .mt-frame { position: absolute; inset: 0; opacity: 0.75; border-style: solid; border-width: 0; border-image-source: url(/client-res/ui/texture/classes/framewithpointer/background_04.png); border-image-slice: 19 fill; border-image-width: 19px; border-image-outset: 15px; }
   .mt-body { position: relative; display: grid; gap: 4px; width: 200px; }
   .mt-body b { color: rgba(255, 255, 255, 0.95); white-space: nowrap; }
