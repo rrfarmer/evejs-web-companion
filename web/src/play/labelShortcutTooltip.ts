@@ -65,14 +65,43 @@ function placeBeside(panel: HTMLElement, a: DOMRect, flag: PointFlag): void {
   };
   let best = alignToFlag(a, w, h, flag);
   let bestCut = cut(best);
+  let bestFlag = flag;
   for (const next of [...correctionFor(flag), ...CORNERGROUP]) {
     if (bestCut[0] === 0 && bestCut[1] === 0) break;
     const p = alignToFlag(a, w, h, next);
     const c = cut(p);
-    if (c[0] < bestCut[0] || (c[0] === bestCut[0] && c[1] < bestCut[1])) { best = p; bestCut = c; }
+    if (c[0] < bestCut[0] || (c[0] === bestCut[0] && c[1] < bestCut[1])) { best = p; bestCut = c; bestFlag = next; }
   }
   panel.style.left = `${Math.round(best.left)}px`;
   panel.style.top = `${Math.round(best.top)}px`;
+  drawPointer(panel, bestFlag);
+}
+
+/**
+ * FrameWithPointer.UpdatePointerPosition: the 24 px pointer sprite of the flag's side (pointer_up/down/left/right_02 of
+ * GeneralFrameWithPointerSkin) at the panel's edge toward its anchor, at the pointer's place along it (12 in from an end,
+ * or the middle) - 16 px outside the edge as the page's other framed tooltips draw it; none for a corner flag.
+ */
+function drawPointer(panel: HTMLElement, [fx, fy]: PointFlag): void {
+  let img = panel.querySelector<HTMLImageElement>(":scope > img.pp-pointer");
+  const corner = (fx === 0 || fx === 4) && (fy === 0 || fy === 4);
+  if (corner) { img?.remove(); return; }
+  if (!img) {
+    img = document.createElement("img");
+    img.className = "pp-pointer";
+    img.alt = "";
+    Object.assign(img.style, { position: "absolute", width: "24px", height: "24px", opacity: "0.75", pointerEvents: "none" });
+    panel.append(img);
+  }
+  const along = (i: number) => (i === 1 ? "0px" : i === 2 ? "calc(50% - 12px)" : "calc(100% - 24px)");
+  const side = fy === 4 ? "down" : fy === 0 ? "up" : fx === 0 ? "left" : "right";
+  img.src = clientTexture(`res:/UI/Texture/classes/FrameWithPointer/pointer_${side}_02.png`);
+  Object.assign(img.style, {
+    left: side === "left" ? "-16px" : side === "right" ? "auto" : along(fx),
+    right: side === "right" ? "-16px" : "auto",
+    top: side === "up" ? "-16px" : side === "down" ? "auto" : along(fy),
+    bottom: side === "down" ? "-16px" : "auto",
+  });
 }
 
 export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, shortcut: string, lines: readonly string[] = [], pointer: "top" | "left" = "top"): void {
