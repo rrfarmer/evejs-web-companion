@@ -439,7 +439,9 @@ export class Overview {
       // (SE_BaseClassCore.OnMouseEnter: sound_hover, SOUND_ENTRY_HOVER, as the row lights)
       if (id && id !== this.hovered) { void playUiEvent("ui_button_soft2_play"); this.hooks.hover?.(id); }
     });
-    this.tbody.addEventListener("mouseleave", () => { this.hooks.hover?.(null); this.hideIconTip(); });
+    this.tbody.addEventListener("mouseleave", () => { this.hooks.hover?.(null); this.hideIconTip(); this.pointerInside = false; });
+    // UpdateEntryOrder's freeze: the pointer over the scroll's content, and whether it moved since the last pass
+    this.tbody.addEventListener("mousemove", () => { this.pointerInside = true; this.pointerMoved = true; });
     // the icon's own tooltip (mainIcon.LoadTooltipPanel = LoadIconTooltipPanel), pointed from its right (POINT_RIGHT_2)
     this.tbody.addEventListener("mouseover", (e) => {
       const cell = (e.target as HTMLElement).closest<HTMLElement>("td.ov-icon");
@@ -1967,6 +1969,9 @@ export class Overview {
 
   private lastSortAt = -1e9;
   private lastSortKey = "";
+  private pointerInside = false;
+  private pointerMoved = false;
+  private sortFrozen = false;
   update(entities: readonly Entity[], distanceTo: (e: Entity) => number, relations?: OverviewRelationships, ego?: Entity | null): void {
     this.tipEntities = entities;
     this.tipRelations = relations;
@@ -2056,15 +2061,22 @@ export class Overview {
     const sortColumns = cols.slice(Math.max(0, cols.findIndex((c) => c.sort === key))).map((c) => c.sort).filter((c): c is SortColumn => !!c);
     const before = this.lastOrder;
     // OverviewWindow.UpdateEntryOrder: the order is set again about once a second (ENTRY_ORDER_UPDATE_SLEEP 1.0 less the
-    // update's own time, at least ENTRY_ORDER_UPDATE_SLEEP_MIN 0.5), while the values change on the 0.5 s pulse; rows
-    // joining or leaving are placed at once
-    const sameRows = listed.length === before.size && listed.every((e) => before.has(e.itemID));
+    // update's own time, at least ENTRY_ORDER_UPDATE_SLEEP_MIN 0.5), while the values change on the 0.5 s pulse. A pass
+    // is frozen (sortingFrozen: insider and the cursor moved within overviewMouseMovementTimeout, 0 on the server - so
+    // moved since the last pass) when the pointer is over the list and has moved: the order is kept and the sorted
+    // column's caret becomes Overview/columnLock.png until a pass sorts again.
     // (a new sort column or direction - a header clicked - is applied at once)
     const sortKey = `${this.sort.column}:${this.sort.down}`;
-    const reorder = !sameRows || sortKey !== this.lastSortKey || now - this.lastSortAt >= 1000;
-    if (reorder) { this.lastSortAt = now; this.lastSortKey = sortKey; }
-    const rows = listed.map((e) => { const d = distanceTo(e); return { e, d, keys: sortColumns.map((c) => valueOf(c, e, d)) }; }).sort((a, b) => {
-      if (!reorder) return before.get(a.e.itemID)! - before.get(b.e.itemID)!;
+    const pass = sortKey !== this.lastSortKey || now - this.lastSortAt >= 1000;
+    if (pass) {
+      this.lastSortAt = now;
+      this.sortFrozen = sortKey === this.lastSortKey && this.pointerInside && this.pointerMoved;
+      this.pointerMoved = false;
+      this.lastSortKey = sortKey;
+      this.table.classList.toggle("ov-sort-frozen", this.sortFrozen);
+    }
+    const reorder = pass && !this.sortFrozen;
+    const byValue = (a: { e: Entity; d: number; keys: SortValue[] }, b: { e: Entity; d: number; keys: SortValue[] }): number => {
       // GetSortValueWhenBroadcastGoToTop (Move entries with broadcasts to top): those a broadcast is on before the rest,
       // whichever way the column runs
       if (broadcasts && broadcasts.size) {
@@ -2076,7 +2088,30 @@ export class Overview {
         if (by) return this.sort.down ? -by : by;
       }
       return (before.get(a.e.itemID) ?? Infinity) - (before.get(b.e.itemID) ?? Infinity) || a.d - b.d;
-    });
+    };
+    const all = listed.map((e) => { const d = distanceTo(e); return { e, d, keys: sortColumns.map((c) => valueOf(c, e, d)) }; });
+    let rows: typeof all;
+    if (reorder) rows = all.sort(byValue);
+    else {
+      // between passes the rows keep their places; DoBallAdd places new ones at once: appended (sorted among
+      // themselves) while sorting is frozen, else each at bisect.bisect of the rows' sort values as they stand, the
+      // ones landing at one index sorted together
+      const kept = all.filter((r) => before.has(r.e.itemID)).sort((a, b) => before.get(a.e.itemID)! - before.get(b.e.itemID)!);
+      const added = all.filter((r) => !before.has(r.e.itemID));
+      if (!added.length) rows = kept;
+      else if (this.sortFrozen) rows = [...kept, ...added.sort(byValue)];
+      else {
+        const keyCmp = (x: SortValue[], y: SortValue[]): number => { for (let i = 0; i < Math.min(x.length, y.length); i++) { const c = compare(x[i]!, y[i]!); if (c) return c; } return x.length - y.length; };
+        const at = new Map<number, typeof all>();
+        for (const r of added) {
+          let lo = 0, hi = kept.length;
+          while (lo < hi) { const mid = (lo + hi) >> 1; if (keyCmp(r.keys, kept[mid]!.keys) < 0) hi = mid; else lo = mid + 1; }
+          at.set(lo, [...(at.get(lo) ?? []), r]);
+        }
+        rows = kept.slice();
+        for (const idx of [...at.keys()].sort((a, b) => b - a)) rows.splice(idx, 0, ...at.get(idx)!.sort(byValue));
+      }
+    }
     this.lastOrder = new Map(rows.map((r, i) => [r.e.itemID, i]));
     const html: string[] = [];
     for (const { e, d } of rows) {
