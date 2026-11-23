@@ -3861,15 +3861,15 @@ export class SpaceView {
     if (e.isSelf) {
       options = [
         { label: this.actions.word?.("UI/Inflight/StopMyShip") ?? "Stop Ship", icon: clientTexture("res:/UI/Texture/Icons/44_32_38.png"), run: run("Stop", () => this.actions.stop()) },
-        { label: "Set Default Orbit Distance", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/setOrbitDefault.png"), disabled: true },
+        { label: this.actions.word?.("UI/Inflight/SetDefaultOrbitDistanceShort") ?? "Set Default Orbit Distance", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/setOrbitDefault.png"), ranges: radialRanges(500, 100_000), defaultRange: defaultDistance("Orbit"), run: (r) => setDefaultDistance("Orbit", r ?? defaultDistance("Orbit")) },
         // the own ship's second level: secondaryCategoryActions[categoryShip] (Look At, Set Interest) and
         // GetMyShipSpecialCaseSecondLevel - Save Location (menuSvc.Bookmark, alwaysAvailable) in space, not in a structure
         { label: "More", icon: "", more: [lookAt, setInterest, { ...bookmark, disabled: !this.actions.saveLocation }] },
-        { label: "Set Default Keep at Range Distance", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/setKeepRangeDefault.png"), disabled: true },
+        { label: this.actions.word?.("UI/Inflight/SetDefaultKeepAtRangeDistanceShort") ?? "Set Default Keep at Range Distance", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/setKeepRangeDefault.png"), ranges: radialRanges(50, 100_000), defaultRange: defaultDistance("KeepAtRange"), run: (r) => setDefaultDistance("KeepAtRange", r ?? defaultDistance("KeepAtRange")) },
         { label: this.actions.word?.("UI/Commands/OpenCargoHold") ?? "Open Cargo Hold", icon: icon(35), run: () => this.options.onNeocom?.("inventory") },
         null,
         showInfo,
-        { label: "Set Default Warp To Distance", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/setWarpDefault.png"), disabled: true },
+        { label: this.actions.word?.("UI/Inflight/SetDefaultWarpWithinDistanceShort") ?? "Set Default Warp To Distance", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/setWarpDefault.png"), ranges: WARP_RANGES, defaultRange: defaultDistance("WarpTo"), run: (r) => setDefaultDistance("WarpTo", r ?? defaultDistance("WarpTo")) },
       ];
     } else {
       const dist = this.distanceTo(e);
