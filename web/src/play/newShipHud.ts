@@ -402,6 +402,7 @@ export class NewShipHud {
   private settingsGear: HTMLButtonElement | null = null;
   private overloadMode = false;
   private overloadHover = false;
+  private readonly overloadGlyph = document.createElement("span");
   private rackHover: "Hi" | "Med" | "Lo" | null = null;
   private overload: HudOverload | null = null;
   private modules: readonly HudModule[] = [];
@@ -701,7 +702,8 @@ export class NewShipHud {
     ob.addEventListener("mouseleave", () => { this.liveTip = null; this.closeTooltip(); });
     ob.addEventListener("mouseenter", () => { this.overloadHover = true; });
     ob.addEventListener("mouseleave", () => { this.overloadHover = false; });
-    ob.addEventListener("click", () => { this.overloadMode = !this.overloadMode; this.syncRackButtons(); });
+    // OverloadButton.OnClick: PlaySound(SOUND_HEAT_STATUS_SELECT) as the mode is turned on
+    ob.addEventListener("click", () => { this.overloadMode = !this.overloadMode; if (this.overloadMode) void playUiEvent("hud_heat_status_select_play"); this.syncRackButtons(); });
     for (const b of RACK_BUTTONS) {
       const h = hex(b.x, b.y);
       h.dataset.rack = b.rack;
@@ -872,9 +874,12 @@ export class NewShipHud {
     document.addEventListener("mousedown", closeMenu, true);
     this.unsubscribe.push(() => { document.removeEventListener("mousedown", closeMenu, true); menu.remove(); });
     document.body.append(menu);
-    // overloadButton: the overheating glyph in the hex (white 0.75 idle)
-    const heat = icon("res:/UI/Texture/eveicon/category_icons/overheating_16px.png");
-    Object.assign(heat.style, { position: "absolute", left: `${cx + OVERLOAD_CENTRE[0] - 8}px`, top: `${cy + OVERLOAD_CENTRE[1] - 8}px`, opacity: "0.75" });
+    // overloadButton: the overheating glyph in the hex, tinted by _Restyle (ICON_IDLE_COLOR white 0.75, ICON_HOVER_COLOR
+    // COLOR_MODULE_DAMAGE, ICON_ACTIVE_COLOR white) - a mask over its colour, as a tinted sprite
+    const heat = this.overloadGlyph;
+    const heatTex = res("res:/UI/Texture/eveicon/category_icons/overheating_16px.png");
+    Object.assign(heat.style, { position: "absolute", left: `${cx + OVERLOAD_CENTRE[0] - 8}px`, top: `${cy + OVERLOAD_CENTRE[1] - 8}px`, width: "16px", height: "16px",
+      pointerEvents: "none", backgroundColor: css(WHITE, 0.75), webkitMask: `url("${heatTex}") center / 16px 16px no-repeat`, mask: `url("${heatTex}") center / 16px 16px no-repeat` });
     // the camera flyout's header: the orbit camera's glyph (idle 0.8)
     const cam = document.createElement("button");
     cam.type = "button";
@@ -2149,6 +2154,8 @@ export class NewShipHud {
     };
     const active = this.overloadMode;
     const hover = this.overloadHover;
+    const glyphColour = active ? css(WHITE) : hover ? css(DANGER_RED) : css(WHITE, 0.75);
+    if (this.overloadGlyph.style.backgroundColor !== glyphColour) this.overloadGlyph.style.backgroundColor = glyphColour;
     if (active) tinted(fill, ox, oy, css(CHERRY_RED));
     else tinted(inset, ox, oy, hover ? css(CHERRY_RED, 0.2) : css(WHITE, 0.2));
     tinted(outline, ox, oy, active || hover ? css(DANGER_RED) : css(WHITE, 0.25));
