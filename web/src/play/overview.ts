@@ -1981,6 +1981,12 @@ export class Overview {
   private readonly leaving = new Map<number, { e: Entity; d: number; keys: (number | string | number[])[] }>();
   private pointerMoved = false;
   private sortFrozen = false;
+  /** OverviewWindow.OnKeyUp's scroll.GetSelected(): the selected row while focus is in this window, else null. */
+  focusedSelection(): number | null {
+    const focus = document.activeElement;
+    if (!focus || !this.window.root.contains(focus) || this.selected === null) return null;
+    return this.tbody.querySelector(`tr[data-id="${this.selected}"]`) ? this.selected : null;
+  }
   /** _freezeOverview: OnFreezeOverviewWindows (a combat command key held) until OnUnfreezeOverviewWindows. */
   private freezeOverview = false;
   /**

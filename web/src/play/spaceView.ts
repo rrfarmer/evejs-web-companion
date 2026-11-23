@@ -1450,7 +1450,16 @@ export class SpaceView {
   /** CombatKeyUnloadListener: the loaded combat command let go when its key comes up, or the window loses focus. */
   private readonly onKeyUp = (e: KeyboardEvent) => {
     if (this.options.covered?.()) { this.onBlur(); return; }
-    if (this.combat && e.code === this.combat.code) this.unloadCombat();
+    if (this.combat && e.code === this.combat.code) {
+      // OverviewWindow.OnKeyUp (the key's UI_KEYUP goes to the focus first): with the overview focused and a row
+      // selected, ExecuteCombatCommand(selected, UI_KEYUP) - the loaded command run on that row, unless it already ran
+      // on a click while held (combatCmdCurrentHasExecuted), when the key up only unloads it
+      const { cmd, executed } = this.combat;
+      const row = executed || cmd === "CmdGetLocationMenuForNavigation" ? null
+        : [this.overview, ...this.extraOverviews].map((o) => o.focusedSelection()).find((id) => id !== null) ?? null;
+      if (row !== null && cmd !== "CmdSelectTargetItem" && this.snapshot?.entities.some((x) => x.itemID === row)) this.runCombat(cmd, row);
+      this.unloadCombat();
+    }
     if (this.dscanKey?.code !== e.code) return;
     const { targeted } = this.dscanKey;
     this.dscanKey = null;
@@ -1465,7 +1474,7 @@ export class SpaceView {
   };
   private clickMods = { ctrl: false, shift: false, alt: false, at: 0 };
   /** The combat command loaded (LoadCombatCommand): its name and the key that holds it. */
-  private combat: { cmd: CombatCommand; code: string } | null = null;
+  private combat: { cmd: CombatCommand; code: string; executed?: boolean } | null = null;
   /** bracketSettings' display override (bracketConst SHOW_DEFAULT / SHOW_NONE / SHOW_ALL): Alt+Z, Alt+Shift+Z. */
   private bracketOverride: BracketOverride = "default";
   private showSpecialBrackets = false;
@@ -3739,6 +3748,10 @@ export class SpaceView {
 
   /** The loaded command's function on the object clicked (movementFunctions / the menu's, as the page has them). */
   private runCombat(cmd: CombatCommand, id: number): void {
+    // ExecuteCombatCommand: combatCmdCurrentHasExecuted; ExecuteActiveCombatCommand: ui_radial_select_play (not for
+    // CmdSelectTargetItem, which never comes here)
+    if (this.combat) this.combat.executed = true;
+    void playUiEvent("ui_radial_select_play");
     const e = this.snapshot?.entities.find((each) => each.itemID === id) ?? null;
     const run = (title: string, fn: () => Promise<void>) => void this.act(title, fn).then(() => this.refreshTargets());
     switch (cmd) {
