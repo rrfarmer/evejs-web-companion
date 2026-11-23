@@ -2811,7 +2811,14 @@
             s.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text);
             return;
           }
-          // PrimaryActivate: an offline module is not asked for - ClickOffllineModule (a notify) says so
+          // PrimaryActivate: an offline module is not asked for - ClickOffllineGroup for a weapon bank's master (IsMaster) with
+          // a member offline, else ClickOffllineModule (notifies)
+          const bankSlaves = ((s.store.space.get().snapshot?.ship?.weaponBanks ?? {})[m.itemID] ?? []) as readonly number[];
+          const slaveOffline = bankSlaves.some((id) => s.store.fitting.get().slots.find((sl) => sl.module?.itemID === id)?.module?.online === false);
+          if (bankSlaves.length && (!m.online || slaveOffline) && !running) {
+            s.flow.sayDialog("ClickOffllineGroup", null, "You cannot activate this group because one or more of its modules are offline. Please use the fitting window to turn all individual modules online first.", "notify");
+            return;
+          }
           if (!m.online && !running) {
             s.flow.sayDialog("ClickOffllineModule", null, "You can't activate this module because it is offline. You can try and turn it online by right clicking on it and choosing \"Put Online\" in the contextual menu.", "notify");
             return;
