@@ -1113,7 +1113,9 @@
   /* the icon view: InvItem 64 wide, GetEntryColMargin 16 between columns, rows of GetEntryHeight (103) touching */
   .items { padding-left: 4px; flex: 1; overflow: auto; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 0 16px; }
   /* Scroll.ShowHint: EveCaptionLarge (24) centred, padding 16 all round, TextColor.SECONDARY (0.5), faded in over 0.3 s */
-  .none { width: 100%; box-sizing: border-box; margin: 0; padding: 16px; text-align: center; font-size: 24px; color: rgba(255, 255, 255, 0.5); letter-spacing: 0.5px; animation: none-in 0.3s; }
+  /* ScrollContainer.ShowNoContentHint: an EveCaptionLarge (24, line spacing -0.12: a 30 px line, TextColor.HIGHLIGHT) at opacity 0.3,
+     padding 16, centred (measured on the live client, gridcheck: the label box at 202,102 364 x 30 in a 600 x 450 inventory window) */
+  .none { width: 100%; box-sizing: border-box; margin: 0; padding: 12px 16px 16px; text-align: center; font-size: 24px; line-height: 30px; color: rgba(255, 255, 255, 0.3); letter-spacing: 0.5px; animation: none-in 0.3s; }
   @keyframes none-in { from { opacity: 0; } to { opacity: 1; } }
   .item { width: 64px; height: 103px; display: flex; flex-direction: column; align-items: center; }
   .icon { position: relative; width: 64px; height: 64px; display: grid; background: rgba(255, 255, 255, 0.05); }
