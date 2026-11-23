@@ -1719,12 +1719,6 @@ export class Overview {
       { label: word("UI/Commands/ChangeName", "Change Name"), run: () => this.renameTab(i) },
       { label: word("UI/Generic/Columns", "Columns"), sub: this.columnsSubMenu(i) },
     ];
-    if (this.tabSettings.length > 1) {
-      out.push({ label: word("UI/Overview/DeleteTab", "Delete Tab"), run: () => {
-        this.tabSettings.splice(i, 1);
-        this.tabsChanged(this.tab > i ? this.tab - 1 : this.tab === i ? Math.max(0, i - 1) : this.tab);
-      } });
-    }
     // GetMoveTabSubMenu: New Window, then the other overview windows by their tabs' names (GetWindowName); the first
     // window keeps a tab
     if (this.hooks.moveTab && (this.instanceID !== 0 || this.tabSettings.length > 1)) {
@@ -1734,6 +1728,14 @@ export class Overview {
         ...(others.length ? [null] : []),
         ...others.map((w) => ({ label: w.windowName(), run: () => this.hooks.moveTab?.(this, i, w.instanceID) })),
       ] });
+    }
+    // Delete Tab last, a group of its own (as the client shows the tab's menu: CreateMenuDataWithEntries, read through
+    // gridcheck - Change Name ; Columns ; Move Tab To | Delete Tab)
+    if (this.tabSettings.length > 1) {
+      out.push(null, { label: word("UI/Overview/DeleteTab", "Delete Tab"), run: () => {
+        this.tabSettings.splice(i, 1);
+        this.tabsChanged(this.tab > i ? this.tab - 1 : this.tab === i ? Math.max(0, i - 1) : this.tab);
+      } });
     }
     return out;
   }
