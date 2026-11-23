@@ -584,6 +584,11 @@
     ] };
   }
   /** GetDeleteGroupMenuEntry: Delete Group with every group, where there are groups. */
+  /**
+   * DroneGroupHeaderInBay / InSpace.GetMenu: [None], Delete Group, then the bay's drones' InvItemMenu without its market
+   * entries (or the space's DroneMenu) - shown sorted, Delete Group (RAGEQUITGROUP) after the rest, Abandon Drone too.
+   */
+  const headerMenu = (entries: MenuEntry[]): MenuEntry[] => { const del = deleteMenu(); return del.length ? (entries.length ? [...entries, SEP, ...del] : del) : entries; };
   const deleteMenu = (): MenuEntry[] => {
     const names = Object.keys($droneGroups.groups);
     return names.length ? [{ label: say(GROUP_WORDS.del), sub: names.map((name) => ({ label: name, act: async () => deleteGroup(name) })) }] : [];
@@ -1013,7 +1018,7 @@
   {/if}
   <div class="group bay" class:closed={!bayOpen} class:drop={dropOn === "bay"} role="list" tabindex="-1" onkeydown={(e) => listKey("bay", e)} ondragover={dragOver("bay")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("bay", null, e)}>
     <div class="sec" data-drone-head="bay" role="button" tabindex="-1" onclick={() => { if (headHeld) { headHeld = false; return; } bayOpen = !bayOpen; if (!bayOpen && !spaceOpen) spaceOpen = true; }} onkeydown={() => {}}
-      oncontextmenu={(e) => openMenuIfAny(e, [...deleteMenu(), ...bayItemsMenu(bayRows.flatMap((r) => r.itemIDs.map((itemID) => ({ itemID, typeID: r.typeID }))), false)])}>
+      oncontextmenu={(e) => openMenuIfAny(e, headerMenu(bayItemsMenu(bayRows.flatMap((r) => r.itemIDs.map((itemID) => ({ itemID, typeID: r.typeID }))), false, true)))}>
       <span class="caret" style:mask-image={`url("${bayOpen ? CARET.open : CARET.closed}")`} style:-webkit-mask-image={`url("${bayOpen ? CARET.open : CARET.closed}")`}></span><span class="lbl">{headerWord(HEADER_WORDS.bay, "Drones in Bay")} ({bayCount})</span>
       <span class="commands">
         <!-- DroneGroupHeaderInBay's launch button: LoadLaunchDronesTooltipPanel (Launch Drones and its shortcut) with no favourite
@@ -1042,7 +1047,7 @@
   <div class="group" class:drop={dropOn === "space"} role="list" tabindex="-1" onkeydown={(e) => listKey("space", e)} ondragover={dragOver("space")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("space", null, e)}>
     <div class="sec" data-drone-head="space" role="button" tabindex="-1" onclick={() => { if (headHeld) { headHeld = false; return; } spaceOpen = !spaceOpen; if (!spaceOpen && !bayOpen) bayOpen = true; }} onkeydown={() => {}}
       onmouseenter={(e) => void showSpaceHeadTip(e.currentTarget as HTMLElement)} onmouseleave={() => { spaceHeadTipAt = null; hideLabelShortcutTooltip(); }}
-      oncontextmenu={(e) => openMenuIfAny(e, [...deleteMenu(), ...(allDroneIDs.length ? spaceEntries(allDroneIDs, false) : [])])}>
+      oncontextmenu={(e) => openMenuIfAny(e, headerMenu(allDroneIDs.length ? spaceEntries(allDroneIDs, false) : []))}>
       <span class="caret" style:mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`} style:-webkit-mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`}></span><span class="lbl">{headerWord(HEADER_WORDS.space, "Drones in Space")} ({maxActive === null ? outCount : `${outCount}/${maxActive}`})</span>
       <span class="commands">
         <span class="settings-host">
