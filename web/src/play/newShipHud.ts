@@ -2133,8 +2133,19 @@ export class NewShipHud {
     if (active) tinted(fill, ox, oy, css(CHERRY_RED));
     else tinted(inset, ox, oy, hover ? css(CHERRY_RED, 0.2) : css(WHITE, 0.2));
     tinted(outline, ox, oy, active || hover ? css(DANGER_RED) : css(WHITE, 0.25));
-    if (!active) return;
-    for (const b of RACK_BUTTONS) {
+    // RackOverloadButtons._HandOver: each rack button MorphVector2(scale, SCALE_CLOSED 0.15 <-> 1) and FadeTo(0 <-> 1) over
+    // HAND_OVER_SEC 0.15 on ANIM_SMOOTH, button i after i x 0.03 s - the same hand-over clock as the heat bars (drawHeat)
+    const now = performance.now();
+    const openAt = (i: number): number => { const k = smooth((now - this.heatBarsAt - i * 30) / 150); return this.heatBarsHidden ? k : 1 - k; };
+    for (const [i, b] of RACK_BUTTONS.entries()) {
+      const k = openAt(i);
+      if (k <= 0) continue;
+      const scale = 0.15 + 0.85 * k;
+      c.save();
+      c.globalAlpha = k;
+      c.translate(b.x, b.y);
+      c.scale(scale, scale);
+      c.translate(-b.x, -b.y);
       const overloaded = this.modules.filter((m) => m.family === b.family && m.overloadable).some((m) => m.overloaded);
       const hovered = this.rackHover === b.rack;
       tinted(fill, b.x, b.y, "rgba(0,0,0,0.8)");
@@ -2151,6 +2162,7 @@ export class NewShipHud {
         o.fillRect(0, 0, 16, 16);
         c.drawImage(off, 0, 0, 16, 16, b.x - 8, b.y - 8, 16, 16);
       }
+      c.restore();
     }
   }
 
