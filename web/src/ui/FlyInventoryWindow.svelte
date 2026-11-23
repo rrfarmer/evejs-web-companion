@@ -565,6 +565,8 @@
 
   /** InvContCapacityGauge: "<used>/<capacity> m³" over its fill. */
   const fmt1 = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  // UI/Inventory/ContainerQuantityAndCapacity formats by the value's Python type (read through gridcheck): an int with no
+  // decimals, a float with one - an empty container's used volume is the int 0 (no items summed), so it reads 0/625.0 m3
   const fill = $derived(bay && bay.capacity ? Math.min(1, (bay.used ?? 0) / bay.capacity) : 0);
   const shipLabel = $derived(ship ? `${ship.name ?? typeName(ship.typeID)} (${typeName(ship.typeID)})` : "");
 
@@ -951,7 +953,7 @@
         <span class="gfill" use:morphFill={{ width: fill }}></span>
         <span class="gfill add" class:over={addOver} use:morphFill={{ width: addFill, left: fill }}></span>
         <span class="gfill sec" use:morphFill={{ width: secondaryFill }}></span>
-        <span class="gtext">{bay ? `${secondaryVolume ? `(${fmt1(secondaryVolume)}) ` : ""}${fmt1((bay.used ?? 0) + additionalVolume)}/${bay.capacity === null ? "?" : fmt1(bay.capacity)} m³` : ""}</span>
+        <span class="gtext">{bay ? `${secondaryVolume ? `(${fmt1(secondaryVolume)}) ` : ""}${(bay.used ?? 0) === 0 && additionalVolume === 0 ? "0" : fmt1((bay.used ?? 0) + additionalVolume)}/${bay.capacity === null ? "?" : fmt1(bay.capacity)} m³` : ""}</span>
       </div>
       <input class="search" placeholder="Search" value={$filterSig} oninput={(e) => filterSig.set((e.target as HTMLInputElement).value)} />
     </div>
