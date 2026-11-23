@@ -709,11 +709,15 @@ export class NewShipHud {
     const icon = document.createElement("img");
     icon.src = res("res:/ui/texture/icons/1_64_1.png");
     icon.alt = "";
-    Object.assign(icon.style, { width: "40px", height: "40px" });
-    const label = this.cell(`${this.word("Tooltips/Hud/Capacitor") ?? "Capacitor"}\n${group(portion)} / ${group(max)}`, { whiteSpace: "pre-line" });
+    // AddIconLabelValue: the icon cell padded (-3, 0, 3, 0), the label bold padded 7 on the right, the value
+    // (COLOR_NUMBERVALUE, secondary) padded 7 on the left; then an empty cell and a 100 x 1 one (g233: 216 x 57)
+    Object.assign(icon.style, { width: "40px", height: "40px", marginLeft: "-3px", marginRight: "3px" });
+    const label = this.cell(`${this.word("Tooltips/Hud/Capacitor") ?? "Capacitor"}\n${group(portion)} / ${group(max)}`, { whiteSpace: "pre-line", fontWeight: "bold", paddingRight: "7px" });
     const percent = this.wordWith?.("UI/Common/Formatting/Percentage", { percentage: portion / max * 100 }) ?? `${Math.round(portion / max * 100)}%`;
-    const value = this.cell(percent, { fontSize: "16px", fontWeight: "bold", marginTop: "-2px", color: "rgba(255,255,255,0.95)" });
-    this.showRowsTooltip(anchor, `cap:${group(portion)}:${group(max)}`, [icon, label, value], "auto auto auto");
+    const value = this.cell(percent, { fontSize: "16px", fontWeight: "bold", position: "relative", top: "-2px", paddingLeft: "7px", textAlign: "right", color: "rgba(255,255,255,0.5)" });
+    const spacer = document.createElement("div");
+    Object.assign(spacer.style, { gridColumn: "2 / 4", width: "100px", height: "1px" });
+    this.showRowsTooltip(anchor, `cap:${group(portion)}:${group(max)}`, [icon, label, value, document.createElement("div"), spacer], "auto auto auto", "BOTTOM_2", "4px 8px 4px 6px");
   }
   private showHealthTooltip(anchor: HTMLElement, index: number): void {
     const facts = this.healthFacts(index);
@@ -723,16 +727,20 @@ export class NewShipHud {
     const group = (v: number) => Math.round(v).toLocaleString("en-US");
     const hpText = `${group(facts.hp)} / ${group(facts.max)}`;
     const title = document.createElement("div");
-    Object.assign(title.style, { gridColumn: "1 / 4", display: "flex", alignItems: "center", gap: "6px", minWidth: `${65 * Math.max(1, facts.resists.length)}px` });
+    // _TitleRow (24 high: the icon, TextBody bold 6 px after it, the HP right), a spacer row 65 per resistance wide and 0
+    // high, then AttributeValueRowContainer (30 high, TextDetail values) - each in its own row 8 apart (g233: 292 x 102)
+    Object.assign(title.style, { gridColumn: "1 / 4", display: "flex", alignItems: "center", gap: "6px", height: "24px" });
     const icon = document.createElement("img");
     icon.src = res(`res:/UI/Texture/eveicon/category_icons/${glyph}_32px.png`);
     icon.alt = "";
     Object.assign(icon.style, { width: "24px", height: "24px" });
-    const name = this.cell(this.word(label) ?? own, { fontWeight: "bold", color: "rgba(255,255,255,0.95)" });
+    const name = this.cell(this.word(label) ?? own, { fontWeight: "bold" });
     const hp = this.cell(hpText, { marginLeft: "auto" });
     title.append(icon, name, hp);
+    const widthRow = document.createElement("div");
+    Object.assign(widthRow.style, { gridColumn: "1 / 4", width: `${65 * Math.max(1, facts.resists.length)}px`, height: "0" });
     const row = document.createElement("div");
-    Object.assign(row.style, { gridColumn: "1 / 4", display: "flex" });
+    Object.assign(row.style, { gridColumn: "1 / 4", display: "flex", height: "30px", fontSize: "12px", lineHeight: "16px" });
     const texts: string[] = [];
     for (const r of facts.resists) {
       const cell = document.createElement("span");
@@ -751,7 +759,7 @@ export class NewShipHud {
       cell.append(t);
       row.append(cell);
     }
-    this.showRowsTooltip(anchor, `health:${index}:${hpText}:${texts.join(",")}`, [title, row], "auto auto auto");
+    this.showRowsTooltip(anchor, `health:${index}:${hpText}:${texts.join(",")}`, [title, widthRow, row], "auto auto auto");
   }
 
   private buildMedallionInputs(): void {
@@ -1461,6 +1469,7 @@ export class NewShipHud {
       document.body.append(t);
     }
     t.replaceChildren();
+    t.style.padding = `${TOOLTIP_MARGIN}px`;
     const frame = document.createElement("div");
     Object.assign(frame.style, { position: "absolute", inset: "0", opacity: "0.75", borderStyle: "solid", borderWidth: "0", borderImageSource: `url(${res("res:/UI/Texture/classes/FrameWithPointer/background_04.png")})`, borderImageSlice: "19 fill", borderImageWidth: "19px", borderImageOutset: "15px" } as Partial<CSSStyleDeclaration>);
     const grid = document.createElement("div");
@@ -1510,7 +1519,7 @@ export class NewShipHud {
   }
 
   /** A framed tooltip of the given rows (grid cells), beside the anchor; drawn again only when its key changes. */
-  private showRowsTooltip(anchor: HTMLElement, key: string, cells: readonly HTMLElement[], columns: string, flag: "BOTTOM_2" | "LEFT_2" = "BOTTOM_2"): void {
+  private showRowsTooltip(anchor: HTMLElement, key: string, cells: readonly HTMLElement[], columns: string, flag: "BOTTOM_2" | "LEFT_2" = "BOTTOM_2", margin = `${TOOLTIP_MARGIN}px`): void {
     const t = this.tooltip;
     if (key === this.tipKey && t.style.display !== "none") return;
     this.tipKey = key;
@@ -1520,10 +1529,12 @@ export class NewShipHud {
       document.body.append(t);
     }
     t.replaceChildren();
+    t.style.padding = margin;
     const frame = document.createElement("div");
     Object.assign(frame.style, { position: "absolute", inset: "0", opacity: "0.75", borderStyle: "solid", borderWidth: "0", borderImageSource: `url(${res("res:/UI/Texture/classes/FrameWithPointer/background_04.png")})`, borderImageSlice: "19 fill", borderImageWidth: "19px", borderImageOutset: "15px" } as Partial<CSSStyleDeclaration>);
     const grid = document.createElement("div");
-    Object.assign(grid.style, { position: "relative", display: "grid", gridTemplateColumns: columns, columnGap: "8px", rowGap: "4px", alignItems: "center" });
+    // LoadStandardSpacingOld: cell spacing (8, 8), EveLabelMedium lines 18 high
+    Object.assign(grid.style, { position: "relative", display: "grid", gridTemplateColumns: columns, columnGap: "8px", rowGap: "8px", alignItems: "center", lineHeight: "18px" });
     grid.append(...cells);
     t.append(frame, grid);
     t.style.display = "";
@@ -1553,9 +1564,14 @@ export class NewShipHud {
     const icon = document.createElement("img");
     icon.src = res("res:/UI/Texture/Icons/22_32_13.png");
     icon.alt = "";
-    Object.assign(icon.style, { width: "24px", height: "24px" });
-    const cells: HTMLElement[] = [icon, this.cell(this.word("Tooltips/Hud/CurrentSpeed") ?? "Current Speed"), this.cell(value, { textAlign: "right", fontWeight: "bold" })];
-    if (warping) cells.push(this.cell(""), this.cell(this.word("UI/Inflight/CanNotChangeSpeedWhileWarping") ?? "You cannot change speed while warping", { gridColumn: "2 / 4", width: "180px", whiteSpace: "normal" }));
+    // AddIconLabelValue (icon padded -3 / 3, label bold padded 7, value bold in the secondary colour 1 lower, padded 7),
+    // then AddSpacer(2, 2) and the note label (2 columns, 180 wide, empty out of warp) - g233: 244 x 66
+    Object.assign(icon.style, { width: "24px", height: "24px", marginLeft: "-3px", marginRight: "3px" });
+    const spacer = document.createElement("div");
+    Object.assign(spacer.style, { width: "2px", height: "2px" });
+    const note = this.cell(warping ? this.word("UI/Inflight/CanNotChangeSpeedWhileWarping") ?? "You cannot change speed while warping" : "", { gridColumn: "2 / 4", width: "180px", whiteSpace: "normal" });
+    const cells: HTMLElement[] = [icon, this.cell(this.word("Tooltips/Hud/CurrentSpeed") ?? "Current Speed", { fontWeight: "bold", paddingRight: "7px" }),
+      this.cell(value, { textAlign: "right", fontWeight: "bold", paddingLeft: "7px", position: "relative", top: "1px", color: "rgba(255,255,255,0.5)" }), spacer, note];
     this.showRowsTooltip(anchor, `speed:${value}:${warping}`, cells, "auto auto auto");
   }
   /** OverloadButton's tooltip: Heat Status in bold, then Low / Medium / High with each rack's heat (HeatStatusLow etc.), bold. */
@@ -1572,7 +1588,8 @@ export class NewShipHud {
     const low = one("Tooltips/Hud/HeatStatusLow", "Low", pct(st?.heatLow ?? undefined));
     const med = one("Tooltips/Hud/HeatStatusMedium", "Medium", pct(st?.heatMed ?? undefined));
     const hi = one("Tooltips/Hud/HeatStatusHigh", "High", pct(st?.heatHi ?? undefined));
-    const cells = [this.cell(this.word("Tooltips/Hud/HeatStatus") ?? "Heat Status", { fontWeight: "bold", gridColumn: "1 / 4", color: "rgba(255,255,255,0.95)" }),
+    // g233: 256 x 76, the title at 16, the values at 42 (Low 16, Medium 88, High 186)
+    const cells = [this.cell(this.word("Tooltips/Hud/HeatStatus") ?? "Heat Status", { fontWeight: "bold", gridColumn: "1 / 4" }),
       this.cell(low, { fontWeight: "bold", paddingRight: "14px" }), this.cell(med, { fontWeight: "bold", paddingRight: "14px" }), this.cell(hi, { fontWeight: "bold" })];
     this.showRowsTooltip(anchor, `heat:${low}:${med}:${hi}`, cells, "auto auto auto");
   }
@@ -1795,6 +1812,7 @@ export class NewShipHud {
       document.body.append(t);
     }
     t.replaceChildren();
+    t.style.padding = `${TOOLTIP_MARGIN}px`;
     const frame = document.createElement("div");
     Object.assign(frame.style, { position: "absolute", inset: "0", opacity: "0.75", borderStyle: "solid", borderWidth: "0", borderImageSource: `url(${res("res:/UI/Texture/classes/FrameWithPointer/background_04.png")})`, borderImageSlice: "19 fill", borderImageWidth: "19px", borderImageOutset: "15px" } as Partial<CSSStyleDeclaration>);
     const pointer = document.createElement("img");
@@ -1885,21 +1903,32 @@ export class NewShipHud {
       document.body.append(t);
     }
     t.replaceChildren();
+    t.style.padding = `${TOOLTIP_MARGIN}px`;
     const frame = document.createElement("div");
     Object.assign(frame.style, { position: "absolute", inset: "0", opacity: "0.75", borderStyle: "solid", borderWidth: "0", borderImageSource: `url(${res("res:/UI/Texture/classes/FrameWithPointer/background_04.png")})`, borderImageSlice: "19 fill", borderImageWidth: "19px", borderImageOutset: "15px" } as Partial<CSSStyleDeclaration>);
     const body = document.createElement("div");
-    Object.assign(body.style, { position: "relative", display: "flex", flexDirection: "column", gap: "4px" });
+    // cells 8 apart, TextBody lines 18 high (g233 consumption gauge: 244 x 200, rows at 16 / 60 / 86 / 112 / 152)
+    Object.assign(body.style, { position: "relative", display: "flex", flexDirection: "column", gap: "8px", lineHeight: "18px" });
+    const details: HTMLElement[] = [];
     lines.forEach((line, i) => {
       const el = document.createElement("div");
       el.dataset.tipRow = "";
       el.textContent = line;
       const detail = lines.length > 1 && i >= lines.length - 2;
-      if (lines.length > 1 && i === 0) el.style.fontWeight = "bold";
-      if (detail) Object.assign(el.style, { fontSize: "12px", color: "rgba(255,255,255,0.5)", whiteSpace: "normal", width: "220px" });
+      // AddTextBodyHeading: a header row padded (11, 9) on a white 0.1 fill
+      if (lines.length > 1 && i === 0) Object.assign(el.style, { padding: "9px 11px", background: "rgba(255,255,255,0.1)" });
+      // AddTextDetailsLabel: TextDetail (12, lines 16) secondary, wrapWidth 220 fitted to its text
+      if (detail) { Object.assign(el.style, { fontSize: "12px", lineHeight: "16px", color: "rgba(255,255,255,0.5)", whiteSpace: "normal", maxWidth: "220px", alignSelf: "flex-start" }); details.push(el); }
       body.append(el);
     });
     t.append(frame, body);
     t.style.display = "";
+    for (const el of details) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const widest = Math.max(0, ...[...range.getClientRects()].map((q) => q.width));
+      if (widest > 0) el.style.width = `${Math.ceil(widest)}px`;
+    }
     placePointerPanel(t, anchor.getBoundingClientRect(), flag);
   }
 
