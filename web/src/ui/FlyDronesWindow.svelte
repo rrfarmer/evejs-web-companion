@@ -577,7 +577,9 @@
     const d = dragging;
     dragging = null;
     if (!d) return;
-    if (d.section === "space" && section === "bay") { void run(() => flow.recallDrones(d.ids)); blinkHead("bay"); return; }
+    // DroneInBayEntry.OnDropData returns them home without on_drones_dropped_to_bay; the part, its header and its
+    // sub-groups send it (Blink)
+    if (d.section === "space" && section === "bay") { void run(() => flow.recallDrones(d.ids)); if (!(e.target as HTMLElement | null)?.closest?.("[data-bay-item]")) blinkHead("bay"); return; }
     if (d.section === "bay" && section === "space") { void run(() => flow.launchDrones(d.ids)); blinkHead("space"); return; }
     if (group && !moveToGroup(droneGroupOf(d.typeID), group, d.ids)) flow.sayDialog("CannotMixDrones", null, "You cannot mix drones of different types in the same group.");
   }
@@ -590,7 +592,13 @@
       [{ boxShadow: "inset 0 0 0 999px rgba(255, 255, 255, 0.25)" }, { boxShadow: "inset 0 0 0 999px rgba(255, 255, 255, 0)" }],
       { duration: 600, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" });
   }
-  const dragOver = (key: string) => (e: DragEvent) => { if (dragging) { e.preventDefault(); dropOn = key; } };
+  // a part's header lights only for the other part's drones (on_in_bay_entry_drag_enter / on_in_space_entry_drag_enter
+  // come from HasInSpaceDroneIDs / HasInBayDroneIDs)
+  const dragOver = (key: string) => (e: DragEvent) => {
+    if (!dragging) return;
+    e.preventDefault();
+    dropOn = (key === "bay" || key === "space") && dragging.section === key ? null : key;
+  };
   // DroneSubGroupInBay / InSpace.OnDragEnter: drones of the other part over a group light that part's header
   // (on_in_bay_entry_drag_enter / on_in_space_entry_drag_enter -> ShowDragHighlight), its own part's the group
   // ... and its own part's drones not all in the group already its icon (ShowIconGlow - the favourite's star, the only
