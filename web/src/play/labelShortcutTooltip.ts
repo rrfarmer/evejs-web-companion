@@ -115,6 +115,7 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
   }
   if (!tip.isConnected) document.body.append(tip);
   delete tip.dataset.generic;
+  tip.style.padding = "16px";
   tip.replaceChildren();
   const frame = document.createElement("div");
   Object.assign(frame.style, { position: "absolute", inset: "0", opacity: "0.75", borderStyle: "solid", borderWidth: "0", borderImageSource: `url(${clientTexture("res:/UI/Texture/classes/FrameWithPointer/background_04.png")})`, borderImageSlice: "19 fill", borderImageWidth: "19px", borderImageOutset: "15px" } as Partial<CSSStyleDeclaration>);
@@ -260,6 +261,33 @@ export function showGenericHint(anchor: HTMLElement, html: string): void {
   grid.append(d);
   tip.dataset.generic = "1";
   placeTip(tip, anchor, POINT.BOTTOM_2);
+}
+
+/**
+ * InfoPanelLocationInfo._security_status_tooltip_panel: a two-column LayoutGrid of fixed width 320 - the range's tagline
+ * (EveLabelMedium bold, TextColor.HIGHLIGHT; cell padding 16, 16, 16, 0), its description (cell padding 16) and
+ * UI/SecurityStatus/ShowOnMap with its link (cell padding 0, 16, 16, 16) - in the panel at cell padding 5;
+ * _security_status_tooltip_pointer POINT_TOP_1: the panel under its anchor, the pointer near the panel's left.
+ */
+export function showSecurityStatusTooltip(anchor: HTMLElement, tagline: string, descriptionHtml: string, mapHtml: string): void {
+  showLabelShortcutTooltip(anchor, "", "", [], "top");
+  if (!tip) return;
+  const grid = tip.querySelector<HTMLElement>(":scope > .lst-grid");
+  if (!grid) return;
+  grid.replaceChildren();
+  Object.assign(grid.style, { gridTemplateColumns: "320px", rowGap: "0", columnGap: "0" });
+  tip.style.padding = "5px";
+  const cell = (html: string, padding: string, extra: Partial<CSSStyleDeclaration> = {}) => {
+    const d = document.createElement("div");
+    d.innerHTML = html;
+    Object.assign(d.style, { padding, whiteSpace: "normal", ...extra });
+    grid.append(d);
+  };
+  const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+  cell(esc(tagline), "16px 16px 0 16px", { fontWeight: "bold", color: "rgba(255,255,255,1)" });
+  cell(descriptionHtml, "16px");
+  cell(mapHtml, "0 16px 16px 16px");
+  placeTip(tip, anchor, POINT.TOP_1);
 }
 
 export function hideLabelShortcutTooltip(): void {

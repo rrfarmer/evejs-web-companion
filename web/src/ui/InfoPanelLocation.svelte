@@ -23,6 +23,7 @@
   import { resolvedName } from "../store/names.ts";
   import { clientTexture } from "../play/window.ts";
   import { showInfo } from "./showInfo.ts";
+  import { hideLabelShortcutTooltip, showSecurityStatusTooltip } from "../play/labelShortcutTooltip.ts";
   let { store, flow, compact, onToggle }: { store: ClientStore; flow: AppFlow; compact: boolean; onToggle: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -59,6 +60,44 @@
     if (security >= -1.0 && security <= 0.0) return "eveicon/category_icons/null_sec_16px.png";
     return null;
   });
+  // security.client.const get_range_id_by_security_status / RANGE_TAGLINE / RANGE_DESCRIPTION (3698585's words, read from
+  // the live client through gridcheck), shown in _security_status_tooltip_panel after the generic delay (250 ms)
+  const SECURITY_TEXTS: Record<string, readonly [string, string]> = {
+    safe: ["-Safe from others. Responsible for yourself.", "Elevated Security protocols apply in this system in addition to normal {1.0} security status restrictions.\n\nCONCORD prohibits disabling of ship safety, prohibiting all violence between capsuleers. \n\nBe aware that protocols do not apply to illegal hostile operators, and reckless engagement may still result in the destruction of your ship."],
+    high: ["-Punished, not prevented", "Controlled space with strong CONCORD enforcement. Illegal aggression triggers a rapid CONCORD response that destroys the offender, but attacks can still occur before punishment arrives. War declarations, suspect mechanics, and suicide strikes are part of life here."],
+    low: ["-Limited law enforcement, real risk.", "Empire space with reduced law enforcement. CONCORD does not respond to aggression, though sentry guns guard gates and stations. Pilots can attack more freely, and piracy, faction warfare, and small-scale conflict are common."],
+    null: ["-Claim it, defend it.", "No CONCORD presence and no automatic law enforcement. Player alliances claim sovereignty, build infrastructure, and defend territory through force. Bubbles, unrestricted combat, and large-scale wars define daily life."],
+    wormhole: ["-Hidden threats, hidden treasures.", "Uncharted systems with no local channel, no CONCORD, and no Capsuleer sovereignty. Rich resources but unknown threats."],
+    pochven: ["- Prove fitness through adaptation. ", "A sealed Triglavian region with no CONCORD presence and restricted access. Local communications are altered, standings influence survival, and environmental effects shape combat. A volatile space of shifting control, ambush warfare, and high-risk opportunity."],
+  };
+  const securityRange = $derived.by((): string | null => {
+    if (isPochven) return "pochven";
+    if (isWormhole) return "wormhole";
+    if (security === null) return null;
+    if (security >= 1.0 && security <= 1.0) return "safe";
+    if (security >= 0.45 && security <= 0.94999) return "high";
+    if (security >= 0.0001 && security <= 0.44999) return "low";
+    if (security >= -1.0 && security <= 0.0) return "null";
+    return null;
+  });
+  let secTipTimer: ReturnType<typeof setTimeout> | null = null;
+  function secTipOn(ev: MouseEvent): void {
+    const el = ev.currentTarget as HTMLElement;
+    if (secTipTimer !== null) clearTimeout(secTipTimer);
+    secTipTimer = setTimeout(() => {
+      secTipTimer = null;
+      const texts = securityRange ? SECURITY_TEXTS[securityRange] : null;
+      if (!el.isConnected || security === null) return;
+      const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+      const description = texts ? esc(texts[1]).replace("{1.0}", `<span style="color:${securityStatusColor(security)}">1.0</span>`).split("\n").join("<br>") : "";
+      // UI/SecurityStatus/ShowOnMap with its map link (UI/SecurityStatus/LinkText) - drawn as a link, not yet a working one
+      showSecurityStatusTooltip(el, texts ? texts[0] : "", description, `Show <span style="font-weight:700;color:#d98d00">security rules</span> on map.`);
+    }, 250);
+  }
+  function secTipOff(): void {
+    if (secTipTimer !== null) { clearTimeout(secTipTimer); secTipTimer = null; }
+    hideLabelShortcutTooltip();
+  }
   const factionID = $derived(system && system[4] ? system[4] : null);
   $effect(() => { if (factionID) flow.requestNames([{ kind: "faction", id: factionID }]); });
   // UpdateNearestOrStationLocationInfo
@@ -97,8 +136,11 @@
         <span class="loc-system">{resolvedName($names.resolved, "system", systemID, String(systemID))}</span>
       {:else if systemID}
         <button type="button" class="evelink loc-system" onclick={() => showInfo({ kind: "mapLocation", typeID: 5, itemID: systemID })}>{system?.[7] ?? resolvedName($names.resolved, "system", systemID, "")}</button>
-        {#if security !== null}<span class="loc-sec" title={word("UI/Map/StarMap/SecurityStatus", "Security Status")} style:color={securityStatusColor(security)}>{shownSecurity(security).toFixed(1)}</span>{/if}
-        {#if rangeIcon}<img class="loc-range" alt="" src={clientTexture(`res:/UI/Texture/${rangeIcon}`)} />{/if}
+        <!-- sec_status_cont: the number and the range icon, its LoadTooltipPanel the security panel -->
+        <span class="loc-sec-cont" role="note" onmouseenter={secTipOn} onmouseleave={secTipOff}>
+          {#if security !== null}<span class="loc-sec" style:color={securityStatusColor(security)}>{shownSecurity(security).toFixed(1)}</span>{/if}
+          {#if rangeIcon}<img class="loc-range" alt="" src={clientTexture(`res:/UI/Texture/${rangeIcon}`)} />{/if}
+        </span>
         {#if constellation && !isWormhole}<span class="loc-trace">&lt; <button type="button" class="evelink" onclick={() => showInfo({ kind: "mapLocation", typeID: 4, itemID: constellation[0] })}>{constellation[4]}</button></span>{/if}
         {#if region && !isWormhole}<span class="loc-trace">&lt; <button type="button" class="evelink" onclick={() => showInfo({ kind: "mapLocation", typeID: 3, itemID: region[0] })}>{region[4]}</button></span>{/if}
       {/if}
