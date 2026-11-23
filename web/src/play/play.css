@@ -787,7 +787,9 @@ body:not(.no-target-crosshair) .bracket.locked .t-line, body:not(.no-target-cros
 .t-active-spin { width: 120px; height: 120px; left: -60px; top: -60px;
   -webkit-mask-image: url(/client-res/ui/texture/classes/target/spincorners.png); mask-image: url(/client-res/ui/texture/classes/target/spincorners.png);
   animation: t-spin 3.5s linear infinite, t-spin-fade 3s cubic-bezier(0.3333, 0, 0.6667, 1) infinite; }
-@keyframes t-spin { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
+/* ActiveTargetIndicator.RotateArrows: Tr2DRotateTo(2 pi -> 0, 3.5 s, ANIM_LINEAR); carbonui Transform hands Trinity -rotation, and
+   Trinity's RotationZ turns positive angles clockwise on the y-down screen - so the corners turn clockwise, as the target bar's */
+@keyframes t-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes t-spin-fade { 0%, 100% { opacity: .2; } 50% { opacity: .5; } }
 .t-active-circle { width: 80px; height: 80px; left: -40px; top: -40px; opacity: .15;
   -webkit-mask-image: url(/client-res/ui/texture/classes/target/selectedtargeteditem.png); mask-image: url(/client-res/ui/texture/classes/target/selectedtargeteditem.png); }
