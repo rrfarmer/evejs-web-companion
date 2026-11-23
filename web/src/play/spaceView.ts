@@ -1551,7 +1551,7 @@ export class SpaceView {
       this.shipHud.onSafetySelector = (at) => this.actions.safetySelector?.(at);
       this.shipHud.healthFacts = (index) => this.actions.healthFacts?.(index) ?? null;
       this.shipHud.overloadAllowed = () => this.actions.overloadAllowed?.() ?? null;
-      this.shipHud.onRackDisabled = () => this.toast("Disabled");
+      this.shipHud.onRackDisabled = () => this.sayDisabled();
       this.shipHud.tooltipRows = (m) => this.options.rack?.tooltip?.(m) ?? null;
       // ModuleController.ShowRange: bracketMgr.ShowModuleRange(maxRange + falloff) while a module is under the pointer
       this.shipHud.onModuleMenu = (m, x, y) => this.actions.moduleMenu?.(m.itemID, m.typeID, x, y);
@@ -2204,6 +2204,12 @@ export class SpaceView {
     stars.renderOrder = -1;
     return stars;
   }
+
+  /**
+   * prompt_player_fsd_dialog('Disabled'): the message is of type audio (cfg.GetMessage, read through gridcheck: no title or
+   * text, audio msg_Disabled_play) - the client only plays its sound; the page had put up the word Disabled.
+   */
+  sayDisabled(): void { void playUiEvent("msg_Disabled_play"); }
 
   toast(text: string): void {
     this.toastEl.textContent = text;
@@ -3508,7 +3514,7 @@ export class SpaceView {
     const rack = /^CmdOverload(High|Medium|Low)PowerRack$/.exec(cmd);
     if (rack) {
       e.preventDefault();
-      if (!this.shipHud.toggleRackOverload(({ High: "Hi", Medium: "Med", Low: "Lo" } as const)[rack[1] as "High" | "Medium" | "Low"])) this.toast("Disabled");
+      if (!this.shipHud.toggleRackOverload(({ High: "Hi", Medium: "Med", Low: "Lo" } as const)[rack[1] as "High" | "Medium" | "Low"])) this.sayDisabled();
       return;
     }
     const slot = /^Cmd(Activate|Overload)(High|Medium|Low)PowerSlot(\d)$/.exec(cmd);
@@ -3522,10 +3528,10 @@ export class SpaceView {
     const FLAG_BASE = { high: 27, mid: 19, low: 11 } as const;
     const m = this.options.rack?.modules().find((each) => (placeFlag !== null ? FLAG_BASE[each.family] + each.index === placeFlag : each.family === family && each.index === index)) ?? null;
     // (an empty slot or a module offline: the client's "Disabled" notice)
-    if (!m || !m.online) { this.toast("Disabled"); return; }
+    if (!m || !m.online) { this.sayDisabled(); return; }
     if (slot[1] === "Activate") { if (!e.repeat) this.useRackModule(m); return; }
     const overload = this.options.rack?.overload;
-    if (!overload || m.overloadable === false) { this.toast("Disabled"); return; }
+    if (!overload || m.overloadable === false) { this.sayDisabled(); return; }
     // ModuleController.ToggleOverload -> SetOverload: SOUND_MODULE_OVERLOAD on, SOUND_MODULE_OVERLOAD_STOP off
     void playUiEvent(m.overloaded ? "hud_module_overload_stop" : "hud_module_overload_play");
     void this.act(m.name ?? "Module", () => overload.module(m.itemID, !m.overloaded));
