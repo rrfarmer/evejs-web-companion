@@ -143,14 +143,24 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
     Object.assign(hint.style, { justifySelf: "end", padding: "0", height: "18px", lineHeight: "18px", textAlign: "center", background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)", fontWeight: "bold", whiteSpace: "nowrap" });
   }
   grid.append(head, hint);
+  const wrapped: HTMLElement[] = [];
   for (const line of lines) {
     const d = document.createElement("div");
     d.textContent = line;
+    if (!plain) wrapped.push(d);
     Object.assign(d.style, plain ? { gridColumn: "1 / 3", whiteSpace: "nowrap" } : { gridColumn: "1 / 3", whiteSpace: "normal", maxWidth: "200px", color: "rgba(255,255,255,0.5)" });
     grid.append(d);
   }
   tip.append(frame, grid);
   tip.style.display = "";
+  // AddLabelMedium(wrapWidth=200) sets autoFitToText: the box as wide as its longest wrapped line (the live client, g240:
+  // The Agency 204, Opportunities 231, Inventory 188 wide)
+  for (const d of wrapped) {
+    const range = document.createRange();
+    range.selectNodeContents(d);
+    const widest = Math.max(0, ...[...range.getClientRects()].map((q) => q.width));
+    if (widest > 0) d.style.width = `${Math.ceil(widest)}px`;
+  }
   if (shortcut) {
     const r = document.createRange();
     r.selectNodeContents(hint);
