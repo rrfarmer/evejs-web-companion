@@ -37,6 +37,7 @@
   import type { NoticeInput } from "./notices.ts";
   import { unwrapLong } from "../bridge/wire.ts";
   import { PlayWindow } from "../play/window.ts";
+  import { NOTIFICATION_GROUPS } from "../play/notificationGroups.ts";
 
   let { store, flow, onOpen }: { store: ClientStore; flow: AppFlow; onOpen: (id: TabID) => void } = $props();
 
@@ -100,15 +101,21 @@
   // delay (GetFadeTime 5) and stack size (GetStackSize 3), the wanted expand directions (left / up), and the history
   // cleared up to a time (ClearHistory: lastHistoryCleanTime = the last seen time; UnClearHistory: 0) - here localStorage
   const SETTINGS_KEY = "evejs.play.notificationSettings";
-  interface FeedSettings { popups: boolean; sound: boolean; fade: number; stack: number; h: "left" | "right"; v: "up" | "down"; cleared: string }
-  const DEFAULT_SETTINGS: FeedSettings = { popups: true, sound: true, fade: 5, stack: 3, h: "left", v: "up", cleared: "0" };
+  interface FeedSettings { popups: boolean; sound: boolean; fade: number; stack: number; h: "left" | "right"; v: "up" | "down"; cleared: string;
+    /** Per type, where not the default (showAtAll / showPopup both True): [shown in the history, popped up]. */
+    types: Record<string, [boolean, boolean]> }
+  const DEFAULT_SETTINGS: FeedSettings = { popups: true, sound: true, fade: 5, stack: 3, h: "left", v: "up", cleared: "0", types: {} };
   let settings = $state<FeedSettings>((() => { try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}") }; } catch { return { ...DEFAULT_SETTINGS }; } })());
   function saveSettings(): void { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* kept this session */ } }
   const clearedAt = $derived(BigInt(settings.cleared || "0"));
+  /** GetUnwantedIds (showAtAll False): kept out of the history and the count. */
+  const shownAtAll = (typeID: number | null | undefined) => typeID == null || settings.types[String(typeID)]?.[0] !== false;
+  /** The type's showPopup. */
+  const popsUp = (typeID: number | null | undefined) => typeID == null || settings.types[String(typeID)]?.[1] !== false;
 
   const rows = $derived.by(() => {
     if ($activity.notifications.status !== "ready") return [];
-    return [...$activity.notifications.value].filter((r) => !closedIDs.has(r.notificationID) && (r.created ?? 0n) > clearedAt)
+    return [...$activity.notifications.value].filter((r) => !closedIDs.has(r.notificationID) && (r.created ?? 0n) > clearedAt && shownAtAll(r.typeID))
       .sort((a, b) => Number((b.created ?? 0n) - (a.created ?? 0n)));
   });
   // the words the subjects take, and the names in them
@@ -185,7 +192,8 @@
       liveCount += 1;
     }
     const p: Popup = { id: ++popupSeq, title: input.title, detail: input.detail ?? null, typeID, action: input.action ?? null, outSince: null, fading: false, h: 50 };
-    if (!settings.popups) return;
+    // MakeAndDisplayNormalNotification: the type's showPopup and the popups setting (a new mail is NewMailFrom 1004)
+    if (!settings.popups || !popsUp(typeID ?? (key.startsWith("mail:") ? 1004 : null))) return;
     if (popups.length < settings.stack) showPopup(p); else queued.push(p);
   }
   $effect(() => watchNotificationPopups(store, flow, (id) => onOpen(id), addPopup));
@@ -284,7 +292,10 @@
     settingsWin = win;
     win.body.classList.add("nf-set");
     const sel = (on: boolean) => (on ? " selected" : "");
-    win.body.innerHTML = `<div class="nf-set-left"><div class="nf-set-large">Category Subscriptions</div></div>
+    win.body.innerHTML = `<div class="nf-set-left"><div class="nf-set-head"><div class="nf-set-large">Category Subscriptions</div>
+        <img class="nf-set-hicon" style="left: 294px" title="History visibility" alt="" src="${clientTexture("res:/UI/Texture/classes/Notifications/settingsVisibleIcon.png")}">
+        <img class="nf-set-hicon" style="left: 318px" title="Popup visibility" alt="" src="${clientTexture("res:/UI/Texture/classes/Notifications/settingsPopupIcon.png")}"></div>
+        <div class="nf-set-tree"></div></div>
       <div class="nf-set-right">
         <div class="nf-set-large">Pop-ups</div>
         <label class="nf-set-check" style="margin-top: 8px"><input type="checkbox" data-k="popups"${settings.popups ? " checked" : ""}><span>Use Pop-up Notifications</span></label>
@@ -312,6 +323,55 @@
       settings.cleared = String(seen); saveSettings();
     });
     win.body.querySelector("[data-act=restore]")!.addEventListener("click", () => { settings.cleared = "0"; saveSettings(); });
+    // NotificationSettingList: the groups sorted by their words, each a TreeViewSettingsItem (24 high; the expander -
+    // arrowDown.png turned a quarter, LED_GREY, padded 4 / 5 in a 16 box at the right of a 24 spacer, turned back over
+    // 0.15 s when open; the label 4 past it), collapsed; its types under it sorted likewise, their labels at 36
+    // ((1 + level) x LEFTPUSH 8 + 16 + LABEL_PADDING 4); on each row the history and popup checkboxes (24 wide, a 16
+    // diode) at 294 and 318 (the live client, g279), their hints Toggle History Visibility / Toggle Popup for
+    // Notification; a group's checkbox sets every type under it; a group is checked while all of its types are
+    const tree = win.body.querySelector<HTMLElement>(".nf-set-tree")!;
+    const setting = (t: number) => settings.types[String(t)] ?? [true, true];
+    const setType = (t: number, which: 0 | 1, on: boolean) => {
+      const next = [...setting(t)] as [boolean, boolean];
+      next[which] = on;
+      if (next[0] && next[1]) delete settings.types[String(t)]; else settings.types[String(t)] = next;
+    };
+    const arrow = clientTexture("res:/UI/Texture/classes/Neocom/arrowDown.png");
+    const groups = [...NOTIFICATION_GROUPS].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    const drawTree = () => {
+      const open = new Set([...tree.querySelectorAll<HTMLElement>(".nf-set-group.open")].map((g) => g.dataset.g));
+      tree.innerHTML = groups.map((g) => {
+        const kids = [...g.types].sort((a, b) => a[1].toLowerCase().localeCompare(b[1].toLowerCase()));
+        const all = (w: 0 | 1) => kids.every(([t]) => setting(t)[w]);
+        const isOpen = open.has(String(g.id));
+        return `<div class="nf-set-group${isOpen ? " open" : ""}" data-g="${g.id}">
+          <div class="nf-set-row"><span class="nf-set-tog"><img alt="" src="${arrow}"></span><span class="nf-set-label" style="left: 28px">${g.name.replace(/</g, "&lt;")}</span>
+            <input type="checkbox" class="nf-set-cb" style="left: 298px" title="Toggle History Visibility" data-group="${g.id}" data-w="0"${all(0) ? " checked" : ""}>
+            <input type="checkbox" class="nf-set-cb" style="left: 322px" title="Toggle Popup for Notification" data-group="${g.id}" data-w="1"${all(1) ? " checked" : ""}></div>
+          <div class="nf-set-kids">${kids.map(([t, label]) => `<div class="nf-set-row"><span class="nf-set-label" style="left: 36px">${label.replace(/</g, "&lt;")}</span>
+            <input type="checkbox" class="nf-set-cb" style="left: 298px" title="Toggle History Visibility" data-type="${t}" data-w="0"${setting(t)[0] ? " checked" : ""}>
+            <input type="checkbox" class="nf-set-cb" style="left: 322px" title="Toggle Popup for Notification" data-type="${t}" data-w="1"${setting(t)[1] ? " checked" : ""}></div>`).join("")}</div>
+        </div>`;
+      }).join("");
+    };
+    drawTree();
+    tree.addEventListener("click", (e) => {
+      const tog = (e.target as HTMLElement).closest(".nf-set-row");
+      if (!tog || (e.target as HTMLElement).closest("input")) return;
+      const group = tog.parentElement;
+      if (group?.classList.contains("nf-set-group")) group.classList.toggle("open");
+    });
+    tree.addEventListener("change", (e) => {
+      const cb = e.target as HTMLInputElement;
+      const w = Number(cb.dataset.w) as 0 | 1;
+      if (cb.dataset.group) {
+        const g = NOTIFICATION_GROUPS.find((x) => String(x.id) === cb.dataset.group);
+        for (const [t] of g?.types ?? []) setType(t, w, cb.checked);
+      } else if (cb.dataset.type) setType(Number(cb.dataset.type), w, cb.checked);
+      settings.types = { ...settings.types };
+      saveSettings();
+      drawTree();
+    });
     (document.querySelector(".pw")?.parentElement ?? document.body).append(win.root);
   }
   function resizeDown(e: PointerEvent): void {
@@ -584,7 +644,20 @@
   .nf-settings:hover img { opacity: 1; }
   .nf-settings.shown { opacity: 1; pointer-events: auto; }
   :global(.pw-body.nf-set) { position: relative; font: 14px 'EVE Sans Neue', 'Segoe UI', sans-serif; color: rgba(255, 255, 255, 0.75); }
-  :global(.nf-set .nf-set-left) { position: absolute; left: 0; top: 0; bottom: 0; width: 358px; }
+  :global(.nf-set .nf-set-left) { position: absolute; left: 0; top: 0; bottom: 0; width: 358px; display: flex; flex-direction: column; }
+  :global(.nf-set .nf-set-head) { position: relative; height: 21px; margin-bottom: 8px; flex: none; }
+  :global(.nf-set .nf-set-hicon) { position: absolute; top: 3px; width: 16px; height: 16px; }
+  :global(.nf-set .nf-set-tree) { flex: 1; overflow-y: auto; overflow-x: hidden; }
+  :global(.nf-set .nf-set-row) { position: relative; height: 24px; width: 342px; cursor: default; }
+  :global(.nf-set .nf-set-row:hover) { background: rgba(255, 255, 255, 0.05); }
+  :global(.nf-set .nf-set-label) { position: absolute; top: 3px; line-height: 18px; right: 66px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  :global(.nf-set .nf-set-tog) { position: absolute; left: 8px; top: 4px; width: 16px; height: 16px; cursor: pointer; }
+  :global(.nf-set .nf-set-tog img) { position: absolute; left: 4px; top: 4px; width: 7px; height: 7px; transform: rotate(90deg); transition: transform 0.15s;
+    filter: brightness(0.54); }
+  :global(.nf-set .nf-set-group.open .nf-set-tog img) { transform: none; }
+  :global(.nf-set .nf-set-kids) { display: none; }
+  :global(.nf-set .nf-set-group.open .nf-set-kids) { display: block; }
+  :global(.nf-set input.nf-set-cb) { position: absolute; top: 4px; width: 16px; height: 16px; min-height: 0; margin: 0; padding: 0; box-sizing: border-box; }
   :global(.nf-set .nf-set-right) { position: absolute; left: 382px; top: 0; width: 242px; display: flex; flex-direction: column; }
   :global(.nf-set .nf-set-large) { font-size: 16px; line-height: 21px; }
   :global(.nf-set .nf-set-check) { display: flex; align-items: center; gap: 8px; height: 24px; }
