@@ -45,6 +45,8 @@ const PLUGIN_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 /** Why this plugin cannot load, or null when it may. Pure: registers nothing. */
 export function pluginProblem(manifest: PluginManifest, views: PluginViews | null): string | null {
   if (!PLUGIN_ID.test(manifest.id)) return `"${manifest.id}" is not a plugin id: lowercase words joined by hyphens.`;
+  if (manifest.page && ["api", "assets", "dist", "icon-cache", "goblin-factory", "pilot-training", "ship-provisioning", "mining-command-center"].includes(manifest.id)) return "This page path belongs to Web Companion.";
+  if (views?.page && !manifest.page) return "The plugin page has no manifest declaration.";
   if (manifest.page && views !== null && typeof views.page !== "function") return "The plugin page has nothing to draw.";
   // Seen within this manifest too: a second window or block of the same id is
   // refused here, not when registering it, by which time the first is in.

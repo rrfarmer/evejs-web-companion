@@ -85,3 +85,40 @@ test("a page requires a browser view; the backend can load the same manifest wit
   assert.equal(pluginProblem(manifest, null), null);
   assert.match(pluginProblem(manifest, { id: manifest.id, windows: {} }) ?? "", /page has nothing to draw/);
 });
+
+test("reserved core paths and a page without a manifest are refused", () => {
+  for (const id of ["api", "assets", "dist", "icon-cache", "goblin-factory", "pilot-training", "ship-provisioning", "mining-command-center"]) {
+    assert.match(pluginProblem({ ...makeManifest(id, id), page: {} }, null) ?? "", /belongs to Web Companion/);
+  }
+  assert.match(pluginProblem(makeManifest("example", "Example"), { id: "example", windows: {}, page: pageView }) ?? "", /no manifest/);
+});
+
+test("noopener launches keep both pilot tokens, active account and reload isolated from a fresh link", async () => {
+  const { pageContext, pageLaunchURL } = await import("../app/pluginPageSession.ts");
+  const { getSessionToken } = await import("../app/sessionToken.ts");
+  const sessions = ["one", "two"].map((accountName, i) => ({ accountName, characterID: i + 1, token: accountName + "-token" }));
+  const retained = new Map<string, string>();
+  const storage = { getItem: (k: string) => retained.get(k) ?? null, setItem: (k: string, v: string) => { retained.set(k, v); } };
+  const url = new URL(pageLaunchURL("/dashboard/", { sessions, activeSession: sessions[0]! }), "https://wc.test");
+  assert.doesNotMatch(url.href, /one|two|token/);
+  const opened = await pageContext(url, storage, () => { url.hash = ""; });
+  assert.deepEqual(opened.sessions, sessions);
+  assert.equal(getSessionToken(), "one-token");
+  assert.equal(url.hash, "");
+  assert.deepEqual(await pageContext(url, storage, assert.fail), opened);
+  const direct = await pageContext(url, { ...storage, getItem: () => null }, assert.fail);
+  assert.deepEqual(direct, { sessions: [], activeSession: null });
+  assert.equal(getSessionToken(), null);
+  const { disableCookieFallback } = await import("../app/sessionToken.ts");
+  const { pluginGetJson } = await import("../app/api.ts");
+  disableCookieFallback();
+  const requests: RequestInit[] = [];
+  const capture = async (_url: RequestInfo | URL, init?: RequestInit) => {
+    requests.push(init!);
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+  for (const pilot of opened.sessions) await pluginGetJson("dashboard", "/status", { fetch: capture, token: pilot.token });
+  await pluginGetJson("dashboard", "/status", { fetch: capture });
+  assert.deepEqual(requests.map(r => new Headers(r.headers).get("authorization")), ["Bearer one-token", "Bearer two-token", null]);
+  assert.ok(requests.every(r => r.credentials === "omit"));
+});

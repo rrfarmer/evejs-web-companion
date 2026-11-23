@@ -50,6 +50,10 @@ function detectStorage(): SessionTokenStorage | null {
 }
 
 let storage: SessionTokenStorage | null = detectStorage();
+let allowCookie = true;
+export function disableCookieFallback(): void { allowCookie = false; }
+export function allowSessionCookie(): boolean { return allowCookie; }
+
 let cachedToken: string | null = null;
 
 /**

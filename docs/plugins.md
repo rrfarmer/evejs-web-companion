@@ -89,7 +89,13 @@ extension points: a plugin that needs another one proposes it as a core change.
 Declare `page: {}` in the manifest and `page: () => import("./Page.svelte")`
 in the same plugin's views. The ordinary WC build serves the page at
 `/<plugin id>/` and hands subpaths to the page component. Use the same
-authorization and backend routes as a window. The page mounts in its own
+backend routes as a window. The page receives `PluginPageProps`: `sessions` lists
+the launching tab's signed-in pilots, each with account name, character ID and
+its own WC token. For example, pass `{ token: pilot.token }` to `pluginGetJson`.
+`activeSession` identifies the launching tab's active pilot. Refresh retains this
+snapshot in the page tab. A direct link in a fresh tab starts with an empty
+roster and can use the existing explicit account sign-in. API calls from a page
+omit the shared cookie. Closing the page does not log any borrowed session out. The page mounts in its own
 browser tab without opening a global window or owning any hosted sessions.
 
 A page-only plugin has a direct link in the Plugins menu and, when pinned,

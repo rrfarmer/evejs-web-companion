@@ -91,6 +91,7 @@ export const CORE_GLOBAL_LAUNCHERS: readonly GlobalLauncher[] = [
 
 // The global windows plugins added, in the order they registered.
 const pluginLaunchers: GlobalLauncher[] = [];
+const pluginOrder = new Set<string>();
 const pluginPages = new Map<string, RegisteredPluginPage>();
 
 /** Which plugin a window is one of, as the Plugins menu groups them. */
@@ -125,6 +126,7 @@ interface RegisteredPluginPage {
  * not pull a Svelte component into it.
  */
 export function registerGlobalWindow(window: PluginGlobalWindow): void {
+  pluginOrder.add(window.plugin.id);
   registerTab({ id: window.id, label: window.title, where: "both", launchable: false, glyph: window.glyph });
   pluginLaunchers.push({ id: window.id, label: window.label, title: window.title, hint: window.hint, plugin: window.plugin });
 }
@@ -134,6 +136,7 @@ export function registerPluginPage(
   load: RegisteredPluginPage["load"],
   hint: string,
 ): void {
+  pluginOrder.add(plugin.id);
   pluginPages.set(plugin.id, { plugin, href: `/${plugin.id}/`, hint, load });
 }
 
@@ -175,7 +178,8 @@ export function pluginWindowGroups(): readonly PluginWindowGroup[] {
     if (known) known.page = page;
     else groups.push({ plugin: page.plugin, windows: [], page });
   }
-  return groups;
+  const order = [...pluginOrder];
+  return groups.sort((a, b) => order.indexOf(a.plugin.id) - order.indexOf(b.plugin.id));
 }
 
 /** True when this tab opens as a global window, not a workspace window. */

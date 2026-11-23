@@ -159,7 +159,7 @@ export function pluginLaunchers(
         ...glyph,
         label: launcherWord(group.plugin.label),
         title: group.plugin.name,
-        hint: group.page?.hint ?? `${group.plugin.name}: ${group.windows.map((window) => window.title).join(", ")}`,
+        hint: group.page && !group.windows.length ? group.page.hint : `${group.plugin.name}: ${group.windows.map((window) => window.title).join(", ")}`,
         glyphOf: group.windows[0]?.id ?? "pluginManager",
         windowID: null,
         windows: group.windows,

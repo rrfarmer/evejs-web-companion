@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { launchPluginPage } from "../app/pluginPageSession.ts";
   // ONE PLUGIN LAUNCHER in the strip (pluginPins.ts `pluginLaunchers`): a pinned
   // window, which a click opens, or a plugin pinned whole, which a click lists
   // the windows of. Lit while any of its windows is open.
@@ -56,7 +57,7 @@
 
 {#if launcher.kind === "page"}
   <a class="global-launch plugin-launcher" data-launch={launcher.key} href={launcher.pageHref}
-    target="_blank" rel="noopener" aria-label={label} title={launcher.hint}>
+    target="_blank" rel="noopener" onclick={launchPluginPage} aria-label={label} title={launcher.hint}>
     {@render launcherFace()}
   </a>
 {:else}
@@ -81,7 +82,7 @@
   <div use:portal class="plugin-panel plugin-launcher-panel" role="menu" aria-label={launcher.title} style:top="{place.top}px" style:left="{place.left}px" bind:this={panel}>
     {#if launcher.pageHref}
       <div class="plugin-panel-row" role="none">
-        <a class="plugin-panel-name" role="menuitem" href={launcher.pageHref} target="_blank" rel="noopener" onclick={() => { shown = false; }}>
+        <a class="plugin-panel-name" role="menuitem" href={launcher.pageHref} target="_blank" rel="noopener" onclick={(event) => { launchPluginPage(event); shown = false; }}>
           <span>Open page</span>
         </a>
       </div>

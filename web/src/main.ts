@@ -12,6 +12,8 @@ import { mount } from "svelte";
 import { isGoblinFactoryPath, isMiningCommandCenterPath, isPilotTrainingPath, isShipProvisioningPath } from "./app/pageRoute.ts";
 import { installErrorOverlay } from "./app/errorOverlay.ts";
 import { activatePagePlugins } from "./plugins/pluginHost.ts";
+import { pageContext, pageStorage } from "./app/pluginPageSession.ts";
+import { disableCookieFallback } from "./app/sessionToken.ts";
 import { pluginPageAt } from "./ui/globalWindow.ts";
 import { PLUGINS } from "../../plugins/index.ts";
 import { PLUGIN_VIEWS } from "../../plugins/views.ts";
@@ -32,7 +34,13 @@ void activatePagePlugins(PLUGINS, PLUGIN_VIEWS).catch((error) => console.error(e
   const target = document.getElementById("app");
   const page = pluginPageAt(window.location.pathname);
   if (target && page) {
-    void page.load().then(({ default: Page }) => mount(Page, { target }));
+    disableCookieFallback();
+    const url = new URL(location.href);
+    void Promise.all([page.load(), pageContext(url, pageStorage(), () => {
+      history.replaceState(history.state, "", url.pathname + url.search);
+    })]).then(([{ default: Page }, props]) => mount(Page, { target, props })).catch((error) => {
+      target.textContent = `Could not open ${page.plugin.name}: ${error instanceof Error ? error.message : String(error)}`;
+    });
     return;
   }
   if (isGoblinFactoryPath(window.location.pathname)) window.location.replace(`/pilot-training${window.location.search}${window.location.hash}`);
