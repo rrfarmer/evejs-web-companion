@@ -525,13 +525,16 @@ export class NewShipHud {
     // the arrow keys step READOUT_STEP_FRACTION 0.05 of the top speed (ChangeNumericValue)
     const edit = document.createElement("input");
     edit.type = "text";
-    Object.assign(edit.style, { display: "none", position: "absolute", inset: "0", width: "100%", boxSizing: "border-box", padding: "1px 4px 0",
+    edit.className = "new-hud-speed-edit";
+    // (the numeric controls take a TORIGHT 10 px column with 8 px right padding off the text's room)
+    Object.assign(edit.style, { display: "none", position: "absolute", inset: "0", width: "100%", boxSizing: "border-box", padding: "1px 18px 0 4px",
       border: "0", outline: "none", background: "transparent", color: "#fff", textAlign: "right", font: "bold 11px 'EVE Sans Neue', 'Segoe UI', sans-serif" });
     let places = 1;
     const endEdit = () => {
       if (!editing) return;
       editing = false;
       edit.style.display = "none";
+      arrows.style.display = "none";
       this.speedLabel.style.display = "";
       pill.style.background = css(SMOKE_BLUE, 0.2);
       this.speedLabel.style.color = "rgba(255,255,255,0.5)";
@@ -548,6 +551,7 @@ export class NewShipHud {
       places = seed < 100 ? 1 : 0;
       edit.value = places ? (Math.round(seed * 10) / 10).toFixed(1) : String(Math.trunc(seed));
       edit.style.display = "";
+      arrows.style.display = "";
       edit.focus();
       edit.select();
     });
@@ -569,6 +573,39 @@ export class NewShipHud {
       }
     });
     edit.addEventListener("keyup", (e) => e.stopPropagation());
+    // BaseSingleLineEditNumber.ChangeNumericValue: a step of READOUT_STEP_FRACTION of the top speed, clamped 0..top
+    const stepBy = (n: number) => {
+      const max = this.state?.maxSpeed ?? 0;
+      const step = Number((n * 0.05 * max).toFixed(places));
+      edit.value = Math.max(0, Math.min(max, (parseFloat(edit.value) || 0) + step)).toFixed(places);
+    };
+    // OnMouseWheel: SOUND_VALUECHANGE_TICK and a step of (dz / 120) cubed
+    edit.addEventListener("wheel", (e) => { e.preventDefault(); e.stopPropagation(); void playUiEvent("msg_ContextMenuEnter_play"); stepBy((-e.deltaY / 100) ** 3); }, { passive: false });
+    // ShowNumericControls, fitted by _SpeedEdit._FitArrowsInPill: up.png / down.png at 8 px, 3 px above and below the middle,
+    // in a column at 0.75; a press ticks (SOUND_VALUECHANGE_TICK) and steps, held it repeats after 500 ms, each wait halved
+    // down to 10 ms (UpdateNumericInputThread)
+    const arrows = document.createElement("div");
+    Object.assign(arrows.style, { display: "none", position: "absolute", right: "8px", top: "1px", bottom: "1px", width: "10px", opacity: "0.75" });
+    for (const [dir, dy] of [[1, -3], [-1, 3]] as const) {
+      const b = document.createElement("div");
+      const tex = res(`res:/UI/Texture/Shared/${dir > 0 ? "up" : "down"}.png`);
+      Object.assign(b.style, { position: "absolute", left: "1px", top: `calc(50% - 4px + ${dy}px)`, width: "8px", height: "8px", cursor: "pointer",
+        backgroundColor: "#fff", webkitMask: `url("${tex}") center / 7px 7px no-repeat`, mask: `url("${tex}") center / 7px 7px no-repeat` });
+      let timer = 0;
+      const stop = () => { clearTimeout(timer); timer = 0; };
+      b.addEventListener("mousedown", (e) => {
+        e.preventDefault(); e.stopPropagation();
+        void playUiEvent("msg_ContextMenuEnter_play");
+        let wait = 500;
+        const tick = () => { stepBy(dir); timer = window.setTimeout(tick, wait); wait = Math.max(10, wait / 2); };
+        tick();
+      });
+      b.addEventListener("mouseup", stop);
+      b.addEventListener("mouseleave", stop);
+      b.addEventListener("click", (e) => e.stopPropagation());
+      arrows.append(b);
+    }
+    pill.append(arrows);
     edit.addEventListener("blur", endEdit);
     edit.addEventListener("click", (e) => e.stopPropagation());
     pill.append(edit);
