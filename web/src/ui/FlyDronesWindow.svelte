@@ -37,6 +37,7 @@
   import type { SpaceEntity } from "../store/types.ts";
   import { DRONE_TOOLTIP_ATTRIBUTES, MODULE_TOOLTIP_LABELS, droneTooltipRows, type ModuleTooltipRow } from "../play/moduleTooltip.ts";
   import { fmtDist } from "../space/overview.ts";
+  import { scrollListHomeEnd } from "./scrollColumnFit.ts";
 
   let { store, flow, onSelect, onLock, spaceSelected = null }: {
     store: ClientStore; flow: AppFlow;
@@ -411,6 +412,7 @@
     return [...list.loose.flatMap((r) => r.itemIDs), ...list.heads.flatMap((h) => (openGroups.has(`${section}:${h.group.id}`) ? h.ids : []))];
   };
   function clickEntry(section: Section, id: number, e: MouseEvent): void {
+    (e.currentTarget as HTMLElement).closest<HTMLElement>(".group")?.focus({ preventScroll: true });
     const order = shownOrder(section);
     const now = selected[section];
     const last = lastClicked[section];
@@ -423,6 +425,42 @@
     if (!e.shiftKey) lastClicked[section] = id;
     // DroneEntry.OnClick: no modifier, the drone selected in space; Ctrl, TryLockTarget on it
     if (section === "space" && !e.shiftKey) { if (e.ctrlKey) onLock?.(id); else onSelect?.(id); }
+  }
+  /**
+   * The keys of the focused list (commandSvc to the focused scroll): Ctrl+A SelectAll - every entry shown, not the
+   * groups (ListGroups are not selectable); the arrows Scroll.OnUp / OnDown (BrowseNodes over the list's nodes - the
+   * groups and the open groups' entries - nothing selected the last / first, else past the selection, Shift growing the
+   * range from the last clicked; landing on a group leaves nothing selected); ActivateIdx is SelectNode only, no click, so
+   * nothing selected in space; Home / End ScrollToProportion.
+   */
+  function listKey(section: Section, e: KeyboardEvent): void {
+    const list = e.currentTarget as HTMLElement;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); e.stopPropagation(); selected = { ...selected, [section]: shownOrder(section) }; return; }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "Home" || e.key === "End") { e.preventDefault(); e.stopPropagation(); scrollListHomeEnd(list, e.key === "End"); return; }
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault(); e.stopPropagation();
+    const attr = section === "bay" ? "bayItem" : "spaceItem";
+    const nodes = [...list.querySelectorAll<HTMLElement>(`.row.grouphead, .row[data-${section}-item]`)];
+    const idOf = (el: HTMLElement | undefined) => (el?.dataset[attr] !== undefined ? Number(el.dataset[attr]) : null);
+    if (!nodes.length) return;
+    const up = e.key === "ArrowUp";
+    const now = selected[section];
+    const sel = nodes.map((el, i) => (now.includes(idOf(el) ?? NaN) ? i : -1)).filter((i) => i >= 0);
+    const lastAt = lastClicked[section] === null ? -1 : nodes.findIndex((el) => idOf(el) === lastClicked[section]);
+    let idx: number;
+    if (!sel.length) idx = up ? nodes.length - 1 : 0;
+    else if (e.shiftKey && lastAt >= 0) idx = (sel[0]! < lastAt ? sel[0]! : sel[sel.length - 1]!) + (up ? -1 : 1);
+    else idx = (sel.length > 1 ? sel[up ? 0 : sel.length - 1]! : sel[0]!) + (up ? -1 : 1);
+    if (idx < 0 || idx >= nodes.length) return;
+    const id = idOf(nodes[idx]);
+    if (e.shiftKey && sel.length && lastAt >= 0) {
+      selected = { ...selected, [section]: nodes.slice(Math.min(lastAt, idx), Math.max(lastAt, idx) + 1).map(idOf).filter((x): x is number => x !== null) };
+    } else {
+      selected = { ...selected, [section]: id === null ? [] : [id] };
+      lastClicked[section] = id;
+    }
+    nodes[idx]!.scrollIntoView({ block: "nearest" });
   }
   /**
    * DroneEntry.GetSelected: the entries selected that are of the clicked one's drone group (where the clicked one is
@@ -866,7 +904,7 @@
       <div class="ww-buttons"><button type="button" onclick={stopAndRecall}>{headerWord("UI/Drones/StopAndRecall", "Stop and Recall")}</button></div>
     </div>
   {/if}
-  <div class="group bay" class:closed={!bayOpen} class:drop={dropOn === "bay"} role="list" ondragover={dragOver("bay")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("bay", null, e)}>
+  <div class="group bay" class:closed={!bayOpen} class:drop={dropOn === "bay"} role="list" tabindex="-1" onkeydown={(e) => listKey("bay", e)} ondragover={dragOver("bay")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("bay", null, e)}>
     <div class="sec" data-drone-head="bay" role="button" tabindex="-1" onclick={() => { if (headHeld) { headHeld = false; return; } bayOpen = !bayOpen; if (!bayOpen && !spaceOpen) spaceOpen = true; }} onkeydown={() => {}}
       oncontextmenu={(e) => openMenuIfAny(e, [...deleteMenu(), ...bayItemsMenu(bayRows.flatMap((r) => r.itemIDs.map((itemID) => ({ itemID, typeID: r.typeID }))), false)])}>
       <span class="caret" style:mask-image={`url("${bayOpen ? CARET.open : CARET.closed}")`} style:-webkit-mask-image={`url("${bayOpen ? CARET.open : CARET.closed}")`}></span><span class="lbl">{headerWord(HEADER_WORDS.bay, "Drones in Bay")} ({bayCount})</span>
@@ -892,7 +930,7 @@
     {/if}
   </div>
 
-  <div class="group" class:drop={dropOn === "space"} role="list" ondragover={dragOver("space")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("space", null, e)}>
+  <div class="group" class:drop={dropOn === "space"} role="list" tabindex="-1" onkeydown={(e) => listKey("space", e)} ondragover={dragOver("space")} ondragleave={() => (dropOn = null)} ondrop={(e) => drop("space", null, e)}>
     <div class="sec" data-drone-head="space" role="button" tabindex="-1" onclick={() => { if (headHeld) { headHeld = false; return; } spaceOpen = !spaceOpen; if (!spaceOpen && !bayOpen) bayOpen = true; }} onkeydown={() => {}}
       oncontextmenu={(e) => openMenuIfAny(e, [...deleteMenu(), ...(allDroneIDs.length ? spaceEntries(allDroneIDs, false) : [])])}>
       <span class="caret" style:mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`} style:-webkit-mask-image={`url("${spaceOpen ? CARET.open : CARET.closed}")`}></span><span class="lbl">{headerWord(HEADER_WORDS.space, "Drones in Space")} ({maxActive === null ? outCount : `${outCount}/${maxActive}`})</span>
