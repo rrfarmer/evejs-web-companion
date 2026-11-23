@@ -260,6 +260,9 @@ const QUANTITY_LABEL_DY = 13;
 const QUANTITY_OPACITY_COOLDOWN = 0.5;
 // tooltipHandler.TOOLTIP_DELAY_MODULE; moduleButtonTooltip: margin 16, rows of at least 30 px, labels padded (4, 8, 4, 8)
 const TOOLTIP_DELAY_MODULE = 700;
+// _GetSleepTime: a fifth of the delay (GetTooltipRenewTime absent) while a tooltip shows or within SLEEPTIME_COOLDOWN of one closing
+const TOOLTIP_RENEW_MODULE = Math.trunc(TOOLTIP_DELAY_MODULE / 5);
+const TOOLTIP_COOLDOWN = 500;
 const TOOLTIP_MARGIN = 16;
 const TOOLTIP_GAP = 9;
 
@@ -469,6 +472,7 @@ export class NewShipHud {
   private readonly tooltip = document.createElement("div");
   private tipSlot: Slot | null = null;
   private tipTimer: ReturnType<typeof setTimeout> | null = null;
+  private tipClosedAt = -Infinity;
   private tipRefresh: ReturnType<typeof setInterval> | null = null;
   /** The open tooltip's rows as last drawn: drawn again only when they change. */
   private tipKey = "";
@@ -1688,9 +1692,10 @@ export class NewShipHud {
 
   // ── the module tooltip (moduleSlot.OnMouseEnter, TooltipModuleWrapper) ─────────────────────────────────────────
 
-  /** The tooltip opens TOOLTIP_DELAY_MODULE after the pointer comes onto a module's slot. */
+  /** The tooltip opens TOOLTIP_DELAY_MODULE after the pointer comes onto a module's slot (the renew time from another's). */
   private hoverTooltip(slot: Slot): void {
     this.clearTooltipTimers();
+    const renew = this.tipSlot !== null || performance.now() - this.tipClosedAt < TOOLTIP_COOLDOWN;
     this.closeTooltip();
     if (!slot.module || !this.tooltipRows || !hudSettingNow("showModuleTooltips")) return;
     this.tipTimer = setTimeout(() => {
@@ -1700,7 +1705,7 @@ export class NewShipHud {
       this.renderTooltip();
       // UpdateToolTips: the rows again every second while it is open.
       this.tipRefresh = setInterval(() => this.renderTooltip(), 1000);
-    }, TOOLTIP_DELAY_MODULE);
+    }, renew ? TOOLTIP_RENEW_MODULE : TOOLTIP_DELAY_MODULE);
   }
 
   private hideTooltip(slot: Slot): void {
@@ -1717,6 +1722,7 @@ export class NewShipHud {
   }
 
   private closeTooltip(): void {
+    if (this.tipSlot !== null) this.tipClosedAt = performance.now();
     this.tipSlot = null;
     this.tipKey = "";
     this.tooltip.style.display = "none";
