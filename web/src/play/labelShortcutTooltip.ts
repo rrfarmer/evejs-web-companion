@@ -114,7 +114,7 @@ function drawPointer(panel: HTMLElement, [fx, fy]: PointFlag): void {
  * lines: a command's detailed description by default (AddCommandTooltip: AddLabelMedium wrapWidth 200, TextColor.SECONDARY);
  * plain: AddLabelMedium as it is (no wrap, the normal colour) - a Selected Item button's disabled hint.
  */
-export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, shortcut: string, lines: readonly string[] = [], pointer: "top" | "left" = "top", plain: boolean | "wrap" = false): void {
+export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, shortcut: string, lines: readonly (string | { text: string; color: string })[] = [], pointer: "top" | "left" = "top", plain: boolean | "wrap" = false): void {
   if (!tip) {
     tip = document.createElement("div");
     tip.className = "label-shortcut-tooltip";
@@ -146,9 +146,12 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
   }
   grid.append(head, hint);
   const wrapped: HTMLElement[] = [];
-  for (const line of lines) {
+  for (const entry of lines) {
     const d = document.createElement("div");
+    // a line given with its own colour (an EveLabelMedium coloured by its caller, as ButtonSkills' alert line)
+    const line = typeof entry === "string" ? entry : entry.text;
     d.textContent = line;
+    if (typeof entry !== "string") d.style.color = entry.color;
     if (plain !== true) wrapped.push(d);
     // plain: AddLabelMedium as it is; "wrap": AddLabelMedium(wrapWidth=200) in the normal colour (dronesUtil.LoadShortcutTooltip);
     // otherwise AddCommandTooltip's detailed description, wrapWidth 200 in the secondary colour

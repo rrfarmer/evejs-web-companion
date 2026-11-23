@@ -157,6 +157,7 @@ export class Neocom {
   private readonly indicators = new Map<string, HTMLElement>();
   /** ButtonSkills (skillsBtn): its gauges and its icon. */
   private readonly skills = document.createElement("button");
+  private skillState: NeocomSkillState = null;
   /** The EVE menu's panels, on the page's body. */
   private menuParts: HTMLElement[] = [];
   /** Takes the EVE menu's panels off the page. */
@@ -186,6 +187,7 @@ export class Neocom {
    * DonutSegment line lies inside its radius, starting at the top, clockwise.
    */
   setSkills(state: NeocomSkillState): void {
+    this.skillState = state;
     const el = this.skills;
     el.dataset.state = state === null ? "" : state.training ? "training" : "idle";
     const ring = el.querySelector<SVGCircleElement>(".nc-sk-skill");
@@ -284,6 +286,16 @@ export class Neocom {
     skills.append(svg, warn, this.indicator("skills"));
     this.setSkills(null);
     skills.addEventListener("click", () => { neocomTipOff(); open("skills"); });
+    // ButtonSkillsTooltipPanel (LoadStandardSpacingOld, cells 8 apart): AddLabelShortcut(Skills, OpenSkillsWindow), then
+    // with no skill in training UI/Neocom/NoSkillHint in THEME_ALERT and NoSkillHintSubtext (the live client, gridcheck
+    // g266: 282 x 102, the lines at 16 / 42 / 68). In training it goes on to the tracked plan's gauge, Skill in Training,
+    // the skill bar with the time left and the skill's description - not on the page yet: the label row alone.
+    skills.addEventListener("mouseenter", () => tooltipDue(skills, () => {
+      const idle = this.skillState !== null && !this.skillState.training;
+      showLabelShortcutTooltip(skills, "Skills", shortcutOf("OpenSkillsWindow"), idle
+        ? [{ text: "You have no skills in training!", color: "rgb(243, 144, 88)" }, "Click to find Skill Plans or Skills to train"] : [], "left", true);
+    }));
+    skills.addEventListener("mouseleave", neocomTipOff);
     list.appendChild(skills);
     for (const b of NEOCOM_DEFAULT) {
       const el = document.createElement("button");
