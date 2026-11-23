@@ -43,6 +43,8 @@ export interface TurretInfo {
   /** The firing's sounds (lib/turret.mjs, turretBuild 13: the firing effect's AudEventCurves - each event, its key's
    *  time, at the muzzle or the target). */
   sounds?: { event: string; time: number; at: "muzzle" | "target" }[];
+  /** The turret's movement noise: to a target from idle or a new target, back to idle when it stops (turretBuild 15). */
+  movementSounds?: { toTarget: string | null; toIdle: string | null };
   /** Its firing effect: a stretch per muzzle, the target's scaling (lib/turret.mjs, turretBuild 5). */
   firing?: { stretches: ({ type: string | null } | SofStretch2 | TurretStretch3)[]; scaleEffectTarget: boolean; minRadius: number; maxRadius: number; minScale: number; maxScale: number } | null;
 }
@@ -296,7 +298,12 @@ export class TurretFx {
     if (!kind) return;
     const shooter = Number(args[0]), moduleID = Number(args[1]), moduleTypeID = Number(args[2]), target = Number(args[3]);
     const key = `${shooter}:${moduleID}`;
-    if (Number(args[7]) !== 1) { this.firings.delete(key); return; }
+    if (Number(args[7]) !== 1) {
+      // EveTurretSet leaving targeting / firing: targetingToIdleMovementAudioEvent
+      if (this.firings.has(key)) this.movementSound(moduleTypeID, "toIdle", shooter);
+      this.firings.delete(key);
+      return;
+    }
     turretInfo(moduleTypeID);
     const duration = Number(args[9]), repeat = Number(args[10]);
     const now = performance.now();
@@ -306,6 +313,8 @@ export class TurretFx {
     // turret's state (a repeat of one already shooting is no idle turret)
     const cycle = duration > 0 ? duration : 1000;
     const was = this.firings.get(key);
+    // EveTurretSet.SetTargetObject: idleToTargetingMovementAudioEvent from idle or on a new target
+    if (!was || was.target !== target) this.movementSound(moduleTypeID, "toTarget", shooter);
     const next: Firing = {
       shooter, target, moduleID, moduleTypeID, kind, startedAt: now, until: Math.min(until, now + 10 * 60_000), lastPulse: 0,
       cycle, nextCycle: now, idle: !was, misses: was && was.target === target ? was.misses : [], shots: was?.shots ?? [],
@@ -429,6 +438,13 @@ export class TurretFx {
    * firing effect (EveStretch: the muzzle burst) played once, from its muzzles toward the target, after the turret
    * set's firing delay (seconds); its impacts are the missile's, not drawn here.
    */
+  /** A turret movement sound at the shooter (its turretMovementObserver), once the turret's graphic has come. */
+  private movementSound(moduleTypeID: number, which: "toTarget" | "toIdle", shooter: number, tries = 0): void {
+    const info = turretInfo(moduleTypeID);
+    if (!info) { if (tries < 10) setTimeout(() => this.movementSound(moduleTypeID, which, shooter, tries + 1), 100); return; }
+    const event = info.movementSounds?.[which];
+    if (event) this.onSound?.([{ event, time: 0, at: "muzzle" }], shooter, null, performance.now());
+  }
   launch(shooter: number, moduleID: number, moduleTypeID: number, target: number | null, delay: number, now = performance.now()): void {
     const info = turretInfo(moduleTypeID);
     const key = `${shooter}:${moduleID}:launch`;

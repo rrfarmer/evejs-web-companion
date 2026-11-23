@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process";
 import { readBlack } from "./black.mjs";
 import { readTurretStretch3 } from "./children.mjs";
 
-export const TURRET_BUILD = 14;
+export const TURRET_BUILD = 15;
 
 /** The .black of a .red/.black path, where the client has it. */
 function blackOf(rf, res) {
@@ -212,6 +212,13 @@ export function readTurret(rf, graphicFile) {
     firingPeakTime: Number(fx?.firingPeakTime ?? 0),
     firingDuration: fx ? (override >= 0 ? Number(override) : Math.max(0, ...(fx.stretch ?? []).map(stretchLength))) : 0,
     isLoopFiring: fx?.isLoopFiring === true,
+    // the turret's mechanical noise (EveTurretSet: SetTargetObject sends idleToTargetingMovementAudioEvent from idle or
+    // on a new target, the change out of targeting / firing targetingToIdleMovementAudioEvent - both from its
+    // turretMovementObserver, at the first turret; turretBuild 15)
+    movementSounds: {
+      toTarget: set.idleToTargetingMovementAudioEvent ? String(set.idleToTargetingMovementAudioEvent) : null,
+      toIdle: set.targetingToIdleMovementAudioEvent ? String(set.targetingToIdleMovementAudioEvent) : null,
+    },
     // the firing's sounds (the firing effect's startCurveSet: AudEventCurves, each key an event at its time, sent from
     // its observer - TurretFX the muzzle (sourceObserver), TurretImpact the target (destinationObserver))
     sounds: (fx?.startCurveSet?.curves ?? []).filter((c) => c?.type === "AudEventCurve").flatMap((c) => {
