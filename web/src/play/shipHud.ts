@@ -460,18 +460,20 @@ export class ShipHud {
       const canvas = ctx.canvas;
       this.hpFlashes.get(canvas)?.cancel();
       this.hpFlashes.set(canvas, canvas.animate([
+        // SpGlowFadeIn with ANIM_WAVE (hpGauges.OnDamageAlertFlash): each half its own smoothstep
+        { filter: "drop-shadow(0 1px #000)", easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" },
+        { filter: "drop-shadow(0 0 3px rgba(255, 102, 102, 0.8))", easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" },
         { filter: "drop-shadow(0 1px #000)" },
-        { filter: "drop-shadow(0 0 3px rgba(255, 102, 102, 0.8))" },
-        { filter: "drop-shadow(0 1px #000)" },
-      ], { duration, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" }));
+      ], { duration }));
     }
   }
 
   /** CapacitorContainer.OnCapacitorAlertFlash. */
   flashCapacitor(duration: number): void {
     this.capFlash?.cancel();
-    this.capFlash = this.capCtx.canvas.parentElement!.animate([{ opacity: 1 }, { opacity: 0.5 }, { opacity: 1 }], {
-      duration, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)",
+    this.capFlash = this.capCtx.canvas.parentElement!.animate([{ opacity: 1, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" }, { opacity: 0.5, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" }, { opacity: 1 }], {
+      // MorphScalar(opacity, 1.0, 0.5, ANIM_WAVE): a smoothstep down to half way and one back
+      duration,
     });
   }
 

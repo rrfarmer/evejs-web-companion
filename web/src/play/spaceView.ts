@@ -2161,8 +2161,9 @@ export class SpaceView {
       const duration = ALERT_ANIMATION_MS[level]!;
       this.nextDamageFlash = now + duration;
       this.shipHud.flashDamage(level, duration);
-      this.alertVignetteFlash = this.alertVignette.animate([{ opacity: 0 }, { opacity: level === HULL ? 1 : 0.7 }, { opacity: 0 }], {
-        duration, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)",
+      this.alertVignetteFlash = this.alertVignette.animate([{ opacity: 0, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" }, { opacity: level === HULL ? 1 : 0.7, easing: "cubic-bezier(0.3333, 0, 0.6667, 1)" }, { opacity: 0 }], {
+        // (ANIM_WAVE: a smoothstep to the peak at half the duration and another back - each segment eased, not the whole)
+        duration,
       });
       void playUiEvent(["ui_warning_shield", "ui_warning_armor", "ui_warning_hull"][level]!);
     }
