@@ -4820,7 +4820,7 @@ export class SpaceView {
         run: () => this.actions.openShipHold?.(key),
       }));
       // the rest in menuHierarchy's order (groups read through gridcheck on the client's own-ship menu): Stop My Ship and
-      // Activate Autopilot (OfferActivateAutopilot: not on autopilot); Track (OfferSetAsCameraInterest: not already the
+      // Activate Autopilot (OfferActivateAutopilot: not on autopilot), Track (OfferSetAsCameraInterest: not already the
       // camera's interest) and Look At My Ship (UI/Inflight/ResetCamera); Show Info; the holds; the group's overview
       // toggle; Reconnect To Lost Drones (a drone-capable ship, not warping)
       const selfGroup = e.groupID ?? null;
@@ -4832,7 +4832,8 @@ export class SpaceView {
       return [
         { label: word(e.groupID === 29 ? "UI/Inflight/StopMyCapsule" : "UI/Inflight/StopMyShip", e.groupID === 29 ? "Stop My Capsule" : "Stop My Ship"), run: run("Stop", () => this.actions.stop()) },
         ...(this.actions.autopilotOn?.() ? [] : [{ path: "UI/Inflight/ActivateAutopilot", label: word("UI/Inflight/ActivateAutopilot", "Activate Autopilot"), run: () => this.actions.runCommand?.("CmdToggleAutopilot") }]),
-        null,
+        // (one group with Track and Look At My Ship: the menu as menuDataFactory.CreateMenuDataWithEntries shows it, read
+        // through gridcheck on the client's own ship - no line between Activate Autopilot and Track)
         ...(this.trackedObjective === id ? [] : [{ path: "UI/Inflight/SetAsCameraInterest", label: word("UI/Inflight/SetAsCameraInterest", "Track"), run: () => { this.endExplosionCamera(); this.trackedObjective = id; } }]),
         { path: "UI/Inflight/ResetCamera", label: word("UI/Inflight/ResetCamera", "Look At My Ship"), run: () => this.focusOn(null) },
         null,
