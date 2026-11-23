@@ -207,7 +207,9 @@
       {#each groups as group (group.typeID)}
         <tbody data-ore-type={group.typeID}>
           <tr class="ore-group" data-ore-name={group.name}><th colspan="5" scope="rowgroup">
-            <button type="button" aria-expanded={!collapsed.has(group.typeID)} onclick={() => toggleGroup(group.typeID)}>
+            <!-- a ListGroup, not a Button: SOUND_ENTRY_HOVER on enter, its Toggle SOUND_EXPAND / SOUND_COLLAPSE (data-own-sound) -->
+            <button type="button" data-own-sound aria-expanded={!collapsed.has(group.typeID)} onmouseenter={() => void playUiEvent("ui_button_soft2_play")}
+              onclick={() => { void playUiEvent(collapsed.has(group.typeID) ? "ui_expand_play" : "ui_collapse_play"); toggleGroup(group.typeID); }}>
               <span aria-hidden="true">{collapsed.has(group.typeID) ? "▸" : "▾"}</span>
               <!-- the ListGroup's iconID: the type's bracket icon (bracket.GetBracketIcon) -->
               {#if group.icon}<img class="group-icon" src={group.icon} alt="" />{:else}<TypeIcon typeID={group.typeID} name={group.name} size="sm" />{/if}
