@@ -138,6 +138,8 @@
   // Market Details, Buy This Type), Show Info (7); held 150 ms without moving 12 px, as in space
   const radial = new RadialMenu();
   let rootEl: HTMLElement | undefined = $state();
+  /** The entry a hold last went down on (RadialMenu.clickedObject). */
+  let heldEntry: HTMLElement | null = null;
   function openBayRadial(itemID: number, x: number, y: number): void {
     const row = bayRows.find((r) => r.itemID === itemID);
     if (!row) return;
@@ -154,7 +156,10 @@
       null,
     ];
     tipOff();
-    radial.open(x, y, row.label, options, 0);
+    // DroneEntry (a Generic): ShowRadialMenuIndicator's Fill (1, 1, 1, 0.25) behind the entry while its radial is open
+    const marked = heldEntry;
+    marked?.classList.add("radial-marked-entry");
+    radial.open(x, y, row.label, options, 0, () => marked?.classList.remove("radial-marked-entry"));
   }
   /**
    * A section header's radial (dronesUtil.ExpandRadialMenuForInBayGroup / InSpaceGroup: TryExpandActionMenu with no item
@@ -225,10 +230,11 @@
     // a bay entry its inventory radial; an in-space entry (a negative id here) the drone's own space radial
     const off = rootEl ? holdToOpen(rootEl, (_x, _y, e) => {
       const el = (e.target as HTMLElement).closest<HTMLElement>("[data-bay-item], [data-space-item]");
+      heldEntry = el;
       return !el ? null : el.dataset.bayItem ? Number(el.dataset.bayItem) : -Number(el.dataset.spaceItem);
     }, (id, x, y) => {
       if (id > 0) openBayRadial(id, x, y);
-      else { tipOff(); dispatchEvent(new CustomEvent("evejs:open-space-radial", { detail: { itemID: -id, x, y } })); }
+      else { tipOff(); dispatchEvent(new CustomEvent("evejs:open-space-radial", { detail: { itemID: -id, x, y, entry: heldEntry } })); }
     }, false) : () => {};
     return () => { off(); radial.close(); radial.root.remove(); };
   });

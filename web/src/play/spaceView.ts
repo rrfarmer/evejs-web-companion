@@ -155,7 +155,7 @@ interface Snapshot {
   }) | null;
 }
 /** Where a radial menu was opened from, for its indicator: a bracket (or space), an overview window's entry, or neither. */
-type RadialFrom = "bracket" | Overview | null;
+type RadialFrom = "bracket" | Overview | HTMLElement | null;
 type MiningOverlayState = Pick<MiningState, "survey" | "surveyProgress" | "surveyAtMs" | "holds">;
 
 /**
@@ -1852,7 +1852,7 @@ export class SpaceView {
     this.unhold.push(() => removeEventListener("evejs:toggle-solar-system-map", toggleMap));
     // a window's entry for an object in space (the drones window's DroneInSpaceEntry: TryExpandActionMenu with its itemID)
     // opens that object's own radial menu
-    const radialFor = (e: Event) => { const d = (e as CustomEvent<{ itemID: number; x: number; y: number }>).detail; if (d) this.openRadial(d.itemID, d.x, d.y, 0); };
+    const radialFor = (e: Event) => { const d = (e as CustomEvent<{ itemID: number; x: number; y: number; entry?: HTMLElement | null }>).detail; if (d) this.openRadial(d.itemID, d.x, d.y, 0, d.entry ?? null); };
     addEventListener("evejs:open-space-radial", radialFor);
     // CmdBack / CmdForward (Mouse 4 / Mouse 5, commandSvc: the active window's OnBack / OnForward): to the windows; the
     // browser's own back / forward on those buttons kept from leaving the page
@@ -3819,11 +3819,14 @@ export class SpaceView {
   private markRadial(mark: { id: number; from: Exclude<RadialFrom, null> } | null): void {
     const old = this.radialMarked;
     if (old?.from === "bracket") this.bracketEls.get(old.id)?.classList.remove("radial-marked");
+    else if (old?.from instanceof HTMLElement) old.from.classList.remove("radial-marked-entry");
     else if (old) old.from.setRadialMarked(null);
     this.radialMarked = mark;
     // InSpaceBracket.ShowRadialMenuIndicator: radialMenuSprite, bracketHilite.png 20 x 20 centred under the icon, (0.5, 0.5,
     // 0.5, 0.5); OverviewScrollEntry's: a FillThemeColored COLORTYPE_UIHILIGHT behind the entry
     if (mark?.from === "bracket") this.bracketEls.get(mark.id)?.classList.add("radial-marked");
+    // a window list entry (Generic / BaseListEntry, the drones window's DroneEntry): a Fill (1, 1, 1, 0.25) behind it
+    else if (mark?.from instanceof HTMLElement) mark.from.classList.add("radial-marked-entry");
     else if (mark) mark.from.setRadialMarked(mark.id);
   }
 
