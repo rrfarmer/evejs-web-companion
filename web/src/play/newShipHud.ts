@@ -42,6 +42,8 @@ const SMOKE_BLUE: RGBA = [0.188, 0.337, 0.396, 1];
 const FOCUS_BLUE: RGBA = [0.345, 0.655, 0.749, 1];
 const CHERRY_RED: RGBA = [0.6, 0.122, 0.141, 1];
 const DANGER_RED: RGBA = [1, 0.271, 0.294, 1];
+// healthRing.HEAL_COLOR: eveColor.SUCCESS_GREEN's rgb x HEAL_DIM 0.6
+const HEAL_COLOR: RGBA = [0.553 * 0.6, 0.757 * 0.6, 0.412 * 0.6, 1];
 const LED_GREY: RGBA = [0.541, 0.541, 0.541, 1];
 const css = (c: RGBA, a = c[3]): string => `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${a})`;
 const withAlpha = (c: RGBA, a: number): RGBA => [c[0], c[1], c[2], a];
@@ -192,7 +194,7 @@ export function layoutRing(maxHP: readonly number[]): Segment[] {
 
 // ── the HUD ──────────────────────────────────────────────────────────────────────────────────────────────
 
-interface Pool { target: number | null; shown: number | null; ghost: number | null; holdUntil: number }
+interface Pool { target: number | null; shown: number | null; ghost: number | null; holdUntil: number; healing: boolean }
 
 interface Slot {
   el: HTMLDivElement;
@@ -334,7 +336,7 @@ export class NewShipHud {
   private readonly tray = document.createElement("div");
   private readonly slots: Slot[] = [];
   private state: NewShipHudState | null = null;
-  private readonly pools: Pool[] = [0, 1, 2].map(() => ({ target: null, shown: null, ghost: null, holdUntil: 0 }));
+  private readonly pools: Pool[] = [0, 1, 2].map(() => ({ target: null, shown: null, ghost: null, holdUntil: 0, healing: false }));
   private segments: Segment[] = layoutRing([1, 1, 1]);
   private segmentsKey = "";
   private speedShown: number | null = null;
@@ -1589,9 +1591,15 @@ export class NewShipHud {
     [s.shieldRatio, s.armorRatio, s.hullRatio].forEach((ratio, i) => {
       const pool = this.pools[i]!;
       const value = ratio === null ? null : Math.max(0, Math.min(1, ratio));
-      if (value !== null && pool.target !== null && value < pool.target - 1e-6) {
-        // A damage ghost: the old value held for a second, then chasing the shown one down.
-        if (pool.ghost === null) pool.ghost = pool.shown;
+      // HealthTracker._Cause: a fall is damage; a rise under the pool's own running repair module is CAUSE_OWN_REPAIR
+      // (a remote repair's credit comes from combat messages the page does not hear; a plain rise is recharge, no ghost).
+      // HealthDial._RaiseGhost: the ghost at the shown value (kept while of the same kind), held GHOST_HOLD_MS 1000, then
+      // chasing the shown one - red for damage, HEAL_COLOR (SUCCESS_GREEN x 0.6) for a repair.
+      const fell = value !== null && pool.target !== null && value < pool.target - 1e-6;
+      const healed = value !== null && pool.target !== null && value > pool.target + 1e-6 &&
+        this.modules.some((m) => m.active && m.repairsPool === i);
+      if (fell || healed) {
+        if (pool.ghost === null || pool.healing !== healed) { pool.ghost = pool.shown; pool.healing = healed; }
         pool.holdUntil = now + 1000;
       }
       if (pool.shown === null) pool.shown = value;
@@ -1807,9 +1815,11 @@ export class NewShipHud {
       if (pool.shown === null) pool.shown = pool.target;
       const gap = pool.target - pool.shown;
       pool.shown = Math.abs(gap) <= 0.0005 ? pool.target : pool.shown + gap * alpha;
-      if (pool.ghost !== null) {
-        if (pool.ghost - pool.shown <= 0.0005) pool.ghost = null;
-        else if (now >= pool.holdUntil) pool.ghost -= (pool.ghost - pool.shown) * alpha;
+      if (pool.ghost !== null && pool.shown !== null) {
+        // HealthDial.Step: dropped once the shown value has passed it (from below for a heal) or is within 0.0005
+        const gap = pool.ghost - pool.shown;
+        if ((pool.healing ? gap >= 0 : gap <= 0) || Math.abs(gap) <= 0.0005) pool.ghost = null;
+        else if (now >= pool.holdUntil) pool.ghost -= gap * alpha;
       }
     }
     const s = this.state;
@@ -1906,10 +1916,11 @@ export class NewShipHud {
       }
       this.band(c, seg, seg.a0, split, css(DANGER_RED, 0.2));
       this.band(c, seg, split, seg.a1, css(WHITE, 0.2));
-      if (pool.ghost !== null) this.band(c, seg, gLo, gHi, css(DANGER_RED, 0.4));
+      // _SetGhostHealing: the ghost band at GHOST_BAND_ALPHA 0.4 for damage, HEAL_BAND_ALPHA 1.0 for a repair
+      if (pool.ghost !== null) this.band(c, seg, gLo, gHi, pool.healing ? css(HEAL_COLOR, 1) : css(DANGER_RED, 0.4));
       this.arc(c, DIAL_MID, seg.a0, split, DIAL_WIDTH, css(LOST_DIAL));
       this.arc(c, DIAL_MID, split, seg.a1, DIAL_WIDTH, css(WHITE), 0.4);
-      if (pool.ghost !== null) this.arc(c, DIAL_MID, gLo, gHi, DIAL_WIDTH, css(DANGER_RED), 0.4);
+      if (pool.ghost !== null) this.arc(c, DIAL_MID, gLo, gHi, DIAL_WIDTH, css(pool.healing ? HEAL_COLOR : DANGER_RED), 0.4);
       // _PlaceNotches: tenths on a pool with at least 30 % of the HP, else quarters, measured from a1.
       const marks = seg.share >= 0.3 ? [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9] : [0.25, 0.5, 0.75];
       for (const mark of marks) {

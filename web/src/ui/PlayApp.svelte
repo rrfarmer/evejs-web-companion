@@ -2779,7 +2779,9 @@
               reload: (() => { const r = s.store.fitting.get().reloads[m.itemID]; return r && now < r.startedAtMs + r.durationMs ? { startedAtMs: r.startedAtMs, durationMs: r.durationMs } : null; })(),
               // HasActivatibleEffect: a type with no default effect is passive
               passive: typeFact !== null && (typeFact.defaultEffectID ?? null) === null,
-              capRate: capRateOf(m.itemID, m.groupID, true) });
+              capRate: capRateOf(m.itemID, m.groupID, true),
+              // healthTracker.OWN_REPAIR_EFFECTS: the pool its default effect repairs (shield 4 / 4936, armor 27 / 5275, hull 26)
+              repairsPool: (({ 4: 0, 4936: 0, 27: 1, 5275: 1, 26: 2 }) as Record<number, 0 | 1 | 2>)[typeFact?.defaultEffectID ?? -1] ?? null });
           }
           return out;
         },

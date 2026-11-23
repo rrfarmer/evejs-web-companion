@@ -77,6 +77,8 @@ export interface HudModule {
   damage?: number;
   /** Its repair under way: when it began (Date.now()) and how long it runs (the damage over the repair rate). */
   repair?: { startedAtMs: number; durationMs: number } | null;
+  /** The health pool its default effect repairs (0 shield, 1 armor, 2 hull), null for none (healthTracker.OWN_REPAIR_EFFECTS). */
+  repairsPool?: 0 | 1 | 2 | null;
   /** Its loaded charge (moduleController.GetCharge): its type, how many, and whether it is a crystal (no count shown). */
   charge?: { typeID: number; quantity: number; crystal: boolean } | null;
   /** Its charge reloading (OnChargeReload / the reload's notice): when it began (Date.now()) and how long it takes. */
