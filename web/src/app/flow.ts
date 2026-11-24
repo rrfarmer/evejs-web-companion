@@ -7030,6 +7030,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     cancelCorporationCEOChoice();
     cancelCorporationAward();
     recoveryGeneration++;
+    recoveryRetries = 0;
     recoveryTask = null;
     recoveryIDs.clear();
     confirmedRecoveryIDs.clear();
@@ -7074,6 +7075,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
 
+  /** The automatic retries of a failed lost-drone check this pilot session has made (the next one's back-off). */
+  let recoveryRetries = 0;
   function retryDroneRecovery(): Promise<void> {
     if (!pilotRecoveryEnabled || recoverySignal.get().phase === "ready") return Promise.resolve();
     if (recoveryTask !== null) return recoveryTask;
@@ -7105,9 +7108,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         await api.markDroneRecoveryReady(recoveryCheckID, callOptions);
         current();
         recoverySignal.set({ phase: "ready", reason: null });
+        recoveryRetries = 0;
       } catch (error) {
-        if (generation === recoveryGeneration) recoverySignal.set({ phase: "blocked",
-          reason: error instanceof Error ? error.message : "Lost-drone recovery could not be confirmed." });
+        if (generation === recoveryGeneration) {
+          recoverySignal.set({ phase: "blocked",
+            reason: error instanceof Error ? error.message : "Lost-drone recovery could not be confirmed." });
+          // A check that failed (the gateway not reachable yet after a start, a read that timed out) is made again on
+          // its own, 2 s then doubling to 30 s, for as long as this pilot session lasts: the play page shows no
+          // Retry Recovery button, and its pilot's every move is refused (DRONE_RECOVERY_PENDING) until it is ready.
+          const delay = Math.min(30_000, 2_000 * 2 ** Math.min(4, recoveryRetries++));
+          setTimeout(() => {
+            if (generation === recoveryGeneration && recoverySignal.get().phase === "blocked") void retryDroneRecovery();
+          }, delay);
+        }
       }
     })();
     recoveryTask = task.finally(() => { if (generation === recoveryGeneration) recoveryTask = null; });
