@@ -426,11 +426,21 @@
   /** The bay drones' damage (InBayDroneDamageTracker), asked once for each drone not yet known. */
   let bayDamage = $state(new Map<number, readonly [number, number, number]>());
   const asked = new Set<number>();
+  // (one not answered - an ask made as the session starts can fail - asked again 5 s on; the client's tracker has it
+  // from dogma at hand)
+  let askAgain = $state(0);
   $effect(() => {
+    void askAgain;
     const missing = bayRows.map((r) => r.itemID).filter((id) => !asked.has(id));
     if (!missing.length) return;
     for (const id of missing) asked.add(id);
-    void flow.bayDroneDamage(missing).then((got) => { if (got.size) bayDamage = new Map([...bayDamage, ...got]); }).catch(() => {});
+    const retry = (ids: readonly number[]) => {
+      if (!ids.length) return;
+      setTimeout(() => { for (const id of ids) asked.delete(id); askAgain += 1; }, 5000);
+    };
+    void flow.bayDroneDamage(missing)
+      .then((got) => { if (got.size) bayDamage = new Map([...bayDamage, ...got]); retry(missing.filter((id) => !got.has(id))); })
+      .catch(() => retry(missing));
   });
   const bayCount = $derived(bayRows.reduce((n, r) => n + r.quantity, 0));
   /** A drone's inventory group (the groups' droneGroupID), by its group's name. */
