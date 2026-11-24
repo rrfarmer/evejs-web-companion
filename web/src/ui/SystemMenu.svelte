@@ -110,7 +110,8 @@
     return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args as never, { nameOf: () => null } as never)) : own;
   };
   flow.requestWords(["UI/Commands/EnterNewShortcutPrompt", "UI/Common/None", "UI/Common/Cancel", "UI/Commands/ShortcutAlreadyUsedByCmd",
-    "UI/Commands/ShortcutAlreadyUsedReassign", "UI/Commands/ShortcutAlreadyUsedReassignHeader", "UI/Commands/ReassingCmd", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel"]);
+    "UI/Commands/ShortcutAlreadyUsedReassign", "UI/Commands/ShortcutAlreadyUsedReassignHeader", "UI/Commands/ReassingCmd", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel",
+    "UI/Commands/ShortcutKeyNotAllowedWithModifiers"]);
   let panel = $state<string>("displayandgraphics");
   let radialBtn = $state(radialButton());
   let radialMs = $state(radialDelay());
@@ -186,6 +187,16 @@
     e.stopPropagation();
     const keys = shortcutFromKey(e);
     if (!keys) return;
+    // MapCmdErrorCheck's extraShortcutRules: CmdOpenBroadcastRadialMenu's RULE_NOT_ALLOWED_WITH_MODIFIERS (the middle and
+    // side mouse buttons not with a modifier) - CustomInfo ShortcutKeyNotAllowedWithModifiers, and the window asked again
+    if (mapping.cmd === "CmdOpenBroadcastRadialMenu" && /^(Ctrl|Alt|Shift)-.*MOUSE[345]$/.test(keys)) {
+      const t = $words.templates["UI/Commands/ShortcutKeyNotAllowedWithModifiers"];
+      const args = { cmd: describe(mapping.cmd), listOfKeys: "MOUSE3<br>MOUSE4<br>MOUSE5" };
+      const own = `This key combination is not allowed for ${args.cmd}. The following keys cannot be used with other modifier keys: MOUSE3, MOUSE4, MOUSE5`;
+      const info = typeof t === "string" && t !== "" ? formatTemplate(t, args as never, { nameOf: () => null } as never) : own;
+      flow.sayDialog("CustomInfo", { type: "dict", entries: [["info", info]] }, plainText(info));
+      return;
+    }
     const other = commandWithShortcut(keys);
     if (other && other !== mapping.cmd) {
       mapping = { cmd: mapping.cmd, conflict: { keys, other, locked: CLIENT_SHORTCUTS.find((c) => c.cmd === other)?.locked === true } };

@@ -106,7 +106,7 @@
   import HackingWindow from "./HackingWindow.svelte";
   import PlayLobbyTabs from "./PlayLobbyTabs.svelte";
   import SystemMenu from "./SystemMenu.svelte";
-  import { commandForKey, COMBAT_WORDS } from "../play/shortcutKeys.ts";
+  import { commandForKey, COMBAT_WORDS, mouseButtonsAsKeys } from "../play/shortcutKeys.ts";
   import { TARGET_LOCKED_LABEL } from "../play/targetLock.ts";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { showInfoRequests } from "./showInfo.ts";
@@ -2116,6 +2116,8 @@
     }
   }
 
+  // the middle and side mouse buttons as keys to the command service (uilib._OnMiddleMouseDown / _OnOtherMouseDown)
+  $effect(() => mouseButtonsAsKeys());
   /** A key press as the client's command it is the default shortcut of (the command service's accelerators). */
   function onKey(e: KeyboardEvent) {
     if (stage !== "game") return;

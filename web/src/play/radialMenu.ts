@@ -14,6 +14,7 @@
 import { clientTexture } from "./window.ts";
 import { playUiEvent } from "./uiAudio.ts";
 import { radialDelay, radialDomButton } from "./radialSettings.ts";
+import { broadcastRadialDomButton, buttonBit } from "./shortcutKeys.ts";
 
 export interface RadialOption {
   label: string;
@@ -436,7 +437,7 @@ export const RADIAL_CSS = `
  */
 /** The button a right-button radial is opened with (2 is the context menu's). */
 export const RADIAL_BY_RIGHT = -2;
-export function holdToOpen(target: HTMLElement, idOf: (x: number, y: number, e: Event) => number | null, open: (id: number, x: number, y: number, button: number) => void, rightClick = true,
+export function holdToOpen(target: HTMLElement, idOf: (x: number, y: number, e: Event) => number | null, open: (id: number, x: number, y: number, button: number, broadcast?: boolean) => void, rightClick = true,
   noDelay: () => boolean = () => false): () => void {
   let held: { id: number; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
   /** A right-button radial opened by the hold: the context menu its release brings is not opened. */
@@ -447,12 +448,15 @@ export function holdToOpen(target: HTMLElement, idOf: (x: number, y: number, e: 
     // held, after Radial Menu Delay (actionMenuExpandTime; none at 0)
     radialByRight = false;
     const button = radialDomButton();
-    if (e.button !== button || e.altKey || e.ctrlKey) return;
+    // IsRadialMenuButtonActive: that button first; else the broadcast radial's own mouse button
+    // (GetSingleMouseBtnBroadcastRadialMenu: BROADCAST_RADIAL_MENU), with no other button down (AreOtherMouseBtnsDown)
+    const broadcast = e.button !== button && e.button === broadcastRadialDomButton() && e.buttons === buttonBit(e.button);
+    if ((e.button !== button && !broadcast) || e.altKey || e.ctrlKey) return;
     cancel();
     const id = idOf(e.clientX, e.clientY, e);
     if (id === null) return;
     const x = e.clientX, y = e.clientY;
-    const fire = (i: number) => { radialByRight = button === 2; open(i, x, y, button === 2 ? RADIAL_BY_RIGHT : button); };
+    const fire = (i: number) => { if (broadcast) { open(i, x, y, e.button, true); return; } radialByRight = button === 2; open(i, x, y, button === 2 ? RADIAL_BY_RIGHT : button); };
     // CmdOpenRadialMenu loaded (radialMenuSvc: noDelay): opened at the press
     const delay = radialDelay();
     if (noDelay() || delay === 0) { e.preventDefault(); fire(id); return; }

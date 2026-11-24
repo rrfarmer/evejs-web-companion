@@ -11,7 +11,13 @@ const CODE_BY_NAME: Record<string, string> = {
   Home: "Home", End: "End", "Page Up": "PageUp", "Page Down": "PageDown", Insert: "Insert", Delete: "Delete", Pause: "Pause",
   ".": "Period", ",": "Comma", "-": "Minus", "=": "Equal", ";": "Semicolon", "/": "Slash", "`": "Backquote", "[": "BracketLeft",
   "\\": "Backslash", "]": "BracketRight", "'": "Quote",
+  // the middle and side mouse buttons (command.py's VK names MBUTTON / XBUTTON1 / XBUTTON2 shown as MOUSE3 / 4 / 5)
+  MOUSE3: "Mouse3", MOUSE4: "Mouse4", MOUSE5: "Mouse5",
 };
+/** A mouse button (MouseEvent.button) as the key it is to the command service, for the middle and side buttons. */
+const MOUSE_CODE_BY_BUTTON: Readonly<Record<number, string>> = { 1: "Mouse3", 3: "Mouse4", 4: "Mouse5" };
+/** A mouse button's bit in MouseEvent.buttons. */
+export const buttonBit = (button: number): number => [1, 4, 2, 8, 16][button] ?? 0;
 
 export interface ParsedShortcut { readonly ctrl: boolean; readonly alt: boolean; readonly shift: boolean; readonly code: string }
 
@@ -30,7 +36,7 @@ export function parseShortcut(keys: string): ParsedShortcut | null {
     else if (/^F\d{1,2}$/.test(part)) code = part;
     else if (/^Num \d$/.test(part)) code = `Numpad${part.slice(4)}`;
     else if (part in CODE_BY_NAME) code = CODE_BY_NAME[part]!;
-    else return null; // a mouse button, Prnt Scrn, Win: not a key the page is given
+    else return null; // Prnt Scrn, Win: not a key the page is given
   }
   return code === null ? null : { ctrl, alt, shift, code };
 }
@@ -52,6 +58,38 @@ function keep(next: Record<string, string>): void {
 }
 /** CommandMap.RemapCommand(cmd, keys): "" clears it (ClearMappedCmd). */
 export function remapShortcut(cmd: string, keys: string): void { keep({ ...custom, [cmd]: keys }); }
+/**
+ * GetSingleMouseBtnBroadcastRadialMenu: the mouse button (MouseEvent.button) the pilot's own shortcut for
+ * CmdOpenBroadcastRadialMenu is, where that is a single middle or side button (MOUSE3 / 4 / 5, no modifier); else null.
+ */
+export function broadcastRadialDomButton(): number | null {
+  const keys = custom["CmdOpenBroadcastRadialMenu"];
+  const code = keys ? CODE_BY_NAME[keys] : undefined;
+  const hit = Object.entries(MOUSE_CODE_BY_BUTTON).find(([, c]) => c === code);
+  return hit ? Number(hit[0]) : null;
+}
+
+/**
+ * uilib._OnMiddleMouseDown / _OnOtherMouseDown: the middle and side buttons are keys to the command service
+ * (CheckAccelerators with VK_MBUTTON / VK_XBUTTON1 / VK_XBUTTON2, after the press's own handler): each press and
+ * release given to the page's key handlers as a keydown / keyup of "Mouse3" / "Mouse4" / "Mouse5" with the modifiers
+ * held (MapCmdWindow.OnGlobalMouseUp takes them for a shortcut the same way). The browser's own use of them (the
+ * middle button's scrolling, the side buttons' back and forward) is not the client's. Returns the uninstaller.
+ */
+export function mouseButtonsAsKeys(): () => void {
+  const fire = (type: "keydown" | "keyup") => (e: MouseEvent) => {
+    const code = MOUSE_CODE_BY_BUTTON[e.button];
+    if (!code) return;
+    e.preventDefault();
+    (e.target ?? window).dispatchEvent(new KeyboardEvent(type, { code, key: code, ctrlKey: e.ctrlKey, altKey: e.altKey, shiftKey: e.shiftKey,
+      metaKey: e.metaKey, bubbles: true, cancelable: true }));
+  };
+  const down = fire("keydown"), up = fire("keyup");
+  addEventListener("mousedown", down, true);
+  addEventListener("mouseup", up, true);
+  return () => { removeEventListener("mousedown", down, true); removeEventListener("mouseup", up, true); };
+}
+
 /** RestoreDefaults: settings.user.cmd.customCmds = {}. */
 export function restoreDefaultShortcuts(): void { keep({}); }
 

@@ -54,7 +54,8 @@ import { ENTRY_CAMERA_DURATION_MS, entryCameraFov, spaceEntryCamera, type EntryC
 import { explosionCameraFov, spaceExplosionCamera, type ExplosionCameraPath } from "./spaceExplosionCamera.ts";
 import { gfx, setGfx, spaceRendering, lodSettings } from "./gfxSettings.ts";
 import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, stopEmitter, type WorldLoop } from "./uiAudio.ts";
-import { commandForKey, combatForModifiers, isCombatCommand, labelOf, shortcutOf, type CombatCommand } from "./shortcutKeys.ts";
+import { broadcastRadialDomButton, buttonBit, commandForKey, combatForModifiers, isCombatCommand, labelOf, shortcutOf, type CombatCommand } from "./shortcutKeys.ts";
+import { radialDelay, radialDomButton } from "./radialSettings.ts";
 import { hideLabelShortcutTooltip, showLabelShortcutTooltip, tooltipDue } from "./labelShortcutTooltip.ts";
 // actionConst.CMD_BY_ACTIONID: each Selected Item button's command, whose shortcut its tooltip shows
 const CMD_BY_ACTION: Readonly<Record<string, string>> = { info: "CmdShowItemInfo", approach: "CmdApproachItem", align: "CmdAlignToItem", orbit: "CmdOrbitItem",
@@ -1862,8 +1863,9 @@ export class SpaceView {
     // CmdOpenRadialMenu held: the radial menu at the press, with no delay (radialMenuSvc's noDelay)
     // (CmdOpenBroadcastRadialMenu held: the broadcast radial, with no delay too)
     const radialNow = () => this.combat?.cmd === "CmdOpenRadialMenu" || this.combat?.cmd === "CmdOpenBroadcastRadialMenu";
-    const openRadialFrom = (from: () => RadialFrom) => (id: number, x: number, y: number, button: number) => (button === 2 ? this.openContext(id, x, y)
-      : this.combat?.cmd === "CmdOpenBroadcastRadialMenu" ? this.openBroadcastRadial(id, x, y, button) : this.openRadial(id, x, y, button, from()));
+    // (the broadcast radial's own mouse button: holdToOpen's broadcast)
+    const openRadialFrom = (from: () => RadialFrom) => (id: number, x: number, y: number, button: number, broadcast = false) => (button === 2 && !broadcast ? this.openContext(id, x, y)
+      : broadcast || this.combat?.cmd === "CmdOpenBroadcastRadialMenu" ? this.openBroadcastRadial(id, x, y, button) : this.openRadial(id, x, y, button, from()));
     const openRadial = openRadialFrom(() => null);
     // RadialMenu.UpdateIndicator: the clicked object's ShowRadialMenuIndicator - a bracket's (navigation's, for space,
     // is the bracket's too) or an overview entry's
@@ -2080,7 +2082,7 @@ export class SpaceView {
     // baseCameraController.IsMouseDragged: a press that travelled 5 px or more is a drag, not a click
     let pressedAt: { x: number; y: number } | null = null;
     this.renderer.domElement.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0) { this.broadcastOnNothing(e); return; }
       pressedAt = { x: e.clientX, y: e.clientY };
       this.lastLeftPress = pressedAt;
       // navigation.OnMouseDown: the left button with a combat command loaded starts a marquee (the camera not orbited
@@ -4260,6 +4262,27 @@ export class SpaceView {
    * object's menu offers), missing ones greyed, and each greyed while its broadcast is held by the wait between broadcasts (forcedInactive);
    * its slices in the pilot's same-fleet flag colour at most 0.4 bright (GetBroadcastMenuColor).
    */
+  /**
+   * navigation.TryExpandActionMenu: in a fleet, the broadcast radial's own mouse button (GetSingleMouseBtnBroadcastRadialMenu)
+   * pressed on nothing with no other button down - the broadcast radial for no object, after Radial Menu Delay
+   * (radialMenuSvc.TryExpandActionMenu's expandTime; _TryExpandActionMenu: not where the pointer moved 12 px or the
+   * button was let go first). Open Radial Menu With on that button is the normal radial's, not this.
+   */
+  private broadcastOnNothing(e: PointerEvent): void {
+    const button = e.button;
+    if (button !== broadcastRadialDomButton() || button === radialDomButton() || e.buttons !== buttonBit(button) || e.altKey || e.ctrlKey) return;
+    if (!this.actions.inFleet?.() || this.pickAt(e.clientX, e.clientY) !== null) return;
+    const x = e.clientX, y = e.clientY;
+    const delay = radialDelay();
+    if (!delay) { this.openBroadcastRadial(null, x, y, button); return; }
+    const stop = () => { clearTimeout(timer); removeEventListener("pointermove", move); removeEventListener("mouseup", up, true); };
+    const move = (m: PointerEvent) => { if (Math.hypot(m.clientX - x, m.clientY - y) > 12) stop(); };
+    const up = (m: MouseEvent) => { if (m.button === button) stop(); };
+    const timer = setTimeout(() => { stop(); this.openBroadcastRadial(null, x, y, button); }, delay);
+    addEventListener("pointermove", move);
+    addEventListener("mouseup", up, true);
+  }
+
   private openBroadcastRadial(id: number | null, x: number, y: number, button: number): void {
     const e = id === null ? null : this.snapshot?.entities.find((each) => each.itemID === id) ?? null;
     if (id !== null && !e) return;
