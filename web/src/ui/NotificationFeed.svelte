@@ -38,6 +38,7 @@
   import { unwrapLong } from "../bridge/wire.ts";
   import { PlayWindow } from "../play/window.ts";
   import { NOTIFICATION_GROUPS } from "../play/notificationGroups.ts";
+  import { portraitUrl, portraitDefaultPath, remoteImageUrl } from "./ownerImages.ts";
 
   let { store, flow, onOpen }: { store: ClientStore; flow: AppFlow; onOpen: (id: TabID) => void } = $props();
 
@@ -94,11 +95,27 @@
   const local = new Map<number, { subject: string; subtext: string | null; action: (() => void) | null }>();
   let localRows = $state<ActivityNotificationRow[]>([]);
   let localSeq = 0;
-  function addLocalRow(typeID: number, subject: string, subtext: string | null, action: (() => void) | null): void {
+  function addLocalRow(typeID: number, subject: string, subtext: string | null, action: (() => void) | null, senderID = 0): void {
     const id = -(++localSeq);
     local.set(id, { subject, subtext, action });
     const created = BigInt(Date.now()) * 10000n + 116444736000000000n;
-    localRows = [...localRows, { notificationID: id, senderID: 0, processed: false, created, title: subject, typeID }];
+    localRows = [...localRows, { notificationID: id, senderID, processed: false, created, title: subject, typeID }];
+  }
+  // NotificationEntry.LoadContent: for notificationDisplaySender's types (read from the live client, g301) the sender
+  // over the type's icon at 40 - a character's portrait (photo.GetPortrait at CHAR_PORTRAIT_SIZE 128), a corporation's
+  // logo (GetLogoIcon 40), and for a sender that is neither (IsCorporation / IsCharacter) silhouette_64
+  const DISPLAY_SENDER = new Set([2, 3, 16, 17, 18, 19, 20, 21, 22, 23, 25, 26, 50, 66, 69, 70, 71, 72, 73, 74, 85, 86, 87, 88, 89, 90, 92, 128,
+    129, 130, 131, 139, 142, 143, 144, 145, 146, 147, 148, 149, 150, 152, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 247, 248, 251, 270, 1004,
+    2001, 2002, 3001]);
+  const isCorporation = (id: number) => (id >= 1000000 && id < 2000000) || (id >= 98000000 && id < 99000000);
+  const isCharacter = (id: number) => (id >= 3000000 && id < 4000000) || (id >= 90000000 && id < 98000000) || (id >= 100000000 && id <= 2147483647);
+  function senderPicture(typeID: number | null, senderID: number | null | undefined): string | null {
+    if (typeID === null || !DISPLAY_SENDER.has(typeID)) return null;
+    const id = Number(senderID ?? 0);
+    const server = flow.imageServer.get();
+    if (isCharacter(id)) return portraitUrl(server, id, 128) ?? clientTexture(portraitDefaultPath(128));
+    if (isCorporation(id)) return remoteImageUrl(server, "Corporation", id, 64, ".png") ?? clientTexture("res:/UI/Texture/silhouette_64.png");
+    return clientTexture("res:/UI/Texture/silhouette_64.png");
   }
   function subtextOf(row: ActivityNotificationRow): string | null { return local.get(row.notificationID)?.subtext ?? null; }
   function subjectOf(row: ActivityNotificationRow): string {
@@ -178,7 +195,7 @@
   // (overFlowStack.pop()); on show notify_beep3_play and the entry's Blink; each fades out over 0.5 s once the
   // pointer has been off it for GetFadeTime 5 s (its AutoCloser), or goes at once by its close button. A click does
   // what the history's does. Not ported: the popup settings (all types pop up).
-  interface Popup { readonly id: number; readonly title: string; readonly detail: string | null; readonly typeID: number | null;
+  interface Popup { readonly id: number; readonly title: string; readonly detail: string | null; readonly typeID: number | null; readonly senderID: number | null;
     readonly action: (() => void) | null; outSince: number | null; fading: boolean; h: number }
   let popups = $state<Popup[]>([]);
   const queued: Popup[] = [];
@@ -196,21 +213,25 @@
   function addPopup(input: NoticeInput, ownType: number | null = null): void {
     const key = input.key ?? "";
     let typeID: number | null = ownType;
+    let senderID: number | null = input.senderID ?? null;
     if (key.startsWith("notification:")) {
       const id = Number(key.slice(13));
       for (const n of store.live.get().notifications) {
         if (n.method !== "OnNotificationReceived" || !Array.isArray(n.args)) continue;
         const nid = unwrapLong(n.args[0]);
-        if (nid !== null && Number(nid) === id) { const t = unwrapLong(n.args[1]); typeID = typeof n.args[1] === "number" ? n.args[1] : t === null ? null : Number(t); }
+        if (nid !== null && Number(nid) === id) {
+          const t = unwrapLong(n.args[1]); typeID = typeof n.args[1] === "number" ? n.args[1] : t === null ? null : Number(t);
+          const s = unwrapLong(n.args[2]); senderID = typeof n.args[2] === "number" ? n.args[2] : s === null ? null : Number(s);
+        }
       }
       // the server's history has it now: read again for the drawer
       void flow.loadActivity().catch(() => {});
     } else {
       // a notice of the page's making (a new mail - NewMailFrom 1004 -, the login mail summary): into the history, and so
       // into the count
-      addLocalRow(typeID ?? (key.startsWith("mail:") ? 1004 : 0), input.title, input.detail ?? null, input.action ?? null);
+      addLocalRow(typeID ?? (key.startsWith("mail:") ? 1004 : 0), input.title, input.detail ?? null, input.action ?? null, senderID ?? 0);
     }
-    const p: Popup = { id: ++popupSeq, title: input.title, detail: input.detail ?? null, typeID, action: input.action ?? null, outSince: null, fading: false, h: 50 };
+    const p: Popup = { id: ++popupSeq, title: input.title, detail: input.detail ?? null, typeID: typeID ?? (key.startsWith("mail:") ? 1004 : null), senderID, action: input.action ?? null, outSince: null, fading: false, h: 50 };
     // MakeAndDisplayNormalNotification: the type's showPopup and the popups setting (a new mail is NewMailFrom 1004)
     if (!settings.popups || !popsUp(typeID ?? (key.startsWith("mail:") ? 1004 : null))) return;
     if (popups.length < settings.stack) showPopup(p); else queued.push(p);
@@ -555,6 +576,7 @@
 <div class="nf-popups" class:down={!goesUp} style={stackStyle}>
   {#each popups as p, i (p.id)}
     {@const icon = p.typeID === null ? null : notificationIconPath(p.typeID)}
+    {@const face = senderPicture(p.typeID, p.senderID)}
     <div class="nf-entry nf-popup" class:fading={p.fading} role="listitem" bind:offsetHeight={p.h}
       style:bottom={goesUp ? `${popups.slice(0, i).reduce((y, q) => y + q.h + 5, 0)}px` : null}
       style:top={goesUp ? null : `${popups.slice(0, i).reduce((y, q) => y + q.h + 5, 0)}px`}
@@ -564,6 +586,7 @@
       onclick={(e) => { if (!(e.target as HTMLElement).closest(".nf-close")) { void playUiEvent("ui_button_soft4_play"); p.action?.(); } }}>
       <span class="nf-blink" style={`background-image: url("${clientTexture("res:/UI/Texture/classes/Neocom/buttonBlink.png")}")`}></span>
       {#if icon}<img class="nf-icon" alt="" src={clientTexture(icon)} />{/if}
+      {#if face}<img class="nf-icon nf-face" alt="" src={face} />{/if}
       <div class="nf-wrap">
         <div class="nf-subject">{p.title}</div>
         {#if p.detail}<div class="nf-detail">{p.detail}</div>{/if}
@@ -581,12 +604,14 @@
     {#if filled}
       {#each rows as row (row.notificationID)}
         {@const icon = notificationIconPath(row.typeID ?? 0)}
+        {@const face = senderPicture(row.typeID ?? null, row.senderID)}
         <div class="nf-entry" role="listitem"
           style={`border-image-source: url("${clientTexture(hovered === row.notificationID ? "res:/UI/Texture/classes/Notifications/historyBackReadOver.png" : "res:/UI/Texture/classes/Notifications/historyBackReadUp.png")}")`}
           onmouseenter={() => { hovered = row.notificationID; void playUiEvent("ui_button_soft2_play"); }}
           onmouseleave={() => { if (hovered === row.notificationID) hovered = null; }}
           onclick={(e) => { if (!(e.target as HTMLElement).closest(".nf-close")) entryClick(row); }}>
           {#if icon}<img class="nf-icon" alt="" src={clientTexture(icon)} />{/if}
+          {#if face}<img class="nf-icon nf-face" alt="" src={face} />{/if}
           <div class="nf-text">
             <div class="nf-subject">{subjectOf(row)}</div>
             {#if subtextOf(row)}<div class="nf-subtext">{subtextOf(row)}</div>{/if}

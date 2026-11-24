@@ -59,6 +59,8 @@ export interface NoticeInput {
   readonly key?: string;
   /** What a click on it does, where it takes one. */
   readonly action?: (() => void) | null;
+  /** The notice's sender (a mail's), for the notification feed's portrait. */
+  readonly senderID?: number | null;
 }
 
 /**

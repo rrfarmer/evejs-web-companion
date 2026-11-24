@@ -193,6 +193,7 @@ export function watchNotificationPopups(store: ClientStore, flow: AppFlow, open:
         title,
         detail,
         key: `mail:${messageID}`,
+        senderID,
         action: () => {
           open("mail");
           focusMail({ kind: "mail", messageID });
