@@ -284,6 +284,14 @@ INFO_BY_GROUP.set(76, capacitorBooster);
 // AddStasisWebInfo: the speed factor's size, a percentage.
 for (const g of [65, 1441]) INFO_BY_GROUP.set(g, attributeInfo(ATTR.speedFactor, "UI/Inflight/ModuleRacks/Tooltips/VelocityReductionFromWeb", "percentage", Math.abs));
 for (const g of [52, 1442]) INFO_BY_GROUP.set(g, attributeInfo(ATTR.warpScrambleStrength, "UI/Inflight/ModuleRacks/Tooltips/WarpScramblerStrength", "strength"));
+// AddTrackingComputerInfo (groupTrackingComputer 213, groupTrackingLink 209; g404): falloffBonus 349, maxRangeBonus 351,
+// trackingSpeedBonus 767, each an AddAttributeInfo row
+for (const g of [213, 209]) INFO_BY_GROUP.set(g, rowsOf(
+  attributeInfo(349, "UI/Inflight/ModuleRacks/Tooltips/TrackingComputerFalloffBonus", "falloffBonus"),
+  attributeInfo(351, "UI/Inflight/ModuleRacks/Tooltips/TrackingComputerRangeBonus", "optimalRangeBonus"),
+  attributeInfo(767, "UI/Inflight/ModuleRacks/Tooltips/TrackingComputerTrackingBonus", "trackingSpeedBonus")));
+// AddRemoteHullRepairInfo (groupRemoteHullRepairer 585): structureDamageAmount per cycle
+INFO_BY_GROUP.set(585, perTime(ATTR.structureDamageAmount, "UI/Inflight/ModuleRacks/Tooltips/HullRemoteRepairedPerTime"));
 
 /** dogma.attributes.groups.damage_type_attribute_ids: EM, thermal, kinetic, explosive. */
 const DAMAGE_TYPES = [114, 118, 117, 116] as const;
@@ -471,7 +479,7 @@ export const MODULE_TOOLTIP_LABELS: readonly string[] = [
   "UI/Inflight/ModuleRacks/TypeNameWithNumInGroup", "UI/Inflight/ModuleRacks/ModuleDamaged", "UI/Inflight/ModuleRacks/AmmoNameWithQty",
   "UI/Inflight/ModuleRacks/MaxRange", "UI/Inflight/ModuleRacks/OptimalRangeAndFalloff", "UI/Inflight/ModuleRacks/OptimalRange",
   "UI/Inflight/ModuleRacks/AreaOfEffect", "UI/Inflight/ModuleRacks/RangeWithFalloff", "UI/Inflight/ModuleRacks/Range",
-  "UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", "UI/Inflight/ModuleRacks/Tooltips/CompressorModuleInfo", "UI/Inflight/ModuleRacks/Tooltips/ScanProbeSensorStrength", "UI/Inflight/ModuleRacks/Tooltips/TractorBeamTractorVelocity", "UI/Inflight/ModuleRacks/Tooltips/ValuePercentageWithAttributeName", "UI/Inflight/ModuleRacks/Tooltips/ECMStrengthBonus", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusText", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusValues", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusesHeader", "UI/Inflight/ModuleRacks/Tooltips/ShieldDamageResistanceHeader", "UI/Inflight/ModuleRacks/Tooltips/ArmorDamageResistanceHeader", "UI/Inflight/ModuleRacks/Tooltips/HullDamageResistanceHeader", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorCommandBonus", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorMaxCommandRelays", "UI/Inflight/ModuleRacks/Tooltips/ArmorRepairedPerTime",
+  "UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", "UI/Inflight/ModuleRacks/Tooltips/CompressorModuleInfo", "UI/Inflight/ModuleRacks/Tooltips/TrackingComputerFalloffBonus", "UI/Inflight/ModuleRacks/Tooltips/TrackingComputerRangeBonus", "UI/Inflight/ModuleRacks/Tooltips/TrackingComputerTrackingBonus", "UI/Inflight/ModuleRacks/Tooltips/HullRemoteRepairedPerTime", "UI/Inflight/ModuleRacks/Tooltips/ScanProbeSensorStrength", "UI/Inflight/ModuleRacks/Tooltips/TractorBeamTractorVelocity", "UI/Inflight/ModuleRacks/Tooltips/ValuePercentageWithAttributeName", "UI/Inflight/ModuleRacks/Tooltips/ECMStrengthBonus", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusText", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusValues", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusesHeader", "UI/Inflight/ModuleRacks/Tooltips/ShieldDamageResistanceHeader", "UI/Inflight/ModuleRacks/Tooltips/ArmorDamageResistanceHeader", "UI/Inflight/ModuleRacks/Tooltips/HullDamageResistanceHeader", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorCommandBonus", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorMaxCommandRelays", "UI/Inflight/ModuleRacks/Tooltips/ArmorRepairedPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/HullRepairedPerTime", "UI/Inflight/ModuleRacks/Tooltips/ShieldBonusPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/MaxVelocityWithAndWithoutPropulsion", "UI/Inflight/ModuleRacks/Tooltips/CapacitorBoostPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/EnergyVampireAmountPerTime", "UI/Inflight/ModuleRacks/Tooltips/EnergDestabilizedPerTime",
