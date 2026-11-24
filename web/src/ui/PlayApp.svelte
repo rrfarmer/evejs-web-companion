@@ -1915,17 +1915,45 @@
     }
     // CmdFleetBroadcast_EnemySpotted (Z): fleetSvc.SendBroadcast_EnemySpotted with GetNearestBall - the nearest belt, moon,
     // planet, acceleration gate, stargate, station or structure of the ballpark
-    if (cmd === "CmdFleetBroadcast_EnemySpotted") {
+    const nearestBall = () => {
       const snap = s.store.space.get().snapshot;
       const ego = snap?.entities.find((e) => e.itemID === snap?.ship?.itemID) ?? null;
       const NEAR_GROUPS = new Set([9, 8, 7, 366, 10, 15]);
-      let nearID: number | null = null, best = Infinity;
+      let near: { itemID: number; typeID: number | null } | null = null, best = Infinity;
       for (const e of snap?.entities ?? []) {
         if (!ego || !(NEAR_GROUPS.has(e.groupID ?? -1) || e.categoryID === 65)) continue;
         const d = Math.hypot(e.position.x - ego.position.x, e.position.y - ego.position.y, e.position.z - ego.position.z); // (the entities carry position, not x / y / z: every distance was 0, so the first of them was sent)
-        if (d < best) { best = d; nearID = e.itemID; }
+        if (d < best) { best = d; near = { itemID: e.itemID, typeID: e.typeID ?? null }; }
       }
-      void s.flow.broadcastEnemySpotted(nearID).catch(say("Fleet"));
+      return near;
+    };
+    if (cmd === "CmdFleetBroadcast_EnemySpotted") {
+      void s.flow.broadcastEnemySpotted(nearestBall()?.itemID ?? null).catch(say("Fleet"));
+      return true;
+    }
+    // The fleet's other broadcasts (eveCommands CmdFleetBroadcast_*, no default keys): NeedBackup, HoldPosition and
+    // Location with the nearest ball, InPosition with its type too (fleetSvc 1019 to 1128); JumpBeacon with the
+    // pilot's own beacon (GetActiveBeaconForChar: UserError NoActiveBeacon without one); HealArmor / HealShield /
+    // HealCapacitor on the pilot's own ship in the bubble
+    const GLOBAL_BROADCASTS = { CmdFleetBroadcast_NeedBackup: "NeedBackup", CmdFleetBroadcast_HoldPosition: "HoldPosition", CmdFleetBroadcast_InPosition: "InPosition", CmdFleetBroadcast_Location: "Location" } as const;
+    const global = GLOBAL_BROADCASTS[cmd as keyof typeof GLOBAL_BROADCASTS];
+    if (global) {
+      const near = nearestBall();
+      void s.flow.broadcastToFleet(global, near?.itemID ?? null, global === "InPosition" ? near?.typeID ?? null : null).catch(say("Fleet"));
+      return true;
+    }
+    if (cmd === "CmdFleetBroadcast_JumpBeacon") {
+      const me = s.store.character.get().selectedCharacterID;
+      const beacon = me === null ? null : s.store.fleet.get().jumpBeacons?.[String(me)] ?? null;
+      if (beacon === null) s.flow.sayDialog("NoActiveBeacon", null, "You do not have an active beacon.");
+      else void s.flow.broadcastToFleet("JumpBeacon", beacon.beaconID, beacon.typeID).catch(say("Fleet"));
+      return true;
+    }
+    const HEAL_BROADCASTS = { CmdFleetBroadcast_HealArmor: "HealArmor", CmdFleetBroadcast_HealShield: "HealShield", CmdFleetBroadcast_HealCapacitor: "HealCapacitor" } as const;
+    const heal = HEAL_BROADCASTS[cmd as keyof typeof HEAL_BROADCASTS];
+    if (heal) {
+      const shipID = s.store.space.get().snapshot?.ship?.itemID ?? null;
+      if (shipID !== null) void s.flow.broadcastHealMe(heal, shipID).catch(say("Fleet"));
       return true;
     }
     // The drone commands (eveCommands.py): each on the drones this ship controls in space (michelle.GetDrones).

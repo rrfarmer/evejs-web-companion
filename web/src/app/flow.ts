@@ -2869,6 +2869,13 @@ export interface AppFlow {
   /** fleetSvc.SendBroadcast_EnemySpotted: SendGlobalBroadcast('EnemySpotted', the nearest celestial); FleetNotInFleetInSpace outside a fleet. */
   broadcastEnemySpotted(nearID: number | null): Promise<boolean>;
   /**
+   * fleetSvc.SendBroadcast_NeedBackup / HoldPosition / InPosition / Location / JumpBeacon: SendGlobalBroadcast(name,
+   * itemID, typeID); FleetNotInFleetInSpace outside a fleet.
+   */
+  broadcastToFleet(name: "NeedBackup" | "HoldPosition" | "InPosition" | "Location" | "JumpBeacon", itemID: number | null, typeID?: number | null): Promise<boolean>;
+  /** fleetSvc.SendBroadcast_HealArmor / HealShield / HealCapacitor: SendBubbleBroadcast(name, session.shipid). */
+  broadcastHealMe(name: "HealArmor" | "HealShield" | "HealCapacitor", shipID: number): Promise<boolean>;
+  /**
    * Add Pilot to Watchlist, from the fleet's menu for a member: the pilots added to the pilot's watchlist and the
    * server told, after the client's checks. What came of it: added, nothing to add (the pilot's own, one no member,
    * or one already on it), or refused (not in a fleet: FleetNotInFleet; the list full: FleetTooManyFavorites).
@@ -17771,6 +17778,23 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return false;
     }
     return fleetBroadcasts.toFleet("EnemySpotted", FLEET_BROADCAST_SCOPE_ALL, nearID as number);
+  }
+  // fleetSvc.SendBroadcast_NeedBackup (1019), HoldPosition (1027), InPosition (1106: the nearest ball's type too),
+  // Location (1123), JumpBeacon (1116: the pilot's own beacon, its item and type): SendGlobalBroadcast, CheckIsInFleet first
+  async function broadcastToFleet(name: "NeedBackup" | "HoldPosition" | "InPosition" | "Location" | "JumpBeacon", itemID: number | null, typeID: number | null = null): Promise<boolean> {
+    if (store.fleet.get().availability !== "ready") {
+      sayDialog("FleetNotInFleetInSpace", null, "You are not in a fleet.");
+      return false;
+    }
+    return fleetBroadcasts.toFleet(name, FLEET_BROADCAST_SCOPE_ALL, itemID as number, typeID);
+  }
+  // fleetSvc.SendBroadcast_HealArmor / HealShield / HealCapacitor (1039 to 1049): SendBubbleBroadcast(name, session.shipid)
+  async function broadcastHealMe(name: "HealArmor" | "HealShield" | "HealCapacitor", shipID: number): Promise<boolean> {
+    if (store.fleet.get().availability !== "ready") {
+      sayDialog("FleetNotInFleetInSpace", null, "You are not in a fleet.");
+      return false;
+    }
+    return fleetBroadcasts.toBubble(name, FLEET_BROADCAST_SCOPE_ALL, shipID);
   }
   async function broadcastTravelToMe(): Promise<"sent" | "unsent" | "not-in-fleet" | "in-station" | "in-structure"> {
     const current = callOptions.captureRequestGuard!();
@@ -38158,6 +38182,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     bountyAmounts,
     broadcastOnItem,
     broadcastEnemySpotted,
+    broadcastToFleet,
+    broadcastHealMe,
     compressItemAt,
     deployItems,
     renameSpaceItem,
