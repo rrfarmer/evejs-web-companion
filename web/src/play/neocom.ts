@@ -67,7 +67,10 @@ function neocomTipOn(el: HTMLElement, id: string, blinkHint = ""): void {
   // THEME_ALERT
   const hint = blinkHint ? blinkHint.split("\n").map((text) => ({ text, color: "rgb(243, 144, 88)" })) : [];
   tooltipDue(el, () => {
-    if (t.cmd) showLabelShortcutTooltip(el, t.name, shortcutOf(t.cmd), [...(t.description ? [t.description] : []), ...hint], "left");
+    // ButtonReward.LoadTooltipPanel: its description AddLabelMedium (wrapWidth 200) in (0.6, 0.6, 0.6, 1), not the
+    // command tooltip's secondary colour
+    const desc = t.description ? [id === "loginRewards" ? { text: t.description, color: "rgb(153, 153, 153)" } : t.description] : [];
+    if (t.cmd) showLabelShortcutTooltip(el, t.name, shortcutOf(t.cmd), [...desc, ...hint], "left");
     else showLabelShortcutTooltip(el, "", "", [t.name, ...hint], "left", true);
   });
 }
@@ -394,7 +397,8 @@ export class Neocom {
     rewards.append(this.indicator("loginRewards"));
     this.buttons.set("loginRewards", rewards);
     rewards.addEventListener("click", () => { neocomTipOff(); open("loginRewards"); });
-    rewards.addEventListener("mouseenter", () => neocomTipOn(rewards, "loginRewards", this.unseen.get("loginRewards") ?? ""));
+    // ButtonReward.LoadTooltipPanel replaces the base one: its label and description only, no blink / unseen hint
+    rewards.addEventListener("mouseenter", () => neocomTipOn(rewards, "loginRewards"));
     rewards.addEventListener("mouseleave", neocomTipOff);
     fixed.append(rewards);
     const loading = document.createElement("div");
