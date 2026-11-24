@@ -526,7 +526,8 @@ export class NewShipHud {
       background: css(SMOKE_BLUE, 0.2), pointerEvents: "auto",
     });
     Object.assign(this.speedLabel.style, {
-      position: "absolute", right: "4px", top: "0", lineHeight: "16px", font: "bold 11px 'EVE Sans Neue', 'Segoe UI', sans-serif",
+      // (TextDetail bold: 12 px, as the live client's speedReadoutText reads - g343)
+      position: "absolute", right: "4px", top: "0", lineHeight: "16px", font: "bold 12px 'EVE Sans Neue', 'Segoe UI', sans-serif",
       color: "rgba(255,255,255,0.5)", textShadow: "1px 1px 0 rgba(0,0,0,0.6)", whiteSpace: "nowrap",
     });
     pill.append(this.speedLabel);
