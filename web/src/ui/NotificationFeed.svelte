@@ -39,6 +39,8 @@
   import { PlayWindow } from "../play/window.ts";
   import { NOTIFICATION_GROUPS } from "../play/notificationGroups.ts";
   import { portraitUrl, portraitDefaultPath, remoteImageUrl } from "./ownerImages.ts";
+  import { notificationArguments } from "../bridge/notificationFormats.ts";
+  import { typeIconUrl } from "./typeIcons.ts";
 
   let { store, flow, onOpen }: { store: ClientStore; flow: AppFlow; onOpen: (id: TabID) => void } = $props();
 
@@ -109,6 +111,14 @@
     2001, 2002, 3001]);
   const isCorporation = (id: number) => (id >= 1000000 && id < 2000000) || (id >= 98000000 && id < 99000000);
   const isCharacter = (id: number) => (id >= 3000000 && id < 4000000) || (id >= 90000000 && id < 98000000) || (id >= 100000000 && id <= 2147483647);
+  // LoadContent: a kill report (KillReportFinalBlow 140 / KillReportVictim 141) adds the victim ship type icon (Icon size
+  // SHIP_TYPE_ICON_SIZE 40, TOPRIGHT of the 40 wide left panel - over the type icon), KillMailFinalBlowFormatter
+  // .GetVictimShipTypeID: data['victimShipTypeID']. (Its 16 px tech level icon is not ported.)
+  function killShipIcon(row: ActivityNotificationRow): string | null {
+    if (row.typeID !== 140 && row.typeID !== 141) return null;
+    const t = Number(notificationArguments(asNotification(row)).victimShipTypeID);
+    return Number.isSafeInteger(t) && t > 0 ? typeIconUrl(t) : null;
+  }
   function senderPicture(typeID: number | null, senderID: number | null | undefined): string | null {
     if (typeID === null || !DISPLAY_SENDER.has(typeID)) return null;
     const id = Number(senderID ?? 0);
@@ -605,6 +615,7 @@
       {#each rows as row (row.notificationID)}
         {@const icon = notificationIconPath(row.typeID ?? 0)}
         {@const face = senderPicture(row.typeID ?? null, row.senderID)}
+        {@const ship = killShipIcon(row)}
         <div class="nf-entry" role="listitem"
           style={`border-image-source: url("${clientTexture(hovered === row.notificationID ? "res:/UI/Texture/classes/Notifications/historyBackReadOver.png" : "res:/UI/Texture/classes/Notifications/historyBackReadUp.png")}")`}
           onmouseenter={() => { hovered = row.notificationID; void playUiEvent("ui_button_soft2_play"); }}
@@ -612,6 +623,7 @@
           onclick={(e) => { if (!(e.target as HTMLElement).closest(".nf-close")) entryClick(row); }}>
           {#if icon}<img class="nf-icon" alt="" src={clientTexture(icon)} />{/if}
           {#if face}<img class="nf-icon nf-face" alt="" src={face} />{/if}
+          {#if ship}<img class="nf-icon nf-ship" alt="" src={ship} />{/if}
           <div class="nf-text">
             <div class="nf-subject">{subjectOf(row)}</div>
             {#if subtextOf(row)}<div class="nf-subtext">{subtextOf(row)}</div>{/if}
