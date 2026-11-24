@@ -1047,6 +1047,8 @@
       });
     });
   });
+  /** The tracked skill plan as the Skills poll last read it (GetSkillPlanSvc().GetTrackedSkillPlan). */
+  let trackedPlanKept: PersonalSkillPlanEntry | null = null;
   const SKILL_DONE = "UI/CharacterSheet/CharacterSheetWindow/SkillTabs/SkillTrainingComplete", SKILL_LEVEL = "UI/SkillQueue/Skills/SkillNameAndLevel", SKILL_COUNT = "UI/SkillQueue/Skills/NumberOfSkills";
   // skillsvc.OnServerSkillsChanged: a level trained (a skill's trainedSkillLevel above the one held) - msg_SkillTrained_play
   // and OnSkillLevelsTrained, the Skills button's completion animation
@@ -1127,7 +1129,9 @@
           view?.neocomSkillCompleted();
           // skillPlanService.OnSkillLevelsTrained: the tracked plan complete, and one of the levels trained among its
           // requirements -> on_tracked_plan_completed: the Skills button's plan ring plays its completion
-          void s.flow.personalSkillPlans().then((r) => {
+          // (the tracked plan as the Skills poll last read it - the client has it at hand - else read now)
+          const kept = trackedPlanKept;
+          void (kept ? Promise.resolve({ plans: [kept], trackedID: kept.id }) : s.flow.personalSkillPlans()).then((r) => {
             const plan = r?.plans.find((p) => p.id === r.trackedID);
             if (!plan) return;
             const now = new Map(held);
@@ -1181,7 +1185,7 @@
       if (sk.queue === null && Date.now() - triedAt > 30000) { triedAt = Date.now(); void s.flow.loadSkills().catch(() => {}); }
       if (Date.now() - plansAt > 60000) {
         plansAt = Date.now();
-        void s.flow.personalSkillPlans().then((r) => { tracked = r?.plans.find((p) => p.id === r.trackedID) ?? null; }).catch(() => {});
+        void s.flow.personalSkillPlans().then((r) => { tracked = r?.plans.find((p) => p.id === r.trackedID) ?? null; trackedPlanKept = tracked; if (!tracked) plansAt = Date.now() - 50000; }).catch(() => {});
       }
       const state = neocomSkillState(sk);
       const planRatio = tracked?.progress ? planProgressAt(tracked.progress, Date.now() + sk.clockOffsetMs).progress : null;
