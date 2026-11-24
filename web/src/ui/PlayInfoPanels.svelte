@@ -72,7 +72,9 @@
 </div>
 
 <style>
-  .ip-container { position: absolute; left: 44px; top: 8px; width: 312px; z-index: 15; pointer-events: none; }
+  /* the side panels (the live client, gridcheck g264 / g283): the Neocom 48 wide, then TOTOP the crimewatch TimerContainer
+     (top 12, 32 high, padBottom 6 - there with no timer too) and under it the InfoPanelContainer at (48, 50) */
+  .ip-container { position: absolute; left: 48px; top: 50px; width: 312px; z-index: 15; pointer-events: none; }
   .ip-panel { pointer-events: auto; }
   .ip-panel.hidden, .ip-main.hidden { display: none; }
   .ip-top { display: flex; align-items: center; height: 28px; }
