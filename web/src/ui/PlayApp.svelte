@@ -37,7 +37,7 @@
   const dronesCompact = droneWindowCompact;
   import { combatFlag, combatFontSize, damageMessageShown } from "./combatSettings.ts";
   import type { CombatMessageIcon } from "../play/combatMessage.ts";
-  import type { ActionMessage } from "../app/flow.ts";
+  import type { ActionMessage, FleetMenuAction } from "../app/flow.ts";
   import { iskWords } from "../bridge/questions.ts";
   import type { Colony, DamageEvent } from "../store/types.ts";
   import { emptyPlanetSurface } from "../bridge/planetDeployment.ts";
@@ -138,6 +138,7 @@
   import MiningOverlayControl from "./MiningOverlayControl.svelte";
   import HudSafetySelector from "./HudSafetySelector.svelte";
   import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
+  import { memberMenu, rankLabel, type MemberMenuPlace } from "../bridge/fleetMemberMenu.ts";
   import { spaceOffersOf, subfolderNameOf, unzipMemo, type SpaceBall } from "../bridge/locationsList.ts";
   import type { ActiveBookmarks, Bookmark } from "../bridge/bookmarks.ts";
   import { safetyBadge, safetyLocks } from "../space/crimewatch.ts";
@@ -3114,6 +3115,46 @@
         // always of one's own corporation
         s.flow.requestWords(["UI/Corporations/Common/ViewCorpMemberDetails", "UI/Corporations/Common/EditCorpMember"]);
         const director = (BigInt(s.store.station.get().online?.corpRole ?? "0") & 1n) !== 0n;
+        // menusvc.FleetMenu (unparsed False under the character's menu) with FleetMemberChecker's offers: Show Info, a line,
+        // Kick Fleet Member (ConfirmMenu), Make Fleet Leader, Add / Remove Pilot to Watchlist, Broadcast: Travel To Me, Leave My
+        // Fleet (ConfirmMenu), Move Fleet Member (MemberMenu). (The warp-to-member and cyno beacon entries not here yet.)
+        const fleetEntry = (() => {
+          const fleetState = s.store.fleet.get();
+          const me = s.store.station.get().online?.characterID ?? null;
+          if (fleetState.availability !== "ready" || me === null) return null;
+          const members = fleetState.fleet?.initState.value.members ?? [];
+          const mine = members.find((m) => Number(m.charID) === me);
+          const target = members.find((m) => Number(m.charID) === characterID);
+          if (!mine || !target) return null;
+          s.flow.requestWords(["UI/Fleet/Fleet", "UI/Fleet/KickFleetMember", "UI/Menusvc/ConfirmMenuOption", "UI/Fleet/MakeFleetLeader", "UI/Fleet/AddPilotToWatchlist", "UI/Fleet/RemovePilotFromWatchlist",
+            "UI/Fleet/FleetBroadcast/Commands/BroadcastTravelToMe", "UI/Fleet/LeaveMyFleet", "UI/Fleet/FleetSubmenus/MoveFleetMember", "UI/Fleet/FleetSubmenus/WingX", "UI/Fleet/FleetSubmenus/SquadX",
+            "UI/Fleet/FleetSubmenus/SquadNameWithNumMembers", ...[1, 2, 3, 4].map(rankLabel)]);
+          const self = characterID === me;
+          const boss = (mine.job & 2) !== 0;
+          const subordinate = mine.role === 1 || (mine.role === 2 && String(mine.wingID) === String(target.wingID)) || (mine.role === 3 && String(mine.squadID) === String(target.squadID));
+          const favorite = (fleetState.watchlist ?? []).includes(characterID);
+          const fleetAct = (action: FleetMenuAction) => () => void s.flow.fleetMenuAction(action).catch(() => {});
+          const confirm = (action: FleetMenuAction) => [{ label: w("UI/Menusvc/ConfirmMenuOption", "Confirm"), run: fleetAct(action) }];
+          const out: (ContextEntry | null)[] = [{ label: w("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => showInfo({ kind: "character", characterID }) }, null];
+          if (!self && (boss || subordinate)) out.push({ label: w("UI/Fleet/KickFleetMember", "Kick Fleet Member"), sub: confirm({ kind: "kick", characterID }) });
+          if (!self && boss) out.push({ label: w("UI/Fleet/MakeFleetLeader", "Make Fleet Leader"), run: fleetAct({ kind: "leader", characterID }) });
+          if (!self) out.push({ label: favorite ? w("UI/Fleet/RemovePilotFromWatchlist", "Remove Pilot from Watchlist") : w("UI/Fleet/AddPilotToWatchlist", "Add Pilot to Watchlist"), run: fleetAct({ kind: "watch", characterID, add: !favorite }) });
+          if (self && (boss || [1, 2, 3].includes(mine.role))) out.push({ label: w("UI/Fleet/FleetBroadcast/Commands/BroadcastTravelToMe", "Broadcast: Travel To Me"), run: fleetAct({ kind: "travelToMe" }) });
+          if (self) out.push({ label: w("UI/Fleet/LeaveMyFleet", "Leave My Fleet"), sub: confirm({ kind: "leave" }) });
+          const idOrNull = (id: number | string | null): number | null => id === null || id === "" || !Number.isFinite(Number(id)) ? null : Number(id);
+          const placements = memberMenu({ targetCharID: characterID, me, isMove: true, isFreeMove: fleetState.fleet?.initState.value.options.isFreeMove === true,
+            members: members.map((m) => ({ charID: Number(m.charID), role: m.role, job: m.job, wingID: idOrNull(m.wingID), squadID: idOrNull(m.squadID) })),
+            wings: (fleetState.fleet?.initState.value.wings ?? []).flatMap((wg) => { const wingID = idOrNull(wg.wingID); return wingID === null ? [] : [{ wingID, name: wg.name, squads: wg.squads.flatMap((sq) => { const squadID = idOrNull(sq.squadID); return squadID === null ? [] : [{ squadID, name: sq.name }]; }) }]; }) });
+          const rank = (p: MemberMenuPlace) => w(rankLabel(p.role), p.role === 1 ? "Fleet Commander" : p.role === 2 ? "Wing Commander" : p.role === 3 ? "Squad Commander" : "Squad Member");
+          const place = (p: MemberMenuPlace): ContextEntry => ({ label: rank(p), run: fleetAct({ kind: "move", characterID, wingID: p.wingID, squadID: p.squadID, role: p.role ?? 4 }) });
+          const moveSub: ContextEntry[] = placements.map((entry) => entry.kind === "place" ? place(entry) : {
+            label: entry.name || w("UI/Fleet/FleetSubmenus/WingX", `Wing ${entry.wingNumber}`, { wingNumber: entry.wingNumber }),
+            sub: entry.entries.map((child) => child.kind === "place" ? place(child) : {
+              label: w("UI/Fleet/FleetSubmenus/SquadNameWithNumMembers", `${child.name || `Squad ${child.squadNumber}`} (${child.numMembers})`, { squadName: child.name || w("UI/Fleet/FleetSubmenus/SquadX", `Squad ${child.squadNumber}`, { squadNumber: child.squadNumber }), numMembers: child.numMembers }),
+              sub: child.places.map(place) }) });
+          if (moveSub.length) out.push({ label: w("UI/Fleet/FleetSubmenus/MoveFleetMember", "Move Fleet Member"), sub: moveSub });
+          return { label: w("UI/Fleet/Fleet", "Fleet"), sub: out } as ContextEntry;
+        })();
         const memberDetailsEntry = { label: director ? w("UI/Corporations/Common/EditCorpMember", "Edit Corporation Member") : w("UI/Corporations/Common/ViewCorpMemberDetails", "View Member Details"),
           run: () => void s.flow.openCorporationMemberDetails(characterID).catch(() => {}) };
         if (characterID === s.store.station.get().online?.characterID) {
@@ -3121,6 +3162,7 @@
             // (g412, the client pilot's own ship out of a fleet: Show Info | View Member Details | Place Bounty | Capture Portrait,
             // Form Fleet With...)
             sub: [showInfoEntry, null, memberDetailsEntry, null, bountyEntry, null, portraitEntry,
+              ...(fleetEntry ? [fleetEntry] : []),
               ...(s.store.fleet.get().availability === "ready" ? [] : [{ label: w("UI/Fleet/FormFleetWith", "Form Fleet With..."), run: () => void s.flow.formFleetWith(characterID).catch(() => {}) }])] };
         }
         return {
@@ -3141,6 +3183,7 @@
             ] },
             { label: w("UI/EVEMail/SendPilotEVEMail", "Send Message"), run: () => { focusMail({ kind: "compose", characterID, name }); open("mail"); } },
             portraitEntry,
+            ...(fleetEntry ? [fleetEntry] : []),
             { label: w("UI/Fleet/FormFleetWith", "Form Fleet With..."), run: () => void s.flow.formFleetWith(characterID).catch(() => {}) }, null,
             { label: w("UI/Crimewatch/Duel/DuelMenuEntry", "Invite to Duel"), run: () => void s.flow.startDuel(characterID).catch(() => {}) },
           ],
