@@ -17,6 +17,9 @@
 
 import { unwrapLong, unwrapReal } from "./wire.ts";
 
+/** Dogma attributes for a precursor turret's spool. The deadline on the wire is a simulation FILETIME. */
+export const PRECURSOR_SPOOL = { maximum: 2734, current: 5804, deadline: 5818 } as const;
+
 function itemsOf(value: unknown): readonly unknown[] | null {
   if (Array.isArray(value)) return value;
   if (typeof value === "object" && value !== null && Array.isArray((value as { items?: unknown }).items)) {

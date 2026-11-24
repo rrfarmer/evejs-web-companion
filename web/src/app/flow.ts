@@ -35,7 +35,7 @@ import { ensureSiteLogisticsBookmark } from "../nav/siteLogisticsBookmark.ts";
 import { readRecoveryDrones, recoverLostDroneFlight, type DroneRecoveryState } from "../nav/lostDroneRecovery.ts";
 import { createSignal, readonlySignal, type ReadableSignal } from "../store/signals.ts";
 import { buildSlots, decodeChargeFits, decodeResources, decodeShipAttributes, planFittingApply, resourcesOf, slotFlagOf } from "../bridge/fitting.ts";
-import { decodeItemAttributeChanges, locationAttributeChanges, multiEventShipEffects, multiEventDamageMessages } from "../bridge/shipAttributeNotifications.ts";
+import { decodeItemAttributeChanges, locationAttributeChanges, multiEventShipEffects, multiEventDamageMessages, PRECURSOR_SPOOL } from "../bridge/shipAttributeNotifications.ts";
 import { deriveShipStats, known, lockLimitOf, unavailable, type ShipStats } from "../bridge/shipStats.ts";
 import { capacitorSimulator, capSimulatorValues, isOnlineModule } from "../bridge/dogma/capacitor.ts";
 import { offense } from "../bridge/dogma/offense.ts";
@@ -4371,6 +4371,8 @@ export interface AppFlow {
   starMapActivity(mode: StarMapActivityMode): Promise<{ systems: readonly StarMapActivity[]; homeSystemID: number | null }>;
   /** A module's repair begun by this page (its bank's: the module's own, else a slave's), or null. */
   moduleRepairOf(itemID: number): { readonly startedAtMs: number; readonly durationMs: number } | null;
+  /** A precursor turret's current bonus and max-damage deadline as last sent by dogma. */
+  precursorSpoolOf(itemID: number): { readonly current?: number; readonly deadline?: number } | undefined;
   /** A module type's effect of the overload category (null: it has none), asked once a type and kept. */
   overloadEffectOf(typeID: number): Promise<number | null>;
   /** A type's static dogma facts (its effects, default effect, group), asked of the BFF's copy once a type and kept. */
@@ -8771,6 +8773,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   function stopLiveStream(): void {
     academyTravelConversation.set(false);
     inventoryMoves.clear();
+    precursorSpools.clear();
     if (fittingRefreshTimer !== null) clearTimeout(fittingRefreshTimer);
     fittingRefreshTimer = null;
     containerReadGeneration += 1;
@@ -9860,6 +9863,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * were heard, each with the moment by the server's clock.
    */
   const damageStateHeard = new Map<string, { readonly itemID: number; readonly attributeID: number; readonly value: number; readonly at: number }>();
+  const precursorSpools = new Map<number, { current?: number; deadline?: number }>();
 
   /** dogma const attributeIsOnline. */
   const ATTRIBUTE_IS_ONLINE = 2;
@@ -9871,6 +9875,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   function applyShipAttributeChanges(method: string | null, args: readonly unknown[]): void {
     const heard = locationAttributeChanges(method, args);
     for (const change of heard) {
+      if (change.attributeID === PRECURSOR_SPOOL.current || change.attributeID === PRECURSOR_SPOOL.deadline) {
+        const spool = precursorSpools.get(change.itemID) ?? {};
+        if (change.attributeID === PRECURSOR_SPOOL.current) spool.current = change.value;
+        else spool.deadline = change.value;
+        precursorSpools.set(change.itemID, spool);
+      }
       if (!DAMAGE_STATE_ATTRIBUTES.has(change.attributeID)) continue;
       const key = `${change.itemID}|${change.attributeID}`;
       damageStateHeard.delete(key);
@@ -38947,6 +38957,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
     loadStarMap: () => (starMapLoading ??= api.loadStarMap(callOptions).catch((error) => { starMapLoading = null; throw error; })),
     starMapActivity,
+    precursorSpoolOf: (itemID) => precursorSpools.get(itemID),
     moduleRepairOf: (itemID: number) => moduleRepairs.repairOf(itemID)
       ?? (heldWeaponBanks().get(itemID) ?? []).map((slave) => moduleRepairs.repairOf(slave)).find((r) => r !== null) ?? null,
     repairModule,

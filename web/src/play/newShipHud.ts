@@ -1853,6 +1853,18 @@ export class NewShipHud {
         iconCell.style.minHeight = "24px";
         Object.assign(text.style, { padding: "4px 4px 0", alignSelf: "end" });
       }
+      if (row.progress !== undefined) {
+        Object.assign(text.style, { display: "grid", gridColumn: "2 / 4", gridTemplateColumns: "minmax(80px, 1fr) auto", gap: "8px", alignItems: "center", padding: "0 4px" });
+        const track = document.createElement("div");
+        track.setAttribute("role", "progressbar");
+        track.setAttribute("aria-label", "Damage ramp-up");
+        track.setAttribute("aria-valuenow", String(Math.round(100 * row.progress)));
+        Object.assign(track.style, { height: "6px", background: "rgba(255,255,255,0.15)" });
+        const fill = document.createElement("div");
+        Object.assign(fill.style, { height: "100%", width: `${100 * row.progress}%`, background: "var(--theme-accent, #79abc3)" });
+        track.append(fill);
+        text.append(track);
+      }
       if (row.values) {
         // AddAttributeRow: AttributeValueRowContainer, each value its 24 px icon and its label, about 65 px apart
         // (the cells share the label column: on the Ibis's gun two values 102 px apart)
@@ -1892,7 +1904,7 @@ export class NewShipHud {
         hint.textContent = row.shortcut;
         Object.assign(hint.style, { alignSelf: "start", marginLeft: "10px", padding: "0 13px", height: "18px", lineHeight: "18px", background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)", fontWeight: "bold" });
       }
-      if (row.values) grid.append(iconCell, text);
+      if (row.values || row.progress !== undefined) grid.append(iconCell, text);
       else grid.append(iconCell, text, hint);
     }
     t.append(frame, pointer, grid);

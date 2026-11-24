@@ -1,9 +1,7 @@
 // The module tooltip of the ship HUD's slots (eve/client/script/ui/inflight/shipModuleButton/moduleButtonTooltip.py,
 // ModuleButtonTooltip, as hud/client/moduleTray/moduleSlot.py opens it through TooltipModuleWrapper): the module's type
 // and icon with its slot's shortcut, its charge, its range, and what its group says of itself. UpdateToolTips builds the
-// rows again every second while it is open; the panel is the caller's. Rows not done yet: the weapons' damage per
-// second at the most (GetMaxDamageMultiplier, the precursor weapons' spool), the resistance, damage-control, ECM, sensor-damper, painter,
-// disruptor, cloak, cyno, siege, smartbomb and fighter rows, and the reactivation and reload countdowns.
+// rows again every second while it is open; the panel is the caller's.
 
 import { formatNumeric } from "../bridge/pyNumbers.ts";
 import { fmtDist } from "../space/overview.ts";
@@ -18,6 +16,8 @@ export interface ModuleTooltipRow {
   readonly shortcut?: string | null;
   /** AddRowWithIconAndTextAndValue: a value at the row's right (the shortcut's place). */
   readonly value?: string | null;
+  /** Fraction filled in a progress row, with its percentage in text. */
+  readonly progress?: number;
   /** AddAttributeRow: a row of attribute values, each its icon and its text, under a header row. */
   readonly values?: readonly { readonly icon: string | null; readonly text: string }[];
   /** AddRowAndHeaderForManyAttributes' header: 24 px high, its text at the foot. */
@@ -56,6 +56,7 @@ export interface ModuleTooltipFacts {
    * GetDurationTimeLeft), null when not running or its active ship is not the pilot's.
    */
   readonly countdownText?: string | null;
+  readonly precursorSpool?: { readonly ratio: number; readonly countdown: string | null; readonly atMaximum: boolean } | null;
   /** An attribute's icon (dogma_data.get_attribute_icon_id) as a URL, and its display name. */
   attributeIcon(attributeID: number): string | null;
   attributeName(attributeID: number): string | null;
@@ -195,6 +196,17 @@ const breacherPod: InfoRow = (f, word, out, seconds) => {
   }
 };
 
+const precursorTurret: InfoRow = ({ active, precursorSpool }, word, out) => {
+  if (!active || !precursorSpool) return;
+  const { ratio, countdown, atMaximum } = precursorSpool;
+  const status = atMaximum ? word("UI/Inflight/ModuleRacks/Tooltips/MaxDamage", {})
+    : countdown !== null ? word("UI/Inflight/ModuleRacks/Tooltips/TimeUntilMaxDamage", { time: countdown }) : null;
+  if (status !== null) out.push({ icon: null, iconSize: 24, text: status });
+  const percentage = Math.round(100 * ratio);
+  const integer = { type: "long", value: String(percentage) };
+  out.push({ icon: null, iconSize: 24, text: word("UI/Common/Percentage", { percentage: integer }) ?? `${percentage}%`, progress: ratio });
+};
+
 // AddAttributeInfoWithAttributeName with ValuePercentageWithAttributeName ("-30% Signature Radius"): the attribute's icon,
 // skipped at 0 where the client skips it
 const VALUE_PERCENT = "UI/Inflight/ModuleRacks/Tooltips/ValuePercentageWithAttributeName";
@@ -274,6 +286,7 @@ INFO_BY_GROUP.set(4174, compressor);
 INFO_BY_GROUP.set(515, siege);
 INFO_BY_GROUP.set(481, scanProbeLauncher);
 INFO_BY_GROUP.set(4807, breacherPod);
+INFO_BY_GROUP.set(1986, precursorTurret);
 INFO_BY_GROUP.set(379, withName(554)); // AddTargetPainterInfo: signatureRadiusBonus
 INFO_BY_GROUP.set(1154, withName(3113)); // AddTargetBreakerInfo
 INFO_BY_GROUP.set(330, withName(306)); // AddCloakingDeviceInfo: maxVelocityModifier
@@ -530,5 +543,6 @@ export const MODULE_TOOLTIP_LABELS: readonly string[] = [
   "UI/Inflight/ModuleRacks/Tooltips/WarpScramblerStrength", "/Carbon/UI/Common/WrittenDateTimeQuantityShort/Second",
   "UI/Inflight/ModuleRacks/DamagePerSecond", "UI/Inflight/ModuleRacks/Tooltips/OneDamageTypeText",
   "UI/Inflight/ModuleRacks/Tooltips/DotEffectDuration",
+  "UI/Inflight/ModuleRacks/Tooltips/MaxDamage", "UI/Inflight/ModuleRacks/Tooltips/TimeUntilMaxDamage", "UI/Common/Percentage",
   "UI/Inflight/ModuleRacks/Tooltips/DamageTypesHeader", "UI/Inflight/ModuleRacks/Tooltips/DamageHitpoints",
 ];

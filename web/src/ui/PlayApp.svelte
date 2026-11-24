@@ -23,6 +23,8 @@
   import { splitResults, resultRows, SCAN_GROUP, PROBE_RESULT_WORD_LABELS, PROBE_RESULT_LABELS, MIN_WARP_DISTANCE, isAccurate } from "../bridge/probeResults.ts";
   import { romanLevel } from "../bridge/skills.ts";
   import { shortFormInterval, shortWrittenInterval, INTERVAL_WORD_LABELS } from "../bridge/timeInterval.ts";
+  import { filetimeToUnixMs } from "../bridge/activity.ts";
+  import { PRECURSOR_SPOOL } from "../bridge/shipAttributeNotifications.ts";
   import { fmtDist } from "../space/overview.ts";
   import { selectedSites as probeSitesSelected, selectSite as selectProbeSite } from "../app/probeSiteSelection.ts";
   import { addGameLogLine, beginGameLog } from "./gameLog.ts";
@@ -2536,10 +2538,26 @@
       const rack = ["High", "Medium", "Low"][Math.floor(place / 8)];
       const shortcut = facts && (facts.defaultEffectID ?? null) !== null && place >= 0 && rack ? shortcutOf(`CmdActivate${rack}PowerSlot${(place % 8) + 1}`) || null : null;
       const repair = s.flow.moduleRepairOf(m.itemID);
+      const groupID = slot?.module?.groupID ?? facts?.groupID ?? null;
+      const maximum = groupID === 1986 && m.active ? attrOf(item, PRECURSOR_SPOOL.maximum) ?? 0 : 0;
+      let precursorSpool = null;
+      if (maximum > 0) {
+        const heard = s.flow.precursorSpoolOf(m.itemID);
+        const current = heard?.current ?? attrOf(item, PRECURSOR_SPOOL.current) ?? 0;
+        const deadline = heard?.deadline ?? attrOf(item, PRECURSOR_SPOOL.deadline) ?? 0;
+        const endMs = filetimeToUnixMs(BigInt(Math.trunc(deadline)));
+        const now = live?.effectSimNow() ?? live?.simNow() ?? 0;
+        const left = endMs !== null && now > 0 ? Math.trunc((endMs - now) * 10_000) : null;
+        precursorSpool = {
+          ratio: Math.max(0, Math.min(1, current / maximum)),
+          atMaximum: left !== null && left <= 0,
+          countdown: left !== null && left > 0 ? shortWrittenInterval(BigInt(left), s.store.words.get().templates, "minute") : null,
+        };
+      }
       return moduleTooltipRows({
         typeID: m.typeID,
         typeName: typeNames[String(m.typeID)]?.[0] ?? m.name ?? "",
-        groupID: slot?.module?.groupID ?? facts?.groupID ?? null,
+        groupID,
         numInGroup: slaves.length ? slaves.length + 1 : 0,
         shortcut,
         damagePercent: (m.damage ?? 0) * 100,
@@ -2553,6 +2571,7 @@
         usesMissiles: facts?.effects.includes(101) ?? false,
         pilotAttr: (id) => attrOf(allInfo?.shipModifiedCharAttributes ?? allInfo?.character ?? undefined, id),
         active: m.active,
+        precursorSpool,
         // GetDurationTimeLeft: the running cycle's start and duration; here its fraction done and the duration attribute
         countdownText: m.active && typeof m.cycle === "number" && (attrOf(item, 73) ?? 0) > 0
           ? shortFormInterval(BigInt(Math.max(0, Math.round((1 - m.cycle) * (attrOf(item, 73) ?? 0)))) * 10_000n, s.store.words.get().templates, "minute", "second")
