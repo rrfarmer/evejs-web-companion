@@ -804,13 +804,13 @@
   }
 
   /** The right-click menu: where, and its entries (a reason in place of an entry that cannot run). */
-  type MenuEntry = { label: string; path?: string; disabled?: string | null; act?: () => Promise<void>; sub?: MenuEntry[]; sep?: boolean };
+  type MenuEntry = { label: string; path?: string; info?: boolean; disabled?: string | null; act?: () => Promise<void>; sub?: MenuEntry[]; sep?: boolean };
   const SEP: MenuEntry = { label: "", sep: true };
   // The window's menus in the client's ContextMenu (CreateMenuView: MenuUnderlay, 22 px entries), as the space menu's
   const ctxMenu = new ContextMenu();
   onDestroy(() => ctxMenu.close());
   const toCtx = (entries: readonly MenuEntry[]): (ContextEntry | null)[] => entries.map((m) => (m.sep ? null : {
-    label: m.label, disabled: m.disabled ?? null, ...(m.path ? { path: m.path } : {}),
+    label: m.label, disabled: m.disabled ?? null, ...(m.path ? { path: m.path } : {}), ...(m.info ? { info: true } : {}),
     ...(m.act ? { run: () => { const act = m.act!; void run(act); } } : {}),
     ...(m.sub ? { sub: toCtx(m.sub) } : {}),
   }));
@@ -839,7 +839,8 @@
     const groups: MenuEntry[][] = [
       // UI/Drones/LaunchDrone is a plural template: the client's entry says it with numDrones 1, its count after it
       [{ label: count(plainText(formatTemplate(say(MENU_WORDS.launchOne), { numDrones: 1 }, { nameOf: () => "" }))), act: () => flow.launchDrones(ids) }],
-      multi ? [] : [{ label: say(MENU_WORDS.info), act: async () => showInfo({ kind: "type", typeID, itemID: ids[0] }) }],
+      // (Show Info with SHOWINFOGROUP's badge, as the client draws it on a bay drone - g334b)
+      multi ? [] : [{ label: say(MENU_WORDS.info), info: true, act: async () => showInfo({ kind: "type", typeID, itemID: ids[0] }) }],
       // a group's Expand / Collapse has no menu group: after Show Info (menuHierarchy's None after SHOWINFOGROUP), its line kept
       folder ? [folder.expand] : [],
       // (a drone group's menu filters out ViewTypesMarketDetails and BuyThisType: dronesWindow.GetSubFolderMenu)

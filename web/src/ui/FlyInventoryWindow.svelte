@@ -339,8 +339,8 @@
       // OfferSimulateShipFitting (the pilot's own ship): UI/Fitting/FittingWindow/SimulateShipFitting, GhostFitShip
       { label: word("UI/Fitting/FittingWindow/SimulateShipFitting", "Simulate Fit"), run: () => void flow.simulateShip().then(() => { dispatchEvent(new CustomEvent("evejs:open-fitting")); }).catch(() => {}) },
       null,
-      // (no SHOWINFOGROUP badge: the client draws this node's Show Info without one, g336)
-      { label: word(MENU.info, "Show Info"), run: () => showInfo({ kind: "type", typeID, itemID: itemID ?? undefined }) },
+      // (SHOWINFOGROUP's badge, info.png on circleBG: drawn by the client here too - g336b, its menu backgrounds read)
+      { label: word(MENU.info, "Show Info"), info: true, run: () => showInfo({ kind: "type", typeID, itemID: itemID ?? undefined }) },
       null,
       { label: word(MENU.market, "View Market Details"), path: MENU.market, run: () => showMarketDetails(typeID) },
       { label: word(MENU.buy, "Buy This Type"), run: () => buyMarketType(typeID) },
@@ -784,8 +784,7 @@
       entries.push({ label: word(MENU.moveToDroneBay, "Move to Drone Bay"), run: () => void act(() => flow.transferItems(ids, placeOf(fromBay), placeOf("drone"), null)) }, 11);
     }
     if (!multi) {
-      // (no SHOWINFOGROUP badge: the item menu's MenuLabel entries take no menu group - drawn without one, g335)
-      entries.push({ label: word(MENU.info, "Show Info"), run: () => showInfo({ kind: "type", typeID: first.typeID, itemID: first.itemID }) }, 2);
+      entries.push({ label: word(MENU.info, "Show Info"), info: true, run: () => showInfo({ kind: "type", typeID: first.typeID, itemID: first.itemID }) }, 2);
       entries.push({ label: word(MENU.contracts, "Find in Contracts"), run: () => findInContracts(first.typeID) }, 10);
       entries.push({ label: word(MENU.assets, "Find Personal Assets"), run: () => findInPersonalAssets(typeName(first.typeID)) }, 10);
       entries.push({ label: word(MENU.quickbar, "Add to Market Quickbar"), run: () => { changeQuickbar((q) => addType(q, first.typeID)); } }, 10);
