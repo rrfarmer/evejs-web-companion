@@ -3971,6 +3971,19 @@ export class SpaceView {
       case "CmdSelectTargetItem": break;
       // CmdSendBroadcast_Target (X): fleetSvc.SendBroadcast_Target - SendBubbleBroadcast('Target') on the thing clicked
       case "CmdSendBroadcast_Target": this.actions.broadcastOnItem?.("Target", id, e?.typeID ?? null); break;
+      // CmdSendBroadcast_HealTarget: SendBroadcast_Heal_Target - SendBubbleBroadcast('HealTarget') on the thing clicked
+      case "CmdSendBroadcast_HealTarget": this.actions.broadcastOnItem?.("HealTarget", id, e?.typeID ?? null); break;
+      // CmdSendBroadcast_WarpToItemID / AlignToItemID: the slim item's type (none: nothing), CanAlignOrWarpToTypeID (not an
+      // entity, drone, ship or fighter), then SendSystemBroadcast('WarpTo' / 'AlignTo', itemID, typeID)
+      case "CmdSendBroadcast_WarpToItemID":
+      case "CmdSendBroadcast_AlignToItemID": {
+        const typeID = e?.typeID ?? null;
+        if (typeID === null || [11, 18, 6, 87].includes(e?.categoryID ?? -1)) break;
+        this.actions.broadcastOnItem?.(cmd === "CmdSendBroadcast_WarpToItemID" ? "WarpTo" : "AlignTo", id, typeID);
+        break;
+      }
+      // CmdSendBroadcast_JumpToItemID: a stargate's only (groupStargate), SendSystemBroadcast('JumpTo', itemID, typeID)
+      case "CmdSendBroadcast_JumpToItemID": if (e?.typeID != null && e.groupID === 10) this.actions.broadcastOnItem?.("JumpTo", id, e.typeID); break;
     }
   }
 

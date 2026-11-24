@@ -99,6 +99,7 @@ export function shortcutFromKey(e: Pick<KeyboardEvent, "code" | "ctrlKey" | "alt
 export const COMBAT_COMMANDS = [
   "CmdApproachItem", "CmdOrbitItem", "CmdKeepItemAtRange", "CmdWarpToItem", "CmdDockOrJumpOrActivateGate", "CmdAlignToItem",
   "CmdShowItemInfo", "CmdLockTargetItem", "CmdUnlockTargetItem", "CmdSelectTargetItem", "CmdToggleLookAtItem", "CmdToggleTargetItem", "CmdOpenSelectedCargoContainer", "CmdGetLocationMenuForNavigation", "CmdOpenRadialMenu", "CmdSendBroadcast_Target",
+  "CmdSendBroadcast_HealTarget", "CmdSendBroadcast_WarpToItemID", "CmdSendBroadcast_AlignToItemID", "CmdSendBroadcast_JumpToItemID",
 ] as const;
 export type CombatCommand = (typeof COMBAT_COMMANDS)[number];
 export const isCombatCommand = (cmd: string): cmd is CombatCommand => (COMBAT_COMMANDS as readonly string[]).includes(cmd);
