@@ -55,6 +55,7 @@
   import { markWreckViewed } from "../play/viewedWrecks.ts";
   import { installClientHints } from "../play/labelShortcutTooltip.ts";
   import NotificationFeed from "./NotificationFeed.svelte";
+  import CrimewatchTimers from "./CrimewatchTimers.svelte";
   import { get as storeGet } from "svelte/store";
   import { hudSetting, hudSettingNow, setHudSetting, slotOrderOf } from "../store/hudSettings.ts";
   import { createSession, type Session } from "../app/sessions.ts";
@@ -3207,6 +3208,8 @@
   {/if}
   <!-- the notification feed: its widget and history drawer (NotificationFeed.svelte, notificationCenter.py), on the
        abovemain layer docked and in space alike (the live client g264 showed it in space; the layer is not the space view's) -->
+  <!-- the crimewatch timers on the side panels (CrimewatchTimers.svelte, crimewatchTimers.py), in space -->
+  {#if session && !docked}<CrimewatchTimers store={session.store} />{/if}
   {#if session}<NotificationFeed store={session.store} flow={session.flow} onOpen={(id) => open(id)} />{/if}
   {#if session && reagentBay}<SovReagentBay store={session.store} flow={session.flow} hubID={reagentBay.hubID} solarSystemID={reagentBay.solarSystemID} isStationMgr={reagentBay.isStationMgr} onClose={() => { reagentBay = null; }} />{/if}
   {#if session && sovHubConfig}
