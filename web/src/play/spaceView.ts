@@ -63,6 +63,8 @@ const COMBAT_ICON_IDS: Readonly<Partial<Record<CombatCommand, string>>> = {
   CmdLockTargetItem: "target", CmdUnlockTargetItem: "target", CmdOpenSelectedCargoContainer: "open_cargo", CmdOrbitItem: "orbit",
   CmdShowItemInfo: "show_info", CmdToggleLookAtItem: "look_at", CmdWarpToItem: "warp_to",
 };
+/** LoadLightCombatCommand's commands (eveCommands: CmdGetLocationMenuForNavigation; CmdGetUiPointer is not a click's). */
+const isLightCombat = (cmd: CombatCommand): boolean => cmd === "CmdGetLocationMenuForNavigation";
 const combatIcon = (cmd: CombatCommand): string | null => {
   const id = COMBAT_ICON_IDS[cmd];
   return id ? `res:/UI/Texture/eveicon/control_icons/${id}_32px.png` : null;
@@ -1625,7 +1627,8 @@ export class SpaceView {
   constructor(private readonly live: LivePark, private actions: SpaceActions, private readonly where: { system: string; security: number | null }, private readonly options: SpaceViewOptions = {}) {
     this.root.className = "space";
     // Toggled3DViewWarning's words, asked for up front (they show the moment the key is pressed)
-    this.actions.requestWords?.(["UI/Shared/ExteriorViewDisabled", "UI/Shared/PressToRestoreView"]);
+    this.actions.requestWords?.(["UI/Shared/ExteriorViewDisabled", "UI/Shared/PressToRestoreView", "UI/Commands/CmdGetLocationMenuForNavigation",
+      "UI/Commands/CmdGetLocationMenuForNavigationDesc", "UI/Commands/ClickTarget"]);
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.root.appendChild(this.renderer.domElement);
@@ -4043,15 +4046,23 @@ export class SpaceView {
   private loadCombat(cmd: CombatCommand, code: string): void {
     this.releaseModifierHold();
     this.combat = { cmd, code };
-    // LoadLightCombatCommand (CmdGetLocationMenuForNavigation): held with no indication
-    if (cmd === "CmdGetLocationMenuForNavigation") return;
     // LoadCombatCommand: sm.ScatterEvent('OnFreezeOverviewWindows') - every overview's order held while the key is down
-    for (const o of [this.overview, ...this.extraOverviews]) o.setFrozen(true);
-    const label = labelOf(cmd);
-    const name = (label ? this.actions.word?.(label) : null) ?? cmd;
-    const click = this.actions.word?.("UI/Commands/ClickTarget") ?? "";
+    // (LoadLightCombatCommand, CmdGetLocationMenuForNavigation's: not)
+    if (!isLightCombat(cmd)) for (const o of [this.overview, ...this.extraOverviews]) o.setFrozen(true);
     this.temporaryIndication = null;
-    this.shortcutIndication = { header: name, sub: click, icon: combatIcon(cmd) };
+    this.shortcutIndication = this.combatIndication(cmd);
+  }
+
+  /**
+   * The shortcut indication a loaded combat command sets: LoadCombatCommand's IndicationData(description,
+   * UI/Commands/ClickTarget, icon=GetIcon()); LoadLightCombatCommand's (description, GetDetailedDescription()), no icon -
+   * read live: 'Open Location Menu' / 'Right click in space to open location menu directly'.
+   */
+  private combatIndication(cmd: CombatCommand): { header: string; sub: string; icon: string | null } {
+    const label = labelOf(cmd);
+    const header = (label ? this.actions.word?.(label) : null) ?? cmd;
+    if (isLightCombat(cmd)) return { header, sub: (label ? this.actions.word?.(`${label}Desc`) : null) ?? "", icon: null };
+    return { header, sub: this.actions.word?.("UI/Commands/ClickTarget") ?? "", icon: combatIcon(cmd) };
   }
 
   /** A key down: a modifier alone pressed loads its modifier-only combat command (modHold); any other key lets it go. */
@@ -4061,15 +4072,13 @@ export class SpaceView {
     if (cmd !== null && this.modHold?.cmd === cmd) return; // the key repeating
     this.releaseModifierHold();
     // LoadCombatCommand: in space, and not over a command already held
-    if (cmd === null || this.combat || cmd === "CmdGetLocationMenuForNavigation") return;
-    for (const o of [this.overview, ...this.extraOverviews]) o.setFrozen(true);
+    if (cmd === null || this.combat) return;
+    if (!isLightCombat(cmd)) for (const o of [this.overview, ...this.extraOverviews]) o.setFrozen(true);
     const hold: NonNullable<SpaceView["modHold"]> = { cmd, timer: null, shown: false };
     hold.timer = setTimeout(() => {
       if (this.modHold !== hold) return;
-      const label = labelOf(cmd);
-      const name = (label ? this.actions.word?.(label) : null) ?? cmd;
       this.temporaryIndication = null;
-      this.shortcutIndication = { header: name, sub: this.actions.word?.("UI/Commands/ClickTarget") ?? "", icon: combatIcon(cmd) };
+      this.shortcutIndication = this.combatIndication(cmd);
       hold.shown = true;
     }, 300);
     this.modHold = hold;
