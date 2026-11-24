@@ -22,7 +22,7 @@
   import { autoOpenWatchlist } from "./watchlistSettings.ts";
   import { splitResults, resultRows, SCAN_GROUP, PROBE_RESULT_WORD_LABELS, PROBE_RESULT_LABELS, MIN_WARP_DISTANCE, isAccurate } from "../bridge/probeResults.ts";
   import { romanLevel } from "../bridge/skills.ts";
-  import { shortFormInterval } from "../bridge/timeInterval.ts";
+  import { shortFormInterval, shortWrittenInterval, INTERVAL_WORD_LABELS } from "../bridge/timeInterval.ts";
   import { fmtDist } from "../space/overview.ts";
   import { selectedSites as probeSitesSelected, selectSite as selectProbeSite } from "../app/probeSiteSelection.ts";
   import { addGameLogLine, beginGameLog } from "./gameLog.ts";
@@ -833,6 +833,43 @@
     return () => { neocomInst = null; neocom.root.remove(); neocom.dispose(); };
   });
   let neocomInst = $state<Neocom | null>(null);
+  // ButtonSkillsTooltipPanel's training rows: the queue's head (skillqueue.SkillInTraining), its name and next level in
+  // Roman, the time left (GetTimeLeftToTrainText: FormatTimeIntervalShortWritten from day to hour over a day, minute over
+  // an hour, second below), its SkillBar (the trained levels CC, the one in training (0.653, 0.753, 0.784) - g309) and
+  // its description
+  $effect(() => {
+    const s = session, nc = neocomInst;
+    if (!s) return;
+    const ROMAN = ["", "I", "II", "III", "IV", "V"];
+    const read = async () => {
+      const sk = s.store.skills.get();
+      const head = sk.queue?.active ? sk.queue.entries[0] : undefined;
+      if (!head || head.endTimeMs === null) return null;
+      const facts = await s.flow.typeFacts([head.typeID]).catch(() => null);
+      const descriptionID = facts?.get(head.typeID)?.descriptionID ?? null;
+      const labels = ["UI/Neocom/SkillInTraining", ...INTERVAL_WORD_LABELS, ...(descriptionID ? [`#${descriptionID}`] : [])];
+      s.flow.requestWords(labels);
+      for (let i = 0; i < 15 && labels.some((l) => s.store.words.get().templates[l] === undefined); i += 1) await new Promise((r) => setTimeout(r, 100));
+      const t = s.store.words.get().templates;
+      const row = sk.skills?.find((r) => r.typeID === head.typeID);
+      const trained = row?.level ?? head.toLevel - 1;
+      const boxes = [1, 2, 3, 4, 5].map((l) => (l <= trained ? "rgb(204, 204, 204)" : l === head.toLevel ? "rgb(167, 192, 200)" : "transparent"));
+      const name = `${typeNames[String(head.typeID)]?.[0] ?? row?.name ?? ""} ${ROMAN[head.toLevel] ?? head.toLevel}`;
+      const end = head.endTimeMs;
+      const timeLeft = () => {
+        const ms = Math.max(0, end - (Date.now() + s.store.skills.get().clockOffsetMs));
+        const showTo = ms > 86400000 ? "hour" : ms > 3600000 ? "minute" : "second";
+        return shortWrittenInterval(BigInt(Math.round(ms)) * 10_000n, s.store.words.get().templates, "day", showTo) ?? "";
+      };
+      const desc = descriptionID ? t[`#${descriptionID}`] : null;
+      return { header: plainText(String(t["UI/Neocom/SkillInTraining"] ?? "Skill in Training")), name, timeLeft, description: typeof desc === "string" ? plainText(desc) : "", boxes };
+    };
+    if (nc) nc.skillTip = read;
+    skillTipRead = read;
+    view?.neocomSkillTip(read);
+  });
+  /** (handed to the space view's Neocom by the Skills poll, the view being made after this) */
+  let skillTipRead: Neocom["skillTip"] = null;
   // BtnDataNodeAchievements.update_badge: get_unclaimed_rewards_count() > 0 makes the Achievements button important with
   // UI/Neocom/UnclaimedRewards ("You have unclaimed rewards", the live client g290). The page has no milestone signals:
   // read at entry and each minute.
@@ -1027,6 +1064,7 @@
       const state = neocomSkillState(sk);
       neocomInst?.setSkills(state);
       view?.setNeocomSkills(state);
+      view?.neocomSkillTip(skillTipRead);
     };
     paint();
     const stop = s.store.skills.subscribe(paint);

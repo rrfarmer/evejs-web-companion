@@ -185,6 +185,65 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
   placeTip(tip, anchor, pointer === "top" ? POINT.TOP_2 : POINT.LEFT_2);
 }
 
+/** What ButtonSkillsTooltipPanel shows of the skill in training. */
+export interface SkillTrainingTip {
+  readonly header: string;
+  /** GetDescriptionAndLevelInRoman(nextLevel): "Drones V". */
+  readonly name: string;
+  /** GetTimeLeftToTrainText, asked again each half second (UpdateThread). */
+  readonly timeLeft: () => string;
+  readonly description: string;
+  /** The SkillBar's five boxes' fills. */
+  readonly boxes: readonly string[];
+}
+let skillTipTimer: ReturnType<typeof setInterval> | null = null;
+/**
+ * ButtonSkillsTooltipPanel with a skill in training (buttonSkillsTooltipPanel.py, 3698585; measured on the live client
+ * g308 / g309, Drones IV -> V: 292 x 164): AddLabelShortcut; AddMediumHeader UI/Neocom/SkillInTraining (a 260 x 36
+ * cell, the label 11 in and 9 down, 0.75); the skillBarCont row - the SkillBar 60 x 12 (3 down; boxes 10 x 10 every
+ * 12), the time left at the right (0.75), the name and level between, 10 in from the bar (TextColor.HIGHLIGHT 0.9);
+ * the description AddLabelMedium wrapWidth 260 (0.75). The tracked skill plan's gauge above them is not on the page.
+ */
+export function showSkillTrainingTooltip(anchor: HTMLElement, label: string, shortcut: string, t: SkillTrainingTip): void {
+  showLabelShortcutTooltip(anchor, label, shortcut, [], "left", true);
+  if (!tip) return;
+  const grid = tip.querySelector<HTMLElement>(":scope > .lst-grid");
+  if (!grid) return;
+  const header = document.createElement("div");
+  header.textContent = t.header;
+  Object.assign(header.style, { gridColumn: "1 / 3", height: "36px", boxSizing: "border-box", padding: "9px 11px 0", lineHeight: "18px", color: "rgba(255,255,255,0.75)" });
+  const row = document.createElement("div");
+  Object.assign(row.style, { gridColumn: "1 / 3", display: "flex", alignItems: "flex-start", width: "260px", height: "18px" });
+  const bar = document.createElement("div");
+  Object.assign(bar.style, { display: "flex", flex: "none", width: "60px", height: "12px", marginTop: "3px" });
+  for (const fill of t.boxes) {
+    const cell = document.createElement("span");
+    Object.assign(cell.style, { width: "12px", height: "12px", boxSizing: "border-box", padding: "1px", display: "block" });
+    const b = document.createElement("span");
+    Object.assign(b.style, { display: "block", width: "10px", height: "10px", background: fill });
+    cell.append(b);
+    bar.append(cell);
+  }
+  const name = document.createElement("span");
+  name.textContent = t.name;
+  Object.assign(name.style, { flex: "1", padding: "0 4px 0 10px", color: "rgba(255,255,255,0.9)", overflow: "hidden" });
+  const time = document.createElement("span");
+  time.textContent = t.timeLeft();
+  Object.assign(time.style, { flex: "none", color: "rgba(255,255,255,0.75)" });
+  row.append(bar, name, time);
+  const desc = document.createElement("div");
+  desc.textContent = t.description;
+  Object.assign(desc.style, { gridColumn: "1 / 3", whiteSpace: "normal", width: "260px", color: "rgba(255,255,255,0.75)" });
+  grid.append(header, row);
+  if (t.description) grid.append(desc);
+  placeTip(tip, anchor, POINT.LEFT_2);
+  if (skillTipTimer) clearInterval(skillTipTimer);
+  skillTipTimer = setInterval(() => {
+    if (!time.isConnected) { if (skillTipTimer) clearInterval(skillTipTimer); skillTipTimer = null; return; }
+    time.textContent = t.timeLeft();
+  }, 500);
+}
+
 /**
  * A panel of icons and values, as DroneEntry.LoadDamageGaugeTooltipPanel builds one: an iconCont of 16 px sprites and
  * a textCont of EveLabelMedium values, each centred in a 40 px column, side by side; above its anchor.

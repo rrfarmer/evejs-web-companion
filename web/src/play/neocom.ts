@@ -4,7 +4,7 @@
 
 import { clientTexture } from "./window.ts";
 import { shortcutOf } from "./shortcutKeys.ts";
-import { hideLabelShortcutTooltip, showLabelShortcutTooltip, tooltipDue } from "./labelShortcutTooltip.ts";
+import { hideLabelShortcutTooltip, showLabelShortcutTooltip, tooltipDue, showSkillTrainingTooltip, type SkillTrainingTip } from "./labelShortcutTooltip.ts";
 import { playUiEvent } from "./uiAudio.ts";
 import type { SkillsState } from "../store/types.ts";
 
@@ -288,6 +288,8 @@ export class Neocom {
   /** ButtonSkills (skillsBtn): its gauges and its icon. */
   private readonly skills = document.createElement("button");
   private skillState: NeocomSkillState = null;
+  /** What the Skills tooltip shows of the skill in training, read as the tooltip opens. */
+  skillTip: (() => Promise<SkillTrainingTip | null>) | null = null;
   /** The EVE menu's panels, on the page's body. */
   private menuParts: HTMLElement[] = [];
   /** Takes the EVE menu's panels off the page. */
@@ -432,6 +434,15 @@ export class Neocom {
     // g266: 282 x 102, the lines at 16 / 42 / 68). In training it goes on to the tracked plan's gauge, Skill in Training,
     // the skill bar with the time left and the skill's description - not on the page yet: the label row alone.
     skills.addEventListener("mouseenter", () => tooltipDue(skills, () => {
+      // a skill in training: ButtonSkillsTooltipPanel's own rows (the page's data through skillTip)
+      if (this.skillState?.training && this.skillTip) {
+        const ask = this.skillTip;
+        void ask().then((t) => {
+          if (!t || !skills.matches(":hover")) return;
+          showSkillTrainingTooltip(skills, "Skills", shortcutOf("OpenSkillsWindow"), t);
+        }).catch(() => {});
+        return;
+      }
       const idle = this.skillState !== null && !this.skillState.training;
       showLabelShortcutTooltip(skills, "Skills", shortcutOf("OpenSkillsWindow"), idle
         ? [{ text: "You have no skills in training!", color: "rgb(243, 144, 88)" }, "Click to find Skill Plans or Skills to train"] : [], "left", true);
