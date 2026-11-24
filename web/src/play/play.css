@@ -229,7 +229,10 @@ button { font: inherit; color: inherit; }
 .nc-loading { flex: none; height: 30px; background: rgba(0, 0, 0, 0.2); }
 /* ClockButton (clockCont, 20 high, the Neocom's width) and its InGameClock label: bold, 11 px, the normal 0.75, centred
    (the live client, gridcheck g247: the label 27 x 14 at 11, 3 of 48 x 20) */
-.nc-clock { height: 20px; flex: none; align-self: stretch; display: grid; place-items: center; font-size: 11px; font-weight: bold; line-height: 14px; color: rgba(255, 255, 255, 0.75); cursor: pointer; }
+.nc-clock { height: 20px; flex: none; align-self: stretch; display: grid; place-items: center; font-size: 11px; font-weight: bold; line-height: 14px; color: rgba(255, 255, 255, 0.75); cursor: pointer;
+  /* ClockButton: Fill(bgParent, (0, 0, 0, 0.4)); WrapperButton mouseHoverSprite (additive, to OPACITY_HOVER 0.05 over TIME_ENTRY 0.1 s) */
+  background: rgba(0, 0, 0, 0.4); box-shadow: inset 0 0 0 20px rgba(255, 255, 255, 0); transition: box-shadow 0.1s; }
+.nc-clock:hover { box-shadow: inset 0 0 0 20px rgba(255, 255, 255, 0.05); }
 
 /* The ship HUD draws itself (shipHud.ts). What the ship is doing sits where the client's
    HudActionIndicationContainer does: centred, hudContainer (200) + buff bar (44) + 8 px above the bottom. */

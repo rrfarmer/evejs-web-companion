@@ -632,7 +632,8 @@ export class Neocom {
       const when = `${d.getUTCFullYear()}.${two(d.getUTCMonth() + 1)}.${two(d.getUTCDate())} ${two(d.getUTCHours())}:${two(d.getUTCMinutes())}`;
       showLabelShortcutTooltip(this.clock, "Calendar", shortcutOf("OpenCalendar"), [when], "left", true);
     };
-    this.clock.addEventListener("mouseenter", () => tooltipDue(this.clock, clockTip));
+    // ClockButton (a WrapperButton): OnMouseEnter SOUND_BUTTON_HOVER and the hover fill (play.css)
+    this.clock.addEventListener("mouseenter", () => { void playUiEvent("ui_button_soft1_play"); tooltipDue(this.clock, clockTip); });
     this.clock.addEventListener("mouseleave", neocomTipOff);
     // ClockButton.OnClick: PlaySound(SOUND_BUTTON_CLICK), then OpenCalendar
     this.clock.addEventListener("click", () => { neocomTipOff(); void playUiEvent("ui_button_soft4_play"); open("calendar"); });
