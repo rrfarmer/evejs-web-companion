@@ -1048,8 +1048,7 @@
     ondragover={groupDragOver(key, inSpace, ids)} ondragleave={() => (dropOn = null)} ondrop={(e) => drop(inSpace ? "space" : "bay", group.label, e)}
     oncontextmenu={(e) => openMenu(e, groupMenu(key, group, ids, inSpace))}>
     <span class="expander" style:background-image={`url(${openGroups.has(key) ? ICON.expanderOpen : ICON.expanderClosed})`}></span>
-    <!-- DroneSubGroup.ShowIconGlow (OnDragEnter of drones not all in the group): its icon's glow to 1 over TIME_ENTRY, back over TIME_EXIT on leaving -->
-    {#if favoriteID === group.id}<span class="star" class:glow={dropOn === key} style:background-image={`url(${ICON.star})`}></span>{/if}
+    {#if favoriteID === group.id}<span class="star" style:background-image={`url(${ICON.star})`}></span>{/if}
     <span class="name">{groupWithCount(group.label, count)}</span>
     <span class="row-buttons">
       {#if inSpace}
@@ -1338,8 +1337,7 @@
   /* ListGroup: the expander a 16 x 16 GlowSprite 4 px into the row; the favourite's star 2 px after it, the label 4 px after the star
      (measured on the live client, gridcheck: a DroneSubGroupInBay row - expander 22, star 40, label 60 from the window) */
   .expander { width: 16px; height: 16px; flex: none; background: center / 16px 16px no-repeat; }
-  .star { width: 16px; height: 16px; background: center / 16px 16px no-repeat; flex: none; transition: filter 0.3s; }
-  .star.glow { filter: brightness(1.8) drop-shadow(0 0 3px rgba(255, 255, 255, 0.8)); transition: filter 0.1s; }
+  .star { width: 16px; height: 16px; background: center / 16px 16px no-repeat; flex: none; }
   /* ButtonSeperatorLine between Return and Orbit and Return to Drone Bay */
   .sep { width: 1px; height: 14px; margin: 0 3px; align-self: center; background: rgba(255, 255, 255, 0.15); }
   .row .row-sep { flex: none; height: auto; align-self: stretch; margin: 4px; background: rgba(255, 255, 255, 0.1); }
