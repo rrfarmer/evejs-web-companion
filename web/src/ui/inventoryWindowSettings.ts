@@ -32,3 +32,14 @@ export function setInvKeepFilter(on: boolean): void { keep("evejs.ui.inventory.k
  * entry's children toggled). */
 export const invAlwaysSeparate = createSignal<boolean>(read("evejs.ui.inventory.openSecondary", false));
 export function setInvAlwaysSeparate(on: boolean): void { keep("evejs.ui.inventory.openSecondary", on); invAlwaysSeparate.set(on); }
+
+/** invSettings.always_show_full_tree_setting (UserSettingBool alwaysShowFullInvTree, False). In the client's ship cargo
+ * window in space (g382) it makes the tree's top level the full location tree (the ship and the PLEX Vault) in place of
+ * the ship as the root; the page's tree has no PLEX Vault entry, so here it is the setting and its menu entry. */
+export const invFullTree = createSignal<boolean>(read("evejs.ui.inventory.alwaysShowFullTree", false));
+export function setInvFullTree(on: boolean): void { keep("evejs.ui.inventory.alwaysShowFullTree", on); invFullTree.set(on); }
+
+/** invSettings.show_training_details (CharSettingBool show_training_details, True): offered to an omega clone only
+ * (is_omega_with_grace_period); ShouldShowTrainingDetails gates an item tooltip's training time and skill action. */
+export const invTrainingDetails = createSignal<boolean>(read("evejs.ui.inventory.showTrainingDetails", true));
+export function setInvTrainingDetails(on: boolean): void { keep("evejs.ui.inventory.showTrainingDetails", on); invTrainingDetails.set(on); }
