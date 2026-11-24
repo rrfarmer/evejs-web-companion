@@ -120,6 +120,9 @@ def run(fn_src):
         for st in stmts:
             if isinstance(st, ast.Assign) and isinstance(st.targets[0], ast.Name) and st.targets[0].id == "m":
                 m[:] = list_of(st.value, i)
+            elif isinstance(st, ast.AugAssign) and isinstance(st.target, ast.Name) and st.target.id == "m" and isinstance(st.op, ast.Add):
+                # "m += [c(self.OpenPointerWnd, None)]"
+                m.extend(list_of(st.value, i))
             elif isinstance(st, ast.Assign) and isinstance(st.targets[0], ast.Name) and st.targets[0].id in ("ret", "c") + tuple(env.keys()) and st.targets[0].id not in ("key",):
                 pass
             elif isinstance(st, ast.Assign) and isinstance(st.targets[0], ast.Name):
@@ -156,9 +159,13 @@ def run(fn_src):
                     for v in range(lo, hi):
                         walk(st.body, m, v)
             elif isinstance(st, ast.If):
-                # sys.platform.startswith('darwin'): the Windows branch
+                # sys.platform.startswith('darwin'): the Windows branch. The rest as a player's client on this server registers
+                # them (read live through gridcheck, g423: 306 commands): no GM / developer role (session.role tests), not the
+                # Chinese server (AmOnChineseServer), missions in the job board (OpenJournal not registered there), no SpaceMouse
                 test = ast.unparse(st.test)
-                walk(st.orelse if "darwin" in test else st.body, m, i)
+                skip = "darwin" in test or "session.role" in test or ("AmOnChineseServer" in test and not test.startswith("not ")) \
+                    or "are_missions_in_job_board_available" in test or "evespacemouse.IsEnabled" in test
+                walk(st.orelse if skip else st.body, m, i)
             elif isinstance(st, (ast.FunctionDef, ast.Return)):
                 pass
         return m
