@@ -140,6 +140,7 @@
   import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import { memberMenu, rankLabel, type MemberMenuPlace } from "../bridge/fleetMemberMenu.ts";
   import { fleetWarpOffers } from "../bridge/fleetWarpMenu.ts";
+  import { fleetBeaconOffers } from "../bridge/fleetBeaconMenu.ts";
   import { spaceOffersOf, subfolderNameOf, unzipMemo, type SpaceBall } from "../bridge/locationsList.ts";
   import type { ActiveBookmarks, Bookmark } from "../bridge/bookmarks.ts";
   import { safetyBadge, safetyLocks } from "../space/crimewatch.ts";
@@ -3180,6 +3181,13 @@
                 { label: w(`UI/Fleet/FleetSubmenus/Warp${name}ToMember`, `Warp ${g} to Member Within`, formation), sub: warpMenu(true) });
             }
           }
+          // OfferJumpToFleetMember / OfferBridgeToMember / OfferGroupJumpToFleetMember (fleetBeaconOffers: the member's active
+          // cyno beacon, the pilot's ship able to jump, open a portal, or conduit-jump)
+          const beacon = fleetBeaconOffers(me, characterID, s.store.flight.get().status, s.store.space.get().snapshot, s.store.dogma.get().allInfo, fleetState.jumpBeacons?.[String(characterID)] ?? null);
+          if (beacon.jump || beacon.bridge || beacon.group) s.flow.requestWords(["UI/Inflight/JumpToFleetMember", "UI/Fleet/BridgeToMember", "UI/Fleet/ConduitJumpToFleetMember"]);
+          if (beacon.jump) out.push({ label: w("UI/Inflight/JumpToFleetMember", "Jump to Member"), run: fleetAct({ kind: "beacon", characterID, how: "jump" }) });
+          if (beacon.bridge) out.push({ label: w("UI/Fleet/BridgeToMember", "Bridge to Member"), run: fleetAct({ kind: "beacon", characterID, how: "bridge" }) });
+          if (beacon.group) out.push({ label: w("UI/Fleet/ConduitJumpToFleetMember", "Conduit Jump to Member"), run: fleetAct({ kind: "beacon", characterID, how: "group" }) });
           if (self) out.push({ label: w("UI/Fleet/LeaveMyFleet", "Leave My Fleet"), sub: confirm({ kind: "leave" }) });
           const moveSub = placesTree(true, (p) => fleetAct({ kind: "move", characterID, wingID: p.wingID, squadID: p.squadID, role: p.role ?? 4 }));
           if (moveSub.length) out.push({ label: w("UI/Fleet/FleetSubmenus/MoveFleetMember", "Move Fleet Member"), sub: moveSub });
