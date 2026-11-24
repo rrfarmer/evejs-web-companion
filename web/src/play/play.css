@@ -206,6 +206,7 @@ button { font: inherit; color: inherit; }
 .nc-skills .nc-sk-skill { stroke: rgb(88, 167, 191); stroke-dasharray: 0 1000; mix-blend-mode: plus-lighter; }
 .nc-skills[data-state="training"] .nc-sk-bg { opacity: 0.6; }
 .nc-skills[data-state="training"] .nc-sk-plan { opacity: 1; stroke: rgba(217, 217, 217, 0.1); mix-blend-mode: plus-lighter; }
+.nc-skills[data-state="training"][data-plan="tracked"] .nc-sk-plan { stroke: rgb(217, 217, 217); }
 .nc-skills[data-state="idle"] .nc-sk-plan { opacity: 1; }
 .nc-btn.nc-skills img.nc-sk-icon { visibility: hidden; }
 .nc-btn.nc-skills[data-state="idle"] img.nc-sk-icon { visibility: visible; }

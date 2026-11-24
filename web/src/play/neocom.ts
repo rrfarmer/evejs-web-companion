@@ -318,12 +318,18 @@ export class Neocom {
    * here). Radii from the 48 button: 20 for the plan and bg rings, 13 for the skill ring (UpdateGaugeRadius); the
    * DonutSegment line lies inside its radius, starting at the top, clockwise.
    */
-  setSkills(state: NeocomSkillState): void {
+  setSkills(state: NeocomSkillState, planRatio: number | null = null): void {
     this.skillState = state;
     const el = this.skills;
     el.dataset.state = state === null ? "" : state.training ? "training" : "idle";
     const ring = el.querySelector<SVGCircleElement>(".nc-sk-skill");
     if (ring) ring.style.strokeDasharray = `${(state?.training ? state.progress : 0) * 2 * Math.PI * 11} 1000`;
+    // _UpdateSkillPlanGauge: a skill in training and a plan tracked - the plan ring is GetProgressRatio of it in
+    // TUNGSTEN_GREY (additive); otherwise full (TUNGSTEN_GREY 0.1 training, THEME_ALERT 0.6 idle)
+    const plan = el.querySelector<SVGCircleElement>(".nc-sk-plan");
+    const tracked = !!state?.training && planRatio !== null;
+    el.dataset.plan = tracked ? "tracked" : "";
+    if (plan) plan.style.strokeDasharray = tracked ? `${Math.max(0, Math.min(1, planRatio as number)) * 2 * Math.PI * 18} 1000` : "";
   }
   setPortrait(url: string | null): void {
     if (url) this.portrait.src = url; else this.portrait.removeAttribute("src");

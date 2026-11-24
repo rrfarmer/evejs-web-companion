@@ -151,6 +151,7 @@
   import { Neocom, neocomSkillState } from "../play/neocom.ts";
   import { clientTexture } from "../play/window.ts";
   import { techLevelIcon } from "../play/techLevelIcon.ts";
+  import { planProgressAt, type PersonalSkillPlanEntry } from "../bridge/skillPlans.ts";
   import { OPEN_CARGO_LABEL } from "../play/containerInteraction.ts";
   import { ENTER_WORMHOLE_LABEL } from "../bridge/placeChanges.ts";
   import { POLARIZED_LABEL } from "../play/wormholePolarization.ts";
@@ -1058,12 +1059,21 @@
     if (!s) return;
     // the queue read again every 30 s while it is not known (a read made as the session starts can fail)
     let triedAt = 0;
+    // ButtonSkills.UpdateSkillPlanData: the tracked skill plan (GetTrackedSkillPlan), read again each minute; its
+    // GetProgressRatio at each paint
+    let tracked: PersonalSkillPlanEntry | null = null;
+    let plansAt = 0;
     const paint = () => {
       const sk = s.store.skills.get();
       if (sk.queue === null && Date.now() - triedAt > 30000) { triedAt = Date.now(); void s.flow.loadSkills().catch(() => {}); }
+      if (Date.now() - plansAt > 60000) {
+        plansAt = Date.now();
+        void s.flow.personalSkillPlans().then((r) => { tracked = r?.plans.find((p) => p.id === r.trackedID) ?? null; }).catch(() => {});
+      }
       const state = neocomSkillState(sk);
-      neocomInst?.setSkills(state);
-      view?.setNeocomSkills(state);
+      const planRatio = tracked?.progress ? planProgressAt(tracked.progress, Date.now() + sk.clockOffsetMs).progress : null;
+      neocomInst?.setSkills(state, planRatio);
+      view?.setNeocomSkills(state, planRatio);
       view?.neocomSkillTip(skillTipRead);
     };
     paint();

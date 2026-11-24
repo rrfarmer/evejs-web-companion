@@ -1078,7 +1078,7 @@ export class SpaceView {
   /** The Neocom's character sheet button portrait (ButtonCharacterIcon). */
   setNeocomPortrait(url: string | null): void { this.neocom?.setPortrait(url); }
   /** The Neocom's skills button gauges (ButtonSkills). */
-  setNeocomSkills(state: NeocomSkillState): void { this.neocom?.setSkills(state); }
+  setNeocomSkills(state: NeocomSkillState, planRatio: number | null = null): void { this.neocom?.setSkills(state, planRatio); }
   /** The Neocom buttons' window indicators (ButtonIndicator). */
   setNeocomStates(states: ReadonlyMap<string, "open" | "active">): void { this.neocom?.setWindowStates(states); }
   /** neocomSvc.Blink: a Neocom button blinks (its window wants looking at), with an optional hint. */
