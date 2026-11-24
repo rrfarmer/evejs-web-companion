@@ -2719,7 +2719,9 @@
           const pos = a.position && a.position.length >= 3 ? [a.position[0]!, a.position[1]!, a.position[2]!] as const : null;
           return a.targetID ? [{ targetID: a.targetID, strength: typeof a.fields.scanStrengthAttribute === "number" ? a.fields.scanStrengthAttribute : 0, dungeonName: name ?? "", position: pos }] : [];
         });
-        if (missing.length) void s.flow.scannerSiteNames(missing).then((read) => { for (const [id, n] of read) if (n !== null) anomalyNames.set(id, n); }).catch(() => {});
+        // (one not answered let go 10 s on and asked again: a read made as the session starts can fail)
+        const release = (ids: readonly number[]) => { if (ids.length) setTimeout(() => { for (const id of ids) anomalyNamesAsked.delete(id); }, 10_000); };
+        if (missing.length) void s.flow.scannerSiteNames(missing).then((read) => { for (const [id, n] of read) if (n !== null) anomalyNames.set(id, n); release(missing.filter((id) => !anomalyNames.has(id))); }).catch(() => release(missing));
         return rows;
       },
       bookmarkSites: () => {

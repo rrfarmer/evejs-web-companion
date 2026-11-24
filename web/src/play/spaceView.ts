@@ -1470,7 +1470,9 @@ export class SpaceView {
     if (!corp) return name;
     if (!this.tickers.has(corp) && !this.tickersAsked.has(corp) && this.options.corpTickers) {
       this.tickersAsked.add(corp);
-      void this.options.corpTickers([corp]).then((t) => { this.tickers.set(corp, t[String(corp)] ?? null); }).catch(() => {});
+      // (a failed ask let go 10 s on, so the label asks again: one made as the session starts can fail)
+      void this.options.corpTickers([corp]).then((t) => { this.tickers.set(corp, t[String(corp)] ?? null); })
+        .catch(() => { setTimeout(() => this.tickersAsked.delete(corp), 10_000); });
     }
     const ticker = this.tickers.get(corp);
     return ticker ? `${name} [${ticker}]` : name;
