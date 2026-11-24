@@ -75,6 +75,8 @@
   /* the side panels (the live client, gridcheck g264 / g283): the Neocom 48 wide, then TOTOP the crimewatch TimerContainer
      (top 12, 32 high, padBottom 6 - there with no timer too) and under it the InfoPanelContainer at (48, 50) */
   .ip-container { position: absolute; left: 48px; top: 50px; width: 312px; z-index: 15; pointer-events: none; }
+  /* the app's section frame (padding 13, a 1 px border) is not the client's: InfoPanelBase draws none */
+  .ip-container :global(section.ip-panel) { padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
   .ip-panel { pointer-events: auto; }
   .ip-panel.hidden, .ip-main.hidden { display: none; }
   .ip-top { display: flex; align-items: center; height: 28px; }

@@ -163,11 +163,12 @@
   .ip-icon img { width: 16px; height: 16px; }
   .rt-menu-wrap { display: contents; }
   .rt-header { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-  .rt-title { font-size: 17px; color: rgb(255 255 255 / 0.95); }
+  /* the caption EveCaptionSmall (Condensed 19, 0.9) as the live client draws it (g283) */
+  .rt-title { font: 19px/23px "EVE Sans Neue Condensed", "EVE Sans Neue", sans-serif; color: rgb(255 255 255 / 0.9); }
   .rt-compact { flex-wrap: wrap; font-size: 13px; }
   .rt-small { font-size: 12px; opacity: 0.85; }
   .ip-main { padding-left: 56px; }
-  .rt-none { font-size: 12px; }
+  .rt-none { font: 14px/18px "EVE Sans Neue", sans-serif; color: rgb(255 255 255 / 0.75); }
   .rt-box { background: rgb(0 0 0 / 0.3); padding: 8px; text-align: center; }
   .rt-trace { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 4px; font-size: 12px; }
   .rt-system { font-weight: bold; }

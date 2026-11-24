@@ -160,7 +160,10 @@
 </section>
 
 <style>
-  .ip-panel { pointer-events: auto; margin-bottom: 6px; }
+  /* the links first: their all: unset must not undo the label sizes below */
+  .evelink { all: unset; cursor: pointer; }
+  .evelink:hover { text-decoration: underline; }
+  .ip-panel { pointer-events: auto; margin-bottom: 6px; font-family: "EVE Sans Neue", "Segoe UI", sans-serif; }
   .ip-top { display: flex; align-items: flex-start; min-height: 28px; }
   .ip-gutter { display: flex; width: 56px; flex: none; }
   .ip-expand, .ip-icon { all: unset; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; opacity: 0.8; }
@@ -170,13 +173,17 @@
   .ip-expand.expanded img { transform: none; }
   .ip-icon img { width: 16px; height: 16px; }
   .loc-header { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 4px; padding-top: 3px; min-width: 0; }
-  .loc-system { font-size: 17px; color: rgb(255 255 255 / 0.95); }
-  .loc-sec { font-size: 17px; padding-left: 2px; }
+  /* InfoPanelLocationInfo.headerCls EveCaptionSmall: STYLE_HEADER (EveSansNeue-Condensed), EVE_XLARGE_FONTSIZE (19 as
+     the live client draws it, g283), TextColor.HIGHLIGHT (0.9); the traces in it at <fontsize=12> */
+  .loc-system { font: 19px/23px "EVE Sans Neue Condensed", "EVE Sans Neue", sans-serif; color: rgb(255 255 255 / 0.9); }
+  .loc-sec { font: 19px/23px "EVE Sans Neue Condensed", "EVE Sans Neue", sans-serif; padding-left: 2px; }
+  /* headerLabelSecStatus then headerLabelSecStatusIcon beside it (g283: the system name to 131, the status at 137, its
+     icon at 163) */
+  .loc-sec-cont { display: inline-flex; align-items: center; gap: 4px; flex: none; }
   .loc-range { width: 16px; height: 16px; align-self: center; }
-  .loc-trace { font-size: 12px; opacity: 0.85; }
+  .loc-trace { font: 12px "EVE Sans Neue Condensed", "EVE Sans Neue", sans-serif; color: rgb(255 255 255 / 0.9); }
   .ip-main { padding-left: 56px; }
-  .loc-body { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+  /* nearestLocationInfo and the sov holder: EveLabelMedium (14, lines 18, TextColor.NORMAL 0.75) */
+  .loc-body { display: flex; flex-direction: column; gap: 2px; font-size: 14px; line-height: 18px; color: rgb(255 255 255 / 0.75); }
   .loc-sov { padding-top: 2px; }
-  .evelink { all: unset; cursor: pointer; }
-  .evelink:hover { text-decoration: underline; }
 </style>
