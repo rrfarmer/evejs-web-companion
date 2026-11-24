@@ -120,3 +120,4 @@ export function markItemSeen(itemID: number): void {
   const list = get(unseenItems);
   if (list.some((u) => u.itemID === itemID)) setUnseen(list.filter((u) => u.itemID !== itemID));
 }
+

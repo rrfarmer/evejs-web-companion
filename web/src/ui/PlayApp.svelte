@@ -981,14 +981,18 @@
     const s = session;
     if (!s) return;
     return untrack(() => {
-      const offTrack = s.store.flight.subscribe(() => {
+      // (on the flight and on the station both: docking, the flight says docked before the station names where)
+      const retrack = () => {
         const dockedNow = deriveDocked(s.store.flight.get().status ?? null, s.store.station.get().online ?? null);
         const ship = s.store.space.get().snapshot?.ship?.itemID ?? s.store.flight.get().status?.shipID ?? null;
         // _get_current_inventory: the station (or structure) docked in, else the ship flown
         const online = s.store.station.get().online;
         const dockedAt = dockedNow ? (online?.stationID ?? online?.structureID ?? null) : null;
         trackStorage(dockedAt !== null ? { kind: "station", id: dockedAt } : ship !== null && !dockedNow ? { kind: "ship", id: ship } : null);
-      });
+      };
+      const offFlight = s.store.flight.subscribe(retrack);
+      const offStation = s.store.station.subscribe(retrack);
+      const offTrack = () => { offFlight(); offStation(); };
       const seen = new WeakSet<object>();
       let first = true;
       const offLive = s.store.live.subscribe((l) => {
