@@ -2131,6 +2131,15 @@
     // CmdToggleAudio (Ctrl-Alt-Shift-F12): settings.public.audio audioEnabled flipped (the audio handler activated or
     // deactivated), nothing said
     if (cmd === "CmdToggleAudio") { e.preventDefault(); setGfx({ audioEnabled: !gfx().audioEnabled }); return; }
+    // CmdSetSearchBarFocus (Shift-S): OnSetSearchBarFocus - InfoPanelSearch gives its edit the focus (no panel shown,
+    // nothing)
+    if (cmd === "CmdSetSearchBarFocus") {
+      const edit = document.querySelector<HTMLInputElement>(".ip-search-edit");
+      if (!edit) return;
+      e.preventDefault();
+      edit.focus();
+      return;
+    }
     // CmdSetChatChannelFocus (Space): focus.SetChannelFocus - the chat window (the focus channel; none open, nothing)
     // maximized and its input given the focus
     if (cmd === "CmdSetChatChannelFocus") {
