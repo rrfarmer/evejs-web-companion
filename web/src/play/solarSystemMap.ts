@@ -136,6 +136,9 @@ export interface SolarSystemMapHooks {
   scanShortcutHeld?(): boolean;
   /** CheckDirectionalScanItem: use a marker's position even when its ball is off grid. */
   scanTowards?(position: MapCelestial["position"]): boolean;
+  /** MarkerBase.ClickMarker: with a combat command loaded (IsSomeCombatCommandLoaded), ExecuteCombatCommand on the marker's
+   *  object instead of selecting it; true where one ran. */
+  combatClick?(itemID: number): boolean;
   /** SetSelectedMarker switches the scan camera to target mode. */
   selectCelestial?(): void;
   /** The pilot's active probes (the scanner's operations): place and destination (EVE's coordinates), range in metres. */
@@ -538,6 +541,7 @@ export class SolarSystemMapWindow {
       el.innerHTML = `<img class="ssm-frame" alt="" src="${clientTexture("res:/UI/Texture/classes/Bracket/selectionCircle.png")}">${icon ? `<img class="ssm-icon" alt="" src="${icon}">` : ""}<span class="ssm-label"></span>`;
       const at = mapPoint(c.position);
       const select = () => {
+        if (this.hooks.combatClick?.(c.itemID)) return;
         if (this.hooks.scanTowards?.(c.position)) return;
         this.hooks.selectCelestial?.();
         this.markerPoi = at;

@@ -1941,6 +1941,12 @@ export class SpaceView {
       scanShortcutHeld: () => this.dscanKey !== null,
       scanTowards: (position) => this.scanTowards(position),
       selectCelestial: () => this.dscan?.setCameraMode(false),
+      combatClick: (itemID) => {
+        const combat = this.combat?.cmd ?? this.modifierCombat();
+        if (!combat) return false;
+        this.runCombat(combat, itemID);
+        return true;
+      },
       // the scan's shape: the d-scan window's angle and range, the way the space camera looks (GetScanDirection)
       dscanCone: () => {
         if (!this.dscan?.isOpen) return null;
