@@ -195,6 +195,58 @@ export interface SkillTrainingTip {
   readonly description: string;
   /** The SkillBar's five boxes' fills. */
   readonly boxes: readonly string[];
+  /** The tracked skill plan (AddSkillPlan), where one is tracked. */
+  readonly plan?: { readonly header: string; readonly progress: number; readonly inTraining: number; readonly completed: boolean; readonly time: () => string } | null;
+}
+
+/**
+ * SkillPlanProgressIndicator (GAUGE_SIZE 160, highlightNotInTraining) as the Skills tooltip shows it: the
+ * SkillPlanProgressGauge - a 300 degree arc (START_ANGLE -pi/2 + pi/6, GAUGE_ANGLE 2pi - pi/3: the gap at the top),
+ * line 0.22 of the radius inside it; trained WHITE, in training CRYO_BLUE, the rest WARNING_ORANGE (MIN_GAUGE_RATIO
+ * 0.03 in training, 0.01 trained, at most 0.999); gaugeStartEnd sprites 30 at 0.94 of the radius on the arc's ends
+ * (the start WHITE once any is trained, the end WHITE when all is, CRYO_BLUE when the training covers the rest); the
+ * total time left centred in the top wedge, small (the radius 80 is under 100: the wedge's background hidden).
+ */
+function planGauge(plan: NonNullable<SkillTrainingTip["plan"]>): { el: HTMLElement; tick: () => void } {
+  const NS = "http://www.w3.org/2000/svg";
+  const size = 160, cx = 80, outer = 80, lw = 0.22 * outer, r = outer - lw / 2;
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("width", String(size)); svg.setAttribute("height", String(size)); svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
+  const at = (t: number, rad = r) => { const a = (30 + 300 * t) * Math.PI / 180; return [cx + rad * Math.sin(a), cx - rad * Math.cos(a)] as const; };
+  const arc = (a: number, b: number, color: string) => {
+    if (b - a <= 0.0005) return;
+    const [x0, y0] = at(a), [x1, y1] = at(b);
+    const p = document.createElementNS(NS, "path");
+    p.setAttribute("d", `M ${x0} ${y0} A ${r} ${r} 0 ${300 * (b - a) > 180 ? 1 : 0} 1 ${x1} ${y1}`);
+    p.setAttribute("fill", "none"); p.setAttribute("stroke", color); p.setAttribute("stroke-width", String(lw));
+    svg.append(p);
+  };
+  const WHITE = "rgb(255, 255, 255)", CRYO = "rgb(88, 167, 191)", MISSING = "rgb(243, 144, 88)";
+  let trained = plan.progress ? Math.min(Math.max(plan.progress, 0.01), 0.999) : 0;
+  let training = plan.inTraining ? Math.min(Math.max(plan.inTraining, 0.03), 0.999) : 0;
+  if (plan.completed) { trained = 1; training = 0; }
+  const remaining = plan.completed ? 0 : Math.max(0, 1 - trained - training);
+  arc(0, trained, WHITE);
+  arc(trained, trained + training, CRYO);
+  arc(1 - remaining, 1, MISSING);
+  const cap = (t: number, color: string) => {
+    const [x, y] = at(t, outer * 0.94);
+    const img = document.createElementNS(NS, "rect");
+    img.setAttribute("x", String(x - 15)); img.setAttribute("y", String(y - 15)); img.setAttribute("width", "30"); img.setAttribute("height", "30");
+    img.setAttribute("fill", color);
+    img.setAttribute("style", `mask: url("${clientTexture("res:/UI/Texture/classes/SkillPlan/milestones/gaugeStartEnd.png")}") center / 30px 30px no-repeat; -webkit-mask: url("${clientTexture("res:/UI/Texture/classes/SkillPlan/milestones/gaugeStartEnd.png")}") center / 30px 30px no-repeat;`);
+    svg.append(img);
+  };
+  cap(0, plan.progress > 0 ? WHITE : MISSING);
+  cap(1, plan.progress >= 1 || plan.completed ? WHITE : plan.progress + plan.inTraining >= 1 ? CRYO : MISSING);
+  const box = document.createElement("div");
+  Object.assign(box.style, { position: "relative", width: `${size}px`, height: `${size}px`, margin: "0 auto" });
+  const time = document.createElement("div");
+  time.textContent = plan.time();
+  // the top wedge (TOPLEFT_PROP 0.5, 0.035, 0.09 x 125/33 wide, 0.09 high), the label centred in it in TextColor.HIGHLIGHT
+  Object.assign(time.style, { position: "absolute", left: "0", right: "0", top: `${0.035 * size}px`, height: `${0.09 * size}px`, lineHeight: `${0.09 * size}px`, textAlign: "center", fontSize: "10px", color: "rgba(255,255,255,0.9)" });
+  box.append(svg, time);
+  return { el: box, tick: () => { time.textContent = plan.time(); } };
 }
 let skillTipTimer: ReturnType<typeof setInterval> | null = null;
 /**
@@ -234,6 +286,17 @@ export function showSkillTrainingTooltip(anchor: HTMLElement, label: string, sho
   const desc = document.createElement("div");
   desc.textContent = t.description;
   Object.assign(desc.style, { gridColumn: "1 / 3", whiteSpace: "normal", width: "260px", color: "rgba(255,255,255,0.75)" });
+  let planTick: (() => void) | null = null;
+  if (t.plan) {
+    // AddSkillPlan: AddMediumHeader UI/Neocom/TrackedSkillPlanProgress and the gauge in a cell over both columns
+    const ph = document.createElement("div");
+    ph.textContent = t.plan.header;
+    Object.assign(ph.style, { gridColumn: "1 / 3", height: "36px", boxSizing: "border-box", padding: "9px 11px 0", lineHeight: "18px", color: "rgba(255,255,255,0.75)" });
+    const g = planGauge(t.plan);
+    g.el.style.gridColumn = "1 / 3";
+    planTick = g.tick;
+    grid.append(ph, g.el);
+  }
   grid.append(header, row);
   if (t.description) grid.append(desc);
   placeTip(tip, anchor, POINT.LEFT_2);
@@ -241,6 +304,7 @@ export function showSkillTrainingTooltip(anchor: HTMLElement, label: string, sho
   skillTipTimer = setInterval(() => {
     if (!time.isConnected) { if (skillTipTimer) clearInterval(skillTipTimer); skillTipTimer = null; return; }
     time.textContent = t.timeLeft();
+    planTick?.();
   }, 500);
 }
 

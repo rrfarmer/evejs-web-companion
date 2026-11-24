@@ -151,7 +151,7 @@
   import { Neocom, neocomSkillState } from "../play/neocom.ts";
   import { clientTexture } from "../play/window.ts";
   import { techLevelIcon } from "../play/techLevelIcon.ts";
-  import { planProgressAt, type PersonalSkillPlanEntry } from "../bridge/skillPlans.ts";
+  import { planProgressAt, timeLeftShowTo, type PersonalSkillPlanEntry } from "../bridge/skillPlans.ts";
   import { OPEN_CARGO_LABEL } from "../play/containerInteraction.ts";
   import { ENTER_WORMHOLE_LABEL } from "../bridge/placeChanges.ts";
   import { POLARIZED_LABEL } from "../play/wormholePolarization.ts";
@@ -863,7 +863,22 @@
         return shortWrittenInterval(BigInt(Math.round(ms)) * 10_000n, s.store.words.get().templates, "day", showTo) ?? "";
       };
       const desc = descriptionID ? t[`#${descriptionID}`] : null;
-      return { header: plainText(String(t["UI/Neocom/SkillInTraining"] ?? "Skill in Training")), name, timeLeft, description: typeof desc === "string" ? plainText(desc) : "", boxes };
+      // AddSkillPlan with the tracked plan: its GetProgressRatio / GetInTrainingRatio and GetTotalTrainingTimeLeftText
+      const plans = await s.flow.personalSkillPlans().catch(() => null);
+      const tracked = plans?.plans.find((p) => p.id === plans.trackedID) ?? null;
+      s.flow.requestWords(["UI/Neocom/TrackedSkillPlanProgress"]);
+      const readAt = Date.now();
+      const plan = tracked?.progress ? {
+        header: plainText(String(s.store.words.get().templates["UI/Neocom/TrackedSkillPlanProgress"] ?? "Tracked Skill Plan Progress")),
+        ...(() => { const now = planProgressAt(tracked.progress!, Date.now() + s.store.skills.get().clockOffsetMs); return { progress: now.progress, inTraining: now.inTraining }; })(),
+        completed: tracked.completed,
+        time: () => {
+          if (tracked.trainingTicks === null) return "";
+          const ticks = Math.max(0, tracked.trainingTicks - (Date.now() - readAt) * 10_000);
+          return shortWrittenInterval(BigInt(Math.round(ticks)), s.store.words.get().templates, "day", timeLeftShowTo(ticks)) ?? "";
+        },
+      } : null;
+      return { plan, header: plainText(String(t["UI/Neocom/SkillInTraining"] ?? "Skill in Training")), name, timeLeft, description: typeof desc === "string" ? plainText(desc) : "", boxes };
     };
     if (nc) nc.skillTip = read;
     skillTipRead = read;
