@@ -6384,10 +6384,11 @@ export class SpaceView {
       }
     };
     this.updateAmbient();
-    // the listener: the camera
+    // the listener: the camera - its up turned over (HANDEDNESS: the canvas is shown mirrored left to right, so the
+    // sounds are too: Web Audio's right is forward x up, and an equal-power pan reads left and right from it alone)
     {
       const fwd = this.camera.getWorldDirection(new THREE.Vector3());
-      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+      const up = new THREE.Vector3(0, -1, 0).applyQuaternion(this.camera.quaternion);
       setListener(this.camera.position, fwd, up);
     }
     for (const audio of this.wormholeAudio.values()) audio.move();
