@@ -804,13 +804,13 @@
   }
 
   /** The right-click menu: where, and its entries (a reason in place of an entry that cannot run). */
-  type MenuEntry = { label: string; disabled?: string | null; act?: () => Promise<void>; sub?: MenuEntry[]; sep?: boolean };
+  type MenuEntry = { label: string; path?: string; disabled?: string | null; act?: () => Promise<void>; sub?: MenuEntry[]; sep?: boolean };
   const SEP: MenuEntry = { label: "", sep: true };
   // The window's menus in the client's ContextMenu (CreateMenuView: MenuUnderlay, 22 px entries), as the space menu's
   const ctxMenu = new ContextMenu();
   onDestroy(() => ctxMenu.close());
   const toCtx = (entries: readonly MenuEntry[]): (ContextEntry | null)[] => entries.map((m) => (m.sep ? null : {
-    label: m.label, disabled: m.disabled ?? null,
+    label: m.label, disabled: m.disabled ?? null, ...(m.path ? { path: m.path } : {}),
     ...(m.act ? { run: () => { const act = m.act!; void run(act); } } : {}),
     ...(m.sub ? { sub: toCtx(m.sub) } : {}),
   }));
@@ -843,7 +843,7 @@
       // a group's Expand / Collapse has no menu group: after Show Info (menuHierarchy's None after SHOWINFOGROUP), its line kept
       folder ? [folder.expand] : [],
       // (a drone group's menu filters out ViewTypesMarketDetails and BuyThisType: dronesWindow.GetSubFolderMenu)
-      [...(noMarket ? [] : [{ label: say(MENU_WORDS.market), act: async () => showMarketDetails(typeID) }]),
+      [...(noMarket ? [] : [{ label: say(MENU_WORDS.market), path: MENU_WORDS.market[0], act: async () => showMarketDetails(typeID) }]),
         ...(multi ? (noMarket ? [] : [{ label: count(say(MENU_WORDS.buyAll)), act: async () => flow.openMultiBuy(new Map(types.map((t) => [t, 1]))) }])
           : [{ label: say(MENU_WORDS.assets), act: async () => findInPersonalAssets(typeName(typeID, "")) }])],
       withMove ? [moveMenu(ids, typeID)] : [],

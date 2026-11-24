@@ -32,6 +32,79 @@ export interface ContextEntry {
   readonly caption?: boolean;
 }
 
+/**
+ * actionConst.ICON_BY_ACTIONID (3698585): a menu entry's icon by its label path, as MenuEntryData.GetIcon gives it when the
+ * entry names none (MENU_ICON_BLACKLIST - Look At, Reset Camera, Set as Camera Interest - left out; Show Info drawn by
+ * its own look, info). The eveicon at 16, in its folder.
+ */
+const ICON_BY_ACTIONID: Readonly<Record<string, string>> = {
+  "UI/Inflight/ApproachObject": "control_icons/approach",
+  "UI/Inflight/AlignTo": "control_icons/align_to",
+  "UI/Inflight/OrbitObject": "control_icons/orbit",
+  "UI/Inflight/Submenus/KeepAtRange": "control_icons/keep_at_distance",
+  "UI/Inflight/LockTarget": "control_icons/target",
+  "UI/Inflight/UnlockTarget": "control_icons/target",
+  "UI/Chat/StartConversation": "control_icons/start_conversation",
+  "UI/Menusvc/OpenSovHubConfigWindow": "control_icons/settings_wheel",
+  "UI/Commands/OpenCargo": "control_icons/open_cargo",
+  "UI/PI/Common/AccessCustomOffice": "control_icons/open_cargo",
+  "UI/OrbitalSkyhook/SkyhookWnd/AccessOrbitalSkyhookOffice": "control_icons/settings_wheel",
+  "UI/Sovereignty/MercenaryDen/ConfigurationWindow/ConfigureMercenaryDen": "control_icons/settings_wheel",
+  "UI/Sovereignty/SovHub/ReagentBay/DepositReagents": "control_icons/open_cargo",
+  "UI/DustLink/OpenUpgradeHold": "control_icons/open_cargo",
+  "UI/Inflight/SpaceComponents/ItemTrader/Access": "control_icons/open_cargo",
+  "UI/Inflight/SpaceComponents/UnderConstruction/Access": "control_icons/open_cargo",
+  "UI/PI/Common/ExitPlanetMode": "control_icons/exit_planet_view",
+  "UI/Inflight/POS/AccessPOSRefinery": "control_icons/open_cargo",
+  "UI/Inflight/POS/AccessPOSCompression": "control_icons/open_cargo",
+  "UI/Inflight/POS/AccessPOSStrontiumBay": "control_icons/open_cargo",
+  "UI/Inflight/POS/AccessPOSFuelBay": "control_icons/open_cargo",
+  "UI/Inflight/POS/AccessPOSAmmo": "control_icons/open_cargo",
+  "UI/Inflight/POS/AccessPOSCrystalStorage": "control_icons/open_cargo",
+  "UI/Inflight/POS/AccessPOSStorage": "control_icons/open_cargo",
+  "UI/Inflight/AccessHangarTransfer": "control_icons/open_cargo",
+  "UI/Inflight/OpenMoonMaterialBay": "control_icons/retrieve",
+  "UI/Inflight/POS/AccessPOSVessels": "control_icons/open_cargo",
+  "UI/Commands/AccessBountyEscrow": "control_icons/open_cargo",
+  "UI/Drones/EngageTarget": "control_icons/engage_target",
+  "UI/Drones/MineWithDrone": "control_icons/engage_target",
+  "UI/Drones/Salvage": "control_icons/salvage",
+  "UI/Inflight/POS/AnchorObject": "control_icons/engage_target",
+  "UI/Drones/ReturnDroneAndOrbit": "control_icons/return_and_orbit",
+  "UI/Drones/ReturnDroneToBay": "control_icons/recall_drones",
+  "UI/Drones/ScoopDroneToBay": "control_icons/recall_drones",
+  "UI/Drones/LaunchDrones": "control_icons/launch_drones",
+  "UI/Inflight/BoardShip": "control_icons/board",
+  "UI/Inflight/BoardStructure": "control_icons/board",
+  "UI/Inflight/DockInStation": "control_icons/dock",
+  "UI/Inflight/Jump": "control_icons/jump_to",
+  "UI/Inflight/JumpByShipcaster": "control_icons/jump_to",
+  "UI/Inflight/JumpByShipcasterToSystem": "control_icons/jump_to",
+  "UI/Inflight/JumpUsingBridge": "control_icons/jump_to",
+  "UI/Inflight/EnterWormhole": "control_icons/jump_to",
+  "UI/Inflight/ActivateGate": "control_icons/jump_to",
+  "UI/Inflight/ActivateTraceGate": "control_icons/jump_to",
+  "UI/Commands/ReadNews": "control_icons/view_billboard",
+  "UI/Fleet/JumpThroughToSystem": "control_icons/jump_to",
+  "UI/Fleet/JumpThrough": "control_icons/jump_to",
+  "UI/PI/Common/ViewInPlanetMode": "control_icons/enter_planet_view",
+  "UI/Inflight/WarpToMoonMiningPoint": "control_icons/warp_to_mining_point",
+  "UI/Inflight/WarpToWithinDistance": "control_icons/warp_to",
+  "UI/Inflight/Submenus/WarpToWithin": "control_icons/warp_to",
+  "UI/Inventory/ItemActions/MakeShipActive": "control_icons/board",
+  "UI/Chat/StartConversationAgent": "control_icons/start_conversation",
+  "UI/Inflight/SetDestination": "system_icons/set_destination",
+  "UI/Inventory/ItemActions/ViewTypesMarketDetails": "system_icons/market_details",
+  "UI/Inflight/SpaceComponents/TowGameObjective/startTowing": "control_icons/tow",
+  "UI/Inflight/SpaceComponents/TowGameObjective/stopTowing": "control_icons/tow",
+  "UI/Inflight/OpenSelectedCargoContainer": "control_icons/open_cargo",
+};
+/** The icon a menu entry with this label path takes where it names none of its own. */
+export function actionIcon(path: string | undefined): string | null {
+  const n = path ? ICON_BY_ACTIONID[path] : undefined;
+  return n ? `res:/UI/Texture/eveicon/${n}_16px.png` : null;
+}
+
 const ROW = 22;
 // the menu's art loaded with the page, so a first menu has its icons
 for (const p of ["res:/UI/Texture/Icons/1_16_14.png", "res:/UI/Texture/classes/Menu/Icons/info.png", ...["approach", "orbit", "keep_at_distance", "warp_to", "align_to", "dock", "jump_to", "target", "enter_planet_view"].map((n) => `res:/UI/Texture/eveicon/control_icons/${n}_16px.png`), "res:/UI/Texture/eveicon/system_icons/set_destination_16px.png"]) {
@@ -147,9 +220,9 @@ export class ContextMenu {
           border: "1px solid rgba(255,255,255,0.75)", background: entry.checked ? "rgba(255,255,255,0.9)" : "transparent" });
       if (entry.checkbox) row.setAttribute("aria-checked", String(!!entry.checked));
       row.append(dot);
-    } else if (entry.icon) {
+    } else if (entry.icon !== null && (entry.icon || actionIcon(entry.path))) {
       const i = document.createElement("img");
-      i.src = tex(entry.icon);
+      i.src = tex(entry.icon || actionIcon(entry.path)!);
       Object.assign(i.style, { position: "absolute", left: "4px", top: "3px", width: "16px", height: "16px", opacity: "0.75" });
       row.append(i);
     }

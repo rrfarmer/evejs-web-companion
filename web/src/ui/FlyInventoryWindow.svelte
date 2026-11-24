@@ -341,7 +341,7 @@
       null,
       { label: word(MENU.info, "Show Info"), info: true, run: () => showInfo({ kind: "type", typeID, itemID: itemID ?? undefined }) },
       null,
-      { label: word(MENU.market, "View Market Details"), run: () => showMarketDetails(typeID) },
+      { label: word(MENU.market, "View Market Details"), path: MENU.market, run: () => showMarketDetails(typeID) },
       { label: word(MENU.buy, "Buy This Type"), run: () => buyMarketType(typeID) },
       { label: word(MENU.contracts, "Find in Contracts"), run: () => findInContracts(typeID) },
       { label: word(MENU.assets, "Find Personal Assets"), run: () => findInPersonalAssets(typeName(typeID)) },
@@ -749,7 +749,7 @@
     const first = items[0]!;
     const count = (label: string, n: number) => (multi ? `${label} (${n})` : label);
     const units = items.reduce((n, i) => n + i.quantity, 0);
-    entries.push({ label: word(MENU.market, "View Market Details"), run: () => showMarketDetails(first.typeID) }, 10);
+    entries.push({ label: word(MENU.market, "View Market Details"), path: MENU.market, run: () => showMarketDetails(first.typeID) }, 10);
     entries.push(multi
       ? { label: count(word(MENU.buyAll, "Buy All"), items.length), run: () => void flow.openMultiBuy(new Map(types.map((t) => [t, 1]))) }
       : { label: word(MENU.buy, "Buy This Type"), run: () => buyMarketType(first.typeID) }, 10);
