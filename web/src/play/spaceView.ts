@@ -1563,6 +1563,8 @@ export class SpaceView {
   private nextDamageFlash = 0;
   private nextCapFlash = 0;
   private readonly unhold: (() => void)[] = [];
+  /** The camera tasks' zoom gesture (trackCameraTasks), for a zoom by key. */
+  private zoomGesture: ((delta: number) => void) | null = null;
   private lastFrameAt = performance.now();
 
   /** `onNeocom`: what a Neocom button opens; the app's play mode opens its own windows (PlayApp.svelte). */
@@ -2121,6 +2123,7 @@ export class SpaceView {
     canvas.addEventListener("wheel", event => {
       if (event.isTrusted && active() && this.controls.enableZoom) gestures.zoom(event.deltaY);
     }, { ...listener, passive: true });
+    this.zoomGesture = (delta) => { if (active()) gestures.zoom(delta); };
     this.unhold.push(() => {
       input.abort();
       this.controls.removeEventListener("change", cameraChanged);
@@ -3635,6 +3638,19 @@ export class SpaceView {
       return;
     }
     if (cmd === "CmdStopShip") { e.preventDefault(); void this.stopShip(); return; }
+    // CmdZoomIn / CmdZoomOut (Ctrl-Shift-A / Ctrl-Shift-Z): eveCommands._Zoom - a mouse scroll of direction x 120 (one
+    // notch) simulated: the active window's CmdZoomInOut where it has one (the solar system map's), else the view's
+    // ZoomBy; in space OnClientMouseZoomIn/OutSpace (the camera tasks' zoom). Here a notch is the wheel's 100.
+    if (cmd === "CmdZoomIn" || cmd === "CmdZoomOut") {
+      e.preventDefault();
+      const direction = cmd === "CmdZoomIn" ? -1 : 1;
+      if (this.systemMap?.isActive) { this.systemMap.zoomStep(direction); return; }
+      if (!this.controls.enabled || !this.controls.enableZoom) return;
+      const r = this.renderer.domElement.getBoundingClientRect();
+      this.renderer.domElement.dispatchEvent(new WheelEvent("wheel", { deltaY: direction * 100, deltaMode: 0, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true }));
+      this.zoomGesture?.(direction * 100);
+      return;
+    }
     if (cmd === "CmdSetShipFullSpeed") { e.preventDefault(); void this.fullSpeed(); return; }
     // CmdAccelerate / CmdDecelerate: the ball's speed fraction a tenth up or down (SetSpeedFractionThrottled, a
     // CallCombiner of 0.3 s: the last asked within it is sent); a stopped ship, with no autopilot, first set going along

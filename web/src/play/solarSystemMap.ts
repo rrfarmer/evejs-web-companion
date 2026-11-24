@@ -449,6 +449,12 @@ export class SolarSystemMapWindow {
 
   get isOpen(): boolean { return !this.detached && this.window.root.style.display !== "none"; }
   setActive(active: boolean): void { this.active = active; }
+  /** Whether the map is the active window (the last pressed in). */
+  get isActive(): boolean { return this.active && this.isOpen; }
+  /** solarSystemViewPanel.CmdZoomInOut (CmdZoomIn / CmdZoomOut): one wheel notch in or out, as the wheel zooms. */
+  zoomStep(direction: -1 | 1): void {
+    this.distance = Math.min(MAX_DISTANCE, Math.max(MIN_DISTANCE, this.distance * Math.pow(1.0015, direction * 100)));
+  }
   toggle(): void { if (this.isOpen) this.close(); else this.open(); }
   close(): void {
     this.window.root.style.display = "none";
