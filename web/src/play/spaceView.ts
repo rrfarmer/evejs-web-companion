@@ -2062,7 +2062,13 @@ export class SpaceView {
     this.renderer.domElement.addEventListener("pointermove", (e) => {
       this.movePointer = { x: e.clientX, y: e.clientY };
       if (this.combat?.cmd === "CmdApproachItem" && !this.moveCmd && !(e.buttons & 1)) this.startMoveCommand();
-      if (this.moveCmd && (e.buttons & 1)) this.abortMoveCommand();
+      // navigation.OnMouseMove: with the move command on, a left drag (IsMouseDragged: 5 px from the press) aborts it
+      // and starts a marquee where the pointer is
+      const from = this.lastLeftPress;
+      if (this.moveCmd && (e.buttons & 1) && (!from || Math.hypot(e.clientX - from.x, e.clientY - from.y) >= 5)) {
+        this.abortMoveCommand();
+        this.startMarquee(e.clientX, e.clientY, true);
+      }
     });
     this.renderer.domElement.addEventListener("pointerleave", () => { if (this.moveCmd && this.moveCmd.state === 0) this.abortMoveCommand(); });
     // baseCameraController.IsMouseDragged: a press that travelled 5 px or more is a drag, not a click
@@ -3333,7 +3339,7 @@ export class SpaceView {
    * at 0.5) over FillThemeColored (FRAME_FILLED_CORNER3 at 0.15). On the release, a press that travelled 5 px or more
    * (IsMarqueeActivated) applies it: navigation.ApplyMarqueeCommands.
    */
-  private startMarquee(x0: number, y0: number): void {
+  private startMarquee(x0: number, y0: number, dragged = false): void {
     // a modifier-only command (Ctrl lock ...) is the press's: kept from it for the release
     const pressCombat = this.modifierCombat(false);
     const el = document.createElement("div");
@@ -3343,7 +3349,9 @@ export class SpaceView {
     this.root.appendChild(el);
     const rect = () => ({ left: Math.min(x0, last.x), top: Math.min(y0, last.y), right: Math.max(x0, last.x), bottom: Math.max(y0, last.y) });
     const last = { x: x0, y: y0 };
-    let travelled = false;
+    // (a marquee a dragged move command became has travelled already: IsMarqueeActivated counts from the press)
+    let travelled = dragged;
+    if (dragged) this.controls.enabled = false;
     const move = (e: PointerEvent) => {
       last.x = e.clientX; last.y = e.clientY;
       if (!travelled && Math.hypot(last.x - x0, last.y - y0) >= 5) { travelled = true; this.controls.enabled = false; }
