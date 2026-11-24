@@ -783,7 +783,8 @@
       entries.push({ label: word(MENU.moveToDroneBay, "Move to Drone Bay"), run: () => void act(() => flow.transferItems(ids, placeOf(fromBay), placeOf("drone"), null)) }, 11);
     }
     if (!multi) {
-      entries.push({ label: word(MENU.info, "Show Info"), info: true, run: () => showInfo({ kind: "type", typeID: first.typeID, itemID: first.itemID }) }, 2);
+      // (no SHOWINFOGROUP badge: the item menu's MenuLabel entries take no menu group - drawn without one, g335)
+      entries.push({ label: word(MENU.info, "Show Info"), run: () => showInfo({ kind: "type", typeID: first.typeID, itemID: first.itemID }) }, 2);
       entries.push({ label: word(MENU.contracts, "Find in Contracts"), run: () => findInContracts(first.typeID) }, 10);
       entries.push({ label: word(MENU.assets, "Find Personal Assets"), run: () => findInPersonalAssets(typeName(first.typeID)) }, 10);
       entries.push({ label: word(MENU.quickbar, "Add to Market Quickbar"), run: () => { changeQuickbar((q) => addType(q, first.typeID)); } }, 10);
@@ -814,9 +815,10 @@
           sub.push({ label: word(label, own), icon: sortBy === criteria && sortDir === dir ? "res:/UI/Texture/eveicon/system_icons/checkmark_16px.png" : null, run: () => { sortBy = criteria; sortDir = dir; } });
         }
       });
-      out.push(null, { label: word("UI/Common/SortBy", "Sort By"), icon: "res:/UI/Texture/eveicon/system_icons/bars_sort_ascending_16px.png", sub });
+      // (no line between: the drawn client menu runs Select All, Invert Selection, Sort By, Stack All straight on, g335)
+      out.push({ label: word("UI/Common/SortBy", "Sort By"), icon: "res:/UI/Texture/eveicon/system_icons/bars_sort_ascending_16px.png", sub });
     }
-    if (bay && !(current === "container" || current.startsWith("temp:"))) out.push(null, { label: word("UI/Inventory/StackAll", "Stack All"), icon: "res:/UI/Texture/eveicon/system_icons/stack_16px.png", run: stackAll });
+    if (bay && !(current === "container" || current.startsWith("temp:"))) out.push({ label: word("UI/Inventory/StackAll", "Stack All"), icon: "res:/UI/Texture/eveicon/system_icons/stack_16px.png", run: stackAll });
     return out;
   }
   /** _get_view_mode_menu: each mode with its icon. */
