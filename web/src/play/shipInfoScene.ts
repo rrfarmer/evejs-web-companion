@@ -55,7 +55,7 @@ export class ShipInfoScene {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NoToneMapping;
-    this.renderer.domElement.style.cssText = "display:block;width:100%;height:100%;touch-action:none";
+    this.renderer.domElement.style.cssText = "display:block;width:100%;height:100%;touch-action:none;transform:scaleX(-1)";
     this.renderer.domElement.setAttribute("aria-hidden", "true");
     host.appendChild(this.renderer.domElement);
     this.scene.background = new THREE.Color(0x000000);

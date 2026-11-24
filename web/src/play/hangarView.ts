@@ -135,6 +135,8 @@ export class HangarView {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     // exposed and tone-mapped as the client does it, in the bloom's last pass (exposure.ts)
     this.renderer.toneMapping = THREE.NoToneMapping;
+    // The assets are mirrored on z at extraction. Flip the rendered view to restore its screen orientation.
+    this.renderer.domElement.style.transform = "scaleX(-1)";
     this.root.appendChild(this.renderer.domElement);
     this.fade.className = "hangar-fade";
     this.fade.style.cssText = "position:absolute;inset:0;background:#000;opacity:0;pointer-events:none";
@@ -153,6 +155,10 @@ export class HangarView {
     this.studio.push(key, rim, fill);
     this.scene.add(key, rim, fill, this.sun, this.turntable);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    // A positive horizontal drag increases the azimuth in the z-mirrored scene.
+    const orbit = this.controls as unknown as { _rotateLeft(angle: number): void };
+    const rotateLeft = orbit._rotateLeft.bind(orbit);
+    orbit._rotateLeft = (angle) => rotateLeft(-angle);
     this.controls.enablePan = false;
     this.controls.enableDamping = true;
     this.controls.minPolarAngle = MIN_PITCH;

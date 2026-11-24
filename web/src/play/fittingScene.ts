@@ -65,7 +65,7 @@ export class FittingShipScene {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NoToneMapping;
-    this.renderer.domElement.style.cssText = "display:block;width:100%;height:100%";
+    this.renderer.domElement.style.cssText = "display:block;width:100%;height:100%;transform:scaleX(-1)";
     host.appendChild(this.renderer.domElement);
     this.scene.background = new THREE.Color(0x000000);
     this.scene.add(this.sun, this.ambient, this.holder);

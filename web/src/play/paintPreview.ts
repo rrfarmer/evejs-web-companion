@@ -49,7 +49,7 @@ export class PaintPreviewScene {
     this.host = host;
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.domElement.style.cssText = "display:block;width:100%;height:100%";
+    this.renderer.domElement.style.cssText = "display:block;width:100%;height:100%;transform:scaleX(-1)";
     host.appendChild(this.renderer.domElement);
     this.scene.background = new THREE.Color(0x000000);
     // sunDirection is where the light goes: the light stands against it (EVE's z mirrored, as the hangar's sun)
