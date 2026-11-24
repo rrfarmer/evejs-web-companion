@@ -3119,6 +3119,24 @@
         // menusvc.FleetMenu (unparsed False under the character's menu) with FleetMemberChecker's offers: Show Info, a line,
         // Kick Fleet Member (ConfirmMenu), Make Fleet Leader, Add / Remove Pilot to Watchlist, Broadcast: Travel To Me, Leave My
         // Fleet (ConfirmMenu), Move Fleet Member (MemberMenu). (The warp-to-member and cyno beacon entries not here yet.)
+        // MemberMenu places (isMove: Move Fleet Member; not: the invite menu) as nested wing / squad entries, each calling pick
+        const placesTree = (isMove: boolean, pick: (p: MemberMenuPlace) => () => void): ContextEntry[] => {
+          const fleetState = s.store.fleet.get();
+          const me = s.store.station.get().online?.characterID ?? null;
+          if (fleetState.availability !== "ready" || me === null) return [];
+          const members = fleetState.fleet?.initState.value.members ?? [];
+          const idOrNull = (id: number | string | null): number | null => id === null || id === "" || !Number.isFinite(Number(id)) ? null : Number(id);
+          const placements = memberMenu({ targetCharID: characterID, me, isMove, isFreeMove: fleetState.fleet?.initState.value.options.isFreeMove === true,
+            members: members.map((m) => ({ charID: Number(m.charID), role: m.role, job: m.job, wingID: idOrNull(m.wingID), squadID: idOrNull(m.squadID) })),
+            wings: (fleetState.fleet?.initState.value.wings ?? []).flatMap((wg) => { const wingID = idOrNull(wg.wingID); return wingID === null ? [] : [{ wingID, name: wg.name, squads: wg.squads.flatMap((sq) => { const squadID = idOrNull(sq.squadID); return squadID === null ? [] : [{ squadID, name: sq.name }]; }) }]; }) });
+          const rank = (p: MemberMenuPlace) => w(rankLabel(p.role), p.role === 1 ? "Fleet Commander" : p.role === 2 ? "Wing Commander" : p.role === 3 ? "Squad Commander" : "Squad Member");
+          const place = (p: MemberMenuPlace): ContextEntry => ({ label: rank(p), run: pick(p) });
+          return placements.map((entry) => entry.kind === "place" ? place(entry) : {
+            label: entry.name || w("UI/Fleet/FleetSubmenus/WingX", `Wing ${entry.wingNumber}`, { wingNumber: entry.wingNumber }),
+            sub: entry.entries.map((child) => child.kind === "place" ? place(child) : {
+              label: w("UI/Fleet/FleetSubmenus/SquadNameWithNumMembers", `${child.name || `Squad ${child.squadNumber}`} (${child.numMembers})`, { squadName: child.name || w("UI/Fleet/FleetSubmenus/SquadX", `Squad ${child.squadNumber}`, { squadNumber: child.squadNumber }), numMembers: child.numMembers }),
+              sub: child.places.map(place) }) });
+        };
         const fleetEntry = (() => {
           const fleetState = s.store.fleet.get();
           const me = s.store.station.get().online?.characterID ?? null;
@@ -3163,19 +3181,23 @@
             }
           }
           if (self) out.push({ label: w("UI/Fleet/LeaveMyFleet", "Leave My Fleet"), sub: confirm({ kind: "leave" }) });
-          const idOrNull = (id: number | string | null): number | null => id === null || id === "" || !Number.isFinite(Number(id)) ? null : Number(id);
-          const placements = memberMenu({ targetCharID: characterID, me, isMove: true, isFreeMove: fleetState.fleet?.initState.value.options.isFreeMove === true,
-            members: members.map((m) => ({ charID: Number(m.charID), role: m.role, job: m.job, wingID: idOrNull(m.wingID), squadID: idOrNull(m.squadID) })),
-            wings: (fleetState.fleet?.initState.value.wings ?? []).flatMap((wg) => { const wingID = idOrNull(wg.wingID); return wingID === null ? [] : [{ wingID, name: wg.name, squads: wg.squads.flatMap((sq) => { const squadID = idOrNull(sq.squadID); return squadID === null ? [] : [{ squadID, name: sq.name }]; }) }]; }) });
-          const rank = (p: MemberMenuPlace) => w(rankLabel(p.role), p.role === 1 ? "Fleet Commander" : p.role === 2 ? "Wing Commander" : p.role === 3 ? "Squad Commander" : "Squad Member");
-          const place = (p: MemberMenuPlace): ContextEntry => ({ label: rank(p), run: fleetAct({ kind: "move", characterID, wingID: p.wingID, squadID: p.squadID, role: p.role ?? 4 }) });
-          const moveSub: ContextEntry[] = placements.map((entry) => entry.kind === "place" ? place(entry) : {
-            label: entry.name || w("UI/Fleet/FleetSubmenus/WingX", `Wing ${entry.wingNumber}`, { wingNumber: entry.wingNumber }),
-            sub: entry.entries.map((child) => child.kind === "place" ? place(child) : {
-              label: w("UI/Fleet/FleetSubmenus/SquadNameWithNumMembers", `${child.name || `Squad ${child.squadNumber}`} (${child.numMembers})`, { squadName: child.name || w("UI/Fleet/FleetSubmenus/SquadX", `Squad ${child.squadNumber}`, { squadNumber: child.squadNumber }), numMembers: child.numMembers }),
-              sub: child.places.map(place) }) });
+          const moveSub = placesTree(true, (p) => fleetAct({ kind: "move", characterID, wingID: p.wingID, squadID: p.squadID, role: p.role ?? 4 }));
           if (moveSub.length) out.push({ label: w("UI/Fleet/FleetSubmenus/MoveFleetMember", "Move Fleet Member"), sub: moveSub });
           return { label: w("UI/Fleet/Fleet", "Fleet"), sub: out } as ContextEntry;
+        })();
+        // CharacterChecker.OfferInvitePilotToFleet: in a fleet the character is not in, the pilot its creator (boss) or a commander -
+        // Invite Pilot to Fleet with FleetInviteMenu (MemberMenu, isMove False); OfferFormFleetWith: not in a fleet
+        const inFleet = s.store.fleet.get().availability === "ready";
+        const inviteEntry = (() => {
+          if (!inFleet) return null;
+          const me = s.store.station.get().online?.characterID ?? null;
+          const members = s.store.fleet.get().fleet?.initState.value.members ?? [];
+          const mine = members.find((m) => Number(m.charID) === me);
+          if (!mine || members.some((m) => Number(m.charID) === characterID)) return null;
+          if (!((mine.job & 2) !== 0 || [1, 2, 3].includes(mine.role))) return null;
+          s.flow.requestWords(["UI/Fleet/InvitePilotToFleet"]);
+          const sub = placesTree(false, (p) => () => void s.flow.inviteFleetSelection([characterID], false, { wingID: p.wingID, squadID: p.squadID, role: p.role }).catch(() => {}));
+          return sub.length ? { label: w("UI/Fleet/InvitePilotToFleet", "Invite Pilot to Fleet"), sub } as ContextEntry : null;
         })();
         const memberDetailsEntry = { label: director ? w("UI/Corporations/Common/EditCorpMember", "Edit Corporation Member") : w("UI/Corporations/Common/ViewCorpMemberDetails", "View Member Details"),
           run: () => void s.flow.openCorporationMemberDetails(characterID).catch(() => {}) };
@@ -3205,8 +3227,9 @@
             ] },
             { label: w("UI/EVEMail/SendPilotEVEMail", "Send Message"), run: () => { focusMail({ kind: "compose", characterID, name }); open("mail"); } },
             portraitEntry,
+            ...(inviteEntry ? [inviteEntry] : []),
             ...(fleetEntry ? [fleetEntry] : []),
-            { label: w("UI/Fleet/FormFleetWith", "Form Fleet With..."), run: () => void s.flow.formFleetWith(characterID).catch(() => {}) }, null,
+            ...(inFleet ? [] : [{ label: w("UI/Fleet/FormFleetWith", "Form Fleet With..."), run: () => void s.flow.formFleetWith(characterID).catch(() => {}) }]), null,
             { label: w("UI/Crimewatch/Duel/DuelMenuEntry", "Invite to Duel"), run: () => void s.flow.startDuel(characterID).catch(() => {}) },
           ],
         };
