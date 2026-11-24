@@ -1654,7 +1654,7 @@ export class SpaceView {
           ...this.selectedWin.windowActions(say, {
             label: on ? say("/Carbon/UI/Controls/Window/DisableCompactMode", "Disable compact mode") : say("/Carbon/UI/Controls/Window/EnableCompactMode", "Enable compact mode"),
             icon: on ? "res:/UI/Texture/eveicon/system_icons/uncompact_16px.png" : "res:/UI/Texture/eveicon/system_icons/compact_16px.png",
-            run: () => this.setSelectedCompact(!on) }),
+            run: () => this.setSelectedCompact(!on) }, on),
           { label: this.actions.word?.("UI/Control/EveWindow/Minimize") ?? "Minimize", icon: "res:/UI/Texture/eveicon/system_icons/minimize_16px.png", run: () => this.selectedWin.minimize() },
           { label: this.actions.word?.("UI/Generic/Copy") ?? "Copy", disabled: text ? null : "Nothing selected", run: () => void navigator.clipboard?.writeText(text).catch(() => {}) },
         ]);

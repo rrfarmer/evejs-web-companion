@@ -232,7 +232,7 @@ export class DScanWindow {
       menu: (button) => { const r = button.getBoundingClientRect(); this.menu.open(r.left, r.bottom, this.window.windowActions(w, {
         label: this.compact ? w("/Carbon/UI/Controls/Window/DisableCompactMode", "Disable compact mode") : w("/Carbon/UI/Controls/Window/EnableCompactMode", "Enable compact mode"),
         icon: this.compact ? "res:/UI/Texture/eveicon/system_icons/uncompact_16px.png" : "res:/UI/Texture/eveicon/system_icons/compact_16px.png",
-        run: () => this.setCompact(!this.compact) })); } }, () => { this.detached = true; });
+        run: () => this.setCompact(!this.compact) }, this.compact)); } }, () => { this.detached = true; });
     this.window.body.classList.add("dscan");
     queueMicrotask(() => { try { if (localStorage.getItem("evejs.ui.dscanCompact") === "1") this.setCompact(true); } catch { /* not compact */ } });
     const icon = (path: string, title: string) => `<button type="button" class="dscan-ic" title="${title}" disabled><img alt="" src="/client-res/${path}"></button>`;

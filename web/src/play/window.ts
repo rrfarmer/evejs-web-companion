@@ -69,6 +69,7 @@ export class PlayWindow {
     this.head.innerHTML = `${options.icon ? `<img class="pw-icon" src="${options.icon}" alt="">` : ""}<span class="pw-caption"></span>
       <span class="pw-buttons">${options.menu ? `<img class="pw-btn pw-more" src="${SYSTEM_ICON.more}" alt="More" title="More">` : ""}<img class="pw-btn pw-min" src="${SYSTEM_ICON.minimize}" alt="Minimize" title="Minimize">${options.closable === false ? "" : `<img class="pw-btn pw-close" src="${SYSTEM_ICON.close}" alt="Close" title="Close">`}</span>`;
     (this.head.querySelector(".pw-caption") as HTMLElement).textContent = options.caption;
+    this.captionNow = options.caption;
     this.body.className = "pw-body";
     const grip = document.createElement("div");
     grip.className = "pw-grip";
@@ -96,7 +97,10 @@ export class PlayWindow {
     });
   }
 
-  set caption(text: string) { (this.head.querySelector(".pw-caption") as HTMLElement).textContent = text; }
+  set caption(text: string) { (this.head.querySelector(".pw-caption") as HTMLElement).textContent = text; this.captionNow = text; }
+  /** The caption as last set (kept while a compact window hides its header). */
+  get caption(): string { return this.captionNow; }
+  private captionNow = "";
 
   /**
    * An element in the title row in place of the icon and caption (the Overview's tabs, as the client and the eve-cs
@@ -126,9 +130,11 @@ export class PlayWindow {
    * Background on a light-background window (IsLightBackgroundConfigurable), Collapse / Expand; a line after them.
    * (Enable always above fullscreen views has no fullscreen view to rise above on this page, so it is not offered.)
    */
-  windowActions(word: (label: string, own: string) => string, compact: ContextEntry | null = null): (ContextEntry | null)[] {
+  windowActions(word: (label: string, own: string) => string, compact: ContextEntry | null = null, compactOn = false): (ContextEntry | null)[] {
     const I = (n: string) => `res:/UI/Texture/eveicon/system_icons/${n}_16px.png`;
     const out: (ContextEntry | null)[] = [
+      // DefaultWindowControls._get_menu_title: a compact window heads its menu with its caption, a line under it (g377)
+      ...(compactOn && this.captionNow ? [{ label: this.captionNow, caption: true }, null] : []),
       { label: this.locked ? word("/Carbon/UI/Controls/Window/Unlock", "Unlock window size and position") : word("/Carbon/UI/Controls/Window/Lock", "Lock window size and position"),
         icon: I(this.locked ? "locked" : "unlocked"), run: () => this.setFlags({ locked: !this.locked }) },
     ];

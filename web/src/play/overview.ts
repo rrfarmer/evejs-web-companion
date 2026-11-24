@@ -1815,7 +1815,7 @@ export class Overview {
     return [
       // the window's actions (CompactModeWindowAction among them), then GetMenuMoreOptions
       ...this.window.windowActions(word, { label: this.compact ? word("/Carbon/UI/Controls/Window/DisableCompactMode", "Disable compact mode") : word("/Carbon/UI/Controls/Window/EnableCompactMode", "Enable compact mode"),
-        icon: this.compact ? "res:/UI/Texture/eveicon/system_icons/uncompact_16px.png" : "res:/UI/Texture/eveicon/system_icons/compact_16px.png", run: () => this.setCompact(!this.compact) }),
+        icon: this.compact ? "res:/UI/Texture/eveicon/system_icons/uncompact_16px.png" : "res:/UI/Texture/eveicon/system_icons/compact_16px.png", run: () => this.setCompact(!this.compact) }, this.compact),
       { label: word("UI/Overview/AddTab", "Add Tab"), icon: "res:/UI/Texture/eveicon/system_icons/add_16px.png", run: () => this.openAddTab() },
       { label: word("UI/Commands/OpenOverviewSettings", "Open Overview Settings"), icon: "res:/UI/Texture/eveicon/system_icons/settings_16px.png", run: () => this.openSettings() },
       { label: word("UI/Overview/BracketVisibility", "Bracket Visibility"), sub: [
