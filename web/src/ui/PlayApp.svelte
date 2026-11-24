@@ -1638,6 +1638,7 @@
   }
   async function openCustomsCargo(officeID: number) {
     const pilot = session;
+    if (!pilot) return;
     await pilot.flow.showInventoryContainer(officeID);
     if (session === pilot) open("inventory");
   }
@@ -1921,7 +1922,7 @@
       let nearID: number | null = null, best = Infinity;
       for (const e of snap?.entities ?? []) {
         if (!ego || !(NEAR_GROUPS.has(e.groupID ?? -1) || e.categoryID === 65)) continue;
-        const d = Math.hypot((e.x ?? 0) - (ego.x ?? 0), (e.y ?? 0) - (ego.y ?? 0), (e.z ?? 0) - (ego.z ?? 0));
+        const d = Math.hypot(e.position.x - ego.position.x, e.position.y - ego.position.y, e.position.z - ego.position.z); // (the entities carry position, not x / y / z: every distance was 0, so the first of them was sent)
         if (d < best) { best = d; nearID = e.itemID; }
       }
       void s.flow.broadcastEnemySpotted(nearID).catch(say("Fleet"));
