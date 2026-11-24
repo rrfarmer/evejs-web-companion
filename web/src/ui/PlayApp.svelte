@@ -4241,7 +4241,7 @@
   .fly-windows :global(.ps-retail :is(th, td):nth-child(3)) { width: 60px; }
   .fly-windows :global(.ps-retail :is(th, td):nth-child(4)) { width: 100px; }
   .fly-windows :global(.ps-retail :is(th, td):nth-child(6)) { width: 60px; text-align: right; }
-  .fly-windows :global(.ps-retail th) { position: relative; }
+  .fly-windows :global(.ps-retail th) { position: relative; font-family: var(--font-small); }
   .fly-windows :global(.ps-retail th .ps-scaler) { position: absolute; top: 0; right: 0; width: 4px; height: calc(100% - 1px); cursor: ew-resize; }
   .fly-windows :global(.ps-retail :is(th, td):nth-child(7)) { width: 0; padding: 0; position: relative; }
   .fly-windows :global(.ps-retail td:nth-child(7) > button) { display: none; }
@@ -4272,7 +4272,7 @@
   .fly-windows :global(.ps-probe.dim) { opacity: 0.3; }
   .fly-windows :global(.ps-count) { font-size: 14px; }
   /* the filtered and ignored boxes' text EveLabelSmall 12 */
-  .fly-windows :global(.ps-retail .ignored-box button) { font-size: 12px; }
+  .fly-windows :global(.ps-retail .ignored-box button) { font-size: 12px; font-family: var(--font-small); }
   .fly-windows :global(.ps-count.warn) { color: #f39b2c; }
   .fly-windows :global(.ps-gap) { flex: 1; }
   .fly-windows :global(.ps-icon) { background: none; border: 0; padding: 0; width: 16px; height: 16px; cursor: pointer; }
@@ -4472,7 +4472,7 @@
   /* LoggerWindow's scroll (read through gridcheck): its column headers 24 high, EveLabelSmall 12 at 8, Time 74 and Type 71
      wide; each entry a TextBody 14, 22 apart */
   .fly-windows :global(.log-table) { width: 100%; border-collapse: collapse; font-size: 14px; table-layout: fixed; }
-  .fly-windows :global(.log-table th) { position: relative; background: transparent; text-align: left; font-weight: 400; font-size: 12px; color: rgba(255, 255, 255, 0.5); padding: 0 8px; height: 24px; box-sizing: border-box; }
+  .fly-windows :global(.log-table th) { position: relative; background: transparent; text-align: left; font-weight: 400; font-size: 12px; font-family: var(--font-small); color: rgba(255, 255, 255, 0.5); padding: 0 8px; height: 24px; box-sizing: border-box; }
   .fly-windows :global(.log-table :is(th, td):nth-child(1)) { width: 70px; }
   .fly-windows :global(.log-table :is(th, td):nth-child(2)) { width: 67px; }
   .fly-windows :global(.log-table th .scaler) { position: absolute; top: 0; right: 0; width: 8px; height: 100%; cursor: col-resize; z-index: 1; }
