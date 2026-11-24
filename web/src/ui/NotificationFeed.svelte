@@ -39,6 +39,7 @@
   import { PlayWindow } from "../play/window.ts";
   import { NOTIFICATION_GROUPS } from "../play/notificationGroups.ts";
   import { takeClientNotifications } from "./clientNotifications.ts";
+  import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import { portraitUrl, portraitDefaultPath, remoteImageUrl } from "./ownerImages.ts";
   import { notificationArguments } from "../bridge/notificationFormats.ts";
   import { typeIconUrl } from "./typeIcons.ts";
@@ -189,8 +190,46 @@
   });
 
   onMount(() => {
-    flow.requestWords([HISTORY_CAPTION, TIME_AGO, ...INTERVAL_WORD_LABELS]);
+    flow.requestWords([HISTORY_CAPTION, TIME_AGO, ...INTERVAL_WORD_LABELS, ...Object.values(MENU_WORDS)]);
   });
+  // NotificationEntry.GetMenu: for a type with a setting (notificationToSettingDescription): Mark as Read where offered
+  // (OfferMarkNotificationRead: not processed, the server's (an id), typeID up to 1000), then the history visibility
+  // and the popup of the type turned off or on (ChangeShowAtAllSettingForNotification / ChangePopupSettingForNotification)
+  const MENU_WORDS = { read: "UI/Mail/Notifications/MarkAsRead", historyOff: "Notifications/NotificationWidget/TurnHistoryVisibilityOff",
+    historyOn: "Notifications/NotificationWidget/TurnHistoryVisibilityOn", popupOff: "Notifications/NotificationWidget/TurnPopupOff",
+    popupOn: "Notifications/NotificationWidget/TurnPopupOn" } as const;
+  const entryMenu = new ContextMenu();
+  const settingNameOf = (typeID: number): string | null => {
+    for (const g of NOTIFICATION_GROUPS) for (const [t, name] of g.types) if (t === typeID) return name;
+    return null;
+  };
+  function openEntryMenu(e: MouseEvent, typeID: number | null, readable: { notificationID: number; processed: boolean } | null): void {
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeID === null) return;
+    const settingName = settingNameOf(typeID);
+    if (settingName === null) return;
+    const say = (label: string, own: string) => plainText(formatTemplate(word(label, own), { settingName }, { nameOf: () => "" }));
+    const set = (which: 0 | 1, on: boolean) => {
+      const now = [...(settings.types[String(typeID)] ?? [true, true])] as [boolean, boolean];
+      now[which] = on;
+      const types = { ...settings.types };
+      if (now[0] && now[1]) delete types[String(typeID)]; else types[String(typeID)] = now;
+      settings.types = types;
+      saveSettings();
+    };
+    const entries: ContextEntry[] = [];
+    if (readable && !readable.processed && readable.notificationID > 0 && typeID <= 1000) {
+      entries.push({ label: say(MENU_WORDS.read, "Mark as Read"), run: () => void flow.markNotificationsRead([readable.notificationID]).then(() => flow.loadActivity()).catch(() => {}) });
+    }
+    entries.push(shownAtAll(typeID)
+      ? { label: say(MENU_WORDS.historyOff, `Turn History Visibility Off for '${settingName}'`), run: () => set(0, false) }
+      : { label: say(MENU_WORDS.historyOn, `Turn History Visibility On for '${settingName}'`), run: () => set(0, true) });
+    entries.push(popsUp(typeID)
+      ? { label: say(MENU_WORDS.popupOff, `Turn Popup Off for '${settingName}'`), run: () => set(1, false) }
+      : { label: say(MENU_WORDS.popupOn, `Turn Popup On for '${settingName}'`), run: () => set(1, true) });
+    entryMenu.open(e.clientX, e.clientY, entries);
+  }
 
   // NotificationUIService's unread counter (notificationUI.py _CheckAndFillCache / ResetUnreadCounter): the notifications
   // made after the last seen time (and shown at all: every type by default), the time kept per pilot
@@ -611,7 +650,8 @@
       style={`border-image-source: url("${clientTexture(p.outSince === null ? "res:/UI/Texture/classes/Notifications/historyBackReadOver.png" : "res:/UI/Texture/classes/Notifications/historyBackReadUp.png")}")`}
       onmouseenter={() => { if (!p.fading) { p.outSince = null; popups = [...popups]; void playUiEvent("ui_button_soft2_play"); } }}
       onmouseleave={() => { p.outSince = Date.now(); popups = [...popups]; }}
-      onclick={(e) => { if (!(e.target as HTMLElement).closest(".nf-close")) { void playUiEvent("ui_button_soft4_play"); p.action?.(); } }}>
+      onclick={(e) => { if (!(e.target as HTMLElement).closest(".nf-close")) { void playUiEvent("ui_button_soft4_play"); p.action?.(); } }}
+      oncontextmenu={(e) => openEntryMenu(e, p.typeID, null)}>
       <span class="nf-blink" style={`background-image: url("${clientTexture("res:/UI/Texture/classes/Neocom/buttonBlink.png")}")`}></span>
       {#if icon}<img class="nf-icon" alt="" src={clientTexture(icon)} />{/if}
       {#if face}<img class="nf-icon nf-face" alt="" src={face} />{/if}
@@ -639,7 +679,8 @@
           style={`border-image-source: url("${clientTexture(hovered === row.notificationID ? "res:/UI/Texture/classes/Notifications/historyBackReadOver.png" : "res:/UI/Texture/classes/Notifications/historyBackReadUp.png")}")`}
           onmouseenter={() => { hovered = row.notificationID; void playUiEvent("ui_button_soft2_play"); }}
           onmouseleave={() => { if (hovered === row.notificationID) hovered = null; }}
-          onclick={(e) => { if (!(e.target as HTMLElement).closest(".nf-close")) entryClick(row); }}>
+          onclick={(e) => { if (!(e.target as HTMLElement).closest(".nf-close")) entryClick(row); }}
+          oncontextmenu={(e) => openEntryMenu(e, row.typeID ?? null, { notificationID: row.notificationID, processed: row.processed })}>
           {#if icon}<img class="nf-icon" alt="" src={clientTexture(icon)} />{/if}
           {#if face}<img class="nf-icon nf-face" alt="" src={face} />{/if}
           {#if ship}<img class="nf-icon nf-ship" alt="" src={ship} />{/if}
