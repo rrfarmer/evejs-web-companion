@@ -4465,7 +4465,7 @@
   .fly-windows :global(.log-menu .has-sub) { padding-right: 24px; white-space: nowrap; }
   .fly-windows :global(.log-menu .log-sub) { left: 100%; top: -8px; white-space: nowrap; }
   .fly-windows :global(.log-menu button:disabled) { color: rgb(128, 128, 128); pointer-events: none; }
-  .fly-windows :global(.log-menu .sep) { height: 1px; margin: 6px 0; background: rgba(255, 255, 255, 0.1); }
+  .fly-windows :global(.log-menu .sep) { height: 1px; margin: 6px 0; border: 0; background: rgba(255, 255, 255, 0.1); }
   .fly-windows :global(.log-menu .has-icon img) { position: absolute; left: 4px; top: 3px; width: 16px; height: 16px; opacity: 0.75; }
   .fly-windows :global(.log-menu .has-icon:hover img) { opacity: 0.9; }
   .fly-windows :global(.log-menu .destructive) { color: #ff6a5a; }

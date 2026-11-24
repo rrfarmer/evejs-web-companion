@@ -70,5 +70,6 @@
   .inv-head-search { width: 140px; height: 18px; box-sizing: border-box; background: rgba(0, 0, 0, 0.3); color: #fff;
     border: 1px solid rgba(255, 255, 255, 0.15); font: inherit; font-size: 12px; padding: 0 4px; }
   .dot { display: inline-block; width: 16px; }
-  .sep { border: 0; border-top: 1px solid rgba(255, 255, 255, 0.15); margin: 4px 0; width: 100%; }
+  /* the client's menu Line: white 0.1, 1 high, 6 above and below (the .log-menu .sep rule; g379) */
+  .sep { border: 0; }
 </style>

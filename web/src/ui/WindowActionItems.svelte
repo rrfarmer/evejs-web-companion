@@ -44,7 +44,8 @@
 <hr class="sep" />
 
 <style>
-  .sep { border: 0; border-top: 1px solid rgba(255, 255, 255, 0.15); margin: 4px 0; width: 100%; }
+  /* the client's menu Line: white 0.1, 1 high, 6 above and below (the .log-menu .sep rule; g379) */
+  .sep { border: 0; }
   /* (no line closing a menu with nothing of its own after the actions: the probe scanner) */
   .sep:last-child { display: none; }
   /* the client's caption at 8 (the menu's top), its line 8 under it and the first entry at 52 (g377) */
