@@ -333,6 +333,12 @@ function dpsRows(f: ModuleTooltipFacts, word: TooltipWord, out: ModuleTooltipRow
   }
   const text = word("UI/Inflight/ModuleRacks/DamagePerSecond", { dps });
   if (text !== null) out.push({ icon, iconSize: 24, text });
+  damageTypeRows(f, word, out, multiplier);
+}
+
+/** AddDamageTypes: the damage-causing item's (the charge's, else the module's) damages times the multiplier, one by its name, several
+ *  under a header. */
+function damageTypeRows(f: ModuleTooltipFacts, word: TooltipWord, out: ModuleTooltipRow[], multiplier: number): void {
   const read = f.charge ? f.chargeAttr : f.attr;
   const values = DAMAGE_TYPES.map((id) => [id, (read(id) ?? 0) * multiplier] as const).filter(([, v]) => v);
   if (values.length === 1) {
@@ -345,6 +351,23 @@ function dpsRows(f: ModuleTooltipFacts, word: TooltipWord, out: ModuleTooltipRow
     out.push({ icon: null, iconSize: 24, text: "", values: values.map(([id, v]) => ({ icon: f.attributeIcon(id), text: word("UI/Inflight/ModuleRacks/Tooltips/DamageHitpoints", { activeValue: v }) ?? "" })) });
   }
 }
+
+// AddCynoInfo (groupCynosuralField 658): AddDurationCountdownTimes, as siege (g405)
+INFO_BY_GROUP.set(658, siege);
+// AddSuperWeaponInfo (groupSuperWeapon 588, groupStructureDoomsdayWeapon 1333): each damage type not 0 as
+// AddAttributeInfoWithAttributeName SuperWeaponDamage ("1,235 HP - EM damage"), then the countdown
+const superWeapon: InfoRow = (f, word, out, seconds) => {
+  for (const id of DAMAGE_TYPES) {
+    const v = f.attr(id) ?? 0;
+    if (!v) continue;
+    const text = word("UI/Inflight/ModuleRacks/Tooltips/SuperWeaponDamage", { activeValue: v, activeName: f.attributeName(id) ?? "" });
+    if (text !== null) out.push({ icon: f.attributeIcon(id), iconSize: 24, text });
+  }
+  siege(f, word, out, seconds);
+};
+for (const g of [588, 1333]) INFO_BY_GROUP.set(g, superWeapon);
+// AddStructureDefenseBatteryInfo (groupStructureDefenseBattery 1330): AddDamageTypes at multiplier 1
+INFO_BY_GROUP.set(1330, (f, word, out) => damageTypeRows(f, word, out, 1));
 
 /** FormatSeconds (localization/formatters/timeIntervalFormatters.py): one place where the seconds have a fraction. */
 export function formatSeconds(seconds: number, word: TooltipWord): string {
@@ -479,7 +502,7 @@ export const MODULE_TOOLTIP_LABELS: readonly string[] = [
   "UI/Inflight/ModuleRacks/TypeNameWithNumInGroup", "UI/Inflight/ModuleRacks/ModuleDamaged", "UI/Inflight/ModuleRacks/AmmoNameWithQty",
   "UI/Inflight/ModuleRacks/MaxRange", "UI/Inflight/ModuleRacks/OptimalRangeAndFalloff", "UI/Inflight/ModuleRacks/OptimalRange",
   "UI/Inflight/ModuleRacks/AreaOfEffect", "UI/Inflight/ModuleRacks/RangeWithFalloff", "UI/Inflight/ModuleRacks/Range",
-  "UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", "UI/Inflight/ModuleRacks/Tooltips/CompressorModuleInfo", "UI/Inflight/ModuleRacks/Tooltips/TrackingComputerFalloffBonus", "UI/Inflight/ModuleRacks/Tooltips/TrackingComputerRangeBonus", "UI/Inflight/ModuleRacks/Tooltips/TrackingComputerTrackingBonus", "UI/Inflight/ModuleRacks/Tooltips/HullRemoteRepairedPerTime", "UI/Inflight/ModuleRacks/Tooltips/ScanProbeSensorStrength", "UI/Inflight/ModuleRacks/Tooltips/TractorBeamTractorVelocity", "UI/Inflight/ModuleRacks/Tooltips/ValuePercentageWithAttributeName", "UI/Inflight/ModuleRacks/Tooltips/ECMStrengthBonus", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusText", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusValues", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusesHeader", "UI/Inflight/ModuleRacks/Tooltips/ShieldDamageResistanceHeader", "UI/Inflight/ModuleRacks/Tooltips/ArmorDamageResistanceHeader", "UI/Inflight/ModuleRacks/Tooltips/HullDamageResistanceHeader", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorCommandBonus", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorMaxCommandRelays", "UI/Inflight/ModuleRacks/Tooltips/ArmorRepairedPerTime",
+  "UI/Inflight/ModuleRacks/Tooltips/MiningAmountPerTime2", "UI/Inflight/ModuleRacks/Tooltips/CompressorModuleInfo", "UI/Inflight/ModuleRacks/Tooltips/TrackingComputerFalloffBonus", "UI/Inflight/ModuleRacks/Tooltips/TrackingComputerRangeBonus", "UI/Inflight/ModuleRacks/Tooltips/TrackingComputerTrackingBonus", "UI/Inflight/ModuleRacks/Tooltips/HullRemoteRepairedPerTime", "UI/Inflight/ModuleRacks/Tooltips/SuperWeaponDamage", "UI/Inflight/ModuleRacks/Tooltips/ScanProbeSensorStrength", "UI/Inflight/ModuleRacks/Tooltips/TractorBeamTractorVelocity", "UI/Inflight/ModuleRacks/Tooltips/ValuePercentageWithAttributeName", "UI/Inflight/ModuleRacks/Tooltips/ECMStrengthBonus", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusText", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusValues", "UI/Inflight/ModuleRacks/Tooltips/ResistanceActiveBonusesHeader", "UI/Inflight/ModuleRacks/Tooltips/ShieldDamageResistanceHeader", "UI/Inflight/ModuleRacks/Tooltips/ArmorDamageResistanceHeader", "UI/Inflight/ModuleRacks/Tooltips/HullDamageResistanceHeader", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorCommandBonus", "UI/Inflight/ModuleRacks/Tooltips/GangCoordinatorMaxCommandRelays", "UI/Inflight/ModuleRacks/Tooltips/ArmorRepairedPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/HullRepairedPerTime", "UI/Inflight/ModuleRacks/Tooltips/ShieldBonusPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/MaxVelocityWithAndWithoutPropulsion", "UI/Inflight/ModuleRacks/Tooltips/CapacitorBoostPerTime",
   "UI/Inflight/ModuleRacks/Tooltips/EnergyVampireAmountPerTime", "UI/Inflight/ModuleRacks/Tooltips/EnergDestabilizedPerTime",
