@@ -20,18 +20,21 @@
   const lightOn = $derived(lightByDefault ? !flags.nolight : flags.light);
   function flip(which: WindowFlag): void { setWindowFlag(id, which, !flags[which]); flags = windowFlags(id); onDone(); }
   const W = "/Carbon/UI/Controls/Window/";
+  // each entry with its action's eveicon (WindowControls._add_action_to_menu passes action.icon: unlocked / locked,
+  // compact / uncompact, light_background_on / _off, collapse / expand, the toggles' current icon)
+  const I = (n: string) => `/client-res/ui/texture/eveicon/system_icons/${n}_16px.png`;
 </script>
 
 <button type="button" role="menuitem" onpointerdown={(event) => event.stopPropagation()}
-  onclick={() => flip("locked")}>{flags.locked ? word(`${W}Unlock`, "Unlock window size and position") : word(`${W}Lock`, "Lock window size and position")}</button>
+  class="has-icon" onclick={() => flip("locked")}><img alt="" src={I(flags.locked ? "locked" : "unlocked")} />{flags.locked ? word(`${W}Unlock`, "Unlock window size and position") : word(`${W}Lock`, "Lock window size and position")}</button>
 {#if compact}
   <button type="button" role="menuitem" onpointerdown={(event) => event.stopPropagation()}
-    onclick={() => { compact.toggle(); onDone(); }}>{compact.on ? word(`${W}DisableCompactMode`, "Disable compact mode") : word(`${W}EnableCompactMode`, "Enable compact mode")}</button>
+    class="has-icon" onclick={() => { compact.toggle(); onDone(); }}><img alt="" src={I(compact.on ? "uncompact" : "compact")} />{compact.on ? word(`${W}DisableCompactMode`, "Disable compact mode") : word(`${W}EnableCompactMode`, "Enable compact mode")}</button>
 {/if}
 <button type="button" role="menuitem" onpointerdown={(event) => event.stopPropagation()}
-  onclick={() => flip(lightByDefault ? "nolight" : "light")}>{lightOn ? word(`${W}DisableLightBackground`, "Disable Light Background") : word(`${W}EnableLightBackground`, "Enable Light Background")}</button>
+  class="has-icon" onclick={() => flip(lightByDefault ? "nolight" : "light")}><img alt="" src={I(lightOn ? "light_background_on" : "light_background_off")} />{lightOn ? word(`${W}DisableLightBackground`, "Disable Light Background") : word(`${W}EnableLightBackground`, "Enable Light Background")}</button>
 <button type="button" role="menuitem" onpointerdown={(event) => event.stopPropagation()}
-  onclick={() => flip("collapsed")}>{flags.collapsed ? word(`${W}Expand`, "Expand") : word(`${W}Collapse`, "Collapse")}</button>
+  class="has-icon" onclick={() => flip("collapsed")}><img alt="" src={I(flags.collapsed ? "expand" : "collapse")} />{flags.collapsed ? word(`${W}Expand`, "Expand") : word(`${W}Collapse`, "Collapse")}</button>
 <hr class="sep" />
 
 <style>
