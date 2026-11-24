@@ -2538,6 +2538,8 @@ export class SpaceView {
    * Jump for a stargate, Open Cargo for a container); then always Orbit, Keep at Range, Lock or Unlock, Look At and Show Info. Set as Camera
    * Interest is not drawn yet.
    */
+  // (each button's icon actionConst.ICON_BY_ACTIONID's eveicon at the button's size, as SelectedItemWnd._ApplyButtonSize
+  // sets it - not selectedItemConst's older ICON_* paths; read live, g328)
   private actionsFor(e: Entity): ItemAction[] {
     const id = e.itemID;
     const icon = (name: string) => clientTexture(`res:/UI/Texture/eveicon/control_icons/${name}_32px.png`);
@@ -2550,7 +2552,7 @@ export class SpaceView {
     ];
     // a drone: Scoop to Drone Bay (selectedItemScoopToDroneBay, ICON_DRONE_RETURN 44_32_1), greyed where the menu has it not (one
     // under the pilot's control, droneCheckers.IsScoopableDrone)
-    if (e.categoryID === 18) out.push({ key: "scoop", title: this.actions.word?.("UI/Drones/ScoopDroneToBay") ?? "Scoop to Drone Bay", icon: clientTexture("res:/UI/Texture/icons/44_32_1.png"),
+    if (e.categoryID === 18) out.push({ key: "scoop", title: this.actions.word?.("UI/Drones/ScoopDroneToBay") ?? "Scoop to Drone Bay", icon: clientTexture("res:/UI/Texture/eveicon/control_icons/recall_drones_32px.png"),
       run: async () => this.actions.droneOrder?.("scoop", [id]) });
     // (the own ship too: its Board Ship button shown disabled, IsYourShip)
     if (e.categoryID === 6 || e.isSelf) out.push({ key: "board", title: this.actions.word?.("UI/Inflight/BoardShip") ?? "Board Ship", icon: icon("board"), run: async () => {} });
@@ -2572,7 +2574,7 @@ export class SpaceView {
     // scene), else shown disabled (_GetDisabledMenuLabel: the label with distance 0)
     if (e.groupID === 8 && this.actions.warpToMoonMiningPoint) {
       const warpPoint = this.actions.warpToMoonMiningPoint;
-      out.push({ key: "moonPoint", title: "Warp to Mining Point", icon: clientTexture("res:/UI/Texture/Classes/Moonmining/warpToMiningPoint.png"), run: () => warpPoint(id, defaultDistance("WarpTo")) });
+      out.push({ key: "moonPoint", title: "Warp to Mining Point", icon: clientTexture("res:/UI/Texture/eveicon/control_icons/warp_to_mining_point_32px.png"), run: () => warpPoint(id, defaultDistance("WarpTo")) });
     }
     const cargo = this.actions.openCargo;
     let cargoState = selectedCargo(e, this.snapshot?.ship?.mode === "WARP");
@@ -2585,7 +2587,7 @@ export class SpaceView {
       if (bay && isActiveComponent(comps, e.typeID, e.componentActive) && (mine || bay[1])) cargoState = this.snapshot?.ship?.mode === "WARP" ? "disabled" : "enabled";
     }
     if (cargo && cargoState !== "hidden") {
-      out.push({ key: "cargo", title: this.actions.word?.(OPEN_CARGO_LABEL) ?? "Open Cargo", icon: clientTexture(OPEN_CARGO_ICON),
+      out.push({ key: "cargo", title: this.actions.word?.(OPEN_CARGO_LABEL) ?? "Open Cargo", icon: clientTexture("res:/UI/Texture/eveicon/control_icons/open_cargo_32px.png"),
         disabled: cargoState === "disabled", run: () => cargo(id) });
     }
     const activateGate = this.actions.activateGate;
@@ -2707,9 +2709,9 @@ export class SpaceView {
     const { boardMetenox, transferMetenoxFuel, openMoonMaterialBay } = this.options;
     const entries: ItemAction[] = [];
     if (boardMetenox && distance <= METENOX_BOARD_RANGE) entries.push({ key: "board-metenox", title: "Board Structure",
-      icon: clientTexture("res:/UI/Texture/Icons/44_32_40.png"), run: () => boardMetenox(entity.itemID) });
+      icon: clientTexture("res:/UI/Texture/eveicon/control_icons/board_32px.png"), run: () => boardMetenox(entity.itemID) });
     if (transferMetenoxFuel && distance < METENOX_DEPOSIT_RANGE) entries.push({ key: "transfer-metenox", title: "Access Hangar Transfer",
-      icon: clientTexture("res:/UI/Texture/WindowIcons/items.png"), run: () => transferMetenoxFuel(entity.itemID, ship.itemID) });
+      icon: clientTexture("res:/UI/Texture/eveicon/control_icons/open_cargo_32px.png"), run: () => transferMetenoxFuel(entity.itemID, ship.itemID) });
     if (openMoonMaterialBay && distance < METENOX_MATERIAL_RANGE) entries.push({ key: "moon-material-bay", title: "Open Moon Material Bay",
       icon: clientTexture("res:/UI/Texture/eveicon/control_icons/retrieve_32px.png"), run: () => openMoonMaterialBay(entity.itemID) });
     return entries;
