@@ -23,6 +23,7 @@
   import { isSessionLost } from "../app/flow.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import TypeIcon from "./TypeIcon.svelte";
+  import { techLevelIcon } from "../play/techLevelIcon.ts";
   import { showInfo } from "./showInfo.ts";
   import { showMarketDetails, buyMarketType } from "./marketDetails.ts";
   import { RadialMenu, RADIAL_ICON, holdToOpen, type RadialOption } from "../play/radialMenu.ts";
@@ -941,11 +942,22 @@
     hideLabelShortcutTooltip();
   }
   onDestroy(gaugeTipOff);
+  // ItemIcon.SetTypeID: its techIcon (GetTechLevelIconPathAndHint) 16 x 16 at the icon's top left; the meta groups read
+  // once a type (a plain map, a revision counter - nothing written while rendering)
+  const droneMeta = new Map<number, number | null>();
+  let droneMetaRev = $state(0);
+  function droneTech(typeID: number | null): { path: string; hint: string } | null {
+    void droneMetaRev;
+    if (typeID === null) return null;
+    if (!droneMeta.has(typeID)) { droneMeta.set(typeID, null); void flow.typeFacts([typeID]).then((m) => { droneMeta.set(typeID, m?.get(typeID)?.metaGroupID ?? null); droneMetaRev += 1; }).catch(() => {}); }
+    return techLevelIcon(droneMeta.get(typeID));
+  }
 </script>
 
 
 {#snippet picture(typeID: number | null, label: string)}
-  <span class="picture"><TypeIcon {typeID} name={label} size="sm" /></span>
+  {@const tl = droneTech(typeID)}
+  <span class="picture"><TypeIcon {typeID} name={label} size="sm" />{#if tl}<img class="techlvl" alt="" title={tl.hint} src={clientTexture(tl.path)} />{/if}</span>
 {/snippet}
 
 <!-- DroneEntry.ConstructGauges: structure, armor, shield, 32 x 4 each, 2 apart, 8 from the right; HealthGauge the
@@ -1296,7 +1308,8 @@
   .row.grouphead .star { transition: filter 0.3s; }
   .row.grouphead.drop .star { filter: brightness(1.8) drop-shadow(0 0 3px rgba(255, 255, 255, 0.8)); transition: filter 0.1s; }
   .group { margin: 0; padding: 0; border: 0; background: none; }
-  .picture { width: 24px; height: 24px; flex: none; display: grid; }
+  .picture { position: relative; width: 24px; height: 24px; flex: none; display: grid; }
+  .picture .techlvl { position: absolute; left: 0; top: 0; width: 16px; height: 16px; max-width: none; z-index: 1; }
   .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* gaugesParent TORIGHT flush with the entry's right (its padright=8 is not carbonui's padRight, so nothing: gridcheck
      measured the gauges ending at the entry's 530) */
