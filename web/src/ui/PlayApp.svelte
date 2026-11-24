@@ -57,7 +57,7 @@
   import NotificationFeed from "./NotificationFeed.svelte";
   import CrimewatchTimers from "./CrimewatchTimers.svelte";
   import { get as storeGet } from "svelte/store";
-  import { isListValue, readDictPairs } from "../bridge/wire.ts";
+  import { isListValue, readDictPairs, readRowField } from "../bridge/wire.ts";
   import { trackShip, itemChanged as badgeItemChanged, unseenCargo, inventoryWindowsOpen } from "../play/inventoryBadging.ts";
   import { hudSetting, hudSettingNow, setHudSetting, slotOrderOf } from "../store/hudSettings.ts";
   import { createSession, type Session } from "../app/sessions.ts";
@@ -1052,6 +1052,23 @@
   $effect(() => {
     const s = session;
     if (!s) return;
+    // TriggerSkillsTrainedNotification: '<SkillTrainingComplete> - <the skill and level>' (more than one level:
+    // NumberOfSkills), a SKILL_NOTIFICATION_NORMAL (1000) whose click opens the character sheet's skills
+    const sayTrained = (levels: readonly (readonly [number, number])[]) => {
+      const t = s.store.words.get().templates;
+      const done = typeof t[SKILL_DONE] === "string" ? plainText(String(t[SKILL_DONE])) : "Skill Training Complete";
+      const one = levels.length === 1 ? levels[0]! : null;
+      const sub = one
+        ? (typeof t[SKILL_LEVEL] === "string" ? plainText(formatTemplate(String(t[SKILL_LEVEL]), { skill: one[0], amount: one[1] }, { nameOf: (kind, id) => (kind === "type" ? typeNames[String(id)]?.[0] ?? "" : "") })) : `${typeNames[String(one[0])]?.[0] ?? ""} ${one[1]}`)
+        : (typeof t[SKILL_COUNT] === "string" ? plainText(formatTemplate(String(t[SKILL_COUNT]), { amount: levels.length }, { nameOf: () => "" })) : `${levels.length} skills`);
+      dispatchEvent(new CustomEvent("evejs:client-notification", { detail: { typeID: 1000, title: `${done} - ${sub}`, tab: "skills" } }));
+    };
+    const field = (info: unknown, name: string): number => {
+      const v = Number(readRowField(info, name));
+      if (Number.isFinite(v)) return v;
+      const m = new RegExp(`"${name}"\\s*[,:]\\s*(\\d+)`).exec(JSON.stringify(info) ?? "");
+      return m ? Number(m[1]) : NaN;
+    };
     return untrack(() => {
       const seen = new WeakSet<object>();
       let first = true;
@@ -1059,6 +1076,28 @@
         for (const n of l.notifications) {
           if (seen.has(n)) continue;
           seen.add(n);
+          // skillsvc.OnLogonSkillsTrained(skillInfos, canTrain): the levels trained while away (currentLevel + 1 to
+          // skillLevel) - msg_SkillTrained_play and the trained notification (no OnSkillLevelsTrained); and with
+          // canTrain, _CheckTriggerNoSkillsInQueueNotification: an empty server queue makes a
+          // SKILL_NOTIFICATION_EMPTYQUEUE (1002) of UI/SkillQueue/NoSkillsInQueue. (Sent once, at entry: taken even
+          // when it came before this watcher.)
+          if (n.method === "OnLogonSkillsTrained" && Array.isArray(n.args)) {
+            const levels: [number, number][] = [];
+            for (const [key, info] of readDictPairs(n.args[0])) {
+              const from = field(info, "currentLevel"), to = field(info, "skillLevel");
+              if (Number.isFinite(from) && Number.isFinite(to)) for (let lv = from + 1; lv <= to; lv += 1) levels.push([Number(key), lv]);
+            }
+            if (levels.length) { void playUiEvent("msg_SkillTrained_play"); sayTrained(levels); }
+            if (n.args[1]) {
+              void s.flow.loadSkills().catch(() => {}).then(() => {
+                const q = s.store.skills.get().queue;
+                if (!q || q.entries.length) return;
+                const text = s.store.words.get().templates["UI/SkillQueue/NoSkillsInQueue"];
+                dispatchEvent(new CustomEvent("evejs:client-notification", { detail: { typeID: 1002, title: typeof text === "string" ? plainText(text) : "Skill queue is empty", tab: "skills" } }));
+              });
+            }
+            continue;
+          }
           if (first || n.method !== "OnServerSkillsChanged" || !Array.isArray(n.args)) continue;
           const held = new Map((s.store.skills.get().skills ?? []).map((r) => [r.typeID, r.level ?? 0]));
           let trained = false;
@@ -1076,15 +1115,7 @@
           }
           if (!trained) continue;
           void playUiEvent("msg_SkillTrained_play");
-          // TriggerSkillsTrainedNotification: '<SkillTrainingComplete> - <the skill and level>' (more than one level:
-          // NumberOfSkills), a SKILL_NOTIFICATION_NORMAL (1000) whose click opens the character sheet's skills
-          const t = s.store.words.get().templates;
-          const done = typeof t[SKILL_DONE] === "string" ? plainText(String(t[SKILL_DONE])) : "Skill Training Complete";
-          const one = levels.length === 1 ? levels[0]! : null;
-          const sub = one
-            ? (typeof t[SKILL_LEVEL] === "string" ? plainText(formatTemplate(String(t[SKILL_LEVEL]), { skill: one[0], amount: one[1] }, { nameOf: (kind, id) => (kind === "type" ? typeNames[String(id)]?.[0] ?? "" : "") })) : `${typeNames[String(one[0])]?.[0] ?? ""} ${one[1]}`)
-            : (typeof t[SKILL_COUNT] === "string" ? plainText(formatTemplate(String(t[SKILL_COUNT]), { amount: levels.length }, { nameOf: () => "" })) : `${levels.length} skills`);
-          dispatchEvent(new CustomEvent("evejs:client-notification", { detail: { typeID: 1000, title: `${done} - ${sub}`, tab: "skills" } }));
+          sayTrained(levels);
           neocomInst?.playSkillCompletion();
           view?.neocomSkillCompleted();
         }
@@ -2279,7 +2310,7 @@
     const attributeLook = new Map<number, { readonly icon: string | null; readonly nameID: number | null }>();
     void s.flow.attributeDisplay(TIP_ATTRIBUTES).then((found) => {
       for (const [id, d] of found ?? []) attributeLook.set(id, { icon: d.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d.displayNameID });
-      s.flow.requestWords(["UI/Neocom/Blink/NewMailReceived", "UI/CharacterSheet/CharacterSheetWindow/SkillTabs/SkillTrainingComplete", "UI/SkillQueue/Skills/SkillNameAndLevel", "UI/SkillQueue/Skills/NumberOfSkills", "UI/Neocom/Blink/NewCalendarEvent", "UI/Neocom/Blink/CalendarEventModified", "UI/Neocom/UnclaimedRewards", "UI/Neocom/UnseenItemsHint", ...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Mining/CriticalHit", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Inflight/ResetCamera", "UI/PeopleAndPlaces/SpotInSolarSystem", "UI/PeopleAndPlaces/AgentMissions", "UI/Neocom/MissionNameSubmenu", "UI/Inflight/EditBookmark", "UI/Inflight/RemoveBookmark", "UI/Inflight/RemoveWaypoint", "UI/PeopleAndPlaces/NewBookmarkLocationLabel", "UI/PeopleAndPlaces/Locations", "UI/PeopleAndPlaces/PersonalLocations", "UI/PeopleAndPlaces/SharedLocations", "UI/Inflight/ApproachLocationActionGroup", "UI/Inflight/WarpToWithinDistance", "UI/Inflight/Scanner/AnomalySiteFilterLabel", ...["OreSite", "GasSite", "RelicSite", "DataSite", "Wormhole", "CombatSite"].map((t) => `UI/Inflight/Scanner/${t}`), "UI/Locations/LocationMoonLong", "UI/Locations/LocationMoonShort", "UI/Inflight/ShowSystemInMapBrowser", "UI/Common/LocationTypes/AsteroidBelts", "UI/Common/LocationTypes/Planets", "UI/Common/LocationTypes/Stargates", "UI/Common/LocationTypes/Stations", "UI/Common/LocationTypes/Structures", ...["Barren", "Storm", "Lava", "Scorched", "Shattered", "Temperate", "Ice", "Gas", "Oceanic", "Plasma"].map((t) => `UI/PI/PlanetType/${t}`), "UI/Menusvc/MenuHints/NoReasonGiven", "UI/Menusvc/MenuHints/ShipAlreadyPiloted", "UI/Menusvc/MenuHints/BadGroupForAction", "UI/Menusvc/MenuHints/CannotKeepInRange", "UI/Menusvc/MenuHints/SelectedItemActionWithDist", "UI/Menusvc/MenuHints/NotInTargetRange", "UI/Control/EveWindow/Minimize", "UI/Generic/Copy", "UI/Drones/EngageTarget", "UI/Drones/MineWithDrone", "UI/Drones/Salvage", "UI/Drones/ReturnDroneAndOrbit", "UI/Drones/ReturnDroneToBay", "UI/Drones/ScoopDroneToBay", "UI/Drones/AbandonDrone", "UI/Messages/ReconnectFoundDrones", "UI/Messages/ReconnectFoundNoDrones", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/CancelLockTarget", "UI/Inflight/MarkWreckViewed", "UI/Inflight/MarkWreckNotViewed", "UI/Inflight/AbandonWreack", "UI/Inflight/AbandonAllWrecks", "UI/Inflight/AbandonCargo", "UI/Inflight/AbandonAllCargo", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Menusvc/MoonsMenuOption", "UI/Common/Pilot", "UI/Inflight/BoardShip", "UI/Inflight/POS/EnterStarbasePassword", "UI/Inflight/POS/ShipShieldHarmonic", "UI/Inflight/POS/EnterHarmonicPassword", "UI/Commands/GiveMoney", "UI/PeopleAndPlaces/BlockContact", "UI/EVEMail/SendPilotEVEMail", "UI/Fleet/FormFleetWith", "UI/Crimewatch/Duel/DuelMenuEntry", "UI/PeopleAndPlaces/AddContact", "UI/PeopleAndPlaces/EditContact", "UI/Commands/CapturePortrait", "UI/Station/BountyOffice/PlaceBounty", "UI/Chat/StartConversation", "UI/Chat/InviteToChat", "UI/Compression/FailureToCompressAny", "UI/Compression/FailureToCompressSome", "UI/Inflight/Submenus/MoonX", "UI/Menusvc/PlanetHasNoMoons", "UI/PI/Common/CustomsOffice", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
+      s.flow.requestWords(["UI/Neocom/Blink/NewMailReceived", "UI/CharacterSheet/CharacterSheetWindow/SkillTabs/SkillTrainingComplete", "UI/SkillQueue/Skills/SkillNameAndLevel", "UI/SkillQueue/Skills/NumberOfSkills", "UI/SkillQueue/NoSkillsInQueue", "UI/Neocom/Blink/NewCalendarEvent", "UI/Neocom/Blink/CalendarEventModified", "UI/Neocom/UnclaimedRewards", "UI/Neocom/UnseenItemsHint", ...MODULE_TOOLTIP_LABELS, ...NewShipHud.MENU_LABELS, "UI/Inflight/DronesEngaging", "UI/Mining/CriticalHit", "UI/Commands/DronesReturningToDroneBay", "UI/Commands/DronesReturningAndOrbiting", "UI/Commands/ShowInfo", "UI/Inflight/StopMyShip", "UI/Inflight/StopMyCapsule", "UI/Inflight/Submenus/WarpToWithin", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Inflight/ApproachObject", "UI/Inflight/OrbitObject", "UI/Inflight/OrbitAtCurrentRange", "UI/Inflight/Submenus/KeepAtRange", "UI/Inflight/KeepAtCurrentRange", "UI/Inflight/AlignTo", "UI/Inflight/DockInStation", "UI/Inflight/Jump", "UI/Inflight/LookAtObject", "UI/Inflight/SetAsCameraInterest", "UI/Inflight/ResetCamera", "UI/PeopleAndPlaces/SpotInSolarSystem", "UI/PeopleAndPlaces/AgentMissions", "UI/Neocom/MissionNameSubmenu", "UI/Inflight/EditBookmark", "UI/Inflight/RemoveBookmark", "UI/Inflight/RemoveWaypoint", "UI/PeopleAndPlaces/NewBookmarkLocationLabel", "UI/PeopleAndPlaces/Locations", "UI/PeopleAndPlaces/PersonalLocations", "UI/PeopleAndPlaces/SharedLocations", "UI/Inflight/ApproachLocationActionGroup", "UI/Inflight/WarpToWithinDistance", "UI/Inflight/Scanner/AnomalySiteFilterLabel", ...["OreSite", "GasSite", "RelicSite", "DataSite", "Wormhole", "CombatSite"].map((t) => `UI/Inflight/Scanner/${t}`), "UI/Locations/LocationMoonLong", "UI/Locations/LocationMoonShort", "UI/Inflight/ShowSystemInMapBrowser", "UI/Common/LocationTypes/AsteroidBelts", "UI/Common/LocationTypes/Planets", "UI/Common/LocationTypes/Stargates", "UI/Common/LocationTypes/Stations", "UI/Common/LocationTypes/Structures", ...["Barren", "Storm", "Lava", "Scorched", "Shattered", "Temperate", "Ice", "Gas", "Oceanic", "Plasma"].map((t) => `UI/PI/PlanetType/${t}`), "UI/Menusvc/MenuHints/NoReasonGiven", "UI/Menusvc/MenuHints/ShipAlreadyPiloted", "UI/Menusvc/MenuHints/BadGroupForAction", "UI/Menusvc/MenuHints/CannotKeepInRange", "UI/Menusvc/MenuHints/SelectedItemActionWithDist", "UI/Menusvc/MenuHints/NotInTargetRange", "UI/Control/EveWindow/Minimize", "UI/Generic/Copy", "UI/Drones/EngageTarget", "UI/Drones/MineWithDrone", "UI/Drones/Salvage", "UI/Drones/ReturnDroneAndOrbit", "UI/Drones/ReturnDroneToBay", "UI/Drones/ScoopDroneToBay", "UI/Drones/AbandonDrone", "UI/Messages/ReconnectFoundDrones", "UI/Messages/ReconnectFoundNoDrones", "UI/Inflight/UnlockTarget", "UI/Inflight/LockTarget", "UI/Inflight/CancelLockTarget", "UI/Inflight/MarkWreckViewed", "UI/Inflight/MarkWreckNotViewed", "UI/Inflight/AbandonWreack", "UI/Inflight/AbandonAllWrecks", "UI/Inflight/AbandonCargo", "UI/Inflight/AbandonAllCargo", "UI/Inflight/AddFirstWaypoint", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/BookmarkLocation", "UI/PI/Common/ViewInPlanetMode", "UI/Menusvc/MoonsMenuOption", "UI/Common/Pilot", "UI/Inflight/BoardShip", "UI/Inflight/POS/EnterStarbasePassword", "UI/Inflight/POS/ShipShieldHarmonic", "UI/Inflight/POS/EnterHarmonicPassword", "UI/Commands/GiveMoney", "UI/PeopleAndPlaces/BlockContact", "UI/EVEMail/SendPilotEVEMail", "UI/Fleet/FormFleetWith", "UI/Crimewatch/Duel/DuelMenuEntry", "UI/PeopleAndPlaces/AddContact", "UI/PeopleAndPlaces/EditContact", "UI/Commands/CapturePortrait", "UI/Station/BountyOffice/PlaceBounty", "UI/Chat/StartConversation", "UI/Chat/InviteToChat", "UI/Compression/FailureToCompressAny", "UI/Compression/FailureToCompressSome", "UI/Inflight/Submenus/MoonX", "UI/Menusvc/PlanetHasNoMoons", "UI/PI/Common/CustomsOffice", "UI/Overview/AddGroupToOverview", "UI/Overview/RemoveGroupFromOverview", CARGO_HOLD.label, ...SHIP_HOLDS.map((h) => h.label), ...[...attributeLook.values()].flatMap((a) => (a.nameID ? [`#${a.nameID}`] : []))]);
     }).catch(() => {});
     const stopAskedAt = new Map<number, number>();
     const tipWord = (label: string, args: Readonly<Record<string, unknown>>): string | null => {
