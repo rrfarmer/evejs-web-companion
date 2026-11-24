@@ -872,11 +872,21 @@
       if (trackedPlanKept) void s.flow.personalSkillPlans().then((r) => { if (r) trackedPlanKept = r.plans.find((p) => p.id === r.trackedID) ?? null; }).catch(() => {});
       const plans = trackedPlanKept ? null : await s.flow.personalSkillPlans().catch(() => null);
       const tracked = trackedPlanKept ?? plans?.plans.find((p) => p.id === plans.trackedID) ?? null;
+      // its milestones (SkillPlanProgressIndicator.ReconstructMilestones), each one's ratios as the plan's are reckoned
+      const milestoneRead = tracked ? await s.flow.skillPlanMilestones(tracked).catch(() => null) : null;
+      const shown = (milestoneRead?.milestones ?? []).slice(0, 5);
+      const milestoneProgress = shown.length ? await s.flow.skillLevelsProgress(shown.map((m) => m.needs)).catch(() => null) : null;
+      const milestones = shown.map((m, i) => {
+        const p = milestoneProgress?.[i];
+        const now = p?.progress ? planProgressAt(p.progress, Date.now() + s.store.skills.get().clockOffsetMs) : null;
+        return { subType: m.subType, completed: p?.completed ?? m.completed, progress: now?.progress ?? 0, inTraining: now?.inTraining ?? 0 };
+      });
       const readAt = Date.now();
       const plan = tracked?.progress ? {
         header: plainText(String(s.store.words.get().templates["UI/Neocom/TrackedSkillPlanProgress"] ?? "Tracked Skill Plan Progress")),
         ...(() => { const now = planProgressAt(tracked.progress!, Date.now() + s.store.skills.get().clockOffsetMs); return { progress: now.progress, inTraining: now.inTraining }; })(),
         completed: tracked.completed,
+        milestones,
         time: () => {
           // GetTotalTrainingTimeLeftText: a completed plan's UI/SkillPlan/Completed
           if (tracked.completed) return plainText(String(s.store.words.get().templates["UI/SkillPlan/Completed"] ?? ""));

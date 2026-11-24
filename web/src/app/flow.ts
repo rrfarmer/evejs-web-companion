@@ -5222,6 +5222,11 @@ export interface AppFlow {
    */
   setTrackedSkillPlan(id: string | null): Promise<string | null>;
   /**
+   * GetProgressRatioForSkillLevels / GetInTrainingRatioForSkillLevels and IsCompleted for sets of skill levels (a
+   * milestone's GetRequiredSkills), as a plan's are reckoned; null where the skills cannot be read.
+   */
+  skillLevelsProgress(lists: readonly (readonly (readonly [number, number])[])[]): Promise<readonly { readonly completed: boolean; readonly progress: PlanProgress | null }[] | null>;
+  /**
    * The compare tool's reading of types (comparableType.py), from the client's own tables and kept: each type's dogma
    * attributes and facts, the attributes' records and the units' names, all that is held; the words and the names
    * they are written with asked for. Null where the client's tables could not be read.
@@ -14632,6 +14637,17 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         numOmegaSkills,
       };
     });
+  }
+
+  async function skillLevelsProgress(lists: readonly (readonly (readonly [number, number])[])[]): ReturnType<AppFlow["skillLevelsProgress"]> {
+    try {
+      const [skillsAnswer, allSkillsAnswer] = await Promise.all([bridgeAsk("skillHandler", "GetSkills", []), bridgeAsk("skillHandler", "GetAllSkills", [])]);
+      const entries = await planEntries(lists.map((requirements, i) => ({ id: String(i), name: "", description: "", requirements })), skillsAnswer, allSkillsAnswer);
+      // (a milestone with nothing required is not completed: BaseMilestoneController.IsCompleted)
+      return entries.map((e) => ({ completed: e.requirements.length > 0 && e.completed, progress: e.progress }));
+    } catch {
+      return null;
+    }
   }
 
   let certifiedPlansHeld: { readonly plans: readonly CertifiedPlanData[]; readonly careerPaths: readonly CareerPath[] } | null = null;
@@ -36590,6 +36606,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     sayCantAddAsMilestone,
     askReplaceMilestone,
     setTrackedSkillPlan,
+    skillLevelsProgress,
     comparisonTypes,
     cfgAveragePrices,
     typeFacts,

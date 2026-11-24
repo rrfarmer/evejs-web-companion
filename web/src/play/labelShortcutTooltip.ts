@@ -196,7 +196,9 @@ export interface SkillTrainingTip {
   /** The SkillBar's five boxes' fills. */
   readonly boxes: readonly string[];
   /** The tracked skill plan (AddSkillPlan), where one is tracked. */
-  readonly plan?: { readonly header: string; readonly progress: number; readonly inTraining: number; readonly completed: boolean; readonly time: () => string } | null;
+  readonly plan?: { readonly header: string; readonly progress: number; readonly inTraining: number; readonly completed: boolean; readonly time: () => string;
+    /** The plan's milestones, in its order: each one's kind and GetProgressRatio / GetInTrainingRatio / IsCompleted. */
+    readonly milestones?: readonly { readonly subType: "ship" | "module" | "skill" | "other"; readonly progress: number; readonly inTraining: number; readonly completed: boolean }[] } | null;
 }
 
 /**
@@ -246,6 +248,7 @@ function planGauge(plan: NonNullable<SkillTrainingTip["plan"]>): { el: HTMLEleme
   // the top wedge (TOPLEFT_PROP 0.5, 0.035, 0.09 x 125/33 wide, 0.09 high), the label centred in it in TextColor.HIGHLIGHT
   Object.assign(time.style, { position: "absolute", left: "0", right: "0", top: `${0.035 * size}px`, height: `${0.09 * size}px`, lineHeight: `${0.09 * size}px`, textAlign: "center", fontSize: "10px", color: "rgba(255,255,255,0.9)" });
   box.append(svg);
+  milestoneIndicators(svg, plan.milestones ?? [], { WHITE, CRYO, MISSING });
   // UpdateTopWedge: a completed plan's completedUnderscore (a StretchSpriteHorizontal in the wedge, TOBOTTOM 24 high,
   // top -18, padded -1 either side; LEAFY_GREEN) - shown at this radius too, being the wedge's child, not its
   // background's. Measured in the live client (g316): 56 x 24 at 52, 13 of the 160 gauge; the texture 125 x 24, its
@@ -265,6 +268,84 @@ function planGauge(plan: NonNullable<SkillTrainingTip["plan"]>): { el: HTMLEleme
   }
   box.append(time);
   return { el: box, tick: () => { time.textContent = plan.time(); } };
+}
+/**
+ * SkillPlanProgressIndicator.UpdateMilestonePositions with its MilestoneProgressIndicators (isEditable False): n of them
+ * (at most MAX_NUM_MILESTONES 5), each of radius 0.45 R (1 - 0.085 n), at 0.35 R (1 + 0.21 n / 5) from the centre at
+ * START_ANGLE_BY_NUM_MILESTONES[n - 1] - 2 pi i / n (one alone at the centre); R the gauge's 80. Each: a
+ * MilestoneProgressGauge - a full circle from the top, clockwise, of MilestoneSegments (DonutSegment, thinGaugeBG.png
+ * 43 across, lineWidth 0.75 r: the texture from 0.25 r out to r) trained WHITE, in training CRYO_BLUE, the rest the
+ * missing colour, with the same minimum ratios; its kind's icon (MILESTONE_ICON_BY_SUBTYPE) 0.8 r square in the middle;
+ * lockButtonCheckmark 20 x 20 at 0.8 r below the centre when it is completed. The ring's look measured in the live
+ * client (g319, radius 100 at 0.5 / 0.2: the glow from 0.52 r, the line 0.76 - 0.81 r, out to r).
+ */
+function milestoneIndicators(svg: SVGSVGElement, list: NonNullable<NonNullable<SkillTrainingTip["plan"]>["milestones"]>, c: { WHITE: string; CRYO: string; MISSING: string }): void {
+  const NS = "http://www.w3.org/2000/svg";
+  const n = Math.min(list.length, 5);
+  if (n === 0) return;
+  const R = 80, cx = 80;
+  const START = [0, 0, -Math.PI / 2, Math.PI / 4, Math.PI / 10];
+  const r = R * 0.45 * (1 - 0.085 * n);
+  const at = 0.35 * R * (1 + 0.21 * n / 5);
+  // thinGaugeBG.png's alpha across its 43 rows (read from the texture), the inside edge first
+  const PROFILE = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 51, 51, 51, 52, 53, 57, 63, 68, 76, 83, 96, 112, 133, 255, 255, 255, 255, 99, 75, 54, 38, 29, 21, 13, 7, 4, 1];
+  const defs = document.createElementNS(NS, "defs");
+  svg.append(defs);
+  const ICONS = { ship: "milestoneShip", skill: "milestoneSkill", module: "milestoneModule", other: "milestoneOther" } as const;
+  list.slice(0, n).forEach((m, i) => {
+    const angle = (START[n - 1] ?? 0) - 2 * Math.PI * i / n;
+    const x = n === 1 ? cx : cx + at * Math.cos(angle), y = n === 1 ? cx : cx + at * Math.sin(angle);
+    const gid = `ms-band-${Math.random().toString(36).slice(2)}`;
+    const grad = document.createElementNS(NS, "radialGradient");
+    grad.setAttribute("id", gid); grad.setAttribute("gradientUnits", "userSpaceOnUse");
+    grad.setAttribute("cx", String(x)); grad.setAttribute("cy", String(y)); grad.setAttribute("r", String(r));
+    PROFILE.forEach((a, row) => {
+      const stop = document.createElementNS(NS, "stop");
+      stop.setAttribute("offset", String(0.25 + 0.75 * (row + 0.5) / 43));
+      stop.setAttribute("stop-color", "#fff"); stop.setAttribute("stop-opacity", String(a / 255));
+      grad.append(stop);
+    });
+    const mask = document.createElementNS(NS, "mask");
+    mask.setAttribute("id", `${gid}-m`);
+    const disc = document.createElementNS(NS, "circle");
+    disc.setAttribute("cx", String(x)); disc.setAttribute("cy", String(y)); disc.setAttribute("r", String(r)); disc.setAttribute("fill", `url(#${gid})`);
+    mask.append(disc);
+    defs.append(grad, mask);
+    const g = document.createElementNS(NS, "g");
+    g.setAttribute("mask", `url(#${gid}-m)`);
+    const wedge = (a: number, b: number, color: string) => {
+      if (b - a <= 0.0005) return;
+      const p = document.createElementNS(NS, "path");
+      if (b - a >= 0.9995) {
+        p.setAttribute("d", `M ${x - r} ${y} A ${r} ${r} 0 1 1 ${x + r} ${y} A ${r} ${r} 0 1 1 ${x - r} ${y} Z`);
+      } else {
+        const pt = (t: number) => [x + r * Math.sin(2 * Math.PI * t), y - r * Math.cos(2 * Math.PI * t)] as const;
+        const [x0, y0] = pt(a), [x1, y1] = pt(b);
+        p.setAttribute("d", `M ${x} ${y} L ${x0} ${y0} A ${r} ${r} 0 ${b - a > 0.5 ? 1 : 0} 1 ${x1} ${y1} Z`);
+      }
+      p.setAttribute("fill", color);
+      g.append(p);
+    };
+    // MilestoneProgressGauge.UpdateProgress
+    const trained = m.progress ? Math.min(Math.max(m.progress, 0.01), 0.999) : 0;
+    const training = m.inTraining ? Math.min(Math.max(m.inTraining, 0.03), 0.999) : 0;
+    const remaining = m.completed ? 0 : Math.max(0, 1 - trained - training);
+    wedge(0, m.completed ? 1 : trained, c.WHITE);
+    if (!m.completed) wedge(trained, trained + training, c.CRYO);
+    wedge(1 - remaining, 1, c.MISSING);
+    svg.append(g);
+    const icon = document.createElementNS(NS, "image");
+    const w = r * 0.8;
+    icon.setAttribute("href", clientTexture(`res:/UI/Texture/Classes/SkillPlan/milestones/${ICONS[m.subType]}.png`));
+    icon.setAttribute("x", String(x - w / 2)); icon.setAttribute("y", String(y - w / 2)); icon.setAttribute("width", String(w)); icon.setAttribute("height", String(w));
+    svg.append(icon);
+    if (m.completed) {
+      const check = document.createElementNS(NS, "image");
+      check.setAttribute("href", clientTexture("res:/UI/Texture/classes/SkillPlan/lockButtonCheckmark.png"));
+      check.setAttribute("x", String(x - 10)); check.setAttribute("y", String(y + r * 0.8 - 10)); check.setAttribute("width", "20"); check.setAttribute("height", "20");
+      svg.append(check);
+    }
+  });
 }
 let skillTipTimer: ReturnType<typeof setInterval> | null = null;
 /**
