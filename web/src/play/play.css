@@ -1189,3 +1189,10 @@ body.evejs-ui-hidden .fly-space .space > *:not(canvas):not(.jump-flash) { visibi
 .tb-badges > span { position: absolute; }
 .tb-bracket { width: 16px; height: 16px; }
 .tb-flag .state-flag { position: static; display: block; width: 10px; height: 10px; }
+/* CmdHideCursor: uilib.SetCursor(UICURSOR_NONE) until the next thing under the pointer sets its own */
+.cursor-hidden, .cursor-hidden * { cursor: none !important; }
+/* sceneManager.Toggled3DViewWarning: CENTERTOP 230 down, 400 wide, (0.1, 0.1, 0.1, 0.5); EveCaptionLarge (24) and
+   EveLabelLarge (16), centred, each padded 4 */
+.view3d-warning { position: absolute; left: 50%; top: 230px; width: 400px; transform: translateX(-50%); background: rgba(25, 25, 25, 0.5); pointer-events: none; z-index: 5; text-align: center; color: #fff; }
+.view3d-warning .v3w-caption { font-size: 24px; padding: 4px; }
+.view3d-warning .v3w-label { font-size: 16px; padding: 4px; }

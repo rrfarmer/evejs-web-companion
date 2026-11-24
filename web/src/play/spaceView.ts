@@ -1443,6 +1443,8 @@ export class SpaceView {
   private dscanKey: { code: string; targeted: boolean } | null = null;
   /** eveCommands.commandMemory: each tag sequence command's next place (ResetTagSequences clears it). */
   private readonly tagMemory = new Map<string, number>();
+  /** Toggled3DViewWarning while the 3D view is off (CmdToggle3DView). */
+  private view3DWarning: HTMLDivElement | null = null;
   /** Where the last left press in space was (uilib.mouseTravel for the double click). */
   private lastLeftPress: { x: number; y: number } | null = null;
   /** The arrow keys held (CmdFlightControlsUp / Down / Left / Right, by the key's code) and whether a modifier is. */
@@ -1597,6 +1599,8 @@ export class SpaceView {
   /** `onNeocom`: what a Neocom button opens; the app's play mode opens its own windows (PlayApp.svelte). */
   constructor(private readonly live: LivePark, private actions: SpaceActions, private readonly where: { system: string; security: number | null }, private readonly options: SpaceViewOptions = {}) {
     this.root.className = "space";
+    // Toggled3DViewWarning's words, asked for up front (they show the moment the key is pressed)
+    this.actions.requestWords?.(["UI/Shared/ExteriorViewDisabled", "UI/Shared/PressToRestoreView"]);
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.root.appendChild(this.renderer.domElement);
@@ -3798,6 +3802,44 @@ export class SpaceView {
       return;
     }
     if (cmd === "CmdStopShip") { e.preventDefault(); void this.stopShip(); return; }
+    // CmdHideCursor (Alt-F9): uilib.SetCursor(UICURSOR_NONE) - the cursor hidden until the next thing under it sets its own
+    if (cmd === "CmdHideCursor") {
+      e.preventDefault();
+      const at = this.pointerAt?.target as Element | null | undefined;
+      document.documentElement.classList.add("cursor-hidden");
+      const show = (ev: PointerEvent) => { if (ev.target !== at) { document.documentElement.classList.remove("cursor-hidden"); removeEventListener("pointerover", show, true); } };
+      addEventListener("pointerover", show, true);
+      return;
+    }
+    // CmdToggle3DView (Ctrl-Shift-F9): sceneManager.ToggleEnable3DView - the scene hidden (the UI stays) and, while it is
+    // off, Toggled3DViewWarning: CENTERTOP 230 down, 400 wide on (0.1, 0.1, 0.1, 0.5), UI/Shared/ExteriorViewDisabled
+    // (EveCaptionLarge) over UI/Shared/PressToRestoreView with the command's shortcut (EveLabelLarge), each padded 4,
+    // faded out over 4 s after 20 s
+    if (cmd === "CmdToggle3DView") {
+      e.preventDefault();
+      const off = this.renderer.domElement.style.visibility !== "hidden";
+      this.renderer.domElement.style.visibility = off ? "hidden" : "";
+      this.view3DWarning?.remove();
+      this.view3DWarning = null;
+      if (off) {
+        const w = document.createElement("div");
+        w.className = "view3d-warning";
+        const say = (label: string, own: string, args?: Record<string, unknown>) => this.actions.word?.(label, args as never) ?? own;
+        const keys = shortcutOf("CmdToggle3DView");
+        const a = document.createElement("div"); a.className = "v3w-caption"; a.textContent = say("UI/Shared/ExteriorViewDisabled", "Exterior View Disabled");
+        // PressToRestoreView: "Press <b>{shortcut}</b> to restore the view" - the shortcut bold
+        const b = document.createElement("div"); b.className = "v3w-label";
+        const restore = say("UI/Shared/PressToRestoreView", `Press ${keys} to restore the view`, { shortcut: keys });
+        const at = keys ? restore.indexOf(keys) : -1;
+        if (at < 0) b.textContent = restore;
+        else { const strong = document.createElement("b"); strong.textContent = keys; b.append(restore.slice(0, at), strong, restore.slice(at + keys.length)); }
+        w.append(a, b);
+        this.root.appendChild(w);
+        this.view3DWarning = w;
+        w.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 4000, delay: 20000, fill: "forwards" });
+      }
+      return;
+    }
     // CmdZoomIn / CmdZoomOut (Ctrl-Shift-A / Ctrl-Shift-Z): eveCommands._Zoom - a mouse scroll of direction x 120 (one
     // notch) simulated: the active window's CmdZoomInOut where it has one (the solar system map's), else the view's
     // ZoomBy; in space OnClientMouseZoomIn/OutSpace (the camera tasks' zoom). Here a notch is the wheel's 100.
