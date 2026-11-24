@@ -4439,11 +4439,11 @@
   /* a window's GetMenuMoreOptions is drawn as the client's ContextMenu (g373, the drones window's): the 8 px underlay framed
      white 0.1, entries 22 high (a check box's or radio's 24) with their 14 px label at 36 (the menu's 8 + 28) in white 0.75,
      hovered SMOKE_BLUE 0.2 and 0.9; a line 13 high; AddCaption's MenuEntryViewCaption a TextHeader 18 px in white 0.9 at 12,
-     22 below the line before it and 8 above the entry after */
+     23 below the line before it (padTop 16) and 8 above the entry after (textheight + 8), g378 */
   .fly-windows :global(.log-menu) { position: absolute; left: 0; top: 24px; z-index: 5; display: flex; flex-direction: column; min-width: 180px; width: max-content; padding: 8px;
     background: rgba(6, 10, 12, 0.92); backdrop-filter: blur(8px); border: 0; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
     font-size: 14px; color: rgba(255, 255, 255, 0.75); }
-  .fly-windows :global(.log-menu .caption) { padding: 13px 0 10px 4px; font-size: 18px; line-height: 23px; color: rgba(255, 255, 255, 0.9); }
+  .fly-windows :global(.log-menu .caption) { padding: 16px 0 8px 4px; font-size: 18px; line-height: 23px; color: rgba(255, 255, 255, 0.9); }
   .fly-windows :global(.log-menu button) { all: unset; position: relative; height: 22px; line-height: 22px; padding: 0 8px 0 28px; font-size: 14px; cursor: default; white-space: nowrap; }
   .fly-windows :global(.log-menu button[role="menuitemcheckbox"]), .fly-windows :global(.log-menu button[role="menuitemradio"]) { height: 24px; line-height: 24px; }
   .fly-windows :global(.log-menu button[aria-checked="true"])::before { content: "✓"; position: absolute; left: 6px; font-size: 12px; }

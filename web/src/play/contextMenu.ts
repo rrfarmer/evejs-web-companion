@@ -210,9 +210,9 @@ export class ContextMenu {
       row.dataset.caption = entry.label;
       row.textContent = entry.label;
       // MenuData.AddCaption's MenuEntryViewCaption (g373): a TextHeader 18 px in white 0.9 at PAD_LEFT 4; its text 23 below a
-      // line before it, the entry after it 8 below (13 above / 10 below here, as the window option menus)
+      // line before it, the entry after it 8 below (padTop 16, _GetHeight textheight + 8: 16 above / 8 below, g378)
       // (a first one: no padTop, _GetHeight textheight + 8 - a compact window's caption, its line, the first entry at 52, g377)
-      Object.assign(row.style, { lineHeight: "23px", padding: first ? "0 0 8px 4px" : "13px 0 10px 4px", fontSize: "18px", color: "rgba(255,255,255,0.9)", cursor: "default", whiteSpace: "nowrap" });
+      Object.assign(row.style, { lineHeight: "23px", padding: first ? "0 0 8px 4px" : "16px 0 8px 4px", fontSize: "18px", color: "rgba(255,255,255,0.9)", cursor: "default", whiteSpace: "nowrap" });
       row.addEventListener("mouseenter", () => this.closeFrom(depth + 1));
       return row;
     }
