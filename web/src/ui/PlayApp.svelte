@@ -828,6 +828,29 @@
     return () => { neocomInst = null; neocom.root.remove(); neocom.dispose(); };
   });
   let neocomInst = $state<Neocom | null>(null);
+  // characterSelection.__Confirm: the chosen character's GetUnreaddMailCount above 0 -> mailSvc.CheckNewMessages_thread
+  // (3 s on, once in the game) -> BlinkNeocomIfNeeded: neocom.Blink('mail', NewMailReceived) - once per session here
+  let loginMailBlinked = false;
+  $effect(() => {
+    const s = session;
+    if (!s || loginMailBlinked) return;
+    // from 3 s on, each second until the character's row is known (it can come after the session), for 30 s at most
+    let tries = 0;
+    const t = setInterval(() => {
+      if (++tries < 3) return;
+      const c = s.store.character.get();
+      const me = c.characters.find((x) => x.characterID === c.selectedCharacterID);
+      // the Neocom (the space view's or the lobby's) there too - view is not reactive, so it is looked at here
+      if (!me || (!neocomInst && !view)) { if (tries > 30) clearInterval(t); return; }
+      clearInterval(t);
+      loginMailBlinked = true;
+      if (!me.unreadMailCount || me.unreadMailCount <= 0) return;
+      const hint = plainText(s.store.words.get().templates["UI/Neocom/Blink/NewMailReceived"] ?? "") || "New mail received";
+      neocomInst?.blink("mail", hint);
+      view?.neocomBlink("mail", hint);
+    }, 1000);
+    return () => clearInterval(t);
+  });
   // mailSvc.OnMailSent -> OnNewMailReceived: neocom.Blink('mail', UI/Neocom/Blink/NewMailReceived) for a mail that is
   // not the pilot's own (the live client words it "New mail received"). Subscribed untracked (the callback runs at once).
   $effect(() => {
