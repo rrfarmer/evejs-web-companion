@@ -9,7 +9,7 @@
   // 300 s, PvP / suspect / criminal 900 s, retribution 300 s). A timer whose cause goes on (no expiry) is full and
   // PlayActiveAnimation pulses the pointer and gauge 1 / 0.75 each second; in its last BLINK_BEFORE_DONE_TIME 5 s the
   // icon blinks (FlipFlop, 1 s, 5 loops) with its endingAudioEvent; a new or renewed timer plays its resetAudioEvent.
-  // Not ported: the rewind sweep on a reset, the end animation, the at-war icon (the pilot is
+  // Not ported: the slots' slide left as one goes (ShiftLeft), the at-war icon (the pilot is
   // at war with no one here), the jump / booster / engagement / abyssal timers (the page reads only the five).
   import { crimewatchTimers, type CrimewatchTimerView } from "../space/crimewatch.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -40,6 +40,19 @@
   let order = $state<string[]>([]);
   let lastEnd = new Map<string, number | null>();
   let ending = new Set<string>();
+  /** Rewind_Thread: the dial filling from where it was to its new ratio, (distance) x (1 - start) x 500 ms. */
+  let rewinds = new Map<string, { from: number; at: number; dur: number }>();
+  /** EndAnimation: a timer gone keeps its slot 0.4 s, emptied, its pointer dropping 9 over 0.3 s, scaled to 0.8. */
+  let leaving: { k: string; at: number }[] = [];
+  const realRatio = (k: string, v: CrimewatchTimerView) => (v.remainingMs === null ? 1 : Math.min(1, Math.max(0, v.remainingMs / LOOKS[k]!.maxMs)));
+  function shownRatio(k: string, v: CrimewatchTimerView): number {
+    const target = realRatio(k, v);
+    const r = rewinds.get(k);
+    if (!r) return target;
+    const t = r.dur <= 0 ? 1 : (now - r.at) / r.dur;
+    if (t >= 1) return target;
+    return Math.min(target, r.from + (target - r.from) * t);
+  }
   $effect(() => {
     const present = new Set(views.map(keyOf));
     const next = order.filter((k) => present.has(k));
@@ -49,15 +62,32 @@
       // SetExpiryTime -> Reset -> Rewind_Thread: the reset sound for a new timer or a later end
       const end = v.remainingMs === null ? null : Math.round((now + v.remainingMs) / 1000);
       const was = lastEnd.get(k);
-      if (!lastEnd.has(k) || (end !== null && was !== null && was !== undefined && end > was + 1) || (end === null && was !== null)) void playUiEvent(LOOKS[k]!.start);
+      if (!lastEnd.has(k) || (end !== null && was !== null && was !== undefined && end > was + 1) || (end === null && was !== null)) {
+        void playUiEvent(LOOKS[k]!.start);
+        const from = lastEnd.has(k) ? shownRatio(k, v) : 0;
+        const target = realRatio(k, v);
+        rewinds.set(k, { from, at: now, dur: Math.max(0, (target - from) * (1 - from) * 500) });
+      }
       lastEnd.set(k, end);
       if (v.remainingMs !== null && v.remainingMs < 5000 && !ending.has(k)) { ending.add(k); void playUiEvent(LOOKS[k]!.end); }
       if (v.remainingMs === null || v.remainingMs >= 5000) ending.delete(k);
     }
-    for (const k of [...lastEnd.keys()]) if (!present.has(k)) { lastEnd.delete(k); ending.delete(k); }
-    if (next.join() !== order.join()) order = next;
+    for (const k of [...lastEnd.keys()]) if (!present.has(k)) {
+      lastEnd.delete(k); ending.delete(k); rewinds.delete(k);
+      leaving = [...leaving.filter((x) => x.k !== k), { k, at: now }];
+    }
+    leaving = leaving.filter((x) => now - x.at < 400 && !present.has(x.k));
+    // a leaving timer keeps its place in the order until it goes
+    const kept = order.filter((k) => present.has(k) || leaving.some((x) => x.k === k));
+    for (const k of next) if (!kept.includes(k)) kept.push(k);
+    if (kept.join() !== order.join()) order = kept;
   });
-  const shown = $derived(order.map((k) => ({ k, v: views.find((x) => keyOf(x) === k)! })).filter((x) => x.v));
+  const lastViews = new Map<string, CrimewatchTimerView>();
+  const shown = $derived(order.map((k) => {
+    const v = views.find((x) => keyOf(x) === k);
+    if (v) lastViews.set(k, v);
+    return { k, v: v ?? lastViews.get(k)!, gone: !v };
+  }).filter((x) => x.v));
 
   // TimerHint (crimewatchHints.py): after 0.25 s with the pointer on the dial, a 300 wide panel at the dial's
   // (+16, +16) on uicore.layer.abovemain, HINT_BACKGROUND_COLOR (0, 0, 0, 0.85) in a HINT_FRAME_COLOR (1, 1, 1, 0.25)
@@ -99,10 +129,10 @@
 </script>
 
 <div class="cw-timers">
-  {#each shown as { k, v } (k)}
+  {#each shown as { k, v, gone } (k)}
     {@const look = LOOKS[k]!}
-    {@const ratio = v.remainingMs === null ? 1 : Math.min(1, Math.max(0, v.remainingMs / look.maxMs))}
-    <div class="cw-timer" class:active={v.remainingMs === null} class:blink={v.remainingMs !== null && v.remainingMs < 5000} style={`--cw: rgb(${look.rgb})`}>
+    {@const ratio = gone ? 0 : shownRatio(k, v)}
+    <div class="cw-timer" class:gone class:active={v.remainingMs === null} class:blink={v.remainingMs !== null && v.remainingMs < 5000} style={`--cw: rgb(${look.rgb})`}>
       <div class="cw-dial" role="timer" onmouseenter={(e) => dialEnter(k, e.currentTarget)} onmouseleave={() => dialLeave(k)}>
         <svg class="cw-gauge" viewBox="0 0 32 32" width="32" height="32">
           <circle cx="16" cy="16" r={R} fill="none" stroke-width="2.5" stroke={`rgba(${look.rgb}, 0.2)`} />
@@ -137,6 +167,8 @@
   .cw-hint-time.blinking { animation: cw-hint-blink 1s infinite; }
   @keyframes cw-hint-blink { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }
   .cw-hint-text { width: 238px; box-sizing: border-box; padding: 4px 0 4px 4px; font: 12px/16px 'EVE Sans Neue', 'Segoe UI', sans-serif; color: rgba(255, 255, 255, 0.75); }
+  .cw-timer.gone .cw-dial { transform: scale(0.8); transition: transform 0.4s; }
+  .cw-timer.gone .cw-ptr { transform: translateY(9px); transition: transform 0.3s; }
   .cw-timer { width: 46px; height: 32px; flex: none; }
   .cw-dial { position: relative; width: 32px; height: 32px; pointer-events: auto; }
   .cw-gauge { position: absolute; inset: 0; }
