@@ -177,6 +177,8 @@ export class Neocom {
    */
   private readonly blinks = new Map<string, { left: number; newUntil: number; hint: string }>();
   private pulseTimer: ReturnType<typeof setInterval> | null = null;
+  /** The buttons CheckOverflow hid. */
+  private overflowIDs: string[] = [];
   /**
    * HasUnseenItems (btnData.GetItemCount, e.g. BtnDataNodeAchievements: the unclaimed rewards): important for as long as
    * there are any, the hint (GetUnseenItemsHint) in the tooltip; OnBadgeCountChanged blinks the button as they come.
@@ -388,6 +390,56 @@ export class Neocom {
     // fixedButtonCont (the live client, g291): over the clock, between two 1 px lines in white 0.2 - AURA guidance, Daily
     // Login Campaigns (gift.png) and the Aurum store; here the one the page has a window for. Under it the 30 high
     // ResourceLoadingIndicator's place.
+    // NeocomContainer.CheckOverflow: the buttons whose foot passes the button container's height hidden, and then the
+    // OverflowButton (20 high, padBottom 1, over the fixed buttons: caret_right 16 in SILVER_GREY, white under the
+    // mouse) shown; a click (SOUND_BUTTON_CLICK) toggles PanelOverflow beside it - a PanelGroup of the hidden buttons
+    const overflow = document.createElement("button");
+    overflow.className = "nc-overflow";
+    overflow.setAttribute("aria-label", "More");
+    overflow.hidden = true;
+    overflow.innerHTML = `<img src="${clientTexture("res:/UI/Texture/eveicon/system_icons/caret_right_16px.png")}" alt="">`;
+    const panel = document.createElement("div");
+    panel.className = "eve-menu-sub nc-overflow-panel";
+    panel.hidden = true;
+    document.body.appendChild(panel);
+    this.menuParts.push(panel);
+    const defaults = new Map(NEOCOM_DEFAULT.map((b) => [b.id, b]));
+    const check = () => {
+      const listEl = list as HTMLElement;
+      const h = listEl.clientHeight;
+      const hidden: string[] = [];
+      for (const [id, el] of this.buttons) {
+        if (!defaults.has(id) || el.parentElement !== listEl) continue;
+        const out = el.offsetTop - listEl.offsetTop + el.offsetHeight > h + 0.5;
+        el.style.visibility = out ? "hidden" : "";
+        if (out) hidden.push(id);
+      }
+      overflow.hidden = hidden.length === 0;
+      this.overflowIDs = hidden;
+      if (!hidden.length) panel.hidden = true;
+    };
+    overflow.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void playUiEvent("ui_button_soft4_play");
+      if (!panel.hidden) { panel.hidden = true; return; }
+      panel.replaceChildren();
+      for (const id of this.overflowIDs) {
+        const b = defaults.get(id)!;
+        const c = document.createElement("button");
+        c.className = "eve-menu-entry";
+        c.innerHTML = `<img src="${b.icon}" alt=""><span></span>`;
+        c.querySelector("span")!.textContent = b.label;
+        c.addEventListener("click", () => { panel.hidden = true; open(id); });
+        panel.appendChild(c);
+      }
+      const r = overflow.getBoundingClientRect();
+      panel.style.left = `${r.right}px`;
+      panel.hidden = false;
+      panel.style.top = `${Math.max(0, r.bottom - panel.getBoundingClientRect().height)}px`;
+    });
+    document.addEventListener("click", () => { panel.hidden = true; });
+    new ResizeObserver(check).observe(list as HTMLElement);
+    requestAnimationFrame(check);
     const fixed = document.createElement("div");
     fixed.className = "nc-fixed";
     const rewards = document.createElement("button");
@@ -403,7 +455,7 @@ export class Neocom {
     fixed.append(rewards);
     const loading = document.createElement("div");
     loading.className = "nc-loading";
-    this.root.append(fixed, loading);
+    this.root.append(overflow, fixed, loading);
     this.clock.className = "nc-clock";
     this.root.appendChild(this.clock);
     // ClockButton.LoadTooltipPanel: AddCommandTooltip(OpenCalendar) - Calendar, no shortcut by default - then the EVE time

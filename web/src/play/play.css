@@ -201,8 +201,14 @@ button { font: inherit; color: inherit; }
 .nc-btn:hover { background: url(/client-res/ui/texture/classes/neocom/buttonhover.png) center / 100% 100% no-repeat; }
 .nc-btn:hover img { opacity: 1; }
 .nc-fill { flex: 1; }
+.neocom .nc-buttons { flex: 0 1 auto; min-height: 0; overflow: hidden; }
+.neocom .nc-buttons > .nc-btn { flex: none; }
+.nc-overflow { flex: none; height: 20px; min-height: 0; line-height: 0; box-sizing: border-box; margin-bottom: 1px; padding: 0; border: 0; background: none; display: grid; place-items: center; cursor: pointer; }
+.nc-overflow[hidden] { display: none; }
+.nc-overflow img { width: 16px; height: 16px; opacity: 0.69; }
+.nc-overflow:hover img { opacity: 1; }
 .nc-fixed { flex: none; display: flex; flex-direction: column; padding: 1px 0; border-top: 1px solid rgba(255, 255, 255, 0.2); border-bottom: 1px solid rgba(255, 255, 255, 0.2); }
-.nc-loading { flex: none; height: 30px; }
+.nc-loading { flex: none; height: 30px; background: rgba(0, 0, 0, 0.2); }
 /* ClockButton (clockCont, 20 high, the Neocom's width) and its InGameClock label: bold, 11 px, the normal 0.75, centred
    (the live client, gridcheck g247: the label 27 x 14 at 11, 3 of 48 x 20) */
 .nc-clock { height: 20px; flex: none; align-self: stretch; display: grid; place-items: center; font-size: 11px; font-weight: bold; line-height: 14px; color: rgba(255, 255, 255, 0.75); cursor: pointer; }
