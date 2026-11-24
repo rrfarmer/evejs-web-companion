@@ -29,6 +29,7 @@
   import { LINK_WORDS, linkFollowerOf, startLinkDrag } from "./linkFollowers.ts";
   import { formatIsk } from "./isk.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
+  import { techLevelIcon } from "../play/techLevelIcon.ts";
   import { allianceLogoUrl, portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
   import OwnerPicture from "./OwnerPicture.svelte";
   import { DATE_LABELS, formatTemplate, plainText, type FormatContext } from "../bridge/clientWords.ts";
@@ -129,6 +130,17 @@
   const skills = store.skills;
 
   const typeID = $derived(subjectTypeID($subject));
+  // infoContentBase.construct_layout: techicon (16 x 16, RELATIVE at 0, 0 of the main icon's parent) set by
+  // uix.GetTechLevelIcon for a type's icon (and a blueprint's), hidden for the rest
+  let headMetaGroup = $state<{ typeID: number; metaGroupID: number | null } | null>(null);
+  $effect(() => {
+    const t = typeID;
+    if (t === null || t === undefined) return;
+    let live = true;
+    void pilotFlow.typeFacts([t]).then((m) => { if (live) headMetaGroup = { typeID: t, metaGroupID: m?.get(t)?.metaGroupID ?? null }; }).catch(() => {});
+    return () => { live = false; };
+  });
+  const headTech = $derived(headMetaGroup !== null && headMetaGroup.typeID === typeID ? techLevelIcon(headMetaGroup.metaGroupID) : null);
   // 3698585 type group 1408: Custom gate 1 (unpublished) and Ansiblex Jump Bridge.
   const jumpBridge = $derived(typeID === 35837 || typeID === 35841);
   const usedWithLabel = "UI/InfoWindow/TabNames/UsedWith";
@@ -1313,12 +1325,15 @@
       {:else if $subject.kind === "rank"}
         <TypeIcon typeID={null} name={title} size="lg" imageUrl={clientTexture(`res:/UI/Texture/Medals/Ranks/${$subject.factionID}_${$subject.rank}.png`)} />
       {:else}
+      <span class="info-head-icon">
       <TypeIcon
         {typeID}
         name={title}
         size="lg"
         imageUrl={$subject.kind === "faction" ? ownerLogoUrl($subject.factionID) : $subject.kind === "corporation" ? ownerLogoUrl($subject.corporationID) : $subject.kind === "alliance" ? ownerLogoUrl($subject.allianceID) : null}
         fallbackText={corporationRead?.info.tickerName || allianceRead?.shortName || ($subject.kind === "faction" || $subject.kind === "character" ? null : abbreviate(title))} />
+      {#if headTech}<img class="info-head-tech" alt="" title={headTech.hint} src={clientTexture(headTech.path)} />{/if}
+      </span>
       {/if}
       <div class="info-identity">
         <h2>{title}</h2>
@@ -1732,6 +1747,9 @@
 </section>
 
 <style>
+  /* infoContentBase techicon: 16 x 16 at the main icon's top left */
+  .info-head-icon { position: relative; display: inline-block; flex: none; }
+  .info-head-tech { position: absolute; left: 0; top: 0; width: 16px; height: 16px; max-width: none; z-index: 1; pointer-events: auto; }
   .character-info-tabs { display: flex; flex-wrap: wrap; gap: 3px; margin: 8px 0; border-bottom: 1px solid #ffffff30; }
   .character-info-tabs button { padding: 5px 8px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; }
   .character-info-tabs button:hover, .character-info-tabs button[aria-pressed="true"] { background: #ffffff12; }
