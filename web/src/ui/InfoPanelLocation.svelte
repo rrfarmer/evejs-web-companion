@@ -119,6 +119,37 @@
     nearest = { itemID: best.e.itemID, typeID: best.e.typeID, name: best.e.name ?? "" };
   }
   onMount(() => { checkNearest(); const t = setInterval(checkNearest, 1313); return () => clearInterval(t); });
+
+  // UpdateMainHeader: the traces on the first row where they fit - max_width = GetHeaderTextMaxWidth (PANELWIDTH 312 -
+  // LEFTPAD 56) - the TiDi indicator's 24 - 4; base = the name's width + the status's width twice (the client counts it
+  // twice and the icon not at all); the constellation (+4) on the top row while it is under what is left, the region
+  // (+4) there too when it is not more than what then remains; otherwise each on the second 23 high row, top 5
+  let sysEl = $state<HTMLElement | undefined>();
+  let secEl = $state<HTMLElement | undefined>();
+  let constEl = $state<HTMLElement | undefined>();
+  let regionEl = $state<HTMLElement | undefined>();
+  let rows = $state({ constTop: true, regionTop: true });
+  $effect(() => {
+    void systemID; void security; void constellation; void region;
+    const measure = () => {
+      if (!sysEl) return;
+      const w = (e: HTMLElement | undefined) => (e ? e.getBoundingClientRect().width : 0);
+      let remainder = 312 - 56 - 24 - 4 - (w(sysEl) + 2 * w(secEl));
+      const c = constEl ? w(constEl) + 4 : 0;
+      const r = regionEl ? w(regionEl) + 4 : 0;
+      let next = { constTop: false, regionTop: false };
+      if (c < remainder) { remainder -= c; next = { constTop: true, regionTop: !(r > remainder) }; }
+      if (next.constTop !== rows.constTop || next.regionTop !== rows.regionTop) rows = next;
+    };
+    requestAnimationFrame(measure);
+    const t = setTimeout(measure, 800);
+    return () => clearTimeout(t);
+  });
+
+  // DrawUnclaimableSystemInfo: SovHolderIcon (the faction's small logo, eveIconConst.IN_SMALL_ICONS ui_75_32_n, 32 in a
+  // 40 cell at 4) and the faction's name (EveLabelMedium) at its width + 4, centred in the 42 high sovInfoContainer
+  const SMALL_ICONS: Record<number, number> = { 500001: 1, 500002: 2, 500004: 3, 500003: 4, 500005: 5, 500006: 6, 500007: 7, 500008: 8, 500009: 9,
+    500010: 10, 500011: 11, 500012: 20, 500014: 13, 500015: 14, 500016: 15, 500017: 16, 500018: 17, 500019: 18, 500020: 19 };
 </script>
 
 <section class="ip-panel">
@@ -132,14 +163,16 @@
       {#if systemID && isWormhole && !system}
         <span class="loc-system">{resolvedName($names.resolved, "system", systemID, String(systemID))}</span>
       {:else if systemID}
-        <button type="button" class="evelink loc-system" onclick={() => showInfo({ kind: "mapLocation", typeID: 5, itemID: systemID })}>{system?.[7] ?? resolvedName($names.resolved, "system", systemID, "")}</button>
+        <button type="button" class="evelink loc-system" bind:this={sysEl} onclick={() => showInfo({ kind: "mapLocation", typeID: 5, itemID: systemID })}>{system?.[7] ?? resolvedName($names.resolved, "system", systemID, "")}</button>
         <!-- sec_status_cont: the number and the range icon, its LoadTooltipPanel the security panel -->
         <span class="loc-sec-cont" role="note" onmouseenter={secTipOn} onmouseleave={secTipOff}>
-          {#if security !== null}<span class="loc-sec" style:color={securityStatusColor(security)}>{shownSecurity(security).toFixed(1)}</span>{/if}
+          {#if security !== null}<span class="loc-sec" bind:this={secEl} style:color={securityStatusColor(security)}>{shownSecurity(security).toFixed(1)}</span>{/if}
           {#if rangeIcon}<img class="loc-range" alt="" src={clientTexture(`res:/UI/Texture/${rangeIcon}`)} />{/if}
         </span>
-        {#if constellation && !isWormhole}<span class="loc-trace">&lt; <button type="button" class="evelink" onclick={() => showInfo({ kind: "mapLocation", typeID: 4, itemID: constellation[0] })}>{constellation[4]}</button></span>{/if}
-        {#if region && !isWormhole}<span class="loc-trace">&lt; <button type="button" class="evelink" onclick={() => showInfo({ kind: "mapLocation", typeID: 3, itemID: region[0] })}>{region[4]}</button></span>{/if}
+        {#if !rows.constTop}<span class="loc-break"></span>{/if}
+        {#if constellation && !isWormhole}<span class="loc-trace" bind:this={constEl}>&lt; <button type="button" class="evelink" onclick={() => showInfo({ kind: "mapLocation", typeID: 4, itemID: constellation[0] })}>{constellation[4]}</button></span>{/if}
+        {#if rows.constTop && !rows.regionTop}<span class="loc-break"></span>{/if}
+        {#if region && !isWormhole}<span class="loc-trace" bind:this={regionEl}>&lt; <button type="button" class="evelink" onclick={() => showInfo({ kind: "mapLocation", typeID: 3, itemID: region[0] })}>{region[4]}</button></span>{/if}
       {/if}
     </div>
   </div>
@@ -151,7 +184,7 @@
         <button type="button" class="evelink" title={word("UI/Neocom/Nearest", "Nearest")} onclick={() => showInfo({ kind: "spaceObject", itemID: nearest!.itemID, typeID: nearest!.typeID })}>{nearest.name || resolvedName($names.resolved, "evelocation", nearest.itemID, "")}</button>
       {/if}
       {#if factionID}
-        <div class="loc-sov"><button type="button" class="evelink" onclick={() => showInfo({ kind: "faction", factionID: factionID! })}>{resolvedName($names.resolved, "faction", factionID, "")}</button></div>
+        <div class="loc-sov">{#if SMALL_ICONS[factionID]}<span class="loc-sov-icon"><img alt="" src={clientTexture(`res:/ui/texture/icons/75_32_${SMALL_ICONS[factionID]}.png`)} /></span>{/if}<button type="button" class="evelink" onclick={() => showInfo({ kind: "faction", factionID: factionID! })}>{resolvedName($names.resolved, "faction", factionID, "")}</button></div>
       {:else if isWormhole}
         <div class="loc-sov">{word("UI/Neocom/Unclaimable", "Unclaimable")}</div>
       {/if}
@@ -172,7 +205,7 @@
   .ip-expand img { width: 7px; height: 7px; transform: rotate(-90deg); }
   .ip-expand.expanded img { transform: none; }
   .ip-icon img { width: 16px; height: 16px; }
-  .loc-header { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 4px; padding-top: 3px; min-width: 0; }
+  .loc-header { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 4px; padding-top: 0; min-width: 0; }
   /* InfoPanelLocationInfo.headerCls EveCaptionSmall: STYLE_HEADER (EveSansNeue-Condensed), EVE_XLARGE_FONTSIZE (19 as
      the live client draws it, g283), TextColor.HIGHLIGHT (0.9); the traces in it at <fontsize=12> */
   .loc-system { font: 19px/23px "EVE Sans Neue Condensed", "EVE Sans Neue", sans-serif; color: rgb(255 255 255 / 0.9); }
@@ -181,9 +214,12 @@
      icon at 163) */
   .loc-sec-cont { display: inline-flex; align-items: center; gap: 4px; flex: none; }
   .loc-range { width: 16px; height: 16px; align-self: center; }
-  .loc-trace { font: 12px "EVE Sans Neue Condensed", "EVE Sans Neue", sans-serif; color: rgb(255 255 255 / 0.9); }
+  .loc-trace { padding-left: 2px; height: 23px; font: 12px/23px "EVE Sans Neue Condensed", "EVE Sans Neue", sans-serif; color: rgb(255 255 255 / 0.9); }
   .ip-main { padding-left: 56px; }
   /* nearestLocationInfo and the sov holder: EveLabelMedium (14, lines 18, TextColor.NORMAL 0.75) */
   .loc-body { display: flex; flex-direction: column; gap: 2px; font-size: 14px; line-height: 18px; color: rgb(255 255 255 / 0.75); }
-  .loc-sov { padding-top: 2px; }
+  .loc-sov { padding-top: 2px; height: 42px; display: flex; align-items: center; }
+  .loc-sov-icon { width: 40px; margin-right: 4px; flex: none; display: flex; }
+  .loc-sov-icon img { width: 32px; height: 32px; margin-left: 4px; }
+  .loc-break { flex-basis: 100%; height: 0; }
 </style>
