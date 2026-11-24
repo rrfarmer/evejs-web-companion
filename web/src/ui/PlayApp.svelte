@@ -2131,6 +2131,16 @@
     // CmdToggleAudio (Ctrl-Alt-Shift-F12): settings.public.audio audioEnabled flipped (the audio handler activated or
     // deactivated), nothing said
     if (cmd === "CmdToggleAudio") { e.preventDefault(); setGfx({ audioEnabled: !gfx().audioEnabled }); return; }
+    // CmdSetChatChannelFocus (Space): focus.SetChannelFocus - the chat window (the focus channel; none open, nothing)
+    // maximized and its input given the focus
+    if (cmd === "CmdSetChatChannelFocus") {
+      const chat = wins.find((w) => w.id === "chat");
+      if (!chat) return;
+      e.preventDefault();
+      if (chat.minimized) wins = toggleMinimize(wins, "chat");
+      requestAnimationFrame(() => document.querySelector<HTMLInputElement>(".send-box input")?.focus());
+      return;
+    }
     // CmdZoomIn / CmdZoomOut with the star map open (the starmap view the active one): eveCommands._Zoom - the starmap view's ZoomBy
     if ((cmd === "CmdZoomIn" || cmd === "CmdZoomOut") && starMap) { e.preventDefault(); starMap.zoomStep(cmd === "CmdZoomIn" ? -1 : 1); return; }
     if (spaceCommand(cmd)) { e.preventDefault(); return; }
