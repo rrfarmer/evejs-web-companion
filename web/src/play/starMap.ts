@@ -282,6 +282,12 @@ export class StarMap {
    * mirrored into three's, so the canvas is shown mirrored left to right): its screen x mirrored.
    */
   private readonly mirrorCam = new THREE.PerspectiveCamera();
+  /** CmdZoomIn / CmdZoomOut over the map (the starmap view's ZoomBy of a simulated scroll): one wheel notch. */
+  zoomStep(direction: -1 | 1): void {
+    const el = this.renderer.domElement, r = el.getBoundingClientRect();
+    el.dispatchEvent(new WheelEvent("wheel", { deltaY: direction * 100, deltaMode: 0, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true }));
+  }
+
   private get screenCam(): THREE.PerspectiveCamera {
     const c = this.camera, m = this.mirrorCam;
     m.matrixWorld.copy(c.matrixWorld);

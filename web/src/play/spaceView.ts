@@ -171,6 +171,8 @@ type MiningOverlayState = Pick<MiningState, "survey" | "surveyProgress" | "surve
 export interface SpaceViewOptions {
   /** A full-frame secondary view owns the canvas and input while flight keeps its live feed. */
   covered?(): boolean;
+  /** The star map is in front of space (its view takes CmdZoomIn / CmdZoomOut). */
+  mapInFront?(): boolean;
   openAutoMoonMiner?: (structureID: number) => Promise<void>;
   openMoonMaterialBay?: (structureID: number) => Promise<void>;
   boardMetenox?: (structureID: number) => Promise<void>;
@@ -3793,6 +3795,8 @@ export class SpaceView {
     // ZoomBy; in space OnClientMouseZoomIn/OutSpace (the camera tasks' zoom). Here a notch is the wheel's 100.
     if (cmd === "CmdZoomIn" || cmd === "CmdZoomOut") {
       e.preventDefault();
+      // (with the star map in front its view takes the zoom: the page's own handler)
+      if (this.options.mapInFront?.()) return;
       const direction = cmd === "CmdZoomIn" ? -1 : 1;
       if (this.systemMap?.isActive) { this.systemMap.zoomStep(direction); return; }
       if (!this.controls.enabled || !this.controls.enableZoom) return;

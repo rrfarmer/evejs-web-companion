@@ -2103,6 +2103,8 @@
     }
     // CmdToggleMap (F10): the map; OnEsc: the map closed first, else the system menu (EscapeCommand)
     if (cmd === "CmdToggleMap") { e.preventDefault(); toggleStarMap(); return; }
+    // CmdZoomIn / CmdZoomOut with the star map open (the starmap view the active one): eveCommands._Zoom - the starmap view's ZoomBy
+    if ((cmd === "CmdZoomIn" || cmd === "CmdZoomOut") && starMap) { e.preventDefault(); starMap.zoomStep(cmd === "CmdZoomIn" ? -1 : 1); return; }
     if (spaceCommand(cmd)) { e.preventDefault(); return; }
     if (cmd === "OnEsc") {
       e.preventDefault();
@@ -3109,6 +3111,7 @@
       },
     }, { system: st?.solarSystemName ?? "", security: st?.security ?? null }, {
       covered: () => planetInMode !== null,
+      mapInFront: () => !!starMap,
       onNeocom: neocomOpen,
       flightSnapshot: () => s.store.space.get().snapshot,
       targeting: {
