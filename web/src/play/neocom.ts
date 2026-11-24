@@ -201,6 +201,12 @@ export class Neocom {
   }
   private pulse(): void {
     const now = Date.now();
+    // OverflowButton.ProcessNeocomBlinkPulse: a hidden button blinking makes the overflow button BlinkOnce - its
+    // DUSKY_ORANGE fill 0 -> 0.5 -> 0 over BLINK_INTERVAL
+    const ov = this.root.querySelector<HTMLElement>(".nc-overflow");
+    if (ov && !ov.hidden && this.overflowIDs.some((id) => (this.blinks.get(id)?.left ?? 0) > 0)) {
+      ov.classList.remove("nc-ov-blink"); void ov.offsetWidth; ov.classList.add("nc-ov-blink");
+    }
     for (const [id, b] of this.blinks) {
       if (b.left > 0) {
         const el = this.buttons.get(id);

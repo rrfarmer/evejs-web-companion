@@ -207,6 +207,10 @@ button { font: inherit; color: inherit; }
 .nc-overflow[hidden] { display: none; }
 .nc-overflow img { width: 16px; height: 16px; opacity: 0.69; }
 .nc-overflow:hover img { opacity: 1; }
+/* WrapperButton: mouseHoverSprite white 0.05 (additive) under the mouse; blinkSprite DUSKY_ORANGE 0 -> 0.5 -> 0 (ANIM_WAVE) */
+.nc-overflow:hover { background: rgba(255, 255, 255, 0.05); }
+.nc-overflow.nc-ov-blink { animation: nc-ov-blink 1s ease-in-out; }
+@keyframes nc-ov-blink { 0% { background-color: rgba(159, 88, 58, 0); } 50% { background-color: rgba(159, 88, 58, 0.5); } 100% { background-color: rgba(159, 88, 58, 0); } }
 .nc-fixed { flex: none; display: flex; flex-direction: column; padding: 1px 0; border-top: 1px solid rgba(255, 255, 255, 0.2); border-bottom: 1px solid rgba(255, 255, 255, 0.2); }
 .nc-loading { flex: none; height: 30px; background: rgba(0, 0, 0, 0.2); }
 /* ClockButton (clockCont, 20 high, the Neocom's width) and its InGameClock label: bold, 11 px, the normal 0.75, centred
