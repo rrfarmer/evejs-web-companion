@@ -2696,8 +2696,8 @@ export class SpaceView {
    * The Selected Item window's actions in the client's order (inflight/selectedItemWnd.py GetActions,
    * selectedItemConst.ACTIONS_ALWAYS_VISIBLE read from the compiled module: the decompiled source prints its places):
    * Approach, or Align To for a thing far enough to warp to; Warp To Within; the thing's own (Dock for a station,
-   * Jump for a stargate, Open Cargo for a container); then always Orbit, Keep at Range, Lock or Unlock, Look At and Show Info. Set as Camera
-   * Interest is not drawn yet.
+   * Jump for a stargate, Open Cargo for a container); then always Orbit, Keep at Range, Lock or Unlock, Look At and Show Info, and Set as Camera
+   * Interest (camera_track).
    */
   // (each button's icon actionConst.ICON_BY_ACTIONID's eveicon at the button's size, as SelectedItemWnd._ApplyButtonSize
   // sets it - not selectedItemConst's older ICON_* paths; read live, g328)
@@ -4257,8 +4257,8 @@ export class SpaceView {
    * Repair Target, then clockwise Need Shield (44_32_52), Need Armor (53), Need Capacitor (54), Broadcast: Target
    * (44_32_17), Align To (57), nothing, Warp To (55). The heals run for the pilot's own ship and are offered on it or
    * on nothing (IsAlwaysAvailable); the others are the object's own menu entries of those names (the broadcasts the
-   * object's menu offers), missing ones greyed. Not ported: the fleet flag colour tint and the time restriction's
-   * greying (forcedInactive).
+   * object's menu offers), missing ones greyed, and each greyed while its broadcast is held by the wait between broadcasts (forcedInactive);
+   * its slices in the pilot's same-fleet flag colour at most 0.4 bright (GetBroadcastMenuColor).
    */
   private openBroadcastRadial(id: number | null, x: number, y: number, button: number): void {
     const e = id === null ? null : this.snapshot?.entities.find((each) => each.itemID === id) ?? null;
