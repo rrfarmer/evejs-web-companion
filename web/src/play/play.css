@@ -180,6 +180,10 @@ button { font: inherit; color: inherit; }
   transition: height 0.2s, opacity 0.3s, background-color 0.3s; }
 .nc-ind[data-state="open"] { height: 8px; opacity: 1; background: rgb(176, 176, 176); }
 .nc-ind[data-state="active"] { height: 16px; opacity: 1; background: rgb(88, 167, 191); }
+.nc-ind[data-state="important"] { height: 16px; opacity: 1; background: rgb(243, 144, 88); }
+/* BlinkOnce: the icon's glow 0 -> 2 -> 0 over BLINK_INTERVAL 1 s (ANIM_WAVE) */
+.nc-btn.nc-blink img { animation: nc-blink 1s ease-in-out; }
+@keyframes nc-blink { 0% { filter: brightness(1); } 50% { filter: brightness(2.2) drop-shadow(0 0 4px rgba(255, 255, 255, 0.8)); } 100% { filter: brightness(1); } }
 .nc-btn { position: relative; width: 48px; height: 48px; padding: 0; display: grid; place-items: center; background: transparent; border: none; cursor: pointer; }
 .nc-btn img { width: 40px; height: 40px; opacity: .78; }
 /* ButtonSkills (g265): the gauges over the 48 button, the icon 40 x 40 in SILVER_GREY only while not training */

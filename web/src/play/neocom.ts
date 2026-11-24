@@ -58,12 +58,15 @@ const NEOCOM_TOOLTIPS: Readonly<Record<string, { cmd: string | null; name: strin
   chat: { cmd: "OpenChannels", name: "Chat Channels", description: "Browse available chat channels or create your own channel" },
 };
 /** tooltipHandler: a panel after the generic delay, the renew time (a fifth) while one shows or just closed. */
-function neocomTipOn(el: HTMLElement, id: string): void {
+function neocomTipOn(el: HTMLElement, id: string, blinkHint = ""): void {
   const t = NEOCOM_TOOLTIPS[id];
   if (!t) return;
+  // BaseNeocomButton.LoadTooltipPanel: a blink hint (btnData.GetBlinkHint) under the command, AddLabelMedium width 200 in
+  // THEME_ALERT
+  const hint = blinkHint ? [{ text: blinkHint, color: "rgb(243, 144, 88)" }] : [];
   tooltipDue(el, () => {
-    if (t.cmd) showLabelShortcutTooltip(el, t.name, shortcutOf(t.cmd), t.description ? [t.description] : [], "left");
-    else showLabelShortcutTooltip(el, "", "", [t.name], "left", true);
+    if (t.cmd) showLabelShortcutTooltip(el, t.name, shortcutOf(t.cmd), [...(t.description ? [t.description] : []), ...hint], "left");
+    else showLabelShortcutTooltip(el, "", "", [t.name, ...hint], "left", true);
   });
 }
 function neocomTipOff(): void {
@@ -158,13 +161,57 @@ export class Neocom {
   private readonly portrait = document.createElement("img");
   /** Each button's ButtonIndicator, by its id. */
   private readonly indicators = new Map<string, HTMLElement>();
+  /** The buttons by id, for their blink. */
+  private readonly buttons = new Map<string, HTMLElement>();
+  private windowStates: ReadonlyMap<string, "open" | "active"> = new Map();
+  /**
+   * btnDataNode's blink: SetBlinkingOn - NUM_BLINKS 3 (each neocomSvc blink pulse, BLINK_INTERVAL 1 s, BlinkOnce: the
+   * icon's glow 0 -> 2 and back, ANIM_WAVE), hasNewActivity for 8 s and the blink hint; hovering ends the blinks and the
+   * new activity (SetBlinkingOff, SetHasNewActivityOff), leaving clears the hint (ClearBlinkHint). _UpdateHighlightState:
+   * active > important (blinking / new activity / a hint) > open > normal; important is 2 x 16 THEME_ALERT.
+   */
+  private readonly blinks = new Map<string, { left: number; newUntil: number; hint: string }>();
+  private pulseTimer: ReturnType<typeof setInterval> | null = null;
+  /** neocomSvc.Blink(wndID, hint): the button for that window blinks. */
+  blink(id: string, hint = ""): void {
+    if (!this.buttons.has(id)) return;
+    const was = this.blinks.get(id);
+    if (was && was.left > 0) return;
+    this.blinks.set(id, { left: 3, newUntil: Date.now() + 8000, hint: hint || was?.hint || "" });
+    this.paintIndicators();
+    if (!this.pulseTimer) this.pulseTimer = setInterval(() => this.pulse(), 1000);
+  }
+  private pulse(): void {
+    const now = Date.now();
+    for (const [id, b] of this.blinks) {
+      if (b.left > 0) {
+        const el = this.buttons.get(id);
+        if (el) { el.classList.remove("nc-blink"); void el.offsetWidth; el.classList.add("nc-blink"); }
+        b.left -= 1;
+      }
+      if (b.left <= 0 && now >= b.newUntil && !b.hint) this.blinks.delete(id);
+    }
+    this.paintIndicators();
+    if (![...this.blinks.values()].some((b) => b.left > 0 || now < b.newUntil) && this.pulseTimer) { clearInterval(this.pulseTimer); this.pulseTimer = null; }
+  }
+  private important(id: string): boolean {
+    const b = this.blinks.get(id);
+    return !!b && (b.left > 0 || Date.now() < b.newUntil || !!b.hint);
+  }
+  private paintIndicators(): void {
+    for (const [id, ind] of this.indicators) {
+      const w = this.windowStates.get(id);
+      const state = w === "active" ? "active" : this.important(id) ? "important" : (w ?? "");
+      if (ind.dataset.state !== state) ind.dataset.state = state;
+    }
+  }
   /** ButtonSkills (skillsBtn): its gauges and its icon. */
   private readonly skills = document.createElement("button");
   private skillState: NeocomSkillState = null;
   /** The EVE menu's panels, on the page's body. */
   private menuParts: HTMLElement[] = [];
   /** Takes the EVE menu's panels off the page. */
-  dispose(): void { for (const el of this.menuParts) el.remove(); }
+  dispose(): void { for (const el of this.menuParts) el.remove(); if (this.pulseTimer) clearInterval(this.pulseTimer); }
   private indicator(id: string): HTMLElement {
     const ind = document.createElement("span");
     ind.className = "nc-ind";
@@ -177,10 +224,10 @@ export class Neocom {
    * 2 x 8 SILVER_GREY bar) or active (the window in front, 2 x 16 THEME_ACCENT); none otherwise.
    */
   setWindowStates(states: ReadonlyMap<string, "open" | "active">): void {
-    for (const [id, ind] of this.indicators) {
-      const state = states.get(id) ?? "";
-      if (ind.dataset.state !== state) ind.dataset.state = state;
-    }
+    this.windowStates = states;
+    // a window brought up ends its button's blink (the client's CheckContinueBlinking on opening it)
+    for (const [id, st] of states) if (st === "active" && this.blinks.has(id)) this.blinks.delete(id);
+    this.paintIndicators();
   }
   /**
    * ButtonSkills._UpdateGaugesAndIcon: in training, the black bgGauge (12 wide, 0.6) under a TUNGSTEN_GREY 0.1 skill
@@ -306,9 +353,18 @@ export class Neocom {
       el.setAttribute("aria-label", b.label);
       el.innerHTML = `<img src="${b.icon}" alt="">`;
       el.append(this.indicator(b.id));
+      this.buttons.set(b.id, el);
       el.addEventListener("click", () => { neocomTipOff(); open(b.id); });
-      el.addEventListener("mouseenter", () => neocomTipOn(el, b.id));
-      el.addEventListener("mouseleave", neocomTipOff);
+      el.addEventListener("mouseenter", () => {
+        const bl = this.blinks.get(b.id);
+        neocomTipOn(el, b.id, bl?.hint ?? "");
+        if (bl) { bl.left = 0; bl.newUntil = 0; this.paintIndicators(); }
+      });
+      el.addEventListener("mouseleave", () => {
+        neocomTipOff();
+        const bl = this.blinks.get(b.id);
+        if (bl) { bl.hint = ""; if (!this.important(b.id)) this.blinks.delete(b.id); this.paintIndicators(); }
+      });
       list.appendChild(el);
     }
     this.clock.className = "nc-clock";

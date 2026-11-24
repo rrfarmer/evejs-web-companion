@@ -151,11 +151,12 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
     // a line given with its own colour (an EveLabelMedium coloured by its caller, as ButtonSkills' alert line)
     const line = typeof entry === "string" ? entry : entry.text;
     d.textContent = line;
-    if (typeof entry !== "string") d.style.color = entry.color;
     if (plain !== true) wrapped.push(d);
     // plain: AddLabelMedium as it is; "wrap": AddLabelMedium(wrapWidth=200) in the normal colour (dronesUtil.LoadShortcutTooltip);
     // otherwise AddCommandTooltip's detailed description, wrapWidth 200 in the secondary colour
     Object.assign(d.style, plain === true ? { gridColumn: "1 / 3", whiteSpace: "nowrap" } : { gridColumn: "1 / 3", whiteSpace: "normal", maxWidth: "200px", color: plain === "wrap" ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.5)" });
+    // a line's own colour last, over the description's
+    if (typeof entry !== "string") d.style.color = entry.color;
     grid.append(d);
   }
   // a closing one stopped first: its fold scales the panel, and the widths below are measured on the page

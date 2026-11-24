@@ -1081,6 +1081,8 @@ export class SpaceView {
   setNeocomSkills(state: NeocomSkillState): void { this.neocom?.setSkills(state); }
   /** The Neocom buttons' window indicators (ButtonIndicator). */
   setNeocomStates(states: ReadonlyMap<string, "open" | "active">): void { this.neocom?.setWindowStates(states); }
+  /** neocomSvc.Blink: a Neocom button blinks (its window wants looking at), with an optional hint. */
+  neocomBlink(id: string, hint = ""): void { this.neocom?.blink(id, hint); }
   private readonly shipHud: ShipHud | NewShipHud = hudSettingNow("shipHudNew_preview") ? new NewShipHud() : new ShipHud({ slots: { hi: 0, med: 0, low: 0 } });
   private readonly targetBar = new TargetBar();
   /** Lock requests awaiting a response, keyed by target ID and local start time. */
