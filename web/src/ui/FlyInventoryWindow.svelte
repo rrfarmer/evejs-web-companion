@@ -34,6 +34,7 @@
   import { invAlwaysSeparate, invCompact, invFilter, invKeepFilter, invSidebar, invViewMode } from "./inventoryWindowSettings.ts";
   import { onMount, untrack } from "svelte";
   import { unseenCargo, markCargoSeen, markItemSeen, inventoryWindowsOpen } from "../play/inventoryBadging.ts";
+  import { techLevelIcon } from "../play/techLevelIcon.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import { fmtAmtShort } from "../bridge/pyNumbers.ts";
   import { COMPARE_CATEGORIES } from "../bridge/dogmaAttributeGroups.ts";
@@ -461,6 +462,14 @@
       for (const t of missing) next[t] = { volume: v[String(t)] ?? null, meta: m?.get(t)?.metaLevel ?? null, tech: m?.get(t)?.techLevel ?? null, loaded: !!m?.has(t), col: c[t] };
       facts = next;
     });
+  });
+  // InvItem.LoadTechLevelIcon: each type's meta group, in every view (uix.GetTechLevelIcon at the entry's top left)
+  let metaGroups = $state<Record<number, number | null>>({});
+  $effect(() => {
+    const missing = [...new Set((bay?.items ?? []).map((i) => i.typeID))].filter((t) => !(t in untrack(() => metaGroups)));
+    if (!missing.length) return;
+    untrack(() => { for (const t of missing) metaGroups[t] = null; });
+    void flow.typeFacts(missing).then((m) => { const next = { ...metaGroups }; for (const t of missing) next[t] = m?.get(t)?.metaGroupID ?? null; metaGroups = next; }).catch(() => {});
   });
   const filtered = $derived((bay?.items?.length ?? 0) - shown.length);
 
@@ -914,6 +923,10 @@
   const capacityText = $derived(bay ? `${secondaryVolume ? `(${fmt1(secondaryVolume)}) ` : ""}${(bay.used ?? 0) === 0 && additionalVolume === 0 ? "0" : fmt1((bay.used ?? 0) + additionalVolume)}/${bay.capacity === null ? "?" : fmt1(bay.capacity)} m³` : "");
 </script>
 
+{#snippet techBadge(typeID: number)}
+  {@const tl = techLevelIcon(metaGroups[typeID])}
+  {#if tl}<img class="techlvl" alt="" title={tl.hint} src={clientTexture(tl.path)} />{/if}
+{/snippet}
 <div class="inv" class:container={containerMode} class:compact={$compactSig} bind:this={invRoot}>
   {#if !containerMode && !bayMode && $sidebarSig}
   <div class="tree" bind:this={treeEl}>
@@ -1022,7 +1035,7 @@
             {#each shown as i (i.itemID)}
               {@const fa = facts[i.typeID]}
               <tr class:selected={selected.includes(i.itemID)} class:unseen={viewMode !== "details" && current === "cargo" && $unseenCargo.includes(i.itemID)} draggable="true" onmouseenter={(e) => { hoverSound(e); itemTip(i, e); }} onmouseleave={itemTipOff} onclick={(e) => clickItem(i.itemID, e)} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
-                <td class="nm" class:hid={hiddenCols.includes(0)}>{#if viewMode === "details"}<span class="ricon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="md" />{#if current === "cargo" && $unseenCargo.includes(i.itemID)}<span class="newtag" aria-hidden="true"></span>{/if}</span>{/if}{typeName(i.typeID)}</td>
+                <td class="nm" class:hid={hiddenCols.includes(0)}>{#if viewMode === "details"}<span class="ricon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="md" />{@render techBadge(i.typeID)}{#if current === "cargo" && $unseenCargo.includes(i.itemID)}<span class="newtag" aria-hidden="true"></span>{/if}</span>{/if}{typeName(i.typeID)}</td>
                 <!-- uix columns (read through gridcheck): QUANTITY GetItemQty - none for a singleton; META_LEVEL FmtAmt where the
                      type has one (0 blank); TECH_LEVEL FmtAmt, and where evetypes has none the client prints None -->
                 <td class="num" class:hid={hiddenCols.includes(1)}>{i.singleton ? "" : i.quantity.toLocaleString("en-US")}</td>
@@ -1045,6 +1058,7 @@
             <span class="icon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="lg" />
               <!-- InvItem.AddTag: newItemTagLine, 2 px TOTOP_NOPUSH over the icon in the important colour -->
               {#if current === "cargo" && $unseenCargo.includes(i.itemID)}<span class="newtag" aria-hidden="true"></span>{/if}
+              {@render techBadge(i.typeID)}
               {#if !i.singleton}<span class="qty">{fmtAmtShort(i.quantity)}</span>{/if}</span>
             <span class="iname">{typeName(i.typeID)}</span>
           </div>
@@ -1114,6 +1128,9 @@
   .tlabel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ntag { flex: none; width: 2px; height: 16px; margin: 0 4px 0 auto; background: rgb(243, 144, 88); box-shadow: 0 0 4px rgba(243, 144, 88, 0.5); }
   /* listentry.InvItem.Load: details - the line on the 32 px icon; list - TOTOP_NOPUSH across the entry */
+  /* uix.GetTechLevelIcon: 16 x 16 at the entry's top left (icons: the icon's corner; details: the row's, 5 out from the icon) */
+  .item .icon .techlvl { position: absolute; left: 0; top: 0; width: 16px; height: 16px; z-index: 1; max-width: none; }
+  .rows .ricon .techlvl { position: absolute; left: -5px; top: -5px; width: 16px; height: 16px; z-index: 1; max-width: none; }
   .rows .ricon .newtag, .item .icon .newtag { position: absolute; left: 0; right: 0; top: 0; height: 2px; background: rgb(243, 144, 88); box-shadow: 0 0 4px rgba(243, 144, 88, 0.5); z-index: 1; pointer-events: none; }
   /* InvFilters: a drag area 8 high (its line at 3) over the filterHeaderCont, 24 high, padRight 8: expandFiltersBtn 24 wide
      with the 7 px Neocom arrowDown, the Label 14, createFilterBtn 24 x 24 with eveicon.add 16 at the right */
