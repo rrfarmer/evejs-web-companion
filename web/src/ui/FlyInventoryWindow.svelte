@@ -1035,7 +1035,7 @@
             {#each shown as i (i.itemID)}
               {@const fa = facts[i.typeID]}
               <tr class:selected={selected.includes(i.itemID)} class:unseen={viewMode !== "details" && current === "cargo" && $unseenCargo.includes(i.itemID)} draggable="true" onmouseenter={(e) => { hoverSound(e); itemTip(i, e); }} onmouseleave={itemTipOff} onclick={(e) => clickItem(i.itemID, e)} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
-                <td class="nm" class:hid={hiddenCols.includes(0)}>{#if viewMode === "details"}<span class="ricon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="md" />{@render techBadge(i.typeID)}{#if current === "cargo" && $unseenCargo.includes(i.itemID)}<span class="newtag" aria-hidden="true"></span>{/if}</span>{/if}{typeName(i.typeID)}</td>
+                <td class="nm" class:hid={hiddenCols.includes(0)}>{#if viewMode === "details"}<span class="ricon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="md" />{@render techBadge(i.typeID)}{#if current === "cargo" && $unseenCargo.includes(i.itemID)}<span class="newtag" aria-hidden="true"></span>{/if}</span>{:else}<span class="ltl">{@render techBadge(i.typeID)}</span>{/if}{typeName(i.typeID)}</td>
                 <!-- uix columns (read through gridcheck): QUANTITY GetItemQty - none for a singleton; META_LEVEL FmtAmt where the
                      type has one (0 blank); TECH_LEVEL FmtAmt, and where evetypes has none the client prints None -->
                 <td class="num" class:hid={hiddenCols.includes(1)}>{i.singleton ? "" : i.quantity.toLocaleString("en-US")}</td>
@@ -1130,6 +1130,9 @@
   /* listentry.InvItem.Load: details - the line on the 32 px icon; list - TOTOP_NOPUSH across the entry */
   /* uix.GetTechLevelIcon: 16 x 16 at the entry's top left (icons: the icon's corner; details: the row's, 5 out from the icon) */
   .item .icon .techlvl { position: absolute; left: 0; top: 0; width: 16px; height: 16px; z-index: 1; max-width: none; }
+  /* list: the row's own corner (the live client g304: badge 288,631 on the 396 x 21 row at 288,631) */
+  .rows td.nm { position: relative; }
+  .rows .ltl .techlvl { position: absolute; left: 0; top: 0; width: 16px; height: 16px; z-index: 1; max-width: none; }
   .rows .ricon .techlvl { position: absolute; left: -5px; top: -5px; width: 16px; height: 16px; z-index: 1; max-width: none; }
   .rows .ricon .newtag, .item .icon .newtag { position: absolute; left: 0; right: 0; top: 0; height: 2px; background: rgb(243, 144, 88); box-shadow: 0 0 4px rgba(243, 144, 88, 0.5); z-index: 1; pointer-events: none; }
   /* InvFilters: a drag area 8 high (its line at 3) over the filterHeaderCont, 24 high, padRight 8: expandFiltersBtn 24 wide
