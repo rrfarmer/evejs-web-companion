@@ -2694,6 +2694,7 @@
         return !!mine && (mine.role === 1 || mine.role === 2 || mine.role === 3);
       },
       tagItem: (id, tag) => void s.flow.tagFleetItem(id, tag).catch(() => {}),
+      broadcastHealMe: (name, shipID) => void s.flow.broadcastHealMe(name, shipID).catch(() => {}),
       fleetID: () => s.store.fleet.get().fleet?.fleetID ?? null,
       abandonLoot: (itemID, all) => void s.flow.abandonLoot(itemID, all).catch(() => {}),
       routeNext: () => routeNextNow,

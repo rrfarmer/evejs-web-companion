@@ -385,6 +385,8 @@ export interface SpaceActions {
   fleetCommander?(): boolean;
   /** menusvc.TagItem: the park's CmdFleetTagTarget(itemID, tag), None taking the tag off. */
   tagItem?(itemID: number, tag: string | null): void;
+  /** fleetSvc.SendBroadcast_HealShield / HealArmor / HealCapacitor on the pilot's own ship. */
+  broadcastHealMe?(name: "HealArmor" | "HealShield" | "HealCapacitor", shipID: number): void;
   /** The pilot's fleet's ID, or null (Michelle.HaveLootRight's fleet). */
   fleetID?(): number | null;
   /** menuFunctions.AbandonLoot (one) / AbandonAllLoot (all of its group the pilot may loot). */
@@ -1848,8 +1850,10 @@ export class SpaceView {
     for (const el of [this.selectedEl, this.overview.window.root]) this.raiseOnClick(el);
     // a held left button opens the radial menu; a right-click the context menu (menusvc's, as the client's right-click)
     // CmdOpenRadialMenu held: the radial menu at the press, with no delay (radialMenuSvc's noDelay)
-    const radialNow = () => this.combat?.cmd === "CmdOpenRadialMenu";
-    const openRadialFrom = (from: () => RadialFrom) => (id: number, x: number, y: number, button: number) => (button === 2 ? this.openContext(id, x, y) : this.openRadial(id, x, y, button, from()));
+    // (CmdOpenBroadcastRadialMenu held: the broadcast radial, with no delay too)
+    const radialNow = () => this.combat?.cmd === "CmdOpenRadialMenu" || this.combat?.cmd === "CmdOpenBroadcastRadialMenu";
+    const openRadialFrom = (from: () => RadialFrom) => (id: number, x: number, y: number, button: number) => (button === 2 ? this.openContext(id, x, y)
+      : this.combat?.cmd === "CmdOpenBroadcastRadialMenu" ? this.openBroadcastRadial(id, x, y, button) : this.openRadial(id, x, y, button, from()));
     const openRadial = openRadialFrom(() => null);
     // RadialMenu.UpdateIndicator: the clicked object's ShowRadialMenuIndicator - a bracket's (navigation's, for space,
     // is the bracket's too) or an overview entry's
@@ -2065,7 +2069,13 @@ export class SpaceView {
       this.lastLeftPress = pressedAt;
       // navigation.OnMouseDown: the left button with a combat command loaded starts a marquee (the camera not orbited
       // while it is drawn: OnMouseMove passes the camera nothing with a marqueeCont)
-      if (!this.moveCmd && (this.combat || this.modifierCombat(false))) this.startMarquee(e.clientX, e.clientY);
+      // navigation.TryExpandActionMenu: in a fleet with CmdOpenBroadcastRadialMenu held, a press on nothing opens the
+      // broadcast radial for no object (one on an object is holdToOpen's)
+      if (this.combat?.cmd === "CmdOpenBroadcastRadialMenu") {
+        if (this.actions.inFleet?.() && this.pickAt(e.clientX, e.clientY) === null) this.openBroadcastRadial(null, e.clientX, e.clientY, 0);
+        return;
+      }
+      if (!this.moveCmd && this.combat?.cmd !== "CmdOpenRadialMenu" && (this.combat || this.modifierCombat(false))) this.startMarquee(e.clientX, e.clientY);
     });
     this.renderer.domElement.addEventListener("click", (e) => {
       // navigation.OnMouseUp: with the move command on, a left click is its next point
@@ -3735,6 +3745,8 @@ export class SpaceView {
     // ResetTagSequences: commandMemory cleared; a CmdTagItem_* outside a fleet does nothing (not loaded)
     if (cmd === "ResetTagSequences") { e.preventDefault(); this.tagMemory.clear(); return; }
     if (cmd.startsWith("CmdTagItem_") && !this.actions.inFleet?.()) { e.preventDefault(); return; }
+    // CmdOpenBroadcastRadialMenu: not loaded outside a fleet
+    if (cmd === "CmdOpenBroadcastRadialMenu" && !this.actions.inFleet?.()) { e.preventDefault(); return; }
     if (isCombatCommand(cmd)) {
       e.preventDefault();
       if (!this.combat && !this.dscanKey) this.loadCombat(cmd, e.code);
@@ -4102,6 +4114,7 @@ export class SpaceView {
       case "CmdGetLocationMenuForNavigation": break;
       // CmdOpenRadialMenu is the press's (holdToOpen); the click after it does nothing more
       case "CmdOpenRadialMenu": break;
+      case "CmdOpenBroadcastRadialMenu": break;
       // targetMgr.ToggleLockTarget: unlocked where it is a target, else locked
       case "CmdToggleTargetItem": if (this.locked.has(id)) run("Unlock Target", () => this.actions.unlock(id)); else run("Lock Target", () => this.lockTracked(id)); break;
       case "CmdDockOrJumpOrActivateGate": {
@@ -4168,6 +4181,42 @@ export class SpaceView {
     // a window list entry (Generic / BaseListEntry, the drones window's DroneEntry): a Fill (1, 1, 1, 0.25) behind it
     else if (mark?.from instanceof HTMLElement) mark.from.classList.add("radial-marked-entry");
     else if (mark) mark.from.setRadialMarked(mark.id);
+  }
+
+  /**
+   * RadialMenuBroadcast (spaceRadialMenuFunctions.GetObjectsActions, BROADCAST_RADIAL_MENU): at the top Broadcast:
+   * Repair Target, then clockwise Need Shield (44_32_52), Need Armor (53), Need Capacitor (54), Broadcast: Target
+   * (44_32_17), Align To (57), nothing, Warp To (55). The heals run for the pilot's own ship and are offered on it or
+   * on nothing (IsAlwaysAvailable); the others are the object's own menu entries of those names (the broadcasts the
+   * object's menu offers), missing ones greyed. Not ported: the fleet flag colour tint and the time restriction's
+   * greying (forcedInactive).
+   */
+  private openBroadcastRadial(id: number | null, x: number, y: number, button: number): void {
+    const e = id === null ? null : this.snapshot?.entities.find((each) => each.itemID === id) ?? null;
+    if (id !== null && !e) return;
+    const icon = (n: number) => RADIAL_ICON(`res:/UI/Texture/Icons/44_32_${n}.png`);
+    const say = (label: string, own: string) => this.actions.word?.(label) ?? own;
+    const shipID = this.snapshot?.ship?.itemID ?? null;
+    const own = id === null || !!e?.isSelf;
+    const heal = (name: "HealShield" | "HealArmor" | "HealCapacitor", own2: string, n: number): RadialOption => ({
+      label: say(`UI/Fleet/FleetBroadcast/Commands/${name}`, own2), icon: icon(n), disabled: !own || shipID === null,
+      run: () => { if (shipID !== null) this.actions.broadcastHealMe?.(name, shipID); } });
+    const entries = e ? this.contextEntries(e) : [];
+    const fromMenu = (path: string, own2: string, iconPath: string): RadialOption => {
+      const entry = entries.find((x) => x?.path === path) ?? null;
+      return { label: say(path, own2), icon: iconPath, disabled: !entry?.run, run: () => entry?.run?.() };
+    };
+    const options: (RadialOption | null)[] = [
+      fromMenu("UI/Fleet/FleetBroadcast/Commands/BroadcastHealTarget", "Broadcast: Repair Target", RADIAL_ICON("res:/UI/Texture/eveicon/system_icons/heal_first_aid_16px.png")),
+      heal("HealShield", "Need Shield", 52),
+      heal("HealArmor", "Need Armor", 53),
+      heal("HealCapacitor", "Need Capacitor", 54),
+      fromMenu("UI/Fleet/FleetBroadcast/Commands/BroadcastTarget", "Broadcast: Target", icon(17)),
+      fromMenu("UI/Fleet/FleetBroadcast/Commands/BroadcastAlignTo", "Broadcast: Align to", icon(57)),
+      null,
+      fromMenu("UI/Fleet/FleetBroadcast/Commands/BroadcastWarpTo", "Broadcast: Warp to", icon(55)),
+    ];
+    this.radial.open(x, y, e ? this.nameOf(e) : "", options, button);
   }
 
   private openRadial(id: number, x: number, y: number, button: number, from: RadialFrom = null): void {
