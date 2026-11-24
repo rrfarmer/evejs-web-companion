@@ -266,6 +266,19 @@ export interface SpaceViewOptions {
   sovHub?: { deposit(hubID: number): void; configure(hubID: number): void; configurable(hubID: number, corporationID: number | null): boolean };
 }
 
+/** navigation.multiTargetCmds: the combat commands a marquee runs on every object in it. */
+const MULTI_TARGET_CMDS: readonly string[] = ["CmdLockTargetItem", "CmdToggleTargetItem", "CmdSelectTargetItem", "CmdUnlockTargetItem", "CmdShowItemInfo"];
+/** tacticalConst (read through gridcheck): validCategories, bombGroups (the charges kept) and filterGroups. */
+const TACTICAL_CATEGORIES = new Set([3, 6, 11, 2, 25, 18, 22, 23, 65, 8, 40, 46, 87]);
+const TACTICAL_BOMB_GROUPS = new Set([90, 863, 864, 479, 548, 4088, 1548]);
+const TACTICAL_FILTER_GROUPS = new Set([3, 4, 5, 11, 13, 16, 97, 227, 299, 305, 312, 335, 364, 368, 382, 414, 418, 445, 470, 480, 502, 519, 545, 549, 710, 840, 877, 885, 903, 934, 995, 1004, 1005, 1023, 1026, 1027, 1028, 1029, 1030, 1036, 1063, 1071, 1073, 1149, 1165, 1198, 1274, 1297, 1312, 1405, 1407, 1409, 1410, 1882, 1940, 1971, 1973, 1975, 1980, 1983, 4055, 4430, 4579, 4714, 4828]);
+/** tacticalConst.is_interactable_entity: a valid category's group (a charge only a bomb's), not a filtered one. */
+function isInteractableEntity(groupID: number | null, categoryID: number | null): boolean {
+  if (groupID === null || categoryID === null || !TACTICAL_CATEGORIES.has(categoryID)) return false;
+  if (categoryID === 8 && !TACTICAL_BOMB_GROUPS.has(groupID)) return false;
+  return !TACTICAL_FILTER_GROUPS.has(groupID);
+}
+
 /** flightControls.KeyboardControls.PrimeKeys: the four commands whose keys steer the ship. */
 const FLIGHT_KEYS: Readonly<Record<string, "up" | "down" | "left" | "right">> = {
   CmdFlightControlsUp: "up", CmdFlightControlsDown: "down", CmdFlightControlsLeft: "left", CmdFlightControlsRight: "right",
@@ -2044,7 +2057,13 @@ export class SpaceView {
     this.renderer.domElement.addEventListener("pointerleave", () => { if (this.moveCmd && this.moveCmd.state === 0) this.abortMoveCommand(); });
     // baseCameraController.IsMouseDragged: a press that travelled 5 px or more is a drag, not a click
     let pressedAt: { x: number; y: number } | null = null;
-    this.renderer.domElement.addEventListener("pointerdown", (e) => { if (e.button === 0) pressedAt = { x: e.clientX, y: e.clientY }; });
+    this.renderer.domElement.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      pressedAt = { x: e.clientX, y: e.clientY };
+      // navigation.OnMouseDown: the left button with a combat command loaded starts a marquee (the camera not orbited
+      // while it is drawn: OnMouseMove passes the camera nothing with a marqueeCont)
+      if (!this.moveCmd && (this.combat || this.modifierCombat(false))) this.startMarquee(e.clientX, e.clientY);
+    });
     this.renderer.domElement.addEventListener("click", (e) => {
       // navigation.OnMouseUp: with the move command on, a left click is its next point
       if (this.moveCmd) { this.addMovePoint(); return; }
@@ -3283,6 +3302,78 @@ export class SpaceView {
     this.lockingIDs.clear();
     this.acquiringTargets.clear();
     this.updateTargetingCursor();
+  }
+
+  /**
+   * MarqueeCont: a rectangle from the press to the pointer, FrameThemeColored (FRAME_BORDER1_CORNER3, COLORTYPE_UIHILIGHT
+   * at 0.5) over FillThemeColored (FRAME_FILLED_CORNER3 at 0.15). On the release, a press that travelled 5 px or more
+   * (IsMarqueeActivated) applies it: navigation.ApplyMarqueeCommands.
+   */
+  private startMarquee(x0: number, y0: number): void {
+    // a modifier-only command (Ctrl lock ...) is the press's: kept from it for the release
+    const pressCombat = this.modifierCombat(false);
+    const el = document.createElement("div");
+    el.className = "space-marquee";
+    Object.assign(el.style, { position: "fixed", left: `${x0}px`, top: `${y0}px`, width: "0", height: "0", borderRadius: "3px", pointerEvents: "none", zIndex: "5",
+      border: "1px solid color-mix(in srgb, var(--theme-focus, #58A7BF) 50%, transparent)", background: "color-mix(in srgb, var(--theme-focus, #58A7BF) 15%, transparent)", boxSizing: "border-box" });
+    this.root.appendChild(el);
+    const rect = () => ({ left: Math.min(x0, last.x), top: Math.min(y0, last.y), right: Math.max(x0, last.x), bottom: Math.max(y0, last.y) });
+    const last = { x: x0, y: y0 };
+    let travelled = false;
+    const move = (e: PointerEvent) => {
+      last.x = e.clientX; last.y = e.clientY;
+      if (!travelled && Math.hypot(last.x - x0, last.y - y0) >= 5) { travelled = true; this.controls.enabled = false; }
+      const r = rect();
+      Object.assign(el.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.right - r.left}px`, height: `${r.bottom - r.top}px` });
+    };
+    const up = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      removeEventListener("pointermove", move);
+      removeEventListener("pointerup", up);
+      el.remove();
+      if (!travelled) return;
+      this.controls.enabled = true;
+      this.applyMarquee(rect(), this.combat?.cmd ?? pressCombat);
+    };
+    addEventListener("pointermove", move);
+    addEventListener("pointerup", up);
+  }
+
+  /**
+   * navigation.ApplyMarqueeCommands: the balls whose screen points lie in the rectangle (GetAllSlimItemScreenCoords, in
+   * front of the camera; is_interactable_entity), nearest the camera first; the first selected; with the loaded
+   * command, more than one and a multiTargetCmd - each of them with a bracket (where any has one), a lock no more
+   * than GetNumAdditionalTargetsAllowed (maxLockedTargets less the targets) - else the first alone.
+   */
+  private applyMarquee(r: { left: number; top: number; right: number; bottom: number }, combat: CombatCommand | null): void {
+    const snap = this.snapshot;
+    if (!snap) return;
+    const cam = this.screenCam, eye = this.camera.position;
+    const p = new THREE.Vector3();
+    const inside: { id: number; d: number }[] = [];
+    for (const e of snap.entities) {
+      const m = this.marks.get(e.itemID);
+      if (!m) continue;
+      m.getWorldPosition(p);
+      const d = p.distanceTo(eye);
+      const q = p.project(cam);
+      if (q.z >= 1) continue;
+      const x = ((q.x + 1) / 2) * innerWidth, y = ((1 - q.y) / 2) * innerHeight;
+      if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
+      if (!isInteractableEntity(e.groupID, e.categoryID)) continue;
+      inside.push({ id: e.itemID, d });
+    }
+    if (!inside.length) return;
+    inside.sort((a, b) => a.d - b.d);
+    this.setSelectedState(inside[0]!.id);
+    if (!combat) return;
+    if (inside.length > 1 && MULTI_TARGET_CMDS.includes(combat)) {
+      let ids = inside.map((x) => x.id);
+      const bracketed = ids.filter((id) => { const b = this.bracketEls.get(id); return !!b && b.style.display !== "none"; });
+      if (bracketed.length) ids = bracketed;
+      if (combat === "CmdLockTargetItem") ids = ids.slice(0, Math.max(0, Math.trunc((this.actions.shipAttribute?.(192) ?? 0) - this.locked.size)));
+      for (const id of ids) this.runCombat(combat, id);
+    } else this.runCombat(combat, inside[0]!.id);
   }
 
   /** playerOwnedTargetMgr.CancelTargetOrder: the modules waiting for a target click let go, the cursor hidden. */
