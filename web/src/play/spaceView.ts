@@ -5390,6 +5390,29 @@ export class SpaceView {
   }
 
   /** An object's own space menu (its CelestialMenu), for another window's menu to open as a submenu; null off the grid. */
+  /**
+   * BuffBtnController.OnButtonClick: with a combat command loaded (IsSomeCombatCommandLoaded), the command run on the
+   * nearest of these by surface distance (a lock skipping those targeted or being targeted); nothing without one. True
+   * where one ran.
+   */
+  combatOnNearest(itemIDs: readonly number[]): boolean {
+    const combat = this.combat?.cmd ?? this.modifierCombat();
+    const ego = this.snapshot?.ship;
+    if (!combat || !ego) return false;
+    const lock = combat === "CmdLockTargetItem";
+    let best: { id: number; d: number } | null = null;
+    for (const id of itemIDs) {
+      if (lock && (this.locked.has(id) || this.lockingIDs.has(id))) continue;
+      const e = this.snapshot?.entities.find((x) => x.itemID === id);
+      if (!e) continue;
+      const d = Math.hypot(e.position.x - ego.position.x, e.position.y - ego.position.y, e.position.z - ego.position.z) - (e.radius ?? 0) - (ego.radius ?? 0);
+      if (!best || d < best.d) best = { id, d };
+    }
+    if (!best) return false;
+    this.runCombat(combat, best.id);
+    return true;
+  }
+
   menuEntriesFor(itemID: number): (ContextEntry | null)[] | null {
     const e = this.snapshot?.entities.find((x) => x.itemID === itemID);
     return e ? this.contextEntries(e) : null;

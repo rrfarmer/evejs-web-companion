@@ -177,8 +177,8 @@
    * BuffBtnController.GetButtonMenu: each source of the slot's electronic warfare on the ship that is in space, by its
    * pilot's name or else its type's, in name order (localization.util.Sort on the names), each opening that object's
    * menu (CelestialMenu; here what the overview and the tactical ring offer for it, after Show Info). A slot with no
-   * source has no menu. OnButtonClick acts only with a combat command held (IsSomeCombatCommandLoaded), which the page
-   * has none of, so a click does nothing.
+   * source has no menu. OnButtonClick acts only with a combat command held (IsSomeCombatCommandLoaded): the command run
+   * on the nearest source by surface distance (a lock skipping those already targeted or being targeted) - onSlotClick.
    */
   let menu = $state<{ readonly slot: string; readonly x: number; readonly y: number; readonly open: number | null } | null>(null);
   function menuSources(name: string): { readonly itemID: number; readonly name: string }[] {
@@ -208,6 +208,11 @@
   const flightView = getContext<(() => SpaceView | null) | undefined>("flightSpaceView");
   const sharedMenu = new ContextMenu();
   onDestroy(() => sharedMenu.close());
+  // BuffBtnController.OnButtonClick (with a combat command held; nothing without one)
+  function onSlotClick(name: string): void {
+    const sources = menuSources(name);
+    if (sources.length) flightView?.()?.combatOnNearest(sources.map((source) => source.itemID));
+  }
   function openMenu(event: MouseEvent, name: string): void {
     event.preventDefault();
     tip = null;
@@ -264,7 +269,7 @@
         <div class="buff-slot {slot.kind}" role="listitem" tabindex="0" data-buff-slot={name}
           onmouseenter={(event) => showTip(event, name)} onmouseleave={() => (tip = null)}
           onfocus={(event) => showTip(event, name)} onblur={() => (tip = null)}
-          oncontextmenu={(event) => openMenu(event, name)}>
+          oncontextmenu={(event) => openMenu(event, name)} onclick={() => onSlotClick(name)}>
           <span class="buff-slot-underlay" style:--underlay-grad={`url(${clientTexture("res:/UI/Texture/classes/ShipUI/EwarBar/ewarBarUnderlayGrad.png")})`}
             style:--underlay-clean={`url(${clientTexture("res:/UI/Texture/classes/ShipUI/EwarBar/ewarBarUnderlayClean.png")})`} aria-hidden="true"></span>
           {#if iconFile !== null}
