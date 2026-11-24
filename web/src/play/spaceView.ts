@@ -387,6 +387,8 @@ export interface SpaceActions {
   tagItem?(itemID: number, tag: string | null): void;
   /** fleetSvc.SendBroadcast_HealShield / HealArmor / HealCapacitor on the pilot's own ship. */
   broadcastHealMe?(name: "HealArmor" | "HealShield" | "HealCapacitor", shipID: number): void;
+  /** fleetSvc.IsTimeRestricted(name). */
+  broadcastRestricted?(name: string): boolean;
   /** The pilot's fleet's ID, or null (Michelle.HaveLootRight's fleet). */
   fleetID?(): number | null;
   /** menuFunctions.AbandonLoot (one) / AbandonAllLoot (all of its group the pilot may loot). */
@@ -4199,24 +4201,30 @@ export class SpaceView {
     const shipID = this.snapshot?.ship?.itemID ?? null;
     const own = id === null || !!e?.isSelf;
     const heal = (name: "HealShield" | "HealArmor" | "HealCapacitor", own2: string, n: number): RadialOption => ({
-      label: say(`UI/Fleet/FleetBroadcast/Commands/${name}`, own2), icon: icon(n), disabled: !own || shipID === null,
+      label: say(`UI/Fleet/FleetBroadcast/Commands/${name}`, own2), icon: icon(n), disabled: !own || shipID === null || !!this.actions.broadcastRestricted?.(name),
       run: () => { if (shipID !== null) this.actions.broadcastHealMe?.(name, shipID); } });
     const entries = e ? this.contextEntries(e) : [];
-    const fromMenu = (path: string, own2: string, iconPath: string): RadialOption => {
+    // (forcedInactive: IsTimeRestricted of the broadcast's own name)
+    const fromMenu = (path: string, own2: string, iconPath: string, name: string): RadialOption => {
       const entry = entries.find((x) => x?.path === path) ?? null;
-      return { label: say(path, own2), icon: iconPath, disabled: !entry?.run, run: () => entry?.run?.() };
+      return { label: say(path, own2), icon: iconPath, disabled: !entry?.run || !!this.actions.broadcastRestricted?.(name), run: () => entry?.run?.() };
     };
     const options: (RadialOption | null)[] = [
-      fromMenu("UI/Fleet/FleetBroadcast/Commands/BroadcastHealTarget", "Broadcast: Repair Target", RADIAL_ICON("res:/UI/Texture/eveicon/system_icons/heal_first_aid_16px.png")),
+      fromMenu("UI/Fleet/FleetBroadcast/Commands/BroadcastHealTarget", "Broadcast: Repair Target", RADIAL_ICON("res:/UI/Texture/eveicon/system_icons/heal_first_aid_16px.png"), "HealTarget"),
       heal("HealShield", "Need Shield", 52),
       heal("HealArmor", "Need Armor", 53),
       heal("HealCapacitor", "Need Capacitor", 54),
-      fromMenu("UI/Fleet/FleetBroadcast/Commands/BroadcastTarget", "Broadcast: Target", icon(17)),
-      fromMenu("UI/Fleet/FleetBroadcast/Commands/BroadcastAlignTo", "Broadcast: Align to", icon(57)),
+      fromMenu("UI/Fleet/FleetBroadcast/Commands/BroadcastTarget", "Broadcast: Target", icon(17), "Target"),
+      fromMenu("UI/Fleet/FleetBroadcast/Commands/BroadcastAlignTo", "Broadcast: Align to", icon(57), "AlignTo"),
       null,
-      fromMenu("UI/Fleet/FleetBroadcast/Commands/BroadcastWarpTo", "Broadcast: Warp to", icon(55)),
+      fromMenu("UI/Fleet/FleetBroadcast/Commands/BroadcastWarpTo", "Broadcast: Warp to", icon(55), "WarpTo"),
     ];
-    this.radial.open(x, y, e ? this.nameOf(e) : "", options, button);
+    // GetBroadcastMenuColor: the same-fleet flag's colour (flagSameFleet 11, the client default (0.6, 0.15, 0.9)) with its
+    // brightness (HSV value) no more than 0.4 - (0.2667, 0.0667, 0.4) read live
+    const fleetColour = [0.6, 0.15, 0.9];
+    const value = Math.max(...fleetColour);
+    const tint = value > 0.4 ? fleetColour.map((c) => (c * 0.4) / value) : fleetColour;
+    this.radial.open(x, y, e ? this.nameOf(e) : "", options, button, undefined, tint);
   }
 
   private openRadial(id: number, x: number, y: number, button: number, from: RadialFrom = null): void {

@@ -196,6 +196,8 @@ export interface FleetBroadcasts {
   toFleet(name: GlobalBroadcast, scope: number, itemID: number, typeID?: number | null): Promise<boolean>;
   /** fleetSvc.SendSystemBroadcast: fleetMgr.BroadcastToSystem(name, scope, itemID, typeID), after the same wait. */
   toSystem(name: SystemBroadcast, scope: number, itemID: number, typeID: number | null): Promise<boolean>;
+  /** fleetSvc.IsTimeRestricted(name): whether a broadcast of this name would still be held by the wait. */
+  restricted(name: BubbleBroadcast | GlobalBroadcast | SystemBroadcast): boolean;
 }
 
 /** A pilot's broadcasts, with the wait the client's fleet service keeps between them: one wait for them all. */
@@ -211,6 +213,9 @@ export function createFleetBroadcasts(act: Ask, now: () => number = Date.now): F
     return false;
   };
   return {
+    restricted(name) {
+      return last !== null && last.atMs + (last.name === name ? MIN_BROADCAST_MS : MIN_BROADCAST_MS / 3) > now();
+    },
     async toBubble(name, scope, itemID) {
       if (waiting(name)) return false;
       return (await act("fleetMgr", "BroadcastToBubble", [name, scope, itemID, null])) !== false;

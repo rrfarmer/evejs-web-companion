@@ -2695,6 +2695,7 @@
       },
       tagItem: (id, tag) => void s.flow.tagFleetItem(id, tag).catch(() => {}),
       broadcastHealMe: (name, shipID) => void s.flow.broadcastHealMe(name, shipID).catch(() => {}),
+      broadcastRestricted: (name) => s.flow.broadcastRestricted(name),
       fleetID: () => s.store.fleet.get().fleet?.fleetID ?? null,
       abandonLoot: (itemID, all) => void s.flow.abandonLoot(itemID, all).catch(() => {}),
       routeNext: () => routeNextNow,

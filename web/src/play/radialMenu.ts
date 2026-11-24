@@ -186,7 +186,16 @@ export class RadialMenu {
   private openedAt = 0;
 
   /** Open at (x, y) with up to eight options (null for an empty slice), titled `title`; `button` is the one held. */
-  open(x: number, y: number, title: string, options: readonly (RadialOption | null)[], button = 0, onClose?: () => void): void {
+  /**
+   * `tint` (RadialMenuButton's color, the broadcast radial's GetBroadcastMenuColor): the available slice in it at 0.8
+   * and the selected one at 0.9, in place of the theme's fixed colour.
+   */
+  open(x: number, y: number, title: string, options: readonly (RadialOption | null)[], button = 0, onClose?: () => void, tint: readonly number[] | null = null): void {
+    if (tint) {
+      const [r, g, b] = tint.map((c) => Math.round(c * 255));
+      this.root.style.setProperty("--radial-slice", `rgba(${r}, ${g}, ${b}, 0.8)`);
+      this.root.style.setProperty("--radial-sel", `rgba(${r}, ${g}, ${b}, 0.9)`);
+    } else { this.root.style.removeProperty("--radial-slice"); this.root.style.removeProperty("--radial-sel"); }
     this.cx = Math.max(SIZE / 2, Math.min(innerWidth - SIZE / 2, x));
     this.cy = Math.max(SIZE / 2 + 30, Math.min(innerHeight - SIZE / 2, y));
     this.button = button;
@@ -397,11 +406,11 @@ export const RADIAL_CSS = `
 .radial-slot { position: absolute; left: ${(SIZE - 100) / 2}px; top: 0; width: 100px; height: ${SIZE}px; transform-origin: 50% 50%; pointer-events: none; }
 .radial-slot > div { position: absolute; left: 0; top: 0; width: 100px; height: 70px;
   -webkit-mask: var(--tex) center / 100% 100% no-repeat; mask: var(--tex) center / 100% 100% no-repeat; }
-.radial-slice { background: rgba(28, 33, 38, 0.82); }
+.radial-slice { background: var(--radial-slice, rgba(28, 33, 38, 0.82)); }
 .radial-slot.empty .radial-slice { background: rgba(160, 170, 180, 0.35); }
 .radial-hilite { background: rgba(170, 210, 240, 0.0); transition: background 0.12s; }
 /* SelectButtonSlice -> ShowSelectionSlice: the slice's own texture swapped for selected_45 (opacity 0.9) */
-.radial-slot.selected .radial-slice { -webkit-mask-image: var(--sel); mask-image: var(--sel); background: rgba(170, 210, 240, 0.9); }
+.radial-slot.selected .radial-slice { -webkit-mask-image: var(--sel); mask-image: var(--sel); background: var(--radial-sel, rgba(170, 210, 240, 0.9)); }
 .radial-slot.hover:not(.disabled):not(.empty) .radial-hilite { background: rgba(170, 210, 240, 0.55); }
 .radial-arrow { left: 41px !important; top: 1px !important; width: 18px !important; height: 12px !important; background: rgba(255,255,255,0.9); }
 .radial-slot.disabled .radial-arrow { background: rgba(255,255,255,0.35); }

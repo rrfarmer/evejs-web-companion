@@ -2877,6 +2877,8 @@ export interface AppFlow {
   broadcastHealMe(name: "HealArmor" | "HealShield" | "HealCapacitor", shipID: number): Promise<boolean>;
   /** fleetSvc.CycleBroadcastScope (CmdCycleFleetBroadcastScope): Down -> Up -> All -> Down, FleetBroadcastScopeChange said. */
   cycleBroadcastScope(): void;
+  /** fleetSvc.IsTimeRestricted: a broadcast of this name would still be held by the wait between broadcasts. */
+  broadcastRestricted(name: string): boolean;
   /** menusvc.TagItem: CmdFleetTagTarget(itemID, tag) on the park; None takes the tag off. */
   tagFleetItem(itemID: number, tag: string | null): Promise<void>;
   /** fleetSvc.Regroup (CmdFleetGroup, a fleet commander's): CmdFleetRegroup() on the park, UI/Fleet/Regrouping said. */
@@ -38229,6 +38231,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     broadcastToFleet,
     broadcastHealMe,
     cycleBroadcastScope,
+    broadcastRestricted: (name: string) => fleetBroadcasts.restricted(name as never),
     tagFleetItem,
     regroupFleet,
     broadcastScope: () => broadcastScope,
