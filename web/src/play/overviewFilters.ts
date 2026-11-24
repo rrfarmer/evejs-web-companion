@@ -82,36 +82,40 @@ const W = [1, 1, 1, 1];
 const look = (flag: number, text: string, iconIndex: number, flagColor: number[], backgroundColor: number[], flagBlink = false, backgroundBlink = false, iconColor = W): StateFlagLook =>
   ({ flag, text, iconIndex, flagColor, backgroundColor, flagBlink, backgroundBlink, iconColor });
 export const STATE_FLAG_LOOKS: ReadonlyMap<number, StateFlagLook> = new Map([
-  look(13, "Pilot is at war with your corporation/alliance", 1, [0.75, 0, 0, 1], [0.75, 0, 0, 1], true),
-  look(44, "Pilot is at war with your militia", 1, [1, 0.35, 0, 1], [0.75, 0, 0, 1], true),
+  // stateSvc.GetStateProps with _GetDefaultColor (flag, background) and defaultBlinkStates (flag: 50 51 52 68; background:
+  // 13 44), read from the 3698585 client's defaults (gridcheck g426) - not a pilot's saved colours
+  look(13, "Pilot is at war with your corporation/alliance", 1, [0.75, 0, 0, 1], [0.75, 0, 0, 1], false, true),
+  look(44, "Pilot is at war with your militia", 1, [1, 0.35, 0, 1], [1, 0.35, 0, 1], false, true),
+  look(52, "Pilot has a limited engagement with you", 5, [0, 0, 0, 1], [0, 0.63, 0.57, 1], true, false, [0, 0.63, 0.57, 1]),
   look(11, "Pilot is in your fleet", 0, [0.6, 0.15, 0.9, 1], [0.6, 0.15, 0.9, 1]),
-  look(12, "Pilot is in your Capsuleer corporation", 1, [0.1, 0.6, 0.1, 1], [0, 0.15, 0.6, 1]),
+  look(12, "Pilot is in your Capsuleer corporation", 1, [0.1, 0.6, 0.1, 1], [0.1, 0.6, 0.1, 1]),
   look(14, "Pilot is in your alliance", 1, [0, 0.15, 0.6, 1], [0, 0.15, 0.6, 1]),
   look(15, "Pilot has Excellent Standing.", 2, [0, 0.15, 0.6, 1], [0, 0.15, 0.6, 1]),
-  look(16, "Pilot has Good Standing.", 2, [0.2, 0.5, 1, 1], [0, 0.15, 0.6, 1]),
-  look(45, "Pilot is in your militia or allied to your militia", 1, [0.3, 0, 0.5, 1], [0.2, 0.5, 1, 1]),
-  look(9, "Pilot has a security status below -5", 5, [0.75, 0, 0, 1], [1, 0.35, 0, 1], true),
+  look(16, "Pilot has Good Standing.", 2, [0.2, 0.5, 1, 1], [0.2, 0.5, 1, 1]),
+  look(45, "Pilot is in your militia or allied to your militia", 1, [0.3, 0, 0.5, 1], [0.3, 0, 0.5, 1]),
+  look(9, "Pilot has a security status below -5", 5, [0.75, 0, 0, 1], [0.75, 0, 0, 1]),
+  look(51, "Pilot is a criminal", 5, [0, 0, 0, 1], [0.75, 0, 0, 1], true, false, [0.867, 0, 0, 1]),
+  look(50, "Pilot is a suspect", 5, [0, 0, 0, 1], [1, 0.7, 0, 1], true, false, [0.984, 0.702, 0.22, 1]),
+  look(68, "Pilot has retribution timer", 5, [0, 0, 0, 1], [0, 0, 0, 1], true, false, [0.984, 0.702, 0.22, 1]),
   look(19, "Pilot has Terrible Standing.", 3, [0.75, 0, 0, 1], [0.75, 0, 0, 1]),
-  look(18, "Pilot has Bad Standing.", 3, [1, 0.35, 0, 1], [0.75, 0, 0, 1]),
-  look(49, "Pilot is an ally in one or more of your wars", 1, [0, 0.15, 0.6, 1], [0.2, 0.5, 1, 1]),
-  look(10, "Pilot has a security status below 0", 5, [1, 0.7, 0, 1], [0.7, 0.7, 0.7, 1]),
+  look(18, "Pilot has Bad Standing.", 3, [1, 0.35, 0, 1], [1, 0.35, 0, 1]),
+  look(49, "Pilot is an ally in one or more of your wars", 1, [0, 0.15, 0.6, 1], [0, 0.15, 0.6, 1]),
+  look(10, "Pilot has a security status below 0", 5, [1, 0.7, 0, 1], [1, 0.7, 0, 1]),
+  look(53, "Pilot has a kill right on them that you can activate", 7, [1, 0.35, 0, 1], [1, 0.35, 0, 1]),
+  look(66, "Pilot is in your Non Capsuleer corporation", 1, [0.1, 0.6, 0.1, 1], [0.1, 0.6, 0.1, 1]),
   look(17, "Pilot has Neutral Standing.", 4, [0.7, 0.7, 0.7, 1], [0.7, 0.7, 0.7, 1]),
   look(48, "Pilot has No Standing.", 4, [0.7, 0.7, 0.7, 1], [0.7, 0.7, 0.7, 1]),
-  look(21, "Pilot (agent) is interactable", 6, [0.2, 0.5, 1, 1], [0.7, 0.7, 0.7, 1]),
-  // crimewatch's: a black flag with the icon in its colour (StateProperty iconColor), the background orange
-  look(52, "Pilot has a limited engagement with you", 5, [0, 0, 0, 1], [1, 0.35, 0, 1], true, false, [0, 0.63, 0.57, 1]),
-  look(51, "Pilot is a criminal", 5, [0, 0, 0, 1], [1, 0.35, 0, 1], true, false, [0.867, 0, 0, 1]),
-  look(53, "Pilot has a kill right on them that you can activate", 7, [1, 0.35, 0, 1], [1, 0.35, 0, 1]),
-  look(20, "Pilot has bounty on them", 5, [0, 0, 0, 1], [0.7, 0.7, 0.7, 1]),
-  look(50, "Pilot is a suspect", 5, [0, 0, 0, 1], [1, 0.35, 0, 1], false, false, [0.984, 0.702, 0.22, 1]),
+  look(21, "Pilot (agent) is interactable", 6, [0.2, 0.5, 1, 1], [0.2, 0.5, 1, 1]),
+  look(20, "Pilot has bounty on them", 5, [0, 0, 0, 1], [0, 0, 0, 1]),
 ].map((l) => [l.flag, l]));
 /**
- * The active orders (the client's defaults, as read): the first flag whose Check holds is the thing's. Criminal (51),
+ * The active orders (the 3698585 defaults: defaultFlagOrder / defaultBackgroundOrder filtered by defaultFlagStates /
+ * defaultBackgroundStates, g426): the first flag whose Check holds is the thing's. Criminal (51),
  * Suspect (50), Limited Engagement (52) and Has Kill Right (53) are checked against crimewatchSvc's sets, Is Wanted
  * (20) against the bounties read (flagHolds below).
  */
-const FLAG_ORDER = [13, 44, 52, 11, 12, 14, 15, 16, 45, 9, 51, 50, 53, 19, 18, 49, 10, 17, 48, 21, 20];
-const BACKGROUND_ORDER = [13, 44, 52, 11, 12, 14, 15, 16, 45, 49, 19, 18, 9, 51, 50, 53, 10, 20, 21, 17, 48];
+const FLAG_ORDER = [13, 44, 52, 11, 12, 14, 15, 16, 45, 9, 51, 50, 68, 19, 18, 49, 10, 53, 66, 17, 21];
+const BACKGROUND_ORDER = [13, 44, 52, 11, 12, 14, 45, 9, 51, 50, 66];
 /**
  * The Appearance settings the flags are drawn by (AppearancePanel): the active Colortag and Background orders, and
  * which things carry flags at all (stateSvc.CheckIfUpdateItem: ships, NPCs, drones and fighters, stations and
