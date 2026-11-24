@@ -4439,7 +4439,7 @@
      white 0.1, entries 22 high (a check box's or radio's 24) with their 14 px label at 36 (the menu's 8 + 28) in white 0.75,
      hovered SMOKE_BLUE 0.2 and 0.9; a line 13 high; AddCaption's MenuEntryViewCaption a TextHeader 18 px in white 0.9 at 12,
      22 below the line before it and 8 above the entry after */
-  .fly-windows :global(.log-menu) { position: absolute; left: 0; top: 24px; z-index: 5; display: flex; flex-direction: column; min-width: 180px; padding: 8px;
+  .fly-windows :global(.log-menu) { position: absolute; left: 0; top: 24px; z-index: 5; display: flex; flex-direction: column; min-width: 180px; width: max-content; padding: 8px;
     background: rgba(6, 10, 12, 0.92); backdrop-filter: blur(8px); border: 0; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
     font-size: 14px; color: rgba(255, 255, 255, 0.75); }
   .fly-windows :global(.log-menu .caption) { padding: 13px 0 10px 4px; font-size: 18px; line-height: 23px; color: rgba(255, 255, 255, 0.9); }
@@ -4448,7 +4448,15 @@
   .fly-windows :global(.log-menu button[aria-checked="true"])::before { content: "✓"; position: absolute; left: 6px; font-size: 12px; }
   .fly-windows :global(.log-menu button:hover) { background: rgba(48, 86, 101, 0.2); color: rgba(255, 255, 255, 0.9); }
   /* a check box's or radio's own mark (the actions' .check spans) at the icon's place, the label still at 36 */
-  .fly-windows :global(.log-menu button .check) { position: absolute; left: 6px; top: 0; width: 16px; text-align: center; }
+  /* the Checkbox / RadioButton controls (g374): their underlay white at the icon's place (12 from the menu's edge, 4 down),
+     the tick or dot over it in CRYO_BLUE when on; the actions' text marks hidden */
+  .fly-windows :global(.log-menu button .check) { display: none; }
+  .fly-windows :global(.log-menu button[role="menuitemcheckbox"])::before, .fly-windows :global(.log-menu button[role="menuitemradio"])::before { content: ""; position: absolute; left: 4px; top: 4px; width: 16px; height: 16px; font-size: 0; }
+  .fly-windows :global(.log-menu button[role="menuitemcheckbox"])::before { background: url(/client-res/ui/texture/classes/checkbox/underlay.png) center / 16px 16px no-repeat; }
+  .fly-windows :global(.log-menu button[role="menuitemradio"])::before { background: url(/client-res/ui/texture/classes/checkbox/radio_underlay.png) center / 16px 16px no-repeat; }
+  .fly-windows :global(.log-menu button[role="menuitemcheckbox"][aria-checked="true"])::after, .fly-windows :global(.log-menu button[role="menuitemradio"][aria-checked="true"])::after { content: ""; position: absolute; left: 4px; top: 4px; width: 16px; height: 16px; background: rgb(89, 166, 191); }
+  .fly-windows :global(.log-menu button[role="menuitemcheckbox"][aria-checked="true"])::after { mask: url(/client-res/ui/texture/classes/checkbox/checked.png) center / 16px 16px no-repeat; -webkit-mask: url(/client-res/ui/texture/classes/checkbox/checked.png) center / 16px 16px no-repeat; }
+  .fly-windows :global(.log-menu button[role="menuitemradio"][aria-checked="true"])::after { mask: url(/client-res/ui/texture/classes/checkbox/radio_selected.png) center / 16px 16px no-repeat; -webkit-mask: url(/client-res/ui/texture/classes/checkbox/radio_selected.png) center / 16px 16px no-repeat; }
   /* the combat settings' submenus: to the right of their entry, a caret on it; an entry whose setting depends on an off
      one greyed (isEnabled) */
   .fly-windows :global(.log-menu .log-sub-wrap) { position: relative; display: flex; flex-direction: column; }

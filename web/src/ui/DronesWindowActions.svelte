@@ -65,7 +65,5 @@
   .drones-actions { position: relative; }
   .drones-actions > .log-menu { left: auto; right: 0; }
   .check { display: inline-block; width: 16px; }
-  /* a radio's mark is its own dot, not the menu's check */
-  .drones-actions [role="menuitemradio"]::before { content: none !important; }
   .sep { border: 0; border-top: 1px solid rgba(255, 255, 255, 0.15); margin: 4px 0; width: 100%; }
 </style>
