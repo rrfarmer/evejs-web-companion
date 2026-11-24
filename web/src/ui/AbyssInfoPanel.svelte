@@ -16,7 +16,8 @@
   // of the phone's in-space column.
   //
   // Not as the client has it yet: the icons (eveicon's); a target's click (the camera tracking it), its menu
-  // (CelestialMenu: the page has no context menus) and its highlight in space on hover; a locked target made the
+  // (CelestialMenu: the space view has it - SpaceView.menuEntriesFor, as BuffBar opens a source's - not wired to these
+  // rows yet, and not checked live: no abyssal run on the harness) and its highlight in space on hover; a locked target made the
   // active one on the mouse down (TacticalItemClicked); the header's menu.
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { ABYSS_PANEL_LABEL, type AbyssTaskRow } from "../bridge/abyssObjectives.ts";

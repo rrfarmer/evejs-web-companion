@@ -540,7 +540,7 @@
   // OnInvFiltersChanged: the filters read again after a save
   let tempFilter = $state<InventoryFilter | null>(null);
   const activeFilters = $derived([...itemFilters.filter((f) => checkedFilters.includes(f[0])), ...(tempFilter ? [tempFilter] : [])]);
-  // FilterEntry.GetMenu: Edit (the filter in FilterCreationWindow, not here yet) and Remove (FilterSvc.RemoveFilter: the
+  // FilterEntry.GetMenu: Edit (the filter in FilterCreationWindow - PlayApp opens it on evejs:open-filter-window) and Remove (FilterSvc.RemoveFilter: the
   // RemoveFilterPrompt question, then every filter but it kept - PersistFilters)
   function filterMenu(e: MouseEvent, name: string): void {
     e.preventDefault();
