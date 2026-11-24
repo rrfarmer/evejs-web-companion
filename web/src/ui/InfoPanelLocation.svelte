@@ -196,7 +196,8 @@
   /* the links first: their all: unset must not undo the label sizes below */
   .evelink { all: unset; cursor: pointer; }
   .evelink:hover { text-decoration: underline; }
-  .ip-panel { pointer-events: auto; margin-bottom: 6px; font-family: "EVE Sans Neue", "Segoe UI", sans-serif; }
+  /* panels stack with no gap; mainCont padBottom (MAINPADBOTTOM 10) - 118 high in Perimeter on the live client (g283) */
+  .ip-panel { pointer-events: auto; margin-bottom: 0; font-family: "EVE Sans Neue", "Segoe UI", sans-serif; }
   .ip-top { display: flex; align-items: flex-start; min-height: 28px; }
   .ip-gutter { display: flex; width: 56px; flex: none; }
   .ip-expand, .ip-icon { all: unset; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; opacity: 0.8; }
@@ -217,7 +218,7 @@
   .loc-trace { padding-left: 2px; height: 23px; font: 12px/23px "EVE Sans Neue Condensed", "EVE Sans Neue", sans-serif; color: rgb(255 255 255 / 0.9); }
   .ip-main { padding-left: 56px; }
   /* nearestLocationInfo and the sov holder: EveLabelMedium (14, lines 18, TextColor.NORMAL 0.75) */
-  .loc-body { display: flex; flex-direction: column; gap: 2px; font-size: 14px; line-height: 18px; color: rgb(255 255 255 / 0.75); }
+  .loc-body { padding-bottom: 10px; display: flex; flex-direction: column; gap: 2px; font-size: 14px; line-height: 18px; color: rgb(255 255 255 / 0.75); }
   .loc-sov { padding-top: 2px; height: 42px; display: flex; align-items: center; }
   .loc-sov-icon { width: 40px; margin-right: 4px; flex: none; display: flex; }
   .loc-sov-icon img { width: 32px; height: 32px; margin-left: 4px; }

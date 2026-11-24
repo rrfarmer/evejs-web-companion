@@ -153,7 +153,9 @@
 </section>
 
 <style>
-  .ip-panel { pointer-events: auto; margin-bottom: 6px; }
+  /* InfoPanelBase: no gap between panels, the main content padded MAINPADBOTTOM 10 (Route 56 high on the live client) */
+  .ip-panel { pointer-events: auto; margin-bottom: 0; }
+  .ip-panel > .ip-main { padding-bottom: 10px; }
   .ip-top { display: flex; align-items: center; min-height: 28px; }
   .ip-gutter { position: relative; display: flex; width: 56px; flex: none; }
   .ip-expand, .ip-icon { all: unset; cursor: pointer; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; opacity: 0.8; }
