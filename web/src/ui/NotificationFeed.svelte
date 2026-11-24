@@ -176,9 +176,9 @@
     const next = queued.pop();
     if (next) showPopup(next);
   }
-  function addPopup(input: NoticeInput): void {
+  function addPopup(input: NoticeInput, ownType: number | null = null): void {
     const key = input.key ?? "";
-    let typeID: number | null = null;
+    let typeID: number | null = ownType;
     if (key.startsWith("notification:")) {
       const id = Number(key.slice(13));
       for (const n of store.live.get().notifications) {
@@ -196,7 +196,30 @@
     if (!settings.popups || !popsUp(typeID ?? (key.startsWith("mail:") ? 1004 : null))) return;
     if (popups.length < settings.stack) showPopup(p); else queued.push(p);
   }
-  $effect(() => watchNotificationPopups(store, flow, (id) => onOpen(id), addPopup));
+  $effect(() => watchNotificationPopups(store, flow, (id) => onOpen(id), (input) => addPopup(input)));
+
+  // mailSvc.GetMailPopupOnCharacterLogin: entering with unread mail (characterSelection.__Confirm, GetUnreaddMailCount > 0),
+  // 3 s (CheckNewMessages_thread) and 7 s on, notificationSvc.MakeAndScatterNotification(MailSummary 1003,
+  // numMails) - MailSummaryFormatter: subject UI/Mail/NewMailHeader, subtext UI/Mail/NewMails(numMails); a popup and
+  // a count like any other, its click OpenMail. Once per session, the count from the character selection row.
+  const MAIL_HEADER = "UI/Mail/NewMailHeader", NEW_MAILS = "UI/Mail/NewMails";
+  onMount(() => {
+    flow.requestWords([MAIL_HEADER, NEW_MAILS]);
+    let tries = 0;
+    const t = setInterval(() => {
+      if (++tries < 10) return;
+      const c = store.character.get();
+      const me = c.characters.find((x) => x.characterID === c.selectedCharacterID);
+      if (!me) { if (tries > 40) clearInterval(t); return; }
+      clearInterval(t);
+      const n = me.unreadMailCount ?? 0;
+      if (n < 1) return;
+      const title = plainText(word(MAIL_HEADER, "New Mail"));
+      const detail = plainText(formatTemplate(word(NEW_MAILS, "You have {numMails} new mails"), { numMails: n }, { nameOf, ...intervalWriters($words.templates) }));
+      addPopup({ kind: "info", title, detail, key: "mail-summary", action: () => onOpen("mail") }, 1003);
+    }, 1000);
+    return () => clearInterval(t);
+  });
   $effect(() => {
     const t = setInterval(() => {
       const at = Date.now();
