@@ -1435,14 +1435,18 @@ export class SpaceView {
   /** The ship whose holds the cargo indicator last asked for. */
   private holdsReadFor: number | null = null;
   /** The items whose cfg.evelocations rows have been asked for (cfg.evelocations.Prime, once each). */
-  private readonly locationsPrimed = new Set<number>();
+  // (when each was asked: one still unnamed 10 s on is asked again - a lookup made as the session starts can fail, and the
+  // flow forgets a failed one rather than caching it)
+  private readonly locationsPrimed = new Map<number, number>();
   /** The park's celestials, stations, gates and named items primed in cfg.evelocations, as the client's brackets
    * and overview get their names (GetSlimItemName's cfg.evelocations.Get). */
   private primeEntityLocations(entities: readonly Entity[]): void {
     const wanted: number[] = [];
     for (const e of entities) {
-      if (e.categoryID === 6 || e.categoryID === 25 || e.isNpc || e.kind === "ship" || this.locationsPrimed.has(e.itemID)) continue;
-      this.locationsPrimed.add(e.itemID);
+      if (e.categoryID === 6 || e.categoryID === 25 || e.isNpc || e.kind === "ship") continue;
+      const askedAt = this.locationsPrimed.get(e.itemID);
+      if (askedAt !== undefined && (Date.now() - askedAt < 10_000 || this.actions.locationName?.(e.itemID) != null)) continue;
+      this.locationsPrimed.set(e.itemID, Date.now());
       wanted.push(e.itemID);
     }
     if (wanted.length > 0) this.actions.primeLocations?.(wanted);
