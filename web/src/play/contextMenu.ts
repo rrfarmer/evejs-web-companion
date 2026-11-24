@@ -231,7 +231,7 @@ export class ContextMenu {
       row.append(holder);
     } else if (entry.info) {
       const disc = document.createElement("span");
-      Object.assign(disc.style, { position: "absolute", left: "4px", top: "3px", width: "16px", height: "16px", borderRadius: "50%", background: "rgba(88,167,191,0.75)" });
+      Object.assign(disc.style, { position: "absolute", left: "4px", top: "3px", width: "16px", height: "16px", borderRadius: "50%", background: "rgb(88,167,191)" }); // (its colour sprite at full CRYO_BLUE; the 0.75 one is the glow pass, g333)
       const i = document.createElement("img");
       i.src = tex("res:/UI/Texture/classes/Menu/Icons/info.png");
       Object.assign(i.style, { position: "absolute", left: "0", top: "0", width: "16px", height: "16px" });
