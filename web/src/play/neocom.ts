@@ -63,7 +63,7 @@ function neocomTipOn(el: HTMLElement, id: string, blinkHint = ""): void {
   if (!t) return;
   // BaseNeocomButton.LoadTooltipPanel: a blink hint (btnData.GetBlinkHint) under the command, AddLabelMedium width 200 in
   // THEME_ALERT
-  const hint = blinkHint ? [{ text: blinkHint, color: "rgb(243, 144, 88)" }] : [];
+  const hint = blinkHint ? blinkHint.split("\n").map((text) => ({ text, color: "rgb(243, 144, 88)" })) : [];
   tooltipDue(el, () => {
     if (t.cmd) showLabelShortcutTooltip(el, t.name, shortcutOf(t.cmd), [...(t.description ? [t.description] : []), ...hint], "left");
     else showLabelShortcutTooltip(el, "", "", [t.name, ...hint], "left", true);
@@ -172,6 +172,17 @@ export class Neocom {
    */
   private readonly blinks = new Map<string, { left: number; newUntil: number; hint: string }>();
   private pulseTimer: ReturnType<typeof setInterval> | null = null;
+  /**
+   * HasUnseenItems (btnData.GetItemCount, e.g. BtnDataNodeAchievements: the unclaimed rewards): important for as long as
+   * there are any, the hint (GetUnseenItemsHint) in the tooltip; OnBadgeCountChanged blinks the button as they come.
+   */
+  private readonly unseen = new Map<string, string>();
+  setUnseen(id: string, hint: string | null): void {
+    const had = this.unseen.has(id);
+    if (hint) this.unseen.set(id, hint); else this.unseen.delete(id);
+    if (hint && !had) this.blink(id);
+    this.paintIndicators();
+  }
   /** neocomSvc.Blink(wndID, hint): the button for that window blinks. */
   blink(id: string, hint = ""): void {
     if (!this.buttons.has(id)) return;
@@ -195,6 +206,7 @@ export class Neocom {
     if (![...this.blinks.values()].some((b) => b.left > 0 || now < b.newUntil) && this.pulseTimer) { clearInterval(this.pulseTimer); this.pulseTimer = null; }
   }
   private important(id: string): boolean {
+    if (this.unseen.has(id)) return true;
     const b = this.blinks.get(id);
     return !!b && (b.left > 0 || Date.now() < b.newUntil || !!b.hint);
   }
@@ -357,7 +369,8 @@ export class Neocom {
       el.addEventListener("click", () => { neocomTipOff(); open(b.id); });
       el.addEventListener("mouseenter", () => {
         const bl = this.blinks.get(b.id);
-        neocomTipOn(el, b.id, bl?.hint ?? "");
+        // GetBlinkHint: the blink hint, then the unseen items' hint under it
+        neocomTipOn(el, b.id, [bl?.hint ?? "", this.unseen.get(b.id) ?? ""].filter(Boolean).join("\n"));
         if (bl) { bl.left = 0; bl.newUntil = 0; this.paintIndicators(); }
       });
       el.addEventListener("mouseleave", () => {
