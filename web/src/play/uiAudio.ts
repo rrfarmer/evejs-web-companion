@@ -6,7 +6,7 @@
 // (gfxSettings; the client feeds them to Wwise, whose curves are not read here: taken as plain gains), nothing while
 // audio is off.
 
-import { gfx } from "./gfxSettings.ts";
+import { gfx, onGfx } from "./gfxSettings.ts";
 
 /** Wwise's ids: FNV-1 32-bit of the lowercase name (AK::SoundEngine::GetIDFromString). */
 export function wwiseId(name: string): number {
@@ -94,6 +94,15 @@ export function audioContext(): AudioContext {
   context ??= new AudioContext();
   return context;
 }
+// audioEnabled (CmdToggleAudio, the Audio panel): uicore.audioHandler Activate / Deactivate - the whole of the page's
+// sound, sounds already playing and looping included, suspended with it and resumed with it
+let audioOn = gfx().audioEnabled;
+onGfx((settings) => {
+  if (settings.audioEnabled === audioOn) return;
+  audioOn = settings.audioEnabled;
+  if (!context) return;
+  void (audioOn ? context.resume() : context.suspend()).catch(() => {});
+});
 const decoded = new Map<string, Promise<AudioBuffer | null>>();
 /** The sounds a "<name>_play" event started and has playing (a "<name>_stop" event ends them, as its Stop action does). */
 const playing = new Map<string, Set<AudioBufferSourceNode>>();
@@ -226,7 +235,7 @@ function bufferOf(ctx: AudioContext, sound: string): Promise<AudioBuffer | null>
  */
 async function start(name: string, sounds: { sound: string; gain: number }[], volume: number, out: (ctx: AudioContext, sound: string) => AudioNode, entry: (typeof uiAudioLog)[number], key = name.toLowerCase(), signal?: AbortSignal): Promise<void> {
   context ??= new AudioContext();
-  if (context.state === "suspended") await context.resume().catch(() => {});
+  if (context.state === "suspended" && gfx().audioEnabled) await context.resume().catch(() => {});
   const ctx = context;
   entry.state = ctx.state;
   const buffers = await Promise.all(sounds.map((s) => bufferOf(ctx, s.sound)));
@@ -379,7 +388,7 @@ async function playMovingWorldSound(name: string, at: Vec3, forceLoop: boolean, 
   if (!sounds.length || volume() <= 0 || signal?.aborted) return handle;
   context ??= new AudioContext();
   const ctx = context;
-  if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+  if (ctx.state === "suspended" && gfx().audioEnabled) void ctx.resume().catch(() => {});
   entry.state = ctx.state;
   const buffers = await Promise.all(sounds.map((s) => bufferOf(ctx, s.sound)));
   if (signal?.aborted) return handle;

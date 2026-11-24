@@ -190,7 +190,7 @@ export async function sendMusicEvent(name: string, forcePlay = false): Promise<v
   musicLog.push(entry);
   if (!m || !ops) return;
   const ctx = audioContext();
-  if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+  if (ctx.state === "suspended" && gfx().audioEnabled) void ctx.resume().catch(() => {});
   let changed = false;
   for (const op of ops) {
     if (op[0] === "state" && states.get(op[1]) !== op[2]) { states.set(op[1], op[2]); changed = true; }
