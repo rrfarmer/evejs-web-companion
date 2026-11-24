@@ -1084,7 +1084,7 @@ export class SpaceView {
   /** neocomSvc.Blink: a Neocom button blinks (its window wants looking at), with an optional hint. */
   neocomBlink(id: string, hint = ""): void { this.neocom?.blink(id, hint); }
   /** A Neocom button's unseen items (its important state for as long as they are there), with their hint. */
-  neocomUnseen(id: string, hint: string | null): void { this.neocom?.setUnseen(id, hint); }
+  neocomUnseen(id: string, hint: string | null, count?: number): void { this.neocom?.setUnseen(id, hint, count); }
   private readonly shipHud: ShipHud | NewShipHud = hudSettingNow("shipHudNew_preview") ? new NewShipHud() : new ShipHud({ slots: { hi: 0, med: 0, low: 0 } });
   private readonly targetBar = new TargetBar();
   /** Lock requests awaiting a response, keyed by target ID and local start time. */

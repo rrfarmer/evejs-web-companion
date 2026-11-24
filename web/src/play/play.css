@@ -181,6 +181,12 @@ button { font: inherit; color: inherit; }
 .nc-ind[data-state="open"] { height: 8px; opacity: 1; background: rgb(176, 176, 176); }
 .nc-ind[data-state="active"] { height: 16px; opacity: 1; background: rgb(88, 167, 191); }
 .nc-ind[data-state="important"] { height: 16px; opacity: 1; background: rgb(243, 144, 88); }
+.nc-count { position: fixed; z-index: 60; height: 16px; box-sizing: border-box; padding: 0 4px; border-radius: 0 4px 4px 0; pointer-events: none;
+  font-size: 12px; line-height: 16px; color: #fff; white-space: nowrap; opacity: 0; clip-path: inset(0 100% 0 0);
+  background: linear-gradient(rgba(243, 144, 88, 0.4), rgba(243, 144, 88, 0.4)), rgba(0, 0, 0, 0.3);
+  transition: clip-path 0.3s, opacity 0.3s; }
+.nc-count.on { opacity: 1; clip-path: inset(0 0 0 0); }
+.nc-count.off { opacity: 0; clip-path: inset(0 100% 0 0); transition: clip-path 0.6s, opacity 0.6s; }
 /* BlinkOnce: the icon's glow 0 -> 2 -> 0 over BLINK_INTERVAL 1 s (ANIM_WAVE) */
 .nc-btn.nc-blink img { animation: nc-blink 1s ease-in-out; }
 @keyframes nc-blink { 0% { filter: brightness(1); } 50% { filter: brightness(2.2) drop-shadow(0 0 4px rgba(255, 255, 255, 0.8)); } 100% { filter: brightness(1); } }

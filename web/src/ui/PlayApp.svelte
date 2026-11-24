@@ -866,8 +866,8 @@
           + (r.seasonal !== null && seasonalClaimable(r.seasonal.active, r.seasonal.history, now) ? 1 : 0);
         const t = s.store.words.get().templates["UI/Neocom/UnseenItemsHint"];
         const hint = n > 0 ? (typeof t === "string" ? plainText(formatTemplate(t, { numItems: n }, { nameOf: () => "" })) : `${n} Unseen Item${n === 1 ? "" : "s"}`) : null;
-        neocomInst?.setUnseen("loginRewards", hint);
-        view?.neocomUnseen("loginRewards", hint);
+        neocomInst?.setUnseen("loginRewards", hint, n);
+        view?.neocomUnseen("loginRewards", hint, n);
       }).catch(() => {});
     };
     const first = setTimeout(check, 5000);
@@ -949,8 +949,8 @@
       const offUnseen = unseenCargo.subscribe((ids) => {
         const t = s.store.words.get().templates["UI/Neocom/UnseenItemsHint"];
         const hint = ids.length > 0 ? (typeof t === "string" ? plainText(formatTemplate(t, { numItems: ids.length }, { nameOf: () => "" })) : `${ids.length} Unseen Item${ids.length === 1 ? "" : "s"}`) : null;
-        neocomInst?.setUnseen("inventory", hint);
-        view?.neocomUnseen("inventory", hint);
+        neocomInst?.setUnseen("inventory", hint, ids.length);
+        view?.neocomUnseen("inventory", hint, ids.length);
       });
       return () => { offTrack(); offLive(); offUnseen(); };
     });

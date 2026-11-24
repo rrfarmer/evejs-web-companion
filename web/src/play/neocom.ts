@@ -184,11 +184,46 @@ export class Neocom {
    * there are any, the hint (GetUnseenItemsHint) in the tooltip; OnBadgeCountChanged blinks the button as they come.
    */
   private readonly unseen = new Map<string, string>();
-  setUnseen(id: string, hint: string | null): void {
+  private readonly counts = new Map<string, number>();
+  /**
+   * `count` (GetItemCount) where the button keeps one: btnDataNode.OnBadgeCountChanged blinks the button on each change
+   * while there are unseen items, and ButtonIndicator.SetCounterValue shows the count's banner when it rises.
+   */
+  setUnseen(id: string, hint: string | null, count?: number): void {
     const had = this.unseen.has(id);
     if (hint) this.unseen.set(id, hint); else this.unseen.delete(id);
-    if (hint && !had) this.blink(id);
+    // (the first count is the button's at its making: ButtonIndicator(value=...) shows no banner)
+    const known = this.counts.has(id);
+    const prev = this.counts.get(id) ?? 0;
+    if (count !== undefined) this.counts.set(id, count);
+    const changed = count !== undefined && count !== prev;
+    if (hint && (!had || changed)) this.blink(id);
+    if (count !== undefined && known && count > prev) this.showCount(id, count);
     this.paintIndicators();
+  }
+  /**
+   * ButtonIndicator._ShowValueBanner: 3 s after the count rose, a tab with it (EveLabelMedium in TextColor.HIGHLIGHT,
+   * left 4, label width + 8) slides out of the indicator's line over 0.3 s on buttonIndicatorBG (cornerSize 4) in
+   * the state's background colour at 0.4 over black 0.3; 5 s later it slides back in over 0.6 s. The Neocom's list
+   * clips, so the tab is the page body's, placed at the line.
+   */
+  private showCount(id: string, n: number): void {
+    const text = n < 1000 ? String(n) : n < 1e6 ? `${Math.floor(n / 100) / 10}K` : `${Math.floor(n / 1e5) / 10}M`;
+    setTimeout(() => {
+      if ((this.counts.get(id) ?? 0) < n) return;
+      const ind = this.indicators.get(id);
+      if (!ind || !ind.isConnected || ind.dataset.state !== "important") return;
+      const r = ind.getBoundingClientRect();
+      if (!r.height) return;
+      const tab = document.createElement("div");
+      tab.className = "nc-count";
+      tab.textContent = text;
+      tab.style.left = `${r.right}px`;
+      tab.style.top = `${r.top + r.height / 2 - 8}px`;
+      document.body.appendChild(tab);
+      requestAnimationFrame(() => requestAnimationFrame(() => tab.classList.add("on")));
+      setTimeout(() => { tab.classList.remove("on"); tab.classList.add("off"); setTimeout(() => tab.remove(), 700); }, 5300);
+    }, 3000);
   }
   /** neocomSvc.Blink(wndID, hint): the button for that window blinks. */
   blink(id: string, hint = ""): void {
