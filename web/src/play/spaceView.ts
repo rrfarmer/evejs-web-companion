@@ -2001,6 +2001,13 @@ export class SpaceView {
     this.renderer.domElement.addEventListener("pointerdown", (e) => { if (e.button === 2) rightDown = [e.clientX, e.clientY]; });
     this.renderer.domElement.addEventListener("contextmenu", (e) => {
       e.preventDefault();
+      // navigation.GetMenu: a module waiting for a target click gives no menu, and the right release cancels the
+      // order (baseCameraController.OnMouseUp: target.CancelTargetOrder, every module waiting let go, the cursor
+      // hidden); with the move command on, it is aborted and there is no menu
+      const waitingForClick = !this.targetingCursor.hidden;
+      this.cancelTargetOrder();
+      if (this.moveCmd) { this.abortMoveCommand(); rightDown = null; return; }
+      if (waitingForClick) { rightDown = null; return; }
       const from = rightDown;
       rightDown = null;
       if (from && Math.hypot(e.clientX - from[0], e.clientY - from[1]) > 4) return;
@@ -3276,6 +3283,14 @@ export class SpaceView {
     this.lockingIDs.clear();
     this.acquiringTargets.clear();
     this.updateTargetingCursor();
+  }
+
+  /** playerOwnedTargetMgr.CancelTargetOrder: the modules waiting for a target click let go, the cursor hidden. */
+  private cancelTargetOrder(): void {
+    if (this.orderedTarget !== null) return;
+    let changed = false;
+    for (const [id, order] of this.moduleTargetOrders) if (order.mode !== null) { this.moduleTargetOrders.delete(id); changed = true; }
+    if (changed) this.updateTargetingCursor();
   }
 
   private updateTargetingCursor(): void {
