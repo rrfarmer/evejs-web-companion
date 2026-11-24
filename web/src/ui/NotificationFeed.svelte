@@ -259,6 +259,17 @@
     if (popups.length < settings.stack) showPopup(p); else queued.push(p);
   }
   $effect(() => watchNotificationPopups(store, flow, (id) => onOpen(id), (input) => addPopup(input)));
+  // a notice the page makes of its own with a client type (skillsvc._TriggerSkillNotification: OnNewNotificationReceived
+  // of a SKILL_NOTIFICATION_NORMAL 1000 notification) - into the history and the popups as the client's
+  onMount(() => {
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<{ typeID: number; title: string; tab?: TabID }>).detail;
+      if (!d) return;
+      addPopup({ kind: "info", title: d.title, detail: null, key: `local:${d.typeID}:${Date.now()}`, action: d.tab ? () => onOpen(d.tab!) : null }, d.typeID);
+    };
+    addEventListener("evejs:client-notification", on);
+    return () => removeEventListener("evejs:client-notification", on);
+  });
 
   // mailSvc.GetMailPopupOnCharacterLogin: entering with unread mail (characterSelection.__Confirm, GetUnreaddMailCount > 0),
   // 3 s (CheckNewMessages_thread) and 7 s on, notificationSvc.MakeAndScatterNotification(MailSummary 1003,
