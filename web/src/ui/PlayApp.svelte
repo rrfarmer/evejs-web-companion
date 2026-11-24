@@ -2476,6 +2476,7 @@
     });
     const v = new SpaceView(liveFeed, {
       gotoDirection: (x, y, z) => act("beyonce", "CmdGotoDirection", [x, y, z]).then(() => undefined),
+      steerDirection: (x, y, z) => act("beyonce", "CmdSteerDirection", [x, y, z]).then(() => undefined),
       setSpeedFraction: (fraction) => act("beyonce", "CmdSetSpeedFraction", [fraction]).then(() => undefined),
       stop: () => s.flow.stopShip(),
       approach: (id) => s.flow.approach(id),

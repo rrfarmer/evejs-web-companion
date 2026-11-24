@@ -262,8 +262,15 @@ export interface SpaceViewOptions {
   sovHub?: { deposit(hubID: number): void; configure(hubID: number): void; configurable(hubID: number, corporationID: number | null): boolean };
 }
 
+/** flightControls.KeyboardControls.PrimeKeys: the four commands whose keys steer the ship. */
+const FLIGHT_KEYS: Readonly<Record<string, "up" | "down" | "left" | "right">> = {
+  CmdFlightControlsUp: "up", CmdFlightControlsDown: "down", CmdFlightControlsLeft: "left", CmdFlightControlsRight: "right",
+};
+
 export interface SpaceActions {
   gotoDirection(dx: number, dy: number, dz: number): Promise<void>;
+  /** flightControls.OnGotoDirection: remote park CmdSteerDirection(x, y, z), the arrow keys' steering. */
+  steerDirection?(dx: number, dy: number, dz: number): Promise<void>;
   setSpeedFraction(fraction: number): Promise<void>;
   alignTo(itemID: number): Promise<void>;
   keepAtRange(itemID: number, range?: number): Promise<void>;
@@ -1395,6 +1402,11 @@ export class SpaceView {
   }
   private dscan: DScanWindow | null = null;
   private dscanKey: { code: string; targeted: boolean } | null = null;
+  /** The arrow keys held (CmdFlightControlsUp / Down / Left / Right, by the key's code) and whether a modifier is. */
+  private readonly steerKeys = new Map<string, "up" | "down" | "left" | "right">();
+  private steerMods = false;
+  /** KeyboardControls' yaw and pitch, FlightSimulation's controlling and lastCalled (performance.now()). */
+  private readonly flight = { yaw: 0, pitch: 0, controlling: false, lastCalled: 0 };
   private systemMap: SolarSystemMapWindow | null = null;
   /**
    * A thing's name as the client gives it (uix.GetSlimItemName): its own name where it has one (a pilot's, a
@@ -1480,6 +1492,8 @@ export class SpaceView {
   private readonly onKey = (e: KeyboardEvent) => this.key(e);
   /** CombatKeyUnloadListener: the loaded combat command let go when its key comes up, or the window loses focus. */
   private readonly onKeyUp = (e: KeyboardEvent) => {
+    this.steerKeys.delete(e.code);
+    this.steerMods = e.ctrlKey || e.altKey || e.shiftKey || e.metaKey;
     if (this.options.covered?.()) { this.onBlur(); return; }
     if (this.combat && e.code === this.combat.code) {
       // OverviewWindow.OnKeyUp (the key's UI_KEYUP goes to the focus first): with the overview focused and a row
@@ -1496,7 +1510,7 @@ export class SpaceView {
     this.dscanKey = null;
     if (!targeted) void this.dscan?.scan();
   };
-  private readonly onBlur = () => { this.unloadCombat(); this.dscanKey = null; };
+  private readonly onBlur = () => { this.unloadCombat(); this.dscanKey = null; this.steerKeys.clear(); this.steerMods = false; };
   /** The modifiers held at the last press of a pointer (a modifier-only combat command is a click with them). */
   private readonly onPointer = (e: PointerEvent) => {
     if (this.options.covered?.()) { this.onBlur(); return; }
@@ -2265,6 +2279,46 @@ export class SpaceView {
     this.toastEl.classList.add("show");
     clearTimeout((this.toastEl as unknown as { t?: number }).t);
     (this.toastEl as unknown as { t?: number }).t = window.setTimeout(() => this.toastEl.classList.remove("show"), 2600);
+  }
+
+  /**
+   * flightControls (svc.flightControls, running in space): KeyboardControls.GetYawPitch - yaw and pitch each decay
+   * toward 0 at DECAY 1.2 a second, and a held key moves its own by (ACCEL 1 + DECAY) a second up to MAX 1.3 (Up the
+   * pitch down, Down up, Right the yaw down, Left up; a key counts with no modifier held); FlightSimulation.ProcessInput
+   * where the ship's mode is orbit, follow or goto (CanControl, else no yaw or pitch): world relative (every camera
+   * but the POV one), the ship's yaw and its pitch (clamped to +-pi/2) plus the keys' pitch, the keys' yaw turned in
+   * first (QuaternionMultiply(rotation, current)), the direction (0, 0, 1) so turned; controlling once yaw or pitch
+   * is not 0. TriggerCallback: while controlling, at most once in flightControlsThrottle (400 ms; the live client's
+   * global config has none), CmdSteerDirection(direction) and controlling off.
+   * The ship's yaw and pitch are its model's here; the client's are its rotation curve's, eased toward a ball it flies
+   * itself toward the direction (ENGAGE_TIME 6 s), not ported.
+   */
+  private steerFrame(ego: Entity | null, dt: number, now: number): void {
+    const f = this.flight;
+    const mode = (ego?.mode ?? "").toUpperCase();
+    if (!ego || (mode !== "ORBIT" && mode !== "FOLLOW" && mode !== "GOTO")) { f.yaw = 0; f.pitch = 0; f.controlling = false; return; }
+    f.yaw = f.yaw > 0 ? Math.max(0, f.yaw - 1.2 * dt) : Math.min(0, f.yaw + 1.2 * dt);
+    f.pitch = f.pitch > 0 ? Math.max(0, f.pitch - 1.2 * dt) : Math.min(0, f.pitch + 1.2 * dt);
+    if (!this.steerMods && !this.options.covered?.()) {
+      const held = new Set(this.steerKeys.values());
+      if (held.has("up")) f.pitch = Math.max(-1.3, f.pitch - 2.2 * dt);
+      if (held.has("down")) f.pitch = Math.min(1.3, f.pitch + 2.2 * dt);
+      if (held.has("right")) f.yaw = Math.max(-1.3, f.yaw - 2.2 * dt);
+      if (held.has("left")) f.yaw = Math.min(1.3, f.yaw + 2.2 * dt);
+    }
+    if (!f.controlling) f.controlling = f.yaw !== 0 || f.pitch !== 0;
+    if (!f.controlling || f.lastCalled + 400 >= now || !this.actions.steerDirection) return;
+    const holder = this.marks.get(ego.itemID);
+    if (!holder) return;
+    // the ship's heading in the server's axes (three's z is the server's -z), as D3DX yaw (about y) and pitch (about x)
+    const h = new THREE.Vector3(0, 0, 1).applyQuaternion(holder.quaternion);
+    const yaw0 = Math.atan2(h.x, -h.z), pitch0 = -Math.asin(Math.max(-1, Math.min(1, h.y)));
+    const p = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch0 + f.pitch));
+    const x = Math.sin(f.yaw), y = -Math.cos(f.yaw) * Math.sin(p), z = Math.cos(f.yaw) * Math.cos(p);
+    const dx = x * Math.cos(yaw0) + z * Math.sin(yaw0), dz = -x * Math.sin(yaw0) + z * Math.cos(yaw0);
+    f.lastCalled = now;
+    f.controlling = false;
+    void this.act("Steer", () => this.actions.steerDirection!(dx, y, dz));
   }
 
   private async act(what: string, fn: () => Promise<void>): Promise<void> {
@@ -3502,10 +3556,18 @@ export class SpaceView {
    * button); CmdStopShip (Ctrl+Space) and CmdSetShipFullSpeed (Alt+Ctrl+Space).
    */
   private key(e: KeyboardEvent): void {
+    this.steerMods = e.ctrlKey || e.altKey || e.shiftKey || e.metaKey;
     if (this.options.covered?.()) return;
     const t = e.target as HTMLElement | null;
     const cmd = commandForKey(e);
     if (cmd === null) return;
+    // CmdFlightControlsUp / Down / Left / Right (the arrow keys): KeyboardControls reads them held while the focus is
+    // the desktop (uicore.registry.GetFocus() == uicore.desktop) - not in a window or a field
+    const steer = FLIGHT_KEYS[cmd];
+    if (steer) {
+      if (t === null || t === document.body || t === document.documentElement || this.root.contains(t)) { e.preventDefault(); this.steerKeys.set(e.code, steer); }
+      return;
+    }
     const scanFromSlider = cmd === "CmdRefreshDirectionalScan" && t instanceof HTMLInputElement
       && t.type === "range" && this.dscan?.window.root.contains(t);
     if (!scanFromSlider && t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
@@ -5575,6 +5637,7 @@ export class SpaceView {
     const ego = snap?.ship ?? null;
     const now = performance.now(), dt = Math.min(0.1, (now - this.lastFrameAt) / 1000);
     this.lastFrameAt = now;
+    this.steerFrame(ego, dt, now);
     const inMiningWarp = ego?.mode === "WARP";
     const miningShipChanged = this.lastMiningShip !== null && ego != null && this.lastMiningShip !== ego.itemID;
     if (ego) this.lastMiningShip = ego.itemID;
