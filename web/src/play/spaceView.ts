@@ -52,7 +52,7 @@ import { CameraTaskGestures, type CameraTaskEvent } from "../bridge/cameraTasks.
 import { initialOrbitDistance, isOwnStargateDeparture, MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose, validCameraPosition } from "./spaceCameraPose.ts";
 import { ENTRY_CAMERA_DURATION_MS, entryCameraFov, spaceEntryCamera, type EntryCameraPath } from "./spaceEntryCamera.ts";
 import { explosionCameraFov, spaceExplosionCamera, type ExplosionCameraPath } from "./spaceExplosionCamera.ts";
-import { gfx, spaceRendering, lodSettings } from "./gfxSettings.ts";
+import { gfx, setGfx, spaceRendering, lodSettings } from "./gfxSettings.ts";
 import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, stopEmitter, type WorldLoop } from "./uiAudio.ts";
 import { commandForKey, combatForModifiers, isCombatCommand, labelOf, shortcutOf, type CombatCommand } from "./shortcutKeys.ts";
 import { hideLabelShortcutTooltip, showLabelShortcutTooltip, tooltipDue } from "./labelShortcutTooltip.ts";
@@ -252,6 +252,8 @@ export interface SpaceViewOptions {
   overviewNotice?: (text: string) => void;
   overviewAsk?: (dialog: string, fallback: string) => Promise<boolean>;
   overviewSay?: (dialog: string, fallback: string) => void;
+  /** prompt_player_fsd_dialog('CustomNotify', {notify: text}). */
+  customNotify?: (text: string) => void;
   /** cfg.corptickernames / allianceshortnames for a ship label (asked for where not known yet). */
   ownerTickers?: (corporationID: number | null, allianceID: number | null) => { corporation: string | null; alliance: string | null };
   /** A solar system's security status (the star map's), null where not known. */
@@ -3802,6 +3804,17 @@ export class SpaceView {
       return;
     }
     if (cmd === "CmdStopShip") { e.preventDefault(); void this.stopShip(); return; }
+    // CmdToggleEffects (Ctrl-Alt-Shift-E) / CmdToggleEffectTurrets (Ctrl-Alt-Shift-T): gfxsettings UI_EFFECTS_ENABLED /
+    // UI_TURRETS_ENABLED flipped (FxSequencer's guids enabled or disabled) and CustomNotify 'All effects - On / Off',
+    // 'All Turret effects - On / Off' (the client's own English, no label)
+    if (cmd === "CmdToggleEffects" || cmd === "CmdToggleEffectTurrets") {
+      e.preventDefault();
+      const turrets = cmd === "CmdToggleEffectTurrets";
+      const on = !(turrets ? gfx().turretsEnabled : gfx().effectsEnabled);
+      setGfx(turrets ? { turretsEnabled: on } : { effectsEnabled: on });
+      this.options.customNotify?.(`${turrets ? "All Turret effects" : "All effects"} - ${on ? "On" : "Off"}`);
+      return;
+    }
     // CmdHideCursor (Alt-F9): uilib.SetCursor(UICURSOR_NONE) - the cursor hidden until the next thing under it sets its own
     if (cmd === "CmdHideCursor") {
       e.preventDefault();

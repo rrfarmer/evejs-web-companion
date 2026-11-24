@@ -3318,6 +3318,7 @@
       overviewNotice: (text) => s.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text),
       overviewAsk: (dialog, fallback) => s.flow.askClientDialog(dialog, fallback),
       overviewSay: (dialog, fallback) => s.flow.sayDialog(dialog, null, fallback),
+      customNotify: (text) => s.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text),
       systemSecurity: (solarSystemID) => s.flow.systemSecurity(solarSystemID),
       showSystemOnMap: (solarSystemID) => showSystemOnMap(solarSystemID),
       groupName: (groupID) => {
