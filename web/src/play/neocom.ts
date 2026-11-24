@@ -512,18 +512,23 @@ export class Neocom {
     // the skill bar with the time left and the skill's description - not on the page yet: the label row alone.
     skills.addEventListener("mouseenter", () => tooltipDue(skills, () => {
       // a skill in training: ButtonSkillsTooltipPanel's own rows (the page's data through skillTip)
-      if (this.skillState?.training && this.skillTip) {
+      // (the queue not known yet, as right after the page loads: asked too, the label alone only where it has none)
+      if ((this.skillState === null || this.skillState.training) && this.skillTip) {
         const ask = this.skillTip;
         void ask().then((t) => {
-          if (!t || !skills.matches(":hover")) return;
-          showSkillTrainingTooltip(skills, "Skills", shortcutOf("OpenSkillsWindow"), t);
-        }).catch(() => {});
+          if (!skills.matches(":hover")) return;
+          if (t) showSkillTrainingTooltip(skills, "Skills", shortcutOf("OpenSkillsWindow"), t);
+          else showPlain();
+        }).catch(() => showPlain());
         return;
       }
+      showPlain();
+    }));
+    const showPlain = () => {
       const idle = this.skillState !== null && !this.skillState.training;
       showLabelShortcutTooltip(skills, "Skills", shortcutOf("OpenSkillsWindow"), idle
         ? [{ text: "You have no skills in training!", color: "rgb(243, 144, 88)" }, "Click to find Skill Plans or Skills to train"] : [], "left", true);
-    }));
+    };
     skills.addEventListener("mouseleave", neocomTipOff);
     list.appendChild(skills);
     for (const b of NEOCOM_DEFAULT) {

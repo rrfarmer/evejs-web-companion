@@ -844,6 +844,8 @@
     if (!s) return;
     const ROMAN = ["", "I", "II", "III", "IV", "V"];
     const read = async () => {
+      // (the queue not read yet - a hover right after the page loads - read now, as the client has it at hand)
+      if (s.store.skills.get().queue === null) await s.flow.loadSkills().catch(() => {});
       const sk = s.store.skills.get();
       const head = sk.queue?.active ? sk.queue.entries[0] : undefined;
       if (!head || head.endTimeMs === null) return null;
