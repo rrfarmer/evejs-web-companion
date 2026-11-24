@@ -123,7 +123,7 @@
   import { playUiEvent, uiAudioLog } from "../play/uiAudio.ts";
   import { nameKey } from "../store/names.ts";
   import { sendMusicEvent, securitySwitch, combatSwitch } from "../play/music.ts";
-  import { gfx, onGfx } from "../play/gfxSettings.ts";
+  import { gfx, onGfx, setGfx } from "../play/gfxSettings.ts";
   import ErrorBoundary from "./ErrorBoundary.svelte";
   import { openWindow, closeWindow, focusWindow, moveWindow, resizeWindow, toggleMinimize, type WinState } from "./desktop.ts";
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
@@ -2103,6 +2103,9 @@
     }
     // CmdToggleMap (F10): the map; OnEsc: the map closed first, else the system menu (EscapeCommand)
     if (cmd === "CmdToggleMap") { e.preventDefault(); toggleStarMap(); return; }
+    // CmdToggleAudio (Ctrl-Alt-Shift-F12): settings.public.audio audioEnabled flipped (the audio handler activated or
+    // deactivated), nothing said
+    if (cmd === "CmdToggleAudio") { e.preventDefault(); setGfx({ audioEnabled: !gfx().audioEnabled }); return; }
     // CmdZoomIn / CmdZoomOut with the star map open (the starmap view the active one): eveCommands._Zoom - the starmap view's ZoomBy
     if ((cmd === "CmdZoomIn" || cmd === "CmdZoomOut") && starMap) { e.preventDefault(); starMap.zoomStep(cmd === "CmdZoomIn" ? -1 : 1); return; }
     if (spaceCommand(cmd)) { e.preventDefault(); return; }
