@@ -8861,6 +8861,7 @@
   }
   .stn-badge { font-size: 11px; color: var(--stn-muted); }
   .stn-tab.on .stn-badge { color: var(--stn-accent); }
+  .stn-unseen { display: inline-block; width: 2px; height: 16px; margin-left: 4px; vertical-align: middle; background: rgb(243, 144, 88); box-shadow: 0 0 4px rgba(243, 144, 88, 0.5); }
 
   /* The dropdown needs room for the longest location name; when the panel
    * cannot give both it and the filter that room, the filter takes the next

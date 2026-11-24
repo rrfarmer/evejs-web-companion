@@ -33,7 +33,7 @@
   // all (the read does not send it), so the m³ columns are empty in the bays
   // view. That is normal. Unknown renders as "—" / "not known", never 0.
   import { onMount, tick, untrack } from "svelte";
-  import { inventoryWindowsOpen, markPlaceSeen, type BadgePlace } from "../play/inventoryBadging.ts";
+  import { inventoryWindowsOpen, markPlaceSeen, unseenItems, type BadgePlace } from "../play/inventoryBadging.ts";
   import { shipHoldTarget } from "./shipHold.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import InventoryFilters from "./InventoryFilters.svelte";
@@ -1869,6 +1869,8 @@
         >
           {location.label}
           {#if location.badge}<span class="stn-badge">{location.badge}</span>{/if}
+          <!-- TreeViewEntryWithTag: a hangar with unseen items carries the important tag (ButtonIndicator 2 x 16, THEME_ALERT) -->
+          {#if BADGE_PLACE[location.id] && $unseenItems.some((u) => u.place === BADGE_PLACE[location.id])}<span class="stn-unseen" aria-hidden="true"></span>{/if}
         </button>
       {/each}
     </div>
