@@ -150,6 +150,7 @@
   import { dirtLevelFromTime } from "../three/hullModel.ts";
   import { Neocom, neocomSkillState } from "../play/neocom.ts";
   import { clientTexture } from "../play/window.ts";
+  import { techLevelIcon } from "../play/techLevelIcon.ts";
   import { OPEN_CARGO_LABEL } from "../play/containerInteraction.ts";
   import { ENTER_WORMHOLE_LABEL } from "../bridge/placeChanges.ts";
   import { POLARIZED_LABEL } from "../play/wormholePolarization.ts";
@@ -2148,6 +2149,15 @@
     // group) asked once a type, the attributes' icons and names once, and when each running module was switched off
     // (moduleController._stop_requested_at: the cycle it then finishes is its winding down).
     const typeFacts = new Map<number, DogmaTypeFacts | null>();
+    // the types' meta groups (uix.GetTechLevelIcon), read once each as they are asked for
+    const metaGroupsKnown = new Map<number, number | null>();
+    const metaOf = (typeID: number): number | null => {
+      if (!metaGroupsKnown.has(typeID)) {
+        metaGroupsKnown.set(typeID, null);
+        void s.flow.typeFacts([typeID]).then((m) => { metaGroupsKnown.set(typeID, m?.get(typeID)?.metaGroupID ?? null); }, () => { metaGroupsKnown.delete(typeID); });
+      }
+      return metaGroupsKnown.get(typeID) ?? null;
+    };
     const factsOf = (typeID: number): DogmaTypeFacts | null => {
       if (!typeFacts.has(typeID)) {
         typeFacts.set(typeID, null);
@@ -2240,6 +2250,7 @@
         attributeIcon: (id) => attributeLook.get(id)?.icon ?? null,
         attributeName: (id) => { const nameID = attributeLook.get(id)?.nameID; const t = nameID ? s.store.words.get().templates[`#${nameID}`] : null; return typeof t === "string" ? plainText(t) : null; },
         typeIcon: (typeID) => typeIconUrl(typeID) ?? null,
+        typeTech: (typeID) => { const tl = techLevelIcon(metaOf(typeID)); return tl ? { src: clientTexture(tl.path), hint: tl.hint } : null; },
       }, tipWord, (meters) => fmtDist(meters));
     }
 

@@ -12,6 +12,8 @@ import { fmtDist } from "../space/overview.ts";
 export interface ModuleTooltipRow {
   readonly icon: string | null;
   readonly iconSize: 24 | 26 | 34;
+  /** AddTypeAndIcon's techIcon (uix.GetTechLevelIcon, 16 px at the type icon's top left): its picture and hint. */
+  readonly tech?: { readonly src: string; readonly hint: string } | null;
   readonly text: string;
   readonly shortcut?: string | null;
   /** AddRowWithIconAndTextAndValue: a value at the row's right (the shortcut's place). */
@@ -58,6 +60,8 @@ export interface ModuleTooltipFacts {
   attributeIcon(attributeID: number): string | null;
   attributeName(attributeID: number): string | null;
   typeIcon(typeID: number): string | null;
+  /** The type's tech level badge (its meta group's icon) and hint, where it has one. */
+  typeTech?(typeID: number): { readonly src: string; readonly hint: string } | null;
 }
 
 /** localization.GetByLabel: the label's text with its tags filled, null where the label is not to be had yet. */
@@ -373,13 +377,13 @@ export function moduleTooltipRows(f: ModuleTooltipFacts, word: TooltipWord, fmtD
     const repairing = f.repairing ? word("UI/Inflight/ModuleRacks/Tooltips/ModuleRepairing", {}) ?? "" : "";
     if (damaged !== null) label += `<br>${damaged}${repairing}`;
   }
-  out.push({ icon: f.typeIcon(f.typeID), iconSize: 26, text: label, shortcut: f.shortcut });
+  out.push({ icon: f.typeIcon(f.typeID), iconSize: 26, tech: f.typeTech?.(f.typeID) ?? null, text: label, shortcut: f.shortcut });
   // UpdateChargesCont: a loaded charge, a crystal by its name alone.
   const compatible = f.groupID !== null && CHARGE_COMPATIBLE_GROUPS.has(f.groupID);
   if (compatible && f.charge && f.charge.quantity) {
     const crystal = f.charge.groupID !== null && CRYSTAL_GROUPS.has(f.charge.groupID);
     const text = crystal ? `<b>${f.charge.name}</b>` : word("UI/Inflight/ModuleRacks/AmmoNameWithQty", { qty: f.charge.quantity, ammoTypeID: f.charge.typeID });
-    if (text !== null) out.push({ icon: f.typeIcon(f.charge.typeID), iconSize: 26, text });
+    if (text !== null) out.push({ icon: f.typeIcon(f.charge.typeID), iconSize: 26, tech: f.typeTech?.(f.charge.typeID) ?? null, text });
   }
   const range = rangeText(f, word, fmtDist);
   if (range !== null) out.push({ icon: "/client-res/ui/texture/icons/22_32_15.png", iconSize: 24, text: range });

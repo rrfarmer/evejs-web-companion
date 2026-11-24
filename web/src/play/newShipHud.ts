@@ -1829,7 +1829,18 @@ export class NewShipHud {
         icon.src = row.icon;
         icon.alt = "";
         Object.assign(icon.style, { width: `${row.iconSize}px`, height: `${row.iconSize}px` });
-        iconCell.append(icon);
+        if (row.tech) {
+          // AddTypeAndIcon: the techIcon 16 x 16 TOPLEFT in the 26 px icon's container
+          const box = document.createElement("span");
+          Object.assign(box.style, { position: "relative", display: "block", width: `${row.iconSize}px`, height: `${row.iconSize}px` });
+          const tech = document.createElement("img");
+          tech.src = row.tech.src;
+          tech.alt = "";
+          tech.title = row.tech.hint;
+          Object.assign(tech.style, { position: "absolute", left: "0", top: "0", width: "16px", height: "16px", maxWidth: "none" });
+          box.append(icon, tech);
+          iconCell.append(box);
+        } else iconCell.append(icon);
       }
       const text = document.createElement("div");
       text.dataset.tipRow = "";
