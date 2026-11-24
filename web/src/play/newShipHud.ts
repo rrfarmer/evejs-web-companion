@@ -544,8 +544,10 @@ export class NewShipHud {
     edit.type = "text";
     edit.className = "new-hud-speed-edit";
     // (the numeric controls take a TORIGHT 10 px column with 8 px right padding off the text's room)
-    Object.assign(edit.style, { display: "none", position: "absolute", inset: "0", width: "100%", boxSizing: "border-box", padding: "1px 18px 0 4px",
-      border: "0", outline: "none", background: "transparent", color: "#fff", textAlign: "right", font: "bold 11px 'EVE Sans Neue', 'Segoe UI', sans-serif" });
+    Object.assign(edit.style, { display: "none", position: "absolute", inset: "0", width: "100%", height: "16px", minHeight: "0", boxSizing: "border-box", padding: "1px 18px 0 4px",
+      // (its textLabel an EveLabelMedium - 14 px, not bold, white 0.75 - as the live client's speedReadoutEdit reads, g344)
+      border: "0", outline: "none", background: "transparent", color: "rgba(255, 255, 255, 0.75)", textAlign: "right", font: "14px 'EVE Sans Neue', 'Segoe UI', sans-serif", lineHeight: "15px" });
+    // (the companion stylesheet gives inputs a min-height of 32.5 px: held to the 16 px pill)
     let places = 1;
     const endEdit = () => {
       if (!editing) return;
