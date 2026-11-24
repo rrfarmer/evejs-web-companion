@@ -78,6 +78,21 @@ export class PlanetScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(55, 1, 0.015, 30);
+  /**
+   * The camera as the mirrored canvas shows it (spaceView's HANDEDNESS: the client draws right-handed and the surface
+   * is reflected into three's, so the canvas is shown mirrored left to right): its screen x mirrored.
+   */
+  private readonly mirrorCam = new THREE.PerspectiveCamera();
+  private get screenCam(): THREE.PerspectiveCamera {
+    const c = this.camera, m = this.mirrorCam;
+    m.matrixWorld.copy(c.matrixWorld);
+    m.matrixWorldInverse.copy(c.matrixWorldInverse);
+    m.projectionMatrix.copy(c.projectionMatrix);
+    const e = m.projectionMatrix.elements;
+    e[0] = -e[0]!; e[4] = -e[4]!; e[8] = -e[8]!; e[12] = -e[12]!;
+    m.projectionMatrixInverse.copy(m.projectionMatrix).invert();
+    return m;
+  }
   private readonly controls: OrbitControls;
   private readonly sun = new THREE.DirectionalLight(0xffffff, 2.7);
   private readonly links = new THREE.Group();
@@ -111,6 +126,13 @@ export class PlanetScene {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.domElement.setAttribute("aria-label", "Planetary surface");
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    // the mirrored canvas (HANDEDNESS): the image the client's, a sideways drag keeping its sense on screen
+    this.renderer.domElement.style.transform = "scaleX(-1)";
+    {
+      const controls = this.controls as unknown as { _rotateLeft(angle: number): void };
+      const rotateLeft = controls._rotateLeft.bind(controls);
+      controls._rotateLeft = (angle: number) => rotateLeft(-angle);
+    }
     this.controls.enablePan = false;
     this.controls.minDistance = NEAR_ORBIT;
     this.controls.maxDistance = FAR_ORBIT;
@@ -179,7 +201,7 @@ export class PlanetScene {
 
   private pointRay(x: number, y: number): void {
     const bounds = this.renderer.domElement.getBoundingClientRect();
-    this.ray.setFromCamera(new THREE.Vector2((x - bounds.left) / bounds.width * 2 - 1, 1 - (y - bounds.top) / bounds.height * 2), this.camera);
+    this.ray.setFromCamera(new THREE.Vector2((x - bounds.left) / bounds.width * 2 - 1, 1 - (y - bounds.top) / bounds.height * 2), this.screenCam);
   }
 
   surfaceAt(x: number, y: number): SurfaceCoordinates | null {
@@ -351,13 +373,13 @@ export class PlanetScene {
       const projected = new THREE.Vector3();
       for (const [pinID, point] of this.points) {
         if (point.dot(this.camera.position) <= 1) continue;
-        projected.copy(point).multiplyScalar(1.006).project(this.camera);
+        projected.copy(point).multiplyScalar(1.006).project(this.screenCam);
         if (Math.abs(projected.x) >= 1 || Math.abs(projected.y) >= 1) continue;
         shown.push({ pinID, x: (projected.x + 1) * 50, y: (1 - projected.y) * 50 });
       }
       for (const [id, point] of this.headPoints) {
         if (point.dot(this.camera.position) <= 1) continue;
-        projected.copy(point).multiplyScalar(1.009).project(this.camera);
+        projected.copy(point).multiplyScalar(1.009).project(this.screenCam);
         if (Math.abs(projected.x) >= 1 || Math.abs(projected.y) >= 1) continue;
         heads.push({ id, x: (projected.x + 1) * 50, y: (1 - projected.y) * 50 });
       }
