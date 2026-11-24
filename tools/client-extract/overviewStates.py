@@ -15,6 +15,7 @@ for flag, props in svc.GetStateProps().iteritems():
         'hint': getattr(props, 'hint', None),
         'iconIndex': props.iconIndex,
         'iconColor': [round(x, 3) for x in props.iconColor],
-        'flagColor': [round(x, 3) for x in svc.GetStateFlagColor(flag)],
+        # the default colour (_GetDefaultColor), not GetStateFlagColor: that one is a pilot's saved colour where set
+        'flagColor': [round(x, 3) for x in svc._GetDefaultColor(flag, 'flag')],
     })
 result = out
