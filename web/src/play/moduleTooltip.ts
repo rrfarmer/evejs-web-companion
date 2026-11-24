@@ -74,6 +74,7 @@ const ATTR = {
   armorDamageAmount: 84, powerTransferAmount: 90, energyNeutralizerAmount: 97, maxVelocity: 37, speedFactor: 20,
   maxRange: 54, falloff: 158, trackingSpeed: 160, speedBoostFactor: 567, massAddition: 796,
   chargedArmorDamageMultiplier: 1886, warpScrambleStrength: 105, dotDuration: 5735, dotMaxDamagePerTick: 5736,
+  flightTime: 281, falloffEffectiveness: 2044, maxFofTargetRange: 2700,
 } as const;
 export const DOT_DURATION_ATTRIBUTE = ATTR.dotDuration;
 const GROUP_SMART_BOMB = 72;
@@ -406,14 +407,28 @@ export function formatSeconds(seconds: number, word: TooltipWord): string {
   return word("/Carbon/UI/Common/WrittenDateTimeQuantityShort/Second", { value }) ?? `${value}s`;
 }
 
-/**
- * GetOptimalRangeText: a launcher's flight range; a turret's optimal (and falloff past it); a smartbomb's area; any
- * other module's range (and falloff).
- */
-function rangeText(f: ModuleTooltipFacts, word: TooltipWord, fmtDist: (m: number) => string): string | null {
-  // tactical.FindMaxRange: the module's optimal range and falloff (a charge's range for a launcher is not done).
+const EFFECTIVENESS_FALLOFF_GROUPS = new Set([71, 68, 67, 325, 41, 585, 208, 201, 290, 209, 1672, 379, 291, 1697]);
+
+/** tactical.FindMaxRange: the range and falloff shared by the tooltip and tactical overlay. */
+export function moduleRangeParts(f: Pick<ModuleTooltipFacts, "groupID" | "attr" | "charge" | "chargeAttr">): readonly [number, number] {
   const optimal = f.attr(ATTR.maxRange) ?? 0;
-  const falloff = f.attr(ATTR.falloff) ?? 0;
+  if (optimal > 0) {
+    const falloffAttribute = EFFECTIVENESS_FALLOFF_GROUPS.has(f.groupID ?? 0) ? ATTR.falloffEffectiveness : ATTR.falloff;
+    return [optimal, f.attr(falloffAttribute) ?? 0];
+  }
+  // Scanner probes and survey probes use their own range controls.
+  if (!f.charge?.quantity || f.charge.groupID === 479 || f.charge.groupID === 492) return [0, 0];
+  const flightTime = f.chargeAttr(ATTR.flightTime) ?? 0;
+  const speed = f.chargeAttr(ATTR.maxVelocity) ?? 0;
+  if (flightTime <= 0 || speed <= 0) return [0, 0];
+  const flightRange = flightTime * speed / 1000;
+  const fofRange = f.chargeAttr(ATTR.maxFofTargetRange);
+  return [fofRange === null ? flightRange : Math.min(flightRange, fofRange), 0];
+}
+
+/** GetOptimalRangeText: a launcher's flight range, a turret's optimal, or another module's range. */
+function rangeText(f: ModuleTooltipFacts, word: TooltipWord, fmtDist: (m: number) => string): string | null {
+  const [optimal, falloff] = moduleRangeParts(f);
   if (!(optimal > 0)) return null;
   const optimalRange = fmtDist(optimal);
   if (f.launcher) return word("UI/Inflight/ModuleRacks/MaxRange", { maxRange: optimalRange });

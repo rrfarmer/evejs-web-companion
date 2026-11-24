@@ -164,7 +164,7 @@
   import { POLARIZED_LABEL } from "../play/wormholePolarization.ts";
   import { IN_WARP_HINT_LABEL } from "../bridge/gateActivation.ts";
   import type { HudModule } from "../play/shipHud.ts";
-  import { CRYSTAL_GROUPS, DOT_DURATION_ATTRIBUTE, MODULE_TOOLTIP_LABELS, moduleTooltipRows } from "../play/moduleTooltip.ts";
+  import { CRYSTAL_GROUPS, DOT_DURATION_ATTRIBUTE, MODULE_TOOLTIP_LABELS, moduleRangeParts, moduleTooltipRows } from "../play/moduleTooltip.ts";
   import { NewShipHud } from "../play/newShipHud.ts";
   import { activeTargetID, activeTargetName } from "../play/activeTarget.ts";
   import { droneSettingsFor, setDroneSetting } from "./droneSettings.ts";
@@ -2522,7 +2522,7 @@
       return need ? need / cycle * 1000 : null;
     }
 
-    function moduleTooltip(m: HudModule) {
+    function moduleReadings(m: HudModule) {
       const facts = factsOf(m.typeID);
       const allInfo = s.store.dogma.get().allInfo;
       const fitted = s.store.fitting.get();
@@ -2530,6 +2530,17 @@
       const slot = fitted.slots.find((sl) => sl.module?.itemID === m.itemID);
       const loaded = slot?.module?.charge ?? null;
       const chargeItem = loaded ? allInfo?.ships.find((i) => i.typeID === loaded.typeID && (i.sublocation || i.categoryID === 8) && i.flagID === item?.flagID) : undefined;
+      return {
+        allInfo, fitted, item, facts,
+        groupID: slot?.module?.groupID ?? facts?.groupID ?? item?.groupID ?? null,
+        charge: loaded ? { typeID: loaded.typeID, groupID: chargeItem?.groupID ?? factsOf(loaded.typeID)?.groupID ?? null, quantity: loaded.quantity, name: typeNames[String(loaded.typeID)]?.[0] ?? "" } : null,
+        attr: (id: number) => attrOf(item, id),
+        chargeAttr: (id: number) => attrOf(chargeItem, id),
+      };
+    }
+
+    function moduleTooltip(m: HudModule) {
+      const { allInfo, fitted, item, facts, ...readings } = moduleReadings(m);
       const banks = s.store.space.get().snapshot?.ship?.weaponBanks ?? {};
       const slaves = (banks[m.itemID] ?? []) as readonly number[];
       // GetModuleShortcut: the slot's CmdActivate<Rack>PowerSlot<n> (a module with a default effect only)
@@ -2539,8 +2550,7 @@
       const rack = ["High", "Medium", "Low"][Math.floor(place / 8)];
       const shortcut = facts && (facts.defaultEffectID ?? null) !== null && place >= 0 && rack ? shortcutOf(`CmdActivate${rack}PowerSlot${(place % 8) + 1}`) || null : null;
       const repair = s.flow.moduleRepairOf(m.itemID);
-      const groupID = slot?.module?.groupID ?? facts?.groupID ?? null;
-      const maximum = groupID === 1986 && m.active ? attrOf(item, PRECURSOR_SPOOL.maximum) ?? 0 : 0;
+      const maximum = readings.groupID === 1986 && m.active ? attrOf(item, PRECURSOR_SPOOL.maximum) ?? 0 : 0;
       let precursorSpool = null;
       if (maximum > 0) {
         const heard = s.flow.precursorSpoolOf(m.itemID);
@@ -2558,15 +2568,12 @@
       return moduleTooltipRows({
         typeID: m.typeID,
         typeName: typeNames[String(m.typeID)]?.[0] ?? m.name ?? "",
-        groupID,
+        ...readings,
         numInGroup: slaves.length ? slaves.length + 1 : 0,
         shortcut,
         damagePercent: (m.damage ?? 0) * 100,
         repairing: repair !== null,
-        charge: loaded ? { typeID: loaded.typeID, groupID: chargeItem?.groupID ?? factsOf(loaded.typeID)?.groupID ?? null, quantity: loaded.quantity, name: typeNames[String(loaded.typeID)]?.[0] ?? "" } : null,
-        attr: (id) => attrOf(item, id),
         shipAttr: (id) => { const v = fitted.shipAttributes?.[id]; return typeof v === "number" ? v : null; },
-        chargeAttr: (id) => attrOf(chargeItem, id),
         launcher: facts?.effects.includes(40) ?? false,
         turret: facts?.effects.includes(42) ?? false,
         usesMissiles: facts?.effects.includes(101) ?? false,
@@ -3520,21 +3527,7 @@
         },
         heat: () => s.store.space.get().snapshot?.ship?.rackHeat ?? null,
         tooltip: (m) => moduleTooltip(m),
-        // tactical.FindMaxRange: the default effect's range attribute (maxRange) and falloff; a launcher's charge's
-        // flight time x velocity where the module has no range of its own
-        // (falloffEffectivnessModuleGroups: the remote and electronic warfare groups' falloff is attributeFalloffEffectiveness)
-        rangeParts: (m) => {
-          const allInfo = s.store.dogma.get().allInfo;
-          const item = allInfo?.ships.find((i) => Number(i.itemID) === m.itemID);
-          const optimal = attrOf(item, 54) ?? 0;
-          const groupID = Number((item as { groupID?: unknown } | undefined)?.groupID);
-          const FALLOFF_EFFECTIVENESS_GROUPS = [71, 68, 67, 325, 41, 585, 208, 201, 290, 209, 1672, 379, 291, 1697];
-          if (optimal > 0) return [optimal, attrOf(item, FALLOFF_EFFECTIVENESS_GROUPS.includes(groupID) ? 2044 : 158) ?? 0] as const;
-          const loaded = s.store.fitting.get().slots.find((sl) => sl.module?.itemID === m.itemID)?.module?.charge ?? null;
-          const chargeItem = loaded ? allInfo?.ships.find((i) => i.typeID === loaded.typeID && (i.sublocation || i.categoryID === 8) && i.flagID === item?.flagID) : undefined;
-          const flight = attrOf(chargeItem, 281) ?? 0, speed = attrOf(chargeItem, 37) ?? 0;
-          return [flight > 0 && speed > 0 ? (flight * speed) / 1000 : 0, 0] as const;
-        },
+        rangeParts: (m) => moduleRangeParts(moduleReadings(m)),
         capacitorFlow: () => {
           const f = s.store.fitting.get();
           const capacity = f.shipAttributes?.[482] ?? null;
