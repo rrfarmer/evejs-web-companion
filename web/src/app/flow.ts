@@ -3292,7 +3292,7 @@ export interface AppFlow {
    * WarInviteHasBeenSent; true when sent. */
   sendMutualWarInvite(ownerID: number): Promise<boolean>;
   /** A client UserError a window raises for itself (CannotSelectMorePlaystyles ...), put up as its dialog. */
-  sayDialog(dialog: string, values: JsonValue | null, fallback: string): void;
+  sayDialog(dialog: string, values: JsonValue | null, fallback: string, fallbackType?: RemoteDialogFallbackType): void;
   /** RecruitmentEntry's recruiters: corpRecProxy.GetRecruiters(adID), their names primed. */
   recruitmentAdRecruiters(adID: number): Promise<readonly number[]>;
   /** GetRecruitementEntryDataList's friendly fire: the corporation's aggression settings (the corp service's

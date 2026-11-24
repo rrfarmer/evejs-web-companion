@@ -111,10 +111,10 @@
     collection: "TRACTOR_ONLY", compressCollectedOre: false, supportLoss: "PAUSE" } as Omit<NonNullable<MiningOperationDefinition["support"]>, "version" | "characterID">);
   let support = $state(defaultSupport());
   const commands = $derived(members.filter(member => member.role === "COMMAND"));
-  const commonProviders = $derived(roster.filter(pilot => members.length > 0 && members.every(member => member.accountName === pilot.accountName)));
   let seedSquadID = $state("");
   let accountLookup = $state("");
   let roster = $state<OperationPilotChoice[]>(loadKnownCharacters().map(({ accountName, characterID, characterName }) => ({ accountName, characterID, characterName })));
+  const commonProviders = $derived(roster.filter(pilot => members.length > 0 && members.every(member => member.accountName === pilot.accountName)));
 
   const prefs = $derived(loadHangarPrefs());
   const selectedClasses = $derived([targetFamily]);
