@@ -189,6 +189,7 @@ button { font: inherit; color: inherit; }
 .nc-count.off { opacity: 0; clip-path: inset(0 100% 0 0); transition: clip-path 0.6s, opacity 0.6s; }
 /* BlinkOnce: the icon's glow 0 -> 2 -> 0 over BLINK_INTERVAL 1 s (ANIM_WAVE) */
 .nc-btn.nc-blink img { animation: nc-blink 1s ease-in-out; }
+.neocom .eve.nc-blink { animation: nc-blink 1s ease-in-out; }
 @keyframes nc-blink { 0% { filter: brightness(1); } 50% { filter: brightness(2.2) drop-shadow(0 0 4px rgba(255, 255, 255, 0.8)); } 100% { filter: brightness(1); } }
 .nc-btn { position: relative; width: 48px; height: 48px; padding: 0; display: grid; place-items: center; background: transparent; border: none; cursor: pointer; }
 .nc-btn img { width: 40px; height: 40px; opacity: .78; }

@@ -227,7 +227,10 @@ export class Neocom {
   }
   /** neocomSvc.Blink(wndID, hint): the button for that window blinks. */
   blink(id: string, hint = ""): void {
-    if (!this.buttons.has(id)) return;
+    // GetBtnData looks through the Neocom's own roots first, the EVE menu's last (eveMenuBtnDataRoot): a window there
+    // only (Calendar, in Social) blinks its node, and the EVE menu button pulses while any child blinks (IsBlinking:
+    // _IsAnyChildBlinking; ProcessNeocomBlinkPulse -> BlinkOnce)
+    if (!this.buttons.has(id) && !EVE_MENU.some((g) => g.items.some((i) => i.id === id))) return;
     const was = this.blinks.get(id);
     if (was && was.left > 0) return;
     this.blinks.set(id, { left: 3, newUntil: Date.now() + 8000, hint: hint || was?.hint || "" });
@@ -244,7 +247,7 @@ export class Neocom {
     }
     for (const [id, b] of this.blinks) {
       if (b.left > 0) {
-        const el = this.buttons.get(id);
+        const el = this.buttons.get(id) ?? this.root.querySelector<HTMLElement>(".eve");
         if (el) { el.classList.remove("nc-blink"); void el.offsetWidth; el.classList.add("nc-blink"); }
         b.left -= 1;
       }
