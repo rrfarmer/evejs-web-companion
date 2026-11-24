@@ -189,7 +189,7 @@
   const NEOCOM_TABS: Record<string, TabID> = {
     theatersOfWar: "theatersOfWar",
     achievements: "achievements", agency: "finder", jobboard: "jobBoard", mail: "mail", inventory: "inventory", assets: "assets", wallet: "wallet", market: "market",
-    fitting: "fitting", map: "travel", charactersheet: "characterSheet", skills: "skills", chat: "chat", shipTree: "shipTree",
+    fitting: "fitting", map: "travel", charactersheet: "characterSheet", skills: "skills", loginRewards: "loginRewards", chat: "chat", shipTree: "shipTree",
     // the EVE menu's commands (play/neocom.ts EVE_MENU)
     marketorders: "market", contracts: "contracts", industry: "industry", miningScan: "miningScan", miningLedger: "miningLedger", planets: "planets", locations: "locations",
     contacts: "contacts", fleet: "fleet", corporation: "corporation", structureBrowser: "structureBrowser", compare: "compare", log: "log", notepad: "notepad", calendar: "calendar",

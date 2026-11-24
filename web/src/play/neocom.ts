@@ -55,6 +55,8 @@ const NEOCOM_TOOLTIPS: Readonly<Record<string, { cmd: string | null; name: strin
   charactersheet: { cmd: "OpenCharactersheet", name: "Character Sheet", description: "Manage your Augmentations, Clones, Pilot's Services, Standings and more" },
   // ButtonChat.LoadTooltipPanel: AddCommandTooltip(OpenChannels) - UI/Neocom/ChatChannelsBtn, Tooltips/Neocom/ChatChannels_description (g241)
   log: { cmd: "OpenLog", name: "Log and Messages", description: "" },
+  // ButtonReward (loginRewards): OpenLoginRewardWindow, Daily Login Campaigns (the live client, gridcheck g291 / g292)
+  loginRewards: { cmd: "OpenLoginRewardWindow", name: "Daily Login Campaigns", description: "Log in daily during active campaigns to receive your rewards" },
   chat: { cmd: "OpenChannels", name: "Chat Channels", description: "Browse available chat channels or create your own channel" },
 };
 /** tooltipHandler: a panel after the generic delay, the renew time (a fifth) while one shows or just closed. */
@@ -380,6 +382,24 @@ export class Neocom {
       });
       list.appendChild(el);
     }
+    // fixedButtonCont (the live client, g291): over the clock, between two 1 px lines in white 0.2 - AURA guidance, Daily
+    // Login Campaigns (gift.png) and the Aurum store; here the one the page has a window for. Under it the 30 high
+    // ResourceLoadingIndicator's place.
+    const fixed = document.createElement("div");
+    fixed.className = "nc-fixed";
+    const rewards = document.createElement("button");
+    rewards.className = "nc-btn";
+    rewards.setAttribute("aria-label", "Daily Login Campaigns");
+    rewards.innerHTML = `<img src="${icon("gift")}" alt="">`;
+    rewards.append(this.indicator("loginRewards"));
+    this.buttons.set("loginRewards", rewards);
+    rewards.addEventListener("click", () => { neocomTipOff(); open("loginRewards"); });
+    rewards.addEventListener("mouseenter", () => neocomTipOn(rewards, "loginRewards", this.unseen.get("loginRewards") ?? ""));
+    rewards.addEventListener("mouseleave", neocomTipOff);
+    fixed.append(rewards);
+    const loading = document.createElement("div");
+    loading.className = "nc-loading";
+    this.root.append(fixed, loading);
     this.clock.className = "nc-clock";
     this.root.appendChild(this.clock);
     // ClockButton.LoadTooltipPanel: AddCommandTooltip(OpenCalendar) - Calendar, no shortcut by default - then the EVE time
