@@ -83,7 +83,7 @@ import { Neocom, type NeocomSkillState } from "./neocom.ts";
 import { bracketIcon, hasBracketData, loadBrackets } from "./brackets.ts";
 import { PROXIMITY_TRAP_RANGES } from "./proximityTraps.ts";
 import { probeNumber } from "../bridge/scannerWrites.ts";
-import { aggressorFlagHolds, gridBracketWanted, iconAndBackgroundFlags, type BracketOverride, type OverviewRelationships } from "./overviewFilters.ts";
+import { aggressorFlagHolds, gridBracketWanted, iconAndBackgroundFlags, type BracketOverride, type OverviewRelationships, stateFlagColor } from "./overviewFilters.ts";
 import { panelErrorWords } from "../bridge/refusals.ts";
 import { PlayWindow, clientTexture } from "./window.ts";
 import { bloomFor, type Bloom } from "../three/bloom.ts";
@@ -4219,9 +4219,10 @@ export class SpaceView {
       null,
       fromMenu("UI/Fleet/FleetBroadcast/Commands/BroadcastWarpTo", "Broadcast: Warp to", icon(55), "WarpTo"),
     ];
-    // GetBroadcastMenuColor: the same-fleet flag's colour (flagSameFleet 11, the client default (0.6, 0.15, 0.9)) with its
+    // GetBroadcastMenuColor: the same-fleet flag's colour as the pilot has it (GetStatePropsColorAndBlink(flagSameFleet 11):
+    // the Appearance setting, else the client default (0.6, 0.15, 0.9)) with its
     // brightness (HSV value) no more than 0.4 - (0.2667, 0.0667, 0.4) read live
-    const fleetColour = [0.6, 0.15, 0.9];
+    const fleetColour = (stateFlagColor(11) ?? [0.6, 0.15, 0.9]).slice(0, 3);
     const value = Math.max(...fleetColour);
     const tint = value > 0.4 ? fleetColour.map((c) => (c * 0.4) / value) : fleetColour;
     this.radial.open(x, y, e ? this.nameOf(e) : "", options, button, undefined, tint);

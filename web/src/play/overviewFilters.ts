@@ -130,6 +130,10 @@ let otherObjectGroups: ReadonlySet<number> = new Set([10, 12, 186, 340, 366, 411
 /** stateSvc.SetStateColor / SetStateBlink: the colours and blinks set per (where, flag), "flag:13" / "background:13". */
 let stateColors: Readonly<Record<string, readonly number[]>> = {};
 let stateBlinks: Readonly<Record<string, boolean>> = {};
+/** stateSvc.GetStateFlagColor: a flag's colour as set (Overview Settings, Appearance), else its default; null for no such flag. */
+export function stateFlagColor(flag: number): readonly number[] | null {
+  return stateColors[`flag:${flag}`] ?? STATE_FLAG_LOOKS.get(flag)?.flagColor ?? null;
+}
 export function setStateAppearance(a: { flag: readonly number[]; background: readonly number[]; applyStructures: boolean; applyOther: boolean; otherGroups?: readonly number[];
   colors?: Readonly<Record<string, readonly number[]>>; blinks?: Readonly<Record<string, boolean>> }): void {
   stateColors = a.colors ?? {};
