@@ -36,6 +36,7 @@
   import { watchNotificationPopups } from "./notificationPopups.ts";
   import type { NoticeInput } from "./notices.ts";
   import { unwrapLong } from "../bridge/wire.ts";
+  import { readFlags } from "../bridge/mail.ts";
   import { PlayWindow } from "../play/window.ts";
   import { NOTIFICATION_GROUPS } from "../play/notificationGroups.ts";
   import { takeClientNotifications } from "./clientNotifications.ts";
@@ -97,12 +98,12 @@
   // The client's own notifications (notificationSvc.MakeAndScatterNotification / mailSvc's NewMailFrom): kept in the
   // notification cache with the server's, so in the history too - here each a row of its own (a negative id, its
   // created now) with its subject, subtext and click.
-  const local = new Map<number, { subject: string; subtext: string | null; action: (() => void) | null }>();
+  const local = new Map<number, { subject: string; subtext: string | null; action: (() => void) | null; messageID: number | null }>();
   let localRows = $state<ActivityNotificationRow[]>([]);
   let localSeq = 0;
-  function addLocalRow(typeID: number, subject: string, subtext: string | null, action: (() => void) | null, senderID = 0): void {
+  function addLocalRow(typeID: number, subject: string, subtext: string | null, action: (() => void) | null, senderID = 0, messageID: number | null = null): void {
     const id = -(++localSeq);
-    local.set(id, { subject, subtext, action });
+    local.set(id, { subject, subtext, action, messageID });
     const created = BigInt(Date.now()) * 10000n + 116444736000000000n;
     localRows = [...localRows, { notificationID: id, senderID, processed: false, created, title: subject, typeID }];
   }
@@ -203,7 +204,12 @@
     for (const g of NOTIFICATION_GROUPS) for (const [t, name] of g.types) if (t === typeID) return name;
     return null;
   };
-  function openEntryMenu(e: MouseEvent, typeID: number | null, readable: { notificationID: number; processed: boolean } | null): void {
+  // OfferMarkMailRead: a NewMailFrom (1004) whose message is not read (data['msg'].read - here the mailbox's status,
+  // and those marked from here: MarkMailAsRead sets processed); MarkMailAsRead - mailSvc.MarkMessagesAsRead
+  const mailMarked = new Set<number>();
+  const mailUnread = (messageID: number | null): messageID is number => messageID !== null && messageID > 0 && !mailMarked.has(messageID)
+    && readFlags(store.mail.get().statuses).get(messageID) !== true;
+  function openEntryMenu(e: MouseEvent, typeID: number | null, readable: { notificationID: number; processed: boolean } | null, messageID: number | null = null): void {
     e.preventDefault();
     e.stopPropagation();
     if (typeID === null) return;
@@ -219,7 +225,10 @@
       saveSettings();
     };
     const entries: ContextEntry[] = [];
-    if (readable && !readable.processed && readable.notificationID > 0 && typeID <= 1000) {
+    if (typeID === 1004 && mailUnread(messageID)) {
+      const id = messageID;
+      entries.push({ label: say(MENU_WORDS.read, "Mark as Read"), run: () => { mailMarked.add(id); void flow.markMail([id], true).catch(() => {}); } });
+    } else if (readable && !readable.processed && readable.notificationID > 0 && typeID <= 1000) {
       entries.push({ label: say(MENU_WORDS.read, "Mark as Read"), run: () => void flow.markNotificationsRead([readable.notificationID]).then(() => flow.loadActivity()).catch(() => {}) });
     }
     entries.push(shownAtAll(typeID)
@@ -257,7 +266,7 @@
   // (overFlowStack.pop()); on show notify_beep3_play and the entry's Blink; each fades out over 0.5 s once the
   // pointer has been off it for GetFadeTime 5 s (its AutoCloser), or goes at once by its close button. A click does
   // what the history's does. Not ported: the popup settings (all types pop up).
-  interface Popup { readonly id: number; readonly title: string; readonly detail: string | null; readonly typeID: number | null; readonly senderID: number | null;
+  interface Popup { readonly id: number; readonly messageID: number | null; readonly title: string; readonly detail: string | null; readonly typeID: number | null; readonly senderID: number | null;
     readonly action: (() => void) | null; outSince: number | null; fading: boolean; h: number }
   let popups = $state<Popup[]>([]);
   const queued: Popup[] = [];
@@ -276,6 +285,7 @@
     const key = input.key ?? "";
     let typeID: number | null = ownType;
     let senderID: number | null = input.senderID ?? null;
+    const mailID = key.startsWith("mail:") ? Number(key.slice(5)) || null : null;
     if (key.startsWith("notification:")) {
       const id = Number(key.slice(13));
       for (const n of store.live.get().notifications) {
@@ -291,9 +301,9 @@
     } else {
       // a notice of the page's making (a new mail - NewMailFrom 1004 -, the login mail summary): into the history, and so
       // into the count
-      addLocalRow(typeID ?? (key.startsWith("mail:") ? 1004 : 0), input.title, input.detail ?? null, input.action ?? null, senderID ?? 0);
+      addLocalRow(typeID ?? (key.startsWith("mail:") ? 1004 : 0), input.title, input.detail ?? null, input.action ?? null, senderID ?? 0, mailID);
     }
-    const p: Popup = { id: ++popupSeq, title: input.title, detail: input.detail ?? null, typeID: typeID ?? (key.startsWith("mail:") ? 1004 : null), senderID, action: input.action ?? null, outSince: null, fading: false, h: 50 };
+    const p: Popup = { id: ++popupSeq, messageID: mailID, title: input.title, detail: input.detail ?? null, typeID: typeID ?? (key.startsWith("mail:") ? 1004 : null), senderID, action: input.action ?? null, outSince: null, fading: false, h: 50 };
     // MakeAndDisplayNormalNotification: the type's showPopup and the popups setting (a new mail is NewMailFrom 1004)
     if (!settings.popups || !popsUp(typeID ?? (key.startsWith("mail:") ? 1004 : null))) return;
     if (popups.length < settings.stack) showPopup(p); else queued.push(p);
@@ -651,7 +661,7 @@
       onmouseenter={() => { if (!p.fading) { p.outSince = null; popups = [...popups]; void playUiEvent("ui_button_soft2_play"); } }}
       onmouseleave={() => { p.outSince = Date.now(); popups = [...popups]; }}
       onclick={(e) => { if (!(e.target as HTMLElement).closest(".nf-close")) { void playUiEvent("ui_button_soft4_play"); p.action?.(); } }}
-      oncontextmenu={(e) => openEntryMenu(e, p.typeID, null)}>
+      oncontextmenu={(e) => openEntryMenu(e, p.typeID, null, p.messageID)}>
       <span class="nf-blink" style={`background-image: url("${clientTexture("res:/UI/Texture/classes/Neocom/buttonBlink.png")}")`}></span>
       {#if icon}<img class="nf-icon" alt="" src={clientTexture(icon)} />{/if}
       {#if face}<img class="nf-icon nf-face" alt="" src={face} />{/if}
@@ -680,7 +690,7 @@
           onmouseenter={() => { hovered = row.notificationID; void playUiEvent("ui_button_soft2_play"); }}
           onmouseleave={() => { if (hovered === row.notificationID) hovered = null; }}
           onclick={(e) => { if (!(e.target as HTMLElement).closest(".nf-close")) entryClick(row); }}
-          oncontextmenu={(e) => openEntryMenu(e, row.typeID ?? null, { notificationID: row.notificationID, processed: row.processed })}>
+          oncontextmenu={(e) => openEntryMenu(e, row.typeID ?? null, { notificationID: row.notificationID, processed: row.processed }, local.get(row.notificationID)?.messageID ?? null)}>
           {#if icon}<img class="nf-icon" alt="" src={clientTexture(icon)} />{/if}
           {#if face}<img class="nf-icon nf-face" alt="" src={face} />{/if}
           {#if ship}<img class="nf-icon nf-ship" alt="" src={ship} />{/if}
