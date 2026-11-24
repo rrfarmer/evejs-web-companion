@@ -9,7 +9,7 @@
   // 300 s, PvP / suspect / criminal 900 s, retribution 300 s). A timer whose cause goes on (no expiry) is full and
   // PlayActiveAnimation pulses the pointer and gauge 1 / 0.75 each second; in its last BLINK_BEFORE_DONE_TIME 5 s the
   // icon blinks (FlipFlop, 1 s, 5 loops) with its endingAudioEvent; a new or renewed timer plays its resetAudioEvent.
-  // Not ported: the slots' slide left as one goes (ShiftLeft), the at-war icon (the pilot is
+  // Not ported: the at-war icon (the pilot is
   // at war with no one here), the jump / booster / engagement / abyssal timers.
   import { crimewatchTimers, type CrimewatchTimerView } from "../space/crimewatch.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -90,6 +90,8 @@
   let rewinds = new Map<string, { from: number; at: number; dur: number }>();
   /** EndAnimation: a timer gone keeps its slot 0.4 s, emptied, its pointer dropping 9 over 0.3 s, scaled to 0.8. */
   let leaving: { k: string; at: number }[] = [];
+  /** The timer sliding in from the right as the one before it went (its n restarts the animation). */
+  let slideIn = $state<{ k: string; n: number }>({ k: "", n: 0 });
   const realRatio = (k: string, v: CrimewatchTimerView) => (v.remainingMs === null ? 1 : Math.min(1, Math.max(0, v.remainingMs / LOOKS[k]!.maxMs)));
   function shownRatio(k: string, v: CrimewatchTimerView): number {
     const target = realRatio(k, v);
@@ -126,6 +128,9 @@
     // a leaving timer keeps its place in the order until it goes
     const kept = order.filter((k) => present.has(k) || leaving.some((x) => x.k === k));
     for (const k of next) if (!kept.includes(k)) kept.push(k);
+    // DeleteTimer: the timer that came after the closed one (only that one: children[idx:idx + 1]) ShiftLeft -
+    // MoveInFromRight by its width 46 over 0.5 s, ANIM_SMOOTH
+    for (const k of order) if (!kept.includes(k)) { const after = order[order.indexOf(k) + 1]; if (after && kept.includes(after)) slideIn = { k: after, n: untrack(() => slideIn.n) + 1 }; }
     if (kept.join() !== order.join()) order = kept;
   });
   const lastViews = new Map<string, CrimewatchTimerView>();
@@ -178,7 +183,8 @@
   {#each shown as { k, v, gone } (k)}
     {@const look = LOOKS[k]!}
     {@const ratio = gone ? 0 : shownRatio(k, v)}
-    <div class="cw-timer" class:gone class:active={v.remainingMs === null} class:blink={v.remainingMs !== null && v.remainingMs < 5000} style={`--cw: rgb(${look.rgb})`}>
+    {#key slideIn.k === k ? slideIn.n : 0}
+    <div class="cw-timer" class:slide={slideIn.k === k && slideIn.n > 0} class:gone class:active={v.remainingMs === null} class:blink={v.remainingMs !== null && v.remainingMs < 5000} style={`--cw: rgb(${look.rgb})`}>
       <div class="cw-dial" role="timer" onmouseenter={(e) => dialEnter(k, e.currentTarget)} onmouseleave={() => dialLeave(k)}>
         <svg class="cw-gauge" viewBox="0 0 32 32" width="32" height="32">
           <circle cx="16" cy="16" r={R} fill="none" stroke-width="2.5" stroke={`rgba(${look.rgb}, 0.2)`} />
@@ -191,6 +197,7 @@
         <span class="cw-icon" style={`-webkit-mask-image: url("${clientTexture(`res:/UI/Texture/Crimewatch/${look.icon}.png`)}"); mask-image: url("${clientTexture(`res:/UI/Texture/Crimewatch/${look.icon}.png`)}")`}></span>
       </div>
     </div>
+    {/key}
   {/each}
 </div>
 {#if hint}
@@ -216,6 +223,8 @@
   .cw-timer.gone .cw-dial { transform: scale(0.8); transition: transform 0.4s; }
   .cw-timer.gone .cw-ptr { transform: translateY(9px); transition: transform 0.3s; }
   .cw-timer { width: 46px; height: 32px; flex: none; }
+  .cw-timer.slide { animation: cw-slide 0.5s cubic-bezier(0.3333, 0, 0.6667, 1); }
+  @keyframes cw-slide { from { transform: translateX(46px); } to { transform: none; } }
   .cw-dial { position: relative; width: 32px; height: 32px; pointer-events: auto; }
   .cw-gauge { position: absolute; inset: 0; }
   .cw-pointer { position: absolute; inset: 0; }
