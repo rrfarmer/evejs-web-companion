@@ -56,6 +56,17 @@ import { gfx, setGfx, spaceRendering, lodSettings } from "./gfxSettings.ts";
 import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, stopEmitter, type WorldLoop } from "./uiAudio.ts";
 import { broadcastRadialDomButton, buttonBit, commandForKey, combatForModifiers, isCombatCommand, labelOf, shortcutOf, type CombatCommand } from "./shortcutKeys.ts";
 import { radialDelay, radialDomButton } from "./radialSettings.ts";
+
+/** Command.GetIcon for the combat commands that have one (eveicon control_icons, read live), the 32 px art. */
+const COMBAT_ICON_IDS: Readonly<Partial<Record<CombatCommand, string>>> = {
+  CmdAlignToItem: "align_to", CmdApproachItem: "approach", CmdDockOrJumpOrActivateGate: "jump_to", CmdKeepItemAtRange: "keep_at_distance",
+  CmdLockTargetItem: "target", CmdUnlockTargetItem: "target", CmdOpenSelectedCargoContainer: "open_cargo", CmdOrbitItem: "orbit",
+  CmdShowItemInfo: "show_info", CmdToggleLookAtItem: "look_at", CmdWarpToItem: "warp_to",
+};
+const combatIcon = (cmd: CombatCommand): string | null => {
+  const id = COMBAT_ICON_IDS[cmd];
+  return id ? `res:/UI/Texture/eveicon/control_icons/${id}_32px.png` : null;
+};
 import { hideLabelShortcutTooltip, showLabelShortcutTooltip, tooltipDue } from "./labelShortcutTooltip.ts";
 // actionConst.CMD_BY_ACTIONID: each Selected Item button's command, whose shortcut its tooltip shows
 const CMD_BY_ACTION: Readonly<Record<string, string>> = { info: "CmdShowItemInfo", approach: "CmdApproachItem", align: "CmdAlignToItem", orbit: "CmdOrbitItem",
@@ -1540,6 +1551,7 @@ export class SpaceView {
   private readonly onKey = (e: KeyboardEvent) => this.key(e);
   /** CombatKeyUnloadListener: the loaded combat command let go when its key comes up, or the window loses focus. */
   private readonly onKeyUp = (e: KeyboardEvent) => {
+    this.releaseModifierHold();
     this.steerKeys.delete(e.code);
     this.steerMods = e.ctrlKey || e.altKey || e.shiftKey || e.metaKey;
     if (this.options.covered?.()) { this.onBlur(); return; }
@@ -1558,7 +1570,7 @@ export class SpaceView {
     this.dscanKey = null;
     if (!targeted) void this.dscan?.scan();
   };
-  private readonly onBlur = () => { this.unloadCombat(); this.dscanKey = null; this.steerKeys.clear(); this.steerMods = false; };
+  private readonly onBlur = () => { this.releaseModifierHold(); this.unloadCombat(); this.dscanKey = null; this.steerKeys.clear(); this.steerMods = false; };
   /** The modifiers held at the last press of a pointer (a modifier-only combat command is a click with them). */
   private readonly onPointer = (e: PointerEvent) => {
     if (this.options.covered?.()) { this.onBlur(); return; }
@@ -1577,7 +1589,17 @@ export class SpaceView {
   private speedCombiner: ReturnType<typeof setTimeout> | null = null;
   /** The system the space menu's reads were last primed for. */
   private primedSystem: number | null = null;
-  private shortcutIndication: { header: string; sub: string } | null = null;
+  private shortcutIndication: { header: string; sub: string; icon?: string | null } | null = null;
+  /**
+   * A modifier-only combat command held (Ctrl lock, Ctrl-Shift unlock, Shift select, Alt look at): the command service
+   * loads it as the modifier goes down (CheckMappedAccelerators with the modifier as the key), LoadCombatCommand freezing
+   * the overviews and setting the shortcut indication after 0.3 s (a shortcut of modifiers alone); let go as any key
+   * goes down or up (CombatKeyUnloadListener). The click itself is modifierCombat's.
+   */
+  private modHold: { cmd: CombatCommand; timer: ReturnType<typeof setTimeout> | null; shown: boolean } | null = null;
+  private readonly modeCaption = document.createElement("div");
+  /** IndicationMessageStandard.icon: the command's icon (Command.GetIcon), 32 x 32 left of the caption. */
+  private readonly modeIcon = document.createElement("img");
   private temporaryIndication: { header: string; sub: string; until: number } | null = null;
   private readonly modeHeader = document.createElement("div");
   private readonly modeSub = document.createElement("div");
@@ -1696,7 +1718,13 @@ export class SpaceView {
     this.modeSub.className = "ship-mode-detail";
     this.modeProgress.className = "ship-mode-progress";
     this.modeProgress.append(this.modeProgressFill);
-    this.modeEl.append(this.modeHeader, this.modeSub, this.modeProgress, this.locationBanner.el);
+    // IndicationMessageStandard.construct_caption: a LayoutGrid of the icon and the caption, 4 px apart, centred
+    this.modeCaption.className = "ship-mode-caption";
+    this.modeIcon.className = "ship-mode-icon";
+    this.modeIcon.alt = "";
+    this.modeIcon.hidden = true;
+    this.modeCaption.append(this.modeIcon, this.modeHeader);
+    this.modeEl.append(this.modeCaption, this.modeSub, this.modeProgress, this.locationBanner.el);
     this.alertVignette.className = "ship-hud-vignette";
     this.alertVignette.setAttribute("aria-hidden", "true");
     this.root.append(this.alertVignette);
@@ -2291,6 +2319,10 @@ export class SpaceView {
     const bannerUp = this.locationBanner.active && !this.shortcutIndication;
     const header = bannerUp ? "" : text?.header ?? "", sub = bannerUp ? "" : text?.sub ?? "";
     if (this.modeHeader.textContent !== header) this.modeHeader.textContent = header;
+    const icon = !bannerUp && text === this.shortcutIndication ? this.shortcutIndication?.icon ?? null : null;
+    const iconSrc = icon ? clientTexture(icon) : "";
+    if (this.modeIcon.getAttribute("src") !== iconSrc) { if (iconSrc) this.modeIcon.src = iconSrc; else this.modeIcon.removeAttribute("src"); }
+    this.modeIcon.hidden = !iconSrc;
     if (this.modeSub.textContent !== sub) this.modeSub.textContent = sub;
     const progress = !this.shortcutIndication && !this.temporaryIndication ? warpProgress(flight) : null;
     this.modeProgress.hidden = !progress;
@@ -3750,6 +3782,7 @@ export class SpaceView {
     this.steerMods = e.ctrlKey || e.altKey || e.shiftKey || e.metaKey;
     if (this.options.covered?.()) return;
     const t = e.target as HTMLElement | null;
+    if (!(t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))) this.modifierHold(e);
     const cmd = commandForKey(e);
     if (cmd === null) return;
     // CmdFlightControlsUp / Down / Left / Right (the arrow keys): KeyboardControls reads them held while the focus is
@@ -4008,6 +4041,7 @@ export class SpaceView {
    * and UI/Commands/ClickTarget).
    */
   private loadCombat(cmd: CombatCommand, code: string): void {
+    this.releaseModifierHold();
     this.combat = { cmd, code };
     // LoadLightCombatCommand (CmdGetLocationMenuForNavigation): held with no indication
     if (cmd === "CmdGetLocationMenuForNavigation") return;
@@ -4017,7 +4051,39 @@ export class SpaceView {
     const name = (label ? this.actions.word?.(label) : null) ?? cmd;
     const click = this.actions.word?.("UI/Commands/ClickTarget") ?? "";
     this.temporaryIndication = null;
-    this.shortcutIndication = { header: name, sub: click };
+    this.shortcutIndication = { header: name, sub: click, icon: combatIcon(cmd) };
+  }
+
+  /** A key down: a modifier alone pressed loads its modifier-only combat command (modHold); any other key lets it go. */
+  private modifierHold(e: KeyboardEvent): void {
+    const modifier = /^(Control|Alt|Shift)(Left|Right)$/.test(e.code);
+    const cmd = modifier && !e.metaKey ? combatForModifiers({ ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey }) : null;
+    if (cmd !== null && this.modHold?.cmd === cmd) return; // the key repeating
+    this.releaseModifierHold();
+    // LoadCombatCommand: in space, and not over a command already held
+    if (cmd === null || this.combat || cmd === "CmdGetLocationMenuForNavigation") return;
+    for (const o of [this.overview, ...this.extraOverviews]) o.setFrozen(true);
+    const hold: NonNullable<SpaceView["modHold"]> = { cmd, timer: null, shown: false };
+    hold.timer = setTimeout(() => {
+      if (this.modHold !== hold) return;
+      const label = labelOf(cmd);
+      const name = (label ? this.actions.word?.(label) : null) ?? cmd;
+      this.temporaryIndication = null;
+      this.shortcutIndication = { header: name, sub: this.actions.word?.("UI/Commands/ClickTarget") ?? "", icon: combatIcon(cmd) };
+      hold.shown = true;
+    }, 300);
+    this.modHold = hold;
+  }
+
+  /** _UnloadCombatCommand for a modifier hold: its indication cleared and the overviews let go. */
+  private releaseModifierHold(): void {
+    const hold = this.modHold;
+    if (!hold) return;
+    this.modHold = null;
+    if (hold.timer) clearTimeout(hold.timer);
+    if (this.combat) return;
+    for (const o of [this.overview, ...this.extraOverviews]) o.setFrozen(false);
+    if (hold.shown) this.shortcutIndication = null;
   }
 
   private unloadCombat(): void {
