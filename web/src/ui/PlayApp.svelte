@@ -161,7 +161,7 @@
   import { POLARIZED_LABEL } from "../play/wormholePolarization.ts";
   import { IN_WARP_HINT_LABEL } from "../bridge/gateActivation.ts";
   import type { HudModule } from "../play/shipHud.ts";
-  import { CRYSTAL_GROUPS, MODULE_TOOLTIP_LABELS, moduleTooltipRows } from "../play/moduleTooltip.ts";
+  import { CRYSTAL_GROUPS, DOT_DURATION_ATTRIBUTE, MODULE_TOOLTIP_LABELS, moduleTooltipRows } from "../play/moduleTooltip.ts";
   import { NewShipHud } from "../play/newShipHud.ts";
   import { activeTargetID, activeTargetName } from "../play/activeTarget.ts";
   import { droneSettingsFor, setDroneSetting } from "./droneSettings.ts";
@@ -2476,7 +2476,7 @@
       return typeFacts.get(typeID) ?? null;
     };
     // (and the pools' resonances for the HUD health tooltip: shield 271/274/273/272, armor 267/270/269/268, hull 113/110/109/111)
-    const TIP_ATTRIBUTES = [37, 160, 84, 83, 68, 67, 90, 97, 20, 105, 114, 118, 117, 116, 271, 274, 273, 272, 267, 270, 269, 268, 113, 110, 109, 111];
+    const TIP_ATTRIBUTES = [37, 160, 84, 83, 68, 67, 90, 97, 20, 105, 114, 118, 117, 116, DOT_DURATION_ATTRIBUTE, 271, 274, 273, 272, 267, 270, 269, 268, 113, 110, 109, 111];
     const attributeLook = new Map<number, { readonly icon: string | null; readonly nameID: number | null }>();
     void s.flow.attributeDisplay(TIP_ATTRIBUTES).then((found) => {
       for (const [id, d] of found ?? []) attributeLook.set(id, { icon: d.iconFile ? `/client-res/${d.iconFile.replace(/^res:\//i, "").toLowerCase()}` : null, nameID: d.displayNameID });

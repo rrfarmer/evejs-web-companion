@@ -72,8 +72,9 @@ const ATTR = {
   mass: 4, capacitorBonus: 67, shieldBonus: 68, duration: 73, miningAmount: 77, structureDamageAmount: 83,
   armorDamageAmount: 84, powerTransferAmount: 90, energyNeutralizerAmount: 97, maxVelocity: 37, speedFactor: 20,
   maxRange: 54, falloff: 158, trackingSpeed: 160, speedBoostFactor: 567, massAddition: 796,
-  chargedArmorDamageMultiplier: 1886, warpScrambleStrength: 105,
+  chargedArmorDamageMultiplier: 1886, warpScrambleStrength: 105, dotDuration: 5735, dotMaxDamagePerTick: 5736,
 } as const;
+export const DOT_DURATION_ATTRIBUTE = ATTR.dotDuration;
 const GROUP_SMART_BOMB = 72;
 /** cfg.__chargecompatiblegroups__ (build 3698585). */
 export const CHARGE_COMPATIBLE_GROUPS: ReadonlySet<number> = new Set([53, 55, 56, 74, 76, 208, 209, 212, 213, 290, 291, 317, 481,
@@ -178,6 +179,22 @@ const scanProbeLauncher: InfoRow = (f, word, out) => {
   if (text !== null) out.push({ icon: f.attributeIcon(1371), iconSize: 24, text });
 };
 
+// AddDotWeaponInfo: the loaded pod's maximum damage per tick and its effect duration.
+const breacherPod: InfoRow = (f, word, out, seconds) => {
+  if (!f.charge) return;
+  const damage = f.chargeAttr(ATTR.dotMaxDamagePerTick);
+  if (damage !== null) {
+    const text = word("UI/Inflight/ModuleRacks/DamagePerSecond", { dps: damage * (f.attr(ATTR_DAMAGE_MULTIPLIER) ?? 1) });
+    if (text !== null) out.push({ icon: "/client-res/ui/texture/icons/modules/breacher_launcher_s_64.png", iconSize: 24, text });
+  }
+  const duration = f.chargeAttr(ATTR.dotDuration);
+  const attributeName = f.attributeName(ATTR.dotDuration);
+  if (duration !== null && attributeName !== null) {
+    const text = word("UI/Inflight/ModuleRacks/Tooltips/DotEffectDuration", { attributeName, duration: seconds(duration) });
+    if (text !== null) out.push({ icon: f.attributeIcon(ATTR.dotDuration), iconSize: 24, text });
+  }
+};
+
 // AddAttributeInfoWithAttributeName with ValuePercentageWithAttributeName ("-30% Signature Radius"): the attribute's icon,
 // skipped at 0 where the client skips it
 const VALUE_PERCENT = "UI/Inflight/ModuleRacks/Tooltips/ValuePercentageWithAttributeName";
@@ -256,6 +273,7 @@ for (const g of [54, 464, 483, 737, 4138]) INFO_BY_GROUP.set(g, miningLaser);
 INFO_BY_GROUP.set(4174, compressor);
 INFO_BY_GROUP.set(515, siege);
 INFO_BY_GROUP.set(481, scanProbeLauncher);
+INFO_BY_GROUP.set(4807, breacherPod);
 INFO_BY_GROUP.set(379, withName(554)); // AddTargetPainterInfo: signatureRadiusBonus
 INFO_BY_GROUP.set(1154, withName(3113)); // AddTargetBreakerInfo
 INFO_BY_GROUP.set(330, withName(306)); // AddCloakingDeviceInfo: maxVelocityModifier
@@ -511,5 +529,6 @@ export const MODULE_TOOLTIP_LABELS: readonly string[] = [
   "UI/Inflight/ModuleRacks/Tooltips/WeaponAccuracyScore", "UI/Inflight/ModuleRacks/Tooltips/VelocityReductionFromWeb",
   "UI/Inflight/ModuleRacks/Tooltips/WarpScramblerStrength", "/Carbon/UI/Common/WrittenDateTimeQuantityShort/Second",
   "UI/Inflight/ModuleRacks/DamagePerSecond", "UI/Inflight/ModuleRacks/Tooltips/OneDamageTypeText",
+  "UI/Inflight/ModuleRacks/Tooltips/DotEffectDuration",
   "UI/Inflight/ModuleRacks/Tooltips/DamageTypesHeader", "UI/Inflight/ModuleRacks/Tooltips/DamageHitpoints",
 ];
