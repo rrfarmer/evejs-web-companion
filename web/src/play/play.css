@@ -811,7 +811,7 @@ button { font: inherit; color: inherit; }
 /* SelectedItemView (read through gridcheck on a selected Veldspar): topCont 74 high - the 64 px icon 16 in, 2 down, the
    labels 8 right of it (the name 22 high, the distance under it) - then bottomCont with the 32 px buttons 16 in and 16
    down, 4 apart, at 0.75 (0.3 when they can't act) */
-.si-top { display: flex; gap: 8px; align-items: flex-start; box-sizing: border-box; height: 74px; padding: 2px 16px 0; flex: none; }
+.si-top { display: flex; gap: 8px; align-items: flex-start; box-sizing: border-box; min-height: 74px; padding: 2px 16px 0; flex: none; }
 .si-icon { width: 64px; height: 64px; flex: none; }
 /* CharIcon: the portrait, 64 square, its chat button at the bottom right */
 .si-char { position: relative; width: 64px; height: 64px; flex: none; margin-left: 4px; }
@@ -824,6 +824,8 @@ button { font: inherit; color: inherit; }
 .si-sec:empty { display: none; }
 .si-sec { color: rgba(255, 255, 255, 0.9); font-size: 14px; }
 .si-dist { color: rgba(255, 255, 255, 0.9); font-size: 14px; line-height: 18px; font-variant-numeric: tabular-nums; }
+.si-timer:empty { display: none; }
+.si-timer { color: #eee; font-size: 14px; line-height: 18px; white-space: pre-line; }
 .si-actions { display: flex; gap: 4px; padding: 16px; flex: none; }
 /* the buttons keep their size and the row clips them (buttonCont clipChildren) rather than squeezing them */
 .si-actions { overflow: hidden; }

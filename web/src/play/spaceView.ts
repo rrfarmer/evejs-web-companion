@@ -24,6 +24,7 @@ import { useFarBoosters } from "../three/boosterVolumetric.ts";
 import { celestialModel, systemCelestials, setPlanetEnvironment, type CelestialItem } from "../three/celestialModel.ts";
 import { ShipHud, type HudModule } from "./shipHud.ts";
 import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+import { selectedItemTimerText } from "./selectedItemTimers.ts";
 import { CARGO_HOLD, SHIP_HOLDS } from "../bridge/shipHolds.ts";
 /** openFunctions.GetOpenShipHoldMenus' entries in its order: [the page's bay key, label, own words]. */
 const OPEN_HOLD_ENTRIES: readonly (readonly [string, string, string])[] = [["cargo", "UI/Commands/OpenCargoHold", "Open Cargohold"], ["drone", "UI/Commands/OpenDroneBay", "Open Drone Bay"], ["fighter", "UI/Commands/OpenFighterBay", "Open Fighter Bay"], ["shipMaintenance", "UI/Commands/OpenShipMaintenanceBay", "Open Ship Maintenance Bay"], ["fleet", "UI/Commands/OpenFleetHangar", "Open Fleet Hangar"], ["fuel", "UI/Commands/OpenFuelBay", "Open Fuel Bay"], ["ore", "UI/Commands/OpenGeneralMiningHold", "Open General Mining Hold"], ["gas", "UI/Commands/OpenGasHold", "Open Gas Hold"], ["mineral", "UI/Commands/OpenMineralHold", "Open Mineral Hold"], ["salvage", "UI/Commands/OpenSalvageHold", "Open Salvage Hold"], ["ship", "UI/Commands/OpenShipHold", "Open Ship Hold"], ["smallShip", "UI/Commands/OpenSmallShipHold", "Open Small Ship Hold"], ["mediumShip", "UI/Commands/OpenMediumShipHold", "Open Medium Ship Hold"], ["largeShip", "UI/Commands/OpenLargeShipHold", "Open Large Ship Hold"], ["industrialShip", "UI/Commands/OpenIndustrialShipHold", "Open Industrial Ship Hold"], ["ammo", "UI/Commands/OpenAmmoHold", "Open Ammo Hold"], ["commandCenter", "UI/Commands/OpenCommandCenterHold", "Open Command Center Hold"], ["planetary", "UI/PI/Common/OpenPlanetaryCommoditiesHold", "Open Planetary Commodities Hold"], ["quafe", "UI/Commands/OpenQuafeBay", "Open Quafe Bay"], ["corpse", "UI/Commands/OpenCorpseBay", "Open Corpse Bay"], ["booster", "UI/Commands/OpenBoosterBay", "Open Booster Bay"], ["subsystem", "UI/Commands/OpenSubsystemBay", "Open Subsystem Bay"], ["mobileDepot", "UI/Commands/OpenMobileDepotHold", "Open Mobile Depot Hold"], ["colony", "UI/Commands/OpenInfrastructureHold", "Open Infrastructure Hold"], ["expedition", "UI/Commands/OpenExpeditionHold", "Open Expedition Hold"]];
@@ -1740,11 +1741,11 @@ export class SpaceView {
     // "No object selected" while nothing is)
     // SelectedItemWnd: actionPanelDefaults' place and size (566 wide, 174 high, 16 from the right and the top), no icon
     // its window menu (GetMenuMoreOptions as a pilot has it): Minimize, then Copy (_CopyText: the name with a gate's
-    // security, the distance and the security status, a line each)
+    // security, the distance, the security status and any timers)
     this.selectedWin = new PlayWindow({ id: "selected-item", caption: "Selected Item", left: innerWidth - 566 - 16, top: 16, width: 566, height: 174, minWidth: 256, closable: false, chrome: "small",
       menu: (button) => {
         const r = button.getBoundingClientRect();
-        const text = [...this.selectedWin.body.querySelectorAll<HTMLElement>(".si-name, .si-dist, .si-sec")].map((el) => el.textContent ?? "").filter(Boolean).join("\n");
+        const text = [...this.selectedWin.body.querySelectorAll<HTMLElement>(".si-name, .si-dist, .si-sec, .si-timer")].map((el) => el.textContent ?? "").filter(Boolean).join("\n");
         const say = (label: string, own: string) => this.actions.word?.(label) ?? own;
         // the window's actions (CompactModeWindowAction - SelectedItemWnd._on_compact_mode_changed: no caption, the content up
         // into the header), then GetMenuMoreOptions: Minimize, Copy
@@ -2954,7 +2955,7 @@ export class SpaceView {
       // SelectedItemWnd._UpdateSlimItem: its picture, GetSlimItemName with a stargate's destination security after it
       // (_GetJumpExtraText), the surface distance (FmtDist to one place), a pilot's security status (_GetSecurityStatusTex)
       const pilotPortrait = e.characterID && !e.isSelf && !e.isNpc ? this.options.portrait?.(e.characterID) ?? null : null;
-      body.innerHTML = `<div class="si-top"><img class="si-icon" alt="">${pilotPortrait ? `<span class="si-char"><img alt="" src="${pilotPortrait}"><img class="si-chat" alt="" src="${clientTexture("res:/UI/Texture/eveicon/system_icons/chat_bubble_16px.png")}"></span>` : ""}<div class="si-labels"><div class="si-name"></div><div class="si-dist"></div><div class="si-sec"></div></div></div><div class="si-actions"></div>`;
+      body.innerHTML = `<div class="si-top"><img class="si-icon" alt="">${pilotPortrait ? `<span class="si-char"><img alt="" src="${pilotPortrait}"><img class="si-chat" alt="" src="${clientTexture("res:/UI/Texture/eveicon/system_icons/chat_bubble_16px.png")}"></span>` : ""}<div class="si-labels"><div class="si-name"></div><div class="si-dist"></div><div class="si-sec"></div><div class="si-timer"></div></div></div><div class="si-actions"></div>`;
       const pic = body.querySelector(".si-icon") as HTMLImageElement;
       if (e.typeID !== null) pic.src = `/client-res/type-picture/${e.typeID}/64.png`;
       else pic.style.visibility = "hidden";
@@ -3007,6 +3008,9 @@ export class SpaceView {
       this.sizeSelectedButtons();
     }
     body.querySelector(".si-dist")!.textContent = fmtDistance(dist, 1);
+    const timer = body.querySelector(".si-timer")!;
+    const timerText = selectedItemTimerText(e, this.live.park.slimItems.get(e.itemID), Date.now(), (label, args) => this.actions.word?.(label, args) ?? null);
+    if (timer.textContent !== timerText) timer.textContent = timerText;
   }
 
   /**

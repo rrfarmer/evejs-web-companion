@@ -94,6 +94,7 @@
   import { portraitUrl, portraitDefaultPath } from "./ownerImages.ts";
   import BuffBar from "./BuffBar.svelte";
   import { INDICATION_WORD_LABELS } from "../space/actionIndication.ts";
+  import { SELECTED_ITEM_TIMER_LABELS } from "../play/selectedItemTimers.ts";
   import NoticeBridge from "./NoticeBridge.svelte";
   import Toasts from "./Toasts.svelte";
   import ServerQuestion from "./ServerQuestion.svelte";
@@ -3604,7 +3605,7 @@
     // the combat notification's moving-mode example text (UI/Accessories/Log/ExampleText)
     s.flow.requestWords([
       "UI/Accessories/Log/ExampleText", "UI/Accessories/Log/ExitMessageMovingMode",
-      ...INDICATION_WORD_LABELS, ...OVERVIEW_WORDS, OPEN_CARGO_LABEL, ENTER_WORMHOLE_LABEL, POLARIZED_LABEL, IN_WARP_HINT_LABEL, "UI/Inflight/Messages/ShipFullSpeedHeader", "UI/Commands/SpeedChangedTo",
+      ...INDICATION_WORD_LABELS, ...SELECTED_ITEM_TIMER_LABELS, ...OVERVIEW_WORDS, OPEN_CARGO_LABEL, ENTER_WORMHOLE_LABEL, POLARIZED_LABEL, IN_WARP_HINT_LABEL, "UI/Inflight/Messages/ShipFullSpeedHeader", "UI/Commands/SpeedChangedTo",
     ]);
     const combatWord = (label: string, own: string) => { const t = s.store.words.get().templates[label]; return typeof t === "string" ? plainText(t) : own; };
     v.combatMessage.exampleText = () => combatWord("UI/Accessories/Log/ExampleText", "Example Text");
