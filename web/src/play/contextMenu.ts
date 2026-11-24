@@ -214,7 +214,7 @@ export class ContextMenu {
     const disabled = !!entry.disabled;
     Object.assign(row.style, { position: "relative", height: `${ROW}px`, lineHeight: `${ROW}px`,
       // MenuEntryView.GetRequiredWidth: the label from 28, 16 more for a submenu's arrow, and ContextMenu.UpdateSize's 8 after
-      padding: `0 ${entry.sub ? 24 : 8}px 0 28px`, cursor: disabled ? "default" : "pointer", opacity: disabled ? "0.4" : "1" });
+      padding: `0 ${entry.sub ? 24 : 8}px 0 28px`, cursor: disabled ? "default" : "pointer" });
     if (disabled) row.title = entry.disabled!;
     else if (entry.hint) row.title = entry.hint;
     const badge = entry.info ? null : groupBadge(entry.path);
@@ -252,9 +252,12 @@ export class ContextMenu {
       Object.assign(i.style, { position: "absolute", left: "4px", top: "3px", width: "16px", height: "16px", opacity: "0.75" });
       row.append(i);
     }
+    // BaseMenuEntryView / MenuEntryView.SetDisabled: the label grey (0.5, 0.5, 0.5) opaque, the icon (or group badge) at 0.5
+    if (disabled) for (const c of [...row.children] as HTMLElement[]) c.style.opacity = "0.5";
     const label = document.createElement("span");
     label.textContent = entry.label;
-    if (entry.color) label.style.color = entry.color;
+    if (disabled) label.style.color = "rgb(128, 128, 128)";
+    else if (entry.color) label.style.color = entry.color;
     if (entry.suffix) {
       const sfx = document.createElement("span");
       sfx.textContent = ` ${entry.suffix.text}`;
