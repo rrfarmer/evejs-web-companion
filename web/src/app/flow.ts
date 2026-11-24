@@ -4696,6 +4696,11 @@ export interface AppFlow {
   /** A region, constellation or solar system as the info window shows it, or null for none (api.getMapLocation). */
   mapLocationShowInfo(itemID: number): Promise<api.MapLocationInfo | null>;
   readonly academyChanged: ReadableSignal<number>;
+  /**
+   * skillsvc.OnLogonSkillsTrained(skillInfos, canTrain), kept as the last one heard: it is sent once as the pilot enters,
+   * before the page's stream opens, so it comes with an answer's drain and may come before anything watches for it.
+   */
+  readonly logonSkillsTrained: ReadableSignal<{ readonly n: number; readonly args: readonly unknown[] } | null>;
   readonly academyTravelConversation: ReadableSignal<boolean>;
   readonly observatoryConversation: ReadableSignal<api.ObservatoryTransmission | null>;
   closeObservatoryConversation(): void;
@@ -5971,6 +5976,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   /** The pilot's own character, as the page has it. Null with none chosen. */
   const onlineCharacterID = (): number | null => store.station.get().online?.characterID ?? null;
   const academyChangedSignal = createSignal(0);
+  const logonSkillsTrainedSignal = createSignal<{ readonly n: number; readonly args: readonly unknown[] } | null>(null);
   const moonExtractionChanged = createSignal(0);
   const moonFuelChanged = createSignal(0);
   const moonFracturing = createSignal<{ structureID: number; extractionID: number; endsAtMs: number } | null>(null);
@@ -7272,11 +7278,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const method = typeof notification.method === "string" ? notification.method : null;
       const args = Array.isArray(notification.args) ? (notification.args as unknown[]) : [];
       const receivedAtMs = Date.now();
-      // The stream's own record of what came on it, and where it has read to, whether or not the push is news.
+      // The stream's own record of what came on it, and where it has read to, whether or not the push is news (one an
+      // answer's drain listed first is not listed twice).
+      const key = cursorKey(record.cursor);
       store.apply({
         type: "live/notification",
         epoch,
         sequence,
+        alreadyListed: key !== null && drainListed.has(key),
         notification: {
           kind: typeof notification.kind === "string" ? notification.kind : "unknown",
           service: typeof notification.service === "string" ? notification.service : null,
@@ -7295,6 +7304,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // Which of the server's pushes have been acted on. The client hears each once; this page can hear one on
   // the stream and again with an answer.
   const pushesTaken = createPushLedger();
+  /** The pushes an answer's drain put in the live list first, by cursor ("epoch:sequence"). */
+  const drainListed = new Set<string>();
+  function cursorKey(cursor: unknown): string | null {
+    const c = (typeof cursor === "object" && cursor !== null ? cursor : {}) as { epoch?: unknown; sequence?: unknown };
+    return typeof c.epoch === "string" && typeof c.sequence === "number" ? `${c.epoch}:${c.sequence}` : null;
+  }
 
   // --- R24 slices C + D: acting on what the push channel carries -------------
   //
@@ -7375,6 +7390,20 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (!pushesTaken.take(row.cursor)) {
         continue;
       }
+      // Listed as the stream lists what it brings, for the page's watchers of the list: a push made while the pilot
+      // entered (OnLogonSkillsTrained, ...) is published before the page's stream opens and never comes on it.
+      const listedKey = cursorKey(row.cursor);
+      if (listedKey !== null) {
+        drainListed.add(listedKey);
+        if (drainListed.size > 512) drainListed.delete(drainListed.values().next().value as string);
+      }
+      store.apply({ type: "live/drained-notification", notification: {
+        kind: typeof row.kind === "string" ? row.kind : "unknown",
+        service: typeof row.service === "string" ? row.service : null,
+        method,
+        receivedAtMs,
+        args: Array.isArray(row.args) ? (row.args as unknown[]) : [],
+      } });
       applyPushedNotification(method, Array.isArray(row.args) ? row.args : [], receivedAtMs);
     }
   }
@@ -7505,6 +7534,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       academyChangedSignal.update(n => n + 1);
     }
     if (method === "OnCapitalSystemChanged") jumpBridgeCapitalSignal.update(n => n + 1);
+    if (method === "OnLogonSkillsTrained") logonSkillsTrainedSignal.set({ n: (logonSkillsTrainedSignal.get()?.n ?? 0) + 1, args });
     directTrades.receive(method, args);
     if (method && OVERVIEW_CONTACT_NOTIFICATIONS.has(method)) contactStandingsChangedSignal.update(n => n + 1);
     if (method === "OnNewCalendarEvent" || method === "OnEditCalendarEvent" || method === "OnRemoveCalendarEvent" || method === "OnEventResponseByExternal") {
@@ -36297,6 +36327,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return api.getMapLocation(itemID, callOptions);
     },
     academyChanged: readonlySignal(academyChangedSignal),
+    logonSkillsTrained: readonlySignal(logonSkillsTrainedSignal),
     academyTravelConversation: readonlySignal(academyTravelConversation),
     closeAcademyTravelConversation: () => academyTravelConversation.set(false),
     observatoryConversation: readonlySignal(observatoryConversation),
@@ -36654,6 +36685,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         finally { inventoryPasswordSwitching = false; }
       })();
       pilotSelected(characterID, result);
+      // What the server pushed while the character entered (OnServerSkillsChanged, OnLogonSkillsTrained, ...) came
+      // drained with this answer, before the page's stream opens: the response sink let it go (no pilot was online
+      // when the request began), so it is taken here, the pilot now online, as the client hears it.
+      applyDrainedNotifications(result.notifications);
       await refreshStationPanel();
     },
 

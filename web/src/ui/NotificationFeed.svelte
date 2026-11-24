@@ -38,6 +38,7 @@
   import { unwrapLong } from "../bridge/wire.ts";
   import { PlayWindow } from "../play/window.ts";
   import { NOTIFICATION_GROUPS } from "../play/notificationGroups.ts";
+  import { takeClientNotifications } from "./clientNotifications.ts";
   import { portraitUrl, portraitDefaultPath, remoteImageUrl } from "./ownerImages.ts";
   import { notificationArguments } from "../bridge/notificationFormats.ts";
   import { typeIconUrl } from "./typeIcons.ts";
@@ -261,15 +262,9 @@
   $effect(() => watchNotificationPopups(store, flow, (id) => onOpen(id), (input) => addPopup(input)));
   // a notice the page makes of its own with a client type (skillsvc._TriggerSkillNotification: OnNewNotificationReceived
   // of a SKILL_NOTIFICATION_NORMAL 1000 notification) - into the history and the popups as the client's
-  onMount(() => {
-    const on = (e: Event) => {
-      const d = (e as CustomEvent<{ typeID: number; title: string; tab?: TabID }>).detail;
-      if (!d) return;
-      addPopup({ kind: "info", title: d.title, detail: null, key: `local:${d.typeID}:${Date.now()}`, action: d.tab ? () => onOpen(d.tab!) : null }, d.typeID);
-    };
-    addEventListener("evejs:client-notification", on);
-    return () => removeEventListener("evejs:client-notification", on);
-  });
+  onMount(() => takeClientNotifications((d) => {
+    addPopup({ kind: "info", title: d.title, detail: null, key: `local:${d.typeID}:${Date.now()}`, action: d.tab ? () => onOpen(d.tab!) : null }, d.typeID);
+  }));
 
   // mailSvc.GetMailPopupOnCharacterLogin: entering with unread mail (characterSelection.__Confirm, GetUnreaddMailCount > 0),
   // 3 s (CheckNewMessages_thread) and 7 s on, notificationSvc.MakeAndScatterNotification(MailSummary 1003,

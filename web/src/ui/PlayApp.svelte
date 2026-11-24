@@ -151,6 +151,7 @@
   import { Neocom, neocomSkillState } from "../play/neocom.ts";
   import { clientTexture } from "../play/window.ts";
   import { techLevelIcon } from "../play/techLevelIcon.ts";
+  import { raiseClientNotification } from "./clientNotifications.ts";
   import { planProgressAt, timeLeftShowTo, type PersonalSkillPlanEntry } from "../bridge/skillPlans.ts";
   import { OPEN_CARGO_LABEL } from "../play/containerInteraction.ts";
   import { ENTER_WORMHOLE_LABEL } from "../bridge/placeChanges.ts";
@@ -1054,14 +1055,17 @@
     if (!s) return;
     // TriggerSkillsTrainedNotification: '<SkillTrainingComplete> - <the skill and level>' (more than one level:
     // NumberOfSkills), a SKILL_NOTIFICATION_NORMAL (1000) whose click opens the character sheet's skills
-    const sayTrained = (levels: readonly (readonly [number, number])[]) => {
+    const sayTrained = async (levels: readonly (readonly [number, number])[]) => {
+      // (at entry the words may not be read yet: asked for and waited on a little, as the client has them at hand)
+      s.flow.requestWords([SKILL_DONE, SKILL_LEVEL, SKILL_COUNT]);
+      for (let i = 0; i < 30 && [SKILL_DONE, SKILL_LEVEL, SKILL_COUNT].some((l) => s.store.words.get().templates[l] === undefined); i += 1) await new Promise((r) => setTimeout(r, 100));
       const t = s.store.words.get().templates;
       const done = typeof t[SKILL_DONE] === "string" ? plainText(String(t[SKILL_DONE])) : "Skill Training Complete";
       const one = levels.length === 1 ? levels[0]! : null;
       const sub = one
         ? (typeof t[SKILL_LEVEL] === "string" ? plainText(formatTemplate(String(t[SKILL_LEVEL]), { skill: one[0], amount: one[1] }, { nameOf: (kind, id) => (kind === "type" ? typeNames[String(id)]?.[0] ?? "" : "") })) : `${typeNames[String(one[0])]?.[0] ?? ""} ${one[1]}`)
         : (typeof t[SKILL_COUNT] === "string" ? plainText(formatTemplate(String(t[SKILL_COUNT]), { amount: levels.length }, { nameOf: () => "" })) : `${levels.length} skills`);
-      dispatchEvent(new CustomEvent("evejs:client-notification", { detail: { typeID: 1000, title: `${done} - ${sub}`, tab: "skills" } }));
+      raiseClientNotification({ typeID: 1000, title: `${done} - ${sub}`, tab: "skills" });
     };
     const field = (info: unknown, name: string): number => {
       const v = Number(readRowField(info, name));
@@ -1069,35 +1073,38 @@
       const m = new RegExp(`"${name}"\\s*[,:]\\s*(\\d+)`).exec(JSON.stringify(info) ?? "");
       return m ? Number(m[1]) : NaN;
     };
-    return untrack(() => {
+    // skillsvc.OnLogonSkillsTrained(skillInfos, canTrain): the levels trained while away (currentLevel + 1 to skillLevel)
+    // - msg_SkillTrained_play and the trained notification (no OnSkillLevelsTrained); and with canTrain,
+    // _CheckTriggerNoSkillsInQueueNotification: an empty server queue makes a SKILL_NOTIFICATION_EMPTYQUEUE (1002) of
+    // UI/SkillQueue/NoSkillsInQueue. Sent once as the pilot enters, before the page's stream: the flow keeps it
+    // (logonSkillsTrained) for whenever this subscribes.
+    let logonTaken = 0;
+    const offLogon = untrack(() => s.flow.logonSkillsTrained.subscribe((got) => {
+      if (!got || got.n <= logonTaken) return;
+      logonTaken = got.n;
+      const args = got.args;
+      const levels: [number, number][] = [];
+      for (const [key, info] of readDictPairs(args[0])) {
+        const from = field(info, "currentLevel"), to = field(info, "skillLevel");
+        if (Number.isFinite(from) && Number.isFinite(to)) for (let lv = from + 1; lv <= to; lv += 1) levels.push([Number(key), lv]);
+      }
+      if (levels.length) { void playUiEvent("msg_SkillTrained_play"); void sayTrained(levels); }
+      if (args[1]) {
+        void s.flow.loadSkills().catch(() => {}).then(() => {
+          const q = s.store.skills.get().queue;
+          if (!q || q.entries.length) return;
+          const text = s.store.words.get().templates["UI/SkillQueue/NoSkillsInQueue"];
+          raiseClientNotification({ typeID: 1002, title: typeof text === "string" ? plainText(text) : "Skill queue is empty", tab: "skills" });
+        });
+      }
+    }));
+    const offLive = untrack(() => {
       const seen = new WeakSet<object>();
       let first = true;
       return s.store.live.subscribe((l) => {
         for (const n of l.notifications) {
           if (seen.has(n)) continue;
           seen.add(n);
-          // skillsvc.OnLogonSkillsTrained(skillInfos, canTrain): the levels trained while away (currentLevel + 1 to
-          // skillLevel) - msg_SkillTrained_play and the trained notification (no OnSkillLevelsTrained); and with
-          // canTrain, _CheckTriggerNoSkillsInQueueNotification: an empty server queue makes a
-          // SKILL_NOTIFICATION_EMPTYQUEUE (1002) of UI/SkillQueue/NoSkillsInQueue. (Sent once, at entry: taken even
-          // when it came before this watcher.)
-          if (n.method === "OnLogonSkillsTrained" && Array.isArray(n.args)) {
-            const levels: [number, number][] = [];
-            for (const [key, info] of readDictPairs(n.args[0])) {
-              const from = field(info, "currentLevel"), to = field(info, "skillLevel");
-              if (Number.isFinite(from) && Number.isFinite(to)) for (let lv = from + 1; lv <= to; lv += 1) levels.push([Number(key), lv]);
-            }
-            if (levels.length) { void playUiEvent("msg_SkillTrained_play"); sayTrained(levels); }
-            if (n.args[1]) {
-              void s.flow.loadSkills().catch(() => {}).then(() => {
-                const q = s.store.skills.get().queue;
-                if (!q || q.entries.length) return;
-                const text = s.store.words.get().templates["UI/SkillQueue/NoSkillsInQueue"];
-                dispatchEvent(new CustomEvent("evejs:client-notification", { detail: { typeID: 1002, title: typeof text === "string" ? plainText(text) : "Skill queue is empty", tab: "skills" } }));
-              });
-            }
-            continue;
-          }
           if (first || n.method !== "OnServerSkillsChanged" || !Array.isArray(n.args)) continue;
           const held = new Map((s.store.skills.get().skills ?? []).map((r) => [r.typeID, r.level ?? 0]));
           let trained = false;
@@ -1115,13 +1122,14 @@
           }
           if (!trained) continue;
           void playUiEvent("msg_SkillTrained_play");
-          sayTrained(levels);
+          void sayTrained(levels);
           neocomInst?.playSkillCompletion();
           view?.neocomSkillCompleted();
         }
         first = false;
       });
     });
+    return () => { offLogon(); offLive(); };
   });
   // the Neocom buttons' indicators: a window there is open, the one in front active (ButtonWindow highlight states)
   $effect(() => {

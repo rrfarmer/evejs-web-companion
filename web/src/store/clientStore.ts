@@ -2858,9 +2858,18 @@ export function createClientStore(): ClientStore {
           status: "live",
           epoch: event.epoch ?? current.epoch,
           sequence: event.sequence,
-          notifications: [...current.notifications, event.notification].slice(
+          notifications: event.alreadyListed ? current.notifications : [...current.notifications, event.notification].slice(
             -LIVE_NOTIFICATION_LIMIT,
           ),
+          lastEventAtMs: event.notification.receivedAtMs,
+        });
+        break;
+      }
+      case "live/drained-notification": {
+        const current = live.get();
+        live.set({
+          ...current,
+          notifications: [...current.notifications, event.notification].slice(-LIVE_NOTIFICATION_LIMIT),
           lastEventAtMs: event.notification.receivedAtMs,
         });
         break;

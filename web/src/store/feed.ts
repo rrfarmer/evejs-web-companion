@@ -1127,7 +1127,12 @@ export type FeedEvent =
       readonly notification: LiveNotification;
       readonly epoch: string | null;
       readonly sequence: number;
+      /** Already in the list (an answer's drain brought it first): the cursor moves on, nothing is added. */
+      readonly alreadyListed?: boolean;
     }
+  // A push an answer's drain brought before the stream did (or that the stream will never bring: one made while the
+  // pilot entered, before the page's stream was open): into the list, the stream's cursor left as it is.
+  | { readonly type: "live/drained-notification"; readonly notification: LiveNotification }
   // Goal R10 — the live channel could not be replayed from the held cursor
   // (gateway restart or a cursor past the replay horizon); the consumer must
   // re-read rather than assume continuity.
