@@ -269,7 +269,12 @@ export class ContextMenu {
       row.append(arrow);
     }
     row.addEventListener("mouseenter", () => {
-      if (!disabled) row.style.background = "rgba(255,255,255,0.08)";
+      // MenuEntryView.OnMouseEnter (g371): its MenuEntryUnderlay fill SMOKE_BLUE at 0.2, the label and icon to 0.9 (from 0.75)
+      if (!disabled) {
+        row.style.background = "rgba(48,86,101,0.2)";
+        row.style.color = "rgba(255,255,255,0.9)";
+        for (const i of row.querySelectorAll<HTMLImageElement>(":scope > img")) i.style.opacity = "0.9";
+      }
       this.closeFrom(depth + 1);
       if (entry.sub && !disabled) {
         const r = row.getBoundingClientRect();
@@ -277,7 +282,11 @@ export class ContextMenu {
         this.place(sub, r.right + 8, r.top - 8, r.left - 8);
       }
     });
-    row.addEventListener("mouseleave", () => { row.style.background = ""; });
+    row.addEventListener("mouseleave", () => {
+      row.style.background = "";
+      row.style.color = "";
+      for (const i of row.querySelectorAll<HTMLImageElement>(":scope > img")) i.style.opacity = "0.75";
+    });
     row.addEventListener("click", (e) => {
       e.stopPropagation();
       if (disabled || !entry.run) return;
