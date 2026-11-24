@@ -183,6 +183,9 @@ export class ContextMenu {
       tidy.push(e);
     }
     while (tidy.length && tidy[tidy.length - 1] === null) tidy.pop();
+    // MenuData.HasIcons (any entry with an icon or a group badge): only then do the entries keep the icon's room - the
+    // labels at PAD_LEFT 4 + the icon 16 + 8, else at PAD_LEFT 4 (the live client: an icon-less menu's labels at 12, g372)
+    const hasIcons = tidy.some((e) => !!e && !e.caption && (!!e.info || !!e.icon || !!actionIcon(e.path) || !!groupBadge(e.path) || e.checked !== undefined));
     for (const entry of tidy) {
       if (entry === null) {
         const d = document.createElement("div");
@@ -194,14 +197,14 @@ export class ContextMenu {
         panel.append(d);
         continue;
       }
-      panel.append(this.row(entry, depth));
+      panel.append(this.row(entry, depth, hasIcons));
     }
     document.body.append(panel);
     this.panels[depth] = panel;
     return panel;
   }
 
-  private row(entry: ContextEntry, depth: number): HTMLDivElement {
+  private row(entry: ContextEntry, depth: number, hasIcons = true): HTMLDivElement {
     const row = document.createElement("div");
     if (entry.caption) {
       row.dataset.caption = entry.label;
@@ -214,7 +217,7 @@ export class ContextMenu {
     const disabled = !!entry.disabled;
     Object.assign(row.style, { position: "relative", height: `${ROW}px`, lineHeight: `${ROW}px`,
       // MenuEntryView.GetRequiredWidth: the label from 28, 16 more for a submenu's arrow, and ContextMenu.UpdateSize's 8 after
-      padding: `0 ${entry.sub ? 24 : 8}px 0 28px`, cursor: disabled ? "default" : "pointer" });
+      padding: `0 ${entry.sub ? 24 : 8}px 0 ${hasIcons ? 28 : 4}px`, cursor: disabled ? "default" : "pointer" });
     if (disabled) row.title = entry.disabled!;
     else if (entry.hint) row.title = entry.hint;
     const badge = entry.info ? null : groupBadge(entry.path);
