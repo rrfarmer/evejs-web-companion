@@ -2875,6 +2875,10 @@ export interface AppFlow {
   broadcastToFleet(name: "NeedBackup" | "HoldPosition" | "InPosition" | "Location" | "JumpBeacon", itemID: number | null, typeID?: number | null): Promise<boolean>;
   /** fleetSvc.SendBroadcast_HealArmor / HealShield / HealCapacitor: SendBubbleBroadcast(name, session.shipid). */
   broadcastHealMe(name: "HealArmor" | "HealShield" | "HealCapacitor", shipID: number): Promise<boolean>;
+  /** fleetSvc.CycleBroadcastScope (CmdCycleFleetBroadcastScope): Down -> Up -> All -> Down, FleetBroadcastScopeChange said. */
+  cycleBroadcastScope(): void;
+  /** fleetSvc.broadcastScope: who the pilot's broadcasts go to (evefleet BROADCAST_DOWN 1, UP 2, ALL 3). */
+  broadcastScope(): number;
   /**
    * Add Pilot to Watchlist, from the fleet's menu for a member: the pilots added to the pilot's watchlist and the
    * server told, after the client's checks. What came of it: added, nothing to add (the pilot's own, one no member,
@@ -17767,8 +17771,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // SendBubbleBroadcast / SendGlobalBroadcast: CheckIsInFleet(inSpace=True) first (FleetNotInFleetInSpace)
     if (store.fleet.get().availability !== "ready") { sayDialog("FleetNotInFleetInSpace", null, "You are not in a fleet."); return false; }
     return name === "Target" || name === "HealTarget"
-      ? fleetBroadcasts.toBubble(name, FLEET_BROADCAST_SCOPE_ALL, itemID)
-      : fleetBroadcasts.toSystem(name, FLEET_BROADCAST_SCOPE_ALL, itemID, typeID);
+      ? fleetBroadcasts.toBubble(name, broadcastScope, itemID)
+      : fleetBroadcasts.toSystem(name, broadcastScope, itemID, typeID);
   }
   // fleetSvc.SendBroadcast_EnemySpotted (1011): SendGlobalBroadcast(BROADCAST_ENEMY_SPOTTED, GetNearestBall's itemID or None),
   // CheckIsInFleet(inSpace=True) first (FleetNotInFleetInSpace)
@@ -17777,7 +17781,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       sayDialog("FleetNotInFleetInSpace", null, "You are not in a fleet.");
       return false;
     }
-    return fleetBroadcasts.toFleet("EnemySpotted", FLEET_BROADCAST_SCOPE_ALL, nearID as number);
+    return fleetBroadcasts.toFleet("EnemySpotted", broadcastScope, nearID as number);
   }
   // fleetSvc.SendBroadcast_NeedBackup (1019), HoldPosition (1027), InPosition (1106: the nearest ball's type too),
   // Location (1123), JumpBeacon (1116: the pilot's own beacon, its item and type): SendGlobalBroadcast, CheckIsInFleet first
@@ -17786,15 +17790,27 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       sayDialog("FleetNotInFleetInSpace", null, "You are not in a fleet.");
       return false;
     }
-    return fleetBroadcasts.toFleet(name, FLEET_BROADCAST_SCOPE_ALL, itemID as number, typeID);
+    return fleetBroadcasts.toFleet(name, broadcastScope, itemID as number, typeID);
   }
   // fleetSvc.SendBroadcast_HealArmor / HealShield / HealCapacitor (1039 to 1049): SendBubbleBroadcast(name, session.shipid)
+  // fleetBroadcastScopeSetting: a SessionSettingEnum (ALL, DOWN, UP), ALL by default - this session's, not kept
+  let broadcastScope = FLEET_BROADCAST_SCOPE_ALL;
+  // fleetSvc.CycleBroadcastScope (1575): DOWN -> UP -> ALL -> DOWN; OnFleetBroadcastScopeChanged: the fsd dialog
+  // FleetBroadcastScopeChange with GetBroadcastScopeName(scope) (BROADCAST_UNIVERSE: BroadcastRangeDown / Up / All)
+  function cycleBroadcastScope(): void {
+    broadcastScope = broadcastScope === 1 ? 2 : broadcastScope === 2 ? 3 : 1;
+    const label = broadcastScope === 1 ? "UI/Fleet/FleetBroadcast/BroadcastRangeDown" : broadcastScope === 2 ? "UI/Fleet/FleetBroadcast/BroadcastRangeUp" : "UI/Fleet/FleetBroadcast/BroadcastRangeAll";
+    const own = broadcastScope === 1 ? "Down" : broadcastScope === 2 ? "Up" : "All";
+    const t = store.words.get().templates[label];
+    const name = typeof t === "string" && t !== "" ? plainText(t) : own;
+    sayDialog("FleetBroadcastScopeChange", { type: "dict", entries: [["name", name]] }, `Fleet broadcasts now go to: ${name}`);
+  }
   async function broadcastHealMe(name: "HealArmor" | "HealShield" | "HealCapacitor", shipID: number): Promise<boolean> {
     if (store.fleet.get().availability !== "ready") {
       sayDialog("FleetNotInFleetInSpace", null, "You are not in a fleet.");
       return false;
     }
-    return fleetBroadcasts.toBubble(name, FLEET_BROADCAST_SCOPE_ALL, shipID);
+    return fleetBroadcasts.toBubble(name, broadcastScope, shipID);
   }
   async function broadcastTravelToMe(): Promise<"sent" | "unsent" | "not-in-fleet" | "in-station" | "in-structure"> {
     const current = callOptions.captureRequestGuard!();
@@ -17809,7 +17825,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (now.solarSystemID === null) {
       return "in-station";
     }
-    return (await fleetBroadcasts.toFleet("TravelTo", FLEET_BROADCAST_SCOPE_ALL, now.solarSystemID)) ? "sent" : "unsent";
+    return (await fleetBroadcasts.toFleet("TravelTo", broadcastScope, now.solarSystemID)) ? "sent" : "unsent";
   }
 
   /** evefleet MAX_DAMAGE_SENDERS: the most pilots a watchlist holds. */
@@ -38184,6 +38200,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     broadcastEnemySpotted,
     broadcastToFleet,
     broadcastHealMe,
+    cycleBroadcastScope,
+    broadcastScope: () => broadcastScope,
     compressItemAt,
     deployItems,
     renameSpaceItem,

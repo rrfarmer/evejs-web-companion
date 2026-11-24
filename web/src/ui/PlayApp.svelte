@@ -1942,6 +1942,8 @@
       void s.flow.broadcastToFleet(global, near?.itemID ?? null, global === "InPosition" ? near?.typeID ?? null : null).catch(say("Fleet"));
       return true;
     }
+    // CmdCycleFleetBroadcastScope: fleetSvc.CycleBroadcastScope (no fleet needed)
+    if (cmd === "CmdCycleFleetBroadcastScope") { s.flow.cycleBroadcastScope(); return true; }
     if (cmd === "CmdFleetBroadcast_JumpBeacon") {
       const me = s.store.character.get().selectedCharacterID;
       const beacon = me === null ? null : s.store.fleet.get().jumpBeacons?.[String(me)] ?? null;
