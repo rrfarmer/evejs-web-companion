@@ -217,7 +217,9 @@ export class ContextMenu {
     }
     row.dataset.entry = entry.label;
     const disabled = !!entry.disabled;
-    Object.assign(row.style, { position: "relative", height: `${ROW}px`, lineHeight: `${ROW}px`,
+    // (a check box or radio entry 24 high: MenuEntryViewCheckbox / MenuEntryViewRadioButton, g373)
+    const rowH = entry.checked !== undefined ? 24 : ROW;
+    Object.assign(row.style, { position: "relative", height: `${rowH}px`, lineHeight: `${rowH}px`,
       // MenuEntryView.GetRequiredWidth: the label from 28, 16 more for a submenu's arrow, and ContextMenu.UpdateSize's 8 after
       padding: `0 ${entry.sub ? 24 : 8}px 0 ${hasIcons ? 28 : 4}px`, cursor: disabled ? "default" : "pointer" });
     if (disabled) row.title = entry.disabled!;
@@ -243,12 +245,20 @@ export class ContextMenu {
       disc.append(i);
       row.append(disc);
     } else if (entry.checked !== undefined) {
+      // the Checkbox / RadioButton controls (g374): their underlay (classes/checkbox/underlay.png, radio_underlay.png) white,
+      // 16 px at the icon's place, 4 down; ticked, checked.png / radio_selected.png over it in CRYO_BLUE (0.35, 0.65, 0.75)
       const dot = document.createElement("span");
-      Object.assign(dot.style, entry.checkbox
-        ? { position: "absolute", left: "5px", top: "5px", width: "12px", height: "12px", boxSizing: "border-box", border: "1px solid rgba(255,255,255,0.6)",
-          background: entry.checked ? `center / 12px no-repeat url(${tex("res:/UI/Texture/eveicon/system_icons/checkmark_16px.png")})` : "transparent" }
-        : { position: "absolute", left: "7px", top: "7px", width: "8px", height: "8px", borderRadius: "50%", boxSizing: "border-box",
-          border: "1px solid rgba(255,255,255,0.75)", background: entry.checked ? "rgba(255,255,255,0.9)" : "transparent" });
+      Object.assign(dot.style, { position: "absolute", left: "4px", top: "4px", width: "16px", height: "16px" });
+      const under = document.createElement("img");
+      under.src = tex(entry.checkbox ? "res:/UI/Texture/classes/checkbox/underlay.png" : "res:/UI/Texture/classes/checkbox/radio_underlay.png");
+      Object.assign(under.style, { position: "absolute", left: "0", top: "0", width: "16px", height: "16px" });
+      dot.append(under);
+      if (entry.checked) {
+        const mark = document.createElement("span");
+        const m = `url("${tex(entry.checkbox ? "res:/UI/Texture/classes/checkbox/checked.png" : "res:/UI/Texture/classes/checkbox/radio_selected.png")}") center / 16px 16px no-repeat`;
+        mark.setAttribute("style", `position:absolute;inset:0;background:rgb(89,166,191);mask:${m};-webkit-mask:${m};`);
+        dot.append(mark);
+      }
       if (entry.checkbox) row.setAttribute("aria-checked", String(!!entry.checked));
       row.append(dot);
     } else if (entry.icon !== null && (entry.icon || actionIcon(entry.path))) {
