@@ -3125,13 +3125,15 @@
         }
         return {
           path: "UI/Common/Pilot", label: w("UI/Common/Pilot", `Pilot (${name})`, { character: characterID }), icon: "res:/UI/Texture/eveicon/system_icons/person_16px.png",
+          // (g413, another pilot's ship: Show Info | Give Money | Place Bounty | Add Contact, Block | Start Conversation, Invite to...,
+          // Send Message, Capture Portrait, Form Fleet With... | Invite to Duel)
           sub: [
-            showInfoEntry,
-            { label: w("UI/Commands/GiveMoney", "Give Money"), run: () => void s.flow.openMoneyTransfer(characterID).catch(() => {}) },
-            bountyEntry,
+            showInfoEntry, null,
+            { label: w("UI/Commands/GiveMoney", "Give Money"), run: () => void s.flow.openMoneyTransfer(characterID).catch(() => {}) }, null,
+            bountyEntry, null,
             { label: known ? w("UI/PeopleAndPlaces/EditContact", "Edit Contact") : w("UI/PeopleAndPlaces/AddContact", "Add Contact"),
               run: () => void s.flow.addressBook("contact").then((book) => { pilotBook = book; pilotContact = { kind: "manage", ownerID: characterID, name: nameOf(characterID) || name, book }; }).catch(() => {}) },
-            { label: w("UI/PeopleAndPlaces/BlockContact", "Block"), run: () => void s.flow.blockOwners([characterID]).catch(() => {}) },
+            { label: w("UI/PeopleAndPlaces/BlockContact", "Block"), run: () => void s.flow.blockOwners([characterID]).catch(() => {}) }, null,
             { label: w("UI/Chat/StartConversation", "Start Conversation"), run: () => converse() },
             { label: w("UI/Chat/InviteToChat", "Invite to..."), sub: [
               { label: w("UI/Chat/StartConversation", "Start Conversation"), run: () => converse() },
@@ -3139,7 +3141,7 @@
             ] },
             { label: w("UI/EVEMail/SendPilotEVEMail", "Send Message"), run: () => { focusMail({ kind: "compose", characterID, name }); open("mail"); } },
             portraitEntry,
-            { label: w("UI/Fleet/FormFleetWith", "Form Fleet With..."), run: () => void s.flow.formFleetWith(characterID).catch(() => {}) },
+            { label: w("UI/Fleet/FormFleetWith", "Form Fleet With..."), run: () => void s.flow.formFleetWith(characterID).catch(() => {}) }, null,
             { label: w("UI/Crimewatch/Duel/DuelMenuEntry", "Invite to Duel"), run: () => void s.flow.startDuel(characterID).catch(() => {}) },
           ],
         };
