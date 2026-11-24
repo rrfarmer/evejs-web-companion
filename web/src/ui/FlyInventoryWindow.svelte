@@ -339,7 +339,8 @@
       // OfferSimulateShipFitting (the pilot's own ship): UI/Fitting/FittingWindow/SimulateShipFitting, GhostFitShip
       { label: word("UI/Fitting/FittingWindow/SimulateShipFitting", "Simulate Fit"), run: () => void flow.simulateShip().then(() => { dispatchEvent(new CustomEvent("evejs:open-fitting")); }).catch(() => {}) },
       null,
-      { label: word(MENU.info, "Show Info"), info: true, run: () => showInfo({ kind: "type", typeID, itemID: itemID ?? undefined }) },
+      // (no SHOWINFOGROUP badge: the client draws this node's Show Info without one, g336)
+      { label: word(MENU.info, "Show Info"), run: () => showInfo({ kind: "type", typeID, itemID: itemID ?? undefined }) },
       null,
       { label: word(MENU.market, "View Market Details"), path: MENU.market, run: () => showMarketDetails(typeID) },
       { label: word(MENU.buy, "Buy This Type"), run: () => buyMarketType(typeID) },
