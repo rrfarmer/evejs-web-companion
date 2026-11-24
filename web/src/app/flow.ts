@@ -424,6 +424,7 @@ import type { DungeonData } from "./api.ts";
 import { ACADEMY_TRAVEL_DECLINED, ACADEMY_UNDOCK_DIALOG, academyShipDeclineDialog, isAcademyTravelDecline } from "../bridge/academyShipNotices.ts";
 import { EXORDIUM_REGION, academyFit, academyPlanRequirements, academyStandardType, academyStandardTypes, academyStateOf, academyTutorialLocked, type AcademyCatalogue, type AcademyOffer, type AcademyShipState } from "../bridge/academyShips.ts";
 import { readCloneGrade } from "../bridge/cloneGradeReads.ts";
+import { configureShip as configureShipCall, readShipConfig, type ShipConfig, type ShipConfigKey } from "../bridge/shipConfig.ts";
 import { crimewatchCharacterIDs, decodeClientStates, decodeSecurityStatus } from "../bridge/boundCrimewatch.ts";
 import {
   classifyStandingKind,
@@ -4768,6 +4769,10 @@ export interface AppFlow {
    * .SetShipDirtLevel: eveMoniker.GetShipAccess().GetDirtTimestamp(itemID)); null where the server gives none.
    */
   shipDirtTime(shipID: number): Promise<bigint | number | null>;
+  /** shipConfigSvc.GetShipConfig: the ship's fleet hangar and maintenance bay sharing flags; null where unread. */
+  shipConfig(shipID: number): Promise<ShipConfig | null>;
+  /** shipConfigSvc.SetShipConfig (the access toggles on a fleet hangar's or maintenance bay's tree entry). */
+  configureShip(key: ShipConfigKey, value: boolean): Promise<void>;
   /** A solar system's celestials and NPC stations, as the client's own map lists them (mapSvc.GetSolarsystemItems). */
   mapSystemObjects(solarSystemID: number): Promise<{ readonly available: boolean; readonly objects: readonly api.SystemObjectRow[] }>;
   /**
@@ -36453,6 +36458,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     async agentRecord(agentID) {
       return (await agentsKnown()).find((agent) => agent.agentID === agentID) ?? null;
     },
+    shipConfig(shipID) { return readShipConfig(bridgeAsk, shipID); },
+    async configureShip(key, value) { await configureShipCall(bridgeDo, key, value); },
     async shipDirtTime(shipID) {
       // (a FILETIME crosses as {type: "long", value: "<decimal>"}: past 2^53, kept exact as a bigint)
       const answer = await bridgeAsk("ship", "GetDirtTimestamp", [shipID]);

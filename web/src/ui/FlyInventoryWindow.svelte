@@ -48,6 +48,7 @@
   import { SHIP_HOLDS, CARGO_HOLD } from "../bridge/shipHolds.ts";
   // TreeViewEntry.OnMouseEnter: PlaySound(uiconst.SOUND_ENTRY_HOVER), ui_button_soft2_play
   import { playUiEvent } from "../play/uiAudio.ts";
+  import type { ShipConfig } from "../bridge/shipConfig.ts";
   import { DEFAULT_INVENTORY_FILTERS, FILTER_FIELD, INVENTORY_FILTERS_SETTING, matchInventoryFilter, readInventoryFilters, roundInventoryFilterPrice, writeInventoryFilters, type InventoryFilter, type InventoryFilterFacts } from "../bridge/inventoryFilters.ts";
   import { loadInventoryFilterFacts, TYPE_FILTER_FIELDS } from "../app/inventoryFilterFacts.ts";
   import { getTypeMeta } from "../app/api.ts";
@@ -127,7 +128,7 @@
     ["UI/Common/Type", "UI/Inventory/TypeReversed", "type", "Type", "Type (reversed)"], ["UI/Inventory/EstPrice", "UI/Inventory/EstPriceReversed", "estPrice", "Est. Price", "Est. Price (reversed)"]] as const;
   /** invCont.GetViewModeName / GetViewModeIcon. */
   const VIEW_MODES = [["icons", "UI/Inventory/Icons", "Icons", "grid_view"], ["details", "UI/Inventory/Details", "Details", "details_view"], ["list", "UI/Inventory/List", "List", "list_view"]] as const;
-  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/ShortcutBrackets", "UI/Inventory/SlotRigs", "UI/Inventory/SlotHigh", "UI/Inventory/SlotMedium", "UI/Inventory/SlotLow", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SelectAll", "UI/Inventory/NothingFoundFiltered", "UI/Common/NothingFound", "UI/Fitting/FittingWindow/SimulateShipFitting", "UI/Inventory/InvertSelection", "UI/Common/SortBy", "UI/Inventory/ViewMode", "UI/Inventory/Clear",
+  const WORDS = [...Object.values(MENU), ...HEADERS, ...SORT_OPTIONS.flatMap((o) => [o[0], o[1]]), ...VIEW_MODES.map((v) => v[1]), "UI/Inventory/ViewModeWithCurrent", "UI/Inventory/ShortcutBrackets", "UI/Inventory/SlotRigs", "UI/Inventory/SlotHigh", "UI/Inventory/SlotMedium", "UI/Inventory/SlotLow", "UI/Inventory/QuantityAndName", "UI/Inventory/ItemStackEstimatedPrice", "UI/Inventory/ItemEstimatedPrice", "UI/Inventory/ItemStackVolume", "UI/Util/VolumeWithUnit", "UI/Inventory/NumItems2", "UI/Inventory/NumItemsAndSelected2", "UI/Inventory/NumFiltered", "UI/Inventory/EstIskPrice2", "UI/Inventory/StackAll", "UI/Inventory/LootAll", "UI/Common/SelectAll", "UI/Inventory/NothingFoundFiltered", "UI/Common/NothingFound", "UI/Inventory/DisableAccessToFleetMembers", "UI/Inventory/EnableAccessToFleetMembers", "UI/Inventory/DisableAccessToCorpMembers", "UI/Inventory/EnableAccessToCorpMembers", "UI/Fitting/FittingWindow/SimulateShipFitting", "UI/Inventory/InvertSelection", "UI/Common/SortBy", "UI/Inventory/ViewMode", "UI/Inventory/Clear",
     "UI/Inventory/Filters/MyFilters", "UI/Inventory/CreateFilter", "UI/Commands/Remove", "UI/Inventory/Filters/Edit", ...DEFAULT_INVENTORY_FILTERS.map(([key]) => key), "UI/Common/NothingFound", "UI/Inventory/OpenInNewWindow", "UI/Common/Buttons/Close", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...SHIP_HOLDS.map((h) => h.label), CARGO_HOLD.label];
   flow.requestWords(WORDS);
   const word = (label: string, own: string, args: Record<string, string | number> = {}) => {
@@ -148,6 +149,28 @@
   });
 
   const ship = $derived($space.snapshot?.ship ?? null);
+  // TreeViewEntryAccessConfig (the fleet hangar's and the ship maintenance bay's tree entries): fleet and corp access toggles
+  // after the label (3 right of it, 16 high): fleetAccess 14 in 14, corpAccess 12 in 14 padded 1 left; idle white 0.75,
+  // hovered 0.9, on COLOR_SELECTED (0.1, 1.0, 0.1); shipConfigSvc's flags, ConfigureShip on a click with msg_DiodeClick_play /
+  // msg_DiodeDeselect_play
+  let shipCfg = $state<ShipConfig | null>(null);
+  let shipCfgFor = 0;
+  $effect(() => {
+    const id = ship?.itemID ?? 0;
+    const wants = bays.some((b) => b.key === "fleet" || b.key === "shipMaintenance");
+    if (!id || !wants || shipCfgFor === id) return;
+    shipCfgFor = id;
+    void flow.shipConfig(id).then((c) => { if (shipCfgFor === id) shipCfg = c; }).catch(() => { shipCfgFor = 0; });
+  });
+  const ACCESS_KEYS = { fleet: ["FleetHangar_AllowFleetAccess", "FleetHangar_AllowCorpAccess"], shipMaintenance: ["SMB_AllowFleetAccess", "SMB_AllowCorpAccess"] } as const;
+  async function toggleAccess(bay: "fleet" | "shipMaintenance", which: 0 | 1): Promise<void> {
+    const key = ACCESS_KEYS[bay][which];
+    const next = !(shipCfg?.[key] ?? false);
+    await flow.configureShip(key, next);
+    void playUiEvent(next ? "msg_DiodeClick_play" : "msg_DiodeDeselect_play");
+    const id = ship?.itemID ?? 0;
+    if (id) shipCfg = await flow.shipConfig(id);
+  }
   const typeName = (typeID: number | null) => resolvedName($names.resolved, "type", typeID, "");
   /** The ship's bays the hull has: its cargo (the ship node itself), then the others, the drone bay where it has one. */
   interface Bay { key: string; label: string; items: { itemID: number; typeID: number; quantity: number; singleton: boolean; categoryID: number | null }[] | null; capacity: number | null; used: number | null }
@@ -956,6 +979,15 @@
               ondragover={dragOver(b.key)} ondragleave={() => (dropKey = null)} ondrop={(e) => void dropOn(b.key, e)}>
               <span class="ticon"><img src={clientTexture(BAY_ICON[b.key] ?? "res:/UI/Texture/WindowIcons/cargo.png")} alt=""></span>
               <span class="tlabel">{b.label}</span>
+              {#if (b.key === "fleet" || b.key === "shipMaintenance") && shipCfg}
+                {@const keys = ACCESS_KEYS[b.key]}
+                <span class="access">
+                  <button type="button" class="acc fleet" class:on={shipCfg[keys[0]]} title={shipCfg[keys[0]] ? word("UI/Inventory/DisableAccessToFleetMembers", "Disable access to fleet members") : word("UI/Inventory/EnableAccessToFleetMembers", "Enable access to fleet members")}
+                    onclick={(e) => { e.stopPropagation(); void toggleAccess(b.key as "fleet" | "shipMaintenance", 0); }}></button>
+                  <button type="button" class="acc corp" class:on={shipCfg[keys[1]]} title={shipCfg[keys[1]] ? word("UI/Inventory/DisableAccessToCorpMembers", "Disable access to corporation members") : word("UI/Inventory/EnableAccessToCorpMembers", "Enable access to corporation members")}
+                    onclick={(e) => { e.stopPropagation(); void toggleAccess(b.key as "fleet" | "shipMaintenance", 1); }}></button>
+                </span>
+              {/if}
             </div>
           {/each}
         {/if}
@@ -1128,6 +1160,13 @@
   .ticon :global(.type-icon img) { width: 22px; height: 22px; }
   .ticon img { width: 22px; height: 22px; }
   .tlabel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .access { display: flex; flex: none; height: 16px; margin-left: 3px; }
+  .acc { all: unset; position: relative; width: 14px; height: 16px; cursor: pointer; background: rgba(255, 255, 255, 0.75); }
+  .acc + .acc { margin-left: 1px; }
+  .acc:hover { background: rgba(255, 255, 255, 0.9); }
+  .acc.on { background: rgb(26, 255, 26); }
+  .acc.fleet { mask: url(/client-res/ui/texture/classes/inventory/fleetaccess.png) center / 14px 14px no-repeat; -webkit-mask: url(/client-res/ui/texture/classes/inventory/fleetaccess.png) center / 14px 14px no-repeat; }
+  .acc.corp { mask: url(/client-res/ui/texture/classes/inventory/corpaccess.png) center / 12px 12px no-repeat; -webkit-mask: url(/client-res/ui/texture/classes/inventory/corpaccess.png) center / 12px 12px no-repeat; }
   .ntag { flex: none; width: 2px; height: 16px; margin: 0 4px 0 auto; background: rgb(243, 144, 88); box-shadow: 0 0 4px rgba(243, 144, 88, 0.5); }
   /* listentry.InvItem.Load: details - the line on the 32 px icon; list - TOTOP_NOPUSH across the entry */
   /* uix.GetTechLevelIcon: 16 x 16 at the entry's top left (icons: the icon's corner; details: the row's, 5 out from the icon) */
