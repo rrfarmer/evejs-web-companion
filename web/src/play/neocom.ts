@@ -177,6 +177,8 @@ export class Neocom {
    */
   private readonly blinks = new Map<string, { left: number; newUntil: number; hint: string }>();
   private pulseTimer: ReturnType<typeof setInterval> | null = null;
+  /** The EVE menu's entries and the window ids under each (a group: its children). */
+  private menuEntries: { el: HTMLElement; ids: string[]; sub: boolean }[] = [];
   /** The buttons CheckOverflow hid. */
   private overflowIDs: string[] = [];
   /**
@@ -248,6 +250,8 @@ export class Neocom {
     for (const [id, b] of this.blinks) {
       if (b.left > 0) {
         const el = this.buttons.get(id) ?? this.root.querySelector<HTMLElement>(".eve");
+        // PanelEntryBase.BlinkOnce: the entry's blinkSprite (panelEntryBG in COLORTYPE_UIHILIGHT) 0 -> 1.5 -> 0
+        if (!this.buttons.has(id)) for (const m of this.menuEntries) if (m.ids.includes(id) && m.el.isConnected) { m.el.classList.remove("nc-pe-blink"); void m.el.offsetWidth; m.el.classList.add("nc-pe-blink"); }
         if (el) { el.classList.remove("nc-blink"); void el.offsetWidth; el.classList.add("nc-blink"); }
         b.left -= 1;
       }
@@ -266,6 +270,14 @@ export class Neocom {
       const w = this.windowStates.get(id);
       const state = w === "active" ? "active" : this.important(id) ? "important" : (w ?? "");
       if (ind.dataset.state !== state) ind.dataset.state = state;
+    }
+    // the EVE menu's entries (PanelEntryBase.buttonIndicator, CENTERRIGHT): important while their node - or for a group
+    // any child (HasAnyChildNewActivity) - blinks; only the nodes GetBtnData finds there (the windows the Neocom has
+    // no button of its own for)
+    for (const m of this.menuEntries) {
+      const ind = m.el.querySelector<HTMLElement>(".nc-ind");
+      const state = m.ids.some((id) => !this.buttons.has(id) && this.important(id)) ? "important" : "";
+      if (ind && ind.dataset.state !== state) ind.dataset.state = state;
     }
   }
   /** ButtonSkills (skillsBtn): its gauges and its icon. */
@@ -331,20 +343,29 @@ export class Neocom {
     const entry = (label: string, iconUrl: string, group: boolean) => {
       const el = document.createElement("button");
       el.className = "eve-menu-entry" + (group ? " group" : "");
-      el.innerHTML = `<img src="${iconUrl}" alt=""><span></span>`;
+      el.innerHTML = `<img src="${iconUrl}" alt=""><span></span><span class="nc-ind"></span>`;
       el.querySelector("span")!.textContent = label;
       return el;
     };
     for (const g of EVE_MENU) {
       const el = entry(g.label, g.icon, true);
+      this.menuEntries.push({ el, ids: g.items.flatMap((i) => (i.id ? [i.id] : [])), sub: false });
       const show = () => {
         sub.replaceChildren();
+        this.menuEntries = this.menuEntries.filter((m) => !m.sub);
         for (const item of g.items) {
           const c = entry(item.label, item.icon, false);
+          if (item.id) {
+            const id = item.id;
+            this.menuEntries.push({ el: c, ids: [id], sub: true });
+            // PanelEntryBase.OnMouseExit: SetHasNewActivityOff, ClearBlinkHint, SetBlinkingOff
+            c.addEventListener("mouseleave", () => { if (!this.buttons.has(id) && this.blinks.delete(id)) this.paintIndicators(); });
+          }
           if (item.id === null) { c.disabled = true; c.title = "Not in the play page yet"; }
           else c.addEventListener("click", () => { close(); open(item.id!); });
           sub.appendChild(c);
         }
+        this.paintIndicators();
         sub.style.top = `${el.getBoundingClientRect().top}px`;
         sub.style.left = `${menu.getBoundingClientRect().right}px`;
         sub.hidden = false;
