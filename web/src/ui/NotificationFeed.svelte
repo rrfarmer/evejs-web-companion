@@ -41,6 +41,7 @@
   import { portraitUrl, portraitDefaultPath, remoteImageUrl } from "./ownerImages.ts";
   import { notificationArguments } from "../bridge/notificationFormats.ts";
   import { typeIconUrl } from "./typeIcons.ts";
+  import { techLevelIcon } from "../play/techLevelIcon.ts";
 
   let { store, flow, onOpen }: { store: ClientStore; flow: AppFlow; onOpen: (id: TabID) => void } = $props();
 
@@ -114,6 +115,17 @@
   // LoadContent: a kill report (KillReportFinalBlow 140 / KillReportVictim 141) adds the victim ship type icon (Icon size
   // SHIP_TYPE_ICON_SIZE 40, TOPRIGHT of the 40 wide left panel - over the type icon), KillMailFinalBlowFormatter
   // .GetVictimShipTypeID: data['victimShipTypeID']. (Its 16 px tech level icon is not ported.)
+  // and uix.GetTechLevelIcon(shipTechIcon) - the victim ship's meta group icon, 16 x 16 at the left panel's corner
+  const killShipMeta = new Map<number, number | null>();
+  let killShipMetaRev = $state(0);
+  function killShipTech(row: ActivityNotificationRow): { path: string; hint: string } | null {
+    if (row.typeID !== 140 && row.typeID !== 141) return null;
+    const t = Number(notificationArguments(asNotification(row)).victimShipTypeID);
+    if (!Number.isSafeInteger(t) || t <= 0) return null;
+    void killShipMetaRev;
+    if (!killShipMeta.has(t)) { killShipMeta.set(t, null); void flow.typeFacts([t]).then((m) => { killShipMeta.set(t, m?.get(t)?.metaGroupID ?? null); killShipMetaRev += 1; }).catch(() => {}); }
+    return techLevelIcon(killShipMeta.get(t));
+  }
   function killShipIcon(row: ActivityNotificationRow): string | null {
     if (row.typeID !== 140 && row.typeID !== 141) return null;
     const t = Number(notificationArguments(asNotification(row)).victimShipTypeID);
@@ -616,6 +628,7 @@
         {@const icon = notificationIconPath(row.typeID ?? 0)}
         {@const face = senderPicture(row.typeID ?? null, row.senderID)}
         {@const ship = killShipIcon(row)}
+        {@const shipTech = killShipTech(row)}
         <div class="nf-entry" role="listitem"
           style={`border-image-source: url("${clientTexture(hovered === row.notificationID ? "res:/UI/Texture/classes/Notifications/historyBackReadOver.png" : "res:/UI/Texture/classes/Notifications/historyBackReadUp.png")}")`}
           onmouseenter={() => { hovered = row.notificationID; void playUiEvent("ui_button_soft2_play"); }}
@@ -624,6 +637,7 @@
           {#if icon}<img class="nf-icon" alt="" src={clientTexture(icon)} />{/if}
           {#if face}<img class="nf-icon nf-face" alt="" src={face} />{/if}
           {#if ship}<img class="nf-icon nf-ship" alt="" src={ship} />{/if}
+          {#if shipTech}<img class="nf-tech" alt="" title={shipTech.hint} src={clientTexture(shipTech.path)} />{/if}
           <div class="nf-text">
             <div class="nf-subject">{subjectOf(row)}</div>
             {#if subtextOf(row)}<div class="nf-subtext">{subtextOf(row)}</div>{/if}
@@ -711,6 +725,7 @@
   .nf-entry { position: relative; min-height: 50px; cursor: pointer; border-style: solid; border-width: 0; box-sizing: border-box;
     border-image-slice: 6 fill; border-image-width: 6px; border-image-outset: 5px; }
   .nf-icon { position: absolute; left: 5px; top: 5px; width: 40px; height: 40px; }
+  .nf-tech { position: absolute; left: 5px; top: 5px; width: 16px; height: 16px; max-width: none; }
   .nf-text { position: relative; margin-left: 55px; padding: 5px 0; width: 224px; }
   .nf-subject { font-weight: bold; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .nf-subtext { line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
