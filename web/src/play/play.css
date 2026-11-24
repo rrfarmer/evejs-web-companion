@@ -7,6 +7,10 @@
 @font-face { font-family: "EVE Sans Neue Condensed"; src: url("/client-res/ui/fonts/evesansneue-condensedbold.otf") format("opentype"); font-weight: 700; font-style: normal; font-display: swap; }
 @font-face { font-family: "EVE Sans Neue Expanded"; src: url("/client-res/ui/fonts/evesansneue-expanded.otf") format("opentype"); font-weight: 400; font-style: normal; font-display: swap; }
 @font-face { font-family: "EVE Sans Neue Expanded"; src: url("/client-res/ui/fonts/evesansneue-expandedbold.otf") format("opentype"); font-weight: 700; font-style: normal; font-display: swap; }
+/* EveLabelSmall / EveLabelSmallBold / EveHeaderSmall are STYLE_SMALLTEXT: EveSansNeue-Expanded (fontconst; g393 widths: Distance 50,
+   the regular face 41, the expanded 47) */
+:root { --font-small: "EVE Sans Neue Expanded", "EVE Sans Neue", "Barlow Semi Condensed", sans-serif; }
+.pw .ov-table th, .pw .ov-table th button, .pw .dscan-filter { font-family: var(--font-small); }
 /* the play windows in the client's letters (EveLabel: STYLE_DEFAULT), the controls inside them as well */
 .pw, .pw button, .pw input, .pw select, .pw th,
 .fly-windows, .fly-windows button, .fly-windows input, .fly-windows select, .fly-windows textarea, .fly-windows th { font-family: "EVE Sans Neue", "Barlow Semi Condensed", "Segoe UI", sans-serif; }

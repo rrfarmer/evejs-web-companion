@@ -1181,7 +1181,7 @@
   /* capacityGaugeAdd, after the gauge: what is dragged over it, THEME_FOCUS 0.6 or eveColor.WARNING_ORANGE (#F39058) */
   .gfill.add { background: color-mix(in srgb, var(--theme-focus, #58a7bf) 60%, transparent); }
   .gfill.add.over { background: rgb(243, 144, 88); }
-  .gtext { position: absolute; left: 8px; top: 1px; line-height: 24px; font-size: 12px; color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
+  .gtext { position: absolute; left: 8px; top: 1px; line-height: 24px; font-size: 12px; font-family: var(--font-small); color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
   .search-box { position: relative; flex: 1; min-width: 0; margin-left: 8px; display: flex; }
   /* the live client (gridcheck g253): in the 142 x 24 edit at 121, 4 (5 from its right), opacity 1 */
   .sclear { position: absolute; right: 5px; top: 50%; width: 16px; height: 16px; min-height: 0; max-height: 16px; box-sizing: border-box; margin-top: -8px; padding: 0; border: 0; background: center / 16px 16px no-repeat; cursor: pointer; }
@@ -1200,7 +1200,7 @@
   /* InvItem qtypar: BOTTOMRIGHT at 2, 2, black OPACITY_BG 0.9, its EveLabelSmall padded 4 1 4 0, FmtAmt(qty, "ss") */
   /* InvItemIconContainer's qtypar (read through gridcheck on a Tritanium stack): 2 in from the icon's corner, its 12 px
      EveLabelSmall white 4 in and 1 down (17 high); the itemNameLabel at 0.75 */
-  .qty { position: absolute; right: 2px; bottom: 2px; padding: 1px 4px 0; background: rgba(0, 0, 0, 0.9); font-size: 12px; line-height: 16px; color: #fff; }
+  .qty { position: absolute; right: 2px; bottom: 2px; padding: 1px 4px 0; background: rgba(0, 0, 0, 0.9); font-size: 12px; font-family: var(--font-small); line-height: 16px; color: #fff; }
   /* InvItem (gridcheck): 64 x 103, its quantity EveLabelSmall 12, its name a centred Label 14, 70 wide */
   .iname { margin-top: 2px; width: 70px; text-align: center; font-size: 14px; line-height: 18px; color: rgba(255, 255, 255, 0.75); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   /* numItemsLabel / totalPriceLabel: TextColor.SECONDARY 0.5 */
@@ -1210,7 +1210,7 @@
   .count.filtered { color: #8dc169; }
   .rows { width: 100%; border-collapse: collapse; font-size: 12px; align-self: flex-start; }
   /* the scroll's ColumnHeaders (gridcheck, details): 24 high, the EveLabelSmall 12 at 8 */
-  .rows th { position: sticky; top: 0; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.5); padding: 0 8px; height: 24px; box-sizing: border-box; white-space: nowrap; background: rgba(0, 0, 0, 0.4); }
+  .rows th { position: sticky; top: 0; text-align: left; font-weight: 400; font-family: var(--font-small); color: rgba(255, 255, 255, 0.5); padding: 0 8px; height: 24px; box-sizing: border-box; white-space: nowrap; background: rgba(0, 0, 0, 0.4); }
   /* uix.GetInvItemDefaultHiddenHeaders: Category, Meta Level and Tech Level hidden by default */
   .rows .hid { display: none; }
   .rows th { overflow: hidden; text-overflow: clip; }
