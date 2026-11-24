@@ -197,19 +197,21 @@ export class ContextMenu {
         panel.append(d);
         continue;
       }
-      panel.append(this.row(entry, depth, hasIcons));
+      panel.append(this.row(entry, depth, hasIcons, panel.children.length === 0));
     }
     document.body.append(panel);
     this.panels[depth] = panel;
     return panel;
   }
 
-  private row(entry: ContextEntry, depth: number, hasIcons = true): HTMLDivElement {
+  private row(entry: ContextEntry, depth: number, hasIcons = true, first = false): HTMLDivElement {
     const row = document.createElement("div");
     if (entry.caption) {
       row.dataset.caption = entry.label;
       row.textContent = entry.label;
-      Object.assign(row.style, { height: `${ROW}px`, lineHeight: `${ROW}px`, padding: "0 8px", fontSize: "12px", color: "rgba(255,255,255,0.5)", cursor: "default" });
+      // MenuData.AddCaption's MenuEntryViewCaption (g373): a TextHeader 18 px in white 0.9 at PAD_LEFT 4; its text 23 below a
+      // line before it, the entry after it 8 below (13 above / 10 below here, as the window option menus)
+      Object.assign(row.style, { lineHeight: "23px", padding: `${first ? 0 : 13}px 0 10px 4px`, fontSize: "18px", color: "rgba(255,255,255,0.9)", cursor: "default", whiteSpace: "nowrap" });
       row.addEventListener("mouseenter", () => this.closeFrom(depth + 1));
       return row;
     }
