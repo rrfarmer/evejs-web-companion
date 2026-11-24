@@ -33,6 +33,7 @@
   // "<isk> ISK Est. price" (UpdateNumberOfItems, UpdateIskPriceLabel).
   import { invAlwaysSeparate, invCompact, invFilter, invKeepFilter, invSidebar, invViewMode } from "./inventoryWindowSettings.ts";
   import { onMount, untrack } from "svelte";
+  import { unseenCargo, markCargoSeen, markItemSeen, inventoryWindowsOpen } from "../play/inventoryBadging.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import { fmtAmtShort } from "../bridge/pyNumbers.ts";
   import { COMPARE_CATEGORIES } from "../bridge/dogmaAttributeGroups.ts";
@@ -586,6 +587,13 @@
   let selected = $state<number[]>([]);
   let lastClicked: number | null = null;
   $effect(() => { void current; selected = []; lastClicked = null; });
+  // Inventory.IsOpenByWindowClass (no new item badged while one is open); OnInventoryContainerShown(current, previous) /
+  // OnInventoryClosed: the cargo marked seen once the window shows another place after it, or closes on it
+  onMount(() => { inventoryWindowsOpen.update((n) => n + 1); return () => { inventoryWindowsOpen.update((n) => n - 1); if (untrack(() => current) === "cargo" && !containerMode) markCargoSeen(); }; });
+  let shownBefore = untrack(() => current);
+  $effect(() => { const now = current; untrack(() => { if (shownBefore === "cargo" && now !== "cargo" && !containerMode) markCargoSeen(); shownBefore = now; }); });
+  // InvItem.Select -> MarkAsSeen: an unseen item selected loses its tag
+  $effect(() => { const sel = selected; if (current === "cargo") untrack(() => { for (const id of sel) markItemSeen(id); }); });
   // invCont.SelectAll (commandSvc.OnCtrlA to the focused container: scroll.SelectAll - every item shown) and Home / End
   // (Scroll.OnHome / OnEnd) on the items once one is clicked
   function clickItem(id: number, e: MouseEvent): void {
@@ -922,6 +930,8 @@
           <button type="button" class="exp" data-own-sound class:open={treeOpen} aria-label="Expand" onclick={(e) => { e.stopPropagation(); toggleTree(); }}></button>
           <span class="ticon"><TypeIcon typeID={ship.typeID} name={shipLabel} size="sm" /></span>
           <span class="tlabel">{shipLabel}</span>
+          <!-- TreeViewEntryWithTag: the cargo's tag (ButtonIndicator, important) at the entry's right, TAG_PADDING 4 -->
+          {#if $unseenCargo.length}<span class="ntag" aria-hidden="true"></span>{/if}
         </div>
         {#if treeOpen}
           {#each bays.filter((b) => b.key !== "cargo" && !b.key.startsWith("temp:")) as b (b.key)}
@@ -1033,6 +1043,8 @@
           <div class="item" class:selected={selected.includes(i.itemID)} onmouseenter={(e) => { hoverSound(e); itemTip(i, e); }} onmouseleave={itemTipOff} role="listitem" draggable="true"
             onclick={(e) => clickItem(i.itemID, e)} onkeydown={() => {}} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
             <span class="icon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="lg" />
+              <!-- InvItem.AddTag: newItemTagLine, 2 px TOTOP_NOPUSH over the icon in the important colour -->
+              {#if current === "cargo" && $unseenCargo.includes(i.itemID)}<span class="newtag" aria-hidden="true"></span>{/if}
               {#if !i.singleton}<span class="qty">{fmtAmtShort(i.quantity)}</span>{/if}</span>
             <span class="iname">{typeName(i.typeID)}</span>
           </div>
@@ -1100,6 +1112,8 @@
   .ticon :global(.type-icon img) { width: 22px; height: 22px; }
   .ticon img { width: 22px; height: 22px; }
   .tlabel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ntag { flex: none; width: 2px; height: 16px; margin: 0 4px 0 auto; background: rgb(243, 144, 88); box-shadow: 0 0 4px rgba(243, 144, 88, 0.5); }
+  .item .icon .newtag { position: absolute; left: 0; right: 0; top: 0; height: 2px; background: rgb(243, 144, 88); box-shadow: 0 0 4px rgba(243, 144, 88, 0.5); z-index: 1; pointer-events: none; }
   /* InvFilters: a drag area 8 high (its line at 3) over the filterHeaderCont, 24 high, padRight 8: expandFiltersBtn 24 wide
      with the 7 px Neocom arrowDown, the Label 14, createFilterBtn 24 x 24 with eveicon.add 16 at the right */
   .fbox { flex: none; display: flex; flex-direction: column; min-height: 0; }

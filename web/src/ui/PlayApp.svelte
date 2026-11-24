@@ -57,6 +57,8 @@
   import NotificationFeed from "./NotificationFeed.svelte";
   import CrimewatchTimers from "./CrimewatchTimers.svelte";
   import { get as storeGet } from "svelte/store";
+  import { isListValue } from "../bridge/wire.ts";
+  import { trackShip, itemChanged as badgeItemChanged, unseenCargo, inventoryWindowsOpen } from "../play/inventoryBadging.ts";
   import { hudSetting, hudSettingNow, setHudSetting, slotOrderOf } from "../store/hudSettings.ts";
   import { createSession, type Session } from "../app/sessions.ts";
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
@@ -916,6 +918,41 @@
         }
         first = false;
       });
+    });
+  });
+  // neocomInventoryBadging: the cargo of the ship flown in space tracked (docked: none here); each item change put to its
+  // rules (process_item_change), the Inventory button important with UI/Neocom/UnseenItemsHint while any are unseen
+  $effect(() => {
+    const s = session;
+    if (!s) return;
+    return untrack(() => {
+      const offTrack = s.store.flight.subscribe(() => {
+        const dockedNow = deriveDocked(s.store.flight.get().status ?? null, s.store.station.get().online ?? null);
+        const ship = s.store.space.get().snapshot?.ship?.itemID ?? s.store.flight.get().status?.shipID ?? null;
+        trackShip(dockedNow ? null : ship);
+      });
+      const seen = new WeakSet<object>();
+      let first = true;
+      const offLive = s.store.live.subscribe((l) => {
+        for (const n of l.notifications) {
+          if (seen.has(n)) continue;
+          seen.add(n);
+          if (first || (n.method !== "OnItemChange" && n.method !== "OnItemsChanged") || !Array.isArray(n.args)) continue;
+          const open = storeGet(inventoryWindowsOpen) > 0;
+          const charID = s.store.station.get().online?.characterID ?? null;
+          const [items, change] = n.args as unknown[];
+          const list = n.method === "OnItemChange" ? [items] : isListValue(items) ? items.items : Array.isArray(items) ? items : [];
+          for (const it of list) badgeItemChanged(it, change, open, charID);
+        }
+        first = false;
+      });
+      const offUnseen = unseenCargo.subscribe((ids) => {
+        const t = s.store.words.get().templates["UI/Neocom/UnseenItemsHint"];
+        const hint = ids.length > 0 ? (typeof t === "string" ? plainText(formatTemplate(t, { numItems: ids.length }, { nameOf: () => "" })) : `${ids.length} Unseen Item${ids.length === 1 ? "" : "s"}`) : null;
+        neocomInst?.setUnseen("inventory", hint);
+        view?.neocomUnseen("inventory", hint);
+      });
+      return () => { offTrack(); offLive(); offUnseen(); };
     });
   });
   // the Neocom buttons' indicators: a window there is open, the one in front active (ButtonWindow highlight states)
