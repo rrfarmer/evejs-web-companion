@@ -22,6 +22,7 @@
     loading = false,
     resizable = true,
     showTitle = true,
+    caption = null,
     icon = null,
     killable = true,
     children,
@@ -43,6 +44,9 @@
     loading?: boolean;
     resizable?: boolean;
     showTitle?: boolean;
+    /** The window's caption where `title` is cleared (a compact window): its More menu heads with it, as
+     *  DefaultWindowControls._get_menu_title. Defaults to `title`. */
+    caption?: string | null;
     children: Snippet;
   } = $props();
 
@@ -128,7 +132,7 @@
     that survived — see the note on the buttons below.
   -->
   <header class="win-bar" onpointerdown={startDrag} ondblclick={onToggleMinimize}>
-    {#if icon}<img class="win-icon" src={icon} alt="" />{/if}<span class="win-title">{#if showTitle}{title}{/if}</span>
+    {#if icon}<img class="win-icon" src={icon} alt="" />{/if}<span class="win-title" data-title={caption ?? title}>{#if showTitle}{title}{/if}</span>
     {#if headerActions}{@render headerActions()}{/if}
     <span class="win-actions">
       <!--

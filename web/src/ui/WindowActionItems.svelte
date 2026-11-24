@@ -16,7 +16,11 @@
   // svelte-ignore state_referenced_locally
   let flags = $state(windowFlags(id));
   // svelte-ignore state_referenced_locally
-  onMount(() => applyWindowFlags(id));
+  onMount(() => { applyWindowFlags(id); caption = (anchor?.closest(".win")?.querySelector<HTMLElement>(".win-title")?.dataset.title ?? "").trim(); });
+  // DefaultWindowControls._get_menu_title: a compact (or stacked) window, its header gone, heads the menu with its caption
+  // (an AddCaption, TextHeader 18 at 12 in the client's compact droneview, g377), then a line before the actions
+  let anchor: HTMLElement | undefined = $state();
+  let caption = $state("");
   const lightOn = $derived(lightByDefault ? !flags.nolight : flags.light);
   function flip(which: WindowFlag): void { setWindowFlag(id, which, !flags[which]); flags = windowFlags(id); onDone(); }
   const W = "/Carbon/UI/Controls/Window/";
@@ -25,6 +29,8 @@
   const I = (n: string) => `/client-res/ui/texture/eveicon/system_icons/${n}_16px.png`;
 </script>
 
+<span class="anchor" bind:this={anchor} hidden></span>
+{#if compact?.on && caption}<span class="caption first">{caption}</span><hr class="sep" />{/if}
 <button type="button" role="menuitem" onpointerdown={(event) => event.stopPropagation()}
   class="has-icon" onclick={() => flip("locked")}><img alt="" src={I(flags.locked ? "locked" : "unlocked")} />{flags.locked ? word(`${W}Unlock`, "Unlock window size and position") : word(`${W}Lock`, "Lock window size and position")}</button>
 {#if compact}
@@ -41,4 +47,6 @@
   .sep { border: 0; border-top: 1px solid rgba(255, 255, 255, 0.15); margin: 4px 0; width: 100%; }
   /* (no line closing a menu with nothing of its own after the actions: the probe scanner) */
   .sep:last-child { display: none; }
+  /* the client's caption at 8 (the menu's top), its line 8 under it and the first entry at 52 (g377) */
+  :global(.fly-windows .log-menu) .caption.first { padding: 0 0 8px 4px; }
 </style>
