@@ -1021,8 +1021,8 @@
           <tbody>
             {#each shown as i (i.itemID)}
               {@const fa = facts[i.typeID]}
-              <tr class:selected={selected.includes(i.itemID)} draggable="true" onmouseenter={(e) => { hoverSound(e); itemTip(i, e); }} onmouseleave={itemTipOff} onclick={(e) => clickItem(i.itemID, e)} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
-                <td class="nm" class:hid={hiddenCols.includes(0)}>{#if viewMode === "details"}<span class="ricon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="md" /></span>{/if}{typeName(i.typeID)}</td>
+              <tr class:selected={selected.includes(i.itemID)} class:unseen={viewMode !== "details" && current === "cargo" && $unseenCargo.includes(i.itemID)} draggable="true" onmouseenter={(e) => { hoverSound(e); itemTip(i, e); }} onmouseleave={itemTipOff} onclick={(e) => clickItem(i.itemID, e)} ondragstart={(e) => dragStart(i.itemID, e)} oncontextmenu={(e) => itemMenu(i.itemID, e)}>
+                <td class="nm" class:hid={hiddenCols.includes(0)}>{#if viewMode === "details"}<span class="ricon"><TypeIcon typeID={i.typeID} name={typeName(i.typeID)} size="md" />{#if current === "cargo" && $unseenCargo.includes(i.itemID)}<span class="newtag" aria-hidden="true"></span>{/if}</span>{/if}{typeName(i.typeID)}</td>
                 <!-- uix columns (read through gridcheck): QUANTITY GetItemQty - none for a singleton; META_LEVEL FmtAmt where the
                      type has one (0 blank); TECH_LEVEL FmtAmt, and where evetypes has none the client prints None -->
                 <td class="num" class:hid={hiddenCols.includes(1)}>{i.singleton ? "" : i.quantity.toLocaleString("en-US")}</td>
@@ -1113,7 +1113,8 @@
   .ticon img { width: 22px; height: 22px; }
   .tlabel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ntag { flex: none; width: 2px; height: 16px; margin: 0 4px 0 auto; background: rgb(243, 144, 88); box-shadow: 0 0 4px rgba(243, 144, 88, 0.5); }
-  .item .icon .newtag { position: absolute; left: 0; right: 0; top: 0; height: 2px; background: rgb(243, 144, 88); box-shadow: 0 0 4px rgba(243, 144, 88, 0.5); z-index: 1; pointer-events: none; }
+  /* listentry.InvItem.Load: details - the line on the 32 px icon; list - TOTOP_NOPUSH across the entry */
+  .rows .ricon .newtag, .item .icon .newtag { position: absolute; left: 0; right: 0; top: 0; height: 2px; background: rgb(243, 144, 88); box-shadow: 0 0 4px rgba(243, 144, 88, 0.5); z-index: 1; pointer-events: none; }
   /* InvFilters: a drag area 8 high (its line at 3) over the filterHeaderCont, 24 high, padRight 8: expandFiltersBtn 24 wide
      with the 7 px Neocom arrowDown, the Label 14, createFilterBtn 24 x 24 with eveicon.add 16 at the right */
   .fbox { flex: none; display: flex; flex-direction: column; min-height: 0; }
@@ -1193,6 +1194,7 @@
   .rows th { overflow: hidden; text-overflow: clip; }
   .rows .scaler { position: absolute; top: 0; right: 0; width: 8px; height: 24px; cursor: col-resize; }
   .rows .scaler::after { content: ""; position: absolute; left: 3px; top: 4px; width: 1px; height: 16px; background: rgba(255, 255, 255, 0.15); }
+  .rows tr.unseen td { box-shadow: inset 0 2px 0 rgb(243, 144, 88); }
   .rows td { padding: 0 6px; height: 20px; white-space: nowrap; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
   /* the details' Item entry 42 high, its EveLabelMedium 14, the 32 px icon at 5, 5 and the text 9 after it (46) */
   .rows.details td { height: 42px; font-size: 14px; }
@@ -1211,7 +1213,7 @@
   .rows th .dir { position: absolute; right: 4px; top: 4px; width: 16px; height: 16px; opacity: 0.75; background: url(/client-res/ui/texture/eveicon/system_icons/caret_up_16px.png) center / 16px no-repeat; }
   .rows th .dir.down { background-image: url(/client-res/ui/texture/eveicon/system_icons/caret_down_16px.png); }
   .rows .nm { display: flex; align-items: center; gap: 9px; }
-  .ricon { width: 32px; height: 32px; display: grid; margin-left: 5px; }
+  .ricon { position: relative; width: 32px; height: 32px; display: grid; margin-left: 5px; }
   .ricon :global(.type-icon) { width: 32px; height: 32px; }
   .err { color: #d08a6a; }
   /* the selection frame, and a bay a drag may drop on */
