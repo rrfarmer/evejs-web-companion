@@ -4435,20 +4435,28 @@
   .fly-windows :global(.notice-log .log-table tr) { display: table; width: 100%; table-layout: fixed; }
   .fly-windows :global(.log-filter) { all: unset; width: 24px; height: 24px; display: grid; place-items: center; cursor: pointer; opacity: 0.8; }
   .fly-windows :global(.log-filter img) { width: 16px; height: 16px; }
-  .fly-windows :global(.log-menu) { position: absolute; left: 0; top: 24px; z-index: 5; display: flex; flex-direction: column; min-width: 180px; padding: 4px 0;
-    background: rgba(20, 22, 24, 0.97); border: 1px solid rgba(255, 255, 255, 0.15); }
-  .fly-windows :global(.log-menu .caption) { padding: 4px 10px 2px; font-size: 11px; color: rgba(255, 255, 255, 0.5); text-transform: uppercase; }
-  .fly-windows :global(.log-menu button) { all: unset; position: relative; padding: 3px 10px 3px 24px; font-size: 12px; cursor: default; }
-  .fly-windows :global(.log-menu button[aria-checked="true"])::before { content: "✓"; position: absolute; left: 8px; font-size: 11px; }
-  .fly-windows :global(.log-menu button:hover) { background: rgba(255, 255, 255, 0.1); }
+  /* a window's GetMenuMoreOptions is drawn as the client's ContextMenu (g373, the drones window's): the 8 px underlay framed
+     white 0.1, entries 22 high (a check box's or radio's 24) with their 14 px label at 36 (the menu's 8 + 28) in white 0.75,
+     hovered SMOKE_BLUE 0.2 and 0.9; a line 13 high; AddCaption's MenuEntryViewCaption a TextHeader 18 px in white 0.9 at 12,
+     22 below the line before it and 8 above the entry after */
+  .fly-windows :global(.log-menu) { position: absolute; left: 0; top: 24px; z-index: 5; display: flex; flex-direction: column; min-width: 180px; padding: 8px;
+    background: rgba(6, 10, 12, 0.92); backdrop-filter: blur(8px); border: 0; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+    font-size: 14px; color: rgba(255, 255, 255, 0.75); }
+  .fly-windows :global(.log-menu .caption) { padding: 13px 0 10px 4px; font-size: 18px; line-height: 23px; color: rgba(255, 255, 255, 0.9); }
+  .fly-windows :global(.log-menu button) { all: unset; position: relative; height: 22px; line-height: 22px; padding: 0 8px 0 28px; font-size: 14px; cursor: default; white-space: nowrap; }
+  .fly-windows :global(.log-menu button[role="menuitemcheckbox"]), .fly-windows :global(.log-menu button[role="menuitemradio"]) { height: 24px; line-height: 24px; }
+  .fly-windows :global(.log-menu button[aria-checked="true"])::before { content: "✓"; position: absolute; left: 6px; font-size: 12px; }
+  .fly-windows :global(.log-menu button:hover) { background: rgba(48, 86, 101, 0.2); color: rgba(255, 255, 255, 0.9); }
+  /* a check box's or radio's own mark (the actions' .check spans) at the icon's place, the label still at 36 */
+  .fly-windows :global(.log-menu button .check) { position: absolute; left: 6px; top: 0; width: 16px; text-align: center; }
   /* the combat settings' submenus: to the right of their entry, a caret on it; an entry whose setting depends on an off
      one greyed (isEnabled) */
   .fly-windows :global(.log-menu .log-sub-wrap) { position: relative; display: flex; flex-direction: column; }
   .fly-windows :global(.log-menu .has-sub)::after { content: "▸"; position: absolute; right: 8px; font-size: 10px; opacity: 0.7; }
   .fly-windows :global(.log-menu .has-sub) { padding-right: 24px; white-space: nowrap; }
-  .fly-windows :global(.log-menu .log-sub) { left: 100%; top: -5px; white-space: nowrap; }
-  .fly-windows :global(.log-menu button:disabled) { opacity: 0.4; pointer-events: none; }
-  .fly-windows :global(.log-menu .sep) { height: 1px; margin: 3px 0; background: rgba(255, 255, 255, 0.12); }
+  .fly-windows :global(.log-menu .log-sub) { left: 100%; top: -8px; white-space: nowrap; }
+  .fly-windows :global(.log-menu button:disabled) { color: rgb(128, 128, 128); pointer-events: none; }
+  .fly-windows :global(.log-menu .sep) { height: 1px; margin: 6px 0; background: rgba(255, 255, 255, 0.1); }
   .fly-windows :global(.log-menu .has-icon img) { position: absolute; left: 4px; top: 3px; width: 16px; height: 16px; }
   .fly-windows :global(.log-menu .destructive) { color: #ff6a5a; }
   /* LoggerWindow's scroll (read through gridcheck): its column headers 24 high, EveLabelSmall 12 at 8, Time 74 and Type 71
