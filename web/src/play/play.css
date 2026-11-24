@@ -120,8 +120,13 @@ button { font: inherit; color: inherit; }
 /* InSpaceBracket.UpdateFlagAndBackground: FadeTo(bgColor, 0 -> a, duration 0.75, ANIM_REPEAT, ANIM_WAVE) - one wave every 0.75 s */
 .bracket .bracket-bg.blink { animation: state-flag-blink 0.75s cubic-bezier(0.3333, 0, 0.6667, 1) infinite; }
 /* centred on the 16 px bracket as _UpdateLabelOffsets: (height - textheight) / 2 + 1 - one line at 1, a ship's two at -6 */
-.bracket .label { line-height: 1.25; position: absolute; left: 22px; top: 8.5px; transform: translateY(-50%); white-space: nowrap; font-size: 12px; color: #fff; /* BracketShadowLabel LabelCore white (g352) */
+.bracket .label { line-height: 16px; position: absolute; left: 22px; top: 1px; white-space: nowrap; font-size: 12px; color: #fff; /* BracketShadowLabel LabelCore white (g352) */
   text-shadow: 0 0 3px #000, 0 0 2px #000; display: none; }
+/* LabelCore STYLE_SMALLTEXT: each line 16 high (g389: a 12 px line 16, a ship's two lines 32); the label at 1, a two-line
+   one at -6 (g390, y_offset on Perimeter X / Maurasi and the Venture / Porpoise) */
+.bracket .label:has(br) { top: -6px; }
+/* (the 11 px second line on the 12 px strut grows the line box by a pixel unless its spans sit at the line's top) */
+.bracket .label span { vertical-align: top; }
 .bracket.label-left .label { left: auto; right: 22px; text-align: right; }
 .bracket:hover .label, .bracket.hovered .label, .bracket.selected .label, .bracket.objective-highlight .label { display: block; }
 .bracket.objective-highlight .glyph { filter: drop-shadow(0 0 3px #fff); }
