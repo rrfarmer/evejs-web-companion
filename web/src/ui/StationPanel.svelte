@@ -33,6 +33,7 @@
   // all (the read does not send it), so the m³ columns are empty in the bays
   // view. That is normal. Unknown renders as "—" / "not known", never 0.
   import { onMount, tick, untrack } from "svelte";
+  import { inventoryWindowsOpen, markPlaceSeen, type BadgePlace } from "../play/inventoryBadging.ts";
   import { shipHoldTarget } from "./shipHold.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import InventoryFilters from "./InventoryFilters.svelte";
@@ -275,6 +276,21 @@
   type View = "ship" | "ships" | "hangar" | "corp" | "safety" | "container" | "services";
 
   let view = $state<View>("ship");
+  // neocomInventoryBadging docked: this panel is the station's Inventory - an item made while it shows a hangar is not
+  // badged (Inventory.IsOpenByWindowClass), and a hangar shown is seen once another place is shown after it or the
+  // panel closes (OnInventoryContainerShown / OnStationServicesHangarDeselected / OnInventoryClosed)
+  const BADGE_PLACE: Partial<Record<View, BadgePlace>> = { hangar: "StationItems", ships: "StationShips" };
+  let shownPlace: BadgePlace | null = null;
+  $effect(() => {
+    const place = BADGE_PLACE[view] ?? null;
+    untrack(() => {
+      if (shownPlace && shownPlace !== place) markPlaceSeen(shownPlace);
+      if (!shownPlace && place) inventoryWindowsOpen.update((n) => n + 1);
+      if (shownPlace && !place) inventoryWindowsOpen.update((n) => n - 1);
+      shownPlace = place;
+    });
+  });
+  onMount(() => () => { if (shownPlace) { markPlaceSeen(shownPlace); inventoryWindowsOpen.update((n) => n - 1); shownPlace = null; } });
   let query = $state("");
   let itemFilters = $state<readonly InventoryFilter[]>([]);
   let filterPrices = $state<ReadonlyMap<number, number | null> | null>(null);
