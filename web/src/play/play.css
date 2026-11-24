@@ -767,6 +767,9 @@ button { font: inherit; color: inherit; }
 .ov-table th { position: sticky; top: 0; background: rgba(20, 22, 24, 0.97); text-align: left; font-weight: 400; color: var(--text-dim);
   padding: 3px 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
 .ov-table td { padding: 1px 6px; white-space: nowrap; height: 19px; border-bottom: 1px solid rgba(255, 255, 255, 0.025); }
+/* the Name cell in the row's own colour, as the client's (white, as the other cells - g341); the companion's .ov-name
+   (styles.css) gave it --color-text-bright */
+.ov-table .ov-name { color: inherit; }
 .ov-table tbody tr { cursor: pointer; }
 /* every scroll entry's ListEntryUnderlay (THEME_FOCUSDARK at 0.2 under the mouse, 0.4 selected): the d-scan's results too */
 .ov-table tbody tr:hover { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 20%, transparent); }
