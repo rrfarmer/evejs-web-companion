@@ -868,6 +868,8 @@
       const desc = descriptionID ? t[`#${descriptionID}`] : null;
       // AddSkillPlan with the tracked plan: its GetProgressRatio / GetInTrainingRatio and GetTotalTrainingTimeLeftText
       // (the tracked plan as the Skills poll keeps it, else read now)
+      // (and the kept one read again behind it, for the next hover after a plan tracked elsewhere)
+      if (trackedPlanKept) void s.flow.personalSkillPlans().then((r) => { if (r) trackedPlanKept = r.plans.find((p) => p.id === r.trackedID) ?? null; }).catch(() => {});
       const plans = trackedPlanKept ? null : await s.flow.personalSkillPlans().catch(() => null);
       const tracked = trackedPlanKept ?? plans?.plans.find((p) => p.id === plans.trackedID) ?? null;
       const readAt = Date.now();

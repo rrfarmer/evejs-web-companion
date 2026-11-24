@@ -245,7 +245,25 @@ function planGauge(plan: NonNullable<SkillTrainingTip["plan"]>): { el: HTMLEleme
   time.textContent = plan.time();
   // the top wedge (TOPLEFT_PROP 0.5, 0.035, 0.09 x 125/33 wide, 0.09 high), the label centred in it in TextColor.HIGHLIGHT
   Object.assign(time.style, { position: "absolute", left: "0", right: "0", top: `${0.035 * size}px`, height: `${0.09 * size}px`, lineHeight: `${0.09 * size}px`, textAlign: "center", fontSize: "10px", color: "rgba(255,255,255,0.9)" });
-  box.append(svg, time);
+  box.append(svg);
+  // UpdateTopWedge: a completed plan's completedUnderscore (a StretchSpriteHorizontal in the wedge, TOBOTTOM 24 high,
+  // top -18, padded -1 either side; LEAFY_GREEN) - shown at this radius too, being the wedge's child, not its
+  // background's. Measured in the live client (g316): 56 x 24 at 52, 13 of the 160 gauge; the texture 125 x 24, its
+  // ends 6 each kept and the middle stretched.
+  if (plan.completed) {
+    const url = clientTexture("res:/UI/Texture/classes/SkillPlan/milestones/completedUnderscore.png");
+    const under = document.createElement("div");
+    Object.assign(under.style, { position: "absolute", left: "52px", top: "13px", width: "56px", height: "24px", display: "flex" });
+    const s = 44 / 113;
+    for (const [w, size, pos] of [[6, "125px 24px", "0 0"], [44, `${125 * s}px 24px`, `${-6 * s}px 0`], [6, "125px 24px", "-119px 0"]] as const) {
+      const part = document.createElement("div");
+      const mask = `url("${url}") ${pos} / ${size} no-repeat`;
+      part.setAttribute("style", `width:${w}px;height:24px;flex:none;background:rgb(141,193,105);mask:${mask};-webkit-mask:${mask};`);
+      under.append(part);
+    }
+    box.append(under);
+  }
+  box.append(time);
   return { el: box, tick: () => { time.textContent = plan.time(); } };
 }
 let skillTipTimer: ReturnType<typeof setInterval> | null = null;
