@@ -1344,7 +1344,8 @@
   .row.grouphead { min-height: 24px; gap: 0; cursor: default; }
   .row.grouphead .star { margin-left: 2px; }
   .row.grouphead .name { margin-left: 4px; }
-  .row.grouphead .name { color: #fff; }
+  /* a group's label at white 0.9, as the client draws 'Miners (2)' (g340) */
+  .row.grouphead .name { color: rgba(255, 255, 255, 0.9); }
   /* ListGroup: the expander a 16 x 16 GlowSprite 4 px into the row; the favourite's star 2 px after it, the label 4 px after the star
      (measured on the live client, gridcheck: a DroneSubGroupInBay row - expander 22, star 40, label 60 from the window) */
   .expander { width: 16px; height: 16px; flex: none; background: center / 16px 16px no-repeat; }
