@@ -176,6 +176,8 @@ button { font: inherit; color: inherit; }
 .eve-menu-entry:disabled { opacity: 0.4; cursor: default; }
 .eve-menu-entry::before { content: ""; position: absolute; inset: 0; background: url(/client-res/ui/texture/classes/neocom/panelentrybg.png) center / 100% 100% no-repeat; opacity: 0; pointer-events: none; }
 .eve-menu-entry.nc-pe-blink::before { animation: nc-pe-blink 1s ease-in-out; }
+.eve-menu-entry.nc-pe-new { background: linear-gradient(rgba(159, 88, 58, 0.4), rgba(159, 88, 58, 0.4)) top / 100% calc(100% - 1px) no-repeat; }
+.eve-menu-entry.nc-pe-new:hover:not(:disabled) { background: url(/client-res/ui/texture/classes/neocom/panelentrybg.png) center / 100% 100% no-repeat, linear-gradient(rgba(159, 88, 58, 0.4), rgba(159, 88, 58, 0.4)) top / 100% calc(100% - 1px) no-repeat; }
 @keyframes nc-pe-blink { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
 /* ButtonIndicator: a 2 px Line at the button's right edge, centred; HighlightState.open 8 high in SILVER_GREY (0.69),
    active 16 high in THEME_ACCENT; height over 0.2 s, colour and opacity over 0.3 s (the live client, gridcheck g252) */

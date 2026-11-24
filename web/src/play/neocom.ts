@@ -58,6 +58,8 @@ const NEOCOM_TOOLTIPS: Readonly<Record<string, { cmd: string | null; name: strin
   // ButtonReward (loginRewards): OpenLoginRewardWindow, Daily Login Campaigns (the live client, gridcheck g291 / g292)
   loginRewards: { cmd: "OpenLoginRewardWindow", name: "Daily Login Campaigns", description: "Log in daily during active campaigns to receive your rewards" },
   chat: { cmd: "OpenChannels", name: "Chat Channels", description: "Browse available chat channels or create your own channel" },
+  // the EVE menu's Calendar (groupSocial): OpenCalendar, no description, no shortcut (the live client, g297)
+  calendar: { cmd: "OpenCalendar", name: "Calendar", description: "" },
 };
 /** tooltipHandler: a panel after the generic delay, the renew time (a fifth) while one shows or just closed. */
 function neocomTipOn(el: HTMLElement, id: string, blinkHint = ""): void {
@@ -278,6 +280,9 @@ export class Neocom {
       const ind = m.el.querySelector<HTMLElement>(".nc-ind");
       const state = m.ids.some((id) => !this.buttons.has(id) && this.important(id)) ? "important" : "";
       if (ind && ind.dataset.state !== state) ind.dataset.state = state;
+      // newActivityFill (DUSKY_ORANGE, padBottom 1): 0.4 while the node's own new activity lasts (a group has none)
+      const own = m.sub && m.ids.length === 1 && !this.buttons.has(m.ids[0]!) ? this.blinks.get(m.ids[0]!) : undefined;
+      m.el.classList.toggle("nc-pe-new", !!own && Date.now() < own.newUntil);
     }
   }
   /** ButtonSkills (skillsBtn): its gauges and its icon. */
@@ -359,7 +364,9 @@ export class Neocom {
             const id = item.id;
             this.menuEntries.push({ el: c, ids: [id], sub: true });
             // PanelEntryBase.OnMouseExit: SetHasNewActivityOff, ClearBlinkHint, SetBlinkingOff
-            c.addEventListener("mouseleave", () => { if (!this.buttons.has(id) && this.blinks.delete(id)) this.paintIndicators(); });
+            c.addEventListener("mouseleave", () => { neocomTipOff(); if (!this.buttons.has(id) && this.blinks.delete(id)) this.paintIndicators(); });
+            // PanelEntryBase.LoadTooltipPanel: the command tooltip and the blink hint in THEME_ALERT
+            c.addEventListener("mouseenter", () => neocomTipOn(c, id, this.buttons.has(id) ? "" : this.blinks.get(id)?.hint ?? ""));
           }
           if (item.id === null) { c.disabled = true; c.title = "Not in the play page yet"; }
           else c.addEventListener("click", () => { close(); open(item.id!); });
