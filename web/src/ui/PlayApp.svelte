@@ -57,7 +57,7 @@
   import NotificationFeed from "./NotificationFeed.svelte";
   import CrimewatchTimers from "./CrimewatchTimers.svelte";
   import { get as storeGet } from "svelte/store";
-  import { isListValue } from "../bridge/wire.ts";
+  import { isListValue, readDictPairs } from "../bridge/wire.ts";
   import { trackShip, itemChanged as badgeItemChanged, unseenCargo, inventoryWindowsOpen } from "../play/inventoryBadging.ts";
   import { hudSetting, hudSettingNow, setHudSetting, slotOrderOf } from "../store/hudSettings.ts";
   import { createSession, type Session } from "../app/sessions.ts";
@@ -1041,6 +1041,38 @@
           const hint = plainText(s.store.words.get().templates[label] ?? "") || (edit ? "Calendar event modified" : "New calendar event");
           neocomInst?.blink("calendar", hint);
           view?.neocomBlink("calendar", hint);
+        }
+        first = false;
+      });
+    });
+  });
+  // skillsvc.OnServerSkillsChanged: a level trained (a skill's trainedSkillLevel above the one held) - msg_SkillTrained_play
+  // and OnSkillLevelsTrained, the Skills button's completion animation
+  $effect(() => {
+    const s = session;
+    if (!s) return;
+    return untrack(() => {
+      const seen = new WeakSet<object>();
+      let first = true;
+      return s.store.live.subscribe((l) => {
+        for (const n of l.notifications) {
+          if (seen.has(n)) continue;
+          seen.add(n);
+          if (first || n.method !== "OnServerSkillsChanged" || !Array.isArray(n.args)) continue;
+          const held = new Map((s.store.skills.get().skills ?? []).map((r) => [r.typeID, r.level ?? 0]));
+          let trained = false;
+          for (const [key, info] of readDictPairs(n.args[0])) {
+            const typeID = Number(key);
+            // a CharacterSkillEntry (objectex1): its header's args (typeID, trainedSkillLevel, skillPoints, ...)
+            const header = (info as { header?: unknown } | null)?.header;
+            const args = Array.isArray(header) ? header[1] : null;
+            const level = Array.isArray(args) ? Number(args[1]) : NaN;
+            if (Number.isFinite(level) && held.has(typeID) && level > (held.get(typeID) ?? 0)) trained = true;
+          }
+          if (!trained) continue;
+          void playUiEvent("msg_SkillTrained_play");
+          neocomInst?.playSkillCompletion();
+          view?.neocomSkillCompleted();
         }
         first = false;
       });

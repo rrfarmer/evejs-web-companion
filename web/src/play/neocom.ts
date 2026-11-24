@@ -288,6 +288,66 @@ export class Neocom {
   /** ButtonSkills (skillsBtn): its gauges and its icon. */
   private readonly skills = document.createElement("button");
   private skillState: NeocomSkillState = null;
+  private skillAnimating = false;
+  /**
+   * SkillGauge.PlayCompletionAnimation (OnSkillLevelsTrained): the skill ring and its checkmark - scaled to 0.7 and faded
+   * out over 0.3 s; LEAFY_GREEN, full size again, the arc's start 1 -> 0 over 0.4 s and its end 1 -> 0 from 0.2 s over
+   * 0.4 s (a sweep round and away); 0.3 s on the ring whole, scaled 0.7 -> 1 (ANIM_OVERSHOT, 0.4 s); the checkmark
+   * (checkmark.png 42 x 37) masked and faded in over 0.3 s; 1 s held; all faded out over 0.3 s, the checkmark gone, the
+   * ring CRYO_BLUE on its value again, faded in over 0.6 s.
+   */
+  playSkillCompletion(): void {
+    const ring = this.skills.querySelector<SVGCircleElement>(".nc-sk-skill");
+    if (!ring || this.skillAnimating) return;
+    this.skillAnimating = true;
+    const C = 2 * Math.PI * 11;
+    let check = this.skills.querySelector<HTMLImageElement>(".nc-sk-check");
+    if (!check) {
+      check = document.createElement("img");
+      check.className = "nc-sk-check";
+      check.alt = "";
+      check.src = clientTexture("res:/UI/Texture/classes/Skills/checkmark.png");
+      this.skills.append(check);
+    }
+    const ck = check;
+    Object.assign(ring.style, { transformBox: "fill-box", transformOrigin: "center" });
+    const arc = (start: number, end: number) => { ring.style.strokeDasharray = `${Math.max(0, end - start) * C} 1000`; ring.style.strokeDashoffset = `${-start * C}`; };
+    const ease = "cubic-bezier(0.3333, 0, 0.6667, 1)";
+    ring.animate([{ transform: "scale(1)", opacity: 1 }, { transform: "scale(0.7)", opacity: 0 }], { duration: 300, easing: ease, fill: "forwards" });
+    setTimeout(() => {
+      for (const a of ring.getAnimations()) a.cancel();
+      ring.style.stroke = "rgb(141, 193, 105)";
+      arc(1, 1);
+      const t0 = performance.now();
+      const step = () => {
+        const t = (performance.now() - t0) / 1000;
+        const start = 1 - Math.min(1, t / 0.4), end = 1 - Math.min(1, Math.max(0, t - 0.2) / 0.4);
+        arc(start, end);
+        if (t < 0.6) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+      setTimeout(() => {
+        arc(0, 1);
+        ring.animate([{ transform: "scale(0.7)" }, { transform: "scale(1)" }], { duration: 400, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" });
+        setTimeout(() => {
+          ck.animate([{ opacity: 0, clipPath: "inset(0 100% 0 0)" }, { opacity: 1, clipPath: "inset(0 0 0 0)" }], { duration: 300, easing: ease, fill: "forwards" });
+          setTimeout(() => {
+            ring.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, easing: ease, fill: "forwards" });
+            ck.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, easing: ease, fill: "forwards" });
+            setTimeout(() => {
+              for (const a of [...ring.getAnimations(), ...ck.getAnimations()]) a.cancel();
+              ck.style.opacity = "0";
+              ring.style.stroke = "";
+              ring.style.strokeDashoffset = "";
+              this.skillAnimating = false;
+              this.setSkills(this.skillState);
+              ring.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 600, easing: ease });
+            }, 300);
+          }, 1300);
+        }, 400);
+      }, 900);
+    }, 300);
+  }
   /** What the Skills tooltip shows of the skill in training, read as the tooltip opens. */
   skillTip: (() => Promise<SkillTrainingTip | null>) | null = null;
   /** The EVE menu's panels, on the page's body. */
@@ -323,7 +383,7 @@ export class Neocom {
     const el = this.skills;
     el.dataset.state = state === null ? "" : state.training ? "training" : "idle";
     const ring = el.querySelector<SVGCircleElement>(".nc-sk-skill");
-    if (ring) ring.style.strokeDasharray = `${(state?.training ? state.progress : 0) * 2 * Math.PI * 11} 1000`;
+    if (ring && !this.skillAnimating) ring.style.strokeDasharray = `${(state?.training ? state.progress : 0) * 2 * Math.PI * 11} 1000`;
     // _UpdateSkillPlanGauge: a skill in training and a plan tracked - the plan ring is GetProgressRatio of it in
     // TUNGSTEN_GREY (additive); otherwise full (TUNGSTEN_GREY 0.1 training, THEME_ALERT 0.6 idle)
     const plan = el.querySelector<SVGCircleElement>(".nc-sk-plan");

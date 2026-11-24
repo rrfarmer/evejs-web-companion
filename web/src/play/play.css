@@ -209,6 +209,7 @@ button { font: inherit; color: inherit; }
 .nc-skills[data-state="training"][data-plan="tracked"] .nc-sk-plan { stroke: rgb(217, 217, 217); }
 .nc-skills[data-state="idle"] .nc-sk-plan { opacity: 1; }
 .nc-btn.nc-skills img.nc-sk-icon { visibility: hidden; }
+.nc-btn.nc-skills img.nc-sk-check { position: absolute; left: 3px; top: 5.5px; width: 42px; height: 37px; opacity: 0; pointer-events: none; mix-blend-mode: plus-lighter; }
 .nc-btn.nc-skills[data-state="idle"] img.nc-sk-icon { visibility: visible; }
 .nc-btn.nc-portrait img { width: 48px; height: 48px; opacity: 1; }
 .nc-btn:hover { background: url(/client-res/ui/texture/classes/neocom/buttonhover.png) center / 100% 100% no-repeat; }
