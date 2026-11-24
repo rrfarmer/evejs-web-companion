@@ -1578,6 +1578,9 @@
     OpenLocations: "locations", OpenAgencyNew: "finder", OpenJobBoardWindow: "jobBoard", OpenAssets: "assets", OpenIndustry: "industry", OpenLedger: "miningLedger",
     OpenAchievementsWindow: "achievements", OpenFleetWatchlist: "watchlist", OpenStructureBrowser: "structureBrowser",
     ToggleTheatersOfWarWindow: "theatersOfWar", CmdToggleShipTree: "shipTree",
+    // (ToggleOpenClose in the client too: ContractsWindow, CorporationWindow, NotepadWindow, PlanetWindow, the comparison
+    // tool, the redeem window)
+    OpenContracts: "contracts", OpenCorporationPanel: "corporation", OpenNotepad: "notepad", OpenPlanets: "planets", OpenCompare: "compare", ToggleRedeemItems: "redeem",
   };
   // The star map (play/starMap.ts): the Neocom's Map button and F10 (the client's OpenMapBrowser shortcut, its map
   // view) open it over the view and close it again; Escape closes it.
