@@ -2669,6 +2669,13 @@
       boardShip: (id, typeID) => { void s.flow.boardSpaceShip(id, typeID).catch(() => {}); },
       setName: (id, current) => { namingItem = { itemID: id, value: current }; s.flow.requestWords(["UI/Menusvc/SetName", "UI/Menusvc/TypeInNewName", "UI/Common/PleaseTypeSomething", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel"]); },
       inFleet: () => s.store.fleet.get().availability === "ready",
+      fleetCommander: () => {
+        const fleetState = s.store.fleet.get();
+        const me = s.store.station.get().online?.characterID ?? null;
+        const mine = (fleetState.fleet?.initState.value.members ?? []).find((m) => Number(m.charID) === me);
+        return !!mine && (mine.role === 1 || mine.role === 2 || mine.role === 3);
+      },
+      tagItem: (id, tag) => void s.flow.tagFleetItem(id, tag).catch(() => {}),
       fleetID: () => s.store.fleet.get().fleet?.fleetID ?? null,
       abandonLoot: (itemID, all) => void s.flow.abandonLoot(itemID, all).catch(() => {}),
       routeNext: () => routeNextNow,

@@ -2877,6 +2877,8 @@ export interface AppFlow {
   broadcastHealMe(name: "HealArmor" | "HealShield" | "HealCapacitor", shipID: number): Promise<boolean>;
   /** fleetSvc.CycleBroadcastScope (CmdCycleFleetBroadcastScope): Down -> Up -> All -> Down, FleetBroadcastScopeChange said. */
   cycleBroadcastScope(): void;
+  /** menusvc.TagItem: CmdFleetTagTarget(itemID, tag) on the park; None takes the tag off. */
+  tagFleetItem(itemID: number, tag: string | null): Promise<void>;
   /** fleetSvc.broadcastScope: who the pilot's broadcasts go to (evefleet BROADCAST_DOWN 1, UP 2, ALL 3). */
   broadcastScope(): number;
   /**
@@ -17804,6 +17806,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const t = store.words.get().templates[label];
     const name = typeof t === "string" && t !== "" ? plainText(t) : own;
     sayDialog("FleetBroadcastScopeChange", { type: "dict", entries: [["name", name]] }, `Fleet broadcasts now go to: ${name}`);
+  }
+  // menusvc.TagItem (2826): michelle.GetRemotePark().CmdFleetTagTarget(itemID, tag)
+  async function tagFleetItem(itemID: number, tag: string | null): Promise<void> {
+    await tagFleetTarget(bridgeDo, itemID, tag);
   }
   async function broadcastHealMe(name: "HealArmor" | "HealShield" | "HealCapacitor", shipID: number): Promise<boolean> {
     if (store.fleet.get().availability !== "ready") {
@@ -38201,6 +38207,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     broadcastToFleet,
     broadcastHealMe,
     cycleBroadcastScope,
+    tagFleetItem,
     broadcastScope: () => broadcastScope,
     compressItemAt,
     deployItems,

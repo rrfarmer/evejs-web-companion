@@ -368,6 +368,10 @@ export interface SpaceActions {
   fleetTagAndTarget?(itemID: number): string;
   /** The pilot is in a fleet (session.IsPilotFleetMember). */
   inFleet?(): boolean;
+  /** session.IsPilotFleetCommander: the pilot's fleet role one of fleetCmdrRoles (leader, wing or squad commander). */
+  fleetCommander?(): boolean;
+  /** menusvc.TagItem: the park's CmdFleetTagTarget(itemID, tag), None taking the tag off. */
+  tagItem?(itemID: number, tag: string | null): void;
   /** The pilot's fleet's ID, or null (Michelle.HaveLootRight's fleet). */
   fleetID?(): number | null;
   /** menuFunctions.AbandonLoot (one) / AbandonAllLoot (all of its group the pilot may loot). */
@@ -1418,6 +1422,8 @@ export class SpaceView {
   }
   private dscan: DScanWindow | null = null;
   private dscanKey: { code: string; targeted: boolean } | null = null;
+  /** eveCommands.commandMemory: each tag sequence command's next place (ResetTagSequences clears it). */
+  private readonly tagMemory = new Map<string, number>();
   /** The arrow keys held (CmdFlightControlsUp / Down / Left / Right, by the key's code) and whether a modifier is. */
   private readonly steerKeys = new Map<string, "up" | "down" | "left" | "right">();
   private steerMods = false;
@@ -3599,6 +3605,9 @@ export class SpaceView {
     const scanFromSlider = cmd === "CmdRefreshDirectionalScan" && t instanceof HTMLInputElement
       && t.type === "range" && this.dscan?.window.root.contains(t);
     if (!scanFromSlider && t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    // ResetTagSequences: commandMemory cleared; a CmdTagItem_* outside a fleet does nothing (not loaded)
+    if (cmd === "ResetTagSequences") { e.preventDefault(); this.tagMemory.clear(); return; }
+    if (cmd.startsWith("CmdTagItem_") && !this.actions.inFleet?.()) { e.preventDefault(); return; }
     if (isCombatCommand(cmd)) {
       e.preventDefault();
       if (!this.combat && !this.dscanKey) this.loadCombat(cmd, e.code);
@@ -3941,6 +3950,17 @@ export class SpaceView {
     void playUiEvent("ui_radial_select_play");
     const e = this.snapshot?.entities.find((each) => each.itemID === id) ?? null;
     const run = (title: string, fn: () => Promise<void>) => void this.act(title, fn).then(() => this.refreshTargets());
+    // MakeCmdTagItem / MakeCmdTagItemFromSequence: in a fleet, TagItem(itemID, tag); a sequence's tag the next of its
+    // memory (commandMemory), wrapping; CmdTagItem_None takes the tag off
+    const tag = /^CmdTagItem_(\w+)$/.exec(cmd)?.[1];
+    if (tag !== undefined) {
+      if (!this.actions.inFleet?.()) return;
+      if (tag === "None" || tag.length === 1) { this.actions.tagItem?.(id, tag === "None" ? null : tag); return; }
+      const index = this.tagMemory.get(cmd) ?? 0;
+      this.tagMemory.set(cmd, (index + 1) % tag.length);
+      this.actions.tagItem?.(id, tag[index]!);
+      return;
+    }
     switch (cmd) {
       case "CmdApproachItem": run("Approach", () => this.actions.approach(id)); break;
       case "CmdOrbitItem": run("Orbit", () => this.actions.orbit(id)); break;
@@ -5306,6 +5326,15 @@ export class SpaceView {
     else if (!lockingNow && !planetMoonBelt && this.snapshot?.ship?.typeID !== 670) {
       const lockRange = this.actions.shipAttribute?.(76) ?? null;
       if (lockRange === null || dist <= lockRange) out.push({ path: "UI/Inflight/LockTarget", label: word("UI/Inflight/LockTarget", "Lock Target"), icon: I("target"), run: run("Lock Target", () => this.lockTracked(id)) });
+    }
+    // OfferFleetTagItem (not the pilot's own ship, a planet, moon or belt; a fleet commander): Tag Item - Number ( 0 to
+    // 9) and Letter ( A to J, X, Y, Z) - and Untag Item
+    if (!e.isSelf && !planetMoonBelt && this.actions.inFleet?.() && this.actions.fleetCommander?.() && this.actions.tagItem) {
+      const tagEntry = (t: string) => ({ label: ` ${t}`, run: () => this.actions.tagItem?.(id, t) });
+      out.push(null, { path: "UI/Fleet/FleetSubmenus/FleetTagItem", label: word("UI/Fleet/FleetSubmenus/FleetTagItem", "Tag Item"), sub: [
+        { path: "UI/Fleet/FleetTagNumber", label: word("UI/Fleet/FleetTagNumber", "Number"), sub: [..."0123456789"].map(tagEntry) },
+        { path: "UI/Fleet/FleetTagLetter", label: word("UI/Fleet/FleetTagLetter", "Letter"), sub: [..."ABCDEFGHIJXYZ"].map(tagEntry) },
+      ] }, { path: "UI/Fleet/FleetSubmenus/UntagItem", label: word("UI/Fleet/FleetSubmenus/UntagItem", "Untag Item"), run: () => this.actions.tagItem?.(id, null) });
     }
     out.push(null, showInfo);
     // _CelestialMenu (2050): a ship with a pilot not the pilot's own, "Pilot (<name>)" with the CharacterMenu after Show Info, a group of its own (read through gridcheck)

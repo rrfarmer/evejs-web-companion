@@ -100,6 +100,8 @@ export const COMBAT_COMMANDS = [
   "CmdApproachItem", "CmdOrbitItem", "CmdKeepItemAtRange", "CmdWarpToItem", "CmdDockOrJumpOrActivateGate", "CmdAlignToItem",
   "CmdShowItemInfo", "CmdLockTargetItem", "CmdUnlockTargetItem", "CmdSelectTargetItem", "CmdToggleLookAtItem", "CmdToggleTargetItem", "CmdOpenSelectedCargoContainer", "CmdGetLocationMenuForNavigation", "CmdOpenRadialMenu", "CmdSendBroadcast_Target",
   "CmdSendBroadcast_HealTarget", "CmdSendBroadcast_WarpToItemID", "CmdSendBroadcast_AlignToItemID", "CmdSendBroadcast_JumpToItemID",
+  "CmdTagItem_1", "CmdTagItem_2", "CmdTagItem_3", "CmdTagItem_A", "CmdTagItem_B", "CmdTagItem_C", "CmdTagItem_X", "CmdTagItem_Y", "CmdTagItem_Z",
+  "CmdTagItem_None", "CmdTagItem_123", "CmdTagItem_ABC", "CmdTagItem_XYZ", "CmdTagItem_123456789", "CmdTagItem_ABCDEFGHI",
 ] as const;
 export type CombatCommand = (typeof COMBAT_COMMANDS)[number];
 export const isCombatCommand = (cmd: string): cmd is CombatCommand => (COMBAT_COMMANDS as readonly string[]).includes(cmd);
