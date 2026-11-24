@@ -152,7 +152,7 @@
   import { clientTexture } from "../play/window.ts";
   import { techLevelIcon } from "../play/techLevelIcon.ts";
   import { raiseClientNotification } from "./clientNotifications.ts";
-  import { planProgressAt, timeLeftShowTo, type PersonalSkillPlanEntry } from "../bridge/skillPlans.ts";
+  import { planCompleted, planProgressAt, timeLeftShowTo, type PersonalSkillPlanEntry } from "../bridge/skillPlans.ts";
   import { OPEN_CARGO_LABEL } from "../play/containerInteraction.ts";
   import { ENTER_WORMHOLE_LABEL } from "../bridge/placeChanges.ts";
   import { POLARIZED_LABEL } from "../play/wormholePolarization.ts";
@@ -1125,6 +1125,19 @@
           void sayTrained(levels);
           neocomInst?.playSkillCompletion();
           view?.neocomSkillCompleted();
+          // skillPlanService.OnSkillLevelsTrained: the tracked plan complete, and one of the levels trained among its
+          // requirements -> on_tracked_plan_completed: the Skills button's plan ring plays its completion
+          void s.flow.personalSkillPlans().then((r) => {
+            const plan = r?.plans.find((p) => p.id === r.trackedID);
+            if (!plan) return;
+            const now = new Map(held);
+            for (const [typeID, level] of levels) now.set(typeID, Math.max(now.get(typeID) ?? 0, level));
+            const required = new Set(plan.requirements.map(([t, l]) => `${t}:${l}`));
+            if (planCompleted(plan, (t) => now.get(t) ?? 0) && levels.some(([t, l]) => required.has(`${t}:${l}`))) {
+              neocomInst?.playPlanCompletion();
+              view?.neocomPlanCompleted();
+            }
+          }).catch(() => {});
         }
         first = false;
       });

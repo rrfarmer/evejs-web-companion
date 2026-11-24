@@ -1088,6 +1088,7 @@ export class SpaceView {
   /** The Skills tooltip's training rows (Neocom.skillTip). */
   neocomSkillTip(read: Neocom["skillTip"]): void { if (this.neocom) this.neocom.skillTip = read; }
   neocomSkillCompleted(): void { this.neocom?.playSkillCompletion(); }
+  neocomPlanCompleted(): void { this.neocom?.playPlanCompletion(); }
   private readonly shipHud: ShipHud | NewShipHud = hudSettingNow("shipHudNew_preview") ? new NewShipHud() : new ShipHud({ slots: { hi: 0, med: 0, low: 0 } });
   private readonly targetBar = new TargetBar();
   /** Lock requests awaiting a response, keyed by target ID and local start time. */

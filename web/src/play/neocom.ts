@@ -289,6 +289,7 @@ export class Neocom {
   private readonly skills = document.createElement("button");
   private skillState: NeocomSkillState = null;
   private skillAnimating = false;
+  private planRatio: number | null = null;
   /**
    * SkillGauge.PlayCompletionAnimation (OnSkillLevelsTrained): the skill ring and its checkmark - scaled to 0.7 and faded
    * out over 0.3 s; LEAFY_GREEN, full size again, the arc's start 1 -> 0 over 0.4 s and its end 1 -> 0 from 0.2 s over
@@ -296,11 +297,17 @@ export class Neocom {
    * (checkmark.png 42 x 37) masked and faded in over 0.3 s; 1 s held; all faded out over 0.3 s, the checkmark gone, the
    * ring CRYO_BLUE on its value again, faded in over 0.6 s.
    */
-  playSkillCompletion(): void {
-    const ring = this.skills.querySelector<SVGCircleElement>(".nc-sk-skill");
-    if (!ring || this.skillAnimating) return;
-    this.skillAnimating = true;
-    const C = 2 * Math.PI * 11;
+  playSkillCompletion(): void { this.playGaugeCompletion("skill"); }
+  /** SkillPlanGauge._PlayCompletionAnimation (OnTrackedSkillPlanCompleted): 0.15 s, then BaseGauge's, in COPPER_OXIDE_GREEN, no checkmark. */
+  playPlanCompletion(): void { setTimeout(() => this.playGaugeCompletion("plan"), 150); }
+  private readonly gaugeAnimating = new Set<string>();
+  private playGaugeCompletion(which: "skill" | "plan"): void {
+    const ring = this.skills.querySelector<SVGCircleElement>(which === "skill" ? ".nc-sk-skill" : ".nc-sk-plan");
+    if (!ring || this.gaugeAnimating.has(which)) return;
+    this.gaugeAnimating.add(which);
+    if (which === "skill") this.skillAnimating = true;
+    const C = 2 * Math.PI * (which === "skill" ? 11 : 18);
+    const withCheck = which === "skill";
     let check = this.skills.querySelector<HTMLImageElement>(".nc-sk-check");
     if (!check) {
       check = document.createElement("img");
@@ -316,7 +323,8 @@ export class Neocom {
     ring.animate([{ transform: "scale(1)", opacity: 1 }, { transform: "scale(0.7)", opacity: 0 }], { duration: 300, easing: ease, fill: "forwards" });
     setTimeout(() => {
       for (const a of ring.getAnimations()) a.cancel();
-      ring.style.stroke = "rgb(141, 193, 105)";
+      ring.style.stroke = which === "skill" ? "rgb(141, 193, 105)" : "rgb(65, 89, 49)";
+      ring.style.opacity = "1";
       arc(1, 1);
       const t0 = performance.now();
       const step = () => {
@@ -330,7 +338,7 @@ export class Neocom {
         arc(0, 1);
         ring.animate([{ transform: "scale(0.7)" }, { transform: "scale(1)" }], { duration: 400, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" });
         setTimeout(() => {
-          ck.animate([{ opacity: 0, clipPath: "inset(0 100% 0 0)" }, { opacity: 1, clipPath: "inset(0 0 0 0)" }], { duration: 300, easing: ease, fill: "forwards" });
+          if (withCheck) ck.animate([{ opacity: 0, clipPath: "inset(0 100% 0 0)" }, { opacity: 1, clipPath: "inset(0 0 0 0)" }], { duration: 300, easing: ease, fill: "forwards" });
           setTimeout(() => {
             ring.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, easing: ease, fill: "forwards" });
             ck.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, easing: ease, fill: "forwards" });
@@ -339,8 +347,10 @@ export class Neocom {
               ck.style.opacity = "0";
               ring.style.stroke = "";
               ring.style.strokeDashoffset = "";
-              this.skillAnimating = false;
-              this.setSkills(this.skillState);
+              ring.style.opacity = "";
+              this.gaugeAnimating.delete(which);
+              if (which === "skill") this.skillAnimating = false;
+              this.setSkills(this.skillState, this.planRatio);
               ring.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 600, easing: ease });
             }, 300);
           }, 1300);
@@ -380,6 +390,7 @@ export class Neocom {
    */
   setSkills(state: NeocomSkillState, planRatio: number | null = null): void {
     this.skillState = state;
+    this.planRatio = planRatio;
     const el = this.skills;
     el.dataset.state = state === null ? "" : state.training ? "training" : "idle";
     const ring = el.querySelector<SVGCircleElement>(".nc-sk-skill");
@@ -389,7 +400,7 @@ export class Neocom {
     const plan = el.querySelector<SVGCircleElement>(".nc-sk-plan");
     const tracked = !!state?.training && planRatio !== null;
     el.dataset.plan = tracked ? "tracked" : "";
-    if (plan) plan.style.strokeDasharray = tracked ? `${Math.max(0, Math.min(1, planRatio as number)) * 2 * Math.PI * 18} 1000` : "";
+    if (plan && !this.gaugeAnimating.has("plan")) plan.style.strokeDasharray = tracked ? `${Math.max(0, Math.min(1, planRatio as number)) * 2 * Math.PI * 18} 1000` : "";
   }
   setPortrait(url: string | null): void {
     if (url) this.portrait.src = url; else this.portrait.removeAttribute("src");
