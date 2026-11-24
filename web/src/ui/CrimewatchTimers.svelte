@@ -10,11 +10,14 @@
   // PlayActiveAnimation pulses the pointer and gauge 1 / 0.75 each second; in its last BLINK_BEFORE_DONE_TIME 5 s the
   // icon blinks (FlipFlop, 1 s, 5 loops) with its endingAudioEvent; a new or renewed timer plays its resetAudioEvent.
   // Not ported: the slots' slide left as one goes (ShiftLeft), the at-war icon (the pilot is
-  // at war with no one here), the jump / booster / engagement / abyssal timers (the page reads only the five).
+  // at war with no one here), the jump / booster / engagement / abyssal timers.
   import { crimewatchTimers, type CrimewatchTimerView } from "../space/crimewatch.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { clientTexture } from "../play/window.ts";
   import { playUiEvent } from "../play/uiAudio.ts";
+  import { unwrapLong } from "../bridge/wire.ts";
+  import { untrack } from "svelte";
+  import { filetimeToMs } from "../space/crimewatch.ts";
 
   let { store }: { store: ClientStore } = $props();
   const flight = store.flight;
@@ -27,6 +30,10 @@
     pvp: { icon: "Crimewatch_Combat", rgb: RED, maxMs: 900000, start: "crimewatch_log_off_timer_new_play", end: "crimewatch_log_off_timer_end_play", tip: "<b>Capsuleer Log-Off Timer</b>\n<b>Cause:</b> Combat with another capsuleer\n<b>Consequence:</b> Ship will remain in space on log-off until timer expires" },
     suspect: { icon: "Crimewatch_SuspectCriminal", rgb: YELLOW, maxMs: 900000, start: "crimewatch_criminal_timer_play", end: "crimewatch_criminal_timer_end_play", tip: "<b>Suspect Timer</b>\n<b>Cause:</b> Committed a \"suspect\"-level offense\n<b>Consequence:</b> Capsuleers may freely engage" },
     criminal: { icon: "Crimewatch_SuspectCriminal", rgb: RED, maxMs: 900000, start: "crimewatch_criminal_timer_play", end: "crimewatch_criminal_timer_end_play", tip: "<b>Criminal Timer</b>\n<b>Cause:</b> Committed a \"criminal\"-level offense\n<b>Consequence:</b> Capsuleers may freely engage. CONCORD will engage in high-sec space" },
+    // TimerType.JumpCloak / Invulnerable (CRIMEWATCH_TIMER_DATA, g281): cyan (0, 1, 1), no sounds, their maxTimeout the
+    // duration the notice gives (SetExpiryTime maxDuration)
+    jumpcloak: { icon: "jump_cloak", rgb: "0, 255, 255", maxMs: 30000, start: "", end: "", tip: "<b>Jump Cloak Timer</b>\n<b>Cause:</b> Residual effects from your most recent gate jump.\n<b>Consequence:</b> Ship is cloaked and invulnerable. Effect dissipates immediately if ship moves." },
+    invulnerable: { icon: "invulnerable", rgb: "0, 255, 255", maxMs: 30000, start: "", end: "", tip: "<b>Location Change Timer</b> \n<b>Cause:</b> A recent change in location.\n<b>Consequence:</b> Ship is invulnerable. Invulnerability period will end early if a target is locked, an offensive module is activated, or ship is moved." },
     disapproval: { icon: "Crimewatch_Disapproval", rgb: YELLOW, maxMs: 300000, start: "crimewatch_weapons_timer_play", end: "crimewatch_weapons_timer_end_play", tip: "<b>Retribution Timer</b>\n<b>Cause:</b> Committed a retribution-level offense.\n<b>Consequence:</b> Capsuleers may freely engage in Zarzakh. Pirate groups will engage in Zarzakh." },
   };
   const keyOf = (t: CrimewatchTimerView): string => (t.kind === "criminal" && t.word === "Suspect" ? "suspect" : t.kind);
@@ -34,7 +41,46 @@
   let now = $state(Date.now());
   $effect(() => { const t = setInterval(() => { now = Date.now(); }, 50); return () => clearInterval(t); });
   const reading = $derived($flight.crimewatch);
-  const views = $derived(reading ? crimewatchTimers(reading.states, now + reading.clockOffsetMs) : []);
+  // TimerContainer's OnJumpCloakUpdated (shipID, endTime, duration) / OnJumpCloakCancelled, OnInvulunOnUndockingUpdated and
+  // OnRestoringInvulnUpdated (shipID, endTime, duration) / OnInvulnCancelled - the server's notices, as EveJS sends them
+  // (space/transitions.js, scene/cloaking.js, spaceRuntime/timedInvulnerability.js), from the live channel
+  const live = store.live;
+  let extra = $state<Record<string, { endMs: number; maxMs: number }>>({});
+  // subscribed untracked: the callback runs at once and reads / writes extra, which must not make the effect depend on it
+  // (it looped - effect_update_depth - and wedged the strip in h2439 - h2443)
+  $effect(() => untrack(() => {
+    // every notice, the held ones too (their ends are absolute: a past one shows nothing, a later cancel still wins), so an
+    // undock notice that came as the strip mounts is not lost
+    const seen = new WeakSet<object>();
+    return live.subscribe((l) => {
+      for (const n of l.notifications) {
+        if (seen.has(n)) continue;
+        seen.add(n);
+        const a = Array.isArray(n.args) ? n.args : [];
+        const big = (v: unknown) => { const x = unwrapLong(v); return x === null ? (typeof v === "number" ? BigInt(Math.trunc(v)) : null) : BigInt(x); };
+        const set = (k: string) => {
+          const end = big(a[1]), dur = big(a[2]);
+          const endMs = end === null ? null : filetimeToMs(String(end));
+          if (endMs === null) return;
+          extra = { ...extra, [k]: { endMs, maxMs: dur === null ? 30000 : Number(dur / 10000n) } };
+        };
+        const drop = (k: string) => { if (extra[k]) { const { [k]: _, ...rest } = extra; extra = rest; } };
+        if (n.method === "OnJumpCloakUpdated") set("jumpcloak");
+        else if (n.method === "OnInvulunOnUndockingUpdated" || n.method === "OnRestoringInvulnUpdated") set("invulnerable");
+        else if (n.method === "OnJumpCloakCancelled") drop("jumpcloak");
+        else if (n.method === "OnInvulnCancelled") drop("invulnerable");
+      }
+    });
+  }));
+  const views = $derived([
+    ...(reading ? crimewatchTimers(reading.states, now + reading.clockOffsetMs) : []),
+    ...Object.entries(extra).flatMap(([k, t]) => {
+      const left = t.endMs - (now + (reading?.clockOffsetMs ?? 0));
+      return left > 0 ? [{ kind: k, word: k, phase: "timer", remainingMs: left } as unknown as CrimewatchTimerView] : [];
+    }),
+  ]);
+  // their maxTimeout is the duration their notice gave
+  $effect(() => { for (const [k, t] of Object.entries(extra)) LOOKS[k]!.maxMs = t.maxMs; });
 
   // the slots in the order each timer first came
   let order = $state<string[]>([]);
@@ -63,13 +109,13 @@
       const end = v.remainingMs === null ? null : Math.round((now + v.remainingMs) / 1000);
       const was = lastEnd.get(k);
       if (!lastEnd.has(k) || (end !== null && was !== null && was !== undefined && end > was + 1) || (end === null && was !== null)) {
-        void playUiEvent(LOOKS[k]!.start);
+        if (LOOKS[k]!.start) void playUiEvent(LOOKS[k]!.start);
         const from = lastEnd.has(k) ? shownRatio(k, v) : 0;
         const target = realRatio(k, v);
         rewinds.set(k, { from, at: now, dur: Math.max(0, (target - from) * (1 - from) * 500) });
       }
       lastEnd.set(k, end);
-      if (v.remainingMs !== null && v.remainingMs < 5000 && !ending.has(k)) { ending.add(k); void playUiEvent(LOOKS[k]!.end); }
+      if (v.remainingMs !== null && v.remainingMs < 5000 && !ending.has(k)) { ending.add(k); if (LOOKS[k]!.end) void playUiEvent(LOOKS[k]!.end); }
       if (v.remainingMs === null || v.remainingMs >= 5000) ending.delete(k);
     }
     for (const k of [...lastEnd.keys()]) if (!present.has(k)) {
