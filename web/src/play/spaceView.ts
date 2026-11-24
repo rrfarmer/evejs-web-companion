@@ -2694,7 +2694,9 @@ export class SpaceView {
     const view = this.options.viewPlanet;
     return entity.kind === "planet" && view ? {
       key: "planet", title: this.actions.word?.("UI/PI/Common/ViewInPlanetMode") ?? "View in Planet Mode",
-      icon: clientTexture("res:/UI/Texture/icons/77_32_34.png"), run: () => view(entity.itemID),
+      // actionConst ViewInPlanetMode eveicon.enter_planet_view (the live client's button: selectedItemViewInPlanetMode
+      // enter_planet_view_32px, g328 - not selectedItemConst ICON_PLANET_VIEW 77_32_34, which the radial keeps)
+      icon: clientTexture("res:/UI/Texture/eveicon/control_icons/enter_planet_view_32px.png"), run: () => view(entity.itemID),
     } : null;
   }
 
