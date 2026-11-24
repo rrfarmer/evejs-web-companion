@@ -1,9 +1,10 @@
 // The ship bracket's label (bracketMgr.GetDisplayNameWithShipLabels), as the Overview Settings Ships panel sets it:
 // each part of stateSvc.GetShipLabels in order - ship type, alliance, corporation, ship name, the free text (type
 // null), line breaks, pilot name - each on or off with its pre / post text, bold, italic, underline, font size and
-// colour. The defaults are the 3698585 client's (GetShipLabels read through gridcheck); the pilot's own are kept in
+// colour. The default is the 3698585 client's GetAllShipLabels (GetShipLabels gives a pilot's saved labels, which the old default
+// was read from); the pilot's own are kept in
 // this browser. Used for every bracket of a thing with a corporation that is not an orbital (the client's rule), so a
-// drone's too: "<b>Mining Drone I</b><br>[Mining Drone I] -", as the client itself builds it.
+// drone's too, as the client itself builds it.
 
 import { isNpcCorporation } from "../bridge/ownerInfo.ts";
 
@@ -21,21 +22,14 @@ export interface ShipLabelPart {
   color?: number[] | null;
 }
 
-export const DEFAULT_SHIP_LABELS: readonly ShipLabelPart[] = [
-  { type: "ship type", state: true, pre: "", post: "", bold: true, color: [1, 1, 1], fontsize: 12 },
-  { type: "alliance", state: true, pre: " [", post: "]", color: [1, 0.914, 0], fontsize: 12 },
-  { type: "corporation", state: true, pre: " [", post: "]", fontsize: 11 },
-  { type: "ship name", state: false, pre: " ", post: "", italic: true },
-  { type: null, state: true, pre: "", post: "" },
-  { type: "linebreak", state: true, pre: "", post: "" },
-  { type: "pilot name", state: true, pre: "[", post: "] -", fontsize: 11 },
-];
 
 /**
  * The Ships panel menu's formats (stateSvc.SetDefaultShipLabel: default, ally, corpally), read from the client; each with
  * Hide corp ticker if pilot is in Alliance off (GetDefaultSettingValueFromName).
  */
 export const SHIP_LABEL_PRESETS: Readonly<Record<"default" | "ally" | "corpally", readonly ShipLabelPart[]>> = {"default":[{"type":"ship type","state":true,"pre":"","post":" "},{"type":"alliance","state":true,"pre":"<","post":">"},{"type":"corporation","state":true,"pre":"[","post":"]"},{"type":"pilot name","state":true,"pre":" ","post":" "},{"type":"ship name","state":false,"pre":"'","post":"'"},{"type":null,"state":false,"pre":"[","post":""}],"ally":[{"type":"pilot name","state":true,"pre":"","post":""},{"type":"corporation","state":true,"pre":" [","post":""},{"type":"alliance","state":true,"pre":",","post":""},{"type":null,"state":true,"pre":"]","post":""},{"type":"ship name","state":false,"pre":"'","post":"'"},{"type":"ship type","state":false,"pre":"(","post":")"}],"corpally":[{"type":"corporation","state":true,"pre":" [","post":"]"},{"type":"pilot name","state":true,"pre":"","post":""},{"type":"alliance","state":true,"pre":"<","post":">"},{"type":"ship name","state":false,"pre":"'","post":"'"},{"type":"ship type","state":false,"pre":"(","post":")"},{"type":null,"state":false,"pre":"[","post":"]"}]} as Readonly<Record<"default" | "ally" | "corpally", readonly ShipLabelPart[]>>;
+/** stateSvc.GetAllShipLabels: the default a pilot has until they set their own (the Ships panel's default format). */
+export const DEFAULT_SHIP_LABELS: readonly ShipLabelPart[] = SHIP_LABEL_PRESETS.default;
 
 const KEY = "evejs.ui.overview.shipLabels";
 export interface ShipLabelSettings { labels: ShipLabelPart[]; hideCorpTicker: boolean }
