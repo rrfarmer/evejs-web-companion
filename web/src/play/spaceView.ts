@@ -2035,11 +2035,22 @@ export class SpaceView {
       if (this.moveCmd && (e.buttons & 1)) this.abortMoveCommand();
     });
     this.renderer.domElement.addEventListener("pointerleave", () => { if (this.moveCmd && this.moveCmd.state === 0) this.abortMoveCommand(); });
+    // baseCameraController.IsMouseDragged: a press that travelled 5 px or more is a drag, not a click
+    let pressedAt: { x: number; y: number } | null = null;
+    this.renderer.domElement.addEventListener("pointerdown", (e) => { if (e.button === 0) pressedAt = { x: e.clientX, y: e.clientY }; });
     this.renderer.domElement.addEventListener("click", (e) => {
       // navigation.OnMouseUp: with the move command on, a left click is its next point
       if (this.moveCmd) { this.addMovePoint(); return; }
-      const picking = this.dscanKey || this.combat || this.modifierCombat(false) || !this.targetingCursor.hidden;
-      const id = picking ? this.pickAt(e.clientX, e.clientY) : null;
+      const from = pressedAt;
+      pressedAt = null;
+      if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) >= 5) return;
+      // baseCameraController.TryClickSceneObject: the model under the pointer, of no nonTargetableGroups (planet, moon,
+      // asteroid belt, cosmic anomaly) - SOUND_ENTRY_SELECT, selected, and TacticalItemClicked (the loaded combat
+      // command run on it); a click on nothing selects and clears nothing (OnMouseUp: ResetByFlag(multiSelected) only)
+      const id = this.pickAt(e.clientX, e.clientY);
+      const group = id === null ? null : this.snapshot?.entities.find((x) => x.itemID === id)?.groupID ?? null;
+      if (id === null || (group !== null && [7, 8, 9, 885].includes(group))) return;
+      void playUiEvent("msg_ListEntryClick_play");
       this.select(id);
     });
     addEventListener("resize", () => this.resize());
