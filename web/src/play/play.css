@@ -121,7 +121,8 @@ button { font: inherit; color: inherit; }
 .bracket .bracket-bg.blink { animation: state-flag-blink 0.75s cubic-bezier(0.3333, 0, 0.6667, 1) infinite; }
 /* centred on the 16 px bracket as _UpdateLabelOffsets: (height - textheight) / 2 + 1 - one line at 1, a ship's two at -6 */
 .bracket .label { line-height: 16px; position: absolute; left: 22px; top: 1px; white-space: nowrap; font-size: 12px; color: #fff; /* BracketShadowLabel LabelCore white (g352) */
-  text-shadow: 0 0 3px #000, 0 0 2px #000; display: none; }
+  /* STYLE_SMALLTEXT is EveSansNeue-Expanded (fontconst), shadowOffset (1, 1) in (0, 0, 0, 0.5) (g392) */
+  font-family: "EVE Sans Neue Expanded", "EVE Sans Neue", sans-serif; text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.5); display: none; }
 /* LabelCore STYLE_SMALLTEXT: each line 16 high (g389: a 12 px line 16, a ship's two lines 32); the label at 1, a two-line
    one at -6 (g390, y_offset on Perimeter X / Maurasi and the Venture / Porpoise) */
 .bracket .label:has(br) { top: -6px; }
