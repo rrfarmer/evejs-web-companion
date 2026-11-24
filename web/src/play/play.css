@@ -85,6 +85,10 @@ button { font: inherit; color: inherit; }
 .bracket .glyph { width: 100%; height: 100%; }
 /* InSpaceBracket's state flag (9 x 9 at left 9, top 8) and its background (bracketBackground.png tinted) */
 .bracket .bracket-flag .state-flag { right: auto; bottom: auto; left: 9px; top: 8px; width: 9px; height: 9px; pointer-events: none; }
+/* FlagIcon's 8 px flagIcon CENTER in the 9 x 9 flag lands at 1, 1 in the client (g386: flagIcon at icon + 10, 9), not
+   centred on the half pixel */
+.bracket .bracket-flag .state-flag { align-items: flex-start; justify-content: flex-start; }
+.bracket .bracket-flag .state-flag > span { margin: 1px 0 0 1px; }
 .bracket .bracket-bg { position: absolute; inset: 0; z-index: -1; pointer-events: none;
   -webkit-mask: url(/client-res/ui/texture/classes/bracket/bracketbackground.png) center / 100% 100% no-repeat;
   mask: url(/client-res/ui/texture/classes/bracket/bracketbackground.png) center / 100% 100% no-repeat; }
