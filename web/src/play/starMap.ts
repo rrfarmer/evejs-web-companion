@@ -277,6 +277,21 @@ export class StarMap {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
+  /**
+   * The camera as the mirrored canvas shows it (spaceView's HANDEDNESS: the client draws right-handed, EVE's z is
+   * mirrored into three's, so the canvas is shown mirrored left to right): its screen x mirrored.
+   */
+  private readonly mirrorCam = new THREE.PerspectiveCamera();
+  private get screenCam(): THREE.PerspectiveCamera {
+    const c = this.camera, m = this.mirrorCam;
+    m.matrixWorld.copy(c.matrixWorld);
+    m.matrixWorldInverse.copy(c.matrixWorldInverse);
+    m.projectionMatrix.copy(c.projectionMatrix);
+    const e = m.projectionMatrix.elements;
+    e[0] = -e[0]!; e[4] = -e[4]!; e[8] = -e[8]!; e[12] = -e[12]!;
+    m.projectionMatrixInverse.copy(m.projectionMatrix).invert();
+    return m;
+  }
   private readonly controls: OrbitControls;
   private readonly starUniforms = { distanceRange: { value: new THREE.Vector2(1, 4) }, texMap: { value: null as THREE.Texture | null }, hasTex: { value: 0 } };
   private readonly lineUniforms = {
@@ -377,7 +392,7 @@ export class StarMap {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(2, devicePixelRatio));
     this.root.appendChild(this.renderer.domElement);
-    this.renderer.domElement.style.cssText = "width:100%;height:100%;display:block;";
+    this.renderer.domElement.style.cssText = "width:100%;height:100%;display:block;transform:scaleX(-1);";
     this.markers.style.cssText = "position:absolute;inset:0;pointer-events:none;overflow:hidden;";
     this.root.appendChild(this.markers);
     this.activityMarkers.className = "star-map-activity-markers";
@@ -401,6 +416,14 @@ export class StarMap {
     canvas.addEventListener("pointerleave", () => { this.hover(null); this.mouse = null; this.pickNearMouse(); });
     this.camera = new THREE.PerspectiveCamera(THREE.MathUtils.radToDeg(1.0), 1, 0.1, MAX_CAMERA_DISTANCE * 4);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    // the mirrored canvas: a sideways drag keeps its sense on screen
+    {
+      const controls = this.controls as unknown as { _rotateLeft(angle: number): void; _panLeft(distance: number, matrix: THREE.Matrix4): void };
+      const rotateLeft = controls._rotateLeft.bind(controls);
+      controls._rotateLeft = (angle: number) => rotateLeft(-angle);
+      const panLeft = controls._panLeft.bind(controls);
+      controls._panLeft = (distance: number, matrix: THREE.Matrix4) => panLeft(-distance, matrix);
+    }
     this.controls.minDistance = MIN_CAMERA_DISTANCE;
     this.controls.maxDistance = MAX_CAMERA_DISTANCE;
     this.controls.enableDamping = true;
@@ -592,7 +615,7 @@ export class StarMap {
     const v = new THREE.Vector3();
     let best: number | null = null, bestD = 8;
     for (const [id, p] of this.positions) {
-      v.copy(p).project(this.camera);
+      v.copy(p).project(this.screenCam);
       if (v.z <= -1 || v.z >= 1) continue;
       const d = Math.hypot((v.x + 1) / 2 * r.width - x, (1 - v.y) / 2 * r.height - y);
       if (d < bestD) { bestD = d; best = id; }
@@ -747,7 +770,7 @@ export class StarMap {
         const box = 1400 / 5000 * r.height;
         const v = new THREE.Vector3();
         for (const [id, p] of this.positions) {
-          v.copy(p).project(this.camera);
+          v.copy(p).project(this.screenCam);
           if (v.z <= -1 || v.z >= 1) continue;
           const x = r.left + (v.x + 1) / 2 * r.width, y = r.top + (1 - v.y) / 2 * r.height;
           if (x < r.left - 20 || x > r.right + 20 || y < r.top - 20 || y > r.bottom + 20) continue;
@@ -1098,7 +1121,7 @@ export class StarMap {
   private placeMarkers(w: number, h: number): void {
     const v = new THREE.Vector3();
     const project = (at: THREE.Vector3) => {
-      v.copy(at).project(this.camera);
+      v.copy(at).project(this.screenCam);
       return v.z < 1 && v.z > -1 ? { x: (v.x + 1) / 2 * w, y: (1 - v.y) / 2 * h } : null;
     };
     const eye = this.camera.position;
