@@ -1006,6 +1006,8 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "beyonce.CmdGotoDirection",
   // The arrow keys' steering (flightControls.FlightSimulation.TriggerCallback). The gateway's list has it not.
   "beyonce.CmdSteerDirection",
+  // A fleet commander's Regroup (fleetSvc.Regroup). The gateway's list has it not.
+  "beyonce.CmdFleetRegroup",
   // The factions a player corporation's members may enlist with, the Permitted Faction Enlistments row of its Show Info
   // (infosvc.UpdateDataCorp: fwEnlistmentSvc.GetCorpAllowedEnlistmentFactions). The gateway's list has nothing of the
   // enlistment manager's.
@@ -1047,7 +1049,7 @@ const ON_AN_ANSWERED_OBJECT = Object.freeze(new Set(["scanMgr.GetFullState"]));
 // bp.CmdGotoBookmark, on the ballpark's object.)
 // (CmdJumpToFleetModuleBeacon, CmdGroupJumpToFleetModuleBeacon and CmdBridgeToFleetModuleBeacon on 2026-10-15, the fleet
 // menu's Jump To, Conduit Jump To and Bridge To: cynoTravelSvc.py's bp.Cmd..., on the ballpark's object.)
-const ON_THE_PARK = Object.freeze(new Set(["CallComponentFromClient", "CmdFleetTagTarget", "CmdGotoPoint", "CmdGotoDirection", "CmdSteerDirection", "BookmarkScanResult", "CmdGotoBookmark", "CmdAlignTo", "CmdFollowBall", "CmdSetSpeedFraction", "CmdOrbit", "CmdStop", "BookmarkLocation", "CmdWarpToStuff", "CmdWarpToStuffAutopilot", "CmdDock", "CmdStargateJump", "CmdJumpToFleetModuleBeacon", "CmdGroupJumpToFleetModuleBeacon", "CmdBridgeToFleetModuleBeacon"]));
+const ON_THE_PARK = Object.freeze(new Set(["CallComponentFromClient", "CmdFleetTagTarget", "CmdGotoPoint", "CmdGotoDirection", "CmdSteerDirection", "CmdFleetRegroup", "BookmarkScanResult", "CmdGotoBookmark", "CmdAlignTo", "CmdFollowBall", "CmdSetSpeedFraction", "CmdOrbit", "CmdStop", "BookmarkLocation", "CmdWarpToStuff", "CmdWarpToStuffAutopilot", "CmdDock", "CmdStargateJump", "CmdJumpToFleetModuleBeacon", "CmdGroupJumpToFleetModuleBeacon", "CmdBridgeToFleetModuleBeacon"]));
 const madeOnMoniker = (service, method) => Object.hasOwn(MONIKER_SERVICES, service) && !MONIKER_SERVICES[service].has(method) && method !== "MachoBindObject";
 /**
  * Whether the game port makes a call on an object though it is asked of a service by its name: on the service's
@@ -2811,6 +2813,8 @@ const RETAIL_CALLS = Object.freeze({
     "rbp.CmdGotoDirection(x, y, z), on the ballpark's object: a probe result's Align To sends the place less the ship's own position, each a float; the double click in space a direction of length one. It answers nothing. Recorded on Tranquility in six sessions, three floats and nothing else."),
   "beyonce.CmdSteerDirection": reshaped("eve/client/script/ui/services/flightControls.py:53", goingInDirection,
     "remote.CmdSteerDirection(*direction), on the ballpark's object (michelle.GetRemotePark): the arrow keys' steering, a direction of length one, at most once in flightControlsThrottle (400 ms). It answers nothing. Recorded on Tranquility (Tutorial/Scordite.lsw), three floats and nothing else."),
+  "beyonce.CmdFleetRegroup": judged("eve/client/script/parklife/fleetSvc.py:802", sentWithNothing,
+    "bp.CmdFleetRegroup(), no arguments, on the ballpark's object (michelle.GetRemotePark): CmdFleetGroup for a fleet commander, then CustomNotify UI/Fleet/Regrouping. It answers nothing. In no recording."),
   "beyonce.CmdGotoBookmark": judged("eve/client/script/ui/services/menuSvcExtras/movementFunctions.py:405", goingToBookmark,
     "bp.CmdGotoBookmark(bookmark.bookmarkID), on the ballpark's object: a bookmark's Approach Location, once the menu has forgotten what was aligned to (StoreAlignTarget). An agent's bookmark is asked of the agent (GotoLocation). It answers nothing. In no recording."),
   "beyonce.CmdAlignTo": judged("eve/client/script/ui/services/menusvc.py:2790", aligning,

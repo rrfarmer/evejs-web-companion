@@ -2879,6 +2879,8 @@ export interface AppFlow {
   cycleBroadcastScope(): void;
   /** menusvc.TagItem: CmdFleetTagTarget(itemID, tag) on the park; None takes the tag off. */
   tagFleetItem(itemID: number, tag: string | null): Promise<void>;
+  /** fleetSvc.Regroup (CmdFleetGroup, a fleet commander's): CmdFleetRegroup() on the park, UI/Fleet/Regrouping said. */
+  regroupFleet(): Promise<void>;
   /** fleetSvc.broadcastScope: who the pilot's broadcasts go to (evefleet BROADCAST_DOWN 1, UP 2, ALL 3). */
   broadcastScope(): number;
   /**
@@ -17808,6 +17810,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     sayDialog("FleetBroadcastScopeChange", { type: "dict", entries: [["name", name]] }, `Fleet broadcasts now go to: ${name}`);
   }
   // menusvc.TagItem (2826): michelle.GetRemotePark().CmdFleetTagTarget(itemID, tag)
+  // fleetSvc.Regroup (799): GetRemotePark().CmdFleetRegroup(), then CustomNotify UI/Fleet/Regrouping
+  async function regroupFleet(): Promise<void> {
+    await bridgeDo("beyonce", "CmdFleetRegroup", []);
+    const t = store.words.get().templates["UI/Fleet/Regrouping"];
+    const text = typeof t === "string" && t !== "" ? plainText(t) : "Regrouping";
+    sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text);
+  }
   async function tagFleetItem(itemID: number, tag: string | null): Promise<void> {
     await tagFleetTarget(bridgeDo, itemID, tag);
   }
@@ -38208,6 +38217,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     broadcastHealMe,
     cycleBroadcastScope,
     tagFleetItem,
+    regroupFleet,
     broadcastScope: () => broadcastScope,
     compressItemAt,
     deployItems,

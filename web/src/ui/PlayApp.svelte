@@ -1944,6 +1944,24 @@
     }
     // CmdCycleFleetBroadcastScope: fleetSvc.CycleBroadcastScope (no fleet needed)
     if (cmd === "CmdCycleFleetBroadcastScope") { s.flow.cycleBroadcastScope(); return true; }
+    // CmdFleetGroup: in a fleet, a commander's (fleetCmdrRoles) fleetSvc.Regroup
+    if (cmd === "CmdFleetGroup") {
+      const fleetState = s.store.fleet.get();
+      const me = s.store.station.get().online?.characterID ?? null;
+      const mine = (fleetState.fleet?.initState.value.members ?? []).find((m) => Number(m.charID) === me);
+      if (fleetState.availability === "ready" && mine && (mine.role === 1 || mine.role === 2 || mine.role === 3)) void s.flow.regroupFleet().catch(say("Fleet"));
+      return true;
+    }
+    // CmdClearFleetBroadcastIcons: in a fleet, fleetSvc.ClearWatchlistBroadcastHistory - with the watch list open its
+    // broadcast icons cleared (the page's watch list draws none) and CustomNotify UI/Fleet/BroadcastIconsCleared
+    if (cmd === "CmdClearFleetBroadcastIcons") {
+      if (s.store.fleet.get().availability === "ready" && wins.some((w) => w.id === "watchlist")) {
+        const t = s.store.words.get().templates["UI/Fleet/BroadcastIconsCleared"];
+        const text = typeof t === "string" && t !== "" ? plainText(t) : "Broadcast icons cleared";
+        s.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text);
+      }
+      return true;
+    }
     if (cmd === "CmdFleetBroadcast_JumpBeacon") {
       const me = s.store.character.get().selectedCharacterID;
       const beacon = me === null ? null : s.store.fleet.get().jumpBeacons?.[String(me)] ?? null;
