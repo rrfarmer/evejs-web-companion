@@ -1568,6 +1568,8 @@
   }
 
   // The client's window commands (eveCommands.py) and the windows they open here; their keys are the client's default
+  /** registry.toggleState (windowToggleState): the windows CmdToggleCollapseAllWindows collapsed, to expand again. */
+  let collapseToggleState: (string | HTMLElement)[] = [];
   // shortcuts (clientShortcuts.ts, matched by shortcutKeys.ts) - Alt-E People & Places, L Locations, as the client has
   // them. OpenDirectionalScanner (Alt-D) and CmdRefreshDirectionalScan (V) are the space view's own.
   const WINDOW_COMMANDS: Record<string, TabID> = {
@@ -1845,6 +1847,29 @@
         if (close) close.click();
         else if (!w.classList.contains("minimized")) w.querySelector<HTMLElement>(".pw-min")?.click();
       }
+      return true;
+    }
+    // CmdToggleCollapseAllWindows: registry.ToggleCollapseAllWindows - with none remembered, every floating window not
+    // collapsed collapsed and remembered (windowToggleState), and where none was, every collapsed one expanded; with some
+    // remembered, those still collapsed expanded and the memory cleared. (A window's collapse here is its minimize: the
+    // space windows' Collapse / Expand, the page's own windows' put-away.)
+    if (cmd === "CmdToggleCollapseAllWindows") {
+      const spaceWins = spaceWindows();
+      if (collapseToggleState.length) {
+        const keep = new Set(collapseToggleState);
+        wins = wins.map((w) => (keep.has(w.id) && w.minimized ? { ...w, minimized: false } : w));
+        for (const w of spaceWins) if (keep.has(w) && w.classList.contains("minimized")) w.querySelector<HTMLElement>(".pw-min")?.click();
+        collapseToggleState = [];
+        return true;
+      }
+      const state: (string | HTMLElement)[] = [];
+      wins = wins.map((w) => { if (w.minimized) return w; state.push(w.id); return { ...w, minimized: true }; });
+      for (const w of spaceWins) if (!w.classList.contains("minimized")) { state.push(w); w.querySelector<HTMLElement>(".pw-min")?.click(); }
+      if (!state.length) {
+        wins = wins.map((w) => (w.minimized ? { ...w, minimized: false } : w));
+        for (const w of spaceWins) if (w.classList.contains("minimized")) w.querySelector<HTMLElement>(".pw-min")?.click();
+      }
+      collapseToggleState = state;
       return true;
     }
     if (cmd === "CmdToggleMinimizeMaximizeAllWindows") {
