@@ -1916,6 +1916,12 @@ export class Overview {
   /** The active tab's preset shows the group (the menu's Add .../Remove ... from Overview). */
   groupShown(groupID: number): boolean { return this.activePreset()?.groups.has(groupID) ?? false; }
 
+  /** OverviewWindow.GetSelectedTabID's tab name, where the window is open (in the registry, minimized or not); else null. */
+  openTabName(): string | null {
+    if (!this.window.root.isConnected || this.window.root.style.display === "none") return null;
+    return this.tabs[this.tab]?.name ?? null;
+  }
+
   /** AddGroupToOverview / RemoveGroupFromOverview on the active tab's preset, kept for it. */
   setGroupShown(groupID: number, shown: boolean): void {
     const tab = this.tabs[this.tab] as (OverviewTab & { presetID?: string }) | undefined;

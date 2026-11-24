@@ -4699,9 +4699,28 @@ export class SpaceView {
   overviewToggleEntry(group: number): ContextEntry {
     const word = (label: string, own: string, args?: Readonly<Record<string, string | number>>) => this.actions.word?.(label, args) ?? own;
     const groupName = this.names?.groups[String(group)]?.[0] ?? "";
+    const multi = this.overviewToggleMulti(group, groupName);
+    if (multi) return multi;
     return this.overview.groupShown(group)
       ? { path: "UI/Overview/RemoveGroupFromOverview", label: word("UI/Overview/RemoveGroupFromOverview", `Remove ${groupName} from Overview`, { groupName }), run: () => this.overview.setGroupShown(group, false) }
       : { path: "UI/Overview/AddGroupToOverview", label: word("UI/Overview/AddGroupToOverview", `Add ${groupName} to Overview`, { groupName }), run: () => this.overview.setGroupShown(group, true) };
+  }
+
+  /**
+   * overviewMenuUtil.GetToggleEntry with more than one overview window open (_GetActiveOverviewTabIDs: each open window's
+   * selected tab): Toggle Overview Visibility for <group>, its submenu a tab each - Remove from <tab> where that tab's
+   * preset shows the group (RemoveGroupIDFromPreset), else Add to <tab> (AddGroupIDToPreset). Null with one or none.
+   */
+  private overviewToggleMulti(group: number, groupName: string): ContextEntry | null {
+    const word = (label: string, own: string, args?: Readonly<Record<string, string | number>>) => this.actions.word?.(label, args) ?? own;
+    const open = [this.overview, ...this.extraOverviews].flatMap((o) => { const tabName = o.openTabName(); return tabName === null ? [] : [{ o, tabName }]; });
+    if (open.length <= 1) return null;
+    return {
+      path: "UI/Overview/ToggleOverviewVisibilty", label: word("UI/Overview/ToggleOverviewVisibilty", `Toggle Overview Visibility for ${groupName}`, { groupName }),
+      sub: open.map(({ o, tabName }) => o.groupShown(group)
+        ? { path: "UI/Overview/RemoveGroupToTab", label: word("UI/Overview/RemoveGroupToTab", `Remove from ${tabName}`, { tabName }), run: () => o.setGroupShown(group, false) }
+        : { path: "UI/Overview/AddGroupToTab", label: word("UI/Overview/AddGroupToTab", `Add to ${tabName}`, { tabName }), run: () => o.setGroupShown(group, true) }),
+    };
   }
 
   /** menusvc.TryLookAt: the camera on the thing (Look at), where the ballpark has it. */
@@ -5726,8 +5745,12 @@ export class SpaceView {
     }
     // overviewMenuUtil: a group not shown is offered to the Overview before Save Location...; one shown is taken off at the foot
     const groupName = group !== null ? this.names?.groups[String(group)]?.[0] ?? "" : "";
-    const shownInOverview = group !== null && this.overview.groupShown(group);
-    if (group !== null && !shownInOverview) out.push({ path: "UI/Overview/AddGroupToOverview", label: word("UI/Overview/AddGroupToOverview", `Add ${groupName} to Overview`, { groupName }), run: () => this.overview.setGroupShown(group, true) });
+    // (more than one overview open: GetToggleEntry's Toggle Overview Visibility, in Add's place - NAVIGATIONGROUP2 - and
+    // nothing at the foot)
+    const multiToggle = group !== null ? this.overviewToggleMulti(group, groupName) : null;
+    const shownInOverview = group !== null && this.overview.groupShown(group) && !multiToggle;
+    if (multiToggle) out.push(multiToggle);
+    else if (group !== null && !shownInOverview) out.push({ path: "UI/Overview/AddGroupToOverview", label: word("UI/Overview/AddGroupToOverview", `Add ${groupName} to Overview`, { groupName }), run: () => this.overview.setGroupShown(group, true) });
     // _CelestialMenu's space component entries (3698585): Use Fitting Service where the pilot's ship is within the
     // fitting component's range of its own active one (OfferUseFittingService, IsShipWithinFittingRange), before Save
     // Location...; after it, of one's own active thing Open Cargo (OfferOpenCargoBay: cargoBay, the owner or free for
