@@ -7,8 +7,12 @@
 // relative to it in doubles on the CPU and only then handed to the GPU. A logarithmic depth buffer
 // covers a hull at 10 m and a planet at 10^10 m in one frame.
 //
-// HANDEDNESS. EVE's space is left-handed (y up); three.js is right-handed. z is mirrored going in and
-// coming out (models are mirrored once, at extraction).
+// HANDEDNESS. z is mirrored going in and coming out (models are mirrored once, at extraction). The client draws
+// that space right-handed (its camera, gridcheck g433/g434: view z = eye - at, x = up x z, projection [2][3] = -1,
+// and its brackets sit where that projection puts them), so three's mirrored scene is the client's mirror image:
+// the canvas is drawn mirrored left to right (scaleX(-1)), the image the client's. Whatever is placed on the
+// screen from space, or read from the pointer into it, goes through screenCam (the camera with its screen x
+// mirrored), and a horizontal orbit drag turns the other way.
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -587,6 +591,18 @@ export class SpaceView {
   private readonly exposure = new DynamicExposure();
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(60, 1, 1, 1e13);
+  /** The camera as the mirrored canvas shows it: the same place and view, its screen x mirrored (HANDEDNESS). */
+  private readonly mirrorCam = new THREE.PerspectiveCamera();
+  private get screenCam(): THREE.PerspectiveCamera {
+    const c = this.camera, m = this.mirrorCam;
+    m.matrixWorld.copy(c.matrixWorld);
+    m.matrixWorldInverse.copy(c.matrixWorldInverse);
+    m.projectionMatrix.copy(c.projectionMatrix);
+    const e = m.projectionMatrix.elements;
+    e[0] = -e[0]!; e[4] = -e[4]!; e[8] = -e[8]!; e[12] = -e[12]!;
+    m.projectionMatrixInverse.copy(m.projectionMatrix).invert();
+    return m;
+  }
   private readonly controls: OrbitControls;
   private readonly brackets = document.createElement("div");
   /** The sensor overlay's layer (uicore.layer.sensorSuite) and its site brackets by scan id. */
@@ -1555,6 +1571,8 @@ export class SpaceView {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.root.appendChild(this.renderer.domElement);
+    // HANDEDNESS: the image mirrored into the client's
+    this.renderer.domElement.style.transform = "scaleX(-1)";
     this.brackets.className = "brackets";
     this.miningHoldBracket.type = "button";
     this.miningHoldBracket.className = "mining-hold-bracket";
@@ -1706,6 +1724,13 @@ export class SpaceView {
     live.fxListeners.add(this.hearFx);
     this.camera.position.set(-600, 250, 900);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    // HANDEDNESS: on the mirrored canvas a sideways drag turns the view the other way round, so the scene still
+    // follows the pointer
+    {
+      const controls = this.controls as unknown as { _rotateLeft(angle: number): void };
+      const rotateLeft = controls._rotateLeft.bind(controls);
+      controls._rotateLeft = (angle: number) => rotateLeft(-angle);
+    }
     this.controls.enablePan = false;
     this.controls.enableDamping = true;
     this.controls.minDistance = 30;
@@ -2332,7 +2357,7 @@ export class SpaceView {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     const ray = new THREE.Raycaster();
-    ray.setFromCamera(ndc, this.camera);
+    ray.setFromCamera(ndc, this.screenCam);
     const d = ray.ray.direction;
     void this.act("Move", () => this.actions.gotoDirection(d.x, d.y, -d.z));
   }
@@ -2469,7 +2494,7 @@ export class SpaceView {
       m.updateWorldMatrix(true, false);
       m.localToWorld(anchor);
     }
-    const p = anchor.project(this.camera);
+    const p = anchor.project(this.screenCam);
     // EveProjectBracket: hidden behind the camera (dock off), centred on the projected point otherwise
     badge.hidden = opacity === 0 || p.z >= 1;
     if (badge.hidden) { this.miningHoldUsed = null; return; }
@@ -3828,7 +3853,7 @@ export class SpaceView {
     const rect = this.renderer.domElement.getBoundingClientRect();
     if (this.movePointer && rect.width > 0) {
       const ray = new THREE.Raycaster();
-      ray.setFromCamera(new THREE.Vector2(((this.movePointer.x - rect.left) / rect.width) * 2 - 1, -(((this.movePointer.y - rect.top) / rect.height) * 2 - 1)), this.camera);
+      ray.setFromCamera(new THREE.Vector2(((this.movePointer.x - rect.left) / rect.width) * 2 - 1, -(((this.movePointer.y - rect.top) / rect.height) * 2 - 1)), this.screenCam);
       const start = ray.ray.origin, dir = ray.ray.direction;
       const MAX = 4_000_000;
       if (m.state === 0 && dir.y !== 0) {
@@ -3886,7 +3911,7 @@ export class SpaceView {
     m.group.geometry.computeBoundingSphere();
     // _UpdateDistanceText: int(distance / 1000 + 0.5) at the middle of the path
     m.label.textContent = String(Math.max(0, Math.floor(r / 1000 + 0.5)));
-    const v = m.dest.clone().multiplyScalar(0.5).project(this.camera);
+    const v = m.dest.clone().multiplyScalar(0.5).project(this.screenCam);
     const shown = v.z < 1;
     m.label.style.display = shown ? "" : "none";
     if (shown) m.label.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px)`;
@@ -3937,7 +3962,7 @@ export class SpaceView {
   private pickAt(x: number, y: number): number | null {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ray = new THREE.Raycaster();
-    ray.setFromCamera(new THREE.Vector2(((x - rect.left) / rect.width) * 2 - 1, -((y - rect.top) / rect.height) * 2 + 1), this.camera);
+    ray.setFromCamera(new THREE.Vector2(((x - rect.left) / rect.width) * 2 - 1, -((y - rect.top) / rect.height) * 2 + 1), this.screenCam);
     const owner = new Map<THREE.Object3D, number>();
     for (const [id, m] of this.marks) if (!m.userData.nonPickable) owner.set(m, id);
     for (const hit of ray.intersectObjects([...owner.keys()], true)) {
@@ -4409,7 +4434,7 @@ export class SpaceView {
         }
       } else if (el.style.opacity !== "") { el.style.opacity = ""; el.style.pointerEvents = ""; }
       const rel = new THREE.Vector3(s.position[0] - origin.x, s.position[1] - origin.y, -(s.position[2] - origin.z));
-      const p = rel.clone().project(this.camera);
+      const p = rel.clone().project(this.screenCam);
       const onScreen = p.z < 1 && Math.abs(p.x) <= 1.05 && Math.abs(p.y) <= 1.05;
       el.style.display = onScreen ? "" : "none";
       if (!onScreen) continue;
@@ -4782,7 +4807,7 @@ export class SpaceView {
     if (nav) { const nd = nav.at.length(); const nf = new THREE.Vector3(nav.at.x, 0, nav.at.z); if (nd > 1 && nf.lengthSq() > 0) anchors.push({ plane: nf.setLength(nd), above: nav.at.y >= 0, dist: nd, radius: 0 }); }
     this.drawTacticalAnchors(anchors, active + base, fadeLength, base, interest);
     for (const p of this.tactical.places) {
-      const v = p.at.clone().project(this.camera);
+      const v = p.at.clone().project(this.screenCam);
       const shown = v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
       p.el.style.display = shown ? "" : "none";
       if (shown) p.el.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px)`;
@@ -4809,7 +4834,7 @@ export class SpaceView {
     this.camera.getWorldDirection(camDir);
     const ahead = (p: THREE.Vector3) => p.clone().sub(cam).dot(camDir);
     const pxWorld = (p: THREE.Vector3) => (2 * Math.tan((this.camera.fov * Math.PI) / 360) * Math.max(1e-3, ahead(p))) / h;
-    const toPx = (p: THREE.Vector3) => { const q = p.clone().project(this.camera); return new THREE.Vector2(((q.x + 1) / 2) * w, ((1 - q.y) / 2) * h); };
+    const toPx = (p: THREE.Vector3) => { const q = p.clone().project(this.screenCam); return new THREE.Vector2(((q.x + 1) / 2) * w, ((1 - q.y) / 2) * h); };
     const WIDTH = 14;
     const pulse = 0.625 + 0.375 * Math.cos(8 * (performance.now() / 1000));
     for (const x of list) {
@@ -4940,7 +4965,7 @@ export class SpaceView {
     g.setAttribute("color", new THREE.Float32BufferAttribute(cols, 4));
     g.computeBoundingSphere();
     // the navigation point's bracket
-    const v = nav ? nav.at.clone().project(this.camera) : null;
+    const v = nav ? nav.at.clone().project(this.screenCam) : null;
     const shown = v !== null && v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
     t.navBracket.style.display = shown ? "" : "none";
     if (shown && v) t.navBracket.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px)`;
@@ -5551,7 +5576,7 @@ export class SpaceView {
     if (!mount || !bridge) return;
     let panel = this.jumpBridgePanels.get(gate.itemID);
     const range = this.camera.position.distanceTo(position);
-    const anchor = position.clone().project(this.camera);
+    const anchor = position.clone().project(this.screenCam);
     if (!ship || ship.mode === "WARP" || range > 600_000 || anchor.z >= 1 || Math.abs(anchor.x) > 1.05 || Math.abs(anchor.y) > 1.05) {
       if (panel) {
         panel.destroy();
@@ -5575,7 +5600,7 @@ export class SpaceView {
     }
     const raised = position.clone();
     raised.y += 5_500;
-    raised.project(this.camera);
+    raised.project(this.screenCam);
     const projected = raised.z < 1 && Math.abs(raised.x) <= 1 && Math.abs(raised.y) <= 1 ? raised : anchor;
     const x = Math.min(width - 155, Math.max(155, (projected.x + 1) * width / 2));
     const y = Math.min(height - 38, Math.max(235, (1 - projected.y) * height / 2));
@@ -5829,7 +5854,7 @@ export class SpaceView {
         delete el.querySelector<HTMLElement>(".label")!.dataset.polarization;
       }
       el.dataset.wanted = "1";
-      const p = rel.clone().project(this.camera);
+      const p = rel.clone().project(this.screenCam);
       const onScreen = p.z < 1 && Math.abs(p.x) <= 1.05 && Math.abs(p.y) <= 1.05;
       el.style.display = onScreen ? "" : "none";
       if (onScreen) {
