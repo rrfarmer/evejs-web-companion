@@ -238,12 +238,17 @@ export class ContextMenu {
       holder.append(bg, i);
       row.append(holder);
     } else if (entry.info) {
+      // SHOWINFOGROUP: info.png over circleBG (the texture, as the warning badges' backing) at full CRYO_BLUE (the 0.75
+      // sprite is the glow pass, g333 / g411)
       const disc = document.createElement("span");
-      Object.assign(disc.style, { position: "absolute", left: "4px", top: "3px", width: "16px", height: "16px", borderRadius: "50%", background: "rgb(88,167,191)" }); // (its colour sprite at full CRYO_BLUE; the 0.75 one is the glow pass, g333)
+      Object.assign(disc.style, { position: "absolute", left: "4px", top: "3px", width: "16px", height: "16px" });
+      const back = document.createElement("span");
+      const m = `url("${tex("res:/UI/Texture/classes/Menu/Icons/circleBG.png")}") center / 16px 16px no-repeat`;
+      back.setAttribute("style", `position:absolute;inset:0;background:rgb(88,167,191);mask:${m};-webkit-mask:${m};`);
       const i = document.createElement("img");
       i.src = tex("res:/UI/Texture/classes/Menu/Icons/info.png");
       Object.assign(i.style, { position: "absolute", left: "0", top: "0", width: "16px", height: "16px" });
-      disc.append(i);
+      disc.append(back, i);
       row.append(disc);
     } else if (entry.checked !== undefined) {
       // the Checkbox / RadioButton controls (g374): their underlay (classes/checkbox/underlay.png, radio_underlay.png) white,
