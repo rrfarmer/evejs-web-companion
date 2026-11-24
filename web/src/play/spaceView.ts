@@ -1437,6 +1437,8 @@ export class SpaceView {
   private dscanKey: { code: string; targeted: boolean } | null = null;
   /** eveCommands.commandMemory: each tag sequence command's next place (ResetTagSequences clears it). */
   private readonly tagMemory = new Map<string, number>();
+  /** Where the last left press in space was (uilib.mouseTravel for the double click). */
+  private lastLeftPress: { x: number; y: number } | null = null;
   /** The arrow keys held (CmdFlightControlsUp / Down / Left / Right, by the key's code) and whether a modifier is. */
   private readonly steerKeys = new Map<string, "up" | "down" | "left" | "right">();
   private steerMods = false;
@@ -2060,6 +2062,7 @@ export class SpaceView {
     this.renderer.domElement.addEventListener("pointerdown", (e) => {
       if (e.button !== 0) return;
       pressedAt = { x: e.clientX, y: e.clientY };
+      this.lastLeftPress = pressedAt;
       // navigation.OnMouseDown: the left button with a combat command loaded starts a marquee (the camera not orbited
       // while it is drawn: OnMouseMove passes the camera nothing with a marqueeCont)
       if (!this.moveCmd && (this.combat || this.modifierCombat(false))) this.startMarquee(e.clientX, e.clientY);
@@ -2398,8 +2401,15 @@ export class SpaceView {
     try { await fn(); } catch (e) { if (!(e as { said?: boolean }).said) this.toast(panelErrorWords(e)); }
   }
 
-  /** The client's double click in space: fly the way the camera looks through the cursor. */
+  /**
+   * The client's double click in space: navigation.OnDblClick (nothing with the move command on) ->
+   * ShipOrbitCameraController.OnDblClick (nothing with the right button down or a mouse travel over 6 px) ->
+   * cameraUtil.SetShipDirection: fly the way the camera looks through the cursor.
+   */
   private doubleClick(e: MouseEvent): void {
+    if (this.moveCmd || (e.buttons & 2)) return;
+    const from = this.lastLeftPress;
+    if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) > 6) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     const ray = new THREE.Raycaster();
