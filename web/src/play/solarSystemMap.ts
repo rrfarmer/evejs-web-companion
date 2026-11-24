@@ -241,7 +241,10 @@ export function highlightCircle(d: number, r1: number, r2: number): { along: num
   return sq < 0 ? null : { along, radius: Math.sqrt(sq) };
 }
 
-/** EVE's coordinates to the map's (the space view's handedness: z mirrored), scaled. */
+/**
+ * EVE's coordinates to the map's (the space view's handedness: z mirrored), scaled. As in the space view the canvas
+ * is shown mirrored left to right (the client draws right-handed), and screen work goes through screenCam.
+ */
 export function mapPoint(p: { x: number; y: number; z: number }): THREE.Vector3 {
   return new THREE.Vector3(p.x * SOLARSYSTEM_SCALE, p.y * SOLARSYSTEM_SCALE, -p.z * SOLARSYSTEM_SCALE);
 }
@@ -344,6 +347,18 @@ export class SolarSystemMapWindow {
   coneInfo = { kind: "none", rings: 0, length: 0, radius: 0 };
   private markers: MapMarker[] = [];
   private yaw = 0.6;
+  /** The camera as the mirrored canvas shows it: its screen x mirrored (spaceView's HANDEDNESS). */
+  private readonly mirrorCam = new THREE.PerspectiveCamera();
+  private get screenCam(): THREE.PerspectiveCamera {
+    const c = this.camera, m = this.mirrorCam;
+    m.matrixWorld.copy(c.matrixWorld);
+    m.matrixWorldInverse.copy(c.matrixWorldInverse);
+    m.projectionMatrix.copy(c.projectionMatrix);
+    const e = m.projectionMatrix.elements;
+    e[0] = -e[0]!; e[4] = -e[4]!; e[8] = -e[8]!; e[12] = -e[12]!;
+    m.projectionMatrixInverse.copy(m.projectionMatrix).invert();
+    return m;
+  }
   /** mapCamera's pitch: 0.01 from straight above .. pi / 2 level. */
   private pitch = 1.0;
   private pitchTween: { from: number; to: number; start: number; duration: number } | null = null;
@@ -370,6 +385,7 @@ export class SolarSystemMapWindow {
     () => { this.detached = true; this.close(); });
     this.window.body.classList.add("ssm");
     this.canvas.className = "ssm-canvas";
+    this.canvas.style.transform = "scaleX(-1)";
     this.window.body.appendChild(this.canvas);
     this.markerOverlay = new MapMarkerOverlay(this.window.body);
     this.scene.background = new THREE.Color(0x000000);
@@ -548,7 +564,7 @@ export class SolarSystemMapWindow {
     const x0 = e.clientX, y0 = e.clientY, yaw0 = this.yaw, pitch0 = this.pitch;
     this.pitchTween = null;
     const move = (m: PointerEvent) => {
-      this.yaw = yaw0 - (m.clientX - x0) * 0.005;
+      this.yaw = yaw0 + (m.clientX - x0) * 0.005; // the mirrored canvas: the drag's sense kept on screen
       this.pitch = Math.min(K_MAX_PITCH, Math.max(K_MIN_PITCH, pitch0 - (m.clientY - y0) * 0.005));
     };
     const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); };
@@ -639,7 +655,7 @@ export class SolarSystemMapWindow {
       }
       m.highlighted = highlighted;
       m.el.classList.toggle("dscan-shape", m.highlighted);
-      v.copy(m.at).project(this.camera);
+      v.copy(m.at).project(this.screenCam);
       const shown = v.z < 1 && v.z > -1 && Math.abs(v.x) <= 1.05 && Math.abs(v.y) <= 1.05;
       m.el.style.display = shown ? "" : "none";
       if (!shown) continue;
@@ -1063,7 +1079,7 @@ export class SolarSystemMapWindow {
   private rayFrom(e: { clientX: number; clientY: number }): THREE.Ray {
     const r = this.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-    this.raycaster.setFromCamera(ndc, this.camera);
+    this.raycaster.setFromCamera(ndc, this.screenCam);
     return this.raycaster.ray.clone();
   }
 
