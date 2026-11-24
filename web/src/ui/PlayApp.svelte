@@ -3194,8 +3194,6 @@
     {#if controllingMetenox}
       <button class="metenox-controls" onclick={reopenMetenoxFuel}>Fuel Bay</button>
     {/if}
-    <!-- the notification feed: its widget and history drawer (NotificationFeed.svelte, notificationCenter.py) -->
-    {#if session}<NotificationFeed store={session.store} flow={session.flow} onOpen={(id) => open(id)} />{/if}
     {#if !docked && session}
       <MiningOverlayControl store={session.store} survey={flightMiningSurvey}
         openResults={() => open("miningScan")} openLedger={() => open("miningLedger")} disable={disableMiningOverlay} requestWords={(labels) => session?.flow.requestWords(labels)} />
@@ -3207,6 +3205,9 @@
         onhover={() => view?.safetySelectorHover(true)} onleave={() => { view?.safetySelectorHover(false); }} />
     {/if}
   {/if}
+  <!-- the notification feed: its widget and history drawer (NotificationFeed.svelte, notificationCenter.py), on the
+       abovemain layer docked and in space alike (the live client g264 showed it in space; the layer is not the space view's) -->
+  {#if session}<NotificationFeed store={session.store} flow={session.flow} onOpen={(id) => open(id)} />{/if}
   {#if session && reagentBay}<SovReagentBay store={session.store} flow={session.flow} hubID={reagentBay.hubID} solarSystemID={reagentBay.solarSystemID} isStationMgr={reagentBay.isStationMgr} onClose={() => { reagentBay = null; }} />{/if}
   {#if session && sovHubConfig}
     {@const cfg = sovHubConfig}
