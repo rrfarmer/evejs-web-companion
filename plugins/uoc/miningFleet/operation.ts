@@ -3,7 +3,7 @@ import {targetKey,type Claim,type Target,type createTargetBoard} from "./targetB
 import type {ArchivedDelivery,FleetOperationStore} from "./operationStore.ts";
 import {provesHaulSource} from './haulEvidence.ts';
 import type {NativeHaulSourceProof,NativeDeliveryBatch} from './nativeHauler.ts';
-import {movedWholeStacks} from './dockedRawDeposit.ts';
+import {confirmedDepositItem,movedWholeStacks} from './dockedRawDeposit.ts';
 import type {RawHoldObservation} from "./memberLoops.ts";
 type Board=ReturnType<typeof createTargetBoard>;
 export type Role="MINER"|"HAULER"|"COMMAND"|"DEFENDER";
@@ -406,9 +406,11 @@ export function createOperation(store:FleetOperationStore,board:Board,definition
      }
      continue;
     }
-    const remaining=b.sourceBefore.flatMap(r=>r.itemID!==b.item.itemID?[r]:r.quantity===b.item.quantity?[]:[{...r,quantity:r.quantity-b.item.quantity}]);
-    if(b.sourceAfter.length!==remaining.length||remaining.some(r=>!b.sourceAfter.some(a=>a.itemID===r.itemID&&a.typeID===r.typeID&&a.quantity===r.quantity&&a.ownerID===r.ownerID&&a.locationID===r.locationID&&a.flagID===r.flagID)))return false;
-    const d0=totals(b.destinationBefore),d1=totals(b.destinationAfter);if(!d0||!d1)return false;const evidenceKey=JSON.stringify([b.item.itemID,row.quantity,b.item.quantity,d0.get(b.item.typeID)??0]);if(consumed.has(evidenceKey))return false;consumed.add(evidenceKey);d0.set(b.item.typeID,(d0.get(b.item.typeID)??0)+b.item.quantity);if(d0.size!==d1.size||[...d0].some(([id,q])=>d1.get(id)!==q))return false;const sum=(delivered.get(b.item.typeID)??0)+b.item.quantity;if(!Number.isSafeInteger(sum))return false;delivered.set(b.item.typeID,sum);
+    if(!confirmedDepositItem(b.item,b.sourceBefore,b.sourceAfter,b.destinationBefore,b.destinationAfter))return false;
+    const d0=totals(b.destinationBefore);if(!d0)return false;
+    const evidenceKey=JSON.stringify([b.item.itemID,row.quantity,b.item.quantity,d0.get(b.item.typeID)??0]);
+    if(consumed.has(evidenceKey))return false;consumed.add(evidenceKey);
+    const sum=(delivered.get(b.item.typeID)??0)+b.item.quantity;if(!Number.isSafeInteger(sum))return false;delivered.set(b.item.typeID,sum);
    }if(delivered.size!==expected.size||[...expected].some(([id,q])=>delivered.get(id)!==q))return false;
    const first=totals(batches[0]!.destinationBefore)!,last=totals(batches[batches.length-1]!.destinationAfter)!;
    if(first.size!==before.size||last.size!==after.size||[...first].some(([id,q])=>before.get(id)!==q)||[...last].some(([id,q])=>after.get(id)!==q))return false;

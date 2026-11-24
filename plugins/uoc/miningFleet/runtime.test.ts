@@ -16,6 +16,31 @@ const docs=new Map<string,unknown>(),storage=memoryFleetDocuments(docs),document
 const deps={storage,createCycle:async()=>({tick:async()=>"blocked" as const,stop:async()=>{}}),settle:async()=>({modulesInactive:true as const,dronesSafe:true as const,observedAt:Date.now()})};
 const base:FleetSetup={operationID:"runtime-test",operationRunID:"epoch-1",systemID:300,destinationID:600,corporationID:77,division:1,beltID:99,beltName:"belt",canCapacityM3:100,members:[{characterID:1,shipID:11,role:"MINER"},{characterID:2,shipID:12,role:"MINER"},{characterID:3,shipID:13,role:"HAULER"}]};
 
+test("productive fleet passes take no per-pilot parking snapshots; Stop reads current settlement",async t=>{
+ t.mock.timers.enable({apis:["Date","setInterval"],now:Date.now()});
+ const members:Member[]=Array.from({length:15},(_,i)=>({characterID:i+1,shipID:i+20,role:i<9?"MINER":i<13?"DEFENDER":"HAULER"}));
+ const setup={...base,operationID:"parking-snapshot-reads",members};
+ const group=createMiningFleetRuntime(deps).getOrCreate(setup);
+ assert.ok(group.op.reserve(1,{kind:"BELT",systemID:300,name:setup.beltName!}));
+ assert.ok(group.op.activate(1));
+ for(const member of members)group.entries.set(member.characterID,{
+  member,active:true,busy:true,expiry:Date.now()+600_000,
+  run:{botID:"b"+member.characterID,characterID:member.characterID,report(){}},
+  session:{store:{station:{get:()=>({online:{characterID:member.characterID,corporationID:77}})}},flow:{setLivePush(){}}},
+  native:{},startupManaged:false,lease:null,
+ } as any);
+ const reads=t.mock.method(group.op,"snapshot");
+ const turn=async()=>{reads.mock.resetCalls();t.mock.timers.tick(1500);await new Promise<void>(resolve=>setImmediate(resolve));return reads.mock.callCount();};
+ const activeReads=await turn();
+ group.requestStop("RETURN_HOME");
+ const stopReads=await turn();
+ for(const e of group.entries.values()){e.active=false;e.busy=false;}
+ group.retireStoppedGroup();
+ t.diagnostic(`15 pilots: ${activeReads} snapshots while active, ${stopReads} during Return Home`);
+ assert.equal(activeReads,3,"one active pass uses only the fleet-level snapshots");
+ assert.ok(stopReads >= members.length, "Stop snapshot reads: "+stopReads);
+});
+
 test("fourteen admitted pilots share one fleet roster read and recheck a removed member in its own session",async t=>{
  t.mock.timers.enable({apis:["Date","setInterval"],now:Date.now()});
  const members:Member[]=Array.from({length:14},(_,i)=>({

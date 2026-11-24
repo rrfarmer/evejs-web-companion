@@ -125,6 +125,10 @@ export function createTrainingHRRun(kind:"training-hr"|"training-join", storage:
 const require=createRequire(import.meta.url);
 const {createDocumentStore}=require("../documentStore.cjs") as {createDocumentStore:(file:string)=>{document(name:string):Storage}};
 let db:ReturnType<typeof createDocumentStore>|null=null;
-const storage=(s:Setup)=>{db??=createDocumentStore(path.join(pluginDataDir(),"training-onboarding.sqlite"));return db.document(`onboarding:${s.traineeID}:${s.corporationID}`);};
+export function trainingDocument(name:string) {
+  db??=createDocumentStore(path.join(pluginDataDir(),"training-onboarding.sqlite"));
+  return db.document(name);
+}
+const storage=(s:Setup)=>trainingDocument(`onboarding:${s.traineeID}:${s.corporationID}`);
 export const trainingHRRun=createTrainingHRRun("training-hr",storage);
 export const trainingJoinRun=createTrainingHRRun("training-join",storage);

@@ -201,6 +201,7 @@ test("Courier Continue refuses an absent mission and reports missing cargo witho
  const absent=fixture(),old=savedCourier(absent);
  await assert.rejects(async()=>continueCourier(absent,"continued",old.mission).start(absent.run),/no longer accepted/);
  assert.deepEqual(absent.events,[]);
+ assert.equal(absent.reports.at(-1).readout.continuationUnavailable,true);
  const missing=fixture(),saved=savedCourier(missing);
  missing.existing({state:2,station:601});missing.setCargo({ship:0,source:0,destination:0});
  const handle=await continueCourier(missing,"continued",saved.mission).start(missing.run);
@@ -209,6 +210,25 @@ test("Courier Continue refuses an absent mission and reports missing cargo witho
   assert.equal(missing.reports.at(-1).phase,"Needs attention");
   assert.match(missing.reports.at(-1).why,/cargo is missing/i);
   assert.deepEqual(missing.events,["route-600"]);
+ }finally{await handle.stop();}
+});
+
+test("Courier Continue suppresses a checkpoint when the accepted mission disappears after attaching",async()=>{
+ const f=fixture(),original=savedCourier(f);
+ f.existing({state:2,aboard:true});
+ const fetch=f.run.fetch;
+ let journalReads=0;
+ f.run.fetch=async(url:any,init:any)=>{
+  if(init?.body&&JSON.parse(String(init.body)).method==="GetMyJournalDetails"&&++journalReads===2)f.existing({state:0});
+  return fetch(url,init);
+ };
+ const handle=await continueCourier(f,"continued",original.mission).start(f.run);
+ try{
+  await until(()=>f.reports.at(-1)?.status==="stopped");
+  const readout=f.reports.at(-1).readout;
+  assert.equal(readout.continuationUnavailable,true);
+  assert.equal(readout.acceptedMission,null);
+  assert.deepEqual(f.events,[]);
  }finally{await handle.stop();}
 });
 

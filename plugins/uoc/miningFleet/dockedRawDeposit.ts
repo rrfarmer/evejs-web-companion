@@ -28,25 +28,55 @@ type DepositFence={
 const STATION_HANGAR_CACHE_KEY=10004;
 const positive=(v:unknown):v is number=>typeof v==="number"&&Number.isSafeInteger(v)&&v>0;
 const totals=(rows:readonly {typeID:number;quantity:number}[])=>{const map=new Map<number,number>();for(const r of rows){if(!positive(r.typeID)||!positive(r.quantity))throw Error("Invalid inventory quantity.");const n=(map.get(r.typeID)??0)+r.quantity;if(!Number.isSafeInteger(n))throw Error("Inventory quantity overflow.");map.set(r.typeID,n);}return map;};
-const equal=(a:Map<number,number>,b:Map<number,number>)=>a.size===b.size&&[...a].every(([k,v])=>b.get(k)===v);
 const destinationQueues=new Map<string,Promise<void>>();
 async function serializeDestination<T>(key:string,action:()=>Promise<T>):Promise<T>{const previous=destinationQueues.get(key)??Promise.resolve();let release!:()=>void;const next=new Promise<void>(resolve=>{release=resolve});destinationQueues.set(key,next);await previous;try{return await action();}finally{release();if(destinationQueues.get(key)===next)destinationQueues.delete(key);}}
+// Completed receipts from earlier versions were sealed against totals for the entire division.
+function matchesRecordedTotals(before:readonly NativeInventoryRow[],moved:readonly DepositItem[],after:readonly NativeInventoryRow[]){
+ const expected=totals([...before,...moved]),actual=totals(after);
+ return expected.size===actual.size&&[...expected].every(([typeID,quantity])=>actual.get(typeID)===quantity);
+}
+/** A merge can grow stock of this type. A disappearing or shrinking destination
+ * stack means another movement of the same type cannot be separated from ours. */
+function receivedQuantity(typeID:number,quantity:number,before:readonly NativeInventoryRow[],after:readonly NativeInventoryRow[],
+ incoming?:ReadonlyMap<number,number>){
+ const prior=before.filter(r=>r.typeID===typeID),next=after.filter(r=>r.typeID===typeID);
+ const priorQuantity=new Map(prior.map(r=>[r.itemID,r.quantity])),byID=new Map(next.map(r=>[r.itemID,r]));
+ if(prior.some(r=>(byID.get(r.itemID)?.quantity??0)<r.quantity))return false;
+ // Credit identifiable source rows first. A remaining merge needs one observable receiving stack.
+ const receivers=next.filter(r=>r.quantity>(priorQuantity.get(r.itemID)??incoming?.get(r.itemID)??0));
+ if(receivers.length>1)return false;
+ return (totals(next).get(typeID)??0)-(totals(prior).get(typeID)??0)===quantity;
+}
 /** Read-only exact delta check; an unchanged or ambiguous snapshot never licenses replay. */
-function confirmed(item:Pending["item"],beforeShip:readonly NativeInventoryRow[],afterShip:readonly NativeInventoryRow[],beforeCorp:readonly NativeInventoryRow[],afterCorp:readonly NativeInventoryRow[]){
- const source=totals(beforeShip),dest=totals(beforeCorp),remaining=(source.get(item.typeID)??0)-item.quantity;if(remaining<0)return false;
- if(remaining)source.set(item.typeID,remaining);else source.delete(item.typeID);dest.set(item.typeID,(dest.get(item.typeID)??0)+item.quantity);
+export function confirmedDepositItem(item:Pending["item"],beforeShip:readonly NativeInventoryRow[],afterShip:readonly NativeInventoryRow[],beforeCorp:readonly NativeInventoryRow[],afterCorp:readonly NativeInventoryRow[],receipt?:"recorded"){
  const selected=beforeShip.find(r=>r.itemID===item.itemID);
  if(!selected||selected.typeID!==item.typeID||selected.quantity<item.quantity)return false;
  const expected=beforeShip.flatMap(r=>r.itemID!==item.itemID?[r]:
   r.quantity===item.quantity?[]:[{...r,quantity:r.quantity-item.quantity}]);
- return afterShip.length===expected.length&&expected.every(r=>afterShip.some(a=>a.itemID===r.itemID&&a.typeID===r.typeID&&a.quantity===r.quantity&&a.ownerID===r.ownerID&&a.locationID===r.locationID&&a.flagID===r.flagID))&&equal(source,totals(afterShip))&&equal(dest,totals(afterCorp));
+ if(afterShip.length!==expected.length||!expected.every(r=>afterShip.some(a=>a.itemID===r.itemID&&a.typeID===r.typeID&&a.quantity===r.quantity&&a.ownerID===r.ownerID&&a.locationID===r.locationID&&a.flagID===r.flagID)))return false;
+ if(receipt==="recorded"&&matchesRecordedTotals(beforeCorp,[item],afterCorp))return true;
+ if(beforeCorp.some(r=>r.itemID===item.itemID))return false;
+ const stored=afterCorp.find(r=>r.itemID===item.itemID);
+ if(stored&&(selected.quantity!==item.quantity||stored.typeID!==item.typeID||stored.quantity<item.quantity))return false;
+ if(selected.quantity===item.quantity&&observedParkingStacks([selected],[],beforeCorp,afterCorp,[item.itemID])?.length===1)return true;
+ return receivedQuantity(item.typeID,item.quantity,beforeCorp,afterCorp);
 }
 /** Match actual whole stacks removed from the ship against the change in the division. */
-export function movedWholeStacks(beforeShip:readonly NativeInventoryRow[],afterShip:readonly NativeInventoryRow[],beforeCorp:readonly NativeInventoryRow[],afterCorp:readonly NativeInventoryRow[]){
+export function movedWholeStacks(beforeShip:readonly NativeInventoryRow[],afterShip:readonly NativeInventoryRow[],beforeCorp:readonly NativeInventoryRow[],afterCorp:readonly NativeInventoryRow[],receipt?:"recorded"){
  const original=new Map(beforeShip.map(r=>[r.itemID,r])),remaining=new Set(afterShip.map(r=>r.itemID));
  if(afterShip.some(r=>{const prior=original.get(r.itemID);return !prior||r.typeID!==prior.typeID||r.quantity!==prior.quantity||r.ownerID!==prior.ownerID||r.locationID!==prior.locationID||r.flagID!==prior.flagID;}))return null;
  const moved=beforeShip.filter(r=>!remaining.has(r.itemID));
- return equal(totals([...beforeCorp,...moved]),totals(afterCorp))?moved:null;
+ if(receipt==="recorded"&&matchesRecordedTotals(beforeCorp,moved,afterCorp))return moved;
+ if(beforeCorp.some(r=>original.has(r.itemID))||afterCorp.some(r=>remaining.has(r.itemID)))return null;
+ if(observedParkingStacks(moved,[],beforeCorp,afterCorp,moved.map(r=>r.itemID))?.length===moved.length)return moved;
+ for(const [typeID,quantity] of totals(moved)){
+  const rows=moved.filter(r=>r.typeID===typeID),ids=rows.map(r=>r.itemID);
+  if(observedParkingStacks(rows,[],beforeCorp,afterCorp,ids)?.length===rows.length)continue;
+  const incoming=new Map(rows.map(r=>[r.itemID,r.quantity]));
+  if(afterCorp.some(r=>incoming.has(r.itemID)&&(r.typeID!==typeID||r.quantity<incoming.get(r.itemID)!))||
+     !receivedQuantity(typeID,quantity,beforeCorp,afterCorp,incoming))return null;
+ }
+ return moved;
 }
 /** A whole stack is still at its original source, or is the same Item ID in the verified division. */
 function observedParkingStacks(beforeShip:readonly NativeInventoryRow[],afterShip:readonly NativeInventoryRow[],
@@ -115,7 +145,7 @@ export async function createDockedRawDepositIO(run:Run,session:PilotSession,conf
   const read=config.reconcileParking?readDepositInventory:<T>(observe:()=>Promise<T>)=>observe();
   const sourceAfter=await read(cargo),destinationAfter=await read(corp);
   const exact=config.reconcileParking?observedParkingStacks(sourceBefore,sourceAfter,destinationBefore,destinationAfter,[item.itemID]):null;
-  const moved=exact?.length===1||confirmed(item,sourceBefore,sourceAfter,destinationBefore,destinationAfter);
+  const moved=exact?.length===1||confirmedDepositItem(item,sourceBefore,sourceAfter,destinationBefore,destinationAfter);
   return {sourceAfter,destinationAfter,moved,unchanged:exact?.length===0};
  };
  const deposit=async(item:{itemID:number;typeID:number;quantity:number},fence:DepositFence,allowPartial=false)=>withDestination(async()=>{
@@ -170,6 +200,7 @@ export async function createDockedRawDepositIO(run:Run,session:PilotSession,conf
   if(before.officeID!==officeID||before.flag!==flag)throw Error("Original deposit destination changed; no replay.");
   if(before.items&&before.requestedIDs){
    const {movedIDs,...after}=await observeWhole(before.sourceBefore,before.destinationBefore,before.requestedIDs);
+   if(!movedIDs.size&&!config.reconcileParking)throw Error("Raw deposit outcome remains unknown; no replay.");
    return {...after,items:before.items.filter(r=>movedIDs.has(r.itemID))};
   }
   const {sourceAfter,destinationAfter,moved,unchanged}=await observeSingle(before.item,before.sourceBefore,before.destinationBefore);
@@ -200,8 +231,8 @@ export async function depositOwnShipRaw(run:Run,session:PilotSession,config:Depo
    const exact=observedParkingStacks(b.sourceBefore,b.sourceAfter,b.destinationBefore,b.destinationAfter,ids);
    if(exact?.length===ids.length)return true;
   }
-  if(!b.items)return confirmed(b.item,b.sourceBefore,b.sourceAfter,b.destinationBefore,b.destinationAfter);
-  const moved=movedWholeStacks(b.sourceBefore,b.sourceAfter,b.destinationBefore,b.destinationAfter);
+  if(!b.items)return confirmedDepositItem(b.item,b.sourceBefore,b.sourceAfter,b.destinationBefore,b.destinationAfter,"recorded");
+  const moved=movedWholeStacks(b.sourceBefore,b.sourceAfter,b.destinationBefore,b.destinationAfter,"recorded");
   return !!moved&&moved.length===b.items.length&&b.items.every(i=>moved.some(r=>r.itemID===i.itemID));
  }catch{return false;}};
  if(state.batches.some(b=>!checkBatch(b)))throw Error("Raw deposit journal requires reconciliation.");

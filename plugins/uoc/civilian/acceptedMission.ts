@@ -11,6 +11,9 @@ export interface MissionContinuation extends AcceptedMission {
 /** The native journal confirms this exact task was already turned in. */
 export class CivilianMissionCompleted extends Error {}
 
+/** The retained checkpoint or the native mission identity rules out this continuation. */
+export class CivilianMissionMismatch extends Error {}
+
 function positive(value: unknown): value is number {
  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }

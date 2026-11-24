@@ -1408,15 +1408,16 @@ let resolvedSite=effectiveSetup.site,target:Target|null=resolvedSite?resolvedSit
       throw Error("Native settlement could not be verified.");
     });
    }
+   if(state!=="PARKING"&&(!stopping||state==="STOPPED"))continue;
    const settled=op.snapshot(),parked=settled.parked.includes(e.member.characterID),stayed=settled.stayed?.includes(e.member.characterID)===true;
-   if(stopping&&state!=="STOPPED"&&(parked||stayed&&!deadlineStop)&&e.active)launch(e,async()=>{
+   if(stopping&&(parked||stayed&&!deadlineStop)&&e.active)launch(e,async()=>{
     await e.cycle?.release?.();guard(e);
     report(e,parked?"Docked":"Settled in place","This pilot has settled. Releasing the session while the remaining fleet stops.");
     e.unregister();e.active=false;e.session.flow.setLivePush(false);
     e.run.report({status:"stopped",phase:parked?"Docked":"Settled in place",why:["This pilot is settled. Fleet Stop remains pending for other members.",e.droneWarning].filter(Boolean).join(" ")});
     persistTelemetry();
    });
-   if((state==="PARKING"||stopping&&state!=="STOPPED"&&settled.settled.includes(e.member.characterID))&&
+   if((state==="PARKING"||settled.settled.includes(e.member.characterID))&&
       !relocating&&!parked&&(!stayed||deadlineStop))launch(e,async()=>{
     const current=()=>guard(e),parkingSetup=parkingForStop(e,settled.stopFreight);
     if(parkingSetup){

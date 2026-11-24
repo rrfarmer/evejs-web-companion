@@ -1020,6 +1020,8 @@ test("a temporary read failure after an applied unload reconciles without repeat
  assert.equal(sim.getHeld().length,0);
  assert.equal(sim.getCorp().reduce((n,r)=>n+r.quantity,0),9);
  assert.equal(h.totals()?.deliveredUnits,0);
+ // A second pilot deposits a module before the Hauler reads back the lost unload.
+ sim.getCorp().push({...ore,itemID:6003,typeID:90,categoryID:7,ownerID:77,locationID:700,flagID:115,quantity:1});
  h.restart();
  assert.equal(await h.haul(),"delivered");
  assert.deepEqual(sim.calls.filter((c:any)=>c.method==="MultiAdd").map((c:any)=>c.of),[13,700]);

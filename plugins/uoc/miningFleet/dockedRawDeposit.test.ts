@@ -103,6 +103,64 @@ test("own-ship freight deposits RAW and recipe-qualified COMPRESSED stacks with 
 
 test("a visible office without division Query is rejected before an inventory write",async()=>{const f=fixture();f.setQuery(false);await assert.rejects(f.call(),/lacks verified Query access/);assert.equal(f.getWrites(),0);});
 
+for (const mode of ["exact IDs", "exact IDs and more ore", "merged", "merged into a new stack", "ambiguous merge", "offsetting changes", "two possible merge targets"] as const) {
+ test("whole-stack readback with concurrent division activity: " + mode, async () => {
+  const f = fixture(), ore = {typeID:30, ownerID:3, locationID:13, flagID:134, quantity:10};
+  const ship = [20, 21].map(itemID => ({...ore, itemID}));
+  const inOffice = {...ore, ownerID:77, locationID:700, flagID:115};
+  f.setHeld(ship);
+  f.setCorp([{...inOffice, itemID:40, quantity:70}]);
+  if (mode === "merged into a new stack") f.setCorp([]);
+  if (mode === "two possible merge targets") f.getCorp().push({...inOffice,itemID:41,quantity:20});
+  const io = await createDockedRawDepositIO(f.run, f.session, {
+   characterID:3, shipID:13, destinationID:600, corporationID:77, division:1, current() {}
+  });
+  const before = await io.cargo(), stock = await io.corp();
+  const act = f.session.flow.flying.bridgeDo;
+  f.session.flow.flying.bridgeDo = async (...args:any[]) => {
+   const result = await act(...args);
+   if (args[1] === "MultiAdd") {
+    if (mode === "exact IDs and more ore") f.getCorp().push({...inOffice, itemID:50, quantity:4});
+    if (mode === "merged" || mode === "ambiguous merge") f.setCorp([{...inOffice, itemID:40, quantity:mode === "merged" ? 90 : 91}]);
+    if (mode === "merged into a new stack") f.setCorp([{...inOffice,itemID:50,quantity:20}]);
+    if (mode === "two possible merge targets") f.setCorp([{...inOffice,itemID:40,quantity:75},{...inOffice,itemID:41,quantity:35}]);
+    if (mode === "offsetting changes") f.setCorp([{...inOffice, itemID:40, quantity:65}, {...inOffice, itemID:50, quantity:25}]);
+    else f.getCorp().push({...inOffice, itemID:60, typeID:800, quantity:1});
+   }
+   return result;
+  };
+  const check = () => io.reconcileDelivery({officeID:io.officeID, flag:io.flag, item:before[0]!, items:before,
+   requestedIDs:before.map(row=>row.itemID), sourceBefore:before, destinationBefore:stock});
+  if (mode === "exact IDs" || mode === "exact IDs and more ore" || mode === "merged" || mode === "merged into a new stack") {
+   const result = await io.depositWhole(before, before, stock);
+   assert.deepEqual([...result.movedIDs], [20,21]);
+   assert.deepEqual((await check()).items?.map(row=>row.itemID), [20,21]);
+  } else {
+   await assert.rejects(io.depositWhole(before, before, stock), /unknown; no replay/);
+   await assert.rejects(check(), /unknown; no replay/);
+  }
+  assert.deepEqual(await io.cargo(), []);
+  assert.equal(f.getWrites(), 1);
+ });
+}
+
+test("a previously settled whole-stack receipt remains readable under its original proof",async()=>{
+ const f=fixture(),row={typeID:30,ownerID:3,locationID:13,flagID:134,quantity:10};
+ const rows=[20,21].map(itemID=>({...row,itemID}));
+ f.setHeld(rows);
+ f.setCorp([{...row,itemID:40,ownerID:77,locationID:700,flagID:115,quantity:70}]);
+ const config={source:{...source,items:rows.map(({itemID,typeID,quantity})=>({itemID,typeID,quantity}))},
+  destinationID:600,corporationID:77,division:1,wholeStacks:true,current(){},document:f.document};
+ await depositOwnShipRaw(f.run,f.session,config);
+ const saved=structuredClone(f.getDoc()) as any,batch=saved.batches[0];
+ // The old receipt was sealed on the full division delta, before per-stack changes were compared.
+ batch.destinationAfter=[{...batch.destinationBefore[0],quantity:65},{...batch.destinationBefore[0],itemID:90,quantity:25}];
+ f.setDoc(saved);
+ assert.deepEqual((await depositOwnShipRaw(f.run,f.session,config)).batches,[batch]);
+ assert.deepEqual(f.getDoc(),saved);
+ assert.equal(f.getWrites(),1);
+});
+
 test("assigned title grants Query without Take and two full stacks use one MultiAdd",async()=>{
  const f=fixture();
  f.useTitle();

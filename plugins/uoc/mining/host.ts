@@ -20,7 +20,7 @@ import {decodeModuleObservation} from "../shared/moduleObservation.ts";
 import {observeMiningCycle} from "../shared/miningCycle.ts";
 import {checkedInventory as checkedNativeInventory} from "../shared/nativeInventory.ts";
 import {miningAcceptedMission,miningIdentity,rolloverMiningState} from "./history.ts";
-import {sameAcceptedMission} from "../civilian/acceptedMission.ts";
+import {CivilianMissionMismatch,sameAcceptedMission} from "../civilian/acceptedMission.ts";
 import {civilianProvenance,registerCivilianRecovery} from '../civilian/recovery.ts';
 const require=createRequire(import.meta.url),{createDocumentStore}=require("../documentStore.cjs");
 const wait=(ms:number)=>new Promise<void>(resolve=>setTimeout(resolve,ms));
@@ -44,9 +44,9 @@ export function createNativeMiningRun(deps:{attach?:typeof createPilotSession;do
   try{
    const previous=document.read(),scope=civilianProvenance(run),stored=previous?.civilian;
    if(stored&&scope&&(stored.worldID!==scope.worldID||stored.owner!==scope.owner||stored.characterID!==scope.characterID))
-    throw Error('The retained Mining checkpoint belongs to another world or account.');
+    throw new CivilianMissionMismatch("The retained Mining checkpoint belongs to another world or account.");
    if(continuation&&(!scope||!stored||stored.kind!=='mining'||stored.botID!==(run.resumed?run.botID:continuation.botID)))
-    throw Error("The original Mining checkpoint no longer belongs to this pilot and account.");
+    throw new CivilianMissionMismatch("The original Mining checkpoint no longer belongs to this pilot and account.");
    if(continuation&&previous?.completed===true&&previous.completionReceipt?.mission===continuation.key){
     rolloverMiningState(previous,null,run.characterID,setupKey); // Validate the completed receipt before reporting it.
     run.report({status:"stopped",phase:"Completed",why:"The agent already confirmed this Mining mission.",readout:{
@@ -55,7 +55,7 @@ export function createNativeMiningRun(deps:{attach?:typeof createPilotSession;do
    }
    state=rolloverMiningState(previous,prior?.state??null,run.characterID,setupKey);
    if(continuation&&!sameAcceptedMission(continuation,miningAcceptedMission(state)))
-    throw Error("The saved accepted Mining mission no longer matches.");
+    throw new CivilianMissionMismatch("The saved accepted Mining mission no longer matches.");
   }
   catch(error){flow.setLivePush(false);db?.close();throw error;}
   const now=deps.now??Date.now;
@@ -451,10 +451,10 @@ export function createNativeMiningRun(deps:{attach?:typeof createPilotSession;do
     runCompleted=1;return null;
    }
    if(row?.missionState!==2||row.missionID!==continuation.missionID)
-    throw Error("The saved Mining mission is no longer accepted by this agent. It may have completed or expired.");
+    throw new CivilianMissionMismatch("The saved Mining mission is no longer accepted by this agent. It may have completed or expired.");
    const o=await objective(continuation.agentID);
    if(!sameAcceptedMission(continuation,miningAcceptedMission({mission:o})))
-    throw Error("The native Mining objective does not match the saved accepted mission.");
+    throw new CivilianMissionMismatch("The native Mining objective does not match the saved accepted mission.");
    verifiedContinuation=true;
    if(state.legacy?.pending||state.pending&&!["mining-cycle","mission-warp","target-lock","unload"].includes(state.pending.kind))
     throw Error("The previous Mining action requires native reconciliation before Continue.");
@@ -521,7 +521,7 @@ export function createNativeMiningRun(deps:{attach?:typeof createPilotSession;do
   }
   function launchWork(){return work().catch(async error=>{if(!active||ended)return;const reason=error instanceof RequestedStop?"Stop requested.":String(error);
    if(continuation&&!verifiedContinuation&&!(error instanceof RequestedStop)){
-    ended=true;unregister();run.report({status:"error",phase:"Needs attention",why:reason,readout:{...readout(),firstFailure:reason} as any});return;
+    ended=true;unregister();run.report({status:"error",phase:"Needs attention",why:reason,readout:{...readout(),...(error instanceof CivilianMissionMismatch?{acceptedMission:null,continuationUnavailable:true}:{}),firstFailure:reason} as any});return;
    }
    if(error instanceof RequestedStop&&continuation)verifiedContinuation=true; // The original acceptance remains recorded when stopped before a native read.
    state.lastFailure=error instanceof RequestedStop?null:reason;save();await park(reason);}).finally(()=>{workEnded=true;});}

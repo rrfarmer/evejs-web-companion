@@ -25,9 +25,6 @@ export type TrainingTransfer = {
   corporationID: number;
   shortfall: number;
   balance: number;
-  corporateBalance: number;
-  personalIDs: number[];
-  corporateIDs: number[];
   reason: string;
 };
 
@@ -92,12 +89,11 @@ export async function prepareTrainingTransfer(call: WalletCall, characterID: num
   const corporateBalance = await readTrainingWallet(call, characterID, corporationID);
   if (corporateBalance < shortfall) throw Error("INSUFFICIENT_CORPORATION_FUNDS: The corporation Master Wallet cannot cover the required funding.");
   const [personalBefore, corporateBefore] = await Promise.all([journal(call, false), journal(call, true)]);
-  const ids = (value: unknown) => {
-    const values = rowsOf(value).map(row => Number(scalar(row.transactionID)));
-    if (values.some(id => !positive(id))) throw Error("Native wallet journal identity is unreadable.");
-    return values;
-  };
-  return { corporationID, shortfall, balance, corporateBalance, personalIDs: ids(personalBefore), corporateIDs: ids(corporateBefore), reason };
+  for (const row of [...rowsOf(personalBefore), ...rowsOf(corporateBefore)]) {
+    if (!positive(Number(scalar(row.transactionID)))) throw Error("Native wallet journal identity is unreadable.");
+    if (scalar(row.description) === reason) throw Error("This training transfer reference is already in the wallet journal.");
+  }
+  return { corporationID, shortfall, balance, reason };
 }
 
 export function sendTrainingTransfer(call: WalletCall, characterID: number, transfer: TrainingTransfer) {
@@ -106,19 +102,17 @@ export function sendTrainingTransfer(call: WalletCall, characterID: number, tran
 }
 
 export async function readTrainingTransfer(call: WalletCall, characterID: number, transfer: TrainingTransfer) {
-  const [personal, corporate, personalBalance, corporateBalance] = await Promise.all([
-    journal(call, false), journal(call, true), call("account", "GetCashBalance", [0]), call("account", "GetCashBalance", [1, 1000]),
-  ]);
-  const matching = (value: unknown, old: number[], amount: number) => rowsOf(value).filter(row =>
-    !old.includes(Number(scalar(row.transactionID))) && scalar(row.description) === transfer.reason &&
-    cents(row.amount) === amount && Number(scalar(row.ownerID1)) === transfer.corporationID &&
-    Number(scalar(row.ownerID2)) === characterID);
-  const p = matching(personal, transfer.personalIDs, transfer.shortfall);
-  const c = matching(corporate, transfer.corporateIDs, -transfer.shortfall);
-  const personalTransactionID = Number(scalar(p[0]?.transactionID));
-  const corporateTransactionID = Number(scalar(c[0]?.transactionID));
-  if (p.length !== 1 || c.length !== 1 || !positive(personalTransactionID) || !positive(corporateTransactionID) ||
-      cents(personalBalance) !== transfer.balance + transfer.shortfall ||
-      cents(corporateBalance) !== transfer.corporateBalance - transfer.shortfall) return null;
+  const [personal, corporate] = await Promise.all([journal(call, false), journal(call, true)]);
+  const entryID = (value: unknown, amount: number) => {
+    const matches = rowsOf(value).filter(row => scalar(row.description) === transfer.reason);
+    const row = matches[0];
+    if (!row || matches.length !== 1 || cents(row.amount) !== amount ||
+        Number(scalar(row.ownerID1)) !== transfer.corporationID || Number(scalar(row.ownerID2)) !== characterID) return null;
+    const id = Number(scalar(row.transactionID));
+    return positive(id) ? id : null;
+  };
+  const personalTransactionID = entryID(personal, transfer.shortfall);
+  const corporateTransactionID = entryID(corporate, -transfer.shortfall);
+  if (personalTransactionID === null || corporateTransactionID === null) return null;
   return { personalTransactionID, corporateTransactionID, shortfall: transfer.shortfall, corporationID: transfer.corporationID };
 }

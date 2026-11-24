@@ -31,11 +31,11 @@ export function createCivilianCheckpointsRoute(opener=open,orphans:(world:string
   rows=rows.sort((a,b)=>b.updatedAt-a.updatedAt);
   const recovery=rows.filter(r=>!r.resolved).map(r=>({pin:r.botID,characterID:r.characterID,idle:false,reason:r.firstFailure??(r.pending?`Stored ${r.kind} action ${r.pending} requires review.`:`Stored ${r.kind} mission/cargo checkpoint has not been independently reconciled.`),scope:'STORED_ONLY',kind:r.kind,botID:r.botID}));
   return {body:{ok:true,recovery,history:rows.map(row=>{
-   const readout=row.worker?.readout as {acceptedMission?:unknown}|null|undefined;
+   const readout=row.worker?.readout as {acceptedMission?:unknown;continuationUnavailable?:boolean}|null|undefined;
    const checkpoint=stored.get(row.botID)?.worker?.readout as {acceptedMission?:unknown}|undefined;
    // The mission executor writes its journal before the next progress report.
    // A stale null (for example in an "Accepting" report) cannot hide that write.
-   const unavailable = row.status==='error'&&readout?.acceptedMission===null;
+   const unavailable = readout?.continuationUnavailable===true||row.status==='error'&&readout?.acceptedMission===null;
    const acceptedMission = row.resolved||unavailable ? null
     : readAcceptedMission(checkpoint&&Object.hasOwn(checkpoint,'acceptedMission')?checkpoint.acceptedMission:readout?.acceptedMission);
    return {...row,acceptedMission,ownerAvailable:civilianOwnerAvailable(row)};

@@ -12,6 +12,7 @@ import {captureReward,compareRewards} from "../shared/rewards/index.ts";
 import type {DistributionEvidence,DistributionIntent} from "./fence.ts";
 import type {DistributionCompletionReceipt} from "./progress.ts";
 import {agentMission,missionLabel,type Courier,type JournalRow,type MissionJournal} from "./native.ts";
+import {CivilianMissionCompleted,CivilianMissionMismatch} from '../civilian/acceptedMission.ts';
 import {civilianProvenance} from '../civilian/recovery.ts';
 import {DeclineUnavailable,clearBlockingMission,conflictingMission,existingMissionRefusal,missionRefusalText,referralConflict,referralTargets} from "../civilian/missionConflict.ts";
 const require=createRequire(import.meta.url);
@@ -35,7 +36,7 @@ export function createDistributionHost(deps:{attachPilot?:typeof createPilotSess
   const setup=decodeDistributionSetup(run.setup);if(!setup)throw new Error("Distribution setup is invalid.");
   const continuation=setup.continuation;
   let active=true,task:Promise<void>|null=null,stopping=false,stopRequested=false,parking=false,inMutation=false,actionSequence=0;
-  let completedCount=0,workEnded=false;
+  let completedCount=0,workEnded=false,continuationUnavailable=false;
   let timingPhase="Starting",phaseSince=performance.now(),reads=0,readMs=0;
   const note=(event:string,fields:Record<string,string|number|null>)=>{
    try{
@@ -401,8 +402,10 @@ export function createDistributionHost(deps:{attachPilot?:typeof createPilotSess
    let initial:JournalRow|null=null,agent:Awaited<ReturnType<typeof client.record>>|null=null;
    if(boundMission){
     const row=agentMission(journal,boundMission.agentID);
-    if(!row||row.missionKey!==boundMission.missionKey)
+    if(!row||row.missionKey!==boundMission.missionKey){
+     if(continuation)throw new CivilianMissionMismatch("The selected Delivery mission is no longer accepted.");
      throw Error("The retained courier mission does not match this run's agent selection.");
+    }
     agent=continuation?await client.record(row.agentID):await existingAgent(row,flight.systemID);
     if(!agent)throw Error("The retained courier mission does not match this run's agent selection.");
     initial=row;
@@ -412,7 +415,7 @@ export function createDistributionHost(deps:{attachPilot?:typeof createPilotSess
     if(candidate){initial=agentMission(journal,row.agentID);agent=candidate;break;}
    }
    if(continuation&&(!boundMission||initial?.missionState!==2||initial.missionID!==continuation.missionID||initial.missionKey!==continuation.key))
-    throw Error("The selected Delivery mission is no longer accepted. Continue cannot request a replacement.");
+    throw new CivilianMissionMismatch("The selected Delivery mission is no longer accepted. Continue cannot request a replacement.");
    if(initial?.missionState!==2)requireMissionStartTime();
    const selection=setup!.agent;
    if(!boundMission&&initial?.missionState!==2&&selection.mode==="auto"&&selection.corporationID!==null){
@@ -576,7 +579,7 @@ export function createDistributionHost(deps:{attachPilot?:typeof createPilotSess
       {destinationID:target.destinationID,systemID:target.systemID,kind:target.kind},failed);
    }catch(reason){parking=false;options.stopped(`Parking did not finish: ${String(reason)}`);}
   }
-  const custody=()=>{const row=ledger.inspect(1,run.characterID);if(!row||row.runID!==run.botID)throw Error('The original Distribution journal owner changed.');return {pending:row.pending?.intent.kind??null,missionSettled:row.done&&row.pending===null,missionKey:row.mission?.missionKey??null,acceptedMission:distributionAcceptedMission(row)};};
+  const custody=()=>{const row=ledger.inspect(1,run.characterID);if(!row||row.runID!==run.botID)throw Error('The original Distribution journal owner changed.');return {pending:row.pending?.intent.kind??null,missionSettled:row.done&&row.pending===null,missionKey:row.mission?.missionKey??null,acceptedMission:continuationUnavailable?null:distributionAcceptedMission(row),continuationUnavailable};};
   return {custody,async inspectRecovery(){
    if(!active||stopping||!workEnded)throw Error('The original Distribution executor must finish its current work before read-only reconciliation.');
    const row=ledger.inspect(1,run.characterID);if(!row||row.runID!==run.botID)throw Error('The exact Distribution owner journal is unavailable.');
@@ -586,6 +589,7 @@ export function createDistributionHost(deps:{attachPilot?:typeof createPilotSess
    return {nativeReconciled:reconciled,...after,parking:qualified?{state:'DOCKED',destinationID:(f.stationID??f.structureID)!,systemID:f.systemID,kind:f.stationID?'station':'structure'}:null,journalStatus:proof.journal.active.length+proof.journal.offered.length?'NONEMPTY':'EMPTY',activeMissions:proof.journal.active.length,offeredMissions:proof.journal.offered.length,reason:after.pending?'The dispatched '+after.pending+' remains unknown; no replay.':after.missionSettled?'Original journal settlement is verified.':'Native mission/cargo remains unfinished; docking does not complete it.'};
   },async start(){task=work().catch(async error=>{
    if(stopping)return;
+   if(error instanceof CivilianMissionCompleted||error instanceof CivilianMissionMismatch)continuationUnavailable=true;
    if(error instanceof GracefulStop || stopRequested){await parkAfterStop(error);return;}
    if(continuation){await parkAfterStop(error);return;}
    options.stopped(error instanceof Error?error.message:String(error));

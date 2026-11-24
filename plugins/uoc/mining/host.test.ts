@@ -165,6 +165,8 @@ test("Mining Continue refuses an absent mission and reconciles a confirmed nativ
  const absent=await handoffMining({action:"continue",botID:"expired",absent:true},original.saved);
  assert.equal(absent.reports.at(-1).phase,"Needs attention");
  assert.match(absent.reports.at(-1).why,/no longer accepted/);
+ assert.equal(absent.reports.at(-1).readout.continuationUnavailable,true);
+ assert.equal(absent.reports.at(-1).readout.acceptedMission,null);
  assert.deepEqual(absent.actions,[]);assert.equal(absent.routeStarts,0);
  const completed=await handoffMining({action:"continue",botID:"resumed",lostComplete:true,terminal:true},original.saved);
  assert.equal(completed.reports.at(-1).phase,"Completed");

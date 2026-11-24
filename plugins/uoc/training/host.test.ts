@@ -50,7 +50,11 @@ function fixture(failPurchase = false, corp = false, wallet?: { corporateBalance
   const run = { botID:"run",accountID:1,characterID:7,held:{characterID:7},resumed:false,
     setup:{goalTypeID:100,maxSpendISK:150,...(corp?{corporateFunding:true,corporationID:98}:{})},expiresAt:new Date(Date.now()+60_000).toISOString(),baseUrl:"http://local",fetch:fetcher,
     report:(v:unknown)=>reports.push(v) } as unknown as PluginRunContext;
-  return { run, calls, reports, transfers, balances: () => ({ personal: balance, corporate: corpBalance }) };
+  let funding: unknown = null;
+  const fundingDocument = () => ({ read: () => structuredClone(funding), write(value: unknown) { funding = structuredClone(value); } });
+  const worker = () => createTrainingRun({reconcileDelayMs:1, fundingDocument});
+  return { run, worker, calls, reports, transfers, deposit: (isk: number) => { corpBalance += isk; },
+    balances: () => ({ personal: balance, corporate: corpBalance }) };
 }
 async function finish(reports: any[]) { for (let i=0;i<100 && !reports.length;i++) await new Promise(r=>setTimeout(r,1)); assert.ok(reports.length); }
 test("recursive target order preserves prerequisite levels and rejects unknown graph",()=>{
@@ -89,9 +93,78 @@ test("pilot wallet only refuses insufficient personal funds before any transfer 
 
 const corporateOnlySetup = {goalTypeID:100,maxSpendISK:130,corporationID:98,fundingPolicy:"CORPORATION_WALLET_ONLY"};
 
+test("unrelated corporation income does not fund the same skillbooks twice on Start", async () => {
+  const f = fixture();
+  const fetch: typeof f.run.fetch = async (url, init) => {
+    const response = await f.run.fetch(url, init);
+    if (init?.body && JSON.parse(String(init.body)).method === "GiveCashFromCorpAccount") f.deposit(1);
+    return response;
+  };
+  for (const botID of ["first", "second"]) {
+    f.reports.length = 0;
+    await f.worker().start({...f.run, botID, setup:corporateOnlySetup, fetch});
+    await finish(f.reports);
+    assert.equal(f.reports[0].phase, "Training queued", f.reports[0].why);
+  }
+  assert.deepEqual(f.transfers.map(t => t.amount), [130]);
+  assert.equal(f.calls.filter(c => c === "PurchaseSkills").length, 1);
+  assert.deepEqual(f.balances(), {personal:200, corporate:871});
+});
+
+test("restarted Training rechecks an ambiguous transfer before spending or funding again", async t => {
+  const f = fixture();
+  const dir = mkdtempSync(path.join(tmpdir(),"uoc-training-funding-"));
+  const file = path.join(dir,"training-onboarding.sqlite");
+  const {createDocumentStore} = createRequire(import.meta.url)("../documentStore.cjs");
+  t.after(()=>{unlinkSync(file);rmdirSync(dir);});
+  let evidence: "duplicate" | "wrong recipient" | "wrong amount" | "visible" = "duplicate";
+  const fetch: typeof f.run.fetch = async (url, init) => {
+    const response = await f.run.fetch(url, init);
+    const call = init?.body && JSON.parse(String(init.body));
+    if (evidence !== "visible" && call?.method === "GetTransactions" && call.args[3] && f.transfers.length) {
+      const body = await response.json(), row = body.result.items[0];
+      if (evidence === "duplicate") body.result.items.push({...row, fields:{...row.fields, transactionID:99}});
+      if (evidence === "wrong recipient") row.fields.ownerID2 = 8;
+      if (evidence === "wrong amount") row.fields.amount = -129;
+      return Response.json(body);
+    }
+    return response;
+  };
+  for (const botID of ["duplicate", "wrong recipient", "wrong amount", "visible"] as const) {
+    evidence = botID;
+    f.reports.length = 0;
+    const sqlite = createDocumentStore(file);
+    try {
+      const worker = createTrainingRun({reconcileDelayMs:1,fundingDocument:id=>sqlite.document("funding:"+id)});
+      await worker.start({...f.run, botID, setup:corporateOnlySetup, fetch});
+      await finish(f.reports);
+    } finally { sqlite.close(); }
+    assert.equal(f.reports[0].status, evidence === "visible" ? "stopped" : "error", f.reports[0].why);
+    assert.equal(f.calls.filter(c => c === "PurchaseSkills").length, evidence === "visible" ? 1 : 0);
+    assert.equal(f.transfers.length, 1, "only the original transfer may be sent");
+  }
+  assert.deepEqual(f.balances(), {personal:200, corporate:870});
+});
+
+test("learning earlier books elsewhere does not release an unverified transfer for another purchase", async () => {
+  const f=fixture(), pending={books:[77],total:13000,policy:"CORPORATION_WALLET_ONLY",
+    transfer:{corporationID:98,shortfall:13000,balance:20000,reason:"UOC Training 12aaade3-5b8a-4370-b067-0bf856764055"}};
+  const worker=createTrainingRun({reconcileDelayMs:1,fundingDocument:()=>({read:()=>pending,write(){assert.fail("unverified funding was cleared");}})});
+  const fetch:typeof f.run.fetch=async(url,init)=>{
+    const response=await f.run.fetch(url,init);
+    if(new URL(String(url)).pathname!=="/api/bridge/skills")return response;
+    const body=await response.json();body.skills.skills.push({typeID:77,level:1});return Response.json(body);
+  };
+  await worker.start({...f.run,setup:corporateOnlySetup,fetch});
+  await finish(f.reports);
+  assert.match(f.reports[0].why,/earlier corporation transfer could not be verified/);
+  assert.equal(f.transfers.length,0);
+  assert.equal(f.calls.includes("PurchaseSkills"),false);
+});
+
 test("corporation wallet only verifies a transfer of the entire cost and preserves an ample personal balance", async () => {
   const f = fixture();
-  await createTrainingRun({reconcileDelayMs:1}).start({...f.run,setup:corporateOnlySetup});
+  await f.worker().start({...f.run,setup:corporateOnlySetup});
   await finish(f.reports);
   assert.equal(f.reports[0].phase,"Training queued",f.reports[0].why);
   assert.deepEqual(f.transfers.map(transfer => transfer.amount),[130]);
@@ -109,7 +182,7 @@ test("corporation wallet only refuses insufficient funds or authority even with 
     [{roles:"0"}, /CORPORATION_WALLET_TAKE_DENIED/],
   ] as const) {
     const f = fixture(false,false,wallet);
-    await createTrainingRun({reconcileDelayMs:1}).start({...f.run,setup:corporateOnlySetup});
+    await f.worker().start({...f.run,setup:corporateOnlySetup});
     await finish(f.reports);
     assert.match(f.reports[0].why,reason);
     assert.deepEqual(f.transfers,[]);
@@ -128,9 +201,12 @@ test("corporation wallet only refuses to buy while the transfer is unconfirmed",
     }
     return f.run.fetch(url,init);
   };
-  await createTrainingRun({reconcileDelayMs:1}).start({...f.run,setup:corporateOnlySetup,fetch:fetcher});
-  await finish(f.reports);
-  assert.match(f.reports[0].why,/transfer could not be verified/);
+  for (const botID of ["first", "retry"]) {
+    f.reports.length = 0;
+    await f.worker().start({...f.run,botID,setup:corporateOnlySetup,fetch:fetcher});
+    await finish(f.reports);
+    assert.match(f.reports[0].why,/transfer could not be verified/);
+  }
   assert.equal(transfers,1);
   assert.equal(f.calls.includes("PurchaseSkills"),false);
   assert.deepEqual(f.balances(),{personal:200,corporate:1000});
@@ -141,15 +217,23 @@ test("corporation wallet only checks the funded balance again before the trainee
   let personalReadsAfterTransfer = 0;
   const fetcher: typeof fetch = async (url, init) => {
     const call = init?.body && JSON.parse(String(init.body));
-    if (f.transfers.length && call?.method === "GetCashBalance" && call.args[0] === 0 && ++personalReadsAfterTransfer === 2)
+    if (f.transfers.length && call?.method === "GetCashBalance" && call.args[0] === 0 && ++personalReadsAfterTransfer === 1)
       return Response.json({ok:true,result:329});
     return f.run.fetch(url,init);
   };
-  await createTrainingRun({reconcileDelayMs:1}).start({...f.run,setup:corporateOnlySetup,fetch:fetcher});
+  await f.worker().start({...f.run,setup:corporateOnlySetup,fetch:fetcher});
   await finish(f.reports);
   assert.match(f.reports[0].why,/funding no longer covers the purchase/);
   assert.match(f.reports[0].why,/Verified corporation transfer: 130 ISK/);
   assert.equal(f.calls.includes("PurchaseSkills"),false);
+
+  f.reports.length = 0;
+  await f.worker().start({...f.run,botID:"retry",setup:corporateOnlySetup,fetch:fetcher});
+  await finish(f.reports);
+  assert.equal(f.reports[0].status,"stopped",f.reports[0].why);
+  assert.deepEqual(f.transfers.map(t=>t.amount),[130]);
+  assert.equal(f.calls.filter(c=>c==="PurchaseSkills").length,1);
+  assert.deepEqual(f.balances(),{personal:200,corporate:870});
 });
 
 test("reviewed planner goals add native skill levels through the existing purchase and queue executor",async()=>{
@@ -173,7 +257,7 @@ test("ambiguous purchase is never repeated within the same run",async()=>{
   assert.equal(f.calls.includes("SaveNewQueue"),false);
 });
 test("authorized held pilot uses personal money first and proves corporation shortfall on both wallets",async()=>{
-  const f=fixture(false,true), run=createTrainingRun({reconcileDelayMs:1}); await run.start(f.run); await finish(f.reports);
+  const f=fixture(false,true), run=f.worker(); await run.start(f.run); await finish(f.reports);
   assert.equal(f.reports[0].phase,"Training queued");
   assert.equal(f.reports[0].readout.transferReceipt.shortfall,10000);
   assert.equal(f.calls.filter(x=>x==="GiveCashFromCorpAccount").length,1);
@@ -184,7 +268,7 @@ test("unreadable corporate role stops before any monetary dispatch",async()=>{
     if (init?.body && JSON.parse(init.body).method === "GetMember") return Response.json({ok:true,result:{type:"packedrow",fields:{characterID:7,corporationID:98,roles:"0"}}});
     return original(url as string,init);
   };
-  await createTrainingRun({reconcileDelayMs:1}).start(f.run); await finish(f.reports);
+  await f.worker().start(f.run); await finish(f.reports);
   assert.match(f.reports[0].why,/CORPORATION_WALLET_TAKE_DENIED/);
   assert.equal(f.calls.filter(x=>x==="GiveCashFromCorpAccount" || x==="PurchaseSkills").length,0);
 });
@@ -194,7 +278,7 @@ test("ambiguous corporation transfer stops the current run before buying books",
     if (init?.body && JSON.parse(init.body).method === "GiveCashFromCorpAccount") {transfers++;throw Error("unknown");}
     return original(url as string,init);
   };
-  const run=createTrainingRun({reconcileDelayMs:1}); await run.start(f.run); await finish(f.reports);
+  const run=f.worker(); await run.start(f.run); await finish(f.reports);
   assert.match(f.reports[0].why,/transfer could not be verified/);
   assert.equal(transfers,1); assert.equal(f.calls.includes("PurchaseSkills"),false);
 });

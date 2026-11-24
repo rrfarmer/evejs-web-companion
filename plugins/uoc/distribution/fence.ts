@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type {CivilianIndexRow} from "../civilian/index.ts";
-import {CivilianMissionCompleted,readAcceptedMission,sameAcceptedMission,type MissionContinuation} from "../civilian/acceptedMission.ts";
+import {CivilianMissionCompleted,CivilianMissionMismatch,readAcceptedMission,sameAcceptedMission,type MissionContinuation} from "../civilian/acceptedMission.ts";
 import type {DistributionCompletionReceipt} from "./progress.ts";
 
 export type DistributionIntent =
@@ -103,7 +103,7 @@ function compactCompleted(row:DistributionFenceRow):DistributionFenceRow {
 }
 
 function verifyContinuation(row:DistributionFenceRow, mission:MissionContinuation, evidence:DistributionEvidence, runID:string, deferredTransfer=false):DistributionFenceRow {
- if(!sameAcceptedMission(mission,distributionAcceptedMission(row)))throw Error("The saved accepted Delivery mission no longer matches.");
+ if(!sameAcceptedMission(mission,distributionAcceptedMission(row)))throw new CivilianMissionMismatch("The saved accepted Delivery mission no longer matches.");
  const {active,offered}=forAgent(evidence.journal,mission.agentID);
  const exact=active.length===1&&active[0]?.missionKey===mission.key&&offered.length===0;
  const completed=!exact&&evidence.journal.completed?.some(entry=>entry.agentID===mission.agentID&&entry.missionKey===mission.key);
@@ -114,7 +114,7 @@ function verifyContinuation(row:DistributionFenceRow, mission:MissionContinuatio
   throw Error("Delivery Complete was already sent, but its result is unconfirmed. It will not be sent again.");
  }
  if(completed)throw new CivilianMissionCompleted("The native journal confirms this Delivery mission was already completed.");
- if(!exact)throw Error("The saved Delivery mission is no longer accepted by this agent. It may have completed or expired.");
+ if(!exact)throw new CivilianMissionMismatch("The saved Delivery mission is no longer accepted by this agent. It may have completed or expired.");
  if(!intent)return row;
  if(deferredTransfer&&(intent.kind==="load"||intent.kind==="unload"))return row;
  if((intent.kind!=="load"&&intent.kind!=="unload")||!matches(intent,evidence))
@@ -175,13 +175,14 @@ export function createDistributionFence({filePath, storage}:{filePath?:string;st
   },
   continueAccepted({accountID,characterID,runID,current,mission,evidence,civilian}:{accountID:number;characterID:number;runID:string;current:()=>boolean;mission:MissionContinuation;evidence:DistributionEvidence;civilian?:CivilianIndexRow}){
    const key=`${accountID}:${characterID}`,row=records[key];
-   if(!current()||!row||row.runID!==mission.botID||row.runID===runID||
+   if(!current())throw Error("The current Delivery owner is unavailable.");
+   if(!row||row.runID!==mission.botID||row.runID===runID||
       !row.civilian||row.civilian.worldID!==civilian?.worldID||row.civilian.owner!==civilian.owner)
-    throw Error("The original Delivery checkpoint no longer belongs to this pilot and account.");
+    throw new CivilianMissionMismatch("The original Delivery checkpoint no longer belongs to this pilot and account.");
    if(row.done){
     if(row.completion?.completed&&row.completion.agentID===mission.agentID&&row.completion.missionKey===mission.key)
      throw new CivilianMissionCompleted("The agent already confirmed this Delivery mission.");
-    throw Error("The saved Delivery checkpoint has been retired.");
+    throw new CivilianMissionMismatch("The saved Delivery checkpoint has been retired.");
    }
    const verified=verifyContinuation(row,mission,evidence,runID,true);
    put(key,{...verified,runID,civilian,accepted:true},{row,oldRunStatus:"retired"});

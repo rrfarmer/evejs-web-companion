@@ -162,7 +162,7 @@ export function summarizeFleetRun(storage: FleetOperationDocuments, operationID:
   function addBatch(shipID: number, batch: NativeDeliveryBatch, includedInManifest: boolean) {
     const tripID = typeof batch.tripID === "string" && batch.tripID ? batch.tripID : undefined;
     if (batch.items !== undefined && tripID) {
-      const moved = movedWholeStacks(batch.sourceBefore, batch.sourceAfter, batch.destinationBefore, batch.destinationAfter);
+      const moved = movedWholeStacks(batch.sourceBefore, batch.sourceAfter, batch.destinationBefore, batch.destinationAfter, "recorded");
       if (!moved) throw Error("Whole-stack delivery requires reconciliation.");
       if (!moved.length) return;
       // Each can can reference a share of the same physical MultiAdd.

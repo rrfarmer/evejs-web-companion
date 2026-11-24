@@ -15,7 +15,7 @@ export interface DistributionHost {
   restoreCompleted:(receipt:DistributionCompletionReceipt,reward:MissionRewardReadout|null)=>void;
   confirmed:(receipt:DistributionCompletionReceipt,reward:MissionRewardReadout|null,why?:string)=>void; stopped:(reason:string)=>void; parked:(reason:string,dock?:{destinationID:number;systemID:number;kind:'station'|'structure'},failed?:boolean)=>void; missionObserved?:(agentID:number,contentID:number|null,missionName?:string,destinationID?:number)=>void;
   progress:(phase:string|null,why:string|null,location?:{currentLocationID?:number;destinationID?:number;returning?:boolean})=>void}):Promise<{
-   start(plan:BotScript):Promise<void>; stop():Promise<void>; requestStop?():Promise<void>;custody?():{pending:string|null;missionSettled:boolean;missionKey:string|null;acceptedMission?:AcceptedMission|null};inspectRecovery?():Promise<unknown>;
+   start(plan:BotScript):Promise<void>; stop():Promise<void>; requestStop?():Promise<void>;custody?():{pending:string|null;missionSettled:boolean;missionKey:string|null;acceptedMission?:AcceptedMission|null;continuationUnavailable?:boolean};inspectRecovery?():Promise<unknown>;
   }>;
 }
 /** No host means disabled: an ordinary ScriptRunner alone does not prove mission completion. */
@@ -40,7 +40,7 @@ export function createCivilianDistributionRun(host:DistributionHost|null=null):B
    let stopping=false,parking=false,terminal=false,firstFailure:string|null=null,mission:{agentID:number;contentID:number|null;missionName?:string;destinationID?:number}|null=null,dock:{destinationID:number;systemID:number;kind:'station'|'structure'}|null=null;
    let currentLocationID:number|undefined,travel:{destinationID?:number;returning?:boolean}|undefined;
    let session:Awaited<ReturnType<DistributionHost['attach']>>|null=null;
-   const readout=()=>{const custody=session?.custody?.();return {...progress.snapshot(),agentID:mission?.agentID??setup.continuation?.agentID??null,mission:mission?.contentID??setup.continuation?.missionID??null,missionName:mission?.missionName??null,currentLocationID:dock?.destinationID??currentLocationID??null,missionDestinationID:mission?.destinationID??null,travel:travel??null,firstFailure,pending:custody?custody.pending:'UNKNOWN',missionSettled:custody?.missionSettled??false,recoveryRequired:!custody?.missionSettled,acceptedMission:custody?.acceptedMission??null,continuing:!!setup.continuation,parking:dock?{state:'DOCKED',...dock,release:'PENDING_CORE'}:null};};
+   const readout=()=>{const custody=session?.custody?.();return {...progress.snapshot(),agentID:mission?.agentID??setup.continuation?.agentID??null,mission:mission?.contentID??setup.continuation?.missionID??null,missionName:mission?.missionName??null,currentLocationID:dock?.destinationID??currentLocationID??null,missionDestinationID:mission?.destinationID??null,travel:travel??null,firstFailure,pending:custody?custody.pending:'UNKNOWN',missionSettled:custody?.missionSettled??false,recoveryRequired:!custody?.missionSettled,acceptedMission:custody?.acceptedMission??null,...(custody?.continuationUnavailable?{continuationUnavailable:true}:{}),continuing:!!setup.continuation,parking:dock?{state:'DOCKED',...dock,release:'PENDING_CORE'}:null};};
    const park=(reason:string)=>{if(stopping||parking)return;parking=true;
     terminal=false;firstFailure??=reason;
     run.report({status:terminal ? "stopped" : "paused",phase:terminal ? "Completed" : "Paused",why:reason,readout:readout() as any});};
