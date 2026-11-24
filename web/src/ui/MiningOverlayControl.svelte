@@ -187,7 +187,7 @@
      a 30 px underlay black 0.4; the glyph 0.5 at rest, 1 on hover; a press dips it 2 px. */
   .new-hud-mining { position: absolute; left: calc(50% - 591px + 300px + 25px - 16px); bottom: 82px; z-index: 4; }
   .new-hud-mining .util {
-    position: relative; width: 32px; height: 32px; padding: 0; border-radius: 50%; display: grid; place-items: center;
+    position: relative; width: 32px; height: 32px; min-height: 0; padding: 0; border-radius: 50%; display: grid; place-items: center;
     background: radial-gradient(circle, rgba(0,0,0,0.1) 0 14px, transparent 14.5px), radial-gradient(circle, rgba(0,0,0,0.4) 0 15px, transparent 15.5px);
     box-shadow: inset 0 0 0 2px rgba(255,255,255,0.2);
   }

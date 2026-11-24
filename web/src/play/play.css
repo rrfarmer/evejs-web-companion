@@ -251,6 +251,9 @@ button { font: inherit; color: inherit; }
    ALERT_CAPTION_BOTTOM 32 + the caption's 40 + INDICATION_GAP 8 above the band's top (200 + 20 up) */
 .new-hud-on .ship-mode { bottom: 300px; left: calc(50% - 116px); }
 /* _SpeedEdit: selectColor COLOR_READOUT_SELECTION (white 0.35) */
+/* the new HUD's buttons and inputs at the sizes they are given: the companion stylesheet's min-height (32.5 px) on
+   every button made the 24 / 32 / 16 px ones 33 tall */
+.new-hud-root :is(button, input) { min-height: 0; }
 .new-hud-speed-edit::selection { background: rgba(255, 255, 255, 0.35); color: #fff; }
 .new-hud-on.new-hud-top .ship-mode { bottom: auto; top: 300px; }
 .ship-hud-vignette { position: absolute; inset: 0; z-index: 6; pointer-events: none; opacity: 0; }

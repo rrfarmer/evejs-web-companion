@@ -787,7 +787,7 @@
   .nf-subject { font-weight: bold; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .nf-subtext { line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .nf-time { margin-top: 5px; font-size: 12px; line-height: 16px; color: rgb(128, 128, 128); }
-  .nf-close { position: absolute; right: 2px; top: 2px; width: 16px; height: 16px; padding: 0; margin: 0; border: 0; background: none; cursor: pointer;
+  .nf-close { position: absolute; right: 2px; top: 2px; width: 16px; height: 16px; min-height: 0; padding: 0; margin: 0; border: 0; background: none; cursor: pointer;
     opacity: 0; transition: opacity 0.2s; }
   .nf-close img { display: block; width: 16px; height: 16px; opacity: 0.75; }
   .nf-entry:hover .nf-close { opacity: 1; }
