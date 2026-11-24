@@ -2131,6 +2131,14 @@
     // CmdToggleAudio (Ctrl-Alt-Shift-F12): settings.public.audio audioEnabled flipped (the audio handler activated or
     // deactivated), nothing said
     if (cmd === "CmdToggleAudio") { e.preventDefault(); setGfx({ audioEnabled: !gfx().audioEnabled }); return; }
+    // OpenEveMenu (\): neocom.ToggleEveMenu - the shown Neocom's EVE button pressed (the menu opened or shut)
+    if (cmd === "OpenEveMenu") {
+      const eve = [...document.querySelectorAll<HTMLElement>(".neocom .eve")].find((el) => el.offsetParent !== null);
+      if (!eve) return;
+      e.preventDefault();
+      eve.click();
+      return;
+    }
     // CmdSetSearchBarFocus (Shift-S): OnSetSearchBarFocus - InfoPanelSearch gives its edit the focus (no panel shown,
     // nothing)
     if (cmd === "CmdSetSearchBarFocus") {
