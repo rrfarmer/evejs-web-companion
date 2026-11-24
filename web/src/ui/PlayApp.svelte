@@ -139,6 +139,7 @@
   import HudSafetySelector from "./HudSafetySelector.svelte";
   import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import { memberMenu, rankLabel, type MemberMenuPlace } from "../bridge/fleetMemberMenu.ts";
+  import { fleetWarpOffers } from "../bridge/fleetWarpMenu.ts";
   import { spaceOffersOf, subfolderNameOf, unzipMemo, type SpaceBall } from "../bridge/locationsList.ts";
   import type { ActiveBookmarks, Bookmark } from "../bridge/bookmarks.ts";
   import { safetyBadge, safetyLocks } from "../space/crimewatch.ts";
@@ -3140,6 +3141,27 @@
           if (!self && boss) out.push({ label: w("UI/Fleet/MakeFleetLeader", "Make Fleet Leader"), run: fleetAct({ kind: "leader", characterID }) });
           if (!self) out.push({ label: favorite ? w("UI/Fleet/RemovePilotFromWatchlist", "Remove Pilot from Watchlist") : w("UI/Fleet/AddPilotToWatchlist", "Add Pilot to Watchlist"), run: fleetAct({ kind: "watch", characterID, add: !favorite }) });
           if (self && (boss || [1, 2, 3].includes(mine.role))) out.push({ label: w("UI/Fleet/FleetBroadcast/Commands/BroadcastTravelToMe", "Broadcast: Travel To Me"), run: fleetAct({ kind: "travelToMe" }) });
+          // FleetMenu's warps (FleetMemberChecker.OfferWarpToMember / OfferWarp{Fleet,Wing,Squad}ToMember; fleetWarpOffers): Warp to
+          // Member at the default distance, Warp to Member Within (WarpToMenu: the ranges, Set Default), and the group's pair
+          const offers = fleetWarpOffers(me, characterID, mine.role ?? null, s.store.flight.get().status, s.store.space.get().snapshot);
+          const keepAt = storeValue(s.flow.warpDistance) || 0;
+          const within = (r: number) => w("UI/Inflight/WarpToWithin", `Warp to within ${fmtDist(r)}`, { distance: fmtDist(r) });
+          const RANGES = [0, 10_000, 20_000, 30_000, 50_000, 70_000, 100_000];
+          const warpMenu = (group: boolean): (ContextEntry | null)[] => [...RANGES.map((r) => ({ label: within(r), run: fleetAct({ kind: "warp", characterID, range: r, group }) })), null,
+            { label: w("UI/Inflight/Submenus/SetDefaultWarpRange", "Set Default"), sub: RANGES.map((r) => ({ label: fmtDist(r), checked: r === keepAt, run: () => s.flow.keepWarpDistance(r) })) }];
+          if (offers.warp) {
+            s.flow.requestWords(["UI/Fleet/WarpToMember", "UI/Fleet/WarpToMemberSubmenuOption", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Fleet/FleetFormations/Point",
+              "UI/Fleet/WarpFleetToMember", "UI/Fleet/FleetSubmenus/WarpFleetToMember", "UI/Fleet/WarpWingToMember", "UI/Fleet/FleetSubmenus/WarpWingToMember", "UI/Fleet/WarpSquadToMember", "UI/Fleet/FleetSubmenus/WarpSquadToMember"]);
+            out.push({ label: w("UI/Fleet/WarpToMember", "Warp to Member"), run: fleetAct({ kind: "warp", characterID, range: keepAt, group: false }) },
+              { label: w("UI/Fleet/WarpToMemberSubmenuOption", "Warp to Member Within"), sub: warpMenu(false) });
+            if (offers.group) {
+              const g = offers.group;
+              const name = { fleet: "Fleet", wing: "Wing", squad: "Squad" }[g];
+              const formation = { fleetFormation: w("UI/Fleet/FleetFormations/Point", "Point") };
+              out.push({ label: w(`UI/Fleet/Warp${name}ToMember`, `Warp ${g} to Member`, formation), run: fleetAct({ kind: "warp", characterID, range: keepAt, group: true }) },
+                { label: w(`UI/Fleet/FleetSubmenus/Warp${name}ToMember`, `Warp ${g} to Member Within`, formation), sub: warpMenu(true) });
+            }
+          }
           if (self) out.push({ label: w("UI/Fleet/LeaveMyFleet", "Leave My Fleet"), sub: confirm({ kind: "leave" }) });
           const idOrNull = (id: number | string | null): number | null => id === null || id === "" || !Number.isFinite(Number(id)) ? null : Number(id);
           const placements = memberMenu({ targetCharID: characterID, me, isMove: true, isFreeMove: fleetState.fleet?.initState.value.options.isFreeMove === true,
