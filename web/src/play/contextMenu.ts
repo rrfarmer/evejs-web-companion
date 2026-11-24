@@ -105,6 +105,20 @@ export function actionIcon(path: string | undefined): string | null {
   return n ? `res:/UI/Texture/eveicon/${n}_16px.png` : null;
 }
 
+/**
+ * menuUtil.menuGroupsFromCaption's DESTRUCTIVEGROUP and RAGEQUITGROUP entries (3698585): their group badge drawn in
+ * the icon's place, ahead of any icon (MenuEntryView.CheckConstructIcon: HasGroupIcon first) - ICON_DATA_BY_MENUGROUPID:
+ * exclamationMark.png over circleBG in WARNING_ORANGE, or over triangleBG in HOT_RED.
+ */
+const DESTRUCTIVE_PATHS: ReadonlySet<string> = new Set(["UI/Inflight/AbandonAllCargo","UI/Inflight/AbandonAllWrecks","UI/Inflight/AbandonCargo","UI/Drones/AbandonDrone","UI/Inflight/AbandonWreack","UI/Inventory/Fighters/AbandonFighter","UI/Accessories/Calculator/Clear","UI/Inflight/Scanner/ClearAllIgnoredResults","UI/Map/Navigation/menuClearWaypoints","UI/Fitting/ClearGroup","UI/Inflight/Scanner/ClearIgnoredResult","UI/Inflight/Scanner/ClearResult","UI/Map/Navigation/menuClearRoute","/Carbon/UI/Common/Close","UI/Mail/EmptyTrash","UI/CharacterSelection/RemoveFromBiomass","UI/Generic/RemoveItem","UI/Notepad/RemoveNote","UI/Agents/Commands/RemoveOffer","UI/Inventory/ItemActions/Repackage","UI/Chat/ReportIskSpammer","UI/Corporations/Assets/TrashItemsAtLocation","UI/Chat/ChannelWindow/UnsubscribeFromList","UI/Inventory/ItemActions/Jettison","UI/Fleet/Ranks/Boss","UI/Inflight/JumpToFleetMember","UI/Fleet/ConduitJumpToFleetMember","UI/Inventory/ItemActions/LaunchShip","UI/Inventory/ItemActions/LaunchShipFromBay","UI/Inventory/ItemActions/LaunchForCorp","UI/Inventory/ItemActions/LaunchForSelf","UI/Commands/UndockFromStation","UI/Inventory/ItemActions/StripFitting","UI/InfoWindow/ReportBot","UI/Corporations/CorpApplications/WithdrawApplication","UI/CharacterSheet/CharacterSheetWindow/JumpCloneScroll/Destroy","UI/Chat/ClearAllContent","UI/Inflight/SafeLogoff","UI/Inflight/ModuleRacks/PutModuleOffline","UI/AclBookmarks/DeleteBookmarkFolder","UI/AclBookmarks/ForgetBookmarkFolder","UI/AclBookmarks/DeleteSubfolder","UI/Overview/DeleteTab","UI/Overview/DeletePreset","UI/Inflight/RemoveWaypoint","UI/Sovereignty/SovHub/TransitionToSovHub","UI/Fleet/KickFleetMember"]);
+const RAGEQUIT_PATHS: ReadonlySet<string> = new Set(["UI/CharacterSelection/CompleteTermination","UI/Fleet/MakeFleetLeader","UI/PeopleAndPlaces/DeleteNotification","UI/Notepad/DeleteNote","UI/Chat/ChannelWindow/DeleteChannel","UI/Mail/Delete","/Carbon/UI/Controls/ScrollEntries/DeleteFolder","UI/Commands/DeleteGroup","UI/Chat/ChannelWindow/DeleteList","UI/Mail/DeleteMailingList","UI/Mail/Notifications/DeleteAll","UI/Common/Delete","UI/Contracts/ContractEntry/Delete","UI/Contracts/ContractEntry/DeleteMultipleContracts","UI/Contracts/ContractEntry/Dismiss","UI/Corporations/Common/ExpelCorpMember","UI/Inflight/PutStructureOffline","UI/Corporations/Common/QuitCorp","UI/Inflight/POS/RelinquishPOSControl","UI/Commands/Remove","UI/Fleet/FleetWindow/RemoveAdvert","UI/Inflight/MoonMining/Processes/RemoveConnection","UI/Inventory/ItemActions/RemoveTypeFromMarketQuickbar","UI/Fleet/RemovePilotFromWatchlist","UI/Inventory/ItemActions/Reprocess","UI/Corporations/Common/ResignAsCEO","UI/Inflight/SelfDestructShipOrPod","UI/Inflight/AbortSelfDestruct","UI/CharacterSelection/Terminate","UI/Mail/Trash","UI/Mail/TrashAll","UI/Inventory/ItemActions/TrashIt","UI/Inflight/UnanchorObject","UI/Inflight/POS/UnanchorStructure","UI/Control/Entries/ImplantUnplug","UI/Inflight/EjectFromShip","UI/Contracts/BreakContract","Remove from Selection","UI/Crimewatch/Duel/DuelMenuEntry","UI/StructureBrowser/DeleteProfile","UI/HelpPointers/Wnd/DeleteGroup","UI/CharacterSheet/CharacterSheetWindow/ExpertSystems/RemoveExpertSystem","UI/Commands/CmdUnlockTargetItems","UI/Fleet/Watchlist/ClearWatchList","/Carbon/UI/Controls/Common/ClearHistory","UI/Fitting/FittingWindow/FittingManagement/DeleteFitting","UI/Fleet/LeaveMyFleet","UI/Fleet/DisbandFleet","UI/Inflight/RemoveBookmark"]);
+function groupBadge(path: string | undefined): { readonly bg: string; readonly color: string } | null {
+  if (!path) return null;
+  if (DESTRUCTIVE_PATHS.has(path)) return { bg: "res:/UI/Texture/classes/Menu/Icons/circleBG.png", color: "rgb(243, 144, 88)" };
+  if (RAGEQUIT_PATHS.has(path)) return { bg: "res:/UI/Texture/classes/Menu/Icons/triangleBG.png", color: "rgb(255, 69, 75)" };
+  return null;
+}
+
 const ROW = 22;
 // the menu's art loaded with the page, so a first menu has its icons
 for (const p of ["res:/UI/Texture/Icons/1_16_14.png", "res:/UI/Texture/classes/Menu/Icons/info.png", ...["approach", "orbit", "keep_at_distance", "warp_to", "align_to", "dock", "jump_to", "target", "enter_planet_view"].map((n) => `res:/UI/Texture/eveicon/control_icons/${n}_16px.png`), "res:/UI/Texture/eveicon/system_icons/set_destination_16px.png"]) {
@@ -203,7 +217,19 @@ export class ContextMenu {
       padding: `0 ${entry.sub ? 24 : 8}px 0 28px`, cursor: disabled ? "default" : "pointer", opacity: disabled ? "0.4" : "1" });
     if (disabled) row.title = entry.disabled!;
     else if (entry.hint) row.title = entry.hint;
-    if (entry.info) {
+    const badge = entry.info ? null : groupBadge(entry.path);
+    if (badge) {
+      const holder = document.createElement("span");
+      Object.assign(holder.style, { position: "absolute", left: "4px", top: "3px", width: "16px", height: "16px" });
+      const bg = document.createElement("span");
+      const mask = `url("${tex(badge.bg)}") center / 16px 16px no-repeat`;
+      bg.setAttribute("style", `position:absolute;inset:0;background:${badge.color};mask:${mask};-webkit-mask:${mask};`);
+      const i = document.createElement("img");
+      i.src = tex("res:/UI/Texture/classes/Menu/Icons/exclamationMark.png");
+      Object.assign(i.style, { position: "absolute", left: "0", top: "0", width: "16px", height: "16px" });
+      holder.append(bg, i);
+      row.append(holder);
+    } else if (entry.info) {
       const disc = document.createElement("span");
       Object.assign(disc.style, { position: "absolute", left: "4px", top: "3px", width: "16px", height: "16px", borderRadius: "50%", background: "rgba(88,167,191,0.75)" });
       const i = document.createElement("img");
