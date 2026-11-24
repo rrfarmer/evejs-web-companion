@@ -52,6 +52,8 @@
    */
   function entryClick(row: ActivityNotificationRow): void {
     void playUiEvent("ui_button_soft4_play");
+    const own = local.get(row.notificationID);
+    if (own) { own.action?.(); return; }
     const typeID = row.typeID ?? 0;
     if (typeID === 16 || corporationApplicationNotification(typeID)) { flow.requestCorporationApplications(); onOpen("corporation"); return; }
     if (typeID === 3 || typeID === 3001 || typeID === 6003) { onOpen("characterSheet"); return; }
@@ -86,7 +88,22 @@
     processed: row.processed, created: row.created, data: row.data ?? null,
   });
   const nameOf = (kind: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, kind, id, "");
+  // The client's own notifications (notificationSvc.MakeAndScatterNotification / mailSvc's NewMailFrom): kept in the
+  // notification cache with the server's, so in the history too - here each a row of its own (a negative id, its
+  // created now) with its subject, subtext and click.
+  const local = new Map<number, { subject: string; subtext: string | null; action: (() => void) | null }>();
+  let localRows = $state<ActivityNotificationRow[]>([]);
+  let localSeq = 0;
+  function addLocalRow(typeID: number, subject: string, subtext: string | null, action: (() => void) | null): void {
+    const id = -(++localSeq);
+    local.set(id, { subject, subtext, action });
+    const created = BigInt(Date.now()) * 10000n + 116444736000000000n;
+    localRows = [...localRows, { notificationID: id, senderID: 0, processed: false, created, title: subject, typeID }];
+  }
+  function subtextOf(row: ActivityNotificationRow): string | null { return local.get(row.notificationID)?.subtext ?? null; }
   function subjectOf(row: ActivityNotificationRow): string {
+    const own = local.get(row.notificationID);
+    if (own) return own.subject;
     const s = formats === null ? null : notificationSubjectWording(asNotification(row), formats, $words.templates, nameOf).subject;
     return s ?? row.title;
   }
@@ -114,8 +131,8 @@
   const popsUp = (typeID: number | null | undefined) => typeID == null || settings.types[String(typeID)]?.[1] !== false;
 
   const rows = $derived.by(() => {
-    if ($activity.notifications.status !== "ready") return [];
-    return [...$activity.notifications.value].filter((r) => !closedIDs.has(r.notificationID) && (r.created ?? 0n) > clearedAt && shownAtAll(r.typeID))
+    if ($activity.notifications.status !== "ready") return [...localRows].filter((r) => (r.created ?? 0n) > clearedAt && shownAtAll(r.typeID)).sort((a, b) => Number((b.created ?? 0n) - (a.created ?? 0n)));
+    return [...$activity.notifications.value, ...localRows].filter((r) => !closedIDs.has(r.notificationID) && (r.created ?? 0n) > clearedAt && shownAtAll(r.typeID))
       .sort((a, b) => Number((b.created ?? 0n) - (a.created ?? 0n)));
   });
   // the words the subjects take, and the names in them
@@ -189,7 +206,9 @@
       // the server's history has it now: read again for the drawer
       void flow.loadActivity().catch(() => {});
     } else {
-      liveCount += 1;
+      // a notice of the page's making (a new mail - NewMailFrom 1004 -, the login mail summary): into the history, and so
+      // into the count
+      addLocalRow(typeID ?? (key.startsWith("mail:") ? 1004 : 0), input.title, input.detail ?? null, input.action ?? null);
     }
     const p: Popup = { id: ++popupSeq, title: input.title, detail: input.detail ?? null, typeID, action: input.action ?? null, outSince: null, fading: false, h: 50 };
     // MakeAndDisplayNormalNotification: the type's showPopup and the popups setting (a new mail is NewMailFrom 1004)
@@ -570,6 +589,7 @@
           {#if icon}<img class="nf-icon" alt="" src={clientTexture(icon)} />{/if}
           <div class="nf-text">
             <div class="nf-subject">{subjectOf(row)}</div>
+            {#if subtextOf(row)}<div class="nf-subtext">{subtextOf(row)}</div>{/if}
             {#if row.created !== null}<div class="nf-time">{agoOf(row)}</div>{/if}
           </div>
           <button class="nf-close" aria-label="Close" onclick={() => { closedIDs = new Set([...closedIDs, row.notificationID]); }}>
@@ -650,11 +670,13 @@
   .nf-bar i { position: absolute; left: 3px; top: 3px; bottom: 3px; width: 2px; background: rgba(255, 255, 255, 0.25); }
   .nf:has(.nf-list:hover) .nf-bar i { background: color-mix(in srgb, var(--theme-focus-dark, #305665) 60%, transparent); }
   .nf-bar:hover i { left: 2px; width: 4px; background: var(--theme-focus, #58a7bf); }
-  .nf-entry { position: relative; height: 50px; cursor: pointer; border-style: solid; border-width: 0; box-sizing: border-box;
+  /* UpdateNotificationEntryHeight: max(MINENTRYHEIGHT 50, 5 + the subject + the subtext + 5 + the time line + 5) */
+  .nf-entry { position: relative; min-height: 50px; cursor: pointer; border-style: solid; border-width: 0; box-sizing: border-box;
     border-image-slice: 6 fill; border-image-width: 6px; border-image-outset: 5px; }
   .nf-icon { position: absolute; left: 5px; top: 5px; width: 40px; height: 40px; }
-  .nf-text { position: absolute; left: 55px; top: 5px; width: 224px; }
+  .nf-text { position: relative; margin-left: 55px; padding: 5px 0; width: 224px; }
   .nf-subject { font-weight: bold; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nf-subtext { line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .nf-time { margin-top: 5px; font-size: 12px; line-height: 16px; color: rgb(128, 128, 128); }
   .nf-close { position: absolute; right: 2px; top: 2px; width: 16px; height: 16px; padding: 0; margin: 0; border: 0; background: none; cursor: pointer;
     opacity: 0; transition: opacity 0.2s; }
