@@ -5779,6 +5779,17 @@ export class SpaceView {
         if (this.frameCount % 10 === 0 || highlighted || el.classList.contains("selected") || this.hoveredID === e.itemID) {
           this.drawBracketLabel(el.querySelector<HTMLElement>(".label")!, e);
         }
+        // _UpdateLabelOffsets: is_left_of_bracket when x + width (16) + LABELMARGIN (6) + the label's width passes the
+        // bracket layer's right edge - the label then sits at -(its width + 6), left of the bracket
+        if (highlighted || el.classList.contains("selected") || this.hoveredID === e.itemID) {
+          const label = el.querySelector<HTMLElement>(".label")!;
+          const glyph = el.querySelector<HTMLElement>(".glyph");
+          const layer = el.parentElement;
+          if (glyph && layer && label.offsetWidth > 0) {
+            const x = glyph.getBoundingClientRect().left - layer.getBoundingClientRect().left;
+            el.classList.toggle("label-left", x + 16 + 6 + label.offsetWidth > layer.clientWidth);
+          }
+        } else if (el.classList.contains("label-left")) el.classList.remove("label-left");
         if (this.frameCount % 10 === 0) { this.updateBracketFlags(el, e, groupID, relations); this.updateBracketBroadcast(el, e.itemID); }
         // bracketMgr.ShowInTargetRange, about once a second: ships, NPCs, drones and fighters within the ship's
         // maxTargetRange show canTarget2 (40 px at 0.15), each category as the Misc panel allows

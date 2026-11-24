@@ -118,6 +118,7 @@ button { font: inherit; color: inherit; }
 /* centred on the 16 px bracket as _UpdateLabelOffsets: (height - textheight) / 2 + 1 - one line at 1, a ship's two at -6 */
 .bracket .label { line-height: 1.25; position: absolute; left: 22px; top: 8.5px; transform: translateY(-50%); white-space: nowrap; font-size: 12px; color: #fff; /* BracketShadowLabel LabelCore white (g352) */
   text-shadow: 0 0 3px #000, 0 0 2px #000; display: none; }
+.bracket.label-left .label { left: auto; right: 22px; text-align: right; }
 .bracket:hover .label, .bracket.hovered .label, .bracket.selected .label, .bracket.objective-highlight .label { display: block; }
 .bracket.objective-highlight .glyph { filter: drop-shadow(0 0 3px #fff); }
 .bracket.mining-selected { z-index: 2; }
