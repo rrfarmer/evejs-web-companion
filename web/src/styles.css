@@ -9052,7 +9052,9 @@
   .stn-row input[type="checkbox"] { accent-color: var(--stn-accent-strong); margin: 0; }
 
   .stn-cell-pick { display: none; }
-  .stn-cell-icon { display: flex; }
+  .stn-cell-icon { display: flex; position: relative; }
+  .stn-cell-render { position: relative; }
+  .stn-new-line { position: absolute; left: 0; right: 0; top: 0; height: 2px; background: rgb(243, 144, 88); box-shadow: 0 0 4px rgba(243, 144, 88, 0.5); pointer-events: none; }
   .stn-cell-icon .type-icon { width: 28px; height: 28px; }
   .stn-cell-name { display: flex; flex-direction: column; min-width: 0; }
   .stn-name {

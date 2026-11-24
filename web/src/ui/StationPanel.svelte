@@ -33,7 +33,7 @@
   // all (the read does not send it), so the m³ columns are empty in the bays
   // view. That is normal. Unknown renders as "—" / "not known", never 0.
   import { onMount, tick, untrack } from "svelte";
-  import { inventoryWindowsOpen, markPlaceSeen, unseenItems, type BadgePlace } from "../play/inventoryBadging.ts";
+  import { inventoryWindowsOpen, markItemSeen, markPlaceSeen, unseenItems, type BadgePlace } from "../play/inventoryBadging.ts";
   import { shipHoldTarget } from "./shipHold.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import InventoryFilters from "./InventoryFilters.svelte";
@@ -626,6 +626,8 @@
       selectionPlace = place;
     }
     flow.toggleSelection(row.itemID);
+    // InvItem.Select -> MarkAsSeen
+    markItemSeen(row.itemID);
   }
 
   function isPicked(row: InventoryItemRow, place: InventoryPlace): boolean {
@@ -1473,6 +1475,8 @@
     </span>
     <span class="stn-cell-icon">
       <TypeIcon typeID={row.typeID} name={nameOf(row)} size="sm" />
+      <!-- InvItem.AddTag: an unseen item's newItemTagLine, 2 px over the top of its icon (important colour) -->
+      {#if $unseenItems.some((u) => u.itemID === row.itemID)}<span class="stn-new-line" aria-hidden="true"></span>{/if}
     </span>
     <span class="stn-cell-name">
       <span class="stn-name" title={nameOf(row)}>{nameOf(row)}</span>
@@ -1993,6 +1997,7 @@
               draggable="true" ondragstart={event => startDrag(event, ship, { kind: "hangar" })}>
               <span class="stn-cell-render">
                 <TypeIcon typeID={ship.typeID} name={nameOf(ship)} size="md" />
+                {#if $unseenItems.some((u) => u.itemID === ship.itemID)}<span class="stn-new-line" aria-hidden="true"></span>{/if}
               </span>
               <span class="stn-cell-name">
                 <button type="button" class="stn-name stn-ship-name evelink showInfo" title="Show Info"
