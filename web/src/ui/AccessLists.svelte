@@ -6,6 +6,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { startAccessGroupDrag } from "./accessGroupDrag.ts";
+  import { accessOwnerLinkType, droppedAccessMembers, hasAccessMemberDrag, startAccessMemberDrag } from "./accessMemberDrag.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const station = $derived(store.station);
@@ -26,11 +27,13 @@
   let memberRefresh = $state(0);
   let checked = $state.raw<ReadonlySet<number>>(new Set());
   let ownerQuery = $state("");
-  let ownerMatches = $state.raw<readonly { id: number; name: string }[] | null>(null);
+  let ownerMatches = $state.raw<readonly { id: number; name: string; typeID: number }[] | null>(null);
+  let dropRole = $state<number | null>(null);
   let searchingOwners = $state(false);
   let ownerSearchGeneration = 0;
   let readGeneration = 0;
   const WORD = "UI/Structures/AccessGroups/";
+  const ownerTypes: Readonly<Record<number, number>> = { 2: 1373, 3: 2, 4: 16159 };
   const roleWords = ["Member", "Manager", "Admin", "Blocked"];
   const roleOrder = [2, 1, 0, 3];
   const word = (key: string, fallback = key) => plainText($words.templates[WORD + key] ?? fallback);
@@ -46,6 +49,7 @@
   const memberRows = $derived((members ?? []).map(member => ({
     ...member,
     name: member.memberID === 0 ? word("PublicUser", "Everyone") : resolvedName($names.resolved, "owner", member.memberID),
+    typeID: Number(resolvedName($names.resolved, "ownerType", member.memberID, "0")),
     ownerOrder: ownerOrder(member.memberID),
   })).sort((a, b) => roleOrder.indexOf(a.membershipType) - roleOrder.indexOf(b.membershipType) ||
     a.ownerOrder - b.ownerOrder || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.memberID - b.memberID));
@@ -103,6 +107,7 @@
     checked = new Set();
     ownerQuery = "";
     ownerMatches = null;
+    dropRole = null;
     searchingOwners = false;
     memberActionError = "";
     ++ownerSearchGeneration;
@@ -120,7 +125,8 @@
     memberActionError = "";
     try {
       const matches = await flow.searchOwners(text, [2, 3, 4], 0);
-      if (current()) ownerMatches = [...matches.values()].flat().sort((a, b) => a.name.localeCompare(b.name));
+      if (current()) ownerMatches = [...matches].flatMap(([kind, owners]) =>
+        owners.map(owner => ({ ...owner, typeID: ownerTypes[kind] ?? 0 }))).sort((a, b) => a.name.localeCompare(b.name));
     } catch (cause) {
       if (current()) memberActionError = panelErrorWords(cause);
     } finally {
@@ -135,12 +141,16 @@
     checked = next;
   }
 
-  async function changeMembers(method: Parameters<AppFlow["changeAccessGroupMembers"]>[1],
+  type MemberMethod = Parameters<AppFlow["changeAccessGroupMembers"]>[1];
+
+  async function changeMembers(method: MemberMethod | "drop",
       memberIDs: readonly number[], role = 0) {
     const group = selected, pilot = characterID;
     if (!group || pilot === null || busy || !memberIDs.length) return;
     const current = () => memberGroupID === group.groupID && pilot === characterID;
     let ids = memberIDs;
+    let changes: { method: MemberMethod; ids: readonly number[] }[];
+    let refusedOwners = 0;
     busy = true;
     memberActionError = "";
     try {
@@ -154,8 +164,43 @@
           ids = ids.filter(id => id !== pilot);
         }
       }
+      if (method === "drop") {
+        const existing = new Map((members ?? []).map(member => [member.memberID, member.membershipType]));
+        await flow.resolveNamesNow(ids.map(id => ({ kind: "ownerType", id })));
+        if (!current()) return;
+        ids = ids.filter(id => {
+          const oldRole = existing.get(id);
+          if (oldRole === role) return false;
+          const ownerType = accessOwnerLinkType(Number(resolvedName(names.get().resolved, "ownerType", id, "0")));
+          const permitted = ownerType !== null &&
+            ((role !== 2 && role !== 1) || ownerType === 1373) &&
+            (group.membershipType === 2 || id === pilot || (oldRole !== 2 && oldRole !== 1));
+          if (!permitted) ++refusedOwners;
+          return permitted;
+        });
+        if (ids.includes(pilot) &&
+            !await flow.askClientDialogWith(group.membershipType === 1 ? "AccessGroupDemoteManager" : "AccessGroupDemoteAdmin",
+              {}, "Change your own access level?")) {
+          ids = ids.filter(id => id !== pilot);
+        }
+        changes = [
+          { method: "UpdateMembershipTypes", ids: ids.filter(id => existing.has(id)) },
+          { method: "AddMembers", ids: ids.filter(id => !existing.has(id)) },
+        ];
+      } else {
+        changes = [{ method, ids }];
+      }
+      if (current() && refusedOwners) memberActionError = "Some owners cannot be assigned to this access role.";
       if (!ids.length || !current()) return;
-      await flow.changeAccessGroupMembers(group.groupID, method, ids, role);
+      for (const change of changes) {
+        if (!current()) return;
+        if (!change.ids.length) continue;
+        try {
+          await flow.changeAccessGroupMembers(group.groupID, change.method, change.ids, role);
+        } catch (cause) {
+          if (current()) memberActionError = panelErrorWords(cause);
+        }
+      }
       if (current()) checked = new Set();
       if (ids.includes(pilot) && method !== "AddMembers" && current()) await refresh();
     } catch (cause) {
@@ -164,6 +209,23 @@
       if (current()) ++memberRefresh;
       if (pilot === characterID) busy = false;
     }
+  }
+
+  function acceptRoleDrag(event: DragEvent, role: number) {
+    if (!canManageMembers || busy || !members || (selected?.membershipType === 1 && (role === 1 || role === 2)) ||
+        !hasAccessMemberDrag(event)) return false;
+    event.preventDefault();
+    return true;
+  }
+
+  function dropOnRole(event: DragEvent, role: number) {
+    dropRole = null;
+    if (acceptRoleDrag(event, role)) void changeMembers("drop", droppedAccessMembers(event), role);
+  }
+
+  function dragMember(event: DragEvent, member: typeof memberRows[number]) {
+    const dragged = checked.has(member.memberID) ? checkedRows : [member];
+    startAccessMemberDrag(event, dragged.map(row => ({ id: row.memberID, typeID: row.typeID, name: row.name })));
   }
 
   async function refresh() {
@@ -292,6 +354,20 @@
           </div>
         {/if}
         {#if canManageMembers && members !== null}
+          <div class="role-targets" role="list" aria-label="Drop owners to set access">
+            {#each roleOrder as role (role)}
+              {@const disabled = selected.membershipType === 1 && (role === 2 || role === 1)}
+              <div role="listitem" class:drop-active={dropRole === role} data-access-drop-role={role} data-disabled={disabled || busy}
+                ondragover={(event) => {
+                  if (acceptRoleDrag(event, role)) {
+                    dropRole = role;
+                    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+                  }
+                }}
+                ondragleave={() => { if (dropRole === role) dropRole = null; }}
+                ondrop={(event) => dropOnRole(event, role)}>{word(roleWords[role])}</div>
+            {/each}
+          </div>
           <div class="member-tools">
             <form class="member-search" onsubmit={findOwners}>
               <label>Find an owner to add <input type="search" bind:value={ownerQuery} disabled={busy || searchingOwners} /></label>
@@ -304,7 +380,7 @@
           {:else if ownerMatches !== null}
             {#each ownerMatches as owner (owner.id)}
               <div class="owner-match">
-                <span>{owner.name}</span>
+                <span role="presentation" draggable="true" ondragstart={(event) => startAccessMemberDrag(event, [owner])}>{owner.name}</span>
                 <button type="button" aria-label={`Add ${owner.name}`}
                   disabled={busy || members.some(member => member.memberID === owner.id)}
                   onclick={() => changeMembers("AddMembers", [owner.id])}>Add</button>
@@ -326,7 +402,8 @@
                     {/if}
                   </td>
                 {/if}
-                <td>{member.name}</td><td>{word(roleWords[member.membershipType])}</td>
+                <td><span role="presentation" draggable={member.memberID > 0 && accessOwnerLinkType(member.typeID) !== null}
+                  ondragstart={(event) => dragMember(event, member)}>{member.name}</span></td><td>{word(roleWords[member.membershipType])}</td>
               </tr>
             {/each}
           </tbody>
@@ -372,6 +449,11 @@
   .member-search { border: 0; padding: 0; }
   .owner-match { justify-content: space-between; align-items: center; }
   .member-select { width: 1%; }
+  .role-targets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+  .role-targets > div { border: 1px solid #43525c; text-align: center; padding: 5px 3px; }
+  .role-targets > div[data-disabled="true"] { opacity: .45; }
+  .role-targets > .drop-active { border-color: #86c1d6; background: #254652; }
+  span[draggable="true"] { cursor: grab; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #324046; }
   th:last-child { width: 1%; }

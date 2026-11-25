@@ -5604,6 +5604,7 @@ export interface AppFlow {
    * lands).
    */
   requestNames(refs: readonly NameRef[]): void;
+  resolveNamesNow(refs: readonly NameRef[]): Promise<void>;
   /**
    * Ask for the retail client's own text for these localisation labels, or
    * for messages by number ("#" and the number), to land in `store.words`
@@ -40363,6 +40364,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     infoUsedWith,
     requestNames,
+    resolveNamesNow,
     requestWords,
     scannerSiteNames: (messageIDs: readonly number[]) =>
       scannerSiteNames(messageIDs, true).catch((): ReadonlyMap<number, string | null> => new Map()),
