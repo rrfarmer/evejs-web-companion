@@ -1,14 +1,18 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
-  import { plainText } from "../bridge/clientWords.ts";
+  import { filetimeToUnixMs } from "../bridge/activity.ts";
+  import { formatInterval, plainText } from "../bridge/clientWords.ts";
   import type { BookmarkPlace } from "../bridge/locationsList.ts";
   import { hasMoonStationManagerRole } from "../bridge/moonMining.ts";
   import { isNpcCorporation } from "../bridge/ownerInfo.ts";
   import { isStation } from "../bridge/placeChanges.ts";
   import { hasSecurityOffice } from "../bridge/securityOffice.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
-  import { STATION_TYPE_FILTER, STRUCTURE_SERVICE_DETAILS, STRUCTURE_TYPE_GROUPS } from "../bridge/structureBrowserFilters.ts";
+  import {
+    ABANDONED, LOW_POWER, OWNED_STRUCTURE_SERVICE_FILTERS, OWNED_STRUCTURE_STATES,
+    STATION_TYPE_FILTER, STRUCTURE_SERVICE_DETAILS, STRUCTURE_TYPE_GROUPS,
+  } from "../bridge/structureBrowserFilters.ts";
   import type { StructureBrowserDirectory, StructureBrowserEntry } from "../bridge/structures.ts";
   import { shownSecurity } from "../bridge/systemSecurity.ts";
   import { structureHasCapability } from "../nav/dockableLocation.ts";
@@ -45,6 +49,13 @@
   let query = $state("");
   let types = $state<number[]>([]);
   let services = $state<number[]>([]);
+  let ownedTypes = $state<number[]>([]);
+  let ownedServices = $state<number[]>([]);
+  let ownedSearch = $state("");
+  let onlyLowPower = $state(false);
+  let profile = $state<number | null>(null);
+  let now = $state(Date.now());
+  const selectedTypes = $derived(activeTab === "corporation" ? ownedTypes : types);
   let bookmark = $state<BookmarkPlace | null>(null);
   let homeStationID = $state<number | null>(null);
   let actionError = $state("");
@@ -60,6 +71,12 @@
     filtered: ["UI/Structures/Browser/NoStructuresFoundWithFilters", "No structures found with these filters"],
     stations: ["UI/StructureBrowser/StationsAndOutposts", "Stations and Outposts"],
     navigation: ["UI/StructureBrowser/NavigationStructures", "FLEX Structures"],
+    profile: ["UI/Structures/Browser/HeaderProfileName", "Profile"],
+    state: ["UI/Structures/Browser/HeaderState", "State"],
+    fuel: ["UI/Structures/Browser/HeaderFuel", "Fuel Expires"],
+    reinforcement: ["UI/Structures/Browser/HeaderReinforcementTime", "Reinforcement Hour"],
+    lowPower: ["UI/Structures/UpkeepModeLowPower", "Low Power"],
+    abandoned: ["UI/Structures/UpkeepModeAbandoned", "Abandoned"],
   } as const;
   const menuWords = {
     dock: ["UI/Inflight/DockInStation", "Dock"],
@@ -85,6 +102,7 @@
     [14, "UI/Moonmining/MoonDrillService", "Moon Drilling"],
     [15, "UI/Structures/ServiceJumpBridge", "Jump Bridge"],
     [16, "UI/Structures/ServiceJumpBeacon", "Cyno Beacon"],
+    [17, "UI/Structures/ServiceCynoJammer", "Cyno Jammer"],
     [18, "UI/Moonmining/AutoMoonDrillService", "Automatic Moon Drilling"],
   ] as const;
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
@@ -138,6 +156,18 @@
   const typeFilterID = (row: StructureBrowserEntry) => isStation(row.structureID) ? STATION_TYPE_FILTER : row.typeID;
   const serviceChoices = $derived(serviceLabels.map(([id, key, fallback]) =>
     ({ id, label: plainText($words.templates[key] ?? fallback) })).sort((a, b) => a.label.localeCompare(b.label)));
+  const publicServiceChoices = $derived(serviceChoices.filter(service => service.id !== 17));
+  const ownedServiceChoices = $derived(serviceChoices.filter(service => OWNED_STRUCTURE_SERVICE_FILTERS.has(service.id)));
+  const profileChoices = $derived.by(() => {
+    const choices = new Map(directory?.profileNames);
+    for (const row of rows) {
+      const id = row.owned?.profileID;
+      if (id != null && !choices.has(id)) choices.set(id, `Profile ${id}`);
+    }
+    return choices;
+  });
+  const displayedProfile = $derived(profile !== null && profileChoices.has(profile) ? profile : null);
+  const showOzone = $derived(activeTab === "corporation" && ownedServices.includes(15));
   const detailColumns = $derived.by(() => {
     const columns = new Map<string, { id: number; label: string }>();
     if (activeTab !== "all") return [];
@@ -163,13 +193,28 @@
   }
 
   function selectTypes(ids: readonly number[], selected: boolean) {
-    types = selected ? [...new Set([...types, ...ids])] : types.filter(id => !ids.includes(id));
+    const next = selected ? [...new Set([...selectedTypes, ...ids])] : selectedTypes.filter(id => !ids.includes(id));
+    if (activeTab === "corporation") ownedTypes = next;
+    else types = next;
+  }
+
+  function stateName(row: StructureBrowserEntry): string {
+    return OWNED_STRUCTURE_STATES[row.owned?.state ?? 0] ?? "—";
+  }
+
+  function fuelText(row: StructureBrowserEntry): string {
+    const expires = filetimeToUnixMs(row.owned?.fuelExpires ?? null);
+    return expires === null || expires <= 0 ? "—" : formatInterval(Math.max(0, expires - now) * 10_000);
+  }
+
+  function reinforcementHour(hour: number | null | undefined): string {
+    return hour == null ? "—" : `${String(hour).padStart(2, "0")}:00`;
   }
   const currentRegion = $derived(directory?.currentRegionID ?? null);
   const currentConstellation = $derived(directory?.currentConstellationID ?? null);
   const systemOnly = $derived(currentRegion !== null && currentRegion >= 11000000 && currentRegion <= 11999999);
   const effectiveRange = $derived(systemOnly ? "system" : range);
-  const needle = $derived(query.trim().toLowerCase());
+  const needle = $derived((activeTab === "corporation" ? ownedSearch : query).trim().toLowerCase());
   const scopedRows = $derived(activeTab === "corporation" ? rows : rows.filter(row => {
     if (effectiveRange === "system") return row.solarSystemID === systemID;
     if (effectiveRange === "constellation") return row.solarSystemID === systemID ||
@@ -177,11 +222,16 @@
     return true;
   }));
   const ordered = $derived(scopedRows.filter(row => {
-    if (activeTab === "corporation") return true;
-    if (owner === "npc" && !isNpcCorporation(row.ownerID)) return false;
-    if (owner === "corporation" && row.ownerID !== corporationID) return false;
-    if (types.length && !types.includes(typeFilterID(row))) return false;
-    if (services.length && !services.some(id => id === -1 || hasService(row, id))) return false;
+    if (activeTab === "corporation") {
+      if (displayedProfile !== null && row.owned?.profileID !== displayedProfile) return false;
+      if (onlyLowPower && row.owned?.upkeepState !== LOW_POWER) return false;
+      if (ownedServices.length && !ownedServices.some(id => hasService(row, id))) return false;
+    } else {
+      if (owner === "npc" && !isNpcCorporation(row.ownerID)) return false;
+      if (owner === "corporation" && row.ownerID !== corporationID) return false;
+      if (services.length && !services.some(id => id === -1 || hasService(row, id))) return false;
+    }
+    if (selectedTypes.length && !selectedTypes.includes(typeFilterID(row))) return false;
     return !needle || [placeName(row), ownerName(row), locationName(row.solarSystemID), typeName(row.typeID),
       row.regionID === null ? "" : locationName(row.regionID)].join(" ").toLowerCase().includes(needle);
   }).sort((left, right) => (left.jumps ?? Infinity) - (right.jumps ?? Infinity) ||
@@ -192,6 +242,13 @@
     if (serviceID === 13 && !hasSecurityOffice(row.ownerID, row.security)) return false;
     return row.serviceIDs.includes(serviceID);
   }
+
+  $effect(() => {
+    if (activeTab !== "corporation" || scheduleOpen) return;
+    now = Date.now();
+    const timer = setInterval(() => { now = Date.now(); }, 1000);
+    return () => clearInterval(timer);
+  });
 
   $effect(() => {
     flow.requestWords([...Object.values(labels).map(([key]) => key), ...Object.values(menuWords).map(([key]) => key),
@@ -225,6 +282,29 @@
   });
 </script>
 
+{#snippet typeFilters()}
+  <details>
+    <summary>Structure Types</summary>
+    {#if activeTab === "all"}
+      <label><input type="checkbox" checked={selectedTypes.includes(STATION_TYPE_FILTER)}
+        onchange={(event) => selectTypes([STATION_TYPE_FILTER], event.currentTarget.checked)} /> {word("stations")}</label>
+    {/if}
+    {#each typeGroups as group (group.id)}
+      <details class="type-group">
+        <summary>{group.label}</summary>
+        <label><input type="checkbox" checked={group.typeIDs.every(id => selectedTypes.includes(id))}
+          indeterminate={group.typeIDs.some(id => selectedTypes.includes(id)) && !group.typeIDs.every(id => selectedTypes.includes(id))}
+          onchange={(event) => selectTypes(group.typeIDs, event.currentTarget.checked)} /> All {group.label}</label>
+        {#each group.types as type (type.id)}
+          <label><input type="checkbox" checked={type.ids.every(id => selectedTypes.includes(id))}
+            onchange={(event) => selectTypes(type.ids, event.currentTarget.checked)} />
+            {resolvedName($names.resolved, "type", type.id, type.label)}</label>
+        {/each}
+      </details>
+    {/each}
+  </details>
+{/snippet}
+
 <section class="structure-browser" aria-label={word(activeTab)}>
   {#if bookmark}<BookmarkWindow {store} {flow} place={bookmark} onDone={() => bookmark = null} />{/if}
   {#if homeStationID !== null}
@@ -242,6 +322,25 @@
       <button type="button" aria-pressed={!scheduleOpen} onclick={() => corporationPanel = "structures"}>{word("withProfile")}</button>
       <button type="button" aria-pressed={scheduleOpen} onclick={() => corporationPanel = "extractions"}>{word("extractions")}</button>
     </nav>
+    {#if !scheduleOpen}
+      <div class="directory-filters">
+        <label>{word("profile")}
+          <select value={displayedProfile ?? ""} onchange={(event) => profile = event.currentTarget.value ? Number(event.currentTarget.value) : null}>
+            <option value="">All Profiles</option>
+            {#each [...profileChoices] as [id, name] (id)}<option value={id}>{name}</option>{/each}
+          </select>
+        </label>
+        <label><input type="checkbox" bind:checked={onlyLowPower} /> {word("lowPower")}</label>
+        <label>Search <input type="search" bind:value={ownedSearch} /></label>
+        {@render typeFilters()}
+        <details>
+          <summary>Services</summary>
+          {#each ownedServiceChoices as choice (choice.id)}
+            <label><input type="checkbox" bind:group={ownedServices} value={choice.id} /> {choice.label}</label>
+          {/each}
+        </details>
+      </div>
+    {/if}
   {:else}
     <div class="directory-filters">
       <label>Range
@@ -258,27 +357,10 @@
         </select>
       </label>
       <label>Search <input type="search" bind:value={query} /></label>
-      <details>
-        <summary>Structure Types</summary>
-        <label><input type="checkbox" checked={types.includes(STATION_TYPE_FILTER)}
-          onchange={(event) => selectTypes([STATION_TYPE_FILTER], event.currentTarget.checked)} /> {word("stations")}</label>
-        {#each typeGroups as group (group.id)}
-          <details class="type-group">
-            <summary>{group.label}</summary>
-            <label><input type="checkbox" checked={group.typeIDs.every(id => types.includes(id))}
-              indeterminate={group.typeIDs.some(id => types.includes(id)) && !group.typeIDs.every(id => types.includes(id))}
-              onchange={(event) => selectTypes(group.typeIDs, event.currentTarget.checked)} /> All {group.label}</label>
-            {#each group.types as type (type.id)}
-              <label><input type="checkbox" checked={type.ids.every(id => types.includes(id))}
-                onchange={(event) => selectTypes(type.ids, event.currentTarget.checked)} />
-                {resolvedName($names.resolved, "type", type.id, type.label)}</label>
-            {/each}
-          </details>
-        {/each}
-      </details>
+      {@render typeFilters()}
       <details>
         <summary>Services</summary>
-        {#each serviceChoices as choice (choice.id)}
+        {#each publicServiceChoices as choice (choice.id)}
           <label><input type="checkbox" bind:group={services} value={choice.id} /> {choice.label}</label>
         {/each}
       </details>
@@ -294,7 +376,16 @@
     <p role="status">{word(scopedRows.length ? "filtered" : "empty")}</p>
   {:else}
     <table aria-label={word(activeTab)}>
-      <thead><tr><th scope="col">Jumps</th><th scope="col">Security</th><th scope="col">Owner</th><th scope="col">Name</th><th scope="col">Services</th>
+      <thead><tr>
+        {#if activeTab === "corporation"}
+          {#if displayedProfile === null}<th scope="col">{word("profile")}</th>{/if}
+          <th scope="col">{word("state")}</th>
+        {/if}
+        <th scope="col">Jumps</th><th scope="col">Security</th>
+        {#if activeTab === "all"}<th scope="col">Owner</th>{/if}
+        <th scope="col">Name</th><th scope="col">Services</th>
+        {#if activeTab === "corporation"}<th scope="col">{word("fuel")}</th><th scope="col">{word("reinforcement")}</th>{/if}
+        {#if showOzone}<th scope="col">Liquid Ozone</th>{/if}
         {#each detailColumns as detail (detail.id)}<th scope="col">{detail.label}</th>{/each}
       </tr></thead>
       <tbody>
@@ -304,9 +395,16 @@
             event.stopPropagation();
             openRowMenu(row, event.clientX, event.clientY);
           }}>
+            {#if activeTab === "corporation"}
+              {#if displayedProfile === null}<td>{profileChoices.get(row.owned?.profileID ?? 0) ?? "—"}</td>{/if}
+              <td>{stateName(row)}
+                {#if row.owned?.upkeepState === LOW_POWER}<small class="upkeep">{word("lowPower")}</small>
+                {:else if row.owned?.upkeepState === ABANDONED}<small class="upkeep">{word("abandoned")}</small>{/if}
+              </td>
+            {/if}
             <td>{row.jumps ?? "—"}</td>
             <td>{row.security === null ? "—" : shownSecurity(row.security).toFixed(1)}</td>
-            <td>{ownerName(row)}</td>
+            {#if activeTab === "all"}<td>{ownerName(row)}</td>{/if}
             <td><button type="button" title={typeName(row.typeID)} draggable="true"
               ondragstart={(event) => startLinkDrag(event, `showinfo:${row.typeID}//${row.structureID}`, placeName(row))}
               onkeydown={(event) => {
@@ -317,6 +415,15 @@
               }}
               onclick={() => inspect(row)}>{placeName(row)}</button></td>
             <td>{serviceChoices.filter(service => hasService(row, service.id)).map(service => service.label).join(", ") || "—"}</td>
+            {#if activeTab === "corporation"}
+              <td>{fuelText(row)}</td>
+              <td>{reinforcementHour(row.owned?.reinforceHour)}
+                {#if row.owned?.nextReinforceHour != null}
+                  <small>Pending {reinforcementHour(row.owned.nextReinforceHour)}</small>
+                {/if}
+              </td>
+            {/if}
+            {#if showOzone}<td>{row.owned?.liquidOzoneQty ? row.owned.liquidOzoneQty.toLocaleString() : "—"}</td>{/if}
             {#each detailColumns as detail (detail.id)}<td>{detailValue(row, detail.id)}</td>{/each}
           </tr>
         {/each}
@@ -338,4 +445,6 @@
   table { width: 100%; border-collapse: collapse; text-align: left; }
   th, td { padding: 4px 6px; border-bottom: 1px solid var(--line, #444); }
   td button { padding: 2px 5px; }
+  td small { display: block; }
+  .upkeep { color: #f0c36a; }
 </style>

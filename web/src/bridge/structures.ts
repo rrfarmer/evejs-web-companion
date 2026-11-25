@@ -93,12 +93,24 @@ export interface StructureBrowserEntry extends StructureDirectoryEntry {
   readonly security: number | null;
   readonly jumps: number | null;
   readonly isTriglavian: boolean;
+  readonly owned?: CorporationStructure;
 }
 
 export interface StructureBrowserDirectory {
   readonly entries: readonly StructureBrowserEntry[];
   readonly currentConstellationID: number | null;
   readonly currentRegionID: number | null;
+  readonly profileNames: ReadonlyMap<number, string>;
+}
+
+export function decodeStructureProfileNames(result: JsonValue | null): Map<number, string> {
+  const names = new Map<number, string>();
+  for (const row of Array.isArray(result) ? result : listItems(result)) {
+    const id = toNumber(readKeyVal(row, "profileID"));
+    const name = readText(readKeyVal(row, "name"));
+    if (id > 0 && name) names.set(id, name);
+  }
+  return names;
 }
 
 /** GetMyCharacterStructures: a dict keyed by ID with plain dict records. */

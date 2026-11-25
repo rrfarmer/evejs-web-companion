@@ -988,7 +988,7 @@ import {
 import { systemGraphOnce } from "../nav/systemGraphKept.ts";
 import { autopilotDistances, autopilotJumpCounts, autopilotMap, autopilotPath, type AutopilotMap, type AutopilotRouteType, type AutopilotSettings } from "../nav/autopilotRoute.ts";
 import { availableJumpGateJumps, type JumpGateJump } from "../nav/jumpGates.ts";
-import { decodeCharacterStructureDirectory, decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData, type StructureBrowserDirectory } from "../bridge/structures.ts";
+import { decodeCharacterStructureDirectory, decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData, decodeStructureProfileNames, type StructureBrowserDirectory } from "../bridge/structures.ts";
 import {
   AVOIDING_DIALOGS,
   autopilotSettingsFrom,
@@ -27906,15 +27906,16 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   async function loadStructureBrowser(systemID: number, corporation = false): Promise<StructureBrowserDirectory> {
     const scope = captureMemberOperation();
-    const [reply, graph, distances] = await Promise.all([
+    const [reply, graph, distances, profiles] = await Promise.all([
       scope.ask("structureDirectory", corporation ? "GetCorporationStructures" : "GetMyCharacterStructures", []),
       loadRouteGraph().catch(() => null),
       autopilotDistancesFrom(systemID).catch(() => null),
+      corporation ? scope.ask("structureProfiles", "GetProfiles", []).catch(() => null) : null,
     ]);
     scope.current();
     const directory = corporation
       ? decodeCorporationStructures(reply).filter(row => row.ownerID === scope.online.corporationID)
-        .map(row => ({ ...row, serviceIDs: row.services.map(service => service.serviceID),
+        .map(row => ({ ...row, owned: row, serviceIDs: row.services.map(service => service.serviceID),
           serviceValues: new Map(row.services.map(service => [service.serviceID, service.value])) }))
       : decodeCharacterStructureDirectory(reply);
     const entries = directory.map(row => {
@@ -27935,7 +27936,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     scope.current();
     const currentConstellationID = graph?.parentOf?.(systemID) ?? null;
     return { entries, currentConstellationID, currentRegionID: currentConstellationID === null
-      ? null : graph?.parentOf?.(currentConstellationID) ?? null };
+      ? null : graph?.parentOf?.(currentConstellationID) ?? null, profileNames: decodeStructureProfileNames(profiles) };
   }
 
   async function loadCorporationMoonSchedule(lifetime?: () => void): Promise<CorporationMoonSchedule> {
@@ -27961,13 +27962,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (!structure || structure.solarSystemID !== pull.solarSystemID) return [];
       return [{ ...pull, name: structure.itemName, typeID: structure.typeID, profileID: structure.profileID }];
     });
-    const list = isListValue(profilesRaw) ? profilesRaw.items : Array.isArray(profilesRaw) ? profilesRaw : [];
-    const names = new Map<number, string>();
-    for (const row of list) {
-      const id = moonMiningID(readKeyVal(row, "profileID"));
-      const name = wireText(readKeyVal(row, "name"));
-      if (id !== null && name) names.set(id, name);
-    }
+    const names = decodeStructureProfileNames(profilesRaw);
     for (const row of owned.values()) {
       if (row.profileID !== null && !names.has(row.profileID)) names.set(row.profileID, `Profile ${row.profileID}`);
     }

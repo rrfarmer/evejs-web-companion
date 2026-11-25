@@ -1,5 +1,16 @@
 // 3698585 Structure Browser browserUIConst and ExtraColumnProvider.
 export const STATION_TYPE_FILTER = -3;
+export const LOW_POWER = 2;
+export const ABANDONED = 3;
+
+export const OWNED_STRUCTURE_STATES: Readonly<Record<number, string>> = {
+  1: "Unanchored", 2: "Anchoring", 100: "Secure", 101: "Invulnerable", 102: "Onlining",
+  110: "Vulnerable", 111: "Reinforced", 112: "Vulnerable", 113: "Reinforced",
+  114: "Vulnerable", 115: "Vulnerable", 116: "Deploying", 118: "Invulnerable",
+};
+
+// FilterContControllerMyStructures excludes NPC and standard services.
+export const OWNED_STRUCTURE_SERVICE_FILTERS: ReadonlySet<number> = new Set([4, 5, 6, 14, 15, 16, 17, 18, 20]);
 
 export const STRUCTURE_TYPE_GROUPS = [
   { id: 1657, label: "Citadel", types: [
