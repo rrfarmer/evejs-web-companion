@@ -1,13 +1,13 @@
 <script lang="ts">
   // One floating panel window on the desktop: a title bar (drag to move,
   // double-click to put away, buttons to put away/close) over a scrollable body
-  // that hosts the real panel. Free-floating and resizable from the right/bottom
-  // edges and the SE corner. Pure chrome + pointer math: all window STATE lives in
+  // that hosts the real panel. Pure chrome + pointer math: all window STATE lives in
   // the desktop model (desktop.ts); this component only reports moves/resizes up
   // and clamps a drag so the title bar can never leave the desktop.
   import type { Snippet } from "svelte";
-  import type { WinState } from "./desktop.ts";
+  import { MIN_H, MIN_W, type WinState } from "./desktop.ts";
   import { capturePointer, releasePointer } from "./pointerCapture.ts";
+  import { dragWindowEdge, resizedWindow, WINDOW_RESIZE_EDGES, type ResizeEdge, type WindowRect } from "./windowResize.ts";
 
   let {
     win,
@@ -18,9 +18,13 @@
     onToggleMinimize,
     onMove,
     onResize,
+    onResizeRect,
+    onGeometryCommit,
     headerActions,
     loading = false,
     resizable = true,
+    minWidth = MIN_W,
+    minHeight = MIN_H,
     showTitle = true,
     caption = null,
     icon = null,
@@ -39,10 +43,15 @@
     /** Put the window away. It stays open, and the strip is how it comes back. */
     onToggleMinimize?: () => void;
     onMove: (x: number, y: number) => void;
-    onResize: (w: number, h: number) => void;
+    onResize?: (w: number, h: number) => void;
+    /** Update size and origin together when an edge moves. */
+    onResizeRect?: (rect: WindowRect) => void;
+    onGeometryCommit?: () => void;
     headerActions?: Snippet;
     loading?: boolean;
     resizable?: boolean;
+    minWidth?: number;
+    minHeight?: number;
     showTitle?: boolean;
     /** The window's caption where `title` is cleared (a compact window): its More menu heads with it, as
      *  DefaultWindowControls._get_menu_title. Defaults to `title`. */
@@ -82,34 +91,27 @@
       releasePointer(target, ev.pointerId);
       target.removeEventListener("pointermove", move);
       target.removeEventListener("pointerup", up);
+      onGeometryCommit?.();
     };
     target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", up);
   }
 
-  function startResize(ev: PointerEvent, edge: "e" | "s" | "se"): void {
-    if (ev.button !== 0) return;
-    if (el?.classList.contains("win-locked")) return;
-    ev.stopPropagation();
+  const resizeEdges: readonly ResizeEdge[] = ["e", "s", "se"];
+
+  function startResize(ev: PointerEvent, edge: ResizeEdge): void {
+    if (ev.button !== 0 || !el || el.classList.contains("win-locked") || el.classList.contains("win-collapsed")) return;
     onFocus();
-    const startX = ev.clientX;
-    const startY = ev.clientY;
-    const originW = win.w;
-    const originH = win.h;
-    const target = ev.currentTarget as HTMLElement;
-    capturePointer(target, ev.pointerId);
-    const move = (e: PointerEvent): void => {
-      const w = edge === "s" ? originW : originW + (e.clientX - startX);
-      const h = edge === "e" ? originH : originH + (e.clientY - startY);
-      onResize(w, h);
-    };
-    const up = (): void => {
-      releasePointer(target, ev.pointerId);
-      target.removeEventListener("pointermove", move);
-      target.removeEventListener("pointerup", up);
-    };
-    target.addEventListener("pointermove", move);
-    target.addEventListener("pointerup", up);
+    const { x, y } = win;
+    const box = el.getBoundingClientRect();
+    const parent = el.parentElement?.getBoundingClientRect();
+    const start = { x, y, w: box.width, h: box.height };
+    dragWindowEdge(ev, (dx, dy) => {
+      if (onResizeRect) {
+        onResizeRect(resizedWindow(edge, start, dx, dy, { w: minWidth, h: minHeight },
+          { w: parent?.width || innerWidth, h: parent?.height || innerHeight }));
+      } else onResize?.(start.w + (edge.includes("e") ? dx : 0), start.h + (edge.includes("s") ? dy : 0));
+    }, onGeometryCommit);
   }
 </script>
 
@@ -121,6 +123,7 @@
   class:focused
   class:ship-tree-window={win.id === "shipTree"}
   style:display={win.minimized ? "none" : undefined}
+  style:min-width={onResizeRect ? `${minWidth}px` : undefined}
   style="left:{win.x}px; top:{win.y}px; width:{win.w}px; height:{win.h}px; z-index:{win.z};"
   onpointerdown={onFocus}
   aria-label={title}
@@ -170,12 +173,10 @@
     {@render children()}
   </div>
   {#if resizable}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <span class="win-resize win-resize-e" onpointerdown={(e) => startResize(e, "e")}></span>
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <span class="win-resize win-resize-s" onpointerdown={(e) => startResize(e, "s")}></span>
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <span class="win-resize win-resize-se" onpointerdown={(e) => startResize(e, "se")}></span>
+    {#each onResizeRect ? WINDOW_RESIZE_EDGES : resizeEdges as edge}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <span class="win-resize window-resize win-resize-{edge}" data-edge={edge} onpointerdown={(e) => startResize(e, edge)}></span>
+    {/each}
   {/if}
 </section>
 

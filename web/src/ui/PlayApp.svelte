@@ -128,7 +128,8 @@
   import { sendMusicEvent, securitySwitch, combatSwitch } from "../play/music.ts";
   import { gfx, onGfx, setGfx } from "../play/gfxSettings.ts";
   import ErrorBoundary from "./ErrorBoundary.svelte";
-  import { openWindow, closeWindow, focusWindow, moveWindow, resizeWindow, toggleMinimize, type WinState } from "./desktop.ts";
+  import { MIN_H, MIN_W, openWindow, closeWindow, focusWindow, moveWindow, placeOnDesktop, toggleMinimize, type RegisteredPlace, type WinState } from "./desktop.ts";
+  import type { WindowRect } from "./windowResize.ts";
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { canClaimNow } from "../bridge/loginRewards.ts";
@@ -222,11 +223,18 @@
   // Window.RegisterPositionAndSize / GetRegisteredPositionAndSize (settings.char.windows windowSizesAndPositions_1): a
   // window opened again where the pilot last left it, by its windowID, for the character
   const placeKey = (windowID: string) => `evejs-play-subwin:${session?.store.station.get().online?.characterID ?? 0}:${windowID}`;
-  function keptPlace(windowID: string): { x: number; y: number; w: number; h: number } | null {
-    try { const v = JSON.parse(localStorage.getItem(placeKey(windowID)) ?? "null") as { x?: unknown; y?: unknown; w?: unknown; h?: unknown } | null; return v && [v.x, v.y, v.w, v.h].every((n) => typeof n === "number") ? v as { x: number; y: number; w: number; h: number } : null; } catch { return null; }
+  const flightDesktopSize = () => ({ w: windowsEl?.clientWidth || innerWidth, h: windowsEl?.clientHeight || innerHeight });
+  function keptPlace(windowID: string): WindowRect | null {
+    try {
+      const v = JSON.parse(localStorage.getItem(placeKey(windowID)) ?? "null") as Partial<RegisteredPlace> | null;
+      if (!v || ![v.x, v.y, v.w, v.h].every(Number.isFinite)) return null;
+      if (Number.isFinite(v.dw) && Number.isFinite(v.dh)) return placeOnDesktop(v as RegisteredPlace, flightDesktopSize());
+      return v as WindowRect;
+    } catch { return null; }
   }
   function keepPlace(win: { id: string; x: number; y: number; w: number; h: number }): void {
-    try { localStorage.setItem(placeKey(win.id), JSON.stringify({ x: win.x, y: win.y, w: win.w, h: win.h })); } catch { /* this visit only */ }
+    const { w: dw, h: dh } = flightDesktopSize();
+    try { localStorage.setItem(placeKey(win.id), JSON.stringify({ x: win.x, y: win.y, w: win.w, h: win.h, dw, dh })); } catch { /* this visit only */ }
   }
   let bayWindows = $state<{ key: string; title: string; win: { id: string; x: number; y: number; w: number; h: number; z: number; minimized: boolean } }[]>([]);
   $effect(() => {
@@ -1258,11 +1266,34 @@
     academyShips: { w: 1280, h: 688 },
     shipTree: { w: 1055, h: 720 },
   };
+  const FLIGHT_MINIMUMS: Partial<Record<TabID, { w: number; h: number }>> = {
+    drones: { w: 240, h: 120 }, scanner: { w: 300, h: 150 }, inventory: { w: 170, h: 140 },
+    market: { w: 650, h: 435 }, contracts: { w: 700, h: 560 }, corporation: { w: 700, h: 832 },
+    fleet: { w: 270, h: 120 }, industry: { w: 1004, h: 650 },
+  };
+  function flightWindowMinimum(tab: TabID): { w: number; h: number } {
+    const size = FLIGHT_MINIMUMS[tab] ?? { w: MIN_W, h: MIN_H };
+    const desktop = flightDesktopSize();
+    return { w: Math.min(size.w, desktop.w), h: Math.min(size.h, desktop.h) };
+  }
+  function resizeFlightWindow(id: TabID, rect: WindowRect): void {
+    wins = wins.map(win => win.id === id ? { ...win, ...rect } : win);
+  }
   /** openWindow for the play page: its own sizes, and a new window moved off the Neocom. */
   function openFly(list: readonly WinState[], tab: TabID): WinState[] {
     const had = list.some((w) => w.id === tab);
-    const next = openWindow(list, tab, FLY_SIZES[tab], had ? null : flyPlace(tab));
-    return had ? next : next.map((w) => (w.id === tab && w.x < NEOCOM_W + 8 ? { ...w, x: w.x + NEOCOM_W } : w));
+    const defaultPlace = had ? null : flyPlace(tab);
+    const next = openWindow(list, tab, FLY_SIZES[tab], defaultPlace);
+    if (had) return next;
+    const saved = keptPlace(tab);
+    if (!saved) return next.map(w => w.id === tab && w.x < NEOCOM_W + 8 ? { ...w, x: w.x + NEOCOM_W } : w);
+    const desktop = flightDesktopSize();
+    const min = flightWindowMinimum(tab);
+    const w = tab === "fitting" && defaultPlace ? defaultPlace.w : Math.max(min.w, Math.min(saved.w, desktop.w));
+    const h = tab === "fitting" && defaultPlace ? defaultPlace.h : Math.max(min.h, Math.min(saved.h, desktop.h));
+    const x = Math.max(0, Math.min(saved.x, desktop.w - 48));
+    const y = Math.max(0, Math.min(saved.y, desktop.h - 30));
+    return next.map(win => win.id === tab ? { ...win, x, y, w, h } : win);
   }
   /**
    * Where the client puts a window the first time, for those it places itself: the chat at the bottom left of the
@@ -3847,18 +3878,23 @@
     <span class="fly-windows-anchor" hidden></span>
     {#each wins as win (win.id)}
       <ErrorBoundary name={tabLabel(win.id)}>
+        {@const minimum = flightWindowMinimum(win.id)}
         <DesktopWindow
           {win}
           title={win.id === "drones" ? ($dronesCompact ? "" : dronesTitle) : win.id === "scanner" && !docked && $scannerCompact ? "" : win.id === "inventory" && !docked ? (inventoryPrimary ? captions[win.id] ?? tabLabel(win.id) : activeShipCaption) : captions[win.id] ?? tabLabel(win.id)}
           caption={win.id === "drones" ? dronesTitle : win.id === "scanner" ? captions[win.id] ?? tabLabel(win.id) : null}
           icon={win.id === "inventory" && !docked ? clientTexture("res:/UI/Texture/WindowIcons/cargo.png") : win.id === "log" ? clientTexture("res:/ui/Texture/WindowIcons/log.png") : null}
           killable={win.id !== "drones"}
+          resizable={win.id !== "fitting" && win.id !== "medalDesigner"}
+          minWidth={minimum.w}
+          minHeight={minimum.h}
           focused={win.id === activeWinKey}
           onFocus={() => { wins = focusWindow(wins, win.id); raiseApp(win.id); }}
           onClose={() => (wins = closeWindow(wins, win.id))}
           onToggleMinimize={() => { const was = win.minimized; wins = toggleMinimize(wins, win.id); if (!was && activeWinKey === win.id) activeWinKey = null; }}
           onMove={(x, y) => (wins = moveWindow(wins, win.id, x, y))}
-          onResize={(w, h) => (wins = resizeWindow(wins, win.id, w, h))}
+          onResizeRect={(rect) => resizeFlightWindow(win.id, rect)}
+          onGeometryCommit={() => { const placed = wins.find(w => w.id === win.id); if (placed) keepPlace(placed); }}
         >
           {#snippet headerActions()}
             {#if win.id === "log"}<GameLogActions store={session.store} flow={session.flow} />{/if}
@@ -3938,7 +3974,8 @@
     <div class="space-container-layer" class:behind={!containerFront} onpointerdowncapture={() => (containerFront = true)}>
       <DesktopWindow win={containerWin} title={c.title} icon={clientTexture("res:/UI/Texture/WindowIcons/cargo.png")} focused={activeWinKey === containerWin.id} onFocus={() => {}}
         onClose={() => void session.flow.openContainer(null)} onMove={(x, y) => { containerWin.x = x; containerWin.y = y; keepPlace({ ...containerWin, id: c.windowID }); }}
-        onResize={(w, h) => { containerWin.w = Math.max(300, w); containerWin.h = Math.max(200, h); keepPlace({ ...containerWin, id: c.windowID }); }}>
+        minWidth={300} minHeight={200} onResizeRect={(rect) => Object.assign(containerWin, rect)}
+        onGeometryCommit={() => keepPlace({ ...containerWin, id: c.windowID })}>
         <FlyInventoryWindow store={session.store} flow={session.flow} containerMode={true} />
       </DesktopWindow>
     </div>
@@ -3950,7 +3987,8 @@
         {#key fw.n}
           <DesktopWindow win={fw.win} title={(() => { const t = session.store.words.get().templates["UI/Inventory/Filters/ItemFilterCaption"]; return typeof t === "string" && t ? plainText(t) : "Item Filter"; })()} icon={null} focused={activeWinKey === fw.win.id} onFocus={() => {}}
             onClose={() => (filterWindow = null)} onMove={(x, y) => { fw.win.x = x; fw.win.y = y; keepPlace(fw.win); }}
-            onResize={(w, h) => { fw.win.w = Math.max(450, w); fw.win.h = Math.max(250, h); keepPlace(fw.win); }}>
+            minWidth={450} minHeight={250} onResizeRect={(rect) => Object.assign(fw.win, rect)}
+            onGeometryCommit={() => keepPlace(fw.win)}>
             <FilterCreationWindow store={session.store} flow={session.flow} filter={fw.filter} onClose={() => (filterWindow = null)} />
           </DesktopWindow>
         {/key}
@@ -3960,7 +3998,8 @@
       <div class="space-container-layer">
         <DesktopWindow win={b.win} title={b.title} icon={clientTexture("res:/UI/Texture/WindowIcons/cargo.png")} focused={activeWinKey === b.win.id} onFocus={() => {}}
           onClose={() => (bayWindows = bayWindows.filter((w) => w.key !== b.key))} onMove={(x, y) => { b.win.x = x; b.win.y = y; keepPlace(b.win); }}
-          onResize={(w, h) => { b.win.w = Math.max(300, w); b.win.h = Math.max(200, h); keepPlace(b.win); }}>
+          minWidth={300} minHeight={200} onResizeRect={(rect) => Object.assign(b.win, rect)}
+          onGeometryCommit={() => keepPlace(b.win)}>
           <FlyInventoryWindow store={session.store} flow={session.flow} bayMode={b.key} />
         </DesktopWindow>
       </div>

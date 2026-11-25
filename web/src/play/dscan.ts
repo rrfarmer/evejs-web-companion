@@ -227,7 +227,7 @@ export class DScanWindow {
     // the range half (Range, its edit, the AU / km toggle; the slider) and the angle half ("Angle: n°"; the slider over
     // ANGLE_INCREMENTS, even steps), the Scan button at the right.
     const w = (label: string, own: string, args?: Readonly<Record<string, string | number>>) => hooks.word?.(label, args) ?? own;
-    this.window = new PlayWindow({ id: "dscan", caption: w("UI/Inflight/Scanner/DirectionalScanner", "Directional Scanner"), chrome: "small", left: Math.max(16, Math.round(innerWidth / 2 - 200)), top: 40, width: 400, height: 350, minWidth: 320, closable: true,
+    this.window = new PlayWindow({ id: "dscan", caption: w("UI/Inflight/Scanner/DirectionalScanner", "Directional Scanner"), chrome: "small", left: Math.max(16, Math.round(innerWidth / 2 - 200)), top: 40, width: 400, height: 350, minWidth: 300, minHeight: 124, closable: true,
       // the window's menu: CompactModeWindowAction (Enable / Disable compact mode)
       menu: (button) => { const r = button.getBoundingClientRect(); this.menu.open(r.left, r.bottom, this.window.windowActions(w, {
         label: this.compact ? w("/Carbon/UI/Controls/Window/DisableCompactMode", "Disable compact mode") : w("/Carbon/UI/Controls/Window/EnableCompactMode", "Enable compact mode"),

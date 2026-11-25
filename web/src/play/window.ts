@@ -1,6 +1,6 @@
 // A window in the client's look: a dark, slightly see-through panel with a thin edge, a header with the window's
 // icon and caption and the client's own system icons (minimize, close) on the right, dragged by its header and
-// resized from its corner, where it was left kept per window in this browser.
+// resized from its edges, where it was left kept per window in this browser.
 
 const ICON = (path: string) => `/client-res/${path.replace(/^res:\//i, "").toLowerCase()}`;
 export const SYSTEM_ICON = {
@@ -12,6 +12,7 @@ export const SYSTEM_ICON = {
 export const clientTexture = ICON;
 
 import type { ContextEntry } from "./contextMenu.ts";
+import { dragWindowEdge, resizedWindow, WINDOW_RESIZE_EDGES } from "../ui/windowResize.ts";
 
 /** The window actions' words (WindowAction labels), for the More menus. */
 export const WINDOW_ACTION_WORDS: readonly string[] = ["/Carbon/UI/Controls/Window/Lock", "/Carbon/UI/Controls/Window/Unlock", "/Carbon/UI/Controls/Window/EnableLightBackground",
@@ -71,9 +72,23 @@ export class PlayWindow {
     (this.head.querySelector(".pw-caption") as HTMLElement).textContent = options.caption;
     this.captionNow = options.caption;
     this.body.className = "pw-body";
-    const grip = document.createElement("div");
-    grip.className = "pw-grip";
-    this.root.append(this.head, this.body, grip);
+    this.root.append(this.head, this.body);
+    for (const edge of WINDOW_RESIZE_EDGES) {
+      const handle = document.createElement("div");
+      handle.className = "window-resize";
+      handle.dataset.edge = edge;
+      handle.addEventListener("pointerdown", event => {
+        if (event.button !== 0 || this.locked || this.minimized) return;
+        const { left, top, width, height } = this.root.getBoundingClientRect();
+        const start = { x: left, y: top, w: width, h: height };
+        const min = { w: this.minWidthNow, h: options.minHeight ?? 80 };
+        dragWindowEdge(event, (dx, dy) => {
+          const next = resizedWindow(edge, start, dx, dy, min, { w: innerWidth, h: innerHeight });
+          Object.assign(this.root.style, { left: `${next.x}px`, top: `${next.y}px`, width: `${next.w}px`, height: `${next.h}px` });
+        }, () => this.keepPlace());
+      });
+      this.root.append(handle);
+    }
     // Window.active (the last window pressed): SmallWindowHeader.caption_color - HIGHLIGHT while active, NORMAL otherwise
     // (the light background on)
     const activate = () => this.activate();
@@ -90,10 +105,6 @@ export class PlayWindow {
     this.drag(this.head, (dx, dy, start) => {
       this.root.style.left = `${Math.max(0, start.left + dx)}px`;
       this.root.style.top = `${Math.max(0, start.top + dy)}px`;
-    });
-    this.drag(grip, (dx, dy, start) => {
-      this.root.style.width = `${Math.max(this.minWidthNow, start.width + dx)}px`;
-      this.root.style.height = `${Math.max(options.minHeight ?? 80, start.height + dy)}px`;
     });
   }
 
@@ -183,11 +194,17 @@ export class PlayWindow {
       const onUp = () => {
         removeEventListener("pointermove", onMove);
         removeEventListener("pointerup", onUp);
-        const r2 = this.root.getBoundingClientRect();
-        try { localStorage.setItem(`evejs-play-window:${this.options.id}`, JSON.stringify({ left: r2.left, top: r2.top, width: r2.width, height: r2.height })); } catch { /* kept for this visit only */ }
+        this.keepPlace();
       };
       addEventListener("pointermove", onMove);
       addEventListener("pointerup", onUp);
     });
+  }
+
+  private keepPlace(): void {
+    const { left, top, width } = this.root.getBoundingClientRect();
+    // A collapsed window keeps its expanded height when moved.
+    const height = Number.parseFloat(this.root.style.height);
+    try { localStorage.setItem(`evejs-play-window:${this.options.id}`, JSON.stringify({ left, top, width, height })); } catch { /* kept for this visit only */ }
   }
 }

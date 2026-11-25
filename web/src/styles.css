@@ -3974,11 +3974,16 @@
     background: var(--color-panel-3);
   }
 
-  /* Resize affordances — the right / bottom edges and the SE corner. */
-  .win-resize { position: absolute; touch-action: none; }
-  .win-resize-e { top: 0; right: -3px; width: 7px; height: 100%; cursor: ew-resize; }
-  .win-resize-s { left: 0; bottom: -3px; height: 7px; width: 100%; cursor: ns-resize; }
-  .win-resize-se { right: -3px; bottom: -3px; width: 13px; height: 13px; cursor: nwse-resize; }
+  .window-resize { position: absolute; z-index: 2; touch-action: none; }
+  .window-resize:is([data-edge="w"], [data-edge="e"]) { inset-block: 10px; width: 5px; cursor: ew-resize; }
+  .window-resize:is([data-edge="n"], [data-edge="s"]) { inset-inline: 10px; height: 5px; cursor: ns-resize; }
+  .window-resize:is([data-edge="nw"], [data-edge="se"]) { width: 10px; height: 10px; cursor: nwse-resize; }
+  .window-resize:is([data-edge="ne"], [data-edge="sw"]) { width: 10px; height: 10px; cursor: nesw-resize; }
+  .window-resize:is([data-edge="w"], [data-edge="nw"], [data-edge="sw"]) { left: 0; }
+  .window-resize:is([data-edge="e"], [data-edge="ne"], [data-edge="se"]) { right: 0; }
+  .window-resize:is([data-edge="n"], [data-edge="nw"], [data-edge="ne"]) { top: 0; }
+  .window-resize:is([data-edge="s"], [data-edge="sw"], [data-edge="se"]) { bottom: 0; }
+  .window-resize:hover, .window-resize:active { background: color-mix(in srgb, var(--theme-focus, #58a7bf) 35%, transparent); }
   /* ⚠ THE GRIP MARK IS GONE, THE GRIP IS NOT. This drew a small angle in the
    * bottom-right corner — the fourth different thing this frame used to put on
    * a corner, and the one left over once the bevel and the brackets went. The
