@@ -84,6 +84,7 @@ interface StructureDirectoryEntry {
   readonly solarSystemID: number;
   readonly itemName?: string;
   readonly serviceIDs: readonly number[];
+  readonly serviceValues: ReadonlyMap<number, number | null>;
 }
 
 export interface StructureBrowserEntry extends StructureDirectoryEntry {
@@ -109,8 +110,12 @@ export function decodeCharacterStructureDirectory(result: JsonValue): StructureD
     const ownerID = toNumber(fields.get("ownerID"));
     const solarSystemID = toNumber(fields.get("solarSystemID"));
     if (structureID > 0 && typeID > 0 && ownerID > 0 && solarSystemID > 0) {
-      const serviceIDs = decodeServices(fields.get("services")).map(service => service.serviceID);
-      rows.push({ structureID, typeID, ownerID, solarSystemID, serviceIDs });
+      const serviceValues = new Map<number, number | null>();
+      for (const [key, raw] of readDictPairs(fields.get("services"))) {
+        const serviceID = toNumber(key);
+        if (serviceID > 0) serviceValues.set(serviceID, typeof raw === "boolean" ? Number(raw) : toNullableNumber(raw));
+      }
+      rows.push({ structureID, typeID, ownerID, solarSystemID, serviceIDs: [...serviceValues.keys()], serviceValues });
     }
   }
   return rows;

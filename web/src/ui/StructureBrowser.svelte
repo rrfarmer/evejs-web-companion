@@ -6,6 +6,7 @@
   import { isStation } from "../bridge/placeChanges.ts";
   import { hasSecurityOffice } from "../bridge/securityOffice.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
+  import { STATION_TYPE_FILTER, STRUCTURE_SERVICE_DETAILS, STRUCTURE_TYPE_GROUPS } from "../bridge/structureBrowserFilters.ts";
   import type { StructureBrowserDirectory, StructureBrowserEntry } from "../bridge/structures.ts";
   import { shownSecurity } from "../bridge/systemSecurity.ts";
   import { structureHasCapability } from "../nav/dockableLocation.ts";
@@ -44,6 +45,8 @@
     extractions: ["UI/Moonmining/UpcomingExtractionsTab", "Upcoming Extractions"],
     empty: ["UI/Structures/Browser/NoStructuresFound", "No structures found"],
     filtered: ["UI/Structures/Browser/NoStructuresFoundWithFilters", "No structures found with these filters"],
+    stations: ["UI/StructureBrowser/StationsAndOutposts", "Stations and Outposts"],
+    navigation: ["UI/StructureBrowser/NavigationStructures", "FLEX Structures"],
   } as const;
   const serviceLabels = [
     [-1, "UI/Station/CharacterRecustomization", "Character Recustomization"],
@@ -68,11 +71,41 @@
   const ownerName = (row: StructureBrowserEntry) => resolvedName($names.resolved, "corporation", row.ownerID, String(row.ownerID));
   const locationName = (id: number) => resolvedName($names.resolved, "evelocation", id, String(id));
   const typeName = (id: number) => resolvedName($names.resolved, "type", id, String(id));
-  const typeFilterID = (row: StructureBrowserEntry) => isStation(row.structureID) ? -3 : row.typeID;
-  const typeChoices = $derived([...new Set(rows.map(typeFilterID))].map(id =>
-    ({ id, label: id === -3 ? "Stations and Outposts" : typeName(id) })).sort((a, b) => a.label.localeCompare(b.label)));
+  const typeGroups = $derived(STRUCTURE_TYPE_GROUPS.map(group => ({
+    ...group,
+    label: group.id < 0 ? word("navigation") : resolvedName($names.resolved, "group", group.id, group.label),
+    typeIDs: group.types.flatMap<number>(type => type.ids),
+  })).sort((a, b) => a.label.localeCompare(b.label)));
+  const typeFilterID = (row: StructureBrowserEntry) => isStation(row.structureID) ? STATION_TYPE_FILTER : row.typeID;
   const serviceChoices = $derived(serviceLabels.map(([id, key, fallback]) =>
     ({ id, label: plainText($words.templates[key] ?? fallback) })).sort((a, b) => a.label.localeCompare(b.label)));
+  const detailColumns = $derived.by(() => {
+    const columns = new Map<string, { id: number; label: string }>();
+    if (activeTab !== "all") return [];
+    for (const id of services) {
+      const detail = STRUCTURE_SERVICE_DETAILS.get(id);
+      if (detail && !columns.has(detail.path)) {
+        columns.set(detail.path, { id, label: plainText($words.templates[detail.path] ?? detail.label) });
+      }
+    }
+    return [...columns.values()];
+  });
+  const percentage = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const isk = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+
+  function detailValue(row: StructureBrowserEntry, id: number): string {
+    const value = row.serviceValues.get(id);
+    if (value == null) return "-";
+    const format = STRUCTURE_SERVICE_DETAILS.get(id)?.format;
+    if (format === "access") return "True";
+    if (format === "percentage") return `${percentage.format(value)} %`;
+    if (format === "isk") return `${isk.format(value)} ISK`;
+    return String(value);
+  }
+
+  function selectTypes(ids: readonly number[], selected: boolean) {
+    types = selected ? [...new Set([...types, ...ids])] : types.filter(id => !ids.includes(id));
+  }
   const currentRegion = $derived(directory?.currentRegionID ?? null);
   const currentConstellation = $derived(directory?.currentConstellationID ?? null);
   const systemOnly = $derived(currentRegion !== null && currentRegion >= 11000000 && currentRegion <= 11999999);
@@ -102,7 +135,12 @@
   }
 
   $effect(() => {
-    flow.requestWords([...Object.values(labels).map(([key]) => key), ...serviceLabels.map(([, key]) => key)]);
+    flow.requestWords([...Object.values(labels).map(([key]) => key), ...serviceLabels.map(([, key]) => key),
+      ...new Set([...STRUCTURE_SERVICE_DETAILS.values()].map(detail => detail.path))]);
+    flow.requestNames(STRUCTURE_TYPE_GROUPS.flatMap(group => [
+      ...(group.id > 0 ? [{ kind: "group" as const, id: group.id }] : []),
+      ...group.types.map(type => ({ kind: "type" as const, id: type.id })),
+    ]));
   });
 
   $effect(() => {
@@ -157,8 +195,20 @@
       <label>Search <input type="search" bind:value={query} /></label>
       <details>
         <summary>Structure Types</summary>
-        {#each typeChoices as choice (choice.id)}
-          <label><input type="checkbox" bind:group={types} value={choice.id} /> {choice.label}</label>
+        <label><input type="checkbox" checked={types.includes(STATION_TYPE_FILTER)}
+          onchange={(event) => selectTypes([STATION_TYPE_FILTER], event.currentTarget.checked)} /> {word("stations")}</label>
+        {#each typeGroups as group (group.id)}
+          <details class="type-group">
+            <summary>{group.label}</summary>
+            <label><input type="checkbox" checked={group.typeIDs.every(id => types.includes(id))}
+              indeterminate={group.typeIDs.some(id => types.includes(id)) && !group.typeIDs.every(id => types.includes(id))}
+              onchange={(event) => selectTypes(group.typeIDs, event.currentTarget.checked)} /> All {group.label}</label>
+            {#each group.types as type (type.id)}
+              <label><input type="checkbox" checked={type.ids.every(id => types.includes(id))}
+                onchange={(event) => selectTypes(type.ids, event.currentTarget.checked)} />
+                {resolvedName($names.resolved, "type", type.id, type.label)}</label>
+            {/each}
+          </details>
         {/each}
       </details>
       <details>
@@ -179,7 +229,9 @@
     <p role="status">{word(scopedRows.length ? "filtered" : "empty")}</p>
   {:else}
     <table aria-label={word(activeTab)}>
-      <thead><tr><th scope="col">Jumps</th><th scope="col">Security</th><th scope="col">Owner</th><th scope="col">Name</th><th scope="col">Services</th></tr></thead>
+      <thead><tr><th scope="col">Jumps</th><th scope="col">Security</th><th scope="col">Owner</th><th scope="col">Name</th><th scope="col">Services</th>
+        {#each detailColumns as detail (detail.id)}<th scope="col">{detail.label}</th>{/each}
+      </tr></thead>
       <tbody>
         {#each ordered as row (row.structureID)}
           <tr data-structure-id={row.structureID}>
@@ -189,6 +241,7 @@
             <td><button type="button" title={typeName(row.typeID)}
               onclick={() => showInfo({ kind: "type", typeID: row.typeID, itemID: row.structureID })}>{placeName(row)}</button></td>
             <td>{serviceChoices.filter(service => hasService(row, service.id)).map(service => service.label).join(", ") || "—"}</td>
+            {#each detailColumns as detail (detail.id)}<td>{detailValue(row, detail.id)}</td>{/each}
           </tr>
         {/each}
       </tbody>
@@ -204,6 +257,7 @@
   .directory-filters > label { display: flex; align-items: center; gap: 4px; }
   details { padding: 2px 6px; border: 1px solid var(--line, #444); }
   details label { display: block; }
+  .type-group { border: 0; margin-left: 8px; }
   summary { cursor: pointer; }
   table { width: 100%; border-collapse: collapse; text-align: left; }
   th, td { padding: 4px 6px; border-bottom: 1px solid var(--line, #444); }

@@ -27914,7 +27914,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     scope.current();
     const directory = corporation
       ? decodeCorporationStructures(reply).filter(row => row.ownerID === scope.online.corporationID)
-        .map(row => ({ ...row, serviceIDs: row.services.map(service => service.serviceID) }))
+        .map(row => ({ ...row, serviceIDs: row.services.map(service => service.serviceID),
+          serviceValues: new Map(row.services.map(service => [service.serviceID, service.value])) }))
       : decodeCharacterStructureDirectory(reply);
     const entries = directory.map(row => {
       const constellationID = graph?.parentOf?.(row.solarSystemID) ?? null;
