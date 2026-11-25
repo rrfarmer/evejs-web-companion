@@ -40,6 +40,9 @@
   const selectedCanEdit = $derived(selected?.membershipType === 2 && selected.creatorID !== corporationID);
   const canManageMembers = $derived(selected !== null && selected.creatorID !== corporationID &&
     (selected.membershipType === 2 || selected.membershipType === 1));
+  const canRemoveSelf = $derived(selected !== null && selected.creatorID !== corporationID &&
+    selected.membershipType === 0 && members?.some(member => member.memberID === characterID && member.membershipType === 0));
+  const canSelectMembers = $derived(canManageMembers || canRemoveSelf);
   const memberRows = $derived((members ?? []).map(member => ({
     ...member,
     name: member.memberID === 0 ? word("PublicUser", "Everyone") : resolvedName($names.resolved, "owner", member.memberID),
@@ -47,9 +50,10 @@
   })).sort((a, b) => roleOrder.indexOf(a.membershipType) - roleOrder.indexOf(b.membershipType) ||
     a.ownerOrder - b.ownerOrder || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.memberID - b.memberID));
   const checkedRows = $derived(memberRows.filter(member => checked.has(member.memberID)));
-  const removable = $derived(checkedRows.filter(member => canManageMembers &&
-    (selected?.membershipType === 2 || member.membershipType === 0 || member.membershipType === 3 || member.memberID === characterID)));
-  const changeable = $derived(removable.filter(member => member.ownerOrder === 3 &&
+  const removable = $derived(checkedRows.filter(member =>
+    (canRemoveSelf && member.memberID === characterID) || (canManageMembers &&
+    (selected?.membershipType === 2 || member.membershipType === 0 || member.membershipType === 3 || member.memberID === characterID))));
+  const changeable = $derived(removable.filter(member => canManageMembers && member.ownerOrder === 3 &&
     resolvedName($names.resolved, "ownerType", member.memberID, "0") !== "0" &&
     (selected?.membershipType === 2 || member.membershipType === 0 || member.membershipType === 3)));
   const roleActions = [
@@ -310,14 +314,16 @@
         {/if}
         {#if memberActionError}<p role="alert">{memberActionError}</p>{/if}
         <table aria-label="Access list members">
-          <thead><tr>{#if canManageMembers}<th scope="col" aria-label="Select members"></th>{/if}<th scope="col">Name</th><th scope="col">Access</th></tr></thead>
+          <thead><tr>{#if canSelectMembers}<th scope="col" aria-label="Select members"></th>{/if}<th scope="col">Name</th><th scope="col">Access</th></tr></thead>
           <tbody>
             {#each memberRows as member (member.memberID)}
               <tr data-access-member-id={member.memberID}>
-                {#if canManageMembers}
+                {#if canSelectMembers}
                   <td class="member-select">
-                    <input type="checkbox" aria-label={`Select ${member.name}`} checked={checked.has(member.memberID)} disabled={busy}
-                      onchange={(event) => toggleMember(member.memberID, event.currentTarget.checked)} />
+                    {#if canManageMembers || member.memberID === characterID}
+                      <input type="checkbox" aria-label={`Select ${member.name}`} checked={checked.has(member.memberID)} disabled={busy}
+                        onchange={(event) => toggleMember(member.memberID, event.currentTarget.checked)} />
+                    {/if}
                   </td>
                 {/if}
                 <td>{member.name}</td><td>{word(roleWords[member.membershipType])}</td>
