@@ -1245,6 +1245,12 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     }
   }
   const stationLpPurchase = body.service === "LPStoreMgr" && body.method === "TakeOfferForCharacter";
+  if (body.service === "home_station" && body.method === "set_home_station" &&
+      (!Array.isArray(body.args) || body.args.length !== 2 || !Number.isSafeInteger(body.args[0]) || body.args[0] <= 0 ||
+        typeof body.args[1] !== "boolean" || body.of != null || body.kwargs != null)) {
+    res.status(400).json({ ok: false, error: "INVALID_HOME_STATION", message: "Choose a valid home station." });
+    return;
+  }
   const cloneInstall = body.service === "jumpCloneSvc" && ["InstallCloneInStation", "InstallCloneInStructure"].includes(body.method);
   if (body.service === "jumpCloneSvc" && write) {
     const args = Array.isArray(body.args) ? body.args : [];

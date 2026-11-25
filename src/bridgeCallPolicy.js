@@ -63,6 +63,7 @@ const PLUMBING_SWEEP_WRITE_METHODS = freezeMethodMap({
   fighterMgr: ["LoadFightersToTube", "UnloadTubeToFighterBay", "LaunchFightersFromTubes", "RecallFightersToTubes", "ExecuteMovementCommandOnFighters", "CmdActivateAbilitySlots", "CmdDeactivateAbilitySlots", "CmdAbandonFighter", "CmdScoopAbandonedFighterFromSpace"],
   skillHandler: ["CharStartTrainingSkill", "AbortTraining", "ApplyFreeSkillPoints", "ApplyFreeSkillPointsToSkills", "ExtractSkills", "InjectSkillpoints", "SplitSkillInjector", "CombineSkillInjector", "InjectSkillIntoBrain"],
   jumpCloneSvc: ["InstallCloneInStation", "InstallCloneInStructure", "CloneJump", "DestroyInstalledClone", "SetJumpCloneName", "OfferShipCloneInstallation", "AcceptShipCloneInstallation", "CancelShipCloneInstallation"],
+  home_station: ["set_home_station", "reset_remote_change_time", "self_destruct_clone"],
   crimewatch: ["SetSafetyLevel", "StartDuelChallenge", "RespondToDuelChallenge"],
   corpRegistry: ["AddBulletin", "UpdateBulletin", "UpdateBulletinOrder", "DeleteBulletin", "CreateLabel", "EditLabel", "DeleteLabel", "AssignLabels", "RemoveLabels", "AddCorporateContact", "EditCorporateContact", "RemoveCorporateContacts", "EditContactsRelationshipID", "UpdateTitle", "UpdateTitles", "UpdateMember", "UpdateMembers", "UpdateCorporation", "UpdateCorporationAbilities", "UpdateLogo", "UpdateDivisionNames", "SetAccountKey", "SetCorpWelcomeMail", "SetStructureReinforceDefault", "RegisterNewAggressionSettings", "RegisterNewAcceptStructureSettings", "RegisterNewCorpMailRestrictionSettings", "DeleteTitle", "ExecuteActions", "MoveCompanyShares", "MovePrivateShares", "PayoutDividend", "KickOutMember", "KickOutMembers", "ResignFromCEO", "InsertApplication", "InsertInvitation", "UpdateApplicationOffer", "AddCorporation", "CreateAlliance", "ApplyToJoinAlliance", "DeleteAllianceApplication", "DeclareWarAgainst"],
   // The recruitment proxy's ad writes (base_corporation CreateRecruitmentAd / UpdateRecruitmentAd / DeleteRecruitmentAd).
@@ -950,6 +951,7 @@ const PAGE_WRITE_PAIR_KEYS = Object.freeze([
   "jumpCloneSvc.InstallCloneInStation", "jumpCloneSvc.InstallCloneInStructure",
   "jumpCloneSvc.SetJumpCloneName", "jumpCloneSvc.DestroyInstalledClone",
   "jumpCloneSvc.CloneJump",
+  "home_station.set_home_station",
   "insuranceSvc.InsureShip", "insuranceSvc.UnInsureShip",
   "repackagingSvc.RepackageItems",
   "structureControl.TakeControl", "structureControl.ReleaseControl",

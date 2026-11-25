@@ -905,7 +905,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "skillHandler.GetSkillQueueAndFreePoints",
   // The home station as the client's own service asks for it, which its Character Sheet reads. The gateway's list
   // has charMgr's row and not this.
-  "home_station.get_home_station",
+  "home_station.get_home_station", "home_station.get_home_station_candidates", "home_station.set_home_station",
   // The queue's saving as the client's queue service makes it, on the handler. The page makes it by name (the
   // plan's Phase 6b). The gateway's list has skillMgr's save and not this: through the gateway the route saves.
   "skillHandler.SaveNewQueue",
@@ -2616,6 +2616,8 @@ const RETAIL_CALLS = Object.freeze({
   "onlineStatus.GetOnlineStatus": same("eve/client/script/ui/shared/comtool/onlineStatus.py:56", "RemoteSvc('onlineStatus').GetOnlineStatus(charID), for a character the kept state does not have, and kept"),
   "onlineStatus.Prime": webOnly("eve/client/script/ui/shared/comtool/onlineStatus.py:74", "The client never asks this of the server. Prime is its own service's method, which asks GetInitialState() once."),
   "home_station.get_home_station": same("homestation/client/service.py:67", "RemoteSvc('home_station').get_home_station(), no arguments: asked once and kept, until the server says the home station changed or was moved from its structure, or the pilot's corporation changes. Recorded on Tranquility at a login and after OnHomeStationChanged"),
+  "home_station.get_home_station_candidates": same("homestation/client/service.py:80", "Read the current dock, school headquarters and corporation offices offered as a home station."),
+  "home_station.set_home_station": same("homestation/client/service.py:104", "Set the session pilot's home station by its ID, with explicit approval for a remote change."),
   "charMgr.GetHomeStationRow": same("eve/client/script/ui/shared/neocom/charactersheet.py:59", "RemoteSvc('charMgr').GetHomeStationRow(), no arguments, asked once and kept until the session is reset"),
   "charMgr.GetHomeStation": webOnly("eve/client/script/ui/shared/neocom/charactersheet.py:59", "The client never asks this of charMgr: its character sheet's service asks GetHomeStationRow()."),
   "charMgr.GetCloneInfo": webOnly("eve/client/script/ui/services/clonejumpsvc.py:76", "The client never asks this. Its jump clones, their implants and the time of the last jump come from GetCloneState() on the jumpCloneSvc moniker for where the pilot is; the implants in the pilot's head are what its skill handler answers GetImplants() with (skillsvc.py 967), which godma's 'implants' of the character hands on."),

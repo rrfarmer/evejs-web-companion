@@ -38,11 +38,13 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
+  import { isStation } from "../bridge/placeChanges.ts";
   import ExpertSystems from "./ExpertSystems.svelte";
   import CharacterMembership from "./CharacterMembership.svelte";
   import CharacterDecorations from "./CharacterDecorations.svelte";
   import Standings from "./Standings.svelte";
   import JumpClonesPanel from "./JumpClonesPanel.svelte";
+  import HomeStationPanel from "./HomeStationPanel.svelte";
   import { sheetPanelRequest, type SheetPanel } from "./characterSheetPanels.ts";
 
   // The client's Character Sheet's tabs (characterSheetWindow.GetMainTabData; charsheet GetPanelName): Character,
@@ -243,7 +245,8 @@
         <span class="row"><small>{tabWord("UI/CharacterSheet/CharacterSheetWindow/SecurityStatusTitle")}</small>
           <span class={securityTone($sheet.identity.securityStatus)}>{formatSecurityStatus($sheet.identity.securityStatus)}</span></span>
         <span class="row"><small>{tabWord("UI/CharacterSheet/CharacterSheetWindow/HomeStationTitle")}</small>
-          <span>{$sheet.homeStationID !== null ? resolvedName($names.resolved, "station", $sheet.homeStationID, "") : ""}</span></span>
+          <span>{$sheet.homeStationID !== null ? resolvedName($names.resolved,
+            isStation($sheet.homeStationID) ? "station" : "structure", $sheet.homeStationID, "") : ""}</span></span>
       </div>
       <div class="bottom">
         <span>{resolvedName($names.resolved, "corporation", $sheet.identity.corporationID, "")}{#if $sheet.identity.allianceID !== null} · {resolvedName($names.resolved, "alliance", $sheet.identity.allianceID, "")}{/if}</span>
@@ -265,16 +268,7 @@
     {/each}
   </nav>
   {#if characterTab === "home"}
-  <!-- Home station (the medical-clone home), by name. -->
-  <h3>Home station</h3>
-  {#if $sheet.homeStationError}
-    <p class="error">{$sheet.homeStationError}</p>
-  {:else if $sheet.homeStationID === null}
-    <p class="empty">Reading your home station…</p>
-  {:else}
-    <p>{resolvedName($names.resolved, "station", $sheet.homeStationID, "Unknown station")}</p>
-  {/if}
-
+    {#key $activeCharacter.selectedCharacterID}<HomeStationPanel {store} {flow} />{/key}
   {/if}
   {#if characterTab === "memberships"}
     <CharacterMembership {store} {flow} />

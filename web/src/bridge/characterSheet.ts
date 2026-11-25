@@ -40,6 +40,7 @@ import {
   isKeyValValue,
   isListValue,
   readKeyVal,
+  unwrapBool,
   unwrapLong,
   type JsonValue,
 } from "./wire.ts";
@@ -164,17 +165,40 @@ export function decodeHomeStationID(
  * A homestation.types.StationData as the generic call hands it on: an object of that class whose own fields are
  * `id`, `type_id`, `solar_system_id` and `is_fallback`. Its fields by name, or null for what is none.
  */
-function stationData(result: JsonValue | null | undefined): ReadonlyMap<JsonValue, JsonValue> | null {
+function stationData(result: JsonValue | null | undefined, className = "homestation.types.StationData"): ReadonlyMap<JsonValue, JsonValue> | null {
   if (typeof result !== "object" || result === null || Array.isArray(result) || (result as { type?: unknown }).type !== "objectex2") {
     return null;
   }
   // Its header is ((the class), the fields).
   const header = (result as { header?: unknown }).header;
   const named = Array.isArray(header) ? (header[0] as readonly ({ value?: unknown } | null)[] | undefined)?.[0] : undefined;
-  if (named?.value !== "homestation.types.StationData") {
+  if (named?.value !== className) {
     return null;
   }
   return new Map(dictEntries((header as JsonValue[])[1]));
+}
+
+export interface HomeStationCandidate {
+  readonly id: number;
+  readonly isCurrent: boolean;
+  readonly isSchool: boolean;
+  readonly errors: readonly number[];
+}
+
+export function decodeHomeStationCandidates(result: JsonValue): readonly HomeStationCandidate[] {
+  const rows = isListValue(result) ? result.items : result;
+  if (!Array.isArray(rows)) throw new Error("Home station choices could not be read.");
+  return rows.map(row => {
+    const data = stationData(row, "homestation.types.StationCandidateData");
+    const id = toInt(data?.get("id"));
+    const isCurrent = unwrapBool(data?.get("is_current_station"));
+    const isSchool = unwrapBool(data?.get("is_school_hq"));
+    const errors = data?.get("errors");
+    if (!Number.isSafeInteger(id) || id <= 0 || isCurrent === null || isSchool === null || !isListValue(errors)) {
+      throw new Error("A home station choice could not be read.");
+    }
+    return { id, isCurrent, isSchool, errors: errors.items.map(toInt) };
+  });
 }
 
 /** The `[key, value]` pairs of a marshaled `{type:"dict", entries:[...]}`. */

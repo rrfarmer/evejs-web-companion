@@ -436,6 +436,8 @@ import {
   decodeCharacterIdentity,
   decodeCloneSummary,
   decodeHomeStationID,
+  decodeHomeStationCandidates,
+  type HomeStationCandidate,
 } from "../bridge/characterSheet.ts";
 import { decodeFlightStatus } from "../bridge/flight.ts";
 import { decodeSpaceSnapshot, decodeTargetIDs, isSceneBlind } from "../bridge/space.ts";
@@ -3809,6 +3811,8 @@ export interface AppFlow {
    * with every entity id resolved to a name (R7d). Called on the panel's mount.
    */
   loadCharacterSheet(): Promise<void>;
+  loadHomeStationCandidates(): Promise<readonly HomeStationCandidate[]>;
+  setHomeStation(candidate: HomeStationCandidate): Promise<void>;
   /**
    * The Character Sheet's skill history, as the client's History panel asks for it (bridge/skillHistoryPanel.ts):
    * the skill handler's history and the pilot's skills, made into the panel's lines.
@@ -26487,17 +26491,32 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     store.apply({ type: "standings/detail-cleared" });
   }
 
-  // R56 — the Character Sheet page. Four independent reads, asked by the page
-  // itself as the client's windows ask them (bridge/characterSheetReads.ts: the
-  // public info, the description, the home station, and the implants the clone
-  // on show is made of); each keeps its own error here, so a failed clone read
-  // never blanks the identity, and vice versa.
-  //
-  // ⚠ R7d: every id is resolved to a name. corporationID / allianceID (from the
-  // public info), the home stationID and every implant typeID are asked for
-  // through /api/names. An id static data cannot name (a PLAYER corp resolves to
-  // null) degrades to "Unknown …" in the page — never the number. bloodline /
-  // race / ancestry carry no name path and are not decoded at all.
+  async function loadHomeStationCandidates(): Promise<readonly HomeStationCandidate[]> {
+    const candidates = decodeHomeStationCandidates(await bridgeAsk("home_station", "get_home_station_candidates", []));
+    requestNames(candidates.map(({ id }) => ({ kind: isStation(id) ? "station" : "structure", id })));
+    return candidates;
+  }
+
+  async function setHomeStation(candidate: HomeStationCandidate): Promise<void> {
+    const generation = sessionCloseGeneration;
+    const pilot = store.station.get().online?.characterID;
+    const fresh = (await loadHomeStationCandidates()).find(row => row.id === candidate.id);
+    if (!pilot || pilot !== store.station.get().online?.characterID || generation !== sessionCloseGeneration) {
+      throw new Error("The active pilot changed.");
+    }
+    if (!fresh || fresh.errors.length > 0 || fresh.isCurrent !== candidate.isCurrent || fresh.isSchool !== candidate.isSchool) {
+      throw new Error("This station choice changed. Refresh your choices and review again.");
+    }
+    await bridgeDo("home_station", "set_home_station", [fresh.id, !fresh.isCurrent && !fresh.isSchool]);
+    const saved = decodeHomeStationID(await bridgeAsk("home_station", "get_home_station", []));
+    if (generation !== sessionCloseGeneration || saved !== fresh.id) {
+      throw new Error("The new home station could not be confirmed.");
+    }
+    await loadCharacterSheet();
+  }
+
+  // Read identity, description, home station and implants independently. A failed
+  // read leaves the other sections available, and names resolve through /api/names.
   async function loadCharacterSheet(): Promise<void> {
     const reads = await characterSheetReads.read({ characterID: store.station.get().online?.characterID ?? null });
     const identity = reads.errors.publicInfo
@@ -26539,7 +26558,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       }
     }
     if (homeStationID !== null) {
-      refs.push({ kind: "station", id: homeStationID });
+      refs.push({ kind: isStation(homeStationID) ? "station" : "structure", id: homeStationID });
     }
     if (clone) {
       for (const implant of clone.implants) {
@@ -38961,6 +38980,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     closeStandingDetail,
 
     loadCharacterSheet,
+    loadHomeStationCandidates,
+    setHomeStation,
     loadSkillHistory,
     loadEmploymentHistory,
     characterEmploymentHistory,
