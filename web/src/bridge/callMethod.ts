@@ -171,6 +171,7 @@ export async function callMethod<TResult = JsonValue>(
 
   let lane = bridgeLane;
   let response: Response;
+  let sentSignal: AbortSignal | null = null;
   try {
     // R92 — the SECOND fetch site in the client shares the one request lane, or
     // the cap would only bound half of what the tab does. See app/transport.ts.
@@ -194,12 +195,14 @@ export async function callMethod<TResult = JsonValue>(
     const priority = options.priority ?? defaultPriority(local !== undefined, options.confirm === true);
     response = await lane.run(priority, "/api/bridge/call", () => {
       assertCurrent?.();
-      const signal = options.signal ?? AbortSignal.timeout(65_000);
-      const ready = { ...request, signal: options.beforeDispatch?.(signal) ?? signal };
+      const deadline = AbortSignal.timeout(65_000);
+      const signal = options.signal ? AbortSignal.any([deadline, options.signal]) : deadline;
+      sentSignal = options.beforeDispatch?.(signal) ?? signal;
+      const ready = { ...request, signal: sentSignal };
       return local ? local.send(url, ready, priority) : doFetch(url, ready);
     }, {
       pilot: local?.pilot,
-      signal: local && options.signal,
+      signal: options.signal,
       carried: local ? hostedRequestWaitsByDesign(url, request)
         : options.fetch === undefined && !options.beforeDispatch && pageCarries(url, request),
     });
@@ -225,6 +228,19 @@ export async function callMethod<TResult = JsonValue>(
     data = await response.json();
   } catch {
     assertCurrent?.();
+    // Given up on while the answer was being read: that says nothing of what the BFF answered.
+    const givenUp = sentSignal as AbortSignal | null;
+    if (givenUp?.aborted) {
+      const diagnosis = lane.diagnose().verdict;
+      throw new BridgeCallError(
+        "BRIDGE_NETWORK_ERROR",
+        `The answer to bridge call ${service}.${method} was not read: ${
+          givenUp.reason instanceof Error ? givenUp.reason.message : String(givenUp.reason)
+        } — ${diagnosis}`,
+        0,
+        diagnosis,
+      );
+    }
     throw new BridgeCallError(
       "BRIDGE_BAD_RESPONSE",
       `Bridge call ${service}.${method} returned a non-JSON response (HTTP ${response.status}).`,

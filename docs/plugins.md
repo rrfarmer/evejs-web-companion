@@ -402,6 +402,16 @@ runs: {
   plain request and fills no store. Call `readFit` again after a refit.
 - **`warmFitFacts(fit)`** reads, and waits for, everything the `resolve...` calls read about a
   fit, for a loop that read the fit itself instead of calling `readFit`.
+- **`flow.flying.readObservation()`** reads the scene and drones together.
+  **`flow.flying.bridgeAsk(service, method, args)`** reads one service method as the same
+  pilot. To cancel a read, pass `{ signal }` as the first argument to `readObservation`
+  or the sixth argument to `bridgeAsk`, after the optional keywords and bound object.
+  Both reads check the pilot session before dispatch and discard replies from a retired
+  session. The default 65-second timeout starts when the flow's transport lane admits
+  the request. In `inprocess` mode this includes any later wait for a Bot Host slot.
+  Both reads keep it beside a caller-supplied signal. A cancelled read rejects with
+  `BRIDGE_NETWORK_ERROR`, as a timed-out one does: look at your own signal to tell them
+  apart. One signal may be passed to any number of reads.
 - **`hostDrivenCharacterIDs()`** says who the host flies with a bot, or null if it says nothing,
   for a loop telling the account's bots from a person flying beside them.
 - **`sleepUntilPush(ms)`** sleeps until the next look, or until a push wants acting on. A push
