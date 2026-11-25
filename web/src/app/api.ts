@@ -6121,6 +6121,10 @@ export async function loadPortraitBackgrounds(options: ApiOptions = {}): Promise
 
 export type PortraitHead = "female" | "male";
 type RGB = readonly [number, number, number];
+export interface PortraitFrame {
+  readonly position: readonly [number, number, number];
+  readonly target: readonly [number, number, number];
+}
 export interface PortraitSkinTone {
   readonly id: number;
   readonly name: string;
@@ -6140,9 +6144,9 @@ export async function loadPortraitSkinTones(gender: PortraitHead, options: ApiOp
 }
 
 export async function savePortrait(backgroundID: number, fieldOfView: number | null,
-    skinTone: { id: number; gender: PortraitHead } | null, dockedLocationID: number,
+    skinTone: { id: number; gender: PortraitHead } | null, dockedLocationID: number, initialFrame: PortraitFrame | null,
     options: ApiOptions = {}): Promise<void> {
-  await postJson("/api/bridge/character/portrait", { backgroundID, fieldOfView, skinTone, dockedLocationID, confirm: true }, options);
+  await postJson("/api/bridge/character/portrait", { backgroundID, fieldOfView, skinTone, dockedLocationID, initialFrame, confirm: true }, options);
 }
 
 export async function publishPortraitImage(jpeg: string, dockedLocationID: number, options: ApiOptions = {}): Promise<void> {

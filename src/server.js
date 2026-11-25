@@ -19142,7 +19142,7 @@ app.get("/api/bridge/character/skin-tones", requireAuth, async (req, res, next) 
 app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) => {
   const held = requireHeldBridgeSession(req, res);
   if (!held || !requireWriteConfirmation(req, res, "Use Save portrait to confirm your changes.")) return;
-  const { backgroundID, fieldOfView = null, dockedLocationID, skinTone = null } = req.body;
+  const { backgroundID, fieldOfView = null, dockedLocationID, skinTone = null, initialFrame = null } = req.body;
   if (!Number.isSafeInteger(backgroundID) || backgroundID <= 0 ||
       !Number.isSafeInteger(dockedLocationID) || dockedLocationID <= 0) {
     return res.status(400).json({ ok: false, error: "INVALID_BACKDROP", message: "Choose an available portrait backdrop." });
@@ -19151,11 +19151,20 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
   if (fieldOfView !== null && (typeof fieldOfView !== "number" || !Number.isFinite(fieldOfView) || fieldOfView < 0.2 || fieldOfView > 1.5)) {
     return res.status(400).json({ ok: false, error: "INVALID_PORTRAIT_ZOOM", message: "Choose a valid portrait zoom." });
   }
+  const portraitPoint = value => Array.isArray(value) && value.length === 3 &&
+    value.every(n => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= 10);
+  if (initialFrame !== null) {
+    const { position, target } = initialFrame;
+    const distance = portraitPoint(position) && portraitPoint(target) ? Math.hypot(...position.map((n, i) => n - target[i])) : 0;
+    if (fieldOfView === null || distance < 0.1 || distance > 5) {
+      return res.status(400).json({ ok: false, error: "INVALID_PORTRAIT_FRAME", message: "Wait for the portrait preview to finish loading." });
+    }
+  }
   if (skinTone !== null && (!Number.isSafeInteger(skinTone?.id) || skinTone.id < 0 ||
       (skinTone.gender !== "female" && skinTone.gender !== "male"))) {
     return res.status(400).json({ ok: false, error: "INVALID_SKIN_TONE", message: "Choose an available skin tone." });
   }
-  const call = (service, method, args) => heldTopLevelCall(held, req.webSessionID, service, method, args, null);
+  const call = (service, method, args, kwargs = null) => heldTopLevelCall(held, req.webSessionID, service, method, args, kwargs);
   const readPortrait = async () => {
     const { result } = await call("paperDollServer", "GetPaperDollPortraitDataFor", [held.characterID]);
     const row = result?.[0]?.items?.[0];
@@ -19169,22 +19178,25 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
     }
     const { result: state } = await call("charMgr", "GetPaperdollState", []);
     const portrait = await readPortrait();
-    if (state !== 0 || !Number.isSafeInteger(portrait?.backgroundID)) {
-      return res.status(409).json({ ok: false, error: "PORTRAIT_REQUIRED", message: "This pilot needs a saved appearance and portrait before editing it." });
+    const initial = initialFrame !== null && state === 2;
+    if (!initial && (initialFrame !== null || state !== 0 || !Number.isSafeInteger(portrait?.backgroundID))) {
+      return res.status(409).json({ ok: false, error: "PORTRAIT_REQUIRED", message: "Reopen Character Recustomization to read your current appearance." });
     }
     let appearance = null;
     let skinLocations;
-    if (skinTone) {
+    if (initial || skinTone) {
       const [{ skinLocations: locations, choices }, { result: current }] = await Promise.all([
-        dockedSkinTones(call, held.characterID, skinTone.gender),
+        skinTone ? dockedSkinTones(call, held.characterID, skinTone.gender) : { skinLocations: [], choices: [] },
         call("paperDollServer", "GetMyPaperDollData", [held.characterID]),
       ]);
       skinLocations = locations;
-      if (!skinLocations.length || !choices.length || (skinTone.id !== 0 && !choices.some(choice => choice.id === skinTone.id))) {
+      const wantedTone = skinTone?.id ?? 0;
+      if (skinTone && (!skinLocations.length || !choices.length || (wantedTone !== 0 && !choices.some(choice => choice.id === wantedTone)))) {
         return res.status(400).json({ ok: false, error: "INVALID_SKIN_TONE", message: "Choose an available skin tone." });
       }
-      if (skinToneID(current, skinLocations) !== skinTone.id) {
-        appearance = appearanceWithSkinTone(current ?? null, skinLocations, skinTone.id);
+      if (initial && current != null) return res.status(409).json({ ok: false, error: "APPEARANCE_ALREADY_EXISTS", message: "Reopen Character Recustomization to read your saved appearance." });
+      if (initial || skinToneID(current, skinLocations) !== wantedTone) {
+        appearance = appearanceWithSkinTone(current ?? null, skinLocations, wantedTone);
         if (!appearance) return res.status(409).json({ ok: false, error: "APPEARANCE_UNAVAILABLE", message: "This pilot’s saved appearance cannot be edited here." });
       }
     }
@@ -19192,19 +19204,26 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
     if (!flight?.docked || (flight.structureID ?? flight.stationID) !== dockedLocationID) {
       return res.status(409).json({ ok: false, error: "LOCATION_CHANGED", message: "Dock to edit your portrait." });
     }
-    const cameraFieldOfView = fieldOfView ?? portrait.cameraFieldOfView;
-    if (appearance || portrait.backgroundID !== backgroundID || portrait.cameraFieldOfView !== cameraFieldOfView) {
-      const updated = { type: "dict", entries: Object.entries({ ...portrait, backgroundID, cameraFieldOfView }) };
-      await call("paperDollServer", "UpdateExistingCharacterLimited", [held.characterID, appearance, updated, true]);
+    const cameraFieldOfView = fieldOfView ?? portrait?.cameraFieldOfView;
+    if (appearance || portrait?.backgroundID !== backgroundID || portrait?.cameraFieldOfView !== cameraFieldOfView) {
+      const camera = initial ? { cameraPosition: initialFrame.position, cameraPoi: initialFrame.target } : {};
+      const updated = { type: "dict", entries: Object.entries({ ...portrait, ...camera, backgroundID, cameraFieldOfView }) };
+      await call("paperDollServer", initial ? "UpdateExistingCharacterFull" : "UpdateExistingCharacterLimited",
+        [held.characterID, appearance, updated, !initial], initial ? { flush: true } : null);
       const saved = await readPortrait();
-      if (saved?.backgroundID !== backgroundID || saved.cameraFieldOfView !== cameraFieldOfView) {
+      const initialFrameSaved = !initial || ["X", "Y", "Z"].every((axis, index) =>
+        saved?.[`camera${axis}`] === initialFrame.position[index] && saved?.[`cameraPoi${axis}`] === initialFrame.target[index]);
+      if (saved?.backgroundID !== backgroundID || saved.cameraFieldOfView !== cameraFieldOfView || !initialFrameSaved) {
         return res.status(409).json({ ok: false, error: "PORTRAIT_UNCONFIRMED", message: "The portrait changes could not be confirmed." });
       }
       if (appearance) {
         const { result } = await call("paperDollServer", "GetMyPaperDollData", [held.characterID]);
-        if (skinToneID(result, skinLocations) !== skinTone.id) {
+        if (result == null || skinToneID(result, skinLocations) !== (skinTone?.id ?? 0)) {
           return res.status(409).json({ ok: false, error: "SKIN_TONE_UNCONFIRMED", message: "The skin tone change could not be confirmed." });
         }
+      }
+      if (initial && (await call("charMgr", "GetPaperdollState", [])).result !== 0) {
+        return res.status(409).json({ ok: false, error: "APPEARANCE_UNCONFIRMED", message: "The initial appearance could not be confirmed." });
       }
     }
     res.json({ ok: true, backgroundID });

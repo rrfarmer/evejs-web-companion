@@ -443,7 +443,7 @@
           {#if flight}
             <p class="customization-note">
               <strong>Customize later</strong>
-              You can customize your character’s appearance later by selecting them in the desktop EVE client.
+              You can customize your character’s appearance later in Station Services.
             </p>
           {/if}
           <div class="create-actions">

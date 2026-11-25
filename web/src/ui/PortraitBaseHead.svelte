@@ -3,7 +3,7 @@
   import * as THREE from "three";
   import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
   import type { PortraitFraming } from "../app/flow.ts";
-  import type { PortraitSkinTone } from "../app/api.ts";
+  import type { PortraitFrame, PortraitSkinTone } from "../app/api.ts";
   import { compressedSupport, loadDds } from "../three/ddsTexture";
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
 
@@ -31,12 +31,19 @@
   let skinUniforms = $state.raw<SkinUniforms | null>(null);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(32, 1, 0.01, 30);
+  const cameraTarget = new THREE.Vector3();
   const key = new THREE.DirectionalLight(0xffede3, 2.2);
   key.position.set(-2, 2, -3);
   const fill = new THREE.DirectionalLight(0xd6ecff, 1);
   fill.position.set(2, 0.6, -2);
   scene.add(key, fill, new THREE.HemisphereLight(0xe2eefa, 0x544447, 1.1));
   const loader = new GLTFLoader();
+
+  export function readPortraitFrame(): PortraitFrame | null {
+    if (display !== "ready" || backdropDisplay !== "ready") return null;
+    const native = ({ x, y, z }: THREE.Vector3): PortraitFrame["position"] => [x, y, -z];
+    return { position: native(camera.position), target: native(cameraTarget) };
+  }
 
   export function capturePortrait(): string {
     const active = renderer;
@@ -131,7 +138,8 @@
     if (saved) {
       // The extracted model mirrors the native Z axis. Apply the same transform to the saved camera.
       camera.position.set(saved.position[0], saved.position[1], -saved.position[2]);
-      camera.lookAt(saved.target[0], saved.target[1], -saved.target[2]);
+      cameraTarget.set(saved.target[0], saved.target[1], -saved.target[2]);
+      camera.lookAt(cameraTarget);
       camera.fov = THREE.MathUtils.radToDeg(0.3);
       camera.updateProjectionMatrix();
       camera.updateMatrixWorld();
@@ -144,7 +152,8 @@
       const distance = Math.max(size.x, size.y) * 2.15 + size.z * 0.5;
       const lensScale = fov === undefined ? 1 : Math.tan(THREE.MathUtils.degToRad(16)) / Math.tan(0.15);
       camera.position.set(center.x, center.y, center.z - distance * lensScale);
-      camera.lookAt(center);
+      cameraTarget.copy(center);
+      camera.lookAt(cameraTarget);
     }
     camera.fov = fov === undefined ? 32 : THREE.MathUtils.radToDeg(fov);
     camera.updateProjectionMatrix();

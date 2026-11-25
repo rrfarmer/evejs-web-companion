@@ -35,12 +35,14 @@
   let saveStatus = $state("");
   const backdrop = $derived(options?.backgrounds.find(entry => entry.id === selected));
   const url = $derived(backdrop ? `/client-res/portrait-background/${backdrop.id}` : "");
-  const canSave = $derived(options?.state === 0 && options.backgroundID !== null);
+  const initial = $derived(options?.state === 2);
+  const canPublish = $derived(options?.state === 0 && options.backgroundID !== null);
+  const canSave = $derived(canPublish || (initial && pilotHead !== null));
   const zoomChanged = $derived(Boolean(pilotHead && options?.framing && fieldOfView !== options.framing.fieldOfView));
   const skinTone = $derived(options?.skinTones.find(tone => tone.id === skinToneID));
   const hasSkinTones = $derived(Boolean(pilotHead && options?.skinTones.length));
   const skinChanged = $derived(hasSkinTones && skinToneID !== options?.skinToneID);
-  const hasChanges = $derived(selected !== options?.backgroundID || zoomChanged || skinChanged);
+  const hasChanges = $derived(initial || selected !== options?.backgroundID || zoomChanged || skinChanged);
   const busy = $derived(saving || publishing);
 
   onMount(() => {
@@ -60,13 +62,20 @@
   async function savePortrait(): Promise<void> {
     if (!options || !canSave || !backdrop || busy || !hasChanges) return;
     const backgroundID = backdrop.id;
-    const framing = options.framing && zoomChanged ? { ...options.framing, fieldOfView } : options.framing;
+    const initialFrame = initial ? portraitView?.readPortraitFrame() : undefined;
+    if (initial && !initialFrame) {
+      saveStatus = "Wait for the portrait preview to finish loading.";
+      return;
+    }
+    const framing = initialFrame ? { ...initialFrame, fieldOfView } :
+      options.framing && zoomChanged ? { ...options.framing, fieldOfView } : options.framing;
     saving = true;
     saveStatus = "";
     try {
-      await flow.saveDockedPortrait(backgroundID, zoomChanged ? fieldOfView : null, skinChanged ? skinToneID : null);
-      options = { ...options, backgroundID, framing, skinToneID };
-      saveStatus = "Portrait settings saved.";
+      await flow.saveDockedPortrait(backgroundID, initialFrame || zoomChanged ? fieldOfView : null,
+        skinChanged ? skinToneID : null, initialFrame ?? undefined);
+      options = { ...options, state: 0, backgroundID, framing, skinToneID };
+      saveStatus = initialFrame ? "Appearance saved. You can now publish your portrait." : "Portrait settings saved.";
     } catch (error) {
       saveStatus = error instanceof Error ? error.message : "The portrait settings could not be saved.";
     } finally {
@@ -75,7 +84,7 @@
   }
 
   async function publishPortrait(): Promise<void> {
-    if (!portraitView || !canSave || busy || hasChanges) return;
+    if (!portraitView || !canPublish || busy || hasChanges) return;
     publishing = true;
     saveStatus = "";
     try {
@@ -96,7 +105,7 @@
     <h2>Current portrait</h2>
     <OwnerPicture name="Current pilot" {urls} size={152} />
     {#if options?.backgroundID != null}<p>Saved backdrop {options.backgroundID}</p>{/if}
-    {#if options?.state === 2}<p>This pilot has no saved appearance yet.</p>{/if}
+    {#if initial}<p>Choose your appearance and save it before publishing a portrait.</p>{/if}
   </div>
   <div class="preview">
     <label>Preview
@@ -136,7 +145,7 @@
             </select>
           </label>
         {/if}
-        {#if pilotHead && options.framing}
+        {#if pilotHead && (initial || options.framing)}
           <label class="zoom">Zoom
             <input type="range" min="-1.5" max="-0.2" step="0.001" value={-fieldOfView} disabled={busy}
               oninput={event => { fieldOfView = -event.currentTarget.valueAsNumber; saveStatus = ""; }} />
@@ -144,9 +153,9 @@
         {/if}
         <div class="portrait-actions">
           <button type="button" disabled={busy || !backdrop || !hasChanges} onclick={savePortrait}>
-            {saving ? "Saving…" : "Save portrait"}
+            {saving ? "Saving…" : initial ? "Save appearance" : "Save portrait"}
           </button>
-          {#if pilotHead}
+          {#if pilotHead && canPublish}
             <button type="button" disabled={busy || hasChanges || !portraitView} onclick={publishPortrait}>
               {publishing ? "Publishing…" : "Publish portrait"}
             </button>
