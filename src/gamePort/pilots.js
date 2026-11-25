@@ -6711,6 +6711,10 @@ function createGamePortPilots({
     }
     /** The call itself, noted as it is sent; `asSent` where it goes otherwise than it came (a listing of only what is not listed). */
     const sent = async (asSent = form) => {
+      if (service === "corpStationMgr" && method === "MoveCorpHQHere" &&
+          (object.params !== attribute(entry, "stationid") || attribute(entry, "structureid") !== null)) {
+        throw fail("CALL_REFUSED", "Dock at the approved NPC station before moving headquarters.");
+      }
       ledger.note(service, method, asSent);
       // fittingSvc.LoadFitting: the fitting is applied on the ship's own inventory, invCache.GetInventoryFromId(ship),
       // which the location's manager is asked for. Where the call comes on the manager's handle, the ship's inventory

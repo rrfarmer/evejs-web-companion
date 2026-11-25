@@ -14,6 +14,7 @@
   const labels = {
     rent: "UI/Station/Lobby/RentOffice",
     unrent: "UI/Station/Hangar/UnrentOffice",
+    moveHQ: "UI/Station/Lobby/MoveHeadquartersHere",
     cancel: "UI/Common/Buttons/Cancel",
   };
   const word = (label: string, fallback: string) => plainText($words.templates[label] ?? "") || fallback;
@@ -24,6 +25,9 @@
   const scope = $derived(`${$station.online?.characterID}:${$station.online?.corporationID}:${place}`);
   const canRent = $derived(place !== null && offices?.available && offices.canRent && !offices.ownOffice);
   const canUnrent = $derived(place !== null && offices?.available && offices.canGiveUp && offices.ownOffice);
+  const stationID = $derived($station.online?.structureID ? null : $station.online?.stationID ?? null);
+  const canMoveHQ = $derived(stationID !== null && offices?.available && offices.canGiveUp &&
+    offices.headquartersID !== undefined && offices.headquartersID !== stationID);
   let rent = $state<{ scope: string; quote: StationOfficeQuote } | null>(null);
   let unrent = $state<{ scope: string; hasItems: boolean } | null>(null);
   let error = $state<{ scope: string; text: string } | null>(null);
@@ -94,7 +98,7 @@
   }
 </script>
 
-{#if canRent || canUnrent || (offices?.available && offices.impounded)}
+{#if canRent || canUnrent || canMoveHQ || (offices?.available && offices.impounded)}
   <div class="office-actions" aria-busy={busy}>
     {#if error?.scope === scope}<p role="status">{error.text}</p>{/if}
     {#if !offices?.ownOffice && offices?.impounded}<p>Your corporation has items impounded here.</p>{/if}
@@ -114,6 +118,12 @@
       <button type="button" disabled={busy || disabled} onclick={() => run(quoteRent)}>{word(labels.rent, "Rent Office")}</button>
     {:else if canUnrent}
       <button type="button" disabled={busy || disabled} onclick={() => run(reviewUnrent)}>{word(labels.unrent, "Unrent Office")}</button>
+    {/if}
+    {#if canMoveHQ && stationID !== null && !rentReview && !unrentReview}
+      <button type="button" disabled={busy || disabled}
+        onclick={() => { const target = stationID; if (target !== null) void run(() => flow.moveCorporationHeadquartersHere(target)); }}>
+        {word(labels.moveHQ, "Move Headquarters Here")}
+      </button>
     {/if}
   </div>
 {/if}

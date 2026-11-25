@@ -1466,6 +1466,12 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     res.status(400).json({ ok: false, error: "INVALID_STATION", message: "A stationID is required." });
     return;
   }
+  if (objectKind === "stationHeadquarters" &&
+      (!Number.isSafeInteger(body.of) || body.of < 60000000 || body.of > 63999999 ||
+        !Array.isArray(body.args) || body.args.length !== 0 || body.kwargs != null)) {
+    res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "Choose the current NPC station for the headquarters move." });
+    return;
+  }
   // (An agent's number, as an agent's routes take one: a whole number above nought.)
   if (objectKind === "agent" && !(Number.isSafeInteger(body.of) && body.of > 0)) {
     res.status(400).json({ ok: false, error: "INVALID_AGENT", message: "A positive agentID is required." });
@@ -1626,6 +1632,16 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => boundCall(
         heldBridgeSession, req.webSessionID, { key: `officeAt:${Number(body.of)}`, service: "officeManager", method: "MachoBindObject", args: [Number(body.of)], kwargs: null },
         body.method, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null)) }
+      : objectKind === "stationHeadquarters"
+      ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, async () => {
+        const stationID = body.of;
+        const live = await readHeldFlight(heldBridgeSession, req.webSessionID);
+        if (!live.flight?.docked || heldBridgeSession.structureID || heldBridgeSession.stationID !== stationID) {
+          throw Object.assign(new Error("Dock at the approved NPC station before moving headquarters."), { code: "NOT_DOCKED", statusCode: 409 });
+        }
+        return boundCall(heldBridgeSession, req.webSessionID, { key: `corpStationMgr:${stationID}`,
+          service: "corpStationMgr", method: "MachoBindObject", args: [stationID], kwargs: null }, body.method, [], null);
+      }) }
       // (A call on an agent's object goes by the bind an agent's routes go by: bound for that agent, and kept.)
       : objectKind === "agent"
       ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => boundCall(
@@ -6540,11 +6556,8 @@ async function inviteToFleetCall(held, webSessionID, inviteeCharID, expectedFlee
 // --- The alliance registry's, the war registry's and the corporation station manager's write routes ------------
 //
 // Twenty routes of the plumbing's R99 were here (allianceRegistry's ten, warRegistry's nine, and
-// corpStationMgr.MoveCorpHQHere), each a confirm-gated dispatchBridgeWrite of its pair, made for no screen of the
-// page's ("PLUMBING ONLY — no UI"). Nothing asked them: not the page, not the hosted bots (the page's own flows), not
-// eve.js, not the market server. They went on 2026-10-14 (the loop's item 62). The pairs are writes still
-// (bridgeCallPolicy.js), so the generic call refuses them; a screen that makes one makes it as the client's own
-// call, added to the page's writes.
+// corpStationMgr.MoveCorpHQHere) were removed on 2026-10-14. The Offices tab now sends MoveCorpHQHere
+// through the confirmed write on the current station's bound corporation station manager.
 
 // --- R100 WB-DOGMA batch A: the 11 Phase-4 BOUND dogma module-op WRITES -------
 //

@@ -2386,6 +2386,8 @@ export interface AppFlow {
   rentStationOffice(quote: StationOfficeQuote): Promise<void>;
   /** Give up the corporation's office here. The server's notice lists the offices again. */
   giveUpStationOffice(): Promise<void>;
+  /** Move the corporation's headquarters to the NPC station shown in Offices. */
+  moveCorporationHeadquartersHere(stationID: number): Promise<void>;
   /**
    * Set the ship's safety level (crimewatchSvc.SetSafetyLevel). Once the server has taken it, it is the level the
    * page shows, with nothing read after, as the client keeps the level it set. A refusal is thrown, and the
@@ -7957,6 +7959,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       try { corporationRecords.changed(Number(unwrapLong(args[0] as JsonValue)), args[1] as JsonValue); }
       catch (error) { console.error(error); }
       walletReads.corporationChanged();
+      if (Number(unwrapLong(args[0] as JsonValue)) === store.station.get().online?.corporationID &&
+          store.station.get().offices?.headquartersID !== undefined) void loadStationOffices().catch(() => {});
     }
     // standingsvc keeps the pilot's standings as the server changes them (OnStandingSet, OnStandingsModified),
     // from what the notification itself says and without reading again. So does this, once they have been
@@ -10020,18 +10024,36 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // OfficesPanel._load58-72 coalesces a notice during loading into another
     // load, rather than losing a corporation change behind an older reply.
     if (listingStationOffices) { stationOfficesPending = true; return; }
-    const where = () => store.station.get().online?.stationID ?? store.station.get().online?.structureID ?? null;
-    const askedAt = where();
     const current = callOptions.captureRequestGuard!();
     const scoped = { ...callOptions, captureRequestGuard: () => current };
     listingStationOffices = true;
     try {
       do {
         stationOfficesPending = false;
-        const offices = await api.loadStationOffices(scoped);
+        const online = store.station.get().online;
+        const askedAt = online?.stationID ?? online?.structureID;
+        if (askedAt == null) return;
+        const corpID = online?.corporationID;
+        const stillHere = () => {
+          const now = store.station.get().online;
+          return (now?.stationID ?? now?.structureID) === askedAt && now?.corporationID === corpID;
+        };
+        const offices = await api.loadStationOffices(scoped).catch(error => {
+          if (stillHere()) throw error;
+          return null;
+        });
         current();
-        if (where() === askedAt) store.apply({ type: "station/offices", offices });
-      } while (stationOfficesPending && where() === askedAt);
+        if (!offices || !stillHere()) continue;
+        let headquartersID: number | undefined;
+        if (offices.available && offices.canGiveUp && online?.stationID && !online.structureID &&
+            corpID != null && !isNpcOwnerCorporation(corpID) && stillHere()) {
+          const row = await api.bridgeAsk(scoped)("corpRegistry", "GetCorporation", []).catch(() => null);
+          const id = Number(memberInteger(row, "stationID") ?? 0n);
+          if (Number(memberInteger(row, "corporationID")) === corpID && Number.isSafeInteger(id) && id > 0) headquartersID = id;
+        }
+        current();
+        if (stillHere()) store.apply({ type: "station/offices", offices: { ...offices, headquartersID } });
+      } while (stationOfficesPending);
     } finally {
       listingStationOffices = false;
     }
@@ -10067,6 +10089,23 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const where = await dockedIn();
     return giveUpOffice(bridgeDo, officesListedAt(where), where);
   };
+
+  async function moveCorporationHeadquartersHere(stationID: number): Promise<void> {
+    const scope = captureMemberOperation();
+    const mayMoveHere = () => {
+      scope.current();
+      const { online, offices } = store.station.get();
+      return online?.stationID === stationID && !online.structureID &&
+        offices?.canGiveUp && offices.headquartersID !== undefined && offices.headquartersID !== stationID;
+    };
+    if (!mayMoveHere()) return;
+    await wordsNow(["dialog:MoveHQHere/title", "dialog:MoveHQHere/body"]).catch(() => {});
+    if (!mayMoveHere() || !await askDialog("MoveHQHere", null, "Move your corporation’s headquarters to this station?", "yesno", { defaultAnswer: "no" })) return;
+    if (!mayMoveHere()) return;
+    await scope.write("corpStationMgr", "MoveCorpHQHere", [], null, stationID);
+    scope.current();
+    await loadStationOffices();
+  }
 
   async function loadCorpHangar(): Promise<void> {
     let reads: Awaited<ReturnType<typeof api.loadCorpHangar>>;
@@ -37432,6 +37471,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     quoteStationOffice,
     rentStationOffice,
     giveUpStationOffice,
+    moveCorporationHeadquartersHere,
     setSafetyLevel,
     loadCorpOffices,
     loadAgentCorporations,

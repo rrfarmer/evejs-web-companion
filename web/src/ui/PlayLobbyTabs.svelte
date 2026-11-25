@@ -29,13 +29,22 @@
     if (asked.has(next)) return;
     asked.add(next);
     if (next === "agents") void session.flow.loadAgents().catch(() => {});
-    if (next === "offices") void session.flow.loadStationOffices().catch(() => {});
   }
   choose("guests");
 
   const name = (kind: NameKind, id: number | null) => resolvedName($names.resolved, kind, id, "…");
   const guests = $derived($station?.guests ?? []);
   const stationID = $derived($station?.online?.stationID ?? null);
+  const officeContext = $derived.by(() => {
+    const online = $station?.online;
+    const dock = online?.stationID ?? online?.structureID;
+    return dock == null ? null : `${dock}:${online?.corporationID}:${online?.corpRole}`;
+  });
+  $effect(() => {
+    if (tab === "offices" && officeContext !== null) {
+      void session.flow.loadStationOffices().catch(() => {});
+    }
+  });
   const agentRows = $derived(($agents?.agents ?? []).filter((a) => stationID === null || a.stationID === stationID));
   const officeIDs = $derived($station?.offices?.corporationIDs ?? []);
   const officeRows = $derived(officeIDs.map(id => ({ id, name: name("corporation", id) }))

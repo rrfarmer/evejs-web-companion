@@ -126,6 +126,8 @@ export interface StationOffices {
   /** The retail lobby's two checks of the session's roles: the renting role, and a director. */
   readonly canRent: boolean;
   readonly canGiveUp: boolean;
+  /** Current NPC headquarters, read for a director docked at an NPC station. */
+  readonly headquartersID?: number;
 }
 
 /** What an office in the station costs the pilot's corporation, the days that pays for, and the price as the station said it. */
