@@ -2926,6 +2926,7 @@ export interface AppFlow {
    * FleetCannotDoInStructure).
    */
   broadcastTravelToMe(): Promise<"sent" | "unsent" | "not-in-fleet" | "in-station" | "in-structure">;
+  broadcastTravelToSystem(systemID: number): Promise<void>;
   /**
    * The right-click menu's broadcasts on a thing in space (fleetSvc.SendBroadcast_Target / _Heal_Target to the bubble,
    * _WarpTo / _AlignTo / _JumpTo to the system), at the client's default scope; false where nothing was sent.
@@ -18264,8 +18265,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       } else if (action.kind === "travelToMe") {
         const outcome = await broadcastTravelToMe();
         current();
-        const refusal = outcome === "not-in-fleet" ? "FleetNotInFleetInSpace" : outcome === "in-station" ? "FleetCannotDoInStation" : outcome === "in-structure" ? "FleetCannotDoInStructure" : null;
-        if (refusal) sayDialog(refusal, null, "That needs a fleet and a ship in space.");
+        sayTravelToRefusal(outcome);
         return null;
       } else if (action.kind === "kick") await kickFleetMember(action.characterID);
       else await leaveFleet();
@@ -18371,20 +18371,40 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     return fleetBroadcasts.toBubble(name, broadcastScope, shipID);
   }
-  async function broadcastTravelToMe(): Promise<"sent" | "unsent" | "not-in-fleet" | "in-station" | "in-structure"> {
+  async function broadcastTravelTo(destination: { systemID: number; typeID: number } | null):
+    Promise<"sent" | "unsent" | "not-in-fleet" | "in-station" | "in-structure"> {
     const current = callOptions.captureRequestGuard!();
     if (store.fleet.get().availability !== "ready") {
       return "not-in-fleet";
     }
     const now = await readFlightNow();
     current();
+    if (store.fleet.get().availability !== "ready") return "not-in-fleet";
     if (!now.inSpace) {
       return now.structureID !== null && now.structureID !== undefined ? "in-structure" : "in-station";
     }
     if (now.solarSystemID === null) {
       return "in-station";
     }
-    return (await fleetBroadcasts.toFleet("TravelTo", broadcastScope, now.solarSystemID)) ? "sent" : "unsent";
+    return (await fleetBroadcasts.toFleet("TravelTo", broadcastScope, destination?.systemID ?? now.solarSystemID,
+      destination?.typeID ?? null)) ? "sent" : "unsent";
+  }
+
+  function broadcastTravelToMe() {
+    return broadcastTravelTo(null);
+  }
+
+  function sayTravelToRefusal(outcome: Awaited<ReturnType<typeof broadcastTravelTo>>): void {
+    const refusal = outcome === "not-in-fleet" ? "FleetNotInFleetInSpace" :
+      outcome === "in-station" ? "FleetCannotDoInStation" : outcome === "in-structure" ? "FleetCannotDoInStructure" : null;
+    if (refusal) sayDialog(refusal, null, "That needs a fleet and a ship in space.");
+  }
+
+  async function broadcastTravelToSystem(systemID: number): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    const outcome = await broadcastTravelTo({ systemID, typeID: 5 });
+    current();
+    sayTravelToRefusal(outcome);
   }
 
   /** evefleet MAX_DAMAGE_SENDERS: the most pilots a watchlist holds. */
@@ -39015,6 +39035,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     keepWarpDistance,
     toFleetMemberBeacon,
     broadcastTravelToMe,
+    broadcastTravelToSystem,
     addToFleetWatchlist,
     removeFromFleetWatchlist,
     clearFleetBroadcastHistory() {

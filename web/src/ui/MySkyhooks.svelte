@@ -12,6 +12,7 @@
   import { resolvedName } from "../store/names.ts";
   import { showInfo } from "./showInfo.ts";
   import { startItemLinksDrag } from "./linkFollowers.ts";
+  import { notify } from "./notices.ts";
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import SkyhookConfiguration from "./SkyhookConfiguration.svelte";
 
@@ -23,6 +24,7 @@
   const words = $derived(store.words);
   const names = $derived(store.names);
   const waypoints = $derived(flow.waypoints);
+  const fleet = $derived(store.fleet);
   const menu = new ContextMenu();
   const canConfigure = $derived(hasMoonStationManagerRole($station.online?.corpRole ?? null));
   let configuration = $state.raw<SkyhookRow | null>(null);
@@ -62,6 +64,7 @@
     destination: ["UI/Inflight/SetDestination", "Set Destination"],
     addWaypoint: ["UI/Inflight/AddWaypoint", "Add Waypoint"],
     removeWaypoint: ["UI/Inflight/RemoveWaypoint", "Remove Waypoint"],
+    travelTo: ["UI/Fleet/FleetBroadcast/Commands/BroadcastTravelTo", "Broadcast: Travel To"],
     saveLocation: ["UI/Inflight/BookmarkLocation", "Save Location…"],
     bookmarkLabel: ["UI/PeopleAndPlaces/NewBookmarkLocationLabel", "{loc} ({group})"],
     map: ["UI/Commands/ShowLocationOnMap", "Show on Map"],
@@ -162,6 +165,13 @@
     if (route.setDestination) entries.push(action("destination", () => flow.setDestination(id)));
     if (route.addWaypoint) entries.push(action("addWaypoint", () => flow.addWaypoint(id)));
     if (route.removeWaypoint) entries.push(action("removeWaypoint", () => flow.clearWaypoints(id)));
+    if ($fleet.availability === "ready" && isWaypointPlace(id)) {
+      entries.push(action("travelTo", () => {
+        void flow.broadcastTravelToSystem(id).catch(cause => {
+          if (cause?.code !== "SESSION_REQUEST_RETIRED") notify({ kind: "danger", title: label("travelTo"), detail: String(cause) });
+        });
+      }));
+    }
     if (entries.length) entries.push(null);
     entries.push(action("saveLocation", () => {
       bookmark = {
