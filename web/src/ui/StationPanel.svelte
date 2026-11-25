@@ -102,6 +102,7 @@
     type RepairQuotePart,
     type RepairQuoteRow,
   } from "../bridge/repairQuotes.ts";
+  import { isRepairableItem, stationOffersRepair } from "../bridge/repairShop.ts";
   import { isSessionLost } from "../app/flow.ts";
   import { GROUP_CORVETTE } from "../bridge/shipWrites.ts";
   import { ordinaryContainerStackPlace } from "../bridge/inventoryWrites.ts";
@@ -182,6 +183,7 @@
     onReprocess?: (itemIDs: readonly number[]) => void;
   } = $props();
   const panelID = $props.id();
+  const REPAIR_QUOTE_LABEL = "UI/Inventory/ItemActions/GetRepairQuote";
   $effect(() => { if (lobbyHangars) flow.requestWords(["UI/Station/Ships", "UI/Station/Items"]); });
 
   // Stable store identity for this component's life; the slices are
@@ -200,6 +202,7 @@
   const space = store.space;
   // svelte-ignore state_referenced_locally
   const words = store.words;
+  const repairQuoteLabel = $derived(plainText($words.templates[REPAIR_QUOTE_LABEL] ?? "") || "Get Repair Quote");
   // svelte-ignore state_referenced_locally
   const safetyDeliveries = flow.safetyDeliveries;
   const localSafety = $derived(isDocked && $safetyDeliveries?.characterID === $station.online?.characterID
@@ -607,7 +610,8 @@
   }
 
   onMount(() => {
-    flow.requestWords([ABYSS_WINDOW_LABELS.activateKey, CONFIRM_MOVE_TO_NEWBIE_SHIP, ASSEMBLE_CONTAINER_LABEL, "UI/Inventory/AssetSafety/AssetSafetyDeliveries"]);
+    flow.requestWords([ABYSS_WINDOW_LABELS.activateKey, CONFIRM_MOVE_TO_NEWBIE_SHIP, ASSEMBLE_CONTAINER_LABEL,
+      "UI/Inventory/AssetSafety/AssetSafetyDeliveries", REPAIR_QUOTE_LABEL]);
     void run(async () => {
       await flow.loadInventory();
       if (lobbyHangars) return;
@@ -1556,6 +1560,22 @@
       .map(item => item.itemID);
   }
 
+  function repairSelection(row: InventoryItemRow, place: InventoryPlace) {
+    const online = $station.online;
+    const locationID = online?.structureID ?? online?.stationID;
+    if (!isDocked || place.kind !== "hangar" || locationID == null ||
+        locationID !== ($inventory.structureID ?? $inventory.stationID)) return [];
+    const here = $station.station;
+    const available = online?.structureID
+      ? structureHasCapability($station.structureServiceIDs ?? null, "repair")
+      : here?.stationID === locationID && stationOffersRepair(here.security, here.serviceIDs);
+    if (!available) return [];
+    const picked = isPicked(row, place) ? new Set(selection) : new Set([row.itemID]);
+    return $inventory.hangar.rows.filter(item => picked.has(item.itemID) && item.ownerID === online?.characterID &&
+      item.locationID === locationID && item.flagID === 4 && isRepairableItem(item))
+      .map(item => ({ itemID: item.itemID, typeID: item.typeID, stationID: locationID }));
+  }
+
   function fitHardware(row: InventoryItemRow, place: InventoryPlace): void {
     const source = hardwareSource(row, place);
     if (source) void run(() => flow.fitInventoryHardware(row, source));
@@ -2488,6 +2508,7 @@
        list, so opening it cannot make the list taller. See openMenu for why it
        is absolute rather than fixed. -->
   {#if menu}
+    {@const repairItems = repairSelection(menu.row, menu.place)}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="stn-menu-shade" onclick={() => (menu = null)}></div>
     <div class="stn-menu" class:stn-context-menu={menu.contextAnchor !== undefined}
@@ -2574,6 +2595,13 @@
             Move to {target.label}
           </button>
         {/each}
+      {/if}
+      {#if menu.contextAnchor && repairItems.some(item => item.itemID === menu?.row.itemID)}
+        <button type="button" class="stn-menu-item" disabled={busy}
+          onclick={() => {
+            const items = repairItems;
+            contextAction(() => void run(() => flow.openAssetRepair(items)));
+          }}>{repairQuoteLabel}</button>
       {/if}
     </div>
   {/if}
