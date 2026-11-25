@@ -1,5 +1,6 @@
 <script lang="ts">
   import Calculator from "./Calculator.svelte";
+  import FittingManagement from "./FittingManagement.svelte";
   import AcademyShips from "./AcademyShips.svelte";
   import ShipTree from "./ShipTree.svelte";
   import { AIR_FACTION } from "../bridge/shipTree.ts";
@@ -189,6 +190,8 @@
   <StationPanel {store} {flow} {isDocked} {onClose} {onReprocess} />
 {:else if tab === "fitting"}
   <Fitting {store} {flow} showInventory={() => onOpen?.("inventory")} />
+{:else if tab === "fittingManagement"}
+  <FittingManagement {store} {flow} />
 {:else if tab === "provisioning"}
   <ProvisioningPanel {store} {flow} />
 {:else if tab === "industry"}

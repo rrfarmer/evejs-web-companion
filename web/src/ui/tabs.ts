@@ -13,6 +13,7 @@ import type { FlightStatus, OnlineCharacterState } from "../store/types.ts";
 
 export type CoreTabID =
   | "fitting"
+  | "fittingManagement"
   | "provisioning"
   | "flight"
   | "mining"
@@ -140,6 +141,7 @@ export const TABS: readonly CoreTabDef[] = [
   // Ship dock panel, next to the hangars, so the station never duplicates itself
   // into a separate window.)
   { id: "fitting", label: "Fitting", where: "both" },
+  { id: "fittingManagement", label: "Fitting Management", where: "both", launchable: false },
   // ⚠ TRAVEL IS REACHABLE IN SPACE NOW, and that is a restored capability
   // rather than a new one. The old cockpit's overview list ended in a synthetic
   // "Somewhere else…" row: a way to set a destination that is NOT on this grid,

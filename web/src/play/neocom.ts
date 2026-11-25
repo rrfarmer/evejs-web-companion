@@ -140,6 +140,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
   ] },
   { label: "Ship", icon: icon("directoryShip"), items: [
     { id: "fitting", label: "Fitting", icon: icon("fitting") },
+    { id: "fittingmanagement", label: "Fitting Management", icon: clientTexture("res:/UI/Texture/WindowIcons/fittingManagement.png") },
     { id: "shipTree", label: "Ship Tree", icon: icon("isis") },
   ] },
   { label: "Social", icon: icon("directorySocial"), items: [

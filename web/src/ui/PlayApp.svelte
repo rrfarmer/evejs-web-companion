@@ -217,7 +217,7 @@
     // the EVE menu's commands (play/neocom.ts EVE_MENU)
     marketorders: "marketOrders", contracts: "contracts", industry: "industry", miningScan: "miningScan", miningLedger: "miningLedger", planets: "planets", locations: "locations",
     contacts: "contacts", fleet: "fleet", corporation: "corporation", structureBrowser: "structureBrowser", compare: "compare", log: "log", notepad: "notepad", calendar: "calendar",
-    calculator: "calculator",
+    calculator: "calculator", fittingmanagement: "fittingManagement",
   };
 
   let session = $state<Session | null>(null);
@@ -1402,6 +1402,7 @@
    * agencyWnd (AgencyWndNew) 1188 x 694, walletWnd 900 x 600, planetWindow 500 x 500, uilog (logger) 400 x 200.
    */
   const CLIENT_SIZES: Partial<Record<TabID, { w: number; h: number }>> = {
+    fittingManagement: { w: 620, h: 600 },
     calculator: { w: 327, h: 340 },
     marketOrders: { w: 600, h: 500 },
     characterSheet: { w: 1235, h: 768 }, assets: { w: 550, h: 450 }, locations: { w: 450, h: 450 }, contacts: { w: 600, h: 500 },
@@ -1419,6 +1420,7 @@
     characterRecustomization: { w: 610, h: 442 },
   };
   const FLIGHT_MINIMUMS: Partial<Record<TabID, { w: number; h: number }>> = {
+    fittingManagement: { w: 525, h: 400 },
     drones: { w: 240, h: 120 }, scanner: { w: 300, h: 150 }, inventory: { w: 170, h: 140 },
     market: { w: 650, h: 435 }, marketOrders: { w: 300, h: 300 }, contracts: { w: 700, h: 560 }, corporation: { w: 700, h: 832 },
     fleet: { w: 270, h: 120 }, industry: { w: 1004, h: 650 }, reprocessing: { w: 600, h: 400 }, insurance: { w: 400, h: 400 }, lpStore: { w: 837, h: 430 },
@@ -1609,6 +1611,7 @@
    * the Log. The page's own tab label stands until the words are had.
    */
   const CAPTION_LABELS: Partial<Record<TabID, string>> = {
+    fittingManagement: "UI/Fitting/FittingWindow/FittingManagement/WindowCaption",
     calculator: "UI/Accessories/Calculator/Calculator",
     marketOrders: "Tooltips/StationServices/MarketOrders",
     scanner: "UI/Inflight/Scanner/ProbeScanner", miningScan: "UI/Inflight/Scanner/MiningScanResults", miningLedger: "UI/Ledger/LedgerWnd", finder: "UI/Agency/Caption", contacts: "UI/PeopleAndPlaces/WindowTitle",
@@ -1779,7 +1782,7 @@
     ToggleTheatersOfWarWindow: "theatersOfWar", CmdToggleShipTree: "shipTree",
     // (ToggleOpenClose in the client too: ContractsWindow, CorporationWindow, NotepadWindow, PlanetWindow, the comparison
     // tool, the redeem window)
-    OpenContracts: "contracts", OpenCorporationPanel: "corporation", OpenNotepad: "notepad", OpenCalculator: "calculator", OpenPlanets: "planets", OpenCompare: "compare", ToggleRedeemItems: "redeem",
+    OpenContracts: "contracts", OpenCorporationPanel: "corporation", OpenNotepad: "notepad", OpenCalculator: "calculator", OpenFittingMgmt: "fittingManagement", OpenPlanets: "planets", OpenCompare: "compare", ToggleRedeemItems: "redeem",
   };
   // The star map (play/starMap.ts): the Neocom's Map button and F10 (the client's OpenMapBrowser shortcut, its map
   // view) open it over the view and close it again; Escape closes it.
