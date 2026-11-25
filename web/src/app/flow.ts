@@ -9930,10 +9930,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       }
       throw error;
     }
+    const slots = buildSlots(reads.slots, reads.shipInfo, reads.online);
     store.apply({
       type: "fitting/loaded",
       activeShipID: reads.activeShipID,
-      slots: buildSlots(reads.slots, reads.shipInfo, reads.online),
+      slots,
       chargeFits: decodeChargeFits(reads.chargeFits),
       resources: decodeResources(reads.shipInfo),
       shipAttributes: Object.fromEntries(decodeShipAttributes(reads.shipInfo)),
@@ -9945,6 +9946,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       slotsError: reads.errors.slots || reads.errors.online,
       resourcesError: reads.errors.shipInfo,
     });
+    // Effect-stop notices can refer to a fitted module before its HUD tooltip has been opened.
+    requestNames(slots.flatMap(({ module }) => module ? [{ kind: "type" as const, id: module.typeID }] : []));
     // ChangeAmmoTypeForModule as the rack's buttons are given their charges (shipmodulebutton.SetCharge), and a module
     // no longer in a slot let go (godma.OnItemChange).
     const fittedIDs = new Set<number>();
