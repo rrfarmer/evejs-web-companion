@@ -500,6 +500,30 @@
     }
   });
   const docked = $derived(stage === "game" && session ? deriveDocked($flight?.status ?? null, $station?.online ?? null) : true);
+  // dockedUI/lobbyWnd.py registers the lobby per character, 16 px from the right and top on first open.
+  const stationServicesID = "stationServices";
+  let viewportWidth = $state(0), viewportHeight = $state(0);
+  let stationServicesPlace = $state.raw<WindowRect | null>(null);
+  const stationServicesMinimum = $derived({
+    w: Math.min(270, Math.max(1, viewportWidth)),
+    h: Math.min(495, Math.max(1, viewportHeight)),
+  });
+  const stationServicesBounds = $derived.by(() => {
+    const w = Math.min(280, viewportWidth);
+    const h = Math.min(viewportHeight - 16, Math.max(stationServicesMinimum.h, viewportHeight - 160));
+    const saved = stationServicesPlace;
+    return saved ? {
+      x: Math.max(0, Math.min(saved.x, viewportWidth - 48)),
+      y: Math.max(0, Math.min(saved.y, viewportHeight - 30)),
+      w: Math.max(stationServicesMinimum.w, Math.min(saved.w, viewportWidth)),
+      h: Math.max(stationServicesMinimum.h, Math.min(saved.h, viewportHeight)),
+    } : { x: Math.max(0, viewportWidth - w - 16), y: 16, w, h: Math.max(1, h) };
+  });
+  const stationServicesWindow = $derived({ id: stationServicesID, ...stationServicesBounds, z: 5, minimized: false });
+  $effect(() => {
+    const pilot = $station?.online?.characterID;
+    stationServicesPlace = pilot ? untrack(() => keptPlace(stationServicesID)) : null;
+  });
   const dockedStructureID = $derived(docked ? ($flight?.status ? $flight.status.structureID : $station?.online?.structureID) ?? null : null);
   const controllingStructure = $derived(dockedStructureID !== null && $flight?.status?.shipID === dockedStructureID);
   const controllingMetenox = $derived($flight?.status?.shipTypeID === METENOX_TYPE_ID
@@ -3786,7 +3810,7 @@
   onDestroy(() => { view?.dispose(); live?.close(); spaceClaimed?.flow.stopSpacePolling(); });
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window bind:innerWidth={viewportWidth} bind:innerHeight={viewportHeight} onkeydown={onKey} />
 
 {#if stage === "login"}
   <div class="screen"><form class="login-box" onsubmit={signIn}>
@@ -3849,48 +3873,10 @@
       </div>
     </div>
   {:else if docked}
-    <!-- Docked: the ship in its hangar, the Neocom, and the client's Station Services window (dockedUI/lobbyWnd.py:
-         280 px at the right edge, the station's name over its owner, the Undock button, the station's services). -->
+    <!-- The docked ship and Neocom sit below the Station Services window. -->
     <div class="station">
       <div class="fly-hangar" class:planet-covered={planetInMode !== null} bind:this={hangarHost}></div>
       <div class="fly-neocom" bind:this={neocomHost}></div>
-      <div class="pw fly-lobby" class:planet-covered={planetInMode !== null}>
-        <div class="pw-head"><img class="pw-icon" alt="" src={clientTexture("res:/UI/Texture/WindowIcons/docking.png")} /><span class="pw-caption">Station Services</span></div>
-        <div class="pw-body lobby-body">
-          <div class="station-name">{moonRefinery?.name ?? $station?.station?.stationName ?? "Station"}</div>
-          <div class="station-sub">{$station?.station?.solarSystemName ?? ""}{#if typeof $station?.station?.security === "number"}<span class="lobby-sec"> {$station.station.security.toFixed(1)}</span>{/if}</div>
-          {#if controllingStructure}
-            <div class="refinery-controls">
-              {#if moonRefinery}<button class="academy-service" disabled={refineryPending} onclick={() => open("moonMining")}>Moon Mining</button>{/if}
-              <button class="academy-service" disabled={refineryPending} onclick={() => changeRefineryControl(false)}>Release Control</button>
-            </div>
-          {:else}
-            <button class="undock" disabled={undockPending || refineryPending} onclick={undock}>Undock</button>
-            {#if moonRefinery?.canControl}
-              <button class="academy-service" disabled={refineryPending || undockPending} onclick={() => changeRefineryControl(true)}>Take Control</button>
-            {/if}
-          {/if}
-          {#if refineryError}<div class="error lobby-error" role="alert">{refineryError}</div>{/if}
-          {#if academyAccess !== "hidden"}
-            <button class="academy-service" disabled={academyAccess === "locked"}
-              onclick={() => wins.some(win => win.id === "academyShips") ? wins = closeWindow(wins, "academyShips") : open("academyShips")}>
-              {academyLabel}
-            </button>
-          {/if}
-          {#if error}<div class="error lobby-error">{error}</div>{/if}
-          <div class="lobby-services">
-            {#each LOBBY_SERVICES as svc (svc.label)}
-              <button class="lobby-svc" title={svc.label} onclick={() => open(svc.tab)}><img alt="" src={clientTexture(`res:/UI/Texture/WindowIcons/${svc.icon}.png`)} /><span>{svc.label}</span></button>
-            {/each}
-            {#if militiaOfficeAvailable}
-              <button class="lobby-svc" title="Militia Office" onclick={() => openTheatersOfWar(relevantMilitiaPage($station?.online?.warFactionID ?? null))}>
-                <img alt="" src={clientTexture("res:/UI/Texture/WindowIcons/factionalwarfare.png")} /><span>Militia Office</span>
-              </button>
-            {/if}
-          </div>
-          <PlayLobbyTabs {session} onOpenAgents={() => open("agents")} />
-        </div>
-      </div>
     </div>
   {:else}
     <!-- navigation.OnDropData: drones dragged from the bay (the drones window) and dropped on space launch; inventory
@@ -3956,6 +3942,51 @@
   <div class="fly-fade" bind:this={fadeEl}></div>
 
   <div class="fly-windows" class:planet-covered={planetInMode !== null} bind:this={windowsEl} onpointerdowncapture={() => (containerFront = false)}>
+    {#if docked && !controllingMetenox && planetInMode === null}
+      <DesktopWindow win={stationServicesWindow} title="Station Services" killable={false}
+        focused={activeWinKey === stationServicesID}
+        minWidth={stationServicesMinimum.w} minHeight={stationServicesMinimum.h}
+        onFocus={() => (activeWinKey = stationServicesID)}
+        onClose={() => {}}
+        onMove={(x, y) => (stationServicesPlace = { ...stationServicesBounds, x, y })}
+        onResizeRect={(rect) => (stationServicesPlace = rect)}
+        onGeometryCommit={() => keepPlace(stationServicesWindow)}>
+        <div class="lobby-body">
+          <div class="station-name">{moonRefinery?.name ?? $station?.station?.stationName ?? "Station"}</div>
+          <div class="station-sub">{$station?.station?.solarSystemName ?? ""}{#if typeof $station?.station?.security === "number"}<span class="lobby-sec"> {$station.station.security.toFixed(1)}</span>{/if}</div>
+          {#if controllingStructure}
+            <div class="refinery-controls">
+              {#if moonRefinery}<button class="academy-service" disabled={refineryPending} onclick={() => open("moonMining")}>Moon Mining</button>{/if}
+              <button class="academy-service" disabled={refineryPending} onclick={() => changeRefineryControl(false)}>Release Control</button>
+            </div>
+          {:else}
+            <button class="undock" disabled={undockPending || refineryPending} onclick={undock}>Undock</button>
+            {#if moonRefinery?.canControl}
+              <button class="academy-service" disabled={refineryPending || undockPending} onclick={() => changeRefineryControl(true)}>Take Control</button>
+            {/if}
+          {/if}
+          {#if refineryError}<div class="error lobby-error" role="alert">{refineryError}</div>{/if}
+          {#if academyAccess !== "hidden"}
+            <button class="academy-service" disabled={academyAccess === "locked"}
+              onclick={() => wins.some(win => win.id === "academyShips") ? wins = closeWindow(wins, "academyShips") : open("academyShips")}>
+              {academyLabel}
+            </button>
+          {/if}
+          {#if error}<div class="error lobby-error">{error}</div>{/if}
+          <div class="lobby-services">
+            {#each LOBBY_SERVICES as svc (svc.label)}
+              <button class="lobby-svc" title={svc.label} onclick={() => open(svc.tab)}><img alt="" src={clientTexture(`res:/UI/Texture/WindowIcons/${svc.icon}.png`)} /><span>{svc.label}</span></button>
+            {/each}
+            {#if militiaOfficeAvailable}
+              <button class="lobby-svc" title="Militia Office" onclick={() => openTheatersOfWar(relevantMilitiaPage($station?.online?.warFactionID ?? null))}>
+                <img alt="" src={clientTexture("res:/UI/Texture/WindowIcons/factionalwarfare.png")} /><span>Militia Office</span>
+              </button>
+            {/if}
+          </div>
+          <PlayLobbyTabs {session} onOpenAgents={() => open("agents")} />
+        </div>
+      </DesktopWindow>
+    {/if}
     <!-- not the each block's only child: an each that is the only child of its element is emptied by clearing the
          element, which would take the space view's own windows (the overview, Selected Item, ...) kept in it too -->
     <span class="fly-windows-anchor" hidden></span>
@@ -4985,7 +5016,6 @@
     z-index: -1; background: var(--theme-focus, #58a7bf); mask-image: var(--cluster-stroke);
   }
   .fly-lobby { left: auto; right: 16px; top: 16px; width: 280px; min-height: 260px; z-index: 5; }
-  .fly-lobby.planet-covered { visibility: hidden; }
   .metenox-lobby { min-height: 0; }
   .metenox-lobby .station-name { margin-bottom: 12px; }
   .metenox-controls { position: absolute; top: 160px; right: 16px; z-index: 5; }
