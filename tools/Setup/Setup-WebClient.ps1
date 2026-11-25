@@ -388,8 +388,9 @@ if ($Status) {
 Push-Location $RepoRoot
 try {
   if ($clientMode -eq "native") {
-    if (-not (Test-Path (Join-Path $RepoRoot "node_modules"))) {
-      Write-Info "Installing the client's packages (first time only, a few minutes)..."
+    $packageLock = Get-Item (Join-Path $RepoRoot "package-lock.json")
+    if (-not (Test-Path (Join-Path $RepoRoot "node_modules\dds-ktx-parser\package.json"))) {
+      Write-Info "Installing the client's packages..."
       & npm install
       if ($LASTEXITCODE -ne 0) { throw "npm install failed." }
       Write-Changed "Installed the client's packages"
@@ -397,7 +398,8 @@ try {
       Write-Ok "Client packages already installed"
     }
 
-    if (-not (Test-Path (Join-Path $RepoRoot "public\dist\index.html"))) {
+    $webIndex = Get-Item (Join-Path $RepoRoot "public\dist\index.html") -ErrorAction SilentlyContinue
+    if (-not $webIndex -or $webIndex.LastWriteTimeUtc -lt $packageLock.LastWriteTimeUtc) {
       Write-Info "Building the web page..."
       & npm run build:web
       if ($LASTEXITCODE -ne 0) { throw "Building the web page failed." }
@@ -416,8 +418,14 @@ try {
     Write-Changed "Built the client's Docker image"
   }
 
-  # Existing /fly extracts get the same Brotli variants as new extracts.
+  # Both the native client and the container can use the same local WASM encoder.
   $assetCache = Join-Path $RepoRoot "_local\client-assets"
+  try {
+    & (Join-Path $PSScriptRoot "Install-KtxEncoder.ps1") -CacheRoot $assetCache
+  } catch {
+    Write-Problem "The optional hull texture encoder could not be installed" "Brotli DDS is available"
+  }
+  # Existing /fly extracts get the same compressed variants as new extracts.
   if (Test-Path -LiteralPath $assetCache) {
     Write-Info "Preparing compressed flight assets. The first pass can take several minutes..."
     if ($clientMode -eq "native") {

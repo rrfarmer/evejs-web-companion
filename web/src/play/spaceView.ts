@@ -19,6 +19,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
 import { typeModel, setThrust, setShipSpeed, setControllerVariable, sendControllerEvent, setActivationStrength, setDirtLevel, dirtLevelFromTime, warpLightingFor } from "../three/hullModel.ts";
+import { useHullTextureRenderer } from "../three/hullAlbedo";
 import type { WarpHullLighting } from "../three/warpHullLighting.ts";
 import { shiftGpuParticles } from "../three/gpuParticles.ts";
 import { useFarBoosters } from "../three/boosterVolumetric.ts";
@@ -1640,6 +1641,7 @@ export class SpaceView {
 
   /** `onNeocom`: what a Neocom button opens; the app's play mode opens its own windows (PlayApp.svelte). */
   constructor(private readonly live: LivePark, private actions: SpaceActions, private readonly where: { system: string; security: number | null }, private readonly options: SpaceViewOptions = {}) {
+    useHullTextureRenderer(this.renderer);
     this.root.className = "space";
     // Toggled3DViewWarning's words, asked for up front (they show the moment the key is pressed)
     this.actions.requestWords?.(["UI/Shared/ExteriorViewDisabled", "UI/Shared/PressToRestoreView", "UI/Commands/CmdGetLocationMenuForNavigation",

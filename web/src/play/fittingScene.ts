@@ -24,6 +24,7 @@
 
 import * as THREE from "three";
 import { typeModel, setThrust } from "../three/hullModel.ts";
+import { useHullTextureRenderer } from "../three/hullAlbedo";
 import { buildTurrets, type HullTurretData, type TurretFit, type TurretSetState } from "../three/turretModel.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 
@@ -62,6 +63,7 @@ export class FittingShipScene {
   private turretSets: { state: TurretSetState; online: boolean }[] = [];
 
   constructor(private readonly host: HTMLElement) {
+    useHullTextureRenderer(this.renderer);
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NoToneMapping;

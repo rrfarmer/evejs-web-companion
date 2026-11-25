@@ -48,6 +48,7 @@ import { readDefaultOverviews, DEFAULT_TAB_NAMES } from "./lib/defaultOverviews.
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import compression from "./lib/assetCompression.cjs";
+import hullColorCompression from "./lib/hullColorCompression.cjs";
 
 const ENTRY = fileURLToPath(import.meta.url);
 const HERE = path.dirname(ENTRY);
@@ -1171,6 +1172,10 @@ async function main() {
   }
   if (!done.length && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.wormholeNebulas.length && !args.wormholeTransit && !args.warpTunnel && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.asteroidRules && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
   await compression.prepareAssets(writtenAssets, (file, error) => console.warn(`Brotli ${path.relative(outRoot, file)}: ${error.message}`));
+  if (!process.env.EVEJS_DEFER_HULL_COLOR_ENCODING) {
+    await hullColorCompression.prepareHullColors(writtenAssets, path.dirname(outRoot),
+      (file, error) => console.warn(`ETC1S ${path.relative(outRoot, file)}: ${error.message}`));
+  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === ENTRY) {

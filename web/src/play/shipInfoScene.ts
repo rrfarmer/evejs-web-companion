@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { loadDds } from "../three/ddsTexture.ts";
 import { effectObject, startEffect, type SofChildNode } from "../three/hullChildren.ts";
 import { setControllerVariable, setDirtLevel, setThrust, typeModel } from "../three/hullModel.ts";
+import { useHullTextureRenderer } from "../three/hullAlbedo";
 import { SHIP_INFO_FAR_CLIP, shipInfoZoomRange } from "./shipInfoCamera.ts";
 
 interface PreviewEffect { root: SofChildNode; childEffects: Record<string, SofChildNode | null> }
@@ -52,6 +53,7 @@ export class ShipInfoScene {
   private drag: { x: number; y: number } | null = null;
 
   constructor(private readonly host: HTMLElement) {
+    useHullTextureRenderer(this.renderer);
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NoToneMapping;

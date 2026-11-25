@@ -11,13 +11,15 @@ const { SOF_BUILD, GRAPHIC_SOF_DEFAULTS, sofVariant } = require("../../tools/cli
 const { TURRET_BUILD } = require("../../tools/client-extract/lib/turret.mjs");
 const { CELESTIAL_BUILD } = require("../../tools/client-extract/lib/typeGraphics.mjs");
 const { brotliVariant, compressibleAsset, sourceTag } = require("../../tools/client-extract/lib/assetCompression.cjs");
+const { encoderPath, hullColor, ktx2Variant, needsHullColor, suffix: KTX2_SUFFIX } = require("../../tools/client-extract/lib/hullColorCompression.cjs");
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const EXTRACTOR = path.join(REPO_ROOT, "tools", "client-extract", "extract.mjs");
+const COLOR_ENCODER = path.join(REPO_ROOT, "tools", "client-extract", "compress-hull-colors.cjs");
 const runFile = promisify(execFile);
 const MIME = new Map([
   [".json", "application/json"], [".glb", "model/gltf-binary"], [".dds", "application/octet-stream"], [".png", "image/png"],
-  [".jpg", "image/jpeg"], [".jpeg", "image/jpeg"],
+  [".jpg", "image/jpeg"], [".jpeg", "image/jpeg"], [".ktx2", "image/ktx2"],
   [".ogg", "audio/ogg"], [".wav", "audio/wav"], [".vta", "application/octet-stream"],
 ]);
 const GENERATED = new Map([
@@ -102,16 +104,39 @@ async function stockModelInfo(dir, info, ensure, canExtract) {
   return selected;
 }
 
-async function modelResponse(dir, info, args, ensure, canExtract, requireSof = false) {
+function modelAlbedoVariants(dir, stem, textures, sofFile, queueColors) {
+  if (!stem.startsWith("dx9/model/ship/")) return [];
+  const folder = path.posix.dirname(stem);
+  const entries = new Set(Object.values(textures?.albedo ?? {}).map(file => `/client-assets/${folder}/${file}`));
+  for (const area of sofFile ? readJson(sofFile).areas ?? [] : []) {
+    if (area.textures?.AlbedoMap) entries.add(area.textures.AlbedoMap);
+  }
+  const variants = [];
+  for (const url of entries) {
+    if (!url.startsWith("/client-assets/") || !hullColor(url)) continue;
+    const file = path.resolve(dir, url.slice("/client-assets/".length));
+    if (!isWithin(dir, file) || !fileExists(file)) continue;
+    const source = fs.realpathSync(file);
+    if (!isWithin(dir, source)) continue;
+    if (ktx2Variant(source, fs.statSync(source, { bigint: true }))) variants.push(url);
+    else queueColors(source);
+  }
+  return variants;
+}
+
+async function modelResponse(dir, info, args, ensure, canExtract, queueColors, requireSof = false) {
   const { stem, sof } = modelPaths(info);
   const sofFile = path.join(dir, sof);
   await ensure(stem + ".glb", args, null, () => fileExists(path.join(dir, stem + ".json")) &&
     (fileExists(sofFile) ? !canExtract() || containsVersion(sofFile, `"sofBuild":${SOF_BUILD}`) : !requireSof));
   const mesh = readJson(path.join(dir, stem + ".json"));
+  const hasSof = fileExists(sofFile);
+  const albedoVariants = modelAlbedoVariants(dir, stem, mesh.textures, hasSof ? sofFile : null, queueColors);
   return {
     model: `/client-assets/${stem}.glb`,
-    sof: fileExists(sofFile) ? `/client-assets/${sof}` : null,
+    sof: hasSof ? `/client-assets/${sof}` : null,
     textures: mesh.textures,
+    ...(albedoVariants.length ? { albedoVariants } : {}),
     lods: mesh.lods.length,
   };
 }
@@ -125,7 +150,7 @@ async function sceneMaps(dir, resource, ensure) {
 }
 
 /** Supply the extracted resources and look up model and scene data on demand. */
-async function resolveAsset(rel, dir, ensure, canExtract) {
+async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
   const generated = GENERATED.get(rel);
   if (generated) {
     const oldManifest = rel === "/observatoryEnvironment.json" ? '"environmentBuild":'
@@ -211,7 +236,7 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
     if (g.scene) return { json: g };
     g = await stockModelInfo(dir, g, ensure, canExtract);
     const { graphicID, hull, faction, race } = g;
-    return { json: { graphicID, ...await modelResponse(dir, g, args, ensure, canExtract, Boolean(g.sofMaterialSetID)), hull, faction, race } };
+    return { json: { graphicID, ...await modelResponse(dir, g, args, ensure, canExtract, queueColors, Boolean(g.sofMaterialSetID)), hull, faction, race } };
   }
   const dna = /^\/dna\/([A-Za-z0-9_]+(?::[A-Za-z0-9_-]*){0,2})$/.exec(rel);
   if (dna) {
@@ -219,7 +244,7 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
     const args = ["--dna", name];
     const g = readJson(await ensure(`dna/${name.toLowerCase().replace(/:/g, ".")}.json`, args));
     const { hull, faction, race } = g;
-    return { json: { dna: name, ...await modelResponse(dir, g, args, ensure, canExtract), hull, faction, race } };
+    return { json: { dna: name, ...await modelResponse(dir, g, args, ensure, canExtract, queueColors), hull, faction, race } };
   }
   const skin = /^\/type\/([1-9]\d{0,9})\/skin\/([1-9]\d{0,9})$/.exec(rel);
   if (skin) {
@@ -229,7 +254,7 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
     const args = ["--type-skin", type, material];
     const marker = canExtract() ? `"sofBuild":${SOF_BUILD}` : null;
     const info = readJson(await ensure(`typeSkins/${type}.${material}.json`, args, marker));
-    return { json: { typeID, ...info, ...(info.gr2 ? await modelResponse(dir, info, args, ensure, canExtract, true) : { model: null }) } };
+    return { json: { typeID, ...info, ...(info.gr2 ? await modelResponse(dir, info, args, ensure, canExtract, queueColors, true) : { model: null }) } };
   }
   const type = /^\/type\/(\d+)$/.exec(rel);
   if (type) {
@@ -248,7 +273,7 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
     }
     if (!g?.gr2) return { json: { typeID, model: null, ...g } };
     g = await stockModelInfo(dir, g, ensure, canExtract);
-    return { json: { typeID, ...await modelResponse(dir, g, args, ensure, canExtract, true), ...g } };
+    return { json: { typeID, ...await modelResponse(dir, g, args, ensure, canExtract, queueColors, true), ...g } };
   }
   return { file: path.join(dir, rel.slice(1)) };
 }
@@ -262,7 +287,9 @@ function createClientAssets({
   build = process.env.EVE_CLIENT_BUILD,
   clientRoot = process.env.EVEJS_CLIENT_ROOT,
   fallbackBuild,
-  extract = (args) => runFile(process.execPath, [EXTRACTOR, ...args], { maxBuffer: 16 << 20 }),
+  extract = (args) => runFile(process.execPath, [EXTRACTOR, ...args], {
+    maxBuffer: 16 << 20, env: { ...process.env, EVEJS_DEFER_HULL_COLOR_ENCODING: "1" },
+  }),
   errorLogger = console.error,
 } = {}) {
   const assets = express();
@@ -271,6 +298,23 @@ function createClientAssets({
   const chosenBuild = build || installedBuild || fallbackBuild;
   const extracting = new Map();
   const buildQueue = new Map();
+  const queuedColors = new Set();
+  let colorQueue = Promise.resolve();
+
+  function queueColors(file) {
+    if (queuedColors.has(file) || !encoderPath(root) || !needsHullColor(file)) return;
+    queuedColors.add(file);
+    // Keep the initial hull response on the DDS path while this CPU work runs.
+    colorQueue = colorQueue.then(async () => {
+      try {
+        await runFile(process.execPath, [COLOR_ENCODER, path.resolve(root), file]);
+      } catch (error) {
+        errorLogger(error);
+      } finally {
+        queuedColors.delete(file);
+      }
+    });
+  }
 
   function installFor(dir, version) {
     if (installedBuild === version) return clientRoot;
@@ -328,8 +372,23 @@ function createClientAssets({
         else if (!containsVersion(file, marker) || !alsoReady()) await extractOnce(dir, version, args);
         return file;
       };
-      const result = await resolveAsset(rel, dir, ensure, () => installFor(dir, version) !== null);
-      if ("json" in result) return res.json(result.json);
+      if (rel.endsWith(KTX2_SUFFIX)) {
+        const raw = path.resolve(dir, rel.slice(1, -KTX2_SUFFIX.length));
+        if (!hullColor(raw) || !isWithin(dir, raw) || !fileExists(raw)) return res.status(404).end();
+        const original = fs.realpathSync(raw);
+        if (!isWithin(dir, original)) return res.status(404).end();
+        const variant = ktx2Variant(original, fs.statSync(original, { bigint: true }));
+        if (!variant) return res.status(404).end();
+        const stat = fs.statSync(variant, { bigint: true });
+        res.set("Cache-Control", "public, max-age=86400");
+        res.set("ETag", `W/"${version}-${sourceTag(stat)}-ktx2"`);
+        return res.type(MIME.get(KTX2_SUFFIX)).sendFile(variant, error => { if (error) next(error); });
+      }
+      const result = await resolveAsset(rel, dir, ensure, () => installFor(dir, version) !== null, queueColors);
+      if ("json" in result) {
+        if (result.json.model) res.set("Cache-Control", "no-cache");
+        return res.json(result.json);
+      }
       const type = MIME.get(path.extname(result.file).toLowerCase());
       if (!type || !isWithin(dir, result.file) || !fileExists(result.file)) return res.status(404).end();
       const file = fs.realpathSync(result.file);

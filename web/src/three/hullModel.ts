@@ -19,6 +19,7 @@ import { applyWarpHullLighting, WarpHullLighting } from "./warpHullLighting.ts";
 import { impactAnchor, type SofImpact } from "./impactOverlay.ts";
 import { hullFx,type SofSpriteSet, type SofPlaneSet, type SofSpotlightSet, type SofHazeSet } from "./hullFx.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { loadHullAlbedo } from "./hullAlbedo";
 import { loadDds } from "./ddsTexture.ts";
 import { logDepth } from "./logDepth";
 import { SOFT_DEPTH } from "./softDepth.ts";
@@ -349,6 +350,7 @@ export interface TypeModelInfo {
   model: string | null;
   sof?: string | null;
   textures?: Record<string, Record<string, string>>;
+  albedoVariants?: string[];
   hull?: string | null;
   faction?: string | null;
   race?: string | null;
@@ -883,10 +885,19 @@ async function loadModel(info: TypeModelInfo, typeID: number | null, materialOve
   const gltf = await loader.loadAsync(info.model);
   const dir = info.model.slice(0, info.model.lastIndexOf("/") + 1);
   const maps: Record<string, THREE.Texture | undefined> = {};
+  const albedoVariants = new Set(info.albedoVariants);
+  const texCache = new Map<string, Promise<THREE.Texture | undefined>>();
+  const tex = (url: string) => {
+    if (!texCache.has(url)) {
+      const load = albedoVariants.has(url) ? loadHullAlbedo(url) : loadDds(url);
+      texCache.set(url, load.catch(() => undefined));
+    }
+    return texCache.get(url)!;
+  };
   await Promise.all(Object.entries(info.textures ?? {}).map(async ([role, variants]) => {
     const file = variants.full ?? variants.mediumdetail ?? variants.lowdetail;
     if (!file) return;
-    try { maps[role] = await loadDds(dir + file); } catch { /* a texture this GPU cannot take: drawn without it */ }
+    maps[role] = await tex(dir + file);
   }));
   if (maps.albedo) maps.albedo.colorSpace = THREE.SRGBColorSpace;
   // The Space Object Factory's build of this hull for the type's faction, where there is one: each mesh area takes the
@@ -895,11 +906,6 @@ async function loadModel(info: TypeModelInfo, typeID: number | null, materialOve
   if (sof && materialOverrides) for (const area of sof.areas) area.materials = [0, 1, 2, 3].map((i) => materialOverrides[i] ?? area.materials[i] ?? null);
   const ROLE = HULL_TEXTURE_ROLES;
   const areaMaps = new Map<SofArea, Record<string, THREE.Texture | undefined>>();
-  const texCache = new Map<string, Promise<THREE.Texture | undefined>>();
-  const tex = (url: string) => {
-    if (!texCache.has(url)) texCache.set(url, loadDds(url).then((t) => t as THREE.Texture).catch(() => undefined));
-    return texCache.get(url)!;
-  };
   for (const area of sof?.areas ?? []) {
     const am: Record<string, THREE.Texture | undefined> = {};
     await Promise.all(Object.entries(area.textures).map(async ([name, url]) => { const role = ROLE[name]; if (role && url) am[role] = await tex(url); }));

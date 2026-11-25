@@ -26,6 +26,7 @@
     "@fontsource/jetbrains-mono": "^5.3.0",
     "better-sqlite3": "^12.4.1",
     "buffer": "^6.0.3",
+    "dds-ktx-parser": "2.0.0",
     "express": "^5.1.0",
     "three": "^0.187.0",
     "ws": "^8.21.1",

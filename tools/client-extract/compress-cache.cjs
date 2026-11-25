@@ -3,6 +3,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { prepareAssets } = require("./lib/assetCompression.cjs");
+const { encoderPath, prepareHullColors } = require("./lib/hullColorCompression.cjs");
 
 async function buildFiles(root) {
   const builds = await fs.readdir(root, { withFileTypes: true }).catch((error) => {
@@ -25,11 +26,18 @@ async function buildFiles(root) {
 
 async function main() {
   const root = process.argv[2] ?? path.resolve(__dirname, "../../_local/client-assets");
-  const totals = await prepareAssets(await buildFiles(root), (file, error) => console.warn(`${file}: ${error.message}`));
+  const files = await buildFiles(root);
+  const report = (file, error) => console.warn(`${file}: ${error.message}`);
+  const totals = await prepareAssets(files, report);
   const size = (bytes) => `${(bytes / 2 ** 20).toFixed(1)} MiB`;
   console.log(`Client assets: ${totals.compressed}/${totals.files} served with Brotli, ${totals.updated} prepared, ${size(totals.original)} → ${size(totals.packed)} on the wire.`);
-  if (totals.failed) {
-    console.error(`${totals.failed} files could not be prepared.`);
+  const color = await prepareHullColors(files, root, report);
+  if (encoderPath(root)) {
+    console.log(`Hull albedo ETC1S: ${color.written}/${color.candidates} new variants, ${size(color.br)} → ${size(color.ktx2)} for those textures.`);
+  }
+  const failed = totals.failed + color.failed;
+  if (failed) {
+    console.error(`${failed} files could not be prepared.`);
     process.exitCode = 1;
   }
 }

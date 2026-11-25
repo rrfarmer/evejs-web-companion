@@ -97,4 +97,4 @@ async function prepareAssets(files, onError) {
   return totals;
 }
 
-module.exports = { brotliVariant, compressibleAsset, prepareAssets, sourceTag };
+module.exports = { brotliVariant, compressibleAsset, prepareAssets, publish, sourceTag };

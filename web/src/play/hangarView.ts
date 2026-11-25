@@ -8,6 +8,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { typeModel, graphicModel, setThrust, setDirtLevel, setControllerVariable, setActivationStrength } from "../three/hullModel.ts";
+import { useHullTextureRenderer } from "../three/hullAlbedo";
 import { effectObject, effectOutput, effectCurve, type SofChildNode } from "../three/hullChildren.ts";
 import { SHIP_FLOATING_HEIGHT } from "./hangarRegistry.ts";
 import { impactOverlayOf, type ImpactOverlay } from "../three/impactOverlay.ts";
@@ -130,6 +131,7 @@ export class HangarView {
   private readonly onResize = () => this.resize();
 
   constructor() {
+    useHullTextureRenderer(this.renderer);
     this.root.className = "hangar-view";
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;

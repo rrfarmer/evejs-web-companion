@@ -20,6 +20,7 @@
 import * as THREE from "three";
 import { loadDds } from "../three/ddsTexture";
 import { dnaModel, paintedTypeModel, setControllerVariable, type SofMaterial } from "../three/hullModel";
+import { useHullTextureRenderer } from "../three/hullAlbedo";
 
 const FOV = 1.0, NEAR = 1, FAR = 400000;
 const ZOOM_RANGE = [1.6, 10.0] as const, TRANSITION_ZOOM_DEFAULT = 0.3;
@@ -46,6 +47,7 @@ export class PaintPreviewScene {
 
   // (no parameter property: the page's tests load this through node's type stripping, which has none)
   constructor(host: HTMLElement) {
+    useHullTextureRenderer(this.renderer);
     this.host = host;
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;

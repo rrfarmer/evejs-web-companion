@@ -1,7 +1,7 @@
 # Client asset compression plan
 
-Branch `FarmerThreeJSFun`. The lossless HTTP pass is implemented. The mesh and texture
-format experiments below are still proposals.
+Branch `FarmerThreeJSFun`. Brotli asset transport and KTX2 ETC1S for eligible ship
+albedo maps are implemented. Mesh quantization and other texture roles are still proposals.
 
 ## Using the lossless pass
 
@@ -28,6 +28,62 @@ compression and 2.57 GB in their negotiated representations. The originals and
 Brotli sidecars both occupy local disk. In Chrome, the cc1 sample albedo, normal
 map and model transferred 2.40 MB cold, decoded to 7.82 MB, and transferred zero
 bytes on a second navigation.
+
+## Using ETC1S for ship albedo
+
+`SetupWebClient.bat` installs the pinned Khronos libktx 4.4.2 WebAssembly encoder
+under the local extraction cache. Native and Docker setup share the same files.
+`npm run compress:assets` fills in missing or stale variants for all cached builds.
+A standalone extraction prepares its textures when the encoder is available. For
+hulls extracted on demand, the first request can use DDS while the encoder prepares
+the alternative in the background.
+
+The encoder reads the installed BC7 albedo and preserves its authored mip chain.
+It publishes KTX2 for ship albedo maps up to 2048 pixels across when the variant
+saves at least 16 KiB and 25% against the served DDS. The browser uses the bundled
+Basis transcoder on BPTC-capable renderers and falls back to DDS when it cannot load
+KTX2. Both formats remain in the local cache. Normals stay BC5, and mask and effect
+textures use Brotli DDS.
+
+### Build 3698585 comparison
+
+The q128 pilot sample used the authored mip chains for 30 textures on five hulls.
+The full sample transferred 10.60 MB with Brotli DDS and occupied 2.50 MB as ETC1S.
+Four of the hulls were A/B rendered with the companion's Ship Info camera,
+lighting and SOF hull shaders on an RTX 3070 Ti. The figures below compare individual
+map swaps on the visible hull. Smaller pixel differences are better. Repeated
+DDS frames measured 0–1 at the 99th percentile.
+
+| Map | Brotli DDS, five hulls | ETC1S, five hulls | 99th-percentile RGB error, four hulls |
+| --- | ---: | ---: | ---: |
+| Albedo | 3,601,747 B | 714,002 B | 1–7 of 255 |
+| Roughness | 3,175,204 B | 660,314 B | 2–5 of 255 |
+| Dirt | 2,917,693 B | 715,351 B | 2–5 of 255 |
+| Material | 773,530 B | 321,334 B | 4–18 of 255 |
+| Glow | 116,563 B | 68,734 B | 0–8 of 255 |
+| Paint | 15,227 B | 17,585 B | 0–6 of 255 |
+
+Albedo retained its 1,398,128-byte GPU mip chain. The stock Three.js transcoder
+uploaded the masks as BC7, increasing each 1024² mask from 699,064 to 1,398,128 GPU
+bytes. Material-mask swaps reached 18 of 255 at the 99th percentile on the Caldari
+sample. Several paint maps were already smaller with Brotli. Effects were outside
+the live hull A/B comparison.
+
+An offline ETC1S check of the particle atlas, warp reveal mask and lightning
+atlas reduced their combined 243,725 B of Brotli DDS to 99,370 B. Base-mip PSNR
+was 43–50 dB. They still use DDS because their actual shader output and blend
+edges have yet to be compared.
+
+In the production Rifter preview, albedo transferred 210,883 B after conversion by
+the setup encoder, compared with 741,837 B for Brotli DDS. A warm request
+transferred zero bytes. An Inquisitor preview used its 595,548 B Brotli DDS when
+its KTX2 request returned 404. On the first KTX2 use, the browser fetched 644,327 B
+of shared loader and transcoder assets. The 96 prepared maps in the local 3698585
+cache total 91.10 MB as served by Brotli and 15.85 MB as KTX2. The 3396210 cache
+has 42 variants at 39.58 MB Brotli and 6.91 MB KTX2.
+
+The companion excludes video playback and video resources from extraction and
+serving. The installed client's files remain in place.
 
 ## Why
 
@@ -140,23 +196,14 @@ The steps are ordered by return for the effort. Each one is useful on its own.
 - Skip meshopt for now. With brotli in front it lost.
 - Expected: mesh 0.88 → 0.29 MB brotli'd for cc1.
 
-### 3. ETC1S for colour and mask textures, BC5 kept for normals
+### 3. Further mask and effect experiments
 
-- Encode `_a`, `_r`, `_d`, `_m`, `_g`, `_p3` and the effect textures to KTX2 ETC1S at extraction
-  time. Keep `_n` as the original BC5 DDS with brotli.
-- Encoder: the extractor is dependency-free today. The options are Basis Universal's own
-  WebAssembly encoder (keeps it Node-only) or KTX-Software's `ktx` CLI found on the machine.
-  Prefer the WebAssembly encoder.
-- Page: `KTX2Loader` with its Basis transcoder, served from our own bundle.
-- **GPU memory trade-off.** On desktop, three's `KTX2Loader` transcodes ETC1S to BC7 whenever
-  BPTC is supported (`KTX2Loader.js`, the transcoder target table). A one-channel map then goes
-  from BC4 (0.5 B/px) to BC7 (1 B/px), doubling its VRAM. The transcoder can target BC4, so either
-  pick that target for one-channel maps or accept the cost. Measure VRAM before deciding.
-- **Mobile.** Today's DDS path needs BPTC/RGTC, which phones generally lack. KTX2 transcodes to
-  ASTC/ETC2 there, so this step is also what would make hulls load on mobile. The normal map
-  would then need a mobile path too (UASTC or ETC2 RG for that one texture).
-- Adopt per texture role, after a visual check in the real hull shader on a few hulls from each
-  race. Expected: textures 2.28 → 1.02 MB for cc1.
+- Test BC4 as an ETC1S transcode target for single-channel masks. The current DDS
+  path uses 0.5 B/px for these masks and the stock desktop KTX2 path uses 1 B/px.
+- Compare material and paint masks with faction SKINs at close range. Check the
+  channels, alpha and blending for each effect texture before considering it.
+- Mobile renderers need compatible GPU formats for the full set of maps. Normals
+  would need their own path before enabling hull alternatives on that hardware.
 
 ### 4. Progressive load
 
@@ -183,11 +230,8 @@ evict too much. Measure with step 1 in place first.
 
 1. Run the measurement on more hulls: one per race, plus a capital and a structure, to confirm
    the per-hull ratios and the 16-bit threshold for quantized positions.
-2. Visual check of ETC1S in the real hull shader, including faction paint (material and paint
-   maps drive the tint) and at close camera range.
-3. VRAM with ETC1S → BC7 against keeping BC4, on a busy grid.
-4. Whether the extractor may take a WebAssembly dependency for the Basis encoder.
-5. Encode time for ETC1S per hull, since extraction happens on first request.
+2. Compare faction SKINs using an ETC1S-to-BC4 mask path and measure it on a busy grid.
+3. Compare effect atlases and masks in their own shaders.
 
 ## Reproducing the measurement
 

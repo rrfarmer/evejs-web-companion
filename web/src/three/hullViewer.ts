@@ -9,6 +9,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { loadDds, compressedSupport } from "./ddsTexture";
 import { typeModel, setThrust } from "./hullModel";
+import { useHullTextureRenderer } from "./hullAlbedo";
 import { celestialModel, systemCelestials, setPlanetEnvironment } from "./celestialModel";
 import { SoftDepthPass, withOpaqueFrame } from "./softDepth";
 
@@ -22,6 +23,7 @@ const status = document.getElementById("status")!;
 const say = (s: string) => { status.textContent = s; (window as unknown as { __viewer: unknown }).__viewer = { ...(window as unknown as { __viewer?: object }).__viewer, status: s }; };
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+useHullTextureRenderer(renderer);
 renderer.setPixelRatio(devicePixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
