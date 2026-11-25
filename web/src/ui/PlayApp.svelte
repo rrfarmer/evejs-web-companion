@@ -282,7 +282,8 @@
     return () => window.removeEventListener("evejs:open-fitting", show);
   });
   // the Pilot submenu's Place Bounty: openFunctions.OpenBountyOffice(charID), the owner's corporation and alliance kept
-  let bountyOffice = $state.raw<{ n: number; target: { ownerID: number; corporationID: number | null; allianceID: number | null } } | null>(null);
+  type BountyTarget = { ownerID: number; corporationID: number | null; allianceID: number | null };
+  let bountyOffice = $state.raw<{ target: BountyTarget | null } | null>(null);
   let autoMoonMiner = $state.raw<AutoMoonMiner | null>(null);
   let moonMaterialBay = $state.raw<MoonMaterialBay | null>(null);
   let moonMaterialRequest = 0;
@@ -1930,9 +1931,13 @@
 
   function neocomOpen(id: string) {
     if (id === "map") { toggleStarMap(); return; }
+    if (id === "bountyOffice") { toggleBountyOffice(); return; }
     const tab = NEOCOM_TABS[id];
     if ((tab === "shipTree" || tab === "marketOrders") && wins.some(win => win.id === tab && !win.minimized)) wins = closeWindow(wins, tab);
     else if (tab) open(tab);
+  }
+  function toggleBountyOffice() {
+    bountyOffice = bountyOffice ? null : { target: null };
   }
   function showSystemOnMap(systemID: number) {
     requestedMapSystem = systemID;
@@ -2398,6 +2403,11 @@
     }
     // CmdZoomIn / CmdZoomOut with the star map open (the starmap view the active one): eveCommands._Zoom - the starmap view's ZoomBy
     if ((cmd === "CmdZoomIn" || cmd === "CmdZoomOut") && starMap) { e.preventDefault(); starMap.zoomStep(cmd === "CmdZoomIn" ? -1 : 1); return; }
+    if (cmd === "OpenBountyOffice") {
+      e.preventDefault();
+      toggleBountyOffice();
+      return;
+    }
     if (spaceCommand(cmd)) { e.preventDefault(); return; }
     if (cmd === "OnEsc") {
       e.preventDefault();
@@ -2557,7 +2567,7 @@
     };
     const name = nameOf(characterID);
     const showInfoEntry = { label: w("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => showInfo({ kind: "character", characterID }) };
-    const bountyEntry = { label: w("UI/Station/BountyOffice/PlaceBounty", "Place Bounty"), run: () => { bountyOffice = { n: (bountyOffice?.n ?? 0) + 1, target: { ownerID: characterID, corporationID: affiliation?.corporationID ?? null, allianceID: affiliation?.allianceID ?? null } }; } };
+    const bountyEntry = { label: w("UI/Station/BountyOffice/PlaceBounty", "Place Bounty"), run: () => { bountyOffice = { target: { ownerID: characterID, corporationID: affiliation?.corporationID ?? null, allianceID: affiliation?.allianceID ?? null } }; } };
     // CapturePortrait: the portrait at its largest size saved as <characterID>.jpg
     const portraitEntry = { label: w("UI/Commands/CapturePortrait", "Capture Portrait"), run: () => downloadPilotPortraits(s, [characterID]) };
     // _CharacterMenu of oneself (read through gridcheck on the client pilot's own ship): Show Info, Fleet >, View
@@ -4291,10 +4301,8 @@
     <ErrorBoundary name="Ship health alerts"><DamageAlertSettings store={session.store} onClose={() => (damageAlertsOpen = false)} /></ErrorBoundary>
   {/if}
   {#if bountyOffice}
-    {#key bountyOffice.n}
-      <ErrorBoundary name="Bounty Office"><BountyOfficeWindow store={session.store} flow={session.flow} target={bountyOffice.target} onClose={() => (bountyOffice = null)}
-        showInfo={(id, kind) => showInfo(kind === "corp" ? { kind: "corporation", corporationID: id } : kind === "alliance" ? { kind: "alliance", allianceID: id } : { kind: "character", characterID: id })} /></ErrorBoundary>
-    {/key}
+    <ErrorBoundary name="Bounty Office"><BountyOfficeWindow store={session.store} flow={session.flow} target={bountyOffice.target} onClose={() => (bountyOffice = null)}
+      showInfo={(id, kind) => showInfo(kind === "corp" ? { kind: "corporation", corporationID: id } : kind === "alliance" ? { kind: "alliance", allianceID: id } : { kind: "character", characterID: id })} /></ErrorBoundary>
   {/if}
   <!-- Inventory.OpenOrShow on a thing in space (a can, a wreck, a deployable's cargo bay): its own inventory window,
        the container alone, named after it; closing it lets the container go -->

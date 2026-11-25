@@ -46,9 +46,8 @@
     : remoteImageUrl(flow.imageServer.get(), kind === "corp" ? "Corporation" : "Alliance", id, size, ".png") ?? clientTexture("res:/UI/Texture/silhouette_64.png");
 
   let win = $state({ x: 120, y: 90, w: 400, h: 510, z: 30, minimized: false });
-  // svelte-ignore state_referenced_locally
   type Owner = { ownerID: number; corporationID: number | null; allianceID: number | null; kind?: "char" | "corp" | "alliance" };
-  let owner = $state<Owner | null>(target);
+  let owner = $state.raw<Owner | null>(null);
   const kindOf = (o: Owner) => o.kind ?? "char";
   // Search: searchUtil.GetResultsList(text, [character, corporation, alliance], hideNPC) - one found is the owner
   // (ShowResult), several open BountyPicker (grouped Characters / Corporations / Alliances), none says NoOneFound
@@ -66,6 +65,7 @@
       const kinds = { 2: "char", 3: "corp", 4: "alliance" } as const;
       for (const t of [2, 3, 4] as const) for (const r of byType.get(t) ?? []) if (!isNpcOwner(r.id)) found.push({ id: r.id, name: r.name, kind: kinds[t] });
     } catch (cause) { error = String((cause as Error)?.message ?? cause); return; }
+    if (owner || searchText.replace(/\*/g, "").trim() !== text) return;
     if (!found.length) { searchText = ""; searchHint = word("UI/Station/BountyOffice/NoOneFound", "No one found"); return; }
     if (found.length === 1) { choose(found[0]!); return; }
     picked = null;
@@ -108,9 +108,14 @@
     return word("UI/Station/BountyOffice/BountyHint", `Character: ${isk(charBounty)}`, { charBounty: isk(charBounty), corpBounty: isk(corpBounty), allianceBounty: isk(allianceBounty) });
   });
 
-  async function readAmounts(): Promise<void> {
-    if (!owner) return;
-    try { amounts = await flow.bountyAmounts(ids(owner)); } catch (cause) { error = String((cause as Error)?.message ?? cause); }
+  async function readAmounts(requestedOwner = owner): Promise<void> {
+    if (!requestedOwner) return;
+    try {
+      const result = await flow.bountyAmounts(ids(requestedOwner));
+      if (owner === requestedOwner) amounts = result;
+    } catch (cause) {
+      if (owner === requestedOwner) error = String((cause as Error)?.message ?? cause);
+    }
   }
   function load(which: typeof open): void {
     if (which === "top") void flow.topBounties(showType).then((r) => { top = r; }).catch(() => { top = []; });
@@ -121,6 +126,7 @@
   function pickType(kind: typeof showType): void { showType = kind; if (open === "top") top = null; else hunters = null; load(open); }
   async function place(): Promise<void> {
     if (!owner || busy) return;
+    const placedFor = owner;
     const amount = Number(amountText.replace(/[^\d]/g, ""));
     const min = minimum(owner.ownerID, kindOf(owner));
     if (!(amount >= min)) {
@@ -130,15 +136,29 @@
     }
     busy = true; error = "";
     try {
-      await flow.placeBounty(owner.ownerID, amount);
-      amountText = "";
-      await readAmounts();
+      await flow.placeBounty(placedFor.ownerID, amount);
+      if (owner === placedFor) {
+        amountText = "";
+        await readAmounts();
+      }
       mine = null;
       if (open === "mine") load("mine");
-    } catch (cause) { error = String((cause as Error)?.message ?? cause); }
+    } catch (cause) { if (owner === placedFor) error = String((cause as Error)?.message ?? cause); }
     finally { busy = false; }
   }
-  onMount(() => { flow.requestWords(LABELS); void readAmounts(); load("top"); });
+  $effect(() => {
+    const nextOwner = target;
+    owner = nextOwner;
+    searchText = "";
+    searchHint = "";
+    picking = null;
+    amountText = "";
+    amountHint = "";
+    amounts = new Map();
+    error = "";
+    void readAmounts(nextOwner);
+  });
+  onMount(() => { flow.requestWords(LABELS); load("top"); });
 </script>
 
 <div class="bounty-layer">
