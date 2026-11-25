@@ -3,8 +3,7 @@
 // Until 2026-10-10 each was one route of the BFF (POST /api/bridge/ship/leave, POST /api/bridge/ship/board-corvette),
 // which checked that the page had said `confirm`, made one call, and answered once the pilot was in another ship.
 //
-// A CORVETTE, as the client boards one (station.CreateNewbieShip, base.py 597 to 613), from the lobby's corvette
-// button and no other place:
+// A CORVETTE, as the client boards one (station.CreateNewbieShip, base.py 597 to 613):
 //
 //   locationID = session.stationid or session.structureid   none: refused by the client itself
 //   the ship is godma's own item (GetShipItem)              none: refused by the client itself
@@ -57,6 +56,8 @@ export interface PilotsShip {
 }
 
 const known = (id: number | null): id is number => id !== null && Number.isSafeInteger(id) && id > 0;
+
+export const CONFIRM_MOVE_TO_NEWBIE_SHIP = "UI/Station/ConfirmMoveToNewbieShip";
 
 /**
  * Boards a corvette where the pilot is docked, as the client's lobby does: the pilot is in it when this is

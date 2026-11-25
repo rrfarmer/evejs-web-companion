@@ -107,7 +107,7 @@
   import { isRepairableItem, stationOffersRepair } from "../bridge/repairShop.ts";
   import { canRepackageAssetType } from "../bridge/assetRepackage.ts";
   import { isSessionLost } from "../app/flow.ts";
-  import { GROUP_CORVETTE } from "../bridge/shipWrites.ts";
+  import { CONFIRM_MOVE_TO_NEWBIE_SHIP, GROUP_CORVETTE } from "../bridge/shipWrites.ts";
   import { ordinaryContainerStackPlace } from "../bridge/inventoryWrites.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { resolvedName, nameKey, type NameKind, type NameRef } from "../store/names.ts";
@@ -399,15 +399,6 @@
   const selection = $derived($inventory.selection);
   // corvetteButton.py: the lobby's button is out of use aboard a corvette, which it tells by the hull's group.
   const aboardCorvette = $derived($flight.status?.shipGroupID === GROUP_CORVETTE);
-  /**
-   * station.CreateNewbieShip (608 to 611): the pilot is asked before a hull that is no capsule is left for a
-   * corvette, in the client's own dialog: AskAreYouSure, its `cons` the client's ConfirmMoveToNewbieShip.
-   */
-  const CONFIRM_MOVE_TO_NEWBIE_SHIP = "UI/Station/ConfirmMoveToNewbieShip";
-  const sureOfTheCorvette = (): Promise<boolean> => {
-    const template = $words.templates[CONFIRM_MOVE_TO_NEWBIE_SHIP];
-    return flow.askAreYouSure(typeof template === "string" ? plainText(formatTemplate(template, {}, { nameOf: () => "" })) : "Board a new corvette? You will leave the ship you are in.");
-  };
   const openShip = $derived($inventory.openShip);
   const container = $derived($inventory.container);
   // invControllers.ItemWreck / ItemFloatingCargo: a wreck or a can in space is lootable where its ball's group is one of
@@ -2330,7 +2321,7 @@
         <p class="stn-controls">
           <!-- The repair shop. This press only ASKS for the quote; the wallet is
                charged by the priced press that appears with the answer. -->
-          <button type="button" class="stn-btn stn-btn-wide" disabled={busy || aboardCorvette} title={aboardCorvette ? "You are already aboard a corvette." : undefined} onclick={() => run(() => flow.boardCorvette(sureOfTheCorvette))}>
+          <button type="button" class="stn-btn stn-btn-wide" disabled={busy || aboardCorvette} title={aboardCorvette ? "You are already aboard a corvette." : undefined} onclick={() => run(() => flow.boardCorvette())}>
             Board corvette
           </button>
           <button type="button" class="stn-btn stn-btn-wide" disabled={busy} onclick={() => run(() => flow.leaveShip())}>

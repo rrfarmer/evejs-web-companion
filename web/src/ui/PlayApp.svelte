@@ -72,6 +72,7 @@
   import type { StarMapColorMode } from "../bridge/starMapFilters.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
   import { ACADEMY_BUTTON, ACADEMY_TITLE } from "../bridge/academyShips.ts";
+  import { CONFIRM_MOVE_TO_NEWBIE_SHIP, GROUP_CORVETTE } from "../bridge/shipWrites.ts";
   import { SHIP_TREE_CAPTION } from "../bridge/shipTree.ts";
   import { FittingShipScene } from "../play/fittingScene.ts";
   import { setContext } from "svelte";
@@ -612,6 +613,11 @@
     });
   });
   const academyLabel = $derived(plainText($academyWords?.templates[ACADEMY_BUTTON] ?? "Academy Ship Service"));
+  const corvetteLabel = $derived(plainText($academyWords?.templates["UI/Station/CreateNewbieShipButton"] ?? "Board my Corvette"));
+  const aboardCorvette = $derived($flight?.status?.shipGroupID === GROUP_CORVETTE);
+  const corvetteHint = $derived(aboardCorvette
+    ? plainText($academyWords?.templates["UI/Station/AlreadyInNewbieShip"] ?? "You are already aboard a corvette.")
+    : plainText($academyWords?.templates["UI/Station/CreateNewbieShipTooltip"] ?? "Board a corvette at this station."));
   let academyAccess = $state<"hidden" | "locked" | "available">("hidden");
   $effect(() => {
     const s = session;
@@ -1620,7 +1626,8 @@
   $effect(() => {
     if (!session) return;
     const s = session;
-    s.flow.requestWords([...Object.values(CAPTION_LABELS) as string[], ...DSCAN_WORDS, ...COMBAT_WORDS, TARGET_LOCKED_LABEL, ACADEMY_BUTTON, "UI/Neocom/ActiveShipCargoBtn"]);
+    s.flow.requestWords([...Object.values(CAPTION_LABELS) as string[], ...DSCAN_WORDS, ...COMBAT_WORDS, TARGET_LOCKED_LABEL, ACADEMY_BUTTON, "UI/Neocom/ActiveShipCargoBtn",
+      "UI/Station/CreateNewbieShipButton", "UI/Station/CreateNewbieShipTooltip", "UI/Station/AlreadyInNewbieShip", CONFIRM_MOVE_TO_NEWBIE_SHIP]);
     return s.store.words.subscribe((w) => {
       const a = w.templates["UI/Neocom/ActiveShipCargoBtn"];
       if (typeof a === "string" && a !== "") activeShipCaption = plainText(a);
@@ -3857,8 +3864,23 @@
 
   let undockedAt = -Infinity;
   let undockPending = $state(false);
+  let corvettePending = $state(false);
+  async function boardLobbyCorvette() {
+    const pilot = session;
+    if (!pilot || corvettePending || undockPending || refineryPending || controllingStructure || aboardCorvette) return;
+    corvettePending = true;
+    error = "";
+    try {
+      await pilot.flow.boardCorvette();
+    } catch (err) {
+      if (session === pilot) error = (err as Error).message;
+    } finally {
+      corvettePending = false;
+    }
+  }
+
   async function undock() {
-    if (!session || undockPending || controllingStructure || refineryPending) return;
+    if (!session || undockPending || controllingStructure || refineryPending || corvettePending) return;
     const pilot = session;
     undockPending = true;
     error = "";
@@ -4032,10 +4054,13 @@
               <button class="academy-service" disabled={refineryPending} onclick={() => changeRefineryControl(false)}>Release Control</button>
             </div>
           {:else}
-            <button class="undock" disabled={undockPending || refineryPending} onclick={undock}>Undock</button>
+            <button class="undock" disabled={undockPending || refineryPending || corvettePending} onclick={undock}>Undock</button>
             {#if moonRefinery?.canControl}
-              <button class="academy-service" disabled={refineryPending || undockPending} onclick={() => changeRefineryControl(true)}>Take Control</button>
+              <button class="academy-service" disabled={refineryPending || undockPending || corvettePending} onclick={() => changeRefineryControl(true)}>Take Control</button>
             {/if}
+            <button type="button" class="academy-service lobby-corvette" title={corvetteHint}
+              disabled={corvettePending || undockPending || refineryPending || aboardCorvette || !$flight?.status?.shipID}
+              onclick={boardLobbyCorvette}>{corvetteLabel}</button>
           {/if}
           {#if refineryError}<div class="error lobby-error" role="alert">{refineryError}</div>{/if}
           {#if academyAccess !== "hidden"}
@@ -5103,6 +5128,7 @@
     border-radius: 0 0 8px 8px; background: #13282f; color: #d5eef2; cursor: pointer; }
   .academy-service:hover:enabled { background: #26434b; }
   .academy-service:disabled { opacity: 0.5; cursor: default; }
+  .lobby-corvette { display: block; width: fit-content; min-width: min(148px, 100%); min-height: 32px; margin-inline: auto; }
   .lobby-services { display: flex; flex: none; justify-content: center; flex-wrap: wrap; gap: 4px; margin-inline: 16px; }
   .lobby-svc { display: grid; place-items: center; box-sizing: border-box; flex: 0 0 32px; width: 32px; height: 32px; min-height: 0;
     padding: 0; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); cursor: pointer; }

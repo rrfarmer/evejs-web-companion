@@ -1238,7 +1238,7 @@ import { alignTo as alignToCall, alignToPosition as alignToPositionCall, alignTo
 import { dock as dockCall, dockAtStructure as dockAtStructureCall, enterWormhole as enterWormholeCall, isStation, jump as jumpCall, jumpThroughJumpGate as jumpThroughJumpGateCall, undock as undockCall, WORMHOLE_ENTRY_RANGE_M } from "../bridge/placeChanges.ts";
 import { jumpBridgeZone, readJumpBridgeCharge } from "../bridge/jumpBridgePanel.ts";
 import { sessionPlace } from "../bridge/sessionPlace.ts";
-import { assembleShip as assembleShipCall, boardCorvette as boardCorvetteCall, boardShip as boardShipCall, ejectFromShip as ejectFromShipCall, selfDestructShip as selfDestructShipCall, abortSelfDestructShip as abortSelfDestructShipCall, jettison as jettisonCall, leaveShip as leaveShipCall, type JettisonOutcome } from "../bridge/shipWrites.ts";
+import { assembleShip as assembleShipCall, boardCorvette as boardCorvetteCall, boardShip as boardShipCall, CONFIRM_MOVE_TO_NEWBIE_SHIP, ejectFromShip as ejectFromShipCall, selfDestructShip as selfDestructShipCall, abortSelfDestructShip as abortSelfDestructShipCall, jettison as jettisonCall, leaveShip as leaveShipCall, type JettisonOutcome } from "../bridge/shipWrites.ts";
 import { activityIDOf, averagePrices, createJobReckoner, type JobReckoner, type JobReckoning } from "../bridge/industryJobReckoning.ts";
 import { connectJob, decodeFacilityPlaces, disconnectJob, installJob, jobDump, jobPlaces, monitoredAs, type Monitored } from "../bridge/industryMonitor.ts";
 import { NO_OPTIONAL_MATERIAL } from "../bridge/industryReckonings.mjs";
@@ -2306,7 +2306,7 @@ export interface AppFlow {
    * asks the pilot, as the client does before a hull that is no capsule is
    * left; on a no nothing is asked of the server.
    */
-  boardCorvette(sure: () => boolean | Promise<boolean>): Promise<void>;
+  boardCorvette(sure?: () => boolean | Promise<boolean>): Promise<void>;
   /** prompt_player_fsd_dialog('AskAreYouSure', {'cons': cons}, uiconst.YESNO): the client's own question, true on Yes. */
   askAreYouSure(cons: string): Promise<boolean>;
   /**
@@ -37345,12 +37345,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     askAreYouSure: (cons) => askDialog("AskAreYouSure", { type: "dict", entries: [["cons", cons]] }, cons),
 
     async boardCorvette(sure) {
+      const confirm = sure ?? (() => {
+        const template = store.words.get().templates[CONFIRM_MOVE_TO_NEWBIE_SHIP];
+        const text = typeof template === "string"
+          ? plainText(formatTemplate(template, {}, { nameOf: () => "" }))
+          : "Board a new corvette? You will leave the ship you are in.";
+        return askDialog("AskAreYouSure", { type: "dict", entries: [["cons", text]] }, text);
+      });
       // The page's own call (bridge/shipWrites.ts), as the client's lobby makes it (station.CreateNewbieShip): the
       // ship, where it is docked and the hull's group are the pilot's flight's, which has them as godma does.
       let declined = false;
       await runMutation(async () => {
         const now = decodeFlightStatus((await api.getFlightStatus(callOptions)).flight);
-        declined = !(await boardCorvetteCall(bridgeDo, { shipID: now.shipID, dockedAt: now.stationID ?? now.structureID, groupID: now.shipGroupID ?? null, isCapsule: now.shipIsCapsule }, sure));
+        declined = !(await boardCorvetteCall(bridgeDo, { shipID: now.shipID, dockedAt: now.stationID ?? now.structureID, groupID: now.shipGroupID ?? null, isCapsule: now.shipIsCapsule }, confirm));
         return !declined;
       });
       if (!declined) {
