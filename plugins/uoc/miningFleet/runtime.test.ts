@@ -1,6 +1,7 @@
 import { officeList, corporationRow } from "./corporateOfficeFixture.ts";
 import { memoryFleetDocuments } from "./operationStoreFixture.ts";
-import test from "node:test";
+import { testPilotSession } from "../test/pilotSession.ts";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import {
   confirmCommandFinalHold,
@@ -1898,9 +1899,30 @@ for (const outcome of [
     }
   });
 
-test("the hosted capsule parking path records exact fleet losses and excludes the belt", async (t) => {
-  t.mock.timers.enable({ apis: ["Date", "setInterval"], now: 1_800_000_000_000 });
-  const setup = { ...base, operationID: "wipe-during-parking", beltName: "Wipe belt" };
+test("the hosted capsule parking path records exact fleet losses and excludes the belt", (t) =>
+  checkCapsuleParking(t, "available"),
+);
+test("verified capsule docking can finish when the loss-history read is retired", (t) =>
+  checkCapsuleParking(t, "retired"),
+);
+test("capsule parking finishes after the two bounded loss-history reads time out", (t) =>
+  checkCapsuleParking(t, "timeout"),
+);
+
+async function checkCapsuleParking(t: TestContext, history: "available" | "retired" | "timeout") {
+  t.mock.timers.enable({ apis: ["Date", "setInterval", "setTimeout"], now: 1_800_000_000_000 });
+  const nativeTimeout = AbortSignal.timeout.bind(AbortSignal);
+  const timeout = t.mock.method(AbortSignal, "timeout", (ms: number) => {
+    if (history !== "timeout" || ms !== 2_000) return nativeTimeout(ms);
+    const caller = new AbortController();
+    setTimeout(() => caller.abort(new DOMException("Loss-history deadline", "TimeoutError")), ms);
+    return caller.signal;
+  });
+  const setup = {
+    ...base,
+    operationID: "capsule-parking-" + history,
+    beltName: "Loss history " + history,
+  };
   const target = { kind: "BELT" as const, systemID: setup.systemID, name: setup.beltName };
   const seen = Date.now(),
     opKey = JSON.stringify([setup.operationID, setup.operationRunID]);
@@ -1972,6 +1994,16 @@ test("the hosted capsule parking path records exact fleet losses and excludes th
             [body.service, body.method, body.args, body.pilot],
             ["charMgr", "GetRecentShipKillsAndLosses", [25, null], true],
           );
+          if (history === "retired")
+            return Response.json({ ok: false, error: "SESSION_REQUEST_RETIRED" }, { status: 409 });
+          if (history === "timeout") {
+            const signal = init?.signal;
+            assert.ok(signal);
+            signal.throwIfAborted();
+            return new Promise<Response>((_, reject) => {
+              signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+            });
+          }
           return Response.json({
             ok: true,
             service: body.service,
@@ -2016,6 +2048,7 @@ test("the hosted capsule parking path records exact fleet losses and excludes th
           assert.fail("A verified dock needs no route");
         },
         flying: {
+          bridgeAsk: testPilotSession(id, run).flow.flying.bridgeAsk,
           sessionGeneration: () => 1,
           isSessionClosing: () => false,
           abortAutopilot() {},
@@ -2048,13 +2081,16 @@ test("the hosted capsule parking path records exact fleet losses and excludes th
     t.mock.timers.tick(1500);
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
+  const attempts = history === "timeout" ? 2 : 1;
   for (const m of setup.members)
-    assert.deepEqual(log[m.characterID], ["GetRecentShipKillsAndLosses"]);
+    assert.deepEqual(log[m.characterID], Array(attempts).fill("GetRecentShipKillsAndLosses"));
+  const deadlines = timeout.mock.calls.filter((call) => call.arguments[0] === 2_000);
+  assert.equal(deadlines.length, attempts * setup.members.length);
   assert.deepEqual(reports, { 1: "stopped", 2: "stopped", 3: "stopped" });
-  assert.equal((store.read() as any).shipLosses.length, 3);
-  assert.equal(runtime.targetSnapshot()[claim.key]?.state, "DANGEROUS");
+  assert.equal((store.read() as any).shipLosses?.length ?? 0, history === "available" ? 3 : 0);
+  assert.equal(runtime.targetSnapshot()[claim.key]?.state === "DANGEROUS", history === "available");
   assert.equal(op.snapshot().stopFreight, "RETURN_HOME");
-});
+}
 
 for (const kind of ["BELT", "ORE_ANOMALY", "ICE"] as const)
   test(`ten of thirteen losses on ${kind} mark the target and return the survivors home`, async (t) => {
@@ -2178,7 +2214,9 @@ for (const kind of ["BELT", "ORE_ANOMALY", "ICE"] as const)
           }
           if (path === "/api/bridge/call") {
             const body = JSON.parse(String(init?.body));
-            assert.equal(body.method, "GetRecentShipKillsAndLosses");
+            if (body.service === "dogmaIM" && body.method === "GetLayerDamageValuesByItems")
+              return Response.json({ ok: true, result: { type: "list", items: [] } });
+            assert.deepEqual([body.service, body.method], ["charMgr", "GetRecentShipKillsAndLosses"]);
             assert.ok(losses.has(id));
             return Response.json({
               ok: true,
@@ -2225,7 +2263,7 @@ for (const kind of ["BELT", "ORE_ANOMALY", "ICE"] as const)
             isSessionClosing: () => false,
             abortAutopilot() {},
             autopilotProgress: () => ({ status: "arrived" }),
-            bridgeAsk: async () => ({ type: "list", items: [] }),
+            bridgeAsk: testPilotSession(id, run).flow.flying.bridgeAsk,
           },
         },
       };

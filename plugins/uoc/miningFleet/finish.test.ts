@@ -1,5 +1,6 @@
 import type { BackendPilotObservation } from "../shared/backendScope.ts";
 import { memoryFleetDocuments } from "./operationStoreFixture.ts";
+import { testPilotSession } from "../test/pilotSession.ts";
 import { fleetOperationStore, deliveryReceiptIndex } from "./operationStore.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -2031,6 +2032,52 @@ test("F10 a new FINISH owner with uncertain cargo docks and releases while the e
   await handle.stop();
 });
 
+test("retained Stop keeps the pilot pending if its session closes during the scene and drone read", async () => {
+  const x = fixture();
+  x.deps.settle = undefined;
+  const { actor, routes } = flightFixture(x, 1, "finish-1", false);
+  let pilot!: ReturnType<typeof testPilotSession>;
+  x.deps.attach = async (run) => (pilot = testPilotSession(run.held.characterID, run));
+  const fetch = actor.fetch;
+  let finishLogout!: (response: Response) => void;
+  const logoutResponse = new Promise<Response>((resolve) => { finishLogout = resolve; });
+  let closing: Promise<void> | undefined;
+  let observations = 0;
+  actor.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/logout") return logoutResponse;
+    if (path === "/api/bridge/script/observation") {
+      observations++;
+      closing = pilot.flow.logout();
+      return Response.json({
+        ok: true,
+        activeShipID: 11,
+        bay: [],
+        inSpace: [],
+        errors: { bay: null, shipInfo: null, inSpace: null },
+        space: { inSpace: true, shipID: 11, solarSystemID: 300, ship: { itemID: 11, characterID: 1 } },
+      });
+    }
+    return fetch(input, init);
+  };
+  const handle = await x.run.start(actor);
+  try {
+    const report = await outcome(x.reports, 1);
+    assert.equal(pilot.flow.flying.isSessionClosing(), true);
+    assert.equal(report.phase, "Fleet finish blocked");
+    assert.match(report.why, /retired pilot session/);
+    assert.equal(observations, 1);
+    assert.deepEqual((x.store(x.opKey).read() as any).settled, []);
+    assert.deepEqual((x.store(x.opKey).read() as any).parked, []);
+    assert.deepEqual(routes, []);
+    assert.ok(x.stops.has(actor.botID), "Retry Stop is still registered");
+  } finally {
+    finishLogout(Response.json({ ok: true }));
+    await closing;
+    await handle.stop();
+  }
+});
+
 test("November 11 retained FINISH uses the held hauler and settles seven members from fresh native observations", async (t) => {
   const roles = ["HAULER", "MINER", "MINER", "MINER", "MINER", "DEFENDER", "DEFENDER"] as const;
   const members = roles.map((role, index) => ({
@@ -2101,6 +2148,7 @@ test("November 11 retained FINISH uses the held hauler and settles seven members
   x.deps.attach = async (run) => {
     const session = await attach(run);
     Object.assign(session.flow.flying, {
+      readObservation: testPilotSession(run.held.characterID, run).flow.flying.readObservation,
       async bridgeAsk() {
         assert.equal(run.held.characterID, 1);
         return kv([

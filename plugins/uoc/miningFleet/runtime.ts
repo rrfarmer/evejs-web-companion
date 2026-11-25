@@ -1,6 +1,6 @@
 import { observeLocality, rankLocality, type LocalityRead } from "./locality.ts";
 import { confirmFleetWipe, readShipLoss } from "./fleetWipe.ts";
-import { bridgeAsk, quoteHullRepair, repairQuotedHull } from "../compat/flying.ts";
+import { quoteHullRepair, repairQuotedHull } from "../compat/flying.ts";
 import { createFleetTelemetry, readFleetTelemetry, type FleetTelemetry } from "./telemetry.ts";
 import { createPilotTiming, mccTimingEnabled, timed, type MccTiming } from "./timing.ts";
 import type { FreightStatus } from "./freightPolicy.ts";
@@ -3310,13 +3310,15 @@ function makeGroup(
       capsuleSeenAt = Date.now();
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const ask = bridgeAsk({
-          ...e.session.flow.requestOptions(),
-          baseUrl: e.run.baseUrl,
-          fetch: e.run.fetch,
-          signal: AbortSignal.timeout(2_000),
-        });
-        const raw = await ask("charMgr", "GetRecentShipKillsAndLosses", [25, null]);
+        guardHeld(e);
+        const raw = await e.session.flow.flying.bridgeAsk(
+          "charMgr",
+          "GetRecentShipKillsAndLosses",
+          [25, null],
+          undefined,
+          undefined,
+          { signal: AbortSignal.timeout(2_000) },
+        );
         guardHeld(e);
         const loss = readShipLoss(raw, { ...e.member, shipTypeID }, at, capsuleSeenAt);
         if (loss) {
@@ -3326,8 +3328,13 @@ function makeGroup(
           applyFleetWipe(sample);
           return;
         }
-      } catch {
-        if (!e.active || e.session.flow.flying.isSessionClosing()) return;
+      } catch (error) {
+        if (
+          !e.active ||
+          e.session.flow.flying.isSessionClosing() ||
+          (error as { code?: string } | null)?.code === "SESSION_REQUEST_RETIRED"
+        )
+          return;
       }
       if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 250));
     }

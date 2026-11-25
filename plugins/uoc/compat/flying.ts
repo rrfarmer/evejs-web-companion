@@ -9,9 +9,6 @@ import {
   unwrapLong,
 } from "../shared/wire.ts";
 
-// These reads require Farmer to guard the held session and arm its deadline after lane admission.
-export { bridgeAsk, getScriptObservation } from "../../../web/src/app/api.ts";
-
 function record(value: unknown): value is Record<string, JsonValue> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

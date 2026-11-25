@@ -10,7 +10,6 @@ import { unwrapCachedResult } from "../../../web/src/bridge/market.ts";
 import { isLootableContainer, lootRightsGrant } from "../../../web/src/nav/lootableContainers.ts";
 import { droneRoleForGroup } from "../../../web/src/nav/droneRoles.ts";
 import { quoteRepairs, repairQuoted } from "../../../web/src/bridge/repairShop.ts";
-import { hostedFetch, HOSTED_MAX_IN_FLIGHT } from "../../../web/src/app/transport.ts";
 
 test("cached corporation assets keep their item and division identity", () => {
   const rowset = {type: "objectex2", list: [
@@ -56,61 +55,4 @@ test("MCC selects the hull’s own damaged part and pays the same station or str
       assert.deepEqual(actual, expected);
     }
   }
-});
-
-test("loss and combined settlement reads ride the real hosted read lane and retain notifications", async () => {
-  const calls: string[] = [], seen: JsonValue[] = [];
-  const fetch = hostedFetch(async (url, init, priority) => {
-    assert.equal(priority, "read");
-    assert.equal(init?.credentials, "omit");
-    assert.ok(init?.signal);
-    const path = new URL(String(url)).pathname;
-    calls.push(path);
-    if (path.endsWith("/call")) {
-      const call = JSON.parse(String(init?.body));
-      assert.deepEqual(call, {service:"charMgr",method:"GetRecentShipKillsAndLosses",args:[25,null],kwargs:null,pilot:true});
-      return Response.json({ok:true,...call,result:[1],notifications:["loss"]});
-    }
-    return Response.json({ok:true, activeShipID:12, space:{shipID:12}, bay:[], inSpace:[], shipInfo:null,
-      errors:{bay:null,shipInfo:null,inSpace:null}, notifications:["settlement"]});
-  }, "12", () => true);
-  let current = true;
-  const options = {baseUrl:"http://fixture", token:null, fetch, captureRequestGuard:() => () => assert.ok(current),
-    captureNotificationSink:() => (batch: readonly JsonValue[]) => seen.push(...batch)};
-  assert.deepEqual(await uoc.bridgeAsk({...options,signal:AbortSignal.timeout(2_000)})("charMgr","GetRecentShipKillsAndLosses",[25,null]), [1]);
-  assert.deepEqual((await uoc.getScriptObservation(options)).space, {shipID:12});
-  current = false;
-  await assert.rejects(uoc.getScriptObservation(options));
-  assert.deepEqual(calls, ["/api/bridge/call","/api/bridge/script/observation"]);
-  assert.deepEqual(seen, ["loss","settlement"]);
-});
-
-test("a settlement read gets its full budget after admission and a retired pilot sends no read", async t => {
-  let release!: () => void;
-  const occupied = new Promise<void>(resolve => { release = resolve; });
-  const dispatched: string[] = [];
-  const fetch = hostedFetch(async url => {
-    if (String(url).endsWith("/held")) await occupied;
-    else dispatched.push(String(url));
-    return Response.json({ok:true, space:{shipID:12}});
-  }, "12", () => true);
-  const busy = Array.from({length:HOSTED_MAX_IN_FLIGHT}, () => fetch("/api/held"));
-  const timeout = t.mock.method(AbortSignal, "timeout");
-  const options = {baseUrl:"http://fixture", token:null, fetch};
-  let active = true;
-  const retired = assert.rejects(uoc.getScriptObservation({...options,
-    captureRequestGuard:() => () => { if (!active) throw Error("pilot retired"); },
-  }), /pilot retired/);
-  const current = uoc.getScriptObservation(options);
-  try {
-    assert.equal(timeout.mock.callCount(), 0, "waiting for a hosted slot spent the response budget");
-  } finally {
-    active = false;
-    release();
-    await Promise.all(busy);
-  }
-  assert.deepEqual((await current).space, {shipID:12});
-  await retired;
-  assert.deepEqual(dispatched, ["http://fixture/api/bridge/script/observation"]);
-  assert.equal(timeout.mock.callCount(), 1);
 });

@@ -9,7 +9,6 @@ import {
   getFlightStatus,
   getSpaceSnapshot,
 } from "../../../web/src/plugin-api/flying.ts";
-import { getScriptObservation } from "../compat/flying.ts";
 import type { PluginRunContext } from "../../../web/src/plugin-api/backend.ts";
 import type { PilotSession } from "../../../web/src/plugin-api/pilotSession.ts";
 import type { FleetSetup } from "./runtime.ts";
@@ -36,7 +35,8 @@ export async function settleFleetMember(
   const flight = decodeFlightStatus((await getFlightStatus(options)).flight);
   current();
   const retained = droneOptions?.verifyRetainedModules;
-  const observation = retained && flight.inSpace ? await getScriptObservation(options) : null;
+  const observation =
+    retained && flight.inSpace ? await session.flow.flying.readObservation() : null;
   const drones = observation ?? (await getDrones(options));
   current();
   if (
