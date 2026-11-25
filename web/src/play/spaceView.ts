@@ -1384,6 +1384,9 @@ export class SpaceView {
         if (mark?.userData.ordinaryWormhole) playWormholeActivity(mark, Number(mark.userData.wormholeTypeID));
       }
       const ownShip = this.live.hello?.shipID ?? null;
+      if (start && this.lookAt !== null && (ship === ownShip || ship === this.lookAt) && guids.includes("effects.Warping")) {
+        this.refocusForWarp();
+      }
       if (!this.gateJump && start && ship === ownShip && target > 0 && guids.includes("effects.JumpOutWormhole")) {
         this.beginJumpCamera(target);
       } else if (!this.gateJump && isOwnStargateDeparture(guids, ship, start, ownShip)) this.beginJumpCamera();
@@ -3121,6 +3124,11 @@ export class SpaceView {
   private focusOn(id: number | null): void {
     this.endExplosionCamera();
     this.lookAt = id;
+  }
+
+  private refocusForWarp(): void {
+    this.trackedObjective = null;
+    this.focusOn(null);
   }
 
   private beginExplosionCamera(entity: Entity, start: Promise<number | null>): void {
@@ -6200,6 +6208,7 @@ export class SpaceView {
     this.lastFrameAt = now;
     this.steerFrame(ego, dt, now);
     const inMiningWarp = ego?.mode === "WARP";
+    if (inMiningWarp && this.lookAt !== null) this.refocusForWarp();
     const miningShipChanged = this.lastMiningShip !== null && ego != null && this.lastMiningShip !== ego.itemID;
     if (ego) this.lastMiningShip = ego.itemID;
     const gridReset = this.live.resets !== this.seenResets;
