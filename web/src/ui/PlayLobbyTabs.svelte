@@ -4,7 +4,10 @@
   // (agentMgr.GetAgents, flow.loadAgents) and the corporations with an office here (flow.loadStationOffices), each
   // read as its tab is first opened. Names through the app's name cache. An agent opens the app's conversation.
   import type { Session } from "../app/sessions.ts";
+  import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName, type NameKind, type NameRef } from "../store/names.ts";
+  import { showInfo } from "./showInfo.ts";
+  import StationOfficeActions from "./StationOfficeActions.svelte";
   import StationPanel from "./StationPanel.svelte";
 
   let { session, onOpenAgents, onOpenInventory, onReprocess }: {
@@ -35,6 +38,10 @@
   const stationID = $derived($station?.online?.stationID ?? null);
   const agentRows = $derived(($agents?.agents ?? []).filter((a) => stationID === null || a.stationID === stationID));
   const officeIDs = $derived($station?.offices?.corporationIDs ?? []);
+  const officeRows = $derived(officeIDs.map(id => ({ id, name: name("corporation", id) }))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id));
+  const availableOfficesLabel = "UI/Station/Lobby/NumAvailableOffices";
+  const officeInfoLabel = "UI/Station/Lobby/CorpShowInfoButton";
 
   // the names on show, asked for as they come
   $effect(() => {
@@ -45,7 +52,8 @@
     ];
     if (refs.length) session.flow.requestNames(refs);
     // the agents' mission types are the client's own words, by label
-    const labels = ["UI/Station/Lobby/Hangars", ...new Set(agentRows.map((a) => a.missionTypeLabel).filter((l): l is string => !!l))];
+    const labels = ["UI/Station/Lobby/Hangars", availableOfficesLabel, officeInfoLabel,
+      ...new Set(agentRows.map((a) => a.missionTypeLabel).filter((l): l is string => !!l))];
     if (labels.length) session.flow.requestWords(labels);
   });
   const word = (label: string | null) => (label ? (typeof $words?.templates?.[label] === "string" ? $words.templates[label] : "") : "");
@@ -81,13 +89,20 @@
     {#if $station?.offices && !$station.offices.available}
       <div class="dim">This connection does not carry the offices.</div>
     {:else}
-      {#each officeIDs as id (id)}
-        <div class="lobby-row"><span class="who">{name("corporation", id)}</span></div>
+      {#if $station?.offices?.freeOffices != null}
+        {@const numOffices = $station.offices.freeOffices}
+        <div class="dim free">{plainText(formatTemplate(word(availableOfficesLabel), { numOffices }, { nameOf: name })) || `${numOffices} offices free`}</div>
+      {/if}
+      {#each officeRows as office (office.id)}
+        <div class="lobby-row"><span class="who">{office.name}</span>
+          <button type="button" class="office-info" title={plainText(word(officeInfoLabel)) || "Show Info"}
+            aria-label={`Show Info for ${office.name}`} onclick={() => showInfo({ kind: "corporation", corporationID: office.id })}>ⓘ</button>
+        </div>
       {:else}<div class="dim">{$station?.offices ? "No corporation has an office here." : "Reading the offices…"}</div>{/each}
-      {#if $station?.offices?.freeOffices != null}<div class="dim free">{$station.offices.freeOffices} offices free</div>{/if}
     {/if}
   {/if}
 </div>
+{#if tab === "offices"}<StationOfficeActions store={session.store} flow={session.flow} />{/if}
 {/if}
 
 <style>
@@ -102,5 +117,6 @@
   .lobby-row.agent:hover { background: rgba(255, 255, 255, 0.07); }
   .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dim { color: #8d918c; white-space: nowrap; }
-  .free { margin-top: 6px; }
+  .free { margin: 0 4px 4px; }
+  .office-info { color: inherit; line-height: 1; background: transparent; border: 0; cursor: pointer; padding: 1px 4px; }
 </style>

@@ -37,6 +37,7 @@
   import { shipHoldTarget } from "./shipHold.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import InventoryFilters from "./InventoryFilters.svelte";
+  import StationOfficeActions from "./StationOfficeActions.svelte";
   import { FILTER_FIELD, matchInventoryFilter, roundInventoryFilterPrice, type InventoryFilter, type InventoryFilterFacts } from "../bridge/inventoryFilters.ts";
   import { ITEM_FITTING_FILTER_FIELDS, loadInventoryFilterFacts, loadInventoryItemFittingFacts, TYPE_FILTER_FIELDS } from "../app/inventoryFilterFacts.ts";
   import { showInfo } from "./showInfo.ts";
@@ -117,7 +118,6 @@
     InventoryItemRow,
     InventoryPlace,
     ShipBay,
-    StationOfficeQuote,
   } from "../store/types.ts";
 
   let {
@@ -1298,42 +1298,8 @@
   let repairQuote = $state<readonly RepairQuoteRow[] | null>(null);
   let repairNote = $state("");
 
-  // The lobby's two office buttons (dockedUI/offices.py, _load_buttons): to
-  // rent, for a pilot who may rent whose corporation has no office here; to
-  // give up, for a director whose corporation has one. Each is two presses, as
-  // the retail lobby asks before it acts: the price is shown before the rent
-  // is paid, and an office is given up only on a second press.
   /** What the pilot is docked in, for the lobby's own words: its guests' and its offices'. */
   const dockedPlace = $derived($station.online?.structureID ? "structure" : "station");
-  const canRentHere = $derived(Boolean($station.offices?.canRent && !$station.offices.ownOffice));
-  const canGiveUpHere = $derived(Boolean($station.offices?.canGiveUp && $station.offices.ownOffice));
-  let officeQuote = $state<StationOfficeQuote | null>(null);
-  let givingUpOffice = $state(false);
-  // A price shown, or a question asked, is for the office as it was: once the
-  // button it belongs to is gone, so is it.
-  $effect(() => {
-    if (!canRentHere) officeQuote = null;
-    if (!canGiveUpHere) givingUpOffice = false;
-  });
-  /** Whether the corporation's hangar here, as the page has it, holds anything. */
-  const officeHoldsItems = $derived(
-    $inventory.corp.loaded && $inventory.corp.available && $inventory.corp.divisions.some((division) => division.rows.length > 0),
-  );
-
-  async function askOfficeQuote(): Promise<void> {
-    officeQuote = await flow.quoteStationOffice();
-  }
-
-  async function payOfficeRent(): Promise<void> {
-    if (officeQuote === null) return;
-    await flow.rentStationOffice(officeQuote);
-    officeQuote = null;
-  }
-
-  async function giveUpOffice(): Promise<void> {
-    await flow.giveUpStationOffice();
-    givingUpOffice = false;
-  }
   let quotedShipID = $state<number | null>(null);
 
   // A quote names ITEM IDS on one hull. Board another ship and those ids are no
@@ -1922,54 +1888,10 @@
       {/each}
     </ul>
   {/if}
-  {#if $station.offices?.available}
-    {#if $station.offices.ownOffice}
-      <p class="stn-note">Your corporation has an office here.</p>
-    {:else if $station.offices.impounded}
-      <p class="stn-note">Your corporation has items impounded here.</p>
-    {/if}
-    {#if canRentHere && officeQuote === null}
-      <p class="stn-controls">
-        <button type="button" class="stn-btn stn-btn-wide" disabled={busy} onclick={() => run(askOfficeQuote)}>
-          Rent an office
-        </button>
-      </p>
-    {:else if canRentHere && officeQuote !== null}
-      <p class="stn-note">
-        An office here costs {formatIsk(officeQuote.cost.toFixed(2))} for {officeQuote.days} days, paid from your corporation's wallet.
-      </p>
-      <p class="stn-controls">
-        <button type="button" class="stn-btn stn-btn-go" disabled={busy} onclick={() => run(payOfficeRent)}>
-          Rent it and pay
-        </button>
-        <button type="button" class="stn-btn" disabled={busy} onclick={() => { officeQuote = null; }}>
-          Cancel
-        </button>
-      </p>
-    {:else if canGiveUpHere && !givingUpOffice}
-      <p class="stn-controls">
-        <button type="button" class="stn-btn stn-btn-wide" disabled={busy} onclick={() => { givingUpOffice = true; }}>
-          Give up the office
-        </button>
-      </p>
-    {:else if canGiveUpHere}
-      <p class="stn-note">
-        {#if officeHoldsItems}
-          The office's hangars are not empty. Give it up, and what is in them is impounded here.
-        {:else}
-          Give up your corporation's office in this {dockedPlace}?
-        {/if}
-      </p>
-      <p class="stn-controls">
-        <button type="button" class="stn-btn stn-btn-go" disabled={busy} onclick={() => run(giveUpOffice)}>
-          Give it up
-        </button>
-        <button type="button" class="stn-btn" disabled={busy} onclick={() => { givingUpOffice = false; }}>
-          Cancel
-        </button>
-      </p>
-    {/if}
+  {#if $station.offices?.ownOffice}
+    <p class="stn-note">Your corporation has an office here.</p>
   {/if}
+  <StationOfficeActions {store} {flow} disabled={busy} />
 {/snippet}
 
 {#snippet sessionControls()}
