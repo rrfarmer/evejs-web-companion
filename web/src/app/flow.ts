@@ -4470,6 +4470,7 @@ export interface AppFlow {
   readonly moonFuelChanged: ReadableSignal<number>;
   readonly moonFracturing: ReadableSignal<{ structureID: number; extractionID: number; endsAtMs: number } | null>;
   loadMoonRefinery(structureID: number): Promise<MoonRefinery | null>;
+  hasMoonSchedulingAccess(structureID: number): Promise<boolean>;
   changeRefineryControl(structureID: number, take: boolean): Promise<void>;
   loadMoonResources(structureID: number): Promise<readonly MoonResource[]>;
   loadMoonOrePricing(typeIDs: readonly number[]): Promise<ReadonlyMap<number, MoonOrePricing>>;
@@ -27861,6 +27862,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     };
   }
 
+  async function hasMoonSchedulingAccess(structureID: number): Promise<boolean> {
+    if (dockedRefineryID() !== structureID || store.flight.get().status?.shipID !== structureID) return false;
+    const current = callOptions.captureRequestGuard!();
+    const access = await bridgeAsk("structureSettings", "CharacterHasService", [structureID, 14]);
+    current();
+    return unwrapBool(access) === true && dockedRefineryID() === structureID && store.flight.get().status?.shipID === structureID;
+  }
+
   async function changeRefineryControl(structureID: number, take: boolean): Promise<void> {
     if (dockedRefineryID() !== structureID) throw new Error("You are no longer docked at this refinery.");
     await bridgeDo("structureControl", take ? "TakeControl" : "ReleaseControl", take ? [structureID] : []);
@@ -39797,6 +39806,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     moonFuelChanged: readonlySignal(moonFuelChanged),
     moonFracturing: readonlySignal(moonFracturing),
     loadMoonRefinery,
+    hasMoonSchedulingAccess,
     changeRefineryControl,
     loadMoonResources,
     loadMoonOrePricing,

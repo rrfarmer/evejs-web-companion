@@ -692,6 +692,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "structureControl.TakeControl", "structureControl.ReleaseControl",
   "structureControl.BoardStructure", "structureControl.EjectFromStructure", "structureCargoDelivery.DropOffItems",
   "structureSettings.CharacterHasSetting",
+  "structureSettings.CharacterHasService",
   "structureDirectory.GetStructureDescription", "structureDirectory.SetStructureDescription",
   "structureDeployment.Unanchor", "structureDeployment.CancelUnanchor",
   "structureVulnerability.UpdateReinforceTimesFromClient",
@@ -3335,6 +3336,10 @@ const RETAIL_CALLS = Object.freeze({
   "structureControl.EjectFromStructure": same("eve/client/script/ui/services/structure/structureControl.py:87", "Leave direct structure control for the previous ship or a capsule."),
   "structureCargoDelivery.DropOffItems": same("eve/client/script/ui/structure/dropbox/dropboxController.py:117", "Transfer the selected stacks from the active ship into the structure's cargo deposit."),
   "structureSettings.CharacterHasSetting": same("eve/client/script/ui/services/structure/structureControl.py:91", "Check the pilot's defense or Moon Drill Details permission for a structure."),
+  "structureSettings.CharacterHasService": judged("eve/client/script/ui/structure/structureBrowser/entries/structureEntryMyCorp.py:357",
+    (args, kwargs) => args.length === 2 && Number.isSafeInteger(args[0]) && args[0] > 0 && args[1] === 14 &&
+      Object.keys(kwargs).length === 0 ? {} : { status: "differs", note: "The row checks Moon Drilling service 14 on the selected refinery." },
+    "Read whether the pilot can use Moon Drilling on the refinery."),
   "structureDirectory.GetStructureDescription": judged("eve/client/script/ui/structure/structureBrowser/entries/structureEntryMyCorp.py:406", oneIDAlone("the selected structure"), "Read the selected structure's description."),
   "structureDeployment.Unanchor": judged("eve/client/script/ui/services/structure/structureDeployment.py:65", oneIDAlone("the selected structure"), "Schedule decommission after the confirmation."),
   "structureDeployment.CancelUnanchor": judged("eve/client/script/ui/services/structure/structureDeployment.py:69", oneIDAlone("the selected structure"), "Cancel the selected structure's pending decommission."),

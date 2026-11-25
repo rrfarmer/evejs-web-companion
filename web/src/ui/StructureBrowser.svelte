@@ -28,7 +28,10 @@
   import { startLinkDrag } from "./linkFollowers.ts";
   import { showInfo } from "./showInfo.ts";
 
-  let { flow, store }: { flow: AppFlow; store: ClientStore } = $props();
+  let { flow, store, schedulableRefineryID = null, onOpenRefinerySchedule }: {
+    flow: AppFlow; store: ClientStore; schedulableRefineryID?: number | null;
+    onOpenRefinerySchedule?: (structureID: number) => Promise<void>;
+  } = $props();
   const station = $derived(store.station);
   const flight = $derived(store.flight);
   const names = $derived(store.names);
@@ -103,6 +106,7 @@
     setFlexReinforcement: ["UI/StructureBrowser/SetReinforcementTimeNonDockable", "Set Reinforcement Time (FLEX)"],
     setProfile: ["UI/StructureBrowser/SetProfile", "Set Profile"],
     setProfiles: ["UI/StructureBrowser/SetProfileMany", "Set Profile ({numSelected})"],
+    scheduleExtraction: ["UI/Moonmining/OpenSchedulingWnd", "Open Extraction Scheduling Window"],
   } as const;
   const serviceLabels = [
     [-1, "UI/Station/CharacterRecustomization", "Character Recustomization"],
@@ -165,6 +169,9 @@
         homeStationID = null;
         descriptionRow = row;
       }), null);
+    }
+    if (ownedRow && id === schedulableRefineryID && onOpenRefinerySchedule) {
+      entries.push(action("scheduleExtraction", () => void onOpenRefinerySchedule?.(id)));
     }
     if (ownedRow) addReinforcementOptions(entries, selected);
     if ($flight.status?.inSpace && row.solarSystemID === systemID &&

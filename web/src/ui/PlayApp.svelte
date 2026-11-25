@@ -565,6 +565,7 @@
   const refineryCorporationID = $derived($station?.online?.corporationID ?? null);
   const refineryCorpRole = $derived($station?.online?.corpRole ?? null);
   let moonRefinery = $state.raw<MoonRefinery | null>(null);
+  let schedulableRefineryID = $state<number | null>(null);
   let refineryPending = $state(false);
   let refineryError = $state("");
   $effect(() => {
@@ -587,6 +588,31 @@
   $effect(() => {
     if (!controllingStructure && wins.some(win => win.id === "moonMining")) wins = closeWindow(wins, "moonMining");
   });
+  $effect(() => {
+    const pilot = session;
+    const refineryID = moonRefinery?.id;
+    void $station?.structureServiceIDs;
+    schedulableRefineryID = null;
+    if (!pilot || !controllingStructure || refineryID === undefined) return;
+    let current = true;
+    void pilot.flow.hasMoonSchedulingAccess(refineryID).then(allowed => {
+      if (current && allowed) schedulableRefineryID = refineryID;
+    }).catch(() => {});
+    return () => { current = false; };
+  });
+
+  async function openRefinerySchedule(structureID: number): Promise<void> {
+    const pilot = session;
+    if (!pilot || schedulableRefineryID !== structureID) return;
+    try {
+      const allowed = await pilot.flow.hasMoonSchedulingAccess(structureID);
+      if (pilot !== session || schedulableRefineryID !== structureID) return;
+      if (allowed) open("moonMining");
+      else schedulableRefineryID = null;
+    } catch (cause) {
+      if (pilot === session) notify({ kind: "danger", title: "Moon Mining", detail: (cause as Error).message });
+    }
+  }
 
   async function changeRefineryControl(take: boolean): Promise<void> {
     const pilot = session;
@@ -4158,6 +4184,7 @@
               onReprocess={reprocessingAvailable ? reprocessSelection : undefined}
               {reprocessingInput} onReprocessingInputTaken={() => (reprocessingInput = null)}
               onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} {autoMoonMiner}
+              {schedulableRefineryID} onOpenRefinerySchedule={openRefinerySchedule}
               onViewPlanet={showPlanetInMode} viewingPlanetID={planetModeID} onAccessCustoms={openCustoms}
               {moonMaterialBay} {metenoxTransfer} {metenoxControl} onLeaveMetenox={leaveMetenox} />
           {/if}

@@ -94,6 +94,8 @@
     onAccessCustoms,
     viewingPlanetID,
     moonRefinery,
+    schedulableRefineryID,
+    onOpenRefinerySchedule,
     autoMoonMiner,
     moonMaterialBay,
     metenoxTransfer,
@@ -133,6 +135,8 @@
     onAccessCustoms?: (planetID: number) => void;
     viewingPlanetID?: number | null;
     moonRefinery?: MoonRefinery | null;
+    schedulableRefineryID?: number | null;
+    onOpenRefinerySchedule?: (structureID: number) => Promise<void>;
     autoMoonMiner?: AutoMoonMiner | null;
     moonMaterialBay?: MoonMaterialBay | null;
     metenoxTransfer?: { structureID: number; shipID: number } | null;
@@ -245,7 +249,7 @@
     {/key}
   {/if}
 {:else if tab === "structureBrowser"}
-  <StructureBrowser {store} {flow} />
+  <StructureBrowser {store} {flow} {schedulableRefineryID} {onOpenRefinerySchedule} />
 {:else if tab === "mail"}
   <!-- A skill plan link in a mail, followed (link.py handle_link): the Skills window opens on it. -->
   <Mail {store} {flow} {openInventoryFilterLink} openSkillPlanLink={(url) => { flow.openSkillPlanLink(url); onOpen?.("skills"); }} />
