@@ -1,18 +1,59 @@
 <!-- WC74 web/src/ui/MiningOperationRun.svelte @ 213da333; imports adapted for UOC plugin. -->
 <script lang="ts">
   import type { MiningOperationRuntime } from "../adapters/mining.ts";
-  import { miningOperationRunView, operationTime, operationRemaining, operationMemberRecovery } from "../mining/miningOperationRunView.ts";
+  import {
+    miningOperationRunView,
+    operationTime,
+    operationRemaining,
+    operationMemberRecovery,
+  } from "../mining/miningOperationRunView.ts";
   import { hostedDurationLabel, type HostedRunPolicy } from "../mining/hostedRunPolicy.ts";
-  let { runtime, policy, parking = false, stale = false, busy = false, onExtend }: {
-    runtime: MiningOperationRuntime; policy: HostedRunPolicy | null; parking?: boolean; stale?: boolean; busy?: boolean;
+  let {
+    runtime,
+    policy,
+    parking = false,
+    stale = false,
+    busy = false,
+    onExtend,
+  }: {
+    runtime: MiningOperationRuntime;
+    policy: HostedRunPolicy | null;
+    parking?: boolean;
+    stale?: boolean;
+    busy?: boolean;
     onExtend: (minutes: number) => void;
   } = $props();
   const view = $derived(miningOperationRunView(runtime, policy, parking));
-  const blockedExtensionChoices = $derived(runtime.extensionSupported===false ? miningOperationRunView({...runtime,extensionSupported:true},policy,parking).choices : []);
-  const supportFresh = $derived(!!runtime.supportStatus && Number.isFinite(Date.parse(runtime.observedAt??'')) && runtime.supportStatus.observedAtMs<=Date.parse(runtime.observedAt??'') && Date.parse(runtime.observedAt??'')-runtime.supportStatus.observedAtMs<=60000);
-  const supportHistorical = $derived(stale || runtime.state==='WAITING_FOR_HOST' || !!runtime.recoveryRequired || !!runtime.supportStatus&&!supportFresh || ['DRAFT','STOPPING','PARKING','PARKING_FAILED','STOPPED'].includes(runtime.state));
-  const supportLabel = $derived(stale || runtime.state==='WAITING_FOR_HOST' || runtime.recoveryRequired || !!runtime.supportStatus&&!supportFresh ? 'CURRENT STATE UNKNOWN' :
-    runtime.state === 'DRAFT' ? 'NOT STARTED' : runtime.state === 'STOPPED' ? 'RUN ENDED' : 'SETTLING');
+  const blockedExtensionChoices = $derived(
+    runtime.extensionSupported === false
+      ? miningOperationRunView({ ...runtime, extensionSupported: true }, policy, parking).choices
+      : [],
+  );
+  const supportFresh = $derived(
+    !!runtime.supportStatus &&
+      Number.isFinite(Date.parse(runtime.observedAt ?? "")) &&
+      runtime.supportStatus.observedAtMs <= Date.parse(runtime.observedAt ?? "") &&
+      Date.parse(runtime.observedAt ?? "") - runtime.supportStatus.observedAtMs <= 60000,
+  );
+  const supportHistorical = $derived(
+    stale ||
+      runtime.state === "WAITING_FOR_HOST" ||
+      !!runtime.recoveryRequired ||
+      (!!runtime.supportStatus && !supportFresh) ||
+      ["DRAFT", "STOPPING", "PARKING", "PARKING_FAILED", "STOPPED"].includes(runtime.state),
+  );
+  const supportLabel = $derived(
+    stale ||
+      runtime.state === "WAITING_FOR_HOST" ||
+      runtime.recoveryRequired ||
+      (!!runtime.supportStatus && !supportFresh)
+      ? "CURRENT STATE UNKNOWN"
+      : runtime.state === "DRAFT"
+        ? "NOT STARTED"
+        : runtime.state === "STOPPED"
+          ? "RUN ENDED"
+          : "SETTLING",
+  );
 </script>
 
 {#if runtime.members.some(member=>member.role==='COMMAND')}
@@ -64,9 +105,40 @@
 {/if}
 
 <style>
-  p { margin: .35rem 0; } .muted { color: #93a9b5; font-size: .9em; }
-  .notice { display: block; border-left: 3px solid #d4a84d; padding: .3rem .6rem; margin: .5rem 0; overflow-wrap: anywhere; }
-  .extend { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-top: .5rem; }
-  button { border: 1px solid #395362; border-radius: 4px; background: #101b22; color: inherit; padding: .35rem .55rem; cursor: pointer; }
-  button:disabled { opacity: .5; cursor: not-allowed; } li { margin: .3rem 0; }
+  p {
+    margin: 0.35rem 0;
+  }
+  .muted {
+    color: #93a9b5;
+    font-size: 0.9em;
+  }
+  .notice {
+    display: block;
+    border-left: 3px solid #d4a84d;
+    padding: 0.3rem 0.6rem;
+    margin: 0.5rem 0;
+    overflow-wrap: anywhere;
+  }
+  .extend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: center;
+    margin-top: 0.5rem;
+  }
+  button {
+    border: 1px solid #395362;
+    border-radius: 4px;
+    background: #101b22;
+    color: inherit;
+    padding: 0.35rem 0.55rem;
+    cursor: pointer;
+  }
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  li {
+    margin: 0.3rem 0;
+  }
 </style>

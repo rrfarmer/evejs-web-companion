@@ -70,14 +70,14 @@
 @import "./preflight.css";
 
 /* ------------------------------------------------------------------ tokens */
-.uoc-wc74{
+.uoc-wc74 {
   /* The display face, with a condensed-first fallback chain so a build that
    * somehow ships without the webfont still gets SOMETHING narrow rather than
    * silently widening every header back to a normal-width UI face. The last two
    * are stock on Windows and macOS respectively. */
   --font-display:
-    "Barlow Condensed", "Segoe UI Semibold Condensed", "Arial Narrow",
-    "Avenir Next Condensed", ui-sans-serif, system-ui, sans-serif;
+    "Barlow Condensed", "Segoe UI Semibold Condensed", "Arial Narrow", "Avenir Next Condensed",
+    ui-sans-serif, system-ui, sans-serif;
 
   /* --- surfaces: near-black, cool, layered ------------------------------
    * Four depths, darkest first. `bg` is the page, `panel` is a frame, `panel-2`
@@ -157,9 +157,8 @@
     margin: 0;
     /* A very slight cool vignette lifts the centre of the page off pure black
      * without touching effective text contrast (both stops are near-black). */
-    background:
-      radial-gradient(120rem 60rem at 50% -10%, #0a111a 0%, var(--color-bg) 60%)
-      no-repeat fixed var(--color-bg);
+    background: radial-gradient(120rem 60rem at 50% -10%, #0a111a 0%, var(--color-bg) 60%) no-repeat
+      fixed var(--color-bg);
     color: var(--color-text);
     font-family: "Segoe UI", system-ui, sans-serif;
     font-size: 14px;
@@ -178,10 +177,14 @@
     padding: 0.75rem;
   }
   @media (min-width: 640px) {
-    :where(.uoc-wc74) { padding: 1rem; }
+    :where(.uoc-wc74) {
+      padding: 1rem;
+    }
   }
   @media (min-width: 1024px) {
-    :where(.uoc-wc74) { padding: 1.25rem; }
+    :where(.uoc-wc74) {
+      padding: 1.25rem;
+    }
   }
 
   /* --- type scale ---------------------------------------------------------
@@ -236,7 +239,9 @@
     font: inherit;
     letter-spacing: 0.02em;
     line-height: 1.2;
-    transition: background 120ms linear, border-color 120ms linear;
+    transition:
+      background 120ms linear,
+      border-color 120ms linear;
   }
   :where(.uoc-wc74) button:hover:not(:disabled) {
     background: linear-gradient(180deg, #24405f 0%, #1d334f 100%);
@@ -247,7 +252,9 @@
     cursor: default;
   }
 
-  :where(.uoc-wc74) input, :where(.uoc-wc74) select, :where(.uoc-wc74) textarea {
+  :where(.uoc-wc74) input,
+  :where(.uoc-wc74) select,
+  :where(.uoc-wc74) textarea {
     background: var(--color-field);
     color: var(--color-text-bright);
     border: 1px solid var(--color-line-strong);
@@ -260,7 +267,8 @@
     max-width: 100%;
   }
   /* Checkboxes are not text fields — no min-height / full padding. */
-  :where(.uoc-wc74) input[type="checkbox"], :where(.uoc-wc74) input[type="radio"] {
+  :where(.uoc-wc74) input[type="checkbox"],
+  :where(.uoc-wc74) input[type="radio"] {
     min-height: 0;
     width: auto;
     accent-color: var(--color-accent);
@@ -284,12 +292,11 @@
    * read — plus a clipped top-right corner for the industrial feel.
    * `section` and `.panel` are the same component; `.panel` exists so a
    * non-section element can be one. */
-  :where(.uoc-wc74) section, :where(.uoc-wc74) .panel {
+  :where(.uoc-wc74) section,
+  :where(.uoc-wc74) .panel {
     position: relative;
     border: 1px solid var(--color-line);
-    background:
-      linear-gradient(180deg, #101825 0%, var(--color-panel) 3rem)
-      var(--color-panel);
+    background: linear-gradient(180deg, #101825 0%, var(--color-panel) 3rem) var(--color-panel);
     border-radius: var(--radius-frame);
     /* R53: condensed card padding + vertical rhythm between panels. */
     padding: 0.55rem 0.8rem;
@@ -297,7 +304,8 @@
   }
   /* The accent hairline. A pseudo-element (not a border) so it can inset from
    * the rounded corners and fade out to the right. */
-  :where(.uoc-wc74) section::before, :where(.uoc-wc74) .panel::before {
+  :where(.uoc-wc74) section::before,
+  :where(.uoc-wc74) .panel::before {
     content: "";
     position: absolute;
     inset-inline: 0.75rem;
@@ -312,7 +320,10 @@
     pointer-events: none;
   }
   @media (min-width: 640px) {
-    :where(.uoc-wc74) section, :where(.uoc-wc74) .panel { padding: 0.75rem 1rem; }
+    :where(.uoc-wc74) section,
+    :where(.uoc-wc74) .panel {
+      padding: 0.75rem 1rem;
+    }
   }
 
   /* A panel header: title on the left, its actions on the right, divided from
@@ -338,8 +349,14 @@
       padding: 0.6rem 1rem;
     }
   }
-  :where(.uoc-wc74) .panel-head > h1, :where(.uoc-wc74) .panel-head > h2, :where(.uoc-wc74) .panel-head > h3 { margin: 0; }
-  :where(.uoc-wc74) .panel-head > .controls { margin: 0; }
+  :where(.uoc-wc74) .panel-head > h1,
+  :where(.uoc-wc74) .panel-head > h2,
+  :where(.uoc-wc74) .panel-head > h3 {
+    margin: 0;
+  }
+  :where(.uoc-wc74) .panel-head > .controls {
+    margin: 0;
+  }
   /* ⚠ THE ACTIONS HUG THE RIGHT EDGE EVEN WHEN THE TITLE IS GONE.
    *
    * `justify-content: space-between` only pushes them there while something
@@ -347,7 +364,9 @@
    * (see `.panel-title`), which left every window's Refresh sitting at the far
    * LEFT of its strip, under the title bar's own text. The strip then read as a
    * second toolbar rather than as this panel's one row of actions. */
-  :where(.uoc-wc74) .panel-head > .controls { margin-left: auto; }
+  :where(.uoc-wc74) .panel-head > .controls {
+    margin-left: auto;
+  }
   /* The one line that CHANGES, in the strip beside the actions: how many are
    * flying, what the balance is, how many are unread. A panel has at most one,
    * and it belongs here rather than below the divider — the strip is the band a
@@ -361,7 +380,9 @@
     white-space: nowrap;
     color: var(--color-muted);
   }
-  :where(.uoc-wc74) .panel-head > .stat-line strong { color: var(--color-text-bright); }
+  :where(.uoc-wc74) .panel-head > .stat-line strong {
+    color: var(--color-text-bright);
+  }
   /* The panel title. `h1` is the app title in App.svelte, so a panel titles
    * itself with an `h2` — sized up here so it still reads as the page heading,
    * distinct from the smaller in-panel section headers below it. */
@@ -390,7 +411,9 @@
      * above them and the divider below, and the strip read as buttons glued to
      * the title rather than as a row of its own. A strip needs to be thin AND
      * to have air in it; these two are not the same instruction. */
-    :where(.uoc-wc74) .panel-head { padding-block: 0.3rem; }
+    :where(.uoc-wc74) .panel-head {
+      padding-block: 0.3rem;
+    }
     /* ⚠ ANY CONTROL IN THE STRIP, not just a button inside `.controls`. The
      * first cut of this rule read `.panel-head > .controls > button` and missed
      * three of the busiest windows: Fleet puts its button straight in the head,
@@ -398,8 +421,12 @@
      * search FIELD. Each of those stayed 40px and left its window's strip
      * standing 10px taller than the rest — the exact raggedness the floor
      * below exists to remove. */
-    :where(.uoc-wc74) .panel-head :is(button, input, select) { min-height: 1.9rem; }
-    :where(.uoc-wc74) .panel-head :is(button, select) { padding-block: 0.25rem; }
+    :where(.uoc-wc74) .panel-head :is(button, input, select) {
+      min-height: 1.9rem;
+    }
+    :where(.uoc-wc74) .panel-head :is(button, select) {
+      padding-block: 0.25rem;
+    }
     /* ⚠ ONE BAND, NOT A BAND PER PANEL. Measured across the thirty windows:
      * a head holding a button came out 36px, one holding only a count 26px, one
      * with two rows of controls 46px. Nothing was wrong with any of them on its
@@ -411,12 +438,15 @@
      * A head with nothing visible in it still collapses to nothing — that rule
      * lives with the title-clipping it belongs to, and comes later in the file
      * so it wins over this floor. */
-    :where(.uoc-wc74) .panel-head { min-height: 2.5rem; }
+    :where(.uoc-wc74) .panel-head {
+      min-height: 2.5rem;
+    }
   }
 
   /* A section header inside a panel body gets a small accent tick, so the eye
    * finds the start of each block without needing a heavy rule. */
-  :where(.uoc-wc74) section > h2::before, :where(.uoc-wc74) .panel > h2::before {
+  :where(.uoc-wc74) section > h2::before,
+  :where(.uoc-wc74) .panel > h2::before {
     content: "";
     display: inline-block;
     width: 0.2rem;
@@ -427,7 +457,9 @@
     border-radius: 0;
   }
   /* ...but not when the h2 IS the panel header — that already has a divider. */
-  :where(.uoc-wc74) .panel-head > h2::before { display: none; }
+  :where(.uoc-wc74) .panel-head > h2::before {
+    display: none;
+  }
 
   /* ------------------------------------------------- the display face (R73) --
    * Every SHORT, UPPERCASE, LETTER-SPACED string in the system, in one place.
@@ -438,13 +470,38 @@
    * them. Anything a player reads as PROSE stays in the body face, however small
    * it is, which is why `.note`, `.empty`, table CELLS and every message are
    * absent from this list. */
-  :where(.uoc-wc74) .badge, :where(.uoc-wc74) .threat-badge, :where(.uoc-wc74) .state-badge, :where(.uoc-wc74) nav.tabs button, :where(.uoc-wc74) .win-title, :where(.uoc-wc74) .neocom-item-label, :where(.uoc-wc74) .neocom-readout-label, :where(.uoc-wc74) .neocom-portrait, :where(.uoc-wc74) .hud-label, :where(.uoc-wc74) .hud-readout dt, :where(.uoc-wc74) .wheel-cap-label, :where(.uoc-wc74) .rack-row-label, :where(.uoc-wc74) .rack-damage-head, :where(.uoc-wc74) .panel-head > h2, :where(.uoc-wc74) table.guests thead th, :where(.uoc-wc74) table.guests tbody th, :where(.uoc-wc74) dl.kv dt, :where(.uoc-wc74) .controls > label, :where(.uoc-wc74) .agent-filter label, :where(.uoc-wc74) .fit-hull .fit-hull-class, :where(.uoc-wc74) .fit-detail .fit-detail-slot, :where(.uoc-wc74) .tactical-empty, :where(.uoc-wc74) .item-tile-pick {
+  :where(.uoc-wc74) .badge,
+  :where(.uoc-wc74) .threat-badge,
+  :where(.uoc-wc74) .state-badge,
+  :where(.uoc-wc74) nav.tabs button,
+  :where(.uoc-wc74) .win-title,
+  :where(.uoc-wc74) .neocom-item-label,
+  :where(.uoc-wc74) .neocom-readout-label,
+  :where(.uoc-wc74) .neocom-portrait,
+  :where(.uoc-wc74) .hud-label,
+  :where(.uoc-wc74) .hud-readout dt,
+  :where(.uoc-wc74) .wheel-cap-label,
+  :where(.uoc-wc74) .rack-row-label,
+  :where(.uoc-wc74) .rack-damage-head,
+  :where(.uoc-wc74) .panel-head > h2,
+  :where(.uoc-wc74) table.guests thead th,
+  :where(.uoc-wc74) table.guests tbody th,
+  :where(.uoc-wc74) dl.kv dt,
+  :where(.uoc-wc74) .controls > label,
+  :where(.uoc-wc74) .agent-filter label,
+  :where(.uoc-wc74) .fit-hull .fit-hull-class,
+  :where(.uoc-wc74) .fit-detail .fit-detail-slot,
+  :where(.uoc-wc74) .tactical-empty,
+  :where(.uoc-wc74) .item-tile-pick {
     font-family: var(--font-display);
   }
   /* Tabular figures are a body-face job: Barlow Condensed's digits are narrow
    * enough that a column of them stops lining up against the letters beside it,
    * and a number you read OFF the screen is data, not a label. */
-  :where(.uoc-wc74) .hud-value, :where(.uoc-wc74) .hud-readout dd, :where(.uoc-wc74) table.guests td.num, :where(.uoc-wc74) dl.kv dd {
+  :where(.uoc-wc74) .hud-value,
+  :where(.uoc-wc74) .hud-readout dd,
+  :where(.uoc-wc74) table.guests td.num,
+  :where(.uoc-wc74) dl.kv dd {
     font-family: inherit;
   }
 
@@ -460,7 +517,9 @@
     color: var(--color-muted);
     max-width: 68ch;
   }
-  :where(.uoc-wc74) small.note { font-size: 12px; }
+  :where(.uoc-wc74) small.note {
+    font-size: 12px;
+  }
   :where(.uoc-wc74) .error {
     color: var(--color-danger);
     /* An error is never colour alone: it carries a leading marker. */
@@ -605,10 +664,17 @@
     flex: 1 1 12rem;
     min-width: 0;
   }
-  :where(.uoc-wc74) .controls > label input, :where(.uoc-wc74) .controls > label select { width: 100%; }
+  :where(.uoc-wc74) .controls > label input,
+  :where(.uoc-wc74) .controls > label select {
+    width: 100%;
+  }
   @media (max-width: 640px) {
-    :where(.uoc-wc74) .controls { align-items: stretch; }
-    :where(.uoc-wc74) .controls > button { width: 100%; }
+    :where(.uoc-wc74) .controls {
+      align-items: stretch;
+    }
+    :where(.uoc-wc74) .controls > button {
+      width: 100%;
+    }
   }
 
   /* Filter bars (Agents & Missions, Agent Finder) — same stacking idea. */
@@ -641,9 +707,14 @@
     font-size: 14px;
     letter-spacing: 0;
   }
-  :where(.uoc-wc74) .agent-filter input, :where(.uoc-wc74) .agent-filter select { width: 100%; }
+  :where(.uoc-wc74) .agent-filter input,
+  :where(.uoc-wc74) .agent-filter select {
+    width: 100%;
+  }
   @media (max-width: 640px) {
-    :where(.uoc-wc74) .agent-filter > button { width: 100%; }
+    :where(.uoc-wc74) .agent-filter > button {
+      width: 100%;
+    }
   }
 
   /* --------------------------------------------------------- badges ----- */
@@ -686,7 +757,9 @@
     margin: 0;
     padding: 0;
   }
-  :where(.uoc-wc74) ul.character-list li { margin-bottom: 0.5rem; }
+  :where(.uoc-wc74) ul.character-list li {
+    margin-bottom: 0.5rem;
+  }
   :where(.uoc-wc74) button.character {
     display: block;
     width: 100%;
@@ -734,7 +807,9 @@
     flex-wrap: wrap;
     gap: 0.4rem;
   }
-  :where(.uoc-wc74) ul.agent-list li { margin: 0; }
+  :where(.uoc-wc74) ul.agent-list li {
+    margin: 0;
+  }
   :where(.uoc-wc74) .agent-says {
     color: var(--color-text-bright);
     margin: 0.25rem 0 0.75rem;
@@ -753,14 +828,18 @@
     padding: 0.2rem 0;
     border-bottom: 1px solid var(--color-row-line);
   }
-  :where(.uoc-wc74) ul.journal li:last-child { border-bottom: 0; }
+  :where(.uoc-wc74) ul.journal li:last-child {
+    border-bottom: 0;
+  }
   :where(.uoc-wc74) ol.route {
     margin: 0.25rem 0 0;
     padding-left: 1.4rem;
     color: var(--color-cell);
     font-variant-numeric: tabular-nums;
   }
-  :where(.uoc-wc74) ol.route li { padding: 0.12rem 0; }
+  :where(.uoc-wc74) ol.route li {
+    padding: 0.12rem 0;
+  }
 
   /* ================================================================ data --
    * Base data-table look. Two shapes use table.guests:
@@ -775,7 +854,8 @@
     /* Numbers must line up under numbers, in every column, always. */
     font-variant-numeric: tabular-nums;
   }
-  :where(.uoc-wc74) table.guests th, :where(.uoc-wc74) table.guests td {
+  :where(.uoc-wc74) table.guests th,
+  :where(.uoc-wc74) table.guests td {
     text-align: left;
     padding: 0.35rem 0.7rem 0.35rem 0;
     border-bottom: 1px solid var(--color-row-line);
@@ -812,14 +892,17 @@
   /* A numeric cell: right-aligned so magnitudes line up, tabular so digits
    * do. Applied to the <th> and every <td> of a numeric column — ISK,
    * quantities, distances, jumps, percentages. */
-  :where(.uoc-wc74) table.guests th.num, :where(.uoc-wc74) table.guests td.num {
+  :where(.uoc-wc74) table.guests th.num,
+  :where(.uoc-wc74) table.guests td.num {
     text-align: right;
     padding-right: 0.9rem;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
   /* Numbers you read off the screen deserve the bright ink. */
-  :where(.uoc-wc74) table.guests td.num { color: var(--color-text-bright); }
+  :where(.uoc-wc74) table.guests td.num {
+    color: var(--color-text-bright);
+  }
 
   /* Density + scannability: zebra rows and a hover highlight. Only above the
    * reflow breakpoint — below it every row is its own card (see section 4),
@@ -909,20 +992,46 @@
     transition: width 200ms linear;
   }
   /* The ship resource triad, plus the fitting resources. */
-  :where(.uoc-wc74) .hud-gauge.shield .hud-fill { background: var(--color-shield); }
-  :where(.uoc-wc74) .hud-gauge.armor .hud-fill { background: var(--color-armor); }
-  :where(.uoc-wc74) .hud-gauge.hull .hud-fill { background: var(--color-hull); }
-  :where(.uoc-wc74) .hud-gauge.capacitor .hud-fill { background: var(--color-capacitor); }
-  :where(.uoc-wc74) .hud-gauge.cpu .hud-fill { background: var(--color-cpu); }
-  :where(.uoc-wc74) .hud-gauge.powergrid .hud-fill { background: var(--color-powergrid); }
-  :where(.uoc-wc74) .hud-gauge.calibration .hud-fill { background: var(--color-calibration); }
+  :where(.uoc-wc74) .hud-gauge.shield .hud-fill {
+    background: var(--color-shield);
+  }
+  :where(.uoc-wc74) .hud-gauge.armor .hud-fill {
+    background: var(--color-armor);
+  }
+  :where(.uoc-wc74) .hud-gauge.hull .hud-fill {
+    background: var(--color-hull);
+  }
+  :where(.uoc-wc74) .hud-gauge.capacitor .hud-fill {
+    background: var(--color-capacitor);
+  }
+  :where(.uoc-wc74) .hud-gauge.cpu .hud-fill {
+    background: var(--color-cpu);
+  }
+  :where(.uoc-wc74) .hud-gauge.powergrid .hud-fill {
+    background: var(--color-powergrid);
+  }
+  :where(.uoc-wc74) .hud-gauge.calibration .hud-fill {
+    background: var(--color-calibration);
+  }
   /* The label takes the gauge's colour too, so the pairing is learnable. */
-  :where(.uoc-wc74) .hud-gauge.shield .hud-label { color: var(--color-shield); }
-  :where(.uoc-wc74) .hud-gauge.armor .hud-label { color: var(--color-armor); }
-  :where(.uoc-wc74) .hud-gauge.hull .hud-label { color: var(--color-hull); }
-  :where(.uoc-wc74) .hud-gauge.capacitor .hud-label { color: var(--color-capacitor); }
-  :where(.uoc-wc74) .hud-gauge.cpu .hud-label { color: var(--color-cpu); }
-  :where(.uoc-wc74) .hud-gauge.powergrid .hud-label { color: var(--color-powergrid); }
+  :where(.uoc-wc74) .hud-gauge.shield .hud-label {
+    color: var(--color-shield);
+  }
+  :where(.uoc-wc74) .hud-gauge.armor .hud-label {
+    color: var(--color-armor);
+  }
+  :where(.uoc-wc74) .hud-gauge.hull .hud-label {
+    color: var(--color-hull);
+  }
+  :where(.uoc-wc74) .hud-gauge.capacitor .hud-label {
+    color: var(--color-capacitor);
+  }
+  :where(.uoc-wc74) .hud-gauge.cpu .hud-label {
+    color: var(--color-cpu);
+  }
+  :where(.uoc-wc74) .hud-gauge.powergrid .hud-label {
+    color: var(--color-powergrid);
+  }
 
   /* ================================================= workspace desktop --
    * The always-open desktop (windowing refactor). A fixed, full-viewport frame:
@@ -943,9 +1052,8 @@
     inset: var(--char-bar-h) 0 0 0;
     display: grid;
     grid-template-columns: minmax(8.5rem, 12rem) minmax(0, 1fr);
-    background:
-      radial-gradient(120rem 60rem at 50% -10%, #0a111a 0%, var(--color-bg) 60%)
-      no-repeat var(--color-bg);
+    background: radial-gradient(120rem 60rem at 50% -10%, #0a111a 0%, var(--color-bg) 60%) no-repeat
+      var(--color-bg);
   }
   :where(.uoc-wc74) .work {
     min-width: 0;
@@ -1009,10 +1117,18 @@
    * ceiling — the cell scrolled to hide four pixels. The radar still keeps the
    * clear majority of the surface, and `.hud-body` still scrolls beyond this
    * rather than pushing the radar off the screen. */
-  :where(.uoc-wc74) .workspace.in-space .work-main > .hud-bar { max-height: 24rem; }
-  :where(.uoc-wc74) .work-main > .desktop { grid-area: surface; }
-  :where(.uoc-wc74) .work-main > .dock-panel { grid-area: panel; }
-  :where(.uoc-wc74) .work-main > .hud-bar { grid-area: hud; }
+  :where(.uoc-wc74) .workspace.in-space .work-main > .hud-bar {
+    max-height: 24rem;
+  }
+  :where(.uoc-wc74) .work-main > .desktop {
+    grid-area: surface;
+  }
+  :where(.uoc-wc74) .work-main > .dock-panel {
+    grid-area: panel;
+  }
+  :where(.uoc-wc74) .work-main > .hud-bar {
+    grid-area: hud;
+  }
   /* Align HUD to Top (shipUI.UpdatePosition: the HUD CENTERTOP): its row above the view, and its header, the action
    * indication, under the instruments, toward the view's middle (_update_indicator_cont_top). */
   :where(.uoc-wc74) .workspace.in-space.hud-top .work-main {
@@ -1021,19 +1137,38 @@
       "hud     panel"
       "surface panel";
   }
-  :where(.uoc-wc74) .work-main > .hud-bar > .hud-head { grid-row: 1; }
-  :where(.uoc-wc74) .work-main > .hud-bar > .buff-bar { grid-row: 2; }
-  :where(.uoc-wc74) .work-main > .hud-bar > .hud-body { grid-row: 3; }
-  :where(.uoc-wc74) .workspace.hud-top .hud-bar { grid-template-rows: 1fr auto auto; }
-  :where(.uoc-wc74) .workspace.hud-top .hud-bar > .hud-head { grid-row: 3; }
-  :where(.uoc-wc74) .workspace.hud-top .hud-bar > .buff-bar { grid-row: 2; }
-  :where(.uoc-wc74) .workspace.hud-top .hud-bar > .hud-body { grid-row: 1; }
+  :where(.uoc-wc74) .work-main > .hud-bar > .hud-head {
+    grid-row: 1;
+  }
+  :where(.uoc-wc74) .work-main > .hud-bar > .buff-bar {
+    grid-row: 2;
+  }
+  :where(.uoc-wc74) .work-main > .hud-bar > .hud-body {
+    grid-row: 3;
+  }
+  :where(.uoc-wc74) .workspace.hud-top .hud-bar {
+    grid-template-rows: 1fr auto auto;
+  }
+  :where(.uoc-wc74) .workspace.hud-top .hud-bar > .hud-head {
+    grid-row: 3;
+  }
+  :where(.uoc-wc74) .workspace.hud-top .hud-bar > .buff-bar {
+    grid-row: 2;
+  }
+  :where(.uoc-wc74) .workspace.hud-top .hud-bar > .hud-body {
+    grid-row: 1;
+  }
 
   /* The buff bar (buffButtons.py): 48-pixel slots of 40-pixel icons in a row, centred over the instruments. Each slot
    * is drawn as the client draws its button: its underlay's two textures in the button class's colour, added
    * (SLOT_COLOR, slot_gradient at 0.25 and slot_base at 0.2), the icon tinted (ICON_COLOR, brighter under the
    * pointer), and its timer's gauge in TIMER_COLOR at 0.65. */
-  :where(.uoc-wc74) .buff-bar { display: flex; justify-content: center; gap: 0; padding: 2px 0; }
+  :where(.uoc-wc74) .buff-bar {
+    display: flex;
+    justify-content: center;
+    gap: 0;
+    padding: 2px 0;
+  }
   :where(.uoc-wc74) .buff-slot {
     --slot-color: rgb(255 255 255);
     --icon-tint: none;
@@ -1045,9 +1180,18 @@
     place-items: center;
     outline-offset: -2px;
   }
-  :where(.uoc-wc74) .buff-slot.offensive { --slot-color: rgb(179 0 0); --icon-tint: sepia(1) saturate(2) hue-rotate(-30deg) brightness(1.1); --timer-color: rgb(255 77 0); }
-  :where(.uoc-wc74) .buff-slot.defensive { --slot-color: rgb(0 153 153); --icon-tint: sepia(1) saturate(2) hue-rotate(130deg) brightness(1.1); --timer-color: rgb(0 204 204); }
-  :where(.uoc-wc74) .buff-slot-underlay, :where(.uoc-wc74) .buff-slot-underlay::after {
+  :where(.uoc-wc74) .buff-slot.offensive {
+    --slot-color: rgb(179 0 0);
+    --icon-tint: sepia(1) saturate(2) hue-rotate(-30deg) brightness(1.1);
+    --timer-color: rgb(255 77 0);
+  }
+  :where(.uoc-wc74) .buff-slot.defensive {
+    --slot-color: rgb(0 153 153);
+    --icon-tint: sepia(1) saturate(2) hue-rotate(130deg) brightness(1.1);
+    --timer-color: rgb(0 204 204);
+  }
+  :where(.uoc-wc74) .buff-slot-underlay,
+  :where(.uoc-wc74) .buff-slot-underlay::after {
     position: absolute;
     inset: 0 4px;
     background: var(--slot-color);
@@ -1055,10 +1199,26 @@
     mask-size: 100% 100%;
     pointer-events: none;
   }
-  :where(.uoc-wc74) .buff-slot-underlay { mask-image: var(--underlay-grad); opacity: 0.25; }
-  :where(.uoc-wc74) .buff-slot-underlay::after { content: ""; inset: 0; mask-image: var(--underlay-clean); opacity: 0.8; }
-  :where(.uoc-wc74) .buff-slot-icon { position: relative; width: 40px; height: 40px; filter: var(--icon-tint); }
-  :where(.uoc-wc74) .buff-slot:hover .buff-slot-icon, :where(.uoc-wc74) .buff-slot:focus-visible .buff-slot-icon { filter: var(--icon-tint) brightness(1.5); }
+  :where(.uoc-wc74) .buff-slot-underlay {
+    mask-image: var(--underlay-grad);
+    opacity: 0.25;
+  }
+  :where(.uoc-wc74) .buff-slot-underlay::after {
+    content: "";
+    inset: 0;
+    mask-image: var(--underlay-clean);
+    opacity: 0.8;
+  }
+  :where(.uoc-wc74) .buff-slot-icon {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    filter: var(--icon-tint);
+  }
+  :where(.uoc-wc74) .buff-slot:hover .buff-slot-icon,
+  :where(.uoc-wc74) .buff-slot:focus-visible .buff-slot-icon {
+    filter: var(--icon-tint) brightness(1.5);
+  }
   :where(.uoc-wc74) .buff-slot-timer {
     position: absolute;
     inset: 0 4px;
@@ -1095,14 +1255,30 @@
     pointer-events: none;
     white-space: nowrap;
   }
-  :where(.uoc-wc74) .buff-tip.below { transform: translate(-50%, 0); }
-  :where(.uoc-wc74) .buff-tip-caption { grid-column: 1 / -1; font-size: 0.9rem; }
-  :where(.uoc-wc74) .buff-tip-value { text-align: right; }
+  :where(.uoc-wc74) .buff-tip.below {
+    transform: translate(-50%, 0);
+  }
+  :where(.uoc-wc74) .buff-tip-caption {
+    grid-column: 1 / -1;
+    font-size: 0.9rem;
+  }
+  :where(.uoc-wc74) .buff-tip-value {
+    text-align: right;
+  }
   /* A row with no third column fills the row (FillRow); a text across the three, grey (the failed attempts' line). */
-  :where(.uoc-wc74) .buff-tip-name.wide { grid-column: span 2; }
-  :where(.uoc-wc74) .buff-tip-full { grid-column: 1 / -1; color: var(--color-text-muted, #888); }
+  :where(.uoc-wc74) .buff-tip-name.wide {
+    grid-column: span 2;
+  }
+  :where(.uoc-wc74) .buff-tip-full {
+    grid-column: 1 / -1;
+    color: var(--color-text-muted, #888);
+  }
   /* A slot's menu (GetButtonMenu): its sources, each opening its own menu beneath it. */
-  :where(.uoc-wc74) .buff-menu-shade { position: fixed; inset: 0; z-index: 61; }
+  :where(.uoc-wc74) .buff-menu-shade {
+    position: fixed;
+    inset: 0;
+    z-index: 61;
+  }
   :where(.uoc-wc74) .buff-menu {
     position: fixed;
     z-index: 62;
@@ -1125,9 +1301,21 @@
     text-align: left;
     cursor: pointer;
   }
-  :where(.uoc-wc74) .buff-menu-item:hover:not(:disabled), :where(.uoc-wc74) .buff-menu-item:focus-visible { background: var(--color-line); }
-  :where(.uoc-wc74) .buff-menu-item:disabled { opacity: 0.5; cursor: default; }
-  :where(.uoc-wc74) .buff-menu-sub { display: flex; flex-direction: column; padding-left: 12px; border-left: 2px solid var(--color-line); margin-left: 8px; }
+  :where(.uoc-wc74) .buff-menu-item:hover:not(:disabled),
+  :where(.uoc-wc74) .buff-menu-item:focus-visible {
+    background: var(--color-line);
+  }
+  :where(.uoc-wc74) .buff-menu-item:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  :where(.uoc-wc74) .buff-menu-sub {
+    display: flex;
+    flex-direction: column;
+    padding-left: 12px;
+    border-left: 2px solid var(--color-line);
+    margin-left: 8px;
+  }
 
   /* The Neocom inside the workspace: full-height, its own scroll, no sticky. */
   :where(.uoc-wc74) .workspace .neocom {
@@ -1167,13 +1355,37 @@
     background: var(--color-panel);
     border: 1px solid var(--color-line);
   }
-  :where(.uoc-wc74) .ws-head-where { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
-  :where(.uoc-wc74) .ws-head-where strong { color: var(--color-text-bright); }
-  :where(.uoc-wc74) .ws-head-where .muted { color: var(--color-muted); font-size: 0.85rem; }
-  :where(.uoc-wc74) .ws-head-pilot { margin-left: auto; color: var(--color-text); }
-  :where(.uoc-wc74) .ws-head-actions { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; }
-  :where(.uoc-wc74) .ws-head-error { color: var(--color-danger); font-size: 0.85rem; }
-  :where(.uoc-wc74) .ws-head .undock-btn, :where(.uoc-wc74) .ws-head .dock-btn { min-height: 36px; }
+  :where(.uoc-wc74) .ws-head-where {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+    min-width: 0;
+  }
+  :where(.uoc-wc74) .ws-head-where strong {
+    color: var(--color-text-bright);
+  }
+  :where(.uoc-wc74) .ws-head-where .muted {
+    color: var(--color-muted);
+    font-size: 0.85rem;
+  }
+  :where(.uoc-wc74) .ws-head-pilot {
+    margin-left: auto;
+    color: var(--color-text);
+  }
+  :where(.uoc-wc74) .ws-head-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  :where(.uoc-wc74) .ws-head-error {
+    color: var(--color-danger);
+    font-size: 0.85rem;
+  }
+  :where(.uoc-wc74) .ws-head .undock-btn,
+  :where(.uoc-wc74) .ws-head .dock-btn {
+    min-height: 36px;
+  }
 
   /* ============================================== notices: flash + log (R80) --
    * The transient half and the permanent half of one list. A flash is a recent
@@ -1223,10 +1435,18 @@
     box-shadow: 0 0.4rem 1rem rgba(0, 0, 0, 0.45);
     pointer-events: auto;
   }
-  :where(.uoc-wc74) .toast.good { border-left-color: var(--color-good); }
-  :where(.uoc-wc74) .toast.warn { border-left-color: var(--color-warn); }
-  :where(.uoc-wc74) .toast.danger { border-left-color: var(--color-danger); }
-  :where(.uoc-wc74) .toast.info { border-left-color: var(--color-accent); }
+  :where(.uoc-wc74) .toast.good {
+    border-left-color: var(--color-good);
+  }
+  :where(.uoc-wc74) .toast.warn {
+    border-left-color: var(--color-warn);
+  }
+  :where(.uoc-wc74) .toast.danger {
+    border-left-color: var(--color-danger);
+  }
+  :where(.uoc-wc74) .toast.info {
+    border-left-color: var(--color-accent);
+  }
   :where(.uoc-wc74) .toast-body {
     display: flex;
     flex-direction: column;
@@ -1246,9 +1466,15 @@
     text-transform: uppercase;
     color: var(--color-muted);
   }
-  :where(.uoc-wc74) .toast.danger .toast-kind { color: var(--color-danger); }
-  :where(.uoc-wc74) .toast.warn .toast-kind { color: var(--color-warn); }
-  :where(.uoc-wc74) .toast.good .toast-kind { color: var(--color-good); }
+  :where(.uoc-wc74) .toast.danger .toast-kind {
+    color: var(--color-danger);
+  }
+  :where(.uoc-wc74) .toast.warn .toast-kind {
+    color: var(--color-warn);
+  }
+  :where(.uoc-wc74) .toast.good .toast-kind {
+    color: var(--color-good);
+  }
   :where(.uoc-wc74) .toast-title {
     color: var(--color-text-bright);
     font-weight: 600;
@@ -1264,7 +1490,8 @@
     cursor: pointer;
     text-align: inherit;
   }
-  :where(.uoc-wc74) .toast-action:hover, :where(.uoc-wc74) .toast-action:focus-visible {
+  :where(.uoc-wc74) .toast-action:hover,
+  :where(.uoc-wc74) .toast-action:focus-visible {
     text-decoration: underline;
   }
   :where(.uoc-wc74) .toast-detail {
@@ -1282,13 +1509,22 @@
     border: 1px solid transparent;
     color: var(--color-muted);
   }
-  :where(.uoc-wc74) .toast-close:hover { color: var(--color-text-bright); border-color: var(--color-line); }
+  :where(.uoc-wc74) .toast-close:hover {
+    color: var(--color-text-bright);
+    border-color: var(--color-line);
+  }
   @media (prefers-reduced-motion: reduce) {
-    :where(.uoc-wc74) .toast { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--color-panel); }
+    :where(.uoc-wc74) .toast {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      background: var(--color-panel);
+    }
   }
 
   /* --- the log --- */
-  :where(.uoc-wc74) .notice-log { min-width: 0; }
+  :where(.uoc-wc74) .notice-log {
+    min-width: 0;
+  }
   :where(.uoc-wc74) .notice-list {
     list-style: none;
     margin: 0;
@@ -1306,7 +1542,9 @@
     padding: 0.3rem 0;
     border-bottom: 1px solid var(--color-row-line);
   }
-  :where(.uoc-wc74) .notice:last-child { border-bottom: 0; }
+  :where(.uoc-wc74) .notice:last-child {
+    border-bottom: 0;
+  }
   :where(.uoc-wc74) .notice-time {
     color: var(--color-muted);
     font-size: 11px;
@@ -1319,12 +1557,29 @@
     text-transform: uppercase;
     color: var(--color-muted);
   }
-  :where(.uoc-wc74) .notice.danger .notice-kind { color: var(--color-danger); }
-  :where(.uoc-wc74) .notice.warn .notice-kind { color: var(--color-warn); }
-  :where(.uoc-wc74) .notice.good .notice-kind { color: var(--color-good); }
-  :where(.uoc-wc74) .notice-text { min-width: 0; display: flex; flex-direction: column; }
-  :where(.uoc-wc74) .notice-title { color: var(--color-text); overflow-wrap: anywhere; }
-  :where(.uoc-wc74) .notice-detail { color: var(--color-muted); font-size: 12px; overflow-wrap: anywhere; }
+  :where(.uoc-wc74) .notice.danger .notice-kind {
+    color: var(--color-danger);
+  }
+  :where(.uoc-wc74) .notice.warn .notice-kind {
+    color: var(--color-warn);
+  }
+  :where(.uoc-wc74) .notice.good .notice-kind {
+    color: var(--color-good);
+  }
+  :where(.uoc-wc74) .notice-text {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  :where(.uoc-wc74) .notice-title {
+    color: var(--color-text);
+    overflow-wrap: anywhere;
+  }
+  :where(.uoc-wc74) .notice-detail {
+    color: var(--color-muted);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
 
   /* ======================================================================
    * ROW ACTIONS AS ICONS
@@ -1469,7 +1724,8 @@
   :where(.uoc-wc74) .plan-row.blocking {
     border-left-color: var(--color-warn);
   }
-  :where(.uoc-wc74) .plan-number, :where(.uoc-wc74) .plan-mark {
+  :where(.uoc-wc74) .plan-number,
+  :where(.uoc-wc74) .plan-mark {
     flex: 0 0 auto;
     min-width: 1.6rem;
     text-align: right;
@@ -1782,7 +2038,8 @@
    * while a row is selected — with a Back control, which is the only place
    * that control exists. */
   @container botbuilder (max-width: 640px) {
-    :where(.uoc-wc74) .botbuilder.sheet-open .builder-plan, :where(.uoc-wc74) .botbuilder.sheet-open .builder-watches {
+    :where(.uoc-wc74) .botbuilder.sheet-open .builder-plan,
+    :where(.uoc-wc74) .botbuilder.sheet-open .builder-watches {
       display: none;
     }
     :where(.uoc-wc74) .inspector-back {
@@ -1826,7 +2083,10 @@
       white-space: nowrap;
       border: 0;
     }
-    :where(.uoc-wc74) table.reflow, :where(.uoc-wc74) table.reflow tbody, :where(.uoc-wc74) table.reflow tr, :where(.uoc-wc74) table.reflow td {
+    :where(.uoc-wc74) table.reflow,
+    :where(.uoc-wc74) table.reflow tbody,
+    :where(.uoc-wc74) table.reflow tr,
+    :where(.uoc-wc74) table.reflow td {
       display: block;
       width: 100%;
     }
@@ -1856,7 +2116,9 @@
       letter-spacing: 0.05em;
       flex: 0 0 auto;
     }
-    :where(.uoc-wc74) table.reflow td[data-label=""]::before { display: none; }
+    :where(.uoc-wc74) table.reflow td[data-label=""]::before {
+      display: none;
+    }
     /* A numeric cell is already pushed right by the card's space-between; it
      * must not also carry the desktop right padding. */
     :where(.uoc-wc74) table.reflow td.num {
@@ -1865,19 +2127,31 @@
     }
     /* Cells whose content is an action button: stack the (optional) label over
      * a full-width, touch-sized button. */
-    :where(.uoc-wc74) table.reflow td:has(button) { display: block; }
+    :where(.uoc-wc74) table.reflow td:has(button) {
+      display: block;
+    }
     :where(.uoc-wc74) table.reflow td:has(button)::before {
       display: block;
       margin-bottom: 0.3rem;
     }
-    :where(.uoc-wc74) table.reflow td[data-label=""]:has(button)::before { display: none; }
-    :where(.uoc-wc74) table.reflow td:has(button) button { width: 100%; }
+    :where(.uoc-wc74) table.reflow td[data-label=""]:has(button)::before {
+      display: none;
+    }
+    :where(.uoc-wc74) table.reflow td:has(button) button {
+      width: 100%;
+    }
     /* Row actions stack full-width on a phone rather than squeezing. */
-    :where(.uoc-wc74) table.reflow td .row-actions { flex-direction: column; }
+    :where(.uoc-wc74) table.reflow td .row-actions {
+      flex-direction: column;
+    }
     /* R28's queue controls do the same: three buttons side by side at 360px
      * would each be under the 40px touch target. */
-    :where(.uoc-wc74) table.reflow td .queue-controls { flex-direction: column; }
-    :where(.uoc-wc74) table.reflow td .queue-controls button { width: 100%; }
+    :where(.uoc-wc74) table.reflow td .queue-controls {
+      flex-direction: column;
+    }
+    :where(.uoc-wc74) table.reflow td .queue-controls button {
+      width: 100%;
+    }
     :where(.uoc-wc74) .row-actions button {
       padding: 0.5rem 0.9rem;
       font-size: 14px;
@@ -1891,8 +2165,6 @@
       justify-content: flex-start;
     }
   }
-
-
 }
 
 /* A hull's menu in the fitting browser, at its right click (ui/Fitting.svelte, HullTypeListGroup.GetMenu). */
@@ -1902,13 +2174,37 @@
    TextColor.HIGHLIGHT) for the web.
    The registry's links are bold (register: bold=True). */
 /* A link in a line of text, as tall as the text (the buttons' 40px minimum would open the line up). */
-:where(.uoc-wc74) .evelink { padding: 0; border: 0; background: none; font: inherit; font-weight: 700; color: #d98d00; cursor: pointer; min-height: 0; vertical-align: baseline; }
-:where(.uoc-wc74) .evelink:hover { color: #ffb732; }
-:where(.uoc-wc74) .evelink.web { color: #ffe400; }
-:where(.uoc-wc74) .evelink.web:hover { color: #ffffff; }
+:where(.uoc-wc74) .evelink {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 700;
+  color: #d98d00;
+  cursor: pointer;
+  min-height: 0;
+  vertical-align: baseline;
+}
+:where(.uoc-wc74) .evelink:hover {
+  color: #ffb732;
+}
+:where(.uoc-wc74) .evelink.web {
+  color: #ffe400;
+}
+:where(.uoc-wc74) .evelink.web:hover {
+  color: #ffffff;
+}
 
-:where(.uoc-wc74) .hull-menu { position: fixed; z-index: 60; display: flex; flex-direction: column; white-space: nowrap;
-  background: var(--panel, #1b2230); border: 1px solid rgba(255, 255, 255, 0.2); padding: 0.2rem; }
+:where(.uoc-wc74) .hull-menu {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  white-space: nowrap;
+  background: var(--panel, #1b2230);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 0.2rem;
+}
 /* Standalone UOC centers share the Distribution workspace controls and surfaces. */
 .uoc-center {
   --center-text: #e8f0f5;
@@ -1921,44 +2217,176 @@
   margin-inline: auto;
   padding: 1.65rem clamp(1rem, 3vw, 2.8rem) 3rem;
   color: var(--center-text);
-  font: 15px/1.45 system-ui, sans-serif;
+  font:
+    15px/1.45 system-ui,
+    sans-serif;
 }
-.uoc-center :is(h1, h2, h3, h4) { font-family: inherit; letter-spacing: normal; text-transform: none; }
-.uoc-center h1 { font-size: clamp(1.8rem, 3.2vw, 2.4rem); font-weight: 720; }
-.uoc-center a { color: #9bd4e9; }
-.uoc-center .center-heading { display: block; margin: 0 0 1.25rem; }
-.center-heading .center-back { display: inline-block; padding-block: .35rem; text-decoration: none; }
-.center-heading .center-back:hover { text-decoration: underline; }
-.center-heading :is(h1, p) { margin: 0; }
-.center-heading p { color: var(--center-muted); margin-top: .25rem; }
-.center-title-row, .center-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; }
-.center-title-row { justify-content: space-between; margin-top: .75rem; }
-.uoc-center .center-panel { padding: 1rem; border: 1px solid var(--center-border); border-radius: .7rem; background: var(--center-panel); }
-.uoc-center section.center-panel::before { content: none; }
-.uoc-center .center-tabs { display: flex; flex-wrap: wrap; gap: .35rem; border-bottom: 1px solid #2a3c49; margin-bottom: 1.15rem; }
-.uoc-center .center-tabs :is(a, button) { display: inline-flex; align-items: center; min-height: 2.5rem; padding: .42rem .8rem; text-decoration: none;
-  border: 0; border-bottom: 2px solid transparent; border-radius: .35rem .35rem 0 0; background: transparent; color: #b4c8d6; }
-.uoc-center .center-tabs :is([aria-current="page"], [aria-pressed="true"]) { color: #bbf5ee; background: #142935; border-bottom-color: #88dcd8; }
+.uoc-center :is(h1, h2, h3, h4) {
+  font-family: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.uoc-center h1 {
+  font-size: clamp(1.8rem, 3.2vw, 2.4rem);
+  font-weight: 720;
+}
+.uoc-center a {
+  color: #9bd4e9;
+}
+.uoc-center .center-heading {
+  display: block;
+  margin: 0 0 1.25rem;
+}
+.center-heading .center-back {
+  display: inline-block;
+  padding-block: 0.35rem;
+  text-decoration: none;
+}
+.center-heading .center-back:hover {
+  text-decoration: underline;
+}
+.center-heading :is(h1, p) {
+  margin: 0;
+}
+.center-heading p {
+  color: var(--center-muted);
+  margin-top: 0.25rem;
+}
+.center-title-row,
+.center-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+.center-title-row {
+  justify-content: space-between;
+  margin-top: 0.75rem;
+}
+.uoc-center .center-panel {
+  padding: 1rem;
+  border: 1px solid var(--center-border);
+  border-radius: 0.7rem;
+  background: var(--center-panel);
+}
+.uoc-center section.center-panel::before {
+  content: none;
+}
+.uoc-center .center-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  border-bottom: 1px solid #2a3c49;
+  margin-bottom: 1.15rem;
+}
+.uoc-center .center-tabs :is(a, button) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.5rem;
+  padding: 0.42rem 0.8rem;
+  text-decoration: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0.35rem 0.35rem 0 0;
+  background: transparent;
+  color: #b4c8d6;
+}
+.uoc-center .center-tabs :is([aria-current="page"], [aria-pressed="true"]) {
+  color: #bbf5ee;
+  background: #142935;
+  border-bottom-color: #88dcd8;
+}
 .uoc-center :is(button, select, input):where(:not(.evelink, [type="checkbox"], [type="radio"])) {
-  box-sizing: border-box; min-height: 2.5rem; border: 1px solid #395362; border-radius: .4rem;
-  background: #182a35; color: var(--center-text); font: inherit; padding: .42rem .65rem;
+  box-sizing: border-box;
+  min-height: 2.5rem;
+  border: 1px solid #395362;
+  border-radius: 0.4rem;
+  background: #182a35;
+  color: var(--center-text);
+  font: inherit;
+  padding: 0.42rem 0.65rem;
 }
-.uoc-center button:not(.evelink) { cursor: pointer; }
-.uoc-center button:disabled { opacity: .55; cursor: default; }
-.uoc-center :is(button:not(:disabled), input, select):focus-visible { outline: 2px solid #79cdd5; outline-offset: 2px; }
-.uoc-center button:not(:disabled):hover { border-color: #79cdd5; }
-.uoc-center button.primary { background: var(--center-accent); border-color: var(--center-accent); color: #092723; font-weight: 700; }
-.uoc-center button.primary:not(:disabled):hover { background: #c2f4ee; }
-.uoc-center button.quiet { background: transparent; }
-.uoc-center button:is(.danger, .stop) { border-color: #825e53; background: #302321; color: #ffd2bb; }
-.uoc-center fieldset { min-width: 0; border: 1px solid var(--center-border); border-radius: .5rem; }
-.uoc-center legend { padding-inline: .35rem; font-weight: 650; }
-.uoc-center :is(p, div).center-message { border: 1px solid #885d4b; border-radius: .35rem; background: #2e2320; color: #ffd2bb; padding: .65rem .8rem; }
-.uoc-center [role="alert"] { color: #ffc3a3; }
-.uoc-center details > summary { color: var(--center-text); font-weight: 650; cursor: pointer; }
-.center-status { display: inline-block; border-radius: 999px; padding: .12rem .55rem; font-size: .84rem; line-height: 1.4; color: #c1d1dd; background: #202f3a; }
-.center-status[data-tone="active"] { color: #a8efce; background: #16392d; }
-.center-status[data-tone="ready"] { color: #b0ece8; background: #15373d; }
-.center-status[data-tone="paused"] { color: #ffdcac; background: #382c21; }
-.center-status[data-tone="stopped"] { color: #c2cad0; background: #292f35; }
-.center-status[data-tone="attention"] { color: #ffc7ba; background: #402924; }
+.uoc-center button:not(.evelink) {
+  cursor: pointer;
+}
+.uoc-center button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.uoc-center :is(button:not(:disabled), input, select):focus-visible {
+  outline: 2px solid #79cdd5;
+  outline-offset: 2px;
+}
+.uoc-center button:not(:disabled):hover {
+  border-color: #79cdd5;
+}
+.uoc-center button.primary {
+  background: var(--center-accent);
+  border-color: var(--center-accent);
+  color: #092723;
+  font-weight: 700;
+}
+.uoc-center button.primary:not(:disabled):hover {
+  background: #c2f4ee;
+}
+.uoc-center button.quiet {
+  background: transparent;
+}
+.uoc-center button:is(.danger, .stop) {
+  border-color: #825e53;
+  background: #302321;
+  color: #ffd2bb;
+}
+.uoc-center fieldset {
+  min-width: 0;
+  border: 1px solid var(--center-border);
+  border-radius: 0.5rem;
+}
+.uoc-center legend {
+  padding-inline: 0.35rem;
+  font-weight: 650;
+}
+.uoc-center :is(p, div).center-message {
+  border: 1px solid #885d4b;
+  border-radius: 0.35rem;
+  background: #2e2320;
+  color: #ffd2bb;
+  padding: 0.65rem 0.8rem;
+}
+.uoc-center [role="alert"] {
+  color: #ffc3a3;
+}
+.uoc-center details > summary {
+  color: var(--center-text);
+  font-weight: 650;
+  cursor: pointer;
+}
+.center-status {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.12rem 0.55rem;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  color: #c1d1dd;
+  background: #202f3a;
+}
+.center-status[data-tone="active"] {
+  color: #a8efce;
+  background: #16392d;
+}
+.center-status[data-tone="ready"] {
+  color: #b0ece8;
+  background: #15373d;
+}
+.center-status[data-tone="paused"] {
+  color: #ffdcac;
+  background: #382c21;
+}
+.center-status[data-tone="stopped"] {
+  color: #c2cad0;
+  background: #292f35;
+}
+.center-status[data-tone="attention"] {
+  color: #ffc7ba;
+  background: #402924;
+}

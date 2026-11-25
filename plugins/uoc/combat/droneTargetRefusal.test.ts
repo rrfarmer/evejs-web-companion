@@ -1,11 +1,130 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {createPilotFighter} from "./pilotFighter.ts";
-const refusal=["CustomNotify",{type:"dict",entries:[["notify","That target cannot be engaged by drones."]]}];
-function fixture(absent:boolean|(()=>boolean),entries:any[]=[[8,refusal]]){let commands=0,checked=0,sampled=100,time=0;const ship={itemID:3,position:{x:0,y:0,z:0},radius:10,geometryAvailable:true,hullRatio:1},target={itemID:90,kind:"ship",position:{x:100,y:0,z:0},radius:10,geometryAvailable:true,shieldRatio:1,armorRatio:1,hullRatio:1},drone={itemID:8,kind:"drone",ownerID:1,controllerID:3,targetEntityID:null,shieldRatio:1,armorRatio:1,hullRatio:1};const scene=async()=>({shipID:3,ship,entities:[target,drone],sampledAtMs:++sampled,inSpace:true});const fighter=createPilotFighter<{kind:"test"}>({run:{characterID:1} as any,session:()=>({store:{fitting:{get:()=>({})}},flow:{flying:{readFit:async()=>true,resolveDroneControlRange:async()=>1000,classifyDroneRoles:async()=>({bay:{combat:[]},out:{combat:[8]}})}}} as any),state:{currentIdentity:null,entryAnchor:{x:0,y:0,z:0},droneUnresolved:false},current(){},guard(){},flight:async()=>({}),mission:async()=>({}),dungeon:async()=>null,scene:scene as any,ask:async(_service,method)=>{if(method==="InvalidateLocationCache")return null;if(method==="List")return {type:"list",items:[]};if(method==="CmdEngage"){commands++;return {type:"dict",entries};}throw Error(method);},diagnostic(){},droneSample:()=>null,fenceCombat:async()=>{},sleep:async(ms)=>{time+=ms},now:()=>time,isQualifiedTarget:(_identity,e)=>e.itemID===90,confirmTargetAbsent:async()=>{checked++;return typeof absent==="function"?absent():absent;}});return {fighter,get commands(){return commands;},get checked(){return checked;}};}
-test("complete exact refusal with verified absence retires without another order",async()=>{const f=fixture(true);await f.fighter.tick({kind:"test"},()=>{});assert.equal(f.commands,1);assert.equal(f.checked,1);});
-test("refusal with target still present preserves native error",async()=>{const f=fixture(false);await assert.rejects(f.fighter.tick({kind:"test"},()=>{}),/Drone order refused/);assert.equal(f.commands,1);assert.equal(f.checked,11);});
-test("partial refusal never enters absence retirement",async()=>{const f=fixture(true,[[9,refusal]]);await assert.rejects(f.fighter.tick({kind:"test"},()=>{}),/malformed/);assert.equal(f.commands,1);assert.equal(f.checked,0);});
+import { createPilotFighter } from "./pilotFighter.ts";
+const refusal = [
+  "CustomNotify",
+  { type: "dict", entries: [["notify", "That target cannot be engaged by drones."]] },
+];
+function fixture(absent: boolean | (() => boolean), entries: any[] = [[8, refusal]]) {
+  let commands = 0,
+    checked = 0,
+    sampled = 100,
+    time = 0;
+  const ship = {
+      itemID: 3,
+      position: { x: 0, y: 0, z: 0 },
+      radius: 10,
+      geometryAvailable: true,
+      hullRatio: 1,
+    },
+    target = {
+      itemID: 90,
+      kind: "ship",
+      position: { x: 100, y: 0, z: 0 },
+      radius: 10,
+      geometryAvailable: true,
+      shieldRatio: 1,
+      armorRatio: 1,
+      hullRatio: 1,
+    },
+    drone = {
+      itemID: 8,
+      kind: "drone",
+      ownerID: 1,
+      controllerID: 3,
+      targetEntityID: null,
+      shieldRatio: 1,
+      armorRatio: 1,
+      hullRatio: 1,
+    };
+  const scene = async () => ({
+    shipID: 3,
+    ship,
+    entities: [target, drone],
+    sampledAtMs: ++sampled,
+    inSpace: true,
+  });
+  const fighter = createPilotFighter<{ kind: "test" }>({
+    run: { characterID: 1 } as any,
+    session: () =>
+      ({
+        store: { fitting: { get: () => ({}) } },
+        flow: {
+          flying: {
+            readFit: async () => true,
+            resolveDroneControlRange: async () => 1000,
+            classifyDroneRoles: async () => ({ bay: { combat: [] }, out: { combat: [8] } }),
+          },
+        },
+      }) as any,
+    state: { currentIdentity: null, entryAnchor: { x: 0, y: 0, z: 0 }, droneUnresolved: false },
+    current() {},
+    guard() {},
+    flight: async () => ({}),
+    mission: async () => ({}),
+    dungeon: async () => null,
+    scene: scene as any,
+    ask: async (_service, method) => {
+      if (method === "InvalidateLocationCache") return null;
+      if (method === "List") return { type: "list", items: [] };
+      if (method === "CmdEngage") {
+        commands++;
+        return { type: "dict", entries };
+      }
+      throw Error(method);
+    },
+    diagnostic() {},
+    droneSample: () => null,
+    fenceCombat: async () => {},
+    sleep: async (ms) => {
+      time += ms;
+    },
+    now: () => time,
+    isQualifiedTarget: (_identity, e) => e.itemID === 90,
+    confirmTargetAbsent: async () => {
+      checked++;
+      return typeof absent === "function" ? absent() : absent;
+    },
+  });
+  return {
+    fighter,
+    get commands() {
+      return commands;
+    },
+    get checked() {
+      return checked;
+    },
+  };
+}
+test("complete exact refusal with verified absence retires without another order", async () => {
+  const f = fixture(true);
+  await f.fighter.tick({ kind: "test" }, () => {});
+  assert.equal(f.commands, 1);
+  assert.equal(f.checked, 1);
+});
+test("refusal with target still present preserves native error", async () => {
+  const f = fixture(false);
+  await assert.rejects(
+    f.fighter.tick({ kind: "test" }, () => {}),
+    /Drone order refused/,
+  );
+  assert.equal(f.commands, 1);
+  assert.equal(f.checked, 11);
+});
+test("partial refusal never enters absence retirement", async () => {
+  const f = fixture(true, [[9, refusal]]);
+  await assert.rejects(
+    f.fighter.tick({ kind: "test" }, () => {}),
+    /malformed/,
+  );
+  assert.equal(f.commands, 1);
+  assert.equal(f.checked, 0);
+});
 
-
-test("delayed fresh target absence retires without a second engage",async()=>{let reads=0;const f=fixture(()=>++reads>=3);await f.fighter.tick({kind:"test"},()=>{});assert.equal(f.commands,1);assert.equal(f.checked,3);});
+test("delayed fresh target absence retires without a second engage", async () => {
+  let reads = 0;
+  const f = fixture(() => ++reads >= 3);
+  await f.fighter.tick({ kind: "test" }, () => {});
+  assert.equal(f.commands, 1);
+  assert.equal(f.checked, 3);
+});

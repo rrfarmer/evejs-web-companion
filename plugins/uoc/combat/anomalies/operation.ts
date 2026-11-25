@@ -1,50 +1,638 @@
-import {createCombatRoster,CombatRosterChanged} from '../roster.ts';
-import {createFleetAssembly,type FleetAssemblyPeer,type FleetMoveAuthorization} from "../../miningFleet/fleetAssembly.ts";
-import {createSiteCompletionObserver,type SiteCompletionReceipt,type SiteKeeper} from "../siteCompletion.ts";
-import {FleetRoomRetired} from "../fleetAuthority.ts";
-import {SecurityTargetUnobserved} from "../pilotFighter.ts";
-import type {PilotSession} from "../../../../web/src/plugin-api/pilotSession.ts";
-import {isQualifiedAnomalyNpc,type CombatCatalogEntry,type CombatSite} from "./discovery.ts";
-import {validNativeShipProof,type NativeShipScopeProof} from "./navigation.ts";
+import { createCombatRoster, CombatRosterChanged } from "../roster.ts";
+import {
+  createFleetAssembly,
+  type FleetAssemblyPeer,
+  type FleetMoveAuthorization,
+} from "../../miningFleet/fleetAssembly.ts";
+import {
+  createSiteCompletionObserver,
+  type SiteCompletionReceipt,
+  type SiteKeeper,
+} from "../siteCompletion.ts";
+import { FleetRoomRetired } from "../fleetAuthority.ts";
+import { SecurityTargetUnobserved } from "../pilotFighter.ts";
+import type { PilotSession } from "../../../../web/src/plugin-api/pilotSession.ts";
+import { isQualifiedAnomalyNpc, type CombatCatalogEntry, type CombatSite } from "./discovery.ts";
+import { validNativeShipProof, type NativeShipScopeProof } from "./navigation.ts";
 
-type Doc={read():unknown;write(v:unknown):void};
-type Position={x:number;y:number;z:number};
-export interface AnomalyIdentity {readonly kind:"combat-anomaly";readonly operationID:string;readonly operationRunID:string;readonly dungeonID:number;readonly instanceID:number;readonly roomID:number;readonly systemID:number;readonly scannerKey:number}
-export interface AnomalyNpc {kind:string|null;itemID:number;typeID:number|null;groupID:number|null;categoryID:number|null;isNpc:boolean;isSelf:boolean;geometryAvailable?:boolean;npcEntityType?:string|null;position:Position}
-export interface AnomalyView {characterID:number;shipID:number;systemID:number;inSpace:boolean;inWarp:boolean;shipPosition:Position;keeper:SiteKeeper|null;sampledAt:number;nativeProof?:NativeShipScopeProof;keeperObservedAt?:number;npcs:readonly AnomalyNpc[]}
+type Doc = { read(): unknown; write(v: unknown): void };
+type Position = { x: number; y: number; z: number };
+export interface AnomalyIdentity {
+  readonly kind: "combat-anomaly";
+  readonly operationID: string;
+  readonly operationRunID: string;
+  readonly dungeonID: number;
+  readonly instanceID: number;
+  readonly roomID: number;
+  readonly systemID: number;
+  readonly scannerKey: number;
+}
+export interface AnomalyNpc {
+  kind: string | null;
+  itemID: number;
+  typeID: number | null;
+  groupID: number | null;
+  categoryID: number | null;
+  isNpc: boolean;
+  isSelf: boolean;
+  geometryAvailable?: boolean;
+  npcEntityType?: string | null;
+  position: Position;
+}
+export interface AnomalyView {
+  characterID: number;
+  shipID: number;
+  systemID: number;
+  inSpace: boolean;
+  inWarp: boolean;
+  shipPosition: Position;
+  keeper: SiteKeeper | null;
+  sampledAt: number;
+  nativeProof?: NativeShipScopeProof;
+  keeperObservedAt?: number;
+  npcs: readonly AnomalyNpc[];
+}
 /** These callbacks wrap the existing held-pilot and genericized pilotFighter, not another combat engine. */
-export interface AnomalyPeer extends FleetAssemblyPeer {required?:boolean;session:PilotSession;sessionGeneration:number;view():Promise<AnomalyView>;navigate(site:CombatSite,leaderID:number,current:()=>void):Promise<void>;fighter:{tick(identity:AnomalyIdentity,current:()=>void):Promise<void>};settle(current:()=>void):Promise<{characterID:number;shipID:number;modulesInactive:boolean;dronesSafe:boolean;observedAt:number}>;park():Promise<{characterID:number;shipID:number;docked:boolean;destinationID:number;observedAt:number}>}
-export interface AnomalyOperationConfig {operationID:string;operationRunID:string;site:CombatSite;entryRoomID:number;leaderID:number;peers:readonly AnomalyPeer[];catalog:readonly CombatCatalogEntry[];fleetMoves?:readonly FleetMoveAuthorization[];document:Doc;assemblyDocument:Doc;receiptDocument:Doc;readSites():Promise<readonly CombatSite[]>;assertSiteClaim():void;now?:()=>number;sleep?:(ms:number)=>Promise<void>;viewTimeoutMs?:number}
-const pos=(v:unknown):v is number=>typeof v==="number"&&Number.isSafeInteger(v)&&v>0;
-const sameSite=(a:CombatSite,b:CombatSite)=>a.systemID===b.systemID&&a.scannerKey===b.scannerKey&&a.instanceID===b.instanceID&&a.dungeonID===b.dungeonID&&a.label===b.label&&JSON.stringify(a.position)===JSON.stringify(b.position);
-const validPoint=(p:Position)=>!!p&&[p.x,p.y,p.z].every(Number.isFinite);
-const near=(a:Position,b:Position)=>Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z);
+export interface AnomalyPeer extends FleetAssemblyPeer {
+  required?: boolean;
+  session: PilotSession;
+  sessionGeneration: number;
+  view(): Promise<AnomalyView>;
+  navigate(site: CombatSite, leaderID: number, current: () => void): Promise<void>;
+  fighter: { tick(identity: AnomalyIdentity, current: () => void): Promise<void> };
+  settle(
+    current: () => void,
+  ): Promise<{
+    characterID: number;
+    shipID: number;
+    modulesInactive: boolean;
+    dronesSafe: boolean;
+    observedAt: number;
+  }>;
+  park(): Promise<{
+    characterID: number;
+    shipID: number;
+    docked: boolean;
+    destinationID: number;
+    observedAt: number;
+  }>;
+}
+export interface AnomalyOperationConfig {
+  operationID: string;
+  operationRunID: string;
+  site: CombatSite;
+  entryRoomID: number;
+  leaderID: number;
+  peers: readonly AnomalyPeer[];
+  catalog: readonly CombatCatalogEntry[];
+  fleetMoves?: readonly FleetMoveAuthorization[];
+  document: Doc;
+  assemblyDocument: Doc;
+  receiptDocument: Doc;
+  readSites(): Promise<readonly CombatSite[]>;
+  assertSiteClaim(): void;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  viewTimeoutMs?: number;
+}
+const pos = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
+const sameSite = (a: CombatSite, b: CombatSite) =>
+  a.systemID === b.systemID &&
+  a.scannerKey === b.scannerKey &&
+  a.instanceID === b.instanceID &&
+  a.dungeonID === b.dungeonID &&
+  a.label === b.label &&
+  JSON.stringify(a.position) === JSON.stringify(b.position);
+const validPoint = (p: Position) => !!p && [p.x, p.y, p.z].every(Number.isFinite);
+const near = (a: Position, b: Position) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 /** Source-only operation seam; caller must inject the original SDK navigator and qualified fighter adapter. */
-export function createAnomalyOperation(c:AnomalyOperationConfig){
- const now=c.now??Date.now,site=structuredClone(c.site),original=[...c.peers],leader=original.find(p=>p.characterID===c.leaderID),profile=c.catalog.filter(p=>p.enabled&&p.dungeonID===site.dungeonID);
- let peers=[...original];const roster=createCombatRoster(original),retiredParks=new Map<number,unknown>();
- if(!c.operationID||!c.operationRunID||!leader||peers.length<1||peers.length>8||new Set(peers.map(p=>p.characterID)).size!==peers.length||new Set(peers.map(p=>p.shipID)).size!==peers.length||!Number.isSafeInteger(c.entryRoomID)||c.entryRoomID<0||profile.length!==1||profile[0]!.entryRoomID!==c.entryRoomID||!pos(site.systemID)||!pos(site.instanceID)||!pos(site.scannerKey)||!pos(site.dungeonID)||!validPoint(site.position))throw Error("Anomaly operation qualification is incomplete.");
- const chief=leader!;
- const identity:AnomalyIdentity={kind:"combat-anomaly",operationID:c.operationID,operationRunID:c.operationRunID,dungeonID:site.dungeonID,instanceID:site.instanceID,roomID:c.entryRoomID,systemID:site.systemID,scannerKey:site.scannerKey};
- const signature=JSON.stringify([identity,site.label,site.position,peers.map(p=>[p.characterID,p.shipID,p.botID,p.sessionGeneration])]);if(c.document.read()!==null||c.receiptDocument.read()!==null)throw Error("Anomaly operation already retains custody; no automatic replay.");
- let state:"CREATED"|"FORMING"|"ENTRY"|"COMBAT"|"SETTLING"|"STOPPED"|"BLOCKED"="CREATED",primary:number|null=null,primaryGeneration=0,receipt:SiteCompletionReceipt|null=null,settlements:unknown[]=[],parks:unknown[]=[],idleSince:number|null=null,inflight:Promise<void>|null=null,stopping=false,retiring=false;
- const save=()=>c.document.write({version:1,signature,state,primary,primaryGeneration,receipt,settlements,parks,memberDecisions:roster.snapshot(),retiredParks:[...retiredParks.values()],updatedAt:now()});save();
- const current=()=>{if(stopping)throw Error("Anomaly operation is stopped.");if(retiring)throw new CombatRosterChanged("Member retirement is settling original actions.");c.assertSiteClaim();roster.check(id=>original.find(p=>p.characterID===id)!.current());peers=original.filter(p=>roster.active(p.characterID));if(!roster.active(chief.characterID))throw Error('Native anomaly completion observer lost its original anchor; in-flight handoff is unqualified.');};
- const ordered=()=>[chief,...peers.filter(p=>p!==chief)];const initialOrder=ordered(),assembly=initialOrder.length>1?createFleetAssembly(c.assemblyDocument,c.operationID,c.operationRunID,initialOrder,now,c.fleetMoves):null;
- let fleetWork:Promise<boolean>|null=null;
- function ensureFleet(){if(roster.snapshot().length){return (async()=>{const rows=await Promise.all(peers.map(p=>p.read()));for(const r of rows)if(r.state!=='ready'||peers.some(p=>!r.memberIDs.includes(p.characterID))||r.memberIDs.some(id=>!original.some(p=>p.characterID===id))||rows.some(v=>v.state!=='ready'||v.fleetID!==r.fleetID||JSON.stringify([...v.memberIDs].sort())!==JSON.stringify([...r.memberIDs].sort())))throw Error('Remaining anomaly fleet is not verified.');return true;})();}if(!assembly){chief.current();return Promise.resolve(true);}if(fleetWork)return fleetWork;fleetWork=assembly.step().then(value=>value==="ready").finally(()=>{fleetWork=null;});return fleetWork;}
- const observer=createSiteCompletionObserver({live:chief.session.store.live,scope:{operationID:c.operationID,operationRunID:c.operationRunID,botID:chief.botID,sessionGeneration:chief.sessionGeneration},site:{characterID:chief.characterID,shipID:chief.shipID,systemID:site.systemID,dungeonID:site.dungeonID,instanceID:site.instanceID,roomID:c.entryRoomID},assertCurrent:current,readKeeper:async()=>{const v=await chief.view();return v.keeper;},saveReceipt:r=>c.receiptDocument.write(r),now});
- async function checkedSite(){current();const rows=await c.readSites();current();const matches=rows.filter(s=>sameSite(s,site)&&Number.isFinite(s.observedAt)&&s.observedAt<=now()&&now()-s.observedAt<=15000);if(matches.length!==1)throw Error("Exact fresh combat anomaly is not confirmed.");}
- async function checkedView(peer:AnomalyPeer){const timeout=c.viewTimeoutMs??90000,deadline=now()+timeout,wait=c.sleep??((ms:number)=>new Promise<void>(resolve=>setTimeout(resolve,ms)));do{current();let v:AnomalyView|null=null;try{let timer:ReturnType<typeof setTimeout>|undefined;try{v=await Promise.race([peer.view(),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error("Native anomaly view timed out.")),Math.max(1,deadline-now()));})]);}finally{if(timer)clearTimeout(timer);}}catch{/* Retry read-only; ownership is checked outside this catch. */}current();if(v&&(v.characterID!==peer.characterID||v.shipID!==peer.shipID||v.systemID!==site.systemID))throw Error("Anomaly pilot, ship or system changed.");if(v?.keeper&&(v.keeper.dungeonID!==identity.dungeonID||v.keeper.instanceID!==identity.instanceID||v.keeper.roomID!==identity.roomID))throw Error("Pilot is outside the exact observed anomaly room.");const t=now();if(v&&v.inSpace&&!v.inWarp&&v.keeper&&Number.isFinite(v.sampledAt)&&(v.nativeProof!==undefined?validNativeShipProof(v.nativeProof,{characterID:peer.characterID,shipID:peer.shipID,systemID:site.systemID,botID:peer.botID,sessionGeneration:peer.sessionGeneration},v.sampledAt,t)&&Number.isFinite(v.keeperObservedAt)&&v.keeperObservedAt!>=v.nativeProof.readFinishedAt&&v.keeperObservedAt!<=t&&t-v.keeperObservedAt!<=60000:v.sampledAt<=t+5000&&t-v.sampledAt<=60000)&&validPoint(v.shipPosition)&&near(v.shipPosition,site.position)<=250000)return v;if(now()>=deadline)break;await wait(500);}while(now()<deadline);throw Error("Fresh anomaly room observation is unavailable; custody retained.");}
- async function enter(){await checkedSite();observer.begin();state="ENTRY";save();await chief.navigate(site,chief.characterID,current);current();await checkedView(chief);await observer.arm();for(const peer of ordered().slice(1)){await peer.navigate(site,chief.characterID,current);current();await checkedView(peer);}state="COMBAT";save();}
- async function settle(){stopping=true;state="SETTLING";save();const settled=await Promise.allSettled(peers.map(async p=>{const v=await p.settle(()=>{c.assertSiteClaim();p.current();});c.assertSiteClaim();p.current();const t=now();if(v.characterID!==p.characterID||v.shipID!==p.shipID||v.modulesInactive!==true||v.dronesSafe!==true||!Number.isFinite(v.observedAt)||v.observedAt>t||t-v.observedAt>15000)throw Error("Native member settlement is unavailable.");return structuredClone(v);}));const failed=settled.find((r):r is PromiseRejectedResult=>r.status==="rejected");if(failed)throw failed.reason;settlements=settled.map(r=>(r as PromiseFulfilledResult<Awaited<ReturnType<AnomalyPeer["settle"]>>>).value);save();const parked=await Promise.allSettled(peers.map(async(p,i)=>{const v=await p.park();c.assertSiteClaim();p.current();const before=settlements[i] as {observedAt:number},t=now();if(v.characterID!==p.characterID||v.shipID!==p.shipID||v.docked!==true||!pos(v.destinationID)||!Number.isFinite(v.observedAt)||v.observedAt<before.observedAt||v.observedAt>t||t-v.observedAt>15000)throw Error("Native member parking is unavailable.");return structuredClone(v);}));const parkFailure=parked.find((r):r is PromiseRejectedResult=>r.status==="rejected");if(parkFailure)throw parkFailure.reason;parks=parked.map(r=>(r as PromiseFulfilledResult<Awaited<ReturnType<AnomalyPeer["park"]>>>).value);if(roster.snapshot().some(m=>!retiredParks.has(m.characterID)))throw Error('Retired anomaly custody remains unresolved; healthy Parking is retained.');state="STOPPED";save();observer.close();}
- async function one(){if(state==="STOPPED"||state==="BLOCKED")return;current();if((state==="CREATED"||state==="FORMING")&&roster.snapshot().length)throw Error("Retained anomaly assembly requires reconciliation before roster changes.");if(state==="CREATED"||state==="FORMING"){state="FORMING";save();if(!await ensureFleet())return;current();await enter();return;}if(state!=="COMBAT")throw Error("Anomaly state needs reconciliation.");
-  if(!await ensureFleet())throw Error("Native combat fleet roster is not confirmed.");current();const completion=await observer.check();if(completion.state==="unknown")throw Error(completion.reason);if(completion.state==="confirmed"){receipt=completion.receipt;save();await settle();return;}
-  const combatOrder=ordered(),views=await Promise.all(combatOrder.map(async p=>{try{return await checkedView(p);}catch(e){if(e instanceof CombatRosterChanged||roster.required(p.characterID))throw e;roster.retire(p.characterID,e instanceof Error?e.message:String(e));peers=original.filter(p=>roster.active(p.characterID));save();return null;}}));if(!views[0])throw Error('Native anomaly completion anchor is unavailable; in-flight handoff is unqualified.');const targets=views[0]!.npcs.filter(n=>isQualifiedAnomalyNpc(site,n,c.catalog)&&validPoint(n.position)&&near(n.position,site.position)<=500000).sort((a,b)=>near(a.position,views[0]!.shipPosition)-near(b.position,views[0]!.shipPosition)||a.itemID-b.itemID).map(n=>n.itemID);const chosen=primary!==null&&targets.includes(primary)?primary:targets[0]??null;if(chosen!==primary){primary=chosen;primaryGeneration++;save();}if(primary===null){idleSince??=now();if(now()-idleSince>=120000)throw Error("No qualified anomaly target or native completion was observed.");return;}idleSince=null;
-  const fought=await Promise.allSettled(combatOrder.map(async(peer,i)=>{if(!views[i]||!roster.active(peer.characterID))return;const candidate=views[i]!.npcs.find(n=>n.itemID===primary&&isQualifiedAnomalyNpc(site,n,c.catalog)&&validPoint(n.position)&&near(n.position,site.position)<=500000);if(!candidate)return;const captured=primary,capturedGeneration=primaryGeneration;await peer.fighter.tick(identity,()=>{current();if(primary!==captured||primaryGeneration!==capturedGeneration)throw Error("Anomaly primary changed.");});}));const failed=fought.find((result):result is PromiseRejectedResult=>result.status==="rejected");if(failed){const id=combatOrder[fought.indexOf(failed)]!.characterID;if(roster.required(id))throw failed.reason;roster.retire(id,failed.reason instanceof Error?failed.reason.message:String(failed.reason));peers=original.filter(p=>roster.active(p.characterID));save();}
- }
- const assertTarget=(characterID:number,target:number|null,generation:number)=>{current();if(state!=="COMBAT"||!peers.some(p=>p.characterID===characterID)||!primary||generation!==primaryGeneration||target!==null&&target!==primary)throw new FleetRoomRetired("Anomaly combat authority changed.");};
- async function fence(characterID:number,target:number|null,generation:number){assertTarget(characterID,target,generation);if(!await ensureFleet())throw Error("Native combat fleet roster is not confirmed.");assertTarget(characterID,target,generation);const peer=peers.find(p=>p.characterID===characterID)!,v=await checkedView(peer);assertTarget(characterID,target,generation);if(target!==null){const row=v.npcs.find(n=>n.itemID===target);if(!row)throw new SecurityTargetUnobserved("Anomaly target absent in checked scene.");if(!isQualifiedAnomalyNpc(site,row,c.catalog)||!validPoint(row.position)||near(row.position,site.position)>500000)throw Error("Anomaly target is not qualified in its room.");}}
- async function retire(id:number,reason:string){const p=original.find(p=>p.characterID===id);if(!p||roster.required(id))return null;if(state!=='COMBAT')throw Error('Independent anomaly retirement cannot replay entry or assembly movement.');if(id===chief.characterID)throw Error('Native anomaly completion observer requires its original anchor; no qualified in-flight handoff.');roster.retire(id,reason);peers=original.filter(p=>roster.active(p.characterID));retiring=true;try{if(inflight)await inflight.catch(()=>{});p.current();const settled=await p.settle(p.current);p.current();if(settled.characterID!==id||settled.shipID!==p.shipID||!settled.modulesInactive||!settled.dronesSafe)throw Error('Retiring anomaly member is not settled.');const parking=await p.park();p.current();if(parking.characterID!==id||parking.shipID!==p.shipID||!parking.docked||!pos(parking.destinationID))throw Error('Retiring anomaly Parking is unconfirmed.');retiredParks.set(id,parking);save();return parking;}finally{retiring=false;}}
- return {retire,identity,authority:()=>({state,primary,primaryGeneration}),assertTarget,fence,tick(){if(inflight)return inflight;inflight=one().catch(error=>{if(error instanceof CombatRosterChanged)return;if(!stopping){state="BLOCKED";save();}throw error;}).finally(()=>{inflight=null;});return inflight;},async stop(){stopping=true;if(inflight)await inflight.catch(()=>{});if(state!=="STOPPED")await settle();},snapshot:()=>({state,primary,primaryGeneration,receipt,memberDecisions:roster.snapshot()})};
+export function createAnomalyOperation(c: AnomalyOperationConfig) {
+  const now = c.now ?? Date.now,
+    site = structuredClone(c.site),
+    original = [...c.peers],
+    leader = original.find((p) => p.characterID === c.leaderID),
+    profile = c.catalog.filter((p) => p.enabled && p.dungeonID === site.dungeonID);
+  let peers = [...original];
+  const roster = createCombatRoster(original),
+    retiredParks = new Map<number, unknown>();
+  if (
+    !c.operationID ||
+    !c.operationRunID ||
+    !leader ||
+    peers.length < 1 ||
+    peers.length > 8 ||
+    new Set(peers.map((p) => p.characterID)).size !== peers.length ||
+    new Set(peers.map((p) => p.shipID)).size !== peers.length ||
+    !Number.isSafeInteger(c.entryRoomID) ||
+    c.entryRoomID < 0 ||
+    profile.length !== 1 ||
+    profile[0]!.entryRoomID !== c.entryRoomID ||
+    !pos(site.systemID) ||
+    !pos(site.instanceID) ||
+    !pos(site.scannerKey) ||
+    !pos(site.dungeonID) ||
+    !validPoint(site.position)
+  )
+    throw Error("Anomaly operation qualification is incomplete.");
+  const chief = leader!;
+  const identity: AnomalyIdentity = {
+    kind: "combat-anomaly",
+    operationID: c.operationID,
+    operationRunID: c.operationRunID,
+    dungeonID: site.dungeonID,
+    instanceID: site.instanceID,
+    roomID: c.entryRoomID,
+    systemID: site.systemID,
+    scannerKey: site.scannerKey,
+  };
+  const signature = JSON.stringify([
+    identity,
+    site.label,
+    site.position,
+    peers.map((p) => [p.characterID, p.shipID, p.botID, p.sessionGeneration]),
+  ]);
+  if (c.document.read() !== null || c.receiptDocument.read() !== null)
+    throw Error("Anomaly operation already retains custody; no automatic replay.");
+  let state: "CREATED" | "FORMING" | "ENTRY" | "COMBAT" | "SETTLING" | "STOPPED" | "BLOCKED" =
+      "CREATED",
+    primary: number | null = null,
+    primaryGeneration = 0,
+    receipt: SiteCompletionReceipt | null = null,
+    settlements: unknown[] = [],
+    parks: unknown[] = [],
+    idleSince: number | null = null,
+    inflight: Promise<void> | null = null,
+    stopping = false,
+    retiring = false;
+  const save = () =>
+    c.document.write({
+      version: 1,
+      signature,
+      state,
+      primary,
+      primaryGeneration,
+      receipt,
+      settlements,
+      parks,
+      memberDecisions: roster.snapshot(),
+      retiredParks: [...retiredParks.values()],
+      updatedAt: now(),
+    });
+  save();
+  const current = () => {
+    if (stopping) throw Error("Anomaly operation is stopped.");
+    if (retiring) throw new CombatRosterChanged("Member retirement is settling original actions.");
+    c.assertSiteClaim();
+    roster.check((id) => original.find((p) => p.characterID === id)!.current());
+    peers = original.filter((p) => roster.active(p.characterID));
+    if (!roster.active(chief.characterID))
+      throw Error(
+        "Native anomaly completion observer lost its original anchor; in-flight handoff is unqualified.",
+      );
+  };
+  const ordered = () => [chief, ...peers.filter((p) => p !== chief)];
+  const initialOrder = ordered(),
+    assembly =
+      initialOrder.length > 1
+        ? createFleetAssembly(
+            c.assemblyDocument,
+            c.operationID,
+            c.operationRunID,
+            initialOrder,
+            now,
+            c.fleetMoves,
+          )
+        : null;
+  let fleetWork: Promise<boolean> | null = null;
+  function ensureFleet() {
+    if (roster.snapshot().length) {
+      return (async () => {
+        const rows = await Promise.all(peers.map((p) => p.read()));
+        for (const r of rows)
+          if (
+            r.state !== "ready" ||
+            peers.some((p) => !r.memberIDs.includes(p.characterID)) ||
+            r.memberIDs.some((id) => !original.some((p) => p.characterID === id)) ||
+            rows.some(
+              (v) =>
+                v.state !== "ready" ||
+                v.fleetID !== r.fleetID ||
+                JSON.stringify([...v.memberIDs].sort()) !== JSON.stringify([...r.memberIDs].sort()),
+            )
+          )
+            throw Error("Remaining anomaly fleet is not verified.");
+        return true;
+      })();
+    }
+    if (!assembly) {
+      chief.current();
+      return Promise.resolve(true);
+    }
+    if (fleetWork) return fleetWork;
+    fleetWork = assembly
+      .step()
+      .then((value) => value === "ready")
+      .finally(() => {
+        fleetWork = null;
+      });
+    return fleetWork;
+  }
+  const observer = createSiteCompletionObserver({
+    live: chief.session.store.live,
+    scope: {
+      operationID: c.operationID,
+      operationRunID: c.operationRunID,
+      botID: chief.botID,
+      sessionGeneration: chief.sessionGeneration,
+    },
+    site: {
+      characterID: chief.characterID,
+      shipID: chief.shipID,
+      systemID: site.systemID,
+      dungeonID: site.dungeonID,
+      instanceID: site.instanceID,
+      roomID: c.entryRoomID,
+    },
+    assertCurrent: current,
+    readKeeper: async () => {
+      const v = await chief.view();
+      return v.keeper;
+    },
+    saveReceipt: (r) => c.receiptDocument.write(r),
+    now,
+  });
+  async function checkedSite() {
+    current();
+    const rows = await c.readSites();
+    current();
+    const matches = rows.filter(
+      (s) =>
+        sameSite(s, site) &&
+        Number.isFinite(s.observedAt) &&
+        s.observedAt <= now() &&
+        now() - s.observedAt <= 15000,
+    );
+    if (matches.length !== 1) throw Error("Exact fresh combat anomaly is not confirmed.");
+  }
+  async function checkedView(peer: AnomalyPeer) {
+    const timeout = c.viewTimeoutMs ?? 90000,
+      deadline = now() + timeout,
+      wait = c.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    do {
+      current();
+      let v: AnomalyView | null = null;
+      try {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          v = await Promise.race([
+            peer.view(),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () => reject(Error("Native anomaly view timed out.")),
+                Math.max(1, deadline - now()),
+              );
+            }),
+          ]);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      } catch {
+        /* Retry read-only; ownership is checked outside this catch. */
+      }
+      current();
+      if (
+        v &&
+        (v.characterID !== peer.characterID ||
+          v.shipID !== peer.shipID ||
+          v.systemID !== site.systemID)
+      )
+        throw Error("Anomaly pilot, ship or system changed.");
+      if (
+        v?.keeper &&
+        (v.keeper.dungeonID !== identity.dungeonID ||
+          v.keeper.instanceID !== identity.instanceID ||
+          v.keeper.roomID !== identity.roomID)
+      )
+        throw Error("Pilot is outside the exact observed anomaly room.");
+      const t = now();
+      if (
+        v &&
+        v.inSpace &&
+        !v.inWarp &&
+        v.keeper &&
+        Number.isFinite(v.sampledAt) &&
+        (v.nativeProof !== undefined
+          ? validNativeShipProof(
+              v.nativeProof,
+              {
+                characterID: peer.characterID,
+                shipID: peer.shipID,
+                systemID: site.systemID,
+                botID: peer.botID,
+                sessionGeneration: peer.sessionGeneration,
+              },
+              v.sampledAt,
+              t,
+            ) &&
+            Number.isFinite(v.keeperObservedAt) &&
+            v.keeperObservedAt! >= v.nativeProof.readFinishedAt &&
+            v.keeperObservedAt! <= t &&
+            t - v.keeperObservedAt! <= 60000
+          : v.sampledAt <= t + 5000 && t - v.sampledAt <= 60000) &&
+        validPoint(v.shipPosition) &&
+        near(v.shipPosition, site.position) <= 250000
+      )
+        return v;
+      if (now() >= deadline) break;
+      await wait(500);
+    } while (now() < deadline);
+    throw Error("Fresh anomaly room observation is unavailable; custody retained.");
+  }
+  async function enter() {
+    await checkedSite();
+    observer.begin();
+    state = "ENTRY";
+    save();
+    await chief.navigate(site, chief.characterID, current);
+    current();
+    await checkedView(chief);
+    await observer.arm();
+    for (const peer of ordered().slice(1)) {
+      await peer.navigate(site, chief.characterID, current);
+      current();
+      await checkedView(peer);
+    }
+    state = "COMBAT";
+    save();
+  }
+  async function settle() {
+    stopping = true;
+    state = "SETTLING";
+    save();
+    const settled = await Promise.allSettled(
+      peers.map(async (p) => {
+        const v = await p.settle(() => {
+          c.assertSiteClaim();
+          p.current();
+        });
+        c.assertSiteClaim();
+        p.current();
+        const t = now();
+        if (
+          v.characterID !== p.characterID ||
+          v.shipID !== p.shipID ||
+          v.modulesInactive !== true ||
+          v.dronesSafe !== true ||
+          !Number.isFinite(v.observedAt) ||
+          v.observedAt > t ||
+          t - v.observedAt > 15000
+        )
+          throw Error("Native member settlement is unavailable.");
+        return structuredClone(v);
+      }),
+    );
+    const failed = settled.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (failed) throw failed.reason;
+    settlements = settled.map(
+      (r) => (r as PromiseFulfilledResult<Awaited<ReturnType<AnomalyPeer["settle"]>>>).value,
+    );
+    save();
+    const parked = await Promise.allSettled(
+      peers.map(async (p, i) => {
+        const v = await p.park();
+        c.assertSiteClaim();
+        p.current();
+        const before = settlements[i] as { observedAt: number },
+          t = now();
+        if (
+          v.characterID !== p.characterID ||
+          v.shipID !== p.shipID ||
+          v.docked !== true ||
+          !pos(v.destinationID) ||
+          !Number.isFinite(v.observedAt) ||
+          v.observedAt < before.observedAt ||
+          v.observedAt > t ||
+          t - v.observedAt > 15000
+        )
+          throw Error("Native member parking is unavailable.");
+        return structuredClone(v);
+      }),
+    );
+    const parkFailure = parked.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (parkFailure) throw parkFailure.reason;
+    parks = parked.map(
+      (r) => (r as PromiseFulfilledResult<Awaited<ReturnType<AnomalyPeer["park"]>>>).value,
+    );
+    if (roster.snapshot().some((m) => !retiredParks.has(m.characterID)))
+      throw Error("Retired anomaly custody remains unresolved; healthy Parking is retained.");
+    state = "STOPPED";
+    save();
+    observer.close();
+  }
+  async function one() {
+    if (state === "STOPPED" || state === "BLOCKED") return;
+    current();
+    if ((state === "CREATED" || state === "FORMING") && roster.snapshot().length)
+      throw Error("Retained anomaly assembly requires reconciliation before roster changes.");
+    if (state === "CREATED" || state === "FORMING") {
+      state = "FORMING";
+      save();
+      if (!(await ensureFleet())) return;
+      current();
+      await enter();
+      return;
+    }
+    if (state !== "COMBAT") throw Error("Anomaly state needs reconciliation.");
+    if (!(await ensureFleet())) throw Error("Native combat fleet roster is not confirmed.");
+    current();
+    const completion = await observer.check();
+    if (completion.state === "unknown") throw Error(completion.reason);
+    if (completion.state === "confirmed") {
+      receipt = completion.receipt;
+      save();
+      await settle();
+      return;
+    }
+    const combatOrder = ordered(),
+      views = await Promise.all(
+        combatOrder.map(async (p) => {
+          try {
+            return await checkedView(p);
+          } catch (e) {
+            if (e instanceof CombatRosterChanged || roster.required(p.characterID)) throw e;
+            roster.retire(p.characterID, e instanceof Error ? e.message : String(e));
+            peers = original.filter((p) => roster.active(p.characterID));
+            save();
+            return null;
+          }
+        }),
+      );
+    if (!views[0])
+      throw Error(
+        "Native anomaly completion anchor is unavailable; in-flight handoff is unqualified.",
+      );
+    const targets = views[0]!.npcs
+      .filter(
+        (n) =>
+          isQualifiedAnomalyNpc(site, n, c.catalog) &&
+          validPoint(n.position) &&
+          near(n.position, site.position) <= 500000,
+      )
+      .sort(
+        (a, b) =>
+          near(a.position, views[0]!.shipPosition) - near(b.position, views[0]!.shipPosition) ||
+          a.itemID - b.itemID,
+      )
+      .map((n) => n.itemID);
+    const chosen = primary !== null && targets.includes(primary) ? primary : (targets[0] ?? null);
+    if (chosen !== primary) {
+      primary = chosen;
+      primaryGeneration++;
+      save();
+    }
+    if (primary === null) {
+      idleSince ??= now();
+      if (now() - idleSince >= 120000)
+        throw Error("No qualified anomaly target or native completion was observed.");
+      return;
+    }
+    idleSince = null;
+    const fought = await Promise.allSettled(
+      combatOrder.map(async (peer, i) => {
+        if (!views[i] || !roster.active(peer.characterID)) return;
+        const candidate = views[i]!.npcs.find(
+          (n) =>
+            n.itemID === primary &&
+            isQualifiedAnomalyNpc(site, n, c.catalog) &&
+            validPoint(n.position) &&
+            near(n.position, site.position) <= 500000,
+        );
+        if (!candidate) return;
+        const captured = primary,
+          capturedGeneration = primaryGeneration;
+        await peer.fighter.tick(identity, () => {
+          current();
+          if (primary !== captured || primaryGeneration !== capturedGeneration)
+            throw Error("Anomaly primary changed.");
+        });
+      }),
+    );
+    const failed = fought.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failed) {
+      const id = combatOrder[fought.indexOf(failed)]!.characterID;
+      if (roster.required(id)) throw failed.reason;
+      roster.retire(
+        id,
+        failed.reason instanceof Error ? failed.reason.message : String(failed.reason),
+      );
+      peers = original.filter((p) => roster.active(p.characterID));
+      save();
+    }
+  }
+  const assertTarget = (characterID: number, target: number | null, generation: number) => {
+    current();
+    if (
+      state !== "COMBAT" ||
+      !peers.some((p) => p.characterID === characterID) ||
+      !primary ||
+      generation !== primaryGeneration ||
+      (target !== null && target !== primary)
+    )
+      throw new FleetRoomRetired("Anomaly combat authority changed.");
+  };
+  async function fence(characterID: number, target: number | null, generation: number) {
+    assertTarget(characterID, target, generation);
+    if (!(await ensureFleet())) throw Error("Native combat fleet roster is not confirmed.");
+    assertTarget(characterID, target, generation);
+    const peer = peers.find((p) => p.characterID === characterID)!,
+      v = await checkedView(peer);
+    assertTarget(characterID, target, generation);
+    if (target !== null) {
+      const row = v.npcs.find((n) => n.itemID === target);
+      if (!row) throw new SecurityTargetUnobserved("Anomaly target absent in checked scene.");
+      if (
+        !isQualifiedAnomalyNpc(site, row, c.catalog) ||
+        !validPoint(row.position) ||
+        near(row.position, site.position) > 500000
+      )
+        throw Error("Anomaly target is not qualified in its room.");
+    }
+  }
+  async function retire(id: number, reason: string) {
+    const p = original.find((p) => p.characterID === id);
+    if (!p || roster.required(id)) return null;
+    if (state !== "COMBAT")
+      throw Error("Independent anomaly retirement cannot replay entry or assembly movement.");
+    if (id === chief.characterID)
+      throw Error(
+        "Native anomaly completion observer requires its original anchor; no qualified in-flight handoff.",
+      );
+    roster.retire(id, reason);
+    peers = original.filter((p) => roster.active(p.characterID));
+    retiring = true;
+    try {
+      if (inflight) await inflight.catch(() => {});
+      p.current();
+      const settled = await p.settle(p.current);
+      p.current();
+      if (
+        settled.characterID !== id ||
+        settled.shipID !== p.shipID ||
+        !settled.modulesInactive ||
+        !settled.dronesSafe
+      )
+        throw Error("Retiring anomaly member is not settled.");
+      const parking = await p.park();
+      p.current();
+      if (
+        parking.characterID !== id ||
+        parking.shipID !== p.shipID ||
+        !parking.docked ||
+        !pos(parking.destinationID)
+      )
+        throw Error("Retiring anomaly Parking is unconfirmed.");
+      retiredParks.set(id, parking);
+      save();
+      return parking;
+    } finally {
+      retiring = false;
+    }
+  }
+  return {
+    retire,
+    identity,
+    authority: () => ({ state, primary, primaryGeneration }),
+    assertTarget,
+    fence,
+    tick() {
+      if (inflight) return inflight;
+      inflight = one()
+        .catch((error) => {
+          if (error instanceof CombatRosterChanged) return;
+          if (!stopping) {
+            state = "BLOCKED";
+            save();
+          }
+          throw error;
+        })
+        .finally(() => {
+          inflight = null;
+        });
+      return inflight;
+    },
+    async stop() {
+      stopping = true;
+      if (inflight) await inflight.catch(() => {});
+      if (state !== "STOPPED") await settle();
+    },
+    snapshot: () => ({
+      state,
+      primary,
+      primaryGeneration,
+      receipt,
+      memberDecisions: roster.snapshot(),
+    }),
+  };
 }

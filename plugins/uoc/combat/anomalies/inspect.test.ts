@@ -1,18 +1,461 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {createAnomalyInspectRun} from "./inspect.ts";
-const dict=(entries:any[]=[])=>({type:"dict",entries}),kv=(entries:any[])=>({type:"object",name:"util.KeyVal",args:dict(entries)}),list=(items:any[])=>({type:"list",items});
-test('Upwell inspection preserves native dock kind and refuses a dock change during readback',async()=>{
- for(const changed of [false,true]){const reports:any[]=[];let reads=0;const session:any={store:{station:{get:()=>({online:{characterID:1}})}},flow:{requestOptions:()=>({}),setLivePush(){},flying:{sessionGeneration:()=>1,isSessionClosing:()=>false,bridgeDo:async(s:string,m:string)=>{assert.equal(s+'.'+m,'invCache.InvalidateLocationCache');},bridgeAsk:async(s:string)=>s==='scanMgr'?[dict(),dict(),dict(),dict()]:s==='invbroker'?list([]):null}}};
-  const run:any={characterID:1,held:{characterID:1},report:(r:any)=>reports.push(r),baseUrl:'http://fixture',fetch:async(input:any)=>{if(new URL(String(input)).pathname.endsWith('/status'))return Response.json({ok:true,flight:{shipID:11,solarSystemID:300,docked:true,inSpace:false,structureID:changed&&++reads>1?1000000000002:1000000000001,transition:{phase:'ready'}}});return Response.json({ok:false},{status:503});}};
-  const handle=await createAnomalyInspectRun({attach:async()=>session,catalog:()=>[]}).start(run);await new Promise(r=>setTimeout(r,20));if(changed){assert.equal(reports[0]?.status,'error');assert.match(reports[0]?.why,/dock or ship changed/);}else{assert.equal(reports[0]?.status,'stopped');assert.equal(reports[0]?.readout.dockKind,'structure');assert.equal(reports[0]?.readout.dockID,1000000000001);assert.equal(reports[0]?.readout.nativeResources,null);}await handle.stop();
- }
+import { createAnomalyInspectRun } from "./inspect.ts";
+const dict = (entries: any[] = []) => ({ type: "dict", entries }),
+  kv = (entries: any[]) => ({ type: "object", name: "util.KeyVal", args: dict(entries) }),
+  list = (items: any[]) => ({ type: "list", items });
+test("Upwell inspection preserves native dock kind and refuses a dock change during readback", async () => {
+  for (const changed of [false, true]) {
+    const reports: any[] = [];
+    let reads = 0;
+    const session: any = {
+      store: { station: { get: () => ({ online: { characterID: 1 } }) } },
+      flow: {
+        requestOptions: () => ({}),
+        setLivePush() {},
+        flying: {
+          sessionGeneration: () => 1,
+          isSessionClosing: () => false,
+          bridgeDo: async (s: string, m: string) => {
+            assert.equal(s + "." + m, "invCache.InvalidateLocationCache");
+          },
+          bridgeAsk: async (s: string) =>
+            s === "scanMgr"
+              ? [dict(), dict(), dict(), dict()]
+              : s === "invbroker"
+                ? list([])
+                : null,
+        },
+      },
+    };
+    const run: any = {
+      characterID: 1,
+      held: { characterID: 1 },
+      report: (r: any) => reports.push(r),
+      baseUrl: "http://fixture",
+      fetch: async (input: any) => {
+        if (new URL(String(input)).pathname.endsWith("/status"))
+          return Response.json({
+            ok: true,
+            flight: {
+              shipID: 11,
+              solarSystemID: 300,
+              docked: true,
+              inSpace: false,
+              structureID: changed && ++reads > 1 ? 1000000000002 : 1000000000001,
+              transition: { phase: "ready" },
+            },
+          });
+        return Response.json({ ok: false }, { status: 503 });
+      },
+    };
+    const handle = await createAnomalyInspectRun({
+      attach: async () => session,
+      catalog: () => [],
+    }).start(run);
+    await new Promise((r) => setTimeout(r, 20));
+    if (changed) {
+      assert.equal(reports[0]?.status, "error");
+      assert.match(reports[0]?.why, /dock or ship changed/);
+    } else {
+      assert.equal(reports[0]?.status, "stopped");
+      assert.equal(reports[0]?.readout.dockKind, "structure");
+      assert.equal(reports[0]?.readout.dockID, 1000000000001);
+      assert.equal(reports[0]?.readout.nativeResources, null);
+    }
+    await handle.stop();
+  }
 });
-test("inspection reads exact held pilot and finishes without native writes",async()=>{const reports:any[]=[],calls:string[]=[];let close=0;const session:any={store:{station:{get:()=>({online:{characterID:1}})}},flow:{requestOptions:()=>({}),setLivePush:()=>{close++},flying:{sessionGeneration:()=>9,isSessionClosing:()=>false,bridgeDo:async(s:string,m:string)=>{calls.push(`${s}.${m}`)},bridgeAsk:async(s:string,m:string)=>{calls.push(`${s}.${m}`);if(s==="invCache")return null;if(s==="invbroker")return list([]);return s==="scanMgr"?[dict([[55,kv([["targetID","ABC"],["instanceID",89],["siteID",89],["dungeonID",5579],["archetypeID",24],["solarSystemID",300],["position",[1,2,3]]])]]),dict(),dict(),dict()]:dict([[300,list([kv([["instanceID",89],["siteID",89],["dungeonID",5579],["archetypeID",24],["position",list([1,2,3])]])])]])}}}};const run:any={characterID:1,held:{characterID:1},report:(r:any)=>reports.push(r),baseUrl:"http://bff",fetch:async(input:any)=>{assert.equal(new URL(String(input)).pathname,"/api/bridge/flight/status");return Response.json({ok:true,flight:{shipID:11,solarSystemID:300,docked:true,inSpace:false,stationID:600}})}};const factory=createAnomalyInspectRun({attach:async()=>session,catalog:()=>[{dungeonID:5579,enabled:true,entryRoomID:0,typeGroups:{"11040":550}}]});const handle=await factory.start(run);await new Promise(r=>setTimeout(r,20));assert.equal(reports[0]?.status,"stopped");assert.equal(reports[0]?.readout.sites[0].instanceID,89);assert.deepEqual(calls,["scanMgr.GetFullState","invCache.InvalidateLocationCache","invbroker.List"]);assert.ok(close>0);await handle.stop();});
+test("inspection reads exact held pilot and finishes without native writes", async () => {
+  const reports: any[] = [],
+    calls: string[] = [];
+  let close = 0;
+  const session: any = {
+    store: { station: { get: () => ({ online: { characterID: 1 } }) } },
+    flow: {
+      requestOptions: () => ({}),
+      setLivePush: () => {
+        close++;
+      },
+      flying: {
+        sessionGeneration: () => 9,
+        isSessionClosing: () => false,
+        bridgeDo: async (s: string, m: string) => {
+          calls.push(`${s}.${m}`);
+        },
+        bridgeAsk: async (s: string, m: string) => {
+          calls.push(`${s}.${m}`);
+          if (s === "invCache") return null;
+          if (s === "invbroker") return list([]);
+          return s === "scanMgr"
+            ? [
+                dict([
+                  [
+                    55,
+                    kv([
+                      ["targetID", "ABC"],
+                      ["instanceID", 89],
+                      ["siteID", 89],
+                      ["dungeonID", 5579],
+                      ["archetypeID", 24],
+                      ["solarSystemID", 300],
+                      ["position", [1, 2, 3]],
+                    ]),
+                  ],
+                ]),
+                dict(),
+                dict(),
+                dict(),
+              ]
+            : dict([
+                [
+                  300,
+                  list([
+                    kv([
+                      ["instanceID", 89],
+                      ["siteID", 89],
+                      ["dungeonID", 5579],
+                      ["archetypeID", 24],
+                      ["position", list([1, 2, 3])],
+                    ]),
+                  ]),
+                ],
+              ]);
+        },
+      },
+    },
+  };
+  const run: any = {
+    characterID: 1,
+    held: { characterID: 1 },
+    report: (r: any) => reports.push(r),
+    baseUrl: "http://bff",
+    fetch: async (input: any) => {
+      assert.equal(new URL(String(input)).pathname, "/api/bridge/flight/status");
+      return Response.json({
+        ok: true,
+        flight: { shipID: 11, solarSystemID: 300, docked: true, inSpace: false, stationID: 600 },
+      });
+    },
+  };
+  const factory = createAnomalyInspectRun({
+    attach: async () => session,
+    catalog: () => [
+      { dungeonID: 5579, enabled: true, entryRoomID: 0, typeGroups: { "11040": 550 } },
+    ],
+  });
+  const handle = await factory.start(run);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(reports[0]?.status, "stopped");
+  assert.equal(reports[0]?.readout.sites[0].instanceID, 89);
+  assert.deepEqual(calls, [
+    "scanMgr.GetFullState",
+    "invCache.InvalidateLocationCache",
+    "invbroker.List",
+  ]);
+  assert.ok(close > 0);
+  await handle.stop();
+});
 
-test("optional held name lookup supplies display names without changing native site identity",async()=>{const reports:any[]=[],calls:string[]=[];const session:any={store:{station:{get:()=>({online:{characterID:1}})}},flow:{requestOptions:()=>({}),setLivePush:()=>{},flying:{sessionGeneration:()=>9,isSessionClosing:()=>false,bridgeDo:async(s:string,m:string)=>{calls.push(`${s}.${m}`)},bridgeAsk:async(s:string,m:string)=>{calls.push(`${s}.${m}`);if(s==='scanMgr')return [dict([[55,kv([["targetID","ABC"],["instanceID",89],["siteID",89],["dungeonID",8589],["archetypeID",24],["solarSystemID",300],["position",[1,2,3]]])]]),dict(),dict(),dict()];if(s==='invbroker')return list([]);return null;}}}};const run:any={characterID:1,held:{characterID:1},report:(r:any)=>reports.push(r),baseUrl:'http://bff',fetch:async(input:any,init:any)=>{const p=new URL(String(input)).pathname;if(p==='/api/bridge/flight/status')return Response.json({ok:true,flight:{shipID:11,shipTypeID:645,solarSystemID:300,docked:true,inSpace:false,stationID:600}});assert.equal(p,'/api/names');const asked=JSON.parse(init.body).items;assert.ok(asked.some((x:any)=>x.kind==='type'&&x.id===645));return Response.json({ok:true,capped:false,names:{'owner:1':'Pilot One','type:645':'Dominix','evelocation:600':'Station','evelocation:300':'System'}});}};const factory=createAnomalyInspectRun({attach:async()=>session,catalog:()=>[{dungeonID:8589,enabled:true,entryRoomID:0,typeGroups:{"11040":550}}]});await factory.start(run);await new Promise(r=>setTimeout(r,20));const read=reports[0].readout;assert.equal(read.pilotName,'Pilot One');assert.equal(read.shipTypeName,'Dominix');assert.equal(read.stationName,'Station');assert.equal(read.systemName,'System');assert.equal(read.siteNames['89'],'Emerging Conduit');assert.equal(read.sites[0].label,'ABC');assert.equal(read.sites[0].instanceID,89);assert.equal(read.nativeResources,null);});
+test("optional held name lookup supplies display names without changing native site identity", async () => {
+  const reports: any[] = [],
+    calls: string[] = [];
+  const session: any = {
+    store: { station: { get: () => ({ online: { characterID: 1 } }) } },
+    flow: {
+      requestOptions: () => ({}),
+      setLivePush: () => {},
+      flying: {
+        sessionGeneration: () => 9,
+        isSessionClosing: () => false,
+        bridgeDo: async (s: string, m: string) => {
+          calls.push(`${s}.${m}`);
+        },
+        bridgeAsk: async (s: string, m: string) => {
+          calls.push(`${s}.${m}`);
+          if (s === "scanMgr")
+            return [
+              dict([
+                [
+                  55,
+                  kv([
+                    ["targetID", "ABC"],
+                    ["instanceID", 89],
+                    ["siteID", 89],
+                    ["dungeonID", 8589],
+                    ["archetypeID", 24],
+                    ["solarSystemID", 300],
+                    ["position", [1, 2, 3]],
+                  ]),
+                ],
+              ]),
+              dict(),
+              dict(),
+              dict(),
+            ];
+          if (s === "invbroker") return list([]);
+          return null;
+        },
+      },
+    },
+  };
+  const run: any = {
+    characterID: 1,
+    held: { characterID: 1 },
+    report: (r: any) => reports.push(r),
+    baseUrl: "http://bff",
+    fetch: async (input: any, init: any) => {
+      const p = new URL(String(input)).pathname;
+      if (p === "/api/bridge/flight/status")
+        return Response.json({
+          ok: true,
+          flight: {
+            shipID: 11,
+            shipTypeID: 645,
+            solarSystemID: 300,
+            docked: true,
+            inSpace: false,
+            stationID: 600,
+          },
+        });
+      assert.equal(p, "/api/names");
+      const asked = JSON.parse(init.body).items;
+      assert.ok(asked.some((x: any) => x.kind === "type" && x.id === 645));
+      return Response.json({
+        ok: true,
+        capped: false,
+        names: {
+          "owner:1": "Pilot One",
+          "type:645": "Dominix",
+          "evelocation:600": "Station",
+          "evelocation:300": "System",
+        },
+      });
+    },
+  };
+  const factory = createAnomalyInspectRun({
+    attach: async () => session,
+    catalog: () => [
+      { dungeonID: 8589, enabled: true, entryRoomID: 0, typeGroups: { "11040": 550 } },
+    ],
+  });
+  await factory.start(run);
+  await new Promise((r) => setTimeout(r, 20));
+  const read = reports[0].readout;
+  assert.equal(read.pilotName, "Pilot One");
+  assert.equal(read.shipTypeName, "Dominix");
+  assert.equal(read.stationName, "Station");
+  assert.equal(read.systemName, "System");
+  assert.equal(read.siteNames["89"], "Emerging Conduit");
+  assert.equal(read.sites[0].label, "ABC");
+  assert.equal(read.sites[0].instanceID, 89);
+  assert.equal(read.nativeResources, null);
+});
 
-test("client cache retirement uses confirmed write then checked exact native drone bay",async()=>{const reports:any[]=[],calls:any[]=[];const ship=9123400000100,cid=141100100,session:any={store:{station:{get:()=>({online:{characterID:cid}})}},flow:{requestOptions:()=>({}),setLivePush:()=>{},flying:{sessionGeneration:()=>1,isSessionClosing:()=>false,bridgeDo:async(s:string,m:string,args:any[])=>{calls.push(['do',s,m,args]);},bridgeAsk:async(s:string,m:string,args:any[],kwargs:any,of:any)=>{calls.push(['ask',s,m,args,kwargs,of]);if(s==='invCache')throw Error('BRIDGE_WRITE_REFUSED');if(s==='scanMgr')return [dict(),dict(),dict(),dict()];if(s==='dogmaIM')return null;if(s==='invbroker')return list([{type:'packedrow',fields:{itemID:9123400000101,typeID:2444,ownerID:cid,locationID:ship,flagID:87,quantity:5,categoryID:18}}]);throw Error('unexpected read');}}}};const run:any={characterID:cid,held:{characterID:cid},report:(r:any)=>reports.push(r),baseUrl:'http://bff',fetch:async(input:any)=>{const p=new URL(String(input)).pathname;if(p==='/api/bridge/flight/status')return Response.json({ok:true,flight:{shipID:ship,shipTypeID:645,solarSystemID:300,docked:true,inSpace:false,stationID:600}});return Response.json({ok:false},{status:503});}};const factory=createAnomalyInspectRun({attach:async()=>session,catalog:()=>[]});await factory.start(run);await new Promise(r=>setTimeout(r,20));const read=reports[0].readout;assert.deepEqual(read.droneBay,[{itemID:9123400000101,typeID:2444,quantity:5}]);assert.equal(read.droneBayError,null);assert.ok(calls.some(x=>JSON.stringify(x)===JSON.stringify(['do','invCache','InvalidateLocationCache',[ship]])));assert.ok(calls.some(x=>x[0]==='ask'&&x[1]==='invbroker'&&x[2]==='List'&&x[3][0]===87&&x[5]===ship));assert.match(read.nativeResourcesError,/CPU or powergrid/);});
-test("native drone read failure remains unknown with its exact reason",async()=>{const reports:any[]=[],session:any={store:{station:{get:()=>({online:{characterID:1}})}},flow:{requestOptions:()=>({}),setLivePush:()=>{},flying:{sessionGeneration:()=>1,isSessionClosing:()=>false,bridgeDo:async()=>{throw Error('native cache refusal');},bridgeAsk:async(s:string)=>s==='scanMgr'?[dict(),dict(),dict(),dict()]:null}}};const run:any={characterID:1,held:{characterID:1},report:(r:any)=>reports.push(r),baseUrl:'http://bff',fetch:async(input:any)=>new URL(String(input)).pathname==='/api/bridge/flight/status'?Response.json({ok:true,flight:{shipID:11,solarSystemID:300,docked:true,inSpace:false,stationID:600}}):Response.json({ok:false},{status:503})};await createAnomalyInspectRun({attach:async()=>session,catalog:()=>[]}).start(run);await new Promise(r=>setTimeout(r,20));assert.equal(reports[0].readout.droneBay,null);assert.equal(reports[0].readout.droneBayError,'native cache refusal');});
+test("client cache retirement uses confirmed write then checked exact native drone bay", async () => {
+  const reports: any[] = [],
+    calls: any[] = [];
+  const ship = 9123400000100,
+    cid = 141100100,
+    session: any = {
+      store: { station: { get: () => ({ online: { characterID: cid } }) } },
+      flow: {
+        requestOptions: () => ({}),
+        setLivePush: () => {},
+        flying: {
+          sessionGeneration: () => 1,
+          isSessionClosing: () => false,
+          bridgeDo: async (s: string, m: string, args: any[]) => {
+            calls.push(["do", s, m, args]);
+          },
+          bridgeAsk: async (s: string, m: string, args: any[], kwargs: any, of: any) => {
+            calls.push(["ask", s, m, args, kwargs, of]);
+            if (s === "invCache") throw Error("BRIDGE_WRITE_REFUSED");
+            if (s === "scanMgr") return [dict(), dict(), dict(), dict()];
+            if (s === "dogmaIM") return null;
+            if (s === "invbroker")
+              return list([
+                {
+                  type: "packedrow",
+                  fields: {
+                    itemID: 9123400000101,
+                    typeID: 2444,
+                    ownerID: cid,
+                    locationID: ship,
+                    flagID: 87,
+                    quantity: 5,
+                    categoryID: 18,
+                  },
+                },
+              ]);
+            throw Error("unexpected read");
+          },
+        },
+      },
+    };
+  const run: any = {
+    characterID: cid,
+    held: { characterID: cid },
+    report: (r: any) => reports.push(r),
+    baseUrl: "http://bff",
+    fetch: async (input: any) => {
+      const p = new URL(String(input)).pathname;
+      if (p === "/api/bridge/flight/status")
+        return Response.json({
+          ok: true,
+          flight: {
+            shipID: ship,
+            shipTypeID: 645,
+            solarSystemID: 300,
+            docked: true,
+            inSpace: false,
+            stationID: 600,
+          },
+        });
+      return Response.json({ ok: false }, { status: 503 });
+    },
+  };
+  const factory = createAnomalyInspectRun({ attach: async () => session, catalog: () => [] });
+  await factory.start(run);
+  await new Promise((r) => setTimeout(r, 20));
+  const read = reports[0].readout;
+  assert.deepEqual(read.droneBay, [{ itemID: 9123400000101, typeID: 2444, quantity: 5 }]);
+  assert.equal(read.droneBayError, null);
+  assert.ok(
+    calls.some(
+      (x) =>
+        JSON.stringify(x) === JSON.stringify(["do", "invCache", "InvalidateLocationCache", [ship]]),
+    ),
+  );
+  assert.ok(
+    calls.some(
+      (x) =>
+        x[0] === "ask" &&
+        x[1] === "invbroker" &&
+        x[2] === "List" &&
+        x[3][0] === 87 &&
+        x[5] === ship,
+    ),
+  );
+  assert.match(read.nativeResourcesError, /CPU or powergrid/);
+});
+test("native drone read failure remains unknown with its exact reason", async () => {
+  const reports: any[] = [],
+    session: any = {
+      store: { station: { get: () => ({ online: { characterID: 1 } }) } },
+      flow: {
+        requestOptions: () => ({}),
+        setLivePush: () => {},
+        flying: {
+          sessionGeneration: () => 1,
+          isSessionClosing: () => false,
+          bridgeDo: async () => {
+            throw Error("native cache refusal");
+          },
+          bridgeAsk: async (s: string) =>
+            s === "scanMgr" ? [dict(), dict(), dict(), dict()] : null,
+        },
+      },
+    };
+  const run: any = {
+    characterID: 1,
+    held: { characterID: 1 },
+    report: (r: any) => reports.push(r),
+    baseUrl: "http://bff",
+    fetch: async (input: any) =>
+      new URL(String(input)).pathname === "/api/bridge/flight/status"
+        ? Response.json({
+            ok: true,
+            flight: {
+              shipID: 11,
+              solarSystemID: 300,
+              docked: true,
+              inSpace: false,
+              stationID: 600,
+            },
+          })
+        : Response.json({ ok: false }, { status: 503 }),
+  };
+  await createAnomalyInspectRun({ attach: async () => session, catalog: () => [] }).start(run);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(reports[0].readout.droneBay, null);
+  assert.equal(reports[0].readout.droneBayError, "native cache refusal");
+});
 
-test("inspector reports the actual held fleet roster and preserves unknown on unreadable native fleet",async()=>{for(const unreadable of [false,true]){const reports:any[]=[];const session:any={store:{station:{get:()=>({online:{characterID:1}})}},flow:{requestOptions:()=>({}),setLivePush(){},flying:{sessionGeneration:()=>1,isSessionClosing:()=>false,bridgeDo:async()=>{},bridgeAsk:async(s:string)=>s==="scanMgr"?[dict(),dict(),dict(),dict()]:s==="invbroker"?list([]):null}}};const run:any={characterID:1,held:{characterID:1},report:(x:any)=>reports.push(x),baseUrl:"http://bff",fetch:async(input:any)=>{const path=new URL(String(input)).pathname;if(path==="/api/bridge/flight/status")return Response.json({ok:true,flight:{shipID:11,solarSystemID:300,docked:true,inSpace:false,stationID:600}});if(path==="/api/bridge/bound-fleet")return Response.json(unreadable?{ok:true,fleetID:null,reads:{}}:{ok:true,fleetID:90,reads:{GetInitState:{result:kv([["fleetID",90],["members",dict([[1,kv([["charID",1]])],[2,kv([["charID",2]])]])]])}}});throw Error("optional")}};await createAnomalyInspectRun({attach:async()=>session,catalog:()=>[]}).start(run);await new Promise(r=>setTimeout(r,20));assert.equal(reports[0]?.status,"stopped");if(unreadable)assert.equal(reports[0].readout.fleet,null);else assert.deepEqual(reports[0].readout.fleet,{state:"ready",fleetID:90,memberIDs:[1,2]});}});
+test("inspector reports the actual held fleet roster and preserves unknown on unreadable native fleet", async () => {
+  for (const unreadable of [false, true]) {
+    const reports: any[] = [];
+    const session: any = {
+      store: { station: { get: () => ({ online: { characterID: 1 } }) } },
+      flow: {
+        requestOptions: () => ({}),
+        setLivePush() {},
+        flying: {
+          sessionGeneration: () => 1,
+          isSessionClosing: () => false,
+          bridgeDo: async () => {},
+          bridgeAsk: async (s: string) =>
+            s === "scanMgr"
+              ? [dict(), dict(), dict(), dict()]
+              : s === "invbroker"
+                ? list([])
+                : null,
+        },
+      },
+    };
+    const run: any = {
+      characterID: 1,
+      held: { characterID: 1 },
+      report: (x: any) => reports.push(x),
+      baseUrl: "http://bff",
+      fetch: async (input: any) => {
+        const path = new URL(String(input)).pathname;
+        if (path === "/api/bridge/flight/status")
+          return Response.json({
+            ok: true,
+            flight: {
+              shipID: 11,
+              solarSystemID: 300,
+              docked: true,
+              inSpace: false,
+              stationID: 600,
+            },
+          });
+        if (path === "/api/bridge/bound-fleet")
+          return Response.json(
+            unreadable
+              ? { ok: true, fleetID: null, reads: {} }
+              : {
+                  ok: true,
+                  fleetID: 90,
+                  reads: {
+                    GetInitState: {
+                      result: kv([
+                        ["fleetID", 90],
+                        [
+                          "members",
+                          dict([
+                            [1, kv([["charID", 1]])],
+                            [2, kv([["charID", 2]])],
+                          ]),
+                        ],
+                      ]),
+                    },
+                  },
+                },
+          );
+        throw Error("optional");
+      },
+    };
+    await createAnomalyInspectRun({ attach: async () => session, catalog: () => [] }).start(run);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(reports[0]?.status, "stopped");
+    if (unreadable) assert.equal(reports[0].readout.fleet, null);
+    else
+      assert.deepEqual(reports[0].readout.fleet, {
+        state: "ready",
+        fleetID: 90,
+        memberIDs: [1, 2],
+      });
+  }
+});

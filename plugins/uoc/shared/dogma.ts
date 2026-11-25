@@ -155,8 +155,7 @@ function decodeAttributeDict(result: JsonValue | undefined): readonly DogmaAttri
     if (attributeID < 0) {
       continue;
     }
-    const decoded: number | boolean | null =
-      typeof value === "boolean" ? value : asFloat(value);
+    const decoded: number | boolean | null = typeof value === "boolean" ? value : asFloat(value);
     out.push({ attributeID, value: decoded });
   }
   return out;
@@ -196,16 +195,22 @@ function optInt(value: JsonValue | undefined): number | null {
 }
 
 /** Decode one GET-INFO ENTRY (a util.KeyVal wrapping an invItem packedrow). */
-export function decodeItemInfo(entry: JsonValue | undefined, key?: JsonValue): DogmaItemInfo | null {
+export function decodeItemInfo(
+  entry: JsonValue | undefined,
+  key?: JsonValue,
+): DogmaItemInfo | null {
   if (asObject(entry).type !== "object") {
     return null;
   }
   const invItem = readKeyVal(entry, "invItem");
   const identity = readKeyVal(entry, "itemID") ?? key;
   const tuple = Array.isArray(identity) ? identity : asObject(identity).items;
-  const sublocation = Array.isArray(tuple) && tuple.length === 3 &&
-    tuple.every(value => typeof value === "number" && Number.isSafeInteger(value) && value > 0)
-    ? tuple as [number, number, number] : null;
+  const sublocation =
+    Array.isArray(tuple) &&
+    tuple.length === 3 &&
+    tuple.every((value) => typeof value === "number" && Number.isSafeInteger(value) && value > 0)
+      ? (tuple as [number, number, number])
+      : null;
   return {
     sublocation,
     itemID: idData(readKeyVal(entry, "itemID") ?? readRowField(invItem, "itemID")),

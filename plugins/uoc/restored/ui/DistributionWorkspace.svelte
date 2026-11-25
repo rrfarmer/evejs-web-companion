@@ -1,6 +1,12 @@
 <script module lang="ts">
   export type Section = "operations" | "fleet";
-  export type Availability = { label: string; available: boolean; botID?: string; issue?: string; shipName?: string };
+  export type Availability = {
+    label: string;
+    available: boolean;
+    botID?: string;
+    issue?: string;
+    shipName?: string;
+  };
 </script>
 
 <script lang="ts">
@@ -10,8 +16,30 @@
   import CenterHeading from "./CenterHeading.svelte";
   import CenterStatus from "./CenterStatus.svelte";
 
-  let { view, section, selected, availability, busy, names, docks, issue, adding = false, addPilot, editor,
-    onSection, onSelect, onNew, onEdit, onStart, onStop, onAdd, onRefresh, onConnect, onDisconnect, onRemove }: {
+  let {
+    view,
+    section,
+    selected,
+    availability,
+    busy,
+    names,
+    docks,
+    issue,
+    adding = false,
+    addPilot,
+    editor,
+    onSection,
+    onSelect,
+    onNew,
+    onEdit,
+    onStart,
+    onStop,
+    onAdd,
+    onRefresh,
+    onConnect,
+    onDisconnect,
+    onRemove,
+  }: {
     view: DistributionView;
     section: Section;
     selected: Operation | undefined;
@@ -37,23 +65,52 @@
   } = $props();
 
   const modes = { MANUAL: "Manual Delivery", COLLECTION: "Collection", SUPPLY: "Supply" };
-  const states = { RUNNING: "Running", STOPPING: "Finishing freight", STOPPED: "Stopped", COMPLETED: "Completed",
-    INCOMPLETE: "Finished with items left" };
-  const operationStatus = (op: Operation) => op.execution?.state === "RUNNING" && op.execution.sourceFinished
-    ? states.STOPPING : op.execution ? states[op.execution.state] : "Saved";
-  const routeName = (office: Office) => office.name ?? docks[office.destinationID] ?? (office.kind === "station" ? "NPC station" : "Upwell structure");
+  const states = {
+    RUNNING: "Running",
+    STOPPING: "Finishing freight",
+    STOPPED: "Stopped",
+    COMPLETED: "Completed",
+    INCOMPLETE: "Finished with items left",
+  };
+  const operationStatus = (op: Operation) =>
+    op.execution?.state === "RUNNING" && op.execution.sourceFinished
+      ? states.STOPPING
+      : op.execution
+        ? states[op.execution.state]
+        : "Saved";
+  const routeName = (office: Office) =>
+    office.name ??
+    docks[office.destinationID] ??
+    (office.kind === "station" ? "NPC station" : "Upwell structure");
   const amount = new Intl.NumberFormat();
   const volume = new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 });
-  const job = (pilot: FleetRow) => view.operations.find(op => op.id === (pilot.trip?.operationID ?? pilot.hosted?.operationID));
-  const rosterFor = (op: Operation) => view.roster.filter(row => job(row)?.id === op.id);
-  const ready = $derived(view.roster.filter(row => row.hosted?.phase === "Idle" && !row.trip).length);
-  const enRoute = $derived(view.roster.filter(row => row.hosted && row.hosted.phase !== "Idle" && row.hosted.phase !== "Attention").length);
+  const job = (pilot: FleetRow) =>
+    view.operations.find((op) => op.id === (pilot.trip?.operationID ?? pilot.hosted?.operationID));
+  const rosterFor = (op: Operation) => view.roster.filter((row) => job(row)?.id === op.id);
+  const ready = $derived(
+    view.roster.filter((row) => row.hosted?.phase === "Idle" && !row.trip).length,
+  );
+  const enRoute = $derived(
+    view.roster.filter(
+      (row) => row.hosted && row.hosted.phase !== "Idle" && row.hosted.phase !== "Attention",
+    ).length,
+  );
   const canStop = (row: FleetRow) => !row.trip && (!row.hosted || row.hosted.phase === "Idle");
   const isHosted = (row: FleetRow) => !!row.hosted || !!availability[row.characterID]?.botID;
-  const pilotStatus = (row: FleetRow) => row.hosted?.phase === "Attention" || row.trip?.issue ? "Needs attention" :
-    row.hosted?.phase === "Idle" ? "Idle" : row.hosted ? "On a trip" : row.trip ? "Freight on board" : "Off duty";
+  const pilotStatus = (row: FleetRow) =>
+    row.hosted?.phase === "Attention" || row.trip?.issue
+      ? "Needs attention"
+      : row.hosted?.phase === "Idle"
+        ? "Idle"
+        : row.hosted
+          ? "On a trip"
+          : row.trip
+            ? "Freight on board"
+            : "Off duty";
   const ship = (row: FleetRow) => {
-    const observed = (row.hosted?.shipTypeID ? names[row.hosted.shipTypeID] : null) ?? availability[row.characterID]?.shipName;
+    const observed =
+      (row.hosted?.shipTypeID ? names[row.hosted.shipTypeID] : null) ??
+      availability[row.characterID]?.shipName;
     return observed ?? (row.shipName ? row.shipName + " · last seen" : "Ship unavailable");
   };
 </script>
@@ -235,58 +292,248 @@
 </main>
 
 <style>
-  h2, h3, h4 { margin: 0; }
-  h2 { font-size: 1.3rem; font-weight: 650; } h3 { font-size: 1.16rem; }
-  h4 { display: flex; justify-content: space-between; gap: .6rem; font-size: 1rem; border-bottom: 1px solid #2a3c49; padding-bottom: .45rem; margin-top: 1.2rem; }
-  h4 span { font-weight: 400; color: #afc1cf; font-size: .85rem; }
-  p { margin: .28rem 0 0; color: #afc1cf; }
-  strong, small { display: block; overflow-wrap: anywhere; }
-  small { color: #afc1cf; font-size: .84rem; line-height: 1.4; }
-  nav button { min-width: 7.3rem; justify-content: center; }
-  .heading { display: flex; align-items: center; justify-content: space-between; gap: .8rem; flex-wrap: wrap; margin-bottom: .8rem; }
-  .operation-heading { align-items: start; }
-  .actions { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
-  .panel { border: 1px solid var(--center-border); background: var(--center-panel); border-radius: .7rem; }
-  .empty, .picker, .detail { padding: 1rem; }
-  .picker { margin-bottom: .75rem; }
-  .operations { display: grid; grid-template-columns: minmax(14rem, 1fr) minmax(0, 2.5fr); gap: 1rem; align-items: start; }
-  aside { display: grid; gap: .55rem; }
-  button.operation { display: grid; gap: .35rem; padding: .75rem; width: 100%; text-align: left; background: var(--center-panel); }
-  .operation[aria-pressed="true"] { border-color: #7acbc9; background: #18313c; }
-  .route { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: .6rem; align-items: center; }
-  .endpoint { display: flex; align-items: start; gap: .55rem; height: 100%; padding: .7rem; border: 1px solid #2a4656; border-radius: .5rem; background: #0e1820; }
-  .marker { display: grid; place-items: center; flex: 0 0 1.65rem; height: 1.65rem; margin-top: .15rem; border: 1px solid #456e80; color: #aee7e9; border-radius: .35rem; font-size: .85rem; }
-  .direction { color: #97d9dc; }
-  .caption { display: block; color: #abbdc9; font-size: .82rem; }
-  .loading-summary { font-size: .86rem; }
-  .progress, .work, .load { padding: 0; margin: 0; list-style: none; }
-  .progress li { display: grid; grid-template-columns: minmax(6rem, 1fr) auto; align-items: center; gap: .4rem .85rem; padding: .58rem 0; border-bottom: 1px solid #223540; }
-  .progress li:has(progress) { grid-template-columns: minmax(6rem, 1fr) minmax(5rem, .8fr) auto; }
-  progress { width: 100%; accent-color: #89d8d4; }
-  .progress span, .load { font-size: .85rem; color: #adc9d7; font-variant-numeric: tabular-nums; }
-  .work li { padding-block: .45rem; }
-  .load li { padding-block: .08rem; }
-  .warning { color: #ffc3a3; }
-  table { width: 100%; border-collapse: collapse; text-align: left; }
-  thead { background: #162733; color: #bdcdd8; font-size: .85rem; }
-  th, td { padding: .72rem .9rem; vertical-align: top; text-align: left; }
-  tbody th, tbody td { border-top: 1px solid #2a3c49; font-weight: 400; }
-  td:last-child { width: 11rem; }
+  h2,
+  h3,
+  h4 {
+    margin: 0;
+  }
+  h2 {
+    font-size: 1.3rem;
+    font-weight: 650;
+  }
+  h3 {
+    font-size: 1.16rem;
+  }
+  h4 {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.6rem;
+    font-size: 1rem;
+    border-bottom: 1px solid #2a3c49;
+    padding-bottom: 0.45rem;
+    margin-top: 1.2rem;
+  }
+  h4 span {
+    font-weight: 400;
+    color: #afc1cf;
+    font-size: 0.85rem;
+  }
+  p {
+    margin: 0.28rem 0 0;
+    color: #afc1cf;
+  }
+  strong,
+  small {
+    display: block;
+    overflow-wrap: anywhere;
+  }
+  small {
+    color: #afc1cf;
+    font-size: 0.84rem;
+    line-height: 1.4;
+  }
+  nav button {
+    min-width: 7.3rem;
+    justify-content: center;
+  }
+  .heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.8rem;
+  }
+  .operation-heading {
+    align-items: start;
+  }
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+  }
+  .panel {
+    border: 1px solid var(--center-border);
+    background: var(--center-panel);
+    border-radius: 0.7rem;
+  }
+  .empty,
+  .picker,
+  .detail {
+    padding: 1rem;
+  }
+  .picker {
+    margin-bottom: 0.75rem;
+  }
+  .operations {
+    display: grid;
+    grid-template-columns: minmax(14rem, 1fr) minmax(0, 2.5fr);
+    gap: 1rem;
+    align-items: start;
+  }
+  aside {
+    display: grid;
+    gap: 0.55rem;
+  }
+  button.operation {
+    display: grid;
+    gap: 0.35rem;
+    padding: 0.75rem;
+    width: 100%;
+    text-align: left;
+    background: var(--center-panel);
+  }
+  .operation[aria-pressed="true"] {
+    border-color: #7acbc9;
+    background: #18313c;
+  }
+  .route {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 0.6rem;
+    align-items: center;
+  }
+  .endpoint {
+    display: flex;
+    align-items: start;
+    gap: 0.55rem;
+    height: 100%;
+    padding: 0.7rem;
+    border: 1px solid #2a4656;
+    border-radius: 0.5rem;
+    background: #0e1820;
+  }
+  .marker {
+    display: grid;
+    place-items: center;
+    flex: 0 0 1.65rem;
+    height: 1.65rem;
+    margin-top: 0.15rem;
+    border: 1px solid #456e80;
+    color: #aee7e9;
+    border-radius: 0.35rem;
+    font-size: 0.85rem;
+  }
+  .direction {
+    color: #97d9dc;
+  }
+  .caption {
+    display: block;
+    color: #abbdc9;
+    font-size: 0.82rem;
+  }
+  .loading-summary {
+    font-size: 0.86rem;
+  }
+  .progress,
+  .work,
+  .load {
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+  .progress li {
+    display: grid;
+    grid-template-columns: minmax(6rem, 1fr) auto;
+    align-items: center;
+    gap: 0.4rem 0.85rem;
+    padding: 0.58rem 0;
+    border-bottom: 1px solid #223540;
+  }
+  .progress li:has(progress) {
+    grid-template-columns: minmax(6rem, 1fr) minmax(5rem, 0.8fr) auto;
+  }
+  progress {
+    width: 100%;
+    accent-color: #89d8d4;
+  }
+  .progress span,
+  .load {
+    font-size: 0.85rem;
+    color: #adc9d7;
+    font-variant-numeric: tabular-nums;
+  }
+  .work li {
+    padding-block: 0.45rem;
+  }
+  .load li {
+    padding-block: 0.08rem;
+  }
+  .warning {
+    color: #ffc3a3;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+  }
+  thead {
+    background: #162733;
+    color: #bdcdd8;
+    font-size: 0.85rem;
+  }
+  th,
+  td {
+    padding: 0.72rem 0.9rem;
+    vertical-align: top;
+    text-align: left;
+  }
+  tbody th,
+  tbody td {
+    border-top: 1px solid #2a3c49;
+    font-weight: 400;
+  }
+  td:last-child {
+    width: 11rem;
+  }
   @media (max-width: 55rem) {
-    .operations { grid-template-columns: minmax(0, 1fr); }
-    aside { grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); }
+    .operations {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    aside {
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+    }
   }
   @media (max-width: 43rem) {
-    table, tbody { display: block; }
-    thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-    tr { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid #2a3c49; }
-    tbody th, tbody td { border: 0; padding: .55rem .7rem; }
-    td:last-child { width: auto; }
+    table,
+    tbody {
+      display: block;
+    }
+    thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+    tr {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border-bottom: 1px solid #2a3c49;
+    }
+    tbody th,
+    tbody td {
+      border: 0;
+      padding: 0.55rem 0.7rem;
+    }
+    td:last-child {
+      width: auto;
+    }
   }
   @media (max-width: 35rem) {
-    .route { grid-template-columns: minmax(0, 1fr); }
-    .direction { display: none; }
-    .progress li:has(progress) { grid-template-columns: 1fr auto; }
-    progress { grid-column: 1 / -1; grid-row: 2; }
+    .route {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .direction {
+      display: none;
+    }
+    .progress li:has(progress) {
+      grid-template-columns: 1fr auto;
+    }
+    progress {
+      grid-column: 1 / -1;
+      grid-row: 2;
+    }
   }
 </style>

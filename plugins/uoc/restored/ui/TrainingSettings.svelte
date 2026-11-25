@@ -1,14 +1,41 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { resolveTrainingFundingPolicy, type FundingPolicy } from "../../training/funding.ts";
-  import type { TrainingSettings, TrainingCorporation, TrainingAuthority } from "../training/settings.ts";
-  let { settings, corporations, authorities, busy, traineeCorporationID = null, traineeCorporationName = null, worldReady = false, contextError = "", candidates = [], onInspect, onSave }: {
-    settings: TrainingSettings; corporations: readonly TrainingCorporation[]; authorities: readonly TrainingAuthority[];
-    busy: boolean; traineeCorporationID?: number | null; traineeCorporationName?: string | null; worldReady?: boolean; contextError?: string; candidates?: readonly {key:string;name:string;account:string}[]; onInspect: (key:string) => void; onSave: (value: TrainingSettings) => void;
+  import type {
+    TrainingSettings,
+    TrainingCorporation,
+    TrainingAuthority,
+  } from "../training/settings.ts";
+  let {
+    settings,
+    corporations,
+    authorities,
+    busy,
+    traineeCorporationID = null,
+    traineeCorporationName = null,
+    worldReady = false,
+    contextError = "",
+    candidates = [],
+    onInspect,
+    onSave,
+  }: {
+    settings: TrainingSettings;
+    corporations: readonly TrainingCorporation[];
+    authorities: readonly TrainingAuthority[];
+    busy: boolean;
+    traineeCorporationID?: number | null;
+    traineeCorporationName?: string | null;
+    worldReady?: boolean;
+    contextError?: string;
+    candidates?: readonly { key: string; name: string; account: string }[];
+    onInspect: (key: string) => void;
+    onSave: (value: TrainingSettings) => void;
   } = $props();
   let authority = $state(untrack(() => settings.onboarding.authorityKey));
   let rights = $state(untrack(() => settings.onboarding.rights));
-  const savedFundingPolicy = $derived(resolveTrainingFundingPolicy(settings.fundingPolicy, settings.automaticFunding));
+  const savedFundingPolicy = $derived(
+    resolveTrainingFundingPolicy(settings.fundingPolicy, settings.automaticFunding),
+  );
   let fundingPolicy = $state<FundingPolicy>(untrack(() => savedFundingPolicy));
   $effect(() => {
     authority = settings.onboarding.authorityKey;
@@ -17,25 +44,53 @@
   });
   const eligible = $derived(authorities.filter((a) => a.eligible));
   const selected = $derived(eligible.find((a) => a.key === authority));
-  const corporation = $derived(corporations.find((c) => c.corporationID === selected?.corporationID));
-  const fundingCorporationID = $derived(traineeCorporationID ?? settings.trainingWallet?.corporationID ?? selected?.corporationID ?? null);
-  const fundingCorporationName = $derived(corporations.find(c => c.corporationID === fundingCorporationID)?.name ??
-    (traineeCorporationID === fundingCorporationID ? traineeCorporationName : null));
+  const corporation = $derived(
+    corporations.find((c) => c.corporationID === selected?.corporationID),
+  );
+  const fundingCorporationID = $derived(
+    traineeCorporationID ??
+      settings.trainingWallet?.corporationID ??
+      selected?.corporationID ??
+      null,
+  );
+  const fundingCorporationName = $derived(
+    corporations.find((c) => c.corporationID === fundingCorporationID)?.name ??
+      (traineeCorporationID === fundingCorporationID ? traineeCorporationName : null),
+  );
   const usesCorporation = $derived(fundingPolicy !== "CHARACTER_WALLET_ONLY");
   const fundingHelp: Record<FundingPolicy, string> = {
     CHARACTER_WALLET_ONLY: "Skillbooks are paid from the trainee’s personal wallet.",
-    CHARACTER_PLUS_CORPORATION_SHORTFALL: "Use the trainee’s ISK first. The corporation Master Wallet covers any shortfall.",
-    CORPORATION_WALLET_ONLY: "The Master Wallet transfers the full book cost to the trainee before EveJS purchases the books.",
+    CHARACTER_PLUS_CORPORATION_SHORTFALL:
+      "Use the trainee’s ISK first. The corporation Master Wallet covers any shortfall.",
+    CORPORATION_WALLET_ONLY:
+      "The Master Wallet transfers the full book cost to the trainee before EveJS purchases the books.",
   };
-  const canSave = $derived(!busy && worldReady && (!usesCorporation || fundingCorporationID !== null) &&
-    (authority === settings.onboarding.authorityKey || !!selected) &&
-    (!!selected || usesCorporation || fundingPolicy !== savedFundingPolicy));
+  const canSave = $derived(
+    !busy &&
+      worldReady &&
+      (!usesCorporation || fundingCorporationID !== null) &&
+      (authority === settings.onboarding.authorityKey || !!selected) &&
+      (!!selected || usesCorporation || fundingPolicy !== savedFundingPolicy),
+  );
   function save() {
     if (!canSave) return;
-    onSave({ ...settings,
-      onboarding: selected ? { enabled: true, corporationID: selected.corporationID, rights, authorityKey: selected.key } : settings.onboarding,
-      trainingWallet: usesCorporation && fundingCorporationID !== null ? { corporationID: fundingCorporationID, accountKey: 1000 } : settings.trainingWallet,
-      fundingPolicy, automaticFunding: undefined });
+    onSave({
+      ...settings,
+      onboarding: selected
+        ? {
+            enabled: true,
+            corporationID: selected.corporationID,
+            rights,
+            authorityKey: selected.key,
+          }
+        : settings.onboarding,
+      trainingWallet:
+        usesCorporation && fundingCorporationID !== null
+          ? { corporationID: fundingCorporationID, accountKey: 1000 }
+          : settings.trainingWallet,
+      fundingPolicy,
+      automaticFunding: undefined,
+    });
   }
 </script>
 <section class="settings" aria-label="Corporation HR Pilot">
@@ -93,11 +148,44 @@
   </details>
 </section>
 <style>
-  .settings { margin:1rem 0; border:1px solid #455569; padding:1rem; }
-  .fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:1rem; margin:1rem 0; }
-  label { display:flex; flex-direction:column; gap:.4rem; }
-  .funding { grid-column:1 / -1; }
-  .funding select { max-width:24rem; }
-  select { background:#16202e; color:#e4edf7; padding:.5rem; border:1px solid #455569; } p { max-width:90ch; }
-  button { margin:.4rem .5rem .4rem 0; } .notice { color:#e9c982; } .advanced { margin-top:1rem; }
+  .settings {
+    margin: 1rem 0;
+    border: 1px solid #455569;
+    padding: 1rem;
+  }
+  .fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 1rem;
+    margin: 1rem 0;
+  }
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .funding {
+    grid-column: 1 / -1;
+  }
+  .funding select {
+    max-width: 24rem;
+  }
+  select {
+    background: #16202e;
+    color: #e4edf7;
+    padding: 0.5rem;
+    border: 1px solid #455569;
+  }
+  p {
+    max-width: 90ch;
+  }
+  button {
+    margin: 0.4rem 0.5rem 0.4rem 0;
+  }
+  .notice {
+    color: #e9c982;
+  }
+  .advanced {
+    margin-top: 1rem;
+  }
 </style>

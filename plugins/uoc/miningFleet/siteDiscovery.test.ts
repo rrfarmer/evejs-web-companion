@@ -1,11 +1,177 @@
-import {splitMiningSites} from "./inspect.ts";import test from "node:test";import assert from "node:assert/strict";import {decodeNativeSites,selectNativeSite,createSiteDiscovery} from "./siteDiscovery.ts";
-const dict=(entries:any[]=[])=>({type:"dict",entries}),kv=(entries:any[])=>({type:"object",name:"util.KeyVal",args:dict(entries)}),real=(value:number)=>({type:"real",value});
-const row=(instance:number,archetype=28)=>kv([["siteID",77],["instanceID",instance],["targetID","mining-anomaly:ICE:encoded"],["archetypeID",archetype],["scanStrengthAttribute",211],["solarSystemID",300],["position",[real(1),real(2),real(3)]]]);
-test("generated ice retains scanner key, actual instance and native target label independently",()=>{const sites=decodeNativeSites([dict([[1234,row(5678)]]),dict(),dict(),dict()],300,100);const s=selectNativeSite(sites,"ICE",1234);assert.equal(s.scannerKey,1234);assert.equal(s.target.siteID,1234);assert.equal(s.instanceID,5678);assert.equal(s.target.instanceID,5678);assert.equal(s.label,"mining-anomaly:ICE:encoded");});
-test("valid scanner empty is distinct from unreadable tuple or unresolved mining identity",()=>{assert.deepEqual(decodeNativeSites([dict(),dict(),dict(),dict()],300,100),[]);for(const raw of [null,[],[dict(),dict(),dict(),{}],[dict([[1234,row(0)]]),dict(),dict(),dict()],[dict([[1234,{}]]),dict(),dict(),dict()],[dict([[1234,kv([["scanStrengthAttribute",211]])]]),dict(),dict(),dict()],[dict(),dict([[1,{}]]),dict(),dict()]])assert.throws(()=>decodeNativeSites(raw,300,100));});
-test("held scanner read checks exact pilot and flight scope around GetFullState",async()=>{let calls=0;const fetcher:typeof fetch=async()=>new Response(JSON.stringify({ok:true,flight:{shipID:11,solarSystemID:300,inSpace:true}}),{headers:{"content-type":"application/json"}});const session:any={store:{station:{get:()=>({online:{characterID:1}})}},flow:{requestOptions:()=>({}),flying:{bridgeAsk:async(s:string,m:string)=>{assert.equal(s,"scanMgr");assert.equal(m,"GetFullState");calls++;return [dict([[1234,row(5678)]]),dict(),dict(),dict()]}}}};const scan=createSiteDiscovery({characterID:1,baseUrl:"http://bff",fetch:fetcher},session,{shipID:11,systemID:300,current(){},now:()=>100});assert.equal((await scan.read())[0]?.instanceID,5678);assert.equal(calls,1);});
+import { splitMiningSites } from "./inspect.ts";
+import test from "node:test";
+import assert from "node:assert/strict";
+import { decodeNativeSites, selectNativeSite, createSiteDiscovery } from "./siteDiscovery.ts";
+const dict = (entries: any[] = []) => ({ type: "dict", entries }),
+  kv = (entries: any[]) => ({ type: "object", name: "util.KeyVal", args: dict(entries) }),
+  real = (value: number) => ({ type: "real", value });
+const row = (instance: number, archetype = 28) =>
+  kv([
+    ["siteID", 77],
+    ["instanceID", instance],
+    ["targetID", "mining-anomaly:ICE:encoded"],
+    ["archetypeID", archetype],
+    ["scanStrengthAttribute", 211],
+    ["solarSystemID", 300],
+    ["position", [real(1), real(2), real(3)]],
+  ]);
+test("generated ice retains scanner key, actual instance and native target label independently", () => {
+  const sites = decodeNativeSites([dict([[1234, row(5678)]]), dict(), dict(), dict()], 300, 100);
+  const s = selectNativeSite(sites, "ICE", 1234);
+  assert.equal(s.scannerKey, 1234);
+  assert.equal(s.target.siteID, 1234);
+  assert.equal(s.instanceID, 5678);
+  assert.equal(s.target.instanceID, 5678);
+  assert.equal(s.label, "mining-anomaly:ICE:encoded");
+});
+test("valid scanner empty is distinct from unreadable tuple or unresolved mining identity", () => {
+  assert.deepEqual(decodeNativeSites([dict(), dict(), dict(), dict()], 300, 100), []);
+  for (const raw of [
+    null,
+    [],
+    [dict(), dict(), dict(), {}],
+    [dict([[1234, row(0)]]), dict(), dict(), dict()],
+    [dict([[1234, {}]]), dict(), dict(), dict()],
+    [dict([[1234, kv([["scanStrengthAttribute", 211]])]]), dict(), dict(), dict()],
+    [dict(), dict([[1, {}]]), dict(), dict()],
+  ])
+    assert.throws(() => decodeNativeSites(raw, 300, 100));
+});
+test("held scanner read checks exact pilot and flight scope around GetFullState", async () => {
+  let calls = 0;
+  const fetcher: typeof fetch = async () =>
+    new Response(
+      JSON.stringify({ ok: true, flight: { shipID: 11, solarSystemID: 300, inSpace: true } }),
+      { headers: { "content-type": "application/json" } },
+    );
+  const session: any = {
+    store: { station: { get: () => ({ online: { characterID: 1 } }) } },
+    flow: {
+      requestOptions: () => ({}),
+      flying: {
+        bridgeAsk: async (s: string, m: string) => {
+          assert.equal(s, "scanMgr");
+          assert.equal(m, "GetFullState");
+          calls++;
+          return [dict([[1234, row(5678)]]), dict(), dict(), dict()];
+        },
+      },
+    },
+  };
+  const scan = createSiteDiscovery(
+    { characterID: 1, baseUrl: "http://bff", fetch: fetcher },
+    session,
+    { shipID: 11, systemID: 300, current() {}, now: () => 100 },
+  );
+  assert.equal((await scan.read())[0]?.instanceID, 5678);
+  assert.equal(calls, 1);
+});
 
-test("valid unrelated unclassified or unsupported anomalies do not block a valid mining site",()=>{const scan=[dict([[7,kv([])],[8,kv([["archetypeID",24]])],[1234,row(5678)]]),dict(),dict(),dict()];const sites=decodeNativeSites(scan,300,100);assert.equal(sites.length,1);assert.equal(sites[0]?.instanceID,5678);});
+test("valid unrelated unclassified or unsupported anomalies do not block a valid mining site", () => {
+  const scan = [
+    dict([
+      [7, kv([])],
+      [8, kv([["archetypeID", 24]])],
+      [1234, row(5678)],
+    ]),
+    dict(),
+    dict(),
+    dict(),
+  ];
+  const sites = decodeNativeSites(scan, 300, 100);
+  assert.equal(sites.length, 1);
+  assert.equal(sites[0]?.instanceID, 5678);
+});
 
-test("classification follows native identity, not target label; unknown never enters another family",()=>{const systemID=30002781;const item=(id:number,source:number,arch:number,label:string)=>kv([["instanceID",id],["targetID",label],["dungeonID",source],["archetypeID",arch],["scanStrengthAttribute",211],["solarSystemID",systemID],["position",[1,2,3]]]);const scan=[dict([[5830002781001,item(1,1456,27,"Moon-labelled ore")],[5940002781001,item(2,0,27,"Ordinary-labelled moon")],[5830002781002,item(3,5497,28,"Other")],[6800000000001,item(4,123,27,"Ore")]]),dict(),dict(),dict()];const sites=decodeNativeSites(scan,systemID,100);assert.deepEqual(sites.map(s=>s.siteFamily),["ORE","MOON","ICE","UNKNOWN"]);assert.deepEqual(sites.map(s=>s.sourceDungeonID),[1456,0,5497,123]);assert.deepEqual(sites.map(s=>s.target.kind),["ORE_ANOMALY","ORE_ANOMALY","ICE","ORE_ANOMALY"]);const lists=splitMiningSites(sites);assert.deepEqual([lists.oreSites,lists.moonSites,lists.iceSites,lists.unknownSites].map(rows=>rows.map(r=>r.instanceID)),[[1],[2],[3],[4]]);});
-test('scanner fixture preserves native moon tokens and historical identities',async()=>{const {readFileSync}=await import('node:fs');const {sameSiteClassification}=await import('./siteSelection.ts');const raw=JSON.parse(readFileSync(new URL('./moonNativeFixture.json',import.meta.url),'utf8'));const sites=decodeNativeSites(raw,30000021,100);assert.deepEqual(sites.map(s=>s.siteFamily),['ORE','ORE','ORE','MOON','MOON']);const moon=sites.filter(s=>s.siteFamily==='MOON') as any[];assert.deepEqual(moon.map(s=>[s.scannerKey,s.instanceID,s.sourceDungeonID,s.sourceDungeonNameID]),[[5940000021001,404,-1200000003,289412],[5950000021001,405,-1200000004,289416]]);assert.equal(sameSiteClassification(moon[0],{...moon[0],sourceDungeonID:moon[0].sourceDungeonID-1}),true);assert.equal(sameSiteClassification(moon[0],{...moon[0],sourceDungeonID:0,sourceDungeonNameID:undefined}),true);assert.equal(sameSiteClassification(moon[0],{...moon[0],instanceID:999,target:{...moon[0].target,instanceID:999}}),false);assert.equal(sameSiteClassification(moon[0],{...moon[0],target:{...moon[0].target,position:{x:9,y:8,z:7}}}),false);assert.equal(sameSiteClassification(moon[0],{...moon[0],sourceDungeonNameID:289416}),false);});
+test("classification follows native identity, not target label; unknown never enters another family", () => {
+  const systemID = 30002781;
+  const item = (id: number, source: number, arch: number, label: string) =>
+    kv([
+      ["instanceID", id],
+      ["targetID", label],
+      ["dungeonID", source],
+      ["archetypeID", arch],
+      ["scanStrengthAttribute", 211],
+      ["solarSystemID", systemID],
+      ["position", [1, 2, 3]],
+    ]);
+  const scan = [
+    dict([
+      [5830002781001, item(1, 1456, 27, "Moon-labelled ore")],
+      [5940002781001, item(2, 0, 27, "Ordinary-labelled moon")],
+      [5830002781002, item(3, 5497, 28, "Other")],
+      [6800000000001, item(4, 123, 27, "Ore")],
+    ]),
+    dict(),
+    dict(),
+    dict(),
+  ];
+  const sites = decodeNativeSites(scan, systemID, 100);
+  assert.deepEqual(
+    sites.map((s) => s.siteFamily),
+    ["ORE", "MOON", "ICE", "UNKNOWN"],
+  );
+  assert.deepEqual(
+    sites.map((s) => s.sourceDungeonID),
+    [1456, 0, 5497, 123],
+  );
+  assert.deepEqual(
+    sites.map((s) => s.target.kind),
+    ["ORE_ANOMALY", "ORE_ANOMALY", "ICE", "ORE_ANOMALY"],
+  );
+  const lists = splitMiningSites(sites);
+  assert.deepEqual(
+    [lists.oreSites, lists.moonSites, lists.iceSites, lists.unknownSites].map((rows) =>
+      rows.map((r) => r.instanceID),
+    ),
+    [[1], [2], [3], [4]],
+  );
+});
+test("scanner fixture preserves native moon tokens and historical identities", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { sameSiteClassification } = await import("./siteSelection.ts");
+  const raw = JSON.parse(
+    readFileSync(new URL("./moonNativeFixture.json", import.meta.url), "utf8"),
+  );
+  const sites = decodeNativeSites(raw, 30000021, 100);
+  assert.deepEqual(
+    sites.map((s) => s.siteFamily),
+    ["ORE", "ORE", "ORE", "MOON", "MOON"],
+  );
+  const moon = sites.filter((s) => s.siteFamily === "MOON") as any[];
+  assert.deepEqual(
+    moon.map((s) => [s.scannerKey, s.instanceID, s.sourceDungeonID, s.sourceDungeonNameID]),
+    [
+      [5940000021001, 404, -1200000003, 289412],
+      [5950000021001, 405, -1200000004, 289416],
+    ],
+  );
+  assert.equal(
+    sameSiteClassification(moon[0], { ...moon[0], sourceDungeonID: moon[0].sourceDungeonID - 1 }),
+    true,
+  );
+  assert.equal(
+    sameSiteClassification(moon[0], {
+      ...moon[0],
+      sourceDungeonID: 0,
+      sourceDungeonNameID: undefined,
+    }),
+    true,
+  );
+  assert.equal(
+    sameSiteClassification(moon[0], {
+      ...moon[0],
+      instanceID: 999,
+      target: { ...moon[0].target, instanceID: 999 },
+    }),
+    false,
+  );
+  assert.equal(
+    sameSiteClassification(moon[0], {
+      ...moon[0],
+      target: { ...moon[0].target, position: { x: 9, y: 8, z: 7 } },
+    }),
+    false,
+  );
+  assert.equal(sameSiteClassification(moon[0], { ...moon[0], sourceDungeonNameID: 289416 }), false);
+});

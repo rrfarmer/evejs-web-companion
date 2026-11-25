@@ -1,13 +1,307 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {createIndustrialCoreObservation} from './industrialObservation.ts';
-const list=(...items:any[])=>({type:'list',items}),dict=(v:any)=>({type:'dict',entries:Object.entries(v)}),kv=(entries:any[])=>({type:'object',name:'util.KeyVal',args:{type:'dict',entries}}),long=(value:string)=>({type:'long',value});
-const shipInfo={type:'dict',entries:[[11,kv([['itemID',11],['attributes',{type:'dict',entries:[[14,1],[13,0],[12,0],[1137,0]]}]])]]};
-function fixture(){const state={active:false,missing:false,readFail:false,owner:1,ship:11,generation:3,changed:false,missingAttr:false,fuelGroup:423,effectMissing:false,otherFuel:false,changeAfterRead:false,clock:1000,delayOnEffect:0};const calls:string[]=[];let fittingRead=0;const fetcher:typeof fetch=async input=>{const u=new URL(String(input));let data:any;if(u.pathname==='/api/bridge/flight/status')data={flight:{inSpace:true,docked:false,shipID:state.ship,solarSystemID:300,stationID:null,structureID:null}};else if(u.pathname==='/api/bridge/fitting'){fittingRead++;data={activeShipID:11,slots:list(...(state.missing?[]:[{type:'packedrow',fields:{itemID:55,typeID:66,groupID:515,categoryID:7,flagID:27,quantity:1,singleton:1}}])),shipInfo,online:list(55),errors:{slots:null,shipInfo:null,online:null,chargeFits:null},chargeFits:null};if(state.changed&&fittingRead>1)data.activeShipID=12;}else if(u.pathname==='/api/client-data/dogma-types'){const types=u.searchParams.get('typeIDs');data=types==='66'?{available:true,types:{66:{categoryID:7,groupID:515,effects:[16,4575]}},effects:{4575:{name:'industrialCoreEffect2'}}}:{available:true,types:{16272:{groupID:state.fuelGroup}}};}else throw Error('unexpected '+u.pathname);return Response.json({ok:true,...data});};const effect=(id:number)=>[55,1,11,null,null,[],id,long('134385165369120001'),id===16?-1:60000,1];const session:any={store:{station:{get:()=>({online:{characterID:state.owner}})}},flow:{requestOptions:()=>({}),flying:{sessionGeneration:()=>state.generation,isSessionClosing:()=>false,bridgeDo:async(s:string,m:string)=>{calls.push(s+'.'+m);if(s!=='invCache'||m!=='InvalidateLocationCache')throw Error('unexpected write');},bridgeAsk:async(s:string,m:string,_args:any,kw:any)=>{calls.push(s+'.'+m);if(state.changeAfterRead&&s==='invbroker')state.generation=4;if(s==='dogmaIM'&&m==='ItemGetInfo'){state.clock+=state.delayOnEffect;return kv([['itemID',55],['invItem',{type:'packedrow',fields:{itemID:55,typeID:66,ownerID:1,locationID:11,flagID:27}}],['attributes',{type:'dict',entries:[[73,60000],...(state.missingAttr?[]:[[713,16272],[714,79.999999999]])]}],['activeEffects',state.effectMissing?null:{type:'dict',entries:[[16,effect(16)],...(state.active?[[4575,effect(4575)]]:[])]}],['time',long('134385165369180001')],['wallclockTime',long('134385165369179999')]]);}if(s==='invbroker'&&m==='List'){if(state.readFail)throw Error('read failure');const flag=kw.flag,quantity=flag===133?60:30;return list({type:'packedrow',fields:{itemID:flag+1000,typeID:state.otherFuel?99:16272,ownerID:1,locationID:11,flagID:flag,quantity}});}throw Error('unexpected call');}}}};const adapter=createIndustrialCoreObservation({operationID:'op',runID:'run',run:{characterID:1,baseUrl:'http://bff',fetch:fetcher},session,shipID:11,moduleID:55,typeID:66,sessionGeneration:3,current(){},now:()=>state.clock});return {state,adapter,calls};}
-test('inactive fully observed Core returns exact effective fuel bay then cargo estimate',async()=>{const x=fixture(),r=await x.adapter.observe();assert.equal(r.availability,'available');if(r.availability!=='available')return;assert.equal(r.core.active,false);assert.equal(r.deactivation,'unknown');assert.equal(r.fuel.availability,'available');if(r.fuel.availability!=='available')return;assert.deepEqual(r.fuel.eligibleFlags,[133,5]);assert.equal(r.fuel.requiredQuantity,80);assert.equal(r.fuel.availableQuantity,90);assert.equal(r.fuel.sufficient,true);assert.deepEqual(x.calls.filter(x=>x.startsWith('invCache')),['invCache.InvalidateLocationCache']);});
-test('active core preserves exact effect timing; no deactivate or movement issued',async()=>{const x=fixture();x.state.active=true;const r=await x.adapter.observe();assert.equal(r.availability,'available');if(r.availability!=='available')return;assert.equal(r.core.active,true);assert.deepEqual(r.core.effect,{effectID:4575,targetID:null,startFiletime:'134385165369120001',durationMs:60000,repeat:1});assert.equal(r.core.timeFiletime,'134385165369180001');assert.equal(r.deactivation,'unknown');assert.ok(!x.calls.some(x=>/Activate|Deactivate/.test(x)));});
-test('missing fuel attrs or unreadable inventory remain unknown, not empty',async()=>{for(const key of ['missingAttr','readFail'] as const){const x=fixture();x.state[key]=true;const r=await x.adapter.observe();assert.equal(r.availability,'available');if(r.availability==='available')assert.equal(r.fuel.availability,'unknown');}});
-test('missing effect map, module, foreign ship, changed owner or generation cannot prove inactive',async()=>{for(const key of ['effectMissing','missing','changed'] as const){const x=fixture();x.state[key]=true;assert.equal((await x.adapter.observe()).availability,'unknown',key);}for(const [key,value] of [['ship',12],['owner',2],['generation',4]] as const){const x=fixture();x.state[key]=value;assert.equal((await x.adapter.observe()).availability,'unknown',key);}});
-test('non ice-product fuel uses cargo only; genuine empty fuel remains observed zero',async()=>{const x=fixture();x.state.fuelGroup=999;x.state.otherFuel=true;const r=await x.adapter.observe();assert.equal(r.availability,'available');if(r.availability!=='available'||r.fuel.availability!=='available')return assert.fail('fuel unavailable');assert.deepEqual(r.fuel.eligibleFlags,[5]);assert.equal(r.fuel.availableQuantity,0);assert.equal(r.fuel.sufficient,false);assert.equal(x.calls.filter(c=>c==='invbroker.List').length,1);});
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createIndustrialCoreObservation } from "./industrialObservation.ts";
+const list = (...items: any[]) => ({ type: "list", items }),
+  dict = (v: any) => ({ type: "dict", entries: Object.entries(v) }),
+  kv = (entries: any[]) => ({
+    type: "object",
+    name: "util.KeyVal",
+    args: { type: "dict", entries },
+  }),
+  long = (value: string) => ({ type: "long", value });
+const shipInfo = {
+  type: "dict",
+  entries: [
+    [
+      11,
+      kv([
+        ["itemID", 11],
+        [
+          "attributes",
+          {
+            type: "dict",
+            entries: [
+              [14, 1],
+              [13, 0],
+              [12, 0],
+              [1137, 0],
+            ],
+          },
+        ],
+      ]),
+    ],
+  ],
+};
+function fixture() {
+  const state = {
+    active: false,
+    missing: false,
+    readFail: false,
+    owner: 1,
+    ship: 11,
+    generation: 3,
+    changed: false,
+    missingAttr: false,
+    fuelGroup: 423,
+    effectMissing: false,
+    otherFuel: false,
+    changeAfterRead: false,
+    clock: 1000,
+    delayOnEffect: 0,
+  };
+  const calls: string[] = [];
+  let fittingRead = 0;
+  const fetcher: typeof fetch = async (input) => {
+    const u = new URL(String(input));
+    let data: any;
+    if (u.pathname === "/api/bridge/flight/status")
+      data = {
+        flight: {
+          inSpace: true,
+          docked: false,
+          shipID: state.ship,
+          solarSystemID: 300,
+          stationID: null,
+          structureID: null,
+        },
+      };
+    else if (u.pathname === "/api/bridge/fitting") {
+      fittingRead++;
+      data = {
+        activeShipID: 11,
+        slots: list(
+          ...(state.missing
+            ? []
+            : [
+                {
+                  type: "packedrow",
+                  fields: {
+                    itemID: 55,
+                    typeID: 66,
+                    groupID: 515,
+                    categoryID: 7,
+                    flagID: 27,
+                    quantity: 1,
+                    singleton: 1,
+                  },
+                },
+              ]),
+        ),
+        shipInfo,
+        online: list(55),
+        errors: { slots: null, shipInfo: null, online: null, chargeFits: null },
+        chargeFits: null,
+      };
+      if (state.changed && fittingRead > 1) data.activeShipID = 12;
+    } else if (u.pathname === "/api/client-data/dogma-types") {
+      const types = u.searchParams.get("typeIDs");
+      data =
+        types === "66"
+          ? {
+              available: true,
+              types: { 66: { categoryID: 7, groupID: 515, effects: [16, 4575] } },
+              effects: { 4575: { name: "industrialCoreEffect2" } },
+            }
+          : { available: true, types: { 16272: { groupID: state.fuelGroup } } };
+    } else throw Error("unexpected " + u.pathname);
+    return Response.json({ ok: true, ...data });
+  };
+  const effect = (id: number) => [
+    55,
+    1,
+    11,
+    null,
+    null,
+    [],
+    id,
+    long("134385165369120001"),
+    id === 16 ? -1 : 60000,
+    1,
+  ];
+  const session: any = {
+    store: { station: { get: () => ({ online: { characterID: state.owner } }) } },
+    flow: {
+      requestOptions: () => ({}),
+      flying: {
+        sessionGeneration: () => state.generation,
+        isSessionClosing: () => false,
+        bridgeDo: async (s: string, m: string) => {
+          calls.push(s + "." + m);
+          if (s !== "invCache" || m !== "InvalidateLocationCache") throw Error("unexpected write");
+        },
+        bridgeAsk: async (s: string, m: string, _args: any, kw: any) => {
+          calls.push(s + "." + m);
+          if (state.changeAfterRead && s === "invbroker") state.generation = 4;
+          if (s === "dogmaIM" && m === "ItemGetInfo") {
+            state.clock += state.delayOnEffect;
+            return kv([
+              ["itemID", 55],
+              [
+                "invItem",
+                {
+                  type: "packedrow",
+                  fields: { itemID: 55, typeID: 66, ownerID: 1, locationID: 11, flagID: 27 },
+                },
+              ],
+              [
+                "attributes",
+                {
+                  type: "dict",
+                  entries: [
+                    [73, 60000],
+                    ...(state.missingAttr
+                      ? []
+                      : [
+                          [713, 16272],
+                          [714, 79.999999999],
+                        ]),
+                  ],
+                },
+              ],
+              [
+                "activeEffects",
+                state.effectMissing
+                  ? null
+                  : {
+                      type: "dict",
+                      entries: [[16, effect(16)], ...(state.active ? [[4575, effect(4575)]] : [])],
+                    },
+              ],
+              ["time", long("134385165369180001")],
+              ["wallclockTime", long("134385165369179999")],
+            ]);
+          }
+          if (s === "invbroker" && m === "List") {
+            if (state.readFail) throw Error("read failure");
+            const flag = kw.flag,
+              quantity = flag === 133 ? 60 : 30;
+            return list({
+              type: "packedrow",
+              fields: {
+                itemID: flag + 1000,
+                typeID: state.otherFuel ? 99 : 16272,
+                ownerID: 1,
+                locationID: 11,
+                flagID: flag,
+                quantity,
+              },
+            });
+          }
+          throw Error("unexpected call");
+        },
+      },
+    },
+  };
+  const adapter = createIndustrialCoreObservation({
+    operationID: "op",
+    runID: "run",
+    run: { characterID: 1, baseUrl: "http://bff", fetch: fetcher },
+    session,
+    shipID: 11,
+    moduleID: 55,
+    typeID: 66,
+    sessionGeneration: 3,
+    current() {},
+    now: () => state.clock,
+  });
+  return { state, adapter, calls };
+}
+test("inactive fully observed Core returns exact effective fuel bay then cargo estimate", async () => {
+  const x = fixture(),
+    r = await x.adapter.observe();
+  assert.equal(r.availability, "available");
+  if (r.availability !== "available") return;
+  assert.equal(r.core.active, false);
+  assert.equal(r.deactivation, "unknown");
+  assert.equal(r.fuel.availability, "available");
+  if (r.fuel.availability !== "available") return;
+  assert.deepEqual(r.fuel.eligibleFlags, [133, 5]);
+  assert.equal(r.fuel.requiredQuantity, 80);
+  assert.equal(r.fuel.availableQuantity, 90);
+  assert.equal(r.fuel.sufficient, true);
+  assert.deepEqual(
+    x.calls.filter((x) => x.startsWith("invCache")),
+    ["invCache.InvalidateLocationCache"],
+  );
+});
+test("active core preserves exact effect timing; no deactivate or movement issued", async () => {
+  const x = fixture();
+  x.state.active = true;
+  const r = await x.adapter.observe();
+  assert.equal(r.availability, "available");
+  if (r.availability !== "available") return;
+  assert.equal(r.core.active, true);
+  assert.deepEqual(r.core.effect, {
+    effectID: 4575,
+    targetID: null,
+    startFiletime: "134385165369120001",
+    durationMs: 60000,
+    repeat: 1,
+  });
+  assert.equal(r.core.timeFiletime, "134385165369180001");
+  assert.equal(r.deactivation, "unknown");
+  assert.ok(!x.calls.some((x) => /Activate|Deactivate/.test(x)));
+});
+test("missing fuel attrs or unreadable inventory remain unknown, not empty", async () => {
+  for (const key of ["missingAttr", "readFail"] as const) {
+    const x = fixture();
+    x.state[key] = true;
+    const r = await x.adapter.observe();
+    assert.equal(r.availability, "available");
+    if (r.availability === "available") assert.equal(r.fuel.availability, "unknown");
+  }
+});
+test("missing effect map, module, foreign ship, changed owner or generation cannot prove inactive", async () => {
+  for (const key of ["effectMissing", "missing", "changed"] as const) {
+    const x = fixture();
+    x.state[key] = true;
+    assert.equal((await x.adapter.observe()).availability, "unknown", key);
+  }
+  for (const [key, value] of [
+    ["ship", 12],
+    ["owner", 2],
+    ["generation", 4],
+  ] as const) {
+    const x = fixture();
+    x.state[key] = value;
+    assert.equal((await x.adapter.observe()).availability, "unknown", key);
+  }
+});
+test("non ice-product fuel uses cargo only; genuine empty fuel remains observed zero", async () => {
+  const x = fixture();
+  x.state.fuelGroup = 999;
+  x.state.otherFuel = true;
+  const r = await x.adapter.observe();
+  assert.equal(r.availability, "available");
+  if (r.availability !== "available" || r.fuel.availability !== "available")
+    return assert.fail("fuel unavailable");
+  assert.deepEqual(r.fuel.eligibleFlags, [5]);
+  assert.equal(r.fuel.availableQuantity, 0);
+  assert.equal(r.fuel.sufficient, false);
+  assert.equal(x.calls.filter((c) => c === "invbroker.List").length, 1);
+});
 
-test('owner generation changing during native inventory cannot return a usable observation',async()=>{const x=fixture();x.state.changeAfterRead=true;const r=await x.adapter.observe();assert.equal(r.availability,'unknown');});
+test("owner generation changing during native inventory cannot return a usable observation", async () => {
+  const x = fixture();
+  x.state.changeAfterRead = true;
+  const r = await x.adapter.observe();
+  assert.equal(r.availability, "unknown");
+});
 
-test('15-second native read retains true effect read time; 60-second window stays unknown',async()=>{for(const [delay,expected] of [[15000,'available'],[60000,'unknown']] as const){const x=fixture();x.state.delayOnEffect=delay;const r=await x.adapter.observe();assert.equal(r.availability,expected);if(r.availability==='available'){assert.equal(r.startedAt,1000);assert.equal(r.effectObservedAt,16000);assert.equal(r.completedAt,16000);assert.equal(r.core.timeFiletime,'134385165369180001');}}});
+test("15-second native read retains true effect read time; 60-second window stays unknown", async () => {
+  for (const [delay, expected] of [
+    [15000, "available"],
+    [60000, "unknown"],
+  ] as const) {
+    const x = fixture();
+    x.state.delayOnEffect = delay;
+    const r = await x.adapter.observe();
+    assert.equal(r.availability, expected);
+    if (r.availability === "available") {
+      assert.equal(r.startedAt, 1000);
+      assert.equal(r.effectObservedAt, 16000);
+      assert.equal(r.completedAt, 16000);
+      assert.equal(r.core.timeFiletime, "134385165369180001");
+    }
+  }
+});

@@ -33,12 +33,18 @@ export interface MinerStage {
 
 export interface TrainingEquipmentObservation {
   readonly status: import("../provisioning/centerTypes.ts").ProvisioningStatus;
-  readonly reason: string; readonly observedAt: number; readonly validUntil: number;
-  readonly quality: string; readonly revision: string | null; readonly shipID: number | null;
-  readonly hullName: string | null; readonly locationID: number | null;
+  readonly reason: string;
+  readonly observedAt: number;
+  readonly validUntil: number;
+  readonly quality: string;
+  readonly revision: string | null;
+  readonly shipID: number | null;
+  readonly hullName: string | null;
+  readonly locationID: number | null;
   readonly control: { state: string; owner: string };
 }
-export type TrainingEquipmentSource = { kind: "hangar" } | { kind: "corp"; corporationID: number; division: number };
+export type TrainingEquipmentSource =
+  { kind: "hangar" } | { kind: "corp"; corporationID: number; division: number };
 export interface TrainingEquipmentReview {
   readonly configurationID: string;
   readonly detail: import("../provisioning/centerTypes.ts").CenterReview;
@@ -73,7 +79,11 @@ export interface CorporationSavedFitting {
   readonly name: string;
   readonly savedDate: string | null;
   readonly fingerprint: string | null;
-  readonly items: readonly { readonly typeID: number; readonly flagID: number; readonly quantity: number }[];
+  readonly items: readonly {
+    readonly typeID: number;
+    readonly flagID: number;
+    readonly quantity: number;
+  }[];
   readonly invalid: boolean;
   readonly reason: string | null;
 }
@@ -120,7 +130,11 @@ export interface TrainingCharacter {
   readonly shipTypeName?: string | null;
 }
 
-export interface QueueItem { readonly typeID: number; readonly toLevel: number; readonly name?: string }
+export interface QueueItem {
+  readonly typeID: number;
+  readonly toLevel: number;
+  readonly name?: string;
+}
 export interface TrainingSheet {
   readonly characterID: number;
   readonly skills: readonly { readonly typeID: number; readonly level: number }[];
@@ -130,7 +144,10 @@ export interface TrainingQueue {
   readonly active: boolean;
   readonly endTimeMs?: number | null;
   readonly maxEntries: number;
-  readonly entries: readonly (QueueItem & { readonly startTimeMs?: number | null; readonly endTimeMs?: number | null })[];
+  readonly entries: readonly (QueueItem & {
+    readonly startTimeMs?: number | null;
+    readonly endTimeMs?: number | null;
+  })[];
 }
 export interface QueueReview {
   readonly mode: "FAST" | "BALANCED" | "MASTERY";
@@ -143,8 +160,15 @@ export interface QueueReview {
   readonly maxEntries: number | null;
   readonly existing: readonly QueueItem[];
   readonly additions: readonly QueueItem[];
-  readonly requirements: readonly (RequirementRow & { readonly reviewState: "ALREADY_TRAINED" | "ALREADY_QUEUED" | "WILL_APPEND" | "BLOCKED" | "UNKNOWN" })[];
-  readonly blockers: readonly { readonly code: string; readonly message: string; readonly typeID: number | null }[];
+  readonly requirements: readonly (RequirementRow & {
+    readonly reviewState:
+      "ALREADY_TRAINED" | "ALREADY_QUEUED" | "WILL_APPEND" | "BLOCKED" | "UNKNOWN";
+  })[];
+  readonly blockers: readonly {
+    readonly code: string;
+    readonly message: string;
+    readonly typeID: number | null;
+  }[];
   readonly queue: TrainingQueue | null;
   readonly fresh: MinerTrainingRead;
 }
@@ -163,23 +187,52 @@ export interface QueueApplyOutcome {
   readonly queue: TrainingQueue | null;
 }
 
-export interface FactoryFunding { readonly characterID: number; readonly token: string }
+export interface FactoryFunding {
+  readonly characterID: number;
+  readonly token: string;
+}
 export interface AcquisitionReview {
-  readonly reviewID: string | null; readonly expiresAt: number; readonly canAcquire: boolean;
-  readonly mode: string; readonly stage: string; readonly characterID: number;
+  readonly reviewID: string | null;
+  readonly expiresAt: number;
+  readonly canAcquire: boolean;
+  readonly mode: string;
+  readonly stage: string;
+  readonly characterID: number;
   readonly skills: readonly { typeID: number; name: string; price: string }[];
-  readonly total: string; readonly personalBalance: string; readonly shortfall: string;
-  readonly policy: FundingPolicy; readonly blockers: readonly string[];
+  readonly total: string;
+  readonly personalBalance: string;
+  readonly shortfall: string;
+  readonly policy: FundingPolicy;
+  readonly blockers: readonly string[];
   readonly fundingEstimate?: TrainingFundingEstimate;
-  readonly funding: { readonly characterID: number; readonly corporationID: number; readonly division: number; readonly balance: string } | null;
-  readonly cleanup: readonly { characterID: number; released: boolean; retained?: boolean; code: string | null }[];
+  readonly funding: {
+    readonly characterID: number;
+    readonly corporationID: number;
+    readonly division: number;
+    readonly balance: string;
+  } | null;
+  readonly cleanup: readonly {
+    characterID: number;
+    released: boolean;
+    retained?: boolean;
+    code: string | null;
+  }[];
 }
 export interface AcquisitionOutcome {
-  readonly status: string; readonly verified: boolean; readonly message: string; readonly errorCode?: string | null;
-  readonly mode: string; readonly stage: string; readonly at: number;
-  readonly purchased?: readonly number[]; readonly missing?: readonly number[];
-  readonly funded?: string | null; readonly wallet?: string | null; readonly total?: string;
+  readonly status: string;
+  readonly verified: boolean;
+  readonly message: string;
+  readonly errorCode?: string | null;
+  readonly mode: string;
+  readonly stage: string;
+  readonly at: number;
+  readonly purchased?: readonly number[];
+  readonly missing?: readonly number[];
+  readonly funded?: string | null;
+  readonly wallet?: string | null;
+  readonly total?: string;
   readonly readyForQueueReview?: boolean;
-  readonly cleanup: AcquisitionReview["cleanup"]; readonly fresh: MinerTrainingRead | null;
+  readonly cleanup: AcquisitionReview["cleanup"];
+  readonly fresh: MinerTrainingRead | null;
   readonly sheet?: TrainingSheet | null;
 }

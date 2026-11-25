@@ -7,8 +7,12 @@ export interface BackendPilotObservation {
   readonly owner: string;
   readonly online: boolean;
   readonly observedAt: number;
-  readonly dock: { readonly shipID: number | null; readonly systemID: number | null;
-    readonly stationID: number | null; readonly structureID: number | null } | null;
+  readonly dock: {
+    readonly shipID: number | null;
+    readonly systemID: number | null;
+    readonly stationID: number | null;
+    readonly structureID: number | null;
+  } | null;
 }
 
 /** Optional fields carried only by hosts that verify them before forwarding a request. */
@@ -22,11 +26,17 @@ export function worldForRequest(request: UocBackendRequest): string | null {
   // Farmer has one configured game connection per installation and exposes no world ID.
   // Keep fresh WC76 records scoped to the host-assigned UOC data directory.
   const directory = process.env.EVEJS_PLUGIN_DATA_DIR;
-  return directory ? "wc-install:" + createHash("sha256").update(process.platform === "win32" ? directory.toLowerCase() : directory).digest("hex") : null;
+  return directory
+    ? "wc-install:" +
+        createHash("sha256")
+          .update(process.platform === "win32" ? directory.toLowerCase() : directory)
+          .digest("hex")
+    : null;
 }
 
-export const worldRoute: BackendRoute = request => {
+export const worldRoute: BackendRoute = (request) => {
   const worldID = worldForRequest(request);
-  return worldID ? { body: { ok: true, worldID } } :
-    { status: 503, body: { ok: false, error: "UOC_SCOPE_UNAVAILABLE" } };
+  return worldID
+    ? { body: { ok: true, worldID } }
+    : { status: 503, body: { ok: false, error: "UOC_SCOPE_UNAVAILABLE" } };
 };

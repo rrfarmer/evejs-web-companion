@@ -9,7 +9,9 @@ function createDocumentStore(filePath) {
   db.pragma("synchronous = FULL");
   db.exec("CREATE TABLE IF NOT EXISTS documents (name TEXT PRIMARY KEY, value TEXT NOT NULL)");
   const select = db.prepare("SELECT value FROM documents WHERE name = ?");
-  const put = db.prepare("INSERT INTO documents (name, value) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value");
+  const put = db.prepare(
+    "INSERT INTO documents (name, value) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+  );
   const remove = db.prepare("DELETE FROM documents WHERE name = ?");
   const removePrefix = db.prepare("DELETE FROM documents WHERE substr(name, 1, length(?)) = ?");
   const names = db.prepare("SELECT name FROM documents WHERE substr(name, 1, length(?)) = ?");
@@ -25,13 +27,19 @@ function createDocumentStore(filePath) {
         },
       };
     },
-    transaction(action) { return db.transaction(action)(); },
-    documentNames(prefix) { return names.all(prefix, prefix).map(row => row.name); },
+    transaction(action) {
+      return db.transaction(action)();
+    },
+    documentNames(prefix) {
+      return names.all(prefix, prefix).map((row) => row.name);
+    },
     deleteDocuments(names, prefixes) {
       for (const name of names) remove.run(name);
       for (const prefix of prefixes) removePrefix.run(prefix, prefix);
     },
-    close() { db.close(); },
+    close() {
+      db.close();
+    },
   };
 }
 

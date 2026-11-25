@@ -1,4 +1,110 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {createPatrolNavigation} from './navigation.ts';
-function fixture(groupID:9|10,unknown=false){let doc:unknown=null,atTarget=false,calls=0,time=0;const name='Exact waypoint',ship={itemID:3,characterID:1,position:{x:0,y:0,z:0},radius:10,mode:'STOP',warp:false},entity={itemID:8,groupID,name,position:{x:200000,y:0,z:0},radius:10};const session:any={flow:{requestOptions:()=>({}),flying:{warpAsTheAutopilot:async(id:number)=>{assert.equal(id,8);calls++;if(unknown)throw Error('lost');atTarget=true;},approachShip:async()=>{throw Error('unexpected approach');}}}};const transition={phase:'ready',sessionStable:true,locationReady:true,sceneReady:true,egoReady:true,shipReady:true,boundContextReady:true};const run:any={botID:'bot',characterID:1,baseUrl:'http://test',fetch:async(url:any)=>new URL(String(url)).pathname==='/api/bridge/flight/status'?Response.json({ok:true,flight:{shipID:3,solarSystemID:4,inSpace:true,docked:false,shipMode:'STOP',transition}}):Response.json({ok:true,space:{inSpace:true,shipID:3,solarSystemID:4,stateValid:true,sampledAtMs:100,ship,entities:[{...entity,position:{x:atTarget?100:200000,y:0,z:0}}]}})};const config={shipID:3,waypoint:{systemID:4,itemID:8,groupID,name},document:{read:()=>doc,write:(v:unknown)=>{doc=structuredClone(v);}},current(){},sleep:async(ms:number)=>{time+=ms;},now:()=>time};return {nav:createPatrolNavigation(run,session,config),again:()=>createPatrolNavigation(run,session,config),get calls(){return calls;}};}
-test('the same navigator confirms exact physical gate arrival after one warp',async()=>{const f=fixture(10);await f.nav.navigate();await f.nav.assertAtWaypoint();assert.equal(f.calls,1);assert.equal(f.nav.snapshot().pending,null);});
-test('unknown waypoint warp remains pending and is never replayed',async()=>{const f=fixture(9,true);await assert.rejects(f.nav.navigate(),/lost/);assert.equal(f.nav.snapshot().pending.kind,'warp');await assert.rejects(f.again().navigate(),/unresolved/);assert.equal(f.calls,1);});
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createPatrolNavigation } from "./navigation.ts";
+function fixture(groupID: 9 | 10, unknown = false) {
+  let doc: unknown = null,
+    atTarget = false,
+    calls = 0,
+    time = 0;
+  const name = "Exact waypoint",
+    ship = {
+      itemID: 3,
+      characterID: 1,
+      position: { x: 0, y: 0, z: 0 },
+      radius: 10,
+      mode: "STOP",
+      warp: false,
+    },
+    entity = { itemID: 8, groupID, name, position: { x: 200000, y: 0, z: 0 }, radius: 10 };
+  const session: any = {
+    flow: {
+      requestOptions: () => ({}),
+      flying: {
+        warpAsTheAutopilot: async (id: number) => {
+          assert.equal(id, 8);
+          calls++;
+          if (unknown) throw Error("lost");
+          atTarget = true;
+        },
+        approachShip: async () => {
+          throw Error("unexpected approach");
+        },
+      },
+    },
+  };
+  const transition = {
+    phase: "ready",
+    sessionStable: true,
+    locationReady: true,
+    sceneReady: true,
+    egoReady: true,
+    shipReady: true,
+    boundContextReady: true,
+  };
+  const run: any = {
+    botID: "bot",
+    characterID: 1,
+    baseUrl: "http://test",
+    fetch: async (url: any) =>
+      new URL(String(url)).pathname === "/api/bridge/flight/status"
+        ? Response.json({
+            ok: true,
+            flight: {
+              shipID: 3,
+              solarSystemID: 4,
+              inSpace: true,
+              docked: false,
+              shipMode: "STOP",
+              transition,
+            },
+          })
+        : Response.json({
+            ok: true,
+            space: {
+              inSpace: true,
+              shipID: 3,
+              solarSystemID: 4,
+              stateValid: true,
+              sampledAtMs: 100,
+              ship,
+              entities: [{ ...entity, position: { x: atTarget ? 100 : 200000, y: 0, z: 0 } }],
+            },
+          }),
+  };
+  const config = {
+    shipID: 3,
+    waypoint: { systemID: 4, itemID: 8, groupID, name },
+    document: {
+      read: () => doc,
+      write: (v: unknown) => {
+        doc = structuredClone(v);
+      },
+    },
+    current() {},
+    sleep: async (ms: number) => {
+      time += ms;
+    },
+    now: () => time,
+  };
+  return {
+    nav: createPatrolNavigation(run, session, config),
+    again: () => createPatrolNavigation(run, session, config),
+    get calls() {
+      return calls;
+    },
+  };
+}
+test("the same navigator confirms exact physical gate arrival after one warp", async () => {
+  const f = fixture(10);
+  await f.nav.navigate();
+  await f.nav.assertAtWaypoint();
+  assert.equal(f.calls, 1);
+  assert.equal(f.nav.snapshot().pending, null);
+});
+test("unknown waypoint warp remains pending and is never replayed", async () => {
+  const f = fixture(9, true);
+  await assert.rejects(f.nav.navigate(), /lost/);
+  assert.equal(f.nav.snapshot().pending.kind, "warp");
+  await assert.rejects(f.again().navigate(), /unresolved/);
+  assert.equal(f.calls, 1);
+});

@@ -1,4 +1,96 @@
-import test from "node:test";import assert from "node:assert/strict";import {unloadParkingFreight} from "./parkingUnload.ts";
-test("parking unload uses exact own freight and reconciles lost transfer without replay",async()=>{let rows:any[]=[{itemID:20,typeID:30,ownerID:3,locationID:13,flagID:134,quantity:10,categoryID:25}],hangar:any[]=[],saved:unknown=null,writes=0,lost=true;const list=(r:any[])=>({type:"list",items:r.map(fields=>({type:"packedrow",fields}))}),session:any={store:{station:{get:()=>({online:{characterID:3,corporationID:99}})}},flow:{requestOptions:()=>({}),flying:{bridgeDo:async(s:string,m:string,args:unknown[],kwargs:unknown,of:unknown)=>{if(s==="invCache")return;
- assert.deepEqual([s,m,args,kwargs,of],["invbroker","Add",[20,13],{qty:10,flag:4},"hangar"]);
- writes++;const item=rows[0];rows=[];hangar=[{...item,ownerID:3,locationID:600,flagID:4}];if(lost)throw Error("lost reply");},bridgeAsk:async(_s:string,_m:string,_a:any,k:any,of:any)=>list(of===13?rows.filter(r=>r.flagID===k.flag):hangar)}}},run:any={characterID:3,baseUrl:"http://bff",fetch:async(input:any,init:any)=>{const p=new URL(String(input)).pathname;let x:any;if(p.endsWith("/flight/status"))x={flight:{shipID:13,docked:true,inSpace:false,stationID:600,solarSystemID:300}};else if(p.endsWith("/resources"))x={resources:[{typeID:30,family:"ore",name:"ore"}]};else if(p.endsWith("/dogma-types"))x={available:true,types:{30:{categoryID:25}}};else if(p.endsWith("/volumes"))x={volumes:{30:1},capped:false};else throw Error(p);return Response.json({ok:true,...x});}},doc={read:()=>saved,write:(v:unknown)=>{saved=structuredClone(v)}},config={operationID:"op",runID:"run",shipID:13,delivery:{kind:"station" as const,destinationID:600,systemID:300,corporationID:null,division:null},document:doc,current(){}};await assert.rejects(unloadParkingFreight(run,session,config),/lost reply/);lost=false;const receipt=await unloadParkingFreight(run,session,config);assert.equal(receipt?.source.kind,"own-ship-freight");assert.equal(writes,1);});
+import test from "node:test";
+import assert from "node:assert/strict";
+import { unloadParkingFreight } from "./parkingUnload.ts";
+test("parking unload uses exact own freight and reconciles lost transfer without replay", async () => {
+  let rows: any[] = [
+      {
+        itemID: 20,
+        typeID: 30,
+        ownerID: 3,
+        locationID: 13,
+        flagID: 134,
+        quantity: 10,
+        categoryID: 25,
+      },
+    ],
+    hangar: any[] = [],
+    saved: unknown = null,
+    writes = 0,
+    lost = true;
+  const list = (r: any[]) => ({
+      type: "list",
+      items: r.map((fields) => ({ type: "packedrow", fields })),
+    }),
+    session: any = {
+      store: { station: { get: () => ({ online: { characterID: 3, corporationID: 99 } }) } },
+      flow: {
+        requestOptions: () => ({}),
+        flying: {
+          bridgeDo: async (s: string, m: string, args: unknown[], kwargs: unknown, of: unknown) => {
+            if (s === "invCache") return;
+            assert.deepEqual(
+              [s, m, args, kwargs, of],
+              ["invbroker", "Add", [20, 13], { qty: 10, flag: 4 }, "hangar"],
+            );
+            writes++;
+            const item = rows[0];
+            rows = [];
+            hangar = [{ ...item, ownerID: 3, locationID: 600, flagID: 4 }];
+            if (lost) throw Error("lost reply");
+          },
+          bridgeAsk: async (_s: string, _m: string, _a: any, k: any, of: any) =>
+            list(of === 13 ? rows.filter((r) => r.flagID === k.flag) : hangar),
+        },
+      },
+    },
+    run: any = {
+      characterID: 3,
+      baseUrl: "http://bff",
+      fetch: async (input: any, init: any) => {
+        const p = new URL(String(input)).pathname;
+        let x: any;
+        if (p.endsWith("/flight/status"))
+          x = {
+            flight: {
+              shipID: 13,
+              docked: true,
+              inSpace: false,
+              stationID: 600,
+              solarSystemID: 300,
+            },
+          };
+        else if (p.endsWith("/resources"))
+          x = { resources: [{ typeID: 30, family: "ore", name: "ore" }] };
+        else if (p.endsWith("/dogma-types"))
+          x = { available: true, types: { 30: { categoryID: 25 } } };
+        else if (p.endsWith("/volumes")) x = { volumes: { 30: 1 }, capped: false };
+        else throw Error(p);
+        return Response.json({ ok: true, ...x });
+      },
+    },
+    doc = {
+      read: () => saved,
+      write: (v: unknown) => {
+        saved = structuredClone(v);
+      },
+    },
+    config = {
+      operationID: "op",
+      runID: "run",
+      shipID: 13,
+      delivery: {
+        kind: "station" as const,
+        destinationID: 600,
+        systemID: 300,
+        corporationID: null,
+        division: null,
+      },
+      document: doc,
+      current() {},
+    };
+  await assert.rejects(unloadParkingFreight(run, session, config), /lost reply/);
+  lost = false;
+  const receipt = await unloadParkingFreight(run, session, config);
+  assert.equal(receipt?.source.kind, "own-ship-freight");
+  assert.equal(writes, 1);
+});

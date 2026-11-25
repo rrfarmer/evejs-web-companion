@@ -1,11 +1,33 @@
 <!-- WC74 web/src/ui/MiningOreFreight.svelte @ 213da333; imports adapted for UOC plugin. -->
 <script lang="ts">
-  import type {MiningOperationRuntime} from '../adapters/mining.ts';
-  import type {OreLogisticsConfig,OreLogisticsWork} from '../mining/contracts.ts';
-  let {config,runtime,stale=false}:{config:OreLogisticsConfig|undefined;runtime:MiningOperationRuntime;stale?:boolean}=$props();
-  const fresh=(work:OreLogisticsWork|null|undefined)=>!stale&&!runtime.recoveryRequired&&!['UNKNOWN','WAITING_FOR_HOST','DRAFT','STOPPED','STOPPING','PARKING','PARKING_FAILED'].includes(runtime.state)&&work&&
-    Date.parse(runtime.observedAt??'')>=work.observedAtMs&&Date.parse(runtime.observedAt??'')-work.observedAtMs<60000;
-  const number=(n:number|null|undefined)=>n==null?'unknown':n.toLocaleString(undefined,{maximumFractionDigits:3});
+  import type { MiningOperationRuntime } from "../adapters/mining.ts";
+  import type { OreLogisticsConfig, OreLogisticsWork } from "../mining/contracts.ts";
+  let {
+    config,
+    runtime,
+    stale = false,
+  }: {
+    config: OreLogisticsConfig | undefined;
+    runtime: MiningOperationRuntime;
+    stale?: boolean;
+  } = $props();
+  const fresh = (work: OreLogisticsWork | null | undefined) =>
+    !stale &&
+    !runtime.recoveryRequired &&
+    ![
+      "UNKNOWN",
+      "WAITING_FOR_HOST",
+      "DRAFT",
+      "STOPPED",
+      "STOPPING",
+      "PARKING",
+      "PARKING_FAILED",
+    ].includes(runtime.state) &&
+    work &&
+    Date.parse(runtime.observedAt ?? "") >= work.observedAtMs &&
+    Date.parse(runtime.observedAt ?? "") - work.observedAtMs < 60000;
+  const number = (n: number | null | undefined) =>
+    n == null ? "unknown" : n.toLocaleString(undefined, { maximumFractionDigits: 3 });
 </script>
 {#if config}
   <section aria-label="Ore logistics">
@@ -32,6 +54,13 @@
   </section>
 {/if}
 <style>
-  section { border: 1px solid var(--center-border); padding: .65rem .8rem; margin: .6rem 0; }
-  p, .freight-member { margin: .35rem 0; }
+  section {
+    border: 1px solid var(--center-border);
+    padding: 0.65rem 0.8rem;
+    margin: 0.6rem 0;
+  }
+  p,
+  .freight-member {
+    margin: 0.35rem 0;
+  }
 </style>

@@ -1,8 +1,132 @@
-import fs from 'node:fs';import {createHash} from 'node:crypto';
+import fs from "node:fs";
+import { createHash } from "node:crypto";
 // Frozen EveJS 261028.1 beltRatRuntime profile/type join; see defender provenance.
-const BELT_RATS=new Map<number,number>([[2379,572],[2381,571],[2382,562],[2384,562],[10016,550],[10019,550],[10030,566],[10276,557],[10281,555],[10282,555],[11033,567],[11034,567],[11037,566],[11040,557],[11045,572],[11896,551],[11897,551],[11900,552],[11905,556],[11906,556],[11914,565],[11917,571],[11921,570],[11927,552],[11932,560],[11935,560],[13527,789],[13533,790],[13539,848],[13558,792],[13562,849],[13576,800],[13587,798],[13601,850],[13605,808],[13606,851],[13612,810],[13646,814],[13664,812],[22812,575],[22813,575],[22826,576],[22827,576],[22858,794],[22869,793],[23244,578],[23245,577],[23246,577],[23252,578],[23292,796],[23293,795],[23300,849],[23312,579],[23313,579],[23319,561],[23320,561],[23321,580],[23323,580],[23344,799],[23351,797],[23377,565],[23378,581],[23379,581],[23383,582],[23384,582],[23392,809],[23403,851],[23423,583],[23424,583],[23438,584],[23441,584],[23454,570],[23458,813],[23466,811],[23471,852]]);
-const raw=JSON.parse(fs.readFileSync(new URL('./pirateCatalog.json',import.meta.url),'utf8'));if(raw.version!==1||!Array.isArray(raw.entries)||createHash('sha256').update(JSON.stringify(raw)).digest('hex')!=='b9cae6094c7aec1101e17af5806018d315f082dd96071c6c58aed32fa75e3e04')throw Error('Patrol pirate source catalog integrity differs.');
-const pirates=new Set<string>();for(const row of raw.entries){if(!Array.isArray(row)||row.length!==3||row.some((n:unknown)=>typeof n!=='number'||!Number.isSafeInteger(n)||n<=0))throw Error('Patrol pirate source catalog is malformed.');const key=row.join(':');if(pirates.has(key))throw Error('Patrol pirate source catalog is ambiguous.');pirates.add(key);}
+const BELT_RATS = new Map<number, number>([
+  [2379, 572],
+  [2381, 571],
+  [2382, 562],
+  [2384, 562],
+  [10016, 550],
+  [10019, 550],
+  [10030, 566],
+  [10276, 557],
+  [10281, 555],
+  [10282, 555],
+  [11033, 567],
+  [11034, 567],
+  [11037, 566],
+  [11040, 557],
+  [11045, 572],
+  [11896, 551],
+  [11897, 551],
+  [11900, 552],
+  [11905, 556],
+  [11906, 556],
+  [11914, 565],
+  [11917, 571],
+  [11921, 570],
+  [11927, 552],
+  [11932, 560],
+  [11935, 560],
+  [13527, 789],
+  [13533, 790],
+  [13539, 848],
+  [13558, 792],
+  [13562, 849],
+  [13576, 800],
+  [13587, 798],
+  [13601, 850],
+  [13605, 808],
+  [13606, 851],
+  [13612, 810],
+  [13646, 814],
+  [13664, 812],
+  [22812, 575],
+  [22813, 575],
+  [22826, 576],
+  [22827, 576],
+  [22858, 794],
+  [22869, 793],
+  [23244, 578],
+  [23245, 577],
+  [23246, 577],
+  [23252, 578],
+  [23292, 796],
+  [23293, 795],
+  [23300, 849],
+  [23312, 579],
+  [23313, 579],
+  [23319, 561],
+  [23320, 561],
+  [23321, 580],
+  [23323, 580],
+  [23344, 799],
+  [23351, 797],
+  [23377, 565],
+  [23378, 581],
+  [23379, 581],
+  [23383, 582],
+  [23384, 582],
+  [23392, 809],
+  [23403, 851],
+  [23423, 583],
+  [23424, 583],
+  [23438, 584],
+  [23441, 584],
+  [23454, 570],
+  [23458, 813],
+  [23466, 811],
+  [23471, 852],
+]);
+const raw = JSON.parse(fs.readFileSync(new URL("./pirateCatalog.json", import.meta.url), "utf8"));
+if (
+  raw.version !== 1 ||
+  !Array.isArray(raw.entries) ||
+  createHash("sha256").update(JSON.stringify(raw)).digest("hex") !==
+    "b9cae6094c7aec1101e17af5806018d315f082dd96071c6c58aed32fa75e3e04"
+)
+  throw Error("Patrol pirate source catalog integrity differs.");
+const pirates = new Set<string>();
+for (const row of raw.entries) {
+  if (
+    !Array.isArray(row) ||
+    row.length !== 3 ||
+    row.some((n: unknown) => typeof n !== "number" || !Number.isSafeInteger(n) || n <= 0)
+  )
+    throw Error("Patrol pirate source catalog is malformed.");
+  const key = row.join(":");
+  if (pirates.has(key)) throw Error("Patrol pirate source catalog is ambiguous.");
+  pirates.add(key);
+}
 /** The larger catalogue also requires the exact authored pirate corporation;
  * an unknown or non-pirate owner never gains target authority from a hull. */
-export function isQualifiedPatrolNpc(row:{itemID:number;kind:string|null;categoryID:number|null;isNpc:boolean;isSelf:boolean;geometryAvailable?:boolean;npcEntityType?:string|null;characterID?:number|null;ownerID?:number|null;typeID:number|null;groupID:number|null}):boolean{return Number.isSafeInteger(row.itemID)&&row.itemID>0&&row.kind==='ship'&&row.categoryID===11&&row.isNpc===true&&!row.isSelf&&row.characterID==null&&row.geometryAvailable===true&&row.npcEntityType!=='concord'&&row.typeID!==null&&row.groupID!==null&&(BELT_RATS.get(row.typeID)===row.groupID||typeof row.ownerID==='number'&&pirates.has(`${row.typeID}:${row.groupID}:${row.ownerID}`));}
+export function isQualifiedPatrolNpc(row: {
+  itemID: number;
+  kind: string | null;
+  categoryID: number | null;
+  isNpc: boolean;
+  isSelf: boolean;
+  geometryAvailable?: boolean;
+  npcEntityType?: string | null;
+  characterID?: number | null;
+  ownerID?: number | null;
+  typeID: number | null;
+  groupID: number | null;
+}): boolean {
+  return (
+    Number.isSafeInteger(row.itemID) &&
+    row.itemID > 0 &&
+    row.kind === "ship" &&
+    row.categoryID === 11 &&
+    row.isNpc === true &&
+    !row.isSelf &&
+    row.characterID == null &&
+    row.geometryAvailable === true &&
+    row.npcEntityType !== "concord" &&
+    row.typeID !== null &&
+    row.groupID !== null &&
+    (BELT_RATS.get(row.typeID) === row.groupID ||
+      (typeof row.ownerID === "number" &&
+        pirates.has(`${row.typeID}:${row.groupID}:${row.ownerID}`)))
+  );
+}

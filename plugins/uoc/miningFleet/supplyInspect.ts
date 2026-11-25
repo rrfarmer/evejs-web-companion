@@ -1,11 +1,199 @@
-import {buildSlots,loadFitting,decodeFlightStatus,getFlightStatus} from "../../../web/src/plugin-api/flying.ts";
-import type {PluginRunContext} from "../../../web/src/plugin-api/backend.ts";import type {PilotSession} from "../../../web/src/plugin-api/pilotSession.ts";import {checkedInventory,type NativeInventoryRow} from "../shared/nativeInventory.ts";
-export type SupplyTarget={typeID:number;target:number;mode:"TOTAL_ABOARD"|"CARRIED_SPARES";eligibleFlags:readonly number[];required:boolean};
-export type SupplyRead={name?:string;typeID:number;target:number;mode:SupplyTarget["mode"];required:boolean;state:"READY"|"DEGRADED"|"UNKNOWN";quantity:number|null;reason:string|null};
-const id=(n:unknown):n is number=>typeof n==="number"&&Number.isSafeInteger(n)&&n>0;
-export function decodeSupplyTargets(v:unknown):SupplyTarget[]|null{if(!Array.isArray(v)||v.length>100)return null;const rows:SupplyTarget[]=[];for(const x of v){if(!x||typeof x!=="object"||!id(x.typeID)||!id(x.target)||!["TOTAL_ABOARD","CARRIED_SPARES"].includes(x.mode)||!Array.isArray(x.eligibleFlags)||!x.eligibleFlags.length||x.eligibleFlags.some((f:unknown)=>typeof f!=="number"||![5,133,143].includes(f))||new Set(x.eligibleFlags).size!==x.eligibleFlags.length||typeof x.required!=="boolean")return null;rows.push({typeID:x.typeID,target:x.target,mode:x.mode,eligibleFlags:[...x.eligibleFlags],required:x.required});}return rows;}
+import {
+  buildSlots,
+  loadFitting,
+  decodeFlightStatus,
+  getFlightStatus,
+} from "../../../web/src/plugin-api/flying.ts";
+import type { PluginRunContext } from "../../../web/src/plugin-api/backend.ts";
+import type { PilotSession } from "../../../web/src/plugin-api/pilotSession.ts";
+import { checkedInventory, type NativeInventoryRow } from "../shared/nativeInventory.ts";
+export type SupplyTarget = {
+  typeID: number;
+  target: number;
+  mode: "TOTAL_ABOARD" | "CARRIED_SPARES";
+  eligibleFlags: readonly number[];
+  required: boolean;
+};
+export type SupplyRead = {
+  name?: string;
+  typeID: number;
+  target: number;
+  mode: SupplyTarget["mode"];
+  required: boolean;
+  state: "READY" | "DEGRADED" | "UNKNOWN";
+  quantity: number | null;
+  reason: string | null;
+};
+const id = (n: unknown): n is number => typeof n === "number" && Number.isSafeInteger(n) && n > 0;
+export function decodeSupplyTargets(v: unknown): SupplyTarget[] | null {
+  if (!Array.isArray(v) || v.length > 100) return null;
+  const rows: SupplyTarget[] = [];
+  for (const x of v) {
+    if (
+      !x ||
+      typeof x !== "object" ||
+      !id(x.typeID) ||
+      !id(x.target) ||
+      !["TOTAL_ABOARD", "CARRIED_SPARES"].includes(x.mode) ||
+      !Array.isArray(x.eligibleFlags) ||
+      !x.eligibleFlags.length ||
+      x.eligibleFlags.some((f: unknown) => typeof f !== "number" || ![5, 133, 143].includes(f)) ||
+      new Set(x.eligibleFlags).size !== x.eligibleFlags.length ||
+      typeof x.required !== "boolean"
+    )
+      return null;
+    rows.push({
+      typeID: x.typeID,
+      target: x.target,
+      mode: x.mode,
+      eligibleFlags: [...x.eligibleFlags],
+      required: x.required,
+    });
+  }
+  return rows;
+}
 /** Optional readiness is a warning, never an acquisition or mutation authority. */
-export async function inspectSupplies(run:PluginRunContext,session:PilotSession,shipID:number,targets:readonly SupplyTarget[],current:()=>void):Promise<SupplyRead[]>{
- const unknown=(reason:string)=>targets.map(t=>({typeID:t.typeID,target:t.target,mode:t.mode,required:t.required,state:"UNKNOWN" as const,quantity:null,reason}));if(!targets.length)return [];
- try{const opts={...session.flow.requestOptions(),baseUrl:run.baseUrl,fetch:run.fetch},flight=async()=>{current();const f=decodeFlightStatus((await getFlightStatus(opts)).flight);current();if(!f.docked||f.inSpace||f.shipID!==shipID||!id(f.solarSystemID))throw Error("Held ship is not docked.");return f;};const before=await flight(),f=session.flow.flying;await f.bridgeDo("invCache","InvalidateLocationCache",[shipID]);current();const flags=[...new Set(targets.flatMap(t=>t.eligibleFlags))],rows:NativeInventoryRow[]=[];for(const flag of flags){const items=checkedInventory(await f.bridgeAsk("invbroker","List",[],{flag},shipID));current();if(items.some(r=>r.ownerID!==run.characterID||r.locationID!==shipID||r.flagID!==flag))throw Error("Supply inventory ownership is uncertain.");rows.push(...items);}if(new Set(rows.map(r=>r.itemID)).size!==rows.length)throw Error("Supply item identity is ambiguous.");let loaded:{typeID:number;quantity:number}[]|null=[];if(targets.some(t=>t.mode==="TOTAL_ABOARD")){try{const fit=await loadFitting(opts);current();if(fit.activeShipID!==shipID||Object.values(fit.errors).some(x=>x!==null))throw Error("Fitted charges are unreadable.");const raw=fit.slots as any;if(!raw||raw.type!=="list"||!Array.isArray(raw.items))throw Error("Fitted inventory rows are unreadable.");const nativeCharges:{typeID:number;quantity:number}[]=[];for(const item of raw.items){const row=item?.type==="packedrow"?item.fields:item;if(!row||typeof row!=="object"||Array.isArray(row)||!id(row.typeID)||!id(row.flagID)||!id(row.categoryID))throw Error("Fitted inventory row is malformed.");if(row.categoryID===8){if(!Number.isSafeInteger(row.quantity)||row.quantity<0)throw Error("Fitted charge quantity is unreadable.");nativeCharges.push({typeID:row.typeID,quantity:row.quantity});}}loaded=buildSlots(fit.slots,fit.shipInfo,fit.online).flatMap(slot=>{const c=slot.module?.charge;if(!c)return [];if(!id(c.typeID)||!Number.isSafeInteger(c.quantity)||c.quantity<0)throw Error("Fitted charge is unreadable.");return [{typeID:c.typeID,quantity:c.quantity}];});const ordered=(x:{typeID:number;quantity:number}[])=>JSON.stringify([...x].sort((a,b)=>a.typeID-b.typeID||a.quantity-b.quantity));if(ordered(nativeCharges)!==ordered(loaded))throw Error("Fitted charge rows are incomplete.");}catch{current();loaded=null;}}const after=await flight();if(before.solarSystemID!==after.solarSystemID||before.stationID!==after.stationID||before.structureID!==after.structureID)throw Error("Supply inspection location changed.");return targets.map(t=>{if(t.mode==="TOTAL_ABOARD"&&loaded===null)return {typeID:t.typeID,target:t.target,mode:t.mode,required:t.required,state:"UNKNOWN" as const,quantity:null,reason:"Fitted charge read is unavailable."};const quantity=rows.filter(r=>r.typeID===t.typeID&&t.eligibleFlags.includes(r.flagID)).reduce((n,r)=>n+r.quantity,0)+(t.mode==="TOTAL_ABOARD"?loaded!.filter(c=>c.typeID===t.typeID).reduce((n,c)=>n+c.quantity,0):0);if(!Number.isSafeInteger(quantity))return {typeID:t.typeID,target:t.target,mode:t.mode,required:t.required,state:"UNKNOWN" as const,quantity:null,reason:"Supply quantity overflow."};return {typeID:t.typeID,target:t.target,mode:t.mode,required:t.required,state:quantity>=t.target?"READY" as const:"DEGRADED" as const,quantity,reason:quantity>=t.target?null:"Carried quantity is below the requested target; departure remains available."};});}catch(error){current();return unknown(error instanceof Error?error.message:"Supply inventory is unavailable.");}
+export async function inspectSupplies(
+  run: PluginRunContext,
+  session: PilotSession,
+  shipID: number,
+  targets: readonly SupplyTarget[],
+  current: () => void,
+): Promise<SupplyRead[]> {
+  const unknown = (reason: string) =>
+    targets.map((t) => ({
+      typeID: t.typeID,
+      target: t.target,
+      mode: t.mode,
+      required: t.required,
+      state: "UNKNOWN" as const,
+      quantity: null,
+      reason,
+    }));
+  if (!targets.length) return [];
+  try {
+    const opts = { ...session.flow.requestOptions(), baseUrl: run.baseUrl, fetch: run.fetch },
+      flight = async () => {
+        current();
+        const f = decodeFlightStatus((await getFlightStatus(opts)).flight);
+        current();
+        if (!f.docked || f.inSpace || f.shipID !== shipID || !id(f.solarSystemID))
+          throw Error("Held ship is not docked.");
+        return f;
+      };
+    const before = await flight(),
+      f = session.flow.flying;
+    await f.bridgeDo("invCache", "InvalidateLocationCache", [shipID]);
+    current();
+    const flags = [...new Set(targets.flatMap((t) => t.eligibleFlags))],
+      rows: NativeInventoryRow[] = [];
+    for (const flag of flags) {
+      const items = checkedInventory(await f.bridgeAsk("invbroker", "List", [], { flag }, shipID));
+      current();
+      if (
+        items.some(
+          (r) => r.ownerID !== run.characterID || r.locationID !== shipID || r.flagID !== flag,
+        )
+      )
+        throw Error("Supply inventory ownership is uncertain.");
+      rows.push(...items);
+    }
+    if (new Set(rows.map((r) => r.itemID)).size !== rows.length)
+      throw Error("Supply item identity is ambiguous.");
+    let loaded: { typeID: number; quantity: number }[] | null = [];
+    if (targets.some((t) => t.mode === "TOTAL_ABOARD")) {
+      try {
+        const fit = await loadFitting(opts);
+        current();
+        if (fit.activeShipID !== shipID || Object.values(fit.errors).some((x) => x !== null))
+          throw Error("Fitted charges are unreadable.");
+        const raw = fit.slots as any;
+        if (!raw || raw.type !== "list" || !Array.isArray(raw.items))
+          throw Error("Fitted inventory rows are unreadable.");
+        const nativeCharges: { typeID: number; quantity: number }[] = [];
+        for (const item of raw.items) {
+          const row = item?.type === "packedrow" ? item.fields : item;
+          if (
+            !row ||
+            typeof row !== "object" ||
+            Array.isArray(row) ||
+            !id(row.typeID) ||
+            !id(row.flagID) ||
+            !id(row.categoryID)
+          )
+            throw Error("Fitted inventory row is malformed.");
+          if (row.categoryID === 8) {
+            if (!Number.isSafeInteger(row.quantity) || row.quantity < 0)
+              throw Error("Fitted charge quantity is unreadable.");
+            nativeCharges.push({ typeID: row.typeID, quantity: row.quantity });
+          }
+        }
+        loaded = buildSlots(fit.slots, fit.shipInfo, fit.online).flatMap((slot) => {
+          const c = slot.module?.charge;
+          if (!c) return [];
+          if (!id(c.typeID) || !Number.isSafeInteger(c.quantity) || c.quantity < 0)
+            throw Error("Fitted charge is unreadable.");
+          return [{ typeID: c.typeID, quantity: c.quantity }];
+        });
+        const ordered = (x: { typeID: number; quantity: number }[]) =>
+          JSON.stringify([...x].sort((a, b) => a.typeID - b.typeID || a.quantity - b.quantity));
+        if (ordered(nativeCharges) !== ordered(loaded))
+          throw Error("Fitted charge rows are incomplete.");
+      } catch {
+        current();
+        loaded = null;
+      }
+    }
+    const after = await flight();
+    if (
+      before.solarSystemID !== after.solarSystemID ||
+      before.stationID !== after.stationID ||
+      before.structureID !== after.structureID
+    )
+      throw Error("Supply inspection location changed.");
+    return targets.map((t) => {
+      if (t.mode === "TOTAL_ABOARD" && loaded === null)
+        return {
+          typeID: t.typeID,
+          target: t.target,
+          mode: t.mode,
+          required: t.required,
+          state: "UNKNOWN" as const,
+          quantity: null,
+          reason: "Fitted charge read is unavailable.",
+        };
+      const quantity =
+        rows
+          .filter((r) => r.typeID === t.typeID && t.eligibleFlags.includes(r.flagID))
+          .reduce((n, r) => n + r.quantity, 0) +
+        (t.mode === "TOTAL_ABOARD"
+          ? loaded!.filter((c) => c.typeID === t.typeID).reduce((n, c) => n + c.quantity, 0)
+          : 0);
+      if (!Number.isSafeInteger(quantity))
+        return {
+          typeID: t.typeID,
+          target: t.target,
+          mode: t.mode,
+          required: t.required,
+          state: "UNKNOWN" as const,
+          quantity: null,
+          reason: "Supply quantity overflow.",
+        };
+      return {
+        typeID: t.typeID,
+        target: t.target,
+        mode: t.mode,
+        required: t.required,
+        state: quantity >= t.target ? ("READY" as const) : ("DEGRADED" as const),
+        quantity,
+        reason:
+          quantity >= t.target
+            ? null
+            : "Carried quantity is below the requested target; departure remains available.",
+      };
+    });
+  } catch (error) {
+    current();
+    return unknown(error instanceof Error ? error.message : "Supply inventory is unavailable.");
+  }
 }

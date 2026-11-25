@@ -1,2 +1,254 @@
 /* Tailwind preflight from the exact WC74 reference build, scoped to UOC only. */
-@layer base{:where(.uoc-wc74),:where(.uoc-wc74) *,:where(.uoc-wc74) :after,:where(.uoc-wc74) :before,:where(.uoc-wc74) ::backdrop{box-sizing:border-box;border:0 solid;margin:0;padding:0}:where(.uoc-wc74) ::file-selector-button{box-sizing:border-box;border:0 solid;margin:0;padding:0}:where(.uoc-wc74),:where(.uoc-wc74){-webkit-text-size-adjust:100%;tab-size:4;line-height:1.5;font-family:var(--default-font-family,-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji");font-feature-settings:var(--default-font-feature-settings,normal);font-variation-settings:var(--default-font-variation-settings,normal);-webkit-tap-highlight-color:transparent}:where(.uoc-wc74) hr{height:0;color:inherit;border-top-width:1px}:where(.uoc-wc74) abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}:where(.uoc-wc74) h1,:where(.uoc-wc74) h2,:where(.uoc-wc74) h3,:where(.uoc-wc74) h4,:where(.uoc-wc74) h5,:where(.uoc-wc74) h6{font-size:inherit;font-weight:inherit}:where(.uoc-wc74) a{color:inherit;-webkit-text-decoration:inherit;-webkit-text-decoration:inherit;-webkit-text-decoration:inherit;-webkit-text-decoration:inherit;text-decoration:inherit}:where(.uoc-wc74) b,:where(.uoc-wc74) strong{font-weight:bolder}:where(.uoc-wc74) code,:where(.uoc-wc74) kbd,:where(.uoc-wc74) samp,:where(.uoc-wc74) pre{font-family:var(--default-mono-font-family,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);font-feature-settings:var(--default-mono-font-feature-settings,normal);font-variation-settings:var(--default-mono-font-variation-settings,normal);font-size:1em}:where(.uoc-wc74) small{font-size:80%}:where(.uoc-wc74) sub,:where(.uoc-wc74) sup{vertical-align:baseline;font-size:75%;line-height:0;position:relative}:where(.uoc-wc74) sub{bottom:-.25em}:where(.uoc-wc74) sup{top:-.5em}:where(.uoc-wc74) table{text-indent:0;border-color:inherit;border-collapse:collapse}:where(.uoc-wc74) :-moz-focusring:where(:not(iframe)){outline:auto}:where(.uoc-wc74) progress{vertical-align:baseline}:where(.uoc-wc74) summary{display:list-item}:where(.uoc-wc74) ol,:where(.uoc-wc74) ul,:where(.uoc-wc74) menu{list-style:none}:where(.uoc-wc74) img,:where(.uoc-wc74) svg,:where(.uoc-wc74) video,:where(.uoc-wc74) canvas,:where(.uoc-wc74) audio,:where(.uoc-wc74) iframe,:where(.uoc-wc74) embed,:where(.uoc-wc74) object{vertical-align:middle;display:block}:where(.uoc-wc74) img,:where(.uoc-wc74) video{max-width:100%;height:auto}:where(.uoc-wc74) button,:where(.uoc-wc74) input,:where(.uoc-wc74) select,:where(.uoc-wc74) optgroup,:where(.uoc-wc74) textarea{font:inherit;font-feature-settings:inherit;font-variation-settings:inherit;letter-spacing:inherit;color:inherit;opacity:1;background-color:#0000;border-radius:0}:where(.uoc-wc74) ::file-selector-button{font:inherit;font-feature-settings:inherit;font-variation-settings:inherit;letter-spacing:inherit;color:inherit;opacity:1;background-color:#0000;border-radius:0}:where(.uoc-wc74) :where(select:is([multiple],[size])) optgroup{font-weight:bolder}:where(.uoc-wc74) :where(select:is([multiple],[size])) optgroup option{padding-inline-start:20px}:where(.uoc-wc74) ::file-selector-button{margin-inline-end:4px}:where(.uoc-wc74) ::placeholder{opacity:1}@supports (not ((-webkit-appearance:-apple-pay-button))) or (contain-intrinsic-size:1px){:where(.uoc-wc74) ::placeholder{color:currentColor}@supports (color:color-mix(in lab, red, red)){:where(.uoc-wc74) ::placeholder{color:color-mix(in oklab, currentcolor 50%, transparent)}}}:where(.uoc-wc74) textarea{resize:vertical}:where(.uoc-wc74) ::-webkit-search-decoration{-webkit-appearance:none}:where(.uoc-wc74) ::-webkit-date-and-time-value{min-height:1lh;text-align:inherit}:where(.uoc-wc74) ::-webkit-datetime-edit{display:inline-flex}:where(.uoc-wc74) ::-webkit-datetime-edit-fields-wrapper{padding:0}:where(.uoc-wc74) ::-webkit-datetime-edit{padding-block:0}:where(.uoc-wc74) ::-webkit-datetime-edit-year-field{padding-block:0}:where(.uoc-wc74) ::-webkit-datetime-edit-month-field{padding-block:0}:where(.uoc-wc74) ::-webkit-datetime-edit-day-field{padding-block:0}:where(.uoc-wc74) ::-webkit-datetime-edit-hour-field{padding-block:0}:where(.uoc-wc74) ::-webkit-datetime-edit-minute-field{padding-block:0}:where(.uoc-wc74) ::-webkit-datetime-edit-second-field{padding-block:0}:where(.uoc-wc74) ::-webkit-datetime-edit-millisecond-field{padding-block:0}:where(.uoc-wc74) ::-webkit-datetime-edit-meridiem-field{padding-block:0}:where(.uoc-wc74) ::-webkit-calendar-picker-indicator{line-height:1}:where(.uoc-wc74) :-moz-ui-invalid{box-shadow:none}:where(.uoc-wc74) button,:where(.uoc-wc74) input:where([type=button],[type=reset],[type=submit]){appearance:button}:where(.uoc-wc74) ::file-selector-button{appearance:button}:where(.uoc-wc74) ::-webkit-inner-spin-button{height:auto}:where(.uoc-wc74) ::-webkit-outer-spin-button{height:auto}:where(.uoc-wc74) [hidden]:where(:not([hidden=until-found])){display:none!important}}
+@layer base {
+  :where(.uoc-wc74),
+  :where(.uoc-wc74) *,
+  :where(.uoc-wc74) :after,
+  :where(.uoc-wc74) :before,
+  :where(.uoc-wc74) ::backdrop {
+    box-sizing: border-box;
+    border: 0 solid;
+    margin: 0;
+    padding: 0;
+  }
+  :where(.uoc-wc74) ::file-selector-button {
+    box-sizing: border-box;
+    border: 0 solid;
+    margin: 0;
+    padding: 0;
+  }
+  :where(.uoc-wc74),
+  :where(.uoc-wc74) {
+    -webkit-text-size-adjust: 100%;
+    tab-size: 4;
+    line-height: 1.5;
+    font-family: var(
+      --default-font-family,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      Roboto,
+      "Helvetica Neue",
+      "Noto Sans",
+      Arial,
+      sans-serif,
+      "Apple Color Emoji",
+      "Segoe UI Emoji",
+      "Segoe UI Symbol",
+      "Noto Color Emoji"
+    );
+    font-feature-settings: var(--default-font-feature-settings, normal);
+    font-variation-settings: var(--default-font-variation-settings, normal);
+    -webkit-tap-highlight-color: transparent;
+  }
+  :where(.uoc-wc74) hr {
+    height: 0;
+    color: inherit;
+    border-top-width: 1px;
+  }
+  :where(.uoc-wc74) abbr:where([title]) {
+    -webkit-text-decoration: underline dotted;
+    text-decoration: underline dotted;
+  }
+  :where(.uoc-wc74) h1,
+  :where(.uoc-wc74) h2,
+  :where(.uoc-wc74) h3,
+  :where(.uoc-wc74) h4,
+  :where(.uoc-wc74) h5,
+  :where(.uoc-wc74) h6 {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+  :where(.uoc-wc74) a {
+    color: inherit;
+    -webkit-text-decoration: inherit;
+    -webkit-text-decoration: inherit;
+    -webkit-text-decoration: inherit;
+    -webkit-text-decoration: inherit;
+    text-decoration: inherit;
+  }
+  :where(.uoc-wc74) b,
+  :where(.uoc-wc74) strong {
+    font-weight: bolder;
+  }
+  :where(.uoc-wc74) code,
+  :where(.uoc-wc74) kbd,
+  :where(.uoc-wc74) samp,
+  :where(.uoc-wc74) pre {
+    font-family: var(
+      --default-mono-font-family,
+      ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      Monaco,
+      Consolas,
+      "Liberation Mono",
+      "Courier New",
+      monospace
+    );
+    font-feature-settings: var(--default-mono-font-feature-settings, normal);
+    font-variation-settings: var(--default-mono-font-variation-settings, normal);
+    font-size: 1em;
+  }
+  :where(.uoc-wc74) small {
+    font-size: 80%;
+  }
+  :where(.uoc-wc74) sub,
+  :where(.uoc-wc74) sup {
+    vertical-align: baseline;
+    font-size: 75%;
+    line-height: 0;
+    position: relative;
+  }
+  :where(.uoc-wc74) sub {
+    bottom: -0.25em;
+  }
+  :where(.uoc-wc74) sup {
+    top: -0.5em;
+  }
+  :where(.uoc-wc74) table {
+    text-indent: 0;
+    border-color: inherit;
+    border-collapse: collapse;
+  }
+  :where(.uoc-wc74) :-moz-focusring:where(:not(iframe)) {
+    outline: auto;
+  }
+  :where(.uoc-wc74) progress {
+    vertical-align: baseline;
+  }
+  :where(.uoc-wc74) summary {
+    display: list-item;
+  }
+  :where(.uoc-wc74) ol,
+  :where(.uoc-wc74) ul,
+  :where(.uoc-wc74) menu {
+    list-style: none;
+  }
+  :where(.uoc-wc74) img,
+  :where(.uoc-wc74) svg,
+  :where(.uoc-wc74) video,
+  :where(.uoc-wc74) canvas,
+  :where(.uoc-wc74) audio,
+  :where(.uoc-wc74) iframe,
+  :where(.uoc-wc74) embed,
+  :where(.uoc-wc74) object {
+    vertical-align: middle;
+    display: block;
+  }
+  :where(.uoc-wc74) img,
+  :where(.uoc-wc74) video {
+    max-width: 100%;
+    height: auto;
+  }
+  :where(.uoc-wc74) button,
+  :where(.uoc-wc74) input,
+  :where(.uoc-wc74) select,
+  :where(.uoc-wc74) optgroup,
+  :where(.uoc-wc74) textarea {
+    font: inherit;
+    font-feature-settings: inherit;
+    font-variation-settings: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+    opacity: 1;
+    background-color: #0000;
+    border-radius: 0;
+  }
+  :where(.uoc-wc74) ::file-selector-button {
+    font: inherit;
+    font-feature-settings: inherit;
+    font-variation-settings: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+    opacity: 1;
+    background-color: #0000;
+    border-radius: 0;
+  }
+  :where(.uoc-wc74) :where(select:is([multiple], [size])) optgroup {
+    font-weight: bolder;
+  }
+  :where(.uoc-wc74) :where(select:is([multiple], [size])) optgroup option {
+    padding-inline-start: 20px;
+  }
+  :where(.uoc-wc74) ::file-selector-button {
+    margin-inline-end: 4px;
+  }
+  :where(.uoc-wc74) ::placeholder {
+    opacity: 1;
+  }
+  @supports (not ((-webkit-appearance: -apple-pay-button))) or (contain-intrinsic-size: 1px) {
+    :where(.uoc-wc74) ::placeholder {
+      color: currentColor;
+    }
+    @supports (color: color-mix(in lab, red, red)) {
+      :where(.uoc-wc74) ::placeholder {
+        color: color-mix(in oklab, currentcolor 50%, transparent);
+      }
+    }
+  }
+  :where(.uoc-wc74) textarea {
+    resize: vertical;
+  }
+  :where(.uoc-wc74) ::-webkit-search-decoration {
+    -webkit-appearance: none;
+  }
+  :where(.uoc-wc74) ::-webkit-date-and-time-value {
+    min-height: 1lh;
+    text-align: inherit;
+  }
+  :where(.uoc-wc74) ::-webkit-datetime-edit {
+    display: inline-flex;
+  }
+  :where(.uoc-wc74) ::-webkit-datetime-edit-fields-wrapper {
+    padding: 0;
+  }
+  :where(.uoc-wc74) ::-webkit-datetime-edit {
+    padding-block: 0;
+  }
+  :where(.uoc-wc74) ::-webkit-datetime-edit-year-field {
+    padding-block: 0;
+  }
+  :where(.uoc-wc74) ::-webkit-datetime-edit-month-field {
+    padding-block: 0;
+  }
+  :where(.uoc-wc74) ::-webkit-datetime-edit-day-field {
+    padding-block: 0;
+  }
+  :where(.uoc-wc74) ::-webkit-datetime-edit-hour-field {
+    padding-block: 0;
+  }
+  :where(.uoc-wc74) ::-webkit-datetime-edit-minute-field {
+    padding-block: 0;
+  }
+  :where(.uoc-wc74) ::-webkit-datetime-edit-second-field {
+    padding-block: 0;
+  }
+  :where(.uoc-wc74) ::-webkit-datetime-edit-millisecond-field {
+    padding-block: 0;
+  }
+  :where(.uoc-wc74) ::-webkit-datetime-edit-meridiem-field {
+    padding-block: 0;
+  }
+  :where(.uoc-wc74) ::-webkit-calendar-picker-indicator {
+    line-height: 1;
+  }
+  :where(.uoc-wc74) :-moz-ui-invalid {
+    box-shadow: none;
+  }
+  :where(.uoc-wc74) button,
+  :where(.uoc-wc74) input:where([type="button"], [type="reset"], [type="submit"]) {
+    appearance: button;
+  }
+  :where(.uoc-wc74) ::file-selector-button {
+    appearance: button;
+  }
+  :where(.uoc-wc74) ::-webkit-inner-spin-button {
+    height: auto;
+  }
+  :where(.uoc-wc74) ::-webkit-outer-spin-button {
+    height: auto;
+  }
+  :where(.uoc-wc74) [hidden]:where(:not([hidden="until-found"])) {
+    display: none !important;
+  }
+}

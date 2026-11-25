@@ -71,10 +71,7 @@ export function isKeyValValue(value: unknown): value is KeyValValue {
   }
   const args = candidate.args as { type?: unknown; entries?: unknown } | null | undefined;
   return (
-    typeof args === "object" &&
-    args !== null &&
-    args.type === "dict" &&
-    Array.isArray(args.entries)
+    typeof args === "object" && args !== null && args.type === "dict" && Array.isArray(args.entries)
   );
 }
 

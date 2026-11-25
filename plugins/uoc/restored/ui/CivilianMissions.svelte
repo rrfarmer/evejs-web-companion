@@ -1,14 +1,34 @@
 <!-- WC74 CivilianMissions.svelte @ 213da333; Start delegates to existing plugin executors. -->
 <script lang="ts">
   import { onMount } from "svelte";
-  import { authenticatedJson, farmerAccounts, farmerSignInMessage, ownerOptions, workspaceAccounts as knownAccounts } from "../app/context.ts";
+  import {
+    authenticatedJson,
+    farmerAccounts,
+    farmerSignInMessage,
+    ownerOptions,
+    workspaceAccounts as knownAccounts,
+  } from "../app/context.ts";
   import { civilianSession, civilianScope } from "../app/civilianSession.ts";
-  import { findAgents, openDefaultFarmerAccount, readCivilianParking,
-    findMapLocations, findAccessibleStructures,
-    type FoundAgent, type MapLocation, type OperationPilotChoice, type ServerBot, type ApiOptions } from "../app/api.ts";
+  import {
+    findAgents,
+    openDefaultFarmerAccount,
+    readCivilianParking,
+    findMapLocations,
+    findAccessibleStructures,
+    type FoundAgent,
+    type MapLocation,
+    type OperationPilotChoice,
+    type ServerBot,
+    type ApiOptions,
+  } from "../app/api.ts";
   import type { CivilianParkingPolicy } from "../nav/civilianParking.ts";
   import type { DockableKind } from "../nav/dockableLocation.ts";
-  import { listCivilianProfiles, removeCivilianProfile, saveCivilianProfile, startCivilianRun } from "../adapters/civilian.ts";
+  import {
+    listCivilianProfiles,
+    removeCivilianProfile,
+    saveCivilianProfile,
+    startCivilianRun,
+  } from "../adapters/civilian.ts";
   import type { CivilianProfile } from "../../civilian/profile.ts";
   import OperationPilotPicker from "./OperationPilotPicker.svelte";
   import CivilianWorkers from "./CivilianWorkers.svelte";
@@ -18,85 +38,172 @@
   type Workspace = NonNullable<Awaited<ReturnType<typeof openDefaultFarmerAccount>>>;
   let mode = $state<Mode>("mining");
   let workspace = $state.raw<Workspace | null>(null);
-  let restoring = $state(true), authGeneration=0;
-  let workspaceAccounts = $state<string[]>([]), workerAccounts = $state<string[]>([]);
-  let profiles = $state.raw<CivilianProfile[]>([]), profilesLoaded = $state(false);
-  let editorOpen = $state(false), editing = $state<number | null>(null), refreshKey = $state(0);
+  let restoring = $state(true),
+    authGeneration = 0;
+  let workspaceAccounts = $state<string[]>([]),
+    workerAccounts = $state<string[]>([]);
+  let profiles = $state.raw<CivilianProfile[]>([]),
+    profilesLoaded = $state(false);
+  let editorOpen = $state(false),
+    editing = $state<number | null>(null),
+    refreshKey = $state(0);
   let picked = $state<OperationPilotChoice | null>(null);
   let previousAgent = $state<CivilianProfile["agent"]>(null);
   let previousCorporation = $state<string | null>(null);
-  let pickerOpen = $state(false), agents = $state<readonly FoundAgent[]>([]), agentsLoaded = $state(false);
-  let agentID = $state(0), search = $state(""), corporation = $state(0), area = $state(0), areaSearch = $state("");
+  let pickerOpen = $state(false),
+    agents = $state<readonly FoundAgent[]>([]),
+    agentsLoaded = $state(false);
+  let agentID = $state(0),
+    search = $state(""),
+    corporation = $state(0),
+    area = $state(0),
+    areaSearch = $state("");
   let agentChoice = $state<"automatic" | "manual">("automatic");
-  let level = $state(1), levelPolicy = $state<"exact" | "max">("exact");
-  let maxJumps = $state(10), agentJumps = $state(10), missionLimit = $state(1), runtime = $state(120);
+  let level = $state(1),
+    levelPolicy = $state<"exact" | "max">("exact");
+  let maxJumps = $state(10),
+    agentJumps = $state(10),
+    missionLimit = $state(1),
+    runtime = $state(120);
   let stopPolicy = $state<StopPolicy>("TIME");
   let parkingMode = $state<"SELECTED" | "NEAREST">("NEAREST");
-  let parkingQuery = $state(""), parkingWarning = $state("");
+  let parkingQuery = $state(""),
+    parkingWarning = $state("");
   let parkingMatches = $state<readonly (MapLocation & { kind: DockableKind })[]>([]);
   let parkingSelection = $state<(MapLocation & { kind: DockableKind }) | null>(null);
   let maxRuntimeMinutes = $state<number | null>(null);
-  let busy = $state(false), error = $state(""), notice = $state("");
-  const watchedAccounts = $derived(workspace ? [workspace.account, ...profiles.map(profile => profile.pilot.accountName)] : []);
-  const accounts = $derived([...new Set([...watchedAccounts, ...workspaceAccounts, ...workerAccounts])]);
-  const durationChoices = $derived([30, 60, 120, 240, 720, 1440, 2880, 4320].filter(value => maxRuntimeMinutes !== null && value <= maxRuntimeMinutes));
-  const durationValid = $derived(maxRuntimeMinutes !== null && runtime >= 1 && runtime <= maxRuntimeMinutes);
-  const countValid = $derived(Number.isSafeInteger(missionLimit) && missionLimit >= 1 && missionLimit <= 500);
-  const jumpsValid = $derived(Number.isInteger(maxJumps) && maxJumps >= 1 && maxJumps <= 30 &&
-    Number.isInteger(agentJumps) && agentJumps >= 1 && agentJumps <= 30);
-  const corporations = $derived([...new Map(agents.filter(a => a.corporationID && a.corporationName)
-    .map(a => [a.corporationID!, a.corporationName!])).entries()].sort((a, b) => a[1].localeCompare(b[1])));
-  const areas = $derived([...new Map(agents.filter(a => a.solarSystemID && a.solarSystemName)
-    .map(a => [a.solarSystemID!, a.solarSystemName!])).entries()].sort((a, b) => a[1].localeCompare(b[1])));
-  const areaMatches = $derived(areaSearch.trim().length >= 2 && !area
-    ? areas.filter(([, name]) => name.toLowerCase().includes(areaSearch.trim().toLowerCase())).slice(0, 15) : []);
-  const filtered = $derived(agents.filter(a =>
-    a.level !== null && (levelPolicy === "exact" ? a.level === level : a.level <= level) &&
-    (!corporation || a.corporationID === corporation) && (!area || a.solarSystemID === area) &&
-    `${a.name} ${a.stationName ?? ""} ${a.solarSystemName ?? ""}`.toLowerCase().includes(search.trim().toLowerCase())));
-  const chosen = $derived(filtered.find(agent => agent.agentID === agentID) ?? (previousAgent?.agentID === agentID ? previousAgent : null));
+  let busy = $state(false),
+    error = $state(""),
+    notice = $state("");
+  const watchedAccounts = $derived(
+    workspace ? [workspace.account, ...profiles.map((profile) => profile.pilot.accountName)] : [],
+  );
+  const accounts = $derived([
+    ...new Set([...watchedAccounts, ...workspaceAccounts, ...workerAccounts]),
+  ]);
+  const durationChoices = $derived(
+    [30, 60, 120, 240, 720, 1440, 2880, 4320].filter(
+      (value) => maxRuntimeMinutes !== null && value <= maxRuntimeMinutes,
+    ),
+  );
+  const durationValid = $derived(
+    maxRuntimeMinutes !== null && runtime >= 1 && runtime <= maxRuntimeMinutes,
+  );
+  const countValid = $derived(
+    Number.isSafeInteger(missionLimit) && missionLimit >= 1 && missionLimit <= 500,
+  );
+  const jumpsValid = $derived(
+    Number.isInteger(maxJumps) &&
+      maxJumps >= 1 &&
+      maxJumps <= 30 &&
+      Number.isInteger(agentJumps) &&
+      agentJumps >= 1 &&
+      agentJumps <= 30,
+  );
+  const corporations = $derived(
+    [
+      ...new Map(
+        agents
+          .filter((a) => a.corporationID && a.corporationName)
+          .map((a) => [a.corporationID!, a.corporationName!]),
+      ).entries(),
+    ].sort((a, b) => a[1].localeCompare(b[1])),
+  );
+  const areas = $derived(
+    [
+      ...new Map(
+        agents
+          .filter((a) => a.solarSystemID && a.solarSystemName)
+          .map((a) => [a.solarSystemID!, a.solarSystemName!]),
+      ).entries(),
+    ].sort((a, b) => a[1].localeCompare(b[1])),
+  );
+  const areaMatches = $derived(
+    areaSearch.trim().length >= 2 && !area
+      ? areas
+          .filter(([, name]) => name.toLowerCase().includes(areaSearch.trim().toLowerCase()))
+          .slice(0, 15)
+      : [],
+  );
+  const filtered = $derived(
+    agents.filter(
+      (a) =>
+        a.level !== null &&
+        (levelPolicy === "exact" ? a.level === level : a.level <= level) &&
+        (!corporation || a.corporationID === corporation) &&
+        (!area || a.solarSystemID === area) &&
+        `${a.name} ${a.stationName ?? ""} ${a.solarSystemName ?? ""}`
+          .toLowerCase()
+          .includes(search.trim().toLowerCase()),
+    ),
+  );
+  const chosen = $derived(
+    filtered.find((agent) => agent.agentID === agentID) ??
+      (previousAgent?.agentID === agentID ? previousAgent : null),
+  );
   const automatic = $derived(agentChoice === "automatic");
-  const canSave = $derived(!!picked && !!maxRuntimeMinutes &&
-    (parkingMode === "NEAREST" || !!parkingSelection) &&
-    (stopPolicy === "COUNT" ? countValid : durationValid) &&
-    (mode !== "distribution" || jumpsValid) &&
-    (!automatic || (Number.isInteger(agentJumps) && agentJumps >= 1 && agentJumps <= 30)) && (automatic || !!chosen));
+  const canSave = $derived(
+    !!picked &&
+      !!maxRuntimeMinutes &&
+      (parkingMode === "NEAREST" || !!parkingSelection) &&
+      (stopPolicy === "COUNT" ? countValid : durationValid) &&
+      (mode !== "distribution" || jumpsValid) &&
+      (!automatic || (Number.isInteger(agentJumps) && agentJumps >= 1 && agentJumps <= 30)) &&
+      (automatic || !!chosen),
+  );
 
   onMount(() => {
-    const generation=++authGeneration;
+    const generation = ++authGeneration;
     void restore(generation);
-    return ()=>{++authGeneration;};
+    return () => {
+      ++authGeneration;
+    };
   });
 
   function connect(selected: Workspace, persistedWorkers: readonly string[]) {
-    const scope=civilianScope(selected.account,civilianSession.load());
+    const scope = civilianScope(selected.account, civilianSession.load());
     workspace = selected;
     workspaceAccounts = farmerAccounts();
-    const retained = new Set([...scope.workers, ...persistedWorkers].map(name => name.toLowerCase()));
-    workerAccounts = knownAccounts().filter(name => retained.has(name.toLowerCase()));
-    civilianSession.save({control:scope.control,workers:workerAccounts});
+    const retained = new Set(
+      [...scope.workers, ...persistedWorkers].map((name) => name.toLowerCase()),
+    );
+    workerAccounts = knownAccounts().filter((name) => retained.has(name.toLowerCase()));
+    civilianSession.save({ control: scope.control, workers: workerAccounts });
   }
 
-  async function restore(generation:number) {
+  async function restore(generation: number) {
     try {
       const selected = await openDefaultFarmerAccount(civilianSession.load()?.control);
       if (!selected || generation !== authGeneration) return;
-      const [saved, policy] = await Promise.allSettled([listCivilianProfiles(selected.options), readPolicy(selected.options)]);
+      const [saved, policy] = await Promise.allSettled([
+        listCivilianProfiles(selected.options),
+        readPolicy(selected.options),
+      ]);
       if (generation !== authGeneration) return;
       if (saved.status === "rejected") throw saved.reason;
-      profiles = saved.value.profiles; profilesLoaded = true;
+      profiles = saved.value.profiles;
+      profilesLoaded = true;
       connect(selected, saved.value.workerAccounts);
       if (policy.status === "rejected") throw policy.reason;
-    } catch(cause) { if(generation===authGeneration)error=cause instanceof Error?cause.message:String(cause); }
-    finally {if(generation===authGeneration)restoring=false;}
+    } catch (cause) {
+      if (generation === authGeneration)
+        error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      if (generation === authGeneration) restoring = false;
+    }
   }
 
   async function act(action: () => Promise<void>) {
     if (busy) return;
-    busy = true; error = "";
-    try { await action(); }
-    catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
-    finally { busy = false; }
+    busy = true;
+    error = "";
+    try {
+      await action();
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      busy = false;
+    }
   }
 
   async function readPolicy(options: ApiOptions) {
@@ -114,8 +221,11 @@
     if (!workspace) return;
     agentsLoaded = false;
     agents = [];
-    const answer = await findAgents({ kind: mode === "mining" ? "mining" : "courier", limit: 5000 }, workspace.options);
-    agents = answer.agents.filter(agent => agent.stationID !== null && agent.level !== null);
+    const answer = await findAgents(
+      { kind: mode === "mining" ? "mining" : "courier", limit: 5000 },
+      workspace.options,
+    );
+    agents = answer.agents.filter((agent) => agent.stationID !== null && agent.level !== null);
     agentsLoaded = true;
     if (answer.capped) notice = "The agent list is capped. Refine the available choices.";
   }
@@ -127,25 +237,43 @@
 
   async function changeMode() {
     resetAgent();
-    search = ""; corporation = 0; area = 0; areaSearch = ""; level = 1; levelPolicy = "exact";
-    previousAgent = null; previousCorporation = null;
+    search = "";
+    corporation = 0;
+    area = 0;
+    areaSearch = "";
+    level = 1;
+    levelPolicy = "exact";
+    previousAgent = null;
+    previousCorporation = null;
     agentChoice = "automatic";
     await readAgents();
   }
 
   async function searchParking() {
-    const q = parkingQuery.trim(), pilot = picked;
+    const q = parkingQuery.trim(),
+      pilot = picked;
     if (!pilot || !workspace || q.length < 2) return;
-    const {options} = workspace;
+    const { options } = workspace;
     parkingWarning = "";
     const [stations, structures] = await Promise.all([
       findMapLocations(q, "station", options),
-      findAccessibleStructures(q, options, pilot.characterID, pilot.accountName, "operations-center")
-        .catch(() => { parkingWarning = "Upwell search could not be verified for this pilot."; return []; }),
+      findAccessibleStructures(
+        q,
+        options,
+        pilot.characterID,
+        pilot.accountName,
+        "operations-center",
+      ).catch(() => {
+        parkingWarning = "Upwell search could not be verified for this pilot.";
+        return [];
+      }),
     ]);
-    parkingMatches = [...stations.matches, ...structures]
-      .filter((match): match is MapLocation & { kind: DockableKind } => match.kind === "station" || match.kind === "structure");
-    if (!parkingMatches.length && !parkingWarning) parkingWarning = "No matching docking destinations.";
+    parkingMatches = [...stations.matches, ...structures].filter(
+      (match): match is MapLocation & { kind: DockableKind } =>
+        match.kind === "station" || match.kind === "structure",
+    );
+    if (!parkingMatches.length && !parkingWarning)
+      parkingWarning = "No matching docking destinations.";
   }
 
   function openEditor(profile?: CivilianProfile) {
@@ -153,32 +281,62 @@
     mode = profile?.mode ?? "mining";
     picked = profile?.pilot ?? null;
     pickerOpen = !profile;
-    previousAgent = profile?.agent ?? null; previousCorporation = profile?.corporationName ?? null;
+    previousAgent = profile?.agent ?? null;
+    previousCorporation = profile?.corporationName ?? null;
     agentID = previousAgent?.agentID ?? 0;
     agentChoice = profile?.automatic === false ? "manual" : "automatic";
     corporation = profile?.corporationID ?? 0;
-    level = profile?.level ?? 1; levelPolicy = profile?.fallback ? "max" : "exact";
-    maxJumps = profile?.maxJumps ?? 10; agentJumps = profile?.searchJumps ?? 10;
+    level = profile?.level ?? 1;
+    levelPolicy = profile?.fallback ? "max" : "exact";
+    maxJumps = profile?.maxJumps ?? 10;
+    agentJumps = profile?.searchJumps ?? 10;
     runtime = profile?.runtime ?? Math.min(120, maxRuntimeMinutes ?? 120);
-    missionLimit = profile?.limit || 1; stopPolicy = profile?.policy ?? "TIME";
+    missionLimit = profile?.limit || 1;
+    stopPolicy = profile?.policy ?? "TIME";
     parkingMode = profile?.parking.mode ?? "NEAREST";
     parkingSelection = profile?.parking.mode === "SELECTED" ? profile.parking.destination : null;
-    parkingQuery = parkingSelection?.name ?? ""; parkingMatches = []; parkingWarning = "";
-    search = ""; areaSearch = ""; area = 0; agents = []; agentsLoaded = false;
-    error = ""; notice = ""; editorOpen = true;
+    parkingQuery = parkingSelection?.name ?? "";
+    parkingMatches = [];
+    parkingWarning = "";
+    search = "";
+    areaSearch = "";
+    area = 0;
+    agents = [];
+    agentsLoaded = false;
+    error = "";
+    notice = "";
+    editorOpen = true;
   }
 
   async function saveProfile() {
     if (!picked || !canSave || !maxRuntimeMinutes || !workspace) return;
-    const parking: CivilianParkingPolicy = parkingMode === "SELECTED" && parkingSelection
-      ? await readCivilianParking(picked.accountName, picked.characterID, parkingSelection, workspace.options)
-      : { mode: "NEAREST" };
-    const profile: CivilianProfile = { pilot: picked, agent: automatic ? null : chosen, mode,
+    const parking: CivilianParkingPolicy =
+      parkingMode === "SELECTED" && parkingSelection
+        ? await readCivilianParking(
+            picked.accountName,
+            picked.characterID,
+            parkingSelection,
+            workspace.options,
+          )
+        : { mode: "NEAREST" };
+    const profile: CivilianProfile = {
+      pilot: picked,
+      agent: automatic ? null : chosen,
+      mode,
       runtime: stopPolicy === "COUNT" ? maxRuntimeMinutes : runtime,
-      maxJumps, searchJumps: agentJumps, limit: stopPolicy === "TIME" ? 0 : missionLimit,
-      policy: stopPolicy, automatic, corporationID: corporation || null,
-      corporationName: corporations.find(([id]) => id === corporation)?.[1] ?? (corporation ? previousCorporation : null),
-      level, fallback: levelPolicy === "max", parking };
+      maxJumps,
+      searchJumps: agentJumps,
+      limit: stopPolicy === "TIME" ? 0 : missionLimit,
+      policy: stopPolicy,
+      automatic,
+      corporationID: corporation || null,
+      corporationName:
+        corporations.find(([id]) => id === corporation)?.[1] ??
+        (corporation ? previousCorporation : null),
+      level,
+      fallback: levelPolicy === "max",
+      parking,
+    };
     profiles = await saveCivilianProfile(profile, workspace.options);
     editorOpen = false;
     notice = "Pilot profile saved.";
@@ -203,27 +361,37 @@
   function watchWorker(account: string) {
     if (!workspace || workspace.account === account || workerAccounts.includes(account)) return;
     workerAccounts = [...workerAccounts, account];
-    civilianSession.save({control:workspace.account,workers:$state.snapshot(workerAccounts)});
+    civilianSession.save({ control: workspace.account, workers: $state.snapshot(workerAccounts) });
   }
 
   function selectPilot(pilot: OperationPilotChoice) {
-    const profile = profiles.find(row => row.pilot.characterID === pilot.characterID);
+    const profile = profiles.find((row) => row.pilot.characterID === pilot.characterID);
     if (profile) {
       openEditor(profile);
       return;
     }
     watchWorker(pilot.accountName);
-    picked = pilot; pickerOpen = false; parkingSelection = null; parkingMatches = []; parkingWarning = "";
+    picked = pilot;
+    pickerOpen = false;
+    parkingSelection = null;
+    parkingMatches = [];
+    parkingWarning = "";
   }
 
   function configureWorker(bot: ServerBot, account: string) {
     openEditor();
     mode = bot.plugin?.run === "civilian-distribution" ? "distribution" : "mining";
-    selectPilot({ characterID: bot.characterID, characterName: bot.characterName ?? account, accountName: account });
+    selectPilot({
+      characterID: bot.characterID,
+      characterName: bot.characterName ?? account,
+      accountName: account,
+    });
   }
 
   function durationLabel(minutes: number) {
-    return minutes < 60 ? `${minutes} minutes` : `${minutes / 60} ${minutes === 60 ? "hour" : "hours"}`;
+    return minutes < 60
+      ? `${minutes} minutes`
+      : `${minutes / 60} ${minutes === 60 ? "hour" : "hours"}`;
   }
 </script>
 
@@ -368,14 +536,55 @@
 </section>
 
 <style>
-  .civilian h2 { margin-top: 0; }
-  .page-actions { display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap; }
-  .profile-editor { margin-top:1rem; }
-  p { line-height:1.6; } label { display:block; margin:.75rem 0; }
-  select, button, input { max-width: 100%; }
-  select, input:not([type="radio"], [type="checkbox"]) { width: 100%; } button { margin: .25rem .35rem .25rem 0; }
-  .agent-filters { display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem; }
-  .scope { color:#a7bec9;font-size:.9rem;max-width:85ch; }
-  .system-matches { display:grid; max-height:12rem; overflow:auto; }
-  .system-matches button { margin:0; text-align:left; }
+  .civilian h2 {
+    margin-top: 0;
+  }
+  .page-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .profile-editor {
+    margin-top: 1rem;
+  }
+  p {
+    line-height: 1.6;
+  }
+  label {
+    display: block;
+    margin: 0.75rem 0;
+  }
+  select,
+  button,
+  input {
+    max-width: 100%;
+  }
+  select,
+  input:not([type="radio"], [type="checkbox"]) {
+    width: 100%;
+  }
+  button {
+    margin: 0.25rem 0.35rem 0.25rem 0;
+  }
+  .agent-filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+  }
+  .scope {
+    color: #a7bec9;
+    font-size: 0.9rem;
+    max-width: 85ch;
+  }
+  .system-matches {
+    display: grid;
+    max-height: 12rem;
+    overflow: auto;
+  }
+  .system-matches button {
+    margin: 0;
+    text-align: left;
+  }
 </style>

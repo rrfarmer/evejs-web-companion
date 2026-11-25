@@ -1,35 +1,72 @@
 <script lang="ts">
-  import {cockpitSession,cockpitRequestOptions,cockpitShortcutsAvailable,reviewCockpitFitting,openCockpitInventory,UocRequestError} from "../app/context.ts";
-  import {openRegisteredFarmerAccount} from "../app/api.ts";
+  import {
+    cockpitSession,
+    cockpitRequestOptions,
+    cockpitShortcutsAvailable,
+    reviewCockpitFitting,
+    openCockpitInventory,
+    UocRequestError,
+  } from "../app/context.ts";
+  import { openRegisteredFarmerAccount } from "../app/api.ts";
   import OperationPilotPicker from "./OperationPilotPicker.svelte";
   import CenterHeading from "./CenterHeading.svelte";
   import CenterStatus from "./CenterStatus.svelte";
   import { filterFittings, fittingGroups, fittingHulls } from "../provisioning/fittingPicker.ts";
-  import { centerRoster, centerReview, centerInspect, centerApply } from "../adapters/provisioning.ts";
-  import {groupEquipment, type Roster, type CenterReview, type ApplyOutcome} from "../provisioning/centerTypes.ts";
+  import {
+    centerRoster,
+    centerReview,
+    centerInspect,
+    centerApply,
+  } from "../adapters/provisioning.ts";
+  import {
+    groupEquipment,
+    type Roster,
+    type CenterReview,
+    type ApplyOutcome,
+  } from "../provisioning/centerTypes.ts";
 
   let token = $state<string | null>(null);
-  let roster = $state<Roster | null>(null), preflight = $state<CenterReview | null>(null);
-  let detail = $state<CenterReview | null>(null), outcome = $state<ApplyOutcome | null>(null);
-  let pilotID = $state(0), provider = $state(0), fittingID = $state(0);
-  let groupFilter = $state<number | null>(null), hullFilter = $state<number | null>(null), fitSearch = $state("");
+  let roster = $state<Roster | null>(null),
+    preflight = $state<CenterReview | null>(null);
+  let detail = $state<CenterReview | null>(null),
+    outcome = $state<ApplyOutcome | null>(null);
+  let pilotID = $state(0),
+    provider = $state(0),
+    fittingID = $state(0);
+  let groupFilter = $state<number | null>(null),
+    hullFilter = $state<number | null>(null),
+    fitSearch = $state("");
   const contracts = $derived(preflight?.definitions.contracts ?? []);
   const groups = $derived(fittingGroups(contracts));
   const hulls = $derived(fittingHulls(contracts, groupFilter));
   const visibleFits = $derived(filterFittings(contracts, groupFilter, hullFilter, fitSearch));
-  let sourceKind = $state("hangar"), division = $state(1), savedFittingSupplies = $state(false);
-  let hullItemID = $state(0), oldShipDivision = $state(0);
-  let busy = $state(""), error = $state(""), applying = $state(false), used = $state(false);
-  const pilot = $derived(roster?.pilots.find(p => p.characterID === pilotID));
-  const fit = $derived(preflight?.definitions.contracts.find(c => c.definition.fittingID === fittingID));
+  let sourceKind = $state("hangar"),
+    division = $state(1),
+    savedFittingSupplies = $state(false);
+  let hullItemID = $state(0),
+    oldShipDivision = $state(0);
+  let busy = $state(""),
+    error = $state(""),
+    applying = $state(false),
+    used = $state(false);
+  const pilot = $derived(roster?.pilots.find((p) => p.characterID === pilotID));
+  const fit = $derived(
+    preflight?.definitions.contracts.find((c) => c.definition.fittingID === fittingID),
+  );
   const onlineCockpit = $derived(pilot?.control.owner === "BROWSER" && !!cockpitSession(pilotID));
-  const canCheck = $derived(pilot?.control.owner === "OFF" && pilot.control.online === false || onlineCockpit || pilot?.serviceAccess === "READ_ONLY_ACTIVE_UOC");
+  const canCheck = $derived(
+    (pilot?.control.owner === "OFF" && pilot.control.online === false) ||
+      onlineCockpit ||
+      pilot?.serviceAccess === "READ_ONLY_ACTIVE_UOC",
+  );
   const offline = $derived(pilot?.control.owner === "OFF" && pilot.control.online === false);
   const plan = $derived(detail?.applyReview.plan);
 
   const messages: Record<string, string> = {
-    PILOT_BUSY: "The pilot has another owner. Its session is preserved; a compatible public owner-service contract is required.",
-    ACCOUNT_PILOT_BUSY: "Another pilot on this account is in use. Its ownership is preserved; Apply is unavailable.",
+    PILOT_BUSY:
+      "The pilot has another owner. Its session is preserved; a compatible public owner-service contract is required.",
+    ACCOUNT_PILOT_BUSY:
+      "Another pilot on this account is in use. Its ownership is preserved; Apply is unavailable.",
     REVIEW_REQUIRED: "Check the ship again before confirming equipment changes.",
     REVIEW_STALE: "The fitting or ship changed after inspection. Check it again.",
     SOURCE_CHANGED: "The stock or its location changed after inspection. Check it again.",
@@ -37,50 +74,90 @@
     CORPORATION_QUERY_DENIED: "The pilot does not have Query rights for this corporate division.",
     CORPORATION_ACCESS_UNKNOWN: "The pilot's corporate division rights could not be verified.",
     SOURCE_TAKE_DENIED: "The pilot does not have Take rights for this corporate division.",
-    STRUCTURE_SERVICE_UNAVAILABLE: "The fitting service is unavailable to this pilot at this structure.",
-    STRUCTURE_SERVICE_AUTHORITY_UNAVAILABLE: "Selected Upwell fitting-service inspection requires a public native service contract that is not currently exposed.",
-    PROVISIONING_CONTEXT_UNAVAILABLE: "Dock the pilot and wait for the ship session to settle before checking.",
-    OBSERVATION_INCOMPLETE: "The server could not verify the full ship or stock snapshot. The required native owner-service and inventory evidence must be available; existing sessions are preserved.",
-    NO_LIVE_SESSION: "The Cockpit session ended during inspection. Refresh the roster and check again.",
-    PROVISIONING_GENERATION_CHANGED: "Pilot control changed while the ship was being checked. Check again.",
-    CONTROL_RELEASE_UNPROVEN: "Apply could not verify that its session was released. Check control before trying again.",
+    STRUCTURE_SERVICE_UNAVAILABLE:
+      "The fitting service is unavailable to this pilot at this structure.",
+    STRUCTURE_SERVICE_AUTHORITY_UNAVAILABLE:
+      "Selected Upwell fitting-service inspection requires a public native service contract that is not currently exposed.",
+    PROVISIONING_CONTEXT_UNAVAILABLE:
+      "Dock the pilot and wait for the ship session to settle before checking.",
+    OBSERVATION_INCOMPLETE:
+      "The server could not verify the full ship or stock snapshot. The required native owner-service and inventory evidence must be available; existing sessions are preserved.",
+    NO_LIVE_SESSION:
+      "The Cockpit session ended during inspection. Refresh the roster and check again.",
+    PROVISIONING_GENERATION_CHANGED:
+      "Pilot control changed while the ship was being checked. Check again.",
+    CONTROL_RELEASE_UNPROVEN:
+      "Apply could not verify that its session was released. Check control before trying again.",
     PROVISIONING_RECOVERY_REQUIRED: "WC reports an unfinished equipment operation for this pilot.",
-    OUTCOME_AMBIGUOUS: "WC could not verify the equipment change. Inspect the ship and equipment before making another change.",
-    CHARGE_LOAD_REFUSED: "The charge load was refused. Native readback showed no change from that load. Earlier verified changes are listed in the receipt.",
-    CannotLoadNotEnoughCharges: "The native weapon bank refused the load because there were too few charges for its members. Review the original receipt.",
+    OUTCOME_AMBIGUOUS:
+      "WC could not verify the equipment change. Inspect the ship and equipment before making another change.",
+    CHARGE_LOAD_REFUSED:
+      "The charge load was refused. Native readback showed no change from that load. Earlier verified changes are listed in the receipt.",
+    CannotLoadNotEnoughCharges:
+      "The native weapon bank refused the load because there were too few charges for its members. Review the original receipt.",
     SKILLS_NOT_READY: "The fitting's skill requirements are not verified. Check the ship again.",
   };
   const fittingNumber = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
   function capacity(value: number | null | undefined, missing = "Unknown"): string {
-    return typeof value === "number" && Number.isFinite(value) ? fittingNumber.format(value) : missing;
+    return typeof value === "number" && Number.isFinite(value)
+      ? fittingNumber.format(value)
+      : missing;
   }
   const words = (value: string) => messages[value] || value;
   const fitWords = (status: CenterReview["status"]) =>
-    status.equipmentMatch === "REQUIRED_WITH_RETAINED_RIGS" ? "Required fitting satisfied; additional equipment retained"
-    : status.equipment === "VERIFIED" ? "Exact equipment match"
-    : status.equipment === "MODIFIED" ? "Differs from the selected fitting" : "Equipment check incomplete";
-  const supplyWords = (value: string) => value === "FULL" ? "Targets met" : value === "LOW" ? "Below target"
-    : value === "MISSING" ? "Supplies missing" : "Supplies could not be checked";
-  const controlWords = (owner: string) => owner === "OFF" ? "Offline" : owner === "BROWSER" ? "Open in Web Companion"
-    : owner === "BOT" ? "Controlled by a bot" : owner === "OTHER_SESSION" ? "In use by another session"
-      : owner === "RECOVERY_OR_OPERATION" ? "Operation or recovery in progress" : "Control could not be checked";
+    status.equipmentMatch === "REQUIRED_WITH_RETAINED_RIGS"
+      ? "Required fitting satisfied; additional equipment retained"
+      : status.equipment === "VERIFIED"
+        ? "Exact equipment match"
+        : status.equipment === "MODIFIED"
+          ? "Differs from the selected fitting"
+          : "Equipment check incomplete";
+  const supplyWords = (value: string) =>
+    value === "FULL"
+      ? "Targets met"
+      : value === "LOW"
+        ? "Below target"
+        : value === "MISSING"
+          ? "Supplies missing"
+          : "Supplies could not be checked";
+  const controlWords = (owner: string) =>
+    owner === "OFF"
+      ? "Offline"
+      : owner === "BROWSER"
+        ? "Open in Web Companion"
+        : owner === "BOT"
+          ? "Controlled by a bot"
+          : owner === "OTHER_SESSION"
+            ? "In use by another session"
+            : owner === "RECOVERY_OR_OPERATION"
+              ? "Operation or recovery in progress"
+              : "Control could not be checked";
 
   async function run(label: string, action: () => Promise<void>) {
     if (busy) return;
     busy = label;
     error = "";
-    try { await action(); }
-    catch (cause) {
-      if (cause instanceof UocRequestError && cause.status === 401 && token && !cockpitRequestOptions(token)) clearSelection();
+    try {
+      await action();
+    } catch (cause) {
+      if (
+        cause instanceof UocRequestError &&
+        cause.status === 401 &&
+        token &&
+        !cockpitRequestOptions(token)
+      )
+        clearSelection();
       error = words(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      busy = "";
     }
-    finally { busy = ""; }
   }
 
   async function connect(name: string, characterID: number) {
     const value = await openRegisteredFarmerAccount(name);
     const current = await centerRoster(value.options.token);
-    if (!current.pilots.some(p => p.characterID === characterID)) throw new Error("This pilot is missing from its current roster.");
+    if (!current.pilots.some((p) => p.characterID === characterID))
+      throw new Error("This pilot is missing from its current roster.");
     clearSelection();
     roster = current;
     token = value.options.token;
@@ -90,9 +167,13 @@
 
   async function refresh() {
     if (!token) return;
-    try { roster = await centerRoster(token); }
-    catch (cause) { roster = null; throw cause; }
-    if (pilotID && !roster.pilots.some(p => p.characterID === pilotID)) {
+    try {
+      roster = await centerRoster(token);
+    } catch (cause) {
+      roster = null;
+      throw cause;
+    }
+    if (pilotID && !roster.pilots.some((p) => p.characterID === pilotID)) {
       pilotID = 0;
       preflight = null;
       invalidate();
@@ -127,8 +208,14 @@
     fitSearch = "";
     invalidate();
     if (!token || !pilotID || !provider) return;
-    preflight = await centerReview(token, { characterID: pilotID, providerCharacterID: provider, fittingID: 0,
-      sourceKind: "hangar", corporationID: pilot?.corporationID || 0, division: 1 });
+    preflight = await centerReview(token, {
+      characterID: pilotID,
+      providerCharacterID: provider,
+      fittingID: 0,
+      sourceKind: "hangar",
+      corporationID: pilot?.corporationID || 0,
+      division: 1,
+    });
   }
 
   async function check() {
@@ -136,8 +223,17 @@
     const definitionFingerprint = fit.definitionFingerprint;
     clearReview();
     outcome = null;
-    detail = await centerInspect(token, { characterID: pilotID, providerCharacterID: provider,
-      fittingID, sourceKind, division, definitionFingerprint, savedFittingSupplies, hullItemID, oldShipDivision });
+    detail = await centerInspect(token, {
+      characterID: pilotID,
+      providerCharacterID: provider,
+      fittingID,
+      sourceKind,
+      division,
+      definitionFingerprint,
+      savedFittingSupplies,
+      hullItemID,
+      oldShipDivision,
+    });
   }
 
   function clearSelection() {
@@ -151,14 +247,21 @@
 
   async function apply() {
     const accepted = detail?.applyReview;
-    if (!token || used || detail?.hullReview?.ready || !accepted?.canApply || !accepted.reviewHash) return;
-    if (accepted.expiresAt !== null && Date.now() > accepted.expiresAt) throw new Error("The review expired. Check the ship again before confirming.");
+    if (!token || used || detail?.hullReview?.ready || !accepted?.canApply || !accepted.reviewHash)
+      return;
+    if (accepted.expiresAt !== null && Date.now() > accepted.expiresAt)
+      throw new Error("The review expired. Check the ship again before confirming.");
     const credential = token;
     applying = true;
     used = true;
     outcome = null;
-    try { outcome = (await centerApply(credential, accepted.reviewID, accepted.reviewHash, oldShipDivision)).outcome; }
-    finally { applying = false; }
+    try {
+      outcome = (
+        await centerApply(credential, accepted.reviewID, accepted.reviewHash, oldShipDivision)
+      ).outcome;
+    } finally {
+      applying = false;
+    }
     await refresh();
   }
 </script>
@@ -480,16 +583,58 @@
 </main>
 
 <style>
-  .center { max-width: 76rem; }
-  form, .selectors { display: flex; gap: .8rem; flex-wrap: wrap; align-items: end; }
-  h2 { font-size: 1.25rem; }
-  h3 { margin: 1rem 0 .4rem; }
-  p, details, ul, ol { margin: .6rem 0; }
-  ul, ol { padding-left: 1.3rem; }
-  section { margin-top: 1rem; }
-  label { display: flex; flex-direction: column; gap: .3rem; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { padding: .4rem; border-bottom: 1px solid #394351; text-align: left; }
-  pre { max-height: 22rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; }
-  .blocked { color: #ffc3a3; }
+  .center {
+    max-width: 76rem;
+  }
+  form,
+  .selectors {
+    display: flex;
+    gap: 0.8rem;
+    flex-wrap: wrap;
+    align-items: end;
+  }
+  h2 {
+    font-size: 1.25rem;
+  }
+  h3 {
+    margin: 1rem 0 0.4rem;
+  }
+  p,
+  details,
+  ul,
+  ol {
+    margin: 0.6rem 0;
+  }
+  ul,
+  ol {
+    padding-left: 1.3rem;
+  }
+  section {
+    margin-top: 1rem;
+  }
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  th,
+  td {
+    padding: 0.4rem;
+    border-bottom: 1px solid #394351;
+    text-align: left;
+  }
+  pre {
+    max-height: 22rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 0.8rem;
+  }
+  .blocked {
+    color: #ffc3a3;
+  }
 </style>

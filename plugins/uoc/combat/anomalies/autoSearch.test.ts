@@ -1,18 +1,354 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {decodeOwnShipLocation,resolveAutoCombatSite} from "./autoSearch.ts";
-const scope={characterID:1,shipID:11,systemID:300};
-const proof=(at:number)=>({kind:"native-own-ship-location" as const,...scope,locationID:300,readStartedAt:at,readFinishedAt:at,timeFiletime:"134385676761330000",wallclockFiletime:"134385676761330001",simulationSampledAt:1});
-const site=(id:number,at:number)=>({systemID:300,scannerKey:id,instanceID:id,dungeonID:2226,label:`S-${id}`,position:{x:id,y:0,z:0},observedAt:at});
-test("cold docked search undocks once, skips occupied site, then records fresh site after a ten-second read",async()=>{let clock=1000,saved:any=null,docked=true,calls=0,scans=0;const doc={read:()=>saved,write:(x:unknown)=>saved=structuredClone(x)};const result=await resolveAutoCombatSite({identity:"one",scope,document:doc,current(){},stopping:()=>false,now:()=>clock,wait:async ms=>{clock+=ms},flight:async()=>({docked,inSpace:!docked,ready:true,sampledAt:clock,proof:proof(clock)}),undock:async()=>{calls++;docked=false;clock+=10000},scan:async()=>{scans++;return scans===1?[]:[site(1,clock),site(2,clock)]},available:s=>s.instanceID!==1});assert.equal(result?.instanceID,2);assert.equal(calls,1);assert.equal(scans,2);assert.equal(saved.pending,null);assert.equal(saved.site.instanceID,2);assert.equal(saved.undockedAt,11000);});
-test("stop during unknown undock preserves intent until a fresh physical read, without replay",async()=>{let clock=1000,saved:any=null,docked=true,stop=false,calls=0;const doc={read:()=>saved,write:(x:unknown)=>saved=structuredClone(x)};const config={identity:"two",scope,document:doc,current(){},stopping:()=>stop,now:()=>clock,readTimeoutMs:3,wait:async(ms:number)=>{clock+=ms},flight:async()=>({docked,inSpace:!docked,ready:true,sampledAt:clock,proof:proof(clock)}),undock:async()=>{calls++;stop=true;throw Error("unknown")},scan:async()=>[],available:()=>true};await assert.rejects(resolveAutoCombatSite(config),/undock remains unresolved/);assert.equal(saved.pending.acknowledged,false);docked=false;clock++;assert.equal(await resolveAutoCombatSite(config),null);assert.equal(saved.pending,null);assert.equal(calls,1);});
-test("stop before dispatch never undocks",async()=>{let calls=0;assert.equal(await resolveAutoCombatSite({identity:"three",scope,document:{read:()=>null,write(){}},current(){},stopping:()=>true,flight:async()=>({docked:true,inSpace:false,ready:true,sampledAt:Date.now()}),undock:async()=>{calls++},scan:async()=>[],available:()=>true}),null);assert.equal(calls,0);});
+import { decodeOwnShipLocation, resolveAutoCombatSite } from "./autoSearch.ts";
+const scope = { characterID: 1, shipID: 11, systemID: 300 };
+const proof = (at: number) => ({
+  kind: "native-own-ship-location" as const,
+  ...scope,
+  locationID: 300,
+  readStartedAt: at,
+  readFinishedAt: at,
+  timeFiletime: "134385676761330000",
+  wallclockFiletime: "134385676761330001",
+  simulationSampledAt: 1,
+});
+const site = (id: number, at: number) => ({
+  systemID: 300,
+  scannerKey: id,
+  instanceID: id,
+  dungeonID: 2226,
+  label: `S-${id}`,
+  position: { x: id, y: 0, z: 0 },
+  observedAt: at,
+});
+test("cold docked search undocks once, skips occupied site, then records fresh site after a ten-second read", async () => {
+  let clock = 1000,
+    saved: any = null,
+    docked = true,
+    calls = 0,
+    scans = 0;
+  const doc = { read: () => saved, write: (x: unknown) => (saved = structuredClone(x)) };
+  const result = await resolveAutoCombatSite({
+    identity: "one",
+    scope,
+    document: doc,
+    current() {},
+    stopping: () => false,
+    now: () => clock,
+    wait: async (ms) => {
+      clock += ms;
+    },
+    flight: async () => ({
+      docked,
+      inSpace: !docked,
+      ready: true,
+      sampledAt: clock,
+      proof: proof(clock),
+    }),
+    undock: async () => {
+      calls++;
+      docked = false;
+      clock += 10000;
+    },
+    scan: async () => {
+      scans++;
+      return scans === 1 ? [] : [site(1, clock), site(2, clock)];
+    },
+    available: (s) => s.instanceID !== 1,
+  });
+  assert.equal(result?.instanceID, 2);
+  assert.equal(calls, 1);
+  assert.equal(scans, 2);
+  assert.equal(saved.pending, null);
+  assert.equal(saved.site.instanceID, 2);
+  assert.equal(saved.undockedAt, 11000);
+});
+test("stop during unknown undock preserves intent until a fresh physical read, without replay", async () => {
+  let clock = 1000,
+    saved: any = null,
+    docked = true,
+    stop = false,
+    calls = 0;
+  const doc = { read: () => saved, write: (x: unknown) => (saved = structuredClone(x)) };
+  const config = {
+    identity: "two",
+    scope,
+    document: doc,
+    current() {},
+    stopping: () => stop,
+    now: () => clock,
+    readTimeoutMs: 3,
+    wait: async (ms: number) => {
+      clock += ms;
+    },
+    flight: async () => ({
+      docked,
+      inSpace: !docked,
+      ready: true,
+      sampledAt: clock,
+      proof: proof(clock),
+    }),
+    undock: async () => {
+      calls++;
+      stop = true;
+      throw Error("unknown");
+    },
+    scan: async () => [],
+    available: () => true,
+  };
+  await assert.rejects(resolveAutoCombatSite(config), /undock remains unresolved/);
+  assert.equal(saved.pending.acknowledged, false);
+  docked = false;
+  clock++;
+  assert.equal(await resolveAutoCombatSite(config), null);
+  assert.equal(saved.pending, null);
+  assert.equal(calls, 1);
+});
+test("stop before dispatch never undocks", async () => {
+  let calls = 0;
+  assert.equal(
+    await resolveAutoCombatSite({
+      identity: "three",
+      scope,
+      document: { read: () => null, write() {} },
+      current() {},
+      stopping: () => true,
+      flight: async () => ({ docked: true, inSpace: false, ready: true, sampledAt: Date.now() }),
+      undock: async () => {
+        calls++;
+      },
+      scan: async () => [],
+      available: () => true,
+    }),
+    null,
+  );
+  assert.equal(calls, 0);
+});
 
-test("transient flight and scanner failures and a stale scene retry without replay",async()=>{let clock=100000,saved:any=null,docked=true,attempt=0,scans=0,undocks=0;const result=await resolveAutoCombatSite({identity:"retry",scope,document:{read:()=>saved,write:x=>saved=structuredClone(x)},current(){},stopping:()=>false,now:()=>clock,wait:async ms=>{clock+=ms},flight:async()=>{attempt++;if(attempt<=2){clock+=10000;throw Error("transient")};if(attempt===3)return {docked:true,inSpace:false,ready:true,sampledAt:clock-70000};return {docked,inSpace:!docked,ready:true,sampledAt:clock,proof:proof(clock)};},undock:async()=>{undocks++;docked=false},scan:async()=>{scans++;if(scans<=2){clock+=10000;throw Error("scanner temporarily unavailable")};return [site(2,clock)]},available:()=>true});assert.equal(result?.instanceID,2);assert.equal(undocks,1);assert.equal(scans,3);assert.equal(saved.pending,null);});
-test("ownership retirement during failed read is immediate, not a retry",async()=>{let alive=true,reads=0;await assert.rejects(resolveAutoCombatSite({identity:"retired",scope,document:{read:()=>null,write(){}},current(){if(!alive)throw Error("retired")},stopping:()=>false,flight:async()=>{reads++;alive=false;throw Error("read failed")},undock:async()=>{},scan:async()=>[],available:()=>true}),/retired/);assert.equal(reads,1);});
-test("Stop during unknown read never clears pending without positive in-space",async()=>{let clock=1000,saved:any={version:1,identity:"pending",pending:{issuedAt:1000,acknowledged:false},undockedAt:null,site:null},calls=0;await assert.rejects(resolveAutoCombatSite({identity:"pending",scope,document:{read:()=>saved,write:x=>saved=structuredClone(x)},current(){},stopping:()=>true,now:()=>clock,readTimeoutMs:3000,wait:async ms=>{clock+=ms},flight:async()=>{throw Error("unreadable")},undock:async()=>{calls++},scan:async()=>[],available:()=>true}),/undock remains unresolved/);assert.ok(saved.pending);assert.equal(calls,0);});
+test("transient flight and scanner failures and a stale scene retry without replay", async () => {
+  let clock = 100000,
+    saved: any = null,
+    docked = true,
+    attempt = 0,
+    scans = 0,
+    undocks = 0;
+  const result = await resolveAutoCombatSite({
+    identity: "retry",
+    scope,
+    document: { read: () => saved, write: (x) => (saved = structuredClone(x)) },
+    current() {},
+    stopping: () => false,
+    now: () => clock,
+    wait: async (ms) => {
+      clock += ms;
+    },
+    flight: async () => {
+      attempt++;
+      if (attempt <= 2) {
+        clock += 10000;
+        throw Error("transient");
+      }
+      if (attempt === 3)
+        return { docked: true, inSpace: false, ready: true, sampledAt: clock - 70000 };
+      return { docked, inSpace: !docked, ready: true, sampledAt: clock, proof: proof(clock) };
+    },
+    undock: async () => {
+      undocks++;
+      docked = false;
+    },
+    scan: async () => {
+      scans++;
+      if (scans <= 2) {
+        clock += 10000;
+        throw Error("scanner temporarily unavailable");
+      }
+      return [site(2, clock)];
+    },
+    available: () => true,
+  });
+  assert.equal(result?.instanceID, 2);
+  assert.equal(undocks, 1);
+  assert.equal(scans, 3);
+  assert.equal(saved.pending, null);
+});
+test("ownership retirement during failed read is immediate, not a retry", async () => {
+  let alive = true,
+    reads = 0;
+  await assert.rejects(
+    resolveAutoCombatSite({
+      identity: "retired",
+      scope,
+      document: { read: () => null, write() {} },
+      current() {
+        if (!alive) throw Error("retired");
+      },
+      stopping: () => false,
+      flight: async () => {
+        reads++;
+        alive = false;
+        throw Error("read failed");
+      },
+      undock: async () => {},
+      scan: async () => [],
+      available: () => true,
+    }),
+    /retired/,
+  );
+  assert.equal(reads, 1);
+});
+test("Stop during unknown read never clears pending without positive in-space", async () => {
+  let clock = 1000,
+    saved: any = {
+      version: 1,
+      identity: "pending",
+      pending: { issuedAt: 1000, acknowledged: false },
+      undockedAt: null,
+      site: null,
+    },
+    calls = 0;
+  await assert.rejects(
+    resolveAutoCombatSite({
+      identity: "pending",
+      scope,
+      document: { read: () => saved, write: (x) => (saved = structuredClone(x)) },
+      current() {},
+      stopping: () => true,
+      now: () => clock,
+      readTimeoutMs: 3000,
+      wait: async (ms) => {
+        clock += ms;
+      },
+      flight: async () => {
+        throw Error("unreadable");
+      },
+      undock: async () => {
+        calls++;
+      },
+      scan: async () => [],
+      available: () => true,
+    }),
+    /undock remains unresolved/,
+  );
+  assert.ok(saved.pending);
+  assert.equal(calls, 0);
+});
 
-const rawInfo=(row:Record<string,unknown>={itemID:11,ownerID:1,locationID:300,flagID:0})=>({type:"object",name:"util.KeyVal",args:{type:"dict",entries:[["itemID",11],["invItem",{type:"packedrow",fields:row}],["time",{type:"long",value:"134385676761330000"}],["wallclockTime",{type:"long",value:"134385676761330001"}]]}});
-test("native own ship location preserves simulation time and rejects mismatched or ambiguous identity",()=>{const p=decodeOwnShipLocation(rawInfo(),scope,2000000,2000001,38000);assert.equal(p.simulationSampledAt,38000);assert.equal(p.timeFiletime,"134385676761330000");for(const row of [{itemID:12,ownerID:1,locationID:300,flagID:0},{itemID:11,ownerID:2,locationID:300,flagID:0},{itemID:11,ownerID:1,locationID:301,flagID:0},{itemID:11,ownerID:1,locationID:300,flagID:5}])assert.throws(()=>decodeOwnShipLocation(rawInfo(row),scope,1,2,1));const raw=rawInfo();raw.args.entries.push(["itemID",11]);assert.throws(()=>decodeOwnShipLocation(raw,scope,1,2,1));});
-test("old pending undock reconciles via fresh exact native location despite simulator clock offset",async()=>{let clock=2000000,calls=0;let saved:any={version:1,identity:"old",pending:{issuedAt:1999000,acknowledged:true},undockedAt:null,site:null};const result=await resolveAutoCombatSite({identity:"old",scope,document:{read:()=>saved,write:v=>saved=structuredClone(v)},current(){},stopping:()=>true,now:()=>clock,wait:async ms=>{clock+=ms},flight:async()=>({docked:false,inSpace:true,ready:true,sampledAt:clock,proof:decodeOwnShipLocation(rawInfo(),scope,clock,clock,366000)}),undock:async()=>{calls++},scan:async()=>[],available:()=>true});assert.equal(result,null);assert.equal(calls,0);assert.equal(saved.pending,null);assert.equal(saved.undockedAt,2000000);assert.equal(saved.undockProof.simulationSampledAt,366000);});
-test("invalid native identity or failed read retains prior unknown undock without replay",async()=>{for(const row of [{itemID:12,ownerID:1,locationID:300,flagID:0},{itemID:11,ownerID:2,locationID:300,flagID:0},{itemID:11,ownerID:1,locationID:301,flagID:0},null]){let clock=2000000,calls=0;let saved:any={version:1,identity:"old",pending:{issuedAt:1999000,acknowledged:false},undockedAt:null,site:null};await assert.rejects(resolveAutoCombatSite({identity:"old",scope,document:{read:()=>saved,write:v=>saved=structuredClone(v)},current(){},stopping:()=>true,now:()=>clock,readTimeoutMs:2000,wait:async ms=>{clock+=ms},flight:async()=>{if(!row)throw Error("native read failed");return {docked:false,inSpace:true,ready:true,sampledAt:clock,proof:decodeOwnShipLocation(rawInfo(row),scope,clock,clock,366000)}},undock:async()=>{calls++},scan:async()=>[],available:()=>true}),/undock remains unresolved/);assert.ok(saved.pending);assert.equal(calls,0);}});
+const rawInfo = (
+  row: Record<string, unknown> = { itemID: 11, ownerID: 1, locationID: 300, flagID: 0 },
+) => ({
+  type: "object",
+  name: "util.KeyVal",
+  args: {
+    type: "dict",
+    entries: [
+      ["itemID", 11],
+      ["invItem", { type: "packedrow", fields: row }],
+      ["time", { type: "long", value: "134385676761330000" }],
+      ["wallclockTime", { type: "long", value: "134385676761330001" }],
+    ],
+  },
+});
+test("native own ship location preserves simulation time and rejects mismatched or ambiguous identity", () => {
+  const p = decodeOwnShipLocation(rawInfo(), scope, 2000000, 2000001, 38000);
+  assert.equal(p.simulationSampledAt, 38000);
+  assert.equal(p.timeFiletime, "134385676761330000");
+  for (const row of [
+    { itemID: 12, ownerID: 1, locationID: 300, flagID: 0 },
+    { itemID: 11, ownerID: 2, locationID: 300, flagID: 0 },
+    { itemID: 11, ownerID: 1, locationID: 301, flagID: 0 },
+    { itemID: 11, ownerID: 1, locationID: 300, flagID: 5 },
+  ])
+    assert.throws(() => decodeOwnShipLocation(rawInfo(row), scope, 1, 2, 1));
+  const raw = rawInfo();
+  raw.args.entries.push(["itemID", 11]);
+  assert.throws(() => decodeOwnShipLocation(raw, scope, 1, 2, 1));
+});
+test("old pending undock reconciles via fresh exact native location despite simulator clock offset", async () => {
+  let clock = 2000000,
+    calls = 0;
+  let saved: any = {
+    version: 1,
+    identity: "old",
+    pending: { issuedAt: 1999000, acknowledged: true },
+    undockedAt: null,
+    site: null,
+  };
+  const result = await resolveAutoCombatSite({
+    identity: "old",
+    scope,
+    document: { read: () => saved, write: (v) => (saved = structuredClone(v)) },
+    current() {},
+    stopping: () => true,
+    now: () => clock,
+    wait: async (ms) => {
+      clock += ms;
+    },
+    flight: async () => ({
+      docked: false,
+      inSpace: true,
+      ready: true,
+      sampledAt: clock,
+      proof: decodeOwnShipLocation(rawInfo(), scope, clock, clock, 366000),
+    }),
+    undock: async () => {
+      calls++;
+    },
+    scan: async () => [],
+    available: () => true,
+  });
+  assert.equal(result, null);
+  assert.equal(calls, 0);
+  assert.equal(saved.pending, null);
+  assert.equal(saved.undockedAt, 2000000);
+  assert.equal(saved.undockProof.simulationSampledAt, 366000);
+});
+test("invalid native identity or failed read retains prior unknown undock without replay", async () => {
+  for (const row of [
+    { itemID: 12, ownerID: 1, locationID: 300, flagID: 0 },
+    { itemID: 11, ownerID: 2, locationID: 300, flagID: 0 },
+    { itemID: 11, ownerID: 1, locationID: 301, flagID: 0 },
+    null,
+  ]) {
+    let clock = 2000000,
+      calls = 0;
+    let saved: any = {
+      version: 1,
+      identity: "old",
+      pending: { issuedAt: 1999000, acknowledged: false },
+      undockedAt: null,
+      site: null,
+    };
+    await assert.rejects(
+      resolveAutoCombatSite({
+        identity: "old",
+        scope,
+        document: { read: () => saved, write: (v) => (saved = structuredClone(v)) },
+        current() {},
+        stopping: () => true,
+        now: () => clock,
+        readTimeoutMs: 2000,
+        wait: async (ms) => {
+          clock += ms;
+        },
+        flight: async () => {
+          if (!row) throw Error("native read failed");
+          return {
+            docked: false,
+            inSpace: true,
+            ready: true,
+            sampledAt: clock,
+            proof: decodeOwnShipLocation(rawInfo(row), scope, clock, clock, 366000),
+          };
+        },
+        undock: async () => {
+          calls++;
+        },
+        scan: async () => [],
+        available: () => true,
+      }),
+      /undock remains unresolved/,
+    );
+    assert.ok(saved.pending);
+    assert.equal(calls, 0);
+  }
+});

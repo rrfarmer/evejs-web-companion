@@ -1,19 +1,51 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {readFileSync} from "node:fs";
-import {createRequire} from "node:module";
-import {pathToFileURL} from "node:url";
-import {compile} from "svelte/compiler";
-import {render} from "svelte/server";
-import {resolveUocPage} from "./route.ts";
-const require=createRequire(import.meta.url),server=pathToFileURL(require.resolve("svelte/internal/server")).href;
-async function component(file:string,stubChildren=false){let code=compile(readFileSync(new URL(file,import.meta.url),"utf8"),{filename:file,generate:"server"}).js.code.replace("'svelte/internal/server'",JSON.stringify(server));if(stubChildren)code=code.replace(/import (\w+) from ["'][^"']+\.svelte["'];/g,(_line,name)=>`const ${name}=($r,props={})=>$r.push('<i data-panel="${name}" data-mode="'+(props.mode??'training')+'"></i>');`);return (await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`)).default;}
-test("routes preserve module hierarchy and bookmarkable section URLs",()=>{for(const [url,want] of [["/uoc/","home"],["/uoc/mining-command-center/","mining-operations"],["/uoc/mining-command-center/?section=civilian","civilian"],["/uoc/pilot-training/","training"],["/uoc/ship-provisioning/","provisioning"],["/uoc/distribution-center/","distribution"]]){const u=new URL(url!,"http://local");assert.equal(resolveUocPage(u.pathname,u.search),want);}assert.equal(resolveUocPage("/uoc/unknown/",""),null);});
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+import { compile } from "svelte/compiler";
+import { render } from "svelte/server";
+import { resolveUocPage } from "./route.ts";
+const require = createRequire(import.meta.url),
+  server = pathToFileURL(require.resolve("svelte/internal/server")).href;
+async function component(file: string, stubChildren = false) {
+  let code = compile(readFileSync(new URL(file, import.meta.url), "utf8"), {
+    filename: file,
+    generate: "server",
+  }).js.code.replace("'svelte/internal/server'", JSON.stringify(server));
+  if (stubChildren)
+    code = code.replace(
+      /import (\w+) from ["'][^"']+\.svelte["'];/g,
+      (_line, name) =>
+        `const ${name}=($r,props={})=>$r.push('<i data-panel="${name}" data-mode="'+(props.mode??'training')+'"></i>');`,
+    );
+  return (await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`))
+    .default;
+}
+test("routes preserve module hierarchy and bookmarkable section URLs", () => {
+  for (const [url, want] of [
+    ["/uoc/", "home"],
+    ["/uoc/mining-command-center/", "mining-operations"],
+    ["/uoc/mining-command-center/?section=civilian", "civilian"],
+    ["/uoc/pilot-training/", "training"],
+    ["/uoc/ship-provisioning/", "provisioning"],
+    ["/uoc/distribution-center/", "distribution"],
+  ]) {
+    const u = new URL(url!, "http://local");
+    assert.equal(resolveUocPage(u.pathname, u.search), want);
+  }
+  assert.equal(resolveUocPage("/uoc/unknown/", ""), null);
+});
 test("the hub links to the four open centers and marks Combat as in development", async () => {
   const Hub = await component("../restored/ui/UnifiedOperations.svelte");
   const html = render(Hub, {}).body;
   assert.equal((html.match(/<a class="module\b/g) ?? []).length, 4);
-  for (const path of ["mining-command-center", "pilot-training", "ship-provisioning", "distribution-center"]) {
+  for (const path of [
+    "mining-command-center",
+    "pilot-training",
+    "ship-provisioning",
+    "distribution-center",
+  ]) {
     assert.ok(html.includes(`href="/uoc/${path}/"`), path);
   }
   assert.ok(html.includes('href="/"'));
@@ -22,13 +54,38 @@ test("the hub links to the four open centers and marks Combat as in development"
 });
 test("Combat bookmarks lead to the in-development page without mounting the workspace", () => {
   for (const section of ["", "?section=security", "?section=anomalies"]) {
-    assert.equal(resolveUocPage("/uoc/combat-operations-center/", section), "combat-in-development");
+    assert.equal(
+      resolveUocPage("/uoc/combat-operations-center/", section),
+      "combat-in-development",
+    );
   }
   const page = readFileSync(new URL("./ModulePage.svelte", import.meta.url), "utf8");
-  assert.match(page, /activePage === "combat-in-development".*title="Combat Operations Center".*state="In development"/s);
+  assert.match(
+    page,
+    /activePage === "combat-in-development".*title="Combat Operations Center".*state="In development"/s,
+  );
   assert.doesNotMatch(page, /CombatOperations\.svelte|<CombatOperations\b/);
 });
-test("module routes mount original centers, keeping Civilian inside MCC",()=>{const source=readFileSync(new URL("./ModulePage.svelte",import.meta.url),"utf8");for(const name of ["UnifiedOperations","MiningCommandCenter","GoblinFactory","ProvisioningCenter","DistributionCenter"])assert.ok(source.includes(`../restored/ui/${name}.svelte`));for(const old of ["MiningFleetPanel","CombatPanel","AnomalyFleetPanel","TrainingPanel"])assert.ok(!source.includes(old));const mcc=readFileSync(new URL("../restored/ui/MiningCommandCenter.svelte",import.meta.url),"utf8");assert.ok(mcc.includes('CivilianMissions'));assert.ok(mcc.includes('section=civilian'));assert.ok(!source.includes('<CivilianMissions'));});
+test("module routes mount original centers, keeping Civilian inside MCC", () => {
+  const source = readFileSync(new URL("./ModulePage.svelte", import.meta.url), "utf8");
+  for (const name of [
+    "UnifiedOperations",
+    "MiningCommandCenter",
+    "GoblinFactory",
+    "ProvisioningCenter",
+    "DistributionCenter",
+  ])
+    assert.ok(source.includes(`../restored/ui/${name}.svelte`));
+  for (const old of ["MiningFleetPanel", "CombatPanel", "AnomalyFleetPanel", "TrainingPanel"])
+    assert.ok(!source.includes(old));
+  const mcc = readFileSync(
+    new URL("../restored/ui/MiningCommandCenter.svelte", import.meta.url),
+    "utf8",
+  );
+  assert.ok(mcc.includes("CivilianMissions"));
+  assert.ok(mcc.includes("section=civilian"));
+  assert.ok(!source.includes("<CivilianMissions"));
+});
 test("the registered page loads UOC through the shared WC build", async () => {
   const { default: manifest } = await import("../plugin.ts");
   const { default: views } = await import("../views.ts");
@@ -39,20 +96,71 @@ test("the registered page loads UOC through the shared WC build", async () => {
   assert.doesNotMatch(build, /configFile:\s*false|public\/dist\/uoc/);
 });
 test("operations and pilot selection use current workspace access without an account sign-in gate", () => {
-  for (const name of ["MiningCommandCenter", "CivilianMissions", "CombatOperations", "OperationPilotPicker", "GoblinFactory", "ProvisioningCenter"]) {
+  for (const name of [
+    "MiningCommandCenter",
+    "CivilianMissions",
+    "CombatOperations",
+    "OperationPilotPicker",
+    "GoblinFactory",
+    "ProvisioningCenter",
+  ]) {
     const source = readFileSync(new URL(`../restored/ui/${name}.svelte`, import.meta.url), "utf8");
     assert.doesNotMatch(source, /FarmerAccountPicker|signInFarmerAccount/, name);
   }
-  const provisioning = readFileSync(new URL("../restored/ui/ProvisioningCenter.svelte", import.meta.url), "utf8");
+  const provisioning = readFileSync(
+    new URL("../restored/ui/ProvisioningCenter.svelte", import.meta.url),
+    "utf8",
+  );
   assert.match(provisioning, /connect\(row\.accountName, row\.characterID\)/);
 });
-test("standalone tools retain the actual WC74 stage structure and candidate resource readout",()=>{const training=readFileSync(new URL("../restored/ui/GoblinFactory.svelte",import.meta.url),"utf8"),provisioning=readFileSync(new URL("../restored/ui/ProvisioningCenter.svelte",import.meta.url),"utf8");for(const child of ["TrainingGoal","TrainingPilotSkills","TrainingSettingsPanel"])assert.ok(training.includes(child));for(const stage of ["1. Choose pilot","2. Choose ship and fitting","3. Inspect equipment","4. Review plan","5. Confirm equipment changes"])assert.ok(provisioning.toLowerCase().includes(stage.toLowerCase()),stage);assert.ok(provisioning.includes('CPU'));assert.ok(provisioning.includes('Powergrid'));assert.ok(provisioning.includes('cpuRemaining'));});
-test("the Civilian profile editor keeps mission settings and stays inside the Civilian page",()=>{const source=readFileSync(new URL("../restored/ui/CivilianMissions.svelte",import.meta.url),"utf8");for(const panel of ["TrainingPanel","ProvisioningCenter","MiningFleetPanel","CombatOperations"])assert.ok(!source.includes(panel));for(const field of ["Mission type","Level rule","Stop rule","Add pilot",">Save</button>"])assert.ok(source.includes(field),field);});
+test("standalone tools retain the actual WC74 stage structure and candidate resource readout", () => {
+  const training = readFileSync(
+      new URL("../restored/ui/GoblinFactory.svelte", import.meta.url),
+      "utf8",
+    ),
+    provisioning = readFileSync(
+      new URL("../restored/ui/ProvisioningCenter.svelte", import.meta.url),
+      "utf8",
+    );
+  for (const child of ["TrainingGoal", "TrainingPilotSkills", "TrainingSettingsPanel"])
+    assert.ok(training.includes(child));
+  for (const stage of [
+    "1. Choose pilot",
+    "2. Choose ship and fitting",
+    "3. Inspect equipment",
+    "4. Review plan",
+    "5. Confirm equipment changes",
+  ])
+    assert.ok(provisioning.toLowerCase().includes(stage.toLowerCase()), stage);
+  assert.ok(provisioning.includes("CPU"));
+  assert.ok(provisioning.includes("Powergrid"));
+  assert.ok(provisioning.includes("cpuRemaining"));
+});
+test("the Civilian profile editor keeps mission settings and stays inside the Civilian page", () => {
+  const source = readFileSync(
+    new URL("../restored/ui/CivilianMissions.svelte", import.meta.url),
+    "utf8",
+  );
+  for (const panel of [
+    "TrainingPanel",
+    "ProvisioningCenter",
+    "MiningFleetPanel",
+    "CombatOperations",
+  ])
+    assert.ok(!source.includes(panel));
+  for (const field of ["Mission type", "Level rule", "Stop rule", "Add pilot", ">Save</button>"])
+    assert.ok(source.includes(field), field);
+});
 
 test("UOC status badges retain readable labels across centers", async () => {
   const Status = await component("../restored/ui/CenterStatus.svelte");
-  for (const [state, tone] of [["Active", "active"], ["Ready", "ready"], ["Paused", "paused"],
-    ["Stopped", "stopped"], ["Needs attention", "attention"]] as const) {
+  for (const [state, tone] of [
+    ["Active", "active"],
+    ["Ready", "ready"],
+    ["Paused", "paused"],
+    ["Stopped", "stopped"],
+    ["Needs attention", "attention"],
+  ] as const) {
     const html = render(Status, { props: { state } }).body;
     assert.match(html, new RegExp(`data-tone="${tone}"[^>]*>${state}<`));
   }
@@ -64,17 +172,57 @@ test("Distribution renders named routes, confirmed progress and freight needing 
   const { default: Workspace } = await import("../restored/ui/DistributionWorkspace.svelte");
   const { default: Editor } = await import("../restored/ui/DistributionEditor.svelte");
   const selected = {
-    id: "route", config: { name: "Ore delivery", mode: "MANUAL", corporationID: 99,
-      source: { name: "Source Station", kind: "station", destinationID: 60000001, systemID: 1, division: 7 },
-      destination: { name: "Delivery Hub", kind: "structure", destinationID: 1030000000001, systemID: 2, division: 1 },
-      items: [{ typeID: 1230, name: "Veldspar", quantity: 15 }], fillPercent: 0, waitMinutes: 0 },
+    id: "route",
+    config: {
+      name: "Ore delivery",
+      mode: "MANUAL",
+      corporationID: 99,
+      source: {
+        name: "Source Station",
+        kind: "station",
+        destinationID: 60000001,
+        systemID: 1,
+        division: 7,
+      },
+      destination: {
+        name: "Delivery Hub",
+        kind: "structure",
+        destinationID: 1030000000001,
+        systemID: 2,
+        division: 1,
+      },
+      items: [{ typeID: 1230, name: "Veldspar", quantity: 15 }],
+      fillPercent: 0,
+      waitMinutes: 0,
+    },
     execution: { id: "run", state: "STOPPING", delivered: { 1230: 6 }, trips: 1 },
   };
   const props = {
-    view: { ok: true, operations: [selected], roster: [{ characterID: 99, account: "known-account", name: "Transporter",
-      shipName: "FixtureHauler", hosted: null, trip: { operationID: "route", cargo: [{ typeID: 1230, quantity: 9 }],
-        checking: null, issue: "Destination hangar is unavailable." } }] },
-    selected, availability: {}, names: { 1230: "Veldspar" }, docks: {}, busy: false, issue: "",
+    view: {
+      ok: true,
+      operations: [selected],
+      roster: [
+        {
+          characterID: 99,
+          account: "known-account",
+          name: "Transporter",
+          shipName: "FixtureHauler",
+          hosted: null,
+          trip: {
+            operationID: "route",
+            cargo: [{ typeID: 1230, quantity: 9 }],
+            checking: null,
+            issue: "Destination hangar is unavailable.",
+          },
+        },
+      ],
+    },
+    selected,
+    availability: {},
+    names: { 1230: "Veldspar" },
+    docks: {},
+    busy: false,
+    issue: "",
   };
   const operations = render(Workspace, { props: { ...props, section: "operations" } }).body;
   assert.match(operations, /Source Station.*Division 7/s);
@@ -82,25 +230,56 @@ test("Distribution renders named routes, confirmed progress and freight needing 
   assert.match(operations, /6 \/ 15 delivered/);
   assert.match(operations, /Finishing freight/);
   const fleet = render(Workspace, { props: { ...props, section: "fleet" } }).body;
-  assert.match(fleet, /FixtureHauler.*Needs attention.*Destination hangar is unavailable.*9 Veldspar aboard/s);
+  assert.match(
+    fleet,
+    /FixtureHauler.*Needs attention.*Destination hangar is unavailable.*9 Veldspar aboard/s,
+  );
   assert.match(fleet, /data-tone="attention"[^>]*>Needs attention/);
   assert.match(operations, /data-tone="paused"[^>]*>Finishing freight/);
   assert.match(operations, /class="center-heading".*<h1>Distribution Center<\/h1>/s);
   assert.doesNotMatch(operations + fleet, /60000001|1030000000001|known-account|custody|claims/i);
-  const editor = render(Editor, { props: { initial: { ...selected.config, mode: "SUPPLY" }, corporations: [], busy: false } }).body;
-  for (const label of ["Item catalog", "Keep at destination", "Maximum wait", "Save operation"]) assert.ok(editor.includes(label));
+  const editor = render(Editor, {
+    props: { initial: { ...selected.config, mode: "SUPPLY" }, corporations: [], busy: false },
+  }).body;
+  for (const label of ["Item catalog", "Keep at destination", "Maximum wait", "Save operation"])
+    assert.ok(editor.includes(label));
   assert.doesNotMatch(editor, /All items in source division/);
   const all = {
-    ...selected, config: { ...selected.config, allItems: true, items: [] },
-    execution: { ...selected.execution, state: "INCOMPLETE", deliveredVolumeM3: 2.5,
-      unshipped: [{ typeID: 34, quantity: 8, reason: "One unit does not fit in this hauler's compatible holds." }] },
+    ...selected,
+    config: { ...selected.config, allItems: true, items: [] },
+    execution: {
+      ...selected.execution,
+      state: "INCOMPLETE",
+      deliveredVolumeM3: 2.5,
+      unshipped: [
+        {
+          typeID: 34,
+          quantity: 8,
+          reason: "One unit does not fit in this hauler's compatible holds.",
+        },
+      ],
+    },
   };
-  const allEditor = render(Editor, { props: { initial: all.config, corporations: [], busy: false } }).body;
+  const allEditor = render(Editor, {
+    props: { initial: all.config, corporations: [], busy: false },
+  }).body;
   assert.match(allEditor, /Selected items.*All items in source division/s);
   assert.doesNotMatch(allEditor, /Item catalog/);
-  const result = render(Workspace, { props: { ...props, view: { ...props.view, operations: [all] }, selected: all,
-    names: { ...props.names, 34: "Tritanium" }, section: "operations" } }).body;
-  for (const label of ["Finished with items left", "6 units delivered", "Items left at source", "8 × Tritanium"])
+  const result = render(Workspace, {
+    props: {
+      ...props,
+      view: { ...props.view, operations: [all] },
+      selected: all,
+      names: { ...props.names, 34: "Tritanium" },
+      section: "operations",
+    },
+  }).body;
+  for (const label of [
+    "Finished with items left",
+    "6 units delivered",
+    "Items left at source",
+    "8 × Tritanium",
+  ])
     assert.ok(result.includes(label), label);
   assert.match(result, /2[.,]5 m³/);
 });
@@ -113,16 +292,38 @@ test("Training lists saved HR candidates before a trainee or account is opened",
   const { default: Training } = await import("../restored/ui/GoblinFactory.svelte");
   const key = "evejs-web-known-characters:v1";
   setKnownCharacterStorage({
-    getItem: name => name === key ? JSON.stringify([
-      {accountName:"Foreman",characterID:10,characterName:"Corporate Director",shipName:null,skillPoints:null,balance:null,lastSeen:1},
-      {accountName:"Miner",characterID:11,characterName:"FixtureMiner4",shipName:null,skillPoints:null,balance:null,lastSeen:1},
-    ]) : null,
+    getItem: (name) =>
+      name === key
+        ? JSON.stringify([
+            {
+              accountName: "Foreman",
+              characterID: 10,
+              characterName: "Corporate Director",
+              shipName: null,
+              skillPoints: null,
+              balance: null,
+              lastSeen: 1,
+            },
+            {
+              accountName: "Miner",
+              characterID: 11,
+              characterName: "FixtureMiner4",
+              shipName: null,
+              skillPoints: null,
+              balance: null,
+              lastSeen: 1,
+            },
+          ])
+        : null,
     setItem: () => assert.fail("Rendering the initial roster must be passive."),
   });
-  installPageContext({ accountPass:{
-    optionsFor: async () => assert.fail("Displaying candidates must not authorize the roster."),
-    forget: () => {}, release: async () => {},
-  }});
+  installPageContext({
+    accountPass: {
+      optionsFor: async () => assert.fail("Displaying candidates must not authorize the roster."),
+      forget: () => {},
+      release: async () => {},
+    },
+  });
   try {
     const html = render(Training, {}).body;
     assert.doesNotMatch(html, /Create account/);
@@ -141,56 +342,122 @@ test("Training permits saving a verified Director in the current world", async (
   const { register } = await import("node:module");
   register("../../../web/src/ui/svelteSsrHook.ts", import.meta.url);
   const { default: Settings } = await import("../restored/ui/TrainingSettings.svelte");
-  const { defaultTrainingSettings, trainingPilotKey } = await import("../restored/training/settings.ts");
+  const { defaultTrainingSettings, trainingPilotKey } =
+    await import("../restored/training/settings.ts");
   const key = trainingPilotKey("Foreman", 10);
   const props = {
-    settings:{...defaultTrainingSettings(),onboarding:{enabled:true,corporationID:123,authorityKey:key,rights:"NONE"}},
-    corporations:[{corporationID:123,name:"Verified Corporation",divisions:[{accountKey:1000,name:"Master Wallet"}]}],
-    authorities:[{characterID:10,key,name:"Director",account:"Foreman",corporationID:123,eligible:true}],
-    candidates:[{key,name:"Director",account:"Foreman"}],
-    busy:false,worldReady:true,onInspect:()=>{},onSave:()=>{},
+    settings: {
+      ...defaultTrainingSettings(),
+      onboarding: { enabled: true, corporationID: 123, authorityKey: key, rights: "NONE" },
+    },
+    corporations: [
+      {
+        corporationID: 123,
+        name: "Verified Corporation",
+        divisions: [{ accountKey: 1000, name: "Master Wallet" }],
+      },
+    ],
+    authorities: [
+      {
+        characterID: 10,
+        key,
+        name: "Director",
+        account: "Foreman",
+        corporationID: 123,
+        eligible: true,
+      },
+    ],
+    candidates: [{ key, name: "Director", account: "Foreman" }],
+    busy: false,
+    worldReady: true,
+    onInspect: () => {},
+    onSave: () => {},
   };
-  const renderWith = (input: typeof props) => render(Settings, {props:input}).body;
+  const renderWith = (input: typeof props) => render(Settings, { props: input }).body;
   const html = renderWith(props);
   assert.match(html, /Verified Corporation \(123\)/);
   const saveButton = html.match(/<button[^>]*>Save corporation settings<\/button>/)?.[0];
   assert.ok(saveButton);
   assert.doesNotMatch(saveButton, /\bdisabled\b/);
-  assert.match(renderWith({...props,worldReady:false}), /<button[^>]* disabled[^>]*>Save corporation settings<\/button>/);
-  assert.match(renderWith({...props,authorities:[{...props.authorities[0]!,eligible:false}]}), /<button[^>]* disabled[^>]*>Save corporation settings<\/button>/);
+  assert.match(
+    renderWith({ ...props, worldReady: false }),
+    /<button[^>]* disabled[^>]*>Save corporation settings<\/button>/,
+  );
+  assert.match(
+    renderWith({ ...props, authorities: [{ ...props.authorities[0]!, eligible: false }] }),
+    /<button[^>]* disabled[^>]*>Save corporation settings<\/button>/,
+  );
 });
 
 test("Training funding restores legacy settings, persists the chosen policy and renders its selected option", async () => {
   const { register } = await import("node:module");
   register("../../../web/src/ui/svelteSsrHook.ts", import.meta.url);
   const { default: Settings } = await import("../restored/ui/TrainingSettings.svelte");
-  const { defaultTrainingSettings, readTrainingSettings, saveTrainingSettings, trainingPilotKey } = await import("../restored/training/settings.ts");
-  const legacy = { ...defaultTrainingSettings(), fundingPolicy: undefined,
-    onboarding:{enabled:true,corporationID:123,authorityKey:trainingPilotKey("Foreman",10),rights:"NONE" as const},
-    trainingWallet:{corporationID:123,accountKey:1000},
-    home:{locationID:6,name:"Home",systemID:3,kind:"NPC_STATION",relocation:"MANUAL_GM_ONLY",capability:"STATION"} };
+  const { defaultTrainingSettings, readTrainingSettings, saveTrainingSettings, trainingPilotKey } =
+    await import("../restored/training/settings.ts");
+  const legacy = {
+    ...defaultTrainingSettings(),
+    fundingPolicy: undefined,
+    onboarding: {
+      enabled: true,
+      corporationID: 123,
+      authorityKey: trainingPilotKey("Foreman", 10),
+      rights: "NONE" as const,
+    },
+    trainingWallet: { corporationID: 123, accountKey: 1000 },
+    home: {
+      locationID: 6,
+      name: "Home",
+      systemID: 3,
+      kind: "NPC_STATION",
+      relocation: "MANUAL_GM_ONLY",
+      capability: "STATION",
+    },
+  };
   let raw: string | null = null;
-  const storage = { getItem: () => raw, setItem: (_key: string, value: string) => { raw = value; } };
-  assert.equal(readTrainingSettings(storage).fundingPolicy,"CHARACTER_WALLET_ONLY");
+  const storage = {
+    getItem: () => raw,
+    setItem: (_key: string, value: string) => {
+      raw = value;
+    },
+  };
+  assert.equal(readTrainingSettings(storage).fundingPolicy, "CHARACTER_WALLET_ONLY");
   for (const [automaticFunding, fundingPolicy] of [
-    [false,"CHARACTER_WALLET_ONLY"],[true,"CHARACTER_PLUS_CORPORATION_SHORTFALL"],
+    [false, "CHARACTER_WALLET_ONLY"],
+    [true, "CHARACTER_PLUS_CORPORATION_SHORTFALL"],
   ] as const) {
-    raw = JSON.stringify({...legacy,automaticFunding});
-    assert.equal(readTrainingSettings(storage).fundingPolicy,fundingPolicy);
+    raw = JSON.stringify({ ...legacy, automaticFunding });
+    assert.equal(readTrainingSettings(storage).fundingPolicy, fundingPolicy);
   }
-  const saved = {...readTrainingSettings(storage),fundingPolicy:"CORPORATION_WALLET_ONLY" as const,automaticFunding:undefined};
-  saveTrainingSettings(storage,saved);
-  const reopened=readTrainingSettings(storage);
-  assert.equal(reopened.fundingPolicy,"CORPORATION_WALLET_ONLY");
-  assert.deepEqual(reopened.onboarding,legacy.onboarding);
-  assert.deepEqual(reopened.trainingWallet,legacy.trainingWallet);
-  assert.deepEqual(reopened.home,legacy.home);
-  const html=render(Settings,{props:{settings:reopened,corporations:[],authorities:[],busy:false,
-    worldReady:true,onInspect:()=>{},onSave:()=>{}}}).body;
+  const saved = {
+    ...readTrainingSettings(storage),
+    fundingPolicy: "CORPORATION_WALLET_ONLY" as const,
+    automaticFunding: undefined,
+  };
+  saveTrainingSettings(storage, saved);
+  const reopened = readTrainingSettings(storage);
+  assert.equal(reopened.fundingPolicy, "CORPORATION_WALLET_ONLY");
+  assert.deepEqual(reopened.onboarding, legacy.onboarding);
+  assert.deepEqual(reopened.trainingWallet, legacy.trainingWallet);
+  assert.deepEqual(reopened.home, legacy.home);
+  const html = render(Settings, {
+    props: {
+      settings: reopened,
+      corporations: [],
+      authorities: [],
+      busy: false,
+      worldReady: true,
+      onInspect: () => {},
+      onSave: () => {},
+    },
+  }).body;
   assert.match(html, /Set up an HR pilot in EveJS/);
   assert.match(html, /Pilot wallet only/);
   assert.match(html, /Pilot wallet, then corporation/);
-  assert.match(html, /<option value="CORPORATION_WALLET_ONLY" selected(?:="")?>Corporation wallet only/);
+  assert.match(
+    html,
+    /<option value="CORPORATION_WALLET_ONLY" selected(?:="")?>Corporation wallet only/,
+  );
   assert.match(html, /transfers the full book cost/);
 });
 
@@ -204,5 +471,8 @@ test("Provisioning places the pilot filter beside the compact selector", async (
   assert.equal((section.match(/<select\b/g) ?? []).length, 1);
   assert.match(section, /<option[^>]*value=""[^>]*>Choose a pilot<\/option>/);
   assert.match(section, /Refresh pilots/);
-  assert.match(section, /<div[^>]*class="picker-controls[^"]*"[^>]*>[\s\S]*?<select\b[\s\S]*?Filter pilots\s*<input[^>]*type="search"/);
+  assert.match(
+    section,
+    /<div[^>]*class="picker-controls[^"]*"[^>]*>[\s\S]*?<select\b[\s\S]*?Filter pilots\s*<input[^>]*type="search"/,
+  );
 });

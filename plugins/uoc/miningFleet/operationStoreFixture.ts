@@ -2,19 +2,23 @@ import { fleetOperationStore, type FleetOperationDocuments } from "./operationSt
 
 export function memoryFleetDocuments(values = new Map<string, unknown>()): FleetOperationDocuments {
   return {
-    document: name => ({
+    document: (name) => ({
       read: () => structuredClone(values.get(name) ?? null),
-      write: value => { values.set(name, structuredClone(value)); },
+      write: (value) => {
+        values.set(name, structuredClone(value));
+      },
     }),
-    documentNames: prefix => [...values.keys()].filter(name => name.startsWith(prefix)),
+    documentNames: (prefix) => [...values.keys()].filter((name) => name.startsWith(prefix)),
     deleteDocuments(names, prefixes) {
       for (const name of names) values.delete(name);
-      for (const name of values.keys()) if (prefixes.some(prefix => name.startsWith(prefix))) values.delete(name);
+      for (const name of values.keys())
+        if (prefixes.some((prefix) => name.startsWith(prefix))) values.delete(name);
     },
     transaction(action) {
       const previous = new Map(values);
-      try { return action(); }
-      catch (error) {
+      try {
+        return action();
+      } catch (error) {
         values.clear();
         for (const [name, value] of previous) values.set(name, value);
         throw error;

@@ -1,2 +1,23 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {isQualifiedPatrolNpc} from './targets.ts';
-test('authored pirate type requires its exact native corporation and excludes players, law and structures',()=>{const row={itemID:9,kind:'ship',categoryID:11,isNpc:true,isSelf:false,geometryAvailable:true,npcEntityType:'npc',typeID:2012,groupID:597,ownerID:1000138,characterID:null};assert.equal(isQualifiedPatrolNpc(row),true);assert.equal(isQualifiedPatrolNpc({...row,ownerID:1000139}),false);assert.equal(isQualifiedPatrolNpc({...row,characterID:90000001}),false);assert.equal(isQualifiedPatrolNpc({...row,npcEntityType:'concord'}),false);assert.equal(isQualifiedPatrolNpc({...row,typeID:26727,groupID:319}),false);});
+import test from "node:test";
+import assert from "node:assert/strict";
+import { isQualifiedPatrolNpc } from "./targets.ts";
+test("authored pirate type requires its exact native corporation and excludes players, law and structures", () => {
+  const row = {
+    itemID: 9,
+    kind: "ship",
+    categoryID: 11,
+    isNpc: true,
+    isSelf: false,
+    geometryAvailable: true,
+    npcEntityType: "npc",
+    typeID: 2012,
+    groupID: 597,
+    ownerID: 1000138,
+    characterID: null,
+  };
+  assert.equal(isQualifiedPatrolNpc(row), true);
+  assert.equal(isQualifiedPatrolNpc({ ...row, ownerID: 1000139 }), false);
+  assert.equal(isQualifiedPatrolNpc({ ...row, characterID: 90000001 }), false);
+  assert.equal(isQualifiedPatrolNpc({ ...row, npcEntityType: "concord" }), false);
+  assert.equal(isQualifiedPatrolNpc({ ...row, typeID: 26727, groupID: 319 }), false);
+});

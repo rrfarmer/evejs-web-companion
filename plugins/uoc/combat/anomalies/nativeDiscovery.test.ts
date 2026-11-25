@@ -1,6 +1,83 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {createCombatDiscovery} from "./nativeDiscovery.ts";
-const dict=(entries:any[]=[])=>({type:"dict",entries}),kv=(entries:any[])=>({type:"object",name:"util.KeyVal",args:dict(entries)}),list=(items:any[])=>({type:"list",items});
-test("held pilot reads its exact scanner only through the allowed native scanner without mutation",async()=>{const calls:string[]=[];const scan=[dict([[55,kv([["targetID","ABC"],["instanceID",89],["siteID",89],["dungeonID",5579],["archetypeID",24],["solarSystemID",300],["position",[1,2,3]]])]]),dict(),dict(),dict()];const session:any={store:{station:{get:()=>({online:{characterID:1}})}},flow:{requestOptions:()=>({}),flying:{bridgeAsk:async(service:string,method:string,args:unknown[])=>{calls.push(`${service}.${method}`);assert.deepEqual(args,[]);if(service==="scanMgr")return scan;throw Error("unexpected native call")}}}};const run:any={characterID:1,baseUrl:"http://bff",fetch:async(input:unknown)=>{assert.equal(new URL(String(input)).pathname,"/api/bridge/flight/status");return Response.json({ok:true,flight:{shipID:11,solarSystemID:300,docked:true,inSpace:false,stationID:600}})}};const read=createCombatDiscovery(run,session,{shipID:11,systemID:300,current(){},catalog:[{dungeonID:5579,enabled:true,entryRoomID:0,typeGroups:{"11040":550}}],now:()=>1000});const sites=await read();assert.equal(sites[0]?.instanceID,89);assert.deepEqual(calls,["scanMgr.GetFullState"]);});
-test("held session change refuses before any native scanner read",async()=>{let called=false;const run:any={characterID:1,baseUrl:"http://bff",fetch:async()=>{called=true;throw Error("not expected")}},session:any={store:{station:{get:()=>({online:{characterID:2}})}},flow:{requestOptions:()=>({}),flying:{bridgeAsk:async()=>null}}};await assert.rejects(createCombatDiscovery(run,session,{shipID:11,systemID:300,current(){},catalog:[]})(),/pilot changed/);assert.equal(called,false);});
+import { createCombatDiscovery } from "./nativeDiscovery.ts";
+const dict = (entries: any[] = []) => ({ type: "dict", entries }),
+  kv = (entries: any[]) => ({ type: "object", name: "util.KeyVal", args: dict(entries) }),
+  list = (items: any[]) => ({ type: "list", items });
+test("held pilot reads its exact scanner only through the allowed native scanner without mutation", async () => {
+  const calls: string[] = [];
+  const scan = [
+    dict([
+      [
+        55,
+        kv([
+          ["targetID", "ABC"],
+          ["instanceID", 89],
+          ["siteID", 89],
+          ["dungeonID", 5579],
+          ["archetypeID", 24],
+          ["solarSystemID", 300],
+          ["position", [1, 2, 3]],
+        ]),
+      ],
+    ]),
+    dict(),
+    dict(),
+    dict(),
+  ];
+  const session: any = {
+    store: { station: { get: () => ({ online: { characterID: 1 } }) } },
+    flow: {
+      requestOptions: () => ({}),
+      flying: {
+        bridgeAsk: async (service: string, method: string, args: unknown[]) => {
+          calls.push(`${service}.${method}`);
+          assert.deepEqual(args, []);
+          if (service === "scanMgr") return scan;
+          throw Error("unexpected native call");
+        },
+      },
+    },
+  };
+  const run: any = {
+    characterID: 1,
+    baseUrl: "http://bff",
+    fetch: async (input: unknown) => {
+      assert.equal(new URL(String(input)).pathname, "/api/bridge/flight/status");
+      return Response.json({
+        ok: true,
+        flight: { shipID: 11, solarSystemID: 300, docked: true, inSpace: false, stationID: 600 },
+      });
+    },
+  };
+  const read = createCombatDiscovery(run, session, {
+    shipID: 11,
+    systemID: 300,
+    current() {},
+    catalog: [{ dungeonID: 5579, enabled: true, entryRoomID: 0, typeGroups: { "11040": 550 } }],
+    now: () => 1000,
+  });
+  const sites = await read();
+  assert.equal(sites[0]?.instanceID, 89);
+  assert.deepEqual(calls, ["scanMgr.GetFullState"]);
+});
+test("held session change refuses before any native scanner read", async () => {
+  let called = false;
+  const run: any = {
+      characterID: 1,
+      baseUrl: "http://bff",
+      fetch: async () => {
+        called = true;
+        throw Error("not expected");
+      },
+    },
+    session: any = {
+      store: { station: { get: () => ({ online: { characterID: 2 } }) } },
+      flow: { requestOptions: () => ({}), flying: { bridgeAsk: async () => null } },
+    };
+  await assert.rejects(
+    createCombatDiscovery(run, session, { shipID: 11, systemID: 300, current() {}, catalog: [] })(),
+    /pilot changed/,
+  );
+  assert.equal(called, false);
+});

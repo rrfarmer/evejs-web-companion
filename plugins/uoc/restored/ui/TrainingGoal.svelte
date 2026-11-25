@@ -1,45 +1,95 @@
 <script lang="ts">
-  import ShipMastery from './ShipMastery.svelte';
-  import TrainingEstimate from './TrainingEstimate.svelte';
-  import {FITTING_TIERS,type PlanDepth} from '../training/planner.ts';
-  import {readTrainingHullGoals, readTrainingFittingGoals, runTrainingGoal, type ApiOptions } from "../adapters/training.ts";
+  import ShipMastery from "./ShipMastery.svelte";
+  import TrainingEstimate from "./TrainingEstimate.svelte";
+  import { FITTING_TIERS, type PlanDepth } from "../training/planner.ts";
+  import {
+    readTrainingHullGoals,
+    readTrainingFittingGoals,
+    runTrainingGoal,
+    type ApiOptions,
+  } from "../adapters/training.ts";
 
   import type { FundingPolicy, TrainingSheet } from "../training/types.ts";
   import type { TrainingWallet } from "../training/settings.ts";
   import { currentTrainingRequirements } from "../../training/queue.ts";
-  let { characterID, options, fundingPolicy, trainingWallet, worldID = null, latestSheet, queueChanged }: {
-    characterID: number; options: ApiOptions;
-    fundingPolicy: FundingPolicy; worldID?: string | null;
-    latestSheet: TrainingSheet | null; queueChanged: (sheet: TrainingSheet) => void;
+  let {
+    characterID,
+    options,
+    fundingPolicy,
+    trainingWallet,
+    worldID = null,
+    latestSheet,
+    queueChanged,
+  }: {
+    characterID: number;
+    options: ApiOptions;
+    fundingPolicy: FundingPolicy;
+    worldID?: string | null;
+    latestSheet: TrainingSheet | null;
+    queueChanged: (sheet: TrainingSheet) => void;
     trainingWallet: TrainingWallet | null;
   } = $props();
-  let query = $state(""), selected = $state(0), busy = $state(false);
+  let query = $state(""),
+    selected = $state(0),
+    busy = $state(false);
   let goals = $state<{ typeID: number; name: string }[]>([]);
-  let kind=$state<"FITTING"|"HULL">("FITTING");
-  let planDepth=$state<PlanDepth>('FAST');
-  let excludedOptionalTypeIDs=$state<number[]>([]);
-  let library=$state<Awaited<ReturnType<typeof readTrainingFittingGoals>>|null>(null);
-  let group=$state(0), hull=$state(0), fitting=$state(0);
-  const fits=$derived((library?.choices??[]).filter(f=>(!group||f.groupID===group)&&(!hull||f.shipTypeID===hull)));
-  const selectedFit=$derived(fits.find(f=>f.fittingID===fitting));
-  const groups=$derived([...new Map((library?.choices??[]).filter(f=>f.groupID).map(f=>[f.groupID!,f.groupName]))].sort((a,b)=>a[1].localeCompare(b[1])));
-  const hulls=$derived([...new Map((library?.choices??[]).filter(f=>!group||f.groupID===group).map(f=>[f.shipTypeID,f.hullName]))].sort((a,b)=>a[1].localeCompare(b[1])));
+  let kind = $state<"FITTING" | "HULL">("FITTING");
+  let planDepth = $state<PlanDepth>("FAST");
+  let excludedOptionalTypeIDs = $state<number[]>([]);
+  let library = $state<Awaited<ReturnType<typeof readTrainingFittingGoals>> | null>(null);
+  let group = $state(0),
+    hull = $state(0),
+    fitting = $state(0);
+  const fits = $derived(
+    (library?.choices ?? []).filter(
+      (f) => (!group || f.groupID === group) && (!hull || f.shipTypeID === hull),
+    ),
+  );
+  const selectedFit = $derived(fits.find((f) => f.fittingID === fitting));
+  const groups = $derived(
+    [
+      ...new Map(
+        (library?.choices ?? []).filter((f) => f.groupID).map((f) => [f.groupID!, f.groupName]),
+      ),
+    ].sort((a, b) => a[1].localeCompare(b[1])),
+  );
+  const hulls = $derived(
+    [
+      ...new Map(
+        (library?.choices ?? [])
+          .filter((f) => !group || f.groupID === group)
+          .map((f) => [f.shipTypeID, f.hullName]),
+      ),
+    ].sort((a, b) => a[1].localeCompare(b[1])),
+  );
   let result = $state<Awaited<ReturnType<typeof runTrainingGoal>>["outcome"] | null>(null);
   let sheetAtReview = $state<TrainingSheet | null>(null);
-  const updatedSheet = $derived(result?.phase === "PREVIEW" && latestSheet === sheetAtReview ? null : latestSheet);
-  const displayedQueue = $derived(result?.queue ? updatedSheet?.queue ?? result.queue : null);
-  const displayedRequirements = $derived(currentTrainingRequirements(result?.requirements ?? [], updatedSheet));
-  const remainingTrainingMs = $derived(displayedQueue?.active && displayedQueue.endTimeMs
-    ? Math.max(0, displayedQueue.endTimeMs - Date.now())
-    : displayedQueue?.active && !updatedSheet ? result?.remainingTrainingMs : null);
+  const updatedSheet = $derived(
+    result?.phase === "PREVIEW" && latestSheet === sheetAtReview ? null : latestSheet,
+  );
+  const displayedQueue = $derived(result?.queue ? (updatedSheet?.queue ?? result.queue) : null);
+  const displayedRequirements = $derived(
+    currentTrainingRequirements(result?.requirements ?? [], updatedSheet),
+  );
+  const remainingTrainingMs = $derived(
+    displayedQueue?.active && displayedQueue.endTimeMs
+      ? Math.max(0, displayedQueue.endTimeMs - Date.now())
+      : displayedQueue?.active && !updatedSheet
+        ? result?.remainingTrainingMs
+        : null,
+  );
   let message = $state("");
-  const status = $derived(result ? ({
-    PREVIEW: "Training plan",
-    BLOCKED: "Training needs attention",
-    QUEUE_VERIFIED: "Training queue verified",
-    ALREADY_TRAINED_OR_QUEUED: "Requirements already trained or queued",
-    BOOKS_DEFERRED: "Skillbook purchase deferred",
-  }[result.phase] ?? "Training status unavailable") : null);
+  const status = $derived(
+    result
+      ? ({
+          PREVIEW: "Training plan",
+          BLOCKED: "Training needs attention",
+          QUEUE_VERIFIED: "Training queue verified",
+          ALREADY_TRAINED_OR_QUEUED: "Requirements already trained or queued",
+          BOOKS_DEFERRED: "Skillbook purchase deferred",
+        }[result.phase] ?? "Training status unavailable")
+      : null,
+  );
   function resetReview() {
     result = null;
     excludedOptionalTypeIDs = [];
@@ -47,38 +97,78 @@
   }
   function toggleSkill(typeID: number, checked: boolean) {
     excludedOptionalTypeIDs = checked
-      ? excludedOptionalTypeIDs.filter(id => id !== typeID)
+      ? excludedOptionalTypeIDs.filter((id) => id !== typeID)
       : [...excludedOptionalTypeIDs, typeID];
     void execute("PREVIEW");
   }
   async function search() {
     if (busy || query.trim().length < 2) return;
-    busy = true; message = ""; goals = []; selected = 0; result = null;
-    try { goals = (await readTrainingHullGoals(query.trim(), options)).goals; }
-    catch (error) { message = error instanceof Error ? error.message : String(error); }
-    finally { busy = false; }
+    busy = true;
+    message = "";
+    goals = [];
+    selected = 0;
+    result = null;
+    try {
+      goals = (await readTrainingHullGoals(query.trim(), options)).goals;
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    } finally {
+      busy = false;
+    }
   }
   async function execute(mode: "PREVIEW" | "START") {
-    const choice=kind==="FITTING"?selectedFit:null, goalTypeID=choice?.shipTypeID??(kind==="HULL"?selected:0);
+    const choice = kind === "FITTING" ? selectedFit : null,
+      goalTypeID = choice?.shipTypeID ?? (kind === "HULL" ? selected : 0);
     if (busy || !goalTypeID) return;
-    busy = true; message = "";
+    busy = true;
+    message = "";
     try {
-      result = (await runTrainingGoal({ characterID, goalTypeID, mode,
-        ...(choice?{planDepth,excludedOptionalTypeIDs,reviewKey:result?.reviewKey}:{}),
-        ...(choice && library ? {goalFitting:{corporationID:library.corporationID,fittingID:choice.fittingID,fingerprint:choice.fingerprint}} : {}),
-        fundingPolicy, trainingWallet, worldID }, options)).outcome;
+      result = (
+        await runTrainingGoal(
+          {
+            characterID,
+            goalTypeID,
+            mode,
+            ...(choice ? { planDepth, excludedOptionalTypeIDs, reviewKey: result?.reviewKey } : {}),
+            ...(choice && library
+              ? {
+                  goalFitting: {
+                    corporationID: library.corporationID,
+                    fittingID: choice.fittingID,
+                    fingerprint: choice.fingerprint,
+                  },
+                }
+              : {}),
+            fundingPolicy,
+            trainingWallet,
+            worldID,
+          },
+          options,
+        )
+      ).outcome;
       if (mode === "PREVIEW") sheetAtReview = latestSheet;
       if (result.sheet) queueChanged(result.sheet);
     } catch (error) {
-      if(mode==="PREVIEW")result=null;
+      if (mode === "PREVIEW") result = null;
       message = error instanceof Error ? error.message : String(error);
-    } finally { busy = false; }
+    } finally {
+      busy = false;
+    }
   }
   async function loadLibrary() {
-    busy=true;resetReview();fitting=0;group=0;hull=0;
-    try {library=await readTrainingFittingGoals(characterID,options);}
-    catch(error){library=null;message=error instanceof Error?error.message:String(error);}
-    finally{busy=false;}
+    busy = true;
+    resetReview();
+    fitting = 0;
+    group = 0;
+    hull = 0;
+    try {
+      library = await readTrainingFittingGoals(characterID, options);
+    } catch (error) {
+      library = null;
+      message = error instanceof Error ? error.message : String(error);
+    } finally {
+      busy = false;
+    }
   }
 </script>
 
@@ -177,10 +267,35 @@
  {/key}
 {/if}
 <style>
-  section { margin-block:1rem; border-block:1px solid #405062; padding-block:.75rem; }
-  .choices { display:flex; flex-wrap:wrap; align-items:end; gap:.75rem; }
-  label { display:grid; gap:.35rem; }
-  .recommendation { display:flex; align-items:flex-start; gap:.5rem; margin:.45rem 0; }
-  .recommendation small { display:block; }
-  input,select { padding:.4rem; color:inherit; background:#16202e; border:1px solid #455569; }
+  section {
+    margin-block: 1rem;
+    border-block: 1px solid #405062;
+    padding-block: 0.75rem;
+  }
+  .choices {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.75rem;
+  }
+  label {
+    display: grid;
+    gap: 0.35rem;
+  }
+  .recommendation {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin: 0.45rem 0;
+  }
+  .recommendation small {
+    display: block;
+  }
+  input,
+  select {
+    padding: 0.4rem;
+    color: inherit;
+    background: #16202e;
+    border: 1px solid #455569;
+  }
 </style>

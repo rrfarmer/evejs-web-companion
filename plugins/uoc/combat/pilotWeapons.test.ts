@@ -1,18 +1,436 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {createPilotFighter,SecurityTargetUnobserved} from './pilotFighter.ts';
-test('the native fighter locks once and confirms the exact weapon effect without drones',async()=>{
- let active=false;const writes:string[]=[];const documents=()=>{let value:unknown=null;return {read:()=>value,write:(v:unknown)=>{value=structuredClone(v)}}};const moduleDocuments={locks:documents(),actions:documents()};
- const module={itemID:7,typeID:100,online:true,charge:null};const fit={activeShipID:3,slotsError:null,slots:[{family:'high',index:0,module}]};const long=(value:string)=>({type:'long',value});const effect=(id:number,target:number|null)=>[7,1,3,target,null,[],id,long('134385165369120001'),id===16?-1:60000,1];
- const info=()=>({type:'object',name:'util.KeyVal',args:{type:'dict',entries:[['itemID',7],['invItem',{type:'packedrow',fields:{itemID:7,typeID:100,ownerID:1,locationID:3,flagID:27}}],['activeEffects',{type:'dict',entries:[[16,effect(16,null)],...(active?[[67,effect(67,90)]]:[])]}],['attributes',{type:'dict',entries:[[54,500],[158,100],[160,1]]}],['time',long('134385165369180001')],['wallclockTime',long('134385165369179999')]]}});
- const ship={itemID:3,position:{x:0,y:0,z:0},radius:10,geometryAvailable:true,hullRatio:1},target={itemID:90,kind:'ship',position:{x:100,y:0,z:0},radius:10,geometryAvailable:true,shieldRatio:1,armorRatio:1,hullRatio:1};
- const fighter=createPilotFighter<{kind:'fixture'}>({run:{botID:'bot',characterID:1} as any,session:()=>({store:{fitting:{get:()=>fit}},flow:{flying:{readFit:async()=>true,resolveDefenseModuleIDs:()=>({weapons:[7],shield:[],armor:[],hull:[],hardeners:[]}),resolveRemoteRepModuleIDs:()=>({shield:[],armor:[],hull:[],cap:[]}),fittedModuleActivation:()=> 'activatable',classifyDroneRoles:async()=>({bay:{combat:[]},out:{combat:[]}}),bridgeDo:async(_service:string,method:string,args:unknown[])=>{writes.push(method);if(method==='Activate'){assert.deepEqual(args,[7,'',90,-1]);active=true;}return null;}}}} as any),state:{currentIdentity:null,entryAnchor:{x:0,y:0,z:0},droneUnresolved:false},current(){},guard(){},flight:async()=>({inSpace:true,shipID:3}),scene:async()=>({shipID:3,ship,entities:[target],sampledAtMs:1,inSpace:true}) as any,mission:async()=>({}),dungeon:async()=>null,ask:async(_service,method)=>method==='List'?{type:'list',items:[]}:method==='ItemGetInfo'?info():null,diagnostic(){},droneSample:()=>null,fenceCombat:async()=>{},sleep:async()=>{},moduleDocuments,isQualifiedTarget:(_id,e)=>e.itemID===90,confirmTargetAbsent:async()=>false});
- await fighter.tick({kind:'fixture'},()=>{});await fighter.tick({kind:'fixture'},()=>{});assert.deepEqual(writes,['AddTarget','Activate']);assert.equal((moduleDocuments.actions.read() as any).entries[0].status,'CONFIRMED');
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createPilotFighter, SecurityTargetUnobserved } from "./pilotFighter.ts";
+test("the native fighter locks once and confirms the exact weapon effect without drones", async () => {
+  let active = false;
+  const writes: string[] = [];
+  const documents = () => {
+    let value: unknown = null;
+    return {
+      read: () => value,
+      write: (v: unknown) => {
+        value = structuredClone(v);
+      },
+    };
+  };
+  const moduleDocuments = { locks: documents(), actions: documents() };
+  const module = { itemID: 7, typeID: 100, online: true, charge: null };
+  const fit = { activeShipID: 3, slotsError: null, slots: [{ family: "high", index: 0, module }] };
+  const long = (value: string) => ({ type: "long", value });
+  const effect = (id: number, target: number | null) => [
+    7,
+    1,
+    3,
+    target,
+    null,
+    [],
+    id,
+    long("134385165369120001"),
+    id === 16 ? -1 : 60000,
+    1,
+  ];
+  const info = () => ({
+    type: "object",
+    name: "util.KeyVal",
+    args: {
+      type: "dict",
+      entries: [
+        ["itemID", 7],
+        [
+          "invItem",
+          {
+            type: "packedrow",
+            fields: { itemID: 7, typeID: 100, ownerID: 1, locationID: 3, flagID: 27 },
+          },
+        ],
+        [
+          "activeEffects",
+          {
+            type: "dict",
+            entries: [[16, effect(16, null)], ...(active ? [[67, effect(67, 90)]] : [])],
+          },
+        ],
+        [
+          "attributes",
+          {
+            type: "dict",
+            entries: [
+              [54, 500],
+              [158, 100],
+              [160, 1],
+            ],
+          },
+        ],
+        ["time", long("134385165369180001")],
+        ["wallclockTime", long("134385165369179999")],
+      ],
+    },
+  });
+  const ship = {
+      itemID: 3,
+      position: { x: 0, y: 0, z: 0 },
+      radius: 10,
+      geometryAvailable: true,
+      hullRatio: 1,
+    },
+    target = {
+      itemID: 90,
+      kind: "ship",
+      position: { x: 100, y: 0, z: 0 },
+      radius: 10,
+      geometryAvailable: true,
+      shieldRatio: 1,
+      armorRatio: 1,
+      hullRatio: 1,
+    };
+  const fighter = createPilotFighter<{ kind: "fixture" }>({
+    run: { botID: "bot", characterID: 1 } as any,
+    session: () =>
+      ({
+        store: { fitting: { get: () => fit } },
+        flow: {
+          flying: {
+            readFit: async () => true,
+            resolveDefenseModuleIDs: () => ({
+              weapons: [7],
+              shield: [],
+              armor: [],
+              hull: [],
+              hardeners: [],
+            }),
+            resolveRemoteRepModuleIDs: () => ({ shield: [], armor: [], hull: [], cap: [] }),
+            fittedModuleActivation: () => "activatable",
+            classifyDroneRoles: async () => ({ bay: { combat: [] }, out: { combat: [] } }),
+            bridgeDo: async (_service: string, method: string, args: unknown[]) => {
+              writes.push(method);
+              if (method === "Activate") {
+                assert.deepEqual(args, [7, "", 90, -1]);
+                active = true;
+              }
+              return null;
+            },
+          },
+        },
+      }) as any,
+    state: { currentIdentity: null, entryAnchor: { x: 0, y: 0, z: 0 }, droneUnresolved: false },
+    current() {},
+    guard() {},
+    flight: async () => ({ inSpace: true, shipID: 3 }),
+    scene: async () =>
+      ({ shipID: 3, ship, entities: [target], sampledAtMs: 1, inSpace: true }) as any,
+    mission: async () => ({}),
+    dungeon: async () => null,
+    ask: async (_service, method) =>
+      method === "List" ? { type: "list", items: [] } : method === "ItemGetInfo" ? info() : null,
+    diagnostic() {},
+    droneSample: () => null,
+    fenceCombat: async () => {},
+    sleep: async () => {},
+    moduleDocuments,
+    isQualifiedTarget: (_id, e) => e.itemID === 90,
+    confirmTargetAbsent: async () => false,
+  });
+  await fighter.tick({ kind: "fixture" }, () => {});
+  await fighter.tick({ kind: "fixture" }, () => {});
+  assert.deepEqual(writes, ["AddTarget", "Activate"]);
+  assert.equal((moduleDocuments.actions.read() as any).entries[0].status, "CONFIRMED");
 });
-test('an ACK followed by a fresh absent target and inactive module retires without a kill claim or replay',async()=>{let gone=false,sample=0;const calls:string[]=[],document=()=>{let v:unknown=null;return {read:()=>v,write:(x:unknown)=>{v=structuredClone(x)}}},docs={locks:document(),actions:document()},module={itemID:7,typeID:100,online:true,charge:null},fit={activeShipID:3,slotsError:null,slots:[{family:'high',index:0,module}]},long=(value:string)=>({type:'long',value}),effect=[7,1,3,null,null,[],16,long('134385165369120001'),-1,1],info={type:'object',name:'util.KeyVal',args:{type:'dict',entries:[['itemID',7],['invItem',{type:'packedrow',fields:{itemID:7,typeID:100,ownerID:1,locationID:3,flagID:27}}],['activeEffects',{type:'dict',entries:[[16,effect]]}],['attributes',{type:'dict',entries:[[54,500],[158,100],[160,1]]}],['time',long('134385165369180001')],['wallclockTime',long('134385165369179999')]]}},ship={itemID:3,position:{x:0,y:0,z:0},radius:10,geometryAvailable:true,hullRatio:1},target={itemID:90,kind:'ship',position:{x:100,y:0,z:0},radius:10,geometryAvailable:true,shieldRatio:1,armorRatio:1,hullRatio:1};
- const fighter=createPilotFighter<{kind:'fixture'}>({run:{botID:'fast',characterID:1} as any,session:()=>({store:{fitting:{get:()=>fit}},flow:{flying:{readFit:async()=>true,resolveDefenseModuleIDs:()=>({weapons:[7],shield:[],armor:[],hull:[],hardeners:[]}),resolveRemoteRepModuleIDs:()=>({shield:[],armor:[],hull:[],cap:[]}),fittedModuleActivation:()=> 'activatable',classifyDroneRoles:async()=>({bay:{combat:[]},out:{combat:[]}}),bridgeDo:async(_service:string,method:string)=>{calls.push(method);if(method==='Activate')gone=true;return null;}}}} as any),state:{currentIdentity:null,entryAnchor:{x:0,y:0,z:0},droneUnresolved:false},current(){},guard(){},flight:async()=>({inSpace:true,shipID:3}),scene:async()=>({shipID:3,ship,entities:gone?[]:[target],sampledAtMs:++sample,inSpace:true}) as any,mission:async()=>({}),dungeon:async()=>null,ask:async(_s,method)=>method==='List'?{type:'list',items:[]}:method==='ItemGetInfo'?info:null,diagnostic(){},droneSample:()=>null,fenceCombat:async(t)=>{if(t!==null&&gone)throw new SecurityTargetUnobserved('gone');},sleep:async()=>{},moduleDocuments:docs,isQualifiedTarget:(_id,e)=>e.itemID===90,confirmTargetAbsent:async()=>false});await fighter.tick({kind:'fixture'},()=>{});assert.deepEqual(calls,['AddTarget','Activate']);assert.equal((docs.actions.read() as any).entries[0].status,'SETTLED_ABSENT');});
-test('empty compatible weapon loads one owned non-FOF cargo stack before its single attack',async()=>{
- let active=false,loaded=false;const calls:string[]=[],document=()=>{let v:unknown=null;return {read:()=>v,write:(x:unknown)=>{v=structuredClone(x)}}};const docs={locks:document(),actions:document(),reloads:document()},module={itemID:7,typeID:100,online:true,charge:null as null|{itemID:number;typeID:number;quantity:number}},fit={activeShipID:3,slotsError:null,chargeFits:{100:{size:1,groups:[9]}},slots:[{family:'high',index:0,module}]};
- const long=(value:string)=>({type:'long',value}),effect=(id:number,target:number|null)=>[7,1,3,target,null,[],id,long('134385165369120001'),id===16?-1:60000,1],info=()=>({type:'object',name:'util.KeyVal',args:{type:'dict',entries:[['itemID',7],['invItem',{type:'packedrow',fields:{itemID:7,typeID:100,ownerID:1,locationID:3,flagID:27}}],['activeEffects',{type:'dict',entries:[[16,effect(16,null)],...(active?[[67,effect(67,90)]]:[])]}],['attributes',{type:'dict',entries:[[54,500],[158,100],[160,1]]}],['time',long('134385165369180001')],['wallclockTime',long('134385165369179999')]]}});
- const ship={itemID:3,position:{x:0,y:0,z:0},radius:10,geometryAvailable:true,hullRatio:1},target={itemID:90,kind:'ship',position:{x:100,y:0,z:0},radius:10,geometryAvailable:true,shieldRatio:1,armorRatio:1,hullRatio:1};
- const fighter=createPilotFighter<{kind:'fixture'}>({run:{botID:'reload',characterID:1} as any,session:()=>({store:{fitting:{get:()=>fit}},flow:{flying:{readFit:async()=>true,resolveDefenseModuleIDs:()=>({weapons:[7],shield:[],armor:[],hull:[],hardeners:[]}),resolveRemoteRepModuleIDs:()=>({shield:[],armor:[],hull:[],cap:[]}),fittedModuleActivation:()=> 'activatable',attributesOfTypes:async(types:number[])=>Object.fromEntries(types.map(t=>[t,{128:1,37:100,281:10000}])),classifyDroneRoles:async()=>({bay:{combat:[]},out:{combat:[]}}),loadAmmoFrom:async(ids:number[],items:number[],source:string)=>{assert.deepEqual([ids,items,source],[[7],[20],'cargo']);calls.push('reload');loaded=true;module.charge={itemID:20,typeID:101,quantity:3};},bridgeDo:async(_service:string,method:string)=>{calls.push(method);if(method==='Activate')active=true;return null;}}}} as any),state:{currentIdentity:null,entryAnchor:{x:0,y:0,z:0},droneUnresolved:false},current(){},guard(){},flight:async()=>({inSpace:true,shipID:3}),scene:async()=>({shipID:3,ship,entities:[target],sampledAtMs:1,inSpace:true}) as any,mission:async()=>({}),dungeon:async()=>null,ask:async(_service,method,args)=>method==='List'?{type:'list',items:args?.[0]===5?[{itemID:20,typeID:101,ownerID:1,locationID:3,flagID:5,quantity:3,groupID:9,categoryID:8}]:[]}:method==='ItemGetInfo'?info():null,diagnostic(){},droneSample:()=>null,fenceCombat:async()=>{},sleep:async()=>{},moduleDocuments:docs,isQualifiedTarget:(_id,e)=>e.itemID===90,confirmTargetAbsent:async()=>false});
- await fighter.tick({kind:'fixture'},()=>{});assert.equal(loaded,true);module.charge=null;active=false;await fighter.tick({kind:'fixture'},()=>{});assert.deepEqual(calls,['reload','AddTarget','Activate','reload','Activate']);assert.deepEqual((docs.reloads.read() as any).rows.map((r:any)=>r.status),['CONFIRMED','CONFIRMED']);
+test("an ACK followed by a fresh absent target and inactive module retires without a kill claim or replay", async () => {
+  let gone = false,
+    sample = 0;
+  const calls: string[] = [],
+    document = () => {
+      let v: unknown = null;
+      return {
+        read: () => v,
+        write: (x: unknown) => {
+          v = structuredClone(x);
+        },
+      };
+    },
+    docs = { locks: document(), actions: document() },
+    module = { itemID: 7, typeID: 100, online: true, charge: null },
+    fit = { activeShipID: 3, slotsError: null, slots: [{ family: "high", index: 0, module }] },
+    long = (value: string) => ({ type: "long", value }),
+    effect = [7, 1, 3, null, null, [], 16, long("134385165369120001"), -1, 1],
+    info = {
+      type: "object",
+      name: "util.KeyVal",
+      args: {
+        type: "dict",
+        entries: [
+          ["itemID", 7],
+          [
+            "invItem",
+            {
+              type: "packedrow",
+              fields: { itemID: 7, typeID: 100, ownerID: 1, locationID: 3, flagID: 27 },
+            },
+          ],
+          ["activeEffects", { type: "dict", entries: [[16, effect]] }],
+          [
+            "attributes",
+            {
+              type: "dict",
+              entries: [
+                [54, 500],
+                [158, 100],
+                [160, 1],
+              ],
+            },
+          ],
+          ["time", long("134385165369180001")],
+          ["wallclockTime", long("134385165369179999")],
+        ],
+      },
+    },
+    ship = {
+      itemID: 3,
+      position: { x: 0, y: 0, z: 0 },
+      radius: 10,
+      geometryAvailable: true,
+      hullRatio: 1,
+    },
+    target = {
+      itemID: 90,
+      kind: "ship",
+      position: { x: 100, y: 0, z: 0 },
+      radius: 10,
+      geometryAvailable: true,
+      shieldRatio: 1,
+      armorRatio: 1,
+      hullRatio: 1,
+    };
+  const fighter = createPilotFighter<{ kind: "fixture" }>({
+    run: { botID: "fast", characterID: 1 } as any,
+    session: () =>
+      ({
+        store: { fitting: { get: () => fit } },
+        flow: {
+          flying: {
+            readFit: async () => true,
+            resolveDefenseModuleIDs: () => ({
+              weapons: [7],
+              shield: [],
+              armor: [],
+              hull: [],
+              hardeners: [],
+            }),
+            resolveRemoteRepModuleIDs: () => ({ shield: [], armor: [], hull: [], cap: [] }),
+            fittedModuleActivation: () => "activatable",
+            classifyDroneRoles: async () => ({ bay: { combat: [] }, out: { combat: [] } }),
+            bridgeDo: async (_service: string, method: string) => {
+              calls.push(method);
+              if (method === "Activate") gone = true;
+              return null;
+            },
+          },
+        },
+      }) as any,
+    state: { currentIdentity: null, entryAnchor: { x: 0, y: 0, z: 0 }, droneUnresolved: false },
+    current() {},
+    guard() {},
+    flight: async () => ({ inSpace: true, shipID: 3 }),
+    scene: async () =>
+      ({
+        shipID: 3,
+        ship,
+        entities: gone ? [] : [target],
+        sampledAtMs: ++sample,
+        inSpace: true,
+      }) as any,
+    mission: async () => ({}),
+    dungeon: async () => null,
+    ask: async (_s, method) =>
+      method === "List" ? { type: "list", items: [] } : method === "ItemGetInfo" ? info : null,
+    diagnostic() {},
+    droneSample: () => null,
+    fenceCombat: async (t) => {
+      if (t !== null && gone) throw new SecurityTargetUnobserved("gone");
+    },
+    sleep: async () => {},
+    moduleDocuments: docs,
+    isQualifiedTarget: (_id, e) => e.itemID === 90,
+    confirmTargetAbsent: async () => false,
+  });
+  await fighter.tick({ kind: "fixture" }, () => {});
+  assert.deepEqual(calls, ["AddTarget", "Activate"]);
+  assert.equal((docs.actions.read() as any).entries[0].status, "SETTLED_ABSENT");
+});
+test("empty compatible weapon loads one owned non-FOF cargo stack before its single attack", async () => {
+  let active = false,
+    loaded = false;
+  const calls: string[] = [],
+    document = () => {
+      let v: unknown = null;
+      return {
+        read: () => v,
+        write: (x: unknown) => {
+          v = structuredClone(x);
+        },
+      };
+    };
+  const docs = { locks: document(), actions: document(), reloads: document() },
+    module = {
+      itemID: 7,
+      typeID: 100,
+      online: true,
+      charge: null as null | { itemID: number; typeID: number; quantity: number },
+    },
+    fit = {
+      activeShipID: 3,
+      slotsError: null,
+      chargeFits: { 100: { size: 1, groups: [9] } },
+      slots: [{ family: "high", index: 0, module }],
+    };
+  const long = (value: string) => ({ type: "long", value }),
+    effect = (id: number, target: number | null) => [
+      7,
+      1,
+      3,
+      target,
+      null,
+      [],
+      id,
+      long("134385165369120001"),
+      id === 16 ? -1 : 60000,
+      1,
+    ],
+    info = () => ({
+      type: "object",
+      name: "util.KeyVal",
+      args: {
+        type: "dict",
+        entries: [
+          ["itemID", 7],
+          [
+            "invItem",
+            {
+              type: "packedrow",
+              fields: { itemID: 7, typeID: 100, ownerID: 1, locationID: 3, flagID: 27 },
+            },
+          ],
+          [
+            "activeEffects",
+            {
+              type: "dict",
+              entries: [[16, effect(16, null)], ...(active ? [[67, effect(67, 90)]] : [])],
+            },
+          ],
+          [
+            "attributes",
+            {
+              type: "dict",
+              entries: [
+                [54, 500],
+                [158, 100],
+                [160, 1],
+              ],
+            },
+          ],
+          ["time", long("134385165369180001")],
+          ["wallclockTime", long("134385165369179999")],
+        ],
+      },
+    });
+  const ship = {
+      itemID: 3,
+      position: { x: 0, y: 0, z: 0 },
+      radius: 10,
+      geometryAvailable: true,
+      hullRatio: 1,
+    },
+    target = {
+      itemID: 90,
+      kind: "ship",
+      position: { x: 100, y: 0, z: 0 },
+      radius: 10,
+      geometryAvailable: true,
+      shieldRatio: 1,
+      armorRatio: 1,
+      hullRatio: 1,
+    };
+  const fighter = createPilotFighter<{ kind: "fixture" }>({
+    run: { botID: "reload", characterID: 1 } as any,
+    session: () =>
+      ({
+        store: { fitting: { get: () => fit } },
+        flow: {
+          flying: {
+            readFit: async () => true,
+            resolveDefenseModuleIDs: () => ({
+              weapons: [7],
+              shield: [],
+              armor: [],
+              hull: [],
+              hardeners: [],
+            }),
+            resolveRemoteRepModuleIDs: () => ({ shield: [], armor: [], hull: [], cap: [] }),
+            fittedModuleActivation: () => "activatable",
+            attributesOfTypes: async (types: number[]) =>
+              Object.fromEntries(types.map((t) => [t, { 128: 1, 37: 100, 281: 10000 }])),
+            classifyDroneRoles: async () => ({ bay: { combat: [] }, out: { combat: [] } }),
+            loadAmmoFrom: async (ids: number[], items: number[], source: string) => {
+              assert.deepEqual([ids, items, source], [[7], [20], "cargo"]);
+              calls.push("reload");
+              loaded = true;
+              module.charge = { itemID: 20, typeID: 101, quantity: 3 };
+            },
+            bridgeDo: async (_service: string, method: string) => {
+              calls.push(method);
+              if (method === "Activate") active = true;
+              return null;
+            },
+          },
+        },
+      }) as any,
+    state: { currentIdentity: null, entryAnchor: { x: 0, y: 0, z: 0 }, droneUnresolved: false },
+    current() {},
+    guard() {},
+    flight: async () => ({ inSpace: true, shipID: 3 }),
+    scene: async () =>
+      ({ shipID: 3, ship, entities: [target], sampledAtMs: 1, inSpace: true }) as any,
+    mission: async () => ({}),
+    dungeon: async () => null,
+    ask: async (_service, method, args) =>
+      method === "List"
+        ? {
+            type: "list",
+            items:
+              args?.[0] === 5
+                ? [
+                    {
+                      itemID: 20,
+                      typeID: 101,
+                      ownerID: 1,
+                      locationID: 3,
+                      flagID: 5,
+                      quantity: 3,
+                      groupID: 9,
+                      categoryID: 8,
+                    },
+                  ]
+                : [],
+          }
+        : method === "ItemGetInfo"
+          ? info()
+          : null,
+    diagnostic() {},
+    droneSample: () => null,
+    fenceCombat: async () => {},
+    sleep: async () => {},
+    moduleDocuments: docs,
+    isQualifiedTarget: (_id, e) => e.itemID === 90,
+    confirmTargetAbsent: async () => false,
+  });
+  await fighter.tick({ kind: "fixture" }, () => {});
+  assert.equal(loaded, true);
+  module.charge = null;
+  active = false;
+  await fighter.tick({ kind: "fixture" }, () => {});
+  assert.deepEqual(calls, ["reload", "AddTarget", "Activate", "reload", "Activate"]);
+  assert.deepEqual(
+    (docs.reloads.read() as any).rows.map((r: any) => r.status),
+    ["CONFIRMED", "CONFIRMED"],
+  );
 });

@@ -1,31 +1,297 @@
-import type {SynchronousStore} from '../targetBoard.ts';
-export interface OwnBurstObservation {characterID:number;shipID:number;moduleID:number;typeID:number;flagID:number;effectID:number;online:boolean;active:boolean;observedAt:number}
-export interface BurstObservation extends OwnBurstObservation {chargeTypeID:number;chargeItemID:number|null;chargeQuantity:number;cycleMs:number;rangeMeters:number;recipients:readonly {characterID:number;shipID:number;inFleet:boolean;distanceMeters:number;buffs:readonly {collectionID:number;value:number;expiresMs:number|null}[]}[];effectCollections:readonly number[]}
-type Pending={kind:'activate'|'deactivate';issuedAt:number;before:OwnBurstObservation;acknowledged:boolean};
-type State={version:1;identity:string;pending:Pending|null;history:{intent:Pending;after:OwnBurstObservation;observedAt:number;resolution?:"INACTIVE_ON_STOP"}[]};
-const positive=(n:unknown):n is number=>typeof n==='number'&&Number.isSafeInteger(n)&&n>0;
-const clone=<T>(x:T):T=>structuredClone(x);
-function validate(x:BurstObservation,identity:{characterID:number;shipID:number;moduleID:number;typeID:number},now:number){if(!x||x.characterID!==identity.characterID||x.shipID!==identity.shipID||x.moduleID!==identity.moduleID||x.typeID!==identity.typeID||![x.flagID,x.effectID,x.chargeTypeID].every(positive)||!(x.chargeItemID===null||positive(x.chargeItemID))||!Number.isSafeInteger(x.chargeQuantity)||x.chargeQuantity<0||!Number.isFinite(x.cycleMs)||x.cycleMs<=0||!Number.isFinite(x.rangeMeters)||x.rangeMeters<=0||typeof x.online!=='boolean'||typeof x.active!=='boolean'||!Number.isFinite(x.observedAt)||x.observedAt>now||now-x.observedAt>15000||!Array.isArray(x.recipients)||!Array.isArray(x.effectCollections)||x.effectCollections.some(i=>!positive(i))||new Set(x.effectCollections).size!==x.effectCollections.length||x.recipients.some(r=>!positive(r.characterID)||!positive(r.shipID)||typeof r.inFleet!=='boolean'||!Number.isFinite(r.distanceMeters)||r.distanceMeters<0||!Array.isArray(r.buffs)||r.buffs.some((b:{collectionID:number;value:number;expiresMs:number|null})=>!positive(b.collectionID)||!Number.isFinite(b.value)||!(b.expiresMs===null||typeof b.expiresMs==='number'&&Number.isFinite(b.expiresMs)))||new Set(r.buffs.map((b:{collectionID:number;value:number;expiresMs:number|null})=>b.collectionID)).size!==r.buffs.length)||new Set(x.recipients.map(r=>r.characterID)).size!==x.recipients.length||new Set(x.recipients.map(r=>r.shipID)).size!==x.recipients.length)throw Error('Native burst observation is incomplete.');}
+import type { SynchronousStore } from "../targetBoard.ts";
+export interface OwnBurstObservation {
+  characterID: number;
+  shipID: number;
+  moduleID: number;
+  typeID: number;
+  flagID: number;
+  effectID: number;
+  online: boolean;
+  active: boolean;
+  observedAt: number;
+}
+export interface BurstObservation extends OwnBurstObservation {
+  chargeTypeID: number;
+  chargeItemID: number | null;
+  chargeQuantity: number;
+  cycleMs: number;
+  rangeMeters: number;
+  recipients: readonly {
+    characterID: number;
+    shipID: number;
+    inFleet: boolean;
+    distanceMeters: number;
+    buffs: readonly { collectionID: number; value: number; expiresMs: number | null }[];
+  }[];
+  effectCollections: readonly number[];
+}
+type Pending = {
+  kind: "activate" | "deactivate";
+  issuedAt: number;
+  before: OwnBurstObservation;
+  acknowledged: boolean;
+};
+type State = {
+  version: 1;
+  identity: string;
+  pending: Pending | null;
+  history: {
+    intent: Pending;
+    after: OwnBurstObservation;
+    observedAt: number;
+    resolution?: "INACTIVE_ON_STOP";
+  }[];
+};
+const positive = (n: unknown): n is number =>
+  typeof n === "number" && Number.isSafeInteger(n) && n > 0;
+const clone = <T>(x: T): T => structuredClone(x);
+function validate(
+  x: BurstObservation,
+  identity: { characterID: number; shipID: number; moduleID: number; typeID: number },
+  now: number,
+) {
+  if (
+    !x ||
+    x.characterID !== identity.characterID ||
+    x.shipID !== identity.shipID ||
+    x.moduleID !== identity.moduleID ||
+    x.typeID !== identity.typeID ||
+    ![x.flagID, x.effectID, x.chargeTypeID].every(positive) ||
+    !(x.chargeItemID === null || positive(x.chargeItemID)) ||
+    !Number.isSafeInteger(x.chargeQuantity) ||
+    x.chargeQuantity < 0 ||
+    !Number.isFinite(x.cycleMs) ||
+    x.cycleMs <= 0 ||
+    !Number.isFinite(x.rangeMeters) ||
+    x.rangeMeters <= 0 ||
+    typeof x.online !== "boolean" ||
+    typeof x.active !== "boolean" ||
+    !Number.isFinite(x.observedAt) ||
+    x.observedAt > now ||
+    now - x.observedAt > 15000 ||
+    !Array.isArray(x.recipients) ||
+    !Array.isArray(x.effectCollections) ||
+    x.effectCollections.some((i) => !positive(i)) ||
+    new Set(x.effectCollections).size !== x.effectCollections.length ||
+    x.recipients.some(
+      (r) =>
+        !positive(r.characterID) ||
+        !positive(r.shipID) ||
+        typeof r.inFleet !== "boolean" ||
+        !Number.isFinite(r.distanceMeters) ||
+        r.distanceMeters < 0 ||
+        !Array.isArray(r.buffs) ||
+        r.buffs.some(
+          (b: { collectionID: number; value: number; expiresMs: number | null }) =>
+            !positive(b.collectionID) ||
+            !Number.isFinite(b.value) ||
+            !(
+              b.expiresMs === null ||
+              (typeof b.expiresMs === "number" && Number.isFinite(b.expiresMs))
+            ),
+        ) ||
+        new Set(
+          r.buffs.map(
+            (b: { collectionID: number; value: number; expiresMs: number | null }) =>
+              b.collectionID,
+          ),
+        ).size !== r.buffs.length,
+    ) ||
+    new Set(x.recipients.map((r) => r.characterID)).size !== x.recipients.length ||
+    new Set(x.recipients.map((r) => r.shipID)).size !== x.recipients.length
+  )
+    throw Error("Native burst observation is incomplete.");
+}
 /** A durable single-module controller: lost acknowledgement never causes replay. */
-export function createBurstController(config:{identity:{operationID:string;runID:string;characterID:number;shipID:number;moduleID:number;typeID:number};document:SynchronousStore;current:()=>void;activationCurrent?:()=>void;observe:()=>Promise<BurstObservation>;observeOwn:()=>Promise<OwnBurstObservation>;activate:()=>Promise<unknown>;deactivate:()=>Promise<unknown>;now?:()=>number}){
- const {identity,document,current}=config,now=config.now??Date.now;if(!identity.operationID||!identity.runID||![identity.characterID,identity.shipID,identity.moduleID,identity.typeID].every(positive))throw Error('Burst identity is invalid.');const key=JSON.stringify(identity);let state:State;const raw=document.read() as State|null;if(raw===null)state={version:1,identity:key,pending:null,history:[]};else{const validIntent=(p:Pending)=>!!p&&['activate','deactivate'].includes(p.kind)&&Number.isSafeInteger(p.issuedAt)&&p.issuedAt>0&&typeof p.acknowledged==='boolean'&&!!p.before&&p.before.characterID===identity.characterID&&p.before.shipID===identity.shipID&&p.before.moduleID===identity.moduleID&&p.before.typeID===identity.typeID;if(!raw||raw.version!==1||raw.identity!==key||!Array.isArray(raw.history)||raw.history.some(h=>!h||!validIntent(h.intent)||!h.after||h.after.characterID!==identity.characterID||h.after.shipID!==identity.shipID||h.after.moduleID!==identity.moduleID||h.after.typeID!==identity.typeID||!Number.isFinite(h.observedAt))||!(raw.pending===null||validIntent(raw.pending)))throw Error('Burst journal needs reconciliation.');state=clone(raw);}
- const save=(next:State)=>{current();document.write(clone(next));state=next;};
- const validateOwn=(x:OwnBurstObservation)=>{if(!x||x.characterID!==identity.characterID||x.shipID!==identity.shipID||x.moduleID!==identity.moduleID||x.typeID!==identity.typeID||![x.flagID,x.effectID].every(positive)||typeof x.online!=="boolean"||typeof x.active!=="boolean"||!Number.isFinite(x.observedAt)||x.observedAt>now()||now()-x.observedAt>15000)throw Error("Native own-module observation is incomplete.");};
- const observe=async()=>{current();config.activationCurrent?.();const x=await config.observe();current();config.activationCurrent?.();validate(x,identity,now());return x;};
- const own=async()=>{current();const x=await config.observeOwn();current();validateOwn(x);return x;};
- const match=(a:OwnBurstObservation,b:OwnBurstObservation)=>a.characterID===b.characterID&&a.shipID===b.shipID&&a.moduleID===b.moduleID&&a.typeID===b.typeID&&a.flagID===b.flagID&&a.effectID===b.effectID;
- async function reconcile(stopping=false){
-  if(!state.pending)return null;
-  const p=state.pending,after=await own();
-  if(!match(p.before,after)||after.observedAt<p.issuedAt)throw Error('Burst post-observation scope changed.');
-  const inactiveOnStop=stopping&&p.kind==='activate'&&!after.active;
-  if(!inactiveOnStop&&(p.kind==='activate'?!after.active:after.active))return null;
-  const receipt={intent:p,after,observedAt:now(),...(inactiveOnStop?{resolution:"INACTIVE_ON_STOP" as const}:{})};
-  save({...state,pending:null,history:[...state.history,receipt]});
-  return receipt;
- }
- async function order(kind:'activate'|'deactivate'){if(state.pending){const resolved=await reconcile(kind==='deactivate');if(!resolved)throw Error('Burst action outcome is unknown; no replay.');if(resolved.intent.kind===kind||resolved.resolution==="INACTIVE_ON_STOP")return resolved;}const before=kind==='activate'?await observe():await own();if(!before.online&&before.active)throw Error('Burst module active state is contradictory.');if(kind==='activate'){const full=before as BurstObservation;if(!full.online||full.active||full.chargeQuantity<=0||full.recipients.length===0||full.recipients.some(r=>!r.inFleet||r.distanceMeters>full.rangeMeters))throw Error('Burst charge, fleet, range or module state is not ready.');}if(kind==='deactivate'&&!before.active)return {intent:null,after:before,observedAt:now()};const issuedAt=now();const pending:Pending={kind,issuedAt,before,acknowledged:false};save({...state,pending});current();if(kind==='activate')config.activationCurrent?.();await (kind==='activate'?config.activate():config.deactivate());current();save({...state,pending:{...pending,acknowledged:true}});const resolved=await reconcile();if(!resolved)throw Error('Burst action awaits native effect confirmation; no replay.');return resolved;}
- return {activate:()=>order('activate'),settle:()=>order('deactivate'),reconcile:()=>reconcile(),snapshot:()=>clone(state)};
+export function createBurstController(config: {
+  identity: {
+    operationID: string;
+    runID: string;
+    characterID: number;
+    shipID: number;
+    moduleID: number;
+    typeID: number;
+  };
+  document: SynchronousStore;
+  current: () => void;
+  activationCurrent?: () => void;
+  observe: () => Promise<BurstObservation>;
+  observeOwn: () => Promise<OwnBurstObservation>;
+  activate: () => Promise<unknown>;
+  deactivate: () => Promise<unknown>;
+  now?: () => number;
+}) {
+  const { identity, document, current } = config,
+    now = config.now ?? Date.now;
+  if (
+    !identity.operationID ||
+    !identity.runID ||
+    ![identity.characterID, identity.shipID, identity.moduleID, identity.typeID].every(positive)
+  )
+    throw Error("Burst identity is invalid.");
+  const key = JSON.stringify(identity);
+  let state: State;
+  const raw = document.read() as State | null;
+  if (raw === null) state = { version: 1, identity: key, pending: null, history: [] };
+  else {
+    const validIntent = (p: Pending) =>
+      !!p &&
+      ["activate", "deactivate"].includes(p.kind) &&
+      Number.isSafeInteger(p.issuedAt) &&
+      p.issuedAt > 0 &&
+      typeof p.acknowledged === "boolean" &&
+      !!p.before &&
+      p.before.characterID === identity.characterID &&
+      p.before.shipID === identity.shipID &&
+      p.before.moduleID === identity.moduleID &&
+      p.before.typeID === identity.typeID;
+    if (
+      !raw ||
+      raw.version !== 1 ||
+      raw.identity !== key ||
+      !Array.isArray(raw.history) ||
+      raw.history.some(
+        (h) =>
+          !h ||
+          !validIntent(h.intent) ||
+          !h.after ||
+          h.after.characterID !== identity.characterID ||
+          h.after.shipID !== identity.shipID ||
+          h.after.moduleID !== identity.moduleID ||
+          h.after.typeID !== identity.typeID ||
+          !Number.isFinite(h.observedAt),
+      ) ||
+      !(raw.pending === null || validIntent(raw.pending))
+    )
+      throw Error("Burst journal needs reconciliation.");
+    state = clone(raw);
+  }
+  const save = (next: State) => {
+    current();
+    document.write(clone(next));
+    state = next;
+  };
+  const validateOwn = (x: OwnBurstObservation) => {
+    if (
+      !x ||
+      x.characterID !== identity.characterID ||
+      x.shipID !== identity.shipID ||
+      x.moduleID !== identity.moduleID ||
+      x.typeID !== identity.typeID ||
+      ![x.flagID, x.effectID].every(positive) ||
+      typeof x.online !== "boolean" ||
+      typeof x.active !== "boolean" ||
+      !Number.isFinite(x.observedAt) ||
+      x.observedAt > now() ||
+      now() - x.observedAt > 15000
+    )
+      throw Error("Native own-module observation is incomplete.");
+  };
+  const observe = async () => {
+    current();
+    config.activationCurrent?.();
+    const x = await config.observe();
+    current();
+    config.activationCurrent?.();
+    validate(x, identity, now());
+    return x;
+  };
+  const own = async () => {
+    current();
+    const x = await config.observeOwn();
+    current();
+    validateOwn(x);
+    return x;
+  };
+  const match = (a: OwnBurstObservation, b: OwnBurstObservation) =>
+    a.characterID === b.characterID &&
+    a.shipID === b.shipID &&
+    a.moduleID === b.moduleID &&
+    a.typeID === b.typeID &&
+    a.flagID === b.flagID &&
+    a.effectID === b.effectID;
+  async function reconcile(stopping = false) {
+    if (!state.pending) return null;
+    const p = state.pending,
+      after = await own();
+    if (!match(p.before, after) || after.observedAt < p.issuedAt)
+      throw Error("Burst post-observation scope changed.");
+    const inactiveOnStop = stopping && p.kind === "activate" && !after.active;
+    if (!inactiveOnStop && (p.kind === "activate" ? !after.active : after.active)) return null;
+    const receipt = {
+      intent: p,
+      after,
+      observedAt: now(),
+      ...(inactiveOnStop ? { resolution: "INACTIVE_ON_STOP" as const } : {}),
+    };
+    save({ ...state, pending: null, history: [...state.history, receipt] });
+    return receipt;
+  }
+  async function order(kind: "activate" | "deactivate") {
+    if (state.pending) {
+      const resolved = await reconcile(kind === "deactivate");
+      if (!resolved) throw Error("Burst action outcome is unknown; no replay.");
+      if (resolved.intent.kind === kind || resolved.resolution === "INACTIVE_ON_STOP")
+        return resolved;
+    }
+    const before = kind === "activate" ? await observe() : await own();
+    if (!before.online && before.active) throw Error("Burst module active state is contradictory.");
+    if (kind === "activate") {
+      const full = before as BurstObservation;
+      if (
+        !full.online ||
+        full.active ||
+        full.chargeQuantity <= 0 ||
+        full.recipients.length === 0 ||
+        full.recipients.some((r) => !r.inFleet || r.distanceMeters > full.rangeMeters)
+      )
+        throw Error("Burst charge, fleet, range or module state is not ready.");
+    }
+    if (kind === "deactivate" && !before.active)
+      return { intent: null, after: before, observedAt: now() };
+    const issuedAt = now();
+    const pending: Pending = { kind, issuedAt, before, acknowledged: false };
+    save({ ...state, pending });
+    current();
+    if (kind === "activate") config.activationCurrent?.();
+    await (kind === "activate" ? config.activate() : config.deactivate());
+    current();
+    save({ ...state, pending: { ...pending, acknowledged: true } });
+    const resolved = await reconcile();
+    if (!resolved) throw Error("Burst action awaits native effect confirmation; no replay.");
+    return resolved;
+  }
+  return {
+    activate: () => order("activate"),
+    settle: () => order("deactivate"),
+    reconcile: () => reconcile(),
+    snapshot: () => clone(state),
+  };
 }
 /** A matching active emitter is not proof of benefit: inspect each held recipient's own post-pulse notification. */
-export function confirmedRecipients(before:BurstObservation,after:BurstObservation){if(!after.active||after.observedAt<before.observedAt||!after.effectCollections.length)return [];return after.recipients.filter(r=>r.inFleet&&r.distanceMeters<=after.rangeMeters&&r.buffs.some((b:{collectionID:number;value:number;expiresMs:number|null})=>after.effectCollections.includes(b.collectionID)&&Number.isFinite(b.value)&&b.expiresMs!==null&&b.expiresMs>after.observedAt&&!before.recipients.find(x=>x.characterID===r.characterID&&x.shipID===r.shipID)?.buffs.some(old=>old.collectionID===b.collectionID&&old.value===b.value&&old.expiresMs===b.expiresMs))).map(r=>({characterID:r.characterID,shipID:r.shipID}));}
+export function confirmedRecipients(before: BurstObservation, after: BurstObservation) {
+  if (!after.active || after.observedAt < before.observedAt || !after.effectCollections.length)
+    return [];
+  return after.recipients
+    .filter(
+      (r) =>
+        r.inFleet &&
+        r.distanceMeters <= after.rangeMeters &&
+        r.buffs.some(
+          (b: { collectionID: number; value: number; expiresMs: number | null }) =>
+            after.effectCollections.includes(b.collectionID) &&
+            Number.isFinite(b.value) &&
+            b.expiresMs !== null &&
+            b.expiresMs > after.observedAt &&
+            !before.recipients
+              .find((x) => x.characterID === r.characterID && x.shipID === r.shipID)
+              ?.buffs.some(
+                (old) =>
+                  old.collectionID === b.collectionID &&
+                  old.value === b.value &&
+                  old.expiresMs === b.expiresMs,
+              ),
+        ),
+    )
+    .map((r) => ({ characterID: r.characterID, shipID: r.shipID }));
+}

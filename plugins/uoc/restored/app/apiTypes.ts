@@ -1,6 +1,6 @@
 // Exact WC74 view-model declarations @ 213da333; type imports adapted to plugin-owned contracts.
-import type {JsonValue,BotLaunchGrant} from "../../../../web/src/plugin-api/index.ts";
-import type {MiningTargetType,MiningOperationTarget} from "../mining/contracts.ts";
+import type { JsonValue, BotLaunchGrant } from "../../../../web/src/plugin-api/index.ts";
+import type { MiningTargetType, MiningOperationTarget } from "../mining/contracts.ts";
 export interface FoundAgent {
   readonly agentID: number;
   readonly name: string;
@@ -59,7 +59,14 @@ export interface FindMapLocationsResult {
   readonly matches: readonly MapLocation[];
 }
 
-export interface PveDedChoice {dungeonID:number;name:string;rating:number;entryRoomID:number;rooms:number;shipClass:string}
+export interface PveDedChoice {
+  dungeonID: number;
+  name: string;
+  rating: number;
+  entryRoomID: number;
+  rooms: number;
+  shipClass: string;
+}
 
 export interface MiningOperationMemberDefinition {
   readonly preparation?: import("../mining/miningPreparation.ts").MiningPreparationFitting;
@@ -72,16 +79,23 @@ export interface MiningOperationMemberDefinition {
 }
 
 export interface MiningOperationDefinition {
-  readonly revision?:number;
-  readonly oreLogistics?:import('../mining/contracts.ts').OreLogisticsConfig;
+  readonly revision?: number;
+  readonly oreLogistics?: import("../mining/contracts.ts").OreLogisticsConfig;
   readonly preparation?: import("../mining/miningPreparation.ts").MiningPreparationConfig;
   readonly support?: import("../mining/contracts.ts").MiningSupportOptions;
   readonly policies?: {
     readonly version: 1;
     readonly parking: {
       readonly mode: "STAY_IN_PLACE" | "RETURN_HOME_DOCK" | "RETURN_HOME_UNLOAD_DOCK";
-      readonly destination: { readonly stationID: number; readonly stationName: string; readonly systemName: string; readonly kind?: "station" } |
-        import("../mining/contracts.ts").DockableLocation | null;
+      readonly destination:
+        | {
+            readonly stationID: number;
+            readonly stationName: string;
+            readonly systemName: string;
+            readonly kind?: "station";
+          }
+        | import("../mining/contracts.ts").DockableLocation
+        | null;
       readonly corporationDivision: number | null;
       readonly corporationID?: number | null;
     };
@@ -102,31 +116,39 @@ export interface MiningOperationDefinition {
   };
   readonly targetPolicy: "ANY_ELIGIBLE";
   readonly unloadPolicy: "HAULER_SERVICE" | "SELF_UNLOAD";
-  readonly unloadDestination?: {
-    readonly stationID: number;
-    readonly stationName: string;
-    readonly systemName?: string;
-    readonly corporationDivision: number | null;
-    readonly corporationID?: number | null;
-  } | {
-    readonly kind: "structure";
-    readonly id: number;
-    readonly name: string;
-    readonly solarSystemID: number;
-    readonly solarSystemName: string | null;
-    readonly corporationDivision: number | null;
-    readonly corporationID?: number | null;
-  } | null;
+  readonly unloadDestination?:
+    | {
+        readonly stationID: number;
+        readonly stationName: string;
+        readonly systemName?: string;
+        readonly corporationDivision: number | null;
+        readonly corporationID?: number | null;
+      }
+    | {
+        readonly kind: "structure";
+        readonly id: number;
+        readonly name: string;
+        readonly solarSystemID: number;
+        readonly solarSystemName: string | null;
+        readonly corporationDivision: number | null;
+        readonly corporationID?: number | null;
+      }
+    | null;
   readonly members: readonly MiningOperationMemberDefinition[];
   readonly createdAt?: string;
   readonly updatedAt?: string;
 }
 
 export interface MiningOperationRuntime {
-  readonly extensionSupported?:boolean;
-  readonly shiftEndsAt?:string;
-  readonly supportStatus?:{readonly state:string;readonly core:string;readonly reason:string|null;readonly observedAtMs:number;
-    readonly capabilities?:readonly import("../mining/contracts.ts").SupportCapabilityReadiness[]};
+  readonly extensionSupported?: boolean;
+  readonly shiftEndsAt?: string;
+  readonly supportStatus?: {
+    readonly state: string;
+    readonly core: string;
+    readonly reason: string | null;
+    readonly observedAtMs: number;
+    readonly capabilities?: readonly import("../mining/contracts.ts").SupportCapabilityReadiness[];
+  };
   readonly operationRunID?: string | null;
   readonly lastRun?: import("../../miningFleet/operationStore.ts").FleetRunResult | null;
   readonly preparation?: import("../mining/miningPreparation.ts").MiningPreparationProjection;
@@ -141,7 +163,7 @@ export interface MiningOperationRuntime {
   readonly unverifiedStop?: import("../../operations/miningRecovery.ts").UnverifiedMiningStop;
   readonly currentTarget: MiningOperationTarget | null;
   readonly members: readonly (MiningOperationMemberDefinition & {
-    readonly oreLogisticsWork?:import('../mining/contracts.ts').OreLogisticsWork|null;
+    readonly oreLogisticsWork?: import("../mining/contracts.ts").OreLogisticsWork | null;
     readonly preparation?: import("../mining/miningPreparation.ts").MiningMemberPreparation;
     readonly runtimeState: string;
     readonly phase: string | null;
@@ -181,7 +203,12 @@ export interface MiningOperationRuntime {
 }
 
 export interface MiningOperationsPayload {
-  readonly results?: readonly { readonly characterID: number; readonly ok: boolean; readonly error?: string; readonly message?: string }[];
+  readonly results?: readonly {
+    readonly characterID: number;
+    readonly ok: boolean;
+    readonly error?: string;
+    readonly message?: string;
+  }[];
   readonly operations: readonly {
     readonly definition: MiningOperationDefinition & { readonly operationID: string };
     readonly runtime: MiningOperationRuntime;
@@ -189,31 +216,51 @@ export interface MiningOperationsPayload {
   readonly targetBoard: readonly MiningOperationTarget[];
   readonly capabilities: {
     readonly hostedRunPolicy?: import("../mining/hostedRunPolicy.ts").HostedRunPolicy;
-    readonly targetClasses: Readonly<Record<MiningTargetType, { readonly executable: boolean; readonly note: string }>>;
-    readonly reach: Readonly<Record<string, { readonly executable: boolean; readonly note?: string }>>;
+    readonly targetClasses: Readonly<
+      Record<MiningTargetType, { readonly executable: boolean; readonly note: string }>
+    >;
+    readonly reach: Readonly<
+      Record<string, { readonly executable: boolean; readonly note?: string }>
+    >;
     readonly defender: { readonly executable: boolean; readonly note: string };
     readonly operationOwnedContainers: { readonly executable: boolean; readonly note: string };
   };
 }
 
-export interface MiningResourceChoice { readonly typeID: number; readonly name: string; readonly family: "ore" | "ice"; }
+export interface MiningResourceChoice {
+  readonly typeID: number;
+  readonly name: string;
+  readonly family: "ore" | "ice";
+}
 
 export interface OperationRoutineSummary {
   readonly scriptID: string;
   readonly name: string;
   readonly rev: number;
-  readonly roles: Readonly<Record<"MINER" | "HAULER" | "DEFENDER", { readonly compatible: boolean; readonly reason: string | null }>>;
+  readonly roles: Readonly<
+    Record<
+      "MINER" | "HAULER" | "DEFENDER",
+      { readonly compatible: boolean; readonly reason: string | null }
+    >
+  >;
 }
 
 export interface OperationLaunchPlanMember {
   readonly characterID: number;
   readonly routineMode: "STANDARD" | "CUSTOM";
   readonly pluginRun?: string;
-  readonly script?: { readonly scriptID: string; readonly name: string; readonly rev: number; readonly doc: JsonValue };
+  readonly script?: {
+    readonly scriptID: string;
+    readonly name: string;
+    readonly rev: number;
+    readonly doc: JsonValue;
+  };
 }
 
 export interface MiningOperationLaunchPlan {
-  readonly planHash: string; readonly warnings: readonly string[]; readonly members: readonly OperationLaunchPlanMember[];
+  readonly planHash: string;
+  readonly warnings: readonly string[];
+  readonly members: readonly OperationLaunchPlanMember[];
   readonly preparation?: import("../mining/miningPreparation.ts").MiningPreparationProjection;
 }
 
@@ -223,8 +270,17 @@ export interface OperationPilotChoice {
   readonly characterName: string;
 }
 
-export type PilotAvailability = "AVAILABLE" | "ACCOUNT_BUSY" | "WC_SESSION" | "HOSTED" | "CHECKING" | "RECOVERY" |
-  "IN_GAME" | "OTHER_SESSION" | "UNKNOWN" | "UNCHECKED";
+export type PilotAvailability =
+  | "AVAILABLE"
+  | "ACCOUNT_BUSY"
+  | "WC_SESSION"
+  | "HOSTED"
+  | "CHECKING"
+  | "RECOVERY"
+  | "IN_GAME"
+  | "OTHER_SESSION"
+  | "UNKNOWN"
+  | "UNCHECKED";
 
 export interface VerifiedOperationPilot extends OperationPilotChoice {
   readonly corporationID?: number | null;
@@ -233,5 +289,10 @@ export interface VerifiedOperationPilot extends OperationPilotChoice {
   readonly availability: PilotAvailability;
   readonly reason: string;
   readonly assignment?: string;
-  readonly currentStation?: { stationID: number; stationName: string; solarSystemID: number; solarSystemName: string | null } | null;
+  readonly currentStation?: {
+    stationID: number;
+    stationName: string;
+    solarSystemID: number;
+    solarSystemName: string | null;
+  } | null;
 }

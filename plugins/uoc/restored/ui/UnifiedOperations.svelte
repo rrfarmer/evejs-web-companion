@@ -19,12 +19,53 @@
 </main>
 
 <style>
-  header { margin: .75rem 0 1.25rem; }
-  h1 { margin: 0; } h2 { font-size:1.3rem; }
-  p { color:var(--center-muted); } .tag { color:var(--center-accent); font-size:.85rem; }
-  nav { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,25rem),1fr)); gap:.85rem; }
-  .module { display:flex; flex-direction:column; padding:1rem; border:1px solid var(--center-border); border-radius:.7rem; background:var(--center-panel); text-decoration:none; color:inherit; }
-  a.module:hover,a.module:focus-visible { border-color:var(--center-accent); background:#18313c; } .module p { flex:1; } .module>span:last-child { color:var(--center-accent); }
-  .module[aria-disabled="true"] { color:var(--center-muted); cursor:not-allowed; }
-  .module[aria-disabled="true"] span { color:inherit; }
+  header {
+    margin: 0.75rem 0 1.25rem;
+  }
+  h1 {
+    margin: 0;
+  }
+  h2 {
+    font-size: 1.3rem;
+  }
+  p {
+    color: var(--center-muted);
+  }
+  .tag {
+    color: var(--center-accent);
+    font-size: 0.85rem;
+  }
+  nav {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 25rem), 1fr));
+    gap: 0.85rem;
+  }
+  .module {
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    border: 1px solid var(--center-border);
+    border-radius: 0.7rem;
+    background: var(--center-panel);
+    text-decoration: none;
+    color: inherit;
+  }
+  a.module:hover,
+  a.module:focus-visible {
+    border-color: var(--center-accent);
+    background: #18313c;
+  }
+  .module p {
+    flex: 1;
+  }
+  .module > span:last-child {
+    color: var(--center-accent);
+  }
+  .module[aria-disabled="true"] {
+    color: var(--center-muted);
+    cursor: not-allowed;
+  }
+  .module[aria-disabled="true"] span {
+    color: inherit;
+  }
 </style>

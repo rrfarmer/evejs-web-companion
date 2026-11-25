@@ -1,6 +1,99 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {decideSupportPolicy,type SupportPolicy} from './supportPolicy.ts';
-const p:SupportPolicy={maintainBursts:false,useIndustrialCore:true,coreRequirement:'continueWithoutCore',enableCompression:false,selfMining:false,tractor:false,collection:'TRACTOR_ONLY',compressCollectedOre:false,supportLoss:'PAUSE'};
-test('optional Core fuel loss is degraded but does not pretend Core is active',()=>{const result=decideSupportPolicy(p,{state:'DEGRADED',core:'inactive',reason:'native fuel insufficient',fresh:true},null,1000);assert.equal(result.mode,'NORMAL');assert.equal(result.reason,'native fuel insufficient');assert.equal(result.permitNewMining,true);});
-test('required Core loss uses recovery pause then exact operator policy',()=>{const required={...p,coreRequirement:'requireCore' as const},s={state:'DEGRADED' as const,core:'inactive' as const,reason:'native fuel insufficient',fresh:true};const first=decideSupportPolicy(required,s,null,1000);assert.equal(first.mode,'PAUSE');assert.equal(decideSupportPolicy({...required,supportLoss:'CONTINUE_UNSUPPORTED'},s,first.lostSinceMs,30999).mode,'PAUSE');const fallback=decideSupportPolicy({...required,supportLoss:'CONTINUE_UNSUPPORTED'},s,first.lostSinceMs,31000);assert.equal(fallback.mode,'FALLBACK');assert.equal(fallback.permitNewMining,true);assert.equal(decideSupportPolicy({...required,supportLoss:'STOP'},s,1000,31000).requestParkingStop,true);});
-test('unknown support enters recovery and a fresh READY read resets loss',()=>{const first=decideSupportPolicy(p,null,null,1000);assert.equal(first.mode,'PAUSE');assert.equal(decideSupportPolicy(p,{state:'READY',core:'active',reason:null,fresh:true},first.lostSinceMs,2000).lostSinceMs,null);assert.equal(decideSupportPolicy(p,{state:'READY',core:'active',reason:null,fresh:false},1000,31000).mode,'PAUSE');});
-test('collection and required Core policies require their actual dependencies',()=>{assert.throws(()=>decideSupportPolicy({...p,useIndustrialCore:false,coreRequirement:'requireCore'},null,null,1),/Core/);assert.throws(()=>decideSupportPolicy({...p,collection:'TRACTOR_AND_COLLECT'},null,null,1),/tractor/);assert.throws(()=>decideSupportPolicy({...p,compressCollectedOre:true},null,null,1),/compression/);});
+import test from "node:test";
+import assert from "node:assert/strict";
+import { decideSupportPolicy, type SupportPolicy } from "./supportPolicy.ts";
+const p: SupportPolicy = {
+  maintainBursts: false,
+  useIndustrialCore: true,
+  coreRequirement: "continueWithoutCore",
+  enableCompression: false,
+  selfMining: false,
+  tractor: false,
+  collection: "TRACTOR_ONLY",
+  compressCollectedOre: false,
+  supportLoss: "PAUSE",
+};
+test("optional Core fuel loss is degraded but does not pretend Core is active", () => {
+  const result = decideSupportPolicy(
+    p,
+    { state: "DEGRADED", core: "inactive", reason: "native fuel insufficient", fresh: true },
+    null,
+    1000,
+  );
+  assert.equal(result.mode, "NORMAL");
+  assert.equal(result.reason, "native fuel insufficient");
+  assert.equal(result.permitNewMining, true);
+});
+test("required Core loss uses recovery pause then exact operator policy", () => {
+  const required = { ...p, coreRequirement: "requireCore" as const },
+    s = {
+      state: "DEGRADED" as const,
+      core: "inactive" as const,
+      reason: "native fuel insufficient",
+      fresh: true,
+    };
+  const first = decideSupportPolicy(required, s, null, 1000);
+  assert.equal(first.mode, "PAUSE");
+  assert.equal(
+    decideSupportPolicy(
+      { ...required, supportLoss: "CONTINUE_UNSUPPORTED" },
+      s,
+      first.lostSinceMs,
+      30999,
+    ).mode,
+    "PAUSE",
+  );
+  const fallback = decideSupportPolicy(
+    { ...required, supportLoss: "CONTINUE_UNSUPPORTED" },
+    s,
+    first.lostSinceMs,
+    31000,
+  );
+  assert.equal(fallback.mode, "FALLBACK");
+  assert.equal(fallback.permitNewMining, true);
+  assert.equal(
+    decideSupportPolicy({ ...required, supportLoss: "STOP" }, s, 1000, 31000).requestParkingStop,
+    true,
+  );
+});
+test("unknown support enters recovery and a fresh READY read resets loss", () => {
+  const first = decideSupportPolicy(p, null, null, 1000);
+  assert.equal(first.mode, "PAUSE");
+  assert.equal(
+    decideSupportPolicy(
+      p,
+      { state: "READY", core: "active", reason: null, fresh: true },
+      first.lostSinceMs,
+      2000,
+    ).lostSinceMs,
+    null,
+  );
+  assert.equal(
+    decideSupportPolicy(
+      p,
+      { state: "READY", core: "active", reason: null, fresh: false },
+      1000,
+      31000,
+    ).mode,
+    "PAUSE",
+  );
+});
+test("collection and required Core policies require their actual dependencies", () => {
+  assert.throws(
+    () =>
+      decideSupportPolicy(
+        { ...p, useIndustrialCore: false, coreRequirement: "requireCore" },
+        null,
+        null,
+        1,
+      ),
+    /Core/,
+  );
+  assert.throws(
+    () => decideSupportPolicy({ ...p, collection: "TRACTOR_AND_COLLECT" }, null, null, 1),
+    /tractor/,
+  );
+  assert.throws(
+    () => decideSupportPolicy({ ...p, compressCollectedOre: true }, null, null, 1),
+    /compression/,
+  );
+});

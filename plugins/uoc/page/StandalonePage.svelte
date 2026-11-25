@@ -11,10 +11,12 @@
   // Account-only authorization keeps a UOC action from taking the launching tab's held pilot.
   const readPageAccounts = () => [
     ...(activeSession ? [activeSession.accountName] : []),
-    ...sessions.map(session => session.accountName),
+    ...sessions.map((session) => session.accountName),
   ];
   const accountPass = createTrainingAccountPass();
-  onDestroy(() => { void accountPass.release(); });
+  onDestroy(() => {
+    void accountPass.release();
+  });
 </script>
 
 <div class="standalone-uoc">
@@ -26,5 +28,8 @@
 </div>
 
 <style>
-  .standalone-uoc { min-height: 100vh; background: #05080d; }
+  .standalone-uoc {
+    min-height: 100vh;
+    background: #05080d;
+  }
 </style>

@@ -30,7 +30,9 @@ function numberOf(value: JsonValue | undefined): number | null {
 }
 
 /** GetTransactions' rows, a DBRow or a KeyVal each. */
-export function decodeJournalEntries(result: JsonValue | null | undefined): readonly JournalEntry[] {
+export function decodeJournalEntries(
+  result: JsonValue | null | undefined,
+): readonly JournalEntry[] {
   if (result === null || result === undefined || !isListValue(result)) return [];
   return result.items.map((row): JournalEntry => {
     const date = unwrapLong(readRowField(row, "transactionDate") as JsonValue);
@@ -59,8 +61,10 @@ function scalarOf(text: string): Yaml {
   if (t === "true" || t === "false") return t === "true";
   if (/^-?\d+$/.test(t)) return Number(t);
   if (/^-?(\d+\.\d*|\.\d+|\d+)([eE][-+]?\d+)?$/.test(t)) return Number(t);
-  if (t.startsWith("'") && t.endsWith("'") && t.length >= 2) return t.slice(1, -1).replace(/''/g, "'");
-  if (t.startsWith("\"") && t.endsWith("\"") && t.length >= 2) return t.slice(1, -1).replace(/\\(.)/g, (_, c: string) => (c === "n" ? "\n" : c));
+  if (t.startsWith("'") && t.endsWith("'") && t.length >= 2)
+    return t.slice(1, -1).replace(/''/g, "'");
+  if (t.startsWith('"') && t.endsWith('"') && t.length >= 2)
+    return t.slice(1, -1).replace(/\\(.)/g, (_, c: string) => (c === "n" ? "\n" : c));
   if (t.startsWith("[") || t.startsWith("{")) return flowOf(t);
   return t;
 }
@@ -76,7 +80,7 @@ function flowOf(text: string): Yaml {
     const c = inner[i]!;
     if (quote !== null) {
       if (c === quote) quote = null;
-    } else if (c === "'" || c === "\"") quote = c;
+    } else if (c === "'" || c === '"') quote = c;
     else if (c === "[" || c === "{") depth += 1;
     else if (c === "]" || c === "}") depth -= 1;
     else if (c === "," && depth === 0) {
@@ -100,13 +104,21 @@ interface YamlLine {
   readonly text: string;
 }
 
-function blockOf(lines: readonly YamlLine[], from: number, indent: number): { value: Yaml; next: number } {
+function blockOf(
+  lines: readonly YamlLine[],
+  from: number,
+  indent: number,
+): { value: Yaml; next: number } {
   const first = lines[from];
   if (first === undefined) return { value: null, next: from };
   if (first.text.startsWith("- ") || first.text === "-") {
     const items: Yaml[] = [];
     let at = from;
-    while (at < lines.length && lines[at]!.indent === indent && (lines[at]!.text.startsWith("- ") || lines[at]!.text === "-")) {
+    while (
+      at < lines.length &&
+      lines[at]!.indent === indent &&
+      (lines[at]!.text.startsWith("- ") || lines[at]!.text === "-")
+    ) {
       items.push(scalarOf(lines[at]!.text.slice(1)));
       at += 1;
     }
@@ -124,12 +136,21 @@ function blockOf(lines: readonly YamlLine[], from: number, indent: number): { va
     if (rest !== "") {
       // A plain scalar the dump wrapped onto lines indented under it.
       let value = rest;
-      while (at < lines.length && lines[at]!.indent > indent && !/:(\s|$)/.test(lines[at]!.text) && !lines[at]!.text.startsWith("- ")) {
+      while (
+        at < lines.length &&
+        lines[at]!.indent > indent &&
+        !/:(\s|$)/.test(lines[at]!.text) &&
+        !lines[at]!.text.startsWith("- ")
+      ) {
         value += ` ${lines[at]!.text}`;
         at += 1;
       }
       mapping[key] = scalarOf(value);
-    } else if (at < lines.length && (lines[at]!.indent > indent || (lines[at]!.indent === indent && lines[at]!.text.startsWith("- ")))) {
+    } else if (
+      at < lines.length &&
+      (lines[at]!.indent > indent ||
+        (lines[at]!.indent === indent && lines[at]!.text.startsWith("- ")))
+    ) {
       const nested = blockOf(lines, at, lines[at]!.indent);
       mapping[key] = nested.value;
       at = nested.next;
@@ -141,27 +162,41 @@ function blockOf(lines: readonly YamlLine[], from: number, indent: number): { va
 }
 
 /** yaml.load of a description, where it is a mapping (the only shape the client reads anything from); else null. */
-export function descriptionMapping(description: string | null): Readonly<Record<string, Yaml>> | null {
+export function descriptionMapping(
+  description: string | null,
+): Readonly<Record<string, Yaml>> | null {
   if (description === null || description.trim() === "") return null;
   const trimmed = description.trim();
   if (trimmed.startsWith("{")) {
     const flow = flowOf(trimmed);
-    return flow !== null && typeof flow === "object" && !Array.isArray(flow) ? (flow as Record<string, Yaml>) : null;
+    return flow !== null && typeof flow === "object" && !Array.isArray(flow)
+      ? (flow as Record<string, Yaml>)
+      : null;
   }
-  const lines: YamlLine[] = description.split(/\r?\n/)
+  const lines: YamlLine[] = description
+    .split(/\r?\n/)
     .filter((line) => line.trim() !== "" && !line.trim().startsWith("#"))
     .map((line) => ({ indent: line.length - line.trimStart().length, text: line.trim() }));
   if (lines.length === 0 || !/:(\s|$)/.test(lines[0]!.text)) return null;
   const parsed = blockOf(lines, 0, lines[0]!.indent);
-  return parsed.next === lines.length && parsed.value !== null && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+  return parsed.next === lines.length &&
+    parsed.value !== null &&
+    typeof parsed.value === "object" &&
+    !Array.isArray(parsed.value)
     ? (parsed.value as Record<string, Yaml>)
     : null;
 }
 
 /** The tax withheld from a native mission payout or time bonus. */
-export function missionRewardTaxISK(entry: Pick<JournalEntry, "entryTypeID" | "description">): number | null {
-  const key = entry.entryTypeID === REF.agentMissionReward ? "93" :
-    entry.entryTypeID === REF.agentMissionTimeBonusReward ? "94" : null;
+export function missionRewardTaxISK(
+  entry: Pick<JournalEntry, "entryTypeID" | "description">,
+): number | null {
+  const key =
+    entry.entryTypeID === REF.agentMissionReward
+      ? "93"
+      : entry.entryTypeID === REF.agentMissionTimeBonusReward
+        ? "94"
+        : null;
   if (key === null) return null;
   const mapping = descriptionMapping(entry.description);
   const description = entry.description?.trimStart() ?? "";
@@ -169,7 +204,14 @@ export function missionRewardTaxISK(entry: Pick<JournalEntry, "entryTypeID" | "d
   if (mapping?.[key === "93" ? "94" : "93"] !== undefined) return null;
   const tax = mapping?.[key];
   if (tax === undefined) return 0;
-  return Array.isArray(tax) && tax.length === 2 && typeof tax[0] === "number" &&
-    Number.isSafeInteger(tax[0]) && tax[0] > 0 && typeof tax[1] === "number" &&
-    Number.isFinite(tax[1]) && tax[1] >= 0 ? tax[1] : null;
+  return Array.isArray(tax) &&
+    tax.length === 2 &&
+    typeof tax[0] === "number" &&
+    Number.isSafeInteger(tax[0]) &&
+    tax[0] > 0 &&
+    typeof tax[1] === "number" &&
+    Number.isFinite(tax[1]) &&
+    tax[1] >= 0
+    ? tax[1]
+    : null;
 }

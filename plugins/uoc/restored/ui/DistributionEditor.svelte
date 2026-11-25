@@ -4,68 +4,133 @@
 
   type Item = { typeID: number; name: string; groupName?: string };
   type DockChoice = Omit<Office, "division"> & { name: string; solarSystemName?: string | null };
-  let { initial, corporations, busy, onSearchDocks, onSearchItems, onSave, onCancel }: {
+  let {
+    initial,
+    corporations,
+    busy,
+    onSearchDocks,
+    onSearchItems,
+    onSave,
+    onCancel,
+  }: {
     initial?: Config;
     corporations: { id: number; name: string }[];
     busy: boolean;
-    onSearchDocks: (query: string, corporationID: number | null) => Promise<{ matches: DockChoice[]; note?: string }>;
+    onSearchDocks: (
+      query: string,
+      corporationID: number | null,
+    ) => Promise<{ matches: DockChoice[]; note?: string }>;
     onSearchItems: (query: string) => Promise<Item[]>;
     onSave: (config: Config) => void;
     onCancel: () => void;
   } = $props();
 
-  const emptyOffice = (): Office => ({ destinationID: 0, systemID: 0, kind: "station", division: 1 });
-  let draft = $state<Config>(untrack(() => initial ? structuredClone(initial) : {
-    name: "", mode: "MANUAL", corporationID: corporations.length === 1 ? corporations[0]!.id : null,
-    source: emptyOffice(), destination: emptyOffice(), items: [], fillPercent: 0, waitMinutes: 0,
-  }));
+  const emptyOffice = (): Office => ({
+    destinationID: 0,
+    systemID: 0,
+    kind: "station",
+    division: 1,
+  });
+  let draft = $state<Config>(
+    untrack(() =>
+      initial
+        ? structuredClone(initial)
+        : {
+            name: "",
+            mode: "MANUAL",
+            corporationID: corporations.length === 1 ? corporations[0]!.id : null,
+            source: emptyOffice(),
+            destination: emptyOffice(),
+            items: [],
+            fillPercent: 0,
+            waitMinutes: 0,
+          },
+    ),
+  );
   type Place = "source" | "destination";
   type DockSearch = { query: string; matches: DockChoice[]; note: string; working: boolean };
   const emptySearch = (): DockSearch => ({ query: "", matches: [], note: "", working: false });
-  let docks = $state<Record<Place, DockSearch>>({ source: emptySearch(), destination: emptySearch() });
-  let query = $state(""), itemMatches = $state<Item[]>([]), itemNote = $state(""), searching = $state(false), issue = $state("");
+  let docks = $state<Record<Place, DockSearch>>({
+    source: emptySearch(),
+    destination: emptySearch(),
+  });
+  let query = $state(""),
+    itemMatches = $state<Item[]>([]),
+    itemNote = $state(""),
+    searching = $state(false),
+    issue = $state("");
   let allItems = $state(untrack(() => initial?.allItems === true));
   const takeAll = $derived(draft.mode !== "SUPPLY" && allItems);
-  const savedReserves = $derived(initial?.mode === "COLLECTION" && initial.allItems ? initial.items : []);
-  const quantity = $derived(draft.mode === "COLLECTION" ? "Leave at source" : draft.mode === "SUPPLY" ? "Keep at destination" : "Quantity to deliver");
+  const savedReserves = $derived(
+    initial?.mode === "COLLECTION" && initial.allItems ? initial.items : [],
+  );
+  const quantity = $derived(
+    draft.mode === "COLLECTION"
+      ? "Leave at source"
+      : draft.mode === "SUPPLY"
+        ? "Keep at destination"
+        : "Quantity to deliver",
+  );
 
-  const message = (error: unknown) => error instanceof Error ? error.message : String(error);
+  const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
   async function findDock(place: Place) {
-    const field = docks[place], value = field.query.trim();
+    const field = docks[place],
+      value = field.query.trim();
     if (field.working || value.length < 2) return;
-    field.working = true; field.matches = []; field.note = "";
+    field.working = true;
+    field.matches = [];
+    field.note = "";
     try {
       const result = await onSearchDocks(value, draft.corporationID);
       if (field.query.trim() !== value) return;
       field.matches = result.matches;
       field.note = result.note ?? (result.matches.length ? "" : "No matching docks.");
-    } catch (error) { field.note = message(error); }
-    finally { field.working = false; }
+    } catch (error) {
+      field.note = message(error);
+    } finally {
+      field.working = false;
+    }
   }
 
   function chooseDock(place: Place, dock: DockChoice) {
-    draft[place] = { name: dock.name, destinationID: dock.destinationID, systemID: dock.systemID, kind: dock.kind, division: draft[place].division };
+    draft[place] = {
+      name: dock.name,
+      destinationID: dock.destinationID,
+      systemID: dock.systemID,
+      kind: dock.kind,
+      division: draft[place].division,
+    };
     docks[place] = emptySearch();
   }
 
   async function findItems() {
     const value = query.trim();
     if (searching || value.length < 2) return;
-    searching = true; itemMatches = []; itemNote = "";
+    searching = true;
+    itemMatches = [];
+    itemNote = "";
     try {
       const result = await onSearchItems(value);
       if (query.trim() !== value) return;
       itemMatches = result;
       if (!result.length) itemNote = "No matching catalog items.";
-    } catch (error) { itemNote = message(error); }
-    finally { searching = false; }
+    } catch (error) {
+      itemNote = message(error);
+    } finally {
+      searching = false;
+    }
   }
 
   function addItem(item: Item) {
-    if (draft.items.some(row => row.typeID === item.typeID)) return;
-    draft.items.push({ typeID: item.typeID, name: item.name, quantity: draft.mode === "COLLECTION" ? 0 : 1 });
-    query = ""; itemMatches = [];
+    if (draft.items.some((row) => row.typeID === item.typeID)) return;
+    draft.items.push({
+      typeID: item.typeID,
+      name: item.name,
+      quantity: draft.mode === "COLLECTION" ? 0 : 1,
+    });
+    query = "";
+    itemMatches = [];
   }
 
   function save(event: SubmitEvent) {
@@ -73,10 +138,18 @@
     issue = "";
     try {
       const items = takeAll ? (draft.mode === "COLLECTION" ? savedReserves : []) : draft.items;
-      onSave(readConfig({ ...draft, allItems: takeAll, items,
-        corporationID: draft.corporationID ?? (corporations.length === 1 ? corporations[0]!.id : null) }));
+      onSave(
+        readConfig({
+          ...draft,
+          allItems: takeAll,
+          items,
+          corporationID:
+            draft.corporationID ?? (corporations.length === 1 ? corporations[0]!.id : null),
+        }),
+      );
+    } catch (error) {
+      issue = message(error);
     }
-    catch (error) { issue = message(error); }
   }
 </script>
 
@@ -210,29 +283,138 @@
 </form>
 
 <style>
-  form { display: grid; gap: 1.1rem; }
-  .section-heading, .chosen, .freight { display: flex; align-items: center; justify-content: space-between; gap: .7rem; }
-  h2 { margin: 0; font: 650 1.22rem/1.3 system-ui, sans-serif; letter-spacing: 0; }
-  .fields, .route { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
-  fieldset { min-width: 0; margin: 0; border: 1px solid #2a3c48; border-radius: .65rem; padding: .8rem 1rem 1rem; }
-  legend { padding-inline: .35rem; color: #deedf3; font-weight: 650; }
-  .dock { background: #0d1820; }
-  .letter { display: inline-grid; place-items: center; width: 1.5rem; height: 1.5rem; margin-right: .16rem; border: 1px solid #386477; color: #9be4e4; border-radius: .35rem; font-size: .82rem; }
-  .chosen { align-items: start; margin-bottom: .6rem; }
-  label { display: grid; gap: .28rem; min-width: 0; color: #c9d7e0; font-size: .87rem; }
-  .cargo-choice { margin-bottom: .65rem; }
-  input:not([type="checkbox"]), select { min-width: 0; width: 100%; }
-  button { white-space: nowrap; }
-  .search { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; }
-  .matches { display: grid; gap: .25rem; padding: .35rem 0 0; margin: 0; list-style: none; max-height: 13rem; overflow-y: auto; }
-  .matches button { display: block; width: 100%; text-align: left; white-space: normal; }
-  small { display: block; color: #a8bdcc; font-size: .82rem; }
-  .freight { border-top: 1px solid #2a3c48; margin-top: .65rem; padding-top: .65rem; }
-  .freight strong { flex: 1; }
-  .freight label { width: 10rem; }
-  p { margin: .5rem 0 0; font-size: .86rem; color: #aebfcb; }
-  p.error { color: #ffc2a0; }
-  footer { display: flex; justify-content: flex-end; }
-  @media (max-width: 50rem) { .route { grid-template-columns: 1fr; } }
-  @media (max-width: 34rem) { .fields { grid-template-columns: 1fr; } .freight { flex-wrap: wrap; } }
+  form {
+    display: grid;
+    gap: 1.1rem;
+  }
+  .section-heading,
+  .chosen,
+  .freight {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.7rem;
+  }
+  h2 {
+    margin: 0;
+    font:
+      650 1.22rem/1.3 system-ui,
+      sans-serif;
+    letter-spacing: 0;
+  }
+  .fields,
+  .route {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.8rem;
+  }
+  fieldset {
+    min-width: 0;
+    margin: 0;
+    border: 1px solid #2a3c48;
+    border-radius: 0.65rem;
+    padding: 0.8rem 1rem 1rem;
+  }
+  legend {
+    padding-inline: 0.35rem;
+    color: #deedf3;
+    font-weight: 650;
+  }
+  .dock {
+    background: #0d1820;
+  }
+  .letter {
+    display: inline-grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-right: 0.16rem;
+    border: 1px solid #386477;
+    color: #9be4e4;
+    border-radius: 0.35rem;
+    font-size: 0.82rem;
+  }
+  .chosen {
+    align-items: start;
+    margin-bottom: 0.6rem;
+  }
+  label {
+    display: grid;
+    gap: 0.28rem;
+    min-width: 0;
+    color: #c9d7e0;
+    font-size: 0.87rem;
+  }
+  .cargo-choice {
+    margin-bottom: 0.65rem;
+  }
+  input:not([type="checkbox"]),
+  select {
+    min-width: 0;
+    width: 100%;
+  }
+  button {
+    white-space: nowrap;
+  }
+  .search {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.4rem;
+  }
+  .matches {
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.35rem 0 0;
+    margin: 0;
+    list-style: none;
+    max-height: 13rem;
+    overflow-y: auto;
+  }
+  .matches button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    white-space: normal;
+  }
+  small {
+    display: block;
+    color: #a8bdcc;
+    font-size: 0.82rem;
+  }
+  .freight {
+    border-top: 1px solid #2a3c48;
+    margin-top: 0.65rem;
+    padding-top: 0.65rem;
+  }
+  .freight strong {
+    flex: 1;
+  }
+  .freight label {
+    width: 10rem;
+  }
+  p {
+    margin: 0.5rem 0 0;
+    font-size: 0.86rem;
+    color: #aebfcb;
+  }
+  p.error {
+    color: #ffc2a0;
+  }
+  footer {
+    display: flex;
+    justify-content: flex-end;
+  }
+  @media (max-width: 50rem) {
+    .route {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 34rem) {
+    .fields {
+      grid-template-columns: 1fr;
+    }
+    .freight {
+      flex-wrap: wrap;
+    }
+  }
 </style>

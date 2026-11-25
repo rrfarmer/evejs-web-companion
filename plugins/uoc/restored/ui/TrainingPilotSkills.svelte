@@ -1,34 +1,69 @@
 <script lang="ts">
   import CenterStatus from "./CenterStatus.svelte";
   import TrainingEstimate from "./TrainingEstimate.svelte";
-  import { acquireFactorySkills, applyTrainingQueue, clearTrainingQueue, reviewSkillAcquisition, readTrainingSkillSheet, readTrainingProgress, reviewIndependentSkill, type ApiOptions } from "../adapters/training.ts";
+  import {
+    acquireFactorySkills,
+    applyTrainingQueue,
+    clearTrainingQueue,
+    reviewSkillAcquisition,
+    readTrainingSkillSheet,
+    readTrainingProgress,
+    reviewIndependentSkill,
+    type ApiOptions,
+  } from "../adapters/training.ts";
   import type { FundingPolicy, TrainingSheet } from "../training/types.ts";
   import type { TrainingWallet } from "../training/settings.ts";
-  let { characterID, options, fundingPolicy, trainingWallet, latestSheet, queueChanged }: {
-    characterID: number; options: ApiOptions; latestSheet: TrainingSheet | null;
-    fundingPolicy: FundingPolicy; trainingWallet: TrainingWallet | null;
+  let {
+    characterID,
+    options,
+    fundingPolicy,
+    trainingWallet,
+    latestSheet,
+    queueChanged,
+  }: {
+    characterID: number;
+    options: ApiOptions;
+    latestSheet: TrainingSheet | null;
+    fundingPolicy: FundingPolicy;
+    trainingWallet: TrainingWallet | null;
     queueChanged: (sheet: TrainingSheet) => void;
   } = $props();
   let result = $state<Awaited<ReturnType<typeof readTrainingSkillSheet>> | null>(null);
   let reviewed = $state<Awaited<ReturnType<typeof reviewIndependentSkill>> | null>(null);
   let purchase = $state<Awaited<ReturnType<typeof reviewSkillAcquisition>> | null>(null);
-  let query = $state(""), typeID = $state(0), level = $state(1), busy = $state(false), error = $state(""), notice = $state("");
-  const names = $derived(new Map(result?.catalog.map(skill => [skill.typeID, skill.name])));
+  let query = $state(""),
+    typeID = $state(0),
+    level = $state(1),
+    busy = $state(false),
+    error = $state(""),
+    notice = $state("");
+  const names = $derived(new Map(result?.catalog.map((skill) => [skill.typeID, skill.name])));
   const sheet = $derived(latestSheet ?? result?.sheet);
-  const trained = $derived(new Map(sheet?.skills.map(skill => [skill.typeID, skill.level])));
-  const matches = $derived((result?.catalog ?? []).filter(skill => skill.name.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 25));
+  const trained = $derived(new Map(sheet?.skills.map((skill) => [skill.typeID, skill.level])));
+  const matches = $derived(
+    (result?.catalog ?? [])
+      .filter((skill) => skill.name.toLowerCase().includes(query.trim().toLowerCase()))
+      .slice(0, 25),
+  );
   async function run(action: () => Promise<void>) {
     if (busy) return;
-    busy = true; error = ""; notice = "";
-    try { await action(); }
-    catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
-    finally { busy = false; }
+    busy = true;
+    error = "";
+    notice = "";
+    try {
+      await action();
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      busy = false;
+    }
   }
   async function load() {
     const previous = latestSheet;
-    const fresh = result && !result.catalogUnavailable
-      ? { ...result, sheet: await readTrainingProgress(characterID, options) }
-      : await readTrainingSkillSheet(characterID, options);
+    const fresh =
+      result && !result.catalogUnavailable
+        ? { ...result, sheet: await readTrainingProgress(characterID, options) }
+        : await readTrainingSkillSheet(characterID, options);
     result = fresh;
     if (previous === latestSheet) queueChanged(fresh.sheet);
   }
@@ -38,7 +73,8 @@
     if (previous === latestSheet) queueChanged(fresh);
   }
   async function inspect() {
-    reviewed = null; purchase = null;
+    reviewed = null;
+    purchase = null;
     reviewed = await reviewIndependentSkill(characterID, typeID, level, options);
   }
   async function apply() {
@@ -51,7 +87,13 @@
     else await refreshProgress();
   }
   async function stopQueue() {
-    if (!sheet?.queue.entries.length || !window.confirm("Stop training and clear this pilot’s entire skill queue? Earned skill points and injected books are kept.")) return;
+    if (
+      !sheet?.queue.entries.length ||
+      !window.confirm(
+        "Stop training and clear this pilot’s entire skill queue? Earned skill points and injected books are kept.",
+      )
+    )
+      return;
     const cleared = await clearTrainingQueue(sheet, options);
     reviewed = null;
     purchase = null;
@@ -60,17 +102,26 @@
   }
   async function reviewPurchase() {
     purchase = null;
-    purchase = await reviewSkillAcquisition({ characterID, typeID, level, independent: true, policy: fundingPolicy, trainingWallet }, options);
+    purchase = await reviewSkillAcquisition(
+      { characterID, typeID, level, independent: true, policy: fundingPolicy, trainingWallet },
+      options,
+    );
   }
   async function confirmPurchase() {
     const id = purchase?.reviewID;
     if (!id || !purchase?.canAcquire) return;
-    purchase = null; reviewed = null;
+    purchase = null;
+    reviewed = null;
     const outcome = await acquireFactorySkills(id, null, options);
     notice = outcome.message;
     if (outcome.sheet) queueChanged(outcome.sheet);
-    else try { await refreshProgress(); }
-    catch { error = "Current skills could not be reloaded. Check the wallet and skills before trying again."; }
+    else
+      try {
+        await refreshProgress();
+      } catch {
+        error =
+          "Current skills could not be reloaded. Check the wallet and skills before trying again.";
+      }
   }
 </script>
 
@@ -125,9 +176,29 @@
   {#if notice}<p role="status">{notice}</p>{/if}
 </section>
 <style>
-  section { margin-block: 1rem; border-block: 1px solid #405062; padding-block: .75rem; }
-  .choices { display:flex; flex-wrap:wrap; gap:.75rem; margin-block:.75rem; }
-  label { display:grid; gap:.35rem; }
-  input,select { padding:.4rem; color:inherit; background:#16202e; border:1px solid #455569; }
-  [role="alert"] { color:#ffc099; }
+  section {
+    margin-block: 1rem;
+    border-block: 1px solid #405062;
+    padding-block: 0.75rem;
+  }
+  .choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-block: 0.75rem;
+  }
+  label {
+    display: grid;
+    gap: 0.35rem;
+  }
+  input,
+  select {
+    padding: 0.4rem;
+    color: inherit;
+    background: #16202e;
+    border: 1px solid #455569;
+  }
+  [role="alert"] {
+    color: #ffc099;
+  }
 </style>

@@ -1,11 +1,17 @@
 <script lang="ts">
   import type { TrainingGoalOutcome } from "../adapters/training.ts";
-  type Estimate = Pick<TrainingGoalOutcome, "totalISK" | "fundingEstimate" | "additionalSP" | "additionalTrainingMs" | "trainingTimeReason">;
+  type Estimate = Pick<
+    TrainingGoalOutcome,
+    "totalISK" | "fundingEstimate" | "additionalSP" | "additionalTrainingMs" | "trainingTimeReason"
+  >;
   let { estimate, showSP = false }: { estimate: Estimate; showSP?: boolean } = $props();
   function duration(ms: number) {
     const minutes = Math.ceil(ms / 60000);
-    const days = Math.floor(minutes / 1440), hours = Math.floor(minutes % 1440 / 60);
-    return [days && `${days} d`, hours && `${hours} h`, `${minutes % 60} min`].filter(Boolean).join(" ");
+    const days = Math.floor(minutes / 1440),
+      hours = Math.floor((minutes % 1440) / 60);
+    return [days && `${days} d`, hours && `${hours} h`, `${minutes % 60} min`]
+      .filter(Boolean)
+      .join(" ");
   }
 </script>
 

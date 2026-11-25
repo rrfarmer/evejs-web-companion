@@ -1,13 +1,30 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { checkMiningMissionRecovery, continueCivilianMission, listCivilianHosted, stopServerBot, type MiningMissionRecovery, type ServerBot } from "../app/api.ts";
+  import {
+    checkMiningMissionRecovery,
+    continueCivilianMission,
+    listCivilianHosted,
+    stopServerBot,
+    type MiningMissionRecovery,
+    type ServerBot,
+  } from "../app/api.ts";
   import { skipWhileBusy } from "../app/skipWhileBusy.ts";
   import { civilianMissionName, currentCivilianWorker } from "../app/civilianSession.ts";
   import { ownerOptions } from "../app/context.ts";
   import type { CivilianProfile } from "../../civilian/profile.ts";
   import CenterStatus from "./CenterStatus.svelte";
 
-  let { profiles, accounts, watchedAccounts, refreshKey, parentBusy, onStart, onEdit, onRemove, onConfigure }: {
+  let {
+    profiles,
+    accounts,
+    watchedAccounts,
+    refreshKey,
+    parentBusy,
+    onStart,
+    onEdit,
+    onRemove,
+    onConfigure,
+  }: {
     profiles: readonly CivilianProfile[];
     accounts: readonly string[];
     watchedAccounts: readonly string[];
@@ -19,64 +36,106 @@
     onConfigure: (bot: ServerBot, account: string) => void;
   } = $props();
 
-  type Worker = {bot: ServerBot; account: string};
-  type Snapshot = {fresh: boolean; data?: Awaited<ReturnType<typeof listCivilianHosted>>};
+  type Worker = { bot: ServerBot; account: string };
+  type Snapshot = { fresh: boolean; data?: Awaited<ReturnType<typeof listCivilianHosted>> };
   let snapshots = $state.raw<Record<string, Snapshot>>({});
   let checks = $state<Record<string, MiningMissionRecovery>>({});
-  let error = $state(""), refreshError = $state("");
-  let busy = $state(false), loaded = $state(false);
+  let error = $state(""),
+    refreshError = $state("");
+  let busy = $state(false),
+    loaded = $state(false);
   let serial = 0;
   const snapshot = (account: string) => snapshots[account.toLowerCase()];
-  const workers = $derived(accounts.flatMap(account => (snapshot(account)?.data?.bots ?? []).map(bot => ({bot, account}))));
-  const distinctPilots = $derived([...new Set(workers.map(row => row.bot.characterID))]);
-  const unsaved = $derived(distinctPilots.filter(id => !profiles.some(profile => profile.pilot.characterID === id))
-    .flatMap(id => {
-      const worker = currentCivilianWorker(workers.filter(row => row.bot.characterID === id));
-      return worker ? [worker] : [];
-    }));
-  const orphanChecks = $derived(accounts.flatMap(account => (snapshot(account)?.data?.recovery ?? []).map(row => ({row, account}))));
-  const scopeNotice = $derived(accounts.map(account => snapshot(account)?.data?.recoveryUnavailable).find(Boolean));
+  const workers = $derived(
+    accounts.flatMap((account) =>
+      (snapshot(account)?.data?.bots ?? []).map((bot) => ({ bot, account })),
+    ),
+  );
+  const distinctPilots = $derived([...new Set(workers.map((row) => row.bot.characterID))]);
+  const unsaved = $derived(
+    distinctPilots
+      .filter((id) => !profiles.some((profile) => profile.pilot.characterID === id))
+      .flatMap((id) => {
+        const worker = currentCivilianWorker(workers.filter((row) => row.bot.characterID === id));
+        return worker ? [worker] : [];
+      }),
+  );
+  const orphanChecks = $derived(
+    accounts.flatMap((account) =>
+      (snapshot(account)?.data?.recovery ?? []).map((row) => ({ row, account })),
+    ),
+  );
+  const scopeNotice = $derived(
+    accounts.map((account) => snapshot(account)?.data?.recoveryUnavailable).find(Boolean),
+  );
 
   function profileWorkers(profile: CivilianProfile) {
-    return workers.filter(worker => worker.bot.characterID === profile.pilot.characterID &&
-      worker.account.toLowerCase() === profile.pilot.accountName.toLowerCase());
+    return workers.filter(
+      (worker) =>
+        worker.bot.characterID === profile.pilot.characterID &&
+        worker.account.toLowerCase() === profile.pilot.accountName.toLowerCase(),
+    );
   }
 
   async function refresh(scope: readonly string[] = accounts) {
     const check = ++serial;
-    const results = await Promise.allSettled(scope.map(async account =>
-      listCivilianHosted({...await ownerOptions(account), priority: "poll"})));
+    const results = await Promise.allSettled(
+      scope.map(async (account) =>
+        listCivilianHosted({ ...(await ownerOptions(account)), priority: "poll" }),
+      ),
+    );
     if (check !== serial) return;
-    const next = {...snapshots};
+    const next = { ...snapshots };
     results.forEach((result, i) => {
       const key = scope[i]!.toLowerCase();
-      next[key] = result.status === "fulfilled" ? {fresh:true,data:result.value} : {fresh:false,data:next[key]?.data};
+      next[key] =
+        result.status === "fulfilled"
+          ? { fresh: true, data: result.value }
+          : { fresh: false, data: next[key]?.data };
     });
     snapshots = next;
     loaded = true;
-    refreshError = results.some(result => result.status === "rejected") ? "Some mission pilots could not be refreshed." : "";
+    refreshError = results.some((result) => result.status === "rejected")
+      ? "Some mission pilots could not be refreshed."
+      : "";
   }
 
   async function action(work: () => Promise<unknown>) {
     if (busy || parentBusy) return;
-    busy = true; error = "";
-    try { await work(); await refresh(); }
-    catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
-    finally { busy = false; }
+    busy = true;
+    error = "";
+    try {
+      await work();
+      await refresh();
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      busy = false;
+    }
   }
 
   function recover(row: MiningMissionRecovery, account: string) {
-    return action(async () => { checks[row.pin] = await checkMiningMissionRecovery(row, false, await ownerOptions(account)); });
+    return action(async () => {
+      checks[row.pin] = await checkMiningMissionRecovery(row, false, await ownerOptions(account));
+    });
   }
 
   onMount(() => {
     const poll = skipWhileBusy(async () => {
       if (!loaded) return;
-      const relevant = [...new Set([...watchedAccounts, ...workers.filter(row => row.bot.civilianView !== "HISTORY").map(row => row.account)])];
+      const relevant = [
+        ...new Set([
+          ...watchedAccounts,
+          ...workers.filter((row) => row.bot.civilianView !== "HISTORY").map((row) => row.account),
+        ]),
+      ];
       if (relevant.length) await refresh(relevant);
     });
     const timer = setInterval(() => void poll(), 3000);
-    return () => { clearInterval(timer); ++serial; };
+    return () => {
+      clearInterval(timer);
+      ++serial;
+    };
   });
 
   $effect(() => {
@@ -224,11 +283,33 @@
 </section>
 
 <style>
-  .workers { margin: .75rem 0; padding: 0; border: 0; background: transparent; }
-  .workers::before { content: none; }
-  .profile { display:grid; gap:.3rem; margin:.7rem 0; }
-  .row { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; }
-  .run-details { margin:.2rem 0 .35rem; }
-  .muted { color:var(--text-muted, #a7bec9); }
-  p { margin:.2rem 0; }
+  .workers {
+    margin: 0.75rem 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .workers::before {
+    content: none;
+  }
+  .profile {
+    display: grid;
+    gap: 0.3rem;
+    margin: 0.7rem 0;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .run-details {
+    margin: 0.2rem 0 0.35rem;
+  }
+  .muted {
+    color: var(--text-muted, #a7bec9);
+  }
+  p {
+    margin: 0.2rem 0;
+  }
 </style>

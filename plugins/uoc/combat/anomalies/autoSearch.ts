@@ -1,24 +1,244 @@
-import type {CombatSite} from "./discovery.ts";
-import {decodeOwnShipLocation,type OwnShipProof} from "../../shared/nativeShipLocation.ts";
-export {decodeOwnShipLocation} from "../../shared/nativeShipLocation.ts";
+import type { CombatSite } from "./discovery.ts";
+import { decodeOwnShipLocation, type OwnShipProof } from "../../shared/nativeShipLocation.ts";
+export { decodeOwnShipLocation } from "../../shared/nativeShipLocation.ts";
 
-const positive=(v:unknown):v is number=>typeof v==="number"&&Number.isSafeInteger(v)&&v>0;
-type Doc={read():unknown;write(value:unknown):void};
-type Flight={docked:boolean;inSpace:boolean;ready:boolean;sampledAt:number;proof?:OwnShipProof};
-type State={version:1;identity:string;pending:null|{issuedAt:number;acknowledged:boolean};undockedAt:number|null;undockProof?:OwnShipProof;site:CombatSite|null};
-const defaultWait=(ms:number)=>new Promise<void>(resolve=>setTimeout(resolve,ms));
+const positive = (v: unknown): v is number =>
+  typeof v === "number" && Number.isSafeInteger(v) && v > 0;
+type Doc = { read(): unknown; write(value: unknown): void };
+type Flight = {
+  docked: boolean;
+  inSpace: boolean;
+  ready: boolean;
+  sampledAt: number;
+  proof?: OwnShipProof;
+};
+type State = {
+  version: 1;
+  identity: string;
+  pending: null | { issuedAt: number; acknowledged: boolean };
+  undockedAt: number | null;
+  undockProof?: OwnShipProof;
+  site: CombatSite | null;
+};
+const defaultWait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 /** One journaled leader undock; an unknown outcome is reconciled read-only, never replayed. */
-export async function resolveAutoCombatSite(c:{identity:string;scope:{characterID:number;shipID:number;systemID:number};document:Doc;current():void;stopping():boolean;flight():Promise<Flight>;undock():Promise<void>;scan():Promise<readonly CombatSite[]>;available(site:CombatSite):boolean;now?:()=>number;wait?:(ms:number)=>Promise<void>;readTimeoutMs?:number;searchMs?:number}):Promise<CombatSite|null>{
- const now=c.now??Date.now,wait=c.wait??defaultWait,timeout=c.readTimeoutMs??90000;const raw=c.document.read() as State|null;
- if(!c.identity||![c.scope?.characterID,c.scope?.shipID,c.scope?.systemID].every(positive)||!Number.isFinite(timeout)||timeout<=0)throw Error("Auto anomaly search scope is invalid.");
- if(raw!==null&&(!raw||raw.version!==1||raw.identity!==c.identity||!(raw.pending===null||Number.isFinite(raw.pending?.issuedAt)&&typeof raw.pending?.acknowledged==="boolean")||!(raw.undockedAt===null||Number.isFinite(raw.undockedAt))||!(raw.site===null||raw.site&&typeof raw.site==="object")))throw Error("Auto anomaly search custody is unreadable.");
- let state:State=raw?structuredClone(raw):{version:1,identity:c.identity,pending:null,undockedAt:null,site:null};
- const save=(v:State)=>{c.current();c.document.write(structuredClone(v));state=structuredClone(v);};
- async function bounded<T>(p:Promise<T>):Promise<T>{let timer:ReturnType<typeof setTimeout>|undefined;try{return await Promise.race([p,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error("Native search observation timed out; custody retained.")),timeout);})]);}finally{if(timer)clearTimeout(timer);}}
- const proved=(v:Flight)=>{const p=v.proof;return !!p&&p.kind==="native-own-ship-location"&&p.characterID===c.scope.characterID&&p.shipID===c.scope.shipID&&p.systemID===c.scope.systemID&&p.locationID===c.scope.systemID&&Number.isFinite(p.readStartedAt)&&Number.isFinite(p.readFinishedAt)&&p.readFinishedAt>=p.readStartedAt&&p.readFinishedAt===v.sampledAt&&p.readFinishedAt<=now()&&now()-p.readFinishedAt<=60000&&Number.isFinite(p.simulationSampledAt)&&p.simulationSampledAt>0&&/^\d+$/.test(p.timeFiletime)&&/^\d+$/.test(p.wallclockFiletime)&&(!state.pending||p.readStartedAt>=state.pending.issuedAt);};
- const flight=async()=>{c.current();const v=await bounded(c.flight());c.current();if(typeof v.docked!=="boolean"||typeof v.inSpace!=="boolean"||v.docked===v.inSpace||typeof v.ready!=="boolean"||!Number.isFinite(v.sampledAt)||v.sampledAt>now()||now()-v.sampledAt>60000)throw Error("Auto anomaly flight is unreadable.");return v;};
- let f:Flight|null=null;const firstDeadline=now()+timeout;while(now()<firstDeadline){c.current();if(c.stopping()&&!state.pending)return null;try{f=await flight();}catch{c.current();}if(f&&((f.docked&&f.ready)||(f.inSpace&&f.ready&&proved(f))))break;f=null;await wait(1000);}if(!f)throw Error(state.pending?"Anomaly undock remains unresolved; no replay.":"Anomaly flight readiness remains unavailable.");
- if(f.docked&&!state.pending){if(c.stopping())return null;if(state.undockedAt!==null||state.site)throw Error("Prior anomaly search was undocked; no replay.");const issuedAt=now();save({...state,pending:{issuedAt,acknowledged:false}});if(c.stopping()){save({...state,pending:null});return null;}try{await bounded(c.undock());c.current();save({...state,pending:{issuedAt,acknowledged:true}});}catch{c.current();/* The original undock may still have taken effect. */}}
- const deadline=now()+timeout;while(true){c.current();try{f=await flight();}catch{c.current();f=null;}if(f?.inSpace&&f.ready&&proved(f)){if(state.pending||state.undockedAt===null||!state.undockProof)save({...state,pending:null,undockedAt:f.proof!.readFinishedAt,undockProof:f.proof!});break;}if(now()>=deadline)throw Error("Anomaly undock remains unresolved; no replay.");await wait(1000);}
- if(c.stopping())return null;const end=now()+(c.searchMs??180000);let readable=false,lastReadable=false;while(now()<end){c.current();if(c.stopping())return null;let sites:readonly CombatSite[]|null=null;try{const value=await bounded(c.scan());if(Array.isArray(value))sites=value;}catch{c.current();}c.current();if(c.stopping())return null;if(!sites){lastReadable=false;await wait(1000);continue;}const fresh=sites.filter(s=>s&&Number.isFinite(s.observedAt)&&s.observedAt<=now()&&now()-s.observedAt<=60000);if(sites.length&&!fresh.length){lastReadable=false;await wait(1000);continue;}readable=true;lastReadable=true;const rows=fresh.filter(s=>c.available(s)).sort((a,b)=>a.scannerKey-b.scannerKey||a.instanceID-b.instanceID);if(state.site){const found=rows.find(s=>JSON.stringify({...s,observedAt:0})===JSON.stringify({...state.site,observedAt:0}));if(found)return found;await wait(1000);continue;}if(rows.length){save({...state,site:rows[0]!});return rows[0]!;}await wait(1000);}if(!readable||!lastReadable)throw Error("Anomaly scanner remains unavailable; no empty result assumed.");if(state.site)throw Error("Previously selected anomaly is unavailable; no new selection.");return null;
+export async function resolveAutoCombatSite(c: {
+  identity: string;
+  scope: { characterID: number; shipID: number; systemID: number };
+  document: Doc;
+  current(): void;
+  stopping(): boolean;
+  flight(): Promise<Flight>;
+  undock(): Promise<void>;
+  scan(): Promise<readonly CombatSite[]>;
+  available(site: CombatSite): boolean;
+  now?: () => number;
+  wait?: (ms: number) => Promise<void>;
+  readTimeoutMs?: number;
+  searchMs?: number;
+}): Promise<CombatSite | null> {
+  const now = c.now ?? Date.now,
+    wait = c.wait ?? defaultWait,
+    timeout = c.readTimeoutMs ?? 90000;
+  const raw = c.document.read() as State | null;
+  if (
+    !c.identity ||
+    ![c.scope?.characterID, c.scope?.shipID, c.scope?.systemID].every(positive) ||
+    !Number.isFinite(timeout) ||
+    timeout <= 0
+  )
+    throw Error("Auto anomaly search scope is invalid.");
+  if (
+    raw !== null &&
+    (!raw ||
+      raw.version !== 1 ||
+      raw.identity !== c.identity ||
+      !(
+        raw.pending === null ||
+        (Number.isFinite(raw.pending?.issuedAt) && typeof raw.pending?.acknowledged === "boolean")
+      ) ||
+      !(raw.undockedAt === null || Number.isFinite(raw.undockedAt)) ||
+      !(raw.site === null || (raw.site && typeof raw.site === "object")))
+  )
+    throw Error("Auto anomaly search custody is unreadable.");
+  let state: State = raw
+    ? structuredClone(raw)
+    : { version: 1, identity: c.identity, pending: null, undockedAt: null, site: null };
+  const save = (v: State) => {
+    c.current();
+    c.document.write(structuredClone(v));
+    state = structuredClone(v);
+  };
+  async function bounded<T>(p: Promise<T>): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        p,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(Error("Native search observation timed out; custody retained.")),
+            timeout,
+          );
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  const proved = (v: Flight) => {
+    const p = v.proof;
+    return (
+      !!p &&
+      p.kind === "native-own-ship-location" &&
+      p.characterID === c.scope.characterID &&
+      p.shipID === c.scope.shipID &&
+      p.systemID === c.scope.systemID &&
+      p.locationID === c.scope.systemID &&
+      Number.isFinite(p.readStartedAt) &&
+      Number.isFinite(p.readFinishedAt) &&
+      p.readFinishedAt >= p.readStartedAt &&
+      p.readFinishedAt === v.sampledAt &&
+      p.readFinishedAt <= now() &&
+      now() - p.readFinishedAt <= 60000 &&
+      Number.isFinite(p.simulationSampledAt) &&
+      p.simulationSampledAt > 0 &&
+      /^\d+$/.test(p.timeFiletime) &&
+      /^\d+$/.test(p.wallclockFiletime) &&
+      (!state.pending || p.readStartedAt >= state.pending.issuedAt)
+    );
+  };
+  const flight = async () => {
+    c.current();
+    const v = await bounded(c.flight());
+    c.current();
+    if (
+      typeof v.docked !== "boolean" ||
+      typeof v.inSpace !== "boolean" ||
+      v.docked === v.inSpace ||
+      typeof v.ready !== "boolean" ||
+      !Number.isFinite(v.sampledAt) ||
+      v.sampledAt > now() ||
+      now() - v.sampledAt > 60000
+    )
+      throw Error("Auto anomaly flight is unreadable.");
+    return v;
+  };
+  let f: Flight | null = null;
+  const firstDeadline = now() + timeout;
+  while (now() < firstDeadline) {
+    c.current();
+    if (c.stopping() && !state.pending) return null;
+    try {
+      f = await flight();
+    } catch {
+      c.current();
+    }
+    if (f && ((f.docked && f.ready) || (f.inSpace && f.ready && proved(f)))) break;
+    f = null;
+    await wait(1000);
+  }
+  if (!f)
+    throw Error(
+      state.pending
+        ? "Anomaly undock remains unresolved; no replay."
+        : "Anomaly flight readiness remains unavailable.",
+    );
+  if (f.docked && !state.pending) {
+    if (c.stopping()) return null;
+    if (state.undockedAt !== null || state.site)
+      throw Error("Prior anomaly search was undocked; no replay.");
+    const issuedAt = now();
+    save({ ...state, pending: { issuedAt, acknowledged: false } });
+    if (c.stopping()) {
+      save({ ...state, pending: null });
+      return null;
+    }
+    try {
+      await bounded(c.undock());
+      c.current();
+      save({ ...state, pending: { issuedAt, acknowledged: true } });
+    } catch {
+      c.current(); /* The original undock may still have taken effect. */
+    }
+  }
+  const deadline = now() + timeout;
+  while (true) {
+    c.current();
+    try {
+      f = await flight();
+    } catch {
+      c.current();
+      f = null;
+    }
+    if (f?.inSpace && f.ready && proved(f)) {
+      if (state.pending || state.undockedAt === null || !state.undockProof)
+        save({
+          ...state,
+          pending: null,
+          undockedAt: f.proof!.readFinishedAt,
+          undockProof: f.proof!,
+        });
+      break;
+    }
+    if (now() >= deadline) throw Error("Anomaly undock remains unresolved; no replay.");
+    await wait(1000);
+  }
+  if (c.stopping()) return null;
+  const end = now() + (c.searchMs ?? 180000);
+  let readable = false,
+    lastReadable = false;
+  while (now() < end) {
+    c.current();
+    if (c.stopping()) return null;
+    let sites: readonly CombatSite[] | null = null;
+    try {
+      const value = await bounded(c.scan());
+      if (Array.isArray(value)) sites = value;
+    } catch {
+      c.current();
+    }
+    c.current();
+    if (c.stopping()) return null;
+    if (!sites) {
+      lastReadable = false;
+      await wait(1000);
+      continue;
+    }
+    const fresh = sites.filter(
+      (s) =>
+        s &&
+        Number.isFinite(s.observedAt) &&
+        s.observedAt <= now() &&
+        now() - s.observedAt <= 60000,
+    );
+    if (sites.length && !fresh.length) {
+      lastReadable = false;
+      await wait(1000);
+      continue;
+    }
+    readable = true;
+    lastReadable = true;
+    const rows = fresh
+      .filter((s) => c.available(s))
+      .sort((a, b) => a.scannerKey - b.scannerKey || a.instanceID - b.instanceID);
+    if (state.site) {
+      const found = rows.find(
+        (s) =>
+          JSON.stringify({ ...s, observedAt: 0 }) ===
+          JSON.stringify({ ...state.site, observedAt: 0 }),
+      );
+      if (found) return found;
+      await wait(1000);
+      continue;
+    }
+    if (rows.length) {
+      save({ ...state, site: rows[0]! });
+      return rows[0]!;
+    }
+    await wait(1000);
+  }
+  if (!readable || !lastReadable)
+    throw Error("Anomaly scanner remains unavailable; no empty result assumed.");
+  if (state.site) throw Error("Previously selected anomaly is unavailable; no new selection.");
+  return null;
 }

@@ -1,40 +1,331 @@
-import test from 'node:test';import assert from 'node:assert/strict';
-import {installPageContext} from '../app/context.ts';
-import {reviewCombatOperation,listCombatOperations} from './combat.ts';
+import test from "node:test";
+import assert from "node:assert/strict";
+import { installPageContext } from "../app/context.ts";
+import { reviewCombatOperation, listCombatOperations } from "./combat.ts";
 
-let serial=0;const controller={token:'controller'};
-function fixture(){
- const n=++serial,ids=[800+n*10,801+n*10],names=ids.map(id=>'CocParity'+id),dock=1000000000001,bots=new Map<number,any[]>(),checked:any[]=[],rights:number[]=[];let deny:number|null=null,online:number|null=null,starts=0,registry=false,unknownOwner=false,evidence:any=null;
- const members=ids.map((characterID,i)=>({accountName:names[i]!,characterID,required:true,preparation:{}})),definition={operationID:'fixture',name:'Original patrol',mode:'GATE_PATROL',durationMinutes:60,members},candidate={runName:'combat-patrol-member',characterID:ids[0],accountName:names[0],members:members.map(m=>({...m})),setup:{leaderID:ids[0],systemID:300,mode:'GATE_PATROL',observationSeconds:10,parking:{mode:'selected',kind:'structure',destinationID:dock,systemID:null}}};
- const transport:typeof fetch=async(input,init)=>{
-  const url=new URL(String(input),'http://fixture'),p=url.pathname,b=init?.body?JSON.parse(String(init.body)):{},token=new Headers(init?.headers).get('authorization'),who=ids.find(id=>token===`Bearer CocParity${id}-token`)??ids[0]!;let value:any;
-  if(p.endsWith('/review'))value={ok:true,review:{reviewHash:'hash',definition,launchCandidate:candidate}};
-
-  else if(p==='/api/pilot-training/characters')value={ok:true,account:'CocParity'+who,characters:[{characterID:who}]};
-  else if(p==='/api/pilot-training/ownership'){const id=Number(url.searchParams.get('characterID'));value={ok:true,ownership:{characterID:id,owner:id===online?'COCKPIT':'OFF',online:id===online}};}
-  else if(p==='/api/plugins/uoc/runs/current')value={ok:true,runs:[]};
-  else if(p==='/api/plugins/uoc/world')value={ok:true,worldID:'coc-parity-world-'+n};
-  else if(p==='/api/bots')value={ok:true,bots:registry?[]:bots.get(who)??[],hostedRunPolicy:{maxRuntimeMinutes:60,defaultRuntimeMinutes:60,durationChoices:[60]}};
-  else if(p.startsWith('/api/dockable-structures/')){const id=Number(url.searchParams.get('characterID'));assert.equal(id,who);rights.push(id);if(id===deny)return Response.json({ok:false,message:'Native structure access denied for this pilot'},{status:403});value={ok:true,location:{id:dock,kind:'structure',solarSystemID:300,name:'Authorized Upwell'}};}
-  else if(p.includes('/runs/')&&p.endsWith('/check')){checked.push(b.setup);value={ok:true,setup:b.setup,policy:{riskClasses:[],restartSafe:false},name:'Patrol'};}
-  else if(p==='/api/bots/start'){starts++;assert.equal(b.run,'coc-fleet-inspect');const bot={botID:'inspect-'+who,characterID:who,kind:'plugin',status:'stopped',endedAt:new Date().toISOString(),phase:'Fleet Security pilot inspected',plugin:{pluginID:'uoc',run:b.run,readout:{characterID:who,shipID:who+100,shipClass:who===ids[0]?5:3,stationID:600,systemID:300,fleet:{state:'not-in-fleet'},observedAt:Date.now()}}};bots.set(who,[bot]);value={ok:true,bot};}
-  else if(p==='/api/plugins/uoc/combat-operations')value={ok:true,hostedRunPolicy:{maxRuntimeMinutes:60,defaultRuntimeMinutes:60,durationChoices:[60]},operations:[{definition,executions:[{epoch:'old-epoch',bot_id:'old-owner',owner:names[0]!.toLowerCase(),character_id:ids[0],status:unknownOwner?'GROUP_INTENT':'ENDED',nativeStatus:evidence,setup:{registry:true,...(evidence?.activity==='COMBAT_ANOMALY'?{siteSearch:{kind:'COMBAT_ANOMALY'}}:{mode:'GATE_PATROL'})},receipt:{phase:'DONE',anchor:{characterID:ids[0],shipID:ids[0]!+100,size:5}},members:members.map(m=>({owner:m.accountName,character_id:m.characterID,ship_id:m.characterID+100,required:1,status:unknownOwner?'RUNNING':'PARKED',bot_id:'old-'+m.characterID,receipt:{parking:{destinationID:dock}},preparation:{fittingName:'Verified original fit'}}))}]}]};
-  else throw Error('Unexpected isolated request '+url.pathname);return Response.json(value);
- };
- return {transport,ids,rights,checked,get starts(){return starts;},deny(id:number){deny=id;},online(id:number){online=id;},registry(){registry=true;},unresolved(){registry=true;unknownOwner=true;},native(value:any){registry=true;evidence=value;definition.mode=value.activity==='COMBAT_ANOMALY'?'COMBAT_ANOMALY':'GATE_PATROL';}};
+let serial = 0;
+const controller = { token: "controller" };
+function fixture() {
+  const n = ++serial,
+    ids = [800 + n * 10, 801 + n * 10],
+    names = ids.map((id) => "CocParity" + id),
+    dock = 1000000000001,
+    bots = new Map<number, any[]>(),
+    checked: any[] = [],
+    rights: number[] = [];
+  let deny: number | null = null,
+    online: number | null = null,
+    starts = 0,
+    registry = false,
+    unknownOwner = false,
+    evidence: any = null;
+  const members = ids.map((characterID, i) => ({
+      accountName: names[i]!,
+      characterID,
+      required: true,
+      preparation: {},
+    })),
+    definition = {
+      operationID: "fixture",
+      name: "Original patrol",
+      mode: "GATE_PATROL",
+      durationMinutes: 60,
+      members,
+    },
+    candidate = {
+      runName: "combat-patrol-member",
+      characterID: ids[0],
+      accountName: names[0],
+      members: members.map((m) => ({ ...m })),
+      setup: {
+        leaderID: ids[0],
+        systemID: 300,
+        mode: "GATE_PATROL",
+        observationSeconds: 10,
+        parking: { mode: "selected", kind: "structure", destinationID: dock, systemID: null },
+      },
+    };
+  const transport: typeof fetch = async (input, init) => {
+    const url = new URL(String(input), "http://fixture"),
+      p = url.pathname,
+      b = init?.body ? JSON.parse(String(init.body)) : {},
+      token = new Headers(init?.headers).get("authorization"),
+      who = ids.find((id) => token === `Bearer CocParity${id}-token`) ?? ids[0]!;
+    let value: any;
+    if (p.endsWith("/review"))
+      value = { ok: true, review: { reviewHash: "hash", definition, launchCandidate: candidate } };
+    else if (p === "/api/pilot-training/characters")
+      value = { ok: true, account: "CocParity" + who, characters: [{ characterID: who }] };
+    else if (p === "/api/pilot-training/ownership") {
+      const id = Number(url.searchParams.get("characterID"));
+      value = {
+        ok: true,
+        ownership: {
+          characterID: id,
+          owner: id === online ? "COCKPIT" : "OFF",
+          online: id === online,
+        },
+      };
+    } else if (p === "/api/plugins/uoc/runs/current") value = { ok: true, runs: [] };
+    else if (p === "/api/plugins/uoc/world") value = { ok: true, worldID: "coc-parity-world-" + n };
+    else if (p === "/api/bots")
+      value = {
+        ok: true,
+        bots: registry ? [] : (bots.get(who) ?? []),
+        hostedRunPolicy: {
+          maxRuntimeMinutes: 60,
+          defaultRuntimeMinutes: 60,
+          durationChoices: [60],
+        },
+      };
+    else if (p.startsWith("/api/dockable-structures/")) {
+      const id = Number(url.searchParams.get("characterID"));
+      assert.equal(id, who);
+      rights.push(id);
+      if (id === deny)
+        return Response.json(
+          { ok: false, message: "Native structure access denied for this pilot" },
+          { status: 403 },
+        );
+      value = {
+        ok: true,
+        location: { id: dock, kind: "structure", solarSystemID: 300, name: "Authorized Upwell" },
+      };
+    } else if (p.includes("/runs/") && p.endsWith("/check")) {
+      checked.push(b.setup);
+      value = {
+        ok: true,
+        setup: b.setup,
+        policy: { riskClasses: [], restartSafe: false },
+        name: "Patrol",
+      };
+    } else if (p === "/api/bots/start") {
+      starts++;
+      assert.equal(b.run, "coc-fleet-inspect");
+      const bot = {
+        botID: "inspect-" + who,
+        characterID: who,
+        kind: "plugin",
+        status: "stopped",
+        endedAt: new Date().toISOString(),
+        phase: "Fleet Security pilot inspected",
+        plugin: {
+          pluginID: "uoc",
+          run: b.run,
+          readout: {
+            characterID: who,
+            shipID: who + 100,
+            shipClass: who === ids[0] ? 5 : 3,
+            stationID: 600,
+            systemID: 300,
+            fleet: { state: "not-in-fleet" },
+            observedAt: Date.now(),
+          },
+        },
+      };
+      bots.set(who, [bot]);
+      value = { ok: true, bot };
+    } else if (p === "/api/plugins/uoc/combat-operations")
+      value = {
+        ok: true,
+        hostedRunPolicy: {
+          maxRuntimeMinutes: 60,
+          defaultRuntimeMinutes: 60,
+          durationChoices: [60],
+        },
+        operations: [
+          {
+            definition,
+            executions: [
+              {
+                epoch: "old-epoch",
+                bot_id: "old-owner",
+                owner: names[0]!.toLowerCase(),
+                character_id: ids[0],
+                status: unknownOwner ? "GROUP_INTENT" : "ENDED",
+                nativeStatus: evidence,
+                setup: {
+                  registry: true,
+                  ...(evidence?.activity === "COMBAT_ANOMALY"
+                    ? { siteSearch: { kind: "COMBAT_ANOMALY" } }
+                    : { mode: "GATE_PATROL" }),
+                },
+                receipt: {
+                  phase: "DONE",
+                  anchor: { characterID: ids[0], shipID: ids[0]! + 100, size: 5 },
+                },
+                members: members.map((m) => ({
+                  owner: m.accountName,
+                  character_id: m.characterID,
+                  ship_id: m.characterID + 100,
+                  required: 1,
+                  status: unknownOwner ? "RUNNING" : "PARKED",
+                  bot_id: "old-" + m.characterID,
+                  receipt: { parking: { destinationID: dock } },
+                  preparation: { fittingName: "Verified original fit" },
+                })),
+              },
+            ],
+          },
+        ],
+      };
+    else throw Error("Unexpected isolated request " + url.pathname);
+    return Response.json(value);
+  };
+  return {
+    transport,
+    ids,
+    rights,
+    checked,
+    get starts() {
+      return starts;
+    },
+    deny(id: number) {
+      deny = id;
+    },
+    online(id: number) {
+      online = id;
+    },
+    registry() {
+      registry = true;
+    },
+    unresolved() {
+      registry = true;
+      unknownOwner = true;
+    },
+    native(value: any) {
+      registry = true;
+      evidence = value;
+      definition.mode = value.activity === "COMBAT_ANOMALY" ? "COMBAT_ANOMALY" : "GATE_PATROL";
+    },
+  };
 }
-async function use(f:ReturnType<typeof fixture>,work:()=>Promise<void>){const before=globalThis.fetch;globalThis.fetch=f.transport;installPageContext({fetch:f.transport,readAccounts:()=>f.ids.map(id=>({accountID:id,username:`CocParity${id}`,options:{token:`CocParity${id}-token`,fetch:f.transport}}))});try{await work();}finally{globalThis.fetch=before;installPageContext({});}}
+async function use(f: ReturnType<typeof fixture>, work: () => Promise<void>) {
+  const before = globalThis.fetch;
+  globalThis.fetch = f.transport;
+  installPageContext({
+    fetch: f.transport,
+    readAccounts: () =>
+      f.ids.map((id) => ({
+        accountID: id,
+        username: `CocParity${id}`,
+        options: { token: `CocParity${id}-token`, fetch: f.transport },
+      })),
+  });
+  try {
+    await work();
+  } finally {
+    globalThis.fetch = before;
+    installPageContext({});
+  }
+}
 
-test('selected Upwell Parking is qualified separately under every pilot account before fleet checks',async()=>{const f=fixture();await use(f,async()=>{const r=await reviewCombatOperation('fixture',controller);assert.equal(r.canStart,true,JSON.stringify(r.blockers));assert.deepEqual(f.rights,f.ids);assert.equal(f.starts,2);assert.ok(f.checked.filter(s=>s.parking).length>=2);assert.ok(f.checked.filter(s=>s.parking).every(s=>s.parking.kind==='structure'&&s.parking.destinationID===1000000000001&&s.parking.systemID===300));});});
-test('denied required Upwell access and online Cockpit ownership cannot become a ready fleet',async()=>{
- const denied=fixture();denied.deny(denied.ids[1]!);await use(denied,async()=>{const r=await reviewCombatOperation('fixture',controller);assert.equal(r.canStart,false);assert.match(r.blockers?.join(' ')??'',/access denied/);assert.equal(denied.starts,1);});
- const active=fixture();active.online(active.ids[0]!);await use(active,async()=>{const r=await reviewCombatOperation('fixture',controller);assert.equal(r.canStart,false);assert.match(r.blockers?.join(' ')??'',/offline and free/);assert.equal(active.starts,0);});
+test("selected Upwell Parking is qualified separately under every pilot account before fleet checks", async () => {
+  const f = fixture();
+  await use(f, async () => {
+    const r = await reviewCombatOperation("fixture", controller);
+    assert.equal(r.canStart, true, JSON.stringify(r.blockers));
+    assert.deepEqual(f.rights, f.ids);
+    assert.equal(f.starts, 2);
+    assert.ok(f.checked.filter((s) => s.parking).length >= 2);
+    assert.ok(
+      f.checked
+        .filter((s) => s.parking)
+        .every(
+          (s) =>
+            s.parking.kind === "structure" &&
+            s.parking.destinationID === 1000000000001 &&
+            s.parking.systemID === 300,
+        ),
+    );
+  });
 });
-test('durable native Parking survives missing host rows, but only independent OFF and no controller prove release',async()=>{const f=fixture();f.registry();await use(f,async()=>{let rows=await listCombatOperations(controller);assert.equal(rows.operations[0]?.run?.phase,'STOPPED');assert.ok(rows.operations[0]?.run?.members.every(m=>m.state==='RELEASED'));assert.equal(rows.operations[0]?.run?.members[0]?.fittingName,'Verified original fit');f.online(f.ids[1]!);rows=await listCombatOperations(controller);assert.equal(rows.operations[0]?.run?.phase,'PARKING');assert.equal(rows.operations[0]?.run?.members[1]?.state,'PARKED');assert.equal(rows.operations[0]?.run?.recoveryRequired,true);});});
-
-test('original cards project actual patrol waypoint generations and native anomaly receipts without Security placeholder values',async()=>{
- const patrol=fixture();patrol.native({activity:'PATROL',state:'STOPPED',epoch:4,waypointIndex:2,waypoint:{itemID:88,name:'Native Stargate',systemID:300},primaryID:null});await use(patrol,async()=>{const run=(await listCombatOperations(controller)).operations[0]!.run!;assert.equal(run.epoch,4);assert.equal(run.waypointIndex,2);assert.equal(run.waypoint?.itemID,88);assert.equal(run.primaryID,null);assert.deepEqual(run.objective?.completed,[]);});
- const anomaly=fixture(),site={systemID:300,scannerKey:55,instanceID:89,dungeonID:2226,label:'Native scanner designation'};anomaly.native({activity:'COMBAT_ANOMALY',state:'STOPPED',epoch:3,site,completed:[{identity:site,receipt:{source:'native-dungeon-completed'}}]});await use(anomaly,async()=>{const run=(await listCombatOperations(controller)).operations[0]!.run!;assert.equal(run.objective?.identity?.instanceID,89);assert.equal(run.objective?.identity?.name,site.label);assert.equal((run.objective?.completed?.[0] as any).receipt.source,'native-dungeon-completed');assert.equal(run.waypointIndex,null);assert.equal(run.primaryID,null);});
+test("denied required Upwell access and online Cockpit ownership cannot become a ready fleet", async () => {
+  const denied = fixture();
+  denied.deny(denied.ids[1]!);
+  await use(denied, async () => {
+    const r = await reviewCombatOperation("fixture", controller);
+    assert.equal(r.canStart, false);
+    assert.match(r.blockers?.join(" ") ?? "", /access denied/);
+    assert.equal(denied.starts, 1);
+  });
+  const active = fixture();
+  active.online(active.ids[0]!);
+  await use(active, async () => {
+    const r = await reviewCombatOperation("fixture", controller);
+    assert.equal(r.canStart, false);
+    assert.match(r.blockers?.join(" ") ?? "", /offline and free/);
+    assert.equal(active.starts, 0);
+  });
+});
+test("durable native Parking survives missing host rows, but only independent OFF and no controller prove release", async () => {
+  const f = fixture();
+  f.registry();
+  await use(f, async () => {
+    let rows = await listCombatOperations(controller);
+    assert.equal(rows.operations[0]?.run?.phase, "STOPPED");
+    assert.ok(rows.operations[0]?.run?.members.every((m) => m.state === "RELEASED"));
+    assert.equal(rows.operations[0]?.run?.members[0]?.fittingName, "Verified original fit");
+    f.online(f.ids[1]!);
+    rows = await listCombatOperations(controller);
+    assert.equal(rows.operations[0]?.run?.phase, "PARKING");
+    assert.equal(rows.operations[0]?.run?.members[1]?.state, "PARKED");
+    assert.equal(rows.operations[0]?.run?.recoveryRequired, true);
+  });
 });
 
-test('a lost process with RUNNING durable rows and no exact host controller is explicit recovery, never forming or released',async()=>{const f=fixture();f.unresolved();await use(f,async()=>{const run=(await listCombatOperations(controller)).operations[0]!.run!;assert.equal(run.phase,'RECOVERY_REQUIRED');assert.match(run.holdReason??'',/hosted owner is unavailable/);assert.equal(run.recoveryReceipt?.verified,false);assert.ok(run.recoveryReceipt?.members.every(m=>!m.verified));assert.equal(f.starts,0);});});
+test("original cards project actual patrol waypoint generations and native anomaly receipts without Security placeholder values", async () => {
+  const patrol = fixture();
+  patrol.native({
+    activity: "PATROL",
+    state: "STOPPED",
+    epoch: 4,
+    waypointIndex: 2,
+    waypoint: { itemID: 88, name: "Native Stargate", systemID: 300 },
+    primaryID: null,
+  });
+  await use(patrol, async () => {
+    const run = (await listCombatOperations(controller)).operations[0]!.run!;
+    assert.equal(run.epoch, 4);
+    assert.equal(run.waypointIndex, 2);
+    assert.equal(run.waypoint?.itemID, 88);
+    assert.equal(run.primaryID, null);
+    assert.deepEqual(run.objective?.completed, []);
+  });
+  const anomaly = fixture(),
+    site = {
+      systemID: 300,
+      scannerKey: 55,
+      instanceID: 89,
+      dungeonID: 2226,
+      label: "Native scanner designation",
+    };
+  anomaly.native({
+    activity: "COMBAT_ANOMALY",
+    state: "STOPPED",
+    epoch: 3,
+    site,
+    completed: [{ identity: site, receipt: { source: "native-dungeon-completed" } }],
+  });
+  await use(anomaly, async () => {
+    const run = (await listCombatOperations(controller)).operations[0]!.run!;
+    assert.equal(run.objective?.identity?.instanceID, 89);
+    assert.equal(run.objective?.identity?.name, site.label);
+    assert.equal((run.objective?.completed?.[0] as any).receipt.source, "native-dungeon-completed");
+    assert.equal(run.waypointIndex, null);
+    assert.equal(run.primaryID, null);
+  });
+});
+
+test("a lost process with RUNNING durable rows and no exact host controller is explicit recovery, never forming or released", async () => {
+  const f = fixture();
+  f.unresolved();
+  await use(f, async () => {
+    const run = (await listCombatOperations(controller)).operations[0]!.run!;
+    assert.equal(run.phase, "RECOVERY_REQUIRED");
+    assert.match(run.holdReason ?? "", /hosted owner is unavailable/);
+    assert.equal(run.recoveryReceipt?.verified, false);
+    assert.ok(run.recoveryReceipt?.members.every((m) => !m.verified));
+    assert.equal(f.starts, 0);
+  });
+});

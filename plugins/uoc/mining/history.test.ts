@@ -1,9 +1,86 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {miningIdentity,rolloverMiningState} from "./history.ts";
-const mission:any={characterID:7,agentID:9,content:{contentID:12,dungeonID:13},acceptTimestamp:"old",systemID:300,position:{x:1,y:2,z:3}};
-const prior=()=>({version:1,characterID:7,setupKey:"old-setup",shipID:11,agentID:9,mission,pending:null,completed:true,completedCount:1,
- completionReceipt:{agentID:9,mission:miningIdentity(mission),native:{completed:true,actions:[]},journal:{active:[],offered:[]},at:100},reward:{isk:42},legacy:{objective:{...mission,acceptTimestamp:"even-older"}},history:[{previous:"kept"}],extra:{provenance:3}});
-test("a verified completed run rolls over once, preserving its full completion and consuming legacy",()=>{const old=prior(),next=rolloverMiningState(old,{characterID:7,objective:mission},7,"new-setup");assert.equal(next.completed,false);assert.equal(next.completedCount,0);assert.equal(next.legacy,null);assert.deepEqual(next.history[0],{previous:"kept"});assert.deepEqual(next.history[1].completionReceipt,old.completionReceipt);assert.deepEqual(next.history[1].reward,{isk:42});assert.deepEqual(next.history[1].extra,{provenance:3});assert.equal("history" in next.history[1],false);assert.equal(old.history.length,1);});
-test("unrelated, incomplete, unknown or contradictory completed custody is never discarded",()=>{for(const edit of [(s:any)=>{s.characterID=8},(s:any)=>{s.pending={kind:"complete"}},(s:any)=>{delete s.pending},(s:any)=>{s.legacy.pending={kind:"old"}},(s:any)=>{s.completionReceipt.native.completed=false},(s:any)=>{s.completionReceipt.mission="other"},(s:any)=>{s.completionReceipt.journal.active=[{agentID:9}]},(s:any)=>{s.history={}}]){const row=structuredClone(prior());edit(row);assert.throws(()=>rolloverMiningState(row,null,7,"new-setup"));}});
-test("new records retain matching legacy once, and unfinished mission and mutation survive reviewed limit changes",()=>{const legacy={characterID:7,objective:mission};assert.deepEqual(rolloverMiningState(null,legacy,7,"setup").legacy,legacy);assert.throws(()=>rolloverMiningState(null,{characterID:8},7,"setup"));const retained=rolloverMiningState({...prior(),completed:false},null,7,"different");assert.equal(retained.setupKey,"different");assert.deepEqual(retained.mission,mission);});
+import { miningIdentity, rolloverMiningState } from "./history.ts";
+const mission: any = {
+  characterID: 7,
+  agentID: 9,
+  content: { contentID: 12, dungeonID: 13 },
+  acceptTimestamp: "old",
+  systemID: 300,
+  position: { x: 1, y: 2, z: 3 },
+};
+const prior = () => ({
+  version: 1,
+  characterID: 7,
+  setupKey: "old-setup",
+  shipID: 11,
+  agentID: 9,
+  mission,
+  pending: null,
+  completed: true,
+  completedCount: 1,
+  completionReceipt: {
+    agentID: 9,
+    mission: miningIdentity(mission),
+    native: { completed: true, actions: [] },
+    journal: { active: [], offered: [] },
+    at: 100,
+  },
+  reward: { isk: 42 },
+  legacy: { objective: { ...mission, acceptTimestamp: "even-older" } },
+  history: [{ previous: "kept" }],
+  extra: { provenance: 3 },
+});
+test("a verified completed run rolls over once, preserving its full completion and consuming legacy", () => {
+  const old = prior(),
+    next = rolloverMiningState(old, { characterID: 7, objective: mission }, 7, "new-setup");
+  assert.equal(next.completed, false);
+  assert.equal(next.completedCount, 0);
+  assert.equal(next.legacy, null);
+  assert.deepEqual(next.history[0], { previous: "kept" });
+  assert.deepEqual(next.history[1].completionReceipt, old.completionReceipt);
+  assert.deepEqual(next.history[1].reward, { isk: 42 });
+  assert.deepEqual(next.history[1].extra, { provenance: 3 });
+  assert.equal("history" in next.history[1], false);
+  assert.equal(old.history.length, 1);
+});
+test("unrelated, incomplete, unknown or contradictory completed custody is never discarded", () => {
+  for (const edit of [
+    (s: any) => {
+      s.characterID = 8;
+    },
+    (s: any) => {
+      s.pending = { kind: "complete" };
+    },
+    (s: any) => {
+      delete s.pending;
+    },
+    (s: any) => {
+      s.legacy.pending = { kind: "old" };
+    },
+    (s: any) => {
+      s.completionReceipt.native.completed = false;
+    },
+    (s: any) => {
+      s.completionReceipt.mission = "other";
+    },
+    (s: any) => {
+      s.completionReceipt.journal.active = [{ agentID: 9 }];
+    },
+    (s: any) => {
+      s.history = {};
+    },
+  ]) {
+    const row = structuredClone(prior());
+    edit(row);
+    assert.throws(() => rolloverMiningState(row, null, 7, "new-setup"));
+  }
+});
+test("new records retain matching legacy once, and unfinished mission and mutation survive reviewed limit changes", () => {
+  const legacy = { characterID: 7, objective: mission };
+  assert.deepEqual(rolloverMiningState(null, legacy, 7, "setup").legacy, legacy);
+  assert.throws(() => rolloverMiningState(null, { characterID: 8 }, 7, "setup"));
+  const retained = rolloverMiningState({ ...prior(), completed: false }, null, 7, "different");
+  assert.equal(retained.setupKey, "different");
+  assert.deepEqual(retained.mission, mission);
+});

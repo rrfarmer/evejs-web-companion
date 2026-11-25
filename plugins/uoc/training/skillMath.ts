@@ -10,4 +10,5 @@ export function skillPointsForLevel(rank: number, level: number): number {
   return Math.ceil(rank * 250 * 2 ** (2.5 * (Math.min(level, 5) - 1)));
 }
 
-export const skillPointsPerMinute = (primary: number, secondary: number): number => primary + secondary / 2;
+export const skillPointsPerMinute = (primary: number, secondary: number): number =>
+  primary + secondary / 2;
