@@ -2,6 +2,7 @@
   import Calculator from "./Calculator.svelte";
   import Help from "./Help.svelte";
   import AuraGuidance from "./AuraGuidance.svelte";
+  import NewEdenStore from "./NewEdenStore.svelte";
   import FittingManagement from "./FittingManagement.svelte";
   import AcademyShips from "./AcademyShips.svelte";
   import ShipTree from "./ShipTree.svelte";
@@ -361,6 +362,8 @@
   <Help {store} {flow} showChat={() => onOpen?.("chat")} />
 {:else if tab === "auraGuidance"}
   <AuraGuidance {store} {flow} />
+{:else if tab === "newEdenStore"}
+  <NewEdenStore {flow} />
 {:else if tab === "notepad"}
   <Notepad {store} {flow} />
 {:else if tab === "calendar"}

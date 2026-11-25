@@ -222,6 +222,7 @@
     accessGroups: "accessGroups",
     help: "help",
     auraGuidance: "auraGuidance",
+    newEdenStore: "newEdenStore",
   };
 
   let session = $state<Session | null>(null);
@@ -1460,6 +1461,7 @@
    * agencyWnd (AgencyWndNew) 1188 x 694, walletWnd 900 x 600, planetWindow 500 x 500, uilog (logger) 400 x 200.
    */
   const CLIENT_SIZES: Partial<Record<TabID, { w: number; h: number }>> = {
+    newEdenStore: { w: 960, h: 620 },
     help: { w: 400, h: 275 },
     auraGuidance: { w: 400, h: 500 },
     fittingManagement: { w: 620, h: 600 },
@@ -1677,6 +1679,7 @@
    */
   const CAPTION_LABELS: Partial<Record<TabID, string>> = {
     auraGuidance: "UI/Accessories/AuraGuidance/WindowTitle",
+    newEdenStore: "UI/VirtualGoodsStore/VgsName",
     fittingManagement: "UI/Fitting/FittingWindow/FittingManagement/WindowCaption",
     calculator: "UI/Accessories/Calculator/Calculator",
     marketOrders: "Tooltips/StationServices/MarketOrders",
@@ -1849,6 +1852,7 @@
     OpenAchievementsWindow: "achievements", OpenFleetWatchlist: "watchlist", OpenStructureBrowser: "structureBrowser",
     OpenAccessGroupsWindow: "accessGroups",
     OpenHelp: "help",
+    ToggleAurumStore: "newEdenStore",
     ToggleTheatersOfWarWindow: "theatersOfWar", CmdToggleShipTree: "shipTree",
     // (ToggleOpenClose in the client too: ContractsWindow, CorporationWindow, NotepadWindow, PlanetWindow, the comparison
     // tool, the redeem window)
@@ -1980,7 +1984,8 @@
       return;
     }
     const tab = NEOCOM_TABS[id];
-    if ((tab === "shipTree" || tab === "marketOrders" || tab === "help") && wins.some(win => win.id === tab && !win.minimized)) wins = closeWindow(wins, tab);
+    if ((tab === "shipTree" || tab === "marketOrders" || tab === "help" || tab === "newEdenStore") &&
+        wins.some(win => win.id === tab && !win.minimized)) wins = closeWindow(wins, tab);
     else if (tab) open(tab);
   }
   function toggleBountyOffice() {
