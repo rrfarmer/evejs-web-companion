@@ -152,7 +152,8 @@
     "UI/Common/Groups": "Groups",
     "Tooltips/Market/MarketGroupsTab": "Browse items in the selected group",
     "UI/Market/Marketbase/SelectGroupToBrowse": "Select a market group to browse.",
-    "UI/Market/Marketbase/NoItemsAvailable": "No items are available in this group.",
+    "UI/Market/Marketbase/NoItemsAvailable": "There are no items available in this market group.",
+    "UI/Market/Marketbase/DisableShowOnlyAvailable": 'Try to turn off the "Show only available" check box on the left if you want to browse the items that are in this market group.',
     "UI/Market/ShowOnlyAvailable": "Show Only Available",
     "UI/Common/LocationTypes/Station": "Station",
     "UI/Common/LocationTypes/SolarSystem": "Solar System",
@@ -1658,6 +1659,9 @@
       <p class="note" role="status">Reading market availability…</p>
     {:else if !groupCards.length}
       <p class="note">{qbWord("UI/Market/Marketbase/NoItemsAvailable")}</p>
+      {#if showOnlyAvailable && groupAsks}
+        <p class="note">{qbWord("UI/Market/Marketbase/DisableShowOnlyAvailable")}</p>
+      {/if}
     {:else}
       <h2>{crumbs.at(-1)?.name}</h2>
       {#if groupAsksError}<p class="note">Market prices could not be read.</p>{/if}
