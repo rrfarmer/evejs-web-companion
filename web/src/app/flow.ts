@@ -976,7 +976,10 @@ import { combatUtilityFit, type CombatUtilities } from "../nav/combatUtilities.t
 
 import { issueCombatUtility, issueUtilityReload } from "../nav/combatUtilityIssue.ts";
 import { nameKey, type NameRef } from "../store/names.ts";
-import { decodeSkyhookDetails, decodeSkyhookEntries, skyhookProduction, type SkyhookRow } from "../bridge/skyhooks.ts";
+import {
+  decodeSkyhookDetails, decodeSkyhookEntries, decodeSkyhookSettings, ORBITAL_TAX_KEYS, REINFORCEMENT_VARIANCE_ATTRIBUTE,
+  SKYHOOK_TYPE_ID, skyhookProduction, skyhookSettingsArgs, type SkyhookEntry, type SkyhookRow, type SkyhookSettings,
+} from "../bridge/skyhooks.ts";
 
 
 import type { BotLogDraft, BotLogSink } from "../nav/botLog.ts";
@@ -4492,6 +4495,10 @@ export interface AppFlow {
   loadCorporationMoonSchedule(current?: () => void): Promise<CorporationMoonSchedule>;
   loadStructureBrowser(systemID: number, corporation?: boolean): Promise<StructureBrowserDirectory>;
   loadMySkyhooks(systemID: number): Promise<{ rows: SkyhookRow[]; currentRegionID: number | null }>;
+  loadSkyhookConfiguration(target: SkyhookEntry): Promise<{
+    settings: SkyhookSettings; varianceHours: number; groups: readonly { id: number; name: string }[];
+  }>;
+  saveSkyhookConfiguration(target: SkyhookEntry, settings: SkyhookSettings): Promise<void>;
   loadStructureDescription(structureID: number): Promise<string>;
   saveStructureDescription(structureID: number, description: string): Promise<void>;
   changeStructureDecommission(structureID: number, action: "start" | "cancel"): Promise<boolean>;
@@ -27995,6 +28002,54 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return { rows, currentRegionID: regionFor(systemID) };
   }
 
+  async function requireOwnedSkyhook(target: SkyhookEntry, scope: MemberOperation): Promise<void> {
+    const canManage = () => hasMoonStationManagerRole(store.station.get().online?.corpRole ?? null);
+    if (isNpcCorporation(scope.online.corporationID) || !canManage()) throw new Error("Configuring an orbital requires Station Manager.");
+    const reply = await scope.ask("colonyResourcesMgr", "GetMyCorporationSkyhooks", []);
+    scope.current();
+    if (!canManage() || !decodeSkyhookEntries(reply).some(row =>
+      row.id === target.id && row.typeID === SKYHOOK_TYPE_ID && row.systemID === target.systemID)) {
+      throw new Error("The orbital is no longer available to your corporation.");
+    }
+  }
+
+  async function loadSkyhookConfiguration(target: SkyhookEntry) {
+    const scope = captureMemberOperation();
+    await requireOwnedSkyhook(target, scope);
+    const [reply, attributes, groups] = await Promise.all([
+      scope.ask("planetOrbitalRegistryBroker", "GetSettingsInfo", [target.id], null, target.systemID),
+      attributesOfTypes([SKYHOOK_TYPE_ID], [REINFORCEMENT_VARIANCE_ATTRIBUTE]),
+      readMyAccessGroups(scope.ask),
+    ]);
+    const creators = groups.flatMap(group => group.creatorID !== null && isNpcCorporation(group.creatorID)
+      ? [{ kind: "owner" as const, id: group.creatorID }] : []);
+    if (creators.length) await memberNames(scope, creators);
+    scope.current();
+    return {
+      settings: decodeSkyhookSettings(reply),
+      varianceHours: Math.floor((attributes[SKYHOOK_TYPE_ID]?.[REINFORCEMENT_VARIANCE_ATTRIBUTE] ?? 10_800) / 3600),
+      groups: groups.map(group => ({
+        id: group.groupID,
+        name: group.creatorID !== null && isNpcCorporation(group.creatorID)
+          ? resolvedName(store.names.get().resolved, "owner", group.creatorID, group.name) : group.name,
+      })).sort((left, right) => left.name.localeCompare(right.name)),
+    };
+  }
+
+  async function saveSkyhookConfiguration(target: SkyhookEntry, settings: SkyhookSettings): Promise<void> {
+    const scope = captureMemberOperation();
+    const args = skyhookSettingsArgs(target.id, settings);
+    await requireOwnedSkyhook(target, scope);
+    await scope.write("planetOrbitalRegistryBroker", "UpdateSettings", args, null, target.systemID);
+    const saved = decodeSkyhookSettings(await scope.ask("planetOrbitalRegistryBroker", "GetSettingsInfo", [target.id], null, target.systemID));
+    scope.current();
+    if (saved.hour !== settings.hour || saved.acl !== settings.acl || saved.standing !== settings.standing ||
+        saved.allowAlliance !== settings.allowAlliance || saved.allowStandings !== settings.allowStandings ||
+        ORBITAL_TAX_KEYS.some(key => Math.abs(saved.taxRates[key] - settings.taxRates[key]) > 1e-8)) {
+      throw new Error("The orbital configuration changes could not be confirmed.");
+    }
+  }
+
   async function structureDescriptionAllowed(scope: MemberOperation): Promise<boolean> {
     const key = "content_compliance_control_system_enabled";
     const config = await api.getGlobalConfig([key], scope.options);
@@ -39866,6 +39921,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadCorporationMoonSchedule,
     loadStructureBrowser,
     loadMySkyhooks,
+    loadSkyhookConfiguration,
+    saveSkyhookConfiguration,
     loadStructureDescription,
     saveStructureDescription,
     changeStructureDecommission,

@@ -5483,8 +5483,8 @@ function createGamePortPilots({
         return attribute(entry, "solarsystemid") === null ? undefined : attribute(entry, "solarsystemid2");
       case "beyonce": // GetBallPark
         return attribute(entry, "solarsystemid") ?? undefined;
-      case "planetOrbitalRegistryBroker": // GetPlanetOrbitalRegistry(session.solarsystemid): in space only
-        return attribute(entry, "solarsystemid") ?? undefined;
+      case "planetOrbitalRegistryBroker": // Configuration names the orbital's system, including remotely.
+        return positive(given) ?? attribute(entry, "solarsystemid") ?? undefined;
       case OFFICE_MANAGER: // officeManager.station: Moniker('officeManager', session.stationid or session.structureid);
         // officeManager.TrashImpoundAtStation (officeManager.py 156): Moniker('officeManager', stationID), the one named.
         return positive(Array.isArray(given) ? given[0] : given) ?? attribute(entry, "stationid") ?? attribute(entry, "structureid") ?? undefined;

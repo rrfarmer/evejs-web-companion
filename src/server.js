@@ -1440,6 +1440,12 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     res.status(400).json({ ok: false, error: "INVALID_PLANET", message: "A positive planetID is required." });
     return;
   }
+  if (objectKind === "orbitalSystem" && (body.pilot !== true || !Number.isSafeInteger(body.of) ||
+      !staticData.getSolarSystem(body.of) || !Array.isArray(body.args) || !Number.isSafeInteger(body.args[0]) ||
+      body.args[0] <= 0 || body.kwargs != null || body.args.length !== (write ? 7 : 1))) {
+    res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "Select an orbital and its solar system." });
+    return;
+  }
   if (body.service === "planetMgr" && body.method === "UserAbandonPlanet"
     && (!Array.isArray(body.args) || body.args.length !== 0 || body.kwargs != null)) {
     res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "Abandonment takes only the bound planet, with no arguments." });
@@ -1629,6 +1635,10 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       : objectKind === "planet"
       ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => boundCall(
         heldBridgeSession, req.webSessionID, planetBindSpec(body.of), body.method, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null)) }
+      : objectKind === "orbitalSystem"
+      ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => boundCall(
+        heldBridgeSession, req.webSessionID, { key: `orbitalSystem:${body.of}`, service: body.service,
+          method: "MachoBindObject", args: [body.of], kwargs: null }, body.method, body.args, null)) }
       // (A call on a war's statistics object goes by its bind: WarReportWnd.GetWarStatisticMoniker binds it for the
       // war, Moniker('warStatisticMgr', warID).Bind(), and asks it.)
       : objectKind === "war"

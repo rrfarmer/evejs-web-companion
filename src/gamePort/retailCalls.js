@@ -693,6 +693,8 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "structureControl.BoardStructure", "structureControl.EjectFromStructure", "structureCargoDelivery.DropOffItems",
   "structureSettings.CharacterHasSetting",
   "structureSettings.CharacterHasService",
+  "planetOrbitalRegistryBroker.MachoBindObject",
+  "planetOrbitalRegistryBroker.GetSettingsInfo", "planetOrbitalRegistryBroker.UpdateSettings",
   "structureDirectory.GetStructureDescription", "structureDirectory.SetStructureDescription",
   "structureDeployment.Unanchor", "structureDeployment.CancelUnanchor",
   "structureVulnerability.UpdateReinforceTimesFromClient",
@@ -2312,6 +2314,10 @@ const RETAIL_CALLS = Object.freeze({
     "The client works a capacity out itself: the attribute from dogma or the type, and the volume of what List returned. It never asks the server.",
   ),
   "planetOrbitalRegistryBroker.GetTaxRate": same(`${IMPORT_EXPORT}:383`, "eveMoniker.GetPlanetOrbitalRegistry(session.solarsystemid).GetTaxRate(officeID), on a Moniker made for the call, which binds carrying it. Recorded on Tranquility so, three times in one export."),
+  "planetOrbitalRegistryBroker.GetSettingsInfo": judged("eve/client/script/ui/inflight/orbitalConfiguration.py:49",
+    oneIDAlone("the selected orbital"), "Read the settings on the orbital system's moniker."),
+  "planetOrbitalRegistryBroker.UpdateSettings": same("eve/client/script/ui/inflight/orbitalConfiguration.py:263",
+    "Submit reinforcement hour, tax fractions, access settings and ACL on the orbital system's moniker."),
   "invbroker.ImportExportWithPlanet": Object.freeze({
     status: "same",
     source: `${IMPORT_EXPORT}:549`,
@@ -3461,7 +3467,9 @@ function retailForm(service, method, args, kwargs, context = {}) {
   const proxy = PROXY_SERVICES.has(service);
   // A call for a moniker the client cannot make, its session lacking what the moniker is for: the client asks
   // nothing. What the BFF asks all the same goes as it was given, by the service's name.
-  const needs = Object.hasOwn(MONIKER_NEEDS, service) ? MONIKER_NEEDS[service] : null;
+  const explicitlyLocatedOrbital = service === "planetOrbitalRegistryBroker" &&
+    (method === "GetSettingsInfo" || method === "UpdateSettings");
+  const needs = !explicitlyLocatedOrbital && Object.hasOwn(MONIKER_NEEDS, service) ? MONIKER_NEEDS[service] : null;
   const lacking = needs !== null && !(context ?? {})[needs.has];
   const made = (form) => (form.moniker && lacking
     ? { ...given, status: "web-only", source: needs.source, note: needs.note, moniker: false, proxy }

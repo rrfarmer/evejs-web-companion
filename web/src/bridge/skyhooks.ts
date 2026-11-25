@@ -1,4 +1,4 @@
-import { isListValue, readRowField, unwrapLong } from "./wire.ts";
+import { isListValue, readKeyVal, readRowField, unwrapBool, unwrapLong, unwrapReal } from "./wire.ts";
 import type { JsonValue } from "./wire.ts";
 
 export interface SkyhookEntry {
@@ -16,6 +16,51 @@ export interface SkyhookRow extends SkyhookEntry {
   readonly harvest: { readonly typeID: number; readonly perMinute: number } |
     { readonly kind: "power" | "workforce"; readonly amount: number; readonly difference?: number } | null;
   readonly theft: { readonly vulnerable: boolean; readonly start: number; readonly end: number } | null;
+}
+
+export const SKYHOOK_TYPE_ID = 81080;
+export const REINFORCEMENT_VARIANCE_ATTRIBUTE = 1613;
+export const ORBITAL_TAX_KEYS = [
+  "corporation", "alliance", "standingHorrible", "standingBad", "standingNeutral", "standingGood", "standingHigh",
+] as const;
+export type OrbitalTaxKey = typeof ORBITAL_TAX_KEYS[number];
+
+export interface SkyhookSettings {
+  readonly hour: number;
+  readonly taxRates: Record<OrbitalTaxKey, number>;
+  readonly standing: number;
+  readonly allowAlliance: boolean;
+  readonly allowStandings: boolean;
+  readonly acl: number | null;
+}
+
+export function decodeSkyhookSettings(value: JsonValue): SkyhookSettings {
+  const fields = Array.isArray(value) ? value : isListValue(value) ? value.items : [];
+  const [hour, taxData, standing, alliance, standings, acl] = fields;
+  const allowAlliance = unwrapBool(alliance), allowStandings = unwrapBool(standings);
+  if (typeof hour !== "number" || !Number.isInteger(hour) || hour < 0 || hour > 23 ||
+      typeof standing !== "number" || allowAlliance === null || allowStandings === null || fields.length !== 6) {
+    throw new Error("The orbital configuration could not be read.");
+  }
+  const taxRates = {} as SkyhookSettings["taxRates"];
+  for (const key of ORBITAL_TAX_KEYS) {
+    const rate = unwrapReal(readKeyVal(taxData, key));
+    if (rate === null || !Number.isFinite(rate) || rate < 0 || rate > 1) throw new Error("An orbital tax rate could not be read.");
+    taxRates[key] = rate;
+  }
+  const groupID = typeof acl === "number" ? acl : Number(unwrapLong(acl) ?? 0n);
+  return { hour, taxRates, standing, allowAlliance, allowStandings, acl: groupID > 0 ? groupID : null };
+}
+
+export function skyhookSettingsArgs(id: number, values: SkyhookSettings): JsonValue[] {
+  const rates = ORBITAL_TAX_KEYS.map(key => [key, values.taxRates[key]] as const);
+  if (!Number.isInteger(values.hour) || values.hour < 0 || values.hour > 23 ||
+      ![-10, -5, 0, 5, 10].includes(values.standing) ||
+      rates.some(([, rate]) => !Number.isFinite(rate) || rate < 0 || rate > 1)) {
+    throw new Error("Enter a reinforcement hour and tax rates from 0 to 100 percent.");
+  }
+  const taxRates = { type: "object", name: "util.KeyVal", args: { type: "dict", entries: rates } };
+  return [id, values.hour, taxRates, values.standing, values.allowAlliance, values.allowStandings, values.acl];
 }
 
 export function skyhookVulnerable(state: number): boolean {

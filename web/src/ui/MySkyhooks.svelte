@@ -1,12 +1,14 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
   import { formatInterval, plainText } from "../bridge/clientWords.ts";
-  import { skyhookVulnerable, type SkyhookRow } from "../bridge/skyhooks.ts";
+  import { hasMoonStationManagerRole } from "../bridge/moonMining.ts";
+  import { SKYHOOK_TYPE_ID, skyhookVulnerable, type SkyhookRow } from "../bridge/skyhooks.ts";
   import { shownSecurity } from "../bridge/systemSecurity.ts";
   import { ContextMenu } from "../play/contextMenu.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { showInfo } from "./showInfo.ts";
+  import SkyhookConfiguration from "./SkyhookConfiguration.svelte";
 
   let { store, flow, systemID }: { store: ClientStore; flow: AppFlow; systemID: number } = $props();
   const station = $derived(store.station);
@@ -14,6 +16,8 @@
   const names = $derived(store.names);
   const waypoints = $derived(flow.waypoints);
   const menu = new ContextMenu();
+  const canConfigure = $derived(hasMoonStationManagerRole($station.online?.corpRole ?? null));
+  let configuration = $state.raw<SkyhookRow | null>(null);
   let listing = $state.raw<Awaited<ReturnType<AppFlow["loadMySkyhooks"]>> | null>(null);
   let error = $state("");
   let search = $state("");
@@ -37,6 +41,7 @@
     unknown: ["UI/OrbitalSkyhook/SkyhookWnd/NoDataAvailable", "No Data Available"],
     empty: ["UI/Structures/Browser/NoStructuresFound", "No structures found"],
     filtered: ["UI/Structures/Browser/NoStructuresFoundWithFilters", "No structures found with these filters"],
+    configure: ["UI/DustLink/ConfigureOrbital", "Configure"],
   } as const;
   const columns = ["jumps", "security", "system", "name", "state", "harvest", "theft"] as const;
   const label = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
@@ -92,6 +97,8 @@
     event.preventDefault();
     menu.open(event.clientX, event.clientY, [
       { label: "Show Info", info: true, run: () => showInfo({ kind: "type", itemID: row.id, typeID: row.typeID }) },
+      ...(canConfigure && row.typeID === SKYHOOK_TYPE_ID
+        ? [{ path: labels.configure[0], label: label("configure"), run: () => { configuration = row; } }] : []),
       { label: "Location", sub: [
         { label: "Set Destination", run: () => flow.setDestination(row.systemID) },
         $waypoints.includes(row.systemID)
@@ -121,8 +128,17 @@
     });
     return () => { current = false; };
   });
+
+  $effect(() => {
+    if (!canConfigure || !listing?.rows.some(row => row.id === configuration?.id)) configuration = null;
+  });
 </script>
 
+{#if canConfigure && configuration}
+  {#key configuration.id}
+    <SkyhookConfiguration {flow} {store} target={configuration} name={skyhookName(configuration)} onClose={() => configuration = null} />
+  {/key}
+{/if}
 <div class="skyhook-filters">
   <label>Search <input type="search" bind:value={search} /></label>
   <label>Range <select bind:value={distance}>
