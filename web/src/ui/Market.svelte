@@ -129,6 +129,9 @@
     "UI/Market/MarketQuote/NumberOfJumps": "{[numeric]num} Jumps",
     "UI/Market/MarketQuote/Expired": "Expired",
     "UI/Market/Marketbase/CommandPlaceBuyOrder": "Place Buy Order",
+    "UI/Market/Marketbase/ExportToFile": "Export to File",
+    "Tooltips/Market/MarketDetailsExportFile": "Export the order book to a text file",
+    "UI/Market/MarketWindow/ExportNoData": "There were no buy or sell orders found.",
     // the Price History tab (pricehistorychart.py, marketGraph.py)
     "UI/PriceHistory/ShowGraph": "Show Graph",
     "UI/PriceHistory/ShowTable": "Show Table",
@@ -630,6 +633,7 @@
 
   function chooseItem(match: MarketTypeMatch): void {
     chosenName = match.name;
+    exportNote = "";
     matches = [];
     query = "";
     closeDraft();
@@ -655,21 +659,38 @@
     void run(async () => {
       const text = await flow.exportMarketOrders(corporation);
       if (text === null) {
-        exportNote = qbWord("UI/Market/MarketWindow/ExportNoData") || "There is no data to export.";
+        exportNote = qbWord("UI/Market/MarketWindow/ExportNoData");
         return;
       }
       const label = corporation ? qbWord("UI/Market/Orders/CorporationOrders") || "Corporation Orders"
         : qbWord("UI/Market/Orders/MyOrders") || "My Orders";
-      const timestamp = new Date().toISOString().slice(0, 16).replaceAll("-", ".").replace("T", " ").replace(":", "");
-      const filename = `${label.replace(/[\\/:*?"<>|]+/g, "_")}-${timestamp}.txt`;
-      const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      exportNote = filename;
+      downloadMarketExport(label, text, false);
     });
+  }
+
+  function exportBook(typeID: number): void {
+    const name = chosenName || typeName(typeID);
+    exportNote = "";
+    void run(async () => {
+      const result = await flow.exportMarketBook(typeID);
+      if (result === null) {
+        exportNote = qbWord("UI/Market/MarketWindow/ExportNoData");
+        return;
+      }
+      downloadMarketExport(`${result.region}-${name.replaceAll('"', '')}`, result.text, true);
+    });
+  }
+
+  function downloadMarketExport(label: string, text: string, includeSeconds: boolean): void {
+    const timestamp = new Date().toISOString().slice(0, includeSeconds ? 19 : 16).replaceAll("-", ".").replace("T", " ").replaceAll(":", "");
+    const filename = `${label.replace(/[\\/:*?"<>|]+/g, "_")}-${timestamp}.txt`;
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    exportNote = filename;
   }
 
   // --- The book, sorted and filtered client-side ---------------------------
@@ -1416,16 +1437,20 @@
               </tbody>
             </table>
           </div>
-          <!-- MarketData's ButtonGroup (TOBOTTOM, padTop 16, at the end): Place Buy Order (PRIMARY, the ISK icon - our buy
-               draft), Find in Contracts; Export to File is not built. -->
+          <!-- The Market Data footer exports the regional book, including rows outside the display filter. -->
           {#if $market.typeID !== null}
             {@const quotedTypeID = $market.typeID}
             <div class="mkt-quote-buttons">
               <button type="button" class="mkt-primary" disabled={busy} onclick={() => startDraft("buy")}>
                 <img alt="" src="/client-res/ui/texture/eveicon/category_icons/isk_16px.png" />{qbWord("UI/Market/Marketbase/CommandPlaceBuyOrder")}
               </button>
+              <button type="button" class="mkt-ghost mkt-export-book" disabled={busy}
+                title={qbWord("Tooltips/Market/MarketDetailsExportFile")} onclick={() => exportBook(quotedTypeID)}>
+                {qbWord("UI/Market/Marketbase/ExportToFile")}
+              </button>
               <button type="button" class="mkt-ghost" onclick={() => findInContracts(quotedTypeID)}>{qbWord("UI/Inventory/ItemActions/FindInContracts")}</button>
             </div>
+            {#if exportNote}<p class="note" role="status">{exportNote}</p>{/if}
           {/if}
         </div>
       {:else}

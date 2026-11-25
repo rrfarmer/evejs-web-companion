@@ -188,16 +188,35 @@ export function formatMarketOrdersExport(
   data: ReturnType<typeof readMarketOrdersExport>,
   nameOf: (kind: NameKind, id: number) => string,
 ): string {
-  const line = (cells: readonly string[]) => cells.map(cell => /[",\r\n]/.test(cell) ? '"' + cell.replaceAll('"', '""') + '"' : cell).join(",") + ",\r\n";
   const headings = data.columns.flatMap(column => {
     const name = ORDER_EXPORT_NAMES[column];
     return name ? [column, name.heading] : [column];
   });
-  return line(headings) + data.records.map(row => line(data.columns.flatMap(column => {
+  return orderExportLine(headings) + data.records.map(row => orderExportLine(data.columns.flatMap(column => {
     const name = ORDER_EXPORT_NAMES[column];
     const value = exportOrderValue(column, row[column] ?? null);
     return name ? [value, nameOf(name.kind, toNumber(row[column]))] : [value];
   }))).join("");
+}
+
+function orderExportLine(cells: readonly string[]): string {
+  return cells.map(cell => /[",\r\n]/.test(cell) ? '"' + cell.replaceAll('"', '""') + '"' : cell).join(",") + ",\r\n";
+}
+
+/** DumpOrdersForType writes the entire regional response, sells before buys. */
+export function formatMarketBookExport(result: JsonValue): { text: string; regionID: number } | null {
+  const payload = unwrapCachedResult(result);
+  if (!Array.isArray(payload)) return null;
+  const [sellRowset = null, buyRowset = null] = payload;
+  const sells = rowRecords(sellRowset);
+  const buys = rowRecords(buyRowset);
+  const rows = [...sells, ...buys];
+  if (!rows.length) return null;
+  const columns = rowsetColumns(sells.length ? sellRowset : buyRowset);
+  const text = orderExportLine(columns) + rows.map(row => orderExportLine(
+    columns.map(column => exportOrderValue(column, row[column] ?? null)),
+  )).join("");
+  return { text, regionID: toNumber(rows[0]?.regionID) };
 }
 
 function toNumber(value: JsonValue | undefined): number {

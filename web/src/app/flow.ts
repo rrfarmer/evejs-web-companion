@@ -128,6 +128,7 @@ import {
   decodeOwnOrders,
   readMarketOrdersExport,
   formatMarketOrdersExport,
+  formatMarketBookExport,
   decodePriceHistory,
   joinPriceHistory,
   marketRefusalMessage,
@@ -2720,6 +2721,7 @@ export interface AppFlow {
   loadMarket(typeID: number | null): Promise<void>;
   loadMarketOrders(): Promise<void>;
   exportMarketOrders(corporation: boolean): Promise<string | null>;
+  exportMarketBook(typeID: number): Promise<{ text: string; region: string } | null>;
   /**
    * The pilot's escrow watched as the client's market progression is (MarketProgressionNotifier.register_subscriber):
    * the kept value said, asked again where due and every twelve hours while watched. Answers the watch's end.
@@ -12061,6 +12063,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await resolveNamesNow(data.names);
     const names = store.names.get().resolved;
     return formatMarketOrdersExport(data, (kind, id) => resolvedName(names, kind, id, ""));
+  }
+
+  async function exportMarketBook(typeID: number): Promise<{ text: string; region: string } | null> {
+    const result = formatMarketBookExport(await bridgeAsk("marketProxy", "GetOrders", [typeID]));
+    if (result === null) return null;
+    const { text, regionID } = result;
+    await resolveNamesNow([{ kind: "evelocation", id: regionID }]);
+    return { text, region: resolvedName(store.names.get().resolved, "evelocation", regionID, String(regionID)) };
   }
 
   function requestMarketOrderNames(rows: readonly MarketOwnOrderRow[]): void {
@@ -38564,6 +38574,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadMarket,
     loadMarketOrders,
     exportMarketOrders,
+    exportMarketBook,
     assetSaleAsked: readonlySignal(assetSaleAskedSignal),
     assetRepairShop: readonlySignal(assetRepairShopSignal),
     openAssetRepair,
