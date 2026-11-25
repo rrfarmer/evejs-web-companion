@@ -5523,6 +5523,7 @@ export interface AppFlow {
   readFolderInfo(folderID: number): Promise<BookmarkFolder>;
   readAccessGroups(): Promise<readonly AccessGroup[]>;
   readAccessGroupMembers(groupID: number): Promise<readonly AccessGroupMember[]>;
+  readAccessGroupMembersMany(groupIDs: readonly number[]): Promise<ReadonlyMap<number, readonly AccessGroupMember[]>>;
   addAccessGroupMembers(groupID: number, memberships: readonly (readonly [number, number])[]): Promise<void>;
   changeAccessGroupMembers(groupID: number, method: "AddMembers" | "UpdateMembershipTypes" | "DeleteMembers",
     memberIDs: readonly number[], membershipType?: number): Promise<void>;
@@ -40244,6 +40245,17 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     async readAccessGroupMembers(groupID) {
       return decodeAccessGroupMembers(await bridgeAsk("ownerGroupManager", "GetMembers", [groupID]));
+    },
+
+    async readAccessGroupMembersMany(groupIDs) {
+      const result = await bridgeAsk("ownerGroupManager", "GetMembersForMultipleGroups", [[...groupIDs]]);
+      const requested = new Set(groupIDs);
+      const groups = new Map<number, readonly AccessGroupMember[]>();
+      for (const [key, rows] of readDictPairs(result)) {
+        const groupID = Number(key);
+        if (requested.has(groupID)) groups.set(groupID, decodeAccessGroupMembers(rows));
+      }
+      return groups;
     },
 
     addAccessGroupMembers,

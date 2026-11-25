@@ -19,6 +19,12 @@
   let editor = $state<{ groupID: number | null; name: string; description: string } | null>(null);
   let busy = $state(false);
   let query = $state("");
+  let memberQuery = $state("");
+  let memberTerm = $state("");
+  let searchableGroups = $state.raw<ReadonlyMap<number, readonly AccessGroupMember[]> | null>(null);
+  let memberSearchLoading = $state(false);
+  let memberSearchError = $state("");
+  let memberSearchRevision = $state(0);
   let error = $state("");
   let editorError = $state("");
   let members = $state.raw<readonly AccessGroupMember[] | null>(null);
@@ -40,13 +46,28 @@
   const word = (key: string, fallback = key) => plainText($words.templates[WORD + key] ?? fallback);
   const visible = $derived((groups ?? []).filter(group => group.name.toLowerCase().includes(query.trim().toLowerCase())));
   const selected = $derived(visible.find(group => group.groupID === selectedID) ?? visible[0] ?? null);
+  const memberSearchActive = $derived(memberTerm.length >= 3);
+  const memberMatches = $derived.by(() => {
+    if (!memberSearchActive || searchableGroups === null) return null;
+    const groupIDs = new Set<number>();
+    const memberIDs = new Set<number>();
+    for (const [groupID, rows] of searchableGroups) {
+      for (const row of rows) {
+        const name = row.memberID === 0 ? "Item 0" : resolvedName($names.resolved, "owner", row.memberID, "");
+        if (!name.toLowerCase().includes(memberTerm)) continue;
+        groupIDs.add(groupID);
+        memberIDs.add(row.memberID);
+      }
+    }
+    return { groupIDs, memberIDs };
+  });
   const memberGroupID = $derived(selected?.groupID ?? null);
   const selectedCanEdit = $derived(selected?.membershipType === 2 && selected.creatorID !== corporationID);
   const canManageMembers = $derived(selected !== null && canManageGroup(selected));
   const canRemoveSelf = $derived(selected !== null && selected.creatorID !== corporationID &&
     selected.membershipType === 0 && members?.some(member => member.memberID === characterID && member.membershipType === 0));
   const canSelectMembers = $derived(canManageMembers || canRemoveSelf);
-  const memberRows = $derived((members ?? []).map(member => ({
+  const memberRows = $derived((members ?? []).filter(member => memberMatches === null || memberMatches.memberIDs.has(member.memberID)).map(member => ({
     ...member,
     name: member.memberID === 0 ? word("PublicUser", "Everyone") : resolvedName($names.resolved, "owner", member.memberID),
     typeID: Number(resolvedName($names.resolved, "ownerType", member.memberID, "0")),
@@ -85,8 +106,46 @@
 
   $effect(() => {
     flow.requestWords([...roleWords, ...roleActions.map(action => action.label),
-      ...removeRoleActions.map(action => action.label), "PublicUser", "RemoveMember", "AddPublic"].map(key => WORD + key));
+      ...removeRoleActions.map(action => action.label), "PublicUser", "RemoveMember", "AddPublic",
+      "SearchFieldHint", "SearchNoContentHint"].map(key => WORD + key));
   });
+
+  $effect(() => {
+    const pilot = characterID;
+    const enabled = memberSearchActive;
+    const ids = (groups ?? []).map(group => group.groupID);
+    memberRefresh;
+    memberSearchRevision;
+    searchableGroups = null;
+    memberSearchError = "";
+    memberSearchLoading = false;
+    if (pilot === null || !enabled || !ids.length) return;
+    let current = true;
+    memberSearchLoading = true;
+    void flow.readAccessGroupMembersMany(ids).then(async result => {
+      if (!current) return;
+      const ownerIDs = new Set([...result.values()].flatMap(rows => rows.map(row => row.memberID)));
+      await flow.resolveNamesNow([...ownerIDs].filter(id => id > 0).map(id => ({ kind: "owner", id })));
+      if (current) searchableGroups = result;
+    }).catch(cause => {
+      if (current) memberSearchError = panelErrorWords(cause);
+    }).finally(() => {
+      if (current) memberSearchLoading = false;
+    });
+    return () => { current = false; };
+  });
+
+  function searchMembers(event: SubmitEvent) {
+    event.preventDefault();
+    memberTerm = memberQuery.toLowerCase();
+    checked = new Set();
+  }
+
+  function clearMemberSearch() {
+    memberQuery = "";
+    memberTerm = "";
+    checked = new Set();
+  }
 
   $effect(() => {
     const pilot = characterID;
@@ -272,6 +331,7 @@
     } finally {
       if (pilot === characterID) {
         if (memberGroupID === group.groupID) ++memberRefresh;
+        else ++memberSearchRevision;
         busy = false;
       }
     }
@@ -294,6 +354,8 @@
     const pilot = characterID;
     groups = null;
     selectedID = null;
+    memberQuery = "";
+    memberTerm = "";
     editor = null;
     busy = false;
     error = "";
@@ -357,9 +419,21 @@
 
 <section class="access-lists" aria-label="Access Lists">
   <div class="actions">
-    <label>Search <input type="search" bind:value={query} disabled={busy} /></label>
+    <label>Filter lists <input type="search" bind:value={query} disabled={busy} /></label>
     <button type="button" onclick={() => startEditor(null)} disabled={characterID === null || busy || editor !== null}>Create a New Access List</button>
   </div>
+  <form class="member-filter" aria-label="Search access list members" onsubmit={searchMembers}>
+    <label>Search members <input type="search" maxlength="100" bind:value={memberQuery} disabled={busy}
+      placeholder={word("SearchFieldHint", "Character, corporation or alliance")} oninput={(event) => {
+        if (!event.currentTarget.value) clearMemberSearch();
+      }} /></label>
+    <button type="submit" disabled={busy}>Search</button>
+    {#if memberQuery || memberSearchActive}
+      <button type="button" disabled={busy} onclick={clearMemberSearch}>Clear</button>
+    {/if}
+  </form>
+  {#if memberSearchLoading}<p role="status">Searching members…</p>{/if}
+  {#if memberSearchError}<p role="alert">{memberSearchError}</p>{/if}
   {#if editor}
     {@const group = groups?.find(group => group.groupID === editor?.groupID)}
     <form onsubmit={save}>
@@ -384,6 +458,7 @@
         <ul>
           {#each visible as group (group.groupID)}
             <li draggable="true" data-access-group-id={group.groupID} class:drop-active={ownerDrop === group.groupID}
+              class:member-miss={memberMatches !== null && !memberMatches.groupIDs.has(group.groupID)}
               ondragstart={(event) => startAccessGroupDrag(event, group.groupID, group.name)}
               ondragover={(event) => acceptOwnerDrop(event, group, group.groupID)}
               ondragleave={() => { if (ownerDrop === group.groupID) ownerDrop = null; }}
@@ -490,6 +565,7 @@
         {/if}
         {#if memberError}<p role="alert">{memberError}</p>
         {:else if members === null}<p role="status">Reading members…</p>
+        {:else if memberMatches && !memberRows.length}<p role="status">{word("SearchNoContentHint", "No matching members.")}</p>
         {:else if !members.length}<p role="status">No members.</p>
         {/if}
       </div>
@@ -504,6 +580,7 @@
   .details { display: grid; gap: 8px; min-width: 0; }
   .member-tools, .member-search, .owner-match { display: flex; flex-wrap: wrap; gap: 6px; align-items: end; }
   .member-search { border: 0; padding: 0; }
+  .member-filter { display: flex; flex-wrap: wrap; gap: 6px; align-items: end; border: 0; padding: 0; }
   .owner-match { justify-content: space-between; align-items: center; }
   .member-select { width: 1%; }
   .role-targets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
@@ -512,6 +589,7 @@
   .role-targets > .drop-active { border-color: #86c1d6; background: #254652; }
   .member-pane { min-height: 44px; }
   .member-pane.drop-active, li.drop-active { outline: 1px solid #86c1d6; background: #254652; }
+  li.member-miss button:not(:focus):not(:hover) { opacity: .55; }
   span[draggable="true"] { cursor: grab; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #324046; }
