@@ -86,7 +86,7 @@
 <div class="repair-shop-layer">
   <DesktopWindow {win} title={word(LABELS.title, "Repair Shop")} focused={true} onFocus={() => {}}
     onClose={() => flow.closeAssetRepair(shop.n)} onMove={(x, y) => { win.x = x; win.y = y; }}
-    onResize={(w, h) => { win.w = Math.max(350, w); win.h = Math.max(270, h); }}>
+    minWidth={350} minHeight={270} onResizeRect={(rect) => { win = { ...win, ...rect }; }}>
     <div class="repair-shop" data-window="repairshop" data-view={shop.list.kind} aria-busy={shop.busy}>
       {#if shop.list.kind === "quote"}
         <div class="repair-summary">

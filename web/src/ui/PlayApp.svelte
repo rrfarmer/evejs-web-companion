@@ -101,6 +101,8 @@
   import Toasts from "./Toasts.svelte";
   import ServerQuestion from "./ServerQuestion.svelte";
   import ClientDialogs from "./ClientDialogs.svelte";
+  import { stationOffersRepair } from "../bridge/repairShop.ts";
+  import { structureHasCapability } from "../nav/dockableLocation.ts";
   import ScannerWindows from "./ScannerWindows.svelte";
   import { INTEGRATED_MINING_SCANNER } from "../bridge/miningScanResults.ts";
   import MiningScanWindowActions from "./MiningScanWindowActions.svelte";
@@ -870,6 +872,12 @@
   const militiaOfficeAvailable = $derived($station?.online?.stationID
     ? $station.station?.serviceIDs?.includes(26) === true
     : $station?.structureServiceIDs?.includes(12) === true);
+  const repairShopAvailable = $derived.by(() => {
+    const online = $station?.online;
+    if (online?.structureID) return structureHasCapability($station?.structureServiceIDs ?? null, "repair");
+    const here = $station?.station;
+    return here != null && here.stationID === online?.stationID && stationOffersRepair(here.security, here.serviceIDs);
+  });
 
   // The hangar's ship and the Neocom while docked.
   let hangarHost = $state<HTMLDivElement | null>(null);
@@ -3979,6 +3987,12 @@
                 <img alt="" src={clientTexture(`res:/UI/Texture/WindowIcons/${svc.icon}.png`)} />
               </button>
             {/each}
+            {#if repairShopAvailable}
+              <button type="button" class="lobby-svc" title="Repair Shop" aria-label="Repair Shop"
+                onclick={() => void session?.flow.openAssetRepair().catch(() => {})}>
+                <img alt="" src={clientTexture("res:/UI/Texture/WindowIcons/repairshop.png")} />
+              </button>
+            {/if}
             {#if militiaOfficeAvailable}
               <button class="lobby-svc" title="Militia Office" aria-label="Militia Office" onclick={() => openTheatersOfWar(relevantMilitiaPage($station?.online?.warFactionID ?? null))}>
                 <img alt="" src={clientTexture("res:/UI/Texture/WindowIcons/factionalwarfare.png")} />
