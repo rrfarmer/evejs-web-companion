@@ -2733,8 +2733,9 @@ export interface AppFlow {
   exportMarketBook(typeID: number): Promise<{ text: string; region: string } | null>;
   marketGroupAsks(scope: MarketGroupScope): Promise<{
     scope: MarketGroupScope;
-    asks: ReadonlyMap<number, { price: string; quantity: number }>;
+    asks: ReadonlyMap<number, { price: string; quantity: number; stationID: number | null }>;
   }>;
+  marketGroupDistances(stationIDs: readonly number[]): Promise<ReadonlyMap<number, number>>;
   /**
    * The pilot's escrow watched as the client's market progression is (MarketProgressionNotifier.register_subscriber):
    * the kept value said, asked again where due and every twelve hours while watched. Answers the watch's end.
@@ -12135,14 +12136,45 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     const method = scope === "station" ? "GetStationAsks" : scope === "system" ? "GetSystemAsks" : "GetRegionBest";
     const rows = readDictPairs(unwrapCachedResult(await bridgeAsk("marketProxy", method, [])));
-    const asks = new Map<number, { price: string; quantity: number }>();
+    const asks = new Map<number, { price: string; quantity: number; stationID: number | null }>();
     for (const [id, row] of rows) {
       const typeID = Number(id);
       const price = toAmountString(Array.isArray(row) ? row[0] : readKeyVal(row, "price"));
       const quantity = Number(toAmountString(Array.isArray(row) ? row[1] : readKeyVal(row, "volRemaining")));
-      if (typeID > 0 && price !== null && quantity > 0) asks.set(typeID, { price, quantity });
+      // Station and system summaries put typeID before stationID on current EveJS.
+      const locationID = Number(toAmountString(Array.isArray(row) ? row[row.length >= 4 ? 3 : 2] : readKeyVal(row, "stationID")));
+      const stationID = Number.isSafeInteger(locationID) && locationID > 0 ? locationID : null;
+      if (typeID > 0 && price !== null && quantity > 0) asks.set(typeID, { price, quantity, stationID });
     }
     return { scope, asks };
+  }
+
+  async function marketGroupDistances(stationIDs: readonly number[]): Promise<ReadonlyMap<number, number>> {
+    const here = pilotPlace();
+    const distances = new Map<number, number>();
+    const remote = stationIDs.filter(id => {
+      if (id !== here.stationID && id !== here.structureID) return true;
+      distances.set(id, -1);
+      return false;
+    });
+    if (here.solarSystemID === null || !remote.length) return distances;
+    const [systems, graph, jumps] = await Promise.all([
+      Promise.all(remote.map(waypointSystemOf)),
+      loadRouteGraph().catch(() => null),
+      autopilotDistancesFrom(here.solarSystemID).catch(() => null),
+    ]);
+    const regionOf = (id: number) => graph?.parentOf?.(graph.parentOf(id) ?? 0) ?? null;
+    const region = regionOf(here.solarSystemID);
+    for (const [index, id] of remote.entries()) {
+      const system = systems[index];
+      if (system == null) continue;
+      const destinationRegion = regionOf(system);
+      if (system === here.solarSystemID) distances.set(id, 0);
+      // MarketQuote.GetStationDistance uses rangeRegion for a quote outside the current region.
+      else if (region !== null && destinationRegion !== null && destinationRegion !== region) distances.set(id, 32767);
+      else if (jumps) distances.set(id, Math.max(jumps.get(system) ?? 0, 0));
+    }
+    return distances;
   }
 
   function requestMarketOrderNames(rows: readonly MarketOwnOrderRow[]): void {
@@ -38948,6 +38980,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     exportMarketOrders,
     exportMarketBook,
     marketGroupAsks,
+    marketGroupDistances,
     assetSaleAsked: readonlySignal(assetSaleAskedSignal),
     assetRepairShop: readonlySignal(assetRepairShopSignal),
     openAssetRepair,

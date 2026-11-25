@@ -145,6 +145,13 @@
     "UI/Common/LocationTypes/SolarSystem": "Solar System",
     "UI/Common/LocationTypes/Region": "Region",
     "UI/Market/Marketbase/NoneAvailable": "None available",
+    "UI/Market/Marketbase/BestPriceIn": "Best price in {place} is:",
+    "UI/Market/Marketbase/InThisStation": "in this station",
+    "UI/Market/Marketbase/InThisSystem": "in this system",
+    "UI/Market/Marketbase/JumpsAway": '{jumps} {[numeric]jumps -> "jump", "jumps"} away.',
+    "UI/Market/Marketbase/UnitsAvailable": "Units available: {quantity}, {numberOfJumps}",
+    "UI/Market/Marketbase/UnitsAvailableGlobal": "Units available: {quantity}",
+    "UI/Common/LocationTypes/System": "System",
     "UI/Market/Marketbase/CommandViewDetails": "View Details",
     "UI/Market/MarketQuote/CommandBuy": "Buy",
     "UI/Market/Marketbase/ExportToFile": "Export to File",
@@ -1012,6 +1019,8 @@
   let browsing = $state(false);
   let browseRevision = 0;
   let groupAsks = $state.raw<Awaited<ReturnType<AppFlow["marketGroupAsks"]>> | null>(null);
+  let groupDistances = $state.raw<ReadonlyMap<number, number>>(new Map());
+  const routeSettings = $derived(flow.routeSettings);
   let groupAsksError = $state(false);
   let groupFacts = $state.raw<ReadonlyMap<number, TypeMetaFacts | null> | null>(null);
   const groupAtStation = $derived($station.online?.stationID != null);
@@ -1051,6 +1060,30 @@
 
   const groupCards = $derived(groupTypes.filter(item => !showOnlyAvailable || !groupAsks || groupAsks.asks.has(item.typeID)).sort((a, b) =>
     (a.variantGroup?.metaGroupID ?? 0) - (b.variantGroup?.metaGroupID ?? 0) || a.name.localeCompare(b.name)));
+
+  $effect(() => {
+    if (tab !== "groups" || !groupAsks || browsing) return;
+    void $routeSettings;
+    const locations = new Set<number>();
+    for (const item of groupCards) {
+      const stationID = groupAsks.asks.get(item.typeID)?.stationID;
+      if (stationID != null) locations.add(stationID);
+    }
+    let current = true;
+    groupDistances = new Map();
+    if (locations.size) void flow.marketGroupDistances([...locations]).then(distances => {
+      if (current) groupDistances = distances;
+    }).catch(() => {});
+    return () => { current = false; };
+  });
+
+  function groupAvailability(quantity: number, stationID: number | null): string {
+    const jumps = stationID === null ? undefined : groupDistances.get(stationID);
+    if (jumps === undefined) return qbWord("UI/Market/Marketbase/UnitsAvailableGlobal", { quantity });
+    const label = jumps === -1 ? "UI/Market/Marketbase/InThisStation"
+      : jumps === 0 ? "UI/Market/Marketbase/InThisSystem" : "UI/Market/Marketbase/JumpsAway";
+    return qbWord("UI/Market/Marketbase/UnitsAvailable", { quantity, numberOfJumps: qbWord(label, { jumps }) });
+  }
 
   $effect(() => {
     if (tab !== "groups" || $station.online?.solarSystemID == null) return;
@@ -1494,6 +1527,7 @@
         {@const fact = groupFacts?.get(item.typeID)}
         {@const description = fact?.descriptionID ? $words.templates[`#${fact.descriptionID}`] : null}
         {@const ask = groupAsks?.asks.get(item.typeID)}
+        {@const scope = groupAsks?.scope ?? groupScope}
         <article class="mkt-group-card">
           <TypeIcon typeID={item.typeID} name={item.name} size="lg" />
           <div>
@@ -1502,10 +1536,12 @@
                 onclick={() => showInfo({ kind: "type", typeID: item.typeID })}>i</button>
             </h3>
             {#if description}<p>{plainText(description)}</p>{/if}
-            {#if ask}
-              <p class="mkt-group-ask"><strong>{formatIsk(ask.price)}</strong> · {ask.quantity.toLocaleString()} available in {qbWord(scopeLabels[groupAsks?.scope ?? groupScope]).toLowerCase()}</p>
-            {:else if groupAsks}
-              <p class="mkt-group-ask">{qbWord("UI/Market/Marketbase/NoneAvailable")}</p>
+            {#if groupAsks}
+              <p class="mkt-group-ask">
+                <span>{qbWord("UI/Market/Marketbase/BestPriceIn", { place: qbWord(scope === "system" ? "UI/Common/LocationTypes/System" : scopeLabels[scope]) })}</span><br />
+                <strong>{ask ? formatIsk(ask.price) : qbWord("UI/Market/Marketbase/NoneAvailable")}</strong>
+                {#if ask}<br /><span class="mkt-group-availability">{groupAvailability(ask.quantity, ask.stationID)}</span>{/if}
+              </p>
             {/if}
             <div class="mkt-group-actions">
               <button type="button" class="mkt-ghost" disabled={busy}
