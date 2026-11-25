@@ -166,6 +166,10 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
   ] },
 ];
 
+const EVE_MENU_FOOTER = [
+  { id: "settings", label: "Settings", icon: icon("settings") },
+];
+
 export class Neocom {
   readonly root = document.createElement("nav");
   private readonly clock = document.createElement("div");
@@ -465,6 +469,16 @@ export class Neocom {
       el.addEventListener("click", show);
       menu.appendChild(el);
     }
+    const footer = document.createElement("div");
+    footer.className = "eve-menu-footer";
+    for (const item of EVE_MENU_FOOTER) {
+      const button = entry(item.label, item.icon, false);
+      button.addEventListener("mouseenter", () => { sub.hidden = true; });
+      button.addEventListener("focus", () => { sub.hidden = true; });
+      button.addEventListener("click", () => { close(); open(item.id); });
+      footer.appendChild(button);
+    }
+    menu.appendChild(footer);
     document.body.appendChild(menu);
     document.body.appendChild(sub);
     this.menuParts = [menu, sub];

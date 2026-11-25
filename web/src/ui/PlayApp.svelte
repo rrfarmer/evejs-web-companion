@@ -1933,6 +1933,7 @@
     if (id === "map") { toggleStarMap(); return; }
     if (id === "bountyOffice") { toggleBountyOffice(); return; }
     if (id === "multibuy") { openMultibuy(); return; }
+    if (id === "settings") { toggleSystemMenu(); return; }
     const tab = NEOCOM_TABS[id];
     if ((tab === "shipTree" || tab === "marketOrders") && wins.some(win => win.id === tab && !win.minimized)) wins = closeWindow(wins, tab);
     else if (tab) open(tab);
@@ -1942,6 +1943,9 @@
   }
   function openMultibuy() {
     void session?.flow.openMultiBuy(new Map()).catch(() => {});
+  }
+  function toggleSystemMenu() {
+    systemMenu = !systemMenu;
   }
   function showSystemOnMap(systemID: number) {
     requestedMapSystem = systemID;
@@ -2126,7 +2130,7 @@
     // CmdHideUI (Ctrl-F9): uiSvc.ToggleUiVisible - every UI layer hidden (UI_LAYER_NAMES: main, shipui, bracket, target,
     // tactical, space_ui ...), the scene alone left; nothing while the system menu is open
       // CmdToggleSystemMenu: the system menu opened, or shut where it is open
-      if (cmd === "CmdToggleSystemMenu") { systemMenu = !systemMenu; return true; }
+      if (cmd === "CmdToggleSystemMenu") { toggleSystemMenu(); return true; }
       if (cmd === "CmdHideUI") {
       if (systemMenu) return true;
       document.body.classList.toggle("evejs-ui-hidden");
@@ -2423,7 +2427,7 @@
       if (starMap) toggleStarMap(false);
       else if (customsTarget) closeCustoms();
       else if (planetInMode) { if (planetModeView?.escapeCanLeave()) leavePlanetMode(); }
-      else systemMenu = !systemMenu;
+      else toggleSystemMenu();
       return;
     }
     const tab = WINDOW_COMMANDS[cmd];
