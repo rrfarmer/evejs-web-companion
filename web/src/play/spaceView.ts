@@ -55,7 +55,7 @@ import { initialOrbitDistance, isOwnStargateDeparture, MAX_JUMP_CAMERA_COORDINAT
 import { ENTRY_CAMERA_DURATION_MS, entryCameraFov, spaceEntryCamera, type EntryCameraPath } from "./spaceEntryCamera.ts";
 import { explosionCameraFov, spaceExplosionCamera, type ExplosionCameraPath } from "./spaceExplosionCamera.ts";
 import { gfx, setGfx, spaceRendering, lodSettings } from "./gfxSettings.ts";
-import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, stopEmitter, type WorldLoop } from "./uiAudio.ts";
+import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, stopEmitter, stopUiSound, type WorldLoop } from "./uiAudio.ts";
 import { broadcastRadialDomButton, buttonBit, commandForKey, combatForModifiers, isCombatCommand, labelOf, shortcutOf, type CombatCommand } from "./shortcutKeys.ts";
 import { radialDelay, radialDomButton } from "./radialSettings.ts";
 
@@ -1597,6 +1597,7 @@ export class SpaceView {
   private showSpecialBrackets = false;
   /** Warp.py's sound flags for the ship's own warp: the explosion played (hasExploded), the wind playing (hasWind). */
   private warpSound = { exploded: false, wind: false };
+  private warpPreparation: { shipID: number; abort: AbortController } | null = null;
   /** CmdAccelerate / CmdDecelerate's CallCombiner (0.3 s). */
   private speedCombiner: ReturnType<typeof setTimeout> | null = null;
   /** The system the space menu's reads were last primed for. */
@@ -2199,6 +2200,7 @@ export class SpaceView {
     this.shipHud.dispose();
     this.alertVignetteFlash?.cancel();
     this.targetBar.dispose();
+    this.cancelWarpPreparation();
     this.warpTunnel.dispose();
     this.warpHullLighting?.clear();
     this.wormholeTransit.dispose();
@@ -2306,6 +2308,32 @@ export class SpaceView {
   private showTemporaryIndication(header: string, sub = ""): void {
     this.temporaryIndication = { header, sub, until: performance.now() + SHIP_STOPPING_MS };
     void playUiEvent("ui_radial_select_play");
+  }
+
+  private cancelWarpPreparation(): void {
+    if (!this.warpPreparation) return;
+    this.warpPreparation.abort.abort();
+    this.warpPreparation = null;
+    stopUiSound("warp_ship_init_play");
+  }
+
+  /** AudioService.WarpPreparation follows the local ball's alignment, launch and cancellation. */
+  private updateWarpPreparation(ship: Snapshot["ship"]): void {
+    const preparing = ship?.mode === "WARP" && ship.warp?.preparing;
+    const current = this.warpPreparation;
+    if (current && (!preparing || ship?.itemID !== current.shipID)) {
+      this.cancelWarpPreparation();
+      if (ship?.itemID === current.shipID) {
+        if (ship.mode === "WARP") void playUiEvent("warp_ship_init_stop", undefined, true);
+        else void playUiEvent("warp_ship_abort_play");
+      }
+    }
+    if (preparing && !this.warpPreparation) {
+      const abort = new AbortController();
+      this.warpPreparation = { shipID: ship.itemID, abort };
+      void playUiEvent("warp_ship_init_play", abort.signal);
+      void playUiEvent("msg_WarpDriveActive_play", abort.signal);
+    }
   }
 
   /** The live park owns the warp phase. The session remembers what the pilot asked it to aim at. */
@@ -6531,6 +6559,7 @@ export class SpaceView {
     const way = ego && egoSpeed > 0 ? new THREE.Vector3(ego.velocity.x, ego.velocity.y, -ego.velocity.z).divideScalar(egoSpeed) : new THREE.Vector3();
     const warpSpeedMultiplier = ego?.typeID ? this.options.warpSpeedMultiplier?.(ego.typeID) ?? null : null;
     const share = WarpTunnel.share(ego?.mode === "WARP", egoSpeed, warpSpeedMultiplier);
+    this.updateWarpPreparation(ego);
     // Warp.py: once the warp's speed fraction passes 0.005, ship_warp_explosion_play and ship_warp_wind_play (sent as UI
     // events); at its end ship_warp_wind_stop. (The tunnel's share is that binding of the ship's speed.)
     if (ego?.mode === "WARP") {

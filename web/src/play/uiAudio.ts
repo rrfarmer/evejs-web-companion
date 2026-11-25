@@ -443,18 +443,24 @@ async function playMovingWorldSound(name: string, at: Vec3, forceLoop: boolean, 
   return handle;
 }
 
+/** Release the sounds started by a UI event, including its looping layers. */
+export function stopUiSound(name: string): void {
+  const key = name.toLowerCase();
+  for (const source of playing.get(key) ?? []) { try { source.stop(); } catch { /* already over */ } }
+  playing.delete(key);
+}
+
 /** SendUIEvent: the event's sounds played once, now (the first call after a user gesture starts the audio). */
-export async function playUiEvent(name: string, signal?: AbortSignal): Promise<void> {
+export async function playUiEvent(name: string, signal?: AbortSignal, playStopCue = false): Promise<void> {
   if (signal?.aborted) return;
-  // "<x>_stop": the sounds "<x>_play" started, stopped (the client's stop events are Stop actions on their play's
-  // objects; the ones with a sound of their own are not handled here)
+  // Most stop events just release the play's sources. Warp preparation also has a separate authored stop cue.
   const stop = /^(.*)_stop$/i.exec(name);
   if (stop) {
-    const key = `${stop[1]!.toLowerCase()}_play`;
-    for (const s of playing.get(key) ?? []) { try { s.stop(); } catch { /* already over */ } }
-    playing.delete(key);
-    uiAudioLog.push({ name, sound: null, played: false });
-    return;
+    stopUiSound(`${stop[1]}_play`);
+    if (!playStopCue) {
+      uiAudioLog.push({ name, sound: null, played: false });
+      return;
+    }
   }
   const sounds = pick((await eventsMap())[String(wwiseId(name))] ?? null);
   if (signal?.aborted) return;
