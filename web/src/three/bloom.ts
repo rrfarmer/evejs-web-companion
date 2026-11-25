@@ -75,6 +75,7 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
     quality?: () => { postProcess: boolean; distortion: boolean };
     depthEffects?: () => boolean;
     shadows?: SpaceShadowAtlas;
+    warpBackground?: { active(): boolean; contains(root: THREE.Object3D): boolean };
   }): Bloom {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
   const drawn = new THREE.WebGLRenderTarget(Math.max(1, size.x), Math.max(1, size.y), {
@@ -206,6 +207,36 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
   const softDepth = new SoftDepthPass();
   // the distortion surfaces' warp of the frame (distortion.ts), before the post-process reads it
   const distortion = new DistortionPass();
+  let warpBackground: THREE.WebGLRenderTarget | null = null;
+  const drawWithWarpBackground = (contains: (root: THREE.Object3D) => boolean) => {
+    warpBackground ??= new THREE.WebGLRenderTarget(drawn.width, drawn.height, { type: THREE.HalfFloatType });
+    warpBackground.setSize(drawn.width, drawn.height);
+    const background = scene.background;
+    const autoClear = renderer.autoClear;
+    const far: THREE.Object3D[] = [], near: THREE.Object3D[] = [];
+    for (const root of scene.children) {
+      if (!root.visible || root instanceof THREE.Light) continue;
+      (contains(root) ? far : near).push(root);
+    }
+    try {
+      renderer.setRenderTarget(warpBackground);
+      for (const root of near) root.visible = false;
+      renderer.render(scene, camera);
+      distortion.renderBackground(renderer, scene, camera, warpBackground, drawn);
+      for (const root of near) root.visible = true;
+      for (const root of far) root.visible = false;
+      scene.background = null;
+      renderer.autoClear = false;
+      renderer.state.buffers.depth.setMask(true);
+      renderer.clearDepth();
+      renderer.render(scene, camera);
+    } finally {
+      for (const root of near) root.visible = true;
+      for (const root of far) root.visible = true;
+      scene.background = background;
+      renderer.autoClear = autoClear;
+    }
+  };
   const particlePass = new GpuParticlePass();
   let rayPass: GodRaysPass | null = null;
   let opacityPass: CloudOpacityPass | null = null;
@@ -241,7 +272,8 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
         const particlesVisible = gpuMesh?.visible ?? false;
         if (gpuMesh) gpuMesh.visible = false;
         try {
-          renderer.render(scene, camera);
+          if (quality.distortion && post.warpBackground?.active()) drawWithWarpBackground(post.warpBackground.contains);
+          else renderer.render(scene, camera);
         } finally {
           if (gpuMesh) gpuMesh.visible = particlesVisible;
         }
@@ -325,6 +357,7 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       quad.dispose();
       softDepth.dispose();
       distortion.dispose();
+      warpBackground?.dispose();
       particlePass.dispose();
       rayPass?.dispose();
       opacityPass?.dispose();

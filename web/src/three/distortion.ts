@@ -18,6 +18,7 @@ import { logDepth } from "./logDepth.ts";
 
 /** The layer a distortion surface is on (and only it): the scene's draw leaves it out, the distortion pass draws it. */
 export const DISTORTION_LAYER = 5;
+export const BACKGROUND_DISTORTION_LAYER = 6;
 
 const clock = { get value() { return performance.now() / 1000; } };
 
@@ -147,6 +148,43 @@ export class DistortionPass {
 
   constructor() { this.layers.set(DISTORTION_LAYER); }
 
+  /** The legacy warp tunnel distorts the sky and planet frame before foreground objects are drawn. */
+  renderBackground(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera,
+    source: THREE.WebGLRenderTarget, output: THREE.WebGLRenderTarget): void {
+    const map = this.resizeMap(source.width, source.height);
+    const mask = camera.layers.mask, background = scene.background;
+    const clearColor = renderer.getClearColor(new THREE.Color()), clearAlpha = renderer.getClearAlpha();
+    try {
+      scene.background = null;
+      camera.layers.set(BACKGROUND_DISTORTION_LAYER);
+      renderer.setRenderTarget(map);
+      renderer.setClearColor(0, 0);
+      renderer.clear(true, false, false);
+      renderer.render(scene, camera);
+    } finally {
+      camera.layers.mask = mask;
+      scene.background = background;
+      renderer.setClearColor(clearColor, clearAlpha);
+    }
+    this.applyMap(renderer, map, source.texture, output);
+  }
+
+  private resizeMap(w: number, h: number): THREE.WebGLRenderTarget {
+    this.map ??= new THREE.WebGLRenderTarget(w, h, {
+      type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true,
+    });
+    this.map.setSize(w, h);
+    return this.map;
+  }
+
+  private applyMap(renderer: THREE.WebGLRenderer, map: THREE.WebGLRenderTarget, color: THREE.Texture, output: THREE.WebGLRenderTarget): void {
+    this.apply.uniforms["frame"]!.value = color;
+    this.apply.uniforms["map"]!.value = map.texture;
+    this.apply.uniforms["size"]!.value.set(map.width, map.height);
+    renderer.setRenderTarget(output);
+    this.quad.render(renderer);
+  }
+
   /**
    * The frame warped by the scene's distortion surfaces, or the frame itself where none is in view. The map is drawn
    * after the scene's opaque depth (drawn again here, depth only).
@@ -164,16 +202,14 @@ export class DistortionPass {
     });
     if (!wanted) return color;
     const w = frame.width, h = frame.height;
-    if (!this.map || this.map.width !== w || this.map.height !== h) {
-      this.map?.dispose(); this.warped?.dispose();
-      this.map = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true });
-      this.warped = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, depthBuffer: false });
-    }
+    const map = this.resizeMap(w, h);
+    this.warped ??= new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, depthBuffer: false });
+    this.warped.setSize(w, h);
     const background = scene.background, override = scene.overrideMaterial, to = renderer.getRenderTarget();
     const mask = camera.layers.mask, clearColor = renderer.getClearColor(new THREE.Color()), clearAlpha = renderer.getClearAlpha();
     try {
       scene.background = null;
-      renderer.setRenderTarget(this.map);
+      renderer.setRenderTarget(map);
       renderer.setClearColor(0x000000, 0);
       renderer.clear(true, true, false);
       // the opaque depth
@@ -192,13 +228,9 @@ export class DistortionPass {
       scene.overrideMaterial = override;
       renderer.setClearColor(clearColor, clearAlpha);
     }
-    this.apply.uniforms["frame"]!.value = color;
-    this.apply.uniforms["map"]!.value = this.map.texture;
-    this.apply.uniforms["size"]!.value.set(w, h);
-    renderer.setRenderTarget(this.warped);
-    this.quad.render(renderer);
+    this.applyMap(renderer, map, color, this.warped);
     renderer.setRenderTarget(to);
-    return this.warped!.texture;
+    return this.warped.texture;
   }
 
   dispose(): void {

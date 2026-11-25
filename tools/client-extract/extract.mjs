@@ -443,6 +443,7 @@ async function extractWarpTunnel(rf, outRoot) {
     intensity: { ...curve, keys: curve.keys.items },
     transparent: pass(tunnel.mesh.transparentAreas[0]),
     additive: pass(tunnel.mesh.additiveAreas[0]),
+    distortion: pass(tunnel.mesh.distortionAreas[0]),
   }));
 }
 

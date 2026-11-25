@@ -96,23 +96,56 @@ const ADDITIVE_FRAGMENT = `
   }
 `;
 
+const DISTORTION_VERTEX = `
+  uniform float Time, PreviousTime;
+  uniform vec4 MiscFactors, MiscFactors2, TextureParams;
+  varying vec4 noiseUV;
+  varying vec2 offset;
+  void main() {
+    float turn = Time * MiscFactors.w;
+    float c = cos(turn), s = sin(turn);
+    mat2 spin = mat2(c, -s, s, c);
+    vec2 spun = spin * vec2(position.x, -position.z);
+    vec2 normalXZ = spin * vec2(normal.x, -normal.z);
+    // The viewport is mirrored in X, and the GL distortion target's UV increases upwards.
+    offset = vec2(normalXZ.x, -normalXZ.y * normal.y) * MiscFactors2.x * clamp(MiscFactors2.w, 0.0, 1.0);
+    vec2 tiled = uv * TextureParams.xy;
+    noiseUV = vec4(tiled + Time * TextureParams.zw, tiled + PreviousTime * TextureParams.zw);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(spun.x, position.y, -spun.y, 1.0);
+  }
+`;
+
+const DISTORTION_FRAGMENT = `
+  uniform sampler2D NoiseMap;
+  uniform vec4 MiscFactors2;
+  varying vec4 noiseUV;
+  varying vec2 offset;
+  void main() {
+    float noise = mix(texture2D(NoiseMap, noiseUV.xy).r, texture2D(NoiseMap, noiseUV.zw).a, MiscFactors2.y);
+    gl_FragColor = vec4(noise * offset / 64.0, 1.0 / 256.0, 0.1);
+  }
+`;
+
 export function warpTunnelMaterial(
-  pass: WarpTunnelPass, textures: ReadonlyMap<string, THREE.Texture>, additive: boolean,
+  pass: WarpTunnelPass, textures: ReadonlyMap<string, THREE.Texture>, kind: "transparent" | "additive" | "distortion",
 ): THREE.ShaderMaterial {
   const uniforms: Record<string, THREE.IUniform> = { Time: { value: 0 } };
   for (const [name, value] of Object.entries(pass.parameters)) uniforms[name] = { value: new THREE.Vector4(...value) };
   for (const [name, url] of Object.entries(pass.textures)) uniforms[name] = { value: textures.get(url) };
+  const distortion = kind === "distortion";
+  const additive = kind === "additive";
+  if (distortion) uniforms.PreviousTime = { value: 0 };
   return new THREE.ShaderMaterial({
-    name: additive ? "WarpTunnelAdditive" : "WarpTunnelTransparent",
+    name: distortion ? "WarpTunnelDistortion" : additive ? "WarpTunnelAdditive" : "WarpTunnelTransparent",
     uniforms,
-    vertexShader: additive ? ADDITIVE_VERTEX : TRANSPARENT_VERTEX,
-    fragmentShader: additive ? ADDITIVE_FRAGMENT : TRANSPARENT_FRAGMENT,
+    vertexShader: distortion ? DISTORTION_VERTEX : additive ? ADDITIVE_VERTEX : TRANSPARENT_VERTEX,
+    fragmentShader: distortion ? DISTORTION_FRAGMENT : additive ? ADDITIVE_FRAGMENT : TRANSPARENT_FRAGMENT,
     side: THREE.BackSide,
     depthTest: false,
     depthWrite: false,
-    // Keep both draws in the opaque sort bucket so they can blend over the sky before drawing the ship.
+    // The color draws sort before the ship and blend over the sky. Distortion draws on its own layer.
     blending: THREE.CustomBlending,
-    blendSrc: additive ? THREE.OneFactor : THREE.SrcAlphaFactor,
-    blendDst: additive ? THREE.OneFactor : THREE.OneMinusSrcAlphaFactor,
+    blendSrc: distortion || additive ? THREE.OneFactor : THREE.SrcAlphaFactor,
+    blendDst: distortion || additive ? THREE.OneFactor : THREE.OneMinusSrcAlphaFactor,
   });
 }

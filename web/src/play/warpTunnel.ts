@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { prepareScalar, scalarAt, type ScalarCurve } from "../three/curves.ts";
 import { loadDds } from "../three/ddsTexture.ts";
+import { BACKGROUND_DISTORTION_LAYER } from "../three/distortion.ts";
 import { warpTunnelMaterial, type WarpTunnelPass } from "../three/warpTunnelMaterial.ts";
 
 const AU = 149_597_870_700;
@@ -15,6 +16,7 @@ interface WarpTunnelDefinition {
   intensity: ScalarCurve;
   transparent: WarpTunnelPass;
   additive: WarpTunnelPass;
+  distortion?: WarpTunnelPass;
 }
 
 interface WarpSurface {
@@ -22,6 +24,7 @@ interface WarpSurface {
   geometry: THREE.BufferGeometry;
   materials: THREE.ShaderMaterial[];
   textures: Map<string, THREE.Texture>;
+  distortion: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> | null;
   intensity: ScalarCurve;
   keys: ReturnType<typeof prepareScalar>;
 }
@@ -30,7 +33,10 @@ async function loadWarpSurface(): Promise<WarpSurface> {
   const response = await fetch("/client-assets/warpTunnel.json");
   if (!response.ok) throw new Error(`Warp tunnel assets: HTTP ${response.status}`);
   const definition = await response.json() as WarpTunnelDefinition;
-  const urls = new Set([...Object.values(definition.transparent.textures), ...Object.values(definition.additive.textures)]);
+  const urls = new Set([
+    ...Object.values(definition.transparent.textures), ...Object.values(definition.additive.textures),
+    ...Object.values(definition.distortion?.textures ?? {}),
+  ]);
   const [gltf, entries] = await Promise.all([
     new GLTFLoader().loadAsync(definition.model),
     Promise.all(Array.from(urls, async (url) => [url, await loadDds(url)] as const)),
@@ -48,9 +54,11 @@ async function loadWarpSurface(): Promise<WarpSurface> {
   const root = new THREE.Group();
   const [x, y, z, w] = definition.rotation;
   const materials = [
-    warpTunnelMaterial(definition.transparent, textures, false),
-    warpTunnelMaterial(definition.additive, textures, true),
+    warpTunnelMaterial(definition.transparent, textures, "transparent"),
+    warpTunnelMaterial(definition.additive, textures, "additive"),
   ];
+  if (definition.distortion) materials.push(warpTunnelMaterial(definition.distortion, textures, "distortion"));
+  let distortion: WarpSurface["distortion"] = null;
   materials.forEach((material, i) => {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = "warpTunnel";
@@ -59,11 +67,15 @@ async function loadWarpSurface(): Promise<WarpSurface> {
     mesh.renderOrder = -0.75 + 0.25 * i;
     mesh.scale.fromArray(definition.scale);
     mesh.quaternion.set(-x, -y, z, w);
+    if (material.name === "WarpTunnelDistortion") {
+      mesh.layers.set(BACKGROUND_DISTORTION_LAYER);
+      distortion = mesh;
+    }
     root.add(mesh);
   });
   root.visible = false;
   const intensity = definition.intensity;
-  return { root, geometry, materials, textures, intensity, keys: prepareScalar(intensity) };
+  return { root, geometry, materials, textures, distortion, intensity, keys: prepareScalar(intensity) };
 }
 
 export class WarpTunnel {
@@ -79,6 +91,7 @@ export class WarpTunnel {
   private surface: WarpSurface | null = null;
   private disposed = false;
   private shown = 0;
+  private previousTime = 0;
 
   constructor() {
     this.positions = new Float32Array(STREAKS * 2 * 3);
@@ -107,6 +120,10 @@ export class WarpTunnel {
     return warping ? Math.min(1, Math.max(0, speed / (3 * AU * multiplier))) : 0;
   }
 
+  hasBackgroundDistortion(): boolean {
+    return !!this.surface?.root.visible && this.surface.distortion?.visible === true;
+  }
+
   update(camera: THREE.Camera, focus: THREE.Vector3, way: THREE.Vector3, warpShare: number, gateShare: number, time: number, dt: number): void {
     const validWay = way.lengthSq() > 0.5;
     const surface = this.surface;
@@ -125,8 +142,14 @@ export class WarpTunnel {
           material.uniforms.Time!.value = time;
           material.uniforms.MiscFactors2!.value.w = intensity;
         }
+        if (surface.distortion) {
+          const uniforms = surface.distortion.material.uniforms;
+          uniforms.MiscFactors2!.value.w = intensity * 8;
+          uniforms.PreviousTime!.value = this.previousTime || time;
+        }
       }
     }
+    this.previousTime = time;
     const lineShare = surface ? gateShare : Math.max(warpShare, gateShare);
     this.shown += (lineShare - this.shown) * Math.min(1, dt * 2);
     this.lines.visible = this.shown >= 0.01 && validWay && !surface?.root.visible;

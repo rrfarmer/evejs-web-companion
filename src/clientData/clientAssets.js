@@ -22,7 +22,7 @@ const GENERATED = new Map([
   ["/dscanCones.json", ["--dscan-cones", '"lineTexture"']],
   ["/dscanHologram.json", ["--dscan-hologram"]],
   ["/wormholeTransit.json", ["--wormhole-transit"]],
-  ["/warpTunnel.json", ["--warp-tunnel"]],
+  ["/warpTunnel.json", ["--warp-tunnel", '"distortion":']],
   ["/shipInfoScene.json", ["--ship-info"]],
   ["/drifterCollectionExplosion.json", ["--drifter-collection-explosion", '"explosionBuild":2']],
   ["/observatoryEnvironment.json", ["--observatory-environment", '"environmentBuild":3']],
@@ -128,7 +128,8 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
   if (generated) {
     const oldManifest = rel === "/observatoryEnvironment.json" ? '"environmentBuild":'
       : rel === "/observatoryVortex.json" ? '"vortexBuild":' : undefined;
-    const marker = oldManifest && !canExtract() ? oldManifest : generated[1];
+    const marker = rel === "/warpTunnel.json" && !canExtract() ? undefined
+      : oldManifest && !canExtract() ? oldManifest : generated[1];
     return { file: await ensure(rel.slice(1), [generated[0]], marker) };
   }
 

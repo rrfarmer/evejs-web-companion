@@ -6750,6 +6750,11 @@ export class SpaceView {
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, {
       exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering(),
       depthEffects: () => gfx().shaderQuality === 3, shadows: this.spaceShadows,
+      warpBackground: {
+        active: () => this.warpTunnel.hasBackgroundDistortion(),
+        contains: (root) => root === this.warpTunnel.object || root === this.starfieldObj ||
+          ["planet", "moon", "sun"].includes(root.userData.kind),
+      },
     });
     const simDt = dt * (this.options.flightSnapshot?.()?.timeDilation ?? 1);
     const environment = this.observatoryEnvironment.sample(ego ? snap?.entities ?? [] : [], origin, eye, simDt, rendering.postProcess, systemID);
