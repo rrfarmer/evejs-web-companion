@@ -1220,7 +1220,7 @@ export class SpaceView {
   private readonly asteroidModels = new AsteroidModels();
   private miningSurveyUsesSimClock = false;
   private readonly collectionExplosions = new DrifterCollectionExplosions(this.scene);
-  /** The camera's shake (cameraShake.ts): explosions shake it. */
+  /** Camera noise from nearby explosions and the pilot's warp. */
   private readonly shake = new CameraShake();
   /** The Drone Models setting the drones' models were last shown by. */
   private droneModels = true;
@@ -6677,7 +6677,9 @@ export class SpaceView {
     }
     if (this.controls.enabled) this.controls.update();
     // the shake: the point looked at moved across the view for this frame (the controls look at their target again next)
-    const shaken = this.shake.offset(this.camera.position, this.controls.target, dt);
+    const shakeSim = bracketSimNow ?? now;
+    this.shake.updateWarp(settings.cameraShakeEnabled && ego?.mode === "WARP", egoSpeed, ego?.maxVelocity ?? 0, shakeSim);
+    const shaken = settings.cameraShakeEnabled ? this.shake.offset(this.camera.position, this.controls.target, dt, now, shakeSim) : null;
     if (shaken) this.camera.lookAt(this.controls.target.clone().add(shaken));
     // the system menu's settings (gfxSettings.ts): the turrets' and missiles' effects
     this.turretFx.group.visible = settings.turretsEnabled;
