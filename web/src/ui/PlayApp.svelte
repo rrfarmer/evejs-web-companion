@@ -494,6 +494,12 @@
     if (!pilot) return;
     if (await pilot.flow.askClientDialog("AskLogoffToCharacterSelection", "Log off to character selection?", true)) backToCharacterSelection(pilot);
   }
+  function startSafeLogoff(pilot = session): void {
+    if (!pilot) return;
+    pilot.flow.requestWords(SAFE_LOGOFF_WORDS);
+    safeLogoffQuitting = false;
+    void pilot.flow.startSafeLogoff().catch(() => {});
+  }
 
   // A refusal the server gave an order (a lock, a module, a move, a fit, an item's move), as the client puts it up:
   // the flow says some in the client's own dialogs (actionErrorSaid); the rest are said here, once each, in space on
@@ -1934,6 +1940,11 @@
     if (id === "bountyOffice") { toggleBountyOffice(); return; }
     if (id === "multibuy") { openMultibuy(); return; }
     if (id === "settings") { toggleSystemMenu(); return; }
+    if (id === "logoff") {
+      if (docked) void logOffDocked();
+      else startSafeLogoff();
+      return;
+    }
     const tab = NEOCOM_TABS[id];
     if ((tab === "shipTree" || tab === "marketOrders") && wins.some(win => win.id === tab && !win.minimized)) wins = closeWindow(wins, tab);
     else if (tab) open(tab);
@@ -3255,7 +3266,7 @@
       enterShipPassword: () => { shipPasswordAsk = true; },
       ejectFromShip: () => { view?.noteEject(); void s.flow.ejectFromShip().catch(() => {}); },
       moduleMenu: (moduleID, typeID, x, y) => void openModuleMenu(s, moduleID, typeID, x, y),
-      safeLogoff: () => { s.flow.requestWords(SAFE_LOGOFF_WORDS); safeLogoffQuitting = false; void s.flow.startSafeLogoff().catch(() => {}); },
+      safeLogoff: () => startSafeLogoff(s),
       loggingOffSafely: () => !!s.flow.safeLogoff.get(),
       selfDestructShip: (id, capsule) => { void s.flow.selfDestructShip(id, capsule).catch(() => {}); },
       abortSelfDestructShip: (id) => { void s.flow.abortSelfDestructShip(id).catch(() => {}); },
@@ -4298,7 +4309,7 @@
   <Toasts />
   {#if systemMenu}
     <ErrorBoundary name="System menu"><SystemMenu store={session.store} flow={session.flow} onClose={() => (systemMenu = false)} inSpace={!docked}
-      onSafeLogoff={() => { session?.flow.requestWords(SAFE_LOGOFF_WORDS); safeLogoffQuitting = false; void session?.flow.startSafeLogoff().catch(() => {}); }}
+      onSafeLogoff={() => startSafeLogoff()}
       onLogOff={() => void logOffDocked()} /></ErrorBoundary>
   {/if}
   {#if siteBookmark}
