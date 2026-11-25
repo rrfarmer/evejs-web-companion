@@ -110,6 +110,7 @@
     inventoryVaultRequested = false,
     storeCategoryRequest = null,
     onShowOmegaOffers,
+    onToggleStore,
     reprocessingInput,
     onReprocessingInputTaken,
   }: {
@@ -130,6 +131,7 @@
     inventoryVaultRequested?: boolean;
     storeCategoryRequest?: { tag: string } | null;
     onShowOmegaOffers?: () => void;
+    onToggleStore?: () => void;
     // R107 — the full pilot roster (every session, not just the active one).
     // Optional and forwarded only to the Bot Manager panel, which is the only
     // one that needs to see pilots beyond its own store/flow.
@@ -216,7 +218,7 @@
 {:else if tab === "shipTree"}
   <ShipTree {store} {flow} />
 {:else if tab === "market"}
-  <Market {store} {flow} onOpenOrders={onOpen ? () => onOpen?.("marketOrders") : undefined} />
+  <Market {store} {flow} {onToggleStore} onOpenOrders={onOpen ? () => onOpen?.("marketOrders") : undefined} />
 {:else if tab === "marketOrders"}
   <Market {store} {flow} ordersOnly />
 {:else if tab === "activity"}

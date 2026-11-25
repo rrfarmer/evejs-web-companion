@@ -4343,6 +4343,7 @@
             <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
               {inventoryVaultRequested}
               {storeCategoryRequest} onShowOmegaOffers={showOmegaOffers}
+              onToggleStore={() => neocomOpen("newEdenStore")}
               onReprocess={reprocessingAvailable ? reprocessSelection : undefined}
               {reprocessingInput} onReprocessingInputTaken={() => (reprocessingInput = null)}
               onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} {autoMoonMiner}

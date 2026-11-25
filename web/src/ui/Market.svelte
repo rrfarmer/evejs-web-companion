@@ -75,11 +75,12 @@
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import type { MarketGroupNode } from "../app/api.ts";
 
-  let { store, flow, ordersOnly = false, onOpenOrders }: {
+  let { store, flow, ordersOnly = false, onOpenOrders, onToggleStore }: {
     store: ClientStore;
     flow: AppFlow;
     ordersOnly?: boolean;
     onOpenOrders?: () => void;
+    onToggleStore?: () => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -172,6 +173,8 @@
     "Tooltips/Market/MarketDetailsData": "The orders for the selected item",
     "Tooltips/Market/MarketDetailsHistory": "The selected item's price history",
     "Tooltips/StationServices/MarketOrders": "Market Orders",
+    "UI/VirtualGoodsStore/VgsName": "New Eden Store",
+    "Tooltips/Neocom/Vgs_description": "Open the New Eden Store",
     "Tooltips/Market/MarketDetailsTab": "The selected item's orders",
     "UI/Commands/OpenWallet": "Open the wallet",
     "UI/Market/WalletBalanceUnavailable": "Unavailable",
@@ -1364,26 +1367,31 @@
   {/if}
 </section>
 
-{#if $market.loaded && retail}
+{#if retail && ($market.loaded || onToggleStore)}
   <!-- MarketBase's tab bar (32 high): the Details tab at the left (sr.tabs, UI/Common/Details); the ghost buttons at the
        right - Market Orders (OpenMarketOrders: our open orders here), and the page's own trades and tied-up views,
        which the client keeps in the wallet; then the window header's WalletBalance (the ISK icon, its button the
        wallet, and the balance, TextColor.SECONDARY). -->
   <section class="mkt-tabbar">
-    <nav class="mkt-tabs">
+    {#if $market.loaded}<nav class="mkt-tabs">
       <button type="button" class:active={tab === "book"} title={qbWord("Tooltips/Market/MarketDetailsTab")} onclick={() => (tab = "book")}>{qbWord("UI/Common/Details")}</button>
       <button type="button" class:active={tab === "groups"} aria-pressed={tab === "groups"} title={qbWord("Tooltips/Market/MarketGroupsTab")}
         onclick={() => (tab = "groups")}>{qbWord("UI/Common/Groups")}</button>
-    </nav>
+    </nav>{/if}
     <span class="mkt-ghosts">
+      {#if onToggleStore}
+        <button type="button" class="mkt-ghost" title={qbWord("Tooltips/Neocom/Vgs_description")} onclick={onToggleStore}>{qbWord("UI/VirtualGoodsStore/VgsName")}</button>
+      {/if}
+      {#if $market.loaded}
       <button type="button" class="mkt-ghost" class:active={tab === "orders"} onclick={() => { if (onOpenOrders) onOpenOrders(); else tab = "orders"; }}>{qbWord("Tooltips/StationServices/MarketOrders")}</button>
       <button type="button" class="mkt-ghost" class:active={tab === "trades"} onclick={() => (tab = "trades")}>Your trades</button>
       <button type="button" class="mkt-ghost" class:active={tab === "escrow"} onclick={() => (tab = "escrow")}>What is tied up</button>
+      {/if}
     </span>
-    <span class="mkt-wallet">
+    {#if $market.loaded}<span class="mkt-wallet">
       <img alt="ISK" src="/client-res/ui/texture/eveicon/category_icons/isk_16px.png" />
       <span>{$market.cashBalance === null || $market.cashBalance === undefined ? qbWord("UI/Market/WalletBalanceUnavailable") : formatIsk($market.cashBalance)}</span>
-    </span>
+    </span>{/if}
 </section>
 {:else if $market.loaded}
   <section>
