@@ -72,6 +72,7 @@
   import type { StarMapColorMode } from "../bridge/starMapFilters.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
   import { ACADEMY_BUTTON, ACADEMY_TITLE } from "../bridge/academyShips.ts";
+  import { isNpcOwner } from "../bridge/mail.ts";
   import { CONFIRM_MOVE_TO_NEWBIE_SHIP, GROUP_CORVETTE } from "../bridge/shipWrites.ts";
   import { SHIP_TREE_CAPTION } from "../bridge/shipTree.ts";
   import { FittingShipScene } from "../play/fittingScene.ts";
@@ -2432,6 +2433,193 @@
     session?.flow.clearSurveyScan();
     view?.clearMiningSurvey();
   }
+  const pilotMenuCache = new WeakMap<Session, {
+    book: import("../bridge/contacts.ts").NamedAddressBook | null;
+    invitable: Map<number, readonly { channel: string; title: string }[]>;
+  }>();
+
+  function pilotMenu(s: Session, characterID: number, affiliation?: { corporationID: number | null; allianceID: number | null }, inLobby = false): ContextEntry {
+    let cache = pilotMenuCache.get(s);
+    if (!cache) {
+      cache = { book: null, invitable: new Map() };
+      pilotMenuCache.set(s, cache);
+    }
+    // AddContactMenu: Edit Contact where the pilot is in the address book (IsInAddressBook), else Add Contact
+    if (inLobby || !cache.book) void s.flow.addressBook("contact").then((book) => { cache.book = book; }).catch(() => {});
+    const known = !!cache.book?.contacts.some((c) => c.contactID === characterID);
+    void s.flow.conversations.invitable(characterID).then((list) => { cache.invitable.set(characterID, list); }).catch(() => {});
+    // xmppChatSvc.Invite(charID, channel): None starts a private conversation
+    const converse = (room?: string) => void s.flow.conversations.start(characterID, room).catch(() => {});
+    const resolved = s.store.names.get().resolved;
+    const nameOf = (id: number) => resolvedName(resolved, "owner", id, "") || resolvedName(resolved, "character", id, "");
+    s.flow.requestNames([{ kind: "owner", id: characterID }]);
+    const templates = s.store.words.get().templates;
+    const w = (label: string, own: string, args: Record<string, string | number> = {}) => {
+      const t = templates[label];
+      return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args, { nameOf: (kind, id) => (kind === "owner" ? nameOf(Number(id)) : "") })).trim() : own;
+    };
+    const name = nameOf(characterID);
+    const showInfoEntry = { label: w("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => showInfo({ kind: "character", characterID }) };
+    const bountyEntry = { label: w("UI/Station/BountyOffice/PlaceBounty", "Place Bounty"), run: () => { bountyOffice = { n: (bountyOffice?.n ?? 0) + 1, target: { ownerID: characterID, corporationID: affiliation?.corporationID ?? null, allianceID: affiliation?.allianceID ?? null } }; } };
+    // CapturePortrait: the portrait at its largest size saved as <characterID>.jpg
+    const portraitEntry = { label: w("UI/Commands/CapturePortrait", "Capture Portrait"), run: () => void s.flow.capturePortraits([characterID], (id, image) => {
+          const bytes = Uint8Array.from(atob(image.base64), (ch) => ch.charCodeAt(0));
+          const link = document.createElement("a");
+          link.href = URL.createObjectURL(new Blob([bytes], { type: image.contentType }));
+          link.download = `${id}.jpg`;
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
+        }, () => {}).catch(() => {}) };
+    // _CharacterMenu of oneself (read through gridcheck on the client pilot's own ship): Show Info, Fleet >, View
+    // Member Details, Place Bounty, Capture Portrait, Form Fleet With... (out of a fleet) - no money, contacts, conversation,
+    // mail or duel (the Fleet submenu of a pilot in a fleet not on the page yet)
+    // OfferViewCorpMemberDetails (one's own corporation, not a director) or EditCorpMember (a director): oneself is
+    // always of one's own corporation
+    s.flow.requestWords(["UI/Corporations/Common/ViewCorpMemberDetails", "UI/Corporations/Common/EditCorpMember"]);
+    const director = (BigInt(s.store.station.get().online?.corpRole ?? "0") & 1n) !== 0n;
+    // menusvc.FleetMenu (unparsed False under the character's menu) with FleetMemberChecker's offers: Show Info, a line,
+    // Kick Fleet Member (ConfirmMenu), Make Fleet Leader, Add / Remove Pilot to Watchlist, Broadcast: Travel To Me, Leave My
+    // Fleet (ConfirmMenu), Move Fleet Member (MemberMenu). (The warp-to-member and cyno beacon entries not here yet.)
+    // MemberMenu places (isMove: Move Fleet Member; not: the invite menu) as nested wing / squad entries, each calling pick
+    const placesTree = (isMove: boolean, pick: (p: MemberMenuPlace) => () => void): ContextEntry[] => {
+      const fleetState = s.store.fleet.get();
+      const me = s.store.station.get().online?.characterID ?? null;
+      if (fleetState.availability !== "ready" || me === null) return [];
+      const members = fleetState.fleet?.initState.value.members ?? [];
+      const idOrNull = (id: number | string | null): number | null => id === null || id === "" || !Number.isFinite(Number(id)) ? null : Number(id);
+      const placements = memberMenu({ targetCharID: characterID, me, isMove, isFreeMove: fleetState.fleet?.initState.value.options.isFreeMove === true,
+        members: members.map((m) => ({ charID: Number(m.charID), role: m.role, job: m.job, wingID: idOrNull(m.wingID), squadID: idOrNull(m.squadID) })),
+        wings: (fleetState.fleet?.initState.value.wings ?? []).flatMap((wg) => { const wingID = idOrNull(wg.wingID); return wingID === null ? [] : [{ wingID, name: wg.name, squads: wg.squads.flatMap((sq) => { const squadID = idOrNull(sq.squadID); return squadID === null ? [] : [{ squadID, name: sq.name }]; }) }]; }) });
+      const rank = (p: MemberMenuPlace) => w(rankLabel(p.role), p.role === 1 ? "Fleet Commander" : p.role === 2 ? "Wing Commander" : p.role === 3 ? "Squad Commander" : "Squad Member");
+      const place = (p: MemberMenuPlace): ContextEntry => ({ label: rank(p), run: pick(p) });
+      return placements.map((entry) => entry.kind === "place" ? place(entry) : {
+        label: entry.name || w("UI/Fleet/FleetSubmenus/WingX", `Wing ${entry.wingNumber}`, { wingNumber: entry.wingNumber }),
+        sub: entry.entries.map((child) => child.kind === "place" ? place(child) : {
+          label: w("UI/Fleet/FleetSubmenus/SquadNameWithNumMembers", `${child.name || `Squad ${child.squadNumber}`} (${child.numMembers})`, { squadName: child.name || w("UI/Fleet/FleetSubmenus/SquadX", `Squad ${child.squadNumber}`, { squadNumber: child.squadNumber }), numMembers: child.numMembers }),
+          sub: child.places.map(place) }) });
+    };
+    const fleetEntry = (() => {
+      const fleetState = s.store.fleet.get();
+      const me = s.store.station.get().online?.characterID ?? null;
+      if (fleetState.availability !== "ready" || me === null) return null;
+      const members = fleetState.fleet?.initState.value.members ?? [];
+      const mine = members.find((m) => Number(m.charID) === me);
+      const target = members.find((m) => Number(m.charID) === characterID);
+      if (!mine || !target) return null;
+      s.flow.requestWords(["UI/Fleet/Fleet", "UI/Fleet/KickFleetMember", "UI/Menusvc/ConfirmMenuOption", "UI/Fleet/MakeFleetLeader", "UI/Fleet/AddPilotToWatchlist", "UI/Fleet/RemovePilotFromWatchlist",
+        "UI/Fleet/FleetBroadcast/Commands/BroadcastTravelToMe", "UI/Fleet/LeaveMyFleet", "UI/Fleet/FleetSubmenus/MoveFleetMember", "UI/Fleet/FleetSubmenus/WingX", "UI/Fleet/FleetSubmenus/SquadX",
+        "UI/Fleet/FleetSubmenus/SquadNameWithNumMembers", ...[1, 2, 3, 4].map(rankLabel)]);
+      const self = characterID === me;
+      const boss = (mine.job & 2) !== 0;
+      const subordinate = mine.role === 1 || (mine.role === 2 && String(mine.wingID) === String(target.wingID)) || (mine.role === 3 && String(mine.squadID) === String(target.squadID));
+      const favorite = (fleetState.watchlist ?? []).includes(characterID);
+      const fleetAct = (action: FleetMenuAction) => () => void s.flow.fleetMenuAction(action).catch(() => {});
+      const confirm = (action: FleetMenuAction) => [{ label: w("UI/Menusvc/ConfirmMenuOption", "Confirm"), run: fleetAct(action) }];
+      const out: (ContextEntry | null)[] = [{ label: w("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => showInfo({ kind: "character", characterID }) }, null];
+      if (!self && (boss || subordinate)) out.push({ label: w("UI/Fleet/KickFleetMember", "Kick Fleet Member"), sub: confirm({ kind: "kick", characterID }) });
+      if (!self && boss) out.push({ label: w("UI/Fleet/MakeFleetLeader", "Make Fleet Leader"), run: fleetAct({ kind: "leader", characterID }) });
+      if (!self) out.push({ label: favorite ? w("UI/Fleet/RemovePilotFromWatchlist", "Remove Pilot from Watchlist") : w("UI/Fleet/AddPilotToWatchlist", "Add Pilot to Watchlist"), run: fleetAct({ kind: "watch", characterID, add: !favorite }) });
+      if (self && (boss || [1, 2, 3].includes(mine.role))) out.push({ label: w("UI/Fleet/FleetBroadcast/Commands/BroadcastTravelToMe", "Broadcast: Travel To Me"), run: fleetAct({ kind: "travelToMe" }) });
+      // FleetMenu's warps (FleetMemberChecker.OfferWarpToMember / OfferWarp{Fleet,Wing,Squad}ToMember; fleetWarpOffers): Warp to
+      // Member at the default distance, Warp to Member Within (WarpToMenu: the ranges, Set Default), and the group's pair
+      const offers = fleetWarpOffers(me, characterID, mine.role ?? null, s.store.flight.get().status, s.store.space.get().snapshot);
+      const keepAt = storeValue(s.flow.warpDistance) || 0;
+      const within = (r: number) => w("UI/Inflight/WarpToWithin", `Warp to within ${fmtDist(r)}`, { distance: fmtDist(r) });
+      const RANGES = [0, 10_000, 20_000, 30_000, 50_000, 70_000, 100_000];
+      const warpMenu = (group: boolean): (ContextEntry | null)[] => [...RANGES.map((r) => ({ label: within(r), run: fleetAct({ kind: "warp", characterID, range: r, group }) })), null,
+        { label: w("UI/Inflight/Submenus/SetDefaultWarpRange", "Set Default"), sub: RANGES.map((r) => ({ label: fmtDist(r), checked: r === keepAt, run: () => s.flow.keepWarpDistance(r) })) }];
+      if (offers.warp) {
+        s.flow.requestWords(["UI/Fleet/WarpToMember", "UI/Fleet/WarpToMemberSubmenuOption", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Fleet/FleetFormations/Point",
+          "UI/Fleet/WarpFleetToMember", "UI/Fleet/FleetSubmenus/WarpFleetToMember", "UI/Fleet/WarpWingToMember", "UI/Fleet/FleetSubmenus/WarpWingToMember", "UI/Fleet/WarpSquadToMember", "UI/Fleet/FleetSubmenus/WarpSquadToMember"]);
+        out.push({ label: w("UI/Fleet/WarpToMember", "Warp to Member"), run: fleetAct({ kind: "warp", characterID, range: keepAt, group: false }) },
+          { label: w("UI/Fleet/WarpToMemberSubmenuOption", "Warp to Member Within"), sub: warpMenu(false) });
+        if (offers.group) {
+          const g = offers.group;
+          const name = { fleet: "Fleet", wing: "Wing", squad: "Squad" }[g];
+          const formation = { fleetFormation: w("UI/Fleet/FleetFormations/Point", "Point") };
+          out.push({ label: w(`UI/Fleet/Warp${name}ToMember`, `Warp ${g} to Member`, formation), run: fleetAct({ kind: "warp", characterID, range: keepAt, group: true }) },
+            { label: w(`UI/Fleet/FleetSubmenus/Warp${name}ToMember`, `Warp ${g} to Member Within`, formation), sub: warpMenu(true) });
+        }
+      }
+      // OfferJumpToFleetMember / OfferBridgeToMember / OfferGroupJumpToFleetMember (fleetBeaconOffers: the member's active
+      // cyno beacon, the pilot's ship able to jump, open a portal, or conduit-jump)
+      const beacon = fleetBeaconOffers(me, characterID, s.store.flight.get().status, s.store.space.get().snapshot, s.store.dogma.get().allInfo, fleetState.jumpBeacons?.[String(characterID)] ?? null);
+      if (beacon.jump || beacon.bridge || beacon.group) s.flow.requestWords(["UI/Inflight/JumpToFleetMember", "UI/Fleet/BridgeToMember", "UI/Fleet/ConduitJumpToFleetMember"]);
+      if (beacon.jump) out.push({ label: w("UI/Inflight/JumpToFleetMember", "Jump to Member"), run: fleetAct({ kind: "beacon", characterID, how: "jump" }) });
+      if (beacon.bridge) out.push({ label: w("UI/Fleet/BridgeToMember", "Bridge to Member"), run: fleetAct({ kind: "beacon", characterID, how: "bridge" }) });
+      if (beacon.group) out.push({ label: w("UI/Fleet/ConduitJumpToFleetMember", "Conduit Jump to Member"), run: fleetAct({ kind: "beacon", characterID, how: "group" }) });
+      if (self) out.push({ label: w("UI/Fleet/LeaveMyFleet", "Leave My Fleet"), sub: confirm({ kind: "leave" }) });
+      const moveSub = placesTree(true, (p) => fleetAct({ kind: "move", characterID, wingID: p.wingID, squadID: p.squadID, role: p.role ?? 4 }));
+      if (moveSub.length) out.push({ label: w("UI/Fleet/FleetSubmenus/MoveFleetMember", "Move Fleet Member"), sub: moveSub });
+      return { label: w("UI/Fleet/Fleet", "Fleet"), sub: out } as ContextEntry;
+    })();
+    // CharacterChecker.OfferInvitePilotToFleet: in a fleet the character is not in, the pilot its creator (boss) or a commander -
+    // Invite Pilot to Fleet with FleetInviteMenu (MemberMenu, isMove False); OfferFormFleetWith: not in a fleet
+    const inFleet = s.store.fleet.get().availability === "ready";
+    const inviteEntry = (() => {
+      if (!inFleet) return null;
+      const me = s.store.station.get().online?.characterID ?? null;
+      const members = s.store.fleet.get().fleet?.initState.value.members ?? [];
+      const mine = members.find((m) => Number(m.charID) === me);
+      if (!mine || members.some((m) => Number(m.charID) === characterID)) return null;
+      if (!((mine.job & 2) !== 0 || [1, 2, 3].includes(mine.role))) return null;
+      s.flow.requestWords(["UI/Fleet/InvitePilotToFleet"]);
+      const sub = placesTree(false, (p) => () => void s.flow.inviteFleetSelection([characterID], false, { wingID: p.wingID, squadID: p.squadID, role: p.role }).catch(() => {}));
+      return sub.length ? { label: w("UI/Fleet/InvitePilotToFleet", "Invite Pilot to Fleet"), sub } as ContextEntry : null;
+    })();
+    const memberDetailsEntry = { label: director ? w("UI/Corporations/Common/EditCorpMember", "Edit Corporation Member") : w("UI/Corporations/Common/ViewCorpMemberDetails", "View Member Details"),
+      run: () => void s.flow.openCorporationMemberDetails(characterID).catch(() => {}) };
+    const stationState = s.store.station.get();
+    if (characterID === stationState.online?.characterID) {
+      const formFleetEntry = s.store.fleet.get().availability === "ready" ? []
+        : [{ label: w("UI/Fleet/FormFleetWith", "Form Fleet With..."), run: () => void s.flow.formFleetWith(characterID).catch(() => {}) }];
+      return { path: "UI/Common/Pilot", label: w("UI/Common/Pilot", `Pilot (${name})`, { character: characterID }), icon: "res:/UI/Texture/eveicon/system_icons/person_16px.png",
+        sub: inLobby
+          ? [showInfoEntry, null, bountyEntry, null, portraitEntry, ...(fleetEntry ? [fleetEntry] : []), ...formFleetEntry, null, memberDetailsEntry]
+          : [showInfoEntry, null, memberDetailsEntry, null, bountyEntry, null, portraitEntry, ...(fleetEntry ? [fleetEntry] : []), ...formFleetEntry] };
+    }
+    const guest = inLobby && !isNpcOwner(characterID)
+      ? stationState.guests.find(row => row.characterID === characterID) : undefined;
+    if (guest) s.flow.requestWords(["UI/Market/TradeWithCharacter", "UI/PeopleAndPlaces/RemoveContact", "UI/PeopleAndPlaces/UnblockContact"]);
+    const blocked = inLobby && cache.book?.blocked.some(c => c.ownerID === characterID);
+    const refreshBook = async (action: Promise<void>) => {
+      await action;
+      cache.book = await s.flow.addressBook("contact");
+    };
+    return {
+      path: "UI/Common/Pilot", label: w("UI/Common/Pilot", `Pilot (${name})`, { character: characterID }), icon: "res:/UI/Texture/eveicon/system_icons/person_16px.png",
+      // (g413, another pilot's ship: Show Info | Give Money | Place Bounty | Add Contact, Block | Start Conversation, Invite to...,
+      // Send Message, Capture Portrait, Form Fleet With... | Invite to Duel)
+      sub: [
+        showInfoEntry, null,
+        { label: w("UI/Commands/GiveMoney", "Give Money"), run: () => void s.flow.openMoneyTransfer(characterID).catch(() => {}) }, null,
+        ...(guest ? [{ label: w("UI/Market/TradeWithCharacter", "Trade"), run: () => void s.flow.startDirectTrade(characterID).catch(() => {}) }] : []),
+        bountyEntry, null,
+        { label: known ? w("UI/PeopleAndPlaces/EditContact", "Edit Contact") : w("UI/PeopleAndPlaces/AddContact", "Add Contact"),
+          run: () => void s.flow.addressBook("contact").then((book) => { cache.book = book; pilotContact = { kind: "manage", ownerID: characterID, name: nameOf(characterID) || name, book }; }).catch(() => {}) },
+        ...(inLobby && known ? [{ label: w("UI/PeopleAndPlaces/RemoveContact", "Remove Contact"),
+          run: () => void refreshBook(s.flow.deleteContacts([characterID], "contact")).catch(() => {}) }] : []),
+        blocked
+          ? { label: w("UI/PeopleAndPlaces/UnblockContact", "Unblock"), run: () => void refreshBook(s.flow.unblockOwners([characterID])).catch(() => {}) }
+          : { label: w("UI/PeopleAndPlaces/BlockContact", "Block"), run: () => {
+              const action = s.flow.blockOwners([characterID]);
+              void (inLobby ? refreshBook(action) : action).catch(() => {});
+            } }, null,
+        { label: w("UI/Chat/StartConversation", "Start Conversation"), run: () => converse() },
+        { label: w("UI/Chat/InviteToChat", "Invite to..."), sub: [
+          { label: w("UI/Chat/StartConversation", "Start Conversation"), run: () => converse() },
+          ...[...(cache.invitable.get(characterID) ?? [])].sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0)).map((c) => ({ label: c.title, run: () => converse(c.channel) })),
+        ] },
+        { label: w("UI/EVEMail/SendPilotEVEMail", "Send Message"), run: () => { focusMail({ kind: "compose", characterID, name }); open("mail"); } },
+        portraitEntry,
+        ...(inviteEntry ? [inviteEntry] : []),
+        ...(fleetEntry ? [fleetEntry] : []),
+        ...(inFleet ? [] : [{ label: w("UI/Fleet/FormFleetWith", "Form Fleet With..."), run: () => void s.flow.formFleetWith(characterID).catch(() => {}) }]), null,
+        { label: w("UI/Crimewatch/Duel/DuelMenuEntry", "Invite to Duel"), run: () => void s.flow.startDuel(characterID).catch(() => {}) },
+        ...(guest?.corporationID != null && guest.corporationID === stationState.online?.corporationID ? [null, memberDetailsEntry] : []),
+      ],
+    };
+  }
   setContext("flightSpaceView", () => view);
   setContext("flightMiningSurvey", flightMiningSurvey);
   setContext("flightSimNow", () => live?.simNow() || null);
@@ -2481,11 +2669,6 @@
     let lastFleet: ReturnType<typeof s.store.fleet.get>["fleet"] = null;
     let fleetMembers = new Set<number>();
     let disposed = false;
-    let pilotBook: import("../bridge/contacts.ts").NamedAddressBook | null = null;
-    // __GetInviteMenu's channels (GetChannelsAvailableForInvite: the private and player rooms the pilot is not in), read
-    // each time the menu opens and shown from the last read
-    const pilotInvitable = new Map<number, readonly { channel: string; title: string }[]>();
-
     // Read relationships on demand for tabs with state exclusions. Refresh the held readings on the same
     // contact, fleet and war changes used by their windows.
     /**
@@ -3423,165 +3606,7 @@
       // the entries the page has a way for: Show Info, Give Money, Add Contact (Edit Contact for one), Block, Send
       // Message, Capture Portrait, Form Fleet With..., Invite to Duel
       startConversation: (characterID) => void s.flow.conversations.start(characterID).catch(() => {}),
-      pilotMenu: (characterID, affiliation) => {
-        // AddContactMenu: Edit Contact where the pilot is in the address book (IsInAddressBook), else Add Contact
-        if (!pilotBook) void s.flow.addressBook("contact").then((book) => { pilotBook = book; }).catch(() => {});
-        const known = !!pilotBook?.contacts.some((c) => c.contactID === characterID);
-        void s.flow.conversations.invitable(characterID).then((list) => { pilotInvitable.set(characterID, list); }).catch(() => {});
-        // xmppChatSvc.Invite(charID, channel): None starts a private conversation
-        const converse = (room?: string) => void s.flow.conversations.start(characterID, room).catch(() => {});
-        const resolved = s.store.names.get().resolved;
-        const nameOf = (id: number) => resolvedName(resolved, "owner", id, "");
-        s.flow.requestNames([{ kind: "owner", id: characterID }]);
-        const templates = s.store.words.get().templates;
-        const w = (label: string, own: string, args: Record<string, string | number> = {}) => {
-          const t = templates[label];
-          return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args, { nameOf: (kind, id) => (kind === "owner" ? nameOf(Number(id)) : "") })).trim() : own;
-        };
-        const name = nameOf(characterID);
-        const showInfoEntry = { label: w("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => showInfo({ kind: "character", characterID }) };
-        const bountyEntry = { label: w("UI/Station/BountyOffice/PlaceBounty", "Place Bounty"), run: () => { bountyOffice = { n: (bountyOffice?.n ?? 0) + 1, target: { ownerID: characterID, corporationID: affiliation?.corporationID ?? null, allianceID: affiliation?.allianceID ?? null } }; } };
-        // CapturePortrait: the portrait at its largest size saved as <characterID>.jpg
-        const portraitEntry = { label: w("UI/Commands/CapturePortrait", "Capture Portrait"), run: () => void s.flow.capturePortraits([characterID], (id, image) => {
-              const bytes = Uint8Array.from(atob(image.base64), (ch) => ch.charCodeAt(0));
-              const link = document.createElement("a");
-              link.href = URL.createObjectURL(new Blob([bytes], { type: image.contentType }));
-              link.download = `${id}.jpg`;
-              link.click();
-              setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
-            }, () => {}).catch(() => {}) };
-        // _CharacterMenu of oneself (read through gridcheck on the client pilot's own ship): Show Info, Fleet >, View
-        // Member Details, Place Bounty, Capture Portrait, Form Fleet With... (out of a fleet) - no money, contacts, conversation,
-        // mail or duel (the Fleet submenu of a pilot in a fleet not on the page yet)
-        // OfferViewCorpMemberDetails (one's own corporation, not a director) or EditCorpMember (a director): oneself is
-        // always of one's own corporation
-        s.flow.requestWords(["UI/Corporations/Common/ViewCorpMemberDetails", "UI/Corporations/Common/EditCorpMember"]);
-        const director = (BigInt(s.store.station.get().online?.corpRole ?? "0") & 1n) !== 0n;
-        // menusvc.FleetMenu (unparsed False under the character's menu) with FleetMemberChecker's offers: Show Info, a line,
-        // Kick Fleet Member (ConfirmMenu), Make Fleet Leader, Add / Remove Pilot to Watchlist, Broadcast: Travel To Me, Leave My
-        // Fleet (ConfirmMenu), Move Fleet Member (MemberMenu). (The warp-to-member and cyno beacon entries not here yet.)
-        // MemberMenu places (isMove: Move Fleet Member; not: the invite menu) as nested wing / squad entries, each calling pick
-        const placesTree = (isMove: boolean, pick: (p: MemberMenuPlace) => () => void): ContextEntry[] => {
-          const fleetState = s.store.fleet.get();
-          const me = s.store.station.get().online?.characterID ?? null;
-          if (fleetState.availability !== "ready" || me === null) return [];
-          const members = fleetState.fleet?.initState.value.members ?? [];
-          const idOrNull = (id: number | string | null): number | null => id === null || id === "" || !Number.isFinite(Number(id)) ? null : Number(id);
-          const placements = memberMenu({ targetCharID: characterID, me, isMove, isFreeMove: fleetState.fleet?.initState.value.options.isFreeMove === true,
-            members: members.map((m) => ({ charID: Number(m.charID), role: m.role, job: m.job, wingID: idOrNull(m.wingID), squadID: idOrNull(m.squadID) })),
-            wings: (fleetState.fleet?.initState.value.wings ?? []).flatMap((wg) => { const wingID = idOrNull(wg.wingID); return wingID === null ? [] : [{ wingID, name: wg.name, squads: wg.squads.flatMap((sq) => { const squadID = idOrNull(sq.squadID); return squadID === null ? [] : [{ squadID, name: sq.name }]; }) }]; }) });
-          const rank = (p: MemberMenuPlace) => w(rankLabel(p.role), p.role === 1 ? "Fleet Commander" : p.role === 2 ? "Wing Commander" : p.role === 3 ? "Squad Commander" : "Squad Member");
-          const place = (p: MemberMenuPlace): ContextEntry => ({ label: rank(p), run: pick(p) });
-          return placements.map((entry) => entry.kind === "place" ? place(entry) : {
-            label: entry.name || w("UI/Fleet/FleetSubmenus/WingX", `Wing ${entry.wingNumber}`, { wingNumber: entry.wingNumber }),
-            sub: entry.entries.map((child) => child.kind === "place" ? place(child) : {
-              label: w("UI/Fleet/FleetSubmenus/SquadNameWithNumMembers", `${child.name || `Squad ${child.squadNumber}`} (${child.numMembers})`, { squadName: child.name || w("UI/Fleet/FleetSubmenus/SquadX", `Squad ${child.squadNumber}`, { squadNumber: child.squadNumber }), numMembers: child.numMembers }),
-              sub: child.places.map(place) }) });
-        };
-        const fleetEntry = (() => {
-          const fleetState = s.store.fleet.get();
-          const me = s.store.station.get().online?.characterID ?? null;
-          if (fleetState.availability !== "ready" || me === null) return null;
-          const members = fleetState.fleet?.initState.value.members ?? [];
-          const mine = members.find((m) => Number(m.charID) === me);
-          const target = members.find((m) => Number(m.charID) === characterID);
-          if (!mine || !target) return null;
-          s.flow.requestWords(["UI/Fleet/Fleet", "UI/Fleet/KickFleetMember", "UI/Menusvc/ConfirmMenuOption", "UI/Fleet/MakeFleetLeader", "UI/Fleet/AddPilotToWatchlist", "UI/Fleet/RemovePilotFromWatchlist",
-            "UI/Fleet/FleetBroadcast/Commands/BroadcastTravelToMe", "UI/Fleet/LeaveMyFleet", "UI/Fleet/FleetSubmenus/MoveFleetMember", "UI/Fleet/FleetSubmenus/WingX", "UI/Fleet/FleetSubmenus/SquadX",
-            "UI/Fleet/FleetSubmenus/SquadNameWithNumMembers", ...[1, 2, 3, 4].map(rankLabel)]);
-          const self = characterID === me;
-          const boss = (mine.job & 2) !== 0;
-          const subordinate = mine.role === 1 || (mine.role === 2 && String(mine.wingID) === String(target.wingID)) || (mine.role === 3 && String(mine.squadID) === String(target.squadID));
-          const favorite = (fleetState.watchlist ?? []).includes(characterID);
-          const fleetAct = (action: FleetMenuAction) => () => void s.flow.fleetMenuAction(action).catch(() => {});
-          const confirm = (action: FleetMenuAction) => [{ label: w("UI/Menusvc/ConfirmMenuOption", "Confirm"), run: fleetAct(action) }];
-          const out: (ContextEntry | null)[] = [{ label: w("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => showInfo({ kind: "character", characterID }) }, null];
-          if (!self && (boss || subordinate)) out.push({ label: w("UI/Fleet/KickFleetMember", "Kick Fleet Member"), sub: confirm({ kind: "kick", characterID }) });
-          if (!self && boss) out.push({ label: w("UI/Fleet/MakeFleetLeader", "Make Fleet Leader"), run: fleetAct({ kind: "leader", characterID }) });
-          if (!self) out.push({ label: favorite ? w("UI/Fleet/RemovePilotFromWatchlist", "Remove Pilot from Watchlist") : w("UI/Fleet/AddPilotToWatchlist", "Add Pilot to Watchlist"), run: fleetAct({ kind: "watch", characterID, add: !favorite }) });
-          if (self && (boss || [1, 2, 3].includes(mine.role))) out.push({ label: w("UI/Fleet/FleetBroadcast/Commands/BroadcastTravelToMe", "Broadcast: Travel To Me"), run: fleetAct({ kind: "travelToMe" }) });
-          // FleetMenu's warps (FleetMemberChecker.OfferWarpToMember / OfferWarp{Fleet,Wing,Squad}ToMember; fleetWarpOffers): Warp to
-          // Member at the default distance, Warp to Member Within (WarpToMenu: the ranges, Set Default), and the group's pair
-          const offers = fleetWarpOffers(me, characterID, mine.role ?? null, s.store.flight.get().status, s.store.space.get().snapshot);
-          const keepAt = storeValue(s.flow.warpDistance) || 0;
-          const within = (r: number) => w("UI/Inflight/WarpToWithin", `Warp to within ${fmtDist(r)}`, { distance: fmtDist(r) });
-          const RANGES = [0, 10_000, 20_000, 30_000, 50_000, 70_000, 100_000];
-          const warpMenu = (group: boolean): (ContextEntry | null)[] => [...RANGES.map((r) => ({ label: within(r), run: fleetAct({ kind: "warp", characterID, range: r, group }) })), null,
-            { label: w("UI/Inflight/Submenus/SetDefaultWarpRange", "Set Default"), sub: RANGES.map((r) => ({ label: fmtDist(r), checked: r === keepAt, run: () => s.flow.keepWarpDistance(r) })) }];
-          if (offers.warp) {
-            s.flow.requestWords(["UI/Fleet/WarpToMember", "UI/Fleet/WarpToMemberSubmenuOption", "UI/Inflight/WarpToWithin", "UI/Inflight/Submenus/SetDefaultWarpRange", "UI/Fleet/FleetFormations/Point",
-              "UI/Fleet/WarpFleetToMember", "UI/Fleet/FleetSubmenus/WarpFleetToMember", "UI/Fleet/WarpWingToMember", "UI/Fleet/FleetSubmenus/WarpWingToMember", "UI/Fleet/WarpSquadToMember", "UI/Fleet/FleetSubmenus/WarpSquadToMember"]);
-            out.push({ label: w("UI/Fleet/WarpToMember", "Warp to Member"), run: fleetAct({ kind: "warp", characterID, range: keepAt, group: false }) },
-              { label: w("UI/Fleet/WarpToMemberSubmenuOption", "Warp to Member Within"), sub: warpMenu(false) });
-            if (offers.group) {
-              const g = offers.group;
-              const name = { fleet: "Fleet", wing: "Wing", squad: "Squad" }[g];
-              const formation = { fleetFormation: w("UI/Fleet/FleetFormations/Point", "Point") };
-              out.push({ label: w(`UI/Fleet/Warp${name}ToMember`, `Warp ${g} to Member`, formation), run: fleetAct({ kind: "warp", characterID, range: keepAt, group: true }) },
-                { label: w(`UI/Fleet/FleetSubmenus/Warp${name}ToMember`, `Warp ${g} to Member Within`, formation), sub: warpMenu(true) });
-            }
-          }
-          // OfferJumpToFleetMember / OfferBridgeToMember / OfferGroupJumpToFleetMember (fleetBeaconOffers: the member's active
-          // cyno beacon, the pilot's ship able to jump, open a portal, or conduit-jump)
-          const beacon = fleetBeaconOffers(me, characterID, s.store.flight.get().status, s.store.space.get().snapshot, s.store.dogma.get().allInfo, fleetState.jumpBeacons?.[String(characterID)] ?? null);
-          if (beacon.jump || beacon.bridge || beacon.group) s.flow.requestWords(["UI/Inflight/JumpToFleetMember", "UI/Fleet/BridgeToMember", "UI/Fleet/ConduitJumpToFleetMember"]);
-          if (beacon.jump) out.push({ label: w("UI/Inflight/JumpToFleetMember", "Jump to Member"), run: fleetAct({ kind: "beacon", characterID, how: "jump" }) });
-          if (beacon.bridge) out.push({ label: w("UI/Fleet/BridgeToMember", "Bridge to Member"), run: fleetAct({ kind: "beacon", characterID, how: "bridge" }) });
-          if (beacon.group) out.push({ label: w("UI/Fleet/ConduitJumpToFleetMember", "Conduit Jump to Member"), run: fleetAct({ kind: "beacon", characterID, how: "group" }) });
-          if (self) out.push({ label: w("UI/Fleet/LeaveMyFleet", "Leave My Fleet"), sub: confirm({ kind: "leave" }) });
-          const moveSub = placesTree(true, (p) => fleetAct({ kind: "move", characterID, wingID: p.wingID, squadID: p.squadID, role: p.role ?? 4 }));
-          if (moveSub.length) out.push({ label: w("UI/Fleet/FleetSubmenus/MoveFleetMember", "Move Fleet Member"), sub: moveSub });
-          return { label: w("UI/Fleet/Fleet", "Fleet"), sub: out } as ContextEntry;
-        })();
-        // CharacterChecker.OfferInvitePilotToFleet: in a fleet the character is not in, the pilot its creator (boss) or a commander -
-        // Invite Pilot to Fleet with FleetInviteMenu (MemberMenu, isMove False); OfferFormFleetWith: not in a fleet
-        const inFleet = s.store.fleet.get().availability === "ready";
-        const inviteEntry = (() => {
-          if (!inFleet) return null;
-          const me = s.store.station.get().online?.characterID ?? null;
-          const members = s.store.fleet.get().fleet?.initState.value.members ?? [];
-          const mine = members.find((m) => Number(m.charID) === me);
-          if (!mine || members.some((m) => Number(m.charID) === characterID)) return null;
-          if (!((mine.job & 2) !== 0 || [1, 2, 3].includes(mine.role))) return null;
-          s.flow.requestWords(["UI/Fleet/InvitePilotToFleet"]);
-          const sub = placesTree(false, (p) => () => void s.flow.inviteFleetSelection([characterID], false, { wingID: p.wingID, squadID: p.squadID, role: p.role }).catch(() => {}));
-          return sub.length ? { label: w("UI/Fleet/InvitePilotToFleet", "Invite Pilot to Fleet"), sub } as ContextEntry : null;
-        })();
-        const memberDetailsEntry = { label: director ? w("UI/Corporations/Common/EditCorpMember", "Edit Corporation Member") : w("UI/Corporations/Common/ViewCorpMemberDetails", "View Member Details"),
-          run: () => void s.flow.openCorporationMemberDetails(characterID).catch(() => {}) };
-        if (characterID === s.store.station.get().online?.characterID) {
-          return { path: "UI/Common/Pilot", label: w("UI/Common/Pilot", `Pilot (${name})`, { character: characterID }), icon: "res:/UI/Texture/eveicon/system_icons/person_16px.png",
-            // (g412, the client pilot's own ship out of a fleet: Show Info | View Member Details | Place Bounty | Capture Portrait,
-            // Form Fleet With...)
-            sub: [showInfoEntry, null, memberDetailsEntry, null, bountyEntry, null, portraitEntry,
-              ...(fleetEntry ? [fleetEntry] : []),
-              ...(s.store.fleet.get().availability === "ready" ? [] : [{ label: w("UI/Fleet/FormFleetWith", "Form Fleet With..."), run: () => void s.flow.formFleetWith(characterID).catch(() => {}) }])] };
-        }
-        return {
-          path: "UI/Common/Pilot", label: w("UI/Common/Pilot", `Pilot (${name})`, { character: characterID }), icon: "res:/UI/Texture/eveicon/system_icons/person_16px.png",
-          // (g413, another pilot's ship: Show Info | Give Money | Place Bounty | Add Contact, Block | Start Conversation, Invite to...,
-          // Send Message, Capture Portrait, Form Fleet With... | Invite to Duel)
-          sub: [
-            showInfoEntry, null,
-            { label: w("UI/Commands/GiveMoney", "Give Money"), run: () => void s.flow.openMoneyTransfer(characterID).catch(() => {}) }, null,
-            bountyEntry, null,
-            { label: known ? w("UI/PeopleAndPlaces/EditContact", "Edit Contact") : w("UI/PeopleAndPlaces/AddContact", "Add Contact"),
-              run: () => void s.flow.addressBook("contact").then((book) => { pilotBook = book; pilotContact = { kind: "manage", ownerID: characterID, name: nameOf(characterID) || name, book }; }).catch(() => {}) },
-            { label: w("UI/PeopleAndPlaces/BlockContact", "Block"), run: () => void s.flow.blockOwners([characterID]).catch(() => {}) }, null,
-            { label: w("UI/Chat/StartConversation", "Start Conversation"), run: () => converse() },
-            { label: w("UI/Chat/InviteToChat", "Invite to..."), sub: [
-              { label: w("UI/Chat/StartConversation", "Start Conversation"), run: () => converse() },
-              ...[...(pilotInvitable.get(characterID) ?? [])].sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0)).map((c) => ({ label: c.title, run: () => converse(c.channel) })),
-            ] },
-            { label: w("UI/EVEMail/SendPilotEVEMail", "Send Message"), run: () => { focusMail({ kind: "compose", characterID, name }); open("mail"); } },
-            portraitEntry,
-            ...(inviteEntry ? [inviteEntry] : []),
-            ...(fleetEntry ? [fleetEntry] : []),
-            ...(inFleet ? [] : [{ label: w("UI/Fleet/FormFleetWith", "Form Fleet With..."), run: () => void s.flow.formFleetWith(characterID).catch(() => {}) }]), null,
-            { label: w("UI/Crimewatch/Duel/DuelMenuEntry", "Invite to Duel"), run: () => void s.flow.startDuel(characterID).catch(() => {}) },
-          ],
-        };
-      },
+      pilotMenu: (characterID, affiliation) => pilotMenu(s, characterID, affiliation),
       mountJumpBridge: (target, gate, initial) => {
         const state = createSignal(initial);
         const panel = mount(JumpBridgePanel, { target, props: { session: s, gate, state, simNow: () => liveFeed.simNow() } });
@@ -4078,6 +4103,7 @@
             {/each}
           </div>
           <PlayLobbyTabs {session} onOpenAgents={() => open("agents")} onOpenInventory={() => open("inventory")}
+            guestMenu={(guest) => pilotMenu(session, guest.characterID, guest, true).sub ?? []}
             onReprocess={reprocessingAvailable ? reprocessSelection : undefined} />
         </div>
       </DesktopWindow>

@@ -6,16 +6,20 @@
   import { onDestroy } from "svelte";
   import type { Session } from "../app/sessions.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import { resolvedName, type NameKind, type NameRef } from "../store/names.ts";
+  import type { StationGuest } from "../store/types.ts";
   import OwnerPicture from "./OwnerPicture.svelte";
   import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
+  import { doubleClickOwner } from "./ownerDoubleClick.ts";
   import { showInfo } from "./showInfo.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import StationOfficeActions from "./StationOfficeActions.svelte";
   import StationPanel from "./StationPanel.svelte";
 
-  let { session, onOpenAgents, onOpenInventory, onReprocess }: {
+  let { session, guestMenu, onOpenAgents, onOpenInventory, onReprocess }: {
     session: Session;
+    guestMenu: (guest: StationGuest) => readonly (ContextEntry | null)[];
     onOpenAgents: () => void;
     onOpenInventory: () => void;
     onReprocess?: (itemIDs: readonly number[]) => void;
@@ -29,9 +33,11 @@
 
   type Tab = "guests" | "agents" | "offices" | "hangars";
   let tab = $state<Tab>("guests");
+  const guestContext = new ContextMenu();
   const asked = new Set<Tab>();
   function choose(next: Tab) {
     tab = next;
+    guestContext.close();
     guestSettingsOpen = false;
     if (asked.has(next)) return;
     asked.add(next);
@@ -97,7 +103,27 @@
     guestSearchInput.focus();
   }
 
-  onDestroy(() => clearTimeout(filterTimer));
+  function openGuestMenu(event: MouseEvent | KeyboardEvent, guest: StationGuest) {
+    event.preventDefault();
+    event.stopPropagation();
+    const entries = guestMenu(guest);
+    if (!entries.length) return;
+    if (event instanceof MouseEvent && (event.clientX !== 0 || event.clientY !== 0)) {
+      guestContext.open(event.clientX, event.clientY, entries);
+      return;
+    }
+    const row = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    guestContext.open(row.left, row.bottom, entries);
+  }
+
+  function guestKey(event: KeyboardEvent, guest: StationGuest) {
+    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openGuestMenu(event, guest);
+  }
+
+  onDestroy(() => {
+    clearTimeout(filterTimer);
+    guestContext.close();
+  });
   const stationID = $derived($station?.online?.stationID ?? null);
   const officeContext = $derived.by(() => {
     const online = $station?.online;
@@ -183,13 +209,16 @@
   {#if tab === "guests"}
     {#each guestRows as g (g.characterID)}
       {@const portrait = compactGuests ? null : portraitUrl($imageServer, g.characterID, 32)}
-      <div class="lobby-row guest-row" class:compact={compactGuests}>
+      <button type="button" class="lobby-row guest-row" class:compact={compactGuests} aria-haspopup="menu"
+        oncontextmenu={(event) => openGuestMenu(event, g)} onkeydown={(event) => guestKey(event, g)}
+        onclick={(event) => { if (event.detail === 0) void doubleClickOwner(session.flow, g.characterID).catch(() => {}); }}
+        ondblclick={() => void doubleClickOwner(session.flow, g.characterID).catch(() => {})}>
         {#if !compactGuests}
           <OwnerPicture name={g.pilot} urls={portrait ? [portrait, guestPortraitFallback] : [guestPortraitFallback]} />
         {/if}
         <span class="who">{g.pilot || "…"}</span>
         {#if !compactGuests}<span class="dim">{name("corporation", g.corporationID)}</span>{/if}
-      </div>
+      </button>
     {:else}<div class="dim">{guestFilter ? "No matching guests." : "No guests."}</div>{/each}
   {:else if tab === "agents"}
     {#each agentRows as a (a.agentID)}
@@ -245,7 +274,8 @@
     color: #d7dad6; text-align: left; font: inherit; min-height: 0; }
   .lobby-row.agent { cursor: pointer; }
   .lobby-row.agent:hover { background: rgba(255, 255, 255, 0.07); }
-  .guest-row { box-sizing: border-box; align-items: center; justify-content: flex-start; height: 40px; }
+  .guest-row { box-sizing: border-box; align-items: center; justify-content: flex-start; height: 40px; cursor: pointer; }
+  .guest-row:hover { background: rgba(255, 255, 255, 0.07); }
   .guest-row.compact { height: 18px; padding: 0 4px 0 16px; }
   .guest-row .dim { margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
   .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
