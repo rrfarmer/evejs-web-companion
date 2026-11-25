@@ -50,9 +50,13 @@ async function openEditor(saved: MiningOperationDefinition | null, actions: stri
   const setup = [
     "const scenario = globalThis.miningEditorTest;",
     "roster = scenario.pilots;",
-    "if (scenario.definition) editOperation(scenario.definition); else newOperation();",
+    "if (scenario.definition) {",
+    "  payload = { operations: [{ definition: scenario.definition, runtime: { operationID: scenario.definition.operationID,",
+    "    state: 'DRAFT', members: [], history: [], logisticsTail: [], stopFailures: [] } }], targetBoard: [], capabilities: {} };",
+    "  editOperation(scenario.definition);",
+    "} else newOperation();",
     actions,
-    "scenario.save = async () => { poll.stop(); await save(); };",
+    "scenario.save = save;",
   ].join("\n");
   // The server renderer exercises the real editor handlers and its template without a browser or live WC.
   const compiled = compile(source.replace("</script>", setup + "\n</script>"), { filename: fileURLToPath(filename), generate: "server" });
@@ -73,7 +77,7 @@ async function openEditor(saved: MiningOperationDefinition | null, actions: stri
   testContext.miningEditorTest = entry;
   try {
     const html = render(Editor, { props: { accountName: "operator", access: { baseUrl: "http://editor.test", fetch: fetcher } } }).body;
-    return { html, async save() {
+    return { html, async submitted() { await entry.save!(); return submission; }, async save() {
       await entry.save!();
       assert.ok(submission, "Save did not submit the operation");
       return submission;
@@ -113,6 +117,31 @@ test("Edit holds values across all four tabs and reopens the saved operation", a
   assert.match(reopened.html, /Revised fleet/);
   assert.match(reopened.html, /type="checkbox" checked[^>]*>\s*Use delivery destination for parking/);
   assert.doesNotMatch(reopened.html, /Parking destination <input/);
+});
+
+test("an open editor follows the running fleet and keeps its Stop actions available", async () => {
+  function disabled(html: string, label: string) {
+    const buttons = html.replace(/<!--.*?-->/gs,"").matchAll(/<button\b([^>]*)>\s*([^<>]*?)\s*<\/button>/g);
+    const button = [...buttons].find(([, , text]) => text === label);
+    assert.ok(button, label);
+    return /\bdisabled\b/.test(button[1]!);
+  }
+  const active = 'payload.operations[0].runtime = {...payload.operations[0].runtime, state: "ACTIVE", operationRunID: "shift"};';
+  const during = await openEditor(definition, active);
+  assert.equal(disabled(during.html, "Save operation"), true);
+  assert.equal(disabled(during.html, "Delete operation"), true);
+  assert.equal(disabled(during.html, "Stop operation"), false);
+  assert.match(during.html, /finish.*before editing or deleting/i);
+  assert.equal(await during.submitted(), undefined);
+  const card = await openEditor(definition, active + ' editing = false; choosingStop = "fleet";');
+  assert.equal(disabled(card.html, "Edit"), true);
+  assert.equal(disabled(card.html, "Return home now"), false);
+  assert.equal(disabled(card.html, "Collect remaining freight, then return"), false);
+  const parking = await openEditor(definition, active + ' editing = false; payload.operations[0].runtime.stopFreight = "RETURN_HOME";');
+  assert.equal(disabled(parking.html, "Retry Stop"), false);
+  const ended = await openEditor(definition, 'editing = false; payload.operations[0].runtime.state = "STOPPED";');
+  assert.equal(disabled(ended.html, "Edit"), false);
+  assert.equal(disabled(ended.html, "Delete operation"), false);
 });
 
 test("New Operation starts in Basics and saves a new fleet with a linked destination", async () => {

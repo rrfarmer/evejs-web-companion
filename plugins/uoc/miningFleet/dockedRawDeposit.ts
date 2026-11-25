@@ -1,6 +1,9 @@
+import { acceptsMinedFreight, haulerInventoryFlags } from "../shared/freightHolds.ts";
 import {
   decodeFlightStatus,
+  decodeShipBays,
   getFlightStatus,
+  getShipBays,
   moveItems,
   officeAt,
 } from "../../../web/src/plugin-api/flying.ts";
@@ -19,7 +22,7 @@ import { bridgeCallQueueTimeout, transientNativeRead } from "../shared/progressD
 import { FleetObservationUnavailable, fleetReadFailed } from "./stopSignal.ts";
 import { readMiningOfficeAccess, requireMiningOfficeQuery } from "./corporateOffice.ts";
 type Run = Pick<PluginRunContext, "characterID" | "baseUrl" | "fetch">;
-type DepositItem = { itemID: number; typeID: number; quantity: number };
+type DepositItem = { itemID: number; typeID: number; quantity: number; unitVolumeM3?: number };
 export type OwnShipRawSource = {
   kind: "own-ship-raw" | "own-ship-freight";
   operationID: string;
@@ -64,6 +67,7 @@ type DeliveryBefore = {
   item: Pending["item"];
   items?: readonly Pending["item"][];
   requestedIDs?: readonly number[];
+  destinationOwner?: number;
   sourceBefore: readonly NativeInventoryRow[];
   destinationBefore: readonly NativeInventoryRow[];
   officeID: number;
@@ -77,6 +81,30 @@ type Journal = {
   batches: Batch[];
   receipt: (Omit<RawDepositReceipt, "batches"> & { batches?: RawDepositReceipt["batches"] }) | null;
 };
+export const HAULER_OWN_DEPOSIT_PREFIX = "mining-fleet-haul-own-freight:";
+type OwnFreightTotals = {
+  unitsByType: Record<string, number>;
+  unitVolumes: Record<string, number>;
+  visits: string[];
+  unidentifiedVisit?: true;
+};
+export type HaulerOwnJournal = Journal & { tripID?: string; previous?: OwnFreightTotals };
+
+/** Only settled batches contribute, including a partial unload before Return Home. */
+export function ownFreightTotals(journal: HaulerOwnJournal): OwnFreightTotals {
+  const result: OwnFreightTotals = structuredClone(
+    journal.previous ?? { unitsByType: {}, unitVolumes: {}, visits: [] },
+  );
+  if (!journal.batches.length) return result;
+  if (!journal.tripID) result.unidentifiedVisit = true;
+  else if (!result.visits.includes(journal.tripID)) result.visits.push(journal.tripID);
+  for (const batch of journal.batches)
+    for (const item of batch.items ?? [batch.item]) {
+      result.unitsByType[item.typeID] = (result.unitsByType[item.typeID] ?? 0) + item.quantity;
+      if (item.unitVolumeM3 !== undefined) result.unitVolumes[item.typeID] = item.unitVolumeM3;
+    }
+  return result;
+}
 type DepositFence = {
   begin(kind: "delivery", before: unknown): void;
   acknowledge(): void;
@@ -154,11 +182,17 @@ export function confirmedDepositItem(
   afterShip: readonly NativeInventoryRow[],
   beforeCorp: readonly NativeInventoryRow[],
   afterCorp: readonly NativeInventoryRow[],
-  receipt?: "recorded",
+  receipt?: "recorded" | "acknowledged",
 ) {
   const selected = beforeShip.find((r) => r.itemID === item.itemID);
   if (!selected || selected.typeID !== item.typeID || selected.quantity < item.quantity)
     return false;
+  if (selected.quantity === item.quantity) {
+    const exact = observedParkingStacks(beforeShip, afterShip, beforeCorp, afterCorp, [
+      item.itemID,
+    ]);
+    if (exact !== null) return exact.length === 1;
+  }
   const expected = beforeShip.flatMap((r) =>
     r.itemID !== item.itemID
       ? [r]
@@ -182,30 +216,30 @@ export function confirmedDepositItem(
   )
     return false;
   if (receipt === "recorded" && matchesRecordedTotals(beforeCorp, [item], afterCorp)) return true;
-  if (beforeCorp.some((r) => r.itemID === item.itemID)) return false;
+  const existing = beforeCorp.find((r) => r.itemID === item.itemID);
   const stored = afterCorp.find((r) => r.itemID === item.itemID);
-  if (
-    stored &&
-    (selected.quantity !== item.quantity ||
-      stored.typeID !== item.typeID ||
-      stored.quantity < item.quantity)
-  )
+  if ((existing && existing.typeID !== item.typeID) || (stored && stored.typeID !== item.typeID))
     return false;
-  if (
-    selected.quantity === item.quantity &&
-    observedParkingStacks([selected], [], beforeCorp, afterCorp, [item.itemID])?.length === 1
-  )
-    return true;
+  if (receipt === "acknowledged") return true; // The addressed Add completed and its exact quantity left this ship.
+  if (selected.quantity === item.quantity && !existing && stored && stored.quantity < item.quantity)
+    return false;
+  // A partial Add leaves the source stack aboard. Verify the delivered slice by its quantity.
   return receivedQuantity(item.typeID, item.quantity, beforeCorp, afterCorp);
 }
-/** Match actual whole stacks removed from the ship against the change in the division. */
+/** Credit whole stacks that left the ship. A lost reply also needs evidence in the addressed division. */
 export function movedWholeStacks(
   beforeShip: readonly NativeInventoryRow[],
   afterShip: readonly NativeInventoryRow[],
   beforeCorp: readonly NativeInventoryRow[],
   afterCorp: readonly NativeInventoryRow[],
-  receipt?: "recorded",
+  receipt?: "recorded" | "acknowledged",
+  requestedIDs?: readonly number[],
 ) {
+  // Other cargo can change before a retained transfer is read back. Only credit the IDs in the command.
+  if (requestedIDs) {
+    const exact = observedParkingStacks(beforeShip, afterShip, beforeCorp, afterCorp, requestedIDs);
+    if (exact !== null) return exact;
+  }
   const original = new Map(beforeShip.map((r) => [r.itemID, r])),
     remaining = new Set(afterShip.map((r) => r.itemID));
   if (
@@ -225,11 +259,32 @@ export function movedWholeStacks(
   const moved = beforeShip.filter((r) => !remaining.has(r.itemID));
   if (receipt === "recorded" && matchesRecordedTotals(beforeCorp, moved, afterCorp)) return moved;
   if (
-    beforeCorp.some((r) => original.has(r.itemID)) ||
+    beforeCorp.some(
+      (r) =>
+        original.has(r.itemID) &&
+        (remaining.has(r.itemID) || original.get(r.itemID)!.typeID !== r.typeID),
+    ) ||
     afterCorp.some((r) => remaining.has(r.itemID))
   )
     return null;
+  if (requestedIDs) {
+    const requested = new Set(requestedIDs);
+    if (
+      requested.size !== requestedIDs.length ||
+      requestedIDs.some((id) => !original.has(id)) ||
+      moved.some((row) => !requested.has(row.itemID))
+    )
+      return null;
+    if (
+      afterCorp.some(
+        (row) => original.has(row.itemID) && row.typeID !== original.get(row.itemID)!.typeID,
+      )
+    )
+      return null;
+    if (receipt === "acknowledged") return moved;
+  }
   if (
+    !requestedIDs &&
     observedParkingStacks(
       moved,
       [],
@@ -270,7 +325,7 @@ function observedParkingStacks(
     destination = new Map(afterCorp.map((row) => [row.itemID, row]));
   const before = beforeShip.filter((row) => requested.has(row.itemID)),
     moved: NativeInventoryRow[] = [];
-  if (before.length !== requested.size) return null;
+  if (before.length !== requested.size || requested.size !== requestedIDs.length) return null;
   for (const row of before) {
     const held = source.get(row.itemID),
       stored = destination.get(row.itemID);
@@ -285,21 +340,24 @@ function observedParkingStacks(
       held.locationID === row.locationID
     )
       continue;
-    if (!held && stored?.typeID === row.typeID && stored.quantity === row.quantity) moved.push(row);
+    if (!held && stored?.typeID === row.typeID && stored.quantity >= row.quantity) moved.push(row);
     else return null;
   }
   return moved;
 }
-function definiteSingleRefusal(error: unknown) {
-  const refusal = error as { code?: string; status?: number; refusal?: { key?: string } } | null;
+function unloadNotDispatched(error: unknown) {
+  const e = error as { status?: number; code?: string } | null;
   return (
     bridgeCallQueueTimeout(error) ||
-    (refusal?.status === 409 &&
-      ((refusal.code === "CALL_REFUSED" && !!refusal.refusal?.key) ||
-        refusal.code === "INVENTORY_SHIP_CHANGED" ||
-        refusal.code === "INVENTORY_LOCATION_CHANGED" ||
-        refusal.code === "STRUCTURE_SERVICE_UNAVAILABLE"))
+    (e?.status === 409 &&
+      (e.code === "INVENTORY_SHIP_CHANGED" ||
+        e.code === "INVENTORY_LOCATION_CHANGED" ||
+        e.code === "STRUCTURE_SERVICE_UNAVAILABLE"))
   );
+}
+function singleAddRefused(error: unknown) {
+  const e = error as { code?: string; status?: number; refusal?: { key?: string } } | null;
+  return e?.status === 409 && e.code === "CALL_REFUSED" && !!e.refusal?.key;
 }
 export async function readDepositInventory<T>(read: () => Promise<T>): Promise<T> {
   try {
@@ -372,11 +430,43 @@ export async function createDockedRawDepositIO(
     if (x.transition && x.transition.phase !== "ready")
       throw new FleetObservationUnavailable("The delivery dock is still settling.");
   };
+  let fleetPresent: boolean | undefined;
   const cargo = async () => {
     await flight();
-    const rows = await readNativeShipHolds(session, guard, characterID, shipID);
+    const rows = await readNativeShipHolds(
+      session,
+      guard,
+      characterID,
+      shipID,
+      haulerInventoryFlags,
+    );
+    // A raw inventory flag identifies an item, but only the fitted ship can confirm this bay exists.
+    if (
+      fleetPresent === undefined &&
+      rows.some((r) => r.flagID === 155 && (r.categoryID === 25 || r.categoryID === null))
+    ) {
+      const panel = await getShipBays(shipID, options, ["fleet"]).catch(fleetReadFailed);
+      guard();
+      const bays = decodeShipBays(panel.bays),
+        bay = bays[0];
+      if (
+        panel.shipID !== shipID ||
+        bays.length !== 1 ||
+        bay?.key !== "fleet" ||
+        bay.error !== null ||
+        bay.present === null ||
+        !bay.capacity ||
+        !Number.isFinite(bay.capacity.capacity) ||
+        bay.capacity.capacity < 0 ||
+        bay.present !== bay.capacity.capacity > 0
+      )
+        throw new FleetObservationUnavailable(
+          "The assigned ship's fleet hangar could not be verified.",
+        );
+      fleetPresent = bay.present;
+    }
     await flight();
-    return rows;
+    return fleetPresent === false ? rows.filter((r) => r.flagID !== 155) : rows;
   };
   await flight();
   let officeID = destinationID;
@@ -451,25 +541,41 @@ export async function createDockedRawDepositIO(
     }
     return facts;
   };
+  const unknownUnload = (ids: readonly number[], detail = "", firstLostReply = false) => {
+    const message =
+      "Raw deposit outcome remains unknown; no replay. " + (detail ? detail + " " : "");
+    if (firstLostReply)
+      return new FleetObservationUnavailable(message + "Rechecking the original transfer.");
+    return Error(
+      message +
+        `Check item IDs ${ids.join(", ")} in ship ${shipID} and ${personal ? "the personal hangar" : "corporation division " + division} at dock ${destinationID} before retrying.`,
+    );
+  };
   const observeSingle = async (
     item: DepositItem,
     sourceBefore: readonly NativeInventoryRow[],
     destinationBefore: readonly NativeInventoryRow[],
-  ) => {
-    const read = config.reconcileParking
+    acknowledged: boolean,
+    read = config.reconcileParking
       ? readDepositInventory
-      : <T>(observe: () => Promise<T>) => observe();
+      : <T>(observe: () => Promise<T>) => observe(),
+  ) => {
     const sourceAfter = await read(cargo),
       destinationAfter = await read(corp);
-    const exact = config.reconcileParking
-      ? observedParkingStacks(sourceBefore, sourceAfter, destinationBefore, destinationAfter, [
-          item.itemID,
-        ])
-      : null;
-    const moved =
-      exact?.length === 1 ||
-      confirmedDepositItem(item, sourceBefore, sourceAfter, destinationBefore, destinationAfter);
-    return { sourceAfter, destinationAfter, moved, unchanged: exact?.length === 0 };
+    const moved = confirmedDepositItem(
+      item,
+      sourceBefore,
+      sourceAfter,
+      destinationBefore,
+      destinationAfter,
+      acknowledged ? "acknowledged" : undefined,
+    );
+    const unchanged =
+      !moved &&
+      observedParkingStacks(sourceBefore, sourceAfter, destinationBefore, destinationAfter, [
+        item.itemID,
+      ])?.length === 0;
+    return { sourceAfter, destinationAfter, moved, unchanged };
   };
   const deposit = async (
     item: { itemID: number; typeID: number; quantity: number },
@@ -485,17 +591,18 @@ export async function createDockedRawDepositIO(
         row.typeID !== item.typeID ||
         !positive(item.quantity) ||
         (allowPartial ? row.quantity < item.quantity : row.quantity !== item.quantity) ||
-        !(
-          row.flagID === 5 ||
-          (row.flagID === 134 &&
-            ["ore", "ice"].includes(facts[item.typeID]?.resourceFamily ?? "")) ||
-          (row.flagID === 181 && facts[item.typeID]?.resourceFamily === "ice") ||
-          (row.flagID === 182 && facts[item.typeID]?.resourceFamily === "ore")
-        )
+        !acceptsMinedFreight(row.flagID, facts[item.typeID]?.resourceFamily)
       )
         throw Error("Exact raw source stack is not available.");
       const destinationBefore = await corp();
-      fence.begin("delivery", { item, sourceBefore, destinationBefore, officeID, flag });
+      fence.begin("delivery", {
+        item,
+        sourceBefore,
+        destinationBefore,
+        officeID,
+        flag,
+        destinationOwner,
+      });
       guard();
       let writeFailed = false;
       try {
@@ -510,11 +617,22 @@ export async function createDockedRawDepositIO(
       } catch (error) {
         guard();
         // Only a definite refusal of this single Add can retire the existing intent without a readback.
-        if (definiteSingleRefusal(error)) {
+        if (unloadNotDispatched(error)) {
+          fence.refuseDelivery();
+          throw new FleetObservationUnavailable(
+            "Unload did not enter the transport. Rechecking the docked hold.",
+            { cause: error },
+          );
+        }
+        if (singleAddRefused(error)) {
           fence.refuseDelivery();
           throw error;
         }
-        if (!config.reconcileParking) throw error;
+        if (!config.reconcileParking)
+          throw new FleetObservationUnavailable(
+            `Unload reply unavailable (${error instanceof Error ? error.message : String(error)}). Checking the original transfer.`,
+            { cause: error },
+          );
         writeFailed = true;
       }
       guard();
@@ -523,103 +641,131 @@ export async function createDockedRawDepositIO(
         item,
         sourceBefore,
         destinationBefore,
+        !writeFailed,
       );
-      if (unchanged)
-        throw new FleetObservationUnavailable(
-          "The stack is still in the ship's hold. Rechecking the pending unload.",
+      if (!moved)
+        throw unknownUnload(
+          [item.itemID],
+          unchanged ? "The stack is still in the ship's hold." : "",
+          writeFailed,
         );
-      if (!moved) throw Error("Raw deposit outcome remains unknown; no replay.");
       fence.settle({ sourceAfter, destinationAfter });
-      return { item, sourceBefore, sourceAfter, destinationBefore, destinationAfter };
+      return {
+        item,
+        sourceBefore,
+        sourceAfter,
+        destinationBefore,
+        destinationAfter,
+        officeID,
+        flag,
+        destinationOwner,
+        acknowledged: !writeFailed,
+      };
     });
   const observeWhole = async (
     sourceBefore: readonly NativeInventoryRow[],
     destinationBefore: readonly NativeInventoryRow[],
     requestedIDs: readonly number[],
+    acknowledged: boolean,
+    firstLostReply = false,
   ) => {
     // The shared division can change while the ship's holds are read one by one.
     const destinationAfter = await readDepositInventory(corp);
     const sourceAfter = await readDepositInventory(cargo);
-    const exact = config.reconcileParking
-      ? observedParkingStacks(
-          sourceBefore,
-          sourceAfter,
-          destinationBefore,
-          destinationAfter,
-          requestedIDs,
-        )
-      : null;
-    const moved =
-        exact ?? movedWholeStacks(sourceBefore, sourceAfter, destinationBefore, destinationAfter),
-      requested = new Set(requestedIDs);
-    if (!moved || moved.some((r) => !requested.has(r.itemID)))
-      throw Error("Raw deposit outcome remains unknown; no replay.");
+    const moved = movedWholeStacks(
+      sourceBefore,
+      sourceAfter,
+      destinationBefore,
+      destinationAfter,
+      acknowledged ? "acknowledged" : undefined,
+      requestedIDs,
+    );
+    if (!moved) throw unknownUnload(requestedIDs, "", firstLostReply);
     return { sourceAfter, destinationAfter, movedIDs: new Set(moved.map((r) => r.itemID)) };
   };
   const depositWhole = async (
     rows: readonly NativeInventoryRow[],
     sourceBefore: readonly NativeInventoryRow[],
     destinationBefore: readonly NativeInventoryRow[],
-    notDispatched?: () => void,
+    fence?: Pick<DepositFence, "refuseDelivery" | "acknowledge">,
   ) => {
-    if (personal) throw Error("Whole-stack delivery requires a corporation division.");
     guard();
-    let writeError: unknown;
+    let acknowledged = false;
     try {
       await moveItems(
         f.bridgeDo,
-        officeID,
-        { kind: "corp", division: division! },
+        inventory,
+        place,
         shipID,
         rows.map((r) => ({ ...r, singleton: false })),
         null,
       );
+      acknowledged = true;
     } catch (error) {
       guard();
-      if (notDispatched && bridgeCallQueueTimeout(error)) {
-        notDispatched();
+      if (fence && (unloadNotDispatched(error) || (rows.length === 1 && singleAddRefused(error)))) {
+        fence.refuseDelivery();
+        if (singleAddRefused(error)) throw error;
         throw new FleetObservationUnavailable(
           "Unload did not enter the transport. Rechecking the docked hold.",
           { cause: error },
         );
       }
-      writeError = error;
     }
-    const after = await observeWhole(
-      sourceBefore,
-      destinationBefore,
-      rows.map((r) => r.itemID),
-    );
-    if (!after.movedIDs.size) {
-      if (config.reconcileParking && !definiteSingleRefusal(writeError))
-        throw new FleetObservationUnavailable(
-          "The stacks are still in the ship's hold. Rechecking the pending unload.",
-          { cause: writeError },
-        );
-      throw writeError ?? Error("Corporation unload made no inventory progress.");
+    if (acknowledged) {
+      guard();
+      fence?.acknowledge();
     }
-    return { ...after, acknowledged: !writeError };
+    const ids = rows.map((r) => r.itemID),
+      after = await observeWhole(sourceBefore, destinationBefore, ids, acknowledged, !acknowledged);
+    if (!after.movedIDs.size)
+      throw unknownUnload(ids, "The stacks are still in the ship's hold.", !acknowledged);
+    return { ...after, acknowledged };
   };
-  const reconcileDelivery = async (before: DeliveryBefore) =>
+  const reconcileDelivery = async (before: DeliveryBefore, acknowledged = false) =>
     withDestination(async () => {
-      if (before.officeID !== officeID || before.flag !== flag)
+      if (
+        before.sourceBefore.some(
+          (r) =>
+            r.ownerID !== characterID ||
+            r.locationID !== shipID ||
+            !haulerInventoryFlags.includes(r.flagID),
+        )
+      )
+        throw Error("Original deposit ship or hold changed; no replay.");
+      if (
+        before.officeID !== officeID ||
+        before.flag !== flag ||
+        (before.destinationOwner !== undefined && before.destinationOwner !== destinationOwner) ||
+        before.destinationBefore.some(
+          (r) => r.ownerID !== destinationOwner || r.locationID !== officeID || r.flagID !== flag,
+        )
+      )
         throw Error("Original deposit destination changed; no replay.");
       if (before.items && before.requestedIDs) {
         const { movedIDs, ...after } = await observeWhole(
           before.sourceBefore,
           before.destinationBefore,
           before.requestedIDs,
+          acknowledged,
         );
-        if (!movedIDs.size && !config.reconcileParking)
-          throw Error("Raw deposit outcome remains unknown; no replay.");
+        if (!movedIDs.size && !acknowledged)
+          throw unknownUnload(before.requestedIDs, "The stacks are still in the ship's hold.");
         return { ...after, items: before.items.filter((r) => movedIDs.has(r.itemID)) };
       }
+      // A retained Add gets the same bounded inventory reads as parking, regardless of which runner issued it.
       const { sourceAfter, destinationAfter, moved, unchanged } = await observeSingle(
         before.item,
         before.sourceBefore,
         before.destinationBefore,
+        acknowledged,
+        readDepositInventory,
       );
-      if (!moved && !unchanged) throw Error("Raw deposit outcome remains unknown; no replay.");
+      if (!moved && !(unchanged && acknowledged))
+        throw unknownUnload(
+          [before.item.itemID],
+          unchanged ? "The stack is still in the ship's hold." : "",
+        );
       return { sourceAfter, destinationAfter, ...(unchanged ? { items: [] } : {}) };
     });
   return {
@@ -735,10 +881,7 @@ export async function depositOwnShipRaw(
         r.itemID === item.itemID &&
         r.typeID === item.typeID &&
         r.quantity === item.quantity &&
-        (r.flagID === 5 ||
-          r.flagID === 134 ||
-          (r.flagID === 181 && sourceFacts[r.typeID]?.resourceFamily === "ice") ||
-          (r.flagID === 182 && sourceFacts[r.typeID]?.resourceFamily === "ore")),
+        acceptsMinedFreight(r.flagID, sourceFacts[r.typeID]?.resourceFamily),
     );
   const checkBefore = (b: Pending) => {
     if (
@@ -756,7 +899,7 @@ export async function depositOwnShipRaw(
     const items = batchItems(b);
     return (
       new Set(items.map((i) => i?.itemID)).size === items.length &&
-      rowsValid(b.sourceBefore, source.characterID, source.shipID, [5, 134, 135, 181, 182]) &&
+      rowsValid(b.sourceBefore, source.characterID, source.shipID, haulerInventoryFlags) &&
       rowsValid(b.destinationBefore, destinationOwner, officeID, [flag]) &&
       items.every(
         (item) =>
@@ -773,21 +916,10 @@ export async function depositOwnShipRaw(
     try {
       if (
         !checkBefore(b) ||
-        !rowsValid(b.sourceAfter, source.characterID, source.shipID, [5, 134, 135, 181, 182]) ||
+        !rowsValid(b.sourceAfter, source.characterID, source.shipID, haulerInventoryFlags) ||
         !rowsValid(b.destinationAfter, destinationOwner, officeID, [flag])
       )
         return false;
-      if (config.reconcileParking) {
-        const ids = batchItems(b).map((i) => i.itemID);
-        const exact = observedParkingStacks(
-          b.sourceBefore,
-          b.sourceAfter,
-          b.destinationBefore,
-          b.destinationAfter,
-          ids,
-        );
-        if (exact?.length === ids.length) return true;
-      }
       if (!b.items)
         return confirmedDepositItem(
           b.item,
@@ -795,14 +927,15 @@ export async function depositOwnShipRaw(
           b.sourceAfter,
           b.destinationBefore,
           b.destinationAfter,
-          "recorded",
+          b.acknowledged ? "acknowledged" : "recorded",
         );
       const moved = movedWholeStacks(
         b.sourceBefore,
         b.sourceAfter,
         b.destinationBefore,
         b.destinationAfter,
-        "recorded",
+        b.acknowledged ? "acknowledged" : "recorded",
+        b.items.map((i) => i.itemID),
       );
       return (
         !!moved &&
@@ -868,12 +1001,15 @@ export async function depositOwnShipRaw(
   if (retained)
     settle(
       retained,
-      await io.reconcileDelivery({
-        ...retained,
-        officeID,
-        flag,
-        ...(retained.items ? { requestedIDs: retained.items.map((i) => i.itemID) } : {}),
-      }),
+      await io.reconcileDelivery(
+        {
+          ...retained,
+          officeID,
+          flag,
+          ...(retained.items ? { requestedIDs: retained.items.map((i) => i.itemID) } : {}),
+        },
+        retained.acknowledged,
+      ),
     );
   const remainingItems = () =>
     source.items.filter(
@@ -899,6 +1035,10 @@ export async function depositOwnShipRaw(
           rows,
           sourceBefore,
           destinationBefore,
+          {
+            acknowledge: () => save({ ...state, pending: { ...pending, acknowledged: true } }),
+            refuseDelivery: () => save({ ...state, pending: null }),
+          },
         );
         settle(
           { ...pending, acknowledged },

@@ -16,41 +16,6 @@ function record(value: unknown): value is Record<string, JsonValue> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function preferredBays({
-  groupID,
-  categoryID,
-}: {
-  groupID: number;
-  categoryID: number;
-}): readonly string[] {
-  switch (groupID) {
-    case 465:
-      return ["ice", "ore"];
-    case 423:
-    case 1136:
-      return ["fuel"];
-    case 711:
-      return ["gas", "ore"];
-    case 18:
-      return ["mineral"];
-    case 754:
-      return ["salvage"];
-    case 1027:
-      return ["commandCenter"];
-  }
-  switch (categoryID) {
-    case 8:
-      return ["ammo"];
-    case 42:
-    case 43:
-      return ["planetary"];
-    case 25:
-      return ["ore", "asteroid"];
-    default:
-      return [];
-  }
-}
-
 export function unwrapCachedResult(result: JsonValue): JsonValue {
   if (!record(result) || result.type !== "object") return result;
   const name = record(result.name) ? result.name.value : result.name;

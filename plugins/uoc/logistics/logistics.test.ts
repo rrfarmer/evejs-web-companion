@@ -38,6 +38,7 @@ function fixture() {
   let remoteAllowed = true, loadCapacity = 20;
   const cargoCapacity = new Map<number, number>(), sizes: Volumes = { ...volumes };
   const oreCapacity = new Map<number, number>(), shipTypes = new Map<number, number>();
+  const specialCapacity = new Map<number, Record<string, number>>();
   let onMove: (move: Move, physical: () => Result) => Promise<Result> = async (_move, physical) => physical();
   let onRead: (dock: Office, id: number) => Promise<void> = async () => {};
 
@@ -48,7 +49,7 @@ function fixture() {
 
   function add(id: number) {
     if (!location.has(id)) { location.set(id, 900); holds.set(id, { ore: [], cargo: [] }); }
-    assert.equal(request("POST /logistics/roster", { characterID: id, account: "pilot-" + id, name: "Hauler " + id, corporationID: 99 }).ok, true);
+    assert.equal(request("POST /logistics/roster", { characterID: id, name: "Hauler " + id, corporationID: 99 }).ok, true);
   }
   const view = () => store.view(world);
   function save(cfg = config) {
@@ -63,12 +64,12 @@ function fixture() {
   }
   function worker(id: number) {
     const shipID = id + 1_000, cargo = holds.get(id)!;
-    store.attach(world, id, "bot-" + id);
+    store.attach(world, id, "bot-" + id, "pilot-" + id);
     const io = {
       async flight() { return { f: { solarSystemID: 300 }, locationID: location.get(id), shipID,
         shipTypeID: shipTypes.get(id) ?? 648, corporationID: 99 }; },
       async bays(_ship: number, keys: string[]) {
-        const capacities: Record<string, number> = { ore: oreCapacity.get(id) ?? loadCapacity, cargo: cargoCapacity.get(id) ?? 0 };
+        const capacities: Record<string, number> = { ore: oreCapacity.get(id) ?? loadCapacity, cargo: cargoCapacity.get(id) ?? 0, ...specialCapacity.get(id) };
         const bays = keys.filter(key => (capacities[key] ?? 0) > 0);
         return { volumes: bays.map(key => ({ key, capacity: capacities[key],
           used: cargo[key]!.reduce((count, row) => count + row.quantity * (sizes[row.typeID]?.[row.singleton ? "assembled" : "packaged"] ?? 0), 0) })),
@@ -117,6 +118,10 @@ function fixture() {
     capacity(value: number) { loadCapacity = value; },
     cargoCapacity(id: number, value: number) { cargoCapacity.set(id, value); },
     oreCapacity(id: number, value: number) { oreCapacity.set(id, value); },
+    specialBay(id: number, key: string, capacity: number) {
+      specialCapacity.set(id, { ...specialCapacity.get(id), [key]: capacity });
+      holds.get(id)![key] ??= [];
+    },
     shipType(id: number, typeID: number) { shipTypes.set(id, typeID); },
     size(typeID: number, packaged: number, assembled = packaged) { sizes[typeID] = { packaged, assembled }; },
     onMove(hook: typeof onMove) { onMove = hook; }, onRead(hook: typeof onRead) { onRead = hook; },
@@ -124,6 +129,46 @@ function fixture() {
     persisted: () => persisted,
   };
 }
+
+test("a roster entry cannot claim an account or prevent the real carrier from joining the shared fleet", () => {
+  const f = fixture(), alpha = { accountID: 101, username: "Alpha" }, beta = { accountID: 102, username: "Beta" };
+  const hauler = { characterID: 12, name: "Hauler", corporationID: 99 };
+  const add = (account: typeof alpha, body: unknown) => f.request("POST /logistics/roster", body, undefined, account);
+  assert.equal(add(alpha, { ...hauler, account: "Beta" }).ok, false);
+  assert.deepEqual(f.view().roster, []);
+  assert.equal(add(alpha, { ...hauler, account: "Alpha", name: "Old label" }).ok, true);
+  assert.equal(f.view().roster[0]?.account, undefined);
+  assert.equal(add(beta, hauler).ok, true);
+  assert.equal(f.view().roster[0]?.name, hauler.name);
+  assert.equal(add(alpha, { ...hauler, characterID: 11, name: "Second hauler" }).ok, true);
+  const op = f.save();
+  for (const account of [beta, alpha]) {
+    f.restart();
+    const shared = f.request("GET /logistics", undefined, undefined, account);
+    assert.deepEqual(shared.roster.map(row => row.characterID).sort(), [11, 12]);
+    assert.deepEqual(shared.operations.map(row => row.id), [op.id]);
+  }
+  assert.equal(f.request("POST /logistics/:id/start", {}, op.id, beta).ok, true);
+  const run = f.request("GET /logistics", undefined, undefined, alpha).operations[0]!.execution!;
+  assert.equal(f.request("POST /logistics/:id/stop", { executionID: run.id }, op.id, alpha).ok, true);
+  assert.equal(f.request("GET /logistics", undefined, undefined, beta).operations[0]?.execution?.state, "STOPPED");
+});
+
+test("a legacy account hint cannot block the verified owner or be overwritten by a roster request", () => {
+  let data: unknown = { roster: [{ characterID: 12, name: "Carrier", account: "old-label" }], operations: [], trips: [] };
+  const document = () => ({read: () => structuredClone(data), write: (v: unknown) => { data = structuredClone(v); }});
+  const store = createDistributionStore(document);
+  assert.equal(store.view(world).roster[0]?.account,undefined);
+  store.attach(world, 12, "held-12", "beta");
+  assert.equal(store.view(world).roster[0]?.account, "beta");
+  store.release(world, 12, "held-12");
+  const again = createDistributionStore(document);
+  again.routes["POST /logistics/roster"]({worldID:world, account:roleAccount,body:{
+    characterID:12,name:"Carrier",account:roleAccount.username
+  }} as unknown as BackendRequest);
+  assert.equal(again.view(world).roster[0]?.account, "beta");
+  assert.equal(again.view(world).roster.length, 1);
+});
 
 test("Manual hauls only the requested ore and counts the trip after confirmed unloading", async () => {
   const f = fixture();
@@ -134,8 +179,8 @@ test("Manual hauls only the requested ore and counts the trip after confirmed un
   const worker = f.worker(1);
   await worker.step();
   assert.deepEqual(f.routes, [A.destinationID, B.destinationID]);
-  assert.deepEqual(f.moves.map(move => [move.leg, move.line.quantity]), [["pickup", 15], ["delivery", 15]]);
-  assert.equal(f.holds.get(1)!.ore![0]?.quantity, 3, "existing cargo is not part of the delivery");
+  assert.deepEqual(f.moves.map(move => [move.leg, move.line.quantity]), [["pickup", 12], ["delivery", 15]]);
+  assert.deepEqual(f.holds.get(1)!.ore, [], "the three units already aboard count toward the order");
   assert.equal(f.stock.get(B.destinationID)![0]?.quantity, 15);
   assert.deepEqual(f.view().operations[0]!.execution, { id: f.view().operations[0]!.execution!.id, state: "COMPLETED",
     delivered: { [ore.typeID]: 15 }, trips: 1, deliveredVolumeM3: 15 });
@@ -616,10 +661,89 @@ test("cargo selection prioritizes compatible holds per hull", () => {
   assert.deepEqual(general.lines.map(row => [row.typeID, row.bay, row.quantity]), [[34, "cargo", 5]]);
 });
 
+test("Distribution fills verified resource holds before using fleet space with a full cargo hold", () => {
+  const cases = [
+    [25, 462, "asteroid"], [25, 903, "ice"], [2, 4168, "gas"], [4, 4932, "mineral"],
+    [4, 966, "salvage"], [4, 423, "fuel"], [4, 1136, "colony"], [43, 1042, "planetary"],
+  ] as const;
+  for (const [categoryID, groupID, specialty] of cases) {
+    const stock = { ...ore, categoryID, groupID, quantity: 9 };
+    const bays = [{ key: "cargo", capacity: 4, used: 4 }, { key: specialty, capacity: 5, used: 1 }];
+    const wanted = needs(allItems, [stock], {}, {});
+    const { lines } = loadFor(wanted, [...bays, { key: "fleet", capacity: 5, used: 0 }], volumes);
+    assert.deepEqual(lines.map(line => [line.bay, line.quantity]), [[specialty, 4], ["fleet", 5]], specialty);
+    assert.deepEqual(loadFor(wanted, bays, volumes).lines.map(line => line.bay), [specialty]);
+  }
+  const block = { ...ore, categoryID: 4, groupID: 1136 };
+  assert.deepEqual(loadFor(needs(allItems, [block], {}, {}), [{key:"fuel", capacity:100, used:0}], volumes).lines, []);
+});
+
+test("an interrupted Distribution delivery drains eligible carry-in from fleet and ore holds once", async () => {
+  const f = fixture(); f.add(1); f.specialBay(1, "fleet", 100); f.oreCapacity(1, 5); f.cargoCapacity(1, 2);
+  f.size(modules.typeID, 1);
+  const aboard = f.holds.get(1)!;
+  aboard.ore!.push({ ...ore, itemID: 88, quantity: 5 });
+  aboard.fleet!.push({ ...ore, itemID: 89, quantity: 45 }, { ...modules, itemID: 90, quantity: 2 });
+  aboard.cargo!.push({ ...modules, itemID: 91, quantity: 2 });
+  f.stock.set(A.destinationID, [{...ore, quantity:10}]);
+  const op = f.save(allItems); f.start(op.id);
+  let interrupted = false;
+  f.onMove(async (move, physical) => {
+    const result = physical();
+    if (move.leg === "delivery" && move.line.bay === "fleet" && !interrupted) {
+      interrupted = true;
+      throw Error("Lost unload response");
+    }
+    return result;
+  });
+  await f.worker(1).step();
+  assert.equal(interrupted, true);
+  assert.ok(f.view().roster[0]?.trip?.checking);
+  f.restart();
+  const worker = f.worker(1);
+  await worker.step(); await worker.step();
+  assert.deepEqual(f.moves.map(m => [m.leg, m.line.bay, m.line.quantity]),
+    [["pickup","fleet",10], ["delivery","ore",5], ["delivery","fleet",55]]);
+  assert.deepEqual(f.view().operations[0]?.execution?.delivered, {[ore.typeID]:60});
+  assert.equal(f.view().operations[0]?.execution?.trips,1);
+  assert.equal(f.view().operations[0]?.execution?.state,"COMPLETED");
+  assert.equal(f.stock.get(B.destinationID)?.[0]?.quantity,60);
+  assert.deepEqual(aboard.ore,[]);
+  assert.deepEqual(aboard.fleet?.map(row=>row.itemID),[90]);
+  assert.deepEqual(aboard.cargo?.map(row=>row.itemID),[91]);
+});
+
+test("Collection keeps its source reserve and departure threshold when resources are already aboard", async () => {
+  const f=fixture(); f.add(1); f.oreCapacity(1,100);
+  f.holds.get(1)!.ore!.push({...ore,itemID:90,quantity:5});
+  f.stock.set(A.destinationID,[{...ore,quantity:14}]);
+  const op=f.save({...config,mode:"COLLECTION",items:[{typeID:ore.typeID,quantity:4}],fillPercent:80,waitMinutes:1});
+  f.start(op.id); const worker=f.worker(1);
+  await worker.step();
+  assert.equal(f.moves.length,0); assert.equal(f.view().roster[0]?.trip,null);
+  f.advance(60_001); await worker.step();
+  assert.deepEqual(f.moves.map(m=>[m.leg,m.line.quantity]),[["pickup",10],["delivery",15]]);
+  assert.equal(f.stock.get(A.destinationID)?.[0]?.quantity,4);
+  assert.deepEqual(f.holds.get(1)!.ore,[]);
+});
+
+test("Supply counts selected mineral carry-in against the destination target even when A is empty", async () => {
+  const f = fixture(); f.add(1); f.specialBay(1,"mineral",20); f.size(minerals.typeID,1);
+  f.holds.get(1)!.mineral!.push({...minerals,quantity:9,volume:1});
+  f.stock.set(A.destinationID,[]);
+  f.stock.set(B.destinationID,[{...minerals,itemID:83,quantity:4}]);
+  const op = f.save({...config,mode:"SUPPLY",items:[{typeID:minerals.typeID,quantity:10}]}); f.start(op.id);
+  await f.worker(1).step();
+  assert.deepEqual(f.moves.map(m=>[m.leg,m.line.bay,m.line.quantity]),[["delivery","mineral",6]]);
+  assert.equal(f.stock.get(B.destinationID)?.[0]?.quantity,10);
+  assert.equal(f.holds.get(1)!.mineral?.[0]?.quantity,3);
+  assert.equal(f.view().operations[0]?.execution?.deliveredVolumeM3,6);
+});
+
 test("the native path uses MCC division authority and quotes the exact source, ship and dock to WC", async () => {
   const calls: string[] = [];
   let rolesAtHQ = (1048576 + 8192) * 64;
-  let activeShipID = 1001;
+  let activeShipID = 1001, fleetCapacity = 0, moveBay = "ore";
   const session = {
     store: { station: { get: () => ({ online: { characterID: 1, corporationID: 99 } }) } },
     flow: { flying: {
@@ -642,12 +766,16 @@ test("the native path uses MCC division authority and quotes the exact source, s
       return Response.json({ ok: true, flight: { shipID: activeShipID, shipTypeID: 648, solarSystemID: 300, stationID: 600, docked: true, inSpace: false } });
     if (pathname === "/api/bridge/corp-offices")
       return Response.json({ ok: true, error: null, stationIDs: [600], divisions: Array.from({ length: 7 }, (_, i) => ({ division: i + 1, name: null })) });
+    if (pathname === "/api/bridge/ship/1001/bays") return Response.json({ok:true, shipID:1001, activeShipID, bays:[
+      {key:"fleet",present:fleetCapacity>0,capacity:{capacity:fleetCapacity,used:0},items:fleetCapacity>0?[]:null,error:null},
+      {key:"cargo",present:true,capacity:{capacity:5,used:5},items:[modules],error:null},
+    ]});
     assert.equal(pathname, "/api/bridge/inventory/transfer");
     const payload = JSON.parse(String(init?.body));
     assert.equal(payload.expectedScope, undefined, "WC only accepts expectedScope in space");
     assert.deepEqual(payload.haulContract, { stationID: 600, locationKind: "station", corporationID: 99, division: 7, typeID: ore.typeID, sourceQuantity: 25 });
     assert.deepEqual(payload.from, { kind: "corp", division: 7 });
-    assert.deepEqual(payload.to, { kind: "shipBay", bay: "ore" });
+    assert.deepEqual(payload.to, { kind: "shipBay", bay: moveBay });
     return Response.json({ ok: true, applied: true, transferStatus: "SUCCESS", moved: [] });
   };
   const io = createDistributionNative({ characterID: 1, baseUrl: "http://fixture", fetch: fetcher } as unknown as PluginRunContext, session, () => {});
@@ -659,9 +787,15 @@ test("the native path uses MCC division authority and quotes the exact source, s
   const move = { leg: "pickup" as const, office: A, shipID: 1001, source: ore, corporationID: 99,
     line: { ...ore, quantity: 5, bay: "ore" } };
   assert.equal((await io.move(move)).kind, "confirmed");
+  assert.deepEqual((await io.bays(1001,["fleet","cargo"])).volumes.map(b=>b.key),["cargo"]);
+  fleetCapacity = 80;
+  assert.deepEqual((await io.bays(1001,["fleet","cargo"])).volumes.find(b=>b.key==="fleet"),{key:"fleet",capacity:80,used:0});
+  moveBay = "fleet";
+  assert.equal((await io.move({...move,line:{...move.line,bay:moveBay}})).kind,"confirmed");
   activeShipID = 1002;
+  await assert.rejects(io.bays(1001,["fleet","cargo"]),/current holds/);
   assert.equal((await io.move(move)).kind, "refused");
-  assert.equal(calls.filter(call => call === "/api/bridge/inventory/transfer").length, 1);
+  assert.equal(calls.filter(call => call === "/api/bridge/inventory/transfer").length, 2);
 });
 
 test("legacy data stays intact while saved routes and unsettled cargo enter the compact document", () => {

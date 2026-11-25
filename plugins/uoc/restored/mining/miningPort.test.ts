@@ -45,20 +45,11 @@ test("a poll that began before Delete cannot return the deleted operation to the
  poll.stop();
 });
 
-test("each MCC operation card renders Edit and Delete before applying runtime-state controls",()=>{
- const source=readFileSync(new URL("../ui/MiningOperations.svelte",import.meta.url),"utf8");
- const card=source.slice(source.indexOf('<article class="operation-card">'));
- const firstStateGate=card.indexOf('{#if ["DRAFT", "STOPPED"].includes(row.runtime.state)}');
- assert.ok(firstStateGate>0);
- assert.match(card.slice(0,firstStateGate),/onclick=\{\(\) => editOperation\(row\.definition\)\}>Edit/);
- assert.match(card.slice(0,firstStateGate),/onclick=\{\(\) => void remove\(row\.definition\.operationID\)\}>Delete/);
-});
-
 test("MCC Start dispatches from the card without a second confirmation",()=>{
  const source=readFileSync(new URL("../ui/MiningOperations.svelte",import.meta.url),"utf8");
  const start=source.slice(source.indexOf("  async function start("),source.indexOf("  async function stop("));
  assert.match(source,/onclick=\{\(\) => void start\(row\.definition\)\}>Start<\/button>/);
  assert.match(start,/await host\.prepare\(/);
- assert.match(start,/await host\.start\(reviewed, runtimeMinutes, cancellation\.signal\)/);
+ assert.match(start,/await host\.start\(reviewed, runtimeMinutes, cancellation\.signal, runPolicy\.maxRuntimeMinutes\)/);
  assert.doesNotMatch(start,/\bconfirm\s*\(/);
 });

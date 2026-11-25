@@ -8,8 +8,10 @@ import { render } from "svelte/server";
 import { resolveUocPage } from "./route.ts";
 const require = createRequire(import.meta.url),
   server = pathToFileURL(require.resolve("svelte/internal/server")).href;
-async function component(file: string, stubChildren = false) {
-  let code = compile(readFileSync(new URL(file, import.meta.url), "utf8"), {
+async function component(file: string, stubChildren = false, setup = "") {
+  const url = new URL(file, import.meta.url);
+  const source = readFileSync(url, "utf8");
+  let code = compile(setup ? source.replace("</script>", () => setup + "\n</script>") : source, {
     filename: file,
     generate: "server",
   }).js.code.replace("'svelte/internal/server'", JSON.stringify(server));
@@ -19,6 +21,8 @@ async function component(file: string, stubChildren = false) {
       (_line, name) =>
         `const ${name}=($r,props={})=>$r.push('<i data-panel="${name}" data-mode="'+(props.mode??'training')+'"></i>');`,
     );
+  code = code.replace(/from (["'])(\.[^"']+)\1/g, (_match, _quote, path: string) =>
+    "from " + JSON.stringify(new URL(path, url).href));
   return (await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`))
     .default;
 }
@@ -148,7 +152,7 @@ test("the Civilian profile editor keeps mission settings and stays inside the Ci
     "CombatOperations",
   ])
     assert.ok(!source.includes(panel));
-  for (const field of ["Mission type", "Level rule", "Stop rule", "Add pilot", ">Save</button>"])
+  for (const field of ["Mission type", "Level rule", "Stop rule", "Add pilot"])
     assert.ok(source.includes(field), field);
 });
 
@@ -275,6 +279,7 @@ test("Distribution renders named routes, confirmed progress and freight needing 
     },
   }).body;
   for (const label of [
+    "containers and their contents",
     "Finished with items left",
     "6 units delivered",
     "Items left at source",
@@ -475,4 +480,25 @@ test("Provisioning places the pilot filter beside the compact selector", async (
     section,
     /<div[^>]*class="picker-controls[^"]*"[^>]*>[\s\S]*?<select\b[\s\S]*?Filter pilots\s*<input[^>]*type="search"/,
   );
+});
+
+test("standalone Provisioning shows the inspection available to the selected pilot", async () => {
+  const Provisioning = await component("../restored/ui/ProvisioningCenter.svelte", true, `
+    const { owner, serviceAccess } = $props();
+    token = "page-token";
+    pilotID = provider = 7;
+    fittingID = 11;
+    roster = { pilots: [{ characterID: pilotID, name: "Hauler", control: { owner, online: owner !== "OFF" }, serviceAccess }], providers: [] };
+    preflight = { definitions: { contracts: [{ name: "Hauling fit", shipTypeID: 100, definition: { fittingID } }], invalid: [] } };
+  `);
+  for (const owner of ["OFF", "BROWSER", "BOT"]) {
+    const serviceAccess = owner === "BOT" ? "READ_ONLY_ACTIVE_UOC" : null;
+    const html = render(Provisioning, { props: { owner, serviceAccess } }).body;
+    assert.match(html, /Hauling fit/);
+    assert.doesNotMatch(html, /Review fitting in Cockpit|Inspect Cockpit inventory/);
+    const check = html.match(/(<button\b[^>]*>)\s*Check ship and available equipment\s*<\/button>/);
+    assert.ok(check);
+    assert.equal(/\bdisabled\b/.test(check[1]!), owner === "BROWSER");
+    if (owner === "BROWSER") assert.match(html, /Fitting and Inventory in .*Cockpit/);
+  }
 });

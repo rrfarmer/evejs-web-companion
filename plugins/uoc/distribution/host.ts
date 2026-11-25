@@ -4,9 +4,7 @@ import {
   travelFacts,
   transientNativeRead,
 } from "../shared/progressDeadline.ts";
-import path from "node:path";
-import { createRequire } from "node:module";
-import { pluginDataDir } from "../../../web/src/plugin-api/backend.ts";
+import { uocStore } from "../backendStores.ts";
 import { createPilotSession } from "../../../web/src/plugin-api/pilotSession.ts";
 import {
   completionReceipt,
@@ -31,25 +29,27 @@ import { CivilianMissionCompleted, CivilianMissionMismatch } from "../civilian/a
 import { civilianProvenance } from "../civilian/recovery.ts";
 import {
   DeclineUnavailable,
-  clearBlockingMission,
-  conflictingMission,
+  busyAgentMessage,
+  confirmedMissionAccept,
+  declineOffer,
   existingMissionRefusal,
   missionRefusalText,
   referralConflict,
   referralTargets,
 } from "../civilian/missionConflict.ts";
-const require = createRequire(import.meta.url);
-const { createDocumentStore } = require("../documentStore.cjs") as {
-  createDocumentStore: (file: string) => {
-    document(name: string): { read(): unknown | null; write(v: unknown): void };
-    close(): void;
-  };
-};
-let db: ReturnType<typeof createDocumentStore> | null = null,
-  journal: ReturnType<typeof createDistributionFence> | null = null;
+// All Courier pilots on a backend share the fence's in-memory records and its durable document.
+const journals = new WeakMap<
+  ReturnType<typeof uocStore>,
+  ReturnType<typeof createDistributionFence>
+>();
 function fences() {
-  db ??= createDocumentStore(path.join(pluginDataDir(), "distribution.sqlite"));
-  return (journal ??= createDistributionFence({ storage: db.document("distribution-missions") }));
+  const db = uocStore("distribution.sqlite");
+  let journal = journals.get(db);
+  if (!journal) {
+    journal = createDistributionFence({ storage: db.document("distribution-missions") });
+    journals.set(db, journal);
+  }
+  return journal;
 }
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 function retryableCourierRead(error: unknown) {
@@ -70,9 +70,12 @@ function retryableCourierRead(error: unknown) {
   );
 }
 const sameCourier = (a: Courier, b: Courier) => {
-  const { missionState: _a, ...first } = a,
-    { missionState: _b, ...second } = b;
-  return JSON.stringify(first) === JSON.stringify(second);
+  const { missionState: stateA, acceptedAt: timeA, ...first } = a,
+    { missionState: stateB, acceptedAt: timeB, ...second } = b;
+  return (
+    (stateA !== 2 || stateB !== 2 || timeA === timeB) &&
+    JSON.stringify(first) === JSON.stringify(second)
+  );
 };
 const journalEvidence = (journal: MissionJournal): DistributionEvidence => ({
   journal,
@@ -84,6 +87,7 @@ const journalEvidence = (journal: MissionJournal): DistributionEvidence => ({
 });
 export function createDistributionHost(
   deps: {
+    shutdown?: AbortSignal;
     attachPilot?: typeof createPilotSession;
     openFence?: typeof fences;
     park?: typeof parkWithPolicy;
@@ -143,6 +147,7 @@ export function createDistributionHost(
       class AgentFinderUnavailable extends Error {}
       class NoCompletionAction extends Error {}
       const guardHeld = () => {
+        deps.shutdown?.throwIfAborted();
         if (!active || stopping) throw new Error("Distribution run stopped.");
       };
       const guard = () => {
@@ -196,6 +201,7 @@ export function createDistributionHost(
         client = createNativeCourier(run, () => active, read);
       let fence: ReturnType<typeof ledger.open>;
       try {
+        guardHeld();
         if (resumed) {
           if (
             resumed.civilian &&
@@ -225,7 +231,33 @@ export function createDistributionHost(
               evidence: journalEvidence(journal),
               civilian: scope ?? undefined,
             });
-          else fence = ledger.continueMission({ ...owner, journal, civilian: scope ?? undefined });
+          else {
+            const bound = prior?.mission,
+              row = bound ? agentMission(journal, bound.agentID) : null;
+            let retainMission = false;
+            if (
+              row &&
+              row.missionKey === bound?.missionKey &&
+              (setup.agent.mode !== "manual" || setup.agent.agentID === row.agentID)
+            ) {
+              const origin =
+                row.missionState === 1 && setup.agent.mode === "auto"
+                  ? (await client.flight()).systemID
+                  : 0;
+              if (await existingAgent(row, origin)) {
+                retainMission =
+                  row.missionState === 1 ||
+                  (!!distributionAcceptedMission(prior) &&
+                    (await client.briefing(row.agentID)).acceptedAt === prior?.acceptedAt);
+              }
+            }
+            fence = ledger.continueMission({
+              ...owner,
+              journal,
+              civilian: scope ?? undefined,
+              retainMission,
+            });
+          }
         } else {
           fence = openMission();
         }
@@ -364,13 +396,14 @@ export function createDistributionHost(
         if (a.mode === "manual") {
           const reason = excluded.get(a.agentID);
           if (reason) throw Error(`The selected agent has no eligible offer. ${reason}`);
+          const busy = agentMission(journal, a.agentID);
+          if (busy) throw Error(busyAgentMessage(busy));
           const r = await client.record(a.agentID);
           if (r.stationID !== a.stationID) throw new Error("Selected agent station changed.");
           return r;
         }
         const referrals = await referralTargets(journal, client.agentBriefing);
-        let blocked: Awaited<ReturnType<typeof client.record>> | null = null,
-          referralReason: string | undefined;
+        let unavailableReason: string | undefined;
         for (let level = a.level; level >= (a.levelRule === "max" ? 1 : a.level); level--) {
           guard();
           await flow.findAgents({ kind: "courier", level, limit: 5000 });
@@ -397,6 +430,11 @@ export function createDistributionHost(
               (a.corporationID !== null && candidate.corporationID !== a.corporationID)
             )
               continue;
+            const busy = agentMission(journal, candidate.agentID);
+            if (busy) {
+              unavailableReason = busyAgentMessage(busy);
+              continue;
+            }
             let record;
             try {
               record = await client.record(candidate.agentID);
@@ -412,25 +450,19 @@ export function createDistributionHost(
             )
               throw new Error("Agent directory identity changed.");
             const referral = referrals.get(record.agentID);
-            if (referral && !agentMission(journal, record.agentID)) {
-              referralReason = referralConflict(referral, record.agentID);
+            if (referral) {
+              unavailableReason = referralConflict(referral, record.agentID);
               continue;
             }
             const dialogue = await client.dialogue(record.agentID, null);
             if (/standings are not high enough|too low standings/i.test(dialogue.says)) continue;
-            if (dialogue.actions.some((x) => [1, 2, 3, 5, 6, 7].includes(x.button))) return record;
-            if (existingMissionRefusal(dialogue.says)) {
-              blocked ??= record;
-              continue;
-            }
-            throw new Error(
-              `Agent ${record.agentID}: ${dialogue.says || "access could not be confirmed"}.`,
-            );
+            if (dialogue.actions.some((x) => x.button === 2)) return record;
+            unavailableReason = `Agent ${record.agentID}: ${dialogue.says || "no Request action is available"}.`;
           }
         }
-        if (blocked) return blocked;
         const reason =
-          referralReason ?? "No eligible Distribution agent was found within the selected limit.";
+          unavailableReason ??
+          "No eligible Distribution agent was found within the selected limit.";
         const lastExcluded = [...excluded.values()].at(-1);
         throw Error(lastExcluded ? `${reason} Last excluded offer: ${lastExcluded}` : reason);
       }
@@ -461,8 +493,13 @@ export function createDistributionHost(
           const objective = await client.briefing(row.agentID);
           if (objective.contentID !== row.missionID || objective.missionState !== row.missionState)
             throw new Error("Objective and journal mission identity differ.");
+          if (objective.missionState === 2 && objective.acceptedAt !== fence.read().acceptedAt)
+            throw new CivilianMissionMismatch(
+              "The accepted Delivery mission has a different acceptance time. Review it manually.",
+            );
           return objective;
         } catch (error) {
+          if (error instanceof CivilianMissionMismatch) throw error;
           throw new Error(
             `${missionLabel(row)}: ${error instanceof Error ? error.message : String(error)} Review its briefing in the agent journal.`,
           );
@@ -492,38 +529,41 @@ export function createDistributionHost(
           throw new GracefulStop();
         }
       }
-      async function clearMission(row: JournalRow) {
-        if (row.missionState !== 1)
-          throw Error(
-            `${missionLabel(row)} blocks Request. An accepted mission requires manual review.`,
-          );
-        await clearBlockingMission(row, {
+      async function declineOverLimitOffer(row: JournalRow) {
+        await declineOffer(row, {
           session,
           journal: client.journal,
           record: client.agentRecord,
           dialogue: client.dialogue,
-          travel,
           guard,
           briefing: async (id) => {
             const r = await client.agentBriefing(id);
             if (r.errors?.briefing) throw Error(r.errors.briefing);
             return r.briefing;
           },
-          async dispatch(kind, write) {
+          async dispatch(write) {
             const before = journalEvidence(await client.journal());
             guard();
             requireMissionStartTime();
             inMutation = true;
             try {
-              fence.dispatch({ kind, agentID: row.agentID, missionKey: row.missionKey }, before);
+              fence.dispatch(
+                { kind: "decline", agentID: row.agentID, missionKey: row.missionKey },
+                before,
+              );
               try {
                 await write();
               } catch (error) {
                 if (
                   missionRefusalText(error) ||
-                  (error as { missionActionRefused?: boolean }).missionActionRefused
-                )
+                  (error as { missionActionRefused?: boolean } | null)?.missionActionRefused
+                ) {
                   fence.refuse(journalEvidence(await client.journal()));
+                  throw new DeclineUnavailable(
+                    error instanceof Error ? error.message : String(error),
+                    { cause: error },
+                  );
+                }
                 throw error;
               }
               fence.acknowledge();
@@ -533,22 +573,6 @@ export function createDistributionHost(
             }
           },
         });
-      }
-      async function requestWithConflictHandling(
-        agent: Awaited<ReturnType<typeof client.record>>,
-        excluded: ReadonlyMap<number, string>,
-      ) {
-        const reason = await press(agent.agentID, "request");
-        if (typeof reason !== "string") return;
-        const row = conflictingMission(await client.journal(), agent.agentID, reason);
-        const exclusion = excluded.get(row.agentID);
-        if (exclusion)
-          throw Error(`Agent ${agent.agentID} is blocked by an excluded offer. ${exclusion}`);
-        await clearMission(row);
-        await travel(agent.stationID);
-        const retry = await press(agent.agentID, "request");
-        if (typeof retry === "string")
-          throw Error(`Agent ${agent.agentID} still refuses Request: ${retry}`);
       }
       async function press(
         agentID: number,
@@ -564,14 +588,11 @@ export function createDistributionHost(
         const { proof } = await client.evidence(),
           selected = agentMission(proof.journal, agentID);
         if (kind === "request") {
-          if (selected)
-            throw new Error(
-              `${missionLabel(selected)} appeared before Request. Review the current journal.`,
-            );
+          if (selected) return busyAgentMessage(selected);
           const referral = (await referralTargets(proof.journal, client.agentBriefing)).get(
             agentID,
           );
-          if (referral) throw Error(referralConflict(referral, agentID));
+          if (referral) return referralConflict(referral, agentID);
         }
         if (
           kind !== "request" &&
@@ -656,6 +677,16 @@ export function createDistributionHost(
           if (kind === "request" && existingMissionRefusal(result.says)) {
             fence.refuse((await client.evidence()).proof);
             return result.says;
+          }
+          if (kind === "accept") {
+            if (!confirmedMissionAccept(result))
+              throw Error("This run's acceptance of the Delivery offer could not be confirmed.");
+            const accepted = await client.briefing(agentID);
+            if (accepted.missionState !== 2 || !expected || !sameCourier(accepted, expected))
+              throw Error("The accepted Delivery objective differs from this run's offer.");
+            fence.acknowledge(accepted.acceptedAt);
+            await settle();
+            return;
           }
           if (intent.kind === "complete") {
             if (result.completed !== true)
@@ -816,7 +847,8 @@ export function createDistributionHost(
         observePhase("Observing mission");
         const flight = await client.flight(),
           journal = await client.journal(),
-          boundMission = fence.read().mission;
+          checkpoint = fence.read(),
+          boundMission = checkpoint.mission;
         guard();
         options.progress("Checking mission", "Reading the current agent journal.", {
           currentLocationID:
@@ -835,22 +867,18 @@ export function createDistributionHost(
               );
             throw Error("The retained courier mission does not match this run's agent selection.");
           }
+          if (
+            row.missionState === 2 &&
+            distributionAcceptedMission(checkpoint)?.key !== row.missionKey
+          )
+            throw Error(busyAgentMessage(row));
           agent = continuation
             ? await client.record(row.agentID)
             : await existingAgent(row, flight.systemID);
           if (!agent)
             throw Error("The retained courier mission does not match this run's agent selection.");
           initial = row;
-        } else
-          for (const row of [...journal.active, ...journal.offered]) {
-            if (row.missionState === 1 && excluded.has(row.agentID)) continue;
-            const candidate = await existingAgent(row, flight.systemID);
-            if (candidate) {
-              initial = agentMission(journal, row.agentID);
-              agent = candidate;
-              break;
-            }
-          }
+        }
         if (
           continuation &&
           (!boundMission ||
@@ -862,25 +890,6 @@ export function createDistributionHost(
             "The selected Delivery mission is no longer accepted. Continue cannot request a replacement.",
           );
         if (initial?.missionState !== 2) requireMissionStartTime();
-        const selection = setup!.agent;
-        if (
-          !boundMission &&
-          initial?.missionState !== 2 &&
-          selection.mode === "auto" &&
-          selection.corporationID !== null
-        ) {
-          for (const offer of journal.offered) {
-            if (offer.important !== false || offer.agentID === initial?.agentID) continue;
-            const issuer = await client.agentRecord(offer.agentID);
-            if (
-              issuer?.agentID === offer.agentID &&
-              issuer.agentTypeID === 2 &&
-              Number.isSafeInteger(issuer.corporationID) &&
-              issuer.corporationID !== selection.corporationID
-            )
-              await clearMission(offer);
-          }
-        }
         if (!agent) phase("Finding an agent", "Searching for an eligible mission agent.");
         agent ??= await chooseAgent(journal, excluded);
         guard();
@@ -896,14 +905,20 @@ export function createDistributionHost(
         if (!initial || initial.missionState === 1) await travel(agent.stationID);
         if (!initial) {
           phase("Requesting", "Requesting one mission.");
-          await requestWithConflictHandling(agent, excluded);
+          const refusal = await press(agent.agentID, "request");
+          if (typeof refusal === "string") {
+            const reason = `Agent ${agent.agentID} refused Request: ${refusal}`;
+            if (setup!.agent.mode === "manual") throw Error(reason);
+            excluded.set(agent.agentID, reason);
+            return false;
+          }
         }
         let row = agentMission(await client.journal(), agent.agentID);
         if (
           !row ||
           row.agentID !== agent.agentID ||
-          (initial &&
-            (row.missionKey !== initial.missionKey || row.missionState !== initial.missionState))
+          row.missionKey !== fence.read().mission?.missionKey ||
+          row.missionState !== (initial?.missionState ?? 1)
         )
           throw new Error(
             "The existing agent mission changed before any action. Review the current journal.",
@@ -928,7 +943,7 @@ export function createDistributionHost(
             let leaveReason = "The replacement offer also exceeds the limit.";
             if (!declined.has(row.agentID)) {
               try {
-                await clearMission(row);
+                await declineOverLimitOffer(row);
                 declined.add(row.agentID);
                 phase(
                   "Finding an agent",
@@ -950,12 +965,11 @@ export function createDistributionHost(
           await press(agent.agentID, "accept", missionKey, objective);
         }
         row = agentMission(await client.journal(), agent.agentID);
-        const bound = fence.read().mission;
         if (
           !row ||
           row.missionState !== 2 ||
           row.agentID !== agent.agentID ||
-          (bound ? bound.missionKey : missionKey) !== row.missionKey
+          distributionAcceptedMission(fence.read())?.key !== row.missionKey
         )
           throw new Error("Accepted mission changed. Review the current journal.");
         missionKey = row.missionKey;
@@ -963,7 +977,6 @@ export function createDistributionHost(
         if (!sameCourier(accepted, objective))
           throw new Error("Courier objective changed after acceptance.");
         objective = accepted;
-        fence.bindMission(agent.agentID, missionKey, true);
         if (continuation) await continueCargo(agent.agentID, missionKey, objective);
         else {
           const unloaded = fence.read().unloaded;
@@ -1092,12 +1105,13 @@ export function createDistributionHost(
         if (!row || row.done || (!row.mission && !row.pending)) return;
         const intent = row.pending?.intent,
           journal = await client.journal();
-        if (
-          continuation &&
-          agentMission(journal, continuation.agentID)?.missionKey === continuation.key &&
-          (intent?.kind === "load" || intent?.kind === "unload")
-        )
-          await travel(intent.stationID);
+        if (continuation && (intent?.kind === "load" || intent?.kind === "unload")) {
+          const active = agentMission(journal, continuation.agentID);
+          if (active?.missionState === 2 && active.missionKey === continuation.key) {
+            await courierObjective(active);
+            await travel(intent.stationID);
+          }
+        }
         const proof =
           (intent?.kind === "load" || intent?.kind === "unload") &&
           agentMission(journal, intent.agentID)?.missionKey === intent.missionKey
@@ -1108,7 +1122,19 @@ export function createDistributionHost(
                 })
               ).proof
             : journalEvidence(journal);
-        const receipt = fence.reconcile(proof, continuation);
+        const bound = row.mission ? agentMission(journal, row.mission.agentID) : null;
+        const checkAcceptance =
+          !continuation &&
+          !intent &&
+          row.acceptedAt &&
+          bound?.missionState === 2 &&
+          bound.missionKey === row.mission?.missionKey;
+        const receipt = fence.reconcile(
+          checkAcceptance
+            ? { ...proof, acceptedAt: (await client.briefing(bound.agentID)).acceptedAt }
+            : proof,
+          continuation,
+        );
         if (receipt) {
           actionSequence = Math.max(actionSequence, receipt.invocationID);
           options.bindAccepted(run.botID, receipt.agentID, receipt.missionKey);
@@ -1261,7 +1287,7 @@ export function createDistributionHost(
         async start() {
           task = work()
             .catch(async (error) => {
-              if (stopping) return;
+              if (stopping || deps.shutdown?.aborted) return;
               if (
                 error instanceof CivilianMissionCompleted ||
                 error instanceof CivilianMissionMismatch
@@ -1292,19 +1318,23 @@ export function createDistributionHost(
             return;
           }
           stopping = true;
-          flow.abortRoute();
-          await task;
           try {
-            fence.abandonUntouched();
-          } catch {
-            /* Preserve every dispatched action. */
+            flow.abortRoute();
+            await task;
+            try {
+              if (!deps.shutdown?.aborted) fence.abandonUntouched();
+            } catch {
+              /* Preserve every dispatched action. */
+            }
+          } finally {
+            active = false;
+            flow.setLivePush(false);
           }
-          active = false;
-          flow.setLivePush(false);
         },
       };
     },
   };
 }
-export const distributionHost = createDistributionHost();
-export const civilianDistributionRun = createCivilianDistributionRun(distributionHost);
+export function createCourierRun(shutdown: AbortSignal) {
+  return createCivilianDistributionRun(createDistributionHost({ shutdown }));
+}

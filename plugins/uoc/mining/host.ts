@@ -1,12 +1,7 @@
 import { progressDeadline, travelFacts, readAfterTimeout } from "../shared/progressDeadline.ts";
-import path from "node:path";
-import { createRequire } from "node:module";
+import { uocStore } from "../backendStores.ts";
 import { createHash } from "node:crypto";
-import {
-  pluginDataDir,
-  type BackendRun,
-  type PluginRunContext,
-} from "../../../web/src/plugin-api/backend.ts";
+import { type BackendRun, type PluginRunContext } from "../../../web/src/plugin-api/backend.ts";
 import { createPilotSession } from "../../../web/src/plugin-api/pilotSession.ts";
 import {
   buildSlots,
@@ -19,7 +14,7 @@ import {
 } from "../../../web/src/plugin-api/flying.ts";
 import { decodeCivilianMiningSetup } from "./setup.ts";
 import { decodeMiningObjective } from "./objective.ts";
-import { miningMissionFit } from "./miningMission.ts";
+import { miningMissionFit, sameMission } from "./miningMission.ts";
 import {
   agentMission,
   checkedJournal,
@@ -29,8 +24,8 @@ import {
   type MissionJournal,
 } from "../distribution/native.ts";
 import {
-  clearBlockingMission,
-  conflictingMission,
+  busyAgentMessage,
+  confirmedMissionAccept,
   existingMissionRefusal,
   missionRefusalText,
   referralConflict,
@@ -48,8 +43,6 @@ import { checkedInventory as checkedNativeInventory } from "../shared/nativeInve
 import { miningAcceptedMission, miningIdentity, rolloverMiningState } from "./history.ts";
 import { CivilianMissionMismatch, sameAcceptedMission } from "../civilian/acceptedMission.ts";
 import { civilianProvenance, registerCivilianRecovery } from "../civilian/recovery.ts";
-const require = createRequire(import.meta.url),
-  { createDocumentStore } = require("../documentStore.cjs");
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const hash = (v: unknown) => createHash("sha256").update(JSON.stringify(v)).digest("hex");
 const identity = miningIdentity;
@@ -57,6 +50,7 @@ type Store = { read(): any; write(value: any): void };
 class RequestedStop extends Error {}
 export function createNativeMiningRun(
   deps: {
+    shutdown?: AbortSignal;
     attach?: typeof createPilotSession;
     document?: (run: PluginRunContext) => Store;
     wait?: typeof wait;
@@ -90,19 +84,19 @@ export function createNativeMiningRun(
         flow.setLivePush(false);
         throw error;
       });
-      const db = deps.document
-        ? null
-        : createDocumentStore(path.join(pluginDataDir(), "missions.sqlite"));
-      const document: Store =
-        deps.document?.(run) ?? db.document("native-mining:" + run.characterID);
-      const legacy = db?.document("mining-missions").read();
-      const prior = Object.values(legacy?.records ?? {}).find(
-        (r: any) => r.state?.characterID === run.characterID,
-      ) as any;
       const setupKey = hash(setup);
       let state: any,
         continuation = setup.continuation;
+      let document: Store;
       try {
+        deps.shutdown?.throwIfAborted();
+        const db = deps.document ? null : uocStore("missions.sqlite");
+        document = deps.document?.(run) ?? db!.document("native-mining:" + run.characterID);
+        const legacy = db?.document("mining-missions").read() as
+          { records?: Record<string, unknown> } | null | undefined;
+        const prior = Object.values(legacy?.records ?? {}).find(
+          (r: any) => r.state?.characterID === run.characterID,
+        ) as any;
         const previous = document.read(),
           scope = civilianProvenance(run),
           stored = previous?.civilian;
@@ -146,7 +140,6 @@ export function createNativeMiningRun(
             },
           });
           flow.setLivePush(false);
-          db?.close();
           return { stop() {} };
         }
         state = rolloverMiningState(previous, prior?.state ?? null, run.characterID, setupKey);
@@ -154,7 +147,6 @@ export function createNativeMiningRun(
           throw new CivilianMissionMismatch("The saved accepted Mining mission no longer matches.");
       } catch (error) {
         flow.setLivePush(false);
-        db?.close();
         throw error;
       }
       const now = deps.now ?? Date.now;
@@ -174,6 +166,7 @@ export function createNativeMiningRun(
         parkPromise: Promise<void> | null = null;
       const generation = flow.flying.sessionGeneration();
       const current = () => {
+        deps.shutdown?.throwIfAborted();
         if (
           !active ||
           flow.flying.sessionGeneration() !== generation ||
@@ -486,77 +479,43 @@ export function createNativeMiningRun(
         };
         settled();
       }
-      async function requestWithConflictHandling(agent: { agentID: number; stationID: number }) {
-        const reason = await press(agent.agentID, "request");
-        if (!reason) return;
-        const row = conflictingMission(await readAfterTimeout(journal), agent.agentID, reason);
-        if (state.mission || state.legacy?.objective)
-          throw Error(
-            `Agent ${agent.agentID} refused Request: ${reason}. A prior Mining mission still has a checkpoint.`,
-          );
-        await clearBlockingMission(row, {
-          session: { store, flow },
-          journal,
-          record: agentRecord,
-          dialogue,
-          travel,
-          guard,
-          briefing: async (id) => {
-            const r = await agentBriefing(id);
-            if (r.errors?.briefing) throw Error(r.errors.briefing);
-            return r.briefing;
-          },
-          async dispatch(kind, write) {
-            try {
-              await mutate(kind, { agentID: row.agentID, missionKey: row.missionKey }, write);
-            } catch (error) {
-              if (
-                state.pending?.kind === kind &&
-                (missionRefusalText(error) ||
-                  (error as { missionActionRefused?: boolean }).missionActionRefused)
-              ) {
-                const observed = agentMission(await readAfterTimeout(journal), row.agentID);
-                if (
-                  observed?.missionKey === row.missionKey &&
-                  observed.missionState === row.missionState
-                )
-                  settled();
-              }
-              throw error;
-            }
-            if (agentMission(await readAfterTimeout(journal), row.agentID))
-              throw Error("The unrelated mission removal is unconfirmed.");
-            settled();
-          },
-        });
-        await travel(agent.stationID);
-        const retry = await press(agent.agentID, "request");
-        if (retry) throw Error(`Agent ${agent.agentID} still refuses Request: ${retry}`);
-      }
-      async function press(id: number, kind: "request" | "accept" | "complete") {
+      async function press(
+        id: number,
+        kind: "request" | "accept" | "complete",
+        journalKey?: string,
+      ) {
         if (continuation && kind !== "complete")
           throw Error("Continue can only complete its already accepted Mining mission.");
         const nativeJournal = await readAfterTimeout(journal),
           before = agentMission(nativeJournal, id);
         if (kind === "request") {
-          if (before) throw Error("The selected agent's mission changed before Request.");
+          if (before) return busyAgentMessage(before);
           const referral = (await referralTargets(nativeJournal, agentBriefing)).get(id);
-          if (referral) throw Error(referralConflict(referral, id));
-        }
+          if (referral) return referralConflict(referral, id);
+        } else if (
+          !before ||
+          before.missionKey !== journalKey ||
+          before.missionState !== (kind === "accept" ? 1 : 2)
+        )
+          throw Error("The selected agent's mission changed before " + kind + ".");
         guard();
         const c = await dialogue(id),
-          buttons = kind === "request" ? [2] : kind === "accept" ? [3, 4, 5] : [6, 7],
+          buttons = kind === "request" ? [2] : kind === "accept" ? [3, 5] : [6, 7],
           button = c.actions.find((a) => buttons.includes(a.button));
         if (!button) {
           if (kind === "request") return c.says || "no matching native Request action";
           throw new Error("No native " + kind + " action is currently offered.");
         }
+        const rewardBefore =
+          kind === "complete"
+            ? await captureReward(run, run.characterID, id, state.agentCorporationID ?? null)
+            : null;
         const expected = kind === "request" ? null : await objective(id);
         if (
-          continuation &&
+          kind === "complete" &&
           (!expected ||
             expected.completionStatus !== 1 ||
-            !sameAcceptedMission(continuation, miningAcceptedMission({ mission: expected })))
+            identity(expected) !== miningAcceptedMission(state)?.key)
         )
           throw Error("The accepted Mining objective changed or is not ready to complete.");
         const fresh = agentMission(await readAfterTimeout(journal), id);
@@ -570,10 +529,6 @@ export function createNativeMiningRun(
               fresh.missionState !== (kind === "accept" ? 1 : 2))
         )
           throw Error("The selected agent's mission changed before " + kind + ".");
-        const rewardBefore =
-          kind === "complete"
-            ? await captureReward(run, run.characterID, id, state.agentCorporationID ?? null)
-            : null;
         let receipt;
         try {
           receipt = await mutate(
@@ -617,11 +572,21 @@ export function createNativeMiningRun(
             `Agent ${id}: Request did not produce a confirmed offer. ${receipt.says}`,
           );
         }
-        if (
-          kind === "accept" &&
-          (after?.missionState !== 2 || after.missionID !== before?.missionID)
-        )
-          throw new Error("Accepted mission is not yet confirmed.");
+        if (kind === "accept") {
+          if (
+            !confirmedMissionAccept(receipt) ||
+            !expected ||
+            after?.missionState !== 2 ||
+            after.missionID !== before?.missionID
+          )
+            throw new Error("This run's acceptance of the Mining offer could not be confirmed.");
+          const accepted = await objective(id);
+          if (accepted.missionState !== 2 || !sameMission(expected, accepted, false))
+            throw Error("The accepted Mining objective differs from the offer this run accepted.");
+          state.mission = accepted;
+          state.acceptedJournalKey = after.missionKey;
+          state.acceptedByRun = run.botID;
+        }
         if (kind === "complete") {
           if (receipt.completed !== true || after)
             throw new Error("Native completion is unresolved; no repeat.");
@@ -637,8 +602,12 @@ export function createNativeMiningRun(
           state.reward = compareRewards(rewardBefore, after, identity(state.mission));
           save();
         }
+        return after;
       }
-      async function chooseAgent(currentJournal: MissionJournal) {
+      async function chooseAgent(
+        currentJournal: MissionJournal,
+        excluded: ReadonlyMap<number, string>,
+      ) {
         if (state.legacy?.pending)
           throw new Error(
             "The preserved Mining mutation needs reconciliation before it can be repeated.",
@@ -655,29 +624,35 @@ export function createNativeMiningRun(
               (a.levelRule === "exact"
                 ? native.level === a.level
                 : native.level >= 1 && native.level <= a.level));
-        const retained =
-          state.mission?.agentID ??
-          state.legacy?.objective?.agentID ??
-          (state.pending || state.legacy?.cycle ? (state.agentID ?? state.legacy?.agentID) : null);
-        if (retained) {
-          const native = await agentRecord(retained);
+        const retained = miningAcceptedMission(state);
+        if (retained && (a.mode !== "manual" || a.agentID === retained.agentID)) {
+          const row = agentMission(currentJournal, retained.agentID);
           if (
-            !eligible(native, retained) ||
-            agentMission(currentJournal, retained)?.missionState !== 2
-          )
-            throw Error(
-              "The retained Mining mission does not match the selected agent policy or current journal.",
-            );
-          return native;
+            row?.missionState === 2 &&
+            row.missionID === retained.missionID &&
+            (!state.acceptedJournalKey || state.acceptedJournalKey === row.missionKey)
+          ) {
+            const native = await agentRecord(row.agentID);
+            if (eligible(native, row.agentID)) {
+              const owned = await objective(row.agentID);
+              if (owned.missionState === 2 && identity(owned) === retained.key) {
+                state.acceptedJournalKey = row.missionKey;
+                return { agent: native, owned };
+              }
+            }
+          }
         }
-        if (a.mode === "manual") return await agentRecord(a.agentID);
-        for (const row of currentJournal.active) {
-          const native = await agentRecord(row.agentID);
-          if (eligible(native, row.agentID)) return native;
+        if (state.pending || state.legacy?.cycle)
+          throw Error(
+            "The previous Mining action has no matching accepted mission. Review it before starting another.",
+          );
+        if (a.mode === "manual") {
+          const busy = agentMission(currentJournal, a.agentID);
+          if (busy) throw Error(busyAgentMessage(busy));
+          return { agent: await agentRecord(a.agentID), owned: null };
         }
         const referrals = await referralTargets(currentJournal, agentBriefing);
-        let blocked = null,
-          referralReason: string | undefined;
+        let reason = [...excluded.values()].at(-1);
         for (let level = a.level; level >= (a.levelRule === "max" ? 1 : a.level); level--) {
           guard();
           await flow.findAgents({ kind: "mining", level, limit: 5000 });
@@ -697,6 +672,12 @@ export function createNativeMiningRun(
             .sort(
               (a, b) => (a.jumps ?? Infinity) - (b.jumps ?? Infinity) || a.agentID - b.agentID,
             )) {
+            if (excluded.has(candidate.agentID)) continue;
+            const busy = agentMission(currentJournal, candidate.agentID);
+            if (busy) {
+              reason = busyAgentMessage(busy);
+              continue;
+            }
             guard();
             const native = await agentRecord(candidate.agentID);
             if (native?.divisionID !== 23 || native.agentTypeID !== 2) continue;
@@ -709,19 +690,18 @@ export function createNativeMiningRun(
             )
               throw new Error("Mining agent directory identity changed.");
             const referral = referrals.get(candidate.agentID);
-            if (referral && !agentMission(currentJournal, candidate.agentID)) {
-              referralReason = referralConflict(referral, candidate.agentID);
+            if (referral) {
+              reason = referralConflict(referral, candidate.agentID);
               continue;
             }
             const c = await dialogue(candidate.agentID);
             if (/standings are not high enough|too low standings/i.test(c.says)) continue;
-            if (c.actions.some((x) => [2, 3, 4, 5, 6, 7].includes(x.button))) return native;
-            if (existingMissionRefusal(c.says)) blocked ??= native;
+            if (c.actions.some((x) => x.button === 2)) return { agent: native, owned: null };
+            if (c.says) reason = `Agent ${candidate.agentID}: ${c.says}`;
           }
         }
-        if (blocked) return blocked;
         throw new Error(
-          referralReason ??
+          reason ??
             "No accessible Mining agent matches the selected levels, corporation and jump limit.",
         );
       }
@@ -1111,7 +1091,7 @@ export function createNativeMiningRun(
         if (identity(latest) !== identity(o) || latest.completionStatus !== 1)
           throw new Error("Native mission objective is not complete.");
         report("Completing", "Submitting the verified Mining objective to the agent.");
-        await press(o.agentID, "complete");
+        await press(o.agentID, "complete", state.acceptedJournalKey);
       }
       async function reconcileSettledCycle(o: MiningObjective) {
         const legacy = state.pending == null ? state.legacy?.cycle : null;
@@ -1417,7 +1397,8 @@ export function createNativeMiningRun(
             !row &&
             (receipt?.completed === true || terminal) &&
             details?.agentID === continuation.agentID &&
-            sameAcceptedMission(continuation, miningAcceptedMission({ mission: details.objective }))
+            details.objective?.missionState === 2 &&
+            identity(details.objective) === continuation.key
           ) {
             if (!state.mission) state.mission = details.objective;
             completeMission(
@@ -1438,12 +1419,16 @@ export function createNativeMiningRun(
           runCompleted = 1;
           return null;
         }
-        if (row?.missionState !== 2 || row.missionID !== continuation.missionID)
+        if (
+          row?.missionState !== 2 ||
+          row.missionID !== continuation.missionID ||
+          (journalKey && row.missionKey !== journalKey)
+        )
           throw new CivilianMissionMismatch(
             "The saved Mining mission is no longer accepted by this agent. It may have completed or expired.",
           );
         const o = await objective(continuation.agentID);
-        if (!sameAcceptedMission(continuation, miningAcceptedMission({ mission: o })))
+        if (o.missionState !== 2 || identity(o) !== continuation.key)
           throw new CivilianMissionMismatch(
             "The native Mining objective does not match the saved accepted mission.",
           );
@@ -1478,88 +1463,64 @@ export function createNativeMiningRun(
           throw new Error(
             "The previous " + state.pending.kind + " requires read-only reconciliation; no replay.",
           );
+        const excluded = new Map<number, string>();
         report("Finding an agent", "Checking available agents and the current mission journal.");
-        const beforeTravel = await journal(),
-          agent = await chooseAgent(beforeTravel);
-        if (
-          !agent?.stationID ||
-          agent.divisionID !== 23 ||
-          agent.agentTypeID !== 2 ||
-          (setup!.agent.mode === "manual" && agent.agentID !== setup!.agent.agentID)
-        )
-          throw new Error("Ordinary Mining agent identity is unverified.");
-        state.agentID = agent.agentID;
-        state.agentStationID = agent.stationID;
-        state.agentCorporationID = agent.corporationID ?? null;
-        save();
-        const known = state.mission ?? state.legacy?.objective;
-        const continuing =
-          known &&
-          agentMission(beforeTravel, agent.agentID)?.missionState === 2 &&
-          (await flight()).solarSystemID === known.systemID &&
-          identity(await objective(agent.agentID)) === identity(known);
-        if (!continuing) await travel(agent.stationID);
-        if (!agentMission(await journal(), agent.agentID)) {
-          report("Requesting", "Requesting one Mining mission.");
-          await requestWithConflictHandling(agent);
-        }
-        let o;
-        try {
-          o = await objective(agent.agentID);
-        } catch (error) {
-          const row = agentMission(await journal(), agent.agentID);
-          if (!row) throw error;
-          throw Error(
-            `${missionLabel(row)}: ${String(error)} Review its briefing in the agent journal.`,
-          );
-        }
-        if (state.legacy?.objective) {
-          const old = state.legacy.objective;
-          if (old.characterID !== o.characterID)
-            throw Error("The retained mission belongs to another pilot.");
+        while (true) {
+          const { agent, owned } = await chooseAgent(await journal(), excluded);
           if (
-            old.agentID !== o.agentID ||
-            old.content?.contentID !== o.content.contentID ||
-            old.acceptTimestamp !== o.acceptTimestamp
+            !agent?.stationID ||
+            agent.divisionID !== 23 ||
+            agent.agentTypeID !== 2 ||
+            (setup!.agent.mode === "manual" && agent.agentID !== setup!.agent.agentID)
           )
+            throw new Error("Ordinary Mining agent identity is unverified.");
+          if (!owned && (state.mission || state.legacy?.objective)) {
+            const { history, ...previous } = state;
+            state = rolloverMiningState(null, null, run.characterID, setupKey);
+            state.shipID = previous.shipID;
             state.history = [
-              ...(state.history ?? []),
-              {
-                objective: structuredClone(old),
-                completed: false,
-                outcome: "HISTORICAL_OUTCOME_UNKNOWN",
-              },
+              ...(history ?? []),
+              { ...previous, outcome: "HISTORICAL_OUTCOME_UNKNOWN" },
             ];
-        }
-        await fit(o.content.family);
-        if (o.missionState === 1) {
-          report("Accepting", "Accepting the checked Mining offer.");
-          await press(agent.agentID, "accept");
-          o = await objective(agent.agentID);
-        }
-        if (o.missionState !== 2) throw new Error("Native accepted Mining mission is not active.");
-        const accepted = agentMission(await journal(), o.agentID);
-        if (accepted?.missionState !== 2 || accepted.missionID !== o.content.contentID)
-          throw Error("The accepted Mining journal and objective do not agree.");
-        state.acceptedJournalKey = accepted.missionKey;
-        if (state.mission && identity(state.mission) !== identity(o)) {
-          state.history = [
-            ...(state.history ?? []),
-            {
-              objective: structuredClone(state.mission),
-              intent: structuredClone(state.pending),
-              completed: false,
-              outcome: "HISTORICAL_OUTCOME_UNKNOWN",
-            },
-          ];
+          }
+          state.agentID = agent.agentID;
+          state.agentStationID = agent.stationID;
+          state.agentCorporationID = agent.corporationID ?? null;
           save();
+          if (owned) {
+            if ((await flight()).solarSystemID !== owned.systemID) await travel(agent.stationID);
+            await fit(owned.content.family);
+            return owned;
+          }
+          await travel(agent.stationID);
+          report("Requesting", "Requesting one Mining mission.");
+          const offer = await press(agent.agentID, "request");
+          if (typeof offer === "string") {
+            const reason = `Agent ${agent.agentID} refused Request: ${offer}`;
+            if (setup!.agent.mode === "manual") throw Error(reason);
+            excluded.set(agent.agentID, reason);
+            continue;
+          }
+          if (offer?.missionState !== 1) throw Error("Request did not produce a Mining offer.");
+          let o: MiningObjective;
+          try {
+            o = await objective(agent.agentID);
+          } catch (error) {
+            throw Error(
+              `${missionLabel(offer)}: ${String(error)} Review its briefing in the agent journal.`,
+            );
+          }
+          if (o.missionState !== 1 || o.content.contentID !== offer.missionID)
+            throw Error("The requested Mining offer changed before review.");
+          await fit(o.content.family);
+          report("Accepting", "Accepting the checked Mining offer.");
+          await press(agent.agentID, "accept", offer.missionKey);
+          return state.mission as MiningObjective;
         }
-        return o;
       }
       async function oneMission() {
         guard();
         await flight();
-        if (!continuation) save();
         const o = continuation ? await continueObjective() : await ordinaryObjective();
         if (!o) return;
         state.mission = o;
@@ -1634,7 +1595,7 @@ export function createNativeMiningRun(
       function launchWork() {
         return work()
           .catch(async (error) => {
-            if (!active || ended) return;
+            if (!active || ended || deps.shutdown?.aborted) return;
             const reason = error instanceof RequestedStop ? "Stop requested." : String(error);
             if (continuation && !verifiedContinuation && !(error instanceof RequestedStop)) {
               ended = true;
@@ -1668,13 +1629,16 @@ export function createNativeMiningRun(
           if (released) return;
           stopRequested = true;
           flow.abortRoute();
-          await task;
-          active = false;
-          unregisterRecovery();
-          unregister();
-          flow.setLivePush(false);
-          db?.close();
-          released = true;
+          try {
+            await task;
+            await parkPromise;
+          } finally {
+            active = false;
+            unregisterRecovery();
+            unregister();
+            flow.setLivePush(false);
+            released = true;
+          }
         },
       };
     },

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { untrack } from "svelte";
   import {
     checkMiningMissionRecovery,
     continueCivilianMission,
@@ -8,7 +8,7 @@
     type MiningMissionRecovery,
     type ServerBot,
   } from "../app/api.ts";
-  import { skipWhileBusy } from "../app/skipWhileBusy.ts";
+  import { pollWhileVisible } from "../app/pageVisibility.ts";
   import { civilianMissionName, currentCivilianWorker } from "../app/civilianSession.ts";
   import { ownerOptions } from "../app/context.ts";
   import type { CivilianProfile } from "../../civilian/profile.ts";
@@ -77,14 +77,16 @@
     );
   }
 
-  async function refresh(scope: readonly string[] = accounts) {
+  let visible: AbortSignal | undefined;
+  async function refresh(scope: readonly string[] = accounts, signal = visible) {
+    if (!signal || signal.aborted) return;
     const check = ++serial;
     const results = await Promise.allSettled(
       scope.map(async (account) =>
-        listCivilianHosted({ ...(await ownerOptions(account)), priority: "poll" }),
+        listCivilianHosted({ ...(await ownerOptions(account)), signal, priority: "poll" }),
       ),
     );
-    if (check !== serial) return;
+    if (signal.aborted || check !== serial) return;
     const next = { ...snapshots };
     results.forEach((result, i) => {
       const key = scope[i]!.toLowerCase();
@@ -120,28 +122,24 @@
     });
   }
 
-  onMount(() => {
-    const poll = skipWhileBusy(async () => {
-      if (!loaded) return;
-      const relevant = [
-        ...new Set([
-          ...watchedAccounts,
-          ...workers.filter((row) => row.bot.civilianView !== "HISTORY").map((row) => row.account),
-        ]),
-      ];
-      if (relevant.length) await refresh(relevant);
-    });
-    const timer = setInterval(() => void poll(), 3000);
-    return () => {
-      clearInterval(timer);
-      ++serial;
-    };
-  });
-
   $effect(() => {
     const scope = accounts;
     void refreshKey;
-    void refresh(scope);
+    return untrack(() =>
+      pollWhileVisible(3000, async (signal, initial) => {
+        visible = signal;
+        if (initial) return refresh(scope, signal);
+        const relevant = [
+          ...new Set([
+            ...watchedAccounts,
+            ...workers
+              .filter((row) => row.bot.civilianView !== "HISTORY")
+              .map((row) => row.account),
+          ]),
+        ];
+        if (relevant.length) await refresh(relevant, signal);
+      }),
+    );
   });
 </script>
 

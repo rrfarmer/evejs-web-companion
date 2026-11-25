@@ -2997,7 +2997,8 @@ test("hosted Miners and Defenders resume after transient reads through two hosti
     health = 1,
     sample = 0,
     unrelatedFleetReads = 0;
-  let defenderReadFailures = 0;
+  let defenderReadFailures = 0,
+    defenderSensorReads = 0;
   const role = (m: (typeof members)[number]) => m.role === "MINER";
   const miners = await Promise.all(
     members.filter(role).map((m, index) => {
@@ -3307,7 +3308,7 @@ test("hosted Miners and Defenders resume after transient reads through two hosti
             async bridgeAsk(_service: string, method: string, args: number[]) {
               assert.equal(method, "QueryAttributeValue");
               assert.deepEqual(args, [shipID, 76]);
-              if (id === 3 && rat && defenderReadFailures === 0) {
+              if (id === 3 && ++defenderSensorReads === 1) {
                 defenderReadFailures++;
                 throw Object.assign(Error("EveJS gateway timed out."), {
                   code: "EVE_GATEWAY_TIMEOUT",
@@ -3533,8 +3534,9 @@ test("hosted Miners and Defenders resume after transient reads through two hosti
   assert.ok([1, 2].every((id) => hostedReports.get(id)?.status === "running"));
   rat = { id: 90, x: 30000 };
   for (const m of miners) m.threat(30000);
-  // The gun range fails once while the rest of the pilot's combat remains available.
-  await until(() => defenderReadFailures === 1);
+  // The held Defender warms its sensor range before contact and retries the failed read.
+  await until(() => defenderSensorReads >= 2);
+  assert.equal(defenderReadFailures, 1);
   assert.equal(group.entries.get(3)?.failed, null);
   const independentGain = miners[0]!.laserYield();
   await until(() => miners[0]!.freight() === independentGain);

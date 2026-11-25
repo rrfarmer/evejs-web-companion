@@ -21,15 +21,10 @@ import {
 } from "./miningTelemetry.ts";
 import { assertMiningReview } from "./miningReview.ts";
 import { createFleetLaunchJournal, type FleetLaunchReceipt } from "./miningLaunchJournal.ts";
-import path from "node:path";
-import { createRequire } from "node:module";
+import { uocStore } from "../backendStores.ts";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import {
-  pluginDataDir,
-  type BackendRoute,
-  type PluginRunCheck,
-} from "../../../web/src/plugin-api/backend.ts";
+import type { BackendRoute, PluginRunCheck } from "../../../web/src/plugin-api/backend.ts";
 import { MAX_SHIFT_MINUTES } from "../miningFleet/shiftTiming.ts";
 import {
   createMiningDefinitionStore,
@@ -44,13 +39,7 @@ type DefinitionStorage = {
   transaction<T>(action: () => T): T;
   deleteDocuments(names: readonly string[], prefixes: readonly string[]): void;
 };
-const require = createRequire(import.meta.url),
-  { createDocumentStore } = require("../documentStore.cjs") as {
-    createDocumentStore: (file: string) => DefinitionStorage;
-  };
-let db: ReturnType<typeof createDocumentStore> | null = null;
-const defaultStorage = () =>
-  (db ??= createDocumentStore(path.join(pluginDataDir(), "mining-definitions.sqlite")));
+const defaultStorage = () => uocStore("mining-definitions.sqlite");
 const obj = (v: unknown): v is Record<string, any> =>
   !!v && typeof v === "object" && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 160;
@@ -360,8 +349,8 @@ export function createMiningOperationRoutes(
     }
     return { body: payload(identity) };
   }
-  const physicalState = (identity: string, id: string) => {
-    const receipt = journalFor(launchIdentity(identity, id), id).read(),
+  const physicalState = (identity: string, id: string, original = launchIdentity(identity, id)) => {
+    const receipt = journalFor(original, id).read(),
       active = deps.isOperationActive?.(id);
     if (!receipt)
       return { receipt: null, snapshot: null, state: active === false ? "DRAFT" : "UNKNOWN" };
@@ -422,6 +411,11 @@ export function createMiningOperationRoutes(
         Object.keys(raw.jetcanIntents).length)
     )
       return { receipt, snapshot: null, state: unknown };
+    if (raw.state === "STOPPED" && (raw.relocation || Object.keys(raw.haulClaims ?? {}).length))
+      return { receipt, snapshot: raw, state: unknown };
+    // Native settlement can finish before the last hosted controller releases its pilot.
+    if (raw.state === "STOPPED" && active !== false)
+      return { receipt, snapshot: raw, state: active ? "PARKING" : unknown };
     return {
       receipt,
       snapshot: raw,
@@ -433,12 +427,13 @@ export function createMiningOperationRoutes(
             : raw.state,
     };
   };
+  const isIdle = (state: string) => state === "DRAFT" || state === "STOPPED";
   const assertLaunchAvailable = (identity: string, id: string) => {
     if (!deps.isOperationActive) throw Error("Live operation ownership is unavailable.");
     if (deps.isOperationActive(id))
       throw Error("Stop the active operation before launching another generation.");
     const state = physicalState(identity, id);
-    if (state.receipt && state.state !== "STOPPED" && state.state !== "DRAFT")
+    if (state.receipt && !isIdle(state.state))
       throw Error(
         "Previous fleet custody is unresolved; reconcile it before launching another generation.",
       );
@@ -792,10 +787,31 @@ export function createMiningOperationRoutes(
       throw Error("Reset requires an unclaimed belt marked DEPLETED and safe.");
     return { body: payload(identity) };
   });
+  const inUse = {
+    status: 409,
+    body: {
+      ok: false,
+      error: "MINING_OPERATION_IN_USE",
+      message:
+        "Wait for the fleet to finish and release its pilots before editing or deleting this operation.",
+    },
+  };
   const save: BackendRoute = wrap((req) => {
-    const identity = scope(req);
-    const saved = store(identity).save(req.body);
-    return { body: { ...payload(identity), savedOperationID: saved.operationID } };
+    const identity = scope(req),
+      definitions = store(identity),
+      value = req.body;
+    const saveReviewed = () => {
+      if (
+        obj(value) &&
+        text(value.operationID) &&
+        definitions.get(value.operationID) &&
+        !isIdle(physicalState(identity, value.operationID).state)
+      )
+        return null;
+      return definitions.save(value);
+    };
+    const saved = storage ? storage.transaction(saveReviewed) : saveReviewed();
+    return saved ? { body: { ...payload(identity), savedOperationID: saved.operationID } } : inUse;
   });
   const remove: BackendRoute = wrap((req) => {
     const id = req.params.operationID ?? "",
@@ -805,24 +821,27 @@ export function createMiningOperationRoutes(
     const identity = scope(req),
       definitions = store(identity);
     const removeSaved = () => {
-      if (!definitions.remove(id, v.revision)) return false;
+      const definition = definitions.get(id);
+      if (!definition) return "missing";
       const original = launchIdentity(identity, id),
-        receipt = journalFor(original, id).read();
-      if (
-        deps.isOperationActive?.(id) === false &&
-        (!receipt || !isLaunching(launchScope(identity, id, receipt.operationRunID)))
-      ) {
-        const runKeys = JSON.stringify([original, id]).slice(0, -1) + ",";
-        storage?.deleteDocuments(
-          [launchKey(original, id), unverifiedStopKey(identity, id)],
-          ["mining-launch-setup:", "mining-launch-history:", "mining-finish:"].map(
-            (prefix) => prefix + runKeys,
-          ),
-        );
-      }
-      return true;
+        run = physicalState(identity, id, original);
+      if (!isIdle(run.state)) return "in-use";
+      if (definition.revision !== v.revision)
+        throw Error("Operation changed since review; reload before deleting.");
+      if (lifecycle && run.receipt && !retire(identity, run.receipt, original)) return "in-use";
+      definitions.remove(id, v.revision);
+      const runKeys = JSON.stringify([original, id]).slice(0, -1) + ",";
+      storage?.deleteDocuments(
+        [launchKey(original, id), unverifiedStopKey(identity, id)],
+        ["mining-launch-setup:", "mining-launch-history:", "mining-finish:"].map(
+          (prefix) => prefix + runKeys,
+        ),
+      );
+      return "deleted";
     };
-    if (!(storage?.transaction(removeSaved) ?? removeSaved()))
+    const removed = storage ? storage.transaction(removeSaved) : removeSaved();
+    if (removed === "in-use") return inUse;
+    if (removed === "missing")
       return { status: 404, body: { ok: false, error: "MINING_OPERATION_NOT_FOUND" } };
     return { body: payload(identity) };
   });
@@ -874,9 +893,10 @@ export function createMiningOperationRoutes(
   const journal = (req: BackendRequest) => {
     const identity = scope(req),
       id = req.params.operationID ?? "";
-    if (!text(id) || !store(identity).get(id)) throw Error("Saved operation is unavailable.");
+    const definition = text(id) ? store(identity).get(id) : null;
+    if (!definition) throw Error("Saved operation is unavailable.");
     const original = launchIdentity(identity, id);
-    return { launch: journalFor(original, id), original };
+    return { launch: journalFor(original, id), original, definition };
   };
   const begin: BackendRoute = wrap(async (req) => {
     const body = req.body;
@@ -933,8 +953,7 @@ export function createMiningOperationRoutes(
       if (retained) {
         if (retained.operationRunID === runID) throw Error("This fleet launch already exists.");
         if (
-          isLaunching(launchScope(identity, id, retained.operationRunID)) ||
-          retained.members.some((m) => m.status !== "PREPARED") ||
+          !isIdle(physicalState(identity, id, originalIdentity).state) ||
           !retire(identity, retained, originalIdentity)
         )
           throw Error("Waiting for the previous fleet's hosted owners to finish.");
@@ -994,14 +1013,15 @@ export function createMiningOperationRoutes(
     const v = req.body;
     if (!obj(v) || !Number.isSafeInteger(v.characterID))
       throw Error("Exact launch member is required.");
-    const { launch, original } = journal(req),
+    const { launch, original, definition } = journal(req),
       retained = launch.read();
     if (retained) {
       const snapshot = deps.operationSnapshot?.(retained.operationID, retained.operationRunID);
       if (
         ((lifecycle || v.operationRunID !== undefined) &&
           v.operationRunID !== retained.operationRunID) ||
-        (obj(snapshot) && snapshot.stopRequested)
+        retained.revision !== definition.revision ||
+        (obj(snapshot) && (snapshot.stopRequested || snapshot.state === "STOPPED"))
       )
         throw Error("This fleet launch changed or is stopping.");
       if (

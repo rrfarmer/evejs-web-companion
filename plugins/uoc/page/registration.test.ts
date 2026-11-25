@@ -94,6 +94,8 @@ test("the stock page loader renders UOC and passes the linked account directory"
     },
   });
   t.after(() => styles.deregister());
+  const [uoc] = await activatePagePlugins(PLUGINS.filter(({ id }) => id === "uoc"), PLUGIN_VIEWS);
+  assert.equal(uoc?.state, "active");
   const locationProperty = Object.getOwnPropertyDescriptor(globalThis, "location");
   t.after(() => {
     if (locationProperty) Object.defineProperty(globalThis, "location", locationProperty);
@@ -114,10 +116,12 @@ test("the stock page loader renders UOC and passes the linked account directory"
     const page = pluginPageAt(path);
     assert.ok(page);
     const { default: Page } = await page.load();
-    const html = render(Page, { props: { sessions, activeSession: sessions[1]! } }).body;
-    assert.ok(html.includes(text));
-    assert.doesNotMatch(html, /fixture-one|fixture-two/);
-    assert.deepEqual(workspaceAccounts(), ["RosterTwo", "RosterOne"]);
+    for (const roster of [sessions, [...sessions].reverse()]) {
+      const html = render(Page, { props: { sessions: roster, activeSession: sessions[1]! } }).body;
+      assert.ok(html.includes(text));
+      assert.doesNotMatch(html, /fixture-one|fixture-two/);
+      assert.deepEqual(workspaceAccounts(), roster.map((pilot) => pilot.accountName));
+    }
     const direct = render(Page, { props: { sessions: [], activeSession: null } }).body;
     assert.ok(direct.includes(text));
     assert.deepEqual(workspaceAccounts(), []);

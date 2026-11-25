@@ -69,6 +69,7 @@ function fixture(
   const distances: Record<string, number> = {};
   let offerJumps = 0;
   let leftOffer: number | null = null;
+  let leftAccepted: ReturnType<typeof tuple> | null = null;
   const offeredRow = (agent: number) =>
     tuple(
       1,
@@ -85,12 +86,14 @@ function fixture(
   const foreignAgent = 3008740;
   let foreign: {
     state: 0 | 1 | 2;
-    blocks?: boolean;
-    cooldown?: number;
-    refusal?: string;
+    blocks?: true | number;
+    eligible?: boolean;
     referral?: boolean;
-    lost?: boolean;
+    declineTime?: number;
   } = { state: 0 };
+  const declineReply: { refusal?: string; lost?: boolean } = {};
+  const acceptance = { time: 1234, alreadyAccepted: false };
+  let foreignContacts = 0;
   const objective = () =>
     dict({
       contentID: wrongObjective ? 901 : 900,
@@ -158,19 +161,19 @@ function fixture(
           stationID: 602,
           solarSystemID: 300,
           level: 1,
-          corporationID: 1000084,
+          corporationID: foreign.eligible ? missionCorp : 1000084,
         },
       });
     if (p === `/api/bridge/agents/${foreignAgent}/briefing`)
       return response({
         ok: true,
-        briefing: dict({ "Decline Time": foreign.cooldown ?? -1 }),
+        briefing: dict({ "Decline Time": foreign.declineTime ?? -1 }),
         errors: { briefing: null },
-        objective: foreign.referral
-          ? dict({
-              objectives: list(tuple("agent", tuple(missionAgent, dict({ locationID: 600 })))),
-            })
-          : null,
+        objective: dict({
+          objectives: foreign.referral
+            ? list(tuple("agent", tuple(missionAgent, dict({ locationID: 600 }))))
+            : list(tuple("transport", tuple())),
+        }),
       });
     const agentPath = /^\/api\/bridge\/agents\/(\d+)\/(record|briefing)$/.exec(p);
     if (
@@ -194,7 +197,11 @@ function fixture(
       return response({
         ok: true,
         objective: objective(),
-        briefing: dict({ "Decline Time": declinedAgents.includes(agentID) ? 60_000_000 : -1 }),
+        briefing: dict({
+          "Decline Time": declinedAgents.includes(agentID) ? 60_000_000 : -1,
+          AcceptTimestamp:
+            state === 2 ? { type: "long", value: String(acceptance.time + completed) } : null,
+        }),
         errors: { briefing: null, objective: null, location: null },
       });
     }
@@ -299,6 +306,7 @@ function fixture(
                 ]
               : []),
             ...(leftOffer === null ? [] : [offeredRow(leftOffer)]),
+            ...(leftAccepted === null ? [] : [leftAccepted]),
             ...(foreign.state
               ? [
                   tuple(
@@ -357,38 +365,8 @@ function fixture(
         assert.equal(b.confirm, true);
         const id = b.args[0];
         if (b.of === foreignAgent) {
-          if (id === null) result = conversation(foreign.state === 1 ? [[378, 9]] : [[383, 11]]);
-          else {
-            assert.equal(id, foreign.state === 1 ? 378 : 383);
-            const kind = id === 378 ? "decline" : "quit";
-            events.push(kind);
-            if (kind === "quit") assert.equal(station, 602);
-            if (foreign.refusal)
-              return response({ ok: false, error: "CALL_REFUSED", message: foreign.refusal }, 409);
-            if (foreign.lost) throw Error("response lost");
-            questions = [
-              {
-                id: "native-confirmation",
-                kind: "yesNo",
-                service: "agents",
-                method: "YesNo",
-                agentID: foreignAgent,
-                contentID: id === 378 ? 4802 : 902,
-                suppressID: id === 378 ? "AgtDeclineMission" : "AgtQuitMission",
-              },
-            ];
-            const confirmed = new Promise<void>((resolve) => {
-              confirm = resolve;
-            });
-            notify?.({ questions });
-            await confirmed;
-            questions = [];
-            foreign.state = 0;
-            result = tuple(
-              tuple(tuple("agent", 1), list()),
-              dict({ missionDeclined: id === 378, missionQuit: id === 383 }),
-            );
-          }
+          foreignContacts++;
+          throw Error(`Unexpected contact with the occupied agent: ${id}`);
         } else if (id === null)
           result = conversation(
             state === 0 || b.of !== missionAgent
@@ -405,7 +383,7 @@ function fixture(
         else if (id === 10) {
           events.push("request");
           requestedAgents.push(b.of);
-          if (foreign.state && foreign.blocks)
+          if (foreign.state && (foreign.blocks === true || foreign.blocks === b.of))
             return response(
               {
                 ok: false,
@@ -415,6 +393,19 @@ function fixture(
               409,
             );
           if (state === 1 && b.of !== missionAgent) leftOffer = missionAgent;
+          if (state === 2 && b.of !== missionAgent)
+            leftAccepted = tuple(
+              2,
+              false,
+              "UI/Agents/MissionTypes/Courier",
+              101,
+              missionAgent,
+              456 + completed,
+              list(),
+              false,
+              false,
+              900,
+            );
           missionAgent = b.of;
           offerJumps = offerRoutes.get(b.of)?.shift() ?? 0;
           state = 1;
@@ -425,8 +416,14 @@ function fixture(
         } else if (id === 378) {
           assert.equal(state, 1);
           assert.equal(b.of, missionAgent);
-          declinedAgents.push(b.of);
           events.push("decline");
+          if (declineReply.refusal)
+            return response(
+              { ok: false, error: "CALL_REFUSED", message: declineReply.refusal },
+              409,
+            );
+          if (declineReply.lost) throw Error("response lost");
+          declinedAgents.push(b.of);
           questions = [
             {
               id: "native-confirmation",
@@ -452,7 +449,7 @@ function fixture(
           if (delayedReads > 0) previousJournalState = 1;
           if (holdAccept) await acceptGate;
           if (lostAccept) throw new Error("response lost");
-          result = conversation([]);
+          result = conversation([[30, 6]], acceptance.alreadyAccepted ? null : false);
         } else if (id === 30) {
           events.push("complete");
           state = 0;
@@ -548,6 +545,15 @@ function fixture(
               jumps: 0,
             }))
           : [];
+      if (level === 1 && foreign.eligible)
+        agents.unshift({
+          agentID: foreignAgent,
+          level,
+          stationID: 602,
+          solarSystemID: 300,
+          corporationID: missionCorp,
+          jumps: 0,
+        });
       const incomplete = route.finderIncomplete > 0;
       if (incomplete) route.finderIncomplete--;
       finder = {
@@ -641,7 +647,11 @@ function fixture(
     requestedAgents,
     declinedAgents,
     leftOffer: () => leftOffer,
+    leftAccepted: () => leftAccepted,
     distances,
+    declineReply,
+    acceptance,
+    foreignContacts: () => foreignContacts,
     foreign: (row: typeof foreign) => {
       foreign = row;
       missionCorp = 1000064;
@@ -726,24 +736,37 @@ function continueCourier(
   return withCivilianPolicy(f.backend, "distribution", { write() {} });
 }
 
-function savedCourier(f: ReturnType<typeof fixture>) {
+function savedCourier(f: ReturnType<typeof fixture>, scoped = true) {
   const botID = "released-owner",
     key = '[9,900,101,"456"]';
   const lease = f.fence().open({ accountID: 1, characterID: 2, runID: botID, current: () => true });
-  lease.annotateCivilian({
-    worldID: "synthetic-distribution",
-    owner: "tester",
-    characterID: 2,
-    botID,
-    kind: "distribution",
-    status: "stopped",
-    phase: "Docked",
-    pending: null,
-    firstFailure: null,
-    resolved: false,
-    updatedAt: 1,
-  });
-  lease.bindMission(9, key, true);
+  if (scoped)
+    lease.annotateCivilian({
+      worldID: "synthetic-distribution",
+      owner: "tester",
+      characterID: 2,
+      botID,
+      kind: "distribution",
+      status: "stopped",
+      phase: "Docked",
+      pending: null,
+      firstFailure: null,
+      resolved: false,
+      updatedAt: 1,
+    });
+  const offer = { agentID: 9, missionKey: '[9,900,101,"123"]' };
+  const before = {
+    journal: { active: [], offered: [offer] },
+    shipID: 3,
+    stationID: 600,
+    typeID: null,
+    cargoQuantity: null,
+    hangarQuantity: null,
+  };
+  lease.bindMission(offer.agentID, offer.missionKey);
+  lease.dispatch({ kind: "accept", ...offer }, before);
+  lease.acknowledge(String(f.acceptance.time));
+  lease.settle({ ...before, journal: { active: [{ agentID: 9, missionKey: key }], offered: [] } });
   return { ...lease, mission: { agentID: 9, missionID: 900, key, botID } };
 }
 
@@ -769,11 +792,14 @@ test("Courier Continue after Stop and reload delivers cargo aboard exactly once"
   f.existing({ state: 2, aboard: true, station: null });
   f.route.systemID = 301;
   f.reports.length = 0;
+  f.foreign({ state: 2 });
   const second = await continueCourier(f, "continued", { ...accepted, botID: "bot" }).start(f.run);
   try {
     await until(() => f.reports.at(-1)?.status === "stopped");
     assert.equal(f.reports.at(-1).phase, "Completed");
     assert.deepEqual(f.events, ["request", "accept", "route-601", "cargo-hangar", "complete"]);
+    assert.equal(f.foreignState(), 2);
+    assert.equal(f.foreignContacts(), 0);
   } finally {
     await second.stop();
   }
@@ -859,6 +885,68 @@ test("Courier Continue suppresses a checkpoint when the accepted mission disappe
     await handle.stop();
   }
 });
+
+test("Courier Continue leaves a replacement with the same journal key and a different native acceptance time alone", async () => {
+  const f = fixture(),
+    original = savedCourier(f);
+  f.existing({ state: 2, delivered: true });
+  f.acceptance.time++;
+  const handle = await continueCourier(f, "resumed", original.mission).start(f.run);
+  try {
+    await until(() => f.reports.at(-1)?.phase === "Needs attention");
+    assert.deepEqual(f.events, []);
+    assert.match(f.reports.at(-1).why, /different acceptance time/);
+    assert.equal(f.reports.at(-1).readout.continuationUnavailable, true);
+  } finally {
+    await handle.stop();
+  }
+});
+
+test("Courier ignores a legacy observation with no evidence this run accepted it", async () => {
+  const f = fixture();
+  savedCourier(f, false);
+  const legacy = structuredClone(f.getStorage()) as any;
+  delete legacy.records["1:2"].acceptedAt;
+  f.restoreStorage(legacy);
+  f.existing({ state: 2, delivered: true });
+  const handle = await f.backend.start(f.run);
+  try {
+    await until(() => f.reports.at(-1)?.status === "paused");
+    assert.deepEqual(f.events, []);
+    assert.match(f.reports.at(-1).why, /agent 9.*free agent/i);
+  } finally {
+    await handle.stop();
+  }
+});
+
+test("a player Accept racing the Courier's action is never claimed or completed", async () => {
+  const f = fixture();
+  f.acceptance.alreadyAccepted = true;
+  const handle = await f.backend.start(f.run);
+  try {
+    await until(() => f.reports.at(-1)?.status === "paused");
+    assert.match(f.reports.at(-1).why, /acceptance.*could not be confirmed/);
+    assert.deepEqual(f.events, ["request", "accept"]);
+    assert.equal(f.reports.at(-1).readout.acceptedMission, null);
+  } finally {
+    await handle.stop();
+  }
+});
+
+for (const state of [1, 2] as const)
+  test(`a manually selected Courier agent occupied by a player's state-${state} mission is left untouched`, async () => {
+    const f = fixture();
+    f.existing({ state, delivered: state === 2 });
+    const handle = await f.backend.start(f.run);
+    try {
+      await until(() => f.reports.at(-1)?.status === "paused");
+      assert.match(f.reports.at(-1).why, /agent 9.*free agent/i);
+      assert.deepEqual(f.events, []);
+      assert.equal(f.reports.at(-1).readout.acceptedMission, null);
+    } finally {
+      await handle.stop();
+    }
+  });
 
 test("Courier remains eligible after Stop during Continue", async () => {
   const f = fixture(),
@@ -1060,6 +1148,12 @@ for (const action of [
     try {
       await until(() => ["stopped", "paused"].includes(f.reports.at(-1)?.status));
       const result = f.reports.at(-1);
+      if (action === "accept") {
+        assert.equal(result.status, "paused");
+        assert.match(result.why, /Accept has no confirmed reply/);
+        assert.deepEqual(f.events, ["request", "accept"]);
+        return;
+      }
       assert.equal(result.status, "stopped", JSON.stringify(result));
       assert.equal(result.readout.completedCount, complete ? 2 : 1);
       assert.equal(result.readout.pending, null);
@@ -1115,7 +1209,7 @@ for (const foreign of ["none", "offer", "blocking accepted", "unrelated accepted
     f.existing({ state: 0, station: foreign === "offer" ? null : 600 });
     f.foreign({
       state: foreign === "none" ? 0 : foreign === "offer" ? 1 : 2,
-      blocks: foreign === "blocking accepted",
+      blocks: foreign === "blocking accepted" ? true : undefined,
     });
     f.reports.length = 0;
     const handle = await backend.start({ ...f.run, resumed: true, fetch: baseFetch });
@@ -1123,7 +1217,7 @@ for (const foreign of ["none", "offer", "blocking accepted", "unrelated accepted
       await until(() => ["stopped", "paused"].includes(f.reports.at(-1)?.status));
       if (foreign === "blocking accepted") {
         assert.equal(f.reports.at(-1).status, "paused");
-        assert.match(f.reports.at(-1).why, /accepted mission requires manual review/);
+        assert.match(f.reports.at(-1).why, /refused Request.*outstanding mission/);
         assert.deepEqual(f.events.slice(2), ["request"]);
         assert.equal(f.foreignState(), 2);
         return;
@@ -1136,7 +1230,7 @@ for (const foreign of ["none", "offer", "blocking accepted", "unrelated accepted
         [1],
       );
       assert.equal(f.fence().completed(1, 2, f.run.botID).length, 1);
-      const recovery = foreign === "offer" ? ["decline", "route-600"] : [];
+      const recovery = foreign === "offer" ? ["route-600"] : [];
       assert.deepEqual(f.events.slice(2), [
         ...recovery,
         "request",
@@ -1180,13 +1274,34 @@ test("hosted Courier checks the hand-in again when the same delivered mission is
   }
 });
 
-test("hosted Courier can resume its native flight even when no checkpoint was saved", async () => {
+test("a resumed Courier skips an observed offer without a recorded Request", async () => {
+  const f = fixture(false, false, false, false, 600000, false, "none", 1, true);
+  const checkpoint = f
+    .fence()
+    .open({ accountID: 1, characterID: 2, runID: f.run.botID, current: () => true });
+  checkpoint.bindMission(9, '[9,900,101,"123"]');
+  f.existing({ state: 1, jumps: 11 });
+  f.offerRoutes.set(10, [0]);
+  const handle = await f.backend.start({ ...f.run, resumed: true });
+  try {
+    await until(() => ["stopped", "paused"].includes(f.reports.at(-1)?.status));
+    assert.deepEqual(f.declinedAgents, []);
+    assert.equal(f.reports.at(-1).phase, "Completed", f.reports.at(-1).why);
+    assert.deepEqual(f.requestedAgents, [10]);
+    assert.equal(f.leftOffer(), 9);
+  } finally {
+    await handle.stop();
+  }
+});
+
+test("a hosted restart cannot claim a player's accepted Courier mission without a checkpoint", async () => {
   const f = fixture();
   f.existing({ state: 2, aboard: true, station: null });
   const handle = await f.backend.start({ ...f.run, resumed: true });
   try {
-    await until(() => f.reports.some((r) => r.readout?.completedCount === 1));
-    assert.deepEqual(f.events, ["route-601", "cargo-hangar", "complete"]);
+    await until(() => f.reports.at(-1)?.status === "paused");
+    assert.match(f.reports.at(-1).why, /agent 9.*free agent/i);
+    assert.deepEqual(f.events, []);
   } finally {
     await handle.stop();
   }
@@ -1476,6 +1591,7 @@ test("Courier tries another eligible agent after a repeated over-limit offer", a
 
 test("Courier leaves an over-limit offer with a native decline timer and tries another agent", async () => {
   const f = fixture(false, false, false, false, 600000, false, "none", 1, true);
+  f.prepareOffer();
   f.existing({ state: 1, jumps: 11 });
   f.declinedAgents.push(9);
   f.offerRoutes.set(10, [5]);
@@ -1513,9 +1629,9 @@ test("Courier pauses once when the selected agent has only over-limit offers", a
 test("Courier and Continue finish an already accepted Delivery beyond the current limit", async () => {
   for (const continuation of [false, true]) {
     const f = fixture(),
-      old = continuation ? savedCourier(f) : null;
+      old = savedCourier(f, continuation);
     f.existing({ state: 2, aboard: true, jumps: 11 });
-    const backend = old ? continueCourier(f, "continued", old.mission) : f.backend;
+    const backend = continuation ? continueCourier(f, "continued", old.mission) : f.backend;
     const handle = await backend.start(f.run);
     try {
       await until(() => ["stopped", "paused"].includes(f.reports.at(-1)?.status));
@@ -1589,10 +1705,11 @@ test("a complete Finder reply with no eligible corporation remains a confirmed n
     await handle.stop();
   }
 });
-test("auto mode uses the compatible existing offer before agent search and continues toward 40", async () => {
+test("auto mode uses its own outstanding offer before agent search and continues toward 40", async () => {
   const f = fixture(false, false, false, false, 600000, false, "none", 40, true);
   // Agent 9 is not the next automatic discovery result; finishing the inherited
   // offer must happen before that search. The completed journal row is historical.
+  f.prepareOffer();
   f.existing({ state: 1, completedRow: true, delayedReads: 2 });
   const handle = await f.backend.start(f.run);
   await until(() =>
@@ -1620,7 +1737,7 @@ test("auto mode uses the compatible existing offer before agent search and conti
       .every((r, i) => r.readout.completedCount === i + 1),
   );
   const stop = await runControlRoutes["POST /runs/:botID/stop"]({
-    params: { botID: "bot" },
+    params: { botID: f.run.botID },
     account: { username: "tester", accountID: 1 },
     method: "POST",
     path: "",
@@ -1633,6 +1750,7 @@ test("auto mode uses the compatible existing offer before agent search and conti
 });
 test("an accepted courier with the exact load aboard resumes at destination without accepting or reloading", async () => {
   const f = fixture();
+  savedCourier(f, false);
   f.existing({ state: 2, aboard: true, completedRow: true });
   f.foreign({ state: 1 });
   const handle = await f.backend.start(f.run);
@@ -1644,6 +1762,7 @@ test("an accepted courier with the exact load aboard resumes at destination with
 });
 test("an accepted courier with the exact load aboard in space flies directly to delivery", async () => {
   const f = fixture();
+  savedCourier(f, false);
   f.existing({ state: 2, aboard: true, station: null });
   const handle = await f.backend.start(f.run);
   await until(() => f.reports.some((r) => r.status === "stopped" || r.status === "paused"));
@@ -1657,6 +1776,7 @@ test(
   async (t) => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const f = fixture(false, false, false, true, 7_200_000);
+    savedCourier(f, false);
     f.route.useShared = true;
     f.existing({ state: 2, aboard: true, station: null });
     f.route.systemID = 301;
@@ -1720,6 +1840,7 @@ test(
   async (t) => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const f = fixture(false, false, false, true, 7_200_000);
+    savedCourier(f, false);
     f.route.useShared = true;
     f.route.flightUnavailable = true;
     f.existing({ state: 2, aboard: true, station: null });
@@ -1765,6 +1886,7 @@ test(
 );
 test("an accepted courier docked at an empty destination can still go to pickup", async () => {
   const f = fixture();
+  savedCourier(f, false);
   f.existing({ state: 2, station: 601 });
   const handle = await f.backend.start(f.run);
   await until(() => f.reports.some((r) => r.status === "stopped" || r.status === "paused"));
@@ -1780,6 +1902,7 @@ test("an accepted courier docked at an empty destination can still go to pickup"
 });
 test("an accepted courier with partial destination stock pauses without transferring again", async () => {
   const f = fixture(false, false, false, false, 600000, false, "preexisting-destination");
+  savedCourier(f, false);
   f.existing({ state: 2, station: 601 });
   const handle = await f.backend.start(f.run);
   await until(() => f.reports.some((r) => r.status === "paused"));
@@ -1788,10 +1911,28 @@ test("an accepted courier with partial destination stock pauses without transfer
   assert.deepEqual(f.events, []);
   await handle.stop();
 });
+for (const declineTime of [-1, 60_000_000])
+  test(`Courier leaves another corporation's offer alone with a ${declineTime > 0 ? "running" : "clear"} decline timer`, async () => {
+    const f = fixture(false, false, false, false, 600000, false, "none", 1, true);
+    f.foreign({ state: 1, declineTime });
+    const handle = await f.backend.start(f.run);
+    try {
+      await until(() => ["stopped", "paused"].includes(f.reports.at(-1)?.status));
+      assert.equal(f.reports.at(-1).phase, "Completed", f.reports.at(-1).why);
+      assert.equal(f.foreignState(), 1);
+      assert.equal(f.foreignContacts(), 0);
+      assert.deepEqual(f.declinedAgents, []);
+      assert.deepEqual(f.requestedAgents, [9]);
+      assert.equal(f.fence().completed(1, 2, f.run.botID)[0]?.receipt.agentID, 9);
+    } finally {
+      await handle.stop();
+    }
+  });
+
 for (const status of [1, 2] as const)
-  test(`Carthum courier work ${status === 1 ? "declines an Amarr Navy offer" : "keeps an unrelated Amarr Navy accepted mission"}`, async () => {
+  test(`Courier chooses a free eligible agent alongside a player's state-${status} mission`, async () => {
     const f = fixture(false, false, false, false, 600000, false, "none", 2, true);
-    f.foreign({ state: status });
+    f.foreign({ state: status, eligible: true });
     const handle = await f.backend.start(f.run);
     await until(() => f.reports.some((r) => r.status === "stopped" || r.status === "paused"));
     try {
@@ -1801,15 +1942,16 @@ for (const status of [1, 2] as const)
       const actions = ["request", "accept", "complete", "request", "accept", "complete"];
       assert.deepEqual(
         f.events.filter((x) => ["request", "accept", "complete", "decline", "quit"].includes(x)),
-        status === 1 ? ["decline", ...actions] : actions,
+        actions,
       );
-      assert.equal(f.foreignState(), status === 1 ? 0 : 2);
+      assert.equal(f.foreignState(), status);
+      assert.equal(f.foreignContacts(), 0);
     } finally {
       await handle.stop();
     }
   });
 for (const state of [1, 2] as const)
-  test(`an explicitly blocking foreign ${state === 1 ? "offer is declined once" : "accepted courier stays accepted"}`, async () => {
+  test(`a refused Courier Request leaves the other agent's state-${state} mission alone`, async () => {
     const f = fixture();
     f.foreign({ state, blocks: true });
     const handle = await f.backend.start(f.run);
@@ -1818,43 +1960,76 @@ for (const state of [1, 2] as const)
       const actions = f.events.filter((x) =>
         ["request", "accept", "complete", "decline", "quit"].includes(x),
       );
-      if (state === 2) {
-        assert.equal(f.reports.at(-1).status, "paused");
-        assert.match(f.reports.at(-1).why, /accepted mission requires manual review/);
-        assert.deepEqual(actions, ["request"]);
-        assert.equal(f.foreignState(), 2);
-      } else {
-        assert.equal(f.reports.at(-1).status, "stopped", JSON.stringify(f.reports.at(-1)));
-        assert.deepEqual(actions, ["request", "decline", "request", "accept", "complete"]);
-        assert.equal(f.reports.at(-1).readout.completedCount, 1);
-        assert.equal(f.foreignState(), 0);
-      }
+      assert.equal(f.reports.at(-1).status, "paused");
+      assert.match(f.reports.at(-1).why, /Agent 9 refused Request.*outstanding mission/);
+      assert.deepEqual(actions, ["request"]);
+      assert.equal(f.foreignState(), state);
+      assert.equal(f.foreignContacts(), 0);
     } finally {
       await handle.stop();
     }
   });
-test("native decline timer prevents dispatch and reports the remaining time", async () => {
+test("native decline timer protects the Courier's own over-limit offer and reports the remaining time", async () => {
   const f = fixture();
-  f.foreign({ state: 1, blocks: true, cooldown: 50_000_000 });
+  f.offerRoutes.set(9, [11]);
+  f.declinedAgents.push(9);
   const handle = await f.backend.start(f.run);
   await until(() => f.reports.some((r) => r.status === "paused"));
   try {
-    assert.match(f.reports.at(-1).why, /Corporate Documents.*agent 3008740.*5s remaining/);
+    assert.match(f.reports.at(-1).why, /agent 9.*6s remaining/);
     assert.deepEqual(f.events, ["request"]);
-    assert.equal(f.foreignState(), 1);
+    assert.equal(f.fence().inspect(1, 2)?.pending, null);
   } finally {
     await handle.stop();
   }
 });
+test("a refused Decline leaves the offer in place and Courier completes with the next agent", async () => {
+  const f = fixture(false, false, false, false, 600000, false, "none", 1, true);
+  f.offerRoutes.set(9, [11]);
+  f.offerRoutes.set(10, [0]);
+  f.declineReply.refusal = "Declining is currently disabled.";
+  const handle = await f.backend.start(f.run);
+  try {
+    await until(() => ["stopped", "paused"].includes(f.reports.at(-1)?.status));
+    assert.equal(f.reports.at(-1).phase, "Completed", f.reports.at(-1).why);
+    assert.deepEqual(f.requestedAgents, [9, 10]);
+    assert.equal(f.events.filter((action) => action === "decline").length, 1);
+    assert.equal(f.leftOffer(), 9);
+    assert.equal(f.fence().completed(1, 2, f.run.botID)[0]?.receipt.agentID, 10);
+  } finally {
+    await handle.stop();
+  }
+});
+
+test("Courier reports the last decline timer when all eligible agents have over-limit offers", async () => {
+  const f = fixture(false, false, false, false, 600000, false, "none", 1, true);
+  f.offerRoutes.set(9, [11]);
+  f.offerRoutes.set(10, [12]);
+  f.declinedAgents.push(9, 10);
+  const handle = await f.backend.start(f.run);
+  try {
+    await until(() => f.reports.at(-1)?.status === "paused");
+    assert.match(
+      f.reports.at(-1).why,
+      /No eligible Distribution agent.*agent 10.*12 jumps.*limit 10.*6s remaining/i,
+    );
+    assert.deepEqual(f.requestedAgents, [9, 10]);
+    assert.deepEqual(f.events, ["request", "request"]);
+    assert.equal(f.fence().inspect(1, 2)?.pending, null);
+  } finally {
+    await handle.stop();
+  }
+});
+
 test("a native decline refusal is reported once and the run can still Stop", async () => {
   const f = fixture();
-  f.foreign({ state: 1, blocks: true, refusal: "Declining is currently disabled." });
+  f.offerRoutes.set(9, [11]);
+  f.declineReply.refusal = "Declining is currently disabled.";
   const handle = await f.backend.start(f.run);
   await until(() => f.reports.some((r) => r.status === "paused"));
   try {
     assert.match(f.reports.at(-1).why, /Declining is currently disabled/);
     assert.deepEqual(f.events, ["request", "decline"]);
-    assert.equal(f.foreignState(), 1);
     assert.equal(f.fence().inspect(1, 2)?.pending, null);
     const stop = await runControlRoutes["POST /runs/:botID/stop"]({
       params: { botID: "bot" },
@@ -1870,14 +2045,52 @@ test("a native decline refusal is reported once and the run can still Stop", asy
     await handle.stop();
   }
 });
+test("automatic Courier tries a second agent when the first refuses Request", async () => {
+  const f = fixture(false, false, false, false, 600000, false, "none", 1, true);
+  f.foreign({ state: 2, blocks: 9 });
+  f.offerRoutes.set(10, [0]);
+  const handle = await f.backend.start(f.run);
+  try {
+    await until(() => ["stopped", "paused"].includes(f.reports.at(-1)?.status));
+    assert.equal(f.reports.at(-1).phase, "Completed");
+    assert.deepEqual(f.requestedAgents, [9, 10]);
+    assert.equal(f.foreignState(), 2);
+    assert.equal(f.foreignContacts(), 0);
+  } finally {
+    await handle.stop();
+  }
+});
+for (const resumed of [false, true])
+  test(`automatic Courier skips a manually accepted replacement at the former agent (hosted resume: ${resumed})`, async () => {
+    const f = fixture(false, false, false, false, 600000, false, "none", 1, true);
+    const old = savedCourier(f, false);
+    if (resumed) {
+      f.run.botID = old.mission.botID;
+      f.run.resumed = true;
+    }
+    f.existing({ state: 2 });
+    f.acceptance.time++;
+    f.offerRoutes.set(10, [0]);
+    const handle = await f.backend.start(f.run);
+    try {
+      await until(() => ["stopped", "paused"].includes(f.reports.at(-1)?.status));
+      assert.deepEqual(f.requestedAgents, [10]);
+      assert.equal(f.leftAccepted()?.items[4], 9);
+      assert.equal(f.fence().completed(1, 2, f.run.botID)[0]?.receipt.agentID, 10);
+    } finally {
+      await handle.stop();
+    }
+  });
 test("after a lost Decline response a fresh Courier uses the current journal without replaying it", async () => {
   const f = fixture();
-  f.foreign({ state: 1, blocks: true, lost: true });
+  f.offerRoutes.set(9, [11]);
+  f.declineReply.lost = true;
   const handle = await f.backend.start(f.run);
   await until(() => f.reports.some((r) => r.status === "paused"));
   await handle.stop();
   assert.deepEqual(f.events, ["request", "decline"]);
-  f.foreign({ state: 0 });
+  f.existing({ state: 0 });
+  f.declineReply.lost = false;
   f.run.botID = "after-decline";
   const fresh = await f.backend.start(f.run);
   try {
@@ -1905,6 +2118,7 @@ test("a foreign accepted referral cannot be turned in by a courier Request", asy
 });
 test("an unfinished run with a verified unload continues at hand-in without another transfer", async () => {
   const f = fixture();
+  savedCourier(f, false);
   f.existing({ state: 2 });
   f.blockCompletionRead(true);
   const old = await f.backend.start(f.run);
@@ -1935,9 +2149,17 @@ test("an ended run that made no mission mutation leaves an inheritable empty che
   f.restoreStorage(saved);
   f.run.botID = "new";
   f.run.setup.agent.agentID = 8;
+  f.existing({ state: 0, agent: 8 });
   const continued = await f.backend.start(f.run);
   await until(() => f.reports.some((r) => r.status === "stopped"));
-  assert.deepEqual(f.events, ["accept", "hangar-cargo", "route-601", "cargo-hangar", "complete"]);
+  assert.deepEqual(f.events, [
+    "request",
+    "accept",
+    "hangar-cargo",
+    "route-601",
+    "cargo-hangar",
+    "complete",
+  ]);
   assert.equal(f.reports.at(-1).readout.completedCount, 1);
   await continued.stop();
 });
@@ -2383,10 +2605,7 @@ test("a fresh hosted Courier after a full WC restart delivers the sixth mission 
 
 test("a new Courier completes already delivered cargo without a retained unload", async () => {
   const f = fixture();
-  const old = f
-    .fence()
-    .open({ accountID: 1, characterID: 2, runID: "old-wc-bot", current: () => true });
-  old.bindMission(9, '[9,900,101,"123"]');
+  savedCourier(f, false);
   f.existing({ state: 2, delivered: true });
   const handle = await f.backend.start(f.run);
   try {
@@ -2441,11 +2660,8 @@ test("a fresh hosted Courier counts a vanished mission with a sent Complete once
 
 test("a fresh hosted Courier ignores a pending load once the current hold contains the full cargo", async () => {
   const f = fixture(),
-    key = '[9,900,101,"123"]';
-  const old = f
-    .fence()
-    .open({ accountID: 1, characterID: 2, runID: "old-wc-bot", current: () => true });
-  old.bindMission(9, key);
+    old = savedCourier(f, false),
+    key = old.mission.key;
   old.dispatch(
     {
       kind: "load",

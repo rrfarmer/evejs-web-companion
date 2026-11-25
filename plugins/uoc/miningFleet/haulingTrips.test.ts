@@ -95,9 +95,6 @@ for(const scenario of scenarios)test(scenario.title,async t=>{
      if(service==="corpRegistry")return corporationRow(method,characterID,corporationID);
      if(service==="officeManager")return {list:[{fields:{stationID,officeID}}]};
      assert.equal(service,"invbroker");
-     if(method==="ListByFlags"&&of===shipID){
-      assert.deepEqual(_args,[[5,134,135,181,182]]);return list(held);
-     }
      assert.equal(method,"List");
      if(of===shipID)return list(held.filter(row=>row.flagID===kwargs?.flag));
      if(of===officeID){assert.equal(docked,true);return list(destination);}
@@ -105,12 +102,13 @@ for(const scenario of scenarios)test(scenario.title,async t=>{
      events.push(`read:${of}`);
      const row=cans.get(of);return list(row?[row]:[]);
     },
-    async bridgeDo(service:string,method:string,args:number[],kwargs:{qty?:number;flag?:number},of:number){
+    async bridgeDo(service:string,method:string,args:[number|number[],number],kwargs:{qty?:number;flag?:number},of:number){
      if(service==="invCache")return;
      if(service==="ship"&&method==="Undock"){assert.equal(docked,true);docked=false;return;}
-     assert.equal(service,"invbroker");assert.equal(method,"Add");
+     assert.equal(service,"invbroker");
      const [itemID,sourceID]=args;
      if(of===shipID){
+      assert.equal(method,"Add");
       assert.ok(atBelt&&systemID===miningSystem&&!docked&&haulerBeltID===sourceBelt(sourceID!));
        assert.ok(loot.claimedItemIDs(miningSystem,"other-session","other-run").includes(sourceID!));
       const row=cans.get(sourceID!);assert.ok(row);assert.equal(itemID,row.itemID);assert.equal(kwargs.qty,row.quantity);
@@ -122,10 +120,14 @@ for(const scenario of scenarios)test(scenario.title,async t=>{
       held.push({...row,ownerID:characterID,locationID:shipID,flagID:5});
      }else{
       assert.equal(of,officeID);assert.equal(sourceID,shipID);assert.equal(kwargs.flag,115);
-      const row=held.find(r=>r.itemID===itemID);
-      assert.ok(docked&&systemID===deliverySystem&&row);assert.equal(kwargs.qty,row.quantity);
-      events.push("deposit:"+itemID);
-      destination.push({...row,ownerID:corporationID,locationID:officeID,flagID:115});held=held.filter(r=>r!==row);
+      assert.equal(method,Array.isArray(itemID)?"MultiAdd":"Add");
+      for(const id of Array.isArray(itemID)?itemID:[itemID]){
+       const row=held.find(r=>r.itemID===id);
+       assert.ok(docked&&systemID===deliverySystem&&row);
+       if(method==="Add")assert.equal(kwargs.qty,row.quantity);
+       events.push("deposit:"+id);
+       destination.push({...row,ownerID:corporationID,locationID:officeID,flagID:115});held=held.filter(r=>r!==row);
+      }
      }
     },
    },
@@ -163,7 +165,8 @@ for(const scenario of scenarios)test(scenario.title,async t=>{
    case "/api/mining-operations/resources":body={resources:[{typeID:oreType,family:"ore",name:"Ore"}]};break;
    case "/api/types/compressed":body={compressedTypeIDs:{},capped:false};break;
    case "/api/types/volumes":body={volumes:{30:1},capped:false};break;
-   case "/api/bridge/ship/ore-hold":body={activeShipID:shipID,holds:[
+   case `/api/bridge/ship/${shipID}/bays`:body={shipID,activeShipID:shipID,bays:[
+    {key:"fleet",present:false,error:null,capacity:{capacity:0,used:0}},
     {key:"ore",present:false,error:null,capacity:{capacity:0,used:0}},
     {key:"cargo",present:true,error:null,capacity:{capacity:scenario.kind==="relocate"?100:10,used:held.reduce((sum,row)=>sum+row.quantity,0)}},
    ]};break;
@@ -222,6 +225,13 @@ for(const scenario of scenarios)test(scenario.title,async t=>{
  const runtime=createMiningFleetRuntime(deps);
  let group=runtime.getOrCreate(setup);
  const context={botID,characterID,setup,held:{characterID},baseUrl:"http://bff",fetch:fetcher,report(){}} as unknown as PluginRunContext;
+ function assertProtectedPickup(id:number){
+  const pickup=events.indexOf("pickup:"+id);
+  for(const prefix of ["claimed:","read:"]){
+   const observed=events.indexOf(prefix+id);
+   assert.ok(observed>=0&&observed<pickup,prefix+id+" must precede the pickup");
+  }
+ }
  const handle=await group.add(context,hauler);
  t.after(()=>handle.stop());
  const claim=group.op.reserve(1,target);assert.ok(claim);assert.equal(group.op.activate(1),true);
@@ -330,12 +340,16 @@ for(const scenario of scenarios)test(scenario.title,async t=>{
   assert.deepEqual(destination.map(row=>row.quantity),[90,10,10,10]);
   assert.equal(held.length,0);
   assert.equal(cans.size,1);
+  // The host also waits for a final empty scan before releasing the old belt.
+  const tail=group.op.freightTailToScan();assert.equal(tail?.claim.key,claim.key);
+  assert.equal([...cans.keys()].some(id=>sourceBelt(id)===beltID),false);
+  assert.ok(group.op.finishFreightTailScan(characterID,claim));
   assert.equal(group.op.heartbeat(),true);
   assert.ok(Object.values(runtime.targetSnapshot()).some(row=>row.target.name===target.name&&row.state==="DEPLETED"));
 
   assert.equal(await advance(haul()),"waiting");
   assert.ok(events.indexOf("pickup:104")>events.indexOf("deposit:23"));
-  for(const id of [101,102,103,104])assert.ok(events.indexOf("read:"+id)<events.indexOf("claim:"+id));
+  for(const id of [101,102,103,104])assertProtectedPickup(id);
   assert.deepEqual(events.filter(e=>e.startsWith("warp:")),["warp:"+beltID,"warp:"+nextBeltID]);
   assert.deepEqual(events.filter(e=>e==="route:"+stationID),["route:"+stationID,"route:"+stationID]);
   assert.deepEqual(held.map(row=>row.quantity),[10]);
@@ -376,7 +390,7 @@ for(const scenario of scenarios)test(scenario.title,async t=>{
  assert.deepEqual(events.filter(e=>e.startsWith("route:")),
   [`route:${stationID}`,`route:${miningSystem}`,`route:${stationID}`,`route:${miningSystem}`,`route:${stationID}`]);
  assert.deepEqual(events.filter(e=>e.startsWith("warp:")),[`warp:${beltID}`,`warp:${beltID}`]);
- for(const id of [100,101,103])assert.ok(events.indexOf(`read:${id}`)<events.indexOf(`claim:${id}`));
+ for(const id of [100,101,103])assertProtectedPickup(id);
   assert.ok(!events.includes("claimed:102"));
  assert.deepEqual(events.filter(e=>e.startsWith("pickup:")),["pickup:100","pickup:101","pickup:103"]);
  assert.deepEqual(destination.map(row=>[row.itemID,row.quantity,row.ownerID,row.locationID,row.flagID]),

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { GlobalWindowProps } from "../../../web/src/plugin-api/index.ts";
+  import type { GlobalWindowProps, PluginPagePilot } from "../../../web/src/plugin-api/index.ts";
   import type { AccountPass } from "../compat/accounts.ts";
   import { resolveUocPage, type UocPage } from "./route.ts";
   import UnifiedOperations from "../restored/ui/UnifiedOperations.svelte";
@@ -25,19 +25,28 @@
     sessions = [],
     readSessions,
     readAccounts,
-    readPageAccounts,
-    onOpen,
+    readPagePilots,
     accountPass,
+    operatorAccount,
   }: {
     page: UocPage;
     sessions?: GlobalWindowProps["sessions"];
     readSessions?: () => GlobalWindowProps["sessions"];
     readAccounts?: () => readonly AuthenticatedAccount[];
-    readPageAccounts?: () => readonly string[];
-    onOpen?: GlobalWindowProps["onOpen"];
+    readPagePilots?: () => readonly PluginPagePilot[];
     accountPass?: AccountPass;
+    operatorAccount?: string;
   } = $props();
   let activePage = $state(untrack(() => page));
+  const operatorToken = $derived(
+    readPagePilots?.().find((p) => p.accountName === operatorAccount)?.token,
+  );
+  const screen = $derived([activePage, operatorAccount, operatorToken]);
+  let observation = new AbortController();
+  function renewObservation() {
+    observation.abort();
+    observation = new AbortController();
+  }
   $effect(() => {
     activePage = page;
   });
@@ -67,42 +76,48 @@
   }
   removeLegacyControllerToken();
   installTrainingAdapter({ authenticatedJson, runHosted, worldID });
-  untrack(() =>
+  function install() {
     installPageContext({
       sessions: readSessions ?? (() => sessions),
       readAccounts,
-      readPageAccounts,
-      onOpen,
+      readPagePilots,
       accountPass,
-    }),
-  );
-  $effect(() =>
-    installPageContext({
-      sessions: readSessions ?? (() => sessions),
-      readAccounts,
-      readPageAccounts,
-      onOpen,
-      accountPass,
-    }),
-  );
+      observationSignal: () => observation.signal,
+    });
+  }
+  untrack(install);
+  $effect.pre(() => {
+    void screen;
+    install();
+    if (observation.signal.aborted) renewObservation();
+    return () => observation.abort();
+  });
 </script>
 
-<svelte:window onpopstate={restorePage} />
+<svelte:window
+  onpopstate={restorePage}
+  onpagehide={(event) => {
+    if (!event.persisted) observation.abort();
+  }}
+/>
 <div class="uoc-wc74" role="presentation" onclick={navigate}>
-  {#key activePage}
+  {#key screen}
     {#if activePage === "home"}
       <UnifiedOperations />
     {:else if activePage === "mining-operations" || activePage === "civilian"}
-      <MiningCommandCenter initialSection={activePage === "civilian" ? "civilian" : "operations"} />
+      <MiningCommandCenter
+        initialSection={activePage === "civilian" ? "civilian" : "operations"}
+        {operatorAccount}
+      />
     {:else if activePage === "combat-in-development"}
       <main class="uoc-center">
         <CenterHeading title="Combat Operations Center" />
         <CenterStatus state="In development" />
       </main>
     {:else if activePage === "training"}
-      <GoblinFactory />
+      <GoblinFactory onTraineeChange={renewObservation} />
     {:else if activePage === "distribution"}
-      <DistributionCenter />
+      <DistributionCenter {operatorAccount} />
     {:else}
       <ProvisioningCenter />
     {/if}

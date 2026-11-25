@@ -1,10 +1,5 @@
-import path from "node:path";
-import { createRequire } from "node:module";
-import { pluginDataDir } from "../../../web/src/plugin-api/backend.ts";
+import { uocStore } from "../backendStores.ts";
 import type { SyncDocument } from "./miningStore.ts";
-const require = createRequire(import.meta.url),
-  { createDocumentStore } = require("../documentStore.cjs");
-let db: any = null;
 export const preparationEvidenceKey = (
   world: string,
   id: string,
@@ -19,19 +14,18 @@ export function readPreparationEvidence(
   characterID: number,
 ) {
   try {
-    db ??= createDocumentStore(path.join(pluginDataDir(), "mining-preparation.sqlite"));
-    return db.document(preparationEvidenceKey(world, id, run, characterID)).read();
+    return uocStore("mining-preparation.sqlite")
+      .document(preparationEvidenceKey(world, id, run, characterID))
+      .read();
   } catch {
     return null;
   }
 }
-export function closePreparationEvidence() {
-  db?.close();
-  db = null;
-}
 export function discardPreparationEvidence(world: string, id: string, run: string) {
-  db ??= createDocumentStore(path.join(pluginDataDir(), "mining-preparation.sqlite"));
-  db.deleteDocuments([], ["evidence:" + JSON.stringify([world, id, run]).slice(0, -1) + ","]);
+  uocStore("mining-preparation.sqlite").deleteDocuments(
+    [],
+    ["evidence:" + JSON.stringify([world, id, run]).slice(0, -1) + ","],
+  );
 }
 export function preparationEvidence(
   value: any,

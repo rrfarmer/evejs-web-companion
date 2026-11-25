@@ -37,14 +37,9 @@ import {
   parkAtOperationHome,
   type OperationParkingPolicy,
 } from "./operationParking.ts";
-import path from "node:path";
-import { createRequire } from "node:module";
+import { uocStore } from "../backendStores.ts";
 import { createHash } from "node:crypto";
-import {
-  pluginDataDir,
-  type BackendRun,
-  type PluginRunContext,
-} from "../../../web/src/plugin-api/backend.ts";
+import type { BackendRun, PluginRunContext } from "../../../web/src/plugin-api/backend.ts";
 import { createPilotSession, type PilotSession } from "../../../web/src/plugin-api/pilotSession.ts";
 import {
   authoritativeFleetMemberCharacterIDs,
@@ -145,10 +140,6 @@ import { readAfterTimeout, transientNativeRead } from "../shared/progressDeadlin
 import { createSiteDiscovery, type NativeSite } from "./siteDiscovery.ts";
 import { validSavedSiteClassification } from "./siteSelection.ts";
 import { resolveMiningSite } from "./siteSearch.ts";
-const require = createRequire(import.meta.url);
-const { createDocumentStore } = require("../documentStore.cjs") as {
-  createDocumentStore: (file: string) => Parameters<typeof deleteFleetExecution>[0];
-};
 const valid = (n: unknown): n is number =>
   typeof n === "number" && Number.isSafeInteger(n) && n > 0;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -810,7 +801,6 @@ type Entry = {
 };
 type Group = ReturnType<typeof makeGroup>;
 const groups = new Map<string, Group>();
-let db: ReturnType<typeof createDocumentStore> | null = null;
 let boardAuthority: {
   provider: FleetRuntimeDependencies["storage"];
   board: ReturnType<typeof createTargetBoard>;
@@ -861,6 +851,12 @@ function makeGroup(
     entries = new Map<number, Entry>(),
     attaching = new Set<number>(),
     loops = createRawMembers(op);
+  const pendingReads = new Set<Promise<void>>();
+  function track(promise: Promise<void>) {
+    pendingReads.add(promise);
+    const done = () => pendingReads.delete(promise);
+    void promise.then(done, done);
+  }
   const logTiming = mccTimingEnabled();
   let supportSample: { observation: SupportObservation; observedAt: number } | null = null,
     supportLostSince: number | null = null;
@@ -2009,63 +2005,65 @@ function makeGroup(
         : readFleetPeer(e);
     };
     e.fleetReading = true;
-    void read()
-      .then((row) => {
-        if (!e.active || e.emergency || stopping) return;
-        // The current fleet's roster applies to its already admitted members.
-        // Joining or rejoining still requires an observation from the pilot's own session.
-        if (
-          verifiedPeers &&
-          !relocating &&
-          row.state === "ready" &&
-          row.fleetID === fleetID &&
-          fleetID === assembly?.snapshot().fleetID
-        ) {
-          for (const peer of verifiedPeers) {
-            if (
-              peer === e ||
-              !peer.active ||
-              peer.emergency ||
-              peer.reconnecting ||
-              peer.fleetReading ||
-              entries.get(peer.member.characterID) !== peer ||
-              !admitted(peer)
-            )
-              continue;
-            const stillMember = row.memberIDs.includes(peer.member.characterID);
-            peer.fleetRead = stillMember ? row : null;
-            peer.fleetReadAt = stillMember ? Date.now() : 0;
+    track(
+      read()
+        .then((row) => {
+          if (!e.active || e.emergency || stopping) return;
+          // The current fleet's roster applies to its already admitted members.
+          // Joining or rejoining still requires an observation from the pilot's own session.
+          if (
+            verifiedPeers &&
+            !relocating &&
+            row.state === "ready" &&
+            row.fleetID === fleetID &&
+            fleetID === assembly?.snapshot().fleetID
+          ) {
+            for (const peer of verifiedPeers) {
+              if (
+                peer === e ||
+                !peer.active ||
+                peer.emergency ||
+                peer.reconnecting ||
+                peer.fleetReading ||
+                entries.get(peer.member.characterID) !== peer ||
+                !admitted(peer)
+              )
+                continue;
+              const stillMember = row.memberIDs.includes(peer.member.characterID);
+              peer.fleetRead = stillMember ? row : null;
+              peer.fleetReadAt = stillMember ? Date.now() : 0;
+            }
           }
-        }
-        e.fleetRead = row;
-        e.fleetIssue = undefined;
-        e.fleetWarning = undefined;
-        if (!e.failed && !admitted(e))
-          reportFleetMembership(
-            e,
-            "Waiting for native fleet",
-            row.state === "not-in-fleet"
-              ? "This pilot has not joined the operation fleet."
-              : "Checking this pilot's membership in the approved native fleet.",
-          );
-      })
-      .catch((error) => {
-        if (!e.active || e.emergency || stopping) return;
-        if (requestEmergencyRetreat(e, error)) return;
-        if (error instanceof FleetShipChanged) {
-          e.fleetRead = null;
-          e.fleetIssue = error.message;
-          report(e, "Pilot ship changed", error.message, "paused");
-        } else {
-          e.fleetWarning = "Native fleet read: " + message(error);
-          if (!e.failed && !admitted(e) && e.anchorReady)
-            report(e, "Checking native fleet", e.fleetWarning, "paused");
-        }
-      })
-      .finally(() => {
-        e.fleetReading = false;
-        e.fleetReadAt = Date.now() + (admitted(e) ? 8000 : 1500);
-      });
+          e.fleetRead = row;
+          e.fleetIssue = undefined;
+          e.fleetWarning = undefined;
+          if (!e.failed && !admitted(e))
+            reportFleetMembership(
+              e,
+              "Waiting for native fleet",
+              row.state === "not-in-fleet"
+                ? "This pilot has not joined the operation fleet."
+                : "Checking this pilot's membership in the approved native fleet.",
+            );
+        })
+        .catch((error) => {
+          if (!e.active || e.emergency || stopping) return;
+          if (requestEmergencyRetreat(e, error)) return;
+          if (error instanceof FleetShipChanged) {
+            e.fleetRead = null;
+            e.fleetIssue = error.message;
+            report(e, "Pilot ship changed", error.message, "paused");
+          } else {
+            e.fleetWarning = "Native fleet read: " + message(error);
+            if (!e.failed && !admitted(e) && e.anchorReady)
+              report(e, "Checking native fleet", e.fleetWarning, "paused");
+          }
+        })
+        .finally(() => {
+          e.fleetReading = false;
+          e.fleetReadAt = Date.now() + (admitted(e) ? 8000 : 1500);
+        }),
+    );
   }
   const dockAfterDroneTimeout = () =>
     stopping &&
@@ -2913,38 +2911,40 @@ function makeGroup(
     )
       return;
     fleetCheck = true;
-    void Promise.resolve()
-      .then(() => ensureAssembly().step())
-      .then(() => {
-        if (closed || stopping) return;
-        fleetReadWarning = null;
-        const a = assembly!.snapshot();
-        const { parked } = op.snapshot();
-        if (
-          setup.members.every((m) => {
-            const e = entries.get(m.characterID);
-            return parked.includes(m.characterID) || (e?.active && admitted(e));
-          })
-        )
-          restoringFleet = false;
-        for (const pending of [...(a.deferred ?? []), ...(a.pending ? [a.pending] : [])]) {
-          const e = entries.get(pending.characterID);
-          if (e?.active && !e.emergency && !admitted(e) && !e.fleetIssue)
-            reportFleetMembership(
-              e,
-              "Forming fleet",
-              "Awaiting native " + pending.kind + " confirmation for this pilot.",
-            );
-        }
-      })
-      .catch((error) => {
-        if (closed || stopping) return;
-        fleetReadWarning = message(error);
-        if (error instanceof SharedFleetConflict) requestStop();
-      })
-      .finally(() => {
-        fleetCheck = false;
-      });
+    track(
+      Promise.resolve()
+        .then(() => ensureAssembly().step())
+        .then(() => {
+          if (closed || stopping) return;
+          fleetReadWarning = null;
+          const a = assembly!.snapshot();
+          const { parked } = op.snapshot();
+          if (
+            setup.members.every((m) => {
+              const e = entries.get(m.characterID);
+              return parked.includes(m.characterID) || (e?.active && admitted(e));
+            })
+          )
+            restoringFleet = false;
+          for (const pending of [...(a.deferred ?? []), ...(a.pending ? [a.pending] : [])]) {
+            const e = entries.get(pending.characterID);
+            if (e?.active && !e.emergency && !admitted(e) && !e.fleetIssue)
+              reportFleetMembership(
+                e,
+                "Forming fleet",
+                "Awaiting native " + pending.kind + " confirmation for this pilot.",
+              );
+          }
+        })
+        .catch((error) => {
+          if (closed || stopping) return;
+          fleetReadWarning = message(error);
+          if (error instanceof SharedFleetConflict) requestStop();
+        })
+        .finally(() => {
+          fleetCheck = false;
+        }),
+    );
   }
   async function bootstrap(assembleBeforeDeparture: boolean) {
     if (starting || stopping || op.snapshot().state !== "READY") return;
@@ -3000,6 +3000,7 @@ function makeGroup(
           if (saved === null || saved.pending === null) searchUnsafe = false;
           throw error;
         }
+        if (closed) return;
         searchUnsafe = false;
         if ("kind" in result) {
           searchReason =
@@ -3019,7 +3020,7 @@ function makeGroup(
           setup.beltCandidates ?? [{ beltID: setup.beltID!, beltName: setup.beltName! }],
           [await timed(scout.timing, "belt-locality-read", observe)],
         );
-        if (stopping) return;
+        if (closed || stopping) return;
         const selected = decision.ranked[0]?.candidate;
         if (!selected) throw Error("No unclaimed native belt is available.");
         if (
@@ -3383,37 +3384,39 @@ function makeGroup(
       }
       return readHull(e);
     };
-    void sample()
-      .then(async (ratio) => {
-        if (stopping || !e.active || e.emergency) return;
-        if (ratio === null) {
-          if (
-            e.failed &&
-            stopCapsuleID(e, await readStopFlight(e)) !== null &&
-            !stopping &&
-            !e.emergency
-          )
-            beginEmergency(e, "The original ship was lost. Parking the current capsule.");
-          return;
-        }
-        if (ratio >= 0.95) return;
-        e.hullRetreat = ratio < 0.6 ? "delivery" : "nearest";
-        beginEmergency(
-          e,
-          "Hull integrity is " +
-            (ratio * 100).toFixed(1) +
-            "%. " +
-            (e.hullRetreat === "delivery"
-              ? "Withdrawing to the delivery station for repair."
-              : "Withdrawing to the nearest dock for repair."),
-        );
-      })
-      .catch(() => {
-        /* Unavailable hull data is no evidence of damage. Recheck on the next observation. */
-      })
-      .finally(() => {
-        e.hullReading = false;
-      });
+    track(
+      sample()
+        .then(async (ratio) => {
+          if (stopping || !e.active || e.emergency) return;
+          if (ratio === null) {
+            if (
+              e.failed &&
+              stopCapsuleID(e, await readStopFlight(e)) !== null &&
+              !stopping &&
+              !e.emergency
+            )
+              beginEmergency(e, "The original ship was lost. Parking the current capsule.");
+            return;
+          }
+          if (ratio >= 0.95) return;
+          e.hullRetreat = ratio < 0.6 ? "delivery" : "nearest";
+          beginEmergency(
+            e,
+            "Hull integrity is " +
+              (ratio * 100).toFixed(1) +
+              "%. " +
+              (e.hullRetreat === "delivery"
+                ? "Withdrawing to the delivery station for repair."
+                : "Withdrawing to the nearest dock for repair."),
+          );
+        })
+        .catch(() => {
+          /* Unavailable hull data is no evidence of damage. Recheck on the next observation. */
+        })
+        .finally(() => {
+          e.hullReading = false;
+        }),
+    );
   }
   function endParkedRun(e: Entry, phase: string, why: string) {
     report(e, phase, why);
@@ -4021,7 +4024,7 @@ function makeGroup(
       }
       if (state === "READY") {
         if (assembleBeforeDeparture && reserved) departForInitialBelt(reserved);
-        else void bootstrap(assembleBeforeDeparture);
+        else track(bootstrap(assembleBeforeDeparture));
         return;
       }
     }
@@ -5414,7 +5417,7 @@ function makeGroup(
             await e.cycle.release?.();
             e.cycle = null;
           }
-        if (stopping) return;
+        if (closed || stopping) return;
         if (!op.relocateAfterSettlement(values)) {
           for (const e of entries.values())
             report(
@@ -5479,10 +5482,11 @@ function makeGroup(
       persistSupportSnapshot();
       persistTelemetry(true);
       for (const e of entries.values()) if (e.active && e.cycle?.release) await e.cycle.release();
+      if (closed) return; // Shutdown can close the group while a release is pending.
       closed = true;
       clearInterval(timer);
       clearInterval(heartbeat);
-      for (const e of entries.values()) {
+      for (const e of entries.values())
         if (e.active) {
           e.unregister();
           e.run.report({
@@ -5497,15 +5501,23 @@ function makeGroup(
           e.active = false;
           e.session.flow.setLivePush(false);
         }
-      }
       groups.delete(setup.operationID);
     }
   }
   if (retainedTelemetry?.shipLosses?.length) applyFleetWipe(retainedTelemetry);
+  let tickInFlight = false;
   const timer = setInterval(() => {
-    void tick().catch((error) => {
-      for (const e of entries.values()) report(e, "Needs attention", message(error), "paused");
-    });
+    if (closed || tickInFlight) return;
+    tickInFlight = true;
+    track(
+      tick()
+        .catch((error) => {
+          for (const e of entries.values()) report(e, "Needs attention", message(error), "paused");
+        })
+        .finally(() => {
+          tickInFlight = false;
+        }),
+    );
   }, 1500);
   timer.unref?.();
   const heartbeat = setInterval(() => {
@@ -5524,6 +5536,13 @@ function makeGroup(
     }
   }, 8000);
   heartbeat.unref?.();
+  function closeGroup() {
+    closed = true;
+    clearInterval(timer);
+    clearInterval(heartbeat);
+    for (const entry of entries.values()) if (entry.lease) clearInterval(entry.lease.timer);
+    if (groups.get(setup.operationID)?.op === op) groups.delete(setup.operationID);
+  }
   function retireGroup() {
     if (
       starting ||
@@ -5532,11 +5551,7 @@ function makeGroup(
       [...entries.values()].some((e) => e.active || e.busy)
     )
       return false;
-    closed = true;
-    clearInterval(timer);
-    clearInterval(heartbeat);
-    for (const entry of entries.values()) if (entry.lease) clearInterval(entry.lease.timer);
-    if (groups.get(setup.operationID)?.op === op) groups.delete(setup.operationID);
+    closeGroup();
     return true;
   }
   return {
@@ -5567,6 +5582,15 @@ function makeGroup(
     requestStop,
     recordNeverStarted(ids: readonly number[]) {
       op.recordNeverStarted(ids.filter((id) => !entries.has(id) && !attaching.has(id)));
+    },
+    async shutdown() {
+      closeGroup();
+      for (const e of entries.values()) {
+        e.active = false;
+        e.unregister();
+        e.session.flow.setLivePush(false);
+      }
+      await Promise.allSettled([...pendingReads, ...[...entries.values()].map((e) => e.work)]);
     },
     retireGroup,
     retireStoppedGroup: () => stopping && retireGroup(),
@@ -5920,6 +5944,7 @@ function makeGroup(
           );
           if (e.startupPrepared) e.defenderPreparation.refresh();
         }
+        if (closed) throw Error("The mining backend has stopped.");
         e.unregister = registerRun(run, owner, requestStop);
         try {
           resumedLaunch?.journal.rebind(
@@ -6035,8 +6060,7 @@ export function createMiningFleetRuntime(deps: FleetRuntimeDependencies) {
     throw Error("Native mining cycle and settlement adapters are required.");
   if (boardAuthority && boardAuthority.provider !== deps.storage)
     throw Error("Mining fleet storage provider changed in this process.");
-  const storage =
-    deps.storage ?? (db ??= createDocumentStore(path.join(pluginDataDir(), "mining-fleet.sqlite")));
+  const storage = deps.storage ?? uocStore("mining-fleet.sqlite");
   const document = storage.document;
   const operationStore = (operationID: string, runID: string) =>
     fleetOperationStore(storage, operationID, runID);
@@ -6059,6 +6083,7 @@ export function createMiningFleetRuntime(deps: FleetRuntimeDependencies) {
     boardAuthority = { provider: deps.storage, board };
   }
   const board = boardAuthority.board;
+  let disposed = false;
   const cycleDocument = deps.cycleDocument ?? miningCycleDocument;
   const finish = createFleetFinishRun({
     document,
@@ -6134,6 +6159,7 @@ export function createMiningFleetRuntime(deps: FleetRuntimeDependencies) {
     return true;
   }
   function getOrCreate(setup: FleetSetup, resumed = false) {
+    if (disposed || boardAuthority?.board !== board) throw Error("The mining backend has stopped.");
     const normalized = setupOf(setup);
     if (!normalized) throw Error("Invalid raw fleet setup.");
     if (finish.ownsOperation(normalized.operationID))
@@ -6360,6 +6386,12 @@ export function createMiningFleetRuntime(deps: FleetRuntimeDependencies) {
     };
   }
   return {
+    async shutdown() {
+      if (disposed || boardAuthority?.board !== board) return;
+      disposed = true;
+      await Promise.all([...groups.values()].map((group) => group.shutdown()));
+      if (boardAuthority?.board === board) boardAuthority = null;
+    },
     resetDepletedBelt: board.resetDepletedBelt,
     operationSnapshot(operationID: string, runID: string) {
       if (!operationID || !runID) return null;

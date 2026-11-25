@@ -12,9 +12,8 @@ import { createCompressionController } from "./support/compressionController.ts"
 import { createCompressionFacilityObserver } from "./support/compressionFacility.ts";
 import type { CommandSupportView } from "./runtime.ts";
 import { preferredQualifiedResources } from "./resourcePolicy.ts";
-import path from "node:path";
-import { createRequire } from "node:module";
-import { pluginDataDir, type PluginRunContext } from "../../../web/src/plugin-api/backend.ts";
+import { uocStore } from "../backendStores.ts";
+import type { PluginRunContext } from "../../../web/src/plugin-api/backend.ts";
 import type { PilotSession } from "../../../web/src/plugin-api/pilotSession.ts";
 import {
   buildSlots,
@@ -47,22 +46,15 @@ import { createSiteDiscovery, claimedSiteRocks } from "./siteDiscovery.ts";
 import { targetKey } from "./targetBoard.ts";
 import { timed, type MccTiming } from "./timing.ts";
 import { deleteFleetCycles } from "./executionDocuments.ts";
-const require = createRequire(import.meta.url),
-  { createDocumentStore } = require("../documentStore.cjs") as {
-    createDocumentStore: (file: string) => Parameters<typeof deleteFleetCycles>[0];
-  };
-let db: ReturnType<typeof createDocumentStore> | null = null;
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const valid = (n: unknown): n is number =>
   typeof n === "number" && Number.isSafeInteger(n) && n > 0;
 type CycleScope = Pick<FleetSetup, "operationID" | "operationRunID">;
 function cycleStore(name: string) {
-  db ??= createDocumentStore(path.join(pluginDataDir(), "mining-fleet-cycles.sqlite"));
-  return db.document(name);
+  return uocStore("mining-fleet-cycles.sqlite").document(name);
 }
 export function discardMiningCycles(operationID: string, runID: string) {
-  db ??= createDocumentStore(path.join(pluginDataDir(), "mining-fleet-cycles.sqlite"));
-  deleteFleetCycles(db, operationID, runID);
+  deleteFleetCycles(uocStore("mining-fleet-cycles.sqlite"), operationID, runID);
 }
 export function miningCycleDocument(
   characterID: number,
@@ -295,8 +287,6 @@ export async function createFleetMiningCycle(
   save();
   const f = session.flow.flying,
     typeFacts = createRawTypeFacts(run, current);
-  if (setup.oreLogistics?.remoteCompression && !injected?.compressionDocument)
-    db ??= createDocumentStore(path.join(pluginDataDir(), "mining-fleet-cycles.sqlite"));
   const compression = setup.oreLogistics?.remoteCompression
     ? (injected?.compressionFactory ?? createCompressionController)({
         operationID: setup.operationID,
@@ -305,7 +295,7 @@ export async function createFleetMiningCycle(
         session,
         shipID,
         systemID: setup.systemID,
-        document: injected?.compressionDocument ?? db!.document(`compression:${identity}`),
+        document: injected?.compressionDocument ?? cycleStore(`compression:${identity}`),
         current,
         beforeDispatch: () => beforeAction(),
         facility: async (typeID) => {

@@ -12,7 +12,11 @@ import {
 export function withCivilianPolicy(
   executor: BackendRun,
   kind?: "mining" | "distribution",
-  deps: { owner?: typeof runOwner; write?: (row: CivilianIndexRow) => void } = {},
+  deps: {
+    shutdown?: AbortSignal;
+    owner?: typeof runOwner;
+    write?: (row: CivilianIndexRow) => void;
+  } = {},
 ): BackendRun {
   return {
     check: (value) => executor.check(value),
@@ -70,6 +74,7 @@ export function withCivilianPolicy(
       const wrapped: PluginRunContext = {
         ...run,
         report(value) {
+          if (deps.shutdown?.aborted) return;
           if (indexed) {
             const v = value.readout as any,
               old = indexed.worker!;

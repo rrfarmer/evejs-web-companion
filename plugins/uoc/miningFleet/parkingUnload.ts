@@ -1,3 +1,4 @@
+import { acceptsMinedFreight, haulerInventoryFlags } from "../shared/freightHolds.ts";
 import { decodeFlightStatus, getFlightStatus } from "../../../web/src/plugin-api/flying.ts";
 import type { PluginRunContext } from "../../../web/src/plugin-api/backend.ts";
 import type { PilotSession } from "../../../web/src/plugin-api/pilotSession.ts";
@@ -42,13 +43,22 @@ export async function unloadParkingFreight(
       throw Error("Parking unload requires the exact native dock and ship.");
   };
   async function readFreight() {
-    const rows = await readNativeShipHolds(session, current, run.characterID, config.shipID);
-    const facts = rows.length
-      ? await createRawTypeFacts(run, current)([...new Set(rows.map((r) => r.typeID))])
+    const rows = await readNativeShipHolds(
+      session,
+      current,
+      run.characterID,
+      config.shipID,
+      haulerInventoryFlags,
+    );
+    const candidates = rows.filter(
+      (r) => r.flagID !== 135 && (r.categoryID === null || r.categoryID === 25),
+    );
+    const facts = candidates.length
+      ? await createRawTypeFacts(run, current)([...new Set(candidates.map((r) => r.typeID))])
       : {};
     current();
     await flight();
-    const freight = rows.filter((r) => {
+    const freight = candidates.filter((r) => {
       const f = facts[r.typeID];
       if (!f || (r.categoryID !== null && r.categoryID !== f.categoryID))
         throw Error("Parking hold type is unknown.");
@@ -57,7 +67,7 @@ export async function unloadParkingFreight(
         !(f.freightKind === "RAW" || f.freightKind === "COMPRESSED") ||
         !Number.isFinite(f.unitVolumeM3) ||
         f.unitVolumeM3 <= 0 ||
-        ![5, 134, 181, 182].includes(r.flagID)
+        !acceptsMinedFreight(r.flagID, f.resourceFamily)
       )
         throw Error("Parking freight is not qualified for unload.");
       return true;
@@ -71,7 +81,7 @@ export async function unloadParkingFreight(
         { units: 0, volumeM3: 0 },
       ),
     );
-    return freight;
+    return freight.map((row) => ({ ...row, unitVolumeM3: facts[row.typeID]!.unitVolumeM3 }));
   }
   await flight();
   const freight = await readFreight();
@@ -82,7 +92,12 @@ export async function unloadParkingFreight(
     runID: config.runID,
     characterID: run.characterID,
     shipID: config.shipID,
-    items: freight.map((r) => ({ itemID: r.itemID, typeID: r.typeID, quantity: r.quantity })),
+    items: freight.map(({ itemID, typeID, quantity, unitVolumeM3 }) => ({
+      itemID,
+      typeID,
+      quantity,
+      unitVolumeM3,
+    })),
   };
   if (saved !== null) {
     if (typeof saved?.identity !== "string") throw Error("Parking unload journal is unreadable.");

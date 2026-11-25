@@ -1,10 +1,5 @@
-import path from "node:path";
-import { createRequire } from "node:module";
-import {
-  pluginDataDir,
-  type BackendRun,
-  type PluginRunContext,
-} from "../../../web/src/plugin-api/backend.ts";
+import { uocStore } from "../backendStores.ts";
+import type { BackendRun, PluginRunContext } from "../../../web/src/plugin-api/backend.ts";
 import { reconcile, preDispatchRefusal } from "./reconcile.ts";
 import type { JsonValue } from "../../../web/src/plugin-api/index.ts";
 
@@ -542,14 +537,8 @@ export function createTrainingHRRun(
     },
   };
 }
-const require = createRequire(import.meta.url);
-const { createDocumentStore } = require("../documentStore.cjs") as {
-  createDocumentStore: (file: string) => { document(name: string): Storage };
-};
-let db: ReturnType<typeof createDocumentStore> | null = null;
 export function trainingDocument(name: string) {
-  db ??= createDocumentStore(path.join(pluginDataDir(), "training-onboarding.sqlite"));
-  return db.document(name);
+  return uocStore("training-onboarding.sqlite").document(name);
 }
 const storage = (s: Setup) => trainingDocument(`onboarding:${s.traineeID}:${s.corporationID}`);
 export const trainingHRRun = createTrainingHRRun("training-hr", storage);

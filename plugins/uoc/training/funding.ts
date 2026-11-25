@@ -41,6 +41,14 @@ export type TrainingTransfer = {
   shortfall: number;
   balance: number;
   reason: string;
+  journalBefore?: { personal: number | null; corporate: number | null };
+};
+
+export type TrainingTransferReceipt = {
+  personalTransactionID: number;
+  corporateTransactionID: number;
+  shortfall: number;
+  corporationID: number;
 };
 
 const object = (value: unknown): value is Record<string, any> =>
@@ -141,13 +149,24 @@ export async function prepareTrainingTransfer(
     journal(call, false),
     journal(call, true),
   ]);
-  for (const row of [...rowsOf(personalBefore), ...rowsOf(corporateBefore)]) {
-    if (!positive(Number(scalar(row.transactionID))))
-      throw Error("Native wallet journal identity is unreadable.");
-    if (scalar(row.description) === reason)
-      throw Error("This training transfer reference is already in the wallet journal.");
-  }
-  return { corporationID, shortfall, balance, reason };
+  const latestID = (value: unknown) => {
+    let latest: number | null = null;
+    for (const row of rowsOf(value)) {
+      const id = Number(scalar(row.transactionID));
+      if (!positive(id)) throw Error("Native wallet journal identity is unreadable.");
+      if (scalar(row.description) === reason)
+        throw Error("This training transfer reference is already in the wallet journal.");
+      latest = Math.max(latest ?? 0, id);
+    }
+    return latest;
+  };
+  return {
+    corporationID,
+    shortfall,
+    balance,
+    reason,
+    journalBefore: { personal: latestID(personalBefore), corporate: latestID(corporateBefore) },
+  };
 }
 
 export function sendTrainingTransfer(
@@ -165,14 +184,36 @@ export function sendTrainingTransfer(
   );
 }
 
-export async function readTrainingTransfer(
+export async function inspectTrainingTransfer(
   call: WalletCall,
   characterID: number,
   transfer: TrainingTransfer,
 ) {
   const [personal, corporate] = await Promise.all([journal(call, false), journal(call, true)]);
-  const entryID = (value: unknown, amount: number) => {
-    const matches = rowsOf(value).filter((row) => scalar(row.description) === transfer.reason);
+  const personalRows = rowsOf(personal),
+    corporateRows = rowsOf(corporate);
+  const matches = (rows: Record<string, any>[]) =>
+    rows.filter((row) => {
+      const description = scalar(row.description);
+      if (
+        !positive(Number(scalar(row.transactionID))) ||
+        (description !== null && typeof description !== "string")
+      )
+        throw Error("A wallet journal entry is unreadable.");
+      return description === transfer.reason;
+    });
+  const credit = matches(personalRows),
+    debit = matches(corporateRows);
+  if (!credit.length && !debit.length) {
+    const retains = (rows: Record<string, any>[], id: number | null) =>
+      id === null || rows.some((row) => Number(scalar(row.transactionID)) === id);
+    const before = transfer.journalBefore;
+    const rolledOff =
+      before &&
+      (!retains(personalRows, before.personal) || !retains(corporateRows, before.corporate));
+    return { status: rolledOff ? "incomplete" : "absent" } as const;
+  }
+  const entryID = (matches: Record<string, any>[], amount: number) => {
     const row = matches[0];
     if (
       !row ||
@@ -182,16 +223,28 @@ export async function readTrainingTransfer(
       Number(scalar(row.ownerID2)) !== characterID
     )
       return null;
-    const id = Number(scalar(row.transactionID));
-    return positive(id) ? id : null;
+    return Number(scalar(row.transactionID));
   };
-  const personalTransactionID = entryID(personal, transfer.shortfall);
-  const corporateTransactionID = entryID(corporate, -transfer.shortfall);
-  if (personalTransactionID === null || corporateTransactionID === null) return null;
+  const personalTransactionID = entryID(credit, transfer.shortfall);
+  const corporateTransactionID = entryID(debit, -transfer.shortfall);
+  if (personalTransactionID === null || corporateTransactionID === null)
+    return { status: "conflict" } as const;
   return {
-    personalTransactionID,
-    corporateTransactionID,
-    shortfall: transfer.shortfall,
-    corporationID: transfer.corporationID,
-  };
+    status: "matched",
+    receipt: {
+      personalTransactionID,
+      corporateTransactionID,
+      shortfall: transfer.shortfall,
+      corporationID: transfer.corporationID,
+    },
+  } as const;
+}
+
+export async function readTrainingTransfer(
+  call: WalletCall,
+  characterID: number,
+  transfer: TrainingTransfer,
+) {
+  const result = await inspectTrainingTransfer(call, characterID, transfer);
+  return result.status === "matched" ? result.receipt : null;
 }

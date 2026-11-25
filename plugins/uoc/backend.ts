@@ -1,40 +1,40 @@
-import { createRequire } from "node:module";
-import path from "node:path";
+import { finished } from "node:stream";
+import { ReadableStream } from "node:stream/web";
 import {
   startBackend,
-  pluginDataDir,
+  type BackendDefinition,
   type BackendRoute,
   type BackendRun,
+  type PluginRunContext,
+  type PluginRunHandle,
 } from "../../web/src/plugin-api/backend.ts";
+import { uocStore, closeBackendStores } from "./backendStores.ts";
+import { wrapRunFetch } from "./shared/runFetch.ts";
 import manifest from "./plugin.ts";
-import { readPreparationEvidence, closePreparationEvidence } from "./operations/miningEvidence.ts";
-import { createCombatRoutes } from "./operations/combatRoutes.ts";
 import { createDistributionStore } from "./logistics/store.ts";
 import { civilianCheckpointRoutes } from "./civilian/index.ts";
 import { civilianCheckpointRun } from "./civilian/checkpoint.ts";
 import { withCivilianPolicy } from "./shared/civilianReport.ts";
-import { worldForRequest, worldRoute } from "./shared/backendScope.ts";
-import { ownerTrainingRoutes } from "./training/ownerServices.ts";
-import { runControlRoutes } from "./runControl.ts";
-import { securityProgressRoutes } from "./combat/progress.ts";
-import { fleetSecurityProgressRoutes } from "./combat/fleetTelemetry.ts";
+import { worldRoute } from "./shared/backendScope.ts";
+import { createOwnerTrainingServices } from "./training/ownerServices.ts";
+import { pilotServiceOwner, runControlRoutes } from "./runControl.ts";
 
 export { decodeCivilianMiningSetup, civilianMiningPlan } from "./mining/setup.ts";
 
-function lazyRun(load: () => Promise<BackendRun>): BackendRun {
+function lazyRun(load: (setup: unknown) => Promise<BackendRun>): BackendRun {
   return {
     async check(setup) {
-      return (await load()).check(setup);
+      return (await load(setup)).check(setup);
     },
     async start(run) {
-      return (await load()).start(run);
+      return (await load(run.setup)).start(run);
     },
   };
 }
 
-export const civilianMiningRun = lazyRun(
-  async () => (await import("./mining/host.ts")).civilianMiningRun,
-);
+const miningRun = (shutdown?: AbortSignal) =>
+  lazyRun(async () => (await import("./mining/host.ts")).createNativeMiningRun({ shutdown }));
+export const civilianMiningRun = miningRun();
 
 const miningRouteNames = [
   "POST /mining-targets/mark-safe",
@@ -60,115 +60,190 @@ const miningRouteNames = [
   "GET /mining-operations/:operationID/launch",
 ];
 
-if (typeof process.send === "function") {
-  let mining: Promise<typeof import("./miningFleet/backend.ts")> | undefined;
-  const loadMining = () => (mining ??= import("./miningFleet/backend.ts"));
+export function createUocBackend(): BackendDefinition {
+  const lifetime = new AbortController();
+  const pending = new Set<Promise<unknown>>();
+  const runs = new Set<() => Promise<void>>();
+  let cleaning: Promise<void> | undefined;
+
+  function request<T>(call: () => T | Promise<T>): Promise<T> {
+    lifetime.signal.throwIfAborted();
+    const result = Promise.resolve(call());
+    pending.add(result);
+    return result.finally(() => pending.delete(result));
+  }
+
+  // The host sends cleanup independently of runStop. A run may still be attaching.
+  function startRun(definition: BackendRun, run: PluginRunContext): Promise<PluginRunHandle> {
+    lifetime.signal.throwIfAborted();
+    const fetch = wrapRunFetch(run.fetch, (send) => async (input, init, priority) => {
+      const caller = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+      const source = caller ? AbortSignal.any([caller, lifetime.signal]) : lifetime.signal;
+      source.throwIfAborted();
+      const inFlight = new AbortController();
+      const abort = () => inFlight.abort(source.reason);
+      const release = () => source.removeEventListener("abort", abort);
+      source.addEventListener("abort", abort, { once: true });
+      try {
+        const response = await send(input, { ...init, signal: inFlight.signal }, priority);
+        // Headers can arrive before the body. Stop forwarding cancellation once the read ends.
+        if (response.body instanceof ReadableStream) finished(response.body, release);
+        else release();
+        return response;
+      } catch (error) {
+        release();
+        throw error;
+      }
+    });
+    const handle = Promise.resolve(
+      definition.start({
+        ...run,
+        fetch,
+        report(value) {
+          if (!lifetime.signal.aborted) run.report(value);
+        },
+      }),
+    );
+    let stopping: Promise<void> | undefined;
+    function stop() {
+      // An attachment that failed never returned a handle to stop.
+      return (stopping ??= handle
+        .then(
+          (h) => h.stop(),
+          () => {},
+        )
+        .finally(() => runs.delete(stop)));
+    }
+    runs.add(stop);
+    return handle.then(
+      () => ({ stop }),
+      (error) => {
+        runs.delete(stop);
+        throw error;
+      },
+    );
+  }
+
+  let mining:
+    Promise<ReturnType<typeof import("./miningFleet/backend.ts").createMiningBackend>> | undefined;
+  function loadMining() {
+    lifetime.signal.throwIfAborted();
+    return (mining ??= import("./miningFleet/backend.ts")
+      .then((m) => m.createMiningBackend())
+      .catch((error) => {
+        mining = undefined;
+        throw error;
+      }));
+  }
   const miningRoutes: Record<string, BackendRoute> = {};
   for (const name of miningRouteNames) {
     miningRoutes[name] = async (request) => (await loadMining()).miningRoutes[name]!(request);
   }
 
-  let combatFleet:
-    Promise<ReturnType<typeof import("./combat/fleetHost.ts").createFleetSecurityRuns>> | undefined;
-  const loadCombatFleet = () =>
-    (combatFleet ??= import("./combat/fleetHost.ts").then((module) =>
-      module.createFleetSecurityRuns(),
-    ));
-  let anomalyFleet:
-    | Promise<ReturnType<typeof import("./combat/anomalies/fleetHost.ts").createAnomalyFleetRuns>>
-    | undefined;
-  const loadAnomalyFleet = () =>
-    (anomalyFleet ??= import("./combat/anomalies/fleetHost.ts").then((module) =>
-      module.createAnomalyFleetRuns(),
-    ));
-  let patrolFleet:
-    Promise<ReturnType<typeof import("./combat/patrol/host.ts").createPatrolRuns>> | undefined;
-  const loadPatrolFleet = () =>
-    (patrolFleet ??= import("./combat/patrol/host.ts").then((module) => module.createPatrolRuns()));
-
-  const require = createRequire(import.meta.url);
-  let logisticsDB:
-    { document: Parameters<typeof createDistributionStore>[0]; close(): void } | undefined;
-  const logisticsDocument = (name: string) => {
-    const db = (logisticsDB ??= require("./documentStore.cjs").createDocumentStore(
-      path.join(pluginDataDir(), "distribution.sqlite"),
-    ));
-    return db.document(name);
-  };
+  const logisticsDocument = (name: string) => uocStore("distribution.sqlite").document(name);
   const logistics = createDistributionStore(
     (world) => logisticsDocument("routes:" + world),
     logisticsDocument,
   );
   let distributionDriver: BackendRun | undefined;
-  const restoredCombat = createCombatRoutes({
-    getWorldScope: worldForRequest,
-    preparationSnapshot: readPreparationEvidence,
-  });
 
-  startBackend({
+  // The Combat Operations Center remains in development. Its routes and runs stay unregistered.
+  const routes: Record<string, BackendRoute> = {
+    "GET /world": worldRoute,
+    ...logistics.routes,
+    ...miningRoutes,
+    ...civilianCheckpointRoutes,
+    ...runControlRoutes,
+    ...createOwnerTrainingServices({ owner: pilotServiceOwner }, startRun),
+  };
+  const drivers: Record<string, BackendRun> = {
+    "distribution-carrier": lazyRun(async () => {
+      const { createDistributionDriver } = await import("./logistics/host.ts");
+      return (distributionDriver ??= createDistributionDriver(logistics, lifetime.signal));
+    }),
+    "civilian-checkpoint": civilianCheckpointRun,
+    "civilian-mining": withCivilianPolicy(miningRun(lifetime.signal), "mining", {
+      shutdown: lifetime.signal,
+    }),
+    "civilian-distribution": withCivilianPolicy(
+      lazyRun(async () =>
+        (await import("./distribution/host.ts")).createCourierRun(lifetime.signal),
+      ),
+      "distribution",
+      { shutdown: lifetime.signal },
+    ),
+    "mcc-inspect": lazyRun(
+      async () => (await import("./miningFleet/inspect.ts")).miningFleetInspectRun,
+    ),
+    "mcc-prepare": lazyRun(async (setup) => {
+      if (
+        typeof setup === "object" &&
+        setup !== null &&
+        "role" in setup &&
+        setup.role === "COMBAT"
+      ) {
+        throw new Error("Combat Operations Center is in development.");
+      }
+      return (await import("./operations/miningPreparationHost.ts")).createMiningPreparationRun({
+        shutdown: lifetime.signal,
+      });
+    }),
+    "mcc-miner": lazyRun(async () => (await loadMining()).fleet.runs.MINER),
+    "mcc-hauler": lazyRun(async () => (await loadMining()).fleet.runs.HAULER),
+    "mcc-command": lazyRun(async () => (await loadMining()).fleet.runs.COMMAND),
+    "mcc-defender": lazyRun(async () => (await loadMining()).fleet.runs.DEFENDER),
+    "mcc-finish": lazyRun(async () => (await loadMining()).fleet.runs.FINISH),
+    training: lazyRun(async () => (await import("./training/host.ts")).trainingRun),
+    "training-inspect": lazyRun(
+      async () => (await import("./training/host.ts")).trainingInspectRun,
+    ),
+    "training-hr": lazyRun(async () => (await import("./training/hr.ts")).trainingHRRun),
+    "training-join": lazyRun(async () => (await import("./training/hr.ts")).trainingJoinRun),
+    "provision-inspect": lazyRun(
+      async () => (await import("./provisioning/host.ts")).provisioningInspectRun,
+    ),
+    "provision-apply": lazyRun(
+      async () => (await import("./provisioning/host.ts")).provisioningApplyRun,
+    ),
+  };
+  return {
     manifest,
-    routes: {
-      "GET /world": worldRoute,
-      ...logistics.routes,
-      ...miningRoutes,
-      ...civilianCheckpointRoutes,
-      ...restoredCombat.routes,
-      ...runControlRoutes,
-      ...ownerTrainingRoutes,
-      ...securityProgressRoutes,
-      ...fleetSecurityProgressRoutes,
+    routes: Object.fromEntries(
+      Object.entries(routes).map(([name, route]) => [
+        name,
+        (req: Parameters<BackendRoute>[0]) =>
+          lifetime.signal.aborted
+            ? { status: 503, body: { ok: false, message: "The UOC backend has stopped." } }
+            : request(() => route(req)),
+      ]),
+    ),
+    runs: Object.fromEntries(
+      Object.entries(drivers).map(([name, run]) => [
+        name,
+        {
+          check: (setup: unknown) => request(() => run.check(setup)),
+          start: (ctx: PluginRunContext) => startRun(run, ctx),
+        },
+      ]),
+    ),
+    cleanup() {
+      if (!cleaning) {
+        lifetime.abort(new Error("The UOC backend has stopped."));
+        const fleet = mining?.then(
+          (m) => m.fleet.shutdown(),
+          () => {},
+        );
+        cleaning = (async () => {
+          const stopped = await Promise.allSettled([fleet, ...Array.from(runs, (stop) => stop())]);
+          await Promise.allSettled(pending);
+          closeBackendStores();
+          const failure = stopped.find((result) => result.status === "rejected");
+          if (failure) throw failure.reason;
+        })();
+      }
+      return cleaning;
     },
-    runs: {
-      "distribution-carrier": lazyRun(async () => {
-        const { createDistributionDriver } = await import("./logistics/host.ts");
-        return (distributionDriver ??= createDistributionDriver(logistics));
-      }),
-      "combat-patrol-member": lazyRun(async () => (await loadPatrolFleet()).member),
-      "civilian-checkpoint": civilianCheckpointRun,
-      "anomaly-fleet-inspect": lazyRun(
-        async () => (await import("./combat/anomalies/inspect.ts")).anomalyInspectRun,
-      ),
-      "anomaly-fleet-member": lazyRun(async () => (await loadAnomalyFleet()).member),
-      "civilian-mining": withCivilianPolicy(civilianMiningRun, "mining"),
-      "civilian-distribution": withCivilianPolicy(
-        lazyRun(async () => (await import("./distribution/host.ts")).civilianDistributionRun),
-        "distribution",
-      ),
-      "coc-security": lazyRun(async () => (await import("./combat/host.ts")).civilianSecurityRun),
-      "coc-fleet-inspect": lazyRun(
-        async () => (await import("./combat/inspect.ts")).combatFleetInspectRun,
-      ),
-      "security-fleet-owner": lazyRun(async () => (await loadCombatFleet()).owner),
-      "security-fleet-assistant": lazyRun(async () => (await loadCombatFleet()).assistant),
-      "mcc-inspect": lazyRun(
-        async () => (await import("./miningFleet/inspect.ts")).miningFleetInspectRun,
-      ),
-      "mcc-prepare": lazyRun(
-        async () => (await import("./operations/miningPreparationHost.ts")).miningPreparationRun,
-      ),
-      "mcc-miner": lazyRun(async () => (await loadMining()).fleet.runs.MINER),
-      "mcc-hauler": lazyRun(async () => (await loadMining()).fleet.runs.HAULER),
-      "mcc-command": lazyRun(async () => (await loadMining()).fleet.runs.COMMAND),
-      "mcc-defender": lazyRun(async () => (await loadMining()).fleet.runs.DEFENDER),
-      "mcc-finish": lazyRun(async () => (await loadMining()).fleet.runs.FINISH),
-      training: lazyRun(async () => (await import("./training/host.ts")).trainingRun),
-      "training-inspect": lazyRun(
-        async () => (await import("./training/host.ts")).trainingInspectRun,
-      ),
-      "training-hr": lazyRun(async () => (await import("./training/hr.ts")).trainingHRRun),
-      "training-join": lazyRun(async () => (await import("./training/hr.ts")).trainingJoinRun),
-      "provision-inspect": lazyRun(
-        async () => (await import("./provisioning/host.ts")).provisioningInspectRun,
-      ),
-      "provision-apply": lazyRun(
-        async () => (await import("./provisioning/host.ts")).provisioningApplyRun,
-      ),
-    },
-    async cleanup() {
-      logisticsDB?.close();
-      closePreparationEvidence();
-      restoredCombat.close();
-      (await mining)?.closeMiningDefinitions();
-    },
-  });
+  };
 }
+
+if (typeof process.send === "function") startBackend(createUocBackend());

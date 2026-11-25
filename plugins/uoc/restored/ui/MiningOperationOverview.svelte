@@ -2,7 +2,17 @@
   import type { MiningOperationRuntime } from "../adapters/mining.ts";
   import { operationTime } from "../mining/miningOperationRunView.ts";
 
-  let { runtime, stale = false }: { runtime: MiningOperationRuntime; stale?: boolean } = $props();
+  let {
+    runtime,
+    deliveredUnits = null,
+    deliveryIssue = null,
+    stale = false,
+  }: {
+    runtime: MiningOperationRuntime;
+    deliveredUnits?: number | null;
+    deliveryIssue?: string | null;
+    stale?: boolean;
+  } = $props();
   const editable = $derived(["DRAFT", "STOPPED"].includes(runtime.state));
   const hosted = $derived(runtime.members.filter((member) => member.hosted));
   const expiresAt = $derived(hosted.flatMap((member) => member.expiresAt ?? []).sort()[0]);
@@ -36,18 +46,12 @@
           });
     return observations.length ? observations.reduce((sum, quantity) => sum + quantity, 0) : null;
   });
-  const delivered = $derived.by(() => {
-    if (editable) return runtime.lastRun?.deliveredUnits ?? null;
-    const quantities = runtime.history.flatMap((row) => {
-      const proof = row.evidence as { items?: { quantity: number }[] } | null;
-      return row.kind === "FREIGHT_DELIVERED" && Array.isArray(proof?.items)
-        ? proof.items
-            .map((item) => item.quantity)
-            .filter((quantity) => Number.isSafeInteger(quantity) && quantity > 0)
-        : [];
-    });
-    return quantities.length ? quantities.reduce((sum, quantity) => sum + quantity, 0) : null;
-  });
+  const savedResult = $derived(
+    editable && (!runtime.operationRunID || runtime.lastRun?.runID === runtime.operationRunID)
+      ? runtime.lastRun
+      : null,
+  );
+  const delivered = $derived(savedResult?.deliveredUnits ?? deliveredUnits);
   const units = (quantity: number | null) =>
     quantity === null ? "—" : `${quantity.toLocaleString()} units`;
 </script>
@@ -78,9 +82,11 @@
   <div
     ><dt>{editable ? "Last run delivered" : "Delivered"}</dt><dd
       >{units(delivered)}
-      {#if editable && runtime.lastRun?.trips != null}<small>{runtime.lastRun.trips} trips</small>
-      {:else if !editable && delivered !== null}<small>Confirmed container deliveries</small
-        >{/if}</dd
+      {#if deliveryIssue && delivered === null}<small title={deliveryIssue}
+          >Delivery total unavailable</small
+        >
+      {:else if savedResult?.trips != null}<small>{savedResult.trips} trips</small>
+      {:else if !editable && delivered !== null}<small>Confirmed dock unloads</small>{/if}</dd
     ></div
   >
   {#if !editable}<div><dt>Ore in observed holds</dt><dd>{units(onBoard)}</dd></div>{/if}

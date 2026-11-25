@@ -31,6 +31,10 @@ export async function cockpitTraining(session: Session, kind: string, setup: any
   if (!id) throw Error("The Cockpit pilot is offline.");
   if (kind !== "training" && kind !== "training-inspect")
     throw Error("This Training action is unavailable through the selected Cockpit session.");
+  if (kind === "training" && setup?.verifyFunding === true)
+    throw Error(
+      "This funding record belongs to hosted Training. Release the Cockpit pilot, then choose Check pending funding.",
+    );
   const current = () => {
     if (
       session.store.get().station.online?.characterID !== id ||

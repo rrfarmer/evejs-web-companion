@@ -1,12 +1,5 @@
 <script lang="ts">
-  import {
-    cockpitSession,
-    cockpitRequestOptions,
-    cockpitShortcutsAvailable,
-    reviewCockpitFitting,
-    openCockpitInventory,
-    UocRequestError,
-  } from "../app/context.ts";
+  import { cockpitRequestOptions, UocRequestError } from "../app/context.ts";
   import { openRegisteredFarmerAccount } from "../app/api.ts";
   import OperationPilotPicker from "./OperationPilotPicker.svelte";
   import CenterHeading from "./CenterHeading.svelte";
@@ -53,13 +46,8 @@
   const fit = $derived(
     preflight?.definitions.contracts.find((c) => c.definition.fittingID === fittingID),
   );
-  const onlineCockpit = $derived(pilot?.control.owner === "BROWSER" && !!cockpitSession(pilotID));
-  const canCheck = $derived(
-    (pilot?.control.owner === "OFF" && pilot.control.online === false) ||
-      onlineCockpit ||
-      pilot?.serviceAccess === "READ_ONLY_ACTIVE_UOC",
-  );
   const offline = $derived(pilot?.control.owner === "OFF" && pilot.control.online === false);
+  const canCheck = $derived(offline || pilot?.serviceAccess === "READ_ONLY_ACTIVE_UOC");
   const plan = $derived(detail?.applyReview.plan);
 
   const messages: Record<string, string> = {
@@ -353,12 +341,13 @@
               </select>
             </label>
             <label><input type="checkbox" bind:checked={savedFittingSupplies} onchange={invalidate} disabled={!!busy} /> Load saved charges and supplies on the new ship</label>
-            {#if cockpitShortcutsAvailable() && cockpitSession(pilotID)}{#if fit}<button disabled={!!busy} onclick={()=>void run("Opening the existing Cockpit fitting…",()=>reviewCockpitFitting(pilotID,fittingID))}>Review fitting in Cockpit</button>{/if}<button disabled={!!busy} onclick={()=>void run("Reading existing Cockpit inventory…",()=>openCockpitInventory(pilotID))}>Inspect Cockpit inventory</button>{/if}
             <button class="primary" disabled={!!busy || !fit || !canCheck} onclick={() => void run("Checking ship and available equipment…", check)}>
               Check ship and available equipment
             </button>
           </div>
           {#if !fit}<p>Choose a saved fitting to check its requirements.</p>
+          {:else if !canCheck && pilot.control.owner === "BROWSER"}
+            <p>Use Fitting and Inventory in this pilot's Cockpit. To inspect the ship here, select the pilot again once offline.</p>
           {:else if !canCheck}<p>{controlWords(pilot.control.owner)}. The existing owner is preserved. A compatible public owner-service contract is required for inspection.</p>
           {:else if !detail}<p>Inspect reads the current ship, skill requirements and source stock. The pilot’s native fitting context verifies available CPU and Powergrid before Apply.</p>{/if}
         </section>
@@ -527,10 +516,9 @@
           {:else}
             <p>Inspect the selected fitting and equipment source before applying.</p>
           {/if}
-        {:else if onlineCockpit}<p>Apply uses this pilot's existing idle, docked Cockpit session, rechecks the exact native plan, preserves the old ship, and verifies the resulting equipment. This existing session remains open.</p>
         {:else if !offline}<p>The active owner is preserved. Finish its operation before applying equipment changes.</p>
         {:else}<p>Apply acquires a temporary session only for this independently offline pilot, rechecks the plan, verifies the result, and releases that acquired session. The physical plan will be checked again immediately before Apply.</p>{/if}
-        <button class="primary" disabled={!!busy || used || !(offline || onlineCockpit) || !detail.applyReview.canApply} onclick={() => void run("Applying reviewed plan…", apply)}>
+        <button class="primary" disabled={!!busy || used || !offline || !detail.applyReview.canApply} onclick={() => void run("Applying reviewed plan…", apply)}>
           Confirm Apply
         </button>
       </section>

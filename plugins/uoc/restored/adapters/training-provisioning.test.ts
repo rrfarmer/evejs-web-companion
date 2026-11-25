@@ -20,7 +20,39 @@ import {
 import { centerRoster, centerReview, centerInspect, centerApply } from "./provisioning.ts";
 import { installPageContext, ownerOptions } from "../app/context.ts";
 import { trainingWorldStorage } from "../training/worldStorage.ts";
-import { verifiedTrainingOutcome } from "./training.ts";
+import { checkPendingFunding, verifiedTrainingOutcome } from "./training.ts";
+test("the skills panel checks first and releases only the reviewed funding reference", async () => {
+  const ref = "UOC Training 12aaade3-5b8a-4370-b067-0bf856764055";
+  const setups: unknown[] = [];
+  installTrainingAdapter({
+    authenticatedJson: async () => assert.fail("unexpected request"),
+    runHosted: async (id, kind, setup, opts) => {
+      assert.equal(id, 7);
+      assert.equal(kind, "training");
+      assert.equal(opts.token, "own");
+      setups.push(setup);
+      return {
+        botID: "check",
+        phase: "Funding checked",
+        status: "stopped",
+        why: "Wallets checked",
+        readout: setups.length === 1 ? { reference: ref } : {},
+      };
+    },
+  });
+  try {
+    const check = await checkPendingFunding(7, { token: "own" });
+    assert.equal(check.reference, ref);
+    const released = await checkPendingFunding(7, { token: "own" }, check.reference!);
+    assert.equal(released.reference, null);
+    assert.deepEqual(setups, [
+      { verifyFunding: true },
+      { verifyFunding: true, confirmedAbsent: ref },
+    ]);
+  } finally {
+    installTrainingAdapter(null);
+  }
+});
 test("verified native queue replaces an obsolete missing-book label", () => {
   const r = verifiedTrainingOutcome(
     { queue: { active: true, maxEntries: 50, entries: [{ typeID: 10, toLevel: 3 }] } },

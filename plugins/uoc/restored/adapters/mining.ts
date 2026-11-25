@@ -36,6 +36,19 @@ export type {
   MiningOperationLaunchPlan,
 } from "../app/api.ts";
 const prefix = "/api/plugins/uoc/mining-operations";
+export async function readDeliveredUnits(operationID: string, runID: string, options: ApiOptions) {
+  const { result } = await authenticatedJson(
+    `${prefix}/${encodeURIComponent(operationID)}/delivery-receipts?runID=${encodeURIComponent(runID)}`,
+    options,
+  );
+  if (
+    result?.runID !== runID ||
+    !Number.isSafeInteger(result.deliveredUnits) ||
+    result.deliveredUnits < 0
+  )
+    throw Error("Confirmed delivery total is unavailable.");
+  return result.deliveredUnits as number;
+}
 export async function requestMiningStop(
   operationID: string,
   operationRunID: string,
@@ -157,7 +170,9 @@ export async function loadMiningOperations(
       await Promise.all(
         started.map(async (member) => {
           try {
-            const owned = await ownerOptions(member.accountName);
+            options.signal?.throwIfAborted();
+            const owner = await ownerOptions(member.accountName),
+              owned = options.signal ? { ...owner, signal: options.signal } : owner;
             const [current, host] = await Promise.all([
               authenticatedJson("/api/plugins/uoc/runs/current", owned),
               authenticatedJson("/api/bots", owned),
@@ -251,7 +266,10 @@ export async function loadMiningOperations(
         });
       }
       const projected = projectFleetRun(receipt, reads, [], runtime.state, runtime.members);
-      const state = runtime.state === "STOPPED" ? "PARKING" : runtime.state;
+      const state =
+        runtime.state === "STOPPED" && projected.members.some((member) => member.hosted)
+          ? "PARKING"
+          : runtime.state;
       return {
         ...row,
         runtime: {
@@ -276,11 +294,12 @@ export async function loadMiningOperations(
             projected.preparation,
             row.definition.members,
           ),
-          stopFailures: projected.stopFailures,
+          stopFailures: state === "STOPPED" ? runtime.stopFailures : projected.stopFailures,
         },
       };
     }),
   );
+  options.signal?.throwIfAborted();
   if (closeOfflineStop && !candidates.length)
     throw Error("The exact offline Stop could not be verified.");
   if (candidates.length) {

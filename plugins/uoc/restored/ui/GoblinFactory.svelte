@@ -39,6 +39,7 @@
   } from "../training/settings.ts";
   import { resolveTrainingFundingPolicy } from "../../training/funding.ts";
   let worldID = $state<string | null>(null);
+  let { onTraineeChange }: { onTraineeChange?: () => void } = $props();
   const trainingStorage = trainingWorldStorage(
     {
       getItem: (key) => localStorage.getItem(key),
@@ -292,6 +293,7 @@
     activeShip = options ? readTrainingActiveShip(row.pilot.characterID, options) : null;
   }
   function selectTrainee(row: PilotRow) {
+    if (selectedTrainee && selectedTrainee !== row.key) onTraineeChange?.();
     selectedTrainee = row.key;
     rememberSelectedTrainee(traineeStorage, {
       account: row.account,

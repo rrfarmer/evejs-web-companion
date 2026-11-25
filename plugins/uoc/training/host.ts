@@ -10,6 +10,7 @@ import {
   scalar,
   prepareTrainingTransfer,
   readTrainingTransfer,
+  inspectTrainingTransfer,
   sendTrainingTransfer,
   isTrainingFundingPolicy,
   resolveTrainingFundingPolicy,
@@ -17,6 +18,8 @@ import {
   readTrainingPersonalBalance,
   type FundingPolicy,
   type TrainingTransfer,
+  type TrainingTransferReceipt,
+  type WalletCall,
 } from "./funding.ts";
 import type { JsonValue } from "../../../web/src/plugin-api/index.ts";
 import { readTrainingReviewInputs } from "./reviewInputs.ts";
@@ -315,13 +318,17 @@ function sheetOf(value: unknown, characterID: number): Sheet {
   };
 }
 
+type FundingDocument = ReturnType<typeof trainingDocument>;
 type FundingAttempt = {
   books: number[];
   total: number;
   policy: FundingPolicy;
   transfer: TrainingTransfer;
+  // null is an unsent intent. Older documents lack this field and may have been sent.
+  dispatchStartedAt?: number | null;
+  receipt?: TrainingTransferReceipt;
 };
-function readFundingAttempt(doc: ReturnType<typeof trainingDocument>): FundingAttempt | null {
+function readFundingAttempt(doc: FundingDocument): FundingAttempt | null {
   const value = doc.read();
   if (value === null) return null;
   if (
@@ -338,10 +345,141 @@ function readFundingAttempt(doc: ReturnType<typeof trainingDocument>): FundingAt
     !Number.isSafeInteger(value.transfer.balance) ||
     value.transfer.balance < 0 ||
     typeof value.transfer.reason !== "string" ||
-    !value.transfer.reason.startsWith("UOC Training ")
+    !value.transfer.reason.startsWith("UOC Training ") ||
+    (value.dispatchStartedAt != null &&
+      (!positive(value.dispatchStartedAt) ||
+        !Number.isFinite(new Date(value.dispatchStartedAt).getTime()))) ||
+    (value.transfer.journalBefore !== undefined &&
+      (!object(value.transfer.journalBefore) ||
+        ![value.transfer.journalBefore.personal, value.transfer.journalBefore.corporate].every(
+          (id) => id === null || positive(id),
+        ))) ||
+    (value.receipt !== undefined &&
+      (!object(value.receipt) ||
+        value.dispatchStartedAt === null ||
+        !positive(value.receipt.personalTransactionID) ||
+        !positive(value.receipt.corporateTransactionID) ||
+        value.receipt.shortfall !== value.transfer.shortfall ||
+        value.receipt.corporationID !== value.transfer.corporationID))
   )
     throw Error("The original training funding reference could not be read.");
   return value as FundingAttempt;
+}
+
+function updateFunding(
+  doc: FundingDocument,
+  prior: FundingAttempt | null,
+  next: FundingAttempt | null,
+) {
+  // The plugin backend owns this synchronous SQLite document. A stale read must not clear a newer attempt.
+  if (JSON.stringify(doc.read()) !== JSON.stringify(prior))
+    throw Error("The funding attempt changed. Check it again.");
+  doc.write(next);
+}
+
+function fundingCheck(input: unknown): { verifyFunding: true; confirmedAbsent?: string } | null {
+  if (
+    !object(input) ||
+    input.verifyFunding !== true ||
+    Object.keys(input).some((key) => key !== "verifyFunding" && key !== "confirmedAbsent") ||
+    (input.confirmedAbsent !== undefined &&
+      (typeof input.confirmedAbsent !== "string" ||
+        !/^UOC Training [\da-f-]{36}$/i.test(input.confirmedAbsent)))
+  )
+    return null;
+  return {
+    verifyFunding: true,
+    ...(input.confirmedAbsent ? { confirmedAbsent: input.confirmedAbsent } : {}),
+  };
+}
+
+function fundingNotApplied(status: number, data: any) {
+  if (data?.ok !== false) return false;
+  if (status === 401) return data.error === "AUTH_REQUIRED" || data.error === "ACCOUNT_NOT_FOUND";
+  if (status === 403) return data.error === "ACCOUNT_BANNED";
+  if (status !== 409) return false;
+  // These guards precede GiveCashFromCorpAccount. A generic retired tasklet can also be reported after dispatch.
+  if (data.error === "SESSION_REQUEST_RETIRED")
+    return data.message === "This cash transfer belongs to the pilot's previous corporation.";
+  if (
+    [
+      "NO_LIVE_SESSION",
+      "CHARACTER_IN_USE",
+      "HOSTED_GENERATION_CHANGED",
+      "PILOT_RELEASE_UNVERIFIED",
+    ].includes(data.error)
+  )
+    return true;
+  if (data.error !== "CALL_REFUSED") return false;
+  return (
+    data.message === "Corporation cash transfers require the game port." ||
+    ["NotEnoughMoney", "CrpAccessDenied"].includes(data.refusal?.key ?? data.message)
+  );
+}
+
+const checkFundingHint = "Open Skills and training queue and choose Check pending funding.";
+
+async function verifyFunding(
+  doc: FundingDocument,
+  characterID: number,
+  call: WalletCall,
+  readSheet: () => Promise<Sheet>,
+  confirmedAbsent?: string,
+) {
+  const prior = readFundingAttempt(doc);
+  if (confirmedAbsent && prior?.transfer.reason !== confirmedAbsent)
+    throw Error("The funding reference changed. Check the pending transfer again.");
+  if (!prior) return { message: "This pilot has no pending Training transfer." };
+  const { transfer } = prior;
+  if (prior.dispatchStartedAt === null) {
+    updateFunding(doc, prior, null);
+    return { message: "The transfer command was never issued. You can review the purchase again." };
+  }
+  const currentCorp = async () => {
+    if (
+      Number(scalar(fields(await call("corpRegistry", "GetCorporation")).corporationID)) !==
+      transfer.corporationID
+    )
+      throw Error(
+        "The pilot is outside the funding corporation. Its Master Wallet cannot be verified.",
+      );
+  };
+  await currentCorp();
+  const evidence = prior.receipt
+    ? ({ status: "matched", receipt: prior.receipt } as const)
+    : await inspectTrainingTransfer(call, characterID, transfer);
+  await currentCorp();
+  if (evidence.status === "matched") {
+    const sheet = await readSheet();
+    const learned = prior.books.every((id) => sheet.skills.some((skill) => skill.typeID === id));
+    updateFunding(doc, prior, learned ? null : { ...prior, receipt: evidence.receipt });
+    return {
+      message: learned
+        ? "The transfer and the skillbooks are confirmed. The purchase is complete."
+        : "Both wallets confirm the transfer. Resume the original purchase to use that funding.",
+    };
+  }
+  const description = `${transfer.reason} · ${transfer.shortfall / 100} ISK from corporation ${transfer.corporationID}, Division 1, to pilot ${characterID}`;
+  if (evidence.status === "conflict")
+    throw Error(
+      `${description}. The wallet entries are incomplete or disagree. The funding attempt remains open.`,
+    );
+  if (evidence.status === "incomplete")
+    throw Error(
+      `${description}. A journal no longer includes its pre-transfer entry. The visible history cannot establish absence.`,
+    );
+  if (confirmedAbsent) {
+    updateFunding(doc, prior, null);
+    return { message: "The verified absent transfer was released. Review the purchase again." };
+  }
+  return {
+    reference: transfer.reason,
+    message:
+      `${description}. Neither visible journal shows that reference.` +
+      (prior.dispatchStartedAt
+        ? " The transfer was attempted at " + new Date(prior.dispatchStartedAt).toISOString() + "."
+        : " This older record has no dispatch time. Check the original request and its full wallet history."),
+  };
 }
 /** Train the selected pilot using the current skill sheet and wallet. */
 export function createTrainingRun(
@@ -352,6 +490,17 @@ export function createTrainingRun(
 ): BackendRun {
   return {
     check(input) {
+      const verification = fundingCheck(input);
+      if (verification)
+        return {
+          ok: true,
+          setup: verification,
+          name: "Check Training funding",
+          policy: {
+            riskClasses: verification.confirmedAbsent ? ["financial"] : [],
+            restartSafe: false,
+          },
+        };
       const clear = clearQueueSetup(input);
       if (clear)
         return {
@@ -376,8 +525,9 @@ export function createTrainingRun(
     async start(run: PluginRunContext) {
       const setup = trainingSetup(run.setup);
       const clear = clearQueueSetup(run.setup);
+      const verification = fundingCheck(run.setup);
       if (
-        (!setup && !clear) ||
+        (!setup && !clear && !verification) ||
         run.resumed ||
         !positive(run.characterID) ||
         run.held.characterID !== run.characterID
@@ -425,12 +575,6 @@ export function createTrainingRun(
           },
         };
       }
-      if (!setup) throw Error("Training setup is invalid.");
-      const fundingPolicy = resolveTrainingFundingPolicy(
-        setup.fundingPolicy,
-        setup.corporateFunding,
-      );
-      const corporateOnly = fundingPolicy === "CORPORATION_WALLET_ONLY";
       let active = true,
         phase = "Checking skills";
       let transferReceipt: Awaited<ReturnType<typeof readTrainingTransfer>> = null;
@@ -438,7 +582,7 @@ export function createTrainingRun(
       const current = () => {
         if (!active) throw Error("Training ownership ended.");
       };
-      const fetchJSON = async (route: string, body?: unknown) => {
+      const fetchJSON = async (route: string, body?: unknown, fundingWrite = false) => {
         current();
         const response = await run.fetch(
           `${run.baseUrl}${route}`,
@@ -451,13 +595,15 @@ export function createTrainingRun(
               },
         );
         const data = (await response.json()) as any;
-        current();
         if (!response.ok || data?.ok === false) {
           const error = Error(data?.message || data?.error || `Read failed (${response.status}).`);
           if (preDispatchRefusal(response.status, data))
             Object.assign(error, { preDispatch: true });
+          if (fundingWrite && fundingNotApplied(response.status, data))
+            Object.assign(error, { fundingRefused: true });
           throw error;
         }
+        current();
         return data;
       };
       const call = async (
@@ -469,18 +615,58 @@ export function createTrainingRun(
         of?: number,
       ) =>
         (
-          await fetchJSON("/api/bridge/call", {
-            service,
-            method,
-            args,
-            kwargs,
-            pilot: true,
-            ...(write ? { confirm: true } : {}),
-            ...(of ? { of } : {}),
-          })
+          await fetchJSON(
+            "/api/bridge/call",
+            {
+              service,
+              method,
+              args,
+              kwargs,
+              pilot: true,
+              ...(write ? { confirm: true } : {}),
+              ...(of ? { of } : {}),
+            },
+            service === "account" && method === "GiveCashFromCorpAccount",
+          )
         ).result;
       const readSheet = async () =>
         sheetOf((await fetchJSON("/api/bridge/skills")).skills, run.characterID);
+      const fundingDoc = () =>
+        options.fundingDocument?.(run.characterID) ??
+        trainingDocument("funding:" + run.characterID);
+      if (verification) {
+        const work = verifyFunding(
+          fundingDoc(),
+          run.characterID,
+          call,
+          readSheet,
+          verification.confirmedAbsent,
+        )
+          .then((result) =>
+            run.report({
+              status: "stopped",
+              phase: "Funding checked",
+              why: result.message,
+              readout: result.reference ? { reference: result.reference } : {},
+            }),
+          )
+          .catch((error) => {
+            if (active)
+              run.report({ status: "error", phase: "Funding check failed", why: error.message });
+          });
+        return {
+          async stop() {
+            active = false;
+            await work;
+          },
+        };
+      }
+      if (!setup) throw Error("Training setup is invalid.");
+      const fundingPolicy = resolveTrainingFundingPolicy(
+        setup.fundingPolicy,
+        setup.corporateFunding,
+      );
+      const corporateOnly = fundingPolicy === "CORPORATION_WALLET_ONLY";
       const readFit = async () => {
         const before = fields(await call("corpRegistry", "GetCorporation"));
         if (Number(scalar(before.corporationID)) !== setup.corporationID)
@@ -587,21 +773,22 @@ export function createTrainingRun(
         if (missing.length) {
           let startingBalance = await readTrainingPersonalBalance(call);
           let balance = startingBalance;
-          const funds =
-            fundingPolicy === "CHARACTER_WALLET_ONLY"
-              ? null
-              : (options.fundingDocument?.(run.characterID) ??
-                trainingDocument("funding:" + run.characterID));
+          const funds = fundingPolicy === "CHARACTER_WALLET_ONLY" ? null : fundingDoc();
           let prior = funds && readFundingAttempt(funds);
+          if (funds && prior?.dispatchStartedAt === null) {
+            updateFunding(funds, prior, null);
+            prior = null;
+          }
           if (funds && prior && prior.books.every((id) => known.has(id))) {
             const earlier = prior.transfer;
-            await reconcile(
-              () => readTrainingTransfer(call, run.characterID, earlier),
-              current,
-              "The earlier corporation transfer could not be verified.",
-              options.reconcileDelayMs,
-            );
-            funds.write(null);
+            if (!prior.receipt)
+              await reconcile(
+                () => readTrainingTransfer(call, run.characterID, earlier),
+                current,
+                "The earlier corporation transfer could not be verified. " + checkFundingHint,
+                options.reconcileDelayMs,
+              );
+            updateFunding(funds, prior, null);
             prior = null;
           }
           const books = [...missing].sort((a, b) => a - b);
@@ -613,7 +800,8 @@ export function createTrainingRun(
               JSON.stringify(prior.books) !== JSON.stringify(books))
           )
             throw Error(
-              "An earlier corporation transfer is still assigned to another skillbook purchase. Check the original purchase first.",
+              "An earlier corporation transfer is still assigned to another skillbook purchase. " +
+                checkFundingHint,
             );
           if (prior) startingBalance = prior.transfer.balance;
           const amount = trainingTransferAmount(fundingPolicy, total, startingBalance);
@@ -636,35 +824,39 @@ export function createTrainingRun(
               );
             phase = "Funding skillbooks";
             if (!prior) {
+              prior = { books, total, policy: fundingPolicy, transfer, dispatchStartedAt: null };
+              updateFunding(funds, null, prior);
               await verifyFit();
               if (corporateOnly && (await readTrainingPersonalBalance(call)) !== startingBalance)
                 throw Error(
                   "The trainee's wallet changed before corporate funding. Review the skillbooks again.",
                 );
               current();
-              if (funds.read() !== null)
-                throw Error("Another training purchase already has a funding reference.");
-              funds.write({
-                books,
-                total,
-                policy: fundingPolicy,
-                transfer,
-              } satisfies FundingAttempt);
+              const sending = { ...prior, dispatchStartedAt: Date.now() };
+              updateFunding(funds, prior, sending);
+              prior = sending;
               try {
                 await sendTrainingTransfer(call, run.characterID, transfer);
               } catch (error) {
-                if ((error as any)?.preDispatch) {
-                  funds.write(null);
+                if ((error as any)?.preDispatch || (error as any)?.fundingRefused) {
+                  updateFunding(funds, prior, null);
                   throw error;
                 }
               }
             }
-            transferReceipt = await reconcile(
-              () => readTrainingTransfer(call, run.characterID, transfer),
-              current,
-              "The current corporation transfer could not be verified.",
-              options.reconcileDelayMs,
-            );
+            transferReceipt =
+              prior.receipt ??
+              (await reconcile(
+                () => readTrainingTransfer(call, run.characterID, transfer),
+                current,
+                "The current corporation transfer could not be verified. " + checkFundingHint,
+                options.reconcileDelayMs,
+              ));
+            if (!prior.receipt) {
+              const verified = { ...prior, receipt: transferReceipt };
+              updateFunding(funds, prior, verified);
+              prior = verified;
+            }
             if (!corporateOnly) balance = await readTrainingPersonalBalance(call);
           }
           if (!corporateOnly && balance < total)
@@ -703,7 +895,7 @@ export function createTrainingRun(
               "The skillbooks are present, but the corporate payment does not reconcile with the trainee's original wallet balance.",
             );
           if (afterBalance !== null && balance - afterBalance === total) totalCents = total;
-          if (funds && transferReceipt) funds.write(null);
+          if (funds && prior && transferReceipt) updateFunding(funds, prior, null);
         }
         if (setup.skillAction === "purchase-only") {
           run.report({

@@ -4,6 +4,7 @@ import {
   type BackendRoute,
   type BackendRun,
   type PluginRunContext,
+  type PluginRunHandle,
   type PluginRunReport,
 } from "../../../web/src/plugin-api/backend.ts";
 import { pilotServiceOwner } from "../runControl.ts";
@@ -31,13 +32,17 @@ const positive = (v: unknown): v is number =>
 /** One serialized service lane on an existing authorized UOC owner. It starts
  * existing adapters only, never acquires/releases a pilot or reports to its run.
  * Provisioning has read-only inspection here; Apply needs another contract. */
-export function createOwnerTrainingServices(deps: {
-  owner: typeof pilotServiceOwner;
-  training?: BackendRun;
-  inspect?: BackendRun;
-  provisionInspect?: BackendRun;
-  hr?: BackendRun;
-}) {
+export function createOwnerTrainingServices(
+  deps: {
+    owner: typeof pilotServiceOwner;
+    training?: BackendRun;
+    inspect?: BackendRun;
+    provisionInspect?: BackendRun;
+    hr?: BackendRun;
+  },
+  startRun = (definition: BackendRun, ctx: PluginRunContext) =>
+    Promise.resolve(definition.start(ctx)),
+) {
   const tasks = new Map<number, Task>();
   const read =
     (domain: Domain): BackendRoute =>
@@ -160,6 +165,7 @@ export function createOwnerTrainingServices(deps: {
         endedAt: null,
       };
       tasks.set(cid, task);
+      let handle: Promise<PluginRunHandle>;
       const report = (value: PluginRunReport) => {
         try {
           owner.current();
@@ -190,9 +196,21 @@ export function createOwnerTrainingServices(deps: {
         task.phase = value.phase ?? task.phase;
         task.why = value.why ?? null;
         task.readout = value.readout ?? task.readout;
-        if (["stopped", "idle", "error"].includes(value.status)) {
+        if (task.endedAt === null && ["stopped", "idle", "error"].includes(value.status)) {
           task.status = value.status === "error" ? "error" : "stopped";
           task.endedAt = Date.now();
+          // A borrowed service has no separate Bot Host runStop after its final report.
+          void handle
+            .then(
+              (h) => h.stop(),
+              () => {},
+            )
+            .catch((error: unknown) => {
+              task.status = "error";
+              task.why =
+                "Pilot service cleanup failed: " +
+                (error instanceof Error ? error.message : String(error));
+            });
         }
       };
       const fetch = wrapRunFetch(owner.run.fetch, (send) => async (input, init, priority) => {
@@ -209,18 +227,17 @@ export function createOwnerTrainingServices(deps: {
         report,
         fetch,
       };
-      void Promise.resolve()
-        .then(() => {
-          owner.current();
-          return definition.start(borrowed);
-        })
-        .catch((error: unknown) => {
-          report({
-            status: "error",
-            phase: "Owner service needs attention",
-            why: error instanceof Error ? error.message : String(error),
-          });
+      handle = Promise.resolve().then(() => {
+        owner.current();
+        return startRun(definition, borrowed);
+      });
+      void handle.catch((error: unknown) => {
+        report({
+          status: "error",
+          phase: "Owner service needs attention",
+          why: error instanceof Error ? error.message : String(error),
         });
+      });
       return { status: 202, body: { ok: true, task: structuredClone(task) } };
     };
   const account: BackendRoute = (request) => ({
@@ -238,4 +255,3 @@ export function createOwnerTrainingServices(deps: {
     "GET /provisioning/:characterID/service": read("provisioning"),
   };
 }
-export const ownerTrainingRoutes = createOwnerTrainingServices({ owner: pilotServiceOwner });

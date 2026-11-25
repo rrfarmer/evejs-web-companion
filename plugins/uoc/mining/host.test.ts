@@ -13,6 +13,16 @@ type Handoff = {
   absent?: boolean;
   lostComplete?: boolean;
   terminal?: boolean;
+  replacement?: boolean;
+  changedJournal?: boolean;
+};
+type OtherMission = {
+  state: 1 | 2;
+  blocks?: boolean;
+  selected?: 1 | 2;
+  eligible?: boolean;
+  acceptRace?: boolean;
+  referral?: true | "generic label";
 };
 async function missionScenario(
   mode:
@@ -48,7 +58,7 @@ async function missionScenario(
   auto = false,
   timed = false,
   recoveryCheck = false,
-  foreignMission?: { state: 1 | 2; blocks?: boolean; inherit?: boolean },
+  foreignMission?: OtherMission,
   handoff?: Handoff,
 ) {
   const { MINING_MISSION_CONTENT } = await import("./catalog.ts"),
@@ -58,7 +68,7 @@ async function missionScenario(
         : MINING_MISSION_CONTENT[0]
     )!;
   let completedMissions = 0,
-    mission = foreignMission?.inherit ? 2 : 0,
+    mission = foreignMission?.selected ?? 0,
     foreign = foreignMission?.state ?? 0,
     docked = true,
     warped = false,
@@ -101,15 +111,17 @@ async function missionScenario(
   const list = (...items: any[]) => ({ type: "list", items }),
     tuple = (...items: any[]) => ({ type: "tuple", items }),
     dict = (value: any): any => ({ type: "dict", entries: Object.entries(value) });
+  const originalTime =
+    handoff?.action === "continue" || foreignMission?.selected === 2
+      ? saved?.mission?.acceptTimestamp
+      : null;
   const acceptedTime = () =>
     String(
       BigInt(
-        handoff?.action === "continue"
-          ? saved.mission.acceptTimestamp
-          : initial === undefined
-            ? "134385096029600000"
-            : "134385096029700000",
-      ) + BigInt(completedMissions),
+        originalTime ?? (initial === undefined ? "134385096029600000" : "134385096029700000"),
+      ) +
+        BigInt(completedMissions) +
+        (handoff?.replacement ? 1n : 0n),
     );
   const journalRow = (state: number) => [
     state,
@@ -117,7 +129,7 @@ async function missionScenario(
     "UI/Agents/MissionTypes/Mining",
     1234,
     42,
-    "134400000000000000",
+    handoff?.changedJournal ? "134400000000000001" : "134400000000000000",
     0,
     0,
     0,
@@ -131,7 +143,9 @@ async function missionScenario(
               [
                 foreign,
                 0,
-                "UI/Agents/MissionTypes/Courier",
+                foreignMission?.referral === true
+                  ? "UI/Agents/MissionTypes/TalkToAgent"
+                  : "UI/Agents/MissionTypes/Courier",
                 "Corporate Documents",
                 41,
                 "134400000000000000",
@@ -330,10 +344,23 @@ async function missionScenario(
           };
           break;
         case "/api/bridge/agents/41/record":
-          data = { agent: { ...agent, agentID: 41, corporationID: 1000084 } };
+          data = {
+            agent: {
+              ...agent,
+              agentID: 41,
+              corporationID: foreignMission?.eligible ? agent.corporationID : 1000084,
+            },
+          };
           break;
         case "/api/bridge/agents/41/briefing":
-          data = { briefing: dict({ "Decline Time": -1 }), errors: { briefing: null } };
+          data = {
+            objective: dict({
+              objectives: foreignMission?.referral
+                ? list(tuple("agent", tuple(42, dict({ locationID: 6001 }))))
+                : list(tuple("transport", tuple())),
+            }),
+            errors: { objective: null },
+          };
           break;
         case "/api/bridge/agents/42/record":
           data = { agent };
@@ -509,8 +536,24 @@ async function missionScenario(
             }
             data = {
               result: tuple(
-                tuple(tuple("Agent"), list(tuple(2, 2), tuple(3, 3), tuple(6, 6))),
-                dict({ missionCompleted: action === 6 }),
+                tuple(
+                  tuple("Agent"),
+                  list(
+                    ...(mission === 0
+                      ? [tuple(2, 2)]
+                      : mission === 1
+                        ? [tuple(3, 3)]
+                        : [tuple(6, 6)]),
+                  ),
+                ),
+                dict({
+                  missionCompleted:
+                    action === 6
+                      ? true
+                      : action === 3 && !foreignMission?.acceptRace
+                        ? false
+                        : null,
+                }),
               ),
             };
           } else if (body.method === "GetCurrentDungeonForCharacter")
@@ -685,7 +728,11 @@ async function missionScenario(
       },
       findAgents: async ({ level }: { level: number }) => {
         levels.push(level);
-        const agents = level === 1 ? [{ ...agent, missionKind: "mining", jumps: 0 }] : [];
+        const free = { ...agent, missionKind: "mining", jumps: 0 };
+        const agents =
+          level === 1
+            ? [...(foreignMission?.eligible ? [{ ...free, agentID: 41 }] : []), free]
+            : [];
         finder = { loaded: true, error: null, capped: false, total: agents.length, agents };
       },
       flying: {
@@ -779,6 +826,7 @@ async function missionScenario(
       shipID: 99,
       agentID: 42,
       mission: objective,
+      acceptedByRun: "old-run",
       pending: {
         kind: "mining-cycle",
         issuedAt: issued,
@@ -950,10 +998,17 @@ test("Mining Continue after Stop and restart mines the remainder, unloads and co
     first.actions.filter((x) => x !== null),
     [2, 3],
   );
-  const second = await handoffMining(
-    { action: "continue", botID: "resumed" },
+  const second = await missionScenario(
+    "success",
     JSON.parse(JSON.stringify(first.saved)),
+    1,
+    false,
+    false,
+    false,
+    { state: 2 },
+    { action: "continue", botID: "resumed" },
   );
+  assert.equal(second.foreign, 2);
   assert.deepEqual(
     second.actions.filter((x) => x !== null),
     [6],
@@ -1033,38 +1088,105 @@ test("automatic up-to-four falls back to a reachable eligible level-one Mining a
   assert.equal(f.saved.agentID, 42);
   assert.equal(f.actions.filter((x) => x === 2).length, 1);
 });
-for (const [state, inherit] of [
-  [1, false],
-  [2, false],
-  [2, true],
-] as const)
-  test(`${inherit ? "An accepted Mining mission resumes" : "Mining serves the selected corporation"} with a foreign ${state === 1 ? "offer" : "accepted mission"} still open`, async () => {
+for (const state of [1, 2] as const)
+  test(`Mining skips an eligible occupied agent with a foreign ${state === 1 ? "offer" : "accepted mission"}`, async () => {
     const f = await missionScenario("success", undefined, 2, true, false, false, {
       state,
-      inherit,
+      eligible: true,
     });
     assert.equal(f.reports.at(-1).status, "stopped", JSON.stringify(f.reports.at(-1)));
     assert.equal(f.saved.agentID, 42);
     assert.equal(f.reports.at(-1).readout.completedCount, 2);
     assert.deepEqual(
       f.actions.filter((a) => a !== null),
-      inherit ? [6, 2, 3, 6] : [2, 3, 6, 2, 3, 6],
+      [2, 3, 6, 2, 3, 6],
     );
     assert.equal(f.activations, 2);
     assert.equal(f.foreign, state);
   });
-test("Mining declines a foreign offer only after a confirmed Request refusal", async () => {
-  const f = await missionScenario("success", undefined, 1, true, false, false, {
-    state: 1,
-    blocks: true,
+for (const state of [1, 2] as const)
+  test(`Mining leaves another agent's state-${state} mission alone even if Request is refused`, async () => {
+    const f = await missionScenario("success", undefined, 1, true, false, false, {
+      state,
+      blocks: true,
+    });
+    assert.equal(f.foreign, state);
+    assert.deepEqual(
+      f.actions.filter((a) => a !== null),
+      [2],
+    );
+    assert.match(f.saved.lastFailure, /Agent 42 refused Request/);
   });
-  assert.equal(f.reports.at(-1).status, "stopped", JSON.stringify(f.reports.at(-1)));
-  assert.equal(f.foreign, 0);
+for (const selected of [1, 2] as const)
+  test(`manually selected Mining agent with an unowned state-${selected} mission is left for the player`, async () => {
+    const f = await missionScenario("success", undefined, 1, false, false, false, {
+      state: 2,
+      selected,
+    });
+    assert.deepEqual(f.actions, []);
+    assert.equal(f.activations, 0);
+    assert.match(f.saved.lastFailure, /agent 42.*free agent/i);
+    assert.equal(f.reports.at(-1).readout.acceptedMission, null);
+  });
+test("Mining can use a manually selected free agent alongside an accepted player mission", async () => {
+  const f = await missionScenario("success", undefined, 1, false, false, false, { state: 2 });
   assert.deepEqual(
     f.actions.filter((a) => a !== null),
-    [2, 379, 2, 3, 6],
+    [2, 3, 6],
   );
-  assert.equal(f.reports.at(-1).readout.completedCount, 1);
+  assert.equal(f.foreign, 2);
+});
+test("a regular Mining Start requires recorded acceptance even when the live objective matches exactly", async () => {
+  const first = await handoffMining({ action: "stop", botID: "original" }),
+    legacy = structuredClone(first.saved);
+  delete legacy.acceptedByRun;
+  const unowned = await missionScenario("success", legacy, 1, false, false, false, {
+    state: 2,
+    selected: 2,
+  });
+  assert.deepEqual(unowned.actions, []);
+  assert.equal(unowned.reports.at(-1).readout.acceptedMission, null);
+  assert.match(unowned.reports.at(-1).why, /agent 42.*free agent/i);
+  const owned = await missionScenario("success", first.saved, 1, false, false, false, {
+    state: 2,
+    selected: 2,
+  });
+  assert.deepEqual(
+    owned.actions.filter((a) => a !== null),
+    [6],
+  );
+  assert.equal(owned.foreign, 2);
+});
+for (const referral of [true, "generic label"] as const)
+  test(`Mining avoids a referral turn-in on contact (journal label: ${referral})`, async () => {
+    const f = await missionScenario("success", undefined, 1, true, false, false, {
+      state: 2,
+      referral,
+    });
+    assert.deepEqual(f.actions, []);
+    assert.match(f.saved.lastFailure, /would turn in Corporate Documents/);
+  });
+test("Mining does not claim an already-accepted reply to its Accept", async () => {
+  const f = await missionScenario("success", undefined, 1, false, false, false, {
+    state: 2,
+    acceptRace: true,
+  });
+  assert.deepEqual(
+    f.actions.filter((a) => a !== null),
+    [2, 3],
+  );
+  assert.equal(f.reports.at(-1).readout.acceptedMission, null);
+});
+test("Mining Continue rejects a replacement at the same agent even with the same content", async () => {
+  const first = await handoffMining({ action: "stop", botID: "original" });
+  for (const changed of [{ replacement: true }, { changedJournal: true }]) {
+    const f = await handoffMining(
+      { action: "continue", botID: "resumed", ...changed },
+      first.saved,
+    );
+    assert.deepEqual(f.actions, []);
+    assert.equal(f.reports.at(-1).readout.continuationUnavailable, true);
+  }
 });
 test("time mode continues past the count field and stops at its clock limit", async () => {
   const f = await missionScenario("success", undefined, 1, false, true);
@@ -1379,15 +1501,10 @@ for (const mode of [
     assert.equal(f.activations, 0);
   });
 
-test("current accepted objective supersedes stale metadata while preserving the old objective and unresolved intent in existing history", async () => {
+test("a replacement Mining objective cannot take over an earlier run's unresolved cycle", async () => {
   const f = await missionScenario("retained-stale-objective");
-  const old = f.saved.history.find(
-    (r: any) => r.objective?.acceptTimestamp === "historical-objective",
-  );
-  assert.ok(old);
-  assert.equal(old.completed, false);
-  assert.equal(old.intent.kind, "mining-cycle");
-  assert.equal(f.saved.cycleSettlements[0].yieldOutcome, "NOT_ATTRIBUTED");
-  assert.equal(f.saved.completed, false);
+  assert.equal(f.saved.mission.acceptTimestamp, "historical-objective");
+  assert.equal(f.saved.pending.kind, "mining-cycle");
+  assert.deepEqual(f.actions, []);
   assert.equal(f.activations, 0);
 });

@@ -16,12 +16,14 @@
   import type { DistributionView, FleetRow } from "../../logistics/store.ts";
   import {
     findAccessibleStructures,
+    findHangarPilot,
     findMapLocations,
-    openDefaultFarmerAccount,
+    openPageAccount,
     resolveDestination,
     type VerifiedOperationPilot,
   } from "../app/api.ts";
   import { authenticatedJson, ownerOptions, type ApiOptions } from "../app/context.ts";
+  import { pollWhileVisible } from "../app/pageVisibility.ts";
   import { readTrainingActiveShip } from "../adapters/training.ts";
   import DistributionEditor from "./DistributionEditor.svelte";
   import DistributionWorkspace, {
@@ -32,6 +34,7 @@
   import CenterHeading from "./CenterHeading.svelte";
 
   const prefix = "/api/plugins/uoc/logistics";
+  let { operatorAccount }: { operatorAccount?: string } = $props();
   let access: ApiOptions | undefined;
   let view = $state.raw<DistributionView | null>(null),
     section = $state<Section>("operations");
@@ -45,9 +48,8 @@
   let names = $state<Record<number, string | null>>({}),
     docks = $state<Record<number, string | null>>({});
   let generation = 0,
-    polling = false,
-    enrich = false,
     disposed = false;
+  let visible: AbortSignal | undefined, enriching: AbortSignal | undefined;
   const selected = $derived(
     view?.operations.find((row) => row.id === selectedID) ?? view?.operations[0],
   );
@@ -77,10 +79,10 @@
       )
         delete availability[row.characterID];
     view = latest;
-    if (!enrich) void readLabels(latest);
+    if (visible && !visible.aborted && enriching !== visible) void readLabels(latest, visible);
   }
-  async function readLabels(latest: DistributionView) {
-    enrich = true;
+  async function readLabels(latest: DistributionView, signal: AbortSignal) {
+    enriching = signal;
     try {
       const typeIDs = new Set<number>();
       for (const row of latest.roster) {
@@ -100,58 +102,56 @@
       const pending = [...typeIDs].filter((id) => names[id] === undefined);
       for (let start = 0; start < pending.length; start += 50) {
         const batch = pending.slice(start, start + 50);
-        const result = await authenticatedJson("/api/names", options(), {
-          items: batch.map((id) => ({ kind: "type", id })),
-        });
-        if (disposed) return;
+        const result = await authenticatedJson(
+          "/api/names",
+          { ...options(), signal },
+          { items: batch.map((id) => ({ kind: "type", id })) },
+        );
+        if (signal.aborted) return;
         for (const id of batch) names[id] = result.names?.["type:" + id] ?? null;
       }
       for (const id of locations) {
-        const resolved = await resolveDestination(id, options()).catch(() => null);
-        if (disposed) return;
+        const resolved = await resolveDestination(id, { ...options(), signal }).catch(() => null);
+        if (signal.aborted) return;
         docks[id] = resolved?.name ?? null;
       }
     } catch {
       /* Names are optional and do not delay fleet commands. */
     } finally {
-      enrich = false;
+      if (enriching === signal) enriching = undefined;
     }
   }
 
-  async function sync(path: string, body: unknown) {
-    const latest = await authenticatedJson<DistributionView>(prefix + path, options(), body);
+  async function sync(path: string, body: unknown, auth = options()) {
+    const latest = await authenticatedJson<DistributionView>(prefix + path, auth, body);
     show(latest);
     return latest;
   }
-  async function poll() {
-    if (!access || polling || busy || disposed) return;
+  async function poll(signal: AbortSignal, initial: boolean) {
+    visible = signal;
+    if (busy || disposed) return;
     const at = generation;
-    polling = true;
     try {
-      const latest = await authenticatedJson<DistributionView>(prefix, options());
-      if (at === generation) show(latest);
+      if (initial && !access) {
+        const selected = await openPageAccount(operatorAccount, undefined, signal);
+        if (signal.aborted) return;
+        access = selected?.options;
+      }
+      if (!access) return;
+      const latest = await authenticatedJson<DistributionView>(prefix, { ...access, signal });
+      if (!signal.aborted && at === generation) show(latest);
     } catch (error) {
-      if (at === generation) issue = message(error);
+      if (!signal.aborted && at === generation) issue = message(error);
     } finally {
-      polling = false;
+      if (!signal.aborted) loading = false;
     }
   }
 
   onMount(() => {
-    void (async () => {
-      try {
-        access = (await openDefaultFarmerAccount())?.options;
-        if (access && !disposed) await poll();
-      } catch (error) {
-        issue = message(error);
-      } finally {
-        loading = false;
-      }
-    })();
-    const timer = setInterval(() => void poll(), 4_000);
+    const stop = pollWhileVisible(4_000, poll);
     return () => {
       disposed = true;
-      clearInterval(timer);
+      stop();
     };
   });
 
@@ -176,7 +176,7 @@
     plugin?: { pluginID: string; run: string };
   };
   async function check(carrier: Carrier) {
-    const auth = await ownerOptions(carrier.account);
+    const { account, options: auth } = await findHangarPilot(carrier.characterID);
     const [data, response] = await Promise.all([
       authenticatedJson<{ bots: ActiveBot[]; hostedRunPolicy?: { maxRuntimeMinutes: number } }>(
         "/api/bots",
@@ -214,7 +214,7 @@
       botID: ours,
       shipName: availability[carrier.characterID]?.shipName,
     };
-    return { auth, ours, free, label, maximum: data.hostedRunPolicy?.maxRuntimeMinutes };
+    return { account, auth, ours, free, label, maximum: data.hostedRunPolicy?.maxRuntimeMinutes };
   }
 
   async function connect(carrier: Carrier) {
@@ -224,11 +224,12 @@
       if (!state.free) throw Error(state.label);
       if (!positive(state.maximum))
         throw Error("Bot Host did not provide a permitted run duration.");
+      const auth = await ownerOptions(state.account);
       const reviewed = await checkPluginRun(
         "uoc",
         "distribution-carrier",
         { characterID: carrier.characterID },
-        state.auth,
+        auth,
       );
       const bot = await startPluginRun(
         carrier.characterID,
@@ -236,7 +237,7 @@
         "distribution-carrier",
         reviewed.setup,
         createPluginRunGrant(reviewed.policy, state.maximum),
-        state.auth,
+        auth,
       );
       if (bot.characterID !== carrier.characterID || bot.endedAt || !bot.botID)
         throw Error("Bot Host did not accept this hauler.");
@@ -279,14 +280,21 @@
 
   function addHauler(pilot: VerifiedOperationPilot) {
     void task(async () => {
-      const latest = await sync("/roster", {
-        characterID: pilot.characterID,
-        account: pilot.accountName,
-        name: pilot.characterName,
-        shipName: pilot.shipName,
-        corporationID: pilot.corporationID,
-        corporationName: pilot.corporationName,
-      });
+      const { pilot: current, options: auth } = await findHangarPilot(
+        pilot.characterID,
+        pilot.accountName,
+      );
+      const latest = await sync(
+        "/roster",
+        {
+          characterID: current.characterID,
+          name: current.name,
+          shipName: current.shipName ?? current.shipTypeName ?? pilot.shipName,
+          corporationID: current.corporationID,
+          corporationName: current.corporationName,
+        },
+        auth,
+      );
       adding = false;
       const row = latest.roster.find((carrier) => carrier.characterID === pilot.characterID);
       if (
@@ -307,13 +315,28 @@
         throw Error("This hauler still has an assigned trip.");
       const state = await check(carrier);
       if (!state.ours) return;
-      await stopServerBot(state.ours, state.auth);
+      await stopServerBot(state.ours, await ownerOptions(state.account));
       delete availability[carrier.characterID];
       show(await authenticatedJson<DistributionView>(prefix, options()));
     });
   }
 
   function start(op: Operation) {
+    if (op.config.allItems) {
+      const { source, destination, mode } = op.config;
+      const division = (office: Config["source"]) => {
+        const dock = office.name ?? docks[office.destinationID] ?? `${office.kind} ${office.destinationID}`;
+        return `Division ${office.division} at ${dock}`;
+      };
+      const message = [
+        `Move all eligible items from ${division(source)} to ${division(destination)}?`,
+        "This includes containers and their contents, as well as stock set aside for other work. Assembled ships stay at the source.",
+      ];
+      if (mode === "COLLECTION")
+        message.push("Collection keeps any configured reserves at the source and picks up new arrivals until stopped.");
+      if (!window.confirm(message.join("\n\n"))) return;
+    }
+
     void task(async () => {
       const latest = await sync("/" + op.id + "/start", {});
       const corporation = latest.operations.find((row) => row.id === op.id)?.config.corporationID;
@@ -347,11 +370,8 @@
         (row.hosted?.corporationID ?? row.corporationID) === corporationID,
     );
     const upwellSearch = representative
-      ? findAccessibleStructures(
-          query,
-          options(),
-          representative.characterID,
-          representative.account,
+      ? findHangarPilot(representative.characterID).then(({ options: auth }) =>
+          findAccessibleStructures(query, auth, representative.characterID),
         )
       : Promise.reject(Error("Add a hauler from this corporation to search its Upwell docks."));
     const [stations, upwell] = await Promise.allSettled([stationSearch, upwellSearch]);

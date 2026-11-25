@@ -1,3 +1,4 @@
+import { acceptsMinedFreight, freightHoldFlags } from "../shared/freightHolds.ts";
 import type { ManifestItem, FreightKind } from "./operation.ts";
 import type { NativeInventoryRow } from "./nativeInventory.ts";
 
@@ -24,7 +25,6 @@ export type FreightSummary = {
   raw: ManifestItem[];
   compressed: ManifestItem[];
 };
-const flags: Record<string, number> = { cargo: 5, ore: 134, gas: 135, ice: 181, asteroid: 182 };
 const positive = (x: unknown): x is number =>
   typeof x === "number" && Number.isSafeInteger(x) && x > 0;
 /** Native volumes and effective bay capacities; categories never share a numerator. */
@@ -49,11 +49,10 @@ export function summarizeFreight(
     )
   )
     throw Error("Freight item identity is ambiguous.");
-  const eligible = family === "ice" ? [181, 134, 5] : [182, 134, 5],
-    out: FreightSummary[] = [];
+  const out: FreightSummary[] = [];
   for (const h of holds) {
-    const flag = flags[h.key];
-    if (!flag || !eligible.includes(flag)) continue;
+    const flag = freightHoldFlags[h.key];
+    if (!flag || !acceptsMinedFreight(flag, family)) continue;
     if (
       typeof h.present !== "boolean" ||
       h.error != null ||

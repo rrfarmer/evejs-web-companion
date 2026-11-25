@@ -111,6 +111,7 @@ test("fourteen admitted pilots share one fleet roster read and recheck a removed
   }));
   const setup = { ...base, operationID: "active-roster-reads", beltName: "active roster", members };
   const group = createMiningFleetRuntime(deps).getOrCreate(setup);
+  t.after(() => group.shutdown());
   const memberIDs = members.map((m) => m.characterID),
     fleetID = 900;
   const key = `mining-fleet-assembly:${JSON.stringify([setup.operationID, setup.operationRunID])}`;
@@ -144,6 +145,7 @@ test("fourteen admitted pilots share one fleet roster read and recheck a removed
       anchorReady: true,
       active: true,
       busy: true,
+      unregister() {},
       expiry: Date.now() + 600_000,
       run: {
         botID: `bot-${id}`,
@@ -177,6 +179,7 @@ test("fourteen admitted pilots share one fleet roster read and recheck a removed
       session: {
         store: { station: { get: () => ({ online: { characterID: id } }) } },
         flow: {
+          setLivePush() {},
           requestOptions: () => ({}),
           flying: { isSessionClosing: () => false, bridgeAsk: async () => null },
         },
@@ -219,6 +222,7 @@ test("MCC Burst reporting uses the observations from the current module turn", a
   };
   const runtime = createMiningFleetRuntime(deps),
     group = runtime.getOrCreate(setup);
+  t.after(() => group.shutdown());
   assert.ok(group.op.reserve(1, { kind: "BELT", systemID: 300, name: setup.beltName }));
   assert.ok(group.op.activate(1));
   const reads: number[] = [],
@@ -253,7 +257,7 @@ test("MCC Burst reporting uses the observations from the current module turn", a
   });
   const session: any = {
     store: { station: { get: () => ({ online: { characterID: 4, corporationID: 77 } }) } },
-    flow: { flying: { isSessionClosing: () => false } },
+    flow: { setLivePush() {}, flying: { isSessionClosing: () => false } },
   };
   const reports: { phase?: string; why?: string; status?: string }[] = [];
   group.entries.set(4, {
@@ -266,6 +270,7 @@ test("MCC Burst reporting uses the observations from the current module turn", a
     },
     active: true,
     busy: false,
+    unregister() {},
     failed: null,
     expiry: Date.now() + 600_000,
     navigation: { navigate: async () => {} },
@@ -2393,7 +2398,6 @@ for (const incident of [
       op = group.op;
     const claim = op.reserve(1, { kind: "BELT", systemID: 300, name: setup.beltName })!;
     assert.ok(claim && op.activate(1));
-    const facts = { 30: { categoryID: 25, freightKind: "RAW" as const, unitVolumeM3: 1 } };
     const items = [
       { itemID: 20, typeID: 30, quantity: 10, freightKind: "RAW" as const, unitVolumeM3: 1 },
     ];
@@ -2466,79 +2470,54 @@ for (const incident of [
               current: () => {},
             }).navigate
           : async () => {};
-      const native =
-        member.role === "MINER"
-          ? {
-              current() {},
-              navigate,
-              async mineCycle() {
-                ore.set(id, (ore.get(id) ?? 0) + 10);
-                return id === 2 && jettisons === 0 ? "hold-full" : "yield";
-              },
-              async observeHolds() {
-                assert.equal(id, 2);
-                return {
-                  source: {
-                    source: "checked-ship-holds",
-                    characterID: id,
-                    shipID: member.shipID,
-                    systemID: 300,
-                    targetKey: claim.key,
-                    claimGeneration: claim.generation,
-                    observedAt: Date.now(),
-                    items: items.map((i) => ({
-                      ...i,
-                      ownerID: id,
-                      locationID: member.shipID,
-                      flagID: 134,
-                    })),
-                  },
-                  items,
-                  facts,
-                  capacityM3: 100,
-                  existingContainerIDs: [],
-                  sceneSampledAt: Date.now(),
-                };
-              },
-              async jettison() {
-                assert.equal(id, 2);
-                jettisons++;
-              },
-              async observeCreatedCan(before: { source: Record<string, unknown> }) {
-                return {
-                  containerID: 100,
-                  ownerID: id,
-                  shipID: member.shipID,
-                  systemID: 300,
-                  targetKey: claim.key,
-                  claimGeneration: claim.generation,
-                  observedAt: Date.now(),
-                  items,
-                  sourceAfter: { ...before.source, items: [], observedAt: Date.now() },
-                };
-              },
-            }
-          : member.role === "HAULER"
-            ? {
-                current() {},
-                async navigateAndVerify() {},
-                async transferAndDeliver(_manifest: unknown, generation: number) {
-                  return {
-                    source: "native-transfer",
-                    operationID: setup.operationID,
-                    runID: setup.operationRunID,
-                    containerID: 100,
-                    claimGeneration: generation,
-                    shipID: member.shipID,
-                    destinationID: 600,
-                    sourceAfter: [],
-                    destinationBefore: [],
-                    destinationAfter: [{ typeID: 30, quantity: 10 }],
-                    observedAt: Date.now(),
-                  };
-                },
-              }
-            : {};
+      const miner: Partial<import("./memberLoops.ts").RawMinerNative> = {
+        current() {},
+        navigate,
+        async mineCycle(_target, _claim, ready, _arrival, drop) {
+          ore.set(id, (ore.get(id) ?? 0) + 10);
+          if (id === 2 && jettisons === 0 && ready) assert.equal(await drop!(items), true);
+          return "yield";
+        },
+        async jettison(ids) {
+          assert.equal(id, 2);
+          assert.deepEqual(ids, [20]);
+          jettisons++;
+        },
+      };
+      const hauler: Partial<import("./memberLoops.ts").RawHaulerNative> = {
+        current() {},
+        async waitAtBelt() {},
+        async observeGridJetcans(_target, _claim, _excluded, _pending, available, publish) {
+          if (jettisons && available(100, 2))
+            await publish({
+              containerID: 100,
+              ownerID: 2,
+              observedAt: Date.now(),
+              capacityM3: 100,
+              items,
+            });
+        },
+        async haulTrip(_owned, next, destinationID) {
+          const work = await next(async () => true);
+          if (!work) return "idle";
+          assert.ok(work.dispatch());
+          work.complete({
+            source: "native-transfer",
+            operationID: setup.operationID,
+            runID: setup.operationRunID,
+            containerID: work.manifest.containerID,
+            claimGeneration: work.generation,
+            shipID: member.shipID,
+            destinationID,
+            sourceAfter: [],
+            destinationBefore: [],
+            destinationAfter: [{ typeID: 30, quantity: 10 }],
+            observedAt: Date.now(),
+          });
+          return "delivered";
+        },
+      };
+      const native = member.role === "MINER" ? miner : member.role === "HAULER" ? hauler : {};
       const cycle =
         member.role === "MINER"
           ? {
@@ -3239,7 +3218,7 @@ for (const scenario of [
       );
       assert.deepEqual(
         writes.sort((a, b) => a - b),
-        scenario === "unload unconfirmed" ? [1, 3, 3, 3, 3] : [1, 3],
+        [1, 3],
         JSON.stringify([...reports]),
       );
       const blocked =
@@ -3734,7 +3713,7 @@ test("MCC verifies CreateFleet before the selected leader leaves dock, without h
   }
 });
 
-async function exerciseAnchorStop(lostOwner: boolean) {
+async function exerciseAnchorStop(t: import("node:test").TestContext, lostOwner: boolean) {
   const members = [
     base.members[2]!,
     base.members[0]!,
@@ -3789,6 +3768,7 @@ async function exerciseAnchorStop(lostOwner: boolean) {
           flying: { sessionGeneration: () => 1, isSessionClosing: () => false },
         },
       }) as any,
+    createDefender: () => assert.fail("Anchor travel must not start Defender combat."),
     anchor: async (run, _session, config) => {
       routes.push(run.characterID);
       while (!config.stopRequested()) await sleep();
@@ -3807,9 +3787,10 @@ async function exerciseAnchorStop(lostOwner: boolean) {
       return { destinationID: 600, kind: "station", systemID: 300 };
     },
   });
+  t.after(() => runtime.shutdown());
   for (const m of members) {
     const id = m.characterID,
-      botID = "parallel-" + id,
+      botID = setup.operationID + "-" + id,
       fetcher: typeof fetch = async (input) => {
         const path = new URL(String(input)).pathname;
         if (path === "/api/pilot-training/characters")
@@ -3873,10 +3854,10 @@ async function exerciseAnchorStop(lostOwner: boolean) {
   assert.ok(reports.some((r) => r.id === 3 && r.phase === "Stopping startup"));
   assert.equal(reports.filter((r) => r.status === "stopped").length, finished.length);
 }
-test("all anchor routes start concurrently; Stop settles all started routes", () =>
-  exerciseAnchorStop(false));
-test("a missing anchor owner leaves its route retained and healthy startup peers park", () =>
-  exerciseAnchorStop(true));
+test("all anchor routes start concurrently; Stop settles all started routes", (t) =>
+  exerciseAnchorStop(t, false));
+test("a missing anchor owner leaves its route retained and healthy startup peers park", (t) =>
+  exerciseAnchorStop(t, true));
 
 function startupFleet(
   t: import("node:test").TestContext,
@@ -4978,6 +4959,30 @@ test("lazy miner support becomes available only for exact arrived live Core and 
   await assert.rejects(view.observeSupport(), /authority changed/);
   for (const e of group.entries.values()) e.active = false;
 });
+function commandStopPilot(member: Member) {
+  const { characterID, shipID } = member;
+  return {
+    session: {
+      store: { station: { get: () => ({ online: { characterID, corporationID: 77 } }) } },
+      flow: {
+        requestOptions: () => ({}),
+        flying: { isSessionClosing: () => false },
+        setLivePush() {},
+      },
+    },
+    run: {
+      characterID,
+      baseUrl: "http://fixture",
+      fetch: async (input: RequestInfo | URL) => {
+        assert.equal(new URL(String(input)).pathname, "/api/bridge/flight/status");
+        return Response.json({
+          ok: true,
+          flight: { shipID, solarSystemID: 300, inSpace: true, docked: false, shipMode: "STOP" },
+        });
+      },
+    },
+  };
+}
 test("COMMAND compressor settles before its Core and Burst", async () => {
   const setup = {
       ...base,
@@ -5048,14 +5053,9 @@ test("COMMAND compressor settles before its Core and Burst", async () => {
   assert.ok(group.op.reserve(1, { kind: "BELT", systemID: 300, name: setup.beltName }));
   assert.ok(group.op.activate(1));
   for (const m of setup.members) {
-    const session: any = {
-      store: {
-        station: { get: () => ({ online: { characterID: m.characterID, corporationID: 77 } }) },
-      },
-      flow: { flying: { isSessionClosing: () => false }, setLivePush() {} },
-    };
+    const { session, run } = commandStopPilot(m);
     group.entries.set(m.characterID, {
-      run: { characterID: m.characterID, report() {} },
+      run: { ...run, report() {} },
       session,
       member: m,
       cycle:
@@ -5260,15 +5260,10 @@ test("COMMAND waits for its real Core cycle while independent pilots stop", asyn
   assert.ok(group.op.reserve(1, { kind: "BELT", systemID: 300, name: setup.beltName }));
   assert.ok(group.op.activate(1));
   for (const m of setup.members) {
-    const session: any = {
-      store: {
-        station: { get: () => ({ online: { characterID: m.characterID, corporationID: 77 } }) },
-      },
-      flow: { flying: { isSessionClosing: () => false }, setLivePush() {} },
-    };
+    const { session, run } = commandStopPilot(m);
     group.entries.set(m.characterID, {
       run: {
-        characterID: m.characterID,
+        ...run,
         report(r: any) {
           reports.push(r);
         },
@@ -5360,12 +5355,7 @@ test("independent pilots park and release while COMMAND still awaits its own eff
   assert.ok(group.op.reserve(1, { kind: "BELT", systemID: 300, name: "command-stop-test" }));
   assert.ok(group.op.activate(1));
   for (const m of setup.members) {
-    const session: any = {
-      store: {
-        station: { get: () => ({ online: { characterID: m.characterID, corporationID: 77 } }) },
-      },
-      flow: { flying: { isSessionClosing: () => false }, setLivePush() {} },
-    };
+    const { session, run } = commandStopPilot(m);
     const native: any = {
       current() {},
       navigate: async () => {
@@ -5384,7 +5374,7 @@ test("independent pilots park and release while COMMAND still awaits its own eff
       },
     };
     group.entries.set(m.characterID, {
-      run: { characterID: m.characterID, report() {} },
+      run: { ...run, report() {} },
       session,
       member: m,
       cycle:
@@ -5453,14 +5443,9 @@ test("unknown COMMAND effect preserves its exact reason while peers park", async
   assert.ok(group.op.reserve(1, { kind: "BELT", systemID: 300, name: "command-unknown-test" }));
   assert.ok(group.op.activate(1));
   for (const m of setup.members) {
-    const session: any = {
-      store: {
-        station: { get: () => ({ online: { characterID: m.characterID, corporationID: 77 } }) },
-      },
-      flow: { flying: { isSessionClosing: () => false }, setLivePush() {} },
-    };
+    const { session, run } = commandStopPilot(m);
     group.entries.set(m.characterID, {
-      run: { characterID: m.characterID, report() {} },
+      run: { ...run, report() {} },
       session,
       member: m,
       cycle:
@@ -5573,12 +5558,7 @@ async function delayedCommandStop(lostAck: boolean) {
   assert.ok(group.op.reserve(1, { kind: "BELT", systemID: 300, name: setup.beltName }));
   assert.ok(group.op.activate(1));
   for (const m of setup.members) {
-    const session: any = {
-      store: {
-        station: { get: () => ({ online: { characterID: m.characterID, corporationID: 77 } }) },
-      },
-      flow: { flying: { isSessionClosing: () => false }, setLivePush() {} },
-    };
+    const { session, run } = commandStopPilot(m);
     const native: any = {
       current() {},
       navigate: async () => {
@@ -5597,7 +5577,7 @@ async function delayedCommandStop(lostAck: boolean) {
       },
     };
     group.entries.set(m.characterID, {
-      run: { characterID: m.characterID, report() {} },
+      run: { ...run, report() {} },
       session,
       member: m,
       cycle:
@@ -6264,6 +6244,7 @@ test("Stop retries rejected unknown search read-only after native settlement", a
   const { beltID, beltName, ...rest } = base,
     setup = { ...rest, operationID: "auto-site-reconcile", siteSearch: { family: "ORE" as const } },
     events: string[] = [];
+  let scoutID: number | undefined;
   let release!: (value: any) => void;
   const pending = new Promise<any>((r) => {
     release = r;
@@ -6274,12 +6255,14 @@ test("Stop retries rejected unknown search read-only after native settlement", a
         events.push(`park:${(run as any).characterID}`);
         return { destinationID: 600, kind: "station" as const, systemID: 300 };
       },
-      searchSite: async (_run, _session, config) => {
+      searchSite: async (run, _session, config) => {
         if (!config.stopRequested()) {
+          scoutID = run.characterID;
           events.push("search");
           config.document.write({ pending: { issuedAt: 1 } });
           throw Error("undock remains unknown");
         }
+        assert.equal(run.characterID, scoutID);
         events.push("readonly-reconcile");
         await pending;
         config.document.write({ pending: null });
@@ -6390,7 +6373,14 @@ test("Stop retries rejected unknown search read-only after native settlement", a
   assert.deepEqual(events.slice(0, 2), ["search", "readonly-reconcile"]);
   for (let i = 0; i < 80 && group.op.snapshot().parked.length < 2; i++)
     await new Promise((r) => setTimeout(r, 100));
-  assert.deepEqual([...group.op.snapshot().parked].sort(), [2, 3]);
+  assert.ok(setup.members.some((m) => m.characterID === scoutID && m.role === "MINER"));
+  assert.deepEqual(
+    [...group.op.snapshot().parked].sort(),
+    setup.members
+      .map((m) => m.characterID)
+      .filter((id) => id !== scoutID)
+      .sort(),
+  );
   assert.equal(group.op.snapshot().state, "SETTLING");
   assert.equal(group.op.snapshot().claim, null);
   release(null);

@@ -2,6 +2,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import {
+    listHangarPilotAccount,
     listVerifiedOperationPilots,
     listWorkspaceOperationPilots,
     type VerifiedOperationPilot,
@@ -92,10 +93,17 @@
     busy = true;
     error = "";
     try {
-      const pilots = await listVerifiedOperationPilots(account);
+      const pilots =
+        characterID === undefined
+          ? await listVerifiedOperationPilots(account)
+          : await listHangarPilotAccount(characterID);
       if (generation !== current) return;
+      const ids = new Set(pilots.map((pilot) => pilot.characterID));
+      const rosterAccount = (pilots[0]?.accountName ?? account).toLowerCase();
       rows = [
-        ...rows.filter((row) => row.accountName.toLowerCase() !== account.toLowerCase()),
+        ...rows.filter(
+          (row) => row.accountName.toLowerCase() !== rosterAccount && !ids.has(row.characterID),
+        ),
         ...pilots,
       ];
       onLoaded?.(pilots);

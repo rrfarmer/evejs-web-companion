@@ -1,3 +1,4 @@
+import { haulerInventoryFlags } from "../shared/freightHolds.ts";
 import type { FleetDelivery } from "./delivery.ts";
 import { targetKey, type Claim, type Target, type createTargetBoard } from "./targetBoard.ts";
 import type { ArchivedDelivery, FleetOperationStore } from "./operationStore.ts";
@@ -117,6 +118,7 @@ export interface OperationRecord {
   readonly runID: string;
   readonly systemID: number;
   readonly destinationID: number;
+  readonly delivery?: FleetDelivery;
   readonly members: readonly Member[];
   readonly commandCapabilities?: CommandCapabilities;
   readonly commandMiningFinal?: {
@@ -379,8 +381,7 @@ export function createOperation(
       row.runID !== definition.runID ||
       row.systemID !== definition.systemID ||
       row.destinationID !== definition.destinationID ||
-      JSON.stringify((row as OperationRecord & { delivery?: FleetDelivery }).delivery ?? null) !==
-        JSON.stringify(definition.delivery ?? null) ||
+      JSON.stringify(row.delivery ?? null) !== JSON.stringify(definition.delivery ?? null) ||
       row.haulMode !== definition.haulMode ||
       row.stopMode !== definition.stopMode ||
       JSON.stringify(row.commandCapabilities ?? null) !==
@@ -984,7 +985,7 @@ export function createOperation(
             row.quantity === i.quantity &&
             row.ownerID === characterID &&
             row.locationID === m.shipID &&
-            [5, 134, 135, 181, 182].includes(row.flagID),
+            haulerInventoryFlags.includes(row.flagID),
         ),
       )
     )
@@ -1810,50 +1811,54 @@ export function createOperation(
               valid(r.quantity) &&
               r.ownerID === characterID &&
               r.locationID === m.shipID &&
-              [5, 134, 135, 181, 182].includes(r.flagID),
+              haulerInventoryFlags.includes(r.flagID),
           );
         if (!validSource(b.sourceBefore) || !validSource(b.sourceAfter)) return false;
         const row = b.sourceBefore.find((r) => r.itemID === b.item.itemID);
         if (!row || row.typeID !== b.item.typeID || row.quantity < b.item.quantity) return false;
         const all = [...b.destinationBefore, ...b.destinationAfter];
+        const validDestination = (
+          owner: number | undefined,
+          location: number | undefined,
+          flag: number | undefined,
+        ) =>
+          valid(owner) &&
+          valid(location) &&
+          valid(flag) &&
+          (definition.delivery?.corporationID === null
+            ? flag === 4 && owner === characterID && location === definition.destinationID
+            : flag >= 115 &&
+              flag <= 121 &&
+              (!definition.delivery ||
+                (owner === definition.delivery.corporationID &&
+                  flag === 114 + definition.delivery.division!)));
+        // Even an empty division has a verified address on the native command.
+        const destination =
+          b.acknowledged === true
+            ? { owner: b.destinationOwner, location: b.officeID, flag: b.flag }
+            : { owner: all[0]?.ownerID, location: all[0]?.locationID, flag: all[0]?.flagID };
         if (
-          !all.length ||
-          new Set(b.destinationBefore.map((r) => r?.itemID)).size !== b.destinationBefore.length ||
-          new Set(b.destinationAfter.map((r) => r?.itemID)).size !== b.destinationAfter.length ||
+          !validDestination(destination.owner, destination.location, destination.flag) ||
+          [b.destinationBefore, b.destinationAfter].some(
+            (rows) => new Set(rows.map((r) => r?.itemID)).size !== rows.length,
+          ) ||
           all.some(
             (r) =>
               !r ||
               !valid(r.itemID) ||
               !valid(r.typeID) ||
               !valid(r.quantity) ||
-              !valid(r.ownerID) ||
-              !valid(r.locationID) ||
-              !Number.isInteger(r.flagID) ||
-              (definition.delivery?.corporationID === null
-                ? r.flagID !== 4 ||
-                  r.ownerID !== characterID ||
-                  r.locationID !== definition.destinationID
-                : r.flagID < 115 ||
-                  r.flagID > 121 ||
-                  (!!definition.delivery &&
-                    (r.ownerID !== definition.delivery.corporationID ||
-                      r.flagID !== 114 + definition.delivery.division!))),
+              r.ownerID !== destination.owner ||
+              r.locationID !== destination.location ||
+              r.flagID !== destination.flag,
           )
         )
           return false;
-        for (const r of all) {
-          const scope = JSON.stringify([r.ownerID, r.locationID, r.flagID]);
-          if (destinationScope === null) destinationScope = scope;
-          else if (destinationScope !== scope) return false;
-        }
+        const scope = JSON.stringify([destination.owner, destination.location, destination.flag]);
+        if (destinationScope !== null && scope !== destinationScope) return false;
+        destinationScope = scope;
         if (b.items !== undefined) {
-          if (
-            b.conversion ||
-            definition.delivery?.corporationID === null ||
-            !Array.isArray(b.items) ||
-            !b.items.length
-          )
-            return false;
+          if (b.conversion || !Array.isArray(b.items) || !b.items.length) return false;
           const [first] = b.items;
           if (
             !first ||
@@ -1867,6 +1872,8 @@ export function createOperation(
             b.sourceAfter,
             b.destinationBefore,
             b.destinationAfter,
+            b.acknowledged === true ? "acknowledged" : undefined,
+            b.requestedIDs,
           );
           if (!moved) return false;
           for (const item of b.items) {
@@ -1894,6 +1901,7 @@ export function createOperation(
             b.sourceAfter,
             b.destinationBefore,
             b.destinationAfter,
+            b.acknowledged === true ? "acknowledged" : undefined,
           )
         )
           return false;

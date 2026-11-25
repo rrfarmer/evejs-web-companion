@@ -1,3 +1,4 @@
+import { freightHoldFlags } from "../shared/freightHolds.ts";
 import {
   summarizeFreight,
   type FreightFact,
@@ -44,14 +45,13 @@ export function createHaulerTelemetry(now = Date.now) {
           )
         )
           return null;
-        const flags: Record<string, number> = { cargo: 5, ore: 134, ice: 181, asteroid: 182 };
         const nativeRows = rows;
         const effective = holds.map((h) => ({
           ...h,
           capacity: {
             ...h.capacity,
             used: nativeRows
-              .filter((r) => r.flagID === flags[h.key])
+              .filter((r) => r.flagID === freightHoldFlags[h.key])
               .reduce((n, r) => n + r.quantity * facts[r.typeID]!.unitVolumeM3, 0),
           },
         }));

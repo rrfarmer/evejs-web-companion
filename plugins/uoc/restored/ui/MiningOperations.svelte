@@ -2,6 +2,7 @@
 <script lang="ts">
   import { onMount, onDestroy, tick, untrack } from "svelte";
   import { createControlPlanePoll } from "../mining/controlPlanePoll.ts";
+  import { whilePageVisible } from "../app/pageVisibility.ts";
   import type { StopFreightMode } from "../../miningFleet/operation.ts";
   import { hostedDurationLabel } from "../mining/hostedRunPolicy.ts";
   import OperationPilotPicker from "./OperationPilotPicker.svelte";
@@ -25,6 +26,7 @@
   import {
     createRestoredMiningHost,
     requestMiningStop,
+    readDeliveredUnits,
     deleteMiningOperation,
     extendMiningOperation,
     listMiningResources,
@@ -79,6 +81,8 @@
   let selectedOperationID = $state<string | null>(null);
   const savedOperations = $derived(payload?.operations ?? []);
   const canStart = (state: string) => state === "DRAFT" || state === "STOPPED";
+  const editNotice =
+    "Wait for the fleet to finish and release its pilots before editing or deleting this operation.";
   const selectedOperation = $derived(
     savedOperations.find((row) => row.definition.operationID === selectedOperationID) ??
       savedOperations.find((row) => !canStart(row.runtime.state)) ??
@@ -155,7 +159,7 @@
       ?.focus();
   }
   async function submitEditor(): Promise<void> {
-    if (!editor || busy || disconnected) return;
+    if (!editor || busy || disconnected || editorLocked) return;
     // A required or out-of-range field can be on another tab or inside a disclosure.
     const invalid = editor.querySelector<HTMLInputElement | HTMLSelectElement>(
       "input:invalid, select:invalid",
@@ -199,6 +203,15 @@
   let operationID = $state<string | undefined>(undefined);
   let operationRevision = $state<number | undefined>(undefined);
   let editingDefinition = $state.raw<MiningOperationDefinition | null>(null);
+  const canEdit = (row: MiningOperationsPayload["operations"][number] | undefined) =>
+    !!row && canStart(row.runtime.state) && launching !== row.definition.operationID;
+  const editorOperation = $derived(
+    savedOperations.find((row) => row.definition.operationID === operationID),
+  );
+  const editorStatus = $derived(
+    operationID ? (editorOperation?.runtime.state ?? "UNKNOWN") : "DRAFT",
+  );
+  const editorLocked = $derived(!!operationID && !canEdit(editorOperation));
   let name = $state("");
   let anchorSystemID = $state(0);
   let anchorSystemName = $state("");
@@ -525,6 +538,7 @@
   async function reviewReadiness(
     definition: MiningOperationDefinition & { operationID: string },
     inspect = false,
+    signal?: AbortSignal,
   ): Promise<void> {
     if (inspect && (disconnected || busy)) return;
     const key = JSON.stringify(definition),
@@ -533,6 +547,11 @@
     if (inspect) busy = id;
     const previous = readiness[id]?.key === key ? readiness[id]?.plan : undefined;
     readiness[id] = { key, message: "Checking start readiness…", plan: previous };
+    const pending = readiness[id];
+    const cancel = () => {
+      if (readiness[id] === pending) delete readiness[id];
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
     try {
       const reviewed = inspect
         ? await createRestoredMiningHost(opts(), async (moves, roster) =>
@@ -546,8 +565,10 @@
             ),
           ).prepare(id, crypto.randomUUID())
         : null;
-      const plan = reviewed?.launchPlan ?? (await getMiningOperationLaunchPlan(id, opts()));
+      const plan =
+        reviewed?.launchPlan ?? (await getMiningOperationLaunchPlan(id, { ...opts(), signal }));
       if (
+        !signal?.aborted &&
         mounted &&
         readiness[id]?.key === key &&
         payload?.operations.some(
@@ -561,12 +582,52 @@
         if (reviewed) nativeReviews.set(id, reviewed);
       }
     } catch (cause) {
-      if (mounted && readiness[id]?.key === key)
+      if (!signal?.aborted && mounted && readiness[id]?.key === key)
         readiness[id] = { key, message: words(cause), plan: previous };
     } finally {
+      signal?.removeEventListener("abort", cancel);
       if (inspect) busy = null;
     }
   }
+
+  const selectedRun = $derived(selectedOperation?.runtime);
+  const activeRunID = $derived(selectedRun?.state === "DRAFT" ? null : selectedRun?.operationRunID);
+  const deliveryOperationID = $derived(selectedRun?.operationID);
+  const deliveryVersion = $derived.by(() => {
+    if (!activeRunID || !selectedRun) return "";
+    const receipts = selectedRun.history.filter((row) => row.kind === "FREIGHT_DELIVERED");
+    const dockedHaulers = selectedRun.members
+      .filter(
+        (member) =>
+          member.role === "HAULER" &&
+          (member.phase === "Freight delivered" || member.parkingState === "DOCK_VERIFIED"),
+      )
+      .map((member) => member.characterID);
+    return JSON.stringify([receipts.length, receipts.at(-1)?.at, dockedHaulers]);
+  });
+  let deliveredUnits = $state<number | null>(null);
+  let deliveryIssue = $state<string | null>(null);
+  let visible = $state.raw<AbortSignal | null>(null);
+  $effect(() => {
+    if (!visible) return;
+    const run = activeRunID,
+      operation = deliveryOperationID;
+    // Read the selected run on opening and on dock/receipt changes, outside ordinary status polling.
+    void deliveryVersion;
+    deliveredUnits = null;
+    deliveryIssue = null;
+    if (!run || !operation || disconnected || pollError) return;
+    const request = new AbortController(),
+      signal = AbortSignal.any([visible, request.signal]);
+    void readDeliveredUnits(operation, run, { ...opts(), signal })
+      .then((units) => {
+        if (!signal.aborted) deliveredUnits = units;
+      })
+      .catch((cause) => {
+        if (!signal.aborted) deliveryIssue = words(cause);
+      });
+    return () => request.abort();
+  });
 
   function received(next: MiningOperationsPayload): void {
     payload = next;
@@ -584,33 +645,46 @@
       }
       const key = JSON.stringify(row.definition);
       if (readiness[row.definition.operationID]?.key === key) continue;
-      void reviewReadiness(row.definition);
+      void reviewReadiness(row.definition, false, visible ?? undefined);
     }
   }
-  const poll = createControlPlanePoll({
-    read: () => loadMiningOperations(opts()),
-    received,
-    failed: (cause, authLost) => {
-      loading = false;
-      disconnected = authLost;
-      pollError = authLost ? "WC Account access expired." : words(cause);
-      if (authLost) onAuthExpired();
-    },
-  });
-  const refresh = () => poll.refresh();
-
-  onMount(() => {
-    void refresh();
-    return () => poll.stop();
-  });
-
-  $effect(() => {
-    void listMiningResources(opts())
-      .then((rows) => {
-        catalog = rows;
-      })
-      .catch(() => {});
-  });
+  const startPoll = (signal: AbortSignal) =>
+    createControlPlanePoll({
+      read: () => loadMiningOperations({ ...opts(), signal }),
+      received,
+      failed: (cause, authLost) => {
+        loading = false;
+        disconnected = authLost;
+        pollError = authLost ? "WC Account access expired." : words(cause);
+        if (authLost) onAuthExpired();
+      },
+    });
+  let poll: ReturnType<typeof startPoll> | undefined;
+  const refresh = () => poll?.refresh();
+  let catalogLoaded = false;
+  onMount(() =>
+    whilePageVisible((signal) => {
+      visible = signal;
+      if (!disconnected) {
+        poll = startPoll(signal);
+        void refresh();
+      }
+      if (!catalogLoaded)
+        void listMiningResources({ ...opts(), signal })
+          .then((rows) => {
+            if (!signal.aborted) {
+              catalog = rows;
+              catalogLoaded = true;
+            }
+          })
+          .catch(() => {});
+      return () => {
+        visible = null;
+        poll?.stop();
+        poll = undefined;
+      };
+    }),
+  );
 
   async function searchSystem(value: string): Promise<void> {
     const serial = ++systemLookupSerial;
@@ -940,6 +1014,11 @@
   }
 
   function editOperation(definition: MiningOperationDefinition): void {
+    if (
+      disconnected ||
+      !canEdit(savedOperations.find((row) => row.definition.operationID === definition.operationID))
+    )
+      return;
     resetEditorView();
     editorGeneration++;
     preparation = miningPreparationDraft(definition.preparation);
@@ -1074,7 +1153,7 @@
   }
 
   async function save(): Promise<void> {
-    if (disconnected) return;
+    if (disconnected || editorLocked) return;
     if (!anchorValid) {
       showEditorTab("basic");
       error = anchorError ?? "Choose a known solar system.";
@@ -1221,7 +1300,7 @@
         },
         opts(),
       );
-      poll.invalidate();
+      poll?.invalidate();
       payload = saved;
       selectedOperationID =
         operationID ??
@@ -1264,10 +1343,8 @@
       const latest = (await loadMiningOperations(opts())).operations.find(
         (row) => row.definition.operationID === definition.operationID,
       );
-      if (!latest || latest.runtime.state !== "DRAFT")
-        throw Error(
-          "The previous run is still with Farmer. Wait for it to finish before starting.",
-        );
+      if (!latest || !canStart(latest.runtime.state))
+        throw Error("Wait for the current fleet run to finish before starting another.");
       const cached = nativeReviews.get(definition.operationID);
       const reviewed =
         cached && JSON.stringify(cached.definition) === JSON.stringify(definition)
@@ -1439,7 +1516,7 @@
     error = null;
     try {
       const next = await action(targetKey, opts());
-      poll.invalidate();
+      poll?.invalidate();
       if (payload) payload = { ...payload, targetBoard: next.targetBoard };
       await refresh();
     } catch (cause) {
@@ -1450,19 +1527,17 @@
   }
 
   async function remove(operationID: string): Promise<void> {
-    if (disconnected || busy !== null) return;
+    const row = savedOperations.find((item) => item.definition.operationID === operationID);
+    if (!row || !canEdit(row) || disconnected || busy !== null) return;
     if (!window.confirm("Delete this Mining Operation?")) return;
     busy = operationID;
     error = null;
     try {
-      const row = payload?.operations.find((item) => item.definition.operationID === operationID);
-      const revision = (
-        row?.definition as (MiningOperationDefinition & { revision?: number }) | undefined
-      )?.revision;
+      const revision = row.definition.revision;
       if (!revision)
         throw new Error("The saved operation revision is unavailable; refresh before deleting.");
       const remaining = await deleteMiningOperation(operationID, revision, opts());
-      poll.invalidate();
+      poll?.invalidate();
       delete readiness[operationID];
       nativeReviews.delete(operationID);
       delete extensionResults[operationID];
@@ -1504,7 +1579,6 @@
   {#if loading}<p class="muted">Loading Mining Command Center…</p>{/if}
 
   {#if editing}
-    {@const editorStatus = operationID ? savedOperations.find(row => row.definition.operationID === operationID)?.runtime.state ?? "DRAFT" : "DRAFT"}
     <form class="editor center-panel" bind:this={editor} novalidate aria-labelledby={editorID + "-heading"}
       onsubmit={event => { event.preventDefault(); void submitEditor(); }}>
       <div class="editor-heading">
@@ -1526,7 +1600,7 @@
         {/each}
       </div>
 
-      <div class="editor-content" bind:this={editorContent} inert={busy === "save"}>
+      <div class="editor-content" bind:this={editorContent} inert={editorLocked || busy === "save"}>
         <div class="editor-pane" role="tabpanel" id={editorID + "-basic"} aria-labelledby={editorID + "-tab-basic"}
           data-editor-tab="basic" hidden={editorTab !== "basic"}>
           <div class="editor-fields">
@@ -1780,7 +1854,7 @@
         {#if error}<p class="error" role="alert">{error}</p>{/if}
         <div class="actions">
           <button type="button" class="quiet" disabled={busy === "save"} onclick={() => { editing = false; editorGeneration++; error = null; }}>Cancel</button>
-          <button type="submit" class="primary" disabled={busy !== null || disconnected}>Save operation</button>
+          <button type="submit" class="primary" disabled={editorLocked || busy !== null || disconnected} title={editorLocked ? editNotice : undefined}>Save operation</button>
         </div>
       </footer>
     </form>
@@ -1789,12 +1863,13 @@
   {#if payload && payload.operations.length === 0 && !editing}<p class="empty">No Mining Operations yet.</p>{/if}
   {#if selectedOperation && (!editing || !canStart(selectedOperation.runtime.state))}
     {@const row = selectedOperation}
+    {@const definitionLocked = !canEdit(row)}
     {@const dockedPending = row.runtime.members.filter(member => member.dockedForUnload)}
     {@const retryClosesOffline = row.runtime.canCloseOfflineStop && !row.runtime.stopUnload?.characterIDs.length}
     {#key row.definition.operationID}
     <article class="operation-card center-panel">
       <div class="title-row"><div><h3>{row.definition.name}</h3><CenterStatus state={row.runtime.state} label={dockedPending.length ? "Unloading incomplete" : stateLabel(row.runtime.state)} /></div><div class="actions">
-        <button type="button" disabled={editing || busy !== null} onclick={() => editOperation(row.definition)}>Edit</button>
+        <button type="button" disabled={definitionLocked || editing || busy !== null || disconnected} title={definitionLocked ? editNotice : undefined} onclick={() => editOperation(row.definition)}>Edit</button>
         {#if canStart(row.runtime.state)}
           <label>Run limit
             <select bind:value={runtimeMinutes} aria-label="Operation run limit" disabled={!runPolicy || busy !== null}>
@@ -1823,6 +1898,7 @@
           {/if}
         {/if}
       </div></div>
+      {#if definitionLocked}<p class="muted">{editNotice}</p>{/if}
       {#if dockedPending.length}
         <p class="notice" role="status">{dockedPending.length} {dockedPending.length === 1 ? "pilot" : "pilots"} docked at home · Unloading incomplete</p>
       {:else}
@@ -1845,7 +1921,7 @@
           {#each stopDetails[row.definition.operationID] as detail}<li>{detail}</li>{/each}
         </ul></details>
       {/if}
-      <MiningOperationOverview runtime={row.runtime} stale={disconnected || pollError !== null} />
+      <MiningOperationOverview runtime={row.runtime} {deliveredUnits} {deliveryIssue} stale={disconnected || pollError !== null} />
       {#if row.runtime.stopFreight && row.runtime.stopFailures.length > 0}<div class="error"><p>Parking or release is pending for these pilots.</p>{#each row.runtime.stopFailures as failure}<p>{row.runtime.members.find(member => member.characterID === failure.characterID)?.characterName ?? "Pilot"}: {failure.message}</p>{/each}</div>{/if}
       {#if canStart(row.runtime.state)}
         <div class="readiness">
@@ -1923,7 +1999,7 @@
         {#if row.definition.unloadPolicy === "HAULER_SERVICE" && row.runtime.state === "ACTIVE" && row.runtime.currentTarget?.state === "ACTIVE"}
           <button type="button" disabled={busy !== null || disconnected} onclick={() => void relocate(row.definition.operationID)}>Settle and select next target</button>
         {/if}
-        <button type="button" class="danger" disabled={busy !== null || disconnected} onclick={() => void remove(row.definition.operationID)}>Delete operation</button>
+        <button type="button" class="danger" disabled={definitionLocked || busy !== null || disconnected} title={definitionLocked ? editNotice : undefined} onclick={() => void remove(row.definition.operationID)}>Delete operation</button>
       </div>
       </details>
     </article>

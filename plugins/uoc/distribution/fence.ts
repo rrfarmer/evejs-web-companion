@@ -68,6 +68,7 @@ export interface DistributionEvidence {
     readonly typeID: number;
     readonly quantity: number;
   } | null;
+  readonly acceptedAt?: string;
   readonly completed?: DistributionCompletionReceipt;
 }
 export interface DistributionFenceRow {
@@ -77,6 +78,7 @@ export interface DistributionFenceRow {
   readonly done: boolean;
   readonly civilian?: CivilianIndexRow;
   readonly accepted?: true;
+  readonly acceptedAt?: string;
   readonly mission: { readonly agentID: number; readonly missionKey: string } | null;
   readonly mutated: boolean;
   readonly completion?: DistributionCompletionReceipt;
@@ -135,17 +137,13 @@ function forAgent(journal: DistributionEvidence["journal"], agentID: number) {
 }
 
 export function distributionAcceptedMission(row: DistributionFenceRow | null) {
-  const pending = row?.pending?.intent.kind;
+  // Older runs also marked manually inherited journal entries as accepted.
   if (
     !row?.mission ||
     row.done ||
-    !(
-      row.accepted ||
-      row.unloaded ||
-      pending === "load" ||
-      pending === "unload" ||
-      pending === "complete"
-    )
+    !row.accepted ||
+    typeof row.acceptedAt !== "string" ||
+    !/^[1-9]\d*$/.test(row.acceptedAt)
   )
     return null;
   try {
@@ -439,6 +437,7 @@ export function createDistributionFence({
         current,
         journal,
         civilian,
+        retainMission = false,
       }: {
         accountID: number;
         characterID: number;
@@ -446,6 +445,7 @@ export function createDistributionFence({
         current: () => boolean;
         journal: DistributionEvidence["journal"];
         civilian?: CivilianIndexRow;
+        retainMission?: boolean;
       }) {
         const key = `${accountID}:${characterID}`,
           row = records[key];
@@ -472,6 +472,16 @@ export function createDistributionFence({
           )
             ? completionReceipt({ ...intent, runnerID: runID })
             : undefined;
+        const mission = sameWorldAccount && retainMission ? row.mission : null;
+        const matchesRow = (entry: { agentID: number; missionKey: string }) =>
+          !!mission && entry.agentID === mission.agentID && entry.missionKey === mission.missionKey;
+        const accepted = !!distributionAcceptedMission(row) && journal.active.some(matchesRow);
+        const offered =
+          !!mission &&
+          row.mutated &&
+          !row.accepted &&
+          !row.pending &&
+          journal.offered.some(matchesRow);
         put(
           key,
           {
@@ -480,9 +490,10 @@ export function createDistributionFence({
             runID,
             civilian,
             done: !!completion,
-            mutated: false,
-            mission: null,
+            mutated: accepted || offered,
+            mission: accepted || offered ? mission : null,
             pending: null,
+            ...(accepted ? { accepted: true as const, acceptedAt: row.acceptedAt } : {}),
             ...(completion ? { completion } : {}),
           },
           { row, oldRunStatus: "retired" },
@@ -597,7 +608,7 @@ export function createDistributionFence({
       if (!r || r.runID !== runID || r.done) throw new Error("Distribution run is stale.");
       return r;
     };
-    function ownsUnacceptedOffer(
+    function matchesUnacceptedOffer(
       r: DistributionFenceRow,
       intent: Extract<DistributionIntent, { kind: "decline" }>,
     ) {
@@ -611,7 +622,7 @@ export function createDistributionFence({
     function settle(r: DistributionFenceRow, intent: DistributionIntent, e: DistributionEvidence) {
       const done = intent.kind === "complete",
         scoped = forAgent(e.journal, intent.agentID);
-      const clearedOffer = intent.kind === "decline" && ownsUnacceptedOffer(r, intent);
+      const clearedOffer = intent.kind === "decline" && matchesUnacceptedOffer(r, intent);
       const mission = clearedOffer
         ? null
         : intent.kind === "request"
@@ -646,7 +657,7 @@ export function createDistributionFence({
           throw Error("Distribution owner provenance changed.");
         put(key, { ...r, civilian });
       },
-      bindMission(agentID: number, missionKey: string, accepted = false) {
+      bindMission(agentID: number, missionKey: string) {
         const r = row();
         if (
           !positive(agentID) ||
@@ -654,12 +665,7 @@ export function createDistributionFence({
           (r.mission && (r.mission.agentID !== agentID || r.mission.missionKey !== missionKey))
         )
           throw new Error("RECOVERY_REQUIRED: Distribution mission changed.");
-        if (!r.mission || (accepted && !r.accepted))
-          put(key, {
-            ...r,
-            mission: { agentID, missionKey },
-            ...(accepted ? { accepted: true as const } : {}),
-          });
+        if (!r.mission) put(key, { ...r, mission: { agentID, missionKey } });
       },
       leaveOffered(agentID: number, missionKey: string, evidence: DistributionEvidence) {
         const r = row(),
@@ -667,7 +673,7 @@ export function createDistributionFence({
         if (
           r.pending ||
           !matchesBefore(intent, evidence) ||
-          (r.mission && !ownsUnacceptedOffer(r, intent))
+          (r.mission && !matchesUnacceptedOffer(r, intent))
         )
           throw Error(
             "RECOVERY_REQUIRED: The excluded courier offer is no longer an exact unaccepted mission.",
@@ -676,14 +682,16 @@ export function createDistributionFence({
       },
       dispatch(intent: DistributionIntent, before: DistributionEvidence) {
         const r = row();
+        if (intent.kind === "quit")
+          throw Error("Civilian missions cannot quit an accepted mission.");
         if (
           r.pending ||
           !validIntent(intent) ||
           !matchesBefore(intent, before) ||
-          (intent.kind === "request" || intent.kind === "quit"
+          (intent.kind === "request"
             ? r.mission !== null
             : intent.kind === "decline"
-              ? r.mission !== null && !ownsUnacceptedOffer(r, intent)
+              ? !r.mutated || !matchesUnacceptedOffer(r, intent)
               : !r.mission ||
                 r.mission.agentID !== intent.agentID ||
                 r.mission.missionKey !== intent.missionKey)
@@ -694,7 +702,7 @@ export function createDistributionFence({
         check();
         put(key, {
           ...r,
-          mutated: r.mutated || (intent.kind !== "decline" && intent.kind !== "quit"),
+          mutated: r.mutated || intent.kind !== "decline",
           pending: { intent, acknowledged: false },
         });
       },
@@ -719,12 +727,18 @@ export function createDistributionFence({
         check();
         put(key, { ...r, done: true, pending: null });
       },
-      acknowledge() {
+      acknowledge(acceptedAt?: string) {
         const r = row();
         if (!r.pending || r.pending.acknowledged)
           throw new Error("Distribution intent is not dispatchable.");
+        if (r.pending.intent.kind === "accept" && (!acceptedAt || !/^[1-9]\d*$/.test(acceptedAt)))
+          throw Error("The Delivery acceptance time is missing.");
         check();
-        put(key, { ...r, pending: { ...r.pending, acknowledged: true } });
+        put(key, {
+          ...r,
+          ...(acceptedAt ? { acceptedAt } : {}),
+          pending: { ...r.pending, acknowledged: true },
+        });
       },
       settle(e: DistributionEvidence) {
         const r = row(),
@@ -743,16 +757,34 @@ export function createDistributionFence({
           if (verified !== r) put(key, verified);
           return verified.completion ?? null;
         }
+        if (intent?.kind === "accept" && (!r.pending?.acknowledged || !r.acceptedAt))
+          throw Error("The previous Accept has no confirmed reply. Review this mission manually.");
+        if (
+          intent?.kind === "request" &&
+          !r.pending?.acknowledged &&
+          forAgent(e.journal, intent.agentID).offered.length
+        )
+          throw Error(
+            "The previous Request has no confirmed reply. Review the outstanding offer manually.",
+          );
         if (intent && intent.kind !== "complete" && matches(intent, e)) {
           settle(r, intent, e);
           return null;
         }
         const mission = r.mission ?? (intent && "missionKey" in intent ? intent : null);
+        const matchesMission = (entry: { agentID: number; missionKey: string }) =>
+          !!mission && entry.agentID === mission.agentID && entry.missionKey === mission.missionKey;
+        // Older runs could bind an offered mission simply by reading the journal.
+        const observedOffer = !r.mutated && e.journal.offered.some(matchesMission);
+        const unowned =
+          !intent &&
+          (observedOffer ||
+            (e.journal.active.some(matchesMission) &&
+              (!distributionAcceptedMission(r) ||
+                (e.acceptedAt !== undefined && e.acceptedAt !== r.acceptedAt))));
         if (
           mission &&
-          ![...e.journal.active, ...e.journal.offered].some(
-            (entry) => entry.agentID === mission.agentID && entry.missionKey === mission.missionKey,
-          )
+          (unowned || ![...e.journal.active, ...e.journal.offered].some(matchesMission))
         ) {
           // On hosted restart, disappearance after a sent Complete counts as a finished pass.
           const completion = intent?.kind === "complete" ? completionReceipt(intent) : undefined;

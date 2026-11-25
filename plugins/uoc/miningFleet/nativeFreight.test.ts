@@ -2,7 +2,11 @@ import { memoryFleetDocuments, memoryOperationStore } from "./operationStoreFixt
 import { officeList, corporationRow } from "./corporateOfficeFixture.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createNativeHauler, waitForHaulerDockSettlement } from "./nativeHauler.ts";
+import {
+  createNativeHauler,
+  HAULER_OWN_DEPOSIT_PREFIX,
+  waitForHaulerDockSettlement,
+} from "./nativeHauler.ts";
 import { createNativeRawObserver } from "./nativeMiner.ts";
 import { createNativeBeltNavigation } from "./nativeBelt.ts";
 import {
@@ -77,6 +81,9 @@ function simulator(
     sample = 1000,
     cargoCapacity = 100,
     oreCapacity = 0,
+    fleetCapacity = 0,
+    iceCapacity = 0,
+    asteroidCapacity = 0,
     raw = true,
     family = "ore",
     volume = 1,
@@ -86,7 +93,8 @@ function simulator(
     multiAddLimit = Infinity,
     readsLostAfterPickup = 0,
     sourceReadFailures = 0;
-  let division = 1,
+  let personal = false,
+    division = 1,
     depositLimit = Infinity,
     readsLostAfterDeposit = 0,
     depositReadFailures = 0;
@@ -145,14 +153,14 @@ function simulator(
         method: string,
         _args: unknown,
         kwargs: any,
-        of: number,
+        of: number | string,
       ) => {
         if (service === "corpRegistry")
           return corporationRow(method, characterID, 77, 1048576n << BigInt(division - 1));
         if (service === "officeManager")
           return { list: [{ fields: { stationID: 600, officeID: 700 } }] };
         if (service !== "invbroker" || method !== "List") throw Error("unexpected read");
-        if (of === 700) return list(corp);
+        if (of === (personal ? "hangar" : 700)) return list(corp);
         if (of === shipID) return list(held.filter((r) => r.flagID === kwargs?.flag));
         if (sourceReadFailures > 0) {
           sourceReadFailures--;
@@ -160,7 +168,13 @@ function simulator(
         }
         return list(source.filter((r) => r.locationID === of));
       },
-      bridgeDo: async (service: string, method: string, args: any[], kwargs: any, of: number) => {
+      bridgeDo: async (
+        service: string,
+        method: string,
+        args: any[],
+        kwargs: any,
+        of: number | string,
+      ) => {
         calls.push({ service, method, args, kwargs, of });
         if (service === "invCache") return null;
         if (service === "ship" && method === "Undock") {
@@ -210,8 +224,12 @@ function simulator(
           if (pickupLost) throw Error("pickup acknowledgement lost");
           return null;
         }
-        if (service === "invbroker" && (method === "Add" || method === "MultiAdd") && of === 700) {
-          assert.equal(kwargs.flag, 114 + division);
+        if (
+          service === "invbroker" &&
+          (method === "Add" || method === "MultiAdd") &&
+          of === (personal ? "hangar" : 700)
+        ) {
+          assert.equal(kwargs.flag, personal ? 4 : 114 + division);
           assert.equal(args[1], shipID);
           for (const id of method === "MultiAdd" ? args[0].slice(0, depositLimit) : [args[0]]) {
             const row = held.find((r) => r.itemID === id),
@@ -223,8 +241,8 @@ function simulator(
               corp.push({
                 ...row,
                 quantity: qty,
-                ownerID: 77,
-                locationID: 700,
+                ownerID: personal ? characterID : 77,
+                locationID: personal ? 600 : 700,
                 flagID: kwargs.flag,
               });
             row.quantity -= qty;
@@ -285,7 +303,30 @@ function simulator(
           },
         ],
       };
-    else if (path === "/api/bridge/space/snapshot") body = { space: snapshot() };
+    else if (path === `/api/bridge/ship/${shipID}/bays`) {
+      const keys = new URL(String(input)).searchParams.get("keys")!.split(",");
+      const bays = [
+        ["ore", 134, oreCapacity],
+        ["cargo", 5, cargoCapacity],
+        ["fleet", 155, fleetCapacity],
+        ["ice", 181, iceCapacity],
+        ["asteroid", 182, asteroidCapacity],
+        ["gas", 135, 0],
+      ] as const;
+      body = {
+        activeShipID: shipID,
+        shipID,
+        bays: bays
+          .filter(([key]) => keys.includes(key))
+          .map(([key, flag, capacity]) => ({
+            key,
+            present: capacity > 0,
+            error: null,
+            capacity: { capacity, used: used(flag) },
+            items: capacity > 0 ? held.filter((row) => row.flagID === flag) : null,
+          })),
+      };
+    } else if (path === "/api/bridge/space/snapshot") body = { space: snapshot() };
     else if (path === "/api/bridge/flight/status")
       body = {
         flight: {
@@ -341,6 +382,10 @@ function simulator(
       division = n;
     },
     getDivision: () => division,
+    setPersonal: () => {
+      personal = true;
+    },
+    isPersonal: () => personal,
     limitDeposit: (n: number) => {
       depositLimit = n;
     },
@@ -403,9 +448,12 @@ function simulator(
     setPickupLost: () => {
       pickupLost = true;
     },
-    setCapacities: (cargo: number, ore: number) => {
+    setCapacities: (cargo: number, ore: number, fleet = 0, ice = 0, asteroid = 0) => {
       cargoCapacity = cargo;
       oreCapacity = ore;
+      fleetCapacity = fleet;
+      iceCapacity = ice;
+      asteroidCapacity = asteroid;
     },
     setRaw: (value: boolean) => {
       raw = value;
@@ -417,6 +465,169 @@ function simulator(
     getCorp: () => corp,
   };
 }
+for (const [family, preferred] of [
+  ["ore", 182],
+  ["ice", 181],
+] as const) {
+  test(
+    family + " uses its specialized hold before the general mining hold or fleet hangar",
+    async () => {
+      const sim = simulator(3, 13);
+      sim.setFamily(family, 1);
+      sim.setCapacities(10, 10, 10, 10, 10);
+      const site =
+        family === "ice"
+          ? {
+              kind: "ICE" as const,
+              systemID: 300,
+              name: "ice",
+              siteID: 55,
+              instanceID: 89,
+              position: loc,
+            }
+          : target;
+      const key = family === "ice" ? "ICE:300:site:55:instance:89" : claim.key;
+      const freight = { ...manifest, targetKey: key };
+      const native = createNativeHauler(sim.run, sim.session, {
+        shipID: 13,
+        corporationID: 77,
+        division: 1,
+        current() {},
+        tripDocument: sim.tripDocument,
+      });
+      await native.navigateAndVerify(freight, site, { ...claim, key });
+      const receipt = await native.transferAndDeliver(freight, 2, 600);
+      assert.equal(receipt.destinationAfter[0]?.quantity, 10);
+      assert.deepEqual(
+        sim.calls
+          .filter((c: any) => c.method === "Add" && c.of === 13)
+          .map((c: any) => c.kwargs.flag),
+        [preferred],
+      );
+    },
+  );
+}
+
+test("an absent fleet hangar and a panel for another ship cannot authorize a pickup", async () => {
+  const sim = simulator(3, 13),
+    native = createNativeHauler(sim.run, sim.session, {
+      shipID: 13,
+      corporationID: 77,
+      division: 1,
+      current() {},
+      tripDocument: sim.tripDocument,
+    });
+  sim.setCapacities(1, 0, 0);
+  sim.setHeld([
+    {
+      ...ore,
+      itemID: 81,
+      typeID: 800,
+      categoryID: 7,
+      flagID: 5,
+      quantity: 1,
+      ownerID: 3,
+      locationID: 13,
+    },
+  ]);
+  await assert.rejects(native.navigateAndVerify(manifest, target, claim), /capacity/);
+  sim.setCapacities(1, 0, 100);
+  const fetch = sim.run.fetch;
+  sim.run.fetch = async (input: URL, init?: RequestInit) => {
+    const response = await fetch(input, init);
+    if (!new URL(String(input)).pathname.endsWith("/bays")) return response;
+    return Response.json({ ...(await response.json()), activeShipID: 14 });
+  };
+  await assert.rejects(native.navigateAndVerify(manifest, target, claim), /unreadable/);
+  assert.equal(
+    sim.calls.some((c: any) => c.method === "Add" || c.method === "MultiAdd"),
+    false,
+  );
+});
+
+test("full cargo and mining hold leave a verified fleet hangar available for a new trip", async () => {
+  const sim = simulator(3, 13);
+  const equipment = {
+    ...ore,
+    itemID: 70,
+    typeID: 800,
+    categoryID: 7,
+    ownerID: 3,
+    locationID: 13,
+    flagID: 5,
+    quantity: 1,
+  };
+  const carried = { ...ore, itemID: 80, ownerID: 3, locationID: 13, flagID: 134, quantity: 50 };
+  sim.setHeld([equipment, carried]);
+  sim.setCapacities(1, 50, 10);
+  const h = batchedHaul(sim, [ore], 1);
+  assert.equal(await h.haul(), "delivered");
+  assert.deepEqual(
+    sim.calls
+      .filter((c: any) => c.of === 13 && ["Add", "MultiAdd"].includes(c.method))
+      .map((c: any) => c.kwargs.flag),
+    [155],
+  );
+  assert.equal(h.totals()?.deliveredUnits, 60);
+  assert.equal(h.receipts()[0]?.deliveryBatches?.[0]?.item.quantity, 10);
+  assert.deepEqual(sim.getHeld(), [equipment]);
+});
+
+test("a lost unload reply for merged fleet-hangar ore recovers 60 delivered units once", async () => {
+  const sim = simulator(3, 13);
+  const equipment = {
+    ...ore,
+    itemID: 71,
+    typeID: 800,
+    categoryID: 7,
+    ownerID: 3,
+    locationID: 13,
+    flagID: 5,
+    quantity: 1,
+  };
+  sim.setHeld([
+    equipment,
+    { ...ore, itemID: 80, ownerID: 3, locationID: 13, flagID: 155, quantity: 50 },
+  ]);
+  sim.setCapacities(1, 0, 60);
+  sim.mergeCargo();
+  const h = batchedHaul(sim, [ore], 1);
+  sim.setDeliveryLost();
+  sim.loseDepositReads(2);
+  await assert.rejects(h.haul(), /Deposit inventory unavailable/);
+  assert.deepEqual(sim.getHeld(), [equipment]);
+  assert.equal(sim.getCorp()[0]?.quantity, 60);
+  sim.clearDeliveryLost();
+  h.restart();
+  assert.equal(await h.haul(), "delivered");
+  h.restart();
+  assert.equal(h.totals()?.deliveredUnits, 60);
+  assert.equal(h.totals()?.trips, 1);
+  assert.equal(h.state().manifests[0]?.items[0]?.quantity, 10);
+  assert.equal(
+    sim.calls.filter((c: any) => c.of === 700 && ["Add", "MultiAdd"].includes(c.method)).length,
+    1,
+  );
+});
+
+test("a relocated item labelled flag 155 on a hull without a fleet hangar cannot be unloaded", async () => {
+  const sim = simulator(3, 13);
+  sim.setSource([]);
+  sim.setHeld([{ ...ore, ownerID: 3, locationID: 13, flagID: 155 }]);
+  const native = createNativeHauler(sim.run, sim.session, {
+    shipID: 13,
+    corporationID: 77,
+    division: 1,
+    current() {},
+    tripDocument: sim.tripDocument,
+  });
+  await assert.rejects(native.recoverHeldAndDeliver(manifest, 2, 600), /source stack|not proven/);
+  assert.equal(
+    sim.calls.some((c: any) => c.method === "Add" || c.method === "MultiAdd"),
+    false,
+  );
+});
+
 test("native hauler transfers exact published can into cargo then selected corporation division", async () => {
   const sim = simulator(3, 13);
   const native = createNativeHauler(sim.run, sim.session, {
@@ -767,23 +978,271 @@ test("miner refuses a newly seen can with different physical contents", async ()
   sim.setSource([{ ...ore, quantity: 9 }]);
   await assert.rejects(obs.observeCreatedCan(before, target, claim), /content is uncertain/);
 });
-test("single-can collection credits only the delta of a merged stack", async () => {
-  const sim = simulator(3, 13);
-  sim.mergeCargo();
-  sim.setHeld([{ ...ore, itemID: 22, ownerID: 3, locationID: 13, flagID: 5, quantity: 50 }]);
-  const native = createNativeHauler(sim.run, sim.session, {
-    shipID: 13,
-    corporationID: 77,
-    division: 1,
-    current() {},
-    tripDocument: sim.tripDocument,
-    pollMs: 1,
+for (const [name, capacity, batches] of [
+  [
+    "single-can collection delivers 50 carry-in plus 10 collected units and credits the can with 10",
+    60,
+    [10],
+  ],
+  ["two single-can trips unload the carry-in once and credit the remaining four units", 56, [6, 4]],
+] as const) {
+  test(name, async () => {
+    const sim = simulator(3, 13),
+      stock = { ...ore, itemID: 22, ownerID: 3, locationID: 13, flagID: 5, quantity: 50 };
+    sim.mergeCargo();
+    const equipment = { ...stock, itemID: 70, typeID: 800, categoryID: 7, quantity: 1 };
+    const outsideHaulerHolds = { ...stock, itemID: 71, flagID: 135, quantity: 2 };
+    sim.setHeld([{ ...stock }, equipment, outsideHaulerHolds]);
+    sim.setCapacities(capacity + 1, 0);
+    const fleet = batchedHaul(sim, [ore], 1),
+      can = fleet.state().manifests[0]!;
+    const haul = fleet.op().claimContainer(3, can.containerID);
+    assert.ok(haul);
+    const native = createNativeHauler(sim.run, sim.session, {
+      shipID: 13,
+      corporationID: 77,
+      division: 1,
+      current() {},
+      tripDocument: fleet.tripDocument,
+      pollMs: 1,
+    });
+    await native.navigateAndVerify(can, target, fleet.claim);
+    assert.ok(fleet.op().dispatchHaul(3, can.containerID, haul.generation));
+    const result = await native.transferAndDeliver(can, haul.generation, 600);
+    assert.deepEqual(
+      result.deliveryBatches?.map((b) => b.item.quantity),
+      batches,
+    );
+    assert.deepEqual(sim.getHeld(), [equipment, outsideHaulerHolds]);
+    assert.deepEqual(sim.getCorp(), [
+      { ...stock, ownerID: 77, locationID: 700, flagID: 115, quantity: 60 },
+    ]);
+    assert.ok(fleet.op().markDelivered(3, result));
+    assert.deepEqual(fleet.receipts()[0]?.sourceProof?.kind, "native-batches");
+    assert.deepEqual(
+      fleet.state().manifests[0]?.items.map((i) => i.quantity),
+      [10],
+    );
+    assert.equal(fleet.totals()?.deliveredUnits, 60);
+    assert.equal(fleet.totals()?.trips, batches.length);
+    fleet.restart();
+    assert.equal(fleet.totals()?.deliveredUnits, 60);
   });
-  await native.navigateAndVerify(manifest, target, claim);
-  const result = await native.transferAndDeliver(manifest, 2, 600);
-  assert.equal(result.deliveryBatches?.[0]?.item.quantity, 10);
-  assert.equal(sim.getCorp()[0]?.quantity, 10);
-  assert.equal(sim.getHeld()[0]?.quantity, 50);
+}
+
+for (const change of ["unrelated module", "extra ore", "two receiving ore stacks"] as const) {
+  test("a retained partial-stack transfer reconciles after a lost reply: " + change, async () => {
+    const sim = simulator(3, 13);
+    sim.mergeCargo();
+    sim.setHeld([{ ...ore, itemID: 22, ownerID: 3, locationID: 13, flagID: 5, quantity: 50 }]);
+    sim.setDeliveryLost();
+    const native = createNativeHauler(sim.run, sim.session, {
+      shipID: 13,
+      corporationID: 77,
+      division: 1,
+      current() {},
+      tripDocument: sim.tripDocument,
+      pollMs: 1,
+    });
+    await native.navigateAndVerify(manifest, target, claim);
+    // Command collection also produces the partial receipts written by earlier Haulers.
+    await assert.rejects(
+      native.transferAndDeliver(manifest, 2, 600, "COMMAND"),
+      /delivery acknowledgement lost/,
+    );
+    const pending = structuredClone(sim.getDoc());
+    sim.clearDeliveryLost();
+
+    const division = sim.getCorp(),
+      delivered = division[0]!;
+    assert.equal(delivered.quantity, 10);
+    if (change === "two receiving ore stacks") delivered.quantity -= 1;
+    division.push({
+      ...delivered,
+      itemID: 80,
+      quantity: 1,
+      ...(change === "unrelated module" ? { typeID: 800, categoryID: 7 } : {}),
+    });
+    const reconcile = () => native.reconcileReturnHome(manifest, 2, 600);
+    if (change === "unrelated module") {
+      await reconcile();
+      await reconcile();
+      const journal = sim.getDoc() as {
+        pending: unknown;
+        events: { kind: string; before: { item?: unknown } }[];
+      };
+      assert.equal(journal.pending, null);
+      assert.deepEqual(
+        journal.events.filter((e) => e.kind === "delivery").map((e) => e.before.item),
+        [{ itemID: 22, typeID: 30, quantity: 10 }],
+      );
+    } else {
+      await assert.rejects(reconcile(), /unknown; no replay/);
+      await assert.rejects(reconcile(), /unknown; no replay/);
+      assert.deepEqual(sim.getDoc(), pending);
+    }
+    const unloads = sim.calls.filter(
+      (c: any) => c.of === 700 && ["Add", "MultiAdd"].includes(c.method),
+    );
+    assert.deepEqual(
+      unloads.map((c: any) => [c.method, c.args, c.kwargs.qty]),
+      [["Add", [22, 13], 10]],
+    );
+    assert.equal(sim.getHeld()[0]?.quantity, 50);
+  });
+}
+
+for (const change of ["module", "same ore"] as const) {
+  test(
+    "a whole Hauler unload reconciles 60 units after timeout with concurrent " + change,
+    async () => {
+      const sim = simulator(3, 13),
+        prior = { ...ore, itemID: 80, ownerID: 77, locationID: 700, flagID: 115, quantity: 100 };
+      sim.mergeCargo();
+      sim.getCorp().push({ ...prior });
+      sim.setHeld([{ ...ore, itemID: 22, ownerID: 3, locationID: 13, flagID: 5, quantity: 50 }]);
+      const h = batchedHaul(sim, [ore], 1),
+        can = h.state().manifests[0]!,
+        claim = h.op().claimContainer(3, can.containerID)!;
+      const native = createNativeHauler(sim.run, sim.session, {
+        shipID: 13,
+        corporationID: 77,
+        division: 1,
+        current() {},
+        tripDocument: h.tripDocument,
+        pollMs: 1,
+      });
+      await native.navigateAndVerify(can, target, h.claim);
+      assert.ok(h.op().dispatchHaul(3, can.containerID, claim.generation));
+      sim.setDeliveryLost();
+      sim.loseDepositReads(2);
+      await assert.rejects(
+        native.transferAndDeliver(can, claim.generation, 600),
+        /Deposit inventory unavailable/,
+      );
+      assert.deepEqual(sim.getHeld(), []);
+      assert.equal(sim.getCorp()[0]?.quantity, 160);
+      assert.equal(h.totals()?.deliveredUnits, 0);
+      sim
+        .getCorp()
+        .push({
+          ...prior,
+          itemID: 81,
+          quantity: 1,
+          ...(change === "module" ? { typeID: 800, categoryID: 7 } : {}),
+        });
+      sim.clearDeliveryLost();
+      h.restart();
+      if (change === "same ore") {
+        await assert.rejects(h.haul(), /unknown; no replay/);
+        assert.equal(h.totals()?.deliveredUnits, 0);
+        sim.getCorp().pop();
+      }
+      assert.equal(await h.haul(), "delivered");
+      assert.equal(h.receipts()[0]?.deliveryBatches?.[0]?.item.quantity, 10);
+      assert.equal(h.totals()?.deliveredUnits, 60);
+      assert.equal(h.totals()?.trips, 1);
+      h.restart();
+      assert.equal(h.totals()?.deliveredUnits, 60);
+      assert.deepEqual(
+        sim.calls
+          .filter((c: any) => c.of === 700 && ["Add", "MultiAdd"].includes(c.method))
+          .map((c: any) => [c.method, c.args, c.kwargs.qty]),
+        [["Add", [22, 13], 60]],
+      );
+    },
+  );
+}
+
+for (const extra of [0, 4])
+  test(
+    "resuming a legacy partial receipt unloads the other 50 with " + extra + " units of other ore",
+    async () => {
+      const sim = simulator(3, 13);
+      sim.mergeCargo();
+      const stock = { ...ore, itemID: 22, ownerID: 3, locationID: 13, flagID: 5, quantity: 50 };
+      sim.setHeld([
+        stock,
+        ...(extra ? [{ ...stock, itemID: 23, typeID: 32, quantity: extra }] : []),
+      ]);
+      const h = batchedHaul(sim, [ore], 1),
+        can = h.state().manifests[0]!,
+        claim = h.op().claimContainer(3, 100)!;
+      const old = createNativeHauler(sim.run, sim.session, {
+        shipID: 13,
+        corporationID: 77,
+        division: 1,
+        current() {},
+        tripDocument: h.tripDocument,
+        pollMs: 1,
+      });
+      await old.navigateAndVerify(can, target, h.claim);
+      assert.ok(h.op().dispatchHaul(3, 100, claim.generation));
+      sim.setDeliveryLost();
+      await assert.rejects(
+        old.transferAndDeliver(can, claim.generation, 600, "COMMAND"),
+        /delivery acknowledgement lost/,
+      );
+      assert.equal(sim.getHeld()[0]?.quantity, 50);
+      h.restart();
+      sim.clearDeliveryLost();
+      assert.equal(await h.haul(), "delivered");
+      assert.deepEqual(sim.getHeld(), []);
+      assert.equal(h.receipts()[0]?.deliveryBatches?.[0]?.item.quantity, 10);
+      assert.equal(h.totals()?.deliveredUnits, 60 + extra);
+      assert.equal(h.totals()?.trips, 1);
+      assert.deepEqual(
+        sim.calls.filter((c: any) => c.of === 700).map((c: any) => [c.method, c.kwargs.qty]),
+        [["Add", 10], extra ? ["MultiAdd", undefined] : ["Add", 50]],
+      );
+      h.restart();
+      assert.equal(h.totals()?.deliveredUnits, 60 + extra);
+    },
+  );
+
+test("resumed original can items in the asteroid hold and other ore share one dock visit", async () => {
+  const sim = simulator(3, 13),
+    h = batchedHaul(sim, [ore], 1);
+  const claim = h.op().claimContainer(3, 100)!;
+  assert.ok(h.op().dispatchHaul(3, 100, claim.generation));
+  sim.setSource([]);
+  const original = { ...ore, ownerID: 3, locationID: 13, flagID: 182 };
+  sim.setHeld([original, { ...original, itemID: 22, typeID: 32, flagID: 5, quantity: 50 }]);
+  h.restart();
+  assert.equal(await h.haul(), "delivered");
+  assert.deepEqual(sim.getHeld(), []);
+  const receipt = h.receipts()[0]!;
+  assert.equal(receipt.sourceProof?.kind, "relocated-manifest-items");
+  assert.equal(receipt.deliveryBatches?.[0]?.item.quantity, 10);
+  assert.deepEqual(h.totals()?.unitsByType, { "30": 10, "32": 50 });
+  assert.equal(h.totals()?.trips, 1);
+  h.restart();
+  assert.equal(h.totals()?.deliveredUnits, 60);
+});
+
+test("personal delivery unloads all eligible ore while crediting the can only for its share", async () => {
+  const sim = simulator(3, 13);
+  sim.setPersonal();
+  sim.mergeCargo();
+  sim.setCapacities(64, 0);
+  const stock = { ...ore, itemID: 22, ownerID: 3, locationID: 13, flagID: 5, quantity: 50 };
+  const equipment = { ...stock, itemID: 70, typeID: 800, categoryID: 7, quantity: 1 };
+  sim.setHeld([stock, equipment, { ...stock, itemID: 23, typeID: 32, quantity: 3, flagID: 182 }]);
+  const h = batchedHaul(sim, [ore], 1);
+  assert.equal(await h.haul(), "delivered");
+  assert.deepEqual(sim.getHeld(), [equipment]);
+  assert.deepEqual(
+    sim.getCorp().map((r) => [r.typeID, r.quantity, r.ownerID, r.locationID, r.flagID]),
+    [
+      [30, 60, 3, 600, 4],
+      [32, 3, 3, 600, 4],
+    ],
+  );
+  assert.deepEqual(h.receipts()[0]?.deliveryBatches?.[0]?.items, [
+    { itemID: 22, typeID: 30, quantity: 10 },
+  ]);
+  assert.deepEqual(h.totals()?.unitsByType, { "30": 60, "32": 3 });
+  assert.equal(h.totals()?.trips, 1);
 });
 
 test("jettison refuses a configured can capacity above the native type capacity before any write", async () => {
@@ -894,11 +1353,35 @@ test("relocation rejects merged, partial or wrong-flag items before any write", 
     );
   }
 });
-test("lost delivery acknowledgement stays fenced and cannot be repeated", async () => {
+test("relocated ore with a lost Add reply is credited once when the original Item ID reaches the office", async () => {
   const sim = simulator(3, 13);
   sim.setSource([]);
   sim.setHeld([{ ...ore, ownerID: 3, locationID: 13, flagID: 5 }]);
+  const open = () =>
+    createNativeHauler(sim.run, sim.session, {
+      shipID: 13,
+      corporationID: 77,
+      division: 1,
+      current() {},
+      tripDocument: sim.tripDocument,
+      pollMs: 1,
+    });
   sim.setDeliveryLost();
+  await assert.rejects(open().recoverHeldAndDeliver(manifest, 2, 600), /acknowledgement lost/);
+  sim.getCorp()[0]!.quantity += 7;
+  const native = open();
+  await native.reconcileReturnHome(manifest, 2, 600);
+  const receipt = await native.recoverHeldAndDeliver(manifest, 2, 600);
+  assert.equal(receipt.sourceProof.kind, "relocated-manifest-items");
+  assert.deepEqual(
+    receipt.deliveryBatches?.map((b) => [b.item.quantity, b.acknowledged]),
+    [[10, false]],
+  );
+  assert.equal((sim.getDoc() as any).pending, null);
+  assert.equal(sim.calls.filter((x: any) => x.method === "Add").length, 1);
+});
+test("a lost single-stack delivery with a recorded pickup can finish from its original trip", async () => {
+  const sim = simulator(3, 13);
   const native = createNativeHauler(sim.run, sim.session, {
     shipID: 13,
     corporationID: 77,
@@ -907,10 +1390,19 @@ test("lost delivery acknowledgement stays fenced and cannot be repeated", async 
     tripDocument: sim.tripDocument,
     pollMs: 1,
   });
-  await assert.rejects(native.recoverHeldAndDeliver(manifest, 2, 600), /acknowledgement lost/);
-  await assert.rejects(native.recoverHeldAndDeliver(manifest, 2, 600), /no replay/);
-  assert.equal(sim.calls.filter((x: any) => x.method === "Add").length, 1);
+  await native.navigateAndVerify(manifest, target, claim);
+  sim.setDeliveryLost();
+  await assert.rejects(native.transferAndDeliver(manifest, 2, 600), /acknowledgement lost/);
+  sim.getCorp().push({ ...sim.getCorp()[0]!, itemID: 81, quantity: 7 });
+  const receipt = await native.recoverHeldAndDeliver(manifest, 2, 600);
+  assert.equal(receipt.sourceProof.kind, "native-batches");
+  assert.deepEqual(
+    receipt.deliveryBatches?.map((b) => [b.item.quantity, b.acknowledged]),
+    [[10, false]],
+  );
+  assert.equal(sim.calls.filter((c: any) => c.of === 700 && c.method === "Add").length, 1);
 });
+
 test("missing durable journal fences the first pickup", async () => {
   const sim = simulator(3, 13),
     native = createNativeHauler(sim.run, sim.session, {
@@ -1131,10 +1623,11 @@ test("a visible can during warp is only approached after fresh ready own-flight 
         else if (p === "/api/mining-operations/resources")
           body = { resources: [{ typeID: 30, family: "ore", name: "ore" }] };
         else if (p === "/api/types/volumes") body = { volumes: { 30: 1 }, capped: false };
-        else if (p === "/api/bridge/ship/ore-hold")
+        else if (p === "/api/bridge/ship/13/bays")
           body = {
             activeShipID: 13,
-            holds: [
+            shipID: 13,
+            bays: [
               { key: "ore", present: false, error: null, capacity: { capacity: 0, used: 0 } },
               { key: "cargo", present: true, error: null, capacity: { capacity: 100, used: 0 } },
             ],
@@ -1235,10 +1728,11 @@ test("a nearby can during warp cannot admit inventory reads before fresh ready f
         else if (p === "/api/mining-operations/resources")
           body = { resources: [{ typeID: 30, family: "ore", name: "ore" }] };
         else if (p === "/api/types/volumes") body = { volumes: { 30: 1 }, capped: false };
-        else if (p === "/api/bridge/ship/ore-hold")
+        else if (p === "/api/bridge/ship/13/bays")
           body = {
             activeShipID: 13,
-            holds: [
+            shipID: 13,
+            bays: [
               { key: "ore", present: false, error: null, capacity: { capacity: 0, used: 0 } },
               { key: "cargo", present: true, error: null, capacity: { capacity: 100, used: 0 } },
             ],
@@ -1360,6 +1854,7 @@ test("hauler AUTO assist observes long can approach then settles before inventor
 
 test("collected raw stack may be converted once before exact compressed delivery", async () => {
   const sim = simulator(3, 13);
+  sim.setCapacities(100, 0, 100);
   let conversions = 0;
   const native = createNativeHauler(sim.run, sim.session, {
     shipID: 13,
@@ -1517,8 +2012,8 @@ function batchedHaul(
         kind: "station" as const,
         systemID: 300,
         destinationID: 600,
-        corporationID: 77,
-        division: sim.getDivision(),
+        corporationID: sim.isPersonal() ? null : 77,
+        division: sim.isPersonal() ? null : sim.getDivision(),
       },
       members: [
         { characterID: 1, shipID: 11, role: "MINER" as const },
@@ -1593,17 +2088,21 @@ function batchedHaul(
     storage.document(
       fleetHaulDocumentKey(m.operationID, m.runID, m.containerID, generation, characterID, shipID),
     );
-  const ownDocs = new Map([13, 14, 15].map((shipID) => [shipID, memory()]));
   const make = (s = sim, shipID = 13) =>
     createNativeHauler(s.run, s.session, {
       shipID,
-      corporationID: 77,
-      division: definition.delivery.division,
+      ...(sim.isPersonal() ? {} : { corporationID: 77, division: sim.getDivision() }),
       delivery: definition.delivery,
       current() {},
       tripDocument: (m, generation) => documentFor(m, shipID, s.run.characterID, generation),
       pollMs: 1,
-      ownFreight: { operationID: "op", runID: "run", document: ownDocs.get(shipID)! },
+      ownFreight: {
+        operationID: "op",
+        runID: "run",
+        document: storage.document(
+          HAULER_OWN_DEPOSIT_PREFIX + JSON.stringify(["op", "run", s.run.characterID, shipID]),
+        ),
+      },
       returnHome: () => op.snapshot().stopFreight === "RETURN_HOME",
       ...(s === sim ? navigation : undefined),
     });
@@ -1621,6 +2120,9 @@ function batchedHaul(
     haul: () => loops.hauler(3, native),
     peerHaul: () => loops.hauler(4, other!),
     thirdHaul: () => loops.hauler(5, thirdNative!),
+    parkingDocument: storage.document(
+      "mining-fleet-finish-parking-unload:" + JSON.stringify(["op", "run", 3, 13]),
+    ),
     op: () => op,
     claim: c,
     tripDocument: (m: Manifest, generation = 1) => documentFor(m, 13, 3, generation),
@@ -1743,6 +2245,7 @@ for (const delayed of [false, true])
       assert.equal(await h.haul(), "delivered");
       assert.equal(sim.getCorp()[0]?.quantity, 10);
       assert.deepEqual(sim.getSource(), [unrelated]);
+      assert.equal(h.totals()?.deliveredUnits, 10);
       assert.deepEqual(h.state().haulClaims, {});
     },
   );
@@ -2149,6 +2652,8 @@ for (const mode of ["COLLECT_FREIGHT", "RETURN_HOME"] as const)
       );
       assert.deepEqual(sim.routes, mode === "RETURN_HOME" ? [600] : [600, 600]);
       assert.deepEqual(sim.getHeld(), []);
+      assert.equal(h.totals()?.deliveredUnits, mode === "RETURN_HOME" ? 95 : 105);
+      assert.equal(h.totals()?.trips, mode === "RETURN_HOME" ? 1 : 2);
       if (mode === "RETURN_HOME") assert.equal(sim.getSource()[0]?.quantity, 10);
       else assert.equal(h.state().manifests[0]?.delivered, true);
     },
@@ -2405,7 +2910,7 @@ test("Hauler drains its nearby cans before crossing to the other group", async (
   sim.run.fetch = async (input: unknown) => {
     const path = new URL(String(input)).pathname,
       response = await fetch(input);
-    if (path === "/api/bridge/ship/ore-hold") capacityReads++;
+    if (path === "/api/bridge/ship/13/bays") capacityReads++;
     if (path === "/api/types/volumes") staticReads++;
     if (path !== "/api/bridge/space/snapshot") return response;
     const body = await response.json();
@@ -2546,7 +3051,7 @@ test("two in-range cans use stock ship hold reads and never reopen an emptied ca
   assert.equal(await haul.haul(), "waiting");
   assert.deepEqual(
     sim.reads.filter((r) => r.of === 13).map((r) => r.method),
-    Array(15).fill("List"),
+    Array(18).fill("List"),
   );
   assert.deepEqual(
     sim.reads.filter((r) => r.method === "List" && [100, 101].includes(r.of)).map((r) => r.of),
@@ -2794,7 +3299,7 @@ test("two Hauler trips unload mixed ore into the selected division with one Mult
   assert.deepEqual(sim.getHeld(), [tools]);
   assert.deepEqual(
     sim.reads.filter((r) => r.docked && r.method === "List").map((r) => r.of),
-    [13, 13, 13, 13, 13, 700, 700, 13, 13, 13, 13, 13],
+    [13, 13, 13, 13, 13, 13, 700, 700, 13, 13, 13, 13, 13, 13],
   );
   const second = [
     { ...first[0]!, itemID: 23, locationID: 101 },
@@ -2865,6 +3370,228 @@ test("MCC captures the division delta before another pilot takes stacked ore dur
   assert.equal(haul.totals()?.trips, 1);
   assert.equal(sim.calls.filter((c: any) => c.of === 700 && c.method === "MultiAdd").length, 1);
   assert.deepEqual(sim.getHeld(), []);
+});
+
+for (const movement of ["deposit", "withdrawal", "empty division after restart"] as const) {
+  test("acknowledged Hauler unload survives a concurrent " + movement, async () => {
+    const sim = simulator(3, 13),
+      rows = [
+        { ...ore, quantity: 4 },
+        { ...ore, itemID: 21, quantity: 6 },
+      ];
+    sim.setSource(structuredClone(rows));
+    sim.setCapacities(10, 0);
+    const division = sim.getCorp();
+    if (movement !== "empty division after restart")
+      division.push({
+        ...ore,
+        itemID: 80,
+        ownerID: 77,
+        locationID: 700,
+        flagID: 115,
+        quantity: 100,
+      });
+    else sim.loseDepositReads(2);
+    const act = sim.session.flow.flying.bridgeDo;
+    sim.session.flow.flying.bridgeDo = async (...args: any[]) => {
+      const result = await act(...args);
+      if (args[1] === "MultiAdd" && args[4] === 700) {
+        if (movement === "empty division after restart") division.splice(0);
+        else division[0]!.quantity += movement === "deposit" ? 8 : -17;
+      }
+      return result;
+    };
+    const h = batchedHaul(sim, rows, 1);
+    if (movement === "empty division after restart") {
+      await assert.rejects(h.haul(), /Deposit inventory unavailable/);
+      assert.equal(
+        (h.tripDocument(h.state().manifests[0]!).read() as any).pending.acknowledged,
+        true,
+      );
+      assert.equal(h.totals()?.deliveredUnits, 0);
+      h.restart();
+    }
+    assert.equal(await h.haul(), "delivered");
+    assert.deepEqual(sim.getHeld(), []);
+    assert.deepEqual(
+      division.map((row) => row.quantity),
+      movement === "deposit" ? [118] : movement === "withdrawal" ? [93] : [],
+    );
+    assert.equal(h.totals()?.deliveredUnits, 10);
+    assert.equal(h.receipts().length, 1);
+    h.restart();
+    assert.equal(h.totals()?.trips, 1);
+    assert.equal(h.totals()?.deliveredUnits, 10);
+    assert.equal(sim.calls.filter((c: any) => c.of === 700 && c.method === "MultiAdd").length, 1);
+  });
+}
+
+for (const method of ["Add", "MultiAdd"] as const)
+  test(
+    "a retained " + method + " credits exact office items after unrelated cargo changes",
+    async () => {
+      const sim = simulator(3, 13);
+      const rows =
+        method === "Add"
+          ? [ore]
+          : [
+              { ...ore, quantity: 4 },
+              { ...ore, itemID: 21, typeID: 32, quantity: 6 },
+            ];
+      sim.setSource(structuredClone(rows));
+      sim.setCapacities(10, 0);
+      sim.setDeliveryLost();
+      const h = batchedHaul(sim, rows, 1);
+      if (method === "Add") {
+        const can = h.state().manifests[0]!,
+          owner = h.op().claimContainer(3, can.containerID)!;
+        const native = createNativeHauler(sim.run, sim.session, {
+          shipID: 13,
+          corporationID: 77,
+          division: 1,
+          current() {},
+          tripDocument: h.tripDocument,
+          pollMs: 1,
+        });
+        await native.navigateAndVerify(can, target, h.claim);
+        assert.ok(h.op().dispatchHaul(3, can.containerID, owner.generation));
+        await assert.rejects(
+          native.transferAndDeliver(can, owner.generation, 600),
+          /acknowledgement lost/,
+        );
+      } else {
+        sim.loseDepositReads(2);
+        await assert.rejects(h.haul(), /Deposit inventory unavailable/);
+      }
+      assert.deepEqual(sim.getHeld(), []);
+      assert.deepEqual(
+        sim.getCorp().map((r) => [r.itemID, r.ownerID, r.locationID, r.flagID]),
+        rows.map((r) => [r.itemID, 77, 700, 115]),
+      );
+      assert.equal(h.totals()?.deliveredUnits, 0);
+      const equipment = {
+        ...ore,
+        itemID: 82,
+        typeID: 800,
+        categoryID: 7,
+        ownerID: 3,
+        locationID: 13,
+        flagID: 5,
+        quantity: 1,
+      };
+      sim.setHeld([equipment]);
+      h.restart();
+      const ask = sim.session.flow.flying.bridgeAsk;
+      let divisionReads = 0;
+      sim.session.flow.flying.bridgeAsk = async (...args: any[]) => {
+        if (args[1] === "List" && args[4] === 700 && ++divisionReads === 1)
+          throw Object.assign(Error("Temporary division read failure"), { status: 502 });
+        return ask(...args);
+      };
+      assert.equal(await h.haul(), "delivered");
+      assert.equal(divisionReads, 2);
+      assert.deepEqual(sim.getHeld(), [equipment]);
+      assert.deepEqual(
+        h.receipts().map((r) => r.deliveryBatches?.[0]?.acknowledged),
+        [false],
+      );
+      h.restart();
+      assert.equal(h.totals()?.deliveredUnits, 10);
+      assert.equal(h.totals()?.trips, 1);
+      assert.deepEqual(
+        sim.calls
+          .filter((c: any) => c.of === 700 && ["Add", "MultiAdd"].includes(c.method))
+          .map((c: any) => c.method),
+        [method],
+      );
+    },
+  );
+
+test("a late unacknowledged unload is rechecked once and never sent again from unchanged evidence", async () => {
+  const sim = simulator(3, 13),
+    rows = [
+      { ...ore, quantity: 4 },
+      { ...ore, itemID: 21, quantity: 6 },
+    ];
+  sim.setSource(structuredClone(rows));
+  sim.setCapacities(10, 0);
+  const act = sim.session.flow.flying.bridgeDo;
+  let attempts = 0;
+  sim.session.flow.flying.bridgeDo = async (...args: any[]) => {
+    if (args[1] === "MultiAdd" && args[4] === 700) {
+      attempts++;
+      throw Object.assign(Error("Response timed out"), { code: "CALL_TIMEOUT" });
+    }
+    return act(...args);
+  };
+  const h = batchedHaul(sim, rows, 1),
+    doc = h.tripDocument(h.state().manifests[0]!);
+  await assert.rejects(h.haul(), FleetObservationUnavailable);
+  assert.equal((doc.read() as any).pending.acknowledged, false);
+  h.restart();
+  await assert.rejects(
+    h.haul(),
+    (e: Error) =>
+      !(e instanceof FleetObservationUnavailable) &&
+      /Check item IDs 20, 21 in ship 13 and corporation division 1 at dock 600/.test(e.message),
+  );
+  assert.equal(h.totals()?.deliveredUnits, 0);
+  assert.equal(attempts, 1);
+  // Empty holds alone cannot locate a timed-out move.
+  sim.setHeld([]);
+  await assert.rejects(
+    h.haul(),
+    (e: Error) =>
+      !(e instanceof FleetObservationUnavailable) && /unknown; no replay/.test(e.message),
+  );
+  assert.equal(attempts, 1);
+  assert.equal(h.totals()?.deliveredUnits, 0);
+  // The delayed transfer and another pilot's same-type deposit become visible in the original division.
+  sim.getCorp().push(...rows.map((r) => ({ ...r, ownerID: 77, locationID: 700, flagID: 115 })));
+  sim.getCorp()[0]!.quantity += 8;
+  assert.equal(await h.haul(), "delivered");
+  assert.equal(attempts, 1);
+  assert.equal(h.receipts()[0]?.deliveryBatches?.[0]?.acknowledged, false);
+  h.restart();
+  assert.equal(h.totals()?.deliveredUnits, 10);
+  assert.equal(h.totals()?.trips, 1);
+});
+
+test("an acknowledged partial MultiAdd credits only the departed stacks during a concurrent withdrawal", async () => {
+  const sim = simulator(3, 13),
+    rows = [
+      { ...ore, quantity: 4 },
+      { ...ore, itemID: 21, quantity: 6 },
+    ];
+  sim.setSource(structuredClone(rows));
+  sim.setCapacities(10, 0);
+  sim.limitDeposit(1);
+  const stock = { ...ore, itemID: 90, quantity: 40, ownerID: 77, locationID: 700, flagID: 115 };
+  sim.getCorp().push(stock);
+  const act = sim.session.flow.flying.bridgeDo;
+  sim.session.flow.flying.bridgeDo = async (...args: any[]) => {
+    const result = await act(...args);
+    if (args[1] === "MultiAdd" && args[4] === 700) stock.quantity -= 12;
+    return result;
+  };
+  const h = batchedHaul(sim, rows, 1);
+  assert.equal(await h.haul(), "delivered");
+  assert.deepEqual(
+    sim.calls.filter((c: any) => c.of === 700).map((c: any) => [c.method, c.args[0]]),
+    [
+      ["MultiAdd", [20, 21]],
+      ["Add", 21],
+    ],
+  );
+  assert.deepEqual(
+    h.receipts()[0]?.deliveryBatches?.map((b) => b.item.quantity),
+    [4, 6],
+  );
+  assert.equal(stock.quantity, 38);
+  assert.deepEqual(sim.getHeld(), []);
+  h.restart();
+  assert.equal(h.totals()?.deliveredUnits, 10);
+  assert.equal(h.totals()?.trips, 1);
 });
 
 test("a delivery keeps progressing beyond the old whole-route timeout", async (t) => {
@@ -3074,7 +3801,7 @@ test("Collect Freight reads back a partial MultiAdd after a lost reply and only 
       ["Add", 21],
     ],
   );
-  assert.equal(sim.reads.filter((r) => r.docked && r.method === "List").length, 19);
+  assert.equal(sim.reads.filter((r) => r.docked && r.method === "List").length, 22);
   assert.deepEqual(sim.getHeld(), []);
   assert.deepEqual(
     h.receipts()[0]?.deliveryBatches?.map((b) => b.item.quantity),
@@ -3137,6 +3864,41 @@ test("a full Hauler batches different stacks already aboard before taking a can"
   assert.equal(h.state().manifests[0]?.delivered, false);
 });
 
+test("initial MultiAdd that timed out before dispatch can retry without a second deposit", async () => {
+  const sim = simulator(3, 13);
+  sim.setSource([]);
+  sim.setHeld(
+    [30, 32].map((typeID, i) => ({
+      ...ore,
+      itemID: 80 + i,
+      typeID,
+      quantity: 45,
+      ownerID: 3,
+      locationID: 13,
+      flagID: 5,
+    })),
+  );
+  const h = batchedHaul(sim, [], 1),
+    act = sim.session.flow.flying.bridgeDo;
+  let queued = true;
+  sim.session.flow.flying.bridgeDo = async (...args: any[]) => {
+    if (args[1] === "MultiAdd" && args[4] === 700 && queued) {
+      queued = false;
+      throw Object.assign(Error("No hosted slot"), { name: "TransportQueueError" });
+    }
+    return act(...args);
+  };
+  await assert.rejects(h.haul(), /did not enter the transport/);
+  assert.equal(h.totals()?.deliveredUnits, 0);
+  assert.equal(sim.getHeld().length, 2);
+  h.restart();
+  assert.equal(await h.haul(), "delivered");
+  assert.deepEqual(sim.getHeld(), []);
+  assert.equal(sim.calls.filter((c: any) => c.method === "MultiAdd").length, 1);
+  assert.equal(h.totals()?.deliveredUnits, 90);
+  assert.equal(h.totals()?.trips, 1);
+});
+
 test("a new run unloads a full native hold with no current freight manifests", async () => {
   const sim = simulator(3, 13);
   sim.setSource([]);
@@ -3148,6 +3910,45 @@ test("a new run unloads a full native hold with no current freight manifests", a
   assert.deepEqual(sim.getHeld(), []);
   assert.deepEqual(h.state().haulClaims, {});
   assert.deepEqual(h.receipts(), []);
+  assert.equal(h.totals()?.deliveredUnits, 91);
+  assert.equal(h.totals()?.deliveredVolumeM3, 91);
+  assert.equal(h.totals()?.deliveredContainers, 0);
+  h.restart();
+  assert.equal(await h.haul(), "idle");
+  assert.equal(h.totals()?.deliveredUnits, 91);
+  // Another confirmed dock visit replaces the working journal without losing or duplicating the first.
+  sim.setInSpace();
+  sim.setHeld([{ ...ore, itemID: 82, ownerID: 3, locationID: 13, flagID: 5, quantity: 93 }]);
+  h.restart();
+  assert.equal(await h.haul(), "delivered");
+  assert.equal(h.totals()?.trips, 2);
+  assert.equal(h.totals()?.deliveredUnits, 184);
+});
+
+test("a Hauler already at its delivery dock unloads carry-in below threshold and keeps equipment", async () => {
+  const sim = simulator(3, 13),
+    equipment = {
+      ...ore,
+      itemID: 70,
+      typeID: 800,
+      categoryID: 7,
+      ownerID: 3,
+      locationID: 13,
+      flagID: 5,
+      quantity: 1,
+    };
+  sim.setDocked();
+  sim.setSource([]);
+  sim.setHeld([
+    equipment,
+    { ...ore, itemID: 22, ownerID: 3, locationID: 13, flagID: 5, quantity: 50 },
+  ]);
+  const h = batchedHaul(sim, [], 1);
+  assert.equal(await h.haul(), "delivered");
+  assert.deepEqual(sim.getHeld(), [equipment]);
+  assert.deepEqual(sim.routes, []);
+  assert.deepEqual(h.totals()?.unitsByType, { "30": 50 });
+  assert.equal(h.totals()?.deliveredContainers, 0);
 });
 
 test("a new run below the unload threshold keeps the native load without polling the hold", async () => {
@@ -3156,7 +3957,7 @@ test("a new run below the unload threshold keeps the native load without polling
   let holdReads = 0;
   const fetch = sim.run.fetch;
   sim.run.fetch = async (url: unknown) => {
-    if (String(url).endsWith("/api/bridge/ship/ore-hold")) holdReads++;
+    if (new URL(String(url)).pathname === "/api/bridge/ship/13/bays") holdReads++;
     return fetch(url);
   };
   const h = batchedHaul(sim, [], 1);
@@ -3197,32 +3998,56 @@ for (const remaining of [0, 9])
     }
   });
 
-test("Return Home reads back an interrupted unload of pre-existing ore in the configured division", async () => {
-  const sim = simulator(3, 13);
-  sim.setHeld(
-    [
-      { ...ore, itemID: 81, quantity: 50 },
-      { ...ore, itemID: 82, typeID: 32, quantity: 45 },
-    ].map((r) => ({ ...r, ownerID: 3, locationID: 13, flagID: 5 })),
-  );
-  sim.limitDeposit(1);
-  sim.loseDepositReads(2);
-  const h = batchedHaul(sim, [ore], 1);
-  await assert.rejects(h.haul(), /Deposit inventory unavailable/);
-  h.restart();
-  h.op().noteStopRequest("RETURN_HOME");
-  h.op().requestStop();
-  assert.equal(await h.haul(), "idle");
-  assert.deepEqual(
-    sim.calls.filter((x: any) => x.of === 700).map((x: any) => [x.method, x.args]),
-    [["MultiAdd", [[81, 82], 13]]],
-  );
-  assert.deepEqual(
-    sim.getHeld().map((r: any) => r.itemID),
-    [82],
-  );
-  assert.deepEqual(sim.getSource(), [ore]);
-});
+for (const flagID of [5, 155])
+  test(`Return Home settles an interrupted unload of carry-in ore from flag ${flagID}`, async () => {
+    const sim = simulator(3, 13);
+    sim.setCapacities(flagID === 5 ? 100 : 0, 0, flagID === 155 ? 100 : 0);
+    sim.setHeld(
+      [
+        { ...ore, itemID: 81, quantity: 50 },
+        { ...ore, itemID: 82, typeID: 32, quantity: 45 },
+      ].map((r) => ({ ...r, ownerID: 3, locationID: 13, flagID })),
+    );
+    sim.limitDeposit(1);
+    sim.loseDepositReads(2);
+    const h = batchedHaul(sim, [ore], 1);
+    await assert.rejects(h.haul(), /Deposit inventory unavailable/);
+    h.restart();
+    h.op().noteStopRequest("RETURN_HOME");
+    h.op().requestStop();
+    assert.equal(await h.haul(), "idle");
+    assert.deepEqual(
+      sim.calls.filter((x: any) => x.of === 700).map((x: any) => [x.method, x.args]),
+      [["MultiAdd", [[81, 82], 13]]],
+    );
+    assert.deepEqual(
+      sim.getHeld().map((r: any) => r.itemID),
+      [82],
+    );
+    assert.deepEqual(sim.getSource(), [ore]);
+    assert.deepEqual(h.totals()?.unitsByType, { "30": 50 });
+    assert.equal(h.totals()?.trips, 1);
+    await unloadParkingFreight(sim.run, sim.session, {
+      operationID: "op",
+      runID: "run",
+      shipID: 13,
+      current() {},
+      delivery: {
+        kind: "station",
+        systemID: 300,
+        destinationID: 600,
+        corporationID: 77,
+        division: 1,
+      },
+      document: h.parkingDocument,
+      wholeStacks: true,
+      reconcileParking: true,
+    });
+    assert.deepEqual(sim.getHeld(), []);
+    assert.deepEqual(h.totals()?.unitsByType, { "30": 50, "32": 45 });
+    h.restart();
+    assert.equal(h.totals()?.deliveredUnits, 95);
+  });
 
 test("Return Home after partial corporation MultiAdd leaves the remaining stack for parking", async () => {
   const sim = simulator(3, 13),
@@ -3434,7 +4259,7 @@ test("Hauler reads the hold again after connection reset and HTTP 502 without re
   const fetch = sim.run.fetch;
   let faults = 0;
   sim.run.fetch = async (input: unknown, init?: RequestInit) => {
-    if (new URL(String(input)).pathname === "/api/bridge/ship/ore-hold" && faults < 2) {
+    if (new URL(String(input)).pathname === "/api/bridge/ship/13/bays" && faults < 2) {
       if (++faults === 1)
         throw new TypeError("fetch failed", {
           cause: Object.assign(Error("read ECONNRESET"), { code: "ECONNRESET" }),
@@ -3464,9 +4289,9 @@ test("Hauler uses a readable compatible hold even when the preferred hold read f
   const fetch = sim.run.fetch;
   sim.run.fetch = async (input: URL, init?: RequestInit) => {
     const response = await fetch(input, init);
-    if (!new URL(String(input)).pathname.endsWith("/ore-hold")) return response;
+    if (!new URL(String(input)).pathname.endsWith("/bays")) return response;
     const panel = await response.json();
-    Object.assign(panel.holds[0], { error: "CALL_TIMEOUT", capacity: null, present: false });
+    Object.assign(panel.bays[0], { error: "CALL_TIMEOUT", capacity: null, present: false });
     return Response.json(panel);
   };
   const h = batchedHaul(sim, rows, 1);
@@ -3486,11 +4311,11 @@ test("Hauler retries when no compatible hold can be verified in a partial panel"
   let panels = 0;
   sim.run.fetch = async (input: URL, init?: RequestInit) => {
     const response = await fetch(input, init);
-    if (!new URL(String(input)).pathname.endsWith("/ore-hold")) return response;
+    if (!new URL(String(input)).pathname.endsWith("/bays")) return response;
     if (++panels !== 1) return response;
     const panel = await response.json();
-    Object.assign(panel.holds[0], { error: "CALL_TIMEOUT", capacity: null, present: false });
-    panel.holds[1].present = false;
+    Object.assign(panel.bays[0], { error: "CALL_TIMEOUT", capacity: null, present: false });
+    panel.bays[1].present = false;
     return Response.json(panel);
   };
   const h = batchedHaul(sim, rows, 1);

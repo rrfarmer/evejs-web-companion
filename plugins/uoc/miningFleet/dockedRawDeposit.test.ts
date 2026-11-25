@@ -586,36 +586,121 @@ for (const mode of [
       }
       return result;
     };
-    const check = () =>
-      io.reconcileDelivery({
-        officeID: io.officeID,
-        flag: io.flag,
-        item: before[0]!,
-        items: before,
-        requestedIDs: before.map((row) => row.itemID),
-        sourceBefore: before,
-        destinationBefore: stock,
-      });
+    const check = (acknowledged: boolean) =>
+      io.reconcileDelivery(
+        {
+          officeID: io.officeID,
+          flag: io.flag,
+          item: before[0]!,
+          items: before,
+          requestedIDs: before.map((row) => row.itemID),
+          sourceBefore: before,
+          destinationBefore: stock,
+        },
+        acknowledged,
+      );
+    const result = await io.depositWhole(before, before, stock);
+    assert.equal(result.acknowledged, true);
+    assert.deepEqual([...result.movedIDs], [20, 21]);
+    assert.deepEqual(
+      (await check(true)).items?.map((row) => row.itemID),
+      [20, 21],
+    );
     if (
       mode === "exact IDs" ||
       mode === "exact IDs and more ore" ||
       mode === "merged" ||
       mode === "merged into a new stack"
-    ) {
-      const result = await io.depositWhole(before, before, stock);
-      assert.deepEqual([...result.movedIDs], [20, 21]);
+    )
       assert.deepEqual(
-        (await check()).items?.map((row) => row.itemID),
+        (await check(false)).items?.map((row) => row.itemID),
         [20, 21],
       );
-    } else {
-      await assert.rejects(io.depositWhole(before, before, stock), /unknown; no replay/);
-      await assert.rejects(check(), /unknown; no replay/);
-    }
+    else await assert.rejects(check(false), /unknown; no replay/);
     assert.deepEqual(await io.cargo(), []);
     assert.equal(f.getWrites(), 1);
   });
 }
+
+test("an acknowledged command still requires departure from the assigned ship and the original division", async () => {
+  const f = fixture(),
+    io = await createDockedRawDepositIO(f.run, f.session, {
+      characterID: 3,
+      shipID: 13,
+      destinationID: 600,
+      corporationID: 77,
+      division: 1,
+      current() {},
+    });
+  const before = await io.cargo(),
+    item = before[0]!;
+  const pending = {
+    officeID: io.officeID,
+    flag: io.flag,
+    destinationOwner: 77,
+    item,
+    items: [item],
+    requestedIDs: [item.itemID],
+    sourceBefore: before,
+    destinationBefore: [],
+  };
+  f.setHeld([{ ...item, flagID: 5 }]);
+  await assert.rejects(io.reconcileDelivery(pending, true), /unknown; no replay/);
+  f.setHeld([]);
+  for (const wrong of [{ officeID: 701 }, { flag: 116 }, { destinationOwner: 78 }])
+    await assert.rejects(
+      io.reconcileDelivery({ ...pending, ...wrong }, true),
+      /destination changed/,
+    );
+  await assert.rejects(
+    io.reconcileDelivery({ ...pending, sourceBefore: [{ ...item, ownerID: 4 }] }, true),
+    /ship or hold changed/,
+  );
+  assert.deepEqual((await io.reconcileDelivery(pending, true)).items, [item]);
+  assert.equal(f.getWrites(), 0);
+});
+
+test("a partial MultiAdd refusal never releases the intent as an undispatched batch", async () => {
+  const f = fixture(),
+    item = source.items[0]!,
+    second = { ...item, itemID: 21 },
+    rows = [item, second];
+  f.setHeld(rows.map((row) => ({ ...row, ownerID: 3, locationID: 13, flagID: 134 })));
+  const io = await createDockedRawDepositIO(f.run, f.session, {
+    characterID: 3,
+    shipID: 13,
+    destinationID: 600,
+    corporationID: 77,
+    division: 1,
+    current() {},
+  });
+  const before = await io.cargo(),
+    stock = await io.corp();
+  let calls = 0;
+  const act = f.session.flow.flying.bridgeDo;
+  f.session.flow.flying.bridgeDo = async (...args: any[]) => {
+    if (args[1] !== "MultiAdd") return act(...args);
+    calls++;
+    f.setHeld([before[1]]);
+    f.setCorp([{ ...item, ownerID: 77, locationID: 700, flagID: 115 }]);
+    throw Object.assign(Error("Second stack refused"), {
+      status: 409,
+      code: "CALL_REFUSED",
+      refusal: { key: "NotEnoughCargoSpace" },
+    });
+  };
+  const result = await io.depositWhole(before, before, stock, {
+    acknowledge() {
+      assert.fail("No success reply");
+    },
+    refuseDelivery() {
+      assert.fail("The first stack already moved");
+    },
+  });
+  assert.equal(result.acknowledged, false);
+  assert.deepEqual([...result.movedIDs], [item.itemID]);
+  assert.equal(calls, 1);
+});
 
 test("a previously settled whole-stack receipt remains readable under its original proof", async () => {
   const f = fixture(),
@@ -705,6 +790,40 @@ test("missing office, missing bound office ID, and invalid division issue no tra
     assert.equal(f.getWrites(), 0);
 });
 
+test("a pre-transfer location refusal clears the original whole-stack intent for a normal retry", async () => {
+  const f = fixture(),
+    items = [...source.items, { ...source.items[0]!, itemID: 21 }];
+  f.setHeld(items.map((row) => ({ ...row, ownerID: 3, locationID: 13, flagID: 134 })));
+  const unload = () =>
+    depositOwnShipRaw(f.run, f.session, {
+      source: { ...source, items },
+      destinationID: 600,
+      corporationID: 77,
+      division: 1,
+      wholeStacks: true,
+      current() {},
+      document: f.document,
+    });
+  const act = f.session.flow.flying.bridgeDo;
+  let refused = false;
+  f.session.flow.flying.bridgeDo = async (...args: any[]) => {
+    if (args[1] === "MultiAdd" && !refused) {
+      refused = true;
+      throw Object.assign(Error("Location changed before transfer."), {
+        code: "INVENTORY_LOCATION_CHANGED",
+        status: 409,
+      });
+    }
+    return act(...args);
+  };
+  await assert.rejects(unload(), /did not enter the transport/);
+  assert.equal((f.getDoc() as any).pending, null);
+  assert.equal(f.getWrites(), 0);
+  const receipt = await unload();
+  assert.equal(receipt.batches[0]?.items?.length, 2);
+  assert.equal(f.getWrites(), 1);
+});
+
 test("a native personal Add refusal preserves its reason and leaves no uncertain deposit", async () => {
   const f = fixture();
   f.setPersonal();
@@ -758,28 +877,35 @@ for (const acknowledged of [true, false])
     },
   );
 
-test("parking retries only a pending whole stack still confirmed in the source hold", async () => {
-  const f = fixture();
-  const unload = () =>
-    depositOwnShipRaw(f.run, f.session, {
-      source: { ...source, kind: "own-ship-freight" },
-      freightKind: "ANY",
-      destinationID: 600,
-      corporationID: 77,
-      division: 1,
-      current() {},
-      document: f.document,
-      reconcileParking: true,
-    });
+test("parking retains a timed out Add until the original items can be located", async () => {
+  const f = fixture(),
+    unload = () =>
+      depositOwnShipRaw(f.run, f.session, {
+        source: { ...source, kind: "own-ship-freight" },
+        freightKind: "ANY",
+        destinationID: 600,
+        corporationID: 77,
+        division: 1,
+        current() {},
+        document: f.document,
+        reconcileParking: true,
+      });
   f.setLostBeforeMove(true);
   await assert.rejects(unload(), /stack is still in the ship's hold/);
+  await assert.rejects(
+    unload(),
+    /Check item IDs 20 in ship 13 and corporation division 1 at dock 600/,
+  );
   assert.equal(f.getWrites(), 1);
-  f.setLostBeforeMove(false);
-  f.setLost(true);
+  assert.equal((f.getDoc() as any).pending.acknowledged, false);
+  // The timed-out command becomes visible after those reads.
+  f.setHeld([]);
+  f.setCorp([{ itemID: 20, typeID: 30, quantity: 12, ownerID: 77, locationID: 700, flagID: 115 }]);
   const receipt = await unload();
   assert.equal(receipt.batches[0]?.acknowledged, false);
-  assert.equal(f.getCorp()[0]?.quantity, 10);
-  assert.equal(f.getWrites(), 2);
+  assert.equal(receipt.batches[0]?.item.quantity, 10);
+  assert.deepEqual(await unload(), receipt);
+  assert.equal(f.getWrites(), 1);
 });
 
 test("parking retains an unresolved transfer when the stack cannot be confirmed at either end", async () => {

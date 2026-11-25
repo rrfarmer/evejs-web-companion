@@ -186,7 +186,7 @@ export function createDistributionNative(
     );
     if (p.activeShipID !== shipID || p.shipID !== shipID || !Array.isArray(p.bays))
       throw Error("The hauler's current holds are unavailable.");
-    const rows: Record<string, Stack[]> = {};
+    const rows: Record<string, Stock[]> = {};
     const volumes: Bay[] = [];
     const unreadable = new Set(keys);
     for (const bay of p.bays) {

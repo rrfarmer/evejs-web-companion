@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { listCivilianHosted, listVerifiedOperationPilots, listWorkspaceOperationPilots, openDefaultFarmerAccount, openRegisteredFarmerAccount } from "./api.ts";
+import { listCivilianHosted, listHangarPilotAccount, listVerifiedOperationPilots, listWorkspaceOperationPilots, openDefaultFarmerAccount, openRegisteredFarmerAccount } from "./api.ts";
 import { authenticatedJson, farmerAccounts, installPageContext, matchAccountName, ownerOptions, runHosted, UocRequestError, workspaceAccounts } from "./context.ts";
 import type { Session } from "../../../../web/src/plugin-api/index.ts";
 import { createTrainingAccountPass } from "../../training/accountPass.ts";
@@ -228,4 +228,30 @@ test("a saved account name does not grant access to the workspace roster", async
     installPageContext({});
     setKnownCharacterStorage(null);
   }
+});
+
+test("a stale Hangar duplicate yields one picker row and resolves to the current owner before assignment", async t => {
+  const cached = ["Old", "Current"].map((accountName,i) => ({accountName,characterID:23,characterName:"Pilot",
+    shipName:null,skillPoints:null,balance:null,lastSeen:2-i}));
+  setKnownCharacterStorage({getItem:key=>key==="evejs-web-known-characters:v1"?JSON.stringify(cached):null,setItem(){}});
+  t.after(()=>{installPageContext({});setKnownCharacterStorage(null);});
+  const reads:string[]=[];
+  const fetcher:typeof fetch=async(input,init)=>{
+    assert.equal(init?.method,"GET");
+    const name=new Headers(init.headers).get("authorization")!.replace("Bearer ",""),path=String(input);
+    if(path==="/api/pilot-training/characters"){
+      reads.push(name);
+      return Response.json({account:name,characters:name==="Current"?[{characterID:23,name:"Current name"}]:[]});
+    }
+    if(path==="/api/bots")return Response.json({ok:true,bots:[]});
+    assert.equal(path,"/api/pilot-training/ownership?characterID=23");
+    return Response.json({ownership:{characterID:23,owner:"OFF",online:false}});
+  };
+  installPageContext({accountPass:{optionsFor:async name=>({token:name,fetch:fetcher}),forget(){},async release(){}}});
+  const shown=await listWorkspaceOperationPilots();
+  assert.deepEqual(shown.pilots.map(row=>row.characterID),[23]);
+  assert.deepEqual(reads,[]);
+  const [verified]=await listHangarPilotAccount(23);
+  assert.deepEqual([verified?.accountName,verified?.characterName,verified?.availability],["Current","Current name","AVAILABLE"]);
+  assert.deepEqual(reads,["Old","Current"]);
 });

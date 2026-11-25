@@ -148,6 +148,7 @@ function fixture(
     calls,
     reports,
     transfers,
+    fundingDocument,
     deposit: (isk: number) => {
       corpBalance += isk;
     },
@@ -246,6 +247,90 @@ const corporateOnlySetup = {
   fundingPolicy: "CORPORATION_WALLET_ONLY",
 };
 
+test("a definitive funding refusal frees the next Start without a second payment", async (t) => {
+  for (const [error, message] of [
+    ["CALL_REFUSED", "Corporation cash transfers require the game port."],
+    ["CALL_REFUSED", "NotEnoughMoney"],
+    ["SESSION_REQUEST_RETIRED", "This cash transfer belongs to the pilot's previous corporation."],
+  ])
+    await t.test(message!, async () => {
+      const f = fixture();
+      let attempts = 0;
+      const fetch: typeof f.run.fetch = async (url, init) => {
+        if (
+          init?.body &&
+          JSON.parse(String(init.body)).method === "GiveCashFromCorpAccount" &&
+          ++attempts === 1
+        )
+          return Response.json({ ok: false, error, message }, { status: 409 });
+        return f.run.fetch(url, init);
+      };
+      for (const botID of ["refused", "retry", "already purchased"]) {
+        f.reports.length = 0;
+        await f.worker().start({ ...f.run, botID, setup: corporateOnlySetup, fetch });
+        await finish(f.reports);
+        if (botID === "refused") {
+          assert.equal(f.reports[0].status, "error");
+          assert.ok(f.reports[0].why.includes(message!));
+          assert.equal(f.fundingDocument().read(), null);
+          assert.equal(
+            f.calls.filter((m) => m === "GetTransactions").length,
+            2,
+            "only the two preflight reads",
+          );
+        } else assert.equal(f.reports[0].phase, "Training queued", f.reports[0].why);
+      }
+      assert.equal(attempts, 2);
+      assert.deepEqual(
+        f.transfers.map((t) => t.amount),
+        [130],
+      );
+      assert.equal(f.calls.filter((m) => m === "PurchaseSkills").length, 1);
+    });
+});
+
+test("a stored intent survives a crash before dispatch and a fresh Start funds exactly once", async (t) => {
+  const f = fixture();
+  const dir = mkdtempSync(path.join(tmpdir(), "uoc-training-intent-")),
+    file = path.join(dir, "training-onboarding.sqlite");
+  const { createDocumentStore } = createRequire(import.meta.url)("../documentStore.cjs");
+  t.after(() => {
+    unlinkSync(file);
+    rmdirSync(dir);
+  });
+  for (const botID of ["interrupted", "restart", "again"]) {
+    const db = createDocumentStore(file),
+      doc = db.document("funding:7");
+    try {
+      const worker = createTrainingRun({
+        reconcileDelayMs: 1,
+        fundingDocument: () => ({
+          read: doc.read,
+          write(value) {
+            doc.write(value);
+            if (botID === "interrupted") throw Error("simulated process exit after intent commit");
+          },
+        }),
+      });
+      f.reports.length = 0;
+      await worker.start({ ...f.run, botID, setup: corporateOnlySetup });
+      await finish(f.reports);
+      if (botID === "interrupted") {
+        assert.match(f.reports[0].why, /simulated process exit/);
+        assert.ok(doc.read());
+        assert.equal(f.transfers.length, 0);
+      } else assert.equal(f.reports[0].phase, "Training queued", f.reports[0].why);
+    } finally {
+      db.close();
+    }
+  }
+  assert.deepEqual(
+    f.transfers.map((t) => t.amount),
+    [130],
+  );
+  assert.equal(f.calls.filter((m) => m === "PurchaseSkills").length, 1);
+});
+
 test("unrelated corporation income does not fund the same skillbooks twice on Start", async () => {
   const f = fixture();
   const fetch: typeof f.run.fetch = async (url, init) => {
@@ -266,6 +351,211 @@ test("unrelated corporation income does not fund the same skillbooks twice on St
   );
   assert.equal(f.calls.filter((c) => c === "PurchaseSkills").length, 1);
   assert.deepEqual(f.balances(), { personal: 200, corporate: 871 });
+});
+
+test("a crash at the dispatch boundary keeps the original reference until absence is confirmed", async (t) => {
+  const f = fixture(),
+    dir = mkdtempSync(path.join(tmpdir(), "uoc-training-dispatch-"));
+  const file = path.join(dir, "training-onboarding.sqlite");
+  const { createDocumentStore } = createRequire(import.meta.url)("../documentStore.cjs");
+  t.after(() => {
+    unlinkSync(file);
+    rmdirSync(dir);
+  });
+  const start = async (setup: any, crash = false) => {
+    const db = createDocumentStore(file),
+      doc = db.document("funding:7");
+    try {
+      f.reports.length = 0;
+      const worker = createTrainingRun({
+        reconcileDelayMs: 1,
+        fundingDocument: () => ({
+          read: doc.read,
+          write(value: any) {
+            doc.write(value);
+            if (crash && value?.dispatchStartedAt) throw Error("simulated exit at dispatch");
+          },
+        }),
+      });
+      await worker.start({ ...f.run, setup });
+      await finish(f.reports);
+      return f.reports[0];
+    } finally {
+      db.close();
+    }
+  };
+  assert.match((await start(corporateOnlySetup, true)).why, /simulated exit/);
+  assert.match((await start(corporateOnlySetup)).why, /transfer could not be verified/);
+  const review = await start({ verifyFunding: true });
+  assert.match(review.why, /was attempted at/);
+  assert.equal(f.transfers.length, 0);
+  assert.match(
+    (await start({ verifyFunding: true, confirmedAbsent: review.readout.reference })).why,
+    /released/,
+  );
+  assert.equal(
+    f.transfers.length,
+    0,
+    "checking the previous transfer never issues the replacement",
+  );
+  assert.equal((await start(corporateOnlySetup)).phase, "Training queued");
+  assert.deepEqual(
+    f.transfers.map((t) => t.amount),
+    [130],
+  );
+});
+
+test("a reply lost after the debit, including a retired tasklet, reuses the journal pair on retry", async (t) => {
+  for (const loss of ["network", "retired tasklet"])
+    await t.test(loss, async () => {
+      const f = fixture();
+      let hideCredit = true;
+      const fetch: typeof f.run.fetch = async (url, init) => {
+        const method = init?.body && JSON.parse(String(init.body));
+        const reply = await f.run.fetch(url, init);
+        if (method?.method === "GiveCashFromCorpAccount") {
+          if (loss === "network") throw Error("The transfer response was lost.");
+          return Response.json(
+            {
+              ok: false,
+              error: "SESSION_REQUEST_RETIRED",
+              message: "The calling tasklet has retired.",
+            },
+            { status: 409 },
+          );
+        }
+        if (hideCredit && method?.method === "GetTransactions" && !method.args[3])
+          return Response.json({ ok: true, result: { type: "list", items: [] } });
+        return reply;
+      };
+      const start = async (setup: any) => {
+        f.reports.length = 0;
+        await f.worker().start({ ...f.run, setup, fetch });
+        await finish(f.reports);
+        return f.reports[0];
+      };
+      assert.match((await start(corporateOnlySetup)).why, /Check pending funding/);
+      const ref = f.transfers[0]!.reason;
+      assert.match(
+        (await start({ verifyFunding: true, confirmedAbsent: ref })).why,
+        /incomplete or disagree/,
+      );
+      assert.equal(f.calls.filter((m) => m === "PurchaseSkills").length, 0);
+      hideCredit = false;
+      assert.match(
+        (await start({ verifyFunding: true, confirmedAbsent: ref })).why,
+        /Both wallets confirm/,
+      );
+      assert.equal((await start(corporateOnlySetup)).phase, "Training queued");
+      assert.equal((await start(corporateOnlySetup)).phase, "Training queued");
+      assert.deepEqual(
+        f.transfers.map((t) => t.amount),
+        [130],
+      );
+      assert.equal(f.calls.filter((m) => m === "PurchaseSkills").length, 1);
+      assert.deepEqual(f.balances(), { personal: 200, corporate: 870 });
+    });
+});
+
+test("an unmatched legacy transfer needs an exact, manually checked absence before another Start", async () => {
+  const f = fixture(),
+    doc = f.fundingDocument();
+  const reason = "UOC Training 12aaade3-5b8a-4370-b067-0bf856764055";
+  const prior = {
+    books: [77],
+    total: 13000,
+    policy: "CORPORATION_WALLET_ONLY",
+    transfer: { corporationID: 98, shortfall: 13000, balance: 20000, reason },
+  };
+  doc.write(prior);
+  let journals: "okay" | "unreadable" | "other corp" = "okay";
+  const fetch: typeof f.run.fetch = async (url, init) => {
+    const call = init?.body && JSON.parse(String(init.body));
+    if (journals === "unreadable" && call?.method === "GetTransactions" && call.args[3])
+      return Response.json({
+        ok: true,
+        result: { type: "list", items: [{ type: "packedrow", fields: {} }] },
+      });
+    if (journals === "other corp" && call?.method === "GetCorporation")
+      return Response.json({
+        ok: true,
+        result: { type: "packedrow", fields: { corporationID: 99 } },
+      });
+    return f.run.fetch(url, init);
+  };
+  const start = async (setup: any) => {
+    f.reports.length = 0;
+    await f.worker().start({ ...f.run, setup, fetch });
+    await finish(f.reports);
+    return f.reports[0];
+  };
+  assert.match((await start(corporateOnlySetup)).why, /Check pending funding/);
+  const verification = await start({ verifyFunding: true });
+  assert.equal(verification.readout.reference, reason);
+  assert.match(verification.why, /130 ISK.*98.*Division 1.*pilot 7/);
+  assert.deepEqual(doc.read(), prior);
+  assert.match(
+    (await start({ verifyFunding: true, confirmedAbsent: reason.replace("12aa", "13aa") })).why,
+    /reference changed/,
+  );
+  for (const invalid of ["unreadable", "other corp"] as const) {
+    journals = invalid;
+    assert.equal((await start({ verifyFunding: true, confirmedAbsent: reason })).status, "error");
+    assert.deepEqual(doc.read(), prior);
+  }
+  journals = "okay";
+  assert.match((await start({ verifyFunding: true, confirmedAbsent: reason })).why, /released/);
+  assert.equal(doc.read(), null);
+  assert.equal(f.transfers.length, 0);
+  assert.equal(f.calls.includes("PurchaseSkills"), false);
+  assert.equal((await start(corporateOnlySetup)).phase, "Training queued");
+  assert.deepEqual(
+    f.transfers.map((t) => t.amount),
+    [130],
+  );
+  assert.notEqual(f.transfers[0]!.reason, reason);
+});
+
+test("a rolled-off wallet history cannot clear a transfer that actually moved ISK", async () => {
+  const f = fixture();
+  let hide = true;
+  const fetch: typeof f.run.fetch = async (url, init) => {
+    const call = init?.body && JSON.parse(String(init.body));
+    const reply = await f.run.fetch(url, init);
+    if (call?.method !== "GetTransactions") return reply;
+    const before = {
+      type: "packedrow",
+      fields: { transactionID: call.args[3] ? 90 : 91, description: null },
+    };
+    const body = await reply.json();
+    body.result.items = f.transfers.length && hide ? [] : [before, ...body.result.items];
+    return Response.json(body);
+  };
+  const start = async (setup: any) => {
+    f.reports.length = 0;
+    await f.worker().start({ ...f.run, setup, fetch });
+    await finish(f.reports);
+    return f.reports[0];
+  };
+  assert.equal((await start(corporateOnlySetup)).status, "error");
+  const ref = f.transfers[0]!.reason;
+  assert.match(
+    (await start({ verifyFunding: true, confirmedAbsent: ref })).why,
+    /history cannot establish absence/,
+  );
+  hide = false;
+  assert.match((await start({ verifyFunding: true })).why, /Both wallets confirm/);
+  hide = true;
+  assert.match(
+    (await start({ verifyFunding: true, confirmedAbsent: ref })).why,
+    /Both wallets confirm/,
+  );
+  assert.equal((await start(corporateOnlySetup)).phase, "Training queued");
+  assert.deepEqual(
+    f.transfers.map((t) => t.amount),
+    [130],
+  );
+  assert.equal(f.calls.filter((m) => m === "PurchaseSkills").length, 1);
 });
 
 test("restarted Training rechecks an ambiguous transfer before spending or funding again", async (t) => {

@@ -237,7 +237,7 @@
             <p class="loading-summary">{op.config.fillPercent}% minimum load · {op.config.waitMinutes ? op.config.waitMinutes + " min max wait" : "Depart when freight is available"}</p>
             <h4>Freight <span>{amount.format(op.execution?.trips ?? 0)} confirmed trips</span></h4>
             {#if op.config.allItems}
-              <p>All items in source division</p>
+              <p>All eligible items in the source division, including containers and their contents.</p>
               {#if op.execution}
                 <p>{amount.format(Object.values(op.execution.delivered).reduce((sum, count) => sum + count, 0))} units delivered
                   {#if op.execution.deliveredVolumeM3 !== undefined} · {volume.format(op.execution.deliveredVolumeM3)} m³{/if}

@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createMiningOperationRoutes} from '../../operations/miningRoutes.ts';
 import {createRestoredMiningHost,getMiningOperationLaunchPlan} from './mining.ts';
+import type {PilotSession} from '../../../../web/src/plugin-api/pilotSession.ts';
+import type {PluginRunContext} from '../../../../web/src/plugin-api/backend.ts';
+import {createMiningFleetRuntime} from '../../miningFleet/runtime.ts';
+import {memoryFleetDocuments} from '../../miningFleet/operationStoreFixture.ts';
 import {installPageContext} from '../app/context.ts';
 
 // In-memory route + public host transport fixture. No socket, native login or game data.
@@ -9,7 +13,7 @@ let fixtureSerial=0;
 function fixture(mixed=false){
  const world=`readiness-world-${++fixtureSerial}`;
  const docs=new Map<string,unknown>(),bots:any[]=[],calls:{run:string;id:number;token:string;setup:any}[]=[];
- let changedShip=false,changedFit=false,unknownStart=false,denied=false,serial=0;
+ let changedFit=false,unknownStart=false,denied=false,serial=0;
  const policy={maxRuntimeMinutes:720,defaultRuntimeMinutes:60,durationChoices:[60,720]};
  const routes=createMiningOperationRoutes({document:key=>({read:()=>docs.get(key)??null,write:v=>{docs.set(key,structuredClone(v));}}),
    getWorldScope:()=> world,isOperationActive:()=>false,targetSnapshot:()=>({}),
@@ -38,7 +42,7 @@ function fixture(mixed=false){
      if(denied&&b.characterID===802)return new Response(JSON.stringify({ok:false,error:'OWNER_UNAVAILABLE',message:'Pilot owner is unavailable'}),{status:409});
      calls.push({run:b.run,id:b.characterID,token,setup:b.setup});
      if(unknownStart&&b.run==='mcc-miner')throw Error('Unknown native Start dispatch');
-     const shipID=b.characterID+100+(changedShip&&b.run==='mcc-inspect'?1:0);
+     const shipID=b.characterID+100;
      const readout=b.run==='mcc-prepare'?{characterID:b.characterID,operationID:b.setup.operationID,operationRunID:b.setup.operationRunID,shipID,
        definitionFingerprint:changedFit?'changed-fit':'exact-fit',fittingID:b.setup.preparation.fittingID,providerCharacterID:b.characterID,state:'DEGRADED',equipment:mixed?'MODIFIED':'VERIFIED',supplies:'LOW',targets:[],fittingName:'Pilot fitting '+b.setup.preparation.fittingID,reason:mixed?'Current equipment differs from the selected fitting.':'Optional fuel missing'}:
        {characterID:b.characterID,shipID,shipTypeName:'Inspected hull',systemID:300,stationID:600,corporationID:77,officeID:null,
@@ -60,7 +64,7 @@ function fixture(mixed=false){
  };
  installPageContext({readAccounts:()=>definition.members.map(m=>({accountID:m.characterID,username:m.accountName,options:{token:m.role.toLowerCase(),fetch:transport}}))});
  return {calls,transport,world,async save(){const result=await routes['POST /mining-operations']!(req(definition));return (result.body as any).savedOperationID as string;},
-   changeShip(){changedShip=true;},changeFit(){changedFit=true;},denyOwner(){denied=true;},loseStart(){unknownStart=true;}};
+   changeFit(){changedFit=true;},denyOwner(){denied=true;},loseStart(){unknownStart=true;}};
 }
 
 test('original Review uses authorized member evidence; Start revalidates and Stop retains exact owners',async()=>{
@@ -74,8 +78,13 @@ test('original Review uses authorized member evidence; Start revalidates and Sto
  assert.ok(f.calls.filter(x=>x.run==='mcc-prepare').every(x=>x.setup.reviewOnly===true&&x.setup.verifyEquipment===undefined));
  assert.equal(f.calls.filter(x=>['mcc-miner','mcc-hauler'].includes(x.run)).length,0);
  await host.start(review,60);
- assert.equal(f.calls.filter(x=>x.run==='mcc-prepare'&&x.setup.reviewOnly===false).length,2);
- assert.deepEqual(f.calls.filter(x=>['mcc-miner','mcc-hauler'].includes(x.run)).map(x=>x.id),[801,802]);
+ const productive=f.calls.filter(x=>['mcc-miner','mcc-hauler'].includes(x.run));
+ assert.deepEqual(productive.map(x=>[x.id,x.token]),[[801,'Bearer miner'],[802,'Bearer hauler']]);
+ assert.deepEqual(f.calls.filter(x=>x.run==='mcc-prepare').map(x=>[x.id,x.setup.reviewOnly]),[[801,true],[802,true]]);
+ for(const call of productive){
+  assert.deepEqual(call.setup.startupPreparation.map((p:any)=>[p.characterID,p.preparation.fittingID,p.preparation.providerCharacterID]),
+   [[801,4,801],[802,5,802]]);
+ }
  await host.stop(id);
  const count=f.calls.filter(x=>['mcc-miner','mcc-hauler'].includes(x.run)).length;
  await host.start(review,60);
@@ -89,9 +98,17 @@ test('a mixed fleet starts with a mismatch and an as-is pilot, including changed
  assert.match(members?.[0]?.reason??'',/differs.*online mining module/);
  assert.equal(members?.[1]?.supplies,'NOT APPLICABLE');
  f.changeFit();
+ const updated=await host.prepare(id,'new-fit-evidence');
+ assert.equal(review.inspections.find(x=>x.characterID===801)?.preparation?.definitionFingerprint,'exact-fit');
+ assert.equal(updated.inspections.find(x=>x.characterID===801)?.preparation?.definitionFingerprint,'changed-fit');
+ const before=f.calls.length;
  const receipt=await host.start(review,60);
  assert.deepEqual(receipt?.members.map(x=>x.status),['ACCEPTED','ACCEPTED']);
- assert.deepEqual(f.calls.filter(x=>x.run==='mcc-prepare').map(x=>[x.id,x.setup.reviewOnly,x.setup.preparation.fittingID]),[[801,true,4],[801,false,4]]);
+ const starts=f.calls.slice(before);
+ assert.deepEqual(starts.map(x=>[x.run,x.id]),[['mcc-miner',801],['mcc-hauler',802]]);
+ for(const start of starts){
+  assert.deepEqual(start.setup.startupPreparation.map((p:any)=>[p.characterID,p.preparation.fittingID]),[[801,4]]);
+ }
  assert.ok(f.calls.filter(x=>x.id===802&&x.run==='mcc-inspect').every(x=>x.setup.equipmentReview===false&&x.setup.commandModules===false&&!x.setup.supplies));
 });
 
@@ -132,12 +149,37 @@ test('fresh fleet starts from its saved definition after stale browser inspectio
  assert.equal(storage.size,0);
 });
 
-test('a changed ship blocks productive Start and unknown Start is not inspected or dispatched twice',async()=>{
- for(const loss of [false,true]){
-   const f=fixture(),id=await f.save(),host=createRestoredMiningHost({token:'controller',fetch:f.transport},async()=>true),review=await host.prepare(id,loss?'lost-run':'changed-run');
-   if(loss)f.loseStart();else f.changeShip();
-   await assert.rejects(host.start(review,60),loss?/Unknown native Start/:/ship changed since Review/);
-   if(loss){const before=f.calls.length;await assert.rejects(host.start(review,60),/previous fleet Start/);assert.equal(f.calls.length,before);}
-   else assert.equal(f.calls.filter(x=>['mcc-miner','mcc-hauler'].includes(x.run)).length,0);
- }
+test('a changed ship blocks productive Start and unknown Start is not inspected or dispatched twice',async t=>{
+ const f=fixture(),id=await f.save(),host=createRestoredMiningHost({token:'controller',fetch:f.transport},async()=>true);
+ const review=await host.prepare(id,'changed-run');
+ await host.start(review,60);
+ const miner=f.calls.find(call=>call.run==='mcc-miner')!;
+ const pilot=miner.setup.members.find((m:{characterID:number})=>m.characterID===miner.id);
+ assert.equal(pilot.shipID,901);
+ // Start forwards the reviewed hull. The held runner checks the actual flight before creating a mining cycle.
+ const runtime=createMiningFleetRuntime({storage:memoryFleetDocuments(),
+  attach:async()=>({store:{station:{get:()=>({online:{characterID:miner.id}})}},
+   flow:{setLivePush(){},requestOptions:()=>({}),flying:{sessionGeneration:()=>1,isSessionClosing:()=>false}}}) as unknown as PilotSession,
+  createCycle:async()=>assert.fail('Mining must not start on a different hull'),
+  settle:async()=>assert.fail('No pilot joined the operation')});
+ t.after(()=>runtime.shutdown());
+ const held={characterID:miner.id,botID:'changed-hull',setup:miner.setup,held:{characterID:miner.id},
+  baseUrl:'http://fixture',resumed:false,report(){},fetch:async(input:URL)=>{
+   switch(new URL(input).pathname){
+    case '/api/pilot-training/characters':return Response.json({ok:true,account:'readiness-miner',characters:[{characterID:miner.id}]});
+    case '/api/bots':return Response.json({bots:[{botID:'changed-hull',characterID:miner.id,expiresAt:new Date(Date.now()+600_000).toISOString()}]});
+    case '/api/bridge/flight/status':return Response.json({ok:true,flight:{shipID:902,solarSystemID:300,inSpace:false,docked:true,stationID:600}});
+    default:assert.fail('Unexpected held pilot request '+input);
+   }
+  }} as unknown as PluginRunContext;
+ await assert.rejects(async()=>runtime.runs.MINER.start(held),/active ship or location does not match the Start plan/);
+ assert.equal(runtime.getOrCreate(miner.setup).entries.size,0);
+
+ const lost=fixture(),lostID=await lost.save(),lostHost=createRestoredMiningHost({token:'controller',fetch:lost.transport},async()=>true);
+ const lostReview=await lostHost.prepare(lostID,'lost-run');
+ lost.loseStart();
+ await assert.rejects(lostHost.start(lostReview,60),/Unknown native Start/);
+ const before=lost.calls.length;
+ await assert.rejects(lostHost.start(lostReview,60),/previous fleet Start/);
+ assert.equal(lost.calls.length,before);
 });

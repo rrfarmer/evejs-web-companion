@@ -9,6 +9,7 @@
     readTrainingSkillSheet,
     readTrainingProgress,
     reviewIndependentSkill,
+    checkPendingFunding,
     type ApiOptions,
   } from "../adapters/training.ts";
   import type { FundingPolicy, TrainingSheet } from "../training/types.ts";
@@ -37,6 +38,7 @@
     busy = $state(false),
     error = $state(""),
     notice = $state("");
+  let fundingCheck = $state<Awaited<ReturnType<typeof checkPendingFunding>> | null>(null);
   const names = $derived(new Map(result?.catalog.map((skill) => [skill.typeID, skill.name])));
   const sheet = $derived(latestSheet ?? result?.sheet);
   const trained = $derived(new Map(sheet?.skills.map((skill) => [skill.typeID, skill.level])));
@@ -123,6 +125,10 @@
           "Current skills could not be reloaded. Check the wallet and skills before trying again.";
       }
   }
+  async function verifyFunding(confirmedAbsent?: string) {
+    fundingCheck = null;
+    fundingCheck = await checkPendingFunding(characterID, options, confirmedAbsent);
+  }
 </script>
 
 <section aria-label="Pilot skills and training queue">
@@ -172,6 +178,21 @@
     {/if}
   {:else if busy}<p>Reading skills…</p>{/if}
   {#if !busy && error}<p role="alert">{error}</p>{/if}
+  <details>
+    <summary>Corporate funding</summary>
+    <button type="button" disabled={busy} onclick={() => void run(() => verifyFunding())}>Check pending funding</button>
+    {#if fundingCheck}
+      <p role="status">{fundingCheck.message}</p>
+      {#if fundingCheck.reference}
+        {@const ref = fundingCheck.reference}
+        <p>Check the original request has finished and both wallet histories cover the attempt. Include archived entries if needed.</p>
+        <button type="button" disabled={busy} onclick={() => {
+          if (window.confirm(`I verified that the original request has finished and neither wallet recorded ${ref}. Release this attempt?`))
+            void run(() => verifyFunding(ref));
+        }}>Confirm absent and release</button>
+      {/if}
+    {/if}
+  </details>
   <button type="button" disabled={busy} onclick={() => void run(load)}>{sheet ? "Refresh skills" : "Read skills and queue"}</button>
   {#if notice}<p role="status">{notice}</p>{/if}
 </section>

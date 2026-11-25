@@ -469,6 +469,52 @@ test("MCC refresh asks UOC to retire a generation after its last hosted row ends
   assert.deepEqual(ready.targetBoard, []);
 });
 
+test("a verified stopped fleet stays stopped without per-pilot access or a page observation", async () => {
+  const member = {
+    characterID: 1,
+    role: "MINER",
+    accountName: "miner",
+    kind: "mcc-miner",
+    status: "ACCEPTED",
+    botID: "bot-1",
+    beforeIDs: [],
+  };
+  const receipt = { operationID: "op", operationRunID: "run", members: [member] };
+  const fetcher: typeof fetch = async (input) => {
+    const path = new URL(String(input), "http://fixture").pathname;
+    if (path === "/api/bots")
+      return Response.json({
+        bots: [],
+        hostedRunPolicy: {
+          maxRuntimeMinutes: 60,
+          defaultRuntimeMinutes: 60,
+          durationChoices: [60],
+        },
+      });
+    if (path.endsWith("/launch")) return Response.json({ ok: true, receipt });
+    assert.ok(path.endsWith("/mining-operations"), path);
+    const runtime = {
+      operationID: "op",
+      operationRunID: "run",
+      state: "STOPPED",
+      members: [member],
+      stopFreight: "RETURN_HOME",
+      stopFailures: [],
+    };
+    return Response.json({
+      ok: true,
+      operations: [{ definition: { operationID: "op", members: [member] }, runtime }],
+      capabilities: {},
+      targetBoard: [],
+    });
+  };
+  installPageContext({ fetch: fetcher, readAccounts: () => [] });
+  const { runtime } = (await loadMiningOperations({ token: "operator", fetch: fetcher }))
+    .operations[0]!;
+  assert.equal(runtime.state, "STOPPED");
+  assert.deepEqual(runtime.stopFailures, []);
+});
+
 test("stopped fleet reads every offline pilot and ends without requiring ended controllers", async () => {
   const policy = { maxRuntimeMinutes: 720, defaultRuntimeMinutes: 60, durationChoices: [60, 720] };
   const members = Array.from({ length: 14 }, (_, i) => ({

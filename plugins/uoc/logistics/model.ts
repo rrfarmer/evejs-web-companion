@@ -1,4 +1,4 @@
-import { preferredBays } from "../compat/flying.ts";
+import { generalFreightBays, resourceBays } from "../shared/freightHolds.ts";
 import type { ParkingDestination } from "../shared/parking.ts";
 
 export type Office = ParkingDestination & { division: number; name?: string };
@@ -17,14 +17,19 @@ export type Config = {
 };
 export type Carrier = {
   characterID: number;
-  account: string;
+  account?: string;
   name: string;
   shipName?: string;
   corporationID?: number;
   corporationName?: string;
 };
 export type Stack = Freight & { itemID: number };
-export type Stock = Stack & { singleton: boolean; categoryID: number; groupID: number };
+export type Stock = Stack & {
+  singleton: boolean;
+  categoryID: number;
+  groupID: number;
+  volume?: number | null;
+};
 export type Volumes = Record<number, { packaged: number | null; assembled: number | null }>;
 export type Bay = { key: string; capacity: number; used: number };
 export type Load = Stack & { bay: string; singleton: boolean; unitVolumeM3?: number };
@@ -124,12 +129,10 @@ export function readConfig(v: unknown): Config {
 
 export function readCarrier(v: unknown): Carrier {
   if (!record(v) || !positive(v.characterID)) throw Error("Choose a saved WC pilot.");
-  const account = text(v.account),
-    name = text(v.name);
-  if (!account || !name) throw Error("The pilot account is unavailable.");
+  const name = text(v.name);
+  if (!name) throw Error("The pilot name is unavailable.");
   return {
     characterID: v.characterID,
-    account: account.toLowerCase(),
     name,
     shipName: text(v.shipName),
     corporationID: positive(v.corporationID) ? v.corporationID : undefined,
@@ -144,19 +147,22 @@ export function counts(rows: readonly Freight[]): Record<number, number> {
 }
 
 export type Need = { stock: Stock; available: number };
-export function needs(
+export function needs<T extends Stock>(
   config: Config,
-  stock: readonly Stock[],
+  stock: readonly T[],
   atDestination: Record<number, number>,
   reserved: Record<number, number>,
-): Need[] {
+  atSource = true,
+): { stock: T; available: number }[] {
   const remaining = counts(stock);
   const target = Object.fromEntries(config.items.map((item) => [item.typeID, item.quantity]));
   for (const typeID of Object.keys(remaining).map(Number)) {
     const wanted = target[typeID];
     if (config.mode === "COLLECTION") {
       remaining[typeID] =
-        wanted !== undefined || config.allItems ? remaining[typeID]! - (wanted ?? 0) : 0;
+        wanted !== undefined || config.allItems
+          ? remaining[typeID]! - (atSource ? (wanted ?? 0) : 0)
+          : 0;
     } else if (!config.allItems) {
       remaining[typeID] = Math.min(
         remaining[typeID]!,
@@ -174,8 +180,74 @@ export function needs(
     });
 }
 
-export const candidateBays = (stock: Stock) => [...preferredBays(stock), "cargo"];
-export const freightBays = (stock: readonly Stock[]) => [...new Set(stock.flatMap(candidateBays))];
+// Resource filters from EveJS miningInventory, specialShipHoldRegistry and fuelBayInventory.
+export function resourceFreightBays({
+  groupID,
+  categoryID,
+  typeID,
+}: Pick<Stock, "groupID" | "categoryID" | "typeID">): string[] {
+  switch (groupID) {
+    case 465:
+    case 903:
+    case 2022:
+      return resourceBays("ice");
+    case 711:
+    case 4168:
+      return [...resourceBays("gas"), "expedition"];
+    case 4915:
+      return resourceBays("ore");
+    case 519:
+    case 4094:
+    case 4714:
+    case 1027:
+      return [];
+    case 18:
+    case 4932:
+      return ["mineral"];
+    case 355:
+    case 754:
+    case 966:
+      return ["salvage", "expedition"];
+    case 423:
+      return ["fuel", "colony"];
+    case 427:
+    case 1136:
+    case 4729:
+      return ["colony"];
+  }
+  if (categoryID === 25) return resourceBays("ore");
+  if (categoryID === 42 || categoryID === 43 || typeID === 3645 || typeID === 3683)
+    return ["planetary", "colony"];
+  return [];
+}
+
+function specializedBays(stock: Stock) {
+  if (stock.groupID === 1027) return ["commandCenter", "colony"];
+  if (stock.categoryID === 8) return ["ammo"];
+  return resourceFreightBays(stock);
+}
+export const candidateBays = (stock: Stock) => [...specializedBays(stock), ...generalFreightBays];
+const resourceHoldKeys = [
+  "asteroid",
+  "ice",
+  "gas",
+  "ore",
+  "mineral",
+  "salvage",
+  "fuel",
+  "planetary",
+  "colony",
+  "expedition",
+];
+export function freightBays(stock: readonly Stock[], includeOtherResources = false) {
+  return [
+    ...new Set([
+      ...stock.flatMap(specializedBays),
+      ...(includeOtherResources ? resourceHoldKeys : []),
+      ...generalFreightBays,
+    ]),
+  ];
+}
 export const freightVolume = (stock: Stock, volumes: Volumes) =>
   stock.singleton ? volumes[stock.typeID]?.assembled : volumes[stock.typeID]?.packaged;
 export const canFitUnit = (space: number, m3: number) => space + 1e-8 >= m3;
@@ -186,6 +258,7 @@ export function loadFor(
   volumes: Volumes,
   unreadable: readonly string[] = [],
   otherSpecializedBays: readonly Bay[] = [],
+  aboard: readonly Load[] = [],
 ) {
   const room = new Map(bays.map((bay) => [bay.key, Math.max(0, bay.capacity - bay.used)]));
   const lines: Load[] = [];
@@ -216,8 +289,7 @@ export function loadFor(
   for (const { stock, available } of needs) {
     const m3 = freightVolume(stock, volumes);
     const item = { itemID: stock.itemID, typeID: stock.typeID, quantity: stock.quantity };
-    // The game's ordinary cargo hold refuses assembled hulls. Fleet and
-    // maintenance bays are outside Distribution's freight holds.
+    // Distribution handles packaged hulls. Flying assembled ships requires a different operation.
     if (stock.categoryID === 6 && stock.singleton) {
       blocked.push({
         ...item,
@@ -255,7 +327,7 @@ export function loadFor(
       });
       continue;
     }
-    const specialized = preferredBays(stock);
+    const specialized = specializedBays(stock);
     const remaining = loadInto(stock, available, m3, specialized);
     if (!remaining) continue;
     // Save general cargo space for freight that has nowhere else to go.
@@ -270,15 +342,16 @@ export function loadFor(
     cargo.push({ stock, remaining, m3, priority });
   }
   for (const item of cargo.sort((a, b) => a.priority - b.priority))
-    loadInto(item.stock, item.remaining, item.m3, ["cargo"]);
+    loadInto(item.stock, item.remaining, item.m3, generalFreightBays);
   const fill = Math.max(
     0,
-    ...bays
-      .filter((bay) => lines.some((line) => line.bay === bay.key))
-      .map((bay) => {
-        const free = bay.capacity - bay.used;
-        return free > 0 ? (100 * (free - (room.get(bay.key) ?? 0))) / free : 0;
-      }),
+    ...bays.map((bay) => {
+      const carriedVolume = aboard
+        .filter((line) => line.bay === bay.key)
+        .reduce((sum, line) => sum + line.quantity * (line.unitVolumeM3 ?? 0), 0);
+      const usable = Math.max(0, bay.capacity - bay.used) + carriedVolume;
+      return usable > 0 ? (100 * (usable - (room.get(bay.key) ?? 0))) / usable : 0;
+    }),
   );
   return { lines, fill, blocked };
 }

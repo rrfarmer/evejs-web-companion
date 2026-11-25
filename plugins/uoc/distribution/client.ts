@@ -1,6 +1,7 @@
 import type { PluginRunContext } from "../../../web/src/plugin-api/backend.ts";
 import { capacity, checkedJournal, conversation, courier } from "./native.ts";
 import { checkedInventory, type NativeInventoryRow } from "../shared/nativeInventory.ts";
+import { readDictPairs, unwrapLong } from "../shared/wire.ts";
 import type { DistributionEvidence } from "./fence.ts";
 
 function quantityOf(rows: NativeInventoryRow[], typeID: number) {
@@ -117,6 +118,14 @@ export function createNativeCourier(
       throw new Error("Mission briefing is unreadable.");
     const value = courier(result.objective);
     if (!value) throw new Error("The mission is not a verified ordinary courier delivery.");
+    if (value.missionState === 2) {
+      const when = unwrapLong(
+        readDictPairs(result.briefing).find(([key]) => key === "AcceptTimestamp")?.[1],
+      );
+      if (when === null || when <= 0n)
+        throw Error("The accepted Delivery mission has no verifiable acceptance time.");
+      value.acceptedAt = String(when);
+    }
     return value;
   }
   async function agentRecord(agentID: number) {

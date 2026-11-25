@@ -132,6 +132,7 @@ export interface RawHaulerNative {
     manifest: Manifest,
     haulGeneration: number,
     destinationID: number,
+    collector?: "HAULER" | "COMMAND",
   ): Promise<Delivery>;
   /** Read-only reconciliation first; must never issue another pickup for dispatched custody. */
   recoverHeldAndDeliver?(
@@ -698,6 +699,7 @@ export function createRawMembers(op: Operation) {
           manifest,
           h.generation,
           op.snapshot().destinationID,
+          a.member.role,
         );
       } catch (error) {
         if (

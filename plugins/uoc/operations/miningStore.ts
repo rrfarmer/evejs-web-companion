@@ -2,7 +2,7 @@ import { randomUUID, createHash } from "node:crypto";
 import type { MiningPreparationFitting } from "../restored/mining/miningPreparation.ts";
 
 /** Plugin-owned analogue of WC74 miningOperationStore.js @ 213da333.
- * Definitions are account-scoped; original fields are preserved verbatim. */
+ * All accounts in one world share the fleet definitions. Each member keeps its own pilot and account. */
 export type SyncDocument = { read(): unknown; write(value: unknown): void };
 export type SavedDefinition = {
   operationID: string;

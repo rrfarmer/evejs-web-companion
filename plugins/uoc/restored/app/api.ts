@@ -14,9 +14,11 @@ import {
   authenticatedJson,
   cockpitSession,
   farmerAccounts,
+  linkedPagePilots,
   savedWorkspacePilots,
   workspaceAccounts,
   readAsFarmerAccount,
+  readAsHangarAccount,
   ownerOptions,
   runHosted,
   accountUnauthorized,
@@ -62,9 +64,16 @@ const plugin = "/api/plugins/uoc",
 const fail = (message: string): never => {
   throw Error(message);
 };
-export function openRegisteredFarmerAccount(name: string) {
-  return readAsFarmerAccount(name, async (options) => {
-    const r = await authenticatedJson("/api/plugins/uoc/center/account", options);
+export function openRegisteredFarmerAccount(
+  name: string,
+  signal?: AbortSignal,
+  readAccount = readAsFarmerAccount,
+) {
+  return readAccount(name, async (options) => {
+    const r = await authenticatedJson(
+      "/api/plugins/uoc/center/account",
+      signal ? { ...options, signal } : options,
+    );
     const account = r.account?.username,
       accountID = r.account?.accountID,
       worldID = r.worldID;
@@ -81,7 +90,7 @@ export function openRegisteredFarmerAccount(name: string) {
     return { account, accountID, worldID, options: { ...options, token: options.token } };
   });
 }
-export async function openDefaultFarmerAccount(preferred?: string | null) {
+export async function openDefaultFarmerAccount(preferred?: string | null, signal?: AbortSignal) {
   const names = workspaceAccounts();
   const preferredAccount = names.find(
     (name) => name.toLowerCase() === preferred?.trim().toLowerCase(),
@@ -90,27 +99,95 @@ export async function openDefaultFarmerAccount(preferred?: string | null) {
     ...new Set([...(preferredAccount ? [preferredAccount] : []), ...farmerAccounts(), ...names]),
   ];
   for (const name of ordered) {
+    signal?.throwIfAborted();
     try {
-      return await openRegisteredFarmerAccount(name);
+      return await openRegisteredFarmerAccount(name, signal);
     } catch (error) {
       if (!accountUnauthorized(error)) throw error;
     }
   }
   return null;
 }
-async function readOperationPilots(
-  accountName: string,
-  options: ApiOptions,
-): Promise<VerifiedOperationPilot[]> {
-  const roster = await authenticatedJson("/api/pilot-training/characters", options);
+/** A linked page follows the selected account. A direct URL can use its saved workspace. */
+export function openPageAccount(
+  linked: string | undefined,
+  saved?: string | null,
+  signal?: AbortSignal,
+) {
+  return linked
+    ? openRegisteredFarmerAccount(linked, signal, readAsHangarAccount)
+    : openDefaultFarmerAccount(saved, signal);
+}
+type RosterCharacter = {
+  characterID: number;
+  name: string;
+  corporationID?: number;
+  corporationName?: string;
+  shipName?: string;
+  shipTypeName?: string;
+};
+async function readPilotRoster(accountName: string, options: ApiOptions) {
+  const roster = await authenticatedJson<{ account: string; characters: RosterCharacter[] }>(
+    "/api/pilot-training/characters",
+    options,
+  );
   if (
-    roster.account?.toLowerCase() !== accountName.trim().toLowerCase() ||
+    typeof roster.account !== "string" ||
+    roster.account.toLowerCase() !== accountName.trim().toLowerCase() ||
     !Array.isArray(roster.characters)
   )
     throw Error("The selected account roster is unverified.");
+  return roster;
+}
+
+/** Hangar names suggest where to look. Only WC's current roster verifies the character. */
+export async function findHangarPilot(characterID: number, selectedAccount?: string) {
+  const candidates = selectedAccount
+    ? [selectedAccount]
+    : [
+        ...linkedPagePilots()
+          .filter((p) => p.characterID === characterID)
+          .map((p) => p.accountName),
+        ...savedWorkspacePilots()
+          .filter((p) => p.characterID === characterID)
+          .map((p) => p.accountName),
+        ...workspaceAccounts(),
+      ];
+  const missing: string[] = [];
+  for (const name of new Set(candidates)) {
+    try {
+      const found = await readAsHangarAccount(name, async (options) => {
+        const roster = await readPilotRoster(name, options);
+        const pilot = roster.characters.find((row) => row.characterID === characterID);
+        if (pilot && (typeof pilot.name !== "string" || !pilot.name.trim()))
+          throw Error("Pilot roster is malformed.");
+        return pilot ? { pilot, account: roster.account, options, roster } : null;
+      });
+      if (found) return found;
+    } catch (error) {
+      if (selectedAccount) throw error;
+      missing.push(name);
+    }
+  }
+  if (missing.length)
+    throw Error(
+      "Could not verify this pilot. Unavailable Hangar accounts: " + missing.join(", ") + ".",
+    );
+  throw Error(
+    selectedAccount
+      ? "This pilot is missing from the current roster for " + selectedAccount + "."
+      : "This pilot was not found on this browser’s Web Companion Hangar accounts.",
+  );
+}
+async function readOperationPilots(
+  accountName: string,
+  options: ApiOptions,
+  knownRoster?: Awaited<ReturnType<typeof readPilotRoster>>,
+): Promise<VerifiedOperationPilot[]> {
+  const roster = knownRoster ?? (await readPilotRoster(accountName, options));
   const active = (await nativeBots(options)).filter((row) => !row.endedAt);
   return Promise.all(
-    roster.characters.map(async (p: any) => {
+    roster.characters.map(async (p) => {
       if (!Number.isSafeInteger(p.characterID) || typeof p.name !== "string")
         throw Error("Pilot roster is malformed.");
       const row: VerifiedOperationPilot = {
@@ -162,11 +239,17 @@ export function listVerifiedOperationPilots(
 ): Promise<VerifiedOperationPilot[]> {
   return options.token
     ? readOperationPilots(accountName, options)
-    : readAsFarmerAccount(accountName, (access) => readOperationPilots(accountName, access));
+    : readAsHangarAccount(accountName, (access) => readOperationPilots(accountName, access));
+}
+export async function listHangarPilotAccount(characterID: number) {
+  const { account, options, roster } = await findHangarPilot(characterID);
+  return readOperationPilots(account, options, roster);
 }
 /** Render saved characters without acquiring each account. A selected pilot is read from WC before use. */
 export async function listWorkspaceOperationPilots() {
-  const accounts = farmerAccounts();
+  const accounts = [
+    ...new Set([...farmerAccounts(), ...linkedPagePilots().map((p) => p.accountName)]),
+  ];
   const results = await Promise.allSettled(
     accounts.map((account) => listVerifiedOperationPilots(account)),
   );
@@ -182,10 +265,11 @@ export async function listWorkspaceOperationPilots() {
         `${accounts[i]}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`,
       );
   }
-  const verifiedIDs = new Set(pilots.map((pilot) => pilot.characterID));
+  const listedIDs = new Set(pilots.map((pilot) => pilot.characterID));
   for (const pilot of savedWorkspacePilots()) {
-    if (verifiedAccounts.has(pilot.accountName.toLowerCase()) || verifiedIDs.has(pilot.characterID))
+    if (verifiedAccounts.has(pilot.accountName.toLowerCase()) || listedIDs.has(pilot.characterID))
       continue;
+    listedIDs.add(pilot.characterID);
     pilots.push({
       accountName: pilot.accountName,
       characterID: pilot.characterID,
@@ -487,7 +571,7 @@ function civilianLocation(world: string, account: string, id: number, options: A
   };
   civilianLocationNames.set(key, entry);
   void entry.value.then((value) => {
-    if (!value) entry.retryAt = Date.now() + 60_000;
+    if (!value) entry.retryAt = options.signal?.aborted ? 0 : Date.now() + 60_000;
   });
   return entry.value;
 }
@@ -579,6 +663,7 @@ export async function listCivilianHosted(
       release.set(id, verified);
     }),
   );
+  options.signal?.throwIfAborted();
   const names = new Map<number, FoundAgent>();
   for (const kind of ["mining", "distribution"]) {
     const selected = raw.filter(
@@ -603,6 +688,7 @@ export async function listCivilianHosted(
       /* Missing directory names never fabricate native progress. */
     }
   }
+  options.signal?.throwIfAborted();
   const locations = new Map<number, ResolvedDestination>();
   const visible = raw.filter(
     (b) =>

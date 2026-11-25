@@ -9,6 +9,7 @@ import {
   counts,
   freightBays,
   freightVolume,
+  resourceFreightBays,
   loadFor,
   minimumFill,
   needs,
@@ -49,6 +50,7 @@ type WorkerContext = {
   current: () => void;
   report: (phase: Phase, detail: string | null) => void;
   now?: () => number;
+  shutdown?: AbortSignal;
 };
 
 export function createDistributionWorker(ctx: WorkerContext) {
@@ -179,20 +181,12 @@ export function createDistributionWorker(ctx: WorkerContext) {
       const selected = config.allItems
         ? stock
         : stock.filter((row) => config.items.some((item) => item.typeID === row.typeID));
-      if (!selected.length) {
-        waitingSince.delete(key);
-        if (config.allItems) store.reviewSource(world, characterID, op, stock, []);
-        show(
-          "Idle",
-          config.allItems
-            ? "The source division is empty."
-            : "Waiting for selected stock at the source.",
-        );
-        return false;
-      }
-
+      // Selected types missing at the office can already be aboard the assigned ship.
+      const otherResources =
+        config.allItems ||
+        config.items.some((item) => !selected.some((row) => row.typeID === item.typeID));
       const [holds, volumes] = await Promise.all([
-        io.bays(shipID, freightBays(selected)),
+        io.bays(shipID, freightBays(selected, otherResources)),
         io.volumes(selected),
       ]);
       running(op);
@@ -202,16 +196,41 @@ export function createDistributionWorker(ctx: WorkerContext) {
         config.mode === "SUPPLY"
           ? store.stock(world, corp, config.destination)!.quantities
           : arrived;
+      const resources = Object.entries(holds.rows).flatMap(([bay, rows]) =>
+        rows.flatMap((row) => {
+          const suitable = resourceFreightBays(row);
+          return row.singleton === false &&
+            suitable.length &&
+            (bay === "cargo" || bay === "fleet" || suitable.includes(bay))
+            ? [{ ...row, bay }]
+            : [];
+        }),
+      );
+      const reserved = store.coverage(world, op);
+      const onboard = needs(config, resources, destination, reserved, false).map(
+        ({ stock, available }) => ({
+          itemID: stock.itemID,
+          typeID: stock.typeID,
+          quantity: available,
+          bay: stock.bay,
+          singleton: false,
+          unitVolumeM3: stock.volume ?? freightVolume(stock, volumes) ?? undefined,
+        }),
+      );
+      for (const row of onboard) reserved[row.typeID] = (reserved[row.typeID] ?? 0) + row.quantity;
       const wanted = needs(
         config,
         selected.filter((row) => !excluded.has(row.itemID)),
         destination,
-        store.coverage(world, op),
+        reserved,
       );
-      if (!wanted.length) {
+      if (!wanted.length && !onboard.length) {
         waitingSince.delete(key);
         if (config.allItems) store.reviewSource(world, characterID, op, stock, []);
-        show("Idle", "No freight is due for pickup.");
+        const detail = config.allItems
+          ? "The source division is empty."
+          : "Waiting for selected stock at the source.";
+        show("Idle", selected.length ? "No freight is due for pickup." : detail);
         return false;
       }
       const alternatives = config.allItems ? store.peerSpecializedBays(world, characterID, op) : [];
@@ -221,12 +240,13 @@ export function createDistributionWorker(ctx: WorkerContext) {
         volumes,
         holds.unreadable,
         alternatives,
+        onboard,
       );
       const issues = new Map<number, FreightBlock>(blocked.map((row) => [row.itemID, row]));
-      const unshipped = config.allItems
-        ? store.reviewSource(world, characterID, op, stock, blocked, holds.volumes)
-        : [];
-      if (!lines.length) {
+      if (!lines.length && !onboard.length) {
+        const unshipped = config.allItems
+          ? store.reviewSource(world, characterID, op, stock, blocked, holds.volumes)
+          : [];
         if (!config.allItems)
           throw Error("The available freight does not fit in a readable, compatible hold.");
         waitingSince.delete(key);
@@ -243,6 +263,9 @@ export function createDistributionWorker(ctx: WorkerContext) {
         return false;
       }
 
+      if (onboard.length) store.recordAboard(world, characterID, shipID, op, onboard);
+      if (config.allItems)
+        store.reviewSource(world, characterID, op, stock, blocked, holds.volumes);
       store.plan(world, characterID, op.id, lines);
       const refusedBays = new Map<number, Set<string>>();
       try {
@@ -505,6 +528,7 @@ export function createDistributionWorker(ctx: WorkerContext) {
         show("Idle");
       }
     } catch (error) {
+      if (ctx.shutdown?.aborted) return;
       const detail = reason(error);
       store.reportIssue(world, characterID, detail);
       if (store.trip(world, characterID)) retryTripAt = now() + 15_000;
@@ -533,7 +557,10 @@ function observedDelivery(pending: Pending, cargo: readonly Stack[], stock: read
   return { itemID: line.itemID, quantity: amount };
 }
 
-export function createDistributionDriver(store: DistributionStore): BackendRun {
+export function createDistributionDriver(
+  store: DistributionStore,
+  shutdown?: AbortSignal,
+): BackendRun {
   return {
     check(value) {
       const setup = value as { characterID?: unknown; workspace?: unknown } | null;
@@ -551,14 +578,9 @@ export function createDistributionDriver(store: DistributionStore): BackendRun {
     async start(run: PluginRunContext) {
       const setup = run.setup as { characterID: number };
       const { worldID, owner, characterID } = await heldServiceScope(run);
-      if (
-        setup.characterID !== characterID ||
-        !store
-          .roster(worldID)
-          .some((row) => row.characterID === characterID && row.account === owner)
-      )
-        throw Error("The held pilot is not registered in this transport fleet.");
-      store.attach(worldID, characterID, run.botID);
+      if (setup.characterID !== characterID)
+        throw Error("Bot Host holds a different character from the selected carrier.");
+      store.attach(worldID, characterID, run.botID, owner);
       let session;
       try {
         session = await createPilotSession(run);
@@ -570,6 +592,7 @@ export function createDistributionDriver(store: DistributionStore): BackendRun {
       let stopped = false,
         wake: (() => void) | undefined;
       const current = () => {
+        shutdown?.throwIfAborted();
         if (
           stopped ||
           session.store.station.get().online?.characterID !== characterID ||
@@ -583,6 +606,7 @@ export function createDistributionDriver(store: DistributionStore): BackendRun {
         world: worldID,
         characterID,
         current,
+        shutdown,
         io: createDistributionNative(run, session, current),
         report: (phase, detail) => run.report({ status: "running", phase, why: detail }),
         travel: async (office, shipID, guard) => {

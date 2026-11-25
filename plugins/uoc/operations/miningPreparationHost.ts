@@ -1,11 +1,9 @@
 import { preparationEvidenceKey, retainPreparation } from "./miningEvidence.ts";
-import path from "node:path";
-import { createRequire } from "node:module";
-import {
-  pluginDataDir,
-  type BackendRun,
-  type PluginRunContext,
-  type PluginRunReport,
+import { uocStore } from "../backendStores.ts";
+import type {
+  BackendRun,
+  PluginRunContext,
+  PluginRunReport,
 } from "../../../web/src/plugin-api/backend.ts";
 import { isPlayerCorporation } from "../../../web/src/plugin-api/index.ts";
 import {
@@ -38,11 +36,10 @@ type Setup = {
   verifyEquipment?: boolean;
 };
 type Documents = {
+  shutdown?: AbortSignal;
   document?: (run: PluginRunContext, world: string) => Document;
   evidenceDocument?: (run: PluginRunContext, world: string) => Document;
 };
-const require = createRequire(import.meta.url),
-  { createDocumentStore } = require("../documentStore.cjs");
 const positive = (v: unknown): v is number => Number.isSafeInteger(v) && Number(v) > 0;
 const object = (v: unknown): v is Record<string, any> =>
   !!v && typeof v === "object" && !Array.isArray(v);
@@ -143,6 +140,7 @@ async function miningPreparationTask(
   let active = true,
     stopping = false;
   const current = () => {
+    deps.shutdown?.throwIfAborted();
     if (!active) throw Error("Mining preparation session ended.");
     held?.current();
   };
@@ -169,11 +167,9 @@ async function miningPreparationTask(
   };
   const world = (await json("/api/plugins/uoc/world")).worldID;
   if (typeof world !== "string" || !world) throw Error("Mining preparation world is unavailable.");
-  const db = deps.document
-    ? null
-    : createDocumentStore(path.join(pluginDataDir(), "mining-preparation.sqlite"));
+  const db = deps.document ? null : uocStore("mining-preparation.sqlite");
   const document: Document =
-    deps.document?.(run, world) ?? db.document(`member:${world}:${run.characterID}`);
+    deps.document?.(run, world) ?? db!.document(`member:${world}:${run.characterID}`);
   const pending = document.read();
   if (
     pending !== null &&
@@ -519,7 +515,6 @@ async function miningPreparationTask(
         await work;
       } finally {
         active = false;
-        db?.close();
       }
     },
   };

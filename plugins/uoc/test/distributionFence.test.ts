@@ -31,7 +31,8 @@ test("durable Distribution intent blocks replay across process restart and rejec
   assert.throws(()=>createDistributionFence({filePath}).open({...scope,runID:"new"}),/RECOVERY_REQUIRED/);
   const offered={journal:{active:[],offered:[{agentID:99,missionKey:'[99,900,101,"123"]' }]},shipID:null,stationID:null,typeID:null,cargoQuantity:null,hangarQuantity:null};
   assert.throws(()=>fence.settle(offered));fence.acknowledge();fence.settle(offered);
-  fence.dispatch({kind:"accept",agentID:99,missionKey:'[99,900,101,"123"]' },offered);fence.acknowledge();
+  fence.dispatch({kind:"accept",agentID:99,missionKey:'[99,900,101,"123"]' },offered);
+  assert.throws(()=>fence.acknowledge(),/acceptance time/);fence.acknowledge("1234");
   assert.throws(()=>fence.settle(offered));fence.settle({...offered,journal:{active:offered.journal.offered,offered:[]}});
   const load={kind:"load" as const,agentID:99,missionKey:'[99,900,101,"123"]' ,shipID:3,stationID:4,typeID:5,itemID:6,itemQuantity:10,quantity:7,cargoBefore:0,hangarBefore:10};
   const beforeCargo={journal:{active:[{agentID:99,missionKey:'[99,900,101,"123"]' }],offered:[]},shipID:3,stationID:4,typeID:5,cargoQuantity:0,hangarQuantity:10,sourceItem:{itemID:6,typeID:5,quantity:10}};

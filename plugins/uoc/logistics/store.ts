@@ -67,7 +67,12 @@ export type FleetRow = Carrier & {
 };
 export type DistributionView = { ok: true; roster: FleetRow[]; operations: Operation[] };
 
-type State = { roster: Carrier[]; operations: Operation[]; trips: Trip[] };
+// Older documents may also carry a client-supplied Carrier.account.
+type State = {
+  roster: (Carrier & { verifiedAccount?: string })[];
+  operations: Operation[];
+  trips: Trip[];
+};
 type SourceCheck = {
   runID: string;
   specialized: readonly Bay[];
@@ -264,9 +269,19 @@ export function createDistributionStore(
     return run?.state === "RUNNING" && run.id === op.execution?.id && !run.sourceFinished;
   };
 
-  function attach(world: string, characterID: number, botID: string) {
+  function attach(world: string, characterID: number, botID: string, owner: string) {
     const drivers = load(world).drivers;
     if (drivers.has(characterID)) throw Error("This pilot already has a Distribution driver.");
+    const carrier = roster(world).find((row) => row.characterID === characterID);
+    if (!carrier) throw Error("The held pilot is not registered in this transport fleet.");
+    // Bot Host verified this character against its own account roster. Older rows may have a client-supplied name.
+    if (carrier.verifiedAccount !== owner) {
+      update(world, (state) => {
+        const row = state.roster.find((row) => row.characterID === characterID)!;
+        row.verifiedAccount = owner;
+        delete row.account;
+      });
+    }
     drivers.set(characterID, { botID, shipID: null, snapshot: { ...waiting } });
   }
   function release(world: string, characterID: number, botID: string) {
@@ -399,7 +414,7 @@ export function createDistributionStore(
       runID: run.id,
       failed,
       specialized:
-        bays?.filter((bay) => bay.key !== "cargo") ??
+        bays?.filter((bay) => bay.key !== "cargo" && bay.key !== "fleet") ??
         (previous?.runID === run.id ? previous.specialized : []),
     };
 
@@ -461,6 +476,31 @@ export function createDistributionStore(
     return unshipped;
   }
 
+  function newTrip(op: Operation, characterID: number, shipID: number, cargo: Load[]): Trip {
+    return {
+      operationID: op.id,
+      executionID: op.execution!.id,
+      characterID,
+      shipID,
+      cargo,
+      pending: null,
+      issue: null,
+      delivered: false,
+    };
+  }
+  function recordAboard(
+    world: string,
+    characterID: number,
+    shipID: number,
+    op: Operation,
+    cargo: Load[],
+  ) {
+    if (!isRunning(world, op) || trip(world, characterID))
+      throw Error("The assigned trip changed before loading.");
+    update(world, (state) => {
+      state.trips.push(newTrip(op, characterID, shipID, cargo));
+    });
+  }
   function begin(
     world: string,
     characterID: number,
@@ -480,16 +520,7 @@ export function createDistributionStore(
         return false;
       let row = state.trips.find((item) => item.characterID === characterID);
       if (!row) {
-        row = {
-          operationID: op.id,
-          executionID: current.execution.id,
-          characterID,
-          shipID,
-          cargo: [],
-          pending: null,
-          issue: null,
-          delivered: false,
-        };
+        row = newTrip(current, characterID, shipID, []);
         state.trips.push(row);
       }
       if (
@@ -588,10 +619,11 @@ export function createDistributionStore(
     return {
       ok: true,
       operations: entry.state.operations,
-      roster: roster(world).map((carrier) => {
+      roster: roster(world).map(({ account: _legacyAccount, verifiedAccount, ...carrier }) => {
         const row = trip(world, carrier.characterID);
         return {
           ...carrier,
+          ...(verifiedAccount ? { account: verifiedAccount } : {}),
           hosted: entry.drivers.get(carrier.characterID)?.snapshot ?? null,
           trip: row
             ? {
@@ -635,11 +667,20 @@ export function createDistributionStore(
     "GET /logistics": route(() => {}),
     "POST /logistics/roster": route((req, world) => {
       const carrier = readCarrier(req.body);
+      const claimed = (req.body as { account?: unknown }).account;
+      if (
+        claimed !== undefined &&
+        (typeof claimed !== "string" ||
+          claimed.trim().toLowerCase() !== req.account.username.toLowerCase())
+      )
+        throw Error(
+          "The supplied account differs from the Web Companion account making this request.",
+        );
+      // Anyone in this world can add a fleet member. This route grants no ownership of the character.
       update(world, (state) => {
-        const previous = state.roster.find((row) => row.characterID === carrier.characterID);
-        if (previous && previous.account !== carrier.account)
-          throw Error("The pilot is registered under a different WC account.");
-        state.roster = [...state.roster.filter((row) => row !== previous), carrier];
+        const existing = state.roster.find((row) => row.characterID === carrier.characterID);
+        if (existing) Object.assign(existing, carrier);
+        else state.roster.push(carrier);
       });
     }),
     "POST /logistics/roster/remove": route((req, world) => {
@@ -723,6 +764,7 @@ export function createDistributionStore(
     stock,
     peerSpecializedBays,
     reviewSource,
+    recordAboard,
     begin,
     settle,
     confirmPickup,

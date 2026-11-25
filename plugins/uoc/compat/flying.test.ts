@@ -5,7 +5,6 @@ import type { Ask } from "../../../web/src/plugin-api/flying.ts";
 import type { JsonValue } from "../../../web/src/plugin-api/index.ts";
 import * as uoc from "./flying.ts";
 // Test-only comparison with Farmer’s current wire decoders and ownership rules.
-import { preferredBays } from "../../../web/src/bridge/bayRouting.ts";
 import { decodeCorpAssetItems } from "../../../web/src/bridge/corpAssets.ts";
 import { unwrapCachedResult } from "../../../web/src/bridge/market.ts";
 import { isLootableContainer, lootRightsGrant } from "../../../web/src/nav/lootableContainers.ts";
@@ -13,12 +12,7 @@ import { droneRoleForGroup } from "../../../web/src/nav/droneRoles.ts";
 import { quoteRepairs, repairQuoted } from "../../../web/src/bridge/repairShop.ts";
 import { hostedFetch, HOSTED_MAX_IN_FLIGHT } from "../../../web/src/app/transport.ts";
 
-test("cargo groups keep Farmer’s bay order and cached corporation assets keep their item and division identity", () => {
-  for (const groupID of [465, 423, 1136, 711, 18, 754, 1027, 99]) {
-    for (const categoryID of [25, 8, 42, 43, 4, 99]) {
-      assert.deepEqual(uoc.preferredBays({groupID, categoryID}), preferredBays({groupID, categoryID}));
-    }
-  }
+test("cached corporation assets keep their item and division identity", () => {
   const rowset = {type: "objectex2", list: [
     {type: "packedrow", fields: {itemID: {type: "long", value: "110"}, typeID: 9, flagID: 116, ownerID: 33,
       locationID: 88, categoryID: 6, groupID: 17, quantity: -1, singleton: 1, customInfo: "assembled"}},

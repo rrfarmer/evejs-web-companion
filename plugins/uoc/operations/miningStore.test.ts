@@ -138,10 +138,31 @@ test("all accounts in one world share create, edit, delete and the same launch r
     listed.body.operations.map((row: any) => row.definition),
     [created.body.operations[0].definition],
   );
+  const reopened = createMiningOperationRoutes({
+    document,
+    getWorldScope: () => "world-A",
+    isOperationActive: () => false,
+  });
+  const fromOtherAccount: any = await reopened["GET /mining-operations"]!({
+    ...req("Bob"),
+    account: { accountID: 2, username: "Bob" },
+  });
+  assert.deepEqual(
+    fromOtherAccount.body.operations[0].definition.members.map(
+      (m: { accountName: string }) => m.accountName,
+    ),
+    ["one", "two", "three"],
+  );
+  assert.equal(fromOtherAccount.body.operations[0].definition.operationID, id);
   const p: any = await plan(req("Bob", { operationID: id }));
   assert.equal(p.body.executorReady, false);
   assert.equal(p.body.preparation.state, "PENDING");
-  assert.ok(p.body.warnings.some((x: string) => x.includes("native inspection")));
+  assert.deepEqual(p.body, (await plan(req("Alice", { operationID: id }))).body);
+  assert.ok(
+    p.body.warnings.includes(
+      "Start verifies pilot readiness in each hosted session before departure.",
+    ),
+  );
   const edited: any = await save(
     req("Bob", {}, { ...listed.body.operations[0].definition, name: "Edited by Bob" }),
   );
@@ -865,7 +886,7 @@ test("durable preparation and final native FINISH status survive absent host row
   );
 });
 
-test("UNKNOWN and recovered operations save edited rosters without changing the historical generation", async () => {
+test("unresolved and owned operations reject roster edits and preserve their original launch", async () => {
   const document = docs(),
     identity = JSON.stringify(["world"]),
     id = "legacy";
@@ -934,11 +955,10 @@ test("UNKNOWN and recovered operations save edited rosters without changing the 
     const result: any = await save(
       req("Alice", {}, { ...current, name: state, members: nextRoster }),
     );
-    assert.equal(result.body.ok, true);
-    const after = result.body.operations[0];
-    assert.deepEqual(after.definition.members, nextRoster);
-    assert.deepEqual(after.definition.policies, d.policies);
-    assert.deepEqual(after.definition.unloadDestination, d.unloadDestination);
+    assert.equal(result.body.ok, false);
+    assert.match(result.body.message, /stop|finish/i);
+    const after = ((await get(req("Alice"))) as any).body.operations[0];
+    assert.deepEqual(after.definition, d);
     assert.deepEqual(
       after.runtime.members.map((m: any) => [m.characterID, m.role, m.botID]),
       receipt.members.map((m) => [m.characterID, m.role, m.botID]),
@@ -949,33 +969,59 @@ test("UNKNOWN and recovered operations save edited rosters without changing the 
   }
 });
 
-test("saved operation CRUD is available for idle, active, stopping, parking and failed runtime evidence", async () => {
-  for (const state of ["DRAFT", "ACTIVE", "DRAINING", "PARKING", "STOPPED", "FAILED"]) {
+test("only idle and verified stopped fleets allow changes to their saved definition", async () => {
+  for (const state of [
+    "DRAFT",
+    "OWNED_WITHOUT_RECEIPT",
+    "PREPARED",
+    "DISPATCHED",
+    "ACTIVE",
+    "DRAINING",
+    "PARKING",
+    "STOPPED_WITH_OWNER",
+    "STOPPED_WITH_FREIGHT",
+    "STOPPED",
+    "FAILED",
+    "UNKNOWN_OWNER",
+  ]) {
     const document = docs(),
-      live = ["ACTIVE", "DRAINING", "PARKING"].includes(state);
+      live = [
+        "OWNED_WITHOUT_RECEIPT",
+        "ACTIVE",
+        "DRAINING",
+        "PARKING",
+        "STOPPED_WITH_OWNER",
+      ].includes(state);
     const d = definition(),
       members = d.members.map((m) => ({ ...m, shipID: 10 + m.characterID }));
     const routes = createMiningOperationRoutes({
       document,
       getWorldScope: () => "world",
-      isOperationActive: () => live,
-      operationSnapshot: (operationID) => ({
-        operationID,
-        runID: "run",
-        state,
-        members,
-        claim: null,
-        manifests: [],
-        jetcanIntents: {},
-        settled: [1, 2, 3],
-        parked: [1, 2, 3],
-      }),
+      ...(state === "UNKNOWN_OWNER" ? {} : { isOperationActive: () => live }),
+      operationSnapshot: (operationID) =>
+        state === "DISPATCHED"
+          ? null
+          : {
+              operationID,
+              runID: "run",
+              state: state.startsWith("STOPPED") || state === "UNKNOWN_OWNER" ? "STOPPED" : state,
+              haulClaims: state === "STOPPED_WITH_FREIGHT" ? { "55": { dispatched: true } } : {},
+              members,
+              claim: null,
+              manifests: [],
+              jetcanIntents: {},
+              settled: [1, 2, 3],
+              parked: [1, 2, 3],
+            },
     });
-    const save = routes["POST /mining-operations"]!;
-    const created: any = await save(req("Alice", {}, d));
-    const id = created.body.savedOperationID;
-    if (state !== "DRAFT")
-      document("mining-launch:" + JSON.stringify([JSON.stringify(["world"]), id])).write({
+    const save = routes["POST /mining-operations"]!,
+      remove = routes["POST /mining-operations/:operationID/delete"]!;
+    const created: any = await save(req("Alice", {}, d)),
+      id = created.body.savedOperationID,
+      original = created.body.operations[0].definition;
+    const launch = document("mining-launch:" + JSON.stringify([JSON.stringify(["world"]), id]));
+    if (state !== "DRAFT" && state !== "OWNED_WITHOUT_RECEIPT")
+      launch.write({
         version: 1,
         operationID: id,
         operationRunID: "run",
@@ -987,23 +1033,49 @@ test("saved operation CRUD is available for idle, active, stopping, parking and 
           accountName: m.accountName,
           role: m.role,
           kind: "mcc-" + m.role.toLowerCase(),
-          status: "ACCEPTED",
+          status: state === "PREPARED" || state === "DISPATCHED" ? state : "ACCEPTED",
           beforeIDs: [],
-          botID: "bot-" + m.characterID,
+          botID: state === "PREPARED" || state === "DISPATCHED" ? null : "bot-" + m.characterID,
         })),
       });
+    const receipt = launch.read(),
+      params = { operationID: id };
     const edited: any = await save(
-      req("Alice", {}, { ...created.body.operations[0].definition, name: "Edited" }),
+      req(
+        "Bob",
+        {},
+        {
+          ...original,
+          name: "Edited",
+          unloadDestination: { ...d.unloadDestination, corporationDivision: 3 },
+        },
+      ),
     );
-    assert.equal(
-      edited.body.operations[0].runtime.state,
-      ({ DRAINING: "STOPPING", FAILED: "UNKNOWN" } as Record<string, string>)[state] ?? state,
-    );
-    assert.equal(edited.body.operations[0].definition.name, "Edited");
-    const removed: any = await routes["POST /mining-operations/:operationID/delete"]!(
-      req("Alice", { operationID: id }, { revision: 2 }),
-    );
-    assert.deepEqual(removed.body.operations, [], state);
+    if (state === "DRAFT" || state === "PREPARED" || state === "STOPPED") {
+      assert.equal(edited.body.operations[0].definition.revision, 2, state);
+      if (state === "PREPARED") {
+        const late = await routes["POST /mining-operations/:operationID/launch/dispatch"]!(
+          req("Alice", params, { operationRunID: "run", characterID: 1 }),
+        );
+        assert.equal(late.status, 400);
+        assert.deepEqual(launch.read(), receipt);
+      }
+      assert.deepEqual(
+        ((await remove(req("Bob", params, { revision: 2 }))).body as any).operations,
+        [],
+        state,
+      );
+    } else {
+      assert.equal(edited.status, 409, state);
+      assert.equal((await remove(req("Bob", params, { revision: 1 }))).status, 409, state);
+      assert.deepEqual(
+        ((await routes["GET /mining-operations"]!(req("Alice"))).body as any).operations[0]
+          .definition,
+        original,
+        state,
+      );
+      assert.deepEqual(launch.read(), receipt, state);
+    }
   }
 });
 
@@ -1192,6 +1264,9 @@ test("deleting a recovered generation clears its saved records and survives a SQ
       members: setup.members,
       settled: [1, 3],
       parked: [1, 3],
+      claim: null,
+      manifests: [],
+      jetcanIntents: {},
     };
     let pilotCalls = 0,
       delay = false,
@@ -1251,6 +1326,16 @@ test("deleting a recovered generation clears its saved records and survives a SQ
       req("Alice", params, { ...reviewBody, planHash: plan.body.planHash, members: launchMembers }),
     );
     await pending;
+    assert.equal(
+      (
+        await routes["POST /mining-operations/:operationID/delete"]!(
+          req("Alice", params, { revision: 1 }),
+        )
+      ).status,
+      409,
+    );
+    assert.deepEqual(db.document(owned[0]).read(), launch);
+    Object.assign(runtime, { state: "STOPPED", settled: [1, 2, 3], parked: [1, 2, 3] });
     const removed: any = await routes["POST /mining-operations/:operationID/delete"]!(
       req("Alice", params, { revision: 1 }),
     );

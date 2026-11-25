@@ -15,9 +15,28 @@ const positive = (n: unknown): n is number =>
   typeof n === "number" && Number.isSafeInteger(n) && n > 0;
 
 export function miningAcceptedMission(state: any) {
-  const objective =
-    state?.mission ?? state?.legacy?.objective ?? (state?.version === 2 ? state.objective : null);
-  if (state?.completed || objective?.missionState !== 2 || !objective.content) return null;
+  const legacy = state?.version === 2 ? state : state?.legacy;
+  const objective = state?.mission ?? legacy?.objective;
+  if (
+    state?.completed ||
+    objective?.missionState !== 2 ||
+    !objective.content ||
+    objective.characterID !== state.characterID ||
+    !positive(objective.characterID) ||
+    !/^[1-9]\d*$/.test(objective.acceptTimestamp ?? "")
+  )
+    return null;
+  // The older native runner could copy a player's active objective into mission.
+  // The version-2 Mining macro only advanced past Accept for its own offer.
+  if (
+    !(typeof state.acceptedByRun === "string" && state.acceptedByRun) &&
+    !(
+      legacy?.version === 2 &&
+      legacy.objective?.missionState === 2 &&
+      miningIdentity(legacy.objective) === miningIdentity(objective)
+    )
+  )
+    return null;
   return readAcceptedMission({
     agentID: objective.agentID,
     missionID: objective.content.contentID,

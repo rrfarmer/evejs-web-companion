@@ -1,3 +1,4 @@
+import { acceptsMinedFreight, haulerInventoryFlags } from "../shared/freightHolds.ts";
 import type { Manifest } from "./operation.ts";
 import { pickupHoldMatches, pickupItems, type NativeHaulSourceProof } from "./nativeHauler.ts";
 
@@ -63,13 +64,10 @@ export function provesHaulSource(
       (r) =>
         r.ownerID === haulerID &&
         r.locationID === shipID &&
-        [5, 134, 135, 181, 182].includes(r.flagID!),
+        haulerInventoryFlags.includes(r.flagID!),
     );
   const eligibleFlag = (flag: number | undefined) =>
-    flag === 5 ||
-    flag === 134 ||
-    (flag === 181 && manifest.targetKey.startsWith("ICE:")) ||
-    (flag === 182 && !manifest.targetKey.startsWith("ICE:"));
+    acceptsMinedFreight(flag, manifest.targetKey.startsWith("ICE:") ? "ice" : "ore");
   const eligible = (r: Item) => eligibleFlag(r.flagID);
   const sourceRows = (rows: readonly Item[]) =>
     !!itemMap(rows) &&

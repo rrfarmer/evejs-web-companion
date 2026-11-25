@@ -2,7 +2,12 @@ import type { DeliveryEvidence, Manifest, OperationRecord } from "./operation.ts
 import type { SelfUnloadTotals } from "./selfUnload.ts";
 import type { SynchronousStore } from "./targetBoard.ts";
 import type { NativeDeliveryBatch } from "./nativeHauler.ts";
-import { movedWholeStacks } from "./dockedRawDeposit.ts";
+import {
+  HAULER_OWN_DEPOSIT_PREFIX,
+  movedWholeStacks,
+  ownFreightTotals,
+  type HaulerOwnJournal,
+} from "./dockedRawDeposit.ts";
 
 export interface FleetOperationDocuments {
   document(name: string): SynchronousStore;
@@ -251,7 +256,8 @@ export function summarizeFleetRun(
         batch.sourceAfter,
         batch.destinationBefore,
         batch.destinationAfter,
-        "recorded",
+        batch.acknowledged === true && batch.requestedIDs ? "acknowledged" : "recorded",
+        batch.requestedIDs,
       );
       if (!moved) throw Error("Whole-stack delivery requires reconciliation.");
       if (!moved.length) return;
@@ -317,6 +323,7 @@ export function summarizeFleetRun(
     const journal = storage.document(name).read() as {
       events?: readonly {
         kind: string;
+        acknowledged?: boolean;
         before: NativeDeliveryBatch;
         after?: Partial<NativeDeliveryBatch>;
       }[];
@@ -324,7 +331,7 @@ export function summarizeFleetRun(
     for (const event of journal?.events ?? []) {
       if (event.kind !== "delivery" || !event.after?.sourceAfter || !event.after.destinationAfter)
         continue;
-      const batch = { ...event.before, ...event.after };
+      const batch = { ...event.before, ...event.after, acknowledged: event.acknowledged };
       // The archived can receipt omits a dock batch with no share for that can.
       if (accounted.has(containerID) && batch.items?.length !== 0) continue;
       addBatch(shipID, batch, manifests.has(containerID));
@@ -333,6 +340,41 @@ export function summarizeFleetRun(
 
   const unitsByType: Record<string, number> = {};
   const volumeByType = new Map<number, number>();
+  // An initial load has no can. Return Home may also unload the residue at the operation's delivery hangar.
+  const addOwnUnload = (journal: HaulerOwnJournal) => {
+    const totals = ownFreightTotals(journal);
+    if (totals.unidentifiedVisit) unknownTrips = true;
+    for (const visit of totals.visits) visits.add(visit);
+    for (const [type, quantity] of Object.entries(totals.unitsByType))
+      addFreight(Number(type), quantity);
+    for (const [type, volume] of Object.entries(totals.unitVolumes))
+      volumeByType.set(Number(type), volume);
+    if (journal.receipt) lastDelivery = Math.max(lastDelivery ?? 0, journal.receipt.completedAt);
+  };
+  for (const member of record?.members ?? []) {
+    if (member.role !== "HAULER") continue;
+    const scope = JSON.stringify([operationID, runID, member.characterID, member.shipID]);
+    const own = storage
+      .document(HAULER_OWN_DEPOSIT_PREFIX + scope)
+      .read() as HaulerOwnJournal | null;
+    if (own) addOwnUnload(own);
+    if (!record?.stopRequested || !record.delivery) continue;
+    const parking = (storage.document("mining-fleet-parking-unload:" + scope).read() ??
+      storage
+        .document("mining-fleet-finish-parking-unload:" + scope)
+        .read()) as HaulerOwnJournal | null;
+    if (!parking?.batches.length) continue;
+    const [, dock, corp, division, , delivery] = JSON.parse(parking.identity);
+    if (
+      dock === record.delivery.destinationID &&
+      corp === record.delivery.corporationID &&
+      division === record.delivery.division &&
+      delivery?.kind === record.delivery.kind &&
+      delivery.systemID === record.delivery.systemID
+    ) {
+      addOwnUnload(parking);
+    }
+  }
   let deliveredVolumeM3: number | null = 0,
     deliveredUnits = 0,
     selfUnloadTrips = 0;

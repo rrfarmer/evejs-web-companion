@@ -1,3 +1,11 @@
+import {
+  acceptsMinedFreight,
+  freightHoldFlags,
+  generalFreightBays,
+  haulerBaysPath,
+  haulerInventoryFlags,
+  resourceBays,
+} from "../shared/freightHolds.ts";
 import { randomUUID } from "node:crypto";
 import type { MiningTravelAssist } from "./travelAssist.ts";
 import { createHaulerTelemetry } from "./haulerTelemetry.ts";
@@ -26,7 +34,12 @@ import { isLootableContainer, lootRightsGrant } from "../compat/flying.ts";
 import { readJettisonCapacity } from "./canCapacity.ts";
 import { unloadParkingFreight } from "./parkingUnload.ts";
 import { createHaulJournal, type HaulDocument } from "./haulJournal.ts";
-import { createDockedRawDepositIO, readDepositInventory } from "./dockedRawDeposit.ts";
+import {
+  createDockedRawDepositIO,
+  readDepositInventory,
+  ownFreightTotals,
+  type HaulerOwnJournal,
+} from "./dockedRawDeposit.ts";
 import { readMiningReadiness, type FlightObservation } from "./nativeBelt.ts";
 import {
   FreightGridUnavailable,
@@ -93,6 +106,12 @@ export type NativeDeliveryBatch = {
   conversion?: CompressionReceipt;
   item: PickupItem;
   items?: readonly PickupItem[];
+  /** The original native command's address and reply, when retained in the receipt. */
+  acknowledged?: boolean;
+  requestedIDs?: readonly number[];
+  officeID?: number;
+  flag?: number;
+  destinationOwner?: number;
   sourceBefore: readonly NativeInventoryRow[];
   sourceAfter: readonly NativeInventoryRow[];
   destinationBefore: readonly NativeInventoryRow[];
@@ -113,8 +132,10 @@ export type NativeHaulDelivery = {
   observedAt: number;
 };
 export type RelocatedDelivery = NativeHaulDelivery & { sourceProof: RelocatedSourceProof };
-export const HAULER_OWN_DEPOSIT_PREFIX = "mining-fleet-haul-own-freight:";
+export { HAULER_OWN_DEPOSIT_PREFIX } from "./dockedRawDeposit.ts";
 type Run = Pick<PluginRunContext, "characterID" | "baseUrl" | "fetch">;
+const freightHold = (flag: number) =>
+  haulerInventoryFlags.includes(flag) && flag !== freightHoldFlags.gas;
 const positive = (v: unknown): v is number =>
   typeof v === "number" && Number.isSafeInteger(v) && v > 0;
 const totals = (rows: readonly { typeID: number; quantity: number }[]) => {
@@ -483,9 +504,13 @@ export function createNativeHauler(
   };
   const telemetry = createHaulerTelemetry();
   const cargo = async (): Promise<readonly NativeInventoryRow[]> => {
-    const rows = await readNativeShipHolds(session, guard, run.characterID, shipID).catch(
-      fleetReadFailed,
-    );
+    const rows = await readNativeShipHolds(
+      session,
+      guard,
+      run.characterID,
+      shipID,
+      haulerInventoryFlags,
+    ).catch(fleetReadFailed);
     telemetry.cargo(rows);
     return rows;
   };
@@ -783,7 +808,7 @@ export function createNativeHauler(
   const readHoldPanel = async () => {
     guard();
     const response = await run
-      .fetch(new URL("/api/bridge/ship/ore-hold", run.baseUrl))
+      .fetch(new URL(haulerBaysPath(shipID), run.baseUrl))
       .catch(fleetReadFailed);
     const panel = await response
       .json()
@@ -796,15 +821,20 @@ export function createNativeHauler(
           status: response.status,
         }),
       );
-    if (panel?.ok !== true || panel.activeShipID !== shipID || !Array.isArray(panel.holds))
+    if (
+      panel?.ok !== true ||
+      panel.activeShipID !== shipID ||
+      panel.shipID !== shipID ||
+      !Array.isArray(panel.bays)
+    )
       throw Error("Hauler holds are unreadable.");
-    return panel;
+    return panel.bays as any[];
   };
   const chooseHold = async (
     manifest: Pick<Manifest, "items" | "category"> & Partial<Pick<Manifest, "targetKey">>,
     afterUnload = false,
     requiredFlag?: number,
-  ) => holdFromPanel(manifest, (await readHoldPanel()).holds, afterUnload, requiredFlag);
+  ) => holdFromPanel(manifest, await readHoldPanel(), afterUnload, requiredFlag);
   const holdFromPanel = async (
     manifest: Pick<Manifest, "items" | "category"> & Partial<Pick<Manifest, "targetKey">>,
     holds: any[],
@@ -832,21 +862,13 @@ export function createNativeHauler(
         !families.has(manifest.targetKey.startsWith("ICE:") ? "ice" : "ore"))
     )
       throw Error("Freight resource family is ambiguous or differs from the pickup site.");
-    const choices: readonly (readonly ["ore" | "ice" | "asteroid" | "cargo", number])[] =
-      families.has("ice")
-        ? [
-            ["ice", 181],
-            ["ore", 134],
-            ["cargo", 5],
-          ]
-        : [
-            ["asteroid", 182],
-            ["ore", 134],
-            ["cargo", 5],
-          ];
+    // The compression controller can only observe the regular mining holds and cargo.
+    const general = config.convertFreight ? ["cargo"] : generalFreightBays;
+    const choices = [...resourceBays(families.has("ice") ? "ice" : "ore"), ...general];
     telemetry.capacity(holds, families.has("ice") ? "ice" : "ore");
     let unreadable: string | undefined;
-    for (const [key, flag] of choices) {
+    for (const key of choices) {
+      const flag = freightHoldFlags[key]!;
       if (requiredFlag !== undefined && flag !== requiredFlag) continue;
       const found = holds.filter((h) => h?.key === key);
       if (found.length === 0 && requiredFlag === undefined && (key === "ice" || key === "asteroid"))
@@ -916,10 +938,24 @@ export function createNativeHauler(
       new Set(manifest.items.map((i) => i.itemID)).size !== manifest.items.length
     )
       throw Error("Relocated haul scope is invalid.");
-    const j = journal(manifest, generation),
+    const j = journal(manifest, generation);
+    let pending = j.snapshot().pending;
+    const relocatedBefore = j
+      .snapshot()
+      .events.some(
+        (e) =>
+          e.kind === "relocation" ||
+          (e.kind === "pickup" &&
+            (e.after as RelocatedSourceProof)?.kind === "relocated-manifest-items"),
+      );
+    if (delivery && destinationID !== delivery.destinationID)
+      throw Error("Original deposit destination changed; no replay.");
+    if (pending?.kind === "delivery") {
+      await reconcileTransfer(manifest, j, destinationID);
       pending = j.snapshot().pending;
+    }
     if (pending && pending.kind !== "pickup")
-      throw Error("Unresolved delivery mutation; no replay.");
+      throw Error("Unresolved freight mutation; no replay.");
     await verifyRaw(manifest);
     const rawFacts = await facts(manifest.items.map((i) => i.typeID));
     const events = j.snapshot().events,
@@ -978,67 +1014,63 @@ export function createNativeHauler(
         }
       }
     }
-    const initial = await cargo(),
-      byId = new Map(initial.map((x) => [x.itemID, x]));
-    if (
-      manifest.items.some((i) => {
-        const r = byId.get(i.itemID);
-        return (
-          !r ||
-          r.ownerID !== run.characterID ||
-          r.locationID !== shipID ||
-          !(
-            r.flagID === 5 ||
-            (r.flagID === 134 &&
-              ["ore", "ice"].includes(rawFacts[i.typeID]?.resourceFamily ?? "")) ||
-            (r.flagID === 181 && rawFacts[i.typeID]?.resourceFamily === "ice")
-          ) ||
-          r.typeID !== i.typeID ||
-          r.quantity !== i.quantity
-        );
-      })
-    )
-      throw Error("Exact full manifest items are not proven in the hauler hold.");
-    const relocated = manifest.items.map((i) => {
-      const r = byId.get(i.itemID)!;
-      return {
-        itemID: r.itemID,
-        typeID: r.typeID,
-        quantity: r.quantity,
-        ownerID: r.ownerID,
-        locationID: r.locationID,
-        flagID: r.flagID,
+    if (!relocatedBefore && !deliveries.length) {
+      const initial = await cargo(),
+        byId = new Map(initial.map((x) => [x.itemID, x]));
+      const items = manifest.items.map((item) => {
+        const row = byId.get(item.itemID);
+        if (
+          !row ||
+          row.ownerID !== run.characterID ||
+          row.locationID !== shipID ||
+          row.typeID !== item.typeID ||
+          row.quantity !== item.quantity ||
+          !acceptsMinedFreight(row.flagID, rawFacts[item.typeID]?.resourceFamily)
+        )
+          throw Error("Exact full manifest items are not proven in the hauler hold.");
+        return {
+          itemID: row.itemID,
+          typeID: row.typeID,
+          quantity: row.quantity,
+          ownerID: row.ownerID,
+          locationID: row.locationID,
+          flagID: row.flagID,
+        };
+      });
+      const proof: RelocatedSourceProof = {
+        kind: "relocated-manifest-items",
+        items,
+        observedAt: Date.now(),
       };
-    });
-    let proof: RelocatedSourceProof = {
-      kind: "relocated-manifest-items",
-      items: relocated,
-      observedAt: Date.now(),
-    };
-    if (pending) j.reconcilePickup(proof);
-    else proof = j.recordRelocation(proof) as RelocatedSourceProof;
-    const tripID = await destination(destinationID);
-    const io = await createDockedRawDepositIO(run, session, {
-      characterID: run.characterID,
-      shipID,
-      destinationID,
-      ...(corporationID === undefined ? {} : { corporationID }),
-      ...(division === undefined ? {} : { division }),
-      ...(delivery ? { delivery } : {}),
-      freightKind: manifest.category,
-      current: guard,
-    });
-    let first: readonly NativeInventoryRow[] | null = null,
-      last: readonly NativeInventoryRow[] | null = null;
-    const deliveryBatches: NativeDeliveryBatch[] = [];
-    for (const item of relocated) {
-      const batch = await io.deposit(item, taggedDeposit(j, tripID));
-      deliveryBatches.push({ ...batch, tripID });
-      first ??= batch.destinationBefore;
-      last = batch.destinationAfter;
+      if (pending) j.reconcilePickup(proof);
+      else j.recordRelocation(proof);
     }
+    const progress = tripProgress(manifest, j),
+      { relocated, deliveryBatches, lastTripID } = progress;
+    const sourceProof: NativeHaulSourceProof = relocated ?? {
+      kind: "native-batches",
+      batches: progress.sourceBatches,
+    };
+    if (
+      !relocated &&
+      (progress.remaining.length ||
+        progress.aboard.length ||
+        !provesHaulSource(manifest, run.characterID, shipID, sourceProof, Date.now()))
+    )
+      throw Error("Only part of the manifest has been delivered. Its original trip remains open.");
+    const remaining =
+      relocated?.items.filter(
+        (item) => !deliveryBatches.some((b) => b.item.itemID === item.itemID),
+      ) ?? [];
+    if (remaining.length) {
+      const tripID = await destination(destinationID, lastTripID),
+        io = await depositIO(manifest.category, destinationID);
+      for (const item of remaining)
+        deliveryBatches.push({ ...(await io.deposit(item, taggedDeposit(j, tripID))), tripID });
+    }
+    const first = deliveryBatches[0],
+      last = deliveryBatches.at(-1);
     if (!first || !last) throw Error("Relocated delivery evidence is unavailable.");
-
     return {
       source: "native-transfer",
       operationID: manifest.operationID,
@@ -1047,9 +1079,9 @@ export function createNativeHauler(
       claimGeneration: generation,
       shipID,
       destinationID,
-      sourceProof: proof,
-      destinationBefore: first,
-      destinationAfter: last,
+      sourceProof,
+      destinationBefore: first.destinationBefore,
+      destinationAfter: last.destinationAfter,
       deliveryBatches,
       observedAt: Date.now(),
     };
@@ -1365,11 +1397,30 @@ export function createNativeHauler(
   function tripProgress(m: Manifest, j: Journal) {
     const sourceBatches: HaulBatchProof[] = [],
       deliveryBatches: NativeDeliveryBatch[] = [];
-    let remaining = [...m.items];
+    let remaining = [...m.items],
+      relocated: RelocatedSourceProof | undefined;
     let lastTripID: string | undefined;
     const aboard: NativeInventoryRow[] = [];
     for (const event of j.snapshot().events) {
-      if (event.kind === "pickup") {
+      const proof = event.after as RelocatedSourceProof;
+      if (
+        (event.kind === "relocation" || event.kind === "pickup") &&
+        proof?.kind === "relocated-manifest-items"
+      ) {
+        if (
+          relocated ||
+          deliveryBatches.length ||
+          !provesHaulSource(m, run.characterID, shipID, proof, Date.now())
+        )
+          throw Error("Invalid recorded relocation.");
+        relocated = proof;
+        remaining = [];
+        aboard.splice(
+          0,
+          aboard.length,
+          ...proof.items.map((item) => ({ ...item, categoryID: 25 })),
+        );
+      } else if (event.kind === "pickup") {
         lastTripID = undefined;
         const batch = (event.after as { batch?: HaulBatchProof })?.batch;
         if (!batch) throw Error("Recorded pickup requires exact reconciliation.");
@@ -1393,7 +1444,16 @@ export function createNativeHauler(
         } else aboard.push(pickedStack(batch));
         sourceBatches.push(batch);
       } else if (event.kind === "delivery") {
-        const { item, sourceBefore, destinationBefore, tripID } = event.before as DepositBefore;
+        const {
+          item,
+          sourceBefore,
+          destinationBefore,
+          tripID,
+          officeID,
+          flag,
+          destinationOwner,
+          requestedIDs,
+        } = event.before as DepositBefore;
         const { sourceAfter, destinationAfter, items } = event.after as Pick<
           NativeDeliveryBatch,
           "sourceAfter" | "destinationAfter" | "items"
@@ -1408,12 +1468,18 @@ export function createNativeHauler(
             sourceAfter,
             destinationBefore,
             destinationAfter,
+            officeID,
+            flag,
+            destinationOwner:
+              destinationOwner ?? delivery?.corporationID ?? corporationID ?? run.characterID,
+            acknowledged: event.acknowledged,
+            ...(requestedIDs ? { requestedIDs } : {}),
             ...(items ? { items } : {}),
             ...(tripID ? { tripID } : {}),
           });
-      } else throw Error("Relocated freight requires its existing reconciliation path.");
+      } else throw Error("Recorded haul event has no valid pickup or delivery evidence.");
     }
-    return { remaining, aboard, sourceBatches, deliveryBatches, lastTripID };
+    return { remaining, aboard, sourceBatches, deliveryBatches, lastTripID, relocated };
   }
   function verifyOnboard(
     aboard: readonly NativeInventoryRow[],
@@ -1452,7 +1518,7 @@ export function createNativeHauler(
       for (const item of before.items ?? [before.item])
         subtractDelivery(progress.aboard, { item, sourceBefore: before.sourceBefore });
       const io = await depositIO(manifest.category, destinationID),
-        after = await io.reconcileDelivery(before);
+        after = await io.reconcileDelivery(before, pending.acknowledged);
       guard();
       j.reconcile("delivery", after);
     } else throw Error("Original freight mutation requires reconciliation; no replay.");
@@ -1485,17 +1551,7 @@ export function createNativeHauler(
   }
   const ownFreight = config.ownFreight;
   let initialFreightChecked = false;
-  const ownJournal = () =>
-    ownFreight?.document.read() as
-      | {
-          receipt: unknown;
-          identity: string;
-          officeID: number;
-          pending: (Omit<DepositBefore, "officeID" | "flag"> & { acknowledged: boolean }) | null;
-          batches: unknown[];
-        }
-      | null
-      | undefined;
+  const ownJournal = () => ownFreight?.document.read() as HaulerOwnJournal | null | undefined;
   const hasPendingOwnFreight = () => !!ownJournal()?.pending;
   const hasUnfinishedOwnFreight = () => {
     const saved = ownJournal();
@@ -1505,13 +1561,30 @@ export function createNativeHauler(
     const saved = ownJournal();
     if (!ownFreight || !saved?.pending) return;
     const io = await depositIO("ANY", destinationID);
+    const [source, originalDock, originalCorp, originalDivision, originalOffice] = JSON.parse(
+      saved.identity,
+    );
+    if (
+      source?.operationID !== ownFreight.operationID ||
+      source.runID !== ownFreight.runID ||
+      source.characterID !== run.characterID ||
+      source.shipID !== shipID ||
+      originalDock !== destinationID ||
+      originalOffice !== io.officeID ||
+      originalCorp !== (delivery ? delivery.corporationID : corporationID) ||
+      originalDivision !== (delivery ? delivery.division : division)
+    )
+      throw Error("Original own-freight delivery scope changed; no replay.");
     const pending = saved.pending;
-    const after = await io.reconcileDelivery({
-      ...pending,
-      officeID: saved.officeID,
-      flag: io.flag,
-      ...(pending.items ? { requestedIDs: pending.items.map((i) => i.itemID) } : {}),
-    });
+    const after = await io.reconcileDelivery(
+      {
+        ...pending,
+        officeID: saved.officeID,
+        flag: io.flag,
+        ...(pending.items ? { requestedIDs: pending.items.map((i) => i.itemID) } : {}),
+      },
+      pending.acknowledged,
+    );
     const items = "items" in after ? after.items : undefined;
     const batches =
       items && !items.length
@@ -1536,9 +1609,25 @@ export function createNativeHauler(
     }
     if (!dock) throw Error("The delivery dock for ore already aboard is unavailable.");
     freightCurrent();
-    if (ownJournal()?.receipt) ownFreight.document.write(null);
+    const saved = ownJournal();
+    let nextTrip = !!saved?.receipt;
+    const previous = saved?.receipt ? ownFreightTotals(saved) : saved?.previous;
+    const tripID = saved && !nextTrip ? saved.tripID : (dockTripID ?? randomUUID());
+    // Rotate only on the first write of a new unload. The previous totals and new intent persist together.
+    const document: HaulDocument = {
+      read: () => (nextTrip ? null : ownFreight.document.read()),
+      write: (value) => {
+        ownFreight.document.write({
+          ...(value as HaulerOwnJournal),
+          ...(tripID ? { tripID } : {}),
+          ...(previous ? { previous } : {}),
+        });
+        nextTrip = false;
+      },
+    };
     await unloadParkingFreight(run, session, {
       ...ownFreight,
+      document,
       shipID,
       delivery: dock,
       current: freightCurrent,
@@ -1557,32 +1646,37 @@ export function createNativeHauler(
     if (!ownFreight || initialFreightChecked || config.stopBeforePickup?.()) return false;
     // A newly hosted ship may already be full before the first current can.
     // Use the hold panel first so an empty ship needs no item inventory read.
-    const { holds } = await readHoldPanel();
-    const flags = new Map([
-      ["cargo", 5],
-      ["ore", 134],
-      ["ice", 181],
-      ["asteroid", 182],
-    ]);
+    const holds = await readHoldPanel();
     const fullHolds = new Set<number>();
+    const usedHolds = new Set<number>();
     for (const hold of holds) {
-      const flag = flags.get(hold?.key),
+      const flag = freightHoldFlags[hold?.key],
         capacity = hold?.capacity;
       if (
         flag !== undefined &&
+        freightHold(flag) &&
         hold.present === true &&
         hold.error === null &&
         Number.isFinite(capacity?.capacity) &&
         capacity.capacity > 0 &&
         Number.isFinite(capacity.used) &&
-        capacity.used <= capacity.capacity &&
-        capacity.used + 1e-9 >= capacity.capacity * deliveryFraction
-      )
-        fullHolds.add(flag);
+        capacity.used > 0 &&
+        capacity.used <= capacity.capacity
+      ) {
+        usedHolds.add(flag);
+        if (capacity.used + 1e-9 >= capacity.capacity * deliveryFraction) fullHolds.add(flag);
+      }
+    }
+    // At the delivery dock there is no reason to carry a partial load back out to the belt.
+    let eligible = fullHolds;
+    if (usedHolds.size > fullHolds.size) {
+      const status = await flight();
+      if (status.docked && (status.stationID ?? status.structureID) === destinationID)
+        eligible = usedHolds;
     }
     const loaded =
-      fullHolds.size > 0 &&
-      (await containsOre((await cargo()).filter((row) => fullHolds.has(row.flagID))));
+      eligible.size > 0 &&
+      (await containsOre((await cargo()).filter((row) => eligible.has(row.flagID))));
     if (loaded) {
       if (config.stopBeforePickup?.()) return false;
       await destination(destinationID);
@@ -1590,6 +1684,114 @@ export function createNativeHauler(
     }
     initialFreightChecked = true;
     return loaded;
+  }
+  async function depositTripFreight(
+    io: Awaited<ReturnType<typeof depositIO>>,
+    tripID: string,
+    loads: () => { journal: Journal; aboard: readonly NativeInventoryRow[] }[],
+  ) {
+    await io.withDestination(async () => {
+      let sourceBefore = await readDepositInventory(io.cargo);
+      const candidates = sourceBefore.filter(
+        (r) => freightHold(r.flagID) && (r.categoryID === null || r.categoryID === 25),
+      );
+      const types = candidates.length
+        ? await readDepositInventory(() => facts(candidates.map((r) => r.typeID)))
+        : {};
+      const freight = candidates.filter((r) => {
+        const type = types[r.typeID];
+        if (!type || (r.categoryID !== null && r.categoryID !== type.categoryID))
+          throw Error("Hauler hold type is unknown.");
+        if (type.categoryID !== 25) return false;
+        if (
+          !(type.freightKind === "RAW" || type.freightKind === "COMPRESSED") ||
+          type.unitVolumeM3 <= 0 ||
+          !acceptsMinedFreight(r.flagID, type.resourceFamily)
+        )
+          throw Error("Hauler freight is not qualified for unload.");
+        return true;
+      });
+      const freightIDs = new Set(freight.map((r) => r.itemID));
+      verifyOnboard(
+        loads().flatMap((load) => load.aboard),
+        freight,
+      );
+      if (!freight.length) {
+        telemetry.cargo(sourceBefore);
+        return;
+      }
+      let destinationBefore = await readDepositInventory(io.corp);
+      while (sourceBefore.some((r) => freightIDs.has(r.itemID))) {
+        freightCurrent();
+        const rows = sourceBefore.filter((r) => freightIDs.has(r.itemID));
+        const available = new Map(rows.map((r) => [r.itemID, r.quantity]));
+        const currentLoads = loads();
+        const allocations = currentLoads
+          .map((load) => {
+            const items = new Map<number, PickupItem>();
+            for (const cargo of load.aboard) {
+              let left = cargo.quantity;
+              for (const row of rows) {
+                if (row.typeID !== cargo.typeID || row.flagID !== cargo.flagID) continue;
+                const quantity = Math.min(left, available.get(row.itemID)!);
+                if (!quantity) continue;
+                items.set(row.itemID, {
+                  itemID: row.itemID,
+                  typeID: row.typeID,
+                  quantity: (items.get(row.itemID)?.quantity ?? 0) + quantity,
+                });
+                available.set(row.itemID, available.get(row.itemID)! - quantity);
+                left -= quantity;
+                if (!left) break;
+              }
+              if (left) throw Error("Verified freight is no longer available in the Hauler hold.");
+            }
+            return { journal: load.journal, items: [...items.values()] };
+          })
+          .filter((a) => a.items.length);
+        // Several cans can contribute to the same native stack. Keep their shares in
+        // the existing trip journals while moving each physical stack only once.
+        const requestedIDs = rows.map((r) => r.itemID);
+        if (!allocations.length) allocations.push({ journal: currentLoads[0]!.journal, items: [] });
+        for (const { journal, items } of allocations)
+          journal.begin("delivery", {
+            item: items[0] ?? rows[0],
+            items,
+            requestedIDs,
+            sourceBefore,
+            destinationBefore,
+            officeID: io.officeID,
+            flag: io.flag,
+            destinationOwner: io.destinationOwner,
+            tripID,
+          });
+        const { movedIDs, sourceAfter, destinationAfter } = await io.depositWhole(
+          rows,
+          sourceBefore,
+          destinationBefore,
+          {
+            acknowledge() {
+              for (const { journal } of allocations) journal.acknowledge();
+            },
+            refuseDelivery() {
+              for (const { journal } of allocations) journal.refuseDelivery();
+            },
+          },
+        );
+        for (const { journal, items } of allocations) {
+          journal.reconcile("delivery", {
+            items: items.filter((r) => movedIDs.has(r.itemID)),
+            sourceAfter,
+            destinationAfter,
+          });
+        }
+        sourceBefore = sourceAfter;
+        destinationBefore = destinationAfter;
+      }
+      if (loads().some((load) => load.aboard.length))
+        throw Error("Collected ore remains in the Hauler hold.");
+      telemetry.cargo(sourceBefore);
+    });
   }
   async function haulTrip(
     owned: readonly HaulWork[],
@@ -1649,7 +1851,8 @@ export function createNativeHauler(
     const pickupCargo = () => timed(timing, "hauler-pickup-cargo", cargo, undefined, 15000);
     const initial = jobs.length ? await pickupCargo() : null;
     const interruptedStackIDs = new Set<number>();
-    let cargoChanged = false;
+    let cargoChanged = false,
+      settledVisit: string | undefined;
     for (const job of [...jobs]) {
       freightCurrent();
       const { work, j } = job,
@@ -1672,7 +1875,9 @@ export function createNativeHauler(
             !events.length &&
             (!pending || (pending.kind === "pickup" && !(pending.before as PickupBefore).scene))))
       ) {
-        work.complete(await recovery(m, work.generation, destinationID));
+        const recovered = await recovery(m, work.generation, destinationID);
+        work.complete(recovered);
+        settledVisit = recovered.deliveryBatches?.at(-1)?.tripID;
         cargoChanged = true;
         jobs.splice(jobs.indexOf(job), 1);
         result = "delivered";
@@ -1683,6 +1888,7 @@ export function createNativeHauler(
           interruptedStackIDs.add(itemID);
       const reconciled = await reconcileTransfer(m, j, destinationID);
       const progress = open(job);
+      if (progress.lastTripID && !progress.aboard.length) settledVisit = progress.lastTripID;
       if (!job.sourceClosed && !progress.remaining.length && progress.sourceBatches.length) {
         closeSource(job);
         await releasePickup(m);
@@ -1692,110 +1898,20 @@ export function createNativeHauler(
     }
     freightCurrent();
     let cargoNow = !cargoChanged && initial ? initial : await pickupCargo();
-    const resumingCorpUnload = cargoNow.some((row) => interruptedStackIDs.has(row.itemID));
-    if (!resumingCorpUnload)
+    const resumingUnload = cargoNow.some((row) => interruptedStackIDs.has(row.itemID));
+    if (!resumingUnload)
       for (let i = jobs.length - 1; i >= 0; i--) if (complete(jobs[i]!)) jobs.splice(i, 1);
-    const depositCorpFreight = async (tripID: string) => {
-      const io = await depositIO("ANY", destinationID);
-      await io.withDestination(async () => {
-        let sourceBefore = await readDepositInventory(io.cargo);
-        const candidates = sourceBefore.filter((r) => r.categoryID === null || r.categoryID === 25);
-        const types = candidates.length
-          ? await readDepositInventory(() => facts(candidates.map((r) => r.typeID)))
-          : {};
-        const freight = candidates.filter((r) => {
-          const type = types[r.typeID];
-          if (!type || (r.categoryID !== null && r.categoryID !== type.categoryID))
-            throw Error("Hauler hold type is unknown.");
-          if (type.categoryID !== 25) return false;
-          if (
-            !(type.freightKind === "RAW" || type.freightKind === "COMPRESSED") ||
-            type.unitVolumeM3 <= 0 ||
-            !(
-              r.flagID === 5 ||
-              r.flagID === 134 ||
-              (r.flagID === 181 && type.resourceFamily === "ice") ||
-              (r.flagID === 182 && type.resourceFamily === "ore")
-            )
-          )
-            throw Error("Hauler freight is not qualified for unload.");
-          return true;
-        });
-        const freightIDs = new Set(freight.map((r) => r.itemID));
-        verifyOnboard(aboard(), freight);
-        if (!freight.length) {
-          telemetry.cargo(sourceBefore);
-          return;
-        }
-        let destinationBefore = await readDepositInventory(io.corp);
-        while (sourceBefore.some((r) => freightIDs.has(r.itemID))) {
-          freightCurrent();
-          const rows = sourceBefore.filter((r) => freightIDs.has(r.itemID));
-          const available = new Map(rows.map((r) => [r.itemID, r.quantity]));
-          const allocations = jobs
-            .map((job) => {
-              const items = new Map<number, PickupItem>();
-              for (const cargo of open(job).aboard) {
-                let left = cargo.quantity;
-                for (const row of rows) {
-                  if (row.typeID !== cargo.typeID || row.flagID !== cargo.flagID) continue;
-                  const quantity = Math.min(left, available.get(row.itemID)!);
-                  if (!quantity) continue;
-                  items.set(row.itemID, {
-                    itemID: row.itemID,
-                    typeID: row.typeID,
-                    quantity: (items.get(row.itemID)?.quantity ?? 0) + quantity,
-                  });
-                  available.set(row.itemID, available.get(row.itemID)! - quantity);
-                  left -= quantity;
-                  if (!left) break;
-                }
-                if (left)
-                  throw Error("Verified freight is no longer available in the Hauler hold.");
-              }
-              return { journal: job.j, items: [...items.values()] };
-            })
-            .filter((a) => a.items.length);
-          // Several cans can contribute to the same native stack. Keep their shares in
-          // the existing trip journals while moving each physical stack only once.
-          const requestedIDs = rows.map((r) => r.itemID);
-          if (!allocations.length) allocations.push({ journal: jobs[0]!.j, items: [] });
-          for (const { journal, items } of allocations)
-            journal.begin("delivery", {
-              item: items[0] ?? rows[0],
-              items,
-              requestedIDs,
-              sourceBefore,
-              destinationBefore,
-              officeID: io.officeID,
-              flag: io.flag,
-              tripID,
-            });
-          const { movedIDs, sourceAfter, destinationAfter, acknowledged } = await io.depositWhole(
-            rows,
-            sourceBefore,
-            destinationBefore,
-            () => {
-              for (const { journal } of allocations) journal.refuseDelivery();
-            },
-          );
-          for (const { journal, items } of allocations) {
-            if (acknowledged) journal.acknowledge();
-            journal.reconcile("delivery", {
-              items: items.filter((r) => movedIDs.has(r.itemID)),
-              sourceAfter,
-              destinationAfter,
-            });
-          }
-          sourceBefore = sourceAfter;
-          destinationBefore = destinationAfter;
-        }
-        if (aboard().length) throw Error("Collected ore remains in the Hauler hold.");
-        telemetry.cargo(sourceBefore);
-      });
-    };
-    if (hasUnfinishedOwnFreight()) {
-      await destination(destinationID);
+    // A retained partial-stack receipt or relocated can may settle with other ore still at the dock.
+    const remainingAtDock =
+      settledVisit &&
+      !resumingUnload &&
+      !aboard().length &&
+      (await containsOre(cargoNow.filter((r) => freightHold(r.flagID)))) &&
+      (await flight().then(
+        (status) => status.docked && (status.stationID ?? status.structureID) === destinationID,
+      ));
+    if (hasUnfinishedOwnFreight() || remainingAtDock) {
+      await destination(destinationID, settledVisit);
       await depositOwnFreight(destinationID);
       cargoNow = await readAfterTimeout(cargo);
       result = "delivered";
@@ -1805,7 +1921,7 @@ export function createNativeHauler(
     let competingClaim: GlobalLootClaimHeld | undefined;
     let unfitContainer: number | undefined;
     let loadFlag = aboard()[0]?.flagID,
-      readyToUnload = resumingCorpUnload;
+      readyToUnload = resumingUnload;
     const resumedLoad = jobs.find((job) => open(job).aboard.length);
     if (!readyToUnload && resumedLoad && !config.stopBeforePickup?.()) {
       const status = await flight();
@@ -1850,18 +1966,18 @@ export function createNativeHauler(
             async (m) => {
               if (!sameSite(m) || visited.has(m.containerID)) return false;
               const panel = await tripHolds(m.containerID);
-              const primary = await holdFromPanel(m, panel.holds, true, loadFlag);
-              if (
-                primary &&
-                primary.used + 1e-9 >= primary.capacity * deliveryFraction &&
-                (await containsOre(cargoNow.filter((r) => r.flagID === primary.flag)))
-              ) {
-                capacityBlocked = true;
-                return false;
-              }
-              const selectedHold = await holdFromPanel(m, panel.holds, false, loadFlag);
-              if (selectedHold) inspected.set(m.containerID, selectedHold);
-              else if (!capacityBlocked) {
+              const selectedHold = await holdFromPanel(m, panel, false, loadFlag);
+              if (selectedHold) {
+                if (
+                  selectedHold.used + 1e-9 >= selectedHold.capacity * deliveryFraction &&
+                  (await containsOre(cargoNow.filter((r) => r.flagID === selectedHold.flag)))
+                ) {
+                  capacityBlocked = true;
+                  return false;
+                }
+                inspected.set(m.containerID, selectedHold);
+              } else if (!capacityBlocked) {
+                const primary = await holdFromPanel(m, panel, true, loadFlag);
                 capacityBlocked =
                   !!primary &&
                   (await containsOre(cargoNow.filter((r) => r.flagID === primary.flag)));
@@ -1933,12 +2049,12 @@ export function createNativeHauler(
       const freight = { category: m.category, targetKey: m.targetKey, items: progress.remaining };
       let hold = fresh
         ? (inspected.get(m.containerID) ?? null)
-        : await holdFromPanel(freight, (await tripHolds(m.containerID)).holds, false, loadFlag);
+        : await holdFromPanel(freight, await tripHolds(m.containerID), false, loadFlag);
       if (!hold) {
         if (fresh) work.cancel();
         const emptied = await holdFromPanel(
           freight,
-          (await tripHolds(m.containerID)).holds,
+          await tripHolds(m.containerID),
           true,
           loadFlag,
         );
@@ -2130,37 +2246,12 @@ export function createNativeHauler(
         destinationID,
         progress.find((job) => job.lastTripID)?.lastTripID,
       );
-      if ((carried.length || resumingCorpUnload) && corporationID !== undefined)
-        await depositCorpFreight(tripID);
-      else {
-        for (const job of jobs) {
-          const carried = open(job).aboard;
-          if (!carried.length) continue;
-          const io = await depositIO(job.work.manifest.category, destinationID);
-          const fence = taggedDeposit(job.j, tripID, freightCurrent);
-          for (const row of carried) {
-            let left = row.quantity;
-            for (const stack of cargoNow.filter(
-              (r) => r.typeID === row.typeID && r.flagID === row.flagID,
-            )) {
-              const batch = await io.deposit(
-                {
-                  itemID: stack.itemID,
-                  typeID: stack.typeID,
-                  quantity: Math.min(left, stack.quantity),
-                },
-                fence,
-                true,
-              );
-              cargoNow = batch.sourceAfter;
-              left -= batch.item.quantity;
-              if (!left) break;
-            }
-            if (left) throw Error("Verified freight is no longer available in the Hauler hold.");
-          }
-        }
-        if (await containsOre(cargoNow.filter((r) => [5, 134, 181, 182].includes(r.flagID))))
-          await depositOwnFreight(destinationID);
+      if (carried.length || resumingUnload) {
+        await depositTripFreight(await depositIO("ANY", destinationID), tripID, () =>
+          jobs.map((job) => ({ journal: job.j, aboard: open(job).aboard })),
+        );
+      } else if (await containsOre(cargoNow.filter((r) => freightHold(r.flagID)))) {
+        await depositOwnFreight(destinationID);
       }
       result = "delivered";
     }
@@ -2418,6 +2509,7 @@ export function createNativeHauler(
       manifest: Manifest,
       haulGeneration: number,
       destinationID: number,
+      collector: "HAULER" | "COMMAND" = "HAULER",
     ): Promise<NativeHaulDelivery> {
       if (ready?.containerID !== manifest.containerID)
         throw Error("Container was not verified for this haul.");
@@ -2433,9 +2525,7 @@ export function createNativeHauler(
       const batches: HaulBatchProof[] = [],
         deliveryBatches: NativeDeliveryBatch[] = [];
       const wanted = expected(manifest);
-      let remaining: readonly NativeInventoryRow[] = await canRows(manifest),
-        firstDestination: NativeInventoryRow[] | null = null,
-        lastDestination: NativeInventoryRow[] | null = null;
+      let remaining: readonly NativeInventoryRow[] = await canRows(manifest);
       const delivered = new Map<number, number>();
       let pickupReleased = false;
       while (remaining.length) {
@@ -2508,15 +2598,27 @@ export function createNativeHauler(
           item.flagID !== hold.flag
         )
           throw Error("Ship freight changed before delivery.");
-        const depositBatch = await io.deposit(
-          { itemID: item.itemID, typeID: item.typeID, quantity: original.quantity },
-          taggedDeposit(j, tripID),
-          true,
-        );
-        deliveryBatches.push({ ...depositBatch, tripID, ...(conversion ? { conversion } : {}) });
+        if (
+          collector === "HAULER" &&
+          !conversion &&
+          (await containsOre(initial.filter((r) => freightHold(r.flagID))))
+        ) {
+          // The can owns only its pickup delta. The same dock receipt also proves the carry-in ore.
+          await depositTripFreight(io, tripID, () => [
+            { journal: j, aboard: tripProgress(manifest, j).aboard },
+          ]);
+          deliveryBatches.push(
+            ...tripProgress(manifest, j).deliveryBatches.slice(deliveryBatches.length),
+          );
+        } else {
+          const batch = await io.deposit(
+            { itemID: item.itemID, typeID: item.typeID, quantity: original.quantity },
+            taggedDeposit(j, tripID),
+            true,
+          );
+          deliveryBatches.push({ ...batch, tripID, ...(conversion ? { conversion } : {}) });
+        }
         for (const [type, q] of taken) delivered.set(type, (delivered.get(type) ?? 0) + q);
-        firstDestination ??= depositBatch.destinationBefore;
-        lastDestination = depositBatch.destinationAfter;
         if (remaining.length) {
           requirePickup();
           await reach(manifest, target, claim);
@@ -2537,6 +2639,8 @@ export function createNativeHauler(
           remaining = check;
         }
       }
+      const firstDestination = deliveryBatches[0]?.destinationBefore,
+        lastDestination = deliveryBatches.at(-1)?.destinationAfter;
       if (
         !equal(delivered, wanted) ||
         !firstDestination ||

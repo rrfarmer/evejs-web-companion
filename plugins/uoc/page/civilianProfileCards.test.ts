@@ -97,7 +97,7 @@ test("Civilian Missions discovers history, saves a real profile and reopens it f
   } }], accountPass: {
     optionsFor: async () => assert.fail("Discovery must not acquire any pilot."),
     forget() {}, async release() {},
-  }, readPageAccounts: () => [pilot.accountName] });
+  }, readPagePilots: () => [{accountName:pilot.accountName,characterID:pilot.characterID,token:"fixture-pilot"}] });
 
   function page(scenario: Scenario) {
     context.civilianCardsTest = scenario;
@@ -113,6 +113,7 @@ test("Civilian Missions discovers history, saves a real profile and reopens it f
     const configure: Scenario = { restored: history, action: "configure", bot: completed };
     const editor = page(configure);
     assert.match(editor, /Selected pilot: <strong>Courier Pilot/);
+    assert.match(editor, /<button\b[^>]*>\s*Save\s*<\/button>/);
     assert.match(editor, /<option value="distribution" selected(?:="")?>Delivery \/ Courier/);
     assert.equal(writes, 0);
     await configure.save!();

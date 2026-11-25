@@ -182,6 +182,68 @@ test("an explicit Retry Stop closes an offline freight tail and retains the orig
  assert.deepEqual(pending.read(),transfer);
 });
 
+for(const mode of ["RETURN_HOME","COLLECT_FREIGHT"] as const)test(mode+": the backend protects the definition until the last pilot finishes, without a page",async t=>{
+ const operationID="edit-after-"+mode,operationRunID="shift",fleet=setup(operationID,operationRunID);
+ const store=createMiningDefinitionStore(launchDocs.document("mining-definitions:"+namespace),()=>"saved",()=>operationID);
+ const saved=store.save(definition),launch=launchDocs.document("mining-launch:"+JSON.stringify([namespace,operationID]));
+ const life=createMiningFleetRuntime({storage:runtimeDocs,launchJournal,dockedUnloadsOnly:true,
+  createCycle:async()=>assert.fail("No live mining"),settle:async()=>assert.fail("No game session")});
+ const group=life.getOrCreate(fleet);
+ t.after(()=>{group.retireGroup();});
+ const routes=createMiningOperationRoutes({document:launchDocs.document,getWorldScope:()=>"world",isOperationActive:operationHasController,
+  operationSnapshot:life.operationSnapshot,requestStop:life.requestOperationStop,checkSetup:value=>life.runs.MINER.check(value)},launchDocs,{discardGeneration:life.discardGeneration});
+ const call=(route:string,body:unknown)=>routes[route]!({account:{accountID:1,username:"owner"},method:"POST",
+  path:"",params:{operationID},query:{},body});
+ const save=()=>call("POST /mining-operations",{...saved,name:"Next shift"});
+ const remove=(revision:number)=>call("POST /mining-operations/:operationID/delete",{revision});
+ const blocked=async()=>{
+  const prior=launch.read();
+  assert.equal((await save()).status,409);assert.equal((await remove(1)).status,409);
+  assert.deepEqual(store.get(operationID),saved);assert.deepEqual(launch.read(),prior);
+ };
+ const launchIntent={revision:1,setup:fleet,members:members.map(m=>({...m,kind:"mcc-"+m.role.toLowerCase(),beforeIDs:[]}))};
+ const plan=await call("POST /mining-operations/:operationID/launch-plan",launchIntent);
+ assert.equal((await call("POST /mining-operations/:operationID/launch/begin",{...launchIntent,planHash:(plan.body as any).planHash})).status,undefined);
+ await blocked(); // Launch is open, before the first dispatch.
+ for(const m of members){
+  const member={operationRunID,characterID:m.characterID};
+  assert.equal((await call("POST /mining-operations/:operationID/launch/dispatch",member)).status,undefined);
+  if(m.characterID===1)await blocked(); // Dispatched, with no controller yet.
+  assert.equal((await call("POST /mining-operations/:operationID/launch/accept",{...member,botID:m.accountName+"-"+mode})).status,undefined);
+ }
+ // The page can disappear without sending launch/end or observe.
+
+ const releases=members.map(m=>registerRun({botID:m.accountName+"-"+mode,characterID:m.characterID,
+  setup:{operationID,operationRunID}},m.accountName,()=>{}));
+ t.after(()=>{for(const release of releases)release();});
+ assert.ok(group.op.reserve(1,belt("Ore")));assert.ok(group.op.activate(1));
+ await blocked();
+ const stop=()=>call("POST /mining-operations/:operationID/stop",{operationRunID,mode});
+ assert.equal((await stop()).status,202);assert.equal(group.op.snapshot().stopFreight,mode);
+ assert.equal((await stop()).status,202); // Retry Stop still reaches the original run.
+ group.op.requestStop();
+ for(const member of fleet.members){
+  assert.ok(group.op.settleMember(member.characterID,{source:"native-settlement",runID:operationRunID,shipID:member.shipID,modulesInactive:true,dronesSafe:true,observedAt:Date.now()}));
+  assert.ok(group.op.parkMember(member.characterID,{source:"native-flight",runID:operationRunID,shipID:member.shipID,locationID:600,docked:true,observedAt:Date.now()}));
+ }
+ assert.equal(group.op.snapshot().state,"STOPPED");
+ releases[0]!();
+ await blocked(); // The physical work has ended, but the last hosted controller still owns the run.
+ releases[1]!();
+ if(mode==="COLLECT_FREIGHT"){
+  assert.equal(((await save()).body as any).ok,true);assert.equal(store.get(operationID)?.name,"Next shift");
+  const next={...launchIntent,revision:2,setup:{...fleet,operationRunID:"next-shift"}};
+  const reviewed=await call("POST /mining-operations/:operationID/launch-plan",next);
+  const begun=await call("POST /mining-operations/:operationID/launch/begin",{...next,planHash:(reviewed.body as any).planHash});
+  assert.equal((begun.body as any).receipt.operationRunID,"next-shift");
+  assert.equal((await remove(2)).status,409);
+  await call("POST /mining-operations/:operationID/launch/end",{operationRunID:"next-shift"});
+ }
+ assert.equal(((await remove(mode==="COLLECT_FREIGHT"?2:1)).body as any).ok,true);
+ assert.equal(store.get(operationID),null);assert.equal(launch.read(),null);
+ assert.equal(runtimeDocs.document("mining-fleet-index:"+operationID).read(),null);
+});
+
 for(const mode of ["RETURN_HOME","COLLECT_FREIGHT","watchdog","stock-host","stock-offline"] as const)test(mode+": confirmed termination frees the saved configuration for a fresh Start",async()=>{
  const definitions=launchDocs,cycles=createDocumentStore(":memory:");
  const operationID="lifecycle-"+mode,old=setup(operationID,"old"),suffix=JSON.stringify([operationID,"old"]);

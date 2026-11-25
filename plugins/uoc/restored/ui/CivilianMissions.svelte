@@ -9,9 +9,10 @@
     workspaceAccounts as knownAccounts,
   } from "../app/context.ts";
   import { civilianSession, civilianScope } from "../app/civilianSession.ts";
+  import { whilePageVisible } from "../app/pageVisibility.ts";
   import {
     findAgents,
-    openDefaultFarmerAccount,
+    openPageAccount,
     readCivilianParking,
     findMapLocations,
     findAccessibleStructures,
@@ -35,7 +36,8 @@
 
   type Mode = "mining" | "distribution";
   type StopPolicy = "TIME" | "COUNT";
-  type Workspace = NonNullable<Awaited<ReturnType<typeof openDefaultFarmerAccount>>>;
+  type Workspace = NonNullable<Awaited<ReturnType<typeof openPageAccount>>>;
+  let { operatorAccount }: { operatorAccount?: string } = $props();
   let mode = $state<Mode>("mining");
   let workspace = $state.raw<Workspace | null>(null);
   let restoring = $state(true),
@@ -152,13 +154,16 @@
       (automatic || !!chosen),
   );
 
-  onMount(() => {
-    const generation = ++authGeneration;
-    void restore(generation);
-    return () => {
-      ++authGeneration;
-    };
-  });
+  let visible: AbortSignal | undefined;
+  onMount(() =>
+    whilePageVisible((signal) => {
+      visible = signal;
+      if (!workspace) void restore(++authGeneration);
+      return () => {
+        ++authGeneration;
+      };
+    }),
+  );
 
   function connect(selected: Workspace, persistedWorkers: readonly string[]) {
     const scope = civilianScope(selected.account, civilianSession.load());
@@ -172,12 +177,18 @@
   }
 
   async function restore(generation: number) {
+    const signal = visible;
     try {
-      const selected = await openDefaultFarmerAccount(civilianSession.load()?.control);
+      const selected = await openPageAccount(
+        operatorAccount,
+        civilianSession.load()?.control,
+        signal,
+      );
       if (!selected || generation !== authGeneration) return;
+      const options = { ...selected.options, signal };
       const [saved, policy] = await Promise.allSettled([
-        listCivilianProfiles(selected.options),
-        readPolicy(selected.options),
+        listCivilianProfiles(options),
+        readPolicy(options),
       ]);
       if (generation !== authGeneration) return;
       if (saved.status === "rejected") throw saved.reason;

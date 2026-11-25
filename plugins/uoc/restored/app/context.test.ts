@@ -3,8 +3,6 @@ import assert from "node:assert/strict";
 import {
   runHosted,
   installPageContext,
-  reviewCockpitFitting,
-  openCockpitInventory,
   farmerAccounts,
   cockpitRequestOptions,
 } from "./context.ts";
@@ -519,48 +517,6 @@ test("a replaced owner task cannot be accepted as the original result or trigger
     /current pilot service changed/,
   );
   assert.equal(posts, 1);
-});
-
-test("original Provisioning controls open the actual Cockpit fitting and inventory using its session and existing flow", async () => {
-  const calls: any[] = [];
-  const session: any = {
-    id: "real-cockpit",
-    store: { get: () => ({ station: { online: { characterID: 712 } } }) },
-    flow: {
-      sessionToken: () => "native-token",
-      loadSavedFittings: async () => {
-        calls.push("read-native-fits");
-      },
-      viewFitting: async (id: number) => {
-        calls.push(["view-native-fit", id]);
-      },
-      loadInventory: async () => {
-        calls.push("read-native-inventory");
-      },
-    },
-  };
-  installPageContext({
-    sessions: [session],
-    onOpen: (tab, id) => {
-      calls.push(["open", tab, id]);
-    },
-    fetch: async () => {
-      throw Error("No new login, host or backend session service");
-    },
-  });
-  try {
-    await reviewCockpitFitting(712, 6);
-    await openCockpitInventory(712);
-    assert.deepEqual(calls, [
-      "read-native-fits",
-      ["view-native-fit", 6],
-      ["open", "fitting", "real-cockpit"],
-      "read-native-inventory",
-      ["open", "inventory", "real-cockpit"],
-    ]);
-  } finally {
-    installPageContext({});
-  }
 });
 
 test("existing Cockpit authorization is discoverable with its actual request options and no login", () => {

@@ -89,11 +89,16 @@ export function agentMission(journal: MissionJournal, agentID: number): JournalR
 }
 export const missionLabel = (row: JournalRow) =>
   `${row.missionName ?? (row.missionTitleID ? `Mission title #${row.missionTitleID}` : `Mission #${row.missionID}`)} (${row.missionState === 2 ? "accepted" : "offered"}, agent ${row.agentID})`;
-export function referralAgent(raw: unknown): number | null {
+export function referralAgent(raw: unknown): number | null | undefined {
   const rows = seq(get(raw, "objectives"));
-  for (const row of rows ?? []) {
+  if (!rows) return undefined;
+  for (const row of rows) {
     const objective = seq(row);
-    if (objective?.[0] === "agent") return integer(seq(objective[1])?.[0]);
+    if (!objective || typeof objective[0] !== "string") return undefined;
+    if (objective[0] === "agent") {
+      const target = integer(seq(objective[1])?.[0]);
+      return target && target > 0 ? target : undefined;
+    }
   }
   return null;
 }
@@ -126,6 +131,7 @@ export function conversation(raw: unknown) {
 export interface Courier {
   contentID: number;
   missionState: 1 | 2;
+  acceptedAt?: string;
   typeID: number;
   quantity: number;
   volume: number;

@@ -1,4 +1,11 @@
 import { decodeSupplyTargets, inspectSupplies, type SupplyTarget } from "./supplyInspect.ts";
+import {
+  freightHoldFlags,
+  resourceBays,
+  generalFreightBays,
+  haulerBaysPath,
+  haulerInventoryFlags,
+} from "../shared/freightHolds.ts";
 import { inspectDefenderCapability } from "../combat/defenderCapability.ts";
 import { miningMissionFit } from "../mining/miningMission.ts";
 import { readNativeShipHolds, type NativeInventoryRow } from "../shared/nativeInventory.ts";
@@ -73,39 +80,43 @@ export function qualifyFleetFitHolds(
   rows: readonly NativeInventoryRow[],
 ): FleetFitHoldQualification {
   const data = panel as any,
-    flags: Record<string, number> = { cargo: 5, ore: 134, gas: 135, ice: 181, asteroid: 182 };
+    flags = freightHoldFlags;
+  const invalid = () => Error("Native fleet hold observations are unreadable.");
   if (
     !data ||
+    data.shipID !== shipID ||
     data.activeShipID !== shipID ||
-    !Array.isArray(data.holds) ||
-    !data.holds.length ||
-    new Set(data.holds.map((h: any) => h?.key)).size !== data.holds.length ||
-    data.holds.some(
-      (h: any) =>
-        !h ||
-        !Object.hasOwn(flags, h.key) ||
-        typeof h.present !== "boolean" ||
-        h.error !== null ||
-        !h.capacity ||
-        !Number.isFinite(h.capacity.capacity) ||
-        !Number.isFinite(h.capacity.used) ||
-        h.capacity.capacity < 0 ||
-        h.capacity.used < 0 ||
-        h.capacity.used > h.capacity.capacity ||
-        !Array.isArray(h.items) ||
-        (!h.present && rows.some((r) => r.flagID === flags[h.key])),
-    )
+    !Array.isArray(data.bays) ||
+    !data.bays.length ||
+    new Set(data.bays.map((h: any) => h?.key)).size !== data.bays.length
   )
-    throw Error("Native fleet hold observations are unreadable.");
-  const space = (family: "ORE" | "ICE") =>
-    data.holds.some(
-      (h: any) =>
-        (family === "ICE" ? ["ice", "ore", "cargo"] : ["asteroid", "ore", "cargo"]).includes(
-          h.key,
-        ) &&
-        h.present &&
-        h.capacity.capacity > h.capacity.used,
-    );
+    throw invalid();
+  const free = new Set<string>();
+  for (const h of data.bays) {
+    if (!h || !Object.hasOwn(flags, h.key)) throw invalid();
+    // An unreadable optional fleet hangar cannot disqualify the ship's verified mining or cargo hold.
+    if (h.key === "fleet" && (h.present === null || h.error)) continue;
+    if (
+      typeof h.present !== "boolean" ||
+      h.error !== null ||
+      !h.capacity ||
+      !Number.isFinite(h.capacity.capacity) ||
+      !Number.isFinite(h.capacity.used) ||
+      h.capacity.capacity < 0 ||
+      h.capacity.used < 0 ||
+      h.capacity.used > h.capacity.capacity ||
+      (h.present
+        ? !Array.isArray(h.items)
+        : h.items != null && (!Array.isArray(h.items) || h.items.length > 0)) ||
+      (!h.present && rows.some((r) => r.flagID === flags[h.key]))
+    )
+      throw invalid();
+    if (h.present && h.capacity.capacity > h.capacity.used) free.add(h.key);
+  }
+  const space = (family: "ore" | "ice", hauler: boolean) => {
+    const keys = [...resourceBays(family), ...(hauler ? generalFreightBays : ["cargo"])];
+    return keys.some((key) => free.has(key));
+  };
   const fit = (family: "ore" | "ice") =>
     modules.some(
       (m) =>
@@ -116,8 +127,8 @@ export function qualifyFleetFitHolds(
         m.cycleMs > 0,
     );
   return {
-    ORE: { miner: fit("ore") && space("ORE"), hauler: space("ORE") },
-    ICE: { miner: fit("ice") && space("ICE"), hauler: space("ICE") },
+    ORE: { miner: fit("ore") && space("ore", false), hauler: space("ore", true) },
+    ICE: { miner: fit("ice") && space("ice", false), hauler: space("ice", true) },
   };
 }
 /** Read-only, host-selected pilot inspection. No fleet, inventory or movement writes. */
@@ -557,8 +568,9 @@ export const miningFleetInspectRun: BackendRun = {
                 current,
                 run.characterID,
                 flight.shipID!,
+                haulerInventoryFlags,
               ),
-              panel = await json("/api/bridge/ship/ore-hold"),
+              panel = await json(haulerBaysPath(flight.shipID!)),
               after = decodeFlightStatus((await json("/api/bridge/flight/status")).flight);
             if (!sameLocation(after)) throw Error("Fleet inspection flight scope changed.");
             fitHoldQualification = qualifyFleetFitHolds(flight.shipID!, modules, panel, rows);

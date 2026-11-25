@@ -168,6 +168,20 @@ export function trainingAdapterContext() {
   if (!context) throw Error("Training adapter is not connected to the current pilot context.");
   return context;
 }
+export async function checkPendingFunding(
+  characterID: number,
+  options: ApiOptions,
+  confirmedAbsent?: string,
+) {
+  const setup: JsonValue = confirmedAbsent
+    ? { verifyFunding: true, confirmedAbsent }
+    : { verifyFunding: true };
+  const result = await trainingAdapterContext().runHosted(characterID, "training", setup, options);
+  if (result.status !== "stopped" || result.phase !== "Funding checked" || !result.why)
+    throw Error(result.why ?? "The pending transfer could not be checked.");
+  const ref = (result.readout as { reference?: unknown } | null)?.reference;
+  return { message: result.why, reference: typeof ref === "string" ? ref : null };
+}
 const positive = (v: unknown): v is number =>
   typeof v === "number" && Number.isSafeInteger(v) && v > 0;
 const unsupported = (name: string): never => {

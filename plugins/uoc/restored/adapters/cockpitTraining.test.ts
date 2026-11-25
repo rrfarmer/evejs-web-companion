@@ -100,6 +100,15 @@ test("the lower skills panel reads only the authorized native sheet", async () =
   assert.equal(r.phase, "Training skills read");
   assert.deepEqual(f.paths, ["/api/pilot-training/ownership?characterID=7", "/api/bridge/skills"]);
 });
+test("a hosted funding check never falls through to a Cockpit purchase", async () => {
+  const f = fixture();
+  await assert.rejects(
+    cockpitTraining(f.session, "training", { verifyFunding: true }, f.read),
+    /hosted Training/,
+  );
+  assert.equal(f.purchases, 0);
+  assert.equal(f.paths.length, 0);
+});
 test("page-owned independent book purchase does not queue", async () => {
   const f = fixture();
   const r = await cockpitTraining(

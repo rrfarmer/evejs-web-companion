@@ -1,13 +1,17 @@
 <!-- WC74 web/src/ui/MiningCommandCenter.svelte @ 213da333; plugin routing adapted. -->
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { openDefaultFarmerAccount } from "../app/api.ts";
+  import { openPageAccount } from "../app/api.ts";
+  import { whilePageVisible } from "../app/pageVisibility.ts";
   import { workspacePreference } from "../app/sessionToken.ts";
   import MiningOperations from "./MiningOperations.svelte";
   import CivilianMissions from "./CivilianMissions.svelte";
   import CenterHeading from "./CenterHeading.svelte";
 
-  let { initialSection }: { initialSection?: "civilian" | "operations" } = $props();
+  let {
+    initialSection,
+    operatorAccount,
+  }: { initialSection?: "civilian" | "operations"; operatorAccount?: string } = $props();
   let section = $state(
     untrack(
       () =>
@@ -20,30 +24,41 @@
   );
 
   const preference = workspacePreference("uoc:restored:mining-workspace:v1");
-  type Workspace = NonNullable<Awaited<ReturnType<typeof openDefaultFarmerAccount>>>;
+  type Workspace = NonNullable<Awaited<ReturnType<typeof openPageAccount>>>;
   let workspace = $state.raw<Workspace | null>(null);
   let error = $state<string | null>(null);
   let busy = $state(false);
   let operationBusy = $state(false);
   let sessionExpired = $state(false);
 
+  let visible: AbortSignal | undefined;
   onMount(() => {
-    if (section === "operations") void connect();
+    if (section === "operations")
+      return whilePageVisible((signal) => {
+        visible = signal;
+        if (!workspace) void connect();
+        return () => {
+          busy = false;
+        };
+      });
   });
 
   async function connect(): Promise<void> {
+    const signal = visible;
+    if (!signal || signal.aborted) return;
     busy = true;
     error = null;
     try {
-      const selected = await openDefaultFarmerAccount(preference.read());
-      if (!selected) return;
+      const selected = await openPageAccount(operatorAccount, preference.read(), signal);
+      if (!selected || signal.aborted) return;
       workspace = selected;
       preference.remember(selected.account);
       sessionExpired = false;
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : "The WC Account could not be verified.";
+      if (!signal.aborted)
+        error = cause instanceof Error ? cause.message : "The WC Account could not be verified.";
     } finally {
-      busy = false;
+      if (!signal.aborted) busy = false;
     }
   }
 </script>
@@ -62,7 +77,7 @@
     >
   </nav>
   {#if section === "civilian"}
-    <CivilianMissions />
+    <CivilianMissions {operatorAccount} />
   {:else}
     {#if !workspace || sessionExpired || error}<section class="workspace-account center-panel">
         {#if sessionExpired}<p>Showing the last known fleet status.</p>{/if}

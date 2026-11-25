@@ -722,6 +722,54 @@ test("burst inspection does not present unready charge or offline modules as sup
   }
 });
 
+test("fleet-hangar space qualifies a hauler but cannot receive mining laser yield", () => {
+  const panel = {
+    activeShipID: 11,
+    shipID: 11,
+    bays: [
+      {
+        key: "fleet",
+        present: true,
+        error: null,
+        capacity: { capacity: 100, used: 10 },
+        items: [],
+      },
+      {
+        key: "cargo",
+        present: false,
+        error: null,
+        capacity: { capacity: 0, used: 0 },
+        items: null,
+      },
+    ],
+  };
+  const modules = [{ family: "ore" as const, range: 1000, cycleMs: 100 }];
+  assert.deepEqual(qualifyFleetFitHolds(11, modules, panel, []), {
+    ORE: { miner: false, hauler: true },
+    ICE: { miner: false, hauler: true },
+  });
+  const unreadable = {
+    key: "fleet",
+    present: null,
+    capacity: null,
+    error: "CALL_TIMEOUT",
+    items: null,
+  };
+  assert.deepEqual(
+    qualifyFleetFitHolds(11, modules, { ...panel, bays: [unreadable, panel.bays[1]] }, []).ORE,
+    { miner: false, hauler: false },
+  );
+  assert.deepEqual(
+    qualifyFleetFitHolds(
+      11,
+      modules,
+      { ...panel, bays: [unreadable, { ...panel.bays[0], key: "cargo" }] },
+      [],
+    ).ORE,
+    { miner: true, hauler: true },
+  );
+});
+
 test("fleet qualification requires exact resource-family module and a readable eligible hold", () => {
   const hold = (key: string, capacity: number, used = 0) => ({
       key,
@@ -730,7 +778,7 @@ test("fleet qualification requires exact resource-family module and a readable e
       capacity: { capacity, used },
       items: [],
     }),
-    panel = { activeShipID: 11, holds: [hold("ore", 100)] };
+    panel = { activeShipID: 11, shipID: 11, bays: [hold("ore", 100)] };
   assert.deepEqual(
     qualifyFleetFitHolds(11, [{ family: "ice", range: 1000, cycleMs: 100 }], panel, []),
     { ORE: { miner: false, hauler: true }, ICE: { miner: true, hauler: true } },
@@ -743,7 +791,7 @@ test("fleet qualification requires exact resource-family module and a readable e
     qualifyFleetFitHolds(
       11,
       [{ family: "ore", range: 1, cycleMs: 100 }],
-      { activeShipID: 11, holds: [hold("ore", 100, 100)] },
+      { activeShipID: 11, shipID: 11, bays: [hold("ore", 100, 100)] },
       [],
     ).ORE.miner,
     false,
@@ -754,7 +802,7 @@ test("fleet qualification requires exact resource-family module and a readable e
       qualifyFleetFitHolds(
         11,
         [],
-        { activeShipID: 11, holds: [{ ...hold("ore", 100), error: "unknown" }] },
+        { activeShipID: 11, shipID: 11, bays: [{ ...hold("ore", 100), error: "unknown" }] },
         [],
       ),
     /unreadable/,

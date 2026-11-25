@@ -14,6 +14,8 @@ import {
   type Session,
 } from "../../../../web/src/plugin-api/index.ts";
 import { type AccountPass } from "../../compat/accounts.ts";
+import { whilePageVisible } from "./pageVisibility.ts";
+import type { PluginPagePilot } from "../../../../web/src/plugin-api/index.ts";
 export type { ApiOptions };
 export type AuthenticatedAccount = {
   readonly accountID: number;
@@ -29,13 +31,17 @@ export class UocRequestError extends Error {
     this.code = code;
   }
 }
-let openPanel: ((tab: any, sessionID?: string) => void) | undefined;
 let getSessions: () => readonly Session[] = () => [],
   transport: typeof fetch = (...args) => globalThis.fetch(...args);
 let readWorkspaceAccounts: () => readonly AuthenticatedAccount[] = () => [];
-let readPageAccounts: () => readonly string[] = () => [];
-const workspaceAccountNames = () => [...readPageAccounts(), ...loadKnownAccounts()];
+let readPagePilots: () => readonly PluginPagePilot[] = () => [];
+export const linkedPagePilots = () => readPagePilots();
+const workspaceAccountNames = () => [
+  ...readPagePilots().map((p) => p.accountName),
+  ...loadKnownAccounts(),
+];
 let accountPass: AccountPass | undefined;
+let readObservationSignal: (() => AbortSignal) | undefined;
 const refusedTokens = new Set<string>();
 const accountKey = (name: string) => name.trim().toLowerCase();
 export const farmerSignInMessage =
@@ -44,17 +50,17 @@ export const farmerSignInMessage =
 export function installPageContext(value: {
   sessions?: readonly Session[] | (() => readonly Session[]);
   readAccounts?: () => readonly AuthenticatedAccount[];
-  readPageAccounts?: () => readonly string[];
+  readPagePilots?: () => readonly PluginPagePilot[];
   fetch?: typeof fetch;
-  onOpen?: typeof openPanel;
   accountPass?: AccountPass;
+  observationSignal?: () => AbortSignal;
 }) {
-  openPanel = value.onOpen;
   accountPass = value.accountPass;
+  readObservationSignal = value.observationSignal;
   const sessions = value.sessions;
   getSessions = typeof sessions === "function" ? sessions : () => sessions ?? [];
   readWorkspaceAccounts = value.readAccounts ?? (() => []);
-  readPageAccounts = value.readPageAccounts ?? (() => []);
+  readPagePilots = value.readPagePilots ?? (() => []);
   transport = value.fetch ?? ((...args) => globalThis.fetch(...args));
 }
 
@@ -86,7 +92,9 @@ export function farmerAccounts(): string[] {
 }
 
 export function workspaceAccounts(): string[] {
-  const accounts = farmerAccounts();
+  const accounts = [
+    ...new Set([...farmerAccounts(), ...readPagePilots().map((p) => p.accountName)]),
+  ];
   return accountPass ? [...new Set([...accounts, ...workspaceAccountNames()])] : accounts;
 }
 
@@ -167,11 +175,31 @@ export async function readAsFarmerAccount<T>(
   throw accessRequired(account);
 }
 
+/** The linked tab already has access for roster and workspace reads. Pilot commands use ownerOptions separately. */
+export async function readAsHangarAccount<T>(
+  account: string,
+  read: (options: ApiOptions) => Promise<T>,
+): Promise<T> {
+  const pilots = readPagePilots();
+  if (!pilots.length) return readAsFarmerAccount(account, read);
+  const name = matchAccountName(workspaceAccounts(), account);
+  const linked = pilots.find((p) => p.accountName === name && !refusedTokens.has(p.token));
+  if (linked) {
+    try {
+      return await read({ token: linked.token });
+    } catch (error) {
+      if (!accountUnauthorized(error)) throw error;
+    }
+  }
+  return readAsFarmerAccount(account, read);
+}
+
 export async function authenticatedJson<T = any>(
   path: string,
   options: ApiOptions = {},
   body?: unknown,
 ): Promise<T> {
+  options.signal?.throwIfAborted();
   const token = options.token;
   const native =
     token && (!options.fetch || options.baseUrl === undefined)
@@ -192,12 +220,14 @@ export async function authenticatedJson<T = any>(
   try {
     result = await response.json();
   } catch {
+    options.signal?.throwIfAborted();
     throw new UocRequestError(
       "This UOC service returned an unreadable response.",
       response.status,
       "UOC_RESPONSE_UNREADABLE",
     );
   }
+  options.signal?.throwIfAborted();
   if (
     !path.endsWith("/login") &&
     (response.status === 401 || result?.error === "ACCOUNT_NOT_FOUND")
@@ -235,6 +265,58 @@ type Intent = {
 const pending = new Map<string, Promise<HostedResult>>();
 const pilotRequests = new Map<string, Promise<HostedResult>>();
 const rememberedIntents = new Map<string, Intent>();
+/** Only read the result here. Starting a bot or an owner service belongs outside the visibility lifecycle. */
+async function observeHosted<T>(
+  lifetime: AbortSignal | undefined,
+  read: (signal: AbortSignal) => Promise<T | null>,
+  pendingMessage: string,
+  initialDelay = 0,
+): Promise<T> {
+  lifetime?.throwIfAborted();
+  const interval = 1200;
+  let remaining = 600_000;
+  let delay = globalThis.document?.hidden ? 0 : initialDelay;
+  let stop: (() => void) | undefined, onAbort: (() => void) | undefined;
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      onAbort = () => reject(lifetime!.reason);
+      lifetime?.addEventListener("abort", onAbort, { once: true });
+      stop = whilePageVisible((signal) => {
+        const deadline = Date.now() + remaining;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let next = delay > 0 && delay < interval ? interval - delay : interval;
+        async function poll() {
+          try {
+            const result = await read(signal);
+            if (signal.aborted) return;
+            if (result !== null) {
+              resolve(result);
+              return;
+            }
+            if (Date.now() >= deadline) {
+              reject(Error(pendingMessage));
+              return;
+            }
+            timer = setTimeout(poll, next);
+            next = interval;
+          } catch (error) {
+            if (!signal.aborted) reject(error);
+          }
+        }
+        if (delay) timer = setTimeout(poll, delay);
+        else void poll();
+        delay = 0;
+        return () => {
+          clearTimeout(timer);
+          remaining = Math.max(0, deadline - Date.now());
+        };
+      });
+    });
+  } finally {
+    stop?.();
+    if (onAbort) lifetime?.removeEventListener("abort", onAbort);
+  }
+}
 /** Existing host owns acquisition, native actions, transactions and exact release. No competing login is made here. */
 export function runHosted(
   characterID: number,
@@ -242,6 +324,12 @@ export function runHosted(
   setup: JsonValue,
   options: ApiOptions = {},
 ): Promise<HostedResult> {
+  const screen = readObservationSignal?.();
+  const lifetime =
+    screen && options.signal
+      ? AbortSignal.any([screen, options.signal])
+      : (screen ?? options.signal);
+  if (lifetime?.aborted) return Promise.reject(lifetime.reason);
   const hrStage = kind === "training-hr" && (setup as any)?.stage;
   const readOnly =
     /(-inspect|-status|-checkpoint)$/.test(kind) ||
@@ -262,6 +350,7 @@ export function runHosted(
       Error("A pilot request is already in flight; no new MCC inspection was sent."),
     );
   const perform = async () => {
+    lifetime?.throwIfAborted();
     const nativeOwner = cockpitSession(characterID);
     const ownedOptions =
       !center && nativeOwner
@@ -271,6 +360,7 @@ export function runHosted(
             token: nativeOwner.flow.sessionToken(),
           }
         : options;
+    const readOptions = lifetime ? { ...ownedOptions, signal: lifetime } : ownedOptions;
     if (center) {
       const domain = kind.startsWith("provision-") ? "provisioning" : "training",
         hr = kind === "training-hr" && (setup as any)?.stage;
@@ -285,7 +375,8 @@ export function runHosted(
                 ? "hr-inspect"
                 : null;
       const servicePath = `/api/plugins/uoc/${domain}/${characterID}/service`,
-        status = await authenticatedJson(servicePath, ownedOptions);
+        status = await authenticatedJson(servicePath, readOptions);
+      lifetime?.throwIfAborted();
       if (status.available === true) {
         if (!serviceKind)
           throw new UocRequestError(
@@ -293,41 +384,44 @@ export function runHosted(
             409,
             "ACTIVE_OWNER_MUTATION_BLOCKED",
           );
-        const started = await authenticatedJson(servicePath, ownedOptions, {
+        const { task: original } = await authenticatedJson(servicePath, ownedOptions, {
           kind: serviceKind,
           setup,
         });
-        let task = started.task;
-        const original = task,
-          end = Date.now() + 600000;
         if (
-          typeof task?.taskID !== "string" ||
-          task.characterID !== characterID ||
-          task.ownerBotID !== status.ownerBotID ||
-          task.domain !== domain ||
-          task.kind !== serviceKind
+          typeof original?.taskID !== "string" ||
+          original.characterID !== characterID ||
+          original.ownerBotID !== status.ownerBotID ||
+          original.domain !== domain ||
+          original.kind !== serviceKind
         )
           throw Error(
             "Exact owner-service task identity is unavailable. No replacement request was sent.",
           );
-        while (task.endedAt == null && Date.now() < end) {
-          await new Promise((r) => setTimeout(r, 1200));
-          const current = await authenticatedJson(servicePath, ownedOptions);
-          task = current.task;
-          if (
-            !task ||
-            task.taskID !== original.taskID ||
-            task.characterID !== characterID ||
-            task.ownerBotID !== original.ownerBotID ||
-            task.kind !== original.kind ||
-            task.domain !== domain ||
-            task.worldID !== original.worldID ||
-            task.owner !== original.owner ||
-            JSON.stringify(task.setup) !== JSON.stringify(original.setup)
-          )
-            throw Error("The current pilot service changed.");
-        }
-        if (!task.endedAt) throw Error("The current pilot service is still working.");
+        lifetime?.throwIfAborted();
+        const task = original.endedAt
+          ? original
+          : await observeHosted(
+              lifetime,
+              async (signal) => {
+                const { task } = await authenticatedJson(servicePath, { ...ownedOptions, signal });
+                if (
+                  !task ||
+                  task.taskID !== original.taskID ||
+                  task.characterID !== characterID ||
+                  task.ownerBotID !== original.ownerBotID ||
+                  task.kind !== original.kind ||
+                  task.domain !== domain ||
+                  task.worldID !== original.worldID ||
+                  task.owner !== original.owner ||
+                  JSON.stringify(task.setup) !== JSON.stringify(original.setup)
+                )
+                  throw Error("The current pilot service changed.");
+                return task.endedAt ? task : null;
+              },
+              "The current pilot service is still working.",
+              1200,
+            );
         if (task.status === "error")
           throw Error(task.why ?? "The original pilot service needs attention.");
         return {
@@ -351,7 +445,7 @@ export function runHosted(
     }
     let key: string | null = null;
     if (!provisioning && !training) {
-      const world = await worldID(ownedOptions);
+      const world = await worldID(readOptions);
       if (!world)
         throw Error(
           "Current EveJS world identity is unavailable; the exact training intent cannot be scoped.",
@@ -388,7 +482,7 @@ export function runHosted(
       // the next fleet needs, but Farmer must confirm that it has released the pilot.
       const { ownership } = await authenticatedJson(
         `/api/pilot-training/ownership?characterID=${characterID}`,
-        ownedOptions,
+        readOptions,
       );
       if (
         ownership?.characterID !== characterID ||
@@ -398,7 +492,7 @@ export function runHosted(
         throw Error(
           `Farmer has not confirmed this pilot is free (${ownership?.owner ?? "unknown"}); no new MCC inspection was sent.`,
         );
-      const roster = await authenticatedJson("/api/bots", ownedOptions);
+      const roster = await authenticatedJson("/api/bots", readOptions);
       if (
         !Array.isArray(roster.bots) ||
         roster.bots.some(
@@ -427,11 +521,11 @@ export function runHosted(
             authenticatedJson<{
               bots: ServerBot[];
               hostedRunPolicy?: { maxRuntimeMinutes: number };
-            }>("/api/bots", ownedOptions),
+            }>("/api/bots", readOptions),
             trainingCenter
               ? authenticatedJson(
                   `/api/pilot-training/ownership?characterID=${characterID}`,
-                  ownedOptions,
+                  readOptions,
                 )
               : null,
           ])
@@ -448,7 +542,11 @@ export function runHosted(
         ))
     )
       throw Error("The current Farmer roster is unreadable; no Start was sent.");
-    const rows = confirmedHost ? [] : (preflight?.bots ?? (await listServerBots(ownedOptions)));
+    const rows = confirmedHost
+      ? []
+      : (preflight?.bots ??
+        (await listServerBots(ownedOptions.fetch ? readOptions : ownedOptions)));
+    lifetime?.throwIfAborted();
     if (intent && intent.setup !== JSON.stringify(setup)) {
       const old = rows.filter(
         (r) =>
@@ -494,7 +592,7 @@ export function runHosted(
           trainingOwnership ??
           (await authenticatedJson(
             `/api/pilot-training/ownership?characterID=${characterID}`,
-            ownedOptions,
+            readOptions,
           ));
         const reason =
           ownership?.characterID !== characterID
@@ -519,11 +617,12 @@ export function runHosted(
         ? confirmedHost.limit
         : preflight
           ? preflight.hostedRunPolicy?.maxRuntimeMinutes
-          : (await authenticatedJson("/api/bots", ownedOptions)).hostedRunPolicy?.maxRuntimeMinutes;
+          : (await authenticatedJson("/api/bots", readOptions)).hostedRunPolicy?.maxRuntimeMinutes;
       if (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1)
         throw Error("The current hosted runtime policy is unavailable; no Start was sent.");
       const minutes = Math.min(limit, /(inspect|status|recover|checkpoint)$/.test(kind) ? 10 : 720);
-      const check = await checkPluginRun("uoc", kind, setup, ownedOptions);
+      const check = await checkPluginRun("uoc", kind, setup, readOptions);
+      lifetime?.throwIfAborted();
       intent = {
         characterID,
         kind,
@@ -546,9 +645,7 @@ export function runHosted(
       rememberIntent(intent);
       if (trainingCenter) trainingStart = started;
     }
-    const end = Date.now() + 600000,
-      pollMs = 1200,
-      firstTrainingPollMs = 250;
+    lifetime?.throwIfAborted();
     const endedAtStart =
       trainingStart?.endedAt &&
       trainingStart.botID &&
@@ -558,60 +655,61 @@ export function runHosted(
       trainingStart.plugin.run === kind
         ? trainingStart
         : null;
-    let firstTrainingPoll = trainingStart !== null && !endedAtStart;
-    // Give short Training actions time to finish before the first roster read.
-    // Follow-up reads stay on the ordinary polling cadence.
-    if (firstTrainingPoll) await new Promise((r) => setTimeout(r, firstTrainingPollMs));
-    while (Date.now() < end) {
-      // A held action needs the current receipt. WC's shared roster is intended
-      // for overview panels and can serve a running snapshot for two seconds.
-      const bots = endedAtStart
-        ? null
-        : trainingCenter
-          ? (await authenticatedJson<{ bots: ServerBot[] }>("/api/bots", ownedOptions)).bots
-          : await listServerBots(ownedOptions);
-      const row =
-        endedAtStart ??
-        (Array.isArray(bots)
-          ? bots.find((r) => r.botID === botID && r.characterID === characterID)
-          : undefined);
-      if (!row)
-        throw Error("The exact hosted pilot result is unavailable; its intent remains retained.");
-      if (kind === "provision-apply" && row.phase === "Session release blocked") {
-        return {
-          botID: row.botID,
-          phase: row.phase,
-          status: row.status,
-          why: row.why ?? null,
-          readout: row.plugin?.readout ?? null,
-        };
-      }
-      if (row.endedAt) {
-        const v = row.plugin?.readout as any,
-          retained = Array.isArray(v?.pending) ? v.pending.length > 0 : !!v?.pending;
-        if (key && !readOnly && (retained || /unresolved|reconciliation/i.test(row.phase ?? "")))
-          throw Error(
-            row.why ?? "The exact hosted action is still unresolved; no new action was sent.",
-          );
-        forgetIntent();
-        if (row.status === "error" && kind !== "provision-apply")
-          throw Error(row.why ?? "The hosted pilot service needs attention.");
-        return {
-          botID: row.botID,
-          phase: row.phase ?? "",
-          status: row.status,
-          why: row.why ?? null,
-          readout: row.plugin?.readout ?? null,
-        };
-      }
-      if (kind !== "provision-apply" && /blocked|unresolved|needs attention/i.test(row.phase ?? ""))
-        throw Error(row.why ?? "The hosted service retains an unresolved action.");
-      await new Promise((r) =>
-        setTimeout(r, firstTrainingPoll ? pollMs - firstTrainingPollMs : pollMs),
-      );
-      firstTrainingPoll = false;
+    const row =
+      endedAtStart ??
+      (await observeHosted<ServerBot>(
+        lifetime,
+        async (signal) => {
+          // Training needs a fresh receipt. Other centers share WC's roster read across windows.
+          // Only an unshared request can be cancelled when this observer goes away.
+          const bots = trainingCenter
+            ? (
+                await authenticatedJson<{ bots: ServerBot[] }>("/api/bots", {
+                  ...ownedOptions,
+                  signal,
+                })
+              ).bots
+            : await listServerBots(ownedOptions.fetch ? { ...ownedOptions, signal } : ownedOptions);
+          const row = Array.isArray(bots)
+            ? bots.find((r) => r.botID === botID && r.characterID === characterID)
+            : undefined;
+          if (!row)
+            throw Error(
+              "The exact hosted pilot result is unavailable; its intent remains retained.",
+            );
+          if (
+            row.endedAt ||
+            (kind === "provision-apply" && row.phase === "Session release blocked")
+          )
+            return row;
+          if (
+            kind !== "provision-apply" &&
+            /blocked|unresolved|needs attention/i.test(row.phase ?? "")
+          )
+            throw Error(row.why ?? "The hosted service retains an unresolved action.");
+          return null;
+        },
+        "The pilot service is still running; its exact hosted intent is retained.",
+        trainingStart ? 250 : 0,
+      ));
+    if (!(kind === "provision-apply" && row.phase === "Session release blocked")) {
+      const v = row.plugin?.readout as any,
+        retained = Array.isArray(v?.pending) ? v.pending.length > 0 : !!v?.pending;
+      if (key && !readOnly && (retained || /unresolved|reconciliation/i.test(row.phase ?? "")))
+        throw Error(
+          row.why ?? "The exact hosted action is still unresolved; no new action was sent.",
+        );
+      forgetIntent();
+      if (row.status === "error" && kind !== "provision-apply")
+        throw Error(row.why ?? "The hosted pilot service needs attention.");
     }
-    throw Error("The pilot service is still running; its exact hosted intent is retained.");
+    return {
+      botID: row.botID,
+      phase: row.phase ?? "",
+      status: row.status,
+      why: row.why ?? null,
+      readout: row.plugin?.readout ?? null,
+    };
   };
   const work = center && previous ? previous.catch(() => {}).then(perform) : perform();
   if (center || mccInspection) pilotRequests.set(lane, work);
@@ -636,26 +734,6 @@ export function cockpitSession(characterID: number) {
       );
     }) ?? null
   );
-}
-export function cockpitShortcutsAvailable() {
-  return !!openPanel;
-}
-export async function reviewCockpitFitting(characterID: number, fittingID: number) {
-  const session = cockpitSession(characterID);
-  if (!session) throw Error("Open UOC from the existing Pilot workspace to use its Cockpit.");
-  await session.flow.loadSavedFittings();
-  await session.flow.viewFitting(fittingID);
-  openPanel?.("fitting", session.id);
-}
-
-export async function openCockpitInventory(characterID: number) {
-  const session = cockpitSession(characterID);
-  if (!session || !openPanel)
-    throw Error(
-      "Open this center in the Pilot workspace to inspect the existing Cockpit inventory.",
-    );
-  await session.flow.loadInventory();
-  openPanel("inventory", session.id);
 }
 
 /** Preserve the original transport options when only an account token is carried. */
