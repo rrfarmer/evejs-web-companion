@@ -1189,7 +1189,7 @@ import { BULK_FIT_SHIPS_CONFIG, fitShips, isShipAssembled, listPlace, maxAvailab
 import { readAccessGroup, readFolderInfo, readFoldersWithAdminAccess, readMyAccessGroups, readMyActiveBookmarks } from "../bridge/bookmarkReads.ts";
 import { classifySalvageModules } from "../nav/salvageModules.ts";
 import { splitNeverFits } from "../bridge/bayRouting.ts";
-import type { AccessGroup, ActiveBookmarks, BookmarkFolder } from "../bridge/bookmarks.ts";
+import { decodeAccessGroup, type AccessGroup, type ActiveBookmarks, type BookmarkFolder } from "../bridge/bookmarks.ts";
 import { agentsAtStation, readAgentsTable } from "../bridge/agentReads.ts";
 import { authoritativeFleetMemberCharacterIDs, decodeFleetCenter, decodeFleetInviteAnswerNotification, decodeFleetInviteNotification, fleetInviteAnswerWords, memberWhereabouts, type FleetInviteAnswer } from "../bridge/fleetCenter.ts";
 import { FLEET_JOB_CREATOR, canTagInFleet } from "../bridge/fleetCommand.ts";
@@ -5522,6 +5522,9 @@ export interface AppFlow {
    */
   readFolderInfo(folderID: number): Promise<BookmarkFolder>;
   readAccessGroups(): Promise<readonly AccessGroup[]>;
+  createAccessGroup(name: string, description: string): Promise<number>;
+  editAccessGroup(groupID: number, name: string, description: string): Promise<void>;
+  deleteAccessGroup(group: AccessGroup): Promise<boolean>;
   /** An access list that is none of the pilot's, by its number (ownerGroupManager.GetGroup), or null where there is none. */
   readAccessGroup(groupID: number): Promise<AccessGroup | null>;
   /** Disconnect from Folder (bookmarkSvc.RemoveFromKnownFolders, 459 to 464): a shared folder the pilot no longer knows. */
@@ -40220,6 +40223,31 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     readAccessGroups() {
       return readMyAccessGroups(bridgeAsk);
+    },
+
+    async createAccessGroup(name, description) {
+      const group = decodeAccessGroup(await bridgeDo("ownerGroupManager", "Create", [name, description]));
+      if (group === null) throw new Error("The server did not return the new access list.");
+      return group.groupID;
+    },
+
+    async editAccessGroup(groupID, name, description) {
+      const current = callOptions.captureRequestGuard!();
+      await bridgeDo("ownerGroupManager", "UpdateName", [groupID, name]);
+      current();
+      await bridgeDo("ownerGroupManager", "UpdateDescription", [groupID, description]);
+    },
+
+    async deleteAccessGroup(group) {
+      const current = callOptions.captureRequestGuard!();
+      const dialog = "AccessGroupDeleteGroup";
+      await wordsNow([`dialog:${dialog}/title`, `dialog:${dialog}/body`]).catch(() => {});
+      current();
+      const yes = await askDialog(dialog, { type: "dict", entries: [["groupName", group.name]] }, `Delete the access list “${group.name}”?`, "yesno");
+      if (!yes) return false;
+      current();
+      await bridgeDo("ownerGroupManager", "Delete", [group.groupID]);
+      return true;
     },
 
     readAccessGroup(groupID) {

@@ -997,6 +997,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // The pilot's access lists, which the folder window offers a shared folder's access levels from
   // (accessGroupsController.py 105). The gateway's list has nothing of the owner group manager's.
   "ownerGroupManager.GetMyGroups",
+  "ownerGroupManager.Create", "ownerGroupManager.UpdateName", "ownerGroupManager.UpdateDescription", "ownerGroupManager.Delete",
   // A shared folder disconnected from (bookmarkSvc.py 460), and an access list the pilot has not got asked by its
   // number (accessGroupsController.py 184). The gateway's list has neither.
   "accessGroupBookmarkMgr.RemoveFromKnownFolders", "ownerGroupManager.GetGroup",
@@ -2815,6 +2816,24 @@ const RETAIL_CALLS = Object.freeze({
     "self.remoteSvc.GetGroup(groupID), of ownerGroupManager by its name: an access list that is none of the pilot's, asked where its name is wanted (GetGroupInfoFromID with fetchToServer: a folder's lists in the folder window and in Folder Information). Answered the list. In no recording."),
   "ownerGroupManager.GetMyGroups": judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:105", sentWithNothing,
     "self.remoteSvc.GetMyGroups(), of ownerGroupManager by its name and with nothing: the pilot's access lists, asked once and kept by the client's controller; the folder window offers a shared folder's access levels from them. In no recording."),
+  "ownerGroupManager.Create": typing(judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:144",
+    (args, kwargs) => args.length === 2 && Object.keys(kwargs).length === 0 &&
+      typeof args[0] === "string" && args[0].trim().length > 0 && args[0].length <= 30 &&
+      typeof args[1] === "string" && args[1].length <= 200
+      ? {} : { status: "differs", note: "The editor sends a name up to 30 characters and a description up to 200." },
+    "Create the pilot's access list from the two trimmed edit fields."), [0, 1]),
+  "ownerGroupManager.UpdateName": typing(judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:156",
+    (args, kwargs) => args.length === 2 && Object.keys(kwargs).length === 0 &&
+      aBookmarkFolderID(args[0]) && typeof args[1] === "string" && args[1].trim().length > 0 && args[1].length <= 30
+      ? {} : { status: "differs", note: "The editor sends the access list ID and a nonempty name up to 30 characters." },
+    "Save the name before saving the description."), [1]),
+  "ownerGroupManager.UpdateDescription": typing(judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:157",
+    (args, kwargs) => args.length === 2 && Object.keys(kwargs).length === 0 &&
+      aBookmarkFolderID(args[0]) && typeof args[1] === "string" && args[1].length <= 200
+      ? {} : { status: "differs", note: "The editor sends the access list ID and a description up to 200 characters." },
+    "Save the description after saving the name."), [1]),
+  "ownerGroupManager.Delete": judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:168", listAsked,
+    "Delete the access list after the AccessGroupDeleteGroup confirmation."),
   "accessGroupBookmarkMgr.MoveBookmarksToFolderAndSubfolder": reshaped("eve/client/script/ui/shared/bookmarks/bookmarkSvc.py:690", bookmarksMovedOrCopied,
     "self.accessGroupBookmarkMgr.MoveBookmarksToFolderAndSubfolder(oldFolderID, folderID, subfolderID, bookmarkIDs): bookmarks dropped on a folder or a subfolder of the Locations window (DropInPlacesFolder), each source folder's a set; answered the rows moved and a message or None. In no recording."),
   "accessGroupBookmarkMgr.CopyBookmarksToFolderAndSubfolder": reshaped("eve/client/script/ui/shared/bookmarks/bookmarkSvc.py:701", bookmarksMovedOrCopied,

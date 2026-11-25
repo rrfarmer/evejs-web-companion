@@ -112,6 +112,7 @@ const ORGANIZATION_ENLISTMENT_METHODS = Object.freeze([
   "WithdrawJoinFactionAsCorporation", "WithdrawJoinFactionAsAlliance", "WithdrawLeaveFactionAsCorporation", "WithdrawLeaveFactionAsAlliance",
 ]);
 const FEATURE_WRITE_METHODS = freezeMethodMap({
+  ownerGroupManager: ["Create", "UpdateName", "UpdateDescription", "Delete"],
   repackagingSvc: ["RepackageItems"],
   structureControl: ["TakeControl", "ReleaseControl", "BoardStructure", "EjectFromStructure"],
   structureCargoDelivery: ["DropOffItems"],
@@ -953,6 +954,7 @@ function isBridgeWritePair(service, method) {
  *   charMgr.RemoveOwnerNote   RemoveOwnerNote(noteID): that note gone (a folder's notes deleted, a setting's spare part).
  */
 const PAGE_WRITE_PAIR_KEYS = Object.freeze([
+  "ownerGroupManager.Create", "ownerGroupManager.UpdateName", "ownerGroupManager.UpdateDescription", "ownerGroupManager.Delete",
   "LPStoreMgr.TakeOfferForCharacter",
   "jumpCloneSvc.InstallCloneInStation", "jumpCloneSvc.InstallCloneInStructure",
   "jumpCloneSvc.SetJumpCloneName", "jumpCloneSvc.DestroyInstalledClone",

@@ -251,11 +251,13 @@ export function decodeFolderInfo(result: JsonValue): BookmarkFolder | null {
   return decodeFolderRow(result);
 }
 
-/** An access list of the pilot's (ownerGroupManager.GetMyGroups): its number, who made it, and its name. */
+/** An access list returned by ownerGroupManager. */
 export interface AccessGroup {
   readonly groupID: number;
   readonly creatorID: number | null;
   readonly name: string;
+  readonly description: string;
+  readonly membershipType: number;
 }
 
 /**
@@ -282,7 +284,13 @@ export function decodeAccessGroup(result: JsonValue): AccessGroup | null {
   if (groupID <= 0) {
     return null;
   }
-  return { groupID, creatorID: toOptionalID(readRowField(result, "creatorID")), name: toText(readRowField(result, "name")) };
+  return {
+    groupID,
+    creatorID: toOptionalID(readRowField(result, "creatorID")),
+    name: toText(readRowField(result, "name")),
+    description: toText(readRowField(result, "description")),
+    membershipType: toNumber(readRowField(result, "membershipType")),
+  };
 }
 
 // --- R87 write acks ---------------------------------------------------------
