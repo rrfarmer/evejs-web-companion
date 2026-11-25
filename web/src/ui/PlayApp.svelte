@@ -878,6 +878,15 @@
     const here = $station?.station;
     return here != null && here.stationID === online?.stationID && stationOffersRepair(here.security, here.serviceIDs);
   });
+  const reprocessingAvailable = $derived($station?.online?.structureID
+    ? structureHasCapability($station.structureServiceIDs ?? null, "reprocessing")
+    : ($station?.online?.stationID != null && $station.station?.stationID === $station.online.stationID &&
+      $station.station.serviceIDs?.includes(5) === true));
+  $effect(() => {
+    if ((!docked || !reprocessingAvailable) && wins.some(win => win.id === "reprocessing")) {
+      wins = closeWindow(wins, "reprocessing");
+    }
+  });
 
   // The hangar's ship and the Neocom while docked.
   let hangarHost = $state<HTMLDivElement | null>(null);
@@ -1352,12 +1361,12 @@
     memberDetails: { w: 420, h: 480 },
     theatersOfWar: { w: 1600, h: 880 },
     academyShips: { w: 1280, h: 688 },
-    shipTree: { w: 1055, h: 720 },
+    shipTree: { w: 1055, h: 720 }, reprocessing: { w: 600, h: 400 },
   };
   const FLIGHT_MINIMUMS: Partial<Record<TabID, { w: number; h: number }>> = {
     drones: { w: 240, h: 120 }, scanner: { w: 300, h: 150 }, inventory: { w: 170, h: 140 },
     market: { w: 650, h: 435 }, contracts: { w: 700, h: 560 }, corporation: { w: 700, h: 832 },
-    fleet: { w: 270, h: 120 }, industry: { w: 1004, h: 650 },
+    fleet: { w: 270, h: 120 }, industry: { w: 1004, h: 650 }, reprocessing: { w: 600, h: 400 },
   };
   function flightWindowMinimum(tab: TabID): { w: number; h: number } {
     const size = FLIGHT_MINIMUMS[tab] ?? { w: MIN_W, h: MIN_H };
@@ -1439,6 +1448,7 @@
     return { x: 16, y: Math.max(0, H - h - 16), w: Math.min(w, W), h };
   }
   function open(tab: TabID) {
+    if (tab === "reprocessing" && (!docked || !reprocessingAvailable)) return;
     // OpenInventory (the Neocom button, Alt-C) shows InventoryPrimary, captioned "Inventory" (read through gridcheck: in space
     // it opens on the ship's cargo); a hold command (OpenCargoHoldOfActiveShip ...) the Active ship window (below)
     if (tab === "inventory") inventoryPrimary = true;
@@ -3991,6 +4001,12 @@
               <button type="button" class="lobby-svc" title="Repair Shop" aria-label="Repair Shop"
                 onclick={() => void session?.flow.openAssetRepair().catch(() => {})}>
                 <img alt="" src={clientTexture("res:/UI/Texture/WindowIcons/repairshop.png")} />
+              </button>
+            {/if}
+            {#if reprocessingAvailable}
+              <button type="button" class="lobby-svc" title="Reprocessing Plant" aria-label="Reprocessing Plant"
+                onclick={() => open("reprocessing")}>
+                <img alt="" src={clientTexture("res:/UI/Texture/WindowIcons/Reprocess.png")} />
               </button>
             {/if}
             {#if militiaOfficeAvailable}

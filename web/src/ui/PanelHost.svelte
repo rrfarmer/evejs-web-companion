@@ -40,6 +40,7 @@
   import PaintToolWindow from "./PaintToolWindow.svelte";
   import Flight from "./Flight.svelte";
   import Mining from "./Mining.svelte";
+  import ReprocessingPlant from "./ReprocessingPlant.svelte";
   import DronesPanel from "./DronesPanel.svelte";
   import ShotsPanel from "./ShotsPanel.svelte";
   import EquipmentPanel from "./EquipmentPanel.svelte";
@@ -258,6 +259,8 @@
   <Flight {store} {flow} />
 {:else if tab === "mining"}
   <Mining {store} {flow} />
+{:else if tab === "reprocessing" && isDocked}
+  <ReprocessingPlant {store} {flow} />
 {:else if tab === "drones"}
   <DronesPanel {store} {flow} />
 {:else if tab === "shots"}

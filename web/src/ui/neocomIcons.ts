@@ -41,6 +41,7 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   // --- in space ---
   flight: ["M12 3l7 17-7-4-7 4z"],
   mining: ["M3 3l7 7", "M11 12l4-3 6 2-1 7-7 1z"],
+  reprocessing: ["M4 6h10l-3-3", "M20 18H10l3 3", "M14 6l-3 3", "M10 18l3-3"],
   // Drones: three small craft flying out from a hull, in a wedge.
   drones: ["M12 4l3 4-3 2-3-2z", "M5 13l2.5 3.5L5 19", "M19 13l-2.5 3.5L19 19"],
   // Shots fired: a burst leaving a muzzle. Not a target and not a weapon — the
