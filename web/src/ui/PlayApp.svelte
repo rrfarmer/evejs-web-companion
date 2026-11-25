@@ -4712,6 +4712,8 @@
   .fly-windows :global(.con-price-filter) { margin: 0; padding: 0; border: 0; min-width: 0; }
   .fly-windows :global(.con-price-bounds) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; }
   .fly-windows :global(.con-price-bounds input[type="number"]) { width: calc(100% - 4px); }
+  .fly-windows :global(.con-security-filter > div) { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+  .fly-windows :global(.con-security-filter label) { display: inline-flex; align-items: center; gap: 2px; }
   .fly-windows :global(.con-search-fill) { flex: 1; }
   .fly-windows :global(.con-search-btn) { margin: 0 2px 2px; padding: 5px; font-size: 12px; }
   .fly-windows :global(.con-search-right) { flex: 1; min-width: 0; display: flex; flex-direction: column; }

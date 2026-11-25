@@ -237,7 +237,7 @@ import {
   type AssetSearchNames,
   type AssetSearchOption,
 } from "../bridge/assetSearch.ts";
-import { isLowSecOrLower, shownSecurity } from "../bridge/systemSecurity.ts";
+import { isLowSecOrLower, shownSecurity, type SecurityClass } from "../bridge/systemSecurity.ts";
 import { duelChallengeOf, startDuelChallenge, respondToDuelChallenge, type DuelInvitation } from "../bridge/duel.ts";
 import { failsTheReading, failureCode, type Ask } from "../bridge/ask.ts";
 import { createCameraTaskReporter, type CameraTaskEvent } from "../bridge/cameraTasks.ts";
@@ -3696,7 +3696,13 @@ export interface AppFlow {
    * that type, in every region, cheapest first, as the contract search sends it.
    */
   findContractsOfType(typeID: number): Promise<{ readonly entries: readonly ContractSearchEntry[]; readonly numFound: number }>;
-  searchBuySellContracts(typeID: number | null, minPrice: number | null, maxPrice: number | null): ReturnType<AppFlow["findContractsOfType"]>;
+  searchPublicContracts(filters: {
+    readonly typeID?: number | null;
+    readonly minPrice?: number | null;
+    readonly maxPrice?: number | null;
+    readonly securityClasses?: readonly SecurityClass[] | null;
+    readonly courier?: boolean;
+  }): ReturnType<AppFlow["findContractsOfType"]>;
   /** Close the open contract without touching the server. */
   closeContract(): void;
   /**
@@ -25647,10 +25653,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * the box is (unticked: False), every other filter None, sorted by price, lowest first (SORT_PRICE, 0), from the first.
    */
   async function findContractsOfType(typeID: number): Promise<{ readonly entries: readonly ContractSearchEntry[]; readonly numFound: number }> {
-    return searchBuySellContracts(typeID, null, null);
+    return searchPublicContracts({ typeID });
   }
 
-  async function searchBuySellContracts(typeID: number | null, minPrice: number | null, maxPrice: number | null): ReturnType<AppFlow["findContractsOfType"]> {
+  async function searchPublicContracts({
+    typeID = null, minPrice = null, maxPrice = null, securityClasses = null, courier = false,
+  }: Parameters<AppFlow["searchPublicContracts"]>[0]): ReturnType<AppFlow["findContractsOfType"]> {
     if (typeID !== null) await resolveNamesNow([{ kind: "type", id: typeID }]);
     const typeName = typeID === null ? null : nameCache.get(nameKey("type", typeID)) ?? null;
     const answered = await bridgeAsk("contractProxy", "SearchContracts", [], {
@@ -25658,8 +25666,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       itemTypeName: typeName,
       itemCategoryID: null,
       itemGroupID: null,
-      contractType: 10,
-      securityClasses: null,
+      contractType: courier ? 3 : 10,
+      securityClasses,
       locationID: null,
       endLocationID: null,
       issuerID: null,
@@ -25672,12 +25680,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       minVolume: null,
       maxVolume: null,
       excludeTrade: null,
-      excludeMultiple: false,
+      excludeMultiple: courier ? null : false,
       excludeNoBuyout: null,
       availability: 0,
       description: null,
       searchHint: null,
-      sortBy: 1,
+      sortBy: courier ? 0 : 1,
       sortDir: 0,
       startNum: 0,
     });
@@ -25685,6 +25693,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestNames(decoded.entries.flatMap((entry) => [
       { kind: "system" as const, id: entry.contract.startSolarSystemID },
       { kind: "station" as const, id: entry.contract.startStationID },
+      { kind: "system" as const, id: entry.contract.endSolarSystemID },
+      { kind: "station" as const, id: entry.contract.endStationID },
       entry.contract.forCorp ? { kind: "owner" as const, id: entry.contract.issuerCorpID } : { kind: "character" as const, id: entry.contract.issuerID },
       ...entry.items.map((item) => ({ kind: "type" as const, id: item.typeID })),
     ]).filter((ref) => ref.id > 0));
@@ -39742,7 +39752,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadContracts,
     openContract,
     findContractsOfType,
-    searchBuySellContracts,
+    searchPublicContracts,
     closeContract,
     acceptContract,
     loadPersonalAssets,

@@ -46,6 +46,7 @@
   import type { AppFlow } from "../app/flow.ts";
   import type { ContractRow } from "../store/types.ts";
   import { resolvedName } from "../store/names.ts";
+  import { SECURITY_CLASS } from "../bridge/systemSecurity.ts";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
@@ -104,12 +105,13 @@
       : { text: jumpWords(JUMP_WORDS.jumps, `${count} jumps`, { numJumps: count }), unreachable: false };
   }
   $effect(() => {
-    flow.requestWords([...Object.values(JUMP_WORDS), ...Object.values(SEARCH_WORDS), ...CONTRACT_TITLE_LABELS, ...RETAIL_TAB_WORDS]);
+    flow.requestWords([...Object.values(JUMP_WORDS), ...Object.values(SEARCH_WORDS), ...CONTRACT_TITLE_LABELS,
+      ...RETAIL_TAB_WORDS, ...SECURITY_FILTERS.flatMap(({ label, hint }) => [label, hint])]);
   });
   // The counts are asked for again when the autopilot's settings change, which lets them go.
   $effect(() => {
     void $names.autopilotJumps;
-    const rows = $contracts.browse;
+    const rows = [...$contracts.browse, ...(searchFound?.entries.map(entry => entry.contract) ?? [])];
     if (hereSystem !== null) {
       const starts = [...new Set(rows.map((row) => row.startSolarSystemID).filter((id) => id > 0 && id !== hereSystem))];
       if (starts.length > 0) flow.requestAutopilotJumps(hereSystem, starts);
@@ -212,7 +214,19 @@
     min: "UI/Contracts/ContractsSearch/hintMin",
     max: "UI/Contracts/ContractsSearch/hintMax",
     to: "UI/Common/ToNumber",
+    security: "UI/Contracts/ContractsSearch/SecurityFilters",
+    pickup: "UI/Contracts/ContractsSearch/columPickup",
+    dropoff: "UI/Contracts/ContractsSearch/columnDropOff",
+    volume: "UI/Contracts/ContractsSearch/columnVolume",
+    reward: "UI/Contracts/ContractsSearch/columnReward",
+    collateral: "UI/Contracts/ContractsSearch/columnCollateral",
+    route: "UI/Contracts/ContractsSearch/columnRoute",
   } as const;
+  const SECURITY_FILTERS = [
+    { key: "high", label: "UI/Common/HighSecurityShort", hint: "UI/Common/HighSec", fallback: "High", classes: [SECURITY_CLASS.high, SECURITY_CLASS.safe] },
+    { key: "low", label: "UI/Common/LowSecurityShort", hint: "UI/Common/LowSec", fallback: "Low", classes: [SECURITY_CLASS.low] },
+    { key: "null", label: "UI/Common/NullSecurityShort", hint: "UI/Common/NullSec", fallback: "Null", classes: [SECURITY_CLASS.zero] },
+  ] as const;
   // svelte-ignore state_referenced_locally
   const searchPref = `evejs.user.${store.session.get().accountID ?? 0}.contracts.`;
   const maxPriceMillions = Math.floor(Number.MAX_SAFE_INTEGER / 1_000_000);
@@ -221,6 +235,12 @@
     return value > 0 && value <= maxPriceMillions && Number.isSafeInteger(value) ? value : undefined;
   }
   let advanced = $state(localStorage.getItem(searchPref + "advanced") === "true");
+  let courier = $state(localStorage.getItem(searchPref + "courier") === "true");
+  let securityChecked = $state({
+    high: localStorage.getItem(searchPref + "security.high") !== "false",
+    low: localStorage.getItem(searchPref + "security.low") !== "false",
+    null: localStorage.getItem(searchPref + "security.null") !== "false",
+  });
   let priceEnabled = $state(localStorage.getItem(searchPref + "priceEnabled") !== "false");
   let minimum = $state<number | undefined>(savedPrice("minPrice"));
   let maximum = $state<number | undefined>(savedPrice("maxPrice"));
@@ -237,11 +257,24 @@
   let searching = $state(false);
   let searchFound = $state.raw<{ readonly entries: readonly ContractSearchEntry[]; readonly numFound: number } | null>(null);
   let searchSequence = 0;
+  function setCourier(value: boolean) {
+    if (courier !== value) searchFound = null;
+    courier = value;
+    localStorage.setItem(searchPref + "courier", String(value));
+  }
+  function setSecurity(key: keyof typeof securityChecked, checked: boolean) {
+    securityChecked[key] = checked;
+    localStorage.setItem(searchPref + "security." + key, String(checked));
+  }
   function search(typeID: number | null, fromItemMenu = false): void {
     const sequence = ++searchSequence;
-    const usePrice = retail && advanced && priceEnabled;
+    const usePrice = retail && advanced && !courier && priceEnabled;
     const minPrice = usePrice ? asPrice(minimum) : null;
     const maxPrice = usePrice ? asPrice(maximum) : null;
+    const selectedSecurity = SECURITY_FILTERS.filter(filter => securityChecked[filter.key]);
+    const securityClasses = advanced && selectedSecurity.length > 0 && selectedSecurity.length < SECURITY_FILTERS.length
+      ? selectedSecurity.reverse().flatMap(filter => [...filter.classes])
+      : null;
     if (usePrice) {
       localStorage.setItem(searchPref + "minPrice", String(minimum ?? ""));
       localStorage.setItem(searchPref + "maxPrice", String(maximum ?? ""));
@@ -252,7 +285,7 @@
       try {
         const result = fromItemMenu && typeID !== null
           ? await flow.findContractsOfType(typeID)
-          : await flow.searchBuySellContracts(typeID, minPrice, maxPrice);
+          : await flow.searchPublicContracts({ typeID: courier ? null : typeID, courier, minPrice, maxPrice, securityClasses });
         if (sequence === searchSequence) searchFound = result;
       } catch (cause) {
         if (sequence === searchSequence) throw cause;
@@ -270,11 +303,15 @@
     if (wanted !== null) {
       chosenTab = "search";
       searchedType = wanted;
-      if (retail) {
-        minimum = maximum = undefined;
-        setAdvanced(true);
-      }
-      untrack(() => search(wanted, true));
+      untrack(() => {
+        if (retail) {
+          setCourier(false);
+          minimum = maximum = undefined;
+          for (const filter of SECURITY_FILTERS) setSecurity(filter.key, true);
+          setAdvanced(true);
+        }
+        search(wanted, true);
+      });
     }
   });
   /** A label of the client's filled, for a contract's title (GetContractTitle); the page's own words where it has none. */
@@ -594,14 +631,17 @@
     <div class="con-search">
       <form class="con-search-left" onsubmit={(event) => { event.preventDefault(); search(searchedType); }}>
         <div class="con-toggle">
-          <button type="button" class="active">{titleWord("UI/Contracts/ContractsSearch/tabBuyAndSell") || "Buy & Sell"}</button>
-          <button type="button" onclick={() => (chosenTab = "board")}>{titleWord("UI/Contracts/ContractsSearch/tabCourier") || "Courier"}</button>
+          <button type="button" class:active={!courier} aria-pressed={!courier} disabled={searching} onclick={() => setCourier(false)}>{titleWord("UI/Contracts/ContractsSearch/tabBuyAndSell") || "Buy & Sell"}</button>
+          <button type="button" class:active={courier} aria-pressed={courier} disabled={searching} onclick={() => setCourier(true)}>{titleWord("UI/Contracts/ContractsSearch/tabCourier") || "Courier"}</button>
         </div>
-        <input type="text" readonly placeholder={titleWord("UI/Wallet/WalletWindow/ItemType") || "Item type"} value={searchedType === null ? "" : itemName(searchedType)} />
+        {#if !courier}
+          <input type="text" readonly placeholder={titleWord("UI/Wallet/WalletWindow/ItemType") || "Item type"} value={searchedType === null ? "" : itemName(searchedType)} />
+        {/if}
         <button type="button" aria-expanded={advanced} onclick={() => setAdvanced(!advanced)}>
           {advanced ? titleWord(SEARCH_WORDS.less) || "Show Fewer Options" : titleWord(SEARCH_WORDS.more) || "Show More Options"}
         </button>
         {#if advanced}
+          {#if !courier}
           <fieldset class="con-price-filter">
             <legend>{titleWord(SEARCH_WORDS.priceMillions) || "Price (million)"}</legend>
             <div class="con-price-bounds">
@@ -612,6 +652,19 @@
               <span>{titleWord(SEARCH_WORDS.to) || "To"}</span>
               <input type="number" aria-label={titleWord(SEARCH_WORDS.max) || "Max"} placeholder={titleWord(SEARCH_WORDS.max) || "Max"}
                 min="0" max={maxPriceMillions} step="1" disabled={!priceEnabled} bind:value={maximum} />
+            </div>
+          </fieldset>
+          {/if}
+          <fieldset class="con-price-filter con-security-filter">
+            <legend>{titleWord(SEARCH_WORDS.security) || "Security Filters"}</legend>
+            <div>
+              {#each SECURITY_FILTERS as filter (filter.key)}
+                <label title={titleWord(filter.hint)}>
+                  <input type="checkbox" checked={securityChecked[filter.key]}
+                    onchange={(event) => setSecurity(filter.key, event.currentTarget.checked)} />
+                  {titleWord(filter.label) || filter.fallback}
+                </label>
+              {/each}
             </div>
           </fieldset>
         {/if}
@@ -627,8 +680,15 @@
         <div class="con-scroll">
           <table>
             <thead><tr>
+              {#if courier}
+              <th>{titleWord(SEARCH_WORDS.pickup) || "Pickup"}</th><th>{titleWord(SEARCH_WORDS.dropoff) || "Drop-off"}</th>
+              <th class="r">{titleWord(SEARCH_WORDS.volume) || "Volume"}</th><th class="r">{titleWord(SEARCH_WORDS.reward) || "Reward"}</th>
+              <th class="r">{titleWord(SEARCH_WORDS.collateral) || "Collateral"}</th><th class="r">{titleWord(SEARCH_WORDS.route) || "Route"}</th>
+              {:else}
               <th>{titleWord(SEARCH_WORDS.contract) || "Contract"}</th><th>{titleWord(SEARCH_WORDS.location) || "Location"}</th>
-              <th class="r">{titleWord(SEARCH_WORDS.price) || "Price"}</th><th class="r">{titleWord("UI/Contracts/ContractsSearch/columnJumps") || "Jumps"}</th>
+              <th class="r">{titleWord(SEARCH_WORDS.price) || "Price"}</th>
+              {/if}
+              <th class="r">{titleWord("UI/Contracts/ContractsSearch/columnJumps") || "Jumps"}</th>
               <th>{titleWord("UI/Contracts/ContractsSearch/columnTimeLeft") || "Time Left"}</th><th>{titleWord(SEARCH_WORDS.issuer) || "Issuer"}</th>
               <th>{titleWord("UI/Contracts/ContractsSearch/columnCreated") || "Created"}</th>
             </tr></thead>
@@ -636,15 +696,22 @@
               {#if searchFound && searchFound.entries.length > 0}
                 {#each searchFound.entries as entry (entry.contract.contractID)}
                   <tr ondblclick={() => open(entry.contract.contractID)} title="Double-click for the contract's details">
-                    <td>{searchLabel(entry)}</td><td>{systemName(entry.contract.startSolarSystemID)}</td>
-                    <td class="r">{formatIsk(entry.contract.price)}</td><td class="r">—</td>
+                    {#if courier}
+                      <td>{stationName(entry.contract.startStationID)}</td><td>{stationName(entry.contract.endStationID)}</td>
+                      <td class="r">{formatVolume(entry.contract.volume)}</td><td class="r">{formatIsk(entry.contract.reward)}</td>
+                      <td class="r">{formatIsk(entry.contract.collateral)}</td><td class="r">{routeLength(entry.contract)?.text ?? "—"}</td>
+                    {:else}
+                      <td>{searchLabel(entry)}</td><td>{systemName(entry.contract.startSolarSystemID)}</td>
+                      <td class="r">{formatIsk(entry.contract.price)}</td>
+                    {/if}
+                    <td class="r">{jumpsAway(entry.contract)?.text ?? "—"}</td>
                     <td>{timeLeft(entry.contract.dateExpired)}</td>
                     <td>{entry.contract.forCorp ? ownerName(entry.contract.issuerCorpID) : personName(entry.contract.issuerID)}</td>
                     <td>{dateText(entry.contract.dateIssued)}</td>
                   </tr>
                 {/each}
               {:else if searchFound}
-                <tr><td colspan="7" class="con-none">{titleWord("UI/Contracts/ContractsSearch/labelNoContractsFound") || "No contracts found"}</td></tr>
+                <tr><td colspan={courier ? 10 : 7} class="con-none">{titleWord("UI/Contracts/ContractsSearch/labelNoContractsFound") || "No contracts found"}</td></tr>
               {/if}
             </tbody>
           </table>
