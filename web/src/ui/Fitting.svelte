@@ -4147,13 +4147,8 @@
         {:else if menuSlot.family !== "rig" && menuSlot.family !== "subsystem"}
           {#if $flightState.status?.docked}
             {#if menuSlot.module?.charge}
-              <button type="button" role="menuitem" disabled={busy} onclick={() => slotMenuAction(slot => {
-                const flag = slotFlagOf(slot.family, slot.index);
-                if (flag !== null) void run(async () => {
-                  await flow.unloadChargeToPlace(flag, { kind: "hangar" });
-                  await flow.loadInventory();
-                });
-              })}>Remove Charge</button>
+              <button type="button" role="menuitem" disabled={busy}
+                onclick={() => slotMenuAction((_, module) => unloadFrom(module.itemID, "hangar"))}>Remove Charge</button>
             {/if}
             <button type="button" role="menuitem" disabled={busy}
               onclick={() => slotMenuAction((_, module) => unfit(module.itemID))}>Unfit</button>
