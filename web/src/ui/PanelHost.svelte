@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Calculator from "./Calculator.svelte";
   import AcademyShips from "./AcademyShips.svelte";
   import ShipTree from "./ShipTree.svelte";
   import { AIR_FACTION } from "../bridge/shipTree.ts";
@@ -340,6 +341,8 @@
     hide the same way.
   -->
   <NoticeLog {store} {flow} />
+{:else if tab === "calculator"}
+  <Calculator />
 {:else if tab === "notepad"}
   <Notepad {store} {flow} />
 {:else if tab === "calendar"}

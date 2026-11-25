@@ -217,6 +217,7 @@
     // the EVE menu's commands (play/neocom.ts EVE_MENU)
     marketorders: "marketOrders", contracts: "contracts", industry: "industry", miningScan: "miningScan", miningLedger: "miningLedger", planets: "planets", locations: "locations",
     contacts: "contacts", fleet: "fleet", corporation: "corporation", structureBrowser: "structureBrowser", compare: "compare", log: "log", notepad: "notepad", calendar: "calendar",
+    calculator: "calculator",
   };
 
   let session = $state<Session | null>(null);
@@ -1401,6 +1402,7 @@
    * agencyWnd (AgencyWndNew) 1188 x 694, walletWnd 900 x 600, planetWindow 500 x 500, uilog (logger) 400 x 200.
    */
   const CLIENT_SIZES: Partial<Record<TabID, { w: number; h: number }>> = {
+    calculator: { w: 327, h: 340 },
     marketOrders: { w: 600, h: 500 },
     characterSheet: { w: 1235, h: 768 }, assets: { w: 550, h: 450 }, locations: { w: 450, h: 450 }, contacts: { w: 600, h: 500 },
     mail: { w: 800, h: 600 }, finder: { w: 1188, h: 694 }, wallet: { w: 900, h: 600 }, planets: { w: 500, h: 500 }, log: { w: 400, h: 200 },
@@ -1607,6 +1609,7 @@
    * the Log. The page's own tab label stands until the words are had.
    */
   const CAPTION_LABELS: Partial<Record<TabID, string>> = {
+    calculator: "UI/Accessories/Calculator/Calculator",
     marketOrders: "Tooltips/StationServices/MarketOrders",
     scanner: "UI/Inflight/Scanner/ProbeScanner", miningScan: "UI/Inflight/Scanner/MiningScanResults", miningLedger: "UI/Ledger/LedgerWnd", finder: "UI/Agency/Caption", contacts: "UI/PeopleAndPlaces/WindowTitle",
     mail: "Tooltips/Neocom/Mail", wallet: "UI/Wallet/WalletWindow/Wallet", characterSheet: "UI/CharacterSheet/CharacterSheetWindow/CharacterSheetCaption",
@@ -1776,7 +1779,7 @@
     ToggleTheatersOfWarWindow: "theatersOfWar", CmdToggleShipTree: "shipTree",
     // (ToggleOpenClose in the client too: ContractsWindow, CorporationWindow, NotepadWindow, PlanetWindow, the comparison
     // tool, the redeem window)
-    OpenContracts: "contracts", OpenCorporationPanel: "corporation", OpenNotepad: "notepad", OpenPlanets: "planets", OpenCompare: "compare", ToggleRedeemItems: "redeem",
+    OpenContracts: "contracts", OpenCorporationPanel: "corporation", OpenNotepad: "notepad", OpenCalculator: "calculator", OpenPlanets: "planets", OpenCompare: "compare", ToggleRedeemItems: "redeem",
   };
   // The star map (play/starMap.ts): the Neocom's Map button and F10 (the client's OpenMapBrowser shortcut, its map
   // view) open it over the view and close it again; Escape closes it.
@@ -4122,7 +4125,7 @@
           caption={win.id === "drones" ? dronesTitle : win.id === "scanner" ? captions[win.id] ?? tabLabel(win.id) : null}
           icon={win.id === "inventory" && !docked ? clientTexture("res:/UI/Texture/WindowIcons/cargo.png") : win.id === "log" ? clientTexture("res:/ui/Texture/WindowIcons/log.png") : null}
           killable={win.id !== "drones"}
-          resizable={win.id !== "fitting" && win.id !== "medalDesigner" && win.id !== "securityOffice"}
+          resizable={win.id !== "fitting" && win.id !== "medalDesigner" && win.id !== "securityOffice" && win.id !== "calculator"}
           minWidth={minimum.w}
           minHeight={minimum.h}
           focused={win.id === activeWinKey}

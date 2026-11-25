@@ -154,6 +154,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
     { id: "achievements", label: "Achievements", icon: icon("achievements") },
   ] },
   { label: "Utilities", icon: icon("directoryUtilities"), items: [
+    { id: "calculator", label: "Calculator", icon: clientTexture("res:/UI/Texture/WindowIcons/calculator.png") },
     { id: "notepad", label: "Notepad", icon: icon("notepad") },
     { id: "compare", label: "Compare Tool", icon: icon("comparetool") },
     { id: "log", label: "Log", icon: icon("log") },

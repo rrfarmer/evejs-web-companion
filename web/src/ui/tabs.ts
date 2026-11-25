@@ -78,6 +78,7 @@ export type CoreTabID =
   | "missionTracker"
   | "log"
   | "notepad"
+  | "calculator"
   | "calendar"
   | "settings";
 
@@ -283,6 +284,7 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "log", label: "Log", where: "both" },
   // The client's Notepad (neocom/notepad.py): the pilot's own notes and their folders.
   { id: "notepad", label: "Notepad", where: "both" },
+  { id: "calculator", label: "Calculator", where: "both", launchable: false },
   // The client's Calendar (shared/eveCalendar.py CalendarWnd): the month and the pilot's events.
   { id: "calendar", label: "Calendar", where: "both" },
   // The local client's own settings (icon cache, …) — reachable anywhere.
