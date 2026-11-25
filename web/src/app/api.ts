@@ -171,6 +171,7 @@ async function requestJson(
   const credentials = "token" in options || !allowSessionCookie() ? "omit" : "same-origin";
   let lane = bridgeLane;
   let response: Response;
+  let sentSignal: AbortSignal | null = null;
   try {
     // ⚠ THE DEADLINE IS ARMED INSIDE THE LANE, NOT OUTSIDE IT. A request that
     // waited for a free lane must arrive at the server with its full budget; if
@@ -192,11 +193,12 @@ async function requestJson(
       assertCurrent?.();
       const deadline = AbortSignal.timeout(REQUEST_DEADLINE_MS);
       const signal = options.signal ? AbortSignal.any([deadline, options.signal]) : deadline;
-      const ready = { ...request, signal: options.beforeDispatch?.(signal) ?? signal };
+      sentSignal = options.beforeDispatch?.(signal) ?? signal;
+      const ready = { ...request, signal: sentSignal };
       return local ? local.send(url, ready, priority) : doFetch(url, ready);
     }, {
       pilot: local?.pilot,
-      signal: local && options.signal,
+      signal: options.signal,
       carried: local ? hostedRequestWaitsByDesign(url, request)
         : options.fetch === undefined && !options.beforeDispatch && pageCarries(url, request),
     });
@@ -217,6 +219,11 @@ async function requestJson(
     data = await response.json();
   } catch {
     assertCurrent?.();
+    // Given up on while the answer was being read: that says nothing of what the BFF answered.
+    const givenUp = sentSignal as AbortSignal | null;
+    if (givenUp?.aborted) {
+      throw new BridgeCallError("BRIDGE_NETWORK_ERROR", transportFailureWords(path, givenUp.reason, lane), 0, lane.diagnose().verdict);
+    }
     throw new BridgeCallError(
       "BRIDGE_BAD_RESPONSE",
       `${path} returned a non-JSON response (HTTP ${response.status}).`,

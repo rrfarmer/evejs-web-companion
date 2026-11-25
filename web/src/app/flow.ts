@@ -1548,7 +1548,10 @@ export interface PilotFlying {
 
   /** One snapshot of this pilot's surroundings and drones. */
   readObservation(opts?: { signal?: AbortSignal }): Promise<api.SpaceSnapshotResult & api.DronesResult>;
-  /** A bridge read as this pilot. Optional cancellation covers both the slot wait and the response. */
+  /**
+   * A bridge read as this pilot. Optional cancellation covers the wait for a request lane, the response, and a
+   * container's password prompt. A cancelled read rejects with BRIDGE_NETWORK_ERROR.
+   */
   readonly bridgeAsk: (service: string, method: string, args: readonly JsonValue[], kwargs?: CallKwargs,
     of?: JsonValue, opts?: { signal?: AbortSignal }) => Promise<JsonValue>;
   /** A bridge write as this pilot. */
@@ -4319,7 +4322,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const epoch = inventoryPasswordEpoch, characterID = store.station.get().online?.characterID ?? null;
     const passwordCurrent = () => {
       current();
-      options.signal?.throwIfAborted();
+      if (options.signal?.aborted) {
+        const reason: unknown = options.signal.reason;
+        // What every other read given up on rejects with.
+        throw new BridgeCallError("BRIDGE_NETWORK_ERROR", `This inventory request was given up on: ${reason instanceof Error ? reason.message : String(reason)}`, 0);
+      }
       if (sessionClosing || inventoryPasswordSwitching || epoch !== inventoryPasswordEpoch || characterID !== (store.station.get().online?.characterID ?? null))
         throw new BridgeCallError("SESSION_REQUEST_RETIRED", "This inventory request belongs to a retired pilot session.", 0);
     };
@@ -4327,7 +4334,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const passwords = inventoryPasswords({
       ask: api.bridgeAsk(scoped, now => { serverClockAheadMs = now - Date.now(); }),
       act: api.bridgeDo(scoped, now => { serverClockAheadMs = now - Date.now(); }),
-      current: passwordCurrent, prompt: type => askInventoryPassword(type, passwordCurrent),
+      current: passwordCurrent, prompt: type => askInventoryPassword(type, passwordCurrent, options.signal),
     });
     return { current: passwordCurrent, options: scoped, ...passwords };
   }
@@ -10544,14 +10551,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     for (const finish of inventoryPasswordWaiters) finish(null);
   }
 
-  async function askInventoryPassword(type: InventoryPasswordType, current: () => void): Promise<string | null> {
+  async function askInventoryPassword(type: InventoryPasswordType, current: () => void, signal?: AbortSignal): Promise<string | null> {
     current();
     await wordsNow(["UI/Inventory/ItemActions/AccessPasswordRequiredCaption", "UI/Inventory/ItemActions/PleaseEnterAccessPassword",
       "UI/Inventory/ItemActions/ConfigurationPasswordRequiredCaption", "UI/Inventory/ItemActions/PleaseEnterConfigurationPassword",
       "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething"]);
     current();
     return new Promise(resolve => {
-      const finish = (text: string | null) => { inventoryPasswordWaiters.delete(finish); resolve(text); };
+      const finish = (text: string | null) => {
+        inventoryPasswordWaiters.delete(finish);
+        signal?.removeEventListener("abort", giveUp);
+        resolve(text);
+      };
+      // The caller gave the read up. The window goes back to the waiter this one took it from, or closes.
+      const before = inventoryPasswordAnswer;
+      const giveUp = () => {
+        if (inventoryPasswordAnswer === finish) {
+          inventoryPasswordAnswer = before !== null && inventoryPasswordWaiters.has(before) ? before : null;
+          if (inventoryPasswordAnswer === null) inventoryPasswordAskedSignal.set(null);
+        }
+        finish(null);
+      };
+      signal?.addEventListener("abort", giveUp, { once: true });
       inventoryPasswordWaiters.add(finish);
       // Window.Open3186/ShowDialog: reuse setNewName's field/caption; the most recent modal waiter receives Confirm.
       // Older overlapping waiters remain pending until this pilot retires, rather than inventing a queue or fanout.

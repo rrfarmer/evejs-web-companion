@@ -409,8 +409,9 @@ runs: {
   Both reads check the pilot session before dispatch and discard replies from a retired
   session. The default 65-second timeout starts when the flow's transport lane admits
   the request. In `inprocess` mode this includes any later wait for a Bot Host slot.
-  With a caller-supplied signal, `readObservation` keeps its default timeout and
-  `bridgeAsk` uses the signal in place of its default timeout.
+  Both reads keep it beside a caller-supplied signal. A cancelled read rejects with
+  `BRIDGE_NETWORK_ERROR`, as a timed-out one does: look at your own signal to tell them
+  apart. One signal may be passed to any number of reads.
 - **`hostDrivenCharacterIDs()`** says who the host flies with a bot, or null if it says nothing,
   for a loop telling the account's bots from a person flying beside them.
 - **`sleepUntilPush(ms)`** sleeps until the next look, or until a push wants acting on. A push
