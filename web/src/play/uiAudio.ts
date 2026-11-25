@@ -106,6 +106,7 @@ onGfx((settings) => {
 const decoded = new Map<string, Promise<AudioBuffer | null>>();
 /** The sounds a "<name>_play" event started and has playing (a "<name>_stop" event ends them, as its Stop action does). */
 const playing = new Map<string, Set<AudioBufferSourceNode>>();
+const sourceGains = new WeakMap<AudioBufferSourceNode, GainNode>();
 /** Every UI event asked to play (for checks): its name and what was found for it. */
 export const uiAudioLog: { name: string; sound: string | null; state?: AudioContextState; played?: boolean; distance?: number }[] = [];
 
@@ -252,6 +253,7 @@ async function start(name: string, sounds: { sound: string; gain: number }[], vo
     source.playbackRate.value = own.rate;
     const gain = ctx.createGain();
     gain.gain.value = volume * sounds[n]!.gain * own.gain;
+    sourceGains.set(source, gain);
     source.connect(gain).connect(out(ctx, sounds[n]!.sound));
     source.start();
     entry.played = true;
@@ -444,20 +446,32 @@ async function playMovingWorldSound(name: string, at: Vec3, forceLoop: boolean, 
 }
 
 /** Release the sounds started by a UI event, including its looping layers. */
-export function stopUiSound(name: string): void {
+export function stopUiSound(name: string, fadeMs = 0): void {
   const key = name.toLowerCase();
-  for (const source of playing.get(key) ?? []) { try { source.stop(); } catch { /* already over */ } }
+  for (const source of playing.get(key) ?? []) {
+    try {
+      const volume = sourceGains.get(source)?.gain;
+      if (volume && fadeMs > 0) {
+        const now = source.context.currentTime;
+        const end = now + fadeMs / 1000;
+        volume.setValueAtTime(volume.value, now);
+        volume.linearRampToValueAtTime(0, end);
+        source.stop(end);
+      } else source.stop();
+    } catch { /* already over */ }
+  }
   playing.delete(key);
 }
 
 /** SendUIEvent: the event's sounds played once, now (the first call after a user gesture starts the audio). */
-export async function playUiEvent(name: string, signal?: AbortSignal, playStopCue = false): Promise<void> {
+export async function playUiEvent(name: string, signal?: AbortSignal,
+  options: { playStopCue?: boolean; fadeOutMs?: number; voice?: boolean } = {}): Promise<void> {
   if (signal?.aborted) return;
   // Most stop events just release the play's sources. Warp preparation also has a separate authored stop cue.
   const stop = /^(.*)_stop$/i.exec(name);
   if (stop) {
-    stopUiSound(`${stop[1]}_play`);
-    if (!playStopCue) {
+    stopUiSound(`${stop[1]}_play`, options.fadeOutMs);
+    if (!options.playStopCue) {
       uiAudioLog.push({ name, sound: null, played: false });
       return;
     }
@@ -467,7 +481,7 @@ export async function playUiEvent(name: string, signal?: AbortSignal, playStopCu
   const entry: (typeof uiAudioLog)[number] = { name, sound: sounds.map((s) => s.sound).join(" + ") || null };
   uiAudioLog.push(entry);
   const settings = gfx();
-  const volume = settings.audioEnabled ? settings.masterVolume * settings.uiGain : 0;
+  const volume = settings.audioEnabled ? settings.masterVolume * (options.voice ? settings.evevoiceGain : settings.uiGain) : 0;
   if (!sounds.length || volume <= 0) return;
   await start(name, sounds, volume, (ctx) => ctx.destination, entry, undefined, signal);
 }

@@ -1597,6 +1597,7 @@ export class SpaceView {
   private showSpecialBrackets = false;
   /** Warp.py's sound flags for the ship's own warp: the explosion played (hasExploded), the wind playing (hasWind). */
   private warpSound = { exploded: false, wind: false };
+  private warpWind: AbortController | null = null;
   private warpPreparation: { shipID: number; abort: AbortController } | null = null;
   /** CmdAccelerate / CmdDecelerate's CallCombiner (0.3 s). */
   private speedCombiner: ReturnType<typeof setTimeout> | null = null;
@@ -2201,6 +2202,7 @@ export class SpaceView {
     this.alertVignetteFlash?.cancel();
     this.targetBar.dispose();
     this.cancelWarpPreparation();
+    this.releaseWarpWind(0);
     this.warpTunnel.dispose();
     this.warpHullLighting?.clear();
     this.wormholeTransit.dispose();
@@ -2324,7 +2326,7 @@ export class SpaceView {
     if (current && (!preparing || ship?.itemID !== current.shipID)) {
       this.cancelWarpPreparation();
       if (ship?.itemID === current.shipID) {
-        if (ship.mode === "WARP") void playUiEvent("warp_ship_init_stop", undefined, true);
+        if (ship.mode === "WARP") void playUiEvent("warp_ship_init_stop", undefined, { playStopCue: true });
         else void playUiEvent("warp_ship_abort_play");
       }
     }
@@ -2332,8 +2334,14 @@ export class SpaceView {
       const abort = new AbortController();
       this.warpPreparation = { shipID: ship.itemID, abort };
       void playUiEvent("warp_ship_init_play", abort.signal);
-      void playUiEvent("msg_WarpDriveActive_play", abort.signal);
+      void playUiEvent("msg_WarpDriveActive_play", abort.signal, { voice: true });
     }
+  }
+
+  private releaseWarpWind(fadeMs: number): void {
+    this.warpWind?.abort();
+    this.warpWind = null;
+    stopUiSound("ship_warp_wind_play", fadeMs);
   }
 
   /** The live park owns the warp phase. The session remembers what the pilot asked it to aim at. */
@@ -6565,10 +6573,17 @@ export class SpaceView {
     if (ego?.mode === "WARP") {
       if (!this.warpSound.exploded && share > 0.005) {
         void playUiEvent("ship_warp_explosion_play");
-        void playUiEvent("ship_warp_wind_play");
+        this.warpWind = new AbortController();
+        void playUiEvent("ship_warp_wind_play", this.warpWind.signal);
         this.warpSound = { exploded: true, wind: true };
+      } else if (this.warpSound.wind && share < 0.000001) {
+        // OnWarpDecelerate plays the end layers and stops the wind with common.bnk's five-second transition.
+        this.releaseWarpWind(5000);
+        void playUiEvent("ship_warp_wind_end");
+        this.warpSound.wind = false;
       }
     } else if (this.warpSound.exploded) {
+      this.releaseWarpWind(5000);
       void playUiEvent("ship_warp_wind_stop");
       this.warpSound = { exploded: false, wind: false };
     }

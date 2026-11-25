@@ -99,18 +99,20 @@ function boundToDistance(rtpc) {
   }
   return false;
 }
-for (const res0 of res.list("res:/audio/essential_media/", /\.bnk$/)) {
-  const bytes = res.read(res0);
+function* bankObjects(bytes, hirc) {
+  if (!hirc) return;
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const { chunks } = readBank(bytes);
-  if (!chunks.HIRC) continue;
-  let q = chunks.HIRC.offset + 4;
-  const count = dv.getUint32(chunks.HIRC.offset, true);
+  let q = hirc.offset + 4;
+  const count = dv.getUint32(hirc.offset, true);
   for (let i = 0; i < count; i++) {
     const type = bytes[q], size = dv.getUint32(q + 1, true), id = dv.getUint32(q + 5, true);
-    objects.set(id, { type, body: bytes.subarray(q + 5, q + 5 + size) });
+    yield [id, { type, body: bytes.subarray(q + 5, q + 5 + size) }];
     q += 5 + size;
   }
+}
+for (const res0 of res.list("res:/audio/essential_media/", /\.bnk$/)) {
+  const bytes = res.read(res0);
+  for (const [id, object] of bankObjects(bytes, readBank(bytes).chunks.HIRC)) objects.set(id, object);
 }
 const sourceBank = new Map();
 for (const bank of fs.readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory())) {
@@ -118,6 +120,37 @@ for (const bank of fs.readdirSync(root, { withFileTypes: true }).filter((d) => d
 }
 const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
 const u16 = (b, o) => b[o] | (b[o + 1] << 8);
+
+// The warp announcement's Play action is in common.bnk and its embedded sound is in the localized voice bank.
+const warpVoiceBank = "res:/audio/english(us)/voice.bnk";
+const warpAnnouncement = objects.get(fnv1("msg_WarpDriveActive_play"));
+if (warpAnnouncement?.type === 4 && res.has(warpVoiceBank)) {
+  const targets = new Set();
+  for (let i = 0; i < warpAnnouncement.body[4]; i++) {
+    const action = objects.get(u32(warpAnnouncement.body, 5 + 4 * i));
+    if (action?.type === 3 && u16(action.body, 4) === 0x0403) targets.add(u32(action.body, 6));
+  }
+  const bank = res.read(warpVoiceBank);
+  const { chunks, sounds } = readBank(bank);
+  const directory = path.join(root, "voice-en");
+  for (const [id, object] of bankObjects(bank, chunks.HIRC)) {
+    if (!targets.has(id) || object.type !== 2 || object.body[8] !== 0) continue;
+    const source = u32(object.body, 9);
+    const embedded = sounds.find((sound) => sound.id === source);
+    if (!embedded) continue;
+    try {
+      let ext = existing(directory, source);
+      if (!ext) {
+        const decoded = convert(embedded.bytes);
+        ext = decoded.ext;
+        fs.mkdirSync(directory, { recursive: true });
+        fs.writeFileSync(path.join(directory, `${source}.${ext}`), decoded.bytes);
+      }
+      sourceBank.set(source, `voice-en/${source}.${ext}`);
+      objects.set(id, object);
+    } catch (error) { fail(error); }
+  }
+}
 /** A random / sequence container's playlist: the ids at its end, where they make a valid list of known objects. */
 function playlist(body) {
   for (let n = 1; n <= 255; n++) {
