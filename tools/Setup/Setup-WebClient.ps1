@@ -416,6 +416,24 @@ try {
     Write-Changed "Built the client's Docker image"
   }
 
+  # Existing /fly extracts get the same Brotli variants as new extracts.
+  $assetCache = Join-Path $RepoRoot "_local\client-assets"
+  if (Test-Path -LiteralPath $assetCache) {
+    Write-Info "Preparing compressed flight assets. The first pass can take several minutes..."
+    if ($clientMode -eq "native") {
+      & node tools/client-extract/compress-cache.cjs
+    } elseif ($serverMode -eq "docker") {
+      & docker compose -f $ComposeBase -f $ComposeOverlay run --rm --no-deps bff node tools/client-extract/compress-cache.cjs
+    } else {
+      & docker compose -f $ComposeBase run --rm --no-deps bff node tools/client-extract/compress-cache.cjs
+    }
+    if ($LASTEXITCODE -eq 0) {
+      Write-Ok "Flight assets prepared"
+    } else {
+      Write-Problem "Some flight assets could not be compressed" "the original extracted files are still available"
+    }
+  }
+
   # ── 6. Restart the server container if it is running without the key ───────
   if ($serverNeedsRestart) {
     Write-Host ""

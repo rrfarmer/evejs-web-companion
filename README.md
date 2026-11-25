@@ -154,6 +154,12 @@ Docker, asks the one question it cannot answer for you (run the client directly 
 Docker), sets up the connection between them, starts it, and tells you the address to
 open. Run it again any time — it only changes what actually needs changing.
 
+If you already have a `/fly` asset cache, setup prepares its lossless Brotli
+variants too. The first pass can take several minutes. To run just that step,
+use `npm run compress:assets`. For a fresh flight cache, use the
+[installed-client extractor](tools/client-extract/README.md). Each newly extracted
+asset is prepared automatically.
+
 After that, day to day:
 
 ```text

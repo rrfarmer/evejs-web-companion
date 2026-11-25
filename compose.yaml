@@ -73,6 +73,8 @@ services:
       # Sessions, the web-user store, the bot script store and the icon cache.
       # Named, so rebuilding the image does not sign everyone out.
       - evejs-web-poc-data:/app/data
+      # Keep extracted flight assets and their Brotli variants on this machine.
+      - ./_local/client-assets:/app/_local/client-assets
       # The native EveJS checkout, for static names only. Read-only: this POC
       # never writes into the gameStore.
       - ${EVEJS_ROOT:-../eve.js}:/srv/evejs:ro

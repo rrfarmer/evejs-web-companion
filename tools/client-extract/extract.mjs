@@ -46,9 +46,18 @@ import { readMissileModel, groupGraphics, graphicIdsOfType, sdeGraphic } from ".
 import { readBlack } from "./lib/black.mjs";
 import { readDefaultOverviews, DEFAULT_TAB_NAMES } from "./lib/defaultOverviews.mjs";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+import compression from "./lib/assetCompression.cjs";
 
-const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
+const ENTRY = fileURLToPath(import.meta.url);
+const HERE = path.dirname(ENTRY);
 export const REPO = path.resolve(HERE, "..", "..");
+const writtenAssets = new Set();
+
+function writeExtracted(file, data) {
+  fs.writeFileSync(file, data);
+  if (compression.compressibleAsset(file)) writtenAssets.add(file);
+}
 
 // Texture suffixes of a ship hull's own texture set (beside its .gr2)
 const TEXTURE_ROLES = { a: "albedo", ar: "albedoRoughness", d: "dirt", g: "glow", m: "materialMask", n: "normal", o: "occlusion", p3: "paintMask", pmdg: "paintMaskDirtGlow", r: "roughness" };
@@ -95,7 +104,8 @@ export function extractScene(rf, scenePath, outRoot) {
     if (!rf.has(source)) continue;
     const file = path.join(outRoot, ...res.slice("res:/".length).split("/"));
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    if (!fs.existsSync(file)) fs.writeFileSync(file, rf.read(source));
+    if (!fs.existsSync(file)) writeExtracted(file, rf.read(source));
+    writtenAssets.add(file);
     out[role] = "/client-assets/" + res.slice("res:/".length);
   }
   return out;
@@ -114,7 +124,7 @@ export function extractBrackets(rf, outRoot) {
     byCategory: read("bracketsbycategory"),
     brackets: Object.fromEntries(Object.entries(brackets).map(([id, b]) => [id, { name: b.name ?? null, texturePath: b.texturePath ?? null, texturePathEmpty: b.texturePathEmpty ?? null }])),
   };
-  fs.writeFileSync(path.join(outRoot, "brackets.json"), JSON.stringify(out));
+  writeExtracted(path.join(outRoot, "brackets.json"), JSON.stringify(out));
   return out;
 }
 
@@ -124,8 +134,9 @@ function copyRes(rf, res, outRoot) {
   const file = path.join(outRoot, ...rel.split("/"));
   if (!fs.existsSync(file)) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, rf.read(res));
+    writeExtracted(file, rf.read(res));
   }
+  if (compression.compressibleAsset(file)) writtenAssets.add(file);
   return `/client-assets/${rel}`;
 }
 
@@ -304,7 +315,7 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
   const variant = sofVariant(factionName, materialSet?._key, typeID);
   const file = path.join(outRoot, ...`${stem}.${variant}.sof.json`.split("/"));
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(built));
+  writeExtracted(file, JSON.stringify(built));
   return file;
 }
 
@@ -334,7 +345,7 @@ export async function extractMissile(rf, clientDir, sdeDir, typeID, outRoot) {
   };
   const file = path.join(outRoot, "missiles", `${typeID}.json`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(out));
+  writeExtracted(file, JSON.stringify(out));
   return file;
 }
 
@@ -349,7 +360,7 @@ export function extractCelestial(rf, graphicFile, outRoot) {
   const rel = graphicFile.toLowerCase().slice("res:/".length).replace(/.(red|black)$/, "") + ".celestial.json";
   const file = path.join(outRoot, ...rel.split("/"));
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(c, null, 1));
+  writeExtracted(file, JSON.stringify(c, null, 1));
   return file;
 }
 
@@ -370,7 +381,7 @@ function effectsTable(rf, clientDir, outRoot) {
   const file = path.join(outRoot, "effects.json");
   if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"));
   const json = readClientTable(rf, clientDir, "effects");
-  fs.writeFileSync(file, json);
+  writeExtracted(file, json);
   return JSON.parse(json);
 }
 
@@ -394,7 +405,7 @@ async function extractEffectGraphic(rf, sde, graphicID, outRoot) {
   };
   const file = path.join(outRoot, "effects", `${graphicID}.json`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(out));
+  writeExtracted(file, JSON.stringify(out));
   return file;
 }
 
@@ -414,7 +425,7 @@ function extractWormholeNebula(rf, sde, graphicID, outRoot) {
     .map(([name, res]) => [name, copyRes(rf, res, outRoot)]));
   const file = path.join(outRoot, "wormholeNebula", `${graphicID}.json`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(textures));
+  writeExtracted(file, JSON.stringify(textures));
   return file;
 }
 
@@ -423,7 +434,7 @@ async function extractWormholeTransit(rf, outRoot) {
   const effect = readEffectFile(rf, resource);
   if (!effect?.root) throw new Error(`Cannot read ${resource}`);
   await copyChildGraphAssets(rf, [effect.root], outRoot);
-  fs.writeFileSync(path.join(outRoot, "wormholeTransit.json"), JSON.stringify({ root: effect.root, skipped: effect.skipped }));
+  writeExtracted(path.join(outRoot, "wormholeTransit.json"), JSON.stringify({ root: effect.root, skipped: effect.skipped }));
 }
 
 async function extractWarpTunnel(rf, outRoot, sde) {
@@ -445,7 +456,7 @@ async function extractWarpTunnel(rf, outRoot, sde) {
       if (system.warpTunnelOverwrite > 0) overrides[system._key] = system.warpTunnelOverwrite;
     }
   }
-  fs.writeFileSync(path.join(outRoot, "warpTunnel.json"), JSON.stringify({
+  writeExtracted(path.join(outRoot, "warpTunnel.json"), JSON.stringify({
     overrides,
     model: "/client-assets/" + path.relative(outRoot, glb).split(path.sep).join("/"),
     scale: tunnel.scaling,
@@ -480,7 +491,7 @@ async function extractFxGraphic(rf, clientDir, sde, guid, outRoot) {
   };
   const file = path.join(outRoot, "fx", `${guid}.json`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(out));
+  writeExtracted(file, JSON.stringify(out));
   return file;
 }
 
@@ -527,7 +538,7 @@ export async function extractTurret(rf, graphicFile, outRoot) {
   const rel = graphicFile.toLowerCase().slice("res:/".length).replace(/.(red|black)$/, "") + ".turret.json";
   const file = path.join(outRoot, ...rel.split("/"));
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(t, null, 1));
+  writeExtracted(file, JSON.stringify(t, null, 1));
   return file;
 }
 
@@ -562,7 +573,7 @@ export async function extractSystemCelestials(rf, sdeDir, solarSystemID, outRoot
   }
   const file = path.join(outRoot, "celestials", `${solarSystemID}.json`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ solarSystemID, celestialBuild: CELESTIAL_BUILD, items }));
+  writeExtracted(file, JSON.stringify({ solarSystemID, celestialBuild: CELESTIAL_BUILD, items }));
   return file;
 }
 
@@ -610,14 +621,14 @@ export function extractOverviewPresets(rf, clientDir, outRoot, clientCode = proc
     }
     const tabs = jotunn.tabs.filter((t) => t.overview && presets[t.overview])
       .map((t) => ({ name: (t.nameID && words.message(t.nameID)) || t.yamlName, preset: t.overview, bracket: t.bracket }));
-    fs.writeFileSync(file, JSON.stringify({ source: "jotunn_default", defaultPreset: jotunn.defaultPreset, categoryOrder: [0, 1, 2, 3, 4, 5], tabs, presets }));
+    writeExtracted(file, JSON.stringify({ source: "jotunn_default", defaultPreset: jotunn.defaultPreset, categoryOrder: [0, 1, 2, 3, 4, 5], tabs, presets }));
     return file;
   }
   const presets = readDefaultOverviews(rf.read("res:/staticdata/defaultoverviews.fsdbinary"));
   const byShort = {};
   for (const p of presets) byShort[p.shortName] = { name: words.message(p.nameID) ?? p.shortName, nameID: p.nameID, groups: p.groups };
   const tabs = DEFAULT_TAB_NAMES.filter((n) => byShort[n]).map((n) => ({ name: byShort[n].name, preset: n }));
-  fs.writeFileSync(file, JSON.stringify({ source: "old_default", tabs, presets: byShort }));
+  writeExtracted(file, JSON.stringify({ source: "old_default", tabs, presets: byShort }));
   return file;
 }
 
@@ -634,13 +645,13 @@ export async function extractHull(rf, res, outRoot) {
     for (const variant of ["", "_lowdetail", "_mediumdetail"]) {
       const tres = `${stem}_${suffix}${variant}.dds`;
       if (!rf.has(tres)) continue;
-      fs.writeFileSync(`${base}_${suffix}${variant}.dds`, rf.read(tres));
+      writeExtracted(`${base}_${suffix}${variant}.dds`, rf.read(tres));
       (textures[role] ??= {})[variant.slice(1) || "full"] = `${path.basename(stem)}_${suffix}${variant}.dds`;
     }
   }
 
   const name = path.basename(stem);
-  fs.writeFileSync(`${base}.glb`, writeGlb({ name, lods, extras: { source: res, textures } }));
+  writeExtracted(`${base}.glb`, writeGlb({ name, lods, extras: { source: res, textures } }));
   const info = {
     source: res,
     lods: lods.map((m) => ({ name: m.name, vertices: m.vertexCount, triangles: m.indices.length / 3, maxScreenSize: m.extended?.maxScreenSize ?? null, areas: m.groups.map((x) => ({ name: m.materials[x.material] ?? null, triangles: x.count })), components: m.components })),
@@ -648,7 +659,7 @@ export async function extractHull(rf, res, outRoot) {
     artTool: g.root.ArtToolInfo?.FromArtToolName ?? null,
     exportedFrom: g.root.FromFileName ?? null,
   };
-  fs.writeFileSync(`${base}.json`, JSON.stringify(info, null, 2));
+  writeExtracted(`${base}.json`, JSON.stringify(info, null, 2));
   return { res, glb: `${base}.glb`, lods: lods.length, textures: Object.keys(textures).length };
 }
 
@@ -657,7 +668,7 @@ function addToManifest(outRoot, build, client, done) {
   const manifest = fs.existsSync(manifestFile) ? JSON.parse(fs.readFileSync(manifestFile, "utf8")) : { build, client: path.basename(client), hulls: [] };
   manifest.hulls = [...new Set([...manifest.hulls, ...done])].sort();
   manifest.updated = new Date().toISOString();
-  fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2));
+  writeExtracted(manifestFile, JSON.stringify(manifest, null, 2));
 }
 
 // Build 3698585: type 85231 uses graphic 28011 and bucket 36. Hull jhs1 has
@@ -676,7 +687,7 @@ async function extractDrifterCollectionExplosion(rf, outRoot) {
     ["atlas", "res:/fisfx/gpuparticles/systematlas.dds"],
     ["noise", "res:/texture/global/noise32cube_volume.dds"],
   ].map(([name, res]) => [name, rf.has(res) ? copyRes(rf, res, outRoot) : null])) : undefined;
-  fs.writeFileSync(path.join(outRoot, "drifterCollectionExplosion.json"), JSON.stringify({
+  writeExtracted(path.join(outRoot, "drifterCollectionExplosion.json"), JSON.stringify({
     explosionBuild: 2,
     root,
     childEffects,
@@ -734,7 +745,7 @@ function extractObservatoryEnvironment(rf, clientDir, outRoot) {
     }));
     return masks.length ? [[id, { color: graphic.albedoColor, masks }]] : [];
   }));
-  fs.writeFileSync(path.join(outRoot, "observatoryEnvironment.json"), JSON.stringify({
+  writeExtracted(path.join(outRoot, "observatoryEnvironment.json"), JSON.stringify({
     environmentBuild: 3,
     anchor,
     templateID,
@@ -773,7 +784,7 @@ function extractObservatoryVortex(rf, outRoot) {
       value * (binding(`${name}.${"xyz"[channel]}_UpdateDest`).scale ?? 1));
     return [...rgb, reflectionDensity * (binding(`reflectionDensity${i}.w_UpdateDest`).scale ?? 1)];
   });
-  fs.writeFileSync(path.join(outRoot, "observatoryVortex.json"), JSON.stringify({
+  writeExtracted(path.join(outRoot, "observatoryVortex.json"), JSON.stringify({
     vortexBuild: 2,
     scaling: cloud.scaling,
     density: variables._densityMax,
@@ -852,7 +863,7 @@ async function main() {
   const config = { client: path.resolve(client), sde: args.sde ? path.resolve(args.sde) : null, build };
   const configFile = path.join(outRoot, "config.json");
   const old = fs.existsSync(configFile) ? JSON.parse(fs.readFileSync(configFile, "utf8")) : {};
-  fs.writeFileSync(configFile, JSON.stringify({ ...old, ...Object.fromEntries(Object.entries(config).filter(([, v]) => v !== null)) }, null, 2));
+  writeExtracted(configFile, JSON.stringify({ ...old, ...Object.fromEntries(Object.entries(config).filter(([, v]) => v !== null)) }, null, 2));
 
   const sde = args.sde ?? old.sde ?? null;
   if (args.sofDefaults && !sde) throw new Error("--sof-defaults needs the matching export (--sde or a configured export folder)");
@@ -862,8 +873,9 @@ async function main() {
     if (sde && (args.sofDefaults || args.sde || !fs.existsSync(file))) {
       stockDefaults = buildGraphicSofDefaults(sde);
       const temporary = `${file}.${process.pid}.tmp`;
-      fs.writeFileSync(temporary, JSON.stringify(stockDefaults));
+      writeExtracted(temporary, JSON.stringify(stockDefaults));
       fs.renameSync(temporary, file);
+      writtenAssets.add(file);
     } else if (fs.existsSync(file)) stockDefaults = JSON.parse(fs.readFileSync(file, "utf8"));
   }
 
@@ -872,16 +884,16 @@ async function main() {
   if (args.typeGraphics) {
     if (!args.sde) throw new Error("--type-graphics needs --sde <SDE jsonl folder>");
     typeGraphics = await buildTypeGraphics(args.sde, rf);
-    fs.writeFileSync(tgFile, JSON.stringify(typeGraphics));
+    writeExtracted(tgFile, JSON.stringify(typeGraphics));
     const all = Object.values(typeGraphics);
     console.log(`typeGraphics.json: ${all.length} types, ${all.filter((t) => t.gr2).length} with a SOF hull model, ${all.filter((t) => t.hull && !t.gr2).length} hulls without one found`);
     const scenes = await buildSystemScenes(args.sde);
-    fs.writeFileSync(path.join(outRoot, "systemScenes.json"), JSON.stringify(scenes));
+    writeExtracted(path.join(outRoot, "systemScenes.json"), JSON.stringify(scenes));
     console.log(`systemScenes.json: ${Object.keys(scenes).length} systems`);
     const br = extractBrackets(rf, outRoot);
     console.log(`brackets.json: ${Object.keys(br.brackets).length} brackets, ${Object.keys(br.byType).length} by type, ${Object.keys(br.byGroup).length} by group`);
     const names = await buildTypeNames(mapSdeDir(args.sde, ["types.jsonl", "groups.jsonl", "mapSolarSystems.jsonl"]));
-    fs.writeFileSync(path.join(outRoot, "typeNames.json"), JSON.stringify(names));
+    writeExtracted(path.join(outRoot, "typeNames.json"), JSON.stringify(names));
     console.log(`typeNames.json: ${Object.keys(names.types).length} types, ${Object.keys(names.groups).length} groups`);
   } else if (fs.existsSync(tgFile)) typeGraphics = JSON.parse(fs.readFileSync(tgFile, "utf8"));
 
@@ -890,8 +902,9 @@ async function main() {
     const typeGraphicIDs = Object.fromEntries(Object.entries(typeGraphics ?? {}).map(([id, row]) => [id, row.graphicID]));
     const destination = path.join(outRoot, "asteroidRules.json");
     const temporary = `${destination}.${process.pid}.tmp`;
-    fs.writeFileSync(temporary, JSON.stringify({ groups, typeGraphicIDs }));
+    writeExtracted(temporary, JSON.stringify({ groups, typeGraphicIDs }));
     fs.renameSync(temporary, destination);
+    writtenAssets.add(destination);
   }
 
   const specs = [...args.hulls];
@@ -933,7 +946,7 @@ async function main() {
       }
       const file = path.join(outRoot, "typeSkins", `${typeID}.${materialSetID}.json`);
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, JSON.stringify(descriptor));
+      writeExtracted(file, JSON.stringify(descriptor));
     }
   }
   // --graphic: a SOF graphic that is no type's (a station hangar: hangarRegistry's hangarModelGraphicID), its hull and
@@ -957,16 +970,8 @@ async function main() {
       if (g?.graphicFile && /_scene\.(red|black)$/i.test(g.graphicFile)) {
         const black = g.graphicFile.toLowerCase().replace(/\.red$/, ".black");
         const s = readBlack(rf.read(black), black);
-        const copy = (res) => {
-          if (!res) return null;
-          const key = res.toLowerCase();
-          if (!rf.has(key)) return null;
-          const out = path.join(outRoot, ...key.slice("res:/".length).split("/"));
-          fs.mkdirSync(path.dirname(out), { recursive: true });
-          if (!fs.existsSync(out)) fs.writeFileSync(out, rf.read(key));
-          return "/client-assets/" + key.slice("res:/".length);
-        };
-        fs.writeFileSync(file, JSON.stringify({ graphicID, scene: {
+        const copy = (res) => res && rf.has(res) ? copyRes(rf, res, outRoot) : null;
+        writeExtracted(file, JSON.stringify({ graphicID, scene: {
           reflection: copy(s.envMapResPath), envMap1: copy(s.envMap1ResPath), blur: copy(s.envMap2ResPath),
           sunDiffuseColor: s.sunDiffuseColor ?? null, sunDirection: s.sunDirection ?? null, ambientColor: s.ambientColor ?? null,
           // the post-process effects drawn so far: the dynamic exposure's values the scene sets (the rest are defaults)
@@ -988,7 +993,7 @@ async function main() {
       const materialSet = stockDefaults[graphicID];
       const faction = (materialSet?.sofFactionName || g.sofFactionName) ?? null;
       await extractSof(rf, gr2, g.sofHullName, faction, outRoot, g.sofRaceName ?? null, { materialSet });
-      fs.writeFileSync(file, JSON.stringify({ graphicID, hull: g.sofHullName, faction, race: g.sofRaceName ?? null, gr2,
+      writeExtracted(file, JSON.stringify({ graphicID, hull: g.sofHullName, faction, race: g.sofRaceName ?? null, gr2,
         ...(materialSet && { sofMaterialSetID: materialSet._key }) }));
       console.log(`graphic ${graphicID}: ${g.sofHullName} as ${faction ?? "none"}`);
     }
@@ -1010,7 +1015,7 @@ async function main() {
     await extractSof(rf, gr2, hullName, factionName, outRoot, raceName);
     const file = path.join(outRoot, "dna", `${dna.toLowerCase().replace(/:/g, ".")}.json`);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify({ dna, hull: hullName, faction: factionName, race: raceName, gr2 }));
+    writeExtracted(file, JSON.stringify({ dna, hull: hullName, faction: factionName, race: raceName, gr2 }));
     console.log(`dna ${dna}: ${gr2}`);
   }
   const done = [];
@@ -1024,7 +1029,7 @@ async function main() {
   for (const [id, gr2] of resolvedGeometry) {
     const file = path.join(outRoot, "typeGeometry", `${id}.json`);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify({ gr2 }));
+    writeExtracted(file, JSON.stringify({ gr2 }));
   }
   for (const c of args.celestials) console.log(`${c} -> ${path.relative(outRoot, extractCelestial(rf, c, outRoot))}`);
   for (const t of args.turrets) console.log(`${t} -> ${path.relative(outRoot, await extractTurret(rf, t, outRoot))}`);
@@ -1039,7 +1044,7 @@ async function main() {
   if (args.gfxTurrets) {
     if (!sde) throw new Error("--gfx-turrets needs the SDE (--sde, or a config.json that names it)");
     const map = await buildGfxTurrets(sde);
-    fs.writeFileSync(path.join(outRoot, "gfxTurrets.json"), JSON.stringify(map));
+    writeExtracted(path.join(outRoot, "gfxTurrets.json"), JSON.stringify(map));
     console.log(`gfxTurrets.json: ${Object.keys(map).length} types`);
   }
   // ammoColors.json: the beam colour a charge gives its turret's firing effect, by the charge's typeID
@@ -1062,7 +1067,7 @@ async function main() {
       sunDiffuseColor: s.sunDiffuseColor ?? null, sunDirection: s.sunDirection ?? null, ambientColor: s.ambientColor ?? null,
       background: Object.fromEntries(s.backgroundEffect?.constParameters?.items ?? []),
     };
-    fs.writeFileSync(path.join(outRoot, "fittingScene.json"), JSON.stringify(scene));
+    writeExtracted(path.join(outRoot, "fittingScene.json"), JSON.stringify(scene));
     console.log(`fittingScene.json: ${Object.keys(scene).filter((k) => scene[k]).join(", ")}`);
   }
   if (args.drifterCollectionExplosion) await extractDrifterCollectionExplosion(rf, outRoot);
@@ -1083,7 +1088,7 @@ async function main() {
       if (effect?.objects?.[0]?.srt) effect.objects[0].srt.translation = [28000, -12000, -99000];
     }
     for (const effect of [background, lightRig]) await copyChildGraphAssets(rf, [effect.root, ...Object.values(effect.childEffects)], outRoot);
-    fs.writeFileSync(path.join(outRoot, "shipInfoScene.json"), JSON.stringify({ reflections,
+    writeExtracted(path.join(outRoot, "shipInfoScene.json"), JSON.stringify({ reflections,
       sunDiffuseColor: scene.sunDiffuseColor, sunDirection: scene.sunDirection, ambientColor: scene.ambientColor,
       background, lightRig }));
     console.log(`shipInfoScene.json: ${Object.keys(background.childEffects).length} faction effects and light rig`);
@@ -1104,10 +1109,10 @@ async function main() {
       const raw = JSON.parse(fs.readFileSync(coords, "utf8"));
       const out = {};
       for (const [id, v] of Object.entries(raw)) if (Array.isArray(v?.pos)) out[id] = [v.pos[0], v.pos[1]];
-      fs.writeFileSync(path.join(outRoot, "starmap-abstract.json"), JSON.stringify(out));
+      writeExtracted(path.join(outRoot, "starmap-abstract.json"), JSON.stringify(out));
       abstract = "/client-assets/starmap-abstract.json";
     }
-    fs.writeFileSync(path.join(outRoot, "starmap.json"), JSON.stringify({ starMapBuild: 5, textures, abstract }));
+    writeExtracted(path.join(outRoot, "starmap.json"), JSON.stringify({ starMapBuild: 5, textures, abstract }));
     console.log("starmap.json");
   }
   for (const guid of args.fx) {
@@ -1117,7 +1122,7 @@ async function main() {
   // sofMaterials.json: every SOF material by name (the paint tool's preview swaps its paints' in, modify_dna)
   if (args.sofMaterials) {
     const map = allMaterials(loadSof(rf));
-    fs.writeFileSync(path.join(outRoot, "sofMaterials.json"), JSON.stringify(map));
+    writeExtracted(path.join(outRoot, "sofMaterials.json"), JSON.stringify(map));
     console.log(`sofMaterials.json: ${Object.keys(map).length} materials`);
   }
   if (args.dscanHologram) {
@@ -1125,7 +1130,7 @@ async function main() {
     if (!area || area.shader !== "fx/fx3dv5.fx") throw new Error("The client's dscan_hologram area is unavailable");
     const textures = Object.fromEntries(area.textures.map(({ name, resFilePath }) => [name, copyRes(rf, resFilePath, outRoot)]));
     const parameters = Object.fromEntries(area.parameters.map(({ name, value }) => [name, value]));
-    fs.writeFileSync(path.join(outRoot, "dscanHologram.json"), JSON.stringify({ textures, parameters }));
+    writeExtracted(path.join(outRoot, "dscanHologram.json"), JSON.stringify({ textures, parameters }));
   }
   if (args.dscanCones) {
     const shapes = {};
@@ -1136,12 +1141,12 @@ async function main() {
       shapes[kind] = { root: effect.root, childEffects: effect.childEffects };
     }
     const lineTexture = copyRes(rf, "res:/dx9/texture/ui/lineplanarsmoothadditive.dds", outRoot);
-    fs.writeFileSync(path.join(outRoot, "dscanCones.json"), JSON.stringify({ lineTexture, shapes }));
+    writeExtracted(path.join(outRoot, "dscanCones.json"), JSON.stringify({ lineTexture, shapes }));
   }
   if (args.ammoColors) {
     if (!sde) throw new Error("--ammo-colors needs the SDE (--sde, or a config.json that names it)");
     const map = ammoColors(rf, client, sde, REPO);
-    fs.writeFileSync(path.join(outRoot, "ammoColors.json"), JSON.stringify(map));
+    writeExtracted(path.join(outRoot, "ammoColors.json"), JSON.stringify(map));
     console.log(`ammoColors.json: ${Object.keys(map).length} types`);
   }
   for (const typeID of args.missiles) {
@@ -1159,13 +1164,14 @@ async function main() {
     const file = extractOverviewPresets(rf, client, outRoot, clientCode);
     if (clientCode && clientCode !== old.clientCode) {
       const saved = JSON.parse(fs.readFileSync(configFile, "utf8"));
-      fs.writeFileSync(configFile, JSON.stringify({ ...saved, clientCode }, null, 2));
+      writeExtracted(configFile, JSON.stringify({ ...saved, clientCode }, null, 2));
     }
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
   if (!done.length && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.wormholeNebulas.length && !args.wormholeTransit && !args.warpTunnel && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.asteroidRules && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
+  await compression.prepareAssets(writtenAssets, (file, error) => console.warn(`Brotli ${path.relative(outRoot, file)}: ${error.message}`));
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {
+if (process.argv[1] && path.resolve(process.argv[1]) === ENTRY) {
   main().catch((e) => { console.error(e.message); process.exit(1); });
 }

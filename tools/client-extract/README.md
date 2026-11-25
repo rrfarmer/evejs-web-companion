@@ -20,8 +20,15 @@ node tools/client-extract/extract.mjs --client "C:\path\to\EVE Online" --hull cb
     right-handed space.
   - `<hull>_<x>.dds`: the hull's textures, copied untouched. They are BC4/BC5/BC7 and go to the
     GPU as they are.
+  - `.br` and `.br.meta`: precompressed representations and their freshness records for the asset server.
+    All extracted texture formats are eligible. Meshes and JSON of at least 8 KiB are eligible too.
+    Brotli keeps the DDS blocks, mipmaps and texture metadata byte-for-byte.
   - `<hull>.json`: what came from where (LODs, material areas, vertex layout, textures).
   - `manifest.json`: the build and the hulls extracted so far.
+
+Run `npm run compress:assets` to prepare an existing cache across all local builds.
+Setup runs the same command when a cache already exists. New extracts prepare their
+own variants, so a fresh cache does not need a separate pass.
 
 - `--system-celestials <solarSystemID>` writes `celestials/<solarSystemID>.json`: the system's
   planets and moons, each as the client loads it (planet.py): its own shader preset's object file

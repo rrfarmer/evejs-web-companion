@@ -10,12 +10,14 @@ const { droneTurret } = require("../../tools/client-extract/lib/droneTurrets.mjs
 const { SOF_BUILD, GRAPHIC_SOF_DEFAULTS, sofVariant } = require("../../tools/client-extract/lib/sof.mjs");
 const { TURRET_BUILD } = require("../../tools/client-extract/lib/turret.mjs");
 const { CELESTIAL_BUILD } = require("../../tools/client-extract/lib/typeGraphics.mjs");
+const { brotliVariant, compressibleAsset, sourceTag } = require("../../tools/client-extract/lib/assetCompression.cjs");
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const EXTRACTOR = path.join(REPO_ROOT, "tools", "client-extract", "extract.mjs");
 const runFile = promisify(execFile);
 const MIME = new Map([
   [".json", "application/json"], [".glb", "model/gltf-binary"], [".dds", "application/octet-stream"], [".png", "image/png"],
+  [".jpg", "image/jpeg"], [".jpeg", "image/jpeg"],
   [".ogg", "audio/ogg"], [".wav", "audio/wav"], [".vta", "application/octet-stream"],
 ]);
 const GENERATED = new Map([
@@ -332,7 +334,25 @@ function createClientAssets({
       if (!type || !isWithin(dir, result.file) || !fileExists(result.file)) return res.status(404).end();
       const file = fs.realpathSync(result.file);
       if (!isWithin(dir, file) || path.basename(file).toLowerCase() === "config.json") return res.status(404).end();
-      return res.type(type).sendFile(file, error => {
+      const extension = path.extname(file).toLowerCase();
+      let served = file;
+      if (compressibleAsset(file)) {
+        const stat = fs.statSync(file, { bigint: true });
+        const sidecar = req.get("Range") ? null : brotliVariant(file, stat);
+        res.vary("Accept-Encoding");
+        const encoding = req.acceptsEncodings(sidecar ? ["br", "identity"] : ["identity"]);
+        if (!encoding) return res.status(406).end();
+        if (encoding === "br") {
+          served = sidecar;
+          res.set("Content-Encoding", "br");
+        }
+        res.set("ETag", `W/"${version}-${sourceTag(stat)}-${encoding}"`);
+        res.set("Last-Modified", new Date(Number(stat.mtimeMs)).toUTCString());
+        // These URLs are shared across builds. Fresh asset bytes can be reused
+        // for a day, while manifests revalidate so they discover new layouts.
+        res.set("Cache-Control", extension === ".json" ? "public, no-cache" : "public, max-age=86400");
+      }
+      return res.type(type).sendFile(served, error => {
         if (error) next(error);
       });
     } catch (error) {

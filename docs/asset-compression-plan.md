@@ -1,7 +1,33 @@
 # Client asset compression plan
 
-Branch `FarmerThreeJSFun`. Draft for review, 2026-11-16. Nothing here is built yet. It is a
-plan backed by one measured hull.
+Branch `FarmerThreeJSFun`. The lossless HTTP pass is implemented. The mesh and texture
+format experiments below are still proposals.
+
+## Using the lossless pass
+
+New extractions write Brotli variants alongside DDS, PNG, JPEG, GLB and JSON files.
+JSON below 8 KiB is served directly. Already-compressed images keep their original
+representation if Brotli would make them larger. The original files stay available
+for clients that request identity encoding, for byte ranges, and for local tools.
+
+Run `npm run compress:assets` once to prepare an existing `_local/client-assets` cache.
+It handles all local build directories and skips source files that have already
+been prepared. `SetupWebClient.bat` runs the same pass when it finds an existing cache,
+including when the companion runs in Docker. The pass uses Node’s built-in Brotli
+encoder and needs no extra install or browser decoder. After the first pass, assets
+extracted on demand get their variants as part of extraction.
+
+The server negotiates Brotli through `Accept-Encoding`. The original media type and
+decoded bytes are preserved. Fixed asset URLs can stay fresh for one day. Manifests
+revalidate to pick up new extraction data. Validators include the client build,
+file revision and selected encoding. Build-specific immutable URLs remain a
+separate improvement for users whose client build changes frequently.
+
+On the 3698585 cache, 5,581 extracted textures totaled 5.61 GB before HTTP
+compression and 2.57 GB in their negotiated representations. The originals and
+Brotli sidecars both occupy local disk. In Chrome, the cc1 sample albedo, normal
+map and model transferred 2.40 MB cold, decoded to 7.82 MB, and transferred zero
+bytes on a second navigation.
 
 ## Why
 
@@ -92,17 +118,14 @@ Not yet checked: the real hull shader (with material and paint tinting), the GPU
 
 The steps are ordered by return for the effort. Each one is useful on its own.
 
-### 1. Brotli and real cache headers on `/client-assets/`
+### 1. Brotli and cache headers on `/client-assets/`
 
-- Write a `.br` beside every `.glb`, `.dds` and large `.json` when it is extracted, using Node's
-  built-in `zlib.brotliCompress`. The extractor stays dependency-free. Do not compress on the fly:
-  quality 11 on a 5 MB GLB is too slow per request.
-- In `clientAssets.js`, when the request's `Accept-Encoding` includes `br` and the sibling
-  exists, send it with `Content-Encoding: br`, `Vary: Accept-Encoding` and the original type.
-- Add `Cache-Control: public, max-age=…`. Extracted files only change with the client build, so
-  key the cache on the build (in the ETag, or as a build segment in the URL) and make them
-  long-lived and immutable.
-- Expected: 12.06 → 3.16 MB for cc1, no quality change, no page change.
+- The extractor prepares `.br` sidecars at quality 6 and keeps only worthwhile variants.
+  A new source revision invalidates its old sidecar. Compression runs during extraction
+  or cache preparation, and an HTTP read of an existing asset can fall back to identity.
+- Quality 6 trades some transfer size for faster extraction. On the cc1 mesh alone it
+  produced 1.08 MB in 148 ms, compared with 0.88 MB in 10.1 s at quality 11 on this host.
+- Changing image encodings or quantizing meshes is outside the lossless pass.
 
 ### 2. Quantized meshes from the extractor
 
