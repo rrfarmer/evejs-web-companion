@@ -3,15 +3,8 @@
 // TEN allowlisted structureDirectory reads; the decoders below were built from
 // bytes captured LIVE from Farmer (char 140000005, corp 98000001) on 2026-07-22.
 //
-// ⚠ TWO reads are DELIBERATELY NOT WIRED and have NO decoder here:
-//   • GetStructures — R38: buildStructureInfoDict over ARBITRARY caller ids, no
-//     ownership check → fuel/reinforce/vulnerability for any structure.
-//   • GetMyCharacterStructures — despite the "My" prefix its handler returns every
-//     DOCKABLE structure (not only owned ones) with the same operational payload.
-//     Captured live it leaked "Allied Astrahus" (owner corp 980090001 / alliance
-//     990091001 — NOT Farmer's corp) carrying reinforce_weekday 5 / reinforce_hour
-//     18 (its vulnerability window). Refused; the OWNED-corp directory
-//     (GetMyCorporationStructures) is the safe read for that payload.
+// GetMyCharacterStructures uses the public directory payload for dockable
+// structures and NPC stations. Corporation management fields use the owned read.
 //
 // R7d at the decoder level: every id (structureID / ownerID / allianceID /
 // solarSystemID / typeID) survives as a numeric field for a future UI to resolve;
@@ -82,6 +75,30 @@ function readText(value: JsonValue | undefined): string {
 /** The items of a marshaled {type:"list"} wrapper, or [] for anything else. */
 function listItems(value: JsonValue | null | undefined): readonly JsonValue[] {
   return isListValue(value) ? value.items : [];
+}
+
+export interface StructureBrowserEntry {
+  readonly structureID: number;
+  readonly typeID: number;
+  readonly ownerID: number;
+  readonly solarSystemID: number;
+  readonly itemName?: string;
+}
+
+/** GetMyCharacterStructures: a dict keyed by ID with plain dict records. */
+export function decodeCharacterStructureDirectory(result: JsonValue): StructureBrowserEntry[] {
+  const rows: StructureBrowserEntry[] = [];
+  for (const [, value] of readDictPairs(result)) {
+    const fields = new Map(readDictPairs(value));
+    const structureID = toNumber(fields.get("structureID"));
+    const typeID = toNumber(fields.get("typeID"));
+    const ownerID = toNumber(fields.get("ownerID"));
+    const solarSystemID = toNumber(fields.get("solarSystemID"));
+    if (structureID > 0 && typeID > 0 && ownerID > 0 && solarSystemID > 0) {
+      rows.push({ structureID, typeID, ownerID, solarSystemID });
+    }
+  }
+  return rows;
 }
 
 // --- structure directory info (GetMyCorporationStructures / GetCorporationStructures)

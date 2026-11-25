@@ -159,7 +159,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
     { id: "notepad", label: "Notepad", icon: icon("notepad") },
     { id: "compare", label: "Compare Tool", icon: icon("comparetool") },
     { id: "log", label: "Log", icon: icon("log") },
-    { id: "structureBrowser", label: "Structure Browser", icon: icon("corporation") },
+    { id: "structureBrowser", label: "Structure Browser", icon: icon("structureBrowser") },
   ] },
 ];
 

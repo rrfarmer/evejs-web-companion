@@ -25,7 +25,7 @@
   import MoonMaterialBayPanel from "./MoonMaterialBay.svelte";
   import MetenoxTransfer from "./MetenoxTransfer.svelte";
   import MetenoxFuelBay from "./MetenoxFuelBay.svelte";
-  import CorporationMoonSchedule from "./CorporationMoonSchedule.svelte";
+  import StructureBrowser from "./StructureBrowser.svelte";
   import type { MoonRefinery } from "../bridge/moonMining.ts";
   import type { AutoMoonMiner, MoonMaterialBay } from "../bridge/autoMoonMining.ts";
   import Mail from "./Mail.svelte";
@@ -245,7 +245,7 @@
     {/key}
   {/if}
 {:else if tab === "structureBrowser"}
-  <CorporationMoonSchedule {store} {flow} />
+  <StructureBrowser {store} {flow} />
 {:else if tab === "mail"}
   <!-- A skill plan link in a mail, followed (link.py handle_link): the Skills window opens on it. -->
   <Mail {store} {flow} {openInventoryFilterLink} openSkillPlanLink={(url) => { flow.openSkillPlanLink(url); onOpen?.("skills"); }} />

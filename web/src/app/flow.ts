@@ -988,7 +988,7 @@ import {
 import { systemGraphOnce } from "../nav/systemGraphKept.ts";
 import { autopilotDistances, autopilotJumpCounts, autopilotMap, autopilotPath, type AutopilotMap, type AutopilotRouteType, type AutopilotSettings } from "../nav/autopilotRoute.ts";
 import { availableJumpGateJumps, type JumpGateJump } from "../nav/jumpGates.ts";
-import { decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData } from "../bridge/structures.ts";
+import { decodeCharacterStructureDirectory, decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData, type StructureBrowserEntry } from "../bridge/structures.ts";
 import {
   AVOIDING_DIALOGS,
   autopilotSettingsFrom,
@@ -4487,6 +4487,7 @@ export interface AppFlow {
   loadControlledMetenox(structureID: number): Promise<{ fuel: readonly InventoryItemRow[]; moduleID: number }>;
   startMetenoxDrill(structureID: number): Promise<void>;
   loadCorporationMoonSchedule(current?: () => void): Promise<CorporationMoonSchedule>;
+  loadStructureBrowser(systemID: number, corporation?: boolean): Promise<readonly StructureBrowserEntry[]>;
   startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
   loadCorporationMiningObservers(): Promise<readonly MiningLedgerObserver[]>;
@@ -27903,6 +27904,27 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return moonRefineryYieldMultiplier(allInfo.value, structureID);
   }
 
+  async function loadStructureBrowser(systemID: number, corporation = false): Promise<readonly StructureBrowserEntry[]> {
+    const scope = captureMemberOperation();
+    let entries: readonly StructureBrowserEntry[];
+    if (corporation) {
+      const reply = await scope.ask("structureDirectory", "GetCorporationStructures", []);
+      entries = decodeCorporationStructures(reply).filter(row => row.ownerID === scope.online.corporationID);
+    } else {
+      const reply = await scope.ask("structureDirectory", "GetMyCharacterStructures", []);
+      entries = decodeCharacterStructureDirectory(reply).filter(row => row.solarSystemID === systemID);
+    }
+    scope.current();
+    await resolveNamesNow(entries.flatMap(row => [
+      { kind: isStation(row.structureID) ? "station" : "structure", id: row.structureID },
+      { kind: "type", id: row.typeID },
+      { kind: "corporation", id: row.ownerID },
+      { kind: "evelocation", id: row.solarSystemID },
+    ]));
+    scope.current();
+    return entries;
+  }
+
   async function loadCorporationMoonSchedule(lifetime?: () => void): Promise<CorporationMoonSchedule> {
     const scope = captureMemberOperation(lifetime);
     const current = () => {
@@ -39649,6 +39671,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     readMetenoxIdentity,
     startMetenoxDrill,
     loadCorporationMoonSchedule,
+    loadStructureBrowser,
     startMoonPull,
     controlMoonPull,
     loadCorporationMiningObservers,
