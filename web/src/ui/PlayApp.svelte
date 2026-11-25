@@ -223,6 +223,7 @@
     help: "help",
     auraGuidance: "auraGuidance",
     newEdenStore: "newEdenStore",
+    omegaUpsell: "omegaUpsell",
   };
 
   let session = $state<Session | null>(null);
@@ -1462,6 +1463,7 @@
    */
   const CLIENT_SIZES: Partial<Record<TabID, { w: number; h: number }>> = {
     newEdenStore: { w: 960, h: 620 },
+    omegaUpsell: { w: 960, h: 590 },
     help: { w: 400, h: 275 },
     auraGuidance: { w: 400, h: 500 },
     fittingManagement: { w: 620, h: 600 },
@@ -1569,6 +1571,7 @@
     return { x: 16, y: Math.max(0, H - h - 16), w: Math.min(w, W), h };
   }
   function open(tab: TabID) {
+    if (tab === "newEdenStore") storeCategoryRequest = null;
     if (tab === "reprocessing" && (!docked || !reprocessingAvailable)) return;
     if (tab === "insurance" && (!docked || !insuranceAvailable)) return;
     if (tab === "lpStore" && (!docked || !lpStoreAvailable)) return;
@@ -1680,6 +1683,7 @@
   const CAPTION_LABELS: Partial<Record<TabID, string>> = {
     auraGuidance: "UI/Accessories/AuraGuidance/WindowTitle",
     newEdenStore: "UI/VirtualGoodsStore/VgsName",
+    omegaUpsell: "UI/CloneState/UpgradeToOmegaTitle",
     fittingManagement: "UI/Fitting/FittingWindow/FittingManagement/WindowCaption",
     calculator: "UI/Accessories/Calculator/Calculator",
     marketOrders: "Tooltips/StationServices/MarketOrders",
@@ -1852,7 +1856,7 @@
     OpenAchievementsWindow: "achievements", OpenFleetWatchlist: "watchlist", OpenStructureBrowser: "structureBrowser",
     OpenAccessGroupsWindow: "accessGroups",
     OpenHelp: "help",
-    ToggleAurumStore: "newEdenStore",
+    OpenOmegaUpsellWindow: "omegaUpsell",
     ToggleTheatersOfWarWindow: "theatersOfWar", CmdToggleShipTree: "shipTree",
     // (ToggleOpenClose in the client too: ContractsWindow, CorporationWindow, NotepadWindow, PlanetWindow, the comparison
     // tool, the redeem window)
@@ -1984,12 +1988,17 @@
       return;
     }
     const tab = NEOCOM_TABS[id];
-    if ((tab === "shipTree" || tab === "marketOrders" || tab === "help" || tab === "newEdenStore") &&
+    if ((tab === "shipTree" || tab === "marketOrders" || tab === "help" || tab === "newEdenStore" || tab === "omegaUpsell") &&
         wins.some(win => win.id === tab && !win.minimized)) wins = closeWindow(wins, tab);
     else if (tab) open(tab);
   }
   function toggleBountyOffice() {
     bountyOffice = bountyOffice ? null : { target: null };
+  }
+  let storeCategoryRequest = $state.raw<{ tag: string } | null>(null);
+  function showOmegaOffers() {
+    open("newEdenStore");
+    storeCategoryRequest = { tag: "gametime" };
   }
   function togglePlexVault() {
     if (wins.some(win => win.id === "inventory" && !win.minimized)) {
@@ -2482,6 +2491,11 @@
     if (cmd === "OpenPlexVault") {
       e.preventDefault();
       togglePlexVault();
+      return;
+    }
+    if (cmd === "ToggleAurumStore") {
+      e.preventDefault();
+      neocomOpen("newEdenStore");
       return;
     }
     if (cmd === "CmdQuitGame") {
@@ -4328,6 +4342,7 @@
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
               {inventoryVaultRequested}
+              {storeCategoryRequest} onShowOmegaOffers={showOmegaOffers}
               onReprocess={reprocessingAvailable ? reprocessSelection : undefined}
               {reprocessingInput} onReprocessingInputTaken={() => (reprocessingInput = null)}
               onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} {autoMoonMiner}

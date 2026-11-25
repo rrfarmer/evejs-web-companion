@@ -5,14 +5,16 @@
   import { plainText } from "../bridge/clientWords.ts";
   import { isListValue, readDictEntry, type JsonValue } from "../bridge/wire.ts";
 
-  let { flow }: { flow: AppFlow } = $props();
+  let { flow, categoryRequest = null }: { flow: AppFlow; categoryRequest?: { tag: string } | null } = $props();
   const storeID = 4;
-  type Category = { id: number; name: string };
+  type Category = { id: number; name: string; tags: string[] };
   type Offer = { id: number; name: string; description: string; categories: number[] };
   let catalogue = $state<{ offers: Offer[]; categories: Category[] } | null>(null);
   let selectedCategory = $state<number | null>(null);
   let loading = $state(false);
   let error = $state("");
+  let appliedRequest: typeof categoryRequest = null;
+  let categoryUnavailable = $state(false);
   const offers = $derived(catalogue?.offers.filter(offer => selectedCategory === null || offer.categories.includes(selectedCategory)) ?? []);
 
   const entries = (value: unknown): readonly JsonValue[] => isListValue(value) ? value.items : [];
@@ -24,6 +26,14 @@
     const field = readDictEntry(value, "id");
     return typeof field === "number" && Number.isSafeInteger(field) && field > 0 ? field : null;
   };
+  $effect(() => {
+    const requested = categoryRequest;
+    if (requested === appliedRequest || !catalogue) return;
+    appliedRequest = requested;
+    const category = requested ? catalogue.categories.find(row => row.tags.includes(requested.tag)) : null;
+    selectedCategory = category?.id ?? null;
+    categoryUnavailable = !!requested && !category;
+  });
 
   async function load() {
     if (loading) return;
@@ -38,7 +48,8 @@
       if (!isListValue(rawCategories) || !isListValue(rawOffers)) throw new Error("The store catalogue could not be read.");
       const categories = rawCategories.items.flatMap((entry) => {
         const categoryID = id(entry), title = name(entry, "name");
-        return categoryID === null || !title ? [] : [{ id: categoryID, name: title }];
+        const tags = entries(readDictEntry(entry, "tags")).filter(tag => typeof tag === "string");
+        return categoryID === null || !title ? [] : [{ id: categoryID, name: title, tags }];
       });
       const listed = rawOffers.items.flatMap((entry) => {
         const offerID = id(entry), title = name(entry, "name");
@@ -61,7 +72,7 @@
 <div class="new-eden-store">
   <div class="store-controls">
     {#if catalogue?.categories.length}
-      <label>Category <select bind:value={selectedCategory}>
+      <label>Category <select bind:value={selectedCategory} onchange={() => (categoryUnavailable = false)}>
         <option value={null}>All offers</option>
         {#each catalogue.categories as category (category.id)}
           <option value={category.id}>{category.name}</option>
@@ -71,6 +82,7 @@
     <button type="button" disabled={loading} onclick={() => void load()}>Refresh catalogue</button>
   </div>
   {#if loading && catalogue === null}<p role="status">Loading store catalogue…</p>{/if}
+  {#if categoryUnavailable}<p role="status">Game time is unavailable in this catalogue.</p>{/if}
   {#if error}<p role="alert">{error}</p>{/if}
   {#if catalogue !== null && offers.length === 0}
     <p role="status">{selectedCategory === null ? "No offers are available from this server." : "No offers in this category."}</p>

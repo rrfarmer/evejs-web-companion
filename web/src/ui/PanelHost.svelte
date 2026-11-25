@@ -3,6 +3,7 @@
   import Help from "./Help.svelte";
   import AuraGuidance from "./AuraGuidance.svelte";
   import NewEdenStore from "./NewEdenStore.svelte";
+  import OmegaUpsell from "./OmegaUpsell.svelte";
   import FittingManagement from "./FittingManagement.svelte";
   import AcademyShips from "./AcademyShips.svelte";
   import ShipTree from "./ShipTree.svelte";
@@ -107,6 +108,8 @@
     onLeaveMetenox,
     onReprocess,
     inventoryVaultRequested = false,
+    storeCategoryRequest = null,
+    onShowOmegaOffers,
     reprocessingInput,
     onReprocessingInputTaken,
   }: {
@@ -125,6 +128,8 @@
     onOpen?: (tab: TabID, sessionID?: string) => void;
     onClose?: () => void;
     inventoryVaultRequested?: boolean;
+    storeCategoryRequest?: { tag: string } | null;
+    onShowOmegaOffers?: () => void;
     // R107 — the full pilot roster (every session, not just the active one).
     // Optional and forwarded only to the Bot Manager panel, which is the only
     // one that needs to see pilots beyond its own store/flow.
@@ -363,7 +368,9 @@
 {:else if tab === "auraGuidance"}
   <AuraGuidance {store} {flow} />
 {:else if tab === "newEdenStore"}
-  <NewEdenStore {flow} />
+  <NewEdenStore {flow} categoryRequest={storeCategoryRequest} />
+{:else if tab === "omegaUpsell"}
+  <OmegaUpsell {store} {onShowOmegaOffers} />
 {:else if tab === "notepad"}
   <Notepad {store} {flow} />
 {:else if tab === "calendar"}

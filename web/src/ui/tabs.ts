@@ -82,6 +82,7 @@ export type CoreTabID =
   | "help"
   | "auraGuidance"
   | "newEdenStore"
+  | "omegaUpsell"
   | "notepad"
   | "calculator"
   | "calendar"
@@ -230,6 +231,7 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "help", label: "EVE Help", where: "both", launchable: false },
   { id: "auraGuidance", label: "Aura Guidance", where: "both", launchable: false },
   { id: "newEdenStore", label: "New Eden Store", where: "both", launchable: false },
+  { id: "omegaUpsell", label: "Upgrade to Omega", where: "both", launchable: false },
   // Both — reachable docked or undocked.
   { id: "inventory", label: "Inventory & Ship", where: "both" },
   { id: "market", label: "Market", where: "both" },
