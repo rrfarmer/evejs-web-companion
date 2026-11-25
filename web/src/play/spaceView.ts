@@ -229,6 +229,8 @@ export interface SpaceViewOptions {
   };
   /** The session's snapshot includes the acknowledged align and warp targets. */
   flightSnapshot?: () => SpaceSnapshot | null;
+  /** Warp.py gets the hull type's static warpSpeedMultiplier, before fitted and pilot modifiers. */
+  warpSpeedMultiplier?: (typeID: number) => number | null;
   targeting?: {
     scanResolution(shipID: number): number | null;
     typeRadii(typeID: number): Promise<TargetLockRadii>;
@@ -6494,7 +6496,8 @@ export class SpaceView {
     // client's binding of the ship's speed makes it.
     const egoSpeed = ego ? Math.hypot(ego.velocity.x, ego.velocity.y, ego.velocity.z) : 0;
     const way = ego && egoSpeed > 0 ? new THREE.Vector3(ego.velocity.x, ego.velocity.y, -ego.velocity.z).divideScalar(egoSpeed) : new THREE.Vector3();
-    let share = WarpTunnel.share(ego?.mode === "WARP", egoSpeed);
+    const warpSpeedMultiplier = ego?.typeID ? this.options.warpSpeedMultiplier?.(ego.typeID) ?? null : null;
+    let share = WarpTunnel.share(ego?.mode === "WARP", egoSpeed, warpSpeedMultiplier);
     // Warp.py: once the warp's speed fraction passes 0.005, ship_warp_explosion_play and ship_warp_wind_play (sent as UI
     // events); at its end ship_warp_wind_stop. (The tunnel's share is that binding of the ship's speed.)
     if (ego?.mode === "WARP") {

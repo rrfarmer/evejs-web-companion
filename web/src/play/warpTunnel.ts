@@ -1,11 +1,12 @@
 // The warp tunnel: streaks of light rushing past the camera along the ship's way while it warps. The client draws
 // its tunnel from an effect file whose curves are bound to the ship's speed scaled by 1 / (3 AU x the ship's warp
 // speed multiplier) (environment/effects/Warp.py SetupTunnelBindings, 263 to 268); this is our own drawing of it,
-// driven by the same share of speed. The warp speed multiplier is not known here, so it is taken as one.
+// driven by the same share of speed.
 
 import * as THREE from "three";
 
 const AU = 149_597_870_700;
+export const WARP_SPEED_MULTIPLIER_ATTRIBUTE = 600;
 const STREAKS = 700;
 
 export class WarpTunnel {
@@ -29,8 +30,9 @@ export class WarpTunnel {
   }
 
   /** The tunnel's strength for a speed in metres a second while warping (0 when not warping): the client's binding. */
-  static share(warping: boolean, speed: number): number {
-    return warping ? Math.min(1, Math.max(0, speed / (3 * AU))) : 0;
+  static share(warping: boolean, speed: number, typeMultiplier: number | null): number {
+    const multiplier = typeMultiplier !== null && Number.isFinite(typeMultiplier) && typeMultiplier > 0 ? typeMultiplier : 1;
+    return warping ? Math.min(1, Math.max(0, speed / (3 * AU * multiplier))) : 0;
   }
 
   /**

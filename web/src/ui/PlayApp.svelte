@@ -167,6 +167,7 @@
   import type { HudModule } from "../play/shipHud.ts";
   import { CRYSTAL_GROUPS, DOT_DURATION_ATTRIBUTE, MODULE_TOOLTIP_LABELS, moduleRangeParts, moduleTooltipRows } from "../play/moduleTooltip.ts";
   import { NewShipHud } from "../play/newShipHud.ts";
+  import { WARP_SPEED_MULTIPLIER_ATTRIBUTE } from "../play/warpTunnel.ts";
   import { activeTargetID, activeTargetName } from "../play/activeTarget.ts";
   import { droneSettingsFor, setDroneSetting } from "./droneSettings.ts";
   import { CARGO_HOLD, SHIP_HOLDS } from "../bridge/shipHolds.ts";
@@ -3232,6 +3233,7 @@
       mapInFront: () => !!starMap,
       onNeocom: neocomOpen,
       flightSnapshot: () => s.store.space.get().snapshot,
+      warpSpeedMultiplier: (typeID) => factsOf(typeID)?.attributes.find(([id]) => id === WARP_SPEED_MULTIPLIER_ATTRIBUTE)?.[1] ?? null,
       targeting: {
         scanResolution: (shipID) => {
           const fit = s.store.fitting.get();
