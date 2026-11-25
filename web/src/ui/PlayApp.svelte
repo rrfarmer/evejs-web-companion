@@ -215,7 +215,7 @@
     achievements: "achievements", agency: "finder", jobboard: "jobBoard", mail: "mail", inventory: "inventory", assets: "assets", wallet: "wallet", market: "market",
     fitting: "fitting", map: "travel", charactersheet: "characterSheet", skills: "skills", loginRewards: "loginRewards", chat: "chat", shipTree: "shipTree",
     // the EVE menu's commands (play/neocom.ts EVE_MENU)
-    marketorders: "market", contracts: "contracts", industry: "industry", miningScan: "miningScan", miningLedger: "miningLedger", planets: "planets", locations: "locations",
+    marketorders: "marketOrders", contracts: "contracts", industry: "industry", miningScan: "miningScan", miningLedger: "miningLedger", planets: "planets", locations: "locations",
     contacts: "contacts", fleet: "fleet", corporation: "corporation", structureBrowser: "structureBrowser", compare: "compare", log: "log", notepad: "notepad", calendar: "calendar",
   };
 
@@ -1401,6 +1401,7 @@
    * agencyWnd (AgencyWndNew) 1188 x 694, walletWnd 900 x 600, planetWindow 500 x 500, uilog (logger) 400 x 200.
    */
   const CLIENT_SIZES: Partial<Record<TabID, { w: number; h: number }>> = {
+    marketOrders: { w: 600, h: 500 },
     characterSheet: { w: 1235, h: 768 }, assets: { w: 550, h: 450 }, locations: { w: 450, h: 450 }, contacts: { w: 600, h: 500 },
     mail: { w: 800, h: 600 }, finder: { w: 1188, h: 694 }, wallet: { w: 900, h: 600 }, planets: { w: 500, h: 500 }, log: { w: 400, h: 200 },
     notepad: { w: 400, h: 300 }, calendar: { w: 580, h: 400 }, jobBoard: { w: 720, h: 960 }, paintTool: { w: 1030, h: 650 }, locationSearch: { w: 420, h: 480 }, achievements: { w: 1040, h: 825 },
@@ -1417,7 +1418,7 @@
   };
   const FLIGHT_MINIMUMS: Partial<Record<TabID, { w: number; h: number }>> = {
     drones: { w: 240, h: 120 }, scanner: { w: 300, h: 150 }, inventory: { w: 170, h: 140 },
-    market: { w: 650, h: 435 }, contracts: { w: 700, h: 560 }, corporation: { w: 700, h: 832 },
+    market: { w: 650, h: 435 }, marketOrders: { w: 300, h: 300 }, contracts: { w: 700, h: 560 }, corporation: { w: 700, h: 832 },
     fleet: { w: 270, h: 120 }, industry: { w: 1004, h: 650 }, reprocessing: { w: 600, h: 400 }, insurance: { w: 400, h: 400 }, lpStore: { w: 837, h: 430 },
   };
   function flightWindowMinimum(tab: TabID): { w: number; h: number } {
@@ -1606,6 +1607,7 @@
    * the Log. The page's own tab label stands until the words are had.
    */
   const CAPTION_LABELS: Partial<Record<TabID, string>> = {
+    marketOrders: "Tooltips/StationServices/MarketOrders",
     scanner: "UI/Inflight/Scanner/ProbeScanner", miningScan: "UI/Inflight/Scanner/MiningScanResults", miningLedger: "UI/Ledger/LedgerWnd", finder: "UI/Agency/Caption", contacts: "UI/PeopleAndPlaces/WindowTitle",
     mail: "Tooltips/Neocom/Mail", wallet: "UI/Wallet/WalletWindow/Wallet", characterSheet: "UI/CharacterSheet/CharacterSheetWindow/CharacterSheetCaption",
     assets: "Tooltips/Neocom/PersonalAssets", locations: "UI/PeopleAndPlaces/Locations", log: "UI/Accessories/Log/Log",
@@ -1767,7 +1769,7 @@
   // shortcuts (clientShortcuts.ts, matched by shortcutKeys.ts) - Alt-E People & Places, L Locations, as the client has
   // them. OpenDirectionalScanner (Alt-D) and CmdRefreshDirectionalScan (V) are the space view's own.
   const WINDOW_COMMANDS: Record<string, TabID> = {
-    ToggleProbeScanner: "scanner", OpenInventory: "inventory", OpenFitting: "fitting", OpenMail: "mail", OpenMarket: "market",
+    ToggleProbeScanner: "scanner", OpenInventory: "inventory", OpenFitting: "fitting", OpenMail: "mail", OpenMarket: "market", OpenMarketOrders: "marketOrders",
     OpenWallet: "wallet", OpenCharactersheet: "characterSheet", OpenSkillsWindow: "skills", OpenPeopleAndPlaces: "contacts",
     OpenLocations: "locations", OpenAgencyNew: "finder", OpenJobBoardWindow: "jobBoard", OpenAssets: "assets", OpenIndustry: "industry", OpenLedger: "miningLedger",
     OpenAchievementsWindow: "achievements", OpenFleetWatchlist: "watchlist", OpenStructureBrowser: "structureBrowser",
@@ -1892,7 +1894,7 @@
   function neocomOpen(id: string) {
     if (id === "map") { toggleStarMap(); return; }
     const tab = NEOCOM_TABS[id];
-    if (tab === "shipTree" && wins.some(win => win.id === tab && !win.minimized)) wins = closeWindow(wins, tab);
+    if ((tab === "shipTree" || tab === "marketOrders") && wins.some(win => win.id === tab && !win.minimized)) wins = closeWindow(wins, tab);
     else if (tab) open(tab);
   }
   function showSystemOnMap(systemID: number) {

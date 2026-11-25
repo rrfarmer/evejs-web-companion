@@ -410,6 +410,12 @@ export type FeedEvent =
       readonly transactionsError: string | null;
       readonly marketUnavailable: string | null;
     }
+  | {
+      readonly type: "market/own-orders";
+      readonly ownOrders: readonly MarketOwnOrderRow[];
+      readonly orderHistory: readonly MarketOwnOrderRow[];
+      readonly ownOrdersError: string | null;
+    }
   // A market write failed or was declined; null clears the error.
   | { readonly type: "market/action-error"; readonly message: string | null; readonly said?: boolean }
   // What the last write ACTUALLY did, assembled from re-reads (never a

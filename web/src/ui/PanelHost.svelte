@@ -197,7 +197,9 @@
 {:else if tab === "shipTree"}
   <ShipTree {store} {flow} />
 {:else if tab === "market"}
-  <Market {store} {flow} />
+  <Market {store} {flow} onOpenOrders={onOpen ? () => onOpen?.("marketOrders") : undefined} />
+{:else if tab === "marketOrders"}
+  <Market {store} {flow} ordersOnly />
 {:else if tab === "activity"}
   <Activity {store} {flow} showMail={() => onOpen?.("mail")} openApplications={() => { flow.requestCorporationApplications(); onOpen?.("corporation"); }} />
 {:else if tab === "fleet"}

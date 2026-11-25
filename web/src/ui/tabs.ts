@@ -31,6 +31,7 @@ export type CoreTabID =
   | "pluginManager"
   | "inventory"
   | "market"
+  | "marketOrders"
   | "industry"
   | "academyShips"
   | "shipTree"
@@ -221,6 +222,7 @@ export const TABS: readonly CoreTabDef[] = [
   // Both — reachable docked or undocked.
   { id: "inventory", label: "Inventory & Ship", where: "both" },
   { id: "market", label: "Market", where: "both" },
+  { id: "marketOrders", label: "Market Orders", where: "both", launchable: false },
   { id: "industry", label: "Industry", where: "both" },
   { id: "contracts", label: "Contracts", where: "both" },
   { id: "assets", label: "Personal Assets", where: "both" },

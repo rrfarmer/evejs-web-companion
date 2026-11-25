@@ -74,7 +74,12 @@
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import type { MarketGroupNode } from "../app/api.ts";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, ordersOnly = false, onOpenOrders }: {
+    store: ClientStore;
+    flow: AppFlow;
+    ordersOnly?: boolean;
+    onOpenOrders?: () => void;
+  } = $props();
 
   // svelte-ignore state_referenced_locally
   const market = store.market;
@@ -416,6 +421,8 @@
 
   /** Which of the four views is showing. */
   let tab = $state<"book" | "orders" | "trades" | "escrow">("book");
+  let ordersReady = $state(false);
+  let orderPage = $state<"orders" | "history">("orders");
   /** MarketBase.LoadDetails' detail tabs (the play page): Market Data (the order lists) or Price History. */
   let detailTab = $state<"marketdata" | "pricehistory">("marketdata");
 
@@ -464,6 +471,7 @@
   const marketDetailsRequests = marketDetailsTarget.requests;
   let marketFirstRead = true;
   $effect(() => {
+    if (ordersOnly) return;
     const revision = $marketDetailsRequests;
     if (busy) return;
     const wanted = marketDetailsTarget.take();
@@ -625,6 +633,13 @@
 
   function refresh(): void {
     void run(() => flow.loadMarket($market.typeID));
+  }
+
+  function refreshOrders(): void {
+    void run(async () => {
+      await flow.loadMarketOrders();
+      ordersReady = true;
+    });
   }
 
   // --- The book, sorted and filtered client-side ---------------------------
@@ -934,6 +949,11 @@
   }
 
   onMount(() => {
+    if (ordersOnly) {
+      flow.requestWords(["UI/Market/Orders/MyOrders", "UI/Market/Orders/MyOrderHistory"]);
+      refreshOrders();
+      return;
+    }
     // (The market's first read is the marketDetailsRequests effect's: the type asked for from outside the window, or none.)
     // The tree, so the panel opens on something to look AT rather than an empty
     // search box. Independent of the market read: it is static data.
@@ -953,7 +973,20 @@
   const retail = getContext("retailChrome") === true;
 </script>
 
-<div class="market-layout" class:retail>
+<div class="market-layout" class:retail={retail && !ordersOnly}>
+{#if ordersOnly}
+  <nav class="mkt-order-controls" aria-label="Market Orders">
+    <button type="button" aria-pressed={orderPage === "orders"} onclick={() => (orderPage = "orders")}>{qbWord("UI/Market/Orders/MyOrders") || "My Orders"}</button>
+    <button type="button" aria-pressed={orderPage === "history"} onclick={() => (orderPage = "history")}>{qbWord("UI/Market/Orders/MyOrderHistory") || "My Order History"}</button>
+    <button type="button" class="minor" disabled={busy} onclick={refreshOrders}>Refresh</button>
+  </nav>
+  {#if error}
+    <p class="error">{error}</p>
+  {:else if !ordersReady}
+    <p class="note" role="status">Reading your market orders…</p>
+  {/if}
+  {#if $market.actionError && !$market.actionErrorSaid}<p class="error">{$market.actionError}</p>{/if}
+{:else}
 <section class="panel">
   <header class="panel-head" bind:this={windowHead}>
     <h2 class="panel-title">Market</h2>
@@ -1199,7 +1232,7 @@
       <button type="button" class:active={tab === "book"} title={qbWord("Tooltips/Market/MarketDetailsTab")} onclick={() => (tab = "book")}>{qbWord("UI/Common/Details")}</button>
     </nav>
     <span class="mkt-ghosts">
-      <button type="button" class="mkt-ghost" class:active={tab === "orders"} onclick={() => (tab = "orders")}>{qbWord("Tooltips/StationServices/MarketOrders")}</button>
+      <button type="button" class="mkt-ghost" class:active={tab === "orders"} onclick={() => { if (onOpenOrders) onOpenOrders(); else tab = "orders"; }}>{qbWord("Tooltips/StationServices/MarketOrders")}</button>
       <button type="button" class="mkt-ghost" class:active={tab === "trades"} onclick={() => (tab = "trades")}>Your trades</button>
       <button type="button" class="mkt-ghost" class:active={tab === "escrow"} onclick={() => (tab = "escrow")}>What is tied up</button>
     </span>
@@ -1207,7 +1240,7 @@
       <img alt="ISK" src="/client-res/ui/texture/eveicon/category_icons/isk_16px.png" />
       <span>{$market.cashBalance === null || $market.cashBalance === undefined ? qbWord("UI/Market/WalletBalanceUnavailable") : formatIsk($market.cashBalance)}</span>
     </span>
-  </section>
+</section>
 {:else if $market.loaded}
   <section>
     <p class="controls">
@@ -1594,15 +1627,16 @@
     </section>
   {/if}
 {/if}
+{/if}
 
-{#if $market.loaded && tab === "orders"}
+{#if ordersOnly ? ordersReady && orderPage === "orders" : $market.loaded && tab === "orders"}
   <section>
     <h2>Orders you have open</h2>
     {#if $market.ownOrdersError}
       <p class="error">Your orders could not be read: {$market.ownOrdersError}</p>
     {/if}
     {#if openOrders.length === 0}
-      <p class="empty">You have no orders open right now.</p>
+      {#if !$market.ownOrdersError}<p class="empty">You have no orders open right now.</p>{/if}
     {:else}
       <div class="table-wrap overflow-x-auto">
         <table class="guests reflow">
@@ -1735,9 +1769,16 @@
     {/if}
   </section>
 
-  {#if $market.orderHistory.length > 0}
+{/if}
+
+{#if ordersOnly ? ordersReady && orderPage === "history" : $market.loaded && tab === "orders" && $market.orderHistory.length > 0}
     <section>
       <h2>Orders that have finished</h2>
+      {#if ordersOnly && $market.ownOrdersError}
+        <p class="error">Your order history could not be read: {$market.ownOrdersError}</p>
+      {:else if $market.orderHistory.length === 0}
+        <p class="empty">You have no orders in your history.</p>
+      {:else}
       <div class="table-wrap overflow-x-auto">
         <table class="guests reflow">
           <thead>
@@ -1771,11 +1812,11 @@
           </tbody>
         </table>
       </div>
+      {/if}
     </section>
-  {/if}
 {/if}
 
-{#if $market.loaded && tab === "trades"}
+{#if !ordersOnly && $market.loaded && tab === "trades"}
   <section>
     <h2>Trades you have made</h2>
     {#if $trades.error}
@@ -1823,7 +1864,7 @@
   </section>
 {/if}
 
-{#if $market.loaded && tab === "escrow"}
+{#if !ordersOnly && $market.loaded && tab === "escrow"}
   <section>
     <h2>What your orders have tied up</h2>
     {#if $market.ownOrdersError}
@@ -1863,6 +1904,8 @@
 </div>
 
 <style>
+  .mkt-order-controls { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 8px; }
+  .mkt-order-controls button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 #b8c0c1; }
   .mkt-variant-folder summary { cursor: pointer; }
   .mkt-variant-folder > ul { margin-left: 16px; }
   .mkt-variant-folder[open] > summary .mkt-expander { transform: none; }

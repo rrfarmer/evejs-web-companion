@@ -1598,6 +1598,9 @@ export function createClientStore(): ClientStore {
           actionError: null,
         });
         break;
+      case "market/own-orders":
+        market.set({ ...market.get(), ownOrders: [...event.ownOrders], orderHistory: [...event.orderHistory], ownOrdersError: event.ownOrdersError });
+        break;
       case "market/action-error":
         market.set({ ...market.get(), actionError: event.message, actionErrorSaid: event.message !== null && event.said === true });
         break;

@@ -923,7 +923,7 @@ import { BUFF_SLOTS } from "../bridge/dbuffs.ts";
 import { BUFF_BAR_FX_GUIDS, decodeDbuffUpdate, decodeEwarNotice, decodeSpecialFx, ewarNoticed, jamNoticed, jammersReset, jammersWithout, NO_BUFFS, shipEffectNoticed, shipEffectsReset, type BuffBarState } from "../bridge/buffBar.ts";
 import { buyUseCorp, setBuyUseCorp } from "./buyUseCorp.ts";
 import type { ClientStore } from "../store/clientStore.ts";
-import type { DroneLimits, FittingResources, MarketEscrow } from "../store/types.ts";
+import type { DroneLimits, FittingResources, MarketEscrow, MarketOwnOrderRow } from "../store/types.ts";
 import type {
   ActivityRead,
   AgentAction,
@@ -2716,6 +2716,7 @@ export interface AppFlow {
    * escrow, their price history and their ISK — plus every NAME those need.
    */
   loadMarket(typeID: number | null): Promise<void>;
+  loadMarketOrders(): Promise<void>;
   /**
    * The pilot's escrow watched as the client's market progression is (MarketProgressionNotifier.register_subscriber):
    * the kept value said, asked again where due and every twelve hours while watched. Answers the watch's end.
@@ -11981,16 +11982,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * without a round-trip — exactly as retail does it.
    */
   async function loadMarket(typeID: number | null): Promise<void> {
-    let reads: Awaited<ReturnType<typeof api.loadMarket>>;
-    try {
-      reads = await api.loadMarket(typeID, callOptions);
-    } catch (error) {
-      if (isSessionLost(error)) {
-        stopLiveStream();
-        store.apply({ type: "character/offline" });
-      }
-      throw error;
-    }
+    const reads = await readMarket(typeID);
     // The pilot's ISK as the wallet service keeps it (walletSvc.wealth): asked once, then what OnAccountChange says.
     const wealth = await walletReads.wealth().catch(() => null);
     const book = decodeOrderBook(reads.book.result);
@@ -12026,17 +12018,42 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       marketUnavailable: reads.marketUnavailable,
     });
 
-    // Every ID the panel will show, resolved to a NAME (R7d). An order is an
-    // item (a type) at a station in a system.
-    const refs: NameRef[] = [];
-    if (reads.typeID) {
-      refs.push({ kind: "type", id: reads.typeID });
-    }
+    const refs: NameRef[] = reads.typeID ? [{ kind: "type", id: reads.typeID }] : [];
     for (const row of [...book.sells, ...book.buys]) {
-      refs.push({ kind: "station", id: row.stationID });
-      refs.push({ kind: "system", id: row.solarSystemID });
+      refs.push({ kind: "station", id: row.stationID }, { kind: "system", id: row.solarSystemID });
     }
-    for (const row of [...ownOrders, ...orderHistory]) {
+    requestNames(refs);
+    requestMarketOrderNames([...ownOrders, ...orderHistory]);
+  }
+
+  async function readMarket(typeID: number | null) {
+    try {
+      return await api.loadMarket(typeID, callOptions);
+    } catch (error) {
+      if (isSessionLost(error)) {
+        stopLiveStream();
+        store.apply({ type: "character/offline" });
+      }
+      throw error;
+    }
+  }
+
+  async function loadMarketOrders(): Promise<void> {
+    const reads = await readMarket(null);
+    const ownOrders = decodeOwnOrders(reads.ownOrders.result);
+    const orderHistory = decodeOwnOrders(reads.orderHistory.result);
+    store.apply({
+      type: "market/own-orders",
+      ownOrders,
+      orderHistory,
+      ownOrdersError: reads.ownOrders.error || reads.orderHistory.error,
+    });
+    requestMarketOrderNames([...ownOrders, ...orderHistory]);
+  }
+
+  function requestMarketOrderNames(rows: readonly MarketOwnOrderRow[]): void {
+    const refs: NameRef[] = [];
+    for (const row of rows) {
       refs.push({ kind: "type", id: row.typeID });
       refs.push({ kind: "station", id: row.stationID });
       refs.push({ kind: "system", id: row.solarSystemID });
@@ -38533,6 +38550,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       await runIndustryAction(() => cancelIndustryJobCall(bridgeDo, jobAsRead(jobID)));
     },
     loadMarket,
+    loadMarketOrders,
     assetSaleAsked: readonlySignal(assetSaleAskedSignal),
     assetRepairShop: readonlySignal(assetRepairShopSignal),
     openAssetRepair,
