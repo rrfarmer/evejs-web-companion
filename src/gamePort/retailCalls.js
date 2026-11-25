@@ -996,7 +996,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "accessGroupBookmarkMgr.UpdateKnownFolderState",
   // The pilot's access lists, which the folder window offers a shared folder's access levels from
   // (accessGroupsController.py 105). The gateway's list has nothing of the owner group manager's.
-  "ownerGroupManager.GetMyGroups", "ownerGroupManager.GetMembers", "ownerGroupManager.GetMembersForMultipleGroups",
+  "ownerGroupManager.GetMyGroups", "ownerGroupManager.GetMembers", "ownerGroupManager.GetMembersForMultipleGroups", "ownerGroupManager.GetGroupLogs",
   "ownerGroupManager.Create", "ownerGroupManager.UpdateName", "ownerGroupManager.UpdateDescription", "ownerGroupManager.Delete",
   "ownerGroupManager.AddMembers", "ownerGroupManager.UpdateMembershipTypes", "ownerGroupManager.DeleteMembers",
   // A shared folder disconnected from (bookmarkSvc.py 460), and an access list the pilot has not got asked by its
@@ -2822,6 +2822,8 @@ const RETAIL_CALLS = Object.freeze({
     "self.remoteSvc.GetMyGroups(), of ownerGroupManager by its name and with nothing: the pilot's access lists, asked once and kept by the client's controller; the folder window offers a shared folder's access levels from them. In no recording."),
   "ownerGroupManager.GetMembers": judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:47", listAsked,
     "Read the selected list's member IDs and membership types, including member ID zero for Public."),
+  "ownerGroupManager.GetGroupLogs": judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:40", listAsked,
+    "Read audit entries for the selected personal access list."),
   "ownerGroupManager.GetMembersForMultipleGroups": judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:92",
     (args, kwargs) => args.length === 1 && Array.isArray(args[0]) && args[0].length > 0 &&
       args[0].every(aBookmarkFolderID) && Object.keys(kwargs).length === 0

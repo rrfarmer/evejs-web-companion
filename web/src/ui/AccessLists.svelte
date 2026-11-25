@@ -7,6 +7,7 @@
   import { resolvedName } from "../store/names.ts";
   import { startAccessGroupDrag } from "./accessGroupDrag.ts";
   import { showAccessGroupInfo } from "./accessGroupInfo.ts";
+  import AccessListAudit from "./AccessListAudit.svelte";
   import { accessMembershipsFromDrop, accessOwnerLinkType, droppedAccessMembers, hasAccessMemberDrag, startAccessMemberDrag } from "./accessMemberDrag.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
@@ -26,6 +27,7 @@
   let memberSearchLoading = $state(false);
   let memberSearchError = $state("");
   let memberSearchRevision = $state(0);
+  let auditTab = $state(false);
   let error = $state("");
   let editorError = $state("");
   let members = $state.raw<readonly AccessGroupMember[] | null>(null);
@@ -108,7 +110,7 @@
   $effect(() => {
     flow.requestWords([...roleWords, ...roleActions.map(action => action.label),
       ...removeRoleActions.map(action => action.label), "PublicUser", "RemoveMember", "AddPublic",
-      "SearchFieldHint", "SearchNoContentHint"].map(key => WORD + key));
+      "SearchFieldHint", "SearchNoContentHint", "GroupMembers", "GroupLogs"].map(key => WORD + key));
   });
 
   $effect(() => {
@@ -357,6 +359,7 @@
     selectedID = null;
     memberQuery = "";
     memberTerm = "";
+    auditTab = false;
     editor = null;
     busy = false;
     error = "";
@@ -481,6 +484,13 @@
             <button type="button" onclick={() => selected && remove(selected)} disabled={busy}>Delete Access List</button>
           </div>
         {/if}
+        <div class="actions" aria-label="Access list views">
+          <button type="button" aria-pressed={!auditTab} onclick={() => { auditTab = false; }}>{word("GroupMembers", "Members")}</button>
+          <button type="button" aria-pressed={auditTab} onclick={() => { auditTab = true; }}>{word("GroupLogs", "Audit Log")}</button>
+        </div>
+        {#if auditTab}
+          <AccessListAudit {flow} {store} groupID={selected.groupID} enabled={selected.creatorID !== corporationID} revision={memberRefresh + memberSearchRevision} />
+        {:else}
         {#if canManageMembers && members !== null}
           <div class="role-targets" role="list" aria-label="Drop owners to set access">
             {#each roleOrder as role (role)}
@@ -568,6 +578,7 @@
         {:else if members === null}<p role="status">Reading members…</p>
         {:else if memberMatches && !memberRows.length}<p role="status">{word("SearchNoContentHint", "No matching members.")}</p>
         {:else if !members.length}<p role="status">No members.</p>
+        {/if}
         {/if}
       </div>
     {/if}

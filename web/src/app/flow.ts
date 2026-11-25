@@ -1190,6 +1190,7 @@ import { readAccessGroup, readFolderInfo, readFoldersWithAdminAccess, readMyAcce
 import { classifySalvageModules } from "../nav/salvageModules.ts";
 import { splitNeverFits } from "../bridge/bayRouting.ts";
 import { decodeAccessGroup, decodeAccessGroupMembers, type AccessGroup, type AccessGroupMember, type ActiveBookmarks, type BookmarkFolder } from "../bridge/bookmarks.ts";
+import { decodeAccessGroupAudit, type AccessGroupAuditRow } from "../bridge/accessGroupAudit.ts";
 import { agentsAtStation, readAgentsTable } from "../bridge/agentReads.ts";
 import { authoritativeFleetMemberCharacterIDs, decodeFleetCenter, decodeFleetInviteAnswerNotification, decodeFleetInviteNotification, fleetInviteAnswerWords, memberWhereabouts, type FleetInviteAnswer } from "../bridge/fleetCenter.ts";
 import { FLEET_JOB_CREATOR, canTagInFleet } from "../bridge/fleetCommand.ts";
@@ -5523,6 +5524,7 @@ export interface AppFlow {
   readFolderInfo(folderID: number): Promise<BookmarkFolder>;
   readAccessGroups(): Promise<readonly AccessGroup[]>;
   readAccessGroupMembers(groupID: number): Promise<readonly AccessGroupMember[]>;
+  readAccessGroupAudit(groupID: number): Promise<readonly AccessGroupAuditRow[]>;
   readAccessGroupMembersMany(groupIDs: readonly number[]): Promise<ReadonlyMap<number, readonly AccessGroupMember[]>>;
   addAccessGroupMembers(groupID: number, memberships: readonly (readonly [number, number])[]): Promise<void>;
   changeAccessGroupMembers(groupID: number, method: "AddMembers" | "UpdateMembershipTypes" | "DeleteMembers",
@@ -40245,6 +40247,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     async readAccessGroupMembers(groupID) {
       return decodeAccessGroupMembers(await bridgeAsk("ownerGroupManager", "GetMembers", [groupID]));
+    },
+
+    async readAccessGroupAudit(groupID) {
+      return decodeAccessGroupAudit(await bridgeAsk("ownerGroupManager", "GetGroupLogs", [groupID]));
     },
 
     async readAccessGroupMembersMany(groupIDs) {
