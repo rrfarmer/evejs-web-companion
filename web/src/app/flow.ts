@@ -4107,7 +4107,6 @@ export interface AppFlow {
     readonly allianceID: number | null }[];
     readonly icons: Readonly<Record<string, string | null>> } | null>;
   /** The Agency's Help Section (ContentProviderHelp): the help video groups and videos (the client's data), kept. */
-  agencyHelpVideos(): Promise<Awaited<ReturnType<typeof api.loadAgencyHelpVideos>>>;
   /** EnlistmentPanel.OpenCorpStandings: true where the pilot's corporation is a player one (the caller opens its NPC
    *  standings); in an NPC corporation message_player(UI/Standings/npcCorpStandingsError) and false. */
   agencyCorpStandings(): Promise<boolean>;
@@ -22424,11 +22423,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestSystemSecurity(picked.map((a) => a.solarSystemID));
     return picked;
   }
-  let helpVideosHeld: Awaited<ReturnType<typeof api.loadAgencyHelpVideos>> = null;
-  async function agencyHelpVideos(): Promise<Awaited<ReturnType<typeof api.loadAgencyHelpVideos>>> {
-    helpVideosHeld ??= await api.loadAgencyHelpVideos(callOptions).catch(() => null);
-    return helpVideosHeld;
-  }
   async function agencyCorpStandings(): Promise<boolean> {
     const corporationID = store.station.get().online?.corporationID ?? null;
     if (corporationID !== null && !isNpcCorporation(corporationID)) return true;
@@ -38532,7 +38526,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyEscalations,
     agencyIncursions,
     agencyPlanetaryProduction,
-    agencyHelpVideos,
     agencyCorpStandings,
     agencyFleetUp,
     agencyPirateStrongholds,

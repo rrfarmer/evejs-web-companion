@@ -17,7 +17,6 @@
   const { words, names } = session.store;
 
   const texture = (file: string) => clientTexture("res:/ui/texture/classes/hacking/" + file + ".png");
-  const video = "/client-res/video/hacking/bgloop_alpha.webm";
   const nodes = {
     "-1": ["UnknownNode", "Unknown node"], 0: ["SegmentNode", "Segment"],
     1: ["Virus", "Virus"], 2: ["CoreNode", "System core"], 3: ["DefenseNode", "Defense subsystem"],
@@ -177,7 +176,6 @@
       onMove={(x, y) => (moved = { x, y })} onResize={() => {}} onClose={dismiss}>
       <!-- svelte-ignore a11y_no_noninteractive_element_interactions (This game surface owns the utility shortcuts.) -->
       <div class="hacking" class:ended={$board.outcome !== null} bind:this={content} role="application" aria-label="Hacking board" tabindex="-1" onkeydown={shortcuts}>
-        <video src={video} autoplay muted loop playsinline aria-hidden="true"></video>
         <div class="field" style:width={fieldWidth + "px"}>
           {#each edges as edge (hackCoordKey(edge.first.coord) + ":" + hackCoordKey(edge.second.coord))}
             <div class="link" class:exposed={!edge.first.hidden && !edge.second.hidden && !edge.first.blocked && !edge.second.blocked}
@@ -247,7 +245,6 @@
   .hacking-desktop :global(.win) { position: absolute; pointer-events: auto; overflow: hidden; background: #111919; }
   .hacking-desktop :global(.win-body) { height: calc(100% - 24px); padding: 0; overflow: hidden; }
   .hacking { position: relative; display: grid; height: 100%; place-items: center; outline: none; isolation: isolate; }
-  video { position: absolute; z-index: -1; inset: 0; width: 100%; height: 100%; object-fit: fill; opacity: .78; }
   .field { position: absolute; top: calc(50% - 40px); left: 50%; transform: translate(-50%, -50%); aspect-ratio: 898 / 501; }
   .link { position: absolute; height: 1px; background: rgba(137, 204, 194, .35); transform-origin: left center; pointer-events: none; }
   .link.exposed { background: #c36530; box-shadow: 0 0 4px #944318; }

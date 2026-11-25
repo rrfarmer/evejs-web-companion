@@ -131,6 +131,7 @@ export function extractBrackets(rf, outRoot) {
 /** Where a res: file is copied to, and the URL the dev server serves it at. */
 function copyRes(rf, res, outRoot) {
   const rel = res.toLowerCase().slice("res:/".length);
+  if (/^video\//.test(rel) || /\.(?:webm|mp4|m4v|ogv|mov|bik|avi|wmv|mkv|mpeg|mpg)$/.test(rel)) return null;
   const file = path.join(outRoot, ...rel.split("/"));
   if (!fs.existsSync(file)) {
     fs.mkdirSync(path.dirname(file), { recursive: true });

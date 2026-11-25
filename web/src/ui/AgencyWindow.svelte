@@ -4,7 +4,7 @@
   // (the group's ancestors from home), and the content group browser showing the group's page:
   //   home (HomeContentGroupPage): a left column of the Missions, Encounters, Exploration and Resource Harvesting
   //     horizontal cards (400 x 98, their description shown on hover), the right column (632) a carousel (300 high,
-  //     every 8 s) of the Homefront, Heraldry and Corp cards and below it the Help card (632 x 132);
+  //     every 8 s) of the Homefront, Heraldry and Corp cards;
   //   a group (BaseContentGroupPage): its visible children's vertical cards (200 x 333: the card texture, the name,
   //     the description);
   //   Agent Finder (contentGroupAgentFinder): the agent finder;
@@ -14,7 +14,7 @@
   //   Cosmic Signatures: ContentPageSignatures; Epic Arcs: ContentPageEpicArcs;
   //   Homefront operations: ContentPageHomefrontSites; Escalations: ContentPageEscalations; Incursions: ContentPageIncursions, and an incursion's ContentPageIncursion;
   //   Planetary Production: ContentPagePlanetaryProduction; Mercenary Dens: ContentPageMercDen;
-  //   Colony Resources: ContentPageColonyResourcesAgency; Help: ContentPageHelp.
+  //   Colony Resources: ContentPageColonyResourcesAgency.
   // A card is disabled (UI/Agency/currentlyUnavailable, UnavailableInWormholes outside known space) where the group is
   // not in contentGroupsEnabledInWormholes and the pilot is not in known space.
   // OpenAndShowContentGroup (agencyRequests): the window on the asked group.
@@ -37,7 +37,6 @@
   import AgencyPlanetaryProductionPage from "./AgencyPlanetaryProductionPage.svelte";
   import AgencyMercDensPage from "./AgencyMercDensPage.svelte";
   import AgencyColonyResourcesPage from "./AgencyColonyResourcesPage.svelte";
-  import AgencyHelpPage from "./AgencyHelpPage.svelte";
   import AgencyGuidePage from "./AgencyGuidePage.svelte";
   import AgencyFactionWarfarePage from "./AgencyFactionWarfarePage.svelte";
   import AgencyInsurgencySystemsPage from "./AgencyInsurgencySystemsPage.svelte";
@@ -74,7 +73,7 @@
   const station = store.station;
   // svelte-ignore state_referenced_locally
   const anomaliesChanged = flow.agencyAnomaliesChanged;
-  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, INCURSIONS = 72, INCURSION = 50, PLANETARY_PRODUCTION = 42, MERC_DENS = 85, COLONY_RESOURCES = 84, HELP = 69, FLEET_UP = 67, CAMPAIGNS = 89, PROJECT_DISCOVERY = 52, PHASED_FIELDS = 87, TRIGLAVIAN_SPACE = 63, TRIGLAVIAN_FILAMENTS = 64, ASTEROID_BELTS = 40, PIRATE_STRONGHOLDS = 73, ABYSSAL_DEADSPACE = 37, ABYSSAL_FILAMENTS = 44, FLEET_UP_REGISTER = 68, FW_GUIDE = 90, ZARZAKH = 83, INSURGENCY_GUIDE = 82, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
+  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, INCURSIONS = 72, INCURSION = 50, PLANETARY_PRODUCTION = 42, MERC_DENS = 85, COLONY_RESOURCES = 84, FLEET_UP = 67, CAMPAIGNS = 89, PROJECT_DISCOVERY = 52, PHASED_FIELDS = 87, TRIGLAVIAN_SPACE = 63, TRIGLAVIAN_FILAMENTS = 64, ASTEROID_BELTS = 40, PIRATE_STRONGHOLDS = 73, ABYSSAL_DEADSPACE = 37, ABYSSAL_FILAMENTS = 44, FLEET_UP_REGISTER = 68, FW_GUIDE = 90, ZARZAKH = 83, INSURGENCY_GUIDE = 82, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
   const HOME_LEFT = [11, 12, 13, 14];
   const FW_SYSTEMS = 46;
   const INSURGENCY_SYSTEMS = 79;
@@ -236,7 +235,6 @@
             {/each}
             <div class="ag-dots">{#each slides as id, i (id)}<button type="button" class:on={i === slide % slides.length} aria-label={word(AGENCY_GROUPS[id]!.name)} onclick={() => (slide = i)}></button>{/each}</div>
           </div>
-          <div class="ag-help">{@render card(AGENCY_GROUPS[HELP]!, "home-v")}</div>
         </div>
       </div>
     {:else if groupID === AGENT_FINDER}
@@ -275,8 +273,6 @@
       <div class="ag-page"><AgencyInsurgencySystemsPage {store} {flow} bind:filters={insurgencyFilters} /></div>
     {:else if groupID === ESS_SYSTEMS}
       <div class="ag-page"><AgencyEssPage {store} {flow} bind:filters={essFilters} /></div>
-    {:else if groupID === HELP}
-      <div class="ag-page ag-help-page"><AgencyHelpPage {store} {flow} /></div>
     {:else if groupID === COLONY_RESOURCES}
       <div class="ag-page"><AgencyColonyResourcesPage {store} {flow} bind:filters={() => siteFilters[groupID] ?? DEFAULT_SITE_FILTERS, (f) => (siteFilters = { ...siteFilters, [groupID]: f })} /></div>
     {:else if groupID === MERC_DENS}
@@ -335,7 +331,6 @@
   .ag-dots { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; z-index: 2; }
   .ag-dots button { all: unset; cursor: pointer; width: 8px; height: 8px; border-radius: 50%; background: rgb(255 255 255 / 0.35); }
   .ag-dots button.on { background: #fff; }
-  .ag-help { height: 132px; }
   .ag-cards { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
   .ag-card { all: unset; box-sizing: border-box; cursor: pointer; position: relative; overflow: hidden; display: flex; flex-direction: column; background: #0d0f11; border: 1px solid rgb(255 255 255 / 0.15); }
   .ag-card:hover:not(.off) { border-color: rgb(255 255 255 / 0.5); }

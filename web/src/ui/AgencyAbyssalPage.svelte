@@ -1,7 +1,6 @@
 <script lang="ts">
   // agencyNew/ui/contentGroupPages/abyssalDeadspaceContentGroupPage (group 37): on the left (0.5) the Overview (Header;
-  // abyssalSummary with the Triglavians' link, a scroll 130 high; the video AbyssalSpaceTestv04 looping, 234 high, 10
-  // below; abyssalTimeWarning in WARNING_ORANGE 10 below); on the right (10 apart) Game Modes - the solo cruiser, the
+  // abyssalSummary with the Triglavians' link and abyssalTimeWarning in WARNING_ORANGE 10 below); on the right (10 apart) Game Modes - the solo cruiser, the
   // destroyer co-op and the co-op, each GameModeContainer (its title HIGHLIGHT, its description SECONDARY 274 wide,
   // Requirements and its text on the right) - and Take Me To with the Filaments card (HorizontalContentGroupCard).
   // contentPages/contentPageAbyssalFilaments (group 44): on the left (CONTENT_PAGE_WIDTH / 2) Abyssal Filaments (the
@@ -77,7 +76,6 @@
   <section class="aad-left">
     <h3 class="aad-header">{word("UI/Overview/Overview")}</h3>
     <div class="aad-summary"><LabelText markup={markup(`${D}abyssalSummary`, { ownerTypeID: TYPE_FACTION, ownerID: TRIGLAVIAN })} {followerOf} /></div>
-    <div class="aad-video"><!-- svelte-ignore a11y_media_has_caption --><video autoplay loop muted src={clientTexture("res:/video/agency/AbyssalSpaceTestv04.webm")}></video></div>
     <p class="aad-warn">⚠ {word(`${D}abyssalTimeWarning`)}</p>
   </section>
   <div class="aad-right">
@@ -140,8 +138,6 @@
   .aad-left { width: 50%; flex: none; background: rgb(0 0 0 / 0.3); border: 1px solid rgb(255 255 255 / 0.08); padding: 0 10px 10px; display: flex; flex-direction: column; box-sizing: border-box; }
   .aad-header { margin: 0 -10px 10px; padding: 6px 10px; font-size: 13px; text-transform: uppercase; border-bottom: 1px solid rgb(255 255 255 / 0.12); }
   .aad-summary { height: 130px; overflow: auto; }
-  .aad-video { height: 234px; margin-top: 10px; padding: 10px; box-sizing: border-box; border: 1px solid rgb(255 255 255 / 0.2); }
-  .aad-video video { width: 100%; height: 100%; object-fit: cover; }
   .aad-warn { margin: 10px 0 0; color: #f0a030; }
   .aad-right { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
   .aad-sec { background: rgb(0 0 0 / 0.3); border: 1px solid rgb(255 255 255 / 0.08); padding: 6px 10px 10px; }

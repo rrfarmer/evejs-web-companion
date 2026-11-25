@@ -7,7 +7,7 @@
 export interface AgencyGroup { readonly id: number; readonly name: string | null; readonly description: string | null; readonly card: string | null; readonly children: readonly number[]; readonly tab: boolean }
 
 export const AGENCY_GROUPS: Readonly<Record<number, AgencyGroup>> = {
-  1: { id: 1, name: "UI/Agency/ContentGroups/ContentGroupHome", description: null, card: null, children: [11, 12, 13, 88, 14, 67, 69, 62], tab: false },
+  1: { id: 1, name: "UI/Agency/ContentGroups/ContentGroupHome", description: null, card: null, children: [11, 12, 13, 88, 14, 67, 62], tab: false },
   11: { id: 11, name: "UI/Agency/ContentGroups/ContentGroupMissions", description: "UI/Agency/ContentGroups/Descriptions/Missions", card: "res:/UI/Texture/Classes/Agency/navigationCards/card_AgentsMissions.png", children: [71, 22, 21, 33, 51, 28], tab: true },
   71: { id: 71, name: "UI/Agency/ContentGroups/ContentGroupMissionAgentsHeraldry", description: "UI/Agency/ContentGroups/Descriptions/MissionAgentsHeraldry", card: "res:/UI/Texture/Classes/Agency/navigationCards/card_AgentsHeraldry.png", children: [], tab: false },
   22: { id: 22, name: "UI/Agency/ContentGroups/ContentGroupMissionAgents", description: "UI/Agency/ContentGroups/Descriptions/MissionAgents", card: "res:/UI/Texture/Classes/Agency/navigationCards/card_MissionAgents.png", children: [23, 25, 24, 26, 27], tab: false },
@@ -56,14 +56,13 @@ export const AGENCY_GROUPS: Readonly<Record<number, AgencyGroup>> = {
   87: { id: 87, name: "UI/Agency/ContentGroups/PhasedFields", description: "UI/Agency/ContentGroups/Descriptions/PhasedFields", card: "res:/UI/Texture/Classes/Agency/navigationCards/card_phasedFields.png", children: [], tab: false },
   67: { id: 67, name: "UI/Agency/ContentGroups/ContentGroupFleetUp", description: "UI/Agency/ContentGroups/Descriptions/FleetUp", card: "res:/UI/Texture/Classes/Agency/navigationCards/EveEvolvedSmall.png", children: [68], tab: true },
   68: { id: 68, name: "UI/Agency/ContentGroups/ContentGroupFleetUpRegistration", description: null, card: null, children: [], tab: false },
-  69: { id: 69, name: "UI/Agency/ContentGroups/ContentGroupHelp", description: "UI/Agency/ContentGroups/Descriptions/Help", card: "res:/UI/Texture/Classes/Agency/navigationCards/card_HelpVideos.png", children: [], tab: true },
   62: { id: 62, name: "UI/Agency/ContentGroups/ContentGroupCorp", description: "UI/Agency/ContentGroups/Descriptions/Corp", card: "res:/UI/Texture/Classes/Agency/navigationCards/card_CorpSmall.png", children: [], tab: false },
 };
 
 /** contentGroupConst.agencyTabSortOrder. */
-export const AGENCY_TAB_ORDER: readonly number[] = [11, 12, 88, 13, 14, 62, 67, 69];
+export const AGENCY_TAB_ORDER: readonly number[] = [11, 12, 88, 13, 14, 62, 67];
 /** contentGroupConst.contentGroupsEnabledInWormholes. */
-export const AGENCY_WORMHOLE_GROUPS: readonly number[] = [45, 37, 44, 38, 39, 52, 48, 42, 12, 13, 14, 41, 63, 64, 69, 62, 67, 68, 4, 34, 71, 11, 79, 86, 87, 88, 89];
+export const AGENCY_WORMHOLE_GROUPS: readonly number[] = [45, 37, 44, 38, 39, 52, 48, 42, 12, 13, 14, 41, 63, 64, 62, 67, 68, 4, 34, 71, 11, 79, 86, 87, 88, 89];
 /** careerConst.AGENCY_SECTION_NAMES_TO_IDS: a career goal's agencyScreen to its content group. */
 export const AGENCY_SCREEN_GROUPS: Readonly<Record<string, number>> = {
   ABYSSAL_DEADSPACE: 37, ASTEROID_BELTS: 40, CAREER_AGENTS: 21, COMBAT_ANOMOLIES: 38, CORP_RECRUITMENT: 62, COSMIC_SIGNATURES: 39,

@@ -17,7 +17,6 @@
   // svelte-ignore state_referenced_locally
   const names = store.names;
   const art = (file: string) => clientTexture("res:/UI/Texture/classes/LoginCampaign/" + file + ".png");
-  const splash = clientTexture("res:/UI/Texture/classes/ItemPacks/SplashBGLoop.webm");
   const itemHint = "UI/LoginRewards/ItemToRedeemHint";
   const skillHint = "UI/Seasons/ChallengeRewardSkillPointClaim";
   const hintKey = $derived(isSkillPointRedeem(reward.typeID) ? skillHint : itemHint);
@@ -56,7 +55,6 @@
 
 <div class="fanfare" class:closing bind:this={panel} role="dialog" aria-modal="true" aria-label={name}
   tabindex="-1" onkeydown={keydown}>
-  <video src={splash} muted autoplay loop playsinline aria-hidden="true"></video>
   <div class="reward-item" class:omega={reward.omegaOnly}>
     <img class="frame" src={art(reward.omegaOnly ? "omegaMilestone_frame" : "alphaMilestone_frame")} alt="" />
     <img class="frame" src={art("centerHexagon")} alt="" />
@@ -72,11 +70,9 @@
 
 <style>
   .fanfare { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; z-index: 6; isolation: isolate;
-    background: rgb(13 13 13 / 85%); color: rgb(255 255 255 / 85%); opacity: 1; transition: opacity 250ms ease; }
+    background: radial-gradient(ellipse at center, rgb(34 69 87 / 92%), rgb(13 13 13 / 88%) 65%); color: rgb(255 255 255 / 85%); opacity: 1; transition: opacity 250ms ease; }
   .fanfare:focus { outline: 0; }
   .fanfare.closing { opacity: 0; }
-  video { position: absolute; top: calc(50% - 15px); left: 50%; width: 1250px; height: 450px; max-width: none;
-    transform: translate(-50%, -50%); object-fit: fill; mix-blend-mode: plus-lighter; filter: brightness(2); pointer-events: none; }
   .reward-item { width: 160px; height: 200px; box-sizing: border-box; position: relative; margin-top: -20px;
     border: 1px solid rgb(77 77 77); background: rgb(13 13 13 / 65%); text-align: center; }
   .reward-item.omega { border-color: rgb(125 89 31); }
@@ -86,5 +82,4 @@
   .quantity { position: absolute; right: 1px; bottom: 52px; padding: 3px 10px; min-width: 40px; background: rgb(0 0 0 / 95%); font-size: 14px; }
   .item-name { position: absolute; display: grid; place-items: center; bottom: 0; left: 7px; right: 7px; height: 50px; font-weight: 700; }
   p { position: absolute; top: calc(50% + 118px); margin: 0 10px; text-align: center; font-size: 12px; }
-  @media (prefers-reduced-motion: reduce) { video { visibility: hidden; } }
 </style>

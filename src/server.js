@@ -14832,22 +14832,6 @@ app.get("/api/client-data/season-selection", requireAuth, async (_req, res, next
   } catch (error) { next(error); }
 });
 
-// The Agency's Help Section (ContentProviderHelp): the video groups in the table's order, each its name message and its
-// videos; each video its name and description messages and its path. `available` false where the data is unread.
-app.get("/api/client-data/agency-help-videos", requireAuth, async (req, res, next) => {
-  try {
-    const [videos, groups] = await Promise.all([clientBuiltData.table("agencyHelpVideos"), clientBuiltData.table("agencyHelpVideoGroups")]);
-    if (!videos || !groups) { res.json({ ok: true, available: false }); return; }
-    const num = (v) => (Number.isSafeInteger(Number(v)) && v !== null && v !== undefined ? Number(v) : null);
-    const order = Array.isArray(groups["#order"]) ? groups["#order"] : Object.keys(groups).filter((k) => /^\d+$/.test(k)).map(Number);
-    res.json({
-      ok: true, available: true,
-      groups: order.map((id) => ({ id: Number(id), nameID: num(groups[String(id)] && groups[String(id)].nameID), videos: (groups[String(id)] && Array.isArray(groups[String(id)].videos) ? groups[String(id)].videos : []).map(Number) })),
-      videos: Object.fromEntries(Object.entries(videos).filter(([k]) => /^\d+$/.test(k)).map(([k, v]) => [k, { nameID: num(v && v.nameID), descriptionID: num(v && v.descriptionID), path: v && typeof v.path === "string" ? v.path : null }])),
-    });
-  } catch (error) { next(error); }
-});
-
 // The Agency's Colony Resources: the null-sec systems (each [starID, regionID, planetIDs]) and the richness eveicons
 // (orbitalSkyhook resourceRichness powerTextureByRichness, workforce..., superionic ice..., magmatic gas...: modest,
 // average, prosperous). Static reference data, asked once and kept.
@@ -19037,20 +19021,6 @@ app.get(/^\/client-res\/(ui\/fonts\/factions\/[a-z]+\/[a-z0-9_-]+\.ttf)$/, (req,
   });
 });
 
-// The client's own videos by their res: path (for example, the Achievements career banners):
-// The reward fanfare uses the ItemPacks splash loop indexed under ui/texture.
-app.get(/^\/client-res\/(video\/[A-Za-z0-9_./-]+\.webm|ui\/texture\/classes\/itempacks\/splashbgloop\.webm)$/, (req, res) => {
-  const file = (typeof clientTextures.videoFor === "function" ? clientTextures.videoFor(`res:/${req.params[0]}`) : null) || clientTextures.fileFor(`res:/${req.params[0]}`);
-  if (!file) {
-    res.status(404).end();
-    return;
-  }
-  res.set("Cache-Control", "public, max-age=2592000, immutable");
-  res.type("video/webm").sendFile(file, (error) => {
-    if (error && !res.headersSent) res.status(404).end();
-  });
-});
-
 // A type's picture from the client's own files (evePhotosvc.GetIconByType): its graphic's picture rendered ahead, or
 // its icon's file (staticData.getTypePictureResPaths), or 404. The CCP image server's cache above is another source;
 // this one needs no download. No session: the install's pictures do not vary by player.
@@ -19072,6 +19042,8 @@ app.use(config.iconCacheUrlPath, express.static(config.iconCacheDir, {
   immutable: true,
   maxAge: "30d",
 }));
+
+app.get(/^\/(?:client-res\/video(?:\/|$)|.*\.(?:webm|mp4|m4v|ogv|mov|bik|avi|wmv|mkv|mpeg|mpg)$)/i, (_req, res) => res.status(404).end());
 
 // Extracted 3D resources and audio are installed alongside the BFF. They use the same URLs in dev and production.
 app.use("/client-assets", options.clientAssets || createClientAssets({

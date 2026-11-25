@@ -161,14 +161,6 @@
     }
   }
 
-  function play(event: PointerEvent): void {
-    const video = (event.currentTarget as HTMLElement).querySelector("video");
-    if (video && !matchMedia("(prefers-reduced-motion: reduce)").matches) void video.play().catch(() => {});
-  }
-
-  function pause(event: PointerEvent): void {
-    (event.currentTarget as HTMLElement).querySelector("video")?.pause();
-  }
 </script>
 
 <section class="academy">
@@ -180,8 +172,7 @@
     <div class="categories">
       {#each ACADEMY_CATEGORIES as entry (entry.id)}
         {@const count = catalogue.offers.filter(offer => offer.categoryID === entry.id).length}
-        <article class="category" onpointerenter={play} onpointerleave={pause}>
-          <video aria-hidden="true" muted playsinline loop preload="auto" src={`/client-res/video/academyShips/${entry.name}_512x674.webm`}></video>
+        <article class="category">
           <div class="category-content">
             <h3>{word(ROOT + "CategoryName" + entry.name, entry.name)}</h3>
             <p>{word(ROOT + "CategoryDescription" + entry.name, "")}</p>
@@ -289,10 +280,9 @@
   button:focus-visible { outline: 2px solid #92dfe7; outline-offset: 2px; }
   button:disabled { cursor: default; opacity: .5; }
   .categories { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 15px; }
-  .category { position: relative; min-height: clamp(275px, 65vh, 520px); background: #1c3039; border: 1px solid #415b65; overflow: hidden; display: flex; align-items: end; }
+  .category { position: relative; min-height: 240px; background: linear-gradient(145deg, #29434e, #101b23); border: 1px solid #415b65; overflow: hidden; display: flex; align-items: end; }
   .category:hover, .category:focus-within { border-color: #a3e2ef; }
-  video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
-  .category-content { position: relative; width: 100%; padding: 64px 16px 16px; background: linear-gradient(transparent, #0c161c 30%); text-align: center; }
+  .category-content { position: relative; width: 100%; padding: 24px 16px 16px; text-align: center; }
   .category h3 { font-size: 24px; font-weight: 500; }
   .category p { margin-top: 8px; }
   .category .count { color: #e6eef1; }

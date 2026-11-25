@@ -42,7 +42,6 @@
   const label = (id: string | number, fallback = "") => plainText($words.templates[typeof id === "number" ? `#${id}` : id] ?? "") || fallback;
   const icon = (name: string) => clientTexture(`res:/UI/Texture/eveicon/career_icons/${name}_64px.png`);
   const banner = (category: AchievementCategory) => clientTexture(`${art}career_program/career_page_${careers[category.style]?.art ?? "enforcer"}.jpg`);
-  const video = (category: AchievementCategory) => clientTexture(`res:/video/achievements/career_banners/${category.icon}.webm`);
   const categoryName = (c: AchievementCategory) => label(c.name, careers[c.style]?.name ?? c.icon);
   const number = (value: number) => value.toLocaleString("en-US");
   const goal = (c: AchievementCategory) => c.milestones.at(-1)?.target ?? 0;
@@ -69,7 +68,6 @@
   let error = $state("");
   let claiming = $state(false);
   let disposed = false;
-  let hovered = $state<string | null>(null);
   let titleNames = $state.raw<ReadonlyMap<string, string>>(new Map());
   let askedTitles = false;
   $effect(() => {
@@ -303,8 +301,7 @@
         <div class="ach-careers">
           {#each children(career) as c (c.id)}
             <button type="button" class="ach-banner" style:background-image={`linear-gradient(transparent, #0b1016 92%), url('${banner(c)}')`}
-              onmouseenter={() => hovered = c.id} onmouseleave={() => hovered = null} onfocus={() => hovered = c.id} onblur={() => hovered = null} onclick={() => show(c.id)}>
-              {#if hovered === c.id}<video src={video(c)} muted autoplay loop playsinline aria-hidden="true"></video>{/if}
+              onclick={() => show(c.id)}>
               <img alt="" src={icon(c.icon)} />
               <strong>{categoryName(c)}</strong>
               <small>{label(careers[c.style]?.desc ?? c.description)}</small>
@@ -405,7 +402,6 @@
   .ach-error { border-left: 3px solid #d49254; padding-left: 8px; }
   .ach-careers, .ach-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .ach-banner { position: relative; isolation: isolate; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: end; min-height: 226px; padding: 14px; text-align: center; background-size: cover; background-position: center; }
-  .ach-banner video { position: absolute; z-index: -2; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   .ach-banner::before { content: ""; position: absolute; z-index: -1; inset: 0; background: linear-gradient(transparent 30%, #0b1016eb 90%); pointer-events: none; }
   .ach-banner:hover { outline: 1px solid #a8d4e6; }
   .ach-banner strong { font-size: 25px; }

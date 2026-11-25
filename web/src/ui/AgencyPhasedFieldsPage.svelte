@@ -1,13 +1,11 @@
 <script lang="ts">
   // agencyNew/ui/contentPages/contentPagePhasedFields.ContentPagePhasedFields: two columns (CONTENT_PAGE_WIDTH_HALF each,
   // 500 high). The left: Overview (OverviewHeader, OverviewText), then 10 below it Fracture (FractureHeader,
-  // FractureText). The right: Phased Asteroid States (its header; the video phasedFieldsStages, looping, 436 x 102, 8
-  // below; PhasedAsteroidStatesText 8 below). The texts with their links.
+  // FractureText). The right column explains the phased asteroid states.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
-  import { clientTexture } from "./skillGroupIcons.ts";
   import { LINK_WORDS, linkFollowerOf } from "./linkFollowers.ts";
   import LabelText from "./LabelText.svelte";
 
@@ -30,8 +28,6 @@
   </div>
   <div class="apf-col">
     <section class="apf-sec"><h4>{word(`${P}PhasedAsteroidStatesHeader`)}</h4>
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <video class="apf-video" autoplay loop muted src={clientTexture("res:/video/agency/phasedFieldsStages.webm")}></video>
       <div class="apf-after"><LabelText markup={markup(`${P}PhasedAsteroidStatesText`)} {followerOf} /></div>
     </section>
   </div>
@@ -43,6 +39,5 @@
   .apf-sec { background: rgb(0 0 0 / 0.3); border: 1px solid rgb(255 255 255 / 0.08); padding: 6px 10px 10px; }
   .apf-sec h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600; text-transform: uppercase; opacity: 0.8; }
   .apf-gap { margin-top: 10px; }
-  .apf-video { display: block; width: 436px; height: 102px; max-width: 100%; margin-top: 8px; object-fit: cover; }
   .apf-after { margin-top: 8px; }
 </style>
