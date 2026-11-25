@@ -18,7 +18,7 @@
   // not entitled to make. Clicking a module shows its EFFECTIVE stats — skills,
   // hull bonuses and in-space effects already applied — taken straight from the
   // server's post-dogma map and never recomputed in the browser.
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { portal } from "./portal.ts";
   import {
     SLOT_FAMILY_LABELS,
@@ -963,14 +963,50 @@
   // items have no info of their own), its type's market group, publishing and category read as it opens (`facts`:
   // undefined for a hull, whose the browser holds; null until read).
   let hullMenu = $state<{ readonly typeID: number; readonly x: number; readonly y: number; readonly facts?: TypeMetaFacts | null } | null>(null);
+  let slotMenu = $state<{ shipID: number; key: string; itemID: number; x: number; y: number; anchor: HTMLElement } | null>(null);
+  const fittedMenuSlot = $derived(slotMenu && !simulation && slotMenu.shipID === $fitting.activeShipID
+    ? $fitting.slots.find(slot => slotKey(slot) === slotMenu?.key && slot.module?.itemID === slotMenu?.itemID)
+    : undefined);
+
+  function openSlotMenu(slot: FittingSlot, event: MouseEvent | KeyboardEvent): void {
+    if (simulation || busy || !slot.module || $fitting.activeShipID === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    hullMenu = null;
+    nodeMenu = null;
+    const anchor = event.currentTarget as HTMLElement;
+    const rect = anchor.getBoundingClientRect();
+    const pointer = event instanceof MouseEvent && (event.clientX !== 0 || event.clientY !== 0);
+    slotMenu = { shipID: $fitting.activeShipID, key: slotKey(slot), itemID: slot.module.itemID,
+      x: pointer ? event.clientX : rect.left, y: pointer ? event.clientY : rect.bottom, anchor };
+    void tick().then(() => {
+      if (slotMenu?.anchor !== anchor) return;
+      const menu = document.querySelector<HTMLElement>(".fit-slot-menu");
+      if (!menu) return;
+      slotMenu.x = Math.max(4, Math.min(slotMenu.x, window.innerWidth - menu.offsetWidth - 4));
+      slotMenu.y = Math.max(4, Math.min(slotMenu.y, window.innerHeight - menu.offsetHeight - 4));
+      menu.querySelector("button")?.focus();
+    });
+  }
+
+  function slotMenuAction(action: (slot: FittingSlot, module: NonNullable<FittingSlot["module"]>) => void): void {
+    const slot = fittedMenuSlot;
+    const anchor = slotMenu?.anchor;
+    slotMenu = null;
+    anchor?.focus();
+    if (slot?.module && !busy) action(slot, slot.module);
+  }
+
   function openHullMenu(typeID: number, event: MouseEvent): void {
     event.preventDefault();
     nodeMenu = null;
+    slotMenu = null;
     hullMenu = { typeID, x: event.clientX, y: event.clientY };
   }
   function openTypeMenu(typeID: number, event: MouseEvent): void {
     event.preventDefault();
     nodeMenu = null;
+    slotMenu = null;
     hullMenu = { typeID, x: event.clientX, y: event.clientY, facts: null };
     void flow.typeFacts([typeID]).then((read) => {
       const facts = read?.get(typeID) ?? null;
@@ -993,20 +1029,28 @@
   function openNodeMenu(typeIDs: readonly number[] | null, id: string, event: MouseEvent): void {
     event.preventDefault();
     hullMenu = null;
+    slotMenu = null;
     nodeMenu = { typeIDs, id, x: event.clientX, y: event.clientY };
   }
   $effect(() => {
-    if (hullMenu === null && nodeMenu === null) return;
+    if (hullMenu === null && nodeMenu === null && slotMenu === null) return;
     const close = (event: Event): void => {
       if (!(event.target instanceof Element && event.target.closest(".hull-menu"))) {
         hullMenu = null;
         nodeMenu = null;
+        slotMenu = null;
       }
     };
     const key = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
+        const anchor = slotMenu?.anchor;
         hullMenu = null;
         nodeMenu = null;
+        slotMenu = null;
+        if (anchor) {
+          anchor.focus();
+          event.stopPropagation();
+        }
       }
     };
     const timer = setTimeout(() => {
@@ -3758,7 +3802,10 @@
                   ondragend={() => (linkingTypeID = null)}
                   class:link-faded={linkingTypeID !== null && slot.module !== null && slot.module.typeID !== linkingTypeID}
                   onclick={(event) => (simulation ? clickSimulated(slot, event) : clickSocket(slot))}
-                  oncontextmenu={(event) => unfitSimulated(slot, event)}
+                  oncontextmenu={(event) => simulation ? unfitSimulated(slot, event) : openSlotMenu(slot, event)}
+                  onkeydown={event => {
+                    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openSlotMenu(slot, event);
+                  }}
                   class:drop-target={dropSlot === slotKey(slot)}
                 >
                   {#if slot.module}
@@ -3983,7 +4030,7 @@
                 {#each slots as slot (`${slot.family}:${slot.index}`)}
                   <tr>
                     <td data-label="Slot">{slotName(slot)}</td>
-                    <td data-label="Fitted">
+                    <td data-label="Fitted" oncontextmenu={event => openSlotMenu(slot, event)}>
                       {#if slot.module}
                         {moduleName(slot.module.typeID)}
                         <details class="module-stats-disclose">
@@ -4086,6 +4133,36 @@
 
   <!-- ===================== saved fittings ============================= -->
   <section bind:this={browserSection}>
+    {#if slotMenu && fittedMenuSlot?.module}
+      {@const menuSlot = fittedMenuSlot}
+      <span class="hull-menu fit-slot-menu" role="menu" aria-label={socketDescription(menuSlot)}
+        use:portal style:left={`${slotMenu.x}px`} style:top={`${slotMenu.y}px`}>
+        <button type="button" role="menuitem" onclick={() => slotMenuAction((_, module) =>
+          showInfo({ kind: "module", itemID: module.itemID, typeID: module.typeID }))}>{fitWord("UI/Commands/ShowInfo")}</button>
+        {#if $flightState.status?.docked && menuSlot.family === "rig"}
+          <button type="button" role="menuitem" disabled={busy} onclick={() => slotMenuAction((slot, module) => {
+            selected = { family: slot.family, index: slot.index };
+            confirmingRigID = module.itemID;
+          })}>Destroy rig…</button>
+        {:else if menuSlot.family !== "rig" && menuSlot.family !== "subsystem"}
+          {#if $flightState.status?.docked}
+            {#if menuSlot.module?.charge}
+              <button type="button" role="menuitem" disabled={busy} onclick={() => slotMenuAction(slot => {
+                const flag = slotFlagOf(slot.family, slot.index);
+                if (flag !== null) void run(async () => {
+                  await flow.unloadChargeToPlace(flag, { kind: "hangar" });
+                  await flow.loadInventory();
+                });
+              })}>Remove Charge</button>
+            {/if}
+            <button type="button" role="menuitem" disabled={busy}
+              onclick={() => slotMenuAction((_, module) => unfit(module.itemID))}>Unfit</button>
+          {/if}
+          <button type="button" role="menuitem" disabled={busy} onclick={() => slotMenuAction((_, module) =>
+            toggleOnline(module.itemID, !module.online))}>{menuSlot.module?.online ? "Put Offline" : "Put Online"}</button>
+        {/if}
+      </span>
+    {/if}
     {#if hullMenu !== null}
       {@const menuFor = hullMenu}
       <span class="hull-menu" role="menu" use:portal style:left={`${menuFor.x}px`} style:top={`${menuFor.y}px`}>
