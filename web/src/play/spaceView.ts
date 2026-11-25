@@ -6165,7 +6165,10 @@ export class SpaceView {
     if (this.stopped) return;
     this.frameCount++;
     const systemID = this.live.hello?.solarSystemID ?? null;
-    if (systemID && systemID !== this.sceneFor) void this.loadScene(systemID);
+    if (systemID && systemID !== this.sceneFor) {
+      this.warpTunnel.setSystem(systemID);
+      void this.loadScene(systemID);
+    }
     this.live.frame();
     const park = this.live.park;
     let snap: Snapshot | null = null;
@@ -6607,9 +6610,16 @@ export class SpaceView {
     // a ship that is not moving (at a gate, or come out of one) has no way of its own: the camera's, so the tunnel eases out
     if (way.lengthSq() < 0.5) tunnelWay = this.camera.getWorldDirection(new THREE.Vector3());
     this.flashEl.style.opacity = flash.toFixed(3);
-    const warpPoint = ego?.mode === "WARP" ? ego.warp?.point ?? this.options.flightSnapshot?.()?.ship?.warp?.point ?? null : null;
-    const warpIntensity = this.warpTunnel.intensity(share);
-    const crossing = this.warpPlanets.sample(ego, warpPoint, snap?.entities ?? [], warpIntensity, WarpTunnel.multiplier(warpSpeedMultiplier));
+    let warp = ego?.mode === "WARP" ? ego.warp : null;
+    if (ego?.mode === "WARP" && !warp?.point) warp = this.options.flightSnapshot?.()?.ship?.warp ?? null;
+    const warpPoint = warp?.point ?? null;
+    const multiplier = WarpTunnel.multiplier(warpSpeedMultiplier);
+    const regional = this.warpTunnel.regional.update(ego && warpPoint ? {
+      position: ego.position, point: warpPoint, preparing: warp?.preparing ?? true, multiplier,
+    } : null, share, settings.shaderQuality);
+    const legacyShare = regional ? 0 : share;
+    const warpIntensity = this.warpTunnel.intensity(legacyShare);
+    const crossing = this.warpPlanets.sample(ego, regional ? null : warpPoint, snap?.entities ?? [], warpIntensity, multiplier);
     const hiddenBody = crossing.body === null ? null : this.marks.get(crossing.body) ?? null;
     if (this.warpHiddenBody !== hiddenBody) {
       if (this.warpHiddenBody) this.warpHiddenBody.visible = true;
@@ -6618,12 +6628,12 @@ export class SpaceView {
     }
     const sunGlow = sunMark?.getObjectByName("sunGlow");
     if (sunGlow) sunGlow.visible = crossing.body === null;
-    this.warpTunnel.update(this.camera, this.controls.target, tunnelWay, share, gateShare, now / 1000, dt, crossing);
+    this.warpTunnel.update(this.camera, this.controls.target, tunnelWay, legacyShare, gateShare, now / 1000, dt, crossing);
     const ownModel = ego ? this.marks.get(ego.itemID)?.userData.model as THREE.Object3D | undefined : undefined;
     const hullLight = settings.shaderQuality === 3 && ownModel ? warpLightingFor(ownModel) : null;
     if (hullLight !== this.warpHullLighting) this.warpHullLighting?.clear();
     this.warpHullLighting = hullLight;
-    if (ego?.mode === "WARP") hullLight?.update(bracketSimNow ?? now, warpIntensity, crossing);
+    if (ego?.mode === "WARP" && !regional) hullLight?.update(bracketSimNow ?? now, warpIntensity, crossing);
     else hullLight?.clear();
     this.turretFx.setResolution(innerWidth, innerHeight);
     this.turretFx.onShot = this.onShot;

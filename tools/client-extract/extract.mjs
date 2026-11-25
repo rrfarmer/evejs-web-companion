@@ -37,7 +37,7 @@ import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
 import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelestials, buildGfxTurrets, indexedHullGeometry, CELESTIAL_BUILD } from "./lib/typeGraphics.mjs";
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
-import { buildGraphicSofDefaults, loadGraphicMaterialSets, graphicsFile, mapSdeDir } from "./lib/assetSde.mjs";
+import { buildGraphicSofDefaults, loadGraphicMaterialSets, graphicsFile, mapSdeDir, solarSystemContentFile } from "./lib/assetSde.mjs";
 import { SOF_BUILD, GRAPHIC_SOF_DEFAULTS, sofVariant, loadSof, buildHull, allMaterials } from "./lib/sof.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
 import { readTurret, ammoColors, TURRET_BUILD } from "./lib/turret.mjs";
@@ -383,11 +383,11 @@ async function extractEffectGraphic(rf, sde, graphicID, outRoot) {
   const graphic = sdeGraphic(sde, Number(graphicID));
   const graphicFile = String(graphic?.graphicFile ?? "").replace(/\\/g, "/").toLowerCase() || null;
   const bindExternalTextures = [3715, 21050].includes(Number(graphicID));
-  const allShaderQualities = bindExternalTextures || [20956, 28102].includes(Number(graphicID));
+  const allShaderQualities = bindExternalTextures || [20956, 26201, 28102].includes(Number(graphicID));
   const read = graphicFile ? readEffectFile(rf, graphicFile, undefined, { allShaderQualities, bindExternalTextures }) : null;
   if (read?.root) await copyChildGraphAssets(rf, [read.root, ...Object.values(read.childEffects ?? {})], outRoot);
   const out = {
-    effectBuild: bindExternalTextures ? 7 : allShaderQualities ? 6 : 4,
+    effectBuild: Number(graphicID) === 26201 ? 8 : bindExternalTextures ? 7 : allShaderQualities ? 6 : 4,
     graphicID: Number(graphicID), graphicFile,
     root: read?.root ?? null, external: read?.external ?? [], childEffects: read?.childEffects ?? {}, skipped: read?.skipped ?? {},
     ...(allShaderQualities ? { controllerVariableOverrides: graphic?.controllerVariableOverrides ?? {} } : {}),
@@ -426,7 +426,7 @@ async function extractWormholeTransit(rf, outRoot) {
   fs.writeFileSync(path.join(outRoot, "wormholeTransit.json"), JSON.stringify({ root: effect.root, skipped: effect.skipped }));
 }
 
-async function extractWarpTunnel(rf, outRoot) {
+async function extractWarpTunnel(rf, outRoot, sde) {
   const resource = "res:/model/effect3/warptunnel.black";
   const tunnel = readBlack(rf.read(resource), resource);
   const geometry = tunnel.mesh.geometryResPath.toLowerCase();
@@ -436,7 +436,17 @@ async function extractWarpTunnel(rf, outRoot) {
     parameters: Object.fromEntries(area.effect.parameters.map(({ name, value }) => [name, value])),
     textures: Object.fromEntries(area.effect.resources.map(({ name, resourcePath }) => [name, copyRes(rf, resourcePath, outRoot)])),
   });
+  const overrides = {};
+  const content = sde && solarSystemContentFile(sde);
+  if (content) {
+    for (const line of fs.readFileSync(content, "utf8").split(/\r?\n/)) {
+      if (!line.includes("warpTunnelOverwrite")) continue;
+      const system = JSON.parse(line);
+      if (system.warpTunnelOverwrite > 0) overrides[system._key] = system.warpTunnelOverwrite;
+    }
+  }
   fs.writeFileSync(path.join(outRoot, "warpTunnel.json"), JSON.stringify({
+    overrides,
     model: "/client-assets/" + path.relative(outRoot, glb).split(path.sep).join("/"),
     scale: tunnel.scaling,
     rotation: tunnel.rotation,
@@ -1024,7 +1034,7 @@ async function main() {
     console.log(`wormhole nebula ${id}: ${extractWormholeNebula(rf, sde, id, outRoot)}`);
   }
   if (args.wormholeTransit) await extractWormholeTransit(rf, outRoot);
-  if (args.warpTunnel) await extractWarpTunnel(rf, outRoot);
+  if (args.warpTunnel) await extractWarpTunnel(rf, outRoot, sde);
   // gfxTurrets.json: an NPC hull's or a sentry's turret module type, by its type (the SDE's gfxTurretID)
   if (args.gfxTurrets) {
     if (!sde) throw new Error("--gfx-turrets needs the SDE (--sde, or a config.json that names it)");

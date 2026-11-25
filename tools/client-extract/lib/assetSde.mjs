@@ -34,6 +34,7 @@ function clientTable(sdeDir, filenames, required) {
 }
 
 export const graphicsFile = (sdeDir, required = true) => clientTable(sdeDir, ["graphics.jsonl", "graphicids.jsonl"], required);
+export const solarSystemContentFile = (sdeDir) => clientTable(sdeDir, ["solarsystemcontent.jsonl"], false);
 export const graphicMaterialSetsFile = (sdeDir, required = true) => clientTable(sdeDir, ["graphicmaterialsets.jsonl", "graphicMaterialSets.jsonl"], required);
 
 function readRows(file) {

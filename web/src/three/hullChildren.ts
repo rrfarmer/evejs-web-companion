@@ -9,6 +9,7 @@ import { gfx } from "../play/gfxSettings.ts";
 import { logDepth } from "./logDepth.ts";
 import { wormholeMaterial } from "./wormholeMaterial.ts";
 import { wormholeTransitMaterial } from "./wormholeTransitMaterial.ts";
+import { jumpTunnelMaterial } from "./jumpTunnelMaterial.ts";
 import { CLOUD_FOG, CLOUD_FOG_GLSL } from "./cloudOpacity.ts";
 import { uberDistortionMaterial, DISTORTION_LAYER } from "./distortion.ts";
 import { ControllerRun, type SofController } from "./controllers.ts";
@@ -1435,11 +1436,15 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
             texturecolor: textureColorMaterial, flare: flareMaterial, twocolorflare: twoColorFlareMaterial, ubershadercube: uberCubeMaterial,
             wormholefx: (a: SofChildMeshArea) => wormholeMaterial(a, childTexture),
             wormholetransition: (a: SofChildMeshArea) => wormholeTransitMaterial(a, (url) => sampledChildTexture(url, 16)),
+            jumptunneluber: (a: SofChildMeshArea) => jumpTunnelMaterial(a, effectClock, (url) => sampledChildTexture(url, 16)),
             sunwhisps: sunWhispsMaterial,
             childhazespherical: childHazeMaterial } as Record<string, (a: SofChildMeshArea) => THREE.ShaderMaterial>)[area.effect] ?? uberMaterial;
           const mat = make(area);
           materials.set(area, mat);
-          for (const [name, id] of Object.entries(area.paramIds ?? {})) if (PARAM_UNIFORM[name]) animator?.uniform(id, mat.uniforms[PARAM_UNIFORM[name]!]);
+          for (const [name, id] of Object.entries(area.paramIds ?? {})) {
+            const uniform = mat.uniforms[PARAM_UNIFORM[name] ?? name];
+            if (uniform) animator?.uniform(id, uniform);
+          }
         }
         o.updateWorldMatrix(true, false);
         // an effect of two passes (ubershadertwosided's back faces) draws its second as a second mesh, after the first

@@ -5,12 +5,14 @@ import { loadDds } from "../three/ddsTexture.ts";
 import { BACKGROUND_DISTORTION_LAYER } from "../three/distortion.ts";
 import { warpTunnelMaterial, type WarpTunnelPass } from "../three/warpTunnelMaterial.ts";
 import type { WarpPlanetFade } from "./warpPlanetCrossings.ts";
+import { RegionalWarpTunnel } from "./regionalWarpTunnel.ts";
 
 const AU = 149_597_870_700;
 export const WARP_SPEED_MULTIPLIER_ATTRIBUTE = 600;
 const STREAKS = 700;
 
 interface WarpTunnelDefinition {
+  overrides?: Record<number, number>;
   model: string;
   scale: [number, number, number];
   rotation: [number, number, number, number];
@@ -29,6 +31,7 @@ interface WarpSurface {
   diffuse: THREE.Vector4;
   intensity: ScalarCurve;
   keys: ReturnType<typeof prepareScalar>;
+  overrides: Record<number, number>;
 }
 
 async function loadWarpSurface(): Promise<WarpSurface> {
@@ -78,11 +81,12 @@ async function loadWarpSurface(): Promise<WarpSurface> {
   root.visible = false;
   const intensity = definition.intensity;
   const diffuse = materials[0]!.uniforms.Diffuse!.value.clone() as THREE.Vector4;
-  return { root, geometry, materials, textures, distortion, diffuse, intensity, keys: prepareScalar(intensity) };
+  return { root, geometry, materials, textures, distortion, diffuse, intensity, keys: prepareScalar(intensity), overrides: definition.overrides ?? {} };
 }
 
 export class WarpTunnel {
   readonly object = new THREE.Group();
+  readonly regional = new RegionalWarpTunnel(this.object);
   private readonly lines: THREE.LineSegments;
   private readonly positions: Float32Array;
   private readonly material: THREE.LineBasicMaterial;
@@ -95,6 +99,7 @@ export class WarpTunnel {
   private disposed = false;
   private shown = 0;
   private previousTime = 0;
+  private systemID: number | null = null;
 
   constructor() {
     this.positions = new Float32Array(STREAKS * 2 * 3);
@@ -114,7 +119,13 @@ export class WarpTunnel {
       }
       this.surface = surface;
       this.object.add(surface.root);
+      this.regional.setGraphic(this.systemID ? surface.overrides[this.systemID] : undefined);
     }).catch((error: unknown) => { console.warn("Warp tunnel:", error); });
+  }
+
+  setSystem(systemID: number): void {
+    this.systemID = systemID;
+    this.regional.setGraphic(this.surface?.overrides[systemID]);
   }
 
   /** The tunnel's strength for a speed in metres a second while warping (0 when not warping): the client's binding. */
@@ -209,6 +220,7 @@ export class WarpTunnel {
 
   dispose(): void {
     this.disposed = true;
+    this.regional.dispose();
     this.lines.geometry.dispose();
     this.material.dispose();
     if (this.surface) this.releaseSurface(this.surface);

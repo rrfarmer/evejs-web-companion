@@ -465,7 +465,7 @@ function meshAreas(mesh, skipped, smartBeam = false, staticSprites = false) {
       const fx = named === "quadinstancedv5" ? "quadv5" : named;
       const opts = Object.fromEntries((a.effect?.options?.items ?? []).filter((r) => Array.isArray(r)));
       // a distortion area draws into the distortion map (ubershaderdistortion.fx, the one effect such areas use)
-      const drawn = kind === "distortion" ? fx === "ubershaderdistortion" : ["ubershader", "fx3dv5", "ubershadertwosided", "ubershadercube", "flare", "twocolorflare", "quadv5", "quadglassv5", "quaddetailv5", "fxv5", "wormholefx", "wormholetransition", "sunwhisps", "childhazespherical"].includes(fx)
+      const drawn = kind === "distortion" ? fx === "ubershaderdistortion" : ["ubershader", "fx3dv5", "ubershadertwosided", "ubershadercube", "flare", "twocolorflare", "quadv5", "quadglassv5", "quaddetailv5", "fxv5", "wormholefx", "wormholetransition", "jumptunneluber", "sunwhisps", "childhazespherical"].includes(fx)
         || fx === "texturecolor"
         || (staticSprites && STATIC_SPRITE_EFFECTS.has(fx))
         || (smartBeam && kind === "additive" && fx === "ubershaderinstanced")

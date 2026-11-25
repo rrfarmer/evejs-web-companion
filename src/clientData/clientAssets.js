@@ -22,7 +22,7 @@ const GENERATED = new Map([
   ["/dscanCones.json", ["--dscan-cones", '"lineTexture"']],
   ["/dscanHologram.json", ["--dscan-hologram"]],
   ["/wormholeTransit.json", ["--wormhole-transit"]],
-  ["/warpTunnel.json", ["--warp-tunnel", '"distortion":']],
+  ["/warpTunnel.json", ["--warp-tunnel", '"overrides":']],
   ["/shipInfoScene.json", ["--ship-info"]],
   ["/drifterCollectionExplosion.json", ["--drifter-collection-explosion", '"explosionBuild":2']],
   ["/observatoryEnvironment.json", ["--observatory-environment", '"environmentBuild":3']],
@@ -161,6 +161,7 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
   if (effect) {
     const id = effect[1];
     const file = `effects/${id}.json`;
+    if (id === "26201") return { file: await ensure(file, ["--effect", id], '"effectBuild":8') };
     const portal = id === "20956" || id === "28102";
     if (portal && !canExtract()) return { file: path.join(dir, file) };
     const wormhole = id === "3715" || id === "21050";
