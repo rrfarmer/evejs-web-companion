@@ -362,7 +362,8 @@
     targets: readonly MoveDestination[];
     x: number;
     y: number;
-    shipAnchor?: HTMLElement;
+    contextAnchor?: HTMLElement;
+    ship?: boolean;
   } | null>(null);
   let panelEl = $state<HTMLElement | null>(null);
 
@@ -370,7 +371,7 @@
   function onKeydown(event: KeyboardEvent): void {
     if (event.key !== "Escape") return;
     if (menu === null && !targetMenuOpen) return;
-    const anchor = menu?.shipAnchor;
+    const anchor = menu?.contextAnchor;
     menu = null;
     targetMenuOpen = false;
     anchor?.focus();
@@ -1485,21 +1486,24 @@
     }
   }
 
-  function openShipMenu(event: MouseEvent | KeyboardEvent, row: InventoryItemRow): void {
+  function openRowContextMenu(
+    event: MouseEvent | KeyboardEvent, row: InventoryItemRow, place: InventoryPlace,
+    targets: readonly MoveDestination[], ship = false,
+  ): void {
     if (!panelEl || !isDocked) return;
     event.preventDefault();
     event.stopPropagation();
-    const shipAnchor = event.currentTarget as HTMLElement;
-    const anchor = shipAnchor.getBoundingClientRect();
+    const contextAnchor = event.currentTarget as HTMLElement;
+    const anchor = contextAnchor.getBoundingClientRect();
     const frame = panelEl.getBoundingClientRect();
     const pointer = event instanceof MouseEvent && (event.clientX || event.clientY);
     const x = (pointer ? event.clientX : anchor.left) - frame.left;
     const y = (pointer ? event.clientY : anchor.bottom) - frame.top;
     targetMenuOpen = false;
-    menu = { row, place: { kind: "hangar" }, targets: [], x, y, shipAnchor };
+    menu = { row, place, targets, x, y, contextAnchor, ship };
     void tick().then(() => {
-      if (menu?.shipAnchor !== shipAnchor || !panelEl) return;
-      const popover = panelEl.querySelector<HTMLElement>(".stn-ship-menu");
+      if (menu?.contextAnchor !== contextAnchor || !panelEl) return;
+      const popover = panelEl.querySelector<HTMLElement>(".stn-context-menu");
       if (!popover) return;
       menu.x = Math.max(4, Math.min(x, frame.width - popover.offsetWidth - 4));
       menu.y = Math.max(4, Math.min(y, frame.height - popover.offsetHeight - 4));
@@ -1509,19 +1513,36 @@
 
   function shipRowKeydown(event: KeyboardEvent, row: InventoryItemRow): void {
     if (event.target !== event.currentTarget) return;
-    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openShipMenu(event, row);
+    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+      openRowContextMenu(event, row, { kind: "hangar" }, [], true);
+    }
     else if (event.key === "Enter") {
       event.preventDefault();
       activateShipRow(row);
     }
   }
 
-  function shipMenuAction(action: (ship: InventoryItemRow) => void): void {
+  function contextAction(action: (row: InventoryItemRow) => void): void {
     const opened = menu;
-    if (!opened?.shipAnchor) return;
+    if (!opened?.contextAnchor) return;
     menu = null;
-    opened.shipAnchor.focus();
+    opened.contextAnchor.focus();
     action(opened.row);
+  }
+
+  function hardwareSource(row: InventoryItemRow, place: InventoryPlace): "hangar" | "cargo" | null {
+    const pilot = $flight.status;
+    if (!isDocked || !pilot?.docked || !pilot.shipID || pilot.shipIsCapsule === true ||
+        pilot.shipID === pilot.structureID || ![7, 32, 66].includes(row.categoryID ?? 0)) return null;
+    if (place.kind === "hangar") return "hangar";
+    if (place.kind === "cargo" ||
+        (place.kind === "shipBay" && place.bay === "cargo" && openShip?.itemID === pilot.shipID)) return "cargo";
+    return null;
+  }
+
+  function fitHardware(row: InventoryItemRow, place: InventoryPlace): void {
+    const source = hardwareSource(row, place);
+    if (source) void run(() => flow.fitInventoryHardware(row, source));
   }
 
   /**
@@ -1549,13 +1570,21 @@
 {#snippet itemRow(group: Group, row: InventoryItemRow)}
   {@const picked = isPicked(row, group.place)}
   {@const openable = isOpenableContainer(row)}
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
   <li
     class="stn-row"
     class:picked
     class:readonly={group.readOnly}
+    tabindex={isDocked && !group.readOnly ? 0 : undefined}
     draggable={group.readOnly ? "false" : "true"}
     ondragstart={(event) => startDrag(event, row, group.place)}
+    oncontextmenu={event => { if (!group.readOnly) openRowContextMenu(event, row, group.place, group.targets); }}
+    onkeydown={event => {
+      if (!group.readOnly && event.target === event.currentTarget &&
+          (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
+        openRowContextMenu(event, row, group.place, group.targets);
+      }
+    }}
     onclick={(event) => {
       if ((event.target as HTMLElement).closest("button, input, label")) return;
       if (!group.readOnly) toggle(row, group.place);
@@ -2110,7 +2139,8 @@
             <li class="stn-row stn-ship-row" class:flying class:picked={openShip?.itemID === ship.itemID}
               tabindex="0" aria-label={nameOf(ship)}
               draggable="true" ondragstart={event => startDrag(event, ship, { kind: "hangar" })}
-              oncontextmenu={event => openShipMenu(event, ship)} onkeydown={event => shipRowKeydown(event, ship)}
+              oncontextmenu={event => openRowContextMenu(event, ship, { kind: "hangar" }, [], true)}
+              onkeydown={event => shipRowKeydown(event, ship)}
               ondblclick={event => { if (!(event.target as Element).closest("button")) activateShipRow(ship); }}>
               <span class="stn-cell-render">
                 <TypeIcon typeID={ship.typeID} name={nameOf(ship)} size="md" />
@@ -2444,33 +2474,49 @@
   {#if menu}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="stn-menu-shade" onclick={() => (menu = null)}></div>
-    <div class="stn-menu" class:stn-ship-menu={menu.shipAnchor !== undefined} style="left: {menu.x}px; top: {menu.y}px">
+    <div class="stn-menu" class:stn-context-menu={menu.contextAnchor !== undefined}
+      class:stn-ship-menu={menu.ship === true} style="left: {menu.x}px; top: {menu.y}px">
       <p class="stn-menu-head">{nameOf(menu.row)}</p>
-      {#if menu.shipAnchor}
+      {#if menu.ship}
         {@const ship = menu.row}
         {@const active = ship.itemID === $inventory.activeShipID}
-        <button type="button" class="stn-menu-item" onclick={() => shipMenuAction(showShipInfo)}>Show Info</button>
+        <button type="button" class="stn-menu-item" onclick={() => contextAction(showShipInfo)}>Show Info</button>
         {#if !ship.singleton && !isModularShipGroup(ship.groupID)}
           <button type="button" class="stn-menu-item" disabled={busy}
-            onclick={() => shipMenuAction(row => void run(() => flow.assembleShip(row.itemID, false)))}>Assemble Ship</button>
+            onclick={() => contextAction(row => void run(() => flow.assembleShip(row.itemID, false)))}>Assemble Ship</button>
         {/if}
         {#if (!ship.singleton && !isModularShipGroup(ship.groupID)) || isBoardableShip(ship, $inventory.activeShipID)}
           <button type="button" class="stn-menu-item" disabled={busy}
-            onclick={() => shipMenuAction(activateShipRow)}>Board Ship</button>
+            onclick={() => contextAction(activateShipRow)}>Board Ship</button>
         {/if}
         {#if ship.singleton && ship.groupID !== 29}
           <button type="button" class="stn-menu-item" disabled={busy}
-            onclick={() => shipMenuAction(openInBays)}>Open Cargo</button>
+            onclick={() => contextAction(openInBays)}>Open Cargo</button>
         {/if}
         {#if active && ship.groupID !== 29}
           <button type="button" class="stn-menu-item" disabled={busy}
-            onclick={() => shipMenuAction(() => void run(() => flow.leaveShip()))}>Leave Ship</button>
+            onclick={() => contextAction(() => void run(() => flow.leaveShip()))}>Leave Ship</button>
         {/if}
         {#if ship.singleton}
           <button type="button" class="stn-menu-item" disabled={busy}
-            onclick={() => shipMenuAction(row => void run(() => flow.renameShip(row.itemID)))}>Change Name</button>
+            onclick={() => contextAction(row => void run(() => flow.renameShip(row.itemID)))}>Change Name</button>
         {/if}
       {:else}
+        {#if menu.contextAnchor}
+          <button type="button" class="stn-menu-item"
+            onclick={() => contextAction(row => showInfo({ kind: "type", typeID: row.typeID }))}>Show Info</button>
+          {#if isOpenableContainer(menu.row)}
+            <button type="button" class="stn-menu-item" disabled={busy}
+              onclick={() => contextAction(openInventoryContainer)}>Open Container</button>
+          {/if}
+          {#if hardwareSource(menu.row, menu.place)}
+            <button type="button" class="stn-menu-item" disabled={busy}
+              onclick={() => {
+                const place = menu!.place;
+                contextAction(row => fitHardware(row, place));
+              }}>Fit to Active Ship</button>
+          {/if}
+        {/if}
         {#if activatable(menu.row, menu.place)}
           <button type="button" class="stn-menu-item" onclick={() => openKeyWindow(menu!.row)}>
             {activateWords(menu.row)}
@@ -2513,5 +2559,5 @@
   .lobby-hangars .stn-filter { height: 28px; min-width: 0; padding: 0 4px; }
   .lobby-hangars .stn-picker { display: none; }
   .lobby-hangars { flex: 1; height: auto; min-height: 160px; }
-  .stn-ship-menu { max-height: calc(100% - 8px); overflow-y: auto; }
+  .stn-context-menu { max-height: calc(100% - 8px); overflow-y: auto; }
 </style>

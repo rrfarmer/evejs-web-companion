@@ -2439,6 +2439,7 @@ export interface AppFlow {
    * its charge unloaded, and the module to the hangar docked and to the ship's own hold in space.
    */
   unfitModule(itemID: number): Promise<void>;
+  fitInventoryHardware(row: InventoryItemRow, source: "hangar" | "cargo"): Promise<void>;
   /** A fitted module put into the ship's cargo, as the client's UnloadModuleToContainer puts it (a slot dragged to the cargo). */
   unloadModuleToCargo(itemID: number): Promise<void>;
   /** The charge in the slot of this flag put into the ship's cargo, as the client's UnloadAmmoToContainer puts it. */
@@ -37419,6 +37420,32 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // the client's dogma location and its fitting slot make them, judged by the page's own read of the slots.
     async fitModule(itemID, source, slot) {
       await runFittingAction(() => fitModuleCall(bridgeDo, fittedNow, ammoSession(), itemID, source, slot));
+    },
+
+    async fitInventoryHardware(row, source) {
+      const flight = store.flight.get().status;
+      const characterID = store.station.get().online?.characterID;
+      const dock = dockedNow();
+      if (!characterID || !dock || !flight?.docked || !flight.shipID ||
+          flight.shipIsCapsule === true || flight.shipID === flight.structureID) {
+        throw new Error("Dock in the ship you want to fit.");
+      }
+      const [staticData] = await Promise.all([dogmaStaticFor([row.typeID], []), loadFitting()]);
+      const itemType = staticData?.types[row.typeID];
+      if (!itemType) throw new Error("The module's fitting data could not be read.");
+      if (itemType.effects.includes(POWER_EFFECT_OF_FAMILY.rig) &&
+          !store.fitting.get().slots.some(slot => slot.family === "subsystem" && slot.present !== false) &&
+          !(await askDialog("RigFittingInfo", { type: "dict", entries: [] },
+            "A rig comes off its ship only by being destroyed. Fit it anyway?", "okcancel"))) return;
+      const place = ammoSession();
+      if (place.shipID !== flight.shipID || place.dockedAt !== dock || place.characterID !== characterID ||
+          store.flight.get().status?.shipID !== flight.shipID) {
+        throw new Error("The active ship or station changed. Review the fitting action again.");
+      }
+      await runFittingAction(() => fitModuleCall(bridgeDo, fittedNow, place, row.itemID, source, "auto"));
+      const error = store.fitting.get().actionError;
+      if (error && !store.fitting.get().actionErrorSaid) throw new Error(error);
+      await loadInventory();
     },
 
     async unfitModule(itemID) {
