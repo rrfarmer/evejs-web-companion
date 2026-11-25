@@ -25,7 +25,7 @@
   // The one WRITE here is taking a contract on. It moves ISK and items and
   // cannot be undone, so it asks first, on a screen that says what changes
   // hands, and the button is dead while the write is in flight.
-  import { getContext, onMount } from "svelte";
+  import { getContext, onMount, untrack } from "svelte";
   import {
     CONTRACT_STATUS_OUTSTANDING,
     CONTRACT_TYPE_COURIER,
@@ -129,8 +129,6 @@
   // contracts offered to you — but only until the player picks a tab
   // themselves, after which their choice wins and stops moving under them.
   let chosenTab = $state<"board" | "mine" | "search" | null>(null);
-  // The window's Contract Search tab (contractsWnd.py 100: its third; contractsearch.py's results), as far as the page
-  // has it: the contracts of a type found by the type menu's Find in Contracts (contracts.FindRelated).
   /**
    * The play page's windows (PlayApp's "retailChrome"): the window's tabs as contractsWnd.ContractsWindow.LoadTabs
    * has them in its header - the start page (its caption, Tooltips/Neocom/Contracts: here the summary and the jobs
@@ -208,20 +206,58 @@
     issuer: "UI/Contracts/ContractsSearch/columnIssuer",
     nothingFound: "UI/Common/NothingFound",
     auction: "UI/Contracts/Auction",
+    more: "UI/Contracts/ContractsSearch/buttonShowMoreOptions",
+    less: "UI/Contracts/ContractsSearch/buttonShowLessOptions",
+    priceMillions: "UI/Contracts/ContractsSearch/labelPriceMillions",
+    min: "UI/Contracts/ContractsSearch/hintMin",
+    max: "UI/Contracts/ContractsSearch/hintMax",
+    to: "UI/Common/ToNumber",
   } as const;
+  // svelte-ignore state_referenced_locally
+  const searchPref = `evejs.user.${store.session.get().accountID ?? 0}.contracts.`;
+  const maxPriceMillions = Math.floor(Number.MAX_SAFE_INTEGER / 1_000_000);
+  function savedPrice(key: string): number | undefined {
+    const value = Number(localStorage.getItem(searchPref + key));
+    return value > 0 && value <= maxPriceMillions && Number.isSafeInteger(value) ? value : undefined;
+  }
+  let advanced = $state(localStorage.getItem(searchPref + "advanced") === "true");
+  let priceEnabled = $state(localStorage.getItem(searchPref + "priceEnabled") !== "false");
+  let minimum = $state<number | undefined>(savedPrice("minPrice"));
+  let maximum = $state<number | undefined>(savedPrice("maxPrice"));
+  function setAdvanced(value: boolean) {
+    advanced = value;
+    localStorage.setItem(searchPref + "advanced", String(value));
+  }
+  function asPrice(value: number | undefined): number | null {
+    return value !== undefined && value > 0 && value <= maxPriceMillions && Number.isSafeInteger(value)
+      ? value * 1_000_000
+      : null;
+  }
   let searchedType = $state<number | null>(null);
   let searching = $state(false);
   let searchFound = $state.raw<{ readonly entries: readonly ContractSearchEntry[]; readonly numFound: number } | null>(null);
-  function searchType(typeID: number): void {
-    chosenTab = "search";
-    searchedType = typeID;
+  let searchSequence = 0;
+  function search(typeID: number | null, fromItemMenu = false): void {
+    const sequence = ++searchSequence;
+    const usePrice = retail && advanced && priceEnabled;
+    const minPrice = usePrice ? asPrice(minimum) : null;
+    const maxPrice = usePrice ? asPrice(maximum) : null;
+    if (usePrice) {
+      localStorage.setItem(searchPref + "minPrice", String(minimum ?? ""));
+      localStorage.setItem(searchPref + "maxPrice", String(maximum ?? ""));
+    }
     searchFound = null;
+    searching = true;
     void run(async () => {
-      searching = true;
       try {
-        searchFound = await flow.findContractsOfType(typeID);
+        const result = fromItemMenu && typeID !== null
+          ? await flow.findContractsOfType(typeID)
+          : await flow.searchBuySellContracts(typeID, minPrice, maxPrice);
+        if (sequence === searchSequence) searchFound = result;
+      } catch (cause) {
+        if (sequence === searchSequence) throw cause;
       } finally {
-        searching = false;
+        if (sequence === searchSequence) searching = false;
       }
     });
   }
@@ -231,7 +267,15 @@
   $effect(() => {
     void $contractsSearchRequests;
     const wanted = contractsSearchTarget.take();
-    if (wanted !== null) searchType(wanted);
+    if (wanted !== null) {
+      chosenTab = "search";
+      searchedType = wanted;
+      if (retail) {
+        minimum = maximum = undefined;
+        setAdvanced(true);
+      }
+      untrack(() => search(wanted, true));
+    }
   });
   /** A label of the client's filled, for a contract's title (GetContractTitle); the page's own words where it has none. */
   function titleWord(label: string, args: Readonly<Record<string, JsonValue>> = {}): string {
@@ -546,23 +590,39 @@
     <!-- ContractSearchPanel: the left column (DragResizeCont 200, 180 - 280; padded 8 at the right) - the Buy & Sell /
          Courier toggle, the item type field (UI/Wallet/WalletWindow/ItemType), the Search button at its foot; at the
          right the result scroll, item exchange's columns (Contract, Location, Price, Jumps, Time Left, Issuer, Created),
-         and the found line (labelNumberContractsFound; NoSearch before one). Courier is the jobs on offer here; the
-         other filters (location, category, price, availability, security) are not built. -->
+         and the found line (labelNumberContractsFound; NoSearch before one). -->
     <div class="con-search">
-      <div class="con-search-left">
+      <form class="con-search-left" onsubmit={(event) => { event.preventDefault(); search(searchedType); }}>
         <div class="con-toggle">
           <button type="button" class="active">{titleWord("UI/Contracts/ContractsSearch/tabBuyAndSell") || "Buy & Sell"}</button>
           <button type="button" onclick={() => (chosenTab = "board")}>{titleWord("UI/Contracts/ContractsSearch/tabCourier") || "Courier"}</button>
         </div>
         <input type="text" readonly placeholder={titleWord("UI/Wallet/WalletWindow/ItemType") || "Item type"} value={searchedType === null ? "" : itemName(searchedType)} />
+        <button type="button" aria-expanded={advanced} onclick={() => setAdvanced(!advanced)}>
+          {advanced ? titleWord(SEARCH_WORDS.less) || "Show Fewer Options" : titleWord(SEARCH_WORDS.more) || "Show More Options"}
+        </button>
+        {#if advanced}
+          <fieldset class="con-price-filter">
+            <legend>{titleWord(SEARCH_WORDS.priceMillions) || "Price (million)"}</legend>
+            <div class="con-price-bounds">
+              <input type="checkbox" aria-label={titleWord(SEARCH_WORDS.priceMillions) || "Price (million)"} bind:checked={priceEnabled}
+                onchange={(event) => localStorage.setItem(searchPref + "priceEnabled", String(event.currentTarget.checked))} />
+              <input type="number" aria-label={titleWord(SEARCH_WORDS.min) || "Min"} placeholder={titleWord(SEARCH_WORDS.min) || "Min"}
+                min="0" max={maxPriceMillions} step="1" disabled={!priceEnabled} bind:value={minimum} />
+              <span>{titleWord(SEARCH_WORDS.to) || "To"}</span>
+              <input type="number" aria-label={titleWord(SEARCH_WORDS.max) || "Max"} placeholder={titleWord(SEARCH_WORDS.max) || "Max"}
+                min="0" max={maxPriceMillions} step="1" disabled={!priceEnabled} bind:value={maximum} />
+            </div>
+          </fieldset>
+        {/if}
         <span class="con-search-fill"></span>
-        <button type="button" class="con-search-btn" disabled={busy || searchedType === null} onclick={() => { if (searchedType !== null) searchType(searchedType); }}>{titleWord("UI/Contracts/ContractsSearch/buttonSearch") || "Search"}</button>
-      </div>
+        <button type="submit" class="con-search-btn" disabled={busy || searching}>{titleWord("UI/Contracts/ContractsSearch/buttonSearch") || "Search"}</button>
+      </form>
       <div class="con-search-right">
         <p class="con-found">
-          {#if searchedType === null}{titleWord("UI/Contracts/ContractsSearch/NoSearch") || "No search made"}
-          {:else if searching || searchFound === null}Looking for contracts of {itemName(searchedType)}…
-          {:else}{titleWord("UI/Contracts/ContractsSearch/labelNumberContractsFound", { num: searchFound.numFound }) || `${searchFound.numFound} contracts found`}{/if}
+          {#if searching}Searching for contracts…
+          {:else if searchFound}{titleWord("UI/Contracts/ContractsSearch/labelNumberContractsFound", { num: searchFound.numFound }) || `${searchFound.numFound} contracts found`}
+          {:else if !error}{titleWord("UI/Contracts/ContractsSearch/NoSearch") || "No search made"}{/if}
         </p>
         <div class="con-scroll">
           <table>

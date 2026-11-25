@@ -4709,6 +4709,9 @@
   .fly-windows :global(.con-toggle button) { flex: 1; background: none; border: 1px solid rgba(255, 255, 255, 0.2); padding: 3px 0; font-size: 12px; color: rgba(255, 255, 255, 0.7); cursor: pointer; }
   .fly-windows :global(.con-toggle button.active) { background: rgba(255, 255, 255, 0.15); color: #fff; }
   .fly-windows :global(.con-search-left input) { margin: 0 2px; padding: 3px 6px; font-size: 12px; }
+  .fly-windows :global(.con-price-filter) { margin: 0; padding: 0; border: 0; min-width: 0; }
+  .fly-windows :global(.con-price-bounds) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; }
+  .fly-windows :global(.con-price-bounds input[type="number"]) { width: calc(100% - 4px); }
   .fly-windows :global(.con-search-fill) { flex: 1; }
   .fly-windows :global(.con-search-btn) { margin: 0 2px 2px; padding: 5px; font-size: 12px; }
   .fly-windows :global(.con-search-right) { flex: 1; min-width: 0; display: flex; flex-direction: column; }

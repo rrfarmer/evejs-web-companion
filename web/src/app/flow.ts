@@ -3696,6 +3696,7 @@ export interface AppFlow {
    * that type, in every region, cheapest first, as the contract search sends it.
    */
   findContractsOfType(typeID: number): Promise<{ readonly entries: readonly ContractSearchEntry[]; readonly numFound: number }>;
+  searchBuySellContracts(typeID: number | null, minPrice: number | null, maxPrice: number | null): ReturnType<AppFlow["findContractsOfType"]>;
   /** Close the open contract without touching the server. */
   closeContract(): void;
   /**
@@ -25646,10 +25647,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * the box is (unticked: False), every other filter None, sorted by price, lowest first (SORT_PRICE, 0), from the first.
    */
   async function findContractsOfType(typeID: number): Promise<{ readonly entries: readonly ContractSearchEntry[]; readonly numFound: number }> {
-    await resolveNamesNow([{ kind: "type", id: typeID }]);
-    const typeName = nameCache.get(nameKey("type", typeID)) ?? null;
+    return searchBuySellContracts(typeID, null, null);
+  }
+
+  async function searchBuySellContracts(typeID: number | null, minPrice: number | null, maxPrice: number | null): ReturnType<AppFlow["findContractsOfType"]> {
+    if (typeID !== null) await resolveNamesNow([{ kind: "type", id: typeID }]);
+    const typeName = typeID === null ? null : nameCache.get(nameKey("type", typeID)) ?? null;
     const answered = await bridgeAsk("contractProxy", "SearchContracts", [], {
-      itemTypes: { type: "dict", entries: [[typeID, null]] },
+      itemTypes: typeID === null ? null : { type: "dict", entries: [[typeID, null]] },
       itemTypeName: typeName,
       itemCategoryID: null,
       itemGroupID: null,
@@ -25658,8 +25663,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       locationID: null,
       endLocationID: null,
       issuerID: null,
-      minPrice: null,
-      maxPrice: null,
+      minPrice,
+      maxPrice,
       minReward: null,
       maxReward: null,
       minCollateral: null,
@@ -39737,6 +39742,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadContracts,
     openContract,
     findContractsOfType,
+    searchBuySellContracts,
     closeContract,
     acceptContract,
     loadPersonalAssets,
