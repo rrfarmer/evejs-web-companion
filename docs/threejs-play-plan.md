@@ -175,6 +175,52 @@ market, industry, mail, fleet, corp, character sheet, chat).
 
 **M5 — polish:** sound, settings, graphics quality levels, performance on large grids.
 
+## Flight graphics and performance target
+
+Use the **Low** device classification in retail build **3698585** as the baseline
+for flight visuals and performance. Compare the two clients at a matched window size
+and camera pose. Keep the HUD, overview, brackets, turret effects and drone models
+enabled so the check exercises normal flight and mining.
+
+| Display & Graphics setting | Retail 3698585 | Browser flight page |
+| --- | --- | --- |
+| Shader, LOD, Post Processing | Low | Low |
+| Shadows and Ambient Occlusion | Disabled | Disabled with Low shader |
+| Volumetrics and Reflection | Low | Low |
+| Texture Quality | High | High for the matched run |
+| Anti-Aliasing | Disabled | WebGL multisampling |
+
+In `/fly`, open **Esc → Display & Graphics**. Set **Volumetric Effects Quality**
+and **Reflections** to **Low** before setting **Shader Quality** to **Low**.
+This leaves Reflections at Low when the menu disables that control.
+For a separate texture-memory run, set **Texture Quality** to **Medium** before
+reloading the flight page. The setting skips the top mip when a texture is loaded.
+
+Use a single hardware-accelerated WebGL 2 tab at roughly 720p and device pixel
+ratio 1 for the baseline. Aim for **at least 30 FPS with p95 frame time at or
+below 33.3 ms** during steady flight. Validate on the hardware intended to run
+the browser.
+
+### Repeatable flight check
+
+1. Record the companion commit, EveJS fixture, client build, browser version,
+   GPU or software renderer, canvas dimensions and device pixel ratio.
+2. Use the same ship, viewport, camera pose and visible windows for each graphics
+   profile. Check a quiet flight grid and a dense grid such as Perimeter X,
+   Asteroid Belt 1. Keep cold asset loading as a separate measurement.
+3. Once the assets finish loading, sample the rendered frame intervals for at least
+   10 seconds per pose. Repeat each run. Report mean FPS, median and p95 frame
+   intervals, and visible asteroid count. Label JavaScript frame intervals as
+   browser timing. Use a GPU trace for GPU timing.
+4. Lock a rock, run the Miner I, recall a drone and interact with the overview.
+   Record hitches during those actions separately from steady-flight measurements.
+
+In the Perimeter belt on an RTX 3070 Ti with Chrome 158 and a 1200 × 780 canvas,
+both profiles ran at approximately 60 FPS with 16.8 ms p95 frame intervals.
+At the matched pose, Low reduced enabled asteroid mesh triangles before frustum
+culling from 553,380 to 220,478. Treat the counts as render workload and the
+frame intervals as a measurement on this host.
+
 ## How we check it
 
 - **Physics:** the browser Park and the BFF Park on the same recorded feed agree exactly. Our

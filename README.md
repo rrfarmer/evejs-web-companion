@@ -1,13 +1,14 @@
 # EveJS Web Client
 
-A **no-graphics, browser-based client for [EveJS](../eve.js)** — play EVE Online through
+A **browser-based client for [EveJS](../eve.js)** — play EVE Online through
 a web page instead of the retail 3D client, by driving the **same service calls the
 retail client makes** against the same EveJS handlers.
 
-EveJS is the game server and the sole authority. This app is an *alternate client*, not
-another simulation: it renders no 3D scene and runs no game logic of its own. It shows
-you the game as lists, panels, and a HUD, and every action it takes is a real retail
-call the server validates exactly as it would for the retail client.
+EveJS is the game server and the sole authority. The workspace presents the game
+through lists, panels, and a HUD. On `FarmerThreeJSFun`, `/fly` adds a Three.js
+flight view. Both views send retail calls to the server for validation.
+The flight view's Low graphics baseline and measurement procedure are documented in
+[Flight graphics and performance target](docs/threejs-play-plan.md#flight-graphics-and-performance-target).
 
 > Full scope, architecture, and per-milestone history live in
 > [docs/web-client-scope-and-roadmap.md](docs/web-client-scope-and-roadmap.md) and
