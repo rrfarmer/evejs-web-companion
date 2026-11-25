@@ -1244,6 +1244,15 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       return;
     }
   }
+  const stationLpPurchase = body.service === "LPStoreMgr" && body.method === "TakeOfferForCharacter";
+  if (stationLpPurchase) {
+    const args = Array.isArray(body.args) ? body.args : [];
+    if (body.of != null || body.kwargs != null || args.length !== 3 ||
+        args.some(id => !Number.isSafeInteger(id) || id <= 0) || args[2] > 100) {
+      res.status(400).json({ ok: false, error: "INVALID_LP_OFFER", message: "Choose an offer and quantity from the local Loyalty Point Store." });
+      return;
+    }
+  }
   if (body.service === "invbroker" && body.method === "GetContainerContents" &&
       (body.of != null || body.kwargs != null || !Array.isArray(body.args) || body.args.length !== 2 ||
        !body.args.every(id => Number.isSafeInteger(id) && id > 0))) {
@@ -1552,6 +1561,15 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
   if (scalarController) res.once("close", scalarClosed);
   const scalarSignal = scalarController ? req.operationSignal ?? scalarController.signal : undefined;
   try {
+    if (stationLpPurchase) {
+      const dockedAt = await assertDockedInventoryAccess(heldBridgeSession, req.webSessionID);
+      const issuer = Number(staticData.getStation(dockedAt)?.corporationID);
+      if (heldBridgeSession.structureID || issuer !== body.args[0] ||
+          !buildStationStatic(dockedAt)?.serviceIDs?.includes(25)) {
+        res.status(409).json({ ok: false, error: "LP_STORE_NOT_LOCAL", message: "This station does not offer that issuer's Loyalty Point Store." });
+        return;
+      }
+    }
     // With no pilot held this is the account asking (the hangar's roster is the client's character selection
     // screen), and the seam sends what the retail client asks there to where the account is (pilotTransport.js).
     // (A write is a pilot's, so one is held; and it is made under the checks every write of a held pilot's is
@@ -5956,9 +5974,7 @@ app.post("/api/bridge/gm/slash", requireAuth, async (req, res, next) => {
 // Its 3 write routes, made for no screen of the page's, went on 2026-10-14 (the loop's item 62): nothing
 // asked them. The pairs stay writes (bridgeCallPolicy.js), so the generic call refuses them.
 
-// --- LPStoreMgr WRITES (2) — session-scoped source
-// Its 2 write routes, made for no screen of the page's, went on 2026-10-14 (the loop's item 62): nothing
-// asked them. The pairs stay writes (bridgeCallPolicy.js), so the generic call refuses them.
+// The station Loyalty Point Store purchases personal offers through the confirmed bridge.
 
 // The Insurance window calls insuranceSvc through the confirmed bridge.
 

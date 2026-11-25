@@ -886,12 +886,18 @@
     ? $station.structureServiceIDs?.includes(9) === true
     : ($station?.online?.stationID != null && $station.station?.stationID === $station.online.stationID &&
       $station.station.serviceIDs?.includes(21) === true));
+  const lpStoreAvailable = $derived(!$station?.online?.structureID && $station?.online?.stationID != null &&
+    $station.station?.stationID === $station.online.stationID && $station.station.serviceIDs?.includes(25) === true &&
+    ($station.bits?.ownerID ?? 0) > 0);
   $effect(() => {
     if ((!docked || !reprocessingAvailable) && wins.some(win => win.id === "reprocessing")) {
       wins = closeWindow(wins, "reprocessing");
     }
     if ((!docked || !insuranceAvailable) && wins.some(win => win.id === "insurance")) {
       wins = closeWindow(wins, "insurance");
+    }
+    if ((!docked || !lpStoreAvailable) && wins.some(win => win.id === "lpStore")) {
+      wins = closeWindow(wins, "lpStore");
     }
   });
 
@@ -1368,12 +1374,12 @@
     memberDetails: { w: 420, h: 480 },
     theatersOfWar: { w: 1600, h: 880 },
     academyShips: { w: 1280, h: 688 },
-    shipTree: { w: 1055, h: 720 }, reprocessing: { w: 600, h: 400 }, insurance: { w: 400, h: 560 },
+    shipTree: { w: 1055, h: 720 }, reprocessing: { w: 600, h: 400 }, insurance: { w: 400, h: 560 }, lpStore: { w: 837, h: 580 },
   };
   const FLIGHT_MINIMUMS: Partial<Record<TabID, { w: number; h: number }>> = {
     drones: { w: 240, h: 120 }, scanner: { w: 300, h: 150 }, inventory: { w: 170, h: 140 },
     market: { w: 650, h: 435 }, contracts: { w: 700, h: 560 }, corporation: { w: 700, h: 832 },
-    fleet: { w: 270, h: 120 }, industry: { w: 1004, h: 650 }, reprocessing: { w: 600, h: 400 }, insurance: { w: 400, h: 400 },
+    fleet: { w: 270, h: 120 }, industry: { w: 1004, h: 650 }, reprocessing: { w: 600, h: 400 }, insurance: { w: 400, h: 400 }, lpStore: { w: 837, h: 430 },
   };
   function flightWindowMinimum(tab: TabID): { w: number; h: number } {
     const size = FLIGHT_MINIMUMS[tab] ?? { w: MIN_W, h: MIN_H };
@@ -1457,6 +1463,7 @@
   function open(tab: TabID) {
     if (tab === "reprocessing" && (!docked || !reprocessingAvailable)) return;
     if (tab === "insurance" && (!docked || !insuranceAvailable)) return;
+    if (tab === "lpStore" && (!docked || !lpStoreAvailable)) return;
     // OpenInventory (the Neocom button, Alt-C) shows InventoryPrimary, captioned "Inventory" (read through gridcheck: in space
     // it opens on the ship's cargo); a hold command (OpenCargoHoldOfActiveShip ...) the Active ship window (below)
     if (tab === "inventory") inventoryPrimary = true;
@@ -4020,6 +4027,11 @@
             {#if insuranceAvailable}
               <button type="button" class="lobby-svc" title="Insurance" aria-label="Insurance" onclick={() => open("insurance")}>
                 <img alt="" src={clientTexture("res:/ui/Texture/WindowIcons/insurance.png")} />
+              </button>
+            {/if}
+            {#if lpStoreAvailable}
+              <button type="button" class="lobby-svc" title="Loyalty Point Store" aria-label="Loyalty Point Store" onclick={() => open("lpStore")}>
+                <img alt="" src={clientTexture("res:/ui/Texture/WindowIcons/lpstore.png")} />
               </button>
             {/if}
             {#if militiaOfficeAvailable}

@@ -471,6 +471,7 @@ import { decodeRecipeBook } from "../bridge/piRecipes.ts";
 import { repairTargets, type RepairQuotePart, type RepairQuoteRow } from "../bridge/repairQuotes.ts";
 import { isRepairableItem, payRepairShop, quoteRepairs, repairItemsAtShop, repairQuoted, stationOffersRepair } from "../bridge/repairShop.ts";
 import { insurancePrices, insuranceTerms, stationInsuranceContracts, type InsurancePackage, type StationInsuranceShip } from "../bridge/stationInsurance.ts";
+import { decodeStationLpOffers, type StationLpOffer, type StationLpStore } from "../bridge/stationLpStore.ts";
 import { createSpacePoller, targetsReadIsDue, type SpacePoller } from "./spacePoll.ts";
 import type { RequestPriority } from "./transport.ts";
 import type { CorpOfficesResult, DronesResult, FlightStepResult } from "./api.ts";
@@ -2295,6 +2296,8 @@ export interface AppFlow {
   loadStationInsurance(placeID: number): Promise<readonly StationInsuranceShip[]>;
   buyStationInsurance(placeID: number, itemID: number, tier: InsurancePackage, premium: number, replacing: number | null): Promise<void>;
   cancelStationInsurance(placeID: number, itemID: number, contractID: number): Promise<void>;
+  loadStationLpStore(stationID: number, issuerID: number): Promise<StationLpStore>;
+  buyStationLpOffer(stationID: number, issuerID: number, offer: StationLpOffer, quantity: number): Promise<void>;
   /**
    * Pay the station to repair exactly what this quote lists — the rows the
    * caller was just shown, never a broader "everything" — at the quote's cost.
@@ -9255,45 +9258,43 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
 
-  /**
-   * Re-read everything scoped to WHICH HULL YOU ARE FLYING (goal R87).
-   *
-   * ⚠ THE BUG THIS FIXES. Boarding a ship went through `runMutation`, which
-   * reloads the hangar and the cargo — so `activeShipID` updated and the item
-   * lists were right. But two things are keyed to the hull itself and neither
-   * was touched:
-   *
-   *   • `openShip`, the bays the Ship Inventory tab draws. It is opened once, in
-   *     the panel's `onMount`, and the `inventory/loaded` reducer deliberately
-   *     preserves it across a reload — so after boarding it kept showing the
-   *     bays of the ship you had just STEPPED OUT OF, with its ore and its
-   *     capacities, indefinitely.
-   *   • The fitting slice — slots, resources, stats, dogma. An open Fitting
-   *     window kept the previous hull's modules.
-   *
-   * Both are stale in the worst way: they look live, they are labelled with the
-   * right panel, and nothing about them says they are describing a different
-   * ship.
-   *
-   * ⚠ THIS IS THE REFILL, NOT THE GUARANTEE. R88 moved the invalidation into the
-   * store, where the hull change is OBSERVED (see `inventory/loaded`): the fit
-   * and the bays card are dropped there, so no caller can leave stale hull state
-   * on screen by forgetting to call this. What this adds is promptness — the
-   * panels refill on the same beat as the board instead of sitting empty until
-   * something else asks. Deleting it degrades the experience; deleting the store
-   * half reintroduces the bug.
-   */
-  /**
-   * Quote the ACTIVE HULL and everything fitted to it at the station's repair
-   * shop (goal R2 station services; the `repair-ship` bot block asks the same
-   * question). The shop itself decides what counts as damaged — the browser
-   * never judges a hitpoint total — and only the ids we named can come back.
-   *
-   * Null means the shop was NOT asked because there is no hull to quote yet;
-   * an empty list is the shop's own "nothing is damaged". The fit is loaded
-   * first when the fitting slice is still empty, so a quote raised from the
-   * station panel covers the modules and not just the hull.
-   */
+  async function loadStationLpStore(stationID: number, issuerID: number): Promise<StationLpStore> {
+    const identity = store.station.get().online?.characterID;
+    const current = () => {
+      const station = store.station.get();
+      if (identity == null || identity !== station.online?.characterID || dockedNow() !== stationID ||
+          station.online.stationID !== stationID || station.bits?.ownerID !== issuerID ||
+          station.station?.stationID !== stationID || !station.station.serviceIDs?.includes(25)) {
+        throw new Error("The pilot is no longer at this Loyalty Point Store.");
+      }
+    };
+    current();
+    const [catalog, balances, cash] = await Promise.all([
+      bridgeAsk("LPStoreMgr", "GetAvailableOffersFromCorp", [issuerID]),
+      bridgeAsk("LPSvc", "GetAllMyCharacterWalletLPBalances", []),
+      bridgeAsk("account", "GetCashBalance", [0]),
+    ]);
+    current();
+    const offers = decodeStationLpOffers(catalog, issuerID);
+    const types = new Set(offers.flatMap(offer => [offer.reward, ...offer.requires, ...offer.otherRewards].map(item => item.typeID)));
+    requestNames([{ kind: "corporation", id: issuerID }, ...[...types].map(id => ({ kind: "type" as const, id }))]);
+    return { offers, lp: decodeLpBalances(balances).find(row => row.issuerCorpID === issuerID)?.loyaltyPoints ?? "0", isk: unwrapReal(cash) };
+  }
+
+  async function buyStationLpOffer(stationID: number, issuerID: number, offer: StationLpOffer, quantity: number): Promise<void> {
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100) throw new Error("Choose between 1 and 100 offers.");
+    const pilotID = store.station.get().online?.characterID;
+    const latest = await loadStationLpStore(stationID, issuerID);
+    const fresh = latest.offers.find(row => row.id === offer.id);
+    if (!fresh || JSON.stringify(fresh) !== JSON.stringify(offer)) throw new Error("The offer changed. Refresh and review the new terms.");
+    if (fresh.ak > 0) throw new Error("This offer requires Analysis Kredits.");
+    if (dockedNow() !== stationID || pilotID !== store.station.get().online?.characterID) {
+      throw new Error("The pilot is no longer at this Loyalty Point Store.");
+    }
+    const accepted = await bridgeDo("LPStoreMgr", "TakeOfferForCharacter", [issuerID, offer.id, quantity]);
+    if (unwrapBool(accepted) !== true) throw new Error("The Loyalty Point Store did not confirm the purchase.");
+  }
+
   async function loadStationInsurance(placeID: number): Promise<readonly StationInsuranceShip[]> {
     const pilotID = store.station.get().online?.characterID;
     const stillHere = () => dockedNow() === placeID && store.station.get().online?.characterID === pilotID;
@@ -9336,6 +9337,17 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await bridgeDo("insuranceSvc", "UnInsureShip", [itemID]);
   }
 
+  /**
+   * Quote the ACTIVE HULL and everything fitted to it at the station's repair
+   * shop (goal R2 station services; the `repair-ship` bot block asks the same
+   * question). The shop itself decides what counts as damaged — the browser
+   * never judges a hitpoint total — and only the ids we named can come back.
+   *
+   * Null means the shop was NOT asked because there is no hull to quote yet;
+   * an empty list is the shop's own "nothing is damaged". The fit is loaded
+   * first when the fitting slice is still empty, so a quote raised from the
+   * station panel covers the modules and not just the hull.
+   */
   async function quoteShipRepair(): Promise<readonly RepairQuoteRow[] | null> {
     if (store.get().fitting.slots.length === 0) {
       // Best-effort: a fitting read that fails costs the modules from the
@@ -9355,6 +9367,34 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return quoteRepairs(bridgeAsk, targets);
   }
 
+  /**
+   * Re-read everything scoped to WHICH HULL YOU ARE FLYING (goal R87).
+   *
+   * ⚠ THE BUG THIS FIXES. Boarding a ship went through `runMutation`, which
+   * reloads the hangar and the cargo — so `activeShipID` updated and the item
+   * lists were right. But two things are keyed to the hull itself and neither
+   * was touched:
+   *
+   *   • `openShip`, the bays the Ship Inventory tab draws. It is opened once, in
+   *     the panel's `onMount`, and the `inventory/loaded` reducer deliberately
+   *     preserves it across a reload — so after boarding it kept showing the
+   *     bays of the ship you had just STEPPED OUT OF, with its ore and its
+   *     capacities, indefinitely.
+   *   • The fitting slice — slots, resources, stats, dogma. An open Fitting
+   *     window kept the previous hull's modules.
+   *
+   * Both are stale in the worst way: they look live, they are labelled with the
+   * right panel, and nothing about them says they are describing a different
+   * ship.
+   *
+   * ⚠ THIS IS THE REFILL, NOT THE GUARANTEE. R88 moved the invalidation into the
+   * store, where the hull change is OBSERVED (see `inventory/loaded`): the fit
+   * and the bays card are dropped there, so no caller can leave stale hull state
+   * on screen by forgetting to call this. What this adds is promptness — the
+   * panels refill on the same beat as the board instead of sitting empty until
+   * something else asks. Deleting it degrades the experience; deleting the store
+   * half reintroduces the bug.
+   */
   async function refreshActiveShipViews(): Promise<void> {
     // Read the hull AFTER the mutation's own reload, so this is the ship the
     // server ended up putting us in — never the one we asked for. A refused
@@ -36962,6 +37002,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadStationInsurance,
     buyStationInsurance,
     cancelStationInsurance,
+    loadStationLpStore,
+    buyStationLpOffer,
 
     async repairShip(quotes) {
       // The page's own call (bridge/repairShop.ts): the station's repair with the quote's cost for its payment,
