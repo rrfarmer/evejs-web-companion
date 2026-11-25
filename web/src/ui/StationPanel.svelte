@@ -2075,7 +2075,7 @@
   <div class="stn-content" onscroll={() => (menu = null)}>
     {#if view === "plexVault"}
       <section class="stn-view" id="{panelID}-view-plexVault" role="tabpanel" aria-labelledby="{panelID}-tab-plexVault">
-        <PlexVaultBalance {flow} />
+        <PlexVaultBalance {flow} {store} />
       </section>
     {/if}
     <!-- ------------------------------------------------------- ship bays -->
