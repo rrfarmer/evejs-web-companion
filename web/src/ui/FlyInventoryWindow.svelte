@@ -70,6 +70,7 @@
   import { addType } from "../bridge/marketQuickbar.ts";
   import { compressItemsInSpace } from "./compressInSpace.ts";
   import { INV_FROM_DRAG_TYPE, INV_ITEMS_DRAG_TYPE } from "./droneGroups.ts";
+  import { MARKET_ITEM_DRAG_MIME } from "./dragDrop.ts";
 
   /**
    * containerMode: the secondary inventory window a thing in space opens (Inventory.OpenOrShow on its invID: a can, a
@@ -697,6 +698,7 @@
     // the items for a drop on space (navigation.OnDropData deploys the deployable ones)
     const ids = dragging.ids;
     e.dataTransfer?.setData(INV_ITEMS_DRAG_TYPE, JSON.stringify(shown.filter((i) => ids.includes(i.itemID)).map((i) => ({ itemID: i.itemID, typeID: i.typeID }))));
+    e.dataTransfer?.setData(MARKET_ITEM_DRAG_MIME, JSON.stringify(dragging.stacks.map(({ typeID }) => ({ typeID }))));
     e.dataTransfer?.setData(INV_FROM_DRAG_TYPE, JSON.stringify(placeOf(current)));
   }
   const dragOver = (key: string) => (e: DragEvent) => { if (dragging && dragging.from !== key) { e.preventDefault(); dropKey = key; } };

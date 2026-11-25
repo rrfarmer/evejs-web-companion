@@ -38,6 +38,22 @@ import type { InventoryPlace } from "../store/types.ts";
 export const DRAG_MIME = "application/x-evejs-item";
 /** Personal Assets rows can be copied into text or the Quickbar. Inventory controllers take a different node. */
 export const ASSET_ITEM_DRAG_MIME = "application/x-evejs-asset-item";
+export const MARKET_ITEM_DRAG_MIME = "application/x-evejs-market-item";
+
+/** MarketBase.OnDropOnMultibuyBtn: one entry per type, with the last dragged quantity winning. */
+export function decodeMarketItemDrag(raw: string | undefined): Map<number, number> {
+  const wanted = new Map<number, number>();
+  if (!raw) return wanted;
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { return wanted; }
+  if (!Array.isArray(parsed)) return wanted;
+  for (const row of parsed) {
+    if (row === null || typeof row !== "object") continue;
+    const { typeID, quantity } = row as Record<string, unknown>;
+    if (positiveID(typeID)) wanted.set(typeID, positiveID(quantity) ? quantity : 1);
+  }
+  return wanted;
+}
 
 export interface AssetItemDrag {
   readonly itemID: number;

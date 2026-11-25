@@ -89,7 +89,7 @@ export function childrenOf(quickbar: Quickbar, parent: number): QuickbarEntry[] 
 }
 
 /** int(extraText) in Python: a whole number, spaces about it allowed; a whole number given as such; else null (ValueError). */
-function pyIntOf(extraText: string | number | undefined): number | null {
+export function quickbarQuantity(extraText: string | number | undefined): number | null {
   if (typeof extraText === "number") return Math.trunc(extraText);
   const text = extraText ?? "";
   return /^\s*[+-]?\d+\s*$/.test(text) ? Number.parseInt(text.trim(), 10) : null;
@@ -110,7 +110,7 @@ export function typesUnderFolder(quickbar: Quickbar, folderID: number): Map<numb
   }
   const counted = new Map<number, number>();
   const add = (inFolder: readonly (readonly [number, string | number | undefined])[]): void => {
-    for (const [typeID, extraText] of inFolder) counted.set(typeID, (counted.get(typeID) ?? 0) + (pyIntOf(extraText) ?? 1));
+    for (const [typeID, extraText] of inFolder) counted.set(typeID, (counted.get(typeID) ?? 0) + (quickbarQuantity(extraText) ?? 1));
   };
   add(typesByParent.get(folderID) ?? []);
   let current = intDictOrder(foldersByParent.get(folderID) ?? []);

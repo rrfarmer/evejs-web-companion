@@ -48,7 +48,9 @@
   import { clientTexture } from "./skillGroupIcons.ts";
   import NamePopup from "./NamePopup.svelte";
   import { marketQuickbar, changeQuickbar } from "./marketQuickbar.ts";
-  import { ASSET_ITEM_DRAG_MIME, decodeAssetItemDrag } from "./dragDrop.ts";
+  import { ASSET_ITEM_DRAG_MIME, MARKET_ITEM_DRAG_MIME, decodeAssetItemDrag, decodeMarketItemDrag } from "./dragDrop.ts";
+  import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
+  import { linkScheme, parseShowInfoUrl } from "../bridge/showInfoLink.ts";
   import {
     addFolder,
     addType,
@@ -60,6 +62,7 @@
     renameFolder,
     setExtraText,
     typesUnderFolder,
+    quickbarQuantity,
     type QuickbarEntry,
   } from "../bridge/marketQuickbar.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
@@ -175,6 +178,8 @@
     "Tooltips/StationServices/MarketOrders": "Market Orders",
     "UI/VirtualGoodsStore/VgsName": "New Eden Store",
     "Tooltips/Neocom/Vgs_description": "Open the New Eden Store",
+    "UI/Market/Multibuy": "Multibuy",
+    "UI/Market/Multibuy_description": "Buy several items at once",
     "Tooltips/Market/MarketDetailsTab": "The selected item's orders",
     "UI/Commands/OpenWallet": "Open the wallet",
     "UI/Market/WalletBalanceUnavailable": "Unavailable",
@@ -412,6 +417,48 @@
     if (!event.dataTransfer?.types.includes(ASSET_ITEM_DRAG_MIME)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
+  }
+
+  function openMultibuy(wanted = new Map<number, number>()): void {
+    void flow.openMultiBuy(wanted).catch(() => {});
+  }
+
+  function overMultibuy(event: DragEvent): void {
+    const data = event.dataTransfer;
+    if (!data || !data.types.some(type => type === MARKET_ITEM_DRAG_MIME || type === ASSET_ITEM_DRAG_MIME || type === LINK_DRAG_TYPE)) return;
+    event.preventDefault();
+    data.dropEffect = "copy";
+  }
+
+  function dropOnMultibuy(event: DragEvent): void {
+    const data = event.dataTransfer;
+    const wanted = decodeMarketItemDrag(data?.getData(MARKET_ITEM_DRAG_MIME));
+    if (!wanted.size) {
+      for (const { typeID } of decodeAssetItemDrag(data?.getData(ASSET_ITEM_DRAG_MIME))) wanted.set(typeID, 1);
+    }
+    const rawLinks = data?.getData(LINK_DRAG_TYPE);
+    if (!wanted.size && rawLinks) {
+      try {
+        const payload: unknown = JSON.parse(rawLinks);
+        for (const item of Array.isArray(payload) ? payload : [payload]) {
+          if (!item || typeof item !== "object" || !("url" in item) || typeof item.url !== "string" || linkScheme(item.url) !== "showinfo") continue;
+          const typeID = parseShowInfoUrl(item.url)?.typeID;
+          if (typeID && typeID > 0) wanted.set(typeID, 1);
+        }
+      } catch { /* malformed link drag */ }
+    }
+    if (!wanted.size) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (wanted.delete(44992)) flow.sayDialog("CannotPutPlexInMarketMultiBuy", null, "PLEX cannot be added to Multibuy.");
+    openMultibuy(wanted);
+  }
+
+  function dragMarketType(event: DragEvent, typeID: number, quantity = 1): void {
+    const data = event.dataTransfer;
+    if (!data) return;
+    data.setData(MARKET_ITEM_DRAG_MIME, JSON.stringify([{ typeID, quantity }]));
+    data.effectAllowed = "copy";
   }
 
   function dropOnQuickbar(event: DragEvent, parent: number): void {
@@ -1252,7 +1299,8 @@
       {@const typeID = Number(entry.label)}
       <button type="button" class="pick-row qb-type" class:qb-unsold={qbUnsold(typeID)} style:margin-left={`${depth}rem`}
         title={qbUnsold(typeID) ? qbWord("UI/Market/Marketbase/NotAvailableOnMarket") : undefined}
-        disabled={busy} onclick={() => qbClick(entry)} oncontextmenu={(event) => openQbMenu({ kind: "type", entry }, event)}>
+        disabled={busy} onclick={() => qbClick(entry)} oncontextmenu={(event) => openQbMenu({ kind: "type", entry }, event)}
+        draggable="true" ondragstart={(event) => dragMarketType(event, typeID, quickbarQuantity(entry.extraText) ?? 1)}>
         <TypeIcon typeID={typeID} name={typeName(typeID)} />
         <span class="pick-main"><span class="pick-name">{qbTypeLabel(entry)}</span></span>
       </button>
@@ -1274,7 +1322,8 @@
   {:else}
   {#snippet marketItem(item: MarketTypeMatch)}
     <li>
-      <button type="button" class="pick-row" disabled={busy} onclick={() => chooseItem(item)} oncontextmenu={(event) => openQbMenu({ kind: "browse", typeID: item.typeID }, event)}>
+      <button type="button" class="pick-row" disabled={busy} onclick={() => chooseItem(item)} oncontextmenu={(event) => openQbMenu({ kind: "browse", typeID: item.typeID }, event)}
+        draggable="true" ondragstart={(event) => dragMarketType(event, item.typeID)}>
         <TypeIcon typeID={item.typeID} name={item.name} />
         <span class="pick-main">
           <span class="pick-name">{item.name}</span>
@@ -1367,7 +1416,7 @@
   {/if}
 </section>
 
-{#if retail && ($market.loaded || onToggleStore)}
+{#if retail}
   <!-- MarketBase's tab bar (32 high): the Details tab at the left (sr.tabs, UI/Common/Details); the ghost buttons at the
        right - Market Orders (OpenMarketOrders: our open orders here), and the page's own trades and tied-up views,
        which the client keeps in the wallet; then the window header's WalletBalance (the ISK icon, its button the
@@ -1387,6 +1436,8 @@
       <button type="button" class="mkt-ghost" class:active={tab === "trades"} onclick={() => (tab = "trades")}>Your trades</button>
       <button type="button" class="mkt-ghost" class:active={tab === "escrow"} onclick={() => (tab = "escrow")}>What is tied up</button>
       {/if}
+      <button type="button" class="mkt-ghost" title={qbWord("UI/Market/Multibuy_description")} onclick={() => openMultibuy()}
+        ondragover={overMultibuy} ondrop={dropOnMultibuy}>{qbWord("UI/Market/Multibuy")}</button>
     </span>
     {#if $market.loaded}<span class="mkt-wallet">
       <img alt="ISK" src="/client-res/ui/texture/eveicon/category_icons/isk_16px.png" />

@@ -57,6 +57,7 @@
   } from "../bridge/inventoryShip.ts";
   import {
     DRAG_MIME,
+    MARKET_ITEM_DRAG_MIME,
     carriesOurPayload,
     decodeDrag,
     dropOnPlaceVerdict,
@@ -945,6 +946,8 @@
       from: place,
     };
     event.dataTransfer?.setData(DRAG_MIME, encodeDrag(payload));
+    const marketRows = selectedRows.length ? selectedRows : [row];
+    event.dataTransfer?.setData(MARKET_ITEM_DRAG_MIME, JSON.stringify(marketRows.map(({ typeID }) => ({ typeID }))));
     event.dataTransfer?.setData("text/plain", nameOf(row));
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = "copyMove";
