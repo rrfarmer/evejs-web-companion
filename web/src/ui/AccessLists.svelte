@@ -1,12 +1,16 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
-  import type { AccessGroup } from "../bridge/bookmarks.ts";
+  import type { AccessGroup, AccessGroupMember } from "../bridge/bookmarks.ts";
+  import { plainText } from "../bridge/clientWords.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { ClientStore } from "../store/clientStore.ts";
+  import { resolvedName } from "../store/names.ts";
   import { startAccessGroupDrag } from "./accessGroupDrag.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const station = $derived(store.station);
+  const names = $derived(store.names);
+  const words = $derived(store.words);
   const characterID = $derived($station.online?.characterID ?? null);
   const corporationID = $derived($station.online?.corporationID ?? null);
   let groups = $state.raw<readonly AccessGroup[] | null>(null);
@@ -16,10 +20,51 @@
   let query = $state("");
   let error = $state("");
   let editorError = $state("");
+  let members = $state.raw<readonly AccessGroupMember[] | null>(null);
+  let memberError = $state("");
   let readGeneration = 0;
+  const WORD = "UI/Structures/AccessGroups/";
+  const roleWords = ["Member", "Manager", "Admin", "Blocked"];
+  const roleOrder = [2, 1, 0, 3];
+  const word = (key: string, fallback = key) => plainText($words.templates[WORD + key] ?? fallback);
   const visible = $derived((groups ?? []).filter(group => group.name.toLowerCase().includes(query.trim().toLowerCase())));
-  const selected = $derived(visible.find(group => group.groupID === selectedID) ?? null);
+  const selected = $derived(visible.find(group => group.groupID === selectedID) ?? visible[0] ?? null);
+  const memberGroupID = $derived(selected?.groupID ?? null);
   const selectedCanEdit = $derived(selected?.membershipType === 2 && selected.creatorID !== corporationID);
+  const memberRows = $derived((members ?? []).map(member => ({
+    ...member,
+    name: member.memberID === 0 ? word("PublicUser", "Everyone") : resolvedName($names.resolved, "owner", member.memberID),
+    ownerOrder: ownerOrder(member.memberID),
+  })).sort((a, b) => roleOrder.indexOf(a.membershipType) - roleOrder.indexOf(b.membershipType) ||
+    a.ownerOrder - b.ownerOrder || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.memberID - b.memberID));
+
+  function ownerOrder(id: number) {
+    if (id === 0) return 0;
+    const typeID = Number(resolvedName($names.resolved, "ownerType", id, "0"));
+    if (typeID === 16159) return 1;
+    if (typeID === 2) return 2;
+    return 3;
+  }
+
+  $effect(() => {
+    flow.requestWords([...roleWords, "PublicUser"].map(key => WORD + key));
+  });
+
+  $effect(() => {
+    const pilot = characterID;
+    const groupID = memberGroupID;
+    members = null;
+    memberError = "";
+    if (pilot === null || groupID === null) return;
+    let current = true;
+    void flow.readAccessGroupMembers(groupID).then(result => {
+      if (!current) return;
+      members = result;
+      flow.requestNames(result.flatMap(({ memberID }) => memberID > 0
+        ? [{ kind: "owner", id: memberID }, { kind: "ownerType", id: memberID }] : []));
+    }).catch(cause => { if (current) memberError = panelErrorWords(cause); });
+    return () => { current = false; };
+  });
 
   async function refresh() {
     const generation = ++readGeneration;
@@ -119,34 +164,58 @@
   {/if}
   {#if error}<p role="alert">{error}</p>
   {/if}
-  {#if groups === null}
-    {#if !error}<p role="status">Reading access lists…</p>{/if}
-  {:else if !visible.length}<p role="status">{groups.length ? "No matching access lists." : "No access lists."}</p>
-  {:else}
-    <ul>
-      {#each visible as group (group.groupID)}
-        <li draggable="true" data-access-group-id={group.groupID}
-          ondragstart={(event) => startAccessGroupDrag(event, group.groupID, group.name)}>
-          <button type="button" aria-pressed={group.groupID === selectedID}
-            onclick={() => { selectedID = group.groupID; }} disabled={busy || editor !== null}>{group.name}</button>
-        </li>
-      {/each}
-    </ul>
-  {/if}
-  {#if selected && !editor}
-    {#if selected.description}<p class="description">{selected.description}</p>{/if}
-    {#if selectedCanEdit}
-      <div class="actions">
-        <button type="button" onclick={() => startEditor(selected)} disabled={busy}>Edit Access List</button>
-        <button type="button" onclick={() => selected && remove(selected)} disabled={busy}>Delete Access List</button>
+  <div class="list-layout">
+    <div>
+      {#if groups === null}
+        {#if !error}<p role="status">Reading access lists…</p>{/if}
+      {:else if !visible.length}<p role="status">{groups.length ? "No matching access lists." : "No access lists."}</p>
+      {:else}
+        <ul>
+          {#each visible as group (group.groupID)}
+            <li draggable="true" data-access-group-id={group.groupID}
+              ondragstart={(event) => startAccessGroupDrag(event, group.groupID, group.name)}>
+              <button type="button" aria-pressed={group.groupID === memberGroupID}
+                onclick={() => { selectedID = group.groupID; }} disabled={busy || editor !== null}>{group.name}</button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
+    {#if selected && !editor}
+      <div class="details">
+        <h3>{selected.name}</h3>
+        {#if selected.description}<p class="description">{selected.description}</p>{/if}
+        {#if selectedCanEdit}
+          <div class="actions">
+            <button type="button" onclick={() => startEditor(selected)} disabled={busy}>Edit Access List</button>
+            <button type="button" onclick={() => selected && remove(selected)} disabled={busy}>Delete Access List</button>
+          </div>
+        {/if}
+        <table aria-label="Access list members">
+          <thead><tr><th scope="col">Name</th><th scope="col">Access</th></tr></thead>
+          <tbody>
+            {#each memberRows as member (member.memberID)}
+              <tr data-access-member-id={member.memberID}><td>{member.name}</td><td>{word(roleWords[member.membershipType])}</td></tr>
+            {/each}
+          </tbody>
+        </table>
+        {#if memberError}<p role="alert">{memberError}</p>
+        {:else if members === null}<p role="status">Reading members…</p>
+        {:else if !members.length}<p role="status">No members.</p>
+        {/if}
       </div>
     {/if}
-  {/if}
+  </div>
 </section>
 
 <style>
   section { display: grid; gap: 8px; padding: 10px; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .list-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 12px; align-items: start; }
+  .details { display: grid; gap: 8px; min-width: 0; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #324046; }
+  th:last-child { width: 1%; }
   form { display: grid; gap: 8px; padding: 8px; border: 1px solid #43525c; }
   form label { display: grid; gap: 4px; }
   h3, p { margin: 0; }

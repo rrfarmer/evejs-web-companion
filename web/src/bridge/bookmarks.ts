@@ -293,6 +293,25 @@ export function decodeAccessGroup(result: JsonValue): AccessGroup | null {
   };
 }
 
+export interface AccessGroupMember {
+  readonly memberID: number;
+  readonly membershipType: number;
+}
+
+export function decodeAccessGroupMembers(result: JsonValue): AccessGroupMember[] {
+  const members: AccessGroupMember[] = [];
+  for (const row of listItems(result)) {
+    const rawID = readRowField(row, "memberID");
+    const memberID = toNumber(rawID);
+    const membershipType = readRowField(row, "membershipType");
+    if ((rawID === 0 || memberID > 0) && Number.isSafeInteger(memberID) &&
+        typeof membershipType === "number" && Number.isInteger(membershipType) && membershipType >= 0 && membershipType <= 3) {
+      members.push({ memberID, membershipType });
+    }
+  }
+  return members;
+}
+
 // --- R87 write acks ---------------------------------------------------------
 //
 // The Phase-3 accessGroupBookmarkMgr WRITES (folder + bookmark CRUD; reads were

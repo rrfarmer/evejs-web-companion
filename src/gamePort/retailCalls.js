@@ -996,7 +996,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "accessGroupBookmarkMgr.UpdateKnownFolderState",
   // The pilot's access lists, which the folder window offers a shared folder's access levels from
   // (accessGroupsController.py 105). The gateway's list has nothing of the owner group manager's.
-  "ownerGroupManager.GetMyGroups",
+  "ownerGroupManager.GetMyGroups", "ownerGroupManager.GetMembers",
   "ownerGroupManager.Create", "ownerGroupManager.UpdateName", "ownerGroupManager.UpdateDescription", "ownerGroupManager.Delete",
   // A shared folder disconnected from (bookmarkSvc.py 460), and an access list the pilot has not got asked by its
   // number (accessGroupsController.py 184). The gateway's list has neither.
@@ -2816,6 +2816,8 @@ const RETAIL_CALLS = Object.freeze({
     "self.remoteSvc.GetGroup(groupID), of ownerGroupManager by its name: an access list that is none of the pilot's, asked where its name is wanted (GetGroupInfoFromID with fetchToServer: a folder's lists in the folder window and in Folder Information). Answered the list. In no recording."),
   "ownerGroupManager.GetMyGroups": judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:105", sentWithNothing,
     "self.remoteSvc.GetMyGroups(), of ownerGroupManager by its name and with nothing: the pilot's access lists, asked once and kept by the client's controller; the folder window offers a shared folder's access levels from them. In no recording."),
+  "ownerGroupManager.GetMembers": judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:47", listAsked,
+    "Read the selected list's member IDs and membership types, including member ID zero for Public."),
   "ownerGroupManager.Create": typing(judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:144",
     (args, kwargs) => args.length === 2 && Object.keys(kwargs).length === 0 &&
       typeof args[0] === "string" && args[0].trim().length > 0 && args[0].length <= 30 &&

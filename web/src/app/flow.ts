@@ -1189,7 +1189,7 @@ import { BULK_FIT_SHIPS_CONFIG, fitShips, isShipAssembled, listPlace, maxAvailab
 import { readAccessGroup, readFolderInfo, readFoldersWithAdminAccess, readMyAccessGroups, readMyActiveBookmarks } from "../bridge/bookmarkReads.ts";
 import { classifySalvageModules } from "../nav/salvageModules.ts";
 import { splitNeverFits } from "../bridge/bayRouting.ts";
-import { decodeAccessGroup, type AccessGroup, type ActiveBookmarks, type BookmarkFolder } from "../bridge/bookmarks.ts";
+import { decodeAccessGroup, decodeAccessGroupMembers, type AccessGroup, type AccessGroupMember, type ActiveBookmarks, type BookmarkFolder } from "../bridge/bookmarks.ts";
 import { agentsAtStation, readAgentsTable } from "../bridge/agentReads.ts";
 import { authoritativeFleetMemberCharacterIDs, decodeFleetCenter, decodeFleetInviteAnswerNotification, decodeFleetInviteNotification, fleetInviteAnswerWords, memberWhereabouts, type FleetInviteAnswer } from "../bridge/fleetCenter.ts";
 import { FLEET_JOB_CREATOR, canTagInFleet } from "../bridge/fleetCommand.ts";
@@ -5522,6 +5522,7 @@ export interface AppFlow {
    */
   readFolderInfo(folderID: number): Promise<BookmarkFolder>;
   readAccessGroups(): Promise<readonly AccessGroup[]>;
+  readAccessGroupMembers(groupID: number): Promise<readonly AccessGroupMember[]>;
   createAccessGroup(name: string, description: string): Promise<number>;
   editAccessGroup(groupID: number, name: string, description: string): Promise<void>;
   deleteAccessGroup(group: AccessGroup): Promise<boolean>;
@@ -40223,6 +40224,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     readAccessGroups() {
       return readMyAccessGroups(bridgeAsk);
+    },
+
+    async readAccessGroupMembers(groupID) {
+      return decodeAccessGroupMembers(await bridgeAsk("ownerGroupManager", "GetMembers", [groupID]));
     },
 
     async createAccessGroup(name, description) {
