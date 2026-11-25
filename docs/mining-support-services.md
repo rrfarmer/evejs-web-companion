@@ -1,10 +1,8 @@
 # Mining Support on stock EveJS
 
-WC keeps its current capability readers, controllers and settlement checks. The private Mining Support and module-reach projections have been retired. Their former runtime implementation is preserved in Git history; it is not an installation procedure or evidence of stock authority.
+The standalone Core Mining Command Center and its Mining Support controllers have been retired. To resume a fleet from the old center, create a new operation in the [UOC Mining Command Center](../plugins/uoc/README.md). Web Companion still provides read-only observations of stock Mining Support capabilities and services.
 
 Missing stock snapshot fields for exact module reach, burst/compression services, Industrial Core startup fuel and mobility remain UNKNOWN. A fitting's base range, a local arithmetic estimate, a successful activation acknowledgement or an empty unreadable inventory does not prove those facts. WC installs no replacement projection or mod.
-
-The existing controllers require exact selected ship/module/session identities and observed server facts. Missing fuel/service/range authority blocks the dependent action. Relocation waits for dependent modules and owned drone flight to settle; a dispatch acknowledgement never proves arrival or settlement. A stale callback cannot replace a newer controller or release its custody. Optional self-mining and tractor/collection helpers retain their measured range, inventory, source and delivery checks, and refuse when those observations are absent.
 
 Ordinary stock movement, fleet reads, mining and inventory actions remain on their existing supported paths. Generic hosted Start and NPC-station MCC preparation do not require these optional support projections. Selected equipment/supply checks use the shared provisioning engine under the final hosted owner; productive work waits for the existing aggregate barrier.
 

@@ -11,7 +11,8 @@ import {
 import { createOperation } from "./operation.ts";
 import { createTargetBoard } from "./targetBoard.ts";
 import type { FleetSetup } from "./runtime.ts";
-import { runControlRoutes } from "../runControl.ts";
+import { registerRun, runControlRoutes } from "../runControl.ts";
+import { UnconfirmedHaulerUnload } from "./dockedRawDeposit.ts";
 import { createMiningOperationRoutes } from "../operations/miningRoutes.ts";
 import { projectFleetRun } from "../operations/miningReadout.ts";
 import { setupHash } from "../operations/miningRecovery.ts";
@@ -390,6 +391,36 @@ test("Return Home parks the retained hauler at its configured dock without visit
   assert.deepEqual(x.receipts(), []);
   assert.deepEqual(x.released, [3]);
 });
+test("a retained Hauler can check its blocked unload and finish Return Home with the same pilot", async () => {
+  const x = fixture(true);
+  x.deps.register = registerRun;
+  x.original.noteStopRequest("RETURN_HOME");
+  x.original.requestStop();
+  Object.assign(x.setup, {
+    parking: { mode: "RETURN_HOME_DOCK", destinationID: 601, kind: "station", systemID: 300 },
+  });
+  x.store("mining-fleet-index:op").write({ runID: "old", signature: JSON.stringify(x.setup) });
+  let checks = 0;
+  x.deps.park = async (_run, _session, _setup, shipID) => {
+    if (!checks) throw new UnconfirmedHaulerUnload("The stacks are still aboard.", async () => { checks++; });
+    return { kind: "dock", proof: { source: "native-flight", shipID, locationID: 601, docked: true, observedAt: Date.now() } };
+  };
+  const controller = await x.run.start(x.actor(3, { station: 601 }));
+  try {
+    const blocked = await outcome(x.reports, 3);
+    assert.equal(blocked.phase, "Fleet finish blocked", blocked.why);
+    const request = { account: { username: "verified-account", accountID: 1 }, params: { botID: "finish-3" } } as any;
+    const result = await runControlRoutes["POST /runs/:botID/check-unload"](request);
+    assert.deepEqual(result.body, { ok: true });
+    await waitTerminal(x, 3);
+    assert.equal(checks, 1);
+    assert.ok((x.store(x.opKey).read() as any).parked.includes(3));
+    assert.deepEqual(x.deposits, []);
+  } finally {
+    await controller.stop();
+  }
+});
+
 test("configured different-home recovery completes from empty holds without delivery replay", async () => {
   const x = fixture();
   Object.assign(x.setup, {

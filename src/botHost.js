@@ -129,14 +129,13 @@ function defaultLoadStack() {
     const webSrc = path.resolve(__dirname, "..", "web", "src");
     const webUrl = (rel) => pathToFileURL(path.join(webSrc, rel)).href;
     stackPromise = (async () => {
-      const [sessionToken, clientStore, flow, codec, runPolicy, supportFleet, pluginBlocks, hostedEvents] =
+      const [sessionToken, clientStore, flow, codec, runPolicy, pluginBlocks, hostedEvents] =
         await Promise.all([
           import(webUrl("app/sessionToken.ts")),
           import(webUrl("store/clientStore.ts")),
           import(webUrl("app/flow.ts")),
           import(webUrl("bots/scriptCodec.ts")),
           import(webUrl("bots/runPolicy.ts")),
-          import(webUrl("nav/miningSupportFleet.ts")),
           import(webUrl("bots/pluginMacros.ts")),
           // Headless pilots need the same push-only fleet invitation authority as tabs.
           import(webUrl("app/hostedEventSource.ts")),
@@ -155,7 +154,6 @@ function defaultLoadStack() {
         scriptWithFormerMacroIDs: pluginBlocks.scriptWithFormerMacroIDs,
         analyzeBotRunPolicy: runPolicy.analyzeBotRunPolicy,
         validateBotLaunchGrant: runPolicy.validateBotLaunchGrant,
-        supportFleet,
       };
     })();
     stackPromise.catch(() => {
@@ -1604,28 +1602,6 @@ function createBotHost(options) {
   }
 
   return {
-    // Account-owned passive diagnostics use the same reads as the hosted
-    // runner. Neither its flow nor either session capability leaves the host.
-    async readOwnedObservation(characterID, accountID) {
-      const botID = claims.get(Number(characterID));
-      const record = botID ? records.get(botID) : null;
-      const flow = record?.flow, store = record?.store;
-      const current = () => record && !record.finalized && record.accountID === Number(accountID)
-        && claims.get(record.characterID) === botID && flow && store && record.flow === flow && record.store === store
-        && store.station.get().online?.characterID === record.characterID;
-      if (!current()) return null;
-      // Like the vitals sampler, these reads update the normal observed state
-      // and retain its ordinary session-loss handling. No separate driver.
-      await flow.loadFleet();
-      if (!current()) return null;
-      await flow.loadSpaceSnapshot();
-      if (!current()) return null;
-      const space = store.space.get();
-      return structuredClone({ characterID: record.characterID, readAtMs: Date.now(),
-        space: space.error ? null : space.snapshot, spaceError: space.error ?? null,
-        fleet: flow.readMiningSupportFleet(botID), supportWork: flow.readMiningSupportWork?.() ?? null,
-        fleetWork: flow.readMiningSupportFleetDiagnostic?.() ?? null });
-    },
     start,
     stop,
     listAll,

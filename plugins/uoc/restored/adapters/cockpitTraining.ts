@@ -1,3 +1,4 @@
+import { nextLocalID } from "../app/localID.ts";
 import type { Session, ApiOptions } from "../../../../web/src/plugin-api/index.ts";
 import { trainingTargets } from "../../shared/trainingTargets.ts";
 import {
@@ -285,7 +286,7 @@ export async function cockpitTraining(session: Session, kind: string, setup: any
           pilot.corporationID,
           startingBalance,
           amount,
-          `UOC Training ${crypto.randomUUID()}`,
+          `UOC Training ${nextLocalID()}`,
         );
         if ((await readTrainingPersonalBalance(call)) !== startingBalance)
           throw Error("The personal wallet changed. Review the book cost again.");

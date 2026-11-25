@@ -20,6 +20,7 @@ import {
   type OfflineParking,
 } from "./operation.ts";
 import type { FleetOperationStore } from "./operationStore.ts";
+import { UnconfirmedHaulerUnload } from "./dockedRawDeposit.ts";
 import { HAULER_OWN_DEPOSIT_PREFIX, createNativeHauler } from "./nativeHauler.ts";
 import { createRawMembers } from "./memberLoops.ts";
 import { fleetHaulDocumentKey, type FleetSetup } from "./runtime.ts";
@@ -2159,6 +2160,7 @@ export function createFleetFinishRun(deps: FleetFinishDependencies): BackendRun 
         throw Error("Operation settlement remains blocked.");
       await parkSettled();
     };
+    let pendingUnload: UnconfirmedHaulerUnload | undefined;
     let running: Promise<void> | null = null,
       retryRequested = false,
       retries = 0,
@@ -2173,9 +2175,11 @@ export function createFleetFinishRun(deps: FleetFinishDependencies): BackendRun 
         retryRequested = true;
         return;
       }
+      pendingUnload = undefined;
       running = work()
         .catch((error) => {
           if (!active || ended) return;
+          if (error instanceof UnconfirmedHaulerUnload) pendingUnload = error;
           const why = [lastFlight, error instanceof Error ? error.message : String(error)]
             .filter(Boolean)
             .join(" ");
@@ -2229,6 +2233,25 @@ export function createFleetFinishRun(deps: FleetFinishDependencies): BackendRun 
         owner,
         retry,
         run.resumed && !inputOf(run.setup) ? "mcc-resumed-stop" : "mcc-finish",
+        () => {
+          const pending = pendingUnload;
+          if (!pending || !active || ended || running) return;
+          return async () => {
+            running = pending.checkAndRelease();
+            try {
+              await running;
+              current();
+              pendingUnload = undefined;
+              retryRequested = true;
+            } finally {
+              running = null;
+              if (retryRequested && active && !ended) {
+                retryRequested = false;
+                retry();
+              }
+            }
+          };
+        },
       );
     } catch (error) {
       group.busy.delete(run.characterID);

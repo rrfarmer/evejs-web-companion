@@ -38,7 +38,7 @@ function step(macro: MacroID): ProgramNode {
 }
 
 test("ore jettison requires a destructive grant and cannot restart automatically", () => {
-  const doc = script([step("fleet-mine"), step("jettison-ore")]);
+  const doc = script([step("mine-at-belt"), step("jettison-ore")]);
   assert.equal(analyzeBotRunPolicy(doc).restartSafe, false);
   assert.equal(MACRO_RUN_POLICY["jettison-ore"].restartSafe, false);
   assert.ok(analyzeBotRunPolicy(doc).riskClasses.includes("destructive"));

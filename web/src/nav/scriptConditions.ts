@@ -36,7 +36,7 @@ import type { RatThreat } from "./ratThreat.ts";
 import type { PropulsionModule } from "./propulsion.ts";
 import type { MiningDroneState } from "./miningDroneFlight.ts";
 import { hostileRows, type OverviewRow } from "../space/overview.ts";
-import type { FleetMinerInput } from "./fleetMiner.ts";
+import type { MiningSupportAnchorRead } from "./miningSupportAnchor.ts";
 import type { MiningSupportFleetObservation } from "./miningSupportFleet.ts";
 
 // ─── The observation ─────────────────────────────────────────────────────────
@@ -165,7 +165,9 @@ export interface ScriptObservation {
   /** Ordinary continuous hardeners, independent of the starting macro hint. */
   readonly combatHardenerModuleIDs?: readonly number[];
   /** Fresh normal-flow reads. No saved runtime fleet identity or base-range fallback. */
-  readonly fleetMining?: Pick<FleetMinerInput, "anchors" | "modules" | "sceneReceivedAtMs" | "nowMs" | "requirements"> & {
+  readonly fleetMining?: {
+    readonly anchors: MiningSupportAnchorRead | null;
+    readonly nowMs: number;
     readonly fleet: MiningSupportFleetObservation | null;
     readonly supportFleet?: MiningSupportFleetObservation | null;
   };

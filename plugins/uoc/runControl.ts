@@ -6,6 +6,7 @@ const runs = new Map<
     username: string;
     stop: () => void;
     requested: boolean;
+    pendingUnloadCheck?: () => (() => Promise<void>) | undefined;
     purpose?: "mcc-finish" | "mcc-resumed-stop";
     characterID?: number;
     operationID?: string;
@@ -35,6 +36,7 @@ export function registerRun(
   ownerUsername: string,
   requestStop: () => void,
   purpose?: "mcc-finish" | "mcc-resumed-stop",
+  pendingUnloadCheck?: () => (() => Promise<void>) | undefined,
 ): () => void {
   if (!ownerUsername || runs.has(run.botID))
     throw new Error("This UOC run already has a controller.");
@@ -61,6 +63,7 @@ export function registerRun(
   const entry = {
     username: ownerUsername.toLowerCase(),
     stop: requestStop,
+    pendingUnloadCheck,
     requested: false,
     purpose,
     ...metadata,
@@ -90,6 +93,8 @@ export function pilotServiceOwner(
   return { run: entry.context!, current };
 }
 
+// Ask the plugin to settle and park while the host still permits native reads
+// and movement. Only after verified docking does it end its hosted run.
 const stopRoute: BackendRoute = (request) => {
   const run = runs.get(request.params.botID ?? "");
   if (!run || run.username !== request.account.username.toLowerCase())
@@ -101,8 +106,27 @@ const stopRoute: BackendRoute = (request) => {
   return { status: 202, body: { ok: true, state: "STOP_REQUESTED" } };
 };
 
-// Ask the plugin to settle and park while the host still permits native reads
-// and movement. Only after verified docking does it end its hosted run.
+const checkUnloadRoute: BackendRoute = async (request) => {
+  const run = runs.get(request.params.botID ?? "");
+  if (!run || run.username !== request.account.username.toLowerCase())
+    return { status: 404, body: { ok: false, error: "UOC_RUN_NOT_FOUND" } };
+  const check = run.pendingUnloadCheck?.();
+  if (!check)
+    return {
+      status: 409,
+      body: { ok: false, message: "There is no pending unload to check on this pilot." },
+    };
+  try {
+    await check();
+    return { body: { ok: true } };
+  } catch (error) {
+    return {
+      status: 409,
+      body: { ok: false, message: error instanceof Error ? error.message : String(error) },
+    };
+  }
+};
+
 const currentRoute: BackendRoute = (request) => ({
   body: {
     ok: true,
@@ -117,12 +141,14 @@ const currentRoute: BackendRoute = (request) => ({
         operationID: r.operationID,
         operationRunID: r.operationRunID,
         purpose: r.purpose ?? null,
+        ...(r.pendingUnloadCheck?.() ? { canCheckUnload: true } : {}),
       })),
   },
 });
 export const runControlRoutes = {
   "POST /runs/:botID/stop": stopRoute,
   "GET /runs/current": currentRoute,
+  "POST /runs/:botID/check-unload": checkUnloadRoute,
 };
 
 /** A saved editor never changes a definition while any current member controller owns it. */

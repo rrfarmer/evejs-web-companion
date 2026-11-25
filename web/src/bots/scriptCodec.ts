@@ -113,10 +113,8 @@ export type DecodeResult =
 // codec's question, and a macro added to the runner without a spec entry here
 // simply cannot be imported until it gets one. A plugin's block is known while
 // that plugin is in the build (macroSpec reads pluginMacros.ts).
-// These were valid v1 script constructs while the browser owned chat. Preserve
-// their names only to refuse old saved/imported documents plainly; never add
-// them back to the authoring schema.
-const RETIRED_WEB_COMPANION_MACROS = new Set(["attack-player", "hunt-player", "send-chat"]);
+// Keep retired macro names for diagnostics when opening saved or imported scripts.
+const RETIRED_WEB_COMPANION_MACROS = new Set(["attack-player", "hunt-player", "send-chat", "fleet-mine", "mining-support"]);
 const RETIRED_WEB_COMPANION_CHAT_CONDITIONS = new Set(["players-in-system-above"]);
 // Derived from the format's own list, so a new response can never be forgotten here.
 const KNOWN_RESPONSES = new Set<InterruptResponse>(INTERRUPT_RESPONSES);

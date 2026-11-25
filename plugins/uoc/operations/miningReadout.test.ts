@@ -55,3 +55,19 @@ test("native home dock displays incomplete unload separately from parking failur
  assert.equal(released.parkingState,"RELEASED");
  assert.equal(ended.state,"STOPPED");
 });
+
+test("only the current Hauler owner can offer Check and release in the operation", () => {
+  const member = { ...receipt.members[0]!, role: "HAULER" as const, kind: "mcc-hauler" as const };
+  const trip = { ...receipt, members: [member] };
+  const hauler = { ...bot, phase: "Needs attention", plugin: { pluginID: "uoc", run: "mcc-hauler" } };
+  const owner = { botID: "b", characterID: 1, operationID: "op", operationRunID: "run", canCheckUnload: true };
+  function allowsCheck(controller: typeof owner, hosted = hauler) {
+    const reads = new Map([[1, { owners: [controller], bots: [hosted] }]]);
+    const pilot = projectFleetRun(trip, reads).members[0];
+    return !!pilot && "canCheckUnload" in pilot && pilot.canCheckUnload === true;
+  }
+  assert.equal(allowsCheck(owner), true);
+  assert.equal(allowsCheck({ ...owner, canCheckUnload: false }), false);
+  assert.equal(allowsCheck({ ...owner, operationRunID: "previous" }), false);
+  assert.equal(allowsCheck(owner, { ...hauler, botID: "replacement" }), false);
+});

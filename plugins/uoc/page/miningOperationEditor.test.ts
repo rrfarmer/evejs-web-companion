@@ -144,6 +144,21 @@ test("an open editor follows the running fleet and keeps its Stop actions availa
   assert.equal(disabled(ended.html, "Delete operation"), false);
 });
 
+test("MCC explains carry-in ore before Start and offers Check and release only for a held pending unload", async () => {
+  const idle = await openEditor(definition, "editing = false;");
+  assert.match(idle.html, /all eligible ore and ice.*already aboard at Start/);
+  assert.match(idle.html, /delivery totals show 60.*fleet mined 10/);
+  assert.doesNotMatch(idle.html, /Check and release/);
+  const pending = await openEditor(definition, `editing = false;
+    const run = payload.operations[0].runtime;
+    run.state = "PARKING"; run.stopFreight = "RETURN_HOME"; run.operationRunID = "shift";
+    run.members = [{...scenario.definition.members[8], botID: "haul", hosted: true, canCheckUnload: true}];`);
+  assert.match(pending.html, /Pilot 9 · Unload reply missing/);
+  assert.match(pending.html, />Check and release<\/button>/);
+  assert.match(pending.html, />Retry Stop<\/button>/);
+  assert.doesNotMatch(pending.html, /already aboard at Start/);
+});
+
 test("New Operation starts in Basics and saves a new fleet with a linked destination", async () => {
   const blank = await openEditor(null, "");
   assert.match(blank.html, /New operation/);

@@ -14,12 +14,13 @@ import {
   FreightGridUnavailable,
   HaulStoppedBeforePickup,
 } from "./memberLoops.ts";
-import { createOperation, type Manifest } from "./operation.ts";
+import { createOperation, haulOwner, type Manifest } from "./operation.ts";
 import { fleetOperationStore, fleetRunResult, summarizeFleetRun } from "./operationStore.ts";
 import { deleteFleetExecution } from "./executionDocuments.ts";
 import { fleetHaulDocumentKey } from "./runtime.ts";
 import { createTargetBoard } from "./targetBoard.ts";
 import { unloadParkingFreight } from "./parkingUnload.ts";
+import { UnconfirmedHaulerUnload } from "./dockedRawDeposit.ts";
 import { FleetObservationUnavailable } from "./stopSignal.ts";
 const loc = { x: 0, y: 0, z: 0 };
 const list = (rows: unknown[]) => ({
@@ -3507,6 +3508,95 @@ for (const method of ["Add", "MultiAdd"] as const)
     },
   );
 
+test("a refused MultiAdd keeps its game reason until both can journals confirm zero movement", async () => {
+  const sim = simulator(3, 13);
+  const rows = [{ ...ore, quantity: 4 }, { ...ore, locationID: 101, itemID: 21, quantity: 6 }];
+  sim.setSource(structuredClone(rows));
+  sim.setCapacities(10, 0);
+  const flying = sim.session.flow.flying;
+  const act = flying.bridgeDo, ask = flying.bridgeAsk;
+  let attempts = 0, unavailable = false;
+  flying.bridgeDo = async (...args: any[]) => {
+    if (args[1] === "MultiAdd" && args[4] === 700 && ++attempts === 1) {
+      unavailable = true;
+      throw Object.assign(Error("Not enough hangar space"), {
+        status: 409, code: "CALL_REFUSED", refusal: { key: "NotEnoughCargoSpace" },
+      });
+    }
+    return act(...args);
+  };
+  flying.bridgeAsk = async (...args: any[]) => {
+    if (unavailable && args[1] === "List")
+      throw Object.assign(Error("Unload inventory unavailable"), { status: 503 });
+    return ask(...args);
+  };
+
+  const h = batchedHaul(sim, rows, 1);
+  await assert.rejects(h.haul(), /Unload inventory unavailable/);
+  const state = h.state();
+  const docs = state.manifests.map((m) => h.tripDocument(m, haulOwner(state, m)!.generation));
+  assert.equal(docs.length, 2);
+  assert.ok(docs.every((doc) => (doc.read() as any).pending.refusalReason === "Not enough hangar space"));
+  unavailable = false;
+  h.restart();
+  await assert.rejects(h.haul(), /Not enough hangar space/);
+  assert.ok(docs.every((doc) => (doc.read() as any).pending === null));
+  assert.equal(attempts, 1);
+  assert.equal(h.totals()?.deliveredUnits, 0);
+  assert.deepEqual(sim.getCorp(), []);
+  assert.equal(await h.haul(), "delivered");
+  assert.equal(attempts, 2);
+  assert.equal(h.totals()?.deliveredUnits, 10);
+});
+
+for (const returnHome of [false, true]) {
+  const phase = returnHome ? "during Return Home" : "during delivery";
+  test("Check and release frees one shared MultiAdd after restart " + phase, async () => {
+    const sim = simulator(3, 13);
+    const rows = [{ ...ore, quantity: 4 }, { ...ore, locationID: 101, itemID: 21, quantity: 6 }];
+    sim.setSource(structuredClone(rows));
+    sim.setCapacities(10, 0);
+    const act = sim.session.flow.flying.bridgeDo;
+    let attempts = 0;
+    sim.session.flow.flying.bridgeDo = async (...args: any[]) => {
+      if (args[1] === "MultiAdd" && args[4] === 700 && ++attempts === 1)
+        throw Object.assign(Error("Response timed out"), { code: "CALL_TIMEOUT" });
+      return act(...args);
+    };
+    const h = batchedHaul(sim, rows, 1);
+    await assert.rejects(h.haul(), FleetObservationUnavailable);
+    h.restart();
+    if (returnHome) h.op().noteStopRequest("RETURN_HOME");
+    const state = h.state();
+    const docs = state.manifests.map((m) => h.tripDocument(m, haulOwner(state, m)!.generation));
+    const blocked = await h.haul().catch((error: unknown) => error);
+    assert.ok(blocked instanceof UnconfirmedHaulerUnload);
+    const held = structuredClone(sim.getHeld());
+    assert.equal(held.length, 2);
+    assert.equal(docs.length, 2);
+    assert.ok(docs.every((doc) => (doc.read() as any).pending?.kind === "delivery"));
+    sim.setHeld(held.slice(1));
+    await assert.rejects(blocked.checkAndRelease(), /no replay/);
+    assert.ok(docs.every((doc) => (doc.read() as any).pending));
+    assert.equal(attempts, 1);
+    sim.setHeld(held);
+    await blocked.checkAndRelease();
+    assert.ok(docs.every((doc) => (doc.read() as any).pending === null));
+    assert.equal(h.totals()?.deliveredUnits, 0);
+    assert.equal(attempts, 1);
+    if (returnHome) {
+      assert.equal(await h.haul(), "idle");
+      assert.equal(attempts, 1);
+      assert.equal(h.totals()?.deliveredUnits, 0);
+      assert.deepEqual(sim.getHeld(), held);
+    } else {
+      assert.equal(await h.haul(), "delivered");
+      assert.equal(attempts, 2);
+      assert.equal(h.totals()?.deliveredUnits, 10);
+    }
+  });
+}
+
 test("a late unacknowledged unload is rechecked once and never sent again from unchanged evidence", async () => {
   const sim = simulator(3, 13),
     rows = [
@@ -3529,12 +3619,9 @@ test("a late unacknowledged unload is rechecked once and never sent again from u
   await assert.rejects(h.haul(), FleetObservationUnavailable);
   assert.equal((doc.read() as any).pending.acknowledged, false);
   h.restart();
-  await assert.rejects(
-    h.haul(),
-    (e: Error) =>
-      !(e instanceof FleetObservationUnavailable) &&
-      /Check item IDs 20, 21 in ship 13 and corporation division 1 at dock 600/.test(e.message),
-  );
+  const blocked = await h.haul().catch((error: unknown) => error);
+  assert.ok(blocked instanceof UnconfirmedHaulerUnload);
+  assert.match(blocked.message, /Check item IDs 20, 21 in ship 13 and corporation division 1 at dock 600/);
   assert.equal(h.totals()?.deliveredUnits, 0);
   assert.equal(attempts, 1);
   // Empty holds alone cannot locate a timed-out move.
@@ -3549,6 +3636,9 @@ test("a late unacknowledged unload is rechecked once and never sent again from u
   // The delayed transfer and another pilot's same-type deposit become visible in the original division.
   sim.getCorp().push(...rows.map((r) => ({ ...r, ownerID: 77, locationID: 700, flagID: 115 })));
   sim.getCorp()[0]!.quantity += 8;
+  await blocked.checkAndRelease();
+  assert.ok((doc.read() as any).pending, "a late delivery still needs its original receipt");
+  assert.equal(attempts, 1);
   assert.equal(await h.haul(), "delivered");
   assert.equal(attempts, 1);
   assert.equal(h.receipts()[0]?.deliveryBatches?.[0]?.acknowledged, false);

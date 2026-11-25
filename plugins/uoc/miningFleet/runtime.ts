@@ -13,6 +13,8 @@ import {
 } from "./travelAssist.ts";
 import { observeBurstCharge } from "./support/burstCharge.ts";
 import { createNativeTractor } from "./support/nativeTractor.ts";
+import { hasFleetHangar, UnconfirmedHaulerUnload } from "./dockedRawDeposit.ts";
+import { haulerInventoryFlags } from "../shared/freightHolds.ts";
 import { readNativeShipHolds } from "../shared/nativeInventory.ts";
 import {
   decideSupportPolicy,
@@ -305,7 +307,11 @@ export async function confirmCommandFinalHold(
     (before.transition && before.transition.phase !== "ready")
   )
     throw Error("Command final hold flight identity is uncertain.");
-  const rows = await readNativeShipHolds(session, current, run.characterID, shipID),
+  const fleetHangar = await hasFleetHangar(shipID, options);
+  current();
+  const rows = await readNativeShipHolds(
+    session, current, run.characterID, shipID, fleetHangar ? haulerInventoryFlags : undefined,
+  ),
     facts = rows.length
       ? await createRawTypeFacts(run, current)([...new Set(rows.map((r) => r.typeID))])
       : {};
@@ -787,6 +793,7 @@ type Entry = {
   active: boolean;
   busy: boolean;
   failed: string | null;
+  pendingUnload?: UnconfirmedHaulerUnload;
   flushed: boolean;
   miningSettled?: boolean;
   unregister: () => void;
@@ -3759,9 +3766,28 @@ function makeGroup(
       searchReason = "Site search stopped before mining.";
     });
   }
+  function pendingUnloadCheck(e: Entry) {
+    const pending = e.pendingUnload;
+    if (!pending || !e.active || e.busy || !e.failed) return;
+    return async () => {
+      e.busy = true;
+      e.work = pending.checkAndRelease();
+      try {
+        await e.work;
+        guard(e);
+        e.pendingUnload = undefined;
+        e.failed = null;
+        e.retryAt = 0;
+      } finally {
+        e.work = undefined;
+        e.busy = false;
+      }
+    };
+  }
   function launch(e: Entry, work: () => Promise<void>) {
     if (e.busy || !e.active || e.failed || (e.retryAt ?? 0) > Date.now()) return;
     e.busy = true;
+    e.pendingUnload = undefined;
     e.timing?.beginPass();
     const runWork = async () => {
       if (stopping && !e.emergency && !startupBlocked(e) && (await parkStopCapsule(e))) return;
@@ -3837,6 +3863,7 @@ function makeGroup(
           );
           return;
         }
+        if (error instanceof UnconfirmedHaulerUnload) e.pendingUnload = error;
         e.failed = message(error);
         const detail = stopping
           ? [
@@ -5945,7 +5972,7 @@ function makeGroup(
           if (e.startupPrepared) e.defenderPreparation.refresh();
         }
         if (closed) throw Error("The mining backend has stopped.");
-        e.unregister = registerRun(run, owner, requestStop);
+        e.unregister = registerRun(run, owner, requestStop, undefined, () => pendingUnloadCheck(e!));
         try {
           resumedLaunch?.journal.rebind(
             setup.operationRunID,

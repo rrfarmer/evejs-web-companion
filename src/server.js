@@ -79,7 +79,6 @@ const botHostModule = require("./botHost");
 const { createAccountCache } = require("./accountCache");
 const { createBeltMemory } = require("./beltMemory");
 const { createSquadBoard } = require("./squadBoard");
-const { createMiningSupportAnchorBoard } = require("./miningSupportAnchorBoard");
 const { registerMiningSupportAnchorRoutes } = require("./miningSupportAnchorRoutes");
 const { createLootMemory, CONTAINER_LEASE_MS } = require("./lootMemory");
 const { miningResourceFamily } = require("./miningResourceFamily");
@@ -562,7 +561,6 @@ app.locals.beltMemory = beltMemory;
 // browser supplies.
 const squadBoard = options.squadBoard || createSquadBoard();
 app.locals.squadBoard = squadBoard;
-const miningSupportAnchorBoard = options.miningSupportAnchorBoard || createMiningSupportAnchorBoard();
 // Shared, in-process (never persisted — see src/lootMemory.js) memory of the
 // wrecks and cans somebody has already emptied, keyed by solar-system id. A
 // wreck's contents cannot be read from further than 2,500 m and the one field
@@ -4632,12 +4630,6 @@ function requireWriteConfirmation(req, res, message) {
   }
   res.status(400).json({ ok: false, error: "CONFIRMATION_REQUIRED", message });
   return false;
-}
-
-/** Coerce a browser-sent id-list payload to a clean positive-int list. */
-function bridgeIDList(value) {
-  const raw = Array.isArray(value) ? value : [value];
-  return [...new Set(raw.map((v) => Number(v) || 0).filter((v) => v > 0))];
 }
 
 /**
@@ -15781,17 +15773,16 @@ app.post("/api/bots/loot-memory/release", requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-// Shared support facts use fresh own-fleet/space reads; they never perform game writes.
+// The join-support-fleet block checks the current pilot and its selected fleetmate.
 registerMiningSupportAnchorRoutes({
   app, requireAuth, requireHeld: requireHeldBridgeSession,
-  currentSession: sessionID => sessionID === undefined ? bridgeSessions : bridgeSessions.get(sessionID),
+  currentSession: sessionID => bridgeSessions.get(sessionID),
   readFleet: async (held, sessionID) => {
     invalidateFleetBoundHandles(held);
     const result = await boundCall(held, sessionID, fleetBindSpec(), "GetInitState", [], null);
     return result.result;
   },
-  readSpace: async held => (await gateway.readSpaceSnapshot(held.bridgeSessionID, { userid: held.accountID })).space,
-  board: miningSupportAnchorBoard, sessionLost: forgetBridgeSession,
+  sessionLost: forgetBridgeSession,
 });
 
 // ── Shared squad board (goal: coordinate fire) ──────────────────────────────

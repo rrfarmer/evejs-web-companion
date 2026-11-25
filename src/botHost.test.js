@@ -1580,64 +1580,6 @@ test("the readable session never reaches the public rows", async () => {
   assert.equal(text.includes("bot-web-session"), false);
 });
 
-test("owned hosted observation reads actual flow state without returning control capabilities", async () => {
-  const log = [], scene = { shipID: 1001, ship: { characterID: START.characterID, position: { x: 1, y: 2, z: 3 } } };
-  const fleetWork = { state: "inviting", lastCall: { outcome: "unknown", code: "CALL_REFUSED", httpStatus: 409 } };
-  let reads = 0;
-  const host = makeHost({ loadStack: makeFakeStack(log, (flow, store) => ({ ...flow,
-    async loadFleet() { reads++; },
-    async loadSpaceSnapshot() { reads++; store._set({ space: { snapshot: scene } }); },
-    readMiningSupportFleet() { return { scope: { characterID: START.characterID }, snapshot: { availability: "not-in-fleet" } }; },
-    readMiningSupportWork() { return { selfMining: { evaluated: true, reason: "target-change", targetID: 2001 } }; },
-    readMiningSupportFleetDiagnostic() { return fleetWork; },
-  })) });
-  const started = await host.start(START);
-  await settle();
-  const before = reads;
-  assert.equal(await host.readOwnedObservation(START.characterID, ACCOUNT.accountID + 1), null);
-  assert.equal(reads, before);
-  const observed = await host.readOwnedObservation(START.characterID, ACCOUNT.accountID);
-  assert.deepEqual(observed.space, scene);
-  assert.equal(observed.fleet.snapshot.availability, "not-in-fleet");
-  assert.equal(observed.characterID, START.characterID);
-  assert.equal(observed.supportWork.selfMining.reason, "target-change");
-  assert.deepEqual(observed.fleetWork, fleetWork);
-  observed.fleetWork.lastCall.httpStatus = 0;
-  assert.equal(fleetWork.lastCall.httpStatus, 409);
-  assert.equal(/private-claim|bot-token|web-session/.test(JSON.stringify(observed)), false);
-  observed.space.ship.position.x = 99;
-  assert.equal(scene.ship.position.x, 1);
-  await host.stop(started.bot.botID, ACCOUNT.accountID);
-  assert.equal(await host.readOwnedObservation(START.characterID, ACCOUNT.accountID), null);
-});
-
-test("hosted observation is discarded if ownership ends during its awaited read", async () => {
-  let finish, pending = false;
-  const host = makeHost({ loadStack: makeFakeStack([], flow => ({ ...flow,
-    async loadFleet() { if (pending) await new Promise(resolve => { finish = resolve; }); },
-    readMiningSupportFleet() { return null; },
-  })) });
-  const started = await host.start(START);
-  pending = true;
-  const read = host.readOwnedObservation(START.characterID, ACCOUNT.accountID);
-  await settle();
-  await host.stop(started.bot.botID, ACCOUNT.accountID);
-  finish();
-  assert.equal(await read, null);
-});
-
-test("hosted scene diagnostics retain failed-read unknown instead of presenting cached geometry", async () => {
-  const host = makeHost({ loadStack: makeFakeStack([], (flow, store) => ({ ...flow,
-    async loadFleet() {},
-    async loadSpaceSnapshot() { store._set({ space: { snapshot: { shipID: 1001 }, error: "View unreadable" } }); },
-    readMiningSupportFleet() { return null; },
-  })) });
-  await host.start(START);
-  const observed = await host.readOwnedObservation(START.characterID, ACCOUNT.accountID);
-  assert.equal(observed.space, null);
-  assert.equal(observed.spaceError, "View unreadable");
-});
-
 test("hosted attachment keeps one logical run and WC restart restores its startup evidence with a fresh claim", async t => {
   const rosterPath = tempRosterPath(), dir = path.dirname(rosterPath);
   t.after(() => { assert.ok(path.resolve(dir).startsWith(path.resolve(os.tmpdir()) + path.sep)); fs.rmSync(dir, { recursive: true, force: true }); });

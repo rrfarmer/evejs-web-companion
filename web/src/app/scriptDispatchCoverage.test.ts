@@ -15,7 +15,7 @@ function unionKinds(): readonly string[] {
   assert.ok(start >= 0, "the action union moved");
   const end = source.indexOf("\nexport ", start + 1);
   const body = source.slice(start, end < 0 ? undefined : end);
-  return [...new Set([...body.matchAll(/readonly kind: "([a-zA-Z]+)"/g)].map((match) => match[1] as string))];
+  return [...new Set([...body.matchAll(/^\s*\|\s*\{\s*readonly kind: "([a-zA-Z]+)"/gm)].map((match) => match[1] as string))];
 }
 
 test("every action the union declares has a case where the page carries actions out", () => {
@@ -32,7 +32,7 @@ test("a thing's warp, the autopilot's and a fleet member's are carried out by th
   // The travel loop's warp: the client's autopilot's own call, and the menu's at nought where the loop flies a
   // pilot's own Dock or Jump.
   assert.equal(times("await warpAsTheAutopilot(destinationID);"), 1);
-  assert.equal([...flow.matchAll(/warp: async \(destinationID, byMenu\) => \{[^}]*if \(byMenu\) \{\s+await warpToThing\(destinationID, MENU_WARP_RANGE_M\);\s+return;\s+\}[^}]*await warpAsTheAutopilot\(destinationID\);\s+\},/g)].length, 1);
+  assert.equal([...flow.matchAll(/warp: async \(destinationID, byMenu\) => \{[^}]*if \(byMenu\) \{\s+await warpToThing\(destinationID, MENU_WARP_RANGE_M\);\s+return;\s+\}[^}]*await warpAsTheAutopilot\(destinationID\);/g)].length, 1);
   // The mining bot's own warp is the menu's call at nought too.
   assert.equal(times("await warpToThing(destinationID, MENU_WARP_RANGE_M);"), 2);
   // A script bot's.
@@ -45,7 +45,7 @@ test("a thing's warp, the autopilot's and a fleet member's are carried out by th
   // Each of the three goes as a write, with the pilot's flight read first.
   assert.equal(times("await warpToItemCall(bridgeDo, readFlightNow, targetID, range);"), 1);
   assert.equal(times("await autopilotWarpCall(bridgeDo, readFlightNow, targetID);"), 1);
-  assert.equal(times("await warpToFleetMemberCall(bridgeDo, readFlightNow, characterID);"), 1);
+  assert.equal(times("warpToFleetMemberCall(fencedDo(current), flightNow, characterID, range)"), 1);
   assert.equal(flow.includes("api.warpTo("), false);
   assert.equal(flow.includes("api.warpToFleetMember("), false);
   const api = readFileSync(fileURLToPath(new URL("./api.ts", import.meta.url)), "utf8");
@@ -80,11 +80,11 @@ test("a launchpad sent up at its office is carried out by the customs office's o
   const at = flow.indexOf('case "exportCustoms":');
   assert.ok(at >= 0);
   // The page's own two calls since 2026-10-13 (bridge/customsWrites.ts), where the pilot is as the flight read has it.
-  assert.match(flow.slice(at, at + 400), /^case "exportCustoms": \{[\s\S]*?await exportToCustomsOffice\(bridgeAsk, bridgeDo, \{ dockedAt: dockedNow\(\) \}, action\.officeID, action\.pinID, action\.commodities\);\s+return;\s+\}/);
+  assert.match(flow.slice(at, flow.indexOf('case "', at + 1)), /^case "exportCustoms": \{[\s\S]*?await exportToCustomsOffice\(bridgeAsk, bridgeDo, \{ dockedAt: dockedNow\(\) \}, action\.officeID, action\.pinID, action\.commodities\);\s+return;\s+\}/);
   const api = readFileSync(fileURLToPath(new URL("./api.ts", import.meta.url)), "utf8");
   assert.equal(api.includes('"/api/bridge/planet/customs/export"'), false);
   // The block needs what each launchpad holds, so the read that gives it runs for this block too.
-  assert.match(flow, /if \(macro === "restart-extractors" \|\| macro === "launch-commodities" \|\| macro === "collect-customs"\) \{/);
+  assert.match(flow, /if \(macroReads\(macro, "colonies"\)\) \{\s*try \{\s*const readAt = Date\.now\(\);\s*const report = decodeColonyReport\(\(await api\.getPlanets\(callOptions\)\)\.planets, readAt\);/);
 });
 
 test("a scan result's warp is carried out by the page's own call, by what the look read of the scanner; the route's asker is gone", () => {
@@ -155,16 +155,15 @@ test("an orbit is carried out by the page's own call wherever the page carries a
 test("a stop is carried out by the page's own call wherever the page carries a bot's actions out, and the autopilot is given up first where a stop is the operator's", () => {
   const flow = readFileSync(fileURLToPath(new URL("./flow.ts", import.meta.url)), "utf8");
   const times = (text: string) => flow.split(text).length - 1;
-  assert.equal([...flow.matchAll(/case "stopShip":/g)].length, 2);
+  assert.equal([...flow.matchAll(/case "stopShip":/g)].length, 1);
   // The fleet companion's stop, an operator's word that gave up the autopilot first, left with it.
   assert.equal([...flow.matchAll(/case "stopShip":\s+autopilot\?\.abort\(\);\s+await cutEngines\(\);\s+return;/g)].length, 0);
-  // A support ship's, and a script bot's: one step of a running program, which carries on after it.
-  assert.equal(times('case "stopShip": await cutEngines(); break;'), 1);
+  // A script can stop the ship and continue its program.
   assert.equal([...flow.matchAll(/case "stopShip":\s+await cutEngines\(\);\s+return;/g)].length, 1);
   // The page's own write (bridgeDo), with the pilot's flight read before it.
   assert.equal(times("await stopShipCall(bridgeDo, readFlightNow);"), 1);
   // The panel's: the autopilot given up first, then the stop.
-  assert.equal([...flow.matchAll(/autopilot\?\.abort\(\);\s+await runFlightStep\("Stop", \(\) => orderedStep\(\(flightNow\) => stopShipCall\(bridgeDo, flightNow\)\)\);/g)].length, 1);
+  assert.equal([...flow.matchAll(/autopilot\?\.abort\(\);\s*(?:\/\/[^\n]*\n\s*)*cancelSystemNavigation\(\);\s+await runFlightStep\("Stop", \(\) => orderedStep\(\(flightNow\) => stopShipCall\(bridgeDo, flightNow\)\)\);/g)].length, 1);
   // The route's asker is gone from the flow, and from the page's askers.
   assert.equal(flow.includes("api.stopShip("), false);
   const api = readFileSync(fileURLToPath(new URL("./api.ts", import.meta.url)), "utf8");
@@ -174,10 +173,9 @@ test("a stop is carried out by the page's own call wherever the page carries a b
 test("a fleet is formed by the page's own call wherever the page carries a bot's actions out", () => {
   const flow = readFileSync(fileURLToPath(new URL("./flow.ts", import.meta.url)), "utf8");
   const times = (text: string) => flow.split(text).length - 1;
-  // A support ship's, and a script bot's: each decided on the bot's own reading that it is in no fleet.
-  assert.equal(times('if (action.kind === "createFleet") await formFleetCall(bridgeDo, false);'), 1);
+  // The ordinary script creates a fleet when its own pilot is outside one.
   assert.equal([...flow.matchAll(/case "createFleet":\s+\/\/[^\n]*\n\s+\/\/[^\n]*\n\s+await formFleetCall\(bridgeDo, false\);\s+return;/g)].length, 1);
-  assert.equal(times("formFleetCall(bridgeDo, false)"), 2);
+  assert.equal(times("formFleetCall(bridgeDo, false)"), 1);
   // The Fleet window's: none from a pilot the window knows to be in a fleet.
   assert.equal(times('await runFleetAction("form", () => formFleetCall(bridgeDo, store.fleet.get().availability === "ready"), "ready");'), 1);
   // The route's asker is gone from the flow, and from the page's askers.
@@ -189,9 +187,7 @@ test("a fleet is formed by the page's own call wherever the page carries a bot's
 test("an invitation is accepted by the page's own call wherever the page carries a bot's actions out", () => {
   const flow = readFileSync(fileURLToPath(new URL("./flow.ts", import.meta.url)), "utf8");
   const times = (text: string) => flow.split(text).length - 1;
-  // A support ship's, and a script bot's (with the invitation's fleet, or the one the
-  // Fleet window was told of): each on the bot's own reading that it is in no fleet.
-  assert.equal(times("await acceptFleetInviteCall(bridgeDo, action.fleetID, false);"), 1);
+  // The script uses the fleet ID from the invitation.
   assert.equal(times("await acceptFleetInviteCall(bridgeDo, fleetID, false);"), 1);
   // The Fleet window's: none from a pilot the window knows to be in a fleet.
   assert.equal(times('await runFleetAction("accept", () => acceptFleetInviteCall(bridgeDo, wanted, store.fleet.get().availability === "ready"), "ready");'), 1);
@@ -204,42 +200,33 @@ test("an invitation is accepted by the page's own call wherever the page carries
 test("a pilot is invited by the page's own call wherever the page carries a bot's actions out", () => {
   const flow = readFileSync(fileURLToPath(new URL("./flow.ts", import.meta.url)), "utf8");
   const times = (text: string) => flow.split(text).length - 1;
-  // A support ship's, and a script bot's: the invitee, and the pilot's own character for the page's refusal.
-  assert.equal(times('else if (action.kind === "inviteToFleet") await inviteToFleetCall(bridgeDo, action.charID, onlineCharacterID());'), 1);
+  // A script invites the chosen character on behalf of the online pilot.
   assert.equal([...flow.matchAll(/case "inviteToFleet":\s+await inviteToFleetCall\(bridgeDo, action\.charID, onlineCharacterID\(\)\);\s+(return|break);/g)].length, 1);
   // The Fleet window's and the bot host's: with the fleet expected where one is given, and the dispatch fenced
   // where the caller gives a fence.
-  assert.equal(times("inviteToFleetCall(assertCurrent ? fencedDo(assertCurrent) : bridgeDo, characterID, onlineCharacterID(), expectedFleetID)"), 1);
+  assert.equal(times("inviteToFleetCall(assertCurrent ? fencedDo(assertCurrent) : bridgeDo, characterID, onlineCharacterID(), expectedFleetID, place)"), 1);
   // The route's asker is gone from the flow, and from the page's askers.
   assert.equal(flow.includes("api.inviteToFleet("), false);
   const api = readFileSync(fileURLToPath(new URL("./api.ts", import.meta.url)), "utf8");
   assert.equal(api.includes('"/api/bridge/fleet/invite"'), false);
 });
 
-test("a mining site's return point is bookmarked by the page's own call, where the page carries a bot's actions out", () => {
+test("ordinary bookmarks still use the shared location read and write calls", () => {
   const flow = readFileSync(fileURLToPath(new URL("./flow.ts", import.meta.url)), "utf8");
-  // The hauler's own ship, the folder, the name and the note; kept two days, as it was by its route.
-  assert.equal(flow.split("create: async (id, folder, name, note) => { await bookmarkLocationCall(bridgeDo, id, folder, name, note, BOOKMARK_EXPIRY.twoDays); },").length - 1, 1);
+  assert.match(flow, /readLocations\(\) \{\s*return readMyActiveBookmarks\(bridgeAsk\);/);
+  assert.match(flow, /bookmarkPlace\(place\) \{[^}]*const call = isPlace \? bookmarkStaticLocationCall : bookmarkLocationCall;\s*return call\(bridgeDo, place\.itemID, place\.folderID, place\.label, place\.note, place\.expiry, place\.subfolderID\);/);
   assert.equal(flow.includes("api.bookmarkMiningSiteLocation("), false);
   const api = readFileSync(fileURLToPath(new URL("./api.ts", import.meta.url)), "utf8");
   assert.equal(api.includes('"/api/bridge/flight/bookmark-location"'), false);
-  // What it reads, before to find a return point made already and after to see the one it made, is the page's
-  // own read of the bookmarks (bridge/bookmarkReads.ts): a read that failed is no empty list of them.
-  assert.equal(flow.split("read: async () => readMyActiveBookmarks(bridgeAsk),").length - 1, 1);
-  assert.equal(flow.includes("api.loadActiveBookmarks("), false);
-  assert.equal(flow.includes("decodeActiveBookmarks("), false);
   assert.equal(api.includes('"/api/bridge/bookmarks"'), false);
 });
 
 test("a target is locked by the page's own call wherever the page carries a bot's actions out; and let go by the flow's own letting go", () => {
   const flow = readFileSync(fileURLToPath(new URL("./flow.ts", import.meta.url)), "utf8");
   const times = (text: string) => flow.split(text).length - 1;
-  // The mining bot's, a support ship's own mining and its tractor's, and a script bot's: each
-  // on its own reading that the thing is not locked.
+  // The ordinary mining bot and script each lock through the shared call.
   assert.equal(times("await lockTargetCall(bridgeDo, action.targetID, null);"), 1);
   assert.equal(times("await lockTargetCall(bridgeDo, targetID, null);"), 1);
-  assert.equal(times('case "lock": await lockTargetCall(bridgeDo, self.action.targetID, null); break;'), 1);
-  assert.equal(times('case "lock": await lockTargetCall(bridgeDo, tractor.action.targetID, null); break;'), 1);
   // A script bot's letting go: by what the page has of the target, as the panel's is.
   assert.equal([...flow.matchAll(/case "unlock":\s+await releaseTarget\(action\.targetID\);\s+return;/g)].length, 1);
   assert.equal(flow.includes("api.lockTarget("), false);

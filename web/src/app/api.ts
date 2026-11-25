@@ -59,8 +59,8 @@ import type {
   ScannerOperationsSnapshot,
   ScannerProbeOperation,
 } from "../scanner/scannerCenter.ts";
-import { decodeMiningSupportAnchor, decodeMiningSupportAnchorRead } from "../bridge/miningSupportAnchor.ts";
-import type { MiningSupportAnchor, MiningSupportAnchorRead } from "../nav/miningSupportAnchor.ts";
+import { decodeMiningSupportAnchorRead } from "../bridge/miningSupportAnchor.ts";
+import type { MiningSupportAnchorRead } from "../nav/miningSupportAnchor.ts";
 
 export interface LoginResult {
   readonly accountID: number;
@@ -1631,17 +1631,9 @@ export interface SquadPrimary {
   readonly calledByCharacterID: number | null;
 }
 
-/** Server derives membership and returns a fresh roster with separate publishers. */
+/** Fresh membership for the Bot Builder support-fleet check. */
 export async function readMiningSupportAnchors(options: ApiOptions = {}): Promise<MiningSupportAnchorRead> {
   return decodeMiningSupportAnchorRead(await getJson("/api/bots/mining-support-anchors", options));
-}
-
-/** Only observation guards cross the wire. Identity/services come from BFF reads. */
-export async function publishMiningSupportAnchor(observedShipID: number, observedAtMs: number, options: ApiOptions = {}, guards: { expectedCharacterID?: number; expectedFleetID?: number | string } = {}): Promise<MiningSupportAnchor> {
-  const data = await postJson("/api/bots/mining-support-anchors", { observedShipID, observedAtMs, ...guards }, options);
-  const anchor = decodeMiningSupportAnchor(data.anchor);
-  if (anchor === null) throw new Error("Mining support anchor publication could not be decoded.");
-  return anchor;
 }
 
 /**
@@ -5310,10 +5302,6 @@ export async function loadTrainingCharacters(options: ApiOptions = {}): Promise<
     throw new BridgeCallError("BRIDGE_BAD_RESPONSE", "Training roster is incomplete.", 502);
   }
   return { account: data.account, characters };
-}
-
-export async function releaseMiningSupportAnchor(options: ApiOptions = {}): Promise<void> {
-  await postJson("/api/bots/mining-support-anchors/release", {}, options);
 }
 
 export interface MiningResourceChoice { readonly typeID: number; readonly name: string; readonly family: "ore" | "ice"; }

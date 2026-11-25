@@ -11,4 +11,6 @@ Open **Plugins → Unified Operations Center** in Web Companion. You can pin UOC
 | Ship Provisioning | Select a pilot and saved fit. Review the available assembled or packaged hull, existing equipment, rigs and supplies before confirming changes. A corporation destination can receive the previous ship. Strategic Cruiser subsystem fitting is unsupported. |
 | Combat Operations Center | **In development**. Combat operations, including DED, are disabled in the UI and backend. Assign defenders in the Mining Command Center. |
 
+The standalone Core Mining Command Center has been retired. To run a fleet previously saved there, create its operation again in the UOC Mining Command Center. UOC uses its own saved operations.
+
 Build the shared WC and plugin client with `npm run build:web`. The manifest and lazy page view live in `plugin.ts` and `views.ts`. The Plugin Host runs `backend.ts`, which registers the scoped HTTP routes and Bot Host run types. UOC stores operation documents in the WC installation’s plugin data directory. Existing deployments should keep that directory when upgrading.

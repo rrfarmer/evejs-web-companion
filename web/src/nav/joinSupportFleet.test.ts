@@ -24,7 +24,7 @@ function fleet(characterID: number, fleetID: number | null, roster = [S, A], inv
 function observation(own = fleet(A, F), support: MiningSupportFleetObservation | null = fleet(S, F)): ScriptObservation {
   return { inSpace: false, docked: true, inWarp: false, shieldRatio: null, armorRatio: null, hullRatio: null, health: null,
     oreHoldFraction: 0, holdEmpty: true, hostileOnGrid: false, dronesOut: false,
-    fleetMining: { fleet: own, supportFleet: support, anchors: null, modules: null, sceneReceivedAtMs: now, nowMs: now, requirements: { requireMiningBurst: true } } };
+    fleetMining: { fleet: own, supportFleet: support, anchors: null, nowMs: now } };
 }
 test("public join block is codec-valid, named and grants fleet authority", () => {
   assert.ok(decodeScriptValue(doc).ok);
@@ -43,5 +43,19 @@ test("foreign fleet, unknown support and stale old invitations cannot authorize 
   assert.equal(foreign.action.kind, "wait"); assert.equal(foreign.outcome.kind, "blocked");
   for (const obs of [observation(fleet(A, null, [], F), null), observation(fleet(A, null, [], F), fleet(S, F + 1)), observation(fleet(A, null, [], F), fleet(S, F))]) {
     assert.equal(SCRIPT_MACROS[step.macro]!(step, obs, {}, {}).action.kind, "wait");
+  }
+});
+
+test("join-support-fleet verifies the selected pilot in a fresh roster without any support anchor", () => {
+  const obs = observation(fleet(A, F), null);
+  const roster = { fleetID: String(F), readerCharacterID: A, observedAtMs: now, expiresAtMs: now + 10_000,
+    members: [A, S].map(characterID => ({ characterID, solarSystemID: null })) };
+  const decide = (read: typeof roster) => SCRIPT_MACROS[step.macro]!(step,
+    { ...obs, fleetMining: { ...obs.fleetMining!, anchors: { availability: "available", reason: null, readAtMs: now, fleet: read, anchors: [] } } }, {}, {});
+  assert.equal(decide(roster).outcome.kind, "done");
+  for (const invalid of [{ ...roster, readerCharacterID: S }, { ...roster, fleetID: String(F + 1) },
+    { ...roster, expiresAtMs: now }, { ...roster, members: roster.members.slice(0, 1) }]) {
+    assert.notEqual(decide(invalid).outcome.kind, "done");
+    assert.equal(decide(invalid).action.kind, "wait");
   }
 });

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   depositOwnShipRaw,
   createDockedRawDepositIO,
+  UnconfirmedHaulerUnload,
   type OwnShipRawSource,
 } from "./dockedRawDeposit.ts";
 import { officeList, corporationRow, titlesRowset } from "./corporateOfficeFixture.ts";
@@ -658,6 +659,69 @@ test("an acknowledged command still requires departure from the assigned ship an
   );
   assert.deepEqual((await io.reconcileDelivery(pending, true)).items, [item]);
   assert.equal(f.getWrites(), 0);
+});
+
+test("EveJS refuses both stacks of a MultiAdd: verified unchanged cargo releases the attempt and preserves the refusal", async () => {
+  const f = fixture();
+  const items = [...source.items, { ...source.items[0]!, itemID: 21 }];
+  const held = items.map((row) => ({ ...row, ownerID: 3, locationID: 13, flagID: 134 }));
+  f.setHeld(held);
+  const unload = () => depositOwnShipRaw(f.run, f.session, {
+    source: { ...source, items }, destinationID: 600, corporationID: 77, division: 1,
+    wholeStacks: true, current() {}, document: f.document,
+  });
+  f.setRefused(true);
+  await assert.rejects(unload(), { message: "Not enough hangar space", code: "CALL_REFUSED" });
+  assert.equal(f.getWrites(), 1);
+  assert.equal((f.getDoc() as any).pending, null);
+  assert.deepEqual((f.getDoc() as any).batches, []);
+  assert.deepEqual(f.getCorp(), []);
+  f.setRefused(false);
+  assert.equal((await unload()).batches[0]?.items?.length, 2);
+  assert.equal(f.getWrites(), 2);
+});
+
+test("a MultiAdd refusal survives an unavailable first readback and a new deposit reader", async () => {
+  const f = fixture();
+  const items = [...source.items, { ...source.items[0]!, itemID: 21 }];
+  f.setHeld(items.map((row) => ({ ...row, ownerID: 3, locationID: 13, flagID: 134 })));
+  f.setRefused(true);
+  const ask = f.session.flow.flying.bridgeAsk;
+  let unavailable = true;
+  f.session.flow.flying.bridgeAsk = async (...args: any[]) => {
+    if (unavailable && f.getWrites() && args[1] === "List")
+      throw Object.assign(Error("Inventory temporarily unavailable"), { status: 503 });
+    return ask(...args);
+  };
+  const unload = () => depositOwnShipRaw(f.run, f.session, {
+    source: { ...source, items }, destinationID: 600, corporationID: 77, division: 1,
+    wholeStacks: true, current() {}, document: f.document,
+  });
+  await assert.rejects(unload(), /Inventory temporarily unavailable/);
+  assert.equal((f.getDoc() as any).pending.refusalReason, "Not enough hangar space");
+  unavailable = false;
+  await assert.rejects(unload(), /Not enough hangar space/);
+  assert.equal((f.getDoc() as any).pending, null);
+  assert.equal(f.getWrites(), 1);
+});
+
+test("a lost Add needs an explicit fresh check at the original dock before an unchanged stack can be released", async () => {
+  const f = fixture();
+  f.setLostBeforeMove(true);
+  await assert.rejects(f.call(), /reply unavailable/);
+  const pending = await f.call().catch((error: unknown) => error);
+  assert.ok(pending instanceof UnconfirmedHaulerUnload);
+  f.setDocked(false);
+  await assert.rejects(pending.checkAndRelease(), /docked pilot/);
+  assert.ok((f.getDoc() as any).pending);
+  f.setDocked(true);
+  await pending.checkAndRelease();
+  assert.equal((f.getDoc() as any).pending, null);
+  assert.equal(f.getWrites(), 1);
+  assert.deepEqual(f.getCorp(), []);
+  f.setLostBeforeMove(false);
+  assert.equal((await f.call()).batches.length, 1);
+  assert.equal(f.getWrites(), 2);
 });
 
 test("a partial MultiAdd refusal never releases the intent as an undispatched batch", async () => {

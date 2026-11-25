@@ -33,7 +33,6 @@ import type {
   VerifiedOperationPilot,
   MiningOperationDefinition,
   MiningOperationsPayload,
-  OperationRoutineSummary,
   MiningResourceChoice,
   PveDedChoice,
 } from "./apiTypes.ts";
@@ -405,20 +404,6 @@ export async function getMiningPreparationOptions(
   )
     throw Error("The selected pilot or corporate fitting provider is unavailable.");
   return { pilot: r.pilot, definitions: r.definitions, candidateSource: r.candidateSource };
-}
-export async function listOperationRoutines(
-  classes: readonly string[],
-  unloadPolicy: unknown,
-  options: ApiOptions = {},
-): Promise<OperationRoutineSummary[]> {
-  const r = await authenticatedJson(
-    "/api/mining-operations/routines?" +
-      new URLSearchParams({ classes: classes.join(","), unloadPolicy: String(unloadPolicy) }),
-    options,
-  );
-  if (!Array.isArray(r.routines))
-    throw Error("The saved Bot Builder routine directory is unreadable.");
-  return r.routines;
 }
 export async function startMiningOperation(
   _id: string,

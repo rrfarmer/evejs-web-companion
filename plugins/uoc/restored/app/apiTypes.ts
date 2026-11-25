@@ -171,6 +171,7 @@ export interface MiningOperationRuntime {
     readonly failureCode?: string | null;
     readonly parkingState?: string | null;
     readonly dockedForUnload?: boolean;
+    readonly canCheckUnload?: boolean;
     readonly pendingUnloadUnits?: number;
     readonly parkingSince?: number | null;
     readonly botID: string | null;
@@ -231,18 +232,6 @@ export interface MiningResourceChoice {
   readonly typeID: number;
   readonly name: string;
   readonly family: "ore" | "ice";
-}
-
-export interface OperationRoutineSummary {
-  readonly scriptID: string;
-  readonly name: string;
-  readonly rev: number;
-  readonly roles: Readonly<
-    Record<
-      "MINER" | "HAULER" | "DEFENDER",
-      { readonly compatible: boolean; readonly reason: string | null }
-    >
-  >;
 }
 
 export interface OperationLaunchPlanMember {

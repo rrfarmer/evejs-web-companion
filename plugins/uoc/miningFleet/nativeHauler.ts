@@ -22,7 +22,7 @@ import {
 } from "../../../web/src/plugin-api/flying.ts";
 import type { PluginRunContext } from "../../../web/src/plugin-api/backend.ts";
 import type { PilotSession } from "../../../web/src/plugin-api/pilotSession.ts";
-import type { GridJetcan, Manifest, ManifestItem } from "./operation.ts";
+import { haulOwner, type OperationRecord, type GridJetcan, type Manifest, type ManifestItem } from "./operation.ts";
 import type { Target, Claim } from "./targetBoard.ts";
 import {
   checkedInventory,
@@ -36,6 +36,7 @@ import { unloadParkingFreight } from "./parkingUnload.ts";
 import { createHaulJournal, type HaulDocument } from "./haulJournal.ts";
 import {
   createDockedRawDepositIO,
+  UnconfirmedHaulerUnload,
   readDepositInventory,
   ownFreightTotals,
   type HaulerOwnJournal,
@@ -1503,7 +1504,12 @@ export function createNativeHauler(
       freightKind: category,
       current: guard,
     });
-  async function reconcileTransfer(manifest: Manifest, j: Journal, destinationID: number) {
+  async function reconcileTransfer(
+    manifest: Manifest,
+    j: Journal,
+    destinationID: number,
+    batchPeers?: () => readonly Journal[],
+  ) {
     const pending = j.snapshot().pending;
     if (!pending) return null;
     const progress = tripProgress(manifest, j);
@@ -1514,11 +1520,30 @@ export function createNativeHauler(
       guard();
       j.reconcile("pickup", { batch, shipAfter: batch.shipAfter });
     } else if (pending.kind === "delivery") {
-      const before = pending.before as DepositBefore;
+      const before = { ...(pending.before as DepositBefore), refusalReason: pending.refusalReason };
       for (const item of before.items ?? [before.item])
         subtractDelivery(progress.aboard, { item, sourceBefore: before.sourceBefore });
       const io = await depositIO(manifest.category, destinationID),
-        after = await io.reconcileDelivery(before, pending.acknowledged);
+        after = await io.reconcileDelivery(before, pending.acknowledged, () => {
+          guard();
+          // One MultiAdd may be recorded against several cans on the same trip.
+          const sameBatch = (batchPeers?.() ?? []).filter((peer) => {
+            const other = peer.snapshot().pending;
+            if (peer === j || other?.kind !== "delivery" || other.acknowledged) return false;
+            const original = other.before as DepositBefore;
+            return (
+              before.requestedIDs && before.tripID &&
+              original.tripID === before.tripID &&
+              original.officeID === before.officeID &&
+              original.flag === before.flag &&
+              JSON.stringify(original.requestedIDs) === JSON.stringify(before.requestedIDs) &&
+              JSON.stringify(original.sourceBefore) === JSON.stringify(before.sourceBefore) &&
+              JSON.stringify(original.destinationBefore) === JSON.stringify(before.destinationBefore)
+            );
+          });
+          j.refuseDelivery();
+          for (const peer of sameBatch) peer.refuseDelivery();
+        });
       guard();
       j.reconcile("delivery", after);
     } else throw Error("Original freight mutation requires reconciliation; no replay.");
@@ -1528,13 +1553,22 @@ export function createNativeHauler(
     manifest: Manifest,
     generation: number,
     destinationID: number,
+    snapshot?: OperationRecord,
   ) {
     guard();
     // A dispatched claim is not a pending inventory mutation. Keep the trip
     // history and leave any physical cargo for the selected parking policy.
     try {
-      await reconcileTransfer(manifest, journal(manifest, generation), destinationID);
+      await reconcileTransfer(manifest, journal(manifest, generation), destinationID, () =>
+        snapshot?.manifests.flatMap((other) => {
+          const owner = haulOwner(snapshot, other);
+          return other.containerID !== manifest.containerID && !other.delivered &&
+            owner?.characterID === run.characterID && owner.dispatched
+            ? [journal(other, owner.generation)] : [];
+        }) ?? [],
+      );
     } catch (error) {
+      if (error instanceof UnconfirmedHaulerUnload) throw error;
       const message = `Return Home cannot reconcile the transfer for can ${manifest.containerID}: ${error instanceof Error ? error.message : String(error)}`;
       if (error instanceof FleetObservationUnavailable)
         throw new FleetObservationUnavailable(message, { cause: error });
@@ -1584,6 +1618,13 @@ export function createNativeHauler(
         ...(pending.items ? { requestedIDs: pending.items.map((i) => i.itemID) } : {}),
       },
       pending.acknowledged,
+      () => {
+        guard();
+        const latest = ownJournal();
+        if (latest?.identity !== saved.identity || JSON.stringify(latest.pending) !== JSON.stringify(pending))
+          throw Error("The pending unload changed. Refresh the operation.");
+        ownFreight.document.write({ ...latest, pending: null });
+      },
     );
     const items = "items" in after ? after.items : undefined;
     const batches =
@@ -1770,6 +1811,9 @@ export function createNativeHauler(
           sourceBefore,
           destinationBefore,
           {
+            recordRefusal(reason) {
+              for (const { journal } of allocations) journal.recordDeliveryRefusal(reason);
+            },
             acknowledge() {
               for (const { journal } of allocations) journal.acknowledge();
             },
@@ -1886,7 +1930,7 @@ export function createNativeHauler(
       if (pending?.kind === "delivery")
         for (const itemID of (pending.before as DepositBefore).requestedIDs ?? [])
           interruptedStackIDs.add(itemID);
-      const reconciled = await reconcileTransfer(m, j, destinationID);
+      const reconciled = await reconcileTransfer(m, j, destinationID, () => jobs.map((job) => job.j));
       const progress = open(job);
       if (progress.lastTripID && !progress.aboard.length) settledVisit = progress.lastTripID;
       if (!job.sourceClosed && !progress.remaining.length && progress.sourceBatches.length) {

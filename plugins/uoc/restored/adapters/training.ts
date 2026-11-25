@@ -1,3 +1,4 @@
+import { nextLocalID } from "../app/localID.ts";
 import { trainingPlanTargets, trainingTargets } from "../../shared/trainingTargets.ts";
 import { isListValue, readKeyVal } from "../../shared/wire.ts";
 import {
@@ -913,7 +914,7 @@ export async function trainingOnboarding(
     const worldID = (await readTrainingWorld(options)).worldID;
     if (!worldID || body.worldID !== worldID)
       throw Error("Current world identity is unavailable or changed.");
-    const reviewID = crypto.randomUUID();
+    const reviewID = nextLocalID();
     onboardingReviews.set(reviewID, {
       traineeID,
       authorityID,
@@ -1167,7 +1168,7 @@ function skillReviewRecord(
 ) {
   if (typeof options.token !== "string" || !options.token)
     throw Error("Authenticated pilot account is required.");
-  const reviewID = crypto.randomUUID(),
+  const reviewID = nextLocalID(),
     identity = skillReviewKey(q.corporationID, q.targets, q, Math.round(q.totalISK * 100));
   skillReviews.set(reviewID, {
     characterID: id,

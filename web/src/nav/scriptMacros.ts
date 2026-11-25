@@ -1,5 +1,4 @@
 import { freightReadable } from "./miningLogistics.ts";
-import { decideFleetMinerGeometry } from "./fleetMiner.ts";
 import { decideMiningSupportFleetMember, freshMiningSupportFleetMemory, type MiningSupportFleetMemory } from "./miningSupportFleet.ts";
 import { miningSiteFamily, siteRockMatches, type SiteFamily } from "./miningSite.ts";
 // B1 — the macro adapters. Each block is an independent "task": it decides ONE
@@ -754,14 +753,6 @@ const travelToBelt: MacroDecider = (step, obs, mem, board) => {
 //         out a NEW rock field every site, so a ladder would retire Arkonor
 //         forever the first time one site happened to lack it. See
 //         `mineAtBeltSite`.
-const fleetMine: MacroDecider = (step, obs, mem) => {
-  const snapshot = obs.snapshot;
-  if (!snapshot?.inSpace || obs.inWarp !== false) return { ...tick(WAIT, "Waiting for a fresh in-space observation.", "Fleet Miner — waiting", ACTING, false, mem), settleDrones: true };
-  const ores = step.args["ores"];
-  const rocks = snapshot.entities.filter(isMineableRock).filter(row => ores?.kind !== "oreList" || ores.ores.length === 0 || ores.ores.some(ore => ore.groupID === row.groupID));
-  return fleetMineWithResources(step, obs, mem, snapshot, rocks, measureSpace(snapshot));
-};
-
 function supportMemberFleet(step: MacroStep, obs: ScriptObservation, mem: MacroMemory) {
   const authority = obs.fleetMining, supportArg = step.args["support"];
   const supportCharacterID = supportArg?.kind === "character" ? supportArg.charID : null;
@@ -793,71 +784,6 @@ const joinSupportFleet: MacroDecider = (step, obs, mem) => {
   return tick(membership.action ?? WAIT, reason, "Joining the support fleet",
     membership.state === "blocked" ? { kind: "blocked", reason } : ACTING, false, next);
 };
-
-function fleetMineWithResources(step: MacroStep, obs: ScriptObservation, mem: MacroMemory, snapshot: SpaceSnapshot,
-  rocks: readonly SpaceEntity[], measurement: SpaceMeasurement | null): MacroTick {
-  const authority = obs.fleetMining, supportArg = step.args["support"];
-  const supportCharacterID = supportArg?.kind === "character" ? supportArg.charID : null;
-  const membership = supportMemberFleet(step, obs, mem);
-  const geometry = decideFleetMinerGeometry({ scene: snapshot, sceneReceivedAtMs: authority?.sceneReceivedAtMs ?? NaN,
-    nowMs: authority?.nowMs ?? NaN, anchors: authority?.anchors ?? null, supportCharacterID: supportCharacterID ?? 0,
-    requirements: authority?.requirements ?? { requireMiningBurst: true }, modules: authority?.modules ?? null,
-    resourceCandidates: rocks, preferredTargetID: num(mem, "rockID") });
-  const state = membership.state === "ready" ? geometry.state : "SUPPORT_UNAVAILABLE";
-  const reason = membership.state === "ready" ? geometry.reason : membership.issues[0]?.reason ?? "fleet-state-unknown";
-  const next = { ...mem, fleetMemory: membership.memory, fleetMinerState: state, fleetMinerReason: reason,
-    fleetMinerTargetID: geometry.targetID, fleetMinerPosition: geometry.position, effectiveMiningRange: geometry.rangeMeters };
-  const waiting = (why: string, action: MacroTick["action"] = WAIT, memory: MacroMemory = next): MacroTick =>
-    ({ ...tick(action, why, `Fleet Miner — ${state.toLowerCase().replaceAll("_", " ")}`, ACTING, false, memory), settleDrones: true });
-  const miningIDs = authority?.modules?.filter(row => row.online).map(row => row.itemID) ?? obs.miningModuleIDs ?? [];
-  if (snapshot.ship?.activeModuleIDs == null) return waiting("Active mining equipment state is unreadable.");
-  const active = (authority?.modules?.map(row => row.itemID) ?? obs.miningModuleIDs ?? []).find(id => snapshot.ship!.activeModuleIDs!.includes(id));
-  const settledDrones = obs.miningDrones?.out?.every(drone => !drone.controlled) === true;
-  if (membership.action) return waiting("Reconciling the configured support fleet.", membership.action);
-  const changing = num(mem, "rockID") !== null && num(mem, "rockID") !== geometry.targetID;
-  const adopting = num(mem, "rockID") === null && (active !== undefined || !settledDrones);
-  if (state !== "MINE" || changing || adopting) {
-    if (active !== undefined) return waiting("Settling mining equipment before changing work.", { kind: "deactivate", moduleID: active });
-    if (!settledDrones) return waiting("Waiting for authoritative controlled-drone return.");
-    if (state !== "REPOSITION" && state !== "MINE") {
-      const own = snapshot.ship;
-      const fresh = authority && authority.sceneReceivedAtMs <= authority.nowMs && authority.nowMs - authority.sceneReceivedAtMs < 10000;
-      if (fresh && own?.motionAvailable === true && [own.velocity.x, own.velocity.y, own.velocity.z].every(Number.isFinite) &&
-        (own.mode !== "STOP" || Math.hypot(own.velocity.x, own.velocity.y, own.velocity.z) > 0.5))
-        return waiting("Braking the previous movement while supported mining is unavailable.", { kind: "stopShip" });
-      return waiting(reason ?? "No resource can be mined within current support coverage.");
-    }
-    if (changing) return waiting("Previous target is settled; choosing the next supported resource.", WAIT,
-      { ...next, rockID: null, lockIssued: false, waited: 0, fleetMoveTargetID: null });
-  }
-  const own = snapshot.ship;
-  if (!own || own.motionAvailable !== true || ![own.velocity.x, own.velocity.y, own.velocity.z].every(Number.isFinite)) return waiting("Own movement is unreadable.");
-  const moving = own.mode !== "STOP" || Math.hypot(own.velocity.x, own.velocity.y, own.velocity.z) > 0.5;
-  if (state === "REPOSITION") {
-    const mobility = own.coreMobilityFuel?.mobility;
-    if (mobility?.movement.verdict !== "unrestricted") return waiting("Waiting for authoritative movement permission.");
-    if (!geometry.position || snapshot.shipID === null || snapshot.solarSystemID === null) return waiting("Movement scope is unavailable.");
-    if (moving) return waiting(num(mem, "fleetMoveTargetID") === geometry.targetID ? "Observing the issued supported mining movement." : "Stopping the previous movement before taking mining movement ownership.",
-      num(mem, "fleetMoveTargetID") === geometry.targetID ? WAIT : { kind: "stopShip" });
-    const sameTarget = num(mem, "fleetMoveTargetID") === geometry.targetID;
-    const issuedAt = sameTarget ? num(mem, "fleetMoveIssuedAtMs") : null;
-    if (issuedAt !== null && authority!.nowMs - issuedAt < 10000) return waiting("Waiting for the previous movement to be observed.");
-    const attempts = sameTarget ? num(mem, "fleetMoveAttempts") ?? 0 : 0;
-    if (attempts >= 3) return waiting("Supported mining movement could not be confirmed.");
-    return waiting("Moving to a point within mining reach and support coverage.",
-      { kind: "gotoPoint", position: geometry.position, shipID: snapshot.shipID, solarSystemID: snapshot.solarSystemID },
-      { ...next, fleetMoveTargetID: geometry.targetID, fleetMoveIssuedAtMs: authority!.nowMs, fleetMoveAttempts: attempts + 1 });
-  }
-  if (moving) {
-    if (active !== undefined) return waiting("Settling mining before braking.", { kind: "deactivate", moduleID: active });
-    if (!settledDrones) return waiting("Returning controlled drones before braking.");
-    return waiting("Braking inside support and mining reach.", { kind: "stopShip" });
-  }
-  const target = rocks.find(row => row.itemID === geometry.targetID);
-  if (!target || geometry.rangeMeters === null) return waiting("Resource authority changed.");
-  const result = mineWithRocks(step, { ...obs, miningModuleIDs: miningIDs }, next, snapshot, [target], measurement, geometry.rangeMeters);
-  return { ...result, nextMem: { ...next, ...result.nextMem, fleetMoveTargetID: null, fleetMoveAttempts: 0 } };
-}
 
 const mineAtBelt: MacroDecider = (step, obs, mem, board) => {
   if (isSiteMode(step)) {
@@ -1450,7 +1376,6 @@ function mineWithRocks(
   snapshot: SpaceSnapshot,
   rocks: readonly SpaceEntity[],
   measurement: SpaceMeasurement | null,
-  effectiveRangeMeters?: number,
 ): MacroTick {
   // We have rocks. Track the one we are working. On an ice field they are
   // ice chunks, and the pilot reads them as that.
@@ -1467,9 +1392,6 @@ function mineWithRocks(
     if (pick === null) {
       return tick(WAIT, "Nothing pickable to mine.", "Picking a rock", ACTING, true, {});
     }
-    if (step.macro === "fleet-mine") return tick(WAIT, "Choosing the supported resource.", "Fleet Miner — choosing", ACTING, true,
-      { rockID: pick.itemID, lockIssued: false, waited: 0, approachedRockID: pick.itemID,
-        lockRefusalsSeen: refusalFor(obs.refusals, step.id, "lock", null)?.count ?? 0 });
     // Orbit the new rock at 5km to get into mining range; lock next tick.
     return tick(
       { kind: "orbit", targetID: pick.itemID, range: ORBIT_RANGE_M },
@@ -1533,12 +1455,7 @@ function mineWithRocks(
       // A refusal that arrives while the pre-gate holds the press is absorbed, not left
       // to be read as "new" once the rock is in range.
       const seenNow = refusal !== null ? Math.max(seen, refusal.count) : seen;
-      // ⚠ NOT FOR FLEET-MINE. That block owns its own movement and only gets here
-      // once it has braked to a stop inside support coverage, so the stall ladder
-      // in `closingIn` would read the stop as a stall and order an orbit it must
-      // never fly. A refused lock there takes the timed path, as it always did.
-      const closes = step.macro !== "fleet-mine";
-      if (closes && rockDist !== null && lockRange !== null && rockDist > lockRange) {
+      if (rockDist !== null && lockRange !== null && rockDist > lockRange) {
         return closingIn(seenNow, refusedAt);
       }
       // The timed path: exactly what a refused lock did before 2fd4a77.
@@ -1553,7 +1470,7 @@ function mineWithRocks(
         // Far enough that it is a range problem: close in, and press again only after
         // real progress. Close, or unreadable: not a range problem this block can
         // measure, so let it time out and move on.
-        return closes && rockDist !== null && rockDist > MINING_RANGE_M ? closingIn(refusal.count, rockDist) : timed(refusal.count);
+        return rockDist !== null && rockDist > MINING_RANGE_M ? closingIn(refusal.count, rockDist) : timed(refusal.count);
       }
       if (refusedAt !== null) {
         if (rockDist === null) return timed(seen);
@@ -1585,9 +1502,7 @@ function mineWithRocks(
   // the combat engage do: measure, and if still out of range, close in before
   // ever trying to switch the equipment on rather than silently doing nothing.
   const rockDist = measurement?.distances.get(rockID) ?? null;
-  const outOfRange = rockDist !== null && rockDist > (step.macro === "fleet-mine" ? effectiveRangeMeters ?? 0 : MINING_RANGE_M);
-  if (outOfRange && step.macro === "fleet-mine") return { ...tick(WAIT, "Resource moved outside effective mining reach.", "Fleet Miner — reposition needed", ACTING, false, mem), settleDrones: true };
-  if (outOfRange) {
+  if (rockDist !== null && rockDist > MINING_RANGE_M) {
     if (num(mem, "approachedRockID") !== rockID) {
       return tick(
         { kind: "orbit", targetID: rockID, range: ORBIT_RANGE_M },
@@ -7264,7 +7179,6 @@ export const SCRIPT_MACROS: CompleteMacroRegistry = {
   "travel-to-belt": travelToBelt,
   "travel-to-system": travelToSystem,
   "mine-at-belt": mineAtBelt,
-  "fleet-mine": fleetMine,
   "join-support-fleet": joinSupportFleet,
   "deliver-ore": deliverOre,
   "travel-to-station": travelToStation,

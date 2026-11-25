@@ -7524,18 +7524,23 @@ test("optional Core fuel shortage permits independent Burst and miners", async (
 
 test("COMMAND final hold requires fresh ship scope and rejects any remaining resource", async () => {
   let rows: any[] = [],
-    ship = 14;
+    ship = 14,
+    fleetCapacity = 0;
+  const flags: number[] = [];
   const session: any = {
       flow: {
         requestOptions: () => ({}),
         flying: {
           bridgeDo: async () => {},
-          bridgeAsk: async (_s: string, _m: string, _a: any, k: any) => ({
-            type: "list",
-            items: rows
-              .filter((r) => r.flagID === k.flag)
-              .map((fields) => ({ type: "packedrow", fields })),
-          }),
+          bridgeAsk: async (_s: string, _m: string, _a: any, k: any) => {
+            flags.push(k.flag);
+            return {
+              type: "list",
+              items: rows
+                .filter((r) => r.flagID === k.flag)
+                .map((fields) => ({ type: "packedrow", fields })),
+            };
+          },
         },
       },
     },
@@ -7556,13 +7561,24 @@ test("COMMAND final hold requires fresh ship scope and rejects any remaining res
                   solarSystemID: 300,
                 },
               }
-            : p.endsWith("/resources")
-              ? { ok: true, resources: [{ typeID: 30, family: "ore", name: "ore" }] }
-              : p.endsWith("/dogma-types")
-                ? { ok: true, available: true, types: { 30: { categoryID: 25 } } }
-                : p.endsWith("/volumes")
-                  ? { ok: true, volumes: { 30: 1 }, capped: false }
-                  : { ok: false },
+            : p.endsWith("/bays")
+              ? {
+                  ok: true,
+                  shipID: ship,
+                  bays: [{
+                    key: "fleet",
+                    present: fleetCapacity > 0,
+                    error: Number.isFinite(fleetCapacity) ? null : "Bay read failed",
+                    capacity: { capacity: fleetCapacity, used: 0 },
+                  }],
+                }
+              : p.endsWith("/resources")
+                ? { ok: true, resources: [{ typeID: 30, family: "ore", name: "ore" }] }
+                : p.endsWith("/dogma-types")
+                  ? { ok: true, available: true, types: { 30: { categoryID: 25 } } }
+                  : p.endsWith("/volumes")
+                    ? { ok: true, volumes: { 30: 1 }, capped: false }
+                    : { ok: false },
         );
       },
     };
@@ -7582,7 +7598,17 @@ test("COMMAND final hold requires fresh ship scope and rejects any remaining res
     confirmCommandFinalHold(run, session, 14, () => {}),
     /not confirmed empty/,
   );
+  rows[0].flagID = 155;
+  flags.length = 0;
+  await confirmCommandFinalHold(run, session, 14, () => {});
+  assert.ok(!flags.includes(155), "an unavailable Fleet Hangar is not queried");
+  fleetCapacity = 100;
+  await assert.rejects(confirmCommandFinalHold(run, session, 14, () => {}), /not confirmed empty/);
+  assert.ok(flags.includes(155));
   rows = [];
+  await confirmCommandFinalHold(run, session, 14, () => {});
+  fleetCapacity = NaN;
+  await assert.rejects(confirmCommandFinalHold(run, session, 14, () => {}), /fleet hangar|bay/i);
   ship = 99;
   await assert.rejects(
     confirmCommandFinalHold(run, session, 14, () => {}),

@@ -1676,23 +1676,6 @@ test("a mining block set to SITE asks for the scanner read — nearest and chose
   assert.equal(activeStepToursOreSites(hauling, initialMemory(hauling)), false);
 });
 
-test("Farmer flight gate preserves stationary Fleet Miner ownership and settles point travel", () => {
-  const miner = script([macroStep("miner", "fleet-mine")], []);
-  const drone = { itemID: 201, typeID: 10250, name: null, activity: "mining", targetID: 800,
-    controlled: true, shieldRatio: 1, armorRatio: 1, hullRatio: 1 };
-  const snapshot = { ship: { position: { x: 0, y: 0, z: 0 } }, entities: [] } as unknown as NonNullable<ScriptObservation["snapshot"]>;
-  const reading = obs({ snapshot, dronesOut: true,
-    miningDrones: { bay: [], out: [drone], maxActive: 5, roles: { 10250: "mining" } } });
-  const stationary: MacroDecider = () => tick({ kind: "wait" }, { kind: "acting" });
-  assert.equal(decideScriptAction(miner, reading, initialMemory(miner), { ...registry, "fleet-mine": stationary }, home).action.kind, "wait");
-  for (const action of [{ kind: "gotoPoint", position: { x: 100, y: 0, z: 0 }, shipID: 1, solarSystemID: 2 },
-    { kind: "stopShip" }] as const) {
-    const travel: MacroDecider = () => tick(action, { kind: "acting" });
-    assert.equal(decideScriptAction(miner, reading, initialMemory(miner), { ...registry, "fleet-mine": travel }, home).action.kind,
-      "recallDrones", "measured Fleet Miner travel settles controlled flight");
-  }
-});
-
 test("site miner recalls a controlled mining flight before its next movement order", () => {
   const site = script([{ id: "m", kind: "macro", macro: "mine-at-belt",
     args: { belt: { kind: "belt", belt: { mode: "site" } } } }], []);

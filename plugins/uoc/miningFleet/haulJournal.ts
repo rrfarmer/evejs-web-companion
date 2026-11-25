@@ -7,6 +7,7 @@ type Event = Readonly<{
   kind: "pickup" | "delivery" | "relocation";
   before: unknown;
   acknowledged: boolean;
+  refusalReason?: string;
   after?: unknown;
 }>;
 type Journal = Readonly<{
@@ -78,10 +79,20 @@ export function createHaulJournal(
         throw Error("Haul intent is not dispatchable.");
       save({ ...state, pending: { ...state.pending, acknowledged: true } });
     },
+    recordDeliveryRefusal(refusalReason: string) {
+      if (state.pending?.kind !== "delivery" || state.pending.acknowledged)
+        throw Error("No matching unacknowledged unload.");
+      save({ ...state, pending: { ...state.pending, refusalReason } });
+    },
     refusePickup() {
       refuse("pickup");
     },
     refuseDelivery() {
+      const saved = document.read() as Journal | null;
+      if (
+        saved?.identity !== identity || saved.events.length !== state.events.length ||
+        JSON.stringify(saved.pending) !== JSON.stringify(state.pending)
+      ) throw Error("The pending unload changed. Refresh the operation.");
       refuse("delivery");
     },
     settle(after: unknown) {

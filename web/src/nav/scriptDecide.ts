@@ -1068,7 +1068,7 @@ export function activeStepToursOreSites(script: BotScript, mem: ScriptMemory): b
     return false;
   }
   const step = activeStep(script, mem.position);
-  if (step === undefined || step === null || !["mine-at-belt", "fleet-mine", "travel-to-belt"].includes(step.macro)) {
+  if (step === undefined || step === null || !["mine-at-belt", "travel-to-belt"].includes(step.macro)) {
     return false;
   }
   const belt = step.args["belt"];
@@ -1227,7 +1227,7 @@ export function decideScriptAction(
   }
   if (obs.inWarp === true) return base;
   const activeMacro = activeMacroID(script, mem);
-  const mining = ["mine-at-belt", "fleet-mine"].includes(activeMacro ?? "");
+  const mining = activeMacro === "mine-at-belt";
   const state = obs.miningDrones;
   const compatible = (state?.bay ?? []).some((stack) => state?.roles[stack.typeID] === "mining") ||
     (state?.out ?? []).some((drone) => drone.controlled && drone.typeID !== null && state?.roles[drone.typeID] === "mining");
@@ -1255,10 +1255,9 @@ export function decideScriptAction(
     obs.snapshot?.entities.some((entity) => entity.itemID === picked && entity.miningYieldTypeID !== null)
     ? picked : null;
   const moving = base.settleDrones === true || base.memory.latched !== null ||
-    (step !== null && !["mine-at-belt", "fleet-mine"].includes(activeMacroID(script, base.memory) ?? "")) ||
+    (step !== null && activeMacroID(script, base.memory) !== "mine-at-belt") ||
     ["warp", "warpScan", "warpBookmark", "approach", "orbit", "align", "dock", "undock",
-      "startRoute", "startSystemRoute"].includes(base.action.kind) ||
-    (step?.macro === "fleet-mine" && ["gotoPoint", "stopShip"].includes(base.action.kind));
+      "startRoute", "startSystemRoute"].includes(base.action.kind);
   const leaving = moving || !mining;
   // ⚠ OFF A MINING STEP AND SITTING STILL, THE COMBAT FLIGHT IS NOT THIS
   // FLIGHT'S. `!mining` alone used to count as leaving, so every controlled
@@ -1443,7 +1442,7 @@ function decideScriptCore(
  * that actively refills the very hold the next step tends to be draining.
  */
 function equipmentToShutDownBeforeLeaving(step: MacroStep, obs: ScriptObservation): number | null {
-  if (!["mine-at-belt", "fleet-mine"].includes(step.macro)) {
+  if (step.macro !== "mine-at-belt") {
     return null;
   }
   const active = new Set(obs.snapshot?.ship?.activeModuleIDs ?? []);
@@ -1463,7 +1462,7 @@ function targetToUnlockBeforeLeaving(
   obs: ScriptObservation,
   macroMem: Readonly<Record<string, MacroMemory>>,
 ): number | null {
-  if (!["mine-at-belt", "fleet-mine"].includes(step.macro)) {
+  if (step.macro !== "mine-at-belt") {
     return null;
   }
   const rockID = macroMem[step.id]?.["rockID"];

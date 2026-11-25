@@ -15,9 +15,8 @@
 // of the three a float.
 //
 // ⚠ THE PAGE'S POINT IS A MEASURED ONE, AND THE CLIENT'S IS NOT. A client's point is where its pilot dragged to
-// a moment ago. The page's askers (a mining support ship's positioning, a script bot's fleet-mine block) work a
-// point out from a reading of the scene, and a point is another place in another system and nothing to another
-// ship. So the order is held to the ship and the system the point was measured in, by the page's own read of the
+// a moment ago. A point measured from a scene belongs to the ship and system observed at the time.
+// The order is held to that ship and system by the page's own read of the
 // pilot's flight just before: what the route did with the BFF's read until 2026-10-10. On the game port that
 // read is of what the BFF holds of the session, and asks the server nothing.
 //

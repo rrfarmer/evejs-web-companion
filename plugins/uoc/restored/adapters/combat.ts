@@ -1,3 +1,4 @@
+import { nextLocalID } from "../app/localID.ts";
 import { authenticatedJson, ownerOptions, runHosted, type ApiOptions } from "../app/context.ts";
 import {
   checkPluginRun,
@@ -554,7 +555,7 @@ export async function reviewCombatOperation(
   if (!candidate) return r as CombatReview;
   try {
     let opts = options;
-    const operationRunID = crypto.randomUUID();
+    const operationRunID = nextLocalID();
     let maximum = 4320;
     if (candidate.runName === "coc-security" || candidate.runName === "security-fleet-owner") {
       opts = await actor(candidate.accountName, candidate.characterID);

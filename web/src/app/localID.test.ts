@@ -40,7 +40,11 @@ test("browser code takes its ids from nextLocalID, never from crypto.randomUUID 
       if (!/\.(ts|svelte)$/.test(path) || /\.test\.ts$/.test(path)) continue;
       if (path.split(sep).some(part => part === "backend" || part === "backend.ts" || part === "test")) continue;
       if (path === join("web/src/app/localID.ts")) continue;
-      if (/\brandomUUID\b/.test(readFileSync(join(root, path), "utf8"))) offenders.push(path);
+      const source = readFileSync(join(root, path), "utf8");
+      // Hosted plugin modules can import Node's UUID function outside a backend directory.
+      const nodeUUID = dir === "plugins" && path.endsWith(".ts") &&
+        /^\s*import\s*\{[^}]*\brandomUUID\b[^}]*\}\s*from\s*["']node:crypto["']/m.test(source);
+      if ((nodeUUID ? /\.\s*randomUUID\b/ : /\brandomUUID\b/).test(source)) offenders.push(path);
     }
   }
   assert.deepEqual(offenders, []);

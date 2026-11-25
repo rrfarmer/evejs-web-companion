@@ -1,5 +1,6 @@
 <!-- WC74 web/src/ui/MiningOperations.svelte @ 213da333; imports adapted for UOC plugin. -->
 <script lang="ts">
+  import { nextLocalID } from "../app/localID.ts";
   import { onMount, onDestroy, tick, untrack } from "svelte";
   import { createControlPlanePoll } from "../mining/controlPlanePoll.ts";
   import { whilePageVisible } from "../app/pageVisibility.ts";
@@ -54,7 +55,7 @@
   } from "../adapters/mining.ts";
   import { loadHangarPrefs } from "../../../../web/src/plugin-api/index.ts";
   import { loadKnownCharacters } from "../../../../web/src/plugin-api/index.ts";
-  import type { ApiOptions } from "../app/context.ts";
+  import { authenticatedJson, ownerOptions, type ApiOptions } from "../app/context.ts";
   let {
     accountName,
     access,
@@ -563,7 +564,7 @@
                 )
                 .join("\n"),
             ),
-          ).prepare(id, crypto.randomUUID())
+          ).prepare(id, nextLocalID())
         : null;
       const plan =
         reviewed?.launchPlan ?? (await getMiningOperationLaunchPlan(id, { ...opts(), signal }));
@@ -1349,7 +1350,7 @@
       const reviewed =
         cached && JSON.stringify(cached.definition) === JSON.stringify(definition)
           ? cached
-          : await host.prepare(definition.operationID, crypto.randomUUID(), true);
+          : await host.prepare(definition.operationID, nextLocalID(), true);
       readiness[definition.operationID] = {
         key: JSON.stringify(definition),
         message: reviewed.launchPlan.warnings.join(" "),
@@ -1366,6 +1367,21 @@
     } finally {
       startupAbort = null;
       launching = null;
+      busy = null;
+    }
+  }
+
+  async function checkUnload(operationID: string, accountName: string, botID: string) {
+    busy = operationID;
+    error = null;
+    try {
+      const owned = await ownerOptions(accountName);
+      await authenticatedJson(`/api/plugins/uoc/runs/${encodeURIComponent(botID)}/check-unload`, owned, {});
+      stopResults[operationID] = "Unload checked. The Hauler will continue from the verified cargo.";
+    } catch (cause) {
+      error = words(cause);
+    } finally {
+      await refresh();
       busy = null;
     }
   }
@@ -1921,10 +1937,20 @@
           {#each stopDetails[row.definition.operationID] as detail}<li>{detail}</li>{/each}
         </ul></details>
       {/if}
+      {#each row.runtime.members.filter(member => member.canCheckUnload && member.hosted && member.botID) as member}
+        <p class="notice">
+          {member.characterName} · Unload reply missing. Check the original ship and destination again.
+          <button type="button" disabled={disconnected || busy !== null}
+            onclick={() => void checkUnload(row.definition.operationID, member.accountName, member.botID!)}>Check and release</button>
+        </p>
+      {/each}
       <MiningOperationOverview runtime={row.runtime} {deliveredUnits} {deliveryIssue} stale={disconnected || pollError !== null} />
       {#if row.runtime.stopFreight && row.runtime.stopFailures.length > 0}<div class="error"><p>Parking or release is pending for these pilots.</p>{#each row.runtime.stopFailures as failure}<p>{row.runtime.members.find(member => member.characterID === failure.characterID)?.characterName ?? "Pilot"}: {failure.message}</p>{/each}</div>{/if}
       {#if canStart(row.runtime.state)}
         <div class="readiness">
+          {#if row.definition.unloadPolicy === "HAULER_SERVICE"}
+            <p class="note">Haulers unload all eligible ore and ice from supported holds, including cargo already aboard at Start. If the fleet mines 10 units and a Hauler brings 50, delivery totals show 60. The fleet mined 10.</p>
+          {/if}
           <p class={readiness[row.definition.operationID]?.message ? "notice" : "muted"}><strong>Start readiness:</strong> {readiness[row.definition.operationID]?.message ?? "Pilots verify equipment and supplies during startup."}</p>
           <button type="button" disabled={busy !== null || disconnected} onclick={() => {
             if (fleetDetails) fleetDetails.open = true;

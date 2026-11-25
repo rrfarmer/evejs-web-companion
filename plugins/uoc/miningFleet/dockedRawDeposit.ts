@@ -62,8 +62,9 @@ type DepositConfig = {
   reconcileParking?: boolean;
 };
 type Batch = RawDepositReceipt["batches"][number];
-type Pending = Omit<Batch, "sourceAfter" | "destinationAfter">;
+type Pending = Omit<Batch, "sourceAfter" | "destinationAfter"> & { refusalReason?: string };
 type DeliveryBefore = {
+  refusalReason?: string;
   item: Pending["item"];
   items?: readonly Pending["item"][];
   requestedIDs?: readonly number[];
@@ -325,7 +326,8 @@ function observedParkingStacks(
     destination = new Map(afterCorp.map((row) => [row.itemID, row]));
   const before = beforeShip.filter((row) => requested.has(row.itemID)),
     moved: NativeInventoryRow[] = [];
-  if (before.length !== requested.size || requested.size !== requestedIDs.length) return null;
+  if (!requested.size || before.length !== requested.size || requested.size !== requestedIDs.length)
+    return null;
   for (const row of before) {
     const held = source.get(row.itemID),
       stored = destination.get(row.itemID);
@@ -355,7 +357,16 @@ function unloadNotDispatched(error: unknown) {
         e.code === "STRUCTURE_SERVICE_UNAVAILABLE"))
   );
 }
-function singleAddRefused(error: unknown) {
+export class UnconfirmedHaulerUnload extends Error {
+  readonly checkAndRelease: () => Promise<void>;
+
+  constructor(message: string, checkAndRelease: () => Promise<void>) {
+    super(message);
+    this.checkAndRelease = checkAndRelease;
+  }
+}
+
+function eveRefusedUnload(error: unknown) {
   const e = error as { code?: string; status?: number; refusal?: { key?: string } } | null;
   return e?.status === 409 && e.code === "CALL_REFUSED" && !!e.refusal?.key;
 }
@@ -368,6 +379,26 @@ export async function readDepositInventory<T>(read: () => Promise<T>): Promise<T
   }
 }
 const batchItems = (b: Pending) => b.items ?? [b.item];
+/** Verify fitted capacity on this ship before treating flag 155 as an available hold. */
+export async function hasFleetHangar(shipID: number, options: Parameters<typeof getShipBays>[1]) {
+  const panel = await getShipBays(shipID, options, ["fleet"]).catch(fleetReadFailed);
+  const bays = decodeShipBays(panel.bays);
+  const bay = bays[0];
+  if (
+    panel.shipID !== shipID ||
+    bays.length !== 1 ||
+    bay?.key !== "fleet" ||
+    bay.error !== null ||
+    bay.present === null ||
+    !bay.capacity ||
+    !Number.isFinite(bay.capacity.capacity) ||
+    bay.capacity.capacity < 0 ||
+    bay.present !== (bay.capacity.capacity > 0)
+  )
+    throw new FleetObservationUnavailable("The assigned ship's fleet hangar could not be verified.");
+  return bay.present;
+}
+
 export async function createDockedRawDepositIO(
   run: Run,
   session: PilotSession,
@@ -445,25 +476,8 @@ export async function createDockedRawDepositIO(
       fleetPresent === undefined &&
       rows.some((r) => r.flagID === 155 && (r.categoryID === 25 || r.categoryID === null))
     ) {
-      const panel = await getShipBays(shipID, options, ["fleet"]).catch(fleetReadFailed);
+      fleetPresent = await hasFleetHangar(shipID, options);
       guard();
-      const bays = decodeShipBays(panel.bays),
-        bay = bays[0];
-      if (
-        panel.shipID !== shipID ||
-        bays.length !== 1 ||
-        bay?.key !== "fleet" ||
-        bay.error !== null ||
-        bay.present === null ||
-        !bay.capacity ||
-        !Number.isFinite(bay.capacity.capacity) ||
-        bay.capacity.capacity < 0 ||
-        bay.present !== bay.capacity.capacity > 0
-      )
-        throw new FleetObservationUnavailable(
-          "The assigned ship's fleet hangar could not be verified.",
-        );
-      fleetPresent = bay.present;
     }
     await flight();
     return fleetPresent === false ? rows.filter((r) => r.flagID !== 155) : rows;
@@ -624,7 +638,7 @@ export async function createDockedRawDepositIO(
             { cause: error },
           );
         }
-        if (singleAddRefused(error)) {
+        if (eveRefusedUnload(error)) {
           fence.refuseDelivery();
           throw error;
         }
@@ -687,10 +701,13 @@ export async function createDockedRawDepositIO(
     rows: readonly NativeInventoryRow[],
     sourceBefore: readonly NativeInventoryRow[],
     destinationBefore: readonly NativeInventoryRow[],
-    fence?: Pick<DepositFence, "refuseDelivery" | "acknowledge">,
+    fence?: Pick<DepositFence, "refuseDelivery" | "acknowledge"> & {
+      recordRefusal?(reason: string): void;
+    },
   ) => {
     guard();
     let acknowledged = false;
+    let refusal: unknown;
     try {
       await moveItems(
         f.bridgeDo,
@@ -703,13 +720,18 @@ export async function createDockedRawDepositIO(
       acknowledged = true;
     } catch (error) {
       guard();
-      if (fence && (unloadNotDispatched(error) || (rows.length === 1 && singleAddRefused(error)))) {
+      if (fence && (unloadNotDispatched(error) || (rows.length === 1 && eveRefusedUnload(error)))) {
         fence.refuseDelivery();
-        if (singleAddRefused(error)) throw error;
+        if (eveRefusedUnload(error)) throw error;
         throw new FleetObservationUnavailable(
           "Unload did not enter the transport. Rechecking the docked hold.",
           { cause: error },
         );
+      }
+      if (eveRefusedUnload(error)) {
+        refusal = error;
+        // Keep the game response if either inventory read fails or the host restarts.
+        fence?.recordRefusal?.(error instanceof Error ? error.message : String(error));
       }
     }
     if (acknowledged) {
@@ -718,56 +740,91 @@ export async function createDockedRawDepositIO(
     }
     const ids = rows.map((r) => r.itemID),
       after = await observeWhole(sourceBefore, destinationBefore, ids, acknowledged, !acknowledged);
-    if (!after.movedIDs.size)
+    if (!after.movedIDs.size) {
+      // MultiAdd can refuse after moving part of the batch. Release only verified zero movement.
+      if (
+        refusal &&
+        observedParkingStacks(
+          sourceBefore, after.sourceAfter, destinationBefore, after.destinationAfter, ids,
+        )?.length === 0
+      ) {
+        guard();
+        fence?.refuseDelivery();
+        throw refusal;
+      }
       throw unknownUnload(ids, "The stacks are still in the ship's hold.", !acknowledged);
+    }
     return { ...after, acknowledged };
   };
-  const reconcileDelivery = async (before: DeliveryBefore, acknowledged = false) =>
-    withDestination(async () => {
-      if (
-        before.sourceBefore.some(
-          (r) =>
-            r.ownerID !== characterID ||
-            r.locationID !== shipID ||
-            !haulerInventoryFlags.includes(r.flagID),
+  const reconcileDelivery = (
+    before: DeliveryBefore,
+    acknowledged = false,
+    releaseUnmoved?: () => void,
+  ) => {
+    const ids = before.requestedIDs ?? [before.item.itemID];
+    const read = (operatorCheck: boolean) =>
+      withDestination(async () => {
+        if (operatorCheck && !personal && (await officeAt(f.bridgeAsk, destinationID)) !== officeID)
+          throw Error("The original corporation office changed. The pending unload was kept.");
+        guard();
+        if (
+          before.sourceBefore.some(
+            (r) =>
+              r.ownerID !== characterID ||
+              r.locationID !== shipID ||
+              !haulerInventoryFlags.includes(r.flagID),
+          )
         )
-      )
-        throw Error("Original deposit ship or hold changed; no replay.");
-      if (
-        before.officeID !== officeID ||
-        before.flag !== flag ||
-        (before.destinationOwner !== undefined && before.destinationOwner !== destinationOwner) ||
-        before.destinationBefore.some(
-          (r) => r.ownerID !== destinationOwner || r.locationID !== officeID || r.flagID !== flag,
+          throw Error("Original deposit ship or hold changed; no replay.");
+        if (
+          before.officeID !== officeID ||
+          before.flag !== flag ||
+          (before.destinationOwner !== undefined && before.destinationOwner !== destinationOwner) ||
+          before.destinationBefore.some(
+            (r) => r.ownerID !== destinationOwner || r.locationID !== officeID || r.flagID !== flag,
+          )
         )
-      )
-        throw Error("Original deposit destination changed; no replay.");
-      if (before.items && before.requestedIDs) {
-        const { movedIDs, ...after } = await observeWhole(
+          throw Error("Original deposit destination changed; no replay.");
+        const stillAboard = (exact: boolean) => {
+          const error = unknownUnload(ids, "The stacks are still in the ship's hold.");
+          if (!exact || !releaseUnmoved) throw error;
+          if (!before.refusalReason && !operatorCheck)
+            throw new UnconfirmedHaulerUnload(error.message, async () => {
+              await read(true);
+            });
+          guard();
+          releaseUnmoved();
+          if (before.refusalReason) throw Error(before.refusalReason);
+        };
+        if (before.items && before.requestedIDs) {
+          const { movedIDs, ...after } = await observeWhole(
+            before.sourceBefore,
+            before.destinationBefore,
+            before.requestedIDs,
+            acknowledged,
+          );
+          if (!movedIDs.size && !acknowledged) {
+            const observed = observedParkingStacks(
+              before.sourceBefore, after.sourceAfter, before.destinationBefore, after.destinationAfter, ids,
+            );
+            stillAboard(observed?.length === 0);
+          }
+          return { ...after, items: before.items.filter((r) => movedIDs.has(r.itemID)) };
+        }
+        // A retained Add gets the same bounded inventory reads as parking, regardless of which runner issued it.
+        const { sourceAfter, destinationAfter, moved, unchanged } = await observeSingle(
+          before.item,
           before.sourceBefore,
           before.destinationBefore,
-          before.requestedIDs,
           acknowledged,
+          readDepositInventory,
         );
-        if (!movedIDs.size && !acknowledged)
-          throw unknownUnload(before.requestedIDs, "The stacks are still in the ship's hold.");
-        return { ...after, items: before.items.filter((r) => movedIDs.has(r.itemID)) };
-      }
-      // A retained Add gets the same bounded inventory reads as parking, regardless of which runner issued it.
-      const { sourceAfter, destinationAfter, moved, unchanged } = await observeSingle(
-        before.item,
-        before.sourceBefore,
-        before.destinationBefore,
-        acknowledged,
-        readDepositInventory,
-      );
-      if (!moved && !(unchanged && acknowledged))
-        throw unknownUnload(
-          [before.item.itemID],
-          unchanged ? "The stack is still in the ship's hold." : "",
-        );
-      return { sourceAfter, destinationAfter, ...(unchanged ? { items: [] } : {}) };
-    });
+        if (!moved && !unchanged) throw unknownUnload(ids);
+        if (unchanged && !acknowledged) stillAboard(true);
+        return { sourceAfter, destinationAfter, ...(unchanged ? { items: [] } : {}) };
+      });
+    return read(false);
+  };
   return {
     guard,
     flight,
@@ -1009,6 +1066,12 @@ export async function depositOwnShipRaw(
           ...(retained.items ? { requestedIDs: retained.items.map((i) => i.itemID) } : {}),
         },
         retained.acknowledged,
+        () => {
+          const latest = document.read() as Journal | null;
+          if (latest?.identity !== state.identity || JSON.stringify(latest.pending) !== JSON.stringify(retained))
+            throw Error("The pending unload changed. Refresh the operation.");
+          save({ ...latest, pending: null });
+        },
       ),
     );
   const remainingItems = () =>
@@ -1037,6 +1100,7 @@ export async function depositOwnShipRaw(
           destinationBefore,
           {
             acknowledge: () => save({ ...state, pending: { ...pending, acknowledged: true } }),
+            recordRefusal: (refusalReason) => save({ ...state, pending: { ...pending, refusalReason } }),
             refuseDelivery: () => save({ ...state, pending: null }),
           },
         );

@@ -274,7 +274,7 @@ test("every numeric argument of every macro has bounds a widget can show", () =>
 
 test("untilOffered covers what must have one, plus wait, and nothing else", () => {
   const offered = MACRO_IDS.filter((id) => MACRO_ARG_DESCRIPTORS[id].untilOffered);
-  assert.deepEqual([...offered].sort(), ["fleet-mine", "mine-at-belt", "wait"]);
+  assert.deepEqual([...offered].sort(), ["mine-at-belt", "wait"]);
   // Required implies offered — a macro that cannot end on its own must be
   // able to say when it does.
   for (const id of MACRO_IDS) {

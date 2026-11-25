@@ -7,6 +7,7 @@ export type RunOwner = {
   operationID: string;
   operationRunID: string;
   purpose?: string | null;
+  canCheckUnload?: boolean;
 };
 export type HostedRow = {
   botID: string;
@@ -215,6 +216,7 @@ export function projectFleetRun(
         runtimeState: bot.status,
         botID: bot.botID,
         hosted: true,
+        ...(owners[0]?.canCheckUnload ? { canCheckUnload: true } : {}),
         phase: bot.phase,
         reason: bot.why,
         parkingState: finish ? "RECONCILING" : undefined,

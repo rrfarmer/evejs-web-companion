@@ -1,3 +1,4 @@
+import { nextLocalID } from "../app/localID.ts";
 import { fittingNames } from "./fittingNames.ts";
 import type { ApiOptions, JsonValue } from "../../../../web/src/plugin-api/index.ts";
 import { trainingAdapterContext } from "./training.ts";
@@ -379,7 +380,7 @@ export async function centerInspect(
     !Array.isArray(r.plan.requirements)
   )
     throw Error(hosted.why ?? "Provisioning inspection is unverified.");
-  const reviewID = crypto.randomUUID(),
+  const reviewID = nextLocalID(),
     fingerprint = r.reviewedPlanFingerprint;
   const d = emptyReview(
       pilot,

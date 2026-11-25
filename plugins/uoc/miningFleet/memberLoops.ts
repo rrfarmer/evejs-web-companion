@@ -112,6 +112,7 @@ export interface RawHaulerNative {
     manifest: Manifest,
     haulGeneration: number,
     destinationID: number,
+    snapshot?: ReturnType<Operation["snapshot"]>,
   ): Promise<void>;
   hasPendingOwnFreight?(): boolean;
   hasUnfinishedOwnFreight?(): boolean;
@@ -481,7 +482,7 @@ export function createRawMembers(op: Operation) {
             throw Error(
               `Cannot verify the retained transfer for can ${container} before Return Home.`,
             );
-          await native.reconcileReturnHome(manifest, claim.generation, snapshot.destinationID);
+          await native.reconcileReturnHome(manifest, claim.generation, snapshot.destinationID, snapshot);
           native.current();
           if (!op.stopRemainingHaul(characterID, manifest.containerID, claim.generation))
             throw Error(

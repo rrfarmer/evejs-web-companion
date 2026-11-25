@@ -33,3 +33,30 @@ test("current controllers disclose only exact requesting account and unregister 
     legacy();
   }
 });
+
+test("only the current Hauler owner can check a pending unload, including during Stop", async () => {
+  let available = false, checks = 0, stops = 0;
+  const close = registerRun(
+    { botID: "haul", characterID: 3, setup: { operationID: "op", operationRunID: "run" } },
+    "HaulerAccount", () => { stops++; }, undefined,
+    () => available ? async () => { checks++; available = false; } : undefined,
+  );
+  const request = (username: string) => ({ account: { username, accountID: 1 }, params: { botID: "haul" } }) as any;
+  const check = (username: string) => runControlRoutes["POST /runs/:botID/check-unload"](request(username));
+  try {
+    assert.equal((await check("HaulerAccount")).status, 409);
+    available = true;
+    assert.equal((await check("AnotherAccount")).status, 404);
+    assert.equal(checks, 0);
+    const current: any = await runControlRoutes["GET /runs/current"](request("HaulerAccount"));
+    assert.equal(current.body.runs[0].canCheckUnload, true);
+    await runControlRoutes["POST /runs/:botID/stop"](request("HaulerAccount"));
+    assert.deepEqual((await check("HaulerAccount")).body, { ok: true });
+    assert.equal(checks, 1);
+    assert.equal(stops, 1);
+    assert.equal((await check("HaulerAccount")).status, 409);
+  } finally {
+    close();
+  }
+  assert.equal((await check("HaulerAccount")).status, 404);
+});
