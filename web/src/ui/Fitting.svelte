@@ -419,7 +419,7 @@
   // it: its tree of ship groups, races and hulls with the fittings under each hull (bridge/hullBrowser.ts), and of a
   // fitting's menu (GetFittingMenu) View Fitting, Fit to Active Ship, Buy All and Delete Fitting (for the pilot's own:
   // CanDeleteFit) and Open Multifit (the multifit window, ClientDialogs.svelte), its import and export menu's Import
-  // from Clipboard and Export to Clipboard (not its Simulate from Clipboard, its files nor Copy All Skills), and the
+  // from Clipboard, Export to Clipboard, Copy All Skills, and the
   // tooltips of a fitting and of a hull (its traits with them), a hull's menu (Show Info, View Market Details, Find in
   // Contracts, Find Personal Assets and Compare), and the selection's Delete Fitting for several at once
   // (DeleteManyFittings). Its words are the install's; the page's own stand in. Not done: a hull's Simulate button, the
@@ -460,6 +460,7 @@
     "UI/Fitting/FittingWindow/FittingManagement/ExportToClipboard": "Copy this ship's fitting as text",
     "UI/Fitting/FittingWindow/FittingManagement/ExportToClipboardHint": "",
     "UI/Fitting/FittingWindow/ImportFromFile": "Import from File",
+    "UI/Fitting/FittingWindow/CopyAllSkills": "Copy All Skills To Clipboard",
     "UI/Fitting/ImportFittings": "Import Fittings",
     "UI/Fitting/ExportFittings": "Export Fittings",
     // Said by the import (flow.ts importFittingFromClipboard): asked here, where it is made.
@@ -4214,6 +4215,11 @@
             </button>
             <button type="button" role="menuitem" onclick={() => { importExportOpen = false; importFileOpen = false; exportFileOpen = true; }}>
               {fitWord("UI/Fitting/ExportFittings")}
+            </button>
+            <hr />
+            <button type="button" role="menuitem"
+              onclick={() => { importExportOpen = false; void flow.currentFitSkillsText().then(text => text === null ? undefined : navigator.clipboard.writeText(text)).catch(() => {}); }}>
+              {fitWord("UI/Fitting/FittingWindow/CopyAllSkills")}
             </button>
           </span>
         {/if}

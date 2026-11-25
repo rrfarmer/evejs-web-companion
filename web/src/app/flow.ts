@@ -20,7 +20,7 @@ import { CARGO_HOLD, SHIP_HOLDS, SHIP_HOLD_ATTRIBUTES, trackedShipHolds } from "
 import { decodeShipFighters, squadronsByTube } from "../bridge/shipFighters.ts";
 import { evaluateFit, PYTHON_EFFECT_ATTRIBUTES, usedWithTypeIDs, WARNING_TYPE_LISTS } from "../bridge/dogma/fittingWarnings.ts";
 import { usedWithCandidate, usedWithChargeGroups, usedWithPair } from "../bridge/dogma/chargeCompatibility.ts";
-import { fittingSkillRequirements, fittingSkillWarning, type FittingSkillRequirements, type FittingSkillWarning } from "../bridge/fittingSkills.ts";
+import { fittingSkillLevels, fittingSkillRequirements, fittingSkillWarning, type FittingSkillRequirements, type FittingSkillWarning } from "../bridge/fittingSkills.ts";
 import { FREIGHT_BAYS, planLootTransfers } from "../bridge/bayRouting.ts";
 import { holdFreeM3 } from "../bridge/holdFit.ts";
 import { dispatchSupportCollectionAction } from "./supportCollectionFlow.ts";
@@ -41,7 +41,7 @@ import { capacitorSimulator, capSimulatorValues, isOnlineModule } from "../bridg
 import { offense } from "../bridge/dogma/offense.ts";
 import { defense } from "../bridge/dogma/defense.ts";
 import { activeDroneDps, ownShipDrones, type DroneReading } from "../bridge/dogma/drones.ts";
-import { fighterClass, fullAndPartialSquadrons, maxSquadronSize, totalFighterDps, type FighterAbilitySlot } from "../bridge/dogma/fighters.ts";
+import { fighterClass, FIGHTER_TUBE_FLAGS, FLAG_FIGHTER_BAY, fullAndPartialSquadrons, maxSquadronSize, totalFighterDps, type FighterAbilitySlot } from "../bridge/dogma/fighters.ts";
 import {
   fitToOneSlot,
   fitToSimulation,
@@ -94,6 +94,7 @@ import {
   type DogmaItem,
   type DogmaLocation,
   instanceRowAttributes,
+  isFittingFlag,
   loadSimulatedFitting,
   type DogmaAttributeRecord as DogmaLocationAttributeRecord,
   type DogmaEffectFacts,
@@ -5077,6 +5078,7 @@ export interface AppFlow {
   viewFittingText(n: number): Promise<string | null>;
   /** The fitting window's Export to Clipboard: the ship's fitting as it stands, as the client's text; null with no ship. */
   currentFitText(): Promise<string | null>;
+  currentFitSkillsText(): Promise<string | null>;
   /** The fitting window's Import from Clipboard, of the clipboard's text (null where the browser would not give it). */
   importFittingFromClipboard(text: string | null): Promise<void>;
   previewFittingFile(text: string): Promise<readonly FittingFileEntry[]>;
@@ -16757,6 +16759,40 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function currentFitText(): Promise<string | null> {
     const fitting = await currentShipFitting();
     return fitting === null ? null : fittingText(fitting);
+  }
+
+  /** CopyAllSkills reads the fitting window's own ship, fitted items, and the specific holds it considers. */
+  async function currentFitSkillsText(): Promise<string | null> {
+    const ghost = simulation?.simulated;
+    const shipID = store.fitting.get().activeShipID ?? store.inventory.get().activeShipID;
+    const flight = !ghost && shipID !== null ? decodeFlightStatus((await api.getFlightStatus(callOptions)).flight) : null;
+    const shipTypeID = ghost?.ship.typeID ?? (flight?.shipID === shipID ? flight.shipTypeID : null);
+    if (shipTypeID == null) return null;
+    const [items, tubes] = await Promise.all([
+      ghost ? simulatedShipItems(ghost) : shipID === null ? [] : listShip(bridgeAsk, shipID),
+      ghost ? [] : bridgeAsk("fighterMgr", "GetFightersForShip", [])
+        .then(answer => squadronsByTube(decodeShipFighters(answer))).catch(() => []),
+    ]);
+    const typesAt = (flagID: number) => items.filter(item => item.flagID === flagID).map(item => item.typeID);
+    const types = {
+      ship: shipTypeID,
+      fitted: ghost
+        ? [...ghost.ship.fitted.values()].filter(item => item !== ghost.ship && item !== ghost.pilot).map(item => item.typeID)
+        : items.filter(item => item.flagID !== null && isFittingFlag(item.flagID)).map(item => item.typeID),
+      bays: [typesAt(87), typesAt(FLAG_FIGHTER_BAY), ...FIGHTER_TUBE_FLAGS.map(flag => [
+        ...typesAt(flag), ...tubes.filter(tube => tube.tubeFlagID === flag).map(tube => tube.typeID),
+      ])],
+      cargo: typesAt(5),
+    };
+    const required = await requiredSkillsFor([types.ship, ...types.fitted, ...types.bays.flat(), ...types.cargo]);
+    if (required === null) return null;
+    const levels = fittingSkillLevels(types, required);
+    await resolveNamesNow([...new Set(levels.map(([id]) => id))].map(id => ({ kind: "type", id })));
+    const lines = levels.map(([id, level]) => {
+      const name = nameCache.get(nameKey("type", id));
+      return name ? `${name} ${level}` : null;
+    });
+    return lines.includes(null) ? null : lines.join("\r\n");
   }
 
   /**
@@ -37583,6 +37619,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     answerViewFitting,
     viewFittingText,
     currentFitText,
+    currentFitSkillsText,
     importFittingFromClipboard,
     previewFittingFile,
     fittingFileOwners,

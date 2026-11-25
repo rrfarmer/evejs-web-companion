@@ -62,6 +62,35 @@ export interface FittingSkillInputs {
 
 type SkillFacts = Pick<FittingSkillInputs, "required" | "mine" | "lapsed" | "categoryOf">;
 
+type FittingSkillTypes = Pick<FittingSkillInputs, "ship" | "fitted" | "bays" | "cargo">;
+
+function shipAndFittedTypes(types: FittingSkillTypes): IntSet {
+  const fitted = intSetOf([types.ship, ...types.fitted]);
+  for (const bay of types.bays) fitted.update(intSetOf(bay));
+  return fitted;
+}
+
+/** CopyAllSkills emits each prerequisite before its skill, with a line for every required level. */
+export function fittingSkillLevels(types: FittingSkillTypes, required: RequiredSkills): readonly (readonly [number, number])[] {
+  const roots = shipAndFittedTypes(types);
+  roots.update(intSetOf(types.cargo));
+  const levels: [number, number][] = [];
+  const highest = new Map<number, number>();
+  const visiting = new Set<number>();
+  function visit(typeID: number): void {
+    visiting.add(typeID);
+    for (const [skillID, requiredLevel] of required[typeID] ?? []) {
+      if (!visiting.has(skillID)) visit(skillID);
+      const previous = highest.get(skillID) ?? 0;
+      for (let level = previous + 1; level <= requiredLevel; level++) levels.push([skillID, level]);
+      if (requiredLevel > previous) highest.set(skillID, requiredLevel);
+    }
+    visiting.delete(typeID);
+  }
+  for (const typeID of roots.keys()) visit(typeID);
+  return levels;
+}
+
 /**
  * GetMissingSkills_HighestLevelByTypeID: of each type in the order given (none that does not exist, nor a blueprint),
  * each skill missing to use it however deep (GetSkillsMissingToUseItemRecursive), at the highest level any needs it,
@@ -147,8 +176,7 @@ export function fittingSkillRequirements(
 
 /** GetSkillTooltip and the separate warning counter and slot highlights. */
 export function fittingSkillWarning(inputs: FittingSkillInputs): FittingSkillWarning {
-  const shipAndFit = intSetOf([inputs.ship, ...inputs.fitted]);
-  for (const bay of inputs.bays) shipAndFit.update(intSetOf(bay));
+  const shipAndFit = shipAndFittedTypes(inputs);
   const cargo = intSetOf(inputs.cargo);
   const requirements = fittingSkillRequirements(shipAndFit.keys(), cargo.keys(), inputs);
   // GetAllTypeIDsMissingSkillsForShipAndContent updates the fitted type set in place for the counter.
