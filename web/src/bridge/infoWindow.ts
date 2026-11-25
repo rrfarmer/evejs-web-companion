@@ -21,6 +21,7 @@ export interface InfoOpenOptions {
   readonly traversingHistory?: boolean;
   readonly modal?: boolean;
   readonly progressModal?: boolean;
+  readonly selectRequirements?: boolean;
 }
 
 export interface InfoIdentity {

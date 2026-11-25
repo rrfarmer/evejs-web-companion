@@ -2737,6 +2737,7 @@ export interface AppFlow {
   }>;
   marketGroupDistances(stationIDs: readonly number[]): Promise<ReadonlyMap<number, number>>;
   requiredSkillsFor(typeIDs: readonly number[]): Promise<RequiredSkills | null>;
+  marketExpertSystemStates(typeIDs: readonly number[], trained: ReadonlyMap<number, number>): Promise<ReadonlyMap<number, "available" | "active">>;
   /**
    * The pilot's escrow watched as the client's market progression is (MarketProgressionNotifier.register_subscriber):
    * the kept value said, asked again where due and every twelve hours while watched. Answers the watch's end.
@@ -8127,6 +8128,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // The skill warning's skills let go too, and the window's warnings reckoned again (WarningIconCont.UpdateIcon).
       pilotSkillsHeld = null;
       void reckonActiveShip().catch(() => {});
+      if (store.skills.get().loaded) void loadSkills().catch(() => {});
       if (simulation) showSimulation();
     }
     // fittingSvc.OnCommunityFittingsUpdated and OnGlobalConfigChanged (machoNet's, at OnGlobalConfigUpdated): the
@@ -15566,6 +15568,41 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // OnExpertSystemsUpdated says (onServerNotice).
   let expertSystemsHeld: JsonValue | null = null;
   const expertSystemsSignal = createSignal<number>(0);
+
+  async function marketExpertSystemStates(
+    typeIDs: readonly number[], trained: ReadonlyMap<number, number>,
+  ): ReturnType<AppFlow["marketExpertSystemStates"]> {
+    const configKey = "expert_system_feature_enabled";
+    const states = new Map<number, "available" | "active">();
+    const [config, data] = await Promise.all([
+      api.getGlobalConfig([configKey], callOptions).catch(() => null),
+      api.getExpertSystems(callOptions),
+    ]);
+    const setting = String(config?.values[configKey] ?? "").trim();
+    if (data === null || (/^[+-]?\d+$/.test(setting) && Number(setting) === 0)) return states;
+
+    const wanted = new Set(typeIDs);
+    const systemsByType = new Map<number, ExpertSystemData[]>();
+    for (const system of browsableExpertSystems(data.values())) {
+      for (const id of system.ships) {
+        if (!wanted.has(id)) continue;
+        const related = systemsByType.get(id) ?? [];
+        related.push(system);
+        systemsByType.set(id, related);
+      }
+    }
+    const beneficial = [...systemsByType].filter(([, systems]) =>
+      systems.some(system => system.skills.some(([skill, level]) => (trained.get(skill) ?? -1) < level)));
+    if (!beneficial.length) return states;
+
+    const answer = await bridgeAsk("expertSystemMgr", "GetMyExpertSystems", []);
+    const installed = new Set(readDictPairs(answer).map(([id]) => Number(id)));
+    // AssociatedExpertSystemIcon: once any related system helps, any related installed system marks it active.
+    for (const [id, systems] of beneficial) {
+      states.set(id, systems.some(system => installed.has(system.typeID)) ? "active" : "available");
+    }
+    return states;
+  }
 
   async function expertSystemsHome(): ReturnType<AppFlow["expertSystemsHome"]> {
     try {
@@ -38983,6 +39020,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     marketGroupAsks,
     marketGroupDistances,
     requiredSkillsFor,
+    marketExpertSystemStates,
     assetSaleAsked: readonlySignal(assetSaleAskedSignal),
     assetRepairShop: readonlySignal(assetRepairShopSignal),
     openAssetRepair,

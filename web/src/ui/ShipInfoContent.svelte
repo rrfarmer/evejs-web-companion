@@ -18,9 +18,9 @@
   import ShowInfo from "./ShowInfo.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
 
-  let { store, flow, subject, typeID, expanded, active, height }: {
+  let { store, flow, subject, typeID, expanded, active, height, requirementsRequest }: {
     store: ClientStore; flow: AppFlow; subject: ReadableSignal<InfoSubject | null>;
-    typeID: number; expanded: boolean; active: boolean; height: number;
+    typeID: number; expanded: boolean; active: boolean; height: number; requirementsRequest?: number;
   } = $props();
   // svelte-ignore state_referenced_locally
   const { words, names, space } = store;
@@ -45,6 +45,7 @@
     500003: "Ship Info Amarr", 500001: "Ship Info Caldari", 500004: "Ship Info Gallente", 500002: "Ship Info Minmatar",
   };
   let tab = $state<typeof NAV[number]["id"]>("overview");
+  $effect(() => { if (requirementsRequest !== undefined) tab = "skills"; });
   let overview = $state<ShipInfoOverview | null | undefined>(undefined);
   let academy = $state(false);
   let bracketsReady = $state(false);

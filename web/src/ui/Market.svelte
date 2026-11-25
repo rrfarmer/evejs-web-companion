@@ -137,6 +137,8 @@
     "UI/Market/Marketbase/PowerRequirementNotMet": "Powergrid requirement not met",
     "UI/Market/Marketbase/CpuRequirementMet": "CPU requirement met",
     "UI/Market/Marketbase/CpuRequirementNotMet": "CPU requirement not met",
+    "UI/ExpertSystem/AssociatedSystemAvailable": "An Expert System is available for this item",
+    "UI/ExpertSystem/AssociatedSystemActive": "An Expert System is active for this item",
     "UI/Common/LocationTypes/SolarSystem": "Solar System",
     "UI/Common/LocationTypes/Region": "Region",
     "UI/Common/LocationTypes/Unreachable": "Unreachable",
@@ -1030,6 +1032,8 @@
   const routeSettings = $derived(flow.routeSettings);
   let groupAsksError = $state(false);
   let groupFacts = $state.raw<ReadonlyMap<number, TypeMetaFacts | null> | null>(null);
+  let groupExpertStates = $state.raw<Awaited<ReturnType<AppFlow["marketExpertSystemStates"]>>>(new Map());
+  const expertSystemsChanged = $derived(flow.expertSystemsChanged);
   let groupSkillNeeds = $state.raw<RequiredSkills | null>(null);
   let groupModuleAttributes = $state.raw<Awaited<ReturnType<AppFlow["typeAttributes"]>> | null>(null);
   const marketSkills = $derived($skills.skills === null ? null : new Map($skills.skills.map(skill => [skill.typeID, skill])));
@@ -1100,6 +1104,22 @@
     if (modules.length) {
       void flow.typeAttributes(modules, [POWER, CPU]).then(attrs => { if (current) groupModuleAttributes = attrs; }).catch(() => {});
       void flow.loadFitting().catch(() => {});
+    }
+    return () => { current = false; };
+  });
+
+  $effect(() => {
+    if (tab !== "groups" || browsing || !groupFacts || !marketSkills || !groupSkillNeeds) return;
+    const ships = groupTypes.map(item => item.typeID).filter(id =>
+      groupFacts?.get(id)?.categoryID === 6 && (groupSkillNeeds?.[id]?.length ?? 0) > 0);
+    void $expertSystemsChanged;
+    let current = true;
+    groupExpertStates = new Map();
+    if (ships.length) {
+      const trained = new Map([...marketSkills].map(([id, skill]) => [id, skill.level]));
+      void flow.marketExpertSystemStates(ships, trained).then(states => {
+        if (current) groupExpertStates = states;
+      }).catch(() => {});
     }
     return () => { current = false; };
   });
@@ -1609,6 +1629,7 @@
         {@const ask = groupAsks?.asks.get(item.typeID)}
         {@const scope = groupAsks?.scope ?? groupScope}
         {@const skill = groupSkillStatus(item.typeID, fact?.categoryID)}
+        {@const expertSystem = groupExpertStates.get(item.typeID)}
         {@const fittingNeeds = groupFittingNeeds(item.typeID)}
         <article class="mkt-group-card">
           <TypeIcon typeID={item.typeID} name={item.name} size="lg" />
@@ -1628,9 +1649,17 @@
                 {:else if skill?.frame}
                   {@const hint = qbWord(skill.label) || skill.fallback}
                   <button class="mkt-group-skill-icon" type="button" title={hint} aria-label={hint}
-                    onclick={() => showInfo({ kind: "type", typeID: item.typeID })}>
+                    onclick={() => showInfo({ kind: "type", typeID: item.typeID }, { selectRequirements: true })}>
                     <img src={clientTexture(`res:/UI/Texture/Classes/Skills/${skill.frame}.png`)} alt="" />
                   </button>
+                  {#if expertSystem}
+                    {@const active = expertSystem === "active"}
+                    {@const expertHint = qbWord(active ? "UI/ExpertSystem/AssociatedSystemActive" : "UI/ExpertSystem/AssociatedSystemAvailable")}
+                    <button class="mkt-group-skill-icon mkt-group-expert-system" type="button" data-state={expertSystem}
+                      title={expertHint} aria-label={expertHint} onclick={() => showInfo({ kind: "type", typeID: item.typeID }, { selectRequirements: true })}>
+                      <img src={clientTexture(`res:/UI/Texture/classes/ExpertSystems/${active ? "badge" : "logo_inactive"}_24.png`)} alt="" />
+                    </button>
+                  {/if}
                 {/if}
                 {#each fittingNeeds as need (need.key)}
                   {@const hint = need.state ? qbWord(`UI/Market/Marketbase/${need.label}Requirement${need.state}`) : need.label === "Cpu" ? "CPU" : "Powergrid"}
