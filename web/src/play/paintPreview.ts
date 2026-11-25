@@ -76,7 +76,6 @@ export class PaintPreviewScene {
     this.resize = new ResizeObserver(() => this.fit());
     this.resize.observe(host);
     this.fit();
-    this.renderer.setAnimationLoop(() => this.frame());
     // a handle for live checks, as the play view's window.__play
     (window as unknown as { __paintPreview?: PaintPreviewScene }).__paintPreview = this;
   }
@@ -144,10 +143,17 @@ export class PaintPreviewScene {
   }
 
   private fit(): void {
-    const w = this.host.clientWidth || 1, h = this.host.clientHeight || 1;
+    if (this.closed) return;
+    const w = this.host.clientWidth, h = this.host.clientHeight;
+    if (w === 0 || h === 0) {
+      this.drag = null;
+      this.renderer.setAnimationLoop(null);
+      return;
+    }
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.renderer.setAnimationLoop(() => this.frame());
   }
 
   private frame(): void {
