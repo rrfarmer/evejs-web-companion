@@ -7,7 +7,7 @@
   import { compressedSupport, loadDds } from "../three/ddsTexture";
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
 
-  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors }: {
+  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle }: {
     model: "female" | "male";
     backdropUrl?: string;
     backdropIsDds?: boolean;
@@ -16,11 +16,13 @@
     fieldOfView?: number;
     hasSkinTones?: boolean;
     skinColors?: PortraitSkinTone["colors"];
+    hairstyle?: string;
   } = $props();
   let canvas: HTMLCanvasElement;
   let renderer = $state.raw<THREE.WebGLRenderer | null>(null);
   let display = $state<"loading" | "ready" | "unavailable">("loading");
   let backdropDisplay = $state<"loading" | "ready" | "unavailable">("loading");
+  let hairDisplay = $state<"loading" | "ready" | "unavailable">("loading");
   let headBounds = $state.raw<THREE.Box3 | null>(null);
   type SkinUniforms = {
     portraitSkinDetail: { value: THREE.Texture };
@@ -40,14 +42,14 @@
   const loader = new GLTFLoader();
 
   export function readPortraitFrame(): PortraitFrame | null {
-    if (display !== "ready" || backdropDisplay !== "ready") return null;
+    if (display !== "ready" || backdropDisplay !== "ready" || (hairstyle && hairDisplay !== "ready")) return null;
     const native = ({ x, y, z }: THREE.Vector3): PortraitFrame["position"] => [x, y, -z];
     return { position: native(camera.position), target: native(cameraTarget) };
   }
 
   export function capturePortrait(): string {
     const active = renderer;
-    if (!active || display !== "ready" || backdropDisplay !== "ready") throw new Error("Wait for the portrait preview to finish loading.");
+    if (!active || !readPortraitFrame()) throw new Error("Wait for the portrait preview to finish loading.");
     const jpegPrefix = "data:image/jpeg;base64,";
     // portraitMaker writes a 512px square snapshot. The live preview uses a smaller drawing buffer.
     active.setSize(512, 512, false);
@@ -118,6 +120,52 @@
     return () => {
       renderer?.dispose();
       renderer?.forceContextLoss();
+    };
+  });
+
+  $effect(() => {
+    const active = renderer;
+    const gender = model;
+    const style = hairstyle;
+    if (!active) return;
+    if (!style) {
+      active.render(scene, camera);
+      return;
+    }
+    let retired = false;
+    let hair: THREE.Group | null = null;
+    let texture: THREE.Texture | null = null;
+    hairDisplay = "loading";
+    void (async () => {
+      if (!compressedSupport(active).s3tc) throw new Error("Unsupported hair detail format");
+      const stem = `/client-assets/portrait-hair/${gender}/${style}`;
+      const response = await fetch(stem + ".json");
+      if (!response.ok) throw new Error("Portrait hairstyle unavailable");
+      const { diffuse, rgb } = await response.json() as { diffuse: string; rgb: [number, number, number] };
+      const detail = await loadDds(diffuse);
+      if (retired) { detail.dispose(); return; }
+      texture = detail;
+      detail.colorSpace = THREE.SRGBColorSpace;
+      detail.wrapS = detail.wrapT = THREE.ClampToEdgeWrapping;
+      const { scene: object } = await loader.loadAsync(stem + ".glb");
+      if (retired) { release(object); return; }
+      hair = object;
+      const surface = new THREE.MeshStandardMaterial({
+        map: detail, color: new THREE.Color().setRGB(...rgb, THREE.SRGBColorSpace),
+        side: THREE.DoubleSide, roughness: 0.8, alphaTest: 0.20, alphaToCoverage: true,
+      });
+      applySurface(hair, surface, new Set(), new Set(), null, surface);
+      scene.add(hair);
+      active.render(scene, camera);
+      hairDisplay = "ready";
+    })().catch(() => { if (!retired) hairDisplay = "unavailable"; });
+    return () => {
+      retired = true;
+      if (hair) {
+        scene.remove(hair);
+        release(hair);
+      }
+      texture?.dispose();
     };
   });
 
@@ -346,12 +394,15 @@
 </script>
 
 <canvas bind:this={canvas} data-portrait-head={display} data-backdrop-state={backdropUrl ? backdropDisplay : undefined}
+  data-portrait-hair={hairstyle ? hairDisplay : undefined}
   hidden={display !== "ready" || (Boolean(backdropUrl) && backdropDisplay === "loading")} role="img"
   aria-label={(model === "female" ? "Female base head" : "Male base head") + (backdropUrl ? " with selected backdrop" : "")}></canvas>
 {#if display !== "ready"}
   <p role="status">{display === "loading" ? "Loading base head…" : "This base head could not be displayed."}</p>
 {:else if backdropUrl && backdropDisplay !== "ready"}
   <p role="status">{backdropDisplay === "loading" ? "Loading backdrop…" : "This backdrop could not be displayed."}</p>
+{:else if hairstyle && hairDisplay !== "ready"}
+  <p role="status">{hairDisplay === "loading" ? "Loading hairstyle…" : "This hairstyle could not be displayed."}</p>
 {/if}
 
 <style>

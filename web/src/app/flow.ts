@@ -2217,10 +2217,20 @@ export interface DockedPortraitOptions {
   readonly framing: PortraitFraming | null;
   readonly skinToneID: number;
   readonly skinTones: readonly api.PortraitSkinTone[];
+  readonly hairID: number;
+  readonly hairstyles: readonly api.PortraitHairstyle[];
 }
 
 export interface PortraitFraming extends api.PortraitFrame {
   readonly fieldOfView: number;
+}
+
+interface DockedPortraitDraft {
+  readonly backgroundID: number;
+  readonly fieldOfView: number | null;
+  readonly skinToneID: number | null;
+  readonly hairID: number | null;
+  readonly initialFrame?: api.PortraitFrame;
 }
 
 export interface AppFlow {
@@ -4355,8 +4365,7 @@ export interface AppFlow {
   requestOwnSecurityStatus(): void;
   exchangeSecurityTags(stationID: number, target: number, current: number): Promise<void>;
   readDockedPortraitOptions(): Promise<DockedPortraitOptions>;
-  saveDockedPortrait(backgroundID: number, fieldOfView: number | null, skinToneID: number | null,
-    initialFrame?: api.PortraitFrame): Promise<void>;
+  saveDockedPortrait(draft: DockedPortraitDraft): Promise<void>;
   publishDockedPortraitImage(jpeg: string): Promise<void>;
   warpToPlanetLaunch(launchID: number): Promise<void>;
   removePlanetLaunch(launchID: number): Promise<void>;
@@ -10042,12 +10051,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const characterID = store.station.get().online?.characterID;
     if (place === null || characterID == null) throw new Error("Dock to open character recustomization.");
     const head = portraitHeadFor(characterID);
-    const [state, backgrounds, portrait, bloodlineID, skin] = await Promise.all([
+    const [state, backgrounds, portrait, bloodlineID, skin, hair] = await Promise.all([
       bridgeAsk("charMgr", "GetPaperdollState", []),
       api.loadPortraitBackgrounds(callOptions),
       bridgeAsk("paperDollServer", "GetPaperDollPortraitDataFor", [characterID]).catch(() => null),
       readCharacterBloodline(bridgeAsk, characterID).catch(() => null),
       head ? api.loadPortraitSkinTones(head, callOptions).catch(() => null) : null,
+      head ? api.loadPortraitHairstyles(callOptions).catch(() => null) : null,
     ]);
     current();
     if (dockedNow() !== place) throw new Error("The docked location changed.");
@@ -10067,6 +10077,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       backgrounds,
       skinToneID: skin?.skinToneID ?? 0,
       skinTones: skin?.choices ?? [],
+      hairID: hair?.hairID ?? 0,
+      hairstyles: hair?.choices ?? [],
       framing: position && target && fieldOfView !== null && fieldOfView >= 0.2 && fieldOfView <= 1.5 ?
         { position, target, fieldOfView } : null,
     };
@@ -10077,14 +10089,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return gender === 0 ? "female" : gender === 1 ? "male" : null;
   }
 
-  async function saveDockedPortrait(backgroundID: number, fieldOfView: number | null, skinToneID: number | null,
-      initialFrame?: api.PortraitFrame): Promise<void> {
+  async function saveDockedPortrait({ skinToneID, ...draft }: DockedPortraitDraft): Promise<void> {
     const location = dockedNow();
     if (location === null) throw new Error("Dock to edit your portrait.");
     const gender = portraitHeadFor(store.station.get().online?.characterID);
     if (skinToneID !== null && gender === null) throw new Error("The pilot’s head is unavailable.");
-    await api.savePortrait(backgroundID, fieldOfView, skinToneID === null || gender === null ? null : { id: skinToneID, gender },
-      location, initialFrame ?? null, callOptions);
+    const skinTone = skinToneID === null || gender === null ? null : { id: skinToneID, gender };
+    await api.savePortrait({ ...draft, skinTone, dockedLocationID: location }, callOptions);
   }
 
   async function publishDockedPortraitImage(jpeg: string): Promise<void> {

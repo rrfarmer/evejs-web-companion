@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
+const { portraitHairStyle } = require("./portraitHair");
 const { clientBuild } = require("../../tools/client-extract/lib/resfiles.mjs");
 const { droneTurret } = require("../../tools/client-extract/lib/droneTurrets.mjs");
 const { SOF_BUILD, GRAPHIC_SOF_DEFAULTS, sofVariant } = require("../../tools/client-extract/lib/sof.mjs");
@@ -156,6 +157,10 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
     portraitHead[2] === "materials.json" ? '"materialBuild":3' : undefined) };
   const archetype = /^\/portrait-head\/(female|male)-(1[1-4]|[1-8])\.archetype\.json$/.exec(rel);
   if (archetype) return { file: await ensure(rel.slice(1), ["--portrait-head", archetype[1], "--portrait-bloodline", archetype[2]]) };
+  const hair = /^\/portrait-hair\/(female|male)\/(hair_[a-z0-9_]+)\.(glb|json)$/.exec(rel);
+  if (hair && portraitHairStyle(hair[1], hair[2])) {
+    return { file: await ensure(rel.slice(1), ["--portrait-head", hair[1], "--portrait-hair", hair[2]]) };
+  }
   const generated = GENERATED.get(rel);
   if (generated) {
     const oldManifest = rel === "/observatoryEnvironment.json" ? '"environmentBuild":'

@@ -100,6 +100,10 @@ const TABLES = Object.freeze({
     resource: "res:/staticdata/character_colorlocations.fsdbinary" }),
   paperDollColorNames: Object.freeze({ loader: "character_colorNamesLoader",
     resource: "res:/staticdata/character_colornames.fsdbinary" }),
+  paperDollModifierLocations: Object.freeze({ loader: "character_modifierLocationsLoader",
+    resource: "res:/staticdata/character_modifierlocations.fsdbinary" }),
+  paperDollResources: Object.freeze({ loader: "character_resourcesLoader",
+    resource: "res:/staticdata/character_resources.fsdbinary" }),
   // The special effects that are a jump (fsdBuiltData/client/travelEffects.py, by guid): IsTravelEffect.
   travelEffects: Object.freeze({ loader: "travelEffectsLoader", resource: "res:/staticdata/traveleffects.fsdbinary" }),
   // The skills a type needs and at what level, by type (evetypes/skills.py get_dogma_required_skills), which the

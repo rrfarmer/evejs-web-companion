@@ -6131,6 +6131,21 @@ export interface PortraitSkinTone {
   readonly colors: readonly [RGB, RGB, RGB];
 }
 
+export interface PortraitHairstyle {
+  readonly id: number;
+  readonly name: string;
+  readonly style: string;
+}
+
+export async function loadPortraitHairstyles(options: ApiOptions = {}):
+    Promise<{ hairID: number; choices: readonly PortraitHairstyle[] }> {
+  const data = await getJson("/api/bridge/character/hairstyles", options);
+  const choices = (Array.isArray(data.choices) ? data.choices : []).flatMap(row =>
+    row && Number.isSafeInteger(row.id) && typeof row.name === "string" && typeof row.style === "string" &&
+    /^hair_[a-z0-9_]+$/.test(row.style) ? [{ id: row.id, name: row.name, style: row.style }] : []);
+  return { hairID: asNumberOrNull(data.hairID) ?? 0, choices };
+}
+
 export async function loadPortraitSkinTones(gender: PortraitHead, options: ApiOptions = {}):
     Promise<{ skinToneID: number; choices: readonly PortraitSkinTone[] }> {
   const data = await getJson(`/api/bridge/character/skin-tones?gender=${gender}`, options);
@@ -6143,10 +6158,10 @@ export async function loadPortraitSkinTones(gender: PortraitHead, options: ApiOp
   return { skinToneID: asNumberOrNull(data.skinToneID) ?? 0, choices };
 }
 
-export async function savePortrait(backgroundID: number, fieldOfView: number | null,
-    skinTone: { id: number; gender: PortraitHead } | null, dockedLocationID: number, initialFrame: PortraitFrame | null,
-    options: ApiOptions = {}): Promise<void> {
-  await postJson("/api/bridge/character/portrait", { backgroundID, fieldOfView, skinTone, dockedLocationID, initialFrame, confirm: true }, options);
+export async function savePortrait(draft: { backgroundID: number; fieldOfView: number | null;
+    skinTone: { id: number; gender: PortraitHead } | null; hairID: number | null;
+    dockedLocationID: number; initialFrame?: PortraitFrame }, options: ApiOptions = {}): Promise<void> {
+  await postJson("/api/bridge/character/portrait", { ...draft, confirm: true }, options);
 }
 
 export async function publishPortraitImage(jpeg: string, dockedLocationID: number, options: ApiOptions = {}): Promise<void> {

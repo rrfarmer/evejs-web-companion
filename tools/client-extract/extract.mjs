@@ -30,6 +30,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import portraitHair from "../../src/clientData/portraitHair.js";
 import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
 import { childEffectRoots, hullOverlays, readEffectFile, readHullChildren, readHullControllers, readSpriteInstances, readTrafficInstances, readTurretStretch3, usedLocatorSets } from "./lib/children.mjs";
 import { readGranny } from "./lib/granny.mjs";
@@ -860,6 +861,27 @@ function extractPortraitArchetype(rf, gender, bloodline, outRoot) {
   }));
 }
 
+async function extractPortraitHair(rf, gender, style, outRoot) {
+  if (!portraitHair.portraitHairStyle(gender, style)) throw new Error("Unknown portrait hairstyle");
+  const paperDoll = `res:/graphics/character/${gender}/paperdoll`;
+  const folder = `${paperDoll}/hair/${style}`;
+  const source = `${folder}/${style}.gr2`;
+  const { root } = await readGranny(rf.read(source), source);
+  const model = root.Models.find(entry => entry.Skeleton?.Bones?.length && entry.MeshBindings?.length);
+  if (!model) throw new Error(`${source}: no skinned hair model`);
+  const bones = model.Skeleton.Bones;
+  const lods = model.MeshBindings.map(({ Mesh }) => ({ ...meshArrays(Mesh), skin: meshSkinArrays(Mesh, bones) }));
+  const dir = path.join(outRoot, "portrait-hair", gender);
+  const base = rf.read(`${paperDoll}/hair/colors/basecolor.base`).toString("utf8");
+  const rgb = /\[([^\]]+)\]/.exec(base)?.[1]?.split(",").slice(0, 3).map(Number);
+  if (!rgb || rgb.length !== 3 || !rgb.every(value => Number.isFinite(value))) throw new Error("Invalid base hair color");
+  fs.mkdirSync(dir, { recursive: true });
+  writeExtracted(path.join(dir, `${style}.glb`), writeGlb({ name: style, lods, bones, extras: { source } }));
+  writeExtracted(path.join(dir, `${style}.json`), JSON.stringify({
+    diffuse: copyRes(rf, `${folder}/colorize_hair_l_256.dds`, outRoot), rgb,
+  }));
+}
+
 function parseArgs(argv) {
   const out = { hulls: [], types: [], typeSkins: [], graphics: [], dnas: [], scenes: [], wormholeNebulas: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, sofMaterials: false, fx: [], effects: [], starMap: false, fittingScene: false };
   for (let i = 0; i < argv.length; i++) {
@@ -870,6 +892,7 @@ function parseArgs(argv) {
       out.portraitBloodline = Number(argv[++i]);
       if (!portraitBloodlineHead.has(out.portraitBloodline)) throw new Error("Unknown portrait archetype bloodline");
     }
+    else if (a === "--portrait-hair") out.portraitHair = argv[++i];
     else if (a === "--sde") out.sde = argv[++i];
     else if (a === "--type-graphics") out.typeGraphics = true;
     else if (a === "--sof-defaults") out.sofDefaults = true;
@@ -1160,7 +1183,8 @@ async function main() {
     console.log(`shipInfoScene.json: ${Object.keys(background.childEffects).length} faction effects and light rig`);
   }
   if (args.portraitHead) {
-    if (args.portraitBloodline !== undefined) extractPortraitArchetype(rf, args.portraitHead, args.portraitBloodline, outRoot);
+    if (args.portraitHair) await extractPortraitHair(rf, args.portraitHead, args.portraitHair, outRoot);
+    else if (args.portraitBloodline !== undefined) extractPortraitArchetype(rf, args.portraitHead, args.portraitBloodline, outRoot);
     else await extractPortraitHead(rf, args.portraitHead, outRoot);
   }
   if (args.starMap) {

@@ -27,6 +27,7 @@
   let selected = $state<number | undefined>();
   let fieldOfView = $state(0.3);
   let skinToneID = $state(0);
+  let hairID = $state(0);
   let preview = $state<"backdrop" | "female" | "male">("backdrop");
   let failed = $state(false);
   let saving = $state(false);
@@ -42,7 +43,9 @@
   const skinTone = $derived(options?.skinTones.find(tone => tone.id === skinToneID));
   const hasSkinTones = $derived(Boolean(pilotHead && options?.skinTones.length));
   const skinChanged = $derived(hasSkinTones && skinToneID !== options?.skinToneID);
-  const hasChanges = $derived(initial || selected !== options?.backgroundID || zoomChanged || skinChanged);
+  const chosenHair = $derived(options?.hairstyles.find(style => style.id === hairID));
+  const hairChanged = $derived(Boolean(options?.hairstyles.length && hairID !== options.hairID));
+  const hasChanges = $derived(initial || selected !== options?.backgroundID || zoomChanged || skinChanged || hairChanged);
   const busy = $derived(saving || publishing);
 
   onMount(() => {
@@ -56,6 +59,7 @@
       selected = data.backgrounds.find(entry => entry.id === data.backgroundID)?.id ?? data.backgrounds[0]?.id;
       fieldOfView = data.framing?.fieldOfView ?? 0.3;
       skinToneID = data.skinToneID;
+      hairID = data.hairID;
     }).catch(() => { failed = true; });
   });
 
@@ -72,9 +76,9 @@
     saving = true;
     saveStatus = "";
     try {
-      await flow.saveDockedPortrait(backgroundID, initialFrame || zoomChanged ? fieldOfView : null,
-        skinChanged ? skinToneID : null, initialFrame ?? undefined);
-      options = { ...options, state: 0, backgroundID, framing, skinToneID };
+      await flow.saveDockedPortrait({ backgroundID, fieldOfView: initialFrame || zoomChanged ? fieldOfView : null,
+        skinToneID: skinChanged ? skinToneID : null, hairID: hairChanged ? hairID : null, initialFrame: initialFrame ?? undefined });
+      options = { ...options, state: 0, backgroundID, framing, skinToneID, hairID };
       saveStatus = initialFrame ? "Appearance saved. You can now publish your portrait." : "Portrait settings saved.";
     } catch (error) {
       saveStatus = error instanceof Error ? error.message : "The portrait settings could not be saved.";
@@ -84,7 +88,7 @@
   }
 
   async function publishPortrait(): Promise<void> {
-    if (!portraitView || !canPublish || busy || hasChanges) return;
+    if (!portraitView || !canPublish || busy || hasChanges || (hairID !== 0 && !chosenHair)) return;
     publishing = true;
     saveStatus = "";
     try {
@@ -129,7 +133,7 @@
         {#if pilotHead && backdrop}
           <PortraitBaseHead bind:this={portraitView} model={pilotHead} backdropUrl={url} backdropIsDds={backdrop.isDds}
             bloodlineID={options.bloodlineID} framing={options.framing} {fieldOfView}
-            {hasSkinTones} skinColors={skinTone?.colors} />
+            {hasSkinTones} skinColors={skinTone?.colors} hairstyle={chosenHair?.style} />
         {:else if backdrop?.isDds}
           <PortraitBackdrop {url} />
         {:else if url}
@@ -137,6 +141,17 @@
         {/if}
       </div>
       {#if canSave}
+        {#if pilotHead && options.hairstyles.length}
+          <label class="appearance-choice">Hairstyle
+            <select bind:value={hairID} disabled={busy} onchange={() => { saveStatus = ""; }}>
+              <option value={0}>Default</option>
+              {#if options.hairID !== 0 && !options.hairstyles.some(style => style.id === options?.hairID)}
+                <option value={options.hairID}>Saved hairstyle</option>
+              {/if}
+              {#each options.hairstyles as style (style.id)}<option value={style.id}>{style.name}</option>{/each}
+            </select>
+          </label>
+        {/if}
         {#if hasSkinTones}
           <label class="skin-tone">Skin tone
             <select bind:value={skinToneID} disabled={busy} onchange={() => { saveStatus = ""; }}>
@@ -156,7 +171,7 @@
             {saving ? "Saving…" : initial ? "Save appearance" : "Save portrait"}
           </button>
           {#if pilotHead && canPublish}
-            <button type="button" disabled={busy || hasChanges || !portraitView} onclick={publishPortrait}>
+            <button type="button" disabled={busy || hasChanges || !portraitView || (hairID !== 0 && !chosenHair)} onclick={publishPortrait}>
               {publishing ? "Publishing…" : "Publish portrait"}
             </button>
           {/if}
@@ -179,7 +194,7 @@
   .image { display: grid; background: #101716; aspect-ratio: 1; width: 100%; max-width: 332px; }
   img { width: 100%; aspect-ratio: 1; object-fit: contain; }
   .portrait-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-  .zoom, .skin-tone { margin-top: 10px; }
+  .zoom, .skin-tone, .appearance-choice { margin-top: 10px; }
   .zoom input { flex: 1; min-width: 0; }
   @media (max-width: 520px) { .recustomization { gap: 12px; padding: 10px; } }
 </style>
