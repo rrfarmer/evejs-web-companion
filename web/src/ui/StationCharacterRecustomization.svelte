@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { readCapturePortrait } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
@@ -15,8 +16,11 @@
   const characterID = $derived($station.online?.characterID ?? null);
   const gender = $derived($characters.characters.find(character => character.characterID === characterID)?.gender);
   const pilotHead = $derived(gender === 0 ? "female" : gender === 1 ? "male" : null);
+  let currentImage = $state<string | null>(null);
+  const imageUrl = $derived(characterID === null ? null : portraitUrl($imageServer, characterID, 256));
   const urls = $derived([
-    ...(characterID === null ? [] : [portraitUrl($imageServer, characterID, 256)].filter((url): url is string => url !== null)),
+    ...(currentImage ? [currentImage] : []),
+    ...(imageUrl ? [imageUrl] : []),
     clientTexture(portraitDefaultPath(256)),
   ]);
   let options = $state.raw<Awaited<ReturnType<AppFlow["readDockedPortraitOptions"]>> | null>(null);
@@ -26,6 +30,8 @@
   let preview = $state<"backdrop" | "female" | "male">("backdrop");
   let failed = $state(false);
   let saving = $state(false);
+  let publishing = $state(false);
+  let portraitView = $state<ReturnType<typeof PortraitBaseHead>>();
   let saveStatus = $state("");
   const backdrop = $derived(options?.backgrounds.find(entry => entry.id === selected));
   const url = $derived(backdrop ? `/client-res/portrait-background/${backdrop.id}` : "");
@@ -34,8 +40,15 @@
   const skinTone = $derived(options?.skinTones.find(tone => tone.id === skinToneID));
   const hasSkinTones = $derived(Boolean(pilotHead && options?.skinTones.length));
   const skinChanged = $derived(hasSkinTones && skinToneID !== options?.skinToneID);
+  const hasChanges = $derived(selected !== options?.backgroundID || zoomChanged || skinChanged);
+  const busy = $derived(saving || publishing);
 
   onMount(() => {
+    if (characterID !== null) {
+      void readCapturePortrait(characterID, 256, null, flow.requestOptions()).then(({ image }) => {
+        if (image && currentImage === null) currentImage = `data:${image.contentType};base64,${image.base64}`;
+      }).catch(() => {});
+    }
     void flow.readDockedPortraitOptions().then(data => {
       options = data;
       selected = data.backgrounds.find(entry => entry.id === data.backgroundID)?.id ?? data.backgrounds[0]?.id;
@@ -45,7 +58,7 @@
   });
 
   async function savePortrait(): Promise<void> {
-    if (!options || !canSave || !backdrop || saving || (options.backgroundID === backdrop.id && !zoomChanged && !skinChanged)) return;
+    if (!options || !canSave || !backdrop || busy || !hasChanges) return;
     const backgroundID = backdrop.id;
     const framing = options.framing && zoomChanged ? { ...options.framing, fieldOfView } : options.framing;
     saving = true;
@@ -60,6 +73,22 @@
       saving = false;
     }
   }
+
+  async function publishPortrait(): Promise<void> {
+    if (!portraitView || !canSave || busy || hasChanges) return;
+    publishing = true;
+    saveStatus = "";
+    try {
+      const jpeg = portraitView.capturePortrait();
+      await flow.publishDockedPortraitImage(jpeg);
+      currentImage = `data:image/jpeg;base64,${jpeg}`;
+      saveStatus = "Portrait published.";
+    } catch (error) {
+      saveStatus = error instanceof Error ? error.message : "The portrait could not be published.";
+    } finally {
+      publishing = false;
+    }
+  }
 </script>
 
 <div class="recustomization" data-window="characterRecustomization" data-appearance-state={options?.state}>
@@ -71,7 +100,7 @@
   </div>
   <div class="preview">
     <label>Preview
-      <select bind:value={preview}>
+      <select bind:value={preview} disabled={busy}>
         <option value="backdrop">{pilotHead ? "Portrait preview" : "Portrait backdrops"}</option>
         <option value="female">Female base head</option>
         <option value="male">Male base head</option>
@@ -81,7 +110,7 @@
       <div class="image"><PortraitBaseHead model={preview} /></div>
     {:else if options?.backgrounds.length}
       <label>Portrait backdrop
-        <select bind:value={selected} disabled={saving} onchange={() => { saveStatus = ""; }}>
+        <select bind:value={selected} disabled={busy} onchange={() => { saveStatus = ""; }}>
           {#each options.backgrounds as entry (entry.id)}
             <option value={entry.id}>Backdrop {entry.id}</option>
           {/each}
@@ -89,7 +118,7 @@
       </label>
       <div class="image">
         {#if pilotHead && backdrop}
-          <PortraitBaseHead model={pilotHead} backdropUrl={url} backdropIsDds={backdrop.isDds}
+          <PortraitBaseHead bind:this={portraitView} model={pilotHead} backdropUrl={url} backdropIsDds={backdrop.isDds}
             bloodlineID={options.bloodlineID} framing={options.framing} {fieldOfView}
             {hasSkinTones} skinColors={skinTone?.colors} />
         {:else if backdrop?.isDds}
@@ -101,7 +130,7 @@
       {#if canSave}
         {#if hasSkinTones}
           <label class="skin-tone">Skin tone
-            <select bind:value={skinToneID} disabled={saving} onchange={() => { saveStatus = ""; }}>
+            <select bind:value={skinToneID} disabled={busy} onchange={() => { saveStatus = ""; }}>
               <option value={0}>Bloodline base</option>
               {#each options.skinTones as tone (tone.id)}<option value={tone.id}>{tone.name}</option>{/each}
             </select>
@@ -109,13 +138,20 @@
         {/if}
         {#if pilotHead && options.framing}
           <label class="zoom">Zoom
-            <input type="range" min="-1.5" max="-0.2" step="0.001" value={-fieldOfView} disabled={saving}
+            <input type="range" min="-1.5" max="-0.2" step="0.001" value={-fieldOfView} disabled={busy}
               oninput={event => { fieldOfView = -event.currentTarget.valueAsNumber; saveStatus = ""; }} />
           </label>
         {/if}
-        <button type="button" disabled={saving || !backdrop || (selected === options.backgroundID && !zoomChanged && !skinChanged)} onclick={savePortrait}>
-          {saving ? "Saving…" : "Save portrait"}
-        </button>
+        <div class="portrait-actions">
+          <button type="button" disabled={busy || !backdrop || !hasChanges} onclick={savePortrait}>
+            {saving ? "Saving…" : "Save portrait"}
+          </button>
+          {#if pilotHead}
+            <button type="button" disabled={busy || hasChanges || !portraitView} onclick={publishPortrait}>
+              {publishing ? "Publishing…" : "Publish portrait"}
+            </button>
+          {/if}
+        </div>
         {#if saveStatus}<p role="status">{saveStatus}</p>{/if}
       {/if}
     {:else}
@@ -133,7 +169,7 @@
   select { min-width: 0; max-width: 100%; flex: 1; }
   .image { display: grid; background: #101716; aspect-ratio: 1; width: 100%; max-width: 332px; }
   img { width: 100%; aspect-ratio: 1; object-fit: contain; }
-  button { margin-top: 10px; }
+  .portrait-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .zoom, .skin-tone { margin-top: 10px; }
   .zoom input { flex: 1; min-width: 0; }
   @media (max-width: 520px) { .recustomization { gap: 12px; padding: 10px; } }

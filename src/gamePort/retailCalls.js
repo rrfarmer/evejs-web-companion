@@ -680,6 +680,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "paperDollServer.GetPaperDollPortraitDataFor",
   "paperDollServer.GetMyPaperDollData",
   "paperDollServer.UpdateExistingCharacterLimited",
+  "photoUploadSvc.Upload",
   // menuFunctions.SelfDestructShip / AbortSelfDestructShip (the active ship's space menu): not on the gateway contract's list
   "ship.SelfDestruct", "ship.AbortSelfDestruct",
   // safeLogoffTimer.AbortSafeLogoff: GetShipAccess().AbortSafeLogoff(), the timer's Abort button
@@ -2885,6 +2886,8 @@ const RETAIL_CALLS = Object.freeze({
     "Recustomization reads the selected pilot's saved Paper Doll appearance."),
   "paperDollServer.UpdateExistingCharacterLimited": same("eve/client/script/ui/services/ccSvc.py:125-129",
     "Limited recustomization sends the pilot ID, appearance, portrait and existing-doll flag."),
+  "photoUploadSvc.Upload": same("EveJS network/tcp/handshake.js portrait upload shim",
+    "EveJS sends the pilot ID and JPEG bytes when the native client adds a portrait snapshot."),
   "crimewatch.GetMySecurityStatus": same(`${CRIMEWATCH_SVC}:592`, "CharGetCrimewatchLocation().GetMySecurityStatus(), no arguments: asked once and kept. Recorded on Tranquility as the call a bind of crimewatch carried."),
   "crimewatch.GetCharacterSecurityStatus": same(`${CRIMEWATCH_SVC}:596`, "CharGetCrimewatchLocation().GetCharacterSecurityStatus(charID)"),
   "crimewatch.GetSecurityStatusTransactions": same(`${CRIMEWATCH_SVC}:603`, "CharGetCrimewatchLocation().GetSecurityStatusTransactions(), no arguments"),

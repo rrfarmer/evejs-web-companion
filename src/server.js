@@ -17,6 +17,7 @@ const { createClientWords } = require("./clientData/clientWords");
 const { readAchievementDefinitions, readCharacterTitleDefinitions, readPhasedFieldSystems } = require("./clientData/achievementDefinitions");
 const { createClientTextures } = require("./clientData/clientTextures");
 const { appearanceWithSkinTone, skinToneCatalog, skinToneID } = require("./clientData/portraitSkinTones");
+const { portraitSnapshotBytes } = require("./clientData/portraitSnapshot");
 const { createMultibuyImport } = require("./clientData/importMultibuy");
 const { createSkillplanImport } = require("./clientData/importSkillplan");
 const { createClientBuiltData } = require("./clientData/clientBuiltData");
@@ -19207,6 +19208,27 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
       }
     }
     res.json({ ok: true, backgroundID });
+  } catch (error) { next(error); }
+});
+
+app.post("/api/bridge/character/portrait-image", requireAuth, async (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held || !requireWriteConfirmation(req, res, "Use Publish portrait to confirm the image.")) return;
+  const { jpeg, dockedLocationID } = req.body;
+  const bytes = portraitSnapshotBytes(jpeg);
+  if (!bytes || !Number.isSafeInteger(dockedLocationID) || dockedLocationID <= 0) {
+    return res.status(400).json({ ok: false, error: "INVALID_PORTRAIT_IMAGE", message: "A 512-pixel portrait image is required." });
+  }
+  try {
+    const { result: state } = await heldTopLevelCall(held, req.webSessionID, "charMgr", "GetPaperdollState", [], null);
+    const { flight } = await readHeldFlight(held, req.webSessionID);
+    if (state !== 0 || !flight?.docked || (flight.structureID ?? flight.stationID) !== dockedLocationID) {
+      return res.status(409).json({ ok: false, error: "PORTRAIT_UNAVAILABLE", message: "Dock with a saved appearance to publish a portrait." });
+    }
+    const { result: uploaded } = await heldTopLevelCall(held, req.webSessionID, "photoUploadSvc", "Upload",
+      [held.characterID, bytes.toJSON()], null);
+    if (uploaded !== true) return res.status(409).json({ ok: false, error: "PORTRAIT_UNCONFIRMED", message: "EveJS did not confirm the portrait upload." });
+    res.json({ ok: true });
   } catch (error) { next(error); }
 });
 

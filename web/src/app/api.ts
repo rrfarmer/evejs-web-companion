@@ -6145,6 +6145,10 @@ export async function savePortrait(backgroundID: number, fieldOfView: number | n
   await postJson("/api/bridge/character/portrait", { backgroundID, fieldOfView, skinTone, dockedLocationID, confirm: true }, options);
 }
 
+export async function publishPortraitImage(jpeg: string, dockedLocationID: number, options: ApiOptions = {}): Promise<void> {
+  await postJson("/api/bridge/character/portrait-image", { jpeg, dockedLocationID, confirm: true }, options);
+}
+
 export async function loadPaintToolData(options: ApiOptions = {}): Promise<PaintToolData | null> {
   const data = await getJson("/api/client-data/paints", options);
   return data.available ? (data as unknown as PaintToolData) : null;

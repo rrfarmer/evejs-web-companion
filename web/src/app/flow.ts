@@ -4358,6 +4358,7 @@ export interface AppFlow {
   exchangeSecurityTags(stationID: number, target: number, current: number): Promise<void>;
   readDockedPortraitOptions(): Promise<DockedPortraitOptions>;
   saveDockedPortrait(backgroundID: number, fieldOfView: number | null, skinToneID: number | null): Promise<void>;
+  publishDockedPortraitImage(jpeg: string): Promise<void>;
   warpToPlanetLaunch(launchID: number): Promise<void>;
   removePlanetLaunch(launchID: number): Promise<void>;
   /**
@@ -10083,6 +10084,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const gender = portraitHeadFor(store.station.get().online?.characterID);
     if (skinToneID !== null && gender === null) throw new Error("The pilot’s head is unavailable.");
     await api.savePortrait(backgroundID, fieldOfView, skinToneID === null || gender === null ? null : { id: skinToneID, gender }, location, callOptions);
+  }
+
+  async function publishDockedPortraitImage(jpeg: string): Promise<void> {
+    const location = dockedNow();
+    if (location === null) throw new Error("Dock to publish your portrait.");
+    await api.publishPortraitImage(jpeg, location, callOptions);
   }
 
   // crimewatchSvc.SetSafetyLevel: the client sets the level at the server and
@@ -39458,6 +39465,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     exchangeSecurityTags,
     readDockedPortraitOptions,
     saveDockedPortrait,
+    publishDockedPortraitImage,
 
     async approachPlanetLaunch(containerID) {
       await runFlightStep("Approach", () => orderedStep((flightNow) => approachCall(bridgeDo, flightNow, containerID, 50)));

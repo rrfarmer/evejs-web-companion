@@ -38,6 +38,25 @@
   scene.add(key, fill, new THREE.HemisphereLight(0xe2eefa, 0x544447, 1.1));
   const loader = new GLTFLoader();
 
+  export function capturePortrait(): string {
+    const active = renderer;
+    if (!active || display !== "ready" || backdropDisplay !== "ready") throw new Error("Wait for the portrait preview to finish loading.");
+    const jpegPrefix = "data:image/jpeg;base64,";
+    // portraitMaker writes a 512px square snapshot. The live preview uses a smaller drawing buffer.
+    active.setSize(512, 512, false);
+    try {
+      active.render(scene, camera);
+      for (const quality of [0.9, 0.75, 0.6]) {
+        const image = canvas.toDataURL("image/jpeg", quality);
+        if (image.startsWith(jpegPrefix) && image.length <= 60_000 + jpegPrefix.length) return image.slice(jpegPrefix.length);
+      }
+      throw new Error("The portrait could not be encoded as a JPEG.");
+    } finally {
+      active.setSize(384, 384, false);
+      active.render(scene, camera);
+    }
+  }
+
   function applySurface(object: THREE.Object3D, surface: THREE.Material, transparent: ReadonlySet<string>,
     eyelashMeshes: ReadonlySet<string>, eyelashes: THREE.Material | null, skin: THREE.Material): void {
     const materials = new Set<THREE.Material>();

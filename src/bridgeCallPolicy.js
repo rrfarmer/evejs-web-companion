@@ -66,6 +66,7 @@ const PLUMBING_SWEEP_WRITE_METHODS = freezeMethodMap({
   home_station: ["set_home_station", "reset_remote_change_time", "self_destruct_clone"],
   crimewatch: ["SetSafetyLevel", "StartDuelChallenge", "RespondToDuelChallenge", "ApplyTagsForSecStatus"],
   paperDollServer: ["UpdateExistingCharacterLimited"],
+  photoUploadSvc: ["Upload"],
   corpRegistry: ["AddBulletin", "UpdateBulletin", "UpdateBulletinOrder", "DeleteBulletin", "CreateLabel", "EditLabel", "DeleteLabel", "AssignLabels", "RemoveLabels", "AddCorporateContact", "EditCorporateContact", "RemoveCorporateContacts", "EditContactsRelationshipID", "UpdateTitle", "UpdateTitles", "UpdateMember", "UpdateMembers", "UpdateCorporation", "UpdateCorporationAbilities", "UpdateLogo", "UpdateDivisionNames", "SetAccountKey", "SetCorpWelcomeMail", "SetStructureReinforceDefault", "RegisterNewAggressionSettings", "RegisterNewAcceptStructureSettings", "RegisterNewCorpMailRestrictionSettings", "DeleteTitle", "ExecuteActions", "MoveCompanyShares", "MovePrivateShares", "PayoutDividend", "KickOutMember", "KickOutMembers", "ResignFromCEO", "InsertApplication", "InsertInvitation", "UpdateApplicationOffer", "AddCorporation", "CreateAlliance", "ApplyToJoinAlliance", "DeleteAllianceApplication", "DeclareWarAgainst"],
   // The recruitment proxy's ad writes (base_corporation CreateRecruitmentAd / UpdateRecruitmentAd / DeleteRecruitmentAd).
   corpRecProxy: ["CreateRecruitmentAd", "UpdateRecruitmentAd", "DeleteRecruitmentAd"],
