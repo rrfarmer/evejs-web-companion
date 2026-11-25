@@ -42,6 +42,7 @@
   import Mining from "./Mining.svelte";
   import ReprocessingPlant from "./ReprocessingPlant.svelte";
   import StationInsurance from "./StationInsurance.svelte";
+  import StationSecurityOffice from "./StationSecurityOffice.svelte";
   import StationLpStore from "./StationLpStore.svelte";
   import DronesPanel from "./DronesPanel.svelte";
   import ShotsPanel from "./ShotsPanel.svelte";
@@ -273,6 +274,11 @@
   {@const placeID = $stationSlice.online?.structureID ?? $stationSlice.online?.stationID}
   {#if placeID}
     {#key placeID}<StationInsurance {store} {flow} {placeID} />{/key}
+  {/if}
+{:else if tab === "securityOffice" && isDocked}
+  {@const stationID = $stationSlice.online?.stationID}
+  {#if stationID}
+    {#key stationID}<StationSecurityOffice {store} {flow} {stationID} />{/key}
   {/if}
 {:else if tab === "lpStore" && isDocked}
   {@const stationID = $stationSlice.online?.stationID}

@@ -136,6 +136,7 @@
   import ErrorBoundary from "./ErrorBoundary.svelte";
   import { MIN_H, MIN_W, openWindow, closeWindow, focusWindow, moveWindow, placeOnDesktop, toggleMinimize, type RegisteredPlace, type WinState } from "./desktop.ts";
   import type { WindowRect } from "./windowResize.ts";
+  import { hasSecurityOffice } from "../bridge/securityOffice.ts";
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { canClaimNow } from "../bridge/loginRewards.ts";
@@ -887,8 +888,12 @@
   const lpStoreAvailable = $derived(!$station?.online?.structureID && $station?.online?.stationID != null &&
     $station.station?.stationID === $station.online.stationID && $station.station.serviceIDs?.includes(25) === true &&
     ($station.bits?.ownerID ?? 0) > 0);
+  const securityOfficeAvailable = $derived(stationServiceIDs?.includes(27) === true &&
+    $station?.bits?.stationID === $station?.online?.stationID &&
+    hasSecurityOffice($station?.bits?.ownerID ?? null, $station?.station?.security ?? null));
   // LobbyWnd.LoadServiceButtons uses stationServiceConst in reverse display order.
   const lobbyServices = $derived([
+    { label: "Security Office", icon: "concord", available: securityOfficeAvailable, select: () => open("securityOffice") },
     { label: "Loyalty Point Store", icon: "lpstore", available: lpStoreAvailable, select: () => open("lpStore") },
     { label: "Insurance", icon: "insurance", available: insuranceAvailable, select: () => open("insurance") },
     { label: "Militia Office", icon: "factionalwarfare", available: militiaOfficeAvailable,
@@ -915,6 +920,9 @@
     }
     if ((!docked || !lpStoreAvailable) && wins.some(win => win.id === "lpStore")) {
       wins = closeWindow(wins, "lpStore");
+    }
+    if ((!docked || !securityOfficeAvailable) && wins.some(win => win.id === "securityOffice")) {
+      wins = closeWindow(wins, "securityOffice");
     }
   });
 
@@ -1392,6 +1400,7 @@
     theatersOfWar: { w: 1600, h: 880 },
     academyShips: { w: 1280, h: 688 },
     shipTree: { w: 1055, h: 720 }, reprocessing: { w: 600, h: 400 }, insurance: { w: 400, h: 560 }, lpStore: { w: 837, h: 580 },
+    securityOffice: { w: 528, h: 332 },
   };
   const FLIGHT_MINIMUMS: Partial<Record<TabID, { w: number; h: number }>> = {
     drones: { w: 240, h: 120 }, scanner: { w: 300, h: 150 }, inventory: { w: 170, h: 140 },
@@ -1481,6 +1490,7 @@
     if (tab === "reprocessing" && (!docked || !reprocessingAvailable)) return;
     if (tab === "insurance" && (!docked || !insuranceAvailable)) return;
     if (tab === "lpStore" && (!docked || !lpStoreAvailable)) return;
+    if (tab === "securityOffice" && (!docked || !securityOfficeAvailable)) return;
     // OpenInventory (the Neocom button, Alt-C) shows InventoryPrimary, captioned "Inventory" (read through gridcheck: in space
     // it opens on the ship's cargo); a hold command (OpenCargoHoldOfActiveShip ...) the Active ship window (below)
     if (tab === "inventory") inventoryPrimary = true;
@@ -4052,7 +4062,7 @@
           caption={win.id === "drones" ? dronesTitle : win.id === "scanner" ? captions[win.id] ?? tabLabel(win.id) : null}
           icon={win.id === "inventory" && !docked ? clientTexture("res:/UI/Texture/WindowIcons/cargo.png") : win.id === "log" ? clientTexture("res:/ui/Texture/WindowIcons/log.png") : null}
           killable={win.id !== "drones"}
-          resizable={win.id !== "fitting" && win.id !== "medalDesigner"}
+          resizable={win.id !== "fitting" && win.id !== "medalDesigner" && win.id !== "securityOffice"}
           minWidth={minimum.w}
           minHeight={minimum.h}
           focused={win.id === activeWinKey}
