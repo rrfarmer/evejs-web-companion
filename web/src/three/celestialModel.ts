@@ -964,6 +964,7 @@ async function sunModel(c: Celestial, radius: number): Promise<THREE.Object3D> {
   grad.addColorStop(0, "rgba(255,255,255,1)"); grad.addColorStop(0.2, "rgba(255,255,255,0.5)"); grad.addColorStop(1, "rgba(255,255,255,0)");
   g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c2), color: colour, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+  glow.name = "sunGlow";
   glow.scale.setScalar(radius * 9);
   group.add(glow);
   return group;

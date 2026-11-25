@@ -4,6 +4,7 @@ import { prepareScalar, scalarAt, type ScalarCurve } from "../three/curves.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { BACKGROUND_DISTORTION_LAYER } from "../three/distortion.ts";
 import { warpTunnelMaterial, type WarpTunnelPass } from "../three/warpTunnelMaterial.ts";
+import type { WarpPlanetFade } from "./warpPlanetCrossings.ts";
 
 const AU = 149_597_870_700;
 export const WARP_SPEED_MULTIPLIER_ATTRIBUTE = 600;
@@ -25,6 +26,7 @@ interface WarpSurface {
   materials: THREE.ShaderMaterial[];
   textures: Map<string, THREE.Texture>;
   distortion: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> | null;
+  diffuse: THREE.Vector4;
   intensity: ScalarCurve;
   keys: ReturnType<typeof prepareScalar>;
 }
@@ -75,7 +77,8 @@ async function loadWarpSurface(): Promise<WarpSurface> {
   });
   root.visible = false;
   const intensity = definition.intensity;
-  return { root, geometry, materials, textures, distortion, intensity, keys: prepareScalar(intensity) };
+  const diffuse = materials[0]!.uniforms.Diffuse!.value.clone() as THREE.Vector4;
+  return { root, geometry, materials, textures, distortion, diffuse, intensity, keys: prepareScalar(intensity) };
 }
 
 export class WarpTunnel {
@@ -116,19 +119,28 @@ export class WarpTunnel {
 
   /** The tunnel's strength for a speed in metres a second while warping (0 when not warping): the client's binding. */
   static share(warping: boolean, speed: number, typeMultiplier: number | null): number {
-    const multiplier = typeMultiplier !== null && Number.isFinite(typeMultiplier) && typeMultiplier > 0 ? typeMultiplier : 1;
-    return warping ? Math.min(1, Math.max(0, speed / (3 * AU * multiplier))) : 0;
+    return warping ? Math.min(1, Math.max(0, speed / (3 * AU * WarpTunnel.multiplier(typeMultiplier)))) : 0;
+  }
+
+  static multiplier(value: number | null): number {
+    return value !== null && Number.isFinite(value) && value > 0 ? value : 1;
+  }
+
+  intensity(share: number): number {
+    const surface = this.surface;
+    return surface ? scalarAt(surface.intensity, surface.keys, share) : 0;
   }
 
   hasBackgroundDistortion(): boolean {
     return !!this.surface?.root.visible && this.surface.distortion?.visible === true;
   }
 
-  update(camera: THREE.Camera, focus: THREE.Vector3, way: THREE.Vector3, warpShare: number, gateShare: number, time: number, dt: number): void {
+  update(camera: THREE.Camera, focus: THREE.Vector3, way: THREE.Vector3, warpShare: number, gateShare: number, time: number, dt: number,
+    crossing: WarpPlanetFade): void {
     const validWay = way.lengthSq() > 0.5;
     const surface = this.surface;
     if (surface) {
-      const intensity = scalarAt(surface.intensity, surface.keys, warpShare);
+      const intensity = this.intensity(warpShare);
       surface.root.visible = validWay && intensity > 0.002;
       if (surface.root.visible) {
         // Warp.AlignToDirection and the camera translation modifier, converted into the mirrored scene frame.
@@ -142,6 +154,19 @@ export class WarpTunnel {
           material.uniforms.Time!.value = time;
           material.uniforms.MiscFactors2!.value.w = intensity;
         }
+        const transparent = surface.materials[0]!.uniforms;
+        transparent.MiscFactors2!.value.x = crossing.leaving;
+        transparent.MiscFactors2!.value.z = crossing.entering;
+        // _Setup_ binds the color curve to both caps and the flash curve to their scale.
+        const { brightness, tint } = crossing;
+        transparent.BlueShiftColor!.value.set(0.33 + 0.313 * tint, 0.71 + 0.117 * tint, 1, 0.3 - 0.05 * tint).multiplyScalar(brightness);
+        transparent.RedShiftColor!.value.set(1 - 0.5 * tint, 0.46 - 0.154 * tint, 0.294 - 0.054 * tint, 0.22 - 0.032 * tint).multiplyScalar(brightness);
+        const colorScale = (0.2 + 0.298014 * brightness) / (0.2 + 0.298014 * 0.6);
+        transparent.Diffuse!.value.copy(surface.diffuse).multiplyScalar(colorScale);
+        const additive = surface.materials[1]!.uniforms;
+        additive.MiscFactors2!.value.x = brightness;
+        additive.MiscFactors3!.value.x = crossing.entering;
+        additive.MiscFactors3!.value.y = crossing.leaving;
         if (surface.distortion) {
           const uniforms = surface.distortion.material.uniforms;
           uniforms.MiscFactors2!.value.w = intensity * 8;

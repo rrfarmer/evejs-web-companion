@@ -78,7 +78,8 @@ const CMD_BY_ACTION: Readonly<Record<string, string>> = { info: "CmdShowItemInfo
   warp: "CmdWarpToItem", cargo: "CmdOpenSelectedCargoContainer" };
 // (a warp it cannot make comes as UI/Inflight/Submenus/WarpToWithin, which is not in CMD_BY_ACTIONID: no shortcut then)
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
-import type { DamageRouting, MiningState, SpaceSnapshot, SurveyResult } from "../store/types.ts";
+import type { DamageRouting, MiningState, ShipWarp, SpaceSnapshot, SurveyResult } from "../store/types.ts";
+import { WarpPlanetCrossings } from "./warpPlanetCrossings.ts";
 import { healthNotificationSettings, HEALTH_NOTIFICATIONS } from "../store/notifySettings.ts";
 import { ALERT_ANIMATION_MS, ALERT_DURATION_MS, CAPACITOR, HULL, activeAlertLevel, capacitorAlerting, capacitorChanged, damageStateChanged, initialShipAlertState, isLevelActive } from "../ui/shipAlert.ts";
 import { LocationBanner, DEPLETION_COLORS, DEPLETION_FORMATTED_LABEL, DEPLETION_LABELS, PLANET_TYPE_LABELS, beltOriginalCounts, depletionStatus, dungeonOriginalCounts, locationNameParts, RESOURCE_HARVESTING_ARCHETYPES } from "./locationBanner.ts";
@@ -170,6 +171,7 @@ interface Snapshot {
   entities: Entity[];
   ship: (Entity & {
     maxVelocity: number | null; speedFraction: number | null;
+    warp?: ShipWarp | null;
     shieldRatio?: number | null; armorRatio?: number | null; hullRatio?: number | null; capacitorRatio?: number | null;
   }) | null;
 }
@@ -1196,6 +1198,8 @@ export class SpaceView {
   private frameCount = 0;
   private stopped = false;
   private readonly warpTunnel = new WarpTunnel();
+  private readonly warpPlanets = new WarpPlanetCrossings();
+  private warpHiddenBody: THREE.Object3D | null = null;
   private readonly wormholeTransit = new WormholeTransit(this.scene);
   /** Weapons fire, from the park's special effects. */
   private readonly turretFx = new TurretFx();
@@ -6140,7 +6144,7 @@ export class SpaceView {
     // the park's ball has no warp target of its own; the session's flight read says what the warp is to (as the
     // action indication's warp line takes it)
     if (inMiningWarp) {
-      this.warpToItemID = (ego as { warp?: { destinationID: number | null } | null } | null)?.warp?.destinationID
+      this.warpToItemID = ego?.warp?.destinationID
         ?? this.options.flightSnapshot?.()?.ship?.warp?.destinationID ?? this.warpToItemID;
     }
     else if (this.miningInWarp && snap) { const id = this.warpToItemID; this.warpToItemID = null; void this.indicateArrival(snap, id); }
@@ -6181,6 +6185,7 @@ export class SpaceView {
     const w = innerWidth, h = innerHeight;
     const survey = this.options.miningSurvey?.();
     let sun: { position: THREE.Vector3; radius: number } | null = null;
+    let sunMark: THREE.Object3D | null = null;
     const settings = gfx();
     const asteroidLod = lodSettings(settings);
     const asteroidProjection = (this.camera.projectionMatrix.elements[0] ?? 1) * this.renderer.domElement.width;
@@ -6249,6 +6254,7 @@ export class SpaceView {
       if (e.kind === "sun") {
         this.sunDir.copy(rel).normalize();
         sun = { position: mark.position, radius: e.radius };
+        sunMark = mark;
       } else if (rendering.shadows && (e.kind === "planet" || e.kind === "moon")) {
         shadowPlanets.push({ center: mark.position, radius: e.radius });
       }
@@ -6530,7 +6536,17 @@ export class SpaceView {
     // a ship that is not moving (at a gate, or come out of one) has no way of its own: the camera's, so the tunnel eases out
     if (way.lengthSq() < 0.5) tunnelWay = this.camera.getWorldDirection(new THREE.Vector3());
     this.flashEl.style.opacity = flash.toFixed(3);
-    this.warpTunnel.update(this.camera, this.controls.target, tunnelWay, share, gateShare, now / 1000, dt);
+    const warpPoint = ego?.mode === "WARP" ? ego.warp?.point ?? this.options.flightSnapshot?.()?.ship?.warp?.point ?? null : null;
+    const crossing = this.warpPlanets.sample(ego, warpPoint, snap?.entities ?? [], this.warpTunnel.intensity(share), WarpTunnel.multiplier(warpSpeedMultiplier));
+    const hiddenBody = crossing.body === null ? null : this.marks.get(crossing.body) ?? null;
+    if (this.warpHiddenBody !== hiddenBody) {
+      if (this.warpHiddenBody) this.warpHiddenBody.visible = true;
+      if (hiddenBody) hiddenBody.visible = false;
+      this.warpHiddenBody = hiddenBody;
+    }
+    const sunGlow = sunMark?.getObjectByName("sunGlow");
+    if (sunGlow) sunGlow.visible = crossing.body === null;
+    this.warpTunnel.update(this.camera, this.controls.target, tunnelWay, share, gateShare, now / 1000, dt, crossing);
     this.turretFx.setResolution(innerWidth, innerHeight);
     this.turretFx.onShot = this.onShot;
     this.turretFx.onFire = (ship, moduleID, target) => { this.fireTurretSet(ship, moduleID, target); };
@@ -6769,7 +6785,7 @@ export class SpaceView {
     const clouds = cloudVolumes.length
       ? { meshes: cloudVolumes.map((vortex) => vortex.cloudOpacityMesh(scattering)), quality: settings.volumetricQuality, scattering }
       : undefined;
-    this.bloom.render(environment, sun, clouds);
+    this.bloom.render(environment, crossing.body === null ? sun : null, clouds);
   }
 
   /** Show acquisition from the request through confirmation, refusal or cancellation. */
