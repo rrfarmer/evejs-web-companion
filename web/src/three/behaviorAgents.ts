@@ -1067,5 +1067,5 @@ export function placeStretch(fx: THREE.Object3D, data: SofStretch3, source: THRE
   set(data.ids.stretch, new THREE.Matrix4().compose(source.clone().addScaledVector(diff, 0.5), arcFromForward(diff), new THREE.Vector3(1, 1, diff.length())));
   set(data.ids.move, new THREE.Matrix4().compose(source, q, one));
   set(data.ids.dest, new THREE.Matrix4().compose(dest, q.clone().multiply(HALF_TURN_Y), one.clone().multiplyScalar(data.destObjectScale)));
-  if (data.hasParticleLengthBindings) placeStretchParticleEnds(fx, source, diff.length());
+  if (data.hasParticleLengthBindings) placeStretchParticleEnds(fx, source, dest, diff.length());
 }

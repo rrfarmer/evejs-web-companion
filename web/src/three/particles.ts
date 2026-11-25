@@ -18,11 +18,28 @@ import { dynamicLightUniforms, prepareLights, TILED_LIGHT_GLSL, tiledLightLoop }
 
 import { ELEMENT, ParticleEmitter, ParticleSim, elementKey, type ParticleEmitterData, type ParticleSystemData } from "./particleSim.ts";
 
-const stretchParticleEnds = new WeakMap<THREE.Object3D, (source: THREE.Vector3, length: number) => void>();
+const stretchParticleEnds = new WeakMap<THREE.Object3D, (source: THREE.Vector3, plane: THREE.Plane, length: number) => void>();
+const stretchPlanes = new WeakMap<THREE.Object3D, THREE.Plane>();
 
-export function placeStretchParticleEnds(effect: THREE.Object3D, source: THREE.Vector3, length: number): void {
+export function placeStretchParticleEnds(effect: THREE.Object3D, source: THREE.Vector3, dest: THREE.Vector3, length: number): void {
   const worldSource = effect.parent ? effect.parent.localToWorld(source.clone()) : source;
-  effect.traverse((node) => stretchParticleEnds.get(node)?.(worldSource, length));
+  const worldDest = effect.parent ? effect.parent.localToWorld(dest.clone()) : dest;
+  let plane = stretchPlanes.get(effect);
+  if (!plane) { plane = new THREE.Plane(); stretchPlanes.set(effect, plane); }
+  const normal = new THREE.Vector3().subVectors(worldSource, worldDest).normalize();
+  plane.setFromNormalAndCoplanarPoint(normal, worldSource);
+  effect.traverse((node) => stretchParticleEnds.get(node)?.(worldSource, plane, length));
+}
+
+/** Apply the muzzle plane to the drawn vertices, including stretched cards and the rock depth pass. */
+function clipStretchParticles(material: THREE.ShaderMaterial, plane: THREE.IUniform<THREE.Vector4>): void {
+  material.uniforms.stretchClipPlane = plane;
+  const end = material.vertexShader.lastIndexOf("}");
+  material.vertexShader = "uniform vec4 stretchClipPlane; varying float vStretchDistance;\n"
+    + material.vertexShader.slice(0, end) + "\nvStretchDistance = dot(stretchClipPlane, gl_Position);\n"
+    + material.vertexShader.slice(end);
+  material.fragmentShader = "varying float vStretchDistance;\n" + material.fragmentShader
+    .replace(/void\s+main\s*\(\s*\)\s*\{/, "$&\nif (vStretchDistance > 0.0) discard;");
 }
 
 const v4 = (a: unknown, d: number[]) => {
@@ -1213,6 +1230,7 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
     }
   }
   const updated: ParticleSim[] = [];
+  const stretchEmitters: GpuEmitter[] = [];
   // Each child owns the updates and callbacks for its own systems. Emitters may write to a sibling's shared system.
   let drawnBy: { scene: THREE.Object3D; world: THREE.Matrix4 } | null = null;
   for (const index of node.updated) {
@@ -1221,6 +1239,10 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
     updated.push(s);
     const hook = (k: string) => { const e = data[k] as GpuEmitterData | undefined; return e && /^Tr2Gpu(Unique|Shared)Emitter$/.test(e.type ?? "") ? new GpuEmitter(e) : null; };
     const death = hook("emitParticleOnDeathEmitter"), life = hook("emitParticleDuringLifeEmitter");
+    if (s.hasStretchAttractors) {
+      if (death) stretchEmitters.push(death);
+      if (life) stretchEmitters.push(life);
+    }
     if (death) s.onDeath = (p, v) => { if (drawnBy) death.spawnAt(drawnBy.world, gpuSystemOf(drawnBy.scene), p, v, 1); };
     // its constraints' collision emitters (a GPU emitter each, made on its first collision)
     const onHit = new Map<Record<string, unknown>, GpuEmitter | null>();
@@ -1268,9 +1290,18 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
   let mesh: THREE.Object3D = meshes[0]!;
   if (meshes.length > 1) { mesh = new THREE.Group(); mesh.name = `child-particle-passes:${node.name ?? ""}`; for (const m of meshes) mesh.add(m); }
   const stretchSims = updated.filter((system) => system.hasStretchAttractors);
+  let stretchPlane: THREE.Plane | null = null;
+  const clipPlane = { value: new THREE.Vector4(0, 0, 0, 0) };
+  const clipToWorld = new THREE.Matrix4();
   if (stretchSims.length) {
+    for (const particleMaterial of materials) clipStretchParticles(particleMaterial, clipPlane);
+    if (surface?.material instanceof THREE.ShaderMaterial) clipStretchParticles(surface.material, clipPlane);
     const localSource = new THREE.Vector3();
-    stretchParticleEnds.set(mesh, (source, length) => {
+    stretchParticleEnds.set(mesh, (source, plane, length) => {
+      if (stretchPlane !== plane) {
+        stretchPlane = plane;
+        for (const emitter of stretchEmitters) emitter.setEndPlane(plane);
+      }
       mesh.worldToLocal(localSource.copy(source));
       for (const system of stretchSims) system.setStretchEnd(localSource.toArray(), length);
     });
@@ -1283,6 +1314,11 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
   const updateParticles = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, object: THREE.Object3D) => {
     object.updateWorldMatrix(true, false);
     drawnBy = { scene, world: object.matrixWorld };
+    if (stretchPlane) {
+      const { normal, constant } = stretchPlane;
+      clipToWorld.multiplyMatrices(camera.matrixWorld, camera.projectionMatrixInverse).transpose();
+      clipPlane.value.set(normal.x, normal.y, normal.z, constant).applyMatrix4(clipToWorld);
+    }
     const now = surface ? opaqueFrameTime(renderer) : performance.now() / 1000;
     if (now === stepped) return;
     stepped = now;

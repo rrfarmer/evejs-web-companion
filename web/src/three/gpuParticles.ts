@@ -30,6 +30,7 @@ export interface GpuEmitterData {
 interface Params {
   minLife: number; maxLife: number; tex: number; expo: number; colors: number[][]; sizes: number[]; sizeVariance: number;
   drag: number; turbAmp: number; turbFreq: number; gravity: number; attractor: number[]; attractorStrength: number; vsr: number;
+  endPlane?: THREE.Plane;
 }
 const n0 = (v: unknown, d: number) => (typeof v === "number" ? v : d);
 const v3 = (v: unknown, d: number[]) => [0, 1, 2].map((i) => (Array.isArray(v) && typeof v[i] === "number" ? (v[i] as number) : d[i]!));
@@ -116,7 +117,7 @@ export class GpuParticleSystem {
     const quad = new THREE.InstancedBufferGeometry();
     quad.setAttribute("position", new THREE.Float32BufferAttribute([1, -1, 0, -1, -1, 0, -1, 1, 0, 1, 1, 0], 3));
     quad.setIndex([0, 1, 2, 3, 0, 2]);
-    for (const [name, size] of [["iPos", 3], ["iVel", 3], ["iCol", 4], ["iMisc", 4], ["iTex", 1]] as const) {
+    for (const [name, size] of [["iPos", 3], ["iVel", 3], ["iCol", 4], ["iMisc", 4], ["iTex", 1], ["iEndPlane", 4]] as const) {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * size), size);
       a.setUsage(THREE.DynamicDrawUsage);
       quad.setAttribute(name, a);
@@ -147,7 +148,8 @@ export class GpuParticleSystem {
       uniforms,
       vertexShader: `uniform float frames; uniform vec2 resolution;
         attribute vec3 iPos; attribute vec3 iVel; attribute vec4 iCol; attribute vec4 iMisc; attribute float iTex;
-        varying vec2 vUv; varying vec4 vColor;
+        attribute vec4 iEndPlane;
+        varying vec2 vUv; varying vec4 vColor; varying float vEndDistance;
         void main() {
           float size = iMisc.x, vsr = iMisc.y, seedf = iMisc.z, age = iMisc.w;
           float s = size * 0.25;
@@ -168,6 +170,8 @@ export class GpuParticleSystem {
             off = vec2( s * c.x * cs + s * c.y * sn, s * c.x * sn - s * c.y * cs );
           }
           gl_Position = projectionMatrix * vec4( viewPos.xyz + vec3( off, 0.0 ), 1.0 );
+          vEndDistance = dot(iEndPlane.xyz, iPos) + iEndPlane.w
+            + dot((mat3(viewMatrix) * iEndPlane.xyz).xy, off);
           float fade = clamp( 0.5 * min( s / gl_Position.w * resolution.x, s / gl_Position.w * resolution.y ), 0.0, 1.0 );
           // D3D's v (0 at the image's first row): our DDS uploads keep that row at t = 0
           vUv = vec2( ( c.x * 0.5 + 0.5 + iTex ) / frames, c.y * 0.5 + 0.5 );
@@ -177,9 +181,10 @@ export class GpuParticleSystem {
         uniform highp sampler2D sceneDepth;
         uniform bool encodedBlend, decodeAtlas;
         uniform vec2 softDepthSize;
-        varying vec2 vUv; varying vec4 vColor;
+        varying vec2 vUv; varying vec4 vColor; varying float vEndDistance;
         ${CLOUD_FOG_GLSL}
         void main() {
+          if (vEndDistance > 0.0) discard;
           if (encodedBlend) {
             #ifdef USE_LOGARITHMIC_DEPTH_BUFFER
               float depth = gl_FragDepth;
@@ -342,7 +347,15 @@ export class GpuParticleSystem {
         vel[o] = vel[o]! * k; vel[o + 1] = vel[o + 1]! * k; vel[o + 2] = vel[o + 2]! * k;
       }
       pos[o] = pos[o]! + vel[o]! * dt; pos[o + 1] = pos[o + 1]! + vel[o + 1]! * dt; pos[o + 2] = pos[o + 2]! + vel[o + 2]! * dt;
-      if (!Number.isFinite(pos[o]! + pos[o + 1]! + pos[o + 2]!)) { age[i] = -1; this.params[i] = null; this.free.push(i); this.alive--; }
+      const { endPlane } = P;
+      const x = pos[o]!, y = pos[o + 1]!, z = pos[o + 2]!;
+      if (!Number.isFinite(x + y + z) ||
+          (endPlane && endPlane.normal.x * x + endPlane.normal.y * y + endPlane.normal.z * z + endPlane.constant > 0)) {
+        age[i] = -1;
+        this.params[i] = null;
+        this.free.push(i);
+        this.alive--;
+      }
     }
   }
 
@@ -370,6 +383,7 @@ export class GpuParticleSystem {
     list.sort((a, b) => a[0] - b[0]);
     const P3 = this.attrs.iPos!.array as Float32Array, V3 = this.attrs.iVel!.array as Float32Array, C4 = this.attrs.iCol!.array as Float32Array;
     const M4 = this.attrs.iMisc!.array as Float32Array, T1 = this.attrs.iTex!.array as Float32Array;
+    const E4 = this.attrs.iEndPlane!;
     for (let n = 0; n < list.length; n++) {
       const i = list[n]![1], P = this.params[i]!, seedf = this.seed[i]!, a = this.age[i]!;
       const life = P.minLife + (P.maxLife - P.minLife) * seedf;
@@ -384,8 +398,15 @@ export class GpuParticleSystem {
       C4[n * 4] = col[0]! * col[3]!; C4[n * 4 + 1] = col[1]! * col[3]!; C4[n * 4 + 2] = col[2]! * col[3]!; C4[n * 4 + 3] = col[3]!;
       M4[n * 4] = size; M4[n * 4 + 1] = P.vsr; M4[n * 4 + 2] = seedf; M4[n * 4 + 3] = a;
       T1[n] = P.tex;
+      const plane = P.endPlane;
+      E4.setXYZW(n, plane?.normal.x ?? 0, plane?.normal.y ?? 0, plane?.normal.z ?? 0, plane?.constant ?? 0);
     }
-    for (const a of Object.values(this.attrs)) a.needsUpdate = true;
+    for (const a of Object.values(this.attrs)) {
+      a.clearUpdateRanges();
+      if (list.length === 0) continue;
+      a.addUpdateRange(0, list.length * a.itemSize);
+      a.needsUpdate = true;
+    }
     (this.mesh.geometry as THREE.InstancedBufferGeometry).instanceCount = list.length;
   }
 }
@@ -419,6 +440,10 @@ export class GpuEmitter {
     this.data = data;
     this.unique = data.type === "Tr2GpuUniqueEmitter";
     this.params = paramsOf(data);
+  }
+
+  setEndPlane(plane: THREE.Plane): void {
+    this.params.endPlane = plane;
   }
   /** An attribute a curve binding sets (a stretch's: rate, color1 ...): the emitter's data, its params read again. */
   setValue(attr: string, value: number | number[]): void {
