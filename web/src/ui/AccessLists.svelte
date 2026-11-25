@@ -6,7 +6,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { startAccessGroupDrag } from "./accessGroupDrag.ts";
-  import { accessOwnerLinkType, droppedAccessMembers, hasAccessMemberDrag, startAccessMemberDrag } from "./accessMemberDrag.ts";
+  import { accessMembershipsFromDrop, accessOwnerLinkType, droppedAccessMembers, hasAccessMemberDrag, startAccessMemberDrag } from "./accessMemberDrag.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const station = $derived(store.station);
@@ -29,6 +29,7 @@
   let ownerQuery = $state("");
   let ownerMatches = $state.raw<readonly { id: number; name: string; typeID: number }[] | null>(null);
   let dropRole = $state<number | null>(null);
+  let ownerDrop = $state<number | "pane" | null>(null);
   let searchingOwners = $state(false);
   let ownerSearchGeneration = 0;
   let readGeneration = 0;
@@ -41,8 +42,7 @@
   const selected = $derived(visible.find(group => group.groupID === selectedID) ?? visible[0] ?? null);
   const memberGroupID = $derived(selected?.groupID ?? null);
   const selectedCanEdit = $derived(selected?.membershipType === 2 && selected.creatorID !== corporationID);
-  const canManageMembers = $derived(selected !== null && selected.creatorID !== corporationID &&
-    (selected.membershipType === 2 || selected.membershipType === 1));
+  const canManageMembers = $derived(selected !== null && canManageGroup(selected));
   const canRemoveSelf = $derived(selected !== null && selected.creatorID !== corporationID &&
     selected.membershipType === 0 && members?.some(member => member.memberID === characterID && member.membershipType === 0));
   const canSelectMembers = $derived(canManageMembers || canRemoveSelf);
@@ -79,6 +79,10 @@
     return 3;
   }
 
+  function canManageGroup(group: AccessGroup) {
+    return group.creatorID !== corporationID && (group.membershipType === 2 || group.membershipType === 1);
+  }
+
   $effect(() => {
     flow.requestWords([...roleWords, ...roleActions.map(action => action.label),
       ...removeRoleActions.map(action => action.label), "PublicUser", "RemoveMember", "AddPublic"].map(key => WORD + key));
@@ -108,6 +112,7 @@
     ownerQuery = "";
     ownerMatches = null;
     dropRole = null;
+    ownerDrop = null;
     searchingOwners = false;
     memberActionError = "";
     ++ownerSearchGeneration;
@@ -225,7 +230,51 @@
 
   function dragMember(event: DragEvent, member: typeof memberRows[number]) {
     const dragged = checked.has(member.memberID) ? checkedRows : [member];
-    startAccessMemberDrag(event, dragged.map(row => ({ id: row.memberID, typeID: row.typeID, name: row.name })));
+    startAccessMemberDrag(event, dragged.map(row => ({
+      id: row.memberID, typeID: row.typeID, name: row.name, membershipType: row.membershipType,
+    })));
+  }
+
+  function acceptOwnerDrop(event: DragEvent, group: AccessGroup, target: number | "pane") {
+    if (busy || editor || !canManageGroup(group) || !hasAccessMemberDrag(event)) return false;
+    event.preventDefault();
+    if (event.type === "dragover") {
+      ownerDrop = target;
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    }
+    return true;
+  }
+
+  async function addFromOwnerDrop(event: DragEvent, group: AccessGroup, target: number | "pane") {
+    ownerDrop = null;
+    const pilot = characterID;
+    if (pilot === null || !acceptOwnerDrop(event, group, target)) return;
+    const roles = accessMembershipsFromDrop(event, target !== "pane");
+    if (!roles.length) return;
+    busy = true;
+    memberActionError = "";
+    try {
+      const [existing] = await Promise.all([
+        flow.readAccessGroupMembers(group.groupID),
+        flow.resolveNamesNow(roles.map(([id]) => ({ kind: "ownerType", id }))),
+      ]);
+      if (pilot !== characterID) return;
+      const memberIDs = new Set(existing.map(member => member.memberID));
+      const pending = roles.filter(([id]) => !memberIDs.has(id));
+      const permitted = pending.filter(([id, role]) => {
+        const type = accessOwnerLinkType(Number(resolvedName(names.get().resolved, "ownerType", id, "0")));
+        return type !== null && ((role !== 1 && role !== 2) || (type === 1373 && group.membershipType === 2));
+      });
+      if (permitted.length < pending.length) memberActionError = "Some owners cannot be assigned to this access role.";
+      if (permitted.length) await flow.addAccessGroupMembers(group.groupID, permitted);
+    } catch (cause) {
+      if (pilot === characterID) memberActionError = panelErrorWords(cause);
+    } finally {
+      if (pilot === characterID) {
+        if (memberGroupID === group.groupID) ++memberRefresh;
+        busy = false;
+      }
+    }
   }
 
   async function refresh() {
@@ -334,8 +383,11 @@
       {:else}
         <ul>
           {#each visible as group (group.groupID)}
-            <li draggable="true" data-access-group-id={group.groupID}
-              ondragstart={(event) => startAccessGroupDrag(event, group.groupID, group.name)}>
+            <li draggable="true" data-access-group-id={group.groupID} class:drop-active={ownerDrop === group.groupID}
+              ondragstart={(event) => startAccessGroupDrag(event, group.groupID, group.name)}
+              ondragover={(event) => acceptOwnerDrop(event, group, group.groupID)}
+              ondragleave={() => { if (ownerDrop === group.groupID) ownerDrop = null; }}
+              ondrop={(event) => addFromOwnerDrop(event, group, group.groupID)}>
               <button type="button" aria-pressed={group.groupID === memberGroupID}
                 onclick={() => { selectedID = group.groupID; }} disabled={busy || editor !== null}>{group.name}</button>
             </li>
@@ -389,25 +441,30 @@
           {/if}
         {/if}
         {#if memberActionError}<p role="alert">{memberActionError}</p>{/if}
-        <table aria-label="Access list members">
-          <thead><tr>{#if canSelectMembers}<th scope="col" aria-label="Select members"></th>{/if}<th scope="col">Name</th><th scope="col">Access</th></tr></thead>
-          <tbody>
-            {#each memberRows as member (member.memberID)}
-              <tr data-access-member-id={member.memberID}>
-                {#if canSelectMembers}
-                  <td class="member-select">
-                    {#if canManageMembers || member.memberID === characterID}
-                      <input type="checkbox" aria-label={`Select ${member.name}`} checked={checked.has(member.memberID)} disabled={busy}
-                        onchange={(event) => toggleMember(member.memberID, event.currentTarget.checked)} />
-                    {/if}
-                  </td>
-                {/if}
-                <td><span role="presentation" draggable={member.memberID > 0 && accessOwnerLinkType(member.typeID) !== null}
-                  ondragstart={(event) => dragMember(event, member)}>{member.name}</span></td><td>{word(roleWords[member.membershipType])}</td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
+        <div role="group" class="member-pane" class:drop-active={ownerDrop === "pane"} aria-label="Drop owners to add members"
+          ondragover={(event) => acceptOwnerDrop(event, selected, "pane")}
+          ondragleave={() => { if (ownerDrop === "pane") ownerDrop = null; }}
+          ondrop={(event) => addFromOwnerDrop(event, selected, "pane")}>
+          <table aria-label="Access list members">
+            <thead><tr>{#if canSelectMembers}<th scope="col" aria-label="Select members"></th>{/if}<th scope="col">Name</th><th scope="col">Access</th></tr></thead>
+            <tbody>
+              {#each memberRows as member (member.memberID)}
+                <tr data-access-member-id={member.memberID}>
+                  {#if canSelectMembers}
+                    <td class="member-select">
+                      {#if canManageMembers || member.memberID === characterID}
+                        <input type="checkbox" aria-label={`Select ${member.name}`} checked={checked.has(member.memberID)} disabled={busy}
+                          onchange={(event) => toggleMember(member.memberID, event.currentTarget.checked)} />
+                      {/if}
+                    </td>
+                  {/if}
+                  <td><span role="presentation" draggable={member.memberID > 0 && accessOwnerLinkType(member.typeID) !== null}
+                    ondragstart={(event) => dragMember(event, member)}>{member.name}</span></td><td>{word(roleWords[member.membershipType])}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
         {#if removable.length}
           <div class="actions">
             {#each roleActions as action (action.role)}
@@ -453,6 +510,8 @@
   .role-targets > div { border: 1px solid #43525c; text-align: center; padding: 5px 3px; }
   .role-targets > div[data-disabled="true"] { opacity: .45; }
   .role-targets > .drop-active { border-color: #86c1d6; background: #254652; }
+  .member-pane { min-height: 44px; }
+  .member-pane.drop-active, li.drop-active { outline: 1px solid #86c1d6; background: #254652; }
   span[draggable="true"] { cursor: grab; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #324046; }

@@ -5523,6 +5523,7 @@ export interface AppFlow {
   readFolderInfo(folderID: number): Promise<BookmarkFolder>;
   readAccessGroups(): Promise<readonly AccessGroup[]>;
   readAccessGroupMembers(groupID: number): Promise<readonly AccessGroupMember[]>;
+  addAccessGroupMembers(groupID: number, memberships: readonly (readonly [number, number])[]): Promise<void>;
   changeAccessGroupMembers(groupID: number, method: "AddMembers" | "UpdateMembershipTypes" | "DeleteMembers",
     memberIDs: readonly number[], membershipType?: number): Promise<void>;
   createAccessGroup(name: string, description: string): Promise<number>;
@@ -6057,6 +6058,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     ? inventoryPasswordScope().ask(service, method, args, kwargs, of) : rawBridgeAsk(service, method, args, kwargs, of);
   const bridgeDo: Ask = (service, method, args, kwargs, of) => service === "invbroker" && of != null
     ? inventoryPasswordScope().act(service, method, args, kwargs, of) : rawBridgeDo(service, method, args, kwargs, of);
+
+  async function writeAccessGroupMembers(method: string, args: JsonValue[]): Promise<void> {
+    const result = await bridgeDo("ownerGroupManager", method, args);
+    const failures = isListValue(result) ? result.items : Array.isArray(result) ? result : null;
+    if (!failures) throw new Error("The server did not return the membership result.");
+    if (failures.length) throw new Error(`The server refused changes for ${failures.length} selected member(s).`);
+  }
+
+  function addAccessGroupMembers(groupID: number, memberships: readonly (readonly [number, number])[]): Promise<void> {
+    const entries = memberships.map(([id, role]): JsonValue[] => [id, role]);
+    return writeAccessGroupMembers("AddMembers", [groupID, { type: "dict", entries }]);
+  }
   const inventoryMoves = createCachedInventoryMoves(() => {
     const passwordScope = inventoryPasswordScope(), current = passwordScope.current, scoped = passwordScope.options;
     return {
@@ -40233,17 +40246,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return decodeAccessGroupMembers(await bridgeAsk("ownerGroupManager", "GetMembers", [groupID]));
     },
 
+    addAccessGroupMembers,
+
     async changeAccessGroupMembers(groupID, method, memberIDs, membershipType = 0) {
-      let args: JsonValue[] = [groupID, [...memberIDs]];
-      if (method === "AddMembers") {
-        args = [groupID, { type: "dict", entries: memberIDs.map(id => [id, membershipType]) }];
-      } else if (method === "UpdateMembershipTypes") {
-        args.push(membershipType);
-      }
-      const result = await bridgeDo("ownerGroupManager", method, args);
-      const failures = isListValue(result) ? result.items : Array.isArray(result) ? result : null;
-      if (!failures) throw new Error("The server did not return the membership result.");
-      if (failures.length) throw new Error(`The server refused changes for ${failures.length} selected member(s).`);
+      if (method === "AddMembers") return addAccessGroupMembers(groupID, memberIDs.map(id => [id, membershipType]));
+      const args: JsonValue[] = [groupID, [...memberIDs]];
+      if (method === "UpdateMembershipTypes") args.push(membershipType);
+      await writeAccessGroupMembers(method, args);
     },
 
     async createAccessGroup(name, description) {
