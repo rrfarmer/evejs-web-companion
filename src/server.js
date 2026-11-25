@@ -19105,13 +19105,17 @@ function portraitBackdrop(row) {
     ? resource : null;
 }
 
-app.post("/api/bridge/character/portrait-backdrop", requireAuth, async (req, res, next) => {
+app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) => {
   const held = requireHeldBridgeSession(req, res);
-  if (!held || !requireWriteConfirmation(req, res, "Choose a backdrop and use Save backdrop.")) return;
-  const { backgroundID, dockedLocationID } = req.body;
+  if (!held || !requireWriteConfirmation(req, res, "Use Save portrait to confirm your changes.")) return;
+  const { backgroundID, fieldOfView = null, dockedLocationID } = req.body;
   if (!Number.isSafeInteger(backgroundID) || backgroundID <= 0 ||
       !Number.isSafeInteger(dockedLocationID) || dockedLocationID <= 0) {
     return res.status(400).json({ ok: false, error: "INVALID_BACKDROP", message: "Choose an available portrait backdrop." });
+  }
+  // The portrait stores the lens field of view in radians.
+  if (fieldOfView !== null && (typeof fieldOfView !== "number" || !Number.isFinite(fieldOfView) || fieldOfView < 0.2 || fieldOfView > 1.5)) {
+    return res.status(400).json({ ok: false, error: "INVALID_PORTRAIT_ZOOM", message: "Choose a valid portrait zoom." });
   }
   const call = (service, method, args) => heldTopLevelCall(held, req.webSessionID, service, method, args, null);
   const readPortrait = async () => {
@@ -19128,19 +19132,20 @@ app.post("/api/bridge/character/portrait-backdrop", requireAuth, async (req, res
     const { result: state } = await call("charMgr", "GetPaperdollState", []);
     const portrait = await readPortrait();
     if (state !== 0 || !Number.isSafeInteger(portrait?.backgroundID)) {
-      return res.status(409).json({ ok: false, error: "PORTRAIT_REQUIRED", message: "This pilot needs a saved appearance and portrait before changing the backdrop." });
+      return res.status(409).json({ ok: false, error: "PORTRAIT_REQUIRED", message: "This pilot needs a saved appearance and portrait before editing it." });
     }
     const { flight } = await readHeldFlight(held, req.webSessionID);
     if (!flight?.docked || (flight.structureID ?? flight.stationID) !== dockedLocationID) {
-      return res.status(409).json({ ok: false, error: "LOCATION_CHANGED", message: "Dock to change your portrait backdrop." });
+      return res.status(409).json({ ok: false, error: "LOCATION_CHANGED", message: "Dock to edit your portrait." });
     }
-    if (portrait.backgroundID !== backgroundID) {
+    const cameraFieldOfView = fieldOfView ?? portrait.cameraFieldOfView;
+    if (portrait.backgroundID !== backgroundID || portrait.cameraFieldOfView !== cameraFieldOfView) {
       // The limited update keeps the existing doll when appearance is null.
-      // Reuse the saved portrait fields so the backdrop change keeps its pose and camera.
-      const updated = { type: "dict", entries: Object.entries({ ...portrait, backgroundID }) };
+      const updated = { type: "dict", entries: Object.entries({ ...portrait, backgroundID, cameraFieldOfView }) };
       await call("paperDollServer", "UpdateExistingCharacterLimited", [held.characterID, null, updated, true]);
-      if ((await readPortrait())?.backgroundID !== backgroundID) {
-        return res.status(409).json({ ok: false, error: "BACKDROP_UNCONFIRMED", message: "The saved backdrop could not be confirmed." });
+      const saved = await readPortrait();
+      if (saved?.backgroundID !== backgroundID || saved.cameraFieldOfView !== cameraFieldOfView) {
+        return res.status(409).json({ ok: false, error: "PORTRAIT_UNCONFIRMED", message: "The portrait changes could not be confirmed." });
       }
     }
     res.json({ ok: true, backgroundID });

@@ -2,18 +2,22 @@
   import { onMount } from "svelte";
   import * as THREE from "three";
   import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+  import type { PortraitFraming } from "../app/flow.ts";
   import { compressedSupport, loadDds } from "../three/ddsTexture";
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
 
-  let { model, backdropUrl, backdropIsDds = false }: {
+  let { model, backdropUrl, backdropIsDds = false, framing, fieldOfView }: {
     model: "female" | "male";
     backdropUrl?: string;
     backdropIsDds?: boolean;
+    framing?: PortraitFraming | null;
+    fieldOfView?: number;
   } = $props();
   let canvas: HTMLCanvasElement;
   let renderer = $state.raw<THREE.WebGLRenderer | null>(null);
   let display = $state<"loading" | "ready" | "unavailable">("loading");
   let backdropDisplay = $state<"loading" | "ready" | "unavailable">("loading");
+  let headBounds = $state.raw<THREE.Box3 | null>(null);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(32, 1, 0.01, 30);
   const key = new THREE.DirectionalLight(0xffede3, 2.2);
@@ -82,6 +86,38 @@
 
   $effect(() => {
     const active = renderer;
+    const bounds = headBounds;
+    const saved = framing;
+    const fov = fieldOfView;
+    if (!active || !bounds) return;
+    const center = bounds.getCenter(new THREE.Vector3());
+    let usable = false;
+    if (saved) {
+      // The extracted model mirrors the native Z axis. Apply the same transform to the saved camera.
+      camera.position.set(saved.position[0], saved.position[1], -saved.position[2]);
+      camera.lookAt(saved.target[0], saved.target[1], -saved.target[2]);
+      camera.fov = THREE.MathUtils.radToDeg(0.3);
+      camera.updateProjectionMatrix();
+      camera.updateMatrixWorld();
+      const projected = center.clone().project(camera);
+      // Some saved defaults frame the full avatar below the generic head's bounds.
+      usable = Math.abs(projected.x) <= 0.6 && Math.abs(projected.y) <= 0.6 && Math.abs(projected.z) < 1;
+    }
+    if (!usable) {
+      const size = bounds.getSize(new THREE.Vector3());
+      const distance = Math.max(size.x, size.y) * 2.15 + size.z * 0.5;
+      const lensScale = fov === undefined ? 1 : Math.tan(THREE.MathUtils.degToRad(16)) / Math.tan(0.15);
+      camera.position.set(center.x, center.y, center.z - distance * lensScale);
+      camera.lookAt(center);
+    }
+    camera.fov = fov === undefined ? 32 : THREE.MathUtils.radToDeg(fov);
+    camera.updateProjectionMatrix();
+    active.render(scene, camera);
+    display = "ready";
+  });
+
+  $effect(() => {
+    const active = renderer;
     const url = backdropUrl;
     const isDds = backdropIsDds;
     if (!active || !url) return;
@@ -116,6 +152,7 @@
     let eyelashTexture: THREE.Texture | null = null;
     let eyelashes: THREE.MeshBasicMaterial | null = null;
     const maps: Awaited<ReturnType<typeof loadMap>>[] = [];
+    headBounds = null;
     display = "loading";
     const stem = `/client-assets/portrait-head/${name}`;
     void (async () => {
@@ -162,14 +199,7 @@
       applySurface(avatar, surface, new Set(transparent), new Set(eyelashMeshes), eyelashes);
       scene.add(avatar);
       avatar.updateMatrixWorld(true);
-      const bounds = new THREE.Box3().setFromObject(avatar, true);
-      const center = bounds.getCenter(new THREE.Vector3());
-      const size = bounds.getSize(new THREE.Vector3());
-      const distance = Math.max(size.x, size.y) * 2.15 + size.z * 0.5;
-      camera.position.set(center.x, center.y, center.z - distance);
-      camera.lookAt(center);
-      active.render(scene, camera);
-      display = "ready";
+      headBounds = new THREE.Box3().setFromObject(avatar, true);
     })().catch(() => {
       if (!retired) display = "unavailable";
     });

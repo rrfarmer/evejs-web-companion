@@ -2213,6 +2213,13 @@ export interface DockedPortraitOptions {
   readonly state: number | null;
   readonly backgroundID: number | null;
   readonly backgrounds: readonly api.PortraitBackground[];
+  readonly framing: PortraitFraming | null;
+}
+
+export interface PortraitFraming {
+  readonly position: readonly [number, number, number];
+  readonly target: readonly [number, number, number];
+  readonly fieldOfView: number;
 }
 
 export interface AppFlow {
@@ -4347,7 +4354,7 @@ export interface AppFlow {
   requestOwnSecurityStatus(): void;
   exchangeSecurityTags(stationID: number, target: number, current: number): Promise<void>;
   readDockedPortraitOptions(): Promise<DockedPortraitOptions>;
-  saveDockedPortraitBackdrop(backgroundID: number): Promise<void>;
+  saveDockedPortrait(backgroundID: number, fieldOfView: number | null): Promise<void>;
   warpToPlanetLaunch(launchID: number): Promise<void>;
   removePlanetLaunch(launchID: number): Promise<void>;
   /**
@@ -10040,17 +10047,26 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (dockedNow() !== place) throw new Error("The docked location changed.");
     const rows = Array.isArray(portrait) && isListValue(portrait[0]) ? portrait[0].items : [];
     const backgroundID = readRowField(rows[0], "backgroundID");
+    const real = (key: string) => unwrapReal(readRowField(rows[0], key));
+    const cameraVector = (prefix: string): PortraitFraming["position"] | null => {
+      const [x, y, z] = [real(prefix + "X"), real(prefix + "Y"), real(prefix + "Z")];
+      return x == null || y == null || z == null ? null : [x, y, z];
+    };
+    const position = cameraVector("camera"), target = cameraVector("cameraPoi");
+    const fieldOfView = real("cameraFieldOfView");
     return {
       state: typeof state === "number" && Number.isInteger(state) && state >= 0 && state <= 4 ? state : null,
       backgroundID: typeof backgroundID === "number" && Number.isSafeInteger(backgroundID) ? backgroundID : null,
       backgrounds,
+      framing: position && target && fieldOfView !== null && fieldOfView >= 0.2 && fieldOfView <= 1.5 ?
+        { position, target, fieldOfView } : null,
     };
   }
 
-  async function saveDockedPortraitBackdrop(backgroundID: number): Promise<void> {
+  async function saveDockedPortrait(backgroundID: number, fieldOfView: number | null): Promise<void> {
     const location = dockedNow();
-    if (location === null) throw new Error("Dock to change your portrait backdrop.");
-    await api.savePortraitBackdrop(backgroundID, location, callOptions);
+    if (location === null) throw new Error("Dock to edit your portrait.");
+    await api.savePortrait(backgroundID, fieldOfView, location, callOptions);
   }
 
   // crimewatchSvc.SetSafetyLevel: the client sets the level at the server and
@@ -39425,7 +39441,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestOwnSecurityStatus,
     exchangeSecurityTags,
     readDockedPortraitOptions,
-    saveDockedPortraitBackdrop,
+    saveDockedPortrait,
 
     async approachPlanetLaunch(containerID) {
       await runFlightStep("Approach", () => orderedStep((flightNow) => approachCall(bridgeDo, flightNow, containerID, 50)));

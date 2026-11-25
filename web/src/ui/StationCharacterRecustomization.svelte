@@ -21,6 +21,7 @@
   ]);
   let options = $state.raw<Awaited<ReturnType<AppFlow["readDockedPortraitOptions"]>> | null>(null);
   let selected = $state<number | undefined>();
+  let fieldOfView = $state(0.3);
   let preview = $state<"backdrop" | "female" | "male">("backdrop");
   let failed = $state(false);
   let saving = $state(false);
@@ -28,25 +29,28 @@
   const backdrop = $derived(options?.backgrounds.find(entry => entry.id === selected));
   const url = $derived(backdrop ? `/client-res/portrait-background/${backdrop.id}` : "");
   const canSave = $derived(options?.state === 0 && options.backgroundID !== null);
+  const zoomChanged = $derived(Boolean(pilotHead && options?.framing && fieldOfView !== options.framing.fieldOfView));
 
   onMount(() => {
     void flow.readDockedPortraitOptions().then(data => {
       options = data;
       selected = data.backgrounds.find(entry => entry.id === data.backgroundID)?.id ?? data.backgrounds[0]?.id;
+      fieldOfView = data.framing?.fieldOfView ?? 0.3;
     }).catch(() => { failed = true; });
   });
 
-  async function saveBackdrop(): Promise<void> {
-    if (!options || !canSave || !backdrop || saving || options.backgroundID === backdrop.id) return;
+  async function savePortrait(): Promise<void> {
+    if (!options || !canSave || !backdrop || saving || (options.backgroundID === backdrop.id && !zoomChanged)) return;
     const backgroundID = backdrop.id;
+    const framing = options.framing && zoomChanged ? { ...options.framing, fieldOfView } : options.framing;
     saving = true;
     saveStatus = "";
     try {
-      await flow.saveDockedPortraitBackdrop(backgroundID);
-      options = { ...options, backgroundID };
-      saveStatus = "Backdrop saved.";
+      await flow.saveDockedPortrait(backgroundID, zoomChanged ? fieldOfView : null);
+      options = { ...options, backgroundID, framing };
+      saveStatus = "Portrait settings saved.";
     } catch (error) {
-      saveStatus = error instanceof Error ? error.message : "The backdrop could not be saved.";
+      saveStatus = error instanceof Error ? error.message : "The portrait settings could not be saved.";
     } finally {
       saving = false;
     }
@@ -80,7 +84,8 @@
       </label>
       <div class="image">
         {#if pilotHead && backdrop}
-          <PortraitBaseHead model={pilotHead} backdropUrl={url} backdropIsDds={backdrop.isDds} />
+          <PortraitBaseHead model={pilotHead} backdropUrl={url} backdropIsDds={backdrop.isDds}
+            framing={options.framing} {fieldOfView} />
         {:else if backdrop?.isDds}
           <PortraitBackdrop {url} />
         {:else if url}
@@ -88,8 +93,14 @@
         {/if}
       </div>
       {#if canSave}
-        <button type="button" disabled={saving || !backdrop || selected === options.backgroundID} onclick={saveBackdrop}>
-          {saving ? "Saving…" : "Save backdrop"}
+        {#if pilotHead && options.framing}
+          <label class="zoom">Zoom
+            <input type="range" min="-1.5" max="-0.2" step="0.001" value={-fieldOfView} disabled={saving}
+              oninput={event => { fieldOfView = -event.currentTarget.valueAsNumber; saveStatus = ""; }} />
+          </label>
+        {/if}
+        <button type="button" disabled={saving || !backdrop || (selected === options.backgroundID && !zoomChanged)} onclick={savePortrait}>
+          {saving ? "Saving…" : "Save portrait"}
         </button>
         {#if saveStatus}<p role="status">{saveStatus}</p>{/if}
       {/if}
@@ -109,5 +120,7 @@
   .image { display: grid; background: #101716; aspect-ratio: 1; width: 100%; max-width: 332px; }
   img { width: 100%; aspect-ratio: 1; object-fit: contain; }
   button { margin-top: 10px; }
+  .zoom { margin-top: 10px; }
+  .zoom input { flex: 1; min-width: 0; }
   @media (max-width: 520px) { .recustomization { gap: 12px; padding: 10px; } }
 </style>

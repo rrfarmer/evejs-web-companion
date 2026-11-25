@@ -6119,8 +6119,9 @@ export async function loadPortraitBackgrounds(options: ApiOptions = {}): Promise
   });
 }
 
-export async function savePortraitBackdrop(backgroundID: number, dockedLocationID: number, options: ApiOptions = {}): Promise<void> {
-  await postJson("/api/bridge/character/portrait-backdrop", { backgroundID, dockedLocationID, confirm: true }, options);
+export async function savePortrait(backgroundID: number, fieldOfView: number | null, dockedLocationID: number,
+    options: ApiOptions = {}): Promise<void> {
+  await postJson("/api/bridge/character/portrait", { backgroundID, fieldOfView, dockedLocationID, confirm: true }, options);
 }
 
 export async function loadPaintToolData(options: ApiOptions = {}): Promise<PaintToolData | null> {
