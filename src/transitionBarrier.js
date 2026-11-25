@@ -172,7 +172,7 @@ function evaluateReadiness(kind, expected, flight, space) {
     const sceneReady = docked || Boolean(space && space.inSpace === true);
     const egoReady = docked || (flightShipID !== null && shipIdentity(space) === flightShipID);
     const shipReady = flightShipID !== null;
-    const locationReady = dockLocationReady || (inSpace && sceneReady);
+    const locationReady = dockLocationReady || (!expected.destinationMustBeDocked && inSpace && sceneReady);
     return {
       ready: locationReady && sceneReady && egoReady && shipReady,
       locationReady,
@@ -250,7 +250,7 @@ async function waitForTransitionReady({
       notifications.push(...flightOutcome.notifications);
     }
     let space = null;
-    if (kind === "undock" || kind === "stargate" || kind === "clone" || (kind === "board" && lastFlight.inSpace === true)) {
+    if (kind === "undock" || kind === "stargate" || (["board", "clone"].includes(kind) && lastFlight.inSpace === true)) {
       let spaceOutcome;
       try {
         spaceOutcome = await readSpace();

@@ -949,6 +949,7 @@ const PAGE_WRITE_PAIR_KEYS = Object.freeze([
   "LPStoreMgr.TakeOfferForCharacter",
   "jumpCloneSvc.InstallCloneInStation", "jumpCloneSvc.InstallCloneInStructure",
   "jumpCloneSvc.SetJumpCloneName", "jumpCloneSvc.DestroyInstalledClone",
+  "jumpCloneSvc.CloneJump",
   "insuranceSvc.InsureShip", "insuranceSvc.UnInsureShip",
   "repackagingSvc.RepackageItems",
   "structureControl.TakeControl", "structureControl.ReleaseControl",
@@ -1094,7 +1095,7 @@ function swapTargetOf(service, method, args) {
  *                    PerformSessionChange('JumpToAbyss', ...), the session into the trace's pocket. Kept as a stargate's
  *                    jump is (an abyss entrance).
  */
-const PAGE_PLACE_CHANGE_CALLS = Object.freeze(new Map([["ship.Undock", "undock"], ["structureDocking.Undock", "undock"], ["beyonce.CmdDock", "dock"], ["structureDocking.Dock", "dock"], ["beyonce.CmdStargateJump", "stargate"], ["wormholeMgr.WormholeJump", "wormhole"], ["beyonce.CmdJumpToFleetModuleBeacon", "cyno"], ["beyonce.CmdGroupJumpToFleetModuleBeacon", "cyno"], ["structureJumpBridgeMgr.CmdJumpThroughStructureStargate", "bridge"], ["abyssalMgr.AbyssalEntranceDeployment", "abyss"], ["abyssalMgr.AbyssalEndGateActivation", "abyssExit"], ["abyssalMgr.AbyssalEntranceGateActivation", "abyssEntrance"]]));
+const PAGE_PLACE_CHANGE_CALLS = Object.freeze(new Map([["ship.Undock", "undock"], ["structureDocking.Undock", "undock"], ["beyonce.CmdDock", "dock"], ["structureDocking.Dock", "dock"], ["beyonce.CmdStargateJump", "stargate"], ["wormholeMgr.WormholeJump", "wormhole"], ["beyonce.CmdJumpToFleetModuleBeacon", "cyno"], ["beyonce.CmdGroupJumpToFleetModuleBeacon", "cyno"], ["structureJumpBridgeMgr.CmdJumpThroughStructureStargate", "bridge"], ["abyssalMgr.AbyssalEntranceDeployment", "abyss"], ["abyssalMgr.AbyssalEndGateActivation", "abyssExit"], ["abyssalMgr.AbyssalEntranceGateActivation", "abyssEntrance"], ["jumpCloneSvc.CloneJump", "clone"]]));
 for (const pair of PAGE_PLACE_CHANGE_CALLS.keys()) {
   if (!pageWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's changes of place and is none of its writes.`);
 }

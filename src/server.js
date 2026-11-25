@@ -1249,10 +1249,13 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
   if (body.service === "jumpCloneSvc" && write) {
     const args = Array.isArray(body.args) ? body.args : [];
     const [id, name] = args;
-    const valid = cloneInstall ? args.length === 0 : Number.isSafeInteger(id) && id > 0 &&
+    const cloneJump = body.method === "CloneJump" && args.length === 4 &&
+      args.slice(0, 2).every(value => Number.isSafeInteger(value) && value > 0) &&
+      typeof args[2] === "number" && Number.isFinite(args[2]) && args[2] >= 0 && typeof args[3] === "boolean";
+    const valid = cloneJump || (cloneInstall ? args.length === 0 : Number.isSafeInteger(id) && id > 0 &&
       (body.method === "DestroyInstalledClone" ? args.length === 1 :
         body.method === "SetJumpCloneName" && args.length === 2 && name?.type === "wstring" &&
-        typeof name.value === "string" && name.value.length <= 100);
+        typeof name.value === "string" && name.value.length <= 100));
     if (body.of != null || body.kwargs != null || !valid) {
       res.status(400).json({ ok: false, error: "INVALID_JUMP_CLONE_COMMAND", message: "Choose a valid jump clone action." });
       return;
@@ -5416,6 +5419,7 @@ async function dispatchPlaceChangeWrite(req, res, next, kind, service, method, a
     const shipID = Number(before.flight.shipID) || Number(held.activeShipID) || 0;
     let expected = null;
     let waiting = {};
+    let beforeBegin = null;
     if (kind === "undock") {
       if (before.flight.inSpace === true) {
         res.status(409).json({ ok: false, error: "ALREADY_IN_SPACE", message: "The ship is already in space." });
@@ -5518,13 +5522,32 @@ async function dispatchPlaceChangeWrite(req, res, next, kind, service, method, a
         return;
       }
       expected = { fromSolarSystemID: Number(before.flight.solarSystemID) || null, shipID };
+    } else if (kind === "clone") {
+      const origin = before.flight.stationID ?? before.flight.structureID;
+      if (!before.flight.docked || before.flight.shipIsCapsule !== true || !origin) {
+        res.status(409).json({ ok: false, error: "CALL_REFUSED", message: "You must be docked in your capsule to jump clones." });
+        return;
+      }
+      expected = { destinationLocationID: args[0], destinationMustBeDocked: isClientStationID(args[0]) };
+      beforeBegin = async () => {
+        const { flight } = await readHeldFlight(held, req.webSessionID);
+        if (!flight.docked || flight.shipIsCapsule !== true || (flight.stationID ?? flight.structureID) !== origin ||
+            Number(flight.shipID) !== shipID) {
+          throw Object.assign(new Error("Your capsule or station changed. Review the clone jump again."), { code: "CALL_REFUSED", statusCode: 409 });
+        }
+        const { result } = await heldTopLevelCall(held, req.webSessionID, service, "GetPriceForClone", [], null);
+        const price = typeof result === "number" ? result : result?.type === "real" ? result.value : null;
+        if (price !== args[2]) {
+          throw Object.assign(new Error("The clone jump price changed. Get a new quote."), { code: "CALL_REFUSED", statusCode: 409 });
+        }
+      };
     } else {
       throw new Error(`No keeping of a ${kind} is known.`);
     }
     expected.nativeReason = kind === "abyss" || kind === "abyssEntrance" ? "JumpToAbyss"
       : kind === "abyssExit" ? "abyssToKnownJump" : kind === "wormhole" ? "Enter Wormhole"
-      : keeping === "stargate" ? "jump" : keeping;
-    if (!await acquireRouteTransition(res, held, keeping, expected)) {
+      : keeping === "stargate" ? "jump" : keeping === "clone" ? "clonejump" : keeping;
+    if (!await acquireRouteTransition(res, held, keeping, expected, beforeBegin)) {
       return;
     }
     // (By the name the transport knows it by, as the generic call asks any write: bridgeCallPolicy.js, gatewaysNameFor.

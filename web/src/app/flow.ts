@@ -472,7 +472,7 @@ import { repairTargets, type RepairQuotePart, type RepairQuoteRow } from "../bri
 import { isRepairableItem, payRepairShop, quoteRepairs, repairItemsAtShop, repairQuoted, stationOffersRepair } from "../bridge/repairShop.ts";
 import { insurancePrices, insuranceTerms, stationInsuranceContracts, type InsurancePackage, type StationInsuranceShip } from "../bridge/stationInsurance.ts";
 import { decodeStationLpOffers, type StationLpOffer, type StationLpStore } from "../bridge/stationLpStore.ts";
-import { cloneBayAvailable, decodeJumpClones, jumpCloneLocationKind, type JumpClone } from "../bridge/jumpClones.ts";
+import { CLONE_JUMP_COOLDOWN_ATTRIBUTE, cloneBayAvailable, cloneJumpCooldownEnd, decodeJumpClones, jumpCloneLocationKind, type CloneJumpQuote, type CloneJumpWarning, type JumpClone, type JumpCloneState } from "../bridge/jumpClones.ts";
 import { createSpacePoller, targetsReadIsDue, type SpacePoller } from "./spacePoll.ts";
 import type { RequestPriority } from "./transport.ts";
 import type { CorpOfficesResult, DronesResult, FlightStepResult } from "./api.ts";
@@ -2299,11 +2299,13 @@ export interface AppFlow {
   cancelStationInsurance(placeID: number, itemID: number, contractID: number): Promise<void>;
   loadStationLpStore(stationID: number, issuerID: number): Promise<StationLpStore>;
   buyStationLpOffer(stationID: number, issuerID: number, offer: StationLpOffer, quantity: number): Promise<void>;
-  loadJumpClones(): Promise<readonly JumpClone[]>;
+  loadJumpClones(): Promise<JumpCloneState>;
   quoteJumpCloneInstall(placeID: number): Promise<number>;
   installJumpClone(placeID: number, price: number): Promise<void>;
   renameJumpClone(id: number, name: string): Promise<void>;
   destroyJumpClone(id: number): Promise<void>;
+  quoteCloneJump(clone: JumpClone): Promise<CloneJumpQuote>;
+  jumpToClone(quote: CloneJumpQuote, confirmed?: boolean): Promise<CloneJumpWarning | null>;
   /**
    * Pay the station to repair exactly what this quote lists — the rows the
    * caller was just shown, never a broader "everything" — at the quote's cost.
@@ -9264,13 +9266,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
 
-  async function loadJumpClones(): Promise<readonly JumpClone[]> {
-    const rows = decodeJumpClones(await bridgeAsk("jumpCloneSvc", "GetCloneState", []));
-    requestNames(rows.flatMap(row => [
+  async function loadJumpClones(): Promise<JumpCloneState> {
+    const state = decodeJumpClones(await bridgeAsk("jumpCloneSvc", "GetCloneState", []));
+    requestNames(state.clones.flatMap(row => [
       { kind: jumpCloneLocationKind(row.locationID), id: row.locationID },
       ...row.implants.map(id => ({ kind: "type" as const, id })),
     ]));
-    return rows;
+    return state;
   }
 
   function jumpCloneBay(placeID: number): "InstallCloneInStation" | "InstallCloneInStructure" {
@@ -9318,6 +9320,67 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   async function destroyJumpClone(id: number): Promise<void> {
     await bridgeDo("jumpCloneSvc", "DestroyInstalledClone", [id]);
+  }
+
+  async function jumpClonePrice(): Promise<number> {
+    const price = unwrapReal(await bridgeAsk("jumpCloneSvc", "GetPriceForClone", []));
+    if (price === null || price < 0) throw new Error("The Clone Bay did not quote a valid price.");
+    return price;
+  }
+
+  async function quoteCloneJump(clone: JumpClone): Promise<CloneJumpQuote> {
+    const [state, price, response] = await Promise.all([loadJumpClones(), jumpClonePrice(), api.getFlightStatus(callOptions)]);
+    const status = decodeFlightStatus(response.flight);
+    const origin = status.structureID ?? status.stationID;
+    if (!status.docked || !origin || !status.shipID || status.shipIsCapsule == null || status.shipID === status.structureID) {
+      throw new Error("Dock in a ship or capsule before jumping clones.");
+    }
+    const target = state.clones.find(row => row.id === clone.id);
+    if (!target || JSON.stringify(target) !== JSON.stringify(clone)) throw new Error("The destination clone changed. Refresh the roster.");
+    const allInfo = store.dogma.get().allInfo;
+    const hours = dogmaNumber(allInfo?.shipModifiedCharAttributes ?? null, CLONE_JUMP_COOLDOWN_ATTRIBUTE)
+      ?? dogmaNumber(allInfo?.character ?? null, CLONE_JUMP_COOLDOWN_ATTRIBUTE);
+    if (target.locationID !== origin &&
+        (cloneJumpCooldownEnd(state.lastJumpMs, hours) ?? 0) > Date.now() + (serverClockAheadMs ?? 0)) {
+      throw new Error("The remote clone jump cooldown is still active.");
+    }
+    return { clone: target, origin, shipID: status.shipID, leavesShip: !status.shipIsCapsule, price };
+  }
+
+  async function jumpToClone(quote: CloneJumpQuote, confirmed = false): Promise<CloneJumpWarning | null> {
+    const generation = sessionCloseGeneration;
+    const current = await quoteCloneJump(quote.clone);
+    if (generation !== sessionCloseGeneration || current.origin !== quote.origin || current.shipID !== quote.shipID ||
+        current.leavesShip !== quote.leavesShip || current.price !== quote.price) {
+      throw new Error("Your ship, station or jump price changed. Review the jump again.");
+    }
+    let capsuleID = current.shipID;
+    if (current.leavesShip) {
+      await leaveShipCall(bridgeDo, current.shipID);
+      const capsule = decodeFlightStatus((await api.getFlightStatus(callOptions)).flight);
+      if (!capsule.docked || capsule.shipIsCapsule !== true || !capsule.shipID ||
+          (capsule.structureID ?? capsule.stationID) !== current.origin) {
+        throw new Error("The pilot did not disembark into a capsule at this location.");
+      }
+      capsuleID = capsule.shipID;
+      await observeFlightStatus(capsule);
+    }
+    if (generation !== sessionCloseGeneration) throw new Error("The pilot session changed.");
+    try {
+      await bridgeDo("jumpCloneSvc", "CloneJump", [current.clone.locationID, current.clone.id, current.price, confirmed]);
+    } catch (cause) {
+      const warning = cause instanceof BridgeCallError ? cause.refusal?.key : null;
+      const message = warning === "JumpCheckWillLoseExistingClone" ? "The jump will destroy an existing clone and its implants."
+        : warning === "JumpCheckIntoShip" ? "This jump arrives aboard a ship with a clone vat bay."
+        : warning === "JumpCheckIntoStructure" ? "This jump arrives in a player-owned structure." : null;
+      if (!confirmed && message) return { message, quote: { ...current, shipID: capsuleID, leavesShip: false } };
+      throw cause;
+    } finally {
+      if (generation === sessionCloseGeneration) {
+        await Promise.allSettled([loadFlightStatus(), loadInventory(), loadCharacterSheet()]);
+      }
+    }
+    return null;
   }
 
   async function loadStationLpStore(stationID: number, issuerID: number): Promise<StationLpStore> {
@@ -37071,6 +37134,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     installJumpClone,
     renameJumpClone,
     destroyJumpClone,
+    quoteCloneJump,
+    jumpToClone,
 
     async repairShip(quotes) {
       // The page's own call (bridge/repairShop.ts): the station's repair with the quote's cost for its payment,
