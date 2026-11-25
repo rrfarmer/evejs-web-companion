@@ -13751,6 +13751,128 @@
      "label": 1
     }
    ]
+  },
+  "eve_public.ai.assistant.chat.api.QueryRequest": {
+   "fields": [
+    {
+     "name": "message",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.ai.assistant.chat.api.QueryResponse": {
+   "fields": [
+    {
+     "name": "response",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "fallback",
+     "number": 2,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "formatted_response",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.cerberus.DynamicFormattedMessage"
+    }
+   ]
+  },
+  "eve_public.localization.cerberus.DynamicFormattedMessage": {
+   "fields": [
+    {
+     "name": "text",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "parameters",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.localization.cerberus.Parameter"
+    }
+   ]
+  },
+  "eve_public.localization.cerberus.FormattedMessage": {
+   "fields": [
+    {
+     "name": "identifier",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "parameters",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.localization.cerberus.Parameter"
+    }
+   ]
+  },
+  "eve_public.localization.cerberus.Parameter": {
+   "fields": [
+    {
+     "name": "key",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "string",
+     "number": 2,
+     "type": 9,
+     "label": 1,
+     "oneof": "value"
+    },
+    {
+     "name": "integer",
+     "number": 3,
+     "type": 4,
+     "label": 1,
+     "oneof": "value"
+    },
+    {
+     "name": "signed_integer",
+     "number": 4,
+     "type": 3,
+     "label": 1,
+     "oneof": "value"
+    },
+    {
+     "name": "double",
+     "number": 5,
+     "type": 1,
+     "label": 1,
+     "oneof": "value"
+    },
+    {
+     "name": "timestamp",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp",
+     "oneof": "value"
+    },
+    {
+     "name": "duration",
+     "number": 7,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Duration",
+     "oneof": "value"
+    }
+   ]
   }
  },
  "enums": {

@@ -15721,6 +15721,7 @@ app.get("/api/client-data/dogma-types", requireAuth, async (req, res, next) => {
 // by the client's own message of that type. The requests are those the page makes; a write among them only with
 // confirm said. The pilot is the held session's, never the page's to name.
 const PUBLIC_GATEWAY_READS = new Set([
+  "eve_public.ai.assistant.chat.api.QueryRequest",
   // achievement_system/client/repository/message_bus/request_messenger.py.
   "eve_public.achievement.api.GetRequest",
   "eve_public.achievement.category.api.GetRequest",
@@ -15927,6 +15928,11 @@ app.post("/api/public-gateway/request", requireAuth, async (req, res, next) => {
     const held = requireHeldBridgeSession(req, res);
     if (!held) return;
     const payload = body.payload && typeof body.payload === "object" && !Array.isArray(body.payload) ? body.payload : {};
+    if (request === "eve_public.ai.assistant.chat.api.QueryRequest" &&
+        (typeof payload.message !== "string" || !payload.message.trim() || payload.message.length > 500)) {
+      res.status(400).json({ ok: false, error: "INVALID_AURA_MESSAGE", message: "Enter an Aura question of up to 500 characters." });
+      return;
+    }
     let answer;
     try {
       const forAccount = request === "eve_public.achievement.showcase.api.GetCharacterScoreRequest"

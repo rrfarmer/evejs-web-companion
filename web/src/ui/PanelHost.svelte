@@ -1,6 +1,7 @@
 <script lang="ts">
   import Calculator from "./Calculator.svelte";
   import Help from "./Help.svelte";
+  import AuraGuidance from "./AuraGuidance.svelte";
   import FittingManagement from "./FittingManagement.svelte";
   import AcademyShips from "./AcademyShips.svelte";
   import ShipTree from "./ShipTree.svelte";
@@ -356,6 +357,8 @@
   <Calculator />
 {:else if tab === "help"}
   <Help {store} {flow} showChat={() => onOpen?.("chat")} />
+{:else if tab === "auraGuidance"}
+  <AuraGuidance {store} {flow} />
 {:else if tab === "notepad"}
   <Notepad {store} {flow} />
 {:else if tab === "calendar"}

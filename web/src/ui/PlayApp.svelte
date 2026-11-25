@@ -221,6 +221,7 @@
     calculator: "calculator", fittingmanagement: "fittingManagement",
     accessGroups: "accessGroups",
     help: "help",
+    auraGuidance: "auraGuidance",
   };
 
   let session = $state<Session | null>(null);
@@ -1460,6 +1461,7 @@
    */
   const CLIENT_SIZES: Partial<Record<TabID, { w: number; h: number }>> = {
     help: { w: 400, h: 275 },
+    auraGuidance: { w: 400, h: 500 },
     fittingManagement: { w: 620, h: 600 },
     calculator: { w: 327, h: 340 },
     marketOrders: { w: 600, h: 500 },
@@ -1478,6 +1480,7 @@
     characterRecustomization: { w: 610, h: 442 },
   };
   const FLIGHT_MINIMUMS: Partial<Record<TabID, { w: number; h: number }>> = {
+    auraGuidance: { w: 270, h: 300 },
     fittingManagement: { w: 525, h: 400 },
     structureBrowser: { w: 600, h: 450 }, accessGroups: { w: 600, h: 400 },
     drones: { w: 240, h: 120 }, scanner: { w: 300, h: 150 }, inventory: { w: 170, h: 140 },
@@ -1670,6 +1673,7 @@
    * the Log. The page's own tab label stands until the words are had.
    */
   const CAPTION_LABELS: Partial<Record<TabID, string>> = {
+    auraGuidance: "UI/Accessories/AuraGuidance/WindowTitle",
     fittingManagement: "UI/Fitting/FittingWindow/FittingManagement/WindowCaption",
     calculator: "UI/Accessories/Calculator/Calculator",
     marketOrders: "Tooltips/StationServices/MarketOrders",
@@ -4272,7 +4276,7 @@
           {win}
           title={win.id === "drones" ? ($dronesCompact ? "" : dronesTitle) : win.id === "scanner" && !docked && $scannerCompact ? "" : win.id === "inventory" && !docked ? (inventoryPrimary ? captions[win.id] ?? tabLabel(win.id) : activeShipCaption) : captions[win.id] ?? tabLabel(win.id)}
           caption={win.id === "drones" ? dronesTitle : win.id === "scanner" ? captions[win.id] ?? tabLabel(win.id) : null}
-          icon={win.id === "inventory" && !docked ? clientTexture("res:/UI/Texture/WindowIcons/cargo.png") : win.id === "log" ? clientTexture("res:/ui/Texture/WindowIcons/log.png") : win.id === "help" ? clientTexture("res:/ui/Texture/WindowIcons/help.png") : null}
+          icon={win.id === "inventory" && !docked ? clientTexture("res:/UI/Texture/WindowIcons/cargo.png") : win.id === "log" ? clientTexture("res:/ui/Texture/WindowIcons/log.png") : win.id === "help" ? clientTexture("res:/ui/Texture/WindowIcons/help.png") : win.id === "auraGuidance" ? clientTexture("res:/UI/Texture/classes/careerPortal/aura/aura_icon_32x32.png") : null}
           killable={win.id !== "drones"}
           resizable={win.id !== "fitting" && win.id !== "medalDesigner" && win.id !== "securityOffice" && win.id !== "calculator" && win.id !== "help"}
           minWidth={minimum.w}

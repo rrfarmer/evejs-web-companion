@@ -169,6 +169,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
 
 const EVE_MENU_FOOTER = [
   { id: "help", label: "EVE Help", icon: icon("help") },
+  { id: "auraGuidance", label: "Aura Guidance (beta)", icon: clientTexture("res:/UI/Texture/classes/careerPortal/aura/aura_neocom_64.png") },
   { id: "settings", label: "Settings", icon: icon("settings") },
   { id: "logoff", label: "Log off", icon: icon("logOut") },
   { id: "quitGame", label: "Quit Game", icon: icon("quitGame") },
