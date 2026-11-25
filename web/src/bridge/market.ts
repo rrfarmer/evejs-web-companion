@@ -34,6 +34,7 @@
 // the panel formats the decimal string itself.
 
 import { isListValue, readKeyVal, unwrapLong, type JsonValue } from "./wire.ts";
+import type { NameKind, NameRef } from "../store/names.ts";
 import type {
   MarketEscrow,
   MarketOrderRow,
@@ -144,6 +145,59 @@ function rowRecords(rowset: JsonValue): readonly Readonly<Record<string, JsonVal
     });
     return record;
   });
+}
+
+const ORDER_EXPORT_NAMES: Readonly<Record<string, { heading: string; kind: NameKind }>> = {
+  charID: { heading: "charName", kind: "owner" },
+  regionID: { heading: "regionName", kind: "evelocation" },
+  stationID: { heading: "stationName", kind: "evelocation" },
+  solarSystemID: { heading: "solarSystemName", kind: "evelocation" },
+};
+
+export function readMarketOrdersExport(result: JsonValue) {
+  const rowset = unwrapCachedResult(result);
+  const columns = rowsetColumns(rowset);
+  const records = rowRecords(rowset);
+  const names: NameRef[] = [];
+  for (const row of records) {
+    for (const [column, { kind }] of Object.entries(ORDER_EXPORT_NAMES)) {
+      const id = toNumber(row[column]);
+      if (id > 0) names.push({ kind, id });
+    }
+  }
+  return { columns, records, names };
+}
+
+function exportOrderValue(column: string, value: JsonValue): string {
+  if (column === "issueDate") {
+    const filetime = toFiletime(value);
+    if (filetime !== null) {
+      const date = new Date(Number(filetime / 10000n - 11644473600000n));
+      if (Number.isFinite(date.getTime())) {
+        const iso = date.toISOString();
+        return filetime % 864000000000n === 0n ? iso.slice(0, 10) : iso.slice(0, 19).replace("T", " ") + ".000";
+      }
+    }
+  }
+  if (value === null) return "None";
+  if (typeof value === "boolean") return value ? "True" : "False";
+  return toAmountString(value) ?? (typeof value === "string" ? value : "");
+}
+
+export function formatMarketOrdersExport(
+  data: ReturnType<typeof readMarketOrdersExport>,
+  nameOf: (kind: NameKind, id: number) => string,
+): string {
+  const line = (cells: readonly string[]) => cells.map(cell => /[",\r\n]/.test(cell) ? '"' + cell.replaceAll('"', '""') + '"' : cell).join(",") + ",\r\n";
+  const headings = data.columns.flatMap(column => {
+    const name = ORDER_EXPORT_NAMES[column];
+    return name ? [column, name.heading] : [column];
+  });
+  return line(headings) + data.records.map(row => line(data.columns.flatMap(column => {
+    const name = ORDER_EXPORT_NAMES[column];
+    const value = exportOrderValue(column, row[column] ?? null);
+    return name ? [value, nameOf(name.kind, toNumber(row[column]))] : [value];
+  }))).join("");
 }
 
 function toNumber(value: JsonValue | undefined): number {

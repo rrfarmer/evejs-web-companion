@@ -84,6 +84,8 @@
   // svelte-ignore state_referenced_locally
   const market = store.market;
   // svelte-ignore state_referenced_locally
+  const station = store.station;
+  // svelte-ignore state_referenced_locally
   const names = store.names;
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -423,6 +425,12 @@
   let tab = $state<"book" | "orders" | "trades" | "escrow">("book");
   let ordersReady = $state(false);
   let orderPage = $state<"orders" | "history">("orders");
+  let exportNote = $state("");
+  const canExportCorpOrders = $derived((BigInt($station.online?.corpRole ?? "0") & 256n) !== 0n);
+  const orderExportWords = [
+    "UI/Market/Orders/MyOrders", "UI/Market/Orders/CorporationOrders", "UI/Market/Orders/MyOrderHistory",
+    "Tooltips/Market/MarketMyOrdersExportButton", "Tooltips/Market/MarketCorpOrdersExport", "UI/Market/MarketWindow/ExportNoData",
+  ];
   /** MarketBase.LoadDetails' detail tabs (the play page): Market Data (the order lists) or Price History. */
   let detailTab = $state<"marketdata" | "pricehistory">("marketdata");
 
@@ -639,6 +647,28 @@
     void run(async () => {
       await flow.loadMarketOrders();
       ordersReady = true;
+    });
+  }
+
+  function exportOrders(corporation: boolean): void {
+    exportNote = "";
+    void run(async () => {
+      const text = await flow.exportMarketOrders(corporation);
+      if (text === null) {
+        exportNote = qbWord("UI/Market/MarketWindow/ExportNoData") || "There is no data to export.";
+        return;
+      }
+      const label = corporation ? qbWord("UI/Market/Orders/CorporationOrders") || "Corporation Orders"
+        : qbWord("UI/Market/Orders/MyOrders") || "My Orders";
+      const timestamp = new Date().toISOString().slice(0, 16).replaceAll("-", ".").replace("T", " ").replace(":", "");
+      const filename = `${label.replace(/[\\/:*?"<>|]+/g, "_")}-${timestamp}.txt`;
+      const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      exportNote = filename;
     });
   }
 
@@ -950,7 +980,7 @@
 
   onMount(() => {
     if (ordersOnly) {
-      flow.requestWords(["UI/Market/Orders/MyOrders", "UI/Market/Orders/MyOrderHistory"]);
+      flow.requestWords(orderExportWords);
       refreshOrders();
       return;
     }
@@ -979,7 +1009,12 @@
     <button type="button" aria-pressed={orderPage === "orders"} onclick={() => (orderPage = "orders")}>{qbWord("UI/Market/Orders/MyOrders") || "My Orders"}</button>
     <button type="button" aria-pressed={orderPage === "history"} onclick={() => (orderPage = "history")}>{qbWord("UI/Market/Orders/MyOrderHistory") || "My Order History"}</button>
     <button type="button" class="minor" disabled={busy} onclick={refreshOrders}>Refresh</button>
+    <button type="button" class="minor" disabled={busy} onclick={() => exportOrders(false)}>{qbWord("Tooltips/Market/MarketMyOrdersExportButton") || "Export Personal Orders"}</button>
+    {#if canExportCorpOrders}
+      <button type="button" class="minor" disabled={busy} onclick={() => exportOrders(true)}>{qbWord("Tooltips/Market/MarketCorpOrdersExport") || "Export Corporation Orders"}</button>
+    {/if}
   </nav>
+  {#if exportNote}<p class="note" role="status">{exportNote}</p>{/if}
   {#if error}
     <p class="error">{error}</p>
   {:else if !ordersReady}
