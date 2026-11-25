@@ -989,7 +989,7 @@ import { systemGraphOnce } from "../nav/systemGraphKept.ts";
 import { autopilotDistances, autopilotJumpCounts, autopilotMap, autopilotPath, type AutopilotMap, type AutopilotRouteType, type AutopilotSettings } from "../nav/autopilotRoute.ts";
 import { availableJumpGateJumps, type JumpGateJump } from "../nav/jumpGates.ts";
 import { decodeCharacterStructureDirectory, decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData, decodeStructureProfileNames, encodeStructureDescription, MAX_STRUCTURE_DESCRIPTION_LENGTH, type StructureBrowserDirectory } from "../bridge/structures.ts";
-import { structureDecommissionAction, structureDecommissionSeconds } from "../bridge/structureBrowserFilters.ts";
+import { NO_REINFORCEMENT_WEEKDAY, structureDecommissionAction, structureDecommissionSeconds } from "../bridge/structureBrowserFilters.ts";
 import {
   AVOIDING_DIALOGS,
   autopilotSettingsFrom,
@@ -4492,6 +4492,7 @@ export interface AppFlow {
   loadStructureDescription(structureID: number): Promise<string>;
   saveStructureDescription(structureID: number, description: string): Promise<void>;
   changeStructureDecommission(structureID: number, action: "start" | "cancel"): Promise<boolean>;
+  setStructureReinforcementHour(structureIDs: readonly number[], hour: number): Promise<void>;
   startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
   loadCorporationMiningObservers(): Promise<readonly MiningLedgerObserver[]>;
@@ -28012,6 +28013,36 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return true;
   }
 
+  async function setStructureReinforcementHour(structureIDs: readonly number[], hour: number): Promise<void> {
+    const scope = captureMemberOperation();
+    const ids = new Set(structureIDs);
+    if (!ids.size || !Number.isInteger(hour) || hour < 0 || hour > 23) {
+      throw new Error("Select at least one structure and a reinforcement hour.");
+    }
+    async function ownedSelection() {
+      scope.current();
+      if (!hasMoonStationManagerRole(store.station.get().online?.corpRole ?? null)) {
+        throw new Error("Changing reinforcement timing requires a Station Manager.");
+      }
+      const answer = await scope.ask("structureDirectory", "GetCorporationStructures", []);
+      scope.current();
+      const rows = decodeCorporationStructures(answer)
+        .filter(row => row.ownerID === scope.online.corporationID && ids.has(row.structureID));
+      if (rows.length !== ids.size) throw new Error("The structure selection changed. Open the editor again.");
+      return rows;
+    }
+    const selected = await ownedSelection();
+    await scope.write("structureVulnerability", "UpdateReinforceTimesFromClient", [
+      { type: "list", items: selected.map(row => [row.structureID, row.solarSystemID, row.typeID]) },
+      NO_REINFORCEMENT_WEEKDAY, hour,
+    ]);
+    const saved = await ownedSelection();
+    if (!saved.every(row => row.nextReinforceHour === hour ||
+        (row.reinforceHour === hour && row.nextReinforceHour === null))) {
+      throw new Error("The reinforcement hour could not be confirmed for all selected structures.");
+    }
+  }
+
   async function loadCorporationMoonSchedule(lifetime?: () => void): Promise<CorporationMoonSchedule> {
     const scope = captureMemberOperation(lifetime);
     const current = () => {
@@ -39756,6 +39787,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadStructureDescription,
     saveStructureDescription,
     changeStructureDecommission,
+    setStructureReinforcementHour,
     startMoonPull,
     controlMoonPull,
     loadCorporationMiningObservers,

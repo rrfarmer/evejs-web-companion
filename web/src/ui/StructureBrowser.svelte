@@ -11,7 +11,7 @@
   import { sessionPlace } from "../bridge/sessionPlace.ts";
   import {
     ABANDONED, LOW_POWER, OWNED_STRUCTURE_SERVICE_FILTERS, OWNED_STRUCTURE_STATES,
-    STATION_TYPE_FILTER, STRUCTURE_SERVICE_DETAILS, STRUCTURE_TYPE_GROUPS, structureDecommissionAction,
+    STATION_TYPE_FILTER, STRUCTURE_SERVICE_DETAILS, STRUCTURE_TYPE_GROUPS, isFlexStructure, structureDecommissionAction,
   } from "../bridge/structureBrowserFilters.ts";
   import type { StructureBrowserDirectory, StructureBrowserEntry } from "../bridge/structures.ts";
   import { shownSecurity } from "../bridge/systemSecurity.ts";
@@ -24,6 +24,7 @@
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import HomeStationPanel from "./HomeStationPanel.svelte";
   import StructureDescription from "./StructureDescription.svelte";
+  import StructureReinforcement from "./StructureReinforcement.svelte";
   import { startLinkDrag } from "./linkFollowers.ts";
   import { showInfo } from "./showInfo.ts";
 
@@ -60,6 +61,8 @@
   let bookmark = $state<BookmarkPlace | null>(null);
   let homeStationID = $state<number | null>(null);
   let descriptionRow = $state.raw<StructureBrowserEntry | null>(null);
+  let reinforcementRows = $state.raw<readonly StructureBrowserEntry[] | null>(null);
+  let selectedStructureIDs = $state<number[]>([]);
   let actionError = $state("");
   let decommissionBusy = $state(false);
   let directoryRevision = $state(0);
@@ -94,6 +97,9 @@
     description: ["UI/StructureBrowser/SetStructureDescription", "Set Structure Bio"],
     decommission: ["UI/StructureBrowser/Decommission", "Decommission"],
     cancelDecommission: ["UI/StructureBrowser/CancelDecommission", "Cancel Decommission"],
+    setReinforcement: ["UI/StructureBrowser/SetReinforcementTime", "Set Reinforcement Time"],
+    setDockableReinforcement: ["UI/StructureBrowser/SetReinforcementTimeDockable", "Set Reinforcement Time (Dockable)"],
+    setFlexReinforcement: ["UI/StructureBrowser/SetReinforcementTimeNonDockable", "Set Reinforcement Time (FLEX)"],
   } as const;
   const serviceLabels = [
     [-1, "UI/Station/CharacterRecustomization", "Character Recustomization"],
@@ -134,6 +140,15 @@
     const stationRow = isStation(id);
     const deprecated = isDeprecatedStationType(row.typeID);
     const entries: (ContextEntry | null)[] = [];
+    const ownedRow = activeTab === "corporation" && row.owned;
+    const selected = ownedRow && selectedStructureIDs.includes(id)
+      ? ordered.filter(item => selectedStructureIDs.includes(item.structureID))
+      : [row];
+    if (ownedRow && selected.length > 1) {
+      addReinforcementOptions(entries, selected);
+      rowMenu.open(x, y, entries);
+      return;
+    }
     const decommission = activeTab === "corporation" && row.owned
       ? structureDecommissionAction(row.owned, $station.online?.corpRole ?? null) : null;
     if (decommission !== null && !decommissionBusy) {
@@ -147,6 +162,7 @@
         descriptionRow = row;
       }), null);
     }
+    if (ownedRow) addReinforcementOptions(entries, selected);
     if ($flight.status?.inSpace && row.solarSystemID === systemID &&
       !deprecated && (stationRow || structureHasCapability(row.serviceIDs, "dock"))) {
       entries.push(action("dock", () => {
@@ -168,6 +184,19 @@
     }));
     entries.push({ ...action("info", () => inspect(row)), info: true });
     rowMenu.open(x, y, entries);
+  }
+
+  function addReinforcementOptions(entries: (ContextEntry | null)[], rows: readonly StructureBrowserEntry[]): void {
+    const dockable = rows.filter(row => !isFlexStructure(row.typeID));
+    const flex = rows.filter(row => isFlexStructure(row.typeID));
+    const open = (selection: readonly StructureBrowserEntry[]) => {
+      bookmark = null;
+      homeStationID = null;
+      descriptionRow = null;
+      reinforcementRows = selection;
+    };
+    if (dockable.length) entries.push(action(flex.length ? "setDockableReinforcement" : "setReinforcement", () => open(dockable)));
+    if (flex.length) entries.push(action("setFlexReinforcement", () => open(flex)));
   }
 
   async function changeDecommission(id: number, change: "start" | "cancel"): Promise<void> {
@@ -346,6 +375,12 @@
 {/snippet}
 
 <section class="structure-browser" aria-label={word(activeTab)}>
+  {#if reinforcementRows && canManage && activeTab === "corporation" && !scheduleOpen}
+    {#key reinforcementRows}
+      <StructureReinforcement {store} {flow} rows={reinforcementRows} onClose={() => reinforcementRows = null}
+        onDone={() => { reinforcementRows = null; directoryRevision++; }} />
+    {/key}
+  {/if}
   {#if descriptionRow && canManage && activeTab === "corporation" && !scheduleOpen}
     {#key descriptionRow.structureID}
       <StructureDescription {flow} structureID={descriptionRow.structureID} structureName={placeName(descriptionRow)}
@@ -455,7 +490,11 @@
             <td>{row.jumps ?? "—"}</td>
             <td>{row.security === null ? "—" : shownSecurity(row.security).toFixed(1)}</td>
             {#if activeTab === "all"}<td>{ownerName(row)}</td>{/if}
-            <td><button type="button" title={typeName(row.typeID)} draggable="true"
+            <td>
+              {#if activeTab === "corporation"}
+                <input type="checkbox" aria-label={`Select ${placeName(row)}`} bind:group={selectedStructureIDs} value={row.structureID} />
+              {/if}
+              <button type="button" title={typeName(row.typeID)} draggable="true"
               ondragstart={(event) => startLinkDrag(event, `showinfo:${row.typeID}//${row.structureID}`, placeName(row))}
               onkeydown={(event) => {
                 if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;

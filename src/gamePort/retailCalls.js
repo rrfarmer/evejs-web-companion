@@ -694,6 +694,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "structureSettings.CharacterHasSetting",
   "structureDirectory.GetStructureDescription", "structureDirectory.SetStructureDescription",
   "structureDeployment.Unanchor", "structureDeployment.CancelUnanchor",
+  "structureVulnerability.UpdateReinforceTimesFromClient",
   "structureProfiles.GetProfiles",
   "moonExtractions.GetExtractionsForCorp",
   "moonExtractions.GetMoonResourcesForStructure", "moonExtractions.GetExtractionAndEventIDFromStructureID",
@@ -3337,6 +3338,15 @@ const RETAIL_CALLS = Object.freeze({
   "structureDirectory.GetStructureDescription": judged("eve/client/script/ui/structure/structureBrowser/entries/structureEntryMyCorp.py:406", oneIDAlone("the selected structure"), "Read the selected structure's description."),
   "structureDeployment.Unanchor": judged("eve/client/script/ui/services/structure/structureDeployment.py:65", oneIDAlone("the selected structure"), "Schedule decommission after the confirmation."),
   "structureDeployment.CancelUnanchor": judged("eve/client/script/ui/services/structure/structureDeployment.py:69", oneIDAlone("the selected structure"), "Cancel the selected structure's pending decommission."),
+  "structureVulnerability.UpdateReinforceTimesFromClient": judged("eve/client/script/ui/structure/structureBrowser/reinforcementTimeWnd.py:172",
+    (args, kwargs) => {
+      const [structures, day, hour] = args;
+      const rows = structures?.type === "list" ? structures.items : null;
+      if (args.length === 3 && Object.keys(kwargs).length === 0 && day === 255 && Number.isInteger(hour) && hour >= 0 && hour <= 23 &&
+        Array.isArray(rows) && rows.length > 0 && rows.every(row =>
+          Array.isArray(row) && row.length === 3 && row.every(id => Number.isSafeInteger(id) && id > 0))) return {};
+      return { status: "differs", note: "The client sends the selected structure tuples, weekday 255 and a UTC hour from 0 to 23." };
+    }, "Update reinforcement timing for structures managed by the session's corporation."),
   "structureDirectory.SetStructureDescription": typing(judged("eve/client/script/ui/structure/structureBrowser/entries/structureEntryMyCorp.py:597",
     (args, kwargs) => args.length === 2 && Number.isSafeInteger(args[0]) && args[0] > 0 &&
       typeof args[1] === "string" && args[1].length <= 1000 && Object.keys(kwargs).length === 0

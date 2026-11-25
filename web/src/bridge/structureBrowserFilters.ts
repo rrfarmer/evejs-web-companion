@@ -4,6 +4,8 @@ import type { CorporationStructure } from "./structures.ts";
 export const STATION_TYPE_FILTER = -3;
 export const LOW_POWER = 2;
 export const ABANDONED = 3;
+export const NO_REINFORCEMENT_WEEKDAY = 255;
+export const DEFAULT_REINFORCEMENT_HOUR = 18;
 
 const BLOCKED_DECOMMISSION_STATES = new Set([0, 1, 2, 101, 111, 112, 113, 114, 115, 116]);
 
@@ -13,9 +15,13 @@ export function structureDecommissionAction(row: CorporationStructure, corpRole:
   return BLOCKED_DECOMMISSION_STATES.has(row.state) ? null : "start";
 }
 
+export function isFlexStructure(typeID: number): boolean {
+  return [35841, 35840, 37534, 81826].includes(typeID);
+}
+
 export function structureDecommissionSeconds(typeID: number): number {
   if (typeID === 81826) return 259_200;
-  if ([35841, 35840, 37534].includes(typeID)) return 2_700;
+  if (isFlexStructure(typeID)) return 2_700;
   return 604_800;
 }
 
