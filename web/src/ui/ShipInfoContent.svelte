@@ -2,7 +2,6 @@
   import { getShipInfoOverview, loadTypeListsHolding, type ShipInfoOverview } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText, type TemplateArguments } from "../bridge/clientWords.ts";
-  import type { ShipTraitBonus } from "../bridge/hullBrowser.ts";
   import type { InfoSubject } from "../bridge/infoWindow.ts";
   import { bracketIcon, loadBrackets } from "../play/brackets.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -15,6 +14,7 @@
   import { showMarketDetails } from "./marketDetails.ts";
   import ShipInfoAttributes from "./ShipInfoAttributes.svelte";
   import ShipInfoPreview from "./ShipInfoPreview.svelte";
+  import ShipTraits from "./ShipTraits.svelte";
   import ShowInfo from "./ShowInfo.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
 
@@ -36,11 +36,6 @@
   const LICENSE = "UI/AcademyShips/WindowButton";
   const TRY = "UI/AcademyShips/TryForFree";
   const HINT = "UI/AcademyShips/ServiceInfoHint";
-  const SKILL_BONUS = "UI/ShipTree/SkillNameCaption";
-  const ROLE_BONUS = "UI/ShipTree/RoleBonus";
-  const MISC_BONUS = "UI/ShipTree/MiscBonus";
-  const NUMBERED = "UI/InfoWindow/TraitWithNumber";
-  const UNNUMBERED = "UI/InfoWindow/TraitWithoutNumber";
   const FACTION_FONT: Readonly<Record<number, string>> = {
     500003: "Ship Info Amarr", 500001: "Ship Info Caldari", 500004: "Ship Info Gallente", 500002: "Ship Info Minmatar",
   };
@@ -67,7 +62,7 @@
     const options = flow.requestOptions();
     let current = true;
     flow.requestNames([{ kind: "type", id }, ...($subject?.kind === "ship" ? [{ kind: "evelocation" as const, id: $subject.itemID }] : [])]);
-    flow.requestWords([...NAV.map(item => item.label), ...Object.keys(LINK_WORDS), MARKET, PRICE, TRY, LICENSE, HINT, SKILL_BONUS, ROLE_BONUS, MISC_BONUS, NUMBERED, UNNUMBERED]);
+    flow.requestWords([...NAV.map(item => item.label), ...Object.keys(LINK_WORDS), MARKET, PRICE, TRY, LICENSE, HINT]);
     void flow.requestShipTraits([id]);
     void loadBrackets().then(() => { if (current) bracketsReady = true; }).catch(() => {});
     void getShipInfoOverview(id, options).then(profile => {
@@ -97,34 +92,7 @@
   const messageMarkup = (id: number | null | undefined) => id ? ($words.templates[`#${id}`] ?? "") : "";
   const message = (id: number | null | undefined) => plainText(messageMarkup(id));
   const followerOf = (url: string, text: string) => linkFollowerOf(url, flow, null, label => word(label, LINK_WORDS[label]), text, link => { void flow.followInventoryFilterLink(link); });
-  function bonusLine(bonus: ShipTraitBonus): string {
-    const bonusText = messageMarkup(bonus.nameID);
-    if (bonus.bonus === null) return markup(UNNUMBERED, "{bonusText}", { color: "dce6ec", bonusText });
-    const amount = Math.sign(bonus.bonus) * Math.round(Math.abs(bonus.bonus) * 10) / 10;
-    const value = Number.isInteger(amount) ? { type: "long", value: String(amount) } as const : amount;
-    const unit = bonus.unitID === null ? "" : message($traits.unitNameIDs.get(bonus.unitID));
-    return markup(NUMBERED, "{value}{unit} {bonusText}", { color: "dce6ec", value, unit, bonusText });
-  }
 </script>
-
-{#snippet bonuses(caption: string, entries: readonly ShipTraitBonus[])}
-  {#if entries.length}
-    <section class="ship-trait">
-      <h3>{caption}</h3>
-      {#each [...entries].sort((a, b) => a.importance - b.importance) as bonus, index (index)}
-        {@const [amount, description] = bonusLine(bonus).split("<t>", 2)}
-        {#if description === undefined}
-          <LabelText markup={amount ?? ""} {followerOf} />
-        {:else}
-          <div class="bonus">
-            <div class="bonus-amount"><LabelText markup={amount?.replace(/<\/?right>/g, "") ?? ""} /></div>
-            <LabelText markup={description} {followerOf} />
-          </div>
-        {/if}
-      {/each}
-    </section>
-  {/if}
-{/snippet}
 
 <div class="ship-info" class:expanded style:--content-height={`${Math.max(240, height)}px`}>
   <nav aria-label="Ship information">
@@ -185,13 +153,8 @@
         {/if}
       {/if}
       {#if shipTraits}
-        <div class="ship-traits">
-          {#each [...shipTraits.skills].sort((a, b) => a.skillTypeID - b.skillTypeID) as skill (skill.skillTypeID)}
-            {@const skillName = resolvedName($names.resolved, "type", skill.skillTypeID, "")}
-            {@render bonuses(plainText(markup(SKILL_BONUS, "{skillName} bonuses", { skillName })), skill.bonuses)}
-          {/each}
-          {@render bonuses(word(ROLE_BONUS, "Role Bonus"), shipTraits.role)}
-          {@render bonuses(word(MISC_BONUS, "Other Bonuses"), shipTraits.misc)}
+        <div class="ship-traits-section">
+          <ShipTraits {store} {flow} traits={shipTraits} unitNameIDs={$traits.unitNameIDs} />
         </div>
       {/if}
       {#if academy}
@@ -234,10 +197,6 @@
   .description { padding-top: 8px; border-top: 1px solid #ffffff21; color: #cbd6df; }
   .description.collapsed { max-height: 86px; overflow: hidden; }
   .description-toggle { margin-top: 5px; padding: 4px 8px; }
-  .ship-traits, .academy { margin-top: 12px; }
-  .ship-trait { padding: 5px 0; }
-  .ship-trait h3, .academy h3 { margin: 0 0 4px; font-size: 13px; color: #e2efff; }
-  .bonus { display: grid; grid-template-columns: minmax(40px, max-content) 1fr; gap: 4px; margin: 3px 0; }
-  .bonus-amount { text-align: right; }
-  .academy h3 { color: #4fd0ca; }
+  .ship-traits-section, .academy { margin-top: 12px; }
+  .academy h3 { margin: 0 0 4px; font-size: 13px; color: #4fd0ca; }
 </style>

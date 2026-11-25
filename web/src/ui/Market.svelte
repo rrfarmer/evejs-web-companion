@@ -45,6 +45,7 @@
   // to a name-derived tile whenever the icon cache has no entry (or no cache).
   import TypeIcon from "./TypeIcon.svelte";
   import MarketPriceHistory from "./MarketPriceHistory.svelte";
+  import ShipTraits from "./ShipTraits.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
   import NamePopup from "./NamePopup.svelte";
   import { marketQuickbar, changeQuickbar } from "./marketQuickbar.ts";
@@ -99,6 +100,7 @@
   const words = store.words;
   const skills = $derived(store.skills);
   const fitting = $derived(store.fitting);
+  const traits = $derived(flow.shipTraits);
   const quickbar = marketQuickbar;
 
   // --- The Quickbar (the market window's left tabs, marketbase.py 378 to 381: Browse and Quickbar) ---------------
@@ -1213,6 +1215,12 @@
     return () => { current = false; };
   });
 
+  $effect(() => {
+    if (tab !== "groups" || browsing || !groupCards.length) return;
+    const ids = groupCards.map(item => item.typeID);
+    for (let at = 0; at < ids.length; at += 50) void flow.requestShipTraits(ids.slice(at, at + 50));
+  });
+
   type VariantFolder = { id: string; metaGroupID: number; name: string; items: MarketTypeMatch[] };
   function marketRows(items: readonly MarketTypeMatch[], searching: boolean): (MarketTypeMatch | VariantFolder)[] {
     const rows: (MarketTypeMatch | VariantFolder)[] = [];
@@ -1626,6 +1634,7 @@
       {#each groupCards as item (item.typeID)}
         {@const fact = groupFacts?.get(item.typeID)}
         {@const description = fact?.descriptionID ? $words.templates[`#${fact.descriptionID}`] : null}
+        {@const cardTraits = $traits.traits.get(item.typeID)}
         {@const ask = groupAsks?.asks.get(item.typeID)}
         {@const scope = groupAsks?.scope ?? groupScope}
         {@const skill = groupSkillStatus(item.typeID, fact?.categoryID)}
@@ -1672,7 +1681,11 @@
                 {/each}
               </div>
             {/if}
-            {#if description}<p>{plainText(description)}</p>{/if}
+            {#if cardTraits}
+              <ShipTraits {store} {flow} traits={cardTraits} unitNameIDs={$traits.unitNameIDs} />
+            {:else if description}
+              <p class="mkt-group-description">{plainText(description)}</p>
+            {/if}
             {#if groupAsks}
               <p class="mkt-group-ask">
                 <span>{qbWord("UI/Market/Marketbase/BestPriceIn", { place: qbWord(scope === "system" ? "UI/Common/LocationTypes/System" : scopeLabels[scope]) })}</span><br />
