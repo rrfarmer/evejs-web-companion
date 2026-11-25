@@ -82,7 +82,7 @@
     <button type="button" disabled={loading} onclick={() => void load()}>Refresh catalogue</button>
   </div>
   {#if loading && catalogue === null}<p role="status">Loading store catalogue…</p>{/if}
-  {#if categoryUnavailable}<p role="status">Game time is unavailable in this catalogue.</p>{/if}
+  {#if categoryUnavailable}<p role="status">{categoryRequest?.tag === "plex" ? "PLEX offers are unavailable in this catalogue." : "Game time is unavailable in this catalogue."}</p>{/if}
   {#if error}<p role="alert">{error}</p>{/if}
   {#if catalogue !== null && offers.length === 0}
     <p role="status">{selectedCategory === null ? "No offers are available from this server." : "No offers in this category."}</p>

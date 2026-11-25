@@ -112,6 +112,7 @@ const ORGANIZATION_ENLISTMENT_METHODS = Object.freeze([
   "WithdrawJoinFactionAsCorporation", "WithdrawJoinFactionAsAlliance", "WithdrawLeaveFactionAsCorporation", "WithdrawLeaveFactionAsAlliance",
 ]);
 const FEATURE_WRITE_METHODS = freezeMethodMap({
+  FastCheckoutService: ["BuyOffer"],
   ownerGroupManager: ["Create", "UpdateName", "UpdateDescription", "Delete", "AddMembers", "UpdateMembershipTypes", "DeleteMembers"],
   repackagingSvc: ["RepackageItems"],
   structureControl: ["TakeControl", "ReleaseControl", "BoardStructure", "EjectFromStructure"],

@@ -4,6 +4,7 @@
   import AuraGuidance from "./AuraGuidance.svelte";
   import NewEdenStore from "./NewEdenStore.svelte";
   import OmegaUpsell from "./OmegaUpsell.svelte";
+  import PlexCheckout from "./PlexCheckout.svelte";
   import FittingManagement from "./FittingManagement.svelte";
   import AcademyShips from "./AcademyShips.svelte";
   import ShipTree from "./ShipTree.svelte";
@@ -111,6 +112,8 @@
     storeCategoryRequest = null,
     onShowOmegaOffers,
     onToggleStore,
+    onBuyPlex,
+    onShowPlexOffers,
     reprocessingInput,
     onReprocessingInputTaken,
   }: {
@@ -132,6 +135,8 @@
     storeCategoryRequest?: { tag: string } | null;
     onShowOmegaOffers?: () => void;
     onToggleStore?: () => void;
+    onBuyPlex?: () => void;
+    onShowPlexOffers?: () => void;
     // R107 — the full pilot roster (every session, not just the active one).
     // Optional and forwarded only to the Bot Manager panel, which is the only
     // one that needs to see pilots beyond its own store/flow.
@@ -219,7 +224,8 @@
   <ShipTree {store} {flow} />
 {:else if tab === "market"}
   <Market {store} {flow} {onToggleStore} onOpenOrders={onOpen ? () => onOpen?.("marketOrders") : undefined}
-    onOpenIndustry={onOpen ? () => onOpen?.("industry") : undefined} />
+    onOpenIndustry={onOpen ? () => onOpen?.("industry") : undefined}
+    onBuyPlex={onBuyPlex ?? (onOpen ? () => onOpen?.("plexCheckout") : undefined)} />
 {:else if tab === "marketOrders"}
   <Market {store} {flow} ordersOnly />
 {:else if tab === "activity"}
@@ -372,6 +378,8 @@
   <AuraGuidance {store} {flow} />
 {:else if tab === "newEdenStore"}
   <NewEdenStore {flow} categoryRequest={storeCategoryRequest} />
+{:else if tab === "plexCheckout"}
+  <PlexCheckout {flow} onShowStore={onShowPlexOffers} />
 {:else if tab === "omegaUpsell"}
   <OmegaUpsell {store} {onShowOmegaOffers} />
 {:else if tab === "notepad"}

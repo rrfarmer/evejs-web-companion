@@ -68,6 +68,7 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   auraGuidance: ["M3 4h18v13h-8l-5 4v-4H3z", "M7 9h10m-10 4h7"],
   newEdenStore: ["M4 8h16v13H4z", "M8 9V6a4 4 0 0 1 8 0v3"],
   omegaUpsell: ["M4 19h5v-2a6 6 0 1 1 6 0v2h5"],
+  plexCheckout: ["M12 3l8 5v8l-8 5-8-5V8z", "M8 12h8M12 8v8"],
 
   // --- docked ---
   fitting: ["M12 3l6 6v9H6V9z", "M9 12h.01M15 12h.01M12 16h.01"],

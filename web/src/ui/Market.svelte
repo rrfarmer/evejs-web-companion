@@ -80,13 +80,14 @@
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import type { MarketGroupNode } from "../app/api.ts";
 
-  let { store, flow, ordersOnly = false, onOpenOrders, onToggleStore, onOpenIndustry }: {
+  let { store, flow, ordersOnly = false, onOpenOrders, onToggleStore, onOpenIndustry, onBuyPlex }: {
     store: ClientStore;
     flow: AppFlow;
     ordersOnly?: boolean;
     onOpenOrders?: () => void;
     onToggleStore?: () => void;
     onOpenIndustry?: () => void;
+    onBuyPlex?: () => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -197,6 +198,7 @@
     "Tooltips/Market/MarketDetailsHistory": "The selected item's price history",
     "Tooltips/StationServices/MarketOrders": "Market Orders",
     "UI/VirtualGoodsStore/VgsName": "New Eden Store",
+    "UI/VirtualGoodsStore/Buttons/BuyPlex": "Buy PLEX",
     "Tooltips/Neocom/Vgs_description": "Open the New Eden Store",
     "UI/Market/Multibuy": "Multibuy",
     "UI/Market/Multibuy_description": "Buy several items at once",
@@ -1675,6 +1677,9 @@
               <button type="button" class="mkt-info" aria-label={qbWord("UI/Commands/ShowInfo")}
                 onclick={() => showInfo({ kind: "type", typeID: item.typeID })}>i</button>
             </h3>
+            {#if item.typeID === 44992 && onBuyPlex}
+              <button type="button" class="mkt-primary mkt-buy-plex" onclick={onBuyPlex}>{qbWord("UI/VirtualGoodsStore/Buttons/BuyPlex")}</button>
+            {/if}
             {#if skill || fittingNeeds.length}
               <div class="mkt-group-requirements">
                 {#if skill?.own}
@@ -2397,6 +2402,7 @@
   .mkt-group-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px;
     padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.12); }
   .mkt-group-card p { margin: 0 0 8px; white-space: pre-line; }
+  .mkt-buy-plex { margin-bottom: 6px; }
   .mkt-group-requirements { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px; margin-bottom: 6px; }
   .mkt-group-skill-icon { padding: 0; width: 24px; height: 24px; background: transparent; border: 0; cursor: pointer; }
   .mkt-group-requirements img { display: block; width: 24px; height: 24px; }

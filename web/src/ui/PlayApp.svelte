@@ -1464,6 +1464,7 @@
   const CLIENT_SIZES: Partial<Record<TabID, { w: number; h: number }>> = {
     newEdenStore: { w: 960, h: 620 },
     omegaUpsell: { w: 960, h: 590 },
+    plexCheckout: { w: 660, h: 460 },
     help: { w: 400, h: 275 },
     auraGuidance: { w: 400, h: 500 },
     fittingManagement: { w: 620, h: 600 },
@@ -1684,6 +1685,7 @@
     auraGuidance: "UI/Accessories/AuraGuidance/WindowTitle",
     newEdenStore: "UI/VirtualGoodsStore/VgsName",
     omegaUpsell: "UI/CloneState/UpgradeToOmegaTitle",
+    plexCheckout: "UI/VirtualGoodsStore/Buttons/BuyPlex",
     fittingManagement: "UI/Fitting/FittingWindow/FittingManagement/WindowCaption",
     calculator: "UI/Accessories/Calculator/Calculator",
     marketOrders: "Tooltips/StationServices/MarketOrders",
@@ -1999,6 +2001,15 @@
   function showOmegaOffers() {
     open("newEdenStore");
     storeCategoryRequest = { tag: "gametime" };
+  }
+  function togglePlexCheckout() {
+    if (wins.some(win => win.id === "plexCheckout" && !win.minimized)) wins = closeWindow(wins, "plexCheckout");
+    else open("plexCheckout");
+  }
+  function showPlexOffers() {
+    wins = closeWindow(wins, "plexCheckout");
+    open("newEdenStore");
+    storeCategoryRequest = { tag: "plex" };
   }
   function togglePlexVault() {
     if (wins.some(win => win.id === "inventory" && !win.minimized)) {
@@ -4344,6 +4355,7 @@
               {inventoryVaultRequested}
               {storeCategoryRequest} onShowOmegaOffers={showOmegaOffers}
               onToggleStore={() => neocomOpen("newEdenStore")}
+              onBuyPlex={togglePlexCheckout} onShowPlexOffers={showPlexOffers}
               onReprocess={reprocessingAvailable ? reprocessSelection : undefined}
               {reprocessingInput} onReprocessingInputTaken={() => (reprocessingInput = null)}
               onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} {autoMoonMiner}
