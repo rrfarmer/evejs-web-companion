@@ -54,6 +54,7 @@
   } from "./dragDrop.ts";
   import { startFittingDrag, startFittingSourceDrag } from "./fittingDrag.ts";
   import ImportFittings from "./ImportFittings.svelte";
+  import ExportFittings from "./ExportFittings.svelte";
   import FittingCharges from "./FittingCharges.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { formatNumeric, type PyNumber } from "../bridge/pyNumbers.ts";
@@ -195,6 +196,7 @@
   let busy = $state(false);
   let importExportOpen = $state(false);
   let importFileOpen = $state(false);
+  let exportFileOpen = $state(false);
   let importedCount = $state<number | null>(null);
   let error = $state("");
   /** Which module the player picked to fit, and where it is coming from. */
@@ -459,6 +461,7 @@
     "UI/Fitting/FittingWindow/FittingManagement/ExportToClipboardHint": "",
     "UI/Fitting/FittingWindow/ImportFromFile": "Import from File",
     "UI/Fitting/ImportFittings": "Import Fittings",
+    "UI/Fitting/ExportFittings": "Export Fittings",
     // Said by the import (flow.ts importFittingFromClipboard): asked here, where it is made.
     "UI/SkillQueue/CouldNotReadLines": "",
     "UI/Market/MarketQuote/BuyAll": "Shop for all of it",
@@ -4206,8 +4209,11 @@
               onclick={() => { importExportOpen = false; void flow.currentFitText().then((text) => (text === null ? undefined : navigator.clipboard.writeText(text))).catch(() => {}); }}>
               {fitWord("UI/Fitting/FittingWindow/FittingManagement/ExportToClipboard")}
             </button>
-            <button type="button" role="menuitem" onclick={() => { importExportOpen = false; importedCount = null; importFileOpen = true; }}>
+            <button type="button" role="menuitem" onclick={() => { importExportOpen = false; exportFileOpen = false; importedCount = null; importFileOpen = true; }}>
               {fitWord("UI/Fitting/FittingWindow/ImportFromFile")}
+            </button>
+            <button type="button" role="menuitem" onclick={() => { importExportOpen = false; importFileOpen = false; exportFileOpen = true; }}>
+              {fitWord("UI/Fitting/ExportFittings")}
             </button>
           </span>
         {/if}
@@ -4216,6 +4222,8 @@
     {#if importFileOpen}
       <ImportFittings {flow} title={fitWord("UI/Fitting/ImportFittings")} onClose={() => { importFileOpen = false; }}
         onImported={count => { importedCount = count; importFileOpen = false; }} />
+    {:else if exportFileOpen}
+      <ExportFittings {store} {flow} onClose={() => (exportFileOpen = false)} />
     {/if}
     {#if importedCount !== null}<p role="status">Imported {importedCount} {importedCount === 1 ? "fitting" : "fittings"}.</p>{/if}
     <p class="controls">

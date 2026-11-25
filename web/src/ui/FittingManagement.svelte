@@ -7,6 +7,7 @@
   import { plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import ImportFittings from "./ImportFittings.svelte";
+  import ExportFittings from "./ExportFittings.svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import { showInfo } from "./showInfo.ts";
 
@@ -42,6 +43,7 @@
   const searching = $derived(query.length > 0);
   let selectedID = $state<number | null>(null);
   let importing = $state(false);
+  let exporting = $state(false);
   let busy = $state(false);
   let error = $state("");
   let info = $state.raw<Awaited<ReturnType<AppFlow["fittingInfo"]>> | null>(null);
@@ -113,7 +115,7 @@
   }
 
   onMount(() => {
-    flow.requestWords([...Object.keys(labels).map(label => prefix + label), "UI/Common/Buttons/CollapseAll"]);
+    flow.requestWords([...Object.keys(labels).map(label => prefix + label), "UI/Common/Buttons/CollapseAll", "UI/Fitting/ExportFittings"]);
     void run(() => flow.loadSavedFittings());
   });
 
@@ -171,8 +173,11 @@
     <input type="search" aria-label="Search fittings" placeholder="Search fittings" maxlength="40" value={query}
       oninput={(event) => { query = event.currentTarget.value; searchOpened = {}; }} />
     <div class="fit-management-import">
-      <button type="button" onclick={() => (importing = true)}>{word("ImportFromFile")}</button>
+      <button type="button" onclick={() => { exporting = false; importing = true; }}>{word("ImportFromFile")}</button>
       <button type="button" disabled={busy} onclick={() => void clipboardImport()}>{word("ImportFromClipboard")}</button>
+      <button type="button" onclick={() => { importing = false; exporting = true; }}>
+        {plainText($words.templates["UI/Fitting/ExportFittings"] || "Export Fittings")}
+      </button>
       <button type="button" disabled={!tree.length} onclick={collapseAll}>{plainText($words.templates["UI/Common/Buttons/CollapseAll"] || "Collapse All")}</button>
     </div>
     {#if $fittings === null && busy}<p role="status">Reading saved fittings…</p>{/if}
@@ -227,6 +232,10 @@
   {#if importing}
     <div class="fit-management-file">
       <ImportFittings {flow} title={word("ImportFromFile")} onClose={() => (importing = false)} onImported={() => (importing = false)} />
+    </div>
+  {:else if exporting}
+    <div class="fit-management-file">
+      <ExportFittings {store} {flow} initialOwner={owner} onClose={() => (exporting = false)} />
     </div>
   {/if}
 </div>

@@ -1,3 +1,5 @@
+import type { SavedFitting } from "./fittings.ts";
+
 export interface FittingFileProfile {
   readonly name: string;
   readonly description: string;
@@ -56,6 +58,31 @@ function fittingFlag(slot: string): number | null {
   const range = match && slotFlags.get(match[1]!);
   const index = Number(match?.[2]);
   return range && index < range[1] ? range[0] + index : null;
+}
+
+/** ExportFittingsWindow: fittings XML uses type names and slot names rather than IDs. */
+export function writeFittingFile(fittings: readonly SavedFitting[], typeName: (id: number) => string): string {
+  const xml = document.implementation.createDocument(null, "fittings");
+  for (const fitting of fittings) {
+    const profile = xml.createElement("fitting");
+    profile.setAttribute("name", fitting.name);
+    xml.documentElement.append(profile);
+    const description = xml.createElement("description");
+    description.setAttribute("value", fitting.description);
+    const hull = xml.createElement("shipType");
+    hull.setAttribute("value", typeName(fitting.shipTypeID));
+    profile.append(description, hull);
+    for (const module of fitting.modules) {
+      const hardware = xml.createElement("hardware");
+      hardware.setAttribute("type", typeName(module.typeID));
+      const bay = [...bayFlags].find(([, flag]) => flag === module.flagID)?.[0];
+      const rack = [...slotFlags].find(([, [start, count]]) => module.flagID >= start && module.flagID < start + count);
+      hardware.setAttribute("slot", bay ?? (rack ? `${rack[0]} slot ${module.flagID - rack[1][0]}` : "invalid flag"));
+      if (bay) hardware.setAttribute("qty", String(module.quantity));
+      profile.append(hardware);
+    }
+  }
+  return '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(xml) + "\n";
 }
 
 /** GetFittingImportData keeps one row per (typeID, flag), taking the last row in the file. */
