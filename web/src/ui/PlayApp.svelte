@@ -64,7 +64,9 @@
   import { hudSetting, hudSettingNow, setHudSetting, slotOrderOf } from "../store/hudSettings.ts";
   import { createSession, type Session } from "../app/sessions.ts";
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
-  import { bridgeDo, corpTickers, getDscanHologramTypes } from "../app/api.ts";
+  import { bridgeDo, corpTickers, getDscanHologramTypes, loadCharacterCreationState, type CharacterCreationState } from "../app/api.ts";
+  import { getCharacterSelectionData } from "../bridge/characterSelection.ts";
+  import CharacterCreate from "./CharacterCreate.svelte";
   import { StarMap } from "../play/starMap.ts";
   import { mountStarMapFilterControls } from "../play/starMapFilterControls.ts";
   import type { StarMapColorMode } from "../bridge/starMapFilters.ts";
@@ -342,7 +344,11 @@
     sovHubConfig = { hub, details, extras };
   }
   const stationManager = (s: Session) => (BigInt(s.store.station.get().online?.corpRole ?? "0") & 2048n) !== 0n;
-  let stage = $state<"login" | "select" | "entering" | "game">("login");
+  let stage = $state<"login" | "select" | "create" | "entering" | "game">("login");
+  let creationState = $state<CharacterCreationState | null>(null);
+  let createdCharacterID = $state<number | null>(null);
+  let rosterBusy = $state(false);
+  const defaultRosterPortrait = clientTexture(portraitDefaultPath(256));
   let error = $state("");
   let username = $state("");
   let password = $state("");
@@ -367,6 +373,16 @@
 
   // The pilot's slices, once there is a session.
   const characters = $derived(session?.store.character);
+  $effect(() => {
+    const account = session;
+    if (stage !== "select" || !account) return;
+    let current = true;
+    creationState = null;
+    void loadCharacterCreationState(account.flow.requestOptions()).then((state) => {
+      if (current) creationState = state;
+    }).catch(() => {});
+    return () => { current = false; };
+  });
   const flight = $derived(session?.store.flight);
   const station = $derived(session?.store.station);
   const planets = $derived(session?.store.planets);
@@ -635,12 +651,51 @@
     }
   }
 
+  function openCharacterCreation(): void {
+    if (stage !== "select" || rosterBusy) return;
+    error = "";
+    stage = "create";
+  }
+
+  async function characterCreated(characterID: number | null): Promise<void> {
+    const account = session;
+    if (!account || stage !== "create") return;
+    if (characterID === null || !account.store.character.get().characters.some((row) => row.characterID === characterID)) {
+      try {
+        const roster = await getCharacterSelectionData(account.flow.requestOptions());
+        account.store.apply({ type: "character/list", characters: roster.characters });
+      } catch (cause) {
+        error = (cause as Error).message;
+      }
+    }
+    if (session !== account || stage !== "create") return;
+    createdCharacterID = characterID;
+    stage = "select";
+  }
+
+  async function signOutOfRoster(): Promise<void> {
+    if (!session || stage !== "select" || rosterBusy) return;
+    rosterBusy = true;
+    error = "";
+    try {
+      await session.flow.logout();
+      session = null;
+      password = "";
+      createdCharacterID = null;
+      stage = "login";
+    } catch (cause) {
+      error = (cause as Error).message;
+    } finally {
+      rosterBusy = false;
+    }
+  }
+
   let live: LivePark | null = null;
   let spaceClaimed: Session | null = null;
   let entryWarpHistory: Promise<boolean | null> | null = null;
   let chosenCharacterID = $state<number | null>(null);
   async function enter(characterID: number) {
-    if (!session) return;
+    if (!session || stage !== "select" || rosterBusy) return;
     leavePlanetMode(false);
     chosenCharacterID = characterID;
     ++moonDetailsRequest;
@@ -3741,18 +3796,44 @@
     <button class="btn primary" type="submit">Log in</button>
     <div class="error">{error}</div>
   </form></div>
-{:else if stage === "select" || stage === "entering"}
-  <div class="screen">
-    <div class="select-title">{stage === "entering" ? "Entering…" : "Select character"}</div>
-    <div class="select">
-      {#each $characters?.characters ?? [] as c (c.characterID)}
-        <button class="char-card" disabled={stage === "entering"} onclick={() => enter(c.characterID)}>
-          <img alt="" src={`http://127.0.0.1:26001/Character/${c.characterID}_256.jpg`} />
-          <div class="who"><div class="name">{c.characterName}</div><div class="where">{c.shipName ?? ""}</div></div>
-        </button>
-      {/each}
+{:else if stage === "create" && session}
+  <div class="screen creation-screen">
+    <div class="creation-form">
+      <CharacterCreate flow={session.flow} onCancel={() => (stage = "select")} onCreated={characterCreated} />
     </div>
-    {#if error}<div class="error" style="position:absolute;bottom:40px">{error}</div>{/if}
+  </div>
+{:else if stage === "select" || stage === "entering"}
+  <div class="screen roster-screen">
+    <div class="select-title">{stage === "entering" ? "Entering…" : "Select character"}</div>
+    <div class="flight-roster">
+      <div class="select">
+        {#each $characters?.characters ?? [] as c (c.characterID)}
+          <button type="button" class="char-card" class:created={c.characterID === createdCharacterID}
+            disabled={stage === "entering" || rosterBusy} onclick={() => enter(c.characterID)}>
+            <img alt="" src={`http://127.0.0.1:26001/Character/${c.characterID}_256.jpg`}
+              onerror={(event) => {
+                if (!event.currentTarget.src.endsWith(defaultRosterPortrait)) event.currentTarget.src = defaultRosterPortrait;
+              }} />
+            <div class="who"><div class="name">{c.characterName}</div><div class="where">{c.shipName ?? ""}</div></div>
+          </button>
+        {:else}
+          <p>This account has no characters yet.</p>
+        {/each}
+      </div>
+      <div class="roster-actions">
+        {#if creationState?.pendingName}
+          <button type="button" class="btn" disabled={stage === "entering" || rosterBusy} onclick={openCharacterCreation}>Check character creation</button>
+        {:else}
+          <button type="button" class="btn primary" disabled={stage === "entering" || rosterBusy || creationState?.freeSlots === 0}
+            onclick={openCharacterCreation}>Create character</button>
+        {/if}
+        <button type="button" class="btn" disabled={stage === "entering" || rosterBusy} onclick={signOutOfRoster}>Log out</button>
+      </div>
+      {#if creationState}
+        <p class="roster-slots">{creationState.freeSlots} of {creationState.slots} character slots available</p>
+      {/if}
+      {#if error}<div class="error" role="alert">{error}</div>{/if}
+    </div>
   </div>
 {:else if session}
   {#if controllingMetenox && docked}
@@ -4925,6 +5006,14 @@
   .lobby-svc:hover { background: rgba(255, 255, 255, 0.10); border-color: rgba(255, 255, 255, 0.2); }
   .lobby-svc img { width: 32px; height: 32px; }
   .char-card { padding: 0; text-align: left; color: inherit; font: inherit; }
+  .char-card.created { border-color: var(--accent); }
+  .roster-screen { box-sizing: border-box; padding: 76px 18px 28px; }
+  .flight-roster { max-height: 100%; max-width: 100%; overflow: auto; padding: 4px; text-align: center; }
+  .flight-roster .select, .roster-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+  .roster-actions { margin-top: 16px; }
+  .roster-slots { margin: 10px 0 0; color: var(--text-dim); }
+  .creation-screen { align-items: start; overflow: auto; }
+  .creation-form { width: min(54rem, calc(100% - 32px)); margin: 32px 0; }
   /* stacked with the app's windows: over them when opened or clicked, under them when one of theirs was clicked since */
   .space-container-layer { position: fixed; inset: 0; pointer-events: none; z-index: 21; }
   .space-container-layer.behind { z-index: 19; }
