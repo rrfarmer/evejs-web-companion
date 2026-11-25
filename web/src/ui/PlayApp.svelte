@@ -2477,6 +2477,15 @@
     invitable: Map<number, readonly { channel: string; title: string }[]>;
   }>();
 
+  function pilotMenuData(s: Session) {
+    let cache = pilotMenuCache.get(s);
+    if (!cache) {
+      cache = { book: null, invitable: new Map() };
+      pilotMenuCache.set(s, cache);
+    }
+    return cache;
+  }
+
   function downloadPilotPortraits(s: Session, ids: readonly number[]) {
     void s.flow.capturePortraits(ids, (id, image) => {
       const bytes = Uint8Array.from(atob(image.base64), ch => ch.charCodeAt(0));
@@ -2488,13 +2497,24 @@
     }, () => {}).catch(() => {});
   }
 
-  function lobbyGuestMenu(s: Session, guests: readonly { characterID: number; corporationID: number | null; allianceID: number | null }[]):
-    readonly (ContextEntry | null)[] {
+  async function lobbyGuestMenu(s: Session, guests: readonly { characterID: number; corporationID: number | null; allianceID: number | null }[]):
+    Promise<readonly (ContextEntry | null)[]> {
+    const me = s.store.station.get().online?.characterID;
     if (guests.length < 2) {
       const guest = guests[0];
-      return guest ? pilotMenu(s, guest.characterID, guest, true).sub ?? [] : [];
+      if (!guest) return [];
+      if (guest.characterID !== me && !isNpcOwner(guest.characterID)) {
+        const cache = pilotMenuData(s);
+        const [book, rooms] = await Promise.all([
+          s.flow.addressBook("contact").catch(() => null),
+          s.flow.conversations.invitable(guest.characterID).catch(() => []),
+        ]);
+        if (s.store.station.get().online?.characterID !== me) return [];
+        if (book) cache.book = book;
+        cache.invitable.set(guest.characterID, rooms);
+      }
+      return pilotMenu(s, guest.characterID, guest, true).sub ?? [];
     }
-    const me = s.store.station.get().online?.characterID;
     const ids = guests.map(guest => guest.characterID);
     const pilotIDs = ids.filter(id => !isNpcOwner(id));
     const peers = pilotIDs.filter(id => id !== me);
@@ -2520,15 +2540,11 @@
   }
 
   function pilotMenu(s: Session, characterID: number, affiliation?: { corporationID: number | null; allianceID: number | null }, inLobby = false): ContextEntry {
-    let cache = pilotMenuCache.get(s);
-    if (!cache) {
-      cache = { book: null, invitable: new Map() };
-      pilotMenuCache.set(s, cache);
-    }
+    const cache = pilotMenuData(s);
     // AddContactMenu: Edit Contact where the pilot is in the address book (IsInAddressBook), else Add Contact
-    if (inLobby || !cache.book) void s.flow.addressBook("contact").then((book) => { cache.book = book; }).catch(() => {});
+    if (!inLobby && !cache.book) void s.flow.addressBook("contact").then((book) => { cache.book = book; }).catch(() => {});
     const known = !!cache.book?.contacts.some((c) => c.contactID === characterID);
-    void s.flow.conversations.invitable(characterID).then((list) => { cache.invitable.set(characterID, list); }).catch(() => {});
+    if (!inLobby) void s.flow.conversations.invitable(characterID).then((list) => { cache.invitable.set(characterID, list); }).catch(() => {});
     // xmppChatSvc.Invite(charID, channel): None starts a private conversation
     const converse = (room?: string) => void s.flow.conversations.start(characterID, room).catch(() => {});
     const resolved = s.store.names.get().resolved;

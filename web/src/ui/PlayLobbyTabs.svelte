@@ -19,7 +19,7 @@
 
   let { session, guestMenu, onOpenAgents, onOpenInventory, onReprocess }: {
     session: Session;
-    guestMenu: (guests: readonly StationGuest[]) => readonly (ContextEntry | null)[];
+    guestMenu: (guests: readonly StationGuest[]) => Promise<readonly (ContextEntry | null)[]>;
     onOpenAgents: () => void;
     onOpenInventory: () => void;
     onReprocess?: (itemIDs: readonly number[]) => void;
@@ -34,9 +34,11 @@
   type Tab = "guests" | "agents" | "offices" | "hangars";
   let tab = $state<Tab>("guests");
   const guestContext = new ContextMenu();
+  let guestMenuRequest = 0;
   const asked = new Set<Tab>();
   function choose(next: Tab) {
     tab = next;
+    ++guestMenuRequest;
     guestContext.close();
     guestSettingsOpen = false;
     if (asked.has(next)) return;
@@ -100,6 +102,7 @@
     clearTimeout(filterTimer);
     filterTimer = undefined;
     guestFilter = guestSearch.toLowerCase();
+    ++guestMenuRequest;
     selectedGuests = new Set();
     guestAnchor = null;
   }
@@ -131,21 +134,25 @@
     guestAnchor = id;
   }
 
-  function openGuestMenu(event: MouseEvent | KeyboardEvent, guest: StationGuest) {
+  async function openGuestMenu(event: MouseEvent | KeyboardEvent, guest: StationGuest) {
     event.preventDefault();
     event.stopPropagation();
+    const request = ++guestMenuRequest;
+    const origin = event.currentTarget as HTMLElement;
+    const row = origin.getBoundingClientRect();
+    const pointed = event instanceof MouseEvent && (event.clientX !== 0 || event.clientY !== 0);
+    const x = pointed ? event.clientX : row.left;
+    const y = pointed ? event.clientY : row.bottom;
+    guestContext.close();
     if (!selectedGuests.has(guest.characterID)) {
       selectedGuests = new Set([guest.characterID]);
       guestAnchor = guest.characterID;
     }
-    const entries = guestMenu(guestRows.filter(row => selectedGuests.has(row.characterID)));
-    if (!entries.length) return;
-    if (event instanceof MouseEvent && (event.clientX !== 0 || event.clientY !== 0)) {
-      guestContext.open(event.clientX, event.clientY, entries);
-      return;
-    }
-    const row = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    guestContext.open(row.left, row.bottom, entries);
+    const chosen = guestRows.filter(row => selectedGuests.has(row.characterID));
+    const entries = await guestMenu(chosen);
+    if (request !== guestMenuRequest || !origin.isConnected || tab !== "guests" || !entries.length ||
+        !chosen.every(row => guestRows.some(current => current.characterID === row.characterID))) return;
+    guestContext.open(x, y, entries);
   }
 
   function guestKey(event: KeyboardEvent, guest: StationGuest) {
@@ -157,6 +164,7 @@
   }
 
   onDestroy(() => {
+    ++guestMenuRequest;
     clearTimeout(filterTimer);
     guestContext.close();
   });
