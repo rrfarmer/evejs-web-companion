@@ -20,8 +20,11 @@
   let selected = $state<number | undefined>();
   let preview = $state<"backdrop" | "female" | "male">("backdrop");
   let failed = $state(false);
+  let saving = $state(false);
+  let saveStatus = $state("");
   const backdrop = $derived(options?.backgrounds.find(entry => entry.id === selected));
   const url = $derived(backdrop ? `/client-res/portrait-background/${backdrop.id}` : "");
+  const canSave = $derived(options?.state === 0 && options.backgroundID !== null);
 
   onMount(() => {
     void flow.readDockedPortraitOptions().then(data => {
@@ -29,6 +32,22 @@
       selected = data.backgrounds.find(entry => entry.id === data.backgroundID)?.id ?? data.backgrounds[0]?.id;
     }).catch(() => { failed = true; });
   });
+
+  async function saveBackdrop(): Promise<void> {
+    if (!options || !canSave || !backdrop || saving || options.backgroundID === backdrop.id) return;
+    const backgroundID = backdrop.id;
+    saving = true;
+    saveStatus = "";
+    try {
+      await flow.saveDockedPortraitBackdrop(backgroundID);
+      options = { ...options, backgroundID };
+      saveStatus = "Backdrop saved.";
+    } catch (error) {
+      saveStatus = error instanceof Error ? error.message : "The backdrop could not be saved.";
+    } finally {
+      saving = false;
+    }
+  }
 </script>
 
 <div class="recustomization" data-window="characterRecustomization" data-appearance-state={options?.state}>
@@ -37,7 +56,6 @@
     <OwnerPicture name="Current pilot" {urls} size={152} />
     {#if options?.backgroundID != null}<p>Saved backdrop {options.backgroundID}</p>{/if}
     {#if options?.state === 2}<p>This pilot has no saved appearance yet.</p>{/if}
-    <p>Use the desktop EVE client to edit and save your character’s appearance.</p>
   </div>
   <div class="preview">
     <label>Preview
@@ -51,7 +69,7 @@
       <div class="image"><PortraitBaseHead model={preview} /></div>
     {:else if options?.backgrounds.length}
       <label>Portrait backdrop
-        <select bind:value={selected}>
+        <select bind:value={selected} disabled={saving} onchange={() => { saveStatus = ""; }}>
           {#each options.backgrounds as entry (entry.id)}
             <option value={entry.id}>Backdrop {entry.id}</option>
           {/each}
@@ -64,6 +82,12 @@
           <img src={url} alt="Selected portrait backdrop" />
         {/if}
       </div>
+      {#if canSave}
+        <button type="button" disabled={saving || !backdrop || selected === options.backgroundID} onclick={saveBackdrop}>
+          {saving ? "Saving…" : "Save backdrop"}
+        </button>
+        {#if saveStatus}<p role="status">{saveStatus}</p>{/if}
+      {/if}
     {:else}
       <p role="status">{failed || options ? "Portrait backdrops are unavailable." : "Reading portrait backdrops…"}</p>
     {/if}
@@ -79,5 +103,6 @@
   select { min-width: 0; max-width: 100%; flex: 1; }
   .image { display: grid; background: #101716; aspect-ratio: 1; width: 100%; max-width: 332px; }
   img { width: 100%; aspect-ratio: 1; object-fit: contain; }
+  button { margin-top: 10px; }
   @media (max-width: 520px) { .recustomization { gap: 12px; padding: 10px; } }
 </style>

@@ -678,6 +678,7 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
 const GAME_PORT_ONLY_CALLS = Object.freeze([
   "crimewatch.ApplyTagsForSecStatus",
   "paperDollServer.GetPaperDollPortraitDataFor",
+  "paperDollServer.UpdateExistingCharacterLimited",
   // menuFunctions.SelfDestructShip / AbortSelfDestructShip (the active ship's space menu): not on the gateway contract's list
   "ship.SelfDestruct", "ship.AbortSelfDestruct",
   // safeLogoffTimer.AbortSafeLogoff: GetShipAccess().AbortSafeLogoff(), the timer's Abort button
@@ -2879,6 +2880,8 @@ const RETAIL_CALLS = Object.freeze({
     "The docked character editor asks RemoteSvc('charMgr').GetPaperdollState() for the active pilot before choosing an appearance mode."),
   "paperDollServer.GetPaperDollPortraitDataFor": same("eve/client/script/ui/services/ccSvc.py:146-149",
     "GetPortraitData asks paperDollServer by character ID and reads the first row of the returned portrait list."),
+  "paperDollServer.UpdateExistingCharacterLimited": same("eve/client/script/ui/services/ccSvc.py:125-129",
+    "Limited recustomization sends the pilot ID, appearance, portrait and existing-doll flag."),
   "crimewatch.GetMySecurityStatus": same(`${CRIMEWATCH_SVC}:592`, "CharGetCrimewatchLocation().GetMySecurityStatus(), no arguments: asked once and kept. Recorded on Tranquility as the call a bind of crimewatch carried."),
   "crimewatch.GetCharacterSecurityStatus": same(`${CRIMEWATCH_SVC}:596`, "CharGetCrimewatchLocation().GetCharacterSecurityStatus(charID)"),
   "crimewatch.GetSecurityStatusTransactions": same(`${CRIMEWATCH_SVC}:603`, "CharGetCrimewatchLocation().GetSecurityStatusTransactions(), no arguments"),

@@ -19105,6 +19105,48 @@ function portraitBackdrop(row) {
     ? resource : null;
 }
 
+app.post("/api/bridge/character/portrait-backdrop", requireAuth, async (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held || !requireWriteConfirmation(req, res, "Choose a backdrop and use Save backdrop.")) return;
+  const { backgroundID, dockedLocationID } = req.body;
+  if (!Number.isSafeInteger(backgroundID) || backgroundID <= 0 ||
+      !Number.isSafeInteger(dockedLocationID) || dockedLocationID <= 0) {
+    return res.status(400).json({ ok: false, error: "INVALID_BACKDROP", message: "Choose an available portrait backdrop." });
+  }
+  const call = (service, method, args) => heldTopLevelCall(held, req.webSessionID, service, method, args, null);
+  const readPortrait = async () => {
+    const { result } = await call("paperDollServer", "GetPaperDollPortraitDataFor", [held.characterID]);
+    const row = result?.[0]?.items?.[0];
+    return row?.type === "packedrow" ? row.fields : null;
+  };
+  try {
+    const resources = await clientBuiltData.table("portraitResources");
+    const resource = resources?.[backgroundID];
+    if (!portraitBackdrop(resource) || resource.typeID != null) {
+      return res.status(400).json({ ok: false, error: "INVALID_BACKDROP", message: "Choose an available portrait backdrop." });
+    }
+    const { result: state } = await call("charMgr", "GetPaperdollState", []);
+    const portrait = await readPortrait();
+    if (state !== 0 || !Number.isSafeInteger(portrait?.backgroundID)) {
+      return res.status(409).json({ ok: false, error: "PORTRAIT_REQUIRED", message: "This pilot needs a saved appearance and portrait before changing the backdrop." });
+    }
+    const { flight } = await readHeldFlight(held, req.webSessionID);
+    if (!flight?.docked || (flight.structureID ?? flight.stationID) !== dockedLocationID) {
+      return res.status(409).json({ ok: false, error: "LOCATION_CHANGED", message: "Dock to change your portrait backdrop." });
+    }
+    if (portrait.backgroundID !== backgroundID) {
+      // The limited update keeps the existing doll when appearance is null.
+      // Reuse the saved portrait fields so the backdrop change keeps its pose and camera.
+      const updated = { type: "dict", entries: Object.entries({ ...portrait, backgroundID }) };
+      await call("paperDollServer", "UpdateExistingCharacterLimited", [held.characterID, null, updated, true]);
+      if ((await readPortrait())?.backgroundID !== backgroundID) {
+        return res.status(409).json({ ok: false, error: "BACKDROP_UNCONFIRMED", message: "The saved backdrop could not be confirmed." });
+      }
+    }
+    res.json({ ok: true, backgroundID });
+  } catch (error) { next(error); }
+});
+
 app.get("/api/client-data/portrait-backgrounds", requireAuth, async (_req, res, next) => {
   try {
     const resources = await clientBuiltData.table("portraitResources");

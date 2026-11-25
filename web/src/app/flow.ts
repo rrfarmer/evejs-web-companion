@@ -4347,6 +4347,7 @@ export interface AppFlow {
   requestOwnSecurityStatus(): void;
   exchangeSecurityTags(stationID: number, target: number, current: number): Promise<void>;
   readDockedPortraitOptions(): Promise<DockedPortraitOptions>;
+  saveDockedPortraitBackdrop(backgroundID: number): Promise<void>;
   warpToPlanetLaunch(launchID: number): Promise<void>;
   removePlanetLaunch(launchID: number): Promise<void>;
   /**
@@ -10044,6 +10045,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       backgroundID: typeof backgroundID === "number" && Number.isSafeInteger(backgroundID) ? backgroundID : null,
       backgrounds,
     };
+  }
+
+  async function saveDockedPortraitBackdrop(backgroundID: number): Promise<void> {
+    const location = dockedNow();
+    if (location === null) throw new Error("Dock to change your portrait backdrop.");
+    await api.savePortraitBackdrop(backgroundID, location, callOptions);
   }
 
   // crimewatchSvc.SetSafetyLevel: the client sets the level at the server and
@@ -39418,6 +39425,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestOwnSecurityStatus,
     exchangeSecurityTags,
     readDockedPortraitOptions,
+    saveDockedPortraitBackdrop,
 
     async approachPlanetLaunch(containerID) {
       await runFlightStep("Approach", () => orderedStep((flightNow) => approachCall(bridgeDo, flightNow, containerID, 50)));
