@@ -25,6 +25,8 @@
   import { resolvedName } from "../store/names.ts";
   import type { AccessGroup, ActiveBookmarks, BookmarkFolder } from "../bridge/bookmarks.ts";
   import { accessGroupLabel, accessGroupName, isNpcCorporation } from "./accessGroupNames.ts";
+  import { showAccessGroupInfo } from "./accessGroupInfo.ts";
+  import { startAccessGroupDrag } from "./accessGroupDrag.ts";
   import { showInfo } from "./showInfo.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -139,6 +141,15 @@
   });
 </script>
 
+{#snippet listLink(groupID: number | null)}
+  {@const line = listLine(groupID)}
+  {#if groupID !== null && line !== "-"}
+    <button type="button" class="linkish" draggable="true"
+      ondragstart={(event) => startAccessGroupDrag(event, groupID, line)}
+      onclick={() => showAccessGroupInfo(flow, groupID)}>{line}</button>
+  {:else}{line}{/if}
+{/snippet}
+
 <section class="folder-info" aria-label={heading}>
   <h3>{heading}</h3>
   <p>{word(WORDS.nameHeader, "Name:")} <strong>{folder.folderName}</strong></p>
@@ -166,13 +177,13 @@
       <dt class="folder-info-heading">{word(WORDS.accessConfiguration, "Who may do what")}</dt>
       <dd></dd>
       <dt>{word(WORDS.admin, "Runs it")}</dt>
-      <dd>{listLine(folder.adminGroupID)}</dd>
+      <dd>{@render listLink(folder.adminGroupID)}</dd>
       <dt>{word(WORDS.manage, "Changes it all")}</dt>
-      <dd>{listLine(folder.manageGroupID)}</dd>
+      <dd>{@render listLink(folder.manageGroupID)}</dd>
       <dt>{word(WORDS.use, "Adds to it")}</dt>
-      <dd>{listLine(folder.useGroupID)}</dd>
+      <dd>{@render listLink(folder.useGroupID)}</dd>
       <dt>{word(WORDS.view, "Sees it")}</dt>
-      <dd>{listLine(folder.viewGroupID)}</dd>
+      <dd>{@render listLink(folder.viewGroupID)}</dd>
     {/if}
     {#if known}
       <dt>{word(WORDS.status, "State")}</dt>

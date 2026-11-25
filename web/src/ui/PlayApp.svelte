@@ -112,6 +112,7 @@
   import MiningScanWindowActions from "./MiningScanWindowActions.svelte";
   import FleetInvitation from "./FleetInvitation.svelte";
   import InfoWindows from "./InfoWindows.svelte";
+  import AccessGroupInfoWindows from "./AccessGroupInfoWindows.svelte";
   import CalendarWindows from "./CalendarWindows.svelte";
   import ShipRestrictionsWindow from "./ShipRestrictionsWindow.svelte";
   import HackingWindow from "./HackingWindow.svelte";
@@ -4216,6 +4217,7 @@
   <ErrorBoundary name="Client dialogs"><ClientDialogs {session} inFront={true} /></ErrorBoundary>
   <ErrorBoundary name="Scanner results"><ScannerWindows {session} inFront={true} /></ErrorBoundary>
   <ErrorBoundary name="Info windows"><InfoWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>
+  <ErrorBoundary name="Access List information"><AccessGroupInfoWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>
   <ErrorBoundary name="Calendar windows"><CalendarWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>
   <ErrorBoundary name="Ship restrictions"><ShipRestrictionsWindow {session} inFront={true} /></ErrorBoundary>
   <ErrorBoundary name="Hacking"><HackingWindow {session} /></ErrorBoundary>

@@ -1,5 +1,6 @@
 import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
 import { startLinkDrag } from "./linkFollowers.ts";
+import { parseAccessGroupUrl } from "./accessGroupInfo.ts";
 
 const ACCESS_GROUP_DRAG_TYPE = "application/x-evejs-access-group";
 
@@ -23,8 +24,7 @@ export function droppedAccessGroup(event: DragEvent): number | null {
   if (!link) return null;
   try {
     const payload = JSON.parse(link) as { url?: unknown } | null;
-    const match = typeof payload?.url === "string" ? /^accessGroup:(\d+)$/i.exec(payload.url) : null;
-    return match ? validID(match[1]!) : null;
+    return typeof payload?.url === "string" ? parseAccessGroupUrl(payload.url) : null;
   } catch {
     return null;
   }

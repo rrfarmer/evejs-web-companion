@@ -18,6 +18,7 @@
   import ClientDialogs from "./ClientDialogs.svelte";
   import ScannerWindows from "./ScannerWindows.svelte";
   import InfoWindows from "./InfoWindows.svelte";
+  import AccessGroupInfoWindows from "./AccessGroupInfoWindows.svelte";
   import CalendarWindows from "./CalendarWindows.svelte";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { showInfoRequests, setInfoShiftPressed } from "./showInfo.ts";
@@ -752,6 +753,7 @@
   <ErrorBoundary name="Information windows">
     {#each sessions as session (session.id)}
       <InfoWindows {session} inFront={session.id === activeId} host={infoHost?.sessionID === session.id ? infoHost.host : null} />
+      <AccessGroupInfoWindows {session} inFront={session.id === activeId} host={infoHost?.sessionID === session.id ? infoHost.host : null} />
     {/each}
   </ErrorBoundary>
   <ErrorBoundary name="Cargo scan results">

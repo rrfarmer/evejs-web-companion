@@ -6,6 +6,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { startAccessGroupDrag } from "./accessGroupDrag.ts";
+  import { showAccessGroupInfo } from "./accessGroupInfo.ts";
   import { accessMembershipsFromDrop, accessOwnerLinkType, droppedAccessMembers, hasAccessMemberDrag, startAccessMemberDrag } from "./accessMemberDrag.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
@@ -472,7 +473,7 @@
     </div>
     {#if selected && !editor}
       <div class="details">
-        <h3>{selected.name}</h3>
+        <h3><button class="group-info-link" onclick={() => selected && showAccessGroupInfo(flow, selected.groupID)}>{selected.name}</button></h3>
         {#if selected.description}<p class="description">{selected.description}</p>{/if}
         {#if selectedCanEdit}
           <div class="actions">
@@ -598,6 +599,7 @@
   form label { display: grid; gap: 4px; }
   h3, p { margin: 0; }
   .description { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .group-info-link { border: 0; padding: 0; background: none; color: #9bc9df; text-decoration: underline; font: inherit; }
   input, textarea, button { background: #11191d; color: inherit; padding: 4px; border: 1px solid #43525c; }
   textarea { resize: vertical; }
   button { cursor: pointer; }

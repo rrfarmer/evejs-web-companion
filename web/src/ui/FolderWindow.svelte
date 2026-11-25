@@ -27,6 +27,7 @@
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { AccessGroup, ActiveBookmarks, BookmarkFolder } from "../bridge/bookmarks.ts";
   import { accessGroupLabel, accessGroupName, isNpcCorporation } from "./accessGroupNames.ts";
+  import { showAccessGroupInfo } from "./accessGroupInfo.ts";
   import { isSessionLost } from "../app/flow.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -58,6 +59,7 @@
     manage: "UI/AclBookmarks/ManageAccess",
     admin: "UI/AclBookmarks/AdminAccess",
     noList: "UI/AclBookmarks/NoAccessList",
+    listInfo: "UI/AclBookmarks/ShowAccessListInfo",
     help: "UI/AclBookmarks/CreateFolderHelpText",
     submit: "UI/Common/Submit",
     cancel: "UI/Common/Cancel",
@@ -298,6 +300,11 @@
             {/each}
           </select>
         </label>
+        {#if levels[key] > 0}
+          <button type="button" class="minor" title={word(WORDS.listInfo, "Show Access List Info")}
+            aria-label={word(WORDS.listInfo, "Show Access List Info")}
+            onclick={() => showAccessGroupInfo(flow, levels[key])}>ⓘ</button>
+        {/if}
       </p>
     {/each}
   {/if}

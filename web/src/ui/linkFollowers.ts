@@ -20,6 +20,7 @@ import { parseInventoryFilterLink } from "../bridge/inventoryFilters.ts";
 import { parseOverviewPresetUrl } from "../bridge/overviewProfileLink.ts";
 import { linkScheme, parseShowInfoUrl } from "../bridge/showInfoLink.ts";
 import { showInfo, subjectOfShowInfoLink } from "./showInfo.ts";
+import { parseAccessGroupUrl, showAccessGroupInfo } from "./accessGroupInfo.ts";
 
 /**
  * A link in a text dragged (carbonui label.GetDragData: a TextLink of its url and its text, the tags stripped), for a
@@ -60,6 +61,7 @@ export function itemLinksFromDrop(payload: unknown): ItemLink[] {
 
 /** The links' hints, the page's own words where the install's are not to hand. */
 export const LINK_WORDS: Readonly<Record<string, string>> = {
+  "UI/AclBookmarks/ShowAccessListInfo": "Show Access List Info",
   "UI/SkillPlan/SkillPlan": "Skill plan",
   "UI/Commands/ShowInfo": "Show information",
   "UI/Fitting/ShowFitting": "Look at the fitting",
@@ -88,6 +90,12 @@ export function linkFollowerOf(
   openInventoryFilterLink: ((url: string) => void) | null = null,
 ): LinkFollower | null {
   const scheme = linkScheme(url);
+  if (scheme === "accessgroup") {
+    const groupID = parseAccessGroupUrl(url);
+    if (groupID === null) return null;
+    return { kind: "showInfo", hint: word("UI/AclBookmarks/ShowAccessListInfo") || "Show Access List Info",
+      follow: () => showAccessGroupInfo(flow, groupID) };
+  }
   if (scheme === "fitting") {
     return { kind: "fitting", hint: word("UI/Fitting/ShowFitting"), follow: () => void flow.followFittingLink(url, text).catch(() => {}) };
   }

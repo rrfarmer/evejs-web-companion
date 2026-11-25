@@ -258,6 +258,7 @@ export interface AccessGroup {
   readonly name: string;
   readonly description: string;
   readonly membershipType: number;
+  readonly admins?: readonly number[];
 }
 
 /**
@@ -284,12 +285,14 @@ export function decodeAccessGroup(result: JsonValue): AccessGroup | null {
   if (groupID <= 0) {
     return null;
   }
+  const admins = readRowField(result, "admins");
   return {
     groupID,
     creatorID: toOptionalID(readRowField(result, "creatorID")),
     name: toText(readRowField(result, "name")),
     description: toText(readRowField(result, "description")),
     membershipType: toNumber(readRowField(result, "membershipType")),
+    ...(admins === undefined ? {} : { admins: listItems(admins).map(toNumber).filter(id => Number.isSafeInteger(id) && id > 0) }),
   };
 }
 
