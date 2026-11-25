@@ -676,6 +676,7 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
  * (importExportUI.py 549), and the gateway never had it.
  */
 const GAME_PORT_ONLY_CALLS = Object.freeze([
+  "crimewatch.ApplyTagsForSecStatus",
   // menuFunctions.SelfDestructShip / AbortSelfDestructShip (the active ship's space menu): not on the gateway contract's list
   "ship.SelfDestruct", "ship.AbortSelfDestruct",
   // safeLogoffTimer.AbortSafeLogoff: GetShipAccess().AbortSafeLogoff(), the timer's Abort button
@@ -2869,6 +2870,10 @@ const RETAIL_CALLS = Object.freeze({
   "crimewatch.RespondToDuelChallenge": same(`${CRIMEWATCH_SVC}:562-579`, "RespondToDuelChallenge(fromCharID, expiryTime, accept): exact notice FILETIME long and bool, only after an explicit accept/decline result; timeout/close sends nothing."),
   "crimewatch.SetSafetyLevel": judged(`${CRIMEWATCH_SVC}:343`, oneSafetyLevel,
     "CharGetCrimewatchLocation().SetSafetyLevel(safetyLevel): one of the three levels, from the safety button's selector, at once for a level no lower than the one now and after its Confirm for a lower one (shipSafetyButton.py 464, 660). The service keeps the level it set and asks nothing. In none of the recordings."),
+  "crimewatch.ApplyTagsForSecStatus": judged("eve/client/script/ui/station/securityOfficeWindow.py:124",
+    (args, kwargs) => args.length === 2 && args.every(Number.isFinite) && Object.keys(kwargs).length === 0
+      ? {} : { status: "differs", note: "The office sends its selected target and the pilot's current security status." },
+    "CharGetCrimewatchLocation().ApplyTagsForSecStatus(targetSecurityStatus, currentSecurityStatus) after Exchange Tags."),
   "crimewatch.GetMySecurityStatus": same(`${CRIMEWATCH_SVC}:592`, "CharGetCrimewatchLocation().GetMySecurityStatus(), no arguments: asked once and kept. Recorded on Tranquility as the call a bind of crimewatch carried."),
   "crimewatch.GetCharacterSecurityStatus": same(`${CRIMEWATCH_SVC}:596`, "CharGetCrimewatchLocation().GetCharacterSecurityStatus(charID)"),
   "crimewatch.GetSecurityStatusTransactions": same(`${CRIMEWATCH_SVC}:603`, "CharGetCrimewatchLocation().GetSecurityStatusTransactions(), no arguments"),

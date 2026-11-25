@@ -4339,6 +4339,7 @@ export interface AppFlow {
    * asked; the answer kept in the store's station slice (ownSecurityStatus).
    */
   requestOwnSecurityStatus(): void;
+  exchangeSecurityTags(stationID: number, target: number, current: number): Promise<void>;
   warpToPlanetLaunch(launchID: number): Promise<void>;
   removePlanetLaunch(launchID: number): Promise<void>;
   /**
@@ -9996,6 +9997,25 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       .finally(() => {
         if (ownSecurityStatusAsking === characterID) ownSecurityStatusAsking = null;
       });
+  }
+
+  async function exchangeSecurityTags(stationID: number, target: number, current: number): Promise<void> {
+    const requestCurrent = callOptions.captureRequestGuard!();
+    const station = store.station.get();
+    const characterID = station.online?.characterID;
+    if (characterID == null || dockedNow() !== stationID || station.ownSecurityStatus !== current) {
+      throw new Error("Your station or security status changed. Choose the target again.");
+    }
+    await bridgeDo("crimewatch", "ApplyTagsForSecStatus", [target, current]);
+    const [confirmed] = await Promise.all([
+      bridgeAsk("crimewatch", "GetCharacterSecurityStatus", [characterID]).then(decodeSecurityStatus),
+      loadInventory(), loadWallet({ fresh: true }),
+    ]);
+    requestCurrent();
+    if (confirmed !== null) store.apply({ type: "character/security-status", securityStatus: confirmed });
+    if (confirmed === null || Math.abs(confirmed - target) > 1e-8) {
+      throw new Error("The updated security status could not be confirmed.");
+    }
   }
 
   // crimewatchSvc.SetSafetyLevel: the client sets the level at the server and
@@ -39368,6 +39388,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     readCharacterSetting,
     saveCharacterSetting,
     requestOwnSecurityStatus,
+    exchangeSecurityTags,
 
     async approachPlanetLaunch(containerID) {
       await runFlightStep("Approach", () => orderedStep((flightNow) => approachCall(bridgeDo, flightNow, containerID, 50)));

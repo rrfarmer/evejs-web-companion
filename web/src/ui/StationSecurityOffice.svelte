@@ -3,6 +3,7 @@
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
+  import { panelErrorWords } from "../bridge/refusals.ts";
   import { SECURITY_PROCESSING_FEE, SECURITY_TAGS, securityTagSteps } from "../bridge/securityOffice.ts";
 
   let { store, flow, stationID }: { store: ClientStore; flow: AppFlow; stationID: number } = $props();
@@ -11,7 +12,10 @@
   const names = $derived(store.names);
   const wallet = $derived(store.wallet);
   let fees = $state<ReadonlyMap<number, number | null> | null>(null);
-  let selected = $state(0);
+  let selected = $state<{ current: number | null; count: number } | null>(null);
+  let busy = $state(false);
+  let error = $state("");
+  let receipt = $state("");
 
   onMount(() => {
     flow.requestOwnSecurityStatus();
@@ -26,7 +30,7 @@
 
   const current = $derived($station.ownSecurityStatus);
   const steps = $derived(current === null ? [] : securityTagSteps(current));
-  const count = $derived(Math.min(selected, steps.length));
+  const count = $derived(selected?.current === current ? Math.min(selected?.count ?? 0, steps.length) : 0);
   const target = $derived(steps[count - 1]?.status ?? current);
   const rows = $derived(SECURITY_TAGS.map(tag => {
     const owned = $inventory.stationID !== stationID ? null : $inventory.hangar.rows
@@ -39,8 +43,25 @@
   const quote = $derived(rows.some(row => row.required > 0 && row.fee === null) ? null :
     rows.reduce((sum, row) => sum + row.required * (row.fee ?? 0), 0));
   const balance = $derived($wallet.cashBalance === null ? null : Number($wallet.cashBalance));
+  const canExchange = $derived(!busy && count > 0 && quote !== null && balance !== null && balance >= quote &&
+    rows.every(row => row.required === 0 || (row.owned !== null && row.owned >= row.required)));
   const statusText = (value: number | null) => value === null ? "—" : value.toFixed(2);
   const isk = (value: number | null) => value === null ? "—" : value.toLocaleString() + " ISK";
+
+  async function exchange(): Promise<void> {
+    if (!canExchange || current === null || target === null) return;
+    const chosen = target;
+    busy = true;
+    error = receipt = "";
+    try {
+      await flow.exchangeSecurityTags(stationID, chosen, current);
+      receipt = "Security status updated to " + statusText(chosen) + ".";
+    } catch (cause) {
+      error = panelErrorWords(cause);
+    } finally {
+      busy = false;
+    }
+  }
 </script>
 
 <div class="security-office" data-window="securityOffice">
@@ -51,8 +72,11 @@
   <label class="target">
     <span>Security increase</span>
     <input type="range" min="0" max={steps.length} step="1" value={count}
-      aria-valuetext={statusText(target)} disabled={steps.length === 0}
-      oninput={event => { selected = event.currentTarget.valueAsNumber; }} />
+      aria-valuetext={statusText(target)} disabled={steps.length === 0 || busy}
+      oninput={event => {
+        selected = { current, count: event.currentTarget.valueAsNumber };
+        error = receipt = "";
+      }} />
   </label>
   <table>
     <thead><tr><th scope="col">Security tag</th><th scope="col">In hangar</th><th scope="col">Required</th></tr></thead>
@@ -65,20 +89,26 @@
       {/each}
     </tbody>
   </table>
-  <div class="fee" class:short={quote !== null && balance !== null && quote > balance}>
-    Processing fee <strong>{isk(quote)}</strong>
+  <div class="actions">
+    <span class="fee" class:short={quote !== null && balance !== null && quote > balance}>
+      Processing fee <strong>{isk(quote)}</strong>
+    </span>
+    <button type="button" disabled={!canExchange} onclick={() => void exchange()}>
+      {busy ? "Exchanging…" : "Exchange Tags"}
+    </button>
   </div>
   <p class="availability">
-    {#if current === null}Reading security status…
+    {#if error}<span class="short" role="alert">{error}</span>
+    {:else if receipt}<span role="status">{receipt}</span>
+    {:else if current === null}Reading security status…
     {:else if steps.length === 0}Your security status is already at or above 0.00.
-    {:else}Tag exchange is unavailable on this server.
     {/if}
   </p>
 </div>
 
 <style>
   .security-office { display: grid; gap: 9px; padding: 12px; color: #e2e5e3; font-size: 13px; }
-  .status, .fee { display: flex; justify-content: space-between; gap: 12px; }
+  .status, .actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   strong { margin-left: 6px; font-variant-numeric: tabular-nums; }
   .target { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 12px; }
   .target input { width: 100%; accent-color: #7bbdb8; }
