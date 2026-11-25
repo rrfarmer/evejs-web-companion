@@ -97,7 +97,7 @@ export function activityIsFor(activity: IndustryActivity, original: boolean): bo
 }
 
 /** industry.ACTIVITIES (industry/const.py 15 to 21): the order the client's window looks for a blueprint's work in. */
-const CLIENT_ACTIVITY_ORDER: readonly IndustryActivity[] = ["manufacturing", "research_material", "research_time", "copying", "invention", "reaction"];
+export const CLIENT_ACTIVITY_ORDER: readonly IndustryActivity[] = ["manufacturing", "research_material", "research_time", "copying", "invention", "reaction"];
 
 /**
  * The work and the place of a job as its blueprint is chosen, as the client's industry window makes one
@@ -388,6 +388,7 @@ export function decodeFacilities(result: JsonValue): readonly IndustryFacilityRo
     }
     const activities: IndustryActivity[] = [];
     const modifiers: Partial<Record<IndustryActivity, IndustryFacilityModifiers>> = {};
+    const systemCostIndexes: Partial<Record<IndustryActivity, number>> = {};
     for (const entry of dictEntries(readKeyVal(row, "activities"))) {
       const activity = activityOfID(toNumber(entry[0]));
       if (activity && !activities.includes(activity)) {
@@ -396,6 +397,13 @@ export function decodeFacilities(result: JsonValue): readonly IndustryFacilityRo
         const lists = tupleItems(entry[1]);
         const time = decodeFacilityModifiers(lists[0]);
         const material = decodeFacilityModifiers(lists[1]);
+        for (const raw of tupleItems(lists[2])) {
+          const cost = tupleItems(raw);
+          // industry.Reference.SYSTEM. Other cost modifiers do not belong in the system index.
+          if (toNumberOrNull(cost[4]) !== 4) continue;
+          const index = toNumberOrNull(cost[0]);
+          if (index !== null && Number.isFinite(index) && index >= 0) systemCostIndexes[activity] = index;
+        }
         if (time.length > 0 || material.length > 0) {
           modifiers[activity] = { time, material };
         }
@@ -414,6 +422,7 @@ export function decodeFacilities(result: JsonValue): readonly IndustryFacilityRo
         (left, right) => ACTIVITY_ORDER.indexOf(left) - ACTIVITY_ORDER.indexOf(right),
       ),
       modifiers,
+      ...(Object.keys(systemCostIndexes).length ? { systemCostIndexes } : {}),
     });
   }
   return facilities;

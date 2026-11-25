@@ -686,6 +686,8 @@ export interface IndustryFacilityRow {
    * activity it lists none for.
    */
   readonly modifiers: Readonly<Partial<Record<IndustryActivity, IndustryFacilityModifiers>>>;
+  /** System cost index fractions, by supported activity. */
+  readonly systemCostIndexes?: Readonly<Partial<Record<IndustryActivity, number>>>;
 }
 
 /** One facility modifier: a factor, and what it applies to (null: anything). */

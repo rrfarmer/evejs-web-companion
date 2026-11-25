@@ -946,6 +946,7 @@ import type {
   FleetAction,
   FlightStatus,
   CapacityInfo,
+  IndustryActivity,
   InventoryItemRow,
   InventoryPlace,
   MiningHold,
@@ -2689,6 +2690,7 @@ export interface AppFlow {
    * recipes for the blueprint types it saw, and the names for everything.
    */
   loadIndustry(): Promise<void>;
+  industryCostIndexMaxima(): Promise<Readonly<Partial<Record<IndustryActivity, number>>>>;
   industryFacilitySystems(origin: number, systems: readonly number[]): Promise<ReadonlyMap<number, { readonly jumps: number | null; readonly sameRegion: boolean }>>;
   loadIndustryBlueprintDefinitions(typeIDs: readonly number[]): Promise<void>;
   readonly industryBlueprintPreview: ReadableSignal<{ readonly typeID: number; readonly original: boolean } | null>;
@@ -38939,6 +38941,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
 
     loadIndustry,
+    async industryCostIndexMaxima() {
+      // Activity ID to number, in the same wire dictionary shape as GetJobCounts.
+      return decodeSlotUsage(await bridgeAsk("facilityManager", "GetMaxActivityModifiers", []));
+    },
     industryFacilitySystems,
     loadIndustryBlueprintDefinitions,
     industryBlueprintPreview: readonlySignal(industryBlueprintPreview),

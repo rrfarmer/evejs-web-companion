@@ -17,6 +17,7 @@
   import {
     ACTIVITY_LABELS,
     ACTIVITY_ORDER,
+    CLIENT_ACTIVITY_ORDER,
     STATUS_LABELS,
     activityIsFor,
     formatDuration,
@@ -655,8 +656,7 @@
    * BrowserFacilities on the play page (browserFacilities.py, facilityEntry.py): its top row - the Owner combo (All
    * Facilities, Public Facilities, Corp-Owned: a facility owned by the pilot's corporation or not), the Activity
    * combo (All Activities and the six), range, and a quick filter on the name, owner and type. The columns are Jumps,
-   * Security, Facility, one per activity (the system cost index there: industry.Reference.SYSTEM modifiers, which the
-   * page does not read - a dash where the facility hosts the activity), Tax with an activity chosen, Facility Type,
+   * Security, Facility, one per activity (its icon and the system cost index), Tax with an activity chosen, Facility Type,
    * Owner. Range and the Jumps column use the standard stargate route, independent of autopilot settings.
    */
   const CLIENT_ACTIVITIES: readonly { id: IndustryActivity; label: string; icon: string }[] = [
@@ -668,6 +668,7 @@
     { id: "reaction", label: "UI/Industry/ActivityReaction", icon: "reaction" },
   ];
   let facOwner = $state<"any" | "npc" | "corp">("any");
+  const facilityActivities = CLIENT_ACTIVITY_ORDER.map(id => CLIENT_ACTIVITIES.find(activity => activity.id === id)!);
   let facActivity = $state<IndustryActivity | "">("");
   let facFilter = $state("");
   const FACILITY_RANGES = [
@@ -691,6 +692,7 @@
   }
 
   let facilitySystems = $state.raw<Awaited<ReturnType<AppFlow["industryFacilitySystems"]>> | null>(null);
+  let costIndexMaxima = $state.raw<Awaited<ReturnType<AppFlow["industryCostIndexMaxima"]>>>({});
   const facilityOrigin = $derived($flight.status?.solarSystemID ?? $station.online?.solarSystemID ?? $industry.solarSystemID);
   $effect(() => {
     const origin = facilityOrigin;
@@ -716,6 +718,18 @@
     const refs = $industry.facilities.flatMap((f) => [{ kind: "type" as const, id: f.typeID }, { kind: "owner" as const, id: f.ownerID }]);
     if (refs.length) flow.requestNames(refs);
   });
+  $effect(() => {
+    if (!retail || browserTab !== "facilities") return;
+    let current = true;
+    void flow.industryCostIndexMaxima().then(maxima => {
+      if (current) costIndexMaxima = maxima;
+    }).catch(() => {});
+    return () => { current = false; };
+  });
+  function facilityCostFill(activity: IndustryActivity, amount: number): number {
+    const maximum = costIndexMaxima[activity] ?? 1;
+    return Math.min(1, amount / (maximum > 0 ? maximum : 1)) * 100;
+  }
   const shownFacilities = $derived.by(() => {
     const corp = $station.online?.corporationID ?? null;
     const q = facFilter.trim().toLowerCase();
@@ -735,7 +749,8 @@
   const INDUSTRY_TAB_WORDS = [...INDUSTRY_TABS.map((t) => t.label), ...CLIENT_ACTIVITIES.map((a) => a.label),
     "UI/Industry/AllFacilities", "UI/Industry/PublicFacilities", "UI/Industry/CorpOwnedFacilities", "UI/Industry/AllActivities",
     "UI/Common/Jumps", "UI/Common/Security", "UI/Industry/Facility", "UI/Industry/Tax", "UI/Industry/FacilityType", "UI/Common/Owner",
-    "UI/Industry/NoFacilitiesFound", "UI/Common/LocationTypes/Unreachable", ...FACILITY_RANGES.map(range => range.label)];
+    "UI/Industry/NoFacilitiesFound", "UI/Common/LocationTypes/Unreachable",
+    "UI/Industry/SystemCostIndex", "UI/Industry/SystemCostIndexHint", ...FACILITY_RANGES.map(range => range.label)];
   $effect(() => { if (retail) flow.requestWords(INDUSTRY_TAB_WORDS); });
   /**
    * BrowserBlueprints on the play page (browserBlueprints.py, blueprintEntry.py): its top row - the Owner combo (Owned
@@ -1768,7 +1783,7 @@
       </select>
       <select bind:value={facActivity}>
         <option value="">{industryWord("UI/Industry/AllActivities") || "All Activities"}</option>
-        {#each CLIENT_ACTIVITIES as a (a.id)}<option value={a.id}>{industryWord(a.label) || ACTIVITY_LABELS[a.id]}</option>{/each}
+        {#each facilityActivities as a (a.id)}<option value={a.id}>{industryWord(a.label) || ACTIVITY_LABELS[a.id]}</option>{/each}
       </select>
       <select aria-label="Facility range" value={facRange} onchange={(event) => selectFacilityRange(event.currentTarget.value)}>
         {#each FACILITY_RANGES as range (range.value)}
@@ -1782,7 +1797,7 @@
         <thead><tr>
           <th class="r">{industryWord("UI/Common/Jumps") || "Jumps"}</th><th>{industryWord("UI/Common/Security") || "Security"}</th>
           <th>{industryWord("UI/Industry/Facility") || "Facility"}</th>
-          {#each CLIENT_ACTIVITIES as a (a.id)}<th class="ic" title={industryWord(a.label) || ACTIVITY_LABELS[a.id]}><img alt="" src={`/client-res/ui/texture/classes/industry/${a.icon}.png`} /></th>{/each}
+          {#each facilityActivities as a (a.id)}<th class="ic" title={industryWord(a.label) || ACTIVITY_LABELS[a.id]}><img alt="" src={`/client-res/ui/texture/classes/industry/${a.icon}.png`} /></th>{/each}
           {#if facActivity}<th class="r">{industryWord("UI/Industry/Tax") || "Tax"}</th>{/if}
           <th>{industryWord("UI/Industry/FacilityType") || "Facility Type"}</th><th>{industryWord("UI/Common/Owner") || "Owner"}</th>
         </tr></thead>
@@ -1798,7 +1813,20 @@
               </td>
               <td>{#if sec !== undefined}<span style={`color: ${securityStatusColor(sec)}`}>{shownSecurity(sec).toFixed(1)}</span>{/if}</td>
               <td>{facilityName(f.facilityID)}{#if !f.online}<small class="note"> offline</small>{/if}</td>
-              {#each CLIENT_ACTIVITIES as a (a.id)}<td class="ic">{f.activities.includes(a.id) ? "—" : ""}</td>{/each}
+              {#each facilityActivities as a (a.id)}
+                {@const enabled = f.activities.includes(a.id)}
+                {@const amount = f.systemCostIndexes?.[a.id]}
+                {@const activity = industryWord(a.label) || ACTIVITY_LABELS[a.id]}
+                {@const label = amount === undefined ? activity : `${activity} · ${industryWord("UI/Industry/SystemCostIndex") || "System cost index"} ${(amount * 100).toFixed(2)}%`}
+                {@const detail = amount === undefined ? "" : industryWord("UI/Industry/SystemCostIndexHint")}
+                <td class="ic ind-fac-activity" title={detail ? `${label}\n${detail}` : label}>
+                  {#if amount !== undefined && amount > 0}
+                    <span class="ind-fac-cost-index" style:width={`${facilityCostFill(a.id, amount)}%`} aria-hidden="true"></span>
+                  {/if}
+                  <img class:enabled class:dim={enabled && facActivity !== "" && facActivity !== a.id}
+                    src={`/client-res/ui/texture/classes/industry/${a.icon}.png`} alt={label} />
+                </td>
+              {/each}
               {#if facActivity}<td class="r">{taxText(f.tax)}</td>{/if}
               <td>{typeName(f.typeID)}</td><td>{resolvedName($names.resolved, "owner", f.ownerID, "")}</td>
             </tr>
@@ -1852,3 +1880,22 @@
   {/if}
   </div>
 {/if}
+
+<style>
+  .ind-fac-activity { position: relative; }
+  .ind-fac-cost-index {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: linear-gradient(90deg, #e24b36b3, #e24b3633 22%, transparent);
+    pointer-events: none;
+  }
+  .ind-fac-activity img {
+    position: relative;
+    width: 14px;
+    height: 14px;
+    vertical-align: middle;
+    opacity: 0.3;
+  }
+  .ind-fac-activity img.enabled { opacity: 1; }
+  .ind-fac-activity img.dim { opacity: 0.7; }
+</style>
