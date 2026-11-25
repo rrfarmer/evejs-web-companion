@@ -1081,7 +1081,7 @@
         : plainText(formatTemplate(wordOf($asked.hintLabel, $asked.hint ?? ""), $asked.hintArgs, { nameOf })));
   /** QtyPopup's caption: the one asked, else SetQuantity. */
   const captionText = $derived($asked?.captionLabel === undefined
-    ? wordOf("UI/Common/SetQuantity", "Set Quantity")
+    ? $asked?.caption ?? wordOf("UI/Common/SetQuantity", "Set Quantity")
     : wordOf($asked.captionLabel, $asked.caption ?? ""));
   /** QtyPopup's label beside its field, where one is asked. */
   const labelText = $derived($asked === null || $asked.labelLabel === undefined

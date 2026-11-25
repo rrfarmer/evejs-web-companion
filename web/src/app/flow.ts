@@ -1134,7 +1134,7 @@ import {
   CUSTOMS_OFFICE_GROUP_ID, customsOfficeForPlanet, exportToCustomsOffice, quoteCustomsTransfer, taxRateOf, transferAtCustomsOffice,
   type CustomsOfficeRead, type CustomsTransfer,
 } from "../bridge/customsWrites.ts";
-import { BAY_FLAGS, corpDivisionFlag, mergeStacks as mergeStacksCall, moveItems as moveItemsCall, officeAt, ordinaryContainerStackPlace, setLabel as setLabelCall, stackAll as stackAllCall, trashItems as trashItemsCall, TrashRefusedError, assembleCargoContainer as assembleCargoContainerCall, type MovePlace, type StackPlace } from "../bridge/inventoryWrites.ts";
+import { BAY_FLAGS, corpDivisionFlag, mergeStacks as mergeStacksCall, moveFlagOf, moveItems as moveItemsCall, officeAt, ordinaryContainerStackPlace, setLabel as setLabelCall, stackAll as stackAllCall, trashItems as trashItemsCall, TrashRefusedError, assembleCargoContainer as assembleCargoContainerCall, type MovePlace, type StackPlace } from "../bridge/inventoryWrites.ts";
 import { createCachedInventoryMoves } from "../bridge/cachedInventoryMoves.ts";
 import {
   buyMultipleItems,
@@ -2363,6 +2363,7 @@ export interface AppFlow {
    * where that is the whole stack and NoRoomForMore where not); null where cancelled, nothing, or the stack is gone.
    */
   askMoveQuantity(itemID: number, from: InventoryPlace, to: InventoryPlace): Promise<number | null>;
+  splitInventoryStack(itemID: number, place: "hangar" | "cargo"): Promise<void>;
   /** Re-merge one stack into another of the same type. */
   mergeStacks(
     sourceItemID: number,
@@ -37361,6 +37362,49 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         hint: whole ? "There are no more units where these lie." : "There is no room for more where these are going.",
       });
       return quantity !== null && quantity > 0 ? quantity : null;
+    },
+    async splitInventoryStack(itemID, kind) {
+      const place = { kind } as const;
+      const current = callOptions.captureRequestGuard!();
+      const dock = dockedNow();
+      if (dock === null) return;
+      const source = inventoryAt(place);
+      const pilotID = store.station.get().online?.characterID;
+      if (pilotID == null) return;
+      const flag = moveFlagOf(place);
+      const sourceRow = () => rowsAt(place)?.find(row => row.itemID === itemID);
+      const stack = sourceRow();
+      if (!stack || stack.singleton || stack.quantity <= 1 ||
+          stack.ownerID !== pilotID || stack.locationID !== source.liesIn || stack.flagID !== flag) return;
+      const label = "UI/Inventory/ItemActions/DivideItemStack";
+      await wordsNow([label]).catch(() => {});
+      current();
+      const caption = `${templateWords(label, {}, "Divide Item Stack")}: ${resolvedName(store.names.get().resolved, "type", stack.typeID)}`;
+      const quantity = await askQuantity({ min: 1, max: stack.quantity, value: 1, caption, hintLabel: null, hint: null });
+      if (quantity === null || !Number.isInteger(quantity) || quantity < 1 || quantity >= stack.quantity) return;
+
+      await runInventoryAction(async () => {
+        current();
+        await loadInventory();
+        current();
+        const row = sourceRow();
+        if (dockedNow() !== dock || inventoryAt(place).liesIn !== source.liesIn || !row ||
+            row.singleton || row.quantity !== stack.quantity || row.typeID !== stack.typeID ||
+            row.ownerID !== pilotID || row.locationID !== source.liesIn || row.flagID !== flag) {
+          throw new Error("The stack changed. Select it again to split it.");
+        }
+        const split = await inventoryMoves.act("invbroker", "Add", [itemID, source.liesIn], { qty: quantity, flag }, source.inventory);
+        const splitID = Number(unwrapLong(split));
+        await loadInventory();
+        current();
+        const added = rowsAt(place)?.find(after => after.itemID === splitID);
+        const applied = splitID > 0 && splitID !== itemID && sourceRow()?.quantity === stack.quantity - quantity &&
+          added?.typeID === stack.typeID && added.quantity === quantity && added.ownerID === pilotID &&
+          added.locationID === source.liesIn && added.flagID === flag;
+        return { applied, declinedSilently: !applied, message: applied
+          ? `Split off ${quantity.toLocaleString()} ${quantity === 1 ? "unit" : "units"}.`
+          : "The split could not be verified. Check the stack before trying again." };
+      });
     },
     async transferItems(itemIDs, from, to, qty = null) {
       // One stack's want of room is the client's own to answer (invControllers._AddItem, 229 to 290: noRoomForAll);

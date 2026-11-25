@@ -970,6 +970,16 @@
     dropPlaceKey = null;
     event.preventDefault();
     const payload = decodeDrag(event.dataTransfer?.getData(DRAG_MIME) ?? null);
+    if (event.shiftKey && isDocked && payload?.kind === "inventoryItem" &&
+        (payload.itemIDs?.length ?? 1) === 1 && samePlace(payload.from, place) &&
+        (place.kind === "hangar" || place.kind === "cargo")) {
+      const stack = rowsIn($inventory, place).find(row => row.itemID === payload.itemID);
+      if (stack && !stack.singleton && stack.quantity > 1) {
+        const kind = place.kind;
+        void run(() => flow.splitInventoryStack(stack.itemID, kind));
+        return;
+      }
+    }
     const verdict = dropOnPlaceVerdict(payload, place);
     if (verdict !== null) {
       // Refused, and SAID — through the panel's own message line, so a rejected
