@@ -66,6 +66,8 @@
   const names = store.names;
   // svelte-ignore state_referenced_locally
   const station = store.station;
+  const flight = $derived(store.flight);
+  const identity = $derived(store.session);
   const installRequest = installTarget.pending;
   const blueprintPreviewRequest = $derived(flow.industryBlueprintPreview);
   type BlueprintDraft = Omit<IndustryBlueprintRow, "itemID" | "locationID" | "solarSystemID"> & { readonly itemID: number | null };
@@ -652,10 +654,10 @@
   /**
    * BrowserFacilities on the play page (browserFacilities.py, facilityEntry.py): its top row - the Owner combo (All
    * Facilities, Public Facilities, Corp-Owned: a facility owned by the pilot's corporation or not), the Activity
-   * combo (All Activities and the six), a quick filter on the name, owner and type - and the scroll's columns Jumps,
+   * combo (All Activities and the six), range, and a quick filter on the name, owner and type. The columns are Jumps,
    * Security, Facility, one per activity (the system cost index there: industry.Reference.SYSTEM modifiers, which the
    * page does not read - a dash where the facility hosts the activity), Tax with an activity chosen, Facility Type,
-   * Owner. The Range combo and the jumps are not built (the page reads no distances).
+   * Owner. Range and the Jumps column use the standard stargate route, independent of autopilot settings.
    */
   const CLIENT_ACTIVITIES: readonly { id: IndustryActivity; label: string; icon: string }[] = [
     { id: "manufacturing", label: "UI/Industry/ActivityManufacturing", icon: "manufacturing" },
@@ -668,6 +670,40 @@
   let facOwner = $state<"any" | "npc" | "corp">("any");
   let facActivity = $state<IndustryActivity | "">("");
   let facFilter = $state("");
+  const FACILITY_RANGES = [
+    { value: 0, label: "UI/Generic/CurrentSystem", fallback: "Current System" },
+    { value: 5, label: "UI/Industry/RangeWithin5Jumps", fallback: "Within 5 jumps" },
+    { value: 10, label: "UI/Industry/RangeWithin10Jumps", fallback: "Within 10 jumps" },
+    { value: -1, label: "UI/Generic/CurrentRegion", fallback: "Current Region" },
+    { value: -2, label: "UI/Industry/RangeMaxSkill", fallback: "Within skill range" },
+  ] as const;
+  type FacilityRange = typeof FACILITY_RANGES[number]["value"];
+  let facRange = $state<FacilityRange>(0);
+  const facRangeKey = $derived(`evejs.user.${$identity.accountID ?? 0}.industry.BrowserFacilitiesRange`);
+  $effect(() => {
+    let saved = 0;
+    try { saved = Number(localStorage.getItem(facRangeKey)); } catch { /* default */ }
+    facRange = FACILITY_RANGES.find(option => option.value === saved)?.value ?? 0;
+  });
+  function selectFacilityRange(value: string): void {
+    facRange = FACILITY_RANGES.find(option => String(option.value) === value)?.value ?? 0;
+    try { localStorage.setItem(facRangeKey, String(facRange)); } catch { /* keep it for the window */ }
+  }
+
+  let facilitySystems = $state.raw<Awaited<ReturnType<AppFlow["industryFacilitySystems"]>> | null>(null);
+  const facilityOrigin = $derived($flight.status?.solarSystemID ?? $station.online?.solarSystemID ?? $industry.solarSystemID);
+  $effect(() => {
+    const origin = facilityOrigin;
+    if (!retail || browserTab !== "facilities" || origin === null) return;
+    const systems = [...new Set(usableFacilities.map(row => row.solarSystemID))];
+    let current = true;
+    facilitySystems = null;
+    if (systems.length) void flow.industryFacilitySystems(origin, systems).then(value => {
+      if (current) facilitySystems = value;
+    }).catch(() => {});
+    return () => { current = false; };
+  });
+
   let securityBySystem = $state<ReadonlyMap<number, number>>(new Map());
   $effect(() => {
     if (!retail || (browserTab !== "facilities" && browserTab !== "jobs") || securityBySystem.size) return;
@@ -687,13 +723,19 @@
       if (facActivity && !f.activities.includes(facActivity)) return false;
       if (facOwner !== "any" && (f.ownerID === corp) !== (facOwner === "corp")) return false;
       if (q && !(facilityName(f.facilityID) + resolvedName($names.resolved, "owner", f.ownerID, "") + typeName(f.typeID)).toLowerCase().includes(q)) return false;
-      return true;
+      if (f.solarSystemID === facilityOrigin) return true;
+      if (f.solarSystemID >= 31000000 && f.solarSystemID < 32000000) return false;
+      if (facRange === -2) return true;
+      if (facRange === 0) return false;
+      const place = facilitySystems?.get(f.solarSystemID);
+      if (facRange === -1) return place?.sameRegion === true;
+      return (place?.jumps ?? Infinity) <= facRange;
     });
   });
   const INDUSTRY_TAB_WORDS = [...INDUSTRY_TABS.map((t) => t.label), ...CLIENT_ACTIVITIES.map((a) => a.label),
     "UI/Industry/AllFacilities", "UI/Industry/PublicFacilities", "UI/Industry/CorpOwnedFacilities", "UI/Industry/AllActivities",
     "UI/Common/Jumps", "UI/Common/Security", "UI/Industry/Facility", "UI/Industry/Tax", "UI/Industry/FacilityType", "UI/Common/Owner",
-    "UI/Industry/NoFacilitiesFound"];
+    "UI/Industry/NoFacilitiesFound", "UI/Common/LocationTypes/Unreachable", ...FACILITY_RANGES.map(range => range.label)];
   $effect(() => { if (retail) flow.requestWords(INDUSTRY_TAB_WORDS); });
   /**
    * BrowserBlueprints on the play page (browserBlueprints.py, blueprintEntry.py): its top row - the Owner combo (Owned
@@ -1728,6 +1770,11 @@
         <option value="">{industryWord("UI/Industry/AllActivities") || "All Activities"}</option>
         {#each CLIENT_ACTIVITIES as a (a.id)}<option value={a.id}>{industryWord(a.label) || ACTIVITY_LABELS[a.id]}</option>{/each}
       </select>
+      <select aria-label="Facility range" value={facRange} onchange={(event) => selectFacilityRange(event.currentTarget.value)}>
+        {#each FACILITY_RANGES as range (range.value)}
+          <option value={range.value}>{industryWord(range.label) || range.fallback}</option>
+        {/each}
+      </select>
       <input type="search" placeholder="Filter" bind:value={facFilter} />
     </div>
     <div class="ind-scroll">
@@ -1742,8 +1789,13 @@
         <tbody>
           {#each shownFacilities as f (f.facilityID)}
             {@const sec = securityBySystem.get(f.solarSystemID)}
+            {@const jumps = f.solarSystemID === facilityOrigin ? 0 : facilitySystems?.get(f.solarSystemID)?.jumps}
             <tr class:ind-sel={startingBlueprint !== null && chosenFacilityID === f.facilityID} onclick={() => chooseFacility(f.facilityID)}>
-              <td class="r">—</td>
+              <td class="r">
+                {#if jumps === null}
+                  <img alt={industryWord("UI/Common/LocationTypes/Unreachable") || "Unreachable"} width="11" height="6" src="/client-res/ui/texture/classes/industry/infinity.png" />
+                {:else}{jumps ?? ""}{/if}
+              </td>
               <td>{#if sec !== undefined}<span style={`color: ${securityStatusColor(sec)}`}>{shownSecurity(sec).toFixed(1)}</span>{/if}</td>
               <td>{facilityName(f.facilityID)}{#if !f.online}<small class="note"> offline</small>{/if}</td>
               {#each CLIENT_ACTIVITIES as a (a.id)}<td class="ic">{f.activities.includes(a.id) ? "—" : ""}</td>{/each}

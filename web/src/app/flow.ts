@@ -987,6 +987,7 @@ import type { BotLogDraft, BotLogSink } from "../nav/botLog.ts";
 import { createBotLogWriter } from "./botLogWriter.ts";
 import { nextLocalID } from "./localID.ts";
 import {
+  distancesFrom,
   routeAlong,
   type SystemGraph,
 } from "../nav/routeSolver.ts";
@@ -2688,6 +2689,7 @@ export interface AppFlow {
    * recipes for the blueprint types it saw, and the names for everything.
    */
   loadIndustry(): Promise<void>;
+  industryFacilitySystems(origin: number, systems: readonly number[]): Promise<ReadonlyMap<number, { readonly jumps: number | null; readonly sameRegion: boolean }>>;
   loadIndustryBlueprintDefinitions(typeIDs: readonly number[]): Promise<void>;
   readonly industryBlueprintPreview: ReadableSignal<{ readonly typeID: number; readonly original: boolean } | null>;
   requestIndustryBlueprintPreview(typeID: number, original: boolean): void;
@@ -11940,6 +11942,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   const industryBlueprintPreview = createSignal<{ readonly typeID: number; readonly original: boolean } | null>(null);
+
+  async function industryFacilitySystems(origin: number, systems: readonly number[]): ReturnType<AppFlow["industryFacilitySystems"]> {
+    const graph = await loadRouteGraph();
+    const jumps = distancesFrom(graph, origin);
+    const regionOf = (id: number) => graph.parentOf?.(graph.parentOf(id) ?? 0) ?? null;
+    const region = regionOf(origin);
+    return new Map(systems.map(id => [id, {
+      // GetJumpCountFromCurrent has no route to or from wormhole space except within the origin system.
+      jumps: id === origin ? 0 : id < 31000000 && origin < 31000000 ? jumps.get(id) ?? null : null,
+      sameRegion: id === origin || (region !== null && regionOf(id) === region),
+    }]));
+  }
 
   async function loadIndustryBlueprintDefinitions(typeIDs: readonly number[]): Promise<void> {
     const known = store.get().industry.definitions;
@@ -38925,6 +38939,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
 
     loadIndustry,
+    industryFacilitySystems,
     loadIndustryBlueprintDefinitions,
     industryBlueprintPreview: readonlySignal(industryBlueprintPreview),
     requestIndustryBlueprintPreview(typeID, original) {
