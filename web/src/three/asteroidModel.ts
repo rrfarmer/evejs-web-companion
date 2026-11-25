@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { graphicModel } from "./hullModel.ts";
+import { readFlightMetadata } from "../play/flightAssets.ts";
 
 interface RadiusBand {
   categoryRangeBegin: number;
@@ -97,13 +98,6 @@ export function makeAsteroidGeometry(seed: number, icy = false): THREE.BufferGeo
   return geometry;
 }
 
-let pendingRules: Promise<AsteroidRules | null> | null = null;
-function loadRules(): Promise<AsteroidRules | null> {
-  return pendingRules ??= fetch("/client-assets/asteroidRules.json")
-    .then(response => response.ok ? response.json() as Promise<AsteroidRules> : null)
-    .catch(() => null);
-}
-
 interface AsteroidVisual {
   mesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material | THREE.Material[]>;
   axis: THREE.Vector3;
@@ -183,7 +177,7 @@ export class AsteroidModels {
   update(holder: THREE.Object3D, ball: AsteroidBall, timeMs: number, pixels = Infinity, lodFactor = 1, threshold = 0): void {
     if (!this.requested) {
       this.requested = true;
-      void loadRules().then(rules => { this.rules = rules; });
+      void readFlightMetadata<AsteroidRules>("asteroidRules").then(rules => { this.rules = rules; });
     }
     let rock = this.visuals.get(holder);
     if (!rock) {

@@ -11,6 +11,7 @@ import "./styles.css";
 import { mount } from "svelte";
 import { isFlyPath, isGoblinFactoryPath, isMiningCommandCenterPath, isPilotTrainingPath, isShipProvisioningPath } from "./app/pageRoute.ts";
 import { installErrorOverlay } from "./app/errorOverlay.ts";
+import { prepareFlightAssets } from "./play/flightAssets.ts";
 import { activatePagePlugins } from "./plugins/pluginHost.ts";
 import { PLUGINS } from "../../plugins/index.ts";
 import { PLUGIN_VIEWS } from "../../plugins/views.ts";
@@ -24,11 +25,30 @@ installErrorOverlay();
 // are registered first, and a plugin that fails to load fails only itself
 // (plugins/loadPlugins.ts; the Plugins window says how each went). Whatever comes
 // of them, the client is drawn: the catch is for a fault in loading itself.
-void activatePagePlugins(PLUGINS, PLUGIN_VIEWS).catch((error) => console.error(error)).then(() => {
+const pluginsReady = activatePagePlugins(PLUGINS, PLUGIN_VIEWS).catch((error) => console.error(error));
+const target = document.getElementById("app");
+if (target && isFlyPath(window.location.pathname)) {
+  const screen = document.createElement("div");
+  screen.className = "flight-startup";
+  const status = document.createElement("p");
+  status.textContent = "Preparing flight assets…";
+  status.setAttribute("role", "status");
+  const progress = document.createElement("progress");
+  progress.setAttribute("aria-label", "Flight assets prepared");
+  screen.append(status, progress);
+  target.append(screen);
+  const prepared = prepareFlightAssets((finished, total) => {
+    progress.max = total;
+    progress.value = finished;
+  });
+  void Promise.all([pluginsReady, prepared, import("./ui/PlayApp.svelte")]).then(([, , { default: Play }]) => {
+    screen.remove();
+    mount(Play, { target });
+  });
+} else void pluginsReady.then(() => {
   // R107 — App owns the pilot roster now: it creates one isolated session per
   // pilot (store + per-session-token flow) and warms each one's health ping
   // itself (app/sessions.ts). There is no single app-wide store/flow any more.
-  const target = document.getElementById("app");
   if (isGoblinFactoryPath(window.location.pathname)) window.location.replace(`/pilot-training${window.location.search}${window.location.hash}`);
   if (target && !isGoblinFactoryPath(window.location.pathname)) {
     if (isShipProvisioningPath(window.location.pathname)) {
@@ -36,9 +56,6 @@ void activatePagePlugins(PLUGINS, PLUGIN_VIEWS).catch((error) => console.error(e
     } else if (isPilotTrainingPath(window.location.pathname)) {
       // Standalone: no cockpit restore, active bot or space polling is mounted.
       void import("./ui/GoblinFactory.svelte").then(({ default: Training }) => mount(Training, { target }));
-    } else if (isFlyPath(window.location.pathname)) {
-      // The three.js play mode: one pilot flown by hand in 3D, the app's windows over it.
-      void import("./ui/PlayApp.svelte").then(({ default: Play }) => mount(Play, { target }));
     } else if (isMiningCommandCenterPath(window.location.pathname)) {
       void import("./ui/MiningCommandCenter.svelte").then(({ default: CommandCenter }) => mount(CommandCenter, { target }));
     } else {

@@ -182,7 +182,7 @@
   let groupNames: Record<string, [string | null, number | null]> = {};
   /** Each module type: whether it has an overload effect (null while it is asked). */
   const overloadable = new Map<number, boolean | null>();
-  void fetch("/client-assets/typeNames.json").then((r) => (r.ok ? r.json() : null)).then((n) => { if (n) { typeNames = n.types; groupNames = n.groups ?? {}; } }).catch(() => {});
+  void typeData().then((n) => { if (n) { typeNames = n.types; groupNames = n.groups ?? {}; } });
   import "../play/play.css";
   import { applyClientTint } from "../play/clientTint.ts";
   import SovReagentBay from "./SovReagentBay.svelte";

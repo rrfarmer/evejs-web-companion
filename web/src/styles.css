@@ -10321,3 +10321,17 @@
 .duel-invitation-stack > * { pointer-events: auto; }
 .trade-window-layer { position: fixed; inset: var(--char-bar-h) 0 0; pointer-events: none; z-index: 37; }
 .trade-window-layer .win { pointer-events: auto; }
+
+.flight-startup {
+  min-height: 100dvh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.75rem;
+  color: #c8d4e2;
+}
+.flight-startup progress {
+  width: min(16rem, 80vw);
+  height: 0.375rem;
+  accent-color: #70b7ce;
+}

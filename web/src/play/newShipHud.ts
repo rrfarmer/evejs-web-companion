@@ -18,9 +18,9 @@ import { shortcutOf } from "./shortcutKeys.ts";
 import { SHIP_HOLDS } from "../bridge/shipHolds.ts";
 import { placePointerPanel } from "./labelShortcutTooltip.ts";
 import { genericTooltipDelay } from "./radialSettings.ts";
+import { flightHudAsset as HUD } from "./flightAssets.ts";
 
 const res = (path: string): string => `/client-res/${path.replace(/^res:\//i, "").toLowerCase()}`;
-const HUD = (name: string) => res(`res:/UI/HUD/${name}.png`);
 
 // hudConst.py
 const SHIP_UI_WIDTH = 1182;

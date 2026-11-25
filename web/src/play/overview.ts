@@ -8,6 +8,7 @@ import type { Entity } from "./spaceView.ts";
 import { fmtDist } from "../space/overview.ts";
 import { playUiEvent } from "./uiAudio.ts";
 import { scrollListHomeEnd } from "../ui/scrollColumnFit.ts";
+import { readFlightMetadata } from "./flightAssets.ts";
 import { iconAndBackgroundFlags, overviewRowWanted, setStateAppearance, type BracketOverride, type OverviewRelationships, type PresetMask, type StateFlagLook } from "./overviewFilters.ts";
 
 const rgba = (c: readonly number[], alpha = c[3] ?? 1) => `rgba(${Math.round(c[0]! * 255)},${Math.round(c[1]! * 255)},${Math.round(c[2]! * 255)},${alpha})`;
@@ -117,14 +118,14 @@ export interface PresetChoice { readonly id: string; readonly name: string; read
 interface FilterCategory { category: string; groups: { name: string; groupIDs: number[]; brackets?: string[] }[] }
 let filterGroupsRead: Promise<FilterCategory[] | null> | null = null;
 function overviewFilterGroups() {
-  filterGroupsRead ??= fetch("/client-assets/overviewFilterGroups.json").then((r) => (r.ok ? r.json() : null)).then((j) => (j?.categories ?? null) as FilterCategory[] | null).catch(() => null);
+  filterGroupsRead ??= readFlightMetadata<{ categories: FilterCategory[] }>("overviewFilterGroups").then(j => j?.categories ?? null);
   return filterGroupsRead;
 }
 /** StatesPanel's states (stateSvc.GetStateProps but flagForcedOn), read from the client into overviewStates.json. */
 interface StateProps { flag: number; text: string; hint: string | null; iconIndex: number; iconColor: number[]; flagColor: number[] }
 let statesRead: Promise<StateProps[] | null> | null = null;
 function overviewStates() {
-  statesRead ??= fetch("/client-assets/overviewStates.json").then((r) => (r.ok ? r.json() : null)).then((j) => (j?.states ?? null) as StateProps[] | null).catch(() => null);
+  statesRead ??= readFlightMetadata<{ states: StateProps[] }>("overviewStates").then(j => j?.states ?? null);
   return statesRead;
 }
 /** AppearancePanel's lists as the client has them by default (overviewStateOrders.json, tools/client-extract/overviewStateOrders.py). */
@@ -132,7 +133,7 @@ interface StateOrderEntry { flag: number; on: boolean; color: number[]; blink: b
 interface StateOrders { flag: StateOrderEntry[]; background: StateOrderEntry[]; filterGroups: number[] }
 let ordersRead: Promise<StateOrders | null> | null = null;
 function overviewStateOrders() {
-  ordersRead ??= fetch("/client-assets/overviewStateOrders.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  ordersRead ??= readFlightMetadata<StateOrders>("overviewStateOrders");
   return ordersRead;
 }
 /** The pilot's Appearance settings (the client's settings.user.overview), kept in this browser. */
@@ -147,7 +148,7 @@ function readAppearance(): AppearanceSettings {
 }
 let presetsRead: Promise<OverviewPresets | null> | null = null;
 function overviewPresets() {
-  presetsRead ??= fetch("/client-assets/overviewPresets.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  presetsRead ??= readFlightMetadata<OverviewPresets>("overviewPresets");
   return presetsRead;
 }
 const TAB_KEY = "evejs-play-overview-tab";
@@ -279,10 +280,8 @@ function presetMask(data: OverviewPresetData | undefined, presetID?: string): Ov
   };
 }
 
-let names: Promise<{ types: Record<string, [string | null, number | null]>; groups: Record<string, [string | null, number | null]> } | null> | null = null;
 export function typeNames() {
-  names ??= fetch("/client-assets/typeNames.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  return names;
+  return readFlightMetadata<{ types: Record<string, [string | null, number | null]>; groups: Record<string, [string | null, number | null]> }>("typeNames");
 }
 
 export interface OverviewHooks {
