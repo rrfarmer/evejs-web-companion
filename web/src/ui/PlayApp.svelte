@@ -3799,7 +3799,7 @@
 {:else if stage === "create" && session}
   <div class="screen creation-screen">
     <div class="creation-form">
-      <CharacterCreate flow={session.flow} onCancel={() => (stage = "select")} onCreated={characterCreated} />
+      <CharacterCreate flight flow={session.flow} onCancel={() => (stage = "select")} onCreated={characterCreated} />
     </div>
   </div>
 {:else if stage === "select" || stage === "entering"}
@@ -5013,7 +5013,7 @@
   .roster-actions { margin-top: 16px; }
   .roster-slots { margin: 10px 0 0; color: var(--text-dim); }
   .creation-screen { align-items: start; overflow: auto; }
-  .creation-form { width: min(54rem, calc(100% - 32px)); margin: 32px 0; }
+  .creation-form { width: min(70rem, calc(100% - 40px)); margin: clamp(16px, 5vh, 48px) 0; }
   /* stacked with the app's windows: over them when opened or clicked, under them when one of theirs was clicked since */
   .space-container-layer { position: fixed; inset: 0; pointer-events: none; z-index: 21; }
   .space-container-layer.behind { z-index: 19; }
