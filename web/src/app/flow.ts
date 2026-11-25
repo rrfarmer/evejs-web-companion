@@ -2688,6 +2688,10 @@ export interface AppFlow {
    * recipes for the blueprint types it saw, and the names for everything.
    */
   loadIndustry(): Promise<void>;
+  loadIndustryBlueprintDefinitions(typeIDs: readonly number[]): Promise<void>;
+  readonly industryBlueprintPreview: ReadableSignal<{ readonly typeID: number; readonly original: boolean } | null>;
+  requestIndustryBlueprintPreview(typeID: number, original: boolean): void;
+  clearIndustryBlueprintPreview(request: { readonly typeID: number; readonly original: boolean }): void;
   /**
    * What the player HAS of each material an install would consume, read from
    * the SERVER, and the time the job will take where that was reckoned. Feeds
@@ -11932,8 +11936,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     for (const job of jobs) {
       typeIDs.add(job.blueprintTypeID);
     }
+    await loadIndustryBlueprintDefinitions([...typeIDs]);
+  }
+
+  const industryBlueprintPreview = createSignal<{ readonly typeID: number; readonly original: boolean } | null>(null);
+
+  async function loadIndustryBlueprintDefinitions(typeIDs: readonly number[]): Promise<void> {
     const known = store.get().industry.definitions;
-    const wanted = [...typeIDs].filter((typeID) => typeID > 0 && !(typeID in known));
+    const wanted = typeIDs.filter((typeID) => typeID > 0 && !(typeID in known));
     if (wanted.length === 0) {
       return;
     }
@@ -38915,6 +38925,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
 
     loadIndustry,
+    loadIndustryBlueprintDefinitions,
+    industryBlueprintPreview: readonlySignal(industryBlueprintPreview),
+    requestIndustryBlueprintPreview(typeID, original) {
+      requestNames([{ kind: "type", id: typeID }]);
+      industryBlueprintPreview.set({ typeID, original });
+    },
+    clearIndustryBlueprintPreview(request) {
+      if (industryBlueprintPreview.get() === request) industryBlueprintPreview.set(null);
+    },
 
     // The window's job, as the client's makes and shows it: its time, its materials and what it costs to start are
     // the page's own reckoning (reckonedHere), each null where an input was not had; its runs held to the most it

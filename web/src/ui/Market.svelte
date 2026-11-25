@@ -80,12 +80,13 @@
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import type { MarketGroupNode } from "../app/api.ts";
 
-  let { store, flow, ordersOnly = false, onOpenOrders, onToggleStore }: {
+  let { store, flow, ordersOnly = false, onOpenOrders, onToggleStore, onOpenIndustry }: {
     store: ClientStore;
     flow: AppFlow;
     ordersOnly?: boolean;
     onOpenOrders?: () => void;
     onToggleStore?: () => void;
+    onOpenIndustry?: () => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -165,6 +166,7 @@
     "UI/Common/LocationTypes/System": "System",
     "UI/Market/Marketbase/CommandViewDetails": "View Details",
     "UI/Market/MarketQuote/CommandBuy": "Buy",
+    "UI/Industry/ViewInIndustry": "View in Industry",
     "UI/Market/Marketbase/ExportToFile": "Export to File",
     "Tooltips/Market/MarketDetailsExportFile": "Export the order book to a text file",
     "UI/Market/MarketWindow/ExportNoData": "There were no buy or sell orders found.",
@@ -256,6 +258,7 @@
   let qbMenu = $state<(QbMenuTarget & { readonly x: number; readonly y: number }) | null>(null);
   // Shut by its flag, the menu last shown kept: its values are read as it is taken down, and must never be null then.
   let qbMenuUp = $state(false);
+  let browseMenuCategory = $state<{ readonly typeID: number; readonly categoryID: number | null } | null>(null);
   /** The name popup up (NamePopup), and what its OK does. */
   let naming = $state<{ readonly caption: string; readonly label: string; readonly value: string; readonly maxLength: number | null; readonly refuses: boolean; readonly ok: (text: string) => void } | null>(null);
   let namingUp = $state(false);
@@ -301,6 +304,12 @@
     event.preventDefault();
     qbMenu = { ...menu, x: event.clientX, y: event.clientY };
     qbMenuUp = true;
+    if (menu.kind !== "browse" || !onOpenIndustry || groupFacts?.has(menu.typeID) || qbFacts.has(menu.typeID)) return;
+    void flow.typeFacts([menu.typeID]).then(facts => {
+      if (qbMenu?.kind === "browse" && qbMenu.typeID === menu.typeID) {
+        browseMenuCategory = { typeID: menu.typeID, categoryID: facts?.get(menu.typeID)?.categoryID ?? null };
+      }
+    }).catch(() => {});
   }
 
   /** A folder's or the top's entries (GetItems), folders then types, each sorted by name. */
@@ -495,6 +504,17 @@
       published: facts !== null && facts.published,
       compare: facts !== null && facts.categoryID !== null && COMPARE_CATEGORIES.includes(facts.categoryID),
     };
+  }
+
+  // industryCommon.IsBlueprintCategory accepts ordinary blueprints and ancient relics.
+  function isBlueprintCategory(categoryID: number | null | undefined): boolean {
+    return categoryID === 9 || categoryID === 34;
+  }
+
+  function viewInIndustry(typeID: number, categoryID: number | null | undefined): void {
+    if (!onOpenIndustry || !isBlueprintCategory(categoryID)) return;
+    flow.requestIndustryBlueprintPreview(typeID, categoryID !== 34);
+    onOpenIndustry();
   }
   // ⚠ SELLING NEEDS THE HANGAR. PlaceMultiSellOrder moves a specific STACK into
   // escrow, so a sell must name an itemID — "10 of Tritanium" is not something
@@ -1416,6 +1436,14 @@
         <button type="button" role="menuitem" onclick={() => void addToQuickbar([typeID])}>{qbWord("UI/Inventory/ItemActions/AddTypeToMarketQuickbar")}</button>
         <button type="button" role="menuitem" onclick={() => { qbMenuUp = false; showInfo({ kind: "type", typeID }); }}>{qbWord("UI/Commands/ShowInfo")}</button>
       {/if}
+      {#if menuFor.kind !== "folder" && onOpenIndustry}
+        {@const typeID = menuFor.kind === "type" ? Number(menuFor.entry.label) : menuFor.typeID}
+        {@const categoryID = qbFacts.get(typeID)?.categoryID ?? groupFacts?.get(typeID)?.categoryID
+          ?? (browseMenuCategory?.typeID === typeID ? browseMenuCategory.categoryID : null)}
+        {#if isBlueprintCategory(categoryID)}
+          <button type="button" role="menuitem" onclick={() => { qbMenuUp = false; viewInIndustry(typeID, categoryID); }}>{qbWord("UI/Industry/ViewInIndustry")}</button>
+        {/if}
+      {/if}
     </span>
   {/if}
   {#if qbNotice}
@@ -1703,6 +1731,9 @@
                 onclick={() => buyMarketType(item.typeID)}>
                 {qbWord(ask ? "UI/Market/MarketQuote/CommandBuy" : "UI/Market/Marketbase/CommandPlaceBuyOrder")}
               </button>
+              {#if onOpenIndustry && isBlueprintCategory(fact?.categoryID)}
+                <button type="button" class="mkt-ghost" onclick={() => viewInIndustry(item.typeID, fact?.categoryID)}>{qbWord("UI/Industry/ViewInIndustry")}</button>
+              {/if}
             </div>
           </div>
         </article>

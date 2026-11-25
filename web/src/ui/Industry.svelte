@@ -67,6 +67,8 @@
   // svelte-ignore state_referenced_locally
   const station = store.station;
   const installRequest = installTarget.pending;
+  const blueprintPreviewRequest = $derived(flow.industryBlueprintPreview);
+  type BlueprintDraft = Omit<IndustryBlueprintRow, "itemID" | "locationID" | "solarSystemID"> & { readonly itemID: number | null };
 
   let busy = $state(false);
   let error = $state("");
@@ -107,7 +109,7 @@
    * The kinds of work a blueprint can be put to, as names the player can read: those its type has a recipe for
    * that are for the blueprint as it is, an original or a copy (activityIsFor).
    */
-  function blueprintActivities(blueprint: IndustryBlueprintRow): readonly IndustryActivity[] {
+  function blueprintActivities(blueprint: BlueprintDraft): readonly IndustryActivity[] {
     const definition = $industry.definitions[blueprint.typeID];
     return definition
       ? definition.recipes.map((recipe) => recipe.activity).filter((activity) => activityIsFor(activity, blueprint.original))
@@ -115,7 +117,7 @@
   }
 
   /** The most runs a copy of a blueprint can be licensed for: its type's own limit, and one where it has none. */
-  function mostLicensedRuns(blueprint: IndustryBlueprintRow): number {
+  function mostLicensedRuns(blueprint: BlueprintDraft): number {
     return Math.max(1, $industry.definitions[blueprint.typeID]?.maxProductionLimit ?? 1);
   }
 
@@ -217,7 +219,8 @@
   // pilot goes back to change any of them, and nothing is spent before the yes.
 
   /** The blueprint the player is setting a job up for, or null. */
-  let startingBlueprint = $state<IndustryBlueprintRow | null>(null);
+  let startingBlueprint = $state<BlueprintDraft | null>(null);
+  const typePreview = $derived(startingBlueprint?.itemID === null);
   let chosenActivity = $state<IndustryActivity | null>(null);
   let chosenFacilityID = $state<number | null>(null);
   let chosenRuns = $state(1);
@@ -374,7 +377,7 @@
 
   /** Whether anything keeps the job from being asked about, as it is chosen now (bridge/industry.ts, jobCannotBeAsked). */
   const cannotAsk = $derived(
-    startingBlueprint === null ||
+    startingBlueprint?.itemID == null ||
       jobCannotBeAsked({
         activity: chosenActivity,
         facilityID: chosenFacilityID,
@@ -386,7 +389,7 @@
       }),
   );
   const efficiencyRequest = $derived.by((): IndustryJobRequest | null => {
-    if (!startingBlueprint || chosenActivity !== "manufacturing" || chosenFacilityID === null || cannotAsk || (!materialPreview && !timePreview)) return null;
+    if (startingBlueprint?.itemID == null || chosenActivity !== "manufacturing" || chosenFacilityID === null || cannotAsk || (!materialPreview && !timePreview)) return null;
     return {
       blueprintItemID: startingBlueprint.itemID,
       blueprintTypeID: startingBlueprint.typeID,
@@ -412,7 +415,7 @@
     return () => { current = false; };
   });
 
-  function startJobFor(blueprint: IndustryBlueprintRow): void {
+  function startJobFor(blueprint: BlueprintDraft): void {
     efficiencyPreview = {};
     startingBlueprint = blueprint;
     confirming = false;
@@ -474,7 +477,7 @@
    * The blueprint's own time research and its material research, to go with a job's request: a job's time is
    * reckoned from the one, and a manufacturing job's materials from the other.
    */
-  function researchOf(blueprint: IndustryBlueprintRow): { timeEfficiency?: number; materialEfficiency?: number } {
+  function researchOf(blueprint: Pick<BlueprintDraft, "timeEfficiency" | "materialEfficiency">): { timeEfficiency?: number; materialEfficiency?: number } {
     const [time, material] = [blueprint.timeEfficiency, blueprint.materialEfficiency];
     return {
       ...(Number.isInteger(time) && time >= 0 && time <= 20 ? { timeEfficiency: time } : {}),
@@ -504,7 +507,7 @@
     const blueprint = startingBlueprint;
     const activity = chosenActivity;
     const facilityID = chosenFacilityID;
-    if (!blueprint || !activity || facilityID === null) {
+    if (blueprint?.itemID == null || !activity || facilityID === null) {
       return;
     }
     const tellingsAsAsked = untrack(() => $industry.materialsSaid?.seq ?? 0);
@@ -534,7 +537,7 @@
     const blueprint = startingBlueprint;
     const activity = chosenActivity;
     const facilityID = chosenFacilityID;
-    if (!blueprint || !activity || facilityID === null || efficiencyOpen) {
+    if (blueprint?.itemID == null || !activity || facilityID === null || efficiencyOpen) {
       return;
     }
     void run(async () => {
@@ -603,6 +606,31 @@
         chosenProductTypeID = request.productTypeID;
       }
     });
+  });
+
+  $effect(() => {
+    const request = $blueprintPreviewRequest;
+    if (!request || busy) return;
+    let current = true;
+    void flow.loadIndustryBlueprintDefinitions([request.typeID]).then(() => {
+      if (!current) return;
+      flow.clearIndustryBlueprintPreview(request);
+      if (startingBlueprint?.itemID === null && startingBlueprint.typeID === request.typeID && chosenActivity !== null) return;
+      void flow.industryJobLetGo();
+      startJobFor({
+        itemID: null,
+        typeID: request.typeID,
+        original: request.original,
+        runs: 1,
+        materialEfficiency: 0,
+        timeEfficiency: 0,
+        facilityID: null,
+        jobID: null,
+      });
+      if (!$industry.definitions[request.typeID]) error = industryWord("UI/Industry/BlueprintNotFound") || "Blueprint details are unavailable.";
+      else error = "";
+    });
+    return () => { current = false; };
   });
 
   onMount(() => {
@@ -711,7 +739,7 @@
     }).sort((x, y) => typeName(x.typeID).localeCompare(typeName(y.typeID)));
   });
   /** An activity's icon pressed on a blueprint's row (BlueprintEntry.OnActivityBtn): the job's view on that work. */
-  function chooseBlueprintActivity(blueprint: IndustryBlueprintRow, activity: IndustryActivity): void {
+  function chooseBlueprintActivity(blueprint: BlueprintDraft, activity: IndustryActivity): void {
     startJobFor(blueprint);
     chosenActivity = activity;
     if (!cannotAsk) askToConfirm();
@@ -992,7 +1020,7 @@
     <!-- industryWnd.Industry's browser tabs (TabGroup 26 high, labels padded 12): Blueprints, Facilities, Jobs,
          Research - one browser shown at a time; the job's view (Start a job) stays above them -->
     <div class="ind-cv" class:job={startingBlueprint !== null} style={`--job: ${viewColor}`}>
-      <div class="ind-cv-top">{startingBlueprint ? typeName(startingBlueprint.typeID) : ""}</div>
+      <div class="ind-cv-top">{startingBlueprint ? typeName(startingBlueprint.typeID) : ""}{#if typePreview} · {industryWord("UI/Industry/PreviewModeHint") || "Preview mode"}{/if}</div>
       <div class="ind-cv-main">
         <div class="ind-cv-inputs" style={`--bg: url(/client-res/ui/texture/classes/industry/input/${inputGroups.background}.png)`}>
           {#if inputGroups.groups.length === 0}
@@ -1159,7 +1187,7 @@
       </div>
       {#if startingBlueprint}
         <button type="button" class="ind-js-submit" style={`--job: ${viewColor}`} disabled={busy || cannotAsk || !confirming || efficiencyOpen}
-          title={efficiencyOpen ? industryWord("UI/Industry/PreviewModeHint") || "Preview mode" : confirming ? "" : "Waiting for the job's preview"}
+          title={typePreview || efficiencyOpen ? industryWord("UI/Industry/PreviewModeHint") || "Preview mode" : confirming ? "" : "Waiting for the job's preview"}
           onclick={confirmInstall}>{industryWord("UI/Industry/Start") || "Start"}</button>
       {/if}
     </div>
@@ -1509,7 +1537,7 @@
 
   {#if startingBlueprint && !retail}
     <section class="bulk ind-view">
-      <h2>Start a job with {typeName(startingBlueprint.typeID)}</h2>
+      <h2>{typePreview ? "Blueprint preview" : "Start a job with"} {typeName(startingBlueprint.typeID)}</h2>
       {#if blueprintActivities(startingBlueprint).length === 0}
         <p class="note">
           Nothing is known about what this blueprint can be used for, so a job

@@ -218,7 +218,8 @@
 {:else if tab === "shipTree"}
   <ShipTree {store} {flow} />
 {:else if tab === "market"}
-  <Market {store} {flow} {onToggleStore} onOpenOrders={onOpen ? () => onOpen?.("marketOrders") : undefined} />
+  <Market {store} {flow} {onToggleStore} onOpenOrders={onOpen ? () => onOpen?.("marketOrders") : undefined}
+    onOpenIndustry={onOpen ? () => onOpen?.("industry") : undefined} />
 {:else if tab === "marketOrders"}
   <Market {store} {flow} ordersOnly />
 {:else if tab === "activity"}
