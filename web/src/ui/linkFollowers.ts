@@ -18,7 +18,7 @@ import type { AppFlow } from "../app/flow.ts";
 import { LINK_DRAG_TYPE, parseSkillPlanUrl } from "../bridge/skillPlanLink.ts";
 import { parseInventoryFilterLink } from "../bridge/inventoryFilters.ts";
 import { parseOverviewPresetUrl } from "../bridge/overviewProfileLink.ts";
-import { linkScheme } from "../bridge/showInfoLink.ts";
+import { linkScheme, parseShowInfoUrl } from "../bridge/showInfoLink.ts";
 import { showInfo, subjectOfShowInfoLink } from "./showInfo.ts";
 
 /**
@@ -28,6 +28,34 @@ import { showInfo, subjectOfShowInfoLink } from "./showInfo.ts";
 export function startLinkDrag(event: DragEvent, url: string, text: string): void {
   event.dataTransfer?.setData(LINK_DRAG_TYPE, JSON.stringify({ url, text: text.replace(/<[^>]*>/g, "") }));
   if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+}
+
+export interface ItemLink {
+  readonly url: string;
+  readonly text: string;
+}
+
+/** A selected list transfers one Show Info link per row, in display order. */
+export function startItemLinksDrag(event: DragEvent, links: readonly ItemLink[]): void {
+  if (links.length === 1) {
+    startLinkDrag(event, links[0]!.url, links[0]!.text);
+  } else if (links.length > 1 && event.dataTransfer) {
+    event.dataTransfer.setData(LINK_DRAG_TYPE, JSON.stringify(links));
+    event.dataTransfer.effectAllowed = "copy";
+  }
+}
+
+export function itemLinksFromDrop(payload: unknown): ItemLink[] {
+  if (!Array.isArray(payload)) return [];
+  const links: ItemLink[] = [];
+  for (const item of payload) {
+    const { url, text } = item ?? {};
+    if (typeof url !== "string" || !/^showinfo:\d+\/\/\d+$/.test(url) || typeof text !== "string") return [];
+    const ids = parseShowInfoUrl(url);
+    if (!ids || ids.typeID <= 0 || ids.itemID === null || ids.itemID <= 0) return [];
+    links.push({ url, text });
+  }
+  return links;
 }
 
 /** The links' hints, the page's own words where the install's are not to hand. */

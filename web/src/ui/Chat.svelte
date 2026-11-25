@@ -24,10 +24,10 @@
   import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
   import { OVERVIEW_PROFILE_DRAG_TYPE } from "../bridge/overviewProfileLink.ts";
   import { ITEM_FILTER_DRAG_TYPE, readInventoryFilters, writeInventoryFilters } from "../bridge/inventoryFilters.ts";
-  import { ASSET_ITEM_DRAG_MIME, decodeAssetItemDrag, type AssetItemDrag } from "./dragDrop.ts";
+  import { ASSET_ITEM_DRAG_MIME, decodeAssetItemDrag } from "./dragDrop.ts";
   import { droppedFittingDrag, isFittingDrag } from "./fittingDrag.ts";
   import type { DroppedLink } from "../app/flow.ts";
-  import { LINK_WORDS, linkFollowerOf, startLinkDrag } from "./linkFollowers.ts";
+  import { itemLinksFromDrop, LINK_WORDS, linkFollowerOf, startLinkDrag, type ItemLink } from "./linkFollowers.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { doubleClickOwner } from "./ownerDoubleClick.ts";
   import { dragCharacter } from "./characterDrag.ts";
@@ -114,14 +114,13 @@
   }
 
   // eveEditPlainText adds links in scroll order, preserving the text on either side of the caret.
-  async function insertAssetLinks(rows: readonly AssetItemDrag[]): Promise<void> {
+  async function insertItemLinks(links: readonly ItemLink[]): Promise<void> {
     const original = draft;
     const channel = store.get().chat.activeChannel;
     const at = sendBox?.selectionStart ?? original.length;
     let inserted = "";
-    for (const row of rows) {
-      const url = `showinfo:${row.typeID}//${row.itemID}${row.shipOwnerID === null ? "" : `//${row.shipOwnerID}`}`;
-      const markup = await flow.droppedLinkMarkup({ kind: "link", url, text: labelEscaped(row.name) }, {
+    for (const { url, text } of links) {
+      const markup = await flow.droppedLinkMarkup({ kind: "link", url, text: labelEscaped(text) }, {
         length: original.length + inserted.length + (at > 0 && !inserted ? 2 : 1), selected: 0, max: MAX_MESSAGE_LENGTH,
       });
       if (markup === null) break;
@@ -142,7 +141,10 @@
     const assetRows = decodeAssetItemDrag(event.dataTransfer?.getData(ASSET_ITEM_DRAG_MIME));
     if (assetRows.length > 0) {
       event.preventDefault();
-      void insertAssetLinks(assetRows).catch(() => {});
+      void insertItemLinks(assetRows.map(row => ({
+        url: `showinfo:${row.typeID}//${row.itemID}${row.shipOwnerID === null ? "" : `//${row.shipOwnerID}`}`,
+        text: row.name,
+      }))).catch(() => {});
       return;
     }
     const profileRaw = event.dataTransfer?.getData(OVERVIEW_PROFILE_DRAG_TYPE);
@@ -174,13 +176,19 @@
     } else if (fitting !== null) {
       dropped = { kind: "fitting", shipTypeID: fitting.fitting.shipTypeID, fitData: fitting.fitting.fitData, name: fitting.fitting.name };
     } else {
-      let link: { readonly url?: unknown; readonly text?: unknown };
+      let link: unknown;
       try {
-        link = JSON.parse(raw ?? "") as { readonly url?: unknown; readonly text?: unknown };
+        link = JSON.parse(raw ?? "");
       } catch {
         return;
       }
-      if (typeof link.url !== "string" || typeof link.text !== "string") return;
+      if (Array.isArray(link)) {
+        const links = itemLinksFromDrop(link);
+        if (links.length > 0) void insertItemLinks(links).catch(() => {});
+        return;
+      }
+      if (!link || typeof link !== "object" || !("url" in link) || !("text" in link) ||
+          typeof link.url !== "string" || typeof link.text !== "string") return;
       dropped = { kind: "link", url: link.url, text: link.text };
     }
     const at = sendBox?.selectionStart ?? draft.length;

@@ -11,7 +11,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { showInfo } from "./showInfo.ts";
-  import { startLinkDrag } from "./linkFollowers.ts";
+  import { startItemLinksDrag } from "./linkFollowers.ts";
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import SkyhookConfiguration from "./SkyhookConfiguration.svelte";
 
@@ -35,6 +35,8 @@
   let sort = $state(0);
   let descending = $state(false);
   let now = $state(Date.now());
+  let selected = $state<readonly number[]>([]);
+  let selectionAnchor: number | null = null;
 
   const labels = {
     jumps: ["UI/Common/Jumps", "Jumps"], security: ["UI/Common/Security", "Security"],
@@ -123,6 +125,31 @@
   function sortBy(index: number): void {
     descending = sort === index && !descending;
     sort = index;
+  }
+
+  function selectRow(id: number, event: MouseEvent): void {
+    const control = event.ctrlKey || event.metaKey;
+    const ids = visible.map(row => row.id);
+    const from = selectionAnchor === null ? -1 : ids.indexOf(selectionAnchor);
+    const to = ids.indexOf(id);
+    if (event.shiftKey && from >= 0 && to >= 0 && from !== to) {
+      const range = ids.slice(Math.min(from, to), Math.max(from, to) + 1);
+      selected = control ? [...new Set([...selected, ...range])] : range;
+      if (!control) return;
+    } else if (!event.shiftKey && control) {
+      selected = selected.includes(id) ? selected.filter(value => value !== id) : [...selected, id];
+    } else if (!control) {
+      selected = [id];
+    }
+    selectionAnchor = id;
+  }
+
+  function dragRows(row: SkyhookRow, event: DragEvent): void {
+    if (!selected.includes(row.id)) selectRow(row.id, event);
+    startItemLinksDrag(event, visible.filter(item => selected.includes(item.id)).map(item => ({
+      url: `showinfo:${item.typeID}//${item.id}`,
+      text: skyhookName(item),
+    })));
   }
 
   function action(key: keyof typeof labels, run: () => void): ContextEntry {
@@ -216,6 +243,12 @@
   $effect(() => {
     if (!canConfigure || !listing?.rows.some(row => row.id === configuration?.id)) configuration = null;
   });
+
+  $effect(() => {
+    const ids = new Set(visible.map(row => row.id));
+    if (selected.some(id => !ids.has(id))) selected = selected.filter(id => ids.has(id));
+    if (selectionAnchor !== null && !ids.has(selectionAnchor)) selectionAnchor = null;
+  });
 </script>
 
 {#if bookmark}
@@ -262,7 +295,9 @@
       </th>
     {/each}</tr></thead>
     <tbody>{#each visible as row (row.id)}
-      <tr data-skyhook-id={row.id} oncontextmenu={(event) => {
+      <tr data-skyhook-id={row.id} aria-selected={selected.includes(row.id)} draggable="true"
+        onclick={(event) => selectRow(row.id, event)} ondragstart={(event) => dragRows(row, event)}
+        oncontextmenu={(event) => {
         event.preventDefault();
         event.stopPropagation();
         rowMenu(row, event.clientX, event.clientY);
@@ -270,7 +305,6 @@
         <td>{row.jumps ?? "–"}</td><td>{row.security === null ? "–" : shownSecurity(row.security).toFixed(1)}</td>
         <td>{locationName(row.systemID)}</td>
         <td><button type="button" draggable="true"
-          ondragstart={(event) => startLinkDrag(event, `showinfo:${row.typeID}//${row.id}`, skyhookName(row))}
           onkeydown={(event) => {
             if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
             event.preventDefault();
@@ -278,7 +312,9 @@
             const bounds = event.currentTarget.getBoundingClientRect();
             rowMenu(row, bounds.left, bounds.bottom);
           }}
-          onclick={() => showInfo({ kind: "type", itemID: row.id, typeID: row.typeID })}>{skyhookName(row)}</button></td>
+          onclick={(event) => {
+            if (!event.ctrlKey && !event.metaKey && !event.shiftKey) showInfo({ kind: "type", itemID: row.id, typeID: row.typeID });
+          }}>{skyhookName(row)}</button></td>
         <td>{stateText(row)}</td><td>{harvestText(row)}</td><td>{theftText(row)}</td>
       </tr>
     {/each}</tbody>
@@ -295,5 +331,6 @@
   th, td { padding: 4px 7px; border-bottom: 1px solid #324046; }
   th { background: #1b2529; position: sticky; top: 0; }
   tr:hover td { background: #26343b; }
+  tr[aria-selected="true"] td { background: #344950; }
   th button, td button { border: 0; background: transparent; color: inherit; padding: 0; text-align: inherit; cursor: pointer; }
 </style>
