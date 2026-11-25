@@ -41,6 +41,7 @@
   import { FILTER_FIELD, matchInventoryFilter, roundInventoryFilterPrice, type InventoryFilter, type InventoryFilterFacts } from "../bridge/inventoryFilters.ts";
   import { ITEM_FITTING_FILTER_FIELDS, loadInventoryFilterFacts, loadInventoryItemFittingFacts, TYPE_FILTER_FIELDS } from "../app/inventoryFilterFacts.ts";
   import { showInfo } from "./showInfo.ts";
+  import { showMarketDetails } from "./marketDetails.ts";
   import { openFittingWindow } from "./fittingWindowTarget.ts";
   import KeyActivationWindow from "./KeyActivationWindow.svelte";
   import { ABYSS_WINDOW_LABELS, offersActivateAbyssalKey, type FilamentPlace } from "../bridge/abyssalKeys.ts";
@@ -186,6 +187,9 @@
   const panelID = $props.id();
   const REPAIR_QUOTE_LABEL = "UI/Inventory/ItemActions/GetRepairQuote";
   const REPACKAGE_LABEL = "UI/Inventory/ItemActions/Repackage";
+  const MARKET_DETAILS_LABEL = "UI/Inventory/ItemActions/ViewTypesMarketDetails";
+  const SELL_ITEM_LABEL = "UI/Inventory/ItemActions/SellThisItem";
+  const SELL_ITEMS_LABEL = "UI/Inventory/ItemActions/MultiSell";
   $effect(() => { if (lobbyHangars) flow.requestWords(["UI/Station/Ships", "UI/Station/Items"]); });
 
   // Stable store identity for this component's life; the slices are
@@ -373,6 +377,8 @@
     contextAnchor?: HTMLElement;
     ship?: boolean;
     repackageItems?: readonly PersonalAssetSelection[];
+    marketDetails?: boolean;
+    sellItems?: readonly PersonalAssetSelection[];
   } | null>(null);
   let panelEl = $state<HTMLElement | null>(null);
 
@@ -615,7 +621,8 @@
 
   onMount(() => {
     flow.requestWords([ABYSS_WINDOW_LABELS.activateKey, CONFIRM_MOVE_TO_NEWBIE_SHIP, ASSEMBLE_CONTAINER_LABEL,
-      "UI/Inventory/AssetSafety/AssetSafetyDeliveries", REPAIR_QUOTE_LABEL, REPACKAGE_LABEL]);
+      "UI/Inventory/AssetSafety/AssetSafetyDeliveries", REPAIR_QUOTE_LABEL, REPACKAGE_LABEL,
+      MARKET_DETAILS_LABEL, SELL_ITEM_LABEL, SELL_ITEMS_LABEL]);
     void run(async () => {
       await flow.loadInventory();
       if (lobbyHangars) return;
@@ -1487,12 +1494,24 @@
       if (focus) popover.querySelector("button")?.focus();
     };
     void tick().then(() => alignPopover(true));
-    const candidates = repackageSelection(row, place, ship);
-    if (candidates.length === 0) return;
-    const types = [...new Set(candidates.map(item => item.typeID))];
-    void flow.repackableAssetTypes(types).then(async eligible => {
-      if (menu !== opened || !eligible.has(row.typeID)) return;
-      opened.repackageItems = candidates.filter(item => eligible.has(item.typeID));
+    const owned = saleOrRepackageSelection(row, place, ship);
+    const assembled = owned.filter(item => item.singleton && canRepackageAssetType(item.typeID, item.categoryID, item.groupID, false));
+    const packageTypes = assembled.length
+      ? flow.repackableAssetTypes([...new Set(assembled.map(item => item.typeID))]).catch(() => new Set<number>())
+      : Promise.resolve(new Set<number>());
+    void packageTypes.then(async types => {
+      if (menu !== opened || !row.singleton || !types.has(row.typeID) || !assembled.some(item => item.itemID === row.itemID)) return;
+      opened.repackageItems = assembled.filter(item => types.has(item.typeID)).map(assetSelection);
+      await tick();
+      alignPopover(false);
+    });
+    void flow.marketableInventoryTypes([row.typeID, ...owned.map(item => item.typeID)]).then(async types => {
+      if (menu !== opened || !types.has(row.typeID)) return;
+      opened.marketDetails = true;
+      const packages = await packageTypes;
+      if (menu !== opened) return;
+      const sellable = owned.filter(item => types.has(item.typeID) && (!item.singleton || packages.has(item.typeID)));
+      if (sellable.some(item => item.itemID === row.itemID)) opened.sellItems = sellable.map(assetSelection);
       await tick();
       alignPopover(false);
     }).catch(() => {});
@@ -1557,19 +1576,19 @@
       .map(item => ({ itemID: item.itemID, typeID: item.typeID, stationID: locationID }));
   }
 
-  function repackageSelection(row: InventoryItemRow, place: InventoryPlace, ship: boolean): PersonalAssetSelection[] {
+  function saleOrRepackageSelection(row: InventoryItemRow, place: InventoryPlace, ship: boolean): InventoryItemRow[] {
     const online = $station.online;
     const locationID = online?.structureID ?? online?.stationID;
     if (place.kind !== "hangar" || !online || locationID == null ||
         locationID !== ($inventory.structureID ?? $inventory.stationID)) return [];
     const activeShipID = $flight.status?.shipID ?? $inventory.activeShipID;
-    const eligible = (item: InventoryItemRow) => item.singleton && item.itemID !== activeShipID &&
-      item.ownerID === online.characterID && item.locationID === locationID && item.flagID === 4 &&
-      canRepackageAssetType(item.typeID, item.categoryID, item.groupID, false);
-    if (!eligible(row)) return [];
     const picked = !ship && isPicked(row, place) ? new Set(selection) : new Set([row.itemID]);
-    return $inventory.hangar.rows.filter(item => picked.has(item.itemID) && eligible(item))
-      .map(item => ({ itemID: item.itemID, typeID: item.typeID, stationID: locationID }));
+    return $inventory.hangar.rows.filter(item => picked.has(item.itemID) && item.itemID !== activeShipID &&
+      item.ownerID === online.characterID && item.locationID === locationID && item.flagID === 4 && item.quantity > 0);
+  }
+
+  function assetSelection(item: InventoryItemRow): PersonalAssetSelection {
+    return { itemID: item.itemID, typeID: item.typeID, stationID: item.locationID! };
   }
 
   function fitHardware(row: InventoryItemRow, place: InventoryPlace): void {
@@ -2561,6 +2580,22 @@
             const items = menu?.repackageItems;
             if (items) contextAction(() => void run(() => flow.repackageAssets(items)));
           }}>{repackageLabel}</button>
+      {/if}
+      {#if menu.marketDetails}
+        <button type="button" class="stn-menu-item" onclick={() => contextAction(row => showMarketDetails(row.typeID))}>
+          {plainText($words.templates[MARKET_DETAILS_LABEL] ?? "") || "View Market Details"}
+        </button>
+      {/if}
+      {#if menu.sellItems?.length}
+        <button type="button" class="stn-menu-item" disabled={busy}
+          onclick={() => {
+            const items = menu?.sellItems;
+            if (items) contextAction(() => void run(() => flow.openAssetSale(items)));
+          }}>
+          {menu.sellItems.length === 1
+            ? plainText($words.templates[SELL_ITEM_LABEL] ?? "") || "Sell This Item"
+            : plainText($words.templates[SELL_ITEMS_LABEL] ?? "") || "Sell Items"}
+        </button>
       {/if}
     </div>
   {/if}

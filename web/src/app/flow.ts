@@ -2725,6 +2725,7 @@ export interface AppFlow {
   openAssetSale(items: readonly PersonalAssetSelection[]): Promise<void>;
   repackageAssets(items: readonly PersonalAssetSelection[]): Promise<void>;
   repackableAssetTypes(typeIDs: readonly number[]): Promise<ReadonlySet<number>>;
+  marketableInventoryTypes(typeIDs: readonly number[]): Promise<ReadonlySet<number>>;
   answerAssetSale(n: number, order: { readonly rows: readonly AssetSaleOrder[]; readonly durationDays: number } | null): Promise<void>;
   readonly assetRepairShop: ReadableSignal<AssetRepairShop | null>;
   openAssetRepair(items?: readonly PersonalAssetSelection[]): Promise<void>;
@@ -12188,6 +12189,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const ids = candidates.slice(start, start + 32);
       const academy = await api.loadTypeListsHolding(ids, [ACADEMY_TYPE_LIST_ID], callOptions);
       for (const id of ids) if (!academy[id]?.includes(ACADEMY_TYPE_LIST_ID)) eligible.add(id);
+    }
+    return eligible;
+  }
+
+  async function marketableInventoryTypes(typeIDs: readonly number[]): Promise<ReadonlySet<number>> {
+    const types = await typeFacts(typeIDs);
+    const candidates = [...new Set(typeIDs)].filter(id => (types?.get(id)?.marketGroupID ?? 0) > 0);
+    const eligible = new Set<number>();
+    // inventoryrestrictions.can_view_market_details excludes non-tradable and soulbound types.
+    for (let start = 0; start < candidates.length; start += 32) {
+      const ids = candidates.slice(start, start + 32);
+      const restrictions = await api.loadTypeListsHolding(ids, [36, 142], callOptions);
+      for (const id of ids) if (restrictions[id]?.length === 0) eligible.add(id);
     }
     return eligible;
   }
@@ -38363,6 +38377,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     openAssetSale,
     repackageAssets,
     repackableAssetTypes,
+    marketableInventoryTypes,
     answerAssetSale,
     watchMarketProgression,
     findMarketTypes: (q: string, categoryID?: number) => api.findMarketTypes(q, callOptions, categoryID),
