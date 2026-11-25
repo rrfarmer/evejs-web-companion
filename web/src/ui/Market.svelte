@@ -67,7 +67,7 @@
   import type { JsonValue } from "../bridge/wire.ts";
   import type { TypeMetaFacts } from "../app/api.ts";
   import { showInfo } from "./showInfo.ts";
-  import { showMarketDetails } from "./marketDetails.ts";
+  import { buyMarketType, showMarketDetails } from "./marketDetails.ts";
   import { findInContracts } from "./contractsSearch.ts";
   import { findInPersonalAssets } from "./assetsSearch.ts";
   import { compareType } from "./typeCompare.ts";
@@ -129,6 +129,13 @@
     "UI/Market/MarketQuote/NumberOfJumps": "{[numeric]num} Jumps",
     "UI/Market/MarketQuote/Expired": "Expired",
     "UI/Market/Marketbase/CommandPlaceBuyOrder": "Place Buy Order",
+    "UI/Common/Groups": "Groups",
+    "Tooltips/Market/MarketGroupsTab": "Browse items in the selected group",
+    "UI/Market/Marketbase/SelectGroupToBrowse": "Select a market group to browse.",
+    "UI/Market/Marketbase/NoItemsAvailable": "No items are available in this group.",
+    "UI/Market/Marketbase/NoneAvailable": "None available",
+    "UI/Market/Marketbase/CommandViewDetails": "View Details",
+    "UI/Market/MarketQuote/CommandBuy": "Buy",
     "UI/Market/Marketbase/ExportToFile": "Export to File",
     "Tooltips/Market/MarketDetailsExportFile": "Export the order book to a text file",
     "UI/Market/MarketWindow/ExportNoData": "There were no buy or sell orders found.",
@@ -425,7 +432,7 @@
   let error = $state("");
 
   /** Which of the four views is showing. */
-  let tab = $state<"book" | "orders" | "trades" | "escrow">("book");
+  let tab = $state<"book" | "groups" | "orders" | "trades" | "escrow">("book");
   let ordersReady = $state(false);
   let orderPage = $state<"orders" | "history">("orders");
   let exportNote = $state("");
@@ -492,10 +499,12 @@
     if (wanted !== null) closeDraft();
     void run(async () => {
       await flow.loadMarket(wanted?.typeID ?? null);
-      if (wanted?.buy && marketDetailsRequests.get() === revision) {
+      if (wanted && marketDetailsRequests.get() === revision && (wanted.buy || tab === "groups")) {
         tab = "book";
-        detailTab = "marketdata";
-        startDraft("buy", true);
+        if (wanted.buy) {
+          detailTab = "marketdata";
+          startDraft("buy", true);
+        }
       }
     });
   });
@@ -632,6 +641,7 @@
   }
 
   function chooseItem(match: MarketTypeMatch): void {
+    if (tab === "groups") tab = "book";
     chosenName = match.name;
     exportNote = "";
     matches = [];
@@ -943,6 +953,37 @@
   let groupTypes = $state<readonly MarketTypeMatch[]>([]);
   let groupTypesCapped = $state(false);
   let browsing = $state(false);
+  let browseRevision = 0;
+  let groupAsks = $state.raw<Awaited<ReturnType<AppFlow["marketRegionalAsks"]>> | null>(null);
+  let groupAsksError = $state(false);
+  let groupFacts = $state.raw<ReadonlyMap<number, TypeMetaFacts | null> | null>(null);
+  const groupCards = $derived([...groupTypes].sort((a, b) =>
+    (a.variantGroup?.metaGroupID ?? 0) - (b.variantGroup?.metaGroupID ?? 0) || a.name.localeCompare(b.name)));
+
+  $effect(() => {
+    if (tab !== "groups" || $station.online?.solarSystemID == null) return;
+    let current = true;
+    groupAsks = null;
+    groupAsksError = false;
+    void flow.marketRegionalAsks().then(asks => {
+      if (current) groupAsks = asks;
+    }).catch(() => {
+      if (current) groupAsksError = true;
+    });
+    return () => { current = false; };
+  });
+
+  $effect(() => {
+    if (tab !== "groups" || browsing || !groupTypes.length) return;
+    let current = true;
+    groupFacts = null;
+    void flow.typeFacts(groupTypes.map(item => item.typeID)).then(facts => {
+      if (!current || facts === null) return;
+      groupFacts = facts;
+      flow.requestWords([...facts.values()].flatMap(fact => fact?.descriptionID ? [`#${fact.descriptionID}`] : []));
+    }).catch(() => {});
+    return () => { current = false; };
+  });
 
   type VariantFolder = { id: string; metaGroupID: number; name: string; items: MarketTypeMatch[] };
   function marketRows(items: readonly MarketTypeMatch[], searching: boolean): (MarketTypeMatch | VariantFolder)[] {
@@ -967,29 +1008,29 @@
   const currentGroupID = $derived(crumbs.length === 0 ? 0 : crumbs[crumbs.length - 1]!.marketGroupID);
 
   async function openGroupID(groupID: number): Promise<void> {
+    const revision = ++browseRevision;
     browsing = true;
     try {
-      groups = await flow.loadMarketGroups(groupID);
-      if (groupID === 0) {
-        // The root holds no items of its own.
-        groupTypes = [];
-        groupTypesCapped = false;
-      } else {
-        const result = await flow.loadMarketGroupTypes(groupID);
-        groupTypes = result.types;
-        groupTypesCapped = result.capped;
-      }
+      const [branches, items] = await Promise.all([
+        flow.loadMarketGroups(groupID),
+        groupID === 0 ? null : flow.loadMarketGroupTypes(groupID),
+      ]);
+      if (revision !== browseRevision) return;
+      groups = branches;
+      groupTypes = items?.types ?? [];
+      groupTypesCapped = items?.capped ?? false;
     } catch (cause) {
       // Browsing is reference data; failing it must not blank the prices that
       // are already on screen.
-      error = cause instanceof Error ? cause.message : String(cause);
+      if (revision === browseRevision) error = cause instanceof Error ? cause.message : String(cause);
     } finally {
-      browsing = false;
+      if (revision === browseRevision) browsing = false;
     }
   }
 
   function enterGroup(node: MarketGroupNode): void {
     crumbs = [...crumbs, { marketGroupID: node.marketGroupID, name: node.name }];
+    if (retail && node.hasTypes) tab = "groups";
     void openGroupID(node.marketGroupID);
   }
 
@@ -1282,10 +1323,12 @@
   <!-- MarketBase's tab bar (32 high): the Details tab at the left (sr.tabs, UI/Common/Details); the ghost buttons at the
        right - Market Orders (OpenMarketOrders: our open orders here), and the page's own trades and tied-up views,
        which the client keeps in the wallet; then the window header's WalletBalance (the ISK icon, its button the
-       wallet, and the balance, TextColor.SECONDARY). The NES and Multibuy buttons and the Groups tab are not built. -->
+       wallet, and the balance, TextColor.SECONDARY). -->
   <section class="mkt-tabbar">
     <nav class="mkt-tabs">
       <button type="button" class:active={tab === "book"} title={qbWord("Tooltips/Market/MarketDetailsTab")} onclick={() => (tab = "book")}>{qbWord("UI/Common/Details")}</button>
+      <button type="button" class:active={tab === "groups"} aria-pressed={tab === "groups"} title={qbWord("Tooltips/Market/MarketGroupsTab")}
+        onclick={() => (tab = "groups")}>{qbWord("UI/Common/Groups")}</button>
     </nav>
     <span class="mkt-ghosts">
       <button type="button" class="mkt-ghost" class:active={tab === "orders"} onclick={() => { if (onOpenOrders) onOpenOrders(); else tab = "orders"; }}>{qbWord("Tooltips/StationServices/MarketOrders")}</button>
@@ -1313,6 +1356,52 @@
         What is tied up
       </button>
     </p>
+  </section>
+{/if}
+
+{#if tab === "groups"}
+  <section class="mkt-group-page" aria-label={qbWord("UI/Common/Groups")}>
+    {#if browsing}
+      <p class="note" role="status">Loading group…</p>
+    {:else if currentGroupID === 0}
+      <p class="note">{qbWord("UI/Market/Marketbase/SelectGroupToBrowse")}</p>
+    {:else if !groupCards.length}
+      <p class="note">{qbWord("UI/Market/Marketbase/NoItemsAvailable")}</p>
+    {:else}
+      <h2>{crumbs.at(-1)?.name}</h2>
+      {#if groupAsksError}<p class="note">Regional prices could not be read.</p>{/if}
+      {#each groupCards as item (item.typeID)}
+        {@const fact = groupFacts?.get(item.typeID)}
+        {@const description = fact?.descriptionID ? $words.templates[`#${fact.descriptionID}`] : null}
+        {@const ask = groupAsks?.get(item.typeID)}
+        <article class="mkt-group-card">
+          <TypeIcon typeID={item.typeID} name={item.name} size="lg" />
+          <div>
+            <h3>{item.name}
+              <button type="button" class="mkt-info" aria-label={qbWord("UI/Commands/ShowInfo")}
+                onclick={() => showInfo({ kind: "type", typeID: item.typeID })}>i</button>
+            </h3>
+            {#if description}<p>{plainText(description)}</p>{/if}
+            {#if ask}
+              <p class="mkt-group-ask"><strong>{formatIsk(ask.price)}</strong> · {ask.quantity.toLocaleString()} available in region</p>
+            {:else if groupAsks}
+              <p class="mkt-group-ask">{qbWord("UI/Market/Marketbase/NoneAvailable")}</p>
+            {/if}
+            <div class="mkt-group-actions">
+              <button type="button" class="mkt-ghost" disabled={busy}
+                onclick={() => chooseItem(item)}>{qbWord("UI/Market/Marketbase/CommandViewDetails")}</button>
+              {#if fact?.categoryID != null && COMPARE_CATEGORIES.includes(fact.categoryID)}
+                <button type="button" class="mkt-ghost" onclick={() => compareType(item.typeID)}>{qbWord("UI/Compare/CompareButton")}</button>
+              {/if}
+              <button type="button" class="mkt-primary" disabled={busy || (!groupAsks && !groupAsksError)}
+                onclick={() => buyMarketType(item.typeID)}>
+                {qbWord(ask ? "UI/Market/MarketQuote/CommandBuy" : "UI/Market/Marketbase/CommandPlaceBuyOrder")}
+              </button>
+            </div>
+          </div>
+        </article>
+      {/each}
+    {/if}
   </section>
 {/if}
 
@@ -1964,6 +2053,12 @@
 </div>
 
 <style>
+  .mkt-group-page { padding: 8px 12px; }
+  .mkt-group-page h2, .mkt-group-card h3 { margin: 0 0 6px; }
+  .mkt-group-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px;
+    padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.12); }
+  .mkt-group-card p { margin: 0 0 8px; white-space: pre-line; }
+  .mkt-group-actions { display: flex; flex-wrap: wrap; gap: 6px; }
   .mkt-order-controls { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 8px; }
   .mkt-order-controls button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 #b8c0c1; }
   .mkt-variant-folder summary { cursor: pointer; }
