@@ -14,13 +14,17 @@ export interface DockableLocation {
 export type DockableCapability = "dock" | "personalInventory" | "corporationHangar" |
   "fitting" | "repair" | "reprocessing" | "market" | "industry";
 
-const SERVICE_ID: Readonly<Record<Exclude<DockableCapability, "personalInventory">, number>> = {
-  dock: 1, fitting: 2, corporationHangar: 3, reprocessing: 4, market: 5, repair: 8, industry: 20,
+const SERVICE_ID: Readonly<Record<Exclude<DockableCapability, "personalInventory" | "industry">, number>> = {
+  dock: 1, fitting: 2, corporationHangar: 3, reprocessing: 4, market: 5, repair: 8,
 };
+
+// structures.INDUSTRY_SERVICES includes the aggregate and every installed activity service.
+const INDUSTRY_SERVICE_IDS = new Set([20, 21, 22, 23, 24, 30, 31, 32, 33, 34, 40, 41, 42, 43]);
 
 /** A service read is access-scoped; null means unreadable and grants nothing. */
 export function structureHasCapability(ids: readonly number[] | null, capability: DockableCapability): boolean {
   if (ids === null) return false;
+  if (capability === "industry") return ids.some(id => INDUSTRY_SERVICE_IDS.has(id));
   return ids.includes(SERVICE_ID[capability === "personalInventory" ? "dock" : capability]);
 }
 
