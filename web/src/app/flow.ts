@@ -978,7 +978,8 @@ import { issueCombatUtility, issueUtilityReload } from "../nav/combatUtilityIssu
 import { nameKey, type NameRef } from "../store/names.ts";
 import {
   decodeSkyhookDetails, decodeSkyhookEntries, decodeSkyhookSettings, ORBITAL_TAX_KEYS, REINFORCEMENT_VARIANCE_ATTRIBUTE,
-  SKYHOOK_TYPE_ID, skyhookProduction, skyhookSettingsArgs, type SkyhookEntry, type SkyhookRow, type SkyhookSettings,
+  SKYHOOK_TYPE_ID, skyhookFilters, skyhookFilterSetting, skyhookProduction, skyhookSettingsArgs,
+  type SkyhookEntry, type SkyhookFilters, type SkyhookRow, type SkyhookSettings,
 } from "../bridge/skyhooks.ts";
 
 
@@ -4495,6 +4496,9 @@ export interface AppFlow {
   loadCorporationMoonSchedule(current?: () => void): Promise<CorporationMoonSchedule>;
   loadStructureBrowser(systemID: number, corporation?: boolean): Promise<StructureBrowserDirectory>;
   loadMySkyhooks(systemID: number): Promise<{ rows: SkyhookRow[]; currentRegionID: number | null }>;
+  loadSkyhookRegions(): Promise<readonly { id: number; name: string }[]>;
+  readSkyhookFilters(): SkyhookFilters;
+  saveSkyhookFilter<Key extends keyof SkyhookFilters>(key: Key, value: SkyhookFilters[Key]): void;
   loadSkyhookConfiguration(target: SkyhookEntry): Promise<{
     settings: SkyhookSettings; varianceHours: number; groups: readonly { id: number; name: string }[];
   }>;
@@ -22010,11 +22014,17 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return sovStatic;
   }
   let colonySystemsHeld: Awaited<ReturnType<typeof api.loadColonySystems>> = null;
+  async function loadSovereigntyColonySystems() {
+    if (colonySystemsHeld) return colonySystemsHeld;
+    const data = await api.loadColonySystems(callOptions);
+    colonySystemsHeld ??= data;
+    return colonySystemsHeld;
+  }
   async function agencyColonyResources(filters: AgencySiteFilters, colony: ColonyFilters = DEFAULT_COLONY_FILTERS): Promise<Awaited<ReturnType<AppFlow["agencyColonyResources"]>>> {
     const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
     const [statics, systems, jumps, alliances, vulnerable] = await Promise.all([
       sovResourceStatic().catch(() => null),
-      colonySystemsHeld ? Promise.resolve(colonySystemsHeld) : api.loadColonySystems(callOptions).catch(() => null),
+      loadSovereigntyColonySystems().catch(() => null),
       here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
       // PrimeAllianceSolarsystems (starMapSvc.GetAllianceSolarSystems: each row's solarSystemID to its allianceID).
       bridgeAsk("stationSvc", "GetAllianceSystems", []).catch(() => null),
@@ -22023,7 +22033,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const rowsOf = (v: unknown): unknown[] => (Array.isArray(v) ? v : v && typeof v === "object" && Array.isArray((v as { items?: unknown }).items) ? (v as { items: unknown[] }).items : readRowsetRows(v) as unknown[]);
     const allianceOf = new Map(rowsOf(alliances).map((r) => [Number(unwrapLong(readRowField(r, "solarSystemID") ?? (r as Record<string, unknown>)?.solarSystemID as never ?? null) ?? 0), Number(unwrapLong(readRowField(r, "allianceID") ?? (r as Record<string, unknown>)?.allianceID as never ?? null) ?? 0)] as const).filter(([s, a]) => s > 0 && a > 0));
     const theftVulnerable = new Set(((vulnerable?.payload as { solar_systems?: { sequential?: number }[] } | undefined)?.solar_systems ?? []).map((x) => Number(x.sequential ?? 0)));
-    colonySystemsHeld ??= systems;
     if (!statics || !systems) return null;
     const jumpsOf = (id: number) => (id === here ? 0 : jumps?.get(id));
     const ids = (filters.distance === 1 ? (here !== null && systems.systems[String(here)] ? [here] : []) : Object.keys(systems.systems).map(Number))
@@ -27996,10 +28005,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       { kind: "type", id: row.typeID },
       { kind: "evelocation", id: row.systemID },
       { kind: "evelocation", id: row.planetID },
-      ...(row.regionID === null ? [] : [{ kind: "evelocation" as const, id: row.regionID }]),
       ...(row.harvest && "typeID" in row.harvest ? [{ kind: "type" as const, id: row.harvest.typeID }] : []),
     ] satisfies NameRef[]));
     return { rows, currentRegionID: regionFor(systemID) };
+  }
+
+  async function loadSkyhookRegions(): Promise<readonly { id: number; name: string }[]> {
+    const current = callOptions.captureRequestGuard!();
+    const data = await loadSovereigntyColonySystems();
+    current();
+    if (!data) throw new Error("Sovereignty regions could not be read.");
+    return Object.entries(data.regionNames).map(([id, name]) => ({ id: Number(id), name }))
+      .sort((left, right) => left.name.localeCompare(right.name));
   }
 
   async function requireOwnedSkyhook(target: SkyhookEntry, scope: MemberOperation): Promise<void> {
@@ -39921,6 +39938,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadCorporationMoonSchedule,
     loadStructureBrowser,
     loadMySkyhooks,
+    loadSkyhookRegions,
+    readSkyhookFilters: () => skyhookFilters(charUiSetting),
+    saveSkyhookFilter: (key, value) => setCharUiSetting(skyhookFilterSetting(key), value === null ? "" : String(value)),
     loadSkyhookConfiguration,
     saveSkyhookConfiguration,
     loadStructureDescription,

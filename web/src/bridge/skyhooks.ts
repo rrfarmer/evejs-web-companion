@@ -18,6 +18,30 @@ export interface SkyhookRow extends SkyhookEntry {
   readonly theft: { readonly vulnerable: boolean; readonly start: number; readonly end: number } | null;
 }
 
+export interface SkyhookFilters {
+  location: 1 | 2 | 5 | 10 | -1 | null;
+  region: number | null;
+  state: "reinforced" | "vulnerable" | null;
+  theftvulnerability: "secure" | "vulnerable" | null;
+}
+
+export function skyhookFilterSetting(key: keyof SkyhookFilters): string {
+  return `skyhookbrowser_filters_${key}`;
+}
+
+export function skyhookFilters(read: (key: string) => string | null): SkyhookFilters {
+  const location = Number(read(skyhookFilterSetting("location")));
+  const region = Number(read(skyhookFilterSetting("region")));
+  const state = read(skyhookFilterSetting("state"));
+  const theft = read(skyhookFilterSetting("theftvulnerability"));
+  return {
+    location: location === -1 || location === 1 || location === 2 || location === 5 || location === 10 ? location : null,
+    region: Number.isSafeInteger(region) && region > 0 ? region : null,
+    state: state === "reinforced" || state === "vulnerable" ? state : null,
+    theftvulnerability: theft === "secure" || theft === "vulnerable" ? theft : null,
+  };
+}
+
 export const SKYHOOK_TYPE_ID = 81080;
 export const REINFORCEMENT_VARIANCE_ATTRIBUTE = 1613;
 export const ORBITAL_TAX_KEYS = [

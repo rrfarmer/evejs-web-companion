@@ -40,10 +40,12 @@
   const waypoints = $derived(flow.waypoints);
   const systemID = $derived(sessionPlace($flight.status, $station.online).solarSystemID);
   const corporationID = $derived($station.online?.corporationID ?? null);
+  const characterID = $derived($station.online?.characterID ?? null);
   const canManage = $derived(corporationID !== null && !isNpcCorporation(corporationID) &&
     hasMoonStationManagerRole($station.online?.corpRole ?? null));
   const hasCorporationTabs = $derived(corporationID !== null && !isNpcCorporation(corporationID));
   let tab = $state<"all" | "corporation" | "skyhooks">("all");
+  let skyhookSearch = $state("");
   let corporationPanel = $state<"structures" | "extractions">("structures");
   const activeTab = $derived(hasCorporationTabs && (tab !== "corporation" || canManage) ? tab : "all");
   const scheduleOpen = $derived(activeTab === "corporation" && corporationPanel === "extractions");
@@ -360,6 +362,11 @@
   });
 
   $effect(() => {
+    void characterID;
+    skyhookSearch = "";
+  });
+
+  $effect(() => {
     flow.requestWords([...Object.values(labels).map(([key]) => key), ...Object.values(menuWords).map(([key]) => key),
       ...serviceLabels.map(([, key]) => key),
       ...new Set([...STRUCTURE_SERVICE_DETAILS.values()].map(detail => detail.path))]);
@@ -491,7 +498,7 @@
     </div>
   {/if}
   {#if activeTab === "skyhooks" && systemID !== null}
-    <MySkyhooks {store} {flow} {systemID} />
+    <MySkyhooks {store} {flow} {systemID} bind:search={skyhookSearch} />
   {:else if scheduleOpen}
     <CorporationMoonSchedule {store} {flow} />
   {:else if loading}

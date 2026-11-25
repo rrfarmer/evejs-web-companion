@@ -6040,9 +6040,17 @@ export async function loadCareerAgentData(options: ApiOptions = {}): Promise<{ r
 }
 
 /** GET /api/client-data/colony-systems: the null-sec systems ([starID, regionID, planetIDs]) and the richness eveicons. */
-export async function loadColonySystems(options: ApiOptions = {}): Promise<{ readonly systems: Readonly<Record<string, readonly [number | null, number | null, readonly (readonly [number, number])[]]>>; readonly icons: Readonly<Record<string, string | null>> } | null> {
+export async function loadColonySystems(options: ApiOptions = {}): Promise<{
+  readonly systems: Readonly<Record<string, readonly [number | null, number | null, readonly (readonly [number, number])[]]>>;
+  readonly regionNames: Readonly<Record<number, string>>;
+  readonly icons: Readonly<Record<string, string | null>>;
+} | null> {
   const data = await getJson("/api/client-data/colony-systems", options);
-  return data.systems && typeof data.systems === "object" ? { systems: data.systems as Record<string, [number | null, number | null, [number, number][]]>, icons: (data.icons ?? {}) as Record<string, string | null> } : null;
+  return data.systems && typeof data.systems === "object" ? {
+    systems: data.systems as Record<string, [number | null, number | null, [number, number][]]>,
+    regionNames: (data.regionNames ?? {}) as Record<number, string>,
+    icons: (data.icons ?? {}) as Record<string, string | null>,
+  } : null;
 }
 
 /** GET /api/client-data/asteroid-belts: by system with belts, its consolidated ore types and its belts [itemID, celestialIndex, orbitIndex]. */

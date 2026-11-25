@@ -14978,7 +14978,13 @@ app.get("/api/client-data/colony-systems", requireAuth, async (req, res, next) =
     const names = ["power_richenss_modest", "power_richness_average", "power_richness_prosperous", "workforce_richness_modest", "workforce_richness_average",
       "workforce_richness_prosperous", "superionic_ice_richness_modest", "superionic_ice_richness_average", "superionic_ice_richness_prosperous",
       "magmatic_gas_richness_modest", "magmatic_gas_richness_average", "magmatic_gas_richness_prosperous"];
-    res.json({ ok: true, systems: staticData.getColonySystems(), icons: Object.fromEntries(names.map((n) => [n, eveiconTexture(n, 32) || eveiconTexture(n, 16)])) });
+    const systems = staticData.getColonySystems();
+    const regionIDs = new Set(Object.values(systems).map(([, regionID]) => regionID).filter(Boolean));
+    const regionNames = Object.fromEntries([...regionIDs].map(id => {
+      const name = staticData.getRegion(id)?.name;
+      return [id, (typeof name === "object" && name !== null ? name.en : name) || String(id)];
+    }));
+    res.json({ ok: true, systems, regionNames, icons: Object.fromEntries(names.map((n) => [n, eveiconTexture(n, 32) || eveiconTexture(n, 16)])) });
   } catch (error) { next(error); }
 });
 

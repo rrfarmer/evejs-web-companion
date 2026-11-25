@@ -1,8 +1,8 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
-  import { formatInterval, plainText } from "../bridge/clientWords.ts";
+  import { formatInterval, formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { hasMoonStationManagerRole } from "../bridge/moonMining.ts";
-  import { SKYHOOK_TYPE_ID, skyhookVulnerable, type SkyhookRow } from "../bridge/skyhooks.ts";
+  import { SKYHOOK_TYPE_ID, skyhookFilters, skyhookVulnerable, type SkyhookFilters, type SkyhookRow } from "../bridge/skyhooks.ts";
   import { shownSecurity } from "../bridge/systemSecurity.ts";
   import { ContextMenu } from "../play/contextMenu.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -10,8 +10,11 @@
   import { showInfo } from "./showInfo.ts";
   import SkyhookConfiguration from "./SkyhookConfiguration.svelte";
 
-  let { store, flow, systemID }: { store: ClientStore; flow: AppFlow; systemID: number } = $props();
+  let { store, flow, systemID, search = $bindable("") }: {
+    store: ClientStore; flow: AppFlow; systemID: number; search?: string;
+  } = $props();
   const station = $derived(store.station);
+  const characterID = $derived($station.online?.characterID ?? null);
   const words = $derived(store.words);
   const names = $derived(store.names);
   const waypoints = $derived(flow.waypoints);
@@ -20,11 +23,9 @@
   let configuration = $state.raw<SkyhookRow | null>(null);
   let listing = $state.raw<Awaited<ReturnType<AppFlow["loadMySkyhooks"]>> | null>(null);
   let error = $state("");
-  let search = $state("");
-  let distance = $state("");
-  let region = $state("");
-  let state = $state("");
-  let theft = $state("");
+  let filters = $state(skyhookFilters(() => null));
+  let regions = $state.raw<Awaited<ReturnType<AppFlow["loadSkyhookRegions"]>>>([]);
+  let regionsError = $state("");
   let sort = $state(0);
   let descending = $state(false);
   let now = $state(Date.now());
@@ -36,12 +37,18 @@
     theft: ["UI/StructureBrowser/SkyhookTheftVulnerability", "Theft Vulnerability"],
     vulnerable: ["UI/Structures/States/Vulnerable", "Vulnerable"], reinforced: ["UI/Structures/States/Reinforced", "Reinforced"],
     secure: ["UI/OrbitalSkyhook/TheftStates/Secure", "Secure"],
+    raidable: ["UI/OrbitalSkyhook/TheftStates/Vulnerable", "Raidable"],
     power: ["UI/Sovereignty/Power", "Power"], workforce: ["UI/Sovereignty/Workforce", "Workforce"],
     na: ["UI/StructureBrowser/NotApplicable", "N/A"],
     unknown: ["UI/OrbitalSkyhook/SkyhookWnd/NoDataAvailable", "No Data Available"],
     empty: ["UI/Structures/Browser/NoStructuresFound", "No structures found"],
     filtered: ["UI/Structures/Browser/NoStructuresFoundWithFilters", "No structures found with these filters"],
     configure: ["UI/DustLink/ConfigureOrbital", "Configure"],
+    anyDistance: ["UI/Agency/ContentOfAnyDistance", "Any Distance"],
+    currentSystem: ["UI/Generic/CurrentSystem", "Current System"],
+    withinJumps: ["UI/Common/WithinJumps", "Within {numJumps} jumps"],
+    region: ["UI/Common/LocationTypes/Region", "Region"],
+    currentRegion: ["UI/Generic/CurrentRegion", "Current Region"],
   } as const;
   const columns = ["jumps", "security", "system", "name", "state", "harvest", "theft"] as const;
   const label = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
@@ -49,8 +56,15 @@
   const typeName = (id: number) => resolvedName($names.resolved, "type", id, id === 81080 ? "Orbital Skyhook" : String(id));
   const skyhookName = (row: SkyhookRow) => `${typeName(row.typeID)} - ${locationName(row.planetID)}`;
   const stateText = (row: SkyhookRow) => row.state ? label(skyhookVulnerable(row.state) ? "vulnerable" : "reinforced") : "";
-  const regions = $derived([...new Set((listing?.rows ?? []).flatMap(row => row.regionID === null ? [] : [row.regionID]))]
-    .sort((left, right) => locationName(left).localeCompare(locationName(right))));
+  const selectedRegion = $derived(regions.some(region => region.id === filters.region) ? filters.region : null);
+  const regionNames = $derived(new Map(regions.map(region => [region.id, region.name])));
+  const withinJumps = (numJumps: number) => plainText(formatTemplate(
+    $words.templates[labels.withinJumps[0]] ?? labels.withinJumps[1], { numJumps }, { nameOf: () => "" }));
+
+  function setFilter<Key extends keyof SkyhookFilters>(key: Key, value: SkyhookFilters[Key]): void {
+    filters[key] = value;
+    flow.saveSkyhookFilter(key, value);
+  }
 
   function harvestText(row: SkyhookRow): string {
     const harvest = row.harvest;
@@ -69,17 +83,18 @@
 
   const visible = $derived.by(() => {
     const needle = search.trim().toLocaleLowerCase();
-    const activeRegion = region ? Number(region) : listing?.currentRegionID;
+    const activeRegion = selectedRegion ?? listing?.currentRegionID ?? null;
     const values = (row: SkyhookRow) => [row.jumps ?? Infinity, row.security ?? -Infinity, locationName(row.systemID),
       skyhookName(row), stateText(row), harvestText(row),
       row.theft ? (row.theft.vulnerable ? 0 : 1) + (row.theft.vulnerable ? row.theft.end : row.theft.start) / 1e15 : 3];
     return (listing?.rows ?? []).filter(row => {
-      if (distance === "system" && row.systemID !== systemID) return false;
-      if (distance === "region" && row.regionID !== activeRegion) return false;
-      if (distance !== "" && Number(distance) > 0 && (row.jumps ?? Infinity) > Number(distance)) return false;
+      const { location, state, theftvulnerability } = filters;
+      if (location === 1 && row.systemID !== systemID) return false;
+      if (location === -1 && (activeRegion === null || row.regionID !== activeRegion)) return false;
+      if (location !== null && location > 1 && (row.jumps ?? Infinity) > location) return false;
       if (state && skyhookVulnerable(row.state) !== (state === "vulnerable")) return false;
-      if (theft && (row.theft?.vulnerable === true) !== (theft === "vulnerable")) return false;
-      return !needle || [skyhookName(row), locationName(row.systemID), row.regionID ? locationName(row.regionID) : "",
+      if (theftvulnerability && (row.theft?.vulnerable === true) !== (theftvulnerability === "vulnerable")) return false;
+      return !needle || [skyhookName(row), locationName(row.systemID), regionNames.get(row.regionID ?? 0) ?? "",
         stateText(row), harvestText(row)].join(" ").toLocaleLowerCase().includes(needle);
     }).sort((left, right) => {
       const a = values(left)[sort], b = values(right)[sort];
@@ -115,6 +130,20 @@
   });
 
   $effect(() => {
+    void characterID;
+    filters = flow.readSkyhookFilters();
+    regions = [];
+    regionsError = "";
+    let current = true;
+    void flow.loadSkyhookRegions().then(result => {
+      if (current) regions = result;
+    }).catch(cause => {
+      if (current) regionsError = cause instanceof Error ? cause.message : String(cause);
+    });
+    return () => { current = false; };
+  });
+
+  $effect(() => {
     const here = systemID;
     void $station.online?.characterID;
     void $station.online?.corporationID;
@@ -140,25 +169,30 @@
   {/key}
 {/if}
 <div class="skyhook-filters">
-  <label>Search <input type="search" bind:value={search} /></label>
-  <label>Range <select bind:value={distance}>
-    <option value="">Any Distance</option><option value="system">Current System</option>
-    <option value="2">Within 2 Jumps</option><option value="5">Within 5 Jumps</option><option value="10">Within 10 Jumps</option>
-    <option value="region">Region</option>
+  <label>Search <input type="search" maxlength={64} bind:value={search} /></label>
+  <label>Range <select value={String(filters.location ?? "")} onchange={(event) => setFilter("location",
+      event.currentTarget.value === "" ? null : Number(event.currentTarget.value) as SkyhookFilters["location"])}>
+    <option value="">{label("anyDistance")}</option><option value="1">{label("currentSystem")}</option>
+    {#each [2, 5, 10] as jumps}<option value={String(jumps)}>{withinJumps(jumps)}</option>{/each}
+    <option value="-1">{label("region")}</option>
   </select></label>
-  {#if distance === "region"}
-    <label>Region <select bind:value={region}>
-      <option value="">Current Region</option>
-      {#each regions as id (id)}<option value={String(id)}>{locationName(id)}</option>{/each}
+  {#if filters.location === -1}
+    <label>{label("region")} <select value={String(selectedRegion ?? "")} onchange={(event) =>
+        setFilter("region", event.currentTarget.value === "" ? null : Number(event.currentTarget.value))}>
+      <option value="">{label("currentRegion")}</option>
+      {#each regions as region (region.id)}<option value={String(region.id)}>{region.name}</option>{/each}
     </select></label>
+    {#if regionsError}<p role="alert">{regionsError}</p>{/if}
   {/if}
-  <label>{label("state")} <select bind:value={state}>
+  <label>{label("state")} <select value={filters.state ?? ""} onchange={(event) =>
+      setFilter("state", event.currentTarget.value as Exclude<SkyhookFilters["state"], null> || null)}>
     <option value="">{label("state")}</option><option value="reinforced">{label("reinforced")}</option>
     <option value="vulnerable">{label("vulnerable")}</option>
   </select></label>
-  <label>{label("theft")} <select bind:value={theft}>
+  <label>{label("theft")} <select value={filters.theftvulnerability ?? ""} onchange={(event) =>
+      setFilter("theftvulnerability", event.currentTarget.value as Exclude<SkyhookFilters["theftvulnerability"], null> || null)}>
     <option value="">{label("theft")}</option><option value="secure">{label("secure")}</option>
-    <option value="vulnerable">{label("vulnerable")}</option>
+    <option value="vulnerable">{label("raidable")}</option>
   </select></label>
 </div>
 {#if error}<p role="alert">{error}</p>{:else if !listing}<p role="status">Reading skyhooks…</p>{/if}
