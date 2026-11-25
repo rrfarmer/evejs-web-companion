@@ -104,6 +104,7 @@
     type RepairQuoteRow,
   } from "../bridge/repairQuotes.ts";
   import { isRepairableItem, stationOffersRepair } from "../bridge/repairShop.ts";
+  import { canRepackageAssetType } from "../bridge/assetRepackage.ts";
   import { isSessionLost } from "../app/flow.ts";
   import { GROUP_CORVETTE } from "../bridge/shipWrites.ts";
   import { ordinaryContainerStackPlace } from "../bridge/inventoryWrites.ts";
@@ -112,7 +113,7 @@
   import { formatIsk } from "./isk.ts";
   import { structureHasCapability } from "../nav/dockableLocation.ts";
   import type { ClientStore } from "../store/clientStore.ts";
-  import type { AppFlow } from "../app/flow.ts";
+  import type { AppFlow, PersonalAssetSelection } from "../app/flow.ts";
   import type {
     CapacityInfo,
     InventoryItemRow,
@@ -184,6 +185,7 @@
   } = $props();
   const panelID = $props.id();
   const REPAIR_QUOTE_LABEL = "UI/Inventory/ItemActions/GetRepairQuote";
+  const REPACKAGE_LABEL = "UI/Inventory/ItemActions/Repackage";
   $effect(() => { if (lobbyHangars) flow.requestWords(["UI/Station/Ships", "UI/Station/Items"]); });
 
   // Stable store identity for this component's life; the slices are
@@ -203,6 +205,7 @@
   // svelte-ignore state_referenced_locally
   const words = store.words;
   const repairQuoteLabel = $derived(plainText($words.templates[REPAIR_QUOTE_LABEL] ?? "") || "Get Repair Quote");
+  const repackageLabel = $derived(plainText($words.templates[REPACKAGE_LABEL] ?? "") || "Repackage");
   // svelte-ignore state_referenced_locally
   const safetyDeliveries = flow.safetyDeliveries;
   const localSafety = $derived(isDocked && $safetyDeliveries?.characterID === $station.online?.characterID
@@ -369,6 +372,7 @@
     y: number;
     contextAnchor?: HTMLElement;
     ship?: boolean;
+    repackageItems?: readonly PersonalAssetSelection[];
   } | null>(null);
   let panelEl = $state<HTMLElement | null>(null);
 
@@ -611,7 +615,7 @@
 
   onMount(() => {
     flow.requestWords([ABYSS_WINDOW_LABELS.activateKey, CONFIRM_MOVE_TO_NEWBIE_SHIP, ASSEMBLE_CONTAINER_LABEL,
-      "UI/Inventory/AssetSafety/AssetSafetyDeliveries", REPAIR_QUOTE_LABEL]);
+      "UI/Inventory/AssetSafety/AssetSafetyDeliveries", REPAIR_QUOTE_LABEL, REPACKAGE_LABEL]);
     void run(async () => {
       await flow.loadInventory();
       if (lobbyHangars) return;
@@ -1473,14 +1477,25 @@
     const y = (pointer ? event.clientY : anchor.bottom) - frame.top;
     targetMenuOpen = false;
     menu = { row, place, targets, x, y, contextAnchor, ship };
-    void tick().then(() => {
-      if (menu?.contextAnchor !== contextAnchor || !panelEl) return;
+    const opened = menu;
+    const alignPopover = (focus: boolean) => {
+      if (menu !== opened || !panelEl) return;
       const popover = panelEl.querySelector<HTMLElement>(".stn-context-menu");
       if (!popover) return;
-      menu.x = Math.max(4, Math.min(x, frame.width - popover.offsetWidth - 4));
-      menu.y = Math.max(4, Math.min(y, frame.height - popover.offsetHeight - 4));
-      popover.querySelector("button")?.focus();
-    });
+      opened.x = Math.max(4, Math.min(x, frame.width - popover.offsetWidth - 4));
+      opened.y = Math.max(4, Math.min(y, frame.height - popover.offsetHeight - 4));
+      if (focus) popover.querySelector("button")?.focus();
+    };
+    void tick().then(() => alignPopover(true));
+    const candidates = repackageSelection(row, place, ship);
+    if (candidates.length === 0) return;
+    const types = [...new Set(candidates.map(item => item.typeID))];
+    void flow.repackableAssetTypes(types).then(async eligible => {
+      if (menu !== opened || !eligible.has(row.typeID)) return;
+      opened.repackageItems = candidates.filter(item => eligible.has(item.typeID));
+      await tick();
+      alignPopover(false);
+    }).catch(() => {});
   }
 
   function shipRowKeydown(event: KeyboardEvent, row: InventoryItemRow): void {
@@ -1539,6 +1554,21 @@
     const picked = isPicked(row, place) ? new Set(selection) : new Set([row.itemID]);
     return $inventory.hangar.rows.filter(item => picked.has(item.itemID) && item.ownerID === online?.characterID &&
       item.locationID === locationID && item.flagID === 4 && isRepairableItem(item))
+      .map(item => ({ itemID: item.itemID, typeID: item.typeID, stationID: locationID }));
+  }
+
+  function repackageSelection(row: InventoryItemRow, place: InventoryPlace, ship: boolean): PersonalAssetSelection[] {
+    const online = $station.online;
+    const locationID = online?.structureID ?? online?.stationID;
+    if (place.kind !== "hangar" || !online || locationID == null ||
+        locationID !== ($inventory.structureID ?? $inventory.stationID)) return [];
+    const activeShipID = $flight.status?.shipID ?? $inventory.activeShipID;
+    const eligible = (item: InventoryItemRow) => item.singleton && item.itemID !== activeShipID &&
+      item.ownerID === online.characterID && item.locationID === locationID && item.flagID === 4 &&
+      canRepackageAssetType(item.typeID, item.categoryID, item.groupID, false);
+    if (!eligible(row)) return [];
+    const picked = !ship && isPicked(row, place) ? new Set(selection) : new Set([row.itemID]);
+    return $inventory.hangar.rows.filter(item => picked.has(item.itemID) && eligible(item))
       .map(item => ({ itemID: item.itemID, typeID: item.typeID, stationID: locationID }));
   }
 
@@ -2524,6 +2554,13 @@
             const items = repairItems;
             contextAction(() => void run(() => flow.openAssetRepair(items)));
           }}>{repairQuoteLabel}</button>
+      {/if}
+      {#if menu.repackageItems?.length}
+        <button type="button" class="stn-menu-item" disabled={busy}
+          onclick={() => {
+            const items = menu?.repackageItems;
+            if (items) contextAction(() => void run(() => flow.repackageAssets(items)));
+          }}>{repackageLabel}</button>
       {/if}
     </div>
   {/if}
