@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import * as THREE from "three";
-  import { compressedSupport, loadDds } from "../three/ddsTexture.ts";
+  import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
 
   let { url }: { url: string } = $props();
   let canvas: HTMLCanvasElement;
@@ -36,20 +36,9 @@
     let cancelled = false;
     let texture: THREE.Texture | null = null;
     display = "loading";
-    void loadDds(resource).then(loaded => {
-      texture = loaded;
+    void loadPortraitBackdrop(active, resource, true).then(loaded => {
       if (cancelled) { loaded.dispose(); return; }
-      const support = compressedSupport(active);
-      const s3tc = loaded.format === THREE.RGB_S3TC_DXT1_Format ||
-        loaded.format === THREE.RGBA_S3TC_DXT1_Format || loaded.format === THREE.RGBA_S3TC_DXT5_Format;
-      if ((loaded.format === THREE.RGBA_BPTC_Format && !support.bptc) || (s3tc && !support.s3tc)) {
-        display = "unavailable";
-        return;
-      }
-      loaded.colorSpace = THREE.SRGBColorSpace;
-      loaded.wrapS = loaded.wrapT = THREE.ClampToEdgeWrapping;
-      loaded.repeat.y = -1;
-      loaded.offset.y = 1;
+      texture = loaded;
       material.map = loaded;
       material.needsUpdate = true;
       active.render(scene, camera);

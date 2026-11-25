@@ -10,8 +10,11 @@
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const station = $derived(store.station);
+  const characters = $derived(store.character);
   const imageServer = $derived(flow.imageServer);
   const characterID = $derived($station.online?.characterID ?? null);
+  const gender = $derived($characters.characters.find(character => character.characterID === characterID)?.gender);
+  const pilotHead = $derived(gender === 0 ? "female" : gender === 1 ? "male" : null);
   const urls = $derived([
     ...(characterID === null ? [] : [portraitUrl($imageServer, characterID, 256)].filter((url): url is string => url !== null)),
     clientTexture(portraitDefaultPath(256)),
@@ -60,7 +63,7 @@
   <div class="preview">
     <label>Preview
       <select bind:value={preview}>
-        <option value="backdrop">Portrait backdrops</option>
+        <option value="backdrop">{pilotHead ? "Base head with backdrop" : "Portrait backdrops"}</option>
         <option value="female">Female base head</option>
         <option value="male">Male base head</option>
       </select>
@@ -76,7 +79,9 @@
         </select>
       </label>
       <div class="image">
-        {#if backdrop?.isDds}
+        {#if pilotHead && backdrop}
+          <PortraitBaseHead model={pilotHead} backdropUrl={url} backdropIsDds={backdrop.isDds} />
+        {:else if backdrop?.isDds}
           <PortraitBackdrop {url} />
         {:else if url}
           <img src={url} alt="Selected portrait backdrop" />

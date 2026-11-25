@@ -3,11 +3,17 @@
   import * as THREE from "three";
   import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
   import { compressedSupport, loadDds } from "../three/ddsTexture";
+  import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
 
-  let { model }: { model: "female" | "male" } = $props();
+  let { model, backdropUrl, backdropIsDds = false }: {
+    model: "female" | "male";
+    backdropUrl?: string;
+    backdropIsDds?: boolean;
+  } = $props();
   let canvas: HTMLCanvasElement;
   let renderer = $state.raw<THREE.WebGLRenderer | null>(null);
   let display = $state<"loading" | "ready" | "unavailable">("loading");
+  let backdropDisplay = $state<"loading" | "ready" | "unavailable">("loading");
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(32, 1, 0.01, 30);
   const key = new THREE.DirectionalLight(0xffede3, 2.2);
@@ -71,6 +77,33 @@
     return () => {
       renderer?.dispose();
       renderer?.forceContextLoss();
+    };
+  });
+
+  $effect(() => {
+    const active = renderer;
+    const url = backdropUrl;
+    const isDds = backdropIsDds;
+    if (!active || !url) return;
+    let retired = false;
+    let texture: THREE.Texture | null = null;
+    backdropDisplay = "loading";
+    void loadPortraitBackdrop(active, url, isDds).then(loaded => {
+      if (retired) { loaded.dispose(); return; }
+      texture = loaded;
+      scene.background = loaded;
+      active.render(scene, camera);
+      backdropDisplay = "ready";
+    }).catch(() => {
+      if (!retired) {
+        active.render(scene, camera);
+        backdropDisplay = "unavailable";
+      }
+    });
+    return () => {
+      retired = true;
+      scene.background = null;
+      texture?.dispose();
     };
   });
 
@@ -155,10 +188,13 @@
   });
 </script>
 
-<canvas bind:this={canvas} data-portrait-head={display} hidden={display !== "ready"} role="img"
-  aria-label={model === "female" ? "Female base head" : "Male base head"}></canvas>
+<canvas bind:this={canvas} data-portrait-head={display} data-backdrop-state={backdropUrl ? backdropDisplay : undefined}
+  hidden={display !== "ready" || (Boolean(backdropUrl) && backdropDisplay === "loading")} role="img"
+  aria-label={(model === "female" ? "Female base head" : "Male base head") + (backdropUrl ? " with selected backdrop" : "")}></canvas>
 {#if display !== "ready"}
   <p role="status">{display === "loading" ? "Loading base head…" : "This base head could not be displayed."}</p>
+{:else if backdropUrl && backdropDisplay !== "ready"}
+  <p role="status">{backdropDisplay === "loading" ? "Loading backdrop…" : "This backdrop could not be displayed."}</p>
 {/if}
 
 <style>
