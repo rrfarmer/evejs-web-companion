@@ -127,6 +127,8 @@
     onClose = null,
     expanded = false,
     onToggleExpand = null,
+    lobbyHangars = false,
+    onOpenInventory,
   }: {
     store: ClientStore;
     flow: AppFlow;
@@ -172,7 +174,12 @@
      * gates it on being docked. Null where there is nothing to expand into.
      */
     onToggleExpand?: (() => void) | null;
+    /** Show the ship and item hangars inside Station Services. */
+    lobbyHangars?: boolean;
+    onOpenInventory?: () => void;
   } = $props();
+  const panelID = $props.id();
+  $effect(() => { if (lobbyHangars) flow.requestWords(["UI/Station/Ships", "UI/Station/Items"]); });
 
   // Stable store identity for this component's life; the slices are
   // Svelte-store-contract signals.
@@ -246,7 +253,7 @@
    */
   function doubleClicked(row: InventoryItemRow, group: Group): void {
     if (isOpenableContainer(row)) {
-      void run(() => flow.openContainer(row.itemID));
+      openInventoryContainer(row);
       return;
     }
     if (group.readOnly) return;
@@ -275,7 +282,16 @@
 
   type View = "ship" | "ships" | "hangar" | "corp" | "safety" | "container" | "services";
 
-  let view = $state<View>("ship");
+  let view = $state<View>(untrack(() => lobbyHangars ? "ships" : "ship"));
+  $effect(() => {
+    if (lobbyHangars) return;
+    const show = (event: Event) => {
+      const next = (event as CustomEvent<"ship" | "container">).detail;
+      if (next === "ship" || next === "container") goTo(next);
+    };
+    window.addEventListener("evejs:station-inventory-location", show);
+    return () => window.removeEventListener("evejs:station-inventory-location", show);
+  });
   // neocomInventoryBadging docked: this panel is the station's Inventory - an item made while it shows a hangar is not
   // badged (Inventory.IsOpenByWindowClass), and a hangar shown is seen once another place is shown after it or the
   // panel closes (OnInventoryContainerShown / OnStationServicesHangarDeselected / OnInventoryClosed)
@@ -421,7 +437,7 @@
   let servedCargoShown = 0;
   $effect(() => {
     const shown = $cargoShown;
-    if (shown === null || shown.n === servedCargoShown) return;
+    if (lobbyHangars || shown === null || shown.n === servedCargoShown) return;
     servedCargoShown = shown.n;
     if ($inventory.container?.itemID === shown.itemID) view = "container";
   });
@@ -430,6 +446,7 @@
   const holdRequests = shipHoldTarget.requests;
   let explicitHoldRequested = false;
   $effect(() => {
+    if (lobbyHangars) return;
     void $holdRequests;
     const hold = untrack(() => shipHoldTarget.take());
     if (hold === null) return;
@@ -586,6 +603,7 @@
     flow.requestWords([ABYSS_WINDOW_LABELS.activateKey, CONFIRM_MOVE_TO_NEWBIE_SHIP, ASSEMBLE_CONTAINER_LABEL, "UI/Inventory/AssetSafety/AssetSafetyDeliveries"]);
     void run(async () => {
       await flow.loadInventory();
+      if (lobbyHangars) return;
       await flow.loadCorpHangar();
       // Open the ACTIVE hull's bays up front, so the panel lands on what the
       // player is flying instead of asking them to pick a ship first.
@@ -948,12 +966,13 @@
       });
       return;
     }
-    // ⚠ A drag carries the SELECTION, not its own item list, so a drop that
-    // arrives with nothing ticked has nothing to move. Without this it asked
-    // "Move 0 stacks · 0 m³ to Ore hold?" and its Confirm did nothing at all.
-    if (selectedCount === 0) {
-      return;
-    }
+    if (payload?.kind !== "inventoryItem") return;
+    const dragged = new Set(payload.itemIDs ?? [payload.itemID]);
+    const sourceRows = rowsIn($inventory, payload.from).filter(row => dragged.has(row.itemID));
+    if (!sourceRows.some(row => row.itemID === payload.itemID)) return;
+    flow.clearSelection();
+    selectionPlace = payload.from;
+    for (const row of sourceRows) flow.toggleSelection(row.itemID);
     pending = { kind: "move", place, label };
   }
 
@@ -1156,6 +1175,10 @@
    * whatever the last docked read happened to leave in the store.
    */
   const locations = $derived.by<readonly Location[]>(() => {
+    if (lobbyHangars) return [
+      { id: "ships", label: $words.templates["UI/Station/Ships"] || "Ships", badge: "" },
+      { id: "hangar", label: $words.templates["UI/Station/Items"] || "Items", badge: "" },
+    ];
     const list: Location[] = [
       {
         id: "ship",
@@ -1197,7 +1220,7 @@
    */
   $effect(() => {
     if (!locations.some((location) => location.id === view)) {
-      view = "ship";
+      view = lobbyHangars ? "ships" : "ship";
     }
   });
 
@@ -1415,9 +1438,29 @@
     await askRepairQuote();
   }
 
+  function showInventoryLocation(next: "ship" | "container"): void {
+    if (!lobbyHangars) {
+      view = next;
+      return;
+    }
+    onOpenInventory?.();
+    void tick().then(() => dispatchEvent(new CustomEvent("evejs:station-inventory-location", { detail: next })));
+  }
+
+  function openInventoryContainer(row: InventoryItemRow): void {
+    void run(async () => {
+      await flow.openContainer(row.itemID);
+      if (lobbyHangars) showInventoryLocation("container");
+    });
+  }
+
   /** Hand a hull to the bays view. One piece of state, not two views fighting. */
   function openInBays(row: InventoryItemRow): void {
-    view = "ship";
+    if (lobbyHangars) {
+      shipHoldTarget.ask("cargo", row.itemID);
+      return;
+    }
+    showInventoryLocation("ship");
     void run(() => flow.openShipBays(row.itemID));
   }
 
@@ -1501,7 +1544,7 @@
           type="button"
           class="stn-btn stn-btn-quick"
           disabled={busy}
-          onclick={() => run(async () => { await flow.openContainer(row.itemID); view = "container"; })}
+          onclick={() => run(async () => { await flow.openContainer(row.itemID); showInventoryLocation("container"); })}
         >
           Open
         </button>
@@ -1817,9 +1860,9 @@
 {/snippet}
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="stn-panel" bind:this={panelEl} onkeydown={onKeydown}>
+<div class="stn-panel" class:lobby-hangars={lobbyHangars} bind:this={panelEl} onkeydown={onKeydown}>
   <!-- ============================================================= header -->
-  <div class="stn-head">
+  {#if !lobbyHangars}<div class="stn-head">
     <!--
       ⚠ "STATION" IS ONLY TRUE HALF THE TIME NOW. The panel is the "Inventory &
       Ship" window in space as well, where a header naming a station the pilot
@@ -1857,6 +1900,8 @@
     {/if}
   </div>
 
+  {/if}
+
   <!-- =========================================================== locations -->
   <div class="stn-locations">
     <div class="stn-tabs" role="tablist" aria-label="Locations">
@@ -1864,12 +1909,19 @@
         <button
           type="button"
           role="tab"
-          id="stn-tab-{location.id}"
+          id="{panelID}-tab-{location.id}"
           class="stn-tab"
           class:on={view === location.id}
           aria-selected={view === location.id}
-          aria-controls="stn-view-{location.id}"
+          aria-controls="{panelID}-view-{location.id}"
           onclick={() => goTo(location.id)}
+          ondragover={(event) => { if (lobbyHangars && location.id === "hangar") overPlace(event, { kind: "hangar" }); }}
+          ondragleave={() => (dropPlaceKey = null)}
+          ondrop={(event) => {
+            if (!lobbyHangars || location.id !== "hangar" || !carriesOurPayload(event.dataTransfer?.types)) return;
+            if (view !== "hangar") goTo("hangar");
+            dropOnPlace(event, { kind: "hangar" }, "Item hangar");
+          }}
         >
           {location.label}
           {#if location.badge}<span class="stn-badge">{location.badge}</span>{/if}
@@ -1917,7 +1969,7 @@
   <!-- ============================================================= content -->
   <div class="stn-content" onscroll={() => (menu = null)}>
     <!-- ------------------------------------------------------- ship bays -->
-    <section class="stn-view" id="stn-view-ship" role="tabpanel" aria-labelledby="stn-tab-ship" hidden={view !== "ship"}>
+    <section class="stn-view" id="{panelID}-view-ship" role="tabpanel" aria-labelledby="{panelID}-tab-ship" hidden={view !== "ship"}>
       {#if !openShip}
         <p class="stn-note">
           {$inventory.activeShipID ? "Opening your ship…" : "Pick a hull in the ship hangar to see its bays."}
@@ -1969,7 +2021,7 @@
       does the DOM.
     -->
     {#if isDocked}
-    <section class="stn-view" id="stn-view-ships" role="tabpanel" aria-labelledby="stn-tab-ships" hidden={view !== "ships"}>
+    <section class="stn-view" id="{panelID}-view-ships" role="tabpanel" aria-labelledby="{panelID}-tab-ships" hidden={view !== "ships"}>
       <div class="stn-group-head">
         <span class="stn-group-title">Your ships</span>
         <span class="stn-group-count">
@@ -2050,12 +2102,12 @@
     </section>
 
     <!-- ----------------------------------------------------- item hangar -->
-    <section class="stn-view" id="stn-view-hangar" role="tabpanel" aria-labelledby="stn-tab-hangar" hidden={view !== "hangar"}>
+    <section class="stn-view" id="{panelID}-view-hangar" role="tabpanel" aria-labelledby="{panelID}-tab-hangar" hidden={view !== "hangar"}>
       {@render group(hangarGroup)}
     </section>
 
     <!-- ------------------------------------------------ corporation hangar -->
-    <section class="stn-view" id="stn-view-safety" role="tabpanel" aria-labelledby="stn-tab-safety" hidden={view !== "safety"}>
+    <section class="stn-view" id="{panelID}-view-safety" role="tabpanel" aria-labelledby="{panelID}-tab-safety" hidden={view !== "safety"}>
       {#if localSafety?.error}
         <p class="stn-note bad">Asset deliveries could not be read: {localSafety.error}</p>
       {:else if localSafety}
@@ -2071,7 +2123,7 @@
       {/if}
     </section>
 
-    <section class="stn-view" id="stn-view-corp" role="tabpanel" aria-labelledby="stn-tab-corp" hidden={view !== "corp"}>
+    <section class="stn-view" id="{panelID}-view-corp" role="tabpanel" aria-labelledby="{panelID}-tab-corp" hidden={view !== "corp"}>
       {#if !$inventory.corp.loaded}
         <p class="stn-note">Loading the corporation hangar…</p>
       {:else if !$inventory.corp.available}
@@ -2111,7 +2163,7 @@
 
     <!-- A container is opened ON THE GRID as well as in a station, so it is the
          one non-ship location a flying pilot can reach. -->
-    <section class="stn-view" id="stn-view-container" role="tabpanel" aria-labelledby="stn-tab-container" hidden={view !== "container"}>
+    <section class="stn-view" id="{panelID}-view-container" role="tabpanel" aria-labelledby="{panelID}-tab-container" hidden={view !== "container"}>
       {#if containerGroup}
         <p class="stn-controls">
           <button
@@ -2152,7 +2204,7 @@
 
     <!-- -------------------------------------------------- station services -->
     {#if isDocked && !$station.online?.structureID}
-    <section class="stn-view stn-services" id="stn-view-services" role="tabpanel" aria-labelledby="stn-tab-services" hidden={view !== "services"}>
+    <section class="stn-view stn-services" id="{panelID}-view-services" role="tabpanel" aria-labelledby="{panelID}-tab-services" hidden={view !== "services"}>
       <div class="stn-services-col">
         <h3 class="stn-section">Station</h3>
         <dl class="stn-facts">
@@ -2186,7 +2238,7 @@
       </div>
     </section>
     {:else if isDocked}
-    <section class="stn-view stn-services" id="stn-view-services" role="tabpanel" aria-labelledby="stn-tab-services" hidden={view !== "services"}>
+    <section class="stn-view stn-services" id="{panelID}-view-services" role="tabpanel" aria-labelledby="{panelID}-tab-services" hidden={view !== "services"}>
       <div class="stn-services-col">
         <h3 class="stn-section">Structure services</h3>
         {#if $station.structureServiceIDs === null}
@@ -2364,3 +2416,10 @@
     </div>
   {/if}
 </div>
+
+
+<style>
+  .lobby-hangars .stn-tabs { display: flex; }
+  .lobby-hangars .stn-picker { display: none; }
+  .lobby-hangars { flex: 1; height: auto; min-height: 160px; }
+</style>

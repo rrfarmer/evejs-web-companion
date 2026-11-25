@@ -5,14 +5,19 @@
   // read as its tab is first opened. Names through the app's name cache. An agent opens the app's conversation.
   import type { Session } from "../app/sessions.ts";
   import { resolvedName, type NameKind, type NameRef } from "../store/names.ts";
+  import StationPanel from "./StationPanel.svelte";
 
-  let { session, onOpenAgents }: { session: Session; onOpenAgents: () => void } = $props();
+  let { session, onOpenAgents, onOpenInventory }: {
+    session: Session;
+    onOpenAgents: () => void;
+    onOpenInventory: () => void;
+  } = $props();
   const station = $derived(session.store.station);
   const agents = $derived(session.store.agents);
   const names = $derived(session.store.names);
   const words = $derived(session.store.words);
 
-  type Tab = "guests" | "agents" | "offices";
+  type Tab = "guests" | "agents" | "offices" | "hangars";
   let tab = $state<Tab>("guests");
   const asked = new Set<Tab>();
   function choose(next: Tab) {
@@ -39,7 +44,7 @@
     ];
     if (refs.length) session.flow.requestNames(refs);
     // the agents' mission types are the client's own words, by label
-    const labels = [...new Set(agentRows.map((a) => a.missionTypeLabel).filter((l): l is string => !!l))];
+    const labels = ["UI/Station/Lobby/Hangars", ...new Set(agentRows.map((a) => a.missionTypeLabel).filter((l): l is string => !!l))];
     if (labels.length) session.flow.requestWords(labels);
   });
   const word = (label: string | null) => (label ? (typeof $words?.templates?.[label] === "string" ? $words.templates[label] : "") : "");
@@ -54,7 +59,11 @@
   <button role="tab" class:on={tab === "guests"} aria-selected={tab === "guests"} onclick={() => choose("guests")}>Guests [{guests.length}]</button>
   <button role="tab" class:on={tab === "agents"} aria-selected={tab === "agents"} onclick={() => choose("agents")}>Agents</button>
   <button role="tab" class:on={tab === "offices"} aria-selected={tab === "offices"} onclick={() => choose("offices")}>Offices</button>
+  <button role="tab" class:on={tab === "hangars"} aria-selected={tab === "hangars"} onclick={() => choose("hangars")}>{word("UI/Station/Lobby/Hangars") || "Hangars"}</button>
 </div>
+{#if tab === "hangars"}
+  <StationPanel store={session.store} flow={session.flow} lobbyHangars {onOpenInventory} />
+{:else}
 <div class="lobby-list">
   {#if tab === "guests"}
     {#each guests as g (g.characterID)}
@@ -78,10 +87,11 @@
     {/if}
   {/if}
 </div>
+{/if}
 
 <style>
   .lobby-tabs { display: flex; gap: 2px; margin-top: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
-  .lobby-tabs button { min-height: 0; padding: 4px 10px; background: transparent; border: 1px solid transparent; border-bottom: none;
+  .lobby-tabs button { min-height: 0; padding: 4px 6px; background: transparent; border: 1px solid transparent; border-bottom: none;
     color: #9a9e99; font: 12px/1.3 var(--font); cursor: pointer; }
   .lobby-tabs button.on { color: #f0f1ee; background: rgba(255, 255, 255, 0.07); border-color: rgba(255, 255, 255, 0.12); box-shadow: inset 0 -2px 0 #d2d5d0; }
   .lobby-list { max-height: 240px; overflow-y: auto; padding: 6px 0; font: 12px/1.35 var(--font); }

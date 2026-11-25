@@ -3951,7 +3951,7 @@
         onMove={(x, y) => (stationServicesPlace = { ...stationServicesBounds, x, y })}
         onResizeRect={(rect) => (stationServicesPlace = rect)}
         onGeometryCommit={() => keepPlace(stationServicesWindow)}>
-        <div class="lobby-body">
+        <div class="lobby-body station-lobby-body">
           <div class="station-name">{moonRefinery?.name ?? $station?.station?.stationName ?? "Station"}</div>
           <div class="station-sub">{$station?.station?.solarSystemName ?? ""}{#if typeof $station?.station?.security === "number"}<span class="lobby-sec"> {$station.station.security.toFixed(1)}</span>{/if}</div>
           {#if controllingStructure}
@@ -3983,7 +3983,7 @@
               </button>
             {/if}
           </div>
-          <PlayLobbyTabs {session} onOpenAgents={() => open("agents")} />
+          <PlayLobbyTabs {session} onOpenAgents={() => open("agents")} onOpenInventory={() => open("inventory")} />
         </div>
       </DesktopWindow>
     {/if}
@@ -5021,6 +5021,7 @@
   .metenox-controls { position: absolute; top: 160px; right: 16px; z-index: 5; }
   .refinery-controls { display: flex; gap: 8px; flex-wrap: wrap; }
   .lobby-body { padding: 10px 12px 14px; }
+  .station-lobby-body { min-height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
   .lobby-body .station-name { position: static; font-size: 18px; color: #f0f1ee; line-height: 1.25; }
   .lobby-body .station-sub { position: static; margin-top: 2px; color: var(--text-dim); font-size: 12px; }
   .lobby-sec { color: #5fd38c; }
