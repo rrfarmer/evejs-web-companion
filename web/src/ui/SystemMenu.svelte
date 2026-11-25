@@ -22,8 +22,8 @@
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
-  let { store, flow, onClose, inSpace = false, onSafeLogoff, onLogOff }: { store: ClientStore; flow: AppFlow; onClose: () => void;
-    inSpace?: boolean; onSafeLogoff?: () => void; onLogOff?: () => void } = $props();
+  let { store, flow, onClose, inSpace = false, onSafeLogoff, onLogOff, onQuit }: { store: ClientStore; flow: AppFlow; onClose: () => void;
+    inSpace?: boolean; onSafeLogoff?: () => void; onLogOff?: () => void; onQuit?: () => void } = $props();
   const safeLogoffRunning = flow.safeLogoff;
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -461,7 +461,7 @@
       {:else}
         <button type="button" title={word("UI/SystemMenu/LogOffHint", "")} onclick={() => { closeMenuClick(); onLogOff?.(); }}>{word(WORDS.logOff, "Log Off")}</button>
       {/if}
-      <button type="button" disabled title="Close the tab to quit">{word(WORDS.quit, "Quit Game")}</button>
+      <button type="button" disabled={!onQuit} onclick={() => { closeMenuClick(); onQuit?.(); }}>{word(WORDS.quit, "Quit Game")}</button>
     </div>
   </div>
 </div>

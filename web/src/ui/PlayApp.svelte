@@ -746,20 +746,41 @@
     stage = "select";
   }
 
-  async function signOutOfRoster(): Promise<void> {
-    if (!session || stage !== "select" || rosterBusy) return;
+  async function signOut(): Promise<void> {
+    const pilot = session;
+    if (!pilot || rosterBusy) return;
     rosterBusy = true;
     error = "";
     try {
-      await session.flow.logout();
+      await pilot.flow.logout();
+      if (session !== pilot) return;
+      live?.close();
+      live = null;
+      spaceClaimed = null;
+      systemMenu = false;
       session = null;
       password = "";
       createdCharacterID = null;
       stage = "login";
     } catch (cause) {
       error = (cause as Error).message;
+      if (stage === "game") notify({ kind: "danger", title: "Quit Game", detail: error });
     } finally {
       rosterBusy = false;
+    }
+  }
+
+  let quitPending = false;
+  async function quitGame(): Promise<void> {
+    const pilot = session;
+    if (!pilot || stage !== "game" || quitPending) return;
+    quitPending = true;
+    try {
+      if (await pilot.flow.askClientDialog("AskQuitGame", "Quit EVE?", true) && session === pilot && stage === "game") {
+        await signOut();
+      }
+    } finally {
+      quitPending = false;
     }
   }
 
@@ -1940,6 +1961,7 @@
     if (id === "bountyOffice") { toggleBountyOffice(); return; }
     if (id === "multibuy") { openMultibuy(); return; }
     if (id === "settings") { toggleSystemMenu(); return; }
+    if (id === "quitGame") { void quitGame(); return; }
     if (id === "logoff") {
       if (docked) void logOffDocked();
       else startSafeLogoff();
@@ -2430,6 +2452,11 @@
     if (cmd === "OpenMultibuy") {
       e.preventDefault();
       openMultibuy();
+      return;
+    }
+    if (cmd === "CmdQuitGame") {
+      e.preventDefault();
+      void quitGame();
       return;
     }
     if (spaceCommand(cmd)) { e.preventDefault(); return; }
@@ -4094,7 +4121,7 @@
           <button type="button" class="btn primary" disabled={stage === "entering" || rosterBusy || creationState?.freeSlots === 0}
             onclick={openCharacterCreation}>Create character</button>
         {/if}
-        <button type="button" class="btn" disabled={stage === "entering" || rosterBusy} onclick={signOutOfRoster}>Log out</button>
+        <button type="button" class="btn" disabled={stage === "entering" || rosterBusy} onclick={signOut}>Log out</button>
       </div>
       {#if creationState}
         <p class="roster-slots">{creationState.freeSlots} of {creationState.slots} character slots available</p>
@@ -4310,7 +4337,7 @@
   {#if systemMenu}
     <ErrorBoundary name="System menu"><SystemMenu store={session.store} flow={session.flow} onClose={() => (systemMenu = false)} inSpace={!docked}
       onSafeLogoff={() => startSafeLogoff()}
-      onLogOff={() => void logOffDocked()} /></ErrorBoundary>
+      onLogOff={() => void logOffDocked()} onQuit={() => void quitGame()} /></ErrorBoundary>
   {/if}
   {#if siteBookmark}
     <ErrorBoundary name="Save Location"><BookmarkWindow store={session.store} flow={session.flow} scanResult={siteBookmark} onDone={() => { siteBookmark = null; menuBookmarksAt = 0; }} /></ErrorBoundary>

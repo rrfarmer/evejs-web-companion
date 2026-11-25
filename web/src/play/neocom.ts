@@ -169,6 +169,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
 const EVE_MENU_FOOTER = [
   { id: "settings", label: "Settings", icon: icon("settings") },
   { id: "logoff", label: "Log off", icon: icon("logOut") },
+  { id: "quitGame", label: "Quit Game", icon: icon("quitGame") },
 ];
 
 export class Neocom {
