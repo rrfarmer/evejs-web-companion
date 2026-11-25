@@ -35,6 +35,13 @@ export function elementSize(e: ParticleElement): number {
 }
 
 type Vec3 = [number, number, number];
+interface LengthBinding { scale: number; offset: number }
+interface StretchAttractor {
+  position: Vec3;
+  magnitude: number;
+  positionBinding: LengthBinding;
+  magnitudeBinding?: LengthBinding;
+}
 const rand = Math.random;
 const frand = (a: number, b: number) => a + (b - a) * rand();
 const arr = (a: unknown, n: number, d = 0): number[] => Array.from({ length: n }, (_, i) => (Array.isArray(a) ? Number((a as number[])[i] ?? d) : d));
@@ -102,7 +109,12 @@ export function makeForce(f: Record<string, unknown>): Force | null {
     }
     case "Tr2ParticleAttractorForce": {
       const m = num(f.magnitude, 1), at = arr(f.position, 3);
-      return { ...still, force: (p) => { const d = unit([at[0]! - p[0], at[1]! - p[1], at[2]! - p[2]]); return [d[0] * m, d[1] * m, d[2] * m]; } };
+      const stretch = f.stretchTarget as StretchAttractor | undefined;
+      return { ...still, force: (p) => {
+        const target = stretch?.position ?? at, magnitude = stretch?.magnitude ?? m;
+        const d = unit([target[0]! - p[0], target[1]! - p[1], target[2]! - p[2]]);
+        return [d[0] * magnitude, d[1] * magnitude, d[2] * magnitude];
+      } };
     }
     case "Tr2ParticleVortexForce": {
       const m = num(f.magnitude, 1), at = arr(f.position, 3), ax = Array.isArray(f.axis) ? arr(f.axis, 3) : [0, 1, 0];
@@ -156,6 +168,8 @@ export class ParticleSim {
   readonly arrays = new Map<string, Float32Array>();
   readonly sizes = new Map<string, number>();
   private readonly forces: Force[];
+  private readonly stretchAttractors: StretchAttractor[] = [];
+  private stretchEnd: Vec3 | null = null;
   private readonly constraints: Constraint[];
   private readonly aging: boolean;
   private readonly simulate: boolean;
@@ -178,11 +192,42 @@ export class ParticleSim {
       this.sizes.set(key, size);
       this.arrays.set(key, new Float32Array(Math.max(1, this.max) * size));
     }
-    this.forces = (data.forces ?? []).map(makeForce).filter((x): x is Force => !!x);
+    this.forces = (data.forces ?? []).map((force) => {
+      const binds = force.stretchLength as Record<string, LengthBinding> | undefined;
+      const positionBinding = binds?.["position.z"];
+      if (!positionBinding) return makeForce(force);
+      const target: StretchAttractor = {
+        position: arr(force.position, 3) as Vec3,
+        magnitude: num(force.magnitude, 1),
+        positionBinding,
+        magnitudeBinding: binds?.magnitude,
+      };
+      this.stretchAttractors.push(target);
+      return makeForce({ ...force, stretchTarget: target });
+    }).filter((x): x is Force => !!x);
     this.constraints = (data.constraints ?? []).map((c) => makeConstraint(c, this)).filter((x): x is Constraint => !!x);
     this.aging = data.applyAging !== false;
     this.simulate = data.updateSimulation !== false;
     this.applyForce = data.applyForce !== false;
+  }
+
+  get hasStretchAttractors(): boolean { return this.stretchAttractors.length > 0; }
+
+  setStretchEnd(end: Vec3, worldLength: number): void {
+    this.stretchEnd = end;
+    for (const target of this.stretchAttractors) {
+      const { scale, offset } = target.positionBinding;
+      target.position = [end[0], end[1], end[2] * scale + offset];
+      if (target.magnitudeBinding) target.magnitude = worldLength * target.magnitudeBinding.scale + target.magnitudeBinding.offset;
+    }
+  }
+
+  private remove(i: number): void {
+    this.alive--;
+    if (i < this.alive) for (const [key, a] of this.arrays) {
+      const size = this.sizes.get(key)!;
+      a.copyWithin(i * size, this.alive * size, (this.alive + 1) * size);
+    }
   }
 
   /** Room for one more particle: its index, or -1 when full (InsertParticle's false). */
@@ -208,8 +253,7 @@ export class ParticleSim {
             const p = this.arrays.get(`type:${ELEMENT.POSITION}`), v = this.arrays.get(`type:${ELEMENT.VELOCITY}`);
             if (p) this.onDeath([p[i * 3]!, p[i * 3 + 1]!, p[i * 3 + 2]!], v ? [v[i * 3]!, v[i * 3 + 1]!, v[i * 3 + 2]!] : null);
           }
-          this.alive--;
-          if (i < this.alive) for (const [key, a] of this.arrays) { const s = this.sizes.get(key)!; a.copyWithin(i * s, this.alive * s, (this.alive + 1) * s); }
+          this.remove(i);
           i--;
         }
       }
@@ -224,18 +268,38 @@ export class ParticleSim {
     for (const f of this.forces) f.update(dt);
     const mass = this.arrays.get(`type:${ELEMENT.MASS}`);
     const useForces = this.applyForce && this.forces.length > 0;
+    const end = this.stretchEnd;
+    const life = end ? this.arrays.get(`type:${ELEMENT.LIFETIME}`) : undefined;
     for (let i = 0; i < this.alive; i++) {
       const o = i * 3;
+      if (end && pos[o + 2]! >= end[2]) {
+        this.onDeath?.(end, [vel[o]!, vel[o + 1]!, vel[o + 2]!]);
+        this.remove(i--);
+        continue;
+      }
       const p0: Vec3 | null = this.duringLife ? [pos[o]!, pos[o + 1]!, pos[o + 2]!] : null, v0: Vec3 | null = this.duringLife ? [vel[o]!, vel[o + 1]!, vel[o + 2]!] : null;
       if (useForces) {
         const m = mass ? mass[i]! : 1;
         const p: Vec3 = [pos[o]!, pos[o + 1]!, pos[o + 2]!], v: Vec3 = [vel[o]!, vel[o + 1]!, vel[o + 2]!];
         const F: Vec3 = [0, 0, 0];
         for (const f of this.forces) { const g = f.force(p, v, dt, m); F[0] += g[0]; F[1] += g[1]; F[2] += g[2]; }
+        if (end && life) {
+          // Leave time for arrival even when the authored acceleration and the particle's local scale
+          // would let its lifetime expire before it reaches the ship.
+          const travelTime = life[i * 2 + 1]! * 0.9;
+          if (travelTime > 0) F[2] = Math.max(F[2], (2 * end[2] * m) / travelTime ** 2);
+        }
         const k = mass ? 1 / m : 1;
         vel[o] = vel[o]! + F[0] * k * dt; vel[o + 1] = vel[o + 1]! + F[1] * k * dt; vel[o + 2] = vel[o + 2]! + F[2] * k * dt;
       }
       pos[o] = pos[o]! + vel[o]! * dt; pos[o + 1] = pos[o + 1]! + vel[o + 1]! * dt; pos[o + 2] = pos[o + 2]! + vel[o + 2]! * dt;
+      if (end && pos[o + 2]! >= end[2]) {
+        const velocity: Vec3 = [vel[o]!, vel[o + 1]!, vel[o + 2]!];
+        if (this.duringLife) this.duringLife(p0!, end, v0!, velocity, dt);
+        this.onDeath?.(end, velocity);
+        this.remove(i--);
+        continue;
+      }
       if (this.duringLife) this.duringLife(p0!, [pos[o]!, pos[o + 1]!, pos[o + 2]!], v0!, [vel[o]!, vel[o + 1]!, vel[o + 2]!], dt);
     }
   }

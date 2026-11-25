@@ -18,6 +18,13 @@ import { dynamicLightUniforms, prepareLights, TILED_LIGHT_GLSL, tiledLightLoop }
 
 import { ELEMENT, ParticleEmitter, ParticleSim, elementKey, type ParticleEmitterData, type ParticleSystemData } from "./particleSim.ts";
 
+const stretchParticleEnds = new WeakMap<THREE.Object3D, (source: THREE.Vector3, length: number) => void>();
+
+export function placeStretchParticleEnds(effect: THREE.Object3D, source: THREE.Vector3, length: number): void {
+  const worldSource = effect.parent ? effect.parent.localToWorld(source.clone()) : source;
+  effect.traverse((node) => stretchParticleEnds.get(node)?.(worldSource, length));
+}
+
 const v4 = (a: unknown, d: number[]) => {
   const x = Array.isArray(a) ? (a as number[]) : [];
   return new THREE.Vector4(x[0] ?? d[0], x[1] ?? d[1], x[2] ?? d[2], x[3] ?? d[3]);
@@ -1260,6 +1267,14 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
   });
   let mesh: THREE.Object3D = meshes[0]!;
   if (meshes.length > 1) { mesh = new THREE.Group(); mesh.name = `child-particle-passes:${node.name ?? ""}`; for (const m of meshes) mesh.add(m); }
+  const stretchSims = updated.filter((system) => system.hasStretchAttractors);
+  if (stretchSims.length) {
+    const localSource = new THREE.Vector3();
+    stretchParticleEnds.set(mesh, (source, length) => {
+      mesh.worldToLocal(localSource.copy(source));
+      for (const system of stretchSims) system.setStretchEnd(localSource.toArray(), length);
+    });
+  }
   let stepped = 0;
   const sortPositions = sim.data.linkID !== undefined && sim.data.requiresSorting
     ? sim.arrays.get(elementKey({ elementType: ELEMENT.POSITION })) : undefined;

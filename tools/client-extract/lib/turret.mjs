@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process";
 import { readBlack } from "./black.mjs";
 import { readTurretStretch3 } from "./children.mjs";
 
-export const TURRET_BUILD = 15;
+export const TURRET_BUILD = 16;
 
 /** The .black of a .red/.black path, where the client has it. */
 function blackOf(rf, res) {

@@ -491,7 +491,7 @@ function meshAreas(mesh, skipped, smartBeam = false, staticSprites = false) {
  * An EveStretch3 (Eve/Renderable/Stretch/EveStretch3.cpp) as the page runs it (behaviorAgents.ts): its source, stretch,
  * move and dest objects (EveChildContainers) read as one container's children - with the stretch's own controllers and
  * curve sets, their owner the stretch - and their ids, so each update can place them; destObjectScale. Its TriFloat
- * length / moveProgression bindings are not followed. Null for another class or without objects.
+ * length bindings into destination particle attractors are retained. Null for another class or without objects.
  */
 function readStretch3(fx) {
   if (fx?.type !== "EveStretch3") return null;
@@ -504,7 +504,27 @@ function readStretch3(fx) {
   const ids = Object.fromEntries(Object.entries(parts).map(([k, p]) => [k, p && typeof p === "object" ? idOf(p) : null]));
   // the parts are placed from outside each update (hullChildren.ts: live containers)
   for (const o of root.objects ?? []) if (o.k === "container" && Object.values(ids).includes(o.id)) o.live = true;
-  return { root, destObjectScale: fx.destObjectScale ?? 1, ids };
+  const attractors = new Map();
+  for (const set of fx.curveSets ?? []) for (const b of set.bindings ?? []) {
+    if (b.sourceObject !== fx.length || b.sourceAttribute !== "value" || b.destinationObject?.type !== "Tr2ParticleAttractorForce") continue;
+    const id = idOf(b.destinationObject);
+    const bindings = attractors.get(id) ?? {};
+    bindings[b.destinationAttribute] = { scale: b.scale ?? 1, offset: b.offset?.[0] ?? 0 };
+    attractors.set(id, bindings);
+  }
+  let hasParticleLengthBindings = false;
+  const markAttractors = (node) => {
+    for (const system of node.systems ?? []) for (const force of system.forces ?? []) {
+      const bindings = attractors.get(force.id);
+      if (!bindings?.["position.z"]) continue;
+      force.stretchLength = bindings;
+      hasParticleLengthBindings = true;
+    }
+    for (const child of node.objects ?? []) markAttractors(child);
+  };
+  const dest = root.objects?.find((node) => node.id === ids.dest);
+  if (dest && attractors.size) markAttractors(dest);
+  return { root, destObjectScale: fx.destObjectScale ?? 1, ids, ...(hasParticleLengthBindings ? { hasParticleLengthBindings } : {}) };
 }
 
 /**
@@ -1034,7 +1054,11 @@ function readParticleSystemChild(o, skipped) {
     if (!sysIndex.has(s)) {
       sysIndex.set(s, systems.length);
       systems.push(null);
-      const data = plainOf(s, (x) => (x?.type === "Tr2ParticleSystem" ? { system: systemOf(x) } : null));
+      const data = plainOf(s, (x) => {
+        if (x?.type === "Tr2ParticleSystem") return { system: systemOf(x) };
+        if (x?.type === "Tr2ParticleAttractorForce") return { ...plainOf(x, () => null), id: idOf(x) };
+        return null;
+      });
       if (particleLinks.duringLife.has(s)) data.linkID = idOf(s);
       systems[sysIndex.get(s)] = data;
     }

@@ -17,6 +17,7 @@
 // boosters' flares are not drawn.)
 import * as THREE from "three";
 import { setControllerVariable as setVariable } from "./controllerVariables.ts";
+import { placeStretchParticleEnds } from "./particles.ts";
 import type { SofChildMesh } from "./hullChildren.ts";
 import { perlinNoise1D, vector3Value } from "./curves.ts";
 import { agentBoosters, agentBoxGeometry, setAgentBooster, type AgentBoosterData, type AgentFlareData } from "./boosterVolumetric.ts";
@@ -62,7 +63,7 @@ export type SofBehavior =
   | { type: "PlayFX"; id?: number; enabled: boolean; priority: number; behaviorWeight: number; sec: number; hasEffect: boolean; stretch?: SofStretch3 | null };
 
 /** An EveStretch3 (children.mjs readStretch3): its parts' graph (one container, the parts live) and their ids. */
-export interface SofStretch3 { root: SofChildNode; destObjectScale: number; ids: { source: number | null; stretch: number | null; move: number | null; dest: number | null } }
+export interface SofStretch3 { root: SofChildNode; destObjectScale: number; hasParticleLengthBindings?: boolean; ids: { source: number | null; stretch: number | null; move: number | null; dest: number | null } }
 
 /** An EveEllipsoidVolume: its centre, outer and inner radii, rotation. */
 export interface SofVolume { position: number[]; shape: number[]; innerShape: number[]; rotation: number[] }
@@ -1066,4 +1067,5 @@ export function placeStretch(fx: THREE.Object3D, data: SofStretch3, source: THRE
   set(data.ids.stretch, new THREE.Matrix4().compose(source.clone().addScaledVector(diff, 0.5), arcFromForward(diff), new THREE.Vector3(1, 1, diff.length())));
   set(data.ids.move, new THREE.Matrix4().compose(source, q, one));
   set(data.ids.dest, new THREE.Matrix4().compose(dest, q.clone().multiply(HALF_TURN_Y), one.clone().multiplyScalar(data.destObjectScale)));
+  if (data.hasParticleLengthBindings) placeStretchParticleEnds(fx, source, diff.length());
 }

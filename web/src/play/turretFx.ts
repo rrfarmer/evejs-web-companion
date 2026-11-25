@@ -50,21 +50,44 @@ export interface TurretInfo {
 }
 /** A firing effect's EveStretch3 as the extractor reads it (children.mjs readTurretStretch3). */
 type TurretStretch3 = SofStretch3 & { type: "EveStretch3" | "EveStretch"; name: string | null };
+interface Stretch3Entry {
+  fx: THREE.Object3D | null;
+  started: boolean;
+  startedAt: number | null;
+  independent: boolean;
+  cancelled: boolean;
+}
+
+async function buildStretch3(data: TurretStretch3): Promise<THREE.Object3D> {
+  const graph = await hullChildren([{ res: "", root: data.root, skipped: {} }]);
+  if (!graph) throw new Error("Missing turret stretch graph");
+  graph.scale.set(1, 1, 1);
+  return graph;
+}
+
+function releaseStretch3(entry: Stretch3Entry): void {
+  entry.cancelled = true;
+  if (!entry.fx) return;
+  entry.fx.removeFromParent();
+  if (entry.independent) entry.fx.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    if (mesh.geometry instanceof THREE.InstancedBufferGeometry) mesh.geometry.dispose();
+    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) material.dispose();
+  });
+}
+
 /** A module type's EveStretch3s built (hull-child graphs, one template per stretch), once: null where it has none. */
-const stretch3s = new Map<number, { data: TurretStretch3; template: THREE.Object3D }[] | null>();
+const stretch3s = new Map<number, { data: TurretStretch3; template: THREE.Object3D | null }[] | null>();
 const stretch3Asked = new Set<number>();
-function stretch3Of(typeID: number, info: TurretInfo | null): { data: TurretStretch3; template: THREE.Object3D }[] | null {
+function stretch3Of(typeID: number, info: TurretInfo | null): { data: TurretStretch3; template: THREE.Object3D | null }[] | null {
   if (!info) return null;
   if (!stretch3Asked.has(typeID)) {
     stretch3Asked.add(typeID);
     const specs = (info.firing?.stretches ?? []).filter((s): s is TurretStretch3 => (s.type === "EveStretch3" || s.type === "EveStretch") && !!(s as TurretStretch3).root);
     if (!specs.length || specs.length !== (info.firing?.stretches.length ?? 0)) stretch3s.set(typeID, null);
-    else void Promise.all(specs.map(async (data) => {
-      const template = await hullChildren([{ res: "", root: data.root, skipped: {} }]);
-      if (!template) throw new Error("no graph");
-      template.scale.set(1, 1, 1);
-      return { data, template };
-    })).then((t) => stretch3s.set(typeID, t)).catch(() => stretch3s.set(typeID, null));
+    else void Promise.all(specs.map(async (data) => ({ data, template: await buildStretch3(data) })))
+      .then((t) => stretch3s.set(typeID, t)).catch(() => stretch3s.set(typeID, null));
   }
   return stretch3s.get(typeID) ?? null;
 }
@@ -202,8 +225,8 @@ export class TurretFx {
   private readonly beams = new Map<Firing, Line2>();
   /** A laser firing's stretches, one per muzzle (its turret's firing effect). */
   private readonly stretches = new Map<Firing, Stretch2Effect[]>();
-  /** A firing's EveStretch3s, one per muzzle (a clone of its template each), and whether each has been started. */
-  private readonly stretch3 = new Map<Firing, { fx: THREE.Object3D; started: boolean; startedAt: number | null }[]>();
+  /** A firing's EveStretch3s, one per muzzle, and whether each has been started. */
+  private readonly stretch3 = new Map<Firing, Stretch3Entry[]>();
   /** A Vorton firing's chain links (ChainWeaponEffect: turret to target, then target to target), made anew each cycle. */
   /** Each launcher's cycling position (shooter:module:launch), kept between its shots. */
   private readonly launchCycling = new Map<string, number>();
@@ -453,7 +476,7 @@ export class TurretFx {
       cycle: Infinity, nextCycle: Infinity, idle: false, misses: [], shots: [], chargeTypeID: 0, muzzles: [], cyclingPos: 0, spool: null, chain: null,
     };
     const was = this.firings.get(key);
-    if (was) { for (const e of this.stretch3.get(was) ?? []) e.fx.removeFromParent(); this.stretch3.delete(was); }
+    if (was) { for (const entry of this.stretch3.get(was) ?? []) releaseStretch3(entry); this.stretch3.delete(was); }
     // the launcher's cycling position goes on from its last shot
     f.cyclingPos = this.launchCycling.get(key) ?? 0;
     this.firings.set(key, f);
@@ -538,10 +561,27 @@ export class TurretFx {
     this.lateMuzzles(f, info, now);
     let fx = this.stretch3.get(f);
     if (!fx) {
-      fx = built.map((b) => { const c = b.template.clone(); c.name = "turret-stretch3"; c.visible = false; this.group.add(c); return { fx: c, started: false, startedAt: null }; });
+      fx = built.map((b) => {
+        // Each beam with live particle forces owns its simulation and instance buffers.
+        const entry: Stretch3Entry = { fx: null, started: false, startedAt: null, independent: !!b.data.hasParticleLengthBindings, cancelled: false };
+        const attach = (graph: THREE.Object3D) => {
+          entry.fx = graph;
+          if (entry.cancelled) { releaseStretch3(entry); return; }
+          graph.name = "turret-stretch3";
+          graph.visible = false;
+          this.group.add(graph);
+        };
+        if (!entry.independent && b.template) attach(b.template.clone());
+        else if (b.template) {
+          attach(b.template);
+          b.template = null;
+        } else void buildStretch3(b.data).then(attach).catch(() => {});
+        return entry;
+      });
       this.stretch3.set(f, fx);
     }
     fx.forEach((e, i) => {
+      if (!e.fx) return;
       const m = f.muzzles[i];
       const b = built[i]!;
       if (m && m.startedAt === null && m.startAt !== null && now >= m.startAt) m.startedAt = now;
@@ -603,7 +643,7 @@ export class TurretFx {
     const firing = new Set(this.firings.values());
     for (const [f, beam] of this.beams) if (!firing.has(f)) { this.group.remove(beam); beam.geometry.dispose(); this.beams.delete(f); }
     for (const [f, fx] of this.stretches) if (!firing.has(f)) { for (const s of fx) s.dispose(); this.stretches.delete(f); }
-    for (const [f, fx] of this.stretch3) if (!firing.has(f)) { for (const s of fx) s.fx.removeFromParent(); this.stretch3.delete(f); }
+    for (const [f, fx] of this.stretch3) if (!firing.has(f)) { for (const entry of fx) releaseStretch3(entry); this.stretch3.delete(f); }
     for (const [f, links] of this.chainLinks) if (!firing.has(f)) { for (const l of links) l.fx.removeFromParent(); this.chainLinks.delete(f); }
     this.placeChains(positionOf, renderer, camera, radiusOf);
     for (const f of this.firings.values()) {
@@ -701,6 +741,8 @@ export class TurretFx {
     for (let i = this.pulses.length - 1; i >= 0; i--) this.drop(i);
     for (const beam of this.beams.values()) { beam.geometry.dispose(); beam.material.dispose(); }
     for (const fx of this.stretches.values()) for (const s of fx) s.dispose();
+    for (const fx of this.stretch3.values()) for (const entry of fx) releaseStretch3(entry);
+    this.stretch3.clear();
     for (const b of this.blasts) (b.sprite.material as THREE.Material).dispose();
     this.flashTexture?.dispose();
   }
