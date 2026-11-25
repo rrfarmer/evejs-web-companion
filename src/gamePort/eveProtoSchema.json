@@ -13873,6 +13873,20 @@
      "oneof": "value"
     }
    ]
+  },
+  "eve_public.plex.vault.api.BalanceRequest": {
+   "fields": []
+  },
+  "eve_public.plex.vault.api.BalanceResponse": {
+   "fields": [
+    {
+     "name": "balance",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.plex.Currency"
+    }
+   ]
   }
  },
  "enums": {

@@ -105,6 +105,7 @@
     metenoxControl,
     onLeaveMetenox,
     onReprocess,
+    inventoryVaultRequested = false,
     reprocessingInput,
     onReprocessingInputTaken,
   }: {
@@ -122,6 +123,7 @@
      */
     onOpen?: (tab: TabID, sessionID?: string) => void;
     onClose?: () => void;
+    inventoryVaultRequested?: boolean;
     // R107 — the full pilot roster (every session, not just the active one).
     // Optional and forwarded only to the Bot Manager panel, which is the only
     // one that needs to see pilots beyond its own store/flow.
@@ -194,7 +196,7 @@
 {#if GlobalView}
   <GlobalView {sessions} onOpen={(id, sid) => onOpen?.(id, sid)} {onGoToPilot} />
 {:else if tab === "inventory"}
-  <StationPanel {store} {flow} {isDocked} {onClose} {onReprocess} />
+  <StationPanel {store} {flow} {isDocked} {onClose} {onReprocess} {inventoryVaultRequested} />
 {:else if tab === "fitting"}
   <Fitting {store} {flow} showInventory={() => onOpen?.("inventory")} />
 {:else if tab === "fittingManagement"}

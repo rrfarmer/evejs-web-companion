@@ -15722,6 +15722,7 @@ app.get("/api/client-data/dogma-types", requireAuth, async (req, res, next) => {
 // confirm said. The pilot is the held session's, never the page's to name.
 const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.ai.assistant.chat.api.QueryRequest",
+  "eve_public.plex.vault.api.BalanceRequest",
   // achievement_system/client/repository/message_bus/request_messenger.py.
   "eve_public.achievement.api.GetRequest",
   "eve_public.achievement.category.api.GetRequest",

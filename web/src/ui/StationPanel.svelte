@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PlexVaultBalance from "./PlexVaultBalance.svelte";
   // THE STATION PANEL — the right-hand dock panel while DOCKED.
   //
   // Everything a docked pilot reaches for, as table rows rather than tiles: the
@@ -134,6 +135,7 @@
     lobbyHangars = false,
     onOpenInventory,
     onReprocess,
+    inventoryVaultRequested = false,
   }: {
     store: ClientStore;
     flow: AppFlow;
@@ -143,6 +145,7 @@
      * already on screen. 0 = never picked; never fires on mount.
      */
     ping?: number;
+    inventoryVaultRequested?: boolean;
     /**
      * Whether the pilot is DOCKED.
      *
@@ -294,9 +297,12 @@
 
   // --- what is on screen ----------------------------------------------------
 
-  type View = "ship" | "ships" | "hangar" | "corp" | "safety" | "container" | "services";
+  type View = "ship" | "ships" | "hangar" | "corp" | "safety" | "container" | "services" | "plexVault";
 
   let view = $state<View>(untrack(() => lobbyHangars ? "ships" : "ship"));
+  $effect(() => {
+    if (inventoryVaultRequested && !lobbyHangars) untrack(() => goTo("plexVault"));
+  });
   $effect(() => {
     if (lobbyHangars) return;
     const show = (event: Event) => {
@@ -1228,6 +1234,7 @@
     if (container) {
       list.push({ id: "container", label: containerName(), badge: `${container.rows.length}` });
     }
+    list.push({ id: "plexVault", label: "PLEX Vault", badge: "" });
     if (isDocked) {
       // Named for what the pilot is docked in: the panel heads a structure's "Structure services".
       list.push({ id: "services", label: $station.online?.structureID ? "Structure services" : "Station services", badge: "" });
@@ -1969,7 +1976,7 @@
     -->
     <span class="stn-head-title">{isDocked ? $station.online?.structureID ? "Structure" : "Station" : "Ship"}</span>
     <span class="stn-head-hint">{stationHint}</span>
-    <button
+    {#if view !== "plexVault"}<button
       type="button"
       class="stn-icon-btn"
       title="Refresh"
@@ -1978,7 +1985,7 @@
       onclick={refreshAll}
     >
       <span aria-hidden="true">↻</span><span class="stn-icon-word">Refresh</span>
-    </button>
+    </button>{/if}
     {#if onToggleExpand}
       <button
         type="button"
@@ -2040,13 +2047,13 @@
         <option value={location.id}>{location.label}{location.badge ? ` (${location.badge})` : ""}</option>
       {/each}
     </select>
-    <label class="stn-filter">
+    {#if view !== "plexVault"}<label class="stn-filter">
       <span class="stn-filter-glyph" aria-hidden="true">⌕</span>
       <input type="search" placeholder="Filter…" aria-label="Filter this location by name" bind:value={query} />
-    </label>
+    </label>{/if}
   </div>
 
-  {#if $station.online?.characterID}
+  {#if $station.online?.characterID && view !== "plexVault"}
     {#key $station.online.characterID}
       <InventoryFilters {store} {flow} onFilters={filters => { itemFilters = filters; }}
         selectedTypes={itemID => selectedRows.some(row => row.itemID === itemID) ? selectedRows.map(row => row.typeID) : []} />
@@ -2066,6 +2073,11 @@
 
   <!-- ============================================================= content -->
   <div class="stn-content" onscroll={() => (menu = null)}>
+    {#if view === "plexVault"}
+      <section class="stn-view" id="{panelID}-view-plexVault" role="tabpanel" aria-labelledby="{panelID}-tab-plexVault">
+        <PlexVaultBalance {flow} />
+      </section>
+    {/if}
     <!-- ------------------------------------------------------- ship bays -->
     <section class="stn-view" id="{panelID}-view-ship" role="tabpanel" aria-labelledby="{panelID}-tab-ship" hidden={view !== "ship"}>
       {#if !openShip}

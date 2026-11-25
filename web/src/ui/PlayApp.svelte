@@ -1574,7 +1574,10 @@
     if (tab === "characterRecustomization" && !docked) return;
     // OpenInventory (the Neocom button, Alt-C) shows InventoryPrimary, captioned "Inventory" (read through gridcheck: in space
     // it opens on the ship's cargo); a hold command (OpenCargoHoldOfActiveShip ...) the Active ship window (below)
-    if (tab === "inventory") inventoryPrimary = true;
+    if (tab === "inventory") {
+      inventoryPrimary = true;
+      inventoryVaultRequested = false;
+    }
     if (tab === "moonMining" && (!moonRefinery || !controllingStructure)) return;
     if (tab === "autoMoonMiner" && !autoMoonMiner) return;
     if (tab === "moonMaterialBay" && !moonMaterialBay) return;
@@ -1696,6 +1699,7 @@
   let activeShipCaption = $state("Active ship");
   /** The inventory window opened as InventoryPrimary ("Inventory") rather than as a hold's ActiveShipCargo ("Active ship"). */
   let inventoryPrimary = $state(false);
+  let inventoryVaultRequested = $state(false);
   $effect(() => {
     if (!session) return;
     const s = session;
@@ -1968,6 +1972,7 @@
     if (id === "bountyOffice") { toggleBountyOffice(); return; }
     if (id === "multibuy") { openMultibuy(); return; }
     if (id === "settings") { toggleSystemMenu(); return; }
+    if (id === "plexVault") { togglePlexVault(); return; }
     if (id === "quitGame") { void quitGame(); return; }
     if (id === "logoff") {
       if (docked) void logOffDocked();
@@ -1980,6 +1985,14 @@
   }
   function toggleBountyOffice() {
     bountyOffice = bountyOffice ? null : { target: null };
+  }
+  function togglePlexVault() {
+    if (wins.some(win => win.id === "inventory" && !win.minimized)) {
+      wins = closeWindow(wins, "inventory");
+      return;
+    }
+    open("inventory");
+    inventoryVaultRequested = true;
   }
   function openMultibuy() {
     void session?.flow.openMultiBuy(new Map()).catch(() => {});
@@ -2459,6 +2472,11 @@
     if (cmd === "OpenMultibuy") {
       e.preventDefault();
       openMultibuy();
+      return;
+    }
+    if (cmd === "OpenPlexVault") {
+      e.preventDefault();
+      togglePlexVault();
       return;
     }
     if (cmd === "CmdQuitGame") {
@@ -4299,11 +4317,12 @@
           <!-- (the drones window in the client's layout: FlyDronesWindow; the workspace keeps DronesPanel) -->
           {#if win.id === "drones"}
             <FlyDronesWindow store={session.store} flow={session.flow} {spaceSelected} onSelect={(id) => view?.selectObjectiveTarget(id)} onLock={(id) => void session?.flow.lockTarget(id).catch(() => {})} />
-          {:else if win.id === "inventory" && !docked}
+          {:else if win.id === "inventory" && !docked && !inventoryVaultRequested}
             <!-- in space, the active ship's inventory in the client's layout (ActiveShipCargo) -->
             <FlyInventoryWindow store={session.store} flow={session.flow} />
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
+              {inventoryVaultRequested}
               onReprocess={reprocessingAvailable ? reprocessSelection : undefined}
               {reprocessingInput} onReprocessingInputTaken={() => (reprocessingInput = null)}
               onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} {autoMoonMiner}
