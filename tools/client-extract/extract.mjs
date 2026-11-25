@@ -834,12 +834,40 @@ async function extractPortraitHead(rf, gender, outRoot) {
   console.log(`portrait-head/${gender}.glb: ${lods.length} meshes, ${bones.length} bones`);
 }
 
+// paperDollBloodLineAssets.bloodlineAssets in 3698585. The head metadata names its archetype dependency.
+const portraitBloodlineHead = new Map([
+  [1, "caldari_deteis"], [2, "caldari_civire"], [3, "minmatar_sebiestor"], [4, "minmatar_brutor"],
+  [5, "amarr_amarr"], [6, "amarr_nikunni"], [7, "gallente_gallente"], [8, "gallente_intaki"],
+  [11, "caldari_achura"], [12, "gallente_jinmei"], [13, "amarr_khanid"], [14, "minmatar_vherokior"],
+]);
+
+function extractPortraitArchetype(rf, gender, bloodline, outRoot) {
+  const paperDoll = `res:/graphics/character/${gender}/paperdoll`;
+  const directory = portraitBloodlineHead.get(bloodline);
+  const metadata = rf.read(`${paperDoll}/head/${directory}/metadata.yaml`).toString("utf8");
+  const dependency = /archetypes\/([a-z]+shape)###([\d.]+)/.exec(metadata);
+  if (!dependency) throw new Error(`${directory}: no portrait archetype dependency`);
+  const [, archetype, weight] = dependency;
+  const diffuse = rf.list(`${paperDoll}/archetypes/${archetype}/`, new RegExp(`_${gender}_head_d_512\\.png$`))[0];
+  if (!diffuse) throw new Error(`${archetype}: no authored portrait diffuse map`);
+  const normal = diffuse.replace(/_d_512\.png$/i, "_n_512.png");
+  const dir = path.join(outRoot, "portrait-head");
+  fs.mkdirSync(dir, { recursive: true });
+  writeExtracted(path.join(dir, `${gender}-${bloodline}.archetype.json`), JSON.stringify({
+    weight: Number(weight), diffuse: copyRes(rf, diffuse, outRoot), normal: copyRes(rf, normal, outRoot),
+  }));
+}
+
 function parseArgs(argv) {
   const out = { hulls: [], types: [], typeSkins: [], graphics: [], dnas: [], scenes: [], wormholeNebulas: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, sofMaterials: false, fx: [], effects: [], starMap: false, fittingScene: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
     else if (a === "--out") out.out = argv[++i];
+    else if (a === "--portrait-bloodline") {
+      out.portraitBloodline = Number(argv[++i]);
+      if (!portraitBloodlineHead.has(out.portraitBloodline)) throw new Error("Unknown portrait archetype bloodline");
+    }
     else if (a === "--sde") out.sde = argv[++i];
     else if (a === "--type-graphics") out.typeGraphics = true;
     else if (a === "--sof-defaults") out.sofDefaults = true;
@@ -1129,7 +1157,10 @@ async function main() {
       background, lightRig }));
     console.log(`shipInfoScene.json: ${Object.keys(background.childEffects).length} faction effects and light rig`);
   }
-  if (args.portraitHead) await extractPortraitHead(rf, args.portraitHead, outRoot);
+  if (args.portraitHead) {
+    if (args.portraitBloodline !== undefined) extractPortraitArchetype(rf, args.portraitHead, args.portraitBloodline, outRoot);
+    else await extractPortraitHead(rf, args.portraitHead, outRoot);
+  }
   if (args.starMap) {
     const textures = {};
     for (const [name, res] of Object.entries({ star: "res:/Texture/Particle/mapStarNew5.dds", heat: "res:/Texture/Particle/mapStarNewHeat.dds", iconAtlas: "res:/Texture/Particle/MapStaticDataCircles_01h.dds",

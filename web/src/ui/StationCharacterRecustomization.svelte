@@ -67,7 +67,7 @@
   <div class="preview">
     <label>Preview
       <select bind:value={preview}>
-        <option value="backdrop">{pilotHead ? "Base head with backdrop" : "Portrait backdrops"}</option>
+        <option value="backdrop">{pilotHead ? "Portrait preview" : "Portrait backdrops"}</option>
         <option value="female">Female base head</option>
         <option value="male">Male base head</option>
       </select>
@@ -85,7 +85,7 @@
       <div class="image">
         {#if pilotHead && backdrop}
           <PortraitBaseHead model={pilotHead} backdropUrl={url} backdropIsDds={backdrop.isDds}
-            framing={options.framing} {fieldOfView} />
+            bloodlineID={options.bloodlineID} framing={options.framing} {fieldOfView} />
         {:else if backdrop?.isDds}
           <PortraitBackdrop {url} />
         {:else if url}

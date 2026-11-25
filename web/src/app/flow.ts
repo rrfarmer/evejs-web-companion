@@ -2211,6 +2211,7 @@ export interface TypeColumnFacts {
 
 export interface DockedPortraitOptions {
   readonly state: number | null;
+  readonly bloodlineID: number | null;
   readonly backgroundID: number | null;
   readonly backgrounds: readonly api.PortraitBackground[];
   readonly framing: PortraitFraming | null;
@@ -10038,10 +10039,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const place = dockedNow();
     const characterID = store.station.get().online?.characterID;
     if (place === null || characterID == null) throw new Error("Dock to open character recustomization.");
-    const [state, backgrounds, portrait] = await Promise.all([
+    const [state, backgrounds, portrait, bloodlineID] = await Promise.all([
       bridgeAsk("charMgr", "GetPaperdollState", []),
       api.loadPortraitBackgrounds(callOptions),
       bridgeAsk("paperDollServer", "GetPaperDollPortraitDataFor", [characterID]).catch(() => null),
+      readCharacterBloodline(bridgeAsk, characterID).catch(() => null),
     ]);
     current();
     if (dockedNow() !== place) throw new Error("The docked location changed.");
@@ -10056,6 +10058,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const fieldOfView = real("cameraFieldOfView");
     return {
       state: typeof state === "number" && Number.isInteger(state) && state >= 0 && state <= 4 ? state : null,
+      bloodlineID,
       backgroundID: typeof backgroundID === "number" && Number.isSafeInteger(backgroundID) ? backgroundID : null,
       backgrounds,
       framing: position && target && fieldOfView !== null && fieldOfView >= 0.2 && fieldOfView <= 1.5 ?

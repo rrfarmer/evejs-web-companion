@@ -6,10 +6,11 @@
   import { compressedSupport, loadDds } from "../three/ddsTexture";
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
 
-  let { model, backdropUrl, backdropIsDds = false, framing, fieldOfView }: {
+  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView }: {
     model: "female" | "male";
     backdropUrl?: string;
     backdropIsDds?: boolean;
+    bloodlineID?: number | null;
     framing?: PortraitFraming | null;
     fieldOfView?: number;
   } = $props();
@@ -146,6 +147,7 @@
   $effect(() => {
     const active = renderer;
     const name = model;
+    const bloodline = bloodlineID;
     if (!active) return;
     let retired = false;
     let head: THREE.Group | null = null;
@@ -166,6 +168,23 @@
         if (retired) { map.texture.dispose(); map.bitmap.close(); return; }
         maps.push(map);
       }
+      let archetype: { diffuse: THREE.Texture; normal: THREE.Texture; weight: number } | null = null;
+      if (bloodline != null && ((bloodline >= 1 && bloodline <= 8) || (bloodline >= 11 && bloodline <= 14))) {
+        try {
+          const source = await fetch(`${stem}-${bloodline}.archetype.json`);
+          if (!source.ok) throw new Error("Portrait archetype unavailable");
+          const layer = await source.json() as { diffuse: string; normal: string; weight: number };
+          for (const [url, color] of [[layer.diffuse, true], [layer.normal, false]] as const) {
+            const map = await loadMap(url, color);
+            if (retired) { map.texture.dispose(); map.bitmap.close(); return; }
+            maps.push(map);
+          }
+          archetype = { diffuse: maps[2]!.texture, normal: maps[3]!.texture, weight: layer.weight };
+        } catch {
+          // The generic maps can still render if the installation lacks the archetype layer.
+        }
+      }
+      if (retired) return;
       if (eyelashMeshes.length && compressedSupport(active).s3tc) {
         const mask = await loadDds(eyelashMask).catch(() => null);
         if (retired) { mask?.dispose(); return; }
@@ -189,13 +208,33 @@
       // The authored head normal packs tangent X in alpha and Y in green.
       // Read the two linear channels without premultiplying the PNG.
       surface.onBeforeCompile = shader => {
+        const layeredNormal = archetype ? `headNormal = mix(headNormal,
+          texture2D( archetypeNormal, vNormalMapUv ).ag * 2.0 - 1.0, archetypeCoverage);` : "";
+        if (archetype) {
+          shader.uniforms.archetypeDiffuse = { value: archetype.diffuse };
+          shader.uniforms.archetypeNormal = { value: archetype.normal };
+          shader.uniforms.archetypeWeight = { value: archetype.weight };
+          shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `
+            #include <map_pars_fragment>
+            uniform sampler2D archetypeDiffuse;
+            uniform sampler2D archetypeNormal;
+            uniform float archetypeWeight;
+          `).replace("#include <map_fragment>", `
+            #include <map_fragment>
+            vec4 archetypeColor = texture2D( archetypeDiffuse, vMapUv );
+            float archetypeCoverage = clamp(archetypeColor.a * archetypeWeight, 0.0, 1.0);
+            diffuseColor.rgb = mix(diffuseColor.rgb, archetypeColor.rgb, archetypeCoverage);
+          `);
+        }
         shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_maps>",
           THREE.ShaderChunk.normal_fragment_maps.replace(
             "vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;",
             `vec2 headNormal = texture2D( normalMap, vNormalMapUv ).ag * 2.0 - 1.0;
+             ${layeredNormal}
              vec3 mapN = vec3( headNormal, sqrt( max( 0.0, 1.0 - dot( headNormal, headNormal ) ) ) );`,
           ));
       };
+      surface.customProgramCacheKey = () => archetype ? "portrait-archetype" : "portrait-base";
       applySurface(avatar, surface, new Set(transparent), new Set(eyelashMeshes), eyelashes);
       scene.add(avatar);
       avatar.updateMatrixWorld(true);
