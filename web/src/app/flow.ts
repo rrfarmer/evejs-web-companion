@@ -1129,7 +1129,7 @@ import {
 } from "../nav/droneControlRange.ts";
 import { readScanFullState } from "../bridge/scanFullState.ts";
 import { ammoMenu, AMMO_MENU_ATTRIBUTES, ATTRIBUTE as AMMO_ATTRIBUTE, chargePortion, isChargeCompatibleWithLauncher, roomForReload, type AmmoMenuEntry } from "../bridge/ammoMenu.ts";
-import { applyFitting, CHARGEABLE_GROUP_IDS, destroyRig as destroyRigCall, fitModule as fitModuleCall, GROUPABLE_GROUP_IDS, linkWeapons as linkWeaponsCall, unfitModule as unfitModuleCall, unloadChargeToCargo as unloadChargeToCargoCall, unloadChargeToContainer as unloadChargeToContainerCall, unloadModuleToCargo as unloadModuleToCargoCall, unloadModuleToContainer as unloadModuleToContainerCall, THE_HANGAR, type ModuleDestination, type WeaponBanks } from "../bridge/fitModule.ts";
+import { applyFitting, CHARGEABLE_GROUP_IDS, destroyRig as destroyRigCall, fitModule as fitModuleCall, GROUPABLE_GROUP_IDS, linkWeapons as linkWeaponsCall, unfitModule as unfitModuleCall, unloadChargeToCargo as unloadChargeToCargoCall, unloadChargeToContainer as unloadChargeToContainerCall, unloadModuleToCargo as unloadModuleToCargoCall, unloadModuleToContainer as unloadModuleToContainerCall, THE_HANGAR, type FittingPlace, type ModuleDestination, type WeaponBanks } from "../bridge/fitModule.ts";
 import {
   CUSTOMS_OFFICE_GROUP_ID, customsOfficeForPlanet, exportToCustomsOffice, quoteCustomsTransfer, taxRateOf, transferAtCustomsOffice,
   type CustomsOfficeRead, type CustomsTransfer,
@@ -6787,6 +6787,36 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     store.fitting.get().slots.find((slot) => slotFlagOf(slot.family, slot.index) === flagID) ?? null;
   /** Each slot family's fitting effect, its GetPowerType: hiPower, medPower, loPower, rigSlot, subSystem. */
   const POWER_EFFECT_OF_FAMILY: Readonly<Record<SlotFamily, number>> = { high: 12, mid: 13, low: 11, rig: 2663, subsystem: 3772 };
+  async function approveRigFitting(place: FittingPlace): Promise<boolean> {
+    const status = store.flight.get().status;
+    const group = status?.shipID === place.shipID ? status.shipGroupID : null;
+    const modular = group != null
+      ? isModularShip(group)
+      : store.fitting.get().slots.some(slot => slot.family === "subsystem" && slot.present !== false);
+    return modular || await askDialog("RigFittingInfo", { type: "dict", entries: [] },
+      "A rig comes off its ship only by being destroyed. Fit it anyway?", "okcancel");
+  }
+
+  async function fitInventoryModule(
+    row: InventoryItemRow,
+    source: "hangar" | "cargo",
+    slot: Parameters<AppFlow["fitModule"]>[2],
+    place: AmmoSession,
+  ): Promise<void> {
+    const generation = sessionCloseGeneration;
+    const itemType = (await dogmaStaticFor([row.typeID], []))?.types[row.typeID];
+    if (!itemType) throw new Error("The module's fitting data could not be read.");
+    if (itemType.effects.includes(POWER_EFFECT_OF_FAMILY.rig) && !await approveRigFitting(place)) return;
+    const current = ammoSession();
+    const flight = store.flight.get().status;
+    if (generation !== sessionCloseGeneration || current.shipID !== place.shipID ||
+        current.dockedAt !== place.dockedAt || current.characterID !== place.characterID ||
+        (flight?.shipID != null && flight.shipID !== place.shipID)) {
+      throw new Error("The active ship or station changed. Review the fitting action again.");
+    }
+    await runFittingAction(() => fitModuleCall(bridgeDo, fittedNow, place, row.itemID, source, slot));
+  }
+
   const POWER_WORDS: Readonly<Record<SlotFamily, string>> = { high: "high", mid: "medium", low: "low", rig: "rig", subsystem: "subsystem" };
   /**
    * ItemDoesntFitPower, as the slot's AddRealItem says it of a module whose fitting effect is not the slot's: the
@@ -37419,7 +37449,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // A module fitted and unfitted: the page's own calls on an inventory's own object (bridge/fitModule.ts), as
     // the client's dogma location and its fitting slot make them, judged by the page's own read of the slots.
     async fitModule(itemID, source, slot) {
-      await runFittingAction(() => fitModuleCall(bridgeDo, fittedNow, ammoSession(), itemID, source, slot));
+      const place = ammoSession();
+      if (slot !== "auto" && slot.family !== "rig") {
+        await runFittingAction(() => fitModuleCall(bridgeDo, fittedNow, place, itemID, source, slot));
+        return;
+      }
+      const find = () => store.inventory.get()[source].rows.find(row => row.itemID === itemID);
+      let row = find();
+      if (!row) {
+        await loadInventory();
+        row = find();
+      }
+      if (!row) throw new Error("The module is no longer in the selected inventory.");
+      await fitInventoryModule(row, source, slot, place);
     },
 
     async fitInventoryHardware(row, source) {
@@ -37430,19 +37472,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           flight.shipIsCapsule === true || flight.shipID === flight.structureID) {
         throw new Error("Dock in the ship you want to fit.");
       }
-      const [staticData] = await Promise.all([dogmaStaticFor([row.typeID], []), loadFitting()]);
-      const itemType = staticData?.types[row.typeID];
-      if (!itemType) throw new Error("The module's fitting data could not be read.");
-      if (itemType.effects.includes(POWER_EFFECT_OF_FAMILY.rig) &&
-          !store.fitting.get().slots.some(slot => slot.family === "subsystem" && slot.present !== false) &&
-          !(await askDialog("RigFittingInfo", { type: "dict", entries: [] },
-            "A rig comes off its ship only by being destroyed. Fit it anyway?", "okcancel"))) return;
+      await loadFitting();
       const place = ammoSession();
       if (place.shipID !== flight.shipID || place.dockedAt !== dock || place.characterID !== characterID ||
           store.flight.get().status?.shipID !== flight.shipID) {
         throw new Error("The active ship or station changed. Review the fitting action again.");
       }
-      await runFittingAction(() => fitModuleCall(bridgeDo, fittedNow, place, row.itemID, source, "auto"));
+      await fitInventoryModule(row, source, "auto", place);
       const error = store.fitting.get().actionError;
       if (error && !store.fitting.get().actionErrorSaid) throw new Error(error);
       await loadInventory();
@@ -37464,9 +37500,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const to = slotWithFlag(flagID);
       if (!from?.module || !to) return;
       if (to.module && to.present === false) return;
-      // RigFittingCheck: a rig asks first, on a ship that is not modular (one with subsystem slots is).
-      if (from.family === "rig" && !store.fitting.get().slots.some((slot) => slot.family === "subsystem")
-        && !(await askDialog("RigFittingInfo", { type: "dict", entries: [] }, "A rig comes off its ship only by being destroyed. Fit it anyway?", "okcancel"))) return;
+      const place = ammoSession();
+      if (from.family === "rig" && !await approveRigFitting(place)) return;
+      const current = ammoSession();
+      if (current.shipID !== place.shipID || current.dockedAt !== place.dockedAt ||
+          current.characterID !== place.characterID) return;
       if (from.family !== to.family) {
         await sayDoesntFitPower(from.module.typeID, to.family, from.family);
         return;
@@ -37491,7 +37529,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         return;
       }
       // FitModule: TryFit, the ship's inventory's Add of the module where it lies, the ship, into this slot.
-      await runFittingAction(() => fitModuleCall(bridgeDo, fittedNow, ammoSession(), moduleID, "slot", { family: to.family, index: to.index }));
+      await runFittingAction(() => fitModuleCall(bridgeDo, fittedNow, place, moduleID, "slot", { family: to.family, index: to.index }));
     },
 
     async dropFittedChargeOnSlot(fromFlagID, flagID, shift) {
