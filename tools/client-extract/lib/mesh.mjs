@@ -115,3 +115,29 @@ export function meshArrays(mesh) {
     extended: mesh.ExtendedData ?? null,
   };
 }
+
+// BoneIndices address each mesh's own BoneBindings, not the model skeleton.
+export function meshSkinArrays(mesh, bones) {
+  const vertices = mesh.PrimaryVertexData.Vertices;
+  const columns = vertices.columns;
+  const sourceJoints = columns.BoneIndices, sourceWeights = columns.BoneWeights;
+  if (sourceJoints?.width !== 4 || sourceWeights?.width !== 4) throw new Error(`mesh ${mesh.Name}: expected four skin influences`);
+  const byName = new Map(bones.map((bone, index) => [bone.Name, index]));
+  const bindings = mesh.BoneBindings.map(binding => byName.get(binding.BoneName));
+  const joints = new Uint16Array(vertices.count * 4), weights = new Float32Array(vertices.count * 4);
+  for (let offset = 0; offset < weights.length; offset += 4) {
+    let total = 0;
+    for (let i = offset; i < offset + 4; i++) {
+      const weight = normalized(sourceWeights.type, sourceWeights.data[i]);
+      if (!weight) continue;
+      const joint = bindings[sourceJoints.data[i]];
+      if (joint === undefined) throw new Error(`mesh ${mesh.Name}: unknown joint in a weighted vertex`);
+      joints[i] = joint;
+      weights[i] = weight;
+      total += weight;
+    }
+    if (total <= 0) throw new Error(`mesh ${mesh.Name}: unweighted vertex`);
+    for (let i = offset; i < offset + 4; i++) weights[i] /= total;
+  }
+  return { joints, weights };
+}

@@ -5,6 +5,8 @@
 // model is the right way round in any glTF viewer. Anything placed by Destiny coordinates needs the
 // same z mirror (see docs/threejs-play-plan.md).
 
+import { Matrix4 } from "three";
+
 const FLOAT = 5126, UINT16 = 5123, UINT32 = 5125;
 const ARRAY_BUFFER = 34962, ELEMENT_ARRAY_BUFFER = 34963;
 
@@ -19,7 +21,7 @@ export function glbBuildOf(bytes) {
   } catch { return 0; }
 }
 
-export function writeGlb({ name, lods, extras = {} }) {
+export function writeGlb({ name, lods, extras = {}, bones = null }) {
   const chunks = [];
   let byteLength = 0;
   const bufferViews = [], accessors = [];
@@ -78,6 +80,10 @@ export function writeGlb({ name, lods, extras = {} }) {
     if (m.uv0) attributes.TEXCOORD_0 = addAccessor(m.uv0, FLOAT, "VEC2", n, ARRAY_BUFFER);
     if (m.uv1) attributes.TEXCOORD_1 = addAccessor(m.uv1, FLOAT, "VEC2", n, ARRAY_BUFFER);
     if (m.color0) attributes.COLOR_0 = addAccessor(m.color0, FLOAT, "VEC4", n, ARRAY_BUFFER);
+    if (m.skin) {
+      attributes.JOINTS_0 = addAccessor(m.skin.joints, UINT16, "VEC4", n, ARRAY_BUFFER);
+      attributes.WEIGHTS_0 = addAccessor(m.skin.weights, FLOAT, "VEC4", n, ARRAY_BUFFER);
+    }
 
     const primitives = m.groups.filter((g) => g.count > 0).map((g) => {
       const tri = m.indices.subarray(g.first * 3, (g.first + g.count) * 3);
@@ -88,14 +94,37 @@ export function writeGlb({ name, lods, extras = {} }) {
       return { attributes, indices: addAccessor(idx, big ? UINT32 : UINT16, "SCALAR", idx.length, ELEMENT_ARRAY_BUFFER), material: materialFor(area, g.material) };
     });
     meshes.push({ name: m.name, primitives, extras: { lod: lodIndex, maxScreenSize: m.extended?.maxScreenSize ?? null } });
-    nodes.push({ name: m.name, mesh: meshes.length - 1, extras: { lod: lodIndex } });
+    nodes.push({ name: m.name, mesh: meshes.length - 1, ...(m.skin ? { skin: 0 } : {}), extras: { lod: lodIndex } });
   }
 
+  const roots = nodes.map((_, i) => i + 1);
+  let skins;
+  if (bones) {
+    // Convert inverse bind matrices to glTF coordinates, then derive each
+    // local bind transform from its parent's inverse bind and its world bind.
+    const flip = new Matrix4().makeScale(1, 1, -1);
+    const inverses = bones.map(bone => new Matrix4().fromArray(bone.InverseWorldTransform).premultiply(flip).multiply(flip));
+    const firstJoint = nodes.length + 1;
+    const boneNodes = bones.map((bone, i) => {
+      const local = inverses[i].clone().invert();
+      if (bone.ParentIndex >= 0) local.premultiply(inverses[bone.ParentIndex]);
+      return { name: bone.Name, matrix: local.toArray(), children: [] };
+    });
+    bones.forEach((bone, i) => {
+      if (bone.ParentIndex < 0) roots.push(firstJoint + i);
+      else boneNodes[bone.ParentIndex].children.push(firstJoint + i);
+    });
+    const inverseBindMatrices = addAccessor(Float32Array.from(inverses.flatMap(matrix => matrix.toArray())),
+      FLOAT, "MAT4", bones.length, null);
+    skins = [{ joints: bones.map((_, i) => firstJoint + i), inverseBindMatrices }];
+    nodes.push(...boneNodes.map(({ children, ...bone }) => children.length ? { ...bone, children } : bone));
+  }
   const json = {
     asset: { version: "2.0", generator: "evejs-web-poc client-extract" },
     scene: 0,
     scenes: [{ name, nodes: [0] }],
-    nodes: [{ name, children: nodes.map((_, i) => i + 1), extras: { ...extras, glbBuild: GLB_BUILD } }, ...nodes],
+    nodes: [{ name, children: roots, extras: { ...extras, glbBuild: GLB_BUILD } }, ...nodes],
+    ...(skins ? { skins } : {}),
     meshes, materials, accessors, bufferViews,
     buffers: [{ byteLength }],
   };

@@ -7,6 +7,7 @@
 //        [--system-celestials <solarSystemID> ...] [--overview] [--graphic <graphicID> ...]
 //        [--turret <res path of a turret module's graphic> ...] [--gfx-turrets] [--ammo-colors] [--sof-materials] [--missile <missile typeID> ...]
 //        [--ship-info] (the Ship Info scene, faction backgrounds and light rig, needs --sde)
+//        [--portrait-head <female|male>] (the skinned character-creation base head)
 //        [--observatory-environment] (the anchor template and its postprocessing textures)
 //        [--observatory-vortex] (the vault volume and its authored lighting inputs)
 //
@@ -33,7 +34,7 @@ import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
 import { childEffectRoots, hullOverlays, readEffectFile, readHullChildren, readHullControllers, readSpriteInstances, readTrafficInstances, readTurretStretch3, usedLocatorSets } from "./lib/children.mjs";
 import { readGranny } from "./lib/granny.mjs";
 import { readAnimations } from "./lib/grannyAnim.mjs";
-import { meshArrays } from "./lib/mesh.mjs";
+import { meshArrays, meshSkinArrays } from "./lib/mesh.mjs";
 import { writeGlb, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
 import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelestials, buildGfxTurrets, indexedHullGeometry, CELESTIAL_BUILD } from "./lib/typeGraphics.mjs";
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
@@ -804,6 +805,19 @@ function extractObservatoryVortex(rf, outRoot) {
   }));
 }
 
+async function extractPortraitHead(rf, gender, outRoot) {
+  const source = `res:/graphics/character/${gender}/paperdoll/head/head_generic/head_generic.gr2`;
+  const { root } = await readGranny(rf.read(source), source);
+  const model = root.Models.find(entry => entry.Skeleton?.Bones?.length && entry.MeshBindings?.length);
+  if (!model) throw new Error(`${source}: no skinned head model`);
+  const bones = model.Skeleton.Bones;
+  const lods = model.MeshBindings.map(({ Mesh }) => ({ ...meshArrays(Mesh), skin: meshSkinArrays(Mesh, bones) }));
+  const dir = path.join(outRoot, "portrait-head");
+  fs.mkdirSync(dir, { recursive: true });
+  writeExtracted(path.join(dir, `${gender}.glb`), writeGlb({ name: `${gender} base head`, lods, bones, extras: { source } }));
+  console.log(`portrait-head/${gender}.glb: ${lods.length} meshes, ${bones.length} bones`);
+}
+
 function parseArgs(argv) {
   const out = { hulls: [], types: [], typeSkins: [], graphics: [], dnas: [], scenes: [], wormholeNebulas: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, sofMaterials: false, fx: [], effects: [], starMap: false, fittingScene: false };
   for (let i = 0; i < argv.length; i++) {
@@ -843,6 +857,10 @@ function parseArgs(argv) {
     else if (a === "--wormhole-transit") out.wormholeTransit = true;
     else if (a === "--warp-tunnel") out.warpTunnel = true;
     else if (a === "--ship-info") out.shipInfo = true;
+    else if (a === "--portrait-head") {
+      out.portraitHead = argv[++i];
+      if (!["female", "male"].includes(out.portraitHead)) throw new Error("--portrait-head needs female or male");
+    }
     else if (a === "--drifter-collection-explosion") out.drifterCollectionExplosion = true;
     else if (a === "--observatory-environment") out.observatoryEnvironment = true;
     else if (a === "--observatory-vortex") out.observatoryVortex = true;
@@ -1095,6 +1113,7 @@ async function main() {
       background, lightRig }));
     console.log(`shipInfoScene.json: ${Object.keys(background.childEffects).length} faction effects and light rig`);
   }
+  if (args.portraitHead) await extractPortraitHead(rf, args.portraitHead, outRoot);
   if (args.starMap) {
     const textures = {};
     for (const [name, res] of Object.entries({ star: "res:/Texture/Particle/mapStarNew5.dds", heat: "res:/Texture/Particle/mapStarNewHeat.dds", iconAtlas: "res:/Texture/Particle/MapStaticDataCircles_01h.dds",
@@ -1170,7 +1189,7 @@ async function main() {
     }
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.wormholeNebulas.length && !args.wormholeTransit && !args.warpTunnel && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.asteroidRules && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.wormholeNebulas.length && !args.wormholeTransit && !args.warpTunnel && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.asteroidRules && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.portraitHead && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
   await compression.prepareAssets(writtenAssets, (file, error) => console.warn(`Brotli ${path.relative(outRoot, file)}: ${error.message}`));
   if (!process.env.EVEJS_DEFER_HULL_COLOR_ENCODING) {
     await hullColorCompression.prepareHullColors(writtenAssets, path.dirname(outRoot),

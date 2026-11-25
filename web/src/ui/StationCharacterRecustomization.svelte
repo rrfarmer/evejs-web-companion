@@ -6,6 +6,7 @@
   import OwnerPicture from "./OwnerPicture.svelte";
   import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
   import PortraitBackdrop from "./PortraitBackdrop.svelte";
+  import PortraitBaseHead from "./PortraitBaseHead.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const station = $derived(store.station);
@@ -17,6 +18,7 @@
   ]);
   let options = $state.raw<Awaited<ReturnType<AppFlow["readDockedPortraitOptions"]>> | null>(null);
   let selected = $state<number | undefined>();
+  let preview = $state<"backdrop" | "female" | "male">("backdrop");
   let failed = $state(false);
   const backdrop = $derived(options?.backgrounds.find(entry => entry.id === selected));
   const url = $derived(backdrop ? `/client-res/portrait-background/${backdrop.id}` : "");
@@ -38,7 +40,16 @@
     <p>Use the desktop EVE client to edit and save your character’s appearance.</p>
   </div>
   <div class="preview">
-    {#if options?.backgrounds.length}
+    <label>Preview
+      <select bind:value={preview}>
+        <option value="backdrop">Portrait backdrops</option>
+        <option value="female">Female base head</option>
+        <option value="male">Male base head</option>
+      </select>
+    </label>
+    {#if preview !== "backdrop"}
+      <div class="image"><PortraitBaseHead model={preview} /></div>
+    {:else if options?.backgrounds.length}
       <label>Portrait backdrop
         <select bind:value={selected}>
           {#each options.backgrounds as entry (entry.id)}
