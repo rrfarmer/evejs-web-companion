@@ -2,7 +2,7 @@
   import { onDestroy } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { filetimeToUnixMs } from "../bridge/activity.ts";
-  import { formatInterval, plainText } from "../bridge/clientWords.ts";
+  import { formatInterval, formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { BookmarkPlace } from "../bridge/locationsList.ts";
   import { hasMoonStationManagerRole } from "../bridge/moonMining.ts";
   import { isNpcCorporation } from "../bridge/ownerInfo.ts";
@@ -65,6 +65,7 @@
   let selectedStructureIDs = $state<number[]>([]);
   let actionError = $state("");
   let decommissionBusy = $state(false);
+  let profileBusy = $state(false);
   let directoryRevision = $state(0);
   const rowMenu = new ContextMenu();
   onDestroy(() => rowMenu.close());
@@ -100,6 +101,8 @@
     setReinforcement: ["UI/StructureBrowser/SetReinforcementTime", "Set Reinforcement Time"],
     setDockableReinforcement: ["UI/StructureBrowser/SetReinforcementTimeDockable", "Set Reinforcement Time (Dockable)"],
     setFlexReinforcement: ["UI/StructureBrowser/SetReinforcementTimeNonDockable", "Set Reinforcement Time (FLEX)"],
+    setProfile: ["UI/StructureBrowser/SetProfile", "Set Profile"],
+    setProfiles: ["UI/StructureBrowser/SetProfileMany", "Set Profile ({numSelected})"],
   } as const;
   const serviceLabels = [
     [-1, "UI/Station/CharacterRecustomization", "Character Recustomization"],
@@ -146,6 +149,7 @@
       : [row];
     if (ownedRow && selected.length > 1) {
       addReinforcementOptions(entries, selected);
+      addProfileOptions(entries, selected);
       rowMenu.open(x, y, entries);
       return;
     }
@@ -183,7 +187,34 @@
       bookmark = { itemID: id, askIfKnown: true, name: () => placeName(row), typeName: () => typeName(row.typeID) };
     }));
     entries.push({ ...action("info", () => inspect(row)), info: true });
+    if (ownedRow) addProfileOptions(entries, selected);
     rowMenu.open(x, y, entries);
+  }
+
+  function addProfileOptions(entries: (ContextEntry | null)[], rows: readonly StructureBrowserEntry[]): void {
+    if (profileBusy || !directory?.profileNames.size) return;
+    const ids = rows.map(row => row.structureID);
+    const [path, fallback] = menuWords[ids.length > 1 ? "setProfiles" : "setProfile"];
+    const label = plainText(formatTemplate($words.templates[path] ?? fallback, { numSelected: ids.length }, { nameOf: () => "" }));
+    const choices = [...directory.profileNames].sort((left, right) => left[1].toLowerCase().localeCompare(right[1].toLowerCase()));
+    entries.push({ path, label, sub: choices.map(([id, name]) => ({
+      label: name,
+      run: () => void assignProfile(ids, id),
+    })) });
+  }
+
+  async function assignProfile(ids: readonly number[], profileID: number): Promise<void> {
+    if (profileBusy) return;
+    profileBusy = true;
+    actionError = "";
+    try {
+      await flow.assignStructureProfile(ids, profileID);
+      directoryRevision++;
+    } catch (cause) {
+      actionError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      profileBusy = false;
+    }
   }
 
   function addReinforcementOptions(entries: (ContextEntry | null)[], rows: readonly StructureBrowserEntry[]): void {

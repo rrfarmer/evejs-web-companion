@@ -4493,6 +4493,7 @@ export interface AppFlow {
   saveStructureDescription(structureID: number, description: string): Promise<void>;
   changeStructureDecommission(structureID: number, action: "start" | "cancel"): Promise<boolean>;
   setStructureReinforcementHour(structureIDs: readonly number[], hour: number): Promise<void>;
+  assignStructureProfile(structureIDs: readonly number[], profileID: number): Promise<void>;
   startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
   loadCorporationMiningObservers(): Promise<readonly MiningLedgerObserver[]>;
@@ -28043,6 +28044,37 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
 
+  async function assignStructureProfile(structureIDs: readonly number[], profileID: number): Promise<void> {
+    const scope = captureMemberOperation();
+    const ids = new Set(structureIDs);
+    if (!ids.size || !Number.isSafeInteger(profileID) || profileID <= 0) {
+      throw new Error("Select structures and a corporation profile.");
+    }
+    function checkRole() {
+      scope.current();
+      if (!hasMoonStationManagerRole(store.station.get().online?.corpRole ?? null)) {
+        throw new Error("Assigning structure profiles requires a Station Manager.");
+      }
+    }
+    async function readSelection() {
+      const answer = await scope.ask("structureDirectory", "GetCorporationStructures", []);
+      checkRole();
+      const rows = decodeCorporationStructures(answer)
+        .filter(row => row.ownerID === scope.online.corporationID && ids.has(row.structureID));
+      if (rows.length !== ids.size) throw new Error("The structure selection changed. Reopen its menu.");
+      return rows;
+    }
+    checkRole();
+    const [, profiles] = await Promise.all([readSelection(), scope.ask("structureProfiles", "GetProfiles", [])]);
+    checkRole();
+    if (!decodeStructureProfileNames(profiles).has(profileID)) throw new Error("This corporation profile is unavailable.");
+    await scope.write("structureProfiles", "ChangeProfiles", [{ type: "list", items: [...ids] }, profileID]);
+    const saved = await readSelection();
+    if (!saved.every(row => row.profileID === profileID)) {
+      throw new Error("The profile assignment could not be confirmed for all selected structures.");
+    }
+  }
+
   async function loadCorporationMoonSchedule(lifetime?: () => void): Promise<CorporationMoonSchedule> {
     const scope = captureMemberOperation(lifetime);
     const current = () => {
@@ -39788,6 +39820,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     saveStructureDescription,
     changeStructureDecommission,
     setStructureReinforcementHour,
+    assignStructureProfile,
     startMoonPull,
     controlMoonPull,
     loadCorporationMiningObservers,

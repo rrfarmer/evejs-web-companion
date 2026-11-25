@@ -695,7 +695,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "structureDirectory.GetStructureDescription", "structureDirectory.SetStructureDescription",
   "structureDeployment.Unanchor", "structureDeployment.CancelUnanchor",
   "structureVulnerability.UpdateReinforceTimesFromClient",
-  "structureProfiles.GetProfiles",
+  "structureProfiles.GetProfiles", "structureProfiles.ChangeProfiles",
   "moonExtractions.GetExtractionsForCorp",
   "moonExtractions.GetMoonResourcesForStructure", "moonExtractions.GetExtractionAndEventIDFromStructureID",
   "moonExtractions.StartNewExtraction", "moonExtractions.FractureChunkWithStructure", "moonExtractions.CancelExtraction",
@@ -3353,6 +3353,12 @@ const RETAIL_CALLS = Object.freeze({
       ? {} : { status: "differs", note: "The editor sends the selected structure and a description up to 1,000 characters." },
     "Save the edited description through the structure's ownership and Station Manager checks."), [1]),
   "structureProfiles.GetProfiles": judged("eve/client/script/ui/structure/structureSettings/controllers/allProfilesController.py:31", sentWithNothing, "Read the corporation's structure profiles for the profile filter."),
+  "structureProfiles.ChangeProfiles": judged("eve/client/script/ui/structure/structureSettings/controllers/allProfilesController.py:61",
+    (args, kwargs) => args.length === 2 && Object.keys(kwargs).length === 0 &&
+      args[0]?.type === "list" && itemIDsListed(args[0].items) &&
+      Number.isSafeInteger(args[1]) && args[1] > 0
+      ? {} : { status: "differs", note: "The client sends selected structure IDs as a list and one corporation profile ID." },
+    "Assign the selected corporation profile to structures owned by the pilot's corporation."),
   "moonExtractions.GetExtractionsForCorp": judged("eve/client/script/ui/moonmining/schedulingSvc.py:41", sentWithNothing, "A Station Manager reads the session corporation's active extractions."),
   "moonExtractions.GetMoonResourcesForStructure": judged("eve/client/script/ui/moonmining/schedulingSvc.py:27", sentWithNothing, "Read the controlled refinery's moon composition."),
   "moonExtractions.GetExtractionAndEventIDFromStructureID": judged("eve/client/script/ui/moonmining/schedulingSvc.py:36", sentWithNothing, "Read the refinery's current pull and calendar event."),
