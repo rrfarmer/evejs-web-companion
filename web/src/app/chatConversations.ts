@@ -26,6 +26,7 @@ interface Hooks {
 }
 const record = (value: JsonValue | undefined): Record<string, JsonValue> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, JsonValue> : {};
 const retired = (error: unknown): boolean => (error as { code?: string })?.code === "SESSION_REQUEST_RETIRED";
+const ENGLISH_HELP_ROOM = "system_263238_263262";
 
 export function createChatConversations(hooks: Hooks) {
   let generation = 0, serial = 0, contactSerial = 0;
@@ -70,21 +71,22 @@ export function createChatConversations(hooks: Hooks) {
   }
   async function applyRoom(scope: Scope, raw: JsonValue): Promise<void> {
     const value = record(raw), channel = String(value.channel ?? ""), roomName = String(value.roomName ?? "");
-    if (!/^(private|player)_/.test(channel) || !roomName) return;
+    const isHelpRoom = channel === ENGLISH_HELP_ROOM;
+    if ((!/^(private|player)_/.test(channel) && !isHelpRoom) || !roomName) return;
     const decoded = decodeChatChannel(raw), pending = pendingPrivate.get(channel);
     const observed = Array.isArray(value.seenMembers) ? value.seenMembers : decoded.roster.map(member => member.characterID);
     if (pending && observed.includes(pending.target)) { pendingPrivate.delete(channel); if (pendingInvites.get(pending.target) === channel) pendingInvites.delete(pending.target); }
     for (const [who, room] of pendingInvites) if (room === channel && observed.includes(who)) pendingInvites.delete(who);
     await names(scope, [...decoded.roster.map(member => member.characterID), ...(pendingPrivate.get(channel) ? [pendingPrivate.get(channel)!.target] : [])]);
-    if (!information.has(channel)) { const info = await api.readChatRoomInfo(roomName, scope.options); scope.current(); information.set(channel, record(info)); }
-    const info = information.get(channel)!;
-    let title = typeof info.name === "string" ? info.name : "";
+    if (!isHelpRoom && !information.has(channel)) { const info = await api.readChatRoomInfo(roomName, scope.options); scope.current(); information.set(channel, record(info)); }
+    const info = information.get(channel);
+    let title = isHelpRoom ? "English Help" : typeof info?.name === "string" ? info.name : "";
     if (channel.startsWith("private_")) {
       const others = decoded.roster.filter(member => member.characterID !== scope.me).map(member => name(member.characterID));
       if (!others.length && decoded.roster.length && pendingPrivate.has(channel)) others.push(name(pendingPrivate.get(channel)!.target));
       title = others.length > 1 ? hooks.word("UI/Chat/GroupChat", { title: others.join(", ") }, `Group Chat (${others.join(", ")})`)
         : others.length === 1 ? hooks.word("UI/Chat/PrivateChat", { title: others[0]! }, `Private Chat (${others[0]})`)
-          : !decoded.roster.length && Number(info.occupants) >= 2 ? hooks.word("UI/Chat/PrivateChat", { title: Number(info.occupants) }, `Private Chat (${Number(info.occupants)})`)
+          : !decoded.roster.length && Number(info?.occupants) >= 2 ? hooks.word("UI/Chat/PrivateChat", { title: Number(info?.occupants) }, `Private Chat (${Number(info?.occupants)})`)
             : hooks.word("UI/Chat/PrivateChatAlone", {}, "Private Chat (Alone)");
     }
     scope.current(); const room = { channel, title, state: decoded };
@@ -175,6 +177,13 @@ export function createChatConversations(hooks: Hooks) {
       refreshWork = work; return work;
     },
     select(room: string | null) { patch({ active: room }); },
+    async openHelpChannel() {
+      if (state.get().rooms.some(room => room.channel === ENGLISH_HELP_ROOM)) {
+        patch({ active: ENGLISH_HELP_ROOM, openSerial: ++serial });
+        return;
+      }
+      await task(scope => join(scope, ENGLISH_HELP_ROOM));
+    },
     async start(target: number, existingRoom?: string) { await task(async scope => {
       if (target === scope.me) { hooks.say("ChtCannotInviteSelf", { char: target, channel: existingRoom ?? null }, "You cannot invite yourself."); return; }
       if (!await character(scope, target)) { hooks.say("CustomInfo", { info: hooks.word("UI/Chat/ErrorNotAPlayerCharacter", {}, "That is not a player character.") }, "That is not a player character."); return; }

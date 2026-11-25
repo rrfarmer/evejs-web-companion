@@ -1,5 +1,6 @@
 <script lang="ts">
   import Calculator from "./Calculator.svelte";
+  import Help from "./Help.svelte";
   import FittingManagement from "./FittingManagement.svelte";
   import AcademyShips from "./AcademyShips.svelte";
   import ShipTree from "./ShipTree.svelte";
@@ -353,6 +354,8 @@
   <NoticeLog {store} {flow} />
 {:else if tab === "calculator"}
   <Calculator />
+{:else if tab === "help"}
+  <Help {store} {flow} showChat={() => onOpen?.("chat")} />
 {:else if tab === "notepad"}
   <Notepad {store} {flow} />
 {:else if tab === "calendar"}

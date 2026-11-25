@@ -79,6 +79,7 @@ export type CoreTabID =
   | "routeWindow"
   | "missionTracker"
   | "log"
+  | "help"
   | "notepad"
   | "calculator"
   | "calendar"
@@ -224,6 +225,7 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "metenoxFuel", label: "Metenox Fuel Bay", where: "both", launchable: false },
   { id: "structureBrowser", label: "Structure Browser", where: "both" },
   { id: "accessGroups", label: "Access Lists", where: "both" },
+  { id: "help", label: "EVE Help", where: "both", launchable: false },
   // Both — reachable docked or undocked.
   { id: "inventory", label: "Inventory & Ship", where: "both" },
   { id: "market", label: "Market", where: "both" },

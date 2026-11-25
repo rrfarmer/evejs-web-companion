@@ -99,6 +99,7 @@ export const NEOCOM_DEFAULT: readonly NeocomButton[] = [
   { id: "shipTree", label: "Ship Tree", icon: icon("isis") },
   { id: "fitting", label: "Fitting", icon: icon("fitting") },
   { id: "map", label: "Map", icon: icon("map") },
+  { id: "help", label: "EVE Help", icon: icon("help") },
   // ButtonChat's chatchannel.png, then the Log and Messages ButtonWindow (LoggerWindow, OpenLog, log.png) - the live
   // client, gridcheck g250 / g251
   { id: "chat", label: "Chat", icon: icon("chatchannel") },
@@ -167,6 +168,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
 ];
 
 const EVE_MENU_FOOTER = [
+  { id: "help", label: "EVE Help", icon: icon("help") },
   { id: "settings", label: "Settings", icon: icon("settings") },
   { id: "logoff", label: "Log off", icon: icon("logOut") },
   { id: "quitGame", label: "Quit Game", icon: icon("quitGame") },

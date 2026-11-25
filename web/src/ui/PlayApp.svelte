@@ -220,6 +220,7 @@
     contacts: "contacts", fleet: "fleet", corporation: "corporation", structureBrowser: "structureBrowser", compare: "compare", log: "log", notepad: "notepad", calendar: "calendar",
     calculator: "calculator", fittingmanagement: "fittingManagement",
     accessGroups: "accessGroups",
+    help: "help",
   };
 
   let session = $state<Session | null>(null);
@@ -1458,6 +1459,7 @@
    * agencyWnd (AgencyWndNew) 1188 x 694, walletWnd 900 x 600, planetWindow 500 x 500, uilog (logger) 400 x 200.
    */
   const CLIENT_SIZES: Partial<Record<TabID, { w: number; h: number }>> = {
+    help: { w: 400, h: 275 },
     fittingManagement: { w: 620, h: 600 },
     calculator: { w: 327, h: 340 },
     marketOrders: { w: 600, h: 500 },
@@ -1838,6 +1840,7 @@
     OpenLocations: "locations", OpenAgencyNew: "finder", OpenJobBoardWindow: "jobBoard", OpenAssets: "assets", OpenIndustry: "industry", OpenLedger: "miningLedger",
     OpenAchievementsWindow: "achievements", OpenFleetWatchlist: "watchlist", OpenStructureBrowser: "structureBrowser",
     OpenAccessGroupsWindow: "accessGroups",
+    OpenHelp: "help",
     ToggleTheatersOfWarWindow: "theatersOfWar", CmdToggleShipTree: "shipTree",
     // (ToggleOpenClose in the client too: ContractsWindow, CorporationWindow, NotepadWindow, PlanetWindow, the comparison
     // tool, the redeem window)
@@ -1968,7 +1971,7 @@
       return;
     }
     const tab = NEOCOM_TABS[id];
-    if ((tab === "shipTree" || tab === "marketOrders") && wins.some(win => win.id === tab && !win.minimized)) wins = closeWindow(wins, tab);
+    if ((tab === "shipTree" || tab === "marketOrders" || tab === "help") && wins.some(win => win.id === tab && !win.minimized)) wins = closeWindow(wins, tab);
     else if (tab) open(tab);
   }
   function toggleBountyOffice() {
@@ -4269,9 +4272,9 @@
           {win}
           title={win.id === "drones" ? ($dronesCompact ? "" : dronesTitle) : win.id === "scanner" && !docked && $scannerCompact ? "" : win.id === "inventory" && !docked ? (inventoryPrimary ? captions[win.id] ?? tabLabel(win.id) : activeShipCaption) : captions[win.id] ?? tabLabel(win.id)}
           caption={win.id === "drones" ? dronesTitle : win.id === "scanner" ? captions[win.id] ?? tabLabel(win.id) : null}
-          icon={win.id === "inventory" && !docked ? clientTexture("res:/UI/Texture/WindowIcons/cargo.png") : win.id === "log" ? clientTexture("res:/ui/Texture/WindowIcons/log.png") : null}
+          icon={win.id === "inventory" && !docked ? clientTexture("res:/UI/Texture/WindowIcons/cargo.png") : win.id === "log" ? clientTexture("res:/ui/Texture/WindowIcons/log.png") : win.id === "help" ? clientTexture("res:/ui/Texture/WindowIcons/help.png") : null}
           killable={win.id !== "drones"}
-          resizable={win.id !== "fitting" && win.id !== "medalDesigner" && win.id !== "securityOffice" && win.id !== "calculator"}
+          resizable={win.id !== "fitting" && win.id !== "medalDesigner" && win.id !== "securityOffice" && win.id !== "calculator" && win.id !== "help"}
           minWidth={minimum.w}
           minHeight={minimum.h}
           focused={win.id === activeWinKey}
