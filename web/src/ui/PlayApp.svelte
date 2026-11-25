@@ -2477,6 +2477,48 @@
     invitable: Map<number, readonly { channel: string; title: string }[]>;
   }>();
 
+  function downloadPilotPortraits(s: Session, ids: readonly number[]) {
+    void s.flow.capturePortraits(ids, (id, image) => {
+      const bytes = Uint8Array.from(atob(image.base64), ch => ch.charCodeAt(0));
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(new Blob([bytes], { type: image.contentType }));
+      link.download = `${id}.jpg`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
+    }, () => {}).catch(() => {});
+  }
+
+  function lobbyGuestMenu(s: Session, guests: readonly { characterID: number; corporationID: number | null; allianceID: number | null }[]):
+    readonly (ContextEntry | null)[] {
+    if (guests.length < 2) {
+      const guest = guests[0];
+      return guest ? pilotMenu(s, guest.characterID, guest, true).sub ?? [] : [];
+    }
+    const me = s.store.station.get().online?.characterID;
+    const ids = guests.map(guest => guest.characterID);
+    const pilotIDs = ids.filter(id => !isNpcOwner(id));
+    const peers = pilotIDs.filter(id => id !== me);
+    const fleet = s.store.fleet.get();
+    const fleetMembers = fleet.fleet?.initState.value.members ?? [];
+    const mine = fleetMembers.find(member => Number(member.charID) === me);
+    const inFleet = fleet.availability === "ready";
+    const invited = inFleet
+      ? peers.filter(id => !fleetMembers.some(member => Number(member.charID) === id))
+      : peers;
+    const canInvite = !inFleet || !!mine && ((mine.job & 2) !== 0 || [1, 2, 3].includes(mine.role));
+    const word = (key: string, fallback: string) => plainText(s.store.words.get().templates[key] ?? fallback);
+    const fleetKey = inFleet ? "UI/Fleet/InvitePilotToFleet" : "UI/Fleet/FormFleetWith";
+    s.flow.requestWords([fleetKey, "UI/Commands/CapturePortrait", "UI/Commands/ShowInfo"]);
+    return [
+      { label: word("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => {
+        for (const characterID of ids) showInfo({ kind: "character", characterID }, { new: true });
+      } },
+      ...(pilotIDs.length ? [{ label: word("UI/Commands/CapturePortrait", "Capture Portrait"), run: () => downloadPilotPortraits(s, pilotIDs) }] : []),
+      ...(canInvite && invited.length ? [{ label: word(fleetKey, inFleet ? "Invite Pilot to Fleet" : "Form Fleet With..."),
+        run: () => void s.flow.inviteFleetSelection(invited, !inFleet).catch(() => {}) }] : []),
+    ];
+  }
+
   function pilotMenu(s: Session, characterID: number, affiliation?: { corporationID: number | null; allianceID: number | null }, inLobby = false): ContextEntry {
     let cache = pilotMenuCache.get(s);
     if (!cache) {
@@ -2501,14 +2543,7 @@
     const showInfoEntry = { label: w("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => showInfo({ kind: "character", characterID }) };
     const bountyEntry = { label: w("UI/Station/BountyOffice/PlaceBounty", "Place Bounty"), run: () => { bountyOffice = { n: (bountyOffice?.n ?? 0) + 1, target: { ownerID: characterID, corporationID: affiliation?.corporationID ?? null, allianceID: affiliation?.allianceID ?? null } }; } };
     // CapturePortrait: the portrait at its largest size saved as <characterID>.jpg
-    const portraitEntry = { label: w("UI/Commands/CapturePortrait", "Capture Portrait"), run: () => void s.flow.capturePortraits([characterID], (id, image) => {
-          const bytes = Uint8Array.from(atob(image.base64), (ch) => ch.charCodeAt(0));
-          const link = document.createElement("a");
-          link.href = URL.createObjectURL(new Blob([bytes], { type: image.contentType }));
-          link.download = `${id}.jpg`;
-          link.click();
-          setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
-        }, () => {}).catch(() => {}) };
+    const portraitEntry = { label: w("UI/Commands/CapturePortrait", "Capture Portrait"), run: () => downloadPilotPortraits(s, [characterID]) };
     // _CharacterMenu of oneself (read through gridcheck on the client pilot's own ship): Show Info, Fleet >, View
     // Member Details, Place Bounty, Capture Portrait, Form Fleet With... (out of a fleet) - no money, contacts, conversation,
     // mail or duel (the Fleet submenu of a pilot in a fleet not on the page yet)
@@ -4142,7 +4177,7 @@
             {/each}
           </div>
           <PlayLobbyTabs {session} onOpenAgents={() => open("agents")} onOpenInventory={() => open("inventory")}
-            guestMenu={(guest) => pilotMenu(session, guest.characterID, guest, true).sub ?? []}
+            guestMenu={(guests) => lobbyGuestMenu(session, guests)}
             onReprocess={reprocessingAvailable ? reprocessSelection : undefined} />
         </div>
       </DesktopWindow>

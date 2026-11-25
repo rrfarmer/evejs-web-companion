@@ -19,7 +19,7 @@
 
   let { session, guestMenu, onOpenAgents, onOpenInventory, onReprocess }: {
     session: Session;
-    guestMenu: (guest: StationGuest) => readonly (ContextEntry | null)[];
+    guestMenu: (guests: readonly StationGuest[]) => readonly (ContextEntry | null)[];
     onOpenAgents: () => void;
     onOpenInventory: () => void;
     onReprocess?: (itemIDs: readonly number[]) => void;
@@ -79,6 +79,8 @@
   }
   let guestSearch = $state("");
   let guestFilter = $state("");
+  let selectedGuests = $state.raw<ReadonlySet<number>>(new Set());
+  let guestAnchor = $state<number | null>(null);
   let guestSearchInput: HTMLInputElement;
   let filterTimer: ReturnType<typeof setTimeout> | undefined;
   const guestRows = $derived(guests
@@ -86,10 +88,20 @@
     .filter(guest => guest.pilot.toLowerCase().includes(guestFilter))
     .sort((a, b) => a.pilot.localeCompare(b.pilot, undefined, { sensitivity: "base" })));
 
+  $effect(() => {
+    const current = new Set(guestRows.map(row => row.characterID));
+    if ([...selectedGuests].some(id => !current.has(id))) {
+      selectedGuests = new Set([...selectedGuests].filter(id => current.has(id)));
+    }
+    if (guestAnchor !== null && !current.has(guestAnchor)) guestAnchor = null;
+  });
+
   function applyGuestFilter() {
     clearTimeout(filterTimer);
     filterTimer = undefined;
     guestFilter = guestSearch.toLowerCase();
+    selectedGuests = new Set();
+    guestAnchor = null;
   }
 
   function scheduleGuestFilter(event: Event & { currentTarget: HTMLInputElement }) {
@@ -103,10 +115,30 @@
     guestSearchInput.focus();
   }
 
+  function selectGuest(event: MouseEvent, id: number) {
+    const additive = event.ctrlKey || event.metaKey;
+    const anchor = guestRows.findIndex(row => row.characterID === guestAnchor);
+    const index = guestRows.findIndex(row => row.characterID === id);
+    if (event.shiftKey && anchor >= 0 && index >= 0) {
+      const range = guestRows.slice(Math.min(index, anchor), Math.max(index, anchor) + 1).map(row => row.characterID);
+      selectedGuests = new Set(additive ? [...selectedGuests, ...range] : range);
+      return;
+    }
+    const next = additive ? new Set(selectedGuests) : new Set<number>();
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    selectedGuests = next;
+    guestAnchor = id;
+  }
+
   function openGuestMenu(event: MouseEvent | KeyboardEvent, guest: StationGuest) {
     event.preventDefault();
     event.stopPropagation();
-    const entries = guestMenu(guest);
+    if (!selectedGuests.has(guest.characterID)) {
+      selectedGuests = new Set([guest.characterID]);
+      guestAnchor = guest.characterID;
+    }
+    const entries = guestMenu(guestRows.filter(row => selectedGuests.has(row.characterID)));
     if (!entries.length) return;
     if (event instanceof MouseEvent && (event.clientX !== 0 || event.clientY !== 0)) {
       guestContext.open(event.clientX, event.clientY, entries);
@@ -118,6 +150,10 @@
 
   function guestKey(event: KeyboardEvent, guest: StationGuest) {
     if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openGuestMenu(event, guest);
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void doubleClickOwner(session.flow, guest.characterID).catch(() => {});
+    }
   }
 
   onDestroy(() => {
@@ -210,8 +246,9 @@
     {#each guestRows as g (g.characterID)}
       {@const portrait = compactGuests ? null : portraitUrl($imageServer, g.characterID, 32)}
       <button type="button" class="lobby-row guest-row" class:compact={compactGuests} aria-haspopup="menu"
+        aria-pressed={selectedGuests.has(g.characterID)} data-guest-id={g.characterID}
         oncontextmenu={(event) => openGuestMenu(event, g)} onkeydown={(event) => guestKey(event, g)}
-        onclick={(event) => { if (event.detail === 0) void doubleClickOwner(session.flow, g.characterID).catch(() => {}); }}
+        onclick={(event) => selectGuest(event, g.characterID)}
         ondblclick={() => void doubleClickOwner(session.flow, g.characterID).catch(() => {})}>
         {#if !compactGuests}
           <OwnerPicture name={g.pilot} urls={portrait ? [portrait, guestPortraitFallback] : [guestPortraitFallback]} />
@@ -276,6 +313,7 @@
   .lobby-row.agent:hover { background: rgba(255, 255, 255, 0.07); }
   .guest-row { box-sizing: border-box; align-items: center; justify-content: flex-start; height: 40px; cursor: pointer; }
   .guest-row:hover { background: rgba(255, 255, 255, 0.07); }
+  .guest-row[aria-pressed="true"] { background: rgba(124, 194, 220, 0.23); }
   .guest-row.compact { height: 18px; padding: 0 4px 0 16px; }
   .guest-row .dim { margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
   .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
