@@ -998,6 +998,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // (accessGroupsController.py 105). The gateway's list has nothing of the owner group manager's.
   "ownerGroupManager.GetMyGroups", "ownerGroupManager.GetMembers",
   "ownerGroupManager.Create", "ownerGroupManager.UpdateName", "ownerGroupManager.UpdateDescription", "ownerGroupManager.Delete",
+  "ownerGroupManager.AddMembers", "ownerGroupManager.UpdateMembershipTypes", "ownerGroupManager.DeleteMembers",
   // A shared folder disconnected from (bookmarkSvc.py 460), and an access list the pilot has not got asked by its
   // number (accessGroupsController.py 184). The gateway's list has neither.
   "accessGroupBookmarkMgr.RemoveFromKnownFolders", "ownerGroupManager.GetGroup",
@@ -1667,6 +1668,9 @@ const bookmarksOfFolder = ([folderID, given, ...rest], kwargs) => {
 
 /** The bookmark service's folder and subfolder calls (bookmarkSvc.py 453 to 589): numbers above nought, and a name that is not nothing. */
 const aBookmarkFolderID = (value) => Number.isSafeInteger(value) && value > 0;
+const isAccessMemberID = (value) => Number.isSafeInteger(value) && value >= 0;
+const isAccessRole = (value) => Number.isInteger(value) && value >= 0 && value <= 3;
+const isAccessMemberList = (value) => Array.isArray(value) && value.length > 0 && value.every(isAccessMemberID);
 const aSubfolderName = (value) => typeof value === "string" && value.trim() !== "";
 /** bookmarkSvc.CreateSubfolder (565): CreateSubfolder(folderID, subfolderName), the subfolder window's name stripped (bookmarkSubfolderWindow.Confirm, 104 to 107). */
 const subfolderMade = (args, kwargs) => (args.length === 2 && aBookmarkFolderID(args[0]) && aSubfolderName(args[1]) && Object.keys(kwargs).length === 0
@@ -2836,6 +2840,24 @@ const RETAIL_CALLS = Object.freeze({
     "Save the description after saving the name."), [1]),
   "ownerGroupManager.Delete": judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:168", listAsked,
     "Delete the access list after the AccessGroupDeleteGroup confirmation."),
+  "ownerGroupManager.AddMembers": judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:217",
+    (args, kwargs) => {
+      const roles = args[1]?.type === "dict" ? args[1].entries : null;
+      return args.length === 2 && Object.keys(kwargs).length === 0 && aBookmarkFolderID(args[0]) &&
+        Array.isArray(roles) && roles.length > 0 && roles.every(pair =>
+          Array.isArray(pair) && pair.length === 2 && isAccessMemberID(pair[0]) && isAccessRole(pair[1]))
+        ? {} : { status: "differs", note: "The client sends the list ID and a dictionary from member IDs to access roles." };
+    }, "Add owners to the list. Everyone is member ID zero."),
+  "ownerGroupManager.UpdateMembershipTypes": judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:241",
+    (args, kwargs) => args.length === 3 && Object.keys(kwargs).length === 0 && aBookmarkFolderID(args[0]) &&
+      isAccessMemberList(args[1]) && isAccessRole(args[2])
+      ? {} : { status: "differs", note: "The client sends the list ID, a list of member IDs, and the new role." },
+    "Change one or more members to the chosen role."),
+  "ownerGroupManager.DeleteMembers": judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:266",
+    (args, kwargs) => args.length === 2 && Object.keys(kwargs).length === 0 && aBookmarkFolderID(args[0]) &&
+      isAccessMemberList(args[1])
+      ? {} : { status: "differs", note: "The client sends the access list ID and a list of member IDs." },
+    "Remove selected members from the access list."),
   "accessGroupBookmarkMgr.MoveBookmarksToFolderAndSubfolder": reshaped("eve/client/script/ui/shared/bookmarks/bookmarkSvc.py:690", bookmarksMovedOrCopied,
     "self.accessGroupBookmarkMgr.MoveBookmarksToFolderAndSubfolder(oldFolderID, folderID, subfolderID, bookmarkIDs): bookmarks dropped on a folder or a subfolder of the Locations window (DropInPlacesFolder), each source folder's a set; answered the rows moved and a message or None. In no recording."),
   "accessGroupBookmarkMgr.CopyBookmarksToFolderAndSubfolder": reshaped("eve/client/script/ui/shared/bookmarks/bookmarkSvc.py:701", bookmarksMovedOrCopied,

@@ -5523,6 +5523,8 @@ export interface AppFlow {
   readFolderInfo(folderID: number): Promise<BookmarkFolder>;
   readAccessGroups(): Promise<readonly AccessGroup[]>;
   readAccessGroupMembers(groupID: number): Promise<readonly AccessGroupMember[]>;
+  changeAccessGroupMembers(groupID: number, method: "AddMembers" | "UpdateMembershipTypes" | "DeleteMembers",
+    memberIDs: readonly number[], membershipType?: number): Promise<void>;
   createAccessGroup(name: string, description: string): Promise<number>;
   editAccessGroup(groupID: number, name: string, description: string): Promise<void>;
   deleteAccessGroup(group: AccessGroup): Promise<boolean>;
@@ -40228,6 +40230,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     async readAccessGroupMembers(groupID) {
       return decodeAccessGroupMembers(await bridgeAsk("ownerGroupManager", "GetMembers", [groupID]));
+    },
+
+    async changeAccessGroupMembers(groupID, method, memberIDs, membershipType = 0) {
+      let args: JsonValue[] = [groupID, [...memberIDs]];
+      if (method === "AddMembers") {
+        args = [groupID, { type: "dict", entries: memberIDs.map(id => [id, membershipType]) }];
+      } else if (method === "UpdateMembershipTypes") {
+        args.push(membershipType);
+      }
+      const result = await bridgeDo("ownerGroupManager", method, args);
+      const failures = isListValue(result) ? result.items : Array.isArray(result) ? result : null;
+      if (!failures) throw new Error("The server did not return the membership result.");
+      if (failures.length) throw new Error(`The server refused changes for ${failures.length} selected member(s).`);
     },
 
     async createAccessGroup(name, description) {
