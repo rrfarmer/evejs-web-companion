@@ -25,6 +25,7 @@
   import HomeStationPanel from "./HomeStationPanel.svelte";
   import StructureDescription from "./StructureDescription.svelte";
   import StructureReinforcement from "./StructureReinforcement.svelte";
+  import MySkyhooks from "./MySkyhooks.svelte";
   import { startLinkDrag } from "./linkFollowers.ts";
   import { showInfo } from "./showInfo.ts";
 
@@ -41,9 +42,10 @@
   const corporationID = $derived($station.online?.corporationID ?? null);
   const canManage = $derived(corporationID !== null && !isNpcCorporation(corporationID) &&
     hasMoonStationManagerRole($station.online?.corpRole ?? null));
-  let tab = $state<"all" | "corporation">("all");
+  const hasCorporationTabs = $derived(corporationID !== null && !isNpcCorporation(corporationID));
+  let tab = $state<"all" | "corporation" | "skyhooks">("all");
   let corporationPanel = $state<"structures" | "extractions">("structures");
-  const activeTab = $derived(canManage ? tab : "all");
+  const activeTab = $derived(hasCorporationTabs && (tab !== "corporation" || canManage) ? tab : "all");
   const scheduleOpen = $derived(activeTab === "corporation" && corporationPanel === "extractions");
   let directory = $state.raw<StructureBrowserDirectory | null>(null);
   const rows = $derived(directory?.entries ?? []);
@@ -76,6 +78,7 @@
   const labels = {
     all: ["UI/Structures/Browser/AllStructures", "All Structures"],
     corporation: ["UI/Structures/Browser/MyStructures", "My Corp Structures"],
+    skyhooks: ["UI/StructureBrowser/MySkyhooks", "My Orbital Skyhooks"],
     withProfile: ["UI/StructureBrowser/StructuresWithProfile", "Structures"],
     extractions: ["UI/Moonmining/UpcomingExtractionsTab", "Upcoming Extractions"],
     empty: ["UI/Structures/Browser/NoStructuresFound", "No structures found"],
@@ -375,7 +378,7 @@
     directory = null;
     loading = false;
     error = "";
-    if (here === null || scheduleOpen) return;
+    if (here === null || scheduleOpen || activeTab === "skyhooks") return;
     let current = true;
     loading = true;
     void flow.loadStructureBrowser(here, owned).then(result => {
@@ -431,10 +434,11 @@
     {#key homeStationID}<HomeStationPanel {store} {flow} targetStationID={homeStationID} onClose={() => homeStationID = null} />{/key}
   {/if}
   {#if actionError}<p role="alert" class="error">{actionError}</p>{/if}
-  {#if canManage}
+  {#if hasCorporationTabs}
     <nav aria-label="Structure Browser">
       <button type="button" aria-pressed={activeTab === "all"} onclick={() => tab = "all"}>{word("all")}</button>
-      <button type="button" aria-pressed={activeTab === "corporation"} onclick={() => tab = "corporation"}>{word("corporation")}</button>
+      {#if canManage}<button type="button" aria-pressed={activeTab === "corporation"} onclick={() => tab = "corporation"}>{word("corporation")}</button>{/if}
+      <button type="button" aria-pressed={activeTab === "skyhooks"} onclick={() => tab = "skyhooks"}>{word("skyhooks")}</button>
     </nav>
   {/if}
   {#if activeTab === "corporation"}
@@ -461,7 +465,7 @@
         </details>
       </div>
     {/if}
-  {:else}
+  {:else if activeTab === "all"}
     <div class="directory-filters">
       <label>Range
         <select value={effectiveRange} onchange={(event) => range = event.currentTarget.value as typeof range}>
@@ -486,7 +490,9 @@
       </details>
     </div>
   {/if}
-  {#if scheduleOpen}
+  {#if activeTab === "skyhooks" && systemID !== null}
+    <MySkyhooks {store} {flow} {systemID} />
+  {:else if scheduleOpen}
     <CorporationMoonSchedule {store} {flow} />
   {:else if loading}
     <p role="status">Loading structures…</p>

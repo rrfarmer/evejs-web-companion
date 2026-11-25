@@ -976,6 +976,7 @@ import { combatUtilityFit, type CombatUtilities } from "../nav/combatUtilities.t
 
 import { issueCombatUtility, issueUtilityReload } from "../nav/combatUtilityIssue.ts";
 import { nameKey, type NameRef } from "../store/names.ts";
+import { decodeSkyhookDetails, decodeSkyhookEntries, skyhookProduction, type SkyhookRow } from "../bridge/skyhooks.ts";
 
 
 import type { BotLogDraft, BotLogSink } from "../nav/botLog.ts";
@@ -4490,6 +4491,7 @@ export interface AppFlow {
   startMetenoxDrill(structureID: number): Promise<void>;
   loadCorporationMoonSchedule(current?: () => void): Promise<CorporationMoonSchedule>;
   loadStructureBrowser(systemID: number, corporation?: boolean): Promise<StructureBrowserDirectory>;
+  loadMySkyhooks(systemID: number): Promise<{ rows: SkyhookRow[]; currentRegionID: number | null }>;
   loadStructureDescription(structureID: number): Promise<string>;
   saveStructureDescription(structureID: number, description: string): Promise<void>;
   changeStructureDecommission(structureID: number, action: "start" | "cancel"): Promise<boolean>;
@@ -27956,6 +27958,43 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       canEditDescriptions };
   }
 
+  async function loadMySkyhooks(systemID: number): Promise<{ rows: SkyhookRow[]; currentRegionID: number | null }> {
+    const scope = captureMemberOperation();
+    const corporationID = scope.online.corporationID;
+    if (isNpcCorporation(corporationID)) return { rows: [], currentRegionID: null };
+    const reply = await scope.ask("colonyResourcesMgr", "GetMyCorporationSkyhooks", []);
+    scope.current();
+    const entries = decodeSkyhookEntries(reply);
+    if (!entries.length) return { rows: [], currentRegionID: null };
+    const [graph, distances, detailAnswer, statics] = await Promise.all([
+      loadRouteGraph().catch(() => null), autopilotDistancesFrom(systemID).catch(() => null),
+      api.publicGatewayRequest("eve_public.sovereignty.skyhook.api.GetAllByCorporationRequest",
+        { corporation: { sequential: corporationID } }, scope.options).catch(() => null),
+      sovResourceStatic().catch(() => null),
+    ]);
+    scope.current();
+    const details = decodeSkyhookDetails(detailAnswer?.statusCode === 200 ? detailAnswer.payload : null);
+    const regionFor = (id: number): number | null => {
+      const constellationID = graph?.parentOf?.(id) ?? null;
+      return constellationID === null ? null : graph?.parentOf?.(constellationID) ?? null;
+    };
+    const rows: SkyhookRow[] = entries.map(entry => ({
+      ...entry,
+      regionID: regionFor(entry.systemID),
+      security: graph?.security(entry.systemID) ?? null,
+      jumps: entry.systemID === systemID ? 0 : distances?.get(entry.systemID) ?? null,
+      ...skyhookProduction(details.get(entry.id), statics?.planets.get(entry.planetID)),
+    }));
+    requestNames(rows.flatMap(row => [
+      { kind: "type", id: row.typeID },
+      { kind: "evelocation", id: row.systemID },
+      { kind: "evelocation", id: row.planetID },
+      ...(row.regionID === null ? [] : [{ kind: "evelocation" as const, id: row.regionID }]),
+      ...(row.harvest && "typeID" in row.harvest ? [{ kind: "type" as const, id: row.harvest.typeID }] : []),
+    ] satisfies NameRef[]));
+    return { rows, currentRegionID: regionFor(systemID) };
+  }
+
   async function structureDescriptionAllowed(scope: MemberOperation): Promise<boolean> {
     const key = "content_compliance_control_system_enabled";
     const config = await api.getGlobalConfig([key], scope.options);
@@ -39826,6 +39865,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     startMetenoxDrill,
     loadCorporationMoonSchedule,
     loadStructureBrowser,
+    loadMySkyhooks,
     loadStructureDescription,
     saveStructureDescription,
     changeStructureDecommission,
