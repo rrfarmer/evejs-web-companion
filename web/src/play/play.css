@@ -255,6 +255,7 @@ button { font: inherit; color: inherit; }
 .ship-mode { position: absolute; left: 50%; bottom: 252px; transform: translateX(-50%); color: var(--text-dim); font-size: 12px;
   text-shadow: 0 0 4px #000; pointer-events: none; text-align: center; max-width: min(800px, 95vw); }
 .ship-mode-header:not(:empty) { font-weight: 600; font-size: 16px; color: #eee; }
+.ship-mode-detail { white-space: pre-line; }
 /* IndicationMessageStandard's caption row: the command's icon (32 x 32) and the caption, 4 px apart, centred */
 .ship-mode-caption { display: flex; justify-content: center; align-items: center; gap: 4px; }
 .ship-mode-icon { width: 32px; height: 32px; }

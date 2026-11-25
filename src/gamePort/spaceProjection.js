@@ -376,23 +376,33 @@ function checkWarpDestination(warpPoint, destinationPoint, egoPoint, angularTole
   return Math.abs(angle) < angularTolerance || offset < distanceTolerance;
 }
 
+const warpDestinations = new WeakMap();
+
 /**
  * What the client's HUD words a warp from (spaceMgr.StartWarpIndication, IndicateWarp): whether the ship is
  * still lining up (the ball's effect stamp is negative until the warp proper begins), the point in the
  * server's WarpTo, and the thing the pilot asked to warp to, if it is in the park and lies where the warp
- * points (within pi/32 of the direction, or 20,000 km). The client makes that check once, as the warp is
- * ordered; here it is made on each reading, from where the ship then is.
+ * points (within pi/32 of the direction, or 20,000 km). Keep the measured position for that WarpTo order.
  */
 function warpOf(park, egoBall, destinationID, bookmark = null) {
   const point = park.warpPoint ?? null;
   // The ball's effect stamp goes with it: while the ship lines up it is minus one less the ticks spent so (WarpTo
   // sets -1, each tick of lining up takes one off), and the bar the client fills meanwhile is partly made of it.
   const base = { preparing: egoBall.effectStamp < 0, effectStamp: egoBall.effectStamp, point: point ? { ...point } : null };
-  if (bookmark) return { ...base, destinationID: null, ...bookmarkWarpWords(park, egoBall, point, bookmark) };
-  const id = destinationID === null || destinationID === undefined ? null : number(destinationID);
-  const thing = id === null ? null : park.ballpark.ball(id);
-  const lies = point && thing && checkWarpDestination(point, thing.newPos, egoBall.newPos, Math.PI / 32, 20000000);
-  return { ...base, destinationID: lies ? id : null, destinationName: null, actualPoint: lies ? { x: thing.newPos.x, y: thing.newPos.y, z: thing.newPos.z } : null };
+  const cached = point && warpDestinations.get(point);
+  if (cached) return { ...base, ...cached };
+  const source = park.warpOrigin ?? egoBall.newPos;
+  let destination;
+  if (bookmark) {
+    destination = { destinationID: null, ...bookmarkWarpWords(park, source, point, bookmark) };
+  } else {
+    const id = destinationID === null || destinationID === undefined ? null : number(destinationID);
+    const thing = id === null ? null : park.ballpark.ball(id);
+    const lies = point && thing && checkWarpDestination(point, thing.newPos, source, Math.PI / 32, 20000000);
+    destination = { destinationID: lies ? id : null, destinationName: null, actualPoint: lies ? { ...thing.newPos } : null };
+  }
+  if (point && destination.actualPoint) warpDestinations.set(point, destination);
+  return { ...base, ...destination };
 }
 
 /**
@@ -402,7 +412,7 @@ function warpOf(park, egoBall, destinationID, bookmark = null) {
  * and the warp points there; with no memo it says nothing. A place's bookmark, where the warp points there and it has
  * a memo, is named by it and measured to the place; else nothing, the memo's place included.
  */
-function bookmarkWarpWords(park, egoBall, point, bookmark) {
+function bookmarkWarpWords(park, source, point, bookmark) {
   const none = { destinationName: null, actualPoint: null };
   const memo = typeof bookmark.memo === "string" ? bookmark.memo : "";
   const tab = memo.indexOf("\t");
@@ -410,10 +420,10 @@ function bookmarkWarpWords(park, egoBall, point, bookmark) {
   if (!bookmark.point) {
     if (!memo) return none;
     const thing = bookmark.itemID === null || bookmark.itemID === undefined ? null : park.ballpark.ball(number(bookmark.itemID));
-    const at = point && thing && checkWarpDestination(point, thing.newPos, egoBall.newPos, Math.PI / 32, 20000000);
+    const at = point && thing && checkWarpDestination(point, thing.newPos, source, Math.PI / 32, 20000000);
     return { destinationName: title, actualPoint: at ? { x: thing.newPos.x, y: thing.newPos.y, z: thing.newPos.z } : null };
   }
-  if (!point || !checkWarpDestination(point, bookmark.point, egoBall.newPos, Math.PI / 32, 20000000) || !memo) return none;
+  if (!point || !checkWarpDestination(point, bookmark.point, source, Math.PI / 32, 20000000) || !memo) return none;
   return { destinationName: title, actualPoint: { ...bookmark.point } };
 }
 

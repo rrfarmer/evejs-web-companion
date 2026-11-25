@@ -212,7 +212,7 @@ export function warpIndication(snapshot: SpaceSnapshot | null | undefined): Warp
  */
 function warpAim(snapshot: SpaceSnapshot, warp: NonNullable<NonNullable<SpaceSnapshot["ship"]>["warp"]>): { readonly to: SpaceVector; readonly thingID: number | null; readonly measured: boolean } {
   const thing = warp.destinationID === null ? null : (snapshot.entities.find((entity) => entity.itemID === warp.destinationID) ?? null);
-  if (warp.actualPoint) return { to: warp.actualPoint, thingID: thing ? thing.itemID : null, measured: true };
+  if (warp.actualPoint) return { to: warp.actualPoint, thingID: warp.destinationID, measured: true };
   if (thing) return { to: thing.position, thingID: thing.itemID, measured: true };
   return { to: warp.point as SpaceVector, thingID: null, measured: false };
 }
@@ -371,20 +371,21 @@ export function warpText(
   destinationName: string | null,
   templates: Readonly<Record<string, string | null | undefined>>,
   say?: DistanceSay,
+  lineSeparator = " · ",
 ): string {
   const named = destinationName !== null;
   const far = fmtDist(indication.distance, 2, say);
   const [destination, withDistance, withBubble, distance] = [WARP_LABELS.destination, WARP_LABELS.withDistance, WARP_LABELS.withDistanceAndBubble, WARP_LABELS.distance].map((label) => templates[label]);
   if (typeof destination !== "string" || typeof withDistance !== "string" || typeof withBubble !== "string" || typeof distance !== "string") {
     const parts = [named ? `To ${destinationName}` : null, indication.distance > 0 ? `${far} to go` : null];
-    return parts.filter((part) => part !== null).join(" · ");
+    return parts.filter((part) => part !== null).join(lineSeparator);
   }
   const none = { nameOf: () => "" };
   const where = named ? `${formatTemplate(destination, { destinationName }, none)}<br>` : "";
   const text = indication.distance > 0
     ? formatTemplate(indication.measured ? withDistance : withBubble, { warpDestination: where, distance: formatTemplate(distance, { distToItem: far }, none) }, none)
     : where;
-  return plainText(text).split("\n").map((line) => line.trim()).filter((line) => line.length > 0).join(" · ");
+  return plainText(text).split("\n").map((line) => line.trim()).filter((line) => line.length > 0).join(lineSeparator);
 }
 const OWN_POINT: Readonly<Record<PointKind, string>> = { approachPoint: "Heading for a point in space", alignPoint: "Turning towards a point in space" };
 

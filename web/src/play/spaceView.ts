@@ -1199,6 +1199,7 @@ export class SpaceView {
   private frameCount = 0;
   private stopped = false;
   private readonly warpTunnel = new WarpTunnel();
+  private namedWarp: { shipID: number; warp: ShipWarp } | null = null;
   private warpHullLighting: WarpHullLighting | null = null;
   private readonly warpPlanets = new WarpPlanetCrossings();
   private warpHiddenBody: THREE.Object3D | null = null;
@@ -2307,6 +2308,28 @@ export class SpaceView {
     void playUiEvent("ui_radial_select_play");
   }
 
+  /** The live park owns the warp phase. The session remembers what the pilot asked it to aim at. */
+  private keepWarpDestination(ship: Snapshot["ship"]): void {
+    const warp = ship?.warp, point = warp?.point;
+    if (!ship || !warp || !point) {
+      this.namedWarp = null;
+      return;
+    }
+    const samePoint = (candidate: ShipWarp | null | undefined) => candidate?.point?.x === point.x &&
+      candidate.point.y === point.y && candidate.point.z === point.z;
+    const reported = this.options.flightSnapshot?.()?.ship;
+    const destination = reported?.warp;
+    if (reported?.itemID === ship.itemID && reported.mode === "WARP" && destination && samePoint(destination) &&
+        (destination.destinationID !== null || destination.destinationName || destination.actualPoint)) {
+      this.namedWarp = { shipID: ship.itemID, warp: destination };
+    }
+    const named = this.namedWarp;
+    if (named?.shipID === ship.itemID && samePoint(named.warp)) {
+      const { destinationID, destinationName, actualPoint } = named.warp;
+      ship.warp = { ...warp, destinationID, destinationName, actualPoint };
+    } else this.namedWarp = null;
+  }
+
   private updateIndication(snapshot: Snapshot | null, now: number): void {
     if (this.temporaryIndication && now >= this.temporaryIndication.until) this.temporaryIndication = null;
     // The park gives the current mode. Only use the session's navigation details for that same manoeuvre.
@@ -2315,7 +2338,7 @@ export class SpaceView {
     const ship = live?.ship;
     const details = reported?.ship;
     const flight = live && ship && details && ship.itemID === details.itemID && ship.mode === details.mode && (details.alignTarget || details.warp)
-      ? { ...live, ship: { ...ship, alignTarget: ship.alignTarget ?? details.alignTarget, warp: ship.warp ?? details.warp } }
+      ? { ...live, ship: { ...ship, alignTarget: ship.alignTarget ?? details.alignTarget, warp: ship.warp?.point ? ship.warp : details.warp ?? ship.warp } }
       : live;
     let text = this.shortcutIndication ?? this.temporaryIndication;
     if (!text) {
@@ -2329,7 +2352,7 @@ export class SpaceView {
         const { kind } = indication;
         const header = indicationHeader(kind, words);
         if ("followID" in indication) text = indicationText(indication, name(indication.followID) ?? "", words);
-        else if ("destinationID" in indication) text = { header, sub: warpText(indication, indication.destinationName ?? name(indication.destinationID), words) };
+        else if ("destinationID" in indication) text = { header, sub: warpText(indication, indication.destinationName ?? name(indication.destinationID), words, undefined, "\n") };
         else if ("targetID" in indication) text = { header, sub: alignText(indication, name(indication.targetID), words) };
         else text = { header, sub: pointText(indication.kind, words) };
       }
@@ -6133,6 +6156,7 @@ export class SpaceView {
     if (snap) this.primeEntityLocations(snap.entities);
     this.checkModuleTargetSession();
     const ego = snap?.ship ?? null;
+    this.keepWarpDestination(ego);
     const now = performance.now(), dt = Math.min(0.1, (now - this.lastFrameAt) / 1000);
     this.lastFrameAt = now;
     this.steerFrame(ego, dt, now);
