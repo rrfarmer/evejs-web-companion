@@ -805,6 +805,7 @@ export async function getShipBays(
 export interface RawCorpDivision {
   readonly division: number;
   readonly name: string | null;
+  readonly canTake: boolean;
   readonly list: JsonValue;
   readonly error: string | null;
   readonly volumes: Readonly<Record<string, number>>;
@@ -846,6 +847,7 @@ export async function loadCorpHangar(options: ApiOptions = {}): Promise<RawCorpH
       return {
         division: Number(row.division) || 0,
         name: typeof row.name === "string" && row.name !== "" ? row.name : null,
+        canTake: row.canTake === true,
         list: row.list ?? null,
         error: typeof row.error === "string" ? row.error : null,
         volumes: typeof row.volumes === "object" && row.volumes !== null && !Array.isArray(row.volumes)

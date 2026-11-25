@@ -323,6 +323,7 @@ export interface CorpDivisionState {
    * renamed (the UI then falls back to "Division N" — never a flag number).
    */
   readonly name: string | null;
+  readonly canTake?: boolean;
   readonly rows: readonly InventoryItemRow[];
   readonly error: string | null;
 }

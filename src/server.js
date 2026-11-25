@@ -4461,6 +4461,7 @@ app.get("/api/bridge/inventory/corp", requireAuth, async (req, res, next) => {
           // The player-authored name; the browser falls back to "Division N"
           // when a corporation never renamed it. A flag number is never shown.
           name: divisionNames[division] || null,
+          canTake: (held.corpHangarTakeMask & (1 << (division - 1))) !== 0,
           list: settled.status === "fulfilled" ? settled.value.result : null,
           volumes: settled.status === "fulfilled" ? readTypeVolumes(settled.value.result, packagedForVolumes) : {},
           error:
@@ -10032,8 +10033,9 @@ async function readHeldFlight(held, webSessionID, { adoptShip = false } = {}) {
     // The roles the session has in its corporation, where the transport says them (the game port does, as the
     // digits of session.corprole; the gateway does not). Kept here for the routes that go by them, and left out
     // of what the page is handed.
-    const { corpRole = null, corporationID, ...flight } = outcome && outcome.flight ? outcome.flight : {};
+    const { corpRole = null, corpHangarTakeMask = 0, corporationID, ...flight } = outcome && outcome.flight ? outcome.flight : {};
     held.corpRole = corpRole;
+    held.corpHangarTakeMask = corpHangarTakeMask;
     // The corporation the session is in now, where the transport says it (the game port does, the gateway does
     // not). held.corporationID is otherwise set only at select, so after the pilot joins, leaves or founds a
     // corporation the routes that go by it (the offices' rent, a contract's corporation, the corporation's

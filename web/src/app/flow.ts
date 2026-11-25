@@ -2363,7 +2363,7 @@ export interface AppFlow {
    * where that is the whole stack and NoRoomForMore where not); null where cancelled, nothing, or the stack is gone.
    */
   askMoveQuantity(itemID: number, from: InventoryPlace, to: InventoryPlace): Promise<number | null>;
-  splitInventoryStack(itemID: number, place: "hangar" | "cargo"): Promise<void>;
+  splitInventoryStack(itemID: number, place: "hangar" | "cargo" | Extract<InventoryPlace, { kind: "corp" }>): Promise<void>;
   /** Re-merge one stack into another of the same type. */
   mergeStacks(
     sourceItemID: number,
@@ -10157,6 +10157,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       divisions: reads.divisions.map((division) => ({
         division: division.division,
         name: division.name,
+        canTake: division.canTake,
         // A division the character cannot query answers an EMPTY list, not an
         // error — the server filtered it, and that is the authority.
         rows: division.list === null ? [] : decodeInventoryRows(division.list),
@@ -37363,19 +37364,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       });
       return quantity !== null && quantity > 0 ? quantity : null;
     },
-    async splitInventoryStack(itemID, kind) {
-      const place = { kind } as const;
+    async splitInventoryStack(itemID, target) {
+      const place = typeof target === "string" ? { kind: target } as const : target;
       const current = callOptions.captureRequestGuard!();
       const dock = dockedNow();
       if (dock === null) return;
-      const source = inventoryAt(place);
-      const pilotID = store.station.get().online?.characterID;
-      if (pilotID == null) return;
+      const ownerAt = () => {
+        const online = store.station.get().online;
+        return place.kind === "corp" ? online?.corporationID : online?.characterID;
+      };
+      const canTake = () => place.kind !== "corp" ||
+        store.inventory.get().corp.divisions.some(division => division.division === place.division && division.canTake === true);
+      const ownerID = ownerAt();
+      if (ownerID == null || !canTake()) return;
+      const source = await inventoryOfPlace(place);
+      current();
+      if (dockedNow() !== dock || ownerAt() !== ownerID) return;
       const flag = moveFlagOf(place);
+      const reload = place.kind === "corp" ? loadCorpHangar : loadInventory;
       const sourceRow = () => rowsAt(place)?.find(row => row.itemID === itemID);
       const stack = sourceRow();
       if (!stack || stack.singleton || stack.quantity <= 1 ||
-          stack.ownerID !== pilotID || stack.locationID !== source.liesIn || stack.flagID !== flag) return;
+          stack.ownerID !== ownerID || stack.locationID !== source.liesIn || stack.flagID !== flag) return;
       const label = "UI/Inventory/ItemActions/DivideItemStack";
       await wordsNow([label]).catch(() => {});
       current();
@@ -37385,21 +37395,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
       await runInventoryAction(async () => {
         current();
-        await loadInventory();
+        await reload();
         current();
         const row = sourceRow();
-        if (dockedNow() !== dock || inventoryAt(place).liesIn !== source.liesIn || !row ||
+        if (dockedNow() !== dock || ownerAt() !== ownerID || !canTake() || !row ||
             row.singleton || row.quantity !== stack.quantity || row.typeID !== stack.typeID ||
-            row.ownerID !== pilotID || row.locationID !== source.liesIn || row.flagID !== flag) {
+            row.ownerID !== ownerID || row.locationID !== source.liesIn || row.flagID !== flag) {
           throw new Error("The stack changed. Select it again to split it.");
         }
         const split = await inventoryMoves.act("invbroker", "Add", [itemID, source.liesIn], { qty: quantity, flag }, source.inventory);
         const splitID = Number(unwrapLong(split));
-        await loadInventory();
+        await reload();
         current();
         const added = rowsAt(place)?.find(after => after.itemID === splitID);
         const applied = splitID > 0 && splitID !== itemID && sourceRow()?.quantity === stack.quantity - quantity &&
-          added?.typeID === stack.typeID && added.quantity === quantity && added.ownerID === pilotID &&
+          added?.typeID === stack.typeID && added.quantity === quantity && added.ownerID === ownerID &&
           added.locationID === source.liesIn && added.flagID === flag;
         return { applied, declinedSilently: !applied, message: applied
           ? `Split off ${quantity.toLocaleString()} ${quantity === 1 ? "unit" : "units"}.`

@@ -187,6 +187,7 @@
   const panelID = $props.id();
   const REPAIR_QUOTE_LABEL = "UI/Inventory/ItemActions/GetRepairQuote";
   const REPACKAGE_LABEL = "UI/Inventory/ItemActions/Repackage";
+  const SPLIT_STACK_LABEL = "UI/Inventory/ItemActions/SplitStack";
   const MARKET_DETAILS_LABEL = "UI/Inventory/ItemActions/ViewTypesMarketDetails";
   const SELL_ITEM_LABEL = "UI/Inventory/ItemActions/SellThisItem";
   const SELL_ITEMS_LABEL = "UI/Inventory/ItemActions/MultiSell";
@@ -621,7 +622,7 @@
 
   onMount(() => {
     flow.requestWords([ABYSS_WINDOW_LABELS.activateKey, CONFIRM_MOVE_TO_NEWBIE_SHIP, ASSEMBLE_CONTAINER_LABEL,
-      "UI/Inventory/AssetSafety/AssetSafetyDeliveries", REPAIR_QUOTE_LABEL, REPACKAGE_LABEL,
+      "UI/Inventory/AssetSafety/AssetSafetyDeliveries", REPAIR_QUOTE_LABEL, REPACKAGE_LABEL, SPLIT_STACK_LABEL,
       MARKET_DETAILS_LABEL, SELL_ITEM_LABEL, SELL_ITEMS_LABEL]);
     void run(async () => {
       await flow.loadInventory();
@@ -2526,8 +2527,21 @@
       {:else}
         {#if menu.contextAnchor}
           {@const reprocessIDs = reprocessingSelection(menu.row, menu.place)}
+          {@const place = menu.place}
           <button type="button" class="stn-menu-item"
             onclick={() => contextAction(row => showInfo({ kind: "type", typeID: row.typeID }))}>Show Info</button>
+          {#if place.kind === "corp" && !menu.row.singleton && menu.row.quantity > 1 &&
+            menu.row.ownerID === $station.online?.corporationID &&
+            (!isPicked(menu.row, place) || selection.length === 1) &&
+            $inventory.corp.divisions.some(division => division.division === place.division && division.canTake)}
+            <button type="button" class="stn-menu-item" disabled={busy}
+              onclick={() => {
+                const source = place;
+                contextAction(row => void run(() => flow.splitInventoryStack(row.itemID, source)));
+              }}>
+              {plainText($words.templates[SPLIT_STACK_LABEL] ?? "") || "Split Stack"}
+            </button>
+          {/if}
           {#if isOpenableContainer(menu.row)}
             <button type="button" class="stn-menu-item" disabled={busy}
               onclick={() => contextAction(openInventoryContainer)}>Open Container</button>

@@ -5118,6 +5118,11 @@ function createGamePortPilots({
     const entry = held(bridgeSessionID, sessionFields);
     const place = whereabouts(entry);
     const ship = place.shipID ? await shipFacts(entry, place) : null;
+    const dock = place.stationID ?? place.structureID;
+    const divisionRoleField = dock && dock === attribute(entry, "hqID") ? "rolesAtHQ"
+      : dock && dock === attribute(entry, "baseID") ? "rolesAtBase" : "rolesAtOther";
+    // menucheckers/sessionChecker.py: the seven division take bits at this dock.
+    const divisionRoles = wholeOf(entry.session.attributes[divisionRoleField]) ?? 0n;
     return {
       flight: {
         inSpace: place.inSpace,
@@ -5135,6 +5140,7 @@ function createGamePortPilots({
         // client's lobby reads its buttons off it (dockedUI/controllers/baseController.py, _HasRole). A 64-bit
         // mask, so as its digits. The BFF keeps it for itself and hands the page none of it.
         corpRole: String(wholeOf(entry.session.attributes.corprole) ?? 0n),
+        corpHangarTakeMask: dock ? Number((divisionRoles >> 13n) & 127n) : 0,
         // session.corpid: the corporation the pilot is in, as the server's session has it now. A pilot's
         // corporation changes under it (one joined, left or founded), and the BFF's routes that go by the pilot's
         // corporation are to go by this one. The gateway's flight does not say it. The BFF keeps it for itself, as
