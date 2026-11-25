@@ -2736,6 +2736,7 @@ export interface AppFlow {
     asks: ReadonlyMap<number, { price: string; quantity: number; stationID: number | null }>;
   }>;
   marketGroupDistances(stationIDs: readonly number[]): Promise<ReadonlyMap<number, number>>;
+  requiredSkillsFor(typeIDs: readonly number[]): Promise<RequiredSkills | null>;
   /**
    * The pilot's escrow watched as the client's market progression is (MarketProgressionNotifier.register_subscriber):
    * the kept value said, asked again where due and every twelve hours while watched. Answers the watch's end.
@@ -38981,6 +38982,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     exportMarketBook,
     marketGroupAsks,
     marketGroupDistances,
+    requiredSkillsFor,
     assetSaleAsked: readonlySignal(assetSaleAskedSignal),
     assetRepairShop: readonlySignal(assetRepairShopSignal),
     openAssetRepair,

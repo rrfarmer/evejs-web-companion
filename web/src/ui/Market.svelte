@@ -70,6 +70,7 @@
   import { assetSearchTextForType } from "../bridge/assetSearch.ts";
   import type { JsonValue } from "../bridge/wire.ts";
   import type { TypeMetaFacts } from "../app/api.ts";
+  import type { RequiredSkills } from "../bridge/missingSkills.ts";
   import { showInfo } from "./showInfo.ts";
   import { buyMarketType, showMarketDetails } from "./marketDetails.ts";
   import { findInContracts } from "./contractsSearch.ts";
@@ -96,6 +97,8 @@
   const names = store.names;
   // svelte-ignore state_referenced_locally
   const words = store.words;
+  const skills = $derived(store.skills);
+  const fitting = $derived(store.fitting);
   const quickbar = marketQuickbar;
 
   // --- The Quickbar (the market window's left tabs, marketbase.py 378 to 381: Browse and Quickbar) ---------------
@@ -130,6 +133,10 @@
     "UI/Market/MarketQuote/HeaderMinVolumn": "Min Volume",
     "UI/Common/LocationTypes/Station": "Station",
     "UI/Common/LocationTypes/System": "System",
+    "UI/Market/Marketbase/PowerRequirementMet": "Powergrid requirement met",
+    "UI/Market/Marketbase/PowerRequirementNotMet": "Powergrid requirement not met",
+    "UI/Market/Marketbase/CpuRequirementMet": "CPU requirement met",
+    "UI/Market/Marketbase/CpuRequirementNotMet": "CPU requirement not met",
     "UI/Common/LocationTypes/SolarSystem": "Solar System",
     "UI/Common/LocationTypes/Region": "Region",
     "UI/Common/LocationTypes/Unreachable": "Unreachable",
@@ -1023,6 +1030,79 @@
   const routeSettings = $derived(flow.routeSettings);
   let groupAsksError = $state(false);
   let groupFacts = $state.raw<ReadonlyMap<number, TypeMetaFacts | null> | null>(null);
+  let groupSkillNeeds = $state.raw<RequiredSkills | null>(null);
+  let groupModuleAttributes = $state.raw<Awaited<ReturnType<AppFlow["typeAttributes"]>> | null>(null);
+  const marketSkills = $derived($skills.skills === null ? null : new Map($skills.skills.map(skill => [skill.typeID, skill])));
+  const fittingResources = $derived($fitting.resources);
+  const skillFrames = {
+    missing: ["doNotHaveFrame", "DoNotHave"],
+    partial: ["levelPartiallyTrainedFrame", "PartiallyTrained"],
+    trained: ["levelTrainedFrame", "Trained"],
+    full: ["fullyTrainedFrame", "FullyTrained"],
+  } as const;
+  const skillHintFallback = {
+    missing: "Required skillbooks are missing",
+    partial: "Required skills are partially trained",
+    trained: "Required skills are trained",
+    full: "Required skills are fully trained",
+  } as const;
+  const POWER = 30;
+  const CPU = 50;
+  const LEVELS = [1, 2, 3, 4, 5];
+
+  function groupSkillStatus(typeID: number, categoryID: number | null | undefined) {
+    if (!marketSkills || !groupSkillNeeds) return null;
+    const own = categoryID === 16 ? marketSkills.get(typeID) : undefined;
+    if (own) return { own } as const;
+    const required = groupSkillNeeds[typeID] ?? [];
+    if (!required.length) return null;
+    const levels = required.map(([id, need]) => ({ level: marketSkills?.get(id)?.level, need }));
+    const status = levels.some(({ level }) => level === undefined) ? "missing"
+      : levels.some(({ level, need }) => (level ?? 0) < need) ? "partial"
+      : levels.every(({ level }) => level === 5) ? "full" : "trained";
+    const [frame, suffix] = skillFrames[status];
+    const prefix = categoryID === 6 ? "ShipSkillReq" : categoryID === 16 ? "SkillReq" : "ItemSkillReq";
+    return { frame, label: `UI/InfoWindow/${prefix}${suffix}`, fallback: skillHintFallback[status] } as const;
+  }
+
+  function groupFittingNeeds(typeID: number) {
+    const attrs = groupModuleAttributes?.[typeID];
+    if (!attrs) return [];
+    return [
+      { key: "powergrid", icon: "power", label: "Power", amount: attrs[POWER] ?? 0, reading: fittingResources?.powergrid },
+      { key: "cpu", icon: "cpu", label: "Cpu", amount: attrs[CPU] ?? 0, reading: fittingResources?.cpu },
+    ].map(({ key, icon, label, amount, reading }) => ({
+      key, amount,
+      // An unknown ship total cannot establish either state.
+      state: reading?.known ? reading.total - reading.used >= amount ? "Met" : "NotMet" : null,
+      icon, label,
+    }));
+  }
+
+  $effect(() => {
+    if (tab !== "groups") return;
+    const online = $station.online;
+    if (!online) return;
+    if ($skills.skills === null && !$skills.error) void flow.loadSkills().catch(() => {});
+    const labels = ["ShipSkillReq", "SkillReq", "ItemSkillReq"].flatMap(prefix =>
+      Object.values(skillFrames).map(([, suffix]) => `UI/InfoWindow/${prefix}${suffix}`));
+    flow.requestWords(labels);
+  });
+
+  $effect(() => {
+    if (tab !== "groups" || browsing || !groupFacts) return;
+    const ids = groupTypes.map(item => item.typeID);
+    const modules = ids.filter(id => [7, 66].includes(groupFacts?.get(id)?.categoryID ?? 0));
+    let current = true;
+    groupSkillNeeds = null;
+    groupModuleAttributes = null;
+    if (ids.length) void flow.requiredSkillsFor(ids).then(needs => { if (current) groupSkillNeeds = needs; }).catch(() => {});
+    if (modules.length) {
+      void flow.typeAttributes(modules, [POWER, CPU]).then(attrs => { if (current) groupModuleAttributes = attrs; }).catch(() => {});
+      void flow.loadFitting().catch(() => {});
+    }
+    return () => { current = false; };
+  });
   const groupAtStation = $derived($station.online?.stationID != null);
   const groupDocked = $derived(groupAtStation || $station.online?.structureID != null);
   const scopeLabels: Record<MarketGroupScope, string> = {
@@ -1528,6 +1608,8 @@
         {@const description = fact?.descriptionID ? $words.templates[`#${fact.descriptionID}`] : null}
         {@const ask = groupAsks?.asks.get(item.typeID)}
         {@const scope = groupAsks?.scope ?? groupScope}
+        {@const skill = groupSkillStatus(item.typeID, fact?.categoryID)}
+        {@const fittingNeeds = groupFittingNeeds(item.typeID)}
         <article class="mkt-group-card">
           <TypeIcon typeID={item.typeID} name={item.name} size="lg" />
           <div>
@@ -1535,6 +1617,32 @@
               <button type="button" class="mkt-info" aria-label={qbWord("UI/Commands/ShowInfo")}
                 onclick={() => showInfo({ kind: "type", typeID: item.typeID })}>i</button>
             </h3>
+            {#if skill || fittingNeeds.length}
+              <div class="mkt-group-requirements">
+                {#if skill?.own}
+                  <span class="mkt-group-skill-level" role="img" aria-label={`Skill level ${skill.own.level} of 5`}>
+                    {#each LEVELS as level (level)}
+                      <span class:trained={level <= skill.own.level} class:training={level === skill.own.level + 1 && skill.own.inTraining}></span>
+                    {/each}
+                  </span>
+                {:else if skill?.frame}
+                  {@const hint = qbWord(skill.label) || skill.fallback}
+                  <button class="mkt-group-skill-icon" type="button" title={hint} aria-label={hint}
+                    onclick={() => showInfo({ kind: "type", typeID: item.typeID })}>
+                    <img src={clientTexture(`res:/UI/Texture/Classes/Skills/${skill.frame}.png`)} alt="" />
+                  </button>
+                {/if}
+                {#each fittingNeeds as need (need.key)}
+                  {@const hint = need.state ? qbWord(`UI/Market/Marketbase/${need.label}Requirement${need.state}`) : need.label === "Cpu" ? "CPU" : "Powergrid"}
+                  <span class="mkt-group-resource" data-resource={need.key} data-state={need.state} title={hint}>
+                    {#if need.state}
+                      <img src={clientTexture(`res:/UI/Texture/Classes/Market/${need.icon}Requirement${need.state}.png`)} alt={hint} />
+                    {:else}<span>{hint}</span>{/if}
+                    <strong>{need.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}</strong>
+                  </span>
+                {/each}
+              </div>
+            {/if}
             {#if description}<p>{plainText(description)}</p>{/if}
             {#if groupAsks}
               <p class="mkt-group-ask">
@@ -2216,6 +2324,14 @@
   .mkt-group-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px;
     padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.12); }
   .mkt-group-card p { margin: 0 0 8px; white-space: pre-line; }
+  .mkt-group-requirements { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px; margin-bottom: 6px; }
+  .mkt-group-skill-icon { padding: 0; width: 24px; height: 24px; background: transparent; border: 0; cursor: pointer; }
+  .mkt-group-requirements img { display: block; width: 24px; height: 24px; }
+  .mkt-group-resource { min-width: 28px; display: grid; justify-items: center; gap: 2px; font-size: 11px; }
+  .mkt-group-skill-level { display: inline-flex; align-items: center; gap: 2px; height: 24px; }
+  .mkt-group-skill-level span { width: 7px; height: 8px; border: 1px solid #778991; }
+  .mkt-group-skill-level span.trained { background: #c3d8de; }
+  .mkt-group-skill-level span.training { background: #719da8; }
   .mkt-group-actions { display: flex; flex-wrap: wrap; gap: 6px; }
   .mkt-order-controls { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 8px; }
   .mkt-order-controls button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 #b8c0c1; }

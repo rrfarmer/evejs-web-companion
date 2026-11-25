@@ -27,12 +27,13 @@
     read = null;
     void (async () => {
       const facts = await flow.skillPlanTypeFacts([id]);
-      if (facts?.categoryID.get(id) !== 6 || !current) return;
+      if (!facts || !current) return;
+      const ship = facts.categoryID.get(id) === 6;
       const skills = (facts.required[id] ?? []).length;
       const options = flow.requestOptions();
       const [lists, dogma] = await Promise.all([
-        skills === 0 ? loadTypeListsHolding([id], [992], options) : {},
-        navigation ? fetchTypeDogma([id], [BASE_UPWELL_JUMP_COST], options).catch(() => null) : null,
+        ship && skills === 0 ? loadTypeListsHolding([id], [992], options) : {},
+        ship && navigation ? fetchTypeDogma([id], [BASE_UPWELL_JUMP_COST], options).catch(() => null) : null,
       ]);
       if (!current) return;
       flow.requestWords([REQUIREMENTS, NO_ACADEMY_SKILLS, NAVIGATION]);
