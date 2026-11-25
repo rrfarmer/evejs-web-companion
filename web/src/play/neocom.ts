@@ -124,6 +124,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
     { id: "marketorders", label: "Market Orders", icon: icon("marketOrders") },
     { id: "wallet", label: "Wallet", icon: icon("wallet") },
     { id: "contracts", label: "Contracts", icon: icon("contracts") },
+    { id: "multibuy", label: "Multibuy", icon: clientTexture("res:/UI/Texture/classes/MultiSell/multiBuy.png") },
   ] },
   { label: "Industry", icon: icon("directoryIndustry"), items: [
     { id: "industry", label: "Industry", icon: icon("industry") },

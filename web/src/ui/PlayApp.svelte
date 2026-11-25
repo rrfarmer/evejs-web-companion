@@ -1932,12 +1932,16 @@
   function neocomOpen(id: string) {
     if (id === "map") { toggleStarMap(); return; }
     if (id === "bountyOffice") { toggleBountyOffice(); return; }
+    if (id === "multibuy") { openMultibuy(); return; }
     const tab = NEOCOM_TABS[id];
     if ((tab === "shipTree" || tab === "marketOrders") && wins.some(win => win.id === tab && !win.minimized)) wins = closeWindow(wins, tab);
     else if (tab) open(tab);
   }
   function toggleBountyOffice() {
     bountyOffice = bountyOffice ? null : { target: null };
+  }
+  function openMultibuy() {
+    void session?.flow.openMultiBuy(new Map()).catch(() => {});
   }
   function showSystemOnMap(systemID: number) {
     requestedMapSystem = systemID;
@@ -2406,6 +2410,11 @@
     if (cmd === "OpenBountyOffice") {
       e.preventDefault();
       toggleBountyOffice();
+      return;
+    }
+    if (cmd === "OpenMultibuy") {
+      e.preventDefault();
+      openMultibuy();
       return;
     }
     if (spaceCommand(cmd)) { e.preventDefault(); return; }

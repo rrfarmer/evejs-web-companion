@@ -1358,7 +1358,7 @@
 {#if $multiBuyAsked !== null}
   {@const buy = $multiBuyAsked}
   {@const sum = buy.rows.reduce((total, row) => total + (row.price ?? 0) * row.qty * buy.multiplier, 0)}
-  <div class="client-dialog-shade" class:modal={inFront}>
+  <div class="client-dialog-shade">
     <div class="client-dialog multibuy" class:disabled={buy.disabled} role="dialog" aria-label={buyWord("UI/Inventory/ItemActions/MultiBuy")} data-dialog="MultiBuy" data-in-front={inFront}>
       {#if !inFront && pilotName !== null}
         <span class="for-pilot">For {pilotName}</span>
