@@ -43,6 +43,7 @@
   import ReprocessingPlant from "./ReprocessingPlant.svelte";
   import StationInsurance from "./StationInsurance.svelte";
   import StationSecurityOffice from "./StationSecurityOffice.svelte";
+  import StationCharacterRecustomization from "./StationCharacterRecustomization.svelte";
   import StationLpStore from "./StationLpStore.svelte";
   import DronesPanel from "./DronesPanel.svelte";
   import ShotsPanel from "./ShotsPanel.svelte";
@@ -280,6 +281,8 @@
   {#if stationID}
     {#key stationID}<StationSecurityOffice {store} {flow} {stationID} />{/key}
   {/if}
+{:else if tab === "characterRecustomization" && isDocked}
+  {#key $stationSlice.online?.characterID}<StationCharacterRecustomization {store} {flow} />{/key}
 {:else if tab === "lpStore" && isDocked}
   {@const stationID = $stationSlice.online?.stationID}
   {@const issuerID = $stationSlice.bits?.ownerID}

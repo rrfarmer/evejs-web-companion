@@ -20,6 +20,7 @@ export type CoreTabID =
   | "insurance"
   | "lpStore"
   | "securityOffice"
+  | "characterRecustomization"
   | "drones"
   | "shots"
   | "equipment"
@@ -197,6 +198,7 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "insurance", label: "Insurance", where: "docked", launchable: false },
   { id: "lpStore", label: "Loyalty Point Store", where: "docked", launchable: false },
   { id: "securityOffice", label: "Security Office", where: "docked", launchable: false },
+  { id: "characterRecustomization", label: "Character Recustomization", where: "docked", launchable: false },
   // Two sections of the old overview cockpit, now windows of their own. Both
   // are LAUNCHABLE on purpose: "where are my drones" and "what just hit me" are
   // questions a pilot asks without anything having been clicked first.

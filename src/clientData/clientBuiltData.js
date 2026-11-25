@@ -94,6 +94,8 @@ const TABLES = Object.freeze({
   paints: Object.freeze({ loader: "paintsLoader", resource: "res:/staticdata/paints.fsdbinary", keyOrder: true }),
   // (keyed by name: JSON keeps that order).
   hueCategories: Object.freeze({ loader: "hueCategoriesLoader", resource: "res:/staticdata/huecategories.fsdbinary" }),
+  portraitResources: Object.freeze({ loader: "character_portraitresourcesLoader",
+    resource: "res:/staticdata/character_portraitresources.fsdbinary" }),
   // The special effects that are a jump (fsdBuiltData/client/travelEffects.py, by guid): IsTravelEffect.
   travelEffects: Object.freeze({ loader: "travelEffectsLoader", resource: "res:/staticdata/traveleffects.fsdbinary" }),
   // The skills a type needs and at what level, by type (evetypes/skills.py get_dogma_required_skills), which the

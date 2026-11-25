@@ -19098,6 +19098,36 @@ app.post("/api/icons/cache", requireAuth, (req, res) => {
 // group's icon, a career banner, the new HUD's res:/UI/HUD art): /client-res/ui/texture/... answers an indexed PNG, JPEG or a supported DDS
 // converted to PNG, or 404 (src/clientData/clientTextures.js). No session: the install's pictures do not vary by
 // player. Above the catch-all, for the same reason as the icon cache below.
+function portraitBackdrop(row) {
+  const resource = typeof row?.resPath === "string" ? row.resPath.toLowerCase() : "";
+  return row?.resourceCategory === "background" &&
+    /^res:\/ui\/texture\/charactercreation\/(?:background|backdrops)\/[a-z0-9_-]+\.(?:dds|png|jpg)$/.test(resource)
+    ? resource : null;
+}
+
+app.get("/api/client-data/portrait-backgrounds", requireAuth, async (_req, res, next) => {
+  try {
+    const resources = await clientBuiltData.table("portraitResources");
+    const backgrounds = Object.entries(resources ?? {}).flatMap(([key, row]) => {
+      const resource = portraitBackdrop(row);
+      return resource && row.typeID == null ? [{ id: Number(key), isDds: resource.endsWith(".dds") }] : [];
+    });
+    res.json({ ok: true, backgrounds });
+  } catch (error) { next(error); }
+});
+
+app.get(/^\/client-res\/portrait-background\/(\d+)$/, async (req, res, next) => {
+  try {
+    const resources = await clientBuiltData.table("portraitResources");
+    const resource = portraitBackdrop(resources?.[req.params[0]]);
+    const file = resource && clientTextures.fileFor(resource);
+    if (!file) { res.status(404).end(); return; }
+    res.set("Cache-Control", "public, max-age=2592000, immutable");
+    res.type(resource.endsWith(".dds") ? "application/octet-stream" : resource.endsWith(".jpg") ? "image/jpeg" : "image/png");
+    res.sendFile(file, error => { if (error && !res.headersSent) res.status(404).end(); });
+  } catch (error) { next(error); }
+});
+
 app.get(/^\/client-res\/(ui\/texture\/[A-Za-z0-9_./-]+\.(?:png|jpg|dds)|ui\/inflight\/tactical\/[a-z0-9_]+\.dds|ui\/hud\/[a-z0-9_]+\.png|dx9\/model\/[a-z0-9_./-]+\/icons\/[a-z0-9_-]+_isis\.png|dx9\/model\/worldobject\/planet\/resource_colorramp\.dds)$/, (req, res) => {
   if (/\.dds$/i.test(req.params[0])) {
     const png = clientTextures.pngFor?.(`res:/${req.params[0]}`);

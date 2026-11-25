@@ -2209,6 +2209,12 @@ export interface TypeColumnFacts {
   readonly boosterness: number | null;
 }
 
+export interface DockedPortraitOptions {
+  readonly state: number | null;
+  readonly backgroundID: number | null;
+  readonly backgrounds: readonly api.PortraitBackground[];
+}
+
 export interface AppFlow {
   infoUsedWith(typeID: number): Promise<readonly TypeUsedWithGroup[]>;
   /** What a plugin's loop flies this pilot with. */
@@ -4340,6 +4346,7 @@ export interface AppFlow {
    */
   requestOwnSecurityStatus(): void;
   exchangeSecurityTags(stationID: number, target: number, current: number): Promise<void>;
+  readDockedPortraitOptions(): Promise<DockedPortraitOptions>;
   warpToPlanetLaunch(launchID: number): Promise<void>;
   removePlanetLaunch(launchID: number): Promise<void>;
   /**
@@ -10016,6 +10023,27 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (confirmed === null || Math.abs(confirmed - target) > 1e-8) {
       throw new Error("The updated security status could not be confirmed.");
     }
+  }
+
+  async function readDockedPortraitOptions(): Promise<DockedPortraitOptions> {
+    const current = callOptions.captureRequestGuard!();
+    const place = dockedNow();
+    const characterID = store.station.get().online?.characterID;
+    if (place === null || characterID == null) throw new Error("Dock to open character recustomization.");
+    const [state, backgrounds, portrait] = await Promise.all([
+      bridgeAsk("charMgr", "GetPaperdollState", []),
+      api.loadPortraitBackgrounds(callOptions),
+      bridgeAsk("paperDollServer", "GetPaperDollPortraitDataFor", [characterID]).catch(() => null),
+    ]);
+    current();
+    if (dockedNow() !== place) throw new Error("The docked location changed.");
+    const rows = Array.isArray(portrait) && isListValue(portrait[0]) ? portrait[0].items : [];
+    const backgroundID = readRowField(rows[0], "backgroundID");
+    return {
+      state: typeof state === "number" && Number.isInteger(state) && state >= 0 && state <= 4 ? state : null,
+      backgroundID: typeof backgroundID === "number" && Number.isSafeInteger(backgroundID) ? backgroundID : null,
+      backgrounds,
+    };
   }
 
   // crimewatchSvc.SetSafetyLevel: the client sets the level at the server and
@@ -39389,6 +39417,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     saveCharacterSetting,
     requestOwnSecurityStatus,
     exchangeSecurityTags,
+    readDockedPortraitOptions,
 
     async approachPlanetLaunch(containerID) {
       await runFlightStep("Approach", () => orderedStep((flightNow) => approachCall(bridgeDo, flightNow, containerID, 50)));

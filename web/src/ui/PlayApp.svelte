@@ -909,6 +909,8 @@
       select: () => void session?.flow.openAssetRepair().catch(() => {}) },
     { label: "Clone Bay", icon: "cloneBay", available: medicalAvailable,
       select: () => { requestSheetPanel("jumpClones"); open("characterSheet"); } },
+    { label: "Character Recustomization", icon: "charcustomization", available: docked,
+      select: () => open("characterRecustomization") },
   ].filter(service => service.available));
   $effect(() => {
     if ((!docked || !reprocessingAvailable) && wins.some(win => win.id === "reprocessing")) {
@@ -923,6 +925,9 @@
     }
     if ((!docked || !securityOfficeAvailable) && wins.some(win => win.id === "securityOffice")) {
       wins = closeWindow(wins, "securityOffice");
+    }
+    if (!docked && wins.some(win => win.id === "characterRecustomization")) {
+      wins = closeWindow(wins, "characterRecustomization");
     }
   });
 
@@ -1401,6 +1406,7 @@
     academyShips: { w: 1280, h: 688 },
     shipTree: { w: 1055, h: 720 }, reprocessing: { w: 600, h: 400 }, insurance: { w: 400, h: 560 }, lpStore: { w: 837, h: 580 },
     securityOffice: { w: 528, h: 332 },
+    characterRecustomization: { w: 610, h: 442 },
   };
   const FLIGHT_MINIMUMS: Partial<Record<TabID, { w: number; h: number }>> = {
     drones: { w: 240, h: 120 }, scanner: { w: 300, h: 150 }, inventory: { w: 170, h: 140 },
@@ -1491,6 +1497,7 @@
     if (tab === "insurance" && (!docked || !insuranceAvailable)) return;
     if (tab === "lpStore" && (!docked || !lpStoreAvailable)) return;
     if (tab === "securityOffice" && (!docked || !securityOfficeAvailable)) return;
+    if (tab === "characterRecustomization" && !docked) return;
     // OpenInventory (the Neocom button, Alt-C) shows InventoryPrimary, captioned "Inventory" (read through gridcheck: in space
     // it opens on the ship's cargo); a hold command (OpenCargoHoldOfActiveShip ...) the Active ship window (below)
     if (tab === "inventory") inventoryPrimary = true;

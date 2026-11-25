@@ -6105,6 +6105,20 @@ export interface PaintToolData {
    * [STATE_VULNERABLE_ACTIVE]; null where the client's graphic has none or was unread). */
   readonly structures: readonly { readonly typeID: number; readonly graphicID: number | null; readonly stateObjectDna?: string | null }[];
 }
+export interface PortraitBackground {
+  readonly id: number;
+  readonly isDds: boolean;
+}
+
+export async function loadPortraitBackgrounds(options: ApiOptions = {}): Promise<readonly PortraitBackground[]> {
+  const data = await getJson("/api/client-data/portrait-backgrounds", options);
+  return (Array.isArray(data.backgrounds) ? data.backgrounds : []).flatMap(entry => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const id = entry.id;
+    return typeof id === "number" && Number.isSafeInteger(id) ? [{ id, isDds: entry.isDds === true }] : [];
+  });
+}
+
 export async function loadPaintToolData(options: ApiOptions = {}): Promise<PaintToolData | null> {
   const data = await getJson("/api/client-data/paints", options);
   return data.available ? (data as unknown as PaintToolData) : null;
