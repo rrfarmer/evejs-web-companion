@@ -819,12 +819,17 @@ async function extractPortraitHead(rf, gender, outRoot) {
   const meshDefinition = `${folder}/head_generic.black`;
   const head = readBlack(rf.read(meshDefinition), meshDefinition);
   const stem = gender === "female" ? "genericfemhead" : "genericmale_head";
+  const transparent = (head.meshes ?? []).filter(mesh => mesh.transparentAreas?.length &&
+    !mesh.opaqueAreas?.length && !mesh.decalAreas?.length);
   writeExtracted(path.join(dir, `${gender}.materials.json`), JSON.stringify({
-    materialBuild: 1,
+    materialBuild: 2,
     diffuse: copyRes(rf, `${folder}/${stem}_d_512.png`, outRoot),
     normal: copyRes(rf, `${folder}/${stem}_n_512.png`, outRoot),
-    transparent: (head.meshes ?? []).filter(mesh => mesh.transparentAreas?.length &&
-      !mesh.opaqueAreas?.length && !mesh.decalAreas?.length).map(mesh => mesh.name),
+    transparent: transparent.map(mesh => mesh.name),
+    eyelashMask: copyRes(rf,
+      `res:/graphics/character/${gender}/paperdoll/makeup/eyelashes/eyelashes_01/colorize_head_l_256.dds`, outRoot),
+    eyelashMeshes: transparent.filter(mesh => mesh.transparentAreas.some(area =>
+      area.effect?.name?.toLowerCase() === "c_skinshiny_eyelashes")).map(mesh => mesh.name),
   }));
   console.log(`portrait-head/${gender}.glb: ${lods.length} meshes, ${bones.length} bones`);
 }

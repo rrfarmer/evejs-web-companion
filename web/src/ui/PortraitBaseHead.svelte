@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import * as THREE from "three";
   import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+  import { compressedSupport, loadDds } from "../three/ddsTexture";
 
   let { model }: { model: "female" | "male" } = $props();
   let canvas: HTMLCanvasElement;
@@ -16,16 +17,17 @@
   scene.add(key, fill, new THREE.HemisphereLight(0xe2eefa, 0x544447, 1.1));
   const loader = new GLTFLoader();
 
-  function applySurface(object: THREE.Object3D, surface: THREE.Material, transparent: ReadonlySet<string>): void {
+  function applySurface(object: THREE.Object3D, surface: THREE.Material, transparent: ReadonlySet<string>,
+    eyelashMeshes: ReadonlySet<string>, eyelashes: THREE.Material | null): void {
     const materials = new Set<THREE.Material>();
     object.traverse(node => {
       if (node instanceof THREE.Mesh) {
         for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
           materials.add(material);
         }
-        node.material = surface;
-        // These native transparent passes need the paper-doll cut mask.
-        node.visible = !transparent.has(node.name);
+        const overlay = eyelashMeshes.has(node.name) ? eyelashes : null;
+        node.material = overlay ?? surface;
+        node.visible = overlay !== null || !transparent.has(node.name);
       }
     });
     for (const material of materials) material.dispose();
@@ -78,19 +80,37 @@
     if (!active) return;
     let retired = false;
     let head: THREE.Group | null = null;
+    let eyelashTexture: THREE.Texture | null = null;
+    let eyelashes: THREE.MeshBasicMaterial | null = null;
     const maps: Awaited<ReturnType<typeof loadMap>>[] = [];
     display = "loading";
     const stem = `/client-assets/portrait-head/${name}`;
     void (async () => {
       const response = await fetch(stem + ".materials.json");
       if (!response.ok) throw new Error("Portrait materials unavailable");
-      const { diffuse, normal, transparent } = await response.json() as {
-        diffuse: string; normal: string; transparent: string[];
+      const { diffuse, normal, transparent, eyelashMask, eyelashMeshes } = await response.json() as {
+        diffuse: string; normal: string; transparent: string[]; eyelashMask: string; eyelashMeshes: string[];
       };
       for (const [url, color] of [[diffuse, true], [normal, false]] as const) {
         const map = await loadMap(url, color);
         if (retired) { map.texture.dispose(); map.bitmap.close(); return; }
         maps.push(map);
+      }
+      if (eyelashMeshes.length && compressedSupport(active).s3tc) {
+        const mask = await loadDds(eyelashMask).catch(() => null);
+        if (retired) { mask?.dispose(); return; }
+        if (mask) {
+          eyelashTexture = mask;
+          mask.wrapS = mask.wrapT = THREE.ClampToEdgeWrapping;
+          eyelashes = new THREE.MeshBasicMaterial({
+            color: 0x211817, map: mask, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+          });
+          eyelashes.forceSinglePass = true;
+          eyelashes.onBeforeCompile = shader => {
+            shader.fragmentShader = shader.fragmentShader.replace("#include <map_fragment>",
+              "diffuseColor.a *= texture2D( map, vMapUv ).a;");
+          };
+        }
       }
       const { scene: avatar } = await loader.loadAsync(stem + ".glb");
       if (retired) { release(avatar); return; }
@@ -106,7 +126,7 @@
              vec3 mapN = vec3( headNormal, sqrt( max( 0.0, 1.0 - dot( headNormal, headNormal ) ) ) );`,
           ));
       };
-      applySurface(avatar, surface, new Set(transparent));
+      applySurface(avatar, surface, new Set(transparent), new Set(eyelashMeshes), eyelashes);
       scene.add(avatar);
       avatar.updateMatrixWorld(true);
       const bounds = new THREE.Box3().setFromObject(avatar, true);
@@ -125,7 +145,8 @@
       if (head) {
         scene.remove(head);
         release(head);
-      }
+      } else eyelashes?.dispose();
+      eyelashTexture?.dispose();
       for (const map of maps) {
         map.texture.dispose();
         map.bitmap.close();
