@@ -960,6 +960,7 @@ const PAGE_WRITE_PAIR_KEYS = Object.freeze([
   "repackagingSvc.RepackageItems",
   "structureControl.TakeControl", "structureControl.ReleaseControl",
   "structureControl.BoardStructure", "structureControl.EjectFromStructure", "structureCargoDelivery.DropOffItems",
+  "structureDirectory.SetStructureDescription",
   "moonExtractions.StartNewExtraction", "moonExtractions.FractureChunkWithStructure", "moonExtractions.CancelExtraction",
   "academy_ship.borrow_academy_ship",
   "wormholeMgr.WormholeJump",

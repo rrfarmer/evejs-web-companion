@@ -23,6 +23,13 @@ import {
 } from "./wire.ts";
 import { unwrapCachedResult } from "./market.ts";
 
+export const MAX_STRUCTURE_DESCRIPTION_LENGTH = 1000;
+
+/** Plain text entered in the native structure bio editor uses EVE's line breaks. */
+export function encodeStructureDescription(description: string): string {
+  return description.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\r\n?|\n/g, "<br>");
+}
+
 // --- shared readers ---------------------------------------------------------
 
 /**
@@ -101,6 +108,7 @@ export interface StructureBrowserDirectory {
   readonly currentConstellationID: number | null;
   readonly currentRegionID: number | null;
   readonly profileNames: ReadonlyMap<number, string>;
+  readonly canEditDescriptions: boolean;
 }
 
 export function decodeStructureProfileNames(result: JsonValue | null): Map<number, string> {

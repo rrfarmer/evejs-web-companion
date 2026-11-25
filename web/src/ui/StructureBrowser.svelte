@@ -23,6 +23,7 @@
   import CorporationMoonSchedule from "./CorporationMoonSchedule.svelte";
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import HomeStationPanel from "./HomeStationPanel.svelte";
+  import StructureDescription from "./StructureDescription.svelte";
   import { startLinkDrag } from "./linkFollowers.ts";
   import { showInfo } from "./showInfo.ts";
 
@@ -58,6 +59,7 @@
   const selectedTypes = $derived(activeTab === "corporation" ? ownedTypes : types);
   let bookmark = $state<BookmarkPlace | null>(null);
   let homeStationID = $state<number | null>(null);
+  let descriptionRow = $state.raw<StructureBrowserEntry | null>(null);
   let actionError = $state("");
   const rowMenu = new ContextMenu();
   onDestroy(() => rowMenu.close());
@@ -86,6 +88,7 @@
     home: ["UI/Menusvc/SetHomeStation", "Set Home Station"],
     bookmark: ["UI/Inflight/BookmarkLocation", "Save Location…"],
     info: ["UI/Commands/ShowInfo", "Show Info"],
+    description: ["UI/StructureBrowser/SetStructureDescription", "Set Structure Bio"],
   } as const;
   const serviceLabels = [
     [-1, "UI/Station/CharacterRecustomization", "Character Recustomization"],
@@ -126,6 +129,13 @@
     const stationRow = isStation(id);
     const deprecated = isDeprecatedStationType(row.typeID);
     const entries: (ContextEntry | null)[] = [];
+    if (activeTab === "corporation" && row.owned && directory?.canEditDescriptions) {
+      entries.push(action("description", () => {
+        bookmark = null;
+        homeStationID = null;
+        descriptionRow = row;
+      }), null);
+    }
     if ($flight.status?.inSpace && row.solarSystemID === systemID &&
       !deprecated && (stationRow || structureHasCapability(row.serviceIDs, "dock"))) {
       entries.push(action("dock", () => {
@@ -306,6 +316,13 @@
 {/snippet}
 
 <section class="structure-browser" aria-label={word(activeTab)}>
+  {#if descriptionRow && canManage && activeTab === "corporation" && !scheduleOpen}
+    {#key descriptionRow.structureID}
+      <StructureDescription {flow} structureID={descriptionRow.structureID} structureName={placeName(descriptionRow)}
+        title={plainText($words.templates[menuWords.description[0]] ?? menuWords.description[1])}
+        onClose={() => descriptionRow = null} />
+    {/key}
+  {/if}
   {#if bookmark}<BookmarkWindow {store} {flow} place={bookmark} onDone={() => bookmark = null} />{/if}
   {#if homeStationID !== null}
     {#key homeStationID}<HomeStationPanel {store} {flow} targetStationID={homeStationID} onClose={() => homeStationID = null} />{/key}

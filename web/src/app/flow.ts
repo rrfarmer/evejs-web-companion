@@ -988,7 +988,7 @@ import {
 import { systemGraphOnce } from "../nav/systemGraphKept.ts";
 import { autopilotDistances, autopilotJumpCounts, autopilotMap, autopilotPath, type AutopilotMap, type AutopilotRouteType, type AutopilotSettings } from "../nav/autopilotRoute.ts";
 import { availableJumpGateJumps, type JumpGateJump } from "../nav/jumpGates.ts";
-import { decodeCharacterStructureDirectory, decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData, decodeStructureProfileNames, type StructureBrowserDirectory } from "../bridge/structures.ts";
+import { decodeCharacterStructureDirectory, decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData, decodeStructureProfileNames, encodeStructureDescription, MAX_STRUCTURE_DESCRIPTION_LENGTH, type StructureBrowserDirectory } from "../bridge/structures.ts";
 import {
   AVOIDING_DIALOGS,
   autopilotSettingsFrom,
@@ -4488,6 +4488,8 @@ export interface AppFlow {
   startMetenoxDrill(structureID: number): Promise<void>;
   loadCorporationMoonSchedule(current?: () => void): Promise<CorporationMoonSchedule>;
   loadStructureBrowser(systemID: number, corporation?: boolean): Promise<StructureBrowserDirectory>;
+  loadStructureDescription(structureID: number): Promise<string>;
+  saveStructureDescription(structureID: number, description: string): Promise<void>;
   startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
   loadCorporationMiningObservers(): Promise<readonly MiningLedgerObserver[]>;
@@ -27906,11 +27908,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   async function loadStructureBrowser(systemID: number, corporation = false): Promise<StructureBrowserDirectory> {
     const scope = captureMemberOperation();
-    const [reply, graph, distances, profiles] = await Promise.all([
+    const [reply, graph, distances, profiles, canEditDescriptions] = await Promise.all([
       scope.ask("structureDirectory", corporation ? "GetCorporationStructures" : "GetMyCharacterStructures", []),
       loadRouteGraph().catch(() => null),
       autopilotDistancesFrom(systemID).catch(() => null),
       corporation ? scope.ask("structureProfiles", "GetProfiles", []).catch(() => null) : null,
+      corporation ? structureDescriptionAllowed(scope).catch(() => false) : false,
     ]);
     scope.current();
     const directory = corporation
@@ -27936,7 +27939,39 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     scope.current();
     const currentConstellationID = graph?.parentOf?.(systemID) ?? null;
     return { entries, currentConstellationID, currentRegionID: currentConstellationID === null
-      ? null : graph?.parentOf?.(currentConstellationID) ?? null, profileNames: decodeStructureProfileNames(profiles) };
+      ? null : graph?.parentOf?.(currentConstellationID) ?? null, profileNames: decodeStructureProfileNames(profiles),
+      canEditDescriptions };
+  }
+
+  async function structureDescriptionAllowed(scope: MemberOperation): Promise<boolean> {
+    const key = "content_compliance_control_system_enabled";
+    const config = await api.getGlobalConfig([key], scope.options);
+    scope.current();
+    const value = config.values[key];
+    const text = String(value ?? "").trim();
+    const controlled = value === true || (/^[+-]?\d+$/.test(text) && BigInt(text) !== 0n);
+    return !controlled && !isNpcCorporation(scope.online.corporationID) &&
+      hasMoonStationManagerRole(store.station.get().online?.corpRole ?? null);
+  }
+
+  async function loadStructureDescription(structureID: number): Promise<string> {
+    const scope = captureMemberOperation();
+    if (!await structureDescriptionAllowed(scope)) throw new Error("Structure description editing is unavailable.");
+    const answer = await scope.ask("structureDirectory", "GetStructureDescription", [structureID]);
+    scope.current();
+    return wireText(answer);
+  }
+
+  async function saveStructureDescription(structureID: number, description: string): Promise<void> {
+    const scope = captureMemberOperation();
+    const encoded = encodeStructureDescription(description);
+    if (encoded.length > MAX_STRUCTURE_DESCRIPTION_LENGTH) throw new Error("The description is too long.");
+    if (!await structureDescriptionAllowed(scope)) throw new Error("Structure description editing is unavailable.");
+    await scope.write("structureDirectory", "SetStructureDescription", [structureID, encoded]);
+    scope.current();
+    const saved = await scope.ask("structureDirectory", "GetStructureDescription", [structureID]);
+    scope.current();
+    if (wireText(saved) !== encoded) throw new Error("The structure description could not be confirmed.");
   }
 
   async function loadCorporationMoonSchedule(lifetime?: () => void): Promise<CorporationMoonSchedule> {
@@ -39680,6 +39715,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     startMetenoxDrill,
     loadCorporationMoonSchedule,
     loadStructureBrowser,
+    loadStructureDescription,
+    saveStructureDescription,
     startMoonPull,
     controlMoonPull,
     loadCorporationMiningObservers,

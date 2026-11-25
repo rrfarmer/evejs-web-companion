@@ -692,6 +692,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "structureControl.TakeControl", "structureControl.ReleaseControl",
   "structureControl.BoardStructure", "structureControl.EjectFromStructure", "structureCargoDelivery.DropOffItems",
   "structureSettings.CharacterHasSetting",
+  "structureDirectory.GetStructureDescription", "structureDirectory.SetStructureDescription",
   "structureProfiles.GetProfiles",
   "moonExtractions.GetExtractionsForCorp",
   "moonExtractions.GetMoonResourcesForStructure", "moonExtractions.GetExtractionAndEventIDFromStructureID",
@@ -3332,6 +3333,12 @@ const RETAIL_CALLS = Object.freeze({
   "structureControl.EjectFromStructure": same("eve/client/script/ui/services/structure/structureControl.py:87", "Leave direct structure control for the previous ship or a capsule."),
   "structureCargoDelivery.DropOffItems": same("eve/client/script/ui/structure/dropbox/dropboxController.py:117", "Transfer the selected stacks from the active ship into the structure's cargo deposit."),
   "structureSettings.CharacterHasSetting": same("eve/client/script/ui/services/structure/structureControl.py:91", "Check the pilot's defense or Moon Drill Details permission for a structure."),
+  "structureDirectory.GetStructureDescription": judged("eve/client/script/ui/structure/structureBrowser/entries/structureEntryMyCorp.py:406", oneIDAlone("the selected structure"), "Read the selected structure's description."),
+  "structureDirectory.SetStructureDescription": typing(judged("eve/client/script/ui/structure/structureBrowser/entries/structureEntryMyCorp.py:597",
+    (args, kwargs) => args.length === 2 && Number.isSafeInteger(args[0]) && args[0] > 0 &&
+      typeof args[1] === "string" && args[1].length <= 1000 && Object.keys(kwargs).length === 0
+      ? {} : { status: "differs", note: "The editor sends the selected structure and a description up to 1,000 characters." },
+    "Save the edited description through the structure's ownership and Station Manager checks."), [1]),
   "structureProfiles.GetProfiles": judged("eve/client/script/ui/structure/structureSettings/controllers/allProfilesController.py:31", sentWithNothing, "Read the corporation's structure profiles for the profile filter."),
   "moonExtractions.GetExtractionsForCorp": judged("eve/client/script/ui/moonmining/schedulingSvc.py:41", sentWithNothing, "A Station Manager reads the session corporation's active extractions."),
   "moonExtractions.GetMoonResourcesForStructure": judged("eve/client/script/ui/moonmining/schedulingSvc.py:27", sentWithNothing, "Read the controlled refinery's moon composition."),
