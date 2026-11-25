@@ -95,6 +95,9 @@
     metenoxTransfer,
     metenoxControl,
     onLeaveMetenox,
+    onReprocess,
+    reprocessingInput,
+    onReprocessingInputTaken,
   }: {
     store: ClientStore;
     flow: AppFlow;
@@ -131,6 +134,9 @@
     metenoxTransfer?: { structureID: number; shipID: number } | null;
     metenoxControl?: { miner: AutoMoonMiner; previousShipID: number | null } | null;
     onLeaveMetenox?: () => Promise<void>;
+    onReprocess?: (itemIDs: readonly number[]) => void;
+    reprocessingInput?: readonly number[] | null;
+    onReprocessingInputTaken?: () => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -177,7 +183,7 @@
 {#if GlobalView}
   <GlobalView {sessions} onOpen={(id, sid) => onOpen?.(id, sid)} {onGoToPilot} />
 {:else if tab === "inventory"}
-  <StationPanel {store} {flow} {isDocked} {onClose} />
+  <StationPanel {store} {flow} {isDocked} {onClose} {onReprocess} />
 {:else if tab === "fitting"}
   <Fitting {store} {flow} showInventory={() => onOpen?.("inventory")} />
 {:else if tab === "provisioning"}
@@ -262,7 +268,7 @@
 {:else if tab === "mining"}
   <Mining {store} {flow} />
 {:else if tab === "reprocessing" && isDocked}
-  <ReprocessingPlant {store} {flow} />
+  <ReprocessingPlant {store} {flow} inputItems={reprocessingInput} onInputTaken={onReprocessingInputTaken} />
 {:else if tab === "insurance" && isDocked}
   {@const placeID = $stationSlice.online?.structureID ?? $stationSlice.online?.stationID}
   {#if placeID}

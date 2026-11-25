@@ -357,6 +357,7 @@
   let username = $state("");
   let password = $state("");
   let wins = $state<WinState[]>([]);
+  let reprocessingInput = $state<readonly number[] | null>(null);
   const focusedId = $derived(wins.length ? wins.reduce((a, b) => (b.z > a.z ? b : a)).id : null);
   // uicore.registry's one active window (Window.active, its header's caption HIGHLIGHT): the window pressed last of
   // every kind - a desktop window, a bay or container window (by its data-win), or a PlayWindow (none of these then);
@@ -908,6 +909,7 @@
     if ((!docked || !reprocessingAvailable) && wins.some(win => win.id === "reprocessing")) {
       wins = closeWindow(wins, "reprocessing");
     }
+    if (!wins.some(win => win.id === "reprocessing")) reprocessingInput = null;
     if ((!docked || !insuranceAvailable) && wins.some(win => win.id === "insurance")) {
       wins = closeWindow(wins, "insurance");
     }
@@ -1502,6 +1504,11 @@
     if (tab === "finder" || tab === "theatersOfWar") mapInFront = false;
     wins = openFly(wins, tab);
     raiseApp(tab);
+  }
+  function reprocessSelection(itemIDs: readonly number[]): void {
+    if (!docked || !reprocessingAvailable || !itemIDs.length) return;
+    reprocessingInput = [...new Set([...(reprocessingInput ?? []), ...itemIDs])];
+    open("reprocessing");
   }
   function canOpenMiningScan() {
     if (docked || !session) return false;
@@ -4028,7 +4035,8 @@
               </button>
             {/each}
           </div>
-          <PlayLobbyTabs {session} onOpenAgents={() => open("agents")} onOpenInventory={() => open("inventory")} />
+          <PlayLobbyTabs {session} onOpenAgents={() => open("agents")} onOpenInventory={() => open("inventory")}
+            onReprocess={reprocessingAvailable ? reprocessSelection : undefined} />
         </div>
       </DesktopWindow>
     {/if}
@@ -4070,6 +4078,8 @@
             <FlyInventoryWindow store={session.store} flow={session.flow} />
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
+              onReprocess={reprocessingAvailable ? reprocessSelection : undefined}
+              {reprocessingInput} onReprocessingInputTaken={() => (reprocessingInput = null)}
               onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} {autoMoonMiner}
               onViewPlanet={showPlanetInMode} viewingPlanetID={planetModeID} onAccessCustoms={openCustoms}
               {moonMaterialBay} {metenoxTransfer} {metenoxControl} onLeaveMetenox={leaveMetenox} />

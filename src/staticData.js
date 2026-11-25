@@ -1907,6 +1907,14 @@ function getTypeMaterials(typeID) {
     .filter((material) => material.materialTypeID > 0 && material.quantity > 0);
 }
 
+/** 3698585 typematerials/data.py: types with refining or recycling output. */
+function isReprocessableType({ typeID, groupID, categoryID }) {
+  if ([29, 51, 3779].includes(typeID) || [18, 237, 4168].includes(groupID) ||
+      [9, 24].includes(categoryID)) return false;
+  return getTypeMaterials(typeID).length > 0 ||
+    Boolean(buildIndex("reprocessingClientRandomizedMaterials", "types", "typeID").get(typeID)?.randomizedMaterials?.length);
+}
+
 /** A type's average price, as this server publishes it: its static basePrice. */
 function getTypeAveragePrice(typeID) {
   const entry = getType(typeID);
@@ -2624,6 +2632,7 @@ module.exports = {
   getChargeSize,
   getOreValuePerM3,
   getTypeMaterials,
+  isReprocessableType,
   findMarketTypes,
   listOreFamilies,
   listMiningResources,

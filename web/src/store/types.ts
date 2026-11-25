@@ -158,6 +158,7 @@ export interface InventoryItemRow {
   readonly singleton: boolean;
   /** Native singleton value 2. A copy is a single item with its own industry state. */
   readonly blueprintCopy?: true;
+  readonly reprocessable?: true;
   /**
    * m³ PER UNIT, from static reference data (attached to the hangar/cargo read
    * the same way the assets route attaches it). Lets the browser work out how

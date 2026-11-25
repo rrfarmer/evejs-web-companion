@@ -602,6 +602,7 @@ export interface RawInventoryPanel {
   readonly cargo: RawContainer & { readonly shipID: number | null };
   /** Per-type m³ from static data (typeID → volume); a type it does not know is absent. */
   readonly volumes: Readonly<Record<string, number>>;
+  readonly reprocessableTypeIDs: readonly number[];
 }
 
 function readRawContainer(value: JsonValue | undefined): RawContainer {
@@ -643,6 +644,9 @@ export async function loadInventory(
     hangar: readRawContainer(data.hangar),
     cargo: { ...readRawContainer(data.cargo), shipID: asNumberOrNull(cargo.shipID) },
     volumes,
+    reprocessableTypeIDs: Array.isArray(data.reprocessableTypeIDs)
+      ? data.reprocessableTypeIDs.filter((id): id is number => typeof id === "number" && Number.isSafeInteger(id))
+      : [],
   };
 }
 

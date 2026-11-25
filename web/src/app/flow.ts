@@ -9000,13 +9000,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       }
       throw error;
     }
+    const reprocessableTypes = new Set(panel.reprocessableTypeIDs);
     store.apply({
       type: "inventory/loaded",
       stationID: panel.stationID,
       structureID: panel.structureID,
       activeShipID: panel.activeShipID,
-      hangar: decodeContainer(panel.hangar.list, panel.hangar.capacity, panel.hangar.error, panel.volumes),
-      cargo: decodeContainer(panel.cargo.list, panel.cargo.capacity, panel.cargo.error, panel.volumes),
+      hangar: decodeContainer(panel.hangar.list, panel.hangar.capacity, panel.hangar.error, panel.volumes, reprocessableTypes),
+      cargo: decodeContainer(panel.cargo.list, panel.cargo.capacity, panel.cargo.error, panel.volumes, reprocessableTypes),
     });
     await loadSafetyDeliveries();
     if (cacheGeneration === safetyCacheGeneration) rememberSafetyParents([...store.inventory.get().hangar.rows, ...store.inventory.get().cargo.rows]);

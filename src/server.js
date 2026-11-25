@@ -2979,6 +2979,10 @@ app.get("/api/bridge/inventory", requireAuth, async (req, res, next) => {
         ...readTypeVolumes(settledValue(hangarList), packagedForVolumes),
         ...readTypeVolumes(settledValue(cargoList), packagedForVolumes),
       },
+      reprocessableTypeIDs: [...new Set(
+        [settledValue(hangarList), settledValue(cargoList)].flatMap(decodeInventoryRows)
+          .filter(row => staticDataModule.isReprocessableType(row)).map(row => row.typeID),
+      )],
     });
   } catch (error) {
     next(error);

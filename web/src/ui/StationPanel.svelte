@@ -130,6 +130,7 @@
     onToggleExpand = null,
     lobbyHangars = false,
     onOpenInventory,
+    onReprocess,
   }: {
     store: ClientStore;
     flow: AppFlow;
@@ -178,6 +179,7 @@
     /** Show the ship and item hangars inside Station Services. */
     lobbyHangars?: boolean;
     onOpenInventory?: () => void;
+    onReprocess?: (itemIDs: readonly number[]) => void;
   } = $props();
   const panelID = $props.id();
   $effect(() => { if (lobbyHangars) flow.requestWords(["UI/Station/Ships", "UI/Station/Items"]); });
@@ -1540,6 +1542,20 @@
     return null;
   }
 
+  function reprocessingRows(place: InventoryPlace): readonly InventoryItemRow[] {
+    if (!onReprocess || !isDocked) return [];
+    if (place.kind === "hangar") return $inventory.hangar.rows;
+    if (place.kind === "cargo" && openShip?.itemID === $inventory.activeShipID) return $inventory.cargo.rows;
+    return [];
+  }
+
+  function reprocessingSelection(row: InventoryItemRow, place: InventoryPlace): number[] {
+    const selected = isPicked(row, place) ? new Set(selection) : new Set([row.itemID]);
+    return reprocessingRows(place)
+      .filter(item => selected.has(item.itemID) && item.reprocessable && item.quantity > 0 && item.itemID !== $inventory.activeShipID)
+      .map(item => item.itemID);
+  }
+
   function fitHardware(row: InventoryItemRow, place: InventoryPlace): void {
     const source = hardwareSource(row, place);
     if (source) void run(() => flow.fitInventoryHardware(row, source));
@@ -2501,8 +2517,13 @@
           <button type="button" class="stn-menu-item" disabled={busy}
             onclick={() => contextAction(row => void run(() => flow.renameShip(row.itemID)))}>Change Name</button>
         {/if}
+        {#if reprocessingSelection(ship, menu.place).includes(ship.itemID)}
+          <button type="button" class="stn-menu-item" disabled={busy}
+            onclick={() => contextAction(row => onReprocess?.([row.itemID]))}>Reprocess</button>
+        {/if}
       {:else}
         {#if menu.contextAnchor}
+          {@const reprocessIDs = reprocessingSelection(menu.row, menu.place)}
           <button type="button" class="stn-menu-item"
             onclick={() => contextAction(row => showInfo({ kind: "type", typeID: row.typeID }))}>Show Info</button>
           {#if isOpenableContainer(menu.row)}
@@ -2515,6 +2536,13 @@
                 const place = menu!.place;
                 contextAction(row => fitHardware(row, place));
               }}>Fit to Active Ship</button>
+          {/if}
+          {#if reprocessIDs.includes(menu.row.itemID)}
+            <button type="button" class="stn-menu-item" disabled={busy}
+              onclick={() => {
+                const itemIDs = reprocessIDs;
+                contextAction(() => onReprocess?.(itemIDs));
+              }}>Reprocess</button>
           {/if}
         {/if}
         {#if activatable(menu.row, menu.place)}

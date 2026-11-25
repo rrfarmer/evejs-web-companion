@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { refinableHangarStacks } from "../bridge/mining.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
@@ -8,22 +8,32 @@
   import { carriesOurPayload, decodeDrag, DRAG_MIME } from "./dragDrop.ts";
   import TypeIcon from "./TypeIcon.svelte";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, inputItems, onInputTaken }: {
+    store: ClientStore;
+    flow: AppFlow;
+    inputItems?: readonly number[] | null;
+    onInputTaken?: () => void;
+  } = $props();
   const inventory = $derived(store.inventory);
   const mining = $derived(store.mining);
   const names = $derived(store.names);
   const flight = $derived(store.flight);
-  const cargoOre = $derived(new Set(refinableHangarStacks($inventory.cargo.rows).map(item => item.itemID)));
+  const materials = (rows: typeof $inventory.hangar.rows) => {
+    const ore = new Set(refinableHangarStacks(rows).map(item => item.itemID));
+    return rows.filter(item => item.itemID !== $inventory.activeShipID &&
+      item.quantity > 0 && (item.reprocessable || ore.has(item.itemID)));
+  };
   const candidates = $derived([
-    ...refinableHangarStacks($inventory.hangar.rows).map(item => ({ ...item, location: "Item Hangar" })),
-    ...$mining.holds.flatMap(hold => (hold.items ?? [])
-      .filter(item => hold.key !== "cargo" || cargoOre.has(item.itemID))
-      .map(item => ({ ...item, location: hold.label }))),
+    ...materials($inventory.hangar.rows).map(item => ({ ...item, location: "Item Hangar" })),
+    ...materials($inventory.cargo.rows).map(item => ({ ...item, location: "Cargo hold" })),
+    ...$mining.holds.filter(hold => hold.key !== "cargo")
+      .flatMap(hold => (hold.items ?? []).map(item => ({ ...item, location: hold.label }))),
   ]);
   let selected = $state<number[]>([]);
   let quoteRequested = $state(false);
   let confirming = $state(false);
   let busy = $state(false);
+  let inventoryReady = $state(false);
   let error = $state("");
   let result = $state("");
   const selectedHere = $derived(selected.filter(id => candidates.some(item => item.itemID === id)));
@@ -56,7 +66,18 @@
     finally { busy = false; }
   }
 
-  onMount(() => { void run(() => flow.loadMiningWindow()); });
+  onMount(() => {
+    void run(() => flow.loadMiningWindow()).then(() => { inventoryReady = true; });
+  });
+
+  $effect(() => {
+    if (!inventoryReady || busy || !inputItems?.length) return;
+    const ids = inputItems;
+    untrack(() => {
+      onInputTaken?.();
+      appendInputs(ids);
+    });
+  });
 
   function select(ids: number[]): void {
     selected = ids;
@@ -80,19 +101,22 @@
     if (!busy && $flight.status?.docked && carriesOurPayload(event.dataTransfer?.types)) event.preventDefault();
   }
 
+  function appendInputs(itemIDs: readonly number[]): void {
+    const valid = itemIDs.filter(id => candidates.some(item => item.itemID === id));
+    if (valid.length === 0) {
+      error = "Choose reprocessable items in your Item Hangar or active ship.";
+      return;
+    }
+    select([...new Set([...selectedHere, ...valid])]);
+    requestQuote();
+  }
+
   function addInput(event: DragEvent): void {
     if (busy || !$flight.status?.docked) return;
     const payload = decodeDrag(event.dataTransfer?.getData(DRAG_MIME));
     if (payload?.kind !== "inventoryItem") return;
     event.preventDefault();
-    const offered = payload.itemIDs ?? [payload.itemID];
-    const valid = offered.filter(id => candidates.some(item => item.itemID === id));
-    if (valid.length === 0) {
-      error = "Drop ore from your item hangar or active ship.";
-      return;
-    }
-    select([...new Set([...selectedHere, ...valid])]);
-    requestQuote();
+    appendInputs(payload.itemIDs ?? [payload.itemID]);
   }
 
   function reprocess(): void {
@@ -134,7 +158,7 @@
           <span>{item.quantity.toLocaleString()}</span>
         </label>
       {:else}
-        <p>{busy ? "Reading inventory…" : "No ore in your hangar or active ship."}</p>
+        <p>{busy ? "Reading inventory…" : "No reprocessable items in your Item Hangar or active ship."}</p>
       {/each}
     </div>
     <div class="plant-pane">

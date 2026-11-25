@@ -196,9 +196,11 @@ export function decodeContainer(
   capacity: JsonValue,
   error: string | null,
   volumes?: VolumeMap,
+  reprocessableTypes?: ReadonlySet<number>,
 ): InventoryContainerState {
   return {
-    rows: list === null || list === undefined ? [] : decodeInventoryRows(list, volumes),
+    rows: list === null || list === undefined ? [] : decodeInventoryRows(list, volumes).map(row =>
+      reprocessableTypes?.has(row.typeID) ? { ...row, reprocessable: true as const } : row),
     capacity: capacity === null || capacity === undefined ? null : decodeCapacity(capacity),
     error,
   };

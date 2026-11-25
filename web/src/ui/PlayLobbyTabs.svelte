@@ -7,10 +7,11 @@
   import { resolvedName, type NameKind, type NameRef } from "../store/names.ts";
   import StationPanel from "./StationPanel.svelte";
 
-  let { session, onOpenAgents, onOpenInventory }: {
+  let { session, onOpenAgents, onOpenInventory, onReprocess }: {
     session: Session;
     onOpenAgents: () => void;
     onOpenInventory: () => void;
+    onReprocess?: (itemIDs: readonly number[]) => void;
   } = $props();
   const station = $derived(session.store.station);
   const agents = $derived(session.store.agents);
@@ -62,7 +63,7 @@
   <button role="tab" class:on={tab === "hangars"} aria-selected={tab === "hangars"} onclick={() => choose("hangars")}>{word("UI/Station/Lobby/Hangars") || "Hangars"}</button>
 </div>
 {#if tab === "hangars"}
-  <StationPanel store={session.store} flow={session.flow} lobbyHangars {onOpenInventory} />
+  <StationPanel store={session.store} flow={session.flow} lobbyHangars {onOpenInventory} {onReprocess} />
 {:else}
 <div class="lobby-list">
   {#if tab === "guests"}
