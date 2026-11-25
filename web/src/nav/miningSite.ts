@@ -1,5 +1,5 @@
-import type { ScannedAnomaly, MiningOperationTarget } from "./scriptConditions.ts";
-import type { MiningHold, SpaceEntity, SpaceVector } from "../store/types.ts";
+import type { ScannedAnomaly } from "./scriptConditions.ts";
+import type { MiningHold, SpaceEntity } from "../store/types.ts";
 import type { BotScript } from "../bots/botScript.ts";
 import { startupSteps } from "../bots/startup.ts";
 import type { ScanSite } from "../bridge/boundSmallServices.ts";
@@ -67,10 +67,6 @@ export function miningSiteFamily(site: ScannedAnomaly): SiteFamily | null {
 export function siteIdentity(site: ScannedAnomaly): string | null {
   if (!Number.isSafeInteger(site.siteID) || (site.siteID ?? 0) <= 0) return null;
   return `site:${site.siteID}:instance:${site.instanceID ?? site.siteID}`;
-}
-export function atMiningSite(ship: SpaceVector | null | undefined, target: MiningOperationTarget): boolean {
-  const p = target.position;
-  return !!ship && !!p && Math.hypot(ship.x - p.x, ship.y - p.y, ship.z - p.z) < 150_000;
 }
 export function siteRockMatches(rock: SpaceEntity, family: SiteFamily): boolean {
   return rock.miningResourceFamily === (family === "ICE" ? "ice" : "ore");

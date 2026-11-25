@@ -186,7 +186,6 @@ const ENTRIES: Readonly<Record<CoreMacroID, MacroCatalogEntry>> = {
     "Mines visible resources while staying within the selected fleet pilot's mining bursts. Moves only where both mining reach and support coverage are satisfied; waits when support is unavailable.",
     "A joined fleet, a visible support pilot maintaining mining bursts, and mining equipment fitted",
   ),
-  "mining-support": entry("mining-support", "mining", "Maintains the operation's support services and follows its mining target using its chosen support policies.", "A Standard Command pilot in a Mining Operation"),
   "deliver-ore": entry(
     "deliver-ore",
     "hauling",

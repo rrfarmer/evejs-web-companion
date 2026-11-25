@@ -215,9 +215,7 @@ on this machine, and asks the first two again when the pilot's corporation chang
 before the table of agents: sent right behind it, the first of them was answered 82 ms after it
 reached the server, and 1 ms when sent before. The settings are kept as the client keeps them, and
 a read of them through the BFF is answered from what is kept. The applications are not kept: a
-read of them asks the server each time, because the BFF's pilot-training onboarding reads a
-trainee's applications straight after an officer's change to them, on another connection, where a
-kept list could be a notice behind.
+read asks the server each time so that a reader on another connection sees an officer's latest change.
 
 **The address book at login, 2026-10-09.** As its character is chosen the client's address book
 asks, side by side (`addressbookService.GetContacts`): `charMgr.GetContactList()` by name, for the

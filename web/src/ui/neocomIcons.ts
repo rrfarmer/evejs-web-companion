@@ -62,7 +62,6 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   // rows in it. Deliberately NOT a bot head — that is `bots`, the built-in
   // launchers; this panel is the catalogue and the roster.
   botManager: ["M4 5h16v14H4z", "M8 10h8M8 14h5"],
-  miningOperations: ["M4 19l5-9 4 5 3-7 4 11z", "M5 5h4M12 5h7"],
   // The plugins window: a plug, two pins into a socket.
   pluginManager: ["M9 3v5M15 3v5", "M6 8h12v4a6 6 0 0 1-12 0z", "M12 18v3"],
 

@@ -379,9 +379,8 @@ test("a pending recovery can reopen the same held pilot after a tab reload witho
   assert.equal(ready.response.status, 200);
   assert.equal(ready.payload.ok, true);
 });
-test("operation-owned drone recovery acknowledges an empty flight without an unrelated location sample", async () => {
+test("hosted drone recovery acknowledges an empty flight without an unrelated location sample", async () => {
   const { baseUrl } = await startTestServer({ botHost: {
-    operationForClaim: () => ({ operationID: "owned-operation", operationRole: "MINER" }),
     claimedBy: () => null, authorizesClaim: () => true, listAll: () => [],
     activeCharacterIDs: () => [], sampleAllVitals: async () => {}, stopAll: async () => {},
   } });

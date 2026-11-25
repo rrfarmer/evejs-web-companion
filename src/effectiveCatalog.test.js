@@ -133,10 +133,10 @@ test("GamePort publishes one catalog for training, ship reviews and Dogma while 
     return json;
   }
 
-  const review = `/api/ship-provisioning/review?characterID=${characterID}&providerCharacterID=${characterID}&fittingID=`;
-  const listedFits = async () => (await read(review + "0")).definitions.contracts.map(fit => fit.name);
+  const catalogPath = `/api/ship-provisioning/review?characterID=${characterID}&providerCharacterID=${characterID}&fittingID=0`;
+  const readCatalog = async () => (await read(catalogPath)).definitions;
   const skillsQuery = `/api/client-data/required-skills?typeIDs=${FixtureHauler},${Bestower},${Unknown}`;
-  assert.deepEqual(await listedFits(), ["Corp Bestower Hauler"]);
+  assert.deepEqual((await readCatalog()).contracts.map(fit => fit.name), ["Corp Bestower Hauler"]);
   const before = (await read(skillsQuery)).required;
   assert.deepEqual(before[Bestower], { [AmarrHauler]: 1 });
   assert.deepEqual(before[SpaceshipCommand], {});
@@ -144,9 +144,10 @@ test("GamePort publishes one catalog for training, ship reviews and Dogma while 
 
   const session = new GamePortSession({ transport: {}, onLoginProgram: effectiveCatalog.observeLogin });
   session._runHandshakeFunction([loginProgram(nativeCatalog)]);
-  assert.deepEqual(await listedFits(), ["Corp FixtureHauler", "Corp Bestower Hauler", "Other transport"]);
-  assert.equal((await read(review + "32")).selected.shipTypeID, FixtureHauler);
-  assert.deepEqual((await read(review + "0")).definitions.invalid.map(row => row.fittingID), [36]);
+  const { contracts, invalid } = await readCatalog();
+  assert.deepEqual(contracts.map(fit => fit.name), ["Corp FixtureHauler", "Corp Bestower Hauler", "Other transport"]);
+  assert.equal(contracts.find(fit => fit.definition.fittingID === 32).shipTypeID, FixtureHauler);
+  assert.deepEqual(invalid.map(row => row.fittingID), [36]);
   const graph = await read(skillsQuery + `,${OtherHull},${ModMaterial}`);
   assert.deepEqual(graph.required[FixtureHauler], { [AmarrHauler]: 1 });
   assert.deepEqual(graph.order[FixtureHauler], [[AmarrHauler, 1]]);
@@ -181,7 +182,7 @@ test("GamePort publishes one catalog for training, ship reviews and Dogma while 
   assert.equal(groups, tables.typesGroupIDsOrdered);
 
   session._runHandshakeFunction(Buffer.from("ordinary login program"));
-  assert.equal((await listedFits()).length, 3);
+  assert.equal((await readCatalog()).contracts.length, 3);
   assert.equal(createEffectiveCatalog().getType(FixtureHauler), null);
   assert.equal(graph.available, false);
   assert.deepEqual(graph.unknownTypeIDs.sort(), [Unknown, ModMaterial].sort());

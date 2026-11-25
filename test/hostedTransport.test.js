@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { setTimeout: delay } = require("node:timers/promises");
-const { bridgeDo, jettisonItems, loadBoundFleet, getSpaceSnapshot } = require("../web/src/app/api.ts");
+const { bridgeDo, loadBoundFleet, getSpaceSnapshot } = require("../web/src/app/api.ts");
 const {
   bridgeLane, hostedFetch, hostedLane, hostedRequestWaitsByDesign, HOSTED_MAX_IN_FLIGHT, HOSTED_PLACE_CHANGE_CALLS,
   MAX_IN_FLIGHT,
@@ -68,7 +68,7 @@ test("place changes and the hosted jettison hold no hosted slot", { timeout: 200
   const before = hostedLane.inFlight();
   const held = [
     ...Array.from({ length: HOSTED_MAX_IN_FLIGHT }, (_, i) => bridgeDo({ fetch })("beyonce", "CmdStargateJump", [i, 100 + i, 9001])),
-    ...Array.from({ length: HOSTED_MAX_IN_FLIGHT }, (_, i) => jettisonItems([i], { fetch })),
+    ...Array.from({ length: HOSTED_MAX_IN_FLIGHT }, () => fetch("/api/bridge/ship/jettison", { method: "POST" })),
   ];
   try {
     assert.equal(hostedLane.inFlight(), before);

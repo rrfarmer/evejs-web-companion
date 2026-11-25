@@ -3,7 +3,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { readAccountCorpFittings } = require("./pilotTrainingFittings");
 const { row: serviceRow } = require("./trainingOnboarding");
-const { hash, fail, inventoryRows, buildContract, matchFittings, isRigSlotFlag } = require("./provisioningContracts");
+const { hash, fail, inventoryRows, buildContract, isRigSlotFlag } = require("./provisioningContracts");
 const containerGroups = new Set([12, 340, 448, 649]); // EveJS itemStore's cargo-container groups.
 
 async function readProvisioningDefinitions({ store, gateway, data, accountID, providerCharacterID, supplyPolicy, ask = null, includeFitItems = false }) {
@@ -90,7 +90,7 @@ function registerProvisioningRoutes(d) {
         recoveryReady: !pendingRecovery(held),
         sessionGeneration: hash([held.bridgeSessionID, held.botClaimSecret || null]) };
     }
-    async function library(input, allowMatch = false, includeFitItems = false) {
+    async function library(input, includeFitItems = false) {
       if (!Number.isSafeInteger(input.providerCharacterID) || !Number.isSafeInteger(input.corporationID)) fail("INVALID_DEFINITION_SOURCE");
       const result = await readProvisioningDefinitions({ store, gateway, data, accountID: Number(req.account.accountID),
         providerCharacterID: input.providerCharacterID, supplyPolicy: input.supplyPolicy,
@@ -99,7 +99,7 @@ function registerProvisioningRoutes(d) {
       if (result.status !== "READY" || result.corporationID !== input.corporationID) fail("FITTING_SOURCE_CHANGED");
       const contracts = result.contracts;
       const contract = contracts.find(c => c.definition.fittingID === input.fittingID);
-      if (!contract && !(allowMatch && input.fittingID === 0)) fail("INVALID_FIT");
+      if (!contract) fail("INVALID_FIT");
       const mixedCargo = [];
       if (includeFitItems) {
         const fit = result.fittings.find(f => f.fittingID === input.fittingID);
@@ -167,20 +167,8 @@ function registerProvisioningRoutes(d) {
       if (hash(await context()) !== hash(scope)) fail("PROVISIONING_CONTEXT_CHANGED");
       return { context: scope, ...definitions, observation: observed, source: origin };
     }
-    async function readPreparation(input, sourcePin = null) {
-      const scope = await context(), definitions = await library(input, true);
-      const observed = await observation(scope), origin = await source(input, scope, sourcePin);
-      let contract = definitions.contract;
-      if (!contract) {
-        const matches = matchFittings(definitions.contracts, observed, data);
-        if (matches.state !== "MATCH") fail("EQUIPMENT_NOT_READY", `Selected equipment match ${matches.state}; choose an exact fitting.`);
-        contract = definitions.contracts.find(c => c.definition.fittingID === matches.alternatives[0].definition.fittingID);
-      }
-      if (hash(await context()) !== hash(scope)) fail("PROVISIONING_CONTEXT_CHANGED");
-      return { context: scope, ...definitions, contract, observation: observed, source: origin, target: { complete: observed.complete } };
-    }
     async function readShip(input, targetHullID = null, sourcePin = null) {
-      const scope = await context(), definitions = await library(input, false, true);
+      const scope = await context(), definitions = await library(input, true);
       const observed = await observation(scope), origin = await source(input, scope, sourcePin);
       const place = await resolvePlace(held, sessionID, { kind: "hangar" });
       const hangar = await strictList(held, sessionID, place);
@@ -252,7 +240,7 @@ function registerProvisioningRoutes(d) {
       return mutationFence.withLease(lease, () => boundCall(held, sessionID, spec, "Add",
         [move.itemID, move.sourceLocationID], { flag: to.flag, qty: move.quantity }));
     }
-    return { context, read, readPreparation, readShip, readSkills: () => gateway.getSkills(held.accountID, held.characterID), plan, readMovement, dispatch,
+    return { context, read, readShip, readSkills: () => gateway.getSkills(held.accountID, held.characterID), plan, readMovement, dispatch,
       async dispatchShip(action, current, lease) {
         engine.assertWritable(held.characterID, lease);
         const revalidate = async () => {

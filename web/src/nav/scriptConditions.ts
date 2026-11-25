@@ -93,61 +93,6 @@ export interface DryBelt {
   readonly families: readonly number[];
 }
 
-export type MiningOperationRole = "MINER" | "HAULER" | "DEFENDER" | "COMMAND";
-export interface MiningSupportOptions {
-  readonly version: 1; readonly characterID: number; readonly fleetPolicy: "EXISTING_ONLY" | "MANAGED";
-  readonly maintainBursts: boolean; readonly useIndustrialCore: boolean; readonly coreRequirement: "continueWithoutCore" | "requireCore";
-  readonly enableCompression: boolean; readonly selfMining: boolean; readonly tractor: boolean;
-  readonly collection: "TRACTOR_ONLY" | "TRACTOR_AND_COLLECT"; readonly compressCollectedOre: boolean;
-  readonly supportLoss: "CONTINUE_UNSUPPORTED" | "PAUSE" | "STOP";
-}
-export type MiningTargetType = "BELT" | "ORE_ANOMALY" | "ICE" | "GAS";
-export interface MiningOperationTarget {
-  readonly siteIdentity?: string;
-  readonly siteID?: number;
-  readonly instanceID?: number | null;
-  readonly position?: SpaceVector;
-  readonly targetKey: string;
-  readonly targetType: MiningTargetType;
-  readonly systemID: number;
-  readonly systemName: string | null;
-  readonly targetName: string;
-  readonly state: "AVAILABLE" | "RESERVED" | "ACTIVE" | "DRAINING" | "DEPLETED";
-  readonly claimedByOperationID: string | null;
-}
-export interface MiningOperationAssignment {
-  readonly operationRunID?: string | null;
-  readonly support?: MiningSupportOptions;
-  readonly supportPolicy?: { readonly mode: "NORMAL" | "FALLBACK" | "PAUSE" | "STOP"; readonly reason: string | null };
-  readonly intendedFleetCharacterIDs?: readonly number[];
-  readonly resourcePolicy?: import("./resourcePriority.ts").ResourcePolicy | null;
-  readonly travelAssist?: "DISABLED" | "AUTO";
-  readonly stopRequested?: boolean;
-  readonly operationID: string;
-  readonly operationName: string;
-  readonly role: MiningOperationRole;
-  readonly unloadPolicy: "HAULER_SERVICE" | "SELF_UNLOAD";
-  readonly area: {
-    readonly anchorSystemID: number;
-    readonly anchorSystemName: string | null;
-    readonly reach: "CURRENT_SYSTEM" | "CURRENT_AND_ADJACENT";
-    readonly targetClasses: readonly MiningTargetType[];
-  };
-  readonly state: string;
-  readonly currentTarget: MiningOperationTarget | null;
-  readonly logisticsTarget: MiningOperationTarget | null;
-  /** BFF-recorded cans from this run's miner jettison at the assigned target. */
-  readonly ownedContainerIDs?: readonly number[];
-  readonly miningOwnerIDs?: readonly number[];
-  readonly containerProvenanceUnconfirmed?: boolean;
-  readonly rendezvous: {
-    readonly kind: "MINER_CLEARANCE" | "SELF_UNLOAD";
-    readonly required: readonly number[];
-    readonly ready: readonly number[];
-    readonly thisMemberReady: boolean;
-  } | null;
-}
-
 /**
  * One row of the fleet finder, as a block sees it. Deliberately NOT the bridge's
  * full `FleetAdvert`: a decider needs the name to match on, the id to apply with,
@@ -224,11 +169,6 @@ export interface ScriptObservation {
     readonly fleet: MiningSupportFleetObservation | null;
     readonly supportFleet?: MiningSupportFleetObservation | null;
   };
-  readonly miningSupportWork?: { readonly readyForRelocation: boolean; readonly reason: string | null; readonly phase: string };
-  /** Finite MCC Parking may perform an exact corporation deposit after target authority is released. */
-  readonly strictCorpDelivery?: boolean;
-  readonly miningSiteBookmarks?: Readonly<Record<string, number>>;
-  readonly unavailableMiningTargetKeys?: readonly string[];
   readonly iceMiningModuleIDs?: readonly number[] | null;
   readonly oreMiningModuleIDs?: readonly number[] | null;
   readonly travelPropulsionModules?: readonly import("./propulsion.ts").PropulsionModule[];
@@ -306,9 +246,6 @@ export interface ScriptObservation {
   readonly droneBayItemIDs?: readonly number[] | null;
   /** Fresh bay, controlled flight, limits and roles for the mining-flight policy. */
   readonly miningDrones?: MiningDroneState | null;
-  readonly miningOperation?: MiningOperationAssignment | null;
-  readonly miningOperationRequired?: boolean;
-  readonly miningOperationReadError?: string | null;
   /**
    * The drone bay and the drones out BY ROLE, classified from the game's own
    * group name (see nav/droneRoles.ts). A block launches and orders drones for

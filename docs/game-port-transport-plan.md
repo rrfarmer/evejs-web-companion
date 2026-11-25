@@ -552,8 +552,8 @@ calls go over the retail protocol as the account (2.3).
 Not done yet in this phase:
 
 - ~~One hosted maintenance flow on the game port.~~ Done 2026-10-08 (`9c6f087`). The flow this
-  plan named, Provisioning Center Apply, is deliberately unavailable on stock EveJS
-  (`provisioning-center-apply.md`); Ready Fit's Replenish on a selected session took its place.
+  plan named, Provisioning Center Apply, was unavailable on stock EveJS.
+  [Ready Fit](cockpit-ready-fit.md) replenished supplies on a selected session in its place.
   It completed in the browser on the game port, and its answers were the gateway's to the byte;
   the server's log showed nothing of that pilot's on the web gateway but the account-level reads
   of 2.3.

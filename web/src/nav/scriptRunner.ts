@@ -69,7 +69,6 @@ import {
 import { isSessionChangeSettling, isTransportTransient, isTransitionTimeout, refusalWords } from "../bridge/refusals.ts";
 import { createTravelAssist, type TravelAssistDeps } from "./travelAssist.ts";
 import { settleCombat } from "./combatOwnership.ts";
-import { defenderActionCurrent } from "./operationDefender.ts";
 
 /**
  * What the next decide will look at — so `observe` reads ONLY what that macro
@@ -230,7 +229,6 @@ export interface ScriptRunnerSnapshot {
  * deciders (B1). All injected so the loop itself touches no globals.
  */
 export interface ScriptRunnerDeps {
-  readonly readOperationAssignment?: () => Promise<ScriptObservation["miningOperation"]>;
   readonly travelAssist?: Pick<TravelAssistDeps, "change">;
   observe(hint: ObserveHint): Promise<ScriptObservation>;
   /**
@@ -610,21 +608,13 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
     }
     readFailures = 0;
     lastObs = obs;
-    const operation = obs.miningOperation;
-    const ownedTarget = operation?.role === "HAULER" ? operation.logisticsTarget ?? operation.currentTarget : operation?.currentTarget;
-    const travelAuthority = operation?.travelAssist === "AUTO" && !operation.stopRequested &&
-      !!ownedTarget && ownedTarget.claimedByOperationID === operation.operationID &&
-      ["RESERVED", "ACTIVE", "DRAINING"].includes(ownedTarget.state);
-    // The dedicated salvager has no mining operation: its subwarp approaches are its own
-    // authority (the macro being active), scoped by step path; the entity or point
-    // approached is the assist's own key.
     const salvagerTravel = activeMacroID(script, memory) === "salvage-bookmarked-sites";
     // A latched dock-and-pause trip is the run getting OUT. The gates below
     // guard work (a looting claim, propulsion custody for an approach), and
     // stopping the trip on them would park the ship where the fault left it.
     // The prop is still switched off on the way: see `beforeAction` below.
     const flyingHome = isStopTrip(memory.latched);
-    if (travelAssist?.pending() && !travelAuthority && !salvagerTravel && !flyingHome) {
+    if (travelAssist?.pending() && !salvagerTravel && !flyingHome) {
       await travelAssist.beforeAction({ enabled: false, scope: null, action: { kind: "wait" },
         snapshot: obs.snapshot ?? null, inWarp: obs.inWarp ?? null, docked: obs.docked ?? null,
         modules: [], scrammed: obs.scrammed ?? null });
@@ -773,14 +763,10 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
       }
     }
     if (travelAssist) {
-      const movementMacro = activeMacroID(script, memory);
-      const scopeIsSalvager = salvagerTravel && !ownedTarget;
       const consumed = await travelAssist.beforeAction({
-        enabled: result.status === "running" && result.memory.latched === null &&
-          ((travelAuthority && ["mine-at-belt", "fleet-mine", "loot-containers"].includes(movementMacro ?? "")) ||
-            (salvagerTravel && movementMacro === "salvage-bookmarked-sites")),
-        scope: ownedTarget ? `${ownedTarget.targetKey}:${result.stepPath}` : salvagerTravel ? `salvager:${result.stepPath}` : null,
-        action: result.action, workWhileMoving: scopeIsSalvager, snapshot: obs.snapshot ?? null, inWarp: obs.inWarp ?? null,
+        enabled: salvagerTravel && result.status === "running" && result.memory.latched === null,
+        scope: salvagerTravel ? `salvager:${result.stepPath}` : null,
+        action: result.action, workWhileMoving: salvagerTravel, snapshot: obs.snapshot ?? null, inWarp: obs.inWarp ?? null,
         docked: obs.docked ?? null, modules: obs.travelPropulsionModules ?? [], scrammed: obs.scrammed ?? null,
       });
       // A trip home is never swallowed by the prop being switched off: the
@@ -850,15 +836,6 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
     }
 
     if (isWorldCall(result.action)) {
-      if (obs.miningOperation?.role === "DEFENDER" && result.interruptID === null && deps.readOperationAssignment) {
-        let current: ScriptObservation["miningOperation"] = null;
-        try { current = await deps.readOperationAssignment(); } catch { /* No guessed target. */ }
-        if (token !== runToken || status !== "running") return;
-        if (!defenderActionCurrent(obs.miningOperation, current ?? null, result.action)) {
-          emit({ ...last, status: "running", phase: "Waiting for operation target", why: "Operation target changed before dispatch; old site work was retired." });
-          return;
-        }
-      }
       const beforeAction = memory;
       // A safety watch's home destination is intent, not action completion:
       // keep that latch even when this first movement request is refused.

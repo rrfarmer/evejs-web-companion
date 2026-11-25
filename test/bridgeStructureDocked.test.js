@@ -123,7 +123,7 @@ function fakeTransport({ handle, answers = {} }) {
 }
 
 /** A server whose pilot is on the game port (`onGamePort`), or through the gateway. The other transport is there too, and is asked nothing. */
-async function startTestServer({ onGamePort, answers, miningOperations }) {
+async function startTestServer({ onGamePort, answers }) {
   const gateway = fakeTransport({ handle: "a-handle-the-gateway-made", answers });
   const gamePort = fakeTransport({ handle: GAME_PORT_HANDLE, answers });
   const app = createApp({
@@ -132,7 +132,6 @@ async function startTestServer({ onGamePort, answers, miningOperations }) {
     webAuth: fakeAuth(),
     staticData: fakeStaticData(),
     gamePortPilots: gamePort,
-    miningOperations,
     pilotTransportFor: () => (onGamePort ? "gameport" : "gateway"),
     errorLogger() {},
   });
@@ -357,20 +356,6 @@ test("strict unload refuses a location change after inventory reads but before A
   assert.equal(result.status, 409, JSON.stringify(result.payload));
   assert.equal(own.calls.boundCall.some(call => call.method === "Add"), false);
   assert.equal(own.placement.get(101).flag, FLAG_CARGO);
-});
-
-test("an operation claim still cannot strictly unload outside its configured destination", async () => {
-  const { ask, own, botHost } = await startTestServer({ onGamePort: true,
-    miningOperations: { definition: () => ({ unloadDestination: { kind: "structure", id: ANOTHER_STRUCTURE_ID,
-      corporationDivision: 1, corporationID: 98000000 } }) }, answers: {
-    "structureSettings.CharacterGetServices": services(3),
-  } });
-  botHost.operationForClaim = () => ({ operationID: "00000000-0000-4000-8000-000000000000" });
-  const result = await ask("/api/bridge/ship/ore-hold/unload", {
-    method: "POST", body: { itemIDs: [101], division: 1, strictCorp: true, expectedDestination: { kind: "structure", id: STRUCTURE_ID } },
-  });
-  assert.deepEqual([result.status, result.payload.error], [409, "STRICT_CORP_DESTINATION_MISMATCH"]);
-  assert.equal(own.calls.boundCall.some(call => call.method === "Add"), false);
 });
 
 for (const failure of ["refused", "ignored", "missing office", "missing service"]) {

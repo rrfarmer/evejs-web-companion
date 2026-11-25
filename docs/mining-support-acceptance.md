@@ -27,7 +27,7 @@ ACKs are not physical postconditions or proof of can/fleet identity.
 
 Jettison recovery is a narrow same-process hosted exception. The generated miner
 retains `restartSafe:false`; other destructive scripts keep their existing gates.
-Read [jettison-custody.md](jettison-custody.md) for exact provenance and custody.
+That recovery applied to the generated Core MCC script in the acceptance build.
 
 **PROCESS-RESTART JETTISON RECOVERY NOT IMPLEMENTED.** Custody is volatile
 run-scoped host memory; full WC interruption has no durable mutation journal.

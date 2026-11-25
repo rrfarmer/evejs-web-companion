@@ -29,31 +29,26 @@ test("wrong account, mismatched corporation and changed membership fail closed",
   for (const options of [{ foreign: true }, { mismatch: true }, { changed: true }]) await assert.rejects(readTrainingSettingsContext(fixture(options)));
 });
 
-test("settings and station search routes require account auth and use bounded NPC-name search", async (t) => {
+test("an unreadable corporation record preserves the shared decoder error", async () => {
+  const f = fixture();
+  f.gateway.callMethod = async () => ({ result: {} });
+  await assert.rejects(readTrainingSettingsContext(f), { code: "CORPORATION_STATE_UNKNOWN", statusCode: 409 });
+});
+
+test("settings context requires account authentication", async (t) => {
   const { once } = require("node:events"), { createApp } = require("../src/server");
-  const f = fixture(), searches = [];
+  const f = fixture();
   const app = createApp({
     webAuth: { verifySessionToken: (token) => token === "test" ? { username: f.account.username, accountID: 17, sessionID: "settings-only" } : null },
     eveStore: { ...f.store, async getAccount(name) { return name === f.account.username ? f.account : null; } },
     eveGatewayClient: f.gateway,
-    staticData: {
-      findMapLocations(options) {
-        searches.push(options);
-        return { matches: [{ id: 60010825, name: "4C-B7X V - Moon 7 - Chemal Tech Factory", kind: "station" }], capped: false };
-      },
-      getStation(id) { return id === 60010825 ? { stationName: "4C-B7X V - Moon 7 - Chemal Tech Factory", solarSystemID: 30004504 } : null; },
-    }, errorLogger() {},
+    errorLogger() {},
   });
   const server = app.listen(0, "127.0.0.1"); t.after(() => server.close()); await once(server, "listening");
   const base = `http://127.0.0.1:${server.address().port}/api/pilot-training`, headers = { authorization: "Bearer test" };
-  for (const path of ["settings-context", "homes?q=4C-B7X"]) assert.equal((await fetch(`${base}/${path}`)).status, 401);
-  assert.deepEqual(f.calls, []); assert.deepEqual(searches, []);
+  assert.equal((await fetch(base + "/settings-context")).status, 401);
+  assert.deepEqual(f.calls, []);
   const context = await (await fetch(`${base}/settings-context`, { headers })).json();
   assert.equal(context.corporations[0].name, "Marked By Luck"); assert.equal(context.authorities[0].eligible, true);
-  const found = await (await fetch(`${base}/homes?q=4C-B7X&kind=structure&limit=99999`, { headers })).json();
-  assert.deepEqual(searches, [{ q: "4C-B7X", kind: "station", limit: 25 }]);
-  const home = await (await fetch(`${base}/home?locationID=${found.matches[0].id}`, { headers })).json();
-  assert.equal(home.home.locationID, 60010825); assert.equal(home.home.kind, "NPC_STATION");
-  assert.equal(home.home.name, found.matches[0].name); assert.equal(home.home.systemID, 30004504);
   assert.deepEqual(f.calls, ["GetCorporation", "GetMember"]);
 });

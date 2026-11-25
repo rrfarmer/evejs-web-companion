@@ -53,10 +53,8 @@ const { hostedFetch, hostedRequestWaitsByDesign, hostedRoute } = require("../web
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const jettison = require("./jettisonCustody");
-const { createStartupRuns, credentialFree, preparationReady } = require("./startupRuns");
+const { createStartupRuns } = require("./startupRuns");
 const { pathToFileURL } = require("url");
-const { isBridgeWritePair } = require("./bridgeCallPolicy");
 
 // An unguessable per-run claim capability. The public botID is deliberately NOT
 // accepted by the select guard: account-scoped bot listings expose bot IDs, so
@@ -156,7 +154,6 @@ function defaultLoadStack() {
         decodeScriptValue: codec.decodeScriptValue,
         scriptWithFormerMacroIDs: pluginBlocks.scriptWithFormerMacroIDs,
         analyzeBotRunPolicy: runPolicy.analyzeBotRunPolicy,
-        supportsHostedOreJettisonRecovery: runPolicy.supportsHostedOreJettisonRecovery,
         validateBotLaunchGrant: runPolicy.validateBotLaunchGrant,
         supportFleet,
       };
@@ -236,18 +233,6 @@ function isPluginLastWords(message) {
 const PLUGIN_REFUSED_PATH = /^\/api\/(login|logout|bridge\/select|bridge\/release|bots\/start|bots\/[^/]+\/(stop|reconnect)|mining-operations\/[^/]+\/(start|stop))\/?$/i;
 const PLUGIN_STOPPED_PHASE = "Plugin stopped";
 
-/**
- * What a request by the generic call asks, read off its body: the call's service and its method, and the object
- * it is made on (`of`), as the page sends them (web/src/bridge/callMethod.ts). Null where the body is not one.
- */
-function genericCallOf(body) {
-  if (typeof body !== "string") return null;
-  try {
-    const call = JSON.parse(body);
-    return call !== null && typeof call === "object" && typeof call.service === "string" && typeof call.method === "string" ? call : null;
-  } catch { return null; }
-}
-
 function createBotHost(options) {
   const auth = options.webAuth;
   const baseUrl = options.baseUrl;
@@ -317,13 +302,6 @@ function createBotHost(options) {
             startedAt: record.startedAt,
             stopRequested: record.windingDown === true,
             stopBlocked: record.stopBlocked === true,
-            ...(record.operationID ? { operationID: record.operationID, operationRole: record.operationRole,
-              operationControllerAccountID: record.operationControllerAccountID,
-              operationStopRequested: record.operationStopRequested === true,
-              recoveryAttempts: record.recoveryAttempts || 0, recoveryBlocked: record.recovering === true } : {}),
-            ...(record.operationPreparation ? { operationRunID: record.operationRunID,
-              operationPreparation: record.operationPreparation, preparation: record.preparation,
-              deferMain: record.deferMain } : {}),
           };
           if (record.kind === "plugin") {
             // There is no library for a plugin's run, so the row is the authority
@@ -378,15 +356,7 @@ function createBotHost(options) {
       scriptRev: record.scriptRev,
       scriptHash: record.scriptHash,
       logicalRunID: record.logicalRunID,
-      operationID: record.operationID,
-      operationRole: record.operationRole,
-      ...(record.operationPreparation ? { operationRunID: record.operationRunID,
-        preparation: structuredClone(record.preparation), deferMain: record.deferMain,
-        preparationOwnerAvailable: preparationOwnerAvailable(record) } : {}),
-      parking: record.parking,
-      recovery: record.recovery ? { ...record.recovery } : null,
       restartSafe: record.restartSafe,
-      jettisonCustody: jettison.copy(record.jettisonCustody),
       riskClasses: record.riskClasses,
       maxRuntimeMinutes: record.maxRuntimeMinutes,
       expiresAt: record.expiresAt,
@@ -458,9 +428,7 @@ function createBotHost(options) {
   }
 
   async function finalizeBody(record) {
-    if (record.recoveryWriteUnresolved || record.jettisonWriteUnresolved || jettison.unresolved(record.jettisonCustody) ||
-        await preparationCustodyUnresolved(record) ||
-        Object.values(record.startup?.snapshot().blocks || {}).some(block => ["PENDING", "BLOCKED"].includes(block.state))) {
+    if (Object.values(record.startup?.snapshot().blocks || {}).some(block => ["PENDING", "BLOCKED"].includes(block.state))) {
       record.status = "paused"; record.phase = "Unresolved write custody";
       record.why = "The issued write needs reconciliation before pilot control can be released.";
       record.stopBlocked = true; persistRoster(); return false;
@@ -522,11 +490,6 @@ function createBotHost(options) {
       return false;
     }
     record.startup?.end();
-    record.preparationCheckpoint?.end();
-    // The ended-run ring keeps this record. Drop the callbacks from start(),
-    // whose closure still refers to the retired flow and store.
-    record.startProductive = null;
-    record.recoverSession = null;
     record.pluginFetch = null;
     record.finalized = true;
     record.endedAt = nowISO();
@@ -630,8 +593,6 @@ function createBotHost(options) {
     // await — no store push can overwrite these between here and there.
     record.status = record.recall ? "error" : "stopped";
     record.why = docked ? words.docked : words.undocked;
-    if (record.operationStopRequested) record.parking = { state: docked ? "PARKED" : "PARKING_FAILED",
-      reason: docked ? null : DEADLINE_WHY_UNDOCKED };
     return finalize(record);
   }
 
@@ -673,8 +634,6 @@ function createBotHost(options) {
     persistRoster(); // a process restart must not replay a requested Stop
     const pending = (async () => {
       try {
-        if (record.recoveryWriteUnresolved || record.jettisonWriteUnresolved || jettison.unresolved(record.jettisonCustody) ||
-            await preparationCustodyUnresolved(record)) throw new Error("An issued write still needs reconciliation; Stop retains pilot control.");
         // The plugin's loop first: it must not launch what the host is about to bring home.
         if (record.kind === "plugin" && !record.recall) await stopPluginLoop(record);
         if (!record.droneSafetyConfirmed && (!record.flow || typeof record.flow.prepareHostedBotStop !== "function")) {
@@ -684,7 +643,7 @@ function createBotHost(options) {
           throw new Error("The controlled-drone safety read is unavailable.");
         }
         if (!record.droneSafetyConfirmed) {
-          await record.flow.prepareHostedBotStop(record.kind, now() + CONTROLLED_DRONE_CLEANUP_MS * (record.operationRole === "COMMAND" ? 2 : 1));
+          await record.flow.prepareHostedBotStop(record.kind, now() + CONTROLLED_DRONE_CLEANUP_MS);
           record.droneSafetyConfirmed = true;
         }
       } catch (error) {
@@ -936,22 +895,9 @@ function createBotHost(options) {
     callerSessionID = null,
     probeReservation = null,
     beforeStart = null,
-    operationID = null,
-    operationRole = null,
-    operationControllerAccountID = null,
-    recoveryAttempts = 0,
     logicalRunID = null,
-    operationRunID = null,
-    operationPreparation = null,
-    preparation = null,
-    deferMain = false,
   }) {
     const isPlugin = kind === "plugin";
-    if (operationPreparation && (typeof operationPreparation !== "object" || Array.isArray(operationPreparation) ||
-        typeof operationID !== "string" || !operationID ||
-        typeof operationRunID !== "string" || !operationRunID || !credentialFree(operationPreparation) ||
-        typeof options.prepareOperation !== "function"))
-      return { ok: false, code: "OPERATION_PREPARATION_INVALID", message: "Operation preparation requires its accepted run identity and shared preparation adapter." };
     let stack;
     try {
       stack = await loadStack();
@@ -1028,9 +974,7 @@ function createBotHost(options) {
     if (!grantVerdict.ok) {
       return { ok: false, code: grantVerdict.code, message: grantVerdict.message };
     }
-    const pendingPreparationResume = resumed && operationPreparation && deferMain === true &&
-      startupRuns.get(logicalRunID)?.preparation?.mainEntered === false;
-    if (resumed && !runPolicy.restartSafe && !pendingPreparationResume) {
+    if (resumed && !runPolicy.restartSafe) {
       return {
         ok: false,
         code: "BOT_RESTART_REQUIRES_CONFIRMATION",
@@ -1055,8 +999,7 @@ function createBotHost(options) {
     }
     let heldByAnother;
     try {
-      heldByAnother = await isCharacterHeld(characterID, callerSessionID,
-        { resumed, operationRunID, logicalRunID, operationPreparation, accountID: Number(account.accountID) }, probeReservation);
+      heldByAnother = await isCharacterHeld(characterID, callerSessionID, { accountID: Number(account.accountID) }, probeReservation);
     } catch (error) {
       logError(error);
       return { ok: false, code: "CHARACTER_OWNERSHIP_UNVERIFIED",
@@ -1117,25 +1060,7 @@ function createBotHost(options) {
       scriptName: recordScriptName,
       scriptRev: normalizedRev,
       scriptHash: normalizedHash,
-      operationID: typeof operationID === "string" && operationID.length > 0 ? operationID : null,
-      operationRole: ["MINER", "HAULER", "COMMAND", "DEFENDER"].includes(operationRole) ? operationRole : null,
-      operationRunID,
-      operationPreparation: operationPreparation ? structuredClone(operationPreparation) : null,
-      preparation: operationPreparation ? { state: "PENDING" } : null,
-      preparationCheckpoint: null,
-      deferMain: !!operationPreparation && (deferMain || resumed),
-      mainStarted: false,
-      activationFailed: false,
-      activatePromise: null,
-      operationControllerAccountID: Number.isSafeInteger(Number(operationControllerAccountID)) && Number(operationControllerAccountID) > 0 ? Number(operationControllerAccountID) : null,
-      operationStopRequested: false,
-      parking: null,
-      prepareParkingPromise: null,
-      parkingPromise: null,
       restartSafe: runPolicy.restartSafe === true,
-      hostedOreJettisonRecovery: operationRole === "MINER" && !!operationID && recordScriptID.startsWith("mcc.") &&
-        stack.supportsHostedOreJettisonRecovery?.(decodedDoc) === true,
-      jettisonCustody: null,
       riskClasses: [...runPolicy.riskClasses],
       maxRuntimeMinutes: grantVerdict.grant.maxRuntimeMinutes,
       expiresAt,
@@ -1174,12 +1099,6 @@ function createBotHost(options) {
       // Set once the deadline has fired and endRunDocked is bringing the ship
       // in; the store subscription then leaves finalizing to it.
       windingDown: false,
-      recovering: false,
-      recoveryEnabled: false,
-      recoveryAttempts: Number.isSafeInteger(recoveryAttempts) && recoveryAttempts >= 0 ? recoveryAttempts : 0,
-      recovery: null,
-      recoveryPromise: null,
-      recoverSession: null,
     };
     // Claim BEFORE the first await — two concurrent starts must not both win,
     // and the select guard must already know this bot when its select arrives.
@@ -1197,7 +1116,7 @@ function createBotHost(options) {
       // A resumed bot asks for the time its ORIGINAL grant has left, because
       // `expiresAt` is the persisted deadline, not a fresh one.
       const token = auth.createSessionToken(account, {
-        ttlMs: deadlineMs - now() + CONTROLLED_DRONE_CLEANUP_MS * (record.operationRole === "COMMAND" ? 2 : 1) + DEADLINE_DOCK_GRACE_MS + SESSION_TEARDOWN_MARGIN_MS,
+        ttlMs: deadlineMs - now() + CONTROLLED_DRONE_CLEANUP_MS + DEADLINE_DOCK_GRACE_MS + SESSION_TEARDOWN_MARGIN_MS,
       });
       const tokenPayload =
         typeof auth.verifySessionToken === "function" ? auth.verifySessionToken(token) : null;
@@ -1205,78 +1124,21 @@ function createBotHost(options) {
       const store = stack.createClientStore();
       // Same fetch the server itself trusts, plus the bot's name on every
       // request so the select guard can tell the bot's own select from a tab's.
-      const pendingRequests = new Set();
       const send = (input, init) => {
         if (record.finalized) return Promise.reject(new Error("Hosted run ended"));
-        const secret = record.claimSecret;
-        const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url, baseUrl);
-        const method = String(init?.method || "GET").toUpperCase();
-        // The page makes its own writes by the generic call (the plan's Phase 6b), where the call's name says
-        // whether it is one, as it says to the BFF (bridgeCallPolicy.js). A call that cannot be read is taken
-        // for a write: unknown intent stays blocked.
-        const call = url.pathname === "/api/bridge/call" ? genericCallOf(init?.body) : null;
-        const writes = method !== "GET" && method !== "HEAD" &&
-          (url.pathname !== "/api/bridge/call" || call === null || isBridgeWritePair(call.service, call.method));
-        const fleetAcceptance = record.recoveryFleetAcceptance;
-        let exactFleetAcceptance = false;
-        // An invitation is accepted by the generic call, on the fleet the call names (fleetWrites.ts, acceptFleetInvite).
-        if (call?.service === "fleetObjectHandler" && call.method === "AcceptInvite" && fleetAcceptance?.secret === secret && record.riskClasses.includes("fleet")) {
-          try { fleetAcceptance.assertCurrent(); } catch (error) { return Promise.reject(error); }
-          exactFleetAcceptance = call.of === fleetAcceptance.fleetID;
-        }
-        const preparationRecovery = record.operationPreparation && record.preparingRecovery === true &&
-          ["/api/bridge/provisioning/review", "/api/bridge/provisioning/reconcile"].includes(url.pathname);
-        // (The stop is the ship's own command, by the generic call: movementWrites.ts, stopShip.)
-        const stops = call?.service === "beyonce" && call.method === "CmdStop";
-        const recoveryWrite = preparationRecovery || exactFleetAcceptance || stops || ["/api/bridge/select", "/api/bridge/entity/drones/reconnect", "/api/bridge/drones/recall",
-          "/api/bridge/drone-recovery/ready", "/api/bridge/ship/jettison/reconcile"].includes(url.pathname);
-        if (record.recovering && !record.windingDown && writes && !recoveryWrite) {
-          return Promise.reject(Object.assign(new Error("The hosted session is recovering; productive writes are paused."),
-            { code: "HOSTED_RECOVERY_PENDING" }));
-        }
         const headers = new Headers(init && init.headers);
-        headers.set(BOT_HEADER, secret);
-        const pending = (async () => {
-          const response = await reach(input, { ...init, headers });
-          if (!response.ok && record.recoveryEnabled) {
-            const body = await response.clone().json().catch(() => null);
-            if (["SESSION_NOT_FOUND", "NO_LIVE_SESSION"].includes(body?.error)) {
-              // A lost write may have reached the world. Preserve that ambiguity
-              // independently of the runner/frame that was still awaiting it.
-              if (writes) {
-                if (url.pathname === "/api/bridge/ship/jettison" && record.hostedOreJettisonRecovery) record.jettisonWriteUnresolved = true;
-                else record.recoveryWriteUnresolved = true;
-              }
-              if (!record.recovering && secret === record.claimSecret) void record.recoverSession?.(false).catch(logError);
-            }
-          }
-          return response;
-        })().catch(error => {
-          if (writes && url.pathname === "/api/bridge/ship/jettison" && record.hostedOreJettisonRecovery)
-            record.jettisonWriteUnresolved = true;
-          throw error;
-        }).finally(() => pendingRequests.delete(pending));
-        pendingRequests.add(pending);
-        return pending;
+        headers.set(BOT_HEADER, record.claimSecret);
+        return reach(input, { ...init, headers });
       };
       const botFetch = reach.isInProcessRequest
         ? hostedFetch(send, String(record.characterID), reach.isInProcessRequest)
         : send;
       let hostedStartup;
-      if (record.operationPreparation) {
-        const checkpointSecret = record.claimSecret;
-        record.preparationCheckpoint = startupRuns.openPreparation({ logicalRunID: record.logicalRunID,
-          accountID: record.accountID, characterID, scriptHash: normalizedHash, scriptRev: normalizedRev,
-          operationID: record.operationID, operationRunID: record.operationRunID, intent: record.operationPreparation,
-          resumed, assertCurrent: () => preparationOwner(record, checkpointSecret) });
-        record.preparation = record.preparationCheckpoint.snapshot();
-        persistRoster();
-      }
       if (!isPlugin && Array.isArray(decodedDoc.program)) {
         const startup = await import(pathToFileURL(path.resolve(__dirname, "../web/src/bots/startup.ts")).href);
         if (startup.startupPrefix(decodedDoc).length) {
           if (resumed && !logicalRunID) throw new Error("Older startup run has no durable identity; start manually after review.");
-          hostedStartup = startupRuns.open({ logicalRunID: record.operationPreparation ? record.logicalRunID : resumed ? logicalRunID : null,
+          hostedStartup = startupRuns.open({ logicalRunID: resumed ? logicalRunID : null,
             accountID: record.accountID, characterID, scriptHash: normalizedHash, scriptRev: normalizedRev,
             steps: startup.startupSteps(decodedDoc), prefixLength: startup.startupPrefix(decodedDoc).length, program: decodedDoc.program,
             adapters: { postcondition: startup.startupPostcondition, actionSupported: startup.startupActionSupported,
@@ -1294,8 +1156,6 @@ function createBotHost(options) {
         perSessionToken: true,
         initialSessionToken: token,
         eventSource: url => stack.createHostedEventSource(url, { fetch: botFetch }),
-        miningOperationID: record.operationID,
-        hostedOreJettisonRecovery: record.hostedOreJettisonRecovery,
         // The pilot's own route settings, as its page keeps them (src/pilotRouteSettings.js): a run with none plans
         // every route "Prefer safer", whatever the pilot chose.
         ...(typeof options.settingsStorageFor === "function" ? { storage: options.settingsStorageFor(characterID) } : {}),
@@ -1321,224 +1181,6 @@ function createBotHost(options) {
             { pilot: local.pilot, signal: init.signal, carried: hostedRequestWaitsByDesign(input, init) }) : dispatch();
         };
       }
-      record.startProductive = async () => {
-        if (isPlugin) {
-          record.startError = await startPluginLoop(record, resumed);
-          if (record.startError === null && record.status === "starting") record.status = "running";
-          return;
-        }
-        await flow.startCustomBot(decodedDoc);
-        applySnapshot(record, store.customBot.get());
-      };
-      record.recoverSession = (disconnect = false) => {
-        if (record.recoveryPromise) return record.recoveryPromise;
-        if (!record.recoveryEnabled || record.kind !== "script" || !record.operationID || record.windingDown ||
-            record.operationStopRequested || record.manualStopRequested || record.deadlineRequested || record.finalized)
-          return Promise.reject(new Error("This hosted run cannot recover its session."));
-        const observedShipID = store.flight.get().status?.shipID ?? store.space.get().snapshot?.shipID ?? store.station.get().online?.shipID;
-        const previousSecret = record.claimSecret;
-        record.recovering = true;
-        record.claimSecret = createClaimSecret();
-        record.status = "paused"; record.phase = "Session recovery";
-        record.recovery = { state: "RECOVERY", attempts: record.recoveryAttempts, reason: null };
-        const suspended = flow.suspendHostedSession();
-        const until = Math.min(Date.parse(record.expiresAt), now() + 180_000);
-        const current = () => {
-          if (record.finalized || record.flow !== flow || claims.get(characterID) !== botID || record.windingDown ||
-              record.operationStopRequested || record.manualStopRequested || record.deadlineRequested || now() >= until)
-            throw new Error("Session recovery was superseded or its original grant ended.");
-        };
-        const bounded = async pending => {
-          let timer;
-          try {
-            const result = await Promise.race([pending, new Promise((_resolve, reject) => {
-              timer = setTimeout(() => reject(new Error("Session recovery exceeded its observation bound.")), Math.max(1, until - now()));
-            })]);
-            current();
-            return result;
-          } finally { clearTimeout(timer); }
-        };
-        const recover = (async () => {
-          try {
-            await bounded(suspended);
-            await bounded(Promise.all([...pendingRequests]));
-            // The game server closed this pilot's connection with a reason of its own (another login of its account):
-            // a retail client so closed stays closed, and so does this run (gamePort/pilots.js closedByServer).
-            const closedByServer = typeof options.closedByServer === "function" ? options.closedByServer(characterID) : null;
-            if (closedByServer)
-              throw new Error(`The game server closed this pilot's connection (${closedByServer.reasonCode}): ${closedByServer.reason}`);
-            if (!Number.isSafeInteger(observedShipID) || observedShipID <= 0) throw new Error("The original hosted hull was not positively observed.");
-            const liveAccount = await bounded(loadAccount(record.username));
-            if (!liveAccount || liveAccount.banned || Number(liveAccount.accountID) !== record.accountID) throw new Error("The hosted account is unavailable.");
-            const saved = await bounded(Promise.resolve(loadScript(record.scriptID, record)));
-            const decoded = saved && stack.decodeScriptValue(saved.doc);
-            const policy = decoded?.ok ? stack.analyzeBotRunPolicy(decoded.doc) : null;
-            if (!decoded?.ok || Number(saved.rev) !== record.scriptRev || hashScript(decoded.doc) !== record.scriptHash ||
-                !(policy?.restartSafe || record.hostedOreJettisonRecovery && stack.supportsHostedOreJettisonRecovery?.(decoded.doc)) || policy.containsSubBots || !stack.validateBotLaunchGrant({ scriptRev: record.scriptRev,
-                  riskClasses: record.riskClasses, maxRuntimeMinutes: record.maxRuntimeMinutes }, record.scriptRev, policy).ok)
-              throw new Error("The pinned script or granted permissions changed.");
-            if (disconnect) {
-              if (typeof options.disconnectOwnedSession !== "function") throw new Error("Owned session disconnect is unavailable.");
-              await bounded(options.disconnectOwnedSession({ webSessionID: record.webSessionID, characterID, accountID: record.accountID,
-                claimSecret: record.claimSecret, previousSecret }));
-            }
-            if (record.recoveryAttempts >= 3) throw new Error("Session recovery retry budget is exhausted.");
-            while (record.recoveryAttempts < 3) {
-              current(); record.recoveryAttempts += 1;
-              record.recovery.attempts = record.recoveryAttempts; persistRoster();
-              try { await bounded(flow.selectCharacter(characterID)); break; }
-              catch (error) {
-                // Only positive session disappearance permits another select.
-                // Timeouts/release uncertainty keep the claim and never replay.
-                if (!["SESSION_NOT_FOUND", "NO_LIVE_SESSION"].includes(error?.code) || record.recoveryAttempts >= 3) throw error;
-                await bounded(sleep(30_000));
-              }
-            }
-            if (record.recoveryWriteUnresolved) throw new Error("A write outcome is unresolved; work custody is retained for reconciliation.");
-            await bounded(flow.verifyHostedSessionRecovery(observedShipID));
-            current();
-            if (record.operationPreparation) {
-              record.preparingRecovery = true;
-              try { await bounded(prepareOperationRecord(record)); }
-              finally { record.preparingRecovery = false; }
-              current();
-              if (!preparationReady(record.preparation)) throw new Error("Operation preparation still requires recovery before MAIN.");
-            }
-            if (record.jettisonWriteUnresolved || jettison.unresolved(record.jettisonCustody))
-              throw new Error("Jettison outcome is ambiguous; exact mutation custody and pilot control are retained.");
-            if (record.recoveryWriteUnresolved) throw new Error("A late write outcome remains unresolved; control is retained.");
-            if (record.operationRole === "HAULER") {
-              const assignment = await bounded(flow.readMiningOperationAssignment());
-              if (assignment?.support) {
-                const supportID = assignment.support.characterID;
-                const peer = [...records.values()].find(row => row.operationID === record.operationID && row.operationRole === "COMMAND" && row.characterID === supportID);
-                const peerFlow = peer?.flow, peerSecret = peer?.claimSecret;
-                const assertMember = () => {
-                  current();
-                  if (assignment.operationID !== record.operationID || assignment.role !== "HAULER" || assignment.stopRequested ||
-                      !record.riskClasses.includes("fleet") || !peer || peer.finalized || peer.recovering || peer.windingDown ||
-                      peer.operationStopRequested || peer.manualStopRequested || peer.deadlineRequested || !peer.riskClasses.includes("fleet") ||
-                      peer.flow !== peerFlow || peer.claimSecret !== peerSecret || claims.get(supportID) !== peer.botID || Date.parse(peer.expiresAt) <= now() ||
-                      peer.store?.station.get().online?.characterID !== supportID || store.station.get().online?.characterID !== characterID)
-                    throw new Error("The hauler's surviving support fleet authority changed.");
-                };
-                let memberMemory = stack.supportFleet.freshMiningSupportFleetMemory(), leaderMemory = stack.supportFleet.freshMiningSupportFleetMemory();
-                let memberFeedback, leaderFeedback, ready = false;
-                // A hauler can suspend inside a long-lived loot step. Confirm
-                // membership before resuming that step, using the ordinary
-                // invite/accept deciders with at most one action per read tick.
-                for (let tick = 0; tick < 30; tick++) {
-                  assertMember();
-                  const latest = await bounded(flow.readMiningOperationAssignment());
-                  if (latest?.operationID !== assignment.operationID || latest.role !== "HAULER" || latest.stopRequested ||
-                      latest.support?.characterID !== supportID || latest.support.fleetPolicy !== assignment.support.fleetPolicy)
-                    throw new Error("The hauler support assignment changed during recovery.");
-                  await bounded(peerFlow.loadFleet()); assertMember();
-                  await bounded(flow.loadFleet()); assertMember();
-                  const own = flow.readMiningSupportFleet(`${botID}:${record.recoveryAttempts}`);
-                  const support = peerFlow.readMiningSupportFleet(`${peer.botID}:${peer.recoveryAttempts}`);
-                  const member = stack.supportFleet.decideMiningSupportFleetMember({ own, support, supportCharacterID: supportID,
-                    policy: { mode: latest.support.fleetPolicy }, nowMs: now(), feedback: memberFeedback }, memberMemory);
-                  memberMemory = member.memory; memberFeedback = undefined;
-                  if (member.state === "ready") { ready = true; break; }
-                  if (member.state === "blocked" || latest.support.fleetPolicy !== "MANAGED") throw new Error("The hauler is outside its selected support fleet.");
-                  if (member.action) {
-                    if (member.action.kind !== "acceptFleetInvite") throw new Error("Hauler recovery requires an ordinary support invitation.");
-                    record.recoveryFleetAcceptance = { secret: record.claimSecret, fleetID: member.action.fleetID, assertCurrent: assertMember };
-                    try { await bounded(flow.acceptFleetInvite(member.action.fleetID)); }
-                    finally { record.recoveryFleetAcceptance = null; }
-                    assertMember();
-                    if (store.fleet.get().actionError) throw new Error("The hauler's fleet acceptance was not confirmed.");
-                    memberFeedback = { scope: own.scope, actionID: member.actionID, outcome: "acknowledged" };
-                  } else {
-                    const leader = stack.supportFleet.decideMiningSupportFleet({ own: support, intendedCharacterIDs: [characterID],
-                      memberObservations: [own], policy: { mode: "MANAGED" }, nowMs: now(), feedback: leaderFeedback }, leaderMemory);
-                    leaderMemory = leader.memory; leaderFeedback = undefined;
-                    if (["blocked", "recovery-required"].includes(leader.state)) throw new Error("The surviving support invitation is blocked.");
-                    if (leader.action) {
-                      if (leader.action.kind !== "inviteToFleet" || leader.action.charID !== characterID || !leader.fleetID) throw new Error("Hauler recovery cannot create or switch fleets.");
-                      await bounded(peerFlow.inviteFleetMember(characterID, assertMember, leader.fleetID)); assertMember();
-                      if (peer.store.fleet.get().actionError) throw new Error("The support invitation was not confirmed.");
-                      leaderFeedback = { scope: support.scope, actionID: leader.actionID, outcome: "acknowledged" };
-                    }
-                  }
-                  await bounded(sleep(2000));
-                }
-                if (!ready) throw new Error("The hauler's selected fleet membership remains unconfirmed.");
-              }
-            }
-            if (record.operationRole === "COMMAND") {
-              const assignment = await bounded(flow.readMiningOperationAssignment());
-              const managed = value => value?.operationID === record.operationID && value.role === "COMMAND" &&
-                value.support?.characterID === characterID && value.support.fleetPolicy === "MANAGED" && !value.stopRequested;
-              if (managed(assignment)) {
-                const peers = [...records.values()].filter(peer => peer !== record && peer.operationID === record.operationID);
-                const captured = peers.map(peer => ({ peer, flow: peer.flow, secret: peer.claimSecret }));
-                const livePeer = item => !item.peer.finalized && !item.peer.recovering && !item.peer.windingDown &&
-                  !item.peer.operationStopRequested && !item.peer.manualStopRequested && !item.peer.deadlineRequested &&
-                  item.peer.flow === item.flow && item.peer.claimSecret === item.secret && claims.get(item.peer.characterID) === item.peer.botID &&
-                  Date.parse(item.peer.expiresAt) > now() && item.flow && item.peer.store?.station.get().online?.characterID === item.peer.characterID;
-                const observations = [];
-                for (const item of captured) {
-                  if (!livePeer(item)) continue;
-                  await bounded(item.flow.loadFleet());
-                  if (!livePeer(item)) continue;
-                  const observed = item.flow.readMiningSupportFleet(`${item.peer.botID}:${item.peer.recoveryAttempts}`);
-                  if (observed) observations.push(observed);
-                }
-                await bounded(flow.loadFleet());
-                const own = flow.readMiningSupportFleet(`${botID}:${record.recoveryAttempts}`);
-                const latest = await bounded(flow.readMiningOperationAssignment());
-                if (!managed(latest) || JSON.stringify(latest.intendedFleetCharacterIDs) !== JSON.stringify(assignment.intendedFleetCharacterIDs))
-                  throw new Error("The managed support assignment changed during recovery.");
-                const selected = stack.supportFleet.miningSupportRecoveryInviter({ own,
-                  intendedCharacterIDs: latest.intendedFleetCharacterIDs ?? [], memberObservations: observations, nowMs: now() });
-                if (["unknown", "conflict"].includes(selected.state)) throw new Error("Surviving fleet authority is unavailable or conflicting.");
-                if (selected.state === "ready") {
-                  const inviter = captured.find(item => item.peer.characterID === selected.characterID);
-                  const assertInvite = () => { current(); if (!inviter || !livePeer(inviter) || !inviter.peer.riskClasses.includes("fleet"))
-                    throw new Error("The surviving member's fleet grant or ownership changed."); };
-                  assertInvite();
-                  const scope = observations.find(row => row.scope.characterID === selected.characterID);
-                  const prior = record.recoveryFleetInvite;
-                  const same = prior?.inviterSecret === inviter.secret && prior.targetSecret === record.claimSecret;
-                  const decision = stack.supportFleet.decideMiningSupportFleet({ own: scope, intendedCharacterIDs: [characterID],
-                    memberObservations: [own], policy: { mode: "MANAGED" }, nowMs: now(), feedback: same ? prior.feedback : undefined },
-                    same ? prior.memory : stack.supportFleet.freshMiningSupportFleetMemory());
-                  record.recoveryFleetInvite = { inviterSecret: inviter.secret, targetSecret: record.claimSecret, memory: decision.memory, feedback: undefined };
-                  if (decision.action) {
-                    if (decision.action.kind !== "inviteToFleet" || decision.action.charID !== characterID) throw new Error("Recovery requires an ordinary member invitation.");
-                    await bounded(inviter.flow.inviteFleetMember(characterID, assertInvite, selected.fleetID));
-                    assertInvite();
-                    if (inviter.peer.store.fleet?.get().actionError) throw new Error("The surviving member invitation could not be confirmed.");
-                    record.recoveryFleetInvite.feedback = { scope: scope.scope, actionID: decision.actionID, outcome: "acknowledged" };
-                  } else if (decision.state === "blocked") throw new Error("The surviving member invitation is blocked.");
-                }
-              }
-            }
-            current();
-            if (record.recoveryWriteUnresolved) throw new Error("A late write outcome remains unresolved; control is retained.");
-            if (!record.operationPreparation || record.mainStarted) flow.resumeHostedSession();
-            record.recovering = false; record.recovery = { state: "READY", attempts: record.recoveryAttempts, reason: null };
-            if (!record.operationPreparation || record.mainStarted) applySnapshot(record, store.customBot.get());
-            else { record.status = "paused"; record.phase = "Waiting for operation readiness"; }
-            persistRoster();
-            if (record.operationPreparation && !record.mainStarted && typeof options.onOperationResume === "function")
-              await options.onOperationResume();
-          } catch (error) {
-            if (!record.finalized && !record.windingDown) {
-              record.status = "paused"; record.phase = "Session recovery blocked"; record.why = error?.message || "Session authority could not be re-established.";
-              record.recovery = { state: "BLOCKED", attempts: record.recoveryAttempts, reason: record.why };
-              persistRoster();
-            }
-            throw error;
-          }
-        })();
-        record.recoveryPromise = recover.finally(() => { record.recoveryPromise = null; });
-        persistRoster();
-        return record.recoveryPromise;
-      };
-
       if (beforeStart) {
         const handedOver = await beforeStart({ claimSecret: record.claimSecret, webSessionID: record.webSessionID });
         record.giveBackSession = handedOver?.giveBack ?? null;
@@ -1546,11 +1188,9 @@ function createBotHost(options) {
       await flow.selectCharacter(characterID);
       const online = store.station.get().online;
       record.characterName = online ? online.characterName : null;
-      if (record.operationPreparation) await prepareOperationRecord(record);
       // A Stop or finalize already in progress set windingDown before its first await: subscribing now would outlive
       // its unsubscribe, and the productive start would run on a flow it is logging out.
-      if (record.finalized || record.windingDown ||
-          (record.operationPreparation && (record.manualStopRequested || record.operationStopRequested))) {
+      if (record.finalized || record.windingDown) {
         record.giveBackSession = null;
         return { ok: true, bot: publicBot(record) };
       }
@@ -1560,8 +1200,6 @@ function createBotHost(options) {
       // letting go of the ship as the end of the bot.
       let sawRunning = false;
       record.unsubscribe = store.subscribe((state) => {
-        if (record.recovering && !record.windingDown) return;
-        if (record.operationPreparation && !record.mainStarted) return;
         if (isPlugin) {
           // This flow only holds the session: what the run is doing, the plugin reports.
           if (record.pluginStarted && !record.windingDown && state.station.online === null) {
@@ -1601,41 +1239,26 @@ function createBotHost(options) {
         }
       });
 
-      if (!record.operationPreparation) await record.startProductive();
-      else if (!record.deferMain && preparationReady(record.preparation))
-        await activateOperationMember(record.botID, record.accountID, record.operationID, record.operationRunID);
-      if (record.startError !== null && !record.operationPreparation) {
+      if (isPlugin) {
+        record.startError = await startPluginLoop(record, resumed);
+        if (record.startError === null && record.status === "starting") record.status = "running";
+      } else {
+        await flow.startCustomBot(decodedDoc);
+        applySnapshot(record, store.customBot.get());
+      }
+      if (record.startError !== null) {
         await finalize(record);
         return { ok: false, code: "BOT_START_FAILED", message: record.startError };
       }
       record.giveBackSession = null;
       if (record.finalized || record.windingDown) return { ok: true, bot: publicBot(record) };
-      record.recoveryEnabled = !!record.operationID && (record.restartSafe || record.hostedOreJettisonRecovery) && typeof flow.suspendHostedSession === "function";
       const remainingMs = Math.max(1, Date.parse(record.expiresAt) - now());
       record.deadlineTimer = setDeadlineTimeout(() => {
         record.deadlineTimer = null;
         if (record.finalized || record.windingDown) {
           return;
         }
-        if (record.operationID) {
-          // MCC must enter Stop while every pilot is still owned. Independent
-          // deadline finalization would strand the operation and its leases.
-          void Promise.resolve().then(() => {
-            if (typeof options.onOperationDeadline !== "function") throw new Error("Operation deadline coordination is unavailable.");
-            return options.onOperationDeadline(record.operationID);
-          }).catch(async error => {
-            if (!record.finalized) {
-              await prepareOperationStop(record.botID, record.accountID, record.operationID);
-              if (record.finalized || claims.get(record.characterID) !== record.botID) return;
-              record.status = "paused";
-              record.phase = "Operation deadline blocked";
-              record.why = error?.message || "Operation deadline coordination failed.";
-              record.stopBlocked = true;
-              persistRoster();
-            }
-            logError(error);
-          });
-        } else void requestGracefulStop(record, true).catch(logError);
+        void requestGracefulStop(record, true).catch(logError);
       }, remainingMs);
       if (typeof record.deadlineTimer.unref === "function") {
         record.deadlineTimer.unref();
@@ -1667,262 +1290,8 @@ function createBotHost(options) {
     return requestGracefulStop(record, false);
   }
 
-  function operationRecord(botID, accountID, operationID) {
-    const record = records.get(botID);
-    return record && !record.finalized && record.accountID === Number(accountID) &&
-      record.operationID === operationID && claims.get(record.characterID) === botID ? record : null;
-  }
-
-  function preparationOwner(record, secret) {
-    if (record.finalized || record.claimSecret !== secret || claims.get(record.characterID) !== record.botID ||
-        record.windingDown || record.operationStopRequested || record.manualStopRequested || record.deadlineRequested ||
-        Date.parse(record.expiresAt) <= now())
-      throw Object.assign(new Error("Operation preparation owner or run is no longer current."), { code: "OPERATION_PREPARATION_STALE" });
-  }
-
-  function preparationOwnerAvailable(record) {
-    return claims.get(record.characterID) === record.botID && !record.finalized && !!record.flow &&
-      !record.recovering && record.recovery?.state !== "BLOCKED" && !record.activationFailed &&
-      !record.windingDown && !record.operationStopRequested && !record.manualStopRequested &&
-      !record.deadlineRequested && Date.parse(record.expiresAt) > now();
-  }
-
-  async function preparationCustodyUnresolved(record) {
-    if (!record.operationPreparation) return false;
-    if (typeof options.preparationUnresolved === "function") return await options.preparationUnresolved(record) !== false;
-    return ["PREPARING", "RECOVERY_REQUIRED"].includes((record.preparationCheckpoint?.snapshot() || record.preparation)?.state);
-  }
-
-  async function prepareOperationRecord(record) {
-    const secret = record.claimSecret;
-    const assertCurrent = () => preparationOwner(record, secret);
-    const checkpoint = startupRuns.openPreparation({ logicalRunID: record.logicalRunID,
-      accountID: record.accountID, characterID: record.characterID, scriptHash: record.scriptHash, scriptRev: record.scriptRev,
-      operationID: record.operationID, operationRunID: record.operationRunID, intent: record.operationPreparation,
-      resumed: true, assertCurrent });
-    record.preparationCheckpoint = checkpoint;
-    record.assertPreparationCurrent = assertCurrent;
-    record.preparation = checkpoint.snapshot();
-    if (preparationReady(record.preparation)) {
-      record.status = "paused"; record.phase = "Waiting for operation readiness";
-      record.why = record.preparation.reason || null;
-      persistRoster(); return;
-    }
-    record.status = "paused"; record.phase = "Operation preparation";
-    // Do not manufacture an issued mutation. The shared preparation adapter
-    // begins its durable block before asking the existing custody engine to act.
-    record.preparation = { ...record.preparation, state: "PREPARING" }; persistRoster();
-    try {
-      const result = await options.prepareOperation({ ...record, preparationCheckpoint: checkpoint,
-        assertPreparationCurrent: assertCurrent });
-      assertCurrent();
-      record.preparation = preparationReady(result) ? checkpoint.complete(result) : checkpoint.block(result || {
-        state: "BLOCKED", reason: "Preparation did not provide readiness evidence." });
-    } catch (error) {
-      try {
-        assertCurrent();
-        const pending = checkpoint.snapshot();
-        record.preparation = checkpoint.block({ state: pending.state === "PREPARING" || pending.state === "RECOVERY_REQUIRED"
-          ? "RECOVERY_REQUIRED" : "BLOCKED", reason: error?.message || "Preparation could not be verified." });
-      } catch { return; } // A retired invocation cannot settle a newer run.
-    }
-    record.status = "paused";
-    record.phase = preparationReady(record.preparation) ? "Waiting for operation readiness" : "Operation preparation blocked";
-    record.why = record.preparation.reason || null;
-    persistRoster();
-  }
-
-  async function activateOperationMember(botID, accountID, operationID, operationRunID) {
-    const record = operationRecord(botID, accountID, operationID);
-    if (!record || !record.operationPreparation || record.operationRunID !== operationRunID)
-      return { ok: false, code: "OPERATION_PREPARATION_STALE", message: "This operation run does not own the hosted member." };
-    if (record.activatePromise) return record.activatePromise;
-    const pending = (async () => {
-      const secret = record.claimSecret;
-      try {
-        preparationOwner(record, secret);
-        if (!preparationOwnerAvailable(record)) return { ok: false, code: "OPERATION_NOT_READY",
-          message: "The hosted preparation owner has not finished session recovery." };
-        if (record.activationFailed) return { ok: false, code: "BOT_START_FAILED", message: record.why || "Productive fitting validation failed; this run requires review." };
-        // A synchronous predicate proves the current aggregate owner set in
-        // this same turn as enterMain. An awaited approval can outlive a peer.
-        const barrier = typeof options.operationBarrierReady === "function" && options.operationBarrierReady(record);
-        if (barrier && typeof barrier.then === "function") Promise.resolve(barrier).catch(logError);
-        if (!preparationReady(record.preparationCheckpoint.snapshot()) || barrier !== true)
-          return { ok: false, code: "OPERATION_NOT_READY", message: "Required operation members have not crossed the readiness barrier." };
-        preparationOwner(record, secret);
-        if (!preparationOwnerAvailable(record)) return { ok: false, code: "OPERATION_NOT_READY",
-          message: "The hosted preparation owner has not finished session recovery." };
-        if (record.mainStarted) return { ok: true, bot: publicBot(record) };
-        record.preparation = record.preparationCheckpoint.enterMain();
-        record.mainStarted = true; record.deferMain = false;
-        persistRoster(); // MAIN eligibility is durable before the first runner action.
-        await record.startProductive();
-        preparationOwner(record, secret);
-        if (record.startError !== null) throw new Error(record.startError);
-        persistRoster();
-        return { ok: true, bot: publicBot(record) };
-      } catch (error) {
-        if (!record.finalized && record.claimSecret === secret) {
-          if (record.mainStarted) record.activationFailed = true;
-          record.status = "paused"; record.phase = "Operation activation blocked"; record.why = error.message;
-          persistRoster();
-        }
-        return { ok: false, code: error.code || "BOT_START_FAILED", message: error.message };
-      }
-    })();
-    record.activatePromise = pending;
-    try { return await pending; } finally { record.activatePromise = null; }
-  }
-
-  async function prepareOperationStop(botID, accountID, operationID) {
-    const record = operationRecord(botID, accountID, operationID);
-    if (!record) return { ok: false, code: "PARKING_MEMBER_UNAVAILABLE", message: "Operation does not own this live pilot." };
-    if (record.prepareParkingPromise) return record.prepareParkingPromise;
-    if (record.stopPromise || record.deadlineRequested) {
-      return { ok: false, code: "PARKING_STOP_IN_PROGRESS", message: "A hosted Stop or deadline is already settling this pilot." };
-    }
-    record.operationStopRequested = true;
-    record.windingDown = true;
-    record.parking = { state: "SETTLING", reason: null };
-    persistRoster();
-    const pending = (async () => {
-      try {
-        if (record.recoveryWriteUnresolved || record.jettisonWriteUnresolved || jettison.unresolved(record.jettisonCustody) ||
-            await preparationCustodyUnresolved(record)) throw new Error("An issued write still needs reconciliation; Parking retains pilot control.");
-        if (record.deferMain === true && record.mainStarted === false && record.preparationCheckpoint?.snapshot()?.mainEntered === false)
-          await record.flow.prepareHostedBotStop(record.kind, now() + CONTROLLED_DRONE_CLEANUP_MS * (record.operationRole === "COMMAND" ? 2 : 1));
-        else await record.flow.prepareCustomBotParking();
-        record.droneSafetyConfirmed = true;
-        record.parking = { state: "READY", reason: null };
-        persistRoster();
-        return { ok: true };
-      } catch (error) {
-        const reason = error?.message || "Mining equipment or controlled drones could not be settled.";
-        record.parking = { state: "PARKING_FAILED", reason };
-        record.status = "paused";
-        record.phase = "Parking settlement blocked";
-        record.why = reason;
-        record.stopBlocked = true;
-        persistRoster();
-        return { ok: false, code: "PARKING_PREPARE_FAILED", message: reason };
-      }
-    })();
-    record.prepareParkingPromise = pending;
-    try { return await pending; } finally { record.prepareParkingPromise = null; }
-  }
-
-  async function parkOperationMember(botID, accountID, operationID, policy, cause = "manual") {
-    const record = operationRecord(botID, accountID, operationID);
-    if (!record) return { ok: false, code: "PARKING_MEMBER_UNAVAILABLE", message: "Operation does not own this live pilot." };
-    if (record.parkingPromise) return record.parkingPromise;
-    if (record.parking?.state !== "READY") return { ok: false, code: "PARKING_NOT_SETTLED", message: "Settle this member before parking." };
-    const pending = (async () => {
-      try {
-        record.parking = { state: "PARKING", reason: null };
-        persistRoster();
-        await record.flow.parkCustomBot(policy, Math.min(Date.parse(record.expiresAt) + DEADLINE_DOCK_GRACE_MS, now() + DEADLINE_DOCK_GRACE_MS));
-        record.parking = { state: "PARKED", reason: null };
-        persistRoster();
-        // The existing graceful Stop remains the sole release authority.
-        const result = await requestGracefulStop(record, cause === "deadline");
-        return cause !== "deadline" || result.ok && record.parking?.state === "PARKED" ? result : {
-          ok: false, code: "PARKING_FAILED", message: record.parking?.reason || result.message || "Deadline docking was not confirmed." };
-      } catch (error) {
-        const reason = error?.message || "Parking could not be confirmed.";
-        record.status = "paused";
-        record.phase = "Parking failed";
-        record.why = reason;
-        record.parking = { state: "PARKING_FAILED", reason };
-        record.stopBlocked = true;
-        persistRoster();
-        return { ok: false, code: "PARKING_FAILED", message: reason };
-      }
-    })();
-    record.parkingPromise = pending;
-    try { return await pending; } finally { record.parkingPromise = null; }
-  }
-
-  async function endOperationDeadline(botID, accountID, operationID) {
-    const record = operationRecord(botID, accountID, operationID);
-    if (!record) return { ok: false, code: "PARKING_MEMBER_UNAVAILABLE", message: "Operation does not own this live pilot." };
-    if (record.parking?.state !== "READY") return { ok: false, code: "PARKING_NOT_SETTLED", message: "Settle this member before deadline docking." };
-    record.parking = { state: "PARKING", reason: null };
-    const result = await requestGracefulStop(record, true);
-    return result.ok && record.parking?.state === "PARKED" ? result : { ok: false,
-      code: "PARKING_FAILED", message: record.parking?.reason || result.message || "Deadline docking was not confirmed." };
-  }
-
-  async function extendOperationGrant() {
-    return { ok: false, code: "OPERATION_GRANT_EXTENSION_UNAVAILABLE",
-      message: "This hosted credential cannot be extended in place. Start a newly approved run after safely stopping this one." };
-  }
-
   function listAll() {
     return [...records.values()].map(publicBot);
-  }
-
-  function operationForClaim(characterID, secret) {
-    if (!authorizesClaim(characterID, secret)) return null;
-    const record = records.get(claims.get(Number(characterID)));
-    return record?.operationID ? { operationID: record.operationID, operationRole: record.operationRole,
-      operationRunID: record.operationRunID } : null;
-  }
-
-  function preparationForClaim(characterID, secret) {
-    if (!authorizesClaim(characterID, secret)) return null;
-    const record = records.get(claims.get(Number(characterID)));
-    if (!record?.operationPreparation || !(record.resumedAt || record.recovering)) return null;
-    preparationOwner(record, secret);
-    const checkpoint = record.preparationCheckpoint?.snapshot();
-    if (!checkpoint || checkpoint.mainEntered !== false || checkpoint.operationID !== record.operationID ||
-        checkpoint.operationRunID !== record.operationRunID ||
-        JSON.stringify(checkpoint.intent) !== JSON.stringify(record.operationPreparation)) return null;
-    return checkpoint;
-  }
-
-  function jettisonOwnerForClaim(characterID, secret) {
-    if (!authorizesClaim(characterID, secret)) return null;
-    const record = records.get(claims.get(Number(characterID)));
-    if (!record?.hostedOreJettisonRecovery || record.operationRole !== "MINER") return null;
-    const current = productive => {
-      if (record.finalized || claims.get(record.characterID) !== record.botID ||
-          !sameSecret(record.claimSecret, secret) || Date.parse(record.expiresAt) <= now() ||
-          productive && (record.recovering || record.windingDown || record.operationStopRequested || record.manualStopRequested))
-        throw Object.assign(new Error("Hosted jettison generation or grant changed."), { code: "JETTISON_SCOPE_CHANGED" });
-    };
-    return {
-      scope: { botID: record.botID, runGeneration: record.hostStartedAt || record.startedAt,
-        pilotID: record.characterID, operationID: record.operationID },
-      current,
-      read: () => jettison.copy(record.jettisonCustody),
-      begin: value => {
-        current(true);
-        const previous = record.jettisonCustody;
-        if (previous?.state === "not-issued" || jettison.unresolved(previous) || previous && (previous.scope.runID !== value.scope.runID ||
-            value.scope.invocationID <= previous.scope.invocationID))
-          throw Object.assign(new Error("Prior jettison custody is still owned."), { code: "JETTISON_PENDING" });
-        record.jettisonCustody = jettison.copy(value);
-      },
-      markIssued: value => {
-        current(true);
-        const previous = record.jettisonCustody;
-        if (previous?.state !== "not-issued" || previous.scope.runID !== value.scope.runID || previous.scope.invocationID !== value.scope.invocationID)
-          throw Object.assign(new Error("Jettison invocation changed before issue."), { code: "JETTISON_PENDING" });
-        record.jettisonCustody = jettison.copy(value);
-      },
-      settle: value => {
-        // A late reply can only add facts to its exact invocation. It cannot
-        // replace a newer invocation, renew authority, or resume the runner.
-        const previous = record.jettisonCustody;
-        if (!record.finalized && previous?.scope.runID === value.scope.runID && previous.scope.invocationID === value.scope.invocationID) {
-          if (previous.issuedAtMs !== null && (value.state === "not-issued" || value.state === "refused-before-dispatch")) return;
-          if (["confirmed-created", "confirmed-no-ore-mutation"].includes(previous.state) && value.state === "issued-pending") return;
-          record.jettisonCustody = jettison.copy(value);
-          if (!jettison.unresolved(value)) record.jettisonWriteUnresolved = false;
-        }
-      },
-    };
   }
 
   function list(accountID) {
@@ -2075,8 +1444,6 @@ function createBotHost(options) {
   // same ended-run ring as any other finalized record (evicted below).
   function recordResumeFailure(row, message) {
     const botID = crypto.randomUUID();
-    const retainedPreparation = row.operationPreparation && typeof row.logicalRunID === "string"
-      ? startupRuns.get(row.logicalRunID)?.preparation : null;
     records.set(botID, {
       botID,
       logicalRunID: row.logicalRunID || null,
@@ -2091,29 +1458,22 @@ function createBotHost(options) {
       scriptName: String(row.scriptName || "Untitled bot"),
       scriptRev: Number(row.scriptRev || 0),
       scriptHash: String(row.scriptHash || ""),
-      operationID: typeof row.operationID === "string" ? row.operationID : null,
-      operationRole: row.operationRole ?? null,
-      operationControllerAccountID: row.operationControllerAccountID ?? null,
-      ...(retainedPreparation ? { operationRunID: retainedPreparation.operationRunID, operationPreparation: retainedPreparation.intent,
-        preparation: { ...retainedPreparation, state: "RECOVERY_REQUIRED", reason: message }, deferMain: true } : {}),
-      operationStopRequested: row.operationStopRequested === true,
-      parking: row.operationStopRequested ? { state: "PARKING_FAILED", reason: "A restart interrupted operation parking." } : null,
-      restartSafe: retainedPreparation ? row.restartSafe === true : false,
+      restartSafe: false,
       riskClasses: Array.isArray(row.riskClasses) ? row.riskClasses.map(String) : [],
       maxRuntimeMinutes: Number(row.maxRuntimeMinutes || 0),
       expiresAt: typeof row.expiresAt === "string" ? row.expiresAt : null,
       resumedAt: null,
       vitals: null,
-      status: retainedPreparation ? "paused" : "error",
-      phase: retainedPreparation ? "Operation recovery required" : null,
+      status: "error",
+      phase: null,
       why: `This bot was running when the server restarted and could not be restarted: ${message}`,
       stepPath: null,
       pauseReason: null,
       note: null,
       startError: null,
       startedAt: String(row.startedAt || nowISO()),
-      endedAt: retainedPreparation ? null : nowISO(),
-      finalized: !retainedPreparation,
+      endedAt: nowISO(),
+      finalized: true,
       flow: null,
       store: null,
       unsubscribe: null,
@@ -2131,8 +1491,10 @@ function createBotHost(options) {
    */
   async function resume() {
     const rows = readRoster();
-    const restored = [];
     for (const savedRow of rows) {
+      // The retired Core MCC also ran user-saved scripts under a top-level operation ID.
+      if ((savedRow.kind === undefined || savedRow.kind === "script") &&
+          (savedRow.operationID || String(savedRow.scriptID || "").startsWith("mcc."))) continue;
       // A bot saved under a kind core no longer flies, that a plugin has taken over.
       const former = pluginProcess()?.formerBotKind?.(savedRow.kind) ?? null;
       const row = former === null ? savedRow : {
@@ -2173,13 +1535,11 @@ function createBotHost(options) {
           );
           continue;
         }
-        const preparationPending = row.operationPreparation && row.deferMain === true &&
-          startupRuns.get(row.logicalRunID)?.preparation?.mainEntered === false;
-        if (row.restartSafe !== true && !preparationPending) {
+        if (row.restartSafe !== true) {
           recordResumeFailure(row, "it can repeat a consequential action. Review and start it again manually.");
           continue;
         }
-        if (row.stopRequested === true || row.stopBlocked === true || row.operationStopRequested === true || row.recoveryBlocked === true) {
+        if (row.stopRequested === true || row.stopBlocked === true) {
           recordResumeFailure(row, "a graceful Stop was blocked before restart. Review this pilot manually.");
           continue;
         }
@@ -2223,45 +1583,18 @@ function createBotHost(options) {
                 expectedScriptRev: row.scriptRev,
                 expectedScriptHash: row.scriptHash,
                 expectedExpiresAt: row.expiresAt,
-                operationID: row.operationID ?? null,
-                operationRole: row.operationRole ?? null,
-                operationControllerAccountID: row.operationControllerAccountID ?? null,
-                recoveryAttempts: row.recoveryAttempts || 0,
                 logicalRunID: row.logicalRunID || null,
-                operationRunID: row.operationRunID || null,
-                operationPreparation: row.operationPreparation || null,
-                preparation: row.preparation || null,
-                deferMain: row.deferMain === true,
               });
         if (!outcome.ok) {
           recordResumeFailure(row, outcome.message || outcome.code);
-        } else restored.push(outcome.bot.botID);
+        }
       } catch (error) {
         logError(error);
         recordResumeFailure(row, error && error.message ? String(error.message) : "an unexpected error.");
       }
     }
-    // A failed attempt can leave a durable report beside its original roster
-    // row. Retire only that unowned report after this exact run has an owner;
-    // finalizing it would end the owner's shared checkpoint or release it.
-    for (const botID of restored) {
-      const owner = records.get(botID);
-      if (!owner || owner.finalized || !owner.flow || !owner.operationPreparation ||
-          claims.get(owner.characterID) !== botID) continue;
-      for (const report of records.values()) {
-        if (report === owner || report.finalized || report.flow || claims.get(report.characterID) === report.botID ||
-            report.logicalRunID !== owner.logicalRunID || report.accountID !== owner.accountID ||
-            report.characterID !== owner.characterID || report.operationID !== owner.operationID ||
-            report.operationRunID !== owner.operationRunID) continue;
-        report.finalized = true;
-        report.endedAt = nowISO();
-        report.status = "error";
-        report.phase = "Superseded recovery report";
-      }
-    }
     // Rewrite the file to what actually came back, dropping the failures.
     persistRoster();
-    if (typeof options.onOperationResume === "function") await options.onOperationResume();
   }
 
   /** Stop every running bot (server shutdown — best effort). */
@@ -2293,42 +1626,9 @@ function createBotHost(options) {
         fleet: flow.readMiningSupportFleet(botID), supportWork: flow.readMiningSupportWork?.() ?? null,
         fleetWork: flow.readMiningSupportFleetDiagnostic?.() ?? null });
     },
-    async readOperationFleets(operationID) {
-      const result = [];
-      for (const record of records.values()) {
-        const flow = record.flow, secret = record.claimSecret;
-        const current = () => record.operationID === operationID && !record.finalized && !record.recovering && !record.windingDown &&
-          flow && record.flow === flow && record.claimSecret === secret && claims.get(record.characterID) === record.botID;
-        if (!current()) continue;
-        try {
-          await flow.loadFleet();
-          const observed = flow.readMiningSupportFleet(record.botID);
-          if (current() && observed) result.push(observed);
-        } catch { /* missing authority cannot prove fleet disappearance */ }
-      }
-      return result;
-    },
     start,
-    activateOperationMember,
-    preparationForRun: logicalRunID => startupRuns.get(logicalRunID)?.preparation || null,
-    reconnect(botID, accountID) {
-      const record = records.get(botID);
-      if (!record || record.finalized || record.accountID !== Number(accountID) || !record.recoveryEnabled || record.recovering ||
-          record.recoveryAttempts >= 3 || record.windingDown || record.operationStopRequested || Date.parse(record.expiresAt) <= now())
-        return { ok: false, code: "BOT_RECOVERY_UNAVAILABLE", message: "This account has no recoverable active operation run." };
-      record.recoveryPromise = null;
-      void record.recoverSession(true).catch(logError);
-      return { ok: true, bot: publicBot(record) };
-    },
     stop,
-    extendOperationGrant,
-    prepareOperationStop,
-    parkOperationMember,
-    endOperationDeadline,
     listAll,
-    operationForClaim,
-    preparationForClaim,
-    jettisonOwnerForClaim,
     list,
     claimedBy,
     authorizesClaim,

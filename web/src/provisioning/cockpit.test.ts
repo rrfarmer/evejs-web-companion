@@ -161,7 +161,9 @@ test("Ready Fit renders the current held pilot and ship and Neocom launches a wi
     shipMode: null, shipSpeedFraction: null } } as never);
   const panel = render(ProvisioningPanel, { props: { store, flow: createAppFlow(store, { perSessionToken: true }) } }).body;
   assert.match(panel, /Current Pilot/); assert.match(panel, /Current ship/);
-  assert.match(panel, /NEW_HULL_ONLY/); assert.match(panel, /Open separate Provisioning Center/);
+  assert.match(panel, /NEW_HULL_ONLY/);
+  assert.doesNotMatch(panel, /Open separate Provisioning Center|href="\/ship-provisioning"/);
+  assert.doesNotMatch(source("GlobalLaunchers.svelte"), /href="\/ship-provisioning"/);
   assert.doesNotMatch(panel, /Review hash|Review ID|target pilot/i);
   const rail = render(Neocom, { props: { store, isDocked: true, openIds: new Set(["provisioning"]),
     focusedId: "provisioning", onSelect: () => {} } }).body;

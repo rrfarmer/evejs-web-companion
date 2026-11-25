@@ -87,33 +87,6 @@ function decodeCorpFittingsStrict(result, expectedOwnerID, data) {
   return fittings;
 }
 
-function resolveStageFittings(stages, fittings, selections, corporationID) {
-  return Object.fromEntries(stages.map((stage) => {
-    const selection = selections && selections[stage.id];
-    if (!selection) return [stage.id, { status: "UNCONFIGURED" }];
-    if (selection.scope !== "CORPORATION" || selection.ownerID !== corporationID || !positive(selection.fittingID)) {
-      return [stage.id, { status: "INVALID_FIT", reason: "Fitting selection does not match this corporation." }];
-    }
-    const fit = fittings.find((item) => item.fittingID === selection.fittingID);
-    if (!fit) return [stage.id, { status: "UNKNOWN", reason: "Saved fitting was not found." }];
-    if (fit.invalid) return [stage.id, { status: "INVALID_FIT", reason: fit.reason, fittingID: fit.fittingID }];
-    if (fit.shipTypeID !== stage.expectedHullTypeID) {
-      return [stage.id, { status: "INVALID_FIT", reason: "Saved fitting hull differs from stage hull.", fittingID: fit.fittingID }];
-    }
-    if (selection.acceptedFingerprint !== fit.fingerprint || selection.acceptedSavedDate !== fit.savedDate) {
-      return [stage.id, { status: "REVIEW_REQUIRED", reason: "Saved fitting changed since acceptance.",
-        fittingID: fit.fittingID, name: fit.name, acceptedFingerprint: selection.acceptedFingerprint || null,
-        acceptedSavedDate: selection.acceptedSavedDate || null, currentFingerprint: fit.fingerprint,
-        currentSavedDate: fit.savedDate }];
-    }
-    return [stage.id, { status: "READY", fittingID: fit.fittingID, name: fit.name,
-      savedDate: fit.savedDate, fingerprint: fit.fingerprint,
-      // Cargo belongs in the accepted fitting fingerprint, but cargo/charges
-      // are not fitted equipment and cannot impose hard qualification skills.
-      typeIDs: [fit.shipTypeID, ...fit.items.filter((item) => item.flagID !== 5).map((item) => item.typeID)] }];
-  }));
-}
-
 /** What a held call fails with when the pilot's session is gone: the caller's to hear of, never an empty library. */
 const SESSION_GONE = new Set(["SESSION_NOT_FOUND", "NO_LIVE_SESSION", "HOSTED_GENERATION_CHANGED"]);
 
@@ -160,4 +133,4 @@ async function readAccountCorpFittings({ store, gateway, accountID, characterID,
 }
 
 module.exports = { fittingFingerprint, strictFitting, decodeCorpFittingsStrict,
-  resolveStageFittings, readAccountCorpFittings };
+  readAccountCorpFittings };

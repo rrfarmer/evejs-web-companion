@@ -99,15 +99,7 @@ const EVERY_ACTION: readonly ScriptAction[] = [
   { kind: "acceptFleetInvite", fleetID: null },
   { kind: "acceptFleetInvite", fleetID: 91000001 },
   { kind: "applyToJoinFleet", fleetID: 91000001 },
-  { kind: "maintainMiningSupport", relocating: false },
-  { kind: "stopMiningSupportOperation" },
   { kind: "gotoPoint", position: { x: 1, y: 2, z: 3 }, shipID: 81, solarSystemID: 30000142 },
-  { kind: "bookmarkMiningSite", targetKey: "belt:1" },
-  { kind: "reserveMiningTarget", targetType: "BELT", systemID: 30000142, systemName: "Obe", targetName: "Obe III - Asteroid Belt 1" },
-  { kind: "activateMiningTarget", targetKey: "belt:1" },
-  { kind: "depleteMiningTarget", targetKey: "belt:1", evidence: { rocks: 0 } },
-  { kind: "miningMemberReady" },
-  { kind: "miningDrainComplete", targetKey: "belt:1" },
   { kind: "alert", message: "your bot noticed something" },
 ];
 

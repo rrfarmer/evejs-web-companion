@@ -25,10 +25,8 @@ import { dispatchSupportCollectionAction } from "./supportCollectionFlow.ts";
 import { compressItemInSpace } from "../bridge/compressionWrites.ts";
 import { NO_ROOM_CODE } from "../nav/refusalLedger.ts";
 import { confirmControlledDronesHome, controlledFlightSettled } from "../nav/controlledDroneStop.ts";
-import { runFleetParking, parkingScript, type FleetParkingPolicy } from "../nav/fleetParking.ts";
 import { iceHoldFraction, iceMiningType, scriptMinesScannerSites, siteMiningFitRefusal, scriptScannerSites } from "../nav/miningSite.ts";
 import { fittedTravelPropulsion, travelPropulsionActivation } from "../nav/travelAssist.ts";
-import { ensureSiteLogisticsBookmark } from "../nav/siteLogisticsBookmark.ts";
 import { readRecoveryDrones, recoverLostDroneFlight, type DroneRecoveryState } from "../nav/lostDroneRecovery.ts";
 import { createSignal, readonlySignal, type ReadableSignal } from "../store/signals.ts";
 import { buildSlots, decodeChargeFits, decodeResources, decodeShipAttributes, planFittingApply, resourcesOf, slotFlagOf } from "../bridge/fitting.ts";
@@ -613,18 +611,15 @@ import { deriveMiningSupportCapabilities, type MiningSupportCapabilities } from 
 import { deriveMiningSupportServices, type MiningSupportServiceSnapshot } from "../nav/miningSupportServices.ts";
 import { observedSupportAnchorServices, supportServiceEnvelope, type MiningSupportAnchor, type MiningSupportAnchorRead,
   type SupportRequirements } from "../nav/miningSupportAnchor.ts";
-import { decideMiningSupport, observeMiningSupportOrders } from "../nav/miningSupportController.ts";
-import { settleHostedMiningSupport, settleParkingMiningModules } from "./supportStopFlow.ts";
-import { hostedSupportMotionSettled, retireHostedSelfLock } from "./hostedRecoveryCustody.ts";
-import { latchSupportEmergency, supportHandoff } from "./supportHandoff.ts";
-import { decideSupportPositioning, freshSupportPositionMemory, type SupportPositionMemory, type SupportPositionPolicy,
+import { decideMiningSupport } from "../nav/miningSupportController.ts";
+import { decideSupportPositioning, type SupportPositionMemory, type SupportPositionPolicy,
   type SupportPositionFeedback, type SupportPositionResult } from "../nav/miningSupportPositioning.ts";
-import { decideSupportSelfMining, freshSupportSelfMiningMemory, fittedSupportMiningPlan, supportSelfMiningDiagnostic, type SupportSelfMiningMemory, type SupportSelfMiningFeedback,
+import { decideSupportSelfMining, fittedSupportMiningPlan, supportSelfMiningDiagnostic, type SupportSelfMiningMemory, type SupportSelfMiningFeedback,
   type SupportSelfMiningResult, type SupportSelfMiningDiagnostic } from "../nav/miningSupportSelfMining.ts";
-import { decideSupportTractor, freshSupportTractorMemory, type SupportTractorMemory, type SupportTractorFeedback, type SupportTractorResult } from "../nav/miningSupportTractor.ts";
-import { decideSupportCollection, freshSupportCollectionMemory, recordSupportCollectionReceipt, type SupportCollectionMemory, type SupportCollectionPolicy,
+import { decideSupportTractor, type SupportTractorMemory, type SupportTractorFeedback, type SupportTractorResult } from "../nav/miningSupportTractor.ts";
+import { decideSupportCollection, recordSupportCollectionReceipt, type SupportCollectionMemory, type SupportCollectionPolicy,
   type SupportCollectionResult, type SupportCollectionInput } from "../nav/miningSupportCollection.ts";
-import { SUPPORT_FLEET_READ_MAX_AGE_MS, decideMiningSupportFleet, freshMiningSupportFleetMemory, miningSupportFleetDiagnostic, type MiningSupportFleetCallDiagnostic, type MiningSupportFleetDiagnostic, type MiningSupportFleetFeedback, type MiningSupportFleetObservation, type MiningSupportFleetResult, type SupportFleetJoinAuthority } from "../nav/miningSupportFleet.ts";
+import { SUPPORT_FLEET_READ_MAX_AGE_MS, type MiningSupportFleetObservation, type MiningSupportFleetResult, type SupportFleetJoinAuthority } from "../nav/miningSupportFleet.ts";
 import { SCRIPT_MACROS, resolveDockableKind, resolveStationRef, scriptTravelHome } from "../nav/scriptMacros.ts";
 import { pluginDeciders } from "../bots/pluginMacros.ts";
 import { macroReads } from "../bots/macroReads.ts";
@@ -639,7 +634,7 @@ import {
   surveyedSnapshot,
   type SurveyMemory,
 } from "../nav/surveyScan.ts";
-import type { DryBelt, ScriptObservation, MiningOperationAssignment } from "../nav/scriptConditions.ts";
+import type { DryBelt, ScriptObservation } from "../nav/scriptConditions.ts";
 import {
   THREAT_ATTRIBUTE_IDS,
   threatFromAttributes,
@@ -734,7 +729,7 @@ export interface WalletSharesRead {
 import { readAllianceFittings, readCharacterFittings, readCorporationFittings } from "../bridge/fittingReads.ts";
 import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
 import { acceptFleetInvite as acceptFleetInviteCall, applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, declineFleetInvite as declineFleetInviteCall, formFleet as formFleetCall, inviteToFleet as inviteToFleetCall, kickFleetMember as kickFleetMemberCall, leaveFleet as leaveFleetCall, makeFleetLeader as makeFleetLeaderCall, moveFleetMember as moveFleetMemberCall, tagFleetTarget, updateFleetMemberInfo as updateFleetMemberInfoCall, addToWatchlist as addToWatchlistCall, removeFromWatchlist as removeFromWatchlistCall, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
-import { BOOKMARK_EXPIRY, bookmarkScanResult as bookmarkScanResultCall, addFolder as addFolderCall, addToKnownFolders as addToKnownFoldersCall, copyBookmarks as copyBookmarksCall, moveBookmarks as moveBookmarksCall, removeFromKnownFolders as removeFromKnownFoldersCall, type MovedOrCopied, bookmarkLocation as bookmarkLocationCall, bookmarkStaticLocation as bookmarkStaticLocationCall, createSubfolder as createSubfolderCall, updateFolder as updateFolderCall, type FolderAccess, deleteBookmarks as deleteBookmarksCall, deleteFolder as deleteFolderCall, deleteSubfolder as deleteSubfolderCall, setFolderActive as setFolderActiveCall, updateBookmark as updateBookmarkCall, updateSubfolder as updateSubfolderCall } from "../bridge/bookmarkWrites.ts";
+import { bookmarkScanResult as bookmarkScanResultCall, addFolder as addFolderCall, addToKnownFolders as addToKnownFoldersCall, copyBookmarks as copyBookmarksCall, moveBookmarks as moveBookmarksCall, removeFromKnownFolders as removeFromKnownFoldersCall, type MovedOrCopied, bookmarkLocation as bookmarkLocationCall, bookmarkStaticLocation as bookmarkStaticLocationCall, createSubfolder as createSubfolderCall, updateFolder as updateFolderCall, type FolderAccess, deleteBookmarks as deleteBookmarksCall, deleteFolder as deleteFolderCall, deleteSubfolder as deleteSubfolderCall, setFolderActive as setFolderActiveCall, updateBookmark as updateBookmarkCall, updateSubfolder as updateSubfolderCall } from "../bridge/bookmarkWrites.ts";
 import { giveIskFromWallet as giveIskFromWalletCall, giveMoney as giveMoneyCall, transferValue, transferReason } from "../bridge/giveMoney.ts";
 import { afterArriving, destinationValid, isPlayerItemID, isWaypointPlace, keepWaypoints, movedWaypoint, readWaypoints, withWaypoint, withoutWaypoint, type DestinationFacts, type PilotPlace } from "../nav/waypoints.ts";
 import { REDEEM_NOTICE, decodeRedeemTokens, type RedeemOutcome, type RedeemToken } from "../bridge/redeem.ts";
@@ -900,8 +895,6 @@ export interface MiningBotRequest {
 
 export interface AppFlowOptions {
   readonly hostedStartup?: import("../bots/startup.ts").StartupCheckpoint;
-  /** Volatile hosted MCC ore custody; this never changes process restart policy. */
-  readonly hostedOreJettisonRecovery?: boolean;
   readonly baseUrl?: string;
   readonly fetch?: typeof fetch;
   /**
@@ -967,8 +960,6 @@ export interface AppFlowOptions {
    * (FLEET_COMPOSITION_REREAD_MS). Tests shorten it.
    */
   readonly fleetCompositionRereadMs?: number;
-  /** Hosted MCC assignment; an absent or different authority blocks target work. */
-  readonly miningOperationID?: string | null;
   /**
    * Character IDs THIS HOST is flying with a bot of its own — so that a caller
    * can subtract them from the fleet roster, and whatever is left is a human.
@@ -1726,12 +1717,9 @@ export interface AppFlow {
   readMiningSupportCapabilities(): MiningSupportCapabilities;
   /** Enrich capabilities with the latest successful space service observation; no IO or actions. */
   readMiningSupportServices(): MiningSupportServiceSnapshot;
-  readMiningSupportWork(): SupportWorkDiagnostics | null;
-  readMiningSupportFleetDiagnostic(): MiningSupportFleetDiagnostic | null;
   /** Explicit normal-flow publication seam for the pure support controller's observation. */
   publishMiningSupportAnchor(observation: MiningSupportServiceSnapshot): Promise<MiningSupportAnchor>;
   readMiningSupportFleet(sessionEpoch: string, join?: SupportFleetJoinAuthority): MiningSupportFleetObservation | null;
-  readMiningOperationAssignment(): Promise<MiningOperationAssignment | null>;
   publishReconciledMiningSupportAnchor(fleetResult: MiningSupportFleetResult, observation: MiningSupportServiceSnapshot): Promise<MiningSupportAnchor>;
   /** Fresh own-fleet BFF read; callers retain receipt times rather than a hidden cache. */
   readMiningSupportAnchors(): Promise<MiningSupportAnchorRead>;
@@ -3743,11 +3731,9 @@ export interface AppFlow {
   /** Hosted manual/deadline Stop: settle issued work and confirm the controlled
    * flight is empty before the host may dock or release this session. */
   prepareHostedBotStop(kind: "script" | "plugin", deadlineMs: number): Promise<void>;
-  prepareCustomBotParking(): Promise<void>;
   suspendHostedSession(): Promise<void>;
   verifyHostedSessionRecovery(shipID: number): Promise<void>;
   resumeHostedSession(): void;
-  parkCustomBot(policy: FleetParkingPolicy, deadlineMs: number): Promise<void>;
   /** Cancel Farmer's deadline home run and settle its last issued action. */
   cancelHostedHome(kind: "script" | "plugin"): Promise<void>;
   /**
@@ -15511,11 +15497,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return deactivateModuleCall(bridgeDo, moduleDeps(options), itemID, opts);
   }
 
-  /**
-   * Jettisons by the page's own call (bridge/shipWrites.ts, the client's GetShipAccess().Jettison), the flight read
-   * first. A hosted bot of a Mining Operation asks the route instead (api.jettisonItems), which finds the can it made
-   * and gives it to the operation, and keeps a hosted miner's custody: those are the bot host's to keep.
-   */
+  /** Read the pilot's flight before calling GetShipAccess().Jettison on its ship. */
   async function jettisonNow(itemIDs: readonly number[]): Promise<JettisonOutcome> {
     return jettisonCall(bridgeDo, async () => decodeFlightStatus((await api.getFlightStatus(callOptions)).flight), itemIDs);
   }
@@ -23166,14 +23148,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       await cancelHostedHome(kind);
       const combatDrones = kind === "script" ? scriptRunner?.combatDronesForStop?.() ?? null : null;
       if (kind === "script") await scriptRunner?.settleCombatStop?.(deadlineMs);
-      if (kind === "script" && supportScript !== null) {
-        const frame = supportScript;
-        await settleHostedMiningSupport({ readFlight: async () => decodeFlightStatus((await api.getFlightStatus(callOptions)).flight),
-          unresolvedCustody: () => !!(frame.tractor.claim || frame.tractor.order || frame.collection.pending || frame.collection.fault),
-          tick: () => maintainOperationSupport(true, true), ready: () => frame.work.readyForRelocation, reason: () => frame.work.reason,
-          releaseAnchor: () => api.releaseMiningSupportAnchor(callOptions), now: Date.now,
-          sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), deadlineMs });
-      }
       await confirmControlledDronesHome({
         read: async () => {
           const flight = decodeFlightStatus((await api.getFlightStatus(callOptions)).flight);
@@ -23590,7 +23564,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   let hostedRecoveryName: string | null = null;
   let invalidateScriptRecoveryCaches: (() => void) | null = null;
 
-  let hostedJettisonPending = false;
   function suspendHostedSession(): Promise<void> {
     hostedRecoveryVerified = false;
     hostedTransportSuspended = true;
@@ -23635,45 +23608,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (!fleet || fleet.receivedAtMs < readStarted || !["ready", "not-in-fleet"].includes(fleet.snapshot.availability) ||
         fleet.snapshot.availability === "ready" && authoritativeFleetMemberCharacterIDs(fleet.snapshot) === null)
       throw new Error("The reacquired fleet membership is unavailable.");
-    if (options.miningOperationID) {
-      const assignment = await api.readMiningOperationAssignment(callOptions); current();
-      const target = assignment?.role === "HAULER" ? assignment.logisticsTarget ?? assignment.currentTarget : assignment?.currentTarget;
-      if (assignment?.operationID !== options.miningOperationID || assignment.stopRequested ||
-          !target || target.claimedByOperationID !== assignment.operationID || !["RESERVED", "ACTIVE", "DRAINING"].includes(target.state))
-        throw new Error("The operation target or productive assignment is unavailable.");
-    }
-    if (options.hostedOreJettisonRecovery) {
-      const receipt = await api.reconcileHostedJettison(callOptions); current();
-      if (receipt) hostedJettisonPending = !api.recoverableHostedJettison(receipt);
-    }
-    const frame = supportScript;
-    if (frame?.self.order?.action.kind === "lock" && !frame.self.fault) {
-      const targets = await api.getTargets(callOptions); current();
-      frame.self = retireHostedSelfLock(frame.self, targets.targetIDs);
-    }
-    if (frame && flight.inSpace) {
-      const freshServices = readMiningSupportServices();
-      // Quiescence retires movement intent; only observed physical settlement
-      // permits abandoning it. This does not claim arrival or coverage.
-      const stopped = hostedSupportMotionSettled(space.snapshot, freshServices);
-      frame.position = { ...frame.position, support: { ...frame.position.support,
-        orders: observeMiningSupportOrders(freshServices, frame.position.support) },
-        ...(stopped && !frame.position.fault ? { braking: null, relocation: null } : {}) };
-    }
-    const custody = [scriptRunner?.transportCustody() && "runner claim or Travel Assist", frame?.collection.pending && "collection transfer",
-      frame?.collection.fault && "collection fault", frame?.tractor.claim && "tractor claim", frame?.tractor.order && "tractor order",
-      frame?.tractor.fault && "tractor fault", frame?.self.order && "self-mining order", frame?.self.fault && "self-mining fault",
-      frame && frame.position.support.orders.length > 0 && "support module order", frame?.position.relocation && "support relocation",
-      frame?.position.braking && "support braking", frame?.fleet.order && "fleet membership order"].filter(Boolean);
-    if (frame?.position.fault) custody.push("support movement fault");
-    if (custody.length) throw new Error(`Session recovery retains unresolved work custody (${custody.join(", ")}); reconcile or Stop before resuming.`);
-    if (frame) {
-      const fresh = freshSupportScript();
-      // Confirmed collected provenance stays owned; pending inventory is never
-      // rebased. Other session-scoped movement/module/fleet feedback expires.
-      fresh.collection = { ...frame.collection, scope: frame.collection.scope ? { ...frame.collection.scope, sessionEpoch: fresh.epoch } : null };
-      supportScript = fresh;
-    }
+    if (scriptRunner?.transportCustody()) throw new Error("Session recovery retains unresolved runner custody; reconcile or Stop before resuming.");
     invalidateScriptRecoveryCaches?.();
     hostedRecoveryVerified = true;
   }
@@ -23940,40 +23875,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const roles: Record<number, DroneRole | null> = {};
     for (const id of typeIDs) roles[id] = droneRoleForGroup(resolved[nameKey("typeGroup", id)] ?? null);
     return { bay, out, maxActive, roles };
-  }
-
-  async function prepareCustomBotParking(): Promise<void> {
-    if (!scriptRunner) throw new Error("The operation runner is unavailable; parking cannot take over a different controller.");
-    await prepareHostedBotStop("script", Date.now() + (supportScript ? 6 : 3) * 60_000);
-    const flight = decodeFlightStatus((await api.getFlightStatus(callOptions)).flight);
-    if (flight.docked === true) return;
-    const mining = await resolveMiningModuleIDs();
-    const fit = store.fitting.get();
-    const names = store.names.get().resolved;
-    if (!flight.shipID || fit.activeShipID !== flight.shipID || fit.slotsError !== null ||
-        ungroupedHighSlotModules(fit.slots, id => names[nameKey("type", id)] ?? null,
-          id => names[nameKey("typeGroup", id)] ?? null).length > 0) {
-      throw new Error("Mining module state is unreadable; parking settlement is blocked.");
-    }
-    const characterID = store.station.get().online?.characterID;
-    if (!characterID) throw new Error("Parking pilot is unavailable.");
-    await settleParkingMiningModules({ shipID: flight.shipID, characterID, miningModuleIDs: mining,
-      readScene: async () => decodeSpaceSnapshot((await api.getScriptObservation(callOptions)).space),
-      deactivate: async id => { await switchModuleOff(id, {}, callOptions); } });
-  }
-
-  async function parkCustomBot(policy: FleetParkingPolicy, deadlineMs: number): Promise<void> {
-    requireAutomationReady();
-    const doc = parkingScript(policy);
-    stopCustomController();
-    const capabilities = await resolveScriptModuleCapabilities();
-    store.apply({ type: "custom-bot/started", name: doc.name });
-    try {
-      await runFleetParking(makeScriptRunnerDeps(capabilities, null, doc.home, new Set(), true), policy,
-        deadlineMs, runner => { scriptRunner = runner; });
-    } finally {
-      autopilot?.abort();
-    }
   }
 
   async function classifyDroneRoles(
@@ -24561,7 +24462,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // Blocks that fly to a cosmic anomaly, and so pay for the scanner read. Both
   // kinds are here: each one filters the SAME list down to the sites it wants.
   const ANOMALY_MACROS = new Set(["warp-to-anomaly", "warp-to-ore-anomaly"]);
-  const MINING_OPERATION_MACROS = new Set(["mine-at-belt", "fleet-mine", "mining-support", "warp-to-ore-anomaly", "travel-to-belt", "loot-containers", "deliver-ore"]);
   const FLEET_MANAGEMENT_MACROS = new Set([
     "create-fleet",
     "invite-to-fleet",
@@ -24729,174 +24629,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   let supportPositionTickBusy = false;
-  let supportWorkScriptGeneration: number | null = null;
-  function freshSupportScript() {
-    return { epoch: nextLocalID(), position: freshSupportPositionMemory(), feedback: null as SupportPositionFeedback | null,
-      self: freshSupportSelfMiningMemory(), selfFeedback: null as SupportSelfMiningFeedback | null,
-      tractor: freshSupportTractorMemory(), tractorFeedback: null as SupportTractorFeedback | null,
-      collection: freshSupportCollectionMemory(), emptiedContainerID: undefined as number | undefined,
-      handoffContainerID: undefined as number | undefined,
-      emergencyStopAttemptAtMs: 0,
-      emergencyPending: false,
-      diagnostics: null as SupportWorkDiagnostics | null,
-      fleet: freshMiningSupportFleetMemory(), fleetFeedback: undefined as MiningSupportFleetFeedback | undefined,
-      fleetDiagnostic: null as MiningSupportFleetDiagnostic | null,
-      fleetLastCall: null as MiningSupportFleetCallDiagnostic | null,
-      assignment: null as ScriptObservation["miningOperation"],
-      work: { readyForRelocation: false, reason: "Support has not been observed." as string | null, phase: "RECOVERY" } };
-  }
-  let supportScript: ReturnType<typeof freshSupportScript> | null = null;
-  // True while the running script flies to or mines the scanner's ore/ice sites: like an
-  // operation, it needs its miners split into ore lasers and ice harvesters.
   let classifySiteMiners = false;
-  function readMiningSupportWork(): SupportWorkDiagnostics | null {
-    return supportScript?.diagnostics ? structuredClone(supportScript.diagnostics) : null;
-  }
-  function readMiningSupportFleetDiagnostic(): MiningSupportFleetDiagnostic | null {
-    return supportScript?.fleetDiagnostic ? structuredClone(supportScript.fleetDiagnostic) : null;
-  }
-  async function maintainOperationSupport(relocating: boolean, stopping = false): Promise<void> {
-    const frame = supportScript;
-    if (!frame) throw new Error("The support script has no owned work frame.");
-    const generation = customBotGeneration;
-    const characterID = store.station.get().online?.characterID;
-    if (!characterID) throw new Error("Support pilot is unavailable.");
-    if (!stopping) {
-      // Local safety must not wait for fleet creation, invitation or recovery.
-      await loadSpaceSnapshot();
-      if (generation !== customBotGeneration || frame !== supportScript || store.station.get().online?.characterID !== characterID)
-        throw new Error("The support run changed during the safety read.");
-      const observed = store.space.get();
-      frame.emergencyPending = latchSupportEmergency(frame.emergencyPending, frame.self.stopReason,
-        !observed.error && observed.snapshot?.ship?.characterID === characterID ? lowestHealth(observed.snapshot) : null);
-    }
-    const emergency = frame.emergencyPending || frame.self.stopReason === "emergency-health-floor";
-    let assignment = frame.assignment;
-    let fleets: readonly MiningSupportFleetObservation[] = [];
-    if (!stopping && !emergency) {
-      const context = await api.readMiningOperationSupportContext(callOptions);
-      assignment = context.assignment; fleets = context.fleets;
-      if (assignment?.role !== "COMMAND" || assignment.support?.characterID !== characterID || assignment.operationID !== options.miningOperationID)
-        throw new Error("The COMMAND operation assignment changed.");
-      frame.assignment = assignment;
-    }
-    if (generation !== customBotGeneration || frame !== supportScript) throw new Error("The support run changed during its read.");
-    const config = assignment?.support;
-    const intended = (assignment?.intendedFleetCharacterIDs ?? []).filter(id => id !== characterID);
-    const report = async (state: "READY" | "DEGRADED" | "RECOVERY" | "BLOCKED", reason: string | null, collection: string | null) => {
-      if (stopping) return;
-      const services = readMiningSupportServices();
-      const core = services.cores.length && services.cores.every(row => row.state === "active") ? "active"
-        : services.cores.every(row => row.state === "inactive") ? "inactive" : "unknown";
-      await api.reportMiningOperationSupport({ state, core, reason, collection }, callOptions);
-    };
-    let fleetResult: MiningSupportFleetResult | null = null;
-    if (!stopping && !emergency) {
-      await loadFleet();
-      if (generation !== customBotGeneration || frame !== supportScript || store.station.get().online?.characterID !== characterID) throw new Error("The support run changed during the fleet read.");
-      const invite = store.fleet.get().pendingInvite;
-      const own = readMiningSupportFleet(frame.epoch, { inviteKnown: invite !== null, invite, ads: null });
-      fleetResult = decideMiningSupportFleet({ own, intendedCharacterIDs: intended, memberObservations: fleets,
-        policy: { mode: config!.fleetPolicy }, nowMs: Date.now(), feedback: frame.fleetFeedback }, frame.fleet);
-      frame.fleet = fleetResult.memory; frame.fleetFeedback = undefined;
-      frame.fleetDiagnostic = miningSupportFleetDiagnostic(fleetResult, Date.now(), frame.fleetLastCall);
-      if (fleetResult.action) {
-        let outcome: MiningSupportFleetFeedback["outcome"] = "acknowledged", code: string | null = null;
-        let diagnosticCode: string | null = null, httpStatus: number | null = null;
-        let applicationOutcome: MiningSupportFleetFeedback["applicationOutcome"];
-        try {
-          const action = fleetResult.action;
-          // (A support ship forms a fleet on its own reading that it is in none.)
-          if (action.kind === "createFleet") await formFleetCall(bridgeDo, false);
-          else if (action.kind === "inviteToFleet") await inviteToFleetCall(bridgeDo, action.charID, onlineCharacterID());
-          else if (action.kind === "acceptFleetInvite") await acceptFleetInviteCall(bridgeDo, action.fleetID, false);
-          else {
-            expectingInvite = action.fleetID;
-            applicationOutcome = await applyToJoinFleetCall(bridgeDo, action.fleetID, true);
-          }
-        } catch (error) {
-          outcome = "unknown"; code = errorWords(error);
-          if (error instanceof BridgeCallError) { diagnosticCode = error.code; httpStatus = error.status; }
-        }
-        if (generation !== customBotGeneration || frame !== supportScript) throw new Error("The support run changed during its fleet action.");
-        frame.fleetFeedback = { scope: own!.scope, actionID: fleetResult.actionID!, outcome, code, ...(applicationOutcome ? { applicationOutcome } : {}) };
-        frame.fleetLastCall = { actionID: fleetResult.actionID!, action: fleetResult.action, finishedAtMs: Date.now(),
-          outcome, code: diagnosticCode, httpStatus };
-        frame.fleetDiagnostic = miningSupportFleetDiagnostic(fleetResult, Date.now(), frame.fleetLastCall);
-        frame.work = { readyForRelocation: false, phase: "RECOVERY", reason: fleetResult.issues[0]?.reason ?? "fleet-reconciling" };
-        await report("RECOVERY", frame.work.reason, null); return;
-      }
-      if (!fleetResult.anchorReady) {
-        frame.work = { readyForRelocation: false, phase: "RECOVERY", reason: fleetResult.issues[0]?.reason ?? "support-fleet-unavailable" };
-        await report("RECOVERY", frame.work.reason, null); return;
-      }
-    }
-    supportWorkScriptGeneration = generation;
-    let result: SupportWorkTickResult;
-    try {
-      result = await tickMiningSupportPositioning(frame.position, { sessionEpoch: frame.epoch, intendedCharacterIDs: assignment?.miningOwnerIDs ?? [],
-        requirements: { requireMiningBurst: true }, policy: { service: config ?? { maintainBursts: true, useIndustrialCore: false, enableCompression: false, coreRequirement: "continueWithoutCore" },
-          deadbandMeters: 250, arrivalMeters: 100, settledSpeedMetersPerSecond: 0.5 }, feedback: frame.feedback ?? undefined,
-        stopRequested: relocating || stopping || emergency, stopAll: stopping || emergency,
-        selfMining: { previous: frame.self, feedback: frame.selfFeedback ?? undefined, enabled: !!config?.selfMining && !relocating && !stopping && !emergency, useFittedMiningModules: true,
-          stopRequested: relocating || stopping || emergency, plan: { myCharacterID: characterID, miningModuleIDs: [], healthFloor: 0.25, useDrones: true,
-            beltID: 0, beltName: assignment?.currentTarget?.targetName ?? null, stationID: 0, stationName: null } },
-        tractor: { previous: frame.tractor, feedback: frame.tractorFeedback ?? undefined, runID: frame.epoch,
-          enabled: !!config?.tractor && !stopping && !relocating && !emergency && assignment?.containerProvenanceUnconfirmed !== true,
-          stopRequested: relocating || stopping || emergency, eligibleContainerIDs: assignment?.ownedContainerIDs ?? [],
-          allowedOwnerIDs: assignment?.miningOwnerIDs ?? [], collectedContainerID: frame.emptiedContainerID },
-        collection: { previous: frame.collection, handoffContainerID: frame.handoffContainerID,
-          policy: { mode: config?.collection ?? "TRACTOR_ONLY", compressCollectedOre: !!config?.compressCollectedOre } },
-      });
-    } finally { supportWorkScriptGeneration = null; }
-    frame.position = result.decision.memory; frame.feedback = result.feedback;
-    if (result.selfMining) { frame.self = result.selfMining.decision.memory; frame.selfFeedback = result.selfMining.feedback; }
-    frame.emergencyPending = latchSupportEmergency(frame.emergencyPending, frame.self.stopReason, null);
-    if (result.tractor) { frame.tractor = result.tractor.decision.memory; frame.tractorFeedback = result.tractor.feedback; }
-    if (result.collection) {
-      frame.collection = result.collection.memory;
-      if (result.collection.state === "FULL" && !frame.collection.pending && !frame.collection.fault)
-        frame.handoffContainerID = result.tractor?.decision.readyContainerID ?? undefined;
-      if (["MOVED", "COMPRESSED"].includes(result.collection.state)) frame.handoffContainerID = undefined;
-      if (result.collection.sourceEmpty && !frame.collection.pending && !frame.collection.fault && ["MOVED", "EMPTY"].includes(result.collection.state))
-        frame.emptiedContainerID = result.tractor?.decision.readyContainerID ?? frame.tractor.claim?.itemID ?? frame.emptiedContainerID;
-    }
-    const service = result.decision.support;
-    const ready = service?.state === "ready-for-relocation" && !frame.tractor.claim && !frame.tractor.order && !frame.collection.pending && !frame.collection.fault;
-    const handoff = supportHandoff(frame.emergencyPending ? "emergency-health-floor" : frame.self.stopReason,
-      ["HANDOFF", "SETTLED"].includes(result.selfMining?.decision.state ?? ""), ready && !frame.tractor.fault && !frame.self.fault);
-    let phase: "READY" | "DEGRADED" | "RECOVERY" | "BLOCKED" = result.decision.state === "BLOCKED" || service?.state === "blocked" || frame.collection.fault || frame.tractor.fault || frame.self.fault ? "BLOCKED"
-      : !relocating && result.decision.state === "HOLD" && ["ready", "degraded"].includes(service?.state ?? "")
-        ? service?.state === "degraded" || result.collection?.state === "FULL" ? "DEGRADED" : "READY" : "RECOVERY";
-    if (handoff?.phase === "BLOCKED") phase = "BLOCKED";
-    else if (handoff && phase === "READY") phase = "DEGRADED";
-    const reason = result.collection?.state === "FULL" ? "Support hold FULL; collection paused, ordinary logistics retains remaining ore."
-      : frame.collection.fault ?? frame.tractor.fault ?? frame.self.fault ?? handoff?.reason ?? service?.issues[0]?.reason ?? result.decision.reason;
-    frame.work = { readyForRelocation: ready, phase, reason };
-    frame.diagnostics = { atMs: Date.now(),
-      position: { state: result.decision.state, reason: result.decision.reason, action: result.decision.action?.kind ?? null,
-        ...(result.decision.recipientIssue ? { recipientIssue: result.decision.recipientIssue } : {}) },
-      selfMining: result.selfMining?.diagnostic ?? supportSelfMiningDiagnostic(null, frame.self, null, null),
-      tractor: { claimID: frame.tractor.claim?.itemID ?? null, order: frame.tractor.order?.action.kind ?? null, fault: frame.tractor.fault },
-      collection: { state: result.collection?.state ?? null, pending: !!frame.collection.pending, fault: frame.collection.fault } };
-    if (!stopping && !relocating && fleetResult?.anchorReady && (phase === "READY" || phase === "DEGRADED")) {
-      await loadSpaceSnapshot();
-      await publishReconciledMiningSupportAnchor(fleetResult, readMiningSupportServices());
-    } else await api.releaseMiningSupportAnchor(callOptions);
-    await report(phase, reason, result.collection?.state ?? null);
-    if (!stopping && handoff?.requestEmergencyStop && generation === customBotGeneration && frame === supportScript &&
-        Date.now() - frame.emergencyStopAttemptAtMs >= 30000) {
-      frame.emergencyStopAttemptAtMs = Date.now();
-      try { await api.stopMiningOperationForSupport(callOptions, "emergency-health-floor"); }
-      catch (error) {
-        if (generation !== customBotGeneration || frame !== supportScript) return;
-        // A healthy/unknown new server sample cannot authorize an earlier low
-        // health receipt. Keep ownership and the visible handoff for recovery.
-        frame.work = { readyForRelocation: ready, phase: "BLOCKED", reason: `${handoff.reason}; emergency Stop unconfirmed: ${errorWords(error)}` };
-        await report("BLOCKED", frame.work.reason, result.collection?.state ?? null);
-      }
-    }
-  }
   async function tickMiningSupportPositioning(previous: SupportPositionMemory, request: {
     readonly sessionEpoch: string; readonly intendedCharacterIDs: readonly number[];
     readonly requirements: SupportRequirements; readonly policy: SupportPositionPolicy;
@@ -24906,8 +24639,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     readonly collection?: SupportCollectionRequest;
     readonly stopRequested?: boolean; readonly stopAll?: boolean;
   }): Promise<SupportWorkTickResult> {
-    const anotherController = () => supportWorkScriptGeneration !== null && supportWorkScriptGeneration !== customBotGeneration || [store.bot.get().status, store.missionBot.get().status,
-      ...(supportWorkScriptGeneration === customBotGeneration ? [] : [store.customBot.get().status]), store.travel.get().status].some(status => status === "running" || status === "paused");
+    const anotherController = () => [store.bot.get().status, store.missionBot.get().status, store.customBot.get().status,
+      store.travel.get().status].some(status => status === "running" || status === "paused");
     if (supportPositionTickBusy || anotherController()) throw new Error("Another controller owns this ship.");
     supportPositionTickBusy = true;
     const characterID = store.station.get().online?.characterID;
@@ -24921,7 +24654,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const scene = decodeSpaceSnapshot(raw.space);
       const capabilities = readMiningSupportCapabilities();
       const services = deriveMiningSupportServices(capabilities, scene);
-      if (supportWorkScriptGeneration !== null) store.apply({ type: "space/snapshot", snapshot: scene, gateLinks: gateLinksForSnapshot(scene) });
       const selfRead = request.selfMining ? await Promise.all([api.getFlightStatus(callOptions), api.getTargets(callOptions), api.getMiningHolds(callOptions)]) : null;
       const droneState = request.selfMining ? await miningDroneState(raw) : null;
       const shipID = scene.shipID, fleetID = fleetRead.fleet?.fleetID ?? (request.stopRequested ? previous.scope?.fleetID ?? "" : undefined), solarSystemID = scene.solarSystemID;
@@ -25200,7 +24932,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const droneControlRangeM = await resolveDroneControlRange(fit);
     let iceMining: number[] = [];
     let oreMining: number[] = [];
-    if ((options.miningOperationID || classifySiteMiners) && mining.length > 0 && fit.slotsError === null) {
+    if (classifySiteMiners && mining.length > 0 && fit.slotsError === null) {
       const modules = fit.slots.flatMap(slot => slot.module && slot.module.online && mining.includes(slot.module.itemID) ? [slot.module] : []);
       const facts = await attributesOfTypes(modules.map(module => module.typeID), [77, 182, 183, 184, 1285, 1289, 1290])
         .catch(() => ({} as Readonly<Record<number, Readonly<Record<number, number>>>>));
@@ -25592,7 +25324,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     startingStationID: number | null,
     home: WorldRef,
     watchedKinds: ReadonlySet<string> = new Set<string>(),
-    parking = false,
     startingDockableKind: "station" | "structure" = "station",
   ): ScriptRunnerDeps {
     const walletWatched = watchedKinds.has("wallet-below") || watchedKinds.has("wallet-above");
@@ -25606,11 +25337,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // hitting the BFF on every tick.
     const BELT_MEMORY_CACHE_MS = 10_000;
     let beltMemoryCache: { system: string; at: number; rows: readonly DryBelt[] } | null = null;
-    const miningOperationRequired = !parking && typeof options.miningOperationID === "string" && options.miningOperationID.length > 0;
-    let miningOperationProbe: "unknown" | "member" | "none" = parking ? "none" : miningOperationRequired ? "member" : "unknown";
-    const unavailableMiningTargets = new Map<string, number>();
-    const miningSiteBookmarks: Record<string, number> = {};
-    const siteBookmarkScope = `${options.miningOperationID}:${Date.now()}`;
     let fleetMinerEpoch = nextLocalID();
     const capabilityCache = createCapabilityCache(
       {
@@ -25748,25 +25474,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         // ── Mission reads, gated by the active block (see MISSION_MACROS). Every
         // read is best-effort: a failure lands as null (unreadable, never "no").
         const macro = hint.activeMacro;
-        let miningOperation: ScriptObservation["miningOperation"] = null;
-        let miningOperationReadError: string | null = null;
-        if (miningOperationRequired || (macro !== null && miningOperationProbe !== "none" &&
-            (miningOperationProbe === "member" || MINING_OPERATION_MACROS.has(macro)))) {
-          try {
-            miningOperation = await api.readMiningOperationAssignment(callOptions);
-            if (miningOperationRequired && miningOperation?.operationID !== options.miningOperationID) {
-              miningOperationReadError = miningOperation === null ? "The hosted operation assignment is unavailable." :
-                "The hosted assignment belongs to another operation.";
-              miningOperation = null;
-            }
-            miningOperationProbe = miningOperationRequired ? "member" : miningOperation === null ? "none" : "member";
-          } catch (error) {
-            miningOperationReadError = error instanceof Error ? error.message : String(error);
-            miningOperation = null;
-          }
-        }
-        const operationNow = Date.now();
-        for (const [key, retryAt] of unavailableMiningTargets) if (retryAt <= operationNow) unavailableMiningTargets.delete(key);
         const targetGroupNames = await classifyTargetGroups(
           snapshot,
           origin,
@@ -26055,8 +25762,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         // because `mine-at-belt` earns the read only when its belt argument
         // says "site" — pointed at a belt, the same block must not pay for a
         // scanner read it will never look at (see activeStepToursOreSites).
-        if (macro !== null && (ANOMALY_MACROS.has(macro) || hint.needsOreSites === true || (macro === "mining-support" || miningOperation?.role === "DEFENDER") &&
-            miningOperation?.area.targetClasses.some(family => family === "ORE_ANOMALY" || family === "ICE"))) {
+        if (macro !== null && (ANOMALY_MACROS.has(macro) || hint.needsOreSites === true)) {
           try {
             const full = await readScanFullState(bridgeAsk);
             // (Kept for a warp to one of them: bridge/movementWrites.ts, warpToScanResult.)
@@ -26175,7 +25881,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         let fleetSnapshotReceivedAtMs: number | null = null;
         if (
           macro !== null &&
-          (FLEET_MANAGEMENT_MACROS.has(macro) || FLEET_SUPPORT_MACROS.has(macro) || macro === "fleet-mine" || macro === "join-support-fleet" || macro === "mining-support")
+          (FLEET_MANAGEMENT_MACROS.has(macro) || FLEET_SUPPORT_MACROS.has(macro) || macro === "fleet-mine" || macro === "join-support-fleet")
         ) {
           try {
             fleetSnapshot = decodeFleetCenter(await api.loadBoundFleet(callOptions));
@@ -26203,22 +25909,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         const ownCharacterID = store.station.get().online?.characterID ?? null;
         let fleetMining: ScriptObservation["fleetMining"];
         if (macro === "fleet-mine" || macro === "join-support-fleet") {
-          let supportFleet: MiningSupportFleetObservation | null = null;
-          if (miningOperation?.support) {
-            try {
-              const context = await api.readMiningOperationSupportContext(callOptions);
-              if (context.assignment?.operationID !== miningOperation.operationID) throw new Error("Operation support context changed.");
-              miningOperation = context.assignment;
-              supportFleet = context.fleets.find(row => row.scope.characterID === miningOperation!.support!.characterID) ?? null;
-            } catch { miningOperation = { ...miningOperation, supportPolicy: { mode: "PAUSE", reason: "Support context is unavailable." } }; }
-          }
           let anchors: MiningSupportAnchorRead | null = null;
           try { anchors = await api.readMiningSupportAnchors(callOptions); } catch { /* unreadable stays unknown */ }
           if (macro === "fleet-mine") await resolveMiningModuleIDs();
           const supportCapabilities = readMiningSupportCapabilities();
           const modules = supportCapabilities.scope.shipID === snapshot?.shipID && supportCapabilities.mining.presence === "present"
             ? supportCapabilities.mining.modules.map(({ itemID, typeID, online }) => ({ itemID, typeID, online })) : null;
-          fleetMining = { anchors, modules, supportFleet, sceneReceivedAtMs, nowMs: Date.now(), requirements: { requireMiningBurst: true },
+          fleetMining = { anchors, modules, sceneReceivedAtMs, nowMs: Date.now(), requirements: { requireMiningBurst: true },
             fleet: ownCharacterID !== null && fleetSnapshot !== null ? { scope: { characterID: ownCharacterID, sessionEpoch: fleetMinerEpoch },
               snapshot: fleetSnapshot, receivedAtMs: fleetSnapshotReceivedAtMs!, join: { inviteKnown: store.fleet.get().pendingInvite !== null, invite: store.fleet.get().pendingInvite, ads: null } } : null };
         }
@@ -26538,13 +26235,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           agentSearchFailure,
           jumpsToDropoff,
           anomalies,
-          miningOperation,
           fleetMining,
-          miningSupportWork: supportScript?.work,
-          miningOperationRequired,
-          miningOperationReadError,
-          unavailableMiningTargetKeys: [...unavailableMiningTargets.keys()],
-          miningSiteBookmarks,
           scannerOperations,
           systemName,
           dryBelts,
@@ -26577,10 +26268,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           armorRatio: ship?.armorRatio ?? null,
           hullRatio: ship?.hullRatio ?? null,
           health: lowestHealth(snapshot),
-          oreHoldFraction: (miningOperation?.logisticsTarget ?? miningOperation?.currentTarget)?.targetType === "ICE" ||
-            (miningOperation?.area.targetClasses.length === 1 && miningOperation.area.targetClasses[0] === "ICE") ||
-            hint.minesIce === true
-            ? iceHoldFraction(holds) : oreHoldFraction,
+          oreHoldFraction: hint.minesIce === true ? iceHoldFraction(holds) : oreHoldFraction,
           holdEmpty,
           hostileOnGrid,
           dronesOut,
@@ -26677,19 +26365,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         acquire: (runID, systemID, itemID, renewOnly) => api.claimContainer(runID, systemID, itemID, renewOnly, callOptions),
         release: (runID) => api.releaseContainerClaims(runID, callOptions),
       },
-      readOperationAssignment: () => api.readMiningOperationAssignment(callOptions),
-      mutationCustody: () => hostedJettisonPending,
-      issue: async (action, claimRunID, invocation) => {
+      issue: async (action, claimRunID) => {
         const generation = customBotGeneration;
         const token = callOptions.token, pilotGeneration = recoveryGeneration;
         const characterID = store.station.get().online?.characterID;
         switch (action.kind) {
-          case "maintainMiningSupport":
-            await maintainOperationSupport(action.relocating);
-            return;
-          case "stopMiningSupportOperation":
-            await api.stopMiningOperationForSupport(callOptions);
-            return;
           case "wait":
             return;
           case "undock":
@@ -26896,44 +26576,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             await api.rememberBeltDry(action.systemName, action.beltName, action.groupID, callOptions);
             // The next tick must see this mark, not the cached list from before it.
             beltMemoryCache = null;
-            return;
-          case "reserveMiningTarget":
-            if (!await api.reserveMiningOperationTarget({
-              targetType: action.targetType, systemID: action.systemID, systemName: action.systemName,
-              targetName: action.targetName, siteIdentity: action.siteIdentity, siteID: action.siteID,
-              instanceID: action.instanceID, position: action.position, candidates: action.candidates,
-            }, callOptions)) {
-              unavailableMiningTargets.set(`${action.targetType}:${action.systemID}:${action.siteIdentity ?? action.targetName}`,
-                Date.now() + 35_000);
-            }
-            return;
-          case "bookmarkMiningSite": {
-            const assignment = await api.readMiningOperationAssignment(callOptions);
-            const target = assignment?.logisticsTarget ?? assignment?.currentTarget;
-            const shipID = capabilityCache.peek().shipID;
-            if (assignment?.stopRequested || assignment?.role !== "HAULER" || target?.targetKey !== action.targetKey ||
-                target.claimedByOperationID !== assignment.operationID || !shipID) {
-              throw new Error("SITE_TARGET_AUTHORITY_LOST: logistics return point could not be saved.");
-            }
-            miningSiteBookmarks[action.targetKey] = await ensureSiteLogisticsBookmark(target, siteBookmarkScope, shipID, {
-              read: async () => readMyActiveBookmarks(bridgeAsk),
-              // (The page's own call, bridge/bookmarkWrites.ts: the hauler's own ship's place, kept two days.)
-              create: async (id, folder, name, note) => { await bookmarkLocationCall(bridgeDo, id, folder, name, note, BOOKMARK_EXPIRY.twoDays); },
-            });
-            return;
-          }
-          case "activateMiningTarget":
-            await api.activateMiningOperationTarget(action.targetKey, callOptions);
-            return;
-          case "depleteMiningTarget":
-            await api.depleteMiningOperationTarget(action.targetKey, action.evidence, callOptions);
-            beltMemoryCache = null;
-            return;
-          case "miningMemberReady":
-            await api.markMiningOperationMemberReady(callOptions);
-            return;
-          case "miningDrainComplete":
-            await api.finishMiningOperationDrain(action.targetKey, callOptions);
             return;
           case "agentButton": {
             // The same call the mission bot presses buttons with; the fresh
@@ -27316,25 +26958,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             deliverAlert(action.message);
             return;
           case "jettison":
-            // ⚠ The items leave the ship into a container in space. The block
-            // confirms by re-reading the hold, so a refused jettison retries
-            // within its bound instead of being believed. Outside a Mining
-            // Operation it is the page's own call (jettisonNow); an operation's
-            // hosted bot asks the route, which keeps its can and its custody.
-            if (action.itemIDs.length > 0 && !options.miningOperationID && !options.hostedOreJettisonRecovery) {
-              await jettisonNow(action.itemIDs);
-            } else if (action.itemIDs.length > 0) {
-              const owned = options.hostedOreJettisonRecovery;
-              if (owned) hostedJettisonPending = true;
-              try {
-                const receipt = await api.jettisonItems(action.itemIDs, callOptions, owned ? invocation : undefined);
-                if (owned && receipt) hostedJettisonPending = !api.recoverableHostedJettison(receipt);
-              } catch (error) {
-                if (owned && error instanceof api.JettisonCustodyError)
-                  hostedJettisonPending = error.notIssued ? false : error.custody ? !api.recoverableHostedJettison(error.custody) : true;
-                throw error;
-              }
-            }
+            if (action.itemIDs.length > 0) await jettisonNow(action.itemIDs);
             return;
           case "stackHangar":
             // The hangar read first, as the client's inventory lists before it asks.
@@ -27419,16 +27043,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (gen !== customBotGeneration) {
       return; // superseded while the included bots were read
     }
-    supportScript = options.miningOperationID && doc.program.some(step => step.kind === "macro" && step.macro === "mining-support") ? freshSupportScript() : null;
     classifySiteMiners = scriptMinesScannerSites(doc);
     // Seed the fitted-module cache. The runner refreshes it after a refit or
     // active-hull change; this first read only keeps tick one honest.
     const initialCapabilities = await resolveScriptModuleCapabilities();
-    if (options.miningOperationID || classifySiteMiners) {
-      const refusal = siteMiningFitRefusal(doc, initialCapabilities.oreMining, initialCapabilities.iceMining,
-        { requireOre: !!options.miningOperationID });
-      // Without an operation only the ice check refuses Start: an ore site
-      // script ran on `mining` before ore lasers were told apart, and still does.
+    if (classifySiteMiners) {
+      const refusal = siteMiningFitRefusal(doc, initialCapabilities.oreMining, initialCapabilities.iceMining, { requireOre: false });
       if (refusal) {
         throw Object.assign(new Error(refusal), { code: refusal.split(":")[0] });
       }
@@ -27480,7 +27100,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     fleetApplication = null;
     store.apply({ type: "custom-bot/started", name: doc.name });
     scriptRunner = createScriptRunner(
-      { ...makeScriptRunnerDeps(initialCapabilities, startingStationID, doc.home, watchedKinds, false, startingDockableKind), startup: options.hostedStartup },
+      { ...makeScriptRunnerDeps(initialCapabilities, startingStationID, doc.home, watchedKinds, startingDockableKind), startup: options.hostedStartup },
     );
     scriptRunner.start(doc);
     void scriptRunner.run();
@@ -28755,11 +28375,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     openShipBays,
     readMiningSupportCapabilities,
     readMiningSupportServices,
-    readMiningSupportWork,
-    readMiningSupportFleetDiagnostic,
     publishMiningSupportAnchor,
     readMiningSupportFleet,
-    readMiningOperationAssignment: () => api.readMiningOperationAssignment(callOptions),
     publishReconciledMiningSupportAnchor,
     readMiningSupportAnchors,
     tickMiningSupportPositioning,
@@ -30391,8 +30008,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     suspendHostedSession,
     verifyHostedSessionRecovery,
     resumeHostedSession,
-    prepareCustomBotParking,
-    parkCustomBot,
     cancelHostedHome,
 
     headCustomBotHome(reason) {

@@ -9,7 +9,6 @@
 // into public/dist/, and the built index.html links it automatically.
 import "./styles.css";
 import { mount } from "svelte";
-import { isGoblinFactoryPath, isMiningCommandCenterPath, isPilotTrainingPath, isShipProvisioningPath } from "./app/pageRoute.ts";
 import { installErrorOverlay } from "./app/errorOverlay.ts";
 import { activatePagePlugins } from "./plugins/pluginHost.ts";
 import PluginPageHost from "./ui/PluginPageHost.svelte";
@@ -45,17 +44,5 @@ void activatePagePlugins(PLUGINS, PLUGIN_VIEWS).catch((error) => console.error(e
     });
     return;
   }
-  if (isGoblinFactoryPath(window.location.pathname)) window.location.replace(`/pilot-training${window.location.search}${window.location.hash}`);
-  if (target && !isGoblinFactoryPath(window.location.pathname)) {
-    if (isShipProvisioningPath(window.location.pathname)) {
-      void import("./ui/ProvisioningCenter.svelte").then(({ default: Center }) => mount(Center, { target }));
-    } else if (isPilotTrainingPath(window.location.pathname)) {
-      // Standalone: no cockpit restore, active bot or space polling is mounted.
-      void import("./ui/GoblinFactory.svelte").then(({ default: Training }) => mount(Training, { target }));
-    } else if (isMiningCommandCenterPath(window.location.pathname)) {
-      void import("./ui/MiningCommandCenter.svelte").then(({ default: CommandCenter }) => mount(CommandCenter, { target }));
-    } else {
-      void import("./ui/App.svelte").then(({ default: App }) => mount(App, { target }));
-    }
-  }
+  if (target) void import("./ui/App.svelte").then(({ default: App }) => mount(App, { target }));
 });

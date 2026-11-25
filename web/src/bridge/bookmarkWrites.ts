@@ -22,9 +22,6 @@
 // ship, or another thing there; BookmarkNotAvailable otherwise), and the folder, which the session's own
 // character must be able to write to (BookmarkFolderNoLongerThere, FolderAccessDenied, FolderCapacityExceeded,
 // BookmarkSubfolderNoLongerThere). It answers the bookmark as eight values, its number first.
-//
-// ⚠ THE ANSWER IS NOT WHAT A CALLER GOES BY. The page's one caller reads its bookmarks again and looks for the
-// bookmark there (nav/siteLogisticsBookmark.ts).
 
 import type { Ask } from "./ask.ts";
 import { unwrapLong } from "./wire.ts";

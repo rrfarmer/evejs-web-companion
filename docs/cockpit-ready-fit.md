@@ -9,6 +9,5 @@ The panel captures its cockpit props and request options. Pilot/token changes,
 ship/location/transition changes and window disposal retire accepted reviews
 and late replies. Server-side held-generation fencing remains authoritative.
 
-The explicit secondary Provisioning Center link opens the account-wide
-standalone page; it is not the Neocom action itself. Unsupported/destructive
-plans refuse confirmation, and exact existing equipment remains a no-op.
+Unsupported or destructive plans refuse confirmation. An exact equipment match
+requires no fitting changes.

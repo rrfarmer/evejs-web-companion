@@ -2,41 +2,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { iceHoldFraction, iceMiningType, miningSiteFamily, siteIdentity, siteMiningFitRefusal } from "./miningSite.ts";
-import { decodeScriptValue } from "../bots/scriptCodec.ts";
-import { ensureSiteLogisticsBookmark } from "./siteLogisticsBookmark.ts";
+import type { BotScript } from "../bots/botScript.ts";
 import { freightHoldItemIDs } from "./miningBotLoop.ts";
 import { preferredBays } from "../bridge/bayRouting.ts";
 import type { MiningHold } from "../store/types.ts";
-import type { ActiveBookmarks, BookmarkFolder, Bookmark } from "../bridge/bookmarks.ts";
-import type { MiningOperationTarget } from "./scriptConditions.ts";
 const require = createRequire(import.meta.url);
 const { miningResourceFamily } = require("../../../src/miningResourceFamily.js");
-const { buildStandardProfile } = require("../../../src/miningOperationProfiles.js");
-
-test("site mining capability is rejected at start, before the standard program can undock", () => {
-  for (const family of ["ORE_ANOMALY", "ICE"]) {
-    for (const role of ["MINER", "HAULER"]) {
-      const profile = buildStandardProfile({ area: { targetClasses: [family] }, unloadPolicy: "HAULER_SERVICE",
-        unloadDestination: { stationID: 60003760, stationName: "Home", systemName: "Jita", corporationDivision: 1 } }, { role });
-      const decoded = decodeScriptValue(profile.doc); assert.ok(decoded.ok);
-      const refused = siteMiningFitRefusal(decoded.doc, [], []);
-      assert.equal(refused !== null, role === "MINER");
-      assert.equal(siteMiningFitRefusal(decoded.doc, [1], [2]), null);
-    }
-  }
-});
-
 test("a Startup refit defers the site mining fit check to the refitted hull", () => {
-  const profile = buildStandardProfile({ area: { targetClasses: ["ICE"] }, unloadPolicy: "HAULER_SERVICE",
-    unloadDestination: { stationID: 60003760, stationName: "Home", systemName: "Jita", corporationDivision: 1 } }, { role: "MINER" });
-  const decoded = decodeScriptValue(profile.doc); assert.ok(decoded.ok);
-  const main = decoded.doc.program.find(node => node.kind === "loop") ??
-    { id: "main", kind: "loop" as const, repeat: { kind: "forever" as const }, body: decoded.doc.program.filter(node => node.kind === "macro") };
+  const main = { id: "mine", kind: "macro" as const, macro: "mine-at-belt" as const,
+    args: { belt: { kind: "belt" as const, belt: { mode: "ice-site" as const } } } };
   const refit = { id: "refit", kind: "macro" as const, macro: "refit-ship" as const,
     args: { fitting: { kind: "fitting" as const, fittingID: 5, name: "Ice fit" } } };
-  const plain = { ...decoded.doc, program: [main] };
+  const plain: BotScript = { format: "evejs-bot-script", version: 1, name: "Ice mining", notes: "",
+    home: { entity: "station", id: 60003760, name: "Home", systemName: "Jita" }, interrupts: [], program: [main] };
   assert.notEqual(siteMiningFitRefusal(plain, [], []), null, "without a refit the ship at Start must already mine ice");
-  assert.equal(siteMiningFitRefusal({ ...decoded.doc, program: [refit, main] }, [], []), null);
+  assert.equal(siteMiningFitRefusal({ ...plain, program: [refit, { id: "main", kind: "loop", repeat: { kind: "forever" }, body: [main] }] }, [], []), null);
 });
 
 test("scanner families and identity require authoritative fields, not names", () => {
@@ -70,20 +50,4 @@ test("Ice freight uses ice/general mining holds; unrelated cargo remains aboard"
   assert.equal(iceHoldFraction(null), null);
   assert.deepEqual(freightHoldItemIDs(holds), [10]);
   assert.deepEqual(preferredBays({ groupID: 465, categoryID: 25 }), ["ice", "ore"]);
-});
-
-test("logistics return bookmark is scoped, coordinate-confirmed, reused, and fails closed", async () => {
-  const target = { targetKey: "ICE:30000142:site:1:instance:2", targetName: "ICE-001", systemID: 30000142,
-    position: { x: 1000, y: 0, z: 0 } } as MiningOperationTarget;
-  let all: ActiveBookmarks = { folders: [{ folderID: 5, isPersonal: true, isActive: true } as BookmarkFolder], bookmarks: [], subfolders: [] };
-  let writes = 0;
-  const deps = { read: async () => all, create: async (ship: number, folder: number, name: string, note: string) => {
-    writes++; assert.equal(ship, 9); assert.equal(folder, 5); assert.match(name, /MCC tail/);
-    all = { ...all, bookmarks: [{ bookmarkID: 90, note, itemID: null, locationID: target.systemID, x: 1000, y: 0, z: 0 } as Bookmark] };
-  } };
-  assert.equal(await ensureSiteLogisticsBookmark(target, "a", 9, deps), 90);
-  assert.equal(await ensureSiteLogisticsBookmark(target, "a", 9, deps), 90);
-  assert.equal(writes, 1);
-  await assert.rejects(ensureSiteLogisticsBookmark(target, "b", 9, { ...deps, create: async () => {} }), /UNCONFIRMED/);
-  await assert.rejects(ensureSiteLogisticsBookmark(target, "b", 9, { ...deps, read: async () => ({ ...all, folders: [] }) }), /UNAVAILABLE/);
 });

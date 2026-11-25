@@ -1693,27 +1693,6 @@ test("Farmer flight gate preserves stationary Fleet Miner ownership and settles 
   }
 });
 
-test("running support keeps its internal drone owner while terminal and travel still settle", () => {
-  const support = script([macroStep("support", "mining-support")], []);
-  const drone = { itemID: 201, typeID: 10250, name: null, activity: "mining", targetID: 800,
-    controlled: true, shieldRatio: 1, armorRatio: 1, hullRatio: 1 };
-  const snapshot = { ship: { position: { x: 0, y: 0, z: 0 } }, entities: [] } as unknown as NonNullable<ScriptObservation["snapshot"]>;
-  const reading = obs({ snapshot, dronesOut: true,
-    miningDrones: { bay: [], out: [drone], maxActive: 5, roles: { 10250: "mining" } } });
-  for (const relocating of [false, true]) {
-    const maintain: MacroDecider = () => tick({ kind: "maintainMiningSupport", relocating }, { kind: "acting" });
-    const result = decideScriptAction(support, reading, initialMemory(support), { ...registry, "mining-support": maintain }, home);
-    assert.deepEqual(result.action, { kind: "maintainMiningSupport", relocating }, "support owns work and relocation recall");
-    assert.equal(result.memory.miningFlight, undefined);
-  }
-  const terminal = decideScriptAction(support, reading, { ...initialMemory(support), position: { kind: "done" } }, registry, home);
-  assert.equal(terminal.action.kind, "recallDrones"); assert.equal(terminal.status, "running");
-  const blocked: MacroDecider = () => tick({ kind: "wait" }, { kind: "blocked", reason: "unavailable" });
-  assert.equal(decideScriptAction(support, reading, initialMemory(support), { ...registry, "mining-support": blocked }, home).action.kind, "recallDrones");
-  const traveling: MacroDecider = () => tick({ kind: "warp", targetID: 9 }, { kind: "acting" });
-  assert.equal(decideScriptAction(support, reading, initialMemory(support), { ...registry, "mining-support": traveling }, home).action.kind, "recallDrones");
-});
-
 test("site miner recalls a controlled mining flight before its next movement order", () => {
   const site = script([{ id: "m", kind: "macro", macro: "mine-at-belt",
     args: { belt: { kind: "belt", belt: { mode: "site" } } } }], []);

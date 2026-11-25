@@ -158,10 +158,6 @@ export async function leaveShip(act: Ask, shipID: number): Promise<void> {
 //
 // The server (shipService.Handle_Jettison) answers the two lists, the first empty where it refused, and refuses one
 // inside its cooldown with ShpJettisonPending. Tranquility's recording: ([itemID],) answered ([itemID], []).
-//
-// Until 2026-10-14 the call was a route's (POST /api/bridge/ship/jettison), which the page asked and read nothing of
-// the answer; the route keeps a hosted bot's of a Mining Operation (its can found and given to the operation) and a
-// hosted miner's custody, which are the bot host's to keep.
 
 /** What a jettison answered, as the client reads it. */
 export interface JettisonOutcome {

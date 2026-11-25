@@ -564,9 +564,7 @@ function isBridgeWritePair(service, method) {
  *                                takes both of the caller: the module must be the session's own character's
  *                                and lie in that ship, so a ship or a module of another's is found by neither.
  *   ship.Jettison                GetShipAccess().Jettison(itemIDs) (invItemFunctions.py 63), the items as one list,
- *                                on the ship's Moniker for the solar system. Its route keeps a hosted bot's of a
- *                                Mining Operation (the can found and given to the operation, a miner's custody);
- *                                any other went by it until 2026-10-14 (web/src/bridge/shipWrites.ts).
+ *                                on the ship's Moniker for the solar system.
  *   ship.AssembleShip            GetShipAccess().AssembleShip(itemIDs, name=name, subSystems=subSystems)
  *                                (invItemFunctions.py 197), from a packaged ship's menu in the hangar: Assemble Ship,
  *                                and Board Ship's first step. The handler assembles the session's own character's

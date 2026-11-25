@@ -16,7 +16,6 @@ import {
   INTERRUPT_RUN_POLICY,
   MACRO_RUN_POLICY,
   validateBotLaunchGrant,
-  supportsHostedOreJettisonRecovery,
 } from "./runPolicy.ts";
 
 function script(
@@ -38,22 +37,12 @@ function step(macro: MacroID): ProgramNode {
   return { id: `step-${macro}`, kind: "macro", macro, args: {} };
 }
 
-test("hosted ore custody eligibility never changes static destructive restart policy", () => {
+test("ore jettison requires a destructive grant and cannot restart automatically", () => {
   const doc = script([step("fleet-mine"), step("jettison-ore")]);
-  assert.equal(supportsHostedOreJettisonRecovery(doc), true);
   assert.equal(analyzeBotRunPolicy(doc).restartSafe, false);
   assert.equal(MACRO_RUN_POLICY["jettison-ore"].restartSafe, false);
   assert.ok(analyzeBotRunPolicy(doc).riskClasses.includes("destructive"));
-  for (const other of ["jettison-cargo", "refine-ore", "buy-item", "sell-item", "haul-all"] as const)
-    assert.equal(supportsHostedOreJettisonRecovery(script([step("jettison-ore"), step(other)])), false);
 });
-test("a non-restart-safe interrupt cannot ride the ore custody recovery exception", () => {
-  for (const respond of ["fight-back", "launch-drones", "dock-and-repair"] as const)
-    assert.equal(supportsHostedOreJettisonRecovery(script([step("jettison-ore")], [
-      { id: "watch", when: { kind: "hostile-on-grid" }, respond },
-    ])), false);
-});
-
 test("every macro has exactly one explicit run policy", () => {
   assert.deepEqual(Object.keys(MACRO_RUN_POLICY).sort(), [...MACRO_IDS].sort());
 });
