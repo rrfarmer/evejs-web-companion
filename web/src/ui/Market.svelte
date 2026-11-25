@@ -39,6 +39,7 @@
   import type { AppFlow } from "../app/flow.ts";
   import type { MarketTypeMatch } from "../app/api.ts";
   import type { MarketOrderRow, MarketOwnOrderRow, MarketSide } from "../store/types.ts";
+  import type { MarketGroupScope } from "../bridge/market.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
   // R27 — the shared item icon: one cached picture per thing, falling back
   // to a name-derived tile whenever the icon cache has no entry (or no cache).
@@ -85,6 +86,8 @@
   const market = store.market;
   // svelte-ignore state_referenced_locally
   const station = store.station;
+  // svelte-ignore state_referenced_locally
+  const identity = store.session;
   // svelte-ignore state_referenced_locally
   const names = store.names;
   // svelte-ignore state_referenced_locally
@@ -133,6 +136,10 @@
     "Tooltips/Market/MarketGroupsTab": "Browse items in the selected group",
     "UI/Market/Marketbase/SelectGroupToBrowse": "Select a market group to browse.",
     "UI/Market/Marketbase/NoItemsAvailable": "No items are available in this group.",
+    "UI/Market/ShowOnlyAvailable": "Show Only Available",
+    "UI/Common/LocationTypes/Station": "Station",
+    "UI/Common/LocationTypes/SolarSystem": "Solar System",
+    "UI/Common/LocationTypes/Region": "Region",
     "UI/Market/Marketbase/NoneAvailable": "None available",
     "UI/Market/Marketbase/CommandViewDetails": "View Details",
     "UI/Market/MarketQuote/CommandBuy": "Buy",
@@ -954,18 +961,56 @@
   let groupTypesCapped = $state(false);
   let browsing = $state(false);
   let browseRevision = 0;
-  let groupAsks = $state.raw<Awaited<ReturnType<AppFlow["marketRegionalAsks"]>> | null>(null);
+  let groupAsks = $state.raw<Awaited<ReturnType<AppFlow["marketGroupAsks"]>> | null>(null);
   let groupAsksError = $state(false);
   let groupFacts = $state.raw<ReadonlyMap<number, TypeMetaFacts | null> | null>(null);
-  const groupCards = $derived([...groupTypes].sort((a, b) =>
+  const groupAtStation = $derived($station.online?.stationID != null);
+  const groupDocked = $derived(groupAtStation || $station.online?.structureID != null);
+  const scopeLabels: Record<MarketGroupScope, string> = {
+    station: "UI/Common/LocationTypes/Station",
+    system: "UI/Common/LocationTypes/SolarSystem",
+    region: "UI/Common/LocationTypes/Region",
+  };
+  const groupPreferenceKey = $derived(`evejs.user.${$identity.accountID ?? 0}.market`);
+  const groupScopeKey = $derived(`${groupPreferenceKey}.${groupDocked ? "marketRangeFilterStation" : "marketRangeFilterSpace"}`);
+  let savedGroupScope = $state<MarketGroupScope>("region");
+  let showOnlyAvailable = $state(true);
+  const groupScope = $derived(savedGroupScope === "station" && !groupAtStation ? "region" : savedGroupScope);
+
+  $effect(() => {
+    let value: string | null = null;
+    try { value = localStorage.getItem(groupScopeKey); } catch { /* defaults */ }
+    savedGroupScope = value === "station" || value === "system" ? value : "region";
+  });
+
+  $effect(() => {
+    let value: string | null = null;
+    try { value = localStorage.getItem(`${groupPreferenceKey}.showonlyavailable`); } catch { /* defaults */ }
+    showOnlyAvailable = value !== "0";
+  });
+
+  function setGroupScope(scope: MarketGroupScope) {
+    savedGroupScope = scope;
+    try { localStorage.setItem(groupScopeKey, scope); } catch { /* lasts the window */ }
+  }
+
+  function setAvailability(available: boolean) {
+    showOnlyAvailable = available;
+    try { localStorage.setItem(`${groupPreferenceKey}.showonlyavailable`, available ? "1" : "0"); } catch { /* lasts the window */ }
+  }
+
+  const groupCards = $derived(groupTypes.filter(item => !showOnlyAvailable || !groupAsks || groupAsks.asks.has(item.typeID)).sort((a, b) =>
     (a.variantGroup?.metaGroupID ?? 0) - (b.variantGroup?.metaGroupID ?? 0) || a.name.localeCompare(b.name)));
 
   $effect(() => {
     if (tab !== "groups" || $station.online?.solarSystemID == null) return;
+    const scope = groupScope;
+    // The station-scoped answer also changes when docking at another station in this system.
+    void $station.online.stationID;
     let current = true;
     groupAsks = null;
     groupAsksError = false;
-    void flow.marketRegionalAsks().then(asks => {
+    void flow.marketGroupAsks(scope).then(asks => {
       if (current) groupAsks = asks;
     }).catch(() => {
       if (current) groupAsksError = true;
@@ -1360,20 +1405,36 @@
 {/if}
 
 {#if tab === "groups"}
-  <section class="mkt-group-page" aria-label={qbWord("UI/Common/Groups")}>
+  <section class="mkt-group-page" aria-label={qbWord("UI/Common/Groups")}
+    aria-busy={browsing || (currentGroupID !== 0 && groupAsks === null && !groupAsksError)}>
+    <div class="mkt-group-filters">
+      <label>Market scope
+        <select value={groupScope} onchange={(event) => setGroupScope(event.currentTarget.value as MarketGroupScope)}>
+          {#if groupAtStation}<option value="station">{qbWord(scopeLabels.station)}</option>{/if}
+          <option value="system">{qbWord(scopeLabels.system)}</option>
+          <option value="region">{qbWord(scopeLabels.region)}</option>
+        </select>
+      </label>
+      <label>
+        <input type="checkbox" checked={showOnlyAvailable} onchange={(event) => setAvailability(event.currentTarget.checked)} />
+        {qbWord("UI/Market/ShowOnlyAvailable")}
+      </label>
+    </div>
     {#if browsing}
       <p class="note" role="status">Loading group…</p>
     {:else if currentGroupID === 0}
       <p class="note">{qbWord("UI/Market/Marketbase/SelectGroupToBrowse")}</p>
+    {:else if showOnlyAvailable && !groupAsks && !groupAsksError}
+      <p class="note" role="status">Reading market availability…</p>
     {:else if !groupCards.length}
       <p class="note">{qbWord("UI/Market/Marketbase/NoItemsAvailable")}</p>
     {:else}
       <h2>{crumbs.at(-1)?.name}</h2>
-      {#if groupAsksError}<p class="note">Regional prices could not be read.</p>{/if}
+      {#if groupAsksError}<p class="note">Market prices could not be read.</p>{/if}
       {#each groupCards as item (item.typeID)}
         {@const fact = groupFacts?.get(item.typeID)}
         {@const description = fact?.descriptionID ? $words.templates[`#${fact.descriptionID}`] : null}
-        {@const ask = groupAsks?.get(item.typeID)}
+        {@const ask = groupAsks?.asks.get(item.typeID)}
         <article class="mkt-group-card">
           <TypeIcon typeID={item.typeID} name={item.name} size="lg" />
           <div>
@@ -1383,7 +1444,7 @@
             </h3>
             {#if description}<p>{plainText(description)}</p>{/if}
             {#if ask}
-              <p class="mkt-group-ask"><strong>{formatIsk(ask.price)}</strong> · {ask.quantity.toLocaleString()} available in region</p>
+              <p class="mkt-group-ask"><strong>{formatIsk(ask.price)}</strong> · {ask.quantity.toLocaleString()} available in {qbWord(scopeLabels[groupAsks?.scope ?? groupScope]).toLowerCase()}</p>
             {:else if groupAsks}
               <p class="mkt-group-ask">{qbWord("UI/Market/Marketbase/NoneAvailable")}</p>
             {/if}
@@ -2054,6 +2115,8 @@
 
 <style>
   .mkt-group-page { padding: 8px 12px; }
+  .mkt-group-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 12px; }
+  .mkt-group-filters label { display: inline-flex; align-items: center; gap: 6px; }
   .mkt-group-page h2, .mkt-group-card h3 { margin: 0 0 6px; }
   .mkt-group-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px;
     padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.12); }

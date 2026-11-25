@@ -35,6 +35,8 @@
 
 import { isListValue, readKeyVal, unwrapLong, type JsonValue } from "./wire.ts";
 import type { NameKind, NameRef } from "../store/names.ts";
+
+export type MarketGroupScope = "station" | "system" | "region";
 import type {
   MarketEscrow,
   MarketOrderRow,

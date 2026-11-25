@@ -129,6 +129,8 @@ import {
   readMarketOrdersExport,
   formatMarketOrdersExport,
   formatMarketBookExport,
+  unwrapCachedResult,
+  type MarketGroupScope,
   decodePriceHistory,
   joinPriceHistory,
   marketRefusalMessage,
@@ -2722,7 +2724,10 @@ export interface AppFlow {
   loadMarketOrders(): Promise<void>;
   exportMarketOrders(corporation: boolean): Promise<string | null>;
   exportMarketBook(typeID: number): Promise<{ text: string; region: string } | null>;
-  marketRegionalAsks(): Promise<ReadonlyMap<number, { price: string; quantity: number }>>;
+  marketGroupAsks(scope: MarketGroupScope): Promise<{
+    scope: MarketGroupScope;
+    asks: ReadonlyMap<number, { price: string; quantity: number }>;
+  }>;
   /**
    * The pilot's escrow watched as the client's market progression is (MarketProgressionNotifier.register_subscriber):
    * the kept value said, asked again where due and every twelve hours while watched. Answers the watch's end.
@@ -12074,16 +12079,24 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return { text, region: resolvedName(store.names.get().resolved, "evelocation", regionID, String(regionID)) };
   }
 
-  async function marketRegionalAsks(): Promise<ReadonlyMap<number, { price: string; quantity: number }>> {
-    const rows = readDictPairs(await bridgeAsk("marketProxy", "GetRegionBest", []));
+  async function marketGroupAsks(scope: MarketGroupScope) {
+    const online = store.station.get().online;
+    if (scope === "station" && online?.stationID == null) scope = "region";
+    if (scope === "region" && online?.solarSystemID != null) {
+      const { regionID } = await api.getSystemStations(online.solarSystemID, callOptions);
+      // MarketBase._GetAsksForRange uses system asks in wormhole regions.
+      if (regionID !== null && regionID >= 11000000 && regionID <= 11999999) scope = "system";
+    }
+    const method = scope === "station" ? "GetStationAsks" : scope === "system" ? "GetSystemAsks" : "GetRegionBest";
+    const rows = readDictPairs(unwrapCachedResult(await bridgeAsk("marketProxy", method, [])));
     const asks = new Map<number, { price: string; quantity: number }>();
     for (const [id, row] of rows) {
       const typeID = Number(id);
-      const price = toAmountString(readKeyVal(row, "price"));
-      const quantity = Number(toAmountString(readKeyVal(row, "volRemaining")));
+      const price = toAmountString(Array.isArray(row) ? row[0] : readKeyVal(row, "price"));
+      const quantity = Number(toAmountString(Array.isArray(row) ? row[1] : readKeyVal(row, "volRemaining")));
       if (typeID > 0 && price !== null && quantity > 0) asks.set(typeID, { price, quantity });
     }
-    return asks;
+    return { scope, asks };
   }
 
   function requestMarketOrderNames(rows: readonly MarketOwnOrderRow[]): void {
@@ -38588,7 +38601,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadMarketOrders,
     exportMarketOrders,
     exportMarketBook,
-    marketRegionalAsks,
+    marketGroupAsks,
     assetSaleAsked: readonlySignal(assetSaleAskedSignal),
     assetRepairShop: readonlySignal(assetRepairShopSignal),
     openAssetRepair,
