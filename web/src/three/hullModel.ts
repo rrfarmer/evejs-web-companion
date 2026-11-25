@@ -15,6 +15,7 @@ import { eveNormalMap, HULL_NORMAL_MARKER } from "./normalMaps.ts";
 import { followActivation, followClip } from "./activation.ts";
 import type { SofOverlay } from "./hullOverlay.ts";
 import { followDynamicLights } from "./dynamicLights.ts";
+import { applyWarpHullLighting, WarpHullLighting } from "./warpHullLighting.ts";
 import { impactAnchor, type SofImpact } from "./impactOverlay.ts";
 import { hullFx,type SofSpriteSet, type SofPlaneSet, type SofSpotlightSet, type SofHazeSet } from "./hullFx.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -196,6 +197,26 @@ function ownMaterial(mesh: THREE.Mesh): THREE.MeshStandardMaterial {
   mesh.material = own;
   mesh.userData.ownMaterial = true;
   return own;
+}
+
+const warpLightingByHull = new WeakMap<THREE.Object3D, WarpHullLighting>();
+const warpLightingByMaterial = new WeakMap<THREE.Material, WarpHullLighting>();
+
+/** Keep the warp coefficient uniforms local to the piloted hull, whose type materials are normally shared. */
+export function warpLightingFor(model: THREE.Object3D): WarpHullLighting {
+  let lighting = warpLightingByHull.get(model);
+  if (lighting) return lighting;
+  lighting = new WarpHullLighting();
+  const receiver = lighting;
+  model.traverse((node) => {
+    if (node instanceof THREE.Mesh && node.material instanceof THREE.MeshStandardMaterial && node.material.userData.sofHull) {
+      const material = ownMaterial(node);
+      warpLightingByMaterial.set(material, receiver);
+      material.needsUpdate = true;
+    }
+  });
+  warpLightingByHull.set(model, lighting);
+  return lighting;
 }
 
 /** The dirt level of the space object an object is part of (setDirtLevel); EVE_SPACEOBJECT_DIRT_LEVEL_DEFAULT 0. */
@@ -570,7 +591,7 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
   const detail = (/quaddetailv5/i.test(area.shader ?? "") && !!(maps.detail1 && maps.detail2 && maps.detail3)) || (heatDetail && !!(maps.detail1 && maps.detail2));
   if (detail) for (const t of [maps.detail1, maps.detail2, maps.detail3]) if (t) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
   const base = m.onBeforeCompile;
-  m.onBeforeCompile = (shader, renderer) => {
+  m.onBeforeCompile = function (shader, renderer) {
     Object.assign(shader.uniforms, uniforms, heat ? heatUniforms : {}, patternUniforms);
     // inserted beside the chunk names first; the base then writes the chunks out and fixes the channels in them
     shader.fragmentShader = `${glass ? `uniform vec2 softDepthSize;\n${CLOUD_FOG_SCATTERING_GLSL}\n` : ""}${dust ? "#define HULL_DUST\nuniform vec3 mtlDust[4]; uniform sampler2D dirtMap; uniform sampler2D dustNoise; uniform float dirtLevel;\n" : ""}uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform sampler2D sailsDetailMap; uniform vec3 sailsDetailData; uniform sampler2D paintMask; uniform vec4 generalData; uniform sampler2D detail1; uniform sampler2D detail2; uniform sampler2D detail3; uniform vec4 detailData[3]; uniform vec3 detailAlbedo; uniform vec3 detailFresnel; uniform vec4 detailSelector; uniform vec3 wreckColor; uniform vec4 wreckFactors; uniform float wreckTime; uniform sampler2D alphaThreshold; uniform vec4 envTiling; uniform vec4 envDetail; uniform vec4 envMtl1; uniform vec4 envMtl2; uniform vec3 envAlbedo1; uniform vec3 envAlbedo2; uniform vec3 envFresnel1; uniform vec3 envFresnel2; uniform sampler2D oilFilm;${wreck ? " varying float vWreckV;" : ""} ${patternFragment}${env ? " varying vec2 vEnvUv;" : ""}
@@ -743,11 +764,15 @@ ${change(change(shader.fragmentShader, "vec4 emissiveColor = texture2D( emissive
         vec4 emissiveColor = texture2D( emissiveMap, vEmissiveMapUv + heatH.w * heatW * heatN );`),
         "totalEmissiveRadiance *= vec3( pow( emissiveColor.r, 2.4 ) );", "totalEmissiveRadiance = heatColor * heatW * pow( emissiveColor.r, 2.4 );")}`;
     }
+    const lighting = warpLightingByMaterial.get(this);
+    if (lighting) applyWarpHullLighting(shader, lighting);
   };
   followClip(m);
   followDynamicLights(m);
+  m.userData.sofHull = true;
   if (dust) followDirt(m, dirtLevel);
-  m.customProgramCacheKey = () => `sofHull5cl${dust ? "u" : ""}${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}${detail ? "d" : ""}${wreck ? "w" : ""}${glass ? "g" : ""}${env ? "e" : ""}${oil ? "o" : ""}t${patterns.length}`;
+  const key = `sofHull5cl${dust ? "u" : ""}${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}${detail ? "d" : ""}${wreck ? "w" : ""}${glass ? "g" : ""}${env ? "e" : ""}${oil ? "o" : ""}t${patterns.length}`;
+  m.customProgramCacheKey = function () { return warpLightingByMaterial.has(this) ? key + ":warp" : key; };
   return m;
 }
 

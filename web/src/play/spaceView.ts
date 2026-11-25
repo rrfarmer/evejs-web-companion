@@ -18,7 +18,8 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
-import { typeModel, setThrust, setShipSpeed, setControllerVariable, sendControllerEvent, setActivationStrength, setDirtLevel, dirtLevelFromTime } from "../three/hullModel.ts";
+import { typeModel, setThrust, setShipSpeed, setControllerVariable, sendControllerEvent, setActivationStrength, setDirtLevel, dirtLevelFromTime, warpLightingFor } from "../three/hullModel.ts";
+import type { WarpHullLighting } from "../three/warpHullLighting.ts";
 import { shiftGpuParticles } from "../three/gpuParticles.ts";
 import { useFarBoosters } from "../three/boosterVolumetric.ts";
 import { celestialModel, systemCelestials, setPlanetEnvironment, type CelestialItem } from "../three/celestialModel.ts";
@@ -1198,6 +1199,7 @@ export class SpaceView {
   private frameCount = 0;
   private stopped = false;
   private readonly warpTunnel = new WarpTunnel();
+  private warpHullLighting: WarpHullLighting | null = null;
   private readonly warpPlanets = new WarpPlanetCrossings();
   private warpHiddenBody: THREE.Object3D | null = null;
   private readonly wormholeTransit = new WormholeTransit(this.scene);
@@ -2197,6 +2199,7 @@ export class SpaceView {
     this.alertVignetteFlash?.cancel();
     this.targetBar.dispose();
     this.warpTunnel.dispose();
+    this.warpHullLighting?.clear();
     this.wormholeTransit.dispose();
     this.live.fxListeners.delete(this.hearFx);
     this.turretFx.dispose();
@@ -6537,7 +6540,8 @@ export class SpaceView {
     if (way.lengthSq() < 0.5) tunnelWay = this.camera.getWorldDirection(new THREE.Vector3());
     this.flashEl.style.opacity = flash.toFixed(3);
     const warpPoint = ego?.mode === "WARP" ? ego.warp?.point ?? this.options.flightSnapshot?.()?.ship?.warp?.point ?? null : null;
-    const crossing = this.warpPlanets.sample(ego, warpPoint, snap?.entities ?? [], this.warpTunnel.intensity(share), WarpTunnel.multiplier(warpSpeedMultiplier));
+    const warpIntensity = this.warpTunnel.intensity(share);
+    const crossing = this.warpPlanets.sample(ego, warpPoint, snap?.entities ?? [], warpIntensity, WarpTunnel.multiplier(warpSpeedMultiplier));
     const hiddenBody = crossing.body === null ? null : this.marks.get(crossing.body) ?? null;
     if (this.warpHiddenBody !== hiddenBody) {
       if (this.warpHiddenBody) this.warpHiddenBody.visible = true;
@@ -6547,6 +6551,12 @@ export class SpaceView {
     const sunGlow = sunMark?.getObjectByName("sunGlow");
     if (sunGlow) sunGlow.visible = crossing.body === null;
     this.warpTunnel.update(this.camera, this.controls.target, tunnelWay, share, gateShare, now / 1000, dt, crossing);
+    const ownModel = ego ? this.marks.get(ego.itemID)?.userData.model as THREE.Object3D | undefined : undefined;
+    const hullLight = settings.shaderQuality === 3 && ownModel ? warpLightingFor(ownModel) : null;
+    if (hullLight !== this.warpHullLighting) this.warpHullLighting?.clear();
+    this.warpHullLighting = hullLight;
+    if (ego?.mode === "WARP") hullLight?.update(bracketSimNow ?? now, warpIntensity, crossing);
+    else hullLight?.clear();
     this.turretFx.setResolution(innerWidth, innerHeight);
     this.turretFx.onShot = this.onShot;
     this.turretFx.onFire = (ship, moduleID, target) => { this.fireTurretSet(ship, moduleID, target); };
