@@ -860,20 +860,11 @@
     open("skills");
   });
 
-  // The lobby's services, each opening the app's window for it (the client's service buttons, serviceBtn.py, with
-  // its window icons): those the play mode has a window for.
-  const LOBBY_SERVICES: { label: string; icon: string; tab: TabID }[] = [
-    { label: "Fitting", icon: "fitting", tab: "fitting" },
-    { label: "Market", icon: "market", tab: "market" },
-    { label: "Item Hangar", icon: "itemhangar", tab: "inventory" },
-    { label: "Industry", icon: "industry", tab: "industry" },
-    { label: "Contracts", icon: "contracts", tab: "contracts" },
-    { label: "Agents", icon: "agent", tab: "finder" },
-  ];
+  const stationServiceIDs = $derived($station?.online?.stationID != null &&
+    $station.station?.stationID === $station.online.stationID ? $station.station.serviceIDs : null);
+  const structureServiceIDs = $derived($station?.online?.structureID ? $station.structureServiceIDs ?? null : null);
   // stationServiceConst's navyoffices entry, for station and structure service IDs respectively.
-  const militiaOfficeAvailable = $derived($station?.online?.stationID
-    ? $station.station?.serviceIDs?.includes(26) === true
-    : $station?.structureServiceIDs?.includes(12) === true);
+  const militiaOfficeAvailable = $derived(stationServiceIDs?.includes(26) === true || structureServiceIDs?.includes(12) === true);
   const repairShopAvailable = $derived.by(() => {
     const online = $station?.online;
     if (online?.structureID) return structureHasCapability($station?.structureServiceIDs ?? null, "repair");
@@ -895,6 +886,24 @@
   const lpStoreAvailable = $derived(!$station?.online?.structureID && $station?.online?.stationID != null &&
     $station.station?.stationID === $station.online.stationID && $station.station.serviceIDs?.includes(25) === true &&
     ($station.bits?.ownerID ?? 0) > 0);
+  // LobbyWnd.LoadServiceButtons uses stationServiceConst in reverse display order.
+  const lobbyServices = $derived([
+    { label: "Loyalty Point Store", icon: "lpstore", available: lpStoreAvailable, select: () => open("lpStore") },
+    { label: "Insurance", icon: "insurance", available: insuranceAvailable, select: () => open("insurance") },
+    { label: "Militia Office", icon: "factionalwarfare", available: militiaOfficeAvailable,
+      select: () => openTheatersOfWar(relevantMilitiaPage($station?.online?.warFactionID ?? null)) },
+    { label: "Industry", icon: "industry", available: stationServiceIDs?.some(id => id === 14 || id === 15) ||
+        structureHasCapability(structureServiceIDs, "industry"), select: () => open("industry") },
+    { label: "Fitting", icon: "fitting", available: stationServiceIDs?.includes(17) ||
+        structureHasCapability(structureServiceIDs, "fitting"), select: () => open("fitting") },
+    { label: "Market", icon: "market", available: stationServiceIDs?.includes(7) ||
+        structureHasCapability(structureServiceIDs, "market"), select: () => open("market") },
+    { label: "Reprocessing Plant", icon: "Reprocess", available: reprocessingAvailable, select: () => open("reprocessing") },
+    { label: "Repair Shop", icon: "repairshop", available: repairShopAvailable,
+      select: () => void session?.flow.openAssetRepair().catch(() => {}) },
+    { label: "Clone Bay", icon: "cloneBay", available: medicalAvailable,
+      select: () => { requestSheetPanel("jumpClones"); open("characterSheet"); } },
+  ].filter(service => service.available));
   $effect(() => {
     if ((!docked || !reprocessingAvailable) && wins.some(win => win.id === "reprocessing")) {
       wins = closeWindow(wins, "reprocessing");
@@ -4013,44 +4022,11 @@
           {/if}
           {#if error}<div class="error lobby-error">{error}</div>{/if}
           <div class="lobby-services">
-            {#if medicalAvailable}
-              <button type="button" class="lobby-svc" title="Clone Bay" aria-label="Clone Bay"
-                onclick={() => { requestSheetPanel("jumpClones"); open("characterSheet"); }}>
-                <img alt="" src={clientTexture("res:/ui/Texture/WindowIcons/cloneBay.png")} />
-              </button>
-            {/if}
-            {#each LOBBY_SERVICES as svc (svc.label)}
-              <button class="lobby-svc" title={svc.label} aria-label={svc.label} onclick={() => open(svc.tab)}>
+            {#each lobbyServices as svc (svc.label)}
+              <button type="button" class="lobby-svc" title={svc.label} aria-label={svc.label} onclick={svc.select}>
                 <img alt="" src={clientTexture(`res:/UI/Texture/WindowIcons/${svc.icon}.png`)} />
               </button>
             {/each}
-            {#if repairShopAvailable}
-              <button type="button" class="lobby-svc" title="Repair Shop" aria-label="Repair Shop"
-                onclick={() => void session?.flow.openAssetRepair().catch(() => {})}>
-                <img alt="" src={clientTexture("res:/UI/Texture/WindowIcons/repairshop.png")} />
-              </button>
-            {/if}
-            {#if reprocessingAvailable}
-              <button type="button" class="lobby-svc" title="Reprocessing Plant" aria-label="Reprocessing Plant"
-                onclick={() => open("reprocessing")}>
-                <img alt="" src={clientTexture("res:/UI/Texture/WindowIcons/Reprocess.png")} />
-              </button>
-            {/if}
-            {#if insuranceAvailable}
-              <button type="button" class="lobby-svc" title="Insurance" aria-label="Insurance" onclick={() => open("insurance")}>
-                <img alt="" src={clientTexture("res:/ui/Texture/WindowIcons/insurance.png")} />
-              </button>
-            {/if}
-            {#if lpStoreAvailable}
-              <button type="button" class="lobby-svc" title="Loyalty Point Store" aria-label="Loyalty Point Store" onclick={() => open("lpStore")}>
-                <img alt="" src={clientTexture("res:/ui/Texture/WindowIcons/lpstore.png")} />
-              </button>
-            {/if}
-            {#if militiaOfficeAvailable}
-              <button class="lobby-svc" title="Militia Office" aria-label="Militia Office" onclick={() => openTheatersOfWar(relevantMilitiaPage($station?.online?.warFactionID ?? null))}>
-                <img alt="" src={clientTexture("res:/UI/Texture/WindowIcons/factionalwarfare.png")} />
-              </button>
-            {/if}
           </div>
           <PlayLobbyTabs {session} onOpenAgents={() => open("agents")} onOpenInventory={() => open("inventory")} />
         </div>
@@ -5100,8 +5076,8 @@
     border-radius: 0 0 8px 8px; background: #13282f; color: #d5eef2; cursor: pointer; }
   .academy-service:hover:enabled { background: #26434b; }
   .academy-service:disabled { opacity: 0.5; cursor: default; }
-  .lobby-services { display: flex; flex: none; justify-content: center; flex-wrap: wrap; gap: 4px; }
-  .lobby-svc { display: grid; place-items: center; box-sizing: border-box; width: 32px; height: 32px; min-height: 0;
+  .lobby-services { display: flex; flex: none; justify-content: center; flex-wrap: wrap; gap: 4px; margin-inline: 16px; }
+  .lobby-svc { display: grid; place-items: center; box-sizing: border-box; flex: 0 0 32px; width: 32px; height: 32px; min-height: 0;
     padding: 0; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); cursor: pointer; }
   .lobby-svc:hover { background: rgba(255, 255, 255, 0.10); border-color: rgba(255, 255, 255, 0.2); }
   .lobby-svc img { width: 100%; height: 100%; }
