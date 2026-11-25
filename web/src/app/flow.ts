@@ -4503,6 +4503,7 @@ export interface AppFlow {
   loadSkyhookConfiguration(target: SkyhookEntry): Promise<{
     settings: SkyhookSettings; varianceHours: number; groups: readonly { id: number; name: string }[];
   }>;
+  loadSkyhookAccessGroup(groupID: number): Promise<{ id: number; name: string } | null>;
   saveSkyhookConfiguration(target: SkyhookEntry, settings: SkyhookSettings): Promise<void>;
   loadStructureDescription(structureID: number): Promise<string>;
   saveStructureDescription(structureID: number, description: string): Promise<void>;
@@ -28065,12 +28066,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return {
       settings: decodeSkyhookSettings(reply),
       varianceHours: Math.floor((attributes[SKYHOOK_TYPE_ID]?.[REINFORCEMENT_VARIANCE_ATTRIBUTE] ?? 10_800) / 3600),
-      groups: groups.map(group => ({
-        id: group.groupID,
-        name: group.creatorID !== null && isNpcCorporation(group.creatorID)
-          ? resolvedName(store.names.get().resolved, "owner", group.creatorID, group.name) : group.name,
-      })).sort((left, right) => left.name.localeCompare(right.name)),
+      groups: groups.map(skyhookAccessOption).sort((left, right) => left.name.localeCompare(right.name)),
     };
+  }
+
+  function skyhookAccessOption(group: AccessGroup): { id: number; name: string } {
+    return {
+      id: group.groupID,
+      name: group.creatorID !== null && isNpcCorporation(group.creatorID)
+        ? resolvedName(store.names.get().resolved, "owner", group.creatorID, group.name) : group.name,
+    };
+  }
+
+  async function loadSkyhookAccessGroup(groupID: number): Promise<{ id: number; name: string } | null> {
+    const scope = captureMemberOperation();
+    const group = await readAccessGroup(scope.ask, groupID);
+    scope.current();
+    if (!group) return null;
+    if (group.creatorID !== null && isNpcCorporation(group.creatorID)) {
+      await memberNames(scope, [{ kind: "owner", id: group.creatorID }]);
+      scope.current();
+    }
+    return skyhookAccessOption(group);
   }
 
   async function saveSkyhookConfiguration(target: SkyhookEntry, settings: SkyhookSettings): Promise<void> {
@@ -39963,6 +39980,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     readSkyhookFilters: () => skyhookFilters(charUiSetting),
     saveSkyhookFilter: (key, value) => setCharUiSetting(skyhookFilterSetting(key), value === null ? "" : String(value)),
     loadSkyhookConfiguration,
+    loadSkyhookAccessGroup,
     saveSkyhookConfiguration,
     loadStructureDescription,
     saveStructureDescription,

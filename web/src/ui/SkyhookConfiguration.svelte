@@ -4,6 +4,7 @@
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { ORBITAL_TAX_KEYS, type OrbitalTaxKey, type SkyhookEntry, type SkyhookSettings } from "../bridge/skyhooks.ts";
   import type { ClientStore } from "../store/clientStore.ts";
+  import { droppedAccessGroup, hasAccessGroupDrag } from "./accessGroupDrag.ts";
 
   let { store, flow, target, name, onClose }: {
     store: ClientStore; flow: AppFlow; target: SkyhookEntry; name: string; onClose: () => void;
@@ -14,6 +15,7 @@
     settings: ["UI/OrbitalSkyhook/ConfigWnd/SkyhookSettings", "Orbital Skyhook Settings"],
     hour: ["UI/PI/OrbitalConfigurationWindow/ReinforcementExit", "Reinforcement Exit"],
     access: ["UI/OrbitalSkyhook/ConfigWnd/TakeAccess", "Take Access"],
+    accessHint: ["UI/OrbitalSkyhook/ConfigWnd/TakeAccessComboHint", "Drop an access list here."],
     none: ["UI/AclBookmarks/NoAccessList", "-"],
     customs: ["UI/OrbitalSkyhook/ConfigWnd/CustomsOfficeSettings", "Customs Office Settings"],
     corporation: ["UI/PI/OrbitalConfigurationWindow/CorporationTax", "Corporation Tax"],
@@ -35,6 +37,7 @@
   let saving = $state(false);
   let error = $state("");
   let active = false;
+  let dropRequest = 0;
 
   function time(hour: number): string {
     return String((hour + 24) % 24).padStart(2, "0") + ":00";
@@ -54,6 +57,7 @@
 
   async function submit(): Promise<void> {
     if (!draft || saving) return;
+    dropRequest++;
     saving = true;
     error = "";
     try {
@@ -64,6 +68,30 @@
       if (active) error = panelErrorWords(cause);
     } finally {
       if (active) saving = false;
+    }
+  }
+
+  async function dropAccessGroup(event: DragEvent): Promise<void> {
+    const id = droppedAccessGroup(event);
+    if (id === null || !config || !draft || saving) return;
+    event.preventDefault();
+    const request = ++dropRequest;
+    error = "";
+    if (config.groups.some(group => group.id === id)) {
+      draft.acl = id;
+      return;
+    }
+    try {
+      const option = await flow.loadSkyhookAccessGroup(id);
+      if (!active || dropRequest !== request || !config || !draft) return;
+      if (!option) {
+        error = "This access list is unavailable.";
+        return;
+      }
+      config = { ...config, groups: [...config.groups, option] };
+      draft.acl = option.id;
+    } catch (cause) {
+      if (active && dropRequest === request) error = panelErrorWords(cause);
     }
   }
 </script>
@@ -89,7 +117,9 @@
         </select>
       </label>
       <label>{word("access")}
-        <select bind:value={draft.acl}>
+        <select bind:value={draft.acl} title={word("accessHint")} onchange={() => { dropRequest++; error = ""; }}
+          ondragover={(event) => { if (!saving && hasAccessGroupDrag(event)) event.preventDefault(); }}
+          ondrop={(event) => void dropAccessGroup(event)}>
           <option value={null}>{word("none")}</option>
           {#each config.groups as group (group.id)}<option value={group.id}>{group.name}</option>{/each}
           {#if draft.acl !== null && !config.groups.some(group => group.id === draft?.acl)}

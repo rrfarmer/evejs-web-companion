@@ -63,6 +63,7 @@ export type CoreTabID =
   | "metenoxTransfer"
   | "metenoxFuel"
   | "structureBrowser"
+  | "accessGroups"
   | "mail"
   | "contacts"
   | "locations"
@@ -222,6 +223,7 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "metenoxTransfer", label: "Hangar Transfer", where: "in-space", launchable: false },
   { id: "metenoxFuel", label: "Metenox Fuel Bay", where: "both", launchable: false },
   { id: "structureBrowser", label: "Structure Browser", where: "both" },
+  { id: "accessGroups", label: "Access Lists", where: "both" },
   // Both — reachable docked or undocked.
   { id: "inventory", label: "Inventory & Ship", where: "both" },
   { id: "market", label: "Market", where: "both" },

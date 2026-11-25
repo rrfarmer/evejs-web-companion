@@ -150,6 +150,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
     { id: "mail", label: "EVE Mail", icon: icon("evemail") },
     { id: "corporation", label: "Corporation", icon: icon("corporation") },
     { id: "calendar", label: "Calendar", icon: icon("calendar") },
+    { id: "accessGroups", label: "Access Lists", icon: clientTexture("res:/UI/Texture/WindowIcons/accessGroups.png") },
   ] },
   { label: "Paragon Services", icon: clientTexture("res:/UI/Texture/eveicon/feature_icons/paragon_folder_64px.png"), items: [
     { id: "achievements", label: "Achievements", icon: icon("achievements") },

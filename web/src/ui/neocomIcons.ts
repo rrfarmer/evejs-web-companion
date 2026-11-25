@@ -63,6 +63,7 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   metenoxTransfer: ["M4 12h15m-5-5 5 5-5 5"],
   metenoxFuel: ["M5 4h11v16H5z", "M7 7h7v5H7z"],
   structureBrowser: ["M12 3l8 5v8l-8 5-8-5V8z", "M4 8l8 5 8-5M12 13v8"],
+  accessGroups: ["M5 4h14v16H5z", "M8 9l1 1 2-2m-3 6 1 1 2-2M13 9h3m-3 5h3"],
 
   // --- docked ---
   fitting: ["M12 3l6 6v9H6V9z", "M9 12h.01M15 12h.01M12 16h.01"],
