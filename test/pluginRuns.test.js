@@ -22,6 +22,7 @@ const REPO = path.resolve(__dirname, "..");
 const WEB_SRC = path.join(REPO, "web", "src");
 
 const BACKEND = `
+import { getEventListeners } from "node:events";
 import { jsonStore, startBackend } from "../../web/src/plugin-api/backend.ts";
 
 const heard = (name, value) => jsonStore(name).write(value);
@@ -39,6 +40,14 @@ startBackend({
     "POST /ask-request": async (request) => {
       const answer = await flying.fetch(new Request(new URL(request.body.url, flying.baseUrl), { method: "POST", headers: { "x-from-request": "yes" }, body: "given" }));
       return { body: { status: answer.status } };
+    },
+    "POST /ask-with-one-signal": async (request) => {
+      const { signal } = new AbortController();
+      for (let time = 0; time < 3; time += 1) {
+        const answer = await flying.fetch(new URL(request.body.url, flying.baseUrl), { signal });
+        await answer.text();
+      }
+      return { body: { listeners: getEventListeners(signal, "abort").length } };
     },
     "POST /ask-call": async (request) => {
       const answer = await flying.fetch(new URL("/api/bridge/call", flying.baseUrl), {
@@ -341,6 +350,15 @@ test("a Request given to a run's fetch goes as what it says", async (t) => {
   assert.equal(asked.method, "POST");
   assert.equal(asked.body, "given");
   assert.equal(asked.headers.get("x-from-request"), "yes");
+  await f.bots.stop(f.row().botID, ACCOUNT.accountID);
+});
+
+test("a run's answered requests leave nothing listening on the signal they were given", async (t) => {
+  const f = await makeFixture(t);
+  await f.startRun();
+  assert.ok(await until(() => f.row().phase === "Probing"));
+  const asked = await f.request("POST", "/ask-with-one-signal", { url: "/api/bridge/flight/status" });
+  assert.deepEqual(asked.body, { listeners: 0 });
   await f.bots.stop(f.row().botID, ACCOUNT.accountID);
 });
 

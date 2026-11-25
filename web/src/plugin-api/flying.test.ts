@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createAppFlow } from "../app/flow.ts";
-import { hostedFetch, hostedLane, HOSTED_MAX_IN_FLIGHT } from "../app/transport.ts";
+import { bridgeLane, hostedFetch, hostedLane, HOSTED_MAX_IN_FLIGHT, MAX_IN_FLIGHT } from "../app/transport.ts";
 import { BridgeCallError } from "../bridge/callMethod.ts";
 import { createClientStore } from "../store/clientStore.ts";
 import type { PilotFlying } from "./flying.ts";
@@ -10,12 +10,13 @@ const baseUrl = "http://bff.test";
 const observationPath = "/api/bridge/script/observation";
 const callPath = "/api/bridge/call";
 
-function pilot(characterID: number, send: Parameters<typeof hostedFetch>[0], store = createClientStore()) {
+function pilot(characterID: number, send: Parameters<typeof hostedFetch>[0], store = createClientStore(),
+  fetch: typeof globalThis.fetch = hostedFetch(send, String(characterID), () => true)) {
   const character = { characterID, characterName: "Pilot " + characterID, stationID: null,
     structureID: null, solarSystemID: 7, corporationID: 11 };
   store.apply({ type: "character/online", character, station: null });
   return createAppFlow(store, { baseUrl, livePush: false, perSessionToken: true,
-    initialSessionToken: "pilot-" + characterID, fetch: hostedFetch(send, String(characterID), () => true) });
+    initialSessionToken: "pilot-" + characterID, fetch });
 }
 
 /** Requests from another pilot fill the real hosted lane until the test releases them. */
@@ -65,6 +66,21 @@ test("the two reads use their pilot's session and the normal observation and bri
   ]);
 });
 
+test("every kind of cancelled read rejects the same way", async () => {
+  const kinds: ((flying: PilotFlying, signal: AbortSignal) => Promise<unknown>)[] = [
+    (flying, signal) => flying.readObservation({ signal }),
+    (flying, signal) => flying.bridgeAsk("charMgr", "GetRecentShipKillsAndLosses", [25, null], undefined, undefined, { signal }),
+    (flying, signal) => flying.bridgeAsk("invbroker", "List", [5], null, 41, { signal }),
+  ];
+  for (const read of kinds) {
+    const caller = new AbortController();
+    const request = read(pilot(1, async (_, init) => waitForAbort(init!.signal!)).flying, caller.signal);
+    caller.abort(new Error("given up on"));
+    await assert.rejects(request, error => error instanceof BridgeCallError && error.code === "BRIDGE_NETWORK_ERROR"
+      && /given up on/.test(error.message));
+  }
+});
+
 const reads: Record<string, (flying: PilotFlying, signal?: AbortSignal) => Promise<unknown>> = {
   readObservation: (flying, signal) => flying.readObservation({ signal }),
   bridgeAsk: (flying, signal) => flying.bridgeAsk("charMgr", "GetRecentShipKillsAndLosses", [25, null],
@@ -79,7 +95,55 @@ test("a loss-history bridge read uses the caller's own deadline", async t => {
     undefined, undefined, { signal: caller.signal });
   caller.abort(new Error("loss-history deadline"));
   await assert.rejects(request, /loss-history deadline/);
-  assert.equal(timeout.mock.callCount(), 0);
+  assert.deepEqual(timeout.mock.calls.map(call => call.arguments), [[65_000]], "the default timeout stays beside the caller's signal");
+});
+
+test("a read of a locked container is given up on at its password prompt", async () => {
+  const caller = new AbortController();
+  const calls: string[] = [];
+  const flow = pilot(1, async (url, init) => {
+    if (new URL(String(url)).pathname !== callPath) return Response.json({ ok: true });
+    const { service, method } = JSON.parse(String(init?.body));
+    calls.push(service + "." + method);
+    return Response.json({ ok: false, error: "CALL_REFUSED", refusal: { key: "SCGeneralPasswordRequired" } }, { status: 409 });
+  });
+  const asked = () => new Promise<void>(resolve => {
+    const stop = flow.inventoryPasswordAsked.subscribe(ask => { if (ask !== null) { resolve(); queueMicrotask(() => stop()); } });
+  });
+  const request = flow.flying.bridgeAsk("invbroker", "List", [5], null, 41, { signal: caller.signal });
+  const rejected = assert.rejects(request, { code: "BRIDGE_NETWORK_ERROR", message: /container deadline/ });
+  await asked();
+  caller.abort(new Error("container deadline"));
+  await rejected;
+  assert.equal(flow.inventoryPasswordAsked.get(), null, "the prompt closes with the read that asked");
+  assert.deepEqual(calls, ["invbroker.List"]);
+});
+
+test("a read given up on at a password prompt leaves the prompt to the read it took it from", async () => {
+  const caller = new AbortController();
+  const entered: unknown[] = [];
+  let locked = true;
+  const flow = pilot(1, async (url, init) => {
+    if (new URL(String(url)).pathname !== callPath) return Response.json({ ok: true });
+    const { service, method, args, of } = JSON.parse(String(init?.body));
+    if (method === "EnterPassword") { entered.push([of, args]); locked = false; }
+    else if (locked) return Response.json({ ok: false, error: "CALL_REFUSED", refusal: { key: "SCGeneralPasswordRequired" } }, { status: 409 });
+    return Response.json({ ok: true, service, method, result: [17] });
+  });
+  const settle = () => new Promise(resolve => setTimeout(resolve, 20));
+  const kept = flow.flying.bridgeAsk("invbroker", "List", [5], null, 41);
+  await settle();
+  const prompt = flow.inventoryPasswordAsked.get();
+  assert.notEqual(prompt, null);
+  const rejected = assert.rejects(flow.flying.bridgeAsk("invbroker", "List", [5], null, 42, { signal: caller.signal }),
+    { code: "BRIDGE_NETWORK_ERROR" });
+  await settle();
+  caller.abort(new Error("cancelled"));
+  await rejected;
+  assert.equal(flow.inventoryPasswordAsked.get(), prompt);
+  flow.answerInventoryPassword(prompt!.n, "open");
+  assert.deepEqual(await kept, [17]);
+  assert.deepEqual(entered, [[41, [1, "open"]]]);
 });
 
 test("the scoped bridge read keeps bound inventory's password challenge handling", async () => {
@@ -159,6 +223,40 @@ for (const [method, read] of Object.entries(reads)) {
     store.apply({ type: "character/offline" });
     deliver(Response.json({ ok: true, space: {}, service: "charMgr", method: "GetRecentShipKillsAndLosses", result: [] }));
     await assert.rejects(request, { code: "SESSION_REQUEST_RETIRED" });
+  });
+
+  test(method + " can be cancelled while it waits for a lane of the page's own", async () => {
+    let sent = 0;
+    const flow = pilot(1, async () => Response.json({ ok: true }), createClientStore(),
+      async () => { sent++; return Response.json({ ok: true }); });
+    let release!: () => void;
+    const hold = new Promise<void>(resolve => { release = resolve; });
+    const held = Array.from({ length: MAX_IN_FLIGHT }, () => bridgeLane.run("read", "/api/held", () => hold));
+    try {
+      const caller = new AbortController(), request = read(flow.flying, caller.signal);
+      assert.equal(bridgeLane.queued(), 1);
+      caller.abort(new Error("cancelled before dispatch"));
+      assert.equal(bridgeLane.queued(), 0);
+      await assert.rejects(request, { code: "BRIDGE_NETWORK_ERROR", message: /cancelled before dispatch/ });
+      assert.equal(sent, 0);
+    } finally { release(); await Promise.all(held); }
+  });
+
+  test(method + " cancelled while its answer is read does not say the answer was bad", async () => {
+    const caller = new AbortController();
+    const flow = pilot(1, async (_, init) => new Response(new ReadableStream({
+      pull(body) {
+        init!.signal!.addEventListener("abort", () => body.error(init!.signal!.reason), { once: true });
+        queueMicrotask(() => caller.abort(new Error("cancelled in the answer")));
+        return new Promise<void>(() => {});
+      },
+    }, { highWaterMark: 0 })));
+    await assert.rejects(read(flow.flying, caller.signal), { code: "BRIDGE_NETWORK_ERROR", message: /cancelled in the answer/ });
+  });
+
+  test(method + " still says an answer that is not JSON is a bad one", async () => {
+    const flow = pilot(1, async () => new Response("<html>"));
+    await assert.rejects(read(flow.flying, new AbortController().signal), { code: "BRIDGE_BAD_RESPONSE" });
   });
 
   test(method + " can be cancelled in the queue and after dispatch", async () => {
