@@ -988,7 +988,7 @@ import {
 import { systemGraphOnce } from "../nav/systemGraphKept.ts";
 import { autopilotDistances, autopilotJumpCounts, autopilotMap, autopilotPath, type AutopilotMap, type AutopilotRouteType, type AutopilotSettings } from "../nav/autopilotRoute.ts";
 import { availableJumpGateJumps, type JumpGateJump } from "../nav/jumpGates.ts";
-import { decodeCharacterStructureDirectory, decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData, type StructureBrowserEntry } from "../bridge/structures.ts";
+import { decodeCharacterStructureDirectory, decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData, type StructureBrowserDirectory } from "../bridge/structures.ts";
 import {
   AVOIDING_DIALOGS,
   autopilotSettingsFrom,
@@ -4487,7 +4487,7 @@ export interface AppFlow {
   loadControlledMetenox(structureID: number): Promise<{ fuel: readonly InventoryItemRow[]; moduleID: number }>;
   startMetenoxDrill(structureID: number): Promise<void>;
   loadCorporationMoonSchedule(current?: () => void): Promise<CorporationMoonSchedule>;
-  loadStructureBrowser(systemID: number, corporation?: boolean): Promise<readonly StructureBrowserEntry[]>;
+  loadStructureBrowser(systemID: number, corporation?: boolean): Promise<StructureBrowserDirectory>;
   startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
   loadCorporationMiningObservers(): Promise<readonly MiningLedgerObserver[]>;
@@ -27904,25 +27904,36 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return moonRefineryYieldMultiplier(allInfo.value, structureID);
   }
 
-  async function loadStructureBrowser(systemID: number, corporation = false): Promise<readonly StructureBrowserEntry[]> {
+  async function loadStructureBrowser(systemID: number, corporation = false): Promise<StructureBrowserDirectory> {
     const scope = captureMemberOperation();
-    let entries: readonly StructureBrowserEntry[];
-    if (corporation) {
-      const reply = await scope.ask("structureDirectory", "GetCorporationStructures", []);
-      entries = decodeCorporationStructures(reply).filter(row => row.ownerID === scope.online.corporationID);
-    } else {
-      const reply = await scope.ask("structureDirectory", "GetMyCharacterStructures", []);
-      entries = decodeCharacterStructureDirectory(reply).filter(row => row.solarSystemID === systemID);
-    }
+    const [reply, graph, distances] = await Promise.all([
+      scope.ask("structureDirectory", corporation ? "GetCorporationStructures" : "GetMyCharacterStructures", []),
+      loadRouteGraph().catch(() => null),
+      autopilotDistancesFrom(systemID).catch(() => null),
+    ]);
     scope.current();
-    await resolveNamesNow(entries.flatMap(row => [
+    const directory = corporation
+      ? decodeCorporationStructures(reply).filter(row => row.ownerID === scope.online.corporationID)
+        .map(row => ({ ...row, serviceIDs: row.services.map(service => service.serviceID) }))
+      : decodeCharacterStructureDirectory(reply);
+    const entries = directory.map(row => {
+      const constellationID = graph?.parentOf?.(row.solarSystemID) ?? null;
+      const regionID = constellationID === null ? null : graph?.parentOf?.(constellationID) ?? null;
+      return { ...row, constellationID, regionID, security: graph?.security(row.solarSystemID) ?? null,
+        jumps: row.solarSystemID === systemID ? 0 : distances?.get(row.solarSystemID) ?? null };
+    });
+    const refs = entries.flatMap(row => [
       { kind: isStation(row.structureID) ? "station" : "structure", id: row.structureID },
-      { kind: "type", id: row.typeID },
-      { kind: "corporation", id: row.ownerID },
-      { kind: "evelocation", id: row.solarSystemID },
-    ]));
+      { kind: "type" as const, id: row.typeID },
+      { kind: "corporation" as const, id: row.ownerID },
+      { kind: "evelocation" as const, id: row.solarSystemID },
+      ...(row.regionID === null ? [] : [{ kind: "evelocation" as const, id: row.regionID }]),
+    ] satisfies readonly NameRef[]);
+    await resolveNamesNow([...new Map(refs.map(ref => [nameKey(ref.kind, ref.id), ref])).values()]);
     scope.current();
-    return entries;
+    const currentConstellationID = graph?.parentOf?.(systemID) ?? null;
+    return { entries, currentConstellationID, currentRegionID: currentConstellationID === null
+      ? null : graph?.parentOf?.(currentConstellationID) ?? null };
   }
 
   async function loadCorporationMoonSchedule(lifetime?: () => void): Promise<CorporationMoonSchedule> {

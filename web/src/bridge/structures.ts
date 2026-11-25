@@ -77,17 +77,31 @@ function listItems(value: JsonValue | null | undefined): readonly JsonValue[] {
   return isListValue(value) ? value.items : [];
 }
 
-export interface StructureBrowserEntry {
+interface StructureDirectoryEntry {
   readonly structureID: number;
   readonly typeID: number;
   readonly ownerID: number;
   readonly solarSystemID: number;
   readonly itemName?: string;
+  readonly serviceIDs: readonly number[];
+}
+
+export interface StructureBrowserEntry extends StructureDirectoryEntry {
+  readonly constellationID: number | null;
+  readonly regionID: number | null;
+  readonly security: number | null;
+  readonly jumps: number | null;
+}
+
+export interface StructureBrowserDirectory {
+  readonly entries: readonly StructureBrowserEntry[];
+  readonly currentConstellationID: number | null;
+  readonly currentRegionID: number | null;
 }
 
 /** GetMyCharacterStructures: a dict keyed by ID with plain dict records. */
-export function decodeCharacterStructureDirectory(result: JsonValue): StructureBrowserEntry[] {
-  const rows: StructureBrowserEntry[] = [];
+export function decodeCharacterStructureDirectory(result: JsonValue): StructureDirectoryEntry[] {
+  const rows: StructureDirectoryEntry[] = [];
   for (const [, value] of readDictPairs(result)) {
     const fields = new Map(readDictPairs(value));
     const structureID = toNumber(fields.get("structureID"));
@@ -95,7 +109,8 @@ export function decodeCharacterStructureDirectory(result: JsonValue): StructureB
     const ownerID = toNumber(fields.get("ownerID"));
     const solarSystemID = toNumber(fields.get("solarSystemID"));
     if (structureID > 0 && typeID > 0 && ownerID > 0 && solarSystemID > 0) {
-      rows.push({ structureID, typeID, ownerID, solarSystemID });
+      const serviceIDs = decodeServices(fields.get("services")).map(service => service.serviceID);
+      rows.push({ structureID, typeID, ownerID, solarSystemID, serviceIDs });
     }
   }
   return rows;
