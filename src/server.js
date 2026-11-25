@@ -1231,6 +1231,19 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     res.status(400).json({ ok: false, error: "INVALID_REPACKAGE_ITEMS", message: "Select items in a single personal hangar." });
     return;
   }
+  if (body.service === "insuranceSvc" && write) {
+    const args = Array.isArray(body.args) ? body.args : [];
+    const [shipID, premium, isCorp] = args;
+    const replacing = body.kwargs == null ||
+      (body.kwargs.voidOld === true && Object.keys(body.kwargs).length === 1);
+    const valid = body.of == null && Number.isSafeInteger(shipID) && shipID > 0 && (body.method === "InsureShip"
+      ? args.length === 3 && typeof premium === "number" && Number.isFinite(premium) && premium > 0 && isCorp === false && replacing
+      : args.length === 1 && body.kwargs == null);
+    if (!valid) {
+      res.status(400).json({ ok: false, error: "INVALID_SHIP_INSURANCE", message: "Choose a ship from your personal hangar and review the insurance terms." });
+      return;
+    }
+  }
   if (body.service === "invbroker" && body.method === "GetContainerContents" &&
       (body.of != null || body.kwargs != null || !Array.isArray(body.args) || body.args.length !== 2 ||
        !body.args.every(id => Number.isSafeInteger(id) && id > 0))) {
@@ -5947,9 +5960,7 @@ app.post("/api/bridge/gm/slash", requireAuth, async (req, res, next) => {
 // Its 2 write routes, made for no screen of the page's, went on 2026-10-14 (the loop's item 62): nothing
 // asked them. The pairs stay writes (bridgeCallPolicy.js), so the generic call refuses them.
 
-// --- insuranceSvc WRITES (2) — session-scoped source
-// Its 2 write routes, made for no screen of the page's, went on 2026-10-14 (the loop's item 62): nothing
-// asked them. The pairs stay writes (bridgeCallPolicy.js), so the generic call refuses them.
+// The Insurance window calls insuranceSvc through the confirmed bridge.
 
 // --- bountyProxy WRITES (3) — session-scoped source
 // Its 3 write routes, made for no screen of the page's, went on 2026-10-14 (the loop's item 62): nothing

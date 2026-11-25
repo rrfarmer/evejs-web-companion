@@ -470,6 +470,7 @@ import { extractorReroute, factoryInputTypeIDs, type ExtractorReroute } from "..
 import { decodeRecipeBook } from "../bridge/piRecipes.ts";
 import { repairTargets, type RepairQuotePart, type RepairQuoteRow } from "../bridge/repairQuotes.ts";
 import { isRepairableItem, payRepairShop, quoteRepairs, repairItemsAtShop, repairQuoted, stationOffersRepair } from "../bridge/repairShop.ts";
+import { insurancePrices, insuranceTerms, stationInsuranceContracts, type InsurancePackage, type StationInsuranceShip } from "../bridge/stationInsurance.ts";
 import { createSpacePoller, targetsReadIsDue, type SpacePoller } from "./spacePoll.ts";
 import type { RequestPriority } from "./transport.ts";
 import type { CorpOfficesResult, DronesResult, FlightStepResult } from "./api.ts";
@@ -2291,6 +2292,9 @@ export interface AppFlow {
    * ship yet); an empty list is the shop saying nothing is damaged.
    */
   quoteShipRepair(): Promise<readonly RepairQuoteRow[] | null>;
+  loadStationInsurance(placeID: number): Promise<readonly StationInsuranceShip[]>;
+  buyStationInsurance(placeID: number, itemID: number, tier: InsurancePackage, premium: number, replacing: number | null): Promise<void>;
+  cancelStationInsurance(placeID: number, itemID: number, contractID: number): Promise<void>;
   /**
    * Pay the station to repair exactly what this quote lists — the rows the
    * caller was just shown, never a broader "everything" — at the quote's cost.
@@ -9290,6 +9294,48 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * first when the fitting slice is still empty, so a quote raised from the
    * station panel covers the modules and not just the hull.
    */
+  async function loadStationInsurance(placeID: number): Promise<readonly StationInsuranceShip[]> {
+    const pilotID = store.station.get().online?.characterID;
+    const stillHere = () => dockedNow() === placeID && store.station.get().online?.characterID === pilotID;
+    if (pilotID == null || !stillHere()) throw new Error("The pilot is no longer at this insurance office.");
+    await loadInventory();
+    const inventory = store.inventory.get();
+    if (!stillHere() || (inventory.structureID ?? inventory.stationID) !== placeID || inventory.hangar.error) {
+      throw new Error("The local ship hangar could not be read.");
+    }
+    const ships = inventory.hangar.rows.filter(row => row.categoryID === 6 && row.singleton && row.ownerID === pilotID &&
+      row.locationID === placeID && row.flagID === 4);
+    if (!ships.length) return [];
+    const types = [...new Set(ships.map(row => row.typeID))];
+    const [prices, contracts] = await Promise.all([
+      bridgeAsk("insuranceSvc", "GetInsurancePrices", [types]).then(insurancePrices),
+      bridgeAsk("insuranceSvc", "GetContracts", []).then(stationInsuranceContracts),
+    ]);
+    if (!stillHere()) throw new Error("The pilot is no longer at this insurance office.");
+    requestNames(types.map(id => ({ kind: "type" as const, id })));
+    return ships.flatMap(ship => {
+      const insuredValue = prices.get(ship.typeID);
+      return insuredValue === undefined ? [] : [{ itemID: ship.itemID, typeID: ship.typeID, insuredValue, contract: contracts.get(ship.itemID) ?? null }];
+    });
+  }
+
+  async function buyStationInsurance(placeID: number, itemID: number, tier: InsurancePackage, premium: number, replacing: number | null): Promise<void> {
+    const ship = (await loadStationInsurance(placeID)).find(row => row.itemID === itemID);
+    const terms = ship ? insuranceTerms(ship.insuredValue, tier) : null;
+    if (!ship || !terms || terms.premium !== premium || (ship.contract?.id ?? null) !== replacing) {
+      throw new Error("The quote or contract changed. Refresh the list and review the new terms.");
+    }
+    if (dockedNow() !== placeID) throw new Error("The pilot is no longer at this insurance office.");
+    await bridgeDo("insuranceSvc", "InsureShip", [itemID, terms.premium, false], replacing === null ? undefined : { voidOld: true });
+  }
+
+  async function cancelStationInsurance(placeID: number, itemID: number, contractID: number): Promise<void> {
+    const ship = (await loadStationInsurance(placeID)).find(row => row.itemID === itemID);
+    if (!ship || ship.contract?.id !== contractID) throw new Error("The insurance contract changed.");
+    if (dockedNow() !== placeID) throw new Error("The pilot is no longer at this insurance office.");
+    await bridgeDo("insuranceSvc", "UnInsureShip", [itemID]);
+  }
+
   async function quoteShipRepair(): Promise<readonly RepairQuoteRow[] | null> {
     if (store.get().fitting.slots.length === 0) {
       // Best-effort: a fitting read that fails costs the modules from the
@@ -36913,6 +36959,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
 
     quoteShipRepair,
+    loadStationInsurance,
+    buyStationInsurance,
+    cancelStationInsurance,
 
     async repairShip(quotes) {
       // The page's own call (bridge/repairShop.ts): the station's repair with the quote's cost for its payment,

@@ -946,6 +946,7 @@ function isBridgeWritePair(service, method) {
  *   charMgr.RemoveOwnerNote   RemoveOwnerNote(noteID): that note gone (a folder's notes deleted, a setting's spare part).
  */
 const PAGE_WRITE_PAIR_KEYS = Object.freeze([
+  "insuranceSvc.InsureShip", "insuranceSvc.UnInsureShip",
   "repackagingSvc.RepackageItems",
   "structureControl.TakeControl", "structureControl.ReleaseControl",
   "structureControl.BoardStructure", "structureControl.EjectFromStructure", "structureCargoDelivery.DropOffItems",

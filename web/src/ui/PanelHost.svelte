@@ -41,6 +41,7 @@
   import Flight from "./Flight.svelte";
   import Mining from "./Mining.svelte";
   import ReprocessingPlant from "./ReprocessingPlant.svelte";
+  import StationInsurance from "./StationInsurance.svelte";
   import DronesPanel from "./DronesPanel.svelte";
   import ShotsPanel from "./ShotsPanel.svelte";
   import EquipmentPanel from "./EquipmentPanel.svelte";
@@ -261,6 +262,11 @@
   <Mining {store} {flow} />
 {:else if tab === "reprocessing" && isDocked}
   <ReprocessingPlant {store} {flow} />
+{:else if tab === "insurance" && isDocked}
+  {@const placeID = $stationSlice.online?.structureID ?? $stationSlice.online?.stationID}
+  {#if placeID}
+    {#key placeID}<StationInsurance {store} {flow} {placeID} />{/key}
+  {/if}
 {:else if tab === "drones"}
   <DronesPanel {store} {flow} />
 {:else if tab === "shots"}

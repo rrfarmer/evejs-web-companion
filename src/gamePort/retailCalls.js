@@ -627,7 +627,8 @@ const OWN_SHIP_MONIKER = new Set(["GetShipConfiguration", "GetDirtTimestamp"]);
  */
 const madeAfresh = (service, method, { dockedInStation = false } = {}) =>
   service === "crimewatch" || service === "planetOrbitalRegistryBroker" || service === "entity" || service === "repairSvc" ||
-  (service === "insuranceSvc" && method === "GetContracts" && dockedInStation) ||
+  (service === "insuranceSvc" && (["InsureShip", "UnInsureShip"].includes(method) ||
+    (["GetContracts", "GetInsurancePrices"].includes(method) && dockedInStation))) ||
   (service === "ship" && (dockedInStation || OWN_SHIP_MONIKER.has(method)));
 /**
  * The services the client reaches with sm.ProxySvc(name): every one in the decompiled client, and none
@@ -3366,6 +3367,21 @@ const RETAIL_CALLS = Object.freeze({
       return { moniker: Number.isSafeInteger(context.stationID) && context.stationID > 0 };
     },
     "GetContracts uses the insurance manager in an NPC station and calls by service name elsewhere.",
+  ),
+  "insuranceSvc.GetInsurancePrices": judged(
+    "eve/client/script/ui/station/insurance/base_insurance.py:136",
+    (_args, _kwargs, context) => ({ moniker: Number.isSafeInteger(context.stationID) && context.stationID > 0 }),
+    "GetInsurancePrices takes the list of hull type IDs and uses the insurance manager in an NPC station.",
+  ),
+  "insuranceSvc.InsureShip": judged(
+    "eve/client/script/ui/station/insurance/base_insurance.py:519",
+    () => ({ moniker: true }),
+    "InsureShip takes the hull ID, confirmed premium, and corporate flag on the docked insurance manager.",
+  ),
+  "insuranceSvc.UnInsureShip": judged(
+    "eve/client/script/ui/station/insurance/base_insurance.py:395",
+    () => ({ moniker: true }),
+    "UnInsureShip takes the hull ID on the docked insurance manager.",
   ),
   "repairSvc.RepairItemsInStation": reshaped("eve/client/script/ui/station/repairshop/base_repairshop.py:67", repairingInAStation, "GetRemoteRepairMgr().RepairItemsInStation(itemIDs, payment), docked in a station: the items as a list and the payment a float, the amount the shop's window worked out (300 to 327). In no recording."),
   "repairSvc.RepairItemsInStructure": reshaped("eve/client/script/ui/station/repairshop/base_repairshop.py:69", repairingInAStructure, "GetRemoteRepairMgr().RepairItemsInStructure(itemIDs), docked in a structure, with nothing paid. In no recording."),

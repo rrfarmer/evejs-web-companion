@@ -17,6 +17,7 @@ export type CoreTabID =
   | "flight"
   | "mining"
   | "reprocessing"
+  | "insurance"
   | "drones"
   | "shots"
   | "equipment"
@@ -191,6 +192,7 @@ export const TABS: readonly CoreTabDef[] = [
   // holds, unloading and refining.
   { id: "mining", label: "Mining", where: "both" },
   { id: "reprocessing", label: "Reprocessing Plant", where: "docked", launchable: false },
+  { id: "insurance", label: "Insurance", where: "docked", launchable: false },
   // Two sections of the old overview cockpit, now windows of their own. Both
   // are LAUNCHABLE on purpose: "where are my drones" and "what just hit me" are
   // questions a pilot asks without anything having been clicked first.
