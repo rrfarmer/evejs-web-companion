@@ -3975,11 +3975,13 @@
           {#if error}<div class="error lobby-error">{error}</div>{/if}
           <div class="lobby-services">
             {#each LOBBY_SERVICES as svc (svc.label)}
-              <button class="lobby-svc" title={svc.label} onclick={() => open(svc.tab)}><img alt="" src={clientTexture(`res:/UI/Texture/WindowIcons/${svc.icon}.png`)} /><span>{svc.label}</span></button>
+              <button class="lobby-svc" title={svc.label} aria-label={svc.label} onclick={() => open(svc.tab)}>
+                <img alt="" src={clientTexture(`res:/UI/Texture/WindowIcons/${svc.icon}.png`)} />
+              </button>
             {/each}
             {#if militiaOfficeAvailable}
-              <button class="lobby-svc" title="Militia Office" onclick={() => openTheatersOfWar(relevantMilitiaPage($station?.online?.warFactionID ?? null))}>
-                <img alt="" src={clientTexture("res:/UI/Texture/WindowIcons/factionalwarfare.png")} /><span>Militia Office</span>
+              <button class="lobby-svc" title="Militia Office" aria-label="Militia Office" onclick={() => openTheatersOfWar(relevantMilitiaPage($station?.online?.warFactionID ?? null))}>
+                <img alt="" src={clientTexture("res:/UI/Texture/WindowIcons/factionalwarfare.png")} />
               </button>
             {/if}
           </div>
@@ -5021,7 +5023,7 @@
   .metenox-controls { position: absolute; top: 160px; right: 16px; z-index: 5; }
   .refinery-controls { display: flex; gap: 8px; flex-wrap: wrap; }
   .lobby-body { padding: 10px 12px 14px; }
-  .station-lobby-body { min-height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
+  .station-lobby-body { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
   .lobby-body .station-name { position: static; font-size: 18px; color: #f0f1ee; line-height: 1.25; }
   .lobby-body .station-sub { position: static; margin-top: 2px; color: var(--text-dim); font-size: 12px; }
   .lobby-sec { color: #5fd38c; }
@@ -5031,11 +5033,11 @@
     border-radius: 0 0 8px 8px; background: #13282f; color: #d5eef2; cursor: pointer; }
   .academy-service:hover:enabled { background: #26434b; }
   .academy-service:disabled { opacity: 0.5; cursor: default; }
-  .lobby-services { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .lobby-svc { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 2px; background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08); color: #c8ccc8; font: 11px/1.2 var(--font); cursor: pointer; }
+  .lobby-services { display: flex; flex: none; justify-content: center; flex-wrap: wrap; gap: 4px; }
+  .lobby-svc { display: grid; place-items: center; box-sizing: border-box; width: 32px; height: 32px; min-height: 0;
+    padding: 0; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); cursor: pointer; }
   .lobby-svc:hover { background: rgba(255, 255, 255, 0.10); border-color: rgba(255, 255, 255, 0.2); }
-  .lobby-svc img { width: 32px; height: 32px; }
+  .lobby-svc img { width: 100%; height: 100%; }
   .char-card { padding: 0; text-align: left; color: inherit; font: inherit; }
   .char-card.created { border-color: var(--accent); }
   .roster-screen { box-sizing: border-box; padding: 76px 18px 28px; }

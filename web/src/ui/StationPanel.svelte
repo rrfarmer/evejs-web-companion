@@ -2272,7 +2272,7 @@
   </div>
 
   <!-- ========================================================== action bar -->
-  {#if isInventoryView}
+  {#if isInventoryView && (!lobbyHangars || selectedCount > 0 || pending)}
     <div class="stn-actions" class:armed={selectedCount > 0}>
       {#if pending}
         <!-- ⚠ Every move is confirmed. A stack in the wrong hold is a trip back;
@@ -2420,6 +2420,9 @@
 
 <style>
   .lobby-hangars .stn-tabs { display: flex; }
+  .lobby-hangars .stn-locations { padding: 4px; }
+  .lobby-hangars .stn-tab { height: 28px; padding: 0 6px; }
+  .lobby-hangars .stn-filter { height: 28px; min-width: 0; padding: 0 4px; }
   .lobby-hangars .stn-picker { display: none; }
   .lobby-hangars { flex: 1; height: auto; min-height: 160px; }
 </style>
