@@ -40,6 +40,7 @@
   import { FILTER_FIELD, matchInventoryFilter, roundInventoryFilterPrice, type InventoryFilter, type InventoryFilterFacts } from "../bridge/inventoryFilters.ts";
   import { ITEM_FITTING_FILTER_FIELDS, loadInventoryFilterFacts, loadInventoryItemFittingFacts, TYPE_FILTER_FIELDS } from "../app/inventoryFilterFacts.ts";
   import { showInfo } from "./showInfo.ts";
+  import { openFittingWindow } from "./fittingWindowTarget.ts";
   import KeyActivationWindow from "./KeyActivationWindow.svelte";
   import { ABYSS_WINDOW_LABELS, offersActivateAbyssalKey, type FilamentPlace } from "../bridge/abyssalKeys.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
@@ -361,6 +362,7 @@
     targets: readonly MoveDestination[];
     x: number;
     y: number;
+    shipAnchor?: HTMLElement;
   } | null>(null);
   let panelEl = $state<HTMLElement | null>(null);
 
@@ -368,8 +370,10 @@
   function onKeydown(event: KeyboardEvent): void {
     if (event.key !== "Escape") return;
     if (menu === null && !targetMenuOpen) return;
+    const anchor = menu?.shipAnchor;
     menu = null;
     targetMenuOpen = false;
+    anchor?.focus();
     event.stopPropagation();
   }
   /** The narrow tier's "Move to… ▾": one control instead of a row of them. */
@@ -1464,6 +1468,62 @@
     void run(() => flow.openShipBays(row.itemID));
   }
 
+  function showShipInfo(row: InventoryItemRow): void {
+    showInfo(row.singleton
+      ? { kind: "ship", typeID: row.typeID, itemID: row.itemID }
+      : { kind: "type", typeID: row.typeID });
+  }
+
+  function activateShipRow(row: InventoryItemRow): void {
+    if (!isDocked || busy) return;
+    if (row.itemID === $inventory.activeShipID) {
+      openFittingWindow();
+    } else if (isBoardableShip(row, $inventory.activeShipID)) {
+      void run(() => flow.boardShip(row.itemID));
+    } else if (!row.singleton && !isModularShipGroup(row.groupID)) {
+      void run(() => flow.assembleShip(row.itemID, true));
+    }
+  }
+
+  function openShipMenu(event: MouseEvent | KeyboardEvent, row: InventoryItemRow): void {
+    if (!panelEl || !isDocked) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const shipAnchor = event.currentTarget as HTMLElement;
+    const anchor = shipAnchor.getBoundingClientRect();
+    const frame = panelEl.getBoundingClientRect();
+    const pointer = event instanceof MouseEvent && (event.clientX || event.clientY);
+    const x = (pointer ? event.clientX : anchor.left) - frame.left;
+    const y = (pointer ? event.clientY : anchor.bottom) - frame.top;
+    targetMenuOpen = false;
+    menu = { row, place: { kind: "hangar" }, targets: [], x, y, shipAnchor };
+    void tick().then(() => {
+      if (menu?.shipAnchor !== shipAnchor || !panelEl) return;
+      const popover = panelEl.querySelector<HTMLElement>(".stn-ship-menu");
+      if (!popover) return;
+      menu.x = Math.max(4, Math.min(x, frame.width - popover.offsetWidth - 4));
+      menu.y = Math.max(4, Math.min(y, frame.height - popover.offsetHeight - 4));
+      popover.querySelector("button")?.focus();
+    });
+  }
+
+  function shipRowKeydown(event: KeyboardEvent, row: InventoryItemRow): void {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openShipMenu(event, row);
+    else if (event.key === "Enter") {
+      event.preventDefault();
+      activateShipRow(row);
+    }
+  }
+
+  function shipMenuAction(action: (ship: InventoryItemRow) => void): void {
+    const opened = menu;
+    if (!opened?.shipAnchor) return;
+    menu = null;
+    opened.shipAnchor.focus();
+    action(opened.row);
+  }
+
   /**
    * How full this hull's CARGO HOLD is — one reading, because that is the one
    * that fits a column and the one a player checks before loading.
@@ -2045,17 +2105,19 @@
         <ul class="stn-rows">
           {#each shownShips as ship (ship.itemID)}
             {@const flying = ship.itemID === $inventory.activeShipID}
+            <!-- The focusable inventory entry exposes the same actions with a keyboard. -->
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
             <li class="stn-row stn-ship-row" class:flying class:picked={openShip?.itemID === ship.itemID}
-              draggable="true" ondragstart={event => startDrag(event, ship, { kind: "hangar" })}>
+              tabindex="0" aria-label={nameOf(ship)}
+              draggable="true" ondragstart={event => startDrag(event, ship, { kind: "hangar" })}
+              oncontextmenu={event => openShipMenu(event, ship)} onkeydown={event => shipRowKeydown(event, ship)}
+              ondblclick={event => { if (!(event.target as Element).closest("button")) activateShipRow(ship); }}>
               <span class="stn-cell-render">
                 <TypeIcon typeID={ship.typeID} name={nameOf(ship)} size="md" />
                 {#if $unseenItems.some((u) => u.itemID === ship.itemID)}<span class="stn-new-line" aria-hidden="true"></span>{/if}
               </span>
               <span class="stn-cell-name">
-                <button type="button" class="stn-name stn-ship-name evelink showInfo" title="Show Info"
-                  onclick={() => showInfo(ship.singleton
-                    ? { kind: "ship", typeID: ship.typeID, itemID: ship.itemID }
-                    : { kind: "type", typeID: ship.typeID })}>{nameOf(ship)}</button>
+                <span class="stn-name stn-ship-name">{nameOf(ship)}</span>
                 <span class="stn-meta">{flying ? "You are flying this" : shipState(ship)}</span>
               </span>
               <span class="stn-cell-bays">{ship.singleton ? cargoSummary(ship.itemID) : ""}</span>
@@ -2382,37 +2444,63 @@
   {#if menu}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="stn-menu-shade" onclick={() => (menu = null)}></div>
-    <div class="stn-menu" style="left: {menu.x}px; top: {menu.y}px">
+    <div class="stn-menu" class:stn-ship-menu={menu.shipAnchor !== undefined} style="left: {menu.x}px; top: {menu.y}px">
       <p class="stn-menu-head">{nameOf(menu.row)}</p>
-      {#if activatable(menu.row, menu.place)}
-        <button type="button" class="stn-menu-item" onclick={() => openKeyWindow(menu!.row)}>
-          {activateWords(menu.row)}
-        </button>
+      {#if menu.shipAnchor}
+        {@const ship = menu.row}
+        {@const active = ship.itemID === $inventory.activeShipID}
+        <button type="button" class="stn-menu-item" onclick={() => shipMenuAction(showShipInfo)}>Show Info</button>
+        {#if !ship.singleton && !isModularShipGroup(ship.groupID)}
+          <button type="button" class="stn-menu-item" disabled={busy}
+            onclick={() => shipMenuAction(row => void run(() => flow.assembleShip(row.itemID, false)))}>Assemble Ship</button>
+        {/if}
+        {#if (!ship.singleton && !isModularShipGroup(ship.groupID)) || isBoardableShip(ship, $inventory.activeShipID)}
+          <button type="button" class="stn-menu-item" disabled={busy}
+            onclick={() => shipMenuAction(activateShipRow)}>Board Ship</button>
+        {/if}
+        {#if ship.singleton && ship.groupID !== 29}
+          <button type="button" class="stn-menu-item" disabled={busy}
+            onclick={() => shipMenuAction(openInBays)}>Open Cargo</button>
+        {/if}
+        {#if active && ship.groupID !== 29}
+          <button type="button" class="stn-menu-item" disabled={busy}
+            onclick={() => shipMenuAction(() => void run(() => flow.leaveShip()))}>Leave Ship</button>
+        {/if}
+        {#if ship.singleton}
+          <button type="button" class="stn-menu-item" disabled={busy}
+            onclick={() => shipMenuAction(row => void run(() => flow.renameShip(row.itemID)))}>Change Name</button>
+        {/if}
+      {:else}
+        {#if activatable(menu.row, menu.place)}
+          <button type="button" class="stn-menu-item" onclick={() => openKeyWindow(menu!.row)}>
+            {activateWords(menu.row)}
+          </button>
+        {/if}
+        {#if assemblable(menu.row, menu.place)}
+          <button
+            type="button"
+            class="stn-menu-item"
+            disabled={busy}
+            onclick={() => {
+              const { row, place } = menu!;
+              menu = null;
+              void run(() => flow.assembleContainer(row.itemID, place));
+            }}
+          >
+            {assembleWords()}
+          </button>
+        {/if}
+        {#each menu.targets as target (target.label)}
+          <button
+            type="button"
+            class="stn-menu-item"
+            disabled={busy}
+            onclick={() => askMoveOne(menu!.row, menu!.place, target)}
+          >
+            Move to {target.label}
+          </button>
+        {/each}
       {/if}
-      {#if assemblable(menu.row, menu.place)}
-        <button
-          type="button"
-          class="stn-menu-item"
-          disabled={busy}
-          onclick={() => {
-            const { row, place } = menu!;
-            menu = null;
-            void run(() => flow.assembleContainer(row.itemID, place));
-          }}
-        >
-          {assembleWords()}
-        </button>
-      {/if}
-      {#each menu.targets as target (target.label)}
-        <button
-          type="button"
-          class="stn-menu-item"
-          disabled={busy}
-          onclick={() => askMoveOne(menu!.row, menu!.place, target)}
-        >
-          Move to {target.label}
-        </button>
-      {/each}
     </div>
   {/if}
 </div>
@@ -2425,4 +2513,5 @@
   .lobby-hangars .stn-filter { height: 28px; min-width: 0; padding: 0 4px; }
   .lobby-hangars .stn-picker { display: none; }
   .lobby-hangars { flex: 1; height: auto; min-height: 160px; }
+  .stn-ship-menu { max-height: calc(100% - 8px); overflow-y: auto; }
 </style>
