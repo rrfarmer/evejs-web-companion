@@ -1466,6 +1466,12 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     res.status(400).json({ ok: false, error: "INVALID_STATION", message: "A stationID is required." });
     return;
   }
+  const impoundOfficeCall = objectKind === "officeAt" && ["GetImpoundReleasePrice", "GetItemsFromImpound"].includes(body.method);
+  if (impoundOfficeCall && (body.pilot !== true || body.kwargs != null || !Array.isArray(body.args) ||
+      body.args.length !== Number(write) || (write && impoundFee(body.args[0]) === null))) {
+    res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "Choose a station and confirm its quoted impound release fee." });
+    return;
+  }
   if (objectKind === "stationHeadquarters" &&
       (!Number.isSafeInteger(body.of) || body.of < 60000000 || body.of > 63999999 ||
         !Array.isArray(body.args) || body.args.length !== 0 || body.kwargs != null)) {
@@ -1629,9 +1635,26 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       // (A call on an office's object for the station the call names: officeManager.TrashImpoundAtStation,
       // Moniker('officeManager', stationID).TrashImpoundedOffice(), bound for that station.)
       : objectKind === "officeAt"
-      ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => boundCall(
-        heldBridgeSession, req.webSessionID, { key: `officeAt:${Number(body.of)}`, service: "officeManager", method: "MachoBindObject", args: [Number(body.of)], kwargs: null },
-        body.method, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null)) }
+      ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, async () => {
+        const spec = { key: `officeAt:${body.of}`, service: "officeManager", method: "MachoBindObject", args: [body.of], kwargs: null };
+        if (impoundOfficeCall) {
+          const live = await readHeldFlight(heldBridgeSession, req.webSessionID);
+          if (!live.flight?.docked || heldBridgeSession.structureID || heldBridgeSession.stationID !== body.of) {
+            throw Object.assign(new Error("Dock at the station holding the impounded items."), { code: "NOT_DOCKED", statusCode: 409 });
+          }
+          if (!heldHasCorpRole(heldBridgeSession, CORP_ROLE_DIRECTOR)) {
+            throw Object.assign(new Error("Releasing impounded corporation items requires a director."), { code: "CALL_REFUSED", statusCode: 403 });
+          }
+          if (write) {
+            const current = await boundCall(heldBridgeSession, req.webSessionID, spec, "GetImpoundReleasePrice", [], null);
+            if (impoundFee(current.result) !== impoundFee(body.args[0])) {
+              throw Object.assign(new Error("The release fee changed. Get a new quote."), { code: "QUOTE_CHANGED", statusCode: 409 });
+            }
+          }
+        }
+        return boundCall(heldBridgeSession, req.webSessionID, spec, body.method,
+          Array.isArray(body.args) ? body.args : [], body.kwargs ?? null);
+      }) }
       : objectKind === "stationHeadquarters"
       ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, async () => {
         const stationID = body.of;
@@ -4558,6 +4581,11 @@ async function hasCorpOfficeAt(held, webSessionID, stationID) {
 function wholeWireNumber(value) {
   const number = typeof value === "number" ? value : value && value.type === "long" ? Number(value.value) : NaN;
   return Number.isSafeInteger(number) ? number : null;
+}
+
+function impoundFee(quote) {
+  const amount = typeof quote === "number" ? quote : quote?.type === "real" ? quote.value : wholeWireNumber(quote);
+  return Number.isFinite(amount) && amount >= 0 && amount <= Number.MAX_SAFE_INTEGER ? amount : null;
 }
 
 /**

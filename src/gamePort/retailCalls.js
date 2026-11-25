@@ -802,6 +802,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // officeManager.TrashImpoundAtStation (officeManager.py 156): Moniker('officeManager', stationID).TrashImpoundedOffice(),
   // a station the corporation assets' menu names - bound for it.
   "officeManager.MachoBindObject", "officeManager.TrashImpoundedOffice",
+  "officeManager.GetImpoundReleasePrice", "officeManager.GetItemsFromImpound",
   // StationController.SetHQ uses the corporation station manager bound to the NPC station.
   "corpStationMgr.MachoBindObject", "corpStationMgr.MoveCorpHQHere",
   // An acceleration gate's activation, the keeper's (movementFunctions.py 553). The gateway's list has nothing of the keeper's.

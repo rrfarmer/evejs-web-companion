@@ -515,7 +515,7 @@ const KEPT_UNTIL_CHANGED = Object.freeze({
     keptAs: officesKeptAs,
     notices: new Set(["OnOfficeRentalChange"]),
     concerns: ofOwnCorporation,
-    writes: Object.freeze({}),
+    writes: Object.freeze({ officeManager: new Set(["GetItemsFromImpound"]) }),
   }),
   // bookmarkSvc: a shared folder changed, was deleted, is the pilot's to see no more, or is its to do other things
   // in (232, 322, 332, 343); and the pilot's own making, changing and deleting of a bookmark, a folder or a
@@ -6711,9 +6711,10 @@ function createGamePortPilots({
     }
     /** The call itself, noted as it is sent; `asSent` where it goes otherwise than it came (a listing of only what is not listed). */
     const sent = async (asSent = form) => {
-      if (service === "corpStationMgr" && method === "MoveCorpHQHere" &&
-          (object.params !== attribute(entry, "stationid") || attribute(entry, "structureid") !== null)) {
-        throw fail("CALL_REFUSED", "Dock at the approved NPC station before moving headquarters.");
+      const requiresCurrentStation = (service === "corpStationMgr" && method === "MoveCorpHQHere") ||
+        (service === OFFICE_MANAGER && ["GetImpoundReleasePrice", "GetItemsFromImpound"].includes(method));
+      if (requiresCurrentStation && (object.params !== attribute(entry, "stationid") || attribute(entry, "structureid") !== null)) {
+        throw fail("CALL_REFUSED", "Dock at the approved NPC station.");
       }
       ledger.note(service, method, asSent);
       // fittingSvc.LoadFitting: the fitting is applied on the ship's own inventory, invCache.GetInventoryFromId(ship),
@@ -6757,6 +6758,10 @@ function createGamePortPilots({
     }
     if (mayChangeContents(service, method)) entry.listings.forget();
     forgetKeptAfter(entry, service, method);
+    if (service === OFFICE_MANAGER && method === "GetItemsFromImpound") {
+      entry.stationOffices.forget();
+      entry.officePrimed.forget();
+    }
     if (changesAColony(service, method)) forgetColonies(entry);
     // What the client's own code names beside a call on a moniker's object, once it is done (cachedCallsNamed.js),
     // with what the object was bound by: officeManager.TrashImpoundedOffice's station.

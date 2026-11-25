@@ -1242,7 +1242,7 @@ import { assembleShip as assembleShipCall, boardCorvette as boardCorvetteCall, b
 import { activityIDOf, averagePrices, createJobReckoner, type JobReckoner, type JobReckoning } from "../bridge/industryJobReckoning.ts";
 import { connectJob, decodeFacilityPlaces, disconnectJob, installJob, jobDump, jobPlaces, monitoredAs, type Monitored } from "../bridge/industryMonitor.ts";
 import { NO_OPTIONAL_MATERIAL } from "../bridge/industryReckonings.mjs";
-import { giveUpOffice, quoteOffice, rentOffice, type DockedIn } from "../bridge/officeWrites.ts";
+import { giveUpOffice, impoundReleaseCost, quoteOffice, rentOffice, type DockedIn } from "../bridge/officeWrites.ts";
 import { runSlashCommand } from "../bridge/gmWrites.ts";
 import { IntDict, hashedSetOrder, intDictOf, intDictOrder, strDictOrder, tupleHashOf, wholeHashOf } from "../bridge/py27DictOrder.ts";
 import { hudSettingNow, setSlotOrder, slotOrderOf } from "../store/hudSettings.ts";
@@ -2386,6 +2386,7 @@ export interface AppFlow {
   rentStationOffice(quote: StationOfficeQuote): Promise<void>;
   /** Give up the corporation's office here. The server's notice lists the offices again. */
   giveUpStationOffice(): Promise<void>;
+  releaseStationOfficeImpound(stationID: number): Promise<void>;
   /** Move the corporation's headquarters to the NPC station shown in Offices. */
   moveCorporationHeadquartersHere(stationID: number): Promise<void>;
   /**
@@ -10089,6 +10090,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const where = await dockedIn();
     return giveUpOffice(bridgeDo, officesListedAt(where), where);
   };
+
+  async function releaseStationOfficeImpound(stationID: number): Promise<void> {
+    const scope = captureMemberOperation();
+    const mayReleaseHere = () => {
+      scope.current();
+      const { online, offices } = store.station.get();
+      return online?.stationID === stationID && !online.structureID && offices?.available &&
+        offices.canGiveUp && offices.impounded && !offices.ownOffice;
+    };
+    if (!mayReleaseHere()) return;
+    const quote = await scope.ask("officeManager", "GetImpoundReleasePrice", [], null, stationID);
+    const cost = impoundReleaseCost(quote);
+    if (cost === null) throw new Error("The station did not quote an impound release fee.");
+    await wordsNow(["dialog:CrpJunkAcceptCost/title", "dialog:CrpJunkAcceptCost/body"]).catch(() => {});
+    const formatted = cost.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    if (!mayReleaseHere() || !await askDialog("CrpJunkAcceptCost", { type: "dict", entries: [["cost", formatted]] },
+      `Release the impounded items for ${formatted} ISK from your corporation's wallet?`, "yesno", { defaultAnswer: "no" })) return;
+    if (!mayReleaseHere()) return;
+    await scope.write("officeManager", "GetItemsFromImpound", [quote], null, stationID);
+    scope.current();
+    await Promise.all([loadStationOffices(), loadCorpHangar()]);
+  }
 
   async function moveCorporationHeadquartersHere(stationID: number): Promise<void> {
     const scope = captureMemberOperation();
@@ -37471,6 +37494,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     quoteStationOffice,
     rentStationOffice,
     giveUpStationOffice,
+    releaseStationOfficeImpound,
     moveCorporationHeadquartersHere,
     setSafetyLevel,
     loadCorpOffices,

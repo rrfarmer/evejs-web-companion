@@ -15,6 +15,7 @@
     rent: "UI/Station/Lobby/RentOffice",
     unrent: "UI/Station/Hangar/UnrentOffice",
     moveHQ: "UI/Station/Lobby/MoveHeadquartersHere",
+    release: "UI/Inventory/ReleaseItems",
     cancel: "UI/Common/Buttons/Cancel",
   };
   const word = (label: string, fallback: string) => plainText($words.templates[label] ?? "") || fallback;
@@ -28,6 +29,7 @@
   const stationID = $derived($station.online?.structureID ? null : $station.online?.stationID ?? null);
   const canMoveHQ = $derived(stationID !== null && offices?.available && offices.canGiveUp &&
     offices.headquartersID !== undefined && offices.headquartersID !== stationID);
+  const canRelease = $derived(stationID !== null && offices?.available && offices.canGiveUp && offices.impounded && !offices.ownOffice);
   let rent = $state<{ scope: string; quote: StationOfficeQuote } | null>(null);
   let unrent = $state<{ scope: string; hasItems: boolean } | null>(null);
   let error = $state<{ scope: string; text: string } | null>(null);
@@ -123,6 +125,12 @@
       <button type="button" disabled={busy || disabled}
         onclick={() => { const target = stationID; if (target !== null) void run(() => flow.moveCorporationHeadquartersHere(target)); }}>
         {word(labels.moveHQ, "Move Headquarters Here")}
+      </button>
+    {/if}
+    {#if canRelease && stationID !== null && !rentReview && !unrentReview}
+      <button type="button" disabled={busy || disabled}
+        onclick={() => { const target = stationID; if (target !== null) void run(() => flow.releaseStationOfficeImpound(target)); }}>
+        {word(labels.release, "Release Items")}
       </button>
     {/if}
   </div>

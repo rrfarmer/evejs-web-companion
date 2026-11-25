@@ -36,7 +36,7 @@
 // The routes this stands in for refused a structure; this does not.
 
 import type { Ask } from "./ask.ts";
-import type { JsonValue } from "./wire.ts";
+import { unwrapReal, type JsonValue } from "./wire.ts";
 
 /** appConst.rentalPeriodOffice: the days an office's rent pays for. */
 export const OFFICE_RENTAL_DAYS = 30;
@@ -77,6 +77,12 @@ function priceOf(value: JsonValue | undefined): number | null {
   }
   const cost = Number(long.value);
   return Number.isSafeInteger(cost) ? cost : null;
+}
+
+/** Office impound release can cost a fractional ISK, unlike the rent quote. */
+export function impoundReleaseCost(quote: JsonValue): number | null {
+  const cost = unwrapReal(quote) ?? priceOf(quote);
+  return cost !== null && cost >= 0 && cost <= Number.MAX_SAFE_INTEGER ? cost : null;
 }
 
 /** The listed offices of where the pilot is docked, a station or a structure, on a connection that carries them; or the reason there are none to act on. */
