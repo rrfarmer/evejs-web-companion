@@ -27,6 +27,7 @@ export interface BookmarkPlace {
   readonly typeName: () => string;
   readonly name: () => string;
   readonly askIfKnown: boolean;
+  readonly requiresSpace?: boolean;
 }
 
 /** The most of a group's bookmarks the client lists (bookmarksPanel.py 41: MAX_BOOKMARKS_DISPLAYED_IN_GROUP). */

@@ -29,9 +29,10 @@
   import { startLinkDrag } from "./linkFollowers.ts";
   import { showInfo } from "./showInfo.ts";
 
-  let { flow, store, schedulableRefineryID = null, onOpenRefinerySchedule }: {
+  let { flow, store, schedulableRefineryID = null, onOpenRefinerySchedule, onShowSystem }: {
     flow: AppFlow; store: ClientStore; schedulableRefineryID?: number | null;
     onOpenRefinerySchedule?: (structureID: number) => Promise<void>;
+    onShowSystem?: (systemID: number) => void;
   } = $props();
   const station = $derived(store.station);
   const flight = $derived(store.flight);
@@ -498,7 +499,7 @@
     </div>
   {/if}
   {#if activeTab === "skyhooks" && systemID !== null}
-    <MySkyhooks {store} {flow} {systemID} bind:search={skyhookSearch} />
+    <MySkyhooks {store} {flow} {systemID} {onShowSystem} bind:search={skyhookSearch} />
   {:else if scheduleOpen}
     <CorporationMoonSchedule {store} {flow} />
   {:else if loading}

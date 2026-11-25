@@ -52,6 +52,7 @@
   const names = store.names;
   // svelte-ignore state_referenced_locally
   const station = store.station;
+  const flight = $derived(store.flight);
 
   /** The window's words (bookmarkLocationWindow.py 31 to 34, 59 to 108, 120 to 154; addressbookService.py 405 to 417). */
   const WORDS = {
@@ -83,7 +84,7 @@
     [BOOKMARK_EXPIRY.oneDay, "UI/AclBookmarks/ExpireIn24Hours", "Gone in a day"],
     [BOOKMARK_EXPIRY.fourHours, "UI/AclBookmarks/ExpireIn4Hours", "Gone in four hours"],
   ];
-  const DIALOGS = ["AskBookmarkExistingLocation", "CreateBookmarkFolderAsNoneValid"] as const;
+  const DIALOGS = ["AskBookmarkExistingLocation", "CreateBookmarkFolderAsNoneValid", "BkmMustBeInFlight"] as const;
   /** appConst: the longest label and note, the access that only views, and how many a folder holds. */
   const MAX_NAME = 100;
   const MAX_NOTE = 3900;
@@ -288,6 +289,10 @@
         return;
       }
       if (place === null) return;
+      if (place.requiresSpace && !$flight.status?.inSpace) {
+        error = filled("dialog:BkmMustBeInFlight/body", "You must be in space to bookmark this location.", {});
+        return;
+      }
       await flow.bookmarkPlace({
         itemID: place.itemID,
         folderID: option.folderID,

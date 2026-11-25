@@ -2,16 +2,21 @@
   import type { AppFlow } from "../app/flow.ts";
   import { formatInterval, formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { hasMoonStationManagerRole } from "../bridge/moonMining.ts";
+  import type { BookmarkPlace } from "../bridge/locationsList.ts";
   import { SKYHOOK_TYPE_ID, skyhookFilters, skyhookVulnerable, type SkyhookFilters, type SkyhookRow } from "../bridge/skyhooks.ts";
   import { shownSecurity } from "../bridge/systemSecurity.ts";
-  import { ContextMenu } from "../play/contextMenu.ts";
+  import { avoidanceItems } from "../nav/autopilotSettings.ts";
+  import { celestialRouteEntries, isWaypointPlace } from "../nav/waypoints.ts";
+  import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { showInfo } from "./showInfo.ts";
+  import { startLinkDrag } from "./linkFollowers.ts";
+  import BookmarkWindow from "./BookmarkWindow.svelte";
   import SkyhookConfiguration from "./SkyhookConfiguration.svelte";
 
-  let { store, flow, systemID, search = $bindable("") }: {
-    store: ClientStore; flow: AppFlow; systemID: number; search?: string;
+  let { store, flow, systemID, onShowSystem, search = $bindable("") }: {
+    store: ClientStore; flow: AppFlow; systemID: number; onShowSystem?: (systemID: number) => void; search?: string;
   } = $props();
   const station = $derived(store.station);
   const characterID = $derived($station.online?.characterID ?? null);
@@ -21,6 +26,7 @@
   const menu = new ContextMenu();
   const canConfigure = $derived(hasMoonStationManagerRole($station.online?.corpRole ?? null));
   let configuration = $state.raw<SkyhookRow | null>(null);
+  let bookmark = $state.raw<BookmarkPlace | null>(null);
   let listing = $state.raw<Awaited<ReturnType<AppFlow["loadMySkyhooks"]>> | null>(null);
   let error = $state("");
   let filters = $state(skyhookFilters(() => null));
@@ -49,6 +55,17 @@
     withinJumps: ["UI/Common/WithinJumps", "Within {numJumps} jumps"],
     region: ["UI/Common/LocationTypes/Region", "Region"],
     currentRegion: ["UI/Generic/CurrentRegion", "Current Region"],
+    location: ["UI/Common/Location", "Location"],
+    info: ["UI/Commands/ShowInfo", "Show Info"],
+    destination: ["UI/Inflight/SetDestination", "Set Destination"],
+    addWaypoint: ["UI/Inflight/AddWaypoint", "Add Waypoint"],
+    removeWaypoint: ["UI/Inflight/RemoveWaypoint", "Remove Waypoint"],
+    saveLocation: ["UI/Inflight/BookmarkLocation", "Save Location…"],
+    bookmarkLabel: ["UI/PeopleAndPlaces/NewBookmarkLocationLabel", "{loc} ({group})"],
+    map: ["UI/Commands/ShowLocationOnMap", "Show on Map"],
+    mapBrowser: ["UI/Inflight/ShowInMapBrowser", "Show {locationType} in Map Browser"],
+    avoid: ["UI/Inflight/AvoidLocation", "Avoid {locationType} {theLocation}"],
+    stopAvoiding: ["UI/Inflight/StopAvoidingLocation", "Stop Avoiding {locationType} {theLocation}"],
   } as const;
   const columns = ["jumps", "security", "system", "name", "state", "harvest", "theft"] as const;
   const label = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
@@ -108,19 +125,57 @@
     sort = index;
   }
 
-  function rowMenu(event: MouseEvent, row: SkyhookRow): void {
-    event.preventDefault();
-    menu.open(event.clientX, event.clientY, [
-      { label: "Show Info", info: true, run: () => showInfo({ kind: "type", itemID: row.id, typeID: row.typeID }) },
-      ...(canConfigure && row.typeID === SKYHOOK_TYPE_ID
-        ? [{ path: labels.configure[0], label: label("configure"), run: () => { configuration = row; } }] : []),
-      { label: "Location", sub: [
-        { label: "Set Destination", run: () => flow.setDestination(row.systemID) },
-        $waypoints.includes(row.systemID)
-          ? { label: "Remove Waypoint", run: () => flow.clearWaypoints(row.systemID) }
-          : { label: "Add Waypoint", run: () => flow.addWaypoint(row.systemID) },
-      ] },
-    ]);
+  function action(key: keyof typeof labels, run: () => void): ContextEntry {
+    return { path: labels[key][0], label: label(key), run };
+  }
+
+  function locationMenu(id: number): (ContextEntry | null)[] {
+    const entries: (ContextEntry | null)[] = [];
+    const route = celestialRouteEntries(id, isWaypointPlace(id), systemID, $waypoints);
+    if (route.setDestination) entries.push(action("destination", () => flow.setDestination(id)));
+    if (route.addWaypoint) entries.push(action("addWaypoint", () => flow.addWaypoint(id)));
+    if (route.removeWaypoint) entries.push(action("removeWaypoint", () => flow.clearWaypoints(id)));
+    if (entries.length) entries.push(null);
+    entries.push(action("saveLocation", () => {
+      bookmark = {
+        itemID: id, askIfKnown: true, typeName: () => label("system"),
+        name: () => plainText(formatTemplate($words.templates[labels.bookmarkLabel[0]] ?? labels.bookmarkLabel[1],
+          { loc: id, group: label("system") }, { nameOf: () => locationName(id) })),
+      };
+    }));
+    entries.push(null);
+    if (onShowSystem) {
+      const show = onShowSystem;
+      entries.push(action("map", () => show(id)), { ...action("mapBrowser", () => show(id)), label: locationActionLabel("mapBrowser", id) });
+    }
+    const avoiding = avoidanceItems(flow.autopilotSettings()).includes(id);
+    const key = avoiding ? "stopAvoiding" : "avoid";
+    entries.push({ ...action(key, () => avoiding ? flow.stopAvoidingLocation(id) : flow.avoidLocation(id)), label: locationActionLabel(key, id) });
+    entries.push({ ...action("info", () => showInfo({ kind: "mapLocation", typeID: 5, itemID: id })), info: true });
+    return entries;
+  }
+
+  function locationActionLabel(key: "mapBrowser" | "avoid" | "stopAvoiding", id: number): string {
+    const [path, fallback] = labels[key];
+    return plainText(formatTemplate($words.templates[path] ?? fallback,
+      { locationType: label("system"), theLocation: id }, { nameOf: () => locationName(id) }));
+  }
+
+  function rowMenu(row: SkyhookRow, x: number, y: number): void {
+    const entries: (ContextEntry | null)[] = [
+      action("saveLocation", () => {
+        bookmark = { itemID: row.id, askIfKnown: true, requiresSpace: true,
+          name: () => skyhookName(row), typeName: () => typeName(row.typeID) };
+      }),
+      { ...action("info", () => showInfo({ kind: "type", itemID: row.id, typeID: row.typeID })), info: true },
+    ];
+    if (canConfigure && row.typeID === SKYHOOK_TYPE_ID) {
+      entries.push(action("configure", () => { configuration = row; }));
+    }
+    if (row.systemID !== systemID) {
+      entries.push(null, { path: labels.location[0], label: label("location"), sub: locationMenu(row.systemID) });
+    }
+    menu.open(x, y, entries);
   }
 
   $effect(() => {
@@ -163,6 +218,9 @@
   });
 </script>
 
+{#if bookmark}
+  {#key bookmark.itemID}<BookmarkWindow {store} {flow} place={bookmark} onDone={() => bookmark = null} />{/key}
+{/if}
 {#if canConfigure && configuration}
   {#key configuration.id}
     <SkyhookConfiguration {flow} {store} target={configuration} name={skyhookName(configuration)} onClose={() => configuration = null} />
@@ -204,10 +262,23 @@
       </th>
     {/each}</tr></thead>
     <tbody>{#each visible as row (row.id)}
-      <tr data-skyhook-id={row.id} oncontextmenu={(event) => rowMenu(event, row)}>
+      <tr data-skyhook-id={row.id} oncontextmenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        rowMenu(row, event.clientX, event.clientY);
+      }}>
         <td>{row.jumps ?? "–"}</td><td>{row.security === null ? "–" : shownSecurity(row.security).toFixed(1)}</td>
         <td>{locationName(row.systemID)}</td>
-        <td><button type="button" onclick={() => showInfo({ kind: "type", itemID: row.id, typeID: row.typeID })}>{skyhookName(row)}</button></td>
+        <td><button type="button" draggable="true"
+          ondragstart={(event) => startLinkDrag(event, `showinfo:${row.typeID}//${row.id}`, skyhookName(row))}
+          onkeydown={(event) => {
+            if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const bounds = event.currentTarget.getBoundingClientRect();
+            rowMenu(row, bounds.left, bounds.bottom);
+          }}
+          onclick={() => showInfo({ kind: "type", itemID: row.id, typeID: row.typeID })}>{skyhookName(row)}</button></td>
         <td>{stateText(row)}</td><td>{harvestText(row)}</td><td>{theftText(row)}</td>
       </tr>
     {/each}</tbody>

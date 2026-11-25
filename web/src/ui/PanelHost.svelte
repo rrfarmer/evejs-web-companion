@@ -249,7 +249,7 @@
     {/key}
   {/if}
 {:else if tab === "structureBrowser"}
-  <StructureBrowser {store} {flow} {schedulableRefineryID} {onOpenRefinerySchedule} />
+  <StructureBrowser {store} {flow} {schedulableRefineryID} {onOpenRefinerySchedule} {onShowSystem} />
 {:else if tab === "mail"}
   <!-- A skill plan link in a mail, followed (link.py handle_link): the Skills window opens on it. -->
   <Mail {store} {flow} {openInventoryFilterLink} openSkillPlanLink={(url) => { flow.openSkillPlanLink(url); onOpen?.("skills"); }} />
