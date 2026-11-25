@@ -822,9 +822,11 @@ async function extractPortraitHead(rf, gender, outRoot) {
   const transparent = (head.meshes ?? []).filter(mesh => mesh.transparentAreas?.length &&
     !mesh.opaqueAreas?.length && !mesh.decalAreas?.length);
   writeExtracted(path.join(dir, `${gender}.materials.json`), JSON.stringify({
-    materialBuild: 2,
+    materialBuild: 3,
     diffuse: copyRes(rf, `${folder}/${stem}_d_512.png`, outRoot),
     normal: copyRes(rf, `${folder}/${stem}_n_512.png`, outRoot),
+    skinDetail: copyRes(rf, `res:/graphics/character/${gender}/paperdoll/skintone/basic/colorize_head_l_512.png`, outRoot),
+    skinZone: copyRes(rf, `res:/graphics/character/${gender}/paperdoll/skintone/basic/colorize_head_z_512.png`, outRoot),
     transparent: transparent.map(mesh => mesh.name),
     eyelashMask: copyRes(rf,
       `res:/graphics/character/${gender}/paperdoll/makeup/eyelashes/eyelashes_01/colorize_head_l_256.dds`, outRoot),

@@ -22,6 +22,7 @@
   let options = $state.raw<Awaited<ReturnType<AppFlow["readDockedPortraitOptions"]>> | null>(null);
   let selected = $state<number | undefined>();
   let fieldOfView = $state(0.3);
+  let skinToneID = $state(0);
   let preview = $state<"backdrop" | "female" | "male">("backdrop");
   let failed = $state(false);
   let saving = $state(false);
@@ -30,24 +31,28 @@
   const url = $derived(backdrop ? `/client-res/portrait-background/${backdrop.id}` : "");
   const canSave = $derived(options?.state === 0 && options.backgroundID !== null);
   const zoomChanged = $derived(Boolean(pilotHead && options?.framing && fieldOfView !== options.framing.fieldOfView));
+  const skinTone = $derived(options?.skinTones.find(tone => tone.id === skinToneID));
+  const hasSkinTones = $derived(Boolean(pilotHead && options?.skinTones.length));
+  const skinChanged = $derived(hasSkinTones && skinToneID !== options?.skinToneID);
 
   onMount(() => {
     void flow.readDockedPortraitOptions().then(data => {
       options = data;
       selected = data.backgrounds.find(entry => entry.id === data.backgroundID)?.id ?? data.backgrounds[0]?.id;
       fieldOfView = data.framing?.fieldOfView ?? 0.3;
+      skinToneID = data.skinToneID;
     }).catch(() => { failed = true; });
   });
 
   async function savePortrait(): Promise<void> {
-    if (!options || !canSave || !backdrop || saving || (options.backgroundID === backdrop.id && !zoomChanged)) return;
+    if (!options || !canSave || !backdrop || saving || (options.backgroundID === backdrop.id && !zoomChanged && !skinChanged)) return;
     const backgroundID = backdrop.id;
     const framing = options.framing && zoomChanged ? { ...options.framing, fieldOfView } : options.framing;
     saving = true;
     saveStatus = "";
     try {
-      await flow.saveDockedPortrait(backgroundID, zoomChanged ? fieldOfView : null);
-      options = { ...options, backgroundID, framing };
+      await flow.saveDockedPortrait(backgroundID, zoomChanged ? fieldOfView : null, skinChanged ? skinToneID : null);
+      options = { ...options, backgroundID, framing, skinToneID };
       saveStatus = "Portrait settings saved.";
     } catch (error) {
       saveStatus = error instanceof Error ? error.message : "The portrait settings could not be saved.";
@@ -85,7 +90,8 @@
       <div class="image">
         {#if pilotHead && backdrop}
           <PortraitBaseHead model={pilotHead} backdropUrl={url} backdropIsDds={backdrop.isDds}
-            bloodlineID={options.bloodlineID} framing={options.framing} {fieldOfView} />
+            bloodlineID={options.bloodlineID} framing={options.framing} {fieldOfView}
+            {hasSkinTones} skinColors={skinTone?.colors} />
         {:else if backdrop?.isDds}
           <PortraitBackdrop {url} />
         {:else if url}
@@ -93,13 +99,21 @@
         {/if}
       </div>
       {#if canSave}
+        {#if hasSkinTones}
+          <label class="skin-tone">Skin tone
+            <select bind:value={skinToneID} disabled={saving} onchange={() => { saveStatus = ""; }}>
+              <option value={0}>Bloodline base</option>
+              {#each options.skinTones as tone (tone.id)}<option value={tone.id}>{tone.name}</option>{/each}
+            </select>
+          </label>
+        {/if}
         {#if pilotHead && options.framing}
           <label class="zoom">Zoom
             <input type="range" min="-1.5" max="-0.2" step="0.001" value={-fieldOfView} disabled={saving}
               oninput={event => { fieldOfView = -event.currentTarget.valueAsNumber; saveStatus = ""; }} />
           </label>
         {/if}
-        <button type="button" disabled={saving || !backdrop || (selected === options.backgroundID && !zoomChanged)} onclick={savePortrait}>
+        <button type="button" disabled={saving || !backdrop || (selected === options.backgroundID && !zoomChanged && !skinChanged)} onclick={savePortrait}>
           {saving ? "Saving…" : "Save portrait"}
         </button>
         {#if saveStatus}<p role="status">{saveStatus}</p>{/if}
@@ -120,7 +134,7 @@
   .image { display: grid; background: #101716; aspect-ratio: 1; width: 100%; max-width: 332px; }
   img { width: 100%; aspect-ratio: 1; object-fit: contain; }
   button { margin-top: 10px; }
-  .zoom { margin-top: 10px; }
+  .zoom, .skin-tone { margin-top: 10px; }
   .zoom input { flex: 1; min-width: 0; }
   @media (max-width: 520px) { .recustomization { gap: 12px; padding: 10px; } }
 </style>

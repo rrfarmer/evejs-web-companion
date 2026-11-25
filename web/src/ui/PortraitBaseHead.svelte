@@ -3,22 +3,32 @@
   import * as THREE from "three";
   import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
   import type { PortraitFraming } from "../app/flow.ts";
+  import type { PortraitSkinTone } from "../app/api.ts";
   import { compressedSupport, loadDds } from "../three/ddsTexture";
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
 
-  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView }: {
+  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors }: {
     model: "female" | "male";
     backdropUrl?: string;
     backdropIsDds?: boolean;
     bloodlineID?: number | null;
     framing?: PortraitFraming | null;
     fieldOfView?: number;
+    hasSkinTones?: boolean;
+    skinColors?: PortraitSkinTone["colors"];
   } = $props();
   let canvas: HTMLCanvasElement;
   let renderer = $state.raw<THREE.WebGLRenderer | null>(null);
   let display = $state<"loading" | "ready" | "unavailable">("loading");
   let backdropDisplay = $state<"loading" | "ready" | "unavailable">("loading");
   let headBounds = $state.raw<THREE.Box3 | null>(null);
+  type SkinUniforms = {
+    portraitSkinDetail: { value: THREE.Texture };
+    portraitSkinZone: { value: THREE.Texture };
+    portraitSkinColors: { value: THREE.Color[] };
+    portraitSkinStrength: { value: number };
+  };
+  let skinUniforms = $state.raw<SkinUniforms | null>(null);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(32, 1, 0.01, 30);
   const key = new THREE.DirectionalLight(0xffede3, 2.2);
@@ -29,7 +39,7 @@
   const loader = new GLTFLoader();
 
   function applySurface(object: THREE.Object3D, surface: THREE.Material, transparent: ReadonlySet<string>,
-    eyelashMeshes: ReadonlySet<string>, eyelashes: THREE.Material | null): void {
+    eyelashMeshes: ReadonlySet<string>, eyelashes: THREE.Material | null, skin: THREE.Material): void {
     const materials = new Set<THREE.Material>();
     object.traverse(node => {
       if (node instanceof THREE.Mesh) {
@@ -37,7 +47,7 @@
           materials.add(material);
         }
         const overlay = eyelashMeshes.has(node.name) ? eyelashes : null;
-        node.material = overlay ?? surface;
+        node.material = overlay ?? (node.name === "meshShape" ? skin : surface);
         node.visible = overlay !== null || !transparent.has(node.name);
       }
     });
@@ -90,7 +100,13 @@
     const bounds = headBounds;
     const saved = framing;
     const fov = fieldOfView;
+    const tint = skinUniforms;
+    const colors = skinColors;
     if (!active || !bounds) return;
+    if (tint) {
+      tint.portraitSkinStrength.value = colors ? 1 : 0;
+      colors?.forEach((rgb, index) => tint.portraitSkinColors.value[index]!.setRGB(...rgb, THREE.SRGBColorSpace));
+    }
     const center = bounds.getCenter(new THREE.Vector3());
     let usable = false;
     if (saved) {
@@ -148,6 +164,7 @@
     const active = renderer;
     const name = model;
     const bloodline = bloodlineID;
+    const withSkin = hasSkinTones;
     if (!active) return;
     let retired = false;
     let head: THREE.Group | null = null;
@@ -155,13 +172,15 @@
     let eyelashes: THREE.MeshBasicMaterial | null = null;
     const maps: Awaited<ReturnType<typeof loadMap>>[] = [];
     headBounds = null;
+    skinUniforms = null;
     display = "loading";
     const stem = `/client-assets/portrait-head/${name}`;
     void (async () => {
       const response = await fetch(stem + ".materials.json");
       if (!response.ok) throw new Error("Portrait materials unavailable");
-      const { diffuse, normal, transparent, eyelashMask, eyelashMeshes } = await response.json() as {
+      const { diffuse, normal, transparent, eyelashMask, eyelashMeshes, skinDetail, skinZone } = await response.json() as {
         diffuse: string; normal: string; transparent: string[]; eyelashMask: string; eyelashMeshes: string[];
+        skinDetail: string; skinZone: string;
       };
       for (const [url, color] of [[diffuse, true], [normal, false]] as const) {
         const map = await loadMap(url, color);
@@ -185,6 +204,23 @@
         }
       }
       if (retired) return;
+      if (withSkin) {
+        try {
+          const detail = await loadMap(skinDetail, true);
+          if (retired) { detail.texture.dispose(); detail.bitmap.close(); return; }
+          maps.push(detail);
+          const zone = await loadMap(skinZone, false);
+          if (retired) { zone.texture.dispose(); zone.bitmap.close(); return; }
+          maps.push(zone);
+          skinUniforms = {
+            portraitSkinDetail: { value: detail.texture }, portraitSkinZone: { value: zone.texture },
+            portraitSkinColors: { value: [new THREE.Color(), new THREE.Color(), new THREE.Color()] },
+            portraitSkinStrength: { value: 0 },
+          };
+        } catch {
+          // The face remains visible when its colorizing layers are unavailable.
+        }
+      }
       if (eyelashMeshes.length && compressedSupport(active).s3tc) {
         const mask = await loadDds(eyelashMask).catch(() => null);
         if (retired) { mask?.dispose(); return; }
@@ -205,37 +241,61 @@
       if (retired) { release(avatar); return; }
       head = avatar;
       const surface = new THREE.MeshStandardMaterial({ map: maps[0]!.texture, normalMap: maps[1]!.texture, roughness: 0.76 });
+      const tint = skinUniforms;
+      const skin = tint ? surface.clone() : surface;
       // The authored head normal packs tangent X in alpha and Y in green.
       // Read the two linear channels without premultiplying the PNG.
-      surface.onBeforeCompile = shader => {
-        const layeredNormal = archetype ? `headNormal = mix(headNormal,
-          texture2D( archetypeNormal, vNormalMapUv ).ag * 2.0 - 1.0, archetypeCoverage);` : "";
-        if (archetype) {
-          shader.uniforms.archetypeDiffuse = { value: archetype.diffuse };
-          shader.uniforms.archetypeNormal = { value: archetype.normal };
-          shader.uniforms.archetypeWeight = { value: archetype.weight };
-          shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `
-            #include <map_pars_fragment>
-            uniform sampler2D archetypeDiffuse;
-            uniform sampler2D archetypeNormal;
-            uniform float archetypeWeight;
-          `).replace("#include <map_fragment>", `
-            #include <map_fragment>
-            vec4 archetypeColor = texture2D( archetypeDiffuse, vMapUv );
-            float archetypeCoverage = clamp(archetypeColor.a * archetypeWeight, 0.0, 1.0);
-            diffuseColor.rgb = mix(diffuseColor.rgb, archetypeColor.rgb, archetypeCoverage);
-          `);
-        }
-        shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_maps>",
-          THREE.ShaderChunk.normal_fragment_maps.replace(
-            "vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;",
-            `vec2 headNormal = texture2D( normalMap, vNormalMapUv ).ag * 2.0 - 1.0;
-             ${layeredNormal}
-             vec3 mapN = vec3( headNormal, sqrt( max( 0.0, 1.0 - dot( headNormal, headNormal ) ) ) );`,
-          ));
+      const configure = (material: THREE.MeshStandardMaterial, skinLayer: SkinUniforms | null) => {
+        material.onBeforeCompile = shader => {
+          const layeredNormal = archetype ? `headNormal = mix(headNormal,
+            texture2D( archetypeNormal, vNormalMapUv ).ag * 2.0 - 1.0, archetypeCoverage);` : "";
+          if (archetype) {
+            shader.uniforms.archetypeDiffuse = { value: archetype.diffuse };
+            shader.uniforms.archetypeNormal = { value: archetype.normal };
+            shader.uniforms.archetypeWeight = { value: archetype.weight };
+            shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `
+              #include <map_pars_fragment>
+              uniform sampler2D archetypeDiffuse;
+              uniform sampler2D archetypeNormal;
+              uniform float archetypeWeight;
+            `).replace("#include <map_fragment>", `
+              #include <map_fragment>
+              vec4 archetypeColor = texture2D( archetypeDiffuse, vMapUv );
+              float archetypeCoverage = clamp(archetypeColor.a * archetypeWeight, 0.0, 1.0);
+              diffuseColor.rgb = mix(diffuseColor.rgb, archetypeColor.rgb, archetypeCoverage);
+            `);
+          }
+          if (skinLayer) {
+            Object.assign(shader.uniforms, skinLayer);
+            shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `
+              #include <map_pars_fragment>
+              uniform sampler2D portraitSkinDetail;
+              uniform sampler2D portraitSkinZone;
+              uniform vec3 portraitSkinColors[3];
+              uniform float portraitSkinStrength;
+            `).replace("#include <color_fragment>", `
+              vec4 skinDetail = texture2D( portraitSkinDetail, vMapUv );
+              vec3 skinZone = texture2D( portraitSkinZone, vMapUv ).rgb;
+              vec3 skinTint = (skinZone.r * portraitSkinColors[0] + skinZone.g * portraitSkinColors[1] +
+                skinZone.b * portraitSkinColors[2]) / max(dot(skinZone, vec3(1.0)), 0.001);
+              diffuseColor.rgb = mix(diffuseColor.rgb, skinDetail.rgb * skinTint,
+                portraitSkinStrength * clamp(4.0 * skinDetail.a, 0.0, 0.85));
+              #include <color_fragment>
+            `);
+          }
+          shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_maps>",
+            THREE.ShaderChunk.normal_fragment_maps.replace(
+              "vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;",
+              `vec2 headNormal = texture2D( normalMap, vNormalMapUv ).ag * 2.0 - 1.0;
+               ${layeredNormal}
+               vec3 mapN = vec3( headNormal, sqrt( max( 0.0, 1.0 - dot( headNormal, headNormal ) ) ) );`,
+            ));
+        };
+        material.customProgramCacheKey = () => `portrait:${Boolean(archetype)}:${Boolean(skinLayer)}`;
       };
-      surface.customProgramCacheKey = () => archetype ? "portrait-archetype" : "portrait-base";
-      applySurface(avatar, surface, new Set(transparent), new Set(eyelashMeshes), eyelashes);
+      configure(surface, null);
+      if (tint) configure(skin, tint);
+      applySurface(avatar, surface, new Set(transparent), new Set(eyelashMeshes), eyelashes, skin);
       scene.add(avatar);
       avatar.updateMatrixWorld(true);
       headBounds = new THREE.Box3().setFromObject(avatar, true);

@@ -2215,6 +2215,8 @@ export interface DockedPortraitOptions {
   readonly backgroundID: number | null;
   readonly backgrounds: readonly api.PortraitBackground[];
   readonly framing: PortraitFraming | null;
+  readonly skinToneID: number;
+  readonly skinTones: readonly api.PortraitSkinTone[];
 }
 
 export interface PortraitFraming {
@@ -4355,7 +4357,7 @@ export interface AppFlow {
   requestOwnSecurityStatus(): void;
   exchangeSecurityTags(stationID: number, target: number, current: number): Promise<void>;
   readDockedPortraitOptions(): Promise<DockedPortraitOptions>;
-  saveDockedPortrait(backgroundID: number, fieldOfView: number | null): Promise<void>;
+  saveDockedPortrait(backgroundID: number, fieldOfView: number | null, skinToneID: number | null): Promise<void>;
   warpToPlanetLaunch(launchID: number): Promise<void>;
   removePlanetLaunch(launchID: number): Promise<void>;
   /**
@@ -10039,11 +10041,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const place = dockedNow();
     const characterID = store.station.get().online?.characterID;
     if (place === null || characterID == null) throw new Error("Dock to open character recustomization.");
-    const [state, backgrounds, portrait, bloodlineID] = await Promise.all([
+    const head = portraitHeadFor(characterID);
+    const [state, backgrounds, portrait, bloodlineID, skin] = await Promise.all([
       bridgeAsk("charMgr", "GetPaperdollState", []),
       api.loadPortraitBackgrounds(callOptions),
       bridgeAsk("paperDollServer", "GetPaperDollPortraitDataFor", [characterID]).catch(() => null),
       readCharacterBloodline(bridgeAsk, characterID).catch(() => null),
+      head ? api.loadPortraitSkinTones(head, callOptions).catch(() => null) : null,
     ]);
     current();
     if (dockedNow() !== place) throw new Error("The docked location changed.");
@@ -10061,15 +10065,24 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       bloodlineID,
       backgroundID: typeof backgroundID === "number" && Number.isSafeInteger(backgroundID) ? backgroundID : null,
       backgrounds,
+      skinToneID: skin?.skinToneID ?? 0,
+      skinTones: skin?.choices ?? [],
       framing: position && target && fieldOfView !== null && fieldOfView >= 0.2 && fieldOfView <= 1.5 ?
         { position, target, fieldOfView } : null,
     };
   }
 
-  async function saveDockedPortrait(backgroundID: number, fieldOfView: number | null): Promise<void> {
+  function portraitHeadFor(characterID: number | undefined): api.PortraitHead | null {
+    const gender = store.character.get().characters.find(character => character.characterID === characterID)?.gender;
+    return gender === 0 ? "female" : gender === 1 ? "male" : null;
+  }
+
+  async function saveDockedPortrait(backgroundID: number, fieldOfView: number | null, skinToneID: number | null): Promise<void> {
     const location = dockedNow();
     if (location === null) throw new Error("Dock to edit your portrait.");
-    await api.savePortrait(backgroundID, fieldOfView, location, callOptions);
+    const gender = portraitHeadFor(store.station.get().online?.characterID);
+    if (skinToneID !== null && gender === null) throw new Error("The pilot’s head is unavailable.");
+    await api.savePortrait(backgroundID, fieldOfView, skinToneID === null || gender === null ? null : { id: skinToneID, gender }, location, callOptions);
   }
 
   // crimewatchSvc.SetSafetyLevel: the client sets the level at the server and

@@ -6119,9 +6119,30 @@ export async function loadPortraitBackgrounds(options: ApiOptions = {}): Promise
   });
 }
 
-export async function savePortrait(backgroundID: number, fieldOfView: number | null, dockedLocationID: number,
+export type PortraitHead = "female" | "male";
+type RGB = readonly [number, number, number];
+export interface PortraitSkinTone {
+  readonly id: number;
+  readonly name: string;
+  readonly colors: readonly [RGB, RGB, RGB];
+}
+
+export async function loadPortraitSkinTones(gender: PortraitHead, options: ApiOptions = {}):
+    Promise<{ skinToneID: number; choices: readonly PortraitSkinTone[] }> {
+  const data = await getJson(`/api/bridge/character/skin-tones?gender=${gender}`, options);
+  const choices = (Array.isArray(data.choices) ? data.choices : []).flatMap(row => {
+    if (!row || !Number.isSafeInteger(row.id) || typeof row.name !== "string" ||
+        !Array.isArray(row.colors) || row.colors.length !== 3 || !row.colors.every((rgb: unknown) =>
+          Array.isArray(rgb) && rgb.length === 3 && rgb.every((value: unknown) => typeof value === "number" && Number.isFinite(value)))) return [];
+    return [row as PortraitSkinTone];
+  });
+  return { skinToneID: asNumberOrNull(data.skinToneID) ?? 0, choices };
+}
+
+export async function savePortrait(backgroundID: number, fieldOfView: number | null,
+    skinTone: { id: number; gender: PortraitHead } | null, dockedLocationID: number,
     options: ApiOptions = {}): Promise<void> {
-  await postJson("/api/bridge/character/portrait", { backgroundID, fieldOfView, dockedLocationID, confirm: true }, options);
+  await postJson("/api/bridge/character/portrait", { backgroundID, fieldOfView, skinTone, dockedLocationID, confirm: true }, options);
 }
 
 export async function loadPaintToolData(options: ApiOptions = {}): Promise<PaintToolData | null> {

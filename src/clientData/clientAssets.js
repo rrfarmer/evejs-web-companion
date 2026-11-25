@@ -153,7 +153,7 @@ async function sceneMaps(dir, resource, ensure) {
 async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
   const portraitHead = /^\/portrait-head\/(female|male)\.(glb|materials\.json)$/.exec(rel);
   if (portraitHead) return { file: await ensure(rel.slice(1), ["--portrait-head", portraitHead[1]],
-    portraitHead[2] === "materials.json" ? '"materialBuild":2' : undefined) };
+    portraitHead[2] === "materials.json" ? '"materialBuild":3' : undefined) };
   const archetype = /^\/portrait-head\/(female|male)-(1[1-4]|[1-8])\.archetype\.json$/.exec(rel);
   if (archetype) return { file: await ensure(rel.slice(1), ["--portrait-head", archetype[1], "--portrait-bloodline", archetype[2]]) };
   const generated = GENERATED.get(rel);

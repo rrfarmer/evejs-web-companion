@@ -16,6 +16,7 @@ const { createServerSiteNames } = require("./serverSiteNames");
 const { createClientWords } = require("./clientData/clientWords");
 const { readAchievementDefinitions, readCharacterTitleDefinitions, readPhasedFieldSystems } = require("./clientData/achievementDefinitions");
 const { createClientTextures } = require("./clientData/clientTextures");
+const { appearanceWithSkinTone, skinToneCatalog, skinToneID } = require("./clientData/portraitSkinTones");
 const { createMultibuyImport } = require("./clientData/importMultibuy");
 const { createSkillplanImport } = require("./clientData/importSkillplan");
 const { createClientBuiltData } = require("./clientData/clientBuiltData");
@@ -19105,10 +19106,42 @@ function portraitBackdrop(row) {
     ? resource : null;
 }
 
+async function dockedSkinTones(call, characterID, gender) {
+  const [{ result: publicInfo }, locations, colorNames] = await Promise.all([
+    call("charMgr", "GetPublicInfo3", [characterID]),
+    clientBuiltData.table("paperDollColorLocations"),
+    clientBuiltData.table("paperDollColorNames"),
+  ]);
+  const bloodline = publicInfo?.list?.[0]?.fields?.bloodlineID;
+  const skinLocations = Object.entries(locations ?? {}).filter(([, row]) =>
+    row.colorKey === "skintone" || row.colorKey === "paperdoll/skintone").map(([id]) => Number(id));
+  return { skinLocations, choices: skinToneCatalog(bloodline, gender, colorNames, clientTextures.fileFor) };
+}
+
+app.get("/api/bridge/character/skin-tones", requireAuth, async (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held) return;
+  const gender = req.query.gender;
+  if (gender !== "female" && gender !== "male") return res.status(400).json({ ok: false, error: "INVALID_PORTRAIT_HEAD" });
+  const call = (service, method, args) => heldTopLevelCall(held, req.webSessionID, service, method, args, null);
+  try {
+    const { flight } = await readHeldFlight(held, req.webSessionID);
+    if (!flight?.docked) return res.status(409).json({ ok: false, error: "LOCATION_CHANGED" });
+    const [{ skinLocations, choices }, { result: appearance }] = await Promise.all([
+      dockedSkinTones(call, held.characterID, gender),
+      call("paperDollServer", "GetMyPaperDollData", [held.characterID]),
+    ]);
+    const id = skinToneID(appearance, skinLocations);
+    const editable = skinLocations.length > 0 && (id === 0 || choices.some(choice => choice.id === id)) &&
+      appearanceWithSkinTone(appearance ?? null, skinLocations, id) !== null;
+    res.json({ ok: true, skinToneID: id, choices: editable ? choices : [] });
+  } catch (error) { next(error); }
+});
+
 app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) => {
   const held = requireHeldBridgeSession(req, res);
   if (!held || !requireWriteConfirmation(req, res, "Use Save portrait to confirm your changes.")) return;
-  const { backgroundID, fieldOfView = null, dockedLocationID } = req.body;
+  const { backgroundID, fieldOfView = null, dockedLocationID, skinTone = null } = req.body;
   if (!Number.isSafeInteger(backgroundID) || backgroundID <= 0 ||
       !Number.isSafeInteger(dockedLocationID) || dockedLocationID <= 0) {
     return res.status(400).json({ ok: false, error: "INVALID_BACKDROP", message: "Choose an available portrait backdrop." });
@@ -19116,6 +19149,10 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
   // The portrait stores the lens field of view in radians.
   if (fieldOfView !== null && (typeof fieldOfView !== "number" || !Number.isFinite(fieldOfView) || fieldOfView < 0.2 || fieldOfView > 1.5)) {
     return res.status(400).json({ ok: false, error: "INVALID_PORTRAIT_ZOOM", message: "Choose a valid portrait zoom." });
+  }
+  if (skinTone !== null && (!Number.isSafeInteger(skinTone?.id) || skinTone.id < 0 ||
+      (skinTone.gender !== "female" && skinTone.gender !== "male"))) {
+    return res.status(400).json({ ok: false, error: "INVALID_SKIN_TONE", message: "Choose an available skin tone." });
   }
   const call = (service, method, args) => heldTopLevelCall(held, req.webSessionID, service, method, args, null);
   const readPortrait = async () => {
@@ -19134,18 +19171,39 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
     if (state !== 0 || !Number.isSafeInteger(portrait?.backgroundID)) {
       return res.status(409).json({ ok: false, error: "PORTRAIT_REQUIRED", message: "This pilot needs a saved appearance and portrait before editing it." });
     }
+    let appearance = null;
+    let skinLocations;
+    if (skinTone) {
+      const [{ skinLocations: locations, choices }, { result: current }] = await Promise.all([
+        dockedSkinTones(call, held.characterID, skinTone.gender),
+        call("paperDollServer", "GetMyPaperDollData", [held.characterID]),
+      ]);
+      skinLocations = locations;
+      if (!skinLocations.length || !choices.length || (skinTone.id !== 0 && !choices.some(choice => choice.id === skinTone.id))) {
+        return res.status(400).json({ ok: false, error: "INVALID_SKIN_TONE", message: "Choose an available skin tone." });
+      }
+      if (skinToneID(current, skinLocations) !== skinTone.id) {
+        appearance = appearanceWithSkinTone(current ?? null, skinLocations, skinTone.id);
+        if (!appearance) return res.status(409).json({ ok: false, error: "APPEARANCE_UNAVAILABLE", message: "This pilot’s saved appearance cannot be edited here." });
+      }
+    }
     const { flight } = await readHeldFlight(held, req.webSessionID);
     if (!flight?.docked || (flight.structureID ?? flight.stationID) !== dockedLocationID) {
       return res.status(409).json({ ok: false, error: "LOCATION_CHANGED", message: "Dock to edit your portrait." });
     }
     const cameraFieldOfView = fieldOfView ?? portrait.cameraFieldOfView;
-    if (portrait.backgroundID !== backgroundID || portrait.cameraFieldOfView !== cameraFieldOfView) {
-      // The limited update keeps the existing doll when appearance is null.
+    if (appearance || portrait.backgroundID !== backgroundID || portrait.cameraFieldOfView !== cameraFieldOfView) {
       const updated = { type: "dict", entries: Object.entries({ ...portrait, backgroundID, cameraFieldOfView }) };
-      await call("paperDollServer", "UpdateExistingCharacterLimited", [held.characterID, null, updated, true]);
+      await call("paperDollServer", "UpdateExistingCharacterLimited", [held.characterID, appearance, updated, true]);
       const saved = await readPortrait();
       if (saved?.backgroundID !== backgroundID || saved.cameraFieldOfView !== cameraFieldOfView) {
         return res.status(409).json({ ok: false, error: "PORTRAIT_UNCONFIRMED", message: "The portrait changes could not be confirmed." });
+      }
+      if (appearance) {
+        const { result } = await call("paperDollServer", "GetMyPaperDollData", [held.characterID]);
+        if (skinToneID(result, skinLocations) !== skinTone.id) {
+          return res.status(409).json({ ok: false, error: "SKIN_TONE_UNCONFIRMED", message: "The skin tone change could not be confirmed." });
+        }
       }
     }
     res.json({ ok: true, backgroundID });
