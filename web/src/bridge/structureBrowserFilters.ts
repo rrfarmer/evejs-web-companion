@@ -1,7 +1,23 @@
+import type { CorporationStructure } from "./structures.ts";
+
 // 3698585 Structure Browser browserUIConst and ExtraColumnProvider.
 export const STATION_TYPE_FILTER = -3;
 export const LOW_POWER = 2;
 export const ABANDONED = 3;
+
+const BLOCKED_DECOMMISSION_STATES = new Set([0, 1, 2, 101, 111, 112, 113, 114, 115, 116]);
+
+export function structureDecommissionAction(row: CorporationStructure, corpRole: string | null): "start" | "cancel" | null {
+  if ((BigInt(corpRole ?? "0") & 1n) === 0n) return null;
+  if (row.unanchoring !== null) return "cancel";
+  return BLOCKED_DECOMMISSION_STATES.has(row.state) ? null : "start";
+}
+
+export function structureDecommissionSeconds(typeID: number): number {
+  if (typeID === 81826) return 259_200;
+  if ([35841, 35840, 37534].includes(typeID)) return 2_700;
+  return 604_800;
+}
 
 export const OWNED_STRUCTURE_STATES: Readonly<Record<number, string>> = {
   1: "Unanchored", 2: "Anchoring", 100: "Secure", 101: "Invulnerable", 102: "Onlining",

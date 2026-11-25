@@ -693,6 +693,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "structureControl.BoardStructure", "structureControl.EjectFromStructure", "structureCargoDelivery.DropOffItems",
   "structureSettings.CharacterHasSetting",
   "structureDirectory.GetStructureDescription", "structureDirectory.SetStructureDescription",
+  "structureDeployment.Unanchor", "structureDeployment.CancelUnanchor",
   "structureProfiles.GetProfiles",
   "moonExtractions.GetExtractionsForCorp",
   "moonExtractions.GetMoonResourcesForStructure", "moonExtractions.GetExtractionAndEventIDFromStructureID",
@@ -3334,6 +3335,8 @@ const RETAIL_CALLS = Object.freeze({
   "structureCargoDelivery.DropOffItems": same("eve/client/script/ui/structure/dropbox/dropboxController.py:117", "Transfer the selected stacks from the active ship into the structure's cargo deposit."),
   "structureSettings.CharacterHasSetting": same("eve/client/script/ui/services/structure/structureControl.py:91", "Check the pilot's defense or Moon Drill Details permission for a structure."),
   "structureDirectory.GetStructureDescription": judged("eve/client/script/ui/structure/structureBrowser/entries/structureEntryMyCorp.py:406", oneIDAlone("the selected structure"), "Read the selected structure's description."),
+  "structureDeployment.Unanchor": judged("eve/client/script/ui/services/structure/structureDeployment.py:65", oneIDAlone("the selected structure"), "Schedule decommission after the confirmation."),
+  "structureDeployment.CancelUnanchor": judged("eve/client/script/ui/services/structure/structureDeployment.py:69", oneIDAlone("the selected structure"), "Cancel the selected structure's pending decommission."),
   "structureDirectory.SetStructureDescription": typing(judged("eve/client/script/ui/structure/structureBrowser/entries/structureEntryMyCorp.py:597",
     (args, kwargs) => args.length === 2 && Number.isSafeInteger(args[0]) && args[0] > 0 &&
       typeof args[1] === "string" && args[1].length <= 1000 && Object.keys(kwargs).length === 0

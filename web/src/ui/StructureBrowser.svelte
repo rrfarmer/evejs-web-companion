@@ -11,7 +11,7 @@
   import { sessionPlace } from "../bridge/sessionPlace.ts";
   import {
     ABANDONED, LOW_POWER, OWNED_STRUCTURE_SERVICE_FILTERS, OWNED_STRUCTURE_STATES,
-    STATION_TYPE_FILTER, STRUCTURE_SERVICE_DETAILS, STRUCTURE_TYPE_GROUPS,
+    STATION_TYPE_FILTER, STRUCTURE_SERVICE_DETAILS, STRUCTURE_TYPE_GROUPS, structureDecommissionAction,
   } from "../bridge/structureBrowserFilters.ts";
   import type { StructureBrowserDirectory, StructureBrowserEntry } from "../bridge/structures.ts";
   import { shownSecurity } from "../bridge/systemSecurity.ts";
@@ -61,6 +61,8 @@
   let homeStationID = $state<number | null>(null);
   let descriptionRow = $state.raw<StructureBrowserEntry | null>(null);
   let actionError = $state("");
+  let decommissionBusy = $state(false);
+  let directoryRevision = $state(0);
   const rowMenu = new ContextMenu();
   onDestroy(() => rowMenu.close());
 
@@ -79,6 +81,7 @@
     reinforcement: ["UI/Structures/Browser/HeaderReinforcementTime", "Reinforcement Hour"],
     lowPower: ["UI/Structures/UpkeepModeLowPower", "Low Power"],
     abandoned: ["UI/Structures/UpkeepModeAbandoned", "Abandoned"],
+    unanchoring: ["UI/Structures/Browser/StructureUnanchoring", "Unanchoring"],
   } as const;
   const menuWords = {
     dock: ["UI/Inflight/DockInStation", "Dock"],
@@ -89,6 +92,8 @@
     bookmark: ["UI/Inflight/BookmarkLocation", "Save Location…"],
     info: ["UI/Commands/ShowInfo", "Show Info"],
     description: ["UI/StructureBrowser/SetStructureDescription", "Set Structure Bio"],
+    decommission: ["UI/StructureBrowser/Decommission", "Decommission"],
+    cancelDecommission: ["UI/StructureBrowser/CancelDecommission", "Cancel Decommission"],
   } as const;
   const serviceLabels = [
     [-1, "UI/Station/CharacterRecustomization", "Character Recustomization"],
@@ -129,6 +134,12 @@
     const stationRow = isStation(id);
     const deprecated = isDeprecatedStationType(row.typeID);
     const entries: (ContextEntry | null)[] = [];
+    const decommission = activeTab === "corporation" && row.owned
+      ? structureDecommissionAction(row.owned, $station.online?.corpRole ?? null) : null;
+    if (decommission !== null && !decommissionBusy) {
+      entries.push(action(decommission === "start" ? "decommission" : "cancelDecommission",
+        () => void changeDecommission(id, decommission)));
+    }
     if (activeTab === "corporation" && row.owned && directory?.canEditDescriptions) {
       entries.push(action("description", () => {
         bookmark = null;
@@ -157,6 +168,19 @@
     }));
     entries.push({ ...action("info", () => inspect(row)), info: true });
     rowMenu.open(x, y, entries);
+  }
+
+  async function changeDecommission(id: number, change: "start" | "cancel"): Promise<void> {
+    if (decommissionBusy) return;
+    decommissionBusy = true;
+    actionError = "";
+    try {
+      if (await flow.changeStructureDecommission(id, change)) directoryRevision++;
+    } catch (cause) {
+      actionError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      decommissionBusy = false;
+    }
   }
   const typeGroups = $derived(STRUCTURE_TYPE_GROUPS.map(group => ({
     ...group,
@@ -217,6 +241,11 @@
     return expires === null || expires <= 0 ? "—" : formatInterval(Math.max(0, expires - now) * 10_000);
   }
 
+  function unanchorTime(row: StructureBrowserEntry): string {
+    const end = filetimeToUnixMs(row.owned?.unanchoring ?? null);
+    return end === null ? "" : formatInterval(Math.max(0, end - now) * 10_000);
+  }
+
   function reinforcementHour(hour: number | null | undefined): string {
     return hour == null ? "—" : `${String(hour).padStart(2, "0")}:00`;
   }
@@ -273,6 +302,7 @@
   $effect(() => {
     const here = systemID;
     const owned = activeTab === "corporation";
+    void directoryRevision;
     void $station.online?.characterID;
     if (owned) void corporationID;
     directory = null;
@@ -417,6 +447,9 @@
               <td>{stateName(row)}
                 {#if row.owned?.upkeepState === LOW_POWER}<small class="upkeep">{word("lowPower")}</small>
                 {:else if row.owned?.upkeepState === ABANDONED}<small class="upkeep">{word("abandoned")}</small>{/if}
+                {#if row.owned?.unanchoring != null}
+                  <small class="upkeep">{word("unanchoring")} {unanchorTime(row)}</small>
+                {/if}
               </td>
             {/if}
             <td>{row.jumps ?? "—"}</td>

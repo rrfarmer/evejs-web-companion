@@ -504,7 +504,7 @@ import {
 import { decodeAgencySeason, decodeAgencySeasonChoices, decodeAgencySeasonProgress, decodeAgencySeasonReward, decodeSeasonSelectionDefinition,
   isVanguardTrackCompleted, seasonRewardClaimable, VANGUARD_TRACK_INSTANCE, type AgencySeason, type AgencySeasonReward } from "../bridge/agencySeason.ts";
 import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from "../bridge/serverDialogs.ts";
-import { convertTyped, DATE_LABELS, formatTemplate, LIST_DELIMITER, plainText, QUANTITY_AND_ITEM } from "../bridge/clientWords.ts";
+import { convertTyped, DATE_LABELS, formatInterval, formatTemplate, LIST_DELIMITER, plainText, QUANTITY_AND_ITEM } from "../bridge/clientWords.ts";
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
 import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts";
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
@@ -989,6 +989,7 @@ import { systemGraphOnce } from "../nav/systemGraphKept.ts";
 import { autopilotDistances, autopilotJumpCounts, autopilotMap, autopilotPath, type AutopilotMap, type AutopilotRouteType, type AutopilotSettings } from "../nav/autopilotRoute.ts";
 import { availableJumpGateJumps, type JumpGateJump } from "../nav/jumpGates.ts";
 import { decodeCharacterStructureDirectory, decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData, decodeStructureProfileNames, encodeStructureDescription, MAX_STRUCTURE_DESCRIPTION_LENGTH, type StructureBrowserDirectory } from "../bridge/structures.ts";
+import { structureDecommissionAction, structureDecommissionSeconds } from "../bridge/structureBrowserFilters.ts";
 import {
   AVOIDING_DIALOGS,
   autopilotSettingsFrom,
@@ -4490,6 +4491,7 @@ export interface AppFlow {
   loadStructureBrowser(systemID: number, corporation?: boolean): Promise<StructureBrowserDirectory>;
   loadStructureDescription(structureID: number): Promise<string>;
   saveStructureDescription(structureID: number, description: string): Promise<void>;
+  changeStructureDecommission(structureID: number, action: "start" | "cancel"): Promise<boolean>;
   startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
   loadCorporationMiningObservers(): Promise<readonly MiningLedgerObserver[]>;
@@ -27974,6 +27976,42 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (wireText(saved) !== encoded) throw new Error("The structure description could not be confirmed.");
   }
 
+  async function changeStructureDecommission(structureID: number, action: "start" | "cancel"): Promise<boolean> {
+    const scope = captureMemberOperation();
+    const role = () => store.station.get().online?.corpRole ?? null;
+    async function readOwnedStructure() {
+      scope.current();
+      if ((BigInt(role() ?? "0") & 1n) === 0n) throw new Error("Changing decommission requires a Director.");
+      const answer = await scope.ask("structureDirectory", "GetCorporationStructures", []);
+      scope.current();
+      const row = decodeCorporationStructures(answer).find(item => item.structureID === structureID &&
+        item.ownerID === scope.online.corporationID);
+      if (!row) throw new Error("The structure is no longer available to your corporation.");
+      return row;
+    }
+
+    const row = await readOwnedStructure();
+    if (structureDecommissionAction(row, role()) !== action) throw new Error("The structure's decommission state changed.");
+    if (action === "start") {
+      const duration = structureDecommissionSeconds(row.typeID) * 10_000_000;
+      const values: JsonValue[][] = [["item", row.typeID], ["unanchorDuration", duration]];
+      const warHeadquarters = row.warsCount > 0;
+      if (warHeadquarters) values.push(["numWars", row.warsCount]);
+      const text = `Start decommissioning ${row.itemName}? Unanchoring takes ${formatInterval(duration)}.` +
+        (warHeadquarters ? " This structure is a War Headquarters." : "");
+      if (!await askDialog(warHeadquarters ? "ConfirmDecommissionWarHq" : "ConfirmDecommissionStructure",
+        { type: "dict", entries: values }, text, "yesno", { suppressAnswer: "yes" })) return false;
+      const current = await readOwnedStructure();
+      if (structureDecommissionAction(current, role()) !== action || current.typeID !== row.typeID ||
+        current.warsCount !== row.warsCount) throw new Error("The structure changed. Reopen its menu and review decommission again.");
+    }
+
+    await scope.write("structureDeployment", action === "start" ? "Unanchor" : "CancelUnanchor", [structureID]);
+    const saved = await readOwnedStructure();
+    if ((saved.unanchoring !== null) !== (action === "start")) throw new Error("The decommission change could not be confirmed.");
+    return true;
+  }
+
   async function loadCorporationMoonSchedule(lifetime?: () => void): Promise<CorporationMoonSchedule> {
     const scope = captureMemberOperation(lifetime);
     const current = () => {
@@ -39717,6 +39755,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadStructureBrowser,
     loadStructureDescription,
     saveStructureDescription,
+    changeStructureDecommission,
     startMoonPull,
     controlMoonPull,
     loadCorporationMiningObservers,
