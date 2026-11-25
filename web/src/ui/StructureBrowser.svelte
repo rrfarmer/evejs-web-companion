@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { plainText } from "../bridge/clientWords.ts";
+  import type { BookmarkPlace } from "../bridge/locationsList.ts";
   import { hasMoonStationManagerRole } from "../bridge/moonMining.ts";
   import { isNpcCorporation } from "../bridge/ownerInfo.ts";
   import { isStation } from "../bridge/placeChanges.ts";
@@ -10,9 +12,14 @@
   import type { StructureBrowserDirectory, StructureBrowserEntry } from "../bridge/structures.ts";
   import { shownSecurity } from "../bridge/systemSecurity.ts";
   import { structureHasCapability } from "../nav/dockableLocation.ts";
+  import { isDeprecatedStationType } from "../nav/waypoints.ts";
+  import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import CorporationMoonSchedule from "./CorporationMoonSchedule.svelte";
+  import BookmarkWindow from "./BookmarkWindow.svelte";
+  import HomeStationPanel from "./HomeStationPanel.svelte";
+  import { startLinkDrag } from "./linkFollowers.ts";
   import { showInfo } from "./showInfo.ts";
 
   let { flow, store }: { flow: AppFlow; store: ClientStore } = $props();
@@ -20,6 +27,7 @@
   const flight = $derived(store.flight);
   const names = $derived(store.names);
   const words = $derived(store.words);
+  const waypoints = $derived(flow.waypoints);
   const systemID = $derived(sessionPlace($flight.status, $station.online).solarSystemID);
   const corporationID = $derived($station.online?.corporationID ?? null);
   const canManage = $derived(corporationID !== null && !isNpcCorporation(corporationID) &&
@@ -37,6 +45,11 @@
   let query = $state("");
   let types = $state<number[]>([]);
   let services = $state<number[]>([]);
+  let bookmark = $state<BookmarkPlace | null>(null);
+  let homeStationID = $state<number | null>(null);
+  let actionError = $state("");
+  const rowMenu = new ContextMenu();
+  onDestroy(() => rowMenu.close());
 
   const labels = {
     all: ["UI/Structures/Browser/AllStructures", "All Structures"],
@@ -47,6 +60,15 @@
     filtered: ["UI/Structures/Browser/NoStructuresFoundWithFilters", "No structures found with these filters"],
     stations: ["UI/StructureBrowser/StationsAndOutposts", "Stations and Outposts"],
     navigation: ["UI/StructureBrowser/NavigationStructures", "FLEX Structures"],
+  } as const;
+  const menuWords = {
+    dock: ["UI/Inflight/DockInStation", "Dock"],
+    destination: ["UI/Inflight/SetDestination", "Set Destination"],
+    add: ["UI/Inflight/AddWaypoint", "Add Waypoint"],
+    remove: ["UI/Inflight/RemoveWaypoint", "Remove Waypoint"],
+    home: ["UI/Menusvc/SetHomeStation", "Set Home Station"],
+    bookmark: ["UI/Inflight/BookmarkLocation", "Save Location…"],
+    info: ["UI/Commands/ShowInfo", "Show Info"],
   } as const;
   const serviceLabels = [
     [-1, "UI/Station/CharacterRecustomization", "Character Recustomization"],
@@ -71,6 +93,43 @@
   const ownerName = (row: StructureBrowserEntry) => resolvedName($names.resolved, "corporation", row.ownerID, String(row.ownerID));
   const locationName = (id: number) => resolvedName($names.resolved, "evelocation", id, String(id));
   const typeName = (id: number) => resolvedName($names.resolved, "type", id, String(id));
+
+  function inspect(row: StructureBrowserEntry): void {
+    showInfo({ kind: "type", typeID: row.typeID, itemID: row.structureID });
+  }
+
+  function action(key: keyof typeof menuWords, run: () => void): ContextEntry {
+    const [path, fallback] = menuWords[key];
+    return { path, label: plainText($words.templates[path] ?? fallback), run };
+  }
+
+  function openRowMenu(row: StructureBrowserEntry, x: number, y: number): void {
+    const id = row.structureID;
+    const stationRow = isStation(id);
+    const deprecated = isDeprecatedStationType(row.typeID);
+    const entries: (ContextEntry | null)[] = [];
+    if ($flight.status?.inSpace && row.solarSystemID === systemID &&
+      !deprecated && (stationRow || structureHasCapability(row.serviceIDs, "dock"))) {
+      entries.push(action("dock", () => {
+        actionError = "";
+        void flow.dockAt(id).catch(cause => { actionError = cause instanceof Error ? cause.message : String(cause); });
+      }));
+    }
+    if ($waypoints.at(-1) !== id) entries.push(action("destination", () => flow.setDestination(id)));
+    entries.push($waypoints.includes(id)
+      ? action("remove", () => flow.clearWaypoints(id))
+      : action("add", () => flow.addWaypoint(id)));
+    if ($flight.status?.docked && !deprecated && !row.isTriglavian) entries.push(action("home", () => {
+      bookmark = null;
+      homeStationID = id;
+    }));
+    if (stationRow && !deprecated) entries.push(null, action("bookmark", () => {
+      homeStationID = null;
+      bookmark = { itemID: id, askIfKnown: true, name: () => placeName(row), typeName: () => typeName(row.typeID) };
+    }));
+    entries.push({ ...action("info", () => inspect(row)), info: true });
+    rowMenu.open(x, y, entries);
+  }
   const typeGroups = $derived(STRUCTURE_TYPE_GROUPS.map(group => ({
     ...group,
     label: group.id < 0 ? word("navigation") : resolvedName($names.resolved, "group", group.id, group.label),
@@ -135,7 +194,8 @@
   }
 
   $effect(() => {
-    flow.requestWords([...Object.values(labels).map(([key]) => key), ...serviceLabels.map(([, key]) => key),
+    flow.requestWords([...Object.values(labels).map(([key]) => key), ...Object.values(menuWords).map(([key]) => key),
+      ...serviceLabels.map(([, key]) => key),
       ...new Set([...STRUCTURE_SERVICE_DETAILS.values()].map(detail => detail.path))]);
     flow.requestNames(STRUCTURE_TYPE_GROUPS.flatMap(group => [
       ...(group.id > 0 ? [{ kind: "group" as const, id: group.id }] : []),
@@ -166,6 +226,11 @@
 </script>
 
 <section class="structure-browser" aria-label={word(activeTab)}>
+  {#if bookmark}<BookmarkWindow {store} {flow} place={bookmark} onDone={() => bookmark = null} />{/if}
+  {#if homeStationID !== null}
+    {#key homeStationID}<HomeStationPanel {store} {flow} targetStationID={homeStationID} onClose={() => homeStationID = null} />{/key}
+  {/if}
+  {#if actionError}<p role="alert" class="error">{actionError}</p>{/if}
   {#if canManage}
     <nav aria-label="Structure Browser">
       <button type="button" aria-pressed={activeTab === "all"} onclick={() => tab = "all"}>{word("all")}</button>
@@ -234,12 +299,23 @@
       </tr></thead>
       <tbody>
         {#each ordered as row (row.structureID)}
-          <tr data-structure-id={row.structureID}>
+          <tr data-structure-id={row.structureID} oncontextmenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openRowMenu(row, event.clientX, event.clientY);
+          }}>
             <td>{row.jumps ?? "—"}</td>
             <td>{row.security === null ? "—" : shownSecurity(row.security).toFixed(1)}</td>
             <td>{ownerName(row)}</td>
-            <td><button type="button" title={typeName(row.typeID)}
-              onclick={() => showInfo({ kind: "type", typeID: row.typeID, itemID: row.structureID })}>{placeName(row)}</button></td>
+            <td><button type="button" title={typeName(row.typeID)} draggable="true"
+              ondragstart={(event) => startLinkDrag(event, `showinfo:${row.typeID}//${row.structureID}`, placeName(row))}
+              onkeydown={(event) => {
+                if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+                event.preventDefault();
+                const bounds = event.currentTarget.getBoundingClientRect();
+                openRowMenu(row, bounds.left, bounds.bottom);
+              }}
+              onclick={() => inspect(row)}>{placeName(row)}</button></td>
             <td>{serviceChoices.filter(service => hasService(row, service.id)).map(service => service.label).join(", ") || "—"}</td>
             {#each detailColumns as detail (detail.id)}<td>{detailValue(row, detail.id)}</td>{/each}
           </tr>

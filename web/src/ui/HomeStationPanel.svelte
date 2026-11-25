@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import type { HomeStationCandidate } from "../bridge/characterSheet.ts";
   import { isStation } from "../bridge/placeChanges.ts";
@@ -6,7 +7,9 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, targetStationID = null, onClose }: {
+    store: ClientStore; flow: AppFlow; targetStationID?: number | null; onClose?: () => void;
+  } = $props();
   const sheet = $derived(store.characterSheet);
   const names = $derived(store.names);
   const name = (id: number) => resolvedName($names.resolved, isStation(id) ? "station" : "structure", id, "Unknown station");
@@ -43,8 +46,19 @@
   function choose(): void {
     choosing = true;
     choices = null;
-    void run(async () => { choices = await flow.loadHomeStationCandidates(); });
+    void run(async () => {
+      const available = await flow.loadHomeStationCandidates();
+      if (targetStationID === null) {
+        choices = available;
+        return;
+      }
+      choices = available.filter(row => row.id === targetStationID);
+      const candidate = choices[0];
+      if (candidate && candidate.errors.length === 0) review = candidate;
+    });
   }
+
+  onMount(() => { if (targetStationID !== null) choose(); });
 
   function confirm(): void {
     const selected = review;
@@ -61,8 +75,9 @@
 <section class="home-panel" data-window="homeStation" aria-label="Home Station" aria-busy={busy}>
   {#if choosing}
     <header><h3>Change Home Station</h3><button type="button" disabled={busy} onclick={() => {
+      if (onClose) { onClose(); return; }
       choosing = false; review = null; error = "";
-    }}>Back</button></header>
+    }}>{onClose ? "Close" : "Back"}</button></header>
     {#if busy && !choices}<p>Reading available stations…</p>{/if}
     {#if review}
       <div class="home-review">
@@ -86,10 +101,13 @@
         {/each}
       {/if}
     {/each}
-    {#if choices?.length === 0}<p>No eligible stations were returned.</p>{/if}
+    {#if choices?.length === 0}<p>{targetStationID === null ? "No eligible stations were returned." : "This station is unavailable as a home station."}</p>{/if}
     {#if error}<button type="button" disabled={busy} onclick={choose}>Refresh Choices</button>{/if}
   {:else}
-    <header><h3>Home Station</h3><button type="button" disabled={busy} onclick={choose}>Select New Home Station</button></header>
+    <header><h3>Home Station</h3>
+      {#if onClose}<button type="button" onclick={onClose}>Close</button>
+      {:else}<button type="button" disabled={busy} onclick={choose}>Select New Home Station</button>{/if}
+    </header>
     {#if $sheet.homeStationError}<p>{$sheet.homeStationError}</p>
     {:else if $sheet.homeStationID === null}<p>Reading your home station…</p>
     {:else}<p data-home-station-id={$sheet.homeStationID}>{name($sheet.homeStationID)}</p>{/if}

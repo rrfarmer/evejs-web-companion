@@ -48,6 +48,10 @@ export function isWaypointPlace(id: number, knownStructure = false): boolean {
 /** idCheckers.IsDeprecatedStation (452 to 460): the outposts' and the conquerable stations' types (inventorycommon/const.py). */
 const DEPRECATED_STATION_TYPES: ReadonlySet<number> = new Set([21642, 21644, 21645, 21646, 12242, 12294, 12295]);
 
+export function isDeprecatedStationType(typeID: number): boolean {
+  return DEPRECATED_STATION_TYPES.has(typeID);
+}
+
 /** What _IsDestinationValid reads of the place and of the map, as the page could read it. */
 export interface DestinationFacts {
   /**
@@ -74,7 +78,7 @@ export function destinationValid(id: number, facts: DestinationFacts): boolean {
   const isKnownSpaceSystem = (systemID: number): boolean => systemID >= 30_000_000 && systemID <= 30_999_999;
   if (facts.station === "unread") return true;
   if (facts.station !== null) {
-    if (facts.station.stationTypeID !== null && DEPRECATED_STATION_TYPES.has(facts.station.stationTypeID)) return false;
+    if (facts.station.stationTypeID !== null && isDeprecatedStationType(facts.station.stationTypeID)) return false;
     const systemID = facts.station.solarSystemID;
     if (triglavian(systemID) && !triglavian(facts.currentSystemID)) return false;
     return systemID === facts.currentSystemID || isKnownSpaceSystem(systemID);

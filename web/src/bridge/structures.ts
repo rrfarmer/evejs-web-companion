@@ -92,6 +92,7 @@ export interface StructureBrowserEntry extends StructureDirectoryEntry {
   readonly regionID: number | null;
   readonly security: number | null;
   readonly jumps: number | null;
+  readonly isTriglavian: boolean;
 }
 
 export interface StructureBrowserDirectory {

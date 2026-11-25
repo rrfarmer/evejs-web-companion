@@ -27921,6 +27921,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const constellationID = graph?.parentOf?.(row.solarSystemID) ?? null;
       const regionID = constellationID === null ? null : graph?.parentOf?.(constellationID) ?? null;
       return { ...row, constellationID, regionID, security: graph?.security(row.solarSystemID) ?? null,
+        isTriglavian: graph?.isTriglavian?.(row.solarSystemID) ?? false,
         jumps: row.solarSystemID === systemID ? 0 : distances?.get(row.solarSystemID) ?? null };
     });
     const refs = entries.flatMap(row => [
