@@ -806,7 +806,8 @@ function extractObservatoryVortex(rf, outRoot) {
 }
 
 async function extractPortraitHead(rf, gender, outRoot) {
-  const source = `res:/graphics/character/${gender}/paperdoll/head/head_generic/head_generic.gr2`;
+  const folder = `res:/graphics/character/${gender}/paperdoll/head/head_generic`;
+  const source = `${folder}/head_generic.gr2`;
   const { root } = await readGranny(rf.read(source), source);
   const model = root.Models.find(entry => entry.Skeleton?.Bones?.length && entry.MeshBindings?.length);
   if (!model) throw new Error(`${source}: no skinned head model`);
@@ -815,6 +816,16 @@ async function extractPortraitHead(rf, gender, outRoot) {
   const dir = path.join(outRoot, "portrait-head");
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, `${gender}.glb`), writeGlb({ name: `${gender} base head`, lods, bones, extras: { source } }));
+  const meshDefinition = `${folder}/head_generic.black`;
+  const head = readBlack(rf.read(meshDefinition), meshDefinition);
+  const stem = gender === "female" ? "genericfemhead" : "genericmale_head";
+  writeExtracted(path.join(dir, `${gender}.materials.json`), JSON.stringify({
+    materialBuild: 1,
+    diffuse: copyRes(rf, `${folder}/${stem}_d_512.png`, outRoot),
+    normal: copyRes(rf, `${folder}/${stem}_n_512.png`, outRoot),
+    transparent: (head.meshes ?? []).filter(mesh => mesh.transparentAreas?.length &&
+      !mesh.opaqueAreas?.length && !mesh.decalAreas?.length).map(mesh => mesh.name),
+  }));
   console.log(`portrait-head/${gender}.glb: ${lods.length} meshes, ${bones.length} bones`);
 }
 

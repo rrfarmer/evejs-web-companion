@@ -14,26 +14,48 @@
   const fill = new THREE.DirectionalLight(0xd6ecff, 1);
   fill.position.set(2, 0.6, -2);
   scene.add(key, fill, new THREE.HemisphereLight(0xe2eefa, 0x544447, 1.1));
-  const surface = new THREE.MeshStandardMaterial({ color: 0xa99a91, roughness: 0.83 });
   const loader = new GLTFLoader();
 
-  function release(object: THREE.Object3D, replaceMaterial = false): void {
-    const geometries = new Set<THREE.BufferGeometry>();
+  function applySurface(object: THREE.Object3D, surface: THREE.Material, transparent: ReadonlySet<string>): void {
     const materials = new Set<THREE.Material>();
-    const skeletons = new Set<THREE.Skeleton>();
     object.traverse(node => {
       if (node instanceof THREE.Mesh) {
         for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
-          if (material !== surface) materials.add(material);
+          materials.add(material);
         }
-        if (replaceMaterial) node.material = surface;
-        else geometries.add(node.geometry);
+        node.material = surface;
+        // These native transparent passes need the paper-doll cut mask.
+        node.visible = !transparent.has(node.name);
       }
-      if (!replaceMaterial && node instanceof THREE.SkinnedMesh) skeletons.add(node.skeleton);
     });
     for (const material of materials) material.dispose();
-    for (const geometry of geometries) geometry.dispose();
-    for (const skeleton of skeletons) skeleton.dispose();
+  }
+
+  function release(object: THREE.Object3D): void {
+    const resources = new Set<THREE.BufferGeometry | THREE.Material | THREE.Skeleton>();
+    object.traverse(node => {
+      if (node instanceof THREE.Mesh) {
+        resources.add(node.geometry);
+        for (const material of Array.isArray(node.material) ? node.material : [node.material]) resources.add(material);
+      }
+      if (node instanceof THREE.SkinnedMesh) resources.add(node.skeleton);
+    });
+    for (const resource of resources) resource.dispose();
+  }
+
+  async function loadMap(path: string, color: boolean): Promise<{ bitmap: ImageBitmap; texture: THREE.Texture }> {
+    const response = await fetch(path);
+    if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
+    const bitmap = await createImageBitmap(await response.blob(), {
+      premultiplyAlpha: "none", colorSpaceConversion: "none",
+    });
+    const texture = new THREE.Texture(bitmap);
+    // Granny's UVs address the top row at v=0. The native atlas transform
+    // places this same local head map in the upper-right region of the atlas.
+    texture.flipY = false;
+    texture.colorSpace = color ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    texture.needsUpdate = true;
+    return { bitmap, texture };
   }
 
   onMount(() => {
@@ -45,7 +67,6 @@
       display = "unavailable";
     }
     return () => {
-      surface.dispose();
       renderer?.dispose();
       renderer?.forceContextLoss();
     };
@@ -57,11 +78,35 @@
     if (!active) return;
     let retired = false;
     let head: THREE.Group | null = null;
+    const maps: Awaited<ReturnType<typeof loadMap>>[] = [];
     display = "loading";
-    void loader.loadAsync(`/client-assets/portrait-head/${name}.glb`).then(({ scene: avatar }) => {
+    const stem = `/client-assets/portrait-head/${name}`;
+    void (async () => {
+      const response = await fetch(stem + ".materials.json");
+      if (!response.ok) throw new Error("Portrait materials unavailable");
+      const { diffuse, normal, transparent } = await response.json() as {
+        diffuse: string; normal: string; transparent: string[];
+      };
+      for (const [url, color] of [[diffuse, true], [normal, false]] as const) {
+        const map = await loadMap(url, color);
+        if (retired) { map.texture.dispose(); map.bitmap.close(); return; }
+        maps.push(map);
+      }
+      const { scene: avatar } = await loader.loadAsync(stem + ".glb");
       if (retired) { release(avatar); return; }
       head = avatar;
-      release(avatar, true);
+      const surface = new THREE.MeshStandardMaterial({ map: maps[0]!.texture, normalMap: maps[1]!.texture, roughness: 0.76 });
+      // The authored head normal packs tangent X in alpha and Y in green.
+      // Read the two linear channels without premultiplying the PNG.
+      surface.onBeforeCompile = shader => {
+        shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_maps>",
+          THREE.ShaderChunk.normal_fragment_maps.replace(
+            "vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;",
+            `vec2 headNormal = texture2D( normalMap, vNormalMapUv ).ag * 2.0 - 1.0;
+             vec3 mapN = vec3( headNormal, sqrt( max( 0.0, 1.0 - dot( headNormal, headNormal ) ) ) );`,
+          ));
+      };
+      applySurface(avatar, surface, new Set(transparent));
       scene.add(avatar);
       avatar.updateMatrixWorld(true);
       const bounds = new THREE.Box3().setFromObject(avatar, true);
@@ -72,7 +117,7 @@
       camera.lookAt(center);
       active.render(scene, camera);
       display = "ready";
-    }).catch(() => {
+    })().catch(() => {
       if (!retired) display = "unavailable";
     });
     return () => {
@@ -80,6 +125,10 @@
       if (head) {
         scene.remove(head);
         release(head);
+      }
+      for (const map of maps) {
+        map.texture.dispose();
+        map.bitmap.close();
       }
     };
   });

@@ -151,8 +151,9 @@ async function sceneMaps(dir, resource, ensure) {
 
 /** Supply the extracted resources and look up model and scene data on demand. */
 async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
-  const portraitHead = /^\/portrait-head\/(female|male)\.glb$/.exec(rel);
-  if (portraitHead) return { file: await ensure(rel.slice(1), ["--portrait-head", portraitHead[1]]) };
+  const portraitHead = /^\/portrait-head\/(female|male)\.(glb|materials\.json)$/.exec(rel);
+  if (portraitHead) return { file: await ensure(rel.slice(1), ["--portrait-head", portraitHead[1]],
+    portraitHead[2] === "materials.json" ? '"materialBuild":1' : undefined) };
   const generated = GENERATED.get(rel);
   if (generated) {
     const oldManifest = rel === "/observatoryEnvironment.json" ? '"environmentBuild":'
