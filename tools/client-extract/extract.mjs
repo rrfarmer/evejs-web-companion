@@ -426,6 +426,26 @@ async function extractWormholeTransit(rf, outRoot) {
   fs.writeFileSync(path.join(outRoot, "wormholeTransit.json"), JSON.stringify({ root: effect.root, skipped: effect.skipped }));
 }
 
+async function extractWarpTunnel(rf, outRoot) {
+  const resource = "res:/model/effect3/warptunnel.black";
+  const tunnel = readBlack(rf.read(resource), resource);
+  const geometry = tunnel.mesh.geometryResPath.toLowerCase();
+  const { glb } = await extractHull(rf, geometry, outRoot);
+  const curve = tunnel.curveSets.find((set) => set.name === "SpeedModifier").curves[0];
+  const pass = (area) => ({
+    parameters: Object.fromEntries(area.effect.parameters.map(({ name, value }) => [name, value])),
+    textures: Object.fromEntries(area.effect.resources.map(({ name, resourcePath }) => [name, copyRes(rf, resourcePath, outRoot)])),
+  });
+  fs.writeFileSync(path.join(outRoot, "warpTunnel.json"), JSON.stringify({
+    model: "/client-assets/" + path.relative(outRoot, glb).split(path.sep).join("/"),
+    scale: tunnel.scaling,
+    rotation: tunnel.rotation,
+    intensity: { ...curve, keys: curve.keys.items },
+    transparent: pass(tunnel.mesh.transparentAreas[0]),
+    additive: pass(tunnel.mesh.additiveAreas[0]),
+  }));
+}
+
 /**
  * An effect guid's own graphic (the effects table's graphicID, the SDE's graphicFile for it), written as fx/<guid>.json:
  * the effect's class, duration and damage timings, and - where the graphic is EveStretch3s (the Vorton projectors'
@@ -797,6 +817,7 @@ function parseArgs(argv) {
     else if (a === "--dscan-hologram") out.dscanHologram = true;
     else if (a === "--dscan-cones") out.dscanCones = true;
     else if (a === "--wormhole-transit") out.wormholeTransit = true;
+    else if (a === "--warp-tunnel") out.warpTunnel = true;
     else if (a === "--ship-info") out.shipInfo = true;
     else if (a === "--drifter-collection-explosion") out.drifterCollectionExplosion = true;
     else if (a === "--observatory-environment") out.observatoryEnvironment = true;
@@ -1002,6 +1023,7 @@ async function main() {
     console.log(`wormhole nebula ${id}: ${extractWormholeNebula(rf, sde, id, outRoot)}`);
   }
   if (args.wormholeTransit) await extractWormholeTransit(rf, outRoot);
+  if (args.warpTunnel) await extractWarpTunnel(rf, outRoot);
   // gfxTurrets.json: an NPC hull's or a sentry's turret module type, by its type (the SDE's gfxTurretID)
   if (args.gfxTurrets) {
     if (!sde) throw new Error("--gfx-turrets needs the SDE (--sde, or a config.json that names it)");
@@ -1130,7 +1152,7 @@ async function main() {
     }
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.wormholeNebulas.length && !args.wormholeTransit && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.asteroidRules && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.wormholeNebulas.length && !args.wormholeTransit && !args.warpTunnel && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.asteroidRules && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

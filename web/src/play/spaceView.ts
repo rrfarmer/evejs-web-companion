@@ -6497,7 +6497,7 @@ export class SpaceView {
     const egoSpeed = ego ? Math.hypot(ego.velocity.x, ego.velocity.y, ego.velocity.z) : 0;
     const way = ego && egoSpeed > 0 ? new THREE.Vector3(ego.velocity.x, ego.velocity.y, -ego.velocity.z).divideScalar(egoSpeed) : new THREE.Vector3();
     const warpSpeedMultiplier = ego?.typeID ? this.options.warpSpeedMultiplier?.(ego.typeID) ?? null : null;
-    let share = WarpTunnel.share(ego?.mode === "WARP", egoSpeed, warpSpeedMultiplier);
+    const share = WarpTunnel.share(ego?.mode === "WARP", egoSpeed, warpSpeedMultiplier);
     // Warp.py: once the warp's speed fraction passes 0.005, ship_warp_explosion_play and ship_warp_wind_play (sent as UI
     // events); at its end ship_warp_wind_stop. (The tunnel's share is that binding of the ship's speed.)
     if (ego?.mode === "WARP") {
@@ -6511,6 +6511,7 @@ export class SpaceView {
       this.warpSound = { exploded: false, wind: false };
     }
     let tunnelWay = way;
+    let gateShare = 0;
     let flash = 0;
     if (this.gateJump) {
       const since = now - this.gateJump.orderedAt;
@@ -6522,14 +6523,14 @@ export class SpaceView {
         const strength = after === null ? Math.min(1, since / 1500) : Math.max(0, 1 - after / 2000);
         flash = after === null ? 0 : Math.max(0, 0.85 - after / 700);
         if (after !== null && after > 2000) this.endJumpCamera();
-        share = Math.max(share, strength);
+        gateShare = strength;
       }
       if (after === null && since > 20_000) this.endJumpCamera();
     }
     // a ship that is not moving (at a gate, or come out of one) has no way of its own: the camera's, so the tunnel eases out
     if (way.lengthSq() < 0.5) tunnelWay = this.camera.getWorldDirection(new THREE.Vector3());
     this.flashEl.style.opacity = flash.toFixed(3);
-    this.warpTunnel.update(this.camera, this.controls.target, tunnelWay, share, dt);
+    this.warpTunnel.update(this.camera, this.controls.target, tunnelWay, share, gateShare, now / 1000, dt);
     this.turretFx.setResolution(innerWidth, innerHeight);
     this.turretFx.onShot = this.onShot;
     this.turretFx.onFire = (ship, moduleID, target) => { this.fireTurretSet(ship, moduleID, target); };

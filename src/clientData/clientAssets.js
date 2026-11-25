@@ -22,6 +22,7 @@ const GENERATED = new Map([
   ["/dscanCones.json", ["--dscan-cones", '"lineTexture"']],
   ["/dscanHologram.json", ["--dscan-hologram"]],
   ["/wormholeTransit.json", ["--wormhole-transit"]],
+  ["/warpTunnel.json", ["--warp-tunnel"]],
   ["/shipInfoScene.json", ["--ship-info"]],
   ["/drifterCollectionExplosion.json", ["--drifter-collection-explosion", '"explosionBuild":2']],
   ["/observatoryEnvironment.json", ["--observatory-environment", '"environmentBuild":3']],
