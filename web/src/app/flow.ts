@@ -472,6 +472,7 @@ import { repairTargets, type RepairQuotePart, type RepairQuoteRow } from "../bri
 import { isRepairableItem, payRepairShop, quoteRepairs, repairItemsAtShop, repairQuoted, stationOffersRepair } from "../bridge/repairShop.ts";
 import { insurancePrices, insuranceTerms, stationInsuranceContracts, type InsurancePackage, type StationInsuranceShip } from "../bridge/stationInsurance.ts";
 import { decodeStationLpOffers, type StationLpOffer, type StationLpStore } from "../bridge/stationLpStore.ts";
+import { cloneBayAvailable, decodeJumpClones, jumpCloneLocationKind, type JumpClone } from "../bridge/jumpClones.ts";
 import { createSpacePoller, targetsReadIsDue, type SpacePoller } from "./spacePoll.ts";
 import type { RequestPriority } from "./transport.ts";
 import type { CorpOfficesResult, DronesResult, FlightStepResult } from "./api.ts";
@@ -2298,6 +2299,11 @@ export interface AppFlow {
   cancelStationInsurance(placeID: number, itemID: number, contractID: number): Promise<void>;
   loadStationLpStore(stationID: number, issuerID: number): Promise<StationLpStore>;
   buyStationLpOffer(stationID: number, issuerID: number, offer: StationLpOffer, quantity: number): Promise<void>;
+  loadJumpClones(): Promise<readonly JumpClone[]>;
+  quoteJumpCloneInstall(placeID: number): Promise<number>;
+  installJumpClone(placeID: number, price: number): Promise<void>;
+  renameJumpClone(id: number, name: string): Promise<void>;
+  destroyJumpClone(id: number): Promise<void>;
   /**
    * Pay the station to repair exactly what this quote lists — the rows the
    * caller was just shown, never a broader "everything" — at the quote's cost.
@@ -9256,6 +9262,62 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (store.get().drones.loaded) {
       await loadDrones().catch(() => {});
     }
+  }
+
+  async function loadJumpClones(): Promise<readonly JumpClone[]> {
+    const rows = decodeJumpClones(await bridgeAsk("jumpCloneSvc", "GetCloneState", []));
+    requestNames(rows.flatMap(row => [
+      { kind: jumpCloneLocationKind(row.locationID), id: row.locationID },
+      ...row.implants.map(id => ({ kind: "type" as const, id })),
+    ]));
+    return rows;
+  }
+
+  function jumpCloneBay(placeID: number): "InstallCloneInStation" | "InstallCloneInStructure" {
+    const view = store.station.get();
+    if (dockedNow() === placeID) {
+      if (view.online?.structureID === placeID && cloneBayAvailable(view.structureServiceIDs, true)) return "InstallCloneInStructure";
+      if (view.online?.stationID === placeID && view.station?.stationID === placeID &&
+          cloneBayAvailable(view.station.serviceIDs, false)) return "InstallCloneInStation";
+    }
+    throw new Error("Dock at a station or structure with a Clone Bay.");
+  }
+
+  async function quoteJumpCloneInstall(placeID: number): Promise<number> {
+    const pilot = store.station.get().online?.characterID;
+    jumpCloneBay(placeID);
+    const [validation, cost] = await Promise.all([
+      bridgeAsk("jumpCloneSvc", "ValidateInstallJumpClone", []),
+      bridgeAsk("jumpCloneSvc", "GetPriceForClone", []),
+    ]);
+    jumpCloneBay(placeID);
+    if (pilot !== store.station.get().online?.characterID) throw new Error("The active pilot changed.");
+    const failures = isListValue(validation) ? validation.items : validation;
+    if (!Array.isArray(failures)) throw new Error("Jump clone eligibility could not be read.");
+    if (failures.length > 0) {
+      if (failures.includes("UI/Medical/JumpCloneSkillReqNotMet")) throw new Error("Train Infomorph Psychology to install a jump clone.");
+      const atLimit = failures.some(row => Array.isArray(row) && row[0] === "UI/Medical/JumpCloneUsageAndCapacity");
+      throw new Error(atLimit ? "You have reached your jump clone limit." : "A jump clone cannot be installed at this location.");
+    }
+    const price = unwrapReal(cost);
+    if (price === null || price < 0 || !Number.isFinite(price)) throw new Error("The Clone Bay did not quote a valid price.");
+    return price;
+  }
+
+  async function installJumpClone(placeID: number, price: number): Promise<void> {
+    const method = jumpCloneBay(placeID);
+    if (price !== await quoteJumpCloneInstall(placeID) || method !== jumpCloneBay(placeID)) {
+      throw new Error("The Clone Bay quote changed. Get a new quote before installing.");
+    }
+    await bridgeDo("jumpCloneSvc", method, []);
+  }
+
+  async function renameJumpClone(id: number, name: string): Promise<void> {
+    await bridgeDo("jumpCloneSvc", "SetJumpCloneName", [id, { type: "wstring", value: name.trim() }]);
+  }
+
+  async function destroyJumpClone(id: number): Promise<void> {
+    await bridgeDo("jumpCloneSvc", "DestroyInstalledClone", [id]);
   }
 
   async function loadStationLpStore(stationID: number, issuerID: number): Promise<StationLpStore> {
@@ -37004,6 +37066,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     cancelStationInsurance,
     loadStationLpStore,
     buyStationLpOffer,
+    loadJumpClones,
+    quoteJumpCloneInstall,
+    installJumpClone,
+    renameJumpClone,
+    destroyJumpClone,
 
     async repairShip(quotes) {
       // The page's own call (bridge/repairShop.ts): the station's repair with the quote's cost for its payment,

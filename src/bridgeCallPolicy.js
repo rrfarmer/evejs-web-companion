@@ -947,6 +947,8 @@ function isBridgeWritePair(service, method) {
  */
 const PAGE_WRITE_PAIR_KEYS = Object.freeze([
   "LPStoreMgr.TakeOfferForCharacter",
+  "jumpCloneSvc.InstallCloneInStation", "jumpCloneSvc.InstallCloneInStructure",
+  "jumpCloneSvc.SetJumpCloneName", "jumpCloneSvc.DestroyInstalledClone",
   "insuranceSvc.InsureShip", "insuranceSvc.UnInsureShip",
   "repackagingSvc.RepackageItems",
   "structureControl.TakeControl", "structureControl.ReleaseControl",

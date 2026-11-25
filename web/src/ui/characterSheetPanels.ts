@@ -4,7 +4,7 @@
 import { writable } from "svelte/store";
 
 /** The sheet's panels the page has, by its names for them. */
-export type SheetPanel = "home" | "memberships" | "implants" | "bio" | "decorations" | "expert" | "employment" | "skills" | "standings";
+export type SheetPanel = "home" | "memberships" | "implants" | "jumpClones" | "bio" | "decorations" | "expert" | "employment" | "skills" | "standings";
 
 /** The panel last asked for, until the sheet has taken it. */
 export const sheetPanelRequest = writable<SheetPanel | null>(null);

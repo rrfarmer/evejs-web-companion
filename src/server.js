@@ -1245,6 +1245,19 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     }
   }
   const stationLpPurchase = body.service === "LPStoreMgr" && body.method === "TakeOfferForCharacter";
+  const cloneInstall = body.service === "jumpCloneSvc" && ["InstallCloneInStation", "InstallCloneInStructure"].includes(body.method);
+  if (body.service === "jumpCloneSvc" && write) {
+    const args = Array.isArray(body.args) ? body.args : [];
+    const [id, name] = args;
+    const valid = cloneInstall ? args.length === 0 : Number.isSafeInteger(id) && id > 0 &&
+      (body.method === "DestroyInstalledClone" ? args.length === 1 :
+        body.method === "SetJumpCloneName" && args.length === 2 && name?.type === "wstring" &&
+        typeof name.value === "string" && name.value.length <= 100);
+    if (body.of != null || body.kwargs != null || !valid) {
+      res.status(400).json({ ok: false, error: "INVALID_JUMP_CLONE_COMMAND", message: "Choose a valid jump clone action." });
+      return;
+    }
+  }
   if (stationLpPurchase) {
     const args = Array.isArray(body.args) ? body.args : [];
     if (body.of != null || body.kwargs != null || args.length !== 3 ||
@@ -1561,6 +1574,15 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
   if (scalarController) res.once("close", scalarClosed);
   const scalarSignal = scalarController ? req.operationSignal ?? scalarController.signal : undefined;
   try {
+    if (cloneInstall) {
+      const place = await assertDockedInventoryAccess(heldBridgeSession, req.webSessionID, 10);
+      const structure = !!heldBridgeSession.structureID;
+      if (structure !== (body.method === "InstallCloneInStructure") ||
+          (!structure && !buildStationStatic(place)?.serviceIDs?.some(id => [10, 11, 12, 24].includes(id)))) {
+        res.status(409).json({ ok: false, error: "CLONE_BAY_UNAVAILABLE", message: "Dock at a station or structure with a Clone Bay." });
+        return;
+      }
+    }
     if (stationLpPurchase) {
       const dockedAt = await assertDockedInventoryAccess(heldBridgeSession, req.webSessionID);
       const issuer = Number(staticData.getStation(dockedAt)?.corporationID);

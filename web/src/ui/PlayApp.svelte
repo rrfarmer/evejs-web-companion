@@ -103,6 +103,8 @@
   import ClientDialogs from "./ClientDialogs.svelte";
   import { stationOffersRepair } from "../bridge/repairShop.ts";
   import { structureHasCapability } from "../nav/dockableLocation.ts";
+  import { cloneBayAvailable } from "../bridge/jumpClones.ts";
+  import { requestSheetPanel } from "./characterSheetPanels.ts";
   import ScannerWindows from "./ScannerWindows.svelte";
   import { INTEGRATED_MINING_SCANNER } from "../bridge/miningScanResults.ts";
   import MiningScanWindowActions from "./MiningScanWindowActions.svelte";
@@ -886,6 +888,10 @@
     ? $station.structureServiceIDs?.includes(9) === true
     : ($station?.online?.stationID != null && $station.station?.stationID === $station.online.stationID &&
       $station.station.serviceIDs?.includes(21) === true));
+  const medicalAvailable = $derived($station?.online?.structureID
+    ? cloneBayAvailable($station.structureServiceIDs, true)
+    : $station?.online?.stationID != null && $station.station?.stationID === $station.online.stationID &&
+      cloneBayAvailable($station.station.serviceIDs, false));
   const lpStoreAvailable = $derived(!$station?.online?.structureID && $station?.online?.stationID != null &&
     $station.station?.stationID === $station.online.stationID && $station.station.serviceIDs?.includes(25) === true &&
     ($station.bits?.ownerID ?? 0) > 0);
@@ -4007,6 +4013,12 @@
           {/if}
           {#if error}<div class="error lobby-error">{error}</div>{/if}
           <div class="lobby-services">
+            {#if medicalAvailable}
+              <button type="button" class="lobby-svc" title="Clone Bay" aria-label="Clone Bay"
+                onclick={() => { requestSheetPanel("jumpClones"); open("characterSheet"); }}>
+                <img alt="" src={clientTexture("res:/ui/Texture/WindowIcons/cloneBay.png")} />
+              </button>
+            {/if}
             {#each LOBBY_SERVICES as svc (svc.label)}
               <button class="lobby-svc" title={svc.label} aria-label={svc.label} onclick={() => open(svc.tab)}>
                 <img alt="" src={clientTexture(`res:/UI/Texture/WindowIcons/${svc.icon}.png`)} />

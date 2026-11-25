@@ -42,6 +42,7 @@
   import CharacterMembership from "./CharacterMembership.svelte";
   import CharacterDecorations from "./CharacterDecorations.svelte";
   import Standings from "./Standings.svelte";
+  import JumpClonesPanel from "./JumpClonesPanel.svelte";
   import { sheetPanelRequest, type SheetPanel } from "./characterSheetPanels.ts";
 
   // The client's Character Sheet's tabs (characterSheetWindow.GetMainTabData; charsheet GetPanelName): Character,
@@ -59,6 +60,7 @@
     "Tooltips/CharacterSheet/Memberships": "Memberships",
     "Tooltips/CharacterSheet/Decorations": "Decorations",
     "Tooltips/CharacterSheet/Augmentations": "Implants",
+    "Tooltips/CharacterSheet/JumpClones": "Jump Clones",
     "Tooltips/CharacterSheet/Bio": "Bio",
     "Tooltips/CharacterSheet/ExpertSystems": "Expert systems",
     "Tooltips/CharacterSheet/EmploymentHistory": "Corporations",
@@ -74,7 +76,9 @@
   // svelte-ignore state_referenced_locally
   const opening = panel;
   let sheetTab = $state<SheetTab>(opening === "standings" ? "interactions" : opening === "employment" || opening === "skills" ? "history" : "character");
-  let characterTab = $state<"home" | "memberships" | "implants" | "bio" | "decorations" | "expert">(opening === "implants" || opening === "bio" || opening === "expert" || opening === "memberships" || opening === "decorations" ? opening : "home");
+  type CharacterTab = Exclude<SheetPanel, "standings" | "employment" | "skills">;
+  let characterTab = $state<CharacterTab>(opening && opening !== "standings" && opening !== "employment" && opening !== "skills" ? opening : "home");
+  const activeCharacter = $derived(store.character);
   let historyTab = $state<"employment" | "skills">(opening === "skills" ? "skills" : "employment");
   /** _StartLoadingPanel: a panel asked for while the window is open, or as it opens (characterSheetPanels.ts). */
   function loadPanel(panel: SheetPanel): void {
@@ -256,7 +260,7 @@
   </nav>
   {#if sheetTab === "character"}
   <nav class="sheet-tabs sub" aria-label="Character">
-    {#each [["home", "Tooltips/CharacterSheet/HomeStation"], ["memberships", "Tooltips/CharacterSheet/Memberships"], ["implants", "Tooltips/CharacterSheet/Augmentations"], ["bio", "Tooltips/CharacterSheet/Bio"], ["decorations", "Tooltips/CharacterSheet/Decorations"], ["expert", "Tooltips/CharacterSheet/ExpertSystems"]] as [id, label] (id)}
+    {#each [["home", "Tooltips/CharacterSheet/HomeStation"], ["memberships", "Tooltips/CharacterSheet/Memberships"], ["implants", "Tooltips/CharacterSheet/Augmentations"], ["jumpClones", "Tooltips/CharacterSheet/JumpClones"], ["bio", "Tooltips/CharacterSheet/Bio"], ["decorations", "Tooltips/CharacterSheet/Decorations"], ["expert", "Tooltips/CharacterSheet/ExpertSystems"]] as [id, label] (id)}
       <button type="button" class:active={characterTab === id} aria-pressed={characterTab === id} onclick={() => (characterTab = id as typeof characterTab)}>{tabWord(label!)}</button>
     {/each}
   </nav>
@@ -274,6 +278,9 @@
   {/if}
   {#if characterTab === "memberships"}
     <CharacterMembership {store} {flow} />
+  {/if}
+  {#if characterTab === "jumpClones"}
+    {#key $activeCharacter.selectedCharacterID}<JumpClonesPanel {store} {flow} />{/key}
   {/if}
   {#if characterTab === "decorations"}
     <CharacterDecorations {store} {flow} />
