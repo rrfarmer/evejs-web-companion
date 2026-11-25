@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { graphicModel } from "./hullModel.ts";
 
 interface RadiusBand {
   categoryRangeBegin: number;
@@ -103,7 +105,7 @@ function loadRules(): Promise<AsteroidRules | null> {
 }
 
 interface AsteroidVisual {
-  mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+  mesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material | THREE.Material[]>;
   axis: THREE.Vector3;
   phase: number;
   radius: number;
@@ -112,14 +114,73 @@ interface AsteroidVisual {
   rules: AsteroidRules | null;
 }
 
+interface RockSurface {
+  geometry: THREE.BufferGeometry;
+  material: THREE.Material | THREE.Material[];
+  maxScreenSize: number;
+}
+
+interface StockRock {
+  surfaces: RockSurface[];
+  radius: number;
+}
+
+async function loadRockSurfaces(graphicID: number): Promise<StockRock | null> {
+  const model = await graphicModel(graphicID);
+  if (!model) return null;
+  const lods: THREE.LOD[] = [];
+  model.traverse(object => { if (object instanceof THREE.LOD) lods.push(object); });
+  model.updateMatrixWorld(true);
+  const surfaces: RockSurface[] = [];
+  for (const level of lods[0]?.levels.map(entry => entry.object) ?? [model]) {
+    const parts: THREE.BufferGeometry[] = [];
+    const materials: THREE.Material[] = [];
+    level.traverseVisible(object => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh || Array.isArray(mesh.material) || mesh.material.transparent) return;
+      parts.push(mesh.geometry.clone().applyMatrix4(mesh.matrixWorld));
+      materials.push(mesh.material);
+    });
+    const geometry = parts.length === 1 ? parts[0] : parts.length > 1 ? mergeGeometries(parts, true) : null;
+    if (parts.length > 1) for (const part of parts) part.dispose();
+    if (geometry) surfaces.push({
+      geometry,
+      material: materials.length === 1 ? materials[0]! : materials,
+      maxScreenSize: Number(level.userData.maxScreenSize) || 0,
+    });
+  }
+  if (!surfaces.length) return null;
+  // ScalableSpaceObject applies the ball radius to the authored mesh and its bounds.
+  const radius = Number(model.userData.boundingSphere?.[3]) || 1;
+  return { surfaces: surfaces.reverse(), radius };
+}
+
 export class AsteroidModels {
   private readonly byVariant = new Map<string, THREE.BufferGeometry>();
+  private readonly stock = new Map<number, StockRock>();
+  private readonly requestedGraphics = new Set<number>();
+  private readonly queuedGraphics: number[] = [];
+  private loading = 0;
+  private disposed = false;
   private readonly visuals = new WeakMap<THREE.Object3D, AsteroidVisual>();
   private readonly material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, emissive: 0x22201d, emissiveIntensity: 0.45 });
   private rules: AsteroidRules | null = null;
   private requested = false;
 
-  update(holder: THREE.Object3D, ball: AsteroidBall, timeMs: number): void {
+  private loadQueuedGraphics(): void {
+    while (!this.disposed && this.loading < 3 && this.queuedGraphics.length) {
+      const id = this.queuedGraphics.shift()!;
+      this.loading++;
+      void loadRockSurfaces(id).then(stock => {
+        if (!stock) return;
+        if (this.disposed) {
+          for (const { geometry } of stock.surfaces) geometry.dispose();
+        } else this.stock.set(id, stock);
+      }).catch(() => {}).finally(() => { this.loading--; this.loadQueuedGraphics(); });
+    }
+  }
+
+  update(holder: THREE.Object3D, ball: AsteroidBall, timeMs: number, pixels = Infinity, lodFactor = 1, threshold = 0): void {
     if (!this.requested) {
       this.requested = true;
       void loadRules().then(rules => { this.rules = rules; });
@@ -145,13 +206,30 @@ export class AsteroidModels {
         this.byVariant.set(key, geometry);
       }
       rock.mesh.geometry = geometry;
+      rock.mesh.material = this.material;
       rock.mesh.userData.graphicID = graphicID;
+      rock.mesh.userData.authored = false;
       rock.mesh.scale.setScalar(Number.isFinite(ball.radius) && ball.radius > 0 ? ball.radius : 5);
       rock.radius = ball.radius;
       rock.groupID = ball.groupID;
       rock.typeID = ball.typeID;
       rock.rules = this.rules;
     }
+    const graphicID = rock.mesh.userData.graphicID as number | null;
+    if (graphicID !== null && !this.requestedGraphics.has(graphicID)) {
+      this.requestedGraphics.add(graphicID);
+      this.queuedGraphics.push(graphicID);
+      this.loadQueuedGraphics();
+    }
+    const stock = graphicID === null ? undefined : this.stock.get(graphicID);
+    const size = pixels * (stock?.radius ?? 1);
+    const surface = stock?.surfaces.find(level => level.maxScreenSize >= size / lodFactor) ?? stock?.surfaces.at(-1);
+    if (surface && rock.mesh.geometry !== surface.geometry) {
+      rock.mesh.geometry = surface.geometry;
+      rock.mesh.material = surface.material;
+      rock.mesh.userData.authored = true;
+    }
+    rock.mesh.visible = size >= threshold;
     const period = 75 * Math.log(Math.max(2, rock.mesh.scale.x)) * 1000;
     rock.mesh.quaternion.setFromAxisAngle(rock.axis, rock.phase + (timeMs % period) / period * 2 * Math.PI);
   }
@@ -161,8 +239,12 @@ export class AsteroidModels {
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.queuedGraphics.length = 0;
     this.material.dispose();
     for (const geometry of this.byVariant.values()) geometry.dispose();
     this.byVariant.clear();
+    for (const stock of this.stock.values()) for (const { geometry } of stock.surfaces) geometry.dispose();
+    this.stock.clear();
   }
 }

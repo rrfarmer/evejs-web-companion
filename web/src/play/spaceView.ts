@@ -6180,6 +6180,8 @@ export class SpaceView {
     const survey = this.options.miningSurvey?.();
     let sun: { position: THREE.Vector3; radius: number } | null = null;
     const settings = gfx();
+    const asteroidLod = lodSettings(settings);
+    const asteroidProjection = (this.camera.projectionMatrix.elements[0] ?? 1) * this.renderer.domElement.width;
     const rendering = spaceRendering(settings);
     const reflectClouds = settings.reflectionQuality >= 3 && settings.shaderQuality >= 2;
     const reflectionSources: VortexReflection[] = [];
@@ -6204,7 +6206,10 @@ export class SpaceView {
       let mark = this.marks.get(e.itemID);
       if (!mark) { mark = this.markFor(e); this.marks.set(e.itemID, mark); this.scene.add(mark); }
       this.updateMarkModel(mark, e);
-      if (e.kind === "asteroid") this.asteroidModels.update(mark, e, bracketSimNow ?? now);
+      if (e.kind === "asteroid") {
+        const size = e.radius / Math.max(1e-5, rel.distanceTo(this.camera.position)) * asteroidProjection;
+        this.asteroidModels.update(mark, e, bracketSimNow ?? now, size, asteroidLod.lodFactor, asteroidLod.visibility);
+      }
       mark.position.copy(rel);
       this.orient(mark, e);
       if (e.typeID === METENOX_TYPE_ID) {
@@ -6559,8 +6564,8 @@ export class SpaceView {
       if (impact) return impact.locatorPosition(impact.locatorFacing(from));
       // An asteroid: the client's SOF rock carries a damage locator set over its surface (55 on a Veldspar
       // rock_01_m, read through gridcheck) and the beam ends on the one facing the shooter
-      // (EveTurretTarget::GetImpactPosition, DAMAGE_LOCATOR). The rock drawn here is the page's own, without locators:
-      // the point of its surface the shooter's line to its centre meets stands for that locator.
+      // (EveTurretTarget::GetImpactPosition, DAMAGE_LOCATOR). Use the point where the shooter's line to its centre
+      // meets the drawn surface.
       const rock = mark ? this.asteroidModels.meshOf(mark) : undefined;
       if (!mark || !rock) return null;
       rock.updateWorldMatrix(true, false);

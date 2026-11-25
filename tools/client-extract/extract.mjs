@@ -945,8 +945,12 @@ async function main() {
       }
       if (!g?.sofHullName) throw new Error(`--graphic ${graphicID}: not a SOF hull or scene graphic`);
       const hull = g.sofHullName.toLowerCase();
-      let gr2 = null;
-      for (const [key] of rf.entries) if (key.endsWith(`/${hull}.gr2`) && key.startsWith("res:/dx9/model/")) { gr2 = key; break; }
+      const authoredGeometry = loadSof(rf).hulls.get(hull)?.geometryResFilePath;
+      let gr2 = typeof authoredGeometry === "string" ? authoredGeometry.replace(/\\/g, "/").toLowerCase() : null;
+      if (!gr2 || !rf.has(gr2)) {
+        gr2 = null;
+        for (const [key] of rf.entries) if (key.endsWith(`/${hull}.gr2`) && key.startsWith("res:/dx9/model/")) { gr2 = key; break; }
+      }
       if (!gr2) throw new Error(`--graphic ${graphicID}: no model ${hull}.gr2 in the client`);
       if (meshMissing(gr2)) specs.push(gr2);
       const materialSet = stockDefaults[graphicID];

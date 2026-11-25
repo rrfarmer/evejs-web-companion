@@ -944,7 +944,13 @@ async function loadModel(info: TypeModelInfo, typeID: number | null, materialOve
   const lodNodes = gltf.scene.children[0]?.children ?? [];
   const size = new THREE.Box3().setFromObject(lodNodes[0] ?? gltf.scene).getBoundingSphere(new THREE.Sphere()).radius || 50;
   const lod = new THREE.LOD();
-  lodNodes.slice().forEach((node, i) => lod.addLevel(node, i === 0 ? 0 : size * 12 * 2 ** (i - 1)));
+  // The extractor stores these on glTF meshes. A mesh with several primitives loads as a group.
+  const meshDefs = (gltf.parser.json as { meshes?: { extras?: { lod?: number; maxScreenSize?: number | null } }[] }).meshes ?? [];
+  const screenSizes = new Map(meshDefs.map(({ extras }) => [extras?.lod, extras?.maxScreenSize]));
+  lodNodes.slice().forEach((node, i) => {
+    node.userData.maxScreenSize = screenSizes.get(node.userData.lod) ?? null;
+    lod.addLevel(node, i === 0 ? 0 : size * 12 * 2 ** (i - 1));
+  });
   // the hull's decals, on each LOD (hullDecals.ts)
   const decalSets = (sof as { decalSets?: SofDecalSet[] } | null)?.decalSets;
   // (the LOD's levels: lodNodes is the file's live children list, which addLevel has emptied)
