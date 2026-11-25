@@ -217,7 +217,7 @@
 {:else if tab === "provisioning"}
   <ProvisioningPanel {store} {flow} />
 {:else if tab === "industry"}
-  <Industry {store} {flow} />
+  <Industry {store} {flow} showAgents={onOpen ? () => onOpen?.("agents") : undefined} />
 {:else if tab === "academyShips"}
   <AcademyShips {store} {flow} openShipTree={onOpen ? () => { shipTreeSelection(flow).set(AIR_FACTION); onOpen?.("shipTree"); } : undefined} />
 {:else if tab === "shipTree"}

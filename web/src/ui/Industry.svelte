@@ -55,9 +55,10 @@
   import { formatIsk } from "./isk.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
+  import IndustryResearch from "./IndustryResearch.svelte";
   import { panelErrorWords } from "../bridge/refusals.ts";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, showAgents }: { store: ClientStore; flow: AppFlow; showAgents?: () => void } = $props();
 
   // svelte-ignore state_referenced_locally
   const industry = store.industry;
@@ -1253,7 +1254,7 @@
         <button type="button" class:active={browserTab === t.id} onclick={() => (browserTab = t.id)}>{industryWord(t.label) || t.own}</button>
       {/each}
     </nav>
-    {#if browserTab === "research"}<p class="note ind-research">Research agents are not in the play page yet.</p>{/if}
+    {#if browserTab === "research"}<IndustryResearch {store} {flow} {showAgents} />{/if}
   {/if}
   {#if retail}
   <section class="ind-jobs ind-jobs-client">

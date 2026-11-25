@@ -16,6 +16,7 @@ import type {
   AgentLastActionInfo,
   CourierBriefing,
   JournalMission,
+  JournalResearch,
   JournalState,
   MissionSpot,
 } from "../store/types.ts";
@@ -490,21 +491,28 @@ export const AGENT_MISSION_STATE = Object.freeze({
 });
 
 /**
- * Decode GetMyJournalDetails: tuple(activeMissions, offeredMissions). The
- * retail runtime returns every mission in the first tuple slot (the second is
- * empty — `getJournalDetails` yields `[allMissions, []]`), so bucketing by
- * tuple position renders an OFFERED mission under "Active" (seen live in R4).
- * The retail journal classifies by the row's missionState, not by server slot;
- * mirror that — a row in state OFFERED (1) is offered, everything else active.
+ * Decode GetMyJournalDetails: tuple(missions, research). The mission state
+ * distinguishes active missions from offers within the first bucket.
  */
 export function decodeJournal(result: JsonValue): JournalState {
   const buckets = seqItems(result);
-  const rows = [
-    ...seqItems(buckets[0]).map(decodeJournalRow),
-    ...seqItems(buckets[1]).map(decodeJournalRow),
-  ];
+  const rows = seqItems(buckets[0]).map(decodeJournalRow);
+  const research: JournalResearch[] = [];
+  for (const entry of seqItems(buckets[1])) {
+    const fields = seqItems(entry);
+    const agentID = toNumber(fields[0]);
+    const fieldTypeID = toNumber(fields[1]);
+    const pointsPerDay = unwrapReal(fields[2]);
+    const currentPoints = unwrapReal(fields[3]);
+    const level = toNumber(fields[4]);
+    const stationID = toNumber(fields[6]);
+    if (agentID && fieldTypeID && pointsPerDay !== null && currentPoints !== null && level !== null && stationID) {
+      research.push({ agentID, fieldTypeID, pointsPerDay, currentPoints, level, stationID });
+    }
+  }
   return {
     active: rows.filter((row) => row.missionState !== AGENT_MISSION_STATE.OFFERED),
     offered: rows.filter((row) => row.missionState === AGENT_MISSION_STATE.OFFERED),
+    ...(research.length ? { research } : {}),
   };
 }

@@ -1490,10 +1490,20 @@ export interface MissionPageState {
   readonly acceptTime?: string | null;
 }
 
-/** The decoded mission journal: active + offered missions. */
+export interface JournalResearch {
+  readonly agentID: number;
+  readonly fieldTypeID: number;
+  readonly pointsPerDay: number;
+  readonly currentPoints: number;
+  readonly level: number;
+  readonly stationID: number;
+}
+
+/** The decoded agent journal, with mission states and any ongoing research. */
 export interface JournalState {
   readonly active: readonly JournalMission[];
   readonly offered: readonly JournalMission[];
+  readonly research?: readonly JournalResearch[];
 }
 
 /**
