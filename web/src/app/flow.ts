@@ -11,7 +11,7 @@ import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, dec
 import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequenceComponent,
   type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
-import { decodeHyperNetOffers, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetItem, type HyperNetOffer } from "../bridge/hyperNet.ts";
+import { decodeHyperNetHistoryPage, decodeHyperNetOffers, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer } from "../bridge/hyperNet.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
 import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms,
@@ -4630,6 +4630,7 @@ export interface AppFlow {
   buyShipSkinrListing(listing: string, quantity: number, version: string): Promise<string>;
   loadShipSkinrComponentOffers(): Promise<readonly ShipSkinrComponentOffer[]>;
   loadHyperNetOffers(constraints?: HyperNetConstraints, item?: HyperNetItem | null, scope?: HyperNetBrowseScope): Promise<readonly HyperNetOffer[]>;
+  loadHyperNetHistory(): Promise<readonly HyperNetHistoryOffer[]>;
   searchHyperNetItems(text: string): Promise<readonly HyperNetItem[]>;
   hyperNetItemCategory(item: HyperNetItem): Promise<number | null>;
   loadHyperNetMetaGroups(): Promise<readonly { readonly id: number; readonly name: string }[]>;
@@ -29254,6 +29255,23 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id);
   }
 
+  async function loadHyperNetHistory(): Promise<readonly HyperNetHistoryOffer[]> {
+    const current = callOptions.captureRequestGuard!();
+    const history = new Map<number, HyperNetHistoryOffer>();
+    let cursor: number | undefined;
+    for (;;) {
+      const reply = await bridgeAsk("raffleProxy", "GetMyRaffleHistory", [], cursor === undefined ? {} : { running_id: cursor });
+      current();
+      const { rows, size } = decodeHyperNetHistoryPage(reply);
+      if (cursor !== undefined && rows.some(row => row.runningID >= cursor!)) {
+        throw new Error("HyperNet history pagination did not advance.");
+      }
+      for (const row of rows) history.set(row.id, row);
+      if (rows.length < size) return [...history.values()];
+      cursor = Math.min(...rows.map(row => row.runningID));
+    }
+  }
+
   async function hyperNetItemCategory(item: HyperNetItem): Promise<number | null> {
     if (item.key === "category_id") return item.id;
     if (item.categoryID !== undefined) return item.categoryID;
@@ -41791,6 +41809,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     buyShipSkinrListing,
     loadShipSkinrComponentOffers,
     loadHyperNetOffers,
+    loadHyperNetHistory,
     searchHyperNetItems: text => api.getHyperNetItems(text, callOptions),
     hyperNetItemCategory,
     loadHyperNetMetaGroups,

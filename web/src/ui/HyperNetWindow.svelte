@@ -8,6 +8,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { showInfo } from "./showInfo.ts";
+  import HyperNetHistory from "./HyperNetHistory.svelte";
   import { typeIconUrl } from "./typeIcons.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
@@ -16,6 +17,8 @@
   const station = $derived(store.station);
   const pilot = $derived($station.online?.characterID);
   const labels = {
+    browse: ["UI/HyperNet/TabNameBrowse", "Browse"],
+    history: ["UI/HyperNet/TabNameMyRaffles", "History"],
     refresh: ["UI/HyperNet/Refresh", "Refresh"],
     empty: ["UI/HyperNet/NoRafflesFoundError", "No HyperNet offers found"],
     price: ["UI/HyperNet/TicketPrice", "HyperNode price"],
@@ -54,6 +57,7 @@
   const ticketCount = (offer: HyperNetOffer) => plainText(formatTemplate(word("tickets"),
     { remaining_ticket_count: offer.remaining, ticket_count: offer.tickets }, { nameOf: () => "" }));
   const pageSize = 12;
+  let view = $state<"browse" | "history">("browse");
   const priceBounds = [1_000_000, 10_000_000, 100_000_000] as const;
   const countBounds = [8, 16, 48, 512] as const;
   const defaults = { minPrice: 0, maxPrice: 0, minCount: 8, maxCount: 512 };
@@ -360,6 +364,13 @@
 </script>
 
 <section class="hypernet">
+  <nav aria-label="HyperNet Relay">
+    <button type="button" aria-pressed={view === "browse"} onclick={() => { view = "browse"; }}>{word("browse")}</button>
+    <button type="button" aria-pressed={view === "history"} onclick={() => { view = "history"; }}>{word("history")}</button>
+  </nav>
+  {#if view === "history"}
+    <HyperNetHistory {store} {flow} {pilot} />
+  {:else}
   <header>
     <details class="range-filters">
       <summary>{word("filters")}</summary>
@@ -541,10 +552,13 @@
       {/each}
     </ul>
   {/if}
+  {/if}
 </section>
 
 <style>
   .hypernet { display: grid; gap: 12px; padding: 14px; }
+  nav { display: flex; gap: 6px; }
+  nav button[aria-pressed="true"] { border-color: currentColor; }
   header { display: flex; justify-content: space-between; align-items: start; gap: 8px; }
   summary { cursor: pointer; }
   fieldset { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
