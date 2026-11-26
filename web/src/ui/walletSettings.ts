@@ -9,6 +9,7 @@ const defaults = {
   notifyPlexBalanceChange: true,
   walletShowCents: false,
   walletShowBalanceUpdates: true,
+  walletShowLpUpdates: true,
   iskNotifyThreshold: 0,
 };
 type WalletSettings = typeof defaults;

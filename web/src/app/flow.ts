@@ -2255,6 +2255,13 @@ interface WalletBlink {
   readonly kind: "personalIsk" | "corporationIsk" | "personalShares" | "corporationShares" | "corporationBill";
 }
 
+interface WalletLpChange {
+  readonly characterID: number;
+  readonly issuerID: number;
+  readonly before: number | null;
+  readonly after: number | null;
+}
+
 export interface AppFlow {
   infoUsedWith(typeID: number): Promise<readonly TypeUsedWithGroup[]>;
   /** What a plugin's loop flies this pilot with. */
@@ -3827,6 +3834,7 @@ export interface AppFlow {
   pilotWealth(): Promise<number | null>;
   readonly personalWalletChanged: ReadableSignal<{ readonly characterID: number; readonly balance: number; readonly difference: number } | null>;
   readonly walletBlink: ReadableSignal<WalletBlink | null>;
+  readonly walletLpChanged: ReadableSignal<WalletLpChange | null>;
   /** walletSvc.GetCorpWealth: fresh, None for active division; native UserError becomes0. */
   corporationWealth(accountKey?: number | null): Promise<number>;
   /** walletSvc.GetCorpWealthCached1Min, keyed separately from fresh window reads. */
@@ -7161,6 +7169,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const walletReads = createWalletReads(bridgeAsk);
   const personalWalletSignal = createSignal<{ characterID: number; balance: number; difference: number } | null>(null);
   const walletBlinkSignal = createSignal<WalletBlink | null>(null);
+  const walletLpSignal = createSignal<WalletLpChange | null>(null);
   const corporationWealthSignal = createSignal<CorporationWealthChange | null>(null);
   const incursionSignal = createSignal<IncursionData | null>(null);
   const corporationWealthReads = createCorporationWealth({
@@ -7189,6 +7198,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     walletReads.forget();
     personalWalletSignal.set(null);
     walletBlinkSignal.set(null);
+    walletLpSignal.set(null);
     corporationWealthReads.forget();
     corporationWealthSignal.set(null);
     closeMoneyTransfer();
@@ -8248,6 +8258,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const online = store.station.get().online;
       if (online && hasAccessToCorporationWallet(online.corpRole)) {
         walletBlinkSignal.set({ characterID: online.characterID, kind: "corporationBill" });
+      }
+    }
+    if (method === "OnLPChange") {
+      const pilot = store.station.get().online;
+      const walletNumber = (value: unknown): number | null => {
+        const number = Number(wholeDigits(value) ?? Number.NaN);
+        return Number.isSafeInteger(number) ? number : null;
+      };
+      const issuerID = walletNumber(args[1]);
+      if (pilot && issuerID !== null && issuerID > 0) {
+        walletLpSignal.set({ characterID: pilot.characterID, issuerID,
+          before: walletNumber(args[2]), after: walletNumber(args[3]) });
       }
     }
     const sessionNames = sessionChangeNames(method, args);
@@ -39894,6 +39916,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     pilotWealth,
     personalWalletChanged: readonlySignal(personalWalletSignal),
     walletBlink: readonlySignal(walletBlinkSignal),
+    walletLpChanged: readonlySignal(walletLpSignal),
     corporationWealth: accountKey => corporationWealthReads.fresh(accountKey),
     cachedCorporationWealth: accountKey => corporationWealthReads.cached(accountKey),
     corporationWealthChanged: readonlySignal(corporationWealthSignal),

@@ -144,6 +144,7 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { canReceiveCorporationWealth } from "../bridge/corporationWealth.ts";
   import { decodePlexWalletNotice, PLEX_WALLET_NOTICE } from "../bridge/plexWalletNotice.ts";
+  import type { WalletBalanceChange } from "../play/walletBalancePopup.ts";
   import { formatWalletCents, formatWholeIsk } from "./isk.ts";
   import { walletSetting, walletShowsCents } from "./walletSettings.ts";
   import { canClaimNow } from "../bridge/loginRewards.ts";
@@ -1067,6 +1068,11 @@
   const WALLET_DEBIT_LABEL = "Tooltips/Neocom/WalletDebit";
   const PLEX_BALANCE_LABEL = "Tooltips/Neocom/PLEXBalance";
   const PLEX_BLINK_LABEL = "UI/Neocom/Blink/PlexBalanceChanged";
+  const LP_BLINK_LABEL = "UI/Neocom/Blink/LoyaltyPointsChanged";
+  const LP_BALANCE_LABEL = "Tooltips/Neocom/LoyaltyPointBalance";
+  const LP_AMOUNT_LABEL = "UI/LPStore/AmountLP";
+  const EVERMARK_AMOUNT_LABEL = "UI/Common/NumEverMarksShort";
+  const PARAGON_CORPORATION_ID = 1000419;
   const WALLET_BLINKS = {
     personalIsk: ["notifyAccountChange", "UI/Neocom/Blink/ISKBalanceChanged", "Your ISK balance has changed"],
     corporationIsk: ["notifyAccountChangeCorp", "UI/Neocom/Blink/CorpISKBalanceChanged", "Corp ISK balance changed"],
@@ -1101,17 +1107,15 @@
   };
   $effect(() => {
     session?.flow.requestWords([WALLET_BALANCE_LABEL, CORPORATION_BALANCE_LABEL, WALLET_CREDIT_LABEL, WALLET_DEBIT_LABEL,
-      PLEX_BALANCE_LABEL, PLEX_BLINK_LABEL,
+      PLEX_BALANCE_LABEL, PLEX_BLINK_LABEL, LP_BLINK_LABEL, LP_BALANCE_LABEL, LP_AMOUNT_LABEL, EVERMARK_AMOUNT_LABEL,
       ...Object.values(WALLET_BLINKS).map(([, label]) => label)]);
     if (neocomInst) neocomInst.walletTip = readWalletTip;
   });
-  function showWalletBalance(current: Session, currency: "ISK" | "PLEX", change: { balance: number; difference: number }): void {
+  function showWalletBalance(current: Session, change: WalletBalanceChange): void {
     const templates = current.store.words.get().templates;
     const word = (label: string, fallback: string) => plainText(templates[label] ?? "") || fallback;
     const update = {
       ...change,
-      currency,
-      balanceLabel: currency === "ISK" ? word(WALLET_BALANCE_LABEL, "ISK Balance") : word(PLEX_BALANCE_LABEL, "PLEX Balance"),
       creditLabel: word(WALLET_CREDIT_LABEL, "Credit"),
       debitLabel: word(WALLET_DEBIT_LABEL, "Debit"),
     };
@@ -1146,7 +1150,8 @@
       const magnitude = Math.abs(change.difference);
       if (magnitude < 1 || magnitude < walletSetting(change.characterID, "iskNotifyThreshold") ||
           !walletSetting(change.characterID, "walletShowBalanceUpdates")) return;
-      showWalletBalance(current, "ISK", change);
+      const balanceLabel = plainText(current.store.words.get().templates[WALLET_BALANCE_LABEL] ?? "") || "ISK Balance";
+      showWalletBalance(current, { ...change, currency: "ISK", balanceLabel });
     });
   });
   $effect(() => {
@@ -1168,8 +1173,50 @@
       }
       if (change.difference !== 0 && walletSetting(pilot.characterID, "walletShowBalanceUpdates") &&
           !wins.some(win => win.id === "newEdenStore" && !win.minimized)) {
-        showWalletBalance(current, "PLEX", change);
+        const balanceLabel = plainText(current.store.words.get().templates[PLEX_BALANCE_LABEL] ?? "") || "PLEX Balance";
+        showWalletBalance(current, { ...change, currency: "PLEX", balanceLabel });
       }
+    });
+  });
+  $effect(() => {
+    const current = session;
+    if (!current) return;
+    const changes = current.flow.walletLpChanged;
+    let previous = changes.get();
+    let pending = Promise.resolve();
+    return changes.subscribe((change) => {
+      if (previous === change) return;
+      previous = change;
+      if (!change || stage !== "game" || !walletSetting(change.characterID, "walletShowLpUpdates")) return;
+      const { characterID, issuerID, before, after } = change;
+      const difference = before === null || after === null ? 0 : after - before;
+      const magnitude = Math.abs(difference);
+      const showPopup = magnitude >= 1 && magnitude >= walletSetting(characterID, "iskNotifyThreshold") &&
+        walletSetting(characterID, "walletShowBalanceUpdates");
+      pending = pending.then(async () => {
+        await current.flow.resolveNamesNow([{ kind: "corporation", id: issuerID }]).catch(() => {});
+        if (session !== current || stage !== "game" || current.store.station.get().online?.characterID !== characterID) return;
+        const corporationName = resolvedName(current.store.names.get().resolved, "corporation", issuerID, "Corporation");
+        const templates = current.store.words.get().templates;
+        const word = (label: string, args: Record<string, string | number>, fallback: string) => {
+          const template = templates[label];
+          return template ? plainText(formatTemplate(template, args, { nameOf: () => corporationName })) || fallback : fallback;
+        };
+        const hint = word(LP_BLINK_LABEL, { corpID: issuerID }, `Your Loyalty Point balance with ${corporationName} has changed`);
+        if (docked) neocomInst?.blink("wallet", hint);
+        else view?.neocomBlink("wallet", hint);
+        if (showPopup && after !== null) {
+          const evermarks = issuerID === PARAGON_CORPORATION_ID;
+          const format = (value: number) => {
+            const amount = Math.trunc(value);
+            const grouped = amount.toLocaleString("en-US");
+            return evermarks ? word(EVERMARK_AMOUNT_LABEL, { quantity: amount }, `${grouped} EM`)
+              : word(LP_AMOUNT_LABEL, { lpAmount: grouped }, `${grouped} LP`);
+          };
+          const balanceLabel = word(LP_BALANCE_LABEL, { corporationName }, `${corporationName} Balance`);
+          showWalletBalance(current, { currency: "LP", issuerID, balance: after, difference, balanceLabel, format });
+        }
+      }).catch(() => {});
     });
   });
   // ButtonSkillsTooltipPanel's training rows: the queue's head (skillqueue.SkillInTraining), its name and next level in

@@ -73,6 +73,7 @@
   const NOTIFY_SHARES = "UI/Wallet/WalletWindow/NotifyShareChange";
   const NOTIFY_BILLS = "UI/Wallet/WalletWindow/NotifyBillChange";
   const NOTIFY_PLEX = "UI/Wallet/WalletWindow/NotifyPlexBalanceChange";
+  const SHOW_LP_UPDATES = "UI/Wallet/WalletWindow/Configuration/WalletShowLpUpdate";
   const CORP_WALLET = "UI/Wallet/WalletWindow/CorporationWallet";
   const SHOW_CENTS = "UI/Wallet/WalletWindow/WalletShowCents";
   const SHOW_BALANCE_UPDATES = "UI/Wallet/WalletWindow/Configuration/WalletShowBalanceChange";
@@ -86,7 +87,7 @@
   }
   const RETAIL_WORDS = ["UI/Wallet/WalletWindow/MyWallet", "UI/Common/Settings", "UI/Common/ISK", "UI/Common/PLEX",
     "UI/Journal/JournalWindow/Agents/LoyaltyPoints", "UI/Wallet/WalletWindow/EverMarks", "UI/Wallet/WalletWindow/ISKDescription",
-    SHOW_CENTS, SHOW_BALANCE_UPDATES, BALANCE_THRESHOLD, NOTIFY_ISK, NOTIFY_SHARES, NOTIFY_BILLS, NOTIFY_PLEX, CORP_WALLET];
+    SHOW_CENTS, SHOW_BALANCE_UPDATES, SHOW_LP_UPDATES, BALANCE_THRESHOLD, NOTIFY_ISK, NOTIFY_SHARES, NOTIFY_BILLS, NOTIFY_PLEX, CORP_WALLET];
   $effect(() => { if (retail) flow.requestWords(RETAIL_WORDS); });
 
   let busy = $state(false);
@@ -153,6 +154,11 @@
           <input type="checkbox" checked={balanceUpdatesEnabled} disabled={characterID === null}
             onchange={(event) => { if (characterID !== null) setWalletSetting(characterID, "walletShowBalanceUpdates", event.currentTarget.checked); }} />
           {tabWord(SHOW_BALANCE_UPDATES, "Live Balance Updates")}
+        </label>
+        <label class="wallet-lp-updates">
+          <input type="checkbox" checked={walletSetting(characterID, "walletShowLpUpdates")} disabled={characterID === null}
+            onchange={(event) => { if (characterID !== null) setWalletSetting(characterID, "walletShowLpUpdates", event.currentTarget.checked); }} />
+          {tabWord(SHOW_LP_UPDATES, "Blink Wallet Button on Loyalty Point Changes")}
         </label>
         <label class="wallet-plex-blink">
           <input type="checkbox" checked={walletSetting(characterID, "notifyPlexBalanceChange")} disabled={characterID === null}
