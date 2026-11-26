@@ -9,6 +9,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { typeIconUrl } from "./typeIcons.ts";
+  import { showMarketDetails } from "./marketDetails.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const words = $derived(store.words);
@@ -41,11 +42,16 @@
     sort: ["UI/Common/SortBy", "Sort By"],
     name: ["UI/Common/Name", "Name"],
     reverse: ["UI/Inventory/NameReversed", "Name Reversed"],
+    shade: ["UI/Common/ColorShade", "Color Shade"],
+    shadeReversed: ["UI/Common/ColorShadeReversed", "Color Shade Reversed"],
+    market: ["UI/Inventory/ItemActions/ViewTypesMarketDetails", "View Market Details"],
   } as const;
   const skinSections = ["activated", "unactivated"] as const;
   const elementSections = ["nanocoatings", "metallics", "patterns"] as const;
   type Section = typeof skinSections[number] | typeof elementSections[number];
-  type ElementRow = ShipSkinrOwnedComponent & { category: Section; nameID: number; swatch?: string; icon?: string };
+  type ElementRow = ShipSkinrOwnedComponent & { category: Section; nameID: number; swatch?: string; icon?: string;
+    shade: number | null; marketTypeID: number | null };
+  const elementOrders = ["name", "reverse", "shade", "shadeReversed"] as const;
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
   const hullName = (id: number) => resolvedName($names.resolved, "type", id, String(id));
   const skinName = (row: ShipSkinrOwnedSkin) => row.design?.name || "Design unavailable";
@@ -59,6 +65,7 @@
   let selectedSkinSection = $state<"activated" | "unactivated">("activated");
   let hull = $state(0);
   let reverse = $state(false);
+  let elementOrder = $state<typeof elementOrders[number]>("name");
   let revision = $state(0);
   let loading = $state(false);
   let error = $state("");
@@ -73,8 +80,14 @@
     .sort((a, b) => hullName(a).localeCompare(hullName(b))));
   const sortedSkins = $derived((skins ?? []).filter(row => !hull || row.design?.shipTypeID === hull)
     .sort((a, b) => (reverse ? -1 : 1) * skinName(a).localeCompare(skinName(b))));
-  const sortedElements = $derived([...(elements ?? [])]
-    .sort((a, b) => (reverse ? -1 : 1) * elementName(a).localeCompare(elementName(b))));
+  const sortedElements = $derived([...(elements ?? [])].sort((a, b) => {
+    if (elementOrder === "shade" || elementOrder === "shadeReversed") {
+      const left = a.shade ?? Number.POSITIVE_INFINITY;
+      const right = b.shade ?? Number.POSITIVE_INFINITY;
+      return left === right ? 0 : (left < right ? -1 : 1) * (elementOrder === "shadeReversed" ? -1 : 1);
+    }
+    return (elementOrder === "reverse" ? -1 : 1) * elementName(a).localeCompare(elementName(b));
+  }));
 
   function choose(next: typeof tab, category: Section | null = null) {
     tab = next;
@@ -84,19 +97,21 @@
   }
 
   async function collectElements(): Promise<ElementRow[]> {
-    const [owned, { SHIP_SKINR_COATINGS }, { SHIP_SKINR_PATTERNS }] = await Promise.all([
+    const [owned, { SHIP_SKINR_COATINGS }, { SHIP_SKINR_PATTERNS }, { SHIP_SKINR_ELEMENT_MARKET }] = await Promise.all([
       flow.loadShipSkinrCollectionComponents(), import("../bridge/shipSkinrCoatingsData.ts"), import("../bridge/shipSkinrPatternsData.ts"),
+      import("../bridge/shipSkinrElementMarketData.ts"),
     ]);
     const coatings = new Map(SHIP_SKINR_COATINGS.components.map(row => [row.id, row]));
     const patterns = new Map(SHIP_SKINR_PATTERNS.components.map(row => [row.id, row]));
     return owned.map(row => {
+      const [shade, marketTypeID] = SHIP_SKINR_ELEMENT_MARKET[row.id] ?? [null, null];
       if (row.kind === "pattern") {
         const pattern = patterns.get(row.id);
-        return { ...row, category: "patterns", nameID: pattern?.nameID ?? 0, icon: pattern?.icon };
+        return { ...row, category: "patterns", nameID: pattern?.nameID ?? 0, icon: pattern?.icon, shade, marketTypeID };
       }
       const coating = coatings.get(row.id);
       return { ...row, category: coating?.category === 3 ? "metallics" : "nanocoatings",
-        nameID: coating?.nameID ?? 0, swatch: coating?.swatch };
+        nameID: coating?.nameID ?? 0, swatch: coating?.swatch, shade, marketTypeID };
     });
   }
 
@@ -201,8 +216,14 @@
           {#each hulls as id (id)}<option value={id}>{hullName(id)}</option>{/each}
         </select></label>
       {/if}
-      <label>{word("sort")} <select bind:value={reverse}><option value={false}>{word("name")}</option>
-        <option value={true}>{word("reverse")}</option></select></label>
+      {#if tab === "skins"}
+        <label>{word("sort")} <select bind:value={reverse}><option value={false}>{word("name")}</option>
+          <option value={true}>{word("reverse")}</option></select></label>
+      {:else}
+        <label>{word("sort")} <select bind:value={elementOrder}>
+          {#each elementOrders as order (order)}<option value={order}>{word(order)}</option>{/each}
+        </select></label>
+      {/if}
     </div>
     {#if tab === "skins"}
       {#each skinSections.filter(category => !section || section === category) as category (category)}
@@ -276,7 +297,13 @@
         <h3>{elementName(selectedElement)}</h3>
         {#if rights}
           {#if rights.infinite}<p>Unlimited use</p>{/if}
-          {#if rights.finite}<p>Limited uses · {rights.finite}</p>{/if}
+          {#if rights.finite}
+            <p>Limited uses · {rights.finite}</p>
+            {#if selectedElement.marketTypeID}
+              {@const typeID = selectedElement.marketTypeID}
+              <button type="button" onclick={() => showMarketDetails(typeID)}>{word("market")}</button>
+            {/if}
+          {/if}
         {:else if !detailError}<p role="status">Loading license…</p>{/if}
       </aside>
     {/if}
