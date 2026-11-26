@@ -6,6 +6,7 @@ const defaults = {
   notifyShareChange: true,
   notifyShareChangeCorp: true,
   notifyBillChange: true,
+  notifyPlexBalanceChange: true,
   walletShowCents: false,
   walletShowBalanceUpdates: true,
   iskNotifyThreshold: 0,

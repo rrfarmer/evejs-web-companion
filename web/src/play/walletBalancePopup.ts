@@ -3,6 +3,7 @@ import { placePointerPanel } from "./labelShortcutTooltip.ts";
 import { playUiEvent } from "./uiAudio.ts";
 
 export interface WalletBalanceUpdate {
+  readonly currency: "ISK" | "PLEX";
   readonly balance: number;
   readonly difference: number;
   readonly balanceLabel: string;
@@ -13,10 +14,12 @@ export interface WalletBalanceUpdate {
 const BATCH_DELAY = 500;
 const COUNT_DELAY = 1000;
 const LIFETIME = 5000;
-const formatISK = (value: number) => formatWholeIsk(String(value), "round");
+const formatAmount = (value: number, currency: WalletBalanceUpdate["currency"]) => currency === "ISK"
+  ? formatWholeIsk(String(value), "round")
+  : `${value.toLocaleString("en-US", { maximumFractionDigits: 0 })} PLEX`;
 
 export class WalletBalancePopup {
-  private waiting: WalletBalanceUpdate | null = null;
+  private readonly waiting = new Map<WalletBalanceUpdate["currency"], WalletBalanceUpdate>();
   private panel: HTMLElement | null = null;
   private batchTimer: ReturnType<typeof setTimeout> | null = null;
   private countTimer: ReturnType<typeof setTimeout> | null = null;
@@ -25,7 +28,8 @@ export class WalletBalancePopup {
   constructor(private readonly anchor: () => HTMLElement) {}
 
   add(change: WalletBalanceUpdate): void {
-    this.waiting = { ...change, difference: (this.waiting?.difference ?? 0) + change.difference };
+    const previous = this.waiting.get(change.currency);
+    this.waiting.set(change.currency, { ...change, difference: (previous?.difference ?? 0) + change.difference });
     if (this.panel || this.batchTimer !== null) return;
     this.batchTimer = setTimeout(() => {
       this.batchTimer = null;
@@ -38,15 +42,19 @@ export class WalletBalancePopup {
     if (this.countTimer !== null) clearTimeout(this.countTimer);
     if (this.closeTimer !== null) clearTimeout(this.closeTimer);
     this.batchTimer = this.countTimer = this.closeTimer = null;
-    this.waiting = null;
+    this.waiting.clear();
     this.panel?.remove();
     this.panel = null;
   }
 
   private showWaiting(): void {
-    const change = this.waiting;
-    this.waiting = null;
-    if (!change) return;
+    const transactions = (["ISK", "PLEX"] as const).flatMap(currency => {
+      const value = this.waiting.get(currency);
+      return value ? [value] : [];
+    });
+    this.waiting.clear();
+    const first = transactions[0];
+    if (!first) return;
     const anchor = this.anchor();
     if (!anchor.isConnected || !anchor.getBoundingClientRect().width) return;
 
@@ -59,30 +67,45 @@ export class WalletBalancePopup {
       const amount = document.createElement("span");
       amount.textContent = value;
       panel.append(text, amount);
-      return amount;
+      return { text, amount };
     };
-    const credit = change.difference > 0;
-    const prefix = credit ? "+" : "";
-    const delta = row(credit ? change.creditLabel : change.debitLabel, prefix + formatISK(change.difference));
-    delta.className = credit ? "wallet-credit" : "wallet-debit";
-    const start = change.balance - change.difference;
-    const balance = row(change.balanceLabel, formatISK(start));
-    balance.className = "wallet-update-balance";
-    balance.setAttribute("aria-live", "off");
+    const delta = row("", "");
+    const announce = (change: WalletBalanceUpdate) => {
+      const credit = change.difference > 0;
+      delta.text.textContent = credit ? change.creditLabel : change.debitLabel;
+      delta.amount.textContent = (credit ? "+" : "") + formatAmount(change.difference, change.currency);
+      delta.amount.className = credit ? "wallet-credit" : "wallet-debit";
+    };
+    announce(first);
+    const balances = transactions.map(change => {
+      const start = change.balance - change.difference;
+      const balance = row(change.balanceLabel, formatAmount(start, change.currency)).amount;
+      balance.className = "wallet-update-balance";
+      balance.setAttribute("aria-live", "off");
+      return { change, start, balance };
+    });
     this.panel = panel;
     document.body.append(panel);
     placePointerPanel(panel, anchor.getBoundingClientRect(), "LEFT_2");
     panel.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200 });
-    void playUiEvent(credit ? "ui_money_in2_play" : "ui_money_out_play");
-    this.countTimer = setTimeout(() => {
+    void playUiEvent(first.difference > 0 ? "ui_money_in2_play" : "ui_money_out_play");
+    const animateBalance = (index: number) => {
+      const item = balances[index];
+      if (!item) {
+        this.countTimer = null;
+        return;
+      }
+      const { change, start, balance } = item;
+      if (index > 0) announce(change);
       let step = 0;
       const countUp = () => {
         step++;
-        balance.textContent = formatISK(start + change.difference * step / 20);
-        this.countTimer = step < 20 ? setTimeout(countUp, 25) : null;
+        balance.textContent = formatAmount(start + change.difference * step / 20, change.currency);
+        this.countTimer = setTimeout(step < 20 ? countUp : () => animateBalance(index + 1), 25);
       };
       countUp();
-    }, COUNT_DELAY);
+    };
+    this.countTimer = setTimeout(() => animateBalance(0), COUNT_DELAY);
     this.closeTimer = setTimeout(() => {
       panel.remove();
       this.closeTimer = null;

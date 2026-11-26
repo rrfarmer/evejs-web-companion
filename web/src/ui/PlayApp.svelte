@@ -143,6 +143,7 @@
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { canReceiveCorporationWealth } from "../bridge/corporationWealth.ts";
+  import { decodePlexWalletNotice, PLEX_WALLET_NOTICE } from "../bridge/plexWalletNotice.ts";
   import { formatWalletCents, formatWholeIsk } from "./isk.ts";
   import { walletSetting, walletShowsCents } from "./walletSettings.ts";
   import { canClaimNow } from "../bridge/loginRewards.ts";
@@ -1064,6 +1065,8 @@
   const CORPORATION_BALANCE_LABEL = "Tooltips/Neocom/CorporationBalance";
   const WALLET_CREDIT_LABEL = "Tooltips/Neocom/WalletCredit";
   const WALLET_DEBIT_LABEL = "Tooltips/Neocom/WalletDebit";
+  const PLEX_BALANCE_LABEL = "Tooltips/Neocom/PLEXBalance";
+  const PLEX_BLINK_LABEL = "UI/Neocom/Blink/PlexBalanceChanged";
   const WALLET_BLINKS = {
     personalIsk: ["notifyAccountChange", "UI/Neocom/Blink/ISKBalanceChanged", "Your ISK balance has changed"],
     corporationIsk: ["notifyAccountChangeCorp", "UI/Neocom/Blink/CorpISKBalanceChanged", "Corp ISK balance changed"],
@@ -1098,9 +1101,23 @@
   };
   $effect(() => {
     session?.flow.requestWords([WALLET_BALANCE_LABEL, CORPORATION_BALANCE_LABEL, WALLET_CREDIT_LABEL, WALLET_DEBIT_LABEL,
+      PLEX_BALANCE_LABEL, PLEX_BLINK_LABEL,
       ...Object.values(WALLET_BLINKS).map(([, label]) => label)]);
     if (neocomInst) neocomInst.walletTip = readWalletTip;
   });
+  function showWalletBalance(current: Session, currency: "ISK" | "PLEX", change: { balance: number; difference: number }): void {
+    const templates = current.store.words.get().templates;
+    const word = (label: string, fallback: string) => plainText(templates[label] ?? "") || fallback;
+    const update = {
+      ...change,
+      currency,
+      balanceLabel: currency === "ISK" ? word(WALLET_BALANCE_LABEL, "ISK Balance") : word(PLEX_BALANCE_LABEL, "PLEX Balance"),
+      creditLabel: word(WALLET_CREDIT_LABEL, "Credit"),
+      debitLabel: word(WALLET_DEBIT_LABEL, "Debit"),
+    };
+    if (docked) neocomInst?.walletBalanceUpdate(update);
+    else view?.neocomWalletBalanceUpdate(update);
+  }
   $effect(() => {
     const current = session;
     if (!current) return;
@@ -1129,16 +1146,30 @@
       const magnitude = Math.abs(change.difference);
       if (magnitude < 1 || magnitude < walletSetting(change.characterID, "iskNotifyThreshold") ||
           !walletSetting(change.characterID, "walletShowBalanceUpdates")) return;
-      const templates = current.store.words.get().templates;
-      const word = (label: string, fallback: string) => plainText(templates[label] ?? "") || fallback;
-      const update = {
-        ...change,
-        balanceLabel: word(WALLET_BALANCE_LABEL, "ISK Balance"),
-        creditLabel: word(WALLET_CREDIT_LABEL, "Credit"),
-        debitLabel: word(WALLET_DEBIT_LABEL, "Debit"),
-      };
-      if (docked) neocomInst?.walletBalanceUpdate(update);
-      else view?.neocomWalletBalanceUpdate(update);
+      showWalletBalance(current, "ISK", change);
+    });
+  });
+  $effect(() => {
+    const current = session;
+    if (!current) return;
+    const notices = current.flow.gatewayNotices;
+    let previous = notices.get();
+    return notices.subscribe((notice) => {
+      if (previous === notice) return;
+      previous = notice;
+      if (notice?.typeName !== PLEX_WALLET_NOTICE || stage !== "game") return;
+      const pilot = current.store.station.get().online;
+      const change = decodePlexWalletNotice(notice.payload);
+      if (!pilot || !change) return;
+      if (walletSetting(pilot.characterID, "notifyPlexBalanceChange")) {
+        const hint = plainText(current.store.words.get().templates[PLEX_BLINK_LABEL] ?? "") || "Your PLEX balance has changed";
+        if (docked) neocomInst?.blink("wallet", hint);
+        else view?.neocomBlink("wallet", hint);
+      }
+      if (change.difference !== 0 && walletSetting(pilot.characterID, "walletShowBalanceUpdates") &&
+          !wins.some(win => win.id === "newEdenStore" && !win.minimized)) {
+        showWalletBalance(current, "PLEX", change);
+      }
     });
   });
   // ButtonSkillsTooltipPanel's training rows: the queue's head (skillqueue.SkillInTraining), its name and next level in
