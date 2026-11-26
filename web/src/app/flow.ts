@@ -2695,6 +2695,7 @@ export interface AppFlow {
   loadIndustry(): Promise<void>;
   industryCostIndexMaxima(): Promise<Readonly<Partial<Record<IndustryActivity, number>>>>;
   industryFacilitySystems(origin: number, systems: readonly number[]): Promise<ReadonlyMap<number, { readonly jumps: number | null; readonly sameRegion: boolean }>>;
+  systemRangeFacts(origin: number, systems: readonly number[]): ReturnType<AppFlow["industryFacilitySystems"]>;
   loadIndustryBlueprintDefinitions(typeIDs: readonly number[]): Promise<void>;
   readonly industryBlueprintPreview: ReadableSignal<{ readonly typeID: number; readonly original: boolean } | null>;
   requestIndustryBlueprintPreview(typeID: number, original: boolean): void;
@@ -11964,7 +11965,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   const industryBlueprintPreview = createSignal<{ readonly typeID: number; readonly original: boolean } | null>(null);
 
-  async function industryFacilitySystems(origin: number, systems: readonly number[]): ReturnType<AppFlow["industryFacilitySystems"]> {
+  async function systemRangeFacts(origin: number, systems: readonly number[]): ReturnType<AppFlow["systemRangeFacts"]> {
     const graph = await loadRouteGraph();
     const jumps = distancesFrom(graph, origin);
     const regionOf = (id: number) => graph.parentOf?.(graph.parentOf(id) ?? 0) ?? null;
@@ -39009,7 +39010,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // Activity ID to number, in the same wire dictionary shape as GetJobCounts.
       return decodeSlotUsage(await bridgeAsk("facilityManager", "GetMaxActivityModifiers", []));
     },
-    industryFacilitySystems,
+    industryFacilitySystems: systemRangeFacts,
+    systemRangeFacts,
     loadIndustryBlueprintDefinitions,
     industryBlueprintPreview: readonlySignal(industryBlueprintPreview),
     requestIndustryBlueprintPreview(typeID, original) {

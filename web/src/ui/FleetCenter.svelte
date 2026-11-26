@@ -5,6 +5,7 @@
   import type { AppFlow } from "../app/flow.ts";
   import { memberWhereabouts } from "../bridge/fleetCenter.ts";
   import { isFleetCommander } from "../bridge/fleetCommand.ts";
+  import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import FleetHistory from "./FleetHistory.svelte";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import type { FleetMember, FleetSquad, FleetWing } from "../bridge/boundFleet.ts";
@@ -41,19 +42,46 @@
    * the standing (Any, Good, Excellent) combos, Find Fleets at the right; the Show Group And High Standings Fleets
    * check; the scroll - Boss, Boss Location, Fleet Name, Member Count, Description - SearchHint before a search,
    * SearchNoResult after; a row selected opens the info under it (the fleet's name, Join Fleet or Request To Join).
-   * The range and standing filters are not applied (the page reads no jumps or standings).
    */
   let finderAds = $state<readonly FleetAdvert[] | null>(null);
   let finderError = $state<string | null>(null);
   let finderBusy = $state(false);
   let finderScope = $state<number | null>(null);
   let finderSelected = $state<number | null>(null);
+  const finderRanges = [
+    { value: null, label: "UI/Agency/ContentOfAnyDistance", fallback: "Any Distance" },
+    { value: 5, label: "UI/Common/WithinJumps", fallback: "Within 5 jumps" },
+    { value: 10, label: "UI/Common/WithinJumps", fallback: "Within 10 jumps" },
+    { value: -1, label: "UI/Common/LocationTypes/Region", fallback: "Region" },
+  ] as const;
+  type FinderRange = (typeof finderRanges)[number]["value"];
+  // svelte-ignore state_referenced_locally
+  const rangeKey = `evejs.user.${store.session.get().accountID ?? 0}.fleetfinder_rangeFilter`;
+  const savedRange = Number(localStorage.getItem(rangeKey));
+  let finderRange = $state<FinderRange>(finderRanges.find(option => option.value === savedRange)?.value ?? null);
+  let appliedRange = $state<FinderRange>(null);
+  let rangeFacts = $state.raw<Awaited<ReturnType<AppFlow["systemRangeFacts"]>>>(new Map());
+  function rangeLabel(option: (typeof finderRanges)[number]): string {
+    const template = fleetWord(option.label);
+    return template ? plainText(formatTemplate(template, { numJumps: option.value ?? 0 }, { nameOf: () => "" })) : option.fallback;
+  }
+  function selectRange(value: string) {
+    finderRange = finderRanges.find(option => (option.value === null ? "" : String(option.value)) === value)?.value ?? null;
+    localStorage.setItem(rangeKey, finderRange === null ? "" : String(finderRange));
+  }
   async function findFleets(): Promise<void> {
+    const range = finderRange;
+    const origin = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
     finderBusy = true;
     finderError = null;
     try {
-      finderAds = await flow.loadFleetAdverts();
-      flow.requestNames(finderAds.flatMap((ad) => [
+      const ads = await flow.loadFleetAdverts();
+      const systems = [...new Set(ads.flatMap(ad => ad.solarSystemID === null ? [] : [ad.solarSystemID]))];
+      const facts = range !== null && origin !== null && systems.length ? await flow.systemRangeFacts(origin, systems) : new Map();
+      appliedRange = range;
+      rangeFacts = facts;
+      finderAds = ads;
+      flow.requestNames(ads.flatMap((ad) => [
         ...(ad.leader.charID ? [{ kind: "character" as const, id: ad.leader.charID }] : []),
         ...(ad.solarSystemID ? [{ kind: "system" as const, id: ad.solarSystemID }] : []),
       ]));
@@ -65,6 +93,10 @@
     }
   }
   const shownAds = $derived((finderAds ?? []).filter((ad) => {
+    if (appliedRange !== null) {
+      const facts = ad.solarSystemID === null ? undefined : rangeFacts.get(ad.solarSystemID);
+      if (!facts || (appliedRange === -1 ? !facts.sameRegion : facts.jumps === null || facts.jumps > appliedRange)) return false;
+    }
     if (finderScope === null) return true;
     if ((ad.inviteScope & finderScope) === 0) return false;
     if (finderScope === 1 && ad.leader.corpID !== ($station.online?.corporationID ?? null)) return false;
@@ -72,10 +104,10 @@
   }));
   const selectedAd = $derived(shownAds.find((ad) => ad.fleetID === finderSelected) ?? null);
   $effect(() => {
-    if (retail && fleetTab === "finder" && finderAds === null && !finderBusy && finderError === null) void findFleets();
+    if (retail && (fleetTab === "finder" || fleetTab === "find") && finderAds === null && !finderBusy && finderError === null) void findFleets();
   });
   const FINDER_WORDS = ["UI/Fleet/FleetRegistry/MyAvailableFleets", "UI/Fleet/FleetRegistry/MyCorpFleets", "UI/Fleet/FleetRegistry/BasedOnStandings",
-    "UI/Agency/ContentOfAnyDistance", "UI/Common/LocationTypes/Region", "UI/Standings/AnyStanding", "UI/Standings/GoodStanding",
+    ...finderRanges.map(option => option.label), "UI/Standings/AnyStanding", "UI/Standings/GoodStanding",
     "UI/Standings/ExcellentStanding", "UI/Fleet/FleetRegistry/ShowGroupAndHighStandingsFleets", "UI/Fleet/Ranks/Boss",
     "UI/Fleet/FleetRegistry/BossLocationHeader", "UI/Fleet/NameOfFleet", "UI/Fleet/FleetRegistry/MemberCount", "UI/Common/Description",
     "UI/Fleet/FleetRegistry/SearchHint", "UI/Fleet/FleetRegistry/SearchNoResult", "UI/Fleet/FleetRegistry/JoinFleet",
@@ -335,7 +367,11 @@
             <option value={1}>{fleetWord("UI/Fleet/FleetRegistry/MyCorpFleets") || "My Corp Fleets"}</option>
             <option value={24}>{fleetWord("UI/Fleet/FleetRegistry/BasedOnStandings") || "Based On Standings"}</option>
           </select>
-          <select><option>{fleetWord("UI/Agency/ContentOfAnyDistance") || "Any Distance"}</option><option>{fleetWord("UI/Common/LocationTypes/Region") || "Region"}</option></select>
+          <select aria-label="Distance" value={finderRange ?? ""} onchange={(event) => selectRange(event.currentTarget.value)}>
+            {#each finderRanges as range (range.value)}
+              <option value={range.value ?? ""}>{rangeLabel(range)}</option>
+            {/each}
+          </select>
           <select><option>{fleetWord("UI/Standings/AnyStanding") || "Any Standing"}</option><option>{fleetWord("UI/Standings/GoodStanding") || "Good Standing"}</option><option>{fleetWord("UI/Standings/ExcellentStanding") || "Excellent Standing"}</option></select>
           <button type="button" disabled={finderBusy} onclick={() => void findFleets()}>{fleetWord("UI/Fleet/FleetRegistry/FindFleets") || "Find Fleets"}</button>
         </div>
