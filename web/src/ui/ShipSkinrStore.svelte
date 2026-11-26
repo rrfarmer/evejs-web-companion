@@ -184,9 +184,9 @@
       {/if}
       {#if membershipFilter}
         <label>{word("listedBy")} <select bind:value={membership}>
-          <option value={0}>{word("anyone")}</option>
           <option value={1}>{word(section === "corporation" ? "corpBrand" : "allianceBrand")}</option>
           <option value={2}>{word(section === "corporation" ? "corpMember" : "allianceMember")}</option>
+          <option value={0}>{word("anyone")}</option>
         </select></label>
       {/if}
       <label>Sort By <select bind:value={ascending}>
