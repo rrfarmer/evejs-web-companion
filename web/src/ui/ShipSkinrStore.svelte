@@ -11,7 +11,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import ShipSkinrBuy from "./ShipSkinrBuy.svelte";
-  import ShipSkinrListingShare from "./ShipSkinrListingShare.svelte";
+  import ShipSkinrShare from "./ShipSkinrShare.svelte";
   import ShipSkinrMyListings from "./ShipSkinrMyListings.svelte";
 
   let { store, flow, linked }: { store: ClientStore; flow: AppFlow; linked: ReturnType<AppFlow["takeShipSkinrListingLink"]> } = $props();
@@ -228,7 +228,7 @@
               purchasing = detail;
             }}>{word("buy")}</button>
           {/if}
-          {#key detail.id}<ShipSkinrListingShare {store} {flow} id={detail.id} name={skinName(detail)} />{/key}
+          {#key detail.id}<ShipSkinrShare {store} {flow} id={detail.id} name={skinName(detail)} />{/key}
         </article>
       {/if}
     </div>

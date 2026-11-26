@@ -48,6 +48,12 @@ export interface ShipSkinrDesign {
   readonly layout: Record<string, JsonValue>;
 }
 
+export interface SharedShipSkinrDesign {
+  readonly ownerID: number;
+  readonly entry: ShipSkinrEntry;
+  readonly design: ShipSkinrDesign;
+}
+
 export interface ShipSkinrEarlyPrice {
   readonly above: number;
   readonly atMost: number;

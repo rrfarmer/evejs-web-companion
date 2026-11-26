@@ -17301,6 +17301,35 @@
      "typeName": "eve_public.cosmetic.market.skin.listing.Entry"
     }
    ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.api.GetSharedRequest": {
+   "fields": [
+    {
+     "name": "character",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "draft",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.draft.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.api.GetSharedResponse": {
+   "fields": [
+    {
+     "name": "draft",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.draft.Attributes"
+    }
+   ]
   }
  },
  "enums": {

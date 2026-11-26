@@ -7,7 +7,7 @@
 import { getCharacterSelectionData } from "../bridge/characterSelection.ts";
 import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, decodeShipSkinrEntries, decodeShipSkinrEntry,
   decodeShipSkinrEarlyPricing, shipSkinrSequencingCapacity, type ShipSkinrDesign, type ShipSkinrEarlyPrice,
-  type ShipSkinrEntry, type ShipSkinrStudio } from "../bridge/shipSkinr.ts";
+  type SharedShipSkinrDesign, type ShipSkinrEntry, type ShipSkinrStudio } from "../bridge/shipSkinr.ts";
 import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequenceComponent,
   type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
@@ -18,7 +18,7 @@ import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing
   type ShipSkinrBrowseQuery, type ShipSkinrComponentOffer, type ShipSkinrCurrency, type ShipSkinrListing, type ShipSkinrListingInput,
   type ShipSkinrListingTarget } from "../bridge/shipSkinrMarket.ts";
 import { setSessionToken } from "./sessionToken.ts";
-import { parseShipSkinrListingUrl } from "../bridge/shipSkinrListingLink.ts";
+import { parseShipSkinrDesignUrl, parseShipSkinrListingUrl } from "../bridge/shipSkinrListingLink.ts";
 import { pageFetch } from "./pageFetch.ts";
 import {
   getStationGuests,
@@ -4614,6 +4614,9 @@ export interface AppFlow {
   readonly shipSkinrListingLink: ReadableSignal<(ShipSkinrListing & { design: ShipSkinrDesign | null }) | null>;
   followShipSkinrListingLink(url: string): Promise<void>;
   takeShipSkinrListingLink(): (ShipSkinrListing & { design: ShipSkinrDesign | null }) | null;
+  readonly shipSkinrDesignLink: ReadableSignal<SharedShipSkinrDesign | null>;
+  followShipSkinrDesignLink(url: string): Promise<void>;
+  takeShipSkinrDesignLink(): SharedShipSkinrDesign | null;
   loadShipSkinrPurchaseTerms(tier: number, branded: boolean): Promise<ReturnType<typeof decodeShipSkinrBuyerTerms>>;
   loadShipSkinrPurchaseFunds(currency: ShipSkinrCurrency, issuer?: number): Promise<{ balance: number; evermarks: number }>;
   buyShipSkinrListing(listing: string, quantity: number, version: string): Promise<string>;
@@ -14530,6 +14533,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       text = dropped.text;
       if (/^shipskinlisting:/i.test(url)) {
         if (!parseShipSkinrListingUrl(url)) return null;
+        text = labelEscaped(text);
+      }
+      if (/^shipskindesign:/i.test(url)) {
+        if (!parseShipSkinrDesignUrl(url)) return null;
         text = labelEscaped(text);
       }
     }
@@ -29104,6 +29111,49 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return listing;
   }
 
+  const shipSkinrDesignLink = createSignal<SharedShipSkinrDesign | null>(null);
+
+  async function followShipSkinrDesignLink(url: string): Promise<void> {
+    const subject = parseShipSkinrDesignUrl(url);
+    if (!subject || !store.station.get().online?.characterID) return;
+    const owner = callOptions.captureRequestGuard!();
+    const request = ++shipSkinrLinkRequest;
+    const current = () => { owner(); return request === shipSkinrLinkRequest; };
+    const prefix = "UI/Personalization/ShipSkins/";
+    let missing = false;
+    try {
+      const reply = await api.publicGatewayRequest(SHIP_SKINR_GATEWAY + "draft.api.GetSharedRequest", {
+        character: { sequential: subject.ownerID }, draft: { uuid: subject.id },
+      }, callOptions);
+      if (!current()) return;
+      missing = reply.statusCode === 404;
+      const entry = reply.statusCode === 200 ? decodeShipSkinrEntry({
+        id: { uuid: subject.id }, attributes: shipSkinrRecord(reply.payload ?? undefined)?.draft,
+      }) : null;
+      if (entry) {
+        const design = await loadShipSkinrDesign(entry.skin);
+        if (!current()) return;
+        if (design) {
+          requestNames([{ kind: "character", id: subject.ownerID }]);
+          shipSkinrDesignLink.set({ ownerID: subject.ownerID, entry, design });
+          return;
+        }
+      }
+    } catch {
+      if (!current()) return;
+    }
+    const key = prefix + (missing ? "DesignLinkNotFound" : "DesignLinkFailed");
+    await wordsNow([key]).catch(() => {});
+    if (current()) sayDialog(missing ? "ShipSkinDesignNotFound" : "ShipSkinDesignUnavailable", null,
+      plainText(store.words.get().templates[key] ?? (missing ? "This SKIN design is no longer available." : "The shared SKIN design could not be loaded.")));
+  }
+
+  function takeShipSkinrDesignLink() {
+    const design = shipSkinrDesignLink.get();
+    shipSkinrDesignLink.set(null);
+    return design;
+  }
+
   async function loadShipSkinrPurchaseTerms(tier: number, branded: boolean) {
     const current = callOptions.captureRequestGuard!();
     const reply = await gatewayAsk(SHIP_SKINR_MARKET + "api.GetBuyerFeesDefinitionRequest");
@@ -41663,6 +41713,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     shipSkinrListingLink: readonlySignal(shipSkinrListingLink),
     followShipSkinrListingLink,
     takeShipSkinrListingLink,
+    shipSkinrDesignLink: readonlySignal(shipSkinrDesignLink),
+    followShipSkinrDesignLink,
+    takeShipSkinrDesignLink,
     loadShipSkinrPurchaseTerms,
     loadShipSkinrPurchaseFunds,
     buyShipSkinrListing,

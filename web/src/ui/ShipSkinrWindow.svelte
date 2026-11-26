@@ -14,6 +14,7 @@
   let page = $state<Page>("studio");
   let storePage = $state<"skins" | "elements">("skins");
   let linked = $state.raw<ReturnType<AppFlow["takeShipSkinrListingLink"]>>(null);
+  let linkedDesign = $state.raw<ReturnType<AppFlow["takeShipSkinrDesignLink"]>>(null);
   let guard: Guard | undefined;
   let changingPage = false;
   const words = $derived(store.words);
@@ -40,20 +41,27 @@
       }
     }).catch(() => {});
   }));
+  $effect(() => flow.shipSkinrDesignLink.subscribe(request => {
+    if (!request) return;
+    const design = flow.takeShipSkinrDesignLink();
+    if (!design) return;
+    void choose("studio", true).then(accepted => { if (accepted) linkedDesign = design; }).catch(() => {});
+  }));
 
   function registerGuard(next: Guard) {
     guard = next;
     return () => { if (guard === next) guard = undefined; };
   }
 
-  async function choose(next: Page) {
+  async function choose(next: Page, replace = false) {
     if (changingPage) return false;
-    if (page === next) return true;
+    if (page === next && !replace) return true;
     changingPage = true;
     try {
       if (guard && !await guard()) return false;
       page = next;
       linked = null;
+      linkedDesign = null;
       return true;
     } finally {
       changingPage = false;
@@ -69,7 +77,9 @@
   {/each}
 </nav>
 {#if page === "studio"}
-  <ShipSkinrStudio {store} {flow} registerBeforeClose={registerGuard} />
+  {#key linkedDesign}
+    <ShipSkinrStudio {store} {flow} {linkedDesign} registerBeforeClose={registerGuard} />
+  {/key}
 {:else if page === "collection"}
   <ShipSkinrCollection {store} {flow} />
 {:else}

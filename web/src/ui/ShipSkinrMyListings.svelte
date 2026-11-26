@@ -7,7 +7,7 @@
   import { formatDuration } from "../bridge/skills.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
-  import ShipSkinrListingShare from "./ShipSkinrListingShare.svelte";
+  import ShipSkinrShare from "./ShipSkinrShare.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   type Listing = Awaited<ReturnType<AppFlow["loadShipSkinrOwnedListings"]>>[number];
@@ -185,7 +185,7 @@
             <dd>{#if Number.isFinite(detail.expires)}<time datetime={new Date(detail.expires).toISOString()}>{formatDuration(Math.max(0, detail.expires - Date.now()))}</time>{:else}—{/if}</dd>
           </dl>
           <button type="button" disabled={busy || loading} onclick={() => { if (detail) void remove(detail); }}>{word("remove")}</button>
-          {#key detail.id}<ShipSkinrListingShare {store} {flow} id={detail.id} name={skinName(detail)} />{/key}
+          {#key detail.id}<ShipSkinrShare {store} {flow} id={detail.id} name={skinName(detail)} />{/key}
         </article>
       {/if}
     </div>

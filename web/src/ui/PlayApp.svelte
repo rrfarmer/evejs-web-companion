@@ -1023,6 +1023,9 @@
   $effect(() => session?.flow.shipSkinrListingLink.subscribe((listing) => {
     if (listing) open("shipSkinr");
   }));
+  $effect(() => session?.flow.shipSkinrDesignLink.subscribe((design) => {
+    if (design) open("shipSkinr");
+  }));
   const skillPlanRequests = skillPlanTemplateTarget.requests;
   let servedSkillPlanRequests = skillPlanRequests.get();
   $effect(() => {

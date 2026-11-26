@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { SHIP_SKINR_GATEWAY, shipSkinrEarlyPrice, type ShipSkinrDesign, type ShipSkinrEarlyPrice,
-    type ShipSkinrEntry, type ShipSkinrStudio } from "../bridge/shipSkinr.ts";
+    type SharedShipSkinrDesign, type ShipSkinrEntry, type ShipSkinrStudio } from "../bridge/shipSkinr.ts";
   import { readPlexVaultBalance } from "../bridge/plexVault.ts";
   import { PLEX_WALLET_NOTICE } from "../bridge/plexWalletNotice.ts";
   import { formatDuration } from "../bridge/skills.ts";
@@ -13,9 +13,11 @@
   import { typeIconUrl } from "./typeIcons.ts";
   import { showInfo } from "./showInfo.ts";
   import ShipSkinrDesigner from "./ShipSkinrDesigner.svelte";
+  import ShipSkinrShare from "./ShipSkinrShare.svelte";
 
-  let { store, flow, registerBeforeClose }: {
+  let { store, flow, registerBeforeClose, linkedDesign = null }: {
     store: ClientStore; flow: AppFlow; registerBeforeClose?: (guard: () => Promise<boolean>) => () => void;
+    linkedDesign?: SharedShipSkinrDesign | null;
   } = $props();
   const words = $derived(store.words);
   const names = $derived(store.names);
@@ -45,7 +47,8 @@
   let attempt = $state(0);
   let selected = $state<string | null>(null);
   let selectionAfterReload: string | null = null;
-  let designer = $state.raw<{ entry: ShipSkinrEntry; design: ShipSkinrDesign } | "new" | null>(null);
+  let initialDesign = untrack(() => linkedDesign);
+  let designer = $state.raw<{ entry: ShipSkinrEntry; design: ShipSkinrDesign; ownerID?: number } | "new" | null>(initialDesign);
   let deleting = $state.raw<ShipSkinrEntry | null>(null);
   let deleteError = $state("");
   let now = $state(Date.now());
@@ -220,7 +223,8 @@
     designs = new Map();
     selected = selectionAfterReload;
     selectionAfterReload = null;
-    designer = null;
+    designer = initialDesign;
+    initialDesign = null;
     deleting = null;
     deleteError = "";
     jobError = "";
@@ -255,7 +259,7 @@
 <section class="ship-skinr" aria-labelledby="ship-skinr-studio">
   <h2 id="ship-skinr-studio">{word(designer === "new" ? "create" : designer ? "edit" : "studio")}</h2>
   {#if designer}
-    <ShipSkinrDesigner {store} {flow} {atSaveLimit} {saveLimit} {registerBeforeClose}
+    <ShipSkinrDesigner {store} {flow} atSaveLimit={atSaveLimit || !studio} {saveLimit} {registerBeforeClose}
       atJobCapacity={sequencingCapacity !== null && (studio?.jobs.length ?? 0) >= sequencingCapacity.maximum}
       saved={designer === "new" ? null : designer} onBack={() => designer = null} onSaved={designSaved} onSequenced={designSaved} />
   {:else if error}
@@ -327,6 +331,9 @@
           {#if studio.designs.includes(selectedEntry)}
             <button type="button" disabled={!!deleting} onclick={() => designer = { entry, design }}>{word("edit")}</button>
             <button type="button" class="danger" disabled={!!deleting} onclick={() => void remove(entry)}>{word("delete")}</button>
+            {#if pilot}
+              {#key entry.id}<ShipSkinrShare {store} {flow} id={entry.id} name={design.name} ownerID={pilot} />{/key}
+            {/if}
           {:else}
             {@render completeButton(entry)}
           {/if}

@@ -19,7 +19,7 @@ import { LINK_DRAG_TYPE, parseSkillPlanUrl } from "../bridge/skillPlanLink.ts";
 import { parseInventoryFilterLink } from "../bridge/inventoryFilters.ts";
 import { parseOverviewPresetUrl } from "../bridge/overviewProfileLink.ts";
 import { parseHelpPointerUrl } from "../bridge/helpPointerLink.ts";
-import { parseShipSkinrListingUrl } from "../bridge/shipSkinrListingLink.ts";
+import { parseShipSkinrDesignUrl, parseShipSkinrListingUrl } from "../bridge/shipSkinrListingLink.ts";
 import { linkScheme, parseShowInfoUrl } from "../bridge/showInfoLink.ts";
 import { showInfo, subjectOfShowInfoLink } from "./showInfo.ts";
 import { parseAccessGroupUrl, showAccessGroupInfo } from "./accessGroupInfo.ts";
@@ -71,11 +71,12 @@ export const LINK_WORDS: Readonly<Record<string, string>> = {
   "UI/Overview/ProfileLinkHint": "Overview Profile",
   "UI/Help/HelpPointersTooltip": "Show User Interface Pointer",
   "UI/Personalization/ShipSkins/ShipSkinListingLinkHint": "View SKIN listing in the Paragon Hub",
+  "UI/Personalization/ShipSkins/LinkHint": "View shared SKIN design",
 };
 
 export interface LinkFollower {
   /** Its registry's kind, for its colour (styles.css .evelink.skillPlan, .showInfo, .web, .fitting). */
-  readonly kind: "skillPlan" | "showInfo" | "web" | "fitting" | "sharedSetting" | "helpPointer" | "shipSkinListing";
+  readonly kind: "skillPlan" | "showInfo" | "web" | "fitting" | "sharedSetting" | "helpPointer" | "shipSkinListing" | "shipSkinDesign";
   readonly hint: string;
   readonly follow: () => void;
 }
@@ -87,7 +88,8 @@ export interface LinkFollower {
  */
 export function linkFollowerOf(
   url: string,
-  flow: Pick<AppFlow, "followWebLink" | "followFittingLink"> & Partial<Pick<AppFlow, "followOverviewPresetLink" | "followShipSkinrListingLink">>,
+  flow: Pick<AppFlow, "followWebLink" | "followFittingLink"> & Partial<Pick<AppFlow,
+    "followOverviewPresetLink" | "followShipSkinrListingLink" | "followShipSkinrDesignLink">>,
   openSkillPlanLink: ((url: string) => void) | null,
   word: (label: string) => string,
   text: string | null = null,
@@ -97,6 +99,11 @@ export function linkFollowerOf(
   if (scheme === "shipskinlisting" && flow.followShipSkinrListingLink && parseShipSkinrListingUrl(url)) {
     const follow = flow.followShipSkinrListingLink;
     return { kind: "shipSkinListing", hint: word("UI/Personalization/ShipSkins/ShipSkinListingLinkHint"),
+      follow: () => void follow(url).catch(() => {}) };
+  }
+  if (scheme === "shipskindesign" && flow.followShipSkinrDesignLink && parseShipSkinrDesignUrl(url)) {
+    const follow = flow.followShipSkinrDesignLink;
+    return { kind: "shipSkinDesign", hint: word("UI/Personalization/ShipSkins/LinkHint"),
       follow: () => void follow(url).catch(() => {}) };
   }
   if (scheme === "helppointer") {

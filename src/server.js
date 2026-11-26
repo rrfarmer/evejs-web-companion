@@ -15940,6 +15940,7 @@ app.get("/api/client-data/dogma-types", requireAuth, async (req, res, next) => {
 // confirm said. The pilot is the held session's, never the page's to name.
 const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.cosmetic.ship.skin.thirdparty.draft.api.GetAllSavedRequest",
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.api.GetSharedRequest",
   "eve_public.cosmetic.ship.skin.thirdparty.draft.api.GetSaveCapacityRequest",
   "eve_public.cosmetic.ship.skin.thirdparty.sequencing.api.GetEarlyCompletionPricingRequest",
   "eve_public.cosmetic.ship.skin.thirdparty.sequencing.api.GetTierPricingRequest",

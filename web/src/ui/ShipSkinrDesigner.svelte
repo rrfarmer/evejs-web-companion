@@ -22,11 +22,12 @@
   import ShipInfoPreview from "./ShipInfoPreview.svelte";
   import ShipSkinrProjectorControls from "./ShipSkinrProjectorControls.svelte";
   import ShipSkinrSequence from "./ShipSkinrSequence.svelte";
+  import ShipSkinrShare from "./ShipSkinrShare.svelte";
   import { typeIconUrl } from "./typeIcons.ts";
 
   let { store, flow, atSaveLimit, saveLimit, atJobCapacity, saved, onBack, onSaved, onSequenced, registerBeforeClose }: {
     store: ClientStore; flow: AppFlow; atSaveLimit: boolean; saveLimit: string; atJobCapacity: boolean;
-    saved: { entry: ShipSkinrEntry; design: ShipSkinrDesign } | null;
+    saved: { entry: ShipSkinrEntry; design: ShipSkinrDesign; ownerID?: number } | null;
     onBack: () => void; onSaved: (entry: ShipSkinrEntry) => void;
     onSequenced: (job: ShipSkinrEntry) => void;
     registerBeforeClose?: (guard: () => Promise<boolean>) => () => void;
@@ -53,6 +54,8 @@
     empty: ["UI/Wallet/WalletWindow/SearchNoResults", "No results"],
     blend: [prefix + "BlendModes", "Blend Modes"],
     finalize: [prefix + "FinalizeDesign", "Finalize Design"],
+    designedBy: ["UI/Personalization/ShipSkins/SKINR/DesignedBy", "Designed by"],
+    basedOn: ["UI/Personalization/ShipSkins/SKINR/BasedOnDesignBy", "Based on a design by"],
   } as const;
   const factions = SKINR_HULL_RULES.factions.flatMap(id => shipTreeFaction(id) ?? []);
   const excluded = new Set(SKINR_HULL_RULES.excluded);
@@ -85,6 +88,7 @@
   let chosen = $state<number | null>(original?.design.shipTypeID ?? null);
   let pickerOverride = $state<boolean | null>(null);
   const requestedPilot = $derived($station.online?.characterID ?? null);
+  const foreignOwner = $derived(original?.ownerID && original.ownerID !== requestedPilot ? original.ownerID : null);
   const hulls = $derived(catalogue?.ships.filter(row => !row.academy) ?? []);
   const active = $derived(hulls.find(row => row.typeID === $flight.status?.shipTypeID && !excluded.has(row.typeID)));
   const defaultHull = $derived(active?.typeID ?? SKINR_HULL_RULES.fallbackByRace[$station.online?.raceID ?? 0] ?? null);
@@ -118,7 +122,7 @@
   const canBlend = $derived(layoutSlots.has(5) && layoutSlots.has(7));
   const incomplete = $derived(layoutSlots.has(5) !== layoutSlots.has(6) ||
     (secondaryMaterial && layoutSlots.has(7) !== layoutSlots.has(8)));
-  const canSave = $derived(layoutSlots.size > 0 && !incomplete && (!!original || !atSaveLimit));
+  const canSave = $derived(layoutSlots.size > 0 && !incomplete && ((!!original && !foreignOwner) || !atSaveLimit));
   const preparedLayout = $derived({
     ...original?.design.layout,
     ship_type: { sequential: selectedTypeID ?? 0 },
@@ -267,7 +271,7 @@
 
   async function save(event: SubmitEvent) {
     event.preventDefault();
-    const id = naming === "save" ? original?.entry.id : undefined;
+    const id = naming === "save" && !foreignOwner ? original?.entry.id : undefined;
     if (!selectedTypeID || !configuration || !canSave || (!id && atSaveLimit) || saving || !validName || !naming) return;
     saving = true;
     saveError = "";
@@ -353,14 +357,22 @@
   {:else}
   <div class="designer-toolbar">
     <button type="button" disabled={saving} onclick={() => void back()}>{word("back")}</button>
+    {#if foreignOwner}
+      <span>{word(dirty ? "basedOn" : "designedBy")} {resolvedName($names.resolved, "character", foreignOwner, String(foreignOwner))}</span>
+    {/if}
     {#if catalogue}
       <button type="button" aria-expanded={pickerOpen} onclick={() => pickerOverride = !pickerOpen}>{word("hull")}</button>
-      <button type="button" disabled={!canSave || !!naming} aria-describedby={!canSave ? "skinr-blank" : undefined}
-        onclick={() => openName("save")}>{word("save")}</button>
+      {#if !foreignOwner}
+        <button type="button" disabled={!canSave || !!naming} aria-describedby={!canSave ? "skinr-blank" : undefined}
+          onclick={() => openName("save")}>{word("save")}</button>
+      {/if}
       <button type="button" disabled={!sequence || !!naming} onclick={() => sequencing = true}>{word("finalize")}</button>
       {#if original}
         <button type="button" disabled={!canSave || atSaveLimit || !!naming} aria-describedby={atSaveLimit ? "skinr-blank" : undefined}
           onclick={() => openName("copy")}>{word("saveAs")}</button>
+        {#if requestedPilot}
+          <ShipSkinrShare {store} {flow} id={original.entry.id} name={original.design.name} ownerID={original.ownerID ?? requestedPilot} />
+        {/if}
       {/if}
       {#if atSaveLimit || !layoutSlots.size || incomplete}
         <span id="skinr-blank">{!layoutSlots.size ? word("blank") : incomplete ? "Choose a material for each fitted pattern." : saveLimit}</span>
@@ -377,7 +389,7 @@
       {/if}
       {#if saveError}<p role="alert">{saveError}</p>{/if}
       <div class="designer-toolbar">
-        <button type="submit" disabled={saving || !validName || (!original || naming === "copy") && atSaveLimit}>{word("save")}</button>
+        <button type="submit" disabled={saving || !validName || (!original || foreignOwner !== null || naming === "copy") && atSaveLimit}>{word("save")}</button>
         <button type="button" disabled={saving} onclick={() => naming = null}>{word("cancel")}</button>
       </div>
     </form>
