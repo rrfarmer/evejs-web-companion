@@ -4,6 +4,7 @@
   import { formatInterval, formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { ShipRestrictions } from "../bridge/dungeonTracking.ts";
   import type { MercenaryDenActivity } from "../bridge/mercenaryDens.ts";
+  import { panelErrorWords } from "../bridge/refusals.ts";
   import { celestialRouteEntries, isWaypointPlace } from "../nav/waypoints.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
@@ -25,6 +26,10 @@
   let intel = $state.raw<DungeonData | null>(null);
   let restrictions = $state.raw<ShipRestrictions | null>(null);
   let now = $state(Date.now());
+  let starting = $state(false);
+  let startedHere = $state("");
+  let failure = $state<{ id: string; message: string } | null>(null);
+  const started = $derived(operation.started || operation.id === startedHere);
   const labels = {
     back: ["UI/Commands/Back", "Back"],
     category: ["UI/Sovereignty/MercenaryDen/ConfigurationWindow/ActivitiesTitle", "Mercenary Tactical Operations"],
@@ -39,6 +44,8 @@
     enemy: ["UI/Agency/RoamingEnemies", "Roaming Enemies"],
     restrictions: ["UI/Objectives/Titles/ShipRestrictions", "Ship Restrictions"],
     destination: ["UI/Inflight/SetDestination", "Set Destination"],
+    start: ["UI/Sovereignty/MercenaryDen/StartOperation", "Start Operation"],
+    startHint: ["UI/Sovereignty/MercenaryDen/StartMTOAtMercDen", "Start Operation at Den"],
     development: ["UI/Sovereignty/MercenaryDen/DevelopmentImpact", "Development Impact {impact}"],
     anarchy: ["UI/Sovereignty/MercenaryDen/AnarchyImpact", "Anarchy Impact {impact}"],
     bonus: ["UI/Sovereignty/MercenaryDen/InfomorphBonus", "Infomorph Bonus {bonus}"],
@@ -50,6 +57,19 @@
   const description = $derived(message(operation.descriptionID));
   const gameplay = $derived(message(intel?.gameplayDescriptionID));
   const enemy = $derived(intel?.factionID && intel.factionID !== 500021 ? resolvedName($names.resolved, "owner", intel.factionID, "") : "");
+  async function startOperation() {
+    if (starting || started) return;
+    const selected = operation;
+    starting = true;
+    failure = null;
+    try {
+      if (await flow.startMercenaryOperation(selected)) startedHere = selected.id;
+    } catch (cause) {
+      failure = { id: selected.id, message: panelErrorWords(cause) };
+    } finally {
+      starting = false;
+    }
+  }
   $effect(() => {
     const id = dungeonID;
     let current = true;
@@ -78,7 +98,7 @@
     <small>{word("category")}</small>
     <h2>{name}</h2>
     <div class="mto-header-details">
-      <span>{word(operation.started ? "started" : "ready")}</span>
+      <span>{word(started ? "started" : "ready")}</span>
       {#if operation.expiresAt > now}
         <time datetime={new Date(operation.expiresAt).toISOString()}>
           {word("expires")} {formatInterval((operation.expiresAt - now) * 10_000)}
@@ -86,7 +106,11 @@
       {/if}
       <MercenaryOperationTrackButton {store} {flow} id={operation.id} eligible={!operation.expiresAt || operation.expiresAt > now} />
       {#if route.setDestination}<button type="button" onclick={() => flow.setDestination(operation.solarSystemID)}>{word("destination")}</button>{/if}
+      {#if !started && (!operation.expiresAt || operation.expiresAt > now)}
+        <button type="button" class="mto-start" title={word("startHint")} disabled={starting} onclick={() => void startOperation()}>{word("start")}</button>
+      {/if}
     </div>
+    {#if failure?.id === operation.id}<p role="alert">{failure.message}</p>{/if}
   </header>
   {#if description}<section><h3>{word("description")}</h3><p>{description}</p></section>{/if}
   <section class="mto-intel">
@@ -96,7 +120,7 @@
     {/if}
     {#if gameplay}<p>{gameplay}</p>{/if}
     <dl>
-      <dt>{word("status")}</dt><dd>{word(operation.started ? "started" : "ready")}</dd>
+      <dt>{word("status")}</dt><dd>{word(started ? "started" : "ready")}</dd>
       {#if intel?.difficulty}<dt>{word("difficulty")}</dt><dd>{word("level", { level: intel.difficulty })}</dd>{/if}
       {#if enemy}<dt>{word("enemy")}</dt><dd>{enemy}</dd>{/if}
     </dl>

@@ -4592,6 +4592,7 @@ export interface AppFlow {
   loadMercenaryDenActivities(denID: number): Promise<MercenaryDenActivities>;
   loadMercenaryOperations(): Promise<readonly MercenaryDenActivity[]>;
   loadMercenaryOperationIntel(dungeonID: number): Promise<api.DungeonData | null>;
+  startMercenaryOperation(operation: Pick<MercenaryDenActivity, "id" | "solarSystemID">): Promise<boolean>;
   loadMySkyhooks(systemID: number): Promise<{ rows: SkyhookRow[]; currentRegionID: number | null }>;
   loadSkyhookRegions(): Promise<readonly { id: number; name: string }[]>;
   readSkyhookFilters(): SkyhookFilters;
@@ -28960,6 +28961,33 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return intel;
   }
 
+  async function startMercenaryOperation(operation: Pick<MercenaryDenActivity, "id" | "solarSystemID">): Promise<boolean> {
+    const current = callOptions.captureRequestGuard!();
+    function rejectLocation() {
+      sayDialog("MercenaryDen_MustBeInShipInSolarsystem", null,
+        "You must be in a ship in the same solar system as the Mercenary Den to start this operation.", "error");
+      return false;
+    }
+    const status = store.flight.get().status;
+    if (status && (!status.inSpace || status.structureID != null || status.shipID === null || status.solarSystemID !== operation.solarSystemID)) {
+      return rejectLocation();
+    }
+    const reply = await api.publicGatewayRequest("eve_public.sovereignty.mercenaryden.activity.api.StartRequest",
+      { id: { uuid: bytesFromUuid(operation.id) } }, { ...callOptions, confirm: true });
+    current();
+    if (reply.statusMessage === "ACTIVITY_VALIDATION_FAILED") return rejectLocation();
+    if (reply.statusMessage === "ACTIVITY_ALREADY_STARTED") return true;
+    if (reply.statusCode === 404) {
+      sayDialog("MercenaryDen_OperationInvalid", null, "This Mercenary Tactical Operation is unavailable.", "error");
+      return false;
+    }
+    if (reply.statusCode !== 200 || mercenaryDenRecord(mercenaryDenRecord(reply.payload).attributes).started !== true) {
+      throw new Error("The Mercenary Tactical Operation could not be started.");
+    }
+    sayDialog("MercenaryDen_MTOStartedSuccessfully", null, "The Mercenary Tactical Operation has started.", "info");
+    return true;
+  }
+
   async function loadMySkyhooks(systemID: number): Promise<{ rows: SkyhookRow[]; currentRegionID: number | null }> {
     const scope = captureMemberOperation();
     const corporationID = scope.online.corporationID;
@@ -41206,6 +41234,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadMercenaryDenActivities,
     loadMercenaryOperations,
     loadMercenaryOperationIntel,
+    startMercenaryOperation,
     loadSkyhookRegions,
     readSkyhookFilters: () => skyhookFilters(charUiSetting),
     saveSkyhookFilter: (key, value) => setCharUiSetting(skyhookFilterSetting(key), value === null ? "" : String(value)),

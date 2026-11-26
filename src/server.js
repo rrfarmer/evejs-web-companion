@@ -16041,6 +16041,7 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.career.goal.api.GetAllRequest",
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
+  "eve_public.sovereignty.mercenaryden.activity.api.StartRequest",
   "eve_public.achievement.reward.api.ClaimRequest",
   "eve_public.cosmetic.character.title.api.EquipRequest",
   "eve_public.cosmetic.character.title.api.UnequipRequest",
@@ -16165,7 +16166,34 @@ app.post("/api/public-gateway/request", requireAuth, async (req, res, next) => {
     try {
       const forAccount = request === "eve_public.achievement.showcase.api.GetCharacterScoreRequest"
         || request === "eve_public.cosmetic.character.title.api.GetEquippedForCharacterRequest";
-      answer = await sharedPublicGateway().request({ userID: held.accountID, ...(forAccount ? {} : { characterID: held.characterID }) }, request, payload);
+      const publicGateway = sharedPublicGateway();
+      const pilot = { userID: held.accountID, ...(forAccount ? {} : { characterID: held.characterID }) };
+      if (request === "eve_public.sovereignty.mercenaryden.activity.api.StartRequest") {
+        const uuid = payload.id?.uuid;
+        if (typeof uuid !== "string" || !/^[A-Za-z0-9+/]{22}==$/.test(uuid)) {
+          res.json({ ok: true, statusCode: 404, statusMessage: "UNKNOWN_ACTIVITY" });
+          return;
+        }
+        const owned = await publicGateway.request(pilot, "eve_public.sovereignty.mercenaryden.activity.api.GetAllRequest", {});
+        if (owned.statusCode !== 200) {
+          res.json({ ok: true, ...owned });
+          return;
+        }
+        const activity = owned.payload?.activities?.find(row => row.id?.uuid === uuid);
+        const expires = Number(activity?.attributes?.expiry?.seconds) * 1000;
+        if (!activity || (expires > 0 && expires <= Date.now())) {
+          res.json({ ok: true, statusCode: 404, statusMessage: "UNKNOWN_ACTIVITY" });
+          return;
+        }
+        const system = Number(activity.attributes?.solar_system?.sequential);
+        const { flight } = await readHeldFlight(held, req.webSessionID);
+        if (flight.inSpace !== true || Number(flight.structureID) > 0 || !(Number(flight.shipID) > 0) ||
+            !(system > 0) || Number(flight.solarSystemID) !== system) {
+          res.json({ ok: true, statusCode: 409, statusMessage: "ACTIVITY_VALIDATION_FAILED" });
+          return;
+        }
+      }
+      answer = await publicGateway.request(pilot, request, payload);
     } catch (error) {
       if (!String(error && error.code).startsWith("GATEWAY_")) throw error;
       res.status(502).json({ ok: false, error: error.code, message: error.message });
