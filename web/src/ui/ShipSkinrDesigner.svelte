@@ -9,10 +9,12 @@
   import { coatingFits, shipSkinrCoatingID, shipSkinrCoatingSlot, shipSkinrCoatingMaterials, shipSkinrLayoutSlots, shipSkinrSlotID,
     type ShipSkinrCoating, type ShipSkinrCoatingCatalogue } from "../bridge/shipSkinrCoatings.ts";
   import { SKINR_HULL_RULES } from "../bridge/shipSkinrHullRules.ts";
-  import { DEFAULT_PATTERN_CONTROLS, SHIP_SKINR_BLEND_MODES, isPatternSlot, isPatternMaterial, loadShipSkinrProjector, readShipSkinrPatternControls,
+  import { DEFAULT_PATTERN_CONTROLS, SHIP_SKINR_BLEND_MODES, applyShipSkinrProjectorGesture,
+    isPatternSlot, isPatternMaterial, loadShipSkinrProjector, readShipSkinrPatternControls,
     shipSkinrBlendMode, shipSkinrPatternID, shipSkinrPatternPreview, shipSkinrPatternSettings, shipSkinrPatternSlot, shipSkinrProjection,
     updateShipSkinrPattern, usesShipSkinrSecondaryMaterial,
-    type ShipSkinrPattern, type ShipSkinrPatterns, type ShipSkinrProjector, type ShipSkinrPatternControls } from "../bridge/shipSkinrPatterns.ts";
+    type ShipSkinrPattern, type ShipSkinrPatterns, type ShipSkinrProjector,
+    type ShipSkinrPatternControls, type ShipSkinrProjectorGesture } from "../bridge/shipSkinrPatterns.ts";
   import { shipTreeFaction, type ShipTreeCatalogue, type ShipTreeHull } from "../bridge/shipTree.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
@@ -223,6 +225,12 @@
     updateProjectorFlags({ transform: shipSkinrProjection(projection, controls) });
   }
 
+  function useProjectorGesture(gesture: ShipSkinrProjectorGesture) {
+    if (!projectorControls || naming) return;
+    const next = applyShipSkinrProjectorGesture(projectorControls, gesture);
+    if (next !== projectorControls) adjustProjector(next);
+  }
+
   function updateProjectorFlags(changes: Parameters<typeof updateShipSkinrPattern>[1]) {
     if (projectorSlot && projectorRow) {
       layoutSlots = new Map(layoutSlots).set(projectorSlot, updateShipSkinrPattern(projectorRow, changes));
@@ -395,7 +403,8 @@
           <h3>{selectedName}</h3>
           <div class="preview-scene">
             <ShipInfoPreview typeID={selectedTypeID} factionID={selected?.factionID ?? null}
-              coatings={materialNames} patterns={previewPatterns} blendMode={blend} active expanded={false} />
+              coatings={materialNames} patterns={previewPatterns} blendMode={blend}
+              onProjectorGesture={projectorControls && !naming ? useProjectorGesture : undefined} active expanded={false} />
           </div>
           <div class="coating-slots" aria-label="Design slots">
             {#each coatingSlots.filter(row => row.id !== 8 || secondaryMaterial) as row (row.id)}

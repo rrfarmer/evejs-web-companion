@@ -72,6 +72,45 @@ export const DEFAULT_PATTERN_CONTROLS: Readonly<ShipSkinrPatternControls> = {
   offset_u_ratio: 0, offset_v_ratio: 0, yaw: 0.999, pitch: 0.999, roll: 0, scaling: 0.5,
 };
 
+export type ShipSkinrProjectorGesture =
+  | { kind: "drag"; dx: number; dy: number; buttons: number; yaw: number; fov: number; precision: boolean; alt: boolean }
+  | { kind: "wheel"; delta: number; buttons: number; precision: boolean; snap: boolean };
+
+const bound = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const wrap = (value: number) => ((value + 1) % 2 + 2) % 2 - 1;
+const snapAngles = Array.from({ length: 25 }, (_, index) => -180 + index * 15);
+
+export function applyShipSkinrProjectorGesture(
+  controls: ShipSkinrPatternControls, gesture: ShipSkinrProjectorGesture,
+): ShipSkinrPatternControls {
+  const precision = gesture.precision ? 0.1 : 1;
+  if ((gesture.buttons & 3) === 3) {
+    const delta = gesture.kind === "drag" ? -gesture.dy * 0.01 : gesture.delta;
+    const scaling = bound(controls.scaling + delta * 0.1 * precision, 0, 1);
+    return scaling === controls.scaling ? controls : { ...controls, scaling };
+  }
+  if (gesture.kind === "wheel") {
+    if (!gesture.delta) return controls;
+    if (!gesture.snap) return { ...controls, roll: wrap(controls.roll + gesture.delta * 0.1 * precision) };
+    const index = snapAngles.findIndex(angle => angle >= controls.roll * 180);
+    const next = gesture.delta > 0 ? (index >= 24 ? 1 : index + 1) : (index <= 0 ? 23 : index - 1);
+    return { ...controls, roll: snapAngles[next]! / 180 };
+  }
+  if (!gesture.dx && !gesture.dy) return controls;
+  const sensitivity = gesture.fov * 0.02 * precision;
+  if ((gesture.buttons & 3) === 1) {
+    return { ...controls, yaw: wrap(controls.yaw - gesture.dx * sensitivity * 0.3 / Math.PI),
+      pitch: bound(controls.pitch - gesture.dy * sensitivity * 0.6 / Math.PI, -0.999, 0.999) };
+  }
+  if ((gesture.buttons & 3) !== 2 || gesture.alt) return controls;
+  const viewYaw = (gesture.yaw + controls.yaw * Math.PI) * (controls.pitch > 0 ? -1 : 1);
+  const cos = Math.cos(viewYaw), sin = Math.sin(viewYaw);
+  return { ...controls,
+    offset_u_ratio: bound(controls.offset_u_ratio + (cos * gesture.dx - sin * gesture.dy) * sensitivity * 0.1, -1, 1),
+    offset_v_ratio: bound(controls.offset_v_ratio + (-sin * gesture.dx - cos * gesture.dy) * sensitivity * 0.1, -1, 1),
+  };
+}
+
 export async function loadShipSkinrProjector(typeID: number, scales: Readonly<Record<string, number>>): Promise<ShipSkinrProjector | null> {
   const response = await fetch(`/client-assets/type/${typeID}`);
   if (!response.ok) return null;

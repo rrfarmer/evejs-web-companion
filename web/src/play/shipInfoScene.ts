@@ -195,6 +195,10 @@ export class ShipInfoScene {
 
   moveZoom(amount: number): void { this.zoom = THREE.MathUtils.clamp(this.zoom + amount, 0, 1); }
 
+  projectorView(): { yaw: number; fov: number } {
+    return { yaw: this.yaw, fov: rad(this.camera.fov) };
+  }
+
   setActive(active: boolean): void {
     if (this.active === active) return;
     this.active = active;
