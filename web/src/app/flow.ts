@@ -1003,7 +1003,7 @@ import { autopilotDistances, autopilotJumpCounts, autopilotMap, autopilotPath, t
 import { availableJumpGateJumps, type JumpGateJump } from "../nav/jumpGates.ts";
 import { decodeCharacterStructureDirectory, decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData, decodeStructureProfileNames, decodeStructureProfiles, encodeStructureDescription, MAX_STRUCTURE_DESCRIPTION_LENGTH, type StructureBrowserDirectory } from "../bridge/structures.ts";
 import { decodeProfileSettingRows, profileSettingSignature, PROFILE_SETTING_CATEGORIES, type ProfileSettingRow } from "../bridge/structureProfileSettings.ts";
-import { decodeMercenaryDen, decodeMercenaryDenActivities, mercenaryDenID, mercenaryDenInteger, mercenaryDenRecord, type MercenaryDenActivities, type MercenaryDensRead } from "../bridge/mercenaryDens.ts";
+import { decodeMercenaryDen, decodeMercenaryDenActivities, mercenaryDenID, mercenaryDenInteger, mercenaryDenRecord, type MercenaryDenActivities, type MercenaryDenRow, type MercenaryDensRead } from "../bridge/mercenaryDens.ts";
 import { NO_REINFORCEMENT_WEEKDAY, structureDecommissionAction, structureDecommissionSeconds } from "../bridge/structureBrowserFilters.ts";
 import {
   AVOIDING_DIALOGS,
@@ -4588,6 +4588,7 @@ export interface AppFlow {
   loadCorporationMoonSchedule(current?: () => void): Promise<CorporationMoonSchedule>;
   loadStructureBrowser(systemID: number, corporation?: boolean): Promise<StructureBrowserDirectory>;
   loadMyMercenaryDens(): Promise<MercenaryDensRead>;
+  reloadMercenaryDen(denID: number): Promise<MercenaryDenRow | null>;
   loadMercenaryDenActivities(denID: number): Promise<MercenaryDenActivities>;
   loadMySkyhooks(systemID: number): Promise<{ rows: SkyhookRow[]; currentRegionID: number | null }>;
   loadSkyhookRegions(): Promise<readonly { id: number; name: string }[]>;
@@ -28855,13 +28856,24 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       canEditDescriptions };
   }
 
+  function mercenaryDenRequest(suffix: string, payload: Record<string, JsonValue> = {}) {
+    return api.publicGatewayRequest("eve_public.sovereignty.mercenaryden." + suffix, payload, callOptions);
+  }
+
+  function requestMercenaryDenNames(rows: readonly MercenaryDenRow[]) {
+    requestNames(rows.flatMap(row => [
+      { kind: "type" as const, id: row.typeID },
+      { kind: "system" as const, id: row.solarSystemID },
+      { kind: "planet" as const, id: row.planetID },
+      ...(row.ownerCharacterID ? [{ kind: "character" as const, id: row.ownerCharacterID }] : []),
+      ...(row.skyhookOwnerCorporationID ? [{ kind: "corporation" as const, id: row.skyhookOwnerCorporationID }] : []),
+    ]));
+  }
+
   async function loadMyMercenaryDens(): Promise<MercenaryDensRead> {
     const current = callOptions.captureRequestGuard!();
-    const prefix = "eve_public.sovereignty.mercenaryden.";
-    const request = (suffix: string, payload: Record<string, JsonValue> = {}) =>
-      api.publicGatewayRequest(prefix + suffix, payload, callOptions);
     const [ownedReply, capacityReply] = await Promise.all([
-      request("api.GetAllOwnedRequest"), request("api.GetMaximumForCharacterRequest"),
+      mercenaryDenRequest("api.GetAllOwnedRequest"), mercenaryDenRequest("api.GetMaximumForCharacterRequest"),
     ]);
     current();
     if (ownedReply.statusCode !== 200 || capacityReply.statusCode !== 200) throw new Error("Mercenary dens could not be read.");
@@ -28872,8 +28884,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const absoluteMaximum = mercenaryDenInteger(capacity.absolute_maximum);
     if (!owned.length) return { owned, rows: [], maximum, absoluteMaximum };
     const [activityReply, detailReplies, statics] = await Promise.all([
-      request("activity.api.GetAllRequest").catch(() => null),
-      Promise.all(owned.map(id => request("api.GetAsOwnerRequest", { id: { sequential: id } }).catch(() => null))),
+      mercenaryDenRequest("activity.api.GetAllRequest").catch(() => null),
+      Promise.all(owned.map(id => mercenaryDenRequest("api.GetAsOwnerRequest", { id: { sequential: id } }).catch(() => null))),
       sovResourceStatic().catch(() => null),
     ]);
     current();
@@ -28892,22 +28904,30 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         : null;
       return row ? [row] : [];
     });
-    requestNames(rows.flatMap(row => [
-      { kind: "type" as const, id: row.typeID },
-      { kind: "system" as const, id: row.solarSystemID },
-      { kind: "planet" as const, id: row.planetID },
-      ...(row.ownerCharacterID ? [{ kind: "character" as const, id: row.ownerCharacterID }] : []),
-      ...(row.skyhookOwnerCorporationID ? [{ kind: "corporation" as const, id: row.skyhookOwnerCorporationID }] : []),
-    ]));
+    requestMercenaryDenNames(rows);
     return { owned, rows, maximum, absoluteMaximum };
+  }
+
+  async function reloadMercenaryDen(denID: number): Promise<MercenaryDenRow | null> {
+    const current = callOptions.captureRequestGuard!();
+    const [reply, activities, statics] = await Promise.all([
+      mercenaryDenRequest("api.GetAsOwnerRequest", { id: { sequential: denID } }),
+      mercenaryDenRequest("activity.api.GetForMercenaryDenRequest", { mercenary_den: { sequential: denID } }).catch(() => null),
+      sovResourceStatic().catch(() => null),
+    ]);
+    current();
+    const cards = mercenaryDenRecord(activities?.payload).activities;
+    const count = activities?.statusCode === 200 ? (Array.isArray(cards) ? cards.length : 0) : null;
+    const row = reply.statusCode === 200 ? decodeMercenaryDen(denID, reply.payload, count, statics?.planets) : null;
+    if (row) requestMercenaryDenNames([row]);
+    return row;
   }
 
   async function loadMercenaryDenActivities(denID: number): Promise<MercenaryDenActivities> {
     const current = callOptions.captureRequestGuard!();
-    const prefix = "eve_public.sovereignty.mercenaryden.activity.api.";
     const [reply, capacity] = await Promise.all([
-      api.publicGatewayRequest(prefix + "GetForMercenaryDenRequest", { mercenary_den: { sequential: denID } }, callOptions),
-      api.publicGatewayRequest(prefix + "GetCapacityRequest", {}, callOptions).catch(() => null),
+      mercenaryDenRequest("activity.api.GetForMercenaryDenRequest", { mercenary_den: { sequential: denID } }),
+      mercenaryDenRequest("activity.api.GetCapacityRequest").catch(() => null),
     ]);
     current();
     if (reply.statusCode !== 200) throw new Error("Mercenary Den activities could not be read.");
@@ -41159,6 +41179,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadStructureBrowser,
     loadMySkyhooks,
     loadMyMercenaryDens,
+    reloadMercenaryDen,
     loadMercenaryDenActivities,
     loadSkyhookRegions,
     readSkyhookFilters: () => skyhookFilters(charUiSetting),

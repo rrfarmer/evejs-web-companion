@@ -1,18 +1,29 @@
 <script lang="ts">
+  import { SvelteSet } from "svelte/reactivity";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import type { BookmarkPlace } from "../bridge/locationsList.ts";
   import type { MercenaryDenRow, MercenaryDensRead } from "../bridge/mercenaryDens.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
+  import { avoidanceItems, isAvoidablePlace } from "../nav/autopilotSettings.ts";
+  import { celestialRouteEntries, isWaypointPlace } from "../nav/waypoints.ts";
+  import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { openAgencyGroup } from "./agencyRequests.ts";
+  import BookmarkWindow from "./BookmarkWindow.svelte";
+  import { notify } from "./notices.ts";
   import { showInfo } from "./showInfo.ts";
   import MercenaryDenManagement from "./MercenaryDenManagement.svelte";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, onShowSystem }: { store: ClientStore; flow: AppFlow; onShowSystem?: (id: number) => void } = $props();
   const words = $derived(store.words);
   const names = $derived(store.names);
   const station = $derived(store.station);
+  const flight = $derived(store.flight);
+  const fleet = $derived(store.fleet);
+  const waypoints = $derived(flow.waypoints);
+  const here = $derived($flight.status?.solarSystemID ?? $station.online?.solarSystemID ?? null);
   const characterID = $derived($station.online?.characterID ?? null);
   const path = "UI/Sovereignty/MercenaryDen/MyMercenaryDensWindow/";
   const config = "UI/Sovereignty/MercenaryDen/ConfigurationWindow/";
@@ -46,6 +57,19 @@
     fullSkills: [path + "MaxDeployedWithFullSkills", "Maximum with full skills: {numDens}"],
     slot: [path + "EmptySlot", "Empty Slot"],
     slotDescription: [path + "EmptySlotDesc", "Available for deployment"],
+    reload: [path + "ReloadData", "Reload"],
+    location: ["UI/Common/Location", "Location"],
+    info: ["UI/Commands/ShowInfo", "Show Info"],
+    destination: ["UI/Inflight/SetDestination", "Set Destination"],
+    addWaypoint: ["UI/Inflight/AddWaypoint", "Add Waypoint"],
+    removeWaypoint: ["UI/Inflight/RemoveWaypoint", "Remove Waypoint"],
+    travelTo: ["UI/Fleet/FleetBroadcast/Commands/BroadcastTravelTo", "Broadcast: Travel To"],
+    saveLocation: ["UI/Inflight/BookmarkLocation", "Save Location…"],
+    bookmarkLabel: ["UI/PeopleAndPlaces/NewBookmarkLocationLabel", "{loc} ({group})"],
+    map: ["UI/Commands/ShowLocationOnMap", "Show on Map"],
+    mapBrowser: ["UI/Inflight/ShowInMapBrowser", "Show in Mapbrowser ({locationType})"],
+    avoid: ["UI/Inflight/AvoidLocation", "Avoid {theLocation} ({locationType})"],
+    stopAvoiding: ["UI/Inflight/StopAvoidingLocation", "Do Not Avoid {theLocation} ({locationType})"],
   } as const;
   const columns = ["name", "system", "planet", "state", "infomorphs", "mto"] as const;
   const word = (key: keyof typeof labels, args: Record<string, string | number> = {}) =>
@@ -58,6 +82,10 @@
   const summaryName = $derived(selected ? word("summaryName", { typeID: selected.typeID, solarSystem: systemName(selected) }) : "");
   const integer = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
   let directory = $state.raw<MercenaryDensRead | null>(null);
+  let bookmark = $state.raw<BookmarkPlace | null>(null);
+  const menu = new ContextMenu();
+  const reloading = new SvelteSet<number>();
+  let loadSerial = 0;
   let selection = $state(0);
   const selectionKey = $derived(`evejs.play.${characterID}.mercDenSelected`);
   const selectedID = $derived(directory?.owned.includes(selection) ? selection : directory?.owned[0]);
@@ -75,6 +103,85 @@
     selection = id;
     if (characterID) try { localStorage.setItem(selectionKey, String(id)); } catch { /* kept in this window */ }
   }
+  function entry(key: keyof typeof labels, run: () => void): ContextEntry {
+    return { path: labels[key][0], label: word(key), run };
+  }
+  function locationEntries(row: MercenaryDenRow): (ContextEntry | null)[] {
+    const id = row.solarSystemID;
+    const route = celestialRouteEntries(id, isWaypointPlace(id), here, $waypoints);
+    const entries: (ContextEntry | null)[] = [
+      { ...entry("info", () => showInfo({ kind: "mapLocation", typeID: 5, itemID: id })), info: true },
+    ];
+    if (route.setDestination) entries.push(entry("destination", () => flow.setDestination(id)));
+    if (route.addWaypoint) entries.push(entry("addWaypoint", () => flow.addWaypoint(id)));
+    if (route.removeWaypoint) entries.push(entry("removeWaypoint", () => flow.clearWaypoints(id)));
+    if ($fleet.availability === "ready" && isWaypointPlace(id)) {
+      entries.push(null, entry("travelTo", () => {
+        void flow.broadcastTravelToSystem(id).catch(cause => {
+          if (cause?.code !== "SESSION_REQUEST_RETIRED") notify({ kind: "danger", title: word("travelTo"), detail: String(cause) });
+        });
+      }));
+    }
+    entries.push(null, entry("saveLocation", () => {
+      bookmark = {
+        itemID: id, askIfKnown: true, typeName: () => word("system"),
+        name: () => plainText(formatTemplate($words.templates[labels.bookmarkLabel[0]] ?? labels.bookmarkLabel[1],
+          { loc: id, group: word("system") }, { nameOf: () => systemName(row) })),
+      };
+    }));
+    if (isAvoidablePlace(id)) {
+      const locationType = word("system");
+      const show = onShowSystem;
+      entries.push(null);
+      if (show) {
+        entries.push(entry("map", () => show(id)), {
+          ...entry("mapBrowser", () => show(id)), label: word("mapBrowser", { locationType }),
+        });
+      }
+      const avoiding = avoidanceItems(flow.autopilotSettings()).includes(id);
+      const key = avoiding ? "stopAvoiding" : "avoid";
+      entries.push({
+        ...entry(key, () => avoiding ? flow.stopAvoidingLocation(id) : flow.avoidLocation(id)),
+        label: plainText(formatTemplate($words.templates[labels[key][0]] ?? labels[key][1],
+          { locationType, theLocation: id }, { nameOf: () => systemName(row) })),
+      });
+    }
+    return entries;
+  }
+  async function reloadRow(id: number) {
+    if (reloading.has(id)) return;
+    const serial = loadSerial;
+    reloading.add(id);
+    try {
+      const row = await flow.reloadMercenaryDen(id);
+      if (serial === loadSerial && row && directory?.owned.includes(id)) {
+        directory = { ...directory, rows: [...directory.rows.filter(item => item.id !== id), row] };
+      }
+    } catch (cause) {
+      if (serial === loadSerial) notify({ kind: "danger", title: word("reload"), detail: panelErrorWords(cause) });
+    } finally {
+      if (serial === loadSerial) reloading.delete(id);
+    }
+  }
+  function openRowMenu(id: number, row: MercenaryDenRow | undefined, x: number, y: number) {
+    menu.open(x, y, row ? [
+      { ...entry("info", () => showInfo({ kind: "type", itemID: row.id, typeID: row.typeID })), info: true },
+      entry("saveLocation", () => {
+        bookmark = {
+          itemID: row.id, askIfKnown: true, requiresSpace: true, name: () => denName(row),
+          typeName: () => nameOf("type", row.typeID, "Mercenary Den"),
+        };
+      }),
+      { path: labels.location[0], label: word("location"), sub: locationEntries(row) },
+    ] : [entry("reload", () => { void reloadRow(id); })]);
+  }
+  function menuFromKey(event: KeyboardEvent & { currentTarget: HTMLButtonElement }, id: number, row: MercenaryDenRow | undefined) {
+    if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    openRowMenu(id, row, bounds.left, bounds.bottom);
+  }
   $effect(() => {
     let saved = 0;
     if (characterID) try { saved = Number(localStorage.getItem(selectionKey)); } catch { /* optional storage */ }
@@ -84,15 +191,20 @@
     void revision;
     void characterID;
     let current = true;
+    reloading.clear();
     directory = null;
     error = "";
     flow.requestWords(Object.values(labels).map(([key]) => key));
     void flow.loadMyMercenaryDens().then(result => {
       if (current) directory = result;
     }).catch(cause => { if (current) error = panelErrorWords(cause); });
-    return () => { current = false; };
+    return () => { current = false; loadSerial++; menu.close(); };
   });
 </script>
+
+{#if bookmark}
+  {#key bookmark.itemID}<BookmarkWindow {store} {flow} place={bookmark} onDone={() => bookmark = null} />{/key}
+{/if}
 
 <section class="mercenary-dens" aria-label="My Mercenary Dens">
   {#if error}
@@ -114,16 +226,20 @@
         <tbody>
           {#each directory.owned as id (id)}
             {@const row = directory.rows.find(entry => entry.id === id)}
-            <tr data-den={id} class:current={selectedID === id}>
+            <tr data-den={id} class:current={selectedID === id} aria-busy={reloading.has(id)} oncontextmenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              openRowMenu(id, row, event.clientX, event.clientY);
+            }}>
               {#if row}
-                <td><button class="den-name" type="button" aria-pressed={selectedID === id} onclick={() => select(id)}>{denName(row)}</button></td>
+                <td><button class="den-name" type="button" aria-pressed={selectedID === id} onclick={() => select(id)} onkeydown={(event) => menuFromKey(event, id, row)}>{denName(row)}</button></td>
                 <td>{systemName(row)}</td>
                 <td>{nameOf("planet", row.planetID, "—")}</td>
                 <td>{word(row.enabled ? "active" : "inactive")}</td>
                 <td>{integer.format(row.infomorphs)}</td>
                 <td>{row.activities === null ? "—" : integer.format(row.activities)}</td>
               {:else}
-                <td colspan="6"><button class="den-name" type="button" aria-pressed={selectedID === id} onclick={() => select(id)}>Mercenary Den {id} · {word("missing")}</button></td>
+                <td colspan="6"><button class="den-name" type="button" aria-pressed={selectedID === id} onclick={() => select(id)} onkeydown={(event) => menuFromKey(event, id, row)}>Mercenary Den {id} · {word("missing")}</button></td>
               {/if}
             </tr>
           {/each}
