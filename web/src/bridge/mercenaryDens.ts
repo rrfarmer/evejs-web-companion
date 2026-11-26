@@ -1,10 +1,22 @@
 import { uuidFromBytes } from "./skillPlans.ts";
 
+type InfomorphRate = readonly [lower: number, upper: number];
+
+export type MercenaryDenStageImpact =
+  | { readonly infomorphsPerHour: InfomorphRate | null }
+  | { readonly workforcePercent: number | null };
+
+export interface MercenaryDenStage {
+  readonly stage: number;
+  readonly points: number;
+  readonly maximum: number;
+  readonly active: boolean;
+  readonly nextImpact: MercenaryDenStageImpact;
+}
+
 export interface MercenaryDenProgress {
   readonly stage: number;
-  readonly level: number;
-  readonly lowerLevel: number;
-  readonly upperLevel: number;
+  readonly stages: readonly MercenaryDenStage[];
 }
 
 export interface MercenaryDenActivity {
@@ -34,7 +46,7 @@ export interface MercenaryDenRow {
   readonly enabled: boolean;
   readonly infomorphs: number;
   readonly activities: number | null;
-  readonly infomorphsPerHour: readonly [lower: number, upper: number];
+  readonly infomorphsPerHour: InfomorphRate;
   readonly workforceCost: number;
   readonly workforcePercent: number | null;
   readonly development: MercenaryDenProgress;
@@ -66,23 +78,32 @@ function evolutionStage(value: unknown): number {
   return mercenaryDenInteger(named?.[1] ?? value);
 }
 
-function stageEntry(entries: unknown, simulation: unknown): Record<string, unknown> {
-  const stage = evolutionStage(mercenaryDenRecord(simulation).stage);
-  return mercenaryDenRecord(stage > 0 && Array.isArray(entries)
+function stageEntry(entries: unknown, stage: number): Record<string, unknown> | undefined {
+  const found = stage > 0 && Array.isArray(entries)
     ? entries.find(entry => evolutionStage(mercenaryDenRecord(entry).stage) === stage)
-    : undefined);
+    : undefined;
+  return found === undefined ? undefined : mercenaryDenRecord(found);
 }
 
-function progress(simulation: unknown, stages: unknown): MercenaryDenProgress {
+function progress(simulation: unknown, stages: unknown, nextImpact: (stage: number) => MercenaryDenStageImpact): MercenaryDenProgress {
   const state = mercenaryDenRecord(simulation);
-  const band = stageEntry(stages, simulation);
-  const lowerLevel = mercenaryDenInteger(band.level_lower_bound);
-  const upperLevel = mercenaryDenInteger(band.level_upper_bound);
+  const level = mercenaryDenInteger(state.level);
+  const levels = (Array.isArray(stages) ? stages : []).flatMap(entry => {
+    const band = mercenaryDenRecord(entry);
+    const stage = evolutionStage(band.stage);
+    const lower = mercenaryDenInteger(band.level_lower_bound);
+    const upper = mercenaryDenInteger(band.level_upper_bound);
+    if (!stage || upper <= lower) return [];
+    const maximum = upper + 1 - lower;
+    return [{
+      stage, maximum, points: Math.max(0, Math.min(maximum, level - lower)),
+      active: level >= lower && level <= upper,
+      nextImpact: nextImpact(stage + 1),
+    }];
+  });
   return {
     stage: Math.max(0, evolutionStage(state.stage) - 1),
-    level: mercenaryDenInteger(state.level),
-    lowerLevel,
-    upperLevel: upperLevel > lowerLevel ? upperLevel + 1 : upperLevel,
+    stages: levels.sort((left, right) => left.stage - right.stage),
   };
 }
 
@@ -127,23 +148,32 @@ export function decodeMercenaryDen(id: number, payload: unknown, activities: num
   const evolution = mercenaryDenRecord(row.evolution);
   const definition = mercenaryDenRecord(evolution.definition);
   const simulation = mercenaryDenRecord(evolution.simulation);
-  const band = stageEntry(generation.generation_bands, simulation.development);
   const tickSeconds = mercenaryDenInteger(generation.generation_tick_seconds);
   const hourly = (count: unknown) => tickSeconds > 0 ? Math.trunc(mercenaryDenInteger(count) / tickSeconds * 3600) : 0;
+  const rateAt = (stage: number): InfomorphRate | null => {
+    const band = stageEntry(generation.generation_bands, stage);
+    return band ? [hourly(band.lower_band), hourly(band.upper_band)] : null;
+  };
   const anarchyStages = mercenaryDenRecord(definition.anarchy).stages;
   const developmentStages = mercenaryDenRecord(definition.development).stages;
-  const anarchy = stageEntry(anarchyStages, simulation.anarchy);
-  const workforceCost = mercenaryDenInteger(anarchy.workforce_consumption);
+  const currentDevelopment = evolutionStage(mercenaryDenRecord(simulation.development).stage);
+  const currentAnarchy = evolutionStage(mercenaryDenRecord(simulation.anarchy).stage);
+  const anarchy = stageEntry(anarchyStages, currentAnarchy);
+  const workforceCost = mercenaryDenInteger(anarchy?.workforce_consumption);
   const planetWorkforce = planets?.get(planetID)?.workforce ?? 0;
+  const workforcePercent = (cost: number) => cost === 0 ? 0 : planetWorkforce > 0 ? cost / planetWorkforce * 100 : null;
   return {
     id, typeID, solarSystemID, planetID, enabled: row.enabled === true,
     ownerCharacterID: mercenaryDenID(attributes.owner),
     skyhookOwnerCorporationID: mercenaryDenID(row.skyhook_owner),
     infomorphs: mercenaryDenInteger(contents.infomorphs_count), activities,
-    infomorphsPerHour: [hourly(band.lower_band), hourly(band.upper_band)],
+    infomorphsPerHour: rateAt(currentDevelopment) ?? [0, 0],
     workforceCost,
-    workforcePercent: workforceCost === 0 ? 0 : planetWorkforce > 0 ? workforceCost / planetWorkforce * 100 : null,
-    development: progress(simulation.development, developmentStages),
-    anarchy: progress(simulation.anarchy, anarchyStages),
+    workforcePercent: workforcePercent(workforceCost),
+    development: progress(simulation.development, developmentStages, stage => ({ infomorphsPerHour: rateAt(stage) })),
+    anarchy: progress(simulation.anarchy, anarchyStages, stage => {
+      const band = stageEntry(anarchyStages, stage);
+      return { workforcePercent: band ? workforcePercent(mercenaryDenInteger(band.workforce_consumption)) : null };
+    }),
   };
 }

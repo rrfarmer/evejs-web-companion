@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
   import { formatInterval, formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import type { MercenaryDenActivities, MercenaryDenRow } from "../bridge/mercenaryDens.ts";
+  import type { MercenaryDenActivities, MercenaryDenRow, MercenaryDenStage } from "../bridge/mercenaryDens.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
@@ -9,6 +9,7 @@
     store: ClientStore; flow: AppFlow; den: MercenaryDenRow; characterID: number | null;
   } = $props();
   const words = $derived(store.words);
+  const hintID = $props.id();
   const path = "UI/Sovereignty/MercenaryDen/MyMercenaryDensWindow/";
   const config = "UI/Sovereignty/MercenaryDen/ConfigurationWindow/";
   const labels = {
@@ -23,7 +24,13 @@
     anarchy: [config + "AnarchyTitle", "Anarchy"],
     developmentValue: [config + "DevelopmentValue", "Level {level}"],
     anarchyValue: [config + "AnarchyValue", "Level {level}"],
-    levelProgress: [config + "LevelProgress", "{current_level} / {level_upper_band}"],
+    levelProgress: [config + "LevelProgress", "{current_level}/{level_upper_band}"],
+    generationRange: [config + "InfomorphGenerationRateData", "{lower}-{upper}/h"],
+    percentage: ["UI/Common/Formatting/Percentage", "{percentage}%"],
+    developmentTitleHint: [config + "DevelopmentTooltip", "Current infomorph generation: {current_rate}"],
+    anarchyTitleHint: [config + "AnarchyTooltip", "Current workforce impact: {workforce_cost}"],
+    developmentProgressHint: [config + "DevelopmentProgressTooltip", "Development {development_value} ({development_progress})\nInfomorph generation: {rate}"],
+    anarchyProgressHint: [config + "AnarchyProgressTooltip", "Anarchy {anarchy_value} ({anarchy_progress})\nWorkforce impact: {workforce_cost}"],
     developmentImpact: ["UI/Sovereignty/MercenaryDen/DevelopmentImpact", "Development Impact {impact}"],
     anarchyImpact: ["UI/Sovereignty/MercenaryDen/AnarchyImpact", "Anarchy Impact {impact}"],
     infomorphBonus: ["UI/Sovereignty/MercenaryDen/InfomorphBonus", "Infomorph Bonus {bonus}"],
@@ -36,6 +43,23 @@
   }
   const tabs = ["evolution", "activities"] as const;
   const tracks = ["development", "anarchy"] as const;
+  type Track = typeof tracks[number];
+  const levelLabel = (key: Track, stage: number) =>
+    word(key === "development" ? "developmentValue" : "anarchyValue", { level: stage });
+  const rateLabel = (rate: MercenaryDenRow["infomorphsPerHour"] | null) =>
+    rate ? word("generationRange", { lower: rate[0], upper: rate[1] }) : "—";
+  const workforceLabel = (workforce: number | null) =>
+    workforce === null ? "—" : word("percentage", { percentage: workforce });
+  const stageProgress = (stage: MercenaryDenStage) =>
+    word("levelProgress", { current_level: stage.points, level_upper_band: stage.maximum });
+  function stageHint(key: Track, stage: MercenaryDenStage) {
+    const value = levelLabel(key, stage.stage);
+    const progress = stageProgress(stage);
+    const impact = stage.nextImpact;
+    return "infomorphsPerHour" in impact
+      ? word("developmentProgressHint", { development_value: value, development_progress: progress, rate: rateLabel(impact.infomorphsPerHour) })
+      : word("anarchyProgressHint", { anarchy_value: value, anarchy_progress: progress, workforce_cost: workforceLabel(impact.workforcePercent) });
+  }
   type Tab = typeof tabs[number];
   let tab = $state<Tab>("evolution");
   const tabKey = $derived(`evejs.play.${characterID}.MercenaryDen_MyMercenaryDensWindow_LastSelectedTab`);
@@ -84,14 +108,33 @@
     <div class="evolution">
       {#each tracks as key (key)}
         {@const progress = den[key]}
-        <div class="evolution-track">
-          <strong>{word(key)}</strong>
-          <span>{word(key === "development" ? "developmentValue" : "anarchyValue", { level: progress.stage })}</span>
-          {#if progress.upperLevel > progress.lowerLevel}
-            <progress max={progress.upperLevel - progress.lowerLevel} value={Math.max(0, progress.level - progress.lowerLevel)}
-              aria-label={word(key)} aria-valuetext={word("levelProgress", { current_level: progress.level, level_upper_band: progress.upperLevel })}></progress>
-            <small>{word("levelProgress", { current_level: progress.level, level_upper_band: progress.upperLevel })}</small>
-          {/if}
+        <div class="evolution-track" data-evolution={key}>
+          <div class="evolution-title">
+            <strong>{word(key)}</strong>
+            <div class="evolution-detail">
+              <button class="evolutionInfo" type="button" aria-label={word(key)} aria-describedby={`${hintID}-${key}`}>ⓘ</button>
+              <span class="evolution-tooltip" role="tooltip" id={`${hintID}-${key}`}>
+                {key === "development"
+                  ? word("developmentTitleHint", { current_rate: rateLabel(den.infomorphsPerHour) })
+                  : word("anarchyTitleHint", { workforce_cost: workforceLabel(den.workforcePercent) })}
+              </span>
+            </div>
+            <span class="evolution-level">{levelLabel(key, progress.stage)}</span>
+          </div>
+          <div class="evolution-stages">
+            {#each progress.stages as stage (stage.stage)}
+              {@const id = `${hintID}-${key}-${stage.stage}`}
+              <div class="evolution-detail" data-stage={stage.stage}>
+                <button class="stage-ring" class:complete={stage.points === stage.maximum} class:active={stage.active}
+                  type="button" aria-current={stage.active ? "step" : undefined}
+                  aria-label={levelLabel(key, stage.stage)} aria-describedby={id} style:--fill={`${stage.points / stage.maximum * 100}%`}>
+                  <span class="stage-number">{stage.stage}</span>
+                  <span class="stage-progress">{stageProgress(stage)}</span>
+                </button>
+                <span class="evolution-tooltip" role="tooltip" {id}>{stageHint(key, stage)}</span>
+              </div>
+            {/each}
+          </div>
         </div>
       {/each}
     </div>
@@ -141,8 +184,23 @@
   h4, p { margin: 0; }
   .evolution, .activity-list { display: grid; gap: 6px; }
   .activity-list:empty { display: none; }
-  .evolution-track { display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; align-items: center; }
-  progress { width: 100%; height: 8px; accent-color: #b6dbe6; }
+  .evolution-track { position: relative; display: grid; gap: 5px; }
+  .evolution-title { display: flex; gap: 5px; align-items: center; }
+  .evolution-level { margin-left: auto; }
+  .evolutionInfo { background: none; border: 0; padding: 0 3px; color: #b6dbe6; }
+  .evolution-stages { display: flex; align-items: center; justify-content: space-between; gap: 2px; min-height: 42px; }
+  .stage-ring { position: relative; isolation: isolate; display: grid; place-items: center; width: 28px; height: 28px; border: 0; padding: 0;
+    border-radius: 50%; background: conic-gradient(#80b8cb var(--fill), #48535d 0); color: #d4e2e9; font-size: 11px; }
+  .stage-ring::before { content: ""; position: absolute; z-index: -1; inset: 2px; border-radius: inherit; background: #212830; }
+  .stage-ring.complete::before { background: #447e91; }
+  .stage-ring.active { outline: 1px solid #b6dbe6; outline-offset: 2px; }
+  .stage-progress { display: none; }
+  .evolution-detail:hover .stage-ring, .evolution-detail:focus-within .stage-ring { width: 42px; height: 42px; }
+  .evolution-detail:hover .stage-progress, .evolution-detail:focus-within .stage-progress { display: inline; }
+  .evolution-detail:hover .stage-number, .evolution-detail:focus-within .stage-number { display: none; }
+  .evolution-tooltip { display: none; position: absolute; z-index: 3; left: 0; right: 0; top: 100%; pointer-events: none;
+    padding: 6px 8px; background: #14191f; border: 1px solid #53636f; color: #ebeff2; white-space: pre-line; }
+  .evolution-detail:hover .evolution-tooltip, .evolution-detail:focus-within .evolution-tooltip { display: block; }
   small { color: #bcc6ce; }
   details { background: #ffffff0d; }
   summary { cursor: pointer; padding: 6px 8px; }
