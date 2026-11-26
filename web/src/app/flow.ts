@@ -5686,7 +5686,7 @@ export interface AppFlow {
   readChatChannelDirectory(name: string | null): Promise<readonly api.ChatDirectoryChannel[]>;
   createChatDirectoryChannel(name: string): Promise<string>;
   chatDirectoryChannelSettings(room: string, change?: api.ChatChannelSettingsChange): Promise<api.ChatChannelSettings>;
-  chatDirectoryChannelAllowed(room: string, change?: api.ChatAllowedChange): Promise<readonly { id: number; name: string }[]>;
+  chatDirectoryChannelAccess(room: string, list: api.ChatAccessList, change?: api.ChatAccessChange): Promise<readonly { id: number; name: string; temporary: boolean }[]>;
   readChatChannelMembers(rooms: readonly string[]): Promise<ReadonlyMap<string, number>>;
   /**
    * R7c — request display names for a set of `{kind, id}` refs (names-everywhere).
@@ -41224,14 +41224,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (change) conversations.updateDirectoryChannelTitle(room, settings.name);
       return settings;
     },
-    async chatDirectoryChannelAllowed(room, change) {
+    async chatDirectoryChannelAccess(room, list, change) {
       const scope = captureMemberOperation();
-      const ids = await api.chatChannelAllowed(room, change ?? null, scope.options);
+      const entries = await api.chatChannelAccessList(room, list, change ?? null, scope.options);
       scope.current();
-      await resolveNamesNow(ids.map(id => ({ kind: "owner", id }))).catch(() => {});
+      await resolveNamesNow(entries.map(({ id }) => ({ kind: "owner", id }))).catch(() => {});
       scope.current();
       const names = store.names.get().resolved;
-      return ids.map(id => ({ id, name: names[nameKey("owner", id)] ?? String(id) })).sort((a, b) => a.name.localeCompare(b.name));
+      return entries.map(entry => ({ ...entry, name: names[nameKey("owner", entry.id)] ?? String(entry.id) })).sort((a, b) => a.name.localeCompare(b.name));
     },
     async readChatChannelMembers(rooms) {
       const scope = captureMemberOperation();

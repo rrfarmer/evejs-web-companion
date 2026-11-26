@@ -531,6 +531,14 @@ class XmppChatSession {
         const query = `<query xmlns='http://jabber.org/protocol/muc#${namespace}'>${payload}</query>`;
         return { id, xml: `<iq id='${id}' type='${type}' from='${escapeXml(jid())}' to='${escapeXml(target)}'>${query}</iq>` };
       },
+      roomBanRecords: (roomName, ownerID) => {
+        const id = requestID();
+        const room = escapeXml(`${roomName}@${this.conferenceDomain}`);
+        const read = ownerID === undefined;
+        const query = read ? `<query xmlns='urn:xmpp:expiring_record#search' room='${room}' category='ban'/>` :
+          `<query xmlns='urn:xmpp:expiring_record' room='${room}' category='ban' jid='${escapeXml(`${ownerID}@${this.domain}`)}' action='delete'/>`;
+        return { id, xml: `<iq id='${id}' type='${read ? "get" : "set"}' from='${escapeXml(jid())}' to='${escapeXml(this.domain)}'>${query}</iq>` };
+      },
       roomSubject: (roomName, subject) => {
         const id = requestID();
         const target = `${roomName}@${this.conferenceDomain}`;
@@ -1941,30 +1949,47 @@ class XmppChatSession {
     return this.channelSettings(roomName, context);
   }
 
-  async channelAllowed(roomName, change, context = {}) {
+  async channelAccess(roomName, list, change, context = {}) {
     await this.managedPlayerChannel(roomName, context);
     const stanzas = this.retailStanzas();
-    const request = async (type, payload) => {
+    const affiliation = list === "blocked" ? "outcast" : "member";
+    const request = async (stanza) => {
       this.assertChatCurrent(context);
-      const response = await this.requestChatInformation(stanzas.roomIq(roomName, "admin", type, payload), "channel allowed list");
+      const response = await this.requestChatInformation(stanza, `channel ${list} list`);
       this.assertChatCurrent(context);
       if (attr(response.match(/^<iq\b[^>]*>/i)?.[0] || "", "type") !== "result") {
-        throw new XmppChatError("The chat server refused the allowed-list request.", { code: "CHAT_ACCESS_REFUSED", statusCode: 403 });
+        throw new XmppChatError(`The chat server refused the ${list} list request.`, { code: "CHAT_ACCESS_REFUSED", statusCode: 403 });
       }
-      const ids = new Set();
-      for (const [item] of response.matchAll(/<item\b[^>]*>/gi)) {
-        if (attr(item, "affiliation") !== "member") continue;
-        const [id, domain] = attr(item, "jid").split("@");
-        if (domain === this.domain && Number.isSafeInteger(Number(id)) && Number(id) > 0) ids.add(Number(id));
-      }
-      return [...ids];
+      return response;
     };
-    const read = () => request("get", "<item affiliation='member'/>");
+    const parse = (response, requiredAffiliation) => [...response.matchAll(/<item\b[^>]*>/gi)].flatMap(([item]) => {
+      if (requiredAffiliation && attr(item, "affiliation") !== requiredAffiliation) return [];
+      const [id, domain] = attr(item, "jid").split("@");
+      const ownerID = Number(id);
+      return domain === this.domain && Number.isSafeInteger(ownerID) && ownerID > 0 ?
+        [[ownerID, Number(attr(item, "expires_at_ms")) || 0]] : [];
+    });
+    const read = async () => {
+      const response = await request(stanzas.roomIq(roomName, "admin", "get", `<item affiliation='${affiliation}'/>`));
+      const entries = new Map(parse(response, affiliation));
+      if (list === "blocked") {
+        const records = await request(stanzas.roomBanRecords(roomName));
+        const now = Date.now();
+        for (const [ownerID, expiry] of parse(records)) {
+          if (expiry > now) entries.set(ownerID, expiry);
+          else if (expiry > 0) entries.delete(ownerID);
+        }
+      }
+      return [...entries].map(([id, expiry]) => ({ id, temporary: expiry > 0 }));
+    };
     const before = await read();
-    if (!change || before.includes(change.ownerID) === change.allowed) return before;
-    const affiliation = change.allowed ? "member" : "none";
+    if (!change) return before;
+    const current = before.find(entry => entry.id === change.ownerID);
+    if (change.listed ? current && !current.temporary : !current) return before;
     const owner = `${change.ownerID}@${this.domain}`;
-    await request("set", `<item affiliation='${affiliation}' jid='${escapeXml(owner)}'><reason>${escapeXml(change.kind)}</reason></item>`);
+    const item = `<item affiliation='${change.listed ? affiliation : "none"}' jid='${escapeXml(owner)}'><reason>${escapeXml(change.kind)}</reason></item>`;
+    await request(stanzas.roomIq(roomName, "admin", "set", item));
+    if (!change.listed && current?.temporary) await request(stanzas.roomBanRecords(roomName, change.ownerID));
     return read();
   }
 

@@ -1,18 +1,22 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import type { ChatAccessOwnerKind } from "../app/api.ts";
+  import type { ChatAccessList, ChatAccessOwnerKind } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { plainText } from "../bridge/clientWords.ts";
   import { isAllianceOwner, isCorporationOwner } from "../bridge/mail.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
-  let { store, flow, room, mutating = $bindable(false) }: { store: ClientStore; flow: AppFlow; room: string; mutating?: boolean } = $props();
+  let { store, flow, room, list, mutating = $bindable(false) }: {
+    store: ClientStore; flow: AppFlow; room: string; list: ChatAccessList; mutating?: boolean;
+  } = $props();
   type Owner = { id: number; name: string };
+  type Entry = Owner & { temporary: boolean };
   type Match = Owner & { kind: ChatAccessOwnerKind };
   const ownerTypes = [[2, "character"], [3, "corporation"], [4, "alliance"]] as const;
   const paths = {
-    add: "UI/Chat/AddToAllowedList", remove: "UI/Chat/RemoveSelected", picker: "UI/Chat/SelectAllianceCorpChar",
+    addAllowed: "UI/Chat/AddToAllowedList", addBlocked: "UI/Chat/AddToBlockedList",
+    remove: "UI/Chat/RemoveSelected", picker: "UI/Chat/SelectAllianceCorpChar", temporary: "UI/Chat/TemporaryBan",
     search: "UI/Common/Buttons/Search", ok: "UI/Common/Buttons/OK", cancel: "UI/Common/Buttons/Cancel",
   } as const;
   const words = $derived(store.words);
@@ -21,7 +25,7 @@
   const knownKinds = new Map<number, ChatAccessOwnerKind>();
   let current = true;
   let generation = 0;
-  let entries = $state.raw<readonly Owner[]>([]);
+  let entries = $state.raw<readonly Entry[]>([]);
   let matches = $state.raw<readonly Match[] | null>(null);
   let chosen = $state<number | null>(null);
   let query = $state("");
@@ -31,11 +35,11 @@
   let error = $state("");
 
   function report(cause: unknown) {
-    if (current) error = cause instanceof Error ? cause.message : "The allowed list is unavailable.";
+    if (current) error = cause instanceof Error ? cause.message : `The ${list} list is unavailable.`;
   }
   onMount(() => {
     flow.requestWords(Object.values(paths));
-    void flow.chatDirectoryChannelAllowed(room).then(rows => { if (current) entries = rows; })
+    void flow.chatDirectoryChannelAccess(room, list).then(rows => { if (current) entries = rows; })
       .catch(report).finally(() => { if (current) busy = false; });
     return () => { current = false; generation++; };
   });
@@ -74,7 +78,7 @@
     mutating = true;
     error = "";
     try {
-      const rows = await flow.chatDirectoryChannelAllowed(room, { ownerID: match.id, kind: match.kind, allowed: true });
+      const rows = await flow.chatDirectoryChannelAccess(room, list, { ownerID: match.id, kind: match.kind, listed: true });
       if (!current) return;
       entries = rows;
       knownKinds.set(match.id, match.kind);
@@ -102,7 +106,7 @@
       for (const owner of entries.filter(owner => selected.has(owner.id))) {
         const kind = await accessKind(owner);
         if (!current) return;
-        const rows = await flow.chatDirectoryChannelAllowed(room, { ownerID: owner.id, kind, allowed: false });
+        const rows = await flow.chatDirectoryChannelAccess(room, list, { ownerID: owner.id, kind, listed: false });
         if (!current) return;
         entries = rows;
         selected.delete(owner.id);
@@ -112,24 +116,27 @@
   }
 </script>
 
-<section class="allowed-list" aria-label="Allowed">
+<section class="channel-access-list {list}-list" aria-label={list === "allowed" ? "Allowed" : "Blocked"}>
   <div class="actions">
-    <button type="button" disabled={busy || picker} onclick={() => { picker = true; }}>{label("add", "Add to Allowed List")}</button>
+    <button type="button" disabled={busy || picker} onclick={() => { picker = true; }}>
+      {list === "allowed" ? label("addAllowed", "Add to Allowed List") : label("addBlocked", "Add to Blocked List")}
+    </button>
     <button type="button" disabled={busy || picker || !selected.size} onclick={remove}>{label("remove", "Remove Selected")}</button>
   </div>
   {#if entries.length}
     <ul>
       {#each entries as owner (owner.id)}
-        <li data-allowed-owner={owner.id}>
+        <li data-allowed-owner={list === "allowed" ? owner.id : undefined} data-blocked-owner={list === "blocked" ? owner.id : undefined}>
           <label><input type="checkbox" checked={selected.has(owner.id)} disabled={busy || picker}
-            onchange={(event) => { if (event.currentTarget.checked) selected.add(owner.id); else selected.delete(owner.id); }} />{owner.name}</label>
+            onchange={(event) => { if (event.currentTarget.checked) selected.add(owner.id); else selected.delete(owner.id); }} />{owner.name}
+            {#if owner.temporary}<small>– {label("temporary", "Temporary ban")}</small>{/if}</label>
         </li>
       {/each}
     </ul>
   {:else if !busy}
-    <p>No owners are on the allowed list.</p>
+    <p>No owners are on the {list} list.</p>
   {/if}
-  {#if busy}<p role="status">Updating the allowed list…</p>{/if}
+  {#if busy}<p role="status">Updating the {list} list…</p>{/if}
   {#if picker}
     <fieldset class="owner-picker" disabled={busy}>
       <legend>{label("picker", "Select Alliance, Corporation or Character")}</legend>
@@ -142,7 +149,7 @@
       {:else if matches?.length}
         <ul>
           {#each matches as match (match.id)}
-            <li><label><input type="radio" name="allowed-owner" checked={chosen === match.id} onchange={() => { chosen = match.id; }} />{match.name} <small>{match.kind}</small></label></li>
+            <li><label><input type="radio" name="access-owner" checked={chosen === match.id} onchange={() => { chosen = match.id; }} />{match.name} <small>{match.kind}</small></label></li>
           {/each}
         </ul>
       {:else if matches}<p>No matching characters, corporations, or alliances.</p>{/if}
@@ -156,7 +163,7 @@
 </section>
 
 <style>
-  .allowed-list { min-width: 0; }
+  .channel-access-list { min-width: 0; }
   .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
   ul { margin: 0.5rem 0; padding: 0; list-style: none; max-height: 12rem; overflow: auto; }
   li label { display: flex; align-items: center; gap: 0.5rem; padding: 0.2rem 0; }
