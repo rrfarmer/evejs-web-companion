@@ -216,6 +216,8 @@ import {
   decodeContractList,
   decodeContractSearch,
   decodeContractSearchEntries,
+  CONTRACT_AVAILABILITY,
+  type ContractAvailability,
   decodeContractSummary,
   type ContractSearchEntry,
 } from "../bridge/contracts.ts";
@@ -3696,7 +3698,7 @@ export interface AppFlow {
    * that type, in every region, cheapest first, as the contract search sends it.
    */
   findContractsOfType(typeID: number): Promise<{ readonly entries: readonly ContractSearchEntry[]; readonly numFound: number }>;
-  searchPublicContracts(filters: {
+  searchContracts(filters: {
     readonly typeID?: number | null;
     readonly itemTypeIDs?: readonly number[] | null;
     readonly itemTypeName?: string | null;
@@ -3708,6 +3710,7 @@ export interface AppFlow {
     readonly itemCategoryID?: number | null;
     readonly itemGroupID?: number | null;
     readonly searchHint?: 0 | 1 | 2 | null;
+    readonly availability?: ContractAvailability;
     readonly courier?: boolean;
   }): ReturnType<AppFlow["findContractsOfType"]>;
   /** Close the open contract without touching the server. */
@@ -25660,13 +25663,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * the box is (unticked: False), every other filter None, sorted by price, lowest first (SORT_PRICE, 0), from the first.
    */
   async function findContractsOfType(typeID: number): Promise<{ readonly entries: readonly ContractSearchEntry[]; readonly numFound: number }> {
-    return searchPublicContracts({ typeID });
+    return searchContracts({ typeID });
   }
 
-  async function searchPublicContracts({
+  async function searchContracts({
     typeID = null, minPrice = null, maxPrice = null, securityClasses = null, locationID = null, endLocationID = null, courier = false,
     itemCategoryID = null, itemGroupID = null, searchHint = null, itemTypeIDs = null, itemTypeName = null,
-  }: Parameters<AppFlow["searchPublicContracts"]>[0]): ReturnType<AppFlow["findContractsOfType"]> {
+    availability = CONTRACT_AVAILABILITY.public,
+  }: Parameters<AppFlow["searchContracts"]>[0]): ReturnType<AppFlow["findContractsOfType"]> {
     if (typeID !== null && itemTypeName === null) await resolveNamesNow([{ kind: "type", id: typeID }]);
     const typeName = itemTypeName ?? (typeID === null ? null : nameCache.get(nameKey("type", typeID)) ?? null);
     const answered = await bridgeAsk("contractProxy", "SearchContracts", [], {
@@ -25690,7 +25694,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       excludeTrade: null,
       excludeMultiple: courier ? null : false,
       excludeNoBuyout: null,
-      availability: 0,
+      availability,
       description: null,
       searchHint: courier ? null : searchHint,
       sortBy: courier ? 0 : 1,
@@ -39760,7 +39764,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadContracts,
     openContract,
     findContractsOfType,
-    searchPublicContracts,
+    searchContracts,
     closeContract,
     acceptContract,
     loadPersonalAssets,

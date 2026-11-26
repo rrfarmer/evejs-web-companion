@@ -30,6 +30,7 @@
     CONTRACT_STATUS_OUTSTANDING,
     CONTRACT_TYPE_COURIER,
     CONTRACT_TYPE_ITEM_EXCHANGE,
+    CONTRACT_AVAILABILITY,
     contractStatusLabel,
     contractTypeLabel,
     formatIsk,
@@ -47,6 +48,7 @@
   import type { ContractRow } from "../store/types.ts";
   import { resolvedName } from "../store/names.ts";
   import { SECURITY_CLASS } from "../bridge/systemSecurity.ts";
+  import { isNpcCorporation } from "../bridge/ownerInfo.ts";
   import { decodeDrag, decodeMarketItemDrag, DRAG_MIME, MARKET_ITEM_DRAG_MIME } from "./dragDrop.ts";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
 
@@ -60,6 +62,7 @@
   const words = store.words;
   // svelte-ignore state_referenced_locally
   const flight = store.flight;
+  const station = $derived(store.station);
 
   // A search's row says how far away the contract is and, for a courier, how long its route is, both by the
   // autopilot's route with the pilot's settings (contractsearch.py 1402 to 1419: GetAutopilotJumpCount; the words,
@@ -108,7 +111,8 @@
   $effect(() => {
     flow.requestWords([...Object.values(JUMP_WORDS), ...Object.values(SEARCH_WORDS), ...CONTRACT_TITLE_LABELS,
       ...RETAIL_TAB_WORDS, ...SECURITY_FILTERS.flatMap(({ label, hint }) => [label, hint]),
-      ...LOCATION_SCOPES.map(({ label }) => label), ...Object.values(LOCATION_KINDS).map(({ label }) => label)]);
+      ...LOCATION_SCOPES.map(({ label }) => label), ...Object.values(LOCATION_KINDS).map(({ label }) => label),
+      ...AVAILABILITY_OPTIONS.map(({ label }) => label)]);
   });
   // The counts are asked for again when the autopilot's settings change, which lets them go.
   $effect(() => {
@@ -233,7 +237,14 @@
     originals: "UI/Contracts/ContractsSearch/BlueprintCategoryOriginal",
     copies: "UI/Contracts/ContractsSearch/BlueprintCategoryCopy",
     exactType: "UI/Contracts/ContractsSearch/labelExactTypeMatch",
+    availability: "UI/Contracts/ContractsSearch/Availability",
   } as const;
+  const AVAILABILITY_OPTIONS = [
+    { id: CONTRACT_AVAILABILITY.public, label: "UI/Generic/Public", fallback: "Public" },
+    { id: CONTRACT_AVAILABILITY.personal, label: "UI/Contracts/ContractsWindow/Me", fallback: "Me" },
+    { id: CONTRACT_AVAILABILITY.corporation, label: "UI/Generic/MyCorp", fallback: "My Corporation" },
+    { id: CONTRACT_AVAILABILITY.alliance, label: "UI/Generic/MyAlliance", fallback: "My Alliance" },
+  ] as const;
   const PRINCIPAL_CATEGORIES = [9, 7, 66, 6];
   type CategoryChoice = { readonly id: number; readonly hint: 0 | 1 | 2 };
   function parseCategory(value: string): CategoryChoice | null {
@@ -270,6 +281,17 @@
   }
   let advanced = $state(localStorage.getItem(searchPref + "advanced") === "true");
   let courier = $state(localStorage.getItem(searchPref + "courier") === "true");
+  let availabilityChoice = $state(Number(localStorage.getItem(searchPref + "availability") ?? CONTRACT_AVAILABILITY.public));
+  const corporationID = $derived($station.online?.corporationID ?? null);
+  const allianceID = $derived($station.online?.allianceID ?? null);
+  const availabilityOptions = $derived(AVAILABILITY_OPTIONS.filter(({ id }) =>
+    id === CONTRACT_AVAILABILITY.corporation ? corporationID !== null && corporationID > 0 && !isNpcCorporation(corporationID)
+      : id === CONTRACT_AVAILABILITY.alliance ? allianceID !== null && allianceID > 0 : true));
+  const availability = $derived(availabilityOptions.find(option => option.id === availabilityChoice)?.id ?? CONTRACT_AVAILABILITY.public);
+  function setAvailability(value: number) {
+    availabilityChoice = value;
+    localStorage.setItem(searchPref + "availability", String(value));
+  }
   let securityChecked = $state({
     high: localStorage.getItem(searchPref + "security.high") !== "false",
     low: localStorage.getItem(searchPref + "security.low") !== "false",
@@ -496,6 +518,7 @@
     const stationID = hereStation;
     const systemID = hereSystem;
     const endLocationID = courier && advanced ? dropoff?.id ?? null : null;
+    const searchAvailability = advanced ? availability : CONTRACT_AVAILABILITY.public;
     const usedCategory = advanced && !courier ? category : null;
     const itemGroupID = usedCategory && Number.isSafeInteger(groupID) && groupID > 0 ? groupID : null;
     const useExact = advanced && exactType && !courier;
@@ -547,8 +570,8 @@
           }
         }
         if (!courier) localStorage.setItem(searchPref + "itemType", itemTypeName ?? typedItem);
-        const result = await flow.searchPublicContracts({ typeID: selected, itemTypeIDs, itemTypeName, courier, minPrice, maxPrice, securityClasses,
-          locationID: await searchStartID(scope, stationID, systemID), endLocationID, itemCategoryID: usedCategory?.id ?? null,
+        const result = await flow.searchContracts({ typeID: selected, itemTypeIDs, itemTypeName, courier, minPrice, maxPrice, securityClasses,
+          locationID: await searchStartID(scope, stationID, systemID), endLocationID, availability: searchAvailability, itemCategoryID: usedCategory?.id ?? null,
           itemGroupID, searchHint: usedCategory?.hint ?? null });
         if (sequence === searchSequence) searchFound = result;
       } catch (cause) {
@@ -572,6 +595,7 @@
           setCourier(false);
           itemText = "";
           setExactType(true);
+          setAvailability(CONTRACT_AVAILABILITY.public);
           locationScope = 7;
           dropoff = null;
           dropoffText = "";
@@ -1026,6 +1050,14 @@
             </div>
           </fieldset>
           {/if}
+          <label class="con-location-scope">
+            {titleWord(SEARCH_WORDS.availability) || "Availability"}
+            <select value={availability} onchange={(event) => setAvailability(Number(event.currentTarget.value))}>
+              {#each availabilityOptions as option (option.id)}
+                <option value={option.id}>{titleWord(option.label) || option.fallback}</option>
+              {/each}
+            </select>
+          </label>
           <fieldset class="con-price-filter con-security-filter">
             <legend>{titleWord(SEARCH_WORDS.security) || "Security Filters"}</legend>
             <div>

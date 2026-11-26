@@ -42,6 +42,8 @@ import { isListValue, readKeyVal, readRowField, unwrapLong } from "./wire.ts";
 export const CONTRACT_TYPE_ITEM_EXCHANGE = 1;
 export const CONTRACT_TYPE_AUCTION = 2;
 export const CONTRACT_TYPE_COURIER = 3;
+export const CONTRACT_AVAILABILITY = { public: 0, personal: 1, corporation: 2, alliance: 3 } as const;
+export type ContractAvailability = (typeof CONTRACT_AVAILABILITY)[keyof typeof CONTRACT_AVAILABILITY];
 
 /**
  * The one status that can still be taken on. Every other status means somebody
