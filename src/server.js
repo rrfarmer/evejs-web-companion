@@ -12124,6 +12124,26 @@ app.get("/api/bridge/space/snapshot", requireAuth, async (req, res, next) => {
   }
 });
 
+app.get("/api/bridge/structure-view/snapshot", requireAuth, async (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held) return;
+  if (!gamePortPilots || !isGamePortHandle(held.bridgeSessionID)) {
+    res.status(409).json({ ok: false, error: "STRUCTURE_VIEW_UNAVAILABLE", message: "The structure view requires a game-port pilot." });
+    return;
+  }
+  try {
+    const grid = await heldRequest(held, req.webSessionID, false, () =>
+      gamePortPilots.readDockedStructureSnapshot(held.bridgeSessionID, { userid: held.accountID }));
+    if (!grid) {
+      res.status(409).json({ ok: false, error: "NOT_DOCKED_IN_STRUCTURE", message: "Dock in a player structure to view its exterior." });
+      return;
+    }
+    res.json({ ok: true, grid });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // --- R25 slice A: drones ----------------------------------------------------
 //
 // The first thing on this bridge that KEEPS FIGHTING after the browser stops

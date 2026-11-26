@@ -1759,6 +1759,7 @@ function createGamePortPilots({
     for (const asked of [...entry.questions.values()]) asked.settle(undefined, "session_ended");
     if (entry.space) entry.space.release();
     entry.space = null;
+    releaseStructureObserver(entry);
     averagePricesThreadEnded(entry);
     warsThreadEnded(entry);
     if (entry.gatewayNoticesStop) {
@@ -1891,6 +1892,7 @@ function createGamePortPilots({
       clock,
       /** The pilot's ballpark while it is in space (pilotSpace.js), else null. */
       space: null,
+      structureObserver: null,
       /** The pilot's ship as dogma has it (pilotDogma.js), and which ship and place that was loaded for. */
       dogma: createPilotDogma({
         characterID,
@@ -2156,6 +2158,7 @@ function createGamePortPilots({
       }
       entry.clock.feed(notification);
       if (entry.space) entry.space.feed(notification);
+      entry.structureObserver?.space.feed(notification);
       if (entry.destinyListeners.size > 0) tellDestiny(entry, notification);
       if (!ITEM_NOTICES.has(notification.method)) keepDogmaWork(entry, entry.dogma.feed(notification));
       entry.scanner.feed(notification);
@@ -2415,6 +2418,7 @@ function createGamePortPilots({
         if (changes.corpid[1] && sessions.has(entry.handle)) refreshStandings(entry);
       }
       if (LOCATION_ATTRIBUTES.some((name) => name in changes)) {
+        if ("structureid" in changes || "solarsystemid" in changes || "stationid" in changes) releaseStructureObserver(entry);
         // targetMgr.ProcessSessionChange: docked, or its ballpark let go, it has no targets. Undocking, or logging in
         // in space, godma asks what the ship has locked and what has it locked, once its dogma location is primed.
         entry.targetsOwed = arrivingInSpace(entry, changes);
@@ -5175,6 +5179,52 @@ function createGamePortPilots({
     };
   }
 
+  function releaseStructureObserver(entry) {
+    const observer = entry.structureObserver;
+    if (!observer) return;
+    entry.structureObserver = null;
+    clearTimeout(observer.expiry);
+    observer.space.release();
+  }
+
+  async function readDockedStructureSnapshot(bridgeSessionID, sessionFields = {}) {
+    const entry = held(bridgeSessionID, sessionFields);
+    const place = whereabouts(entry);
+    if (!place.structureID || place.stationID || !place.solarSystemID || place.shipID === place.structureID) return null;
+    let observer = entry.structureObserver;
+    if (observer?.structureID !== place.structureID) {
+      releaseStructureObserver(entry);
+      const space = createSpace({
+        session: entry.session,
+        solarSystemID: place.solarSystemID,
+        sleep,
+        simTime: entry.clock.simTime,
+        askFormations: () => formationsKnown(entry),
+        onError: (error, what) => onSpaceError(error, `structure observer ${what}`, entry.characterID),
+      });
+      observer = entry.structureObserver = { structureID: place.structureID, space, expiry: null };
+    }
+    clearTimeout(observer.expiry);
+    observer.expiry = setTimeout(() => {
+      if (entry.structureObserver === observer) releaseStructureObserver(entry);
+    }, 15000);
+    observer.expiry.unref();
+    const { space } = observer;
+    await space.start();
+    const current = whereabouts(entry);
+    if (entry.structureObserver !== observer || current.structureID !== observer.structureID ||
+        current.solarSystemID !== place.solarSystemID || current.shipID === current.structureID) return null;
+    const valid = space.park.validState && Boolean(space.park.ballpark.ball(observer.structureID));
+    const grid = valid ? projectSpace(space.park, { solarSystemID: place.solarSystemID, shipID: null, simTime: space.simTime() }) : null;
+    return {
+      structureID: observer.structureID,
+      solarSystemID: place.solarSystemID,
+      sampledAtMs: grid?.sampledAtMs ?? now(),
+      stateValid: valid,
+      entities: grid?.entities ?? [],
+    };
+  }
+
   /**
    * The scanner as the retail client's scan service has it: the probes it has
    * been told of (pilotScanner.js), and the launcher godma shows on the ship
@@ -6866,6 +6916,7 @@ function createGamePortPilots({
     readFlightStatus,
     readScannerState,
     readSpaceSnapshot,
+    readDockedStructureSnapshot,
     openSessionEventStream,
     openDestinyFeed,
     accountCall,
