@@ -11,7 +11,7 @@ import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, dec
 import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequenceComponent,
   type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
-import { decodeHyperNetOffers, type HyperNetConstraints, type HyperNetOffer } from "../bridge/hyperNet.ts";
+import { decodeHyperNetOffers, type HyperNetConstraints, type HyperNetItem, type HyperNetOffer } from "../bridge/hyperNet.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
 import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms,
@@ -4629,7 +4629,8 @@ export interface AppFlow {
   loadShipSkinrPurchaseFunds(currency: ShipSkinrCurrency, issuer?: number): Promise<{ balance: number; evermarks: number }>;
   buyShipSkinrListing(listing: string, quantity: number, version: string): Promise<string>;
   loadShipSkinrComponentOffers(): Promise<readonly ShipSkinrComponentOffer[]>;
-  loadHyperNetOffers(constraints?: HyperNetConstraints): Promise<readonly HyperNetOffer[]>;
+  loadHyperNetOffers(constraints?: HyperNetConstraints, item?: HyperNetItem | null): Promise<readonly HyperNetOffer[]>;
+  searchHyperNetItems(text: string): Promise<readonly HyperNetItem[]>;
   buyShipSkinrComponentOffer(listing: string, quantity: number, activate: boolean): Promise<string>;
   cancelShipSkinrListing(id: string): Promise<void>;
   loadShipSkinrListingLimit(): Promise<number>;
@@ -29227,11 +29228,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return receipt;
   }
 
-  async function loadHyperNetOffers(constraints?: HyperNetConstraints): Promise<readonly HyperNetOffer[]> {
+  async function loadHyperNetOffers(constraints?: HyperNetConstraints, item?: HyperNetItem | null): Promise<readonly HyperNetOffer[]> {
     const current = callOptions.captureRequestGuard!();
     const entries = Object.entries(constraints ?? {});
-    const reply = entries.length ? await bridgeAsk("raffleProxy", "FilteredGrab", [], {
-      filters: { type: "dict", entries: [] }, constraints: { type: "dict", entries },
+    const reply = entries.length || item ? await bridgeAsk("raffleProxy", "FilteredGrab", [], {
+      filters: { type: "dict", entries: item ? [[item.key, item.id]] : [] }, constraints: { type: "dict", entries },
     }) : await bridgeAsk("raffleProxy", "Grab", []);
     current();
     return decodeHyperNetOffers(reply);
@@ -41767,6 +41768,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     buyShipSkinrListing,
     loadShipSkinrComponentOffers,
     loadHyperNetOffers,
+    searchHyperNetItems: text => api.getHyperNetItems(text, callOptions),
     buyShipSkinrComponentOffer,
     cancelShipSkinrListing,
     loadShipSkinrListingLimit,

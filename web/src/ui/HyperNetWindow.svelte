@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import type { HyperNetConstraints, HyperNetOffer } from "../bridge/hyperNet.ts";
+  import { isHyperNetItem, type HyperNetConstraints, type HyperNetItem, type HyperNetOffer } from "../bridge/hyperNet.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { formatDuration } from "../bridge/skills.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -26,6 +26,11 @@
     minimum: ["UI/Common/Minimum", "Minimum"],
     maximum: ["UI/Common/Maximum", "Maximum"],
     any: ["UI/Common/Any", "Any"],
+    item: ["UI/HyperNet/FilterItemLabel", "Item"],
+    type_id: ["UI/Common/Type", "Type"],
+    group_id: ["UI/Common/Group", "Group"],
+    category_id: ["UI/Common/Category", "Category"],
+    clear: ["UI/Common/Clear", "Clear"],
   } as const;
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
   const ticketCount = (offer: HyperNetOffer) => plainText(formatTemplate(word("tickets"),
@@ -35,36 +40,77 @@
   const countBounds = [8, 16, 48, 512] as const;
   const defaults = { minPrice: 0, maxPrice: 0, minCount: 8, maxCount: 512 };
   type Ranges = typeof defaults;
-  let filter = $state.raw<{ owner: number; ranges: Ranges } | null>(null);
-  const ranges = $derived(filter?.ranges ?? defaults);
+  type Filters = Ranges & { item?: HyperNetItem };
+  let filter = $state.raw<{ owner: number; values: Filters } | null>(null);
+  const values = $derived(filter?.values ?? defaults);
+  const ranges = $derived({ minPrice: values.minPrice, maxPrice: values.maxPrice, minCount: values.minCount, maxCount: values.maxCount });
+  const selectedItem = $derived(values.item);
   const storageKey = (owner: number) => `evejs.hypernet.ranges.${owner}`;
 
-  function loadRanges(owner: number): Ranges {
+  function loadFilters(owner: number): Filters {
     try {
-      const saved: Partial<Ranges> | null = JSON.parse(localStorage.getItem(storageKey(owner)) ?? "null");
+      const saved: Partial<Filters> | null = JSON.parse(localStorage.getItem(storageKey(owner)) ?? "null");
       if (!saved) return defaults;
       const price = (bound: number | undefined) => priceBounds.some(value => value === bound) ? bound! : 0;
       const count = (bound: number | undefined, fallback: number) =>
         countBounds.some(value => value === bound) ? bound! : fallback;
       const restored = { minPrice: price(saved.minPrice), maxPrice: price(saved.maxPrice),
         minCount: count(saved.minCount, 8), maxCount: count(saved.maxCount, 512) };
-      return (restored.maxPrice && restored.minPrice > restored.maxPrice) || restored.minCount > restored.maxCount
+      const ranges = (restored.maxPrice && restored.minPrice > restored.maxPrice) || restored.minCount > restored.maxCount
         ? defaults : restored;
+      return isHyperNetItem(saved.item) ? { ...ranges, item: saved.item } : ranges;
     } catch {
       return defaults;
     }
   }
 
-  function applyRanges(next: Ranges) {
+  function applyFilters(next: Filters) {
     const owner = pilot;
     if (!owner) return;
-    filter = { owner, ranges: next };
+    filter = { owner, values: next };
     try { localStorage.setItem(storageKey(owner), JSON.stringify(next)); } catch { /* keep the current selection */ }
+  }
+
+  function applyRanges(next: Ranges) {
+    applyFilters({ ...next, item: selectedItem });
+  }
+
+  let search = $state("");
+  let searching = $state(false);
+  let suggestions = $state.raw<readonly HyperNetItem[]>([]);
+  let searchError = $state("");
+
+  function applyItem(item?: HyperNetItem) {
+    search = "";
+    applyFilters({ ...ranges, item });
   }
 
   $effect(() => {
     const owner = pilot;
-    filter = owner ? { owner, ranges: loadRanges(owner) } : null;
+    filter = owner ? { owner, values: loadFilters(owner) } : null;
+    search = "";
+  });
+
+  $effect(() => {
+    const text = search.trim();
+    suggestions = [];
+    searchError = "";
+    searching = text.length >= 2;
+    if (text.length < 2) return;
+    let current = true;
+    const timer = window.setTimeout(() => {
+      void flow.searchHyperNetItems(text).then(items => {
+        if (current) suggestions = items;
+      }, cause => {
+        if (current) searchError = panelErrorWords(cause);
+      }).finally(() => {
+        if (current) searching = false;
+      });
+    }, 200);
+    return () => {
+      current = false;
+      window.clearTimeout(timer);
+    };
   });
 
   let offers = $state.raw<readonly HyperNetOffer[]>([]);
@@ -102,7 +148,7 @@
     error = "";
     loading = !!owner;
     if (!owner || selection?.owner !== owner) return;
-    const { minPrice, maxPrice, minCount, maxCount } = selection.ranges;
+    const { minPrice, maxPrice, minCount, maxCount, item } = selection.values;
     const constraints: HyperNetConstraints = {
       ...(minPrice ? { min_ticket_price: minPrice } : {}),
       ...(maxPrice ? { max_ticket_price: maxPrice } : {}),
@@ -110,7 +156,7 @@
       ...(maxCount !== defaults.maxCount ? { max_ticket_count: maxCount } : {}),
     };
     let current = true;
-    void flow.loadHyperNetOffers(constraints).then(result => {
+    void flow.loadHyperNetOffers(constraints, item).then(result => {
       if (!current) return;
       const shuffled = [...result];
       for (let index = shuffled.length - 1; index > 0; index--) {
@@ -132,6 +178,34 @@
   <header>
     <details class="range-filters">
       <summary>{word("filters")}</summary>
+      <fieldset class="item-filter">
+        <legend>{word("item")}</legend>
+        {#if selectedItem}
+          <span data-selected-item>{selectedItem.name} <small>{word(selectedItem.key)}</small></span>
+          <button type="button" onclick={() => applyItem()}>{word("clear")}</button>
+        {/if}
+        <input type="search" aria-label={word("item")} bind:value={search} autocomplete="off"
+          onkeydown={event => {
+            if (event.key === "Enter" && suggestions.length === 1) applyItem(suggestions[0]);
+          }} />
+        {#if searchError}
+          <p role="alert">{searchError}</p>
+        {:else if searching}
+          <p role="status">Searching…</p>
+        {:else if search.trim().length >= 2}
+          {#if suggestions.length}
+            <div class="item-suggestions">
+              {#each suggestions as item (`${item.key}:${item.id}`)}
+                <button type="button" data-item-filter={`${item.key}:${item.id}`} onclick={() => applyItem(item)}>
+                  {item.name} <small>{word(item.key)}</small>
+                </button>
+              {/each}
+            </div>
+          {:else}
+            <p role="status">No matching items</p>
+          {/if}
+        {/if}
+      </fieldset>
       <fieldset>
         <legend>{word("price")}</legend>
         <label>{word("minimum")}
@@ -172,8 +246,8 @@
           </select>
         </label>
       </fieldset>
-      <button type="button" onclick={() => applyRanges(defaults)}
-        disabled={ranges.minPrice === 0 && ranges.maxPrice === 0 && ranges.minCount === 8 && ranges.maxCount === 512}>
+      <button type="button" onclick={() => { search = ""; applyFilters(defaults); }}
+        disabled={!selectedItem && ranges.minPrice === 0 && ranges.maxPrice === 0 && ranges.minCount === 8 && ranges.maxCount === 512}>
         {word("reset")}
       </button>
     </details>
@@ -210,6 +284,11 @@
   summary { cursor: pointer; }
   fieldset { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
   fieldset label { display: flex; align-items: center; gap: 6px; }
+  .item-filter { align-items: center; }
+  .item-filter input { width: min(230px, 100%); }
+  .item-suggestions { width: 100%; max-height: 12em; overflow: auto; display: grid; gap: 3px; }
+  .item-suggestions button { text-align: start; }
+  small { color: #b8c3cc; margin-inline-start: 4px; }
   ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr)); gap: 8px; padding: 0; margin: 0; list-style: none; }
   li { display: grid; gap: 8px; padding: 8px; background: #ffffff08; }
   .item { display: flex; align-items: center; gap: 8px; text-align: start; }

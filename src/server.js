@@ -16405,25 +16405,38 @@ app.get("/api/client-data/category-groups", requireAuth, async (req, res, next) 
 // its name (evetypes.GetName; the en-us text is the English one); made once. The corporation assets search's Item
 // Type reads it: an exact name first, else DoParseItemType's case-insensitive substring match (MatchInvTypeName), each
 // with its category's name message for SelectItemTypeDlg's ItemTypeLine.
-let marketTypeNames = null;
+let itemNameCatalogue = null;
+async function loadItemNameCatalogue() {
+  if (!itemNameCatalogue) {
+    const [types, published, nameIDs, groups, categories] = await Promise.all([clientBuiltData.table("typesGroupIDsOrdered"), clientBuiltData.table("typePublished"),
+      clientBuiltData.table("typeNameIDs"), clientBuiltData.table("groupsOrdered"), clientBuiltData.table("categoriesOrdered")]);
+    if (types && published && nameIDs && groups && categories) {
+      const rows = [];
+      for (const typeID of types["#order"] || []) {
+        const group = groups[String(types[String(typeID)])];
+        const category = group ? categories[String(group.categoryID)] : null;
+        if (!published[String(typeID)] || !group || !group.published || !category || !category.published) continue;
+        rows.push({ typeID, groupID: Number(types[String(typeID)]), categoryID: Number(group.categoryID),
+          nameID: Number(nameIDs[String(typeID)]) || 0, categoryNameID: Number(category.categoryNameID) || 0 });
+      }
+      const groupsByName = Object.entries(groups).filter(([, group]) =>
+        group.published && categories[group.categoryID]?.published)
+        .map(([id, group]) => ({ id: Number(id), nameID: group.groupNameID }));
+      const categoriesByName = Object.entries(categories).filter(([, category]) => category.published)
+        .map(([id, category]) => ({ id: Number(id), nameID: category.categoryNameID }));
+      const names = clientWords.messages([...rows, ...groupsByName, ...categoriesByName].map(row => row.nameID));
+      const withName = ({ nameID, ...row }) => ({ ...row, name: String(names[nameID] ?? "") });
+      itemNameCatalogue = {
+        types: rows.map(withName), groups: groupsByName.map(withName), categories: categoriesByName.map(withName),
+      };
+    }
+  }
+  return itemNameCatalogue;
+}
+
 app.get("/api/client-data/market-type-matches", requireAuth, async (req, res, next) => {
   try {
-    if (!marketTypeNames) {
-      const [types, published, nameIDs, groups, categories] = await Promise.all([clientBuiltData.table("typesGroupIDsOrdered"), clientBuiltData.table("typePublished"),
-        clientBuiltData.table("typeNameIDs"), clientBuiltData.table("groupsOrdered"), clientBuiltData.table("categoriesOrdered")]);
-      if (types && published && nameIDs && groups && categories) {
-        const rows = [];
-        for (const typeID of types["#order"] || []) {
-          const group = groups[String(types[String(typeID)])];
-          const category = group ? categories[String(group.categoryID)] : null;
-          if (!published[String(typeID)] || !group || !group.published || !category || !category.published) continue;
-          rows.push({ typeID, groupID: Number(types[String(typeID)]), categoryID: Number(group.categoryID),
-            nameID: Number(nameIDs[String(typeID)]) || 0, categoryNameID: Number(category.categoryNameID) || 0 });
-        }
-        const names = clientWords.messages(rows.map((row) => row.nameID));
-        marketTypeNames = rows.map(({ nameID, ...row }) => ({ ...row, name: String(names[nameID] ?? "") }));
-      }
-    }
+    const marketTypeNames = (await loadItemNameCatalogue())?.types ?? null;
     const text = String((req.query && req.query.q) || "");
     const lower = text.toLowerCase();
     const categoryID = Number(req.query.categoryID);
@@ -16433,6 +16446,36 @@ app.get("/api/client-data/market-type-matches", requireAuth, async (req, res, ne
       && row.name.toLowerCase().includes(lower)) : [];
     const exact = matches.find(row => row.name === text) ?? null;
     res.json({ ok: true, available: marketTypeNames !== null, exact, matches: matches.slice(0, 2000), total: matches.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// FilterController.filter_category limits category suggestions. Type and group searches use their full published lists.
+const hyperNetItemCategories = new Set([6, 9, 18, 30, 87, 91]);
+app.get("/api/client-data/hypernet-item-suggestions", requireAuth, async (req, res, next) => {
+  try {
+    const q = String(req.query.q || "").trim().toLowerCase();
+    if (q.length < 2) return res.json({ ok: true, suggestions: [] });
+    const catalogue = await loadItemNameCatalogue();
+    if (!catalogue) return res.status(503).json({ ok: false, error: "Item suggestions are unavailable." });
+    const compare = (a, b) => a.rank - b.rank || a.name.localeCompare(b.name);
+    const matching = (rows, key, idKey) => {
+      const matches = [];
+      for (const row of rows) {
+        const name = row.name.toLowerCase();
+        if (name.includes(q)) {
+          matches.push({ key, id: row[idKey], name: row.name, rank: name === q ? 0 : name.startsWith(q) ? 1 : 2 });
+        }
+      }
+      return matches.sort(compare).slice(0, 8);
+    };
+    const suggestions = [
+      ...matching(catalogue.types, "type_id", "typeID"),
+      ...matching(catalogue.groups, "group_id", "id"),
+      ...matching(catalogue.categories.filter(row => hyperNetItemCategories.has(row.id)), "category_id", "id"),
+    ].sort(compare).map(({ key, id, name }) => ({ key, id, name }));
+    res.json({ ok: true, suggestions });
   } catch (error) {
     next(error);
   }

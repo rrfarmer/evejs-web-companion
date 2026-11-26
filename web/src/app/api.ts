@@ -11,6 +11,7 @@ import type { Ask } from "../bridge/ask.ts";
 import type { AcademyCatalogue } from "../bridge/academyShips.ts";
 import type { ShipTreeCatalogue } from "../bridge/shipTree.ts";
 import type { AchievementCatalogue } from "../bridge/achievements.ts";
+import { isHyperNetItem, type HyperNetItem } from "../bridge/hyperNet.ts";
 import type { CameraTaskEvent } from "../bridge/cameraTasks.ts";
 import type { CorporationRoleData, CorporationRoleGroupSpec } from "../bridge/corporationRoles.ts";
 import { decodeBoundDogma, type BoundDogma } from "../bridge/boundDogma.ts";
@@ -4137,6 +4138,11 @@ export async function getMarketTypeMatches(q: string, options: ApiOptions = {}, 
   const data = await getJson(`/api/client-data/market-type-matches?q=${encodeURIComponent(q)}${query.size ? `&${query}` : ""}`, options);
   const exact = data.exact && typeof data.exact === "object" && !Array.isArray(data.exact) ? data.exact as unknown as { typeID: number; name: string } : null;
   return { exact, matches: Array.isArray(data.matches) ? (data.matches as unknown as { typeID: number; name: string; categoryNameID: number }[]) : [] };
+}
+
+export async function getHyperNetItems(q: string, options: ApiOptions): Promise<readonly HyperNetItem[]> {
+  const data = await getJson(`/api/client-data/hypernet-item-suggestions?q=${encodeURIComponent(q)}`, options);
+  return Array.isArray(data.suggestions) ? data.suggestions.filter(isHyperNetItem) : [];
 }
 
 /** evetypes.IterateCategories (above nought): each category's name message and whether it is published. */

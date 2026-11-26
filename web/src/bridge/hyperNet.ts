@@ -17,6 +17,20 @@ export interface HyperNetConstraints {
   readonly max_ticket_count?: number;
 }
 
+export interface HyperNetItem {
+  readonly key: "type_id" | "group_id" | "category_id";
+  readonly id: number;
+  readonly name: string;
+}
+
+export function isHyperNetItem(value: unknown): value is HyperNetItem {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<HyperNetItem>;
+  return (item.key === "type_id" || item.key === "group_id" || item.key === "category_id") &&
+    typeof item.id === "number" && Number.isSafeInteger(item.id) && item.id > 0 &&
+    typeof item.name === "string" && item.name.length > 0;
+}
+
 export function decodeHyperNetOffers(payload: unknown): readonly HyperNetOffer[] {
   if (!isListValue(payload)) throw new Error("HyperNet offers are unavailable.");
   return payload.items.map(row => {
