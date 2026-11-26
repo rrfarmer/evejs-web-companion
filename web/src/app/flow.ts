@@ -4631,6 +4631,7 @@ export interface AppFlow {
   loadShipSkinrComponentOffers(): Promise<readonly ShipSkinrComponentOffer[]>;
   loadHyperNetOffers(constraints?: HyperNetConstraints, item?: HyperNetItem | null, scope?: HyperNetBrowseScope): Promise<readonly HyperNetOffer[]>;
   loadHyperNetHistory(): Promise<readonly HyperNetHistoryOffer[]>;
+  readonly hyperNetHistoryChanged: ReadableSignal<number>;
   loadHyperNetParticipation(): Promise<HyperNetParticipation>;
   searchHyperNetItems(text: string): Promise<readonly HyperNetItem[]>;
   hyperNetItemCategory(item: HyperNetItem): Promise<number | null>;
@@ -6316,6 +6317,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   /** The pilot's own character, as the page has it. Null with none chosen. */
   const onlineCharacterID = (): number | null => store.station.get().online?.characterID ?? null;
   const academyChangedSignal = createSignal(0);
+  const hyperNetHistoryChanged = createSignal(0);
   const logonSkillsTrainedSignal = createSignal<{ readonly n: number; readonly args: readonly unknown[] } | null>(null);
   const moonExtractionChanged = createSignal(0);
   const accessGroupsChanged = createSignal(0);
@@ -7876,6 +7878,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     receivedAtMs: number,
     insideMultiEvent = false,
   ): void {
+    if (method === "OnRaffleUpdatedServer" || method === "OnTicketsUpdatedServer" ||
+        method === "OnRaffleFinishedServer" || method === "OnRaffleCreatedServer") {
+      hyperNetHistoryChanged.update(revision => revision + 1);
+    }
     if (method === "OnPlexItemAddedToInventory" || method === "OnPlexWithdrawFailed" ||
         method === "OnPlexDeposited" || method === "OnPlexDepositFailed") {
       for (const listener of plexTransferListeners) listener(method, args);
@@ -41831,6 +41837,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadShipSkinrComponentOffers,
     loadHyperNetOffers,
     loadHyperNetHistory,
+    hyperNetHistoryChanged: readonlySignal(hyperNetHistoryChanged),
     loadHyperNetParticipation,
     searchHyperNetItems: text => api.getHyperNetItems(text, callOptions),
     hyperNetItemCategory,

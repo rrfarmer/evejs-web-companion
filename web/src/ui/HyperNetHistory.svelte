@@ -78,6 +78,8 @@
   let loading = $state(true);
   let error = $state("");
   let refresh = $state(0);
+  let snapshotOwner: number | undefined;
+  let hasHistorySnapshot = false;
   const facetGroups = [
     ["show_joined", "show_created"], ["show_active", "show_finished"], ["show_public", "show_private"],
   ] as const;
@@ -244,17 +246,37 @@
     }, cause => {
       if (current) metaError = panelErrorWords(cause);
     });
-    return () => { current = false; };
+    let timer: number | undefined;
+    let revision = flow.hyperNetHistoryChanged.get();
+    const stop = flow.hyperNetHistoryChanged.subscribe(next => {
+      if (next === revision) return;
+      revision = next;
+      if (timer !== undefined) return;
+      // A purchase can send ticket, row, and finished notifications together.
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        refresh++;
+      }, 200);
+    });
+    return () => {
+      current = false;
+      stop();
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
   });
 
   $effect(() => {
     const owner = pilot;
     void refresh;
-    history = [];
-    participation = null;
+    if (owner !== snapshotOwner) {
+      snapshotOwner = owner;
+      hasHistorySnapshot = false;
+      history = [];
+      participation = null;
+    }
     participationError = "";
     error = "";
-    loading = !!owner;
+    loading = !!owner && !hasHistorySnapshot;
     if (!owner) return;
     let current = true;
     void flow.loadHyperNetParticipation().then(stats => {
@@ -265,6 +287,7 @@
     void flow.loadHyperNetHistory().then(records => {
       if (!current) return;
       history = records;
+      hasHistorySnapshot = true;
       flow.requestNames(records.flatMap(row => [
         { kind: "type", id: row.typeID },
         { kind: "station", id: row.locationID },
