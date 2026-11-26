@@ -28,7 +28,7 @@
 
 import type { Ask } from "./ask.ts";
 import { MAIL_MAX_BODY, MAIL_MAX_RECIPIENTS, MAIL_MAX_TITLE } from "./mail.ts";
-import { mailMarkupOfTyped } from "./mailMarkup.ts";
+import { mailMarkupOfDraft, type MailDraftLink } from "./mailMarkup.ts";
 import { unwrapLong, type JsonValue } from "./wire.ts";
 
 /** A plain message from the compose window: to pilots, a mailing list, or both, with a subject and a body. */
@@ -40,6 +40,7 @@ export interface MailToSend {
   readonly toCorpOrAllianceID?: number | null;
   readonly title: string;
   readonly body: string;
+  readonly bodyLinks?: readonly MailDraftLink[];
   /** The message quoted, in the mail's markup, sent after what is typed (mailSvc.GetReplyMessage); none for a new one. */
   readonly quote?: string;
   /** The message answered, or forwarded; none (0) for a new one. */
@@ -66,9 +67,13 @@ export async function sendMail(act: Ask, mail: MailToSend): Promise<number | nul
   if (mail.title.length > MAIL_MAX_TITLE || mail.body.length > MAIL_MAX_BODY) {
     throw Object.assign(new Error("That message is longer than the mail system accepts."), { code: "MAIL_TOO_LONG" });
   }
+  const body = mailMarkupOfDraft(mail.body, mail.bodyLinks ?? []) + (mail.quote ?? "");
+  if (mail.bodyLinks?.length && body.length > MAIL_MAX_BODY) {
+    throw Object.assign(new Error("That message is longer than the mail system accepts."), { code: "MAIL_TOO_LONG" });
+  }
   const answer: JsonValue = await act("mailMgr", "SendMail", [
     // The body as the client's editor sends what is typed in it (bridge/mailMarkup.ts), the quote below it.
-    recipients, toListID, toCorpOrAllianceID, mail.title, mailMarkupOfTyped(mail.body) + (mail.quote ?? ""), mail.isReplyTo ?? 0, mail.isForwardedFrom ?? 0,
+    recipients, toListID, toCorpOrAllianceID, mail.title, body, mail.isReplyTo ?? 0, mail.isForwardedFrom ?? 0,
   ]);
   const messageID = Number(unwrapLong(answer) ?? Number.NaN);
   return Number.isSafeInteger(messageID) && messageID > 0 ? messageID : null;

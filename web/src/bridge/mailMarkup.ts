@@ -48,8 +48,57 @@ function stripTags(markup: string): string {
  * written as entities, a tab four spaces, the lines joined by <br>; nothing where there is nothing but tags.
  */
 export function mailMarkupOfTyped(typed: string): string {
-  const markup = typed.replace(/\t/g, "    ").split(/\r\n|\n/).map(decode).join("<br>");
+  const markup = encodeTyped(typed);
   return stripTags(markup) === "" ? "" : markup;
+}
+
+function encodeTyped(text: string): string {
+  return decode(text.replace(/\t/g, "    ")).replace(/\r\n|\n/g, "<br>");
+}
+
+/** The label is stored in the compose textarea at these offsets. */
+export interface MailDraftLink {
+  readonly start: number;
+  readonly end: number;
+  readonly url: string;
+}
+
+export function isMailItemLink(url: string): boolean {
+  return /^showinfo:[1-9]\d*(?:\/\/\d+)*$/i.test(url) &&
+    url.slice("showinfo:".length).split("//").every(id => Number.isSafeInteger(Number(id)));
+}
+
+/** Retain complete links on either side of one textarea edit. Editing inside a label makes it plain text. */
+export function updateMailDraftLinks(before: string, after: string, links: readonly MailDraftLink[]): MailDraftLink[] {
+  let start = 0;
+  while (start < before.length && start < after.length && before[start] === after[start]) start++;
+  let oldEnd = before.length;
+  let newEnd = after.length;
+  while (oldEnd > start && newEnd > start && before[oldEnd - 1] === after[newEnd - 1]) {
+    oldEnd--;
+    newEnd--;
+  }
+  const shift = newEnd - oldEnd;
+  return links.flatMap(link => {
+    if (link.end <= start) return [link];
+    if (link.start < oldEnd) return [];
+    return [{ ...link, start: link.start + shift, end: link.end + shift }];
+  });
+}
+
+/** Compose uses plain text and validated item-link ranges, so typed markup is always escaped. */
+export function mailMarkupOfDraft(body: string, links: readonly MailDraftLink[]): string {
+  if (!links.length) return mailMarkupOfTyped(body);
+  let result = "";
+  let at = 0;
+  for (const { start, end, url } of links) {
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < at || end <= start ||
+        end > body.length || !isMailItemLink(url)) continue;
+    result += encodeTyped(body.slice(at, start));
+    result += `<a href="${url}">${encodeTyped(body.slice(start, end))}</a>`;
+    at = end;
+  }
+  return result + encodeTyped(body.slice(at));
 }
 
 /** The marks a body's tags have set so far: counted, as the client's stacks are pushed and popped. */

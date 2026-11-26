@@ -62,7 +62,9 @@
     isAllianceOwner,
     hasChatManagerRole,
   } from "../bridge/mail.ts";
-  import { MAIL_QUOTE_LABELS, mailBodyLines, mailMarkupOfTyped, mailQuoteMarkup } from "../bridge/mailMarkup.ts";
+  import { MAIL_QUOTE_LABELS, isMailItemLink, mailBodyLines, mailMarkupOfDraft, mailMarkupOfTyped, mailQuoteMarkup, updateMailDraftLinks, type MailDraftLink } from "../bridge/mailMarkup.ts";
+  import { ASSET_ITEM_DRAG_MIME, decodeAssetItemDrag } from "./dragDrop.ts";
+  import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
   import { LINK_WORDS, linkFollowerOf, startLinkDrag } from "./linkFollowers.ts";
   import { dragCharacter } from "./characterDrag.ts";
   import { ASKED_KEEPING_YES, DO_NOT_ASK_AGAIN_LABEL, suppressableKey } from "../bridge/dialogSuppression.ts";
@@ -131,6 +133,73 @@
   let receiverText = $state("");
   let draftTitle = $state("");
   let draftBody = $state("");
+  let draftLinks = $state<MailDraftLink[]>([]);
+
+  function editDraftBody(after: string) {
+    if (draftLinks.length) draftLinks = updateMailDraftLinks(draftBody, after, draftLinks);
+    draftBody = after;
+  }
+  function mailLinkDragOver(event: DragEvent) {
+    const types = event.dataTransfer?.types;
+    if (types?.includes(LINK_DRAG_TYPE) || types?.includes(ASSET_ITEM_DRAG_MIME)) {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    }
+  }
+  function mailItemLinks(data: DataTransfer): { url: string; text: string }[] {
+    const assets = decodeAssetItemDrag(data.getData(ASSET_ITEM_DRAG_MIME));
+    if (assets.length) return assets.map(({ typeID, itemID, shipOwnerID, name }) => ({
+      url: `showinfo:${typeID}//${itemID}${shipOwnerID === null ? "" : `//${shipOwnerID}`}`,
+      text: name,
+    }));
+    try {
+      const payload: unknown = JSON.parse(data.getData(LINK_DRAG_TYPE));
+      const links: { url: string; text: string }[] = [];
+      for (const link of Array.isArray(payload) ? payload : [payload]) {
+        if (!link || typeof link.url !== "string" || !isMailItemLink(link.url) || typeof link.text !== "string") return [];
+        links.push({ url: link.url, text: link.text });
+      }
+      return links;
+    } catch {
+      return [];
+    }
+  }
+  function mailLinksDropped(event: DragEvent) {
+    const data = event.dataTransfer;
+    const field = event.currentTarget as HTMLTextAreaElement;
+    if (!data || !data.types.some(type => type === LINK_DRAG_TYPE || type === ASSET_ITEM_DRAG_MIME)) return;
+    event.preventDefault();
+    const at = field.selectionDirection === "backward" ? field.selectionStart : field.selectionEnd;
+    const before = draftBody.slice(0, at);
+    const after = draftBody.slice(at);
+    const leftLinks = draftLinks.filter(link => link.end <= at);
+    const rightLinks = draftLinks.filter(link => link.start >= at);
+    const addedLinks: MailDraftLink[] = [];
+    const shiftRight = (by: number) => rightLinks.map(link => ({ ...link, start: link.start + by, end: link.end + by }));
+    let inserted = "";
+    for (const { url, text } of mailItemLinks(data)) {
+      const label = text.replace(/\r\n|\r|\n/g, " ");
+      if (!label.trim() || !isMailItemLink(url)) continue;
+      const space = inserted.length || (at > 0 && !before.endsWith("\n")) ? " " : "";
+      const start = at + inserted.length + space.length;
+      const end = start + label.length;
+      const next = inserted + space + label + " ";
+      const body = before + next + after;
+      const link = { start, end, url };
+      const links = [...leftLinks, ...addedLinks, link, ...shiftRight(next.length)];
+      if (mailMarkupOfDraft(body, links).length + quote.length > MAIL_MAX_BODY) {
+        flow.sayDialog("uiwarning03", null, "There is no more room in this text.");
+        break;
+      }
+      inserted = next;
+      addedLinks.push(link);
+    }
+    if (!inserted) return;
+    field.focus();
+    field.setRangeText(inserted, at, at, "end");
+    draftBody = field.value;
+    draftLinks = [...leftLinks, ...addedLinks, ...shiftRight(inserted.length)];
+  }
   /** The message a reply answers (mailSvc.GetReplyWnd: isReplyTo=msg.messageID), 0 for a new message. */
   let replyTo = $state(0);
   /** The mailing list written to (the compose window's toListID), or null. */
@@ -1151,6 +1220,7 @@
     receiverText = "";
     draftTitle = "";
     draftBody = "";
+    draftLinks = [];
     replyTo = 0;
     forwardFrom = 0;
     quote = "";
@@ -1248,6 +1318,7 @@
         toCorpOrAllianceID: corpAlliance,
         title: draftTitle,
         body: draftBody,
+        bodyLinks: draftLinks,
         quote,
         isReplyTo: replyTo,
         isForwardedFrom: forwardFrom,
@@ -1302,6 +1373,7 @@
       const re = word(MAIL_QUOTE_LABELS.re, "Re:");
       draftTitle = header.title.startsWith(re) ? header.title : `${re} ${header.title}`;
       draftBody = "";
+      draftLinks = [];
       toList = all ? header.toListID : null;
       // To all, the corporation it went to as well (GetReplyWnd, 1014 to 1016), taken as AddCorpAllianceReciver takes
       // it; and the list then refused where it was taken, the most groups being one (AddList, 1951 to 1954).
@@ -1335,6 +1407,7 @@
       composeNotes = [];
       draftTitle = `FW: ${header.title}`;
       draftBody = "";
+      draftLinks = [];
       replyTo = 0;
       forwardFrom = header.messageID;
       quote = await quoteOf(header);
@@ -1360,6 +1433,7 @@
     composeNotes = [];
     draftTitle = "";
     draftBody = "";
+    draftLinks = [];
     replyTo = 0;
     forwardFrom = 0;
     quote = "";
@@ -2754,9 +2828,14 @@
       <p class="controls">
         <label class="grow">
           Message
-          <textarea rows="8" maxlength={MAIL_MAX_BODY} bind:value={draftBody}></textarea>
+          <textarea rows="8" maxlength={MAIL_MAX_BODY} value={draftBody}
+            oninput={(event) => editDraftBody(event.currentTarget.value)}
+            ondragover={mailLinkDragOver} ondrop={mailLinksDropped}></textarea>
         </label>
       </p>
+      {#if draftLinks.length}
+        <p class="note" role="status">{draftLinks.length === 1 ? "1 item link" : `${draftLinks.length} item links`}</p>
+      {/if}
       {#if quote !== ""}
         <!-- The message quoted, sent below what is typed, as the client's editor holds it. -->
         <div class="mail-body mail-quote">
