@@ -1007,7 +1007,109 @@
   const sellOrderColumns: readonly OrderColumn[] = ["type", "quantity", "price", "station", "region", "expires"];
   const buyOrderColumns: readonly OrderColumn[] = ["type", "quantity", "price", "station", "region", "range", "minimum", "expires"];
   const corporateOrderColumns = $derived(corporationOrderPage ? ["issuer", "division"] as const : []);
-  type OrderListControls = { filter: string; sort: { key: OrderColumn; up: boolean } | null };
+  const orderLayoutKey = "evejs.ui.marketOrders.layout";
+  const orderHeaderWords = {
+    primary: "/Carbon/UI/Commands/CmdMakePrimary",
+    hide: "/Carbon/UI/Common/Hide",
+    show: "/Carbon/UI/Common/Show",
+  };
+  type OrderColumnLayout = { hidden: OrderColumn[]; primary: OrderColumn | null };
+  function readOrderLayout() {
+    const defaults = { split: 0.5, sell: { hidden: [], primary: null }, buy: { hidden: [], primary: null } };
+    try {
+      const saved = JSON.parse(localStorage.getItem(orderLayoutKey) ?? "null");
+      if (!saved) return defaults;
+      const isColumn = (key: unknown): key is OrderColumn => typeof key === "string" && Object.hasOwn(orderColumns, key);
+      const side = (key: MarketSide): OrderColumnLayout => ({
+        hidden: Array.isArray(saved[key]?.hidden) ? saved[key].hidden.filter(isColumn) : [],
+        primary: isColumn(saved[key]?.primary) ? saved[key].primary : null,
+      });
+      return { split: Number.isFinite(saved.split) ? clampOrderSplit(saved.split) : 0.5, sell: side("sell"), buy: side("buy") };
+    } catch {
+      return defaults;
+    }
+  }
+  const orderLayout = $state(readOrderLayout());
+  function saveOrderLayout() {
+    try { localStorage.setItem(orderLayoutKey, JSON.stringify(orderLayout)); } catch { /* Keep the in-memory layout. */ }
+  }
+  function clampOrderSplit(value: number): number {
+    return Math.min(0.75, Math.max(0.25, value));
+  }
+  let releaseOrderDivider: (() => void) | null = null;
+  onDestroy(() => releaseOrderDivider?.());
+  function dragOrderDivider(event: PointerEvent) {
+    const handle = event.currentTarget as HTMLElement;
+    const height = (handle.parentElement?.clientHeight ?? 0) - handle.offsetHeight;
+    if (event.button !== 0 || height <= 0) return;
+    event.preventDefault();
+    handle.focus();
+    releaseOrderDivider?.();
+    const start = orderLayout.split;
+    const move = (next: PointerEvent) => {
+      if (next.pointerId === event.pointerId) orderLayout.split = clampOrderSplit(start + (next.clientY - event.clientY) / height);
+    };
+    const finish = (next: PointerEvent) => {
+      if (next.pointerId !== event.pointerId) return;
+      releaseOrderDivider?.();
+      saveOrderLayout();
+    };
+    releaseOrderDivider = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      releaseOrderDivider = null;
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+  }
+  function keyOrderDivider(event: KeyboardEvent) {
+    const { key } = event;
+    if (key !== "ArrowUp" && key !== "ArrowDown" && key !== "Home" && key !== "End") return;
+    event.preventDefault();
+    orderLayout.split = key === "Home" ? 0.25 : key === "End" ? 0.75 :
+      clampOrderSplit(orderLayout.split + (key === "ArrowDown" ? 0.05 : -0.05));
+    saveOrderLayout();
+  }
+  function visibleOrderColumns(side: MarketSide, columns: readonly OrderColumn[]): OrderColumn[] {
+    const { hidden, primary } = orderLayout[side];
+    const shown = columns.filter(key => !hidden.includes(key));
+    if (shown.length === 0) return [columns[0]!];
+    return primary && shown.includes(primary) ? [primary, ...shown.filter(key => key !== primary)] : shown;
+  }
+  function orderHeaderMenu(side: MarketSide, column: OrderColumn, columns: readonly OrderColumn[], x: number, y: number) {
+    closeOrderRowMenu();
+    const layout = orderLayout[side];
+    const label = orderColumnLabel(column);
+    const base = side === "buy" ? buyOrderColumns : sellOrderColumns;
+    const setLayout = (next: OrderColumnLayout) => { orderLayout[side] = next; saveOrderLayout(); };
+    const entries: (ContextEntry | null)[] = [{
+      label: qbWord(orderHeaderWords.primary) || "Make primary",
+      run: () => {
+        const controls = activeOrderControls[side];
+        controls.sort = controls.sort?.key === column ? controls.sort : { key: column, up: true };
+        setLayout({ ...layout, primary: column });
+      },
+    }];
+    if (!base.includes(column) || base.some(key => key !== column && !layout.hidden.includes(key))) {
+      entries.push({
+        label: qbWord(orderHeaderWords.hide, { label }) || `Hide ${label}`,
+        run: () => setLayout({ ...layout, hidden: [...layout.hidden, column] }),
+      });
+    }
+    const hidden = columns.filter(key => layout.hidden.includes(key));
+    if (hidden.length) entries.push(null, ...hidden.map(key => {
+      const label = orderColumnLabel(key);
+      return {
+        label: qbWord(orderHeaderWords.show, { label }) || `Show ${label}`,
+        run: () => setLayout({ ...layout, hidden: layout.hidden.filter(value => value !== key) }),
+      };
+    }));
+    orderRowMenu.open(x, y, entries);
+  }
+  type OrderSort = { key: OrderColumn; up: boolean };
+  type OrderListControls = { filter: string; sort: OrderSort | null };
   const orderListControls = $state<Record<"personal" | "corporation", Record<MarketSide, OrderListControls>>>({
     personal: { sell: { filter: "", sort: null }, buy: { filter: "", sort: null } },
     corporation: { sell: { filter: "", sort: null }, buy: { filter: "", sort: null } },
@@ -1050,10 +1152,9 @@
       default: return orderCell(a, key).localeCompare(orderCell(b, key), undefined, { sensitivity: "base" });
     }
   }
-  function orderList(rows: readonly MarketOwnOrderRow[], controls: OrderListControls) {
-    const query = controls.filter.trim().toLowerCase();
+  function orderList(rows: readonly MarketOwnOrderRow[], filter: string, sort: OrderSort | null) {
+    const query = filter.trim().toLowerCase();
     const result = query ? rows.filter(order => typeName(order.typeID).toLowerCase().includes(query)) : [...rows];
-    const sort = controls.sort;
     return sort ? result.sort((a, b) => compareOwnOrders(a, b, sort.key) * (sort.up ? 1 : -1)) : result;
   }
   const displayedSellOrders = $derived(displayedOpenOrders.filter(order => order.side === "sell"));
@@ -1551,7 +1652,7 @@
 
   onMount(() => {
     if (ordersOnly) {
-      flow.requestWords([...orderExportWords, ...Object.values(orderMenuWords).map(([path]) => path), ...Object.values(AVOID_WORDS)]);
+      flow.requestWords([...orderExportWords, ...Object.values(orderMenuWords).map(([path]) => path), ...Object.values(AVOID_WORDS), ...Object.values(orderHeaderWords)]);
       refreshOrders();
       return;
     }
@@ -1574,7 +1675,7 @@
   const retail = getContext("retailChrome") === true;
 </script>
 
-<div class="market-layout" class:retail={retail && !ordersOnly}>
+<div class="market-layout" class:retail={retail && !ordersOnly} class:orders-only={ordersOnly}>
 {#if ordersOnly}
   <nav class="mkt-order-controls" aria-label="Market Orders">
     <button type="button" aria-pressed={orderPage === "orders"} onclick={() => selectOrderPage("orders")}>{qbWord("UI/Market/Orders/MyOrders") || "My Orders"}</button>
@@ -2461,7 +2562,10 @@
 
 {#snippet activeOrderList(side: MarketSide, rows: readonly MarketOwnOrderRow[], columns: readonly OrderColumn[])}
   {@const controls = activeOrderControls[side]}
-  {@const visible = orderList(rows, controls)}
+  {@const shown = visibleOrderColumns(side, columns)}
+  {@const primary = orderLayout[side].primary}
+  {@const sort = controls.sort && shown.includes(controls.sort.key) ? controls.sort : primary && shown.includes(primary) ? { key: primary, up: true } : null}
+  {@const visible = orderList(rows, controls.filter, sort)}
   {@const title = side === "sell" ? qbWord("UI/Market/Orders/Selling") || "Selling" : qbWord("UI/Market/Orders/Buying") || "Buying"}
   {@const filterLabel = qbWord("UI/Market/Orders/FilterTypes") || "Filter on Type"}
   <section class="active-order-list" data-order-side={side} aria-label={title}>
@@ -2474,14 +2578,27 @@
         bind:value={controls.filter}
       />
     </div>
-    <div class="table-wrap overflow-x-auto">
+    <div class="table-wrap">
       <table class="guests active-order-table">
         <thead>
           <tr>
-            {#each columns as key (key)}
-              {@const direction = controls.sort?.key === key ? (controls.sort.up ? "ascending" : "descending") : undefined}
-              <th scope="col" aria-sort={direction} class:num={key === "price" || key === "quantity" || key === "minimum"}>
-                <button type="button" onclick={() => (controls.sort = { key, up: direction !== "ascending" })}>
+            {#each shown as key (key)}
+              {@const direction = sort?.key === key ? (sort.up ? "ascending" : "descending") : undefined}
+              <th scope="col" aria-sort={direction} class:num={key === "price" || key === "quantity" || key === "minimum"}
+                oncontextmenu={(event) => {
+                  event.preventDefault();
+                  orderHeaderMenu(side, key, columns, event.clientX, event.clientY);
+                }}>
+                <button
+                  type="button"
+                  onclick={() => (controls.sort = { key, up: direction !== "ascending" })}
+                  onkeydown={(event) => {
+                    if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+                    event.preventDefault();
+                    const bounds = event.currentTarget.getBoundingClientRect();
+                    orderHeaderMenu(side, key, columns, bounds.left, bounds.bottom);
+                  }}
+                >
                   {orderColumnLabel(key)}{direction ? (direction === "ascending" ? " ▲" : " ▼") : ""}
                 </button>
               </th>
@@ -2516,7 +2633,7 @@
                 }
               }}
             >
-              {#each columns as key (key)}
+              {#each shown as key (key)}
                 {@const value = orderCell(order, key)}
                 <td class:num={key === "price" || key === "quantity" || key === "minimum"}>
                   {#if key === "type"}
@@ -2542,7 +2659,7 @@
 {/snippet}
 
 {#if ordersOnly ? corporationOrderPage || ordersReady && orderPage === "orders" : $market.loaded && tab === "orders"}
-  <section>
+  <section class:active-order-panel={ordersOnly}>
     {#if !ordersOnly}<h2>Orders you have open</h2>{/if}
     {#if openOrdersError}
       <p class="error">{corporationOrderPage ? openOrdersError : `Your orders could not be read: ${openOrdersError}`}</p>
@@ -2551,8 +2668,14 @@
       <p role="status">Reading corporation orders…</p>
     {:else if ordersOnly}
       {#if !openOrdersError}
-        {@render activeOrderList("sell", displayedSellOrders, [...sellOrderColumns, ...corporateOrderColumns])}
-        {@render activeOrderList("buy", displayedBuyOrders, [...buyOrderColumns, ...corporateOrderColumns])}
+        <div class="active-order-panes" style:grid-template-rows={`minmax(0, ${orderLayout.split}fr) 10px minmax(0, ${1 - orderLayout.split}fr)`}>
+          {@render activeOrderList("sell", displayedSellOrders, [...sellOrderColumns, ...corporateOrderColumns])}
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (A movable splitter is focusable.) -->
+          <div class="active-order-divider" role="separator" tabindex="0" aria-label="Buying and selling divider"
+            aria-orientation="horizontal" aria-valuemin="25" aria-valuemax="75" aria-valuenow={Math.round(orderLayout.split * 100)}
+            onpointerdown={dragOrderDivider} onkeydown={keyOrderDivider}></div>
+          {@render activeOrderList("buy", displayedBuyOrders, [...buyOrderColumns, ...corporateOrderColumns])}
+        </div>
       {/if}
     {:else if openOrders.length === 0}
       {#if !openOrdersError}<p class="empty">You have no orders open right now.</p>{/if}
@@ -2776,7 +2899,14 @@
   .mkt-group-actions { display: flex; flex-wrap: wrap; gap: 6px; }
   .mkt-order-controls { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 8px; }
   .mkt-order-controls button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 #b8c0c1; }
-  .active-order-list + .active-order-list { margin-top: 12px; }
+  .market-layout.orders-only { display: flex; flex-direction: column; height: 100%; }
+  .active-order-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .active-order-panes { flex: 1; display: grid; min-height: 148px; min-width: 0; }
+  .active-order-list { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+  .active-order-list .table-wrap { min-height: 0; overflow: auto; }
+  .active-order-divider { display: grid; align-items: center; cursor: row-resize; touch-action: none; outline-offset: -1px; }
+  .active-order-divider::before { content: ""; display: block; height: 1px; background: var(--color-line); }
+  .active-order-divider:hover::before, .active-order-divider:focus-visible::before { background: var(--color-text-muted); }
   .active-order-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .active-order-tools h3 { margin: 0; }
   .active-order-tools input { width: min(150px, 60%); }
